@@ -573,7 +573,16 @@ build` like mygo-runtime and released with the same version.
   next check is due an interval after it, or an hour after a failure, and
   is rescheduled on resume since timers stop while the computer sleeps. An
   update installed while the app runs is remembered, so that checks offer
-  to relaunch instead of installing it again.
+  to relaunch instead of installing it again. The texts are `Strings` in
+  the language that best matches `Options.Language` or `App.Locale`
+  (`matchLanguage`: language, script, region; Chinese scripts inferred
+  from regions such as TW; another variant of the language before
+  English), among the plugin's translations (`translations.go`) and the
+  app's, whose empty fields fall back to the plugin's, then English. The
+  page gets `lang`, which picks CJK fonts, and `dir`; status texts use
+  `unicode-bidi: plaintext` and the notes `dir="auto"`, as either may be
+  in another language than the window. The page reports the width its
+  buttons need too, as translations can be long.
 
 ## Typed client generation (`internal/tsgen`)
 

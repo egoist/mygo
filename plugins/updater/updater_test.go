@@ -32,6 +32,7 @@ func newHarness(t *testing.T, opts Options) *harness {
 		func(c func(context.Context) (*release, error)) func() { return func() { check = c } }(check),
 		func(r func()) func() { return func() { relaunch = r } }(relaunch),
 		func(v func() string) func() { return func() { appVersion = v } }(appVersion),
+		func(l func() string) func() { return func() { locale = l } }(locale),
 		func(p func(*session)) func() { return func() { present = p } }(present),
 		func(d func() (string, error)) func() { return func() { stateDir = d } }(stateDir),
 	}
@@ -48,6 +49,7 @@ func newHarness(t *testing.T, opts Options) *harness {
 	}
 	relaunch = func() { h.relaunches.Add(1) }
 	appVersion = func() string { return "1.0.0" }
+	locale = func() string { return "en-US" }
 	present = func(s *session) { h.presented <- s }
 	stateDir = func() (string, error) { return h.dir, nil }
 	h.u = newUpdater(opts)
@@ -464,7 +466,8 @@ func TestNextCheck(t *testing.T) {
 }
 
 func TestPage(t *testing.T) {
-	p := page("data:image/png;base64,AAAA", view{Title: "</script><script>alert(1)</script>", Buttons: okButton})
+	fr := newText("fr-FR", map[string]Strings{"fr": {ReleaseNotes: "<b>Notes</b>"}})
+	p := page(fr, "data:image/png;base64,AAAA", view{Title: "</script><script>alert(1)</script>", Buttons: fr.ok()})
 	if strings.Contains(p, "{{") {
 		t.Error("a placeholder was left")
 	}
@@ -478,5 +481,10 @@ func TestPage(t *testing.T) {
 	}
 	if !strings.Contains(p, `src="data:image/png;base64,AAAA"`) {
 		t.Error("no icon")
+	}
+	for _, want := range []string{`<html lang="fr" dir="ltr">`, "<title>Mise à jour de logiciels</title>", "&lt;b&gt;Notes&lt;/b&gt;"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("the page lacks %s", want)
+		}
 	}
 }

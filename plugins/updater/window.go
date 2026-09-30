@@ -8,6 +8,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
+	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,9 +37,10 @@ func size(release bool) (width, height int) {
 // ready, in front when the user asked for the check.
 func openWindow(s *session) {
 	v, _ := s.current()
+	t := s.u.text()
 	width, height := size(v.Release)
 	win := mygo.NewWindow(mygo.WindowOptions{
-		Title:             "Software Update",
+		Title:             t.Title,
 		Width:             width,
 		Height:            height,
 		UseContentSize:    true,
@@ -77,7 +79,7 @@ func openWindow(s *session) {
 			win.ShowInactive()
 		}
 	})
-	win.LoadHTML(page(s.u.iconURL(), v), "")
+	win.LoadHTML(page(t, s.u.iconURL(), v), "")
 }
 
 // fit gives the window the size of a status or release view.
@@ -86,13 +88,22 @@ func fit(win *mygo.Window, release bool) {
 	win.Center()
 }
 
-// page returns the page of the update window, showing v until the page
-// watches the session.
-func page(icon string, v view) string {
+// page returns the page of the update window in the language of t,
+// showing v until the page watches the session.
+func page(t *text, icon string, v view) string {
 	nonce := make([]byte, 16)
 	rand.Read(nonce)
 	initial, _ := json.Marshal(v, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
+	dir := "ltr"
+	if t.rtl {
+		dir = "rtl"
+	}
 	return strings.NewReplacer(
+		"{{lang}}", html.EscapeString(t.lang),
+		"{{dir}}", dir,
+		"{{title}}", html.EscapeString(t.Title),
+		"{{releaseNotes}}", html.EscapeString(t.ReleaseNotes),
+		"{{automaticDownloads}}", html.EscapeString(t.AutomaticDownloads),
 		"{{nonce}}", base64.StdEncoding.EncodeToString(nonce),
 		"{{icon}}", icon,
 		"{{view}}", string(initial),
@@ -155,8 +166,10 @@ func (sv *service) Watch(ctx context.Context, views *mygo.Channel[view]) error {
 	}
 }
 
-// Fit gives the window of a status view the height its page needs.
-func (sv *service) Fit(ctx context.Context, height int) error {
+// Fit gives the window the width its buttons need, when they need more
+// than the usual width, and a status view the height of its text, which
+// both depend on the language and the platform's fonts.
+func (sv *service) Fit(ctx context.Context, width, height int) error {
 	s, err := sv.session(ctx)
 	if err != nil {
 		return err
@@ -164,9 +177,12 @@ func (sv *service) Fit(ctx context.Context, height int) error {
 	s.mu.Lock()
 	win, release := s.win, s.release
 	s.mu.Unlock()
+	w, h := size(release)
+	w = max(w, min(width, 1000))
 	if !release {
-		win.SetContentSize(statusWidth, min(max(height, 80), 600))
+		h = min(max(height, 80), 600)
 	}
+	win.SetContentSize(w, h)
 	return nil
 }
 

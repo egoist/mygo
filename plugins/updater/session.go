@@ -213,82 +213,76 @@ type button struct {
 	Disabled bool `json:"disabled,omitzero"`
 }
 
-var (
-	okButton     = []button{{Action: actionOK, Label: "OK", Default: true, Cancel: true}}
-	cancelButton = []button{{Action: actionCancel, Label: "Cancel", Cancel: true}}
-)
-
-func checkingView() view {
-	return view{Title: "Checking for updates…", Bar: true, Progress: -1, Buttons: cancelButton}
+func (t *text) ok() []button {
+	return []button{{Action: actionOK, Label: t.OK, Default: true, Cancel: true}}
 }
 
-func upToDateView() view {
+func (t *text) cancel(disabled bool) []button {
+	return []button{{Action: actionCancel, Label: t.Cancel, Cancel: true, Disabled: disabled}}
+}
+
+func (t *text) checkingView() view {
+	return view{Title: t.Checking, Bar: true, Progress: -1, Buttons: t.cancel(false)}
+}
+
+func (t *text) upToDateView() view {
 	return view{
-		Title:   "You’re up to date!",
-		Message: fmt.Sprintf("%s %s is currently the newest version available.", mygo.App.Name(), appVersion()),
-		Buttons: okButton,
+		Title:   t.UpToDate,
+		Message: fmt.Sprintf(t.UpToDateMessage, mygo.App.Name(), appVersion()),
+		Buttons: t.ok(),
 	}
 }
 
-func unavailableView() view {
-	msg := mygo.App.Name() + " cannot update itself where it is installed. If a package manager installed it, update it there."
+func (t *text) unavailableView() view {
+	msg := fmt.Sprintf(t.UnavailableMessage, mygo.App.Name())
 	if mygo.IsDev() {
-		msg = "Development builds do not update themselves."
+		msg = t.DevelopmentBuild
 	}
-	return view{Title: "Updates Unavailable", Message: msg, Buttons: okButton}
+	return view{Title: t.Unavailable, Message: msg, Buttons: t.ok()}
 }
 
-func errorView(msg string, err error) view {
-	return view{Title: "Update Error!", Message: msg, Detail: err.Error(), Buttons: okButton}
+func (t *text) errorView(msg string, err error) view {
+	return view{Title: t.Error, Message: msg, Detail: err.Error(), Buttons: t.ok()}
 }
 
-func availableView(r *release, automaticDownloads bool) view {
+func (t *text) availableView(r *release, automaticDownloads bool) view {
 	name := mygo.App.Name()
 	notes := renderMarkdown(r.notes)
 	return view{
 		Release:  notes != "",
-		Title:    fmt.Sprintf("A new version of %s is available!", name),
-		Message:  fmt.Sprintf("%s %s is now available—you have %s. Would you like to install it now?", name, r.version, appVersion()),
+		Title:    fmt.Sprintf(t.Available, name),
+		Message:  fmt.Sprintf(t.AvailableMessage, name, r.version, appVersion()),
 		Notes:    notes,
 		Checkbox: true,
 		Checked:  automaticDownloads,
 		Buttons: []button{
-			{Action: actionSkip, Label: "Skip This Version", Aside: true},
-			{Action: actionLater, Label: "Remind Me Later", Cancel: true},
-			{Action: actionInstall, Label: "Install Update", Default: true},
+			{Action: actionSkip, Label: t.Skip, Aside: true},
+			{Action: actionLater, Label: t.RemindLater, Cancel: true},
+			{Action: actionInstall, Label: t.Install, Default: true},
 		},
 	}
 }
 
-func downloadingView(downloaded, total int64) view {
-	v := view{Title: "Downloading update…", Bar: true, Progress: -1, Buttons: cancelButton}
+func (t *text) downloadingView(downloaded, total int64) view {
+	v := view{Title: t.Downloading, Bar: true, Progress: -1, Buttons: t.cancel(false)}
 	if total > 0 {
 		v.Progress = float64(downloaded) / float64(total)
-		v.Message = megabytes(downloaded) + " of " + megabytes(total)
+		v.Message = fmt.Sprintf(t.Progress, t.megabytes(downloaded), t.megabytes(total))
 	}
 	return v
 }
 
-func installingView() view {
-	return view{
-		Title: "Installing update…", Bar: true, Progress: -1,
-		Buttons: []button{{Action: actionCancel, Label: "Cancel", Cancel: true, Disabled: true}},
-	}
+func (t *text) installingView() view {
+	return view{Title: t.Installing, Bar: true, Progress: -1, Buttons: t.cancel(true)}
 }
 
-func readyView(r *release) view {
-	name := mygo.App.Name()
+func (t *text) readyView(r *release) view {
 	return view{
-		Title:   "Ready to Relaunch",
-		Message: fmt.Sprintf("%s %s is installed and starts the next time you open %s. Relaunch now to start using it.", name, r.version, name),
+		Title:   t.Ready,
+		Message: fmt.Sprintf(t.ReadyMessage, mygo.App.Name(), r.version),
 		Buttons: []button{
-			{Action: actionLater, Label: "Later", Cancel: true},
-			{Action: actionRelaunch, Label: "Relaunch Now", Default: true},
+			{Action: actionLater, Label: t.Later, Cancel: true},
+			{Action: actionRelaunch, Label: t.Relaunch, Default: true},
 		},
 	}
-}
-
-// megabytes formats a size as Finder does, in decimal megabytes.
-func megabytes(n int64) string {
-	return fmt.Sprintf("%.1f MB", float64(n)/1e6)
 }

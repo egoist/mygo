@@ -142,6 +142,33 @@ Builds that cannot update themselves, such as development builds and apps
 installed by a package manager, never check in the background, and the
 window says why when the user checks.
 
+### Languages
+
+The window speaks the user's language (`App.Locale`) when the plugin has
+it: English, Chinese (Simplified and Traditional), Dutch, French, German,
+Italian, Japanese, Korean, Polish, Portuguese (Brazil), Russian, Spanish,
+Turkish and Ukrainian, with their decimal marks and units ("1,5 Mo").
+Other languages get English. `Language` picks one, such as the language the
+app itself shows, and `Strings` changes texts or adds languages, by language
+tag; the fields an app leaves empty keep the plugin's texts:
+
+```go
+mygo.Use(updater.New(updater.Options{
+	Language: settings.Language, // "" follows the system
+	Strings: map[string]updater.Strings{
+		"en": {Install: "Update Now"},
+		"sv": {Title: "Programuppdatering", Install: "Installera uppdatering" /* … */},
+	},
+}))
+```
+
+Some texts are formats, such as `AvailableMessage`, whose arguments are the
+app's name, the new version and the running one: indexed verbs (`%[2]s`)
+let a language order them. `mygo.Use` fails when a format does not fit its
+arguments. Languages written from right to left, such as Arabic and Hebrew,
+get a mirrored window, and release notes take the direction of the language
+they are written in.
+
 ## Your own update UI
 
 `mygo.Updater` is what the plugin is built on. Use it for an interface of

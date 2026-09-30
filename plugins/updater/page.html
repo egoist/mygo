@@ -1,9 +1,9 @@
 <!doctype html>
-<html>
+<html lang="{{lang}}" dir="{{dir}}">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'nonce-{{nonce}}'">
-<title>Software Update</title>
+<title>{{title}}</title>
 <style>
 :root {
   color-scheme: light dark;
@@ -54,6 +54,9 @@ main.noicon #icon { display: none; }
 #body { grid-area: body; display: flex; flex-direction: column; min-height: 0; }
 main:not(.release) #body { align-self: start; }
 h1 { font-size: 13px; font-weight: 700; margin: 0 0 4px; }
+/* Texts that may fall back to English, and errors, take the direction of
+   their own words; release notes are in the language of the changelog. */
+h1, p, label { unicode-bidi: plaintext; }
 p { margin: 0; }
 #message { margin-bottom: 6px; }
 #detail {
@@ -89,21 +92,22 @@ h2 { font-size: 11px; font-weight: 700; margin: 0 0 4px; }
 #notes h1 { font-size: 16px; }
 #notes h2 { font-size: 14px; }
 #notes p, #notes ul, #notes ol, #notes pre, #notes blockquote { margin: 0 0 8px; }
-#notes ul, #notes ol { padding-left: 20px; }
+#notes ul, #notes ol { padding-inline-start: 20px; }
 #notes li > ul, #notes li > ol { margin: 0; }
 #notes code { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--track); border-radius: 3px; padding: 0 3px; }
 #notes pre { overflow: auto; }
 #notes pre code { display: block; padding: 6px 8px; }
-#notes blockquote { border-left: 3px solid var(--border); padding-left: 10px; color: var(--muted); margin-left: 0; }
+#notes blockquote { border-inline-start: 3px solid var(--border); padding-inline-start: 10px; color: var(--muted); margin-inline-start: 0; }
 #notes hr { border: 0; border-top: 1px solid var(--border); }
 #notes a { color: var(--accent); cursor: pointer; }
 label { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
 input { margin: 0; accent-color: var(--accent); }
 footer { grid-area: foot; display: flex; gap: 10px; align-items: center; }
-footer div { display: flex; gap: 10px; }
+footer div { display: flex; flex: none; gap: 10px; }
 footer .spacer { flex: 1; }
 button {
   font: inherit;
+  white-space: nowrap;
   min-width: 84px;
   height: 24px;
   padding: 0 14px;
@@ -129,10 +133,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     <div id="bar" role="progressbar"><div id="fill"></div></div>
     <p id="detail"></p>
     <div id="notes-box">
-      <h2>Release Notes:</h2>
-      <div id="notes"></div>
+      <h2>{{releaseNotes}}</h2>
+      <div id="notes" dir="auto"></div>
     </div>
-    <label id="auto-box"><input type="checkbox" id="auto"> Automatically download and install updates in the future</label>
+    <label id="auto-box"><input type="checkbox" id="auto"> {{automaticDownloads}}</label>
   </section>
   <footer id="foot"><div id="aside"></div><span class="spacer"></span><div id="buttons"></div></footer>
 </main>
@@ -175,24 +179,27 @@ function render(v) {
   fit();
 }
 
-// Status views take the height of their text, which depends on its length
-// and the platform's fonts.
-let fitted = 0;
+// The window takes the width of the buttons, and status views the height
+// of their text, which depend on the language and the platform's fonts.
+let fitted = "";
 function fit() {
-  if (view.release) {
-    fitted = 0;
-    return;
-  }
   const main = getComputedStyle($("main"));
+  const aside = $("aside").offsetWidth;
+  const width = Math.ceil(
+    parseFloat(main.paddingLeft) + aside + (aside ? 40 : 0) + $("buttons").offsetWidth +
+    parseFloat(main.paddingRight),
+  );
   const height = Math.ceil(
     parseFloat(main.paddingTop) + Math.max($("icon").offsetHeight, $("body").offsetHeight) +
     parseFloat(main.rowGap) + $("foot").offsetHeight + parseFloat(main.paddingBottom),
   );
-  if (height !== fitted) {
-    fitted = height;
-    mygo.call("plugin:updater.Fit", height).catch(() => {});
+  const key = [view.release, width, view.release ? 0 : height].join();
+  if (key !== fitted) {
+    fitted = key;
+    mygo.call("plugin:updater.Fit", width, height).catch(() => {});
   }
 }
+addEventListener("resize", () => view && fit());
 
 function renderButtons(buttons) {
   $("aside").replaceChildren();

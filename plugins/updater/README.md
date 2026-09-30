@@ -23,7 +23,12 @@ and "Check for Updates…" in the app's menu:
 }},
 ```
 
+It speaks the user's language (English, Chinese, Dutch, French, German,
+Italian, Japanese, Korean, Polish, Portuguese, Russian, Spanish, Turkish,
+Ukrainian), and `Options.Strings` changes its texts or adds languages.
+
 The app must be built with updates: see
 [auto-updates](https://github.com/egoist/mygo/blob/main/docs/updates.md),
-whose section on the update window lists the options and the preferences
-(`SetAutomaticChecks`, `SetAutomaticDownloads`) apps can offer.
+whose section on the update window lists the options, the languages and
+the preferences (`SetAutomaticChecks`, `SetAutomaticDownloads`) apps can
+offer.

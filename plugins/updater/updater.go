@@ -20,6 +20,9 @@
 // development builds and apps installed by a package manager, never check
 // in the background, and say why when the user checks.
 //
+// The window speaks the user's language when the plugin has it, and
+// Options.Strings changes its texts or adds languages (see Strings).
+//
 // The user's choices are kept in updater.json in the app's user data
 // directory: whether to check automatically (AutomaticChecks), whether to
 // install updates without asking (AutomaticDownloads, the checkbox of the
@@ -51,6 +54,20 @@ type Options struct {
 	// among the app's resources, the default icon of `mygo build`, when
 	// there is one.
 	Icon []byte
+	// Language of the window, a language tag such as "fr" or "zh-Hant".
+	// Empty means the user's (App.Locale): the plugin shows the language
+	// that matches it best among its own and those of Strings, else
+	// English.
+	Language string
+	// Strings change the texts of the window by language tag, or add
+	// languages. Their empty fields keep the plugin's texts, else the
+	// English ones:
+	//
+	//	Strings: map[string]updater.Strings{
+	//		"en": {Install: "Update Now"},
+	//		"sv": {Title: "Programuppdatering", ...},
+	//	}
+	Strings map[string]Strings
 }
 
 // Plugin is the plugin with the default options.
@@ -63,6 +80,9 @@ func New(opts Options) mygo.Plugin {
 		Name:    "updater",
 		Service: &service{u},
 		Setup: func() error {
+			if err := checkStrings(opts.Strings); err != nil {
+				return err
+			}
 			if !active.CompareAndSwap(nil, u) {
 				return errors.New("another updater plugin is used")
 			}
@@ -85,7 +105,7 @@ func CheckForUpdates() {
 // MenuItem returns a "Check for Updates…" item that calls CheckForUpdates.
 func MenuItem() *mygo.MenuItem {
 	return &mygo.MenuItem{
-		Label: "Check for Updates…",
+		Label: used().text().MenuItem,
 		Click: func(*mygo.MenuItem, *mygo.Window) { CheckForUpdates() },
 	}
 }
@@ -152,6 +172,7 @@ var (
 	check          = checkRelease
 	relaunch       = mygo.App.Relaunch
 	appVersion     = mygo.App.Version
+	locale         = mygo.App.Locale
 	now            = time.Now
 	present        = openWindow
 	stateDir       = func() (string, error) { return mygo.App.Path(mygo.PathUserData) }
@@ -188,6 +209,9 @@ const stateFile = "updater.json"
 type updater struct {
 	opts Options
 
+	textOnce sync.Once
+	txt      *text
+
 	loadOnce sync.Once
 	mu       sync.Mutex
 	file     string // "" when the state cannot be saved
@@ -210,6 +234,18 @@ func newUpdater(opts Options) *updater {
 		opts.Interval = 24 * time.Hour
 	}
 	return &updater{opts: opts}
+}
+
+// text returns the texts of the window, in the language chosen once.
+func (u *updater) text() *text {
+	u.textOnce.Do(func() {
+		lang := u.opts.Language
+		if lang == "" {
+			lang = locale()
+		}
+		u.txt = newText(lang, u.opts.Strings)
+	})
+	return u.txt
 }
 
 // start schedules the automatic checks, once the app is ready.
@@ -350,8 +386,9 @@ func (u *updater) end(s *session) {
 // run checks for updates and drives the update window.
 func (u *updater) run(s *session) {
 	defer u.end(s)
+	t := u.text()
 	if !enabled() {
-		s.set(unavailableView())
+		s.set(t.unavailableView())
 		s.show()
 		s.wait()
 		return
@@ -364,7 +401,7 @@ func (u *updater) run(s *session) {
 		return
 	}
 
-	s.set(checkingView())
+	s.set(t.checkingView())
 	if s.isUser() {
 		s.show()
 	}
@@ -376,13 +413,13 @@ func (u *updater) run(s *session) {
 	switch {
 	case err != nil:
 		if s.isUser() {
-			s.set(errorView("An error occurred while checking for updates. Please try again later.", err))
+			s.set(t.errorView(t.CheckError, err))
 			s.wait()
 		}
 		return
 	case r == nil:
 		if s.isUser() {
-			s.set(upToDateView())
+			s.set(t.upToDateView())
 			s.wait()
 		}
 		return
@@ -401,7 +438,7 @@ func (u *updater) run(s *session) {
 			return
 		}
 	}
-	s.set(availableView(r, automatic))
+	s.set(t.availableView(r, automatic))
 	s.show()
 	resp := s.wait()
 	if resp.action == actionClose {
@@ -421,12 +458,13 @@ func (u *updater) run(s *session) {
 // install downloads and installs r, showing its progress when the window
 // shows, then offers to relaunch.
 func (u *updater) install(s *session, r *release) {
-	s.set(downloadingView(0, 0))
+	t := u.text()
+	s.set(t.downloadingView(0, 0))
 	err := r.install(s.ctx, func(downloaded, total int64) {
 		if downloaded < total {
-			s.set(downloadingView(downloaded, total))
+			s.set(t.downloadingView(downloaded, total))
 		} else {
-			s.set(installingView())
+			s.set(t.installingView())
 		}
 	})
 	if s.ctx.Err() != nil {
@@ -434,7 +472,7 @@ func (u *updater) install(s *session, r *release) {
 	}
 	if err != nil {
 		if s.isUser() || s.isShown() {
-			s.set(errorView("An error occurred while installing the update. Please try again later.", err))
+			s.set(t.errorView(t.InstallError, err))
 			s.show()
 			s.wait()
 		}
@@ -449,7 +487,7 @@ func (u *updater) install(s *session, r *release) {
 }
 
 func (u *updater) offerRelaunch(s *session, r *release) {
-	s.set(readyView(r))
+	s.set(u.text().readyView(r))
 	s.show()
 	if s.wait().action == actionRelaunch {
 		relaunch()
