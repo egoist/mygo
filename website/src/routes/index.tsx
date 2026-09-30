@@ -11,10 +11,11 @@ export const Route = createFileRoute("/")({
   component: Home,
 })
 
-// From the architecture guide: a hello-world app on macOS.
+// From the architecture guide: a hello-world app on macOS, its memory with
+// the processes WKWebView runs for it.
 const stats = [
   { value: "~7", unit: "MB", label: "Binary" },
-  { value: "~35", unit: "MB", label: "Memory" },
+  { value: "~62", unit: "MB", label: "Memory, webview included" },
   { value: "0", unit: "%", label: "CPU at idle" },
 ]
 
@@ -64,7 +65,7 @@ function Home() {
 
       <dl className="grid grid-cols-3 divide-x border-t">
         {stats.map((stat) => (
-          <div key={stat.label} className="flex flex-col-reverse gap-2 px-4 py-6 sm:px-10 sm:py-8">
+          <div key={stat.label} className="flex flex-col-reverse justify-end gap-2 px-4 py-6 sm:px-10 sm:py-8">
             <dt className="label">{stat.label}</dt>
             <dd className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl">
               {stat.value}
