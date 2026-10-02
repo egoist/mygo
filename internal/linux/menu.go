@@ -54,7 +54,11 @@ func initMenuCallbacks() {
 		id := int(data)
 		if cmd, ok := editCommands[itemRoles[id]]; ok {
 			for _, w := range b.windows {
-				if gtkWindowIsActive(w.win) {
+				switch {
+				case !gtkWindowIsActive(w.win):
+				case w.page != nil:
+					w.page.Edit(itemRoles[id])
+				default:
 					webkitWebViewExecuteEditingCommand(w.web, cs(cmd))
 				}
 			}
@@ -344,7 +348,24 @@ func (b *Backend) PopupMenu(m *platform.Menu, pw platform.Window, pos *platform.
 		gtkWidgetDestroy(menu) // nowhere to show it
 		return
 	}
-	event, anchor := w.press.event, gtkWidgetGetWindow(w.web)
+	var event, anchor ptr
+	if w.page != nil {
+		// The page is CEF's: GTK sees none of its presses, so the menu
+		// gets one at the pointer, which GTK wants as its trigger, and
+		// positions are the window's.
+		anchor = gtkWidgetGetWindow(w.win)
+		event = pressAtPointer(anchor)
+		defer gdkEventFree(event)
+		var x, y int32
+		if pos != nil {
+			xl.translateCoords(w.area, w.win, int32(pos.X), int32(pos.Y), &x, &y)
+		} else {
+			x, y = int32(field[float64](event, 24)), int32(field[float64](event, 32))
+		}
+		pos = &platform.Point{X: int(x), Y: int(y)}
+	} else {
+		event, anchor = w.press.event, gtkWidgetGetWindow(w.web)
+	}
 	const northWest = 1 // GDK_GRAVITY_NORTH_WEST
 	switch {
 	case pos != nil && anchor != 0:
@@ -367,7 +388,7 @@ func (b *Backend) PopupMenu(m *platform.Menu, pw platform.Window, pos *platform.
 	connect(menu, "deactivate", cbMenuDeactivate, loop)
 	b.popups = append(b.popups, menu)
 	b.quitLoops = append(b.quitLoops, loop)
-	gMainLoopRun(loop)
+	b.nested(func() { gMainLoopRun(loop) })
 	b.quitLoops = b.quitLoops[:len(b.quitLoops)-1]
 	b.popups = b.popups[:len(b.popups)-1]
 	gMainLoopUnref(loop)

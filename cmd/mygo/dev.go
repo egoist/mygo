@@ -341,10 +341,21 @@ func (s *devSession) buildAndLaunch(ctx context.Context, running [32]byte) (*dev
 			return nil, sum, err
 		}
 	}
-	err = buildBinaryContext(ctx, c, bin, nil, "-ldflags", strings.TrimSpace(packageFlags(dc)))
+	ldflags := packageFlags(dc)
+	cef := runtime.GOOS == "linux" && dc.Linux.cef() != nil
+	if cef {
+		ldflags += cefFlag()
+	}
+	err = buildBinaryContext(ctx, c, bin, nil, "-ldflags", strings.TrimSpace(ldflags))
 	cleanup()
 	if err != nil {
 		return nil, sum, err
+	}
+	if cef {
+		// Links to the cached CEF, and the helper.
+		if err := bundleCEF(dc, stage, runtime.GOARCH, true); err != nil {
+			return nil, sum, err
+		}
 	}
 
 	res, err := dc.resources(runtime.GOOS, runtime.GOARCH, reservedNames(dc, runtime.GOOS)...)

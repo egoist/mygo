@@ -562,6 +562,35 @@ func TestEvents(t *testing.T) {
 	NewEvent[int]("test:progress")
 }
 
+// TestPostMessages hands the messages to windows that take them as data,
+// as CEF's do, instead of a script.
+func TestPostMessages(t *testing.T) {
+	ev := newEventForTest[string](t, "test:posted")
+	w, fw := readyWindow(t, WindowOptions{})
+	posted := make(chan []byte, 1)
+	onMain(func() { fw.OnPostMessages = func(msgs []byte) { posted <- slices.Clone(msgs) } })
+	if err := ev.Emit(w, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case msgs := <-posted:
+		var got []map[string]any
+		if err := json.Unmarshal(msgs, &got); err != nil {
+			t.Fatalf("posted %q: %v", msgs, err)
+		}
+		if len(got) != 1 || got[0]["t"] != "event" || got[0]["n"] != "test:posted" || got[0]["p"] != "hi" {
+			t.Errorf("posted %q", msgs)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no messages posted")
+	}
+	for _, s := range fw.Scripts() {
+		if strings.HasPrefix(s, "__mygo.receive(") {
+			t.Errorf("the messages went as a script too: %q", s)
+		}
+	}
+}
+
 // Channels.
 
 type streamer struct {
