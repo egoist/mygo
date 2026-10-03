@@ -1,9 +1,12 @@
 // Libbuild builds libghostty-vt for every platform MyGo supports from
 // Ghostty's sources at a commit, with Zig (the version Ghostty asks for),
 // and writes mygo-plugin.json, which names the files and their SHA-256 for
-// the CLI and the terminal package:
+// the CLI and the terminal package, and ghostty_themes.go, the themes that
+// Ghostty ships:
 //
 //	go generate ./plugins/terminal
+//
+// With -themes, it only writes the themes, which needs no Zig.
 //
 // The files go into plugins/terminal/build, to publish as the assets of the
 // release libghostty-vt-<commit>, which mygo-plugin.json points at:
@@ -52,7 +55,12 @@ func main() {
 	src := flag.String("src", "", "a checkout of Ghostty, at the commit (cloned into the user's cache when empty)")
 	out := flag.String("out", "build", "the directory of the libraries")
 	release := flag.String("release", "https://github.com/egoist/mygo/releases/download/libghostty-vt-"+commit[:12], "the URL of the release hosting the libraries")
+	themes := flag.Bool("themes", false, "only write the themes")
 	flag.Parse()
+	if *themes {
+		writeThemes(*src)
+		return
+	}
 	if *src == "" {
 		*src = checkout()
 	}
@@ -92,6 +100,7 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Printf("wrote mygo-plugin.json; publish %s as the assets of %s", *out, *release)
+	writeThemes(*src)
 }
 
 // checkout returns a checkout of Ghostty at the commit in the user's

@@ -471,6 +471,56 @@ func TestAppearance(t *testing.T) {
 	}
 }
 
+func TestThemes(t *testing.T) {
+	loadLib(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	latte, err := GhosttyTheme("Catppuccin Latte")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mocha, _ := GhosttyTheme("Catppuccin Mocha")
+	term, err := New(Options{Conn: newPipe(), Theme: latte, DarkTheme: mocha, NoBlink: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	// A block under the cursor, and two below it, before a space.
+	term.Feed([]byte("\x1b[2;1H██ x\x1b[1;1H█\x1b[D"))
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	at := func(x, y float32) ui.Color {
+		s := term.v.scale
+		c := tt.Image().RGBAAt(int(x*s), int(y*s))
+		return ui.RGB(c.R, c.G, c.B)
+	}
+	cell := func(col, row int) ui.Color { return at(cellCenter(term, col, row)) }
+	near := func(name string, got, want ui.Color) {
+		t.Helper()
+		d := func(a, b uint8) int { return max(int(a)-int(b), int(b)-int(a)) }
+		if d(got.R, want.R) > 2 || d(got.G, want.G) > 2 || d(got.B, want.B) > 2 {
+			t.Errorf("%s is %v, want %v", name, got, want)
+		}
+	}
+	near("the light background", at(200, 190), latte.Background)
+	tt.SetDark(true)
+	near("the dark background", at(200, 190), mocha.Background)
+
+	th := &Theme{
+		Foreground: ui.Hex("#c0c0c0"), Background: ui.Hex("#101010"),
+		Cursor: ui.Hex("#ff0000"), CursorText: ui.Hex("#00ff00"),
+		Selection: ui.Hex("#0000ff"), SelectionText: ui.Hex("#ffff00"),
+	}
+	term.SetTheme(th, nil)
+	tt.Frame()
+	near("the background", at(200, 190), th.Background)
+	near("the text", cell(0, 1), th.Foreground)
+	near("the text under the cursor", cell(0, 0), th.CursorText)
+	tt.Command("selectAll")
+	tt.Frame()
+	near("the selected text", cell(0, 1), th.SelectionText)
+	near("the selection", cell(2, 1), th.Selection)
+	near("the selected text under the cursor", cell(0, 0), th.CursorText)
+}
+
 func TestWindowsShell(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("cmd.exe")

@@ -421,15 +421,17 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	for y := range v.lines {
 		line := &v.lines[y]
 		ry := oy + float32(y)*ch
-		for _, run := range line.runs {
-			p.Glyphs(run.glyphs, ox, ry+base, run.c)
+		text := func(over ui.Color) { v.drawText(p, line, ox, ry, cw, ch, base, over) }
+		if !line.sel || v.theme.SelectionText.A == 0 {
+			text(ui.Color{})
+			continue
 		}
-		for _, b := range line.boxes {
-			drawBox(p, b.r, ui.Rect{X: ox + float32(b.x)*cw, Y: ry, W: cw, H: ch}, b.c)
-		}
-		for _, d := range line.decos {
-			v.drawDeco(p, d, ox, ry, cw, ch, base)
-		}
+		// The selected text takes the selection's color in its cells,
+		// as far as its glyphs reach.
+		a, b := ox+float32(line.selA)*cw, ox+float32(line.selB+1)*cw
+		p.Clip(ui.Rect{X: r.X, Y: r.Y, W: a - r.X, H: r.H}, 0, func() { text(ui.Color{}) })
+		p.Clip(ui.Rect{X: a, Y: r.Y, W: b - a, H: r.H}, 0, func() { text(v.theme.SelectionText) })
+		p.Clip(ui.Rect{X: b, Y: r.Y, W: r.X + r.W - b, H: r.H}, 0, func() { text(ui.Color{}) })
 	}
 	if cur.W > 0 && !block {
 		if v.focused || v.cursor.Style != vt.CursorBlock {
@@ -439,7 +441,7 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 		}
 	}
 	if block && v.cursor.Y < len(v.lines) {
-		// The text under a block cursor, in the background's color.
+		// The text under a block cursor, in the cursor's text color.
 		line := &v.lines[v.cursor.Y]
 		ry := oy + float32(v.cursor.Y)*ch
 		p.Clip(cur, 0, func() {
@@ -463,8 +465,29 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	v.drawScrollbar(p, r)
 }
 
+// drawText draws the glyphs, drawn characters and lines of a row, in their
+// colors or, when over is not zero, in over.
+func (v *view) drawText(p *ui.Painter, line *rowCache, ox, ry, cw, ch, base float32, over ui.Color) {
+	pick := func(c ui.Color) ui.Color {
+		if over.A > 0 {
+			return over
+		}
+		return c
+	}
+	for _, run := range line.runs {
+		p.Glyphs(run.glyphs, ox, ry+base, pick(run.c))
+	}
+	for _, b := range line.boxes {
+		drawBox(p, b.r, ui.Rect{X: ox + float32(b.x)*cw, Y: ry, W: cw, H: ch}, pick(b.c))
+	}
+	for _, d := range line.decos {
+		d.c = pick(d.c)
+		v.drawDeco(p, d, ox, ry, cw, ch, base)
+	}
+}
+
 // cursorRect returns the cursor's rectangle and colors, and whether it is
-// a filled block, whose text shows in the background's color. A cursor
+// a filled block, whose text shows in the cursor's text color. A cursor
 // that does not show has an empty rectangle.
 func (v *view) cursorRect(ox, oy, cw, ch float32) (r ui.Rect, c, text ui.Color, block bool) {
 	cu := v.cursor
@@ -481,6 +504,9 @@ func (v *view) cursorRect(ox, oy, cw, ch float32) (r ui.Rect, c, text ui.Color, 
 		c = v.theme.Cursor
 	}
 	text = color(v.colors.Background)
+	if v.theme.CursorText.A > 0 {
+		text = v.theme.CursorText
+	}
 	x := cu.X
 	if cu.WideTail && x > 0 {
 		x--

@@ -110,13 +110,16 @@ type fontKey struct {
 // build updates the view as a frame builds.
 func (v *view) build(c *ui.Context, e *ui.Element) {
 	t := v.t
-	theme := t.opts.Theme
-	if theme == nil {
-		theme = defaultTheme(c.Theme().Dark)
-	}
-	v.theme = theme
+	dark := c.Theme().Dark
 	focused := e.Focused()
 	t.mu.Lock()
+	theme := t.opts.Theme
+	if dark && t.opts.DarkTheme != nil {
+		theme = t.opts.DarkTheme
+	} else if theme == nil {
+		theme = defaultTheme(dark)
+	}
+	v.theme = theme
 	if t.term == nil {
 		v.release()
 	} else {

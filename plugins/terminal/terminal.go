@@ -65,9 +65,11 @@ type Options struct {
 	// FontSize is its size in DIPs, 13 when zero.
 	Font     string
 	FontSize float32
-	// Theme sets the colors; nil follows the window's light or dark
-	// appearance.
-	Theme *Theme
+	// Theme sets the colors, and DarkTheme those in dark windows when set,
+	// as Ghostty's theme = light:…,dark:… does (GhosttyTheme returns
+	// Ghostty's themes). Without either, the terminal follows the window's
+	// light or dark appearance, with LightTheme and DarkTheme.
+	Theme, DarkTheme *Theme
 	// Cursor is the shape of the cursor, which programs may change, and
 	// NoBlink keeps it from blinking unless a program asks it to.
 	Cursor  CursorStyle
@@ -463,6 +465,14 @@ func (t *Terminal) Dir() string {
 func (t *Terminal) SetFont(family string, size float32) {
 	t.mu.Lock()
 	t.opts.Font, t.opts.FontSize = family, size
+	t.mu.Unlock()
+	t.redraw()
+}
+
+// SetTheme changes the colors, as Options.Theme and DarkTheme.
+func (t *Terminal) SetTheme(theme, dark *Theme) {
+	t.mu.Lock()
+	t.opts.Theme, t.opts.DarkTheme = theme, dark
 	t.mu.Unlock()
 	t.redraw()
 }

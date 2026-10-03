@@ -700,8 +700,16 @@ build` like mygo-runtime and released with the same version.
     and lines merge across cells. Box drawing, blocks and Powerline's
     separators are drawn, as in Ghostty, so that lines join across cells.
     Frames paint every row from these caches, the cursor (its cell's text
-    again in the background's color under a block), the selection, an
-    input method's composition and a scroll bar.
+    again in the cursor's text color under a block), the selection (its
+    text clipped to its cells and drawn again in the selected text's color
+    when the theme has one), an input method's composition and a scroll
+    bar.
+  - *Themes.* `ghostty_themes.go` holds the themes the Ghostty it binds
+    ships (iTerm2-Color-Schemes' archive that its `build.zig.zon` names),
+    as 22 colors each, which `go generate` writes too
+    (`go run ./internal/libbuild -themes` writes only them, without Zig).
+    `GhosttyTheme` looks for a theme file of the user's first, in
+    Ghostty's themes directory, as Ghostty does.
   - *Input* comes as it happens (`ui.Element.HandleInput`): keys are
     encoded by libghostty-vt's key encoder, set from the terminal's modes
     (legacy, modifyOtherKeys, the Kitty keyboard protocol). A key that

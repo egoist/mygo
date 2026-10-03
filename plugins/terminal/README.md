@@ -22,4 +22,5 @@ See [the documentation](../../docs/plugins/terminal.md), and
 the commit of Ghostty in `internal/libbuild`, into `build/`, and writes
 `mygo-plugin.json`, which names the files and their SHA-256 for the CLI and
 this package: publish them as the assets of the release that file points
-at.
+at. It writes `ghostty_themes.go` too, the themes that Ghostty ships, which
+`go run ./internal/libbuild -themes` writes alone, without Zig.

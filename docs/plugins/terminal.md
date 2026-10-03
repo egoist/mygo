@@ -115,8 +115,10 @@ term, err := terminal.New(terminal.Options{
 - `Env` adds to the environment, which has `TERM=xterm-256color`,
   `COLORTERM=truecolor`, and `LANG=en_US.UTF-8` when no locale is set, as
   for apps started from the Finder.
-- `Theme` sets the colors: the foreground, the background, the cursor's,
-  the selection's and the palette of 16 colors. `terminal.DarkTheme()` and
+- `Theme` sets the colors: the foreground, the background, the cursor's
+  and the text's under it, the selection's and the selected text's, and
+  the palette of 16 colors; `DarkTheme`, when set too, sets those of dark
+  windows (see [Themes](#themes)). `terminal.DarkTheme()` and
   `terminal.LightTheme()` are the window's background and text with Visual
   Studio Code's palette, and without a theme the terminal takes the one of
   the window's appearance as it changes. Programs may change the colors
@@ -132,6 +134,44 @@ term, err := terminal.New(terminal.Options{
   and `ExitCode` returns its code (-1 for a program that could not
   start); the terminal then shows "[Process exited]".
 
+## Themes
+
+The plugin carries the hundreds of themes Ghostty ships (from
+[iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)),
+which `terminal.GhosttyTheme` returns by name, as Ghostty's `theme` option
+takes it:
+
+```go
+mocha, err := terminal.GhosttyTheme("Catppuccin Mocha")
+latte, err := terminal.GhosttyTheme("Catppuccin Latte")
+term, err := terminal.New(terminal.Options{
+	Theme:     latte, // in light windows
+	DarkTheme: mocha, // in dark windows, as theme = light:…,dark:… in Ghostty
+})
+```
+
+As in Ghostty, a theme file of the user's in Ghostty's themes directory
+(`$XDG_CONFIG_HOME/ghostty/themes`, `~/.config/ghostty/themes` by default)
+comes first, and an absolute path names a theme file.
+`terminal.GhosttyThemes()` lists the names, the user's themes with
+Ghostty's, for a picker, and `terminal.ParseGhosttyTheme` reads a theme in
+Ghostty's format from bytes:
+
+```
+palette = 0=#45475a
+palette = 1=#f38ba8
+background = #1e1e2e
+foreground = #cdd6f4
+cursor-color = #f5e0dc
+cursor-text = #1e1e2e
+selection-background = #f5e0dc
+selection-foreground = #1e1e2e
+```
+
+`SetTheme(theme, dark)` changes the themes of a running terminal.
+
+## Methods
+
 The terminal's methods are safe from any goroutine:
 
 - `Send` sends bytes to the program as if typed, and `Paste` pastes text.
@@ -139,6 +179,7 @@ The terminal's methods are safe from any goroutine:
   sequences.
 - `Title`, `Dir` (the directory the shell reported), `Size` (in cells) and
   `Text` (the screen and its scrollback) read the terminal.
+- `SetFont` and `SetTheme` change the font and the colors.
 - `Close` hangs up the program, which gets SIGHUP, and frees the terminal.
 
 ## Without a program

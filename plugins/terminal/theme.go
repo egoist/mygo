@@ -6,14 +6,17 @@ import (
 )
 
 // Theme is the colors of a terminal, which programs may change (OSC 4,
-// 10, 11, 12) until the terminal resets.
+// 10, 11, 12) until the terminal resets. GhosttyTheme returns Ghostty's
+// themes.
 type Theme struct {
 	Foreground, Background ui.Color
-	// Cursor colors the cursor: the foreground when zero.
-	Cursor ui.Color
+	// Cursor colors the cursor: the foreground when zero. CursorText
+	// colors the text under a block cursor: the background when zero.
+	Cursor, CursorText ui.Color
 	// Selection highlights the selected text: the foreground, a third
-	// opaque, when zero.
-	Selection ui.Color
+	// opaque, when zero. SelectionText colors the selected text: its own
+	// colors when zero.
+	Selection, SelectionText ui.Color
 	// Palette holds the 16 colors of programs: black, red, green, yellow,
 	// blue, magenta, cyan and white, then their bright kinds.
 	Palette [16]ui.Color
