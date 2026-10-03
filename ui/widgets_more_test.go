@@ -234,7 +234,7 @@ func TestTableRows(t *testing.T) {
 				Text(c, "Short")
 			}
 		}).Grow(1)
-	}, 400, 300)
+	}, 400, 600)
 	row1, _ := rowBox(tt, &s, 1)
 	if row1.H != 32 {
 		t.Errorf("a row of one line is %v high", row1.H)

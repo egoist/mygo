@@ -68,8 +68,9 @@ func base(v float32) float32 {
 // layoutTree lays the frame out in a window of w×h DIPs and gives every
 // element its box relative to the window.
 func layoutTree(root *Element, w, h float32) {
-	layoutBox(root, w, h)
 	rt := root.c.rt
+	rt.consumed = false
+	layoutBox(root, w, h)
 	// Lists build rows as they lay out, which may ask to come into view.
 	for _, e := range root.c.reveal {
 		if !slices.Contains(rt.revealIDs, e.id) {
@@ -79,6 +80,22 @@ func layoutTree(root *Element, w, h float32) {
 	if len(rt.revealIDs) > 0 {
 		revealAll(root, rt.revealIDs)
 		rt.revealIDs = rt.revealIDs[:0]
+	}
+	if rt.late {
+		// Rows built as their lists laid out handled their input as the
+		// view's elements do, and the next frame shows what that changed;
+		// what they put above the window is laid out with it.
+		rt.late = false
+		rt.forgetInput()
+		if rt.consumed {
+			rt.animating = true
+		}
+		if ov := root.c.overlay; ov != nil {
+			if ov.parent == nil {
+				root.add(ov)
+			}
+			layoutAbsolute(root)
+		}
 	}
 	place(root, 0, 0)
 }
@@ -351,6 +368,12 @@ func contentHeight(e *Element, cw float32) float32 {
 		return 0
 	case kindInput:
 		return e.inputHeight()
+	}
+	if f := e.list; f != nil && f.n > 0 {
+		// A List is as high as all its rows, as far as the heights known
+		// tell, whichever it built.
+		s := f.s
+		return float32(s.heights.top(f.n, float64(max(e.gapY, 0))) - float64(max(e.gapY, 0)))
 	}
 	if e.first == nil {
 		return 0

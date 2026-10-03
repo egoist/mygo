@@ -804,6 +804,244 @@ func TestListHeights(t *testing.T) {
 	}
 }
 
+func TestListPinnedHeaderHandlesAClickOnce(t *testing.T) {
+	// Rows come every frame, which a header built as the list lays out
+	// would see as a click every frame.
+	header := func(i int) bool { return i%21 == 0 }
+	s := ListState{Header: header}
+	n, clicks := 2100, 0
+	tt := NewTester(func(c *Context) {
+		n++
+		List(c, &s, n, func(i int) {
+			if header(i) {
+				Box(c).Height(24).Background(RGB(200, 200, 200)).Children(func() {
+					if Textf(c, "Section %d", i/21).Clicked() {
+						clicks++
+					}
+				})
+				return
+			}
+			Box(c).Height(30)
+		}).Grow(1)
+	}, 300, 400)
+	s.ScrollTo(5*21+15, Start)
+	tt.Frame()
+	if err := tt.Click("Section 5"); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		tt.Frame()
+	}
+	if clicks != 1 {
+		t.Errorf("one click on the pinned header: %d", clicks)
+	}
+}
+
+func TestListScrollAndRowsAboveInOneFrame(t *testing.T) {
+	ids := make([]int, 200)
+	for i := range ids {
+		ids[i] = 1000 + i
+	}
+	s := ListState{Key: func(i int) any { return ids[i] }}
+	tt := NewTester(func(c *Context) {
+		List(c, &s, len(ids), func(i int) { Textf(c, "Item %d", ids[i]).Height(30) }).Grow(1)
+	}, 300, 400)
+	s.ScrollTo(100, Start)
+	tt.Frame()
+	tt.Move(100, 100)
+	before, _ := tt.Find("Item 1101")
+	// Older items load in the frame the wheel scrolls, as they do while
+	// the user scrolls up.
+	older := make([]int, 50)
+	for i := range older {
+		older[i] = 500 + i
+	}
+	ids = append(older, ids...)
+	tt.Scroll(100, 100, 0, 10)
+	if r, ok := tt.Find("Item 1101"); !ok || r.Y != before.Y-10 {
+		t.Errorf("50 rows above and 10 DIPs down: item 1101 went from %v to %v (%v)", before, r, ok)
+	}
+}
+
+func TestListEndShowsTheEnd(t *testing.T) {
+	// The last rows are taller than the heights known estimate them.
+	var s ListState
+	var sc ScrollState
+	tt := NewTester(func(c *Context) {
+		List(c, &s, 2000, func(i int) {
+			h := float32(20)
+			if i >= 1000 {
+				h = 100
+			}
+			Box(c).Height(h)
+		}).Grow(1).TrackScroll(&sc)
+	}, 300, 400)
+	tt.Move(100, 100)
+	tt.Key(0, KeyEnd)
+	if r, _ := rowBox(tt, &s, 1999); !s.AtEnd() || r.Y+r.H != 400 {
+		t.Errorf("End: at the end %v, the last row ends at %v", s.AtEnd(), r.Y+r.H)
+	}
+	tt.Key(0, KeyHome)
+	sc.Y = math.MaxFloat32
+	tt.Frame()
+	if r, _ := rowBox(tt, &s, 1999); !s.AtEnd() || r.Y+r.H != 400 {
+		t.Errorf("ScrollState at the end: at the end %v, the last row ends at %v", s.AtEnd(), r.Y+r.H)
+	}
+}
+
+func TestListScrollsByTheStepIntoRowsNotMeasured(t *testing.T) {
+	// A chat read upward from its end: the rows above were never measured,
+	// and every fifth is ten times as tall as the others.
+	s := ListState{FollowEnd: true}
+	tt := NewTester(func(c *Context) {
+		List(c, &s, 5000, func(i int) {
+			h := float32(24)
+			if i%5 == 0 {
+				h = 240
+			}
+			Box(c).Height(h)
+		}).Grow(1)
+	}, 300, 400)
+	tt.Move(100, 100)
+	for k, step := range []float32{-120, -200, -120, -37, -200, -120, -200, -5, -300, -120} {
+		first, _ := s.Visible()
+		before, _ := rowBox(tt, &s, first)
+		tt.Scroll(100, 100, 0, step)
+		if r, _ := rowBox(tt, &s, first); r.Y != before.Y-step {
+			t.Fatalf("step %d, %v DIPs: row %d moved from %v to %v", k, step, first, before.Y, r.Y)
+		}
+		checkRows(t, tt, &s, 0, 0, 400)
+	}
+	// Page Up keeps a line of the page before, among taller rows.
+	for range 5 {
+		first, _ := s.Visible()
+		before, _ := rowBox(tt, &s, first)
+		tt.Key(0, KeyPageUp)
+		if r, _ := rowBox(tt, &s, first); r.Y != before.Y+360 {
+			t.Fatalf("Page Up: row %d moved from %v to %v", first, before.Y, r.Y)
+		}
+	}
+}
+
+func TestListTrackScrollBeforeTheFirstFrame(t *testing.T) {
+	sc := ScrollState{Y: 10000}
+	tt := NewTester(func(c *Context) {
+		List(c, nil, 1000, func(i int) { Textf(c, "Row %d", i).Height(20) }).Grow(1).TrackScroll(&sc)
+	}, 300, 400)
+	if r, ok := tt.Find("Row 500"); !ok || r.Y != 0 || sc.Y != 10000 {
+		t.Errorf("set to 10000 before the list showed: row 500 at %v (%v), the state %v", r.Y, ok, sc.Y)
+	}
+}
+
+func TestListOfManyStates(t *testing.T) {
+	// One list showing the place of each page.
+	var pages [2]ListState
+	page := 0
+	tt := NewTester(func(c *Context) {
+		List(c, &pages[page], 1000, func(i int) { Textf(c, "Page %d row %d", page, i).Height(20) }).Grow(1)
+	}, 300, 400)
+	pages[0].ScrollTo(500, Start)
+	tt.Frame()
+	page = 1
+	tt.Frame()
+	if r, _ := tt.Find("Page 1 row 0"); r.Y != 0 {
+		t.Errorf("page 1 shows from %v", r.Y)
+	}
+	page = 0
+	tt.Frame()
+	if r, ok := tt.Find("Page 0 row 500"); !ok || r.Y != 0 {
+		t.Errorf("back on page 0: row 500 at %v (%v)", r.Y, ok)
+	}
+}
+
+func TestListRevealsAFarRowWithoutAGap(t *testing.T) {
+	var s ListState
+	tt := NewTester(func(c *Context) {
+		List(c, &s, 1000, func(i int) {
+			Row(c).Height(float32(40 + i%3*10)).Children(func() { Button(c, fmt.Sprintf("Button %d", i)) })
+		}).Grow(1)
+	}, 300, 400)
+	if err := tt.Click("Button 3"); err != nil {
+		t.Fatal(err)
+	}
+	s.ScrollTo(250, Start)
+	tt.Frame()
+	// The focus, kept out of view, comes into view in one frame.
+	tt.rt.reveal(tt.rt.focused)
+	tt.rt.runFrame()
+	checkRows(t, tt, &s, 0, 0, 400)
+	if f := tt.rt.states[tt.rt.focused]; f == nil || f.y < -0.01 || f.y+f.h > 400.01 {
+		t.Errorf("the focus is at %+v", f)
+	}
+}
+
+func TestListSizedByItsRows(t *testing.T) {
+	// A list without a size is as high as its rows, frame after frame, and
+	// scrolls once it is bounded.
+	var s, bounded ListState
+	tt := NewTester(func(c *Context) {
+		Scroll(c).Grow(1).Children(func() {
+			List(c, &s, 30, func(i int) { Box(c).Height(20) }).Shrink(0)
+			List(c, &bounded, 1000, func(i int) { Box(c).Height(20) }).MaxHeight(200).Shrink(0)
+		})
+	}, 300, 400)
+	for range 5 {
+		tt.Frame()
+		if h := listStateOf(&s).h; h != 600 {
+			t.Fatalf("a list of 30 rows of 20 DIPs is %v high", h)
+		}
+		if h := listStateOf(&bounded).h; h != 200 {
+			t.Fatalf("a list bounded to 200 DIPs is %v high", h)
+		}
+	}
+}
+
+func TestListEmpty(t *testing.T) {
+	// What else is built in a list shows while it has no rows.
+	n := 0
+	tt := NewTester(func(c *Context) {
+		List(c, nil, n, func(i int) { Textf(c, "Row %d", i) }).Grow(1).Children(func() {
+			if n == 0 {
+				Text(c, "No rows")
+			}
+		})
+	}, 300, 400)
+	if r, ok := tt.Find("No rows"); !ok || r.H == 0 || r.W == 0 {
+		t.Errorf("an empty list shows %q, the text in %v", tt.Texts(), r)
+	}
+	n = 3
+	tt.Frame()
+	if !tt.HasText("Row 2") || tt.HasText("No rows") {
+		t.Errorf("three rows: %q", tt.Texts())
+	}
+}
+
+func TestListChoiceAtTheEnds(t *testing.T) {
+	sel := 499
+	ids := make([]int, 500)
+	for i := range ids {
+		ids[i] = i
+	}
+	s := ListState{Selected: &sel, Key: func(i int) any { return ids[i] }}
+	tt := NewTester(func(c *Context) {
+		List(c, &s, len(ids), func(i int) { Box(c).Height(30) }).Grow(1)
+	}, 300, 400)
+	tt.rt.focused = s.frame.e.id
+	s.ScrollTo(100, Start)
+	tt.Frame()
+	// Down at the last row shows it again.
+	tt.Key(0, KeyDown)
+	if r, ok := rowBox(tt, &s, 499); sel != 499 || !ok || r.Y+r.H != 400 {
+		t.Errorf("Down at the last row: chose %d, at %v (%v)", sel, r, ok)
+	}
+	// A chosen item that goes away leaves no choice.
+	ids = ids[:400]
+	tt.Frame()
+	if sel != -1 {
+		t.Errorf("the chosen item went away: chose %d", sel)
+	}
+}
+
 // BenchmarkListScroll scrolls a list of a million rows of varied heights,
 // a frame a step.
 func BenchmarkListScroll(b *testing.B) {

@@ -203,7 +203,20 @@ ui.List(c, nil, len(app.files), func(i int) {
 
 `Gap` spaces the rows, `Padding` pads the content and scrolls with it, and
 `Justify(ui.End)` puts rows that do not fill the list at its bottom, as a
-chat's first messages.
+chat's first messages. What else you build in a list shows while it has no
+rows, as a message that it is empty:
+
+```go
+ui.List(c, nil, len(results), func(i int) {
+	ui.Text(c, results[i].Title).Padding(6, 12)
+}).Grow(1).Children(func() {
+	if len(results) == 0 {
+		ui.Text(c, "No results").TextColor(c.Theme().TextMuted).Padding(12)
+	}
+})
+```
+
+A list without a size, or with only a `MaxHeight`, is as high as its rows.
 
 A list keeps its place by a row rather than by an offset, so the rows in
 view stay where they are while the rows around them are measured, grow,

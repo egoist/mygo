@@ -151,7 +151,15 @@ func reveal(e *Element) {
 			sy := max(0, min(nearest(st.scrollY, cy, h, p.border[0], p.h-p.border[2]), my))
 			if sx != st.scrollX || sy != st.scrollY {
 				st.beginMove(frame)
-				st.scrollTo(sx, sy)
+				if p.list != nil {
+					// A List places its rows anew from there, building
+					// those it lacked, which moves the row holding the box.
+					was := ch.y
+					p.relayoutList(ch, sy)
+					cy = float64(y+ch.y-was) + p.scrollBase
+				} else {
+					st.scrollTo(sx, sy)
+				}
 			}
 			x = float32(cx - st.scrollX)
 			y = float32(cy - st.scrollY)

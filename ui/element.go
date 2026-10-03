@@ -266,8 +266,10 @@ type Element struct {
 	// scrollBase is the offset of a List's content that its rows were
 	// placed at: placing moves them by how far the offset moved since.
 	scrollBase float64
-	// list is the List the element is, while it builds and lays out.
+	// list is the List the element is, while it builds and lays out, and
+	// listRow is set on the elements holding its rows.
 	list     *listFrame
+	listRow  bool
 	tl       *text.Layout
 	measures [4]measure
 	nmeasure int

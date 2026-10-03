@@ -80,8 +80,15 @@ func Table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 				return
 			}
 			if s.Selected == nil {
-				// Chosen rows are rows already.
+				// Chosen rows are rows, and show the pointer over them,
+				// already.
 				row.Role(RoleRow)
+				row.flags |= flagHover
+				row.styleFn = func(row *Element) {
+					if row.Hovered() {
+						row.bg = t.SurfaceHover
+					}
+				}
 			}
 			row.Children(func() {
 				cells(RoleCell, func(j int) { cell(i, j) })

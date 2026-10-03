@@ -75,6 +75,8 @@ type engine struct {
 
 	consumed  bool
 	animating bool
+	// late is set when lists built elements while laying out.
+	late bool
 	// revealIDs are the elements to scroll into view once the frame is
 	// laid out.
 	revealIDs []uint64
@@ -232,6 +234,20 @@ func (rt *engine) runFrame() {
 
 // endPass forgets the input the pass handled.
 func (rt *engine) endPass() {
+	rt.forgetInput()
+	rt.menu.chosen = 0
+	rt.delivered = rt.delivered[:0]
+	// The next pass may not ask again, as when the view cleared what asked.
+	for _, e := range rt.c.reveal {
+		if !slices.Contains(rt.revealIDs, e.id) {
+			rt.revealIDs = append(rt.revealIDs, e.id)
+		}
+	}
+}
+
+// forgetInput forgets the input of the elements the pass built, which
+// they handled.
+func (rt *engine) forgetInput() {
 	for _, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
 			continue
@@ -240,14 +256,6 @@ func (rt *engine) endPass() {
 		s.dragX, s.dragY = 0, 0
 		s.changed, s.submitted = false, false
 		s.dropped = nil
-	}
-	rt.menu.chosen = 0
-	rt.delivered = rt.delivered[:0]
-	// The next pass may not ask again, as when the view cleared what asked.
-	for _, e := range rt.c.reveal {
-		if !slices.Contains(rt.revealIDs, e.id) {
-			rt.revealIDs = append(rt.revealIDs, e.id)
-		}
 	}
 }
 

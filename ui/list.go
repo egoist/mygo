@@ -92,10 +92,14 @@ type ListState struct {
 	frame listFrame
 }
 
+// listRequest is where the app or the user asked the list to go: to row
+// at align, as little as shows it (near), to its end, or to offset y
+// (with row, when hint is set, the row to place from there).
 type listRequest struct {
-	set, end, near bool
-	row            int
-	align          Align
+	set, end, near, offset, hint bool
+	row                          int
+	align                        Align
+	y                            float64
 }
 
 type listRowID struct {
@@ -153,7 +157,9 @@ type listFrame struct {
 	pass  int
 	// flat leaves the corners of chosen rows square, as a Table's.
 	flat bool
-	rows []listRow
+	// theme is the theme the rows are built with, laying out as well.
+	theme *Theme
+	rows  []listRow
 	// at finds rows by their index while the list lays out.
 	at map[int]int
 }
@@ -200,7 +206,7 @@ func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i in
 		panic("ui: a ListState shown by two Lists")
 	}
 	n = max(n, 0)
-	*f = listFrame{c: c, e: e, owner: owner, s: s, n: n, row: row, frame: rt.frame, pass: rt.pass, flat: flat, rows: f.rows[:0], at: f.at}
+	*f = listFrame{c: c, e: e, owner: owner, s: s, n: n, row: row, frame: rt.frame, pass: rt.pass, flat: flat, theme: c.theme, rows: f.rows[:0], at: f.at}
 	e.list = f
 	s.sync(e, n)
 	if s.Selected != nil {
@@ -209,27 +215,30 @@ func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i in
 		}
 		f.navigate()
 	}
-	first, last := s.plan(e, n)
+	a, first, last := s.plan(e, n)
 	e.Children(func() {
 		for i := first; i < last; i++ {
 			f.build(i)
 		}
 		// The row holding the focus stays out of view as well, with the
-		// text being edited in it; so does the header pinned last frame.
+		// text being edited in it; and the header of the section at the
+		// top is built where the others are.
 		focus, ok := s.focusedRow(e, n)
 		if ok && (focus < first || focus >= last) {
 			f.build(focus)
 		}
-		if h := s.header.row; s.Header != nil && s.header.ok && h >= 0 && h < n && (h < first || h >= last) && (!ok || h != focus) && s.Header(h) {
-			f.build(h)
+		if s.Header != nil && n > 0 {
+			if h := s.headerAbove(a, n); h >= 0 && (h < first || h >= last) && (!ok || h != focus) {
+				f.build(h)
+			}
 		}
 	})
 }
 
-// sync follows what changed since the last frame: the user scrolling,
-// rows added or removed, items moving.
+// sync follows what changed since the last frame: rows added or removed,
+// items moving, the user or the app scrolling.
 func (s *ListState) sync(e *Element, n int) {
-	st := e.st
+	st, rt := e.st, e.c.rt
 	if !s.started {
 		s.started = true
 		s.following = s.FollowEnd
@@ -237,19 +246,6 @@ func (s *ListState) sync(e *Element, n int) {
 		s.header.row = -1
 	}
 	s.heights.def = float64(e.c.theme.Space(8))
-	if s.laidOut && st.born != e.c.rt.frame && st.scrollY != s.wroteY {
-		// Scrolled by the wheel, the keys, the scroll bar or the app: find
-		// the place there, with the heights that put the content there.
-		// (A list built anew, as when its page shows again, starts from
-		// its place.)
-		s.wroteY = st.scrollY
-		if !s.req.set {
-			top := max(0, st.contentH-float64(st.h))
-			y := max(0, min(st.scrollY, top))
-			s.anchorAt(y)
-			s.following = s.FollowEnd && y >= top-0.5
-		}
-	}
 	if s.Key != nil && n > 0 {
 		if k := s.anchorKey; k != nil {
 			if j, ok := s.find(k, s.anchor, n); ok && j != s.anchor {
@@ -262,9 +258,12 @@ func (s *ListState) sync(e *Element, n int) {
 			}
 		}
 		if sel := s.Selected; sel != nil && *sel == s.selRow && s.selKey != nil {
-			if j, ok := s.find(s.selKey, *sel, n); ok {
-				*sel, s.selRow = j, j
+			// The choice follows its item, and is gone with it.
+			j, ok := s.find(s.selKey, *sel, n)
+			if !ok {
+				j = -1
 			}
+			*sel, s.selRow = j, j
 		}
 	}
 	if n != s.heights.n {
@@ -272,15 +271,39 @@ func (s *ListState) sync(e *Element, n int) {
 		s.header.ok = false
 	}
 	s.anchor = max(0, min(s.anchor, n-1))
+	switch {
+	case st.list != s || st.born == rt.frame:
+		// Built anew, as when its page shows again, or showing another
+		// place: the place stands, unless the app set the offset with a
+		// ScrollState this frame.
+		if st.movedIn(rt.frame) && !s.req.set {
+			s.req = listRequest{set: true, offset: true, y: max(0, st.scrollY)}
+		}
+		st.list = s
+	case st.scrollY != s.wroteY && !s.req.set:
+		// Scrolled by the wheel, the keys, the scroll bar or the app: a
+		// step moves the rows by as much, from the place; a jump goes
+		// where the heights known put the offset, or to the end.
+		top := max(0, st.contentH-float64(st.h))
+		y := max(0, min(st.scrollY, top))
+		switch d := y - s.wroteY; {
+		case top > 0 && y >= top-0.5:
+			s.req = listRequest{set: true, end: true}
+		case d >= -2*float64(st.h) && d <= 2*float64(st.h):
+			s.inset += d
+		default:
+			s.req = listRequest{set: true, offset: true, y: y}
+		}
+		s.following = s.FollowEnd && top > 0 && y >= top-0.5
+	}
+	s.wroteY = st.scrollY
 }
 
-// anchorAt makes the row at the top of the view, scrolled to y, the
-// anchor.
-func (s *ListState) anchorAt(y float64) {
+// anchorAt returns the row at the top of the view scrolled to y, and where
+// its top goes in the list's box, as the heights known put them.
+func (s *ListState) anchorAt(y float64) (int, float64) {
 	a := s.heights.rowAt(max(0, y+s.border-s.padTop), s.gap)
-	s.anchor = a
-	s.inset = y - s.heights.top(a, s.gap)
-	s.anchorKey = nil
+	return a, s.padTop + s.heights.top(a, s.gap) - y
 }
 
 // find returns the row whose key is k, looking around row near.
@@ -300,11 +323,11 @@ func (s *ListState) find(k any, near, n int) (int, bool) {
 	return 0, false
 }
 
-// plan returns the rows to build, as far as the heights known tell where
-// the place puts them.
-func (s *ListState) plan(e *Element, n int) (first, last int) {
+// plan returns the row the place starts from and the rows to build, as far
+// as the heights known tell where the place puts them.
+func (s *ListState) plan(e *Element, n int) (a, first, last int) {
 	if n == 0 {
-		return 0, 0
+		return 0, 0, 0
 	}
 	view := float64(e.st.h)
 	if view <= 0 {
@@ -313,6 +336,11 @@ func (s *ListState) plan(e *Element, n int) (first, last int) {
 	hs, gap := &s.heights, s.gap
 	a, y, above := s.anchor, s.padTop-s.inset, 0.0
 	switch r := s.req; {
+	case r.set && r.offset:
+		a, y = s.anchorAt(r.y)
+		if r.hint {
+			a, y = max(0, min(r.row, n-1)), s.padTop+hs.top(r.row, gap)-r.y
+		}
 	case r.set && !r.end:
 		// Rows on both sides cover any alignment.
 		a, y, above = max(0, min(r.row, n-1)), 0, -view
@@ -329,7 +357,7 @@ func (s *ListState) plan(e *Element, n int) (first, last int) {
 		first--
 		yy -= hs.height(first) + gap
 	}
-	return max(0, first-listOverscan), min(n, last+listOverscan)
+	return a, max(0, first-listOverscan), min(n, last+listOverscan)
 }
 
 // build builds row i in the list.
@@ -340,6 +368,7 @@ func (f *listFrame) build(i int) *Element {
 		key = s.Key(i)
 	}
 	w := Box(c).Key(key).Shrink(0)
+	w.listRow = true
 	if sel := s.Selected; sel != nil && !f.isHeader(i) {
 		t := c.theme
 		w.flags |= flagClickable | flagHover
@@ -363,6 +392,19 @@ func (f *listFrame) build(i int) *Element {
 	}
 	w.Children(func() { f.row(i) })
 	f.rows = append(f.rows, listRow{i: i, key: key, e: w})
+	return w
+}
+
+// buildLate builds row i while the list lays out, as the view would have:
+// with the theme it built the list with, and its input forgotten once the
+// frame is laid out (layoutTree).
+func (f *listFrame) buildLate(i int) *Element {
+	c := f.c
+	parent, theme := c.parent, c.theme
+	c.parent, c.theme = f.e, f.theme
+	w := f.build(i)
+	c.parent, c.theme = parent, theme
+	c.rt.late = true
 	return w
 }
 
@@ -393,7 +435,7 @@ func (f *listFrame) navigate() {
 		}
 		return -1
 	}
-	to := -1
+	to, moved := -1, true
 	switch {
 	case o.Shortcut(0, KeyDown):
 		to = step(max(*sel, -1), 1)
@@ -409,9 +451,16 @@ func (f *listFrame) navigate() {
 		if *sel >= 0 && *sel < n {
 			o.st.submitted = true
 		}
+		moved = false
+	default:
+		moved = false
 	}
-	if to >= 0 {
+	switch {
+	case to >= 0:
 		f.choose(to)
+	case moved && *sel >= 0 && *sel < n:
+		// Nowhere further: the choice shows again, if it scrolled away.
+		f.s.ScrollIntoView(*sel)
 	}
 }
 
@@ -443,11 +492,14 @@ func (s *ListState) focusedRow(e *Element, n int) (int, bool) {
 
 // layoutList measures and places the rows of a List w×h from its place,
 // building those missing, pins the header of the section at the top, and
-// sets the size of the content and the offset.
+// sets the size of the content and the offset. Without rows, what else was
+// built in the list shows, as a scroll container's content: a message that
+// it is empty, say.
 func (e *Element) layoutList(w, h float32) {
 	f := e.list
-	s, c, n := f.s, e.c, f.n
+	s, n := f.s, f.n
 	hs := &s.heights
+	st := e.st
 	cw := max(w-e.padX(), 0)
 	if cw != s.width {
 		// The rows wrap anew: heights measured at another width are gone.
@@ -459,6 +511,15 @@ func (e *Element) layoutList(w, h float32) {
 	H := float64(h)
 	top, bottom := float64(e.border[0]), H-float64(e.border[2])
 	s.gap, s.padTop, s.border = gap, padTop, top
+	st.list = s
+	if n == 0 {
+		_, uh := boxLayout(e, cw, inf, true)
+		e.contentW, e.contentH = float64(w), float64(max(uh, max(h-e.padY(), 0))+e.padY())
+		layoutAbsolute(e)
+		e.scrollBase = 0
+		s.remember(e, 0, -1, true, st.scrollY)
+		return
+	}
 	if f.at == nil {
 		f.at = map[int]int{}
 	}
@@ -476,10 +537,7 @@ func (e *Element) layoutList(w, h float32) {
 		if len(f.rows) >= listMaxRows {
 			return false
 		}
-		saved := c.parent
-		c.parent = e
-		r := f.build(i)
-		c.parent = saved
+		r := f.buildLate(i)
 		f.at[i] = len(f.rows) - 1
 		hs.set(i, heightAt(r, cw, inf))
 		return true
@@ -487,13 +545,22 @@ func (e *Element) layoutList(w, h float32) {
 	ht := hs.height
 
 	// The row placed first, and where its top goes.
-	a, ya := 0, padTop
+	var a int
+	var ya float64
 	switch req := s.req; {
-	case n == 0:
 	case req.end || s.following && !req.set:
 		a = n - 1
 		ensure(a)
 		ya = H - padBottom - ht(a)
+	case req.offset:
+		// Where the heights known, now with the rows built measured, put
+		// the offset.
+		a, ya = s.anchorAt(req.y)
+		if req.hint {
+			a = max(0, min(req.row, n-1))
+			ya = padTop + hs.top(a, gap) - req.y
+		}
+		ensure(a)
 	case req.set:
 		a = max(0, min(req.row, n-1))
 		ensure(a)
@@ -544,61 +611,53 @@ func (e *Element) layoutList(w, h float32) {
 	}
 	shift := func(d float64) { yLo, yHi = yLo+d, yHi+d }
 	end := func() float64 { return yHi + ht(hi) + padBottom }
-	if n > 0 {
+	cover()
+	// Keep the content's ends at the list's: the end may show above the
+	// bottom after rows went away, the start below the top after rows
+	// above turned out shorter than estimated.
+	for k := 0; k < 4 && !(lo == 0 && hi == n-1); k++ {
+		if hi == n-1 && end() < H {
+			shift(H - end())
+		} else if lo == 0 && yLo > padTop {
+			shift(padTop - yLo)
+		} else {
+			break
+		}
 		cover()
-		// Keep the content's ends at the list's: the end may show above
-		// the bottom after rows went away, the start below the top after
-		// rows above turned out shorter than estimated.
-		for k := 0; k < 4 && !(lo == 0 && hi == n-1); k++ {
-			if hi == n-1 && end() < H {
+	}
+	if lo == 0 && hi == n-1 {
+		switch start := yLo - padTop; {
+		case end()-start <= H:
+			// The rows fit: Justify places them.
+			switch e.justify {
+			case End:
 				shift(H - end())
-			} else if lo == 0 && yLo > padTop {
-				shift(padTop - yLo)
-			} else {
-				break
-			}
-			cover()
-		}
-		if lo == 0 && hi == n-1 {
-			switch start := yLo - padTop; {
-			case end()-start <= H:
-				// The rows fit: Justify places them.
-				switch e.justify {
-				case End:
-					shift(H - end())
-				case Center:
-					shift((H - end() - start) / 2)
-				default:
-					shift(-start)
-				}
-			case start > 0:
+			case Center:
+				shift((H - end() - start) / 2)
+			default:
 				shift(-start)
-			case end() < H:
-				shift(H - end())
 			}
+		case start > 0:
+			shift(-start)
+		case end() < H:
+			shift(H - end())
 		}
-		for k := 0; k < listOverscan && hi < n-1 && ensure(hi+1); k++ {
-			yHi += ht(hi) + gap
-			hi++
-		}
-		for k := 0; k < listOverscan && lo > 0 && ensure(lo-1); k++ {
-			lo--
-			yLo -= ht(lo) + gap
-		}
+	}
+	for k := 0; k < listOverscan && hi < n-1 && ensure(hi+1); k++ {
+		yHi += ht(hi) + gap
+		hi++
+	}
+	for k := 0; k < listOverscan && lo > 0 && ensure(lo-1); k++ {
+		lo--
+		yLo -= ht(lo) + gap
 	}
 
-	// The offset: where the heights known put row lo's top, less where
-	// it shows.
-	content := padTop + padBottom
-	scroll := 0.0
-	if n > 0 {
-		content += hs.top(n, gap) - gap
-		scroll = padTop + hs.top(lo, gap) - yLo
-	}
-	content = max(content, H)
-	scroll = max(0, min(scroll, content-H))
+	// The offset: where the heights known put row lo's top, less where it
+	// shows.
+	content := max(padTop+padBottom+hs.top(n, gap)-gap, H)
+	scroll := max(0, min(padTop+hs.top(lo, gap)-yLo, content-H))
 	y := yLo
-	for i := lo; i <= hi && n > 0; i++ {
+	for i := lo; i <= hi; i++ {
 		f.rows[f.at[i]].y = y
 		y += ht(i) + gap
 	}
@@ -610,7 +669,7 @@ func (e *Element) layoutList(w, h float32) {
 
 	// The rows in view, the first of which anchors the place.
 	first, last := -1, -1
-	for i := lo; i <= hi && n > 0; i++ {
+	for i := lo; i <= hi; i++ {
 		if y := f.rows[f.at[i]].y; y+ht(i) > top && y < bottom {
 			if first < 0 {
 				first = i
@@ -619,52 +678,91 @@ func (e *Element) layoutList(w, h float32) {
 		}
 	}
 	if first < 0 {
-		first, last = min(a, max(n-1, 0)), a-1
+		first, last = a, a-1
 	}
-	inset := 0.0
-	if n > 0 {
-		inset = padTop - f.rows[f.at[first]].y
-	}
-	if s.Header != nil && n > 0 && last >= first {
-		e.pinHeader(first, hi, top)
+	inset := padTop - f.rows[f.at[first]].y
+	var pinned *Element
+	if s.Header != nil && last >= first {
+		pinned = e.pinHeader(first, hi, top)
 	}
 
 	// Lay the rows out in order, as they show, Tab moves and assistive
-	// technology reads.
+	// technology reads, then what else was built above them, which lies
+	// over the rows.
+	var extras []*Element
+	for ch := e.first; ch != nil; ch = ch.next {
+		if !ch.listRow && ch.flags&flagAbsolute != 0 {
+			extras = append(extras, ch)
+		}
+	}
 	slices.SortFunc(f.rows, func(a, b listRow) int { return a.i - b.i })
 	var prev *Element
+	link := func(ch *Element) {
+		ch.next = nil
+		if prev == nil {
+			e.first = ch
+		} else {
+			prev.next = ch
+		}
+		prev = ch
+	}
 	for k := range f.rows {
 		r := &f.rows[k]
-		r.e.next = nil
-		if prev == nil {
-			e.first = r.e
-		} else {
-			prev.next = r.e
-		}
-		prev = r.e
+		link(r.e)
 		r.e.x, r.e.y = e.contentX(), float32(r.y)
 		layoutBox(r.e, cw, float32(ht(r.i)))
 	}
+	for _, ch := range extras {
+		link(ch)
+	}
 	e.last = prev
+	layoutAbsolute(e)
+	if pinned != nil {
+		// Above the rows scrolling under it, and still at the top when the
+		// offset moves before placing.
+		pinned.flags |= flagAbsolute
+	}
 	e.contentW, e.contentH = float64(w), content
 	e.scrollBase = scroll
-	e.st.scrollTo(e.st.scrollX, scroll)
+	st.scrollTo(st.scrollX, scroll)
+	s.inset = inset
+	s.remember(e, first, last, hi == n-1 && end() <= H+0.5, scroll)
+}
 
-	// Remember the place for the next frame, which builds anew what read
-	// another.
-	atEnd := n == 0 || hi == n-1 && end() <= H+0.5
+// relayoutList lays the list out anew scrolled to y, as revealing its
+// row ch asks, from where the heights known put ch: the rows around it
+// are built, and the frame shows no gap.
+func (e *Element) relayoutList(ch *Element, y float64) {
+	f := e.list
+	if f.n == 0 {
+		e.st.scrollTo(e.st.scrollX, y)
+		return
+	}
+	req := listRequest{set: true, offset: true, y: y}
+	for _, r := range f.rows {
+		if r.e == ch {
+			req.row, req.hint = r.i, true
+		}
+	}
+	f.s.req = req
+	layoutBox(e, e.w, e.h)
+}
+
+// remember keeps where the list is for the next frame, and builds another
+// for a view that read where it was.
+func (s *ListState) remember(e *Element, first, last int, atEnd bool, scroll float64) {
+	f, n := e.list, e.list.n
 	if s.read && (first != s.first || last != s.last || atEnd != s.atEnd) {
-		c.rt.animating = true
+		e.c.rt.animating = true
 	}
 	s.laidOut, s.wroteY, s.req, s.read = true, scroll, listRequest{}, false
 	s.first, s.last, s.atEnd = first, last, atEnd
-	s.following = s.FollowEnd && s.atEnd
-	s.anchor, s.anchorKey, s.inset = 0, nil, inset
-	if n > 0 {
-		s.anchor = first
-		if s.Key != nil {
-			s.anchorKey = s.Key(first)
-		}
+	s.following = s.FollowEnd && atEnd
+	s.anchor, s.anchorKey = max(0, first), nil
+	if n == 0 {
+		s.inset = 0
+	} else if s.Key != nil {
+		s.anchorKey = s.Key(first)
 	}
 	s.selKey = nil
 	if sel := s.Selected; sel != nil {
@@ -682,23 +780,20 @@ func (e *Element) layoutList(w, h float32) {
 	}
 }
 
-// pinHeader pins the header of the section of row first, the first in
-// view, to the top of the list, below which the next header pushes it.
-func (e *Element) pinHeader(first, hi int, top float64) {
+// pinHeader moves the header of the section of row first, the first in
+// view, to the top of the list, below which the next header pushes it,
+// and returns it if it moved.
+func (e *Element) pinHeader(first, hi int, top float64) *Element {
 	f := e.list
 	s := f.s
 	hh := s.headerAbove(first, f.n)
 	if hh < 0 {
-		return
+		return nil
 	}
 	k, ok := f.at[hh]
 	if !ok {
 		// Far above: build it where its section's rows are.
-		c := e.c
-		saved := c.parent
-		c.parent = e
-		f.build(hh)
-		c.parent = saved
+		f.buildLate(hh)
 		k = len(f.rows) - 1
 		f.at[hh] = k
 		s.heights.set(hh, heightAt(f.rows[k].e, s.width, inf))
@@ -712,21 +807,21 @@ func (e *Element) pinHeader(first, hi int, top float64) {
 			break
 		}
 	}
-	if y != f.rows[k].y {
-		f.rows[k].y = y
-		// Above the rows scrolling under it, and still at the top when the
-		// offset moves before placing.
-		f.rows[k].e.flags |= flagAbsolute
+	if y == f.rows[k].y {
+		return nil
 	}
+	f.rows[k].y = y
+	return f.rows[k].e
 }
 
 // listHeader is the header found last for a row, for the next frame to
 // look from there.
 type listHeader struct {
-	row int // -1 for none
-	// from is the row it was found for: no row between them is a header.
-	from int
-	ok   bool
+	// row is the last header at or above row from, -1 for none, and the
+	// rows from stop to from were looked at: none between row and from
+	// is a header, and none down to stop either when row is -1.
+	row, from, stop int
+	ok              bool
 }
 
 // headerAbove returns the last header at or above row i, -1 for none.
@@ -738,24 +833,24 @@ func (s *ListState) headerAbove(i, n int) int {
 		case i >= hc.from && i-hc.from <= far:
 			for j := i; j > hc.from; j-- {
 				if s.Header(j) {
-					hc.row, hc.from = j, i
+					*hc = listHeader{row: j, from: i, stop: j, ok: true}
 					return j
 				}
 			}
 			hc.from = i
 			return hc.row
-		case i >= hc.row && hc.row >= 0:
+		case i >= hc.stop && (hc.row >= 0 || hc.stop == 0):
 			return hc.row
 		}
 	}
-	h := -1
-	for j := i; j >= 0 && i-j < far; j-- {
+	h, stop := -1, max(0, i-far)
+	for j := i; j >= stop; j-- {
 		if s.Header(j) {
-			h = j
+			h, stop = j, j
 			break
 		}
 	}
-	*hc = listHeader{row: h, from: i, ok: true}
+	*hc = listHeader{row: h, from: i, stop: stop, ok: true}
 	return h
 }
 

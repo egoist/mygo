@@ -976,15 +976,26 @@ either.
   content's size, and its offset, are where those heights put the rows,
   in float64, as all scroll offsets are, so that millions of rows scroll
   by fractions of a DIP. Rows are placed relative to the list, the offset
-  they were placed at kept as `scrollBase` for placing and revealing; the
-  next frame finds its anchor again from an offset the wheel, the keys,
-  the scroll bar or the app changed. A scroll bar's thumb keeps the
-  content's size of when it was grabbed until it is let go, as rows
-  measured meanwhile change it, and a frame that moved a list whose
-  `Visible` or `AtEnd` the view read builds another. Rows a `ScrollTo`
-  shows at the top go below the header pinned over their section. `Table`
-  is a header of columns over a list, whose rows are as high as their
-  tallest cell, and which takes the focus and the keys for the list.
+  they were placed at kept as `scrollBase` for placing and revealing. An
+  offset the wheel, the keys, the scroll bar or the app changed moves the
+  place by as much when it is a step (up to two views), so rows not
+  measured yet scroll by the step; a jump goes where the heights known put
+  it once the rows built are measured, and the end to the end. A reveal
+  (the focus, `ScrollIntoView`) lays a list out anew from the row it
+  shows, the window's ScrollState-set offset of a list built anew is a
+  jump, and each element remembers the `ListState` that placed it last. A
+  scroll bar's thumb keeps the content's size of when it was grabbed until
+  it is let go, as rows measured meanwhile change it, and a frame that
+  moved a list whose `Visible` or `AtEnd` the view read builds another.
+  Rows built as a list lays out handle their input as the view's do,
+  which `layoutTree` then forgets, asking for a frame if they changed
+  anything, and lays out what they put in the overlay. Rows a `ScrollTo`
+  shows at the top go below the header pinned over their section. A list
+  without a size is as high as its rows, as the heights known tell, and
+  one without rows lays out what else was built in it, as a scroll
+  container. `Table` is a header of columns over a list, whose rows are as
+  high as their tallest cell, and which takes the focus and the keys for
+  the list.
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;

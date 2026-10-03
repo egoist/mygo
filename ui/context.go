@@ -248,6 +248,8 @@ type state struct {
 	// startX and startY are the offset before frame moveFrame moved it.
 	moveFrame      uint64
 	startX, startY float64
+	// list is the ListState that placed the rows of a List last.
+	list *ListState
 	// cx and cw are the left and width of the element's content box,
 	// inside its padding, in the last frame.
 	cx, cw float32
