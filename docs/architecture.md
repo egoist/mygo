@@ -711,7 +711,7 @@ build` like mygo-runtime and released with the same version.
     mouse encoder while the program asks for them; otherwise a selection
     gesture of libghostty-vt turns presses and drags into selections, with
     the clicks it counts itself.
-  - *Shipping the library.* `mygo-natives.json` names its build for each
+  - *Shipping the library.* `mygo-plugin.json` names its build for each
     platform, published as assets of a release of this repository, with
     their SHA-256 (`go generate ./plugins/terminal` builds them with Zig
     from Ghostty's sources and writes it). The CLI puts them into apps
@@ -1334,7 +1334,7 @@ renderer's (`gputest.Compare`).
   signatures stay. Windows builds sign the PE images among the resources
   that have no certificate table, with the app's certificate or command.
   The packages of the app may name native libraries in a
-  `mygo-natives.json` (`natives.go`), with a file per platform, its URL and
+  `mygo-plugin.json` (`natives.go`), with a file per platform, its URL and
   its SHA-256, as the terminal plugin names libghostty-vt: `go list -deps`
   of the target finds them, the CLI downloads each once into
   `<user cache>/mygo/natives/<sha256>/`, checking its SHA-256, and installs

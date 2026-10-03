@@ -16,7 +16,7 @@ import (
 )
 
 // TestNatives puts the native libraries that a package of the app names in
-// its mygo-natives.json among the app's resources, downloaded once into
+// its mygo-plugin.json among the app's resources, downloaded once into
 // the user's cache: a universal app gets both architectures in one file.
 func TestNatives(t *testing.T) {
 	if testing.Short() {
@@ -46,13 +46,13 @@ func TestNatives(t *testing.T) {
 		`"linux-arm64": ` + entry("libx.so", "/libx-bad.so", []byte("the right file")) + `}}]}`
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
-		"go.mod":               "module example.com/app\n\ngo 1.27\n",
-		"main.go":              "package main\n\nimport _ \"example.com/app/lib\"\n\nfunc main() {}\n",
-		"lib/lib.go":           "package lib\n",
-		"lib/" + nativesFile:   manifest,
-		"other/other.go":       "package other\n", // not imported
-		"other/" + nativesFile: `{"libraries": [{"name": "unused", "files": {}}]}`,
-		"mygo.json":            `{"name": "App"}`,
+		"go.mod":              "module example.com/app\n\ngo 1.27\n",
+		"main.go":             "package main\n\nimport _ \"example.com/app/lib\"\n\nfunc main() {}\n",
+		"lib/lib.go":          "package lib\n",
+		"lib/" + pluginFile:   manifest,
+		"other/other.go":      "package other\n", // not imported
+		"other/" + pluginFile: `{"libraries": [{"name": "unused", "files": {}}]}`,
+		"mygo.json":           `{"name": "App"}`,
 	})
 	cache := t.TempDir()
 	switch runtime.GOOS {

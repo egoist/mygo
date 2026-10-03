@@ -195,7 +195,7 @@ export default defineConfig({
 
 A Go package that loads a native library with purego, as the
 [terminal plugin](plugins/terminal.md) loads libghostty-vt, names its
-builds in a `mygo-natives.json` next to its sources, with a file per
+builds in a `mygo-plugin.json` next to its sources, with a file per
 platform, where to download it and its SHA-256:
 
 ```json

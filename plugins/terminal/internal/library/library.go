@@ -1,5 +1,5 @@
 // Package library finds libghostty-vt for the terminal plugin: next to
-// the app, in the user's cache, or downloaded there, as mygo-natives.json
+// the app, in the user's cache, or downloaded there, as mygo-plugin.json
 // names it.
 package library
 
@@ -20,7 +20,7 @@ import (
 	"github.com/egoist/mygo"
 )
 
-// nativeLibraries is the format of mygo-natives.json.
+// nativeLibraries is the format of mygo-plugin.json.
 type nativeLibraries struct {
 	Libraries []struct {
 		Name  string                `json:"name"`

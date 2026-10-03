@@ -20,6 +20,6 @@ See [the documentation](../../docs/plugins/terminal.md), and
 
 `go generate` here builds libghostty-vt for every platform with Zig, from
 the commit of Ghostty in `internal/libbuild`, into `build/`, and writes
-`mygo-natives.json`, which names the files and their SHA-256 for the CLI and
+`mygo-plugin.json`, which names the files and their SHA-256 for the CLI and
 this package: publish them as the assets of the release that file points
 at.

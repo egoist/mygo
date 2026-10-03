@@ -70,7 +70,7 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   mygo-runtime's version. The updater plugin is Go only; its `native`
   package draws the update window in native UI. The terminal plugin is Go
   only too, for native UI, with libghostty-vt loaded through purego: its
-  `mygo-natives.json` pins the builds the CLI puts into apps, published as
+  `mygo-plugin.json` pins the builds the CLI puts into apps, published as
   release assets (`libghostty-vt-<commit>`); change it with `go generate`.
 - The `dist/` of npm packages is not committed: run `bun run build` after
   `bun install` (CI and releases do). Commit `internal/bridge/bridge.js`

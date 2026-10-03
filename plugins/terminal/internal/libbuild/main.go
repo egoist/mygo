@@ -1,12 +1,12 @@
 // Libbuild builds libghostty-vt for every platform MyGo supports from
 // Ghostty's sources at a commit, with Zig (the version Ghostty asks for),
-// and writes mygo-natives.json, which names the files and their SHA-256 for
+// and writes mygo-plugin.json, which names the files and their SHA-256 for
 // the CLI and the terminal package:
 //
 //	go generate ./plugins/terminal
 //
 // The files go into plugins/terminal/build, to publish as the assets of the
-// release libghostty-vt-<commit>, which mygo-natives.json points at:
+// release libghostty-vt-<commit>, which mygo-plugin.json points at:
 //
 //	gh release create libghostty-vt-<commit> plugins/terminal/build/* --latest=false ...
 //
@@ -88,10 +88,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := os.WriteFile("mygo-natives.json", append(data, '\n'), 0o644); err != nil {
+	if err := os.WriteFile("mygo-plugin.json", append(data, '\n'), 0o644); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("wrote mygo-natives.json; publish %s as the assets of %s", *out, *release)
+	log.Printf("wrote mygo-plugin.json; publish %s as the assets of %s", *out, *release)
 }
 
 // checkout returns a checkout of Ghostty at the commit in the user's

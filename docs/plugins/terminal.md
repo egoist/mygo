@@ -160,7 +160,7 @@ with `Feed`, as a log with colors would.
 libghostty-vt is a native library of Ghostty, built for each platform from
 the version of Ghostty the plugin binds, and published with MyGo. The
 plugin's package names those builds and their SHA-256 in
-`mygo-natives.json`, and the CLI puts the one of each platform into the
+`mygo-plugin.json`, and the CLI puts the one of each platform into the
 apps it builds, among their resources, as
 `libghostty-vt.dylib`, `libghostty-vt.so` or `ghostty-vt.dll`: a macOS app
 signs it with the app, and a universal app gets both architectures in one

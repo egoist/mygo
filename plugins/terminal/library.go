@@ -16,7 +16,7 @@ import (
 // per platform, which `mygo build` and `mygo dev` put into apps: the CLI
 // reads this file from the package's directory.
 //
-//go:embed mygo-natives.json
+//go:embed mygo-plugin.json
 var natives []byte
 
 var load struct {
