@@ -54,6 +54,12 @@ func Divider(c *Context) *Element {
 // keeps frames coming while it moves; key tells apart the animations of
 // the element. The value starts at the first target.
 func (e *Element) Animate(key any, target float32, d time.Duration) float32 {
+	return e.AnimateWith(key, target, d, EaseOut)
+}
+
+// AnimateWith returns a value that moves to target over d as Animate does,
+// along ease.
+func (e *Element) AnimateWith(key any, target float32, d time.Duration, ease Easing) float32 {
 	st := e.st
 	if st.anims == nil {
 		st.anims = map[any]*anim{}
@@ -72,12 +78,71 @@ func (e *Element) Animate(key any, target float32, d time.Duration) float32 {
 		if t >= 1 {
 			a.value = a.to
 		} else {
-			u := 1 - t
-			a.value = a.from + (a.to-a.from)*(1-u*u*u)
+			a.value = a.from + (a.to-a.from)*ease(max(t, 0))
 			e.c.AnimationFrame()
 		}
 	}
 	return a.value
+}
+
+// Loop returns the progress of an animation that starts over every
+// period, from 0 to 1 along ease, and keeps frames coming while the
+// element is built; key tells apart the animations of the element. A
+// spinner turns with Loop("spin", time.Second, ui.Linear) * 360, and a
+// placeholder pulses with an opacity of 0.5 + 0.5*Loop("pulse", d,
+// ui.Bounce(ui.EaseInOut)).
+func (e *Element) Loop(key any, period time.Duration, ease Easing) float32 {
+	st := e.st
+	if st.anims == nil {
+		st.anims = map[any]*anim{}
+	}
+	a := st.anims[key]
+	now := e.c.now
+	if a == nil {
+		a = &anim{start: now}
+		st.anims[key] = a
+	}
+	e.c.AnimationFrame()
+	p := max(period, time.Millisecond)
+	t := float32(now.Sub(a.start)%p) / float32(p)
+	return ease(t)
+}
+
+// Easing maps the time an animation has run, from 0 to 1 of its duration,
+// to how far its value has gone, as CSS's timing functions do. Linear,
+// EaseIn, EaseOut and EaseInOut are easings, and Bounce makes more.
+type Easing func(t float32) float32
+
+// Linear moves at one speed.
+func Linear(t float32) float32 { return t }
+
+// EaseIn starts slowly (a cubic).
+func EaseIn(t float32) float32 { return t * t * t }
+
+// EaseOut ends slowly (a cubic), as Animate moves.
+func EaseOut(t float32) float32 {
+	u := 1 - t
+	return 1 - u*u*u
+}
+
+// EaseInOut starts and ends slowly (a cubic).
+func EaseInOut(t float32) float32 {
+	if t < 0.5 {
+		return 4 * t * t * t
+	}
+	u := 2 - 2*t
+	return 1 - u*u*u/2
+}
+
+// Bounce returns an easing that goes along ease and comes back, in the
+// same time, as a pulse does.
+func Bounce(ease Easing) Easing {
+	return func(t float32) float32 {
+		if t < 0.5 {
+			return ease(2 * t)
+		}
+		return ease(2 - 2*t)
+	}
 }
 
 type anim struct {
@@ -299,6 +364,15 @@ func Scroll(c *Context) *Element {
 func ScrollHorizontal(c *Context) *Element {
 	e := Row(c)
 	e.flags |= flagScrollX | flagHover
+	return e
+}
+
+// ScrollBoth creates a container that scrolls its children both ways, as
+// a canvas, a wide table or code does. Give it a size, or Grow it within
+// its parent.
+func ScrollBoth(c *Context) *Element {
+	e := Box(c)
+	e.flags |= flagScrollX | flagScrollY | flagHover
 	return e
 }
 

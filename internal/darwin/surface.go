@@ -246,6 +246,23 @@ var cursorSelectors = map[platform.Cursor]string{
 	platform.CursorCrosshair:  "crosshairCursor",
 	platform.CursorGrab:       "openHandCursor",
 	platform.CursorGrabbing:   "closedHandCursor",
+	platform.CursorResizeN:    "resizeUpCursor",
+	platform.CursorResizeE:    "resizeRightCursor",
+	platform.CursorResizeS:    "resizeDownCursor",
+	platform.CursorResizeW:    "resizeLeftCursor",
+	// macOS 15 has cursors for columns and rows.
+	platform.CursorResizeColumn: "columnResizeCursor",
+	platform.CursorResizeRow:    "rowResizeCursor",
+	platform.CursorVerticalText: "IBeamCursorForVerticalLayout",
+	platform.CursorCopy:         "dragCopyCursor",
+	platform.CursorAlias:        "dragLinkCursor",
+	platform.CursorContextMenu:  "contextualMenuCursor",
+}
+
+// cursorFallbacks are the cursors of older macOS for those it lacks.
+var cursorFallbacks = map[platform.Cursor]string{
+	platform.CursorResizeColumn: "resizeLeftRightCursor",
+	platform.CursorResizeRow:    "resizeUpDownCursor",
 }
 
 func (s *surface) applyCursor() {
@@ -272,11 +289,34 @@ func nsCursor(c platform.Cursor) id {
 			}
 		}
 	}
+	if c == platform.CursorNone {
+		return noCursor()
+	}
 	name, ok := cursorSelectors[c]
 	if !ok {
 		name = "arrowCursor"
 	}
+	if !respondsTo(cls, name) {
+		if name, ok = cursorFallbacks[c]; !ok {
+			name = "arrowCursor"
+		}
+	}
 	return send(cls, name)
+}
+
+var hiddenCursor id
+
+// noCursor returns a cursor of a transparent image, which hides the
+// pointer while it is over the view, unlike NSCursor's hide, which hides
+// it everywhere until unhidden.
+func noCursor() id {
+	if hiddenCursor == 0 {
+		img := send(send(class("NSImage"), "alloc"), "init")
+		msgSetSize(img, sel("setSize:"), NSSize{Width: 1, Height: 1})
+		hiddenCursor = msgInitIDPoint(send(class("NSCursor"), "alloc"), sel("initWithImage:hotSpot:"), img, NSPoint{})
+		send(img, "release")
+	}
+	return hiddenCursor
 }
 
 func (s *surface) SetCursor(c platform.Cursor) {
