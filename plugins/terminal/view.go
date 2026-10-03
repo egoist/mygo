@@ -101,12 +101,6 @@ type pendingKey struct {
 	repeat    bool
 }
 
-type fontKey struct {
-	family string
-	size   float32
-	scale  float32
-}
-
 // build updates the view as a frame builds.
 func (v *view) build(c *ui.Context, e *ui.Element) {
 	t := v.t

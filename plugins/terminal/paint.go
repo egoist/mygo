@@ -62,18 +62,12 @@ type boxCell struct {
 func (v *view) layout(r ui.Rect, scale float32) {
 	t := v.t
 	t.mu.Lock()
-	fk := fontKey{t.opts.Font, t.opts.FontSize, scale}
+	fk := t.opts.Font.key(scale)
 	t.mu.Unlock()
-	if fk.family == "" {
-		fk.family = "monospace"
-	}
-	if fk.size <= 0 {
-		fk.size = 13
-	}
 	if fk != v.font {
 		v.font, v.scale = fk, scale
 		for i := range v.fonts {
-			v.fonts[i] = ui.Font{Family: fk.family, Size: fk.size, Weight: 400 + 300*(i&1), Italic: i&2 != 0}
+			v.fonts[i] = fk.variant(i)
 		}
 		m := v.fonts[0].Metrics()
 		adv := float32(0)
@@ -81,7 +75,7 @@ func (v *view) layout(r ui.Rect, scale float32) {
 			adv = max(adv, g.Advance)
 		}
 		v.cellW = max(int(math.Ceil(float64(adv*scale-0.05))), 1)
-		v.cellH = max(int(math.Ceil(float64((m.Ascent+m.Descent+m.LineGap)*scale-0.05))), 1)
+		v.cellH = max(int(math.Ceil(float64((m.Ascent+m.Descent+m.LineGap)*fk.lineHeight*scale-0.05))), 1)
 		v.baseline = int(math.Round(float64((float32(v.cellH)-(m.Ascent+m.Descent)*scale)/2 + m.Ascent*scale)))
 		v.shaped.clear()
 		v.lines = v.lines[:0]

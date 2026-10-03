@@ -1090,7 +1090,10 @@ either.
     `NSUserDefaults` as AppKit does: Core Graphics' bitmap contexts ignore
     it), which emboldens glyphs more the lighter their color is, in four
     steps of its luminance: its glyphs are rasterized for each
-    `text.Shade` of the text's color.
+    `text.Shade` of the text's color. `text.Thick`, for text a
+    `ui.Font` thickens (the terminal's `Font.Thicken`, as Ghostty's
+    font-thicken), smooths at the strongest step whatever the color and
+    the user's setting; other engines draw it as other text.
   - *Windows.* Glyphs take the rendering mode and grid fitting DirectWrite
     recommends for their font and size (`IDWriteFontFace3`'s, which from
     about 1.9 pixels a DIP downsamples natural symmetric rendering, as

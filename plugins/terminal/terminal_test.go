@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"golang.org/x/image/font/gofont/gomono"
+	"golang.org/x/image/font/gofont/gomonobold"
 )
 
 // loadLib loads libghostty-vt, or skips the test where it cannot.
@@ -457,7 +459,7 @@ func TestAppearance(t *testing.T) {
 		t.Errorf("the background did not follow the dark appearance: %v, then %v", light, dark)
 	}
 	cols, _ := term.Size()
-	term.SetFont("", 26)
+	term.SetFont(Font{Size: 26})
 	tt.Frame()
 	if c2, _ := term.Size(); c2 >= cols {
 		t.Errorf("a bigger font left %d columns, from %d", c2, cols)
@@ -519,6 +521,59 @@ func TestThemes(t *testing.T) {
 	near("the selected text", cell(0, 1), th.SelectionText)
 	near("the selection", cell(2, 1), th.Selection)
 	near("the selected text under the cursor", cell(0, 0), th.CursorText)
+}
+
+func TestFont(t *testing.T) {
+	loadLib(t)
+	for _, f := range [][]byte{gomono.TTF, gomonobold.TTF} {
+		if err := ui.RegisterFont(f, "MyGo Test Mono"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// render returns the size of a cell in a font, and the ink of a row of
+	// dark text on white.
+	render := func(f Font) (w, h int, ink int) {
+		f.Family, f.Size = "MyGo Test Mono", 14
+		term, err := New(Options{Conn: newPipe(), Font: f, Theme: LightTheme(), NoBlink: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer term.Close()
+		term.Feed([]byte("MMMMMMMMMM\r\n"))
+		tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 120)
+		tt.SetScale(2)
+		v := term.v
+		img := tt.Image()
+		for y := v.oy; y < v.oy+v.cellH; y++ {
+			for x := v.ox; x < v.ox+10*v.cellW; x++ {
+				ink += 255 - int(img.RGBAAt(x, y).G)
+			}
+		}
+		return v.cellW, v.cellH, ink
+	}
+	w, h, ink := render(Font{})
+	if w2, h2, _ := render(Font{LineHeight: 1.5}); w2 != w || h2 < h*3/2-1 || h2 > h*3/2+1 {
+		t.Errorf("rows 1.5 times as high are %dx%d, from %dx%d", w2, h2, w, h)
+	}
+	if _, _, bold := render(Font{Weight: 700}); bold < ink*11/10 {
+		t.Errorf("weight 700 has ink %d, 400 %d", bold, ink)
+	}
+	_, _, thick := render(Font{Thicken: true})
+	if runtime.GOOS == "darwin" && thick < ink*103/100 {
+		t.Errorf("thickened text has ink %d, else %d", thick, ink)
+	} else if runtime.GOOS != "darwin" && thick != ink {
+		t.Errorf("thickening changed text off macOS: ink %d, else %d", thick, ink)
+	}
+	if got := featureList([]string{"-calt", "+ss01", " cv05=2 ", "liga=0", ""}); got != "calt=0,ss01,cv05=2,liga=0" {
+		t.Errorf("features are %q", got)
+	}
+	k := (&Font{Weight: 300, Features: []string{"-calt"}}).key(1)
+	if f := k.variant(1); f.Weight != 700 || f.Features != "calt=0" {
+		t.Errorf("the bold of weight 300 is %+v", f)
+	}
+	if f := (&Font{Weight: 800}).key(1).variant(3); f.Weight != 900 || !f.Italic {
+		t.Errorf("the bold italic of weight 800 is %+v", f)
+	}
 }
 
 func TestWindowsShell(t *testing.T) {

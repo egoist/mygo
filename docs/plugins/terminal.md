@@ -99,8 +99,7 @@ term, err := terminal.New(terminal.Options{
 	Command:  []string{"htop"},          // the user's login shell when empty
 	Dir:      "/tmp",                     // the home directory when empty
 	Env:      []string{"EDITOR=vim"},     // added to the app's environment
-	Font:     "JetBrains Mono, monospace", // "monospace" when empty
-	FontSize: 14,                          // 13 when zero
+	Font:     terminal.Font{Family: "JetBrains Mono", Size: 14},
 	Theme:    terminal.DarkTheme(),        // follows the window when nil
 	Cursor:   terminal.CursorBar,          // a block when zero
 	OnTitle:  func(title string) { win.SetTitle(title) },
@@ -115,6 +114,8 @@ term, err := terminal.New(terminal.Options{
 - `Env` adds to the environment, which has `TERM=xterm-256color`,
   `COLORTERM=truecolor`, and `LANG=en_US.UTF-8` when no locale is set, as
   for apps started from the Finder.
+- `Font` sets the font: the system's monospaced font at 13 DIPs by
+  default (see [Fonts](#fonts)).
 - `Theme` sets the colors: the foreground, the background, the cursor's
   and the text's under it, the selection's and the selected text's, and
   the palette of 16 colors; `DarkTheme`, when set too, sets those of dark
@@ -133,6 +134,54 @@ term, err := terminal.New(terminal.Options{
   for a desktop notification. `Done` is closed once the program exited,
   and `ExitCode` returns its code (-1 for a program that could not
   start); the terminal then shows "[Process exited]".
+
+## Fonts
+
+`terminal.Font` holds what Ghostty's font options set:
+
+```go
+term, err := terminal.New(terminal.Options{Font: terminal.Font{
+	Family:     "JetBrains Mono, Menlo, monospace", // tried in order
+	Size:       14,                                  // DIPs, 13 when zero
+	Weight:     500,                                 // 400 when zero
+	Features:   []string{"-calt", "+ss01"},          // as Ghostty's font-feature
+	LineHeight: 1.2,                                 // as adjust-cell-height = 20%
+	Thicken:    true,                                // as font-thicken, on macOS
+}})
+```
+
+- `Family` is a list of families, as `ui.Element.Font` takes it: the
+  system's monospaced font when empty. Characters the fonts lack come
+  from the system's fallback fonts. A font the app carries, rather than
+  one the user installed, is added with `ui.RegisterFont`, its styles
+  under one family so that bold and italic text take them:
+
+  ```go
+  //go:embed fonts
+  var fonts embed.FS
+
+  for _, name := range []string{"Regular", "Bold", "Italic", "BoldItalic"} {
+  	data, _ := fonts.ReadFile("fonts/JetBrainsMono-" + name + ".ttf")
+  	ui.RegisterFont(data, "JetBrains Mono")
+  }
+  ```
+
+- `Weight` sets how heavy text is, from 100 to 900, of the weights the
+  family has; bold text is 300 heavier, at least 700.
+- `Features` turn OpenType features on and off: `"ss01"` or `"+ss01"` on,
+  `"calt=0"` or `"-calt"` off, `"cv05=2"` an alternate. Coding fonts make
+  most of their ligatures with `calt`, the others with `liga`; a ligature
+  spans the cells of its characters.
+- `LineHeight` makes rows taller or shorter than the font's line height,
+  with the text centered in them; box drawing still joins.
+- `Thicken` draws text with a thicker stroke, with Core Text's font
+  smoothing at its strongest whatever the colors and the system's
+  setting, as Ghostty does. Without it, text is as AppKit draws it:
+  smoothed more the lighter it is, while the user leaves smoothing on. It
+  changes nothing on Linux and Windows, as in Ghostty.
+
+`SetFont` changes the font of a running terminal; the grid then takes the
+new size of its cells.
 
 ## Themes
 

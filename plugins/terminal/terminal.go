@@ -60,11 +60,9 @@ type Options struct {
 	// Conn with a method Resize(cols, rows int) error is told the size.
 	Conn io.ReadWriteCloser
 
-	// Font is the font family of the text, a comma-separated list as
-	// ui.Element.Font takes: "monospace", the system's, when empty.
-	// FontSize is its size in DIPs, 13 when zero.
-	Font     string
-	FontSize float32
+	// Font is the font of the text: the system's monospaced font at 13
+	// DIPs when zero.
+	Font Font
 	// Theme sets the colors, and DarkTheme those in dark windows when set,
 	// as Ghostty's theme = light:…,dark:… does (GhosttyTheme returns
 	// Ghostty's themes). Without either, the terminal follows the window's
@@ -164,6 +162,7 @@ func New(opts Options) (*Terminal, error) {
 	if err := Load(); err != nil {
 		return nil, err
 	}
+	opts.Font.Features = append([]string(nil), opts.Font.Features...)
 	t := &Terminal{opts: opts, done: make(chan struct{})}
 	t.size = gridSize{80, 24, 8, 16}
 	var err error
@@ -460,11 +459,12 @@ func (t *Terminal) Dir() string {
 	return fileURLPath(pwd)
 }
 
-// SetFont changes the font family and size, as Options.Font and FontSize
+// SetFont changes the font, as Options.Font.
 // set them, as for zooming.
-func (t *Terminal) SetFont(family string, size float32) {
+func (t *Terminal) SetFont(f Font) {
+	f.Features = append([]string(nil), f.Features...)
 	t.mu.Lock()
-	t.opts.Font, t.opts.FontSize = family, size
+	t.opts.Font = f
 	t.mu.Unlock()
 	t.redraw()
 }
