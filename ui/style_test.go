@@ -27,7 +27,9 @@ func boxes(t *testing.T, view func(c *Context), w, h int, labels ...string) map[
 
 func near(a, b float32) bool { return math.Abs(float64(a-b)) < 0.51 }
 
-func nearRect(a, b Rect) bool { return near(a.X, b.X) && near(a.Y, b.Y) && near(a.W, b.W) && near(a.H, b.H) }
+func nearRect(a, b Rect) bool {
+	return near(a.X, b.X) && near(a.Y, b.Y) && near(a.W, b.W) && near(a.H, b.H)
+}
 
 func TestGrid(t *testing.T) {
 	cells := func(n int) []string {
