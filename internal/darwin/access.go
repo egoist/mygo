@@ -250,9 +250,11 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 		changed := false
 		objs := make([]id, len(tree.Nodes))
 		var valueChanged []id
+		fresh := map[uint64]bool{}
 		for i, n := range tree.Nodes {
 			el := s.elements[n.ID]
 			if el == nil {
+				fresh[n.ID] = true
 				el = &accessElement{obj: send(send(class("MyGoAccessibilityElement"), "alloc"), "init"), s: s}
 				s.elements[n.ID] = el
 				s.w.b.byAccess[el.obj] = el
@@ -331,7 +333,9 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 			send(el.obj, "setAccessibilitySelectedRows:", uintptr(nsArray(chosen...)))
 			if !slices.Equal(el.chosen, chosenIDs) {
 				el.chosen = chosenIDs
-				selectionChanged = append(selectionChanged, el)
+				if !fresh[n.ID] { // a new list's choice did not change
+					selectionChanged = append(selectionChanged, el)
+				}
 			}
 		}
 		release(s.topLevel)
