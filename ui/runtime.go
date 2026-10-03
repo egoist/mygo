@@ -101,17 +101,25 @@ type engine struct {
 	tooltipFrame uint64
 	tooltipDepth int
 	hoverSince   time.Time
-	scrollDrag   struct {
-		st          *state
-		start, from float32
-		horizontal  bool
-	}
-	lastPress struct {
+	scrollDrag   scrollDrag
+	lastPress    struct {
 		at     time.Time
 		x, y   float32
 		id     uint64
 		clicks int
 	}
+}
+
+// scrollDrag is the scroll bar thumb being dragged: where the pointer
+// and the offset started, and the size of the content then, which the
+// thumb keeps until it is let go, as the rows of a List measured
+// meanwhile change it.
+type scrollDrag struct {
+	st                 *state
+	start              float32
+	from               float64
+	contentW, contentH float64
+	horizontal         bool
 }
 
 // labelNode is an element showing or labeled with text, for tests and

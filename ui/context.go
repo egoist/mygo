@@ -237,15 +237,17 @@ type state struct {
 	dragX, dragY   float32
 	pressed        bool
 
-	scrollX, scrollY float32
-	contentW         float32
-	contentH         float32
+	// scrollX and scrollY are float64, as the content a List scrolls
+	// may be taller than float32 counts to a fraction of a DIP.
+	scrollX, scrollY float64
+	contentW         float64
+	contentH         float64
 	// track is the ScrollState of the last frame's element, which events
 	// that scroll it update (scrollTo).
 	track *ScrollState
 	// startX and startY are the offset before frame moveFrame moved it.
 	moveFrame      uint64
-	startX, startY float32
+	startX, startY float64
 	// cx and cw are the left and width of the element's content box,
 	// inside its padding, in the last frame.
 	cx, cw float32

@@ -33,35 +33,6 @@ func Table(c *Context, columns []TableColumn, n int, selected *int, cell func(ro
 	table := Column(c).Role(RoleTable).Focusable().Clip()
 	table.widget = "Table"
 	table.flags |= flagOwnRing
-	// reveal is set when the keys moved the choice, which then scrolls
-	// into view.
-	reveal := Local(table, "reveal", func() bool { return false })
-	if selected != nil && n > 0 {
-		choose := func(i int) {
-			i = max(0, min(i, n-1))
-			if i != *selected {
-				*selected = i
-				table.st.changed = true
-				c.rt.consumed = true
-			}
-			*reveal = true
-		}
-		switch {
-		case table.Shortcut(0, KeyDown):
-			choose(*selected + 1)
-		case table.Shortcut(0, KeyUp):
-			choose(*selected - 1)
-		case table.Shortcut(0, KeyHome):
-			choose(0)
-		case table.Shortcut(0, KeyEnd):
-			choose(n - 1)
-		case table.Shortcut(0, KeyEnter):
-			if *selected >= 0 && *selected < n {
-				table.st.submitted = true
-				c.rt.consumed = true
-			}
-		}
-	}
 	// cells builds a row's cells, with fill building the content of each.
 	cells := func(role Role, fill func(col int)) {
 		for j, col := range columns {
@@ -80,7 +51,6 @@ func Table(c *Context, columns []TableColumn, n int, selected *int, cell func(ro
 			box.Children(func() { fill(j) })
 		}
 	}
-	var list *Element
 	table.Children(func() {
 		Row(c).Height(tableRow).Shrink(0).Role(RoleRow).Children(func() {
 			cells(RoleColumnHeader, func(j int) {
@@ -88,47 +58,23 @@ func Table(c *Context, columns []TableColumn, n int, selected *int, cell func(ro
 			})
 		})
 		Divider(c)
-		list = List(c, n, tableRow, func(i int) {
-			row := Row(c).Fill().Role(RoleRow)
-			row.flags |= flagClickable | flagHover
-			if selected != nil {
-				if row.Clicked() {
-					if *selected != i {
-						*selected = i
-						table.st.changed = true
-					}
-					table.Focus()
-				}
-				if row.DoubleClicked() {
-					table.st.submitted = true
-				}
-				row.Selected(*selected == i)
-			}
-			row.styleFn = func(row *Element) {
-				if row.checked != 2 && row.Hovered() {
-					row.bg = t.SurfaceHover
-				}
+		// The rows are a List's, whose choice the table takes the focus
+		// and the keys for.
+		list := Scroll(c).Grow(1).Role(RoleNone)
+		list.widget = "List"
+		s := Local(table, "rows", func() ListState { return ListState{} })
+		s.Selected = selected
+		buildList(c, list, table, s, n, func(i int) {
+			row := Row(c).Height(tableRow)
+			if selected == nil {
+				// Chosen rows are rows already.
+				row.Role(RoleRow)
 			}
 			row.Children(func() {
 				cells(RoleCell, func(j int) { cell(i, j) })
 			})
-		}).Grow(1).Role(RoleNone)
+		}, true)
 	})
-	if *reveal && selected != nil {
-		*reveal = false
-		// The list's box is the last frame's; the next frame shows the
-		// rows the new scrolling brings into view.
-		st := list.st
-		top, bottom := float32(*selected)*tableRow, float32(*selected+1)*tableRow
-		switch {
-		case top < st.scrollY:
-			st.scrollTo(st.scrollX, top)
-			c.AnimationFrame()
-		case st.h > 0 && bottom > st.scrollY+st.h:
-			st.scrollTo(st.scrollX, bottom-st.h)
-			c.AnimationFrame()
-		}
-	}
 	table.DrawOver(func(p *Painter, r Rect) {
 		if table.FocusVisible() {
 			p.FocusRing(r, [4]float32{})

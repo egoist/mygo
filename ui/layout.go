@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"slices"
 
 	"github.com/egoist/mygo/internal/text"
 )
@@ -68,7 +69,14 @@ func base(v float32) float32 {
 // element its box relative to the window.
 func layoutTree(root *Element, w, h float32) {
 	layoutBox(root, w, h)
-	if rt := root.c.rt; len(rt.revealIDs) > 0 {
+	rt := root.c.rt
+	// Lists build rows as they lay out, which may ask to come into view.
+	for _, e := range root.c.reveal {
+		if !slices.Contains(rt.revealIDs, e.id) {
+			rt.revealIDs = append(rt.revealIDs, e.id)
+		}
+	}
+	if len(rt.revealIDs) > 0 {
 		revealAll(root, rt.revealIDs)
 		rt.revealIDs = rt.revealIDs[:0]
 	}
@@ -93,15 +101,15 @@ func place(e *Element, x, y float32) {
 			s.scrollTo(sx, sy)
 		}
 		if t := e.track; t != nil {
-			t.MaxX, t.MaxY = mx, my
+			t.MaxX, t.MaxY = float32(mx), float32(my)
 		}
 		if s.movedIn(e.c.rt.frame) {
 			// What was built read the old offset, as List's rows or the
 			// app from its ScrollState: build the next frame with the new.
 			e.c.rt.animating = true
 		}
-		cx -= s.scrollX
-		cy -= s.scrollY
+		cx -= float32(s.scrollX)
+		cy -= float32(s.scrollY - e.scrollBase)
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute != 0 {
@@ -378,6 +386,10 @@ func layoutBox(e *Element, w, h float32) {
 	case kindImage, kindIcon:
 		return
 	}
+	if e.list != nil {
+		e.layoutList(w, h)
+		return
+	}
 	lw, lh := cw, ch
 	if e.flags&flagScrollX != 0 {
 		lw = inf
@@ -387,8 +399,8 @@ func layoutBox(e *Element, w, h float32) {
 	}
 	uw, uh := boxLayout(e, lw, lh, true)
 	if e.scrolls() {
-		e.contentW = max(uw, cw) + e.padX()
-		e.contentH = max(uh, ch) + e.padY()
+		e.contentW = float64(max(uw, cw) + e.padX())
+		e.contentH = float64(max(uh, ch) + e.padY())
 	}
 	layoutAbsolute(e)
 }
