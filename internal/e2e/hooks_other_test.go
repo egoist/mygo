@@ -63,6 +63,8 @@ func pressTitleButton(*mygo.Window, string) bool { return false }
 
 func topNonClient(*mygo.Window) (int32, int32, bool) { return 0, 0, false }
 
+func menuBarColors(*mygo.Window) (uint32, uint32, bool) { return 0, 0, false }
+
 // A Control-click is a secondary click on macOS only.
 func controlClick(*mygo.Window, float64, float64) bool { return false }
 

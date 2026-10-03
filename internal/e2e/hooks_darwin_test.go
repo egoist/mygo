@@ -98,6 +98,8 @@ func pressTitleButton(*mygo.Window, string) bool { return false }
 
 func topNonClient(*mygo.Window) (int32, int32, bool) { return 0, 0, false }
 
+func menuBarColors(*mygo.Window) (uint32, uint32, bool) { return 0, 0, false }
+
 func clickAndType(w *mygo.Window, x, y float64, text string) (ok bool) {
 	mygo.RunOnMain(func() { ok = darwin.TestClickAndType(w.NativeHandle(), x, y, text) })
 	return ok

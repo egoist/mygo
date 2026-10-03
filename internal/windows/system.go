@@ -432,7 +432,7 @@ func (b *Backend) applyTheme() {
 }
 
 // applyWindowTheme matches the title bar, or the controls drawn in its
-// place, to the appearance.
+// place, and the menus to the appearance.
 func (b *Backend) applyWindowTheme(w *window) {
 	dark := int32(0)
 	if b.isDark() {
@@ -441,6 +441,12 @@ func (b *Backend) applyWindowTheme(w *window) {
 	procDwmSetWindowAttribute.Call(w.hwnd, dwmwaUseImmersiveDarkMode, uintptr(unsafe.Pointer(&dark)), 4)
 	if w.caption != nil {
 		w.caption.paint()
+	}
+	// Popup menus follow the app's mode; the bar is drawn again in the
+	// appearance, with the line below it.
+	b.applyMenuTheme()
+	if w.menuShown() {
+		procRedrawWindow.Call(w.hwnd, 0, 0, rdwInvalidate|rdwFrame|rdwUpdateNow)
 	}
 }
 
