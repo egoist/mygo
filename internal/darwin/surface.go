@@ -3,6 +3,9 @@
 package darwin
 
 import (
+	"bytes"
+	"image"
+	pngenc "image/png"
 	"runtime"
 	"structs"
 	"sync"
@@ -311,10 +314,18 @@ var hiddenCursor id
 // it everywhere until unhidden.
 func noCursor() id {
 	if hiddenCursor == 0 {
-		img := send(send(class("NSImage"), "alloc"), "init")
-		msgSetSize(img, sel("setSize:"), NSSize{Width: 1, Height: 1})
-		hiddenCursor = msgInitIDPoint(send(class("NSCursor"), "alloc"), sel("initWithImage:hotSpot:"), img, NSPoint{})
-		send(img, "release")
+		// A PNG of one transparent pixel.
+		var png bytes.Buffer
+		if err := pngenc.Encode(&png, image.NewNRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+			return send(class("NSCursor"), "arrowCursor")
+		}
+		b := png.Bytes()
+		withPool(func() {
+			data := send(class("NSData"), "dataWithBytes:length:", uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)))
+			img := send(send(class("NSImage"), "alloc"), "initWithData:", uintptr(data))
+			hiddenCursor = msgInitIDPoint(send(class("NSCursor"), "alloc"), sel("initWithImage:hotSpot:"), img, NSPoint{})
+			send(img, "release")
+		})
 	}
 	return hiddenCursor
 }

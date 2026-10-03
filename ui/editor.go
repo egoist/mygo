@@ -593,9 +593,9 @@ func TextArea(c *Context, value *string) *Element { return textInput(c, value, t
 func textInput(c *Context, value *string, multiline bool) *Element {
 	t := c.theme
 	e := textInputBase(c, value, multiline)
-	e.Padding(t.space(1.5), t.space(2.5)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border)
+	e.Padding(t.Space(1.5), t.Space(2.5)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border)
 	if multiline {
-		e.MinHeight(t.space(20))
+		e.MinHeight(t.Space(20))
 	}
 	e.styleFn = func(e *Element) {
 		if e.Focused() {

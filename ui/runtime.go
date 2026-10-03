@@ -320,6 +320,9 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	invisible := e.flags&flagInvisible != 0 || hidden
 	if invisible {
 		s.vw, s.vh = 0, 0
+		if rt.focused == e.id {
+			rt.focused = 0
+		}
 	}
 	if e.flags&flagPassThrough == 0 && !invisible {
 		rt.hits = append(rt.hits, hit{s, v, e.flags})

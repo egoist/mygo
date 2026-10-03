@@ -50,6 +50,9 @@ func Grid(c *Context) *Element { return Box(c).Grid() }
 
 // Grid lays the children out in a grid, as the function Grid does.
 func (e *Element) Grid() *Element {
+	if e.row && e.align == Center {
+		e.align = alignAuto // as Row set it
+	}
 	e.grid, e.row = true, false
 	return e
 }
@@ -496,17 +499,22 @@ func gridLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) 
 	if finite(ch) && e.alignContent != alignAuto {
 		y0, betweenY = justifyOffsets(e.alignContent, max(ch-usedH, 0), nr)
 	}
-	start := func(sizes []float32, i int, origin, gap, between float32) float32 {
-		p := origin
-		for k := range i {
-			p += sizes[k] + gap + between
-		}
-		return p
+	// Where each track starts.
+	at = len(s.f)
+	for range nc + nr {
+		s.f = append(s.f, 0)
+	}
+	colAt, rowAt := s.f[at:at+nc], s.f[at+nc:at+nc+nr]
+	for k, p := 0, x0; k < nc; k++ {
+		colAt[k], p = p, p+cols[k]+e.gapX+betweenX
+	}
+	for k, p := 0, y0; k < nr; k++ {
+		rowAt[k], p = p, p+rows[k]+e.gapY+betweenY
 	}
 	for i := range items {
 		it := &items[i]
 		c := it.e
-		x := start(cols, it.col, x0, e.gapX, betweenX) + offs[i]
+		x := colAt[it.col] + offs[i]
 		ah := (e.gapY + betweenY) * float32(it.rowSpan-1)
 		for k := it.row; k < it.row+it.rowSpan; k++ {
 			ah += rows[k]
@@ -518,7 +526,7 @@ func gridLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) 
 			}
 			return heightAt(c, w, ch)
 		}, c.clampH)
-		y := start(rows, it.row, y0, e.gapY, betweenY) + offY
+		y := rowAt[it.row] + offY
 		c.x, c.y = e.contentX()+x, e.contentY()+y
 		layoutBox(c, w, h)
 		dx, dy := c.relative(cw, ch)

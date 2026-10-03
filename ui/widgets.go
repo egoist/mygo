@@ -178,7 +178,7 @@ func button(c *Context, label string, primary bool) *Element {
 // primary.
 func styleButton(c *Context, b *Element, primary bool) {
 	t := c.theme
-	b.Padding(t.space(1.5), t.space(3.5)).Gap(t.space(1.5)).Radius(t.Radius)
+	b.Padding(t.Space(1.5), t.Space(3.5)).Gap(t.Space(1.5)).Radius(t.Radius)
 	base, hover, pressed, fg, border := t.Surface, t.SurfaceHover, t.SurfacePressed, t.Text, t.Border
 	if primary {
 		base, hover, pressed, fg, border = t.Accent, t.AccentHover, t.AccentPressed, t.AccentText, Color{}
@@ -221,10 +221,10 @@ func checkPath(r Rect) *Path {
 // Checkbox creates a check box toggling *checked, with a label.
 func Checkbox(c *Context, checked *bool, label string) *Element {
 	t := c.theme
-	row := CheckboxBase(c, checked).Gap(t.space(2)).FocusRing(false)
+	row := CheckboxBase(c, checked).Gap(t.Space(2)).FocusRing(false)
 	on := *checked
 	row.Children(func() {
-		box := Box(c).Size(t.space(4), t.space(4)).Radius(t.space(1)).Shrink(0)
+		box := Box(c).Size(t.Space(4), t.Space(4)).Radius(t.Space(1)).Shrink(0)
 		if on {
 			box.Background(t.Accent)
 		} else {
@@ -232,7 +232,7 @@ func Checkbox(c *Context, checked *bool, label string) *Element {
 		}
 		box.DrawOver(func(p *Painter, r Rect) {
 			if on {
-				p.StrokePath(checkPath(r), t.space(0.5), t.AccentText)
+				p.StrokePath(checkPath(r), t.Space(0.5), t.AccentText)
 			}
 			if row.FocusVisible() {
 				p.FocusRing(r, box.radius)
@@ -254,10 +254,10 @@ func Checkbox(c *Context, checked *bool, label string) *Element {
 // label.
 func Radio[T comparable](c *Context, selected *T, value T, label string) *Element {
 	t := c.theme
-	row := RadioBase(c, selected, value).Gap(t.space(2)).FocusRing(false)
+	row := RadioBase(c, selected, value).Gap(t.Space(2)).FocusRing(false)
 	on := *selected == value
 	row.Children(func() {
-		dot := Box(c).Size(t.space(4), t.space(4)).Radius(t.space(2)).Shrink(0)
+		dot := Box(c).Size(t.Space(4), t.Space(4)).Radius(t.Space(2)).Shrink(0)
 		if on {
 			dot.Background(t.Accent)
 		} else {
@@ -265,7 +265,7 @@ func Radio[T comparable](c *Context, selected *T, value T, label string) *Elemen
 		}
 		dot.DrawOver(func(p *Painter, r Rect) {
 			if on {
-				d := t.space(1.5)
+				d := t.Space(1.5)
 				p.Fill(Rect{r.X + (r.W-d)/2, r.Y + (r.H-d)/2, d, d}, t.AccentText, d/2)
 			}
 			if row.FocusVisible() {
@@ -287,12 +287,12 @@ func Radio[T comparable](c *Context, selected *T, value T, label string) *Elemen
 // Switch creates a switch toggling *on.
 func Switch(c *Context, on *bool) *Element {
 	t := c.theme
-	sw := SwitchBase(c, on).Size(t.space(9), t.space(5)).Radius(t.space(2.5))
+	sw := SwitchBase(c, on).Size(t.Space(9), t.Space(5)).Radius(t.Space(2.5))
 	pos := sw.Animate("knob", b2f(*on), 140*time.Millisecond)
 	off := t.Border.Mix(t.Text, 0.15)
 	sw.Background(off.Mix(t.Accent, pos))
 	sw.Draw(func(p *Painter, r Rect) {
-		in := t.space(0.5)
+		in := t.Space(0.5)
 		d := r.H - 2*in
 		knob := Rect{r.X + in + pos*(r.W-r.H), r.Y + in, d, d}
 		p.Shadow(Rect{knob.X, knob.Y + 1, knob.W, knob.H}, d/2, 3, RGBA(0, 0, 0, 0.25))
@@ -306,14 +306,14 @@ func Slider(c *Context, value *float64, lo, hi float64) *Element {
 	t := c.theme
 	// The knob moves across the content box, half of it inside the
 	// padding on each side.
-	knob := t.space(4)
-	s := SliderBase(c, value, lo, hi).Height(t.space(5)).MinWidth(t.space(20)).PaddingX(knob / 2).FocusRing(false)
+	knob := t.Space(4)
+	s := SliderBase(c, value, lo, hi).Height(t.Space(5)).MinWidth(t.Space(20)).PaddingX(knob / 2).FocusRing(false)
 	frac := float32(0)
 	if hi > lo {
 		frac = float32((*value - lo) / (hi - lo))
 	}
 	s.Draw(func(p *Painter, r Rect) {
-		h := t.space(1)
+		h := t.Space(1)
 		track := Rect{r.X + knob/2, r.Y + r.H/2 - h/2, r.W - knob, h}
 		p.Fill(track, t.Border.Mix(t.Text, 0.1), h/2)
 		p.Fill(Rect{track.X, track.Y, track.W * frac, h}, t.Accent, h/2)
@@ -332,8 +332,8 @@ func Slider(c *Context, value *float64, lo, hi float64) *Element {
 // negative value shows activity of unknown length.
 func Progress(c *Context, value float64) *Element {
 	t := c.theme
-	rad := t.space(0.75)
-	e := Box(c).Height(t.space(1.5)).Radius(rad).Background(t.Border).Clip()
+	rad := t.Space(0.75)
+	e := Box(c).Height(t.Space(1.5)).Radius(rad).Background(t.Border).Clip()
 	e.role, e.hasRange, e.accRange = RoleProgress, true, [3]float64{0, 1, value}
 	now := c.now
 	if value < 0 {
@@ -503,7 +503,7 @@ func (e *Element) Tooltip(s string) *Element {
 	t := c.theme
 	x, y := rt.pointerX+12, rt.pointerY+18
 	Overlay(c, func() {
-		tip := Box(c).Absolute().Left(x).Top(y).MaxWidth(t.space(80)).Padding(t.space(1.25), t.space(2)).Radius(t.space(1.25)).
+		tip := Box(c).Absolute().Left(x).Top(y).MaxWidth(t.Space(80)).Padding(t.Space(1.25), t.Space(2)).Radius(t.Space(1.25)).
 			Background(t.Text).TextColor(t.Background).FontSize(t.FontSize - 1).PassThrough().Role(RoleTooltip)
 		tip.Shadow(0, 2, 8, 0, RGBA(0, 0, 0, 0.2))
 		tip.Children(func() { Text(c, s) })
@@ -530,7 +530,7 @@ func Modal(c *Context, open *bool, fn func()) *Element {
 	t := c.theme
 	return DialogBase(c, open, func(back, panel *Element) {
 		back.Background(RGBA(0, 0, 0, 0.4))
-		panel.Padding(t.space(5)).Gap(t.space(3)).Radius(t.space(2.5)).Background(t.Background).MaxWidth(c.w - t.space(10)).MaxHeight(c.h - t.space(10))
+		panel.Padding(t.Space(5)).Gap(t.Space(3)).Radius(t.Space(2.5)).Background(t.Background).MaxWidth(c.w - t.Space(10)).MaxHeight(c.h - t.Space(10))
 		panel.Shadow(0, 10, 30, 0, RGBA(0, 0, 0, 0.3))
 		fn()
 	})
@@ -552,7 +552,7 @@ func Popover(c *Context, anchor *Element, open *bool, fn func()) *Element {
 // stylePanel gives the panel of a popup the theme's look.
 func stylePanel(c *Context, panel *Element) {
 	t := c.theme
-	panel.Margin(t.space(1), 0, 0, 0).Padding(t.space(1)).Radius(t.Radius+2).Background(t.Background).Border(1, t.Border)
+	panel.Margin(t.Space(1), 0, 0, 0).Padding(t.Space(1)).Radius(t.Radius+2).Background(t.Background).Border(1, t.Border)
 	panel.Shadow(0, 6, 20, 0, RGBA(0, 0, 0, 0.18))
 }
 
@@ -562,10 +562,10 @@ func Select(c *Context, selected *string, options []string) *Element {
 	sel := SelectBase(c, selected)
 	b := sel.Trigger
 	styleButton(c, b, false)
-	b.Justify(SpaceBetween).MinWidth(t.space(35))
+	b.Justify(SpaceBetween).MinWidth(t.Space(35))
 	b.Children(func() {
 		Text(c, *selected).SingleLine()
-		Box(c).Size(t.space(2.5), t.space(2.5)).Shrink(0).Draw(func(p *Painter, r Rect) {
+		Box(c).Size(t.Space(2.5), t.Space(2.5)).Shrink(0).Draw(func(p *Painter, r Rect) {
 			var path Path
 			path.MoveTo(r.X+r.W*0.1, r.Y+r.H*0.3).LineTo(r.X+r.W*0.5, r.Y+r.H*0.7).LineTo(r.X+r.W*0.9, r.Y+r.H*0.3)
 			p.StrokePath(&path, 1.5, t.TextMuted)
@@ -574,7 +574,7 @@ func Select(c *Context, selected *string, options []string) *Element {
 	sel.Popup(func(panel *Element) {
 		stylePanel(c, panel)
 		for _, opt := range options {
-			item := sel.Item(opt).Padding(t.space(1.5), t.space(2.5)).Radius(t.Radius)
+			item := sel.Item(opt).Padding(t.Space(1.5), t.Space(2.5)).Radius(t.Radius)
 			switch {
 			case item.Highlighted():
 				item.Background(t.Accent).TextColor(t.AccentText)

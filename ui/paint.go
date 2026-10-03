@@ -241,7 +241,13 @@ func (p *Painter) gradient(op *scene.Op, g LinearGradient) {
 		op.Paint = scene.PaintOklab
 	}
 	op.Color, op.Color2 = g.From.scene(), g.To.scene()
-	op.Gradient = [4]float32{x0 + (x1-x0)*start, y0 + (y1-y0)*start, x0 + (x1-x0)*end, y0 + (y1-y0)*end}
+	sx, sy := x0+(x1-x0)*start, y0+(y1-y0)*start
+	ex, ey := x0+(x1-x0)*end, y0+(y1-y0)*end
+	if end-start < 0.5/max(2*half, 1) {
+		// Stops at one place: a hard edge, half a pixel wide.
+		ex, ey = sx+dx*0.5, sy+dy*0.5
+	}
+	op.Gradient = [4]float32{sx, sy, ex, ey}
 }
 
 // debug outlines an element and the elements inside it: their margins in
@@ -382,10 +388,11 @@ func (p *Painter) wave(x0, x1, y, thick float32, c Color) {
 	length := thick * 6
 	y += amp
 	var path Path
-	step := length / 8
+	// Eight points a wave, the last at x1.
+	n := max(int(math.Ceil(float64((x1-x0)/(length/8)))), 1)
 	path.MoveTo(x0/s, y/s)
-	for x := x0 + step; x < x1+step/2; x += step {
-		x = min(x, x1)
+	for i := 1; i <= n; i++ {
+		x := x0 + (x1-x0)*float32(i)/float32(n)
 		path.LineTo(x/s, (y-amp*float32(math.Sin(float64((x-x0)/length*2*math.Pi))))/s)
 	}
 	p.StrokePath(&path, thick/s, c)
@@ -433,14 +440,9 @@ func fitIn(box Rect, w, h float32, fit Fit) (dst, src Rect) {
 }
 
 func (p *Painter) drawBitmap(img *Bitmap, box Rect, fit Fit, radius [4]float32, gray bool) {
+	// A bitmap's own size is its pixels in DIPs, as an Image lays it out.
 	iw, ih := float32(img.w), float32(img.h)
-	w, h := iw, ih
-	if fit == ScaleDown || fit == NaturalSize {
-		// A bitmap's own size is in pixels: as many DIPs as it shows
-		// sharp at the scale.
-		w, h = iw/p.scale, ih/p.scale
-	}
-	dst, frac := fitIn(box, w, h, fit)
+	dst, frac := fitIn(box, iw, ih, fit)
 	if dst.W <= 0 || dst.H <= 0 {
 		return
 	}

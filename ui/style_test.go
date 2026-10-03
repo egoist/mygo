@@ -549,3 +549,52 @@ func TestThemeUnits(t *testing.T) {
 		t.Errorf("Space(2) = %v, Rem(1.5) = %v", th.Space(2), th.Rem(1.5))
 	}
 }
+
+func TestReviewedEdges(t *testing.T) {
+	// Stops at one place make a hard edge.
+	img := Render(func(c *Context) {
+		Box(c).Size(100, 10).LinearGradient(LinearGradient{From: RGB(255, 0, 0), To: RGB(0, 0, 255), Angle: 90, Start: 0.5, End: 0.5})
+		// A 20×20 bitmap shows at 20×20 DIPs, as its Image lays out.
+		src := image.NewRGBA(image.Rect(0, 0, 20, 20))
+		for i := 0; i < len(src.Pix); i += 4 {
+			src.Pix[i+1], src.Pix[i+3] = 255, 255
+		}
+		Image(c, NewBitmap(src)).Size(60, 60).Fit(NaturalSize)
+	}, 100, 100, 2)
+	if l, r := img.RGBAAt(90, 10), img.RGBAAt(110, 10); l.R != 255 || r.B != 255 {
+		t.Errorf("a hard stop: %v and %v", l, r)
+	}
+	green := 0
+	for y := 0; y < 200; y++ {
+		for x := 0; x < 200; x++ {
+			if c := img.RGBAAt(x, y); c.G == 255 && c.R == 0 {
+				green++
+			}
+		}
+	}
+	if green != 40*40 {
+		t.Errorf("a 20×20 bitmap at its natural size covers %d device pixels at scale 2", green)
+	}
+
+	// An element that turns invisible gives up the focus.
+	hide, clicks := false, 0
+	tt := NewTester(func(c *Context) {
+		b := ButtonBase(c).Size(40, 20).Label("b")
+		if hide {
+			b.Invisible()
+		}
+		if b.Clicked() {
+			clicks++
+		}
+	}, 100, 100)
+	tt.Key(0, KeyTab)
+	if !tt.Focused("b") {
+		t.Fatal("Tab did not focus the button")
+	}
+	hide = true
+	tt.Frame()
+	tt.Key(0, KeyEnter)
+	if clicks != 0 {
+		t.Error("Enter pressed an invisible button")
+	}
+}

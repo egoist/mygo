@@ -46,8 +46,9 @@ type Theme struct {
 	Font     string
 }
 
-// space returns n units of the theme's spacing.
-func (t *Theme) space(n float32) float32 {
+// Space returns n units of the theme's Spacing, to size elements of your
+// own in step with the widgets: ui.Column(c).Gap(t.Space(2)).
+func (t *Theme) Space(n float32) float32 {
 	s := t.Spacing
 	if s <= 0 {
 		s = 4
@@ -61,10 +62,6 @@ func (t *Theme) scrollbarWidth() float32 {
 	}
 	return t.ScrollbarWidth
 }
-
-// Space returns n units of the theme's Spacing, to size elements of your
-// own in step with the widgets: ui.Column(c).Gap(t.Space(2)).
-func (t *Theme) Space(n float32) float32 { return t.space(n) }
 
 // Rem returns n times the theme's FontSize, as CSS's rem, to size elements
 // with the text.
