@@ -230,11 +230,8 @@ func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i in
 	*f = listFrame{c: c, e: e, owner: owner, s: s, n: n, row: row, frame: rt.frame, pass: rt.pass, flat: flat, theme: c.theme, rows: f.rows[:0], at: f.at}
 	e.list, owner.rowsOf = f, f
 	s.sync(e, n)
-	if s.cursor() != nil {
-		if owner == e {
-			e.Focusable()
-		}
-		f.navigate()
+	if s.cursor() != nil && owner == e {
+		e.Focusable()
 	}
 	a, first, last := s.plan(e, n)
 	e.Children(func() {
@@ -254,6 +251,12 @@ func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i in
 			}
 		}
 	})
+	// The keys after the clicks on the rows, which came first: a letter
+	// typed right after a click goes on from the row clicked. A choice
+	// they move builds the rows again.
+	if s.cursor() != nil {
+		f.navigate()
+	}
 }
 
 // sync follows what changed since the last frame: rows added or removed,
@@ -590,6 +593,7 @@ func (f *listFrame) lead(i int, pivot bool) {
 		if s.Selection == nil || s.Selected != nil {
 			f.changed()
 		}
+		f.c.rt.consumed = true // the rows show where it is
 	}
 	if pivot {
 		s.pivot, s.span = i, 0

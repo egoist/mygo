@@ -334,3 +334,28 @@ func TestSelectionOfAnotherKeyPanics(t *testing.T) {
 	}()
 	sel.has(3)
 }
+
+func TestListTypeRightAfterAClick(t *testing.T) {
+	names := []string{"Apple", "Banana", "Cherry"}
+	sel := -1
+	s := ListState{Selected: &sel, Label: func(i int) string { return names[i] }}
+	tt := NewTester(func(c *Context) {
+		List(c, &s, len(names), func(i int) { Text(c, names[i]).Height(30) }).Grow(1)
+	}, 300, 400)
+	r, _ := tt.Find("Apple")
+	x, y := float64(r.X+r.W/2), float64(r.Y+r.H/2)
+	// The click and the letter come before the next frame, as from a quick
+	// hand: the letter goes on from the row clicked.
+	for _, ev := range []platform.SurfaceEvent{
+		{Kind: platform.PointerDown, X: x, Y: y},
+		{Kind: platform.PointerUp, X: x, Y: y},
+		{Kind: platform.KeyPressed, Key: platform.Key(KeyC)},
+		{Kind: platform.KeyReleased, Key: platform.Key(KeyC)},
+	} {
+		tt.rt.event(ev)
+	}
+	tt.settle()
+	if sel != 2 {
+		t.Errorf("a click on Apple, then c, chose %d", sel)
+	}
+}
