@@ -75,9 +75,13 @@ func (p *Painter) Glyphs(glyphs []Glyph, x, y float32, c Color) {
 	s := p.scale
 	shade := text.ShadeOf(c.R, c.G, c.B)
 	color := c.Alpha(p.opacity).scene()
-	baseline := round(y * s)
+	baseline := sys.Baseline(y * s)
 	start := int32(len(p.s.Glyphs))
 	left, right := p.clip.X*s, (p.clip.X+p.clip.W)*s
+	var run *glyphRun
+	if sys.JoinsGlyphs() {
+		run = &glyphRun{}
+	}
 	for _, g := range glyphs {
 		if g.font == nil {
 			continue
@@ -87,15 +91,23 @@ func (p *Painter) Glyphs(glyphs []Glyph, x, y float32, c Color) {
 			continue
 		}
 		ix := float32(math.Floor(float64(pen)))
-		gi := sys.Glyph(g.font, g.id, s, int((pen-ix)*text.SubpixelSteps), shade)
+		gi := sys.Glyph(g.font, g.id, s, pen, shade, p.opaque)
 		if !gi.OK {
 			continue
 		}
-		p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{
+		sg := scene.Glyph{
 			X: ix + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
 			U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
-			Color: color, Colored: gi.Colored,
-		})
+			Color: color, Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
+		}
+		if run != nil {
+			run.add(p, text.Glyph{Font: g.font, ID: g.id}, gi, pen, sg, shade, baseline)
+			continue
+		}
+		p.s.Glyphs = append(p.s.Glyphs, sg)
+	}
+	if run != nil {
+		run.flush(p, baseline)
 	}
 	if end := int32(len(p.s.Glyphs)); end > start {
 		p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end})
