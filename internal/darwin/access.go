@@ -125,9 +125,19 @@ func titled(r platform.AccessRole) bool {
 
 // value returns the value of a node as AppKit wants it: a number for
 // toggles and ranges, a string for texts.
-func valueOf(n platform.AccessNode) id {
-	switch n.Role {
+// toggle reports whether elements of a role have their state as their
+// value.
+func toggle(r platform.AccessRole) bool {
+	switch r {
 	case platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RoleTab:
+		return true
+	}
+	return false
+}
+
+func valueOf(n platform.AccessNode) id {
+	switch {
+	case toggle(n.Role):
 		v := 0
 		switch {
 		case n.States&platform.AccessMixed != 0:
@@ -136,12 +146,12 @@ func valueOf(n platform.AccessNode) id {
 			v = 1
 		}
 		return nsNumberInt(v)
-	case platform.RoleSlider, platform.RoleProgress:
+	case n.Role == platform.RoleSlider || n.Role == platform.RoleProgress:
 		if n.Now < n.Min {
 			return 0 // a progress of unknown length
 		}
 		return msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Now)
-	case platform.RoleText:
+	case n.Role == platform.RoleText:
 		return nsString(n.Label)
 	}
 	if n.Value != "" || n.Role == platform.RoleTextField {
@@ -188,8 +198,10 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 			send(obj, "setAccessibilityMaxValue:", uintptr(msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Max)))
 		}
 	}
-	if fresh || n.Value != o.Value || n.Now != o.Now || n.States&(platform.AccessChecked|platform.AccessMixed) != o.States&(platform.AccessChecked|platform.AccessMixed) ||
-		n.Role == platform.RoleText && n.Label != o.Label {
+	// The state of a toggle is its value; a row's choice is not, which its
+	// table tells (AXSelectedRowsChanged).
+	toggled := toggle(n.Role) && n.States&(platform.AccessChecked|platform.AccessMixed) != o.States&(platform.AccessChecked|platform.AccessMixed)
+	if fresh || n.Value != o.Value || n.Now != o.Now || toggled || n.Role == platform.RoleText && n.Label != o.Label {
 		send(obj, "setAccessibilityValue:", uintptr(valueOf(n)))
 		valueChanged = !fresh
 	}
