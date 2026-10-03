@@ -89,7 +89,9 @@ var uiaPatterns = map[uintptr]int{10000: ifaceInvoke, 10002: ifaceValue, 10003: 
 	10005: ifaceExpandCollapse, 10010: ifaceSelectionItem, 10015: ifaceToggle}
 
 const (
-	uiaRootObjectID = -25
+	uiaRootObjectID  = -25
+	objidClient      = -4
+	eventObjectFocus = 0x8005
 
 	uiaRuntimeIDProperty        = 30000
 	uiaControlTypeProperty      = 30003
@@ -283,7 +285,12 @@ func (s *surface) accessRoot() *uiaElement {
 
 // getObject answers WM_GETOBJECT for UI Automation.
 func (s *surface) getObject(wp, lp uintptr) (uintptr, bool) {
-	if int32(uint32(lp)) != uiaRootObjectID || s.w.closed {
+	// UI Automation asks for the root (UiaRootObjectId), and, with object
+	// IDs from 0 up, for the elements whose events its clients receive:
+	// UiaReturnRawElementProvider answers both, and OBJID_CLIENT with the
+	// MSAA view of the tree. Other MSAA objects (the title bar, the
+	// scroll bars, …) are the window's.
+	if id := int32(uint32(lp)); id < 0 && id != uiaRootObjectID && id != objidClient || s.w.closed {
 		return 0, false
 	}
 	root := s.accessRoot()
@@ -400,6 +407,9 @@ func (t *uiaTree) update(tree *platform.AccessTree) {
 		t.focus = tree.Focus
 		if e := t.nodes[t.focus]; e != nil && notify {
 			procUiaRaiseAutomationEvent.Call(e.ptr(ifaceSimple), uiaFocusChangedEvent)
+			// Clients that follow the focus through WinEvents, as those of
+			// System.Windows.Automation, then ask the window for it.
+			procNotifyWinEvent.Call(eventObjectFocus, t.s.hwnd, uintptr(objidClient&0xffffffff), 0)
 		}
 	}
 }
