@@ -173,6 +173,11 @@ func fetchNative(f nativeFile) (string, error) {
 		return "", err
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
+		// Another process downloaded it meanwhile, and may have it loaded,
+		// which Windows won't replace.
+		if got, serr := fileSHA256(path); serr == nil && got == f.SHA256 {
+			return path, nil
+		}
 		return "", err
 	}
 	return path, nil

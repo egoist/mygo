@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -153,8 +152,27 @@ func download(f nativeFile, path string) error {
 	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), path); err != nil && !errors.Is(err, os.ErrExist) {
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		// Another process downloaded it meanwhile, and may have it loaded,
+		// which Windows won't replace.
+		if sum, serr := fileSHA256(path); serr == nil && sum == f.SHA256 {
+			return nil
+		}
 		return err
 	}
 	return nil
+}
+
+// fileSHA256 returns the SHA-256 of a file, in hex.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
