@@ -981,8 +981,10 @@ either.
   the scroll bar or the app changed. A scroll bar's thumb keeps the
   content's size of when it was grabbed until it is let go, as rows
   measured meanwhile change it, and a frame that moved a list whose
-  `Visible` or `AtEnd` the view read builds another. `Table` is a header
-  over a list.
+  `Visible` or `AtEnd` the view read builds another. Rows a `ScrollTo`
+  shows at the top go below the header pinned over their section. `Table`
+  is a header of columns over a list, whose rows are as high as their
+  tallest cell, and which takes the focus and the keys for the list.
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;

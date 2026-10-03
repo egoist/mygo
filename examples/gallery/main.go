@@ -55,9 +55,10 @@ type gallery struct {
 	eased    bool
 	// places keeps where each page is scrolled.
 	places map[string]*ui.ScrollState
-	// rows and chat keep the places of the lists of the List page.
+	// rows, chat and table keep the places of the lists of the List page.
 	rows     ui.ListState
 	chat     ui.ListState
+	table    ui.ListState
 	messages []message
 	draft    string
 }
@@ -497,7 +498,8 @@ func (g *gallery) list(c *ui.Context) {
 		files := []string{"report.pdf", "photo.jpg", "notes.md", "budget.xlsx", "slides.key", "song.mp3"}
 		card(c, "Table", func() {
 			cols := []ui.TableColumn{{Title: "Name"}, {Title: "Size", Width: 90, Align: ui.End}}
-			if ui.Table(c, cols, len(files), &g.file, func(row, col int) {
+			g.table.Selected = &g.file
+			if ui.Table(c, &g.table, cols, len(files), func(row, col int) {
 				if col == 0 {
 					ui.Text(c, files[row]).SingleLine()
 				} else {

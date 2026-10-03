@@ -498,22 +498,31 @@ func (e *Element) layoutList(w, h float32) {
 		a = max(0, min(req.row, n-1))
 		ensure(a)
 		size := ht(a)
+		// The header pinned over the row's section hides the top of the
+		// list: the row shows below it.
+		shown, start := top, padTop
+		if s.Header != nil && !s.Header(a) {
+			if hh := s.headerAbove(a, n); hh >= 0 && ensure(hh) {
+				shown = top + ht(hh)
+				start = max(start, shown)
+			}
+		}
 		switch {
 		case req.near:
 			// Where the place puts it now.
 			ya = padTop + hs.top(a, gap) - (hs.top(s.anchor, gap) + s.inset)
 			switch {
-			case ya < top || size > bottom-top:
-				ya = padTop
+			case ya < shown || size > bottom-shown:
+				ya = start
 			case ya+size > bottom:
 				ya = H - padBottom - size
 			}
 		case req.align == Center:
-			ya = (top + bottom - size) / 2
+			ya = (shown + bottom - size) / 2
 		case req.align == End:
 			ya = H - padBottom - size
 		default:
-			ya = padTop
+			ya = start
 		}
 	default:
 		a = s.anchor

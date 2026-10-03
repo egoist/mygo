@@ -561,6 +561,35 @@ func TestListStickyHeaders(t *testing.T) {
 	}
 }
 
+func TestListRowsShowBelowThePinnedHeader(t *testing.T) {
+	// Sections of a header of 24 DIPs and 20 rows of 30.
+	header := func(i int) bool { return i%21 == 0 }
+	sel := 300
+	s := ListState{Header: header, Selected: &sel}
+	tt := NewTester(func(c *Context) {
+		List(c, &s, 2100, func(i int) {
+			if header(i) {
+				Box(c).Height(24).Background(RGB(200, 200, 200))
+				return
+			}
+			Box(c).Height(30)
+		}).Grow(1)
+	}, 300, 400)
+	s.ScrollTo(300, Start)
+	tt.Frame()
+	if r, _ := rowBox(tt, &s, 300); r.Y != 24 {
+		t.Errorf("ScrollTo(300, Start) put it at %v, under its section's header", r.Y)
+	}
+	// Up moves the choice above the view: it shows below the header.
+	tt.rt.focused = s.frame.e.id
+	for k := 1; k <= 5; k++ {
+		tt.Key(0, KeyUp)
+		if r, _ := rowBox(tt, &s, sel); sel != 300-k || r.Y < 24 {
+			t.Fatalf("Up %d times: chose %d, at %v", k, sel, r.Y)
+		}
+	}
+}
+
 func TestListStickyHeadersSkipTheChoice(t *testing.T) {
 	header := func(i int) bool { return i%5 == 0 }
 	sel := 1

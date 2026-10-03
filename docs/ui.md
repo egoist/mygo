@@ -251,6 +251,33 @@ The row holding the keyboard focus stays built when it scrolls out of
 view, so that what is being edited in it stays, and Tab moves the focus
 from row to row, scrolling them into view.
 
+### Tables
+
+`ui.Table` puts a list's rows in columns, under a header of
+`ui.TableColumn`s, each with a title, a width (or 0 to share the room the
+others leave) and an alignment; `cell` builds the content of a row's
+column. Rows are as high as their tallest cell, so text that wraps makes
+its row taller. The table takes the same `ListState` as a list, or `nil`,
+and takes the keyboard focus for it: with `Selected`, a click or the keys
+choose a row, and `Submitted` reports a double click or Enter. A row
+`Header` names spans every column, which `cell` builds as column 0, and
+stays at the top while its section's rows scroll under it.
+
+```go
+cols := []ui.TableColumn{{Title: "Name"}, {Title: "Size", Width: 90, Align: ui.End}}
+app.files.Selected = &app.file
+if ui.Table(c, &app.files, cols, len(files), func(row, col int) {
+	switch col {
+	case 0:
+		ui.Text(c, files[row].Name).SingleLine()
+	case 1:
+		ui.Text(c, files[row].Size())
+	}
+}).Grow(1).Submitted() {
+	app.open(files[app.file])
+}
+```
+
 ### Grids
 
 `ui.Grid` lays its children out in columns and rows, as CSS grid does:
@@ -442,7 +469,7 @@ look of your own, build on the widgets' bases, which have none: see
 | `DateInput` | edits a `*time.Time` with a calendar, by click or with the arrow keys and Page Up and Down |
 | `Tabs` | a row of tabs choosing a `*int`, by click or with the arrow keys |
 | `Split`, `SplitVertical` | two panes with a divider between them that the user drags, or moves with the arrow keys, to resize them; the first's size is a `*float32` |
-| `Table` | rows under a header of `TableColumn`s, built only while in view, choosing a `*int` by click or with Up and Down; a double click or Enter reports `Submitted` |
+| `Table` | rows under a header of `TableColumn`s, as high as their tallest cell: a `List`'s rows, with its `ListState`, see [tables](#tables) |
 | `Tree`, `TreeItem` | items that open and close, built inside the items they belong to, with the arrow keys moving between them; `Clicked` and `Selected` choose one |
 | `Icon` | shows a `*ui.SVG` in the color of the text, as high as the font size, see [images and icons](#images-and-icons) |
 | `Image` | shows a `*ui.Bitmap`, or a `*ui.SVG` in its own colors |
