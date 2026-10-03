@@ -17,9 +17,9 @@
 // A view is a function of the app's state that builds the interface of one
 // frame on the main thread; MyGo calls it again after input, after
 // Window.Update or Invalidate, and while something animates. Elements lay
-// out their children with flexbox, take their colors from a Theme that
-// follows the system's appearance, and answer questions about input, such
-// as Clicked, where they are built. What an element keeps between frames
+// out their children with flexbox or in a Grid, take their colors from a
+// Theme that follows the system's appearance, and answer questions about
+// input, such as Clicked, where they are built. What an element keeps between frames
 // (focus, scrolling, text being edited, animations) follows its position
 // among its siblings, or its Key.
 //

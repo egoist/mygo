@@ -160,7 +160,7 @@ func card(c *ui.Context, title string, body func()) *ui.Element {
 
 func (g *gallery) overview(c *ui.Context) {
 	t := c.Theme()
-	ui.Text(c, "Everything here is laid out with flexbox and drawn by MyGo itself: no HTML, no JavaScript, no cgo. "+
+	ui.Text(c, "Everything here is laid out with flexbox and grids and drawn by MyGo itself: no HTML, no JavaScript, no cgo. "+
 		"The view is a Go function of the app's state that runs again after every event.").TextColor(t.TextMuted)
 	ui.Row(c).Gap(16).Wrap().AlignItems(ui.Start).Children(func() {
 		card(c, "Counter", func() {

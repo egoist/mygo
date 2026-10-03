@@ -252,6 +252,8 @@ type Element struct {
 	tl         *text.Layout
 	measures   [4]measure
 	nmeasure   int
+	leaf       [2]float32 // the max-content and min-content widths of text
+	leafOK     bool
 }
 
 type measure struct {

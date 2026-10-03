@@ -133,6 +133,9 @@ func (e *Element) resolvedText() textStyle {
 	for p := e; p != nil && out.set != setAll; p = p.parent {
 		t := &p.ts
 		take := t.set &^ out.set
+		if take == 0 {
+			continue
+		}
 		if take&setFamily != 0 {
 			out.family = t.family
 		}
@@ -180,7 +183,7 @@ func (e *Element) resolvedText() textStyle {
 	return out
 }
 
-// contentWidths returns the max-content and min-content widths of the
+// leafWidths returns the max-content and min-content widths of the
 // element's own content (text, image, input), without padding.
 func (e *Element) leafWidths() (maxW, minW float32) {
 	switch e.kind {
@@ -188,18 +191,25 @@ func (e *Element) leafWidths() (maxW, minW float32) {
 		if e.text == "" {
 			return 0, 0
 		}
+		// Measured once a frame: the layout asks for both widths a few
+		// times.
+		if e.leafOK {
+			return e.leaf[0], e.leaf[1]
+		}
 		sys := textSystem()
 		p := e.textParams(0)
 		p.MaxLines = 0
 		full := sys.Layout(p).Width
-		if e.single {
-			return full, 0
+		min := float32(0)
+		switch {
+		case e.noWrap:
+			min = full
+		case !e.single:
+			p.Width, p.NoBreakWords = 1, true
+			min = sys.Layout(p).Width
 		}
-		if e.noWrap {
-			return full, full
-		}
-		p.Width, p.NoBreakWords = 1, true
-		return full, sys.Layout(p).Width
+		e.leaf, e.leafOK = [2]float32{full, min}, true
+		return full, min
 	case kindImage:
 		w, _ := e.intrinsicSize()
 		return w, 0
@@ -249,7 +259,7 @@ func intrinsic(e *Element, maxContent bool) float32 {
 		if e.row && n > 1 && (maxContent || !e.wrap) {
 			w += e.gapX * float32(n-1)
 		}
-		if !maxContent && (e.scrolls() || e.flags&flagClipX != 0) {
+		if !maxContent && e.scrolls() {
 			w = 0
 		}
 	}

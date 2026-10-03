@@ -469,7 +469,7 @@ func (r *renderer) fill(op *scene.Op) {
 	if hasBorder {
 		inner, innerRadii = scene.InnerRadii(outer, radii, bw)
 	}
-	hasFill := pt.visible()
+	hasFill, solid := pt.visible(), pt.solid()
 	x0, y0, x1, y1 := r.pixelBounds(outer)
 	for y := y0; y < y1; y++ {
 		row := r.dst.Pix[y*r.dst.Stride:]
@@ -486,14 +486,16 @@ func (r *renderer) fill(op *scene.Op) {
 		// The middle run, inside the clips, the shape and its border, is
 		// plain fill.
 		sl, sh := max(il, cl, x0), min(ih, ch, x1)
-		if sl < sh && hasFill && pt.solid() {
+		if sl < sh && hasFill && solid {
 			blendSpan(row, sl, sh, pt.c1, 1)
 		}
 		for x := x0; x < x1; x++ {
 			if x >= sl && x < sh {
-				if hasFill && !pt.solid() {
-					blend(row[4*x:4*x+4], pt.at(float32(x)+0.5, py), 1)
+				if !hasFill || solid {
+					x = sh - 1 // past the run, which is done
+					continue
 				}
+				blend(row[4*x:4*x+4], pt.at(float32(x)+0.5, py), 1)
 				continue
 			}
 			px := float32(x) + 0.5
