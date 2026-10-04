@@ -170,6 +170,11 @@ func (w *window) styles() (style, ex uint32) {
 	if !o.Focusable {
 		ex |= wsExNoActivate
 	}
+	if o.Vibrancy != "" {
+		// Without a redirection bitmap: its opaque surface would cover the
+		// system backdrop, which then only shows in the title bar.
+		ex |= wsExNoRedirect
+	}
 	return style, ex
 }
 
