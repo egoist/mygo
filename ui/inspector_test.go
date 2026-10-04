@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"io"
 	"log"
 	"os"
@@ -112,8 +113,10 @@ func TestInspectorPicksAndDescribes(t *testing.T) {
 	if tt.rt.insp.hovered == 0 || tt.rt.insp.hoverElem == nil {
 		t.Fatal("picking does not follow the pointer")
 	}
-	// The element under the pointer is tinted blue over the content.
-	if after := tt.Image().RGBAAt(int(r.X)+1, int(y)); after == before || after.B <= after.R {
+	// The element under the pointer is tinted blue over the content,
+	// whatever is under it there (text, on Windows in ClearType's colors).
+	bluer := func(c color.RGBA) int { return int(c.B) - int(c.R) }
+	if after := tt.Image().RGBAAt(int(r.X)+1, int(y)); bluer(after) <= bluer(before) {
 		t.Errorf("the element picked is not outlined: %v, then %v", before, after)
 	}
 	tt.ClickAt(x, y)
