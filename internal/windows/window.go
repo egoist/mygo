@@ -247,6 +247,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		w.applyTaskbar()
 		return 0, true
 	}
+	if r, ok := w.darkMenuMessage(m, wp, lp); ok {
+		return r, true
+	}
 	switch m {
 	case wmClose:
 		if w.h.ShouldClose() {
