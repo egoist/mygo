@@ -37,6 +37,7 @@ var (
 	procUiaRaiseStructureChangedEvent          = uiaCore.NewProc("UiaRaiseStructureChangedEvent")
 	procUiaClientsAreListening                 = uiaCore.NewProc("UiaClientsAreListening")
 	procUiaDisconnectProvider                  = uiaCore.NewProc("UiaDisconnectProvider")
+	procUiaRaiseNotificationEvent              = uiaCore.NewProc("UiaRaiseNotificationEvent")
 	procSysAllocString                         = oleaut32.NewProc("SysAllocString")
 	procSysFreeString                          = oleaut32.NewProc("SysFreeString")
 	procSafeArrayCreateVector                  = oleaut32.NewProc("SafeArrayCreateVector")
@@ -446,6 +447,15 @@ func (t *uiaTree) update(tree *platform.AccessTree) {
 			// Clients that follow the focus through WinEvents, as those of
 			// System.Windows.Automation, then ask the window for it.
 			procNotifyWinEvent.Call(eventObjectFocus, t.s.hwnd, uintptr(objidClient&0xffffffff), 0)
+		}
+	}
+	// Narrator reads notifications since Windows 10 1709.
+	if notify && has(procUiaRaiseNotificationEvent) {
+		for _, text := range tree.Announcements {
+			s, activity := bstr(text), bstr("MyGo.Announcement")
+			procUiaRaiseNotificationEvent.Call(t.root.ptr(ifaceSimple), 4, 2, s, activity) // NotificationKind_Other, NotificationProcessing_All
+			procSysFreeString.Call(s)
+			procSysFreeString.Call(activity)
 		}
 	}
 }
