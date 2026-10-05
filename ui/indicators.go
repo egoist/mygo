@@ -339,7 +339,7 @@ func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element 
 			knobs[k] = knob
 		}
 	})
-	if st.pressed || knobs[0].st.pressed || knobs[1].st.pressed {
+	if (st.pressed || knobs[0].st.pressed || knobs[1].st.pressed) && !e.disabled() {
 		x := at()
 		if *dragging < 0 {
 			// The nearest knob, the high one when they meet past it.

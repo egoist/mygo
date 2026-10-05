@@ -87,7 +87,7 @@ var (
 	atkStates struct {
 		enabled, sensitive, visible, showing, focusable, focused, checkable, checked, indeterminate,
 		expandable, expanded, editable, readOnly, multiLine, singleLine, selectableText, defunct int32
-		selectable, selected, multiselectable, hasPopup, invalidEntry int32
+		selectable, selected, multiselectable, hasPopup, invalidEntry, vertical, horizontal int32
 	}
 
 	// The trees of surfaces, by the surface and by its accessible, and the
@@ -262,6 +262,9 @@ func loadAccessNames() {
 		platform.RoleComboBox: {"combo box"}, platform.RoleDisclosure: {"toggle button"},
 		platform.RoleMeter: {"level bar", "progress bar"}, platform.RoleStepper: {"spin button"},
 		platform.RoleColorWell: {"push button", "button"}, platform.RoleAlertDialog: {"alert", "dialog"},
+		platform.RoleMenu: {"menu"}, platform.RoleMenuBar: {"menu bar"}, platform.RoleMenuItem: {"menu item"},
+		platform.RoleMenuItemCheckBox: {"check menu item", "menu item"}, platform.RoleMenuItemRadio: {"radio menu item", "menu item"},
+		platform.RoleHeading: {"heading", "label"},
 	} {
 		atkRoles[r] = role(names...)
 	}
@@ -273,7 +276,7 @@ func loadAccessNames() {
 		&st.editable: "editable", &st.readOnly: "read-only", &st.multiLine: "multi-line",
 		&st.singleLine: "single-line", &st.selectableText: "selectable-text", &st.defunct: "defunct",
 		&st.selectable: "selectable", &st.selected: "selected", &st.multiselectable: "multiselectable",
-		&st.hasPopup: "has-popup", &st.invalidEntry: "invalid-entry",
+		&st.hasPopup: "has-popup", &st.invalidEntry: "invalid-entry", &st.vertical: "vertical", &st.horizontal: "horizontal",
 	} {
 		*p = atkStateTypeForName(cs(name))
 	}
@@ -577,7 +580,7 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 		list = append(list, st.focused)
 	}
 	switch n.Role {
-	case platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch:
+	case platform.RoleCheckBox, platform.RoleRadio, platform.RoleSwitch, platform.RoleMenuItemCheckBox, platform.RoleMenuItemRadio:
 		list = append(list, st.checkable)
 	case platform.RoleTab, platform.RoleTreeItem, platform.RoleRow, platform.RoleListItem:
 		// Rows and items of lists only where their list chooses them.
@@ -590,6 +593,13 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 		}
 	case platform.RolePopUpButton:
 		list = append(list, st.expandable)
+	case platform.RoleSlider:
+		// As GtkScale's.
+		if n.States&platform.AccessVertical != 0 {
+			list = append(list, st.vertical)
+		} else {
+			list = append(list, st.horizontal)
+		}
 	case platform.RoleDisclosure:
 		// Checked while open, as GTK's expanders.
 		list = append(list, st.expandable)
