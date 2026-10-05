@@ -87,11 +87,24 @@ type captionBar struct {
 	hot, pressed int
 	tracking     bool // TrackMouseEvent asked for WM_NCMOUSELEAVE
 	active       bool // the window is the active window
+	// comp shows the buttons in a window without a redirection bitmap,
+	// where UpdateLayeredWindow cannot (compositor.go); nil otherwise.
+	comp *compositor
 }
 
 func newCaptionBar(w *window) *captionBar {
 	c := &captionBar{w: w, hot: -1, pressed: -1}
-	c.buttons = createWindow(wsExLayered, captionClass, "", wsChild|wsClipSiblings, 0, 0, 0, 0, w.hwnd)
+	if w.noRedirection() {
+		// Layered, so that it blends over the webview instead of cutting
+		// its rectangle out of it, and shown through DirectComposition.
+		c.buttons = createWindow(wsExLayered|wsExNoRedirect, captionClass, "", wsChild|wsClipSiblings, 0, 0, 0, 0, w.hwnd)
+		if c.buttons != 0 {
+			procSetLayeredWindowAttributes.Call(c.buttons, 0, 255, lwaAlpha)
+			c.comp = newCompositor(w.b, c.buttons)
+		}
+	} else {
+		c.buttons = createWindow(wsExLayered, captionClass, "", wsChild|wsClipSiblings, 0, 0, 0, 0, w.hwnd)
+	}
 	if c.buttons == 0 {
 		log.Print("mygo: cannot create the window controls of a window with a hidden title bar")
 		return nil
@@ -111,6 +124,9 @@ func newCaptionBar(w *window) *captionBar {
 // forget unregisters the bar's windows, which Windows destroys with the
 // window.
 func (c *captionBar) forget() {
+	if c.comp != nil {
+		c.comp.free()
+	}
 	delete(c.w.b.captions, c.buttons)
 	if c.edge != 0 {
 		delete(c.w.b.captions, c.edge)
@@ -425,6 +441,10 @@ func (c *captionBar) paint() {
 				img.px[row+x] = over(fore, mask.px[row+x]&0xFF, back)
 			}
 		}
+	}
+	if c.comp != nil {
+		c.comp.show(img.px, width, height)
+		return
 	}
 	size := [2]int32{width, height}
 	var origin point

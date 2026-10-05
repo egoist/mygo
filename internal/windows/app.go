@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -59,6 +60,10 @@ type Backend struct {
 	// title bar (titlebar.go), captionFonts their glyphs by DPI.
 	captions     map[uintptr]*captionBar
 	captionFonts map[int]captionFont
+	// comp shows the controls of windows with a material behind them
+	// (compositor.go), and compRetry is when to try making it again.
+	comp      *composition
+	compRetry time.Time
 
 	// surfaces are the windows of the content MyGo draws (surface.go).
 	surfaces map[uintptr]*surface

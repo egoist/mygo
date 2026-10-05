@@ -170,8 +170,19 @@ func (w *window) styles() (style, ex uint32) {
 	if !o.Focusable {
 		ex |= wsExNoActivate
 	}
+	// A page with a material behind it needs a window without a redirection
+	// bitmap, whose opaque surface would cover the system backdrop. The
+	// controls of a hidden title bar then show through DirectComposition
+	// (compositor.go); where that is unavailable, the window keeps its
+	// bitmap: its controls show, and the material does not.
+	if o.Vibrancy != "" && !o.Surface && (!w.hiddenTitleBar || w.b.composition() != nil) {
+		ex |= wsExNoRedirect
+	}
 	return style, ex
 }
+
+// noRedirection reports whether the window has no redirection bitmap.
+func (w *window) noRedirection() bool { return windowLong(w.hwnd, gwlExStyle)&wsExNoRedirect != 0 }
 
 // placeInitially sizes and positions a new window, in the DPI of the
 // monitor it appears on.
