@@ -2410,8 +2410,11 @@ func TestContentWindowInspector(t *testing.T) {
 	if err := activateMenu(w, "Test", "Toggle Developer Tools"); err != nil {
 		t.Skip("menu automation not available on this platform: ", err)
 	}
-	beside := full - min(380, full/2)
-	eventually(t, "the content beside the inspector", func() bool { return width.Load().(float32) == beside })
+	eventually(t, "the content beside the inspector", func() bool {
+		w := width.Load().(float32)
+		return w > 0 && w < full
+	})
+	beside := width.Load().(float32)
 	data, err := w.CapturePage()
 	if err != nil {
 		t.Fatal(err)

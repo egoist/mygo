@@ -156,8 +156,11 @@ func (c *Context) rekey(e *Element, k any) {
 		rt.duplicateKey(id, k)
 	}
 	e.id, e.st = id, st
-	if rt.insp.open && id == rt.insp.selected {
-		rt.insp.noteSource()
+	if rt.insp.open {
+		rt.insp.noteKey(id, k)
+		if id == rt.insp.selected {
+			rt.insp.noteSource()
+		}
 	}
 }
 

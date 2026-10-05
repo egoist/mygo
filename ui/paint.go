@@ -36,7 +36,7 @@ func (rt *engine) paint(root *Element, w, h, scale float32) {
 	p := &rt.painter
 	p.element(root)
 	if rt.insp.open {
-		rt.insp.paintHighlight(p, h)
+		rt.insp.paintHighlight(rt, p, h)
 	}
 	rt.paintDrag(p, w, h)
 }
