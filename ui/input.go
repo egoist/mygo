@@ -12,6 +12,9 @@ import (
 // an element takes files dragged over or dropped at the event's position.
 func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	x, y := float32(ev.X), float32(ev.Y)
+	if rt.insp.pointer(rt, ev, x, y) {
+		return true
+	}
 	switch ev.Kind {
 	case platform.PointerMove, platform.PointerDown, platform.PointerUp, platform.PointerScroll:
 		rt.mods = Modifiers(ev.Mods)
@@ -472,6 +475,9 @@ func (rt *engine) claimedBy(k keyEvent, window bool) bool {
 // keyDown handles a key pressed, and reports whether an element took it as
 // it came (HandleInput).
 func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
+	if rt.inspectKey(mods, key) {
+		return true
+	}
 	k := keyEvent{mods, key}
 	if key == KeyEscape && mods == 0 && rt.dragCancel() {
 		return true
@@ -710,8 +716,8 @@ func (rt *engine) updateTextInput() {
 		if !ed.password {
 			a, z := ed.selection()
 			base = max(0, a-imeContext)
-			end := min(len(ed.text), z+imeContext)
-			t.Text, t.Start, t.End = string(ed.text[base:end]), a-base, z-base
+			end := min(ed.buf.n, z+imeContext)
+			t.Text, t.Start, t.End = ed.buf.slice(base, end), a-base, z-base
 		}
 	}
 	if t != rt.ime.state {

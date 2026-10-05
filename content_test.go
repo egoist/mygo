@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"image/png"
+	"log"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/internal/fake"
@@ -246,5 +249,19 @@ func TestContentMenuRoles(t *testing.T) {
 	}
 	if text := Clipboard.ReadText(); text != "Ada" {
 		t.Errorf("the clipboard has %q", text)
+	}
+}
+
+func TestContentDuplicateKeyTellsWhere(t *testing.T) {
+	view := func(c *ui.Context) {
+		ui.Row(c).Key(1)
+		ui.Row(c).Key(1)
+	}
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	defer log.SetOutput(os.Stderr)
+	_, _, _ = contentWindow(t, view)
+	if s := out.String(); !strings.Contains(s, "key 1") || !strings.Contains(s, "content_test.go:") {
+		t.Errorf("a duplicate key logs %q", s)
 	}
 }

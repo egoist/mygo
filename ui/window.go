@@ -50,6 +50,12 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 	conn.TitleBarChanged = rt.requestFrame
 	conn.Capture = h.capture
 	conn.Detach = h.detach
+	rt.insp.enabled = conn.DevTools
+	conn.ToggleDevTools = func() {
+		if rt.insp.enabled {
+			rt.toggleInspector()
+		}
+	}
 	h.uiFont()
 	// Load the fonts while the window shows up.
 	go text.Shared().Preload()
@@ -122,6 +128,8 @@ const (
 	burstGap     = 50 * time.Millisecond // frames closer follow each other
 	cpuMaxPixels = 8 << 20
 )
+
+func (h *windowHost) refreshRate() float32 { return float32(h.conn.Surface.RefreshRate()) }
 
 func (h *windowHost) size() (float32, float32, float32) {
 	w, ht, s := h.conn.Surface.Size()

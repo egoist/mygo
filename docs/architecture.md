@@ -976,7 +976,10 @@ either.
   on a GPU), a child window of class `MyGoSurface` on Windows.
   `platform.Surface` gives its native handles (for a swap chain, a layer,
   or the GtkGLArea while its `render` signal draws a frame, with its
-  context current), size and scale; asks for a frame (`RequestFrame`: a
+  context current), size and scale, and the refresh rate of the display
+  showing it (`RefreshRate`: the screen's `maximumFramesPerSecond`, GDK's
+  `gdk_monitor_get_refresh_rate`, the display mode's frequency from
+  `EnumDisplaySettingsW`); asks for a frame (`RequestFrame`: a
   paused `CADisplayLink`, before macOS 14 an `NSTimer` at the display's
   rate, `gtk_widget_queue_draw`, `InvalidateRect`); presents
   pixels drawn on the CPU (`PresentPixels`: a CGImage as the layer's
@@ -1082,6 +1085,54 @@ either.
   `MYGO_FRAME_STATS` set, frames slower than its threshold log how long
   each part took, which path drew them, what the process allocated and
   whether the collector ran (`ui/framestats.go`).
+- **Transitions** (`ui/transition.go`) animate elements FLIP-style, after
+  the layout of each frame and before `place` turns boxes into window
+  coordinates: an element given a `Transition` keeps, by its ID, where the
+  layout put it relative to its parent, its size, and what it shows, and
+  goes from what it showed to a new place or size over the transition
+  (parents first, as one resizing lays out its content anew at each size,
+  which then moves itself). Moving with a parent or a scroll offset is no
+  change; resizing the window and reduced motion animate nothing. Colors
+  move as elements paint, after their `styleFn`. An element appears with
+  its `Enter` only in a parent the frame before had. One no longer built,
+  whose parent still is, goes with its `Exit` as an inert copy, laid out
+  and painted under its siblings without taking room: frames that built
+  elements with an `Exit` leave their arena to the next frame, which
+  builds in the other (`Context.spare`), so that the next one copies those
+  gone (`ghostOf`), with states of their own and nothing referring to the
+  app's state. Siblings are not laid out around a size moving; they move
+  with their own transitions, in step when they share it.
+- **The inspector** (`ui/inspector.go`, `inspector_details.go`,
+  `inspector_panel.go`, `inspector_overlay.go`), as Chrome's developer
+  tools. A window whose DevTools are on (`surface.Conn.DevTools`, from
+  `PageOptions.DevTools`) opens it for the Toggle Developer Tools role
+  (`Conn.ToggleDevTools`), F12, or Alt+Cmd+I (Ctrl+Shift+I), and picks
+  for Shift+Cmd+C (Ctrl+Shift+C). It is a panel built with the view's
+  elements as the last child of the root, keyed, which is narrower by
+  the panel's width (the view sees a narrower window); hits and paint
+  cover the whole window. Its theme is a copy of the default one in
+  Chrome's colors, light or dark, whose accent colors the tree's chosen
+  row. After each frame is laid out, it notes the tree of elements, the
+  keys given them while it is open (`rekey`), and the details of the one
+  chosen (`describe`: its styles as CSS rules, own and inherited, its box
+  model, computed values and properties), and asks for another frame when
+  a hash of them changed, which the panel then shows; frames whose
+  elements stay the same draw no more, and the times of frames, which
+  the Performance tab draws against the display's refresh, ask for
+  none. The tree is a `List` of the opening and closing tags of the nodes
+  shown. Picking takes the pointer
+  over the content before the elements do. Painting highlights the
+  element hovered, or chosen while the tree has the focus, over the
+  content, with a tooltip. The source of the element chosen is the first
+  frame outside package ui on the stack as it is created or keyed
+  (`callSite`), only for that one. Two elements keyed alike under one
+  parent share one state: `rekey` reports it (`duplicateKey`), logged
+  once and listed as an issue, and in a `Tester` it panics
+  (`engine.strict`), without package testing in apps.
+  Production builds of `mygo build` leave the inspector out with the build
+  tag `mygo_noinspector` (`inspector_off.go` stands in for it, never
+  open), added to the tags of `GOFLAGS`, unless `-debug` or
+  `MYGO_INSPECTOR=1`.
 - **Input taken as it comes.** An element with `HandleInput` gets its
   input on the main thread as the backend reports it, before the frame
   (`ui/handler.go`): keys (with their releases, which ui otherwise
@@ -1202,6 +1253,29 @@ either.
   follows reduced motion: while it moves, the panel is clipped to that
   share of the height its content had in the last frame, and its content
   is built until it has closed.
+- **Text areas** (`ui/textarea.go`, `ui/textbuffer.go`). An editor
+  holds its text as the string of the app's value, which it shares, and
+  where each paragraph starts in runes and in bytes (`buffer`): the frame
+  compares the value with it at once while it is the same string, and an
+  edit copies the bytes once, where converting the whole text between
+  runes and a string took milliseconds for a few megabytes. Undo keeps the
+  changes of each step (`undoStep`), not copies of the text; a text the app
+  sets makes the last step one change from the text before it, which
+  undoing takes back, so that a log the app keeps setting holds two texts
+  there, not one a frame. Grapheme boundaries come from the paragraph of
+  the caret. A text area lays its
+  text out a paragraph at a time (`area`), as the text system breaks
+  lines anyway, so that the lines are those of the text laid out whole:
+  each paragraph keeps its layout until an edit changes it or the width
+  does, those in view are laid out from the paragraph the view starts in
+  (the anchor) down, those far from view give their layouts up and keep
+  their heights, and the heights not measured are estimated by those
+  measured. Two Fenwick trees, of the heights measured and of how many are
+  not, give the top of a paragraph and the paragraph at a height in
+  O(log n) whatever the estimate. The area scrolls as a scroll container,
+  its offset the state's (`flagScrollY`, the content as high as its
+  paragraphs), kept by the anchor as heights above the view are measured;
+  an edit, a move of the caret or a press reveals the caret once.
 - **Tables** (`ui/table.go`, `ui/editable.go`). A table's rows are a
   `List`'s that scrolls both ways: the list lays its rows out at least as
   wide as the columns ask (`rowMinW`), and the header, outside the list,
@@ -1655,8 +1729,9 @@ renderer's (`gputest.Compare`).
   - Quitting the app ends `mygo dev`; a crash waits for the next change.
 - `build` generates the client, runs `buildCommand`, then compiles each
   target with `-trimpath -ldflags "-s -w -X …production=1"` (`-H=windowsgui`
-  on Windows) into a staging directory, so a failed build keeps the previous
-  artifacts. `frontendDist` is embedded without touching the project
+  on Windows) and `-tags mygo_noinspector`, which leaves the inspector of
+  native UI out (unless `MYGO_INSPECTOR=1`), into a staging directory, so a
+  failed build keeps the previous artifacts. `frontendDist` is embedded without touching the project
   (`embed.go`): `go build -overlay` adds a generated `mygo_frontend_gen.go`
   to the main package, with `//go:embed all:mygo_frontend` and a call to
   `SetFrontend`, and maps every `frontendDist` file into that virtual
