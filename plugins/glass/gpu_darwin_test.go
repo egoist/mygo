@@ -16,6 +16,14 @@ func TestMetal(t *testing.T) {
 		t.Skip("no Metal:", err)
 	}
 	gputest.Compare(t, "glass-metal", pix, s.Width*4, s)
+	// With continuous corners, as macOS's.
+	for i := range s.Ops {
+		s.Ops[i].Continuous = true
+	}
+	if pix, err = metal.RenderOffscreen(s); err != nil {
+		t.Fatal(err)
+	}
+	gputest.Compare(t, "glass-metal-continuous", pix, s.Width*4, s)
 }
 
 // TestMetalLibrary checks that the library compiled ahead of time comes

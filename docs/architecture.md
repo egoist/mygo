@@ -80,7 +80,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── tsgen/          TypeScript client generator
 │   ├── accelerator/    parses "CmdOrCtrl+Shift+K"
 │   ├── update/         update manifests, signatures, archives and delta updates
-│   └── e2e/            GUI tests against the real backend (MYGO_E2E=1)
+│   └── e2e/            GUI tests and benchmarks against the real backend (MYGO_E2E=1)
 ├── packages/           Bun workspace (with the examples' frontends):
 │   ├── bridge/         the runtime injected into pages (→ internal/bridge/bridge.js)
 │   ├── runtime/        mygo-runtime, the npm package apps and generated clients import
@@ -1473,8 +1473,9 @@ either.
   shadows (blurred rounded rectangles, cut by the box casting them, as
   CSS's box-shadow is); runs of glyphs, whose masks may take a gradient
   (paths drawn with one); images, in color or gray; effects
-  (`OpEffect`); and pushed and popped clips. Renderers draw the whole scene each frame and retain only
-  textures. Wavy underlines are stroked paths.
+  (`OpEffect`); and pushed and popped clips. Renderers draw the whole
+  scene each frame and retain only textures. Wavy underlines are stroked
+  paths.
 - **Effects** (`scene.Effect`) are drawings that packages outside the
   renderers define, as the official plugins do (the glass plugin's Liquid
   Glass): a fragment shader for each GPU renderer, in Metal Shading
@@ -1498,7 +1499,32 @@ either.
   and an effect's tests fail then. Package `ui` gives packages a hook,
   `Element.Material` (a `ui.Material`, built with its element when it is
   a `MaterialBuilder`), and `Painter.Effect`, which only this module's
-  packages can call, since effects are internal types.
+  packages can call, since effects are internal types. An effect's shape
+  has continuous corners where its op does, which the renderer covers as
+  such, while the effect gets positive radii and takes them as circular.
+- **Corners.** On macOS, rounded corners are continuous, as AppKit's and
+  SwiftUI's (`scene.Op.Continuous`), and drawn as Core Animation draws
+  them on screen, with the function of its shaders (QuartzCore's
+  `supercircle_sdf`), which differs from the Béziers of SwiftUI's paths
+  by up to half a percent of the radius: a quarter circle around the
+  diagonal that bends less and less toward the edges, which it meets
+  1.528665 radii from the corner, a quartic of the ratio of the point's
+  coordinates in the box of the curve. On sides too short for both
+  corners' curves, the curves blend toward quarter circles by the side's
+  clamp factor, from the side's length over its corners' mean radius, so a
+  circle's corners are quarter circles; a shape is the intersection of its
+  corners', so a curve may reach past the middle of a side whose other
+  corner is smaller; and edges are antialiased as Core Animation does, by
+  the value over the sum of its derivatives (`internal/raster/corner.go`).
+  Against captures of layers on screen, every pixel is within 1/255 for
+  corners that fit and for circles, and within 6/255 for pills and other
+  short sides at the sizes of controls. The CPU's renderer finds where a
+  curve crosses a row by regula falsi between the quarter circles of the
+  radius and of the curve's extent, and keeps the rows' spans of a clip
+  with continuous corners for the operations within it; a whole frame of
+  `BenchmarkFrame` takes a fifth longer. Elsewhere corners are circular,
+  as Windows and GTK draw them, and only the CPU's renderer and Metal's
+  draw continuous ones.
 - **Text.** `internal/text` lays out text with the system's own text stack,
   behind a small `engine` interface: DirectWrite on Windows
   (`IDWriteTextLayout`, with an `IDWriteTextRenderer` implemented in Go
@@ -2072,6 +2098,50 @@ D-Bus activates get `DISPLAY`, set `XDG_CURRENT_DESKTOP=KDE`, start
 the test binary's app ID. It passes on Debian 13 (portal 1.20, Plasma 6.3)
 and Debian 12 (portal 1.16, Plasma 5.27); Ubuntu 24.04 (portal 1.18, Plasma
 5.27) binds no shortcuts for any app.
+
+### Benchmarks
+
+`.github/workflows/bench.yml` measures every push to main on GitHub's
+macOS, Linux and Windows runners, and the website shows the results at
+[/benchmarks](https://mygo.egoist.dev/benchmarks). `scripts/bench.ts`
+runs them:
+
+```sh
+bun scripts/bench.ts run                 # every package's Go benchmarks, and app sizes
+bun scripts/bench.ts run --e2e           # internal/e2e's too, in a desktop session
+bun scripts/bench.ts run ./ui --count 3  # one package, fewer runs
+```
+
+It finds the packages with benchmarks and runs them one at a time
+(`-p 1`), each benchmark six times for half a second (`-count 6
+-benchtime 500ms`), and keeps the median of each metric: `ns/op`,
+`B/op`, `allocs/op` and those a benchmark reports; `MB/s` follows from
+`ns/op`. It also builds `examples/hello` and `examples/counter-native` as
+`mygo build` builds a release, without resources, and records their size.
+`--out` writes the results as JSON, with the commit and the runner's CPU.
+The benchmarks of `internal/e2e` time the real backend: a page calling Go
+(`PageCall`, `PageCallItems`), streaming (`PageChannel`), receiving events
+(`PageEvent`), fetching from the app's scheme (`PageFetch1MB`), and
+windows opening until their DOM is ready or their native UI has built a
+frame (`WindowOpen`, `ContentWindowOpen`).
+
+The workflow's last job merges the results into the `benchmarks` branch
+(`bun scripts/bench.ts merge`): `history/<yyyy-mm-dd>.json` keeps every
+commit measured that day, a line each, and `latest.json` the last 300
+commits by series, which the page fetches from raw.githubusercontent.com
+when it opens, so results show without a deploy. Its commits say
+`[skip ci]`, which Cloudflare's builds of the website honor too, and a
+push that races another run's merges again onto it. Started by hand with a
+`ref`, the workflow measures that commit with the current script, to fill
+in history.
+
+The page compares each series' last value with the median of the five
+before, and, once a series has five, calls a change significant past five
+median absolute deviations of the twenty before (at least 5% for time, 1%
+for memory and allocations, 0.2% for sizes): shared runners drift by a few percent, and a
+vertical line marks a commit measured on another CPU than the one before.
+Benchmarks are described on the page by their doc comments, which the
+site reads when it is built: start them with the benchmark's name.
 
 ## Releasing
 

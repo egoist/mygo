@@ -54,6 +54,7 @@ go generate ./internal/gpu/d3d11           # recompile the Direct3D shader (on W
 go generate ./internal/gpu/metal           # recompile the Metal shader (on macOS, with Xcode)
 go generate ./plugins/glass                # recompile the glass plugin's shaders (on macOS, and on Windows)
 bun run --cwd website dev                  # the website, with docs/ at /docs (see website/README.md)
+bun scripts/bench.ts run [--e2e]           # benchmarks and app sizes, medians of 6 runs (CI: bench.yml, /benchmarks)
 ```
 
 Linux GUI tests cross-compile and run in a container with WebKitGTK and Xvfb;
@@ -62,6 +63,10 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
 
 ## Conventions
 
+- Never write `[skip ci]` (or `[ci skip]`, `[no ci]`) in a commit message,
+  not even quoted in its body: GitHub skips the push's workflows, CI and
+  benchmarks included, and Cloudflare the website's deploy. Only the
+  benchmarks branch's commits say it.
 - New behavior goes into `package mygo` first; backends only translate
   `internal/platform` calls to native ones. Implement every platform method in
   `darwin`, `linux`, `windows`, `fake` and `unsupported`.

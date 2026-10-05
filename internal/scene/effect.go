@@ -24,7 +24,10 @@ import (
 // It returns the premultiplied color at the pixel center p, in device
 // pixels, of the shape e.rect rounded by e.radii, from the parameters
 // e.p0 to e.p4 (EffectOp.Params); the renderer multiplies it by how much
-// of the pixel the shape and the clip cover, and by the opacity.
+// of the pixel the shape and the clip cover, and by the opacity. The
+// shape's corners may be continuous (Op.Continuous), which the renderer
+// covers as such, while e.radii, positive, has the effect take them as
+// circular.
 // sampleBackdrop(e, q) (with the backdrop texture first in Metal) returns
 // the backdrop at q, premultiplied, as BackdropImage.Sample does.
 type Effect struct {

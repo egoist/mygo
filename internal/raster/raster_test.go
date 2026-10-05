@@ -98,6 +98,8 @@ func TestRenderText(t *testing.T) {
 	}
 }
 
+// BenchmarkRenderFullFrame renders a frame of 1600×1000 pixels with twenty
+// tall rounded boxes on the CPU.
 func BenchmarkRenderFullFrame(b *testing.B) {
 	s := &scene.Scene{Width: 1600, Height: 1000, Clear: scene.Color{R: 250, G: 250, B: 250, A: 255}}
 	for i := 0; i < 20; i++ {
@@ -157,11 +159,11 @@ func TestShadowShowsOutsideItsCast(t *testing.T) {
 			return m
 		}
 		plain, cut := render(scene.Rect{}), render(c.cast)
-		radii := fitRadii(c.cast, r4(c.radius))
+		cast := newShape(c.cast, scene.FitRadii(c.cast, r4(c.radius)))
 		worst := 0.0
 		for y := range 160 {
 			for x := range 240 {
-				out := 1 - float64(coverage(c.cast, radii, float32(x)+0.5, float32(y)+0.5))
+				out := 1 - float64(coverage(&cast, float32(x)+0.5, float32(y)+0.5))
 				want := 255 - (255-float64(pixel(plain, x, y)[0]))*out
 				worst = math.Max(worst, math.Abs(float64(pixel(cut, x, y)[0])-want))
 			}

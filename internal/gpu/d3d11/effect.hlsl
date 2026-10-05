@@ -8,7 +8,7 @@ Texture2D backdropTex : register(t3);
 // What an effect reads of its instance.
 struct Effect {
 	float4 rect;  // x, y, width, height in pixels
-	float4 radii; // top-left, top-right, bottom-right, bottom-left
+	float4 radii; // top-left, top-right, bottom-right, bottom-left, circular
 	float4 p0, p1, p2, p3, p4;
 	float4 area;  // where the backdrop's area starts in the frame, and its size in texels
 	float down;   // the size of the squares the backdrop averages
@@ -37,7 +37,7 @@ float3 sampleBackdrop(Effect e, float2 q) {
 PSOut effectps(VSOut i) {
 	Effect e;
 	e.rect = i.rect;
-	e.radii = i.radii;
+	e.radii = abs(i.radii);
 	e.p0 = i.inner;
 	e.p1 = i.color;
 	e.p2 = i.color2;

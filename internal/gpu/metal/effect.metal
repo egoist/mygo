@@ -6,7 +6,7 @@
 // What an effect reads of its instance.
 struct Effect {
 	float4 rect;  // x, y, width, height in pixels
-	float4 radii; // top-left, top-right, bottom-right, bottom-left
+	float4 radii; // top-left, top-right, bottom-right, bottom-left, circular
 	float4 p0, p1, p2, p3, p4;
 	float4 area;  // where the backdrop's area starts in the frame, and its size in texels
 	float down;   // the size of the squares the backdrop averages
@@ -36,7 +36,9 @@ fragment PSOut effect_ps(VSOut v [[stage_in]],
                          const device Inst *insts [[buffer(0)]],
                          texture2d<float> backdrop [[texture(3)]]) {
 	Inst i = insts[v.inst];
-	Effect e = {i.rect, i.radii, i.inner, i.color, i.color2, i.border, i.grad, i.uv, i.params.z};
+	// The shape's corners are continuous where its radii are negative,
+	// which the effect takes as circular.
+	Effect e = {i.rect, abs(i.radii), i.inner, i.color, i.color2, i.border, i.grad, i.uv, i.params.z};
 	float4 res = effect(v.p, e, backdrop) * (rectCoverage(v.p, i.rect, i.radii) * rectCoverage(v.p, i.clip, i.clipRadii) * i.params.w);
 	return PSOut{res, res.aaaa};
 }

@@ -8,7 +8,7 @@ uniform sampler2D uBackdrop;
 // What an effect reads of its instance.
 struct Effect {
 	vec4 rect;  // x, y, width, height in pixels
-	vec4 radii; // top-left, top-right, bottom-right, bottom-left
+	vec4 radii; // top-left, top-right, bottom-right, bottom-left, circular
 	vec4 p0, p1, p2, p3, p4;
 	vec4 area;  // where the backdrop's area starts in the frame, and its size in texels
 	float down; // the size of the squares the backdrop averages
@@ -36,7 +36,7 @@ vec3 sampleBackdrop(Effect e, vec2 q) {
 
 void main() {
 	vec2 p = vPoint.xy;
-	Effect e = Effect(vRect, vRadii, vInner, vColor, vColor2, vBorder, vGrad, vWidths, vParams.z);
+	Effect e = Effect(vRect, abs(vRadii), vInner, vColor, vColor2, vBorder, vGrad, vWidths, vParams.z);
 	fragColor = effect(p, e) * (rectCoverage(p, vRect, vRadii) * rectCoverage(p, vClip, vClipRadii) * vParams.w);
 #ifdef DUAL
 	fragAlpha = fragColor.aaaa;

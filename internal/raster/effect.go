@@ -175,7 +175,9 @@ func (bd *backdrop) blur(dst, src []float32, step, next, n, line int) {
 }
 
 // effect draws an effect with px, which Begin readied for op, over its
-// backdrop b (nil for an effect reading none).
+// backdrop b (nil for an effect reading none), within its shape, whose
+// corners are continuous when the op's are, while the effect works with
+// circular ones.
 func (r *renderer) effect(op *scene.Op, px scene.EffectPixels, b *scene.BackdropImage) {
 	if op.Rect.Empty() {
 		return
@@ -184,19 +186,20 @@ func (r *renderer) effect(op *scene.Op, px scene.EffectPixels, b *scene.Backdrop
 	if opacity == 0 {
 		opacity = 1
 	}
-	radii := fitRadii(op.Rect, op.Radii)
+	radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
+	box := newShape(op.Rect, radii)
 	round := hasRadii(radii)
 	x0, y0, x1, y1 := r.pixelBounds(op.Rect)
 	for y := y0; y < y1; y++ {
 		row := r.dst.Pix[y*r.dst.Stride:]
 		py := float32(y) + 0.5
 		cl, ch := r.clipSolid(y)
-		ol, oh := solidSpan(op.Rect, radii, float32(y), float32(y+1))
+		ol, oh := solidSpan(&box, float32(y), float32(y+1))
 		for x := x0; x < x1; x++ {
 			px0 := float32(x) + 0.5
 			cov := opacity
 			if x < ol || x >= oh || !round {
-				cov *= coverage(op.Rect, radii, px0, py)
+				cov *= coverage(&box, px0, py)
 			}
 			if x < cl || x >= ch {
 				cov *= r.clipCoverage(x, y)
