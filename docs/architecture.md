@@ -1456,18 +1456,28 @@ either.
   clips. Renderers draw the whole scene each frame and retain only
   textures. Wavy underlines are stroked paths.
 - **Corners.** On macOS, rounded corners are continuous, as AppKit's and
-  SwiftUI's (`scene.Op.Continuous`): Apple's curve, three cubic Béziers a
-  corner taken from SwiftUI's paths, which leaves the edge 1.528665 radii
-  from the corner and bends gradually, where a quarter circle bends at
-  once. On sides too short for both corners' curves, as a pill's, each
-  ends in proportion to its radius, with the control points SwiftUI moves
-  there; corners round both ways, as a circle's, stay quarter circles.
-  Coverage comes from the distance along the normal of the tangent at the
-  curve's nearest point (`internal/raster/corner.go`), within a hundredth
-  of a pixel: the shapes match Core Graphics filling SwiftUI's paths as
-  closely as circular corners match its circles. Elsewhere corners are
-  circular, as Windows and GTK draw them, and only the CPU's renderer and
-  Metal's draw continuous ones.
+  SwiftUI's (`scene.Op.Continuous`), and drawn as Core Animation draws
+  them on screen, with the function of its shaders (QuartzCore's
+  `supercircle_sdf`), which differs from the Béziers of SwiftUI's paths
+  by up to half a percent of the radius: a quarter circle around the
+  diagonal that bends less and less toward the edges, which it meets
+  1.528665 radii from the corner, a quartic of the ratio of the point's
+  coordinates in the box of the curve. On sides too short for both
+  corners' curves, the curves blend toward quarter circles by the side's
+  clamp factor, from the side's length over its corners' mean radius, so a
+  circle's corners are quarter circles; a shape is the intersection of its
+  corners', so a curve may reach past the middle of a side whose other
+  corner is smaller; and edges are antialiased as Core Animation does, by
+  the value over the sum of its derivatives (`internal/raster/corner.go`).
+  Against captures of layers on screen, every pixel is within 1/255 for
+  corners that fit and for circles, and within 6/255 for pills and other
+  short sides at the sizes of controls. The CPU's renderer finds where a
+  curve crosses a row by regula falsi between the quarter circles of the
+  radius and of the curve's extent, and keeps the rows' spans of a clip
+  with continuous corners for the operations within it; a whole frame of
+  `BenchmarkFrame` takes a fifth longer. Elsewhere corners are circular,
+  as Windows and GTK draw them, and only the CPU's renderer and Metal's
+  draw continuous ones.
 - **Text.** `internal/text` lays out text with the system's own text stack,
   behind a small `engine` interface: DirectWrite on Windows
   (`IDWriteTextLayout`, with an `IDWriteTextRenderer` implemented in Go

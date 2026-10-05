@@ -8,6 +8,7 @@ import (
 	"image"
 	"math"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -53,7 +54,13 @@ func (m *Image) RGBA() []byte {
 type clip struct {
 	shape
 	round bool
+	// spans is where in spanBuf the clip, with continuous corners, keeps
+	// the spans clipSolid found for the rows of the area, lo and hi a row
+	// (noSpan until found), or -1.
+	spans int
 }
+
+const noSpan = math.MinInt32
 
 type renderer struct {
 	dst   *Image
@@ -65,6 +72,8 @@ type renderer struct {
 	x0, y0, x1, y1 int
 	// profile is scratch space for shadows.
 	profile []float32
+	// spanBuf holds the clips' spans (clip.spans).
+	spanBuf []int32
 }
 
 // Render draws s into dst, which must be s.Width×s.Height.
@@ -118,7 +127,7 @@ func draw(rs *[]renderer, dst *Image, s *scene.Scene, area image.Rectangle, boun
 // render draws the pixels of s within area, but for the operations whose
 // bounds miss it.
 func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) {
-	r.dst, r.s, r.clips = dst, s, r.clips[:0]
+	r.dst, r.s, r.clips, r.spanBuf = dst, s, r.clips[:0], r.spanBuf[:0]
 	r.area = area.Intersect(image.Rect(0, 0, dst.W, dst.H))
 	if r.area.Empty() {
 		return
@@ -141,10 +150,24 @@ func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, boun
 			r.image(op)
 		case scene.OpPushClip:
 			radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
-			r.clips = append(r.clips, clip{shape: newShape(op.Rect, radii), round: hasRadii(radii)})
+			c := clip{shape: newShape(op.Rect, radii), round: hasRadii(radii), spans: -1}
+			if c.continuous {
+				// Continuous corners take long to find the spans of, which
+				// every operation within the clip needs.
+				c.spans = len(r.spanBuf)
+				n := 2 * r.area.Dy()
+				r.spanBuf = slices.Grow(r.spanBuf, n)[:c.spans+n]
+				for i := c.spans; i < len(r.spanBuf); i++ {
+					r.spanBuf[i] = noSpan
+				}
+			}
+			r.clips = append(r.clips, c)
 			r.updateBounds()
 		case scene.OpPopClip:
 			if len(r.clips) > 0 {
+				if c := r.clips[len(r.clips)-1]; c.spans >= 0 {
+					r.spanBuf = r.spanBuf[:c.spans]
+				}
 				r.clips = r.clips[:len(r.clips)-1]
 				r.updateBounds()
 			}
@@ -210,7 +233,17 @@ func (r *renderer) clipSolid(y int) (lo, hi int) {
 	lo, hi = r.x0, r.x1
 	for i := range r.clips {
 		c := &r.clips[i]
-		l, h := solidSpan(&c.shape, float32(y), float32(y+1))
+		var l, h int
+		if k := c.spans + 2*(y-r.area.Min.Y); c.spans >= 0 && y >= r.area.Min.Y && y < r.area.Max.Y {
+			if r.spanBuf[k] == noSpan {
+				l, h = solidSpan(&c.shape, float32(y), float32(y+1))
+				r.spanBuf[k], r.spanBuf[k+1] = int32(l), int32(h)
+			} else {
+				l, h = int(r.spanBuf[k]), int(r.spanBuf[k+1])
+			}
+		} else {
+			l, h = solidSpan(&c.shape, float32(y), float32(y+1))
+		}
 		lo, hi = max(lo, l), min(hi, h)
 	}
 	return lo, hi
@@ -221,19 +254,14 @@ func hasRadii(radii [4]float32) bool {
 }
 
 // shape is a rounded rectangle, with radii as scene.Corners gives them, as
-// the renderer draws it: with where the curves of continuous corners end,
-// which every pixel near an edge needs, worked out once.
+// the renderer draws it, with its continuous corners, which every pixel
+// near an edge needs, worked out once.
 type shape struct {
 	r scene.Rect
 	// radii are positive, continuous or not.
 	radii      [4]float32
 	continuous bool
-	// Each continuous corner's curve ends kx radii along its horizontal
-	// edge and ky along its vertical one, ex and ey pixels from the
-	// corner; tight ones, which end one radius from it both ways, are
-	// quarter circles.
-	kx, ky, ex, ey [4]float32
-	tight          [4]bool
+	corners    [4]contCorner
 }
 
 func newShape(rc scene.Rect, radii [4]float32) shape {
@@ -248,9 +276,7 @@ func newShape(rc scene.Rect, radii [4]float32) shape {
 	for i, rad := range s.radii {
 		// The corners sharing its horizontal and its vertical edge.
 		h, v := [4]int{1, 0, 3, 2}[i], [4]int{3, 2, 1, 0}[i]
-		kx, ky := contExtents(rad, s.radii[h], s.radii[v], rc.W, rc.H)
-		s.kx[i], s.ky[i], s.ex[i], s.ey[i] = kx, ky, kx*rad, ky*rad
-		s.tight[i] = kx < contTight && ky < contTight
+		s.corners[i] = newContCorner(rad, s.radii[h], s.radii[v], rc.W, rc.H)
 	}
 	return s
 }
@@ -297,44 +323,55 @@ func areaCoverage(rc scene.Rect, px, py float32) float32 {
 	return clamp01(cx) * clamp01(cy)
 }
 
-// contCoverage is coverage with continuous corners. A corner's curve may
-// reach past the middle of a side whose other corner is smaller, so the
-// pixel belongs to the corner whose curve's box holds it, if any.
+// contCoverage is coverage with continuous corners: away from their
+// curves, the area of the pixel inside the rectangle; near them, the
+// shape's value over the sum of its derivatives, as Core Animation
+// antialiases (corner.go).
 func contCoverage(s *shape, px, py float32) float32 {
+	d, curved := s.contDist(px, py)
+	if !curved {
+		return areaCoverage(s.r, px, py)
+	}
+	if abs(d) > 2 {
+		// Wholly in or out, however steep the value is.
+		if d < 0 {
+			return 1
+		}
+		return 0
+	}
+	const h = 1.0 / 16
+	dx, _ := s.contDist(px+h, py)
+	dy, _ := s.contDist(px, py+h)
+	return clamp01(0.5 - d*h/max(abs(dx-d)+abs(dy-d), 1e-6))
+}
+
+// contDist returns the value of a shape with continuous corners at (px,
+// py), the largest of its corners' and the rectangle's signed distance,
+// and whether a corner's curve reaches it.
+func (s *shape) contDist(px, py float32) (float32, bool) {
 	rc := s.r
 	left, right := px-rc.X, rc.X+rc.W-px
 	top, bottom := py-rc.Y, rc.Y+rc.H-py
+	d := max(-left, -right, -top, -bottom)
+	curved := false
 	for i, uv := range [4][2]float32{{left, top}, {right, top}, {right, bottom}, {left, bottom}} {
-		u, v, rad := uv[0], uv[1], s.radii[i]
-		if rad <= 0 || u >= s.ex[i] || v >= s.ey[i] {
+		c := &s.corners[i]
+		if c.r <= 0 || uv[0] >= c.e || uv[1] >= c.e {
 			continue
 		}
-		// Tight corners are quarter circles, and the others never further
-		// from one than contNear radii: far from its edge, the pixel is
-		// wholly in or out.
-		ax, ay := rad-u, rad-v
-		d := max(ax, ay) - rad
-		if ax > 0 && ay > 0 {
-			d = float32(math.Sqrt(float64(ax*ax+ay*ay))) - rad
-		}
-		if s.tight[i] || abs(d) > 0.5+contNear*rad {
-			return clamp01(0.5 - d)
-		}
-		return clamp01(0.5 - contDistance(u/rad, v/rad, s.kx[i], s.ky[i])*rad)
+		d, curved = max(d, c.dist(uv[0], uv[1])), true
 	}
-	return areaCoverage(rc, px, py)
+	return d, curved
 }
 
 // inset returns how far corner i of the rounded rectangle narrows a row v
 // pixels from its horizontal edge, at the least.
 func inset(s *shape, i int, v float32) float32 {
-	rad := s.radii[i]
-	if s.continuous && !s.tight[i] {
-		if v >= s.ey[i] {
-			return 0
-		}
-		return rad * contInset(v/rad, s.kx[i], s.ky[i])
+	if s.continuous {
+		_, bound := s.corners[i].inset(v)
+		return bound
 	}
+	rad := s.radii[i]
 	switch {
 	case rad <= 0 || v >= rad:
 		return 0
@@ -724,12 +761,11 @@ func (r *renderer) shadow(op *scene.Op) {
 		return
 	}
 	corner := max(abs(radii[0]), abs(radii[1]), abs(radii[2]), abs(radii[3]))
-	// Continuous corners narrow the box over ky radii of its height.
-	var kx, ky float32
+	// Continuous corners narrow the box over the end of their curves.
 	continuous := op.Continuous && corner > 0
+	var cc contCorner
 	if continuous {
-		kx, ky = contExtents(corner, corner, corner, op.Rect.W, op.Rect.H)
-		continuous = kx >= contTight || ky >= contTight
+		cc = newContCorner(corner, corner, corner, op.Rect.W, op.Rect.H)
 	}
 	ext := 3 * sigma
 	box := scene.Rect{X: op.Rect.X - ext, Y: op.Rect.Y - ext, W: op.Rect.W + 2*ext, H: op.Rect.H + 2*ext}
@@ -775,8 +811,9 @@ func (r *renderer) shadow(op *scene.Op) {
 			sum += weight[i]
 			half[i] = hx
 			if v := hy - abs(py-yy); continuous {
-				if v < ky*corner {
-					half[i] = hx - corner*contInset(v/corner, kx, ky)
+				if v < cc.e {
+					at, _ := cc.inset(v)
+					half[i] = hx - at
 					narrowest = min(narrowest, half[i])
 				}
 			} else if delta := min(hy-corner-abs(py-yy), 0); delta < 0 {
