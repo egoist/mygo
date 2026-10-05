@@ -1455,6 +1455,19 @@ either.
   (paths drawn with one); images, in color or gray; and pushed and popped
   clips. Renderers draw the whole scene each frame and retain only
   textures. Wavy underlines are stroked paths.
+- **Corners.** On macOS, rounded corners are continuous, as AppKit's and
+  SwiftUI's (`scene.Op.Continuous`): Apple's curve, three cubic Béziers a
+  corner taken from SwiftUI's paths, which leaves the edge 1.528665 radii
+  from the corner and bends gradually, where a quarter circle bends at
+  once. On sides too short for both corners' curves, as a pill's, each
+  ends in proportion to its radius, with the control points SwiftUI moves
+  there; corners round both ways, as a circle's, stay quarter circles.
+  Coverage comes from the distance along the normal of the tangent at the
+  curve's nearest point (`internal/raster/corner.go`), within a hundredth
+  of a pixel: the shapes match Core Graphics filling SwiftUI's paths as
+  closely as circular corners match its circles. Elsewhere corners are
+  circular, as Windows and GTK draw them, and only the CPU's renderer and
+  Metal's draw continuous ones.
 - **Text.** `internal/text` lays out text with the system's own text stack,
   behind a small `engine` interface: DirectWrite on Windows
   (`IDWriteTextLayout`, with an `IDWriteTextRenderer` implemented in Go

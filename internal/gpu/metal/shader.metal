@@ -71,17 +71,157 @@ float sdRoundRect(float2 p, float4 rect, float4 radii) {
 
 float coverage(float d) { return saturate(0.5f - d); }
 
+// Continuous corners, Apple's, as internal/raster/corner.go explains:
+// three Béziers a corner, which leave the edge 1.528665 radii from the
+// corner. On half a corner, s is the distance from the edge it ends on, t
+// along that edge from the corner, k how many radii from the corner it
+// ends; the half of the middle Bézier from the diagonal, and the last one.
+constant float contExtent = 1.528665f;
+constant float contTight = 1.001f;
+constant float contNear = 0.03f;
+constant float contDiag = 0.29150712f;
+constant float contJoinS = 0.074911f;
+constant float contJoinT = 0.631494f;
+constant float4 contMidS = float4(0.29150712f, 0.19646375f, 0.1219855f, 0.074911f);
+constant float4 contMidT = float4(0.29150712f, 0.3865505f, 0.502159f, 0.631494f);
+
+float bezier(float4 p, float x) {
+	float y = 1.0f - x;
+	return y * y * y * p.x + 3.0f * y * y * x * p.y + 3.0f * y * x * x * p.z + x * x * x * p.w;
+}
+
+float bezierSlope(float4 p, float x) {
+	float y = 1.0f - x;
+	return 3.0f * (y * y * (p.y - p.x) + 2.0f * y * x * (p.z - p.y) + x * x * (p.w - p.z));
+}
+
+// solveBezier returns where the monotonic Bézier p is v: Newton's method
+// from where a straight line would be.
+float solveBezier(float4 p, float v) {
+	float x = saturate((v - p.x) / (p.w - p.x));
+	for (int n = 0; n < 2; n++) {
+		x = saturate(x - (bezier(p, x) - v) / bezierSlope(p, x));
+	}
+	return x;
+}
+
+float4 contEnd(float k) {
+	return float4(contJoinT, 0.82f + (k - 1.0f) * 0.0915646031f, 0.96f + (k - 1.0f) * 0.243046165f, k);
+}
+
+// contProfile returns the curve's s at t on a half ending at k, and its
+// slope ds/dt.
+float2 contProfile(float t, float k) {
+	if (t <= contDiag) {
+		return float2(2.0f * contDiag - t, -1.0f);
+	}
+	bool mid = t <= contJoinT;
+	float4 cs = mid ? contMidS : float4(contJoinS, 0.0f, 0.0f, 0.0f);
+	float4 ct = mid ? contMidT : contEnd(k);
+	float x = solveBezier(ct, t);
+	return float2(bezier(cs, x), bezierSlope(cs, x) / bezierSlope(ct, x));
+}
+
+// contDistance returns the signed distance, in radii, to a continuous
+// corner's edge from the point u radii inside its vertical edge and v
+// inside its horizontal one, from the tangent at the curve's point
+// nearest to it.
+float contDistance(float u, float v, float kx, float ky) {
+	if (u >= kx || v >= ky) {
+		return max(-u, -v);
+	}
+	float s = u, t = v, k = ky;
+	if (v < u) {
+		s = v; t = u; k = kx;
+	}
+	float2 c = contProfile(t, k);
+	float t1 = t + (s - c.x) * c.y / (1.0f + c.y * c.y);
+	c = contProfile(t1, k);
+	return (c.x - s + (t - t1) * c.y) / sqrt(1.0f + c.y * c.y);
+}
+
+// contInset returns how far from the vertical edge, in radii, the curve
+// of a continuous corner is v radii from the horizontal edge.
+float contInset(float v, float kx, float ky) {
+	if (v >= ky) {
+		return 0.0f;
+	}
+	if (v >= contDiag) {
+		return contProfile(v, ky).x;
+	}
+	if (v <= 0.0f) {
+		return kx;
+	}
+	if (v >= contJoinS) {
+		return bezier(contMidT, solveBezier(contMidS, v));
+	}
+	return bezier(contEnd(kx), 1.0f - pow(v / contJoinS, 1.0f / 3.0f));
+}
+
+// areaCoverage returns the area of the pixel at p inside the rectangle,
+// near square corners: exact for lines thinner than a pixel too.
+float areaCoverage(float2 p, float4 rect) {
+	float2 c = saturate(min(rect.xy + rect.zw, p + 0.5f) - max(rect.xy, p - 0.5f));
+	return c.x * c.y;
+}
+
+// cornerCoverage returns how much of the pixel u inside a continuous
+// corner's vertical edge and v inside its horizontal one, within the box
+// of the corner's curve, the shape covers; the curve ends kx radii along
+// the horizontal edge and ky along the vertical one.
+float cornerCoverage(float u, float v, float kx, float ky, float r) {
+	// Tight corners are quarter circles, and the others never further
+	// from one than contNear radii: far from its edge, the pixel is wholly
+	// in or out.
+	float2 a = r - float2(u, v);
+	float d = length(max(a, 0.0f)) + min(max(a.x, a.y), 0.0f) - r;
+	if ((kx < contTight && ky < contTight) || abs(d) > 0.5f + contNear * r) {
+		return coverage(d);
+	}
+	return coverage(contDistance(u / r, v / r, kx, ky) * r);
+}
+
+// contCoverage is rectCoverage with continuous corners of radii r: the
+// pixel belongs to the corner whose curve's box holds it, if any, as a
+// curve may reach past the middle of a side whose other corner is smaller.
+float contCoverage(float2 p, float4 rect, float4 r) {
+	float4 d = float4(p - rect.xy, rect.xy + rect.zw - p); // left, top, right, bottom
+	// Where the curves end along the top, right, bottom and left edges, and
+	// for each corner its u and v, and where its curve ends along its
+	// horizontal and vertical edges.
+	float4 k = min(float4(contExtent), rect.zwzw / max(r + r.yzwx, 1e-6f));
+	float4 u = d.xzzx, v = d.yyww, kx = k.xxzz, ky = k.wyyw;
+	float4 ex = kx * r, ey = ky * r;
+	float4 c;
+	float cr;
+	if (r.x > 0.0f && u.x < ex.x && v.x < ey.x) {
+		c = float4(u.x, v.x, kx.x, ky.x); cr = r.x;
+	} else if (r.y > 0.0f && u.y < ex.y && v.y < ey.y) {
+		c = float4(u.y, v.y, kx.y, ky.y); cr = r.y;
+	} else if (r.z > 0.0f && u.z < ex.z && v.z < ey.z) {
+		c = float4(u.z, v.z, kx.z, ky.z); cr = r.z;
+	} else if (r.w > 0.0f && u.w < ex.w && v.w < ey.w) {
+		c = float4(u.w, v.w, kx.w, ky.w); cr = r.w;
+	} else {
+		return areaCoverage(p, rect);
+	}
+	return cornerCoverage(c.x, c.y, c.z, c.w, cr);
+}
+
 // rectCoverage returns how much of the pixel at p a rounded rectangle
 // covers: by the distance to its edge near rounded corners, and exactly,
-// the area of the pixel inside it, near square ones.
+// the area of the pixel inside it, near square ones. Negative radii are
+// continuous corners.
 float rectCoverage(float2 p, float4 rect, float4 radii) {
+	if (any(radii < 0.0f)) {
+		return contCoverage(p, rect, -radii);
+	}
 	float2 q = p - rect.xy - rect.zw * 0.5f;
 	float r = q.x < 0.0f ? (q.y < 0.0f ? radii.x : radii.w) : (q.y < 0.0f ? radii.y : radii.z);
 	if (r > 0.0f) {
 		return coverage(sdRoundRect(p, rect, radii));
 	}
-	float2 c = saturate(min(rect.xy + rect.zw, p + 0.5f) - max(rect.xy, p - 0.5f));
-	return c.x * c.y;
+	return areaCoverage(p, rect);
 }
 
 float4 premul(float4 c) { return float4(c.rgb * c.a, c.a); }
@@ -119,15 +259,30 @@ float gaussian(float x, float sigma) {
 }
 
 // The blurred rounded box of Evan Wallace: exact along x, four samples
-// along y.
-float shadowX(float x, float y, float sigma, float corner, float2 h) {
-	float delta = min(h.y - corner - abs(y), 0.0f);
-	float curved = h.x - corner + sqrt(max(0.0f, corner * corner - delta * delta));
+// along y. k is where continuous corners end, or 0 for circular ones.
+float shadowX(float x, float y, float sigma, float corner, float2 h, float2 k) {
+	float curved;
+	if (k.x > 0.0f) {
+		float v = h.y - abs(y);
+		curved = v < k.y * corner ? h.x - corner * contInset(v / corner, k.x, k.y) : h.x;
+	} else {
+		float delta = min(h.y - corner - abs(y), 0.0f);
+		curved = h.x - corner + sqrt(max(0.0f, corner * corner - delta * delta));
+	}
 	float2 integral = 0.5f + 0.5f * erf2((x + float2(-curved, curved)) * (sqrt(0.5f) / sigma));
 	return integral.y - integral.x;
 }
 
-float boxShadow(float2 p, float4 rect, float sigma, float corner) {
+float boxShadow(float2 p, float4 rect, float sigma, float4 radii) {
+	float4 r = abs(radii);
+	float corner = max(max(r.x, r.y), max(r.z, r.w));
+	float2 k = float2(0.0f);
+	if (any(radii < 0.0f) && corner > 0.0f) {
+		k = min(float2(contExtent), rect.zw / (2.0f * corner));
+		if (k.x < contTight && k.y < contTight) {
+			k = float2(0.0f);
+		}
+	}
 	float2 h = rect.zw * 0.5f;
 	p -= rect.xy + h;
 	float low = p.y - h.y;
@@ -137,8 +292,8 @@ float boxShadow(float2 p, float4 rect, float sigma, float corner) {
 	float dy = (to - from) / 4.0f;
 	float y = from + dy * 0.5f;
 	float v = 0.0f;
-	for (int k = 0; k < 4; k++) {
-		v += shadowX(p.x, p.y - y, sigma, corner, h) * gaussian(y, sigma) * dy;
+	for (int n = 0; n < 4; n++) {
+		v += shadowX(p.x, p.y - y, sigma, corner, h, k) * gaussian(y, sigma) * dy;
 		y += dy;
 	}
 	return v;
@@ -260,8 +415,7 @@ fragment PSOut ps(VSOut v [[stage_in]],
 		}
 	} else if (kind < 1.5f) {
 		float sigma = i.params.z;
-		float corner = max(max(i.radii.x, i.radii.y), max(i.radii.z, i.radii.w));
-		float s = sigma > 0.0f ? boxShadow(v.p, i.rect, sigma, corner) : rectCoverage(v.p, i.rect, i.radii);
+		float s = sigma > 0.0f ? boxShadow(v.p, i.rect, sigma, i.radii) : rectCoverage(v.p, i.rect, i.radii);
 		if (i.uv.z > 0.0f && i.uv.w > 0.0f) {
 			s *= 1.0f - rectCoverage(v.p, i.uv, i.inner); // outside the box casting it
 		}
