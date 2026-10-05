@@ -28,8 +28,8 @@ type Glass struct {
 	// Tint colors the glass, by its alpha, as for a prominent button: an
 	// opaque tint lets a little of the glass show, as AppKit's does.
 	Tint ui.Color
-	// Interactive makes the glass react as the element is pressed, with
-	// a glow under the pointer, as AppKit's interactive glass does.
+	// Interactive makes the glass grow a little while the element is
+	// pressed, as AppKit's interactive glass does.
 	Interactive bool
 }
 
@@ -46,45 +46,49 @@ const (
 	Clear
 )
 
-// pressKey is the key of an interactive glass's state and animation.
+// pressKey is the key of an interactive glass's animation.
 type pressKey struct{}
 
 // pressed is an interactive glass as its element is built: how far it
-// glows, from 0 to 1, and where, relative to the element.
+// has grown, from 0 to 1.
 type pressed struct {
 	Glass
-	glow float32
-	at   [2]float32
+	grow float32
 }
 
 // BuildMaterial follows the press of an interactive glass's element: the
-// glow follows the pointer while it is pressed, and fades where it was
-// let go.
+// glass grows as it is pressed and shrinks back as it is let go, within
+// 150 ms, as AppKit's does.
 func (g Glass) BuildMaterial(e *ui.Element) ui.Material {
 	if !g.Interactive {
 		return g
 	}
-	x, y, _ := e.PointerPosition()
-	down := e.Pressed()
-	at := ui.Local(e, pressKey{}, func() [2]float32 { return [2]float32{} })
-	if down {
-		*at = [2]float32{x, y}
-	}
 	target := float32(0)
-	if down {
+	if e.Pressed() {
 		target = 1
 	}
-	return pressed{g, e.Animate(pressKey{}, target, 250*time.Millisecond), *at}
+	return pressed{g, e.Animate(pressKey{}, target, 150*time.Millisecond)}
 }
 
 // PaintMaterial paints the glass over box, rounded by radii, with its
 // shadow.
 func (g Glass) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
-	paint(p, box, radii, g, 0, [2]float32{})
+	paint(p, box, radii, g)
 }
 
+// PaintMaterial paints the glass grown by how far it is pressed: as
+// macOS 27's, measured from NSGlassEffectView, by about 1.1 DIPs left and
+// right and 0.45 DIPs above and below, whatever its size. AppKit stretches
+// the content too, a pixel or so, which the children here are not.
 func (g pressed) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
-	paint(p, box, radii, g.Glass, g.glow, g.at)
+	dx, dy := 1.1*g.grow, 0.45*g.grow
+	box = ui.Rect{X: box.X - dx, Y: box.Y - dy, W: box.W + 2*dx, H: box.H + 2*dy}
+	for i := range radii {
+		if radii[i] > 0 {
+			radii[i] += dy
+		}
+	}
+	paint(p, box, radii, g.Glass)
 }
 
 // String describes the glass, as the inspector shows it.
@@ -106,12 +110,11 @@ func (g Glass) String() string {
 // drawing (Element.Draw), over what the painter painted before it, with
 // its shadow.
 func Paint(p *ui.Painter, r ui.Rect, radius float32, g Glass) {
-	paint(p, r, [4]float32{radius, radius, radius, radius}, g, 0, [2]float32{})
+	paint(p, r, [4]float32{radius, radius, radius, radius}, g)
 }
 
 // paint paints a pane of glass over box, rounded by radii, with its
-// shadow; an interactive one glows by glow (0 to 1) at at, relative to
-// box.
+// shadow.
 //
 // Its material follows macOS 27's, measured from NSGlassEffectView: the
 // regular one maps black to 54% and white to 100% in light mode, and to
@@ -120,7 +123,7 @@ func Paint(p *ui.Painter, r ui.Rect, radius float32, g Glass) {
 // pane, at most half of it, and bends what shows through by up to 1.6
 // times that, mirroring what is inside it, as AppKit's do; light comes
 // from above and below.
-func paint(p *ui.Painter, box ui.Rect, radii [4]float32, g Glass, glow float32, at [2]float32) {
+func paint(p *ui.Painter, box ui.Rect, radii [4]float32, g Glass) {
 	if box.W <= 0 || box.H <= 0 {
 		return
 	}
@@ -150,11 +153,6 @@ func paint(p *ui.Painter, box ui.Rect, radii [4]float32, g Glass, glow float32, 
 	}
 	if g.Tint.A > 0 {
 		mat.tint = [4]float32{float32(g.Tint.R) / 255, float32(g.Tint.G) / 255, float32(g.Tint.B) / 255, float32(g.Tint.A) / 255 * 0.88}
-	}
-	if glow > 0 {
-		mat.glow = 0.3 * glow
-		mat.glowX, mat.glowY = (box.X+at[0])*s, (box.Y+at[1])*s
-		mat.glowRadius = max(box.W, box.H) * 0.6 * s
 	}
 	// The shadow grows with the pane, softly, and below it.
 	sh := min(20, m/4)

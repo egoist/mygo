@@ -57,9 +57,5 @@ vec4 effect(vec2 p, Effect e) {
 		float l = abs(n.x * e.p3.x + n.y * e.p3.y);
 		c += (l - c) * a;
 	}
-	if (e.p3.z > 0.0 && e.p3.w > 0.0) {
-		vec2 d = (p - e.p4.xy) / e.p3.w;
-		c += (1.0 - c) * (e.p3.z * exp(-(d.x * d.x + d.y * d.y)));
-	}
 	return vec4(c, 1.0);
 }

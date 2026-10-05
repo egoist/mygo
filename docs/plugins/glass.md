@@ -42,9 +42,11 @@ ui.Box(c).Fill().Children(func() {
 
 `Tint` colors the glass toward a color, by its alpha, as a prominent
 button: `glass.Glass{Tint: t.Accent}`, with text in `t.AccentText`.
-`Interactive` makes the glass react as it is pressed, with a glow under
-the pointer that fades as it is let go, as AppKit's interactive glass
-does.
+`Interactive` makes the glass grow a little while it is pressed, as
+AppKit's interactive glass does on macOS 27: about 1.1 DIPs left and
+right and 0.45 above and below, whatever its size, within 150 ms. AppKit
+stretches the content too, by a pixel or so, which the children here are
+not.
 
 ```go
 done := ui.Row(c).Padding(8, 16).Radius(20).Material(glass.Glass{Tint: t.Accent, Interactive: true}).Children(func() {

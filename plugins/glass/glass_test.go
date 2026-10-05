@@ -44,26 +44,28 @@ func TestGlassPaintsOverWhatIsBehind(t *testing.T) {
 	}
 }
 
-func TestInteractiveGlassGlowsWherePressed(t *testing.T) {
+func TestInteractiveGlassGrowsWhilePressed(t *testing.T) {
 	view := func(c *ui.Context) {
-		ui.Box(c).Fill().Background(ui.RGB(40, 40, 40)).Children(func() {
-			ui.Box(c).Size(200, 100).Radius(20).Material(Glass{Interactive: true})
+		ui.Box(c).Fill().Background(ui.RGB(0, 0, 0)).Children(func() {
+			ui.Box(c).Absolute().Left(50).Top(50).Size(200, 100).Radius(20).Material(Glass{Interactive: true})
 		})
 	}
 	tt := ui.NewTester(view, 300, 200)
-	// The glow comes and goes at once.
+	tt.SetScale(2)
+	// It grows at once.
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
-	before := pixelAt(tt.Image(), 50, 40)
-	tt.Press(50, 40)
+	// The pixel left of the glass's left edge, in the middle.
+	outside := func() int { return pixelAt(tt.Image(), 99, 200)[0] }
+	before := outside()
+	tt.Press(150, 100)
 	tt.Frame()
-	pressed := pixelAt(tt.Image(), 50, 40)
-	if pressed[0] <= before[0]+20 {
-		t.Errorf("pressed at (50, 40): %v, before %v", pressed, before)
+	if grown := outside(); grown <= before+50 {
+		t.Errorf("pressed, the pixel left of the glass is %d, as before (%d)", grown, before)
 	}
-	tt.Release(50, 40)
+	tt.Release(150, 100)
 	tt.Frame()
-	if after := pixelAt(tt.Image(), 50, 40); after != before {
-		t.Errorf("after the release: %v, before %v", after, before)
+	if after := outside(); after != before {
+		t.Errorf("after the release, the pixel left of the glass is %d, not %d", after, before)
 	}
 }
 

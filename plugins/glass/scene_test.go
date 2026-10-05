@@ -18,7 +18,7 @@ func r4(r float32) [4]float32 { return [4]float32{r, r, r, r} }
 
 // testScene returns a 320×140 scene of panes of glass over stripes and a
 // gradient, which the renderers must draw alike: blurred at a quarter of
-// the size, over each other, unblurred, tinted and glowing, clipped, half
+// the size, over each other, unblurred and tinted, clipped, half
 // transparent, dark and blurred at full size, and past the frame's edge.
 func testScene() *scene.Scene {
 	s := &scene.Scene{Width: 320, Height: 140, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255}}
@@ -40,7 +40,7 @@ func testScene() *scene.Scene {
 	m.blur, m.bezel, m.refraction = 12, 30, 48
 	paneOp(s, scene.Rect{X: 120, Y: 36, W: 60, H: 60}, r4(30), m, 0)
 	m = material{low: 0.125, high: 1.082, curve: 1, saturation: 1, bezel: 16, refraction: 26, tint: [4]float32{0.15, 0.39, 0.92, 0.47},
-		rim: 0.35, rimWidth: 2, light: math.Pi / 4, glow: 0.5, glowX: 230, glowY: 30, glowRadius: 20}
+		rim: 0.35, rimWidth: 2, light: math.Pi / 4}
 	paneOp(s, scene.Rect{X: 190.5, Y: 8.25, W: 110, H: 50}, r4(16), m, 0)
 	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 30, Y: 70, W: 200, H: 50}, Radii: r4(12)})
 	m = material{blur: 3, low: 0.15, high: 0.51, curve: 2, saturation: 2.2, bezel: 20, refraction: 30, rim: 0.35, rimWidth: 2, light: math.Pi / 2}

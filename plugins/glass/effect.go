@@ -22,7 +22,7 @@ var (
 // Effect is the glass's effect, which the renderers draw (see
 // scene.Effect): what is behind the pane, blurred, sampled within the
 // bezel where the curved surface refracts it (lens), mapped from its
-// lightness (tone), tinted, and lit along the rim and where pressed.
+// lightness (tone), tinted, and lit along the rim.
 var Effect = &scene.Effect{
 	Name:     "glass",
 	Backdrop: true,
@@ -45,30 +45,24 @@ var Effect = &scene.Effect{
 //   - rim is how much the rim is lit, within about rimWidth of the edge:
 //     the more the edge faces the light coming from the angle light
 //     (radians, clockwise from the right, the opposite side alike), the
-//     lighter, and the less, the darker;
-//   - glow lights the glass around (glowX, glowY), within about
-//     glowRadius, as glass reacts to a press.
+//     lighter, and the less, the darker.
 type material struct {
 	blur                         float32
 	bezel, refraction            float32
 	low, high, curve, saturation float32
 	tint                         [4]float32
 	rim, rimWidth, light         float32
-	glow, glowX, glowY           float32
-	glowRadius                   float32
 }
 
 // params returns the effect's parameters, as its shaders read them: p0
 // the bezel, the refraction, the rim and its width; p1 the tint; p2 the
-// low, high, curve and saturation; p3 the direction of the light, the
-// glow and its radius; p4 where the glow is.
+// low, high, curve and saturation; p3 the direction of the light.
 func (m *material) params() [5][4]float32 {
 	return [5][4]float32{
 		{m.bezel, m.refraction, m.rim, m.rimWidth},
 		m.tint,
 		{m.low, m.high, m.curve, m.saturation},
-		{float32(math.Cos(float64(m.light))), float32(math.Sin(float64(m.light))), m.glow, m.glowRadius},
-		{m.glowX, m.glowY},
+		{float32(math.Cos(float64(m.light))), float32(math.Sin(float64(m.light)))},
 	}
 }
 

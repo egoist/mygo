@@ -29,7 +29,6 @@ func (px *pixels) Begin(op *scene.EffectOp, rect scene.Rect, radii [4]float32) {
 		bezel: p[0][0], refraction: p[0][1], rim: p[0][2], rimWidth: p[0][3],
 		tint: p[1],
 		low:  p[2][0], high: p[2][1], curve: p[2][2], saturation: p[2][3],
-		glow: p[3][2], glowRadius: p[3][3], glowX: p[4][0], glowY: p[4][1],
 	}
 	px.lx, px.ly = p[3][0], p[3][1]
 	px.rect, px.radii = rect, radii
@@ -81,13 +80,6 @@ func (px *pixels) Color(x, y float32, b *scene.BackdropImage) [4]float32 {
 		l := abs(nx*px.lx + ny*px.ly)
 		for i := range c {
 			c[i] += (l - c[i]) * a
-		}
-	}
-	if m.glow > 0 && m.glowRadius > 0 {
-		dx, dy := (x-m.glowX)/m.glowRadius, (y-m.glowY)/m.glowRadius
-		a := m.glow * float32(math.Exp(float64(-(dx*dx + dy*dy))))
-		for i := range c {
-			c[i] += (1 - c[i]) * a
 		}
 	}
 	return [4]float32{c[0], c[1], c[2], 1}

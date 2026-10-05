@@ -750,7 +750,10 @@ build` like mygo-runtime and released with the same version.
     user's cache once, which packaged apps never do.
 - **glass** is Liquid Glass for native UI, as macOS 26 and later draw it:
   `glass.Glass`, a `ui.Material` (interactive glass builds with its
-  element, following its press with `Animate`), paints a shadow and an
+  element, following its press with `Animate`, and paints itself grown
+  while pressed, as macOS 27's: by a fixed 1.1 DIPs left and right and
+  0.45 above and below, measured from `NSGlassEffectView`), paints a
+  shadow and an
   effect (`glass.Effect`, see Effects under Native UI), whose parameters
   are a pane's material in device pixels. Its shader (`glass.metal`,
   `glass.hlsl`, `glass.glsl`, and `pixels.go` for the CPU) takes what is
@@ -759,8 +762,8 @@ build` like mygo-runtime and released with the same version.
   Apple's squircle profile (`lens`, along `normal`), which mirrors what is
   just inside the rim; then maps its lightness and colors (`tone`; the CPU
   keeps its curve in a table, as its power is slow there), tints it, and
-  lights the rim by how its normal faces the light, and an interactive
-  pane where it is pressed. The defaults follow macOS 27's, measured from
+  lights the rim by how its normal faces the light. The defaults follow
+  macOS 27's, measured from
   `NSGlassEffectView` over test patterns; the optics follow the
   open-source reproductions of Liquid Glass. `go generate ./plugins/glass`
   compiles the shaders ahead of time on macOS (`shaders_darwin.go`) and on
