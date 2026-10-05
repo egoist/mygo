@@ -71,7 +71,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── vec/            the coverage rasterizer of glyphs and paths
 │   ├── raster/         the CPU renderer of scenes
 │   ├── gpu/            the instances GPU renderers draw, and gputest/ for their tests
-│   ├── gpu/d3d11/      the Direct3D 11 renderer of scenes
+│   ├── gpu/d3d11/      the Direct3D 11 renderer of scenes, and device/ for its devices
 │   ├── gpu/metal/      the Metal renderer of scenes
 │   ├── gpu/gl/         the OpenGL renderer of scenes
 │   ├── svg/            SVG parsing and drawing, for icons and images
@@ -393,10 +393,11 @@ purego gives three primitives, used everywhere:
   nothing GDI draws: it has no menu bar, like a window without a caption,
   and the buttons of its hidden title bar, layered without a bitmap too,
   show their pixels through DirectComposition (`compositor.go`), on a
-  Direct3D 11 device (`d3d11.NewDevice`) the windows share. A device
-  found invalid after a failed draw, or whose GPU device signals its
-  removed event (`ID3D11Device4::RegisterDeviceRemovedEvent`, waited for
-  by a goroutine), is made again, and every window's buttons draw again;
+  Direct3D 11 device the windows share (`internal/gpu/d3d11/device`,
+  which links none of the renderer). A device found invalid after a
+  failed draw, or whose GPU device signals its removed event
+  (`ID3D11Device4::RegisterDeviceRemovedEvent`, waited for by a
+  goroutine), is made again, and every window's buttons draw again;
   buttons that could not draw retry on a timer of the application
   window, a second later and longer after each failure in a row. Without
   DirectComposition, a window with a hidden title bar keeps its bitmap:

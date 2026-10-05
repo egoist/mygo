@@ -8,7 +8,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/egoist/mygo/internal/gpu/d3d11"
+	"github.com/egoist/mygo/internal/gpu/d3d11/device"
 )
 
 // A window with a material behind it has no redirection bitmap
@@ -104,7 +104,7 @@ func (b *Backend) composition() *composition {
 func newComposition() (*composition, error) {
 	c := &composition{}
 	var err error
-	if c.d3d, c.ctx, c.software, err = d3d11.NewDevice(); err != nil {
+	if c.d3d, c.ctx, c.software, err = device.New(); err != nil {
 		return nil, err
 	}
 	if err := procDCompositionCreateDevice.Find(); err != nil {
