@@ -7,10 +7,11 @@ import (
 	"unsafe"
 )
 
-// NewDevice creates a Direct3D 11 device and its immediate context as New
-// does, on the GPU or, when there is none, on WARP, for code that draws
-// without a Renderer, such as through DirectComposition. software reports
-// WARP. The caller releases the device and the context.
+// NewDevice creates a Direct3D 11 device and its immediate context, on the
+// GPU or, when there is none, with Windows' software rasterizer (WARP),
+// which software reports: the device of a Renderer, and of code that draws
+// without one, such as through DirectComposition. The caller releases the
+// device and the context.
 func NewDevice() (device, context uintptr, software bool, err error) {
 	if err := procD3D11CreateDevice.Find(); err != nil {
 		return 0, 0, false, err

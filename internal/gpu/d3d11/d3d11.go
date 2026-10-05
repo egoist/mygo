@@ -270,26 +270,10 @@ func New(hwnd uintptr) (*Renderer, error) {
 	if hwnd == 0 {
 		return nil, errors.New("d3d11: no window")
 	}
-	if err := procD3D11CreateDevice.Find(); err != nil {
-		return nil, err
-	}
 	r := &Renderer{hwnd: hwnd, images: map[uint64]*texture{}}
-	levels := []uint32{0xb000, 0xa100, 0xa000} // 11_0, 10_1, 10_0
-	const bgraSupport = 0x20
-	var hr uintptr
-	const hardware, warp = 1, 5
-	for _, driver := range []uintptr{hardware, warp} {
-		var level uint32
-		hr, _, _ = procD3D11CreateDevice.Call(0, driver, 0, bgraSupport,
-			uintptr(unsafe.Pointer(&levels[0])), uintptr(len(levels)), 7,
-			uintptr(unsafe.Pointer(&r.device)), uintptr(unsafe.Pointer(&level)), uintptr(unsafe.Pointer(&r.ctx)))
-		if !failed(hr) {
-			r.warp = driver == warp
-			break
-		}
-	}
-	if failed(hr) {
-		return nil, fmt.Errorf("d3d11: cannot create a device: %#x", uint32(hr))
+	var err error
+	if r.device, r.ctx, r.warp, err = NewDevice(); err != nil {
+		return nil, err
 	}
 	if err := r.init(); err != nil {
 		r.Release()

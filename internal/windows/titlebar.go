@@ -18,10 +18,12 @@ import (
 // windows sit above the webview:
 //
 //   - The buttons: a layered window whose pixels carry their alpha
-//     (UpdateLayeredWindow), so the page shows around the glyphs. It answers
-//     WM_NCHITTEST with the buttons' hit-test codes, which brings Windows
-//     11's snap layouts over the maximize button, and runs the buttons from
-//     the non-client mouse messages that follow.
+//     (UpdateLayeredWindow), so the page shows around the glyphs; in a
+//     window with a material behind its page, which has no redirection
+//     bitmap, the pixels show through DirectComposition (compositor.go)
+//     instead. It answers WM_NCHITTEST with the buttons' hit-test codes,
+//     which brings Windows 11's snap layouts over the maximize button, and
+//     runs the buttons from the non-client mouse messages that follow.
 //   - The top edge: an invisible window (WS_EX_NOREDIRECTIONBITMAP) as tall
 //     as the resize border, along the rest of the top. It answers HTTOP and
 //     hands presses to the window, which then resizes from its top edge as
@@ -94,7 +96,7 @@ type captionBar struct {
 
 func newCaptionBar(w *window) *captionBar {
 	c := &captionBar{w: w, hot: -1, pressed: -1}
-	if w.noRedirection() {
+	if w.noRedirect {
 		// Layered, so that it blends over the webview instead of cutting
 		// its rectangle out of it, and shown through DirectComposition.
 		c.buttons = createWindow(wsExLayered|wsExNoRedirect, captionClass, "", wsChild|wsClipSiblings, 0, 0, 0, 0, w.hwnd)
@@ -407,11 +409,19 @@ func (c *captionBar) paint() {
 	}
 	screen, _, _ := procGetDC.Call(0)
 	defer procReleaseDC.Call(0, screen)
-	img := newBitmap(screen, width, height)
-	if img == nil {
-		return
+	// UpdateLayeredWindow takes the pixels in a bitmap, DirectComposition
+	// alone.
+	var img *bitmap
+	var px []uint32
+	if c.comp != nil {
+		px = c.comp.pixels(int(width) * int(height))
+	} else {
+		if img = newBitmap(screen, width, height); img == nil {
+			return
+		}
+		defer img.free()
+		px = img.px
 	}
-	defer img.free()
 	mask := newBitmap(screen, width, height)
 	if mask == nil {
 		return
@@ -438,12 +448,12 @@ func (c *captionBar) paint() {
 		for y := int32(0); y < height; y++ {
 			row := y * width
 			for x := int32(i) * bw; x < int32(i+1)*bw; x++ {
-				img.px[row+x] = over(fore, mask.px[row+x]&0xFF, back)
+				px[row+x] = over(fore, mask.px[row+x]&0xFF, back)
 			}
 		}
 	}
 	if c.comp != nil {
-		c.comp.show(img.px, width, height)
+		c.comp.show(px, width, height)
 		return
 	}
 	size := [2]int32{width, height}

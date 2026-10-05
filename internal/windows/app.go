@@ -61,9 +61,12 @@ type Backend struct {
 	captions     map[uintptr]*captionBar
 	captionFonts map[int]captionFont
 	// comp shows the controls of windows with a material behind them
-	// (compositor.go), and compRetry is when to try making it again.
-	comp      *composition
-	compRetry time.Time
+	// (compositor.go). compRetry is when to try making it again after
+	// compFails failures in a row, and composeAt when timerCompose draws
+	// again the controls that could not draw, zero when it is not set.
+	comp                 *composition
+	compRetry, composeAt time.Time
+	compFails            int
 
 	// surfaces are the windows of the content MyGo draws (surface.go).
 	surfaces map[uintptr]*surface
@@ -331,6 +334,14 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 	case wmDisplayChange:
 		b.h.DisplaysChanged()
 		return 0, false
+	case wmTimer:
+		if wp == timerCompose {
+			b.recompose()
+			return 0, true
+		}
+	case wmAppDeviceRemoved:
+		b.deviceRemoved(wp)
+		return 0, true
 	case wmQueryEndSession:
 		return 1, true
 	case wmEndSession:
