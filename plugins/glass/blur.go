@@ -57,11 +57,11 @@ func (b Blur) String() string {
 type blurLevel struct{ blur, lo, hi float32 }
 
 // finestLevel is the most the first level of a varying blur blurs, in
-// pixels, which shows over what is not blurred: little enough that the
-// two mixed look as one. Measured against blurring each pixel by its own
-// amount, levels from 1 pixel looked no better, and a ratio of √2 between
-// levels' his mixed better within the element but worse along its edges,
-// where each level reads what is around it unblurred.
+// pixels: it shows mixed with what is not blurred, which at 2 pixels looks
+// as a blur between them. Against a blur varying per pixel, a first level
+// of 1 pixel measured no closer, and levels √2 apart rather than 2 closer
+// within the element but further along its edges, where each level reads
+// what is around the element unblurred.
 const finestLevel = 2
 
 // blurLevels returns the levels of a blur varying from least to most
