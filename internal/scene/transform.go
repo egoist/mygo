@@ -2,6 +2,14 @@ package scene
 
 import "math"
 
+// ClipShape is a clip in the coordinate system in which it was pushed.
+type ClipShape struct {
+	Rect       Rect
+	Radii      [4]float32
+	Transform  Affine
+	Continuous bool
+}
+
 // Affine maps drawing coordinates to frame coordinates. The zero value is
 // identity; Set distinguishes a singular matrix (including scale zero).
 type Affine struct {

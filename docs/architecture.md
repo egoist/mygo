@@ -1238,11 +1238,15 @@ either.
   transform on scene operations and clips, and committing keeps it on the
   state for inverse-mapped pointer input, carets, accessibility bounds, and
   overlays attached to visual bounds. The CPU renderer inverse maps pixels
-  for transformed primitives and clips. GPU builders currently compose
-  affine scenes with that renderer and present a retained image, preserving
-  the direct instance path and compiled shaders for ordinary scenes. Affine
-  frames use sRGB and bilinearly sampled text; see
-  [Transforms and motion](ui/transforms.md#rendering) for the cost and limits.
+  for transformed primitives and clips. GPU builders retain local geometry
+  and send affine rows with every instance; the vertex shaders transform
+  the quad and fragment shaders integrate coverage in device space. Nested
+  transformed or rounded clips use cached masks, independent of content
+  moving within them; hard clips in the drawing's coordinates evaluate on
+  the GPU. Backdrop effects map local samples into the frame. Active affine
+  motion goes to the GPU where available; resting changes keep the existing
+  small-damage CPU path. Metal retains wide colors under transforms. See
+  [Transforms and motion](ui/transforms.md#rendering) for rendering details.
   Springs solve damped oscillators analytically and sample before retargeting
   so position and velocity survive interruptions. Keyframe sequences keep
   a bounded channel per key with an explicit replay token. Both ask for
@@ -1783,8 +1787,8 @@ either.
   inside the box, so lines thinner than a pixel cover as much as they
   should, as text decorations need. A fill's border widths travel in its
   texture rectangle, which fills do not use, and a glyph's gamma ratios
-  and contrast in its radii, so every instance stays eleven float4s. The
-  shader writes a second color, the source's alpha of each channel, and
+  and contrast in its radii. Each instance is thirteen float4s, including
+  its two affine rows. The shader writes a second color, the source's alpha of each channel, and
   renderers blend with it (dual-source blending): it is the color's alpha
   but for subpixel glyphs, whose subpixels cover each channel by its own.
   OpenGL ES without `EXT_blend_func_extended` blends the mean of their

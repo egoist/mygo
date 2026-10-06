@@ -391,6 +391,7 @@ func (r *Renderer) init() error {
 	glUniform1i(glGetUniformLocation(r.program, "uMask"), 0)
 	glUniform1i(glGetUniformLocation(r.program, "uColor"), 1)
 	glUniform1i(glGetUniformLocation(r.program, "uImage"), 2)
+	glUniform1i(glGetUniformLocation(r.program, "uClipMask"), 4)
 	glUseProgram(0)
 	if r.down, err = passLink(header, "DOWN"); err != nil {
 		return err
@@ -400,7 +401,7 @@ func (r *Renderer) init() error {
 	}
 	glGenVertexArrays(1, &r.passVAO)
 
-	// The instance buffer feeds eleven float4 attributes per instance;
+	// The instance buffer feeds thirteen float4 attributes per instance;
 	// draws point them at their batch's instances.
 	glGenVertexArrays(1, &r.vao)
 	glGenBuffers(1, &r.buf)
@@ -441,6 +442,7 @@ func (r *Renderer) effectProgram(e *scene.Effect) *effectProgram {
 	glUseProgram(p.program)
 	p.uSize = glGetUniformLocation(p.program, "uSize")
 	glUniform1i(glGetUniformLocation(p.program, "uBackdrop"), 3)
+	glUniform1i(glGetUniformLocation(p.program, "uClipMask"), 4)
 	return p
 }
 
@@ -607,6 +609,10 @@ func (r *Renderer) imageTexture(img *scene.Image) uintptr {
 	if t == nil {
 		t = &texture{tex: newTexture(glRGBA8, glRGBA, img.W, img.H, img.Pix, img.W*4), w: img.W, h: img.H, ver: img.Version()}
 		r.images[img.ID()] = t
+	} else if t.w != img.W || t.h != img.H {
+		glDeleteTextures(1, &t.tex)
+		t.tex = newTexture(glRGBA8, glRGBA, img.W, img.H, img.Pix, img.W*4)
+		t.w, t.h, t.ver = img.W, img.H, img.Version()
 	} else if t.ver != img.Version() {
 		glBindTexture(glTexture2D, t.tex)
 		unpack(img.W*4, glRGBA8)
@@ -709,6 +715,9 @@ func (r *Renderer) draw(s *scene.Scene) error {
 			bound = b.Image
 			glBindTexture(glTexture2D, uint32(bound)) // unit 2 is active
 		}
+		glActiveTexture(glTexture0 + 4)
+		glBindTexture(glTexture2D, or(uint32(b.ClipMask), r.empty))
+		glActiveTexture(glTexture0 + 2)
 		// Instances draw from the batch's first: without base instances in
 		// OpenGL ES 3.0, the attributes start there.
 		offset := uintptr(b.Start * gpu.InstanceSize)
@@ -723,7 +732,7 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	// expects it.
 	glDisable(glScissorTest)
 	glDisable(glBlend)
-	for unit := range 4 {
+	for unit := range 5 {
 		glActiveTexture(glTexture0 + uint32(unit))
 		glBindTexture(glTexture2D, 0)
 	}
@@ -749,7 +758,7 @@ func (r *Renderer) bindState(s *scene.Scene) {
 	glUniform2f(r.uSize, float32(s.Width), float32(s.Height))
 	glBindVertexArray(r.vao)
 	glBindBuffer(glArrayBuffer, r.buf)
-	for unit, tex := range [4]uint32{or(r.mask.tex, r.empty), or(r.color.tex, r.empty), r.empty, r.empty} {
+	for unit, tex := range [5]uint32{or(r.mask.tex, r.empty), or(r.color.tex, r.empty), r.empty, r.empty, r.empty} {
 		glActiveTexture(glTexture0 + uint32(unit))
 		glBindTexture(glTexture2D, tex)
 	}

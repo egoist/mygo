@@ -173,6 +173,10 @@ func TestWideColors(t *testing.T) {
 		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{W: 32, H: 8}, Color: srgbGreen, Wide: 1},
 		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{Y: 8, W: 32, H: 8}, Paint: scene.PaintOklab, Gradient: [4]float32{0, 0, 32, 0},
 			Color: srgbGreen, Color2: srgbRed, Wide: 2})
+	// General transforms must preserve the float16 wide-gamut path.
+	for i := range s.Ops {
+		s.Ops[i].Transform = scene.Scaling(1.1, 1)
+	}
 	var px [2][4]float32
 	pool(func() {
 		r.waitLast()

@@ -731,6 +731,13 @@ func (r *Renderer) imageTexture(img *scene.Image) uintptr {
 		}
 		t = &texture{tex: tex, w: img.W, h: img.H, ver: img.Version()}
 		r.images[img.ID()] = t
+	} else if t.w != img.W || t.h != img.H {
+		tex := r.newTexture(img.W, img.H, pixelFormatRGBA8Unorm, usageShaderRead, img.Pix, img.W*4)
+		if tex == 0 {
+			return 0
+		}
+		release(&t.tex)
+		t.tex, t.w, t.h, t.ver = tex, img.W, img.H, img.Version()
 	} else if t.ver != img.Version() {
 		msgReplaceRegion(t.tex, sel("replaceRegion:mipmapLevel:withBytes:bytesPerRow:"), mtlRegion{W: uint(img.W), H: uint(img.H), D: 1}, 0, unsafe.Pointer(&img.Pix[0]), uint(img.W*4))
 		t.ver = img.Version()
@@ -833,6 +840,7 @@ func (r *Renderer) encode(s *scene.Scene, target id) (id, error) {
 			bound = b.Image
 			send(enc, "setFragmentTexture:atIndex:", bound, 2)
 		}
+		send(enc, "setFragmentTexture:atIndex:", or(id(b.ClipMask), r.empty), 4)
 		offset := uintptr(b.Start * gpu.InstanceSize)
 		send(enc, "setVertexBuffer:offset:atIndex:", r.instBuf, offset, 0)
 		send(enc, "setFragmentBuffer:offset:atIndex:", r.instBuf, offset, 0)

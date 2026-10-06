@@ -17,22 +17,25 @@ cbuffer Globals : register(b0) {
 };
 
 struct Inst {
-	float4 rect : RECT;         // x, y, width, height in pixels
-	float4 radii : RADII;       // top-left, top-right, bottom-right, bottom-left
-	float4 inner : INNER;       // radii of the border's inner edge, or of the box casting a shadow
+	float4 rect : RECT;	  // x, y, width, height in pixels
+	float4 radii : RADII; // top-left, top-right, bottom-right, bottom-left
+	float4 inner : INNER; // radii of the border's inner edge, or of the box casting a shadow
 	float4 color : COLOR0;
-	float4 color2 : COLOR1;     // gradient end
-	float4 border : COLOR2;     // border color
-	float4 grad : GRAD;         // gradient start and end points, or stripes
-	float4 uv : UV;             // texture rectangle, normalized, border widths, or the box casting a shadow
-	float4 clip : CLIP;         // the innermost clip rectangle
+	float4 color2 : COLOR1; // gradient end
+	float4 border : COLOR2; // border color
+	float4 grad : GRAD;		// gradient start and end points, or stripes
+	float4 uv : UV;			// texture rectangle, normalized, border widths, or the box casting a shadow
+	float4 clip : CLIP;		// the innermost clip rectangle
 	float4 clipRadii : CLIPR;
-	float4 params : PARAMS;     // kind, dashed or grayscale, sigma or paint, opacity
+	float4 transform0 : TRANSFORM0;
+	float4 transform1 : TRANSFORM1;
+	float4 params : PARAMS; // kind, dashed or grayscale, sigma or paint, opacity
 };
 
 struct VSOut {
 	float4 pos : SV_Position;
 	float2 p : PIXEL;
+	float2 world : WORLD;
 	float2 tex : TEXCOORD0;
 	nointerpolation float4 rect : RECT;
 	nointerpolation float4 radii : RADII;
@@ -45,6 +48,8 @@ struct VSOut {
 	nointerpolation float4 clip : CLIP;
 	nointerpolation float4 clipRadii : CLIPR;
 	nointerpolation float4 params : PARAMS;
+	nointerpolation float4 transform0 : TRANSFORM0;
+	nointerpolation float4 transform1 : TRANSFORM1;
 };
 
 VSOut vs(uint vid : SV_VertexID, Inst i) {
@@ -57,11 +62,20 @@ VSOut vs(uint vid : SV_VertexID, Inst i) {
 		float e = 3 * i.params.z + 1;
 		r = float4(r.xy - e, r.zw + 2 * e);
 	}
+	if (i.transform0.w > 0.5) {
+		float det = i.transform0.x * i.transform1.y - i.transform0.y * i.transform1.x;
+		float2 e =
+			float2(abs(i.transform1.y) + abs(i.transform0.y), abs(i.transform1.x) + abs(i.transform0.x)) /
+			abs(det);
+		r = float4(r.xy - e, r.zw + 2 * e);
+	}
 	float2 p = r.xy + corner * r.zw;
+	float2 world = float2(dot(i.transform0.xyz, float3(p, 1)), dot(i.transform1.xyz, float3(p, 1)));
 	VSOut o;
-	o.pos = float4(p / viewport * float2(2, -2) + float2(-1, 1), 0, 1);
+	o.pos = float4(world / viewport * float2(2, -2) + float2(-1, 1), 0, 1);
 	o.p = p;
-	o.tex = lerp(i.uv.xy, i.uv.zw, corner);
+	o.world = world;
+	o.tex = i.uv.xy + (p - i.rect.xy) / i.rect.zw * (i.uv.zw - i.uv.xy);
 	o.rect = i.rect;
 	o.radii = i.radii;
 	o.inner = i.inner;
@@ -73,6 +87,8 @@ VSOut vs(uint vid : SV_VertexID, Inst i) {
 	o.clip = i.clip;
 	o.clipRadii = i.clipRadii;
 	o.params = i.params;
+	o.transform0 = i.transform0;
+	o.transform1 = i.transform1;
 	return o;
 }
 
@@ -86,6 +102,7 @@ struct PSOut {
 Texture2D maskTex : register(t0);
 Texture2D colorTex : register(t1);
 Texture2D imageTex : register(t2);
+Texture2D clipTex : register(t5);
 SamplerState samp : register(s0);
 
 float sdRoundRect(float2 p, float4 rect, float4 radii) {
@@ -109,6 +126,41 @@ float rectCoverage(float2 p, float4 rect, float4 radii) {
 	}
 	float2 c = saturate(min(rect.xy + rect.zw, p + 0.5) - max(rect.xy, p - 0.5));
 	return c.x * c.y;
+}
+
+float localCoverage(float2 p, float4 rect, float4 radii, float affine) {
+	if (affine < 0.5)
+		return rectCoverage(p, rect, radii);
+	float2 dx = ddx(p), dy = ddy(p), a = (dx + dy) * 0.5, b = (dx - dy) * 0.5;
+	float reach = max(abs(a.x) + abs(a.y), abs(b.x) + abs(b.y)) * 2;
+	float d = sdRoundRect(p, rect, radii);
+	if (d < -reach)
+		return 1;
+	if (d > reach)
+		return 0;
+	float n = 0;
+	[loop] for (int y = 0; y < 4; y++)[loop] for (int x = 0; x < 4; x++) {
+		float2 q = p + dx * ((float(x) + 0.5) / 4 - 0.5) + dy * ((float(y) + 0.5) / 4 - 0.5);
+		n += sdRoundRect(q, rect, radii) <= 0 ? 1 : 0;
+	}
+	return n / 16;
+}
+float clipCoverage(VSOut i) {
+	if (i.transform1.w < 0.5)
+		return rectCoverage(i.world, i.clip, i.clipRadii);
+	if (i.transform1.w > 1.5)
+		return localCoverage(i.p, i.clip, float4(0, 0, 0, 0), i.transform0.w) *
+			   clipTex.Sample(samp, (i.world - i.clipRadii.xy) / i.clipRadii.zw).a;
+	return clipTex.Sample(samp, (i.world - i.clip.xy) / i.clip.zw).a;
+}
+float4 sampleLocal(Texture2D t, float2 uv, float4 src, float affine) {
+	if (affine > 0.5) {
+		uint w, h;
+		t.GetDimensions(w, h);
+		float2 halfPixel = 0.5 / float2(w, h);
+		uv = clamp(uv, src.xy + halfPixel, src.zw - halfPixel);
+	}
+	return t.Sample(samp, uv);
 }
 
 float4 premul(float4 c) { return float4(c.rgb * c.a, c.a); }
@@ -143,9 +195,7 @@ float2 erf2(float2 x) {
 	return s - s / (x * x);
 }
 
-float gaussian(float x, float sigma) {
-	return exp(-(x * x) / (2 * sigma * sigma)) / (2.50662827463 * sigma);
-}
+float gaussian(float x, float sigma) { return exp(-(x * x) / (2 * sigma * sigma)) / (2.50662827463 * sigma); }
 
 // The blurred rounded box of Evan Wallace: exact along x, four samples
 // along y.
@@ -172,38 +222,30 @@ float boxShadow(float2 p, float4 rect, float sigma, float corner) {
 	return v;
 }
 
-float3 toLinear(float3 c) {
-	return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
-}
+float3 toLinear(float3 c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
 
-float3 toSRGB(float3 c) {
-	return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(max(c, 0), 1.0 / 2.4) - 0.055;
-}
+float3 toSRGB(float3 c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(max(c, 0), 1.0 / 2.4) - 0.055; }
 
 float3 cbrt3(float3 v) { return sign(v) * pow(abs(v), 1.0 / 3.0); }
 
 float3 oklab(float3 srgb) {
 	float3 c = toLinear(srgb);
-	float3 lms = cbrt3(float3(
-		0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b,
-		0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b,
-		0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b));
-	return float3(
-		0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z,
-		1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z,
-		0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z);
+	float3 lms = cbrt3(float3(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b,
+							  0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b,
+							  0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b));
+	return float3(0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z,
+				  1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z,
+				  0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z);
 }
 
 float3 fromOklab(float3 lab) {
-	float3 lms = float3(
-		lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z,
-		lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z,
-		lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z);
+	float3 lms = float3(lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z,
+						lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z,
+						lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z);
 	lms = lms * lms * lms;
-	return toSRGB(float3(
-		4.0767416621 * lms.x - 3.3077115913 * lms.y + 0.2309699292 * lms.z,
-		-1.2684380046 * lms.x + 2.6097574011 * lms.y - 0.3413193965 * lms.z,
-		-0.0041960863 * lms.x - 0.7034186147 * lms.y + 1.7076147010 * lms.z));
+	return toSRGB(float3(4.0767416621 * lms.x - 3.3077115913 * lms.y + 0.2309699292 * lms.z,
+						 -1.2684380046 * lms.x + 2.6097574011 * lms.y - 0.3413193965 * lms.z,
+						 -0.0041960863 * lms.x - 0.7034186147 * lms.y + 1.7076147010 * lms.z));
 }
 
 // paint returns the premultiplied color at p of plain color, a gradient
@@ -240,13 +282,21 @@ float dash(float2 p, float4 rect, float4 w) {
 	float dl = w.w > 0 ? q.x / w.w : 1e9;
 	float s, len, bw;
 	if (dt <= dr && dt <= db && dt <= dl) {
-		s = q.x; len = rect.z; bw = w.x;
+		s = q.x;
+		len = rect.z;
+		bw = w.x;
 	} else if (dr <= db && dr <= dl) {
-		s = q.y; len = rect.w; bw = w.y;
+		s = q.y;
+		len = rect.w;
+		bw = w.y;
 	} else if (db <= dl) {
-		s = rect.z - q.x; len = rect.z; bw = w.z;
+		s = rect.z - q.x;
+		len = rect.z;
+		bw = w.z;
 	} else {
-		s = rect.w - q.y; len = rect.w; bw = w.w;
+		s = rect.w - q.y;
+		len = rect.w;
+		bw = w.w;
 	}
 	// n - 1 is how many periods of a dash and a gap, six widths, fit in
 	// len: GPUs divide less exactly than CPUs, and may count one too few
@@ -266,13 +316,14 @@ float dash(float2 p, float4 rect, float4 w) {
 PSOut ps(VSOut i) {
 	float kind = i.params.x;
 	float4 res;
+	float glyphCov = i.transform0.w > 0.5 ? localCoverage(i.p, i.rect, float4(0, 0, 0, 0), 1) : 1;
 	if (kind < 0.5) {
-		float outer = rectCoverage(i.p, i.rect, i.radii);
+		float outer = localCoverage(i.p, i.rect, i.radii, i.transform0.w);
 		res = paint(i.p, i.params.z, i.rect, i.color, i.color2, i.grad) * outer;
 		float4 bw = i.widths; // top, right, bottom, left
 		if (any(bw > 0)) {
 			float4 ir = float4(i.rect.xy + bw.wx, i.rect.zw - bw.yz - bw.wx);
-			float innerCov = (ir.z > 0 && ir.w > 0) ? rectCoverage(i.p, ir, i.inner) : 0;
+			float innerCov = (ir.z > 0 && ir.w > 0) ? localCoverage(i.p, ir, i.inner, i.transform0.w) : 0;
 			float bc = saturate(outer - innerCov);
 			if (i.params.y > 0.5) {
 				bc *= dash(i.p, i.rect, bw);
@@ -283,33 +334,48 @@ PSOut ps(VSOut i) {
 	} else if (kind < 1.5) {
 		float sigma = i.params.z;
 		float corner = max(max(i.radii.x, i.radii.y), max(i.radii.z, i.radii.w));
-		float s = sigma > 0 ? boxShadow(i.p, i.rect, sigma, corner) : rectCoverage(i.p, i.rect, i.radii);
+		float s = sigma > 0 ? boxShadow(i.p, i.rect, sigma, corner)
+							: localCoverage(i.p, i.rect, i.radii, i.transform0.w);
 		if (i.widths.z > 0 && i.widths.w > 0) {
-			s *= 1 - rectCoverage(i.p, i.widths, i.inner); // outside the box casting it
+			s *= 1 - localCoverage(i.p, i.widths, i.inner, i.transform0.w); // outside the box casting it
 		}
 		res = premul(i.color) * s;
 	} else if (kind < 2.5) {
 		float4 c = paint(i.p, i.params.z, i.rect, i.color, i.color2, i.grad);
-		res = c * textCoverage(maskTex.Sample(samp, i.tex).r, unpremul(c), i.inner.x, i.inner.y, i.radii);
+		res = c *
+			  textCoverage(sampleLocal(maskTex, i.tex, i.widths, i.transform0.w).r, unpremul(c), i.inner.x,
+						   i.inner.y, i.radii) *
+			  glyphCov;
 	} else if (kind < 3.5) {
-		res = colorTex.Sample(samp, i.tex) * i.color.a;
+		res = sampleLocal(colorTex, i.tex, i.widths, i.transform0.w) * i.color.a * glyphCov;
 	} else if (kind < 4.5) {
-		res = imageTex.Sample(samp, i.tex) * rectCoverage(i.p, i.rect, i.radii);
+		res = sampleLocal(imageTex, i.tex, i.widths, i.transform0.w) *
+			  localCoverage(i.p, i.rect, i.radii, i.transform0.w);
 		if (i.params.y > 0.5) {
 			res.rgb = dot(res.rgb, float3(0.2126, 0.7152, 0.0722));
 		}
 	} else {
 		float4 c = paint(i.p, i.params.z, i.rect, i.color, i.color2, i.grad);
 		float3 straight = unpremul(c);
-		float3 a = subpixelCoverage(colorTex.Sample(samp, i.tex).rgb, straight, i.inner.x, i.inner.y, i.radii);
-		float3 w = a * c.a * rectCoverage(i.p, i.clip, i.clipRadii) * i.params.w;
+		if (i.transform0.w > 0.5) {
+			float3 rgb = sampleLocal(colorTex, i.tex, i.widths, 1).rgb;
+			res = c * textCoverage((rgb.r + rgb.g + rgb.b) / 3, straight, i.inner.x, i.inner.y, i.radii) *
+				  glyphCov;
+			PSOut gray;
+			gray.color = res * clipCoverage(i) * i.params.w;
+			gray.alpha = gray.color.aaaa;
+			return gray;
+		}
+		float3 a = subpixelCoverage(sampleLocal(colorTex, i.tex, i.widths, i.transform0.w).rgb, straight,
+									i.inner.x, i.inner.y, i.radii);
+		float3 w = a * c.a * clipCoverage(i) * i.params.w;
 		float wa = (w.r + w.g + w.b) / 3;
 		PSOut so;
 		so.color = float4(straight * w, wa);
 		so.alpha = float4(w, wa);
 		return so;
 	}
-	float clip = rectCoverage(i.p, i.clip, i.clipRadii);
+	float clip = clipCoverage(i);
 	PSOut o;
 	o.color = res * (clip * i.params.w);
 	o.alpha = o.color.aaaa;
@@ -320,11 +386,11 @@ PSOut ps(VSOut i) {
 // target, scissored to the texels they compute.
 cbuffer PassConstants : register(b1) {
 	int2 passOrigin; // down: the first pixel of the area read, in the frame
-	int2 passLimit;  // the last texel that may be read: in the frame for down
-	int2 passShift;  // down: subtracted from frame pixels to read the source
-	int2 passDir;    // blur: along rows (1, 0) or columns (0, 1)
-	int passDown;    // down: the size of the squares averaged
-	int passRadius;  // blur: how far it reaches each way
+	int2 passLimit;	 // the last texel that may be read: in the frame for down
+	int2 passShift;	 // down: subtracted from frame pixels to read the source
+	int2 passDir;	 // blur: along rows (1, 0) or columns (0, 1)
+	int passDown;	 // down: the size of the squares averaged
+	int passRadius;	 // blur: how far it reaches each way
 	float passSigma; // blur: its standard deviation, 0 for none
 	float passPad;
 };

@@ -119,7 +119,22 @@ func (c *Context) reset(now time.Time, w, h float32) {
 // that a few rows entering and leaving a list do not allocate every frame.
 func (c *Context) finish() {
 	c.chunks = trimArena(c.chunks, c.used, max(c.dirty, c.used))
-	c.spare = trimArena(c.spare, 0, c.spareDirty)
+	// Exit transitions alternate arenas. Clear references in the spare, but
+	// retain enough empty storage for the current view: trimming it to one
+	// chunk would allocate almost the whole view on every animation frame.
+	keep := 1
+	if c.rt.exitsBuilt {
+		keep = len(c.chunks)
+	}
+	keep = min(keep, len(c.spare))
+	for i, end := 0, min(c.spareDirty, keep*chunkSize); i < end; {
+		ci, ei := i/chunkSize, i%chunkSize
+		to := min(chunkSize, end-ci*chunkSize)
+		clear(c.spare[ci][ei:to])
+		i = ci*chunkSize + to
+	}
+	clear(c.spare[keep:])
+	c.spare = c.spare[:keep]
 	c.dirty, c.spareDirty = c.used, 0
 }
 

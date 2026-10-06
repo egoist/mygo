@@ -328,8 +328,8 @@ func (r *Renderer) init() error {
 			return fmt.Errorf("d3d11: cannot create the %s shader", s.name)
 		}
 	}
-	names := []string{"RECT", "RADII", "INNER", "COLOR", "COLOR", "COLOR", "GRAD", "UV", "CLIP", "CLIPR", "PARAMS"}
-	indices := []uint32{0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0}
+	names := []string{"RECT", "RADII", "INNER", "COLOR", "COLOR", "COLOR", "GRAD", "UV", "CLIP", "CLIPR", "PARAMS", "TRANSFORM", "TRANSFORM"}
+	indices := []uint32{0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 1}
 	elems := make([]inputElement, len(names))
 	cstr := make([][]byte, len(names))
 	for i, n := range names {
@@ -560,6 +560,11 @@ func (r *Renderer) imageView(img *scene.Image) uintptr {
 		}
 		t.ver = img.Version()
 		r.images[img.ID()] = t
+	} else if t.w != img.W || t.h != img.H {
+		if err := r.newTexture(t, img.W, img.H, formatR8G8B8A8Unorm, img.Pix, 4); err != nil {
+			return 0
+		}
+		t.ver = img.Version()
 	} else if t.ver != img.Version() {
 		call(r.ctx, ctxUpdateSubresource, t.tex, 0, 0, uintptr(unsafe.Pointer(&img.Pix[0])), uintptr(img.W*4), 0)
 		t.ver = img.Version()
@@ -667,6 +672,8 @@ func (r *Renderer) draw(s *scene.Scene) error {
 			bound = b.Image
 			call(ctx, ctxPSSetShaderResources, 2, 1, uintptr(unsafe.Pointer(&bound)))
 		}
+		mask := b.ClipMask
+		call(ctx, ctxPSSetShaderResources, 5, 1, uintptr(unsafe.Pointer(&mask)))
 		sc := b.Scissor // a D3D11_RECT
 		call(ctx, ctxRSSetScissorRects, 1, uintptr(unsafe.Pointer(&sc)))
 		call(ctx, ctxDrawInstanced, 4, uintptr(b.Count), 0, uintptr(b.Start))

@@ -95,6 +95,9 @@ func (r *renderer) transformed(op *scene.Op, px scene.EffectPixels, b *scene.Bac
 			p := r.dst.Pix[y*r.dst.Stride+4*x:][:4]
 			if op.Kind == scene.OpShadow {
 				cov := transformedShadowAt(op, &outer, lx, ly)
+				if op.Blur < 1 {
+					cov = transformedCoverage(&outer, inv, wx, wy)
+				}
 				if !op.Cast.Empty() {
 					caster := newShape(op.Cast, scene.Corners(op.Cast, op.CastRadii, op.Continuous))
 					cov *= 1 - transformedCoverage(&caster, inv, wx, wy)

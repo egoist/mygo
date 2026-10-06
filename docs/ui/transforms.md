@@ -107,17 +107,23 @@ polling or animation goroutines are added.
 
 ## Rendering
 
-Affine scenes currently use the shared CPU compositor, with Metal,
-Direct3D 11, and OpenGL presenting its image. This keeps all primitives,
-nested clips, and backdrop effects consistent across renderers without
-changing shaders. The compositor reuses its image and redraws damage;
-unchanged frames upload no new image. Scenes without general transforms
-keep their existing GPU rendering, including icon rotation.
+Metal, Direct3D 11, and OpenGL apply general transforms to their instanced
+geometry on the GPU. Fills, borders, shadows, images, text, and effects keep
+local coordinates; backdrop reads map back into window coordinates. Metal
+preserves wide-gamut colors under transforms.
 
-This path costs CPU work and an image upload during motion; large
-transformed scenes can be more expensive than ordinary GPU scenes. Text
-bitmaps are sampled bilinearly when scaled, and transformed text uses
-grayscale coverage. Affine scenes use the nearest sRGB colors, including
-on wide-gamut Metal targets. The gallery's **Motion** page shows nested
-transformed controls, an anchored popover, spring retargeting, and a
-replayable keyframe sequence.
+Nested rounded or transformed clips use retained coverage masks. Moving
+content under a stationary clip reuses that mask without CPU pixel work.
+Hard clips sharing their content's coordinates, including transformed text
+inputs, are evaluated directly in the fragment shader and reuse their
+ancestor's mask. Changing a complex clip recomputes its coverage; resizing
+it replaces its texture in place rather than accumulating cached images.
+
+The CPU compositor remains the renderer for machines without a GPU and for
+small resting updates. Active transformed motion uses the GPU where one is
+available. Text bitmaps are sampled bilinearly when transformed, and
+transformed text uses grayscale coverage. GPU antialiasing follows the CPU
+renderer in device-pixel coordinates.
+
+The gallery's **Motion** page shows nested transformed editable controls,
+an anchored popover, spring retargeting, and replayable keyframe sequences.

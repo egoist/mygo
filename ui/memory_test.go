@@ -73,3 +73,26 @@ func TestElementArenaFollowsViewSize(t *testing.T) {
 		t.Fatalf("the steady view allocates %.0f times per frame", n)
 	}
 }
+
+func TestExitTransitionArenaReusesStorageDuringMotion(t *testing.T) {
+	rows := 120
+	tr := ElementTransition{Exit: &Motion{}}
+	tt := NewTester(func(c *Context) {
+		for i := range rows {
+			Box(c).Key(i).Height(1).Transition(tr)
+		}
+	}, 200, 150)
+	// Warm both alternating arenas, then verify animation frames don't
+	// allocate a fresh copy of the view just to retain exit transitions.
+	tt.Frame()
+	tt.Frame()
+	if n := testing.AllocsPerRun(20, tt.Frame); n > 2 {
+		t.Fatalf("steady exit-enabled view allocated %.0f times per frame", n)
+	}
+	rows = 1
+	tt.Frame()
+	tt.Frame()
+	if len(tt.rt.c.chunks) > 2 || len(tt.rt.c.spare) > 2 {
+		t.Fatal("smaller view retained the large arenas")
+	}
+}

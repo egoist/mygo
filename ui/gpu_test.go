@@ -174,6 +174,29 @@ type pixelGPU struct {
 	damage []image.Rectangle
 }
 
+func TestActiveTransformsUseGPUAndReturnToIdleCPU(t *testing.T) {
+	g := &pixelGPU{}
+	h, _, frame := gpuHost(t, func() (gpuRenderer, error) { return g, nil })
+	active := true
+	h.rt = newRuntime(func(c *Context) {
+		Box(c).Size(30, 20).Translate(10, 10).Rotate(8).Background(RGB(50, 80, 200))
+		if active {
+			c.AnimationFrame()
+		}
+	}, h)
+	frame()
+	frame()
+	if g.frames != 2 || g.pixels != 0 {
+		t.Fatal("active affine frames rasterized on the CPU")
+	}
+	active = false
+	h.frameEnd = time.Now().Add(-time.Second)
+	frame()
+	if g.pixels != 1 {
+		t.Fatal("resting affine content did not use the ordinary small-damage path")
+	}
+}
+
 func (g *pixelGPU) PresentPixels(pix []byte, stride, width, height int, scale float64, damage []image.Rectangle) error {
 	g.pixels++
 	g.damage = append(g.damage[:0], damage...)

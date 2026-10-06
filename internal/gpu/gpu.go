@@ -29,7 +29,6 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/egoist/mygo/internal/raster"
 	"github.com/egoist/mygo/internal/scene"
 )
 
@@ -58,7 +57,7 @@ func GoBytes(name string, b []byte) string {
 }
 
 // Instance is the data of one quad, in device pixels, as the shaders read
-// it: eleven float4s.
+// it: thirteen float4s.
 type Instance struct {
 	// Rect is x, y, width, height; Radii the corners' radii (top-left,
 	// top-right, bottom-right, bottom-left), negative for continuous
@@ -88,6 +87,9 @@ type Instance struct {
 	// (scene.Paint) or the size of the squares an effect's backdrop
 	// averages; and the opacity.
 	Params [4]float32
+	// Transform rows map local pixels to the frame. Transform0.w enables
+	// transformed antialiasing, Transform1.w selects a cached clip mask.
+	Transform0, Transform1 [4]float32
 }
 
 // InstanceSize is the size of an Instance in bytes.
@@ -107,6 +109,8 @@ type Batch struct {
 	Scissor      Scissor
 	// Image is the renderer's texture of the batch's image, or 0.
 	Image uintptr
+	// ClipMask is a cached nested clip texture, sampled in frame coordinates.
+	ClipMask uintptr
 	// Effect is the effect of the batch's one instance, drawn with a
 	// pipeline of its own, and Backdrop, unless 0, 1 + the index in
 	// Builder.Backdrops of its backdrop, which the renderer reads before
@@ -124,12 +128,14 @@ type Builder struct {
 	// Wide draws the colors of scenes outside the sRGB gamut
 	// (Scene.Wide), for a target that keeps them, as Metal's float16
 	// drawables do; without it, their nearest sRGB colors.
-	Wide  bool
-	stack []clip
-	// Affine scenes use shared CPU composition and GPU image presentation.
-	affine      raster.Renderer
-	affineImage *scene.Image
-	affineScene scene.Scene
+	Wide         bool
+	stack        []clip
+	transformed  bool
+	clipShapes   []scene.ClipShape
+	maskSlots    []clipMaskSlot
+	maskUsed     int
+	imageTexture func(*scene.Image) uintptr
+	preparedMask uintptr
 }
 
 // Pass is what a pass computing a backdrop reads, the layout of the
@@ -172,46 +178,24 @@ func (b *Builder) BackdropSize() (w, h int) {
 }
 
 type clip struct {
-	rect    scene.Rect
-	radii   [4]float32
-	bounds  scene.Rect
-	scissor Scissor
+	rect        scene.Rect
+	radii       [4]float32
+	bounds      scene.Rect
+	scissor     Scissor
+	shape       scene.ClipShape
+	masked      bool
+	maskSlot    int
+	maskTexture uintptr
 }
 
-// Build turns the operations of s into Instances and Batches. image
-// returns the renderer's texture of an image, uploading it when new or
-// changed, or 0 to leave the image out. It returns the scene to present:
-// affine composition replaces it with an image on a transparent clear,
-// so a translucent scene clear is not blended into the frame twice.
+// Build turns a scene directly into GPU instances, retaining local geometry
+// and composing transforms in the vertex shader. Nested affine clips use
+// cached masks; stationary clipping never rasterizes again as content moves.
 func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene.Scene {
-	if s.HasTransforms() {
-		damage := b.affine.Render(s)
-		m := &b.affine.Image
-		if b.affineImage == nil || b.affineImage.W != m.W || b.affineImage.H != m.H {
-			b.affineImage = scene.NewImageRGBA(m.W, m.H, make([]byte, 4*m.W*m.H))
-		}
-		for _, d := range damage {
-			for y := d.Min.Y; y < d.Max.Y; y++ {
-				for x := d.Min.X; x < d.Max.X; x++ {
-					at := y*m.Stride + 4*x
-					p, q := m.Pix[at:][:4], b.affineImage.Pix[at:][:4]
-					q[0], q[1], q[2], q[3] = p[2], p[1], p[0], p[3]
-				}
-			}
-		}
-		if len(damage) > 0 {
-			b.affineImage.Changed()
-		}
-		b.affineScene.Reset(s.Width, s.Height, scene.Color{})
-		box := scene.Rect{W: float32(s.Width), H: float32(s.Height)}
-		b.affineScene.Ops = append(b.affineScene.Ops, scene.Op{Kind: scene.OpImage, Rect: box, Src: box, Image: b.affineImage})
-		s = &b.affineScene
-	} else if b.affineImage != nil {
-		b.affine.Release()
-		b.affineImage = nil
-		b.affineScene = scene.Scene{}
-	}
-
+	b.transformed = s.HasTransforms()
+	b.imageTexture = image
+	b.maskUsed = 0
+	b.clipShapes = b.clipShapes[:0]
 	b.Instances = b.Instances[:0]
 	b.Batches = b.Batches[:0]
 	b.Backdrops = b.Backdrops[:0]
@@ -223,10 +207,17 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 		switch op.Kind {
 		case scene.OpPushClip:
 			top := b.stack[len(b.stack)-1]
-			bounds := top.bounds.Intersect(op.Rect)
+			bounds := top.bounds.Intersect(op.Transform.Bounds(op.Rect))
 			// The innermost clip shapes its edges in the shader, the
 			// others cut with the scissor rectangle.
-			c := clip{rect: op.Rect, radii: scene.Corners(op.Rect, op.Radii, op.Continuous), bounds: bounds}
+			c := clip{rect: op.Rect, radii: scene.Corners(op.Rect, op.Radii, op.Continuous), bounds: bounds,
+				shape: scene.ClipShape{Rect: op.Rect, Radii: op.Radii, Transform: op.Transform, Continuous: op.Continuous}, maskSlot: -1}
+			c.masked = b.transformed && (top.masked || op.Transform.Set || c.radii != [4]float32{})
+			if c.masked {
+				c.maskSlot = b.maskUsed
+				b.maskUsed++
+			}
+			b.clipShapes = append(b.clipShapes, c.shape)
 			if bounds.W > 0 && bounds.H > 0 {
 				c.scissor = Scissor{int32(math.Floor(float64(bounds.X))), int32(math.Floor(float64(bounds.Y))),
 					int32(math.Ceil(float64(bounds.X + bounds.W))), int32(math.Ceil(float64(bounds.Y + bounds.H)))}
@@ -235,6 +226,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 		case scene.OpPopClip:
 			if len(b.stack) > 1 {
 				b.stack = b.stack[:len(b.stack)-1]
+				b.clipShapes = b.clipShapes[:len(b.clipShapes)-1]
 			}
 		case scene.OpFill:
 			if op.Rect.Empty() {
@@ -259,7 +251,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 				Color: wideColor(w, scene.WideColor, op.Color), Color2: wideColor(w, scene.WideColor2, op.Color2), Border: wideColor(w, scene.WideBorder, op.BorderColor), Grad: op.Gradient,
 				UV:     bw,
 				Params: [4]float32{0, dashed, float32(op.Paint), opacity(op.Opacity)},
-			}, 0)
+			}, 0, op.Transform)
 		case scene.OpShadow:
 			if op.Rect.Empty() {
 				continue
@@ -275,7 +267,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 			if !op.Cast.Empty() {
 				in.UV, in.Inner = rect(op.Cast), scene.Corners(op.Cast, op.CastRadii, op.Continuous)
 			}
-			b.add(in, 0)
+			b.add(in, 0, op.Transform)
 		case scene.OpGlyphs:
 			grad := op.Paint == scene.PaintLinear || op.Paint == scene.PaintOklab
 			var c1, c2 [4]float32
@@ -314,7 +306,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 					in.Color, in.Color2, in.Grad = c1, c2, op.Gradient
 					in.Params[2], in.Params[3] = float32(op.Paint), opacity(op.Opacity)
 				}
-				b.add(in, 0)
+				b.add(in, 0, op.Transform.Mul(g.Transform))
 			}
 		case scene.OpEffect:
 			if !op.Rect.Empty() && int(op.Start) < len(s.Effects) && s.Effects[op.Start].Effect != nil {
@@ -339,32 +331,32 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 				Radii:  scene.Corners(op.Rect, op.Radii, op.Continuous),
 				UV:     [4]float32{op.Src.X / iw, op.Src.Y / ih, (op.Src.X + op.Src.W) / iw, (op.Src.Y + op.Src.H) / ih},
 				Params: [4]float32{4, gray, 0, opacity(op.Opacity)},
-			}, tex)
+			}, tex, op.Transform)
 		}
 	}
+
+	if b.maskUsed < len(b.maskSlots) {
+		clear(b.maskSlots[b.maskUsed:])
+		b.maskSlots = b.maskSlots[:b.maskUsed]
+	}
+	b.imageTexture = nil
 	return s
 }
 
-// Release frees retained affine composition buffers.
-func (b *Builder) Release() {
-	b.affine.Release()
-	b.affineImage = nil
-	b.affineScene = scene.Scene{}
-}
+// Release frees the retained clipping resources and instance buffers.
+func (b *Builder) Release() { *b = Builder{} }
 
 // add appends an instance within the current clip, starting a batch when
 // the scissor rectangle or the image changes, or after an effect's.
-func (b *Builder) add(in Instance, image uintptr) {
+func (b *Builder) add(in Instance, image uintptr, m scene.Affine) {
 	cur := &b.stack[len(b.stack)-1]
-	if cur.scissor.Empty() {
+	if !b.prepare(&in, m, cur) {
 		return
 	}
-	in.Clip = rect(cur.rect)
-	in.ClipRadii = cur.radii
 	n := len(b.Batches)
-	if n == 0 || b.Batches[n-1].Scissor != cur.scissor || b.Batches[n-1].Effect != nil ||
+	if n == 0 || b.Batches[n-1].Scissor != cur.scissor || b.Batches[n-1].Effect != nil || b.Batches[n-1].ClipMask != b.preparedMask ||
 		(image != 0 && b.Batches[n-1].Image != 0 && b.Batches[n-1].Image != image) {
-		b.Batches = append(b.Batches, Batch{Start: len(b.Instances), Scissor: cur.scissor, Image: image})
+		b.Batches = append(b.Batches, Batch{Start: len(b.Instances), Scissor: cur.scissor, Image: image, ClipMask: b.preparedMask})
 		n++
 	} else if image != 0 {
 		b.Batches[n-1].Image = image
@@ -388,9 +380,12 @@ func (b *Builder) addEffect(s *scene.Scene, op *scene.Op) {
 		Clip: rect(cur.rect), ClipRadii: cur.radii,
 		Params: [4]float32{6, 0, 1, opacity(op.Opacity)},
 	}
-	batch := Batch{Start: len(b.Instances), Count: 1, Scissor: cur.scissor, Effect: fx.Effect}
+	if !b.prepare(&in, op.Transform, cur) {
+		return
+	}
+	batch := Batch{Start: len(b.Instances), Count: 1, Scissor: cur.scissor, Effect: fx.Effect, ClipMask: b.preparedMask}
 	if fx.Effect.Backdrop {
-		bk := scene.BackdropOf(op.Rect, fx.Blur, s.Width, s.Height)
+		bk := scene.BackdropOf(op.Transform.Bounds(op.Rect), fx.Blur, s.Width, s.Height)
 		if bk.Area.Empty() {
 			return
 		}

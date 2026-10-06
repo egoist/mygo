@@ -398,7 +398,7 @@ func (h *windowHost) idle() {
 // cost little, and reports whether it did.
 func (h *windowHost) drawOnCPU(s *scene.Scene, burst bool) bool {
 	p, ok := h.gpu.(pixelPresenter)
-	if !ok || h.cpuHeavy {
+	if !ok || h.cpuHeavy || (s.HasTransforms() && h.rt != nil && (h.rt.animating || h.rt.repainting)) {
 		return false
 	}
 	draw, changed := h.soft.Changes(s)
