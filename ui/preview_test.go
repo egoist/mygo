@@ -1,3 +1,5 @@
+//go:build !mygo_noinspector
+
 package ui
 
 import (
@@ -109,7 +111,7 @@ func TestPreviewPreferencesAndLocaleHook(t *testing.T) {
 		return PreviewSample{View: func(c *Context) {
 			theme, prefs = *c.Theme(), c.Preferences()
 			var ok bool
-			config, ok = c.PreviewConfig()
+			config, ok = PreviewEnvironment(c)
 			if !ok {
 				t.Fatal("sample has no preview configuration")
 			}

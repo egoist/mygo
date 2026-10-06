@@ -108,8 +108,9 @@ func Render(view func(c *Context), width, height int, scale float32) *image.RGBA
 // frames in memory and sends the view pointer and keyboard input, between
 // which it settles the frames the view asks for.
 type Tester struct {
-	rt *engine
-	h  *headless
+	rt     *engine
+	h      *headless
+	closed bool
 }
 
 // NewTester starts testing view in a window of width×height DIPs. Two
@@ -143,6 +144,10 @@ func newTester(view func(*Context), width, height int, setup func(*engine)) *Tes
 // Call it when finished with a Tester, on the thread driving the test.
 // It is safe to call more than once. Later frames and input do nothing.
 func (t *Tester) Close() {
+	if t.closed {
+		return
+	}
+	t.closed = true
 	t.rt.close()
 	t.h.later = nil
 	t.h.chosen, t.h.menu = nil, nil
@@ -151,6 +156,9 @@ func (t *Tester) Close() {
 
 // settle runs frames until the view asks for no more, or 20 of them.
 func (t *Tester) settle() {
+	if t.closed {
+		return
+	}
 	for i := 0; i < 20; i++ {
 		t.h.requested.Store(false)
 		for len(t.h.later) > 0 {
@@ -166,6 +174,9 @@ func (t *Tester) settle() {
 }
 
 func (t *Tester) send(ev platform.SurfaceEvent) {
+	if t.closed {
+		return
+	}
 	t.rt.event(ev)
 	t.settle()
 }

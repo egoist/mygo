@@ -1,3 +1,5 @@
+//go:build !mygo_noinspector
+
 package ui
 
 import (
@@ -26,6 +28,11 @@ type previewHost struct {
 
 type previewFit struct{ x, y, scale float64 }
 
+func (h *previewHost) size() (float32, float32, float32) {
+	c := h.rt.insp.preview.config
+	return float32(c.Width), float32(c.Height), c.Scale
+}
+
 func fitPreview(w, h, vw, vh float64) previewFit {
 	if w <= 0 || h <= 0 || vw <= 0 || vh <= 0 {
 		return previewFit{scale: 1}
@@ -42,14 +49,14 @@ func (p *Preview) attachWindow(window *windowHost) {
 	h := &previewHost{host: window, rt: window.rt, fit: previewFit{scale: 1}}
 	window.rt.host = h
 	p.attachEngine(window.rt)
-	prepare := window.rt.beforeFrame
-	window.rt.beforeFrame = func() {
+	prepare := window.rt.insp.preview.beforeFrame
+	window.rt.insp.preview.beforeFrame = func() {
 		prepare()
-		if !window.rt.closed {
+		if !window.rt.insp.preview.closed {
 			h.syncFit()
 		}
 	}
-	window.rt.onClose = append(window.rt.onClose, func() {
+	window.rt.insp.preview.onClose = append(window.rt.insp.preview.onClose, func() {
 		h.pixels.Release()
 		h.image = nil
 		h.presented = scene.Scene{}
@@ -79,7 +86,7 @@ func (h *previewHost) present(s *scene.Scene) {
 	if w <= 0 || ht <= 0 {
 		return
 	}
-	c := h.rt.preview
+	c := h.rt.insp.preview.config
 	h.syncFit()
 	m := &h.pixels.Image
 	// A scene image's dimensions are immutable: GPU texture caches key by
@@ -115,7 +122,7 @@ func (h *previewHost) syncFit() {
 	if w <= 0 || ht <= 0 {
 		return
 	}
-	c := h.rt.preview
+	c := h.rt.insp.preview.config
 	fit := fitPreview(float64(w), float64(ht), float64(c.Width), float64(c.Height))
 	if fit == h.fit {
 		return

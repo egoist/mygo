@@ -18,7 +18,7 @@ type contact struct {
 }
 
 func (s *contact) view(c *ui.Context) {
-	config, _ := c.PreviewConfig()
+	config, _ := ui.PreviewEnvironment(c)
 	title, name, email, notes, updates, save, saved := "Contact", "Name", "Email", "Notes", "Send updates", "Save contact", "Saved"
 	if strings.HasPrefix(config.Locale, "ja") {
 		title, name, email, notes, updates, save, saved = "連絡先", "名前", "メール", "メモ", "通知を受け取る", "保存", "保存しました"

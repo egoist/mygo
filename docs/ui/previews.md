@@ -14,6 +14,14 @@ populated, Japanese and long-content presets exercise a contact form.
 Press `F12` in the preview to open the existing [inspector](inspector.md).
 Close either window to end the example.
 
+Previews are development tooling. The default `mygo build` release excludes
+the playground, its rendering hooks and its per-window state automatically;
+no additional user flag is needed. `mygo dev`, `go run` and `mygo build
+-debug` keep it. The CLI uses its existing internal production build tag,
+`mygo_noinspector`, for both the inspector and playground. A preview launched
+in a release build fails with a clear message; keep preview runners separate
+from your application's production entry point, as the example does.
+
 ## Create a playground
 
 Each preset factory owns its sample state. Return your ordinary view
@@ -83,7 +91,7 @@ image at most 16384 pixels per side and 32 million pixels in total.
 ## Locale and preference hooks
 
 `Context.Size`, `Theme` and `Preferences` report the simulated environment.
-`Context.PreviewConfig()` also gives its configuration and a boolean
+`ui.PreviewEnvironment(c)` also gives its configuration and a boolean
 telling whether the view runs in a preview. Use its `Locale` to select
 your own sample strings or formatting. It does not localize the built-in
 widgets, mirror layout, or change `mygo.App.Locale()`.
@@ -144,4 +152,8 @@ the test host's settings, which previews follow while their overrides
 are unset. Viewport changes go through `p.SetConfig`; `Tester.SetSize`
 does not change a preview's fixed viewport. `Close` stops its timers,
 disposes the sample, and removes its controller subscription. The
-inspector remains unavailable in `mygo_noinspector` builds.
+playground and inspector are excluded from default release builds.
+`ui.PreviewEnvironment(c)` returns a zero configuration and false there,
+so ordinary views can share the same locale hook without retaining the
+playground. This accessor is a function rather than a Context method to
+keep Go's reflection-driven method discovery from retaining preview types.

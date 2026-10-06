@@ -336,9 +336,9 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 	return artifacts, nil
 }
 
-// inspectorTag leaves the inspector of native UI out of a build (package
-// ui's inspector_off.go), some 250 KB of a binary: production builds have
-// their developer tools off.
+// inspectorTag leaves the native UI inspector and preview playground out
+// of default production builds. Their state and hooks are development-only;
+// debug builds and MYGO_INSPECTOR=1 keep them.
 const inspectorTag = "mygo_noinspector"
 
 // keepInspector reports whether MYGO_INSPECTOR=1 keeps the inspector in

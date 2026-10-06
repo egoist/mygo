@@ -1290,6 +1290,11 @@ either.
   accessibility bounds accordingly. The inspector shares the simulated
   viewport. `Preview.NewTester` uses that same engine with the existing
   headless host; `Tester.Close` stops timers and disposes its sample.
+  Default production builds exclude the playground alongside the inspector.
+  Preview state lives in the inspector's development-only storage; empty
+  production hooks inline away and the production engine/Content retain
+  their original shape. The environment accessor is a free function so
+  reflected Context methods do not retain preview types in release apps.
 - **Input taken as it comes.** An element with `HandleInput` gets its
   input on the main thread as the backend reports it, before the frame
   (`ui/handler.go`): keys (with their releases, which ui otherwise

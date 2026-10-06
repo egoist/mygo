@@ -54,6 +54,7 @@ const (
 const inspHistory = 120
 
 type inspector struct {
+	preview previewRuntime
 	// enabled tells that the window's DevTools let the inspector open.
 	enabled bool
 	open    bool

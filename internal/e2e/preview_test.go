@@ -1,3 +1,5 @@
+//go:build !mygo_noinspector
+
 package e2e
 
 import (
@@ -24,7 +26,7 @@ func TestContentPreview(t *testing.T) {
 	p := ui.NewPreview(ui.PreviewOptions{Config: ui.PreviewConfig{Width: 600, Height: 300, Scale: 1.25},
 		Presets: []ui.PreviewPreset{{Name: "Counter", New: func() ui.PreviewSample {
 			return ui.PreviewSample{View: func(c *ui.Context) {
-				config, _ := c.PreviewConfig()
+				config, _ := ui.PreviewEnvironment(c)
 				width, height := c.Size()
 				current.Store(environment{width, height, c.Theme().Dark, c.Preferences().ReduceMotion, config.Locale})
 				ui.Column(c).Fill().Padding(20).Children(func() {

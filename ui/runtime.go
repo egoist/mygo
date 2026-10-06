@@ -46,19 +46,13 @@ type host interface {
 // the view function, lays them out, paints them and routes input to the
 // elements of the last frame. Main thread only, except where noted.
 type engine struct {
-	view func(*Context)
-	// preview configures the same engine for a developer preview. Its
-	// preparation and disposal run on the engine's owning thread.
-	preview     *PreviewConfig
-	beforeFrame func()
-	onClose     []func()
-	closed      bool
-	host        host
-	c           Context
-	text        *text.System
-	scene       scene.Scene
-	painter     Painter
-	glyphRun    glyphRun
+	view     func(*Context)
+	host     host
+	c        Context
+	text     *text.System
+	scene    scene.Scene
+	painter  Painter
+	glyphRun glyphRun
 	// measured are the last spans laid out outside elements (richParams).
 	measured     [8]measuredSpans
 	nextMeasured int
@@ -275,15 +269,7 @@ func newRuntime(view func(*Context), h host) *engine {
 
 func (rt *engine) defaultTheme() *Theme {
 	if !rt.darkKnown {
-		rt.dark, rt.darkKnown = rt.host.isDark(), true
-		if rt.preview != nil {
-			switch rt.preview.Theme {
-			case PreviewLight:
-				rt.dark = false
-			case PreviewDark:
-				rt.dark = true
-			}
-		}
+		rt.dark, rt.darkKnown = previewAppearance(rt, rt.host.isDark()), true
 		rt.themeOK = false
 	}
 	if !rt.prefsKnown {
@@ -311,22 +297,20 @@ func (rt *engine) themeChanged() {
 
 // runFrame builds, lays out, paints and presents a frame.
 func (rt *engine) runFrame() {
-	if rt.inFrame || rt.closed {
+	if rt.inFrame || previewClosed(rt) {
 		return
 	}
 	rt.inFrame = true
 	defer func() { rt.inFrame = false }()
-	if rt.beforeFrame != nil {
-		rt.beforeFrame()
-	}
-	if rt.closed {
+	previewPrepareFrame(rt)
+	if previewClosed(rt) {
 		return
 	}
 
 	rt.frame++
 	rt.stats.begin(rt)
 	now := rt.now()
-	w, h, scale := rt.size()
+	w, h, scale := rt.host.size()
 	// The content takes the room the inspector leaves.
 	appW := rt.insp.contentWidth(w)
 	rt.insp.lap(-1)
@@ -472,20 +456,10 @@ func (rt *engine) repaintNow() {
 // elements painted again when only drawings moved since, else a frame
 // built anew.
 func (rt *engine) surfaceFrame() {
-	if rt.closed || rt.inFrame {
+	if !previewPrepareSurface(rt) {
 		return
 	}
-	if rt.beforeFrame != nil {
-		func() {
-			rt.inFrame = true
-			defer func() { rt.inFrame = false }()
-			rt.beforeFrame()
-		}()
-		if rt.closed {
-			return
-		}
-	}
-	if w, h, scale := rt.size(); rt.redraw && !rt.inFrame && rt.c.root != nil &&
+	if w, h, scale := rt.host.size(); rt.redraw && !rt.inFrame && rt.c.root != nil &&
 		rt.painted == [3]float32{w, h, scale} && rt.text.Generation() == rt.gen {
 		rt.repaintFrame(w, h, scale)
 		return
@@ -664,28 +638,16 @@ func (rt *engine) armTimer() {
 }
 
 func (rt *engine) close() {
-	if rt.closed {
+	if previewCloseBegin(rt) {
 		return
 	}
-	rt.closed = true
 	if rt.timer != nil {
 		rt.timer.Stop()
 	}
 	if rt.repaintTimer != nil {
 		rt.repaintTimer.Stop()
 	}
-	for _, fn := range rt.onClose {
-		fn()
-	}
-	rt.onClose = nil
-}
-
-// size is the logical preview viewport, or the host's actual size.
-func (rt *engine) size() (float32, float32, float32) {
-	if p := rt.preview; p != nil {
-		return float32(p.Width), float32(p.Height), p.Scale
-	}
-	return rt.host.size()
+	previewCloseEnd(rt)
 }
 
 // commit records the laid out frame in the elements' states: their

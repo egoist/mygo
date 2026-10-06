@@ -1,3 +1,5 @@
+//go:build !mygo_noinspector
+
 package ui
 
 import (
@@ -7,60 +9,6 @@ import (
 	"sync"
 	"time"
 )
-
-// PreviewTheme selects a preview's appearance without changing the desktop
-// or the application's other windows.
-type PreviewTheme string
-
-const (
-	PreviewSystem PreviewTheme = "system"
-	PreviewLight  PreviewTheme = "light"
-	PreviewDark   PreviewTheme = "dark"
-)
-
-// PreviewConfig is the environment in which a sample view runs. A zero
-// configuration uses the system appearance and preferences, a 640×480 DIP
-// viewport and scale 1. It does not change any system setting.
-type PreviewConfig struct {
-	Theme         PreviewTheme
-	Width, Height int
-	// Scale is device pixels per DIP, independent of the host display.
-	Scale float32
-	// Locale is a configuration hook for the sample's own strings and
-	// formatting. It does not localize widgets or change the app's locale.
-	Locale string
-	// Preferences replaces the desktop's preferences for this preview;
-	// nil follows the desktop. The entire Preferences value is passed to
-	// the engine, including settings added to it in future releases.
-	Preferences *Preferences
-}
-
-// PreviewSample owns one live sample: its view and an optional cleanup
-// function for resources such as subscriptions or background work.
-type PreviewSample struct {
-	View    func(*Context)
-	Dispose func()
-}
-
-// PreviewPreset creates fresh sample state whenever it is selected or
-// reset. New and Dispose run on the main thread for a window, or on the
-// thread driving a Tester. They must return promptly. Config's nonzero
-// fields override PreviewOptions.Config when selecting the preset.
-type PreviewPreset struct {
-	Name   string
-	New    func() PreviewSample
-	Config PreviewConfig
-}
-
-// PreviewOptions describes an interactive playground of sample views.
-type PreviewOptions struct {
-	Presets []PreviewPreset
-	Config  PreviewConfig
-	// Configure adds controls after the built-in controls. Edit config in
-	// this callback, for example to expose additional Preferences fields
-	// or provide a locale picker. It runs in the controls window's view.
-	Configure func(c *Context, config *PreviewConfig)
-}
 
 // Preview coordinates sample and environment selection. Its controller
 // methods are safe from any goroutine. Content and Controls are ordinary
@@ -191,15 +139,15 @@ func (p *Preview) Reset() {
 	wakePreviews(wake)
 }
 
-// PreviewConfig returns the sample's environment and true in a preview,
+// PreviewEnvironment returns the sample's environment and true in a preview,
 // or a zero value and false in an ordinary view. Use Locale here to select
 // your sample's strings or formatting; Size, Theme and Preferences already
 // report the configured environment.
-func (c *Context) PreviewConfig() (PreviewConfig, bool) {
-	if c.rt.preview == nil {
+func PreviewEnvironment(c *Context) (PreviewConfig, bool) {
+	if c.rt.insp.preview.config == nil {
 		return PreviewConfig{}, false
 	}
-	return clonePreviewConfig(*c.rt.preview), true
+	return clonePreviewConfig(*c.rt.insp.preview.config), true
 }
 
 func clonePreviewConfig(c PreviewConfig) PreviewConfig {
@@ -283,11 +231,11 @@ func wakePreviews(wake []func()) {
 func (p *Preview) watch(rt *engine) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if _, ok := p.watchers[rt]; ok || rt.closed {
+	if _, ok := p.watchers[rt]; ok || rt.insp.preview.closed {
 		return
 	}
 	p.watchers[rt] = rt.host.invalidate
-	rt.onClose = append(rt.onClose, func() {
+	rt.insp.preview.onClose = append(rt.insp.preview.onClose, func() {
 		p.mu.Lock()
 		delete(p.watchers, rt)
 		p.mu.Unlock()
@@ -304,9 +252,9 @@ type previewSession struct {
 
 func (p *Preview) attachEngine(rt *engine) {
 	s := &previewSession{p: p, rt: rt}
-	rt.beforeFrame = s.prepare
+	rt.insp.preview.beforeFrame = s.prepare
 	rt.view = s.build
-	rt.onClose = append(rt.onClose, s.dispose)
+	rt.insp.preview.onClose = append(rt.insp.preview.onClose, s.dispose)
 	p.watch(rt)
 }
 
@@ -315,14 +263,17 @@ func (s *previewSession) prepare() {
 	p.mu.Lock()
 	c, generation, factory := clonePreviewConfig(p.config), p.generation, p.presets[p.selected].New
 	p.mu.Unlock()
+	if h, ok := s.rt.host.(*headless); ok {
+		h.w, h.h, h.scale = float32(c.Width), float32(c.Height), c.Scale
+	}
 	if !reflect.DeepEqual(s.config, c) {
 		s.config = c
-		s.rt.preview = &s.config
+		s.rt.insp.preview.config = &s.config
 		s.rt.darkKnown, s.rt.prefsKnown, s.rt.themeOK, s.rt.redraw = false, false, false, false
 	}
 	if s.generation != generation {
 		s.dispose()
-		if s.rt.closed {
+		if s.rt.insp.preview.closed {
 			return
 		}
 		if s.generation != 0 {
@@ -330,7 +281,7 @@ func (s *previewSession) prepare() {
 		}
 		s.generation = generation
 		s.sample = factory()
-		if s.rt.closed {
+		if s.rt.insp.preview.closed {
 			s.dispose()
 			return
 		}
@@ -403,7 +354,7 @@ func (s *previewSession) dispose() {
 // relays out. A second build lets custom views that read Hovered follow it
 // too; native input handlers receive no synthetic pointer events.
 func (rt *engine) previewHover() {
-	if rt.preview == nil || !rt.pointerIn || rt.pressed != nil {
+	if rt.insp.preview.config == nil || !rt.pointerIn || rt.pressed != nil {
 		return
 	}
 	old, chain := rt.hover, rt.appendHitChain(rt.chain[:0], rt.pointerX, rt.pointerY)
