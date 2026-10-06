@@ -1423,6 +1423,28 @@ either.
   its offset the state's (`flagScrollY`, the content as high as its
   paragraphs), kept by the anchor as heights above the view are measured;
   an edit, a move of the caret or a press reveals the caret once.
+- **Rich-text editing** (`ui/richdocument.go`, `ui/richeditor*.go`). A
+  `RichDocument` is an immutable string with normalized character runs,
+  cached grapheme boundaries and paragraph styles. `RichEditorState`
+  protects the document, directional selection, typing style and up to
+  200 undo snapshots with a mutex. `RichTextEditor` takes that lock only
+  while synchronizing and processing a frame's input; native pointer
+  events update the editor's local selection, published in the next frame.
+  Public state mutations invalidate the host after releasing the lock.
+  A rich editor uses the existing editor's input routing, IME context and
+  paragraph layout; only its document edits, history and composition
+  transaction differ. IME preedit uses a local document with the selected
+  range removed, keeping the public document unchanged until commit.
+  Native composition-start events distinguish GTK preedit deletions from
+  standalone committed deletions; plain editors and custom input handlers
+  keep their existing event behavior.
+  Paragraph layouts receive character spans and paragraph alignment/line
+  spacing; rich selection uses visual rectangles that can be disjoint in
+  bidi text. Clipboard interchange publishes plain text, HTML and RTF in
+  one `Clipboard.WriteRichText` call. Linux's ownership callbacks are made
+  once at startup and resolve immutable representations by integer token;
+  macOS and Windows use the existing pasteboard/clipboard mechanisms.
+  HTML/RTF parsing is in `ui`, bounded, and never runs or fetches content.
 - **Tables** (`ui/table.go`, `ui/editable.go`). A table's rows are a
   `List`'s that scrolls both ways: the list lays its rows out at least as
   wide as the columns ask (`rowMinW`), and the header, outside the list,

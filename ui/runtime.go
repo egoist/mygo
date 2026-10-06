@@ -534,6 +534,9 @@ func (rt *engine) prune() {
 				rt.pressed, unpressed = nil, true
 			}
 			if !rt.keptAlive(s) {
+				if s.editor != nil {
+					s.editor.detachRich()
+				}
 				delete(rt.states, id)
 				if rt.scrollDrag.st == s {
 					rt.scrollDrag.st = nil
@@ -630,6 +633,11 @@ func (rt *engine) armTimer() {
 }
 
 func (rt *engine) close() {
+	for _, s := range rt.states {
+		if s.editor != nil {
+			s.editor.detachRich()
+		}
+	}
 	if rt.timer != nil {
 		rt.timer.Stop()
 	}

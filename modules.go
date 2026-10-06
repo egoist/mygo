@@ -80,6 +80,19 @@ func (ClipboardModule) WriteHTML(markup string) {
 	onMain(func() { backend().Clipboard().WriteHTML(markup) })
 }
 
+// ReadRTF returns the Rich Text Format document on the clipboard, or empty.
+func (ClipboardModule) ReadRTF() string {
+	needsApp("Clipboard.ReadRTF")
+	return onMainValue(func() string { return backend().Clipboard().ReadRTF() })
+}
+
+// WriteRichText puts alternative plain-text, HTML and RTF representations of
+// one selection on the clipboard together. Empty HTML or RTF is omitted.
+func (ClipboardModule) WriteRichText(text, markup, rtf string) {
+	needsApp("Clipboard.WriteRichText")
+	onMain(func() { backend().Clipboard().WriteRichText(text, markup, rtf) })
+}
+
 // ReadImage returns the image on the clipboard as PNG, or nil.
 func (ClipboardModule) ReadImage() []byte {
 	needsApp("Clipboard.ReadImage")

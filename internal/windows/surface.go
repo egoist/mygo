@@ -487,6 +487,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		r, _, _ := procDefWindowProcW.Call(hwnd, uintptr(m), wp, lp&^iscShowUICompWindow)
 		return r, true
 	case wmImeStartComp:
+		s.send(platform.SurfaceEvent{Kind: platform.TextComposition, CompositionStart: true})
 		s.placeIME()
 		return 0, true
 	case wmImeComposition:

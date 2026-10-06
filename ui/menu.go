@@ -387,6 +387,9 @@ func (rt *engine) editMenu(s *state) {
 		separator = command{}
 		commands  []command
 	)
+	if ed.rich != nil {
+		undo.on = ed.rich.CanUndo()
+	}
 	switch {
 	case ed.readOnly:
 		commands = []command{copyText, separator, selectAll}

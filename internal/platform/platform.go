@@ -586,6 +586,10 @@ type Clipboard interface {
 	WriteText(text string)
 	ReadHTML() string
 	WriteHTML(markup string)
+	ReadRTF() string
+	// WriteRichText publishes plain text, HTML and RTF together as alternative
+	// representations of one selection. Empty rich formats are omitted.
+	WriteRichText(text, markup, rtf string)
 	ReadImage() []byte
 	WriteImage(png []byte) error
 	Clear()

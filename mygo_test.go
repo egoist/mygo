@@ -1439,6 +1439,8 @@ var needsAppCalls = []struct {
 	{"Clipboard.WriteText", func() { Clipboard.WriteText("x") }},
 	{"Clipboard.ReadHTML", func() { Clipboard.ReadHTML() }},
 	{"Clipboard.WriteHTML", func() { Clipboard.WriteHTML("x") }},
+	{"Clipboard.ReadRTF", func() { Clipboard.ReadRTF() }},
+	{"Clipboard.WriteRichText", func() { Clipboard.WriteRichText("x", "<b>x</b>", "") }},
 	{"Clipboard.ReadImage", func() { Clipboard.ReadImage() }},
 	{"Clipboard.WriteImage", func() { Clipboard.WriteImage(nil) }},
 	{"Clipboard.Clear", func() { Clipboard.Clear() }},

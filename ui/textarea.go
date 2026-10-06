@@ -123,6 +123,9 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 	}
 	params := a.params
 	params.Text = t
+	if ed.rich != nil {
+		params = ed.richLayoutParams(p, params, ed.richParaSpans(p, Color{}))
+	}
 	l := textSystem().Shape(params)
 	if pr.layout == nil {
 		a.laid++
@@ -320,16 +323,34 @@ func (a *area) paint(e *Element, p *Painter, ox, oy float32) {
 		l := a.paraLayout(ed, i)
 		y := oy + float32(a.hs.top(i)-a.scroll)
 		start, end := b.paras[i].rune, b.end(i)
+		var paint *spanPaint
+		if ed.rich != nil {
+			paint = newSpanPaint(ed.richParaSpans(i, t.Accent))
+			if paint != nil {
+				for li := range l.Lines {
+					paint.backgrounds(p, &l.Lines[li], ox, y)
+				}
+				paint.backgroundsPainted = true
+			}
+		}
 		if focused && sa != sz && sa <= end && sz >= start && !(sz == start && i > 0 && sa < start) {
 			from, to := a.local(ed, i, max(sa, start)), a.local(ed, i, min(sz, end))
-			for _, r := range l.SelectionOn(from, to, sz > end && i < last) {
+			rects := l.SelectionOn(from, to, sz > end && i < last)
+			if ed.rich != nil {
+				rects = l.SelectionVisual(from, to, sz > end && i < last)
+			}
+			for _, r := range rects {
 				p.Fill(Rect{ox + r.X, y + r.Y, r.W, r.H}, t.Selection, 0)
 			}
 		}
-		p.textLayout(l, ox, y, ts.color, ts, nil)
+		p.textLayout(l, ox, y, ts.color, ts, paint)
 		if ed.compose != "" && b.para(ed.caret) == i {
 			c := ed.caret - start
-			for _, r := range l.Selection(c, c+utf8.RuneCountInString(ed.compose)) {
+			rects := l.Selection(c, c+utf8.RuneCountInString(ed.compose))
+			if ed.rich != nil {
+				rects = l.SelectionVisual(c, c+utf8.RuneCountInString(ed.compose), false)
+			}
+			for _, r := range rects {
 				p.Fill(Rect{ox + r.X, y + r.Y + r.H - 2, r.W, 1}, ts.color, 0)
 			}
 		}

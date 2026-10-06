@@ -113,6 +113,9 @@ func (s *surface) setMarkedText(text string, selected, replacement nsRange) {
 		ev.Replace = true
 		ev.From, ev.To = s.textRange(replacement)
 	}
+	if s.marked == "" && text != "" {
+		s.send(platform.SurfaceEvent{Kind: platform.TextComposition, CompositionStart: true})
+	}
 	s.marked, s.markedSel = text, selected
 	s.send(ev)
 }

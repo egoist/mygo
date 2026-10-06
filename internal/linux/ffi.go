@@ -331,6 +331,8 @@ var (
 	gtkToggleButtonSetActive            func(b ptr, v bool)
 	gtkClipboardGet                     func(atom ptr) ptr
 	gtkClipboardSetText                 func(cb ptr, text *byte, n int32)
+	gtkClipboardSetWithData             func(cb ptr, targets *clipboardTarget, n uint32, get, clear, data ptr) bool
+	gtkSelectionDataSet                 func(sd, target ptr, format int32, data *byte, n int32)
 	gtkClipboardWaitForText             func(cb ptr) ptr
 	gtkClipboardWaitForImage            func(cb ptr) ptr
 	gtkClipboardSetImage                func(cb, pixbuf ptr)
@@ -731,6 +733,8 @@ func load() error {
 	mustBind(t, &gtkToggleButtonSetActive, "gtk_toggle_button_set_active")
 	mustBind(t, &gtkClipboardGet, "gtk_clipboard_get")
 	mustBind(t, &gtkClipboardSetText, "gtk_clipboard_set_text")
+	mustBind(t, &gtkClipboardSetWithData, "gtk_clipboard_set_with_data")
+	mustBind(t, &gtkSelectionDataSet, "gtk_selection_data_set")
 	mustBind(t, &gtkClipboardWaitForText, "gtk_clipboard_wait_for_text")
 	mustBind(t, &gtkClipboardWaitForImage, "gtk_clipboard_wait_for_image")
 	mustBind(t, &gtkClipboardSetImage, "gtk_clipboard_set_image")

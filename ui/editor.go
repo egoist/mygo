@@ -25,6 +25,7 @@ type editEvent struct {
 	key   Key
 	text  string
 	caret int
+	begin bool
 	// replace makes an insertion or a composition take the runes from to
 	// to instead of the selection, as an input method asked.
 	replace  bool
@@ -67,16 +68,29 @@ func (s *undoStep) before(text string) string {
 // the composition of an input method, undo history and what the last frame
 // laid out.
 type editor struct {
-	buf           buffer
-	graphemes     graphemes
-	caret, anchor int
-	compose       string
-	composeCaret  int
-	queue         []editEvent
-	multiline     bool
-	readOnly      bool   // selectable text: selected and copied, not edited
-	source        string // the text of selectable text
-	password      bool
+	// Rich editors share input and layout with plain ones, but keep their
+	// immutable document and history in RichEditorState. Only process holds
+	// its lock; pointer events update the local selection until the frame.
+	rich         *RichEditorState
+	richVersion  uint64
+	richDocument RichDocument
+	richCompose  *richSnapshot
+	richStarting bool
+	richDeleted  bool
+	// richCommit maps the native end-preedit/commit sequence to the original.
+	richCommit        *richSnapshot
+	richCommitPreview *richSnapshot
+	richOpenLink      func(string)
+	buf               buffer
+	graphemes         graphemes
+	caret, anchor     int
+	compose           string
+	composeCaret      int
+	queue             []editEvent
+	multiline         bool
+	readOnly          bool   // selectable text: selected and copied, not edited
+	source            string // the text of selectable text
+	password          bool
 	// leaveEmptyBackspace leaves Backspace to shortcuts while the text is
 	// empty, as a token field's input does to take out a token.
 	leaveEmptyBackspace bool
@@ -146,6 +160,9 @@ func (ed *editor) wants(k keyEvent) bool {
 		}
 		return false
 	}
+	if ed.rich != nil && m == Cmd && (k.key == KeyB || k.key == KeyI || k.key == KeyU) {
+		return true
+	}
 	switch k.key {
 	case KeyBackspace:
 		// Empty, a token field's input leaves it to take out a token.
@@ -183,6 +200,18 @@ func (ed *editor) wants(k keyEvent) bool {
 // record starts a step of undo before an edit; typing in a row makes one
 // step.
 func (ed *editor) record(typing bool) {
+	if ed.rich != nil {
+		ed.rich.current.selection = normalizedSelection(ed.richDocument, TextSelection{ed.anchor, ed.caret})
+		if ed.richDeleted {
+			ed.richDeleted = false
+			if len(ed.rich.undo) > 0 && time.Since(ed.rich.last) < time.Second {
+				ed.rich.typing = false
+				return
+			}
+		}
+		ed.rich.record(typing)
+		return
+	}
 	now := time.Now()
 	if typing && ed.coalesce && now.Sub(ed.lastEdit) < time.Second && len(ed.undo) > 0 {
 		ed.lastEdit = now
@@ -208,6 +237,10 @@ func (ed *editor) edit(a, z int, s string) {
 // replace replaces the runes from start to end with s, as the last step
 // of undo notes, and puts the caret after it.
 func (ed *editor) replace(start, end int, s string) {
+	if ed.rich != nil {
+		ed.replaceRich(TextRange{start, end}, ed.rich.textFragment(s))
+		return
+	}
 	if !ed.multiline {
 		s = strings.Map(func(r rune) rune {
 			if r == '\n' || r == '\r' {
@@ -242,6 +275,11 @@ func (ed *editor) replace(start, end int, s string) {
 // takeBack undoes the last step of undo, or redoes the last undone with
 // redo.
 func (ed *editor) takeBack(redo bool) {
+	if ed.rich != nil {
+		ed.rich.takeBack(redo)
+		ed.loadRich(ed.rich.current)
+		return
+	}
 	from, to := &ed.undo, &ed.redo
 	if redo {
 		from, to = to, from
@@ -293,6 +331,9 @@ func (ed *editor) deleteRange(a, b int) {
 
 func (ed *editor) move(to int, extend bool) {
 	to = max(0, min(to, ed.buf.n))
+	if ed.rich != nil {
+		to = ed.richDocument.snap(to, false)
+	}
 	ed.caret = to
 	if !extend {
 		ed.anchor = to
@@ -382,6 +423,11 @@ var emacsKeys = map[Key]Key{KeyB: KeyLeft, KeyF: KeyRight, KeyP: KeyUp, KeyN: Ke
 func (ed *editor) key(c *Context, st *state, k editEvent) {
 	shift := k.mods&Shift != 0
 	m := k.mods &^ Shift
+	if ed.rich != nil && m == Cmd && (k.key == KeyB || k.key == KeyI || k.key == KeyU) {
+		ed.rich.format(map[Key]RichFormat{KeyB: FormatBold, KeyI: FormatItalic, KeyU: FormatUnderline}[k.key])
+		ed.loadRich(ed.rich.current)
+		return
+	}
 	mac := runtime.GOOS == "darwin"
 	if mac && m == Ctrl {
 		if to, ok := emacsKeys[k.key]; ok {
@@ -409,13 +455,29 @@ func (ed *editor) key(c *Context, st *state, k editEvent) {
 		case word:
 			ed.move(b.nextWord(ed.caret), shift)
 		case a != z && !shift && left:
-			ed.move(a, false)
+			if ed.rich != nil {
+				ed.move(ed.collapseRichSelection(false), false)
+			} else {
+				ed.move(a, false)
+			}
 		case a != z && !shift:
-			ed.move(z, false)
+			if ed.rich != nil {
+				ed.move(ed.collapseRichSelection(true), false)
+			} else {
+				ed.move(z, false)
+			}
 		case left:
-			ed.move(ed.graphemes.prev(b, ed.caret), shift)
+			if ed.rich != nil {
+				ed.move(ed.visualMove(false), shift)
+			} else {
+				ed.move(ed.graphemes.prev(b, ed.caret), shift)
+			}
 		default:
-			ed.move(ed.graphemes.next(b, ed.caret), shift)
+			if ed.rich != nil {
+				ed.move(ed.visualMove(true), shift)
+			} else {
+				ed.move(ed.graphemes.next(b, ed.caret), shift)
+			}
 		}
 		ed.hasDesired = false
 		return
@@ -544,6 +606,9 @@ func (ed *editor) command(c *Context, name string) {
 	if ed.readOnly && name != "copy" && name != "selectAll" {
 		return
 	}
+	if ed.rich != nil && ed.richCommand(c, name) {
+		return
+	}
 	switch name {
 	case "copy":
 		if a != b && !ed.password {
@@ -577,6 +642,14 @@ func (ed *editor) press(x, y float32, clicks, button int) {
 	}
 	ed.commitCompose()
 	i := ed.hit(x, y)
+	ed.richDeleted = false
+	ed.clearRichCommit()
+	if ed.rich != nil && ed.pressMods&Cmd != 0 && ed.richOpenLink != nil {
+		if link := ed.richDocument.StyleAt(min(i, ed.buf.n-1)).Link; link != "" {
+			ed.richOpenLink(link)
+			return
+		}
+	}
 	ed.dragging = true
 	ed.hasDesired = false
 	ed.dragUnit = min(clicks, 3)
@@ -593,6 +666,10 @@ func (ed *editor) press(x, y float32, clicks, button int) {
 		} else {
 			ed.selectAll()
 		}
+	}
+	if ed.rich != nil {
+		sel := normalizedSelection(ed.richDocument, TextSelection{ed.anchor, ed.caret})
+		ed.anchor, ed.caret = sel.Anchor, sel.Caret
 	}
 	ed.dragStart = [2]int{ed.anchor, ed.caret}
 	if ed.area != nil {
@@ -618,7 +695,23 @@ func (ed *editor) firstLine() *text.Line {
 
 func (ed *editor) hit(x, y float32) int {
 	if a := ed.area; a != nil {
-		return a.indexAt(ed, x-ed.originX, float64(y-ed.originY)+a.scroll)
+		i := a.indexAt(ed, x-ed.originX, float64(y-ed.originY)+a.scroll)
+		if ed.rich != nil {
+			lo, hi := ed.richDocument.snap(i, false), ed.richDocument.snap(i, true)
+			if lo != hi {
+				px, py := x-ed.originX, float64(y-ed.originY)+a.scroll
+				distance := func(index int) float64 {
+					cx, cy, h := a.caretAt(ed, index, 0)
+					dx, dy := float64(cx-px), cy+float64(h)/2-py
+					return dx*dx + dy*dy
+				}
+				if distance(hi) < distance(lo) {
+					return hi
+				}
+			}
+			return lo
+		}
+		return i
 	}
 	if ed.layout == nil {
 		return 0
@@ -647,6 +740,10 @@ func (ed *editor) drag(x, y float32) {
 }
 
 func (ed *editor) commitCompose() {
+	if ed.richCompose != nil {
+		ed.cancelRichCompose()
+		return
+	}
 	if ed.compose != "" {
 		ed.compose = ""
 	}
@@ -678,6 +775,10 @@ func (ed *editor) caretRect(st *state) Rect {
 
 // process applies the input queued for the editor.
 func (ed *editor) process(c *Context, e *Element) {
+	if ed.rich != nil {
+		ed.processRich(c, e)
+		return
+	}
 	st := e.st
 	for _, ev := range ed.queue {
 		if ev.replace {
@@ -691,6 +792,9 @@ func (ed *editor) process(c *Context, e *Element) {
 			ed.compose = ""
 			ed.insert(ev.text)
 		case editCompose:
+			if ev.begin {
+				break
+			}
 			if ed.readOnly {
 				break
 			}
@@ -744,6 +848,10 @@ func textInputBase(c *Context, value *string, multiline bool) *Element {
 		e.flags |= flagScrollY
 	}
 	st := e.st
+	if st.editor != nil && st.editor.rich != nil {
+		st.editor.detachRich()
+		st.editor = nil
+	}
 	if st.editor == nil {
 		st.editor = newEditor()
 		st.editor.setText(*value)
@@ -799,7 +907,12 @@ func (e *Element) ReadOnly(on bool) *Element {
 	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
 		ed.readOnly = on
 		if on {
-			ed.compose = ""
+			if ed.rich != nil {
+				ed.cancelRichCompose()
+				ed.clearRichCommit()
+			} else {
+				ed.compose = ""
+			}
 		}
 	}
 	return e

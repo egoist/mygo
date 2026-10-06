@@ -128,6 +128,8 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
 
 - [Text input](text-input.md): text on one line or several, with selection,
   undo, the clipboard and input methods.
+- [Rich-text editor](rich-text-editor.md): immutable styled documents,
+  paragraph formatting, links, undo groups and HTML/RTF interchange.
 - [Number input](number-input.md): a number in a range, typed or stepped.
 - [Search field](search-field.md): a field for searching, which Escape
   clears.

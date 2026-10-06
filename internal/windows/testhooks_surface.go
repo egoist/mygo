@@ -54,6 +54,9 @@ func TestComposeOver(hwnd uintptr, text string, caret int, commit bool, from, le
 	if s == nil {
 		return false
 	}
+	if !commit && from >= 0 {
+		s.send(platform.SurfaceEvent{Kind: platform.TextComposition, CompositionStart: true})
+	}
 	if from >= 0 {
 		doc, _, _, _ := TestDocumentFeed(hwnd)
 		units := utf16Units(doc)

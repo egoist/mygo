@@ -80,6 +80,7 @@ var (
 	cbSurfaceMotion, cbSurfaceLeave, cbSurfaceScroll, cbSurfaceKey  ptr
 	cbSurfaceFocusIn, cbSurfaceFocusOut, cbSurfaceScale, cbIMCommit ptr
 	cbIMPreedit, cbIMPreeditEnd, cbSurfaceRender, cbAreaContext     ptr
+	cbIMPreeditStart                                                ptr
 	cbSurfaceUnrealize, cbSurfaceTick                               ptr
 	surfaceCursors                                                  = map[platform.Cursor]ptr{}
 )
@@ -182,6 +183,7 @@ func (w *window) createSurface() {
 	s.lazy = s.gl && !now
 	connect(s.im, "commit", cbIMCommit, data)
 	connect(s.im, "preedit-changed", cbIMPreedit, data)
+	connect(s.im, "preedit-start", cbIMPreeditStart, data)
 	connect(s.im, "preedit-end", cbIMPreeditEnd, data)
 	s.connectSystem(data)
 	w.surface = s
@@ -773,6 +775,11 @@ func initSurfaceCallbacks() {
 			if text := goStr(str); text != "" {
 				s.send(platform.SurfaceEvent{Kind: platform.TextInput, Text: text})
 			}
+		}
+	})
+	cbIMPreeditStart = purego.NewCallback(func(im, data ptr) {
+		if s := b().surfaceOf(data); s != nil {
+			s.send(platform.SurfaceEvent{Kind: platform.TextComposition, CompositionStart: true})
 		}
 	})
 	cbIMPreedit = purego.NewCallback(func(im, data ptr) {

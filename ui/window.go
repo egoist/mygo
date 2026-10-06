@@ -631,6 +631,19 @@ func (h *windowHost) writeClipboard(s string) {
 	}
 }
 
+func (h *windowHost) readRichClipboard() (plain, html, rtf string) {
+	if c := h.conn.Clipboard; c != nil {
+		return c.ReadText(), c.ReadHTML(), c.ReadRTF()
+	}
+	return
+}
+
+func (h *windowHost) writeRichClipboard(plain, html, rtf string) {
+	if c := h.conn.Clipboard; c != nil {
+		c.WriteRichText(plain, html, rtf)
+	}
+}
+
 func (h *windowHost) startDrag() {
 	if h.conn.StartDrag != nil {
 		h.conn.StartDrag()

@@ -22,7 +22,8 @@ memory and CPU use.
   and send typed events; the TypeScript client is generated from your Go
   code.
 - **A Go UI toolkit** for native UI: flexbox and grid layout, widgets, text
-  editing with input methods, virtualized lists, SVG icons, animations,
+  plain and rich text editing with input methods, virtualized lists, SVG
+  icons, animations,
   screen reader support, and views you test without a window; Liquid Glass
   on every platform with the glass plugin.
 - **Desktop APIs** for both: windows, menus, tray, dialogs, notifications,

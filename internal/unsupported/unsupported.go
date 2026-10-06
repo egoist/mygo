@@ -89,14 +89,16 @@ func (dialogs) ShowMessageBox(_ platform.Window, _ *platform.MessageBoxOptions, 
 
 type clipboard struct{}
 
-func (clipboard) ReadText() string           { return "" }
-func (clipboard) WriteText(string)           {}
-func (clipboard) ReadHTML() string           { return "" }
-func (clipboard) WriteHTML(string)           {}
-func (clipboard) ReadImage() []byte          { return nil }
-func (clipboard) WriteImage([]byte) error    { return errUnsupported }
-func (clipboard) Clear()                     {}
-func (clipboard) AvailableFormats() []string { return nil }
+func (clipboard) ReadText() string                     { return "" }
+func (clipboard) WriteText(string)                     {}
+func (clipboard) ReadHTML() string                     { return "" }
+func (clipboard) WriteHTML(string)                     {}
+func (clipboard) ReadRTF() string                      { return "" }
+func (clipboard) WriteRichText(string, string, string) {}
+func (clipboard) ReadImage() []byte                    { return nil }
+func (clipboard) WriteImage([]byte) error              { return errUnsupported }
+func (clipboard) Clear()                               {}
+func (clipboard) AvailableFormats() []string           { return nil }
 
 type shell struct{}
 

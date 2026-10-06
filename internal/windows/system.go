@@ -25,6 +25,7 @@ type clipboard struct{ b *Backend }
 
 var (
 	cfHTML = registerClipboardFormat("HTML Format")
+	cfRTF  = registerClipboardFormat("Rich Text Format")
 	cfPNG  = registerClipboardFormat("PNG")
 )
 
@@ -145,20 +146,38 @@ func htmlOffset(data, key string) int {
 }
 
 func (c clipboard) WriteHTML(markup string) {
+	c.WriteRichText(markup, markup, "")
+}
+
+func clipboardHTML(markup string) []byte {
 	const header = "Version:0.9\r\nStartHTML:%010d\r\nEndHTML:%010d\r\nStartFragment:%010d\r\nEndFragment:%010d\r\n"
-	prefix := "<html><body><!--StartFragment-->"
-	suffix := "<!--EndFragment--></body></html>"
+	prefix, suffix := "<html><body><!--StartFragment-->", "<!--EndFragment--></body></html>"
 	h := len(fmt.Sprintf(header, 0, 0, 0, 0))
-	startFragment := h + len(prefix)
-	endFragment := startFragment + len(markup)
-	doc := fmt.Sprintf(header, h, endFragment+len(suffix), startFragment, endFragment) + prefix + markup + suffix
+	start := h + len(prefix)
+	return append([]byte(fmt.Sprintf(header, h, start+len(markup)+len(suffix), start, start+len(markup))+prefix+markup+suffix), 0)
+}
+
+func (c clipboard) ReadRTF() string {
+	if !c.open() {
+		return ""
+	}
+	defer closeClipboard()
+	return string(bytes.TrimRight(clipboardData(cfRTF), "\x00"))
+}
+
+func (c clipboard) WriteRichText(text, markup, rtf string) {
 	if !c.open() {
 		return
 	}
 	defer closeClipboard()
 	procEmptyClipboard.Call()
-	setClipboardData(cfHTML, append([]byte(doc), 0))
-	setClipboardData(cfUnicodeText, utf16Bytes(markup))
+	setClipboardData(cfUnicodeText, utf16Bytes(text))
+	if markup != "" {
+		setClipboardData(cfHTML, clipboardHTML(markup))
+	}
+	if rtf != "" {
+		setClipboardData(cfRTF, append([]byte(rtf), 0))
+	}
 }
 
 func (c clipboard) ReadImage() []byte {

@@ -236,6 +236,9 @@ func (c *Context) MeasureText(width float32, spans ...Span) (w, h float32) {
 type spanPaint struct {
 	spans  []Span
 	styles []text.Span
+	// backgroundsPainted is used by rich editors, which paint backgrounds
+	// before the selection so an opaque highlight cannot hide the selection.
+	backgroundsPainted bool
 }
 
 func newSpanPaint(spans []Span) *spanPaint {
@@ -311,6 +314,9 @@ func (sp *spanPaint) runs(line *text.Line, fn func(k, i, j int, x0, x1 float32))
 // backgrounds fills behind the spans of a line that have a background,
 // from the top-left of the text at (x, y), in DIPs.
 func (sp *spanPaint) backgrounds(p *Painter, line *text.Line, x, y float32) {
+	if sp.backgroundsPainted {
+		return
+	}
 	sp.runs(line, func(k, _, _ int, x0, x1 float32) {
 		if k >= 0 && sp.spans[k].Background.A > 0 {
 			p.Fill(Rect{x + x0, y + line.Y, x1 - x0, line.Height}, sp.spans[k].Background, 0)

@@ -18,6 +18,7 @@ type clipboard struct{}
 const (
 	utString = "public.utf8-plain-text"
 	utHTML   = "public.html"
+	utRTF    = "public.rtf"
 	utPNG    = "public.png"
 	utTIFF   = "public.tiff"
 )
@@ -49,6 +50,26 @@ func (clipboard) WriteHTML(markup string) {
 		pb := pasteboard()
 		send(pb, "clearContents")
 		send(pb, "setString:forType:", uintptr(nsString(markup)), uintptr(nsString(utHTML)))
+	})
+}
+
+func (clipboard) ReadRTF() string {
+	var s string
+	withPool(func() { s = string(goBytes(send(pasteboard(), "dataForType:", uintptr(nsString(utRTF))))) })
+	return s
+}
+
+func (clipboard) WriteRichText(text, markup, rtf string) {
+	withPool(func() {
+		pb := pasteboard()
+		send(pb, "clearContents")
+		send(pb, "setString:forType:", uintptr(nsString(text)), uintptr(nsString(utString)))
+		if markup != "" {
+			send(pb, "setString:forType:", uintptr(nsString(markup)), uintptr(nsString(utHTML)))
+		}
+		if rtf != "" {
+			send(pb, "setData:forType:", uintptr(nsData([]byte(rtf))), uintptr(nsString(utRTF)))
+		}
 	})
 }
 
