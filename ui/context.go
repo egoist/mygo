@@ -13,19 +13,22 @@ import (
 // view function receives it on the main thread; it is only valid during
 // that call.
 type Context struct {
-	rt     *engine
-	parent *Element
-	root   *Element
-	chunks [][]Element
-	used   int
+	directionLocales map[string]LayoutDirection
+	hostLayoutLocale string
+	rt               *engine
+	parent           *Element
+	root             *Element
+	chunks           [][]Element
+	used             int
 	// dirty is how many elements in the arena have held references since
 	// finish last cleared the unused ones, including earlier build passes.
-	dirty    int
-	theme    *Theme
-	now      time.Time
-	w, h     float32
-	titleBar TitleBar
-	overlay  *Element
+	dirty        int
+	theme        *Theme
+	now          time.Time
+	w, h         float32
+	titleBar     TitleBar
+	overlay      *Element
+	overlayOwner *Element
 	// tree is the Tree being built, for its items.
 	tree *treeBuild
 	// buttons is how the buttons being built look, in a toolbar or a
@@ -75,8 +78,13 @@ func (c *Context) alloc() *Element {
 	c.used++
 	e := &c.chunks[ci][ei]
 	shadows, cols, rows, frags := e.shadows[:0], e.cols[:0], e.rows[:0], e.frags[:0]
+	logical := e.logical
 	*e = Element{}
 	e.shadows, e.cols, e.rows, e.frags = shadows, cols, rows, frags
+	if logical != nil {
+		*logical = logicalEdges{}
+		e.logical = logical
+	}
 	e.serial = int32(c.used)
 	e.shrink = 1
 	e.justify, e.align, e.self, e.alignContent = alignAuto, alignAuto, alignAuto, alignAuto
@@ -106,11 +114,18 @@ func (c *Context) reset(now time.Time, w, h float32) {
 	root.kind = kindBox
 	root.width, root.height = px(w), px(h)
 	root.st = c.rt.stateFor(root.id)
+	root.direction = AutoDirection
+	c.hostLayoutLocale = "en-US"
+	if h, ok := c.rt.host.(interface{ layoutLocale() string }); ok {
+		if tag := h.layoutLocale(); tag != "" {
+			c.hostLayoutLocale = tag
+		}
+	}
 	root.bg = c.theme.Background
 	root.ts = textStyle{set: setColor | setSize | setFamily, color: c.theme.Text, size: c.theme.FontSize, family: c.theme.Font}
 	c.root = root
 	c.parent = root
-	c.overlay = nil
+	c.overlay, c.overlayOwner = nil, nil
 }
 
 // finish frees references to elements left out of the frame, including
@@ -175,6 +190,9 @@ func (c *Context) newElement(k kind) *Element {
 	p := c.parent
 	e.id = mix(p.id, uint64(p.nchild)+uint64(k)<<56)
 	p.add(e)
+	if p == c.overlay {
+		e.directionOwner = c.overlayOwner
+	}
 	e.st = c.rt.stateFor(e.id)
 	if c.rt.insp.open && e.id == c.rt.insp.selected {
 		c.rt.insp.noteSource()
@@ -418,7 +436,9 @@ type state struct {
 	// to open it, -1 to close it.
 	expand int8
 	// role is the element's Role in the last frame.
-	role Role
+	role               Role
+	rtl, inlineReverse bool
+	vertical           bool
 	// holding is set while a stepper's arrow is held, since holdStart, and
 	// holdSteps counts the steps it took.
 	holding   bool

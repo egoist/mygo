@@ -70,6 +70,7 @@ func base(v float32) float32 {
 func layoutTree(root *Element, w, h float32) {
 	rt := root.c.rt
 	rt.consumed = false
+	resolveTreeEdges(root)
 	layoutBox(root, w, h)
 	// Lists build rows as they lay out, which may ask to come into view.
 	for _, e := range root.c.reveal {
@@ -79,6 +80,8 @@ func layoutTree(root *Element, w, h float32) {
 	}
 	if len(rt.revealIDs) > 0 {
 		revealAll(root, rt.revealIDs)
+		// Attached overlays follow scrolling caused by focus/reveal in this frame.
+		layoutAbsolute(root)
 		rt.revealIDs = rt.revealIDs[:0]
 	}
 	if rt.late {
@@ -120,7 +123,7 @@ func place(e *Element, x, y float32) {
 	e.y += y
 	cx, cy := e.x, e.y
 	if f := e.followX; f != nil {
-		cx -= float32(f.st.scrollX)
+		cx -= float32(f.physicalScrollX())
 	}
 	if e.scrolls() {
 		// The content may no longer reach as far as the offset, as when a
@@ -141,7 +144,7 @@ func place(e *Element, x, y float32) {
 			// app from its ScrollState: build the next frame with the new.
 			e.c.rt.animating = true
 		}
-		cx -= float32(s.scrollX)
+		cx -= float32(e.physicalScrollX())
 		cy -= float32(s.scrollY - e.scrollBase)
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
@@ -157,10 +160,12 @@ func place(e *Element, x, y float32) {
 // relative returns how far the insets of an element in flow move it from
 // where the layout put it, against a content box cw×ch.
 func (e *Element) relative(cw, ch float32) (dx, dy float32) {
-	if v, ok := e.inset[3].resolve(base(cw)); ok {
-		dx = v
-	} else if v, ok := e.inset[1].resolve(base(cw)); ok {
-		dx = -v
+	left, lok := e.inset[3].resolve(base(cw))
+	right, rok := e.inset[1].resolve(base(cw))
+	if rok && (!lok || e.rtl()) {
+		dx = -right
+	} else if lok {
+		dx = left
 	}
 	if v, ok := e.inset[0].resolve(base(ch)); ok {
 		dy = v
@@ -187,6 +192,12 @@ func (e *Element) textParams(width float32) text.Params {
 		p.Align = text.Center
 	case End:
 		p.Align = text.End
+	}
+	if ts.align == alignInlineStart || ts.align == alignInlineEnd {
+		p.Align = text.Left
+		if (ts.align == alignInlineEnd) != e.rtl() {
+			p.Align = text.Right
+		}
 	}
 	return p
 }
@@ -290,6 +301,7 @@ func (e *Element) leafWidths() (maxW, minW float32) {
 // intrinsic returns the element's max-content or min-content width, its
 // border box.
 func intrinsic(e *Element, maxContent bool) float32 {
+	e.resolveEdges()
 	if e.form != nil {
 		e.form.alignLabels()
 	}
@@ -358,6 +370,7 @@ func fitWidth(e *Element, avail, cbW float32) float32 {
 // heightAt returns the height of the element when it is w wide, against
 // a containing block cbH high.
 func heightAt(e *Element, w, cbH float32) float32 {
+	e.resolveEdges()
 	if v, ok := e.height.resolve(base(cbH)); ok {
 		return e.clampH(v, cbH)
 	}
@@ -421,6 +434,7 @@ func boxLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) {
 
 // layoutBox gives the element its size and lays out its content.
 func layoutBox(e *Element, w, h float32) {
+	e.resolveEdges()
 	e.w, e.h = w, h
 	cw, ch := max(w-e.padX(), 0), max(h-e.padY(), 0)
 	switch e.kind {
@@ -446,6 +460,9 @@ func layoutBox(e *Element, w, h float32) {
 		e.layoutToolbar(cw)
 	}
 	lw, lh := cw, ch
+	if e.followX != nil {
+		lw = max(cw, e.followX.rowMinW)
+	}
 	if e.flags&flagScrollX != 0 {
 		lw = inf
 	}
@@ -453,6 +470,11 @@ func layoutBox(e *Element, w, h float32) {
 		lh = inf
 	}
 	uw, uh := boxLayout(e, lw, lh, true)
+	if e.flags&flagScrollX != 0 && e.rtl() {
+		// Resolve an unbounded horizontal layout at its full extent so short
+		// content still starts at the right of the viewport.
+		uw, uh = boxLayout(e, max(uw, cw), lh, true)
+	}
 	if e.baselines {
 		alignBaselines(e)
 	}
@@ -513,6 +535,8 @@ func flexLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) 
 		mainSize, crossSize = cw, ch
 		gap, crossGap = e.gapX, e.gapY
 	}
+	mainReverse := e.reverse != (row && e.rtl())
+	crossReverse := e.wrapReverse != (!row && e.rtl())
 	align := e.align
 	if align == alignAuto {
 		align = Stretch
@@ -524,6 +548,7 @@ func flexLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) 
 		if c.flags&flagAbsolute != 0 {
 			continue
 		}
+		c.resolveEdges()
 		it := flexItem{e: c}
 		if row {
 			it.marginMain, it.marginCr = c.marginX(), c.marginY()
@@ -714,10 +739,10 @@ func flexLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) 
 	r := b2i(row)
 	ms, me := mainMargins[r][0], mainMargins[r][1]
 	cs, ce := crossMargins[r][0], crossMargins[r][1]
-	if e.reverse {
+	if mainReverse {
 		ms, me = me, ms
 	}
-	if e.wrapReverse {
+	if crossReverse {
 		cs, ce = ce, cs
 	}
 	crossPos := crossStart
@@ -745,7 +770,7 @@ func flexLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) 
 				endM = auto
 			}
 			mainOff := pos + startM
-			if e.reverse {
+			if mainReverse {
 				mainOff = contentMain - mainOff - it.main
 			}
 			var crossOff float32
@@ -765,7 +790,7 @@ func flexLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) 
 				}
 			}
 			crossOff += crossPos + c.m(cs)
-			if e.wrapReverse {
+			if crossReverse {
 				crossOff = contentCross - crossOff - it.cross
 			}
 			if row {
@@ -938,16 +963,22 @@ func layoutAbsolute(e *Element) {
 			left, top = c.place.fit(c, left, top, w, h, pw, ph)
 		}
 		x := left + c.m(3)
-		if !lok && rok {
+		if !lok && (rok || c.rtl()) {
 			x = pw - right - w - c.m(1)
 		} else if lok && rok {
+			// Direction resolves an overconstrained fixed width from inline start.
+			if c.rtl() {
+				x = pw - right - w - c.m(1)
+			}
 			// Automatic margins share the room left between the insets.
 			free := pw - left - right - w - c.marginX()
 			switch autoL, autoR := isAuto(c.margin[3]), isAuto(c.margin[1]); {
 			case autoL && autoR:
-				x += max(free, 0) / 2
+				x = left + c.m(3) + max(free, 0)/2
 			case autoL:
-				x += max(free, 0)
+				x = left + c.m(3) + max(free, 0)
+			case autoR:
+				x = left + c.m(3)
 			}
 		}
 		y := top + c.m(0)
@@ -984,6 +1015,7 @@ func attachTo(c, e *Element, pw, ph float32) {
 	}
 	t := laidOutBox(c.popover)
 	at, self := c.attach.anchors()
+	at, self = at.physical(c.popover.rtl()), self.physical(c.rtl())
 	ax, ay := at.fractions()
 	sx, sy := self.fractions()
 	x := alongTarget(t.X, t.W, ax, sx, w, c.m(3)-c.m(1), c.c.w)
@@ -1028,10 +1060,10 @@ func laidOutOrigin(e *Element) (x, y float32) {
 	for ch, p := e, e.parent; p != nil; ch, p = p, p.parent {
 		if ch.flags&flagAbsolute == 0 || ch.leaving == 1 {
 			if f := p.followX; f != nil {
-				x -= float32(f.st.scrollX)
+				x -= float32(f.physicalScrollX())
 			}
 			if p.scrolls() {
-				x -= float32(p.st.scrollX)
+				x -= float32(p.physicalScrollX())
 				y -= float32(p.st.scrollY - p.scrollBase)
 			}
 		}
@@ -1091,6 +1123,7 @@ func attach(c, e *Element, pw, ph float32) {
 		h = heightAt(c, w, ph)
 	}
 	at, self := c.attach.anchors()
+	at, self = at.physical(e.rtl()), self.physical(c.rtl())
 	ax, ay := at.fractions()
 	sx, sy := self.fractions()
 	dx, dy := c.relative(pw, ph)

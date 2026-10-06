@@ -323,7 +323,7 @@ func textStyles(ts *textStyle, set uint16) []inspDecl {
 		}
 	}
 	if set&setAlign != 0 {
-		add("text-align", map[Align]string{Start: "start", Center: "center", End: "end"}[ts.align])
+		add("text-align", map[Align]string{Start: "start", Center: "center", End: "end", alignInlineStart: "inline-start", alignInlineEnd: "inline-end"}[ts.align])
 	}
 	if set&setSpacing != 0 {
 		add("letter-spacing", pxText(ts.spacing))
@@ -355,6 +355,11 @@ func textStyles(ts *textStyle, set uint16) []inspDecl {
 func computed(e *Element) []inspDecl {
 	var ds []inspDecl
 	add := func(name, value string) { ds = append(ds, inspDecl{name: name, value: value}) }
+	dir := "ltr"
+	if e.rtl() {
+		dir = "rtl"
+	}
+	add("direction", dir)
 	display := "flex"
 	switch {
 	case e.grid:

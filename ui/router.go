@@ -511,8 +511,8 @@ func (r *Router) build(c *Context, box *Element, v *routeView, parent *Route, fn
 			if v.dir > 0 {
 				upper, lower, shown = page, old, progress
 			}
-			upper.Absolute().Top(0).Fill().Background(bg).LeftPercent(100*(1-shown)).Shadow(0, 0, 16, 0, RGBA(0, 0, 0, 0.15))
-			lower.LeftPercent(-30 * shown).Background(bg).DrawOver(func(p *Painter, rc Rect) {
+			upper.Absolute().Top(0).Fill().Background(bg).LeftPercent(directionDelta(100*(1-shown), box.rtl())).Shadow(0, 0, 16, 0, RGBA(0, 0, 0, 0.15))
+			lower.LeftPercent(directionDelta(-30*shown, box.rtl())).Background(bg).DrawOver(func(p *Painter, rc Rect) {
 				p.Fill(rc, RGBA(0, 0, 0, 0.06*shown), 0)
 			})
 		}
@@ -533,7 +533,8 @@ func (r *Router) build(c *Context, box *Element, v *routeView, parent *Route, fn
 func (r *Router) keys(c *Context, box *Element) {
 	first := c.routers == 0
 	c.routers++
-	back, forward := [2]shortcut{{0, KeyBack}, {Alt, KeyLeft}}, [2]shortcut{{0, KeyForward}, {Alt, KeyRight}}
+	previous, next := box.directionKeys()
+	back, forward := [2]shortcut{{0, KeyBack}, {Alt, previous}}, [2]shortcut{{0, KeyForward}, {Alt, next}}
 	if runtime.GOOS == "darwin" {
 		back[1], forward[1] = shortcut{Super, KeyBracketLeft}, shortcut{Super, KeyBracketRight}
 	}
@@ -720,6 +721,9 @@ func historyButton(c *Context, r *Router, d int) *Element {
 		Box(c).Size(t.Space(4), t.Space(4)).Shrink(0).Role(RoleNone).Draw(func(p *Painter, rc Rect) {
 			cx, cy, s := rc.X+rc.W/2, rc.Y+rc.H/2, rc.W*0.22
 			dx := s * float32(d)
+			if b.rtl() {
+				dx = -dx
+			}
 			var path Path
 			path.MoveTo(cx-dx/2, cy-s*1.6).LineTo(cx+dx, cy).LineTo(cx-dx/2, cy+s*1.6)
 			p.StrokePath(&path, 1.6, color)

@@ -71,7 +71,11 @@ func Meter(c *Context, value, lo, hi float64, levels *MeterLevels) *Element {
 	}
 	frac := fraction(value, lo, hi)
 	e.Draw(func(p *Painter, r Rect) {
-		p.Fill(Rect{r.X, r.Y, r.W * frac, r.H}, color, rad)
+		x := r.X
+		if e.rtl() {
+			x += r.W * (1 - frac)
+		}
+		p.Fill(Rect{x, r.Y, r.W * frac, r.H}, color, rad)
 	})
 	return e
 }
@@ -97,10 +101,11 @@ func Rating(c *Context, value *int, max int) *Element {
 			c.rt.consumed = true
 		}
 	}
+	previous, next := e.inlineKeys()
 	switch {
-	case e.Shortcut(0, KeyRight), e.Shortcut(0, KeyUp):
+	case e.Shortcut(0, next), e.Shortcut(0, KeyUp):
 		set(*value + 1)
-	case e.Shortcut(0, KeyLeft), e.Shortcut(0, KeyDown):
+	case e.Shortcut(0, previous), e.Shortcut(0, KeyDown):
 		set(*value - 1)
 	case e.Shortcut(0, KeyHome):
 		set(0)
@@ -148,7 +153,7 @@ func Rating(c *Context, value *int, max int) *Element {
 	e.DrawOver(func(p *Painter, r Rect) {
 		// Around the stars, which a row stretched leaves at its start.
 		if first, last := e.first, e.last; e.FocusVisible() && first != nil {
-			p.FocusRing(Rect{first.x, first.y, last.x + last.w - first.x, last.y + last.h - first.y}, [4]float32{t.Radius, t.Radius, t.Radius, t.Radius})
+			p.FocusRing(union(Rect{first.x, first.y, first.w, first.h}, Rect{last.x, last.y, last.w, last.h}), [4]float32{t.Radius, t.Radius, t.Radius, t.Radius})
 		}
 	})
 	e.flags |= flagOwnRing
@@ -195,10 +200,11 @@ func Stepper(c *Context, value *float64, lo, hi, step float64) *Element {
 			c.rt.consumed = true
 		}
 	}
+	previous, next := e.directionKeys()
 	switch {
-	case e.Shortcut(0, KeyUp), e.Shortcut(0, KeyRight):
+	case e.Shortcut(0, KeyUp), e.Shortcut(0, next):
 		set(*value + step)
-	case e.Shortcut(0, KeyDown), e.Shortcut(0, KeyLeft):
+	case e.Shortcut(0, KeyDown), e.Shortcut(0, previous):
 		set(*value - step)
 	case e.Shortcut(0, KeyHome):
 		set(lo)
@@ -303,7 +309,11 @@ func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element 
 	dragging := Local(e, "knob", func() int { return -1 })
 	st := e.st
 	at := func() float64 {
-		return lo + float64(max(0, min(1, (c.rt.pointerX-st.cx)/max(st.cw, 1))))*(hi-lo)
+		frac := (c.rt.pointerX - st.cx) / max(st.cw, 1)
+		if st.rtl {
+			frac = 1 - frac
+		}
+		return lo + float64(max(0, min(1, frac)))*(hi-lo)
 	}
 	if !st.pressed {
 		*dragging = -1
@@ -317,16 +327,16 @@ func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element 
 			}
 			frac := fraction(*v, lo, hi)
 			knob := Box(c).Absolute().Top(0).Bottom(0).Width(kw).Focusable().FocusRing(false).Role(RoleSlider)
-			knob.inset[3] = percent(frac * 100)
-			knob.Margin(0, 0, 0, -frac*kw)
+			knob.InsetStartPercent(frac * 100).MarginStart(-frac * kw)
 			knob.flags |= flagDraggable | flagHover
 			knob.hasRange, knob.accRange, knob.accStep = true, [3]float64{lo, hi, *v}, keyStep
 			// Named after the slider, as "Price minimum".
 			knob.label, knob.nameFrom, knob.nameJoin = []string{"minimum", "maximum"}[k], e, true
+			previous, next := e.directionKeys()
 			switch {
-			case knob.Shortcut(0, KeyLeft), knob.Shortcut(0, KeyDown):
+			case knob.Shortcut(0, previous), knob.Shortcut(0, KeyDown):
 				set(v, *v-keyStep, from, to)
-			case knob.Shortcut(0, KeyRight), knob.Shortcut(0, KeyUp):
+			case knob.Shortcut(0, next), knob.Shortcut(0, KeyUp):
 				set(v, *v+keyStep, from, to)
 			case knob.Shortcut(0, KeyHome):
 				set(v, from, from, to)
@@ -361,10 +371,14 @@ func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element 
 		h := t.Space(1.5)
 		cy := r.Y + t.Space(2.5)
 		paintTicks(p, t, r, kw, ticks, cy+t.Space(2)+t.Space(1))
-		x0 := r.X + kw/2 + (r.W-kw)*fraction(*low, lo, hi)
-		x1 := r.X + kw/2 + (r.W-kw)*fraction(*high, lo, hi)
+		f0, f1 := fraction(*low, lo, hi), fraction(*high, lo, hi)
+		if e.rtl() {
+			f0, f1 = 1-f0, 1-f1
+		}
+		x0 := r.X + kw/2 + (r.W-kw)*f0
+		x1 := r.X + kw/2 + (r.W-kw)*f1
 		p.Fill(Rect{r.X, cy - h/2, r.W, h}, t.Border, h/2)
-		p.Fill(Rect{x0, cy - h/2, x1 - x0, h}, t.Accent, h/2)
+		p.Fill(Rect{min(x0, x1), cy - h/2, float32(math.Abs(float64(x1 - x0))), h}, t.Accent, h/2)
 		for k, x := range []float32{x0, x1} {
 			g := float32(0)
 			if k == which {

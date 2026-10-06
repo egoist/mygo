@@ -52,7 +52,7 @@ func TreeItem(c *Context, label string, open *bool, children func()) *Element {
 		parent = tb.parents[n-1]
 	}
 	branch := children != nil && open != nil
-	item := Row(c).Height(t.Space(7)).Gap(t.Space(0.5)).AlignItems(Center).Padding(0, t.Space(2), 0, t.Space(1+4*float32(tb.depth))).Focusable().Shrink(0).Role(RoleTreeItem)
+	item := Row(c).Height(t.Space(7)).Gap(t.Space(0.5)).AlignItems(Center).PaddingEnd(t.Space(2)).PaddingStart(t.Space(1 + 4*float32(tb.depth))).Focusable().Shrink(0).Role(RoleTreeItem)
 	item.widget = "TreeItem"
 	item.flags |= flagClickable | flagHover | flagOwnRing
 	tb.items = append(tb.items, item.id)
@@ -64,6 +64,7 @@ func TreeItem(c *Context, label string, open *bool, children func()) *Element {
 		}
 	}
 	at := slices.Index(tb.last, item.id)
+	previous, next := item.directionKeys()
 	switch {
 	case item.Shortcut(0, KeyDown):
 		if at >= 0 && at+1 < len(tb.last) {
@@ -73,14 +74,14 @@ func TreeItem(c *Context, label string, open *bool, children func()) *Element {
 		if at > 0 {
 			focus(tb.last[at-1])
 		}
-	case item.Shortcut(0, KeyRight):
+	case item.Shortcut(0, next):
 		if branch && !*open {
 			*open = true
 			c.rt.consumed = true
 		} else if branch && at >= 0 && at+1 < len(tb.last) {
 			focus(tb.last[at+1])
 		}
-	case item.Shortcut(0, KeyLeft):
+	case item.Shortcut(0, previous):
 		if branch && *open {
 			*open = false
 			c.rt.consumed = true
@@ -120,7 +121,11 @@ func TreeItem(c *Context, label string, open *bool, children func()) *Element {
 				if expanded {
 					path.MoveTo(r.X+r.W/4, r.Y+r.H*3/8).LineTo(r.X+r.W/2, r.Y+r.H*5/8).LineTo(r.X+r.W*3/4, r.Y+r.H*3/8)
 				} else {
-					path.MoveTo(r.X+r.W*3/8, r.Y+r.H/4).LineTo(r.X+r.W*5/8, r.Y+r.H/2).LineTo(r.X+r.W*3/8, r.Y+r.H*3/4)
+					from, to := float32(3.0/8), float32(5.0/8)
+					if item.rtl() {
+						from, to = to, from
+					}
+					path.MoveTo(r.X+r.W*from, r.Y+r.H/4).LineTo(r.X+r.W*to, r.Y+r.H/2).LineTo(r.X+r.W*from, r.Y+r.H*3/4)
 				}
 				p.StrokePath(&path, 1.5, arrowColor(t, item))
 			})

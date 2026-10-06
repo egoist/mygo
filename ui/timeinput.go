@@ -17,7 +17,9 @@ import (
 //	ui.TimeInput(c, &app.alarm).Label("Alarm")
 func TimeInput(c *Context, tm *time.Time) *Element {
 	t := c.theme
-	f := Row(c).AlignItems(Center).Padding(t.Space(1.5), t.Space(2)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border).Shrink(0).Role(RoleGroup)
+	// Keep a clock's numeric sequence in reading order, as one shaped text
+	// run would; the surrounding interface still places the field in RTL.
+	f := Row(c).Direction(LTR).AlignItems(Center).Padding(t.Space(1.5), t.Space(2)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border).Shrink(0).Role(RoleGroup)
 	f.widget = "TimeInput"
 	set := func(h, m int) {
 		y, mo, d := tm.Date()
@@ -50,6 +52,7 @@ func TimeInput(c *Context, tm *time.Time) *Element {
 		}
 	})
 	h, m := tm.Hour(), tm.Minute()
+	previous, next := f.inlineKeys()
 	for k, seg := range segs {
 		top := []int{24, 60}[k]
 		value := []*int{&h, &m}[k]
@@ -59,10 +62,10 @@ func TimeInput(c *Context, tm *time.Time) *Element {
 			step = 1
 		case seg.Shortcut(0, KeyDown):
 			step = -1
-		case seg.Shortcut(0, KeyRight) && k == 0:
+		case seg.Shortcut(0, next) && k == 0:
 			segs[1].Focus()
 			c.rt.focusVisible = true
-		case seg.Shortcut(0, KeyLeft) && k == 1:
+		case seg.Shortcut(0, previous) && k == 1:
 			segs[0].Focus()
 			c.rt.focusVisible = true
 		}

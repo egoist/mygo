@@ -40,7 +40,7 @@ func CheckboxGroup(c *Context, label string, fn func()) *Element {
 		saved := c.checks
 		group = &checkGroup{}
 		c.checks = group
-		boxes := Column(c).Gap(t.Space(2)).Padding(0, 0, 0, t.Space(6)).Role(RoleGroup).Label(label)
+		boxes := Column(c).Gap(t.Space(2)).PaddingStart(t.Space(6)).Role(RoleGroup).Label(label)
 		boxes.Children(fn)
 		c.checks = saved
 		on := 0
@@ -116,8 +116,9 @@ func Breadcrumbs(c *Context, items []string, chosen *int) *Element {
 			if i > 0 {
 				Box(c).Size(t.Space(3), t.Space(3)).Shrink(0).Role(RoleNone).Draw(func(p *Painter, r Rect) {
 					cx, cy, d := r.X+r.W/2, r.Y+r.H/2, r.W/6
+					dx := directionDelta(d, e.rtl())
 					var path Path
-					path.MoveTo(cx-d, cy-2*d).LineTo(cx+d, cy).LineTo(cx-d, cy+2*d)
+					path.MoveTo(cx-dx, cy-2*d).LineTo(cx+dx, cy).LineTo(cx-dx, cy+2*d)
 					p.StrokePath(&path, 1.2, t.TextMuted)
 				})
 			}

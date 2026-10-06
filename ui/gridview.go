@@ -205,7 +205,7 @@ func (s *GridState) reorder(e *Element, n int, gap float32) {
 			return
 		}
 		x := cell.x - gap/2
-		if after {
+		if after != cell.rtl {
 			x = cell.x + cell.w + gap/2
 		}
 		p.Fill(Rect{x - 1, cell.y + 4, 2, cell.h - 8}, t.Accent, 1)
@@ -237,7 +237,7 @@ func (s *GridState) dropAt(x, y float32, n int) (to int, cell uint64, after bool
 		return n, 0, false
 	}
 	st := s.cellState(cell)
-	if x >= st.x+st.w/2 {
+	if (x >= st.x+st.w/2) != st.rtl {
 		return best + 1, cell, true
 	}
 	return best, cell, false
@@ -366,10 +366,11 @@ func (s *GridState) keys(grid *Element, n int) {
 	cols := max(s.cols, 1)
 	at := *s.Selected
 	in := at >= 0 && at < n
+	previous, next := grid.directionKeys()
 	moves := []struct {
 		key Key
 		d   int
-	}{{KeyRight, 1}, {KeyLeft, -1}, {KeyDown, cols}, {KeyUp, -cols}}
+	}{{next, 1}, {previous, -1}, {KeyDown, cols}, {KeyUp, -cols}}
 	to, extend := -1, false
 	for _, m := range moves {
 		plain, shift := grid.Shortcut(0, m.key), s.Selection != nil && grid.Shortcut(Shift, m.key)

@@ -136,7 +136,7 @@ func SidebarSection(c *Context, title string, open *bool, fn func()) *Element {
 				arrow.paintFn = func(p *Painter, r Rect) {
 					if head.Hovered() {
 						cx, cy, d := r.X+r.W/2, r.Y+r.H/2, r.W/8
-						at := rotate(cx, cy, turn)
+						at := disclosureRotation(arrow, cx, cy, turn)
 						var path Path
 						path.MoveTo(at(-d, -2*d)).LineTo(at(d, 0)).LineTo(at(-d, 2*d))
 						p.StrokePath(&path, 1.5, t.TextMuted)

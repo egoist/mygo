@@ -11,11 +11,14 @@ ui.Row(c).Gap(8).Padding(12).Children(func() {
 })
 ```
 
+See [Interface direction](direction.md) for inherited RTL layout, logical
+start/end edges, mixed-direction overrides and keyboard behavior.
+
 ## Containers
 
 - `ui.Column` stacks its children from top to bottom and stretches them to
   its width; `ui.Box` is a column too. `ui.Row` places them from left to
-  right and centers them vertically. `Reverse` lays them out the other
+  right in LTR (right to left in RTL) and centers them vertically. `Reverse` lays them out the other
   way, from the right or the bottom, as CSS's `row-reverse` and
   `column-reverse`.
 - `ui.Spacer` takes the free space of its row or column, pushing its

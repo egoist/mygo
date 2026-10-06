@@ -179,7 +179,7 @@ func (s *OutlineState[K]) prefix(c *Context, i int, children func(K) []K, conten
 		arrow.Draw(func(p *Painter, rect Rect) {
 			cx, cy, d := rect.X+rect.W/2, rect.Y+rect.H/2, rect.W/8
 			var path Path
-			at := rotate(cx, cy, turn)
+			at := disclosureRotation(arrow, cx, cy, turn)
 			path.MoveTo(at(-d, -2*d)).LineTo(at(d, 0)).LineTo(at(-d, 2*d))
 			p.StrokePath(&path, 1.5, arrowColor(t, item))
 		})
@@ -209,8 +209,9 @@ func (s *OutlineState[K]) keys(owner *Element, children func(K) []K) {
 	if sel == nil {
 		return
 	}
-	right, left := owner.Shortcut(0, KeyRight), owner.Shortcut(0, KeyLeft)
-	allRight, allLeft := owner.Shortcut(allMod, KeyRight), owner.Shortcut(allMod, KeyLeft)
+	previous, next := owner.directionKeys()
+	right, left := owner.Shortcut(0, next), owner.Shortcut(0, previous)
+	allRight, allLeft := owner.Shortcut(allMod, next), owner.Shortcut(allMod, previous)
 	i := *sel
 	if i < 0 || i >= len(s.rows) {
 		return

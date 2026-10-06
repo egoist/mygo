@@ -161,7 +161,7 @@ func (rt *engine) pointerMove(x, y float32) {
 		g := d.bars(rt.c.theme.scrollbarWidth())
 		if d.horizontal {
 			if travel := g.hTrack.W - 4 - g.h.W; travel > 0 {
-				s.scrollTo(dragTo(d.from, x-d.start, travel, d.contentW-float64(s.w), s.contentW-float64(s.w)), s.scrollY)
+				s.scrollTo(dragTo(d.from, directionDelta(x-d.start, s.rtl), travel, d.contentW-float64(s.w), s.contentW-float64(s.w)), s.scrollY)
 			}
 		} else if travel := g.vTrack.H - 4 - g.v.H; travel > 0 {
 			s.scrollTo(s.scrollX, dragTo(d.from, y-d.start, travel, d.contentH-float64(s.h), s.contentH-float64(s.h)))
@@ -379,7 +379,7 @@ func dragTo(from float64, moved, travel float32, reach, now float64) float64 {
 // content's size as the drag started.
 func (d *scrollDrag) bars(width float32) scrollGeometry {
 	s := d.st
-	return scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(d.contentW), float32(d.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, width)
+	return scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(d.contentW), float32(d.contentH), float32(inlineOffset(s.scrollX, d.contentW-float64(s.w), s.rtl)), float32(s.scrollY), s.flags, width, s.rtl)
 }
 
 // scrollBy scrolls a container by dx, dy within its content, and reports
@@ -390,7 +390,7 @@ func scrollBy(s *state, dx, dy float32) bool {
 		y = max(0, min(y+float64(dy), s.contentH-float64(s.h)))
 	}
 	if dx != 0 && s.flags&flagScrollX != 0 {
-		x = max(0, min(x+float64(dx), s.contentW-float64(s.w)))
+		x = max(0, min(x+float64(directionDelta(dx, s.rtl)), s.contentW-float64(s.w)))
 	}
 	if x == s.scrollX && y == s.scrollY {
 		return false
@@ -438,6 +438,18 @@ func (rt *engine) scrollKey(mods Modifiers, key Key) bool {
 			continue
 		}
 		s := rt.states[id]
+		if s.flags&flagScrollY == 0 && (key == KeyHome || key == KeyEnd) {
+			to := float64(0)
+			if key == KeyEnd {
+				to = max(0, s.contentW-float64(s.w))
+			}
+			if to != s.scrollX {
+				s.scrollTo(to, s.scrollY)
+				rt.requestFrame()
+				return true
+			}
+			continue
+		}
 		if page != 0 {
 			// A page keeps a line of the last one in view.
 			dy = page * max(s.h-line, s.h/2)
@@ -958,7 +970,7 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 {
 			continue
 		}
-		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth())
+		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.physicalScrollX()), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth(), s.rtl)
 		d := &rt.scrollDrag
 		w, h := float64(s.w), float64(s.h)
 		switch {
@@ -978,9 +990,17 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 				d.st, d.start, d.from, d.horizontal = s, x, s.scrollX, true
 				d.contentW, d.contentH = s.contentW, s.contentH
 			case x < g.h.X:
-				s.scrollTo(max(0, s.scrollX-w*0.9), s.scrollY)
+				if s.rtl {
+					s.scrollTo(min(s.contentW-w, s.scrollX+w*0.9), s.scrollY)
+				} else {
+					s.scrollTo(max(0, s.scrollX-w*0.9), s.scrollY)
+				}
 			default:
-				s.scrollTo(min(s.contentW-w, s.scrollX+w*0.9), s.scrollY)
+				if s.rtl {
+					s.scrollTo(max(0, s.scrollX-w*0.9), s.scrollY)
+				} else {
+					s.scrollTo(min(s.contentW-w, s.scrollX+w*0.9), s.scrollY)
+				}
 			}
 		default:
 			continue

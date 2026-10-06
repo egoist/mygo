@@ -42,6 +42,7 @@ func (w *Window) attachContent() {
 				w.native.TitleBarDoubleClicked()
 			}
 		},
+		Locale:        func() string { return App.Locale() },
 		IsDark:        func() bool { return backend().Theme().IsDark() },
 		Preferences:   func() platform.Preferences { return backend().Theme().Preferences() },
 		UIFont:        func() string { return backend().Theme().UIFont() },

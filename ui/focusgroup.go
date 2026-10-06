@@ -28,7 +28,8 @@ func (e *Element) FocusGroup(o Orientation) *Element {
 
 // groupInfo is what the frame committed of a focus group.
 type groupInfo struct {
-	orient Orientation
+	orient  Orientation
+	reverse bool
 	// selects makes moving the focus with the arrows click the element
 	// it moves to, as in a radio group.
 	selects bool
@@ -116,10 +117,14 @@ func (rt *engine) groupKey(mods Modifiers, key Key) bool {
 		return false
 	}
 	to := -1
+	previous, next := KeyLeft, KeyRight
+	if info.reverse {
+		previous, next = next, previous
+	}
 	switch {
-	case key == KeyRight && info.orient&Horizontal != 0, key == KeyDown && info.orient&Vertical != 0:
+	case key == next && info.orient&Horizontal != 0, key == KeyDown && info.orient&Vertical != 0:
 		to = (at + 1) % n
-	case key == KeyLeft && info.orient&Horizontal != 0, key == KeyUp && info.orient&Vertical != 0:
+	case key == previous && info.orient&Horizontal != 0, key == KeyUp && info.orient&Vertical != 0:
 		to = (at - 1 + n) % n
 	case key == KeyHome:
 		to = 0

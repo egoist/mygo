@@ -75,10 +75,15 @@ func Toolbar(c *Context, fn func()) *Element {
 // chevrons draws », of a toolbar's overflow menu.
 func chevrons(c *Context) {
 	t := c.theme
-	Box(c).Size(t.Space(3), t.Space(3)).Shrink(0).Draw(func(p *Painter, r Rect) {
+	e := Box(c).Size(t.Space(3), t.Space(3)).Shrink(0)
+	e.Draw(func(p *Painter, r Rect) {
 		for _, x := range []float32{0.2, 0.5} {
 			var path Path
-			path.MoveTo(r.X+r.W*x, r.Y+r.H*0.25).LineTo(r.X+r.W*(x+0.25), r.Y+r.H*0.5).LineTo(r.X+r.W*x, r.Y+r.H*0.75)
+			from, to := x, x+0.25
+			if e.rtl() {
+				from, to = 1-from, 1-to
+			}
+			path.MoveTo(r.X+r.W*from, r.Y+r.H*0.25).LineTo(r.X+r.W*to, r.Y+r.H*0.5).LineTo(r.X+r.W*from, r.Y+r.H*0.75)
 			p.StrokePath(&path, 1.5, t.Text)
 		}
 	})

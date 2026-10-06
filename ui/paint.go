@@ -700,7 +700,7 @@ func (p *Painter) scrollbars(e *Element) {
 		x = rescale(x, e.contentW-float64(e.w), w-float64(e.w))
 		y = rescale(y, e.contentH-float64(e.h), h-float64(e.h))
 	}
-	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, float32(w), float32(h), float32(x), float32(y), e.flags, theme.scrollbarWidth())
+	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, float32(w), float32(h), float32(inlineOffset(x, w-float64(e.w), e.rtl())), float32(y), e.flags, theme.scrollbarWidth(), e.rtl())
 	if g.vertical {
 		bar := g.v
 		if dragging && !rt.scrollDrag.horizontal {
@@ -738,7 +738,7 @@ type scrollGeometry struct {
 // edges by inset (top, right, bottom, left, ScrollbarInsets): those of the
 // directions its flags scroll that overflow, which leave each other the
 // corner where both show.
-func scrollBars(box Rect, inset [4]float32, w, h, x, y float32, flags uint32, width float32) scrollGeometry {
+func scrollBars(box Rect, inset [4]float32, w, h, x, y float32, flags uint32, width float32, rtl ...bool) scrollGeometry {
 	var g scrollGeometry
 	g.vertical = flags&flagScrollY != 0 && h > box.H+0.5
 	g.horizontal = flags&flagScrollX != 0 && w > box.W+0.5
@@ -747,13 +747,21 @@ func scrollBars(box Rect, inset [4]float32, w, h, x, y float32, flags uint32, wi
 		corner = width + 3
 	}
 	top, right, bottom, left := inset[0], inset[1], inset[2], inset[3]
+	rightToLeft := len(rtl) > 0 && rtl[0]
 	if g.vertical {
 		track := max(box.H-top-bottom-corner, 0)
 		g.vTrack = Rect{box.X + box.W - right - width - 6, box.Y + top, width + 6, track}
 		t := scrollThumb(box.Y+top, track, box.H, h, y)
 		g.v = Rect{box.X + box.W - right - width - 3, t.Y, width, t.H}
+		if rightToLeft {
+			g.vTrack.X, g.v.X = box.X+left, box.X+left+3
+		}
 	}
 	if g.horizontal {
+		if rightToLeft {
+			left += corner
+			corner = 0
+		}
 		track := max(box.W-left-right-corner, 0)
 		g.hTrack = Rect{box.X + left, box.Y + box.H - bottom - width - 6, track, width + 6}
 		t := scrollThumb(box.X+left, track, box.W, w, x)

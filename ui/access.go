@@ -505,8 +505,17 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 		rt.focusOn(s)
 		// Sliders step right and left, spin buttons up and down.
 		up, down := KeyRight, KeyLeft
+		if s.inlineReverse {
+			up, down = down, up
+		}
+		if s.vertical {
+			up, down = KeyUp, KeyDown
+		}
 		if s.role == RoleStepper {
 			up, down = KeyUp, KeyDown
+		}
+		if s.role == RoleSplitter && s.vertical {
+			up, down = KeyDown, KeyUp
 		}
 		k := up
 		if ev.Action == platform.AccessDecrement {

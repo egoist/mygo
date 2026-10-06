@@ -84,7 +84,7 @@ func Collapsible(c *Context, label string, open *bool, fn func()) *Element {
 	root.Children(func() {
 		p := CollapsibleBase(c, open)
 		tr := p.Trigger.AlignSelf(Start).AlignItems(Center).Gap(t.Space(1)).
-			Padding(t.Space(1), t.Space(2), t.Space(1), t.Space(0.5)).Radius(t.Radius)
+			PaddingY(t.Space(1)).PaddingEnd(t.Space(2)).PaddingStart(t.Space(0.5)).Radius(t.Radius)
 		tr.styleFn = func(tr *Element) {
 			if tr.Hovered() {
 				tr.bg = t.SurfaceHover
@@ -99,7 +99,7 @@ func Collapsible(c *Context, label string, open *bool, fn func()) *Element {
 		}
 		if panel := p.Panel(fn); panel != nil {
 			// Below the label.
-			panel.Padding(t.Space(1), 0, t.Space(1), t.Space(5.5)).Gap(t.Space(2))
+			panel.PaddingY(t.Space(1)).PaddingStart(t.Space(5.5)).Gap(t.Space(2))
 		}
 	})
 	return root
@@ -109,9 +109,10 @@ func Collapsible(c *Context, label string, open *bool, fn func()) *Element {
 // by deg degrees clockwise.
 func disclosureArrow(c *Context, deg float32) *Element {
 	t := c.theme
-	return Box(c).Size(t.Space(4), t.Space(4)).Shrink(0).Draw(func(p *Painter, r Rect) {
+	e := Box(c).Size(t.Space(4), t.Space(4)).Shrink(0)
+	return e.Draw(func(p *Painter, r Rect) {
 		cx, cy, d := r.X+r.W/2, r.Y+r.H/2, r.W/8
-		at := rotate(cx, cy, deg)
+		at := disclosureRotation(e, cx, cy, deg)
 		var path Path
 		path.MoveTo(at(-d, -2*d)).LineTo(at(d, 0)).LineTo(at(-d, 2*d))
 		p.StrokePath(&path, 1.5, t.TextMuted)
@@ -226,4 +227,12 @@ func accordionKeys(c *Context, tr *Element, ab *accordionBuild) {
 		rt.focused, rt.focusVisible = ab.last[to], true
 		rt.consumed = true
 	}
+}
+
+// disclosureRotation mirrors only the navigation shape, never its element.
+func disclosureRotation(e *Element, cx, cy, deg float32) func(float32, float32) (float32, float32) {
+	if e.rtl() {
+		return rotate(cx, cy, 180-deg)
+	}
+	return rotate(cx, cy, deg)
 }

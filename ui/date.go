@@ -107,10 +107,11 @@ func calendarGrid(c *Context, date, cursor *time.Time, moveChooses bool, choose 
 		}
 		c.rt.consumed = true
 	}
+	previous, next := grid.directionKeys()
 	switch {
-	case grid.Shortcut(0, KeyLeft):
+	case grid.Shortcut(0, previous):
 		move(cur.AddDate(0, 0, -1))
-	case grid.Shortcut(0, KeyRight):
+	case grid.Shortcut(0, next):
 		move(cur.AddDate(0, 0, 1))
 	case grid.Shortcut(0, KeyUp):
 		move(cur.AddDate(0, 0, -7))
@@ -129,11 +130,15 @@ func calendarGrid(c *Context, date, cursor *time.Time, moveChooses bool, choose 
 	}
 	grid.Children(func() {
 		Row(c).AlignItems(Center).Gap(t.Space(1)).Children(func() {
-			if Button(c, "‹").Padding(t.Space(0.5), t.Space(2.5)).Label("Previous month").Clicked() {
+			prev, next := "‹", "›"
+			if grid.rtl() {
+				prev, next = next, prev
+			}
+			if Button(c, prev).Padding(t.Space(0.5), t.Space(2.5)).Label("Previous month").Clicked() {
 				move(cur.AddDate(0, -1, 0))
 			}
 			Text(c, month.Format("January 2006")).Bold().Grow(1).TextAlign(Center)
-			if Button(c, "›").Padding(t.Space(0.5), t.Space(2.5)).Label("Next month").Clicked() {
+			if Button(c, next).Padding(t.Space(0.5), t.Space(2.5)).Label("Next month").Clicked() {
 				move(cur.AddDate(0, 1, 0))
 			}
 		})

@@ -13,7 +13,7 @@ import (
 type Align uint8
 
 const (
-	// Start is the left of a row, the top of a column.
+	// Start is the inline start of a row (right in RTL), the top of a column.
 	Start Align = iota
 	Center
 	End
@@ -25,6 +25,8 @@ const (
 	SpaceAround
 	SpaceEvenly
 	alignAuto
+	alignInlineStart
+	alignInlineEnd
 )
 
 type unit uint8
@@ -206,6 +208,10 @@ type Element struct {
 	track *ScrollState
 
 	// Layout.
+	directionOwner         *Element // an overlay's source scope
+	direction              LayoutDirection
+	layoutLocaleTag        string
+	logical                *logicalEdges
 	row                    bool
 	wrap                   bool
 	reverse, wrapReverse   bool
@@ -491,7 +497,7 @@ func (e *Element) Key(k any) *Element {
 	return e
 }
 
-// Row lays the children out from left to right.
+// Row lays the children out from inline start to end (right to left in RTL).
 func (e *Element) Row() *Element {
 	e.row, e.grid = true, false
 	if e.align == alignAuto {
@@ -503,9 +509,9 @@ func (e *Element) Row() *Element {
 // Column lays the children out from top to bottom.
 func (e *Element) Column() *Element { e.row, e.grid = false, false; return e }
 
-// Reverse lays the children out in the other direction: a Row from right
-// to left, a Column from bottom to top, as CSS's row-reverse and
-// column-reverse do. Justify's Start is then the right or the bottom.
+// Reverse reverses reading order: a Row goes right to left in LTR, left
+// to right in RTL; a Column goes bottom to top. Justify's Start follows
+// the reversed main axis, as CSS row-reverse and column-reverse do.
 func (e *Element) Reverse() *Element { e.reverse = true; return e }
 
 // Wrap starts a new line of children when they do not fit.
@@ -549,20 +555,28 @@ func edges(v []float32) [4]float32 {
 
 // Padding sets the space inside the element's edges, CSS style: all
 // sides, vertical and horizontal, or top, right, bottom and left.
-func (e *Element) Padding(v ...float32) *Element { e.pad = edges(v); return e }
+func (e *Element) Padding(v ...float32) *Element { e.clearLogical(0); e.pad = edges(v); return e }
 
 // PaddingX sets the left and right padding.
-func (e *Element) PaddingX(v float32) *Element { e.pad[1], e.pad[3] = v, v; return e }
+func (e *Element) PaddingX(v float32) *Element {
+	e.clearLogical(0)
+	e.pad[1], e.pad[3] = v, v
+	return e
+}
 
 // PaddingY sets the top and bottom padding.
 func (e *Element) PaddingY(v float32) *Element { e.pad[0], e.pad[2] = v, v; return e }
 
 // Margin sets the space around the element, as Padding does. Auto
 // margins take the free space on their side.
-func (e *Element) Margin(v ...float32) *Element { e.margin = edges(v); return e }
+func (e *Element) Margin(v ...float32) *Element { e.clearLogical(1); e.margin = edges(v); return e }
 
 // MarginX sets the left and right margins.
-func (e *Element) MarginX(v float32) *Element { e.margin[1], e.margin[3] = v, v; return e }
+func (e *Element) MarginX(v float32) *Element {
+	e.clearLogical(1)
+	e.margin[1], e.margin[3] = v, v
+	return e
+}
 
 // MarginY sets the top and bottom margins.
 func (e *Element) MarginY(v float32) *Element { e.margin[0], e.margin[2] = v, v; return e }
@@ -692,17 +706,42 @@ const (
 	AnchorBottomLeft
 	AnchorBottom
 	AnchorBottomRight
+	// Logical anchors resolve against interface direction.
+	AnchorTopStart
+	AnchorTopEnd
+	AnchorStart
+	AnchorEnd
+	AnchorBottomStart
+	AnchorBottomEnd
+	anchorCount
 )
 
-// fractions returns where the anchor is across a box and down it, from 0
-// to 1.
+// physical resolves a logical anchor without changing a physical one.
+func (a Anchor) physical(rtl bool) Anchor {
+	if a < AnchorTopStart {
+		return a
+	}
+	logical := [...]Anchor{AnchorTopLeft, AnchorTopRight, AnchorLeft, AnchorRight, AnchorBottomLeft, AnchorBottomRight}
+	if a >= anchorCount {
+		return AnchorCenter
+	}
+	out := logical[a-AnchorTopStart]
+	if rtl {
+		out = out/3*3 + 2 - out%3
+	}
+	return out
+}
+
+// fractions returns where a physical anchor is across a box and down it.
 func (a Anchor) fractions() (fx, fy float32) { return float32(a%3) / 2, float32(a/3) / 2 }
 
-// attachment is where Attach puts an element: 1 + at*9 + self, 0 for
+// attachment is where Attach puts an element: 1 + at*anchorCount + self, 0 for
 // nowhere.
 type attachment uint8
 
-func (a attachment) anchors() (at, self Anchor) { return Anchor((a - 1) / 9), Anchor((a - 1) % 9) }
+func (a attachment) anchors() (at, self Anchor) {
+	return Anchor((a - 1) / attachment(anchorCount)), Anchor((a - 1) % attachment(anchorCount))
+}
 
 // Attach takes the element out of its parent's layout, as Absolute does,
 // and puts its point self on the point at of the parent's padding box:
@@ -713,7 +752,7 @@ func (a attachment) anchors() (at, self Anchor) { return Anchor((a - 1) / 9), An
 // own size.
 func (e *Element) Attach(at, self Anchor) *Element {
 	e.flags |= flagAbsolute
-	e.attach = attachment(1 + min(at, AnchorBottomRight)*9 + min(self, AnchorBottomRight))
+	e.attach = attachment(1 + min(at, anchorCount-1)*anchorCount + min(self, anchorCount-1))
 	return e
 }
 
@@ -735,8 +774,13 @@ func (e *Element) AttachTo(target *Element, at, self Anchor) *Element {
 	if target == nil {
 		return e
 	}
+	for p := target; p != nil; p = p.directionParent() {
+		if p == e {
+			panic("ui: AttachTo target must be outside the attached element")
+		}
+	}
 	e.flags |= flagAbsolute
-	e.attach = attachment(1 + min(at, AnchorBottomRight)*9 + min(self, AnchorBottomRight))
+	e.attach = attachment(1 + min(at, anchorCount-1)*anchorCount + min(self, anchorCount-1))
 	e.popover = target
 	return e
 }
@@ -797,6 +841,7 @@ func (e *Element) Stripes(c Color, width, gap, angle float32) *Element {
 // side; BorderWidth sets different widths. As in CSS, the border takes room
 // within the element's size: the padding and the children are inside it.
 func (e *Element) Border(width float32, c Color) *Element {
+	e.clearLogical(2)
 	e.border, e.borderC = [4]float32{width, width, width, width}, c
 	return e
 }
@@ -806,7 +851,11 @@ func (e *Element) Border(width float32, c Color) *Element {
 // below a header:
 //
 //	ui.Row(c).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)
-func (e *Element) BorderWidth(v ...float32) *Element { e.border = edges(v); return e }
+func (e *Element) BorderWidth(v ...float32) *Element {
+	e.clearLogical(2)
+	e.border = edges(v)
+	return e
+}
 
 // BorderColor sets the color of the border.
 func (e *Element) BorderColor(c Color) *Element { e.borderC = c; return e }
@@ -902,8 +951,22 @@ func (e *Element) FixedLineHeight(v float32) *Element {
 	return e
 }
 
-// TextAlign aligns the lines of text: Start, Center or End.
+// TextAlign aligns lines relative to each paragraph's text direction:
+// Start, Center or End. TextAlignInline uses interface direction instead.
 func (e *Element) TextAlign(a Align) *Element { e.ts.align = a; e.ts.set |= setAlign; return e }
+
+// TextAlignInline aligns lines at the interface's inline Start or End,
+// independent of their text direction, or at Center. It inherits like
+// TextAlign and leaves glyph shaping and visual caret movement unchanged.
+func (e *Element) TextAlignInline(a Align) *Element {
+	switch a {
+	case Start:
+		a = alignInlineStart
+	case End:
+		a = alignInlineEnd
+	}
+	return e.TextAlign(a)
+}
 
 // Underline underlines text.
 func (e *Element) Underline() *Element {

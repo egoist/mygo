@@ -135,6 +135,9 @@ func sliderBase(c *Context, value *float64, lo, hi, step float64) *Element {
 			setValue(lo + float64(max(0, min(1, frac)))*(hi-lo))
 		case !settings.vertical && st.cw > 0:
 			frac := (c.rt.pointerX - st.cx) / st.cw
+			if st.rtl {
+				frac = 1 - frac
+			}
 			setValue(lo + float64(max(0, min(1, frac)))*(hi-lo))
 		}
 	}
@@ -142,10 +145,14 @@ func sliderBase(c *Context, value *float64, lo, hi, step float64) *Element {
 		step = (hi - lo) / 100
 	}
 	s.accStep = step
+	previous, next := s.directionKeys()
+	if settings.vertical {
+		previous, next = KeyLeft, KeyRight
+	}
 	switch {
-	case s.Shortcut(0, KeyLeft), s.Shortcut(0, KeyDown):
+	case s.Shortcut(0, previous), s.Shortcut(0, KeyDown):
 		setValue(*value - step)
-	case s.Shortcut(0, KeyRight), s.Shortcut(0, KeyUp):
+	case s.Shortcut(0, next), s.Shortcut(0, KeyUp):
 		setValue(*value + step)
 	case s.Shortcut(0, KeyPageDown):
 		setValue(*value - max(step, (hi-lo)/10))
@@ -245,10 +252,11 @@ func (p TabsParts) Tab(i int) *Element {
 	if tab.Clicked() {
 		choose(i, false)
 	}
+	previous, next := p.List.inlineKeys()
 	switch {
-	case tab.Shortcut(0, KeyRight), tab.Shortcut(0, KeyDown):
+	case tab.Shortcut(0, next), tab.Shortcut(0, KeyDown):
 		choose(i+1, true)
-	case tab.Shortcut(0, KeyLeft), tab.Shortcut(0, KeyUp):
+	case tab.Shortcut(0, previous), tab.Shortcut(0, KeyUp):
 		choose(i-1, true)
 	case tab.Shortcut(0, KeyHome):
 		choose(0, true)
@@ -462,7 +470,7 @@ func popover(c *Context, anchor *Element, open *bool, modal bool, fn func(panel 
 				*open = false
 			}
 		}
-		panel = Box(c).Role(RolePopup).AttachTo(anchor, AnchorBottomLeft, AnchorTopLeft)
+		panel = Box(c).Role(RolePopup).AttachTo(anchor, AnchorBottomStart, AnchorTopStart)
 		// Presses on it stay in it.
 		panel.flags |= flagClickable
 		panel.Children(func() { fn(panel) })

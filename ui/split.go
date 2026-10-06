@@ -65,13 +65,14 @@ func split(c *Context, size *float32, first, second func(), vertical bool) *Elem
 			// The line takes the focus between the panes, in their order.
 			div := Box(c).Shrink(0).Focusable().Role(RoleSplitter).Label("Divider")
 			div.widget = "Divider"
+			div.vertical = vertical
 			div.flags |= flagOwnRing
 			if vertical {
 				div.Height(1)
 			} else {
 				div.Width(1)
 			}
-			back, forth := KeyLeft, KeyRight
+			back, forth := in.inlineKeys()
 			if vertical {
 				back, forth = KeyUp, KeyDown
 			}
@@ -97,7 +98,7 @@ func split(c *Context, size *float32, first, second func(), vertical bool) *Elem
 			if vertical {
 				handle.Left(0).Right(0).Top(*size - (grip-1)/2).Height(grip).Cursor(CursorResizeNS)
 			} else {
-				handle.Top(0).Bottom(0).Left(*size - (grip-1)/2).Width(grip).Cursor(CursorResizeEW)
+				handle.Top(0).Bottom(0).InsetStart(*size - (grip-1)/2).Width(grip).Cursor(CursorResizeEW)
 			}
 			// A press there focuses the line, as a press on it would.
 			dx, dy, held := handle.Dragged()
@@ -106,6 +107,9 @@ func split(c *Context, size *float32, first, second func(), vertical bool) *Elem
 				if vertical {
 					set(*size + dy)
 				} else {
+					if in.rtl() {
+						dx = -dx
+					}
 					set(*size + dx)
 				}
 			}

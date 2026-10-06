@@ -17,14 +17,15 @@ type headless struct {
 	img         raster.Renderer
 	// requested is set when the view asks for a frame, from any goroutine
 	// for invalidate.
-	requested atomic.Bool
-	dark      bool
-	prefs     platform.Preferences
-	clipboard string
-	cursor    Cursor
-	ime       platform.TextInputState
-	opened    []string
-	openErr   error
+	requested       atomic.Bool
+	layoutLocaleTag string
+	dark            bool
+	prefs           platform.Preferences
+	clipboard       string
+	cursor          Cursor
+	ime             platform.TextInputState
+	opened          []string
+	openErr         error
 	// later are what the view asked to run after the frame, as a window
 	// posts them to the main thread.
 	later  []func()
@@ -64,6 +65,7 @@ func (h *headless) startDrag()                                 {}
 func (h *headless) titleBarDoubleClicked()                     {}
 func (h *headless) isDark() bool                               { return h.dark }
 func (h *headless) preferences() platform.Preferences          { return h.prefs }
+func (h *headless) layoutLocale() string                       { return h.layoutLocaleTag }
 func (h *headless) titleBar() TitleBar                         { return h.bar }
 func (h *headless) invalidate()                                { h.requested.Store(true) }
 
@@ -150,6 +152,10 @@ func (t *Tester) SetSize(width, height int) {
 	t.h.w, t.h.h = float32(width), float32(height)
 	t.settle()
 }
+
+// SetLayoutLocale changes the host locale used by AutoDirection. A frame's
+// SetLayoutLocale call takes precedence. It rebuilds without losing state.
+func (t *Tester) SetLayoutLocale(locale string) { t.h.layoutLocaleTag = locale; t.settle() }
 
 // SetScale sets the device pixels per DIP.
 func (t *Tester) SetScale(scale float32) {

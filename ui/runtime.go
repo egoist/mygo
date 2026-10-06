@@ -675,6 +675,12 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 		s.parent = 0
 	}
 	s.flags = e.flags
+	s.rtl, s.inlineReverse, s.vertical = e.rtl(), e.inlineReverse(), e.vertical
+	// A numeric slider's axis is independent of child flow. Row-based
+	// ranges (Rating) follow their reversed child order.
+	if e.role == RoleSlider && !e.row {
+		s.inlineReverse = s.rtl
+	}
 	s.anchor = 0
 	if e.popover != nil {
 		s.anchor = e.popover.id
