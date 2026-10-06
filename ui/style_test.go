@@ -220,6 +220,22 @@ func TestFlexOptions(t *testing.T) {
 			}
 		}
 	})
+	t.Run("absolute in the padding box", func(t *testing.T) {
+		// As in CSS, insets are measured from inside the border, whatever
+		// the padding, and percentages from the padding box's size.
+		b := boxes(t, func(c *Context) {
+			Box(c).Size(36, 20).Border(1, RGB(0, 0, 0)).Padding(5).Children(func() {
+				Box(c).Absolute().Left(3).Top(3).Size(14, 14).Label("start")
+				Box(c).Absolute().Right(3).Bottom(3).Size(4, 4).Label("end")
+				Box(c).Absolute().LeftPercent(50).TopPercent(50).Size(2, 2).Label("half")
+			})
+		}, 200, 200, "start", "end", "half")
+		for k, w := range map[string]Rect{"start": {4, 4, 14, 14}, "end": {28, 12, 4, 4}, "half": {18, 10, 2, 2}} {
+			if !nearRect(b[k], w) {
+				t.Errorf("%s at %v, want %v", k, b[k], w)
+			}
+		}
+	})
 }
 
 func TestBorderWidths(t *testing.T) {
@@ -419,7 +435,7 @@ func TestScrollBoth(t *testing.T) {
 	// Drag the horizontal thumb to the end.
 	tt.Move(50, 50)
 	st := sc.st
-	g := scrollBars(Rect{st.x, st.y, st.w, st.h}, float32(st.contentW), float32(st.contentH), float32(st.scrollX), float32(st.scrollY), st.flags, 6)
+	g := scrollBars(Rect{st.x, st.y, st.w, st.h}, st.barInset, float32(st.contentW), float32(st.contentH), float32(st.scrollX), float32(st.scrollY), st.flags, 6)
 	if !g.horizontal || !g.vertical {
 		t.Fatalf("scroll bars %+v", g)
 	}
@@ -429,6 +445,42 @@ func TestScrollBoth(t *testing.T) {
 	tt.Release(x+200, y)
 	if content.X != -300 || content.Y != -40 {
 		t.Errorf("dragging the horizontal thumb scrolled to %v", content)
+	}
+}
+
+func TestScrollbarInsets(t *testing.T) {
+	var sc *Element
+	var content Rect
+	tt := NewTester(func(c *Context) {
+		sc = Scroll(c).Size(100, 200).ScrollbarInsets(50, 4, 10).Children(func() {
+			Box(c).Size(100, 800).Draw(func(p *Painter, r Rect) { content = r })
+		})
+	}, 200, 200)
+	tt.Move(50, 100)
+	st := sc.st
+	g := scrollBars(Rect{st.x, st.y, st.w, st.h}, st.barInset, float32(st.contentW), float32(st.contentH), float32(st.scrollX), float32(st.scrollY), st.flags, 6)
+	// The track runs from 50 below the top to 10 above the bottom, 4 in
+	// from the right; the thumb shows a quarter of it, the content's
+	// share in view.
+	if g.vTrack.Y != 50 || g.vTrack.Y+g.vTrack.H != 190 || g.vTrack.X+g.vTrack.W != 96 {
+		t.Fatalf("the track is %+v", g.vTrack)
+	}
+	if g.v.Y != 52 || g.v.H != (140-4)/4 {
+		t.Errorf("the thumb is %+v", g.v)
+	}
+	// A press above the track, under the inset, does not page.
+	tt.Press(93, 20)
+	tt.Release(93, 20)
+	if content.Y != 0 {
+		t.Errorf("a press above the track scrolled to %v", content.Y)
+	}
+	// Dragging the thumb to the track's end scrolls to the content's.
+	x, y := g.v.X+g.v.W/2, g.v.Y+g.v.H/2
+	tt.Press(x, y)
+	tt.Move(x, y+200)
+	tt.Release(x, y+200)
+	if content.Y != -600 {
+		t.Errorf("dragging the thumb scrolled to %v", content.Y)
 	}
 }
 

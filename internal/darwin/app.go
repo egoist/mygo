@@ -3,7 +3,6 @@
 package darwin
 
 import (
-	"runtime"
 	"strings"
 	"unsafe"
 
@@ -36,8 +35,11 @@ type Backend struct {
 	hotkeys     map[int]uintptr
 	hkInstalled bool
 
-	notifyDelegate   id
-	notifyAuthorized bool
+	notifyDelegate id
+	// notifyAnswered records that the user has answered whether the app
+	// may show notifications; notifyWaiting holds those shown meanwhile.
+	notifyAnswered bool
+	notifyWaiting  []waitingNotification
 
 	stepping       int
 	quitAfterModal bool
@@ -104,6 +106,7 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	b.delegate = alloc("MyGoAppDelegate")
 	send(b.app, "setDelegate:", uintptr(b.delegate))
 	b.menuTarget = alloc("MyGoMenuTarget")
+	b.attachNotificationDelegate()
 
 	// A run loop source drives the queue of functions posted from other
 	// goroutines. It fires in every run loop mode, including while menus
@@ -190,15 +193,11 @@ func (b *Backend) Step() {
 	})
 }
 
-// Wake makes a pending Step return. It is called from any goroutine: the
-// autorelease pool of postEvent belongs to one thread, so the goroutine
-// must not move to another one meanwhile.
+// Wake makes a pending Step return. It is called from any goroutine.
 func (b *Backend) Wake() {
 	if b.app == 0 {
 		return
 	}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	b.postEvent(wakeSubtype)
 }
 

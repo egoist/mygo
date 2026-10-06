@@ -227,7 +227,11 @@ type notification struct{ tray *tray }
 
 func (b *Backend) NotificationsSupported() bool { return true }
 
-func (b *Backend) ShowNotification(n *platform.Notification) error {
+func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
+	done(b.showNotification(n))
+}
+
+func (b *Backend) showNotification(n *platform.Notification) error {
 	var t *tray
 	for _, x := range b.trays {
 		if !x.temporary && x.notification == "" {
@@ -268,6 +272,12 @@ func (b *Backend) ShowNotification(n *platform.Notification) error {
 
 func (b *Backend) RemoveNotification(id string) {
 	if n := b.notifications[id]; n != nil {
+		b.finishNotification(n.tray)
+	}
+}
+
+func (b *Backend) RemoveAllNotifications() {
+	for _, n := range b.notifications {
 		b.finishNotification(n.tray)
 	}
 }

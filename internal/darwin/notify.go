@@ -69,27 +69,76 @@ func (b *Backend) NotificationsSupported() bool {
 	return packaged && hasClass("UNUserNotificationCenter")
 }
 
-func (b *Backend) notificationCenter() id {
-	center := send(class("UNUserNotificationCenter"), "currentNotificationCenter")
-	if b.notifyDelegate == 0 {
-		b.notifyDelegate = alloc("MyGoNotificationDelegate")
-		send(center, "setDelegate:", uintptr(b.notifyDelegate))
-	}
-	if !b.notifyAuthorized {
-		b.notifyAuthorized = true
-		blk := newBlock(func(_ objc.Block, granted bool, err id) {})
-		send(center, "requestAuthorizationWithOptions:completionHandler:", 1<<0|1<<1|1<<2, uintptr(blk)) // badge | sound | alert
-		blk.Release()
-	}
-	return center
+// notificationCenter returns the app's notification center. It throws
+// when the app does not run from a bundle: check NotificationsSupported
+// first.
+func notificationCenter() id {
+	return send(class("UNUserNotificationCenter"), "currentNotificationCenter")
 }
 
-func (b *Backend) ShowNotification(n *platform.Notification) error {
+// attachNotificationDelegate gives the notification center the delegate
+// that receives clicks, at launch: the system delivers the click that
+// launched the app before the app has finished launching, and drops it
+// when the center has no delegate yet.
+func (b *Backend) attachNotificationDelegate() {
 	if !b.NotificationsSupported() {
-		return platform.ErrUnsupported
+		return
+	}
+	b.notifyDelegate = alloc("MyGoNotificationDelegate")
+	withPool(func() {
+		send(notificationCenter(), "setDelegate:", uintptr(b.notifyDelegate))
+	})
+}
+
+// waitingNotification is a notification shown before the user has answered
+// whether the app may show notifications.
+type waitingNotification struct {
+	n    *platform.Notification
+	done func(error)
+}
+
+// notifyOptions are the permissions asked for: badge, sound and alert.
+const notifyOptions = 1<<0 | 1<<1 | 1<<2
+
+func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
+	if !b.NotificationsSupported() {
+		done(platform.ErrUnsupported)
+		return
+	}
+	if b.notifyAnswered {
+		b.addNotification(n, done)
+		return
+	}
+	// The system drops what it is given before the user has answered
+	// whether the app may show notifications, so the first notification
+	// asks and the ones shown meanwhile wait for the answer. The system
+	// only prompts the first time; afterwards it answers at once, and
+	// adding a notification fails when System Settings does not allow it.
+	b.notifyWaiting = append(b.notifyWaiting, waitingNotification{n, done})
+	if len(b.notifyWaiting) > 1 {
+		return
 	}
 	withPool(func() {
-		center := b.notificationCenter()
+		blk := newBlock(func(_ objc.Block, granted bool, err id) {
+			b.runOnMain(func() {
+				b.notifyAnswered = true
+				waiting := b.notifyWaiting
+				b.notifyWaiting = nil
+				for _, w := range waiting {
+					b.addNotification(w.n, w.done)
+				}
+			})
+		})
+		send(notificationCenter(), "requestAuthorizationWithOptions:completionHandler:",
+			notifyOptions, uintptr(blk))
+		blk.Release()
+	})
+}
+
+// addNotification gives the system a request to show a notification. Its
+// trigger is nil, which shows it at once.
+func (b *Backend) addNotification(n *platform.Notification, done func(error)) {
+	withPool(func() {
 		content := autorelease(alloc("UNMutableNotificationContent"))
 		send(content, "setTitle:", uintptr(nsString(n.Title)))
 		if n.Subtitle != "" {
@@ -99,21 +148,70 @@ func (b *Backend) ShowNotification(n *platform.Notification) error {
 		if !n.Silent {
 			send(content, "setSound:", uintptr(send(class("UNNotificationSound"), "defaultSound")))
 		}
+		if n.Group != "" {
+			send(content, "setThreadIdentifier:", uintptr(nsString(n.Group)))
+		}
 		req := send(class("UNNotificationRequest"), "requestWithIdentifier:content:trigger:",
 			uintptr(nsString(n.ID)), uintptr(content), 0)
-		send(center, "addNotificationRequest:withCompletionHandler:", uintptr(req), 0)
+		blk := newBlock(func(_ objc.Block, nsErr id) {
+			// The error is the caller's only while the block runs.
+			var err error
+			withPool(func() { err = notificationError(nsErr) })
+			b.runOnMain(func() { done(err) })
+		})
+		send(notificationCenter(), "addNotificationRequest:withCompletionHandler:", uintptr(req), uintptr(blk))
+		blk.Release()
 	})
-	return nil
+}
+
+// unErrorNotificationsNotAllowed is UNErrorCodeNotificationsNotAllowed.
+const unErrorNotificationsNotAllowed = 1
+
+// notificationError describes an error of the notification center.
+func notificationError(err id) error {
+	if err == 0 {
+		return nil
+	}
+	if goString(send(err, "domain")) == "UNErrorDomain" && sendInt(err, "code") == unErrorNotificationsNotAllowed {
+		return platform.ErrNotificationsDenied
+	}
+	return nsError(err)
 }
 
 func (b *Backend) RemoveNotification(ident string) {
 	if !b.NotificationsSupported() {
 		return
 	}
+	// One still waiting for the user's answer is not shown.
+	waiting := b.notifyWaiting[:0]
+	for _, w := range b.notifyWaiting {
+		if w.n.ID == ident {
+			w.done(nil)
+		} else {
+			waiting = append(waiting, w)
+		}
+	}
+	b.notifyWaiting = waiting
 	withPool(func() {
-		center := send(class("UNUserNotificationCenter"), "currentNotificationCenter")
+		center := notificationCenter()
 		ids := nsArray(nsString(ident))
 		send(center, "removeDeliveredNotificationsWithIdentifiers:", uintptr(ids))
 		send(center, "removePendingNotificationRequestsWithIdentifiers:", uintptr(ids))
+	})
+}
+
+func (b *Backend) RemoveAllNotifications() {
+	if !b.NotificationsSupported() {
+		return
+	}
+	waiting := b.notifyWaiting
+	b.notifyWaiting = nil
+	for _, w := range waiting {
+		w.done(nil)
+	}
+	withPool(func() {
+		center := notificationCenter()
+		send(center, "removeAllDeliveredNotifications")
+		send(center, "removeAllPendingNotificationRequests")
 	})
 }

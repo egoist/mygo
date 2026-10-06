@@ -246,6 +246,13 @@ func useGPU(w *mygo.Window) (ok bool) {
 	return ok
 }
 
+// surfaceOnScreen returns, as a PNG, what the display shows of a window's
+// native UI.
+func surfaceOnScreen(w *mygo.Window) (png []byte, supported bool) {
+	mygo.RunOnMain(func() { png = linux.TestSurfaceOnScreen(w.NativeHandle()) })
+	return png, true
+}
+
 // rightClick clicks (x, y) in a window showing native UI with the
 // secondary button, through XTEST.
 func rightClick(w *mygo.Window, x, y float64) (ok bool) {
@@ -262,4 +269,17 @@ func popupMenus() (menus [][]string, supported bool) {
 func choosePopupItem(label string) (ok bool) {
 	mygo.RunOnMain(func() { ok = linux.TestChoosePopupItem(label) })
 	return ok
+}
+
+// Only macOS has key-value observing.
+func observe(*mygo.Window) (func(), bool) { return nil, false }
+
+// Input methods keep the keys typed while they compose from the content
+// themselves here (GTK's filtering, IMM32's VK_PROCESSKEY), which a
+// composition the test makes up does not show.
+func pressKey(*mygo.Window, uint16, string) bool { return false }
+
+// AppKit's older accessibility API is macOS's.
+func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
+	return "", false, false, false
 }

@@ -284,6 +284,8 @@ type Element struct {
 	role     Role
 	checked  int8
 	expanded bool
+	// vertical marks a slider going up (Vertical).
+	vertical bool
 	// highlighted is set on the option of a select the pointer or the
 	// arrows are on.
 	highlighted bool
@@ -293,11 +295,16 @@ type Element struct {
 	accValue string
 	accRange [3]float64
 	hasRange bool
+	// accStep is how far the keys move the value of a range.
+	accStep float64
 
 	// Layout results, in DIPs relative to the window.
 	x, y, w, h float32
 	// contentW and contentH are the size of a scroll container's content.
 	contentW, contentH float64
+	// barInset moves a scroll container's scroll bars in from its edges
+	// (ScrollbarInsets): top, right, bottom, left.
+	barInset [4]float32
 	// scrollBase is the offset of a List's content that its rows were
 	// placed at: placing moves them by how far the offset moved since.
 	scrollBase float64
@@ -376,6 +383,9 @@ type Element struct {
 	leaving uint8
 	ghosts  bool
 	attach  attachment
+	// serial is the order the pass made the element in: of overlays, the
+	// one made last shows on top.
+	serial int32
 }
 
 type measure struct {
@@ -555,6 +565,17 @@ func (e *Element) MarginX(v float32) *Element { e.margin[1], e.margin[3] = v, v;
 // MarginY sets the top and bottom margins.
 func (e *Element) MarginY(v float32) *Element { e.margin[0], e.margin[2] = v, v; return e }
 
+// ScrollbarInsets moves a scroll container's scroll bars in from its
+// edges, CSS style as Padding: the vertical bar runs from top DIPs below
+// its top to bottom DIPs above its bottom, right DIPs in from its right,
+// and the horizontal bar from left to right DIPs in, bottom DIPs up. A bar
+// keeps clear so of what floats over the content, as a toolbar the
+// content scrolls under, which AppKit's scrollerInsets and UIKit's scroll
+// indicator insets do:
+//
+//	ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(64, 0, 0)
+func (e *Element) ScrollbarInsets(v ...float32) *Element { e.barInset = edges(v); return e }
+
 // Width sets the width in DIPs.
 func (e *Element) Width(v float32) *Element { e.width = px(v); return e }
 
@@ -633,7 +654,9 @@ func (e *Element) Center() *Element { e.justify, e.align = Center, Center; retur
 
 // Absolute takes the element out of its parent's layout and places it with
 // Top, Right, Bottom and Left relative to the parent's padding box, above
-// its siblings.
+// its siblings. As in CSS, that box is inside the parent's border but holds
+// its padding: Top(0) puts the element just below the border, whatever the
+// padding.
 func (e *Element) Absolute() *Element { e.flags |= flagAbsolute; return e }
 
 // Top, Right, Bottom and Left place an Absolute element. On an element in
@@ -692,6 +715,30 @@ func (e *Element) Attach(at, self Anchor) *Element {
 	return e
 }
 
+// AttachTo takes the element out of its parent's layout, as Attach does,
+// and puts its point self on the point at of target's box, wherever target
+// is in the window: built in an Overlay, a panel goes below a button with
+// AttachTo(button, ui.AnchorBottomLeft, ui.AnchorTopLeft), and to its
+// right with AttachTo(button, ui.AnchorRight, ui.AnchorLeft). Where it
+// would overflow the window, it goes to the other side of target, or the
+// other way along it, if that overflows less, then moves along target into
+// the window. Its margins keep it apart from target: a top margin below
+// it, and above it as it goes there. Top, Right, Bottom and Left then move
+// it; the element keeps its own size.
+//
+// The element is target's popover: its elements follow target as Tab
+// moves, and a press on target is not outside it (PressedOutside). Build
+// target before it, in the same frame.
+func (e *Element) AttachTo(target *Element, at, self Anchor) *Element {
+	if target == nil {
+		return e
+	}
+	e.flags |= flagAbsolute
+	e.attach = attachment(1 + min(at, AnchorBottomRight)*9 + min(self, AnchorBottomRight))
+	e.popover = target
+	return e
+}
+
 // AspectRatio makes the height the width divided by r.
 func (e *Element) AspectRatio(r float32) *Element { e.aspect = r; return e }
 
@@ -745,7 +792,8 @@ func (e *Element) Stripes(c Color, width, gap, angle float32) *Element {
 }
 
 // Border draws a border of width DIPs inside the element's edges, on every
-// side; BorderWidth sets different widths.
+// side; BorderWidth sets different widths. As in CSS, the border takes room
+// within the element's size: the padding and the children are inside it.
 func (e *Element) Border(width float32, c Color) *Element {
 	e.border, e.borderC = [4]float32{width, width, width, width}, c
 	return e

@@ -2180,6 +2180,64 @@ func TestContentWindowAccessibility(t *testing.T) {
 	}
 }
 
+// TestContentWindowObserved resizes a window of native UI and acts on its
+// elements as assistive technology does while key-value observing watches
+// them, as other code may: the runtime gives each a generated subclass of
+// its class, so their overrides must call the superclass of the class they
+// are defined in, not of the object's, which would call them again until
+// the stack overflows (#79).
+func TestContentWindowObserved(t *testing.T) {
+	var frames atomic.Int32
+	name, notes := "Ada", "Read only"
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Column(c).Fill().Padding(20).Gap(10).Children(func() {
+			ui.Text(c, "Settings")
+			ui.TextInput(c, &name).Label("Name")
+			ui.TextInput(c, &notes).Label("Notes").ReadOnly(true)
+			ui.Column(c).Role(ui.RoleMenu).Label("Edit menu").Children(func() {
+				ui.Text(c, "Bold").Role(ui.RoleMenuItemCheckBox).Checked(true)
+			})
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Observed", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	eventually(t, "the text field", func() bool {
+		nodes, _ := accessibility(w)
+		return slices.ContainsFunc(nodes, func(n accessNode) bool { return n.role == roleTextField })
+	})
+	stop, ok := observe(w)
+	if !ok {
+		t.Skip("only macOS has key-value observing")
+	}
+	defer stop()
+	before := frames.Load()
+	w.SetSize(500, 400)
+	eventually(t, "a frame at the new size", func() bool { return frames.Load() > before })
+	if !accessPerform(w, "Name", "value", "Grace") {
+		t.Fatal("cannot set the text field's value")
+	}
+	eventually(t, "the text field's new value", func() bool {
+		var s string
+		mygo.RunOnMain(func() { s = name })
+		return s == "Grace"
+	})
+	// AppKit answers for what the element does not.
+	if accessPerform(w, "Settings", "press", "") {
+		t.Error("a text could be pressed")
+	}
+	// The overrides of the older API answer too.
+	if _, settable, _, ok := axAttribute(w, "Name", "AXValue"); ok && !settable {
+		t.Error("the text field's value is not settable")
+	}
+	if _, settable, _, ok := axAttribute(w, "Notes", "AXValue"); ok && settable {
+		t.Error("the read-only text field's value is settable")
+	}
+	if mark, _, named, ok := axAttribute(w, "Bold", "AXMenuItemMarkChar"); ok && (mark != "✓" || !named) {
+		t.Errorf("the menu item's mark is %q, named %v", mark, named)
+	}
+}
+
 // TestContentWindowListAccessibility reads the rows of a List as assistive
 // technology does, and chooses one by pressing it.
 func TestContentWindowListAccessibility(t *testing.T) {
@@ -2277,6 +2335,40 @@ func TestContentWindowTyping(t *testing.T) {
 	compose(w, "にほん", 3, false)
 	compose(w, "日本", 0, true)
 	eventually(t, "the composed text", func() bool { return text() == "héllo日本" })
+}
+
+// TestContentWindowComposingKeys presses Escape and Return in a dialog's
+// text input while an input method composes: they are the input method's,
+// and neither close the dialog nor submit the input.
+func TestContentWindowComposingKeys(t *testing.T) {
+	var frames atomic.Int32
+	open, submitted, name := true, 0, ""
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Modal(c, &open, func() {
+			if ui.TextInput(c, &name).AutoFocus().Submitted() {
+				submitted++
+			}
+		})
+	}
+	state := func() (o bool, s int, n string) {
+		mygo.RunOnMain(func() { o, s, n = open, submitted, name })
+		return o, s, n
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Composing", Width: 400, Height: 200, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 1 })
+	compose(w, "ni", 2, false)
+	if !pressKey(w, 53, "\x1b") { // Escape
+		t.Skip("key automation not available on this platform")
+	}
+	pressKey(w, 36, "\r") // Return
+	compose(w, "你", 0, true)
+	eventually(t, "the composed text", func() bool { _, _, n := state(); return n == "你" })
+	if o, s, _ := state(); !o || s != 0 {
+		t.Fatalf("keys typed while composing: the dialog open %v, the input submitted %d times", o, s)
+	}
+	pressKey(w, 53, "\x1b")
+	eventually(t, "Escape closing the dialog", func() bool { o, _, _ := state(); return !o })
 }
 
 // TestContentWindow shows native UI: frames, input from the platform,
@@ -2415,6 +2507,73 @@ func TestContentWindowLazyGPU(t *testing.T) {
 		t.Skip("click automation not available on this platform")
 	}
 	eventually(t, "the click", func() bool { return clicks.Load() == 1 })
+}
+
+// TestContentWindowRepaintsWhatChanged moves the red row of a window of
+// native UI under a menu bar, and reads what the display shows. On Linux,
+// GTK repaints only what frames drawn in memory changed, which a GtkGLArea
+// tells it where its GdkWindow, its parent's, has it: below the menu bar.
+func TestContentWindowRepaintsWhatChanged(t *testing.T) {
+	if !lazyGPU(true) {
+		t.Skip("only Linux repaints what frames drawn in memory changed")
+	}
+	defer lazyGPU(false)
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))
+	var frames, red atomic.Int32
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Box(c).Fill().Padding(20).Gap(20).Background(ui.RGB(30, 144, 255)).Children(func() {
+			for i := range int32(3) {
+				color := ui.RGB(255, 255, 255)
+				if i == red.Load() {
+					color = ui.RGB(255, 0, 0)
+				}
+				ui.Box(c).Size(300, 40).Background(color)
+			}
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Repaint", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	s := deviceScale(w)
+	// rows tells what the display shows at the top and the bottom of each
+	// row: r for red, w for white.
+	rows := func() string {
+		b, _ := surfaceOnScreen(w)
+		m, err := png.Decode(bytes.NewReader(b))
+		if err != nil {
+			return ""
+		}
+		shown := ""
+		for i := range 3 {
+			for _, y := range []float64{25, 55} {
+				r, g, _, _ := m.At(int(200*s), int((float64(i*60)+y)*s)).RGBA()
+				switch {
+				case r>>8 > 200 && g>>8 < 60:
+					shown += "r"
+				case r>>8 > 200:
+					shown += "w"
+				default:
+					shown += "?"
+				}
+			}
+		}
+		return shown
+	}
+	for _, to := range []int{2, 0, 1} {
+		before := frames.Load()
+		w.Update(func() { red.Store(int32(to)) })
+		eventually(t, "a frame after Update", func() bool { return frames.Load() > before })
+		want := strings.Repeat("ww", to) + "rr" + strings.Repeat("ww", 2-to)
+		deadline := time.Now().Add(5 * time.Second)
+		for shown := rows(); shown != want; shown = rows() {
+			if time.Now().After(deadline) {
+				t.Fatalf("with row %d red, the display shows %q, not %q", to, shown, want)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
 }
 
 // TestContentWindowMenuButton opens a menu button's menu, which shows as

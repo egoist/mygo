@@ -210,6 +210,12 @@ purego gives three primitives, used everywhere:
   scheme handler, menu and tray targets. Only protocols that exist at run
   time are adopted (`WKScriptMessageHandler` is not registered, and WebKit
   does not need it).
+- **Overrides call super with `sendSuper`** (`sendSuperSize` for an
+  `NSSize`), naming the class they are defined in, never purego's
+  `objc.ID.SendSuper`: that resolves super from the object's class, which
+  key-value observing replaces with a generated subclass, so the override
+  would call itself until the stack overflows. `TestSuperFromDefinedClass`
+  rejects it.
 - **The web view is not the content view.** A plain `NSView` is, holding the
   web view and, with vibrancy, an `NSVisualEffectView` behind it. WebKit
   docks the inspector next to the web view in its superview; were that the
@@ -217,7 +223,11 @@ purego gives three primitives, used everywhere:
   on.
 - **Memory is managed by hand.** Objects created with `alloc`/`init` are owned
   (+1) and must be released; convenience constructors return autoreleased
-  objects. Code that creates temporary objects runs inside `withPool`.
+  objects. Code that creates temporary objects runs inside `withPool`,
+  which keeps the goroutine on its thread until it pops the pool: a pool
+  belongs to the thread that pushed it, and a goroutine other than the
+  main one, as those reading the bundle for `App.Name`, may otherwise
+  resume on another thread, where popping it crashes.
   Delegates and windows are released with `autorelease` from
   `windowWillClose:` because AppKit still uses them while closing.
 - **Blocks.** Completion handlers passed to Apple APIs are created with
@@ -275,6 +285,17 @@ purego gives three primitives, used everywhere:
   as a Wayland compositor requires; neither event reaches WebKit. Nothing
   resizes a maximized or full screen window, and a tiled one only resizes
   at the edges the window manager allows, as with GTK's own decorations.
+- `gtk_window_realize` announces server-side decorations to a Wayland
+  compositor that speaks `org_kde_kwin_server_decoration` (KWin, COSMIC,
+  Sway) for every window GTK does not decorate itself, one without
+  decorations too, and the compositor draws its title bar on it. A
+  frameless window is realized before it shows and announced client-side
+  instead (`gdk_wayland_window_announce_csd`, looked up at startup): GDK
+  keeps that for the `GdkWindow` and requests it again whenever the window
+  maps or the compositor answers with another mode, so the window gets no
+  title bar unless the compositor decorates every window. Without the
+  protocol (Mutter), or on X11, which reads the hint of
+  `gtk_window_set_decorated`, nothing decorates the window anyway.
 - A hidden title bar (`titlebar.go`) is a window without decorations whose
   web view is in a `GtkOverlay`, under a `GtkHeaderBar` for each side of
   `gtk-decoration-layout` that names window buttons. Each bar shows only
@@ -288,9 +309,10 @@ purego gives three primitives, used everywhere:
   rebuilds them. A Wayland compositor that decorates windows itself
   (`gdk_wayland_display_prefers_ssd`: the default mode of
   `org_kde_kwin_server_decoration_manager`, server on KWin, Hyprland and
-  Sway) gets no bars: GTK asks it to decorate a window without decorations
-  too, so its title bar, or a tiling compositor's lack of one, stands for
-  the buttons, whatever the layout says.
+  Sway) gets no bars: such a window keeps GTK's announcement of server-side
+  decorations, unlike a frameless one, so the compositor's title bar, or a
+  tiling compositor's lack of one, stands for the buttons, whatever the
+  layout says.
 - `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set unless the user set it, which
   avoids blank webviews on NVIDIA drivers, VMs and containers.
 - XDG desktop portal calls go through `portalCall` (`portal.go`), which
@@ -766,9 +788,30 @@ build` like mygo-runtime and released with the same version.
   lights the rim by how its normal faces the light. The defaults follow
   macOS 27's, measured from
   `NSGlassEffectView` over test patterns; the optics follow the
-  open-source reproductions of Liquid Glass. `go generate ./plugins/glass`
-  compiles the shaders ahead of time on macOS (`shaders_darwin.go`) and on
-  Windows (`shaders_windows.go`), with `internal/gen`.
+  open-source reproductions of Liquid Glass. `glass.Blur`, a backdrop
+  blur, is a second effect (`blurEffect`): what is behind the element,
+  blurred, with its alpha (the effect samples the backdrop's texels
+  itself, as the heads' `sampleBackdrop` gives no alpha), so over nothing
+  it stays transparent. Masked by a `LinearGradient`, the blur varies as
+  the gradient's alpha (`blurLevels`): the element paints levels in turn,
+  each blurring what the levels before painted (blurs add as their
+  variances do), shown where the blur wanted is above its band, by how far
+  into the band, so a level's top doubles from at most 2 pixels to the
+  blur's most and a pixel between two levels mixes their blurs. A level of
+  a square element covers only where it shows (`blurWanted`), and so
+  reads less. Bounding the levels after the first to the element, so that
+  they read no unblurred content around it, measured worse against a blur
+  varying per pixel than leaving them reading it: the repeated edge biases
+  more than what is around. A level may tone what it shows (`blurTone`:
+  saturation, an offset, an opaque color over it), which the hard style of
+  `glass.ScrollEdge`, macOS's scroll edge effect, frosts with in one
+  level; the soft style is a gradient of the background, as macOS 27's
+  replays its window's background under a mask, with no blur (measured
+  from SwiftUI's `safeAreaBar` over test patterns, its layers dumped).
+  `go generate ./plugins/glass`
+  compiles both effects' shaders ahead of time on macOS
+  (`shaders_darwin.go`) and on Windows (`shaders_windows.go`), with
+  `internal/gen`.
 
 ## Typed client generation (`internal/tsgen`)
 
@@ -1040,6 +1083,10 @@ either.
   `XF86Forward` on Linux, and `WM_XBUTTONUP` (taken, so that
   DefWindowProc sends no `WM_APPCOMMAND` as well), `VK_BROWSER_BACK` and
   `VK_BROWSER_FORWARD`, and `WM_APPCOMMAND`'s browser commands on Windows.
+  A key typed while the input method composes is the input method's
+  alone, as Enter choosing a candidate: on macOS `keyDown:` sends no
+  `KeyPressed` while there is marked text, as GTK's input method filters
+  such keys on Linux and IMM32 makes them `VK_PROCESSKEY` on Windows.
   Input methods name what text and compositions replace in the text
   around the caret (`Replace`, `From`, `To`): NSTextInputClient's
   replacement ranges, GtkIMContext's `delete-surrounding`, IMM32's
@@ -1071,6 +1118,28 @@ either.
   Flutter's alerts: `UiaRaiseNotificationEvent` returned `S_OK` but its
   events reached no client, unlike the provider's automation events.
   Statuses, as toasts, are polite live regions too (`LiveSetting`).
+  Widgets of an app's own set what the bases set with element methods
+  (`Checked`, `Mixed`, `Expanded`, `Value`, `Range`, `Level`,
+  `ActiveDescendant`). Menus drawn in the window are AppKit's `AXMenu`,
+  `AXMenuBar` and `AXMenuItem`, whose choice shows as
+  `AXMenuItemMarkChar` (answered through `accessibilityAttributeValue:`,
+  as `AXInvalid` is), ATK's menu, menu bar, menu item, check menu item and
+  radio menu item, and UI Automation's Menu, MenuBar and MenuItem, with
+  Toggle for the items showing a choice; headings are WebKit's
+  `AXHeading`, whose value is their level, ATK's heading with the `level`
+  attribute, and UI Automation's Text with `HeadingLevel`. A vertical
+  slider says so (`AccessVertical`: `AXOrientation`, ATK's vertical state,
+  UI Automation's Orientation). A range's step, how far the keys move
+  its value (`AccessNode.Step`), is UI Automation's SmallChange (and
+  LargeChange at least as much) and ATK's minimum increment, through
+  `get_minimum_increment`, as purego's callbacks return no floats for
+  `get_increment`; AppKit has none, and its increments go through the
+  keys. A read-only text input is
+  `AccessReadOnly`, without `ActionSetValue`. AppKit finds an element's
+  value settable when its class overrides the setter, whatever
+  `isAccessibilitySelectorAllowed:` says, so elements answer the older
+  `accessibilityIsAttributeSettable:` themselves, as AppKit would but for
+  that value: `NSAccessibilityElement` has no implementation to call.
   The rows of a `List` (list items) and a `Table` (rows) are named by
   their content and say which of all the rows they are (`PosInSet`,
   `SetSize`, the list giving its total), as only those in view are built;
@@ -1450,16 +1519,33 @@ either.
   them, by label, for its overflow menu, whose choices click them after
   the pass (`clickLater`).
 - **Overlays** (`ui/scope.go`) scope the keyboard. Committing a frame
-  notes the dialog each focusable element is in (`DialogBase`'s backdrop,
-  `flagModal`; a popover is in its anchor's), the dialog on top
-  (`engine.modal`), and moves a popover's elements after its anchor in the
-  focus order. Tab cycles the dialog on top, the focus moves into it while
-  it is outside, the window's shortcuts built outside it do not fire, and
-  the accessibility tree is the dialog and what is above it. Overlays
-  register Escape as overlay shortcuts, which the keys the focus and the
-  elements around it leave reach, the last registered (the overlay on top)
-  first. An overlay notes the focus as it opens (`openers`), which pruning
-  gives back once it is gone with the focus that was in it.
+  notes the dialog each focusable element is in (an element made `Modal`,
+  as `DialogBase`'s backdrop, `flagModal`; a popover is in its anchor's),
+  the dialog on top (`engine.modal`, and `modalLayer`, the element at the
+  top of the overlay holding it), and moves a popover's elements after its
+  anchor in the focus order. Tab cycles the dialog on top, the focus moves
+  into it while it is outside, the window's shortcuts built outside it do
+  not fire, and the accessibility tree is the dialog's layer and what is
+  above it. Overlays register Escape as overlay shortcuts
+  (`OverlayShortcut`), which the keys the focus and the elements around it
+  leave reach, the last registered (the overlay on top) first. Each element
+  built at the top of `Overlay` notes the focus as it opens (`openers`),
+  which pruning gives back once it is gone with the focus that was in it.
+  An element attached to another (`AttachTo`, which `PopoverBase` and the
+  popups of selects and comboboxes use) is that element's popover
+  (`Element.popover`, and `state.anchor` once committed): its layout
+  (`attachTo`) finds where the target will be in the window from the boxes
+  laid out before it, the scroll offsets around it, and for an inline
+  target the paragraph's layout (`laidOutBox`), so that a popover follows
+  its anchor in the frame that moves it; then it goes to the other side, or
+  the other way along the target, where that leaves the window less, and
+  moves along the target into the window (`alongTarget`). Popovers have no
+  backdrop: the engine notes what each press went down on (`downs`, for a
+  pass), and `PressedOutside` walks from there through parents, and from a
+  popover to its anchor, which keeps presses in popovers of elements inside
+  the panel, and on its anchor, inside it, as the press goes on to what is
+  under it. A select's popup keeps a backdrop taking the presses outside,
+  as the system's pop-up menus do.
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;
@@ -1597,7 +1683,10 @@ either.
     (`System.GlyphRun`): their coverage added and clamped, cached as one
     bitmap.
   Paths drawn with
-  `Painter` are masks in the coverage atlas, rasterized by `internal/vec`.
+  `Painter` are masks in the coverage atlas, rasterized by `internal/vec`,
+  cached by their shape relative to the pixel grid in quarters of a pixel,
+  to which their points move first: a path looks the same whichever path
+  of its key drew its mask first.
   So are icons: `internal/svg` parses SVG documents (with `encoding/xml`
   and its own small CSS cascade) into nodes of paths, paints and layers,
   and draws them on the CPU with `internal/vec`, compositing gradients,
@@ -2271,7 +2360,8 @@ which npm allows only for packages that exist: the first release uses an
 | auto-hide menu bar | ignored | the bar widget hides; `can-activate-accel` keeps its shortcuts; Alt alone or F10 show it and open its first menu until it deactivates | the menu is attached only for the `SC_KEYMENU` menu loop that Alt alone or F10 start; shortcuts come from the webview |
 | tray | NSStatusItem, click events | AppIndicator (menu only, no click events) | notification area icon, click events |
 | global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
-| notifications | UserNotifications, packaged apps only | org.freedesktop.Notifications over D-Bus | notification-area balloons (toasts) |
+| notifications | UserNotifications, packaged apps only; `Group` is the `threadIdentifier`; the delegate is attached at launch, for the click that launched the app | org.freedesktop.Notifications over D-Bus; no `Group` | notification-area balloons (toasts); no `Group` |
+| notification removal | `removeDeliveredNotificationsWithIdentifiers:`; `ClearNotifications` removes all, earlier runs' too | `CloseNotification` on the bus, for those of this run | hides the balloon, which goes away by itself anyway |
 | vibrancy | all materials | ignored | Windows 11 22H2 Mica, Acrylic, Tabbed, in windows created with a material, which have no menu bar |
 | traffic lights, Dock | yes | ignored | ignored |
 | hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window, through DirectComposition over a material; snap layouts; a top edge that resizes |

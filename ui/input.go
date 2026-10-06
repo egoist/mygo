@@ -219,6 +219,11 @@ const interactive = flagClickable | flagFocusable | flagEditable | flagSelectabl
 func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count int) {
 	chain := rt.hitChain(x, y)
 	rt.setHover(chain)
+	if len(chain) > 0 {
+		rt.downs = append(rt.downs, chain[0])
+	} else {
+		rt.downs = append(rt.downs, 0)
+	}
 	if button == 0 && rt.scrollbarPress(chain, x, y) {
 		return
 	}
@@ -375,7 +380,7 @@ func dragTo(from float64, moved, travel float32, reach, now float64) float64 {
 // content's size as the drag started.
 func (d *scrollDrag) bars(width float32) scrollGeometry {
 	s := d.st
-	return scrollBars(Rect{s.x, s.y, s.w, s.h}, float32(d.contentW), float32(d.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, width)
+	return scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(d.contentW), float32(d.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, width)
 }
 
 // scrollBy scrolls a container by dx, dy within its content, and reports
@@ -656,9 +661,13 @@ func (rt *engine) routeKeys() {
 				break
 			}
 		}
-		for i := len(rt.regs) - 1; i >= 0 && !found; i-- {
-			if r := rt.regs[i]; r.overlay && r.mods == k.mods && r.key == k.key {
-				target, found = r.id, true
+		if !found {
+			// The overlay on top: the one made last, as it paints last.
+			var top int32 = -1
+			for _, r := range rt.regs {
+				if r.overlay && r.mods == k.mods && r.key == k.key && r.serial >= top {
+					target, found, top = r.id, true, r.serial
+				}
 			}
 		}
 		if !found {
@@ -723,7 +732,7 @@ func (rt *engine) updateTextInput() {
 		// An element taking text itself: no text around the caret.
 		t.Active = true
 		t.Caret = platform.RectF{X: float64(s.x + s.caret.X), Y: float64(s.y + s.caret.Y), W: float64(s.caret.W), H: float64(s.caret.H)}
-	} else if s != nil && s.editor != nil && s.flags&flagEditable != 0 && rt.windowFocused {
+	} else if s != nil && s.editor != nil && s.flags&flagEditable != 0 && !s.editor.readOnly && rt.windowFocused {
 		ed := s.editor
 		r := ed.caretRect(s)
 		t.Active = true
@@ -849,11 +858,12 @@ func (rt *engine) pressMove(x0, y0, x1, y1 float32) {
 	}
 }
 
-// Pressed reports whether the element is being pressed with the pointer.
+// Pressed reports whether the element is being pressed with the pointer,
+// unless it is disabled.
 func (e *Element) Pressed() bool {
 	e.flags |= flagClickable | flagHover
 	s := e.st
-	return s.pressed && Rect{s.vx, s.vy, s.vw, s.vh}.Contains(e.c.rt.pointerX, e.c.rt.pointerY)
+	return s.pressed && !e.disabled() && Rect{s.vx, s.vy, s.vw, s.vh}.Contains(e.c.rt.pointerX, e.c.rt.pointerY)
 }
 
 // Focused reports whether the element has the keyboard focus.
@@ -901,8 +911,11 @@ func (e *Element) AutoFocus() *Element {
 
 // Shortcut reports whether the key with exactly the modifiers mods was
 // pressed while the element or one of its descendants had the focus. The
-// innermost element handling a key gets it.
+// innermost element handling a key gets it; a disabled one handles none.
 func (e *Element) Shortcut(mods Modifiers, key Key) bool {
+	if e.disabled() {
+		return false
+	}
 	return e.c.rt.shortcut(e.id, mods, key)
 }
 
@@ -946,7 +959,7 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 {
 			continue
 		}
-		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth())
+		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth())
 		d := &rt.scrollDrag
 		w, h := float64(s.w), float64(s.h)
 		switch {

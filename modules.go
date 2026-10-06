@@ -1,10 +1,10 @@
 package mygo
 
 import (
+	"crypto/rand"
 	"errors"
 	"math"
 	"runtime"
-	"strconv"
 	"sync"
 
 	"github.com/egoist/mygo/internal/accelerator"
@@ -514,11 +514,20 @@ func (t *Tray) OnRightClick(fn func()) (off func()) { return t.onRight.add(fn, f
 
 // NotificationOptions configures a desktop notification.
 type NotificationOptions struct {
+	// ID identifies the notification: App.OnNotificationClick receives
+	// it, also after the app has quit and been launched again, and showing
+	// a notification with the ID of one still shown replaces that one.
+	// Empty gives it an ID of its own.
+	ID       string
 	Title    string
 	Subtitle string
 	Body     string
 	// Silent suppresses the notification sound.
 	Silent bool
+	// Group gathers the notifications that share it in one stack of
+	// Notification Center (macOS), such as the messages of a conversation.
+	// Empty leaves them in the app's.
+	Group string
 }
 
 // Notification is a desktop notification.
@@ -530,7 +539,6 @@ type Notification struct {
 
 var notifications struct {
 	sync.Mutex
-	next int
 	byID map[string]*Notification
 }
 
@@ -544,31 +552,54 @@ func NotificationsSupported() bool {
 
 // NewNotification creates a notification; call Show to display it.
 func NewNotification(opts NotificationOptions) *Notification {
-	notifications.Lock()
-	notifications.next++
-	n := &Notification{id: "mygo-" + strconv.Itoa(notifications.next), opts: opts}
-	notifications.Unlock()
-	return n
+	id := opts.ID
+	if id == "" {
+		// Unique across runs too, as notifications outlive them.
+		id = "mygo-" + rand.Text()
+	}
+	return &Notification{id: id, opts: opts}
 }
 
-// Show displays the notification.
+// ID returns the notification's ID: NotificationOptions.ID, or the one it
+// was given.
+func (n *Notification) ID() string { return n.id }
+
+// ErrNotificationsDenied is returned by Notification.Show when the user has
+// not allowed the app to show notifications (macOS).
+var ErrNotificationsDenied = platform.ErrNotificationsDenied
+
+// Show displays the notification, and returns once the system has it. On
+// macOS the first notification asks the user whether to allow them, and
+// Show waits for the answer; it returns ErrNotificationsDenied when they
+// are not allowed.
 func (n *Notification) Show() error {
 	needsApp("Notification.Show")
 	notifications.Lock()
 	if notifications.byID == nil {
 		notifications.byID = map[string]*Notification{}
 	}
+	_, shown := notifications.byID[n.id]
 	notifications.byID[n.id] = n
 	notifications.Unlock()
-	return onMainValue(func() error {
-		return backend().ShowNotification(&platform.Notification{
+	ch := make(chan error, 1)
+	onMain(func() {
+		backend().ShowNotification(&platform.Notification{
 			ID:       n.id,
 			Title:    n.opts.Title,
 			Subtitle: n.opts.Subtitle,
 			Body:     n.opts.Body,
 			Silent:   n.opts.Silent,
-		})
+			Group:    n.opts.Group,
+		}, func(err error) { deliver(ch, err) })
 	})
+	err := await(ch)
+	if err != nil && !shown {
+		// Nothing will be clicked.
+		notifications.Lock()
+		delete(notifications.byID, n.id)
+		notifications.Unlock()
+	}
+	return err
 }
 
 // Close removes the notification.
@@ -577,6 +608,19 @@ func (n *Notification) Close() {
 	delete(notifications.byID, n.id)
 	notifications.Unlock()
 	onMain(func() { backend().RemoveNotification(n.id) })
+}
+
+// ClearNotifications removes the app's notifications, on macOS those of
+// earlier runs left in Notification Center too. An app calls it as it
+// comes to the front, so that what the user has seen in the app does not
+// wait there:
+//
+//	mygo.App.OnDidBecomeActive(func() { mygo.ClearNotifications() })
+func ClearNotifications() {
+	notifications.Lock()
+	clear(notifications.byID)
+	notifications.Unlock()
+	onMain(func() { backend().RemoveAllNotifications() })
 }
 
 // OnClick is called when the user clicks the notification.
@@ -589,4 +633,5 @@ func notificationClicked(id string) {
 	if n != nil {
 		fire(&n.onClick)
 	}
+	fire1(&App.onNotificationClick, id)
 }

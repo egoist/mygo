@@ -505,7 +505,11 @@ func (b *Backend) NotificationsSupported() bool {
 	return err == nil
 }
 
-func (b *Backend) ShowNotification(n *platform.Notification) error {
+func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
+	done(b.showNotification(n))
+}
+
+func (b *Backend) showNotification(n *platform.Notification) error {
 	conn, err := bus()
 	if err != nil {
 		return fmt.Errorf("mygo: notifications need a D-Bus session: %w", err)
@@ -560,6 +564,12 @@ func (b *Backend) RemoveNotification(id string) {
 	delete(notifications, dbusID)
 	if res, err := dbusCall("org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "CloseNotification", tuple(gVariantNewUint32(dbusID)), ""); err == nil {
 		gVariantUnref(res)
+	}
+}
+
+func (b *Backend) RemoveAllNotifications() {
+	for id := range notifyDBusIDs {
+		b.RemoveNotification(id)
 	}
 }
 

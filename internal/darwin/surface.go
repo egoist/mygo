@@ -634,7 +634,7 @@ func registerSurfaceClass() {
 			}
 		}),
 		method("setFrameSize:", func(self id, cmd objc.SEL, size NSSize) {
-			objc.ID(self).SendSuper(cmd, size)
+			sendSuperSize(self, "MyGoSurfaceView", cmd, size)
 			if s := b().surfaceOf(self); s != nil {
 				s.send(platform.SurfaceEvent{Kind: platform.SurfaceResize})
 				send(self, "setNeedsDisplay:", 1)
@@ -705,10 +705,17 @@ func registerSurfaceClass() {
 				return
 			}
 			mods := eventMods(ev)
-			s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")})
+			ime := s.input.Active && mods&(platform.ModSuper|platform.ModCtrl) == 0
+			// A key typed while the input method composes is the input
+			// method's alone, as Enter choosing a candidate or Escape
+			// giving the composition up, as GTK's and IMM32's filtering
+			// keeps them on Linux and Windows.
+			if !ime || s.marked == "" {
+				s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")})
+			}
 			// Input methods see the key while a text input has the focus;
 			// they answer with insertText: or setMarkedText:.
-			if s.input.Active && mods&(platform.ModSuper|platform.ModCtrl) == 0 {
+			if ime {
 				s.keyDown = true
 				send(self, "interpretKeyEvents:", uintptr(nsArray(ev)))
 				s.keyDown = false

@@ -64,6 +64,51 @@ if err := n.Show(); err != nil {
 only, which `mygo dev` and `mygo build` make; `mygo.NotificationsSupported()`
 reports whether the app can show them. Linux shows them through the
 desktop's notification service, Windows as notification-area balloons.
+`Show` returns once the system has the notification. On macOS the first
+one asks the user whether to allow notifications, and `Show` waits for the
+answer; it returns `mygo.ErrNotificationsDenied` when they are not allowed,
+by that answer or later in System Settings.
+
+macOS keeps a notification in Notification Center after it is clicked,
+until the app removes it: `Close` it in `OnClick` to take it away, or call
+`mygo.ClearNotifications()`, which removes all of the app's notifications,
+those of earlier runs too, as the app comes to the front:
+
+```go
+n.OnClick(func() {
+	mainWindow().Focus()
+	n.Close()
+})
+
+// What the user has seen in the app does not wait in Notification Center.
+mygo.App.OnDidBecomeActive(func() { mygo.ClearNotifications() })
+```
+
+Linux asks the desktop's notification service to close them, which may
+have closed them already, and Windows hides its balloon.
+
+A notification can outlive the run that showed it, in Notification Center
+on macOS, where a click launches the app again. Give it an `ID` of the
+app's own, which `App.OnNotificationClick` receives for every click, that
+one included when it is registered before `Run`; showing a notification
+with the `ID` of one still shown replaces it. `Group` gathers notifications
+in one stack of Notification Center, such as the messages of a
+conversation (macOS):
+
+```go
+// IDs are "<conversation>/<message>".
+mygo.App.OnNotificationClick(func(id string) {
+	conversation, _, _ := strings.Cut(id, "/")
+	openConversation(conversation)
+})
+
+mygo.NewNotification(mygo.NotificationOptions{
+	ID:    "ada/" + msg.ID,
+	Group: "ada",
+	Title: "Ada",
+	Body:  msg.Text,
+}).Show()
+```
 
 ## Clipboard
 
