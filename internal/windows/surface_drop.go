@@ -222,6 +222,7 @@ func (t *dropTarget) drop(data, pt, effect uintptr) {
 		return
 	}
 	*(*uint32)(native(effect)) = 0
+	var nativeFiles []string
 	if len(d.Data.Formats()) == 0 {
 		var reps []transfer.Representation
 		for _, f := range d.Formats {
@@ -231,10 +232,18 @@ func (t *dropTarget) drop(data, pt, effect uintptr) {
 			}
 			var b []byte
 			if id == cfHDrop {
-				paths := droppedPaths(data)
-				files, err := transfer.FileData(paths...)
-				if err != nil || len(paths) == 0 {
+				if nativeFiles == nil {
+					nativeFiles = droppedPaths(data)
+				}
+				if len(nativeFiles) == 0 {
 					return
+				}
+				files, err := transfer.FileData(nativeFiles...)
+				// Legacy file-drop APIs deliver CF_HDROP paths as received.
+				// Their contract predates portable URL representations, so a
+				// path that cannot be encoded must still reach those listeners.
+				if err != nil {
+					continue
 				}
 				b, _ = files.Read(f)
 			} else {
@@ -264,7 +273,7 @@ func (t *dropTarget) drop(data, pt, effect uintptr) {
 		d.Data = transfer.New(transfer.NewItem(reps...))
 	}
 	x, y := t.s.screenDIP(pt)
-	if t.s.send(platform.SurfaceEvent{Kind: platform.DataDrop, X: x, Y: y, Drag: d}) {
+	if t.s.send(platform.SurfaceEvent{Kind: platform.DataDrop, X: x, Y: y, Drag: d, Files: nativeFiles}) {
 		*(*uint32)(native(effect)) = uint32(d.Operation)
 	}
 }

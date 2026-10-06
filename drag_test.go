@@ -175,3 +175,36 @@ func TestDataDragCompletionCannotExceedSourceOperations(t *testing.T) {
 		t.Fatalf("disallowed move completed: %+v", result)
 	}
 }
+
+func TestDataDragPreservesRawNativeFilePaths(t *testing.T) {
+	var received []string
+	w, _, s := contentWindow(t, func(c *ui.Context) {
+		if files := ui.Box(c).Size(100, 100).DroppedFiles(); files != nil {
+			received = files
+		}
+	})
+	// Legacy native deliveries preserve paths verbatim, including paths
+	// that cannot be advertised by transfer.FileData as absolute file URLs.
+	paths := []string{"native/path/a", "native/path/b"}
+	onMain(func() {
+		d := &platform.DataDragEvent{Offer: transfer.Offer{Formats: []transfer.Format{transfer.FileList}, Operations: transfer.Copy | transfer.Move}, HasFiles: true}
+		if !s.Send(platform.SurfaceEvent{Kind: platform.DataDrop, X: 20, Y: 20, Drag: d, Files: paths}) || d.Operation != transfer.Copy {
+			t.Error("native file paths were not accepted as a copy")
+		}
+		s.Frame()
+	})
+	if !slices.Equal(received, paths) {
+		t.Fatalf("native paths %q, want %q", received, paths)
+	}
+	var listener *FileDropEvent
+	w.OnFileDrop(func(e *FileDropEvent) { listener = e })
+	onMain(func() {
+		d := &platform.DataDragEvent{Offer: transfer.Offer{Formats: []transfer.Format{transfer.FileList}, Operations: transfer.Copy}, HasFiles: true}
+		if !s.Send(platform.SurfaceEvent{Kind: platform.DataDrop, X: 200, Y: 150, Drag: d, Files: paths}) {
+			t.Error("raw paths did not reach OnFileDrop")
+		}
+	})
+	if listener == nil || !slices.Equal(listener.Paths, paths) {
+		t.Fatalf("listener %+v", listener)
+	}
+}

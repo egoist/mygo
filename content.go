@@ -232,8 +232,11 @@ func (h *windowHandler) SurfaceEvent(ev platform.SurfaceEvent) bool {
 				fileEvent := platform.SurfaceEvent{Kind: platform.FileDragOver, X: ev.X, Y: ev.Y}
 				if ev.Kind == platform.DataDrop {
 					fileEvent.Kind = platform.FileDrop
-					paths, err := d.Data.Files()
-					if err != nil || len(paths) == 0 {
+					paths := ev.Files
+					if len(paths) == 0 {
+						paths, _ = d.Data.Files()
+					}
+					if len(paths) == 0 {
 						d.Operation = transfer.None
 						return false
 					}

@@ -198,7 +198,8 @@ type SurfaceEvent struct {
 	// selection.
 	Replace  bool
 	From, To int
-	// Files are the paths of FileDrop's files.
+	// Files are the paths of FileDrop's files, or original native paths
+	// for DataDrop's legacy file-listener fallback.
 	Files []string
 	Drag  *DataDragEvent
 	// ID and Action are AccessAction's.
