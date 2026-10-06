@@ -248,10 +248,12 @@ func (p *Painter) borders(w [4]float32) [4]float32 {
 // fill paints a rounded rectangle with a solid border of bw DIPs.
 func (p *Painter) fill(r Rect, radius [4]float32, bg Color, bw float32, bc Color) {
 	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii(radius), Continuous: continuousCorners, Color: bg.scene(), BorderColor: bc.scene(), Opacity: p.opacity}
+	var drawn Color // the border's, if any
 	if bw > 0 {
 		op.Border = p.borders([4]float32{bw, bw, bw, bw})
+		drawn = bc
 	}
-	op.Wide = wideSet(bg, Color{}, bc)
+	op.Wide = p.wide(bg, Color{}, drawn)
 	p.s.Ops = append(p.s.Ops, op)
 }
 
@@ -279,33 +281,36 @@ func (p *Painter) background(e *Element, box Rect, withBorder bool) {
 		return
 	}
 	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(box), Radii: p.radii(e.radius), Continuous: continuousCorners, Color: e.bg.scene(), Opacity: p.opacity}
+	var bc Color // the border's, if op draws it
 	if border {
 		op.Border, op.BorderColor, op.Dashed = p.borders(e.border), e.borderC.scene(), e.borderStyle == BorderDashed
+		bc = e.borderC
 	}
-	op.Wide = wideSet(e.bg, Color{}, e.borderC)
+	c, c2 := e.bg, Color{}
 	switch e.fill {
 	case fillGradient:
 		p.gradient(&op, e.grad)
+		c, c2 = e.grad.From, e.grad.To
 	case fillStripes:
-		// The stripes are Color and the background Color2.
-		op.Wide = wideSet(e.stripes.c, e.bg, e.borderC)
 		st := e.stripes
+		c, c2 = st.c, e.bg
 		a := float64(st.angle) * math.Pi / 180
 		w := max(st.width*p.scale, 0.5)
 		op.Paint, op.Color, op.Color2 = scene.PaintStripes, st.c.scene(), e.bg.scene()
 		op.Gradient = [4]float32{float32(math.Cos(a)), float32(math.Sin(a)), w, w + max(st.gap*p.scale, 0)}
 	}
+	op.Wide = p.wide(c, c2, bc)
 	p.s.Ops = append(p.s.Ops, op)
 }
 
 // border paints e's border alone.
 func (p *Painter) border(e *Element, box Rect) {
 	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: p.snap(box), Radii: p.radii(e.radius), Continuous: continuousCorners, Opacity: p.opacity,
-		Border: p.borders(e.border), BorderColor: e.borderC.scene(), Dashed: e.borderStyle == BorderDashed,
-		Wide: wideSet(Color{}, Color{}, e.borderC)})
+		Border: p.borders(e.border), BorderColor: e.borderC.scene(), Dashed: e.borderStyle == BorderDashed, Wide: p.wide(Color{}, Color{}, e.borderC)})
 }
 
-// gradient sets the paint of op to g, across its rectangle.
+// gradient sets the paint of op to g, across its rectangle; the caller
+// sets op.Wide.
 func (p *Painter) gradient(op *scene.Op, g LinearGradient) {
 	// CSS angles: 0deg points up, 90deg right.
 	a := float64(g.Angle) * math.Pi / 180
@@ -322,9 +327,6 @@ func (p *Painter) gradient(op *scene.Op, g LinearGradient) {
 		op.Paint = scene.PaintOklab
 	}
 	op.Color, op.Color2 = g.From.scene(), g.To.scene()
-	g2 := wideSet(g.From, g.To, Color{})
-	op.Wide.Color, op.Wide.Color2 = g2.Color, g2.Color2
-	op.Wide.Set = op.Wide.Set&^(scene.WideColor|scene.WideColor2) | g2.Set
 	sx, sy := x0+(x1-x0)*start, y0+(y1-y0)*start
 	ex, ey := x0+(x1-x0)*end, y0+(y1-y0)*end
 	if end-start < 0.5/max(2*half, 1) {
@@ -406,7 +408,7 @@ func (p *Painter) divider(row bool, at, lo, hi, width float32, c Color) {
 	if !p.visible(box, 0) {
 		return
 	}
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: r, Color: c.scene(), Opacity: p.opacity})
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: r, Color: c.scene(), Wide: p.wide(c, Color{}, Color{}), Opacity: p.opacity})
 }
 
 // debug outlines an element and the elements inside it: their margins in
@@ -453,7 +455,7 @@ func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textS
 	}
 	sys := p.rt.text
 	s := p.scale
-	deco := decoration{underline: ts.underline, wavy: ts.wavy, strike: ts.strike, thick: ts.decoThick, color: ts.decoColor}
+	deco := decoration{underline: ts.underline, wavy: ts.wavy, strike: ts.strike, color: ts.decoColor, thick: ts.decoThick}
 	shade := text.ShadeOf(color.R, color.G, color.B)
 	start := int32(len(p.s.Glyphs))
 	var run *glyphRun
@@ -490,12 +492,12 @@ func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textS
 			if !gi.OK {
 				continue
 			}
+			glyphColor = glyphColor.Alpha(p.opacity)
 			sg := scene.Glyph{
 				X: ix + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
 				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
-				Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
+				Color: glyphColor.scene(), Wide: p.glyphWide(glyphColor), Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
 			}
-			setGlyphColor(&sg, glyphColor, p.opacity)
 			if run != nil {
 				run.add(p, g, gi, pen, sg, glyphShade, baseline)
 				continue
@@ -534,7 +536,7 @@ type glyphRun struct {
 func (r *glyphRun) add(p *Painter, g text.Glyph, gi text.GlyphImage, pen float32, sg scene.Glyph, shade text.Shade, baseline float32) {
 	if n := len(r.glyphs); n > 0 {
 		prev := &r.glyphs[n-1]
-		if g.Font == r.font && sg.Color == prev.Color && sg.Wide == prev.Wide && sg.HasWide == prev.HasWide && !gi.Colored && p.rt.text.Shares(r.last, prev.X, prev.Y, gi, sg.X, sg.Y) {
+		if g.Font == r.font && sg.Color == prev.Color && sg.Wide == prev.Wide && !gi.Colored && p.rt.text.Shares(r.last, prev.X, prev.Y, gi, sg.X, sg.Y) {
 			r.ids, r.pens, r.glyphs, r.last = append(r.ids, g.ID), append(r.pens, pen), append(r.glyphs, sg), gi
 			return
 		}
@@ -592,7 +594,7 @@ func (p *Painter) decorations(l *text.Layout, li, i, j int, x, y float32, d deco
 				p.wave(st.X0, st.X1, (st.Top+st.Bottom)/2, max(st.Bottom-st.Top, 1), c)
 				continue
 			}
-			p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: st.X0, Y: st.Top, W: st.X1 - st.X0, H: st.Bottom - st.Top}, Color: c.scene(), Wide: wideSet(c, Color{}, Color{}), Opacity: p.opacity})
+			p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: st.X0, Y: st.Top, W: st.X1 - st.X0, H: st.Bottom - st.Top}, Color: c.scene(), Wide: p.wide(c, Color{}, Color{}), Opacity: p.opacity})
 		}
 	}
 }
@@ -612,7 +614,7 @@ func (p *Painter) wave(x0, x1, y, thick float32, c Color) {
 		x := x0 + (x1-x0)*float32(i)/float32(n)
 		path.LineTo(x/s, (y-amp*float32(math.Sin(float64((x-x0)/length*2*math.Pi))))/s)
 	}
-	p.strokePath(&path, thick/s, c)
+	p.StrokePath(&path, thick/s, c)
 }
 
 // contentBox returns the element's box inside its padding and border.
@@ -783,6 +785,7 @@ func (p *Painter) Fill(r Rect, c Color, radius float32) {
 func (p *Painter) FillGradient(r Rect, g LinearGradient, radius float32) {
 	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Continuous: continuousCorners, Opacity: p.opacity}
 	p.gradient(&op, g)
+	op.Wide = p.wide(g.From, g.To, Color{})
 	p.s.Ops = append(p.s.Ops, op)
 }
 
@@ -796,7 +799,7 @@ func (p *Painter) Stroke(r Rect, c Color, radius, width float32) {
 // dashed border.
 func (p *Painter) StrokeDashed(r Rect, c Color, radius, width float32) {
 	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Continuous: continuousCorners,
-		Border: p.borders([4]float32{width, width, width, width}), BorderColor: c.scene(), Dashed: true, Opacity: p.opacity, Wide: wideSet(Color{}, Color{}, c)}
+		Border: p.borders([4]float32{width, width, width, width}), BorderColor: c.scene(), Dashed: true, Opacity: p.opacity, Wide: p.wide(Color{}, Color{}, c)}
 	p.s.Ops = append(p.s.Ops, op)
 }
 
@@ -805,7 +808,7 @@ func (p *Painter) StrokeDashed(r Rect, c Color, radius, width float32) {
 // only outside the rectangle, so that it does not show through what is
 // drawn there.
 func (p *Painter) Shadow(r Rect, radius, x, y, blur, spread float32, c Color) {
-	p.shadow(r, [4]float32{radius, radius, radius, radius}, shadow{x: x, y: y, blur: blur, spread: spread, color: c})
+	p.shadow(r, [4]float32{radius, radius, radius, radius}, shadow{x, y, blur, spread, c})
 }
 
 // shadow paints the shadow sh of box, rounded by rad, outside box, as
@@ -818,10 +821,8 @@ func (p *Painter) shadow(box Rect, rad [4]float32, sh shadow) {
 			grown[i] = max(grown[i]+sh.spread, 0)
 		}
 	}
-	op := scene.Op{Kind: scene.OpShadow, Rect: p.snap(r), Radii: p.radii(grown), Continuous: continuousCorners, Color: sh.color.scene(),
-		Blur: sh.blur * p.scale, Cast: p.snap(box), CastRadii: p.radii(rad), Opacity: p.opacity}
-	op.Wide = wideSet(sh.color, Color{}, Color{})
-	p.s.Ops = append(p.s.Ops, op)
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpShadow, Rect: p.snap(r), Radii: p.radii(grown), Continuous: continuousCorners, Color: sh.color.scene(),
+		Wide: p.wide(sh.color, Color{}, Color{}), Blur: sh.blur * p.scale, Cast: p.snap(box), CastRadii: p.radii(rad), Opacity: p.opacity})
 }
 
 // Line paints a straight horizontal or vertical line between two points,

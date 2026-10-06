@@ -103,6 +103,32 @@ func TestMapP3KeepsMoreThanSRGB(t *testing.T) {
 	}
 }
 
+func TestMapOddInput(t *testing.T) {
+	gray := func(sp Space, l, c, h float64) {
+		t.Helper()
+		r, g, b := Map(sp, l, c, h)
+		if !near(r, g, 1e-6) || !near(g, b, 1e-6) {
+			t.Errorf("Map(%v, %v, %v) = %v %v %v, want a gray", l, c, h, r, g, b)
+		}
+	}
+	// A negative chroma is 0, as CSS clamps it, not the opposite hue.
+	gray(SRGB, 0.7, -0.1, 30)
+	gray(DisplayP3, 0.7, math.NaN(), 30)
+	// An infinite chroma ends, as the most vivid color of the hue.
+	inf := math.Inf(1)
+	r, g, b := Map(SRGB, 0.5, inf, 30)
+	r2, g2, b2 := Map(SRGB, 0.5, 0.6, 30)
+	if !near(r, r2, 1e-3) || !near(g, g2, 1e-3) || !near(b, b2, 1e-3) {
+		t.Errorf("infinite chroma = %v %v %v, want %v %v %v", r, g, b, r2, g2, b2)
+	}
+	for _, c := range [][3]float64{{math.NaN(), 0.2, 30}, {0.5, 0.2, inf}, {0.5, 0.2, math.NaN()}, {0.5, inf, inf}} {
+		r, g, b := Map(DisplayP3, c[0], c[1], c[2])
+		if !within(r, g, b) || math.IsNaN(r+g+b) {
+			t.Errorf("Map(%v) = %v %v %v", c, r, g, b)
+		}
+	}
+}
+
 func TestMapExtremes(t *testing.T) {
 	if r, g, b := Map(SRGB, 1.2, 0.3, 40); r != 1 || g != 1 || b != 1 {
 		t.Errorf("light = %v %v %v", r, g, b)

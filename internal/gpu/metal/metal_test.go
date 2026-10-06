@@ -119,27 +119,30 @@ func TestCopyRect(t *testing.T) {
 }
 
 // TestWideColors draws wide colors into a float16 target, which keeps what
-// leaves 0 to 1, and an Oklab gradient between them, which does not clamp.
+// leaves 0 to 1, and an Oklab gradient between them, which does not clamp;
+// and the same scene into a BGRA8 one, which draws the nearest sRGB colors.
 func TestWideColors(t *testing.T) {
 	r, err := newRenderer()
 	if err != nil {
 		t.Skip("no Metal:", err)
 	}
 	defer r.Release()
-	pool(func() { err = r.useFormat(pixelFormatRGBA16Float) })
-	if err != nil {
-		t.Fatal(err)
+	if !r.SetWide(true) {
+		t.Fatal(r.wideErr)
 	}
 	s := &scene.Scene{}
 	s.Reset(32, 16, scene.Color{})
 	green, red := [4]float32{-0.25, 1.1, -0.1, 1}, [4]float32{1.15, -0.2, -0.1, 1}
+	s.Wide = []scene.WideColors{{Color: green, Set: scene.WideColor}, {Color: green, Color2: red, Set: scene.WideColor | scene.WideColor2}}
+	srgbGreen, srgbRed := scene.Color{G: 255, A: 255}, scene.Color{R: 255, A: 255}
 	s.Ops = append(s.Ops,
-		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{W: 32, H: 8}, Wide: scene.WideColors{Color: green, Set: scene.WideColor}},
+		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{W: 32, H: 8}, Color: srgbGreen, Wide: 1},
 		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{Y: 8, W: 32, H: 8}, Paint: scene.PaintOklab, Gradient: [4]float32{0, 0, 32, 0},
-			Wide: scene.WideColors{Color: green, Color2: red, Set: scene.WideColor | scene.WideColor2}})
+			Color: srgbGreen, Color2: srgbRed, Wide: 2})
 	var px [2][4]float32
 	pool(func() {
 		r.waitLast()
+		r.cur = &r.formats[1]
 		tex := r.newTexture(s.Width, s.Height, pixelFormatRGBA16Float, usageRenderTarget|usageShaderRead, nil, 0)
 		if tex == 0 {
 			err = errors.New("no target")
@@ -181,6 +184,15 @@ func TestWideColors(t *testing.T) {
 	// chroma the ends have beyond sRGB.
 	if m := px[1]; !(m[0] < 0 || m[0] > 1 || m[1] < 0 || m[1] > 1 || m[2] < 0 || m[2] > 1) {
 		t.Errorf("gradient midpoint %v is inside sRGB", m)
+	}
+
+	// A BGRA8 target draws the sRGB colors of the ops.
+	pix, err := r.renderOffscreen(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, g, red, a := pix[(2*s.Width+4)*4], pix[(2*s.Width+4)*4+1], pix[(2*s.Width+4)*4+2], pix[(2*s.Width+4)*4+3]; b != 0 || g != 255 || red != 0 || a != 255 {
+		t.Errorf("BGRA8 target: %v %v %v %v, want the sRGB green", b, g, red, a)
 	}
 }
 

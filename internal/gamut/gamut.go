@@ -118,16 +118,28 @@ func within(r, g, b float64) bool {
 
 func clip(v float64) float64 { return max(0, min(v, 1)) }
 
+// maxChroma is beyond the chroma of any color a display shows: Map starts
+// its search there for a larger one, as an infinite one.
+const maxChroma = 1
+
 // Map returns the Oklch color as linear RGB inside the gamut of sp. It
 // reduces the chroma, keeping lightness and hue, until clipping what is left
 // out changes the color imperceptibly (the algorithm of CSS Color 4,
-// "gamut mapping to a destination color space").
+// "gamut mapping to a destination color space"). A negative or NaN chroma
+// is 0, as CSS clamps it, a NaN lightness 0 and a hue that is not finite 0.
 func Map(sp Space, l, c, h float64) (r, g, b float64) {
 	if l >= 1 {
 		return 1, 1, 1
 	}
-	if l <= 0 {
+	if !(l > 0) {
 		return 0, 0, 0
+	}
+	if !(c > 0) {
+		c = 0
+	}
+	c = min(c, maxChroma)
+	if math.IsNaN(h) || math.IsInf(h, 0) {
+		h = 0
 	}
 	_, oa, ob := FromOklch(l, c, h)
 	r, g, b = toSpace(sp, l, oa, ob)

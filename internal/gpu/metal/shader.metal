@@ -11,12 +11,6 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// wideGamut is set for the pipeline drawing into a float16 target, where
-// colors may leave 0 to 1 (extended sRGB): gradients then keep them as they
-// are instead of clamping them to the sRGB gamut.
-constant bool wideGamut [[function_constant(0)]];
-constant bool keepWide = is_function_constant_defined(wideGamut) && wideGamut;
-
 // One instance per op, as internal/gpu builds them.
 struct Inst {
 	float4 rect;      // x, y, width, height in pixels
@@ -46,6 +40,8 @@ struct VSOut {
 	uint inst [[flat]];
 };
 
+// globals holds the frame's width and height in pixels, and 1 in z when
+// its target keeps colors outside the sRGB gamut (extended sRGB, float16).
 vertex VSOut vs(uint vid [[vertex_id]], uint iid [[instance_id]],
                 const device Inst *insts [[buffer(0)]],
                 constant float4 &globals [[buffer(1)]]) {
@@ -331,8 +327,10 @@ float3 fromOklab(float3 lab) {
 }
 
 // paint returns the premultiplied color at p of plain color, a gradient
-// mixed in sRGB (1) or Oklab (2), or stripes (3), as scene.Paint says.
-float4 paint(float2 p, float mode, float4 rect, float4 c1, float4 c2, float4 g) {
+// mixed in sRGB (1) or Oklab (2), or stripes (3), as scene.Paint says. In a
+// target that keeps colors outside the sRGB gamut (wide, extended sRGB), an
+// Oklab gradient keeps those its mix has, which others clamp.
+float4 paint(float2 p, float mode, float4 rect, float4 c1, float4 c2, float4 g, bool wide) {
 	if (mode < 0.5f) {
 		return premul(c1);
 	}
@@ -348,7 +346,7 @@ float4 paint(float2 p, float mode, float4 rect, float4 c1, float4 c2, float4 g) 
 			return float4(0.0f);
 		}
 		float3 rgb = fromOklab(lab / a);
-		return float4((keepWide ? rgb : saturate(rgb)) * a, a);
+		return float4((wide ? rgb : saturate(rgb)) * a, a);
 	}
 	float s = dot(p - rect.xy, g.xy);
 	float phase = s - g.w * floor(s / g.w);
@@ -393,16 +391,18 @@ float dash(float2 p, float4 rect, float4 w) {
 
 fragment PSOut ps(VSOut v [[stage_in]],
                    const device Inst *insts [[buffer(0)]],
+                   constant float4 &globals [[buffer(1)]],
                    texture2d<float> maskTex [[texture(0)]],
                    texture2d<float> colorTex [[texture(1)]],
                    texture2d<float> imageTex [[texture(2)]],
                    sampler samp [[sampler(0)]]) {
 	Inst i = insts[v.inst];
 	float kind = i.params.x;
+	bool wide = globals.z > 0.5f;
 	float4 res;
 	if (kind < 0.5f) {
 		float outer = rectCoverage(v.p, i.rect, i.radii);
-		res = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad) * outer;
+		res = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad, wide) * outer;
 		float4 bw = i.uv; // top, right, bottom, left
 		if (any(bw > 0.0f)) {
 			float4 ir = float4(i.rect.xy + bw.wx, i.rect.zw - bw.yz - bw.wx);
@@ -422,7 +422,7 @@ fragment PSOut ps(VSOut v [[stage_in]],
 		}
 		res = premul(i.color) * s;
 	} else if (kind < 2.5f) {
-		float4 c = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad);
+		float4 c = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad, wide);
 		res = c * textCoverage(maskTex.sample(samp, v.tex).r, unpremul(c), i.inner.x, i.inner.y, i.radii);
 	} else if (kind < 3.5f) {
 		res = colorTex.sample(samp, v.tex) * i.color.a;
@@ -432,7 +432,7 @@ fragment PSOut ps(VSOut v [[stage_in]],
 			res.rgb = float3(dot(res.rgb, float3(0.2126f, 0.7152f, 0.0722f)));
 		}
 	} else {
-		float4 c = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad);
+		float4 c = paint(v.p, i.params.z, i.rect, i.color, i.color2, i.grad, wide);
 		float3 straight = unpremul(c);
 		float3 a = subpixelCoverage(colorTex.sample(samp, v.tex).rgb, straight, i.inner.x, i.inner.y, i.radii);
 		float3 w = a * c.a * rectCoverage(v.p, i.clip, i.clipRadii) * i.params.w;
