@@ -3,11 +3,12 @@
 The glass plugin draws Liquid Glass in native UI, the material of macOS 26
 and later: what is under an element shows through it, frosted, bent near
 its edges as through the rim of a lens, and lit along its rim, over a soft
-shadow. It also blurs what is under an element without the glass, evenly
-or fading along a gradient, as macOS softens content scrolling under a
-toolbar ([Blur](#blur)). MyGo draws both with the plugin's shaders, on the
-GPU or the CPU, so they look the same on macOS, Windows and Linux. It is
-all Go: no JavaScript package, and nothing to `mygo.Use`.
+shadow. It also draws macOS's scroll edges, which content scrolling under
+a bar fades or frosts under ([Scroll edges](#scroll-edges)), and blurs
+what is under an element without the glass, evenly or fading along a
+gradient ([Blur](#blur)). MyGo draws them with the plugin's shaders, on
+the GPU or the CPU, so they look the same on macOS, Windows and Linux. It
+is all Go: no JavaScript package, and nothing to `mygo.Use`.
 
 ```go
 import "github.com/egoist/mygo/plugins/glass"
@@ -62,6 +63,50 @@ if done.Clicked() {
 In a drawing, `glass.Paint(p, r, radius, g)` paints a pane of glass over
 what the painter painted before it.
 
+## Scroll edges
+
+`glass.ScrollEdge` is the scroll edge effect of macOS 26 and later, a
+material for an element over the edge of content that scrolls under a bar
+of controls, so that they stand out from it, as SwiftUI's `safeAreaBar`
+with `scrollEdgeEffectStyle` draws it:
+
+```go
+ui.Box(c).Fill().Children(func() {
+	ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(64, 0, 0).Children(func() { /* ... */ })
+	// The content fades into the background under the bar.
+	ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(74).PassThrough().Material(glass.ScrollEdge{})
+	// Buttons of glass float over it.
+	ui.Row(c).Absolute().Top(12).Left(12).Right(12).Gap(6).PassThrough().Children(func() {
+		// ...
+	})
+})
+```
+
+- **Soft**, the default, fades what the content scrolls over into it:
+  the background at 85% at the bar's edge, falling to nothing at the
+  element's other edge, with no blur. Make the element the bar's height
+  and 10 DIPs more, as macOS does.
+- **`Hard`** frosts the content under the bar evenly: blurred by about 6
+  DIPs, its colors saturated by a quarter, under 82% of the background,
+  with a hairline along the element's other edge, black at 10% in light
+  mode and white at 7% in dark mode. Make the element the bar's height.
+
+`Bottom` puts the bar at the element's bottom, and `Background` sets what
+the content scrolls over, the theme's `Background` unless set. Paint the
+edge before what floats on it, and let `PassThrough` take the pointer to
+the content.
+
+They are macOS 27's, measured from SwiftUI's over test patterns: in its
+layers, a soft edge replays the window's background under a gradient mask
+from 85% to nothing, 10 points past the bar, and a hard edge blurs the
+content (a Gaussian of radius 6, saturation 1.25 and 0.03 more), then
+replays the background at 82.45% over it. Gray content matches AppKit's
+within 1 of 255 in every row, light and dark; saturated colors differ by
+up to 0.05, as AppKit mixes them in the display's wider color space and
+MyGo's renderers in sRGB. macOS's window toolbars draw an edge of their
+own, an even blur under 60% of the background, which a bar of native UI
+does not have.
+
 ## Blur
 
 `glass.Blur` is a backdrop blur, a material too: what is under the element
@@ -72,9 +117,8 @@ shows through it blurred by `Radius` DIPs (the standard deviation, as CSS's
 much of `Radius` each place blurs by, as CSS's `mask-image` does. Where the
 gradient is opaque, what shows through blurs by `Radius`, where it is
 translucent by less, and where it is transparent not at all; its colors do
-not show. macOS 26 and later soften content scrolling under a toolbar so
-(the scroll edge effect): blurred the most at the top, and less and less
-further down.
+not show. Under a bar, content then blurs the most at its edge, and less
+and less further from it.
 
 ```go
 ui.Box(c).Fill().Children(func() {

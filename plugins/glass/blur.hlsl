@@ -28,5 +28,9 @@ float4 effect(float2 p, Effect e) {
 	if (w <= 0) {
 		return float4(0, 0, 0, 0);
 	}
-	return blurSample(e, p) * w;
+	float4 c = blurSample(e, p);
+	float lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+	c.rgb = clamp(lum + (c.rgb - lum) * (1 + e.p2.x) + e.p2.y * c.a, 0, c.a);
+	c += (float4(e.p3.rgb, 1) - c) * e.p2.z;
+	return c * w;
 }

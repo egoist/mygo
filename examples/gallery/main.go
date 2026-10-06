@@ -85,11 +85,11 @@ type gallery struct {
 	findQuery                                  string
 	notifyMail, notifyCalendar, notifyMessages bool
 	pathAt, pathDepth                          int
-	// The Glass page's style, whether content blurs under its toolbar,
-	// and where its lens is.
-	glassStyle int
-	edgeBlur   bool
-	lens       [2]float32
+	// The Glass page's style, what is under its toolbar (a bar of glass,
+	// a soft or hard scroll edge, or a progressive blur), and where its
+	// lens is.
+	glassStyle, glassEdge int
+	lens                  [2]float32
 	// The meeting's day and time, and the tint of its text.
 	meeting time.Time
 	tint    ui.Color
@@ -1241,17 +1241,14 @@ func (g *gallery) drawing(c *ui.Context) {
 }
 
 // glass shows Liquid Glass: a toolbar floating over content that scrolls
-// under it, softened by a progressive blur, a tinted button, and a lens
-// to drag around.
+// under it, on a bar of glass, a scroll edge or a progressive blur, a
+// tinted button, and a lens to drag around.
 func (g *gallery) glassPage(c *ui.Context) {
 	t := c.Theme()
 	ui.Text(c, "The glass plugin's Liquid Glass, a material, as macOS draws it: what is under it shows through, frosted and bent along its edges. Scroll under the toolbar, and drag the lens.").TextColor(t.TextMuted)
-	ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Gap(16).AlignItems(ui.Center).Wrap().Children(func() {
 		ui.Segmented(c, &g.glassStyle, "Regular", "Clear").Label("Glass")
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-			ui.Switch(c, &g.edgeBlur).Label("Scroll edge blur")
-			ui.Text(c, "Scroll edge blur")
-		})
+		ui.Segmented(c, &g.glassEdge, "Glass bar", "Soft edge", "Hard edge", "Progressive blur").Label("Under the toolbar")
 	})
 	style := glass.Regular
 	if g.glassStyle == 1 {
@@ -1264,7 +1261,7 @@ func (g *gallery) glassPage(c *ui.Context) {
 		// from under the toolbar, with the scroll bar below what floats
 		// over the content.
 		bars := float32(64)
-		if g.edgeBlur {
+		if g.glassEdge == 3 {
 			bars = 88
 		}
 		ui.Scroll(c).Fill().Padding(36, 16, 16).ScrollbarInsets(bars, 0, 0).Gap(12).Children(func() {
@@ -1279,18 +1276,25 @@ func (g *gallery) glassPage(c *ui.Context) {
 				})
 			}
 		})
-		// A toolbar of buttons floating on glass, or on what scrolls under
-		// it blurred, the more the nearer the top, as macOS's scroll edge
-		// effect.
-		if g.edgeBlur {
-			ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(88).PassThrough().
-				Material(glass.Blur{Radius: 6, Mask: &ui.LinearGradient{From: ui.RGB(0, 0, 0), To: ui.Transparent, Angle: 180, Start: 0.3, End: 1}})
+		// A toolbar of buttons floating on glass, or over a scroll edge as
+		// macOS's, which fades the content into the background or frosts
+		// it, or over a blur, the stronger the nearer the top.
+		if g.glassEdge > 0 {
+			edge := ui.Box(c).Absolute().Top(0).Left(0).Right(0).PassThrough()
+			switch g.glassEdge {
+			case 1:
+				edge.Height(74).Material(glass.ScrollEdge{})
+			case 2:
+				edge.Height(64).Material(glass.ScrollEdge{Hard: true})
+			case 3:
+				edge.Height(88).Material(glass.Blur{Radius: 6, Mask: &ui.LinearGradient{From: ui.RGB(0, 0, 0), To: ui.Transparent, Angle: 180, Start: 0.3, End: 1}})
+			}
 		}
 		bar := ui.Row(c).Absolute().Top(12).Left(12).Right(12).Padding(6, 8).Gap(6).AlignItems(ui.Center).Radius(26)
-		if g.edgeBlur {
-			bar.PassThrough()
-		} else {
+		if g.glassEdge == 0 {
 			bar.Material(glass.Glass{Style: style})
+		} else {
+			bar.PassThrough()
 		}
 		bar.Children(func() {
 			for _, ic := range []*ui.SVG{chevronIcon, starIcon, checkIcon} {
@@ -1496,7 +1500,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{router: ui.NewRouter("/overview"), items: []motionItem{{1, "Item 1"}, {2, "Item 2"}, {3, "Item 3"}}, nextItem: 3, size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), lens: [2]float32{110, 190}, edgeBlur: true, notes: 12, notifyMail: true, pathDepth: 4}
+	g := &gallery{router: ui.NewRouter("/overview"), items: []motionItem{{1, "Item 1"}, {2, "Item 2"}, {3, "Item 3"}}, nextItem: 3, size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), lens: [2]float32{110, 190}, glassEdge: 1, notes: 12, notifyMail: true, pathDepth: 4}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

@@ -196,7 +196,8 @@ func blurOp(s *scene.Scene, r scene.Rect, radii [4]float32, most float32, mask *
 // blurScene returns a 320×140 scene of blurs over stripes, which the
 // renderers must draw alike: an even blur, rounded; a progressive blur
 // from the top, and one at an angle within a rounded clip; a blur with a
-// plateau, half transparent; and a blur over what is partly transparent.
+// plateau, half transparent; a blur over what is partly transparent; and
+// a hard scroll edge's tone.
 func blurScene() *scene.Scene {
 	s := &scene.Scene{Width: 320, Height: 140}
 	red := scene.Color{R: 220, G: 40, B: 40, A: 255}
@@ -220,6 +221,10 @@ func blurScene() *scene.Scene {
 	blurOp(s, scene.Rect{X: 150.5, Y: 70.25, W: 60, H: 60}, [4]float32{}, 8,
 		&ui.LinearGradient{From: ui.RGBA(0, 0, 0, 0.4), To: black, Angle: 90, Start: 0.3, End: 0.7}, 0.6)
 	blurOp(s, scene.Rect{X: 230, Y: 20, W: 70, H: 100}, r4(10), 5, nil, 0)
+	// A hard scroll edge's tone, over the edge of nothing.
+	p2, p3 := blurTone{saturation: 0.25, offset: 0.03, mix: 0.6, color: [3]float32{0.9, 0.95, 1}}.params()
+	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpEffect, Rect: scene.Rect{X: 234, Y: 0, W: 86, H: 16}, Start: int32(len(s.Effects))})
+	s.Effects = append(s.Effects, scene.EffectOp{Effect: blurEffect, Blur: 4, Params: [5][4]float32{{}, {4, 4, -1, 0}, p2, p3}})
 	return s
 }
 

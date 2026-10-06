@@ -10,9 +10,8 @@ import (
 
 // Blur is a backdrop blur, a ui.Material: what was painted under the
 // element shows through it blurred, with no tint, rim or shadow. With a
-// Mask, the blur fades along a gradient, a progressive blur, as macOS 26
-// and later soften the edge where content scrolls under a toolbar (the
-// scroll edge effect):
+// Mask, the blur fades along a gradient, a progressive blur, as under a
+// bar that content scrolls under (ScrollEdge is macOS's own effect there):
 //
 //	ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(56).Material(glass.Blur{
 //		Radius: 12,
@@ -201,25 +200,48 @@ func blurWanted(r scene.Rect, line [4]float32, at0, at1, lo float32) (scene.Rect
 	return scene.Rect{X: x0, Y: y0, W: x1 - x0, H: y1 - y0}, true
 }
 
+// blurTone is what a level does to the colors it shows, which a blur's
+// levels leave as they are: saturation more saturation (0 for as is),
+// offset added to each channel, and mix of the opaque color over it, in
+// its parameters p2 and p3, as a scroll edge's hard style frosts.
+type blurTone struct {
+	saturation, offset, mix float32
+	color                   [3]float32
+}
+
+// params returns the tone's parameters, p2 and p3.
+func (t blurTone) params() (p2, p3 [4]float32) {
+	return [4]float32{t.saturation, t.offset, t.mix}, [4]float32{t.color[0], t.color[1], t.color[2], 1}
+}
+
 // blurPixels draws a level of a blur on the CPU, as its shaders do on the
 // GPU.
 type blurPixels struct {
-	line, band [4]float32
+	line, band, tone, color [4]float32
 }
 
-// Begin reads the level's mask and band.
+// Begin reads the level's mask, band and tone.
 func (px *blurPixels) Begin(op *scene.EffectOp, _ scene.Rect, _ [4]float32) {
-	px.line, px.band = op.Params[0], op.Params[1]
+	px.line, px.band, px.tone, px.color = op.Params[0], op.Params[1], op.Params[2], op.Params[3]
 }
 
 // Color returns the color of the level at the pixel center (x, y), as the
-// shaders' effect does: the backdrop, by how much the level shows there.
+// shaders' effect does: the backdrop, toned, by how much the level shows
+// there.
 func (px *blurPixels) Color(x, y float32, b *scene.BackdropImage) [4]float32 {
 	w := px.weight(x, y)
 	if w <= 0 {
 		return [4]float32{}
 	}
 	c := sampleRGBA(b, x, y)
+	t := &px.tone
+	l := 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]
+	for i := range 3 {
+		c[i] = min(max(l+(c[i]-l)*(1+t[0])+t[1]*c[3], 0), c[3])
+	}
+	for i := range c {
+		c[i] += (px.color[i] - c[i]) * t[2]
+	}
 	return [4]float32{c[0] * w, c[1] * w, c[2] * w, c[3] * w}
 }
 

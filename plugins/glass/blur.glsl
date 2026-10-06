@@ -28,5 +28,9 @@ vec4 effect(vec2 p, Effect e) {
 	if (w <= 0.0) {
 		return vec4(0.0);
 	}
-	return blurSample(e, p) * w;
+	vec4 c = blurSample(e, p);
+	float lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+	c.rgb = clamp(lum + (c.rgb - lum) * (1.0 + e.p2.x) + e.p2.y * c.a, vec3(0.0), vec3(c.a));
+	c += (vec4(e.p3.rgb, 1.0) - c) * e.p2.z;
+	return c * w;
 }

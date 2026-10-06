@@ -1,7 +1,9 @@
 // A level of the blur's effect in Metal Shading Language (see
 // scene.Effect and blurLevel), as blur.go draws it on the CPU. p0 is the
 // mask's line, from its start to its end in pixels; p1 the blur at its
-// start and at its end, and the level's band, from p1.z to p1.w.
+// start and at its end, and the level's band, from p1.z to p1.w; p2 and p3
+// its tone (blurTone): how much more saturated, the offset and how much of
+// the color p3 over it.
 
 // blurAt returns the backdrop's texel p, with its alpha, clamped to its
 // edges.
@@ -34,5 +36,9 @@ float4 effect(float2 p, Effect e, texture2d<float> backdrop) {
 	if (w <= 0.0f) {
 		return float4(0.0f);
 	}
-	return blurSample(backdrop, e, p) * w;
+	float4 c = blurSample(backdrop, e, p);
+	float lum = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+	c.rgb = clamp(lum + (c.rgb - lum) * (1.0f + e.p2.x) + e.p2.y * c.a, 0.0f, c.a);
+	c += (float4(e.p3.rgb, 1.0f) - c) * e.p2.z;
+	return c * w;
 }

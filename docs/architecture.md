@@ -798,7 +798,13 @@ build` like mygo-runtime and released with the same version.
   reads less. Bounding the levels after the first to the element, so that
   they read no unblurred content around it, measured worse against a blur
   varying per pixel than leaving them reading it: the repeated edge biases
-  more than what is around. `go generate ./plugins/glass`
+  more than what is around. A level may tone what it shows (`blurTone`:
+  saturation, an offset, an opaque color over it), which the hard style of
+  `glass.ScrollEdge`, macOS's scroll edge effect, frosts with in one
+  level; the soft style is a gradient of the background, as macOS 27's
+  replays its window's background under a mask, with no blur (measured
+  from SwiftUI's `safeAreaBar` over test patterns, its layers dumped).
+  `go generate ./plugins/glass`
   compiles both effects' shaders ahead of time on macOS
   (`shaders_darwin.go`) and on Windows (`shaders_windows.go`), with
   `internal/gen`.
