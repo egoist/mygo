@@ -391,3 +391,88 @@ func TestGestureUsesCurrentCallback(t *testing.T) {
 		t.Fatalf("stale gesture callback: %v", versions)
 	}
 }
+
+func TestCaptureTransferDuringDown(t *testing.T) {
+	var parent *Element
+	var parentMoves int
+	tt := NewTester(func(c *Context) {
+		parent = Column(c).Fill().HandleInput(func(ev InputEvent) bool {
+			if ev.Kind == InputPointerMove {
+				parentMoves++
+			}
+			return true
+		})
+		parent.Children(func() {
+			Box(c).Size(70, 70).HandleInput(func(ev InputEvent) bool {
+				if ev.Kind == InputPointerDown {
+					parent.CapturePointer(ev.Pointer.ID)
+				}
+				return true
+			})
+		})
+	}, 200, 200)
+	defer tt.rt.close()
+	tt.Pointer(InputPointerDown, touch(1), 20, 20)
+	tt.Pointer(InputPointerMove, touch(1), 160, 150)
+	tt.Pointer(InputPointerUp, touch(1), 160, 150)
+	if parentMoves != 1 || tt.rt.pressed != nil || tt.rt.pointerX != 160 || tt.rt.pointerY != 150 {
+		t.Fatalf("transferred press retained state: moves=%v pressed=%v position=%v/%v", parentMoves, tt.rt.pressed, tt.rt.pointerX, tt.rt.pointerY)
+	}
+}
+
+func TestMouseCaptureWithMultipleButtons(t *testing.T) {
+	var first, second []InputEvent
+	tt := NewTester(func(c *Context) {
+		Column(c).Children(func() {
+			Box(c).Size(100, 80).HandleInput(func(ev InputEvent) bool { first = append(first, ev); return true })
+			Box(c).Size(100, 80).HandleInput(func(ev InputEvent) bool { second = append(second, ev); return true })
+		})
+	}, 180, 180)
+	defer tt.rt.close()
+	for _, ev := range []platform.SurfaceEvent{
+		{Kind: platform.PointerDown, X: 20, Y: 20, Button: 0},
+		{Kind: platform.PointerDown, X: 20, Y: 120, Button: 1},
+		{Kind: platform.PointerUp, X: 20, Y: 120, Button: 1, Pointer: PointerInfo{Contact: true}},
+		{Kind: platform.PointerUp, X: 20, Y: 120, Button: 0},
+	} {
+		tt.send(ev)
+	}
+	var downs, ups, lost int
+	for _, ev := range first {
+		switch ev.Kind {
+		case InputPointerDown:
+			downs++
+		case InputPointerUp:
+			ups++
+		case InputPointerCaptureLost:
+			lost++
+		}
+	}
+	for _, ev := range second {
+		if ev.Kind == InputPointerDown || ev.Kind == InputPointerUp {
+			t.Errorf("capture leaked to second handler: %+v", ev)
+		}
+	}
+	if downs != 2 || ups != 2 || lost != 1 || tt.rt.pressed != nil {
+		t.Fatalf("multi-button lifecycle: down/up/lost=%v/%v/%v", downs, ups, lost)
+	}
+}
+
+func TestCompatibilityCancellationReleasesHeldButton(t *testing.T) {
+	var released []int
+	tt := NewTester(func(c *Context) {
+		Box(c).Fill().HandleInput(func(ev InputEvent) bool {
+			if ev.Kind == InputPointerUp {
+				released = append(released, ev.Button)
+			}
+			return ev.Kind == InputPointerDown
+		})
+	}, 100, 100)
+	defer tt.rt.close()
+	tt.send(platform.SurfaceEvent{Kind: platform.PointerDown, Button: 1, X: 20, Y: 20})
+	tt.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: 30, Y: 30}) // GDK motion has no changed button
+	tt.SetFocused(false)
+	if !slices.Equal(released, []int{1}) {
+		t.Fatalf("compatibility released %v", released)
+	}
+}

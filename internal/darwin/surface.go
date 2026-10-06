@@ -166,6 +166,7 @@ func (w *window) createSurface(content NSRect) {
 }
 
 func (s *surface) destroy() {
+	s.clearTouches()
 	if s.link != 0 {
 		send(s.link, "invalidate")
 		release(s.link)
@@ -425,7 +426,7 @@ func (w *window) surfaceKeyChanged(key bool) {
 
 func (s *surface) send(ev platform.SurfaceEvent) bool {
 	if ev.Kind == platform.SurfaceBlur {
-		clear(s.touchesByID)
+		s.clearTouches()
 		clear(s.penContacts)
 	}
 	if s.w.closed {
@@ -483,6 +484,16 @@ func (s *surface) mouse(kind platform.SurfaceEventKind, ev id, button int) {
 		p.Pressure, p.HasPressure = msgPressure(ev, sel("pressure")), true
 		p.TiltX, p.TiltY, p.HasTilt = float32(tilt.X*90), float32(-tilt.Y*90), true
 		p.Eraser = s.penEraser
+		if send(ev, "type") == 23 {
+			contact := send(ev, "buttonMask")&1 != 0
+			if contact && !s.penContacts[p.ID] {
+				kind = platform.PointerDown
+				send(s.w.win, "makeFirstResponder:", uintptr(s.view))
+			}
+			if !contact && s.penContacts[p.ID] {
+				kind = platform.PointerUp
+			}
+		}
 		if s.penContacts == nil {
 			s.penContacts = make(map[uint64]bool)
 		}

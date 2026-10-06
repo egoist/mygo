@@ -131,7 +131,14 @@ func (rt *engine) cancelContact(p *pointerContact) {
 		p.ev.Pointer.Contact = false
 		p.ev.Kind = platform.PointerCancel
 		if !rt.contactInput(p, rt.states[p.owner], InputPointerCancel) && p.compat {
-			rt.contactInput(p, rt.states[p.owner], InputPointerUp)
+			button := p.ev.Button
+			for b := 0; b < 3; b++ {
+				if p.buttons&(1<<b) != 0 {
+					p.ev.Button = b
+					rt.contactInput(p, rt.states[p.owner], InputPointerUp)
+				}
+			}
+			p.ev.Button = button
 		}
 		rt.loseCapture(p)
 		p.suppressed = true
@@ -205,6 +212,7 @@ func (rt *engine) routePointer(ev platform.SurfaceEvent) bool {
 	x, y := float32(ev.X), float32(ev.Y)
 	rt.pointerEvent = ev
 	p := rt.contacts[id]
+	alreadyCaptured := p != nil && p.owner != 0
 	if p == nil && (ev.Pointer.Device == PointerTouch || ev.Pointer.Device == PointerTouchpad) && (ev.Kind == platform.PointerMove || ev.Kind == platform.PointerUp) {
 		return false
 	}
@@ -235,6 +243,11 @@ func (rt *engine) routePointer(ev platform.SurfaceEvent) bool {
 		}
 		if p != nil && ev.Pointer.Device != PointerMouse {
 			rt.cancelContact(p)
+			if p.compat {
+				rt.legacyActive = false
+			}
+			delete(rt.contacts, id)
+			rt.touchChanged(platform.PointerCancel)
 		}
 		if p == nil || ev.Pointer.Device != PointerMouse {
 			p = &pointerContact{ev: ev, chain: rt.hitChain(x, y)}
@@ -246,7 +259,10 @@ func (rt *engine) routePointer(ev platform.SurfaceEvent) bool {
 		}
 		p.ev = ev
 		p.buttons |= 1 << max(ev.Button, 0)
-		if p.compat {
+		if p.compat && alreadyCaptured && ev.Pointer.Device == PointerMouse {
+			rt.pointerMove(x, y)
+			rt.contactInput(p, rt.states[p.owner], InputPointerDown)
+		} else if p.compat {
 			rt.pointerMove(x, y)
 			rt.pointerDown(x, y, ev.Button, Modifiers(ev.Mods), ev.Clicks)
 			if rt.pressed != nil && rt.pressed.input != nil && p.owner == 0 {
@@ -256,6 +272,9 @@ func (rt *engine) routePointer(ev platform.SurfaceEvent) bool {
 			if rt.contactInput(p, h, InputPointerDown) && p.owner == 0 {
 				rt.capturePointer(id, h.id, false)
 			}
+		}
+		if p.compat && p.owner != 0 && rt.pressed != nil && rt.pressed.id != p.owner {
+			rt.clearPointerPress()
 		}
 		rt.touchChanged(ev.Kind)
 		return p.owner != 0
@@ -285,7 +304,11 @@ func (rt *engine) routePointer(ev platform.SurfaceEvent) bool {
 		if ev.Kind == platform.PointerUp {
 			kind = InputPointerUp
 		}
+		rt.pointerX, rt.pointerY, rt.pointerIn = x, y, true
 		rt.contactInput(p, rt.states[p.owner], kind)
+		if ev.Kind == platform.PointerUp {
+			rt.clearPointerPress()
+		}
 	} else if compat {
 		switch ev.Kind {
 		case platform.PointerMove:

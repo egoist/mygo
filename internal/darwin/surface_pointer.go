@@ -48,17 +48,43 @@ func (s *surface) touches(ev id, phase uint, kind platform.SurfaceEventKind) {
 	}
 	touches := send(send(ev, "touchesMatchingPhase:inView:", uintptr(phase), uintptr(s.view)), "allObjects")
 	for i, n := 0, sendInt(touches, "count"); i < n; i++ {
+		if s.w.closed {
+			return
+		}
 		touch := send(touches, "objectAtIndex:", uintptr(i))
 		identity := send(touch, "identity")
-		c, exists := s.touchesByID[identity]
+		if identity == 0 {
+			continue
+		}
+		key := identity
+		c, exists := s.touchesByID[key]
+		if !exists {
+			// NSTouch instances can change between events; identity objects
+			// compare by isEqual:, not by their Objective-C address.
+			for saved, data := range s.touchesByID {
+				if sendBool(saved, "isEqual:", uintptr(identity)) {
+					key, c, exists = saved, data, true
+					break
+				}
+			}
+		}
 		if kind == platform.PointerDown {
+			if exists {
+				delete(s.touchesByID, key)
+				release(key)
+				s.send(platform.SurfaceEvent{Kind: platform.PointerCancel, Pointer: platform.PointerInfo{ID: c.id, Device: platform.PointerTouchpad}})
+				if s.w.closed {
+					return
+				}
+			}
 			if len(s.touchesByID) == 0 {
 				x, y := s.location(ev)
 				s.touchAnchor = NSPoint{X: x, Y: y}
 			}
 			s.nextTouch++
 			c = surfaceTouch{id: s.nextTouch, primary: len(s.touchesByID) == 0}
-			s.touchesByID[identity] = c
+			key = retain(identity)
+			s.touchesByID[key] = c
 		} else if !exists {
 			continue
 		}
@@ -68,7 +94,10 @@ func (s *surface) touches(ev id, phase uint, kind platform.SurfaceEventKind) {
 				Primary: c.primary, Contact: kind == platform.PointerDown || kind == platform.PointerMove,
 				NormalizedX: float32(p.X), NormalizedY: float32(1 - p.Y)}, Mods: eventMods(ev)})
 		if kind == platform.PointerUp || kind == platform.PointerCancel {
-			delete(s.touchesByID, identity)
+			if _, owned := s.touchesByID[key]; owned {
+				delete(s.touchesByID, key)
+				release(key)
+			}
 		}
 	}
 }
@@ -114,5 +143,12 @@ func surfacePointerMethods() []objc.MethodDef {
 				s.send(platform.SurfaceEvent{Kind: kind, X: x, Y: y, Pointer: platform.PointerInfo{ID: uint64(send(ev, "deviceID")) | 1<<63, Device: platform.PointerPen, Primary: true, Eraser: s.penEraser}})
 			}
 		}),
+	}
+}
+
+func (s *surface) clearTouches() {
+	for identity := range s.touchesByID {
+		delete(s.touchesByID, identity)
+		release(identity)
 	}
 }
