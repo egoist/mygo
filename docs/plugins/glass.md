@@ -3,9 +3,11 @@
 The glass plugin draws Liquid Glass in native UI, the material of macOS 26
 and later: what is under an element shows through it, frosted, bent near
 its edges as through the rim of a lens, and lit along its rim, over a soft
-shadow. MyGo draws it with the plugin's shaders, on the GPU or the CPU, so
-it looks the same on macOS, Windows and Linux. It is all Go: no
-JavaScript package, and nothing to `mygo.Use`.
+shadow. It also blurs what is under an element without the glass, evenly
+or fading along a gradient, as macOS softens content scrolling under a
+toolbar ([Blur](#blur)). MyGo draws both with the plugin's shaders, on the
+GPU or the CPU, so they look the same on macOS, Windows and Linux. It is
+all Go: no JavaScript package, and nothing to `mygo.Use`.
 
 ```go
 import "github.com/egoist/mygo/plugins/glass"
@@ -60,6 +62,54 @@ if done.Clicked() {
 In a drawing, `glass.Paint(p, r, radius, g)` paints a pane of glass over
 what the painter painted before it.
 
+## Blur
+
+`glass.Blur` is a backdrop blur, a material too: what is under the element
+shows through it blurred by `Radius` DIPs (the standard deviation, as CSS's
+`blur()` takes), with no tint, rim or shadow.
+
+`Mask` makes it a progressive blur: a `LinearGradient` whose alpha says how
+much of `Radius` each place blurs by, as CSS's `mask-image` does. Where the
+gradient is opaque, what shows through blurs by `Radius`, where it is
+translucent by less, and where it is transparent not at all; its colors do
+not show. macOS 26 and later soften content scrolling under a toolbar so
+(the scroll edge effect): blurred the most at the top, and less and less
+further down.
+
+```go
+ui.Box(c).Fill().Children(func() {
+	ui.Scroll(c).Fill().Padding(64, 16, 16).Children(func() { /* ... */ })
+	// What scrolls under the toolbar blurs, the more the nearer the top.
+	ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(88).PassThrough().
+		Material(glass.Blur{Radius: 6, Mask: &ui.LinearGradient{
+			From: ui.RGB(0, 0, 0), To: ui.Transparent, Angle: 180, Start: 0.3, End: 1,
+		}})
+	// Buttons of glass float over it.
+	ui.Row(c).Absolute().Top(12).Left(12).Right(12).Gap(6).PassThrough().Children(func() {
+		// ...
+	})
+})
+```
+
+Here the blur is whole over the top 30% of the strip and fades out below,
+and `PassThrough` lets the pointer reach the content under the strip and
+around the buttons. Paint the blur before what floats on it: glass over
+it shows the blurred content through. `Start` and `End` place the
+gradient's colors along it, as everywhere; leaving `End` 0 puts both at
+`Start`, a hard edge.
+
+A blur that varies is drawn in steps, each blurring what the step before
+drew a little more, shown where the blur wanted is more than the step's
+own, mixed with the next between them: one step for each doubling of the
+blur from two pixels, five for 12 DIPs on a Retina display. A pixel
+between two steps shows both blurs mixed, as Core Animation's variable
+blur does between the levels of its pyramid, and as the stacked
+`backdrop-filter` layers of a progressive blur on the web do. Where the
+gradient is opaque at an edge of the element in the middle of the window,
+rather than at the window's edge, the blur differs a little within a few
+pixels of that edge from one blurring each pixel by its own amount, as
+each step reads what is around the element unblurred.
+
 ## How it looks like macOS
 
 The glass follows macOS 27's, measured from AppKit's `NSGlassEffectView`,
@@ -84,7 +134,10 @@ Each pane reads what is under it, averages and blurs it, then draws with
 its own shader: a few small passes on the GPU, and a pane changes when
 anything under it does, as content scrolling under a bar. When a window
 draws on the CPU, as [Rendering](../ui/rendering.md) describes, a change
-under a pane redraws the pane and what its blur reaches around it.
+under a pane redraws the pane and what its blur reaches around it. A
+progressive blur does this for each of its steps, where each shows: on
+the CPU, a strip of 1360×176 pixels blurred by 24 takes 9 ms on an M5
+fading, 1.7 evenly, and on the GPU a few small passes for each step.
 
 Panes are rounded rectangles. They do not merge into each other when
 close, as AppKit's `NSGlassEffectContainerView` does.
