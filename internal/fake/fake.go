@@ -48,9 +48,16 @@ type Backend struct {
 	// Cleared counts ClearBrowsingData calls.
 	Cleared int
 	// Dialog results returned by the next dialog.
-	OpenResult    []string
-	SaveResult    string
-	MessageResult platform.MessageBoxResult
+	OpenResult                         []string
+	SaveResult                         string
+	MessageResult                      platform.MessageBoxResult
+	OpenError, SaveError, MessageError error
+	// SaveDialogHook can hold a dialog open or deliver a result later from
+	// the fake main loop, for testing edits/close requests during dialogs.
+	SaveDialogHook func(platform.Window, *platform.SaveDialogOptions, func(string, error))
+	PrintParent    platform.Window
+	PrintJob       *platform.PrintJob
+	PrintError     error
 	// NotificationError, when set, is what showing a notification fails
 	// with.
 	NotificationError error
@@ -317,7 +324,8 @@ type Window struct {
 	// Dropped is what DroppedFiles returns, once.
 	Dropped []string
 	// PDF holds the options of the last PrintToPDF.
-	PDF platform.PDFOptions
+	PDF      platform.PDFOptions
+	Document platform.DocumentState
 	// What the window extras were last set to.
 	Background      platform.Color
 	Progress        string
@@ -603,13 +611,17 @@ func (a app) IsURLSchemeRegistered(scheme, id, name string) bool {
 type dialogs struct{ b *Backend }
 
 func (d dialogs) ShowOpenDialog(_ platform.Window, _ *platform.OpenDialogOptions, cb func([]string, error)) {
-	cb(d.b.OpenResult, nil)
+	cb(d.b.OpenResult, d.b.OpenError)
 }
-func (d dialogs) ShowSaveDialog(_ platform.Window, _ *platform.SaveDialogOptions, cb func(string, error)) {
-	cb(d.b.SaveResult, nil)
+func (d dialogs) ShowSaveDialog(parent platform.Window, o *platform.SaveDialogOptions, cb func(string, error)) {
+	if d.b.SaveDialogHook != nil {
+		d.b.SaveDialogHook(parent, o, cb)
+		return
+	}
+	cb(d.b.SaveResult, d.b.SaveError)
 }
 func (d dialogs) ShowMessageBox(_ platform.Window, _ *platform.MessageBoxOptions, cb func(platform.MessageBoxResult, error)) {
-	cb(d.b.MessageResult, nil)
+	cb(d.b.MessageResult, d.b.MessageError)
 }
 
 type clipboard struct{ b *Backend }

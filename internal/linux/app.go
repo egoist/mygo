@@ -204,6 +204,7 @@ func initCallbacks() {
 			return 0
 		})
 		initWindowCallbacks()
+		initNativePrintCallbacks()
 		initSurfaceCallbacks()
 		initDownloadCallbacks()
 		initMenuCallbacks()

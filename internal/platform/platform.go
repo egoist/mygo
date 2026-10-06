@@ -67,6 +67,10 @@ type Backend interface {
 	Wake()
 
 	NewWindow(opts *WindowOptions, h WindowHandler) (Window, error)
+	// PrintContent opens the native print dialog and prints fixed pages.
+	// done must run exactly once on the main thread, after cancellation,
+	// failure or submission. The backend may retain job until then.
+	PrintContent(parent Window, job *PrintJob, done func(error))
 
 	SetApplicationMenu(m *Menu)
 	// PopupMenu shows a context menu. pos is relative to the window's
@@ -338,6 +342,10 @@ type Window interface {
 	// TitleBarDoubleClicked performs the platform action for a double click
 	// on a custom title bar (zoom/minimize on macOS).
 	TitleBarDoubleClicked()
+	// SetDocumentState shows a document's title, file identity and edited
+	// indicator. macOS uses representedFilename/documentEdited; other
+	// platforms append an asterisk to the title of dirty documents.
+	SetDocumentState(state DocumentState)
 	// Close destroys the window without asking WindowHandler.ShouldClose.
 	Close()
 

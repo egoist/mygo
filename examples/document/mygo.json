@@ -1,0 +1,8 @@
+{
+  "name": "MyGo Documents",
+  "identifier": "dev.egoist.mygo.documents",
+  "fileAssociations": [
+    { "name": "Text document", "ext": ["txt"], "mimeType": "text/plain" },
+    { "name": "Markdown document", "ext": ["md"], "mimeType": "text/markdown" }
+  ]
+}

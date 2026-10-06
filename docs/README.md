@@ -87,6 +87,8 @@ that must start instantly.
   keyboard shortcuts and tray icons.
 - [Desktop APIs](native.md): dialogs, notifications, the clipboard, the
   shell, displays, dark mode, power and global shortcuts.
+- [Documents and native printing](documents.md): typed document models,
+  dirty state, coordinated save/revert, recents, reopening and printable pages.
 - [Building and distributing](distribution.md): packaged apps for macOS,
   Windows and Linux, signing, installers and disk images.
 - [Auto-updates](updates.md): signed updates from GitHub releases, an S3

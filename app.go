@@ -181,16 +181,24 @@ func (a *Application) prepareQuit() bool {
 		return false
 	}
 	a.quitting = true
+	prepareDocumentQuit()
 	for _, w := range Windows() {
 		if !w.close() {
 			a.quitting = false
+			cancelDocumentQuit()
 			return false
 		}
+	}
+	if !closeWindowlessDocuments() {
+		a.quitting = false
+		cancelDocumentQuit()
+		return false
 	}
 	will := &QuitEvent{}
 	fire1(&a.onWillQuit, will)
 	if will.prevented {
 		a.quitting = false
+		cancelDocumentQuit()
 		return false
 	}
 	return true

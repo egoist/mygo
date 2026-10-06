@@ -92,6 +92,8 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
   widget is built on, and widgets of your own.
 - [Windows with native UI](windows.md): window options, title bars drawn by
   the view, and vibrancy.
+- [Documents and printing](../documents.md): document lifecycle, close
+  prevention, recent files, explicit page views and PDF export.
 - [Testing](testing.md): running a view without a window, as fast as a unit
   test.
 - [Inspector](inspector.md): the elements of a window, their boxes and
