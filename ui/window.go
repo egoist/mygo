@@ -375,7 +375,8 @@ func (h *windowHost) idle() {
 // cost little, and reports whether it did.
 func (h *windowHost) drawOnCPU(s *scene.Scene, burst bool) bool {
 	p, ok := h.gpu.(pixelPresenter)
-	if !ok || h.cpuHeavy {
+	if !ok || h.cpuHeavy || s.HasWide() {
+		// The CPU draws sRGB: a frame with wide colors is the GPU's.
 		return false
 	}
 	draw, changed := h.soft.Changes(s)

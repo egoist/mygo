@@ -216,7 +216,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 			}
 			b.add(Instance{
 				Rect: rect(op.Rect), Radii: radii, Inner: inner,
-				Color: straight(op.Color), Color2: straight(op.Color2), Border: straight(op.BorderColor), Grad: op.Gradient,
+				Color: wide(op, scene.WideColor, op.Color), Color2: wide(op, scene.WideColor2, op.Color2), Border: wide(op, scene.WideBorder, op.BorderColor), Grad: op.Gradient,
 				UV:     bw,
 				Params: [4]float32{0, dashed, float32(op.Paint), opacity(op.Opacity)},
 			}, 0)
@@ -230,7 +230,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 			}
 			in := Instance{
 				Rect: rect(op.Rect), Radii: scene.Corners(op.Rect, op.Radii, op.Continuous),
-				Color: straight(op.Color), Params: [4]float32{1, 0, sigma, opacity(op.Opacity)},
+				Color: wide(op, scene.WideColor, op.Color), Params: [4]float32{1, 0, sigma, opacity(op.Opacity)},
 			}
 			if !op.Cast.Empty() {
 				in.UV, in.Inner = rect(op.Cast), scene.Corners(op.Cast, op.CastRadii, op.Continuous)
@@ -261,6 +261,9 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 					UV:     [4]float32{float32(g.U) / aw, float32(g.V) / ah, float32(g.U+g.UW) / aw, float32(g.V+g.VH) / ah},
 					Color:  straight(g.Color),
 					Params: [4]float32{kind, 0, 0, 1},
+				}
+				if g.HasWide {
+					in.Color = g.Wide
 				}
 				if grad && !g.Colored {
 					in.Color, in.Color2, in.Grad = straight(op.Color), straight(op.Color2), op.Gradient
@@ -352,6 +355,22 @@ func rect(r scene.Rect) [4]float32 { return [4]float32{r.X, r.Y, r.W, r.H} }
 
 func straight(c scene.Color) [4]float32 {
 	return [4]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255, float32(c.A) / 255}
+}
+
+// wide returns the color of op that bit names, its wide version if it has
+// one, else c.
+func wide(op *scene.Op, bit scene.WideSet, c scene.Color) [4]float32 {
+	if w := &op.Wide; w.Set&bit != 0 {
+		switch bit {
+		case scene.WideColor:
+			return w.Color
+		case scene.WideColor2:
+			return w.Color2
+		default:
+			return w.Border
+		}
+	}
+	return straight(c)
 }
 
 func opacity(o float32) float32 {

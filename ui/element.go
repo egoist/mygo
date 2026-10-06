@@ -740,7 +740,7 @@ func (e *Element) LinearGradient(g LinearGradient) *Element {
 // 0 draws vertical stripes, 90 horizontal ones, and 45 slanting ones like
 // slashes, as to mark what is unavailable.
 func (e *Element) Stripes(c Color, width, gap, angle float32) *Element {
-	e.stripes, e.fill = stripes{c, width, gap, angle}, fillStripes
+	e.stripes, e.fill = stripes{c: c, width: width, gap: gap, angle: angle}, fillStripes
 	return e
 }
 
@@ -759,7 +759,10 @@ func (e *Element) Border(width float32, c Color) *Element {
 func (e *Element) BorderWidth(v ...float32) *Element { e.border = edges(v); return e }
 
 // BorderColor sets the color of the border.
-func (e *Element) BorderColor(c Color) *Element { e.borderC = c; return e }
+func (e *Element) BorderColor(c Color) *Element {
+	e.borderC = c
+	return e
+}
 
 // BorderStyle sets whether the border is solid, as by default, or dashed.
 func (e *Element) BorderStyle(s BorderStyle) *Element { e.borderStyle = s; return e }
@@ -801,7 +804,7 @@ func (e *Element) Radius(r ...float32) *Element {
 // spread DIPs. As CSS's box-shadow, it shows only outside the box: a
 // translucent background does not show it through.
 func (e *Element) Shadow(x, y, blur, spread float32, c Color) *Element {
-	e.shadows = append(e.shadows, shadow{x, y, blur, spread, c})
+	e.shadows = append(e.shadows, shadow{x: x, y: y, blur: blur, spread: spread, color: c})
 	return e
 }
 
@@ -834,7 +837,11 @@ func (e *Element) Italic() *Element { e.ts.italic = true; e.ts.set |= setItalic;
 func (e *Element) Font(family string) *Element { e.ts.family = family; e.ts.set |= setFamily; return e }
 
 // TextColor sets the color of text.
-func (e *Element) TextColor(c Color) *Element { e.ts.color = c; e.ts.set |= setColor; return e }
+func (e *Element) TextColor(c Color) *Element {
+	e.ts.color = c
+	e.ts.set |= setColor
+	return e
+}
 
 // LineHeight sets the height of lines of text as a multiple of the font
 // size.

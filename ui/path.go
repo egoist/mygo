@@ -222,7 +222,8 @@ func (p *Painter) drawPath(f *flatPath, width float32, c Color, g *LinearGradien
 		return
 	}
 	start := int32(len(p.s.Glyphs))
-	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: x0, Y: y0, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: c.Alpha(p.opacity).scene()})
+	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: x0, Y: y0, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H})
+	setGlyphColor(&p.s.Glyphs[start], c, p.opacity)
 	op := scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1}
 	if g != nil {
 		// The gradient spans the path's bounds.
@@ -271,6 +272,10 @@ func (p *Painter) FillPathGradient(path *Path, g LinearGradient) {
 // StrokePath draws the outline of a path, width DIPs wide, with round
 // joins and caps.
 func (p *Painter) StrokePath(path *Path, width float32, c Color) {
+	p.strokePath(path, width, c)
+}
+
+func (p *Painter) strokePath(path *Path, width float32, c Color) {
 	f := &p.rt.paths.flat
 	path.flatten(f, p.scale)
 	p.drawPath(f, width*p.scale, c, nil)

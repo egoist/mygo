@@ -21,6 +21,23 @@ func (c Color) Premul(opacity float32) [4]float32 {
 	return [4]float32{float32(c.R) / 255 * a, float32(c.G) / 255 * a, float32(c.B) / 255 * a, a}
 }
 
+// WideColors are straight RGBA colors with sRGB-encoded components that may
+// lie outside 0 to 1 (extended sRGB), for the colors of an Op that a Set bit
+// names.
+type WideColors struct {
+	Color, Color2, Border [4]float32
+	Set                   WideSet
+}
+
+// WideSet says which colors of WideColors replace those of the Op.
+type WideSet uint8
+
+const (
+	WideColor WideSet = 1 << iota
+	WideColor2
+	WideBorder
+)
+
 // Rect is a rectangle in device pixels.
 type Rect struct{ X, Y, W, H float32 }
 
@@ -102,6 +119,13 @@ type Op struct {
 	BorderColor Color
 	Dashed      bool
 
+	// Wide, when set, holds the colors of Color, Color2 and BorderColor
+	// that Color cannot, those outside the sRGB gamut. The renderers that
+	// draw a wide gamut use them; the others use Color, Color2 and
+	// BorderColor, which then hold the nearest sRGB colors. It is a value
+	// so that ops stay comparable, which the damage of frames relies on.
+	Wide WideColors
+
 	Blur float32
 	// Cast is the box casting an OpShadow, with CastRadii.
 	Cast      Rect
@@ -163,6 +187,11 @@ type Glyph struct {
 	U, V, UW, VH uint16
 	// Color tints mask glyphs; color glyphs take its alpha only.
 	Color Color
+	// Wide, when HasWide, is the color drawn in place of Color by the
+	// renderers that draw a wide gamut (see Op.Wide), with the glyph's
+	// opacity in its alpha.
+	Wide    [4]float32
+	HasWide bool
 	// Colored glyphs come from Scene.ColorAtlas, the others from
 	// Scene.MaskAtlas.
 	Colored bool
@@ -344,4 +373,20 @@ func abs(v float32) float32 {
 		return -v
 	}
 	return v
+}
+
+// HasWide reports whether an op of s has wide colors, which only a
+// renderer drawing a wide gamut shows as they are.
+func (s *Scene) HasWide() bool {
+	for i := range s.Ops {
+		if s.Ops[i].Wide.Set != 0 {
+			return true
+		}
+	}
+	for i := range s.Glyphs {
+		if s.Glyphs[i].HasWide {
+			return true
+		}
+	}
+	return false
 }

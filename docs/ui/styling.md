@@ -32,6 +32,16 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
   `CursorContextMenu`, `CursorVerticalText`, `CursorNotAllowed`,
   `CursorCrosshair`, and `CursorNone`, which hides it.
 
+`ui.Oklch(l, c, h)` is CSS's `oklch()`, and `.Alpha(a)` its `/ a`. It is a
+`ui.Color` like any other, so every color of the toolkit takes it: fills,
+borders, gradients, stripes, shadows, text, decorations, text backgrounds
+and the theme's (`t.Accent = ui.Oklch(0.6, 0.2, 240)`). One outside the
+sRGB gamut draws as the display's gamut allows where the window can (the
+GPU renderer on a Mac), and as the nearest sRGB color, found as CSS
+Color 4 does (the chroma shrinks, the lightness and hue stay), elsewhere:
+that is its `R`, `G`, `B` and `A`, which `SRGB()` returns alone. Assign
+`R`, `G` or `B` of such a color and its wide color is stale: make a new one.
+
 Colors come from `ui.RGB`, `ui.RGBA` and `ui.Hex("#2563eb")`; `Mix` blends
 two, and `Alpha` makes one translucent.
 

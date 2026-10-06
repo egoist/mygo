@@ -11,6 +11,12 @@
 #include <metal_stdlib>
 using namespace metal;
 
+// wideGamut is set for the pipeline drawing into a float16 target, where
+// colors may leave 0 to 1 (extended sRGB): gradients then keep them as they
+// are instead of clamping them to the sRGB gamut.
+constant bool wideGamut [[function_constant(0)]];
+constant bool keepWide = is_function_constant_defined(wideGamut) && wideGamut;
+
 // One instance per op, as internal/gpu builds them.
 struct Inst {
 	float4 rect;      // x, y, width, height in pixels
@@ -286,12 +292,16 @@ float boxShadow(float2 p, float4 rect, float sigma, float4 radii) {
 	return v;
 }
 
+// toLinear and toSRGB mirror the curve around zero, as extended sRGB does,
+// for the components of wide colors.
 float3 toLinear(float3 c) {
-	return select(pow((c + 0.055f) / 1.055f, float3(2.4f)), c / 12.92f, c <= 0.04045f);
+	float3 a = abs(c);
+	return sign(c) * select(pow((a + 0.055f) / 1.055f, float3(2.4f)), a / 12.92f, a <= 0.04045f);
 }
 
 float3 toSRGB(float3 c) {
-	return select(1.055f * pow(max(c, float3(0.0f)), float3(1.0f / 2.4f)) - 0.055f, c * 12.92f, c <= 0.0031308f);
+	float3 a = abs(c);
+	return sign(c) * select(1.055f * pow(a, float3(1.0f / 2.4f)) - 0.055f, a * 12.92f, a <= 0.0031308f);
 }
 
 float3 cbrt3(float3 v) { return sign(v) * pow(abs(v), float3(1.0f / 3.0f)); }
@@ -334,7 +344,11 @@ float4 paint(float2 p, float mode, float4 rect, float4 c1, float4 c2, float4 g) 
 			return float4(mix(c1.rgb * c1.a, c2.rgb * c2.a, t), a);
 		}
 		float3 lab = mix(oklab(c1.rgb) * c1.a, oklab(c2.rgb) * c2.a, t);
-		return a > 0.0f ? float4(saturate(fromOklab(lab / a)) * a, a) : float4(0.0f);
+		if (a <= 0.0f) {
+			return float4(0.0f);
+		}
+		float3 rgb = fromOklab(lab / a);
+		return float4((keepWide ? rgb : saturate(rgb)) * a, a);
 	}
 	float s = dot(p - rect.xy, g.xy);
 	float phase = s - g.w * floor(s / g.w);

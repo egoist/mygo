@@ -80,7 +80,6 @@ func (p *Painter) Glyphs(glyphs []Glyph, x, y float32, c Color) {
 	sys := p.rt.text
 	s := p.scale
 	shade := text.ShadeOf(c.R, c.G, c.B)
-	color := c.Alpha(p.opacity).scene()
 	baseline := sys.Baseline(y * s)
 	start := int32(len(p.s.Glyphs))
 	left, right := p.clip.X*s, (p.clip.X+p.clip.W)*s
@@ -108,8 +107,9 @@ func (p *Painter) Glyphs(glyphs []Glyph, x, y float32, c Color) {
 		sg := scene.Glyph{
 			X: ix + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
 			U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
-			Color: color, Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
+			Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
 		}
+		setGlyphColor(&sg, c, p.opacity)
 		if run != nil {
 			run.add(p, text.Glyph{Font: g.font, ID: g.id}, gi, pen, sg, shade, baseline)
 			continue

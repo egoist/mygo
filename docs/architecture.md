@@ -1711,7 +1711,18 @@ either.
     the GPU did, and presents it, with no command buffer: the driver
     allocates its 32 to 44 MB only for frames that run on the GPU, and the
     CPU draws a small change in a fraction of the time the GPU takes to
-    start. Its drawables are not `framebufferOnly` for that;
+    start. Its drawables are not `framebufferOnly` for that. A scene
+    with wide colors (`scene.Op.Wide`, from `ui.Color`s of `ui.Oklch`, which can
+    lie outside sRGB as CSS's `oklch()` does) is drawn another way: the
+    layer switches to `RGBA16Float` in the extended sRGB color space,
+    which keeps components outside 0 to 1 and which the system maps to
+    the display's gamut, with the pipelines and backdrop textures of that
+    format (made the first time, the shader's `wideGamut` constant set,
+    so that Oklab gradients stop clamping to sRGB), and those frames always
+    go to the GPU, as the CPU's cannot be copied into a float16 drawable.
+    The CPU, OpenGL and Direct3D renderers draw `Op.Color` and the other
+    sRGB colors of the op, which `ui` sets to the wide colors' nearest
+    sRGB ones, found as CSS Color 4 does (`internal/gamut`);
   - `internal/gpu/gl` with the shader in GLSL 3.30 or GLSL ES 3.00, which
     the driver compiles when the renderer starts, since these versions
     have no compiled form every driver takes, and drivers keep what they
