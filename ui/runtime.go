@@ -201,9 +201,12 @@ type engine struct {
 	labels       []labelNode
 	tooltipFrame uint64
 	tooltipDepth int
-	hoverSince   time.Time
-	scrollDrag   scrollDrag
-	lastPress    struct {
+	// tipsOff are the elements under the pointer as it was pressed or a
+	// menu opened, which show no tooltip until the pointer leaves them.
+	tipsOff    []uint64
+	hoverSince time.Time
+	scrollDrag scrollDrag
+	lastPress  struct {
 		at     time.Time
 		x, y   float32
 		id     uint64

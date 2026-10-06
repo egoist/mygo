@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -571,13 +572,14 @@ func (e *Element) Fit(f Fit) *Element { e.fit = f; return e }
 
 // Tooltip shows s near the pointer when it rests on the element, and
 // describes the element to assistive technology where Description does not.
+// A press or a menu hides it until the pointer leaves the element.
 func (e *Element) Tooltip(s string) *Element {
 	e.flags |= flagHover
 	if e.description == "" {
 		e.description = s
 	}
 	rt := e.c.rt
-	if !e.Hovered() || rt.pressed != nil || s == "" {
+	if !e.Hovered() || rt.pressed != nil || s == "" || slices.Contains(rt.tipsOff, e.id) {
 		return e
 	}
 	// Only the innermost element with a tooltip shows it.
@@ -601,6 +603,16 @@ func (e *Element) Tooltip(s string) *Element {
 		keepInWindow(tip, x, y, y-30)
 	})
 	return e
+}
+
+// hideTooltips hides the tooltips of the elements under the pointer, shown
+// or waiting to show, until the pointer leaves them, as a press or a menu
+// opening does.
+func (rt *engine) hideTooltips() {
+	if rt.tooltipFrame == rt.frame {
+		rt.requestFrame()
+	}
+	rt.tipsOff = append(rt.tipsOff[:0], rt.hover...)
 }
 
 // Overlay builds fn's elements above the rest of the window. Place them
