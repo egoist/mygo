@@ -53,7 +53,7 @@ your own tells it with these, as ARIA's states do on the web:
 | `Checked(on)`, `Mixed()` | whether a check box, switch, radio button, toggle or menu item is on, or partly on |
 | `Expanded(open)` | whether what the element opens shows, as a popup or a section |
 | `Value(s)` | its value, as the choice a button opening a popup shows |
-| `Range(lo, hi, value)` | the range and value of a slider, progress bar, meter or stepper |
+| `Range(lo, hi, value)`, `Step(step)` | the range and value of a slider, progress bar, meter or stepper, and how far the keys move it |
 | `Level(n)` | the rank of a heading, or how deep an item of a tree is |
 | `ActiveDescendant(e)` | the option that has the focus while the element keeps it, as the one the arrows are on in a menu or a list |
 

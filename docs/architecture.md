@@ -1092,7 +1092,12 @@ either.
   `AXHeading`, whose value is their level, ATK's heading with the `level`
   attribute, and UI Automation's Text with `HeadingLevel`. A vertical
   slider says so (`AccessVertical`: `AXOrientation`, ATK's vertical state,
-  UI Automation's Orientation), and a read-only text input is
+  UI Automation's Orientation). A range's step, how far the keys move
+  its value (`AccessNode.Step`), is UI Automation's SmallChange (and
+  LargeChange at least as much) and ATK's minimum increment, through
+  `get_minimum_increment`, as purego's callbacks return no floats for
+  `get_increment`; AppKit has none, and its increments go through the
+  keys. A read-only text input is
   `AccessReadOnly`, without `ActionSetValue`. AppKit finds an element's
   value settable when its class overrides the setter, whatever
   `isAccessibilitySelectorAllowed:` says, so elements answer the older

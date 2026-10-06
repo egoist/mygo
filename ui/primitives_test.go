@@ -528,3 +528,40 @@ func TestAttachToInlineText(t *testing.T) {
 		t.Errorf("the link at %v, the card at %v", l, card)
 	}
 }
+
+// TestRangeSteps checks how far assistive technology learns the keys move
+// the value of each kind of range.
+func TestRangeSteps(t *testing.T) {
+	a, b, s, low, high := 50.0, 50.0, 5.0, 10.0, 90.0
+	stars := 3
+	tt := NewTester(func(c *Context) {
+		Column(c).AlignItems(Start).Children(func() {
+			Slider(c, &a, 0, 200).Label("plain")
+			SliderBase(c, &b, 0, 100).Size(100, 20).Label("stepped").Step(5)
+			Stepper(c, &s, 0, 10, 0.5).Label("stepper")
+			RangeSlider(c, &low, &high, 0, 100, 10).Label("price")
+			Rating(c, &stars, 5).Label("stars")
+			Box(c).Size(80, 20).Focusable().Role(RoleSlider).Label("custom").Range(0, 1, 0.5).Step(0.25)
+			Progress(c, 0.5).Label("progress")
+		})
+	}, 400, 400)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	tree := tt.h.access
+	for _, c := range []struct {
+		role  platform.AccessRole
+		label string
+		step  float64
+	}{
+		{platform.RoleSlider, "plain", 2},
+		{platform.RoleSlider, "stepped", 5},
+		{platform.RoleStepper, "stepper", 0.5},
+		{platform.RoleSlider, "price minimum", 10},
+		{platform.RoleSlider, "stars", 1},
+		{platform.RoleSlider, "custom", 0.25},
+		{platform.RoleProgress, "progress", 0},
+	} {
+		if n := node(t, tree, c.role, c.label); n.Step != c.step {
+			t.Errorf("%s: step %v, want %v", c.label, n.Step, c.step)
+		}
+	}
+}

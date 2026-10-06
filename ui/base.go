@@ -141,6 +141,7 @@ func sliderBase(c *Context, value *float64, lo, hi, step float64) *Element {
 	if step <= 0 {
 		step = (hi - lo) / 100
 	}
+	s.accStep = step
 	switch {
 	case s.Shortcut(0, KeyLeft), s.Shortcut(0, KeyDown):
 		setValue(*value - step)
@@ -160,9 +161,14 @@ func sliderBase(c *Context, value *float64, lo, hi, step float64) *Element {
 }
 
 // Step makes the values of a slider lo and the multiples of step from it,
-// which the arrows move between, as a StepSlider's.
+// which the arrows move between, as a StepSlider's. Of a range of your own
+// (Range), it tells assistive technology how far the keys move the value.
 func (e *Element) Step(step float64) *Element {
-	if (e.widget == "Slider" || e.widget == "SliderBase") && step > 0 {
+	if step <= 0 {
+		return e
+	}
+	e.accStep = step
+	if e.widget == "Slider" || e.widget == "SliderBase" {
 		Local(e, sliderKey{}, func() sliderSettings { return sliderSettings{} }).step = step
 	}
 	return e

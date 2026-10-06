@@ -537,6 +537,15 @@ func (e *uiaElement) notifyChanges(prev platform.AccessNode) {
 	}
 }
 
+// smallChange returns how far the arrow keys move the value of a range:
+// its step, else a hundredth of it.
+func smallChange(n platform.AccessNode) float64 {
+	if n.Step > 0 {
+		return n.Step
+	}
+	return (n.Max - n.Min) / 100
+}
+
 func toggleState(n platform.AccessNode) int32 {
 	switch {
 	case n.States&platform.AccessMixed != 0:
@@ -885,8 +894,8 @@ func initUIA() {
 		}),
 		rangeOf(func(n platform.AccessNode) float64 { return n.Max }),
 		rangeOf(func(n platform.AccessNode) float64 { return n.Min }),
-		rangeOf(func(n platform.AccessNode) float64 { return (n.Max - n.Min) / 10 }),  // LargeChange
-		rangeOf(func(n platform.AccessNode) float64 { return (n.Max - n.Min) / 100 }), // SmallChange, as the arrow keys
+		rangeOf(func(n platform.AccessNode) float64 { return max(smallChange(n), (n.Max-n.Min)/10) }), // LargeChange, as Page Up and Down
+		rangeOf(smallChange), // SmallChange, as the arrow keys
 	)
 
 	uiaVtbls[ifaceValue] = vtbl(

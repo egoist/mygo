@@ -132,7 +132,8 @@ func (e *Element) Value(s string) *Element {
 }
 
 // Range tells assistive technology the range and the value of a slider,
-// progress bar, meter or stepper of your own: value, from lo to hi.
+// progress bar, meter or stepper of your own: value, from lo to hi. Step
+// tells it how far the keys move the value.
 func (e *Element) Range(lo, hi, value float64) *Element {
 	e.hasRange, e.accRange = true, [3]float64{lo, hi, value}
 	return e
@@ -386,7 +387,7 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	n.Level = e.level
 	n.Value = e.accValue
 	if e.hasRange {
-		n.Min, n.Max, n.Now = e.accRange[0], e.accRange[1], e.accRange[2]
+		n.Min, n.Max, n.Now, n.Step = e.accRange[0], e.accRange[1], e.accRange[2], e.accStep
 	}
 	// A row of a list says which of all it is, built or not, and the list
 	// how many it has.

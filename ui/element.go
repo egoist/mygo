@@ -295,6 +295,8 @@ type Element struct {
 	accValue string
 	accRange [3]float64
 	hasRange bool
+	// accStep is how far the keys move the value of a range.
+	accStep float64
 
 	// Layout results, in DIPs relative to the window.
 	x, y, w, h float32

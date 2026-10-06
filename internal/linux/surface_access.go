@@ -981,6 +981,10 @@ func initAccessCallbacks() {
 	current := valueOf(func(n platform.AccessNode) float64 { return max(n.Now, n.Min) })
 	maximum := valueOf(func(n platform.AccessNode) float64 { return n.Max })
 	minimum := valueOf(func(n platform.AccessNode) float64 { return n.Min })
+	// The step, through the GValue of get_minimum_increment: callbacks
+	// return no floats for get_increment, which AT-SPI's bridge then
+	// leaves for this.
+	increment := valueOf(func(n platform.AccessNode) float64 { return n.Step })
 	valueAndText := purego.NewCallback(func(obj, value, text ptr) {
 		if an := node(obj); an != nil && value != 0 {
 			*(*float64)(unsafe.Pointer(slot(value, 0))) = max(an.n.Now, an.n.Min)
@@ -1008,8 +1012,9 @@ func initAccessCallbacks() {
 	})
 	cbValueInit = purego.NewCallback(func(iface, data ptr) {
 		// get_current_value, get_maximum_value, get_minimum_value,
-		// get_value_and_text, get_range and set_value.
-		setIface(iface, map[int]ptr{0: current, 1: maximum, 2: minimum, 5: valueAndText, 6: valueRange, 9: setValue})
+		// get_minimum_increment, get_value_and_text, get_range and
+		// set_value.
+		setIface(iface, map[int]ptr{0: current, 1: maximum, 2: minimum, 4: increment, 5: valueAndText, 6: valueRange, 9: setValue})
 	})
 
 	getText := purego.NewCallback(func(obj ptr, start, end int32) ptr {
