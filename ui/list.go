@@ -86,6 +86,10 @@ type ListState struct {
 	// columns, by ID: restore it from saved settings, and save it as it
 	// changes.
 	Columns TableLayout
+	// Cells opts a Table into cell selection, rectangular transfer and
+	// editing. Row selection still follows clicks and navigation. Keep
+	// this state in the view, as the ListState itself; Lists ignore it.
+	Cells *TableCellState
 
 	// The place: the first row in view, and how far the list is scrolled
 	// past its top: the row's top is that far above where the content
@@ -309,7 +313,7 @@ func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i in
 	// The keys after the clicks on the rows, which came first: a letter
 	// typed right after a click goes on from the row clicked. A choice
 	// they move builds the rows again.
-	if s.cursor() != nil {
+	if s.cursor() != nil && !(flat && s.Cells != nil) {
 		f.navigate()
 	}
 	f.reorder()

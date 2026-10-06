@@ -365,6 +365,10 @@ type Element struct {
 	sort    int8
 	// colFit fits a column of a table to its cells as it lays out.
 	colFit *tableFit
+	// tableRow/tableCell keep frozen-column placement and clipping shared
+	// by painting, hit testing, scrolling and accessibility.
+	tableRow  *tableRowLayout
+	tableCell *tableCellLayout
 	// level is how deep an item of a tree is, from 1, and expandable
 	// marks one with children.
 	level      int
