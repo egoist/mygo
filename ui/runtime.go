@@ -199,6 +199,8 @@ type engine struct {
 	// prefs are the desktop's preferences, read once until they change.
 	prefs      Preferences
 	prefsKnown bool
+	locale     *Locale
+	localeTag  string
 	// theme is the default theme, which follows the appearance and the
 	// preferences, made once until they change (themeOK); each pass
 	// starts from a copy, passTheme, which the view may change.
@@ -665,6 +667,7 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	defer func() { rt.commitScope, rt.commitPage = saved, savedPage }()
 	s := e.st
 	s.page = rt.commitPage
+	s.locale = e.locale
 	if e.flags&flagPage != 0 {
 		rt.commitPage = e.id
 	}

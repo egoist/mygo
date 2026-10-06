@@ -1302,6 +1302,20 @@ either.
   `Handler.ThemeChanged`, as the appearance's does; package `ui` reads them
   once until the next, the default theme follows them (`Theme.follow`), and
   `Animate` follows reduced motion.
+- **Localization** (`ui/locale.go`). Native views inherit `App.Locale`
+  (an app override or the existing platform OS-locale reader), then a
+  window's `Locale`, with scoped view overrides in `Context`. The surface
+  connection carries the effective tag; no native platform operation is
+  added. Elements capture an immutable locale for their children, late
+  list rows, popovers and input menus. The engine starts each frame with
+  the host locale. Checked-in data generated from pinned Unicode CLDR,
+  Chromium and WinUI sources supplies Gregorian date/number formats and
+  control messages, with regional/language and per-message fallback.
+  `LocaleOptions` supplies custom strings and paired formatters/parsers.
+  A focused number edit keeps its parsing locale until blur. The tester
+  defaults to en-US and can change its locale while keeping state; preview
+  hosts can use the same hooks. Locale carries its canonical BCP 47 tag
+  for layout direction without implementing RTL behavior here.
 - **Lists** (`ui/list.go`) build only the rows in view and keep their
   place by a row, the anchor, and how far its top is above where the
   content starts, not by an offset into their content: rows are measured,

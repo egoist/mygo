@@ -32,6 +32,7 @@ type Application struct {
 	mu        sync.Mutex
 	name      string
 	version   string
+	locale    string
 	policy    ActivationPolicy
 	running   bool
 	ready     bool
@@ -386,9 +387,39 @@ func (a *Application) SetBadgeCount(n int) {
 	a.Dock.SetBadge(label)
 }
 
-// Locale returns the user's preferred locale, e.g. "en-US".
+// Locale returns the app's override, or the user's preferred OS locale,
+// e.g. "en-US". Native UI inherits it unless a window or view overrides it.
 func (a *Application) Locale() string {
+	a.mu.Lock()
+	locale := a.locale
+	a.mu.Unlock()
+	if locale != "" {
+		return locale
+	}
 	return onMainValue(func() string { return backend().App().Locale() })
+}
+
+// SetLocale overrides the locale of native UI. An empty tag restores the
+// OS default. Call it before Run or from any goroutine while running;
+// existing windows redraw, retaining their input and view state. Tags are
+// BCP 47 (e.g. "de-DE", "ar-EG-u-nu-arab"); unsupported locales fall back
+// in package ui. App-supplied labels and web pages keep their own language.
+func (a *Application) SetLocale(tag string) {
+	a.mu.Lock()
+	if a.locale == tag {
+		a.mu.Unlock()
+		return
+	}
+	a.locale = tag
+	running := a.running
+	a.mu.Unlock()
+	if running {
+		onMain(func() {
+			for _, w := range Windows() {
+				w.contentChanged()
+			}
+		})
+	}
 }
 
 // AboutPanelOptions customizes the standard about panel.

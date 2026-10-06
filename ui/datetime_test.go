@@ -43,6 +43,7 @@ func TestTimeInput(t *testing.T) {
 	alarm := time.Date(2026, 10, 4, 7, 30, 0, 0, time.UTC)
 	changes := 0
 	tt := NewTester(func(c *Context) {
+		c.SetLocale(NewLocale("en-GB"))
 		if TimeInput(c, &alarm).Label("Alarm").Changed() {
 			changes++
 		}

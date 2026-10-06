@@ -94,6 +94,8 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
   the view, and vibrancy.
 - [Testing](testing.md): running a view without a window, as fast as a unit
   test.
+- [Localization](localization.md): app, window and view locales, dates,
+  numbers, calendars, time formats and built-in translations.
 - [Inspector](inspector.md): the elements of a window, their boxes and
   styles, and the time frames take, beside the content.
 - [Rendering](rendering.md): how MyGo draws, on the GPU or the CPU.

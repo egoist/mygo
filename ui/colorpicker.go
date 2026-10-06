@@ -119,7 +119,7 @@ func ColorPicker(c *Context, color *Color) *Element {
 	x := st.hsv
 	panel.Children(func() {
 		// The square of saturation and brightness.
-		sq := Box(c).Height(t.Space(40)).Radius(t.Radius).Focusable().FocusRing(false).Role(RoleSlider).Label("Saturation and brightness")
+		sq := Box(c).Height(t.Space(40)).Radius(t.Radius).Focusable().FocusRing(false).Role(RoleSlider).Label(c.Locale().Text("Saturation and brightness"))
 		sq.flags |= flagDraggable | flagHover | flagOwnRing
 		sq.Cursor(CursorCrosshair)
 		if s := sq.st; s.pressed && s.w > 0 && s.h > 0 {
@@ -138,7 +138,7 @@ func ColorPicker(c *Context, color *Color) *Element {
 		}
 		x = st.hsv
 		sq.hasRange, sq.accRange, sq.accStep = true, [3]float64{0, 100, math.Round(x.s * 100)}, 1
-		sq.accValue = fmt.Sprintf("%.0f%% saturation, %.0f%% brightness", x.s*100, x.v*100)
+		sq.accValue = c.Locale().Text("%s%% saturation, %s%% brightness", c.Locale().FormatNumber(x.s*100, 0), c.Locale().FormatNumber(x.v*100, 0))
 		hue := hsva{x.h, 1, 1, 1}.color()
 		sq.Draw(func(p *Painter, r Rect) {
 			p.FillGradient(r, LinearGradient{From: RGB(255, 255, 255), To: hue, Angle: 90}, t.Radius)
@@ -179,7 +179,7 @@ func ColorPicker(c *Context, color *Color) *Element {
 				checkers(p, r, t.Space(1.5))
 				p.Fill(r, now, 0)
 			})
-			in := TextInput(c, &st.hex).Label("Hex").Grow(1).FontFeatures("tnum")
+			in := TextInput(c, &st.hex).Label(c.Locale().Text("Hex")).Grow(1).FontFeatures("tnum")
 			if v, err := parseHex(st.hex); err == nil && in.Changed() {
 				hex := st.hex
 				set(toHSVA(v))
@@ -192,7 +192,7 @@ func ColorPicker(c *Context, color *Color) *Element {
 		// Swatches.
 		Grid(c).ColumnTracks(Fr(1), Fr(1), Fr(1), Fr(1), Fr(1), Fr(1)).Gap(t.Space(1.5)).Children(func() {
 			for _, sw := range swatches {
-				b := ButtonBase(c).Height(t.Space(5)).Radius(t.Radius).Background(sw.color).Label(sw.name).Tooltip(sw.name)
+				b := ButtonBase(c).Height(t.Space(5)).Radius(t.Radius).Background(sw.color).Label(c.Locale().Text(sw.name)).Tooltip(c.Locale().Text(sw.name))
 				if *color == sw.color {
 					b.Border(2, t.Text)
 				}
@@ -210,7 +210,7 @@ func ColorPicker(c *Context, color *Color) *Element {
 func channelSlider(c *Context, v *float64, max float64, name string, track func(p *Painter, r Rect)) *Element {
 	t := c.theme
 	kw := t.Space(3)
-	s := sliderBase(c, v, 0, max, 0).Height(t.Space(4)).PaddingX(kw / 2).FocusRing(false).Label(name)
+	s := sliderBase(c, v, 0, max, 0).Height(t.Space(4)).PaddingX(kw / 2).FocusRing(false).Label(c.Locale().Text(name))
 	frac := fraction(*v, 0, max)
 	held := s.Animate("held", b2f(s.st.pressed), 150*time.Millisecond)
 	s.Draw(func(p *Painter, r Rect) {

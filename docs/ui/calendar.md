@@ -11,8 +11,10 @@ time of day and the location of the value.
 ui.Calendar(c, &app.day).Label("Due date")
 ```
 
-It shows six weeks from Monday, the days of the months around in gray, and
-marks today.
+It shows six weeks starting on the locale's first weekday, with localized
+month and day names. It shows adjacent months in gray and marks today.
+Moving by a month clamps to the target month's last day. See
+[localization](localization.md) for overrides and custom formatting.
 
 For a date in a compact field, use a [date input](date-input.md), which
 opens this calendar below it.

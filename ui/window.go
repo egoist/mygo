@@ -645,6 +645,13 @@ func (h *windowHost) titleBarDoubleClicked() {
 
 func (h *windowHost) isDark() bool { return h.conn.IsDark != nil && h.conn.IsDark() }
 
+func (h *windowHost) locale() string {
+	if h.conn.Locale != nil {
+		return h.conn.Locale()
+	}
+	return "en-US"
+}
+
 func (h *windowHost) preferences() platform.Preferences {
 	if h.conn.Preferences == nil {
 		return platform.Preferences{}

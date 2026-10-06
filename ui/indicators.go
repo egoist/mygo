@@ -322,7 +322,7 @@ func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element 
 			knob.flags |= flagDraggable | flagHover
 			knob.hasRange, knob.accRange, knob.accStep = true, [3]float64{lo, hi, *v}, keyStep
 			// Named after the slider, as "Price minimum".
-			knob.label, knob.nameFrom, knob.nameJoin = []string{"minimum", "maximum"}[k], e, true
+			knob.label, knob.nameFrom, knob.nameJoin = c.Locale().Text([]string{"minimum", "maximum"}[k]), e, true
 			switch {
 			case knob.Shortcut(0, KeyLeft), knob.Shortcut(0, KeyDown):
 				set(v, *v-keyStep, from, to)

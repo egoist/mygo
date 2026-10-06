@@ -23,6 +23,8 @@ type Conn struct {
 	// tells changes of as well.
 	IsDark      func() bool
 	Preferences func() platform.Preferences
+	// Locale returns the window's effective app/window/OS locale.
+	Locale func() string
 	// UIFont returns the family of the desktop's interface font where the
 	// system's text stack does not know it (Linux), else "".
 	UIFont func() string
