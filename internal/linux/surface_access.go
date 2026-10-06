@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"sync"
-	"unicode"
 	"unicode/utf8"
 	"unsafe"
 
@@ -375,13 +374,19 @@ func accessType(n platform.AccessNode) uintptr {
 	case platform.RoleSlider, platform.RoleProgress, platform.RoleMeter, platform.RoleStepper:
 		return rangeType
 	case platform.RoleTextField, platform.RoleComboBox:
-		return editableType
+		if n.Actions&platform.ActionSetValue != 0 {
+			return editableType
+		}
+		return textType
 	case platform.RoleText:
 		return textType
 	case platform.RoleList, platform.RoleTable, platform.RoleTree:
 		if n.States&platform.AccessSelectable != 0 {
 			return selectionType // choosing its rows
 		}
+	}
+	if n.Text != nil {
+		return textType
 	}
 	return nodeType
 }
@@ -533,10 +538,17 @@ func (an *accessNode) notifyChanges(prev platform.AccessNode) {
 		if prev.Now != n.Now || prev.Min != n.Min || prev.Max != n.Max {
 			gObjectNotify(an.obj, cs("accessible-value"))
 		}
-	case editableType:
-		if prev.Value != n.Value {
+	case editableType, textType:
+		beforeText, afterText := "", ""
+		if prev.Text != nil {
+			beforeText = prev.Text.Content
+		}
+		if n.Text != nil {
+			afterText = n.Text.Content
+		}
+		if beforeText != afterText {
 			// What changed, between the text both have at their ends.
-			a, b := []rune(prev.Value), []rune(n.Value)
+			a, b := []rune(beforeText), []rune(afterText)
 			start := 0
 			for start < len(a) && start < len(b) && a[start] == b[start] {
 				start++
@@ -552,8 +564,8 @@ func (an *accessNode) notifyChanges(prev platform.AccessNode) {
 				gSignalEmitText(an.obj, cs("text-insert"), int32(start), int32(len(inserted)), cs(string(inserted)))
 			}
 		}
-		if prev.SelEnd != n.SelEnd {
-			gSignalEmitInt(an.obj, cs("text-caret-moved"), int32(n.SelEnd))
+		if prev.Text != nil && n.Text != nil && prev.Text.Caret != n.Text.Caret {
+			gSignalEmitInt(an.obj, cs("text-caret-moved"), int32(n.Text.Caret))
 		}
 		if prev.SelStart != n.SelStart || prev.SelEnd != n.SelEnd {
 			if prev.SelStart != prev.SelEnd || n.SelStart != n.SelEnd {
@@ -612,7 +624,9 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 		if n.Role == platform.RoleComboBox {
 			list = append(list, st.expandable)
 		}
-		list = append(list, st.selectableText)
+		if n.Text != nil && n.Text.Selectable {
+			list = append(list, st.selectableText)
+		}
 		if n.States&platform.AccessReadOnly == 0 {
 			list = append(list, st.editable)
 		} else {
@@ -622,6 +636,14 @@ func stateList(n platform.AccessNode, focused bool) []int32 {
 			list = append(list, st.multiLine)
 		} else {
 			list = append(list, st.singleLine)
+		}
+	}
+	if n.Text != nil && n.Role != platform.RoleTextField && n.Role != platform.RoleComboBox {
+		if n.Text.Selectable {
+			list = append(list, st.selectableText)
+		}
+		if n.States&platform.AccessReadOnly != 0 {
+			list = append(list, st.readOnly)
 		}
 	}
 	// A toggle button is checked while pressed, as GTK's are.
@@ -686,7 +708,13 @@ func at(nodes []*accessNode, x, y, coords int32) ptr {
 
 // text returns the text of a node that ATK reads as text.
 func (an *accessNode) text() []rune {
-	if an.typ == textType {
+	if an.n.States&platform.AccessPassword != 0 {
+		return nil
+	}
+	if an.n.Text != nil {
+		return []rune(an.n.Text.Content)
+	}
+	if an.n.Role == platform.RoleText {
 		return []rune(an.n.Label)
 	}
 	return []rune(an.n.Value)
@@ -699,40 +727,6 @@ func span(start, end int32, n int) (int, int) {
 	}
 	a := max(0, min(int(start), n))
 	return a, max(a, int(end))
-}
-
-// segment returns the range of the character, word, or line, for the
-// granularities of ATK 0, 1, and above, at a rune offset.
-func segment(r []rune, offset, granularity int) (int, int) {
-	offset = max(0, min(offset, len(r)))
-	switch granularity {
-	case 0:
-		return offset, min(offset+1, len(r))
-	case 1:
-		start := offset
-		for start > 0 && unicode.IsSpace(r[start-1]) && (start == len(r) || unicode.IsSpace(r[start])) {
-			start-- // between words: the one before
-		}
-		for start > 0 && !unicode.IsSpace(r[start-1]) {
-			start--
-		}
-		end := start
-		for end < len(r) && !unicode.IsSpace(r[end]) {
-			end++
-		}
-		for end < len(r) && unicode.IsSpace(r[end]) {
-			end++
-		}
-		return start, end
-	}
-	start, end := offset, offset
-	for start > 0 && r[start-1] != '\n' {
-		start--
-	}
-	for end < len(r) && r[end] != '\n' {
-		end++
-	}
-	return start, min(end+1, len(r))
 }
 
 func cString(s string) ptr { return gStrdup(cs(s)) }
@@ -1017,80 +1011,8 @@ func initAccessCallbacks() {
 		setIface(iface, map[int]ptr{0: current, 1: maximum, 2: minimum, 4: increment, 5: valueAndText, 6: valueRange, 9: setValue})
 	})
 
-	getText := purego.NewCallback(func(obj ptr, start, end int32) ptr {
-		an := node(obj)
-		if an == nil {
-			return 0
-		}
-		r := an.text()
-		a, b := span(start, end, len(r))
-		return cString(string(r[a:b]))
-	})
-	charAt := purego.NewCallback(func(obj ptr, offset int32) uint32 {
-		if an := node(obj); an != nil {
-			if r := an.text(); offset >= 0 && int(offset) < len(r) {
-				return uint32(r[offset])
-			}
-		}
-		return 0
-	})
-	caret := purego.NewCallback(func(obj ptr) int32 {
-		if an := node(obj); an != nil && an.typ == editableType {
-			return int32(an.n.SelEnd)
-		}
-		return -1
-	})
-	count := purego.NewCallback(func(obj ptr) int32 {
-		if an := node(obj); an != nil {
-			return int32(len(an.text()))
-		}
-		return 0
-	})
-	selections := purego.NewCallback(func(obj ptr) int32 {
-		if an := node(obj); an != nil && an.n.SelStart != an.n.SelEnd {
-			return 1
-		}
-		return 0
-	})
-	selection := purego.NewCallback(func(obj ptr, i int32, start, end ptr) ptr {
-		an := node(obj)
-		if an == nil || i != 0 || an.n.SelStart == an.n.SelEnd {
-			setInt(start, 0)
-			setInt(end, 0)
-			return 0
-		}
-		r := an.text()
-		a, b := span(int32(an.n.SelStart), int32(an.n.SelEnd), len(r))
-		setInt(start, a)
-		setInt(end, b)
-		return cString(string(r[a:b]))
-	})
-	stringAt := func(obj ptr, offset int32, granularity int, start, end ptr) ptr {
-		an := node(obj)
-		if an == nil {
-			return 0
-		}
-		r := an.text()
-		a, b := segment(r, int(offset), granularity)
-		setInt(start, a)
-		setInt(end, b)
-		return cString(string(r[a:b]))
-	}
-	stringAtOffset := purego.NewCallback(func(obj ptr, offset, granularity int32, start, end ptr) ptr {
-		return stringAt(obj, offset, int(granularity), start, end)
-	})
-	// Boundaries of the older text_at_offset: characters, the starts and
-	// ends of words, sentences and lines.
-	textAtOffset := purego.NewCallback(func(obj ptr, offset, boundary int32, start, end ptr) ptr {
-		return stringAt(obj, offset, int([]int32{0, 1, 1, 3, 3, 3, 3}[max(0, min(boundary, 6))]), start, end)
-	})
-	cbTextInit = purego.NewCallback(func(iface, data ptr) {
-		// get_text, get_text_at_offset, get_character_at_offset,
-		// get_caret_offset, get_character_count, get_n_selections,
-		// get_selection and get_string_at_offset.
-		setIface(iface, map[int]ptr{0: getText, 2: textAtOffset, 3: charAt, 5: caret, 9: count, 11: selections,
-			12: selection, 23: stringAtOffset})
-	})
+	textFns := accessTextCallbacks(node)
+	cbTextInit = purego.NewCallback(func(iface, data ptr) { setIface(iface, textFns) })
 
 	// The rows a list chooses, which choosing a row as a click does
 	// changes: it chooses that row alone.
@@ -1149,7 +1071,7 @@ func initAccessCallbacks() {
 	})
 	insert := purego.NewCallback(func(obj, text ptr, length int32, position ptr) {
 		an := editable(obj)
-		if an == nil || position == 0 {
+		if an == nil || an.n.Text == nil || position == 0 {
 			return
 		}
 		s, r := cBytes(text, length), an.text()
@@ -1158,7 +1080,7 @@ func initAccessCallbacks() {
 		setInt(position, at+utf8.RuneCountInString(s))
 	})
 	remove := purego.NewCallback(func(obj ptr, start, end int32) {
-		if an := editable(obj); an != nil {
+		if an := editable(obj); an != nil && an.n.Text != nil {
 			r := an.text()
 			a, b := span(start, end, len(r))
 			an.act(platform.AccessSetValue, string(r[:a])+string(r[b:]))

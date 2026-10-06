@@ -87,18 +87,23 @@ type editor struct {
 	area   *area
 	// display maps runes of the text to runes of the layout, which shows
 	// bullets for passwords and holds the composition.
-	scrollX          float32
-	originX, originY float32 // content box, relative to the element
-	desiredX         float32
-	hasDesired       bool
-	undo, redo       []undoStep
-	lastEdit         time.Time
-	coalesce         bool
-	dragging         bool
-	dragUnit         int // 1 rune, 2 word, 3 line
-	dragStart        [2]int
-	pressMods        Modifiers
-	contentW         float32
+	scrollX float32
+	// A range requested by assistive technology may leave the caret out
+	// of view until the next caret move or edit, as native text fields do.
+	accessScroll        bool
+	accessScrollCaret   int
+	accessScrollVersion uint64
+	originX, originY    float32 // content box, relative to the element
+	desiredX            float32
+	hasDesired          bool
+	undo, redo          []undoStep
+	lastEdit            time.Time
+	coalesce            bool
+	dragging            bool
+	dragUnit            int // 1 rune, 2 word, 3 line
+	dragStart           [2]int
+	pressMods           Modifiers
+	contentW            float32
 }
 
 func newEditor() *editor { return &editor{} }
@@ -380,6 +385,7 @@ func (ed *editor) vertical(lines int, extend bool) {
 var emacsKeys = map[Key]Key{KeyB: KeyLeft, KeyF: KeyRight, KeyP: KeyUp, KeyN: KeyDown, KeyH: KeyBackspace, KeyD: KeyDelete}
 
 func (ed *editor) key(c *Context, st *state, k editEvent) {
+	ed.accessScroll = false
 	shift := k.mods&Shift != 0
 	m := k.mods &^ Shift
 	mac := runtime.GOOS == "darwin"
@@ -572,6 +578,7 @@ func (ed *editor) command(c *Context, name string) {
 // press puts the caret where the pointer went down, at (x, y) relative to
 // the element; double and triple clicks select words and lines.
 func (ed *editor) press(x, y float32, clicks, button int) {
+	ed.accessScroll = false
 	if button != 0 || !ed.laidOut() {
 		return
 	}
@@ -905,12 +912,17 @@ func (e *Element) layoutInput(cw, ch float32) {
 	if len(l.Lines) > 0 {
 		ed.originY += max((ch-l.Lines[0].Height)/2, 0)
 	}
-	// Keep the caret in view.
-	x, _, _ := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret)
-	if x-ed.scrollX < 0 {
-		ed.scrollX = x
-	} else if x-ed.scrollX > cw-1 {
-		ed.scrollX = x - cw + 1
+	// Keep the caret in view, unless a text range asked for the viewport.
+	if ed.accessScrollCaret != ed.caret || ed.accessScrollVersion != ed.buf.version {
+		ed.accessScroll = false
+	}
+	if !ed.accessScroll {
+		x, _, _ := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret)
+		if x-ed.scrollX < 0 {
+			ed.scrollX = x
+		} else if x-ed.scrollX > cw-1 {
+			ed.scrollX = x - cw + 1
+		}
 	}
 	ed.scrollX = max(0, min(ed.scrollX, max(l.Width-cw+1, 0)))
 }

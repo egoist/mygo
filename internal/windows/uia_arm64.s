@@ -31,3 +31,17 @@ TEXT ·uiaThunks(SB), NOSPLIT, $0-16
 	MOVD $·uiaSetValueThunk(SB), R0
 	MOVD R0, setValue+8(FP)
 	RET
+
+// UiaPoint is a homogeneous aggregate of two doubles in F0 and F1.
+TEXT ·uiaTextPointThunk(SB), NOSPLIT|NOFRAME, $0-0
+	MOVD R1, R3
+	FMOVD F0, R1
+	FMOVD F1, R2
+	MOVD $·uiaTextPointCallback(SB), R9
+	MOVD (R9), R9
+	B (R9)
+
+TEXT ·uiaTextPointEntry(SB), NOSPLIT, $0-8
+	MOVD $·uiaTextPointThunk(SB), R0
+	MOVD R0, ret+0(FP)
+	RET

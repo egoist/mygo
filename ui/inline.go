@@ -231,6 +231,11 @@ func (rt *engine) accessInline(t *platform.AccessTree, e *Element, parent int) {
 			Bounds: platform.RectF{X: float64(ch.x), Y: float64(ch.y), W: float64(ch.w), H: float64(ch.h)},
 		}
 		rt.accessDetails(ch, &n)
+		n.TextStart, n.TextEnd = ch.runes[0], ch.runes[1]
+		for p := ch.parent; p != nil && p.id != t.Nodes[parent].ID; p = p.parent {
+			n.TextStart += p.runes[0]
+			n.TextEnd += p.runes[0]
+		}
 		t.Nodes = append(t.Nodes, n)
 	}
 }

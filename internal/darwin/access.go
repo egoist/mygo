@@ -5,7 +5,6 @@ package darwin
 import (
 	"slices"
 	"sync"
-	"unicode/utf16"
 
 	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
@@ -45,8 +44,9 @@ var (
 	// postAccessInfo is NSAccessibilityPostNotificationWithUserInfo.
 	postAccessInfo uintptr
 	// actionDescription is NSAccessibilityActionDescription.
-	actionDescription uintptr
-	msgPointToPoint   func(obj id, sel objc.SEL, p NSPoint) NSPoint
+	actionDescription  uintptr
+	msgPointToPoint    func(obj id, sel objc.SEL, p NSPoint) NSPoint
+	msgAccessRectValue func(obj id, sel objc.SEL, r NSRect) id
 )
 
 func loadAccess() {
@@ -55,6 +55,7 @@ func loadAccess() {
 		postAccessInfo = mustDlsym(libAppKit, "NSAccessibilityPostNotificationWithUserInfo")
 		actionDescription = mustDlsym(libAppKit, "NSAccessibilityActionDescription")
 		purego.RegisterFunc(&msgPointToPoint, msgSendAddr)
+		purego.RegisterFunc(&msgAccessRectValue, msgSendAddr)
 	})
 }
 
@@ -215,6 +216,9 @@ func valueOf(n platform.AccessNode) id {
 		}
 		return msgFloatID(class("NSNumber"), sel("numberWithDouble:"), n.Now)
 	case n.Role == platform.RoleText:
+		if n.Text != nil {
+			return nsString(n.Text.Content)
+		}
 		return nsString(n.Label)
 	case n.Role == platform.RoleHeading && n.Level > 0:
 		return nsNumberInt(n.Level)
@@ -276,7 +280,7 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 	toggled := toggle(n.Role) && n.States&(platform.AccessChecked|platform.AccessMixed) != o.States&(platform.AccessChecked|platform.AccessMixed) ||
 		n.Role == platform.RoleDisclosure && n.States&platform.AccessExpanded != o.States&platform.AccessExpanded
 	if fresh || n.Value != o.Value || n.Now != o.Now || toggled || n.Role == platform.RoleText && n.Label != o.Label ||
-		n.Role == platform.RoleHeading && n.Level != o.Level {
+		n.Role == platform.RoleHeading && n.Level != o.Level || n.Text != nil && o.Text != nil && n.Text.Content != o.Text.Content {
 		send(obj, "setAccessibilityValue:", uintptr(valueOf(n)))
 		valueChanged = !fresh
 	}
@@ -319,12 +323,13 @@ func (el *accessElement) apply(n platform.AccessNode, fresh bool) (valueChanged 
 		}
 		send(obj, "setAccessibilityHelp:", uintptr(d))
 	}
-	if textual(n.Role) && (fresh || n.Value != o.Value || n.SelStart != o.SelStart || n.SelEnd != o.SelEnd) {
-		text := []rune(n.Value)
-		a, b := max(0, min(n.SelStart, len(text))), max(0, min(n.SelEnd, len(text)))
-		send(obj, "setAccessibilityNumberOfCharacters:", uintptr(units(text)))
-		send(obj, "setAccessibilitySelectedTextRange:", uintptr(units(text[:a])), uintptr(units(text[a:max(a, b)])))
+	if n.Text != nil && (fresh || o.Text == nil || n.Text.Content != o.Text.Content || n.SelStart != o.SelStart || n.SelEnd != o.SelEnd || n.Text.Caret != o.Text.Caret) {
+		send(obj, "setAccessibilityNumberOfCharacters:", uintptr(n.Text.Ask(platform.AccessTextQuery{Kind: platform.TextToUTF16, Start: n.Text.Length}).Start))
+		if !fresh && o.Text != nil && (n.SelStart != o.SelStart || n.SelEnd != o.SelEnd || n.Text.Caret != o.Text.Caret) {
+			postNote(obj, "AXSelectedTextChanged")
+		}
 	}
+
 	return valueChanged
 }
 
@@ -549,7 +554,7 @@ func registerAccessClass() {
 		"setAccessibilityFocused:":      platform.ActionFocus,
 		"setAccessibilityDisclosed:":    platform.ActionExpand,
 	}
-	classDef("MyGoAccessibilityElement", "NSAccessibilityElement", nil, []objc.MethodDef{
+	classDef("MyGoAccessibilityElement", "NSAccessibilityElement", nil, append([]objc.MethodDef{
 		method("accessibilityFrame", func(self id, _ objc.SEL) NSRect {
 			if el := b().accessElementOf(self); el != nil {
 				return el.s.screenRect(el.node.Bounds)
@@ -575,10 +580,18 @@ func registerAccessClass() {
 			if menuItem(el.node.Role) {
 				names = send(names, "arrayByAddingObject:", uintptr(nsString("AXMenuItemMarkChar")))
 			}
+			if el.node.Text != nil {
+				for _, name := range accessTextAttributeNames {
+					names = send(names, "arrayByAddingObject:", uintptr(nsString(name)))
+				}
+			}
 			return names
 		}),
 		method("accessibilityAttributeValue:", func(self id, cmd objc.SEL, attr id) id {
 			if el := b().accessElementOf(self); el != nil {
+				if value, ok := el.textAttribute(stringOf(attr)); ok {
+					return value
+				}
 				switch stringOf(attr) {
 				case "AXInvalid":
 					if el.node.States&platform.AccessInvalid != 0 {
@@ -609,6 +622,8 @@ func registerAccessClass() {
 			switch stringOf(attr) {
 			case "AXValue":
 				return !textual(el.node.Role) || el.node.Actions&platform.ActionSetValue != 0
+			case "AXSelectedTextRange", "AXSelectedTextRanges":
+				return el.node.Text != nil && el.node.Text.Selectable
 			case "AXFocused":
 				return true
 			case "AXDisclosing":
@@ -690,31 +705,7 @@ func registerAccessClass() {
 				el.act(platform.AccessSetValue, stringOf(value))
 			}
 		}),
-		// The text of text fields, for reading by characters and lines.
-		method("accessibilityStringForRange:", func(self id, _ objc.SEL, r nsRange) id {
-			el := b().accessElementOf(self)
-			if el == nil {
-				return 0
-			}
-			u := utf16.Encode([]rune(el.node.Value))
-			lo := int(min(r.Location, uint(len(u))))
-			hi := int(min(uint(lo)+r.Length, uint(len(u))))
-			return nsString(string(utf16.Decode(u[lo:hi])))
-		}),
-		method("accessibilityLineForIndex:", func(self id, _ objc.SEL, i int) int { return 0 }),
-		method("accessibilityRangeForLine:", func(self id, _ objc.SEL, line int) nsRange {
-			if el := b().accessElementOf(self); el != nil {
-				return nsRange{Length: uint(units([]rune(el.node.Value)))}
-			}
-			return nsRange{}
-		}),
-		method("accessibilityFrameForRange:", func(self id, _ objc.SEL, r nsRange) NSRect {
-			if el := b().accessElementOf(self); el != nil {
-				return el.s.screenRect(el.node.Bounds)
-			}
-			return NSRect{}
-		}),
-	})
+	}, accessTextMethods()...))
 }
 
 // accessViewMethods are the methods of the surface view that make it the

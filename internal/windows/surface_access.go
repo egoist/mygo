@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -23,9 +24,11 @@ import (
 // ExpandCollapse opens; ScrollItem scrolls what is in scroll containers
 // into view. Rows say which of all of their list's they are
 // (PositionInSet, SizeOfSet), as a list builds only those in view.
+// Text/Text2 and independent TextRange providers expose reading,
+// navigation, selection, caret and geometry from the shared text queries.
 //
-// Two methods take doubles, which Go callbacks cannot read: thunks in
-// assembly move their bits to integer registers first (uia_*.s).
+// Methods taking doubles or UiaPoint use assembly thunks to translate
+// their floating-point or aggregate arguments for Go callbacks (uia_*.s).
 
 var (
 	uiaCore  = systemDLL("uiautomationcore.dll")
@@ -38,7 +41,7 @@ var (
 	procUiaRaiseStructureChangedEvent          = uiaCore.NewProc("UiaRaiseStructureChangedEvent")
 	procUiaClientsAreListening                 = uiaCore.NewProc("UiaClientsAreListening")
 	procUiaDisconnectProvider                  = uiaCore.NewProc("UiaDisconnectProvider")
-	procSysAllocString                         = oleaut32.NewProc("SysAllocString")
+	procSysAllocString                         = oleaut32.NewProc("SysAllocStringLen")
 	procSysFreeString                          = oleaut32.NewProc("SysFreeString")
 	procSafeArrayCreateVector                  = oleaut32.NewProc("SafeArrayCreateVector")
 	procSafeArrayPutElement                    = oleaut32.NewProc("SafeArrayPutElement")
@@ -75,6 +78,8 @@ const (
 	ifaceExpandCollapse
 	ifaceSelection
 	ifaceScrollItem
+	ifaceText
+	ifaceText2
 	uiaIfaces
 )
 
@@ -90,11 +95,13 @@ var uiaIIDs = [uiaIfaces]GUID{
 	guid("d847d3a5-cab0-4a98-8c32-ecb45c59ad24"), // IExpandCollapseProvider
 	guid("fb8b03af-3bdf-48d4-bd36-1a65793be168"), // ISelectionProvider
 	guid("2360c714-4bf1-4b26-ba65-9b21316127eb"), // IScrollItemProvider
+	guid("3589c92c-63f3-4367-99bb-ada653b77cf2"), // ITextProvider
+	guid("0dc5e6ed-3e16-4bf1-8f9a-a979878bc195"), // ITextProvider2
 }
 
 // Pattern identifiers of UI Automation, by interface.
 var uiaPatterns = map[uintptr]int{10000: ifaceInvoke, 10001: ifaceSelection, 10002: ifaceValue, 10003: ifaceRangeValue,
-	10005: ifaceExpandCollapse, 10010: ifaceSelectionItem, 10015: ifaceToggle, 10017: ifaceScrollItem}
+	10005: ifaceExpandCollapse, 10010: ifaceSelectionItem, 10015: ifaceToggle, 10017: ifaceScrollItem, 10014: ifaceText, 10024: ifaceText2}
 
 const (
 	uiaRootObjectID  = -25
@@ -193,6 +200,7 @@ type uiaElement struct {
 	n        platform.AccessNode
 	parent   *uiaElement
 	children []*uiaElement
+	ranges   map[*uiaTextRange]bool
 }
 
 // uiaTree is what UI Automation sees of a surface.
@@ -275,6 +283,8 @@ func (e *uiaElement) supports(i int) bool {
 	case ifaceValue:
 		return n.Role == platform.RoleTextField || n.Role == platform.RolePopUpButton || n.Role == platform.RoleComboBox ||
 			n.Role == platform.RoleColorWell
+	case ifaceText, ifaceText2:
+		return n.Text != nil && n.States&platform.AccessPassword == 0
 	case ifaceExpandCollapse:
 		// A menu button expands into its menu, as WinUI's DropDownButton.
 		return n.Role == platform.RolePopUpButton || n.Role == platform.RoleTreeItem || n.Role == platform.RoleMenuButton ||
@@ -304,7 +314,9 @@ func setBool(p uintptr, v bool) {
 func setFloat(p uintptr, v float64) { *(*float64)(native(p)) = v }
 
 func bstr(s string) uintptr {
-	b, _, _ := procSysAllocString.Call(uintptr(unsafe.Pointer(u16(s))))
+	units := utf16.Encode([]rune(s))
+	units = append(units, 0)
+	b, _, _ := procSysAllocString.Call(uintptr(unsafe.Pointer(&units[0])), uintptr(len(units)-1))
 	return b
 }
 
@@ -378,6 +390,8 @@ func (e *uiaElement) disconnect() {
 	if has(procUiaDisconnectProvider) {
 		procUiaDisconnectProvider.Call(e.ptr(ifaceSimple))
 	}
+	e.n = platform.AccessNode{}
+	e.parent, e.children, e.tree = nil, nil, nil
 	e.release()
 }
 
@@ -416,6 +430,7 @@ func (t *uiaTree) update(tree *platform.AccessTree) {
 			e = newUIAElement(t)
 			fresh[i] = true
 		}
+		e.followTextRanges(prev[i], n)
 		e.n, e.children = n, nil
 		t.nodes[n.ID] = e
 		order[i] = e
@@ -484,6 +499,14 @@ func (t *uiaTree) update(tree *platform.AccessTree) {
 // the last tree.
 func (e *uiaElement) notifyChanges(prev platform.AccessNode) {
 	n := e.n
+	if n.Text != nil && prev.Text != nil {
+		if prev.Text.Content != n.Text.Content {
+			procUiaRaiseAutomationEvent.Call(e.ptr(ifaceSimple), 20015)
+		}
+		if prev.SelStart != n.SelStart || prev.SelEnd != n.SelEnd || prev.Text.Caret != n.Text.Caret {
+			procUiaRaiseAutomationEvent.Call(e.ptr(ifaceSimple), 20014)
+		}
+	}
 	changed := func(property int, before, after variant) {
 		procUiaRaiseAutomationPropertyChangedEvent.Call(e.ptr(ifaceSimple), uintptr(property),
 			uintptr(unsafe.Pointer(&before)), uintptr(unsafe.Pointer(&after)))
@@ -635,6 +658,7 @@ func initUIA() {
 		cb(func(this uintptr) uintptr { return uintptr(uiaOf(this).release()) }),
 	}
 	vtbl := func(methods ...uintptr) []uintptr { return append(slices.Clone(unknown), methods...) }
+	initUIAText(unknown)
 	live := func(this uintptr) (*uiaElement, uintptr) {
 		e := uiaOf(this)
 		if e.dead {
@@ -971,6 +995,10 @@ func (e *uiaElement) property(id int, v *variant) {
 		}
 	}
 	switch id {
+	case 30040: // IsTextPatternAvailable
+		*v = boolVariant(e.supports(ifaceText))
+	case 30119: // IsTextPattern2Available
+		*v = boolVariant(e.supports(ifaceText2))
 	case uiaControlTypeProperty:
 		*v = variant{VT: vtI4, Val: uint64(uiaControlTypes[n.Role])}
 	case uiaLocalizedControlProperty:

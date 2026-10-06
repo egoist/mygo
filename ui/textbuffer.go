@@ -18,6 +18,7 @@ import (
 type buffer struct {
 	s     string
 	n     int // runes
+	u     int // UTF-16 units
 	paras []paragraph
 	// version counts the edits.
 	version uint64
@@ -30,6 +31,7 @@ type buffer struct {
 // laid out.
 type paragraph struct {
 	rune, byte int
+	unit       int // UTF-16 offset, for native text range queries
 	layout     *text.Layout
 	compose    string
 	h          float32
@@ -40,13 +42,19 @@ func (b *buffer) set(s string) {
 	clear(b.paras) // the layouts of the old text
 	b.paras = append(b.paras[:0], paragraph{})
 	r := 0
+	u := 0
 	for i, c := range s {
 		r++
+		u++
+		if c > 0xffff {
+			u++
+		}
 		if c == '\n' {
-			b.paras = append(b.paras, paragraph{rune: r, byte: i + 1})
+			b.paras = append(b.paras, paragraph{rune: r, byte: i + 1, unit: u})
 		}
 	}
 	b.n = r
+	b.u = u
 	b.version++
 }
 
@@ -77,6 +85,9 @@ func (b *buffer) end(p int) int {
 // byteOf returns the byte of the text rune i starts at.
 func (b *buffer) byteOf(i int) int {
 	i = max(0, min(i, b.n))
+	if i == b.n {
+		return len(b.s)
+	}
 	p := b.para(i)
 	pr := &b.paras[p]
 	nr, nb := b.next(p)
@@ -93,6 +104,69 @@ func (b *buffer) byteOf(i int) int {
 
 // slice returns the runes from a to z.
 func (b *buffer) slice(a, z int) string { return b.s[b.byteOf(a):b.byteOf(z)] }
+
+// unitOf converts a rune offset to UTF-16, scanning only its paragraph.
+func (b *buffer) unitOf(i int) int {
+	i = max(0, min(i, b.n))
+	if i == b.n {
+		return b.u
+	}
+	p := b.paras[b.para(i)]
+	u := p.unit
+	for _, r := range b.s[p.byte:b.byteOf(i)] {
+		u++
+		if r > 0xffff {
+			u++
+		}
+	}
+	return u
+}
+
+// runeOf converts a byte or UTF-16 offset, rounding an interior byte or
+// surrogate to the start of its rune. Native ranges cannot split a rune.
+func (b *buffer) runeOf(i int, utf16 bool) int {
+	limit := len(b.s)
+	if utf16 {
+		limit = b.u
+	}
+	i = max(0, min(i, limit))
+	if i == limit {
+		return b.n
+	}
+	p := sort.Search(len(b.paras), func(p int) bool {
+		if utf16 {
+			return b.paras[p].unit > i
+		}
+		return b.paras[p].byte > i
+	}) - 1
+	pr := b.paras[max(p, 0)]
+	off := pr.byte
+	if utf16 {
+		off = pr.unit
+	}
+	rn := pr.rune
+	for _, r := range b.s[pr.byte:] {
+		size := utf8.RuneLen(r)
+		if size < 0 {
+			size = 1
+		}
+		if utf16 {
+			size = 1
+			if r > 0xffff {
+				size++
+			}
+		}
+		if off+size > i {
+			break
+		}
+		off += size
+		rn++
+		if off == i {
+			break
+		}
+	}
+	return rn
+}
 
 // runeOffset returns the byte of s rune i starts at.
 func runeOffset(s string, i int) int {
@@ -123,22 +197,31 @@ func (b *buffer) replace(a, z int, s string) (first int, old []paragraph, after 
 	pa, pz := b.para(a), b.para(z)
 	old = slices.Clone(b.paras[pa : pz+1])
 	runes := utf8.RuneCountInString(s)
+	ua, uz := b.unitOf(a), b.unitOf(z)
 	var added []paragraph
 	r := a
+	u := ua
 	for i, c := range s {
 		r++
+		u++
+		if c > 0xffff {
+			u++
+		}
 		if c == '\n' {
-			added = append(added, paragraph{rune: r, byte: ba + i + 1})
+			added = append(added, paragraph{rune: r, byte: ba + i + 1, unit: u})
 		}
 	}
 	dr, db := runes-(z-a), len(s)-(bz-ba)
+	du := u - uz
 	b.s = b.s[:ba] + s + b.s[bz:]
 	b.n += dr
+	b.u += du
 	b.paras = slices.Replace(b.paras, pa+1, pz+1, added...)
-	b.paras[pa] = paragraph{rune: b.paras[pa].rune, byte: b.paras[pa].byte}
+	b.paras[pa] = paragraph{rune: b.paras[pa].rune, byte: b.paras[pa].byte, unit: b.paras[pa].unit}
 	for k := pa + 1 + len(added); k < len(b.paras); k++ {
 		b.paras[k].rune += dr
 		b.paras[k].byte += db
+		b.paras[k].unit += du
 	}
 	b.version++
 	return pa, old, len(added) + 1

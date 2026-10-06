@@ -411,10 +411,29 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if st := e.st; (st.vw <= 0 || st.vh <= 0) && e.w > 0 && e.h > 0 {
 		n.States |= platform.AccessOffscreen
 	}
+	rt.describeText(e, n)
+	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
+		if ed.readOnly {
+			n.States |= platform.AccessReadOnly
+		} else if !disabled {
+			n.Actions |= platform.ActionSetValue
+		}
+		if ed.multiline {
+			n.States |= platform.AccessMultiline
+		}
+		n.Placeholder = ed.placeholder
+		if ed.password {
+			n.States |= platform.AccessPassword
+			n.Value = ""
+		} else {
+			n.Value = ed.buf.s
+			n.SelStart, n.SelEnd = ed.selection()
+		}
+	}
 	if disabled {
 		return
 	}
-	if e.flags&(flagFocusable|flagEditable|flagChoosable) != 0 {
+	if e.flags&(flagFocusable|flagEditable|flagChoosable|flagSelectable) != 0 {
 		// Focusing a row a list chooses chooses it.
 		n.States |= platform.AccessFocusable
 		n.Actions |= platform.ActionFocus
@@ -428,23 +447,7 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if e.expandable {
 		n.Actions |= platform.ActionExpand
 	}
-	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
-		if ed.readOnly {
-			n.States |= platform.AccessReadOnly
-		} else {
-			n.Actions |= platform.ActionSetValue
-		}
-		if ed.multiline {
-			n.States |= platform.AccessMultiline
-		}
-		n.Placeholder = ed.placeholder
-		if ed.password {
-			n.States |= platform.AccessPassword
-		} else {
-			n.Value = ed.buf.s
-			n.SelStart, n.SelEnd = ed.selection()
-		}
-	}
+
 }
 
 // accessibilityOn starts describing frames for assistive technology,
@@ -525,13 +528,38 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 		}
 		rt.focusOn(s)
 		s.editor.queue = append(s.editor.queue, editEvent{kind: editCommand, text: "selectAll"}, editEvent{kind: editInsert, text: ev.Text})
+	case platform.AccessSetSelection:
+		rt.textSelection(s, ev.From, ev.To)
+	case platform.AccessScrollText:
+		if d := s.accessText; d != nil && d.live() {
+			if ed := d.ed; ed != nil && ed.area != nil {
+				i := max(0, min(ev.From, ed.buf.n))
+				if ev.Caret < 0 {
+					i = max(0, min(ev.To, ed.buf.n))
+				}
+				_, y, h := ed.area.caretAt(ed, i, 0)
+				if ev.Caret < 0 {
+					y += float64(h - s.ch)
+				}
+				ed.area.setScroll(max(y, 0))
+				s.scrollTo(s.scrollX, max(y, 0))
+			} else if ed := d.ed; ed != nil && ed.layout != nil && s.flags&flagEditable != 0 {
+				i := max(0, min(ev.From, ed.buf.n))
+				x, _, _ := ed.layout.Caret(ed.displayIndex(i))
+				ed.scrollX = max(0, min(x, max(ed.layout.Width-ed.contentW+1, 0)))
+				ed.accessScroll, ed.accessScrollCaret, ed.accessScrollVersion = true, ed.caret, ed.buf.version
+				rt.reveal(s.id)
+			} else {
+				d.revealText(ev.From)
+			}
+		}
 	}
 	rt.requestFrame()
 }
 
 // focusOn gives an element the keyboard focus, as Tab would.
 func (rt *engine) focusOn(s *state) {
-	if s.flags&(flagFocusable|flagEditable) == 0 {
+	if s.flags&(flagFocusable|flagEditable|flagSelectable) == 0 {
 		return
 	}
 	if rt.focused != s.id {
