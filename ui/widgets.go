@@ -569,41 +569,6 @@ func (e *Element) intrinsicSize() (w, h float32) {
 // Fit sets how an Image fills its box.
 func (e *Element) Fit(f Fit) *Element { e.fit = f; return e }
 
-// Tooltip shows s near the pointer when it rests on the element, and
-// describes the element to assistive technology where Description does not.
-func (e *Element) Tooltip(s string) *Element {
-	e.flags |= flagHover
-	if e.description == "" {
-		e.description = s
-	}
-	rt := e.c.rt
-	if !e.Hovered() || rt.pressed != nil || s == "" {
-		return e
-	}
-	// Only the innermost element with a tooltip shows it.
-	if rt.tooltipFrame == rt.frame && rt.tooltipDepth >= e.depth {
-		return e
-	}
-	rt.tooltipFrame, rt.tooltipDepth = rt.frame, e.depth
-	wait := 600*time.Millisecond - e.c.now.Sub(rt.hoverSince)
-	if wait > 0 {
-		e.c.After(wait)
-		return e
-	}
-	c := e.c
-	t := c.theme
-	x, y := rt.pointerX+12, rt.pointerY+18
-	fill, text := t.inverse()
-	Overlay(c, func() {
-		tip := Box(c).Absolute().Left(x).Top(y).MaxWidth(t.Space(80)).Padding(t.Space(1.25), t.Space(2)).Radius(t.Space(1.25)).
-			Background(fill).TextColor(text).FontSize(t.FontSize - 1).PassThrough().Role(RoleTooltip)
-		tip.Shadow(0, 2, 8, 0, RGBA(0, 0, 0, 0.2))
-		tip.Children(func() { Text(c, s) })
-		keepInWindow(tip, x, y, y-30)
-	})
-	return e
-}
-
 // Overlay builds fn's elements above the rest of the window. Place them
 // with Absolute, Left and Top, in DIPs relative to the window, or beside
 // another element with AttachTo. Each, as it goes with the focus in it,

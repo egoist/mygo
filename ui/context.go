@@ -335,6 +335,8 @@ type state struct {
 	parent         uint64
 	flags          uint32
 	cursor         Cursor
+	// tip marks an element with a tooltip (TooltipBase).
+	tip bool
 
 	clicks, rightClicks, doubleClicks int
 	// pressMods are the modifiers held as the pointer went down on the
