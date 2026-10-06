@@ -35,18 +35,19 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
   `CursorContextMenu`, `CursorVerticalText`, `CursorNotAllowed`,
   `CursorCrosshair`, and `CursorNone`, which hides it.
 
-`ui.Oklch(l, c, h)` is CSS's `oklch()`, and `.Alpha(a)` its `/ a`. It is a
-`ui.Color` like any other, so the toolkit's colors take it: fills,
-borders, gradients, stripes, shadows, dividers, text, decorations, text
-backgrounds, the glass's tint and the theme's
-(`t.Accent = ui.Oklch(0.6, 0.2, 240)`). One outside the sRGB gamut draws
-as it is in a window on a Mac whose screen shows more (Display P3), and as
-the nearest sRGB color, found as CSS Color 4 does (the chroma shrinks,
-the lightness and hue stay), elsewhere and in SVG pictures, which are
-bitmaps: that is its `R`, `G`, `B` and `A`, which `SRGB()` returns alone.
-`Mix` and transitions mix the wide colors, and the mix has one only where
-it is outside sRGB. Assign `R`, `G` or `B` of such a color and its wide
-color is stale: make a new one.
+`ui.Oklch(l, c, h)` is CSS's `oklch()`; `.Alpha(a)` is its `/ a`. It
+returns a `ui.Color` like any other, so fills, borders, gradients,
+stripes, shadows, dividers, text, decorations, text backgrounds, the
+glass's tint and the theme (`t.Accent = ui.Oklch(0.6, 0.2, 240)`) all take
+it. It can name colors outside sRGB, more vivid than most screens show.
+Such a color keeps both: its real value, drawn when the window is on a
+screen that shows a wider range (Display P3 on recent Macs), and the
+nearest sRGB color, chosen as CSS does (less saturated, same lightness and
+hue). That fallback is its `R`, `G` and `B`, and is what sRGB screens,
+Linux, Windows and SVG pictures draw; `SRGB()` returns it without the real
+value. `Mix` and transitions mix the real values: a mix back inside sRGB
+is an ordinary color. Don't assign `R`, `G` or `B` of such a color, as the
+real value would no longer match: make a new one.
 
 Colors come from `ui.RGB`, `ui.RGBA` and `ui.Hex("#2563eb")`; `Mix` blends
 two, and `Alpha` makes one translucent.
