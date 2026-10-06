@@ -46,13 +46,14 @@ type host interface {
 // the view function, lays them out, paints them and routes input to the
 // elements of the last frame. Main thread only, except where noted.
 type engine struct {
-	view     func(*Context)
-	host     host
-	c        Context
-	text     *text.System
-	scene    scene.Scene
-	painter  Painter
-	glyphRun glyphRun
+	textInputClosed bool
+	view            func(*Context)
+	host            host
+	c               Context
+	text            *text.System
+	scene           scene.Scene
+	painter         Painter
+	glyphRun        glyphRun
 	// measured are the last spans laid out outside elements (richParams).
 	measured     [8]measuredSpans
 	nextMeasured int
@@ -534,8 +535,8 @@ func (rt *engine) prune() {
 				rt.pressed, unpressed = nil, true
 			}
 			if !rt.keptAlive(s) {
-				if s.editor != nil {
-					s.editor.detachRich()
+				if s.textAdapter != nil {
+					s.textAdapter.release()
 				}
 				delete(rt.states, id)
 				if rt.scrollDrag.st == s {
@@ -633,9 +634,10 @@ func (rt *engine) armTimer() {
 }
 
 func (rt *engine) close() {
+	rt.textInputClosed = true
 	for _, s := range rt.states {
-		if s.editor != nil {
-			s.editor.detachRich()
+		if s.textAdapter != nil {
+			s.textAdapter.release()
 		}
 	}
 	if rt.timer != nil {
@@ -695,6 +697,15 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	s.cursor, s.tip = e.cursor, e.tip
 	s.role = e.role
 	s.input, s.caret, s.takesText = e.inputFn, e.caret, e.takesText
+	if s.textClient != e.textClient {
+		if s.textAdapter != nil {
+			s.textAdapter.release()
+		}
+		s.textClient, s.textAdapter = e.textClient, nil
+	}
+	if s.textClient != nil && s.textAdapter == nil {
+		s.textAdapter = &textInputAdapter{rt: rt, id: s.id}
+	}
 	if e.flags&(flagEditable|flagSelectable) != 0 && s.cursor == 0 {
 		s.cursor = CursorText + 1
 	}

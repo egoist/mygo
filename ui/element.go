@@ -246,9 +246,10 @@ type Element struct {
 
 	// Input the element takes itself (HandleInput), and where the caret of
 	// the text it takes is (TextCaret).
-	inputFn   func(InputEvent) bool
-	caret     Rect
-	takesText bool
+	inputFn    func(InputEvent) bool
+	textClient TextInputClient
+	caret      Rect
+	takesText  bool
 
 	// Content.
 	text     string

@@ -76,9 +76,6 @@ func TestComposeOver(handle uintptr, text string, caret int, commit bool, from, 
 	if s == nil {
 		return false
 	}
-	if !commit && from >= 0 {
-		s.send(platform.SurfaceEvent{Kind: platform.TextComposition, CompositionStart: true})
-	}
 	if from >= 0 {
 		_, cursor, _ := TestSurrounding(handle)
 		gtkIMContextDeleteSurrounding(s.im, int32(from-cursor), int32(length))

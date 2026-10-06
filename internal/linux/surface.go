@@ -80,7 +80,6 @@ var (
 	cbSurfaceMotion, cbSurfaceLeave, cbSurfaceScroll, cbSurfaceKey  ptr
 	cbSurfaceFocusIn, cbSurfaceFocusOut, cbSurfaceScale, cbIMCommit ptr
 	cbIMPreedit, cbIMPreeditEnd, cbSurfaceRender, cbAreaContext     ptr
-	cbIMPreeditStart                                                ptr
 	cbSurfaceUnrealize, cbSurfaceTick                               ptr
 	surfaceCursors                                                  = map[platform.Cursor]ptr{}
 )
@@ -133,11 +132,12 @@ func loadSurface() {
 }
 
 type surface struct {
-	w      *window
-	area   ptr // GtkGLArea, or GtkDrawingArea
-	im     ptr // GtkIMContext
-	cr     ptr // the cairo context of the draw signal in progress
-	cursor platform.Cursor
+	clientComposition platform.InputComposition
+	w                 *window
+	area              ptr // GtkGLArea, or GtkDrawingArea
+	im                ptr // GtkIMContext
+	cr                ptr // the cairo context of the draw signal in progress
+	cursor            platform.Cursor
 	// gl tells that the area is a GtkGLArea, lazy that it makes no
 	// context until UseGPU, rendering that its render signal is in
 	// progress, rendered that it ran.
@@ -183,7 +183,6 @@ func (w *window) createSurface() {
 	s.lazy = s.gl && !now
 	connect(s.im, "commit", cbIMCommit, data)
 	connect(s.im, "preedit-changed", cbIMPreedit, data)
-	connect(s.im, "preedit-start", cbIMPreeditStart, data)
 	connect(s.im, "preedit-end", cbIMPreeditEnd, data)
 	s.connectSystem(data)
 	w.surface = s
@@ -489,10 +488,11 @@ func (s *surface) SetCursor(c platform.Cursor) {
 
 func (s *surface) SetTextInput(t platform.TextInputState) {
 	active, caret := t.Active, t.Caret
-	s.input = t
-	if s.textInput && !active {
+	if s.textInput && (!active || s.input.Client != t.Client) {
+		s.clientComposition.Reset()
 		gtkIMContextReset(s.im)
 	}
+	s.input = t
 	s.textInput, s.caret = active, caret
 	if active {
 		r := gdkRectangle{X: int32(caret.X), Y: int32(caret.Y), Width: max(int32(caret.W), 1), Height: int32(caret.H + 0.5)}
@@ -501,6 +501,9 @@ func (s *surface) SetTextInput(t platform.TextInputState) {
 }
 
 func (s *surface) send(ev platform.SurfaceEvent) bool {
+	if ev.Kind == platform.PointerDown || ev.Kind == platform.SurfaceBlur {
+		s.clientComposition.Reset()
+	}
 	if s.w.closed {
 		return false
 	}
@@ -741,6 +744,7 @@ func initSurfaceCallbacks() {
 		if field[int32](event, 0) == 9 { // GDK_KEY_RELEASE
 			kind = platform.KeyReleased
 		} else {
+			s.clientComposition.Reset()
 			if s.lastKey != 0 {
 				gdkEventFree(s.lastKey)
 			}
@@ -772,14 +776,13 @@ func initSurfaceCallbacks() {
 	})
 	cbIMCommit = purego.NewCallback(func(im, str, data ptr) {
 		if s := b().surfaceOf(data); s != nil {
+			if c := s.input.Client; c != nil {
+				s.clientComposition.Replace(c, nil, goStr(str))
+				return
+			}
 			if text := goStr(str); text != "" {
 				s.send(platform.SurfaceEvent{Kind: platform.TextInput, Text: text})
 			}
-		}
-	})
-	cbIMPreeditStart = purego.NewCallback(func(im, data ptr) {
-		if s := b().surfaceOf(data); s != nil {
-			s.send(platform.SurfaceEvent{Kind: platform.TextComposition, CompositionStart: true})
 		}
 	})
 	cbIMPreedit = purego.NewCallback(func(im, data ptr) {
@@ -791,10 +794,20 @@ func initSurfaceCallbacks() {
 		var cursor int32
 		gtkIMContextGetPreedit(s.im, &str, nil, &cursor)
 		text := takeStr(str)
+		if c := s.input.Client; c != nil {
+			s.clientComposition.Reset()
+			caret := platform.UTF16Len(string([]rune(text)[:min(int(cursor), len([]rune(text)))]))
+			c.SetMarkedText(nil, text, platform.TextRange{Start: caret, End: caret})
+			return
+		}
 		s.send(platform.SurfaceEvent{Kind: platform.TextComposition, Text: text, Caret: min(int(cursor), utf8.RuneCountInString(text))})
 	})
 	cbIMPreeditEnd = purego.NewCallback(func(im, data ptr) {
 		if s := b().surfaceOf(data); s != nil {
+			if c := s.input.Client; c != nil {
+				s.clientComposition.End(c)
+				return
+			}
 			s.send(platform.SurfaceEvent{Kind: platform.TextComposition})
 		}
 	})

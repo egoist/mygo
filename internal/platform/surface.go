@@ -91,6 +91,9 @@ type TextInputState struct {
 	// of macOS's press and hold replace the letter they decorate.
 	Text       string
 	Start, End int
+	// Client supplies full text and geometry for a custom text element. The
+	// Text/Start/End snapshot remains the plain-widget and TextCaret fallback.
+	Client TextInputClient
 }
 
 // SurfaceNative holds the native objects of a Surface.
@@ -134,7 +137,7 @@ const (
 	// TextInput inserts Text, typed or committed by an input method.
 	TextInput
 	// TextComposition shows Text as the input method's composition, its
-	// caret at rune Caret; an empty Text without CompositionStart ends it.
+	// caret at rune Caret; an empty Text ends the composition.
 	TextComposition
 	// SurfaceFocus and SurfaceBlur report the surface gaining or losing
 	// the keyboard.
@@ -179,9 +182,6 @@ type SurfaceEvent struct {
 	Repeat  bool
 	Text    string
 	Caret   int
-	// CompositionStart begins preedit before text or surrounding deletions
-	// arrive. Plain editors may ignore it; rich editors begin a transaction.
-	CompositionStart bool
 	// Replace makes TextInput replace, and TextComposition compose over,
 	// the runes From to To of the last TextInputState.Text, instead of the
 	// selection.

@@ -17,15 +17,14 @@ type headless struct {
 	img         raster.Renderer
 	// requested is set when the view asks for a frame, from any goroutine
 	// for invalidate.
-	requested         atomic.Bool
-	dark              bool
-	prefs             platform.Preferences
-	clipboard         string
-	clipHTML, clipRTF string
-	cursor            Cursor
-	ime               platform.TextInputState
-	opened            []string
-	openErr           error
+	requested atomic.Bool
+	dark      bool
+	prefs     platform.Preferences
+	clipboard string
+	cursor    Cursor
+	ime       platform.TextInputState
+	opened    []string
+	openErr   error
 	// later are what the view asked to run after the frame, as a window
 	// posts them to the main thread.
 	later  []func()
@@ -60,20 +59,13 @@ func (h *headless) setCursor(c Cursor)                         { h.cursor = c }
 func (h *headless) setTextInput(t platform.TextInputState)     { h.ime = t }
 func (h *headless) updateAccessibility(t *platform.AccessTree) { h.keepAccess(t) }
 func (h *headless) readClipboard() string                      { return h.clipboard }
-func (h *headless) writeClipboard(s string)                    { h.clipboard, h.clipHTML, h.clipRTF = s, "", "" }
-
-func (h *headless) readRichClipboard() (string, string, string) {
-	return h.clipboard, h.clipHTML, h.clipRTF
-}
-func (h *headless) writeRichClipboard(plain, html, rtf string) {
-	h.clipboard, h.clipHTML, h.clipRTF = plain, html, rtf
-}
-func (h *headless) startDrag()                        {}
-func (h *headless) titleBarDoubleClicked()            {}
-func (h *headless) isDark() bool                      { return h.dark }
-func (h *headless) preferences() platform.Preferences { return h.prefs }
-func (h *headless) titleBar() TitleBar                { return h.bar }
-func (h *headless) invalidate()                       { h.requested.Store(true) }
+func (h *headless) writeClipboard(s string)                    { h.clipboard = s }
+func (h *headless) startDrag()                                 {}
+func (h *headless) titleBarDoubleClicked()                     {}
+func (h *headless) isDark() bool                               { return h.dark }
+func (h *headless) preferences() platform.Preferences          { return h.prefs }
+func (h *headless) titleBar() TitleBar                         { return h.bar }
+func (h *headless) invalidate()                                { h.requested.Store(true) }
 
 // openURL notes the link, and gives done the error FailOpenURL set before
 // the next frame, as a window gives it after the system opened the link.
@@ -406,13 +398,7 @@ func (t *Tester) TextCaret() (Rect, bool) {
 func (t *Tester) Clipboard() string { return t.h.clipboard }
 
 // SetClipboard sets the clipboard's text.
-func (t *Tester) SetClipboard(s string) { t.h.writeClipboard(s) }
-
-// SetRichClipboard offers alternative representations to a rich editor.
-func (t *Tester) SetRichClipboard(plain, html, rtf string) { t.h.writeRichClipboard(plain, html, rtf) }
-
-// RichClipboard returns the representations copied by a rich editor.
-func (t *Tester) RichClipboard() (plain, html, rtf string) { return t.h.readRichClipboard() }
+func (t *Tester) SetClipboard(s string) { t.h.clipboard = s }
 
 // Cursor returns the pointer shape the view shows.
 func (t *Tester) Cursor() Cursor { return t.h.cursor }

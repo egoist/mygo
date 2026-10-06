@@ -25,7 +25,6 @@ var (
 )
 
 func initSystemCallbacks() {
-	initRichClipboardCallbacks()
 	cbThemeChanged = purego.NewCallback(func(a, b, data ptr) { theBackend.h.ThemeChanged() })
 	cbMonitorsChanged = purego.NewCallback(func(display, monitor, data ptr) { theBackend.h.DisplaysChanged() })
 	cbPortalSignal = purego.NewCallback(portalSignal)
@@ -121,9 +120,9 @@ func (clipboard) ReadHTML() string {
 	return string(unsafe.Slice(*(**byte)(unsafe.Pointer(&data)), n))
 }
 
-// WriteHTML retains the historical plain-text fallback while offering the
-// HTML target through the same ownership machinery as rich selections.
-func (c clipboard) WriteHTML(markup string) { c.WriteRichText(markup, markup, "") }
+// WriteHTML stores the markup as text: GTK 3 only offers rich targets
+// through ownership callbacks.
+func (c clipboard) WriteHTML(markup string) { c.WriteText(markup) }
 
 func (clipboard) ReadImage() []byte {
 	pix := gtkClipboardWaitForImage(clip())

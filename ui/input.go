@@ -62,7 +62,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.TextInput:
 		rt.editEvent(rt.replaced(editEvent{kind: editInsert, text: ev.Text}, ev))
 	case platform.TextComposition:
-		rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret, begin: ev.CompositionStart}, ev))
+		rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret}, ev))
 	case platform.SurfaceCommand:
 		rt.editEvent(editEvent{kind: editCommand, text: ev.Text})
 	case platform.SurfaceFocus:
@@ -699,9 +699,19 @@ func (rt *engine) shortcut(id uint64, mods Modifiers, key Key) bool {
 }
 
 func (rt *engine) editEvent(ev editEvent) {
-	if ev.begin {
-		s := rt.states[rt.focused]
-		if s == nil || s.editor == nil || s.editor.rich == nil {
+	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocused && s.flags&flagDisabled == 0 {
+		if ev.kind == editInsert || ev.kind == editCompose {
+			var r *TextInputRange
+			if ev.replace {
+				v := TextInputRange{Start: ev.from, End: ev.to}
+				r = &v
+			}
+			if ev.kind == editInsert {
+				s.textAdapter.ReplaceText(r, ev.text)
+			} else {
+				caret := platform.UTF16Len(string([]rune(ev.text)[:max(0, min(ev.caret, len([]rune(ev.text))))]))
+				s.textAdapter.SetMarkedText(r, ev.text, TextInputRange{Start: caret, End: caret})
+			}
 			return
 		}
 	}
@@ -733,7 +743,16 @@ const imeContext = 512
 func (rt *engine) updateTextInput() {
 	var t platform.TextInputState
 	base := 0
-	if s := rt.states[rt.focused]; s != nil && s.editor == nil && s.input != nil && s.takesText && rt.windowFocused {
+	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocused && s.flags&flagDisabled == 0 {
+		t.Active, t.Client = true, s.textAdapter
+		sel := s.textAdapter.Selection()
+		caret := sel.Caret()
+		if bounds, _, ok := s.textAdapter.BoundsForRange(TextInputRange{Start: caret, End: caret}); ok {
+			t.Caret = bounds
+		} else {
+			t.Caret = platform.RectF{X: float64(s.x), Y: float64(s.y), W: 1, H: float64(s.h)}
+		}
+	} else if s != nil && s.editor == nil && s.input != nil && s.takesText && rt.windowFocused {
 		// An element taking text itself: no text around the caret.
 		t.Active = true
 		t.Caret = platform.RectF{X: float64(s.x + s.caret.X), Y: float64(s.y + s.caret.Y), W: float64(s.caret.W), H: float64(s.caret.H)}
@@ -750,6 +769,11 @@ func (rt *engine) updateTextInput() {
 		}
 	}
 	if t != rt.ime.state {
+		if t.Client != rt.ime.state.Client {
+			if old, ok := rt.ime.state.Client.(*textInputAdapter); ok {
+				old.release()
+			}
+		}
 		rt.ime.state, rt.ime.base = t, base
 		rt.host.setTextInput(t)
 	}
@@ -758,6 +782,12 @@ func (rt *engine) updateTextInput() {
 // replaced makes an edit replace the runes an input method named, from
 // the text it was last given, rather than the selection.
 func (rt *engine) replaced(ev editEvent, sev platform.SurfaceEvent) editEvent {
+	if rt.ime.state.Client != nil {
+		if sev.Replace {
+			ev.replace, ev.from, ev.to = true, sev.From, sev.To
+		}
+		return ev
+	}
 	if sev.Replace && rt.ime.state.Active {
 		n := len([]rune(rt.ime.state.Text))
 		from, to := max(0, min(sev.From, n)), max(0, min(sev.To, n))

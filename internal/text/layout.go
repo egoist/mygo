@@ -873,11 +873,8 @@ func advance(l shapedLine) float32 {
 	return max(x1-x0, 0)
 }
 
-// ParagraphRTL reports the base direction used by the text layout. Rich-text
-// interchange uses it to map physical clipboard alignment to logical alignment.
-func ParagraphRTL(s string) bool { return isRTL([]rune(s)) }
-
-// isRTL is ParagraphRTL for the runes already held by a layout.
+// isRTL reports whether a paragraph is right-to-left: whether its first
+// strongly directional rune is.
 func isRTL(para []rune) bool {
 	for _, r := range para {
 		switch {

@@ -66,9 +66,6 @@ ui.Field(c, "Email", func() {
 
 ## Without a look
 
-For editable character and paragraph styles, links and rich clipboard
-interchange, use the [rich-text editor](rich-text-editor.md).
-
 `ui.TextInputBase` and `ui.TextAreaBase` are text inputs without padding,
 background, border or corners, for inputs of your own design: see
 [custom widgets](custom-widgets.md).

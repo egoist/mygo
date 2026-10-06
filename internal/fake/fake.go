@@ -27,15 +27,14 @@ type Backend struct {
 	wake   chan struct{}
 	quit   chan struct{}
 
-	mu                sync.Mutex
-	windows           []*Window
-	appMenu           *platform.Menu
-	updates           []*platform.MenuItem
-	hotkeys           map[int]string
-	clipboard         string
-	clipHTML, clipRTF string
-	theme             string
-	prefs             platform.Preferences
+	mu        sync.Mutex
+	windows   []*Window
+	appMenu   *platform.Menu
+	updates   []*platform.MenuItem
+	hotkeys   map[int]string
+	clipboard string
+	theme     string
+	prefs     platform.Preferences
 	// Watching reports whether power events were asked for, Awake counts the
 	// KeepAwake calls not released yet.
 	Watching bool
@@ -622,17 +621,11 @@ func (c clipboard) ReadText() string {
 }
 func (c clipboard) WriteText(s string) {
 	c.b.mu.Lock()
-	c.b.clipboard, c.b.clipHTML, c.b.clipRTF = s, "", ""
+	c.b.clipboard = s
 	c.b.mu.Unlock()
 }
-func (c clipboard) ReadHTML() string   { c.b.mu.Lock(); defer c.b.mu.Unlock(); return c.b.clipHTML }
-func (c clipboard) WriteHTML(s string) { c.WriteRichText("", s, "") }
-func (c clipboard) ReadRTF() string    { c.b.mu.Lock(); defer c.b.mu.Unlock(); return c.b.clipRTF }
-func (c clipboard) WriteRichText(text, markup, rtf string) {
-	c.b.mu.Lock()
-	c.b.clipboard, c.b.clipHTML, c.b.clipRTF = text, markup, rtf
-	c.b.mu.Unlock()
-}
+func (clipboard) ReadHTML() string           { return "" }
+func (clipboard) WriteHTML(string)           {}
 func (clipboard) ReadImage() []byte          { return nil }
 func (clipboard) WriteImage([]byte) error    { return nil }
 func (c clipboard) Clear()                   { c.WriteText("") }

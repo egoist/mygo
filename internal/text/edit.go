@@ -251,8 +251,8 @@ func (b *Boundaries) Reset(runes []rune) {
 	b.graphemes = append(b.graphemes, len(runes))
 }
 
-// GraphemeOffsets returns a copy of all grapheme starts, followed by the
-// text's end, for immutable documents that retain their boundaries.
+// GraphemeOffsets returns a copy of the grapheme starts and text's end for
+// a retained shaped-text layout.
 func (b *Boundaries) GraphemeOffsets() []int { return slices.Clone(b.graphemes) }
 
 // NextGrapheme returns the end of the grapheme starting at or containing i.
