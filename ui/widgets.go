@@ -66,7 +66,7 @@ func (e *Element) AnimateWith(key any, target float32, d time.Duration, ease Eas
 		st.anims[key] = &anim{from: target, to: target, value: target}
 		return target
 	}
-	if a.to != target && e.c.rt.preferences().ReduceMotion {
+	if e.c.rt.preferences().ReduceMotion {
 		// Without the motion.
 		a.from, a.to, a.value = target, target, target
 	}

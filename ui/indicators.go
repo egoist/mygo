@@ -303,7 +303,8 @@ func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element 
 	dragging := Local(e, "knob", func() int { return -1 })
 	st := e.st
 	at := func() float64 {
-		return lo + float64(max(0, min(1, (c.rt.pointerX-st.cx)/max(st.cw, 1))))*(hi-lo)
+		x, _ := st.local(c.rt.pointerX, c.rt.pointerY)
+		return lo + float64(max(0, min(1, (x+st.x-st.cx)/max(st.cw, 1))))*(hi-lo)
 	}
 	if !st.pressed {
 		*dragging = -1

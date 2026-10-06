@@ -90,12 +90,19 @@ func Icon(c *Context, s *SVG) *Element {
 // Icon draws the shapes of an SVG fitted in r, in color c.
 func (p *Painter) Icon(s *SVG, r Rect, c Color) { p.drawIcon(s, r, c, 0) }
 
-// Rotate turns an Icon by degrees clockwise around its center, as a
-// spinner does:
-//
-//	spin := ui.Icon(c, loader)
-//	spin.Rotate(spin.Loop("spin", time.Second, ui.Linear) * 360)
-func (e *Element) Rotate(degrees float32) *Element { e.rotate = degrees; return e }
+// Rotate rotates an element clockwise around its transform origin. Icons
+// retain their existing rotation of the SVG artwork around its center;
+// use Transform(Rotation(degrees)) to rotate an icon's entire border box.
+// Rotation changes no layout sizes.
+func (e *Element) Rotate(degrees float32) *Element {
+	finiteTransform(degrees)
+	if e.kind == kindIcon {
+		e.rotate = degrees
+	} else {
+		e.transform = e.transform.Then(Rotation(degrees))
+	}
+	return e
+}
 
 // Grayscale draws the element's image, or icon, in shades of gray.
 func (e *Element) Grayscale() *Element { e.gray = true; return e }
@@ -204,7 +211,7 @@ func (p *Painter) drawIcon(s *SVG, r Rect, c Color, rotate float32) {
 	start := int32(len(p.s.Glyphs))
 	c = c.Alpha(p.opacity)
 	p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{X: x, Y: y, W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: c.scene(), Wide: p.glyphWide(c)})
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1})
+	p.add(scene.Op{Kind: scene.OpGlyphs, Start: start, End: start + 1})
 }
 
 // rasterizeIcon draws the mask of the icon job: the coverage of its SVG,
@@ -266,7 +273,7 @@ func (p *Painter) drawSVG(s *SVG, box Rect, fit Fit, radius [4]float32, current 
 		b := p.snap(box).Intersect(d)
 		op.Rect, op.Src = b, scene.Rect{X: b.X - d.X, Y: b.Y - d.Y, W: b.W, H: b.H}
 	}
-	p.s.Ops = append(p.s.Ops, op)
+	p.add(op)
 }
 
 // picture returns the picture of an SVG, drawing it unless a recent frame

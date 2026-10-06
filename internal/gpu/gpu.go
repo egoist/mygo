@@ -29,6 +29,7 @@ import (
 	"strings"
 	"unsafe"
 
+	"github.com/egoist/mygo/internal/raster"
 	"github.com/egoist/mygo/internal/scene"
 )
 
@@ -125,6 +126,10 @@ type Builder struct {
 	// drawables do; without it, their nearest sRGB colors.
 	Wide  bool
 	stack []clip
+	// Affine scenes use shared CPU composition and GPU image presentation.
+	affine      raster.Renderer
+	affineImage *scene.Image
+	affineScene scene.Scene
 }
 
 // Pass is what a pass computing a backdrop reads, the layout of the
@@ -175,8 +180,38 @@ type clip struct {
 
 // Build turns the operations of s into Instances and Batches. image
 // returns the renderer's texture of an image, uploading it when new or
-// changed, or 0 to leave the image out.
-func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
+// changed, or 0 to leave the image out. It returns the scene to present:
+// affine composition replaces it with an image on a transparent clear,
+// so a translucent scene clear is not blended into the frame twice.
+func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene.Scene {
+	if s.HasTransforms() {
+		damage := b.affine.Render(s)
+		m := &b.affine.Image
+		if b.affineImage == nil || b.affineImage.W != m.W || b.affineImage.H != m.H {
+			b.affineImage = scene.NewImageRGBA(m.W, m.H, make([]byte, 4*m.W*m.H))
+		}
+		for _, d := range damage {
+			for y := d.Min.Y; y < d.Max.Y; y++ {
+				for x := d.Min.X; x < d.Max.X; x++ {
+					at := y*m.Stride + 4*x
+					p, q := m.Pix[at:][:4], b.affineImage.Pix[at:][:4]
+					q[0], q[1], q[2], q[3] = p[2], p[1], p[0], p[3]
+				}
+			}
+		}
+		if len(damage) > 0 {
+			b.affineImage.Changed()
+		}
+		b.affineScene.Reset(s.Width, s.Height, scene.Color{})
+		box := scene.Rect{W: float32(s.Width), H: float32(s.Height)}
+		b.affineScene.Ops = append(b.affineScene.Ops, scene.Op{Kind: scene.OpImage, Rect: box, Src: box, Image: b.affineImage})
+		s = &b.affineScene
+	} else if b.affineImage != nil {
+		b.affine.Release()
+		b.affineImage = nil
+		b.affineScene = scene.Scene{}
+	}
+
 	b.Instances = b.Instances[:0]
 	b.Batches = b.Batches[:0]
 	b.Backdrops = b.Backdrops[:0]
@@ -307,6 +342,14 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) {
 			}, tex)
 		}
 	}
+	return s
+}
+
+// Release frees retained affine composition buffers.
+func (b *Builder) Release() {
+	b.affine.Release()
+	b.affineImage = nil
+	b.affineScene = scene.Scene{}
 }
 
 // add appends an instance within the current clip, starting a batch when

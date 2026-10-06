@@ -88,6 +88,8 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
   and values that ease to their targets.
 - [Transitions](transitions.md): elements that move, resize and recolor
   smoothly as the layout changes, and come and go.
+- [Transforms and motion](transforms.md): visual translation, scaling and
+  rotation, interruptible springs, and timed keyframe sequences.
 - [Custom widgets](custom-widgets.md): the widgets without a look that every
   widget is built on, and widgets of your own.
 - [Windows with native UI](windows.md): window options, title bars drawn by

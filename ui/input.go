@@ -109,7 +109,7 @@ func (rt *engine) hitChain(x, y float32) []uint64 { return rt.appendHitChain(nil
 func (rt *engine) appendHitChain(chain []uint64, x, y float32) []uint64 {
 	for i := len(rt.hits) - 1; i >= 0; i-- {
 		h := &rt.hits[i]
-		if !h.r.Contains(x, y) {
+		if !rt.contains(h.st, h.r, x, y) {
 			continue
 		}
 		for s := h.st; s != nil; s = rt.states[s.parent] {
@@ -159,20 +159,24 @@ func (rt *engine) pointerMove(x, y float32) {
 	if d := &rt.scrollDrag; d.st != nil {
 		s := d.st
 		g := d.bars(rt.c.theme.scrollbarWidth())
+		lx, ly := s.local(x, y)
+		lx += s.x
+		ly += s.y
 		if d.horizontal {
 			if travel := g.hTrack.W - 4 - g.h.W; travel > 0 {
-				s.scrollTo(dragTo(d.from, x-d.start, travel, d.contentW-float64(s.w), s.contentW-float64(s.w)), s.scrollY)
+				s.scrollTo(dragTo(d.from, lx-d.start, travel, d.contentW-float64(s.w), s.contentW-float64(s.w)), s.scrollY)
 			}
 		} else if travel := g.vTrack.H - 4 - g.v.H; travel > 0 {
-			s.scrollTo(s.scrollX, dragTo(d.from, y-d.start, travel, d.contentH-float64(s.h), s.contentH-float64(s.h)))
+			s.scrollTo(s.scrollX, dragTo(d.from, ly-d.start, travel, d.contentH-float64(s.h), s.contentH-float64(s.h)))
 		}
 		rt.pointerX, rt.pointerY = x, y
 		rt.requestFrame()
 		return
 	}
 	if rt.pressed != nil && rt.pointerIn {
-		rt.pressed.dragX += x - rt.pointerX
-		rt.pressed.dragY += y - rt.pointerY
+		dx, dy := rt.pressed.vector(x-rt.pointerX, y-rt.pointerY)
+		rt.pressed.dragX += dx
+		rt.pressed.dragY += dy
 		if rt.pressed.flags&(flagTrackPointer|flagDraggable|flagEditable|flagSelectable) != 0 {
 			rt.requestFrame()
 		} else {
@@ -258,7 +262,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 		// It takes the moves and the release.
 		rt.pressed, rt.pressButton = h, button
 		h.pressed = true
-		h.pressX, h.pressY = x-h.x, y-h.y
+		h.pressX, h.pressY = h.local(x, y)
 		return
 	}
 	if button == 1 && rt.menuPress(chain, x, y) {
@@ -292,10 +296,10 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 	}
 	rt.pressed, rt.pressButton = target, button
 	target.pressed, target.pressMods = true, mods
-	target.pressX, target.pressY = x-target.x, y-target.y
+	target.pressX, target.pressY = target.local(x, y)
 	if target.editor != nil {
 		target.editor.pressMods = mods
-		target.editor.press(x-target.x, y-target.y, clicks, button)
+		target.editor.press(target.pressX, target.pressY, clicks, button)
 	}
 	if clicks == 2 && button == 0 {
 		target.doubleClicks++
@@ -330,7 +334,7 @@ func (rt *engine) pointerUp(button, clicks int) {
 	if s.editor != nil {
 		s.editor.release()
 	}
-	inside := Rect{s.vx, s.vy, s.vw, s.vh}.Contains(rt.pointerX, rt.pointerY)
+	inside := rt.contains(s, Rect{s.x, s.y, s.w, s.h}, rt.pointerX, rt.pointerY)
 	if inside && s.flags&flagDisabled == 0 {
 		switch button {
 		case 0:
@@ -354,7 +358,12 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise bool) {
 		dx, dy = dy, 0
 	}
 	for _, id := range chain {
-		if s := rt.states[id]; s != nil && scrollBy(s, dx, dy) {
+		s := rt.states[id]
+		if s == nil {
+			continue
+		}
+		sx, sy := s.vector(dx, dy)
+		if scrollBy(s, sx, sy) {
 			rt.requestFrame()
 			return
 		}
@@ -730,10 +739,11 @@ func (rt *engine) updateTextInput() {
 	if s := rt.states[rt.focused]; s != nil && s.editor == nil && s.input != nil && s.takesText && rt.windowFocused {
 		// An element taking text itself: no text around the caret.
 		t.Active = true
-		t.Caret = platform.RectF{X: float64(s.x + s.caret.X), Y: float64(s.y + s.caret.Y), W: float64(s.caret.W), H: float64(s.caret.H)}
+		r := transformRect(s.world, Rect{s.x + s.caret.X, s.y + s.caret.Y, s.caret.W, s.caret.H})
+		t.Caret = platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
 	} else if s != nil && s.editor != nil && s.flags&flagEditable != 0 && !s.editor.readOnly && rt.windowFocused {
 		ed := s.editor
-		r := ed.caretRect(s)
+		r := transformRect(s.world, ed.caretRect(s))
 		t.Active = true
 		t.Caret = platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
 		if !ed.password {
@@ -836,7 +846,7 @@ func (e *Element) Hovered() bool {
 		// The hover holds the elements under the pointer as the press
 		// began.
 		s := e.st
-		return rt.pointerIn && Rect{s.vx, s.vy, s.vw, s.vh}.Contains(rt.pointerX, rt.pointerY)
+		return rt.pointerIn && rt.contains(s, Rect{s.x, s.y, s.w, s.h}, rt.pointerX, rt.pointerY)
 	}
 	return true
 }
@@ -849,8 +859,8 @@ func (rt *engine) pressMove(x0, y0, x1, y1 float32) {
 		if s == nil || s == rt.pressed || s.flags&flagHover == 0 {
 			continue
 		}
-		r := Rect{s.vx, s.vy, s.vw, s.vh}
-		if r.Contains(x0, y0) != r.Contains(x1, y1) {
+		r := Rect{s.x, s.y, s.w, s.h}
+		if rt.contains(s, r, x0, y0) != rt.contains(s, r, x1, y1) {
 			rt.requestFrame()
 			return
 		}
@@ -862,7 +872,7 @@ func (rt *engine) pressMove(x0, y0, x1, y1 float32) {
 func (e *Element) Pressed() bool {
 	e.flags |= flagClickable | flagHover
 	s := e.st
-	return s.pressed && !e.disabled() && Rect{s.vx, s.vy, s.vw, s.vh}.Contains(e.c.rt.pointerX, e.c.rt.pointerY)
+	return s.pressed && !e.disabled() && e.c.rt.contains(s, Rect{s.x, s.y, s.w, s.h}, e.c.rt.pointerX, e.c.rt.pointerY)
 }
 
 // Focused reports whether the element has the keyboard focus.
@@ -925,12 +935,12 @@ func (e *Element) PointerPosition() (x, y float32, over bool) {
 	e.flags |= flagTrackPointer
 	rt := e.c.rt
 	s := e.st
-	x, y = rt.pointerX-s.x, rt.pointerY-s.y
-	return x, y, rt.pointerIn && Rect{s.vx, s.vy, s.vw, s.vh}.Contains(rt.pointerX, rt.pointerY)
+	x, y = s.local(rt.pointerX, rt.pointerY)
+	return x, y, rt.pointerIn && rt.contains(s, Rect{s.x, s.y, s.w, s.h}, rt.pointerX, rt.pointerY)
 }
 
-// Dragged reports how far the pointer moved since the last frame while
-// pressing the element.
+// Dragged reports how far the pointer moved in the element's local axes
+// since the last frame while pressing it.
 func (e *Element) Dragged() (dx, dy float32, ok bool) {
 	e.flags |= flagDraggable
 	s := e.st
@@ -958,26 +968,29 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 {
 			continue
 		}
+		lx, ly := s.local(x, y)
+		lx += s.x
+		ly += s.y
 		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth())
 		d := &rt.scrollDrag
 		w, h := float64(s.w), float64(s.h)
 		switch {
-		case g.vertical && g.vTrack.Contains(x, y):
+		case g.vertical && g.vTrack.Contains(lx, ly):
 			switch {
-			case y >= g.v.Y && y < g.v.Y+g.v.H:
-				d.st, d.start, d.from, d.horizontal = s, y, s.scrollY, false
+			case ly >= g.v.Y && ly < g.v.Y+g.v.H:
+				d.st, d.start, d.from, d.horizontal = s, ly, s.scrollY, false
 				d.contentW, d.contentH = s.contentW, s.contentH
-			case y < g.v.Y:
+			case ly < g.v.Y:
 				s.scrollTo(s.scrollX, max(0, s.scrollY-h*0.9))
 			default:
 				s.scrollTo(s.scrollX, min(s.contentH-h, s.scrollY+h*0.9))
 			}
-		case g.horizontal && g.hTrack.Contains(x, y):
+		case g.horizontal && g.hTrack.Contains(lx, ly):
 			switch {
-			case x >= g.h.X && x < g.h.X+g.h.W:
-				d.st, d.start, d.from, d.horizontal = s, x, s.scrollX, true
+			case lx >= g.h.X && lx < g.h.X+g.h.W:
+				d.st, d.start, d.from, d.horizontal = s, lx, s.scrollX, true
 				d.contentW, d.contentH = s.contentW, s.contentH
-			case x < g.h.X:
+			case lx < g.h.X:
 				s.scrollTo(max(0, s.scrollX-w*0.9), s.scrollY)
 			default:
 				s.scrollTo(min(s.contentW-w, s.scrollX+w*0.9), s.scrollY)

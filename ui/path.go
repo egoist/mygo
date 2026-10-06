@@ -238,7 +238,7 @@ func (p *Painter) drawPath(f *flatPath, width float32, c Color, g *LinearGradien
 		p.gradient(&op, *g)
 		op.Wide = p.wide(g.From, g.To, Color{})
 	}
-	p.s.Ops = append(p.s.Ops, op)
+	p.add(op)
 }
 
 // rasterizePath draws the mask of the path job, into memory the engine

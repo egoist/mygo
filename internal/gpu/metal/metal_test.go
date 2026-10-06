@@ -30,6 +30,18 @@ func TestDrawsAsTheCPURenderer(t *testing.T) {
 		}
 		gputest.Compare(t, "metal", pix, s.Width*4, s)
 	}
+
+	for frame := range 3 {
+		transformed := gputest.TransformedScene()
+		if frame == 2 {
+			transformed.Ops[0].Transform = scene.Translation(40, 40)
+		}
+		pix, err := r.renderOffscreen(transformed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gputest.Compare(t, "metal-affine", pix, transformed.Width*4, transformed)
+	}
 	s = gputest.ContinuousScene()
 	pix, err := r.renderOffscreen(s)
 	if err != nil {

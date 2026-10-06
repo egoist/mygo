@@ -129,12 +129,15 @@ func sliderBase(c *Context, value *float64, lo, hi, step float64) *Element {
 		}
 	}
 	if st.pressed && !s.disabled() {
+		x, y := st.local(c.rt.pointerX, c.rt.pointerY)
+		x += st.x
+		y += st.y
 		switch {
 		case settings.vertical && st.ch > 0:
-			frac := 1 - (c.rt.pointerY-st.cy)/st.ch
+			frac := 1 - (y-st.cy)/st.ch
 			setValue(lo + float64(max(0, min(1, frac)))*(hi-lo))
 		case !settings.vertical && st.cw > 0:
-			frac := (c.rt.pointerX - st.cx) / st.cw
+			frac := (x - st.cx) / st.cw
 			setValue(lo + float64(max(0, min(1, frac)))*(hi-lo))
 		}
 	}

@@ -713,7 +713,8 @@ func (ed *editor) process(c *Context, e *Element) {
 	ed.queue = ed.queue[:0]
 	if ed.dragging && st.pressed {
 		rt := c.rt
-		ed.drag(rt.pointerX-st.x, rt.pointerY-st.y)
+		x, y := st.local(rt.pointerX, rt.pointerY)
+		ed.drag(x, y)
 	}
 }
 
@@ -958,7 +959,7 @@ func (e *Element) paintInput(p *Painter) {
 		const blink = 530 * time.Millisecond
 		if (phase/blink)%2 == 0 {
 			x, y, h := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret)
-			p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpFill, Rect: p.snap(Rect{ox + x, oy + y, 0, h}), Color: t.Accent.scene(), Wide: p.wide(t.Accent, Color{}, Color{}), Opacity: p.opacity})
+			p.add(scene.Op{Kind: scene.OpFill, Rect: p.snap(Rect{ox + x, oy + y, 0, h}), Color: t.Accent.scene(), Wide: p.wide(t.Accent, Color{}, Color{}), Opacity: p.opacity})
 			op := &p.s.Ops[len(p.s.Ops)-1]
 			op.Rect.W = max(round(p.scale), 1)
 		}

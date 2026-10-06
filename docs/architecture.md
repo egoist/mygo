@@ -1232,6 +1232,21 @@ either.
   `MYGO_FRAME_STATS` set, frames slower than its threshold log how long
   each part took, which path drew them, what the process allocated and
   whether the collector ran (`ui/framestats.go`).
+- **Visual transforms and motion** (`ui/transform.go`, `ui/motion.go`). An
+  element's affine transform composes with its ancestors after layout;
+  boxes keep their original layout space. Painting stores the composed
+  transform on scene operations and clips, and committing keeps it on the
+  state for inverse-mapped pointer input, carets, accessibility bounds, and
+  overlays attached to visual bounds. The CPU renderer inverse maps pixels
+  for transformed primitives and clips. GPU builders currently compose
+  affine scenes with that renderer and present a retained image, preserving
+  the direct instance path and compiled shaders for ordinary scenes. Affine
+  frames use sRGB and bilinearly sampled text; see
+  [Transforms and motion](ui/transforms.md#rendering) for the cost and limits.
+  Springs solve damped oscillators analytically and sample before retargeting
+  so position and velocity survive interruptions. Keyframe sequences keep
+  a bounded channel per key with an explicit replay token. Both ask for
+  frames only while active and complete when reduced motion is enabled.
 - **Transitions** (`ui/transition.go`) animate elements FLIP-style, after
   the layout of each frame and before `place` turns boxes into window
   coordinates: an element given a `Transition` keeps, by its ID, where the

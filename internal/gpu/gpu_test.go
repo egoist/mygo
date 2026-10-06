@@ -1,10 +1,46 @@
 package gpu
 
 import (
+	"bytes"
 	"testing"
 
+	"github.com/egoist/mygo/internal/raster"
 	"github.com/egoist/mygo/internal/scene"
 )
+
+func TestAffineCompositionPresentationAndCache(t *testing.T) {
+	s := &scene.Scene{Width: 80, Height: 60, Clear: scene.Color{B: 120, A: 80}, Ops: []scene.Op{
+		{Kind: scene.OpFill, Rect: scene.Rect{W: 25, H: 15}, Color: scene.Color{R: 255, A: 150}, Transform: scene.Translation(30, 10).Mul(scene.Rotation(20))},
+	}}
+	var b Builder
+	defer b.Release()
+	var img *scene.Image
+	prepare := func() *scene.Scene { return b.Build(s, func(m *scene.Image) uintptr { img = m; return 1 }) }
+	shown := prepare()
+	if len(b.Instances) != 1 || b.Instances[0].Params[0] != 4 || shown.Clear != (scene.Color{}) {
+		t.Fatal("affine scene was not prepared as a composited image on a transparent target")
+	}
+	want := raster.NewImage(s.Width, s.Height)
+	raster.Render(want, s)
+	if !bytes.Equal(img.Pix, want.RGBA()) {
+		t.Fatal("presented affine pixels differ from CPU")
+	}
+	id, version := img.ID(), img.Version()
+	prepare()
+	if img.ID() != id || img.Version() != version {
+		t.Fatal("static transforms uploaded new pixels")
+	}
+	s.Ops[0].Transform = scene.Translation(15, 20)
+	prepare()
+	raster.Render(want, s)
+	if img.ID() != id || img.Version() == version || !bytes.Equal(img.Pix, want.RGBA()) {
+		t.Fatal("changed transform did not reuse and update the presentation image")
+	}
+	s.Ops[0].Transform = scene.Affine{}
+	if prepare() != s || b.affineImage != nil || len(b.affineScene.Ops) != 0 {
+		t.Fatal("ordinary scene did not return to direct GPU rendering")
+	}
+}
 
 func TestBuild(t *testing.T) {
 	red := scene.Color{R: 255, A: 255}

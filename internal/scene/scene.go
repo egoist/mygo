@@ -96,6 +96,9 @@ const (
 type Op struct {
 	Kind Kind
 	Rect Rect
+	// Transform maps this operation's geometry to frame pixels. Clips
+	// retain the transform with which they were pushed.
+	Transform Affine
 	// Radii are the corner radii: top-left, top-right, bottom-right and
 	// bottom-left.
 	Radii [4]float32
@@ -181,6 +184,8 @@ func InnerRadii(r Rect, radii, w [4]float32) (Rect, [4]float32) {
 
 // Glyph is a glyph mask or color glyph copied from an atlas into a frame.
 type Glyph struct {
+	// Transform is applied before its Op's transform, for inline text.
+	Transform Affine
 	// X, Y, W and H place the glyph's bitmap, in device pixels.
 	X, Y, W, H float32
 	// U, V, UW and VH are the bitmap's rectangle in its atlas.

@@ -473,6 +473,7 @@ func (r *Renderer) armSettle() {
 
 // Release frees the renderer's GPU objects.
 func (r *Renderer) Release() {
+	r.b.Release()
 	if settling[r.hwnd] {
 		delete(settling, r.hwnd)
 		procKillTimer.Call(r.hwnd, settleTimer)
@@ -606,7 +607,7 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	if err := r.syncAtlas(&r.color, s.ColorAtlas, formatR8G8B8A8Unorm); err != nil {
 		return err
 	}
-	r.b.Build(s, r.imageView)
+	s = r.b.Build(s, r.imageView)
 	if err := r.fitBackdrop(); err != nil {
 		return err
 	}

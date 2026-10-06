@@ -771,7 +771,7 @@ func (r *Renderer) encode(s *scene.Scene, target id) (id, error) {
 		return 0, err
 	}
 	r.b.Wide = r.cur.format == pixelFormatRGBA16Float
-	r.b.Build(s, r.imageTexture)
+	s = r.b.Build(s, r.imageTexture)
 	if n := len(r.b.Instances); n > r.instCap {
 		release(&r.instBuf)
 		capacity := max(n*3/2, 1024)
@@ -1108,6 +1108,7 @@ func (r *Renderer) releaseTextures() {
 			r.formats[i].backdrop[j] = texture{}
 		}
 	}
+	r.b.Release()
 	r.b = gpu.Builder{}
 }
 
@@ -1233,6 +1234,7 @@ func (r *Renderer) renderOffscreen(s *scene.Scene) (pix []byte, err error) {
 
 // Release frees the renderer's GPU objects and takes its layer out.
 func (r *Renderer) Release() {
+	r.b.Release()
 	if r.trimTimer != 0 {
 		purego.SyscallN(cfRunLoopTimerInvalidate, r.trimTimer)
 		purego.SyscallN(cfRelease, r.trimTimer)

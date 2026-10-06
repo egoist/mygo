@@ -651,7 +651,7 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	if err := r.syncAtlas(&r.color, s.ColorAtlas, glRGBA8, glRGBA); err != nil {
 		return err
 	}
-	r.b.Build(s, r.imageTexture)
+	s = r.b.Build(s, r.imageTexture)
 	if err := r.fitBackdrop(); err != nil {
 		return err
 	}
@@ -871,6 +871,7 @@ func (r *Renderer) forget() {
 // Release deletes the renderer's objects when its context is current, and
 // otherwise leaves them to the context, which deletes them with itself.
 func (r *Renderer) Release() {
+	r.b.Release()
 	if errLoad != nil || currentContext() != r.context {
 		r.forget()
 		return

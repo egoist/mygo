@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/text"
 )
 
@@ -225,6 +226,12 @@ type Element struct {
 	justifyItems           Align   // of a grid
 	cell                   gridCell
 	justifySelf            Align
+
+	// Visual geometry, composed after layout.
+	transform        Transform
+	originX, originY float32
+	originSet        bool
+	world            scene.Affine
 
 	// Painting.
 	bg           Color
@@ -1048,11 +1055,12 @@ func (e *Element) DrawOver(fn func(p *Painter, r Rect)) *Element { e.paintAfterF
 // ID returns the element's identity, stable from frame to frame.
 func (e *Element) ID() uint64 { return e.id }
 
-// Bounds returns the element's box in the previous frame, in DIPs relative
-// to the window; it is empty for an element the previous frame lacked.
+// Bounds returns the previous frame's transformed bounding rectangle in
+// window DIPs; it is empty for an element the previous frame lacked.
+// LayoutBounds returns its box before visual transforms.
 func (e *Element) Bounds() Rect {
 	s := e.st
-	return Rect{s.x, s.y, s.w, s.h}
+	return transformRect(s.world, Rect{s.x, s.y, s.w, s.h})
 }
 
 // add appends a child.
