@@ -30,6 +30,16 @@ func (c *Context) Preferences() Preferences { return c.rt.preferences() }
 
 // preferences returns the desktop's settings, read once until they change.
 func (rt *engine) preferences() Preferences {
+	if rt.preview != nil && rt.preview.Preferences != nil {
+		if !rt.prefsKnown {
+			rt.prefs = *rt.preview.Preferences
+			if rt.prefs.TextScale <= 0 {
+				rt.prefs.TextScale = 1
+			}
+			rt.prefsKnown = true
+		}
+		return rt.prefs
+	}
 	if !rt.prefsKnown {
 		p := rt.host.preferences()
 		rt.prefs = Preferences{

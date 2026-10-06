@@ -96,6 +96,8 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
   test.
 - [Inspector](inspector.md): the elements of a window, their boxes and
   styles, and the time frames take, beside the content.
+- [Interactive previews](previews.md): sample state and presets, with live
+  theme, viewport, scale, locale and accessibility configuration.
 - [Rendering](rendering.md): how MyGo draws, on the GPU or the CPU.
 
 ## Actions

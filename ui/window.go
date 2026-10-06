@@ -17,6 +17,8 @@ import (
 // mygo.WindowOptions.Content. Create it with View.
 type Content struct {
 	view func(*Context)
+	// attach configures a developer preview's runtime before its first frame.
+	attach func(*windowHost)
 }
 
 // View returns the content of a window whose user interface view builds,
@@ -58,6 +60,9 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 		}
 	}
 	h.uiFont()
+	if v.attach != nil {
+		v.attach(h)
+	}
 	// Load the fonts while the window shows up.
 	go text.Shared().Preload()
 	conn.Surface.RequestFrame()
