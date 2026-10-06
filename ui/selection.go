@@ -21,7 +21,8 @@ import (
 //	app.list.Key = func(i int) any { return app.files[i].Path }
 //	app.list.Selection = &app.chosen
 type Selection[K comparable] struct {
-	keys map[K]struct{}
+	keys     map[K]struct{}
+	revision uint64
 }
 
 // Has reports whether the row of key k is chosen.
@@ -35,17 +36,31 @@ func (s *Selection[K]) Len() int { return len(s.keys) }
 
 // Add chooses the row of key k.
 func (s *Selection[K]) Add(k K) {
+	if s.Has(k) {
+		return
+	}
 	if s.keys == nil {
 		s.keys = map[K]struct{}{}
 	}
 	s.keys[k] = struct{}{}
+	s.revision++
 }
 
 // Remove takes the row of key k out of the choice.
-func (s *Selection[K]) Remove(k K) { delete(s.keys, k) }
+func (s *Selection[K]) Remove(k K) {
+	if s.Has(k) {
+		delete(s.keys, k)
+		s.revision++
+	}
+}
 
 // Clear chooses no row.
-func (s *Selection[K]) Clear() { clear(s.keys) }
+func (s *Selection[K]) Clear() {
+	if len(s.keys) > 0 {
+		clear(s.keys)
+		s.revision++
+	}
+}
 
 // All returns the keys of the rows chosen, in no order.
 func (s *Selection[K]) All() iter.Seq[K] {
@@ -67,6 +82,20 @@ type Selector interface {
 	// clear chooses no row, and reports whether one was.
 	clear() bool
 	size() int
+	all() iter.Seq[any]
+	version() uint64
+}
+
+func (s *Selection[K]) version() uint64 { return s.revision }
+
+func (s *Selection[K]) all() iter.Seq[any] {
+	return func(yield func(any) bool) {
+		for k := range s.keys {
+			if !yield(k) {
+				return
+			}
+		}
+	}
 }
 
 func (s *Selection[K]) has(key any) bool { return s.Has(s.key(key)) }

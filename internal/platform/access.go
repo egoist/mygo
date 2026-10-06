@@ -11,6 +11,12 @@ type AccessTree struct {
 	// after what it is reading, as the title of a page shown or a toast:
 	// news the focus does not bring.
 	Announcements []string
+	// Query and Selection are main-thread-only, lazy queries against the
+	// current frame. Backends must discard them when the surface dies.
+	// Query returns a placeholder for an unbuilt item; Realize lays out a
+	// frame showing it before returning. No query enumerates the collection.
+	Query     func(AccessQuery) (AccessNode, bool)
+	Selection func(container uint64) []AccessNode
 }
 
 // AccessNode is an element of an AccessTree.
@@ -49,7 +55,84 @@ type AccessNode struct {
 	// many rows it has.
 	PosInSet, SetSize int
 	// Actions are the actions the element takes in AccessAction events.
-	Actions AccessActions
+	Actions    AccessActions
+	Collection *AccessCollection
+	Item       *AccessItem
+	Cell       *AccessCell
+	Scroll     *AccessScroll
+}
+
+// AccessCollection describes the whole collection, including unbuilt items.
+// Rows exclude column headers and include open descendants of an outline.
+type AccessCollection struct {
+	Rows, Columns, Items int
+	Grid                 bool     // has a two-dimensional cell contract (tables and grid views)
+	ColumnHeaders        []uint64 // in displayed column order
+	// SelectionVersion changes without enumerating the selection.
+	// SelectionSize counts stored keys (including removed keys), solely
+	// for notifications; providers query Selection for the live count.
+	SelectionVersion uint64
+	SelectionSize    int
+}
+
+// AccessItem is a stable reference to a collection item. Index is a hint;
+// Key identifies the item after insertion, sorting or removal. Cell and
+// ColumnKey identify a table cell, independent of displayed column order.
+type AccessItem struct {
+	Container uint64
+	Index     int
+	Key       any
+	Cell      bool
+	ColumnKey any
+}
+
+// AccessCell gives zero-based coordinates, spans and header relationships.
+type AccessCell struct {
+	Table                            uint64
+	Row, Column, RowSpan, ColumnSpan int
+	RowHeaders, ColumnHeaders        []uint64
+}
+
+// AccessScroll gives the offsets, viewport and estimated content size in
+// DIPs. Estimates change as variable-height rows are measured.
+type AccessScroll struct {
+	X, Y, Width, Height, ContentWidth, ContentHeight float64
+}
+
+func (s AccessScroll) MaxX() float64 { return max(0, s.ContentWidth-s.Width) }
+func (s AccessScroll) MaxY() float64 { return max(0, s.ContentHeight-s.Height) }
+
+type AccessQueryKind uint8
+
+const (
+	AccessQueryItem AccessQueryKind = iota
+	AccessQueryCell
+	AccessQueryResolve
+)
+
+type AccessQuery struct {
+	Kind               AccessQueryKind
+	Container          uint64
+	Index, Row, Column int
+	Item               *AccessItem // AccessQueryResolve
+	Realize            bool
+}
+
+// Resolve refreshes a retained item against the current collection. A
+// removed item is unavailable; it must never silently become another item.
+func (t *AccessTree) Resolve(n AccessNode) (AccessNode, bool) {
+	if t == nil {
+		return AccessNode{}, false
+	}
+	if n.Item != nil && t.Query != nil {
+		return t.Query(AccessQuery{Kind: AccessQueryResolve, Item: n.Item})
+	}
+	for _, live := range t.Nodes {
+		if live.ID == n.ID {
+			return live, true
+		}
+	}
+	return AccessNode{}, false
 }
 
 // AccessRole is the kind of an element of an AccessTree.
@@ -165,10 +248,13 @@ const (
 	AccessExpandable
 	// AccessVertical is set on a slider going up.
 	AccessVertical
+	// AccessVirtualized is an unbuilt collection item. Realize replaces
+	// its placeholder properties with those of its laid-out element.
+	AccessVirtualized
 )
 
 // AccessActions are the actions an element of an AccessTree takes.
-type AccessActions uint8
+type AccessActions uint16
 
 const (
 	ActionPress AccessActions = 1 << iota
@@ -182,6 +268,8 @@ const (
 	// ActionExpand opens and closes an item of a tree with children
 	// (AccessExpand, AccessCollapse), which pressing chooses.
 	ActionExpand
+	ActionScroll
+	ActionRealize
 )
 
 // AccessActionKind is the action of an AccessAction event.
@@ -196,4 +284,12 @@ const (
 	AccessScrollIntoView
 	AccessExpand
 	AccessCollapse
+	AccessScrollBy // DX/DY are distances in DIPs
+	AccessScrollTo // X/Y are offsets in DIPs; -1 leaves an axis alone
+	AccessRealize
+	AccessSelect
+	AccessAddToSelection
+	AccessRemoveFromSelection
+	AccessClearSelection
+	AccessSelectAll
 )

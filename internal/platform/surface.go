@@ -189,6 +189,9 @@ type SurfaceEvent struct {
 	// ID and Action are AccessAction's.
 	ID     uint64
 	Action AccessActionKind
+	// Item addresses an unbuilt collection item by key, rather than a
+	// transient row index. Scroll actions use X/Y or DX/DY in DIPs.
+	Item *AccessItem
 }
 
 // Modifiers are the modifier keys held during an event.

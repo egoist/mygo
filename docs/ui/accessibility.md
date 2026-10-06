@@ -73,7 +73,7 @@ date := ui.ButtonBase(c).Role(ui.RolePopUpButton).Label("Due").Value(app.due.For
 message read with it; a [field](form.md) gives its control the texts below
 it.
 
-## Lists and tables
+## Collections
 
 A [list](list.md)'s rows are list items, and a [table](table.md)'s rows,
 named by the text inside them, and each says which of all the rows it is,
@@ -82,6 +82,84 @@ its rows gives assistive technology the focus on the row chosen: Up and
 Down are read as they move the choice, and focusing a row chooses it. A
 screen reader moving out of view asks the list to scroll there, which
 builds the rows it reaches. `Label` names a list or a table.
+
+Lists, tables, [outlines](outline.md) and [grid views](grid-view.md) expose
+their full counts and let assistive technology request an item outside the
+viewport. A request creates a lightweight accessibility object; realizing
+it or scrolling it into view builds the surrounding viewport. It does not
+build every preceding row. An outline counts its roots and open
+descendants; expanding an offscreen branch reveals its children normally.
+
+Tables and grids also report zero-based cell coordinates and spans. Table
+cells refer to the headers of their displayed columns, including after
+column reordering. A section header spans every column. The column header
+row is excluded from the data row count, and empty places at the end of a
+grid are excluded from its items. Table selection remains row selection;
+requesting a cell does not add cell editing or a separate cell selection.
+
+Use `ListState.Label` or `GridState.Label` to name unbuilt items, and a
+table column's `AccessibilityLabel` to name an unbuilt cell. These callbacks
+read the data without building views. Without a label callback, an
+unbuilt item's name may be empty until it is realized; its coordinates,
+headers and realization action remain available.
+
+For a keyed collection that can reorder over large distances, provide
+`Index` as well as `Key`. It resolves a retained accessibility object to
+the same item in the current data, and resolves offscreen selected keys
+without scanning all rows:
+
+```go
+app.rows.Key = func(i int) any { return app.files[i].ID }
+app.rows.Index = func(key any) int {
+	i, ok := app.fileIndex[key.(string)]
+	if !ok {
+		return -1
+	}
+	return i
+}
+app.rows.Label = func(i int) string { return app.files[i].Name }
+cols := []ui.TableColumn{
+	{ID: "name", Title: "Name", AccessibilityLabel: func(i int) string {
+		return app.files[i].Name
+	}},
+	{ID: "size", Title: "Size", Width: 90, AccessibilityLabel: func(i int) string {
+		return app.files[i].Size()
+	}},
+}
+```
+
+Update `fileIndex` when the data changes or sorts, rather than rebuilding
+it for every accessibility query or frame. Return `-1` for a removed key;
+an old object then becomes unavailable instead of referring to the item
+that replaced it. Without `Index`, key lookup searches at most 1,000 rows
+on either side of the previous index. An unbuilt item moved farther away
+may become unavailable, and a selected key outside that range cannot be
+reported until it is located. Outlines maintain their own key index.
+
+Scrolling reports both axes' offsets, viewport size and estimated content
+size, and supports page and absolute scroll requests. Variable-height
+collections refine those estimates as rows are measured. Accessibility
+selection supports choosing one row, adding and removing rows, and reading
+selected items outside the viewport. The collection keeps the keyboard
+focus and reports its active item; scrolling alone preserves selection.
+Clicking a sortable column announces its title and new sort direction.
+
+| Platform | Collection contracts |
+|---|---|
+| macOS | Paged `AXRows`/`AXChildren`, row/column counts, cell index ranges, header relationships, visible and selected rows/cells, scroll-to-visible, page scroll actions and scroll bars. Grid items are cells in lazy rows. |
+| Linux | Lazy ATK children, `AtkTable` and `AtkTableCell`, `AtkSelection`, `AtkComponent.scroll_to`, and page scroll actions, bridged by GTK to AT-SPI. Virtual collections manage their descendants. |
+| Windows | UIA `Scroll`, `Grid`, `Table`, `GridItem`, `TableItem`, `ItemContainer`, `VirtualizedItem`, `ScrollItem`, `Selection` and `SelectionItem`. `FindItemByProperty` supports next-item, name and selection searches; explicit name searches may scan subsequent labels. |
+
+Native provider tests exercise distant table cells and grid items,
+realization, headers, multiselection and scrolling. Run them with
+`MYGO_E2E=1 go test ./internal/e2e -run 'TestContentWindow.*Accessibility'`.
+These probes complement manual VoiceOver, Narrator/NVDA and Orca testing;
+they do not certify every screen reader's navigation behavior.
+
+On Linux, install `python3-pyatspi` and run with `MYGO_ATSPI_E2E=1` to add
+an external AT-SPI client probe against the live window. Unset
+`NO_AT_BRIDGE` and use a D-Bus session and display, for example
+`env -u NO_AT_BRIDGE MYGO_E2E=1 MYGO_ATSPI_E2E=1 dbus-run-session -- xvfb-run -a go test ./internal/e2e -run TestContentWindowCollectionAccessibility`.
 
 ## Announcements
 

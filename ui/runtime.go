@@ -190,12 +190,15 @@ type engine struct {
 	stats *frameStats
 	// dropOver is the element files are dragged over; access is true once
 	// assistive technology asked for the content.
-	dropOver   uint64
-	access     bool
-	blinkStart time.Time
-	inFrame    bool
-	dark       bool
-	darkKnown  bool
+	dropOver     uint64
+	access       bool
+	accessClosed bool
+	accessNodes  map[uint64]platform.AccessNode
+	collections  map[uint64]*collectionFrame
+	blinkStart   time.Time
+	inFrame      bool
+	dark         bool
+	darkKnown    bool
 	// prefs are the desktop's preferences, read once until they change.
 	prefs      Preferences
 	prefsKnown bool
@@ -630,6 +633,8 @@ func (rt *engine) armTimer() {
 }
 
 func (rt *engine) close() {
+	rt.accessClosed = true
+	rt.accessNodes, rt.collections = nil, nil
 	if rt.timer != nil {
 		rt.timer.Stop()
 	}

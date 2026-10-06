@@ -3,6 +3,8 @@ package ui
 import (
 	"runtime"
 	"time"
+
+	"github.com/egoist/mygo/internal/platform"
 )
 
 // OutlineState is the state of an Outline or an OutlineTable: its rows, as
@@ -22,8 +24,9 @@ type OutlineState[K comparable] struct {
 	// type K.
 	List ListState
 	// Open holds the items showing their children.
-	Open Selection[K]
-	rows []outlineRow[K]
+	Open    Selection[K]
+	rows    []outlineRow[K]
+	indices map[K]int
 }
 
 // outlineRow is a row of an outline: its item, how deep it is, the row of
@@ -49,10 +52,15 @@ func (s *OutlineState[K]) Depth(row int) int { return s.rows[row].depth }
 // the items open.
 func (s *OutlineState[K]) flatten(roots []K, children func(K) []K) {
 	s.rows = s.rows[:0]
+	if s.indices == nil {
+		s.indices = map[K]int{}
+	}
+	clear(s.indices)
 	var walk func(items []K, depth, parent int)
 	walk = func(items []K, depth, parent int) {
 		for _, item := range items {
 			kids := children(item)
+			s.indices[item] = len(s.rows)
 			s.rows = append(s.rows, outlineRow[K]{item: item, depth: depth, parent: parent, branch: kids != nil})
 			if kids != nil && s.Open.Has(item) {
 				walk(kids, depth+1, len(s.rows)-1)
@@ -60,6 +68,28 @@ func (s *OutlineState[K]) flatten(roots []K, children func(K) []K) {
 		}
 	}
 	walk(roots, 0, -1)
+	s.List.Index = func(key any) int {
+		if k, ok := key.(K); ok {
+			if i, ok := s.indices[k]; ok {
+				return i
+			}
+		}
+		return -1
+	}
+}
+
+func (s *OutlineState[K]) accessCollection(e *Element) {
+	e.collection.outline = func(i int, n *platform.AccessNode) {
+		r := s.rows[i]
+		n.Level = r.depth + 1
+		if r.branch {
+			n.States |= platform.AccessExpandable
+			n.Actions |= platform.ActionExpand
+		}
+		if s.Open.Has(r.item) {
+			n.States |= platform.AccessExpanded
+		}
+	}
 }
 
 // setOpen opens or closes an item, and with all its children's children.
@@ -108,6 +138,7 @@ func Outline[K comparable](c *Context, s *OutlineState[K], roots []K, children f
 		r.Role(RoleNone)
 		r.Children(func() { s.prefix(c, i, children, func() { row(s.rows[i].item) }) })
 	}, treeList)
+	s.accessCollection(e)
 	s.keys(e, children)
 	return e
 }
@@ -135,6 +166,7 @@ func OutlineTable[K comparable](c *Context, s *OutlineState[K], columns []TableC
 		}
 		s.prefix(c, i, children, func() { cell(s.rows[i].item, 0) })
 	}, treeTableList)
+	s.accessCollection(e)
 	s.keys(e, children)
 	return e
 }

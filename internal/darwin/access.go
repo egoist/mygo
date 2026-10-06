@@ -35,8 +35,16 @@ type accessElement struct {
 	children []uint64
 	// chosen are the rows of a list or table that are chosen, and count
 	// its rows, built or not.
-	chosen []uint64
-	count  int
+	chosen           []uint64
+	count            int
+	selectionVersion uint64
+	columnCount      int
+	gridOwner        uint64
+	gridRow          int
+	queried          bool
+	owned            bool
+	scrollOwner      uint64
+	scrollAxis       int
 }
 
 var (
@@ -149,6 +157,9 @@ func chooses(n platform.AccessNode) bool {
 }
 
 func roleOf(n platform.AccessNode) (role, subrole string) {
+	if n.Role == platform.RoleListItem && n.Cell != nil {
+		return "AXCell", ""
+	}
 	r := accessRoles[n.Role]
 	role, subrole = r[0], r[1]
 	if n.States&platform.AccessSegment != 0 {
@@ -345,6 +356,9 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 	withPool(func() {
 		s.updating = true
 		defer func() { s.updating = false }()
+		oldFocus := s.access.Focus
+		s.access = *tree
+		s.access.Announcements = nil
 		if s.elements == nil {
 			s.elements = map[uint64]*accessElement{}
 		}
@@ -356,13 +370,19 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 			el := s.elements[n.ID]
 			if el == nil {
 				fresh[n.ID] = true
-				el = &accessElement{obj: send(send(class("MyGoAccessibilityElement"), "alloc"), "init"), s: s}
+				el = &accessElement{obj: send(send(class("MyGoAccessibilityElement"), "alloc"), "init"), s: s, owned: true}
 				s.elements[n.ID] = el
 				s.w.b.byAccess[el.obj] = el
 				el.apply(n, true)
 				changed = true
-			} else if el.apply(n, false) {
-				valueChanged = append(valueChanged, el.obj)
+			} else {
+				if !el.owned {
+					retain(el.obj)
+					el.owned = true
+				}
+				if el.apply(n, false) {
+					valueChanged = append(valueChanged, el.obj)
+				}
 			}
 			objs[i] = el.obj
 		}
@@ -422,17 +442,32 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 				}
 			}
 			count := n.SetSize
-			if count == 0 {
+			if n.Collection != nil {
+				count = n.Collection.Rows
+			} else if count == 0 {
 				count = len(rows)
 			}
 			if count != el.count {
 				el.count = count
 				send(el.obj, "setAccessibilityRowCount:", uintptr(count))
+				if !fresh[n.ID] {
+					postNote(el.obj, "AXRowCountChanged")
+				}
+			}
+			if n.Collection != nil && n.Collection.Columns != el.columnCount {
+				el.columnCount = n.Collection.Columns
+				if !fresh[n.ID] {
+					postNote(el.obj, "AXColumnCountChanged")
+				}
 			}
 			send(el.obj, "setAccessibilityRows:", uintptr(nsArray(rows...)))
 			send(el.obj, "setAccessibilityVisibleRows:", uintptr(nsArray(shown...)))
 			send(el.obj, "setAccessibilitySelectedRows:", uintptr(nsArray(chosen...)))
-			if !slices.Equal(el.chosen, chosenIDs) {
+			versionChanged := n.Collection != nil && el.selectionVersion != n.Collection.SelectionVersion
+			if n.Collection != nil {
+				el.selectionVersion = n.Collection.SelectionVersion
+			}
+			if !slices.Equal(el.chosen, chosenIDs) || versionChanged {
 				el.chosen = chosenIDs
 				if !fresh[n.ID] { // a new list's choice did not change
 					selectionChanged = append(selectionChanged, el)
@@ -447,9 +482,38 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 		}
 		for nid, el := range s.elements {
 			if !live[nid] {
+				if el.scrollOwner != 0 && live[el.scrollOwner] {
+					continue
+				}
+				if el.gridOwner != 0 && live[el.gridOwner] {
+					if owner := s.elements[el.gridOwner]; owner != nil && owner.node.Collection != nil && el.gridRow < owner.node.Collection.Rows {
+						if el.owned {
+							el.owned = false
+							release(el.obj)
+						}
+						continue
+					}
+				}
+				if el.queried && el.node.Item != nil {
+					if n, ok := tree.Resolve(el.node); ok {
+						el.apply(n, false)
+						// Offscreen objects live only as long as AX retains them.
+						// The class's dealloc callback removes a borrowed object
+						// from the Go registry when its last native owner lets go.
+						if el.owned {
+							el.owned = false
+							release(el.obj)
+						}
+						continue
+					}
+				}
 				postNote(el.obj, "AXUIElementDestroyed")
 				delete(s.w.b.byAccess, el.obj)
-				release(el.obj)
+				el.clearAccessLinks()
+				if el.owned {
+					el.owned = false
+					release(el.obj)
+				}
 				delete(s.elements, nid)
 				changed = true
 			}
@@ -463,7 +527,7 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 		for _, el := range selectionChanged {
 			postNote(el.obj, "AXSelectedRowsChanged")
 		}
-		if tree.Focus != s.access.Focus {
+		if tree.Focus != oldFocus {
 			if el := s.elements[tree.Focus]; el != nil {
 				postNote(el.obj, "AXFocusedUIElementChanged")
 			}
@@ -478,14 +542,31 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 
 // destroyAccess releases the elements of a surface.
 func (s *surface) destroyAccess() {
+	s.access = platform.AccessTree{}
+	s.updating = true
+	defer func() { s.updating = false }()
 	for nid, el := range s.elements {
 		postNote(el.obj, "AXUIElementDestroyed")
 		delete(s.w.b.byAccess, el.obj)
-		release(el.obj)
+		el.clearAccessLinks()
+		if el.owned {
+			el.owned = false
+			release(el.obj)
+		}
 		delete(s.elements, nid)
 	}
 	release(s.topLevel)
 	s.topLevel = 0
+}
+
+func (el *accessElement) clearAccessLinks() {
+	// Break native parent/child ownership as well as the Go registry;
+	// an AX client may keep an object after its window has closed.
+	for _, selector := range []string{"setAccessibilityParent:", "setAccessibilityChildren:", "setAccessibilityRows:", "setAccessibilityVisibleRows:", "setAccessibilitySelectedRows:"} {
+		send(el.obj, selector, 0)
+	}
+	el.children, el.chosen = nil, nil
+	el.node.Item, el.node.Cell, el.node.Collection, el.node.Scroll = nil, nil, nil, nil
 }
 
 // accessAt returns the innermost element at a point of the view.
@@ -513,6 +594,9 @@ func (b *Backend) accessElementOf(obj id) *accessElement {
 	if el == nil || el.s.w.closed {
 		return nil
 	}
+	if el.node.Item != nil {
+		el.queried = true
+	}
 	return el
 }
 
@@ -521,7 +605,10 @@ func (el *accessElement) act(a platform.AccessActionKind, text string) bool {
 	if el.s.updating {
 		return false
 	}
-	el.s.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: el.node.ID, Action: a, Text: text})
+	if el.scrollOwner != 0 {
+		return el.scrollStep(a)
+	}
+	el.s.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: el.node.ID, Action: a, Text: text, Item: el.node.Item})
 	return true
 }
 
@@ -540,6 +627,7 @@ var legacyActions = []struct {
 }
 
 func registerAccessClass() {
+	registerAccessArray()
 	b := func() *Backend { return theBackend }
 	allowed := map[string]platform.AccessActions{
 		"accessibilityPerformPress":     platform.ActionPress,
@@ -549,7 +637,17 @@ func registerAccessClass() {
 		"setAccessibilityFocused:":      platform.ActionFocus,
 		"setAccessibilityDisclosed:":    platform.ActionExpand,
 	}
-	classDef("MyGoAccessibilityElement", "NSAccessibilityElement", nil, []objc.MethodDef{
+	classDef("MyGoAccessibilityElement", "NSAccessibilityElement", nil, append([]objc.MethodDef{
+		method("isAccessibilityElement", func(self id, _ objc.SEL) bool { return b().accessElementOf(self) != nil }),
+		method("dealloc", func(self id, cmd objc.SEL) {
+			if el := b().byAccess[self]; el != nil {
+				delete(b().byAccess, self)
+				if el.s.elements[el.node.ID] == el {
+					delete(el.s.elements, el.node.ID)
+				}
+			}
+			sendSuper(self, "MyGoAccessibilityElement", cmd)
+		}),
 		method("accessibilityFrame", func(self id, _ objc.SEL) NSRect {
 			if el := b().accessElementOf(self); el != nil {
 				return el.s.screenRect(el.node.Bounds)
@@ -613,6 +711,10 @@ func registerAccessClass() {
 				return true
 			case "AXDisclosing":
 				return el.node.Role == platform.RoleTreeItem
+			case "AXSelectedRows":
+				return el.node.Collection != nil && el.node.States&platform.AccessSelectable != 0 && !el.isGrid()
+			case "AXSelectedCells":
+				return el.isGrid() && el.node.States&platform.AccessSelectable != 0
 			}
 			return false
 		}),
@@ -686,8 +788,12 @@ func registerAccessClass() {
 		}),
 		method("setAccessibilityValue:", func(self id, cmd objc.SEL, value id) {
 			sendSuper(self, "MyGoAccessibilityElement", cmd, uintptr(value))
-			if el := b().accessElementOf(self); el != nil && textual(el.node.Role) {
-				el.act(platform.AccessSetValue, stringOf(value))
+			if el := b().accessElementOf(self); el != nil {
+				if el.scrollOwner != 0 {
+					el.scrollValue(value)
+				} else if textual(el.node.Role) {
+					el.act(platform.AccessSetValue, stringOf(value))
+				}
 			}
 		}),
 		// The text of text fields, for reading by characters and lines.
@@ -714,7 +820,7 @@ func registerAccessClass() {
 			}
 			return NSRect{}
 		}),
-	})
+	}, accessCollectionMethods()...))
 }
 
 // accessViewMethods are the methods of the surface view that make it the

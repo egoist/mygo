@@ -315,11 +315,18 @@ type Element struct {
 	// rowsOf is the list whose rows the element holds for assistive
 	// technology, and takes the keys for: the list, or its Table.
 	// popover is the anchor of the panel of a popover.
-	popover  *Element
-	list     *listFrame
-	listRow  bool
-	rowIndex int
-	rowsOf   *listFrame
+	popover    *Element
+	list       *listFrame
+	listRow    bool
+	rowIndex   int
+	rowsOf     *listFrame
+	collection *collectionFrame
+	// Collection cell metadata; the row wrapper supplies the item key.
+	cellColumn     any
+	cellIndex      int
+	collectionCell bool
+	gridItem       bool
+	itemIndex      int
 	// focusGroup makes the element a focus group (FocusGroup), whose
 	// arrows click the element they move to with groupSelects.
 	focusGroup   Orientation

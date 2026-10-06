@@ -19,10 +19,19 @@ TEXT ·uiaSetValueThunk(SB), NOSPLIT|NOFRAME, $0-0
 	MOVQ ·uiaSetValueCallback(SB), AX
 	JMP  AX
 
-// func uiaThunks() (fromPoint, setValue uintptr)
-TEXT ·uiaThunks(SB), NOSPLIT, $0-16
+// IScrollProvider::SetScrollPercent(this, horizontal, vertical)
+TEXT ·uiaSetScrollThunk(SB), NOSPLIT|NOFRAME, $0-0
+	MOVQ X1, DX
+	MOVQ X2, R8
+	MOVQ ·uiaSetScrollCallback(SB), AX
+	JMP AX
+
+// func uiaThunks() (fromPoint, setValue, setScroll uintptr)
+TEXT ·uiaThunks(SB), NOSPLIT, $0-24
 	LEAQ ·uiaFromPointThunk(SB), AX
 	MOVQ AX, fromPoint+0(FP)
 	LEAQ ·uiaSetValueThunk(SB), AX
 	MOVQ AX, setValue+8(FP)
+	LEAQ ·uiaSetScrollThunk(SB), AX
+	MOVQ AX, setScroll+16(FP)
 	RET
