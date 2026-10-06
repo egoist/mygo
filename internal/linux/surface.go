@@ -132,11 +132,13 @@ func loadSurface() {
 }
 
 type surface struct {
-	w      *window
-	area   ptr // GtkGLArea, or GtkDrawingArea
-	im     ptr // GtkIMContext
-	cr     ptr // the cairo context of the draw signal in progress
-	cursor platform.Cursor
+	hostOverlay ptr
+	nativeViews []*nativeView
+	w           *window
+	area        ptr // GtkGLArea, or GtkDrawingArea
+	im          ptr // GtkIMContext
+	cr          ptr // the cairo context of the draw signal in progress
+	cursor      platform.Cursor
 	// gl tells that the area is a GtkGLArea, lazy that it makes no
 	// context until UseGPU, rendering that its render signal is in
 	// progress, rendered that it ran.
@@ -179,6 +181,7 @@ func (w *window) createSurface() {
 	// makes a context.
 	now := os.Getenv("MYGO_GPU") == "1" && !testLazyGL
 	s.newArea(gtkGLAreaNew != nil && os.Getenv("MYGO_GPU") != "0" && (now || testLazyGL || hasGPUDevice()))
+	s.createNativeOverlay()
 	s.lazy = s.gl && !now
 	connect(s.im, "commit", cbIMCommit, data)
 	connect(s.im, "preedit-changed", cbIMPreedit, data)
@@ -230,7 +233,7 @@ func (s *surface) newArea(gl bool) {
 // view or the surface.
 func (w *window) contentWidget() ptr {
 	if w.surface != nil {
-		return w.surface.area
+		return w.surface.hostOverlay
 	}
 	return w.web
 }
@@ -245,6 +248,8 @@ func (w *window) contentWindow() ptr {
 }
 
 func (s *surface) destroy() {
+	s.closeNativeViews()
+	delete(hostOverlays, s.hostOverlay)
 	gtkIMContextSetClientWindow(s.im, 0)
 	gObjectUnref(s.im)
 	s.im = 0

@@ -73,3 +73,17 @@ type Conn struct {
 type Content interface {
 	AttachContent(conn *Conn)
 }
+
+// HostedView is implemented by mygo.NativeView. Only the content engine
+// calls these methods, on the main thread.
+type HostedView interface {
+	// PlaceNativeView returns the container handle for accessibility, or
+	// zero when not shown. Omitting an element hides its view, not closes it.
+	PlaceNativeView(conn *Conn, p platform.NativeViewPlacement) uintptr
+	FocusNativeView(conn *Conn, focused, backward bool)
+}
+
+// CommandView forwards Edit menu roles while a native control owns focus.
+type CommandView interface {
+	CommandNativeView(conn *Conn, command string) bool
+}

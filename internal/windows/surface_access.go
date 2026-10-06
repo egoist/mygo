@@ -75,6 +75,7 @@ const (
 	ifaceExpandCollapse
 	ifaceSelection
 	ifaceScrollItem
+	ifaceHwndOverride
 	uiaIfaces
 )
 
@@ -90,6 +91,7 @@ var uiaIIDs = [uiaIfaces]GUID{
 	guid("d847d3a5-cab0-4a98-8c32-ecb45c59ad24"), // IExpandCollapseProvider
 	guid("fb8b03af-3bdf-48d4-bd36-1a65793be168"), // ISelectionProvider
 	guid("2360c714-4bf1-4b26-ba65-9b21316127eb"), // IScrollItemProvider
+	guid("1d5df27c-8947-4425-b8d9-79787bb460b8"), // IRawElementProviderHwndOverride
 }
 
 // Pattern identifiers of UI Automation, by interface.
@@ -239,6 +241,8 @@ func (e *uiaElement) supports(i int) bool {
 	case ifaceSimple, ifaceFragment:
 		return true
 	case ifaceRoot:
+		return e.root
+	case ifaceHwndOverride:
 		return e.root
 	}
 	if e.root {
@@ -646,6 +650,9 @@ func initUIA() {
 	uiaVtbls[ifaceSimple] = vtbl(
 		cb(func(this, p uintptr) uintptr { // get_ProviderOptions
 			*(*int32)(native(p)) = 0x1 | 0x20 // ServerSideProvider, UseComThreading
+			if uiaOf(this).n.NativeView != 0 {
+				*(*int32)(native(p)) |= 0x8
+			} // OverrideProvider
 			return sOK
 		}),
 		cb(func(this, pattern, p uintptr) uintptr { // GetPatternProvider
@@ -670,6 +677,10 @@ func initUIA() {
 		}),
 		cb(func(this, p uintptr) uintptr { // get_HostRawElementProvider
 			e := uiaOf(this)
+			if !e.dead && e.n.NativeView != 0 {
+				r, _, _ := procUiaHostProviderFromHwnd.Call(e.n.NativeView, p)
+				return r
+			}
 			if e.root && !e.dead {
 				r, _, _ := procUiaHostProviderFromHwnd.Call(e.tree.s.hwnd, p)
 				return r
@@ -795,6 +806,21 @@ func initUIA() {
 			return out(p, e.tree.nodes[e.tree.focus], ifaceFragment)
 		}),
 	)
+	// Couple each logical HostView node with its child HWND's default
+	// provider. UIA relocates it into the fragment and supplies its native
+	// descendants, as for bands hosting controls in a Win32 rebar.
+	uiaVtbls[ifaceHwndOverride] = vtbl(cb(func(this, hwnd, p uintptr) uintptr {
+		e, hr := live(this)
+		if e == nil {
+			return hr
+		}
+		for _, n := range e.tree.order {
+			if n.n.NativeView == hwnd {
+				return out(p, n, ifaceSimple)
+			}
+		}
+		return out(p, nil, 0)
+	}))
 
 	press := func(this uintptr) uintptr {
 		e, hr := live(this)

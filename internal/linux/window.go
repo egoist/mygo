@@ -678,7 +678,13 @@ func (w *window) TitleBarDoubleClicked() {
 
 func (w *window) Close() {
 	if !w.closed {
-		gtkWidgetDestroy(w.win)
+		if w.surface != nil {
+			w.surface.closeNativeViews()
+		}
+		// A native Dispose hook may have closed the window recursively.
+		if !w.closed {
+			gtkWidgetDestroy(w.win)
+		}
 	}
 }
 
@@ -942,7 +948,11 @@ func initWindowCallbacks() {
 	b := func() *Backend { return theBackend }
 	cbDeleteEvent = purego.NewCallback(func(widget, event, data ptr) bool {
 		if w := b().window(data); w != nil {
-			return !w.h.ShouldClose()
+			close := w.h.ShouldClose()
+			if close && w.surface != nil {
+				w.surface.closeNativeViews()
+			}
+			return w.closed || !close
 		}
 		return false
 	})

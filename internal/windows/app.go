@@ -179,6 +179,9 @@ func (b *Backend) Run() error {
 		if int32(r) <= 0 {
 			break
 		}
+		if takeNativeTab(&m) {
+			continue
+		}
 		procTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
 		procDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
 	}
@@ -208,6 +211,9 @@ func (b *Backend) Step() {
 		if m.Message == wmQuit {
 			procPostQuitMessage.Call(m.WParam) // for the loop running outside
 			return
+		}
+		if takeNativeTab(&m) {
+			continue
 		}
 		procTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
 		procDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
@@ -293,6 +299,10 @@ func wndProc(hwnd, m, wp, lp uintptr) uintptr {
 			}
 		} else if s := b.surfaces[hwnd]; s != nil {
 			if r, ok := s.message(hwnd, uint32(m), wp, lp); ok {
+				return r
+			}
+		} else if n := hostedViews[hwnd]; n != nil {
+			if r, ok := n.message(uint32(m), wp, lp); ok {
 				return r
 			}
 		}

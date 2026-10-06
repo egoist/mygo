@@ -201,6 +201,8 @@ type Window struct {
 	// once it settled. Main thread only.
 	stateKey   string
 	stateTimer *time.Timer
+	// nativeViews are the platform views owned by this window. Main thread.
+	nativeViews []*NativeView
 
 	// trusted reports whether the current page may call bound methods.
 	// Main thread only.
@@ -1456,6 +1458,7 @@ func (h *windowHandler) Closed() {
 	if w.native == nil {
 		return
 	}
+	w.destroyNativeViews()
 	w.detachContent()
 	w.native = nil
 	w.destroyed.Store(true)

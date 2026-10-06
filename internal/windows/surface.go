@@ -111,8 +111,9 @@ type candidateForm struct {
 }
 
 type surface struct {
-	w    *window
-	hwnd uintptr
+	nativeViews []*nativeView
+	w           *window
+	hwnd        uintptr
 
 	paintDC  uintptr
 	tracking bool
@@ -149,7 +150,7 @@ func registerSurfaceClass() {
 func newSurface(w *window) *surface {
 	registerSurfaceClass()
 	s := &surface{w: w}
-	s.hwnd = createWindow(0, surfaceClass, "", wsChild|wsVisible|wsClipSiblings, 0, 0, 0, 0, w.hwnd)
+	s.hwnd = createWindow(0, surfaceClass, "", wsChild|wsVisible|wsClipSiblings|wsClipChildren, 0, 0, 0, 0, w.hwnd)
 	if s.hwnd == 0 {
 		return nil
 	}
@@ -520,6 +521,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 	case wmGetObject:
 		return s.getObject(wp, lp)
 	case wmDestroy:
+		s.closeNativeViews()
 		s.destroyAccess()
 		s.revokeFileDrops()
 		delete(s.w.b.surfaces, hwnd)

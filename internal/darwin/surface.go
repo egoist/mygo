@@ -96,10 +96,11 @@ func loadSurface() {
 }
 
 type surface struct {
-	w        *window
-	view     id
-	tracking id
-	link     id // CADisplayLink (macOS 14), nil before
+	nativeViews []*nativeView
+	w           *window
+	view        id
+	tracking    id
+	link        id // CADisplayLink (macOS 14), nil before
 	// The display link runs while frames follow each other (linkRunning),
 	// and due is whether its next tick draws one. Without a display link,
 	// a timer paces frames at the display's rate: timing is true while
@@ -155,6 +156,7 @@ func (w *window) createSurface(content NSRect) {
 }
 
 func (s *surface) destroy() {
+	s.closeNativeViews()
 	if s.link != 0 {
 		send(s.link, "invalidate")
 		release(s.link)

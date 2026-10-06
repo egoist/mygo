@@ -28,11 +28,12 @@ import (
 
 // accessElement is the element of a node.
 type accessElement struct {
-	obj      id // MyGoAccessibilityElement, owned
-	s        *surface
-	node     platform.AccessNode
-	parent   id
-	children []uint64
+	obj        id // MyGoAccessibilityElement, owned
+	s          *surface
+	node       platform.AccessNode
+	parent     id
+	children   []uint64
+	nativeView uintptr
 	// chosen are the rows of a list or table that are chosen, and count
 	// its rows, built or not.
 	chosen []uint64
@@ -387,8 +388,15 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 				el.parent = parent
 				send(el.obj, "setAccessibilityParent:", uintptr(parent))
 			}
-			if !slices.Equal(el.children, children[i]) {
+			if n.NativeView != 0 {
+				if host := hostedViews[id(n.NativeView)]; host != nil {
+					host.axParent = el.obj
+					childObjs[i] = append(childObjs[i], host.clip)
+				}
+			}
+			if !slices.Equal(el.children, children[i]) || el.nativeView != n.NativeView {
 				el.children = children[i]
+				el.nativeView = n.NativeView
 				send(el.obj, "setAccessibilityChildren:", uintptr(nsArray(childObjs[i]...)))
 				changed = true
 			}
@@ -496,6 +504,10 @@ func (s *surface) accessAt(x, y float64) id {
 		if x >= b.X && y >= b.Y && x < b.X+b.W && y < b.Y+b.H {
 			if el := s.elements[n.ID]; el != nil {
 				found = el.obj // later nodes are deeper or above
+				if n.NativeView != 0 {
+					screen := s.screenRect(platform.RectF{X: x, Y: y})
+					found = msgAccessHitView(id(n.NativeView), sel("accessibilityHitTest:"), screen.Origin)
+				}
 			}
 		}
 	}
@@ -755,6 +767,9 @@ func accessViewMethods() []objc.MethodDef {
 			}
 			s.accessRequested()
 			if el := s.elements[s.access.Focus]; el != nil {
+				if host := s.focusedNativeView(); host != nil {
+					return send(host.view, "accessibilityFocusedUIElement")
+				}
 				return el.obj
 			}
 			return self

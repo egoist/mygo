@@ -25,6 +25,8 @@ memory and CPU use.
   editing with input methods, virtualized lists, SVG icons, animations,
   screen reader support, and views you test without a window; Liquid Glass
   on every platform with the glass plugin.
+- **Platform controls in native layouts**: [host an NSView, GTK 3 widget,
+  or child HWND](docs/ui/native-view.md), with main-thread lifecycle hooks.
 - **Desktop APIs** for both: windows, menus, tray, dialogs, notifications,
   global shortcuts, deep links, file associations and more.
 - **Ready to ship**: app bundles and disk images, Windows installers, Debian

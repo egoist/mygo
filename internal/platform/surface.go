@@ -160,6 +160,10 @@ const (
 	// SurfaceShown reports that some of an OccludableSurface shows again
 	// after none did.
 	SurfaceShown
+	// NativeViewFocus reports focus entering the hosted element ID;
+	// NativeViewTraverse leaves it with Tab (ModShift for backward).
+	NativeViewFocus
+	NativeViewTraverse
 )
 
 // SurfaceEvent is input on a Surface, or a change of it.

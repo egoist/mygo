@@ -62,6 +62,12 @@ type engine struct {
 	grid         gridScratch
 
 	states map[uint64]*state
+	// hosted are the native controls of the committed frame; shownHosts
+	// keeps the last placements so an omitted control can be hidden.
+	hosted         []*Element
+	shownHosts     map[HostedView]uint64
+	nativeFocused  HostedView
+	nativeBackward bool
 	// free are states pruned, which new elements take: rows coming into
 	// a list's view take those of rows that went out of it.
 	free  []*state
@@ -301,7 +307,7 @@ func (rt *engine) runFrame() {
 		return
 	}
 	rt.inFrame = true
-	defer func() { rt.inFrame = false }()
+	defer func() { rt.inFrame = false; rt.syncNativeFocus() }()
 
 	rt.frame++
 	rt.stats.begin(rt)
@@ -642,6 +648,7 @@ func (rt *engine) close() {
 // boxes, the hit list in paint order, the focus order.
 func (rt *engine) commit(root *Element, w, h float32) {
 	rt.hits = rt.hits[:0]
+	rt.hosted = rt.hosted[:0]
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
 	rt.modal, rt.modalLayer, rt.commitScope, rt.commitPage = 0, 0, focusScope{}, 0
 	if rt.groups == nil {
@@ -653,6 +660,7 @@ func (rt *engine) commit(root *Element, w, h float32) {
 	full := Rect{0, 0, w, h}
 	rt.commitElement(root, full, false)
 	rt.arrangeFocus()
+	rt.placeNativeViews()
 	rt.noteGroups()
 }
 
@@ -717,6 +725,10 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 		}
 	default:
 		rt.hits = append(rt.hits, hit{s, v, e.flags})
+	}
+	if e.hostView != nil {
+		e.hostHit = len(rt.hits) - 1
+		rt.hosted = append(rt.hosted, e)
 	}
 	label := e.label
 	if f := e.nameFrom; label == "" && f != nil {

@@ -72,11 +72,13 @@ var (
 	atkObjectSetName, atkObjectSetDescription               func(obj ptr, name *byte)
 	atkObjectSetRole                                        func(obj ptr, role int32)
 	atkObjectSetParent                                      func(obj, parent ptr)
+	atkObjectGetParent                                      func(obj ptr) ptr
 	atkObjectNotifyStateChange                              func(obj ptr, state uint64, value bool)
 	atkStateSetNew                                          func() ptr
 	atkStateSetAddState                                     func(set ptr, state int32) bool
 	atkRangeNew                                             func(lower, upper float64, description *byte) ptr
 	atkComponentGetExtents                                  func(obj ptr, x, y, w, h *int32, coords int32)
+	atkComponentRefAccessibleAtPoint                        func(obj ptr, x, y, coords int32) ptr
 
 	cbAreaClassInit, cbRootClassInit, cbNodeClassInit, cbRootComponent     ptr
 	cbComponentInit, cbActionInit, cbValueInit, cbTextInit, cbEditableInit ptr
@@ -182,6 +184,7 @@ func registerAccess() {
 		{a, &atkObjectSetName, "atk_object_set_name"}, {a, &atkObjectSetRole, "atk_object_set_role"},
 		{a, &atkObjectSetDescription, "atk_object_set_description"},
 		{a, &atkObjectSetParent, "atk_object_set_parent"}, {a, &atkObjectNotifyStateChange, "atk_object_notify_state_change"},
+		{a, &atkObjectGetParent, "atk_object_get_parent"}, {a, &atkComponentRefAccessibleAtPoint, "atk_component_ref_accessible_at_point"},
 		{a, &atkStateSetNew, "atk_state_set_new"}, {a, &atkStateSetAddState, "atk_state_set_add_state"},
 		{a, &atkRangeNew, "atk_range_new"}, {a, &atkComponentGetExtents, "atk_component_get_extents"},
 	} {
@@ -294,12 +297,13 @@ type accessTree struct {
 
 // accessNode is a node of the tree, with its ATK object.
 type accessNode struct {
-	obj      ptr // owned
-	typ      uintptr
-	tree     *accessTree
-	parent   *accessNode
-	children []*accessNode
-	n        platform.AccessNode
+	obj         ptr // owned
+	typ         uintptr
+	tree        *accessTree
+	parent      *accessNode
+	children    []*accessNode
+	nativeChild ptr // retained native accessible, grafted into this node
+	n           platform.AccessNode
 	// chosen are the rows a list choosing its rows chose, among those
 	// built.
 	chosen []uint64
@@ -365,6 +369,13 @@ func (s *surface) destroyAccess() {
 
 // release lets go of a node that left the tree.
 func (an *accessNode) release() {
+	if an.nativeChild != 0 {
+		if atkObjectGetParent(an.nativeChild) == an.obj {
+			atkObjectSetParent(an.nativeChild, 0)
+		}
+		gObjectUnref(an.nativeChild)
+		an.nativeChild = 0
+	}
 	atkObjectNotifyStateChange(an.obj, uint64(atkStates.defunct), true)
 	delete(accessObjects, an.obj)
 	gObjectUnref(an.obj)
@@ -443,6 +454,27 @@ func (t *accessTree) update(tree *platform.AccessTree) {
 			atkObjectSetParent(an.obj, parentObj)
 		}
 		an.parent = parent
+		var nativeChild ptr
+		if n := hostedViews[an.n.NativeView]; n != nil && !n.closed && n.p.Visible {
+			nativeChild = gtkWidgetGetAccessible(n.clip)
+		}
+		if an.nativeChild != nativeChild {
+			if an.nativeChild != 0 {
+				if notify {
+					gSignalEmitChild(an.obj, cs("children-changed::remove"), uint32(len(an.children)), an.nativeChild)
+				}
+				atkObjectSetParent(an.nativeChild, 0)
+				gObjectUnref(an.nativeChild)
+			}
+			an.nativeChild = nativeChild
+			if nativeChild != 0 {
+				gObjectRef(nativeChild)
+				atkObjectSetParent(nativeChild, an.obj)
+				if notify {
+					gSignalEmitChild(an.obj, cs("children-changed::add"), uint32(len(an.children)), nativeChild)
+				}
+			}
+		}
 		if roleStates := platform.AccessPassword | platform.AccessMultiline | platform.AccessSelectable | platform.AccessMultiselectable; fresh[i] || prev[i].Role != an.n.Role || prev[i].States&roleStates != an.n.States&roleStates {
 			atkObjectSetRole(an.obj, an.role())
 		}
@@ -678,6 +710,12 @@ func (an *accessNode) contains(x, y, coords int32) bool {
 func at(nodes []*accessNode, x, y, coords int32) ptr {
 	for i := len(nodes) - 1; i >= 0; i-- {
 		if nodes[i].contains(x, y, coords) {
+			if native := nodes[i].nativeChild; native != 0 {
+				if child := atkComponentRefAccessibleAtPoint(native, x, y, coords); child != 0 {
+					return child
+				}
+				return gObjectRef(native)
+			}
 			return gObjectRef(nodes[i].obj)
 		}
 	}
@@ -790,13 +828,22 @@ func initAccessCallbacks() {
 
 	children := purego.NewCallback(func(obj ptr) int32 {
 		if an := node(obj); an != nil {
-			return int32(len(an.children))
+			count := len(an.children)
+			if an.nativeChild != 0 {
+				count++
+			}
+			return int32(count)
 		}
 		return 0
 	})
 	child := purego.NewCallback(func(obj ptr, i int32) ptr {
-		if an := node(obj); an != nil && i >= 0 && int(i) < len(an.children) {
-			return gObjectRef(an.children[i].obj)
+		if an := node(obj); an != nil && i >= 0 {
+			if int(i) < len(an.children) {
+				return gObjectRef(an.children[i].obj)
+			}
+			if int(i) == len(an.children) && an.nativeChild != 0 {
+				return gObjectRef(an.nativeChild)
+			}
 		}
 		return 0
 	})
