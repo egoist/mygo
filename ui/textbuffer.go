@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"encoding/binary"
 	"math/bits"
 	"slices"
 	"sort"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -38,16 +40,40 @@ type paragraph struct {
 func (b *buffer) set(s string) {
 	b.s = s
 	clear(b.paras) // the layouts of the old text
-	b.paras = append(b.paras[:0], paragraph{})
-	r := 0
-	for i, c := range s {
-		r++
-		if c == '\n' {
-			b.paras = append(b.paras, paragraph{rune: r, byte: i + 1})
+	n := strings.Count(s, "\n") + 1
+	if cap(b.paras) < n || cap(b.paras) > 4*n {
+		b.paras = make([]paragraph, n)
+	} else {
+		b.paras = b.paras[:n]
+	}
+	b.paras[0] = paragraph{}
+	r, from := 0, 0
+	for p := 1; p < n; p++ {
+		end := from + strings.IndexByte(s[from:], '\n') + 1
+		r += countRunes(s[from:end])
+		b.paras[p] = paragraph{rune: r, byte: end}
+		from = end
+	}
+	b.n = r + countRunes(s[from:])
+	b.version++
+}
+
+// countRunes counts ASCII in words, as most code and logs consist of it,
+// and leaves non-ASCII and malformed UTF-8 to the standard decoder.
+func countRunes(s string) int {
+	all := s
+	for len(s) >= 8 {
+		if binary.LittleEndian.Uint64([]byte(s))&0x8080808080808080 != 0 {
+			return utf8.RuneCountInString(all)
+		}
+		s = s[8:]
+	}
+	for i := range len(s) {
+		if s[i] >= utf8.RuneSelf {
+			return utf8.RuneCountInString(all)
 		}
 	}
-	b.n = r
-	b.version++
+	return len(all)
 }
 
 // para returns the paragraph holding rune i; the newline ending a
@@ -264,6 +290,10 @@ type heights struct {
 // reset sums the heights of paras.
 func (h *heights) reset(paras []paragraph) {
 	n := len(paras)
+	// Opening a small file after a large one must not keep its trees.
+	if cap(h.measured) > 4*(n+1) {
+		h.measured, h.unknown = nil, nil
+	}
 	h.measured = slices.Grow(h.measured[:0], n+1)[:n+1]
 	h.unknown = slices.Grow(h.unknown[:0], n+1)[:n+1]
 	h.measured[0], h.unknown[0] = 0, 0

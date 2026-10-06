@@ -1409,15 +1409,22 @@ either.
   changes of each step (`undoStep`), not copies of the text; a text the app
   sets makes the last step one change from the text before it, which
   undoing takes back, so that a log the app keeps setting holds two texts
-  there, not one a frame. Grapheme boundaries come from the paragraph of
-  the caret. A text area lays its
+  there, not one a frame. Deleted fragments own their bytes, and
+  discarded history and input events give up their references, so a
+  one-character deletion does not retain an entire old document.
+  The paragraph index is allocated for the newline count up front;
+  scanning ASCII counts runes a word at a time, with the standard UTF-8
+  decoder for other text. A much smaller replacement releases the large
+  paragraph and height indexes. Grapheme boundaries come from the
+  paragraph of the caret. A text area lays its
   text out a paragraph at a time (`area`), as the text system breaks
   lines anyway, so that the lines are those of the text laid out whole:
   each paragraph keeps its layout until an edit changes it or the width
   does, those in view are laid out from the paragraph the view starts in
   (the anchor) down, those far from view give their layouts up and keep
-  their heights, and the heights not measured are estimated by those
-  measured. Two Fenwick trees, of the heights measured and of how many are
+  their heights, and layouts own their paragraphs' text rather than
+  keeping old document strings alive. The heights not measured are
+  estimated by those measured. Two Fenwick trees, of the heights measured and of how many are
   not, give the top of a paragraph and the paragraph at a height in
   O(log n) whatever the estimate. The area scrolls as a scroll container,
   its offset the state's (`flagScrollY`, the content as high as its
@@ -1881,6 +1888,8 @@ either.
 
   `internal/raster` draws the same scene with the same formulas on the CPU,
   solid spans inside shapes and only the edges of shadows computed, and
+  blends ordinary opaque mask glyphs in integers, retaining the general
+  path for gradients, corrected/subpixel text and rounded clip edges. It
   redraws only what differs from the last scene (`raster.Renderer`), with
   the effects reading their backdrops that meets and those backdrops, in
   rectangles apart from each other (`addBackdrops`): it is

@@ -59,6 +59,35 @@ func TestBufferEdits(t *testing.T) {
 	}
 }
 
+func TestBufferSetUTF8(t *testing.T) {
+	for _, s := range []string{
+		"", "\n", "ascii\ncode\n", "long ASCII line without a newline",
+		"é\n日本語\n😀\r\n", "1234567é\n12345678😀tail",
+		"bad\xff\xfe\nutf8\xc0\xaf\n", "\xf0\x9f\n\x80\x00",
+	} {
+		var b buffer
+		b.set(s)
+		// Invalid UTF-8 preserves the source bytes but decodes to RuneError
+		// as range does; compare positions against the source independently.
+		if b.n != len([]rune(s)) {
+			t.Fatalf("%q: %d runes, want %d", s, b.n, len([]rune(s)))
+		}
+		p, runes := 1, 0
+		for at, r := range s {
+			runes++
+			if r == '\n' {
+				if b.paras[p].rune != runes || b.paras[p].byte != at+1 {
+					t.Fatalf("%q: paragraph %d starts at %+v", s, p, b.paras[p])
+				}
+				p++
+			}
+		}
+		if p != len(b.paras) {
+			t.Fatalf("%q: %d paragraphs, want %d", s, len(b.paras), p)
+		}
+	}
+}
+
 func TestBufferWords(t *testing.T) {
 	s := "one, two_3\n  four\n\nfive"
 	var b buffer

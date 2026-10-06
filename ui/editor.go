@@ -110,8 +110,11 @@ func newEditor() *editor { return &editor{} }
 func (ed *editor) setText(s string) {
 	if n := len(ed.undo); n > 0 {
 		step := &ed.undo[n-1]
-		step.changes = append(step.changes[:0], change{removed: step.before(ed.buf.s), inserted: s, app: true})
+		before := step.before(ed.buf.s)
+		clear(step.changes)
+		step.changes = append(step.changes[:0], change{removed: before, inserted: s, app: true})
 	}
+	clear(ed.redo)
 	ed.redo = ed.redo[:0]
 	ed.buf.set(s)
 	ed.caret = min(ed.caret, ed.buf.n)
@@ -190,8 +193,10 @@ func (ed *editor) record(typing bool) {
 	}
 	ed.undo = append(ed.undo, undoStep{caret: ed.caret, anchor: ed.anchor})
 	if len(ed.undo) > 200 {
+		ed.undo[0] = undoStep{}
 		ed.undo = ed.undo[1:]
 	}
+	clear(ed.redo)
 	ed.redo = ed.redo[:0]
 	ed.coalesce = typing
 	ed.lastEdit = now
@@ -218,7 +223,13 @@ func (ed *editor) replace(start, end int, s string) {
 	}
 	if n := len(ed.undo); n > 0 {
 		step := &ed.undo[n-1]
-		c := change{at: start, removed: ed.buf.slice(start, end), inserted: s}
+		removed := ed.buf.slice(start, end)
+		// A short deletion must not keep the entire old document alive.
+		// Deleting it whole already needs all of its bytes for undo.
+		if len(removed) < len(ed.buf.s) {
+			removed = strings.Clone(removed)
+		}
+		c := change{at: start, removed: removed, inserted: s}
 		// Typing grows the text the step inserted.
 		grown := false
 		if k := len(step.changes); k > 0 && c.removed == "" {
@@ -251,6 +262,7 @@ func (ed *editor) takeBack(redo bool) {
 		return
 	}
 	step := (*from)[n-1]
+	(*from)[n-1] = undoStep{}
 	*from = (*from)[:n-1]
 	if redo {
 		for _, c := range step.changes {
@@ -710,6 +722,7 @@ func (ed *editor) process(c *Context, e *Element) {
 			ed.command(c, ev.text)
 		}
 	}
+	clear(ed.queue)
 	ed.queue = ed.queue[:0]
 	if ed.dragging && st.pressed {
 		rt := c.rt

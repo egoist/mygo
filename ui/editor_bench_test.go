@@ -29,6 +29,23 @@ func textAreaTester(lines int) (*Tester, *string) {
 // benchLines are the sizes of the texts of the benchmarks, in lines.
 var benchLines = []int{1000, 10000, 100000, 1000000}
 
+// BenchmarkTextBufferOpen indexes a code document's paragraph boundaries,
+// before layout, to measure the work that scales with the entire file.
+func BenchmarkTextBufferOpen(b *testing.B) {
+	for _, n := range benchLines {
+		b.Run(fmt.Sprint(n), func(b *testing.B) {
+			s := codeLines(n)
+			var buf buffer
+			buf.set(s)
+			b.ReportAllocs()
+			b.SetBytes(int64(len(s)))
+			for b.Loop() {
+				buf.set(s)
+			}
+		})
+	}
+}
+
 // BenchmarkTextAreaType types a letter into a text area of many lines: a
 // frame that edits the text, lays it out and paints it.
 func BenchmarkTextAreaType(b *testing.B) {

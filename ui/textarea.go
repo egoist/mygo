@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -122,6 +123,11 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 		t = t[:at] + compose + t[at:]
 	}
 	params := a.params
+	// A paragraph's layout outlives edits elsewhere. Its text must not
+	// pin the old document when the buffer replaces it with a new string.
+	if len(t) < len(b.s) {
+		t = strings.Clone(t)
+	}
 	params.Text = t
 	l := textSystem().Shape(params)
 	if pr.layout == nil {
