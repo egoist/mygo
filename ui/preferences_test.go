@@ -1,9 +1,218 @@
 package ui
 
 import (
+	"image/color"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/internal/scene"
 )
+
+func contrastSample() ContrastColors {
+	return ContrastColors{
+		Window: Hex("#101030"), WindowText: Hex("#ffff00"),
+		ButtonFace: Hex("#303050"), ButtonText: Hex("#ffffff"),
+		Highlight: Hex("#ffff00"), HighlightText: Hex("#101030"),
+		GrayText: Hex("#b0b0c0"), Hotlight: Hex("#00ffff"),
+	}
+}
+
+func TestPreferenceSnapshotAndLiveReset(t *testing.T) {
+	var got Preferences
+	var theme Theme
+	tt := NewTester(func(c *Context) { got, theme = c.Preferences(), *c.Theme() }, 200, 100)
+	want := Preferences{
+		Accent: Hex("#ff0000"), HighContrast: true, ReduceMotion: true,
+		TextScale: 1.25, ScrollbarVisibility: ScrollbarAlways, ReduceTransparency: true,
+		ContrastColors: contrastSample(),
+	}
+	for _, dark := range []bool{false, true} {
+		tt.SetDark(dark)
+		tt.SetPreferences(want)
+		if got != want {
+			t.Fatalf("preference snapshot: %+v, want %+v", got, want)
+		}
+		c := want.ContrastColors
+		if theme.Background != c.Window || theme.Text != c.WindowText || theme.Surface != c.ButtonFace ||
+			theme.SurfaceText != c.ButtonText || theme.TextMuted != c.GrayText ||
+			theme.Accent != c.Highlight || theme.AccentText != c.HighlightText ||
+			theme.Selection != c.Highlight || theme.SelectionText != c.HighlightText ||
+			theme.Link != c.Hotlight || theme.Focus != c.WindowText {
+			t.Fatalf("contrast palette lost in theme: %+v", theme)
+		}
+		if !theme.ReduceTransparency || theme.ScrollbarVisibility != ScrollbarAlways {
+			t.Fatalf("theme did not follow preferences: %+v", theme)
+		}
+		tt.SetPreferences(Preferences{})
+		base := LightTheme()
+		if dark {
+			base = DarkTheme()
+		}
+		if theme != *base || got.TextScale != 1 || got.ContrastColors != (ContrastColors{}) {
+			t.Fatalf("live reset retained preferences: %+v, %+v", got, theme)
+		}
+	}
+}
+
+func TestContrastSelectionForeground(t *testing.T) {
+	for _, kind := range []string{"input", "area", "text"} {
+		t.Run(kind, func(t *testing.T) {
+			value := "Selected words"
+			var e *Element
+			tt := NewTester(func(c *Context) {
+				switch kind {
+				case "input":
+					e = TextInput(c, &value)
+				case "area":
+					e = TextArea(c, &value)
+				case "text":
+					e = Text(c, value).Selectable()
+				}
+				e.Absolute().Left(20).Top(20).Size(220, 80).FontSize(24)
+			}, 280, 130)
+			tt.SetPreferences(Preferences{HighContrast: true, ContrastColors: contrastSample()})
+			tt.ClickAt(35, 35)
+			tt.Key(Cmd, KeyA)
+			a, b := e.st.editor.selection()
+			if a != 0 || b != len(value) {
+				t.Fatalf("selection %d:%d", a, b)
+			}
+			// WindowText equals Highlight in this palette. Leaving the
+			// ordinary foreground in place would erase the selected text.
+			fg := contrastSample().HighlightText
+			var selectedBox scene.Rect
+			for _, op := range tt.h.last.Ops {
+				if op.Kind == scene.OpFill && op.Color == contrastSample().Highlight.scene() && op.Rect.W > 30 {
+					selectedBox = op.Rect
+					break
+				}
+			}
+			pixels := 0
+			for y := int(selectedBox.Y) + 1; y < int(selectedBox.Y+selectedBox.H)-1; y++ {
+				for x := int(selectedBox.X) + 1; x < int(selectedBox.X+selectedBox.W)-1; x++ {
+					if tt.Image().RGBAAt(x, y) == (color.RGBA{fg.R, fg.G, fg.B, fg.A}) {
+						pixels++
+					}
+				}
+			}
+			if pixels < 10 {
+				t.Fatalf("selected text lost its contrasting foreground (%d pixels)", pixels)
+			}
+			found := false
+			for _, g := range tt.h.last.Glyphs {
+				found = found || g.Color == fg.scene()
+			}
+			if !found {
+				t.Fatal("selection foreground missing from text drawing")
+			}
+		})
+	}
+}
+
+func TestExplicitElementPreferenceStyles(t *testing.T) {
+	var input, button *Element
+	value := "App styled"
+	fg, bg := Hex("#ff00ff"), Hex("#003300")
+	tt := NewTester(func(c *Context) {
+		input = TextInput(c, &value).TextColor(fg).Background(bg).Opacity(0.7)
+		button = Button(c, "Disabled app style").Disabled(true).TextColor(fg).Background(bg)
+	}, 300, 140)
+	tt.SetPreferences(Preferences{HighContrast: true, ReduceTransparency: true, ContrastColors: contrastSample()})
+	if input.resolvedText().color != fg || input.bg != bg || input.opacity != 0.7 ||
+		button.resolvedText().color != fg || button.bg != bg {
+		t.Fatal("preferences rewrote explicit element styling")
+	}
+}
+
+func TestContrastFocusAndDisabledControls(t *testing.T) {
+	var button *Element
+	tt := NewTester(func(c *Context) {
+		Column(c).Padding(20).Gap(16).Children(func() {
+			button = Button(c, "Focus")
+			Button(c, "Disabled").Disabled(true)
+		})
+	}, 220, 150)
+	tt.SetPreferences(Preferences{HighContrast: true, ContrastColors: contrastSample()})
+	tt.Key(0, KeyTab)
+	if !button.FocusVisible() {
+		t.Fatal("Tab did not show keyboard focus")
+	}
+	ring, halo, disabledText := false, false, false
+	for _, op := range tt.h.last.Ops {
+		if op.Kind == scene.OpFill && op.Border[0] > 0 {
+			ring = ring || op.BorderColor == contrastSample().WindowText.scene()
+			halo = halo || op.BorderColor == contrastSample().Window.scene()
+		}
+	}
+	for _, g := range tt.h.last.Glyphs {
+		disabledText = disabledText || g.Color == contrastSample().GrayText.scene()
+	}
+	if !ring || !halo || !disabledText {
+		t.Fatalf("ring=%v halo=%v disabled foreground=%v", ring, halo, disabledText)
+	}
+}
+
+func TestContrastGridSelection(t *testing.T) {
+	selected := 0
+	state := GridState{Selected: &selected}
+	var grid *Element
+	tt := NewTester(func(c *Context) {
+		grid = GridView(c, &state, 2, 100, 70, func(i int) { Textf(c, "Item %d", i) }).Fill()
+	}, 220, 150)
+	tt.SetPreferences(Preferences{HighContrast: true, ContrastColors: contrastSample()})
+	tt.Key(0, KeyTab)
+	cell := grid.first.first.first
+	if cell.bg != contrastSample().Highlight || cell.resolvedText().color != contrastSample().HighlightText {
+		t.Fatalf("selected grid item lost its opaque color pair: %v / %v", cell.bg, cell.resolvedText().color)
+	}
+}
+
+func TestContrastSidebarSelectionWithoutFocus(t *testing.T) {
+	selected := "chosen"
+	var item *Element
+	tt := NewTester(func(c *Context) {
+		Row(c).Fill().Children(func() {
+			Sidebar(c, &selected, func() { item = SidebarItem(c, "chosen", nil, "Chosen") }).Width(180)
+			Button(c, "Other")
+		})
+	}, 320, 200)
+	tt.SetPreferences(Preferences{HighContrast: true, ContrastColors: contrastSample()})
+	tt.Click("Chosen")
+	tt.Click("Other")
+	if item.bg != contrastSample().Highlight || item.resolvedText().color != contrastSample().HighlightText {
+		t.Fatal("unfocused sidebar selection disappeared into its control face")
+	}
+	tt.SetPreferences(Preferences{})
+	if item.bg != LightTheme().SurfacePressed {
+		t.Fatal("normal inactive sidebar styling did not return")
+	}
+}
+
+func TestHighContrastSelectionChoosesReadableForeground(t *testing.T) {
+	var theme Theme
+	tt := NewTester(func(c *Context) { theme = *c.Theme() }, 200, 100)
+	for _, sample := range []struct{ accent, foreground Color }{
+		{Hex("#007aff"), RGB(0, 0, 0)}, {Hex("#ffff00"), RGB(0, 0, 0)},
+		{Hex("#111166"), RGB(255, 255, 255)},
+	} {
+		tt.SetPreferences(Preferences{HighContrast: true, Accent: sample.accent})
+		if theme.Selection != sample.accent || theme.SelectionText != sample.foreground || theme.Focus.A != 255 {
+			t.Fatalf("unreadable high contrast selection: %v / %v", theme.Selection, theme.SelectionText)
+		}
+	}
+}
+
+func TestExplicitThemeKeepsPreferenceOverrides(t *testing.T) {
+	own := LightTheme()
+	own.ScrollbarVisibility = ScrollbarNever
+	own.Selection, own.SelectionText = Hex("#663399"), Hex("#ffffaa")
+	var got Theme
+	tt := NewTester(func(c *Context) { c.SetTheme(own); got = *c.Theme() }, 200, 100)
+	tt.SetPreferences(Preferences{HighContrast: true, ReduceTransparency: true, ScrollbarVisibility: ScrollbarAlways, ContrastColors: contrastSample()})
+	if got != *own {
+		t.Fatal("OS preferences rewrote an explicit app theme")
+	}
+}
 
 func TestThemeFollowsTheAccent(t *testing.T) {
 	var theme *Theme

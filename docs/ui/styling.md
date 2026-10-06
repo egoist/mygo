@@ -110,8 +110,66 @@ theme follows and a frame follows the changes of:
   stands out.
 - **`HighContrast`.** macOS's Increase Contrast, Windows's contrast themes,
   the portal's higher contrast: borders and secondary text are darker
-  (lighter in the dark), and the focus ring opaque.
+  (lighter in the dark). Selection uses an opaque foreground/background
+  pair; the opaque focus ring has a background halo, and disabled controls
+  keep their text opaque.
 - **`TextScale`.** Windows's and GNOME's text size: `FontSize` is that many
   times larger.
 - **`ReduceMotion`.** macOS's Reduce Motion, Windows's animation effects and
   GNOME's animations turned off: `Animate` goes to its target at once.
+- **`ScrollbarVisibility`.** `ui.ScrollbarAuto` shows overlay indicators
+  while hovered or dragged; `ui.ScrollbarAlways` keeps them visible at
+  idle. `ui.ScrollbarOnScroll` implements macOS's explicit **When
+  scrolling** choice, keeping bars visible during and briefly after a
+  scroll and then hiding them with one expiry repaint. The desktop
+  preference applies to scroll containers, lists,
+  grids and text areas. They still take no layout space.
+- **`ReduceTransparency`.** macOS's Reduce Transparency and Windows's
+  transparency effects turned off. The glass plugin replaces its glass,
+  blur and scroll-edge materials with opaque fills. High contrast also
+  selects these fallbacks.
+- **`ContrastColors`.** Windows's actual contrast-theme colors, including
+  customized palettes: `Window`/`WindowText`, `ButtonFace`/`ButtonText`,
+  `Highlight`/`HighlightText`, `GrayText` and `Hotlight`. The default
+  theme uses these pairs for content, buttons and inputs, selections and
+  links, ahead of the ordinary accent. `Window.A == 0` means no palette
+  is available; other desktops keep the usual theme with higher contrast.
+
+| Setting | macOS | Linux | Windows |
+|---|---|---|---|
+| Scrollbars | Show scroll bars, with AppKit resolving the automatic choice from pointing devices | GTK's overlay-scrolling setting (GTK 3.24.9+), GNOME's portal preference, or `GTK_OVERLAY_SCROLLING=0` | Accessibility's Always show scrollbars |
+| Reduced transparency | Accessibility display option | No standardized setting; defaults to false | Personalization's transparency effects |
+| Contrast palette | No palette; Increase Contrast adjusts the theme | No palette; GTK/portal higher contrast adjusts the theme | `GetSysColor` while a contrast theme is active |
+
+Changes arrive through AppKit/NSWorkspace notifications, GTK setting and
+portal signals, or Windows's setting, theme and system-color broadcasts.
+No polling is needed. Unsupported desktops use automatic scrollbars and
+no reduced transparency or contrast palette.
+
+The theme exposes `SelectionText` (zero keeps the normal text color),
+`SurfaceText` (zero uses `Text`), `Link` (zero uses `Accent`), and
+`ScrollbarTrack` (zero draws only a thumb). Custom drawings can use these
+pairs too. `Painter.Preferences()` gives custom materials the same
+preference snapshot as `Context.Preferences()`.
+
+Explicit themes set with `c.SetTheme` retain their colors and behavior.
+Copy `*c.Theme()` each frame to keep following the desktop and override
+only the settings your app needs:
+
+```go
+t := *c.Theme()
+t.ScrollbarVisibility = ui.ScrollbarAlways
+c.SetTheme(&t)
+// Or override just one container:
+ui.Scroll(c).Height(180).Scrollbars(ui.ScrollbarNever).Children(rows)
+```
+
+Explicit backgrounds, gradients, tints and element opacity stay under
+app control; reduced transparency changes the materials' fallback rather
+than rewriting all alpha values. Apps supplying their own theme/materials
+can choose how to follow these preferences. Tests and previews can supply
+the complete snapshot, including a contrast palette, with
+`Tester.SetPreferences`; changing it rebuilds the view.
+
+The gallery's **Preferences** page shows the live settings, selection
+and keyboard focus, scrollbar overrides, and materials.

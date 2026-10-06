@@ -87,6 +87,7 @@ var (
 	procGetDpiForSystem               = user32.NewProc("GetDpiForSystem")
 	procAdjustWindowRectExForDpi      = user32.NewProc("AdjustWindowRectExForDpi")
 	procGetSystemMetricsForDpi        = user32.NewProc("GetSystemMetricsForDpi")
+	procGetSysColor                   = user32.NewProc("GetSysColor")
 	procRegisterClassExW              = user32.NewProc("RegisterClassExW")
 	procCreateWindowExW               = user32.NewProc("CreateWindowExW")
 	procDestroyWindow                 = user32.NewProc("DestroyWindow")
@@ -244,6 +245,8 @@ const (
 	wmEraseBkgnd        = 0x0014
 	wmEndSession        = 0x0016
 	wmSettingChange     = 0x001A
+	wmSysColorChange    = 0x0015
+	wmThemeChanged      = 0x031A
 	wmGetMinMaxInfo     = 0x0024
 	wmWindowPosChanging = 0x0046
 	wmSetIcon           = 0x0080

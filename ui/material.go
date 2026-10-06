@@ -34,6 +34,11 @@ func (e *Element) Material(m Material) *Element {
 // Theme returns the theme of the view being painted.
 func (p *Painter) Theme() *Theme { return p.rt.c.theme }
 
+// Preferences returns the desktop preferences for custom drawings and materials.
+// Default materials use Theme.ReduceTransparency so an explicit app theme can
+// override their opaque fallback.
+func (p *Painter) Preferences() Preferences { return p.rt.preferences() }
+
 // EffectColor returns c as a parameter of an effect: straight RGBA from 0
 // to 1, its sRGB value, and wide, its color outside the sRGB gamut in
 // extended sRGB, which the effect's Metal shader takes where e.wide tells

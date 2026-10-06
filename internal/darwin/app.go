@@ -125,6 +125,8 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	// The accent color, and the display settings of accessibility.
 	send(center, "addObserver:selector:name:object:", uintptr(b.delegate), uintptr(sel("preferencesChanged:")),
 		uintptr(nsString("NSSystemColorsDidChangeNotification")), 0)
+	send(center, "addObserver:selector:name:object:", uintptr(b.delegate), uintptr(sel("preferencesChanged:")),
+		uintptr(nsString("NSPreferredScrollerStyleDidChangeNotification")), 0)
 	send(send(workspace(), "notificationCenter"), "addObserver:selector:name:object:", uintptr(b.delegate), uintptr(sel("preferencesChanged:")),
 		uintptr(nsString("NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification")), 0)
 	return nil

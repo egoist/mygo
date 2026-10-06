@@ -3,7 +3,164 @@ package ui
 import (
 	"math"
 	"testing"
+	"time"
+
+	"github.com/egoist/mygo/internal/scene"
 )
+
+func TestScrollbarVisibilityPreferences(t *testing.T) {
+	var e *Element
+	var offset ScrollState
+	override := false
+	tt := NewTester(func(c *Context) {
+		e = ScrollBoth(c).Size(160, 120).TrackScroll(&offset)
+		if override {
+			e.Scrollbars(ScrollbarAlways)
+		}
+		e.Children(func() { Box(c).Size(600, 500).Shrink(0) })
+	}, 240, 200)
+	bars := func() int {
+		n := 0
+		for _, op := range tt.h.last.Ops {
+			if op.Kind == scene.OpFill && op.Color == e.c.Theme().Scrollbar.scene() {
+				n++
+			}
+		}
+		return n
+	}
+	if n := bars(); n != 0 {
+		t.Fatalf("automatic bars visible at idle: %d", n)
+	}
+	tt.SetPreferences(Preferences{ScrollbarVisibility: ScrollbarAlways})
+	if n := bars(); n != 2 {
+		t.Fatalf("permanent bars at idle: %d", n)
+	}
+	if e.w != 160 || e.h != 120 || offset.MaxX != 440 || offset.MaxY != 380 {
+		t.Fatalf("preference consumed layout space: %v x %v, %+v", e.w, e.h, offset)
+	}
+	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, 600, 500, 0, 0, e.flags, e.c.Theme().scrollbarWidth())
+	tt.Press(g.v.X+g.v.W/2, g.v.Y+g.v.H/2)
+	tt.Move(g.v.X+g.v.W/2, g.v.Y+g.v.H/2+30)
+	tt.Release(220, 160)
+	if offset.Y <= 0 {
+		t.Fatal("permanent scrollbar could not be dragged")
+	}
+	tt.Move(220, 160)
+	tt.SetPreferences(Preferences{})
+	if n := bars(); n != 0 {
+		t.Fatalf("live change left permanent bars: %d", n)
+	}
+	tt.Move(80, 60)
+	if n := bars(); n != 2 {
+		t.Fatalf("automatic bars did not show on hover: %d", n)
+	}
+	tt.SetPreferences(Preferences{ScrollbarVisibility: ScrollbarNever})
+	if n := bars(); n != 0 {
+		t.Fatalf("hidden scrollbars painted: %d", n)
+	}
+	g = scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, 600, 500, offset.X, offset.Y, e.flags, e.c.Theme().scrollbarWidth())
+	tt.Press(g.v.X+g.v.W/2, g.v.Y+g.v.H/2)
+	if tt.rt.scrollDrag.st != nil {
+		t.Fatal("invisible scrollbar retained its drag target")
+	}
+	tt.Release(80, 60)
+	before := offset.Y
+	tt.Scroll(80, 60, 0, -20)
+	if offset.Y != before-20 {
+		t.Fatal("hiding scrollbars disabled wheel scrolling")
+	}
+	override = true
+	tt.Frame()
+	tt.Move(220, 160)
+	if n := bars(); n != 2 {
+		t.Fatalf("container override was ignored: %d", n)
+	}
+}
+
+func TestContrastScrollbarTrack(t *testing.T) {
+	var e *Element
+	tt := NewTester(func(c *Context) {
+		e = Scroll(c).Fill().Background(Hex("#ffff00")).Children(func() { Box(c).Height(1000).Shrink(0) })
+	}, 160, 120)
+	tt.SetPreferences(Preferences{HighContrast: true, ScrollbarVisibility: ScrollbarAlways, ContrastColors: contrastSample()})
+	// A contrasting opaque track keeps the thumb visible over content in
+	// the same color as the thumb.
+	track, thumb := false, false
+	for _, op := range tt.h.last.Ops {
+		track = track || op.Kind == scene.OpFill && op.Color == contrastSample().Window.scene() && op.Rect.W < e.w
+		thumb = thumb || op.Kind == scene.OpFill && op.Color == contrastSample().WindowText.scene() && op.Rect.W < e.w
+	}
+	if !track || !thumb {
+		t.Fatalf("opaque track=%v thumb=%v", track, thumb)
+	}
+}
+
+func TestLiveHiddenScrollbarCancelsDrag(t *testing.T) {
+	var s ScrollState
+	var e *Element
+	tt := NewTester(func(c *Context) {
+		e = Scroll(c).Fill().TrackScroll(&s).Children(func() { Box(c).Height(1000).Shrink(0) })
+	}, 180, 140)
+	tt.SetPreferences(Preferences{ScrollbarVisibility: ScrollbarAlways})
+	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, 180, 1000, 0, 0, e.flags, e.c.Theme().scrollbarWidth())
+	tt.Press(g.v.X+g.v.W/2, g.v.Y+g.v.H/2)
+	if tt.rt.scrollDrag.st == nil {
+		t.Fatal("drag did not start")
+	}
+	tt.SetPreferences(Preferences{ScrollbarVisibility: ScrollbarNever})
+	if tt.rt.scrollDrag.st != nil {
+		t.Fatal("live preference left an invisible drag active")
+	}
+	tt.Move(170, 100)
+	tt.Release(170, 100)
+	if s.Y != 0 {
+		t.Fatal("cancelled drag kept scrolling")
+	}
+}
+
+func TestScrollbarsShownWhileScrolling(t *testing.T) {
+	var e *Element
+	tt := NewTester(func(c *Context) {
+		e = Scroll(c).Size(160, 120).Children(func() { Box(c).Height(1000).Shrink(0) })
+	}, 220, 180)
+	now := time.Now()
+	tt.rt.clock = func() time.Time { return now }
+	tt.SetPreferences(Preferences{ScrollbarVisibility: ScrollbarOnScroll})
+	bars := func() int {
+		n := 0
+		for _, op := range tt.h.last.Ops {
+			if op.Kind == scene.OpFill && op.Color == e.c.Theme().Scrollbar.scene() {
+				n++
+			}
+		}
+		return n
+	}
+	tt.Move(70, 60)
+	if bars() != 0 {
+		t.Fatal("When scrolling showed a bar on hover")
+	}
+	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, 160, 1000, 0, 0, e.flags, e.c.Theme().scrollbarWidth())
+	tt.Press(g.v.X+2, g.v.Y+2)
+	if tt.rt.scrollDrag.st != nil {
+		t.Fatal("an idle indicator stole a pointer press")
+	}
+	tt.Release(g.v.X+2, g.v.Y+2)
+	tt.Scroll(70, 60, 0, 40)
+	tt.Move(200, 150)
+	if bars() != 1 {
+		t.Fatal("scrolling did not show an indicator outside hover")
+	}
+	if tt.rt.repaintAt.IsZero() {
+		t.Fatal("indicator scheduled no expiry repaint")
+	}
+	// Expiry repaints the existing frame; it need not rebuild the view or poll.
+	now = now.Add(scrollbarHold + time.Millisecond)
+	tt.rt.redraw = true
+	tt.rt.repaintFrame(tt.h.size())
+	if bars() != 0 || !tt.rt.repaintAt.IsZero() {
+		t.Fatal("idle indicator did not disappear and stop requesting frames")
+	}
+}
 
 func TestTrackScroll(t *testing.T) {
 	var s ScrollState

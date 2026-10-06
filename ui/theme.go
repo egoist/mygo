@@ -6,6 +6,10 @@ import "runtime"
 // LightTheme or DarkTheme and set it with Context.SetTheme.
 type Theme struct {
 	Dark bool
+	// HighContrast keeps default selection and disabled-control styling
+	// opaque. ReduceTransparency makes the glass plugin use opaque fills.
+	// Explicit app themes control these independently of OS preferences.
+	HighContrast, ReduceTransparency bool
 	// Background fills the window.
 	Background Color
 	// Surface is the face of buttons, inputs and other controls;
@@ -13,6 +17,8 @@ type Theme struct {
 	Surface        Color
 	SurfaceHover   Color
 	SurfacePressed Color
+	// SurfaceText is text on Surface; zero uses Text.
+	SurfaceText Color
 	// Border outlines controls.
 	Border Color
 	// Text and TextMuted color text; TextMuted is for secondary text and
@@ -32,6 +38,10 @@ type Theme struct {
 	Success Color
 	// Selection highlights selected text.
 	Selection Color
+	// SelectionText colors selected text; zero keeps its normal color.
+	SelectionText Color
+	// Link colors links; zero uses Accent.
+	Link Color
 	// Focus is the ring around the control with the keyboard focus.
 	Focus Color
 	// Inverse fills tooltips and toasts, the theme turned over so that
@@ -42,8 +52,13 @@ type Theme struct {
 	InverseText Color
 	// Scrollbar colors scroll bar thumbs, ScrollbarWidth DIPs wide (6 by
 	// default; 0 is 6).
-	Scrollbar      Color
+	Scrollbar Color
+	// ScrollbarTrack backs the thumbs when nonzero, as in contrast themes.
+	ScrollbarTrack Color
 	ScrollbarWidth float32
+	// ScrollbarVisibility controls when overflowing containers show their
+	// overlay scrollbars. Zero is ScrollbarAuto.
+	ScrollbarVisibility ScrollbarVisibility
 	// Radius rounds the corners of controls.
 	Radius float32
 	// Spacing is the unit of the room widgets leave inside and between
@@ -84,6 +99,13 @@ func (t *Theme) scrollbarWidth() float32 {
 		return 6
 	}
 	return t.ScrollbarWidth
+}
+
+func (t *Theme) surfaceText() Color {
+	if t.SurfaceText.A != 0 {
+		return t.SurfaceText
+	}
+	return t.Text
 }
 
 // Rem returns n times the theme's FontSize, as CSS's rem, to size elements

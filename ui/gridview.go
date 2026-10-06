@@ -280,8 +280,14 @@ func (s *GridState) cell(c *Context, grid *Element, i, n int, height float32, it
 		switch {
 		case chosen && grid.Focused():
 			cell.Background(t.Accent.Alpha(0.2)).Border(2, t.Accent)
+			if t.HighContrast {
+				cell.Background(t.Accent).TextColor(t.AccentText)
+			}
 		case chosen:
 			cell.Background(t.SurfacePressed).Border(2, t.Border)
+			if t.SurfaceText.A != 0 {
+				cell.TextColor(t.SurfaceText)
+			}
 		default:
 			cell.styleFn = func(cell *Element) {
 				if cell.Hovered() {

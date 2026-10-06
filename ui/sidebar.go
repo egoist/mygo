@@ -41,6 +41,9 @@ type sidebarEntry struct{ id, label string }
 func Sidebar(c *Context, selected *string, fn func()) *Element {
 	t := c.theme
 	e := Scroll(c).Padding(t.Space(2.5), t.Space(2.5)).Gap(t.Space(0.5)).Background(t.Surface).Focusable().Shrink(0)
+	if t.SurfaceText.A != 0 {
+		e.TextColor(t.SurfaceText)
+	}
 	e.widget, e.role = "Sidebar", RoleTree
 	e.flags |= flagTypeSelect | flagOwnRing
 	e.choosesItems = true
@@ -181,7 +184,7 @@ func SidebarItem(c *Context, id string, icon *SVG, label string) *Element {
 	}
 	iconColor := t.Accent
 	switch {
-	case chosen && focused:
+	case chosen && (focused || t.HighContrast):
 		item.checked = 2
 		item.Background(t.Accent).TextColor(t.AccentText)
 		iconColor = t.AccentText
@@ -189,6 +192,9 @@ func SidebarItem(c *Context, id string, icon *SVG, label string) *Element {
 		// Chosen in a sidebar without the focus, in gray, as AppKit's.
 		item.checked = 2
 		item.Background(t.SurfacePressed)
+		if t.SurfaceText.A != 0 {
+			item.TextColor(t.SurfaceText)
+		}
 	default:
 		item.checked = 1
 		item.styleFn = func(item *Element) {

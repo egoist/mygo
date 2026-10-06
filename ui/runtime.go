@@ -697,6 +697,11 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	if e.flags&(flagScrollX|flagScrollY) != 0 {
 		s.contentW, s.contentH = e.contentW, e.contentH
 		s.barInset = e.barInset
+		s.barVisibility, s.barWidth = e.scrollbarVisibility(), e.c.theme.scrollbarWidth()
+		s.noteScrollbarActivity(rt.c.now)
+		if s.barVisibility == ScrollbarNever && rt.scrollDrag.st == s {
+			rt.scrollDrag.st = nil
+		}
 	}
 	// What is invisible keeps its box but takes neither the pointer nor
 	// the focus, and has no text to find; so does what is inert, which

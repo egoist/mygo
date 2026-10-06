@@ -174,8 +174,16 @@ func (t *Tester) SetDark(dark bool) {
 // SetPreferences changes the desktop's settings that controls follow, as
 // the user does in the system's settings.
 func (t *Tester) SetPreferences(p Preferences) {
-	t.h.prefs = platform.Preferences{Accent: platform.Color{R: p.Accent.R, G: p.Accent.G, B: p.Accent.B, A: p.Accent.A}, ReduceMotion: p.ReduceMotion,
-		HighContrast: p.HighContrast, TextScale: float64(p.TextScale)}
+	c := p.ContrastColors
+	t.h.prefs = platform.Preferences{Accent: toPlatformColor(p.Accent), ReduceMotion: p.ReduceMotion,
+		HighContrast: p.HighContrast, TextScale: float64(p.TextScale),
+		ScrollbarVisibility: platform.ScrollbarVisibility(p.ScrollbarVisibility), ReduceTransparency: p.ReduceTransparency,
+		ContrastColors: platform.ContrastColors{
+			Window: toPlatformColor(c.Window), WindowText: toPlatformColor(c.WindowText),
+			ButtonFace: toPlatformColor(c.ButtonFace), ButtonText: toPlatformColor(c.ButtonText),
+			Highlight: toPlatformColor(c.Highlight), HighlightText: toPlatformColor(c.HighlightText),
+			GrayText: toPlatformColor(c.GrayText), Hotlight: toPlatformColor(c.Hotlight),
+		}}
 	t.rt.themeChanged()
 	t.settle()
 }

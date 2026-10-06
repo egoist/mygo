@@ -1,6 +1,51 @@
 package ui
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
+
+const scrollbarHold = time.Second
+
+type scrollbarActivity struct {
+	x, y  float64
+	until time.Time
+}
+
+func (s *state) noteScrollbarActivity(now time.Time) {
+	if s.barVisibility != ScrollbarOnScroll {
+		if s.barActivity != nil {
+			*s.barActivity = scrollbarActivity{}
+		}
+		return
+	}
+	if s.barActivity == nil {
+		s.barActivity = &scrollbarActivity{}
+	}
+	a := s.barActivity
+	if a.x != s.scrollX || a.y != s.scrollY {
+		a.x, a.y = s.scrollX, s.scrollY
+		a.until = now.Add(scrollbarHold)
+	}
+}
+
+// Scrollbars overrides the theme's scrollbar visibility for this container.
+// Bars remain overlays and take no layout space; Never also removes their
+// pointer targets. Applies to Scroll, List, Table's list and TextArea.
+func (e *Element) Scrollbars(v ScrollbarVisibility) *Element {
+	if v > ScrollbarNever {
+		panic("ui: invalid scrollbar visibility")
+	}
+	e.barVisibility, e.barSet = v, true
+	return e
+}
+
+func (e *Element) scrollbarVisibility() ScrollbarVisibility {
+	if e.barSet {
+		return e.barVisibility
+	}
+	return e.c.theme.ScrollbarVisibility
+}
 
 // ScrollState is how far a scroll container scrolls its content, kept in
 // the app's state with TrackScroll.

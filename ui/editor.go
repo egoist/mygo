@@ -727,6 +727,9 @@ func textInput(c *Context, value *string, multiline bool) *Element {
 	t := c.theme
 	e := textInputBase(c, value, multiline)
 	e.Padding(t.Space(1.5), t.Space(2.5)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border)
+	if t.SurfaceText.A != 0 {
+		e.TextColor(t.SurfaceText)
+	}
 	if multiline {
 		e.MinHeight(t.Space(20))
 	}
@@ -939,12 +942,11 @@ func (e *Element) paintInput(p *Painter) {
 		p.clip = saved
 		return
 	}
+	var selected []text.Rect
 	if a, b := ed.selection(); a != b && focused {
-		for _, r := range l.Selection(ed.displayIndex(a), ed.displayIndex(b)) {
-			p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, t.Selection, 0)
-		}
+		selected = l.Selection(ed.displayIndex(a), ed.displayIndex(b))
 	}
-	p.textLayout(l, ox, oy, ts.color, ts, nil)
+	p.textWithSelection(l, ox, oy, ts, nil, selected)
 	if ed.compose != "" {
 		start := ed.caret
 		end := start + utf8.RuneCountInString(ed.compose)
