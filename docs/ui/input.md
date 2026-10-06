@@ -122,7 +122,8 @@ if zone.FileDragOver() {
 }
 ```
 
-Values dragged within the window are [drag and drop](drag-and-drop.md).
+Values dragged within or between windows, and serialized data exchanged
+with other applications, are [drag and drop](drag-and-drop.md).
 
 ## Every key, as it comes
 

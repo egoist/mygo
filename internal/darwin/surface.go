@@ -17,6 +17,7 @@ import (
 	"github.com/ebitengine/purego/objc"
 
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/transfer"
 )
 
 // The surface of a window that shows content MyGo draws itself is a
@@ -123,11 +124,13 @@ type surface struct {
 
 	// Accessibility: whether the content describes its frames, the last
 	// tree, the elements of its nodes and those at the top (an NSArray).
-	accessOn bool
-	access   platform.AccessTree
-	elements map[uint64]*accessElement
-	topLevel id
-	updating bool
+	accessOn      bool
+	access        platform.AccessTree
+	elements      map[uint64]*accessElement
+	topLevel      id
+	updating      bool
+	dataDrag      *macDataSource
+	dragOperation transfer.Operation
 }
 
 func (w *window) createSurface(content NSRect) {
@@ -155,6 +158,7 @@ func (w *window) createSurface(content NSRect) {
 }
 
 func (s *surface) destroy() {
+	s.CancelDataDrag()
 	if s.link != 0 {
 		send(s.link, "invalidate")
 		release(s.link)
@@ -518,6 +522,7 @@ func (b *Backend) surfaceOf(view id) *surface {
 }
 
 func registerSurfaceClass() {
+	registerDataDragClasses()
 	b := func() *Backend { return theBackend }
 	mouse := func(kind platform.SurfaceEventKind, button int) func(id, objc.SEL, id) {
 		return func(self id, _ objc.SEL, ev id) {
@@ -567,11 +572,7 @@ func registerSurfaceClass() {
 		if s == nil {
 			return 0
 		}
-		x, y := s.dragPoint(info)
-		if s.send(platform.SurfaceEvent{Kind: platform.FileDragOver, X: x, Y: y}) {
-			return 1 // NSDragOperationCopy
-		}
-		return 0
+		return s.nativeDataOperation(info)
 	}
 	methods := []objc.MethodDef{
 		// Files dragged from other apps.
@@ -579,7 +580,7 @@ func registerSurfaceClass() {
 		method("draggingUpdated:", dragged),
 		method("draggingExited:", func(self id, _ objc.SEL, info id) {
 			if s := b().surfaceOf(self); s != nil {
-				s.send(platform.SurfaceEvent{Kind: platform.FileDragLeave})
+				s.nativeDataEvent(info, platform.DataDragLeave)
 			}
 		}),
 		method("prepareForDragOperation:", func(self id, _ objc.SEL, info id) bool { return true }),
@@ -588,8 +589,7 @@ func registerSurfaceClass() {
 			if s == nil {
 				return false
 			}
-			x, y := s.dragPoint(info)
-			return s.send(platform.SurfaceEvent{Kind: platform.FileDrop, X: x, Y: y, Files: draggedFiles(info)})
+			return s.nativeDataEvent(info, platform.DataDrop)
 		}),
 	}
 	classDef("MyGoSurfaceView", "NSView", []string{"NSTextInputClient"}, append(append(methods, accessViewMethods()...), []objc.MethodDef{

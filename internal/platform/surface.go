@@ -1,6 +1,9 @@
 package platform
 
-import "image"
+import (
+	"github.com/egoist/mygo/transfer"
+	"image"
+)
 
 // Surface is the drawing area of a window created with
 // WindowOptions.Surface, which shows content MyGo draws itself (package
@@ -32,6 +35,12 @@ type Surface interface {
 	// elements. The content calls it after every frame once the surface
 	// sent AccessibilityOn.
 	UpdateAccessibility(tree *AccessTree)
+	// StartDataDrag starts a native transfer; CancelDataDrag cancels the
+	// source owned by this surface. Both run on the main thread.
+	StartDataDrag(DragRequest)
+	CancelDataDrag()
+	// SetDropFormats registers the formats the content can receive.
+	SetDropFormats([]transfer.Format)
 }
 
 // LazyGPUSurface is a Surface that draws in memory until its content asks
@@ -160,6 +169,11 @@ const (
 	// SurfaceShown reports that some of an OccludableSurface shows again
 	// after none did.
 	SurfaceShown
+	// DataDragOver queries a destination; DataDrop commits a transfer.
+	// DataDragLeave clears its hover state. Drag carries the query/result.
+	DataDragOver
+	DataDragLeave
+	DataDrop
 )
 
 // SurfaceEvent is input on a Surface, or a change of it.
@@ -186,6 +200,7 @@ type SurfaceEvent struct {
 	From, To int
 	// Files are the paths of FileDrop's files.
 	Files []string
+	Drag  *DataDragEvent
 	// ID and Action are AccessAction's.
 	ID     uint64
 	Action AccessActionKind
