@@ -1257,14 +1257,14 @@ func (g *gallery) glassPage(c *ui.Context) {
 	tiles := []ui.Color{ui.Hex("#ef4444"), ui.Hex("#f59e0b"), ui.Hex("#10b981"), ui.Hex("#06b6d4"), ui.Hex("#6366f1"), ui.Hex("#ec4899")}
 	area := ui.Box(c).Height(420).Radius(12).Clip().Border(1, t.Border)
 	area.Children(func() {
-		// What shows through: photos and text, scrolling under the glass,
-		// from under the toolbar, with the scroll bar below what floats
-		// over the content.
+		// What shows through: photos and text, which start below the
+		// toolbar, 64 DIPs down, and scroll under it, with the scroll bar
+		// below what floats over the content.
 		bars := float32(64)
 		if g.glassEdge == 3 {
 			bars = 88
 		}
-		ui.Scroll(c).Fill().Padding(36, 16, 16).ScrollbarInsets(bars, 0, 0).Gap(12).Children(func() {
+		ui.Scroll(c).Fill().Padding(76, 16, 16).ScrollbarInsets(bars, 0, 0).Gap(12).Children(func() {
 			for i := range 12 {
 				ui.Row(c).Gap(14).Children(func() {
 					a, b := tiles[i%len(tiles)], tiles[(i+2)%len(tiles)]
