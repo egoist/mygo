@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -105,7 +106,7 @@ func TestDataDragPreservesFileDropFallback(t *testing.T) {
 			received = append(received, files...)
 		}
 	})
-	paths := []string{t.TempDir() + "/a.txt"}
+	paths := []string{filepath.Join(t.TempDir(), "a.txt")}
 	data, _ := transfer.FileData(paths...)
 	onMain(func() {
 		d := &platform.DataDragEvent{Offer: transfer.Offer{Formats: data.Formats(), Operations: transfer.Copy | transfer.Move}, Data: data}
