@@ -1285,6 +1285,8 @@ either.
   tilt availability; cancellation and capture loss never complete a click
   or typed drop. The engine keeps contacts by ID and independent captures,
   while the first direct contact drives the existing pointer interactions.
+  `TrackContacts` opts raw handlers into additional and indirect contacts,
+  so existing handlers do not mistake trackpad fingers for mouse presses.
   Direct-touch gestures select an owner from the common initial hit chain,
   then cancel pending presses when claimed; explicit captures protect raw
   interactions. Native trackpad gestures arrive separately as phased pan,

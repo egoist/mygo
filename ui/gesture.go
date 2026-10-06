@@ -27,8 +27,9 @@ const (
 )
 
 // GestureEvent reports transformations since the previous event. X/Y are
-// the focal point relative to the element. DX/DY follow the fingers in
-// DIPs, Scale is a multiplier (1 means unchanged), and Rotation is radians
+// the focal point relative to the element. DX/DY are pan translation in
+// DIPs; precise-scroll pan honors the OS scroll direction. Scale is a
+// multiplier (1 means unchanged), and Rotation is radians
 // clockwise in the top-left coordinate system. TotalX/Y, TotalScale and
 // TotalRotation accumulate updates since Begin. Begin and terminal events
 // have neutral deltas. Contacts is zero when the OS does not report it.
@@ -261,6 +262,14 @@ func (rt *engine) touchChanged(kind platform.SurfaceEventKind) {
 	t.last = v
 }
 
+func (rt *engine) cancelPadPresses() {
+	for _, p := range rt.contacts {
+		if p.ev.Pointer.Device == PointerTouchpad && !p.explicit {
+			rt.cancelContact(p)
+		}
+	}
+}
+
 func (rt *engine) nativeGesture(ev platform.SurfaceEvent) bool {
 	rt.pointerEvent = ev
 	rt.pointerX, rt.pointerY = float32(ev.X), float32(ev.Y)
@@ -274,6 +283,16 @@ func (rt *engine) nativeGesture(ev platform.SurfaceEvent) bool {
 		}
 		return g.claimed
 	}
+	for _, p := range rt.contacts {
+		if p.ev.Pointer.Device == PointerTouchpad && p.explicit {
+			rt.finishGesture(g, GestureCancel)
+			rt.nativeGestures[ev.Gesture] = &gestureSession{claimed: true, cancelled: true}
+			if ev.Phase == platform.GestureEnd || ev.Phase == platform.GestureCancel {
+				delete(rt.nativeGestures, ev.Gesture)
+			}
+			return true
+		}
+	}
 	if ev.Phase == platform.GestureBegin || g == nil && ev.Phase == platform.GestureUpdate {
 		rt.finishGesture(g, GestureCancel)
 		// Native pan begins with zero movement. A scroll fallback is
@@ -283,6 +302,9 @@ func (rt *engine) nativeGesture(ev platform.SurfaceEvent) bool {
 			g.scroll, g.owner = false, 0
 		}
 		rt.nativeGestures[ev.Gesture] = g
+		if g.claimed {
+			rt.cancelPadPresses()
+		}
 	}
 	if g == nil {
 		return false
@@ -299,9 +321,13 @@ func (rt *engine) nativeGesture(ev platform.SurfaceEvent) bool {
 			// HandleInput, along the chain under its initial focal point.
 			h := rt.handler(g.chain)
 			taken := h != nil && rt.deliver(h, InputEvent{Kind: InputScroll, DX: -float32(ev.DX), DY: -float32(ev.DY), Precise: true, Mods: Modifiers(ev.Mods)})
+			if taken {
+				rt.cancelPadPresses()
+			}
 			if !taken {
 				for _, id := range g.chain {
 					if s := rt.states[id]; s != nil && scrollBy(s, -float32(ev.DX), -float32(ev.DY)) {
+						rt.cancelPadPresses()
 						rt.requestFrame()
 						break
 					}

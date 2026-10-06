@@ -20,7 +20,7 @@ func TestContentWindowGDKContactsAndGestures(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "GDK contacts", Width: 280, Height: 260, Content: ui.View(func(c *ui.Context) {
 		frames.Add(1)
 		ui.Column(c).Padding(20).Children(func() {
-			ui.Box(c).Size(200, 200).HandleInput(func(ev ui.InputEvent) bool { input = append(input, ev); return true }).Gestures(ui.GesturePinch|ui.GestureRotation, func(ev ui.GestureEvent) bool { gestures = append(gestures, ev); return true })
+			ui.Box(c).Size(200, 200).TrackContacts().HandleInput(func(ev ui.InputEvent) bool { input = append(input, ev); return true }).Gestures(ui.GesturePinch|ui.GestureRotation, func(ev ui.GestureEvent) bool { gestures = append(gestures, ev); return true })
 		})
 	})})
 	eventually(t, "GDK frame", func() bool { return frames.Load() > 0 })

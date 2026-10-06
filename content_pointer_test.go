@@ -12,7 +12,7 @@ func TestContentPointerContactsAndClose(t *testing.T) {
 	var got []ui.InputEvent
 	w, _, s := contentWindow(t, func(c *ui.Context) {
 		ui.Column(c).Padding(20).Children(func() {
-			ui.Box(c).Size(100, 100).HandleInput(func(ev ui.InputEvent) bool { got = append(got, ev); return true })
+			ui.Box(c).Size(100, 100).TrackContacts().HandleInput(func(ev ui.InputEvent) bool { got = append(got, ev); return true })
 		})
 	})
 	onMain(func() {

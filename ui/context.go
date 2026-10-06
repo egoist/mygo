@@ -447,6 +447,7 @@ type state struct {
 	// (HandleInput, TextCaret).
 	gesture      func(GestureEvent) bool
 	gestureKinds GestureKind
+	allContacts  bool
 	input        func(InputEvent) bool
 	caret        Rect
 	takesText    bool

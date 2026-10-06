@@ -27,7 +27,7 @@ func (g *gallery) inputPage(c *ui.Context) {
 	}
 	ui.Text(c, "Drawing captures each contact and prevents gestures and touch scrolling. Pen pressure changes the marker size; tilt and device availability appear below.").TextColor(t.TextMuted)
 	pad := ui.Box(c).Key("pointer-pad").Height(320).WidthPercent(100).Radius(12).Background(t.Surface).Border(1, t.Border).Clip()
-	pad.HandleInput(func(ev ui.InputEvent) bool {
+	pad.TrackContacts().HandleInput(func(ev ui.InputEvent) bool {
 		switch ev.Kind {
 		case ui.InputPointerDown:
 			if d.drawing {

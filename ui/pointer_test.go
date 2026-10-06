@@ -17,7 +17,7 @@ func TestPointerContactsCaptureAndCoordinates(t *testing.T) {
 	var events []InputEvent
 	tt := NewTester(func(c *Context) {
 		Column(c).Padding(20).Children(func() {
-			Box(c).Key("pad").Size(100, 100).HandleInput(func(ev InputEvent) bool { events = append(events, ev); return true })
+			Box(c).Key("pad").Size(100, 100).TrackContacts().HandleInput(func(ev InputEvent) bool { events = append(events, ev); return true })
 		})
 	}, 240, 220)
 	defer tt.rt.close()
@@ -96,7 +96,7 @@ func TestCaptureLossAndTargetRemovalDoNotClick(t *testing.T) {
 			var kinds []InputKind
 			tt := NewTester(func(c *Context) {
 				if show {
-					e := Box(c).Key("target").Size(100, 100).HandleInput(func(ev InputEvent) bool { kinds = append(kinds, ev.Kind); return true })
+					e := Box(c).Key("target").Size(100, 100).TrackContacts().HandleInput(func(ev InputEvent) bool { kinds = append(kinds, ev.Kind); return true })
 					if e.Clicked() {
 						clicks++
 					}
@@ -474,5 +474,57 @@ func TestCompatibilityCancellationReleasesHeldButton(t *testing.T) {
 	tt.SetFocused(false)
 	if !slices.Equal(released, []int{1}) {
 		t.Fatalf("compatibility released %v", released)
+	}
+}
+
+func TestLegacyHandlerDoesNotReceiveTrackpadPresses(t *testing.T) {
+	var got []InputKind
+	tt := NewTester(func(c *Context) {
+		Box(c).Fill().HandleInput(func(ev InputEvent) bool { got = append(got, ev.Kind); return true })
+	}, 100, 100)
+	defer tt.rt.close()
+	p := PointerInfo{ID: 1, Device: PointerTouchpad, Contact: true}
+	tt.Pointer(InputPointerDown, p, 20, 20)
+	tt.Pointer(InputPointerMove, p, 20, 20)
+	tt.Gesture(GestureEvent{Kind: GesturePan, Phase: GestureBegin, Device: PointerTouchpad, X: 20, Y: 20})
+	tt.Gesture(GestureEvent{Kind: GesturePan, Phase: GestureUpdate, Device: PointerTouchpad, X: 20, Y: 20, DY: -10})
+	tt.Gesture(GestureEvent{Kind: GesturePan, Phase: GestureEnd, Device: PointerTouchpad, X: 20, Y: 20})
+	tt.Pointer(InputPointerUp, p, 20, 20)
+	if !slices.Equal(got, []InputKind{InputScroll}) {
+		t.Fatalf("trackpad changed legacy handler: %v", got)
+	}
+}
+
+func TestNativeGestureCoordinatesWithTrackpadCapture(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "gesture claims implicit capture", true: "explicit capture blocks gesture"}[explicit], func(t *testing.T) {
+			var kinds []InputKind
+			var gestures []GesturePhase
+			tt := NewTester(func(c *Context) {
+				e := Box(c).Fill().TrackContacts()
+				e.HandleInput(func(ev InputEvent) bool {
+					kinds = append(kinds, ev.Kind)
+					if explicit && ev.Kind == InputPointerDown {
+						e.CapturePointer(ev.Pointer.ID)
+					}
+					return true
+				})
+				e.Gestures(GesturePinch, func(ev GestureEvent) bool { gestures = append(gestures, ev.Phase); return true })
+			}, 100, 100)
+			defer tt.rt.close()
+			p := PointerInfo{ID: 1, Device: PointerTouchpad, Contact: true}
+			tt.Pointer(InputPointerDown, p, 20, 20)
+			tt.Gesture(GestureEvent{Kind: GesturePinch, Phase: GestureBegin, Device: PointerTouchpad, X: 20, Y: 20})
+			tt.Gesture(GestureEvent{Kind: GesturePinch, Phase: GestureUpdate, Device: PointerTouchpad, X: 20, Y: 20, Scale: 1.2})
+			tt.Gesture(GestureEvent{Kind: GesturePinch, Phase: GestureEnd, Device: PointerTouchpad, X: 20, Y: 20})
+			tt.Pointer(InputPointerUp, p, 20, 20)
+			if explicit {
+				if len(gestures) != 0 || slices.Contains(kinds, InputPointerCancel) || !slices.Contains(kinds, InputPointerUp) {
+					t.Fatalf("explicit capture: input%v gesture%v", kinds, gestures)
+				}
+			} else if !slices.Contains(kinds, InputPointerCancel) || slices.Contains(kinds, InputPointerUp) || !slices.Equal(gestures, []GesturePhase{GestureBegin, GestureUpdate, GestureEnd}) {
+				t.Fatalf("implicit coordination: input%v gesture%v", kinds, gestures)
+			}
+		})
 	}
 }

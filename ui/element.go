@@ -248,6 +248,7 @@ type Element struct {
 	// the text it takes is (TextCaret).
 	gestureFn    func(GestureEvent) bool
 	gestureKinds GestureKind
+	allContacts  bool
 	inputFn      func(InputEvent) bool
 	caret        Rect
 	takesText    bool

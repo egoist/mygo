@@ -43,7 +43,9 @@ row.Children(func() {
 
 ## Contacts, pen input and capture
 
-`HandleInput` reports every contact as it arrives. `InputEvent.Pointer` has
+`HandleInput(...).TrackContacts()` reports every contact as it arrives.
+`HandleInput` alone keeps the mouse or first direct contact for compatibility;
+existing widgets receive no extra presses from fingers on a trackpad. `InputEvent.Pointer` has
 an `ID` stable for that contact within the window, a `Device` (`PointerMouse`,
 `PointerTouch`, `PointerPen`, or `PointerTouchpad`), and `Primary` and
 `Contact`. Mouse ID is zero. IDs can be reused after a contact ends: key
@@ -80,7 +82,7 @@ mouse pointer. Native trackpad gestures are used separately, so a gesture
 is not synthesized again from these contacts.
 
 ```go
-pad := ui.Box(c).Size(300, 200)
+pad := ui.Box(c).Size(300, 200).TrackContacts()
 pad.HandleInput(func(ev ui.InputEvent) bool {
 	switch ev.Kind {
 	case ui.InputPointerDown:
@@ -119,8 +121,9 @@ pad.Gestures(ui.GesturePan|ui.GesturePinch|ui.GestureRotation,
 	})
 ```
 
-The focal point `X`/`Y` is relative to the element. `DX`/`DY` follow the
-fingers in DIPs; scrolling moves content by their negative. `Scale` is an
+The focal point `X`/`Y` is relative to the element. `DX`/`DY` are pan
+translation in DIPs; scrolling moves content by their negative. Direct touch follows the fingers. Pan derived from precise
+trackpad scrolling honors the OS scroll-direction preference. `Scale` is an
 incremental multiplier (1 means no change), and `Rotation` is incremental
 clockwise radians. `TotalX`, `TotalY`, `TotalScale`, `TotalRotation` accumulate
 since Begin. Begin and terminal events have neutral deltas. `Contacts` is
@@ -132,7 +135,8 @@ rotation the pair with the lowest IDs. Contact-count changes end the old
 gesture and reset its baseline to avoid jumps. Removing or disabling a
 gesture owner cancels it until the current contacts end. A claimed gesture cancels
 ordinary presses and implicit captures; scrolling cancels a pending tap
-as it starts. Explicit capture, scrollbar thumbs, and a one-finger slider,
+as it starts. Explicit trackpad-contact capture consumes native gestures for that
+sequence as well. Explicit capture, scrollbar thumbs, and a one-finger slider,
 text selection or typed drag retain their interactions. Touch scrolling
 keeps its initial scroll owner until the contact count changes. Native
 trackpad pan that no gesture handler takes stays ordinary precise scrolling

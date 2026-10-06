@@ -24,6 +24,21 @@ const (
 // X/Y are the cursor anchor, not the finger's position on the screen.
 type PointerInfo = platform.PointerInfo
 
+// TrackContacts extends HandleInput to every contact, including additional
+// fingers and indirect touchpad contacts. Without it, HandleInput retains
+// the compatibility pointer (mouse or first direct touch/pen), so existing
+// widgets do not treat fingers resting on a trackpad as mouse presses.
+func (e *Element) TrackContacts() *Element { e.allContacts = true; return e }
+
+func (rt *engine) contactHandler(chain []uint64) *state {
+	for _, id := range chain {
+		if s := rt.states[id]; s != nil && s.input != nil && s.allContacts && s.flags&flagDisabled == 0 {
+			return s
+		}
+	}
+	return nil
+}
+
 type pointerContact struct {
 	ev                           platform.SurfaceEvent
 	chain                        []uint64
@@ -65,7 +80,7 @@ func (e *Element) ReleasePointer(id uint64) {
 func (rt *engine) contactInput(p *pointerContact, s *state, kind InputKind) bool {
 	fn := p.fn
 	x, y := p.ox, p.oy
-	if s != nil && s.input != nil {
+	if s != nil && s.input != nil && (p.compat || s.allContacts || p.explicit) {
 		fn, x, y = s.input, s.x, s.y
 		if p.owner == s.id {
 			p.fn, p.ox, p.oy = fn, x, y
@@ -173,7 +188,7 @@ func (rt *engine) prunePointers() {
 			continue
 		}
 		s := rt.states[p.owner]
-		if !alive(p.owner) || s.input == nil {
+		if !alive(p.owner) || s.input == nil || !p.compat && !s.allContacts && !p.explicit {
 			rt.cancelContact(p)
 			blocked = blocked || p.ev.Pointer.Device == PointerTouch
 		} else {
@@ -268,7 +283,7 @@ func (rt *engine) routePointer(ev platform.SurfaceEvent) bool {
 			if rt.pressed != nil && rt.pressed.input != nil && p.owner == 0 {
 				rt.capturePointer(id, rt.pressed.id, false)
 			}
-		} else if h := rt.handler(p.chain); h != nil {
+		} else if h := rt.contactHandler(p.chain); h != nil {
 			if rt.contactInput(p, h, InputPointerDown) && p.owner == 0 {
 				rt.capturePointer(id, h.id, false)
 			}
@@ -318,7 +333,7 @@ func (rt *engine) routePointer(ev platform.SurfaceEvent) bool {
 				if p != nil && p.owner != 0 {
 					rt.contactInput(p, rt.states[p.owner], InputPointerMove)
 				} else if h := rt.handler(rt.hitChain(x, y)); h != nil {
-					rt.contactInput(&pointerContact{ev: ev}, h, InputPointerMove)
+					rt.contactInput(&pointerContact{ev: ev, compat: compat}, h, InputPointerMove)
 				}
 			}
 		case platform.PointerUp:
@@ -337,11 +352,11 @@ func (rt *engine) routePointer(ev platform.SurfaceEvent) bool {
 		}
 	} else if p == nil && ev.Kind == platform.PointerMove {
 		ev.Button = -1
-		rt.contactInput(&pointerContact{ev: ev}, rt.handler(rt.hitChain(x, y)), InputPointerMove)
+		rt.contactInput(&pointerContact{ev: ev}, rt.contactHandler(rt.hitChain(x, y)), InputPointerMove)
 	} else if p != nil && (ev.Kind == platform.PointerMove || ev.Kind == platform.PointerUp) {
 		h := rt.states[p.owner]
 		if h == nil {
-			h = rt.handler(rt.hitChain(x, y))
+			h = rt.contactHandler(rt.hitChain(x, y))
 		}
 		kind := InputPointerMove
 		if ev.Kind == platform.PointerUp {
@@ -351,6 +366,9 @@ func (rt *engine) routePointer(ev platform.SurfaceEvent) bool {
 	}
 	if ev.Kind == platform.PointerEnter || ev.Kind == platform.PointerLeave {
 		h := rt.handler(rt.hitChain(x, y))
+		if !compat {
+			h = rt.contactHandler(rt.hitChain(x, y))
+		}
 		if p != nil && p.owner != 0 {
 			h = rt.states[p.owner]
 		}
@@ -359,7 +377,7 @@ func (rt *engine) routePointer(ev platform.SurfaceEvent) bool {
 			if ev.Kind == platform.PointerLeave {
 				kind = InputPointerLeave
 			}
-			rt.contactInput(&pointerContact{ev: ev}, h, kind)
+			rt.contactInput(&pointerContact{ev: ev, compat: compat}, h, kind)
 		}
 	}
 	if ev.Kind == platform.PointerUp && p != nil {
