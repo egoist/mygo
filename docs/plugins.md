@@ -1,6 +1,6 @@
 # Plugins
 
-A plugin adds a feature to web pages in two halves: Go services, and a
+A web plugin adds a feature to web pages in two halves: Go services, and a
 JavaScript package whose functions call them. The app uses the Go half with
 `mygo.Use` and imports the JavaScript half from npm.
 
@@ -19,6 +19,16 @@ JavaScript package whose functions call them. The app uses the Go half with
 - [Glass](plugins/glass.md): Liquid Glass for native UI, as macOS draws
   it, on every platform, with macOS's scroll edges and backdrop blurs. It
   is all Go, with shaders of its own.
+- [Image viewer](plugins/imageview.md): image pan, zoom, fit and rotation
+  in native UI.
+- [PDF viewer](plugins/pdf.md): page navigation, native text search and
+  selection with optional PDFium.
+- [Video player](plugins/video.md): playback controls and state with
+  optional libmpv.
+
+Native-UI plugins are optional Go packages imported directly by the app. They
+do not require `mygo.Use`, npm packages or Bun at runtime. Some require a
+native engine, documented on their own pages.
 
 ## Using plugins
 

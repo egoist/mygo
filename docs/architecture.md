@@ -819,6 +819,25 @@ build` like mygo-runtime and released with the same version.
   (`shaders_darwin.go`) and on Windows (`shaders_windows.go`), with
   `internal/gen`.
 
+- **imageview, pdf and video** are optional Go-only components for native UI.
+  Image viewing uses the existing bitmap/mipmap renderer with bounded pan,
+  pointer-anchored zoom, fit and lossless quarter turns. PDF uses an explicitly
+  installed/packaged PDFium library: calls across all documents are serialized,
+  document buffers pinned until native disposal, and a coalesced worker renders
+  pages while search/extraction uses the native text API. Video uses explicitly
+  installed/packaged libmpv's software render API, with separate event/render
+  workers, asynchronous commands, process-wide callbacks routed by user data,
+  and render-context disposal before engine destruction. These codec workers
+  never touch native platform views; they safely invalidate the main-thread UI.
+  Their pixels compose in MyGo's ordinary scene, so clipping and captures work
+  without a second view-host abstraction. Capability reports describe loaded
+  symbols, PDF copy permissions and the selected video render path accurately.
+  Native-library packaging uses the existing platform resource directories;
+  no automatic downloads or runtime Bun are introduced. The components' guides
+  describe engine dependencies, limits and licensing, and `examples/content-native`
+  demonstrates all three. `MYGO_PDFIUM_LIBRARY` / `MYGO_MPV_LIBRARY` enable native
+  integration tests; libmpv tests use `ffmpeg` to generate a small local clip.
+
 ## Typed client generation (`internal/tsgen`)
 
 `mygo generate` builds the app and runs it with `MYGO_GENERATE=<file>`;

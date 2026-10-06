@@ -124,6 +124,12 @@ components, from buttons to tables.
   the shell or any program with Ghostty's terminal emulator.
 - [Glass](plugins/glass.md): Liquid Glass for native UI, as macOS draws
   it, on every platform, with macOS's scroll edges and backdrop blurs.
+- [Image viewer](plugins/imageview.md): image pan, zoom, fit and rotation
+  in native UI.
+- [PDF viewer](plugins/pdf.md): page navigation, native text search and
+  selection with optional PDFium.
+- [Video player](plugins/video.md): playback controls and state with
+  optional libmpv.
 
 ## Reference
 
