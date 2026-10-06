@@ -25,7 +25,7 @@ toolbar placed over it with `Absolute`, and other glass.
 
 ```go
 ui.Box(c).Fill().Children(func() {
-	ui.Scroll(c).Fill().Padding(64, 16, 16).Children(func() { /* ... */ })
+	ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(64, 0, 0).Children(func() { /* ... */ })
 	// The toolbar floats over the content, which scrolls under it.
 	ui.Row(c).Absolute().Top(12).Left(12).Right(12).Padding(6).Radius(26).Material(glass.Glass{}).Children(func() {
 		// ...
@@ -78,7 +78,7 @@ further down.
 
 ```go
 ui.Box(c).Fill().Children(func() {
-	ui.Scroll(c).Fill().Padding(64, 16, 16).Children(func() { /* ... */ })
+	ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(88, 0, 0).Children(func() { /* ... */ })
 	// What scrolls under the toolbar blurs, the more the nearer the top.
 	ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(88).PassThrough().
 		Material(glass.Blur{Radius: 6, Mask: &ui.LinearGradient{
@@ -92,8 +92,9 @@ ui.Box(c).Fill().Children(func() {
 ```
 
 Here the blur is whole over the top 30% of the strip and fades out below,
-and `PassThrough` lets the pointer reach the content under the strip and
-around the buttons. Paint the blur before what floats on it: glass over
+`PassThrough` lets the pointer reach the content under the strip and
+around the buttons, and `ScrollbarInsets` starts the scroll bar below the
+strip, as AppKit starts a scroller below its toolbar's edge effect. Paint the blur before what floats on it: glass over
 it shows the blurred content through. `Start` and `End` place the
 gradient's colors along it, as everywhere; leaving `End` 0 puts both at
 `Start`, a hard edge.

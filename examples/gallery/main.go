@@ -1261,8 +1261,13 @@ func (g *gallery) glassPage(c *ui.Context) {
 	area := ui.Box(c).Height(420).Radius(12).Clip().Border(1, t.Border)
 	area.Children(func() {
 		// What shows through: photos and text, scrolling under the glass,
-		// from under the toolbar.
-		ui.Scroll(c).Fill().Padding(36, 16, 16).Gap(12).Children(func() {
+		// from under the toolbar, with the scroll bar below what floats
+		// over the content.
+		bars := float32(64)
+		if g.edgeBlur {
+			bars = 88
+		}
+		ui.Scroll(c).Fill().Padding(36, 16, 16).ScrollbarInsets(bars, 0, 0).Gap(12).Children(func() {
 			for i := range 12 {
 				ui.Row(c).Gap(14).Children(func() {
 					a, b := tiles[i%len(tiles)], tiles[(i+2)%len(tiles)]
