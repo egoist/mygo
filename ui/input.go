@@ -149,9 +149,6 @@ func (rt *engine) setHover(chain []uint64) bool {
 	}
 	rt.hover = chain
 	rt.hoverSince = time.Now()
-	// The elements the pointer left show their tooltips again as it comes
-	// back.
-	rt.tipsOff = slices.DeleteFunc(rt.tipsOff, func(id uint64) bool { return !slices.Contains(chain, id) })
 	if need {
 		rt.requestFrame()
 	}
@@ -222,7 +219,6 @@ const interactive = flagClickable | flagFocusable | flagEditable | flagSelectabl
 func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count int) {
 	chain := rt.hitChain(x, y)
 	rt.setHover(chain)
-	rt.hideTooltips()
 	if len(chain) > 0 {
 		rt.downs = append(rt.downs, chain[0])
 	} else {

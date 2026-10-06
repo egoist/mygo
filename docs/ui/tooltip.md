@@ -11,10 +11,10 @@ ui.Button(c, "").Label("Share").Tooltip("Share with others").Children(func() {
 
 The tip shows once the pointer has rested on the element for 0.6 seconds,
 below and to the right of it, kept in the window, and goes as the pointer
-leaves. A press, or a menu opening, hides it until the pointer leaves the
-element and comes back: it does not show again after a click, nor beside
-the menu a button opens. Over elements inside one another, the innermost
-one's tip shows. Give one to buttons showing only an icon, and to what a
+leaves. A press or a click on the element closes it until the pointer
+leaves and comes back: it does not show again after a click, nor beside
+the menu a menu button opens. Over elements inside one another, the
+innermost one's tip shows. Give one to buttons showing only an icon, and to what a
 label alone does not explain.
 
 ## Accessibility

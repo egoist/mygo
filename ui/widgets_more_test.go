@@ -464,6 +464,11 @@ func TestTooltipHidesOnPress(t *testing.T) {
 	if !tt.HasText("Save the file") {
 		t.Error("no tooltip as the pointer comes back")
 	}
+	// A click by the keys closes it too.
+	tt.Key(0, KeyEnter)
+	if tt.HasText("Save the file") {
+		t.Error("the tooltip shows after Enter clicked the button")
+	}
 	// A press before it shows keeps it from showing.
 	rest(5, 5)
 	tt.Move(x, y)
@@ -472,7 +477,7 @@ func TestTooltipHidesOnPress(t *testing.T) {
 	if tt.HasText("Save the file") {
 		t.Error("the tooltip shows after a click before the delay")
 	}
-	// A menu hides it, opened by the pointer or the keys.
+	// The press opening a menu button's menu closes it.
 	r, _ = tt.Find("More")
 	x, y = center(r)
 	rest(x, y)
@@ -488,11 +493,5 @@ func TestTooltipHidesOnPress(t *testing.T) {
 	rest(x, y)
 	if tt.HasText("More actions") {
 		t.Error("the tooltip shows again after the menu")
-	}
-	rest(5, 5)
-	rest(x, y)
-	tt.Key(0, KeyEnter)
-	if tt.Menu() == nil || tt.HasText("More actions") {
-		t.Errorf("menu %q; the tooltip shows with the menu opened by Enter", tt.Menu())
 	}
 }
