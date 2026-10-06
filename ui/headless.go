@@ -13,8 +13,9 @@ import (
 
 // headless renders frames in memory with the software renderer.
 type headless struct {
-	w, h, scale float32
-	img         raster.Renderer
+	textServices TextServiceProvider
+	w, h, scale  float32
+	img          raster.Renderer
 	// requested is set when the view asks for a frame, from any goroutine
 	// for invalidate.
 	requested atomic.Bool

@@ -21,11 +21,12 @@ var ErrNoReply = errors.New("fake: no reply")
 
 // Backend is a fake platform backend.
 type Backend struct {
-	h      platform.AppHandler
-	mainID uint64
-	signal chan struct{}
-	wake   chan struct{}
-	quit   chan struct{}
+	TextCheckerFactory func(language string) (platform.TextChecker, error)
+	h                  platform.AppHandler
+	mainID             uint64
+	signal             chan struct{}
+	wake               chan struct{}
+	quit               chan struct{}
 
 	mu        sync.Mutex
 	windows   []*Window

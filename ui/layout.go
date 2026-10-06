@@ -108,6 +108,7 @@ func layoutTree(root *Element, w, h float32) {
 func (rt *engine) lateInput() {
 	rt.late = false
 	rt.forgetInput()
+	rt.consumeTextServiceActions()
 	if rt.consumed {
 		rt.animating = true
 	}

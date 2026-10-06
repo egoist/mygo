@@ -46,3 +46,6 @@ panics where the second key was given, as apps only log it.
 - **Frames.** `tt.Frame` draws a frame, for what changed outside the view,
   and `tt.Image()` is the last frame, for snapshots; `ui.Render` draws a
   view once at a given scale.
+- **Text services.** `tt.SetTextServices` installs a deterministic checking
+  provider, including delayed completions for stale-result tests. The default
+  reports unavailable; see [system text services](text-services.md).

@@ -72,6 +72,8 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
   positioning.
 - [Text](text.md): text and its style, rich text, links within sentences,
   and fonts.
+- [System text services](text-services.md): spelling, correction suggestions,
+  native substitutions, dictionary languages and availability.
 - [Styling and themes](styling.md): backgrounds, borders, shadows and
   gradients, and the theme that follows the desktop.
 - [Input](input.md): the pointer, the keyboard focus, shortcuts, input

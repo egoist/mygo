@@ -1423,6 +1423,22 @@ either.
   its offset the state's (`flagScrollY`, the content as high as its
   paragraphs), kept by the anchor as heights above the view are measured;
   an edit, a move of the caret or a press reveals the caret once.
+- **System text services** (`textservices.go`, `ui/textservices.go`). The
+  core prepares immutable snapshots off the UI thread and splits them into
+  bounded requests, yielding between native calls. `platform.TextChecker`
+  is an owned, main-thread session with explicit per-language capabilities:
+  NSSpellChecker's background unified checking on macOS (one completion block
+  routes by sequence number), the Windows Spell Checking API, and optionally
+  Enchant 2 on Linux (one enumeration callback routes by user data). Missing
+  libraries and dictionaries report unavailable. `surface.Conn` carries the
+  service to `ui` without importing the core. The ordinary editor validates
+  buffer version and option/composition generations before accepting results
+  or menu choices; automatic replacements require freshly typed punctuation
+  or whitespace and an unchanged caret, and have their own undo step.
+  Checking pauses during composition and never submits password, read-only,
+  disabled or hidden text. Removal and shutdown cancel outstanding work.
+  Custom editors reuse `mygo.TextServices`; Tester supplies deterministic
+  services independently of host dictionaries. See [text services](ui/text-services.md).
 - **Tables** (`ui/table.go`, `ui/editable.go`). A table's rows are a
   `List`'s that scrolls both ways: the list lays its rows out at least as
   wide as the columns ask (`rowMinW`), and the header, outside the list,
@@ -2424,5 +2440,6 @@ which npm allows only for packages that exist: the first release uses an
 | window.open | keeps the opener | independent window | independent window |
 | native UI surface | layer-backed NSView, frames from `CADisplayLink` (a timer at the display's rate before macOS 14), input methods through NSTextInputClient | GtkGLArea (GtkDrawingArea without a GPU), GtkIMMulticontext | `MyGoSurface` child window, IMM32 |
 | native UI file drops | NSDraggingDestination | GTK drag destination (`text/uri-list`) | OLE `IDropTarget` |
+| native UI text services | NSSpellChecker spelling, corrections, quotes, dashes and user substitutions | optional Enchant 2 spelling/suggestions | Windows Spell Checking API spelling/suggestions and provider corrections |
 | native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |
 | native UI rendering | Metal, into a CAMetalLayer presenting with the Core Animation transaction | OpenGL 3.3 or ES 3.0 in the GtkGLArea's render signal; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain |

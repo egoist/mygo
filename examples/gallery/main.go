@@ -25,7 +25,8 @@ import (
 )
 
 type gallery struct {
-	win *mygo.Window
+	textServices galleryTextServices
+	win          *mygo.Window
 	// router shows the pages: "/overview", "/list", and a row of the list,
 	// "/list/42".
 	router *ui.Router
@@ -825,6 +826,7 @@ func (g *gallery) controls(c *ui.Context) {
 
 func (g *gallery) text(c *ui.Context) {
 	t := c.Theme()
+	g.textServices.view(c)
 	card(c, "Form", func() {
 		ui.Form(c, func() {
 			ui.Field(c, "Name", func() { ui.TextInput(c, &g.name).Placeholder("Ada Lovelace") })

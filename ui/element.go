@@ -249,6 +249,9 @@ type Element struct {
 	inputFn   func(InputEvent) bool
 	caret     Rect
 	takesText bool
+	// inputValue is an ordinary editor's value for this build pass. Text
+	// service actions run after the complete view configured its options.
+	inputValue *string
 
 	// Content.
 	text     string

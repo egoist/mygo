@@ -17,6 +17,11 @@ if ui.TextInput(c, &app.name).AutoFocus().Submitted() {
 ui.TextArea(c, &app.notes).Height(160)
 ```
 
+Opt into spelling, correction suggestions and native substitutions with
+`TextServices(ui.TextServicesOptions{SpellChecking: true})`. Availability,
+language selection, context-menu actions and undo behavior are described in
+[system text services](text-services.md).
+
 - `Placeholder` shows a text while the input is empty.
 - `Password` hides what it holds, and keeps it from the clipboard and input
   methods. Only a `TextInput` takes it: as on every platform, a text area has
