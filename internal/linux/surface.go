@@ -87,6 +87,7 @@ var (
 func loadSurface() {
 	surfaceOnce.Do(func() {
 		t, d, c := libGTK, libGDK, libCairo
+		loadPointer()
 		mustBind(t, &gtkDrawingAreaNew, "gtk_drawing_area_new")
 		mustBind(t, &gtkWidgetSetCanFocus, "gtk_widget_set_can_focus")
 		mustBind(t, &gtkWidgetAddEvents, "gtk_widget_add_events")
@@ -132,11 +133,17 @@ func loadSurface() {
 }
 
 type surface struct {
-	w      *window
-	area   ptr // GtkGLArea, or GtkDrawingArea
-	im     ptr // GtkIMContext
-	cr     ptr // the cairo context of the draw signal in progress
-	cursor platform.Cursor
+	touchSequences map[ptr]touchSequence
+	nextTouch      uint64
+	penPointer     platform.PointerInfo
+	penPosition    [2]float64
+	panScrolling   bool
+	pinchScale     float64
+	w              *window
+	area           ptr // GtkGLArea, or GtkDrawingArea
+	im             ptr // GtkIMContext
+	cr             ptr // the cairo context of the draw signal in progress
+	cursor         platform.Cursor
 	// gl tells that the area is a GtkGLArea, lazy that it makes no
 	// context until UseGPU, rendering that its render signal is in
 	// progress, rendered that it ran.
@@ -168,7 +175,7 @@ type surface struct {
 }
 
 // GDK event masks of the drawing area.
-const surfaceEvents = 1<<2 | 1<<8 | 1<<9 | 1<<10 | 1<<11 | 1<<12 | 1<<13 | 1<<14 | 1<<21 | 1<<23
+const surfaceEvents = 1<<2 | 1<<8 | 1<<9 | 1<<10 | 1<<11 | 1<<12 | 1<<13 | 1<<14 | 1<<21 | 1<<23 | 1<<22 | 1<<24 | 1<<18 | 1<<19
 
 func (w *window) createSurface() {
 	loadSurface()
@@ -205,6 +212,7 @@ func (s *surface) newArea(gl bool) {
 	s.gl = gl
 	gtkWidgetSetCanFocus(s.area, true)
 	gtkWidgetAddEvents(s.area, surfaceEvents)
+	connect(s.area, "event", cbSurfaceEvent, data)
 	// The edges of a frameless window resize it, as over a page.
 	connect(s.area, "button-press-event", cbButtonPress, data)
 	if s.w.undecorated() {
@@ -499,6 +507,9 @@ func (s *surface) SetTextInput(t platform.TextInputState) {
 }
 
 func (s *surface) send(ev platform.SurfaceEvent) bool {
+	if ev.Pointer.Device == platform.PointerPen {
+		s.penPointer, s.penPosition = ev.Pointer, [2]float64{ev.X, ev.Y}
+	}
 	if s.w.closed {
 		return false
 	}
@@ -554,6 +565,7 @@ func (b *Backend) surfaceOf(data ptr) *surface {
 }
 
 func initSurfaceCallbacks() {
+	initPointerCallback()
 	b := func() *Backend { return theBackend }
 	cbSurfaceDraw = purego.NewCallback(func(widget, cr, data ptr) bool {
 		s := b().surfaceOf(data)
@@ -687,20 +699,20 @@ func initSurfaceCallbacks() {
 		} else if !gtkWidgetHasFocus(s.area) {
 			gtkWidgetGrabFocus(s.area)
 		}
-		s.send(platform.SurfaceEvent{Kind: kind, X: field[float64](event, 24), Y: field[float64](event, 32), Button: button, Mods: mods})
+		s.send(platform.SurfaceEvent{Kind: kind, Pointer: gdkPointer(event, kind), X: field[float64](event, 24), Y: field[float64](event, 32), Button: button, Mods: mods})
 		return true
 	})
 	// GdkEventMotion: x 24, y 32, state 48.
 	cbSurfaceMotion = purego.NewCallback(func(widget, event, data ptr) bool {
 		if s := b().surfaceOf(data); s != nil {
-			s.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: field[float64](event, 24), Y: field[float64](event, 32), Mods: gdkMods(field[uint32](event, 48))})
+			s.send(platform.SurfaceEvent{Kind: platform.PointerMove, Pointer: gdkPointer(event, platform.PointerMove), X: field[float64](event, 24), Y: field[float64](event, 32), Mods: gdkMods(field[uint32](event, 48))})
 		}
 		return false
 	})
 	// GdkEventCrossing: mode 72; only normal crossings leave.
 	cbSurfaceLeave = purego.NewCallback(func(widget, event, data ptr) bool {
 		if s := b().surfaceOf(data); s != nil && field[int32](event, 72) == 0 {
-			s.send(platform.SurfaceEvent{Kind: platform.PointerLeave})
+			s.send(platform.SurfaceEvent{Kind: platform.PointerLeave, Pointer: gdkPointer(event, platform.PointerLeave), X: field[float64](event, 40), Y: field[float64](event, 48)})
 		}
 		return false
 	})
@@ -725,6 +737,15 @@ func initSurfaceCallbacks() {
 			dx, dy := field[float64](event, 72), field[float64](event, 80)
 			ev.DX, ev.DY = dx*step, dy*step
 			ev.Precise = dx != float64(int64(dx)) || dy != float64(int64(dy))
+		}
+		if eventSource(event) == 6 && field[int32](event, 44) == 4 && gdkEventIsScrollStop != nil {
+			ev.Pointer.Device, ev.Precise, ev.Phase = platform.PointerTouchpad, true, platform.GestureUpdate
+			if !s.panScrolling {
+				ev.Phase, s.panScrolling = platform.GestureBegin, true
+			}
+			if gdkEventIsScrollStop(event) {
+				ev.Phase, s.panScrolling = platform.GestureEnd, false
+			}
 		}
 		s.send(ev)
 		return true
@@ -764,6 +785,8 @@ func initSurfaceCallbacks() {
 	cbSurfaceFocusOut = purego.NewCallback(func(widget, event, data ptr) bool {
 		if s := b().surfaceOf(data); s != nil {
 			gtkIMContextFocusOut(s.im)
+			s.panScrolling = false
+			clear(s.touchSequences)
 			s.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
 		}
 		return false

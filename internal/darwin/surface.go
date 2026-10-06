@@ -41,6 +41,7 @@ const nsNotFound = uint(1<<63 - 1)
 
 var (
 	surfaceOnce        sync.Once
+	msgPressure        func(obj id, sel objc.SEL) float32
 	msgConvertRectView func(obj id, sel objc.SEL, r NSRect, view id) NSRect
 	msgInitTracking    func(obj id, sel objc.SEL, r NSRect, options uint, owner, info id) id
 	msgTimer           func(cls id, sel objc.SEL, interval float64, target id, selector objc.SEL, info id, repeats bool) id
@@ -74,6 +75,7 @@ func loadSurface() {
 		purego.RegisterFunc(&msgConvertRectView, stret)
 		purego.RegisterFunc(&msgInitTracking, msgSendAddr)
 		purego.RegisterFunc(&msgTimer, msgSendAddr)
+		purego.RegisterFunc(&msgPressure, msgSendAddr)
 		cgImageCreate = mustDlsym(libCG, "CGImageCreate")
 		cgImageRelease = mustDlsym(libCG, "CGImageRelease")
 		cgProviderCreate = mustDlsym(libCG, "CGDataProviderCreateWithCFData")
@@ -105,14 +107,19 @@ type surface struct {
 	// a timer paces frames at the display's rate: timing is true while
 	// one is due. lastFrame is when the last frame began, and framePass
 	// the pass of the run loop that drew it (caPass).
-	linkRunning bool
-	due         bool
-	timing      bool
-	lastFrame   time.Time
-	framePass   uint64
-	cursor      platform.Cursor
-	inside      bool
-	ctrlClick   bool // the primary button is down for a Control-click
+	linkRunning           bool
+	due                   bool
+	timing                bool
+	lastFrame             time.Time
+	framePass             uint64
+	cursor                platform.Cursor
+	inside                bool
+	touchesByID           map[id]surfaceTouch
+	nextTouch             uint64
+	touchAnchor           NSPoint
+	penContacts           map[uint64]bool
+	penEraser, panClaimed bool
+	ctrlClick             bool // the primary button is down for a Control-click
 
 	// input is the state of the text input with the keyboard; marked is
 	// the input method's composition and markedSel its selection in it.
@@ -135,6 +142,10 @@ func (w *window) createSurface(content NSRect) {
 	s := &surface{w: w}
 	s.view = msgInitRect(send(class("MyGoSurfaceView"), "alloc"), sel("initWithFrame:"), NSRect{Size: content.Size})
 	send(s.view, "setWantsLayer:", 1)
+	send(s.view, "setAcceptsTouchEvents:", 1)
+	if respondsTo(s.view, "setAllowedTouchTypes:") {
+		send(s.view, "setAllowedTouchTypes:", 2)
+	}
 	send(s.view, "setLayerContentsRedrawPolicy:", 2) // on setNeedsDisplay
 	send(s.view, "setAutoresizingMask:", nsViewWidthHeightSizable)
 	layer := send(s.view, "layer")
@@ -413,6 +424,10 @@ func (w *window) surfaceKeyChanged(key bool) {
 }
 
 func (s *surface) send(ev platform.SurfaceEvent) bool {
+	if ev.Kind == platform.SurfaceBlur {
+		clear(s.touchesByID)
+		clear(s.penContacts)
+	}
 	if s.w.closed {
 		return false
 	}
@@ -461,7 +476,29 @@ func (s *surface) sideButton(kind platform.SurfaceEventKind, back bool, mods pla
 
 func (s *surface) mouse(kind platform.SurfaceEventKind, ev id, button int) {
 	x, y := s.location(ev)
-	s.send(platform.SurfaceEvent{Kind: kind, X: x, Y: y, Button: button, Clicks: sendInt(ev, "clickCount"), Mods: eventMods(ev)})
+	p := platform.PointerInfo{Device: platform.PointerMouse, Primary: true, Contact: kind == platform.PointerDown || kind == platform.PointerMove && send(class("NSEvent"), "pressedMouseButtons") != 0}
+	if send(ev, "type") == 23 || send(ev, "subtype") == 1 { // tabletPoint, mouse event carrying tablet data
+		tilt := msgPoint(ev, sel("tilt"))
+		p.ID, p.Device = uint64(send(ev, "deviceID"))|1<<63, platform.PointerPen
+		p.Pressure, p.HasPressure = msgPressure(ev, sel("pressure")), true
+		p.TiltX, p.TiltY, p.HasTilt = float32(tilt.X*90), float32(-tilt.Y*90), true
+		p.Eraser = s.penEraser
+		if s.penContacts == nil {
+			s.penContacts = make(map[uint64]bool)
+		}
+		if kind == platform.PointerDown {
+			s.penContacts[p.ID] = true
+		}
+		if kind == platform.PointerUp {
+			delete(s.penContacts, p.ID)
+		}
+		p.Contact = kind == platform.PointerDown || kind == platform.PointerMove && (s.penContacts[p.ID] || send(ev, "type") == 23 && send(ev, "buttonMask") != 0)
+	}
+	clicks := 0
+	if send(ev, "type") != 23 {
+		clicks = sendInt(ev, "clickCount")
+	}
+	s.send(platform.SurfaceEvent{Kind: kind, Pointer: p, X: x, Y: y, Button: button, Clicks: clicks, Mods: eventMods(ev)})
 }
 
 // macKeys maps virtual key codes that do not type a character.
@@ -592,6 +629,7 @@ func registerSurfaceClass() {
 			return s.send(platform.SurfaceEvent{Kind: platform.FileDrop, X: x, Y: y, Files: draggedFiles(info)})
 		}),
 	}
+	methods = append(methods, surfacePointerMethods()...)
 	classDef("MyGoSurfaceView", "NSView", []string{"NSTextInputClient"}, append(append(methods, accessViewMethods()...), []objc.MethodDef{
 		method("isFlipped", func(self id, _ objc.SEL) bool { return true }),
 		method("acceptsFirstResponder", func(self id, _ objc.SEL) bool { return true }),
@@ -679,13 +717,16 @@ func registerSurfaceClass() {
 		method("mouseEntered:", func(self id, _ objc.SEL, ev id) {
 			if s := b().surfaceOf(self); s != nil {
 				s.inside = true
+				x, y := s.location(ev)
+				s.send(platform.SurfaceEvent{Kind: platform.PointerEnter, X: x, Y: y})
 				s.applyCursor()
 			}
 		}),
 		method("mouseExited:", func(self id, _ objc.SEL, ev id) {
 			if s := b().surfaceOf(self); s != nil {
 				s.inside = false
-				s.send(platform.SurfaceEvent{Kind: platform.PointerLeave})
+				x, y := s.location(ev)
+				s.send(platform.SurfaceEvent{Kind: platform.PointerLeave, X: x, Y: y})
 			}
 		}),
 		method("cursorUpdate:", func(self id, _ objc.SEL, ev id) {
@@ -705,7 +746,25 @@ func registerSurfaceClass() {
 				// A mouse wheel scrolls by lines: 40 DIPs, as in browsers.
 				dx, dy = dx*40, dy*40
 			}
-			s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: -dx, DY: -dy, Precise: precise, Mods: eventMods(ev)})
+			e := platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: -dx, DY: -dy, Precise: precise, Mods: eventMods(ev)}
+			if precise {
+				e.Pointer.Device = platform.PointerTouchpad
+				momentum := send(ev, "momentumPhase")
+				if momentum != 0 && s.panClaimed {
+					if momentum&(8|16) != 0 {
+						s.panClaimed = false
+					}
+					return
+				}
+				if send(ev, "phase") != 0 {
+					e.Phase = cocoaGesturePhase(ev)
+				}
+			}
+			if e.Phase != platform.GestureNone {
+				s.panClaimed = s.send(e)
+			} else {
+				s.send(e)
+			}
 		}),
 		method("keyDown:", func(self id, _ objc.SEL, ev id) {
 			s := b().surfaceOf(self)

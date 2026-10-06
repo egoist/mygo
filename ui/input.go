@@ -20,7 +20,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		return true
 	}
 	switch ev.Kind {
-	case platform.PointerMove, platform.PointerDown, platform.PointerUp, platform.PointerScroll:
+	case platform.PointerMove, platform.PointerDown, platform.PointerUp, platform.PointerScroll, platform.SurfaceGesture:
 		rt.mods = Modifiers(ev.Mods)
 	}
 	switch ev.Kind {
@@ -34,25 +34,20 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 			rt.held = false
 			rt.requestFrame()
 		}
-	case platform.PointerMove:
-		rt.pointerMove(x, y)
-	case platform.PointerDown:
-		rt.pointerMove(x, y)
-		rt.pointerDown(x, y, ev.Button, Modifiers(ev.Mods), ev.Clicks)
-	case platform.PointerUp:
-		rt.pointerMove(x, y)
-		rt.pointerUp(ev.Button, ev.Clicks)
-	case platform.PointerLeave:
-		rt.pointerIn = false
-		if rt.pressed == nil {
-			rt.setHover(nil)
-		} else {
-			// The elements around the one pressed hover no more.
-			rt.requestFrame()
-		}
+	case platform.PointerMove, platform.PointerDown, platform.PointerUp, platform.PointerLeave,
+		platform.PointerEnter, platform.PointerCancel, platform.PointerCaptureLost:
+		taken = rt.routePointer(ev)
+	case platform.SurfaceGesture:
+		taken = rt.nativeGesture(ev)
 	case platform.PointerScroll:
+		rt.pointerEvent = ev
 		rt.pointerMove(x, y)
-		rt.scroll(float32(ev.DX), float32(ev.DY), Modifiers(ev.Mods), ev.Precise)
+		if ev.Phase != platform.GestureNone {
+			ev.Gesture, ev.DX, ev.DY = platform.GesturePan, -ev.DX, -ev.DY
+			taken = rt.nativeGesture(ev)
+		} else {
+			rt.scroll(float32(ev.DX), float32(ev.DY), Modifiers(ev.Mods), ev.Precise)
+		}
 	case platform.KeyPressed:
 		taken = rt.keyDown(Modifiers(ev.Mods), Key(ev.Key), ev.Repeat)
 	case platform.KeyReleased:
@@ -71,15 +66,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.requestFrame()
 	case platform.SurfaceBlur:
 		rt.windowFocused = false
-		if p := rt.pressed; p != nil {
-			// The release will not come: an element taking its input
-			// gets one now.
-			if p.input != nil {
-				rt.deliver(p, InputEvent{Kind: InputPointerUp, Button: rt.pressButton, Mods: rt.mods, Clicks: 1})
-			}
-			p.pressed = false
-			rt.pressed = nil
-		}
+		rt.cancelPointers()
 		rt.requestFrame()
 	case platform.FileDragOver:
 		taken = rt.fileDrag(x, y)

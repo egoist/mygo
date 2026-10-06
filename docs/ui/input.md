@@ -41,6 +41,129 @@ row.Children(func() {
 })
 ```
 
+## Contacts, pen input and capture
+
+`HandleInput` reports every contact as it arrives. `InputEvent.Pointer` has
+an `ID` stable for that contact within the window, a `Device` (`PointerMouse`,
+`PointerTouch`, `PointerPen`, or `PointerTouchpad`), and `Primary` and
+`Contact`. Mouse ID is zero. IDs can be reused after a contact ends: key
+active contacts by ID and remove them on Up or Cancel. Multiple fingers
+can be active and captured by different elements at once.
+
+`X` and `Y` are DIPs relative to the element, including outside its box
+while captured. Pixel scale does not change those coordinates. Pen
+`Pressure` is 0–1 and `TiltX`/`TiltY` are degrees from -90 to 90 along the
+screen axes; `HasPressure` and `HasTilt` distinguish unsupported axes from
+valid zero readings (`HasTilt` requires both axes). `Eraser` identifies the eraser end when reported.
+A stationary pen can change pressure without changing position.
+
+Taking Down captures that contact implicitly. `InputPointerCapture` and
+`InputPointerCaptureLost` bracket capture; Up releases it. Explicit
+`element.CapturePointer(id)` additionally prevents touch gestures and
+scroll containers from taking that contact. `ReleasePointer(id)` releases
+it without completing a click. These methods, like other element methods,
+run while building the view or in a callback on the UI thread.
+
+The OS cancelling a contact, losing capture or focus, closing the window,
+or removing/disabling its element produces `InputPointerCancel` and
+capture loss. A cancelled press produces no `Clicked` or typed drop.
+For compatibility with existing handlers, an unhandled Cancel also sends
+Up with `Cancelled` set; handle Cancel to use only the richer lifecycle.
+Enter and Leave describe surface boundaries and preserve capture.
+
+The first direct touch or pen contact also drives the existing click,
+focus, drag and text-selection APIs. Additional contacts go to raw input
+handlers. Touchpad contacts are **indirect**: `X`/`Y` locate the cursor when
+the sequence began, while `NormalizedX`/`NormalizedY` are 0–1 coordinates
+on the pad, with a top-left origin. They do not click or become a second
+mouse pointer. Native trackpad gestures are used separately, so a gesture
+is not synthesized again from these contacts.
+
+```go
+pad := ui.Box(c).Size(300, 200)
+pad.HandleInput(func(ev ui.InputEvent) bool {
+	switch ev.Kind {
+	case ui.InputPointerDown:
+		pad.CapturePointer(ev.Pointer.ID) // independent strokes, no scrolling
+		app.beginStroke(ev.Pointer.ID, ev.X, ev.Y)
+	case ui.InputPointerMove:
+		app.extendStroke(ev.Pointer.ID, ev.X, ev.Y, ev.Pointer.Pressure)
+	case ui.InputPointerUp, ui.InputPointerCancel:
+		app.endStroke(ev.Pointer.ID)
+	default:
+		return false
+	}
+	return true
+})
+```
+
+## Pan, pinch and rotation
+
+`element.Gestures(kinds, fn)` offers `GesturePan`, `GesturePinch` and
+`GestureRotation` together. A callback returning true to `GestureBegin`
+claims the requested transformations for the sequence. A callback leaving
+Begin offers the gesture to ancestors, innermost first, then scrolling for
+pan. Updates stay with their owner, even outside its bounds. Return values
+on updates do not transfer ownership. End and Cancel finish the sequence.
+
+```go
+pad.Gestures(ui.GesturePan|ui.GesturePinch|ui.GestureRotation,
+	func(ev ui.GestureEvent) bool {
+		if ev.Phase == ui.GestureUpdate {
+			app.x += ev.DX
+			app.y += ev.DY
+			app.zoom *= ev.Scale
+			app.angle += ev.Rotation
+		}
+		return true
+	})
+```
+
+The focal point `X`/`Y` is relative to the element. `DX`/`DY` follow the
+fingers in DIPs; scrolling moves content by their negative. `Scale` is an
+incremental multiplier (1 means no change), and `Rotation` is incremental
+clockwise radians. `TotalX`, `TotalY`, `TotalScale`, `TotalRotation` accumulate
+since Begin. Begin and terminal events have neutral deltas. `Contacts` is
+zero when the OS does not report its count.
+
+Direct touch recognition waits for movement (6 DIPs of pan, 4 DIPs of
+separation, or 0.04 radians). Pan uses the contacts' center, and pinch and
+rotation the pair with the lowest IDs. Contact-count changes end the old
+gesture and reset its baseline to avoid jumps. Removing or disabling a
+gesture owner cancels it until the current contacts end. A claimed gesture cancels
+ordinary presses and implicit captures; scrolling cancels a pending tap
+as it starts. Explicit capture, scrollbar thumbs, and a one-finger slider,
+text selection or typed drag retain their interactions. Touch scrolling
+keeps its initial scroll owner until the contact count changes. Native
+trackpad pan that no gesture handler takes stays ordinary precise scrolling
+along its initial hit chain, including `HandleInput`. Mouse wheels retain
+their existing scrolling behavior.
+
+| Input | macOS | Linux (GTK 3) | Windows |
+|---|---|---|---|
+| Touch contacts | Indirect `NSTouch` trackpad contacts; Macs do not supply touchscreen input through this path | GDK touchscreen sequences, with separate contact IDs | Win32 `WM_POINTER` touch contacts, Windows 8+ |
+| Pen | AppKit tablet-point events, device ID, pressure and tilt | GDK tablet source and available pressure/tilt axes | `GetPointerPenInfo`, pressure/tilt availability masks |
+| Trackpad gestures | AppKit magnification, rotation and phased precise scroll as pan | GDK pinch/swipe, GTK 3.18+; phased smooth scroll when the driver supplies stop events (3.20+) | Precision touchpads retain wheel scrolling; this backend does not expose their raw contacts or pinch/rotation |
+| Direct touch gestures | No direct touch source | Recognized in Go from contacts | Recognized in Go from contacts |
+
+Hardware, drivers and the compositor determine which events and axes
+arrive. GDK touchpad gestures commonly require Wayland support. No backend
+invents pressure or tilt for a mouse. AppKit/GDK normalized tilt axes are
+scaled to degrees; Windows reports degrees directly. Native device IDs are
+opaque and local to a surface, not persistent hardware identifiers.
+The fake backend and `ui.Tester` accept the same contact and gesture event
+model; unsupported platforms still compile and cannot create native windows.
+
+Run `go run ./examples/gallery` and open **Input** for a transform pad,
+contact markers and pen telemetry, with an explicit capture toggle.
+`Tester.Pointer` sends contact events in window DIPs, and `Tester.Gesture`
+sends recognized gestures; use `Pointer` to test direct-touch recognition.
+
+The translators follow [AppKit trackpad events](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/EventOverview/HandlingTouchEvents/HandlingTouchEvents.html),
+[GDK touch sequences](https://docs.gtk.org/gdk3/struct.EventTouch.html),
+[GDK pinch events](https://docs.gtk.org/gdk3/struct.EventTouchpadPinch.html),
+and [Win32 pointer input](https://learn.microsoft.com/en-us/windows/win32/inputmsg/wm-pointerdown).
+
 ## The keyboard focus
 
 `Focusable` elements take the focus when clicked, and Tab and Shift+Tab

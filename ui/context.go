@@ -445,9 +445,11 @@ type state struct {
 
 	// input, caret and takesText are those of the last frame's element
 	// (HandleInput, TextCaret).
-	input     func(InputEvent) bool
-	caret     Rect
-	takesText bool
+	gesture      func(GestureEvent) bool
+	gestureKinds GestureKind
+	input        func(InputEvent) bool
+	caret        Rect
+	takesText    bool
 	// scope is the dialog the element was in, 0 for none, and anchor the
 	// element it was a popover of (AttachTo, PopoverBase).
 	scope, anchor uint64
