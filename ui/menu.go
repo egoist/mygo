@@ -28,6 +28,9 @@ import (
 //
 // The innermost element with a context menu gets the click. Text inputs
 // have one with the editing commands, which ContextMenu replaces.
+// Selectable text has one with Copy and Select All, which shows the items
+// of the nearest element around it with a context menu above them, as a
+// message's text offers Reply and Copy.
 func (e *Element) ContextMenu(build func(m *Menu)) *Element {
 	e.flags |= flagContextMenu
 	e.buildMenu(false, build)
@@ -63,6 +66,17 @@ func (e *Element) buildMenu(button bool, build func(m *Menu)) {
 	rt := e.c.rt
 	mr := &rt.menu
 	switch {
+	case mr.around == e.id && mr.asked != 0 && !button:
+		// The items of the element around the selectable text whose menu
+		// opens, which go above the text's own.
+		mr.around = 0
+		if e.disabled() {
+			break
+		}
+		run := &menuRun{collect: true}
+		pm := &platform.Menu{}
+		build(&Menu{run: run, menu: pm})
+		mr.aroundMenu, mr.aroundLabels, mr.aroundID = pm, run.labels, e.id
 	case mr.asked == e.id && mr.button == button:
 		mr.asked = 0
 		if e.disabled() {
@@ -190,16 +204,22 @@ func (it *MenuItem) Chosen() bool {
 type menuState struct {
 	asked uint64 // the element whose menu opens, at (x, y)
 	x, y  float32
+	// around is the element with a context menu around the selectable
+	// text whose menu opens, which the frame builds into aroundMenu.
+	around       uint64
+	aroundID     uint64
+	aroundMenu   *platform.Menu
+	aroundLabels []string
 	// button is set when the menu asked for is a menu button's, and
 	// chosenButton when the item chosen is from one.
 	button, chosenButton bool
 	// release is the element whose menu opens when the secondary button
-	// goes up, as on Windows.
-	release uint64
-	pending *shownMenu
-	chosen  uint64
-	choice  int
-	label   string
+	// goes up, as on Windows, with releaseAround as around.
+	release, releaseAround uint64
+	pending                *shownMenu
+	chosen                 uint64
+	choice                 int
+	label                  string
 }
 
 // shownMenu is a context menu built for the element id. commands are the
@@ -211,6 +231,28 @@ type shownMenu struct {
 	labels   []string
 	commands []string
 	x, y     float32
+	// around is the element whose items come first in a selectable
+	// text's menu, aroundItems of them, ids 1 to aroundItems.
+	around      uint64
+	aroundItems int
+}
+
+// menuAround returns the element of chain, innermost first, with a context
+// menu around the selectable text s, whose items its menu shows too; 0
+// for a text input or without one.
+func (rt *engine) menuAround(chain []uint64, s *state) uint64 {
+	if s.editor == nil || !s.editor.readOnly || s.flags&flagEditable != 0 {
+		return 0
+	}
+	for _, id := range chain {
+		if id == s.id {
+			continue
+		}
+		if t := rt.states[id]; t != nil && t.flags&flagContextMenu != 0 && t.flags&flagDisabled == 0 {
+			return id
+		}
+	}
+	return 0
 }
 
 // menuTarget returns the innermost element of chain with a context menu, a
@@ -237,6 +279,7 @@ func (rt *engine) menuTarget(chain []uint64) *state {
 func (rt *engine) askMenu(s *state, x, y float32, button bool) {
 	mr := &rt.menu
 	mr.asked, mr.x, mr.y, mr.button = s.id, x, y, button
+	mr.around, mr.aroundID, mr.aroundMenu, mr.aroundLabels = 0, 0, nil, nil
 	// The menu takes the press: the release goes to it.
 	if rt.pressed != nil {
 		rt.pressed.pressed = false
@@ -275,12 +318,14 @@ func (rt *engine) menuPress(chain []uint64, x, y float32) bool {
 			}
 		}
 	}
+	around := rt.menuAround(chain, s)
 	if runtime.GOOS == "windows" {
-		rt.menu.release = s.id
+		rt.menu.release, rt.menu.releaseAround = s.id, around
 		rt.requestFrame()
 		return true
 	}
 	rt.askMenu(s, x, y, false)
+	rt.menu.around = around
 	return true
 }
 
@@ -291,9 +336,11 @@ func (rt *engine) menuRelease() bool {
 	if id == 0 {
 		return false
 	}
-	rt.menu.release = 0
+	around := rt.menu.releaseAround
+	rt.menu.release, rt.menu.releaseAround = 0, 0
 	if s := rt.states[id]; s != nil {
 		rt.askMenu(s, rt.pointerX, rt.pointerY, false)
+		rt.menu.around = around
 	}
 	return true
 }
@@ -312,7 +359,9 @@ func (rt *engine) menuKey() bool {
 		r := s.editor.caretRect(s)
 		x, y = r.X, r.Y+r.H
 	}
+	chain := rt.focusChain()
 	rt.askMenu(s, x, y, false)
+	rt.menu.around = rt.menuAround(chain, s)
 	return true
 }
 
@@ -364,7 +413,15 @@ func (rt *engine) menuChosen(p *shownMenu, id int) {
 	if id < 1 || id > len(p.labels) {
 		return
 	}
-	if p.commands != nil {
+	if p.around != 0 && id <= p.aroundItems {
+		// An item of the element around selectable text: its function
+		// finds it, as for its own menu.
+		mr := &rt.menu
+		mr.chosen, mr.chosenButton, mr.choice, mr.label = p.around, false, id, p.labels[id-1]
+	} else if p.commands != nil {
+		if p.commands[id-1] == "" {
+			return
+		}
 		if s := rt.states[p.id]; s != nil && s.editor != nil {
 			if !rt.textSelectionCommand(s, p.commands[id-1]) {
 				s.editor.queue = append(s.editor.queue, editEvent{kind: editCommand, text: p.commands[id-1]})
@@ -412,17 +469,31 @@ func (rt *engine) editMenu(s *state) {
 		commands = []command{cut, copyText, paste, del, separator, selectAll}
 	}
 	pm := &platform.Menu{}
-	labels := make([]string, len(commands))
-	names := make([]string, len(commands))
-	for i, c := range commands {
-		it := &platform.MenuItem{ID: i + 1, Label: c.label, Enabled: c.on, Visible: true}
+	var labels, names []string
+	// Selectable text shows the items of the element around it first,
+	// with their ids, then a line, then its own.
+	mr := &rt.menu
+	around, aroundItems := uint64(0), 0
+	if mr.aroundMenu != nil && len(mr.aroundMenu.Items) > 0 {
+		around, aroundItems = mr.aroundID, len(mr.aroundLabels)
+		pm.Items = append(pm.Items, mr.aroundMenu.Items...)
+		labels = append(labels, mr.aroundLabels...)
+		names = make([]string, aroundItems)
+		commands = append([]command{separator}, commands...)
+	}
+	mr.aroundID, mr.aroundMenu, mr.aroundLabels = 0, nil, nil
+	for _, c := range commands {
+		it := &platform.MenuItem{ID: len(labels) + 1, Label: c.label, Enabled: c.on, Visible: true}
 		if c.name == "" {
 			it.Type = platform.MenuItemSeparator
 		}
 		pm.Items = append(pm.Items, it)
-		labels[i], names[i] = c.label, c.name
+		labels, names = append(labels, c.label), append(names, c.name)
 	}
 	rt.openMenu(s.id, false, pm, labels, names)
+	if p := mr.pending; p != nil && p.id == s.id {
+		p.around, p.aroundItems = around, aroundItems
+	}
 }
 
 // accelerator writes a key with modifiers as menus take it, as in

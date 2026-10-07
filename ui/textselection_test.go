@@ -420,3 +420,94 @@ func TestSelectableContainerFocusAndDisable(t *testing.T) {
 		t.Fatal("a disabled endpoint still handled selection commands")
 	}
 }
+
+// Right-clicking selectable text inside an element with a context menu shows that menu's items
+// above Copy and Select All, and each does its part: the element's item reaches its function, and
+// Copy copies the selection.
+func TestSelectableTextShowsTheMenuAround(t *testing.T) {
+	replied := 0
+	tt := NewTester(func(c *Context) {
+		bubble := Column(c).Padding(20).Gap(10)
+		bubble.ContextMenu(func(m *Menu) {
+			if m.Item("Reply").Chosen() {
+				replied++
+			}
+		})
+		bubble.Children(func() {
+			Column(c).Selectable().Gap(10).Children(func() {
+				Text(c, "Alpha")
+				Text(c, "Beta")
+			})
+		})
+	}, 300, 150)
+	selectBetween(t, tt, "Alpha", 0, "Beta", 4)
+	x, y := selectableAt(t, tt, "Beta", 2)
+	tt.RightClickAt(x, y)
+	if want := []string{"Reply", "-", "Copy", "-", "Select All"}; !slices.Equal(tt.Menu(), want) {
+		t.Fatalf("menu %q, want %q", tt.Menu(), want)
+	}
+	if err := tt.ChooseMenuItem("Reply"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if replied != 1 {
+		t.Errorf("Reply reached the menu's function %d times", replied)
+	}
+	tt.RightClickAt(x, y)
+	if err := tt.ChooseMenuItem("Copy"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tt.Clipboard(); got != "Alpha\nBeta" {
+		t.Errorf("Copy copied %q", got)
+	}
+	// Outside the text, the element's own menu.
+	tt.RightClickAt(5, 5)
+	if want := []string{"Reply"}; !slices.Equal(tt.Menu(), want) {
+		t.Errorf("menu beside the text %q, want %q", tt.Menu(), want)
+	}
+}
+
+// SelectionColor paints a selection's highlight inside the element in its color.
+func TestSelectionColor(t *testing.T) {
+	highlight := RGB(255, 200, 0)
+	tt := NewTester(func(c *Context) {
+		Column(c).Padding(20).Gap(10).Children(func() {
+			Column(c).Selectable().SelectionColor(highlight).Children(func() { Text(c, "Colored") })
+			Column(c).Selectable().Children(func() { Text(c, "Plain") })
+		})
+	}, 300, 150)
+	painted := func(name string, color Color) bool {
+		r, _ := tt.Find(name)
+		img := tt.Image()
+		for y := int(r.Y); y < int(r.Y+r.H); y++ {
+			for x := int(r.X); x < int(r.X+r.W); x++ {
+				if p := img.RGBAAt(x, y); p.R == color.R && p.G == color.G && p.B == color.B {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	selectBetween(t, tt, "Colored", 0, "Colored", 7)
+	if !painted("Colored", highlight) {
+		t.Error("the selection is not in its color")
+	}
+	// Outside it, the theme's highlight: drawn, and not in the other's color.
+	inked := func(name string) int {
+		r, _ := tt.Find(name)
+		img, n := tt.Image(), 0
+		for y := int(r.Y); y < int(r.Y+r.H); y++ {
+			for x := int(r.X); x < int(r.X+r.W); x++ {
+				if p := img.RGBAAt(x, y); p.R != 255 || p.G != 255 || p.B != 255 {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	before := inked("Plain")
+	selectBetween(t, tt, "Plain", 0, "Plain", 5)
+	if painted("Plain", highlight) || inked("Plain") <= before {
+		t.Error("the plain selection is not the theme's highlight")
+	}
+}
