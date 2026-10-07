@@ -21,6 +21,93 @@ ui.Box(c).Size(24, 24).Draw(drawIcon).Label("Unread messages")
 
 A [field](form.md) names its control with its label.
 
+## Text ranges
+
+[Text inputs and areas](text-input.md), read-only inputs, and [selectable
+text](text.md) expose their caret and single contiguous selection. Assistive
+technology can read ranges, move by characters, words, wrapped visual lines
+or paragraphs, set the selection, find visible text, inspect range bounds,
+and scroll a range into view. Ordinary `Text` and `RichText` expose reading
+and range geometry too; `.Selectable()` enables selection and copying:
+
+```go
+ui.TextArea(c, &app.notes).Label("Notes")
+ui.TextInput(c, &app.identifier).Label("Identifier").ReadOnly(true)
+ui.RichText(c,
+    ui.Span{Text: "Result: ", Weight: 600},
+    ui.Span{Text: app.result},
+).Selectable()
+```
+
+Reading follows logical text order, including bidirectional text. Character
+navigation uses extended grapheme clusters, so combining accents, emoji
+families and CRLF stay together. Native UTF-16 offsets on macOS and Windows,
+and character offsets in ATK/AT-SPI, are converted through the paragraph's
+rune/byte/UTF-16 index; partial bytes or surrogate pairs round to the rune's
+start. Selection endpoints inside a grapheme round to its start. An empty
+selection identifies the caret, and bounds may have separate rectangles for
+the visual fragments of a bidirectional range.
+
+Read-only text permits selection, copying and scrolling; setting its value
+remains unavailable. Disabled text can be read but cannot be selected or
+edited. Passwords expose their secure role and permitted value-setting
+action, with no text, character count, caret, selection, range bounds or
+text-change payloads. Password text never enters the range provider.
+
+| Platform | Native text support |
+|---|---|
+| Windows | UI Automation `Text`/`Text2` and `ITextRangeProvider`: document, selection, caret and visible ranges; cloning, comparisons, navigation, text search, bounds, inline-link children and scrolling; `TextChanged` and `TextSelectionChanged` events |
+| macOS | NSAccessibility text attributes and parameterized queries: strings, character and line ranges, caret line, selection setters, visible character range, range/point bounds; value and selected-text notifications |
+| Linux | `AtkText`, bridged by GTK to AT-SPI: text and character queries, caret/selection setters, character/word/visual-line/paragraph ranges, point offsets, character/range extents, bounded ranges and substring scrolling; text, selection and caret signals |
+
+Rich text provides its plain text, shaped geometry, selection and inline-link
+relationships. Font/style attribute queries, sentence units, disjoint
+selections, annotations and RTF extraction are not implemented. UIA returns
+its reserved unsupported value for unimplemented attributes and promotes
+unsupported format/page navigation to the next supported text unit. ATK
+returns no sentence range. AppKit returns a single enclosing rectangle for
+range bounds, and a single enclosing interval for visible text, as its API
+requires.
+
+Text areas keep paragraph virtualization when accessibility is enabled.
+Reading and offset conversion need no layout; navigation shapes only the
+paragraph being queried, and visible/bounds queries inspect only the
+viewport. Queries outside the viewport use temporary paragraph layouts and
+keep the scroll anchor and layout cache unchanged. An exact global visual
+line number or range by line number needs to measure the prefix, so those
+explicit ordinal queries can be more expensive in very large documents.
+
+### Verifying provider support
+
+Run `go run ./examples/accessibility-text` for a window containing editable,
+read-only, selectable rich text, inline links and a password. Automated
+tests cover Unicode, wrapped lines, bidirectional geometry, selection,
+virtualization and disposal. The GUI tests query the native providers:
+
+```sh
+MYGO_E2E=1 go test ./internal/e2e -run TextAccessibility
+```
+
+Separate clients also verify the public system accessibility APIs and their
+notifications, beyond calling the provider's methods directly:
+
+```sh
+# macOS, from a terminal already granted Accessibility permission:
+go build -o /tmp/accessibility-text ./examples/accessibility-text
+swift scripts/test-text-ax.swift /tmp/accessibility-text
+
+# Linux, with python3-pyatspi, GTK and a virtual display installed:
+go build -o /tmp/accessibility-text ./examples/accessibility-text
+dbus-run-session -- xvfb-run -a python3 scripts/test-text-atspi.py /tmp/accessibility-text
+```
+
+The macOS AX queries and notifications and Linux ATK/AT-SPI queries and change
+signals have been exercised from separate clients in desktop sessions.
+Windows COM tests and GUI-provider
+tests are included for the Windows CI runner; local verification from a
+macOS host is limited to cross-compilation. Spoken navigation with VoiceOver,
+Orca, Narrator and NVDA still needs manual screen-reader verification.
+
 ## Roles
 
 Other elements get a role from what they do: one that is clickable and

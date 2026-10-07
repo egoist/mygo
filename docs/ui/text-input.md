@@ -76,3 +76,10 @@ Assistive technology sees a text field, or a text area, named by its
 `Label` or its field, whose value is its text, with the caret and the
 selection; it edits it as typing does, unless it is read-only. A password
 field hides its value.
+
+Screen readers can navigate characters, words and wrapped lines, read text
+ranges, change the selection, inspect the caret and visible range, and
+scroll to text. Read-only inputs retain these reading and selection
+capabilities. Password fields expose no text ranges or selection. See
+[text accessibility](accessibility.md#text-ranges) for the platform support
+and verification commands.

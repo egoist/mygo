@@ -268,3 +268,16 @@ func pressKey(*mygo.Window, uint16, string) bool { return false }
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 	return "", false, false, false
 }
+
+func accessText(w *mygo.Window, label string) (out textAccess, ok bool) {
+	mygo.RunOnMain(func() {
+		n, got := win.TestAccessibilityText(w.NativeHandle(), label)
+		ok = got
+		out = textAccess{n.Content, n.Selected, n.FirstLine, n.Start, n.End, n.Bounds, n.Visible, n.Selectable}
+	})
+	return
+}
+func accessSelectText(w *mygo.Window, label string, start, end int) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestAccessibilitySelectText(w.NativeHandle(), label, start, end) })
+	return
+}

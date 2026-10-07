@@ -540,6 +540,9 @@ func (rt *engine) prune() {
 				}
 				// Recycle the state itself, without keeping the editor,
 				// local resources or callbacks of the element that went.
+				if s.accessText != nil {
+					s.accessText.invalidate()
+				}
 				*s = state{}
 				if len(rt.free) < maxFree {
 					rt.free = append(rt.free, s)
@@ -630,6 +633,11 @@ func (rt *engine) armTimer() {
 }
 
 func (rt *engine) close() {
+	for _, s := range rt.states {
+		if d := s.accessText; d != nil {
+			d.invalidate()
+		}
+	}
 	if rt.timer != nil {
 		rt.timer.Stop()
 	}

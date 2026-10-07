@@ -26,3 +26,17 @@ TEXT ·uiaThunks(SB), NOSPLIT, $0-16
 	LEAQ ·uiaSetValueThunk(SB), AX
 	MOVQ AX, setValue+8(FP)
 	RET
+
+// ITextProvider::RangeFromPoint(this, UiaPoint point, out).
+// Windows x64 passes the 16-byte point by reference.
+TEXT ·uiaTextPointThunk(SB), NOSPLIT|NOFRAME, $0-0
+	MOVQ R8, R9
+	MOVQ 8(DX), R8
+	MOVQ (DX), DX
+	MOVQ ·uiaTextPointCallback(SB), AX
+	JMP AX
+
+TEXT ·uiaTextPointEntry(SB), NOSPLIT, $0-8
+	LEAQ ·uiaTextPointThunk(SB), AX
+	MOVQ AX, ret+0(FP)
+	RET

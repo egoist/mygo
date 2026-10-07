@@ -28,6 +28,12 @@ mark; `NoWrap` keeps its lines whole, breaking them only at newlines.
 arrows, and copy it, as an error message or an identifier to paste
 elsewhere.
 
+Text and rich text expose their plain text and shaped range bounds to
+assistive technology. `Selectable` also exposes the caret and selection
+and permits screen readers to select ranges. Inline links keep their roles
+and actions and identify their range within the containing paragraph. See
+[text accessibility](accessibility.md#text-ranges).
+
 ## Rich text
 
 `ui.RichText` mixes styles in one paragraph: each `ui.Span` sets what it

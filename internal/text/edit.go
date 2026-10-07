@@ -2,6 +2,7 @@ package text
 
 import (
 	"slices"
+	"sort"
 	"unicode"
 
 	"github.com/go-text/typesetting/segmenter"
@@ -172,13 +173,15 @@ type Boundaries struct {
 	seg   segmenter.Segmenter
 	runes []rune
 	// graphemes holds the start of every grapheme, then len(runes).
-	graphemes []int
+	graphemes  []int
+	wordStarts []int
 }
 
 // Reset prepares b for runes.
 func (b *Boundaries) Reset(runes []rune) {
 	b.runes = runes
 	b.graphemes = b.graphemes[:0]
+	b.wordStarts = b.wordStarts[:0]
 	b.seg.Init(runes)
 	it := b.seg.GraphemeIterator()
 	for it.Next() {
@@ -189,24 +192,39 @@ func (b *Boundaries) Reset(runes []rune) {
 
 // NextGrapheme returns the end of the grapheme starting at or containing i.
 func (b *Boundaries) NextGrapheme(i int) int {
-	for _, g := range b.graphemes {
-		if g > i {
-			return g
-		}
+	if k := sort.Search(len(b.graphemes), func(k int) bool { return b.graphemes[k] > i }); k < len(b.graphemes) {
+		return b.graphemes[k]
 	}
 	return len(b.runes)
 }
 
 // PrevGrapheme returns the start of the grapheme before i.
 func (b *Boundaries) PrevGrapheme(i int) int {
-	prev := 0
-	for _, g := range b.graphemes {
-		if g >= i {
-			return prev
-		}
-		prev = g
+	k := sort.Search(len(b.graphemes), func(k int) bool { return b.graphemes[k] >= i })
+	if k > 0 {
+		return b.graphemes[k-1]
 	}
-	return prev
+	return 0
+}
+
+// WordUnit is a Unicode word with the punctuation and whitespace up to
+// the next word, as native accessibility word units are. It includes
+// leading punctuation in the first unit and uses UAX #29 boundaries.
+func (b *Boundaries) WordUnit(i int) (int, int) {
+	if len(b.wordStarts) == 0 {
+		b.wordStarts = append(b.wordStarts, 0)
+		it := b.seg.WordIterator()
+		for it.Next() {
+			w := it.Word()
+			if w.Offset > b.wordStarts[len(b.wordStarts)-1] {
+				b.wordStarts = append(b.wordStarts, w.Offset)
+			}
+		}
+		b.wordStarts = append(b.wordStarts, len(b.runes))
+	}
+	k := sort.Search(len(b.wordStarts), func(k int) bool { return b.wordStarts[k] > i }) - 1
+	k = max(0, min(k, len(b.wordStarts)-2))
+	return b.wordStarts[k], b.wordStarts[k+1]
 }
 
 func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }

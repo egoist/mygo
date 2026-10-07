@@ -120,3 +120,6 @@ func pressKey(*mygo.Window, uint16, string) bool { return false }
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 	return "", false, false, false
 }
+
+func accessText(*mygo.Window, string) (textAccess, bool)   { return textAccess{}, false }
+func accessSelectText(*mygo.Window, string, int, int) bool { return false }

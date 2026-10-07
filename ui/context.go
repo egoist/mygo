@@ -362,10 +362,11 @@ func Local[T any](e *Element, key any, init func() T) *T {
 
 // state is what the runtime keeps about an element from frame to frame.
 type state struct {
-	id   uint64
-	seen uint64
-	pass int    // the pass of the frame that built it last
-	born uint64 // the frame that first built the element
+	accessText *accessText
+	id         uint64
+	seen       uint64
+	pass       int    // the pass of the frame that built it last
+	born       uint64 // the frame that first built the element
 	// The element's box and its visible part in the last frame.
 	x, y, w, h     float32
 	vx, vy, vw, vh float32

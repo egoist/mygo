@@ -205,3 +205,16 @@ func surfaceOnScreen(*mygo.Window) ([]byte, bool)             { return nil, fals
 func rightClick(*mygo.Window, float64, float64) bool { return false }
 func popupMenus() ([][]string, bool)                 { return nil, false }
 func choosePopupItem(string) bool                    { return false }
+
+func accessText(w *mygo.Window, label string) (out textAccess, ok bool) {
+	mygo.RunOnMain(func() {
+		n, got := darwin.TestAccessibilityText(w.NativeHandle(), label)
+		ok = got
+		out = textAccess{n.Content, n.Selected, n.FirstLine, n.Start, n.End, n.Bounds, n.Visible, n.Selectable}
+	})
+	return
+}
+func accessSelectText(w *mygo.Window, label string, start, end int) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestAccessibilitySelectText(w.NativeHandle(), label, start, end) })
+	return
+}

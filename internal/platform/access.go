@@ -36,6 +36,12 @@ type AccessNode struct {
 	// and Placeholder what it shows while empty.
 	SelStart, SelEnd int
 	Placeholder      string
+	// Text exposes text ranges. Passwords never supply it. Its queries run
+	// synchronously on the main thread and shape only the paragraphs needed.
+	Text *AccessText
+	// TextStart and TextEnd locate an inline child's text in its parent
+	// text node, in runes; this keeps repeated links unambiguous.
+	TextStart, TextEnd int
 	// Description tells more about the element than its name, as help
 	// text read after it: a field's description and its error, or a
 	// tooltip.
@@ -196,4 +202,69 @@ const (
 	AccessScrollIntoView
 	AccessExpand
 	AccessCollapse
+	// AccessSetSelection selects From..To, with To the active caret, even
+	// in read-only/selectable text. AccessScrollText reveals that range;
+	// Caret is 1 to align its start at the top, -1 its end at the bottom.
+	AccessSetSelection
+	AccessScrollText
 )
+
+// AccessText is a frame's text state. Offsets are Go runes; native bridges
+// convert UTF-16 or byte offsets through Query, without copying the document.
+type AccessText struct {
+	Content       string
+	Length, Caret int
+	Selectable    bool
+	Query         func(AccessTextQuery) AccessTextResult
+}
+
+type AccessTextRange struct{ Start, End int }
+
+type AccessTextUnit uint8
+
+const (
+	TextCharacter AccessTextUnit = iota // an extended grapheme cluster
+	TextWord
+	TextLine // a visual, wrapped line, including its line break
+	TextParagraph
+	TextDocument
+)
+
+type AccessTextQueryKind uint8
+
+const (
+	TextSlice AccessTextQueryKind = iota
+	TextUnitRange
+	TextMoveOffset
+	TextRangeBounds // visible rectangles; an empty range is the caret
+	TextVisibleRanges
+	TextOffsetAtPoint
+	TextLineNumber
+	TextLineRange
+	TextToUTF16
+	TextFromUTF16
+	TextToByte
+	TextFromByte
+)
+
+type AccessTextQuery struct {
+	Kind              AccessTextQueryKind
+	Unit              AccessTextUnit
+	Start, End, Count int
+	X, Y              float64
+}
+
+type AccessTextResult struct {
+	OK                bool // false after removal, or for an unsupported query
+	Start, End, Count int
+	Text              string
+	Rects             []RectF
+	Ranges            []AccessTextRange
+}
+
+func (t *AccessText) Ask(q AccessTextQuery) AccessTextResult {
+	if t == nil || t.Query == nil {
+		return AccessTextResult{}
+	}
+	return t.Query(q)
+}

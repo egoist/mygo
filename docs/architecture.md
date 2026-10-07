@@ -1117,6 +1117,20 @@ either.
   with UI Automation's events.
   What assistive technology does comes back as `AccessAction` events,
   which the engine performs as the pointer or the keyboard would.
+  Text nodes carry an optional `AccessText` with the frame's string, length,
+  active caret, selection capability and a main-thread query callback
+  (`ui/access_text.go`). The callback keeps no frame-arena elements, checks
+  that its state is still live, and queries the editor's paragraph index or
+  a static text's layout. It converts rune/byte/UTF-16 offsets locally,
+  navigates graphemes and words, and shapes offscreen paragraphs temporarily
+  for visual-line queries; visible ranges and geometry visit only the
+  viewport and do not update the area's heights or scroll anchor. Global
+  line ordinals explicitly measure the prefix without retaining layouts.
+  Backends translate this into UIA Text/Text2 and reference-counted ranges
+  (Windows), NSAccessibility attributes/parameterized queries (macOS), and
+  AtkText (Linux). Range selections and scrolling come back as
+  `AccessSetSelection` and `AccessScrollText`; selection remains available
+  for read-only text, whereas password nodes never carry `AccessText`.
   `AccessTree.Announcements` are texts to read out once
   (`Context.Announce`, toasts, routers): `AXAnnouncementRequested` posted
   on the application with a medium priority on macOS, AtkObject's
