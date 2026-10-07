@@ -52,15 +52,16 @@ var (
 
 	// The callbacks of the methods that take doubles, which the thunks
 	// call with their bits as integers.
-	uiaFromPointCallback, uiaSetValueCallback uintptr
+	uiaFromPointCallback, uiaSetValueCallback, uiaSetScrollCallback uintptr
 )
 
 // uiaThunks returns the entries of the methods that take doubles.
-func uiaThunks() (fromPoint, setValue uintptr)
+func uiaThunks() (fromPoint, setValue, setScroll uintptr)
 
 // The thunks, in assembly, called by UI Automation only.
 func uiaFromPointThunk()
 func uiaSetValueThunk()
+func uiaSetScrollThunk()
 
 // The interfaces of elements.
 const (
@@ -75,6 +76,13 @@ const (
 	ifaceExpandCollapse
 	ifaceSelection
 	ifaceScrollItem
+	ifaceScroll
+	ifaceGrid
+	ifaceGridItem
+	ifaceTable
+	ifaceTableItem
+	ifaceItemContainer
+	ifaceVirtualizedItem
 	uiaIfaces
 )
 
@@ -90,11 +98,27 @@ var uiaIIDs = [uiaIfaces]GUID{
 	guid("d847d3a5-cab0-4a98-8c32-ecb45c59ad24"), // IExpandCollapseProvider
 	guid("fb8b03af-3bdf-48d4-bd36-1a65793be168"), // ISelectionProvider
 	guid("2360c714-4bf1-4b26-ba65-9b21316127eb"), // IScrollItemProvider
+	guid("b38b8077-1fc3-42a5-8cae-d40c2215055a"), // IScrollProvider
+	guid("b17d6187-0907-464b-a168-0ef17a1572b1"), // IGridProvider
+	guid("d02541f1-fb81-4d64-ae32-f520f8a6dbd1"), // IGridItemProvider
+	guid("9c860395-97b3-490a-b52a-858cc22af166"), // ITableProvider
+	guid("b9734fa6-771f-4d78-9c90-2517999349cd"), // ITableItemProvider
+	guid("e747770b-39ce-4382-ab30-d8fb3f336f24"), // IItemContainerProvider
+	guid("cb98b665-2d35-4fac-ad35-f3c60d0c0b8b"), // IVirtualizedItemProvider
 }
 
 // Pattern identifiers of UI Automation, by interface.
 var uiaPatterns = map[uintptr]int{10000: ifaceInvoke, 10001: ifaceSelection, 10002: ifaceValue, 10003: ifaceRangeValue,
-	10005: ifaceExpandCollapse, 10010: ifaceSelectionItem, 10015: ifaceToggle, 10017: ifaceScrollItem}
+	10004: ifaceScroll, 10005: ifaceExpandCollapse, 10006: ifaceGrid, 10007: ifaceGridItem, 10010: ifaceSelectionItem,
+	10012: ifaceTable, 10013: ifaceTableItem, 10015: ifaceToggle, 10017: ifaceScrollItem,
+	10019: ifaceItemContainer, 10020: ifaceVirtualizedItem}
+
+var uiaPatternProperties = map[int]int{
+	30028: ifaceExpandCollapse, 30029: ifaceGridItem, 30030: ifaceGrid, 30031: ifaceInvoke,
+	30033: ifaceRangeValue, 30034: ifaceScroll, 30035: ifaceScrollItem, 30036: ifaceSelectionItem,
+	30037: ifaceSelection, 30038: ifaceTable, 30039: ifaceTableItem, 30041: ifaceToggle, 30043: ifaceValue,
+	30108: ifaceItemContainer, 30109: ifaceVirtualizedItem,
+}
 
 const (
 	uiaRootObjectID  = -25
@@ -205,6 +229,7 @@ type uiaTree struct {
 	quiet bool // building the tree a client asked for
 	// announced is the text of the live region of announcements.
 	announced string
+	source    *platform.AccessTree
 }
 
 func (e *uiaElement) ptr(i int) uintptr { return uintptr(unsafe.Pointer(&e.ifaces[i])) }
@@ -270,6 +295,20 @@ func (e *uiaElement) supports(i int) bool {
 		return (n.Role == platform.RoleList || n.Role == platform.RoleTable || n.Role == platform.RoleTree) && n.States&platform.AccessSelectable != 0
 	case ifaceScrollItem:
 		return n.Actions&platform.ActionScrollIntoView != 0
+	case ifaceScroll:
+		return n.Scroll != nil
+	case ifaceGrid:
+		return n.Collection != nil && n.Collection.Grid
+	case ifaceGridItem:
+		return n.Cell != nil
+	case ifaceTable:
+		return n.Collection != nil && n.Collection.Grid && len(n.Collection.ColumnHeaders) > 0
+	case ifaceTableItem:
+		return n.Cell != nil && len(n.Cell.ColumnHeaders)+len(n.Cell.RowHeaders) > 0
+	case ifaceItemContainer:
+		return n.Collection != nil
+	case ifaceVirtualizedItem:
+		return n.Item != nil && n.States&platform.AccessVirtualized != 0
 	case ifaceRangeValue:
 		return n.Role.Ranged()
 	case ifaceValue:
@@ -365,16 +404,20 @@ func (s *surface) destroyAccess() {
 	}
 	s.access = nil
 	procUiaReturnRawElementProvider.Call(s.hwnd, 0, 0, 0)
-	for _, e := range t.order {
+	for _, e := range t.nodes {
 		e.disconnect()
 	}
 	t.root.disconnect()
 	t.nodes, t.order = nil, nil
+	t.source = nil
 }
 
 // disconnect lets go of an element that left the tree.
 func (e *uiaElement) disconnect() {
 	e.dead = true
+	e.n.Item, e.n.Collection, e.n.Cell, e.n.Scroll = nil, nil, nil, nil
+	e.children, e.parent = nil, nil
+	e.tree = nil
 	if has(procUiaDisconnectProvider) {
 		procUiaDisconnectProvider.Call(e.ptr(ifaceSimple))
 	}
@@ -387,6 +430,7 @@ func listening() bool {
 }
 
 func (t *uiaTree) update(tree *platform.AccessTree) {
+	t.source = tree
 	// Announcements go into a polite live region at the end of the tree,
 	// whose LiveRegionChanged screen readers read, as Flutter's alerts:
 	// notification events (UiaRaiseNotificationEvent), which a provider of
@@ -397,7 +441,9 @@ func (t *uiaTree) update(tree *platform.AccessTree) {
 	}
 	if t.announced != "" {
 		announcer := platform.AccessNode{ID: announcerID, Parent: -1, Role: platform.RoleText, Label: t.announced, Bounds: platform.RectF{W: 1, H: 1}}
-		tree = &platform.AccessTree{Nodes: append(slices.Clip(tree.Nodes), announcer), Focus: tree.Focus, Announcements: tree.Announcements}
+		copy := *tree
+		copy.Nodes = append(slices.Clip(tree.Nodes), announcer)
+		tree = &copy
 	}
 	notify := !t.quiet && listening()
 	old := t.nodes
@@ -429,6 +475,28 @@ func (t *uiaTree) update(tree *platform.AccessTree) {
 		e.parent.children = append(e.parent.children, e)
 	}
 	t.order = order
+	// Keep placeholders held by a client, including a realized item that
+	// just scrolled away. Unreferenced placeholders are released each frame.
+	for id, e := range old {
+		if e.n.Item == nil || e.refs <= 1 {
+			continue
+		}
+		if n, ok := tree.Resolve(e.n); ok {
+			e.n, e.children = n, nil
+			t.nodes[id] = e
+			delete(old, id)
+			e.parent = t.nodes[n.Item.Container]
+			if e.parent == nil {
+				e.parent = t.root
+			}
+		}
+	}
+	// Restore a retained cell's row parent before releasing old nodes.
+	for _, e := range t.nodes {
+		if e.n.Item != nil && e.n.Item.Cell && e.n.States&platform.AccessVirtualized != 0 {
+			t.ensure(e.n)
+		}
+	}
 	if notify {
 		for parent, kids := range oldKids {
 			var added, removed []*uiaElement
@@ -497,6 +565,28 @@ func (e *uiaElement) notifyChanges(prev platform.AccessNode) {
 	if prev.Label != n.Label {
 		str(uiaNameProperty, prev.Label, n.Label)
 	}
+	if prev.States&platform.AccessOffscreen != n.States&platform.AccessOffscreen {
+		changed(uiaIsOffscreenProperty, boolVariant(prev.States&platform.AccessOffscreen != 0), boolVariant(n.States&platform.AccessOffscreen != 0))
+	}
+	if prev.States&(platform.AccessSortAscending|platform.AccessSortDescending) != n.States&(platform.AccessSortAscending|platform.AccessSortDescending) {
+		status := func(n platform.AccessNode) string {
+			if n.States&platform.AccessSortAscending != 0 {
+				return "ascending"
+			}
+			if n.States&platform.AccessSortDescending != 0 {
+				return "descending"
+			}
+			return ""
+		}
+		str(uiaItemStatusProperty, status(prev), status(n))
+	}
+	for _, id := range []int{uiaScrollHorizontalPercent, uiaScrollVerticalPercent, uiaScrollHorizontalViewSize, uiaScrollVerticalViewSize, uiaScrollHorizontallyScrollable, uiaScrollVerticallyScrollable, uiaGridRowCount, uiaGridColumnCount, 30064, 30065, 30066, 30067} {
+		before, okBefore := collectionProperty(prev, id)
+		after, okAfter := collectionProperty(n, id)
+		if okBefore && okAfter && before != after {
+			changed(id, before, after)
+		}
+	}
 	if prev.States&platform.AccessDisabled != n.States&platform.AccessDisabled {
 		changed(uiaIsEnabledProperty, boolVariant(prev.States&platform.AccessDisabled == 0), boolVariant(n.States&platform.AccessDisabled == 0))
 	}
@@ -515,7 +605,9 @@ func (e *uiaElement) notifyChanges(prev platform.AccessNode) {
 				switch {
 				case !after:
 					event = uiaElementRemovedFromSelectionEvent
-				case len(c.chosen()) > 1:
+				case c.n.Collection != nil && c.n.Collection.SelectionSize > 1:
+					event = uiaElementAddedToSelectionEvent
+				case c.n.Collection == nil && len(c.chosen()) > 1:
 					event = uiaElementAddedToSelectionEvent
 				}
 			}
@@ -532,6 +624,9 @@ func (e *uiaElement) notifyChanges(prev platform.AccessNode) {
 	if e.supports(ifaceValue) && prev.Value != n.Value {
 		str(uiaValueProperty, prev.Value, n.Value)
 	}
+	if n.Collection != nil && prev.Collection != nil && n.Collection.SelectionVersion != prev.Collection.SelectionVersion {
+		procUiaRaiseAutomationEvent.Call(e.ptr(ifaceSimple), 20013)
+	} // Selection_Invalidated
 	if e.supports(ifaceExpandCollapse) && prev.States&platform.AccessExpanded != n.States&platform.AccessExpanded {
 		changed(uiaExpandStateProperty, variant{VT: vtI4, Val: uint64(expandState(prev))}, variant{VT: vtI4, Val: uint64(expandState(n))})
 	}
@@ -588,7 +683,7 @@ func (e *uiaElement) act(action platform.AccessActionKind, text string) uintptr 
 	case e.n.States&platform.AccessDisabled != 0:
 		return uiaElementNotEnabled
 	}
-	e.tree.s.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: e.n.ID, Action: action, Text: text})
+	e.tree.s.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: e.n.ID, Action: action, Text: text, Item: e.n.Item})
 	return sOK
 }
 
@@ -783,7 +878,7 @@ func initUIA() {
 		}
 		return e.setRangeValue(math.Float64frombits(uint64(v)))
 	})
-	fromPoint, setValue := uiaThunks()
+	fromPoint, setValue, _ := uiaThunks()
 
 	uiaVtbls[ifaceRoot] = vtbl(
 		fromPoint,
@@ -814,17 +909,48 @@ func initUIA() {
 	)
 
 	selected := func(e *uiaElement) bool { return e.n.States&platform.AccessChecked != 0 }
-	selectItem := cb(func(this uintptr) uintptr { // Select, AddToSelection
+	selectItem := cb(func(this uintptr) uintptr { // Select
 		e, hr := live(this)
-		if e == nil || selected(e) {
+		if e == nil {
 			return hr
 		}
-		return e.act(platform.AccessPress, "")
+		if e.n.Item == nil {
+			return e.act(platform.AccessPress, "")
+		}
+		return e.act(platform.AccessSelect, "")
 	})
 	uiaVtbls[ifaceSelectionItem] = vtbl(
 		selectItem,
-		selectItem,
-		cb(func(this uintptr) uintptr { return uiaInvalidOperation }), // RemoveFromSelection
+		cb(func(this uintptr) uintptr {
+			e, hr := live(this)
+			if e == nil {
+				return hr
+			}
+			if selected(e) {
+				return sOK
+			}
+			c := e.container()
+			if c == nil {
+				return uiaInvalidOperation
+			}
+			if c.n.States&platform.AccessMultiselectable == 0 {
+				if len(c.chosen()) > 0 {
+					return uiaInvalidOperation
+				}
+				return e.act(platform.AccessSelect, "")
+			}
+			return e.act(platform.AccessAddToSelection, "")
+		}),
+		cb(func(this uintptr) uintptr {
+			e, hr := live(this)
+			if e == nil {
+				return hr
+			}
+			if e.n.Item == nil {
+				return uiaInvalidOperation
+			}
+			return e.act(platform.AccessRemoveFromSelection, "")
+		}),
 		cb(func(this, p uintptr) uintptr { // get_IsSelected
 			setBool(p, selected(uiaOf(this)))
 			return sOK
@@ -943,6 +1069,7 @@ func initUIA() {
 			return sOK
 		}),
 	)
+	initUIACollections(cb, vtbl, live)
 }
 
 // setRangeValue moves a slider toward a value, as the arrow keys do.
@@ -965,6 +1092,14 @@ func (e *uiaElement) property(id int, v *variant) {
 		return // the window's
 	}
 	n := e.n
+	if iface, ok := uiaPatternProperties[id]; ok {
+		*v = boolVariant(e.supports(iface))
+		return
+	}
+	if value, ok := collectionProperty(n, id); ok {
+		*v = value
+		return
+	}
 	str := func(s string) {
 		if s != "" {
 			*v = variant{VT: vtBSTR, Val: uint64(bstr(s))}
@@ -1062,6 +1197,13 @@ func (e *uiaElement) property(id int, v *variant) {
 
 // chosen returns the elements chosen in the element's Selection.
 func (e *uiaElement) chosen() []*uiaElement {
+	if e.n.Collection != nil && e.tree.source != nil && e.tree.source.Selection != nil {
+		var chosen []*uiaElement
+		for _, n := range e.tree.source.Selection(e.n.ID) {
+			chosen = append(chosen, e.tree.ensure(n))
+		}
+		return chosen
+	}
 	var chosen []*uiaElement
 	for _, d := range e.tree.order {
 		if d.n.States&platform.AccessChecked != 0 && d.supports(ifaceSelectionItem) && d.container() == e {

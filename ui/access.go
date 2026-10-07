@@ -222,7 +222,11 @@ func (e *Element) innerText() string {
 
 // accessTree describes the last frame for assistive technology.
 func (rt *engine) accessTree() *platform.AccessTree {
-	t := &platform.AccessTree{}
+	t := &platform.AccessTree{Query: rt.queryCollection, Selection: rt.collectionSelection}
+	if rt.collections == nil {
+		rt.collections = map[uint64]*collectionFrame{}
+	}
+	clear(rt.collections)
 	var focused *Element
 	switch root := rt.c.root; {
 	case root == nil:
@@ -262,6 +266,13 @@ func (rt *engine) accessTree() *platform.AccessTree {
 	}
 	if len(rt.announcements) > 0 {
 		t.Announcements = slices.Clone(rt.announcements)
+	}
+	if rt.accessNodes == nil {
+		rt.accessNodes = map[uint64]platform.AccessNode{}
+	}
+	clear(rt.accessNodes)
+	for _, n := range t.Nodes {
+		rt.accessNodes[n.ID] = n
 	}
 	return t
 }
@@ -307,7 +318,7 @@ func (rt *engine) accessElement(t *platform.AccessTree, e *Element, parent int, 
 			rt.accessInline(t, e, parent)
 			return
 		}
-		if leafRole(role) {
+		if leafRole(role) && !(role == platform.RoleTreeItem && e.listRow && e.parent.list != nil && e.parent.list.flat) {
 			return
 		}
 	}
@@ -406,6 +417,7 @@ func (rt *engine) accessDetails(e *Element, n *platform.AccessNode) {
 	if e.flags&flagChoosable != 0 {
 		n.States |= platform.AccessSelectable
 	}
+	rt.collectionDetails(e, n)
 	// What a scroll container built out of view, as the rows of a list
 	// beyond its edges.
 	if st := e.st; (st.vw <= 0 || st.vh <= 0) && e.w > 0 && e.h > 0 {
@@ -462,6 +474,9 @@ func (rt *engine) accessibilityOn() {
 // accessAction performs an action of assistive technology on an element
 // of the last frame, as the keyboard or the pointer would.
 func (rt *engine) accessAction(ev platform.SurfaceEvent) {
+	if rt.accessClosed || rt.accessScroll(ev) || rt.collectionAction(ev) {
+		return
+	}
 	s := rt.states[ev.ID]
 	if s == nil || s.flags&flagDisabled != 0 {
 		return

@@ -189,6 +189,12 @@ func (c *Context) rekey(e *Element, k any) {
 	if e.parent != nil {
 		parent = e.parent.id
 	}
+	c.rekeyUnder(e, parent, k)
+}
+
+// rekeyUnder gives a virtual grid item the same identity under its grid,
+// even when layout groups it into another physical row.
+func (c *Context) rekeyUnder(e *Element, parent uint64, k any) {
 	id := keyedID(parent, k)
 	rt := c.rt
 	st, built := rt.lookState(id)

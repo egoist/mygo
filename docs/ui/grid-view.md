@@ -26,10 +26,15 @@ A `GridState` keeps the grid's place and says how items are chosen, as a
   from the item last chosen, and Cmd+A chooses all.
 - `Label` returns an item's text: typing its first letters chooses it, and
   assistive technology reads it as the item's name.
+- `Index`, with `Key`, finds an item's current index by key, or `-1` when
+  removed, as `ListState.Index` does. Use it for large arbitrary reorders.
 - `Reorder` lets the user drag items to another place, as a list's rows:
   see [drag and drop](drag-and-drop.md).
 
 ## Accessibility
 
-Assistive technology reads the grid as a list of items, each saying which
-of all it is, built or not.
+Assistive technology reads each item's place among all items and its
+two-dimensional cell coordinates, with full row and column counts. Empty
+places in the final row are not items. Offscreen items can be requested,
+realized and selected. Keyed item identity survives regrouping into new
+rows when the grid's width changes. See [collection accessibility](accessibility.md#collections).

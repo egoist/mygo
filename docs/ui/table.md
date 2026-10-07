@@ -64,6 +64,20 @@ sorted := sortFiles(app.files, app.sort) // by app.sort.Column, Descending or no
 app.files.Key = func(i int) any { return sorted[i].ID }
 ```
 
+For large reorders, provide `ListState.Index` to resolve a key to its row
+in `sorted`, or `-1` if removed. It keeps selected and retained
+accessibility items attached to their keys without scanning the table.
+
+## Accessibility
+
+Tables expose all data row and column counts, cell coordinates, spans and
+column header relationships in displayed order. Rows and cells outside
+the viewport can be requested and scrolled into view while the table
+continues building only its viewport. `TableColumn.AccessibilityLabel`
+returns an unbuilt cell's name directly from the data; realized cells use
+their view's label or content. See [collection accessibility](accessibility.md#collections)
+for the key index, selection and platform contracts.
+
 ## Renaming in place
 
 An [editable text](editable-text.md) in a cell is renamed in place, as

@@ -44,6 +44,11 @@ behaves and to move it:
   state of a row (focus, text being edited, …) follows its item, and the
   list keeps its place, and its choice, when rows are added or removed
   above them, as when older messages load.
+- `Index`, with `Key`, returns the current row of a key, or `-1` for a
+  removed item. Supply it for large collections that sort or reorder
+  arbitrarily, so retained accessibility items and offscreen selections
+  can be located directly. Without it, lookup searches 1,000 nearby rows
+  in each direction.
 - `FollowEnd` starts the list at its end, and keeps the end in view as rows
   come or grow, until the user scrolls away from it, as a chat or a log
   does; scrolling back to the end follows it again.

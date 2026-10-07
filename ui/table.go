@@ -24,6 +24,10 @@ type TableColumn struct {
 	// Fixed keeps the column where it is and as wide as it is: the user
 	// neither moves nor resizes it.
 	Fixed bool
+	// AccessibilityLabel names an unbuilt cell without building its view.
+	// It is optional: realized cells use their content. Supply it for
+	// screen readers to read offscreen cells without scrolling to them.
+	AccessibilityLabel func(row int) string
 }
 
 func (col *TableColumn) id() string {
@@ -31,6 +35,29 @@ func (col *TableColumn) id() string {
 		return col.ID
 	}
 	return col.Title
+}
+
+// Columns with duplicate or empty IDs were valid before cells were keyed.
+// Keep them distinct by declaration index; unique IDs survive reordering.
+type columnIdentity struct {
+	ID    string
+	Index int
+}
+
+func tableColumnKeys(columns []TableColumn) []any {
+	keys := make([]any, len(columns))
+	counts := make(map[string]int, len(columns))
+	for _, c := range columns {
+		counts[c.id()]++
+	}
+	for j, c := range columns {
+		if id := c.id(); id != "" && counts[id] == 1 {
+			keys[j] = id
+		} else {
+			keys[j] = columnIdentity{c.id(), j}
+		}
+	}
+	return keys
 }
 
 // SortOrder is how a table's rows are sorted: by the column whose ID is
@@ -160,6 +187,7 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 	drag := Local(table, "drag", func() tableDrag { return tableDrag{} })
 	layout := &s.Columns
 	order := layout.arrange(columns)
+	columnKeys := tableColumnKeys(columns)
 	// The least width of the rows: the columns', those sharing the room
 	// left at their least.
 	flexMin := t.Space(15)
@@ -176,9 +204,10 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 	// cells builds a row's cells, with fill building the content of each.
 	cells := func(role Role, fill func(col int)) []*Element {
 		boxes := make([]*Element, 0, len(order))
-		for _, j := range order {
+		for k, j := range order {
 			col := &columns[j]
-			box := Row(c).Padding(t.Space(1.5), t.Space(2.5)).AlignItems(Center).Shrink(0).Clip().Role(role)
+			box := Row(c).Key(columnKeys[j]).Padding(t.Space(1.5), t.Space(2.5)).AlignItems(Center).Shrink(0).Clip().Role(role)
+			box.cellColumn, box.cellIndex, box.collectionCell = columnKeys[j], k, role == RoleCell
 			if w, ok := layout.width(col); ok {
 				box.Width(w)
 			} else {
@@ -199,6 +228,7 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 		return boxes
 	}
 	var list *Element
+	var headers []*Element
 	table.Children(func() {
 		// The header, which scrolls sideways with the rows.
 		head := Row(c).Height(tableRow).Shrink(0).AlignItems(Stretch).Role(RoleRow).Clip()
@@ -213,6 +243,7 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 			for k, j := range order {
 				tableHeader(c, table, heads[k], &columns[j], s, drag, heads, order, columns)
 			}
+			headers = heads
 		})
 		Divider(c)
 		// The rows are a List's, whose choice the table takes the focus
@@ -228,6 +259,11 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 			row.Role(RoleNone)
 			if s.Header != nil && s.Header(i) {
 				row.Padding(t.Space(1.5), t.Space(2.5)).AlignItems(Center).Background(t.Surface).FontWeight(600)
+				if len(order) > 0 {
+					row.Role(RoleCell)
+					row.collectionCell, row.cellIndex = true, 0
+					row.cellColumn = columnKeys[order[0]]
+				}
 				row.Children(func() { cell(i, 0) })
 				return
 			}
@@ -248,6 +284,9 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 	if id := drag.fit; id != "" {
 		table.colFit = &tableFit{id: id, cells: fitting, layout: layout, drag: drag}
 	}
+	table.collection.columns, table.collection.order, table.collection.headers = columns, order, headers
+	table.collection.columnKeys = columnKeys
+	table.collection.cols = len(columns)
 	table.DrawOver(func(p *Painter, r Rect) {
 		if table.FocusVisible() {
 			p.FocusRing(r, [4]float32{})
@@ -304,6 +343,11 @@ func tableHeader(c *Context, table, h *Element, col *TableColumn, s *ListState, 
 			*s.Sort = SortOrder{Column: id}
 		}
 		table.st.changed = true
+		direction := "ascending"
+		if s.Sort.Descending {
+			direction = "descending"
+		}
+		c.Announce(col.Title + ", " + direction)
 	}
 	if col.Fixed {
 		return

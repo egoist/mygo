@@ -143,7 +143,24 @@ func TestAccessibility(handle uintptr) ([]TestAccessNode, bool) {
 	var nodes []TestAccessNode
 	var walk func(obj ptr)
 	walk = func(obj ptr) {
-		for i := range atkObjectGetNAccessibleChild(obj) {
+		var indices []int32
+		if an := accessObjects[obj]; an != nil && an.n.Collection != nil {
+			for _, child := range an.children {
+				index := 0
+				if child.n.Item != nil {
+					index = child.n.Item.Index
+					if len(an.n.Collection.ColumnHeaders) > 0 {
+						index++
+					}
+				}
+				indices = append(indices, int32(index))
+			}
+		} else {
+			for i := range atkObjectGetNAccessibleChild(obj) {
+				indices = append(indices, i)
+			}
+		}
+		for _, i := range indices {
 			child := atkObjectRefAccessibleChild(obj, i)
 			if child == 0 {
 				continue

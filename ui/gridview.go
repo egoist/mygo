@@ -11,6 +11,8 @@ type GridState struct {
 	// Key returns an identity for item i, as ListState.Key does for a
 	// row: the choice and the items' state follow it.
 	Key func(item int) any
+	// Index returns the current item of a key, or -1, as ListState.Index.
+	Index func(key any) int
 	// Selected, when set, lets a click choose an item, as the arrows do
 	// while the grid has the keyboard focus: *Selected is the item chosen,
 	// -1 for none. The grid's Changed reports a new choice, and its
@@ -38,9 +40,11 @@ type GridState struct {
 	cells, built map[uint64]int
 	// cols is how many columns the items took in the last frame, and pivot
 	// the item Shift chooses from.
-	cols, pivot int
-	started     bool
-	rt          *engine
+	cols, pivot      int
+	started          bool
+	rt               *engine
+	selIndex         int
+	selKey, pivotKey any
 }
 
 // ScrollTo scrolls the grid to show item at align, as ListState.ScrollTo
@@ -92,6 +96,28 @@ func GridView(c *Context, s *GridState, n int, minWidth, height float32, item fu
 		s = Local(e, "grid", func() GridState { return GridState{} })
 	}
 	n = max(n, 0)
+	if s.started && s.Key != nil {
+		lookup := collectionFrame{grid: s, n: n}
+		if s.Selected != nil && *s.Selected == s.selIndex && s.selKey != nil {
+			i, ok := lookup.index(s.selKey, s.selIndex)
+			if !ok {
+				i = -1
+			}
+			if i != *s.Selected {
+				*s.Selected = i
+				if i >= 0 {
+					s.ScrollIntoView(i)
+				}
+			}
+		}
+		if s.pivotKey != nil {
+			if i, ok := lookup.index(s.pivotKey, s.pivot); ok {
+				s.pivot = i
+			} else {
+				s.pivot = -1
+			}
+		}
+	}
 	gap := t.Space(2)
 	// The columns: those that fit the width the rows had in the last
 	// frame, or the window's, first. The layout builds the next frame
@@ -135,12 +161,24 @@ func GridView(c *Context, s *GridState, n int, minWidth, height float32, item fu
 	// The list's own state is the rows': the grid takes the keys and tells
 	// assistive technology about its items.
 	e.rowsOf = nil
+	e.collection = &s.rows.frame.access
+	e.collection.grid, e.collection.n, e.collection.cols = s, n, cols
 	e.gridFit = &gridFit{cols: cols, minW: minWidth, gap: gap}
 	s.keys(e, n)
 	e.activeDescendant = cursor
 	s.reorder(e, n, gap)
 	s.cells, s.built = s.built, s.cells
 	clear(s.built)
+	s.selKey, s.pivotKey = nil, nil
+	if s.Selected != nil {
+		s.selIndex = *s.Selected
+		if s.Key != nil && s.selIndex >= 0 && s.selIndex < n {
+			s.selKey = s.key(s.selIndex)
+		}
+	}
+	if s.Key != nil && s.pivot >= 0 && s.pivot < n {
+		s.pivotKey = s.key(s.pivot)
+	}
 	return e
 }
 
@@ -251,7 +289,11 @@ func (s *GridState) cellState(id uint64) *state { return s.rt.states[id] }
 func (s *GridState) cell(c *Context, grid *Element, i, n int, height float32, item func(i int)) *Element {
 	t := c.theme
 	// A border, clear unless chosen, keeps the content in place as it is.
-	cell := Column(c).Key(s.key(i)).Grow(1).Basis(0).MinWidth(0).Height(height).Radius(t.Radius).Border(2, Color{}).Role(RoleListItem)
+	cell := Column(c).Grow(1).Basis(0).MinWidth(0).Height(height).Radius(t.Radius).Border(2, Color{}).Role(RoleListItem)
+	// The item's identity belongs to the grid, independent of the row
+	// grouping, which changes when columns resize or items move.
+	c.rekeyUnder(cell, mix(grid.id, 0x677269646974656d), s.key(i))
+	cell.gridItem, cell.itemIndex = true, i
 	cell.setPos, cell.setSize = i+1, n
 	if s.Label != nil {
 		cell.Label(s.Label(i))

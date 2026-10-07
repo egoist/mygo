@@ -42,6 +42,11 @@ type ListState struct {
 	// follows its item, and the list keeps its place and its choice when
 	// rows are added or removed above them, as when older messages load.
 	Key func(row int) any
+	// Index returns the current row of a key, or -1 when it is gone.
+	// Supply it with Key for large collections that reorder arbitrarily:
+	// retained accessibility items and selection queries then find their
+	// items directly. Without it, lookup searches at most 1000 nearby rows.
+	Index func(key any) int
 	// FollowEnd starts the list at its end, and keeps the end in view as
 	// rows are added or grow while it shows it, as a chat or a log does:
 	// scrolling away from the end stops following it, and scrolling back
@@ -189,8 +194,9 @@ func (s *ListState) AtEnd() bool {
 
 // listFrame is what a List built in the frame, for laying it out.
 type listFrame struct {
-	c *Context
-	e *Element
+	access collectionFrame
+	c      *Context
+	e      *Element
 	// owner takes the focus and reports choices: the list, or its Table.
 	owner *Element
 	s     *ListState
@@ -284,6 +290,8 @@ func buildList(c *Context, e, owner *Element, s *ListState, n int, row func(i in
 		s.editables, s.editablesNow = s.editablesNow, false
 	}
 	e.list, owner.rowsOf = f, f
+	f.access = collectionFrame{list: f, n: n, cols: 1}
+	owner.collection = &f.access
 	s.sync(e, n)
 	if s.cursor() != nil && owner == e {
 		e.Focusable()
@@ -396,6 +404,10 @@ func (s *ListState) anchorAt(y float64) (int, float64) {
 
 // find returns the row whose key is k, looking around row near.
 func (s *ListState) find(k any, near, n int) (int, bool) {
+	if s.Index != nil {
+		i := s.Index(k)
+		return i, i >= 0 && i < n && s.Key(i) == k
+	}
 	for d := 0; d <= listSearch; d++ {
 		lo, hi := near-d, near+d
 		if lo < 0 && hi >= n {

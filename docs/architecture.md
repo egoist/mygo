@@ -1187,6 +1187,22 @@ either.
   `CanSelectMultiple`, rows then raising `ElementAddedToSelection` and
   `ElementRemovedFromSelection` unless chosen alone), and its focus is on
   the row last chosen.
+  Collection metadata also carries total row/column counts, cell spans and
+  header IDs, and scroll offsets/viewport/content sizes. `AccessTree.Query`
+  and `Selection` are lazy, main-thread-only queries against the current
+  frame (`ui/access_collection.go`), not snapshots of all items. A query
+  returns either a built node or a keyed placeholder; realization uses the
+  existing list layout and returns after a frame has laid out the item.
+  `ListState.Index`/`GridState.Index` resolve keys directly for arbitrary
+  reorders, with a bounded nearby search otherwise. Provider requests keep
+  only the native objects they touch: UIA COM references and ATK references
+  retain offscreen placeholders; AppKit's borrowed objects leave the Go
+  registry from their class's `dealloc`. Backends discard query closures
+  when surfaces close. Selection revisions let frames notify changes
+  without enumerating large selections. macOS's arrays page rows and cells;
+  Linux implements `AtkTable`/`AtkTableCell` and manages descendants; Windows
+  adds Scroll, Grid/Table, cell, ItemContainer and VirtualizedItem patterns.
+  Windows' SetScrollPercent has its own double-argument ABI thunk.
 - **The connection.** `content.go` attaches the content to its window
   through `internal/surface.Conn`, which carries the surface and, as
   functions, what the content needs of the app (the clipboard, dragging

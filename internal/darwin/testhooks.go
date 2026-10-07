@@ -494,7 +494,17 @@ func TestAccessibility(handle uintptr) []TestAccessNode {
 	withPool(func() {
 		var walk func(obj id, depth int)
 		walk = func(obj id, depth int) {
-			kids := arrayItems(send(obj, "accessibilityChildren"))
+			var kids []id
+			if el := w.b.byAccess[obj]; el != nil && el.node.Collection != nil {
+				// General tree inspection remains bounded to the viewport;
+				// collection tests exercise the paged array primitives below.
+				if len(el.node.Collection.ColumnHeaders) > 0 && len(el.children) > 0 {
+					kids = append(kids, el.s.elements[el.children[0]].obj)
+				}
+				kids = append(kids, arrayItems(send(obj, "accessibilityVisibleRows"))...)
+			} else {
+				kids = arrayItems(send(obj, "accessibilityChildren"))
+			}
 			if depth > 0 {
 				n := TestAccessNode{
 					Role:     goString(send(obj, "accessibilityRole")),
