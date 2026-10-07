@@ -289,16 +289,23 @@ func (rt *engine) accessElement(t *platform.AccessTree, e *Element, parent int, 
 	if e.flags&(flagInvisible|flagInert) != 0 {
 		return
 	}
+	if e.hostView != nil && e.nativeHandle == 0 {
+		return
+	}
 	if e.id == rt.focused {
 		*focused = e
 	}
 	if role, ok := e.accessRole(); ok {
 		n := platform.AccessNode{
 			ID: e.id, Parent: parent, Role: role, Label: e.label,
-			Bounds: platform.RectF{X: float64(e.x), Y: float64(e.y), W: float64(e.w), H: float64(e.h)},
+			Bounds:     platform.RectF{X: float64(e.x), Y: float64(e.y), W: float64(e.w), H: float64(e.h)},
+			NativeView: e.nativeHandle,
 		}
 		if scrolled {
 			n.Actions |= platform.ActionScrollIntoView
+		}
+		if e.nativeHandle != 0 {
+			n.Bounds = platform.RectF{X: float64(e.st.vx), Y: float64(e.st.vy), W: float64(e.st.vw), H: float64(e.st.vh)}
 		}
 		rt.accessDetails(e, &n)
 		t.Nodes = append(t.Nodes, n)

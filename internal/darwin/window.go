@@ -978,10 +978,11 @@ func (b *Backend) windowFor(delegate id) *window {
 }
 
 func registerWindowClasses() {
-	classDef("MyGoWindow", "NSWindow", nil, []objc.MethodDef{
+	registerNativeViewClass()
+	classDef("MyGoWindow", "NSWindow", nil, append([]objc.MethodDef{
 		method("canBecomeKeyWindow", func(self id, _ objc.SEL) bool { return true }),
 		method("canBecomeMainWindow", func(self id, _ objc.SEL) bool { return true }),
-	})
+	}, nativeWindowMethods()...))
 
 	classDef("MyGoWebView", "WKWebView", nil, []objc.MethodDef{
 		method("mouseDown:", func(self id, cmd objc.SEL, ev id) {

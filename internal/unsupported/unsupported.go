@@ -29,6 +29,9 @@ func (*Backend) Wake()                                               {}
 func (*Backend) NewWindow(*platform.WindowOptions, platform.WindowHandler) (platform.Window, error) {
 	return nil, errUnsupported
 }
+func (*Backend) NewNativeView(platform.Surface, platform.NativeViewHandler) (platform.NativeViewHost, error) {
+	return nil, platform.ErrUnsupported
+}
 func (*Backend) SetApplicationMenu(*platform.Menu)                          {}
 func (*Backend) PopupMenu(*platform.Menu, platform.Window, *platform.Point) {}
 func (*Backend) UpdateMenuItem(*platform.MenuItem)                          {}

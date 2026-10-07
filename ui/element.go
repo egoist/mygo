@@ -202,6 +202,11 @@ type Element struct {
 	nchild int
 	depth  int
 	st     *state
+	// hostView is a window-owned platform control; nativeHandle is its
+	// clipping container while visible, for accessibility composition.
+	hostView     HostedView
+	nativeHandle uintptr
+	hostHit      int
 	// track is the ScrollState of a scroll container (TrackScroll).
 	track *ScrollState
 

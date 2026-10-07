@@ -714,7 +714,8 @@ func (*tray) Destroy()                    {}
 // Surface is a fake window surface: it records what the content asks of
 // it, and tests deliver events through Send.
 type Surface struct {
-	w *Window
+	w           *Window
+	nativeViews []*NativeView
 	// Scale is the device pixels per DIP.
 	Scale float64
 

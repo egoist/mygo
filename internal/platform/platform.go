@@ -67,6 +67,9 @@ type Backend interface {
 	Wake()
 
 	NewWindow(opts *WindowOptions, h WindowHandler) (Window, error)
+	// NewNativeView creates a hidden clipping container over s. The core
+	// supplies the view through its creation hook and NativeViewHost.Attach.
+	NewNativeView(s Surface, h NativeViewHandler) (NativeViewHost, error)
 
 	SetApplicationMenu(m *Menu)
 	// PopupMenu shows a context menu. pos is relative to the window's

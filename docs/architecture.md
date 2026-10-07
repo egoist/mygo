@@ -1181,6 +1181,26 @@ either.
   into one frame on the main thread, which `Conn.Changed` asks the content
   for, so that it builds anew. Page methods return `errNoPage` or do
   nothing.
+- **Hosted platform views.** `Window.NewNativeView` (`nativeview.go`)
+  creates a window-owned control through main-thread Create/Update/Dispose
+  hooks, above `Backend.NewNativeView` and `platform.NativeViewHost`.
+  `ui.HostView` (`ui/nativeview.go`) places it after layout, passing its
+  full box, rectangular visible intersection, enabled state and element ID
+  through `surface.HostedView`, without importing package mygo. A backend
+  owns a clipping container: a flipped layer-backed NSView in the surface,
+  a GtkLayout in a GTK overlay, or a child HWND inside the surface's HWND.
+  Native descendants take their own input. Native focus and Tab boundary
+  events return to the UI engine's focus order; adapters can manage internal
+  Tab navigation themselves. Accessibility nodes carry a native container
+  handle for AppKit/ATK child composition or UIA HWND override providers.
+  The physical GTK overlay exposes only the surface to ATK, so the logical
+  tree contains each control once. Omitted controls hide and retain state;
+  Destroy or window closure invokes Dispose before releasing native objects.
+  A later element overlapping a host hides the control for that frame,
+  as does a modal scope above it. Native controls draw above the scene and
+  support rectangular clipping, not MyGo opacity, masks, transforms or
+  scene captures. Headless Tester builds only a placeholder. See
+  [Hosting platform views](ui/native-view.md) and `examples/native-host`.
 - **Frames.** The engine (`ui/runtime.go`) calls the view to build a frame,
   again (up to three times) when a handler changed the state while it built,
   so the frame shows the outcome; lays it out with flexbox (`layout.go`) or

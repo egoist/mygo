@@ -445,6 +445,9 @@ func (w *window) destroy() {
 		return
 	}
 	w.destroying = true
+	if w.surface != nil {
+		w.surface.closeNativeViews()
+	}
 	// Re-enable the owner first, or Windows activates another app.
 	if w.opts.Modal && w.parent != nil && !w.parent.closed {
 		procEnableWindow.Call(w.parent.hwnd, 1)
@@ -455,6 +458,9 @@ func (w *window) destroy() {
 func (w *window) cleanup() {
 	if w.closed {
 		return
+	}
+	if w.surface != nil {
+		w.surface.closeNativeViews()
 	}
 	w.closed = true
 	if w.opts.Modal && w.parent != nil && !w.parent.closed {

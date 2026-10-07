@@ -15,6 +15,9 @@ type AccessTree struct {
 
 // AccessNode is an element of an AccessTree.
 type AccessNode struct {
+	// NativeView grafts a NativeViewHost's native accessibility subtree at
+	// this node. Zero for ordinary MyGo elements or a hidden hosted view.
+	NativeView uintptr
 	// ID identifies the element from frame to frame.
 	ID uint64
 	// Parent is the index of the parent node in AccessTree.Nodes, -1 for

@@ -84,6 +84,8 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
   window share: the focus, Escape, and what is behind them.
 - [Accessibility](accessibility.md): what screen readers see, naming
   elements, roles, descriptions and announcements.
+- [Hosting platform views](native-view.md): embed an NSView, GTK 3 widget,
+  or child HWND with clipping, focus, accessibility, and lifetime hooks.
 - [Drawing and animation](drawing.md): painting on elements, shaping text,
   and values that ease to their targets.
 - [Transitions](transitions.md): elements that move, resize and recolor

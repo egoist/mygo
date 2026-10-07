@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/surface"
 )
 
 // event handles a surface event on the main thread. It reports whether
@@ -64,11 +65,26 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.TextComposition:
 		rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret}, ev))
 	case platform.SurfaceCommand:
+		if v, ok := rt.nativeFocused.(surface.CommandView); ok && v.CommandNativeView(rt.nativeConn(), ev.Text) {
+			taken = true
+			break
+		}
 		rt.editEvent(editEvent{kind: editCommand, text: ev.Text})
 	case platform.SurfaceFocus:
 		rt.windowFocused = true
 		rt.blinkStart = time.Now()
 		rt.requestFrame()
+	case platform.NativeViewFocus:
+		if slices.Contains(rt.focusOrder, ev.ID) && (rt.modal == 0 || rt.scopeOf(ev.ID) == rt.modal) {
+			rt.focused, rt.windowFocused = ev.ID, true
+			rt.requestFrame()
+		}
+	case platform.NativeViewTraverse:
+		if ev.ID == rt.focused {
+			rt.windowFocused = true
+			rt.moveFocus(ev.Mods&platform.ModShift != 0)
+			rt.requestFrame()
+		}
 	case platform.SurfaceBlur:
 		rt.windowFocused = false
 		if p := rt.pressed; p != nil {
@@ -97,6 +113,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		// after the next frame, or the text of keys typed before it would
 		// never reach the input method.
 		rt.updateTextInput()
+		rt.syncNativeFocus()
 	}
 	return taken
 }
@@ -586,6 +603,7 @@ func typedRune(mods Modifiers, key Key) (rune, bool) {
 
 // moveFocus focuses the next (or previous) element that takes the focus.
 func (rt *engine) moveFocus(back bool) {
+	rt.nativeBackward = back
 	// The dialog on top keeps the focus among its elements.
 	order := rt.focusOrder
 	if m := rt.modal; m != 0 {
