@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -48,6 +49,13 @@ func probeSource(variant string) string {
 			}
 		}
 		return s[:start] + body.String() + s[end:]
+	case "analytic-derivatives":
+		s = strings.ReplaceAll(s, "float localCoverage(float2 p, float4 rect, float4 radii, float affine)", "float localCoverage(float2 p, float4 rect, float4 radii, float4 transform0, float4 transform1)")
+		s = strings.ReplaceAll(s, "if (affine < 0.5)", "if (transform0.w < 0.5)")
+		s = strings.ReplaceAll(s, "float2 dx = ddx(p), dy = ddy(p), a = (dx + dy) * 0.5, b = (dx - dy) * 0.5;", "float det = transform0.x * transform1.y - transform0.y * transform1.x; float2 dx = float2(transform1.y, -transform1.x) / det, dy = float2(-transform0.y, transform0.x) / det; float2 a = (dx + dy) * 0.5, b = (dx - dy) * 0.5;")
+		return regexp.MustCompile(`localCoverage\(([^;{}]*?), (?:i\.transform0\.w|1)\)`).ReplaceAllString(s, `localCoverage($1, i.transform0, i.transform1)`)
+	case "no-early-return":
+		return strings.ReplaceAll(s, "if (d < -reach)\n\t\treturn 1;\n\tif (d > reach)\n\t\treturn 0;", "")
 	}
 	return s
 }
@@ -73,14 +81,14 @@ func TestMain(m *testing.M) {
 		fmt.Println("compiled")
 		os.Exit(0)
 	}
-	for _, variant := range []string{"optimization-1", "optimization-2", "optimization-0", "skip-optimization", "explicit-samples"} {
+	for _, variant := range []string{"analytic-derivatives", "no-early-return"} {
 		cmd := exec.Command(os.Args[0])
 		cmd.Env = append(os.Environ(), "MYGO_COMPILER_PROBE="+variant)
 		out, err := cmd.CombinedOutput()
 		first, _, _ := strings.Cut(string(out), "\n")
 		fmt.Printf("HLSL probe %s: %v %s\n", variant, err, first)
 	}
-	compiler.Optimization = 0
+	compiler.Optimization = 1 << 2
 	compiler.StackReserve = 2 << 20
 	os.Exit(m.Run())
 }
