@@ -57,7 +57,8 @@ so use a regular scroll container when selecting an entire document.
 The highlight is the theme's `Selection`; `SelectionColor` sets another
 for an element and the text inside it, as text on a colored bubble needs
 one that shows on it. A right-click on selectable text shows Copy and
-Select All below the items of the nearest `ContextMenu` around it.
+Select All; a `ContextMenu` on the text or its `Selectable` container
+replaces that menu, and `Menu.EditItems` puts Copy and Select All in it.
 
 ## Rich text
 

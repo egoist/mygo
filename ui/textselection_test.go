@@ -421,29 +421,35 @@ func TestSelectableContainerFocusAndDisable(t *testing.T) {
 	}
 }
 
-// Right-clicking selectable text inside an element with a context menu shows that menu's items
-// above Copy and Select All, and each does its part: the element's item reaches its function, and
-// Copy copies the selection.
-func TestSelectableTextShowsTheMenuAround(t *testing.T) {
+// A ContextMenu on a Selectable container replaces its text's Copy and Select All, and EditItems
+// puts them back where the menu wants them: its own item reaches its function, Copy copies the
+// selection. Text without a ContextMenu keeps its own menu, and an element around the container
+// keeps its menu beside the text.
+func TestSelectableTextContextMenu(t *testing.T) {
 	replied := 0
 	tt := NewTester(func(c *Context) {
 		bubble := Column(c).Padding(20).Gap(10)
-		bubble.ContextMenu(func(m *Menu) {
-			if m.Item("Reply").Chosen() {
-				replied++
-			}
-		})
+		bubble.ContextMenu(func(m *Menu) { m.Item("Bubble") })
 		bubble.Children(func() {
-			Column(c).Selectable().Gap(10).Children(func() {
+			Column(c).Selectable().ContextMenu(func(m *Menu) {
+				if m.Item("Reply").Chosen() {
+					replied++
+				}
+				m.Separator()
+				m.EditItems()
+				m.Separator()
+				m.Item("After")
+			}).Gap(10).Children(func() {
 				Text(c, "Alpha")
 				Text(c, "Beta")
 			})
+			Column(c).Selectable().Children(func() { Text(c, "Gamma") })
 		})
-	}, 300, 150)
+	}, 300, 200)
 	selectBetween(t, tt, "Alpha", 0, "Beta", 4)
 	x, y := selectableAt(t, tt, "Beta", 2)
 	tt.RightClickAt(x, y)
-	if want := []string{"Reply", "-", "Copy", "-", "Select All"}; !slices.Equal(tt.Menu(), want) {
+	if want := []string{"Reply", "-", "Copy", "-", "Select All", "-", "After"}; !slices.Equal(tt.Menu(), want) {
 		t.Fatalf("menu %q, want %q", tt.Menu(), want)
 	}
 	if err := tt.ChooseMenuItem("Reply"); err != nil {
@@ -457,13 +463,54 @@ func TestSelectableTextShowsTheMenuAround(t *testing.T) {
 	if err := tt.ChooseMenuItem("Copy"); err != nil {
 		t.Fatal(err)
 	}
-	if got := tt.Clipboard(); got != "Alpha\nBeta" {
-		t.Errorf("Copy copied %q", got)
+	tt.Frame()
+	if got := tt.Clipboard(); got != "Alpha\nBeta" || replied != 1 {
+		t.Errorf("Copy copied %q; Reply ran %d times", got, replied)
 	}
-	// Outside the text, the element's own menu.
+	// Select All from the custom menu selects the container's text.
+	tt.RightClickAt(x, y)
+	if err := tt.ChooseMenuItem("Select All"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(Cmd, KeyC)
+	if got := tt.Clipboard(); got != "Alpha\nBeta" {
+		t.Errorf("after Select All, copied %q", got)
+	}
+	x, y = selectableAt(t, tt, "Gamma", 2)
+	tt.RightClickAt(x, y)
+	if want := []string{"Copy", "-", "Select All"}; !slices.Equal(tt.Menu(), want) {
+		t.Errorf("menu of text without one %q, want %q", tt.Menu(), want)
+	}
+	tt.CloseMenu()
 	tt.RightClickAt(5, 5)
-	if want := []string{"Reply"}; !slices.Equal(tt.Menu(), want) {
+	if want := []string{"Bubble"}; !slices.Equal(tt.Menu(), want) {
 		t.Errorf("menu beside the text %q, want %q", tt.Menu(), want)
+	}
+}
+
+// EditItems in a text input's ContextMenu adds its editing items, which edit it.
+func TestTextInputContextMenuEditItems(t *testing.T) {
+	value := "hello"
+	tt := NewTester(func(c *Context) {
+		TextInput(c, &value).Label("Field").ContextMenu(func(m *Menu) {
+			m.Item("Custom")
+			m.Separator()
+			m.EditItems()
+		})
+	}, 300, 100)
+	r, _ := tt.Find("Field")
+	tt.ClickAt(r.X+10, r.Y+r.H/2)
+	tt.Key(Cmd, KeyA)
+	tt.RightClickAt(r.X+10, r.Y+r.H/2)
+	menu := tt.Menu()
+	if len(menu) < 4 || menu[0] != "Custom" || menu[1] != "-" || !slices.Contains(menu, "Copy") || !slices.Contains(menu, "Select All") {
+		t.Fatalf("menu %q", menu)
+	}
+	if err := tt.ChooseMenuItem("Copy"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tt.Clipboard(); got != "hello" {
+		t.Errorf("Copy copied %q", got)
 	}
 }
 
