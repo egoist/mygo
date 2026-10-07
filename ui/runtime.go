@@ -709,6 +709,15 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	if e.flags&flagPage != 0 {
 		rt.commitPage = e.id
 	}
+	e.world = e.transformAt(e.x, e.y)
+	if e.parent != nil && e != e.c.overlay {
+		e.world = e.parent.world.Mul(e.world)
+	}
+	s.world = e.world
+	s.clips = e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0
+	if s.clips {
+		s.clipRect, s.clipRadii = e.clipRect()
+	}
 	s.x, s.y, s.w, s.h = e.x, e.y, e.w, e.h
 	if e.parent != nil {
 		s.parent = e.parent.id
@@ -740,7 +749,7 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	if (e.flags&flagEditable != 0 || e.flags&flagSelectable != 0 && s.editor != nil) && s.cursor == 0 {
 		s.cursor = CursorText + 1
 	}
-	v := intersect(Rect{e.x, e.y, e.w, e.h}, clip)
+	v := intersect(e.visualRect(Rect{e.x, e.y, e.w, e.h}), clip)
 	s.vx, s.vy, s.vw, s.vh = v.X, v.Y, v.W, v.H
 	s.cx, s.cy = e.x+e.contentX(), e.y+e.contentY()
 	s.cw, s.ch = max(e.w-e.padX(), 0), max(e.h-e.padY(), 0)
@@ -763,10 +772,10 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	case inline:
 		// Inline elements take the pointer over their words.
 		for _, r := range e.frags {
-			rt.hits = append(rt.hits, hit{s, intersect(r, clip), e.flags})
+			rt.hits = append(rt.hits, hit{s, r, e.flags})
 		}
 	default:
-		rt.hits = append(rt.hits, hit{s, v, e.flags})
+		rt.hits = append(rt.hits, hit{s, Rect{e.x, e.y, e.w, e.h}, e.flags})
 	}
 	label := e.label
 	if f := e.nameFrom; label == "" && f != nil {
@@ -781,7 +790,7 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 			rt.labels = append(rt.labels, labelNode{e.id, label, v})
 		case len(e.frags) > 0 && (e.label != "" || e.flags&interactive != 0):
 			// Their paragraph shows the text of the others.
-			rt.labels = append(rt.labels, labelNode{e.id, label, intersect(e.frags[0], clip)})
+			rt.labels = append(rt.labels, labelNode{e.id, label, intersect(e.visualRect(e.frags[0]), clip)})
 		}
 	}
 	if e.flags&flagFocusable != 0 && !e.IsDisabled() && !invisible {
@@ -798,7 +807,7 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	}
 	if e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0 {
 		r, _ := e.clipRect()
-		clip = intersect(clip, r)
+		clip = intersect(clip, e.visualRect(r))
 	}
 	// Children in flow first, absolute ones above them: the paint order.
 	for ch := e.first; ch != nil; ch = ch.next {

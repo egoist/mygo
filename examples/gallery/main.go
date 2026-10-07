@@ -67,9 +67,12 @@ type gallery struct {
 	eased              bool
 	// The items of the Motion page's list, the next one's number, and
 	// whether its panel is open.
-	items     []motionItem
-	nextItem  int
-	panelOpen bool
+	items                          []motionItem
+	nextItem                       int
+	panelOpen                      bool
+	motionTarget, transformPopover bool
+	motionRun                      uint64
+	motionText                     string
 	// The disclosure, the sections of the accordion, and their choices.
 	advanced, verbose, share, news bool
 	sections                       [3]bool
@@ -1419,6 +1422,50 @@ var itemMotion = ui.ElementTransition{
 
 func (g *gallery) motion(c *ui.Context) {
 	t := c.Theme()
+	ui.Grid(c).Columns(2).Gap(16).Children(func() {
+		card(c, "Transforms and interruptible springs", func() {
+			ui.Text(c, "Click repeatedly while moving. Edit the transformed field or open its anchored panel.").FontSize(12).TextColor(t.TextMuted)
+			if ui.Button(c, "Retarget the spring").Clicked() {
+				g.motionTarget = !g.motionTarget
+			}
+			stage := ui.Box(c).Key("transform-stage").Height(220).Radius(10).Border(1, t.Border).Clip()
+			target := float32(0)
+			if g.motionTarget {
+				target = 1
+			}
+			pose := stage.Spring("pose", target, ui.SpringOptions{Damping: 14})
+			stage.Children(func() {
+				ui.Column(c).Key("transformed-card").Absolute().Left(35).Top(45).Size(185, 125).Padding(12).Gap(8).
+					Background(t.Surface).Radius(10).Border(1, t.Border).Scale(0.95+0.1*pose, 1).Rotate(-8+16*pose).Translate(65*pose, 0).Children(func() {
+					ui.Text(c, "Nested interactive content").Bold().FontSize(12)
+					ui.TextInput(c, &g.motionText).Width(155).Placeholder("Type here")
+					anchor := ui.Button(c, "Open a popover")
+					if anchor.Clicked() {
+						g.transformPopover = !g.transformPopover
+					}
+					ui.Popover(c, anchor, &g.transformPopover, func() { ui.Text(c, "I follow the transformed anchor.") })
+				})
+			})
+		})
+		card(c, "Keyframe sequences", func() {
+			ui.Text(c, "Replay during a sequence to interrupt it continuously. Motion follows the desktop preference.").FontSize(12).TextColor(t.TextMuted)
+			if ui.Button(c, "Replay the sequence").Clicked() {
+				g.motionRun++
+			}
+			stage := ui.Box(c).Key("sequence-stage").Height(220).Radius(10).Border(1, t.Border).Clip()
+			progress := stage.Keyframes("pose", []ui.Keyframe{
+				{Value: 0}, {At: 250 * time.Millisecond, Value: 1, Ease: ui.EaseOut},
+				{At: 650 * time.Millisecond, Value: 0.4, Ease: ui.EaseInOut}, {At: time.Second, Value: 0, Ease: ui.EaseInOut},
+			}, ui.KeyframeOptions{Run: g.motionRun})
+			stage.Children(func() {
+				ui.Row(c).Absolute().Left(40).Top(80).Size(160, 55).Center().Radius(8).Background(t.Accent).
+					Scale(1+0.08*progress, 1+0.08*progress).Rotate(12*progress).Translate(80*progress, 0).Children(func() {
+					ui.Text(c, "Four timed keyframes").TextColor(t.AccentText).FontSize(12).Bold()
+				})
+			})
+		})
+	})
+
 	ui.Text(c, "Transitions move elements where the layout puts them, and in and out as they come and go. "+
 		"F12 (Alt+Cmd+I) opens the inspector of the window's elements.").TextColor(t.TextMuted)
 	ui.Grid(c).Columns(2).Gap(16).Children(func() {

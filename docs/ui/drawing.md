@@ -117,3 +117,7 @@ When the desktop asks for less motion (`c.Preferences().ReduceMotion`),
 `Animate` and `AnimateWith` go to their target at once. `Loop` goes on, as
 the system's spinners do: it shows that something is going on. Motion you
 compute yourself should read the preference too.
+
+[Transforms and motion](transforms.md) adds visual transforms of arbitrary
+elements, springs that preserve velocity when retargeted, and keyframe
+sequences. These APIs share the frame scheduler and reduced-motion preferences.

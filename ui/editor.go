@@ -180,6 +180,7 @@ func (ed *editor) process(c *Context, e *Element) {
 	ed.queue = ed.queue[:0]
 	if ed.dragging && st.pressed {
 		rt := c.rt
-		ed.drag(rt.pointerX-st.x, rt.pointerY-st.y)
+		x, y := st.local(rt.pointerX, rt.pointerY)
+		ed.drag(x, y)
 	}
 }

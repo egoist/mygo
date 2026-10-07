@@ -1283,6 +1283,25 @@ either.
   `MYGO_FRAME_STATS` set, frames slower than its threshold log how long
   each part took, which path drew them, what the process allocated and
   whether the collector ran (`ui/framestats.go`).
+- **Visual transforms and motion** (`ui/transform.go`, `ui/motion.go`). An
+  element's affine transform composes with its ancestors after layout;
+  boxes keep their original layout space. Painting stores the composed
+  transform on scene operations and clips, and committing keeps it on the
+  state for inverse-mapped pointer input, carets, accessibility bounds, and
+  overlays attached to visual bounds. The CPU renderer inverse maps pixels
+  for transformed primitives and clips. GPU builders retain local geometry
+  and send affine rows with every instance; the vertex shaders transform
+  the quad and fragment shaders integrate coverage in device space. Nested
+  transformed or rounded clips use cached masks, independent of content
+  moving within them; hard clips in the drawing's coordinates evaluate on
+  the GPU. Backdrop effects map local samples into the frame. With a GPU,
+  every frame draws there, including resting changes to transformed content.
+  Metal retains wide colors under transforms. See
+  [Transforms and motion](ui/transforms.md#rendering) for rendering details.
+  Springs solve damped oscillators analytically and sample before retargeting
+  so position and velocity survive interruptions. Keyframe sequences keep
+  a bounded channel per key with an explicit replay token. Both ask for
+  frames only while active and complete when reduced motion is enabled.
 - **Transitions** (`ui/transition.go`) animate elements FLIP-style, after
   the layout of each frame and before `place` turns boxes into window
   coordinates: an element given a `Transition` keeps, by its ID, where the
@@ -1895,8 +1914,8 @@ either.
   inside the box, so lines thinner than a pixel cover as much as they
   should, as text decorations need. A fill's border widths travel in its
   texture rectangle, which fills do not use, and a glyph's gamma ratios
-  and contrast in its radii, so every instance stays eleven float4s. The
-  shader writes a second color, the source's alpha of each channel, and
+  and contrast in its radii. Each instance is thirteen float4s, including
+  its two affine rows. The shader writes a second color, the source's alpha of each channel, and
   renderers blend with it (dual-source blending): it is the color's alpha
   but for subpixel glyphs, whose subpixels cover each channel by its own.
   OpenGL ES without `EXT_blend_func_extended` blends the mean of their
@@ -1907,7 +1926,9 @@ either.
     generated file records the SHA-256 of the source it came from, line
     endings aside (`gpu.SourceSum`), as Metal's does: bytecode older than
     `shader.hlsl` falls back to compiling that with the same DLL, which
-    Windows has, and its test fails. It draws into a flip-model swap
+    Windows has, and its test fails. Both compilation paths enable IEEE
+    strictness with optimization, avoiding a native compiler optimizer crash
+    on transformed coverage sampling. It draws into a flip-model swap
     chain on the surface's window, with WARP when no hardware device
     works. At most one frame waits ahead of the screen, not DXGI's three,
     so frames that follow each other, as when scrolling or animating,

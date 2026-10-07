@@ -94,6 +94,10 @@ func layoutTree(root *Element, w, h float32) {
 		}
 	}
 	rt.animateLayout(root, w, h)
+	// Reattach overlays to the geometry shown by this frame, after transitions.
+	if ov := root.c.overlay; ov != nil {
+		layoutAbsolute(ov)
+	}
 	if rt.late {
 		// Lists resized by their transitions built rows as they laid out
 		// anew.
@@ -987,7 +991,7 @@ func attachTo(c, e *Element, pw, ph float32) {
 	} else {
 		h = heightAt(c, w, ph)
 	}
-	t := laidOutBox(c.popover)
+	t := laidOutVisualBox(c.popover)
 	at, self := c.attach.anchors()
 	ax, ay := at.fractions()
 	sx, sy := self.fractions()
