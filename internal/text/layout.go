@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync"
 	"unicode"
+	"unsafe"
 
 	"github.com/egoist/mygo/internal/scene"
 )
@@ -278,8 +279,12 @@ type System struct {
 	// fonts caches the font of each style.
 	fonts map[Style]*Font
 
-	layouts map[Params]*cached
-	frame   uint64
+	// Layouts are kept by recency within a memory budget, not by how
+	// many frames a scrolling window has drawn.
+	layouts        map[Params]*cached
+	oldest, newest *cached
+	layoutBytes    int
+	frame          uint64
 	// made counts the layouts made (LayoutsMade), and gen the times the
 	// system forgot its layouts (Generation).
 	made, gen uint64
@@ -327,9 +332,11 @@ type markKey struct {
 // cached is a layout, with room for one line, as most layouts have, and
 // the frame that used it last.
 type cached struct {
-	layout Layout
-	line   [1]Line
-	used   uint64
+	layout     Layout
+	line       [1]Line
+	used       uint64
+	bytes      int
+	prev, next *cached
 }
 
 var shared = sync.OnceValue(newSystem)
@@ -409,7 +416,7 @@ func (s *System) SetFontRendering(antialias, hinting, subpixels string) {
 		f.setFontRendering(antialias, hinting, subpixels)
 		s.gen++
 		clear(s.fonts)
-		clear(s.layouts)
+		s.clearLayouts()
 		clear(s.marks)
 		clear(s.glyphs)
 		clear(s.places)
@@ -433,7 +440,7 @@ func (s *System) SetUIFamily(family string) {
 		u.setUIFamily(family)
 		s.gen++
 		clear(s.fonts)
-		clear(s.layouts)
+		s.clearLayouts()
 		clear(s.marks)
 	}
 }
@@ -449,7 +456,7 @@ func (s *System) RegisterFont(data []byte, family string) error {
 	}
 	s.gen++
 	clear(s.fonts)
-	clear(s.layouts)
+	s.clearLayouts()
 	clear(s.marks)
 	return nil
 }
@@ -481,7 +488,7 @@ func (s *System) EndFrame() {
 		// glyphs as it makes room; the next frame lays out and draws its
 		// text anew.
 		s.gen++
-		clear(s.layouts)
+		s.clearLayouts()
 		clear(s.marks)
 		clear(s.fonts)
 		clear(s.glyphs)
@@ -490,13 +497,8 @@ func (s *System) EndFrame() {
 		f.forgetFonts()
 		return
 	}
-	if s.frame%64 != 0 && len(s.layouts) < 4096 {
-		return
-	}
-	for p, c := range s.layouts {
-		if s.frame-c.used > 240 {
-			delete(s.layouts, p)
-		}
+	for s.oldest != nil && s.frame-s.oldest.used > 240 {
+		s.removeLayout(s.oldest)
 	}
 }
 
@@ -506,13 +508,92 @@ func (s *System) Layout(p Params) *Layout {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if c, ok := s.layouts[p]; ok {
-		c.used = s.frame
+		s.useLayout(c)
 		return &c.layout
 	}
 	c := s.layout(p)
-	c.used = s.frame
-	s.layouts[p] = c
+	c.bytes = layoutBytes(c)
+	// A large paragraph still lays out correctly; keeping it would evict
+	// all the ordinary labels and lines of other windows.
+	if c.bytes <= maxLayoutBytes {
+		for s.oldest != nil && (s.layoutBytes+c.bytes > maxLayoutBytes || len(s.layouts) >= maxLayouts) {
+			s.removeLayout(s.oldest)
+		}
+		s.layouts[p] = c
+		s.layoutBytes += c.bytes
+		s.useLayout(c)
+	}
 	return &c.layout
+}
+
+// The memory estimate includes text, shaped glyphs and room for lazy caret
+// geometry. A count limit also bounds the map for many very short labels.
+const (
+	maxLayoutBytes = 8 << 20
+	maxLayouts     = 4096
+)
+
+func layoutBytes(c *cached) int {
+	l, p := &c.layout, c.layout.Params
+	n := int(unsafe.Sizeof(*c)+unsafe.Sizeof(p)) + len(p.Text) + len(p.Spans) + len(p.Ellipsis) + len(p.Style.Family) + len(p.Style.Features)
+	n += cap(l.Runes) * int(unsafe.Sizeof(rune(0)))
+	if cap(l.Lines) > 1 {
+		n += cap(l.Lines) * int(unsafe.Sizeof(Line{}))
+	}
+	// Selection can create boundaries, caret positions and visual stops
+	// after insertion; reserve their room before caching the layout.
+	n += (len(l.Runes) + 1) * int(unsafe.Sizeof(int(0)))
+	for _, line := range l.Lines {
+		n += cap(line.Glyphs) * int(unsafe.Sizeof(Glyph{}))
+		n += (line.End - line.Start + 1) * 2 * int(unsafe.Sizeof(float32(0))+unsafe.Sizeof(caretStop{}))
+	}
+	return n
+}
+
+func (s *System) unlinkLayout(c *cached) {
+	if c.prev != nil {
+		c.prev.next = c.next
+	} else {
+		s.oldest = c.next
+	}
+	if c.next != nil {
+		c.next.prev = c.prev
+	} else {
+		s.newest = c.prev
+	}
+	// Returned layouts may outlive the cache. Do not let them retain it.
+	c.prev, c.next = nil, nil
+}
+
+func (s *System) useLayout(c *cached) {
+	c.used = s.frame
+	if s.newest == c {
+		return
+	}
+	if c.prev != nil || c.next != nil || s.oldest == c {
+		s.unlinkLayout(c)
+	}
+	c.prev = s.newest
+	if s.newest != nil {
+		s.newest.next = c
+	} else {
+		s.oldest = c
+	}
+	s.newest = c
+}
+
+func (s *System) removeLayout(c *cached) {
+	s.unlinkLayout(c)
+	delete(s.layouts, c.layout.Params)
+	s.layoutBytes -= c.bytes
+}
+
+func (s *System) clearLayouts() {
+	for s.oldest != nil {
+		s.unlinkLayout(s.oldest)
+	}
+	clear(s.layouts)
+	s.layoutBytes = 0
 }
 
 // LayoutsMade returns how many layouts the system has made, those Layout
