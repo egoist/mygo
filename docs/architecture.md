@@ -1921,10 +1921,9 @@ either.
     generated file records the SHA-256 of the source it came from, line
     endings aside (`gpu.SourceSum`), as Metal's does: bytecode older than
     `shader.hlsl` falls back to compiling that with the same DLL, which
-    Windows has, and its test fails. Runtime compilation and the generator
-    share a native worker with a larger reserved stack, as optimizing
-    transformed shaders can exhaust Go's Windows threads' native stacks.
-    It draws into a flip-model swap
+    Windows has, and its test fails. Both compilation paths enable IEEE
+    strictness with optimization, avoiding a native compiler optimizer crash
+    on transformed coverage sampling. It draws into a flip-model swap
     chain on the surface's window, with WARP when no hardware device
     works. At most one frame waits ahead of the screen, not DXGI's three,
     so frames that follow each other, as when scrolling or animating,

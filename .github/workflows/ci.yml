@@ -35,10 +35,18 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: oven-sh/setup-bun@v2
-      - name: Native shader diagnostics
+      - name: Generate Windows shader bytecode
         if: runner.os == 'Windows'
-        run: go test -v ./internal/gpu/d3d11
+        run: go generate ./internal/gpu/d3d11 ./plugins/glass
+      - name: Save Windows shader bytecode
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr110-windows-shaders
+          path: |
+            internal/gpu/d3d11/shaders.go
+            plugins/glass/shaders_windows.go
+      - uses: oven-sh/setup-bun@v2
       - name: Install WebKitGTK and a virtual display
         if: runner.os == 'Linux'
         run: |
@@ -112,8 +120,8 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - name: Native shader diagnostics
-        run: go test -v ./internal/gpu/d3d11
+      - name: Generate Windows shader bytecode
+        run: go generate ./internal/gpu/d3d11 ./plugins/glass
       - name: Restore NSIS
         id: nsis
         uses: actions/cache/restore@v6
