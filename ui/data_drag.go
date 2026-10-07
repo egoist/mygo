@@ -177,7 +177,6 @@ func (rt *engine) dataPreview(s *state) (image.Image, image.Point) {
 		return nil, image.Point{}
 	}
 	var renderer raster.Renderer
-	defer renderer.Release()
 	renderer.Render(&rt.scene)
 	m := &renderer.Image
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
