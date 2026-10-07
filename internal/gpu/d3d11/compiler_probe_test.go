@@ -34,13 +34,17 @@ func probeSource(variant string) string {
 	case "loop-braces":
 		s = strings.ReplaceAll(s, "[loop] for (int y = 0; y < 4; y++)[loop] for (int x = 0; x < 4; x++) {", "[loop] for (int y = 0; y < 4; y++) { [loop] for (int x = 0; x < 4; x++) {")
 		return strings.ReplaceAll(s, "return n / 16;", "} return n / 16;")
+	case "flat-loop":
+		return strings.ReplaceAll(s, "[loop] for (int y = 0; y < 4; y++)[loop] for (int x = 0; x < 4; x++) {", "[loop] for (int tap = 0; tap < 16; tap++) { int x = tap & 3; int y = tap >> 2;")
+	case "unrolled-loop":
+		return strings.ReplaceAll(s, "[loop] for (int y = 0; y < 4; y++)[loop] for (int x = 0; x < 4; x++) {", "[unroll] for (int y = 0; y < 4; y++)[unroll] for (int x = 0; x < 4; x++) {")
 	}
 	return s
 }
 
 func TestMain(m *testing.M) {
 	if variant := os.Getenv("MYGO_COMPILER_PROBE"); variant != "" {
-		_, err := compiler.Compile(probeSource(variant), "vs", "vs_4_0")
+		_, err := compiler.Compile(probeSource(variant), "ps", "ps_4_0")
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
@@ -48,7 +52,7 @@ func TestMain(m *testing.M) {
 		fmt.Println("compiled")
 		os.Exit(0)
 	}
-	for _, variant := range []string{"vertex-only", "typed-texture", "no-texture-parameter", "no-coverage-loop", "loop-braces"} {
+	for _, variant := range []string{"original", "typed-texture", "no-texture-parameter", "no-coverage-loop", "loop-braces", "flat-loop", "unrolled-loop"} {
 		cmd := exec.Command(os.Args[0])
 		cmd.Env = append(os.Environ(), "MYGO_COMPILER_PROBE="+variant)
 		out, err := cmd.CombinedOutput()
