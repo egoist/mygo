@@ -43,17 +43,6 @@ type Surface interface {
 	SetDropFormats([]transfer.Format)
 }
 
-// LazyGPUSurface is a Surface that draws in memory until its content asks
-// for the GPU, because a GPU renderer would take much memory for good:
-// Linux's, whose OpenGL driver, Mesa's some 50 MB, stays loaded once a
-// context made it load.
-type LazyGPUSurface interface {
-	// UseGPU makes Native give the objects of a GPU renderer from the
-	// next frame on, which it asks for, where the GPU can draw, and
-	// reports whether it will. It is not called while a frame is drawn.
-	UseGPU() bool
-}
-
 // DamageSurface is a Surface that shows a frame drawn in memory by what
 // changed since the last one: Linux's, whose toolkit then repaints, and
 // the compositor takes, only that.
@@ -100,6 +89,9 @@ type TextInputState struct {
 	// of macOS's press and hold replace the letter they decorate.
 	Text       string
 	Start, End int
+	// Client supplies full text and geometry for a custom text element. The
+	// Text/Start/End snapshot remains the plain-widget and TextCaret fallback.
+	Client TextInputClient
 }
 
 // SurfaceNative holds the native objects of a Surface.
@@ -140,6 +132,9 @@ const (
 	// auto-repeat.
 	KeyPressed
 	KeyReleased
+	// ModifiersChanged reports the modifier keys held, Mods, as one of
+	// them goes down or up on its own.
+	ModifiersChanged
 	// TextInput inserts Text, typed or committed by an input method.
 	TextInput
 	// TextComposition shows Text as the input method's composition, its

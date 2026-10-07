@@ -110,6 +110,40 @@ func TestNativeDragCancellationAndSourceRemoval(t *testing.T) {
 	}
 }
 
+func TestNativeDragCloseReleasesTextInputClient(t *testing.T) {
+	client := &primitiveClient{text: "draft", mark: &TextInputRange{Start: 0, End: 5}}
+	var results []transfer.Result
+	var tt *Tester
+	tt = NewTester(func(c *Context) {
+		Box(c).Size(80, 40).HandleTextInput(client).AutoFocus().DragData(transfer.TextData("draft"), transfer.DragOptions{
+			Done: func(r transfer.Result) {
+				results = append(results, r)
+				tt.h.ime.Client.ReplaceText(nil, "stale completion")
+			},
+		})
+	}, 200, 200)
+	beginNativeDrag(tt)
+	if tt.rt.drag == nil || !tt.rt.drag.native {
+		t.Fatal("native drag did not start")
+	}
+	nativeClient := tt.h.ime.Client
+	tt.rt.close()
+	if len(results) != 1 || !results[0].Canceled || tt.rt.drag != nil || tt.h.dragOptions.Done != nil {
+		t.Fatalf("close did not cancel the drag: results %v, drag %v", results, tt.rt.drag)
+	}
+	if client.mark != nil || client.unmarks != 1 {
+		t.Fatal("close did not release composition", client.mark, client.unmarks)
+	}
+	nativeClient.ReplaceText(nil, "stale native callback")
+	if client.changes != 0 || client.text != "draft" {
+		t.Fatal("closed text-input client mutated", client.text, client.changes)
+	}
+	tt.rt.close()
+	if len(results) != 1 || client.unmarks != 1 {
+		t.Fatal("close repeated cleanup", results, client.unmarks)
+	}
+}
+
 func TestNativeDestinationRejectsMismatchDisabledAndFailedData(t *testing.T) {
 	disabled, drops := false, 0
 	tt := NewTester(func(c *Context) {
