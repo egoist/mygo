@@ -436,6 +436,8 @@ type state struct {
 	hasDropped   bool
 	dropX, dropY float32
 	editor       *editor
+	// textScope is the Selectable container this paragraph belongs to.
+	textScope uint64
 	// spans keeps what a text made of its spans in the last frame.
 	spans     *spanCache
 	locals    map[any]any
@@ -445,9 +447,11 @@ type state struct {
 
 	// input, caret and takesText are those of the last frame's element
 	// (HandleInput, TextCaret).
-	input     func(InputEvent) bool
-	caret     Rect
-	takesText bool
+	input       func(InputEvent) bool
+	textClient  TextInputClient
+	textAdapter *textInputAdapter
+	caret       Rect
+	takesText   bool
 	// scope is the dialog the element was in, 0 for none, and anchor the
 	// element it was a popover of (AttachTo, PopoverBase).
 	scope, anchor uint64

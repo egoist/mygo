@@ -312,6 +312,7 @@ func (s *previewSession) resetRuntime() {
 	rt.wakeAt = time.Time{}
 	rt.wakeMu.Unlock()
 	clear(rt.states)
+	rt.texts, rt.selection = nil, textSelection{}
 	rt.free = nil
 	rt.c = Context{rt: rt}
 	rt.hits, rt.focusOrder, rt.focusScopes = nil, nil, nil
@@ -343,6 +344,14 @@ func (s *previewSession) build(c *Context) {
 }
 
 func (s *previewSession) dispose() {
+	// Invalidate native text-client references before disposing the sample
+	// they call into, including clients still holding marked text.
+	for _, state := range s.rt.states {
+		if state.textAdapter != nil {
+			state.textAdapter.release()
+			state.textAdapter = nil
+		}
+	}
 	fn := s.sample.Dispose
 	s.sample = PreviewSample{}
 	if fn != nil {

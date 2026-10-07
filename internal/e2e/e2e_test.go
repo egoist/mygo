@@ -334,7 +334,10 @@ func TestPopupMenu(t *testing.T) {
 	if _, ok := dismissPopups(); !ok {
 		t.Skip("popup automation not available on this platform")
 	}
-	menu := mygo.NewMenu([]*mygo.MenuItem{{Label: "One"}, {Label: "Two"}})
+	clicks := make(chan *mygo.Window, 1)
+	menu := mygo.NewMenu([]*mygo.MenuItem{{Label: "One", Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+		clicks <- win
+	}}, {Label: "Two"}})
 	popup := func(show func()) (shown int) {
 		t.Helper()
 		done := make(chan struct{})
@@ -357,6 +360,32 @@ func TestPopupMenu(t *testing.T) {
 	waitFor(t, w, "document.readyState === 'complete'")
 	if n := popup(func() { menu.PopupAt(w, 20, 20) }); n != 1 {
 		t.Errorf("PopupAt: %d menus shown", n)
+	}
+	if runtime.GOOS != "linux" {
+		return
+	}
+	done := make(chan struct{})
+	go func() { menu.PopupAt(w, 20, 20); close(done) }()
+	t.Cleanup(func() { dismissPopups() })
+	eventually(t, "the context menu", func() bool {
+		menus, _ := popupMenus()
+		return len(menus) == 1
+	})
+	if !choosePopupItem("One") {
+		t.Fatal("the context menu has no item One")
+	}
+	select {
+	case got := <-clicks:
+		if got != w {
+			t.Errorf("context menu window = %v, want window %d", got, w.ID())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the context menu click was not delivered")
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the context menu did not return after choosing an item")
 	}
 }
 
@@ -1873,6 +1902,69 @@ func TestMenuActivation(t *testing.T) {
 	}
 }
 
+// A submenu may have focus instead of its window. Its callback must still
+// receive the window whose menu was chosen, including for shared menus.
+func TestMenuActivationWindow(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		t.Skip("menu bars belong to the application")
+	}
+	for _, ownMenu := range []bool{false, true} {
+		name := "application"
+		if ownMenu {
+			name = "window"
+		}
+		t.Run(name, func(t *testing.T) {
+			wins := []*mygo.Window{
+				newWindow(t, mygo.WindowOptions{Hidden: true, Width: 400, Height: 300}),
+				newWindow(t, mygo.WindowOptions{Hidden: true, Width: 400, Height: 300}),
+			}
+			if mygo.FocusedWindow() != nil {
+				t.Fatal("a window has focus before activating the menu")
+			}
+			clicks := make(chan *mygo.Window, 1)
+			menu := mygo.NewMenu([]*mygo.MenuItem{{Label: "Demo", Submenu: []*mygo.MenuItem{
+				{Label: "Sizes", Submenu: []*mygo.MenuItem{
+					{ID: "small", Label: "Small", Type: mygo.MenuItemRadio, Checked: true},
+					{ID: "large", Label: "Large", Type: mygo.MenuItemRadio, Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+						if win != nil {
+							win.SetSize(1000, 720)
+						}
+						clicks <- win
+					}},
+				}},
+			}}})
+			if ownMenu {
+				for _, w := range wins {
+					w.SetMenu(menu)
+				}
+			} else {
+				mygo.App.SetMenu(menu)
+				defer mygo.App.SetMenu(nil)
+			}
+			for _, w := range wins {
+				menu.ItemByID("small").SetChecked(true)
+				if err := activateMenu(w, "Demo", "Sizes", "Large"); err != nil {
+					t.Fatal(err)
+				}
+				select {
+				case got := <-clicks:
+					if got != w {
+						t.Fatalf("click window = %v, want window %d", got, w.ID())
+					}
+				case <-time.After(3 * time.Second):
+					t.Fatal("menu click was not delivered")
+				}
+				if width, height := w.Size(); width != 1000 || height != 720 {
+					t.Errorf("size after click = %dx%d, want 1000x720", width, height)
+				}
+				if !menu.ItemByID("large").IsChecked() || menu.ItemByID("small").IsChecked() {
+					t.Error("radio group was not updated")
+				}
+			}
+		})
+	}
+}
+
 func TestAutoHideMenuBar(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, AutoHideMenuBar: true})
 	w.Page().LoadHTML("<p>menu bar</p>", "")
@@ -2119,6 +2211,51 @@ func TestClick(t *testing.T) {
 func deviceScale(w *mygo.Window) float64 {
 	b := w.Bounds()
 	return mygo.Screen.DisplayNearestPoint(mygo.Point{X: b.X + b.Width/2, Y: b.Y + b.Height/2}).ScaleFactor
+}
+
+// TestContentWindowTextSelection drags across independently laid-out
+// paragraphs and copies their selection through the native Edit menu.
+func TestContentWindowTextSelection(t *testing.T) {
+	var frames atomic.Int32
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Column(c).Fill().Padding(20).Gap(20).Selectable().Children(func() {
+			ui.Text(c, "First paragraph.").Height(30)
+			ui.Text(c, "Second paragraph.").Height(30)
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Text selection", Width: 400, Height: 200, Content: ui.View(view)})
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Role: mygo.RoleEditMenu}}))
+	defer mygo.App.SetMenu(nil)
+	clipboard := mygo.Clipboard.ReadText()
+	defer mygo.Clipboard.WriteText(clipboard)
+	w.Focus()
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	var copied string
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("last copied text: %q", copied)
+		}
+	})
+	for _, reverse := range []bool{false, true} {
+		points := [][2]float64{{20, 28}, {380, 78}}
+		if reverse {
+			slices.Reverse(points)
+		}
+		before := frames.Load()
+		if !drag(w, points) {
+			t.Skip("drag automation not available on this platform")
+		}
+		eventually(t, "a frame after the drag", func() bool { return frames.Load() > before })
+		mygo.Clipboard.WriteText("before copy")
+		if err := activateMenu(w, "Edit", "Copy"); err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, "both paragraphs copied", func() bool {
+			copied = mygo.Clipboard.ReadText()
+			return copied == "First paragraph.\nSecond paragraph."
+		})
+	}
 }
 
 // TestContentWindowInputMethod checks that input methods see the text

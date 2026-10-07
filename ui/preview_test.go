@@ -441,3 +441,65 @@ func TestPreviewNativeFitInputAccessibilityAndCleanup(t *testing.T) {
 		t.Fatal("native detach did not dispose sample and subscription")
 	}
 }
+
+func TestPreviewResetReleasesNativeTextClient(t *testing.T) {
+	var clients []*primitiveClient
+	disposed := 0
+	p := NewPreview(PreviewOptions{Presets: []PreviewPreset{{Name: "Client", New: func() PreviewSample {
+		client := &primitiveClient{text: "sample"}
+		clients = append(clients, client)
+		return PreviewSample{View: func(c *Context) {
+			Box(c).Size(200, 60).HandleTextInput(client).AutoFocus()
+		}, Dispose: func() {
+			if client.mark != nil {
+				t.Error("sample disposed before native composition was released")
+			}
+			disposed++
+		}}
+	}}}})
+	tt := p.NewTester()
+	t.Cleanup(tt.Close)
+	tt.Compose("candidate", 2)
+	stale := tt.h.ime.Client
+	before := clients[0].changes
+	p.Reset()
+	tt.Frame()
+	stale.ReplaceText(nil, "stale")
+	if disposed != 1 || clients[0].unmarks != 1 || clients[0].changes != before || tt.h.ime.Client == stale {
+		t.Fatal("reset did not release and invalidate the previous native text client")
+	}
+	tt.Compose("new candidate", 2)
+	tt.Close()
+	if disposed != 2 || clients[1].mark != nil || clients[1].unmarks != 1 {
+		t.Fatal("close did not release the current sample's native composition")
+	}
+}
+
+func TestPreviewResetClearsSharedTextSelection(t *testing.T) {
+	p := NewPreview(PreviewOptions{Presets: []PreviewPreset{{Name: "Selection", New: func() PreviewSample {
+		return PreviewSample{View: func(c *Context) {
+			Column(c).Selectable().Padding(12).Gap(8).Children(func() {
+				Text(c, "Alpha beta")
+				Text(c, "Gamma delta")
+			})
+		}}
+	}}}})
+	tt := p.NewTester()
+	t.Cleanup(tt.Close)
+	selectBetween(t, tt, "Alpha beta", 0, "Gamma delta", 5)
+	tt.Key(Cmd, KeyC)
+	if tt.Clipboard() != "Alpha beta\nGamma" || tt.rt.selection.scope == 0 {
+		t.Fatal("preview did not preserve main's shared text selection")
+	}
+	oldScope := tt.rt.selection.scope
+	p.Reset()
+	tt.Frame()
+	if tt.rt.selection.scope != 0 || tt.rt.selection.dragging {
+		t.Fatal("reset retained shared selection from the previous sample")
+	}
+	for _, text := range tt.rt.texts {
+		if text.textScope == oldScope {
+			t.Fatal("old selectable paragraphs survived sample reset")
+		}
+	}
+}
