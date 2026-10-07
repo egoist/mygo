@@ -516,11 +516,15 @@ it at another build. In a checkout of this repository, where the platform
 packages hold no binary, it builds `cmd/mygo` from source instead: the
 workspace examples run it that way.
 
+<!-- repository-only:start -->
+
 `bun run --cwd packages/cli binaries [platform...]` cross-compiles the
 binaries (ignored by git) and writes the manifests with the version of
 `mygo.Version`; `bun scripts/publish.ts` publishes the packages (see
 [Releasing](#releasing)). The binary is named `mygo`, like an unrelated npm
 package: docs say `bunx mygo-cli`, never `bunx mygo`, outside a project.
+
+<!-- repository-only:end -->
 
 ### Wire protocol
 
@@ -2157,7 +2161,7 @@ renderer's (`gputest.Compare`).
   been down for hours at a time, and its mirrors then redirect to it, so
   it is not the only source; a host that sends no response headers within
   30 s gives way to the next. Updating NSIS means publishing the copy (see
-  [Releasing](#releasing)). Other systems skip the
+  [Releasing](https://github.com/egoist/mygo/blob/main/docs/architecture.md#releasing)). Other systems skip the
   installer without NSIS: its zip holds Windows programs only. A signed
   app gets a signed uninstaller too, as with Tauri: `!uninstfinalize`
   (NSIS 3.08 and later) makes makensis run `mygo sign-uninstaller` on the
@@ -2213,6 +2217,8 @@ the frontend (`devUrl`, `devCommand`, `buildCommand`, `frontendDist`,
 `bindings`) and the `macos` section (minimum system version, signing
 identity, entitlements of the app and of helpers, DMG title, notarization
 profile).
+
+<!-- repository-only:start -->
 
 ## Testing
 
@@ -2399,6 +2405,8 @@ which npm allows only for packages that exist: the first release uses an
    `internal/tsgen/generate.go` and its tests.
 7. **Document** the behavior in the Go doc comments and platform
    differences in the README.
+
+<!-- repository-only:end -->
 
 ## Platform differences
 

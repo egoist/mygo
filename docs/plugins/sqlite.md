@@ -135,6 +135,8 @@ caller, who must call `Close`. `sqlite.Error` exposes the primary and
 extended SQLite error codes; closed connections return `sqlite.ErrClosed`,
 and canceled operations return their context error.
 
+<!-- repository-only:start -->
+
 ## Building and shipping
 
 Prebuilt libraries are published in
@@ -157,3 +159,5 @@ downloads. `MYGO_SQLITE_LIBRARY` names a custom build for development.
 See [the plugin README](https://github.com/egoist/mygo/tree/main/plugins/sqlite)
 for release-asset publication and compile options. SQLite's upstream
 [C API](https://www.sqlite.org/c3ref/intro.html) describes its SQL behavior.
+
+<!-- repository-only:end -->
