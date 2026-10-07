@@ -171,7 +171,7 @@ func (e *Element) paintInput(p *Painter) {
 	if focused {
 		for _, selected := range ed.selectedRanges() {
 			for _, r := range l.SelectionVisual(ed.displayIndex(selected.Start), ed.displayIndex(selected.End), false) {
-				p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, t.Selection, 0)
+				p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, ts.selectionColor(t), 0)
 			}
 		}
 	}

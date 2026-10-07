@@ -408,7 +408,7 @@ func (a *area) paint(e *Element, p *Painter, ox, oy float32) {
 				}
 				from, to := a.local(ed, i, max(sa, start)), a.local(ed, i, min(sz, end))
 				for _, r := range l.SelectionVisual(from, to, sz > end && i < last) {
-					p.Fill(Rect{ox + r.X, y + r.Y, r.W, r.H}, t.Selection, 0)
+					p.Fill(Rect{ox + r.X, y + r.Y, r.W, r.H}, ts.selectionColor(t), 0)
 				}
 			}
 		}
