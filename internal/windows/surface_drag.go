@@ -129,6 +129,13 @@ func initDataSource() {
 				if stream == 0 {
 					return eFail
 				}
+				// IDataObject::GetData transfers bytes from zero through the
+				// stream's current position. OLE uses that position as the
+				// length when rendering a stream onto the Win32 clipboard.
+				if failed(comCall(stream, 5, 0, 2, 0)) { // IStream::Seek(0, STREAM_SEEK_END)
+					release(stream)
+					return eFail
+				}
 				*(*stgMedium)(native(medium)) = stgMedium{Tymed: tymedStream, Handle: stream}
 				return sOK
 			}
@@ -478,6 +485,10 @@ func oleDataBytes(data uintptr, f uint16) ([]byte, error) {
 }
 
 func readDragStream(stream uintptr) ([]byte, error) {
+	// GetData leaves the cursor at the end of the transferred bytes.
+	if failed(comCall(stream, 5, 0, 0, 0)) { // IStream::Seek(0, STREAM_SEEK_SET)
+		return nil, errors.New("mygo: cannot seek drag stream")
+	}
 	var out []byte
 	buf := make([]byte, 64<<10)
 	for {
