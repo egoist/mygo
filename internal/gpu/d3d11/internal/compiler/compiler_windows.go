@@ -17,6 +17,7 @@ import (
 var (
 	procCompile      = syscall.NewLazyDLL(device.SystemDir() + `\d3dcompiler_47.dll`).NewProc("D3DCompile")
 	procCreateThread = syscall.NewLazyDLL("kernel32.dll").NewProc("CreateThread")
+	procWaitThread   = syscall.NewLazyDLL("kernel32.dll").NewProc("WaitForSingleObject")
 	requests         sync.Map
 	nextRequest      atomic.Uintptr
 	threadCallback   = syscall.NewCallback(func(id uintptr) uintptr {
@@ -58,6 +59,10 @@ func Compile(source, entry, target string) ([]byte, error) {
 		return nil, fmt.Errorf("d3d11: cannot start shader compiler: %w", err)
 	}
 	defer syscall.CloseHandle(syscall.Handle(thread))
+	// Keep this wait visible to Go as an external syscall until the new
+	// native thread enters its Go callback, and wait for its stack to leave
+	// the compiler before returning the result.
+	procWaitThread.Call(thread, 0xffffffff)
 	<-r.done
 	return r.code, r.err
 }
