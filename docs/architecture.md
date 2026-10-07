@@ -89,7 +89,7 @@ framework safely. Read it before changing anything under `internal/`.
 │                       per-platform binary packages
 ├── plugins/            official plugins, each a Go package and its npm
 │                       package (@mygo-plugins/<name>) side by side: fetch,
-│                       websocket; and Go only: updater, the update window,
+│                       websocket, sqlite; and Go only: updater, the update window,
 │                       a web page or native UI (updater/native), and
 │                       terminal, a view of native UI running programs with
 │                       libghostty-vt
@@ -516,11 +516,15 @@ it at another build. In a checkout of this repository, where the platform
 packages hold no binary, it builds `cmd/mygo` from source instead: the
 workspace examples run it that way.
 
+<!-- repository-only:start -->
+
 `bun run --cwd packages/cli binaries [platform...]` cross-compiles the
 binaries (ignored by git) and writes the manifests with the version of
 `mygo.Version`; `bun scripts/publish.ts` publishes the packages (see
 [Releasing](#releasing)). The binary is named `mygo`, like an unrelated npm
 package: docs say `bunx mygo-cli`, never `bunx mygo`, outside a project.
+
+<!-- repository-only:end -->
 
 ### Wire protocol
 
@@ -709,6 +713,18 @@ build` like mygo-runtime and released with the same version.
   `unicode-bidi: plaintext` and the notes `dir="auto"`, as either may be
   in another language than the window. The page reports the width its
   buttons need too, as translations can be long.
+
+- **sqlite** compiles SQLite's pinned C amalgamation with Zig 0.16 and
+  loads it through purego. A C shim passes doubles as bits on every ABI,
+  binds a per-operation atomic cancellation token to progress and busy
+  handlers, and authorizes SQL without Go callbacks. Connections serialize
+  operations; transactions hold one connection through BEGIN IMMEDIATE,
+  COMMIT or rollback. The page client preserves int64 and BLOB values with
+  tagged cells and confines database files to the Go-configured directory.
+  Connections belong to their page and close on navigation or app quit.
+  `mygo-plugin.json` names the six native-library assets, which the CLI
+  bundles like libghostty-vt; `go generate ./plugins/sqlite` writes them and
+  their checksums. Go and native UI apps can also open connections directly.
 
 - **terminal** is a terminal for native UI: a `Terminal` runs a program in
   a pseudo-terminal and emulates it with libghostty-vt, Ghostty's terminal
@@ -1039,8 +1055,10 @@ backend, which:
 - performs edit roles natively (first responder on macOS,
   `webkit_web_view_execute_editing_command` on Linux), or sends them to a
   window showing native UI as a `SurfaceCommand`, and reports everything
-  else through `AppHandler.MenuItemClicked`; the core toggles checkbox/radio
-  state, performs window and view roles and calls `Click`.
+  else through `WindowHandler.MenuItemClicked` for a window's menu, or
+  `AppHandler.MenuItemClicked` for menus without one; the core toggles
+  checkbox/radio state, performs window and view roles and calls `Click`
+  with the menu's window, even while a submenu has focus instead.
 
 macOS gets a default menu bar (App, File, Edit, View, Window), which is what
 makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
@@ -1432,6 +1450,18 @@ either.
   its offset the state's (`flagScrollY`, the content as high as its
   paragraphs), kept by the anchor as heights above the view are measured;
   an edit, a move of the caret or a press reveals the caret once.
+- **Text selection** (`ui/textselection.go`). `Selectable` on a text
+  selects that paragraph; on a container it gives its text descendants
+  one selection. The window keeps endpoints as stable element IDs and
+  rune offsets, and each frame collects participating paragraphs in
+  build order. After layout the shared range is projected onto their
+  editors, whose layouts paint the highlights. Pointer gestures,
+  keyboard extension, native editing commands and context menus use
+  the same endpoints. Nested containers have independent scopes;
+  controls and `Unselectable` subtrees do not participate. A drag near
+  a scroll edge asks for frames until scrolling stops. Inline children
+  contribute to their paragraph once, and preparation waits for their
+  final text so a rebuild preserves the selection.
 - **Tables** (`ui/table.go`, `ui/editable.go`). A table's rows are a
   `List`'s that scrolls both ways: the list lays its rows out at least as
   wide as the columns ask (`rowMinW`), and the header, outside the list,
@@ -2154,7 +2184,7 @@ renderer's (`gputest.Compare`).
   been down for hours at a time, and its mirrors then redirect to it, so
   it is not the only source; a host that sends no response headers within
   30 s gives way to the next. Updating NSIS means publishing the copy (see
-  [Releasing](#releasing)). Other systems skip the
+  [Releasing](https://github.com/egoist/mygo/blob/main/docs/architecture.md#releasing)). Other systems skip the
   installer without NSIS: its zip holds Windows programs only. A signed
   app gets a signed uninstaller too, as with Tauri: `!uninstfinalize`
   (NSIS 3.08 and later) makes makensis run `mygo sign-uninstaller` on the
@@ -2210,6 +2240,8 @@ the frontend (`devUrl`, `devCommand`, `buildCommand`, `frontendDist`,
 `bindings`) and the `macos` section (minimum system version, signing
 identity, entitlements of the app and of helpers, DMG title, notarization
 profile).
+
+<!-- repository-only:start -->
 
 ## Testing
 
@@ -2396,6 +2428,8 @@ which npm allows only for packages that exist: the first release uses an
    `internal/tsgen/generate.go` and its tests.
 7. **Document** the behavior in the Go doc comments and platform
    differences in the README.
+
+<!-- repository-only:end -->
 
 ## Platform differences
 
