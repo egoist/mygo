@@ -38,12 +38,33 @@ func probeSource(variant string) string {
 		return strings.ReplaceAll(s, "[loop] for (int y = 0; y < 4; y++)[loop] for (int x = 0; x < 4; x++) {", "[loop] for (int tap = 0; tap < 16; tap++) { int x = tap & 3; int y = tap >> 2;")
 	case "unrolled-loop":
 		return strings.ReplaceAll(s, "[loop] for (int y = 0; y < 4; y++)[loop] for (int x = 0; x < 4; x++) {", "[unroll] for (int y = 0; y < 4; y++)[unroll] for (int x = 0; x < 4; x++) {")
+	case "explicit-samples":
+		start := strings.Index(s, "[loop] for (int y = 0; y < 4; y++)")
+		end := strings.Index(s[start:], "return n / 16;") + start
+		var body strings.Builder
+		for y := range 4 {
+			for x := range 4 {
+				fmt.Fprintf(&body, "n += sdRoundRect(p + dx * ((%d.5) / 4 - 0.5) + dy * ((%d.5) / 4 - 0.5), rect, radii) <= 0 ? 1 : 0;\n", x, y)
+			}
+		}
+		return s[:start] + body.String() + s[end:]
 	}
 	return s
 }
 
 func TestMain(m *testing.M) {
 	if variant := os.Getenv("MYGO_COMPILER_PROBE"); variant != "" {
+		compiler.StackReserve = 2 << 20
+		switch variant {
+		case "optimization-1":
+			compiler.Optimization = 0
+		case "optimization-2":
+			compiler.Optimization = 3 << 14
+		case "optimization-0":
+			compiler.Optimization = 1 << 14
+		case "skip-optimization":
+			compiler.Optimization = 1 << 2
+		}
 		_, err := compiler.Compile(probeSource(variant), "ps", "ps_4_0")
 		if err != nil {
 			fmt.Println(err)
@@ -52,12 +73,14 @@ func TestMain(m *testing.M) {
 		fmt.Println("compiled")
 		os.Exit(0)
 	}
-	for _, variant := range []string{"original", "typed-texture", "no-texture-parameter", "no-coverage-loop", "loop-braces", "flat-loop", "unrolled-loop"} {
+	for _, variant := range []string{"optimization-1", "optimization-2", "optimization-0", "skip-optimization", "explicit-samples"} {
 		cmd := exec.Command(os.Args[0])
 		cmd.Env = append(os.Environ(), "MYGO_COMPILER_PROBE="+variant)
 		out, err := cmd.CombinedOutput()
 		first, _, _ := strings.Cut(string(out), "\n")
 		fmt.Printf("HLSL probe %s: %v %s\n", variant, err, first)
 	}
+	compiler.Optimization = 0
+	compiler.StackReserve = 2 << 20
 	os.Exit(m.Run())
 }

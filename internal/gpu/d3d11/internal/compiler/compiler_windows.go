@@ -39,6 +39,9 @@ type request struct {
 	done                  chan struct{}
 }
 
+var Optimization uintptr = 1 << 15
+var StackReserve uintptr = 16 << 20
+
 // Compile compiles entry in source for target. D3DCompile can exhaust the
 // 2 MiB native stacks of Go's Windows threads while optimizing transformed
 // shaders. Reserve a larger stack for compilation alone; Windows commits
@@ -52,9 +55,8 @@ func Compile(source, entry, target string) ([]byte, error) {
 	id := nextRequest.Add(1)
 	requests.Store(id, r)
 	defer requests.Delete(id)
-	const stackReserve = 16 << 20
 	const stackSizeIsReservation = 0x10000
-	thread, _, err := procCreateThread.Call(0, stackReserve, threadCallback, id, stackSizeIsReservation, 0)
+	thread, _, err := procCreateThread.Call(0, StackReserve, threadCallback, id, stackSizeIsReservation, 0)
 	if thread == 0 {
 		return nil, fmt.Errorf("d3d11: cannot start shader compiler: %w", err)
 	}
@@ -75,10 +77,9 @@ func compile(source, entry, target string) ([]byte, error) {
 	name, _ := syscall.BytePtrFromString("shader.hlsl")
 	e, _ := syscall.BytePtrFromString(entry)
 	t, _ := syscall.BytePtrFromString(target)
-	const optimize3 = 1 << 15
 	var blob, errs uintptr
 	hr, _, _ := procCompile.Call(uintptr(unsafe.Pointer(&src[0])), uintptr(len(src)), uintptr(unsafe.Pointer(name)),
-		0, 0, uintptr(unsafe.Pointer(e)), uintptr(unsafe.Pointer(t)), optimize3, 0,
+		0, 0, uintptr(unsafe.Pointer(e)), uintptr(unsafe.Pointer(t)), Optimization, 0,
 		uintptr(unsafe.Pointer(&blob)), uintptr(unsafe.Pointer(&errs)))
 	if errs != 0 {
 		defer call(errs, 2) // IUnknown.Release
