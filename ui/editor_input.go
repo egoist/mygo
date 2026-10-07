@@ -32,6 +32,19 @@ func (w *widgetTextInput) state() *state {
 
 func (w *widgetTextInput) publish() {
 	ed := w.ed
+	if ed.document != nil {
+		if ed.buf.root != ed.published.root {
+			snapshot, ok := ed.document.compareRestore(ed.published, ed.buf.root)
+			if !ok {
+				ed.loadBuffer(snapshot)
+			} else {
+				ed.published = snapshot
+				ed.bufferDirty = true
+			}
+		}
+		w.rt.blinkStart = time.Now()
+		return
+	}
 	if ed.value != nil && *ed.value != ed.buf.s {
 		if !ed.nativeDirty {
 			ed.nativeValue = *ed.value
@@ -45,6 +58,9 @@ func (w *widgetTextInput) publish() {
 // Drain the widget's queue before queries too, so every callback sees the
 // latest selection. Reentrant native queries must not process it twice.
 func (w *widgetTextInput) prepare() {
+	if w.ed.document != nil {
+		w.ed.syncBuffer()
+	}
 	if w.processing || len(w.ed.queue) == 0 {
 		return
 	}
@@ -93,7 +109,7 @@ func (w *widgetTextInput) TextForRange(r TextInputRange) (string, TextInputRange
 	n := utf8.RuneCountInString(ed.compose)
 	if n == 0 {
 		if a == 0 && z == ed.buf.n {
-			return nativeText(ed.buf.s), actual
+			return nativeText(ed.buf.string()), actual
 		}
 		return nativeText(strings.Clone(ed.buf.slice(a, z))), actual
 	}
@@ -274,7 +290,7 @@ func (w *widgetTextInput) BoundsForRange(r TextInputRange) (Rect, TextInputRange
 		}
 		p := ed.buf.para(base)
 		l = a.paraLayout(ed, p)
-		local = i - ed.buf.paras[p].rune
+		local = i - ed.buf.start(p)
 		if ed.compose != "" && p > ed.buf.para(ed.caret) {
 			local -= n
 		}

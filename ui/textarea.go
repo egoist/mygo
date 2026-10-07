@@ -41,14 +41,39 @@ type area struct {
 	laid        int
 	// wrapped is the height of the whole text wrapped at a width, for a text
 	// area that grows with it (Lines), and the params it is of.
-	wrapped       float32
-	wrappedParams text.Params
+	wrapped        float32
+	wrappedParams  text.Params
+	wrappedVersion uint64
+	wrappedCompose string
 }
 
 // wrappedHeight returns the height of the text, with an input method's
 // composition, wrapped at the content width cw.
 func (a *area) wrappedHeight(e *Element, ed *editor, cw float32) float32 {
 	params := e.textParams(max(cw, 1))
+	if ed.buf.indexed {
+		params.KeepSpaces, params.MaxLines = true, 0
+		if params != a.wrappedParams || a.wrappedVersion != ed.buf.version || a.wrappedCompose != ed.compose {
+			empty := params
+			empty.Text = ""
+			limit := float32(ed.lines[1]) * textSystem().Layout(empty).Lines[0].Height
+			var height float32
+			for p := 0; p < len(ed.buf.paras) && height < limit; p++ {
+				part := params
+				part.Text = ed.buf.text(p)
+				if ed.compose != "" && p == ed.buf.para(ed.caret) {
+					at := runeOffset(part.Text, ed.caret-ed.buf.start(p))
+					part.Text = part.Text[:at] + ed.compose + part.Text[at:]
+				} else {
+					part.Spans, _ = ed.rangeSpans(ed.buf.start(p), ed.buf.end(p))
+				}
+				height += textSystem().Shape(part).Height
+			}
+			a.wrapped, a.wrappedParams, a.wrappedVersion = height, params, ed.buf.version
+			a.wrappedCompose = ed.compose
+		}
+		return a.wrapped
+	}
 	params.Text = ed.displayText()
 	params.KeepSpaces, params.MaxLines = true, 0
 	if ed.compose == "" {
@@ -137,20 +162,20 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 	}
 	spans := ""
 	if compose == "" {
-		spans, _ = ed.rangeSpans(pr.rune, b.end(p))
+		spans, _ = ed.rangeSpans(b.start(p), b.end(p))
 	}
 	if pr.layout != nil && pr.compose == compose && pr.spans == spans {
 		return pr.layout
 	}
 	t := b.text(p)
 	if compose != "" {
-		at := b.byteOf(ed.caret) - pr.byte
+		at := runeOffset(t, ed.caret-b.start(p))
 		t = t[:at] + compose + t[at:]
 	}
 	params := a.params
 	// A paragraph's layout outlives edits elsewhere. Its text must not
 	// pin the old document when the buffer replaces it with a new string.
-	if len(t) < len(b.s) {
+	if !b.indexed && len(t) < b.byteLen() {
 		t = strings.Clone(t)
 	}
 	params.Text, params.Spans = t, spans
@@ -170,7 +195,7 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 // local returns where rune i of paragraph p is in its layout, which holds
 // the composition after the caret.
 func (a *area) local(ed *editor, p, i int) int {
-	l := i - ed.buf.paras[p].rune
+	l := i - ed.buf.start(p)
 	if ed.compose != "" && i > ed.caret && p == ed.buf.para(ed.caret) {
 		l += utf8.RuneCountInString(ed.compose)
 	}
@@ -180,7 +205,7 @@ func (a *area) local(ed *editor, p, i int) int {
 // global returns the rune of the text at index l of the layout of
 // paragraph p.
 func (a *area) global(ed *editor, p, l int) int {
-	start := ed.buf.paras[p].rune
+	start := ed.buf.start(p)
 	if ed.compose != "" && p == ed.buf.para(ed.caret) {
 		n, c := utf8.RuneCountInString(ed.compose), ed.caret-start
 		switch {
@@ -253,7 +278,7 @@ func (a *area) hitPosition(ed *editor, x float32, y float64, virtual bool) text.
 		default:
 			position := l.PositionAt(x, float32(y-top))
 			if virtual {
-				position.Index += ed.buf.paras[p].rune
+				position.Index += ed.buf.start(p)
 				if ed.compose != "" && p > ed.buf.para(ed.caret) {
 					position.Index += utf8.RuneCountInString(ed.compose)
 				}
@@ -374,7 +399,7 @@ func (a *area) paint(e *Element, p *Painter, ox, oy float32) {
 	for i := a.first; i <= a.last; i++ {
 		l := a.paraLayout(ed, i)
 		y := oy + float32(a.hs.top(i)-a.scroll)
-		start, end := b.paras[i].rune, b.end(i)
+		start, end := b.start(i), b.end(i)
 		if focused {
 			for _, selected := range ed.selectedRanges() {
 				sa, sz := selected.Start, selected.End

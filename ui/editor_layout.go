@@ -36,9 +36,9 @@ func (ed *editor) caretRect(st *state) Rect {
 // displayText returns what the input shows: the text with the
 // composition at the caret, bullets for a password.
 func (ed *editor) displayText() string {
-	t := ed.buf.s
+	t := ed.buf.string()
 	if ed.compose != "" {
-		at := ed.buf.byteOf(ed.caret)
+		at := runeOffset(t, ed.caret)
 		t = t[:at] + ed.compose + t[at:]
 	}
 	if ed.password {

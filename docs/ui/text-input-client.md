@@ -30,9 +30,50 @@ provide no committed text to native queries; read-only fields disable input.
 Paragraph indexes include UTF-16 offsets so native queries near the end of
 a large document do not scan its prefix.
 
-String bindings still produce a whole string on each committed edit. They
-are convenient for ordinary fields; large-document editors can supply their
-own indexed storage through `TextInputClient`.
+String bindings still produce a whole string on each committed edit. For
+indexed storage, use `TextBuffer` with `TextInputBuffer` or `TextAreaBuffer`:
+
+```go
+// Keep the buffer across frames; its zero value is also usable.
+document := ui.NewTextBuffer(initialText)
+// In the view:
+input := ui.TextAreaBuffer(c, document).Fill().Font("monospace")
+if input.Changed() {
+    // Length/version queries read tree summaries without flattening text.
+    version := document.Version()
+    _ = version
+}
+```
+
+`TextInputBufferBase` and `TextAreaBufferBase` provide the unstyled variants.
+They share the string controls' selection, styling, clipboard, IME and undo
+behavior. Native mutations update the buffer immediately, and `Changed`
+reports them when the widget builds. A programmatic buffer edit refreshes the
+control and clears its stale selection/undo state; use `Window.Update` to
+schedule such changes and invalidate the view.
+
+`TextBuffer` is a balanced tree of bounded, owned UTF-8 chunks. It indexes
+bytes, runes, UTF-16 units and newline counts. Small edits copy affected chunks
+and tree paths; they do not copy the whole document or shift every following
+paragraph's absolute offsets. `Snapshot` shares unchanged chunks and remains
+valid after edits; `Restore` adopts one in constant time. Buffer methods are
+safe from any goroutine, and snapshots can be read concurrently with edits.
+
+`Replace(start, end, text)` and `Slice(start, end)` count runes, matching
+`Element.TextSelection`. `ReplaceUTF16`, `TextForRange`, `UTF16Offset` and
+`RuneOffset` bridge native ranges and keep surrogate pairs whole. Snapshots
+also supply `Line`, `LineRange` and `LineAt` for custom editor layout.
+
+`String` explicitly materializes the document. For file export, `WriteTo`
+streams chunks to an `io.Writer`. Ordinary multiline editing and bounded IME
+queries do not flatten the document; an explicit full-document query or the
+current accessibility Value protocol can request its complete text. Layout
+continues to shape one logical paragraph at a time. Changes to the number of
+lines update the control's paragraph/height metadata.
+
+Run `go run ./examples/text-buffer` for a 100,000-line editable document.
+Custom editors can use the same buffer through their `TextInputClient` and
+choose their own selection, history and rendering policy.
 
 Run `go run ./examples/text-input` for a small application-owned text field.
 It demonstrates composition, pointer selection, Edit-menu commands and custom

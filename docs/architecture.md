@@ -1475,6 +1475,18 @@ either.
   wrapped lines, and moves between whole graphemes in visual order.
   Selection gestures produce logical range sets: highlight, copy,
   replacement and undo use the same ranges, preserving unselected gaps.
+- **Indexed text storage.** `ui/text_buffer.go` is a persistent AVL tree of
+  bounded, owned UTF-8 chunks, summarized by byte, rune, UTF-16 and newline
+  counts. Edits copy affected chunks and tree paths; snapshots share other
+  chunks, and export can stream them. `TextInputBuffer`/`TextAreaBuffer` in
+  `textbuffer_input.go` bind those roots to the existing editing client.
+  Native mutations publish a new root immediately, using a version check
+  to preserve concurrent program edits. External root changes refresh the
+  widget and clear stale history. The indexed buffer adapter derives line
+  starts from the text tree rather than moving every later paragraph's
+  absolute offsets. Paragraph layout and height caches remain with the
+  widget; newline-count changes update those indexes. Full text is produced
+  for explicit export/value queries, never as a binding update per edit.
 - **Text selection** (`ui/textselection.go`). `Selectable` on a text
   selects that paragraph; on a container it gives its text descendants
   one selection. The window keeps endpoints as stable element IDs and

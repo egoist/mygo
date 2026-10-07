@@ -25,6 +25,40 @@ type buffer struct {
 	paras []paragraph
 	// version counts the edits.
 	version uint64
+	indexed bool
+	root    *textNode
+}
+
+func (b *buffer) string() string {
+	if b.indexed {
+		return (TextSnapshot{root: b.root}).String()
+	}
+	return b.s
+}
+func (b *buffer) byteLen() int {
+	if b.indexed {
+		return textSum(b.root).bytes
+	}
+	return len(b.s)
+}
+func (b *buffer) start(p int) int {
+	if b.indexed {
+		return textPrefix(b.root, textLineStart(b.root, p)).runes
+	}
+	return b.paras[p].rune
+}
+func (b *buffer) setSnapshot(s TextSnapshot) {
+	b.s = ""
+	b.indexed, b.root = true, s.root
+	b.n, b.units = s.Len(), s.UTF16Len()
+	clear(b.paras)
+	n := s.LineCount()
+	if cap(b.paras) < n || cap(b.paras) > 4*n {
+		b.paras = make([]paragraph, n)
+	} else {
+		b.paras = b.paras[:n]
+	}
+	b.version++
 }
 
 // paragraph is a paragraph of a buffer: where it starts, in runes and in
@@ -43,6 +77,7 @@ type paragraph struct {
 }
 
 func (b *buffer) set(s string) {
+	b.indexed, b.root = false, nil
 	b.s = s
 	clear(b.paras) // the layouts of the old text
 	n := strings.Count(s, "\n") + 1
@@ -105,6 +140,9 @@ func unitsForRunes(s string, n int) int {
 // Native offsets are indexed by paragraph, so queries near a large file's
 // end do not scan the whole document. Surrogate interiors round down.
 func (b *buffer) utf16At(index int) int {
+	if b.indexed {
+		return (TextSnapshot{root: b.root}).UTF16Offset(index)
+	}
 	index = max(0, min(index, b.n))
 	p := b.para(index)
 	pr := b.paras[p]
@@ -112,6 +150,9 @@ func (b *buffer) utf16At(index int) int {
 }
 
 func (b *buffer) runeAtUTF16(index int) int {
+	if b.indexed {
+		return (TextSnapshot{root: b.root}).RuneOffset(index)
+	}
 	index = max(0, min(index, b.units))
 	p := sort.Search(len(b.paras), func(p int) bool { return b.paras[p].units > index }) - 1
 	pr := b.paras[p]
@@ -133,12 +174,19 @@ func (b *buffer) runeAtUTF16(index int) int {
 // para returns the paragraph holding rune i; the newline ending a
 // paragraph is its.
 func (b *buffer) para(i int) int {
+	if b.indexed {
+		return (TextSnapshot{root: b.root}).LineAt(i)
+	}
 	return sort.Search(len(b.paras), func(k int) bool { return b.paras[k].rune > i }) - 1
 }
 
 // next returns where the paragraph after p starts, after its newline, or
 // the end of the text.
 func (b *buffer) next(p int) (rune, byte int) {
+	if b.indexed {
+		off := textLineStart(b.root, p+1)
+		return textPrefix(b.root, off).runes, off
+	}
 	if p+1 < len(b.paras) {
 		return b.paras[p+1].rune, b.paras[p+1].byte
 	}
@@ -149,13 +197,16 @@ func (b *buffer) next(p int) (rune, byte int) {
 // text.
 func (b *buffer) end(p int) int {
 	if p+1 < len(b.paras) {
-		return b.paras[p+1].rune - 1
+		return b.start(p+1) - 1
 	}
 	return b.n
 }
 
 // byteOf returns the byte of the text rune i starts at.
 func (b *buffer) byteOf(i int) int {
+	if b.indexed {
+		return textByteAt(b.root, i)
+	}
 	i = max(0, min(i, b.n))
 	p := b.para(i)
 	pr := &b.paras[p]
@@ -172,7 +223,12 @@ func (b *buffer) byteOf(i int) int {
 }
 
 // slice returns the runes from a to z.
-func (b *buffer) slice(a, z int) string { return b.s[b.byteOf(a):b.byteOf(z)] }
+func (b *buffer) slice(a, z int) string {
+	if b.indexed {
+		return (TextSnapshot{root: b.root}).Slice(a, z)
+	}
+	return b.s[b.byteOf(a):b.byteOf(z)]
+}
 
 // runeOffset returns the byte of s rune i starts at.
 func runeOffset(s string, i int) int {
@@ -187,6 +243,9 @@ func runeOffset(s string, i int) int {
 
 // text returns paragraph p, without its newline.
 func (b *buffer) text(p int) string {
+	if b.indexed {
+		return (TextSnapshot{root: b.root}).Line(p)
+	}
 	_, nb := b.next(p)
 	if p+1 < len(b.paras) {
 		nb-- // the newline
@@ -199,6 +258,17 @@ func (b *buffer) text(p int) string {
 // which have no layout yet: it returns the first, those there were, and
 // how many there are.
 func (b *buffer) replace(a, z int, s string) (first int, old []paragraph, after int) {
+	if b.indexed {
+		pa, pz := b.para(a), b.para(z)
+		old = slices.Clone(b.paras[pa : pz+1])
+		b.root = textReplace(b.root, a, z, s)
+		b.n, b.units = textSum(b.root).runes, textSum(b.root).units
+		added := make([]paragraph, strings.Count(s, "\n"))
+		b.paras = slices.Replace(b.paras, pa+1, pz+1, added...)
+		b.paras[pa] = paragraph{}
+		b.version++
+		return pa, old, len(added) + 1
+	}
 	ba, bz := b.byteOf(a), b.byteOf(z)
 	pa, pz := b.para(a), b.para(z)
 	old = slices.Clone(b.paras[pa : pz+1])
@@ -233,6 +303,19 @@ func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) 
 // nextWord returns the end of the word after i, skipping what is between,
 // as text.Boundaries does.
 func (b *buffer) nextWord(i int) int {
+	if b.indexed {
+		word := false
+		for i < b.n {
+			r := b.runeAt(i)
+			if isWordRune(r) {
+				word = true
+			} else if word {
+				break
+			}
+			i++
+		}
+		return i
+	}
 	off := b.byteOf(i)
 	word := false
 	for i < b.n {
@@ -249,6 +332,19 @@ func (b *buffer) nextWord(i int) int {
 
 // prevWord returns the start of the word before i.
 func (b *buffer) prevWord(i int) int {
+	if b.indexed {
+		word := false
+		for i > 0 {
+			r := b.runeAt(i - 1)
+			if isWordRune(r) {
+				word = true
+			} else if word {
+				break
+			}
+			i--
+		}
+		return i
+	}
 	off := b.byteOf(i)
 	word := false
 	for i > 0 {
@@ -266,6 +362,29 @@ func (b *buffer) prevWord(i int) int {
 // wordAt returns the word, or the run of other runes, around i, within
 // its line.
 func (b *buffer) wordAt(i int) (start, end int) {
+	if b.indexed {
+		if b.n == 0 {
+			return 0, 0
+		}
+		i = max(0, min(i, b.n-1))
+		word := isWordRune(b.runeAt(i))
+		start, end = i, i
+		for start > 0 {
+			r := b.runeAt(start - 1)
+			if r == '\n' || isWordRune(r) != word {
+				break
+			}
+			start--
+		}
+		for end < b.n {
+			r := b.runeAt(end)
+			if r == '\n' || isWordRune(r) != word {
+				break
+			}
+			end++
+		}
+		return start, end
+	}
 	if b.n == 0 {
 		return 0, 0
 	}
@@ -291,6 +410,24 @@ func (b *buffer) wordAt(i int) (start, end int) {
 	return start, end
 }
 
+func (b *buffer) runeAt(i int) rune {
+	n := b.root
+	off := textByteAt(n, i)
+	for n != nil && n.left != nil {
+		if off < n.left.sum.bytes {
+			n = n.left
+		} else {
+			off -= n.left.sum.bytes
+			n = n.right
+		}
+	}
+	if n == nil || off >= len(n.text) {
+		return 0
+	}
+	r, _ := utf8.DecodeRuneInString(n.text[off:])
+	return r
+}
+
 // graphemes finds the grapheme boundaries of a buffer a paragraph at a
 // time: they never cross a newline, but for the carriage return before
 // one, which the paragraph holds with its newline.
@@ -305,11 +442,11 @@ type graphemes struct {
 // the paragraph starts.
 func (g *graphemes) of(b *buffer, p int) int {
 	if !g.valid || g.para != p || g.version != b.version {
-		_, nb := b.next(p)
-		g.b.Reset([]rune(b.s[b.paras[p].byte:nb]))
+		nr, _ := b.next(p)
+		g.b.Reset([]rune(b.slice(b.start(p), nr)))
 		g.para, g.version, g.valid = p, b.version, true
 	}
-	return b.paras[p].rune
+	return b.start(p)
 }
 
 // next returns the end of the grapheme starting at or containing i.
@@ -327,7 +464,7 @@ func (g *graphemes) prev(b *buffer, i int) int {
 		return 0
 	}
 	p := b.para(i)
-	if b.paras[p].rune == i {
+	if b.start(p) == i {
 		p-- // the newline ending the paragraph before
 	}
 	start := g.of(b, p)

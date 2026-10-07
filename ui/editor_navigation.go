@@ -303,7 +303,7 @@ func (ed *editor) key(c *Context, st *state, k editEvent) {
 // whether key was one of them.
 func (ed *editor) emacsKey(key Key, shift bool) bool {
 	p := ed.buf.para(ed.caret)
-	start, end := ed.buf.paras[p].rune, ed.buf.end(p)
+	start, end := ed.buf.start(p), ed.buf.end(p)
 	switch key {
 	case KeyA:
 		ed.move(start, shift)

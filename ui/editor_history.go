@@ -100,7 +100,7 @@ func (ed *editor) replace(start, end int, s string) {
 		removed := ed.buf.slice(start, end)
 		// A short deletion must not keep the entire old document alive.
 		// Deleting it whole already needs all of its bytes for undo.
-		if len(removed) < len(ed.buf.s) {
+		if !ed.buf.indexed && len(removed) < ed.buf.byteLen() {
 			removed = strings.Clone(removed)
 		}
 		c := change{at: start, removed: removed, inserted: s}

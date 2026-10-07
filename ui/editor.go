@@ -44,6 +44,9 @@ type editor struct {
 	value             *string
 	nativeDirty       bool
 	nativeValue       string // bound value before the next widget build publishes input
+	document          *TextBuffer
+	published         TextSnapshot
+	bufferDirty       bool
 	queue             []editEvent
 	multiline         bool
 	readOnly          bool   // selectable text: selected and copied, not edited
@@ -84,7 +87,7 @@ type editor struct {
 
 func newEditor() *editor { return &editor{} }
 
-func (ed *editor) String() string { return ed.buf.s }
+func (ed *editor) String() string { return ed.buf.string() }
 
 // edit replaces the runes from a to z with s, and tells the area.
 func (ed *editor) edit(a, z int, s string) {

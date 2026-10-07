@@ -69,7 +69,7 @@ func (ed *editor) visualRanges() []text.Range {
 	var out []text.Range
 	for p := pa; p <= pz; p++ {
 		l := ed.area.paraLayout(ed, p)
-		start := ed.buf.paras[p].rune
+		start := ed.buf.start(p)
 		from, to := text.CaretPosition{}, text.CaretPosition{Index: len(l.Runes), Affinity: text.Upstream}
 		if p == pa {
 			from = text.CaretPosition{Index: a.Index - start, Affinity: a.Affinity}
@@ -102,10 +102,10 @@ func (ed *editor) visualNext(direction int) text.CaretPosition {
 	if a := ed.area; a != nil {
 		para := ed.buf.para(ed.caret)
 		l := a.paraLayout(ed, para)
-		local := text.CaretPosition{Index: ed.caret - ed.buf.paras[para].rune, Affinity: p.Affinity}
+		local := text.CaretPosition{Index: ed.caret - ed.buf.start(para), Affinity: p.Affinity}
 		next := l.MoveCaret(local, direction)
 		if next != local {
-			next.Index += ed.buf.paras[para].rune
+			next.Index += ed.buf.start(para)
 			return next
 		}
 		step := direction
@@ -117,7 +117,7 @@ func (ed *editor) visualNext(direction int) text.CaretPosition {
 			return p
 		}
 		if step > 0 {
-			return text.CaretPosition{Index: ed.buf.paras[para].rune}
+			return text.CaretPosition{Index: ed.buf.start(para)}
 		}
 		return text.CaretPosition{Index: ed.buf.end(para), Affinity: text.Upstream}
 	}
@@ -161,7 +161,7 @@ func (ed *editor) collapseVisual(direction int) text.CaretPosition {
 	}
 	start := 0
 	if ed.area != nil {
-		start = ed.buf.paras[ed.buf.para(ed.caret)].rune
+		start = ed.buf.start(ed.buf.para(ed.caret))
 	}
 	ax, _, _ := l.CaretAt(text.CaretPosition{Index: a.Index - start, Affinity: a.Affinity})
 	zx, _, _ := l.CaretAt(text.CaretPosition{Index: z.Index - start, Affinity: z.Affinity})
