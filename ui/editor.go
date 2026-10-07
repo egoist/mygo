@@ -989,7 +989,10 @@ func (e *Element) paintInput(p *Painter) {
 	focused := e.Focused()
 	ts := e.resolvedText()
 	if ed.buf.n == 0 && ed.compose == "" && ed.placeholder != "" {
-		pl := textSystem().Layout(text.Params{Text: ed.placeholder, Style: text.Style{Family: ts.family, Size: ts.size, Weight: ts.weight, LineHeight: ts.lineHeight}, Width: box.W})
+		// The placeholder takes the input's style, its line height too, fixed or not.
+		params := e.textParams(box.W)
+		params.Text, params.Spans, params.MaxLines, params.NoWrap, params.Ellipsis = ed.placeholder, "", 0, false, ""
+		pl := textSystem().Layout(params)
 		p.textLayout(pl, ox, oy, t.TextMuted, ts, nil)
 	}
 	if ed.area != nil {

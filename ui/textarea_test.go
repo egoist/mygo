@@ -556,3 +556,34 @@ func TestTextSelection(t *testing.T) {
 		t.Errorf("selection %d–%d, want the whole text", start, end)
 	}
 }
+
+// A placeholder shows in the lines of its input, whose line height is
+// fixed or not.
+func TestPlaceholderWithFixedLineHeight(t *testing.T) {
+	var a, b string
+	tt := NewTester(func(c *Context) {
+		Column(c).Padding(10).Gap(10).Children(func() {
+			TextAreaBase(c, &a).Lines(1, 4).FixedLineHeight(19).Placeholder("Area").Width(200).Label("A")
+			TextInputBase(c, &b).FixedLineHeight(19).Placeholder("Input").Width(200).Label("B")
+		})
+	}, 300, 120)
+	img := tt.Image()
+	for _, name := range []string{"A", "B"} {
+		r, ok := tt.Find(name)
+		if !ok {
+			t.Fatalf("no %s", name)
+		}
+		inked := false
+		for y := int(r.Y); y < int(r.Y+r.H) && !inked; y++ {
+			for x := int(r.X); x < int(r.X+r.W); x++ {
+				if px := img.RGBAAt(x, y); px.R < 200 {
+					inked = true
+					break
+				}
+			}
+		}
+		if !inked {
+			t.Errorf("the placeholder of %s draws nothing in %v", name, r)
+		}
+	}
+}
