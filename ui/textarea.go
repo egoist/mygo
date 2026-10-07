@@ -38,6 +38,23 @@ type area struct {
 	// with a layout.
 	first, last int
 	laid        int
+	// wrapped is the height of the whole text wrapped at a width, for a text
+	// area that grows with it (Lines), and the params it is of.
+	wrapped       float32
+	wrappedParams text.Params
+}
+
+// wrappedHeight returns the height of the text, with an input method's
+// composition, wrapped at the content width cw.
+func (a *area) wrappedHeight(e *Element, ed *editor, cw float32) float32 {
+	params := e.textParams(max(cw, 1))
+	params.Text = ed.displayText()
+	params.KeepSpaces, params.MaxLines = true, 0
+	if params != a.wrappedParams {
+		a.wrappedParams = params
+		a.wrapped = textSystem().Layout(params).Height
+	}
+	return a.wrapped
 }
 
 // maxLaid is how many paragraphs keep their layouts out of view, beyond

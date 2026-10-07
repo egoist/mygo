@@ -30,7 +30,13 @@ ui.TextArea(c, &app.notes).Height(160)
 
 A text area is at least a few lines high and grows with its text; given a
 height, it scrolls within it, with the wheel and a scroll bar, and keeps
-the caret in view as it moves. It lays out only the paragraphs in view and
+the caret in view as it moves. `Lines(min, max)` makes it as high as its
+text wraps at its width, from `min` lines up to `max`, past which it
+scrolls, as a message field grows with what is typed:
+
+```go
+ui.TextArea(c, &app.draft).Lines(1, 8)
+``` It lays out only the paragraphs in view and
 keeps their layouts until they change, so that it holds texts of hundreds
 of thousands of lines, as a log or a source file, and stays as quick to
 type in.
@@ -51,6 +57,20 @@ in the string.
 
 The input keeps the text being edited, its selection and its undo history
 from frame to frame; setting the string from elsewhere replaces the text.
+
+## The caret
+
+`TextSelection` returns the selection as offsets in runes into the text,
+the caret where they are equal, and `SetTextSelection` moves it, as an app
+completing the word being typed puts the caret after it:
+
+```go
+input := ui.TextArea(c, &app.draft)
+if start, _ := input.TextSelection(); app.completed != "" {
+	app.draft, start = complete(app.draft, start, app.completed)
+	input.SetTextSelection(start, start)
+}
+```
 
 ## Errors
 

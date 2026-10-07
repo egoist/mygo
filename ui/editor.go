@@ -80,7 +80,10 @@ type editor struct {
 	// leaveEmptyBackspace leaves Backspace to shortcuts while the text is
 	// empty, as a token field's input does to take out a token.
 	leaveEmptyBackspace bool
-	placeholder         string
+	// lines are a text area's least and most lines (Lines), as high as its
+	// wrapped text between them; zero for the paragraphs, at least three.
+	lines       [2]int
+	placeholder string
 	// layout is what the last frame laid out of a single-line input or a
 	// selectable text; area lays out a text area (textarea.go).
 	layout *text.Layout
@@ -778,8 +781,10 @@ func textInputBase(c *Context, value *string, multiline bool) *Element {
 	if !focused {
 		ed.compose = ""
 	}
-	// ReadOnly says again for the next frame's input, as the frame builds.
+	// ReadOnly and Lines say again for the next frame's input, as the frame
+	// builds.
 	ed.readOnly = false
+	ed.lines = [2]int{}
 	return e
 }
 
@@ -802,6 +807,47 @@ func (e *Element) ReadOnly(on bool) *Element {
 			ed.compose = ""
 		}
 	}
+	return e
+}
+
+// Lines makes a text area as high as its text, wrapped at its width, from
+// min lines up to max, past which it scrolls, as a message field grows with
+// what is typed: TextArea(c, &draft).Lines(1, 8). Without it, a text area is
+// as high as its paragraphs, three lines at least, unless given a height.
+func (e *Element) Lines(min, max int) *Element {
+	if ed := e.st.editor; ed != nil && ed.area != nil {
+		ed.lines = [2]int{min, max}
+	}
+	return e
+}
+
+// TextSelection returns the selection of a text input as offsets in runes
+// into its text, the caret where start equals end, as the app reads it to
+// complete the word being typed.
+func (e *Element) TextSelection() (start, end int) {
+	ed := e.st.editor
+	if ed == nil {
+		return 0, 0
+	}
+	return ed.selection()
+}
+
+// SetTextSelection selects the runes of a text input from start to end, or
+// puts the caret at start when they are equal, and scrolls it into view: the
+// caret after a word the app completed. The offsets are kept within the text.
+func (e *Element) SetTextSelection(start, end int) *Element {
+	ed := e.st.editor
+	if ed == nil {
+		return e
+	}
+	n := ed.buf.n
+	start, end = min(max(start, 0), n), min(max(end, 0), n)
+	ed.anchor, ed.caret = start, end
+	ed.hasDesired = false
+	if ed.area != nil {
+		ed.area.reveal = true
+	}
+	e.c.rt.requestFrame()
 	return e
 }
 
@@ -882,13 +928,19 @@ func (e *Element) inputParams(width float32) text.Params {
 	return p
 }
 
-func (e *Element) inputHeight() float32 {
+func (e *Element) inputHeight(cw float32) float32 {
 	ed := e.st.editor
 	if ed.area != nil {
-		// As high as its paragraphs unwrapped, without laying them out.
 		p := e.textParams(0)
 		p.Text = ""
 		line := textSystem().Layout(p).Lines[0].Height
+		if lo, hi := ed.lines[0], ed.lines[1]; hi > 0 {
+			// As high as its text wrapped at the width it gets, between its
+			// least and most lines.
+			h := ed.area.wrappedHeight(e, ed, cw)
+			return min(max(h, float32(lo)*line), float32(hi)*line)
+		}
+		// As high as its paragraphs unwrapped, without laying them out.
 		return float32(max(len(ed.buf.paras), 3)) * line
 	}
 	l := textSystem().Layout(e.inputParams(0))

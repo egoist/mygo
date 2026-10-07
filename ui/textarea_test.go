@@ -488,3 +488,71 @@ func TestTextAreaInForm(t *testing.T) {
 		t.Errorf("the label is at %v, the first line of the text area at %v", label.Y, y)
 	}
 }
+
+// A text area with Lines is as high as its text wraps at its width, from its
+// least lines up to its most, past which it scrolls.
+func TestTextAreaLinesFollowWrappedText(t *testing.T) {
+	draft := ""
+	tt := NewTester(func(c *Context) {
+		Column(c).Width(200).Children(func() {
+			TextAreaBase(c, &draft).Lines(1, 4).Label("Draft")
+		})
+	}, 400, 600)
+	empty, _ := tt.Find("Draft")
+	if empty.H <= 0 {
+		t.Fatalf("empty text area is %v high", empty.H)
+	}
+	draft = "one line"
+	tt.Frame()
+	if r, _ := tt.Find("Draft"); r.H != empty.H {
+		t.Errorf("one short line is %v high, want %v", r.H, empty.H)
+	}
+	// One paragraph long enough to wrap: higher, though it has no newline.
+	draft = strings.Repeat("word ", 12)
+	tt.Frame()
+	wrapped, _ := tt.Find("Draft")
+	if wrapped.H <= empty.H*1.5 {
+		t.Errorf("a wrapping paragraph is %v high, one line %v", wrapped.H, empty.H)
+	}
+	draft = strings.Repeat("word ", 400)
+	tt.Frame()
+	long, _ := tt.Find("Draft")
+	if math.Abs(float64(long.H-4*empty.H)) > 1 {
+		t.Errorf("a long text is %v high, want the most lines, %v", long.H, 4*empty.H)
+	}
+}
+
+// The app reads where the caret is and puts it elsewhere, as a mention
+// completed where it was typed.
+func TestTextSelection(t *testing.T) {
+	draft := "hello world"
+	var input *Element
+	move := -1
+	tt := NewTester(func(c *Context) {
+		input = TextAreaBase(c, &draft).Label("Draft")
+		if move >= 0 {
+			input.SetTextSelection(move, move)
+			move = -1
+		}
+	}, 400, 300)
+	if err := tt.Click("Draft"); err != nil {
+		t.Fatal(err)
+	}
+	move = 5
+	tt.Frame()
+	if start, end := input.TextSelection(); start != 5 || end != 5 {
+		t.Fatalf("caret at %d–%d, want 5", start, end)
+	}
+	tt.Type(",")
+	if draft != "hello, world" {
+		t.Fatalf("typed into %q", draft)
+	}
+	if start, end := input.TextSelection(); start != 6 || end != 6 {
+		t.Errorf("caret at %d–%d after typing, want 6", start, end)
+	}
+	tt.Frame()
+	input.SetTextSelection(0, 99)
+	if start, end := input.TextSelection(); start != 0 || end != utf8.RuneCountInString(draft) {
+		t.Errorf("selection %d–%d, want the whole text", start, end)
+	}
+}
