@@ -540,10 +540,12 @@ func (f *listFrame) build(i int) *Element {
 // frame is laid out (layoutTree).
 func (f *listFrame) buildLate(i int) *Element {
 	c := f.c
-	parent, theme := c.parent, c.theme
+	parent, theme, locale := c.parent, c.theme, c.locale
 	c.parent, c.theme = f.e, f.theme
+	c.locale = f.e.locale
 	w := f.build(i)
 	c.parent, c.theme = parent, theme
+	c.locale = locale
 	c.rt.late = true
 	return w
 }

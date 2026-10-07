@@ -1,19 +1,20 @@
 package ui
 
 import (
-	"fmt"
+	"strconv"
 	"time"
 )
 
-// DateInput creates a field showing *date as 2006-01-02, which a calendar
+// DateInput creates a field showing *date in the view's locale, which a calendar
 // below it changes. A click, Enter or Space opens the calendar, where a
 // click chooses a day, as do the arrows and Enter; Page Up and Page Down,
 // or its buttons, move by months, and Escape closes it. Changed reports a
 // new date, which keeps the time of day and location of *date.
 func DateInput(c *Context, date *time.Time) *Element {
 	t := c.theme
+	l := c.Locale()
 	b := Button(c, "")
-	b.widget, b.role, b.accValue = "DateInput", RolePopUpButton, date.Format("2006-01-02")
+	b.widget, b.role, b.accValue = "DateInput", RolePopUpButton, l.FormatDate(*date, ShortDate)
 	b.MinWidth(t.Space(32.5)).Justify(SpaceBetween)
 	open := Local(b, "open", func() bool { return false })
 	// cursor is the day the keys move in the calendar.
@@ -24,7 +25,7 @@ func DateInput(c *Context, date *time.Time) *Element {
 	}
 	b.expanded = *open
 	b.Children(func() {
-		Text(c, date.Format("2006-01-02")).SingleLine().FontFeatures("tnum")
+		Text(c, l.FormatDate(*date, ShortDate)).SingleLine().FontFeatures("tnum")
 		Box(c).Size(t.Space(3.5), t.Space(3.5)).Shrink(0).Draw(func(p *Painter, r Rect) {
 			// A calendar page.
 			p.Stroke(Rect{r.X + 1, r.Y + 2, r.W - 2, r.H - 3}, t.TextMuted, 2, 1.2)
@@ -89,14 +90,23 @@ func sameDay(a, b time.Time) bool {
 	return ay == by && am == bm && ad == bd
 }
 
+// monthStep clamps to the target month's last day (Jan 31 -> Feb 28/29),
+// rather than Go's AddDate normalization skipping into March.
+func monthStep(value time.Time, months int) time.Time {
+	first := time.Date(value.Year(), value.Month()+time.Month(months), 1, value.Hour(), value.Minute(), value.Second(), value.Nanosecond(), value.Location())
+	last := time.Date(first.Year(), first.Month()+1, 0, 0, 0, 0, 0, value.Location()).Day()
+	return time.Date(first.Year(), first.Month(), min(value.Day(), last), value.Hour(), value.Minute(), value.Second(), value.Nanosecond(), value.Location())
+}
+
 // calendarGrid creates the month around *cursor, the day the keys move,
 // with *date chosen; choose chooses a day, as a click and Enter do, and
 // every move does with moveChooses.
 func calendarGrid(c *Context, date, cursor *time.Time, moveChooses bool, choose func(time.Time)) *Element {
 	t := c.theme
+	l := c.Locale()
 	cur := *cursor
 	month := time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, time.UTC)
-	grid := Column(c).Gap(t.Space(0.5)).Focusable().Shrink(0).Role(RoleTable).Label(month.Format("January 2006"))
+	grid := Column(c).Gap(t.Space(0.5)).Focusable().Shrink(0).Role(RoleTable).Label(l.FormatDate(month, MonthYear))
 	grid.flags |= flagOwnRing
 	move := func(d time.Time) {
 		// Choosing it moves the cursor where it is the date chosen.
@@ -117,9 +127,9 @@ func calendarGrid(c *Context, date, cursor *time.Time, moveChooses bool, choose 
 	case grid.Shortcut(0, KeyDown):
 		move(cur.AddDate(0, 0, 7))
 	case grid.Shortcut(0, KeyPageUp):
-		move(cur.AddDate(0, -1, 0))
+		move(monthStep(cur, -1))
 	case grid.Shortcut(0, KeyPageDown):
-		move(cur.AddDate(0, 1, 0))
+		move(monthStep(cur, 1))
 	case grid.Shortcut(0, KeyHome):
 		move(time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, cur.Location()))
 	case grid.Shortcut(0, KeyEnd):
@@ -129,27 +139,28 @@ func calendarGrid(c *Context, date, cursor *time.Time, moveChooses bool, choose 
 	}
 	grid.Children(func() {
 		Row(c).AlignItems(Center).Gap(t.Space(1)).Children(func() {
-			if Button(c, "‹").Padding(t.Space(0.5), t.Space(2.5)).Label("Previous month").Clicked() {
-				move(cur.AddDate(0, -1, 0))
+			if Button(c, "‹").Padding(t.Space(0.5), t.Space(2.5)).Label(l.Text("Previous month")).Clicked() {
+				move(monthStep(cur, -1))
 			}
-			Text(c, month.Format("January 2006")).Bold().Grow(1).TextAlign(Center)
-			if Button(c, "›").Padding(t.Space(0.5), t.Space(2.5)).Label("Next month").Clicked() {
-				move(cur.AddDate(0, 1, 0))
+			Text(c, l.FormatDate(month, MonthYear)).Bold().Grow(1).TextAlign(Center)
+			if Button(c, "›").Padding(t.Space(0.5), t.Space(2.5)).Label(l.Text("Next month")).Clicked() {
+				move(monthStep(cur, 1))
 			}
 		})
 		Row(c).Children(func() {
-			for _, d := range []string{"Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"} {
-				Text(c, d).Width(t.Space(8)).TextAlign(Center).FontSize(t.FontSize - 2).TextColor(t.TextMuted).Role(RoleColumnHeader)
+			for i := range 7 {
+				d := time.Weekday((int(l.FirstDay()) + i) % 7)
+				Text(c, l.WeekdayName(d, true)).Label(l.WeekdayName(d, false)).Width(t.Space(8)).TextAlign(Center).FontSize(t.FontSize - 2).TextColor(t.TextMuted).Role(RoleColumnHeader)
 			}
 		})
-		// Six weeks from the Monday on or before the first.
-		start := month.AddDate(0, 0, -((int(month.Weekday()) + 6) % 7))
+		// Six weeks from the locale's first weekday on/before the first.
+		start := month.AddDate(0, 0, -((int(month.Weekday()) - int(l.FirstDay()) + 7) % 7))
 		today := c.now
 		for w := range 6 {
 			Row(c).Role(RoleRow).Children(func() {
 				for d := range 7 {
 					day := start.AddDate(0, 0, w*7+d)
-					cell := Box(c).Size(t.Space(8), t.Space(7)).Center().Radius(t.Radius).Role(RoleButton).Label(day.Format("January 2, 2006"))
+					cell := Box(c).Size(t.Space(8), t.Space(7)).Center().Radius(t.Radius).Role(RoleButton).Label(l.FormatDate(day, LongDate))
 					cell.flags |= flagClickable | flagHover
 					if cell.Clicked() {
 						choose(day)
@@ -183,7 +194,7 @@ func calendarGrid(c *Context, date, cursor *time.Time, moveChooses bool, choose 
 						grid.activeDescendant = cell
 					}
 					cell.Children(func() {
-						Text(c, fmt.Sprint(day.Day())).TextColor(fg).FontFeatures("tnum")
+						Text(c, l.localDigits(strconv.Itoa(day.Day()))).TextColor(fg).FontFeatures("tnum")
 					})
 				}
 			})

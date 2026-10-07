@@ -5,6 +5,9 @@ between two bounds, which Up and Down, and the buttons beside it, change by
 a step. What is typed applies as soon as it is a number in range, and shows
 rounded to the decimals of the step once the input loses the focus.
 `Changed` reports a new value.
+The view's [locale](localization.md) supplies digits, decimal and grouping
+separators and increment/decrement labels. A locale change during an edit
+keeps the partial input and its original parsing rules until blur.
 
 ```go
 ui.NumberInput(c, &app.copies, 1, 99, 1).Label("Copies")

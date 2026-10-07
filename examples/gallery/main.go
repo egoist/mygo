@@ -91,8 +91,10 @@ type gallery struct {
 	glassStyle, glassEdge int
 	lens                  [2]float32
 	// The meeting's day and time, and the tint of its text.
-	meeting time.Time
-	tint    ui.Color
+	meeting      time.Time
+	tint         ui.Color
+	locale       string
+	localeAmount float64
 	// The indicators' values: the rating, the battery, the quality and
 	// the range of prices.
 	stars               int
@@ -301,6 +303,9 @@ func pageOf(path string) string {
 }
 
 func (g *gallery) view(c *ui.Context) {
+	if g.locale != "" && g.locale != "System" {
+		c.SetLocale(ui.NewLocale(g.locale))
+	}
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		g.sidebar(c)
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
@@ -695,14 +700,21 @@ func (g *gallery) controls(c *ui.Context) {
 		})
 	})
 	card(c, "Dates, times and colors", func() {
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "Locale")
+			ui.Select(c, &g.locale, []string{"System", "en-US", "en-GB", "de-DE", "fr-FR", "ja-JP", "ar-EG", "hi-IN-u-nu-deva"}).Label("Locale")
+			ui.Text(c, "Built-in controls follow this choice; app labels keep their text.").TextColor(t.TextMuted).Grow(1)
+		})
 		ui.Row(c).Gap(20).AlignItems(ui.Start).Wrap().Children(func() {
 			ui.Calendar(c, &g.meeting).Label("Meeting")
 			ui.Column(c).Gap(12).Children(func() {
 				ui.Form(c, func() {
+					ui.Field(c, "Date", func() { ui.DateInput(c, &g.meeting) })
 					ui.Field(c, "Time", func() { ui.TimeInput(c, &g.meeting).Label("Meeting") })
+					ui.Field(c, "Amount", func() { ui.NumberInput(c, &g.localeAmount, -1e7, 1e7, 0.01) })
 					ui.Field(c, "Tint", func() { ui.ColorWell(c, &g.tint) })
 				})
-				ui.Text(c, g.meeting.Format("Monday, January 2 at 15:04")).TextColor(g.tint)
+				ui.Text(c, c.Locale().FormatDate(g.meeting, ui.LongDate)+" · "+c.Locale().FormatTime(g.meeting)).TextColor(g.tint)
 			})
 		})
 	})
@@ -1571,6 +1583,7 @@ func (g *gallery) overlays(c *ui.Context) {
 
 func main() {
 	g := &gallery{router: ui.NewRouter("/overview"), items: []motionItem{{1, "Item 1"}, {2, "Item 2"}, {3, "Item 3"}}, nextItem: 3, size: "Medium", fruit: "Apple", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), lens: [2]float32{110, 190}, glassEdge: 1, notes: 12, notifyMail: true, pathDepth: 4}
+	g.locale, g.localeAmount = "System", 1234567.5
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:    "MyGo UI Gallery",

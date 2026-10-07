@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"runtime"
 )
 
@@ -227,7 +226,7 @@ func FindBar(c *Context, open *bool, query *string, matches int, current *int) *
 	}
 	// Keyed, for its state to go as it closes, to open anew.
 	bar := Row(c).Key("find bar").Gap(t.Space(2)).Padding(t.Space(1.5), t.Space(3)).AlignItems(Center).Background(t.Surface).
-		BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Shrink(0).Role(RoleToolbar).Label("Find")
+		BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Shrink(0).Role(RoleToolbar).Label(c.Locale().Text("Find"))
 	bar.widget = "FindBar"
 	// Its state goes as it closes: true in the frame it opens.
 	opening := Local(bar, "opening", func() bool { return true })
@@ -249,11 +248,11 @@ func FindBar(c *Context, open *bool, query *string, matches int, current *int) *
 	bar.Children(func() {
 		f, in := field(c, func() *Element {
 			magnifier(c)
-			in := TextInputBase(c, query).Grow(1).MinWidth(t.Space(25)).Placeholder("Find")
+			in := TextInputBase(c, query).Grow(1).MinWidth(t.Space(25)).Placeholder(c.Locale().Text("Find"))
 			in.search = true
 			return in
 		})
-		f.Label("Find").Grow(1).MaxWidth(t.Space(90))
+		f.Label(c.Locale().Text("Find")).Grow(1).MaxWidth(t.Space(90))
 		if *opening {
 			// Opening the bar focuses its field, with what was found before
 			// chosen, ready to type over.
@@ -272,19 +271,19 @@ func FindBar(c *Context, open *bool, query *string, matches int, current *int) *
 			*open = false
 			c.rt.consumed = true
 		}
-		status := "No matches"
+		status := c.Locale().Text("No matches")
 		switch {
 		case *query == "":
 			status = ""
 		case matches > 0:
-			status = fmt.Sprintf("%d of %d", *current+1, matches)
+			status = c.Locale().Text("%s of %s", c.Locale().FormatNumber(float64(*current+1), 0), c.Locale().FormatNumber(float64(matches), 0))
 		}
 		Text(c, status).TextColor(t.TextMuted).FontFeatures("tnum").MinWidth(t.Space(18)).Role(RoleStatus)
 		for _, b := range []struct {
 			label string
 			d     int
 		}{{"Previous", -1}, {"Next", 1}} {
-			btn := Button(c, "").Padding(t.Space(1.5), t.Space(2)).Label(b.label).Disabled(matches == 0)
+			btn := Button(c, "").Padding(t.Space(1.5), t.Space(2)).Label(c.Locale().Text(b.label)).Disabled(matches == 0)
 			up := b.d < 0
 			btn.Children(func() {
 				Box(c).Size(t.Space(3), t.Space(3)).Shrink(0).Draw(func(p *Painter, r Rect) {
@@ -302,7 +301,7 @@ func FindBar(c *Context, open *bool, query *string, matches int, current *int) *
 				step(b.d)
 			}
 		}
-		if Button(c, "Done").Clicked() {
+		if Button(c, c.Locale().Text("Done")).Clicked() {
 			*open = false
 			c.rt.consumed = true
 		}

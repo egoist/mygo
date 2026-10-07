@@ -380,7 +380,7 @@ func SearchField(c *Context, query *string) *Element {
 		in := TextInputBase(c, query).Grow(1).MinWidth(t.Space(15)).Placeholder("Search")
 		in.search = true
 		if *query != "" {
-			clear := ButtonBase(c).Size(t.Space(4), t.Space(4)).Radius(t.Space(2)).Background(t.TextMuted.Alpha(0.5)).Label("Clear")
+			clear := ButtonBase(c).Size(t.Space(4), t.Space(4)).Radius(t.Space(2)).Background(t.TextMuted.Alpha(0.5)).Label(c.Locale().Text("Clear"))
 			clear.flags &^= flagFocusable // as AppKit's: no stop of Tab
 			clear.flags |= flagKeepFocus
 			clear.role = RoleButton
@@ -450,7 +450,7 @@ func TokenField(c *Context, tokens *[]string, suggestions []string) *Element {
 				Radius(t.Radius).Background(t.SurfacePressed).Shrink(0)
 			chip.Children(func() {
 				Text(c, tok).SingleLine()
-				x := ButtonBase(c).Size(t.Space(3.5), t.Space(3.5)).Radius(t.Space(1)).Label("Remove " + tok)
+				x := ButtonBase(c).Size(t.Space(3.5), t.Space(3.5)).Radius(t.Space(1)).Label(c.Locale().Text("Remove %s", tok))
 				x.flags &^= flagFocusable
 				x.flags |= flagKeepFocus
 				x.role = RoleButton

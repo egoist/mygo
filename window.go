@@ -62,6 +62,9 @@ type Rectangle struct{ X, Y, Width, Height int }
 // WindowOptions configures NewWindow. The zero value is a visible,
 // resizable 800x600 window centered on screen.
 type WindowOptions struct {
+	// Locale overrides the app/OS locale for native UI. Empty inherits
+	// App.Locale. A view can override it with ui.Context.SetLocale.
+	Locale string
 	// Title of the window. Defaults to the application name. The title
 	// follows the page's <title> unless an OnPageTitleUpdated listener
 	// prevents it.
@@ -170,6 +173,7 @@ type WindowOptions struct {
 type Window struct {
 	id     int
 	parent *Window
+	locale string // main thread only; empty inherits App.Locale
 	// pg is the window's page, which Page returns unless the window shows
 	// native UI.
 	pg *Page
@@ -345,7 +349,7 @@ func newWindow(opts WindowOptions, bg *background, native uintptr) *Window {
 	id := windows.nextID
 	windows.Unlock()
 
-	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, secret: rand.Text(), stateKey: opts.StateKey, background: bg, content: opts.Content}
+	w := &Window{id: id, parent: opts.Parent, locale: opts.Locale, trustedOrigins: opts.Page.TrustedOrigins, secret: rand.Text(), stateKey: opts.StateKey, background: bg, content: opts.Content}
 	w.pg = &Page{w}
 	w.hiddenTitleBar = !opts.Frameless && (opts.TitleBarStyle == TitleBarHidden || opts.TitleBarStyle == TitleBarHiddenInset)
 	w.resetPage()

@@ -60,6 +60,9 @@ func (e *Element) Menu(build func(m *Menu)) *Element {
 // buildMenu builds the element's menu, its menu button's or its context
 // menu, as it opens, and again for the item chosen from it.
 func (e *Element) buildMenu(button bool, build func(m *Menu)) {
+	locale := e.c.locale
+	e.c.locale = e.locale
+	defer func() { e.c.locale = locale }()
 	rt := e.c.rt
 	mr := &rt.menu
 	switch {
@@ -401,12 +404,13 @@ func (rt *engine) editMenu(s *state) {
 	labels := make([]string, len(commands))
 	names := make([]string, len(commands))
 	for i, c := range commands {
-		it := &platform.MenuItem{ID: i + 1, Label: c.label, Enabled: c.on, Visible: true}
+		label := s.locale.Text(c.label)
+		it := &platform.MenuItem{ID: i + 1, Label: label, Enabled: c.on, Visible: true}
 		if c.name == "" {
 			it.Type = platform.MenuItemSeparator
 		}
 		pm.Items = append(pm.Items, it)
-		labels[i], names[i] = c.label, c.name
+		labels[i], names[i] = label, c.name
 	}
 	rt.openMenu(s.id, false, pm, labels, names)
 }

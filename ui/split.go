@@ -63,7 +63,7 @@ func split(c *Context, size *float32, first, second func(), vertical bool) *Elem
 			a.Children(first)
 
 			// The line takes the focus between the panes, in their order.
-			div := Box(c).Shrink(0).Focusable().Role(RoleSplitter).Label("Divider")
+			div := Box(c).Shrink(0).Focusable().Role(RoleSplitter).Label(c.Locale().Text("Divider"))
 			div.widget = "Divider"
 			div.flags |= flagOwnRing
 			if vertical {

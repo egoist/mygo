@@ -192,6 +192,7 @@ const (
 // An element only lives during the frame that built it.
 type Element struct {
 	c      *Context
+	locale *Locale
 	id     uint64
 	kind   kind
 	flags  uint32
@@ -465,9 +466,12 @@ type stripes struct {
 func (e *Element) Children(fn func()) *Element {
 	c := e.c
 	saved := c.parent
+	savedLocale := c.locale
 	c.parent = e
+	c.locale = e.locale
 	fn()
 	c.parent = saved
+	c.locale = savedLocale
 	if e.kind == kindText && e.first != nil {
 		e.inlineText()
 	}

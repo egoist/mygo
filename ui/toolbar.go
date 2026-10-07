@@ -41,7 +41,7 @@ func Toolbar(c *Context, fn func()) *Element {
 		fn()
 		more := ButtonBase(c)
 		styleButton(c, more, false)
-		more.Label("More").Children(func() { chevrons(c) })
+		more.Label(c.Locale().Text("More")).Children(func() { chevrons(c) })
 		more.Menu(func(m *Menu) {
 			for i, it := range *items {
 				if it.startsGroup && i > 0 {

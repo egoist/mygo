@@ -22,6 +22,7 @@ type Context struct {
 	// finish last cleared the unused ones, including earlier build passes.
 	dirty    int
 	theme    *Theme
+	locale   *Locale
 	now      time.Time
 	w, h     float32
 	titleBar TitleBar
@@ -90,6 +91,7 @@ func (c *Context) reset(now time.Time, w, h float32) {
 	c.now = now
 	c.w, c.h = w, h
 	c.theme = c.rt.defaultTheme()
+	c.locale = c.rt.hostLocale()
 	c.tree = nil
 	clear(c.reveal)
 	c.reveal = c.reveal[:0]
@@ -102,6 +104,7 @@ func (c *Context) reset(now time.Time, w, h float32) {
 	c.router, c.routers, c.inert = nil, 0, false
 	root := c.alloc()
 	root.c = c
+	root.locale = c.locale
 	root.id = 1
 	root.kind = kindBox
 	root.width, root.height = px(w), px(h)
@@ -171,6 +174,7 @@ func (c *Context) newElement(k kind) *Element {
 	}
 	e := c.alloc()
 	e.c = c
+	e.locale = c.locale
 	e.kind = k
 	p := c.parent
 	e.id = mix(p.id, uint64(p.nchild)+uint64(k)<<56)
@@ -362,10 +366,11 @@ func Local[T any](e *Element, key any, init func() T) *T {
 
 // state is what the runtime keeps about an element from frame to frame.
 type state struct {
-	id   uint64
-	seen uint64
-	pass int    // the pass of the frame that built it last
-	born uint64 // the frame that first built the element
+	id     uint64
+	locale *Locale // the locale of the last committed element, for input/menu callbacks
+	seen   uint64
+	pass   int    // the pass of the frame that built it last
+	born   uint64 // the frame that first built the element
 	// The element's box and its visible part in the last frame.
 	x, y, w, h     float32
 	vx, vy, vw, vh float32

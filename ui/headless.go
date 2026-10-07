@@ -20,6 +20,7 @@ type headless struct {
 	requested atomic.Bool
 	dark      bool
 	prefs     platform.Preferences
+	localeTag string
 	clipboard string
 	cursor    Cursor
 	ime       platform.TextInputState
@@ -63,6 +64,7 @@ func (h *headless) writeClipboard(s string)                    { h.clipboard = s
 func (h *headless) startDrag()                                 {}
 func (h *headless) titleBarDoubleClicked()                     {}
 func (h *headless) isDark() bool                               { return h.dark }
+func (h *headless) locale() string                             { return h.localeTag }
 func (h *headless) preferences() platform.Preferences          { return h.prefs }
 func (h *headless) titleBar() TitleBar                         { return h.bar }
 func (h *headless) invalidate()                                { h.requested.Store(true) }
@@ -169,6 +171,13 @@ func (t *Tester) SetDark(dark bool) {
 	t.h.dark = dark
 	t.rt.themeChanged()
 	t.settle()
+}
+
+// SetLocale changes the host locale while retaining focus, edits and view
+// state. Empty restores the deterministic headless default, en-US.
+func (t *Tester) SetLocale(tag string) {
+	t.h.localeTag = tag
+	t.Frame()
 }
 
 // SetPreferences changes the desktop's settings that controls follow, as
