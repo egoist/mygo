@@ -56,6 +56,17 @@ func probeSource(variant string) string {
 		return regexp.MustCompile(`localCoverage\(([^;{}]*?), (?:i\.transform0\.w|1)\)`).ReplaceAllString(s, `localCoverage($1, i.transform0, i.transform1)`)
 	case "no-early-return":
 		return strings.ReplaceAll(s, "if (d < -reach)\n\t\treturn 1;\n\tif (d > reach)\n\t\treturn 0;", "")
+	case "branchless-radii", "constant-radii", "branchless-samples", "branchless-all":
+		if variant == "branchless-radii" || variant == "branchless-all" {
+			s = strings.ReplaceAll(s, "float r = q.x < 0 ? (q.y < 0 ? radii.x : radii.w) : (q.y < 0 ? radii.y : radii.z);", "float2 side = step(float2(0, 0), q); float r = dot(radii, float4((1-side.x)*(1-side.y), side.x*(1-side.y), side.x*side.y, (1-side.x)*side.y));")
+		}
+		if variant == "constant-radii" {
+			s = strings.ReplaceAll(s, "float r = q.x < 0 ? (q.y < 0 ? radii.x : radii.w) : (q.y < 0 ? radii.y : radii.z);", "float r = radii.x;")
+		}
+		if variant == "branchless-samples" || variant == "branchless-all" {
+			s = strings.ReplaceAll(s, "n += sdRoundRect(q, rect, radii) <= 0 ? 1 : 0;", "n += step(sdRoundRect(q, rect, radii), 0);")
+		}
+		return s
 	}
 	return s
 }
@@ -81,7 +92,7 @@ func TestMain(m *testing.M) {
 		fmt.Println("compiled")
 		os.Exit(0)
 	}
-	for _, variant := range []string{"analytic-derivatives", "no-early-return"} {
+	for _, variant := range []string{"branchless-radii", "constant-radii", "branchless-samples", "branchless-all"} {
 		cmd := exec.Command(os.Args[0])
 		cmd.Env = append(os.Environ(), "MYGO_COMPILER_PROBE="+variant)
 		out, err := cmd.CombinedOutput()
