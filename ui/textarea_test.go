@@ -624,3 +624,83 @@ func TestInputTextAlign(t *testing.T) {
 		t.Errorf("right-aligned text spans %d–%d in %v; left-aligned starts at %d", r0, r1, box, l0)
 	}
 }
+
+// An input that stops calling Password shows its text again.
+func TestInputPasswordToggles(t *testing.T) {
+	value, hidden := "secret", true
+	var in *Element
+	tt := NewTester(func(c *Context) {
+		in = TextInputBase(c, &value).Width(200).Label("Key")
+		if hidden {
+			in.Password()
+		}
+	}, 300, 60)
+	if got := in.st.editor.displayText(); got == value {
+		t.Fatalf("a password shows %q", got)
+	}
+	hidden = false
+	tt.Frame()
+	tt.Frame()
+	if got := in.st.editor.displayText(); got != value {
+		t.Errorf("the shown key reads %q", got)
+	}
+}
+
+// inkSpan is the first and last columns of `name`'s box with dark pixels in them.
+func inkSpan(tt *Tester, name string) (first, last int, box Rect) {
+	img := tt.Image()
+	box, _ = tt.Find(name)
+	first, last = -1, -1
+	for x := int(box.X); x < int(box.X+box.W); x++ {
+		for y := int(box.Y); y < int(box.Y+box.H); y++ {
+			if px := img.RGBAAt(x, y); px.R < 160 && px.G < 160 && px.B < 160 {
+				if first < 0 {
+					first = x
+				}
+				last = x
+				break
+			}
+		}
+	}
+	return first, last, box
+}
+
+// A single-line input's placeholder stays on its line, to the box's end, where a wrapped one
+// would stop at the last word that fits.
+func TestInputPlaceholderStaysOnItsLine(t *testing.T) {
+	var value string
+	tt := NewTester(func(c *Context) {
+		TextInputBase(c, &value).Width(120).Placeholder("mmmm mmmm mmmm mmmm mmmm mmmm").Label("Field")
+	}, 300, 60)
+	_, last, box := inkSpan(tt, "Field")
+	if float32(last) < box.X+box.W-4 {
+		t.Errorf("the placeholder ends at %d in %v", last, box)
+	}
+}
+
+// An input without the focus shows the start of a text too long for it; with the focus, the
+// caret's end.
+func TestInputShowsItsStartUnfocused(t *testing.T) {
+	long, other := strings.Repeat("abc ", 60), ""
+	var in *Element
+	tt := NewTester(func(c *Context) {
+		Column(c).Children(func() {
+			in = TextInputBase(c, &long).Width(120).Label("Long")
+			TextInputBase(c, &other).Width(120).Label("Other")
+		})
+	}, 300, 80)
+	if x := in.st.editor.scrollX; x != 0 {
+		t.Errorf("the unfocused input is scrolled %v to its caret at the end", x)
+	}
+	in.Focus()
+	tt.Frame()
+	tt.Frame()
+	if in.st.editor.scrollX == 0 {
+		t.Error("the focused input keeps its start, not its caret, in view")
+	}
+	tt.Key(0, KeyTab)
+	tt.Frame()
+	if x := in.st.editor.scrollX; x != 0 {
+		t.Errorf("the input left by the focus stays scrolled %v", x)
+	}
+}

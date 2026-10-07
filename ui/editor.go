@@ -781,9 +781,9 @@ func textInputBase(c *Context, value *string, multiline bool) *Element {
 	if !focused {
 		ed.compose = ""
 	}
-	// ReadOnly and Lines say again for the next frame's input, as the frame
-	// builds.
-	ed.readOnly = false
+	// ReadOnly, Password and Lines say again for the next frame's input, as
+	// the frame builds.
+	ed.readOnly, ed.password = false, false
 	ed.lines = [2]int{}
 	return e
 }
@@ -860,8 +860,10 @@ func (e *Element) Composing() bool {
 	return ed != nil && ed.compose != ""
 }
 
-// Password hides what a text input holds. It does nothing to a text area:
-// as on every platform, only single-line fields hide their text.
+// Password hides what a text input holds, in the frames that call it: an
+// input that stops calling it shows its text again, as a field's eye
+// button does. It does nothing to a text area: as on every platform, only
+// single-line fields hide their text.
 func (e *Element) Password() *Element {
 	if ed := e.st.editor; ed != nil && !ed.multiline {
 		ed.password = true
@@ -973,9 +975,11 @@ func (e *Element) layoutInput(cw, ch float32) {
 			ed.originX += room / 2
 		}
 	}
-	// Keep the caret in view.
-	x, _, _ := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret)
-	if x-ed.scrollX < 0 {
+	// Keep the caret in view while the input has the focus. Without it, the
+	// input shows the start of its text, as fields do on macOS and the web.
+	if e.c.rt.focused != e.id {
+		ed.scrollX = 0
+	} else if x, _, _ := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret); x-ed.scrollX < 0 {
 		ed.scrollX = x
 	} else if x-ed.scrollX > cw-1 {
 		ed.scrollX = x - cw + 1
@@ -1000,7 +1004,9 @@ func (e *Element) paintInput(p *Painter) {
 	if ed.buf.n == 0 && ed.compose == "" && ed.placeholder != "" {
 		// The placeholder takes the input's style, its line height too, fixed or not.
 		params := e.textParams(box.W)
-		params.Text, params.Spans, params.MaxLines, params.NoWrap, params.Ellipsis = ed.placeholder, "", 0, false, ""
+		// A text area's placeholder wraps; a single-line input's stays on its
+		// line, cut off at the box.
+		params.Text, params.Spans, params.MaxLines, params.NoWrap, params.Ellipsis = ed.placeholder, "", 0, !ed.multiline, ""
 		pl := textSystem().Layout(params)
 		// The placeholder aligns itself in the content box, as its layout has the box's width.
 		p.textLayout(pl, e.x+e.contentX(), oy, t.TextMuted, ts, nil)
