@@ -36,6 +36,9 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: oven-sh/setup-bun@v2
+      - name: Native shader diagnostics
+        if: runner.os == 'Windows'
+        run: go test -v ./internal/gpu/d3d11
       - name: Install WebKitGTK and a virtual display
         if: runner.os == 'Linux'
         run: |
@@ -109,6 +112,8 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Native shader diagnostics
+        run: go test -v ./internal/gpu/d3d11
       - name: Restore NSIS
         id: nsis
         uses: actions/cache/restore@v6
