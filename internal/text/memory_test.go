@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"unsafe"
 	"weak"
 )
 
@@ -96,5 +97,26 @@ func TestRetainedLayoutDoesNotRetainClearedCache(t *testing.T) {
 		t.Fatal("a retained layout keeps the cleared cache alive")
 	}
 	runtime.KeepAlive(kept)
+	runtime.KeepAlive(s)
+}
+
+func cacheDocumentExcerpt(s *System) weak.Pointer[byte] {
+	document := strings.Repeat("x", 1<<20)
+	old := weak.Make(unsafe.StringData(document))
+	s.Layout(Params{Text: document[100:110]})
+	return old
+}
+
+func TestLayoutCacheDoesNotRetainExcerptSource(t *testing.T) {
+	s := newSystem()
+	s.eng = &stubEngine{}
+	old := cacheDocumentExcerpt(s)
+	runtime.GC()
+	if old.Value() != nil {
+		t.Fatal("a cached ten-character excerpt retains its entire source document")
+	}
+	if s.Layout(Params{Text: strings.Repeat("x", 10)}).Params.Text != strings.Repeat("x", 10) {
+		t.Fatal("the cache changed the excerpt's text")
+	}
 	runtime.KeepAlive(s)
 }

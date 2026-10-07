@@ -5,6 +5,7 @@ import (
 	"image"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 	"unicode"
 	"unsafe"
@@ -511,6 +512,13 @@ func (s *System) Layout(p Params) *Layout {
 		s.useLayout(c)
 		return &c.layout
 	}
+	// A short label may be a slice of a large document. Cache owned strings
+	// so the memory estimate reflects what those parameters keep alive.
+	p.Text = strings.Clone(p.Text)
+	p.Spans = strings.Clone(p.Spans)
+	p.Ellipsis = strings.Clone(p.Ellipsis)
+	p.Style.Family = strings.Clone(p.Style.Family)
+	p.Style.Features = strings.Clone(p.Style.Features)
 	c := s.layout(p)
 	c.bytes = layoutBytes(c)
 	// A large paragraph still lays out correctly; keeping it would evict
