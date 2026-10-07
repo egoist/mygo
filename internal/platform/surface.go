@@ -1,6 +1,9 @@
 package platform
 
-import "image"
+import (
+	"github.com/egoist/mygo/transfer"
+	"image"
+)
 
 // Surface is the drawing area of a window created with
 // WindowOptions.Surface, which shows content MyGo draws itself (package
@@ -32,17 +35,12 @@ type Surface interface {
 	// elements. The content calls it after every frame once the surface
 	// sent AccessibilityOn.
 	UpdateAccessibility(tree *AccessTree)
-}
-
-// LazyGPUSurface is a Surface that draws in memory until its content asks
-// for the GPU, because a GPU renderer would take much memory for good:
-// Linux's, whose OpenGL driver, Mesa's some 50 MB, stays loaded once a
-// context made it load.
-type LazyGPUSurface interface {
-	// UseGPU makes Native give the objects of a GPU renderer from the
-	// next frame on, which it asks for, where the GPU can draw, and
-	// reports whether it will. It is not called while a frame is drawn.
-	UseGPU() bool
+	// StartDataDrag starts a native transfer; CancelDataDrag cancels the
+	// source owned by this surface. Both run on the main thread.
+	StartDataDrag(DragRequest)
+	CancelDataDrag()
+	// SetDropFormats registers the formats the content can receive.
+	SetDropFormats([]transfer.Format)
 }
 
 // DamageSurface is a Surface that shows a frame drawn in memory by what
@@ -91,6 +89,9 @@ type TextInputState struct {
 	// of macOS's press and hold replace the letter they decorate.
 	Text       string
 	Start, End int
+	// Client supplies full text and geometry for a custom text element. The
+	// Text/Start/End snapshot remains the plain-widget and TextCaret fallback.
+	Client TextInputClient
 }
 
 // SurfaceNative holds the native objects of a Surface.
@@ -131,6 +132,9 @@ const (
 	// auto-repeat.
 	KeyPressed
 	KeyReleased
+	// ModifiersChanged reports the modifier keys held, Mods, as one of
+	// them goes down or up on its own.
+	ModifiersChanged
 	// TextInput inserts Text, typed or committed by an input method.
 	TextInput
 	// TextComposition shows Text as the input method's composition, its
@@ -160,6 +164,11 @@ const (
 	// SurfaceShown reports that some of an OccludableSurface shows again
 	// after none did.
 	SurfaceShown
+	// DataDragOver queries a destination; DataDrop commits a transfer.
+	// DataDragLeave clears its hover state. Drag carries the query/result.
+	DataDragOver
+	DataDragLeave
+	DataDrop
 )
 
 // SurfaceEvent is input on a Surface, or a change of it.
@@ -184,8 +193,10 @@ type SurfaceEvent struct {
 	// selection.
 	Replace  bool
 	From, To int
-	// Files are the paths of FileDrop's files.
+	// Files are the paths of FileDrop's files, or original native paths
+	// for DataDrop's legacy file-listener fallback.
 	Files []string
+	Drag  *DataDragEvent
 	// ID and Action are AccessAction's.
 	ID     uint64
 	Action AccessActionKind

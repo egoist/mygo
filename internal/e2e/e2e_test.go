@@ -105,6 +105,10 @@ func TestMain(m *testing.M) {
 		fmt.Println("skipping e2e tests; set MYGO_E2E=1 to run them in a desktop session")
 		os.Exit(0)
 	}
+	if mode := os.Getenv("MYGO_E2E_CLIPBOARD_PEER"); mode != "" {
+		clipboardPeer(mode)
+		return
+	}
 	if os.Getenv("MYGO_E2E_QUIT_DURING_DIALOG") == "1" {
 		quitDuringDialog()
 		return
@@ -334,7 +338,10 @@ func TestPopupMenu(t *testing.T) {
 	if _, ok := dismissPopups(); !ok {
 		t.Skip("popup automation not available on this platform")
 	}
-	menu := mygo.NewMenu([]*mygo.MenuItem{{Label: "One"}, {Label: "Two"}})
+	clicks := make(chan *mygo.Window, 1)
+	menu := mygo.NewMenu([]*mygo.MenuItem{{Label: "One", Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+		clicks <- win
+	}}, {Label: "Two"}})
 	popup := func(show func()) (shown int) {
 		t.Helper()
 		done := make(chan struct{})
@@ -357,6 +364,32 @@ func TestPopupMenu(t *testing.T) {
 	waitFor(t, w, "document.readyState === 'complete'")
 	if n := popup(func() { menu.PopupAt(w, 20, 20) }); n != 1 {
 		t.Errorf("PopupAt: %d menus shown", n)
+	}
+	if runtime.GOOS != "linux" {
+		return
+	}
+	done := make(chan struct{})
+	go func() { menu.PopupAt(w, 20, 20); close(done) }()
+	t.Cleanup(func() { dismissPopups() })
+	eventually(t, "the context menu", func() bool {
+		menus, _ := popupMenus()
+		return len(menus) == 1
+	})
+	if !choosePopupItem("One") {
+		t.Fatal("the context menu has no item One")
+	}
+	select {
+	case got := <-clicks:
+		if got != w {
+			t.Errorf("context menu window = %v, want window %d", got, w.ID())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the context menu click was not delivered")
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the context menu did not return after choosing an item")
 	}
 }
 
@@ -1873,6 +1906,69 @@ func TestMenuActivation(t *testing.T) {
 	}
 }
 
+// A submenu may have focus instead of its window. Its callback must still
+// receive the window whose menu was chosen, including for shared menus.
+func TestMenuActivationWindow(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		t.Skip("menu bars belong to the application")
+	}
+	for _, ownMenu := range []bool{false, true} {
+		name := "application"
+		if ownMenu {
+			name = "window"
+		}
+		t.Run(name, func(t *testing.T) {
+			wins := []*mygo.Window{
+				newWindow(t, mygo.WindowOptions{Hidden: true, Width: 400, Height: 300}),
+				newWindow(t, mygo.WindowOptions{Hidden: true, Width: 400, Height: 300}),
+			}
+			if mygo.FocusedWindow() != nil {
+				t.Fatal("a window has focus before activating the menu")
+			}
+			clicks := make(chan *mygo.Window, 1)
+			menu := mygo.NewMenu([]*mygo.MenuItem{{Label: "Demo", Submenu: []*mygo.MenuItem{
+				{Label: "Sizes", Submenu: []*mygo.MenuItem{
+					{ID: "small", Label: "Small", Type: mygo.MenuItemRadio, Checked: true},
+					{ID: "large", Label: "Large", Type: mygo.MenuItemRadio, Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+						if win != nil {
+							win.SetSize(1000, 720)
+						}
+						clicks <- win
+					}},
+				}},
+			}}})
+			if ownMenu {
+				for _, w := range wins {
+					w.SetMenu(menu)
+				}
+			} else {
+				mygo.App.SetMenu(menu)
+				defer mygo.App.SetMenu(nil)
+			}
+			for _, w := range wins {
+				menu.ItemByID("small").SetChecked(true)
+				if err := activateMenu(w, "Demo", "Sizes", "Large"); err != nil {
+					t.Fatal(err)
+				}
+				select {
+				case got := <-clicks:
+					if got != w {
+						t.Fatalf("click window = %v, want window %d", got, w.ID())
+					}
+				case <-time.After(3 * time.Second):
+					t.Fatal("menu click was not delivered")
+				}
+				if width, height := w.Size(); width != 1000 || height != 720 {
+					t.Errorf("size after click = %dx%d, want 1000x720", width, height)
+				}
+				if !menu.ItemByID("large").IsChecked() || menu.ItemByID("small").IsChecked() {
+					t.Error("radio group was not updated")
+				}
+			}
+		})
+	}
+}
+
 func TestAutoHideMenuBar(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, AutoHideMenuBar: true})
 	w.Page().LoadHTML("<p>menu bar</p>", "")
@@ -2119,6 +2215,51 @@ func TestClick(t *testing.T) {
 func deviceScale(w *mygo.Window) float64 {
 	b := w.Bounds()
 	return mygo.Screen.DisplayNearestPoint(mygo.Point{X: b.X + b.Width/2, Y: b.Y + b.Height/2}).ScaleFactor
+}
+
+// TestContentWindowTextSelection drags across independently laid-out
+// paragraphs and copies their selection through the native Edit menu.
+func TestContentWindowTextSelection(t *testing.T) {
+	var frames atomic.Int32
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Column(c).Fill().Padding(20).Gap(20).Selectable().Children(func() {
+			ui.Text(c, "First paragraph.").Height(30)
+			ui.Text(c, "Second paragraph.").Height(30)
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Text selection", Width: 400, Height: 200, Content: ui.View(view)})
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Role: mygo.RoleEditMenu}}))
+	defer mygo.App.SetMenu(nil)
+	clipboard := mygo.Clipboard.ReadText()
+	defer mygo.Clipboard.WriteText(clipboard)
+	w.Focus()
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	var copied string
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("last copied text: %q", copied)
+		}
+	})
+	for _, reverse := range []bool{false, true} {
+		points := [][2]float64{{20, 28}, {380, 78}}
+		if reverse {
+			slices.Reverse(points)
+		}
+		before := frames.Load()
+		if !drag(w, points) {
+			t.Skip("drag automation not available on this platform")
+		}
+		eventually(t, "a frame after the drag", func() bool { return frames.Load() > before })
+		mygo.Clipboard.WriteText("before copy")
+		if err := activateMenu(w, "Edit", "Copy"); err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, "both paragraphs copied", func() bool {
+			copied = mygo.Clipboard.ReadText()
+			return copied == "First paragraph.\nSecond paragraph."
+		})
+	}
 }
 
 // TestContentWindowInputMethod checks that input methods see the text
@@ -2590,67 +2731,14 @@ func TestContentWindow(t *testing.T) {
 	}
 }
 
-// TestContentWindowLazyGPU gives a window of native UI drawing in memory
-// the GPU, as its content asks once that costs too much: on Linux, its
-// GtkGLArea, which has no context until then, is realized anew and makes
-// one, then shows its frames through OpenGL and still takes clicks, its
-// input window under those of its hidden title bar's controls.
-func TestContentWindowLazyGPU(t *testing.T) {
-	if !lazyGPU(true) {
-		t.Skip("only Linux loads the GPU's driver on demand")
-	}
-	defer lazyGPU(false)
-	var frames, clicks atomic.Int32
-	view := func(c *ui.Context) {
-		frames.Add(1)
-		ui.Box(c).Fill().Background(ui.RGB(30, 144, 255)).Children(func() {
-			if ui.Box(c).Size(200, 100).Background(ui.RGB(255, 0, 0)).Clicked() {
-				clicks.Add(1)
-			}
-		})
-	}
-	w := newWindow(t, mygo.WindowOptions{Title: "Lazy GPU", Width: 400, Height: 300, TitleBarStyle: mygo.TitleBarHidden,
-		Content: ui.View(view)})
-	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
-	if how, _, _, _, _ := glSurface(w); how != "cairo" {
-		t.Fatalf("the surface draws %q before asking for the GPU, not with cairo", how)
-	}
-	if !useGPU(w) {
-		t.Skip("OpenGL draws on the CPU here: set MYGO_GPU=1")
-	}
-	if !surfaceInputLowest(w) {
-		t.Error("the surface's input window went over the title bar's controls")
-	}
-	var pix []byte
-	var gw int
-	eventually(t, "a frame shown through OpenGL", func() bool {
-		var how string
-		how, pix, gw, _, _ = glSurface(w)
-		return how != "cairo" && how != "" && len(pix) > 0
-	})
-	s := deviceScale(w)
-	bgra := func(x, y float64) []byte { return pix[(int(y*s)*gw+int(x*s))*4:][:4] }
-	if c := bgra(100, 50); c[2] < 200 || c[0] > 60 {
-		t.Errorf("the red box is %v (BGRA) in the GtkGLArea", c)
-	}
-	if c := bgra(300, 250); c[0] < 200 || c[2] > 60 {
-		t.Errorf("the background is %v (BGRA) in the GtkGLArea", c)
-	}
-	if !click(w, 100, 50) {
-		t.Skip("click automation not available on this platform")
-	}
-	eventually(t, "the click", func() bool { return clicks.Load() == 1 })
-}
-
 // TestContentWindowRepaintsWhatChanged moves the red row of a window of
-// native UI under a menu bar, and reads what the display shows. On Linux,
-// GTK repaints only what frames drawn in memory changed, which a GtkGLArea
-// tells it where its GdkWindow, its parent's, has it: below the menu bar.
+// native UI drawing in memory under a menu bar, and reads what the display
+// shows. On Linux, GTK repaints only what frames drawn in memory changed,
+// below the menu bar.
 func TestContentWindowRepaintsWhatChanged(t *testing.T) {
-	if !lazyGPU(true) {
+	if !memoryUI(t) {
 		t.Skip("only Linux repaints what frames drawn in memory changed")
 	}
-	defer lazyGPU(false)
 	prev := mygo.App.Menu()
 	defer mygo.App.SetMenu(prev)
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))

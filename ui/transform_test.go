@@ -2,6 +2,8 @@ package ui
 
 import (
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/scene"
+	"github.com/egoist/mygo/transfer"
 	"image/color"
 	"math"
 	"testing"
@@ -134,6 +136,18 @@ func TestTransformCaretAccessibilityAndAnchor(t *testing.T) {
 	closeFloat(t, caret.Y, r.Y)
 	closeFloat(t, caret.W, r.W)
 	closeFloat(t, caret.H, r.H)
+	drawnCaret := false
+	for _, op := range tt.h.last.Ops {
+		if op.Kind == scene.OpFill && op.Rect.W == 1 && op.Color == tt.rt.c.theme.Accent.scene() {
+			drawnCaret = true
+			if op.Transform != s.world.Pixels(tt.h.scale) {
+				t.Fatal("painted caret did not follow the input's transform")
+			}
+		}
+	}
+	if !drawnCaret {
+		t.Fatal("no painted caret")
+	}
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
 	n := node(t, tt.h.access, platform.RoleTextField, "transformed input")
 	b := input.Bounds()
@@ -145,6 +159,86 @@ func TestTransformCaretAccessibilityAndAnchor(t *testing.T) {
 	}
 	if panel.world.Set {
 		t.Fatal("overlay inherited anchor's rotation")
+	}
+}
+
+func TestTransformedTextInputClientGeometry(t *testing.T) {
+	client := &primitiveClient{text: "hello", selection: TextInputSelection{Range: TextInputRange{Start: 3, End: 3}}}
+	var e *Element
+	xScale := float32(1.5)
+	tt := NewTester(func(c *Context) {
+		e = Box(c).Absolute().Left(80).Top(60).Size(100, 40).TransformOrigin(0, 0).Scale(xScale, 1.2).Rotate(30).HandleTextInput(client).AutoFocus()
+	}, 400, 250)
+	defer tt.rt.close()
+	native := tt.h.ime.Client
+	for _, r := range []TextInputRange{{Start: 3, End: 3}, {Start: 1, End: 4}} {
+		local, _, _ := client.BoundsForRange(r)
+		want := transformRect(e.world, Rect{X: e.x + local.X, Y: e.y + local.Y, W: local.W, H: local.H})
+		got, actual, ok := native.BoundsForRange(r)
+		if !ok || actual != r {
+			t.Fatal("native range geometry unavailable", actual, ok)
+		}
+		closeFloat(t, float32(got.X), want.X)
+		closeFloat(t, float32(got.Y), want.Y)
+		closeFloat(t, float32(got.W), want.W)
+		closeFloat(t, float32(got.H), want.H)
+	}
+	x, y := e.LocalToWindow(18, 15)
+	if index, ok := native.IndexForPoint(float64(x), float64(y)); !ok || index != 4 {
+		t.Fatal("transformed native hit test", index, ok)
+	}
+	xScale = 0
+	tt.Frame()
+	if _, ok := native.IndexForPoint(float64(x), float64(y)); ok {
+		t.Fatal("collapsed native client accepted a hit")
+	}
+}
+
+func TestTransformedContainerTextSelection(t *testing.T) {
+	var first, second *Element
+	tt := NewTester(func(c *Context) {
+		Column(c).Absolute().Left(100).Top(70).Width(160).Rotate(30).Selectable().Children(func() {
+			first = Text(c, "Alpha beta")
+			second = Text(c, "Gamma delta")
+		})
+	}, 400, 250)
+	defer tt.rt.close()
+	point := func(e *Element, at int) (float32, float32) {
+		ed := e.st.editor
+		x, y, h := ed.layout.Caret(at)
+		return e.LocalToWindow(ed.originX+x, ed.originY+y+h/2)
+	}
+	x, y := point(first, 2)
+	tt.Press(x, y)
+	x, y = point(second, 4)
+	tt.Move(x, y)
+	tt.Release(x, y)
+	tt.Key(Cmd, KeyC)
+	if got := tt.Clipboard(); got != "pha beta\nGamm" {
+		t.Fatalf("transformed selection copied %q", got)
+	}
+}
+
+func TestTransformedNativeDragPreviewHotspot(t *testing.T) {
+	var e *Element
+	tt := NewTester(func(c *Context) {
+		e = Box(c).Absolute().Left(80).Top(60).Size(80, 40).Scale(1.5, 1.2).Rotate(30).Background(RGB(230, 20, 30)).DragData(transfer.TextData("drag"))
+	}, 400, 250)
+	defer tt.rt.close()
+	x, y := e.LocalToWindow(15, 15)
+	tt.Press(x, y)
+	tt.Move(x+10, y+10)
+	o := tt.h.dragOptions
+	if o.Preview == nil {
+		t.Fatal("transformed source has no native preview")
+	}
+	b := e.Bounds()
+	if o.Hotspot.X != int(x-b.X) || o.Hotspot.Y != int(y-b.Y) {
+		t.Fatal("native preview hotspot lost the press", o.Hotspot, b)
+	}
+	got := color.RGBAModel.Convert(o.Preview.At(o.Hotspot.X, o.Hotspot.Y)).(color.RGBA)
+	if got.R != 230 || got.G != 20 || got.B != 30 {
+		t.Fatal("native preview does not show the transformed source at the press", got)
 	}
 }
 

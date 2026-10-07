@@ -129,6 +129,8 @@ const (
 	// flagDividers marks an element drawing lines between its children,
 	// listed in Context.dividers.
 	flagDividers
+	// flagUnselectable excludes text from a surrounding Selectable container.
+	flagUnselectable
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY
@@ -162,6 +164,8 @@ type textStyle struct {
 	decoColor  Color
 	decoThick  float32
 	background Color
+	// selection is the highlight of selected text, the theme's when unset.
+	selection Color
 }
 
 const (
@@ -179,9 +183,10 @@ const (
 	setDecoColor
 	setDecoThick
 	setBackground
+	setSelection
 
 	// setAll has every bit of textStyle.set.
-	setAll = setBackground<<1 - 1
+	setAll = setSelection<<1 - 1
 )
 
 // Element is a node of a frame's user interface. The functions that create
@@ -253,9 +258,10 @@ type Element struct {
 
 	// Input the element takes itself (HandleInput), and where the caret of
 	// the text it takes is (TextCaret).
-	inputFn   func(InputEvent) bool
-	caret     Rect
-	takesText bool
+	inputFn    func(InputEvent) bool
+	textClient TextInputClient
+	caret      Rect
+	takesText  bool
 
 	// Content.
 	text     string
@@ -892,6 +898,23 @@ func (e *Element) Font(family string) *Element { e.ts.family = family; e.ts.set 
 
 // TextColor sets the color of text.
 func (e *Element) TextColor(c Color) *Element { e.ts.color = c; e.ts.set |= setColor; return e }
+
+// SelectionColor sets the highlight of selected text in the element and
+// the text inside it, as text on a colored bubble needs one that shows
+// on it; the theme's Selection is the highlight elsewhere.
+func (e *Element) SelectionColor(c Color) *Element {
+	e.ts.selection = c
+	e.ts.set |= setSelection
+	return e
+}
+
+// selectionColor is the highlight of the style's selected text.
+func (ts *textStyle) selectionColor(t *Theme) Color {
+	if ts.set&setSelection != 0 {
+		return ts.selection
+	}
+	return t.Selection
+}
 
 // LineHeight sets the height of lines of text as a multiple of the font
 // size.

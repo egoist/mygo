@@ -54,8 +54,12 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.pointerMove(x, y)
 		rt.scroll(float32(ev.DX), float32(ev.DY), Modifiers(ev.Mods), ev.Precise)
 	case platform.KeyPressed:
+		rt.modsChanged(Modifiers(ev.Mods))
 		taken = rt.keyDown(Modifiers(ev.Mods), Key(ev.Key), ev.Repeat)
+	case platform.ModifiersChanged:
+		rt.modsChanged(Modifiers(ev.Mods))
 	case platform.KeyReleased:
+		rt.modsChanged(Modifiers(ev.Mods))
 		if h := rt.focusHandler(); h != nil {
 			rt.deliver(h, InputEvent{Kind: InputKeyUp, Key: Key(ev.Key), Mods: Modifiers(ev.Mods)})
 		}
@@ -71,6 +75,9 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.requestFrame()
 	case platform.SurfaceBlur:
 		rt.windowFocused = false
+		rt.selection.dragging = false
+		// Keys let go of elsewhere never come back up here.
+		rt.modsChanged(0)
 		if p := rt.pressed; p != nil {
 			// The release will not come: an element taking its input
 			// gets one now.
@@ -87,6 +94,12 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.fileDrag(-1, -1)
 	case platform.FileDrop:
 		taken = rt.fileDrop(x, y, ev.Files)
+	case platform.DataDragOver:
+		taken = rt.dataDragOver(x, y, ev.Drag)
+	case platform.DataDragLeave:
+		rt.clearDataOver()
+	case platform.DataDrop:
+		taken = rt.dataDrop(x, y, ev.Drag)
 	case platform.AccessibilityOn:
 		rt.accessibilityOn()
 	case platform.AccessAction:
@@ -186,6 +199,9 @@ func (rt *engine) pointerMove(x, y float32) {
 	}
 	moved := x != rt.pointerX || y != rt.pointerY
 	rt.pointerX, rt.pointerY, rt.pointerIn = x, y, true
+	if rt.selection.dragging && rt.pressed != nil {
+		rt.moveTextSelection(x, y)
+	}
 	if rt.pressed == nil {
 		// The chain goes in a buffer, which the hover's last chain
 		// becomes when the hover takes it.
@@ -297,6 +313,9 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 	rt.pressed, rt.pressButton = target, button
 	target.pressed, target.pressMods = true, mods
 	target.pressX, target.pressY = target.local(x, y)
+	if button == 0 && rt.pressTextSelection(target, x, y, mods, clicks) {
+		return
+	}
 	if target.editor != nil {
 		target.editor.pressMods = mods
 		target.editor.press(target.pressX, target.pressY, clicks, button)
@@ -328,6 +347,10 @@ func (rt *engine) pointerUp(button, clicks int) {
 	s := rt.pressed
 	if s == nil || button != rt.pressButton {
 		return
+	}
+	if rt.selection.dragging {
+		rt.moveTextSelection(rt.pointerX, rt.pointerY)
+		rt.selection.dragging = false
 	}
 	rt.pressed = nil
 	s.pressed = false
@@ -518,6 +541,10 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 		return false
 	}
 	if s := rt.states[rt.focused]; s != nil && s.editor != nil && s.flags&(flagEditable|flagSelectable) != 0 && s.editor.wants(k) {
+		if rt.textSelectionKey(s, k) {
+			rt.requestFrame()
+			return false
+		}
 		s.editor.queue = append(s.editor.queue, editEvent{kind: editKey, mods: mods, key: key})
 		rt.blinkStart = time.Now()
 		rt.requestFrame()
@@ -708,6 +735,22 @@ func (rt *engine) shortcut(id uint64, mods Modifiers, key Key) bool {
 }
 
 func (rt *engine) editEvent(ev editEvent) {
+	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocused && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
+		if ev.kind == editInsert || ev.kind == editCompose {
+			var r *TextInputRange
+			if ev.replace {
+				v := TextInputRange{Start: ev.from, End: ev.to}
+				r = &v
+			}
+			if ev.kind == editInsert {
+				s.textAdapter.ReplaceText(r, ev.text)
+			} else {
+				caret := platform.UTF16Len(string([]rune(ev.text)[:max(0, min(ev.caret, len([]rune(ev.text))))]))
+				s.textAdapter.SetMarkedText(r, ev.text, TextInputRange{Start: caret, End: caret})
+			}
+			return
+		}
+	}
 	if h := rt.focusHandler(); h != nil && h.editor == nil {
 		kind := map[editKind]InputKind{editInsert: InputText, editCompose: InputCompose, editCommand: InputCommand}[ev.kind]
 		if kind != 0 && rt.deliver(h, InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret}) {
@@ -723,6 +766,10 @@ func (rt *engine) editEvent(ev editEvent) {
 	if s.flags&flagEditable == 0 && (s.flags&flagSelectable == 0 || ev.kind != editCommand) {
 		return
 	}
+	if ev.kind == editCommand && rt.textSelectionCommand(s, ev.text) {
+		rt.requestFrame()
+		return
+	}
 	s.editor.queue = append(s.editor.queue, ev)
 	rt.blinkStart = time.Now()
 	rt.requestFrame()
@@ -736,24 +783,28 @@ const imeContext = 512
 func (rt *engine) updateTextInput() {
 	var t platform.TextInputState
 	base := 0
-	if s := rt.states[rt.focused]; s != nil && s.editor == nil && s.input != nil && s.takesText && rt.windowFocused {
+	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocused && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
+		t.Active, t.Client = true, s.textAdapter
+		sel := s.textAdapter.Selection()
+		caret := sel.Caret()
+		if bounds, _, ok := s.textAdapter.BoundsForRange(TextInputRange{Start: caret, End: caret}); ok {
+			t.Caret = bounds
+		} else {
+			r := transformRect(s.world, Rect{X: s.x, Y: s.y, W: 1, H: s.h})
+			t.Caret = platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
+		}
+	} else if s != nil && s.editor == nil && s.input != nil && s.takesText && rt.windowFocused {
 		// An element taking text itself: no text around the caret.
 		t.Active = true
 		r := transformRect(s.world, Rect{s.x + s.caret.X, s.y + s.caret.Y, s.caret.W, s.caret.H})
 		t.Caret = platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
-	} else if s != nil && s.editor != nil && s.flags&flagEditable != 0 && !s.editor.readOnly && rt.windowFocused {
-		ed := s.editor
-		r := transformRect(s.world, ed.caretRect(s))
-		t.Active = true
-		t.Caret = platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
-		if !ed.password {
-			a, z := ed.selection()
-			base = max(0, a-imeContext)
-			end := min(ed.buf.n, z+imeContext)
-			t.Text, t.Start, t.End = ed.buf.slice(base, end), a-base, z-base
-		}
 	}
 	if t != rt.ime.state {
+		if t.Client != rt.ime.state.Client {
+			if old, ok := rt.ime.state.Client.(*textInputAdapter); ok {
+				old.release()
+			}
+		}
 		rt.ime.state, rt.ime.base = t, base
 		rt.host.setTextInput(t)
 	}
@@ -762,6 +813,12 @@ func (rt *engine) updateTextInput() {
 // replaced makes an edit replace the runes an input method named, from
 // the text it was last given, rather than the selection.
 func (rt *engine) replaced(ev editEvent, sev platform.SurfaceEvent) editEvent {
+	if rt.ime.state.Client != nil {
+		if sev.Replace {
+			ev.replace, ev.from, ev.to = true, sev.From, sev.To
+		}
+		return ev
+	}
 	if sev.Replace && rt.ime.state.Active {
 		n := len([]rune(rt.ime.state.Text))
 		from, to := max(0, min(sev.From, n)), max(0, min(sev.To, n))
@@ -1003,3 +1060,17 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 	}
 	return false
 }
+
+// modsChanged takes the modifier keys held now, drawing a frame when they
+// changed, for views that show what a held key would do.
+func (rt *engine) modsChanged(mods Modifiers) {
+	if rt.mods != mods {
+		rt.mods = mods
+		rt.requestFrame()
+	}
+}
+
+// Modifiers returns the modifier keys held now, as the last key, pointer
+// or modifier event said: a view showing each row's shortcut while Cmd is
+// held reads it, and draws again as it changes.
+func (c *Context) Modifiers() Modifiers { return c.rt.mods }
