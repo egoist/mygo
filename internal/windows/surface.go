@@ -298,6 +298,15 @@ func (s *surface) send(ev platform.SurfaceEvent) bool {
 	return s.w.h.SurfaceEvent(ev)
 }
 
+// modifierKey is whether the virtual key vk is Shift, Ctrl, Alt or a Windows key.
+func modifierKey(vk uintptr) bool {
+	switch vk {
+	case vkShift, vkControl, vkMenu, vkLWin, vkRWin, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5:
+		return true
+	}
+	return false
+}
+
 func mods() platform.Modifiers {
 	var m platform.Modifiers
 	down := func(vk uintptr) bool {
@@ -446,12 +455,18 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		return 0, true
 	case wmKeyDown, wmSysKeyDown:
 		s.keyTaken = false
+		if modifierKey(wp) {
+			s.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: mods()})
+		}
 		if k := vkKey(wp); k != platform.KeyUnknown {
 			s.keyTaken = s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, Mods: mods(), Repeat: lp&(1<<30) != 0})
 		}
 		// Alt+F4, Alt+Space and F10 keep working.
 		return 0, m == wmKeyDown
 	case wmKeyUp, wmSysKeyUp:
+		if modifierKey(wp) {
+			s.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: mods()})
+		}
 		if k := vkKey(wp); k != platform.KeyUnknown {
 			s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k, Mods: mods()})
 		}
