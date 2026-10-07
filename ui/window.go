@@ -13,12 +13,6 @@ import (
 	"github.com/egoist/mygo/internal/text"
 )
 
-// Content is a user interface for a window, the value of
-// mygo.WindowOptions.Content. Create it with View.
-type Content struct {
-	view func(*Context)
-}
-
 // View returns the content of a window whose user interface view builds,
 // for mygo.WindowOptions.Content:
 //
@@ -58,6 +52,7 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 		}
 	}
 	h.uiFont()
+	previewAttach(v, h)
 	// Load the fonts while the window shows up.
 	go text.Shared().Preload()
 	conn.Surface.RequestFrame()

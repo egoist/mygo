@@ -274,7 +274,7 @@ func newRuntime(view func(*Context), h host) *engine {
 
 func (rt *engine) defaultTheme() *Theme {
 	if !rt.darkKnown {
-		rt.dark, rt.darkKnown = rt.host.isDark(), true
+		rt.dark, rt.darkKnown = previewAppearance(rt, rt.host.isDark()), true
 		rt.themeOK = false
 	}
 	if !rt.prefsKnown {
@@ -302,11 +302,15 @@ func (rt *engine) themeChanged() {
 
 // runFrame builds, lays out, paints and presents a frame.
 func (rt *engine) runFrame() {
-	if rt.inFrame {
+	if rt.inFrame || previewClosed(rt) {
 		return
 	}
 	rt.inFrame = true
 	defer func() { rt.inFrame = false }()
+	previewPrepareFrame(rt)
+	if previewClosed(rt) {
+		return
+	}
 
 	rt.frame++
 	rt.stats.begin(rt)
@@ -371,6 +375,7 @@ func (rt *engine) runFrame() {
 	rt.texts = rt.texts[:0]
 	rt.collectSelectable(root, false)
 	rt.syncTextSelection()
+	rt.previewHover()
 	rt.stats.lap(phaseLayout)
 	rt.insp.lap(1)
 	if rt.insp.open {
@@ -462,6 +467,9 @@ func (rt *engine) repaintNow() {
 // elements painted again when only drawings moved since, else a frame
 // built anew.
 func (rt *engine) surfaceFrame() {
+	if !previewPrepareSurface(rt) {
+		return
+	}
 	if w, h, scale := rt.host.size(); rt.redraw && !rt.inFrame && rt.c.root != nil &&
 		rt.painted == [3]float32{w, h, scale} && rt.text.Generation() == rt.gen {
 		rt.repaintFrame(w, h, scale)
@@ -644,6 +652,9 @@ func (rt *engine) armTimer() {
 }
 
 func (rt *engine) close() {
+	if previewCloseBegin(rt) {
+		return
+	}
 	rt.textInputClosed = true
 	for _, s := range rt.states {
 		if s.textAdapter != nil {
@@ -656,6 +667,7 @@ func (rt *engine) close() {
 	if rt.repaintTimer != nil {
 		rt.repaintTimer.Stop()
 	}
+	previewCloseEnd(rt)
 }
 
 // commit records the laid out frame in the elements' states: their

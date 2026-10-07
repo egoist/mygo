@@ -11,6 +11,9 @@ import (
 // event handles a surface event on the main thread. It reports whether
 // an element takes files dragged over or dropped at the event's position.
 func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
+	if previewClosed(rt) {
+		return false
+	}
 	if ev.Kind != platform.SurfaceFrame {
 		// Whatever the event changes, the next frame builds anew.
 		rt.redraw = false

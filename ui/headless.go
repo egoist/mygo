@@ -99,6 +99,7 @@ func (h *headless) image() *image.RGBA {
 // device pixels per DIP, without a window: for snapshots and tests.
 func Render(view func(c *Context), width, height int, scale float32) *image.RGBA {
 	t := NewTester(view, width, height)
+	defer t.Close()
 	t.SetScale(scale)
 	return t.Image()
 }
@@ -107,25 +108,57 @@ func Render(view func(c *Context), width, height int, scale float32) *image.RGBA
 // frames in memory and sends the view pointer and keyboard input, between
 // which it settles the frames the view asks for.
 type Tester struct {
-	rt *engine
-	h  *headless
+	rt     *engine
+	h      *headless
+	closed bool
 }
 
 // NewTester starts testing view in a window of width×height DIPs. Two
 // elements given one key under one parent make it panic where the second
 // was given, as apps only log it.
 func NewTester(view func(c *Context), width, height int) *Tester {
+	return newTester(view, width, height, nil)
+}
+
+func newTester(view func(*Context), width, height int, setup func(*engine)) *Tester {
 	h := &headless{w: float32(width), h: float32(height), scale: 1}
 	t := &Tester{rt: newRuntime(view, h), h: h}
+	ready := false
+	defer func() {
+		if !ready {
+			t.Close() // a factory or the first frame panicked
+		}
+	}()
 	t.rt.collect = true
 	// Duplicate keys panic, so that the test fails where the key was given.
 	t.rt.strict = true
+	if setup != nil {
+		setup(t.rt)
+	}
 	t.settle()
+	ready = true
 	return t
+}
+
+// Close stops the view's timers and disposes its preview sample, if any.
+// Call it when finished with a Tester, on the thread driving the test.
+// It is safe to call more than once. Later frames and input do nothing.
+func (t *Tester) Close() {
+	if t.closed {
+		return
+	}
+	t.closed = true
+	t.rt.close()
+	t.h.later = nil
+	t.h.chosen, t.h.menu = nil, nil
+	t.h.img.Release()
 }
 
 // settle runs frames until the view asks for no more, or 20 of them.
 func (t *Tester) settle() {
+	if t.closed {
+		return
+	}
 	for i := 0; i < 20; i++ {
 		t.h.requested.Store(false)
 		for len(t.h.later) > 0 {
@@ -141,6 +174,9 @@ func (t *Tester) settle() {
 }
 
 func (t *Tester) send(ev platform.SurfaceEvent) {
+	if t.closed {
+		return
+	}
 	t.rt.event(ev)
 	t.settle()
 }

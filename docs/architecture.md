@@ -1298,6 +1298,21 @@ either.
   tag `mygo_noinspector` (`inspector_off.go` stands in for it, never
   open), added to the tags of `GOFLAGS`, unless `-debug` or
   `MYGO_INSPECTOR=1`.
+- **Interactive previews** (`ui/preview*.go`). A `Preview` coordinates
+  sample factories and configurations, invalidating its attached hosts
+  safely from any goroutine. Each host owns its sample and disposes it on
+  replacement or detach. The existing engine uses the configured size,
+  scale, appearance and preferences; locale stays a sample configuration
+  hook. The native preview host fits the raster renderer's image into the
+  window through its ordinary renderer and maps input, IME, menus and
+  accessibility bounds accordingly. The inspector shares the simulated
+  viewport. `Preview.NewTester` uses that same engine with the existing
+  headless host; `Tester.Close` stops timers and disposes its sample.
+  Default production builds exclude the playground alongside the inspector.
+  Preview state lives in the inspector's development-only storage; empty
+  production hooks inline away and the production engine/Content retain
+  their original shape. The environment accessor is a free function so
+  reflected Context methods do not retain preview types in release apps.
 - **Input taken as it comes.** An element with `HandleInput` gets its
   input on the main thread as the backend reports it, before the frame
   (`ui/handler.go`): keys (with their releases, which ui otherwise
