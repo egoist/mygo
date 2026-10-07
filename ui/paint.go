@@ -93,6 +93,11 @@ func (p *Painter) visible(r Rect, margin float32) bool {
 }
 
 func (p *Painter) element(e *Element) {
+	if tc := e.tableCell; tc != nil && tc.row.geometry.pinned {
+		saved := p.clip
+		p.pushClip(tc.clip, [4]float32{})
+		defer func() { p.popClip(); p.clip = saved }()
+	}
 	if e.styleFn != nil {
 		e.styleFn(e)
 	}

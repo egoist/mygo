@@ -301,6 +301,15 @@ func (rt *engine) accessElement(t *platform.AccessTree, e *Element, parent int, 
 			n.Actions |= platform.ActionScrollIntoView
 		}
 		rt.accessDetails(e, &n)
+		// Frozen columns clip the visible part of their cells and editor
+		// controls. Use exactly the hit-test viewport for these bounds.
+		for p := e; p != nil; p = p.parent {
+			if p.tableCell != nil && p.tableCell.row.geometry.pinned {
+				st := e.st
+				n.Bounds = platform.RectF{X: float64(st.vx), Y: float64(st.vy), W: float64(st.vw), H: float64(st.vh)}
+				break
+			}
+		}
 		t.Nodes = append(t.Nodes, n)
 		parent = len(t.Nodes) - 1
 		if e.kind == kindText {

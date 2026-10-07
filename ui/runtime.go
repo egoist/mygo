@@ -698,6 +698,9 @@ func (rt *engine) commit(root *Element, w, h float32) {
 }
 
 func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
+	if tc := e.tableCell; tc != nil && tc.row.geometry.pinned {
+		clip = intersect(clip, tc.clip)
+	}
 	inline := e.isInline()
 	if e.kind == kindText && e.first != nil && !inline {
 		placeInline(e, e, 0)

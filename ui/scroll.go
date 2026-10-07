@@ -138,6 +138,13 @@ func reveal(e *Element) {
 		e = e.parent
 	}
 	x, y, w, h := e.x, e.y, e.w, e.h
+	var cell *tableCellLayout
+	for p := e; p != nil; p = p.parent {
+		if p.tableCell != nil {
+			cell = p.tableCell
+			break
+		}
+	}
 	frame := e.c.rt.frame
 	for ch, p := e, e.parent; p != nil; ch, p = p, p.parent {
 		if p.scrolls() && ch.flags&flagAbsolute == 0 {
@@ -147,7 +154,15 @@ func reveal(e *Element) {
 			// Where the box is in the content: a List placed its rows
 			// from scrollBase.
 			cx, cy := float64(x), float64(y)+p.scrollBase
-			sx := max(0, min(nearest(st.scrollX, cx, w, p.border[3], p.w-p.border[1]), mx))
+			lo, hi := p.border[3], p.w-p.border[1]
+			if cell != nil && cell.row.geometry.list == p {
+				left, right := cell.row.insets()
+				lo, hi = max(lo, left), min(hi, p.w-right)
+			}
+			sx := max(0, min(nearest(st.scrollX, cx, w, lo, hi), mx))
+			if cell != nil && cell.pin != PinNone && cell.row.geometry.list == p {
+				sx = st.scrollX
+			}
 			sy := max(0, min(nearest(st.scrollY, cy, h, p.border[0], p.h-p.border[2]), my))
 			if sx != st.scrollX || sy != st.scrollY {
 				st.beginMove(frame)
@@ -156,6 +171,7 @@ func reveal(e *Element) {
 					// those it lacked, which moves the row holding the box.
 					was := ch.y
 					p.relayoutList(ch, sy)
+					st.scrollTo(sx, st.scrollY)
 					cy = float64(y+ch.y-was) + p.scrollBase
 				} else {
 					st.scrollTo(sx, sy)

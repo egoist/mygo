@@ -24,7 +24,21 @@ type TableColumn struct {
 	// Fixed keeps the column where it is and as wide as it is: the user
 	// neither moves nor resizes it.
 	Fixed bool
+	// Pin freezes the column at the left or right of the viewport while
+	// the other columns scroll. Unlike Fixed, a pinned column may be
+	// resized and moved within its pinned group.
+	Pin TablePin
 }
+
+// TablePin is the edge at which a column is frozen. Left-pinned columns
+// precede scrolling columns; right-pinned columns follow them.
+type TablePin uint8
+
+const (
+	PinNone TablePin = iota
+	PinLeft
+	PinRight
+)
 
 func (col *TableColumn) id() string {
 	if col.ID != "" {
@@ -53,26 +67,36 @@ type TableLayout struct {
 // fixed columns where they are.
 func (l *TableLayout) arrange(columns []TableColumn) []int {
 	order := make([]int, 0, len(columns))
-	var named []int
-	for _, id := range l.Order {
-		if j := slices.IndexFunc(columns, func(col TableColumn) bool { return col.id() == id }); j >= 0 && !columns[j].Fixed && !slices.Contains(named, j) {
-			named = append(named, j)
+	for _, col := range columns {
+		if col.Pin > PinRight {
+			panic("ui: invalid TableColumn.Pin")
 		}
 	}
-	// Fixed columns at their place, the others in the layout's order, then
-	// in theirs.
-	movable := append([]int(nil), named...)
-	for j := range columns {
-		if !columns[j].Fixed && !slices.Contains(named, j) {
-			movable = append(movable, j)
+	// Arrange each pin group independently, with fixed columns at their
+	// original position in that group, as unpinned columns were before.
+	for _, pin := range []TablePin{PinLeft, PinNone, PinRight} {
+		var movable []int
+		for _, id := range l.Order {
+			j := slices.IndexFunc(columns, func(col TableColumn) bool { return col.id() == id })
+			if j >= 0 && columns[j].Pin == pin && !columns[j].Fixed && !slices.Contains(movable, j) {
+				movable = append(movable, j)
+			}
 		}
-	}
-	for j := range columns {
-		if columns[j].Fixed {
-			order = append(order, j)
-		} else {
-			order = append(order, movable[0])
-			movable = movable[1:]
+		for j, col := range columns {
+			if col.Pin == pin && !col.Fixed && !slices.Contains(movable, j) {
+				movable = append(movable, j)
+			}
+		}
+		for j, col := range columns {
+			if col.Pin != pin {
+				continue
+			}
+			if col.Fixed {
+				order = append(order, j)
+			} else {
+				order = append(order, movable[0])
+				movable = movable[1:]
+			}
 		}
 	}
 	return order
@@ -105,7 +129,14 @@ type tableDrag struct {
 	dx     float32
 	moving bool
 	// fit is the column to fit to its cells in this frame, by ID.
-	fit string
+	fit    string
+	resize *tableResize
+}
+
+type tableResize struct {
+	id       string
+	x, width float32
+	started  bool
 }
 
 // Table creates a table of n rows under a header of columns, whose rows
@@ -160,6 +191,17 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 	drag := Local(table, "drag", func() tableDrag { return tableDrag{} })
 	layout := &s.Columns
 	order := layout.arrange(columns)
+	geometry := &tableGeometry{columns: columns, order: order}
+	columnKeys := make(map[string]int, len(columns))
+	for _, col := range columns {
+		columnKeys[col.id()]++
+		geometry.pinned = geometry.pinned || col.Pin != PinNone
+	}
+	var interaction *tableCellFrame
+	if s.Cells != nil {
+		interaction = &tableCellFrame{c: c, owner: table, s: s, state: s.Cells, columns: columns, order: order, n: max(n, 0)}
+		interaction.sync()
+	}
 	// The least width of the rows: the columns', those sharing the room
 	// left at their least.
 	flexMin := t.Space(15)
@@ -174,11 +216,19 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 	// fitting are the cells of the column fitting its cells.
 	var fitting []*Element
 	// cells builds a row's cells, with fill building the content of each.
-	cells := func(role Role, fill func(col int)) []*Element {
+	cells := func(container *Element, role Role, row int, fill func(col int)) []*Element {
 		boxes := make([]*Element, 0, len(order))
-		for _, j := range order {
+		placement := &tableRowLayout{geometry: geometry}
+		container.tableRow = placement
+		for k, j := range order {
 			col := &columns[j]
 			box := Row(c).Padding(t.Space(1.5), t.Space(2.5)).AlignItems(Center).Shrink(0).Clip().Role(role)
+			// Legacy tables may have unnamed/duplicate column IDs. Cell
+			// mode requires stable IDs, but existing tables still build.
+			if id := col.id(); id != "" && columnKeys[id] == 1 {
+				box.Key(id)
+			}
+			box.tableCell = &tableCellLayout{row: placement, column: j, pin: col.Pin}
 			if w, ok := layout.width(col); ok {
 				box.Width(w)
 			} else {
@@ -190,20 +240,26 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 			case End:
 				box.Justify(End)
 			}
-			box.Children(func() { fill(j) })
+			if interaction != nil && role == RoleCell {
+				interaction.cell(box, row, k, func() { fill(j) })
+			} else {
+				box.Children(func() { fill(j) })
+			}
 			if drag.fit != "" && drag.fit == col.id() {
 				fitting = append(fitting, box)
 			}
 			boxes = append(boxes, box)
 		}
+		placement.cells = boxes
 		return boxes
 	}
 	var list *Element
 	table.Children(func() {
 		// The header, which scrolls sideways with the rows.
 		head := Row(c).Height(tableRow).Shrink(0).AlignItems(Stretch).Role(RoleRow).Clip()
+		geometry.head = head
 		head.Children(func() {
-			heads := cells(RoleColumnHeader, func(j int) {
+			heads := cells(head, RoleColumnHeader, -1, func(j int) {
 				col := &columns[j]
 				Text(c, col.Title).SingleLine().FontWeight(600).TextColor(t.TextMuted)
 				if s.Sort != nil && col.Sortable && s.Sort.Column == col.id() {
@@ -221,6 +277,7 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 		list.widget = "List"
 		list.flags |= flagScrollX
 		list.rowMinW = least
+		geometry.list = list
 		head.followX = list
 		buildList(c, list, table, s, n, func(i int) {
 			row := Row(c).MinHeight(tableRow).AlignItems(Stretch)
@@ -241,10 +298,13 @@ func table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row
 				}
 			}
 			row.Children(func() {
-				cells(RoleCell, func(j int) { cell(i, j) })
+				cells(row, RoleCell, i, func(j int) { cell(i, j) })
 			})
 		}, kind)
 	})
+	if interaction != nil {
+		interaction.navigate()
+	}
 	if id := drag.fit; id != "" {
 		table.colFit = &tableFit{id: id, cells: fitting, layout: layout, drag: drag}
 	}
@@ -313,30 +373,45 @@ func tableHeader(c *Context, table, h *Element, col *TableColumn, s *ListState, 
 	grip := t.Space(2)
 	h.Children(func() {
 		edge := Box(c).Absolute().Top(0).Bottom(0).Right(0).Width(grip).Cursor(CursorResizeEW).Role(RoleNone)
-		edge.flags |= flagHover
+		edge.flags |= flagHover | flagDraggable
 		if edge.DoubleClicked() {
 			drag.fit = id
 			c.rt.consumed = true
 		}
-		if dx, _, held := edge.Dragged(); held && dx != 0 {
-			// The columns before it sharing the room left keep their
-			// widths, for the edge to follow the pointer: the room the
-			// column takes or gives comes from the columns after it, or
-			// scrolls.
-			for k, j := range order {
-				if heads[k] == h {
-					break
+		// Read the actual gesture as it arrives. A press, drag and release
+		// may all precede the next display frame; polling Dragged alone
+		// would then lose the resize after the button was released.
+		edge.HandleInput(func(ev InputEvent) bool {
+			switch ev.Kind {
+			case InputPointerDown:
+				if ev.Button == 0 {
+					drag.resize = &tableResize{id: id, x: c.rt.pointerX, width: h.Bounds().W}
 				}
-				if _, ok := s.Columns.width(&columns[j]); !ok {
-					s.setWidth(&columns[j], heads[k].Bounds().W)
+			case InputPointerMove:
+				if r := drag.resize; r != nil && r.id == id && ev.Button == 0 {
+					if !r.started {
+						// Flexible predecessors keep their widths so the
+						// resized edge follows the pointer.
+						for k, j := range order {
+							if heads[k] == h {
+								break
+							}
+							if _, ok := s.Columns.width(&columns[j]); !ok {
+								s.setWidth(&columns[j], heads[k].Bounds().W)
+							}
+						}
+						r.started = true
+					}
+					s.setWidth(col, r.width+c.rt.pointerX-r.x)
+					return true
+				}
+			case InputPointerUp:
+				if drag.resize != nil && drag.resize.id == id {
+					drag.resize = nil
 				}
 			}
-			w, ok := s.Columns.width(col)
-			if !ok {
-				w = h.Bounds().W // sharing the room left, as wide as it was
-			}
-			s.setWidth(col, w+dx)
-		}
+			return false
+		})
 		edge.Draw(func(p *Painter, r Rect) {
 			x := r.X + r.W - 0.5
 			color := t.Border
@@ -377,7 +452,7 @@ func moveColumn(c *Context, s *ListState, drag *tableDrag, heads []*Element, ord
 			to = at - 1
 		}
 	}
-	if to == at || columns[order[to]].Fixed {
+	if to == at || columns[order[to]].Fixed || columns[order[to]].Pin != columns[order[at]].Pin {
 		return
 	}
 	// Under the pointer still: the column's place moved by the other's

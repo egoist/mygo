@@ -110,11 +110,15 @@ type gallery struct {
 	outlineRow  int
 	outlineSort ui.SortOrder
 	// rows, chat and table keep the places of the lists of the List page.
-	rows     ui.ListState
-	chat     ui.ListState
-	table    ui.ListState
-	messages []message
-	draft    string
+	rows       ui.ListState
+	chat       ui.ListState
+	table      ui.ListState
+	sheet      ui.ListState
+	sheetCells ui.TableCellState
+	sheetSort  ui.SortOrder
+	sheetRows  []gallerySheetRow
+	messages   []message
+	draft      string
 }
 
 // galleryTask is a task of the Drag and drop card.
@@ -1000,6 +1004,7 @@ func (g *gallery) list(c *ui.Context) {
 			ui.Textf(c, "%d chosen. Shift-click or %s-click to choose several; type a name to go to it; %s renames. Click a header to sort, drag it to move the column, and drag its edge to resize it.", g.chosen.Len(), cmd, rename).FontSize(12).TextColor(t.TextMuted)
 		}).Grow(1)
 	})
+	g.sheetCard(c)
 	card(c, "Outline", func() {
 		// 100 folders of 100 files, in the order the Name column sorts.
 		names := func(prefix string, n int) []string {

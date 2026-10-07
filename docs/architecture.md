@@ -1545,6 +1545,20 @@ either.
   takes only once a row has such a text; a click on the text of a row
   chosen before the click edits it once the double-click time has
   passed.
+  Opting into `ListState.Cells` adds keyed cell ranges and draft editors
+  (`ui/table_cells.go`). Hooks read transfer values, validate whole batches
+  and apply them once; editor commits wait until rows finish building so
+  the app can immediately sort its model. Cell identities use row keys and
+  column IDs, while rectangles and TSV use the displayed order. Editors
+  use ordinary controls and their existing input-method context; unconfirmed
+  compositions never commit as values. `TableColumn.Pin`, independently of
+  `Fixed`, freezes columns at either edge (`ui/table_layout.go`): cells stay
+  in flow for measurement, placement changes their x, and a shared clip
+  limits painting, hit testing and accessibility bounds. Revealing a
+  scrolling cell accounts for both pinned regions, and attached editor
+  popovers use its frozen position. Cell roles, selection, stable IDs and
+  the active descendant are available to the collection-accessibility
+  providers without changing the platform contract.
 - **Outlines** (`ui/outline.go`). An outline flattens the open part of
   its tree into rows every frame (`OutlineState.flatten`), which a `List`
   or a `Table` builds as they show, keyed by their items. Rows are tree

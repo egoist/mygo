@@ -144,6 +144,9 @@ func place(e *Element, x, y float32) {
 		cx -= float32(s.scrollX)
 		cy -= float32(s.scrollY - e.scrollBase)
 	}
+	if e.tableRow != nil {
+		e.tableRow.place(cx)
+	}
 	for ch := e.first; ch != nil; ch = ch.next {
 		// A copy of an element leaving the flow stays where the flow was.
 		if ch.flags&flagAbsolute != 0 && ch.leaving != 1 {
@@ -1031,6 +1034,13 @@ func alongTarget(t0, tsize, at, self, size, off, limit float32) float32 {
 func laidOutOrigin(e *Element) (x, y float32) {
 	x, y = e.x, e.y
 	for ch, p := e, e.parent; p != nil; ch, p = p, p.parent {
+		if tc := ch.tableCell; tc != nil && tc.pin != PinNone {
+			// x includes the cell's old in-flow x. Its frozen x comes
+			// from the header; y still follows the row and its scrolling.
+			pinned := tc.pinnedOrigin() + x - ch.x
+			y = laidOutOriginY(ch, y)
+			return pinned, y
+		}
 		if ch.flags&flagAbsolute == 0 || ch.leaving == 1 {
 			if f := p.followX; f != nil {
 				x -= float32(f.st.scrollX)
@@ -1044,6 +1054,16 @@ func laidOutOrigin(e *Element) (x, y float32) {
 		y += p.y
 	}
 	return x, y
+}
+
+func laidOutOriginY(e *Element, y float32) float32 {
+	for ch, p := e, e.parent; p != nil; ch, p = p, p.parent {
+		if (ch.flags&flagAbsolute == 0 || ch.leaving == 1) && p.scrolls() {
+			y -= float32(p.st.scrollY - p.scrollBase)
+		}
+		y += p.y
+	}
+	return y
 }
 
 // laidOutBox returns where place, or commit for an inline element, will
