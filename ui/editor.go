@@ -2,6 +2,7 @@ package ui
 
 import (
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -84,6 +85,8 @@ type editor struct {
 	// wrapped text between them; zero for the paragraphs, at least three.
 	lines       [2]int
 	placeholder string
+	// ranges style runs of the text (TextRanges), sorted by Start.
+	ranges []TextRange
 	// layout is what the last frame laid out of a single-line input or a
 	// selectable text; area lays out a text area (textarea.go).
 	layout *text.Layout
@@ -784,6 +787,7 @@ func textInputBase(c *Context, value *string, multiline bool) *Element {
 	// ReadOnly, Password and Lines say again for the next frame's input, as
 	// the frame builds.
 	ed.readOnly, ed.password = false, false
+	ed.ranges = ed.ranges[:0]
 	ed.lines = [2]int{}
 	return e
 }
@@ -921,7 +925,11 @@ func (ed *editor) displayText() string {
 
 func (e *Element) inputParams(width float32) text.Params {
 	p := e.textParams(width)
-	p.Text = e.st.editor.displayText()
+	ed := e.st.editor
+	p.Text = ed.displayText()
+	if !ed.password && ed.compose == "" {
+		p.Spans, _ = ed.rangeSpans(0, ed.buf.n)
+	}
 	p.KeepSpaces = true
 	p.MaxLines = 0
 	if !e.st.editor.multiline {
@@ -1022,7 +1030,11 @@ func (e *Element) paintInput(p *Painter) {
 			p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, t.Selection, 0)
 		}
 	}
-	p.textLayout(l, ox, oy, ts.color, ts, nil)
+	var sp *spanPaint
+	if !ed.password && ed.compose == "" {
+		_, sp = ed.rangeSpans(0, ed.buf.n)
+	}
+	p.textLayout(l, ox, oy, ts.color, ts, sp)
 	if ed.compose != "" {
 		start := ed.caret
 		end := start + utf8.RuneCountInString(ed.compose)
@@ -1046,4 +1058,69 @@ func (e *Element) paintInput(p *Painter) {
 	}
 	p.popClip()
 	p.clip = saved
+}
+
+// TextRange styles runes Start up to End of a text input's text: their
+// color and, when Weight is set, their weight, as a message field shows
+// the mentions in what is typed.
+type TextRange struct {
+	Start, End int
+	Color      Color
+	Weight     int
+}
+
+// TextRanges styles runs of a text input's text, in the frames that call
+// it, with ranges that do not overlap. They follow the text as it is: an
+// app that finds them in the text finds them again as it changes. A
+// password shows none, nor a paragraph while an input method composes in
+// it.
+func (e *Element) TextRanges(ranges ...TextRange) *Element {
+	ed := e.st.editor
+	if ed == nil || e.flags&flagEditable == 0 {
+		return e
+	}
+	for _, r := range ranges {
+		if r.End > r.Start {
+			ed.ranges = append(ed.ranges, r)
+		}
+	}
+	slices.SortFunc(ed.ranges, func(a, b TextRange) int { return a.Start - b.Start })
+	return e
+}
+
+// rangeSpans returns the TextRanges in runes start up to end of the text,
+// from start: the spans of their weights for the layout ("" when none
+// sets one), and how to paint their colors (nil when none sets one).
+func (ed *editor) rangeSpans(start, end int) (string, *spanPaint) {
+	if len(ed.ranges) == 0 {
+		return "", nil
+	}
+	var styles []text.Span
+	var spans []Span
+	weighted, colored := false, false
+	at := start
+	for _, r := range ed.ranges {
+		from, to := max(r.Start, start), min(r.End, end)
+		if from >= to || from < at {
+			continue
+		}
+		if from > at {
+			styles = append(styles, text.Span{End: from - start})
+			spans = append(spans, Span{})
+		}
+		styles = append(styles, text.Span{End: to - start, Weight: r.Weight})
+		spans = append(spans, Span{Color: r.Color, Weight: r.Weight})
+		weighted = weighted || r.Weight > 0
+		colored = colored || r.Color.A > 0
+		at = to
+	}
+	key := ""
+	if weighted {
+		key = text.EncodeSpans(styles)
+	}
+	var sp *spanPaint
+	if colored {
+		sp = &spanPaint{spans: spans, styles: styles}
+	}
+	return key, sp
 }

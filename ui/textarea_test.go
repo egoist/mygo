@@ -704,3 +704,49 @@ func TestInputShowsItsStartUnfocused(t *testing.T) {
 		t.Errorf("the input left by the focus stays scrolled %v", x)
 	}
 }
+
+// TextRanges paint runs of an input's text in their color and lay them out in their weight, in a
+// text area and a single-line input alike, and only in the frames that call it.
+func TestTextRanges(t *testing.T) {
+	area, line := "hi @Scout there\nnext", "to @Scout now"
+	styled := true
+	red := RGB(220, 0, 0)
+	var areaEl, lineEl *Element
+	tt := NewTester(func(c *Context) {
+		Column(c).Gap(10).Padding(10).Children(func() {
+			areaEl = TextAreaBase(c, &area).Width(260).Label("Area")
+			lineEl = TextInputBase(c, &line).Width(260).Label("Line")
+			if styled {
+				areaEl.TextRanges(TextRange{Start: 3, End: 9, Color: red, Weight: 700})
+				lineEl.TextRanges(TextRange{Start: 3, End: 9, Color: red})
+			}
+		})
+	}, 320, 160)
+	reds := func(name string) int {
+		img := tt.Image()
+		r, _ := tt.Find(name)
+		n := 0
+		for y := int(r.Y); y < int(r.Y+r.H); y++ {
+			for x := int(r.X); x < int(r.X+r.W); x++ {
+				if px := img.RGBAAt(x, y); px.R > 150 && px.G < 90 && px.B < 90 {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	if reds("Area") == 0 || reds("Line") == 0 {
+		t.Fatalf("no red mention: area %d, line %d", reds("Area"), reds("Line"))
+	}
+	ed := areaEl.st.editor
+	bold := ed.area.paraLayout(ed, 0).Lines[0].Width
+	styled = false
+	tt.Frame()
+	tt.Frame()
+	if reds("Area") != 0 || reds("Line") != 0 {
+		t.Error("the mention stayed red without TextRanges")
+	}
+	if plain := ed.area.paraLayout(ed, 0).Lines[0].Width; plain >= bold {
+		t.Errorf("the bold mention is %v wide, plain %v", bold, plain)
+	}
+}

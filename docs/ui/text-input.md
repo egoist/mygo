@@ -33,6 +33,19 @@ ui.TextArea(c, &app.notes).Height(160)
 A `TextInput` too narrow for its text keeps the caret in view while it has
 the focus, and shows the start of its text without it.
 
+`TextRanges` colors runs of the text, and sets their weight, in the frames
+that call it, as a message field shows the mentions in what is typed:
+
+```go
+in := ui.TextAreaBase(c, &app.draft).Lines(1, 8)
+for _, m := range mentions(app.draft) {
+	in.TextRanges(ui.TextRange{Start: m.start, End: m.end, Color: m.color, Weight: 600})
+}
+```
+
+The ranges are runes of the text, found in it each frame, and do not
+overlap; a password shows none.
+
 A text area is at least a few lines high and grows with its text; given a
 height, it scrolls within it, with the wheel and a scroll bar, and keeps
 the caret in view as it moves. `Lines(min, max)` makes it as high as its

@@ -50,6 +50,10 @@ func (a *area) wrappedHeight(e *Element, ed *editor, cw float32) float32 {
 	params := e.textParams(max(cw, 1))
 	params.Text = ed.displayText()
 	params.KeepSpaces, params.MaxLines = true, 0
+	if ed.compose == "" {
+		// Bold runs take more room, so the text may wrap sooner.
+		params.Spans, _ = ed.rangeSpans(0, ed.buf.n)
+	}
 	if params != a.wrappedParams {
 		a.wrappedParams = params
 		a.wrapped = textSystem().Layout(params).Height
@@ -130,7 +134,11 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 	if ed.compose != "" && p == b.para(ed.caret) {
 		compose = ed.compose
 	}
-	if pr.layout != nil && pr.compose == compose {
+	spans := ""
+	if compose == "" {
+		spans, _ = ed.rangeSpans(pr.rune, b.end(p))
+	}
+	if pr.layout != nil && pr.compose == compose && pr.spans == spans {
 		return pr.layout
 	}
 	t := b.text(p)
@@ -139,7 +147,7 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 		t = t[:at] + compose + t[at:]
 	}
 	params := a.params
-	params.Text = t
+	params.Text, params.Spans = t, spans
 	l := textSystem().Shape(params)
 	if pr.layout == nil {
 		a.laid++
@@ -149,7 +157,7 @@ func (a *area) paraLayout(ed *editor, p int) *text.Layout {
 	} else {
 		a.hs.add(p, float64(l.Height), -1)
 	}
-	pr.layout, pr.compose, pr.h = l, compose, l.Height
+	pr.layout, pr.compose, pr.spans, pr.h = l, compose, spans, l.Height
 	return l
 }
 
@@ -343,7 +351,11 @@ func (a *area) paint(e *Element, p *Painter, ox, oy float32) {
 				p.Fill(Rect{ox + r.X, y + r.Y, r.W, r.H}, t.Selection, 0)
 			}
 		}
-		p.textLayout(l, ox, y, ts.color, ts, nil)
+		var sp *spanPaint
+		if pr := &b.paras[i]; pr.compose == "" {
+			_, sp = ed.rangeSpans(start, end)
+		}
+		p.textLayout(l, ox, y, ts.color, ts, sp)
 		if ed.compose != "" && b.para(ed.caret) == i {
 			c := ed.caret - start
 			for _, r := range l.Selection(c, c+utf8.RuneCountInString(ed.compose)) {
