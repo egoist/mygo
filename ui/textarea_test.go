@@ -587,3 +587,40 @@ func TestPlaceholderWithFixedLineHeight(t *testing.T) {
 		}
 	}
 }
+
+// A single-line input's text goes where TextAlign puts it while it fits.
+func TestInputTextAlign(t *testing.T) {
+	left, right := "abc", "abc"
+	tt := NewTester(func(c *Context) {
+		Column(c).Width(200).Children(func() {
+			TextInputBase(c, &left).Label("Left")
+			TextInputBase(c, &right).TextAlign(End).Label("Right")
+		})
+	}, 300, 100)
+	img := tt.Image()
+	inked := func(name string) (first, last int) {
+		r, _ := tt.Find(name)
+		first, last = -1, -1
+		for x := int(r.X); x < int(r.X+r.W); x++ {
+			for y := int(r.Y); y < int(r.Y+r.H); y++ {
+				if img.RGBAAt(x, y).R < 128 {
+					if first < 0 {
+						first = x
+					}
+					last = x
+					break
+				}
+			}
+		}
+		return first, last
+	}
+	l0, _ := inked("Left")
+	r0, r1 := inked("Right")
+	box, _ := tt.Find("Right")
+	if l0 < 0 || r0 < 0 {
+		t.Fatalf("no text drawn: %d, %d", l0, r0)
+	}
+	if r0 <= l0+50 || float32(r1) < box.X+box.W-8 {
+		t.Errorf("right-aligned text spans %d–%d in %v; left-aligned starts at %d", r0, r1, box, l0)
+	}
+}

@@ -964,6 +964,15 @@ func (e *Element) layoutInput(cw, ch float32) {
 	if len(l.Lines) > 0 {
 		ed.originY += max((ch-l.Lines[0].Height)/2, 0)
 	}
+	// Text narrower than the box goes where TextAlign puts it.
+	if room := cw - l.Width; room > 0 {
+		switch e.resolvedText().align {
+		case End:
+			ed.originX += room
+		case Center:
+			ed.originX += room / 2
+		}
+	}
 	// Keep the caret in view.
 	x, _, _ := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret)
 	if x-ed.scrollX < 0 {
@@ -993,7 +1002,8 @@ func (e *Element) paintInput(p *Painter) {
 		params := e.textParams(box.W)
 		params.Text, params.Spans, params.MaxLines, params.NoWrap, params.Ellipsis = ed.placeholder, "", 0, false, ""
 		pl := textSystem().Layout(params)
-		p.textLayout(pl, ox, oy, t.TextMuted, ts, nil)
+		// The placeholder aligns itself in the content box, as its layout has the box's width.
+		p.textLayout(pl, e.x+e.contentX(), oy, t.TextMuted, ts, nil)
 	}
 	if ed.area != nil {
 		ed.area.paint(e, p, e.x+ed.originX, e.y+ed.originY)
