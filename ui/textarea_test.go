@@ -665,16 +665,20 @@ func inkSpan(tt *Tester, name string) (first, last int, box Rect) {
 	return first, last, box
 }
 
-// A single-line input's placeholder stays on its line, to the box's end, where a wrapped one
-// would stop at the last word that fits.
+// A single-line input's placeholder stays on its line, cut off at the box, where a wrapped one
+// would stop at the last word that fits; a text area's wraps.
 func TestInputPlaceholderStaysOnItsLine(t *testing.T) {
-	var value string
-	tt := NewTester(func(c *Context) {
-		TextInputBase(c, &value).Width(120).Placeholder("mmmm mmmm mmmm mmmm mmmm mmmm").Label("Field")
-	}, 300, 60)
-	_, last, box := inkSpan(tt, "Field")
-	if float32(last) < box.X+box.W-4 {
-		t.Errorf("the placeholder ends at %d in %v", last, box)
+	var line, area string
+	var lineEl, areaEl *Element
+	NewTester(func(c *Context) {
+		lineEl = TextInputBase(c, &line).Width(120).Placeholder("mmmm mmmm mmmm mmmm mmmm mmmm").Label("Field")
+		areaEl = TextAreaBase(c, &area).Width(120).Placeholder("mmmm mmmm mmmm mmmm mmmm mmmm").Label("Area")
+	}, 300, 160)
+	if n := len(textSystem().Layout(lineEl.placeholderParams(120)).Lines); n != 1 {
+		t.Errorf("the input's placeholder takes %d lines", n)
+	}
+	if n := len(textSystem().Layout(areaEl.placeholderParams(120)).Lines); n < 2 {
+		t.Errorf("the text area's placeholder takes %d lines", n)
 	}
 }
 
@@ -722,6 +726,8 @@ func TestTextRanges(t *testing.T) {
 			}
 		})
 	}, 320, 160)
+	// Red pixels, counted against those of the text without ranges: subpixel antialiasing, as
+	// ClearType's, tints the edges of black text too.
 	reds := func(name string) int {
 		img := tt.Image()
 		r, _ := tt.Find(name)
@@ -735,16 +741,14 @@ func TestTextRanges(t *testing.T) {
 		}
 		return n
 	}
-	if reds("Area") == 0 || reds("Line") == 0 {
-		t.Fatalf("no red mention: area %d, line %d", reds("Area"), reds("Line"))
-	}
+	areaRed, lineRed := reds("Area"), reds("Line")
 	ed := areaEl.st.editor
 	bold := ed.area.paraLayout(ed, 0).Lines[0].Width
 	styled = false
 	tt.Frame()
 	tt.Frame()
-	if reds("Area") != 0 || reds("Line") != 0 {
-		t.Error("the mention stayed red without TextRanges")
+	if areaPlain, linePlain := reds("Area"), reds("Line"); areaRed < 3*areaPlain+20 || lineRed < 3*linePlain+20 {
+		t.Errorf("red pixels with the ranges: area %d, line %d; without: %d, %d", areaRed, lineRed, areaPlain, linePlain)
 	}
 	if plain := ed.area.paraLayout(ed, 0).Lines[0].Width; plain >= bold {
 		t.Errorf("the bold mention is %v wide, plain %v", bold, plain)

@@ -995,6 +995,17 @@ func (e *Element) layoutInput(cw, ch float32) {
 	ed.scrollX = max(0, min(ed.scrollX, max(l.Width-cw+1, 0)))
 }
 
+// placeholderParams lays out the placeholder of an empty input in a
+// content box width wide: in the input's style, its line height too, fixed
+// or not. A text area's placeholder wraps; a single-line input's stays on
+// its line, cut off at the box.
+func (e *Element) placeholderParams(width float32) text.Params {
+	ed := e.st.editor
+	params := e.textParams(width)
+	params.Text, params.Spans, params.MaxLines, params.NoWrap, params.Ellipsis = ed.placeholder, "", 0, !ed.multiline, ""
+	return params
+}
+
 func (e *Element) paintInput(p *Painter) {
 	ed := e.st.editor
 	l := ed.layout
@@ -1010,12 +1021,7 @@ func (e *Element) paintInput(p *Painter) {
 	focused := e.Focused()
 	ts := e.resolvedText()
 	if ed.buf.n == 0 && ed.compose == "" && ed.placeholder != "" {
-		// The placeholder takes the input's style, its line height too, fixed or not.
-		params := e.textParams(box.W)
-		// A text area's placeholder wraps; a single-line input's stays on its
-		// line, cut off at the box.
-		params.Text, params.Spans, params.MaxLines, params.NoWrap, params.Ellipsis = ed.placeholder, "", 0, !ed.multiline, ""
-		pl := textSystem().Layout(params)
+		pl := textSystem().Layout(e.placeholderParams(box.W))
 		// The placeholder aligns itself in the content box, as its layout has the box's width.
 		p.textLayout(pl, e.x+e.contentX(), oy, t.TextMuted, ts, nil)
 	}
