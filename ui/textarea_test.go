@@ -726,29 +726,27 @@ func TestTextRanges(t *testing.T) {
 			}
 		})
 	}, 320, 160)
-	// Red pixels, counted against those of the text without ranges: subpixel antialiasing, as
-	// ClearType's, tints the edges of black text too.
-	reds := func(name string) int {
-		img := tt.Image()
-		r, _ := tt.Find(name)
+	// The glyphs painted red, read from the scene: pixels would count the colored edges that
+	// subpixel antialiasing, as ClearType's, gives black text too.
+	redGlyphs := func() int {
 		n := 0
-		for y := int(r.Y); y < int(r.Y+r.H); y++ {
-			for x := int(r.X); x < int(r.X+r.W); x++ {
-				if px := img.RGBAAt(x, y); px.R > 150 && px.G < 90 && px.B < 90 {
-					n++
-				}
+		for _, g := range tt.h.last.Glyphs {
+			if g.Color == red.scene() {
+				n++
 			}
 		}
 		return n
 	}
-	areaRed, lineRed := reds("Area"), reds("Line")
+	if n := redGlyphs(); n < 2 {
+		t.Fatalf("%d glyphs red with the ranges", n)
+	}
 	ed := areaEl.st.editor
 	bold := ed.area.paraLayout(ed, 0).Lines[0].Width
 	styled = false
 	tt.Frame()
 	tt.Frame()
-	if areaPlain, linePlain := reds("Area"), reds("Line"); areaRed < 3*areaPlain+20 || lineRed < 3*linePlain+20 {
-		t.Errorf("red pixels with the ranges: area %d, line %d; without: %d, %d", areaRed, lineRed, areaPlain, linePlain)
+	if n := redGlyphs(); n != 0 {
+		t.Errorf("%d glyphs stayed red without the ranges", n)
 	}
 	if plain := ed.area.paraLayout(ed, 0).Lines[0].Width; plain >= bold {
 		t.Errorf("the bold mention is %v wide, plain %v", bold, plain)
