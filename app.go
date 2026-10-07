@@ -199,6 +199,7 @@ func (a *Application) prepareQuit() bool {
 // finish runs once after the event loop has stopped.
 func (a *Application) finish() {
 	a.finished.Do(func() {
+		stopTextServices()
 		saveWindowStates()
 		fire(&a.onQuit)
 		if a.relaunch {

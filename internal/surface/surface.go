@@ -3,7 +3,10 @@
 // other's internals.
 package surface
 
-import "github.com/egoist/mygo/internal/platform"
+import (
+	"context"
+	"github.com/egoist/mygo/internal/platform"
+)
 
 // Conn is a window's side of the connection. Package mygo fills it before
 // calling Content.AttachContent; the content sets the hooks it handles.
@@ -29,6 +32,11 @@ type Conn struct {
 	// FontRendering returns how the desktop's settings say to rasterize
 	// text where the system's text stack does not know them (Linux).
 	FontRendering func() platform.FontRendering
+	// Text services check immutable committed text; results and dictionary
+	// actions run on the main thread. CheckText scans long text asynchronously.
+	TextServicesInfo func(language string) (platform.TextServiceInfo, error)
+	CheckText        func(context.Context, string, platform.TextCheckOptions, func(platform.TextCheckResult, error))
+	LearnWord        func(word, language string) error
 	// TitleBar returns the room the window controls take in a window with
 	// a hidden title bar, zero in other windows.
 	TitleBar func() platform.TitleBar

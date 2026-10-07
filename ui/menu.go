@@ -205,12 +205,13 @@ type menuState struct {
 // shownMenu is a context menu built for the element id. commands are the
 // editing commands of a text input's items, nil for a view's menu.
 type shownMenu struct {
-	id       uint64
-	button   bool
-	menu     *platform.Menu
-	labels   []string
-	commands []string
-	x, y     float32
+	textActions map[int]*textServiceAction
+	id          uint64
+	button      bool
+	menu        *platform.Menu
+	labels      []string
+	commands    []string
+	x, y        float32
 }
 
 // menuTarget returns the innermost element of chain with a context menu, a
@@ -355,7 +356,11 @@ func (rt *engine) menuChosen(p *shownMenu, id int) {
 	if id < 1 || id > len(p.labels) {
 		return
 	}
-	if p.commands != nil {
+	if action := p.textActions[id]; action != nil {
+		if s := rt.states[p.id]; s != nil && s.editor != nil && s.flags&flagDisabled == 0 {
+			s.editor.queue = append(s.editor.queue, editEvent{kind: editTextService, service: action})
+		}
+	} else if p.commands != nil {
 		if s := rt.states[p.id]; s != nil && s.editor != nil {
 			s.editor.queue = append(s.editor.queue, editEvent{kind: editCommand, text: p.commands[id-1]})
 			rt.blinkStart = time.Now()
@@ -408,7 +413,11 @@ func (rt *engine) editMenu(s *state) {
 		pm.Items = append(pm.Items, it)
 		labels[i], names[i] = c.label, c.name
 	}
+	actions := ed.textServiceMenu(pm, &labels, &names)
 	rt.openMenu(s.id, false, pm, labels, names)
+	if rt.menu.pending != nil {
+		rt.menu.pending.textActions = actions
+	}
 }
 
 // accelerator writes a key with modifiers as menus take it, as in

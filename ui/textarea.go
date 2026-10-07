@@ -327,6 +327,7 @@ func (a *area) paint(e *Element, p *Painter, ox, oy float32) {
 			}
 		}
 		p.textLayout(l, ox, y, ts.color, ts, nil)
+		ed.paintTextIssues(p, l, ox, y, start, end, t.Danger)
 		if ed.compose != "" && b.para(ed.caret) == i {
 			c := ed.caret - start
 			for _, r := range l.Selection(c, c+utf8.RuneCountInString(ed.compose)) {

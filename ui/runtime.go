@@ -122,14 +122,15 @@ type engine struct {
 	pointerIn          bool
 	hover              []uint64
 	// chain is a buffer for the elements under the pointer.
-	chain         []uint64
-	pressed       *state
-	pressButton   int
-	focused       uint64
-	focusVisible  bool
-	windowFocused bool
-	keys          []keyEvent
-	menu          menuState
+	chain                 []uint64
+	pressed               *state
+	pressButton           int
+	focused               uint64
+	focusVisible          bool
+	windowFocused         bool
+	keys                  []keyEvent
+	menu                  menuState
+	hasTextServiceActions bool
 	// toasts are the toasts the window holds, oldest first, and
 	// toastList those showing, as ToastViewportBase gives them; their time
 	// stops while toastsPaused. A viewport of them was built in the pass
@@ -490,6 +491,7 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 // endPass forgets the input the pass handled.
 func (rt *engine) endPass() {
 	rt.forgetInput()
+	rt.consumeTextServiceActions()
 	// Clicks the view gave its elements, which the next pass sees.
 	for _, id := range rt.clickLater {
 		if s := rt.states[id]; s != nil {
@@ -530,6 +532,9 @@ func (rt *engine) prune() {
 	unpressed := false
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
+			if s.editor != nil {
+				s.editor.cancelTextCheck()
+			}
 			if rt.pressed == s {
 				rt.pressed, unpressed = nil, true
 			}
@@ -630,6 +635,11 @@ func (rt *engine) armTimer() {
 }
 
 func (rt *engine) close() {
+	for _, s := range rt.states {
+		if s.editor != nil {
+			s.editor.cancelTextCheck()
+		}
+	}
 	if rt.timer != nil {
 		rt.timer.Stop()
 	}
@@ -707,6 +717,9 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 		if rt.focused == e.id {
 			rt.focused = 0
 		}
+	}
+	if s.editor != nil {
+		s.editor.commitTextServices(e, invisible)
 	}
 	switch {
 	case e.flags&flagPassThrough != 0 || invisible:

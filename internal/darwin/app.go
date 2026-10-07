@@ -224,6 +224,7 @@ func registerClasses() {
 	registerSchemeHandler()
 	registerTrayTarget()
 	registerNotificationDelegate()
+	initTextServices()
 }
 
 const (

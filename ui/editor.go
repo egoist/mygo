@@ -17,6 +17,7 @@ const (
 	editInsert
 	editCompose
 	editCommand
+	editTextService
 )
 
 type editEvent struct {
@@ -29,6 +30,7 @@ type editEvent struct {
 	// to instead of the selection, as an input method asked.
 	replace  bool
 	from, to int
+	service  *textServiceAction
 }
 
 // change is an edit of the text: the runes at at held removed, and hold
@@ -99,6 +101,8 @@ type editor struct {
 	dragStart        [2]int
 	pressMods        Modifiers
 	contentW         float32
+	services         *textServicesState
+	fromComposition  bool
 }
 
 func newEditor() *editor { return &editor{} }
@@ -648,7 +652,9 @@ func (ed *editor) drag(x, y float32) {
 
 func (ed *editor) commitCompose() {
 	if ed.compose != "" {
+		ed.cancelTextCheck()
 		ed.compose = ""
+		ed.composeCaret = 0
 	}
 }
 
@@ -688,9 +694,16 @@ func (ed *editor) process(c *Context, e *Element) {
 			ed.commitCompose()
 			ed.key(c, st, ev)
 		case editInsert:
+			composed := ed.compose != "" || ed.fromComposition
+			a, b := ed.selection()
 			ed.compose = ""
+			ed.composeCaret = 0
+			ed.fromComposition = false
 			ed.insert(ev.text)
+			ed.noteTextServiceTyping(ev.text, composed || ev.replace || a != b)
 		case editCompose:
+			ed.cancelTextCheck()
+			ed.fromComposition = true
 			if ed.readOnly {
 				break
 			}
@@ -708,8 +721,14 @@ func (ed *editor) process(c *Context, e *Element) {
 		case editCommand:
 			ed.commitCompose()
 			ed.command(c, ev.text)
+		case editTextService:
+			if ed.services != nil {
+				ed.services.pending = append(ed.services.pending, ev.service)
+				c.rt.hasTextServiceActions = true
+			}
 		}
 	}
+	clear(ed.queue)
 	ed.queue = ed.queue[:0]
 	if ed.dragging && st.pressed {
 		rt := c.rt
@@ -736,6 +755,7 @@ func textInput(c *Context, value *string, multiline bool) *Element {
 
 func textInputBase(c *Context, value *string, multiline bool) *Element {
 	e := c.newElement(kindInput)
+	e.inputValue = value
 	e.flags |= flagEditable | flagFocusable | flagHover
 	e.widget = "TextInput"
 	if multiline {
@@ -945,6 +965,7 @@ func (e *Element) paintInput(p *Painter) {
 		}
 	}
 	p.textLayout(l, ox, oy, ts.color, ts, nil)
+	ed.paintTextIssues(p, l, ox, oy, 0, ed.buf.n, t.Danger)
 	if ed.compose != "" {
 		start := ed.caret
 		end := start + utf8.RuneCountInString(ed.compose)

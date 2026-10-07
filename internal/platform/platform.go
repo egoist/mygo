@@ -84,6 +84,10 @@ type Backend interface {
 	Screen() Screen
 	Theme() Theme
 	Power() Power
+	// NewTextChecker returns an owned system text checking session. On an
+	// unavailable language it may return a session describing installed
+	// languages together with ErrTextLanguageUnavailable; close it as usual.
+	NewTextChecker(language string) (TextChecker, error)
 
 	NewTray(h TrayHandler) (Tray, error)
 	RegisterHotkey(id int, accelerator string) error
