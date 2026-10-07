@@ -2,12 +2,14 @@
 // small C shim are compiled with Zig and loaded through purego: no cgo,
 // Zig, Bun or compiler is needed at application run time.
 //
+// Register the plugin only when the web frontend uses @mygo-plugins/sqlite:
+//
 //	mygo.Use(sqlite.Plugin)
 //
 // The frontend uses open from @mygo-plugins/sqlite. It opens named databases
 // in the app's user-data directory, executes parameterized SQL, queries
-// rows and runs batches in transactions. Open also gives Go and native UI
-// apps a connection directly, without binding the plugin.
+// rows and runs batches in transactions. Go and native UI apps call Open
+// directly and close their own connections; no mygo.Use is needed.
 package sqlite
 
 import (

@@ -7,6 +7,11 @@ time. It supports macOS, Linux and Windows on amd64 and arm64.
 
 ## Using the page plugin
 
+Call `mygo.Use(sqlite.Plugin)` only when the web frontend uses
+`@mygo-plugins/sqlite`. It registers the Go service called by that
+TypeScript client. Go and native UI apps use `sqlite.Open` directly, as
+shown [below](#from-go-or-native-ui).
+
 ```go
 import (
     "github.com/egoist/mygo"
@@ -111,6 +116,9 @@ an atomic cancellation token. SQLite retains no Go pointers or purego
 callbacks. Go callers can cancel each operation with its context.
 
 ## From Go or native UI
+
+No `mygo.Use(sqlite.Plugin)` registration is needed. Open a connection
+directly and close it when finished:
 
 ```go
 ctx := context.Background()

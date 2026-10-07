@@ -5,6 +5,10 @@ TypeScript client. SQLite's C amalgamation and a small C shim are compiled
 with Zig and loaded through purego. Apps build with `CGO_ENABLED=0` and
 need no Zig, C compiler or Bun at run time.
 
+Register `mygo.Use(sqlite.Plugin)` only when the web frontend uses
+`@mygo-plugins/sqlite`. Go and native UI apps call `sqlite.Open` directly;
+they need no plugin registration and close their own connections.
+
 ```go
 import (
     "github.com/egoist/mygo"
@@ -13,7 +17,7 @@ import (
 
 func main() {
     mygo.Use(sqlite.Plugin)
-    // Create windows, then mygo.App.Run(...).
+    // Create windows, then call mygo.App.Run().
 }
 ```
 
