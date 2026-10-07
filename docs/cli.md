@@ -59,6 +59,10 @@ icon. The module has the CLI as a [tool](https://go.dev/doc/modules/managing-dep
 so `go tool mygo dev` and `go tool mygo build` run the version it pins,
 without Bun. See [native UI](getting-started.md#native-ui).
 
+Both templates include the `mygo-maintenance` agent skill in
+`.agents/skills/mygo-maintenance/`, with guidance on element lifetimes,
+stable identity, threading, and testing when maintaining the app.
+
 | Flag | |
 |---|---|
 | `-template` | `web`, a TypeScript frontend (the default), or `native`, native UI in Go |
