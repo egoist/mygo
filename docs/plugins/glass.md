@@ -2,8 +2,8 @@
 
 The glass plugin draws Liquid Glass in native UI, the material of macOS 26
 and later: what is under an element shows through it, frosted, bent near
-its edges as through the rim of a lens, and lit along its rim, over a soft
-shadow. It also draws macOS's scroll edges, which content scrolling under
+its edges as through the rim of a lens, and lit along its rim. It also
+draws macOS's scroll edges, which content scrolling under
 a bar fades or frosts under ([Scroll edges](#scroll-edges)), and blurs
 what is under an element without the glass, evenly or fading along a
 gradient ([Blur](#blur)). MyGo draws them with the plugin's shaders, on
@@ -38,10 +38,10 @@ ui.Box(c).Fill().Children(func() {
 
 - **`glass.Regular`**, the default, frosts what shows through and
   lightens it, or darkens it in dark mode, so that what is on the glass
-  reads over anything: bars, buttons and panels. Larger panes are
-  frostier, as on macOS.
-- **`glass.Clear`** barely blurs or tones what shows through: glass over
-  photos and video, where what is on it brings its own contrast.
+  reads over anything: bars, buttons and panels.
+- **`glass.Clear`** blurs a little less and tones what shows through less:
+  glass over photos and video, where what is on it brings its own
+  contrast.
 
 `Tint` colors the glass toward a color, by its alpha, as a prominent
 button: `glass.Glass{Tint: t.Accent}`, with text in `t.AccentText`.
@@ -166,10 +166,17 @@ with the optics of the open-source reproductions of Liquid Glass:
   glass of refractive index 1.5, so what is near the edge comes from
   further inside: the rim mirrors what is just inside it, as a lens's
   does.
-- **The material.** The regular glass blurs what shows through by up to 10
-  DIPs, more for larger panes, and maps its lightness, black to 54% and
-  white to 100% in light mode, and to 15% and 51% in dark mode, keeping
-  its colors. The clear glass adds an eighth to it.
+- **The material.** The regular glass blurs what shows through by 12 DIPs,
+  whatever its size, and maps its lightness, keeping its colors: in light
+  mode black to 52% and white to 94%, all but in a straight line; in dark
+  mode black to 8% and white to 70% along a curve, for panes up to 64 DIPs
+  across, while panes from 104 DIPs are darker, white at 47% and the light
+  grays just above it, with the sizes between mixed. The clear glass
+  blurs by 10 DIPs and maps black to 28% and white to 96% in light mode,
+  10% and 81% in dark mode, in straight lines. Neither casts a shadow.
+  The numbers come from `NSGlassEffectView` over flat grays, stripes and
+  edges in a key window; unlike iOS's glass, it does not switch between a
+  light and a dark material with what is under it.
 - **The light.** The rim is lit where it faces up or down and shaded where
   it faces the sides, within a DIP of the edge.
 
