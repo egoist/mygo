@@ -1516,6 +1516,12 @@ func (h *windowHandler) Blurred() {
 	fire(&h.w.onBlur)
 }
 
+func (h *windowHandler) MenuItemClicked(id int) {
+	if h.w.native != nil {
+		menuItemClicked(id, h.w)
+	}
+}
+
 func (h *windowHandler) Resized()           { h.w.stateChanged(); fire(&h.w.onResize) }
 func (h *windowHandler) Moved()             { h.w.stateChanged(); fire(&h.w.onMove) }
 func (h *windowHandler) Minimized()         { h.w.stateChanged(); fire(&h.w.onMinimize) }
@@ -1536,7 +1542,7 @@ func (h *windowHandler) TitleBarChanged() {
 // start; this keeps the current page, and later ones, up to date. Main
 // thread only.
 func (w *Window) sendTitleBar() {
-	if !w.hiddenTitleBar || w.native == nil {
+	if w.content != nil || !w.hiddenTitleBar || w.native == nil {
 		return
 	}
 	if msg, err := encodeEvent(bridge.TitleBarEvent, bridge.NewTitleBar(w.native.TitleBar(), w.native.Zoom())); err == nil {

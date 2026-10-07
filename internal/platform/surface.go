@@ -91,6 +91,9 @@ type TextInputState struct {
 	// of macOS's press and hold replace the letter they decorate.
 	Text       string
 	Start, End int
+	// Client supplies full text and geometry for a custom text element. The
+	// Text/Start/End snapshot remains the plain-widget and TextCaret fallback.
+	Client TextInputClient
 }
 
 // SurfaceNative holds the native objects of a Surface.
@@ -131,6 +134,9 @@ const (
 	// auto-repeat.
 	KeyPressed
 	KeyReleased
+	// ModifiersChanged reports the modifier keys held, Mods, as one of
+	// them goes down or up on its own.
+	ModifiersChanged
 	// TextInput inserts Text, typed or committed by an input method.
 	TextInput
 	// TextComposition shows Text as the input method's composition, its

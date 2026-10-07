@@ -128,6 +128,8 @@ const (
 	// flagDividers marks an element drawing lines between its children,
 	// listed in Context.dividers.
 	flagDividers
+	// flagUnselectable excludes text from a surrounding Selectable container.
+	flagUnselectable
 
 	// flagClip clips both ways.
 	flagClip = flagClipX | flagClipY
@@ -246,9 +248,10 @@ type Element struct {
 
 	// Input the element takes itself (HandleInput), and where the caret of
 	// the text it takes is (TextCaret).
-	inputFn   func(InputEvent) bool
-	caret     Rect
-	takesText bool
+	inputFn    func(InputEvent) bool
+	textClient TextInputClient
+	caret      Rect
+	takesText  bool
 
 	// Content.
 	text     string

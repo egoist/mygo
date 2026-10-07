@@ -132,11 +132,12 @@ func loadSurface() {
 }
 
 type surface struct {
-	w      *window
-	area   ptr // GtkGLArea, or GtkDrawingArea
-	im     ptr // GtkIMContext
-	cr     ptr // the cairo context of the draw signal in progress
-	cursor platform.Cursor
+	clientComposition platform.InputComposition
+	w                 *window
+	area              ptr // GtkGLArea, or GtkDrawingArea
+	im                ptr // GtkIMContext
+	cr                ptr // the cairo context of the draw signal in progress
+	cursor            platform.Cursor
 	// gl tells that the area is a GtkGLArea, lazy that it makes no
 	// context until UseGPU, rendering that its render signal is in
 	// progress, rendered that it ran.
@@ -487,10 +488,11 @@ func (s *surface) SetCursor(c platform.Cursor) {
 
 func (s *surface) SetTextInput(t platform.TextInputState) {
 	active, caret := t.Active, t.Caret
-	s.input = t
-	if s.textInput && !active {
+	if s.textInput && (!active || s.input.Client != t.Client) {
+		s.clientComposition.Reset()
 		gtkIMContextReset(s.im)
 	}
+	s.input = t
 	s.textInput, s.caret = active, caret
 	if active {
 		r := gdkRectangle{X: int32(caret.X), Y: int32(caret.Y), Width: max(int32(caret.W), 1), Height: int32(caret.H + 0.5)}
@@ -499,6 +501,9 @@ func (s *surface) SetTextInput(t platform.TextInputState) {
 }
 
 func (s *surface) send(ev platform.SurfaceEvent) bool {
+	if ev.Kind == platform.PointerDown || ev.Kind == platform.SurfaceBlur {
+		s.clientComposition.Reset()
+	}
 	if s.w.closed {
 		return false
 	}
@@ -520,6 +525,22 @@ func gdkMods(state uint32) platform.Modifiers {
 		m |= platform.ModSuper
 	}
 	return m
+}
+
+// modifierKeyval is the modifier a GDK keyval presses: Shift_L/R, Control_L/R,
+// Alt_L/R and Meta_L/R, Super_L/R and Hyper_L/R; 0 for other keys.
+func modifierKeyval(keyval uint32) platform.Modifiers {
+	switch keyval {
+	case 0xffe1, 0xffe2:
+		return platform.ModShift
+	case 0xffe3, 0xffe4:
+		return platform.ModCtrl
+	case 0xffe9, 0xffea, 0xffe7, 0xffe8:
+		return platform.ModAlt
+	case 0xffeb, 0xffec, 0xffed, 0xffee:
+		return platform.ModSuper
+	}
+	return 0
 }
 
 var gdkKeys = map[uint32]platform.Key{
@@ -739,6 +760,7 @@ func initSurfaceCallbacks() {
 		if field[int32](event, 0) == 9 { // GDK_KEY_RELEASE
 			kind = platform.KeyReleased
 		} else {
+			s.clientComposition.Reset()
 			if s.lastKey != 0 {
 				gdkEventFree(s.lastKey)
 			}
@@ -746,6 +768,18 @@ func initSurfaceCallbacks() {
 		}
 		if s.textInput && gtkIMContextFilterKeypress(s.im, event) {
 			return true
+		}
+		// A modifier key on its own: the state is the one before the
+		// event, so the key's own bit goes in or out.
+		if bit := modifierKeyval(field[uint32](event, 28)); bit != 0 {
+			state := gdkMods(field[uint32](event, 24))
+			if kind == platform.KeyPressed {
+				state |= bit
+			} else {
+				state &^= bit
+			}
+			s.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: state})
+			return false
 		}
 		k := keyvalKey(field[uint32](event, 28))
 		if k == platform.KeyUnknown {
@@ -770,6 +804,10 @@ func initSurfaceCallbacks() {
 	})
 	cbIMCommit = purego.NewCallback(func(im, str, data ptr) {
 		if s := b().surfaceOf(data); s != nil {
+			if c := s.input.Client; c != nil {
+				s.clientComposition.Replace(c, nil, goStr(str))
+				return
+			}
 			if text := goStr(str); text != "" {
 				s.send(platform.SurfaceEvent{Kind: platform.TextInput, Text: text})
 			}
@@ -784,10 +822,20 @@ func initSurfaceCallbacks() {
 		var cursor int32
 		gtkIMContextGetPreedit(s.im, &str, nil, &cursor)
 		text := takeStr(str)
+		if c := s.input.Client; c != nil {
+			s.clientComposition.Reset()
+			caret := platform.UTF16Len(string([]rune(text)[:min(int(cursor), len([]rune(text)))]))
+			c.SetMarkedText(nil, text, platform.TextRange{Start: caret, End: caret})
+			return
+		}
 		s.send(platform.SurfaceEvent{Kind: platform.TextComposition, Text: text, Caret: min(int(cursor), utf8.RuneCountInString(text))})
 	})
 	cbIMPreeditEnd = purego.NewCallback(func(im, data ptr) {
 		if s := b().surfaceOf(data); s != nil {
+			if c := s.input.Client; c != nil {
+				s.clientComposition.End(c)
+				return
+			}
 			s.send(platform.SurfaceEvent{Kind: platform.TextComposition})
 		}
 	})
