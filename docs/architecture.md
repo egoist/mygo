@@ -89,7 +89,7 @@ framework safely. Read it before changing anything under `internal/`.
 │                       per-platform binary packages
 ├── plugins/            official plugins, each a Go package and its npm
 │                       package (@mygo-plugins/<name>) side by side: fetch,
-│                       websocket; and Go only: updater, the update window,
+│                       websocket, sqlite; and Go only: updater, the update window,
 │                       a web page or native UI (updater/native), and
 │                       terminal, a view of native UI running programs with
 │                       libghostty-vt
@@ -709,6 +709,18 @@ build` like mygo-runtime and released with the same version.
   `unicode-bidi: plaintext` and the notes `dir="auto"`, as either may be
   in another language than the window. The page reports the width its
   buttons need too, as translations can be long.
+
+- **sqlite** compiles SQLite's pinned C amalgamation with Zig 0.16 and
+  loads it through purego. A C shim passes doubles as bits on every ABI,
+  binds a per-operation atomic cancellation token to progress and busy
+  handlers, and authorizes SQL without Go callbacks. Connections serialize
+  operations; transactions hold one connection through BEGIN IMMEDIATE,
+  COMMIT or rollback. The page client preserves int64 and BLOB values with
+  tagged cells and confines database files to the Go-configured directory.
+  Connections belong to their page and close on navigation or app quit.
+  `mygo-plugin.json` names the six native-library assets, which the CLI
+  bundles like libghostty-vt; `go generate ./plugins/sqlite` writes them and
+  their checksums. Go and native UI apps can also open connections directly.
 
 - **terminal** is a terminal for native UI: a `Terminal` runs a program in
   a pseudo-terminal and emulates it with libghostty-vt, Ghostty's terminal

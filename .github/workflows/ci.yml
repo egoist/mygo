@@ -36,6 +36,12 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: oven-sh/setup-bun@v2
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Build the SQLite plugin's native library
+        working-directory: plugins/sqlite
+        run: go run ./internal/libbuild -target host
       - name: Install WebKitGTK and a virtual display
         if: runner.os == 'Linux'
         run: |
@@ -109,6 +115,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Build the SQLite plugin's native library
+        working-directory: plugins/sqlite
+        run: go run ./internal/libbuild -target host
       - name: Restore NSIS
         id: nsis
         uses: actions/cache/restore@v6
