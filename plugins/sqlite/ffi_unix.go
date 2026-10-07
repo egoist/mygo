@@ -2,12 +2,25 @@
 
 package sqlite
 
-import "github.com/ebitengine/purego"
+import (
+	"runtime"
+
+	"github.com/ebitengine/purego"
+)
 
 const supported = true
 
 func openLibrary(path string) (uintptr, error) {
-	return purego.Dlopen(path, purego.RTLD_NOW|purego.RTLD_LOCAL)
+	flags := purego.RTLD_NOW | purego.RTLD_LOCAL
+	if runtime.GOOS == "linux" {
+		// WebKit loads the system SQLite globally. RTLD_LOCAL keeps our
+		// symbols private, but its internal calls can still bind to that
+		// other SQLite and mix incompatible global state. glibc's
+		// RTLD_DEEPBIND makes this library resolve its own symbols first.
+		const rtldDeepBind = 0x00008
+		flags |= rtldDeepBind
+	}
+	return purego.Dlopen(path, flags)
 }
 func librarySymbol(h uintptr, name string) (uintptr, error) { return purego.Dlsym(h, name) }
 func closeLibrary(h uintptr)                                { _ = purego.Dlclose(h) }
