@@ -1024,6 +1024,44 @@ as in Tauri:
   window around the configuration or related view WebKit provides, with its
   own content manager so scripts and messages never leak between windows.
 
+## Documents and native printing
+
+`Documents[T]` (`document.go`, `document_state.go`) owns typed values and
+file identities in the core. Callbacks and mutable state run on the main
+thread; public methods marshal through `onMain`. Operations use a busy
+guard instead of waiting for a lock while dialogs pump events. Every edit
+advances a revision: a successful save commits only its snapshot revision,
+and revert refuses to overwrite edits made while Read processed events.
+Window close requests run user listeners first, then the document guard;
+reentrant closes are prevented. The quit sequence snapshots named sessions
+before closing windows, asks windowless documents too, and unwinds session
+state on cancellation. History is written by temporary-file/rename; codec
+file writes and atomicity remain the app's responsibility.
+
+`platform.Window.SetDocumentState` translates title/file/edited presentation:
+AppKit's represented filename and edited dot, or an asterisk in GTK/Win32
+titles. No backend owns the lifecycle policy. Existing app open-file events
+can be routed to a controller without changing their delivery to listeners.
+
+`ui.PrintPages` (`ui/printing.go`) creates isolated CPU-rendered page views
+at a fixed physical layout, without window input, scroll state, inspector
+or animations. The core validates PrintOptions and renders on the main
+thread, then compresses a PDF off-thread while `await` keeps events moving.
+`internal/printdoc` emits one lossless RGB image per PDF page and provides
+the equivalent BGRA raster and fit geometry for printers. Its pixel cap
+bounds job memory. Raster text is not searchable and has no semantic PDF
+accessibility; wide-gamut colors use the renderer's sRGB fallback.
+
+`platform.Backend.PrintContent` submits these fixed pages through AppKit /
+PDFKit, GtkPrintOperation/cairo or PrintDlgExW/GDI, with an exactly-once
+completion contract and an explicit cancellation error. macOS reuses the
+existing app print-operation callback and window-destruction cleanup; Linux
+allocates its draw-page callback at startup and routes by print-operation
+identity. No webview is created and no per-job purego callback is allocated.
+The fake records pages/results; unsupported reports ErrUnsupported.
+Existing Page.Print/PrintToPDF paths are unchanged. See [Documents and
+native printing](documents.md) for the public API and output limits.
+
 ## Menus
 
 `Menu`/`MenuItem` are plain Go values built from templates. Roles expand into

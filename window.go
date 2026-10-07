@@ -201,6 +201,9 @@ type Window struct {
 	// once it settled. Main thread only.
 	stateKey   string
 	stateTimer *time.Timer
+	// document is an opt-in close guard and file identity. Main thread only.
+	document windowDocument
+	closing  bool
 
 	// trusted reports whether the current page may call bound methods.
 	// Main thread only.
@@ -537,13 +540,61 @@ func (w *Window) close() bool {
 	if w.native == nil {
 		return true
 	}
+	if !w.requestClose() {
+		return false
+	}
+	w.destroy()
+	return true
+}
+
+// requestClose is shared by programmatic and system close requests. Modal
+// save dialogs pump events, so a nested close must not start a second guard.
+func (w *Window) requestClose() bool {
+	if w.closing {
+		return false
+	}
+	w.closing = true
+	defer func() { w.closing = false }()
 	e := &CloseEvent{Window: w}
 	fire1(&w.onClose, e)
 	if e.prevented {
 		return false
 	}
-	w.destroy()
+	// A normal parent close destroys child windows. Preflight families with
+	// opted-in documents, including those behind ordinary child windows.
+	for _, child := range Windows() {
+		if child.parent == w && child.hasDocuments() && !child.requestClose() {
+			return false
+		}
+	}
+	if w.document != nil && !w.document.allowClose() {
+		return false
+	}
+	// A later dialog may edit a prepared document or create a new child.
+	for _, member := range Windows() {
+		if member.inFamily(w) && member.document != nil && !member.document.validateClose() {
+			return false
+		}
+	}
 	return true
+}
+
+func (w *Window) inFamily(parent *Window) bool {
+	for member := w; member != nil; member = member.parent {
+		if member == parent {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *Window) hasDocuments() bool {
+	for _, member := range Windows() {
+		if member.inFamily(w) && member.document != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // Destroy closes the window without emitting OnClose.
@@ -1443,12 +1494,11 @@ func (w *Window) readyToShow() {
 type windowHandler struct{ w *Window }
 
 func (h *windowHandler) ShouldClose() bool {
-	e := &CloseEvent{Window: h.w}
-	fire1(&h.w.onClose, e)
-	if !e.prevented {
+	allowed := h.w.requestClose()
+	if allowed {
 		h.w.closeState()
 	}
-	return !e.prevented
+	return allowed
 }
 
 func (h *windowHandler) Closed() {
@@ -1459,6 +1509,10 @@ func (h *windowHandler) Closed() {
 	w.detachContent()
 	w.native = nil
 	w.destroyed.Store(true)
+	if d := w.document; d != nil {
+		w.document = nil
+		d.windowClosed()
+	}
 
 	windows.Lock()
 	for i, x := range windows.list {
@@ -1589,7 +1643,7 @@ func (h *windowHandler) TitleChanged(title string) {
 	}
 	e := &TitleEvent{Title: title}
 	fire1(&h.w.onPageTitleUpdated, e)
-	if !e.prevented && h.w.native != nil {
+	if !e.prevented && h.w.native != nil && h.w.document == nil {
 		h.w.native.SetTitle(title)
 	}
 }

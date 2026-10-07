@@ -27,6 +27,10 @@ memory and CPU use.
   on every platform with the glass plugin.
 - **Desktop APIs** for both: windows, menus, tray, dialogs, notifications,
   global shortcuts, deep links, file associations and more.
+- **Document applications**: opt-in typed models with coordinated
+  save/revert, dirty close guards, recents and reopening, plus printable
+  native page views and PDF export ([guide](docs/documents.md),
+  [text editor example](examples/document)).
 - **Ready to ship**: app bundles and disk images, Windows installers, Debian
   packages and a Linux install script, code signing, notarization, and signed
   auto-updates with delta updates and an update window in the manner of

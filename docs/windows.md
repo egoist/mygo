@@ -293,6 +293,11 @@ png, err := win.CapturePage() // what the window shows, as a PNG
 apply. The zero `PDFOptions` prints Letter pages in portrait with margins of
 0.4 inch and no backgrounds, like a browser's print dialog.
 
+Native UI uses `win.Print(ui.PrintPages(…), mygo.PrintOptions{…})` and
+`win.PrintToPDF(…)` with explicit printable page views. See
+[Documents and native printing](documents.md) for pagination and the typed
+document lifecycle.
+
 ### Downloads
 
 A page downloads a file when it follows a link with the `download`
