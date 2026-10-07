@@ -56,6 +56,11 @@ func probeSource(variant string) string {
 		return regexp.MustCompile(`localCoverage\(([^;{}]*?), (?:i\.transform0\.w|1)\)`).ReplaceAllString(s, `localCoverage($1, i.transform0, i.transform1)`)
 	case "no-early-return":
 		return strings.ReplaceAll(s, "if (d < -reach)\n\t\treturn 1;\n\tif (d > reach)\n\t\treturn 0;", "")
+	case "fastopt":
+		s = strings.ReplaceAll(s, "[loop] for (int y = 0; y < 4; y++)[loop] for (int x = 0; x < 4; x++) {", "[loop] [fastopt] for (int y = 0; y < 4; y++) { [loop] [fastopt] for (int x = 0; x < 4; x++) {")
+		return strings.ReplaceAll(s, "return n / 16;", "} return n / 16;")
+	case "fastopt-flat":
+		return strings.ReplaceAll(s, "[loop] for (int y = 0; y < 4; y++)[loop] for (int x = 0; x < 4; x++) {", "[loop] [fastopt] for (int tap = 0; tap < 16; tap++) { int x = tap & 3; int y = tap >> 2;")
 	case "branchless-radii", "constant-radii", "branchless-samples", "branchless-all":
 		if variant == "branchless-radii" || variant == "branchless-all" {
 			s = strings.ReplaceAll(s, "float r = q.x < 0 ? (q.y < 0 ? radii.x : radii.w) : (q.y < 0 ? radii.y : radii.z);", "float2 side = step(float2(0, 0), q); float r = dot(radii, float4((1-side.x)*(1-side.y), side.x*(1-side.y), side.x*side.y, (1-side.x)*side.y));")
@@ -83,6 +88,10 @@ func TestMain(m *testing.M) {
 			compiler.Optimization = 1 << 14
 		case "skip-optimization":
 			compiler.Optimization = 1 << 2
+		case "prefer-flow":
+			compiler.Optimization = 1<<15 | 1<<10
+		case "ieee-strict":
+			compiler.Optimization = 1<<15 | 1<<13
 		}
 		_, err := compiler.Compile(probeSource(variant), "ps", "ps_4_0")
 		if err != nil {
@@ -92,7 +101,7 @@ func TestMain(m *testing.M) {
 		fmt.Println("compiled")
 		os.Exit(0)
 	}
-	for _, variant := range []string{"branchless-radii", "constant-radii", "branchless-samples", "branchless-all"} {
+	for _, variant := range []string{"fastopt", "fastopt-flat", "prefer-flow", "ieee-strict"} {
 		cmd := exec.Command(os.Args[0])
 		cmd.Env = append(os.Environ(), "MYGO_COMPILER_PROBE="+variant)
 		out, err := cmd.CombinedOutput()
