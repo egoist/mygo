@@ -56,6 +56,9 @@ func initSystemCallbacks() {
 	connect(settings, "notify::gtk-decoration-layout", cbDecorationLayout, 0)
 	connect(settings, "notify::gtk-application-prefer-dark-theme", cbThemeChanged, 0)
 	connect(settings, "notify::gtk-enable-animations", cbThemeChanged, 0) // Theme.Preferences
+	if gtkHasSetting(settings, "gtk-overlay-scrolling") {
+		connect(settings, "notify::gtk-overlay-scrolling", cbThemeChanged, 0)
+	}
 	watchPortalSettings()
 	if d := gdkDisplayGetDefault(); d != 0 {
 		connect(d, "monitor-added", cbMonitorsChanged, 0)
@@ -352,11 +355,31 @@ func (t theme) Preferences() platform.Preferences {
 	var name ptr
 	gObjectGetPtr(settings, cs("gtk-theme-name"), unsafe.Pointer(&name), 0)
 	p.HighContrast = strings.Contains(strings.ToLower(takeStr(name)), "highcontrast")
+	// GTK 3.24.9 added the setting. Older GTK still supports the
+	// environment override; never query a property that does not exist.
+	if os.Getenv("GTK_OVERLAY_SCROLLING") == "0" {
+		p.ScrollbarVisibility = platform.ScrollbarAlways
+	}
+	if gtkHasSetting(settings, "gtk-overlay-scrolling") {
+		overlay := int32(1)
+		gObjectGetPtr(settings, cs("gtk-overlay-scrolling"), unsafe.Pointer(&overlay), 0)
+		if overlay == 0 {
+			p.ScrollbarVisibility = platform.ScrollbarAlways
+		}
+	}
 	all, ok := portalSettings(appearanceSettings, gnomeInterfaceSettings)
 	if !ok {
 		return p
 	}
 	defer gVariantUnref(all)
+	if v := portalSetting(all, gnomeInterfaceSettings, "overlay-scrolling", "b"); v != 0 {
+		if !gVariantGetBoolean(v) {
+			p.ScrollbarVisibility = platform.ScrollbarAlways
+		}
+		gVariantUnref(v)
+	}
+	// There is no standardized Linux reduced-transparency setting.
+	// Keep false rather than interpreting reduced motion as transparency.
 	// The accent: red, green and blue between 0 and 1, others for none.
 	if v := portalSetting(all, appearanceSettings, "accent-color", "(ddd)"); v != 0 {
 		var rgb [3]float64
@@ -377,6 +400,10 @@ func (t theme) Preferences() platform.Preferences {
 		p.HighContrast = p.HighContrast || gVariantGetUint32(v) == 1
 		gVariantUnref(v)
 	}
+	if v := portalSetting(all, appearanceSettings, "reduced-motion", "u"); v != 0 {
+		p.ReduceMotion = p.ReduceMotion || gVariantGetUint32(v) == 1
+		gVariantUnref(v)
+	}
 	if v := portalSetting(all, gnomeInterfaceSettings, "text-scaling-factor", "d"); v != 0 {
 		if s := gVariantGetDouble(v); s >= 0.5 && s <= 5 {
 			p.TextScale = s
@@ -384,6 +411,10 @@ func (t theme) Preferences() platform.Preferences {
 		gVariantUnref(v)
 	}
 	return p
+}
+
+func gtkHasSetting(settings ptr, name string) bool {
+	return settings != 0 && gObjectClassFindProperty(field[ptr](settings, 0), cs(name)) != 0
 }
 
 func (t theme) IsDark() bool {

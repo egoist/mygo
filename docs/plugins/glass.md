@@ -63,6 +63,23 @@ if done.Clicked() {
 In a drawing, `glass.Paint(p, r, radius, g)` paints a pane of glass over
 what the painter painted before it.
 
+## Reduced transparency
+
+With the default theme, the desktop's reduced-transparency preference or
+high contrast makes glass opaque, using `Theme.Surface` mixed with its
+explicit `Tint`. In high contrast, glass uses `Theme.Background` to
+pair with the inherited window text, since a Windows contrast theme may
+use a different text color on its button face. Blur and both scroll-edge
+styles use an opaque `Theme.Background` (or the edge's explicit
+`Background`). These
+fallbacks draw no backdrop effects, so changing content behind them
+cannot leak through. They follow live preference changes on both GPU and
+CPU paths without changing shaders.
+
+`Theme.ReduceTransparency` controls this behavior. An explicit app theme
+retains its choice, while a copy of `*c.Theme()` follows the desktop.
+Element opacity remains an explicit app override.
+
 ## Scroll edges
 
 `glass.ScrollEdge` is the scroll edge effect of macOS 26 and later, a

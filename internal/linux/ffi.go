@@ -131,6 +131,7 @@ var (
 	gObjectUnref                   func(obj ptr)
 	gObjectSetBool                 func(obj ptr, name *byte, v bool, end ptr)
 	gObjectGetPtr                  func(obj ptr, name *byte, out unsafe.Pointer, end ptr)
+	gObjectClassFindProperty       func(class ptr, name *byte) ptr
 	gSlistFree                     func(list ptr)
 	gListFree                      func(list ptr)
 	gUnixInputStreamNew            func(fd int32, closeFD bool) ptr
@@ -568,6 +569,7 @@ func load() error {
 	mustBind(o, &gObjectUnref, "g_object_unref")
 	mustBind(o, &gObjectSetBool, "g_object_set")
 	mustBind(o, &gObjectGetPtr, "g_object_get")
+	mustBind(o, &gObjectClassFindProperty, "g_object_class_find_property")
 
 	i := libGIO
 	mustBind(i, &gUnixInputStreamNew, "g_unix_input_stream_new")

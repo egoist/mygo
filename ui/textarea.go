@@ -320,13 +320,12 @@ func (a *area) paint(e *Element, p *Painter, ox, oy float32) {
 		l := a.paraLayout(ed, i)
 		y := oy + float32(a.hs.top(i)-a.scroll)
 		start, end := b.paras[i].rune, b.end(i)
+		var selected []text.Rect
 		if focused && sa != sz && sa <= end && sz >= start && !(sz == start && i > 0 && sa < start) {
 			from, to := a.local(ed, i, max(sa, start)), a.local(ed, i, min(sz, end))
-			for _, r := range l.SelectionOn(from, to, sz > end && i < last) {
-				p.Fill(Rect{ox + r.X, y + r.Y, r.W, r.H}, t.Selection, 0)
-			}
+			selected = l.SelectionOn(from, to, sz > end && i < last)
 		}
-		p.textLayout(l, ox, y, ts.color, ts, nil)
+		p.textWithSelection(l, ox, y, ts, nil, selected)
 		if ed.compose != "" && b.para(ed.caret) == i {
 			c := ed.caret - start
 			for _, r := range l.Selection(c, c+utf8.RuneCountInString(ed.compose)) {

@@ -1295,15 +1295,25 @@ either.
   placed them.
 - **Preferences.** `platform.Theme.Preferences` reads the settings of the
   desktop that controls follow: on macOS, `controlAccentColor` and
-  `NSWorkspace`'s accessibility display options, with their notifications;
+  `NSWorkspace`'s accessibility display options (including reduced
+  transparency), and the scrollbar preference with AppKit's automatic
+  scroller style, with their notifications;
   on Windows, DWM's `AccentColor`, `SPI_GETCLIENTAREAANIMATION`,
-  `SPI_GETHIGHCONTRAST` and Accessibility's `TextScaleFactor`, with
-  `WM_SETTINGCHANGE`; on Linux, GTK's `gtk-enable-animations` and the
+  `SPI_GETHIGHCONTRAST`, the active contrast-theme palette from
+  `GetSysColor`, Accessibility's `TextScaleFactor` and `DynamicScrollbars`,
+  and Personalization's `EnableTransparency`, with `WM_SETTINGCHANGE`,
+  `WM_SYSCOLORCHANGE` and `WM_THEMECHANGED`; on Linux, GTK's
+  `gtk-enable-animations`, its optional `gtk-overlay-scrolling` and the
   settings portal's accent, contrast and GNOME's text scaling factor
-  (`ReadAll`, `SettingChanged`). A change goes through
+  and overlay scrolling (`ReadAll`, `SettingChanged`). Linux has no
+  standardized reduced-transparency setting. A change goes through
   `Handler.ThemeChanged`, as the appearance's does; package `ui` reads them
   once until the next, the default theme follows them (`Theme.follow`), and
-  `Animate` follows reduced motion.
+  `Animate` follows reduced motion. Explicit themes and scrollbar overrides
+  remain app-controlled. Selection text, focus halos, scrollbar tracks and
+  the glass plugin's opaque material fallbacks use the theme's paired colors.
+  `Tester.SetPreferences` supplies the same complete snapshot for tests and
+  previews.
 - **Lists** (`ui/list.go`) build only the rows in view and keep their
   place by a row, the anchor, and how far its top is above where the
   content starts, not by an offset into their content: rows are measured,

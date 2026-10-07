@@ -131,6 +131,18 @@ func paint(p *ui.Painter, box ui.Rect, radii [4]float32, g Glass) {
 	if box.W <= 0 || box.H <= 0 {
 		return
 	}
+	if p.Theme().ReduceTransparency {
+		base := p.Theme().Surface
+		if p.Theme().HighContrast {
+			// Content inherits the window foreground. A contrast theme
+			// may choose a different foreground for its button face.
+			base = p.Theme().Background
+		}
+		c := base.Mix(g.Tint, float32(g.Tint.A)/255)
+		c.A = 255
+		fillGradient(p, box, radii, ui.LinearGradient{From: c, To: c})
+		return
+	}
 	s := p.Scale()
 	m := min(box.W, box.H)
 	bezel := min(36, m/2)

@@ -158,7 +158,7 @@ func (rt *engine) setHover(chain []uint64) bool {
 func (rt *engine) pointerMove(x, y float32) {
 	if d := &rt.scrollDrag; d.st != nil {
 		s := d.st
-		g := d.bars(rt.c.theme.scrollbarWidth())
+		g := d.bars(s.barWidth)
 		if d.horizontal {
 			if travel := g.hTrack.W - 4 - g.h.W; travel > 0 {
 				s.scrollTo(dragTo(d.from, x-d.start, travel, d.contentW-float64(s.w), s.contentW-float64(s.w)), s.scrollY)
@@ -304,6 +304,9 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, count in
 
 func (rt *engine) pointerUp(button, clicks int) {
 	if rt.scrollDrag.st != nil {
+		if a := rt.scrollDrag.st.barActivity; rt.scrollDrag.st.barVisibility == ScrollbarOnScroll && a != nil {
+			a.until = rt.now().Add(scrollbarHold)
+		}
 		rt.scrollDrag.st = nil
 		rt.requestFrame()
 		return
@@ -955,10 +958,13 @@ func (e *Element) Submitted() bool { return e.st.submitted }
 func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 	for _, id := range chain {
 		s := rt.states[id]
-		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 {
+		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 || s.barVisibility == ScrollbarNever {
 			continue
 		}
-		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth())
+		if s.barVisibility == ScrollbarOnScroll && (s.barActivity == nil || !rt.now().Before(s.barActivity.until)) {
+			continue
+		}
+		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, s.barWidth)
 		d := &rt.scrollDrag
 		w, h := float64(s.w), float64(s.h)
 		switch {

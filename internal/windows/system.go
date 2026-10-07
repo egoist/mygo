@@ -416,16 +416,26 @@ func (t theme) SetSource(source string) {
 }
 
 const (
-	spiGetHighContrast        = 0x0042
-	spiSetHighContrast        = 0x0043
-	spiGetClientAreaAnimation = 0x1042
-	spiSetClientAreaAnimation = 0x1043
-	hcfHighContrastOn         = 0x1
-	accessibilityKey          = `Software\Microsoft\Accessibility`
-	dwmKey                    = `Software\Microsoft\Windows\DWM`
-	textScaleFactor           = "TextScaleFactor"
-	settingImmersiveColorSet  = "ImmersiveColorSet"
-	settingWindowMetrics      = "WindowMetrics"
+	spiGetHighContrast           = 0x0042
+	spiSetHighContrast           = 0x0043
+	spiGetClientAreaAnimation    = 0x1042
+	spiSetClientAreaAnimation    = 0x1043
+	hcfHighContrastOn            = 0x1
+	accessibilityKey             = `Software\Microsoft\Accessibility`
+	dwmKey                       = `Software\Microsoft\Windows\DWM`
+	textScaleFactor              = "TextScaleFactor"
+	settingImmersiveColorSet     = "ImmersiveColorSet"
+	settingWindowMetrics         = "WindowMetrics"
+	controlPanelAccessibilityKey = `Control Panel\Accessibility`
+	personalizeKey               = `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
+	colorWindow                  = 5
+	colorWindowText              = 8
+	colorButtonFace              = 15
+	colorButtonText              = 18
+	colorHighlight               = 13
+	colorHighlightText           = 14
+	colorGrayText                = 17
+	colorHotlight                = 26
 )
 
 // highContrast is HIGHCONTRASTW.
@@ -435,8 +445,8 @@ type highContrast struct {
 }
 
 // Preferences reads the accent of the title bars and the Start menu, the
-// settings of animation effects and contrast themes, and the size of
-// text of Accessibility.
+// settings of animation and transparency effects, scrollbar visibility,
+// the contrast theme's paired colors, and Accessibility's text size.
 func (t theme) Preferences() platform.Preferences {
 	var p platform.Preferences
 	if v, ok := regDWORD(hkeyCurrentUser, dwmKey, "AccentColor"); ok { // 0xAABBGGRR
@@ -453,7 +463,27 @@ func (t theme) Preferences() platform.Preferences {
 	if v, ok := regDWORD(hkeyCurrentUser, accessibilityKey, textScaleFactor); ok && v >= 100 && v <= 500 {
 		p.TextScale = float64(v) / 100
 	}
+	if v, ok := regDWORD(hkeyCurrentUser, controlPanelAccessibilityKey, "DynamicScrollbars"); ok && v == 0 {
+		p.ScrollbarVisibility = platform.ScrollbarAlways
+	}
+	if v, ok := regDWORD(hkeyCurrentUser, personalizeKey, "EnableTransparency"); ok {
+		p.ReduceTransparency = v == 0
+	}
+	if p.HighContrast {
+		p.ContrastColors = platform.ContrastColors{
+			Window: systemColor(colorWindow), WindowText: systemColor(colorWindowText),
+			ButtonFace: systemColor(colorButtonFace), ButtonText: systemColor(colorButtonText),
+			Highlight: systemColor(colorHighlight), HighlightText: systemColor(colorHighlightText),
+			GrayText: systemColor(colorGrayText), Hotlight: systemColor(colorHotlight),
+		}
+	}
 	return p
+}
+
+// systemColor reads a COLOR_* index as opaque sRGB (GetSysColor is 0xBBGGRR).
+func systemColor(index uintptr) platform.Color {
+	v, _, _ := procGetSysColor.Call(index)
+	return platform.Color{R: uint8(v), G: uint8(v >> 8), B: uint8(v >> 16), A: 255}
 }
 
 // preferencesChanged reports whether a WM_SETTINGCHANGE is about the
@@ -464,11 +494,16 @@ func preferencesChanged(wp, lp uintptr) bool {
 	case spiSetClientAreaAnimation, spiSetHighContrast:
 		return true
 	}
+	if wp == 0 {
+		// Settings uses unqualified broadcasts for some accessibility
+		// and personalization switches, including DynamicScrollbars.
+		return true
+	}
 	if lp == 0 {
 		return false
 	}
 	switch wstr(lp) {
-	case settingImmersiveColorSet, settingWindowMetrics, textScaleFactor:
+	case settingImmersiveColorSet, settingWindowMetrics, textScaleFactor, "Accessibility", "UserPreferences", "EnableTransparency", "DynamicScrollbars":
 		return true
 	}
 	return false
@@ -481,7 +516,7 @@ func (b *Backend) isDark() bool {
 	case "light":
 		return false
 	}
-	light, ok := regDWORD(hkeyCurrentUser, `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, "AppsUseLightTheme")
+	light, ok := regDWORD(hkeyCurrentUser, personalizeKey, "AppsUseLightTheme")
 	return ok && light == 0
 }
 

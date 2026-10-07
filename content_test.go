@@ -214,11 +214,18 @@ func TestContentFollowsPreferences(t *testing.T) {
 	})
 	t.Cleanup(func() { onMain(func() { fb.SetPreferences(platform.Preferences{}) }) })
 	onMain(func() {
-		fb.SetPreferences(platform.Preferences{Accent: platform.Color{R: 255, G: 128, A: 255}, ReduceMotion: true, TextScale: 1.25})
+		fb.SetPreferences(platform.Preferences{Accent: platform.Color{R: 255, G: 128, A: 255}, ReduceMotion: true, TextScale: 1.25,
+			ScrollbarVisibility: platform.ScrollbarAlways, ReduceTransparency: true,
+			ContrastColors: platform.ContrastColors{Highlight: platform.Color{R: 20, G: 40, B: 60, A: 255}}})
 		s.Frame()
 	})
-	if !prefs.ReduceMotion || prefs.TextScale != 1.25 || accent != ui.RGB(255, 128, 0) {
+	if !prefs.ReduceMotion || prefs.TextScale != 1.25 || accent != ui.RGB(255, 128, 0) ||
+		prefs.ScrollbarVisibility != ui.ScrollbarAlways || !prefs.ReduceTransparency || prefs.ContrastColors.Highlight != ui.RGB(20, 40, 60) {
 		t.Errorf("the content sees %+v, accent %v", prefs, accent)
+	}
+	onMain(func() { fb.SetPreferences(platform.Preferences{}); s.Frame() })
+	if prefs.ReduceTransparency || prefs.ScrollbarVisibility != ui.ScrollbarAuto || prefs.ContrastColors != (ui.ContrastColors{}) {
+		t.Errorf("live preference reset: %+v", prefs)
 	}
 }
 

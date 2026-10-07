@@ -180,7 +180,7 @@ func button(c *Context, label string, primary bool) *Element {
 func styleButton(c *Context, b *Element, primary bool) {
 	t := c.theme
 	b.Padding(t.Space(1.5), t.Space(3.5)).Gap(t.Space(1.5)).Radius(t.Radius)
-	base, hover, pressed, fg, border := t.Surface, t.SurfaceHover, t.SurfacePressed, t.Text, t.Border
+	base, hover, pressed, fg, border := t.Surface, t.SurfaceHover, t.SurfacePressed, t.surfaceText(), t.Border
 	switch {
 	case primary:
 		base, hover, pressed, fg, border = t.Accent, t.AccentHover, t.AccentPressed, t.AccentText, Color{}
@@ -197,6 +197,9 @@ func styleButton(c *Context, b *Element, primary bool) {
 		b.Border(1, border)
 	}
 	b.styleFn = func(b *Element) {
+		if b.IsDisabled() && t.HighContrast && b.ts.color == fg {
+			b.ts.color = t.TextMuted
+		}
 		if b.bg != base || b.IsDisabled() {
 			return
 		}
@@ -215,7 +218,11 @@ func styleButton(c *Context, b *Element, primary bool) {
 // label and Children to style parts of its text.
 func Link(c *Context, label, url string) *Element {
 	t := c.theme
-	e := Text(c, label).TextColor(t.Accent).Cursor(CursorPointer).Focusable()
+	color := t.Link
+	if color.A == 0 {
+		color = t.Accent
+	}
+	e := Text(c, label).TextColor(color).Cursor(CursorPointer).Focusable()
 	e.widget, e.role = "Link", RoleLink
 	if e.Clicked() && url != "" {
 		if r := c.router; r != nil && isPath(url) {

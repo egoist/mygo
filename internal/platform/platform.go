@@ -653,6 +653,30 @@ type Preferences struct {
 	// TextScale is how many times larger than usual text should be, as
 	// Windows's and GNOME's text size settings say; 0 or 1 for usual.
 	TextScale float64
+	// ScrollbarVisibility is Auto, Always or OnScroll as the desktop requests.
+	ScrollbarVisibility ScrollbarVisibility
+	// ReduceTransparency asks materials to use an opaque background.
+	ReduceTransparency bool
+	// ContrastColors is the Windows system palette while a contrast theme
+	// is active. Window.A is zero when no palette is available.
+	ContrastColors ContrastColors
+}
+
+// ScrollbarVisibility controls when overflowing containers show scrollbars.
+type ScrollbarVisibility uint8
+
+const (
+	ScrollbarAuto ScrollbarVisibility = iota
+	ScrollbarAlways
+	ScrollbarOnScroll
+	ScrollbarNever
+)
+
+// ContrastColors keeps the paired foregrounds and backgrounds of a Windows
+// contrast theme, as returned by GetSysColor.
+type ContrastColors struct {
+	Window, WindowText, ButtonFace, ButtonText   Color
+	Highlight, HighlightText, GrayText, Hotlight Color
 }
 
 // FontRendering is how the desktop's settings say to rasterize text, as

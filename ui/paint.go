@@ -107,7 +107,7 @@ func (p *Painter) element(e *Element) {
 		return
 	}
 	saved := p.opacity
-	if e.flags&flagDisabled != 0 {
+	if e.flags&flagDisabled != 0 && !e.c.theme.HighContrast {
 		p.opacity *= 0.5
 	}
 	if e.opacitySet {
@@ -140,15 +140,14 @@ func (p *Painter) element(e *Element) {
 		case kindText:
 			ts := e.resolvedText()
 			ox, oy := e.x+e.contentX(), e.y+e.contentY()
+			var selected []text.Rect
 			if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 && e.Focused() {
 				if a, b := ed.selection(); a != b {
-					for _, r := range e.tl.Selection(a, b) {
-						p.Fill(Rect{ox + r.X, oy + r.Y, r.W, r.H}, e.c.theme.Selection, 0)
-					}
+					selected = e.tl.Selection(a, b)
 				}
 			}
 			var sp spanPaint
-			p.textLayout(e.tl, ox, oy, ts.color, ts, e.paintSpans(&sp))
+			p.textWithSelection(e.tl, ox, oy, ts, e.paintSpans(&sp), selected)
 		case kindImage:
 			p.image(e)
 		case kindIcon:
@@ -446,6 +445,43 @@ func (p *Painter) popClip() {
 	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpPopClip})
 }
 
+// textWithSelection paints the foreground/background pair of a selection.
+// Clip the normal and selected text separately so partial ligatures and
+// translucent app selection colors are drawn once, without darkening glyphs.
+func (p *Painter) textWithSelection(l *text.Layout, x, y float32, ts textStyle, sp *spanPaint, selected []text.Rect) {
+	t := p.Theme()
+	for _, r := range selected {
+		p.Fill(Rect{x + r.X, y + r.Y, r.W, r.H}, t.Selection, 0)
+	}
+	if len(selected) == 0 || t.SelectionText.A == 0 {
+		p.textLayout(l, x, y, ts.color, ts, sp)
+		return
+	}
+	clip := p.clip
+	normal := func(r Rect) {
+		r = intersect(r, clip)
+		if r.W > 0 && r.H > 0 {
+			p.Clip(r, 0, func() { p.textLayout(l, x, y, ts.color, ts, sp) })
+		}
+	}
+	top := clip.Y
+	for _, s := range selected {
+		r := Rect{x + s.X, y + s.Y, s.W, s.H}
+		normal(Rect{clip.X, top, clip.W, r.Y - top})
+		normal(Rect{clip.X, r.Y, r.X - clip.X, r.H})
+		normal(Rect{r.X + r.W, r.Y, clip.X + clip.W - r.X - r.W, r.H})
+		if shown := intersect(r, clip); shown.W > 0 && shown.H > 0 {
+			p.Clip(shown, 0, func() {
+				style := ts
+				style.background, style.decoColor = Transparent, t.SelectionText
+				p.textLayout(l, x, y, t.SelectionText, style, nil)
+			})
+		}
+		top = max(top, r.Y+r.H)
+	}
+	normal(Rect{clip.X, top, clip.W, clip.Y + clip.H - top})
+}
+
 // textLayout paints a laid out text from (x, y), in color, with the
 // background, underline or strikethrough of ts, and the colors, backgrounds
 // and lines of the spans of sp, if any.
@@ -675,6 +711,10 @@ func (p *Painter) drawBitmap(img *Bitmap, box Rect, fit Fit, radius [4]float32, 
 // scrollbars draws the thumbs of a scroll container whose content
 // overflows it.
 func (p *Painter) scrollbars(e *Element) {
+	mode := e.scrollbarVisibility()
+	if mode == ScrollbarNever {
+		return
+	}
 	st := e.st
 	rt := e.c.rt
 	theme := e.c.theme
@@ -686,8 +726,17 @@ func (p *Painter) scrollbars(e *Element) {
 		}
 	}
 	dragging := rt.scrollDrag.st == st
-	if !hovered && !dragging {
-		return
+	if !dragging {
+		switch mode {
+		case ScrollbarAuto:
+			if !hovered {
+				return
+			}
+		case ScrollbarOnScroll:
+			if st.barActivity == nil || !rt.c.now.Before(st.barActivity.until) {
+				return
+			}
+		}
 	}
 	color := theme.Scrollbar
 	w, h := e.contentW, e.contentH
@@ -701,8 +750,14 @@ func (p *Painter) scrollbars(e *Element) {
 		y = rescale(y, e.contentH-float64(e.h), h-float64(e.h))
 	}
 	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, float32(w), float32(h), float32(x), float32(y), e.flags, theme.scrollbarWidth())
+	if mode == ScrollbarOnScroll && !dragging && (g.vertical || g.horizontal) {
+		p.After(st.barActivity.until.Sub(rt.c.now))
+	}
 	if g.vertical {
 		bar := g.v
+		if theme.ScrollbarTrack.A != 0 {
+			p.Fill(g.vTrack, theme.ScrollbarTrack, 0)
+		}
 		if dragging && !rt.scrollDrag.horizontal {
 			bar.X, bar.W = bar.X-2, bar.W+2
 		}
@@ -710,6 +765,9 @@ func (p *Painter) scrollbars(e *Element) {
 	}
 	if g.horizontal {
 		bar := g.h
+		if theme.ScrollbarTrack.A != 0 {
+			p.Fill(g.hTrack, theme.ScrollbarTrack, 0)
+		}
 		if dragging && rt.scrollDrag.horizontal {
 			bar.Y, bar.H = bar.Y-2, bar.H+2
 		}
@@ -864,6 +922,16 @@ func (p *Painter) FocusRing(r Rect, radius [4]float32) {
 	o := Rect{r.X - w - 1, r.Y - w - 1, r.W + 2*w + 2, r.H + 2*w + 2}
 	for i := range radius {
 		radius[i] += w + 1
+	}
+	if t := p.Theme(); t.HighContrast {
+		// A window-background halo keeps the ring visible over both a
+		// selected row and a control face, even when their colors differ.
+		outer := Rect{o.X - 1, o.Y - 1, o.W + 2, o.H + 2}
+		radii := radius
+		for i := range radii {
+			radii[i]++
+		}
+		p.fill(outer, radii, Color{}, w+2, t.Background)
 	}
 	p.fill(o, radius, Color{}, w, p.rt.c.theme.Focus)
 }

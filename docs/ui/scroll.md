@@ -54,10 +54,21 @@ The keyboard focus scrolls into view as it moves.
 
 ## Scroll bars
 
-A scroll container whose content overflows it shows the thumbs of its
-scroll bars over its content while the pointer is over it, which the user
-drags; they take no room. The theme's `ScrollbarWidth` sets their width and
-its `Scrollbar` their color.
+A scroll container whose content overflows it shows draggable scrollbar
+thumbs over its content. The default theme follows the desktop's
+visibility preference: automatic bars show while hovered or dragged,
+and permanent bars stay visible at idle. They take no layout space.
+macOS's **When scrolling** choice shows them during and briefly after
+scrolling, with no idle pointer target once the indicator has disappeared.
+The theme's `ScrollbarWidth` sets their width, `Scrollbar` their color,
+and `ScrollbarTrack` an optional background behind them for contrast.
+
+`Scrollbars(ui.ScrollbarAuto)`, `Scrollbars(ui.ScrollbarAlways)`,
+`Scrollbars(ui.ScrollbarOnScroll)` or `Scrollbars(ui.ScrollbarNever)`
+overrides visibility for one container;
+`Theme.ScrollbarVisibility` sets it for the view. Never removes the
+bars' pointer targets as well, while wheel, keyboard and programmatic
+scrolling remain available. Changes apply in the next frame.
 
 `ScrollbarInsets` moves the bars in from the container's edges, CSS style
 as `Padding`: the vertical bar runs from the top inset to the bottom one,

@@ -331,6 +331,11 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 			b.h.ThemeChanged()
 		}
 		return 0, false
+	case wmSysColorChange, wmThemeChanged:
+		// Contrast theme palette edits need not change HCF_HIGHCONTRASTON.
+		b.applyTheme()
+		b.h.ThemeChanged()
+		return 0, false
 	case wmDisplayChange:
 		b.h.DisplaysChanged()
 		return 0, false

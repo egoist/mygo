@@ -206,6 +206,16 @@ func (t theme) Preferences() platform.Preferences {
 		ws := workspace()
 		p.ReduceMotion = sendBool(ws, "accessibilityDisplayShouldReduceMotion")
 		p.HighContrast = sendBool(ws, "accessibilityDisplayShouldIncreaseContrast")
+		p.ReduceTransparency = sendBool(ws, "accessibilityDisplayShouldReduceTransparency")
+		// Read explicit choices from defaults; AppKit resolves the automatic
+		// choice from the pointing devices. preferredScrollerStyle alone
+		// can retain its cached style after a defaults notification.
+		style := goString(send(send(class("NSUserDefaults"), "standardUserDefaults"), "stringForKey:", uintptr(nsString("AppleShowScrollBars"))))
+		if style == "Always" || style != "WhenScrolling" && sendInt(class("NSScroller"), "preferredScrollerStyle") == 0 {
+			p.ScrollbarVisibility = platform.ScrollbarAlways
+		} else if style == "WhenScrolling" {
+			p.ScrollbarVisibility = platform.ScrollbarOnScroll
+		}
 		// The accent, as the app's appearance draws it.
 		var c id
 		appearance := class("NSAppearance")
