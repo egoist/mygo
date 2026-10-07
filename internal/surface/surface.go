@@ -26,6 +26,8 @@ type Conn struct {
 	// UIFont returns the family of the desktop's interface font where the
 	// system's text stack does not know it (Linux), else "".
 	UIFont func() string
+	// Locale returns the app's configured locale on the main thread.
+	Locale func() string
 	// FontRendering returns how the desktop's settings say to rasterize
 	// text where the system's text stack does not know them (Linux).
 	FontRendering func() platform.FontRendering

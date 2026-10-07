@@ -311,7 +311,11 @@ func Switch(c *Context, on *bool) *Element {
 	sw.Draw(func(p *Painter, r Rect) {
 		in := t.Space(0.5)
 		d := r.H - 2*in
-		knob := Rect{r.X + in + pos*(r.W-r.H), r.Y + in, d, d}
+		visual := pos
+		if sw.rtl() {
+			visual = 1 - visual
+		}
+		knob := Rect{r.X + in + visual*(r.W-r.H), r.Y + in, d, d}
 		p.Shadow(knob, d/2, 0, 1, 3, 0, RGBA(0, 0, 0, 0.25))
 		p.Fill(knob, RGB(255, 255, 255), d/2)
 	})
@@ -351,14 +355,22 @@ func slider(c *Context, value *float64, lo, hi, step float64) *Element {
 		cy := r.Y + t.Space(2.5)
 		track := Rect{r.X, cy - h/2, r.W, h}
 		paintTicks(p, t, r, kw, ticks, cy+kh/2+t.Space(1))
-		x := r.X + kw/2 + (r.W-kw)*frac
+		visual := frac
+		if s.rtl() {
+			visual = 1 - visual
+		}
+		x := r.X + kw/2 + (r.W-kw)*visual
 		k := knobRect(t, x, cy, held)
 		if held > 0 {
 			// The lens lightens what is behind it, under the track.
 			p.Fill(k, RGBA(255, 255, 255, 0.1*held), k.H/2)
 		}
 		p.Fill(track, t.Border, h/2)
-		p.Fill(Rect{track.X, track.Y, x - track.X, h}, t.Accent, h/2)
+		filled := Rect{track.X, track.Y, x - track.X, h}
+		if s.rtl() {
+			filled.X, filled.W = x, track.X+track.W-x
+		}
+		p.Fill(filled, t.Accent, h/2)
 		paintKnob(p, t, k, held, s.FocusVisible())
 	})
 	return s
@@ -468,7 +480,7 @@ func paintKnob(p *Painter, t *Theme, k Rect, held float32, focus bool) {
 
 // Progress creates a progress bar filled to value between 0 and 1; a
 // negative value shows activity of unknown length. Reverse fills it from
-// the right, for interfaces laid out from right to left.
+// the opposite inline edge; RTL fills from the right by default.
 func Progress(c *Context, value float64) *Element {
 	t := c.theme
 	rad := t.Space(0.75)
@@ -478,7 +490,7 @@ func Progress(c *Context, value float64) *Element {
 		if value >= 0 {
 			w := r.W * float32(math.Min(value, 1))
 			x := r.X
-			if e.reverse {
+			if e.inlineReverse() {
 				x = r.X + r.W - w
 			}
 			p.Fill(Rect{x, r.Y, w, r.H}, t.Accent, rad)
@@ -490,7 +502,7 @@ func Progress(c *Context, value float64) *Element {
 		phase := float32(p.Now().UnixMilli()%1400) / 1400
 		w := r.W * 0.3
 		x := r.X - w + (r.W+w)*phase
-		if e.reverse {
+		if e.inlineReverse() {
 			x = r.X + r.W - (r.W+w)*phase
 		}
 		p.Clip(r, rad, func() { p.Fill(Rect{x, r.Y, w, r.H}, t.Accent, rad) })
@@ -574,12 +586,12 @@ func (e *Element) Fit(f Fit) *Element { e.fit = f; return e }
 // another element with AttachTo. Each, as it goes with the focus in it,
 // gives the focus back to the element that had it as it came.
 func Overlay(c *Context, fn func()) {
-	saved := c.parent
+	saved, owner := c.parent, c.overlayOwner
 	o := c.overlayRoot()
-	c.parent = o
+	c.parent, c.overlayOwner = o, saved
 	last := o.last
 	fn()
-	c.parent = saved
+	c.parent, c.overlayOwner = saved, owner
 	first := o.first
 	if last != nil {
 		first = last.next

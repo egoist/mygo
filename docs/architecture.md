@@ -1234,6 +1234,18 @@ either.
   `MYGO_FRAME_STATS` set, frames slower than its threshold log how long
   each part took, which path drew them, what the process allocated and
   whether the collector ran (`ui/framestats.go`).
+- **Interface direction** (`ui/direction.go`). The root uses automatic
+  direction from the optional `surface.Conn.Locale` hook (`App.Locale`);
+  elements inherit it or override it with LTR/RTL/automatic and a layout
+  locale. Attached overlays use their anchor's direction, other overlays
+  keep their construction scope. Logical edges resolve before measurement,
+  flex/grid place boxes in reading order, and `Reverse` composes with it.
+  Rendering never reflects a subtree: bidi glyphs and media keep their
+  orientation. The committed states record direction for input and
+  accessibility actions. Horizontal scroll offsets are nonnegative from
+  inline start; layout, reveal, scroll thumbs and header followers convert
+  to physical distances from the left. The UI inspector keeps a deliberate
+  LTR layout. See [Interface direction](ui/direction.md).
 - **Transitions** (`ui/transition.go`) animate elements FLIP-style, after
   the layout of each frame and before `place` turns boxes into window
   coordinates: an element given a `Transition` keeps, by its ID, where the

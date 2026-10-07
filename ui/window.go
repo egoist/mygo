@@ -113,6 +113,13 @@ type windowHost struct {
 	detached  bool
 }
 
+func (h *windowHost) layoutLocale() string {
+	if h.conn.Locale != nil {
+		return h.conn.Locale()
+	}
+	return "en-US"
+}
+
 func (h *windowHost) framePath() string { return h.path }
 
 // newGPU makes the GPU renderer of a surface; tests replace it.

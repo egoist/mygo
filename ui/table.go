@@ -12,7 +12,7 @@ type TableColumn struct {
 	// and for the sort (ListState.Sort): the Title when empty.
 	Title, ID string
 	// Width is the column's width in DIPs, or 0 to share the room the
-	// others leave. The user resizes the column by dragging the right edge
+	// others leave. The user resizes the column by dragging the inline end edge
 	// of its header, between MinWidth and MaxWidth (none for 0), and fits
 	// it to its cells with a double click there.
 	Width, MinWidth, MaxWidth float32
@@ -312,7 +312,7 @@ func tableHeader(c *Context, table, h *Element, col *TableColumn, s *ListState, 
 	// double click.
 	grip := t.Space(2)
 	h.Children(func() {
-		edge := Box(c).Absolute().Top(0).Bottom(0).Right(0).Width(grip).Cursor(CursorResizeEW).Role(RoleNone)
+		edge := Box(c).Absolute().Top(0).Bottom(0).InsetEnd(0).Width(grip).Cursor(CursorResizeEW).Role(RoleNone)
 		edge.flags |= flagHover
 		if edge.DoubleClicked() {
 			drag.fit = id
@@ -335,10 +335,13 @@ func tableHeader(c *Context, table, h *Element, col *TableColumn, s *ListState, 
 			if !ok {
 				w = h.Bounds().W // sharing the room left, as wide as it was
 			}
-			s.setWidth(col, w+dx)
+			s.setWidth(col, w+directionDelta(dx, h.rtl()))
 		}
 		edge.Draw(func(p *Painter, r Rect) {
 			x := r.X + r.W - 0.5
+			if h.rtl() {
+				x = r.X + 0.5
+			}
 			color := t.Border
 			if edge.Hovered() || edge.Pressed() {
 				color = t.Accent
@@ -367,13 +370,14 @@ func moveColumn(c *Context, s *ListState, drag *tableDrag, heads []*Element, ord
 		return
 	}
 	to := at
+	delta := directionDelta(drag.dx, heads[at].rtl())
 	switch {
-	case drag.dx > 0 && at+1 < len(order):
-		if next := heads[at+1].Bounds(); next.W > 0 && drag.dx > next.W/2 {
+	case delta > 0 && at+1 < len(order):
+		if next := heads[at+1].Bounds(); next.W > 0 && delta > next.W/2 {
 			to = at + 1
 		}
-	case drag.dx < 0 && at > 0:
-		if prev := heads[at-1].Bounds(); prev.W > 0 && -drag.dx > prev.W/2 {
+	case delta < 0 && at > 0:
+		if prev := heads[at-1].Bounds(); prev.W > 0 && -delta > prev.W/2 {
 			to = at - 1
 		}
 	}
@@ -383,9 +387,9 @@ func moveColumn(c *Context, s *ListState, drag *tableDrag, heads []*Element, ord
 	// Under the pointer still: the column's place moved by the other's
 	// width.
 	if to > at {
-		drag.dx -= heads[to].Bounds().W
+		drag.dx -= directionDelta(heads[to].Bounds().W, heads[at].rtl())
 	} else {
-		drag.dx += heads[to].Bounds().W
+		drag.dx += directionDelta(heads[to].Bounds().W, heads[at].rtl())
 	}
 	ids := make([]string, len(order))
 	for k, j := range order {
@@ -432,7 +436,7 @@ func (tf *tableFit) apply() {
 // sortArrow draws the arrow of the column the rows are sorted by.
 func sortArrow(c *Context, descending bool) {
 	t := c.theme
-	Box(c).Size(t.Space(2.5), t.Space(2.5)).Shrink(0).Margin(0, 0, 0, t.Space(1)).Draw(func(p *Painter, r Rect) {
+	Box(c).Size(t.Space(2.5), t.Space(2.5)).Shrink(0).MarginStart(t.Space(1)).Draw(func(p *Painter, r Rect) {
 		var path Path
 		if descending {
 			path.MoveTo(r.X+r.W*0.1, r.Y+r.H*0.3).LineTo(r.X+r.W*0.5, r.Y+r.H*0.7).LineTo(r.X+r.W*0.9, r.Y+r.H*0.3)

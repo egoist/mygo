@@ -144,6 +144,7 @@ func gridPlace(e *Element, s *gridScratch) (items []gridItem, nc, nr int) {
 		if c.flags&flagAbsolute != 0 {
 			continue
 		}
+		c.resolveEdges()
 		it := gridItem{e: c, col: int(c.cell.col) - 1, row: int(c.cell.row) - 1, colSpan: int(c.cell.colSpan), rowSpan: int(c.cell.rowSpan)}
 		switch {
 		case it.colSpan < 0:
@@ -470,7 +471,11 @@ func gridLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) 
 		for k := it.col; k < it.col+it.colSpan; k++ {
 			area += cols[k]
 		}
-		w, off := gridPlaceIn(c, area, c.width, c.marginX(), 3, 1, gridJustify(e, c), cw, func(avail float32) float32 { return fitWidth(c, avail, cw) }, c.clampW)
+		ms, me := 3, 1
+		if e.rtl() {
+			ms, me = me, ms
+		}
+		w, off := gridPlaceIn(c, area, c.width, c.marginX(), ms, me, gridJustify(e, c), cw, func(avail float32) float32 { return fitWidth(c, avail, cw) }, c.clampW)
 		widths[i], offs[i] = w, off
 		h := heightAt(c, w, ch) + c.marginY()
 		cs[i] = contrib{start: it.row, span: it.rowSpan, min: h, max: h}
@@ -515,6 +520,13 @@ func gridLayout(e *Element, cw, ch float32, commit bool) (usedW, usedH float32) 
 		it := &items[i]
 		c := it.e
 		x := colAt[it.col] + offs[i]
+		if e.rtl() {
+			width := cw
+			if !finite(width) {
+				width = usedW
+			}
+			x = width - x - widths[i]
+		}
 		ah := (e.gapY + betweenY) * float32(it.rowSpan-1)
 		for k := it.row; k < it.row+it.rowSpan; k++ {
 			ah += rows[k]
@@ -557,7 +569,7 @@ func gridPlaceIn(c *Element, area float32, size length, margins float32, ms, me 
 	var v float32
 	if l, ok := size.resolve(base(cb)); ok {
 		v = clamp(l, cb)
-	} else if a == Stretch && !autoS && !autoE && c.kind != kindIcon && (c.aspect == 0 || ms == 3) {
+	} else if a == Stretch && !autoS && !autoE && c.kind != kindIcon && (c.aspect == 0 || ms == 3 || ms == 1) {
 		v = clamp(area-margins, cb)
 	} else {
 		v = natural(area - margins)

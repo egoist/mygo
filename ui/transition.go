@@ -456,6 +456,12 @@ func (rt *engine) elementsByID(root *Element) map[uint64]*Element {
 func ghostOf(e *Element) *Element {
 	g := new(Element)
 	*g = *e
+	g.directionOwner = nil
+	g.direction, g.layoutLocaleTag = e.LayoutDirection(), e.layoutLocale()
+	if e.logical != nil {
+		logical := *e.logical
+		g.logical = &logical
+	}
 	st := *e.st
 	st.trec = nil
 	g.st = &st

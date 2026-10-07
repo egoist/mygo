@@ -202,3 +202,6 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
 - [Image](image.md): bitmaps and SVGs in their own colors.
 - [Icon](icon.md): SVG icons in the color of the text.
 - [Avatar](avatar.md): a picture of a person, or their initials.
+
+Interface layout supports [inherited RTL direction](direction.md), logical
+start/end edges and direction-aware navigation, alongside bidirectional text.

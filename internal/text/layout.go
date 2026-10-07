@@ -55,6 +55,9 @@ const (
 	Start Align = iota
 	Center
 	End
+	// Left and Right are physical alignment, independent of paragraph direction.
+	Left
+	Right
 )
 
 // Params describe a text to lay out.
@@ -630,7 +633,7 @@ func (s *System) layout(p Params) *cached {
 		switch align {
 		case Center:
 			dx = (box - line.Width) / 2
-		case End:
+		case End, Right:
 			dx = box - line.Width
 		}
 		if dx != 0 {

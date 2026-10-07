@@ -5,7 +5,8 @@ import "slices"
 // ScrollState is how far a scroll container scrolls its content, kept in
 // the app's state with TrackScroll.
 type ScrollState struct {
-	// X and Y are how far the content is scrolled left and up, in DIPs.
+	// X is the distance from inline start (the right in RTL); Y is the
+	// distance from the top, in DIPs. Offsets are nonnegative in both directions.
 	// Set them to scroll: the container keeps them within its content, so
 	// that 0 shows the start and math.MaxFloat32 the end.
 	X, Y float32
@@ -147,7 +148,8 @@ func reveal(e *Element) {
 			// Where the box is in the content: a List placed its rows
 			// from scrollBase.
 			cx, cy := float64(x), float64(y)+p.scrollBase
-			sx := max(0, min(nearest(st.scrollX, cx, w, p.border[3], p.w-p.border[1]), mx))
+			sx := max(0, min(nearest(p.physicalScrollX(), cx, w, p.border[3], p.w-p.border[1]), mx))
+			sx = inlineOffset(sx, mx, p.rtl())
 			sy := max(0, min(nearest(st.scrollY, cy, h, p.border[0], p.h-p.border[2]), my))
 			if sx != st.scrollX || sy != st.scrollY {
 				st.beginMove(frame)
@@ -155,13 +157,14 @@ func reveal(e *Element) {
 					// A List places its rows anew from there, building
 					// those it lacked, which moves the row holding the box.
 					was := ch.y
+					st.scrollTo(sx, st.scrollY)
 					p.relayoutList(ch, sy)
 					cy = float64(y+ch.y-was) + p.scrollBase
 				} else {
 					st.scrollTo(sx, sy)
 				}
 			}
-			x = float32(cx - st.scrollX)
+			x = float32(cx - p.physicalScrollX())
 			y = float32(cy - st.scrollY)
 		}
 		x += p.x
@@ -181,4 +184,22 @@ func nearest(off, pos float64, size, lo, hi float32) float64 {
 		return off + min(end-float64(hi), start-float64(lo))
 	}
 	return off
+}
+
+// inlineOffset converts between a logical distance from inline start and
+// a physical distance from the left; it is its own inverse.
+func inlineOffset(offset, reach float64, rtl bool) float64 {
+	if rtl {
+		return max(0, reach) - offset
+	}
+	return offset
+}
+
+func (e *Element) physicalScrollX() float64 {
+	mx, _ := e.maxScroll()
+	return inlineOffset(max(0, min(e.st.scrollX, mx)), mx, e.rtl())
+}
+
+func (s *state) physicalScrollX() float64 {
+	return inlineOffset(s.scrollX, s.contentW-float64(s.w), s.rtl)
 }

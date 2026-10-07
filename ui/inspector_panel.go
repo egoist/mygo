@@ -80,7 +80,7 @@ func (rt *engine) buildInspector(c *Context, appW, w, h float32) {
 	c.theme, c.parent = t, c.root
 	defer func() { c.theme, c.parent = saved, savedParent }()
 
-	panel := Column(c).Key(inspectorKey)
+	panel := Column(c).Key(inspectorKey).Direction(LTR)
 	in.panel = panel.id
 	panel.Absolute().Left(appW).Top(0).Width(w-appW).Height(h).Background(pal.bg).
 		BorderWidth(0, 0, 0, 1).BorderColor(pal.border).FontSize(12).TextColor(pal.text).Label("Developer tools")
