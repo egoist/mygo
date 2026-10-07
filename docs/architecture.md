@@ -1282,6 +1282,20 @@ either.
   tag `mygo_noinspector` (`inspector_off.go` stands in for it, never
   open), added to the tags of `GOFLAGS`, unless `-debug` or
   `MYGO_INSPECTOR=1`.
+- **Pointer contacts and gestures** (`ui/pointer.go`, `ui/gesture.go`).
+  `SurfaceEvent.Pointer` carries contact identity, device, pressure and
+  tilt availability; cancellation and capture loss never complete a click
+  or typed drop. The engine keeps contacts by ID and independent captures,
+  while the first direct contact drives the existing pointer interactions.
+  `TrackContacts` opts raw handlers into additional and indirect contacts,
+  so existing handlers do not mistake trackpad fingers for mouse presses.
+  Direct-touch gestures select an owner from the common initial hit chain,
+  then cancel pending presses when claimed; explicit captures protect raw
+  interactions. Native trackpad gestures arrive separately as phased pan,
+  pinch and rotation, with incremental DIPs, scale multipliers and clockwise
+  radians. Raw AppKit touches remain indirect normalized coordinates, and
+  do not also synthesize gestures. See [pointer input](ui/input.md) for
+  device availability, ownership and scroll fallback.
 - **Input taken as it comes.** An element with `HandleInput` gets its
   input on the main thread as the backend reports it, before the frame
   (`ui/handler.go`): keys (with their releases, which ui otherwise

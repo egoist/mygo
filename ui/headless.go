@@ -344,6 +344,33 @@ func (t *Tester) Scroll(x, y, dx, dy float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: float64(x), Y: float64(y), DX: float64(dx), DY: float64(dy)})
 }
 
+// Pointer sends one contact event in window DIPs. Use distinct nonzero IDs
+// for touch/pen contacts; Down/Move/Up/Cancel exercise the same routing as
+// native events. Pressure and tilt availability are explicit in info.
+func (t *Tester) Pointer(kind InputKind, info PointerInfo, x, y float32) {
+	kinds := map[InputKind]platform.SurfaceEventKind{
+		InputPointerDown: platform.PointerDown, InputPointerMove: platform.PointerMove,
+		InputPointerUp: platform.PointerUp, InputPointerCancel: platform.PointerCancel,
+		InputPointerEnter: platform.PointerEnter, InputPointerLeave: platform.PointerLeave,
+		InputPointerCaptureLost: platform.PointerCaptureLost,
+	}
+	k, ok := kinds[kind]
+	if !ok {
+		panic("ui: Tester.Pointer requires a pointer event kind")
+	}
+	info.Contact = kind == InputPointerDown || kind == InputPointerMove && info.Contact
+	t.send(platform.SurfaceEvent{Kind: k, Pointer: info, X: float64(x), Y: float64(y)})
+}
+
+// Gesture sends an OS-recognized gesture in window DIPs. Touch recognition
+// can instead be tested by sending contacts through Pointer.
+func (t *Tester) Gesture(ev GestureEvent) {
+	t.send(platform.SurfaceEvent{Kind: platform.SurfaceGesture,
+		Gesture: ev.Kind, Phase: ev.Phase, Pointer: PointerInfo{Device: ev.Device},
+		Contacts: ev.Contacts, X: float64(ev.X), Y: float64(ev.Y), DX: float64(ev.DX), DY: float64(ev.DY),
+		Scale: float64(ev.Scale), Rotation: float64(ev.Rotation), Mods: platform.Modifiers(ev.Mods)})
+}
+
 // Key presses a key with modifiers.
 func (t *Tester) Key(mods Modifiers, key Key) {
 	t.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(key), Mods: platform.Modifiers(mods)})

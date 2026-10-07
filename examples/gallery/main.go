@@ -25,7 +25,8 @@ import (
 )
 
 type gallery struct {
-	win *mygo.Window
+	win     *mygo.Window
+	pointer pointerDemo
 	// router shows the pages: "/overview", "/list", and a row of the list,
 	// "/list/42".
 	router *ui.Router
@@ -249,7 +250,7 @@ func makeMessage(id int) message {
 	return message{id: id, text: strings.Join(lines, " "), mine: r%3 == 0}
 }
 
-var pages = []string{"Overview", "Controls", "Text", "List", "Styling", "Drawing", "Glass", "Overlays", "Motion"}
+var pages = []string{"Overview", "Controls", "Text", "List", "Styling", "Drawing", "Glass", "Overlays", "Motion", "Input"}
 
 // icon parses the shapes of a 24×24 stroked icon, drawn in currentColor
 // as icon sets draw them.
@@ -266,6 +267,7 @@ var (
 		"List":     icon(`<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>`),
 		"Styling":  icon(`<path d="M12 21a9 9 0 1 1 9-9c0 2.5-2 3.5-3.5 3.5H16a2 2 0 0 0-1.5 3.3c.4.5.4 2.2-2.5 2.2z"/><circle cx="7.5" cy="11" r="1"/><circle cx="11" cy="7" r="1"/><circle cx="16" cy="8.5" r="1"/>`),
 		"Drawing":  icon(`<path d="M15 5l4 4M4 20l1-4.5L16.5 4a2.1 2.1 0 0 1 3 3L8 18.5z"/>`),
+		"Input":    icon(`<path d="M8 13V5a2 2 0 0 1 4 0v7-4a2 2 0 0 1 4 0v5-2a2 2 0 0 1 4 0v5c0 4-3 6-6 6h-2l-7-8a2 2 0 0 1 3-2z"/>`),
 		"Glass":    icon(`<rect x="3" y="6" width="18" height="12" rx="6"/><path d="M7 10.5a3 3 0 0 1 2.5-1.5"/>`),
 		"Overlays": icon(`<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/>`),
 		"Motion":   icon(`<path d="M3 12h4M5 7h6M5 17h6"/><circle cx="16" cy="12" r="5"/>`),
@@ -338,6 +340,8 @@ func (g *gallery) view(c *ui.Context) {
 						g.glassPage(c)
 					case "Overlays":
 						g.overlays(c)
+					case "Input":
+						g.inputPage(c)
 					case "Motion":
 						g.motion(c)
 					}

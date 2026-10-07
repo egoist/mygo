@@ -160,11 +160,24 @@ const (
 	// SurfaceShown reports that some of an OccludableSurface shows again
 	// after none did.
 	SurfaceShown
+	// PointerEnter/Cancel/CaptureLost describe pointer lifecycle. Cancel
+	// and CaptureLost terminate a contact without a click or release.
+	PointerEnter
+	PointerCancel
+	PointerCaptureLost
+	// SurfaceGesture is a gesture already recognized by the native toolkit.
+	SurfaceGesture
 )
 
 // SurfaceEvent is input on a Surface, or a change of it.
 type SurfaceEvent struct {
-	Kind SurfaceEventKind
+	Kind    SurfaceEventKind
+	Pointer PointerInfo
+	Gesture GestureKind
+	Phase   GesturePhase
+	// Scale is an incremental multiplier; Rotation is clockwise radians.
+	Scale, Rotation float64
+	Contacts        int
 	// X and Y locate the pointer in DIPs relative to the surface.
 	X, Y float64
 	// Button is 0 for the primary button, 1 the secondary, 2 the middle.

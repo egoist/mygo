@@ -118,6 +118,12 @@ type engine struct {
 	// clock is the time of frames for tests, time.Now when nil.
 	clock func() time.Time
 
+	contacts           map[uint64]*pointerContact
+	pointerEvent       platform.SurfaceEvent
+	legacyID           uint64
+	legacyActive       bool
+	touchGesture       touchGesture
+	nativeGestures     map[GestureKind]*gestureSession
 	pointerX, pointerY float32
 	pointerIn          bool
 	hover              []uint64
@@ -527,6 +533,7 @@ func (rt *engine) forgetInput() {
 // prune forgets the elements the frame did not build, but those of the
 // pages Routers keep.
 func (rt *engine) prune() {
+	rt.prunePointers()
 	unpressed := false
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
@@ -630,6 +637,7 @@ func (rt *engine) armTimer() {
 }
 
 func (rt *engine) close() {
+	rt.cancelPointers()
 	if rt.timer != nil {
 		rt.timer.Stop()
 	}
@@ -687,6 +695,8 @@ func (rt *engine) commitElement(e *Element, clip Rect, hidden bool) {
 	s.cursor, s.tip = e.cursor, e.tip
 	s.role = e.role
 	s.input, s.caret, s.takesText = e.inputFn, e.caret, e.takesText
+	s.allContacts = e.allContacts
+	s.gesture, s.gestureKinds = e.gestureFn, e.gestureKinds
 	if e.flags&(flagEditable|flagSelectable) != 0 && s.cursor == 0 {
 		s.cursor = CursorText + 1
 	}

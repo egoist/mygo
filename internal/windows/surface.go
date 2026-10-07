@@ -114,14 +114,16 @@ type surface struct {
 	w    *window
 	hwnd uintptr
 
-	paintDC  uintptr
-	tracking bool
-	buttons  int
-	cursor   platform.Cursor
-	high     uint16 // a high surrogate of WM_CHAR waiting for its pair
-	ime      bool
-	caret    platform.RectF
-	input    platform.TextInputState
+	paintDC         uintptr
+	tracking        bool
+	pointerContacts map[uint64]platform.SurfaceEvent
+	lastMouse       platform.SurfaceEvent
+	buttons         int
+	cursor          platform.Cursor
+	high            uint16 // a high surrogate of WM_CHAR waiting for its pair
+	ime             bool
+	caret           platform.RectF
+	input           platform.TextInputState
 
 	// keyTaken tells that the content took the key down, whose
 	// WM_SYSCHAR then opens no menu.
@@ -321,11 +323,22 @@ func mods() platform.Modifiers {
 
 func (s *surface) pointer(kind platform.SurfaceEventKind, lp uintptr, button int) {
 	x, y := int16(loword(lp)), int16(hiword(lp))
-	s.send(platform.SurfaceEvent{Kind: kind, X: s.toDIP(int32(x)), Y: s.toDIP(int32(y)), Button: button, Mods: mods()})
+	ev := platform.SurfaceEvent{Kind: kind, X: s.toDIP(int32(x)), Y: s.toDIP(int32(y)), Button: button, Mods: mods(), Pointer: platform.PointerInfo{Primary: true, Contact: s.buttons != 0}}
+	s.lastMouse = ev
+	s.send(ev)
 }
 
 func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool) {
+	if m >= wmMouseMove && m <= wmXButtonDblClk && m != wmMouseWheel && promotedPointerMouse() {
+		return 0, true
+	}
+
 	switch m {
+	case wmPointerUpdate, wmPointerDown, wmPointerUp, wmPointerEnter, wmPointerLeave, wmPointerCaptureChanged:
+		return 0, s.pointerMessage(m, wp)
+	case wmCancelMode:
+		s.cancelNativePointers()
+		return 0, false
 	case wmPaint:
 		var ps paintStruct
 		dc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
@@ -348,12 +361,15 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 			tme.Size = uint32(unsafe.Sizeof(tme))
 			procTrackMouseEvent.Call(uintptr(unsafe.Pointer(&tme)))
 			s.tracking = true
+			s.pointer(platform.PointerEnter, lp, 0)
 		}
 		s.pointer(platform.PointerMove, lp, 0)
 		return 0, true
 	case wmMouseLeave:
 		s.tracking = false
-		s.send(platform.SurfaceEvent{Kind: platform.PointerLeave})
+		ev := s.lastMouse
+		ev.Kind = platform.PointerLeave
+		s.send(ev)
 		return 0, true
 	case wmLButtonDown, wmLButtonDblClk, wmRButtonDown, wmRButtonDblClk, wmMButtonDown, wmMButtonDblClk:
 		button := 0
@@ -416,7 +432,12 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k, Mods: mods()})
 		return 1, true
 	case wmCaptureChanged:
-		s.buttons = 0
+		if s.buttons != 0 {
+			s.buttons = 0
+			ev := s.lastMouse
+			ev.Kind, ev.Pointer.Contact = platform.PointerCaptureLost, false
+			s.send(ev)
+		}
 		return 0, true
 	case wmMouseWheel, wmMouseHWheel:
 		pt := point{int32(int16(loword(lp))), int32(int16(hiword(lp)))}
@@ -442,6 +463,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceFocus})
 		return 0, true
 	case wmKillFocus:
+		s.cancelNativePointers()
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
 		return 0, true
 	case wmKeyDown, wmSysKeyDown:
@@ -520,6 +542,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 	case wmGetObject:
 		return s.getObject(wp, lp)
 	case wmDestroy:
+		s.cancelNativePointers()
 		s.destroyAccess()
 		s.revokeFileDrops()
 		delete(s.w.b.surfaces, hwnd)

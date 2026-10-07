@@ -794,7 +794,8 @@ func (s *Surface) UpdateAccessibility(tree *platform.AccessTree) {
 }
 
 // Send delivers an event to the window's content, on the main thread, and
-// returns what the content answered.
+// returns what the content answered. Pointer contact IDs, axes, capture
+// loss, cancellation and native gesture phases pass through unchanged.
 func (s *Surface) Send(ev platform.SurfaceEvent) bool { return s.w.H.SurfaceEvent(ev) }
 
 // Frame draws a frame when the content asked for one since the last, as

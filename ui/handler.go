@@ -25,7 +25,9 @@ const (
 	// released at X, Y, with Clicks the count of quick successive presses
 	// (2 for a double click). Once the element takes an InputPointerDown,
 	// the pointer's moves and its release come to it wherever they are,
-	// and the release comes when the window loses the keyboard too.
+	// and cancellation comes when the window loses the keyboard. For
+	// compatibility, an unhandled Cancel is followed by Up with Cancelled
+	// set, so existing handlers still release their mouse/selection state.
 	InputPointerDown
 	InputPointerUp
 	// InputPointerMove reports the pointer at X, Y, with Button held, or
@@ -34,14 +36,25 @@ const (
 	// InputScroll scrolls by DX, DY DIPs at X, Y; Precise marks
 	// touchpads, which scroll by pixels rather than by lines.
 	InputScroll
+	// InputPointerEnter/Leave report entering/leaving the native surface
+	// to the input target, preserving any capture.
+	InputPointerEnter
+	InputPointerLeave
+	// InputPointerCancel terminates a press without a click. Capture and
+	// CaptureLost bracket routing to an element outside its bounds.
+	InputPointerCancel
+	InputPointerCapture
+	InputPointerCaptureLost
 )
 
 // InputEvent is input an element takes as it comes (HandleInput).
 type InputEvent struct {
-	Kind   InputKind
-	Key    Key
-	Mods   Modifiers
-	Repeat bool
+	Kind InputKind
+	// Pointer identifies the contact and describes its device and axes.
+	Pointer PointerInfo
+	Key     Key
+	Mods    Modifiers
+	Repeat  bool
 	// Text of InputText, InputCompose and InputCommand, and Caret the
 	// rune of an InputCompose's caret.
 	Text  string
@@ -52,6 +65,8 @@ type InputEvent struct {
 	// middle.
 	Button int
 	Clicks int
+	// Cancelled marks a compatibility release after an unhandled Cancel.
+	Cancelled bool
 	// DX and DY are what InputScroll scrolls by; positive DY moves the view
 	// down the content.
 	DX, DY  float32
@@ -102,6 +117,9 @@ func (rt *engine) deliver(s *state, ev InputEvent) bool {
 		return false
 	}
 	ev.X, ev.Y = rt.pointerX-s.x, rt.pointerY-s.y
+	if ev.Kind >= InputPointerDown && ev.Kind <= InputScroll {
+		ev.Pointer = rt.pointerEvent.Pointer
+	}
 	if !s.input(ev) {
 		return false
 	}
