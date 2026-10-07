@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/internal/text"
@@ -20,6 +21,7 @@ import (
 type buffer struct {
 	s     string
 	n     int // runes
+	units int // UTF-16 units, for indexed native input queries
 	paras []paragraph
 	// version counts the edits.
 	version uint64
@@ -31,9 +33,9 @@ type buffer struct {
 // composition of an input method it showed, and its height, 0 until it was
 // laid out.
 type paragraph struct {
-	rune, byte int
-	layout     *text.Layout
-	compose    string
+	rune, byte, units int
+	layout            *text.Layout
+	compose           string
 	// spans are the weights of the TextRanges in the paragraph, as its
 	// layout took them.
 	spans string
@@ -50,14 +52,19 @@ func (b *buffer) set(s string) {
 		b.paras = b.paras[:n]
 	}
 	b.paras[0] = paragraph{}
-	r, from := 0, 0
+	r, units, from := 0, 0, 0
 	for p := 1; p < n; p++ {
 		end := from + strings.IndexByte(s[from:], '\n') + 1
-		r += countRunes(s[from:end])
-		b.paras[p] = paragraph{rune: r, byte: end}
+		part := s[from:end]
+		nr := countRunes(part)
+		r += nr
+		units += unitsForRunes(part, nr)
+		b.paras[p] = paragraph{rune: r, byte: end, units: units}
 		from = end
 	}
-	b.n = r + countRunes(s[from:])
+	nr := countRunes(s[from:])
+	b.n = r + nr
+	b.units = units + unitsForRunes(s[from:], nr)
 	b.version++
 }
 
@@ -77,6 +84,50 @@ func countRunes(s string) int {
 		}
 	}
 	return len(all)
+}
+
+func countUnits(s string) int {
+	return unitsForRunes(s, countRunes(s))
+}
+
+func unitsForRunes(s string, n int) int {
+	if n == len(s) {
+		return n
+	}
+	for _, r := range s {
+		if r > 0xffff {
+			n++
+		}
+	}
+	return n
+}
+
+// Native offsets are indexed by paragraph, so queries near a large file's
+// end do not scan the whole document. Surrogate interiors round down.
+func (b *buffer) utf16At(index int) int {
+	index = max(0, min(index, b.n))
+	p := b.para(index)
+	pr := b.paras[p]
+	return pr.units + countUnits(b.s[pr.byte:b.byteOf(index)])
+}
+
+func (b *buffer) runeAtUTF16(index int) int {
+	index = max(0, min(index, b.units))
+	p := sort.Search(len(b.paras), func(p int) bool { return b.paras[p].units > index }) - 1
+	pr := b.paras[p]
+	nr, nb := b.next(p)
+	if nb-pr.byte == nr-pr.rune {
+		return pr.rune + index - pr.units
+	}
+	at, units := pr.rune, pr.units
+	for _, r := range b.s[pr.byte:nb] {
+		if units+utf16.RuneLen(r) > index {
+			break
+		}
+		units += utf16.RuneLen(r)
+		at++
+	}
+	return at
 }
 
 // para returns the paragraph holding rune i; the newline ending a
@@ -153,21 +204,25 @@ func (b *buffer) replace(a, z int, s string) (first int, old []paragraph, after 
 	old = slices.Clone(b.paras[pa : pz+1])
 	runes := utf8.RuneCountInString(s)
 	var added []paragraph
-	r := a
+	r, units := a, b.utf16At(a)
 	for i, c := range s {
 		r++
+		units += utf16.RuneLen(c)
 		if c == '\n' {
-			added = append(added, paragraph{rune: r, byte: ba + i + 1})
+			added = append(added, paragraph{rune: r, byte: ba + i + 1, units: units})
 		}
 	}
 	dr, db := runes-(z-a), len(s)-(bz-ba)
+	du := countUnits(s) - (b.utf16At(z) - b.utf16At(a))
 	b.s = b.s[:ba] + s + b.s[bz:]
 	b.n += dr
+	b.units += du
 	b.paras = slices.Replace(b.paras, pa+1, pz+1, added...)
-	b.paras[pa] = paragraph{rune: b.paras[pa].rune, byte: b.paras[pa].byte}
+	b.paras[pa] = paragraph{rune: b.paras[pa].rune, byte: b.paras[pa].byte, units: b.paras[pa].units}
 	for k := pa + 1 + len(added); k < len(b.paras); k++ {
 		b.paras[k].rune += dr
 		b.paras[k].byte += db
+		b.paras[k].units += du
 	}
 	b.version++
 	return pa, old, len(added) + 1

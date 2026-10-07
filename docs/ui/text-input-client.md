@@ -21,6 +21,19 @@ The existing `HandleInput`, `TextCaret`, `TextInput` and `TextArea` APIs remain
 available. `TextCaret` is useful for terminals and other widgets that need a
 candidate-window location but do not provide a text document.
 
+The built-in `TextInput` and `TextArea` also implement this client contract.
+Their `*string` bindings publish committed text when the widget builds;
+native queries already see queued navigation and edits before that frame.
+Preedit is a virtual insertion into the native document until committed,
+and its replacement and commit share one undo transaction. Password fields
+provide no committed text to native queries; read-only fields disable input.
+Paragraph indexes include UTF-16 offsets so native queries near the end of
+a large document do not scan its prefix.
+
+String bindings still produce a whole string on each committed edit. They
+are convenient for ordinary fields; large-document editors can supply their
+own indexed storage through `TextInputClient`.
+
 Run `go run ./examples/text-input` for a small application-owned text field.
 It demonstrates composition, pointer selection, Edit-menu commands and custom
 rendering. It is a primitive example, not an editor implementation.
@@ -92,3 +105,22 @@ Layout offsets are UTF-16 too. `Caret` and `IndexAt` snap to whole graphemes;
 of bidi selections. It supplies geometry without inventing a single-range
 selection model or choosing an editor's navigation policy. Size and geometry
 queries are safe from any goroutine; painting is part of a UI frame.
+
+For visual navigation, retain `TextCaretPosition`, including its `Affinity`.
+`TextDownstream` chooses the following logical text's edge; `TextUpstream`
+chooses the preceding edge. The edges may differ at a bidi boundary or wrap.
+`CaretAt` paints that edge, `PositionAt` preserves it when hit-testing, and
+`MoveCaret(position, direction)` moves one visual grapheme left (negative)
+or right (positive). `SelectionRanges(anchor, caret)` maps a visual gesture
+to logical UTF-16 ranges, which can have gaps in mixed-direction text:
+
+```go
+caret = layout.MoveCaret(caret, 1)
+ranges := layout.SelectionRanges(anchor, caret)
+rects := layout.SelectionRects(ranges...)
+// Use the same ranges for copy, deletion and replacement in your buffer.
+```
+
+The built-in controls use these visual edges and range sets too. Copy joins
+the selected fragments in logical order; replacement preserves text in the
+gaps, and undo restores the visual selection as well as the text.

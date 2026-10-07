@@ -1457,6 +1457,24 @@ either.
   its offset the state's (`flagScrollY`, the content as high as its
   paragraphs), kept by the anchor as heights above the view are measured;
   an edit, a move of the caret or a press reveals the caret once.
+- **Editing layers.** `ui/editor.go` holds the widget's editing state;
+  `editor_history.go` owns delta undo, `editor_selection.go` the visual
+  range set and caret affinity, `editor_navigation.go` keys and pointer
+  gestures, and `editor_layout.go` layout and painting. `textinput.go`
+  builds the public string widgets. They use the same `TextInputClient`
+  contract as custom controls through `editor_input.go`: native callbacks
+  query and mutate state synchronously, while the widget publishes its
+  bound string during its next build, preserving change propagation in
+  composed controls. Preedit is a virtual document insertion, and its
+  replacement and commit form one delta undo transaction. The paragraph
+  index carries rune, byte and UTF-16 starts; bounded native queries own
+  their bytes so they do not retain old document allocations.
+  Single-line controls retain their current layout themselves, keeping
+  changing input strings out of the system's cache of display text.
+  `internal/text/caret.go` keeps both logical edges of bidi boundaries and
+  wrapped lines, and moves between whole graphemes in visual order.
+  Selection gestures produce logical range sets: highlight, copy,
+  replacement and undo use the same ranges, preserving unselected gaps.
 - **Text selection** (`ui/textselection.go`). `Selectable` on a text
   selects that paragraph; on a container it gives its text descendants
   one selection. The window keeps endpoints as stable element IDs and

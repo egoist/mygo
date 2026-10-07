@@ -198,7 +198,11 @@ func (a *area) global(ed *editor, p, l int) int {
 func (a *area) caretAt(ed *editor, i, extra int) (x float32, y float64, h float32) {
 	p := ed.buf.para(i)
 	l := a.paraLayout(ed, p)
-	x, ly, h := l.Caret(a.local(ed, p, i) + extra)
+	affinity := text.Downstream
+	if i == ed.caret {
+		affinity = ed.caretAffinity
+	}
+	x, ly, h := l.CaretAt(text.CaretPosition{Index: a.local(ed, p, i) + extra, Affinity: affinity})
 	return x, a.hs.top(p) + float64(ly), h
 }
 
@@ -222,6 +226,18 @@ func (a *area) firstLine(b *buffer) *text.Line {
 // indexAt returns the rune of the caret position closest to (x, y) in the
 // content.
 func (a *area) indexAt(ed *editor, x float32, y float64) int {
+	return a.positionAt(ed, x, y).Index
+}
+
+func (a *area) positionAt(ed *editor, x float32, y float64) text.CaretPosition {
+	return a.hitPosition(ed, x, y, false)
+}
+
+func (a *area) documentPositionAt(ed *editor, x float32, y float64) text.CaretPosition {
+	return a.hitPosition(ed, x, y, true)
+}
+
+func (a *area) hitPosition(ed *editor, x float32, y float64, virtual bool) text.CaretPosition {
 	n := len(ed.buf.paras)
 	y = max(y, 0)
 	p := a.hs.at(y)
@@ -235,10 +251,19 @@ func (a *area) indexAt(ed *editor, x float32, y float64) int {
 		case y >= top+float64(l.Height) && p < n-1:
 			p++
 		default:
-			return a.global(ed, p, l.IndexAt(x, float32(y-top)))
+			position := l.PositionAt(x, float32(y-top))
+			if virtual {
+				position.Index += ed.buf.paras[p].rune
+				if ed.compose != "" && p > ed.buf.para(ed.caret) {
+					position.Index += utf8.RuneCountInString(ed.compose)
+				}
+			} else {
+				position.Index = a.global(ed, p, position.Index)
+			}
+			return position
 		}
 	}
-	return ed.buf.n
+	return text.CaretPosition{Index: ed.buf.n, Affinity: text.Upstream}
 }
 
 // setScroll scrolls the content to y, keeping the place by the paragraph
@@ -345,16 +370,21 @@ func (a *area) paint(e *Element, p *Painter, ox, oy float32) {
 	t := e.c.theme
 	ts := e.resolvedText()
 	focused := e.Focused()
-	sa, sz := ed.selection()
 	last := len(b.paras) - 1
 	for i := a.first; i <= a.last; i++ {
 		l := a.paraLayout(ed, i)
 		y := oy + float32(a.hs.top(i)-a.scroll)
 		start, end := b.paras[i].rune, b.end(i)
-		if focused && sa != sz && sa <= end && sz >= start && !(sz == start && i > 0 && sa < start) {
-			from, to := a.local(ed, i, max(sa, start)), a.local(ed, i, min(sz, end))
-			for _, r := range l.SelectionOn(from, to, sz > end && i < last) {
-				p.Fill(Rect{ox + r.X, y + r.Y, r.W, r.H}, t.Selection, 0)
+		if focused {
+			for _, selected := range ed.selectedRanges() {
+				sa, sz := selected.Start, selected.End
+				if sa == sz || sa > end || sz < start || sz == start && i > 0 && sa < start {
+					continue
+				}
+				from, to := a.local(ed, i, max(sa, start)), a.local(ed, i, min(sz, end))
+				for _, r := range l.SelectionVisual(from, to, sz > end && i < last) {
+					p.Fill(Rect{ox + r.X, y + r.Y, r.W, r.H}, t.Selection, 0)
+				}
 			}
 		}
 		var sp *spanPaint

@@ -17,6 +17,9 @@ func checkBuffer(t *testing.T, b *buffer, want []rune) {
 	if b.s != string(want) || b.n != len(want) {
 		t.Fatalf("buffer holds %q (%d runes), want %q", b.s, b.n, string(want))
 	}
+	if b.units != countUnits(b.s) {
+		t.Fatalf("UTF-16 length %d want %d", b.units, countUnits(b.s))
+	}
 	p := 0
 	for i := 0; i <= len(want); i++ {
 		if i == 0 || want[i-1] == '\n' {
@@ -30,6 +33,13 @@ func checkBuffer(t *testing.T, b *buffer, want []rune) {
 		}
 		if got := b.byteOf(i); got != len(string(want[:i])) {
 			t.Fatalf("rune %d starts at byte %d, want %d", i, got, len(string(want[:i])))
+		}
+		units := countUnits(string(want[:i]))
+		if b.utf16At(i) != units || b.runeAtUTF16(units) != i {
+			t.Fatalf("UTF-16 offset at rune %d", i)
+		}
+		if i < len(want) && want[i] > 0xffff && b.runeAtUTF16(units+1) != i {
+			t.Fatal("UTF-16 index split surrogate")
 		}
 	}
 	if p != len(b.paras) {

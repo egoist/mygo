@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -28,6 +29,42 @@ func textAreaTester(lines int) (*Tester, *string) {
 
 // benchLines are the sizes of the texts of the benchmarks, in lines.
 var benchLines = []int{1000, 10000, 100000, 1000000}
+
+// BenchmarkEditorRetainedDeletion measures live Go heap after GC, separately
+// from allocation churn. Keep an 8 MiB document and twenty small undo steps.
+// Run with -benchtime=1x -count=3; retained-B is the heap above the baseline.
+func BenchmarkEditorRetainedDeletion(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		runtime.GC()
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		ed := newEditor()
+		ed.multiline = true
+		ed.buf.set(strings.Repeat("a", 8<<20))
+		for range 20 {
+			ed.deleteRange(10, 11)
+		}
+		runtime.GC()
+		runtime.ReadMemStats(&after)
+		retained := int64(after.HeapAlloc) - int64(before.HeapAlloc)
+		b.ReportMetric(float64(max(retained, 0)), "retained-B")
+		runtime.KeepAlive(ed)
+	}
+}
+
+func BenchmarkTextBufferNativeOffsets(b *testing.B) {
+	var buf buffer
+	buf.set(codeLines(1000000) + "😀")
+	index := buf.n - 1
+	b.ReportAllocs()
+	for b.Loop() {
+		units := buf.utf16At(index)
+		if buf.runeAtUTF16(units) != index {
+			b.Fatal("native offset mismatch")
+		}
+	}
+}
 
 // BenchmarkTextBufferOpen indexes a code document's paragraph boundaries,
 // before layout, to measure the work that scales with the entire file.
