@@ -137,12 +137,17 @@ and canceled operations return their context error.
 
 ## Building and shipping
 
-Run `go generate ./plugins/sqlite` with Zig 0.16.0 to build all six native
-libraries from the pinned, checksum-verified SQLite 3.53.4 source. It writes
-the manifest, ignored release assets and local CLI cache. A fresh checkout
-can build just its host from `plugins/sqlite` with
-`go run ./internal/libbuild -target host` before testing. Apps built from
-the checkout then work before release assets are published.
+Prebuilt libraries are published in
+[sqlite-3.53.4-1](https://github.com/egoist/mygo/releases/tag/sqlite-3.53.4-1).
+CI, `go test` and unpackaged programs download the matching library and
+verify its SHA-256. Testing and building apps require no Zig installation.
+
+When updating SQLite or its C shim, run `go generate ./plugins/sqlite` with
+Zig 0.16.0 to build all six native libraries from the pinned,
+checksum-verified SQLite 3.53.4 source. It writes the manifest, ignored
+release assets and local CLI cache. From `plugins/sqlite`,
+`go run ./internal/libbuild -target host` builds just the host for local
+development before new release assets are published.
 
 `mygo build` and `mygo dev` discover `mygo-plugin.json` and put the correct
 library among the app's resources, signed with the app on macOS. macOS

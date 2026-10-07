@@ -38,7 +38,12 @@ types, cancellation, options and packaging.
 
 ## Building the native libraries
 
-With Zig **0.16.0** on the path:
+Prebuilt libraries are published in
+[sqlite-3.53.4-1](https://github.com/egoist/mygo/releases/tag/sqlite-3.53.4-1).
+CI and unpackaged programs download the matching library and verify its
+SHA-256. Testing and building apps require no Zig installation.
+
+To update SQLite or its C shim, with Zig **0.16.0** on the path:
 
 ```sh
 go generate ./plugins/sqlite
