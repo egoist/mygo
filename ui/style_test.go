@@ -375,6 +375,35 @@ func TestTextOptions(t *testing.T) {
 	}
 }
 
+// Even when a button grows, its centered label takes its intrinsic width.
+// That width must fit the whole label, including kerned runs such as "11".
+func TestButtonLabelsAtIntrinsicWidth(t *testing.T) {
+	var buttons []*Element
+	tt := NewTester(func(c *Context) {
+		buttons = buttons[:0]
+		Row(c).Gap(2).Children(func() {
+			for _, label := range []string{"1911", "2011", "2111", "2211", "2012", "2011-04-17", "11", "11:30"} {
+				buttons = append(buttons, Button(c, label).Font("sans-serif").FontSize(12).Grow(1).Height(28))
+			}
+		})
+	}, 1000, 100)
+	check := func() {
+		for _, button := range buttons {
+			label := button.first
+			l := label.tl
+			if l == nil {
+				t.Fatalf("button label %q has no layout", label.text)
+			}
+			if len(l.Lines) != 1 || l.Truncated || l.Lines[0].End != len(l.Runes) {
+				t.Errorf("button label %q at width %g: %d lines, truncated %v", label.text, label.w, len(l.Lines), l.Truncated)
+			}
+		}
+	}
+	check()
+	tt.SetSize(800, 100)
+	check()
+}
+
 func TestInvisible(t *testing.T) {
 	clicked := false
 	b := boxes(t, func(c *Context) {
