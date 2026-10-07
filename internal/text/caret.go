@@ -140,7 +140,9 @@ func (l *Layout) PositionAt(x, y float32) CaretPosition {
 	best, distance := stops[0], float32(-1)
 	for _, s := range stops {
 		d := abs(s.x - x)
-		if distance < 0 || d < distance || d == distance && s.position.Affinity == Downstream {
+		// Affinity breaks ties at one offset, not across offsets sharing
+		// an edge, such as the positions before and after a trimmed space.
+		if distance < 0 || d < distance || d == distance && s.position.Index == best.position.Index && s.position.Affinity == Downstream {
 			best, distance = s, d
 		}
 	}

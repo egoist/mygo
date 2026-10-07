@@ -88,3 +88,16 @@ func TestVisualCaretWrapAndGraphemes(t *testing.T) {
 		t.Fatalf("wrap movement %+v", p)
 	}
 }
+
+// A trimmed wrap space shares the last visible glyph's edge. Choosing the
+// later offset on a tie would copy whitespace the pointer never crossed.
+func TestVisualCaretHitBeforeTrimmedWrapSpace(t *testing.T) {
+	l := &Layout{Runes: []rune("ab cd"), Lines: []Line{
+		{Start: 0, End: 3, Width: 20, Height: 20, Glyphs: []Glyph{{Advance: 10, Cluster: 0, Runes: 1}, {X: 10, Advance: 10, Cluster: 1, Runes: 1}}},
+		{Start: 3, End: 5, Y: 20, Width: 20, Height: 20, Glyphs: []Glyph{{Advance: 10, Cluster: 3, Runes: 1}, {X: 10, Advance: 10, Cluster: 4, Runes: 1}}},
+	}}
+	x, y, h := l.Caret(2)
+	if p := l.PositionAt(x, y+h/2); p != (CaretPosition{Index: 2, Affinity: Upstream}) {
+		t.Fatalf("hit before trimmed space selected %+v", p)
+	}
+}
