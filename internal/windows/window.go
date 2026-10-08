@@ -489,6 +489,9 @@ func (w *window) cleanup() {
 	}
 	w.freeIcons()
 	delete(w.b.windows, w.hwnd)
+	// The environment goes when the last window that shows a page does, so
+	// its browser process does not outlive the windows that needed it.
+	w.b.releaseEnvironmentIfIdle()
 }
 
 func (w *window) Handle() uintptr        { return w.hwnd }

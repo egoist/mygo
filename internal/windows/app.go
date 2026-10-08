@@ -30,7 +30,10 @@ type Backend struct {
 	appMenu *platform.Menu
 
 	// The WebView2 environment is created asynchronously, when the first
-	// window that shows a web page needs it; windows wait.
+	// window that shows a web page needs it; windows wait. It is released
+	// again when the last such window is destroyed, so that an app which
+	// shows pages only now and then does not keep the browser process
+	// (releaseEnvironmentIfIdle).
 	env        uintptr
 	envErr     error
 	envStarted bool
@@ -146,6 +149,29 @@ func (b *Backend) startEnvironment() error {
 	// A runtime installed later is found by the next window.
 	b.envStarted = err == nil
 	return err
+}
+
+// releaseEnvironmentIfIdle releases the WebView2 environment when no window
+// shows a page any more, so the browser process it started, and the
+// processes under it, exit. The next window that shows a page creates the
+// environment again, reusing the user data folder.
+//
+// It runs on the main thread, from the last page window's cleanup, with that
+// window already gone from b.windows. A window whose controller is still
+// being created asynchronously counts as showing a page, so the environment
+// is not released under it.
+func (b *Backend) releaseEnvironmentIfIdle() {
+	if b.env == 0 {
+		return
+	}
+	for _, w := range b.windows {
+		if !w.opts.Surface {
+			return
+		}
+	}
+	release(b.env)
+	b.env, b.envErr, b.envStarted = 0, nil, false
+	b.envWaiters = nil
 }
 
 // whenEnvironment runs fn once the WebView2 environment, which
