@@ -1,13 +1,12 @@
 # Migrating to checked elements
 
-This is a breaking change to native UI element types. Views keep their
-`*ui.Context` parameter and child builders keep `func()` callbacks. Widget
-constructors return `ui.Element` values. Window, webview and typed IPC
-signatures keep their existing shape.
+Native UI views receive `*ui.Context`, child builders use `func()` callbacks,
+and widget constructors return `ui.Element` values. This guide covers source
+migration, build lifetimes, persistent control identity and focus bindings.
 
 ## Apply the source migration
 
-From the app's checkout:
+Run the migration from your app directory:
 
 ```sh
 go tool mygo migrate-ui .          # preview affected files
@@ -16,7 +15,6 @@ go tool mygo vet .
 go test ./...
 ```
 
-In MyGo's checkout, use `go run ./cmd/mygo` instead of `go tool mygo`.
 Review the diff before committing it. The codemod uses Go syntax and the
 actual UI import alias. It converts element and custom-parts pointer types,
 element nil checks and zero assignments, moves fluent constructor keys into
@@ -28,13 +26,10 @@ manual review. It does not move arbitrary polling control flow into callbacks.
 ## Element values and keys
 
 ```go
-// Earlier
-var element *ui.Element
-if element != nil { element.Focus() }
-
-// Now
 var element ui.Element
-if element.Valid() { element.Focus() }
+if element.Valid() {
+    element.Focus()
+}
 ```
 
 Use `ui.Element{}` instead of assigning or returning `nil`. Custom parts
@@ -47,7 +42,7 @@ the passes and recommending `ui.Handle`; production builds with
 `mygo_noinspector` return empty query results or ignore stale mutations.
 The absent zero value remains safe in either mode. `Valid` does not panic.
 
-Keys now enter before state initialization:
+Assign keys before state initialization:
 
 ```go
 ui.TextInput(c.Key("search"), &a.query).ReadOnly(a.readOnly)
@@ -55,18 +50,17 @@ ui.Checkbox(c.Key(todo.ID), &todo.Done, todo.Title)
 parts := ui.SelectBase(c.Key("choice"), &a.choice)
 ```
 
-`Element.Key` remains available for containers before their children or
-local state are built. Use `Context.Key` for stateful widgets, including
+`Element.Key` assigns a container's key before its children or local state
+are built. Use `Context.Key` for stateful widgets, including
 custom base controls. A key names the next outer control, and is consumed
 before it initializes its state.
 
 ## Input and actions
 
-Construction is eager. Bound-value input applies after all controls and
-fluent configuration have been built. A second pass reads the updated model
-and its `Changed`/`Submitted` notices. Changing `Disabled`, `ReadOnly`, or
-slider settings before construction finishes affects that input; interaction
-queries do not trigger constructor realization.
+Bound-value input applies after controls and fluent configuration have been
+built. The following pass reads the updated model and its `Changed`/`Submitted`
+notices. The control's `Disabled`, `ReadOnly` and slider settings are applied
+before bound-value input is handled.
 
 ```go
 ui.Button(c, "Save").Disabled(a.saving).OnClick(a.save)
@@ -113,12 +107,11 @@ A handle supports independent bindings in several windows. Queries take the
 window's Context. Use `handle.Focus(c)` and `CancelFocus(c)` to select a
 window; the no-argument Focus form requires at most one open binding. Before
 the first binding, it waits for that first control. Give each window its own
-widget state and focus field. `Ref`/`RequestFocus` remain aliases for
+widget state and focus field. `Ref`/`RequestFocus` are aliases for
 `Handle`/`Focus`.
 
 `ListState`, `ScrollState`, `GridState` and `Router` carry a Handle; other
-controls can bind any app-owned handle. Older ListState polling helpers
-remain available; use `state.Handle` for persistent focus and commands.
+controls can bind any app-owned handle. Use `state.Handle` for persistent focus and commands.
 
 ## Focus bound to app data
 
@@ -162,8 +155,8 @@ ui.List(c.Key("files"), &a.list, len(a.files)).Bind(&a.filesView).Grow(1).
 A Handle's shortcut may be declared before Bind. It runs after construction
 only if that window built an enabled control for the handle, so a hidden
 control takes no command. `ListRow` supplies the shared Context, index,
-selection and list focus. The original `List(c, state, n, func(i int))`
-constructor remains supported. Configure fluent lists before calling Rows.
+selection and list focus. `List(c, state, n, func(i int))` also accepts a row
+callback directly. Configure fluent lists before calling Rows.
 
 ## Persistent services and verification
 

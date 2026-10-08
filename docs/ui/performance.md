@@ -1,53 +1,47 @@
-# Checked element API performance
+# Native UI performance
 
-Measured on October 8, 2026 on Apple M5, macOS arm64, Go 1.27.1,
-`CGO_ENABLED=0 GOMAXPROCS=1`. The original API baseline is `fab604b`
-(MyGo 0.2.18). The earlier PR design is `4f9c3f6`, before the revision that
-keeps `*Context` and uses direct element owner records.
+These measurements cover steady frames rendered on the CPU with `ui.Tester`.
+They were taken on October 8, 2026 on Apple M5, macOS arm64, Go 1.27.1, with
+`CGO_ENABLED=0 GOMAXPROCS=1`. Each timing is the median of six sequential
+300 ms samples after warming the view.
 
-Matching fixtures build 1,000 static labels, or visible rows of a million-row
-list. Data, dimensions, styles and warm-up are the same. The list baseline
-uses its original four-argument constructor; the checked API uses a keyed
-fluent list. Frames render through `ui.Tester` on the CPU. Runs were sequential,
-six samples per fixture with 300 ms per sample; figures are medians.
-
-| Fixture | Original API | Earlier PR | Revised API |
+| Fixture | Time per frame | Allocations per frame | Allocated bytes per frame |
 |---|---:|---:|---:|
-| 1,000 labels: time/frame | 400 µs | 429 µs | 397 µs |
-| 1,000 labels: allocations/frame | 0 | 0 | 0 |
-| 1,000 labels: allocated bytes/frame | 0 | 0 | 0 |
-| Virtual list: time/frame | 14.4 µs | 15.4 µs | 14.5 µs |
-| Virtual list: allocations/frame | 20 | 23 | 20 |
-| Virtual list: allocated bytes/frame | 144 | 280 | 176 |
-| Warmed 1,000-label view: retained Go heap | ~2.43 MB | ~2.43 MB | ~2.50 MB |
+| 1,000 static labels | 397 µs | 0 | 0 |
+| Visible rows of a million-row list | 14.5 µs | 20 | 176 |
+| Diff view with no changes | 389 µs | 2 | 72 |
 
-The revised times are within about 1% of the original in these samples;
-this is not a claim of a speedup. Element validation uses a direct owner,
-slot and generation. It no longer resolves a weak pointer on every call,
-enters a parent scope for each factory, or tracks/replays deferred styles.
+Element handles validate their owner, arena slot and build generation.
 Static label handles do not allocate. Input bindings, action queues and
-persistent identity bindings reuse storage once warmed. The fluent list's
-callback captures more data than the original callback, adding 32 allocated
-bytes per frame without adding allocations in this fixture. Composite
-controls may allocate callback closures; the fixtures do not cover all widgets.
+persistent identity bindings reuse storage once warmed. Composite controls
+can allocate callback closures; these fixtures do not cover every widget
+or interaction.
 
-`BenchmarkDiffSteady` remains at **2 allocations / 72 bytes per frame**
-(median 389 µs in the revision). This benchmark builds through the private
-renderer API and verifies its allocation floor; the public fixtures above
-measure checked handles.
+The label and list fixtures use the public API. The diff fixture uses the
+private renderer API and measures its steady-frame allocation floor.
 
-`TestValueFrameRetainedHeap` warms fonts and rendering, releases a warm view,
-forces collection, then measures a second retained view after ten frames
-and another collection. Three samples gave about 2.50 MB for the revised API,
-roughly 3% above the original. This is Go heap, including the headless host;
-it does not measure native window process memory or GPU resources.
+## Retained memory
 
-Earlier exploratory runs varied while compilation and other tests ran.
-The table uses isolated runs. Recheck small timing differences on CI and
-other machines; allocation counts are more stable. These are steady-frame
-measurements, not benchmarks against another GUI framework.
+A warmed view containing 1,000 labels retained approximately **2.50 MB of
+Go heap**, measured over three samples. The measurement warms fonts and
+rendering, releases a warm view, forces collection, then measures a second
+retained view after ten frames and another collection.
 
-## Reproduce
+This includes the headless rendering host. It does not measure native window
+process memory or GPU resources.
+
+## Measurement scope
+
+Timing depends on the machine, rendering backend, content and activity in
+other processes. Small timing differences should be rechecked on several
+machines; allocation counts are more stable. These results describe steady
+frames and do not compare MyGo with another GUI framework.
+
+<!-- repository-only:start -->
+
+## Run the benchmark fixtures
+
+From the MyGo repository root:
 
 ```sh
 CGO_ENABLED=0 GOMAXPROCS=1 go test ./ui -run '^$' \
@@ -57,8 +51,6 @@ CGO_ENABLED=0 GOMAXPROCS=1 go test ./ui \
   -run '^TestValueFrameRetainedHeap$' -count=3 -v
 ```
 
-For the original API, export `fab604b` to a separate directory and copy
-`ui/testdata/legacy_api_bench_test.go` to that checkout's
-`ui/api_bench_test.go`. Run the same commands there. The earlier PR fixtures
-are committed at `4f9c3f6`; run them in a separate checkout. Keep compilation
-and other tests out of the timed runs.
+Keep compilation and other tests out of the timed runs.
+
+<!-- repository-only:end -->
