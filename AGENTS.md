@@ -98,3 +98,17 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
 - The configuration types of `packages/cli/index.d.ts` (for `mygo.config.ts`)
   mirror `Config` in `cmd/mygo/config.go`; `TestConfigTypes` checks them.
 - Tests: unit tests through `internal/fake`; GUI behavior in `internal/e2e`.
+
+## Wayland native startup resizing
+
+- GTK may acknowledge a first-frame GL resize locally, then receive a delayed
+  activation configure for the original size. The Linux backend retains the
+  latest early request and rechecks it after GDK reports focus. If the window
+  reverted to its previous size, a one-shot idle callback consumes GTK's pending
+  configure and resets its cached request before applying the latest bounds.
+  This uses native events, not a timer, and respects maximized/fullscreen/tiled
+  states and current geometry limits. X11 and software surfaces keep their path.
+- `TestContentWindowResizeFromFirstFrame` checks growing, shrinking, coalesced
+  requests and a later resize against actual rendered dimensions.
+  Run with `MYGO_E2E=1 GDK_BACKEND=wayland MYGO_GPU=1 go test ./internal/e2e -run TestContentWindowResizeFromFirstFrame`;
+  also check X11 and `MYGO_GPU=0`.

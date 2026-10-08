@@ -23,6 +23,7 @@ const (
 	stateMaximized  = 1 << 2
 	stateFullscreen = 1 << 4
 	stateAbove      = 1 << 5
+	stateFocused    = 1 << 7
 	stateTiled      = 1 << 8
 	// The edges the window manager lets resize (GDK 3.22.23 and later).
 	stateTopResizable    = 1 << 10
@@ -68,6 +69,10 @@ type window struct {
 	x, y, w, hgt int32
 	minW, minH   int32
 	maxW, maxH   int32
+
+	activationResize   *platform.Rect
+	activationPrevious [2]int32
+	resizeIdle         uint32
 
 	// dragged holds the paths of the files dragged over the page, dropped
 	// those of the files dropped on it, for DroppedFiles.
@@ -323,6 +328,16 @@ func (w *window) SetBounds(r platform.Rect) {
 		gtkWindowGetSize(w.win, &w.previous[0], &w.previous[1])
 	}
 	w.requested = &r
+	if w.resizeIdle != 0 {
+		w.activationResize = &r
+		return
+	}
+	if !w.b.onX11 && w.surface != nil && w.surface.rendered && w.surface.drawsGL() && w.state&stateFocused == 0 {
+		if w.activationResize == nil {
+			gtkWindowGetSize(w.win, &w.activationPrevious[0], &w.activationPrevious[1])
+		}
+		w.activationResize = &r
+	}
 	// GTK keeps a window the user cannot resize at least as large as its
 	// default size.
 	gtkWindowSetDefaultSize(w.win, width, height)
@@ -932,6 +947,7 @@ var (
 	cbCreate, cbClose, cbCrashed, cbButtonPress, cbAsyncReady, cbPNGWrite       ptr
 	cbDragData, cbDragDrop, cbPrintFinished, cbPrintFailed, cbPermission        ptr
 	cbMotion, cbControlsAllocated, cbDecorationLayout                           ptr
+	cbWindowResize                                                              ptr
 )
 
 func field[T any](p ptr, offset uintptr) T {
@@ -965,6 +981,33 @@ func initWindowCallbacks() {
 		}
 		return false
 	})
+	// GTK/Wayland can acknowledge a resize locally, then deliver an activation
+	// configure for the original buffer. Recheck after GTK's resize handlers run.
+	cbWindowResize = purego.NewCallback(func(data ptr) int32 {
+		w := b().window(data)
+		if w == nil {
+			return 0
+		}
+		r := w.activationResize
+		w.activationResize, w.resizeIdle = nil, 0
+		var width, height int32
+		gtkWindowGetSize(w.win, &width, &height)
+		if w.state&(stateMaximized|stateFullscreen|stateTiled) == 0 &&
+			(w.requested != nil || [2]int32{width, height} == w.activationPrevious) {
+			// Consume the configure, then reset GTK's last request to the current size.
+			gtkWindowResize(w.win, width, height)
+			gtkContainerCheckResize(w.win)
+			if !w.closed {
+				gtkContainerCheckResize(w.win)
+			}
+			if !w.closed {
+				w.SetBounds(*r)
+			}
+		} else {
+			w.requested = nil
+		}
+		return 0
+	})
 	cbConfigure = purego.NewCallback(func(widget, event, data ptr) bool {
 		w := b().window(data)
 		if w == nil {
@@ -976,7 +1019,7 @@ func initWindowCallbacks() {
 		moved := x != w.x || y != w.y
 		resized := width != w.w || height != w.hgt
 		w.x, w.y, w.w, w.hgt = x, y, width, height
-		if r := w.requested; r != nil {
+		if r := w.requested; r != nil && w.resizeIdle == 0 {
 			// Without the decorations GTK draws, as requested.
 			var cw, ch int32
 			gtkWindowGetSize(w.win, &cw, &ch)
@@ -1026,6 +1069,10 @@ func initWindowCallbacks() {
 		// GdkEventWindowState: changed_mask at 20, new_window_state at 24.
 		changed, state := field[uint32](event, 20), field[uint32](event, 24)
 		w.state = state
+		if changed&stateFocused != 0 && state&stateFocused != 0 && w.activationResize != nil && w.resizeIdle == 0 {
+			// G_PRIORITY_DEFAULT_IDLE: let GTK process the activation event first.
+			w.resizeIdle = gIdleAddFull(200, cbWindowResize, ptr(w.id), 0)
+		}
 		if changed&stateIconified != 0 {
 			if state&stateIconified != 0 {
 				w.h.Minimized()
