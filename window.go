@@ -451,6 +451,9 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		Version:  Version,
 		Secret:   w.secret,
 	})}}
+	// After the bridge, which it tells: the accent and the settings of
+	// accessibility, which the media queries do not tell pages.
+	p.UserScripts = append(p.UserScripts, platform.UserScript{Source: bridge.PreferencesScript(pagePreferences(Theme.preferences()))})
 	if po.PreloadScript != "" {
 		p.UserScripts = append(p.UserScripts, platform.UserScript{Source: po.PreloadScript})
 	}
@@ -1554,6 +1557,28 @@ func (w *Window) sendTitleBar() {
 	}
 }
 
+// sendPreferences tells the page of the window the accent color and the
+// accessibility settings of the desktop. The backend's script tells the
+// first page at document start; this keeps the current page, and later
+// ones, up to date. Main thread only.
+func (w *Window) sendPreferences(prefs ThemePreferences) {
+	if w.content != nil || w.native == nil {
+		return
+	}
+	if msg, err := encodeEvent(bridge.PreferencesEvent, pagePreferences(prefs)); err == nil {
+		w.enqueue(msg, true)
+	}
+}
+
+// sendPreferences tells the pages of the windows the desktop's settings.
+// Main thread only.
+func sendPreferences() {
+	prefs := Theme.preferences()
+	for _, w := range Windows() {
+		w.sendPreferences(prefs)
+	}
+}
+
 func (h *windowHandler) Message(msg string) { h.w.handleMessage(msg) }
 
 func (h *windowHandler) WillNavigate(nav platform.Navigation) bool {
@@ -1667,8 +1692,9 @@ func (w *Window) handleMessage(msg string) {
 		w.held = nil
 		w.outMu.Unlock()
 		// The script at document start may tell a later page the room of
-		// the controls before a change.
+		// the controls, and settings read before it, before a change.
 		w.sendTitleBar()
+		w.sendPreferences(Theme.preferences())
 		w.flush()
 		fire(&w.onDOMReady)
 		w.readyToShow()
