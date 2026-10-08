@@ -163,7 +163,7 @@ func (ed *editor) vertical(lines int, extend bool) {
 // keys, after Emacs.
 var emacsKeys = map[Key]Key{KeyB: KeyLeft, KeyF: KeyRight, KeyP: KeyUp, KeyN: KeyDown, KeyH: KeyBackspace, KeyD: KeyDelete}
 
-func (ed *editor) key(c *Context, st *state, k editEvent) {
+func (ed *editor) key(c *context, st *state, k editEvent) {
 	shift := k.mods&Shift != 0
 	m := k.mods &^ Shift
 	mac := runtime.GOOS == "darwin"
@@ -322,7 +322,7 @@ func (ed *editor) emacsKey(key Key, shift bool) bool {
 	return true
 }
 
-func (ed *editor) command(c *Context, name string) {
+func (ed *editor) command(c *context, name string) {
 	a, b := ed.selection()
 	h := c.rt.host
 	if ed.readOnly && name != "copy" && name != "selectAll" {

@@ -17,10 +17,10 @@ func TestDataDragAcrossContentWindows(t *testing.T) {
 	value := &struct{ Name string }{"original"}
 	var received any
 	var results []transfer.Result
-	w, _, src := contentWindow(t, func(c *ui.Context) {
+	w, _, src := contentWindow(t, func(c ui.Frame) {
 		ui.Box(c).Size(100, 50).Drag(value).DragData(transfer.TextData(value.Name), transfer.DragOptions{Done: func(r transfer.Result) { results = append(results, r) }})
 	})
-	_, _, dst := contentWindow(t, func(c *ui.Context) {
+	_, _, dst := contentWindow(t, func(c ui.Frame) {
 		e := ui.Box(c).Size(100, 100)
 		if v, ok := ui.Drop[*struct{ Name string }](e); ok {
 			received = v
@@ -66,7 +66,7 @@ func TestDataDragAcrossContentWindows(t *testing.T) {
 func TestDataDragCancellationLifecycle(t *testing.T) {
 	for _, destroy := range []bool{false, true} {
 		t.Run(map[bool]string{false: "cancel", true: "destroy"}[destroy], func(t *testing.T) {
-			w, _, s := contentWindow(t, func(c *ui.Context) { ui.Text(c, "source") })
+			w, _, s := contentWindow(t, func(c ui.Frame) { ui.Text(c, "source") })
 			var results []transfer.Result
 			if err := w.StartDataDrag(transfer.TextData("data"), DragOptions{Done: func(r transfer.Result) { results = append(results, r) }}); err != nil {
 				t.Fatal(err)
@@ -100,7 +100,7 @@ func TestDataDragCancellationLifecycle(t *testing.T) {
 func TestDataDragPreservesFileDropFallback(t *testing.T) {
 	var received []string
 	var listener *FileDropEvent
-	w, _, s := contentWindow(t, func(c *ui.Context) {
+	w, _, s := contentWindow(t, func(c ui.Frame) {
 		e := ui.Box(c).Size(100, 100)
 		if files := e.DroppedFiles(); files != nil {
 			received = append(received, files...)
@@ -134,7 +134,7 @@ func TestDataDragPreservesFileDropFallback(t *testing.T) {
 }
 
 func TestDataDragValidationAndPreviewOwnership(t *testing.T) {
-	w, _, s := contentWindow(t, func(c *ui.Context) { ui.Text(c, "source") })
+	w, _, s := contentWindow(t, func(c ui.Frame) { ui.Text(c, "source") })
 	if err := w.StartDataDrag(transfer.Data{}, DragOptions{}); err == nil {
 		t.Fatal("empty source accepted")
 	}
@@ -165,7 +165,7 @@ func TestDataDragValidationAndPreviewOwnership(t *testing.T) {
 }
 
 func TestDataDragCompletionCannotExceedSourceOperations(t *testing.T) {
-	w, _, s := contentWindow(t, func(c *ui.Context) { ui.Text(c, "source") })
+	w, _, s := contentWindow(t, func(c ui.Frame) { ui.Text(c, "source") })
 	var result transfer.Result
 	if err := w.StartDataDrag(transfer.TextData("copy only"), DragOptions{Done: func(r transfer.Result) { result = r }}); err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ func TestDataDragCompletionCannotExceedSourceOperations(t *testing.T) {
 
 func TestDataDragPreservesRawNativeFilePaths(t *testing.T) {
 	var received []string
-	w, _, s := contentWindow(t, func(c *ui.Context) {
+	w, _, s := contentWindow(t, func(c ui.Frame) {
 		if files := ui.Box(c).Size(100, 100).DroppedFiles(); files != nil {
 			received = files
 		}

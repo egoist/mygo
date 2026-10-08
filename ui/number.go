@@ -13,16 +13,16 @@ import (
 // Changed reports a new value.
 //
 //	ui.NumberInput(c, &app.copies, 1, 99, 1)
-func NumberInput(c *Context, value *float64, lo, hi, step float64) *Element {
+func coreNumberInput(c *context, value *float64, lo, hi, step float64) *node {
 	t := c.theme
-	row := Row(c).Gap(t.Space(1)).Shrink(0).AlignItems(Center)
+	row := coreRow(c).Gap(t.Space(1)).Shrink(0).AlignItems(Center)
 	row.widget = "NumberInput"
 	decimals := 0
 	if s := strconv.FormatFloat(step, 'f', -1, 64); strings.Contains(s, ".") {
 		decimals = len(s) - strings.IndexByte(s, '.') - 1
 	}
 	format := func(v float64) string { return strconv.FormatFloat(v, 'f', decimals, 64) }
-	text := Local(row, "text", func() string { return format(*value) })
+	text := coreLocal(row, "text", func() string { return format(*value) })
 	set := func(v float64) {
 		v = math.Max(lo, math.Min(hi, v))
 		if decimals >= 0 {
@@ -36,7 +36,7 @@ func NumberInput(c *Context, value *float64, lo, hi, step float64) *Element {
 		}
 	}
 	row.Children(func() {
-		in := TextInput(c, text).Width(t.Space(20))
+		in := coreTextInput(c, text).Width(t.Space(20))
 		in.widget = "NumberInput"
 		if in.Changed() {
 			if v, err := strconv.ParseFloat(strings.TrimSpace(*text), 64); err == nil && v >= lo && v <= hi {
@@ -60,7 +60,7 @@ func NumberInput(c *Context, value *float64, lo, hi, step float64) *Element {
 			label string
 			delta float64
 		}{{"−", -step}, {"+", step}} {
-			btn := Button(c, b.label).Padding(t.Space(1), t.Space(2)).Label(map[bool]string{true: "Increase", false: "Decrease"}[b.delta > 0])
+			btn := coreButton(c, b.label).Padding(t.Space(1), t.Space(2)).Label(map[bool]string{true: "Increase", false: "Decrease"}[b.delta > 0])
 			btn.Disabled(b.delta < 0 && *value <= lo || b.delta > 0 && *value >= hi)
 			if btn.Clicked() {
 				set(*value + b.delta)

@@ -21,8 +21,8 @@ import (
 type counter struct{ n int }
 
 // view builds the window's interface from the state, for every frame.
-func (app *counter) view(c *ui.Context) {
-	ui.Column(c).Fill().Center().Gap(12).Children(func() {
+func (app *counter) view(c ui.Frame) {
+	ui.Column(c).Fill().Center().Gap(12).Children(func(c ui.Frame) {
 		ui.Text(c, fmt.Sprint(app.n)).FontSize(40).Bold()
 		if ui.PrimaryButton(c, "Increment").Clicked() {
 			app.n++
@@ -47,7 +47,7 @@ func main() {
 ```
 
 **Reading the examples.** The examples in these guides are parts of a view
-such as `counter.view`: `c` is the view's `*ui.Context`, and `app` its
+such as `counter.view`: `c` is the view's `ui.Frame`, and `app` its
 receiver, the value of your own type that holds the state. A field such as
 `app.volume` or a method such as `app.save()` is one you declare on that
 type, as `counter` declares `n`; [Views](views.md) says more.

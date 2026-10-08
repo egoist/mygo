@@ -5,7 +5,7 @@ below it, as AppKit's color well: a click, Enter or Space opens it, and
 Escape or a click outside closes it. `Changed` reports a new color.
 
 ```go
-ui.Field(c, "Tint", func() {
+ui.Field(c, "Tint", func(c ui.Frame) {
 	ui.ColorWell(c, &app.tint)
 })
 ```

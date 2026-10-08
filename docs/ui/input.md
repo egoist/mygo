@@ -42,7 +42,7 @@ hovered stays as it is pressed, to take its click:
 ```go
 row := ui.Row(c).Padding(8)
 hovered := row.Hovered()
-row.Children(func() {
+row.Children(func(c ui.Frame) {
 	ui.Text(c, item.Title).Grow(1)
 	if hovered && ui.Button(c, "Remove").Clicked() {
 		removed = item.ID
@@ -71,7 +71,7 @@ arrows `ui.Horizontal`, `ui.Vertical` or both; a slider or a text input
 inside keeps the arrows it takes.
 
 ```go
-ui.Row(c).Gap(4).FocusGroup(ui.Horizontal).Children(func() {
+ui.Row(c).Gap(4).FocusGroup(ui.Horizontal).Children(func(c ui.Frame) {
 	for _, tool := range tools {
 		if ui.Button(c, tool.Name).Clicked() {
 			app.tool = tool

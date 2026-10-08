@@ -67,7 +67,7 @@ func (w *widgetTextInput) prepare() {
 	if s := w.state(); s != nil {
 		w.processing = true
 		defer func() { w.processing = false }()
-		w.ed.process(&w.rt.c, &Element{st: s})
+		w.ed.process(&w.rt.c, &node{st: s})
 		w.publish()
 	}
 }

@@ -71,7 +71,7 @@ const (
 )
 
 // view builds the update window.
-func (w *window) view(c *ui.Context) {
+func (w *window) view(c ui.Frame) {
 	v, _ := w.s.Current()
 	if v.Prompt != w.prompt {
 		w.prompt, w.checked = v.Prompt, v.Checked
@@ -80,22 +80,22 @@ func (w *window) view(c *ui.Context) {
 	c.SetTheme(t)
 	w.keys(c, v)
 
-	var body, aside, buttons *ui.Element
-	ui.Column(c).Fill().Padding(padTop, padSide, padBottom).Gap(footGap).Children(func() {
+	var body, aside, buttons ui.Element
+	ui.Column(c).Fill().Padding(padTop, padSide, padBottom).Gap(footGap).Children(func(c ui.Frame) {
 		top := w.row(c).Grow(1).Gap(iconGap).AlignItems(ui.Start)
 		if v.Release {
 			top.AlignItems(ui.Stretch)
 		}
-		top.Children(func() {
+		top.Children(func(c ui.Frame) {
 			if w.icon != nil {
 				ui.Image(c, w.icon).Size(iconSize, iconSize).Shrink(0).AlignSelf(ui.Start)
 			}
-			body = ui.Column(c).Grow(1).Children(func() { w.body(c, t, v) })
+			body = ui.Column(c).Grow(1).Children(func(c ui.Frame) { w.body(c, t, v) })
 		})
-		w.row(c).Gap(10).Shrink(0).Children(func() {
-			aside = w.row(c).Gap(10).Shrink(0).Children(func() { w.buttons(c, t, v, true) })
+		w.row(c).Gap(10).Shrink(0).Children(func(c ui.Frame) {
+			aside = w.row(c).Gap(10).Shrink(0).Children(func(c ui.Frame) { w.buttons(c, t, v, true) })
 			ui.Spacer(c)
-			buttons = w.row(c).Gap(10).Shrink(0).Children(func() { w.buttons(c, t, v, false) })
+			buttons = w.row(c).Gap(10).Shrink(0).Children(func(c ui.Frame) { w.buttons(c, t, v, false) })
 		})
 	})
 	w.fit(c, v, body, aside, buttons)
@@ -103,7 +103,7 @@ func (w *window) view(c *ui.Context) {
 
 // row creates a row, laid out from the right in a window of a language
 // written from right to left.
-func (w *window) row(c *ui.Context) *ui.Element {
+func (w *window) row(c ui.Frame) ui.Element {
 	r := ui.Row(c)
 	if w.texts.RTL {
 		r.Reverse()
@@ -115,7 +115,7 @@ func (w *window) row(c *ui.Context) *ui.Element {
 // view. Texts start on the side their own language starts, as the
 // page's unicode-bidi: plaintext does, since they may fall back to
 // English or be errors.
-func (w *window) body(c *ui.Context, t *ui.Theme, v frontend.View) {
+func (w *window) body(c ui.Frame, t *ui.Theme, v frontend.View) {
 	small := t.Rem(11.0 / 13)
 	ui.Text(c, v.Title).Key("title").Bold().Margin(0, 0, 4, 0)
 	if v.Message != "" {
@@ -132,15 +132,15 @@ func (w *window) body(c *ui.Context, t *ui.Theme, v frontend.View) {
 			MaxLines(2).Tooltip(v.Detail).Selectable()
 	}
 	if len(v.Notes) > 0 {
-		ui.Column(c).Key("notes").Grow(1).Margin(6, 0, 0, 0).Children(func() {
+		ui.Column(c).Key("notes").Grow(1).Margin(6, 0, 0, 0).Children(func(c ui.Frame) {
 			ui.Text(c, w.texts.ReleaseNotes).FontSize(small).Bold().Margin(0, 0, 4, 0)
-			ui.Scroll(c).Grow(1).Background(panel(t)).Border(1, t.Border).Padding(8, 12).Children(func() {
+			ui.Scroll(c).Grow(1).Background(panel(t)).Border(1, t.Border).Padding(8, 12).Children(func(c ui.Frame) {
 				notes(c, t, v.Notes)
 			})
 		})
 	}
 	if v.Checkbox {
-		w.row(c).Key("checkbox").Margin(10, 0, 0, 0).Children(func() {
+		w.row(c).Key("checkbox").Margin(10, 0, 0, 0).Children(func(c ui.Frame) {
 			box := ui.Checkbox(c, &w.checked, w.texts.AutomaticDownloads)
 			if w.texts.RTL {
 				box.Reverse()
@@ -150,20 +150,20 @@ func (w *window) body(c *ui.Context, t *ui.Theme, v frontend.View) {
 }
 
 // buttons builds the buttons of the view set aside, or the others.
-func (w *window) buttons(c *ui.Context, t *ui.Theme, v frontend.View, aside bool) {
+func (w *window) buttons(c ui.Frame, t *ui.Theme, v frontend.View, aside bool) {
 	height := float32(math.Round(float64(t.Rem(24.0 / 13))))
 	for _, b := range v.Buttons {
 		if b.Aside != aside {
 			continue
 		}
 		// Keyed by action, so that the focus leaves with the button.
-		var e *ui.Element
+		var e ui.Element
 		if b.Default {
 			e = ui.PrimaryButton(c, "").Key(string(b.Action))
 		} else {
 			e = ui.Button(c, "").Key(string(b.Action)).Shadow(0, 1, 1, 0, ui.RGBA(0, 0, 0, 0.08))
 		}
-		e.Padding(0, 14).Height(height).MinWidth(84).Disabled(w.off(v, b)).Children(func() {
+		e.Padding(0, 14).Height(height).MinWidth(84).Disabled(w.off(v, b)).Children(func(c ui.Frame) {
 			ui.Text(c, b.Label).SingleLine()
 		})
 		if e.Clicked() {
@@ -174,7 +174,7 @@ func (w *window) buttons(c *ui.Context, t *ui.Theme, v frontend.View, aside bool
 
 // keys answers with the button of Escape, and that of Enter when no
 // button has the focus.
-func (w *window) keys(c *ui.Context, v frontend.View) {
+func (w *window) keys(c ui.Frame, v frontend.View) {
 	for _, b := range v.Buttons {
 		if b.Cancel && c.Shortcut(0, ui.KeyEscape) || b.Default && c.Shortcut(0, ui.KeyEnter) {
 			w.respond(v, b)
@@ -199,7 +199,7 @@ func (w *window) respond(v frontend.View, b frontend.Button) {
 // fit asks for the size the content needs, as measured in the last frame
 // when it laid out the same view at the same size: the width of the
 // buttons, and for status views the height of the text.
-func (w *window) fit(c *ui.Context, v frontend.View, body, aside, buttons *ui.Element) {
+func (w *window) fit(c ui.Frame, v frontend.View, body, aside, buttons ui.Element) {
 	ww, wh := c.Size()
 	l := layout{v.Prompt, v.Title, v.Message, v.Detail, v.Bar, v.Checkbox, v.Release, ww, wh}
 	if l != w.built {

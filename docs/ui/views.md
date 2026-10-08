@@ -1,13 +1,17 @@
 # Views
 
+For the breaking API changes and source migration command, see
+[the migration guide](migration.md).
+
 The view is a function from your app's state to its interface. MyGo calls
 it on the main thread to build every frame: after input, after you change
 the state (see [below](#change-the-state-from-other-goroutines)), and while
-something animates. Elements live for one frame: the state that lasts is
+something animates. Elements live for one build pass: the state that lasts is
 yours, in your own types, plus what MyGo keeps for each element from frame
 to frame (focus, hover, scrolling, the text being edited, animations).
 
-Keep `*ui.Context` and `*ui.Element` out of app state and background work.
+Keep `ui.Frame` and `ui.Element` out of app state and background work;
+use `ui.Ref` for control identity and `ui.Services` for persistent window services.
 A frame can rebuild the view several times; each pass creates its own
 elements, and a pointer from an earlier pass may be cleared or reused for
 another element. Checking that it is non-nil does not establish its
@@ -27,8 +31,8 @@ type todoList struct {
 }
 
 // view builds the interface from it.
-func (app *todoList) view(c *ui.Context) {
-	ui.Column(c).Fill().Padding(16).Gap(8).Children(func() {
+func (app *todoList) view(c ui.Frame) {
+	ui.Column(c).Fill().Padding(16).Gap(8).Children(func(c ui.Frame) {
 		for i := range app.todos {
 			ui.Checkbox(c, &app.todos[i].Done, app.todos[i].Title)
 		}
@@ -51,7 +55,7 @@ mygo.NewWindow(mygo.WindowOptions{Title: "To-dos", Content: ui.View(app.view)})
 a `Content` can serve several windows, each with its own element state.
 
 The examples in these guides are parts of such a view: `c` is the view's
-`*ui.Context`, and `app` its receiver, the value of your own type that
+`ui.Frame`, and `app` its receiver, the value of your own type that
 holds the state, as `todoList` here. A field such as `app.volume` or a
 method such as `app.save()` is one you declare on that type. Values that
 last, such as a [router](navigation.md), are fields made with the rest of
@@ -83,7 +87,7 @@ slice once the loop is done:
 deleted := -1
 for i := range app.items {
 	item := app.items[i]
-	ui.Row(c).Key(item.ID).Children(func() {
+	ui.Row(c).Key(item.ID).Children(func(c ui.Frame) {
 		ui.Text(c, item.Title).Grow(1)
 		if ui.Button(c, "Delete").Clicked() {
 			deleted = i
@@ -114,7 +118,7 @@ insert, delete or reorder, give each item a `Key` so its state follows it:
 ```go
 for i := range app.todos {
 	todo := &app.todos[i]
-	ui.Row(c).Key(todo.ID).Children(func() {
+	ui.Row(c).Key(todo.ID).Children(func(c ui.Frame) {
 		ui.Checkbox(c, &todo.Done, todo.Title)
 	})
 }

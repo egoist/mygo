@@ -28,7 +28,7 @@ Menus take the same items as [context menus](context-menu.md#items):
 icon:
 
 ```go
-ui.Button(c, "").Label("More").Children(func() { ui.Icon(c, dots) }).Menu(func(m *ui.Menu) {
+ui.Button(c, "").Label("More").Children(func(c ui.Frame) { ui.Icon(c, dots) }).Menu(func(m *ui.Menu) {
 	if m.Item("Duplicate").Chosen() {
 		app.duplicate()
 	}

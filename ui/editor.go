@@ -143,7 +143,7 @@ func (ed *editor) commitCompose() {
 }
 
 // process applies the input queued for the editor.
-func (ed *editor) process(c *Context, e *Element) {
+func (ed *editor) process(c *context, e *node) {
 	st := e.st
 	for _, ev := range ed.queue {
 		if ev.replace {

@@ -84,12 +84,12 @@ func (s *GridState) key(i int) any {
 //	ui.GridView(c, &app.photos, len(photos), 140, 120, func(i int) {
 //		ui.Image(c, thumbs[i]).Fit(ui.Contain).Grow(1)
 //	}).Grow(1)
-func GridView(c *Context, s *GridState, n int, minWidth, height float32, item func(i int)) *Element {
+func coreGridView(c *context, s *GridState, n int, minWidth, height float32, item func(i int)) *node {
 	t := c.theme
-	e := Scroll(c)
+	e := coreScroll(c)
 	e.widget, e.role = "GridView", RoleList
 	if s == nil {
-		s = Local(e, "grid", func() GridState { return GridState{} })
+		s = coreLocal(e, "grid", func() GridState { return GridState{} })
 	}
 	n = max(n, 0)
 	gap := t.Space(2)
@@ -117,9 +117,9 @@ func GridView(c *Context, s *GridState, n int, minWidth, height float32, item fu
 	}
 	e.setSize = n
 	e.chooseMany = s.Selection != nil
-	var cursor *Element
+	var cursor *node
 	buildList(c, e, e, &s.rows, rows, func(r int) {
-		row := Row(c).Gap(gap).PaddingY(gap / 2).AlignItems(Stretch).Role(RoleNone)
+		row := coreRow(c).Gap(gap).PaddingY(gap / 2).AlignItems(Stretch).Role(RoleNone)
 		row.Children(func() {
 			for i := r * cols; i < min(n, (r+1)*cols); i++ {
 				if cell := s.cell(c, e, i, n, height, item); s.Selected != nil && i == *s.Selected {
@@ -128,7 +128,7 @@ func GridView(c *Context, s *GridState, n int, minWidth, height float32, item fu
 			}
 			// Empty places keep the last row's items as wide as the others.
 			for k := n; k < (r+1)*cols && r == rows-1; k++ {
-				Box(c).Grow(1).Basis(0).MinWidth(0)
+				coreBox(c).Grow(1).Basis(0).MinWidth(0)
 			}
 		})
 	}, gridList)
@@ -170,7 +170,7 @@ func (s *GridState) dragged(i, n int) []int {
 
 // reorder makes the grid take its own items dragged over it: it shows where
 // they would go, and moves them there as they drop.
-func (s *GridState) reorder(e *Element, n int, gap float32) {
+func (s *GridState) reorder(e *node, n int, gap float32) {
 	if s.Reorder == nil {
 		return
 	}
@@ -248,10 +248,10 @@ func (s *GridState) dropAt(x, y float32, n int) (to int, cell uint64, after bool
 func (s *GridState) cellState(id uint64) *state { return s.rt.states[id] }
 
 // cell builds item i of a grid, choosing it when clicked.
-func (s *GridState) cell(c *Context, grid *Element, i, n int, height float32, item func(i int)) *Element {
+func (s *GridState) cell(c *context, grid *node, i, n int, height float32, item func(i int)) *node {
 	t := c.theme
 	// A border, clear unless chosen, keeps the content in place as it is.
-	cell := Column(c).Key(s.key(i)).Grow(1).Basis(0).MinWidth(0).Height(height).Radius(t.Radius).Border(2, Color{}).Role(RoleListItem)
+	cell := coreColumn(c).Key(s.key(i)).Grow(1).Basis(0).MinWidth(0).Height(height).Radius(t.Radius).Border(2, Color{}).Role(RoleListItem)
 	cell.setPos, cell.setSize = i+1, n
 	if s.Label != nil {
 		cell.Label(s.Label(i))
@@ -283,7 +283,7 @@ func (s *GridState) cell(c *Context, grid *Element, i, n int, height float32, it
 		case chosen:
 			cell.Background(t.SurfacePressed).Border(2, t.Border)
 		default:
-			cell.styleFn = func(cell *Element) {
+			cell.styleFn = func(cell *node) {
 				if cell.Hovered() {
 					cell.bg = t.SurfaceHover
 				}
@@ -311,7 +311,7 @@ func (s *GridState) chosen(i int) bool {
 }
 
 // click chooses item i as a click with mods does.
-func (s *GridState) click(grid *Element, i int, mods Modifiers) {
+func (s *GridState) click(grid *node, i int, mods Modifiers) {
 	switch {
 	case s.Selection == nil:
 		s.choose(grid, i)
@@ -327,7 +327,7 @@ func (s *GridState) click(grid *Element, i int, mods Modifiers) {
 }
 
 // choose chooses item i alone.
-func (s *GridState) choose(grid *Element, i int) {
+func (s *GridState) choose(grid *node, i int) {
 	changed := *s.Selected != i
 	if sel := s.Selection; sel != nil {
 		if sel.size() != 1 || !sel.has(s.key(i)) {
@@ -343,7 +343,7 @@ func (s *GridState) choose(grid *Element, i int) {
 }
 
 // extend chooses the items from the pivot to i.
-func (s *GridState) extend(grid *Element, i int) {
+func (s *GridState) extend(grid *node, i int) {
 	p := s.pivot
 	if p < 0 || s.Selection == nil {
 		s.choose(grid, i)
@@ -359,7 +359,7 @@ func (s *GridState) extend(grid *Element, i int) {
 
 // keys moves the choice with the arrows in two dimensions, Home, End and
 // the first letters of an item, while the grid has the focus.
-func (s *GridState) keys(grid *Element, n int) {
+func (s *GridState) keys(grid *node, n int) {
 	if s.Selected == nil || n == 0 {
 		return
 	}

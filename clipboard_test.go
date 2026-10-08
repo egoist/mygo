@@ -169,7 +169,7 @@ func TestClipboardProviderFailures(t *testing.T) {
 
 func TestClipboardOwnershipAndWindowClosure(t *testing.T) {
 	t.Cleanup(Clipboard.Clear)
-	w, _ := testWindow(t, WindowOptions{Content: ui.View(func(c *ui.Context) { ui.Box(c) })})
+	w, _ := testWindow(t, WindowOptions{Content: ui.View(func(c ui.Frame) { ui.Box(c) })})
 	ch := make(chan bool, 4)
 	var calls atomic.Int32
 	d := transfer.New(transfer.NewItem(transfer.Lazy(transfer.Text, func() ([]byte, error) { calls.Add(1); return []byte("application-owned"), nil })))

@@ -74,11 +74,11 @@ func (s *SVG) imageSize() (float32, float32) {
 // does not stretch across a column. Icons are decorations that assistive
 // technology does not see, unless Label names them.
 //
-//	ui.Row(c).Gap(6).Children(func() {
+//	ui.Row(c).Gap(6).Children(func(c ui.Frame) {
 //		ui.Icon(c, save)
 //		ui.Text(c, "Save")
 //	})
-func Icon(c *Context, s *SVG) *Element {
+func coreIcon(c *context, s *SVG) *node {
 	e := c.newElement(kindIcon)
 	e.svg = s
 	if s != nil && s.h > 0 {
@@ -95,10 +95,10 @@ func (p *Painter) Icon(s *SVG, r Rect, c Color) { p.drawIcon(s, r, c, 0) }
 //
 //	spin := ui.Icon(c, loader)
 //	spin.Rotate(spin.Loop("spin", time.Second, ui.Linear) * 360)
-func (e *Element) Rotate(degrees float32) *Element { e.rotate = degrees; return e }
+func (e *node) Rotate(degrees float32) *node { e.rotate = degrees; return e }
 
 // Grayscale draws the element's image, or icon, in shades of gray.
-func (e *Element) Grayscale() *Element { e.gray = true; return e }
+func (e *node) Grayscale() *node { e.gray = true; return e }
 
 // svgs holds what the engine reuses to draw SVGs: the job of drawing an
 // icon's mask, the pixels it draws them into, and the pictures of SVGs

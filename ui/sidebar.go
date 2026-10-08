@@ -10,12 +10,12 @@ import (
 // items in order and those of the last frame, for the keys, how deep the
 // items being built are, and the element of the item chosen.
 type sidebarBuild struct {
-	e        *Element
+	e        *node
 	selected *string
 	items    []sidebarEntry
 	last     []sidebarEntry
 	depth    int
-	chosen   *Element
+	chosen   *node
 }
 
 // sidebarEntry is an item of a sidebar: its ID and its label.
@@ -30,7 +30,7 @@ type sidebarEntry struct{ id, label string }
 //
 //	ui.Sidebar(c, &app.mailbox, func() {
 //		ui.SidebarSection(c, "Mailboxes", &app.mailboxes, func() {
-//			ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func() {
+//			ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func(c ui.Frame) {
 //				ui.Badge(c, "12")
 //			})
 //			ui.SidebarItem(c, "sent", sentIcon, "Sent")
@@ -38,13 +38,13 @@ type sidebarEntry struct{ id, label string }
 //	}).Width(220)
 //
 // Assistive technology sees a tree, whose sections hold their items.
-func Sidebar(c *Context, selected *string, fn func()) *Element {
+func coreSidebar(c *context, selected *string, fn func()) *node {
 	t := c.theme
-	e := Scroll(c).Padding(t.Space(2.5), t.Space(2.5)).Gap(t.Space(0.5)).Background(t.Surface).Focusable().Shrink(0)
+	e := coreScroll(c).Padding(t.Space(2.5), t.Space(2.5)).Gap(t.Space(0.5)).Background(t.Surface).Focusable().Shrink(0)
 	e.widget, e.role = "Sidebar", RoleTree
 	e.flags |= flagTypeSelect | flagOwnRing
 	e.choosesItems = true
-	last := Local(e, "items", func() []sidebarEntry { return nil })
+	last := coreLocal(e, "items", func() []sidebarEntry { return nil })
 	sb := &sidebarBuild{e: e, selected: selected, last: *last}
 	saved := c.sidebar
 	c.sidebar = sb
@@ -100,18 +100,18 @@ func (sb *sidebarBuild) keys() {
 // items fn builds while *open is true, as Finder's: a click on the title
 // shows and hides them, as does its arrow, which shows as the pointer
 // rests on the title. A nil open keeps the section open.
-func SidebarSection(c *Context, title string, open *bool, fn func()) *Element {
+func coreSidebarSection(c *context, title string, open *bool, fn func()) *node {
 	t := c.theme
 	sb := c.sidebar
 	above := c.parent != nil && c.parent.nchild > 0
-	sec := Column(c).Gap(t.Space(0.5)).Shrink(0).Role(RoleNone)
+	sec := coreColumn(c).Gap(t.Space(0.5)).Shrink(0).Role(RoleNone)
 	sec.widget = "SidebarSection"
 	if above {
 		sec.Margin(t.Space(3), 0, 0, 0)
 	}
 	shown := open == nil || *open
 	sec.Children(func() {
-		head := Row(c).AlignItems(Center).Padding(t.Space(1), t.Space(2)).Radius(t.Radius).Role(RoleTreeItem)
+		head := coreRow(c).AlignItems(Center).Padding(t.Space(1), t.Space(2)).Radius(t.Radius).Role(RoleTreeItem)
 		head.level = 1
 		if open != nil {
 			head.flags |= flagClickable | flagHover
@@ -129,7 +129,7 @@ func SidebarSection(c *Context, title string, open *bool, fn func()) *Element {
 			}
 		}
 		head.Children(func() {
-			Text(c, title).FontSize(t.FontSize - 1).FontWeight(600).TextColor(t.TextMuted).Grow(1).SingleLine()
+			coreText(c, title).FontSize(t.FontSize - 1).FontWeight(600).TextColor(t.TextMuted).Grow(1).SingleLine()
 			if open != nil {
 				arrow := disclosureArrow(c, 0)
 				turn := arrow.Animate("open", 90*b2f(shown), 150*time.Millisecond)
@@ -159,10 +159,10 @@ func SidebarSection(c *Context, title string, open *bool, fn func()) *Element {
 
 // SidebarItem creates an item of a Sidebar choosing id, showing label
 // after icon, nil for none. Add to it with Children, as a Badge.
-func SidebarItem(c *Context, id string, icon *SVG, label string) *Element {
+func coreSidebarItem(c *context, id string, icon *SVG, label string) *node {
 	t := c.theme
 	sb := c.sidebar
-	item := Row(c).Key(id).AlignItems(Center).Gap(t.Space(2)).Padding(t.Space(1.5), t.Space(2)).Radius(t.Radius).Shrink(0).Role(RoleTreeItem)
+	item := coreRow(c).Key(id).AlignItems(Center).Gap(t.Space(2)).Padding(t.Space(1.5), t.Space(2)).Radius(t.Radius).Shrink(0).Role(RoleTreeItem)
 	item.widget = "SidebarItem"
 	item.flags |= flagClickable | flagHover | flagChoosable
 	chosen := false
@@ -191,7 +191,7 @@ func SidebarItem(c *Context, id string, icon *SVG, label string) *Element {
 		item.Background(t.SurfacePressed)
 	default:
 		item.checked = 1
-		item.styleFn = func(item *Element) {
+		item.styleFn = func(item *node) {
 			if item.Hovered() {
 				item.bg = t.SurfaceHover
 			}
@@ -207,19 +207,19 @@ func SidebarItem(c *Context, id string, icon *SVG, label string) *Element {
 	}
 	item.Children(func() {
 		if icon != nil {
-			Icon(c, icon).FontSize(16).TextColor(iconColor)
+			coreIcon(c, icon).FontSize(16).TextColor(iconColor)
 		}
-		Text(c, label).Grow(1).SingleLine()
+		coreText(c, label).Grow(1).SingleLine()
 	})
 	return item
 }
 
 // Badge creates a short text in a pill, as a count of unread messages
 // beside a sidebar's item.
-func Badge(c *Context, text string) *Element {
+func coreBadge(c *context, text string) *node {
 	t := c.theme
-	b := Box(c).Padding(0, t.Space(1.5)).Radius(999).Background(t.Text.Alpha(0.1)).Shrink(0)
+	b := coreBox(c).Padding(0, t.Space(1.5)).Radius(999).Background(t.Text.Alpha(0.1)).Shrink(0)
 	b.widget = "Badge"
-	b.Children(func() { Text(c, text).FontSize(t.FontSize - 2).SingleLine() })
+	b.Children(func() { coreText(c, text).FontSize(t.FontSize - 2).SingleLine() })
 	return b
 }

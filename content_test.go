@@ -15,7 +15,7 @@ import (
 )
 
 // contentWindow creates a window showing view and draws its first frame.
-func contentWindow(t *testing.T, view func(c *ui.Context)) (*Window, *fake.Window, *fake.Surface) {
+func contentWindow(t *testing.T, view func(c ui.Frame)) (*Window, *fake.Window, *fake.Surface) {
 	t.Helper()
 	w := NewWindow(WindowOptions{Width: 300, Height: 200, Content: ui.View(view)})
 	t.Cleanup(w.Destroy)
@@ -31,7 +31,7 @@ func contentWindow(t *testing.T, view func(c *ui.Context)) (*Window, *fake.Windo
 
 func TestContentDrawsAndHandlesInput(t *testing.T) {
 	clicks := 0
-	view := func(c *ui.Context) {
+	view := func(c ui.Frame) {
 		c.Root().Background(ui.RGB(255, 0, 0))
 		if ui.Button(c, "Press").Absolute().Left(10).Top(10).Size(100, 40).Clicked() {
 			clicks++
@@ -95,7 +95,7 @@ func TestContentDrawsAndHandlesInput(t *testing.T) {
 
 func TestContentInvalidateAndUpdate(t *testing.T) {
 	n := 0
-	view := func(c *ui.Context) { ui.Textf(c, "n = %d", n) }
+	view := func(c ui.Frame) { ui.Textf(c, "n = %d", n) }
 	w, _, s := contentWindow(t, view)
 	before := s.Frames()
 	w.Update(func() { n = 5 })
@@ -136,7 +136,7 @@ func (w *contentTitleBarWindow) Zoom() float64 {
 func testContentTitleBar(t *testing.T, style TitleBarStyle) {
 	t.Helper()
 	var bar ui.TitleBar
-	view := func(c *ui.Context) { bar = c.TitleBar() }
+	view := func(c ui.Frame) { bar = c.TitleBar() }
 	w := NewWindow(WindowOptions{Width: 300, Height: 200, TitleBarStyle: style, TitleBarHeight: 52, Content: ui.View(view)})
 	t.Cleanup(w.Destroy)
 	wins := fb.Windows()
@@ -190,7 +190,7 @@ func testContentTitleBar(t *testing.T, style TitleBarStyle) {
 // listeners.
 func TestContentFileDrop(t *testing.T) {
 	var zone []string
-	view := func(c *ui.Context) {
+	view := func(c ui.Frame) {
 		if files := ui.Box(c).Size(100, 50).DroppedFiles(); files != nil {
 			zone = files
 		}
@@ -225,7 +225,7 @@ func TestContentFileDrop(t *testing.T) {
 
 func TestContentTextInputTurnsOnIME(t *testing.T) {
 	name := ""
-	view := func(c *ui.Context) {
+	view := func(c ui.Frame) {
 		ui.TextInput(c, &name).Absolute().Left(10).Top(10).Width(200)
 	}
 	_, _, s := contentWindow(t, view)
@@ -250,7 +250,7 @@ func TestContentTextInputTurnsOnIME(t *testing.T) {
 func TestContentFollowsPreferences(t *testing.T) {
 	var prefs ui.Preferences
 	var accent ui.Color
-	_, _, s := contentWindow(t, func(c *ui.Context) {
+	_, _, s := contentWindow(t, func(c ui.Frame) {
 		prefs, accent = c.Preferences(), c.Theme().Accent
 	})
 	t.Cleanup(func() { onMain(func() { fb.SetPreferences(platform.Preferences{}) }) })
@@ -265,7 +265,7 @@ func TestContentFollowsPreferences(t *testing.T) {
 
 func TestContentMenuRoles(t *testing.T) {
 	name := "Ada"
-	view := func(c *ui.Context) {
+	view := func(c ui.Frame) {
 		ui.TextInput(c, &name).Absolute().Left(10).Top(10).Width(200)
 	}
 	w, fw, s := contentWindow(t, view)
@@ -294,7 +294,7 @@ func TestContentMenuRoles(t *testing.T) {
 }
 
 func TestContentDuplicateKeyTellsWhere(t *testing.T) {
-	view := func(c *ui.Context) {
+	view := func(c ui.Frame) {
 		ui.Row(c).Key(1)
 		ui.Row(c).Key(1)
 	}

@@ -10,8 +10,8 @@ import (
 // and 100 high, with the scroll edge e over its top 40 DIPs, or its
 // bottom 40.
 func edgeOver(e ScrollEdge) *ui.Tester {
-	view := func(c *ui.Context) {
-		ui.Box(c).Fill().Background(ui.RGB(0, 0, 0)).Children(func() {
+	view := func(c ui.Frame) {
+		ui.Box(c).Fill().Background(ui.RGB(0, 0, 0)).Children(func(c ui.Frame) {
 			b := ui.Box(c).Absolute().Left(0).Right(0).Height(40).Material(e)
 			if e.Bottom {
 				b.Bottom(0)
@@ -60,8 +60,8 @@ func TestHardScrollEdge(t *testing.T) {
 		t.Errorf("the hairline over black is %d", got)
 	}
 	// Over white, the hairline shows: 90% of it.
-	view := func(c *ui.Context) {
-		ui.Box(c).Fill().Background(ui.RGB(255, 255, 255)).Children(func() {
+	view := func(c ui.Frame) {
+		ui.Box(c).Fill().Background(ui.RGB(255, 255, 255)).Children(func(c ui.Frame) {
 			ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(40).Material(ScrollEdge{Hard: true})
 		})
 	}

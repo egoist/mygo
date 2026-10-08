@@ -9,7 +9,7 @@ would take it:
 
 ```go
 for _, task := range app.todo {
-	ui.Row(c).Key(task.ID).Drag(task).Children(func() {
+	ui.Row(c).Key(task.ID).Drag(task).Children(func(c ui.Frame) {
 		ui.Text(c, task.Name)
 	})
 }

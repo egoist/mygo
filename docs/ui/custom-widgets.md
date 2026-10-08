@@ -27,29 +27,29 @@ A segmented control on `SegmentedBase`, and a select on `SelectBase`:
 ```go
 t := c.Theme()
 view := ui.SegmentedBase(c, &app.view, 3)
-view.Track.Padding(3).Radius(999).Background(t.Surface).Children(func() {
+view.Track.Padding(3).Radius(999).Background(t.Surface).Children(func(c ui.Frame) {
 	for i, name := range []string{"Day", "Week", "Month"} {
 		seg := view.Segment(i).Padding(5, 14).Radius(999)
 		if i == app.view {
 			seg.Background(t.Background).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.15))
 		}
-		seg.Children(func() { ui.Text(c, name) })
+		seg.Children(func(c ui.Frame) { ui.Text(c, name) })
 	}
 })
 
 sel := ui.SelectBase(c, &app.size)
-sel.Trigger.Gap(6).Padding(6, 10).Radius(8).Border(1, t.Border).Children(func() {
+sel.Trigger.Gap(6).Padding(6, 10).Radius(8).Border(1, t.Border).Children(func(c ui.Frame) {
 	ui.Text(c, app.size)
 	ui.Icon(c, chevron)
 })
-sel.Popup(func(panel *ui.Element) {
+sel.Popup(func(c ui.Frame, panel ui.Element) {
 	panel.Margin(4, 0, 0, 0).Padding(4).Radius(10).Background(t.Background).Border(1, t.Border)
 	for _, size := range sizes {
 		item := sel.Item(size).Padding(6, 10).Radius(6)
 		if item.Highlighted() {
 			item.Background(t.Accent).TextColor(t.AccentText)
 		}
-		item.Children(func() { ui.Text(c, size) })
+		item.Children(func(c ui.Frame) { ui.Text(c, size) })
 	}
 })
 ```
@@ -68,7 +68,7 @@ from frame to frame with `ui.Local`:
 
 ```go
 // Spoiler hides text until clicked.
-func Spoiler(c *ui.Context, text string) {
+func Spoiler(c ui.Frame, text string) {
 	t := c.Theme()
 	box := ui.Box(c).Padding(2, 6).Radius(4).Focusable()
 	shown := ui.Local(box, "shown", func() bool { return false })
@@ -80,7 +80,7 @@ func Spoiler(c *ui.Context, text string) {
 	} else {
 		box.Background(t.Text) // the color of the text, hiding it
 	}
-	box.Children(func() { ui.Text(c, text) })
+	box.Children(func(c ui.Frame) { ui.Text(c, text) })
 }
 ```
 

@@ -300,15 +300,15 @@ func pageOf(path string) string {
 	return ""
 }
 
-func (g *gallery) view(c *ui.Context) {
-	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+func (g *gallery) view(c ui.Frame) {
+	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func(c ui.Frame) {
 		g.sidebar(c)
-		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Children(func(c ui.Frame) {
 			g.toolbar(c)
 			// The pages, which keep their place in the history: back on one,
 			// it is scrolled where it was.
-			g.router.View(c, func(r *ui.Route) {
-				ui.Scroll(c).Grow(1).Padding(12, 32, 28).Gap(18).Children(func() {
+			g.router.View(c, func(c ui.Frame, r *ui.Route) {
+				ui.Scroll(c).Grow(1).Padding(12, 32, 28).Gap(18).Children(func(c ui.Frame) {
 					if r.Match("/list/{row}") {
 						g.listRow(c, r)
 						return
@@ -356,8 +356,8 @@ func (g *gallery) view(c *ui.Context) {
 // toolbar goes back and forward in the history of the pages, and shows
 // the path of the page: Cmd+[ and Cmd+] on macOS, Alt+Left and Alt+Right
 // elsewhere, and a mouse's side buttons, go back and forward too.
-func (g *gallery) toolbar(c *ui.Context) {
-	ui.Toolbar(c, func() {
+func (g *gallery) toolbar(c ui.Frame) {
+	ui.Toolbar(c, func(c ui.Frame) {
 		ui.BackButton(c, g.router)
 		ui.ForwardButton(c, g.router)
 		page := pageOf(g.router.Path())
@@ -374,7 +374,7 @@ func (g *gallery) toolbar(c *ui.Context) {
 
 // listRow shows a row of the list, from the List page: the arrows in the
 // toolbar, or the side buttons of a mouse, go back to the list as it was.
-func (g *gallery) listRow(c *ui.Context, r *ui.Route) {
+func (g *gallery) listRow(c ui.Frame, r *ui.Route) {
 	t := c.Theme()
 	n, err := strconv.Atoi(r.Param("row"))
 	if err != nil || n < 0 || n >= 10000 {
@@ -389,7 +389,7 @@ func (g *gallery) listRow(c *ui.Context, r *ui.Route) {
 			label string
 			value int
 		}{{"Square", n * n}, {"Cube", n * n * n}} {
-			ui.Row(c).Gap(12).Children(func() {
+			ui.Row(c).Gap(12).Children(func(c ui.Frame) {
 				ui.Text(c, f.label).TextColor(t.TextMuted).Width(80)
 				ui.Textf(c, "%d", f.value).Font("monospace")
 			})
@@ -401,7 +401,7 @@ func (g *gallery) listRow(c *ui.Context, r *ui.Route) {
 	}).MaxWidth(420)
 	// Links to paths go there in the router, relative to the page as on
 	// the web.
-	ui.Row(c).Gap(16).Children(func() {
+	ui.Row(c).Gap(16).Children(func(c ui.Frame) {
 		if n > 0 {
 			ui.Link(c, "← Previous row", strconv.Itoa(n-1))
 		}
@@ -412,24 +412,24 @@ func (g *gallery) listRow(c *ui.Context, r *ui.Route) {
 	})
 }
 
-func (g *gallery) sidebar(c *ui.Context) {
+func (g *gallery) sidebar(c ui.Frame) {
 	t := c.Theme()
 	side := ui.Column(c).Width(200).PaddingY(16).Background(t.Surface).Shrink(0)
-	side.Children(func() {
+	side.Children(func(c ui.Frame) {
 		ui.Text(c, "MyGo UI").FontSize(13).Bold().TextColor(t.TextMuted).Padding(4, 20, 6)
 		// The pages, in two sections that hide and show; the arrows choose
 		// among them while the sidebar has the focus.
 		page := pageOf(g.router.Path())
-		if ui.Sidebar(c, &page, func() {
+		if ui.Sidebar(c, &page, func(c ui.Frame) {
 			for k, section := range []struct {
 				title string
 				pages []string
 			}{{"Widgets", pages[:4]}, {"Look", pages[4:]}} {
-				ui.SidebarSection(c, section.title, &g.sectionsOpen[k], func() {
+				ui.SidebarSection(c, section.title, &g.sectionsOpen[k], func(c ui.Frame) {
 					for _, p := range section.pages {
 						item := ui.SidebarItem(c, p, pageIcons[p], p)
 						if p == "List" {
-							item.Children(func() { ui.Badge(c, "10k") })
+							item.Children(func(c ui.Frame) { ui.Badge(c, "10k") })
 						}
 					}
 				})
@@ -441,10 +441,10 @@ func (g *gallery) sidebar(c *ui.Context) {
 	})
 }
 
-func card(c *ui.Context, title string, body func()) *ui.Element {
+func card(c ui.Frame, title string, body func()) ui.Element {
 	t := c.Theme()
 	return ui.Column(c).Padding(18).Gap(12).Radius(10).Background(t.Background).Border(1, t.Border).
-		Shadow(0, 1, 3, 0, ui.RGBA(0, 0, 0, 0.06)).Children(func() {
+		Shadow(0, 1, 3, 0, ui.RGBA(0, 0, 0, 0.06)).Children(func(c ui.Frame) {
 		if title != "" {
 			ui.Text(c, title).FontSize(15).Bold()
 		}
@@ -457,53 +457,53 @@ func card(c *ui.Context, title string, body func()) *ui.Element {
 // left, and in the Oklch color itself, on the right. Where the window draws
 // a wide gamut (a Display P3 screen on macOS) the right column is the more
 // vivid; elsewhere the two match.
-func wideColors(c *ui.Context) {
+func wideColors(c ui.Frame) {
 	t := c.Theme()
 	vivid, warm := ui.Oklch(0.85, 0.3, 145), ui.Oklch(0.7, 0.3, 30)
 	black := ui.RGB(0, 0, 0)
 	ui.Text(c, "Compare the columns on a Display P3 screen: the right one is more vivid.").FontSize(12).TextColor(t.TextMuted)
 
 	// pair builds a sample twice, in sRGB and then in Oklch, in equal columns.
-	pair := func(sample func(wide bool) *ui.Element) {
-		ui.Row(c).Gap(12).Children(func() {
+	pair := func(sample func(wide bool) ui.Element) {
+		ui.Row(c).Gap(12).Children(func(c ui.Frame) {
 			for _, wide := range []bool{false, true} {
 				sample(wide).Basis(0).Grow(1)
 			}
 		})
 	}
-	box := func(label string) *ui.Element {
-		return ui.Row(c).Height(30).Radius(6).Center().Children(func() {
+	box := func(label string) ui.Element {
+		return ui.Row(c).Height(30).Radius(6).Center().Children(func(c ui.Frame) {
 			ui.Text(c, label).FontSize(12).Bold().TextColor(black)
 		})
 	}
 
-	pair(func(wide bool) *ui.Element {
+	pair(func(wide bool) ui.Element {
 		if wide {
 			return ui.Text(c, "Oklch").FontSize(12).Bold().TextColor(t.TextMuted)
 		}
 		return ui.Text(c, "sRGB").FontSize(12).Bold().TextColor(t.TextMuted)
 	})
-	pair(func(wide bool) *ui.Element {
+	pair(func(wide bool) ui.Element {
 		if wide {
 			return box("Fill").Background(vivid)
 		}
 		return box("Fill").Background(vivid.SRGB())
 	})
-	pair(func(wide bool) *ui.Element {
+	pair(func(wide bool) ui.Element {
 		if wide {
 			return box("Gradient").LinearGradient(ui.LinearGradient{From: warm, To: vivid, Angle: 90, Oklab: true})
 		}
 		return box("Gradient").LinearGradient(ui.LinearGradient{From: warm.SRGB(), To: vivid.SRGB(), Angle: 90, Oklab: true})
 	})
-	pair(func(wide bool) *ui.Element {
+	pair(func(wide bool) ui.Element {
 		white := ui.RGB(255, 255, 255)
 		if wide {
 			return box("Stripes").Background(white).Stripes(vivid, 4, 6, 45)
 		}
 		return box("Stripes").Background(white).Stripes(vivid.SRGB(), 4, 6, 45)
 	})
-	pair(func(wide bool) *ui.Element {
-		return ui.Row(c).Height(30).Radius(6).Center().Background(ui.RGB(20, 20, 20)).Children(func() {
+	pair(func(wide bool) ui.Element {
+		return ui.Row(c).Height(30).Radius(6).Center().Background(ui.RGB(20, 20, 20)).Children(func(c ui.Frame) {
 			text := ui.Text(c, "Text").FontSize(14).Bold()
 			if wide {
 				text.TextColor(vivid)
@@ -512,7 +512,7 @@ func wideColors(c *ui.Context) {
 			}
 		})
 	})
-	pair(func(wide bool) *ui.Element {
+	pair(func(wide bool) ui.Element {
 		e := box("Shadow").Margin(6).Background(ui.RGB(255, 255, 255))
 		if wide {
 			return e.Shadow(0, 4, 12, 0, vivid)
@@ -521,14 +521,14 @@ func wideColors(c *ui.Context) {
 	})
 }
 
-func (g *gallery) overview(c *ui.Context) {
+func (g *gallery) overview(c ui.Frame) {
 	t := c.Theme()
 	ui.Text(c, "Everything here is laid out with flexbox and grids and drawn by MyGo itself: no HTML, no JavaScript, no cgo. "+
 		"The view is a Go function of the app's state that runs again after every event.").TextColor(t.TextMuted)
-	ui.Row(c).Gap(16).Wrap().AlignItems(ui.Start).Children(func() {
+	ui.Row(c).Gap(16).Wrap().AlignItems(ui.Start).Children(func(c ui.Frame) {
 		card(c, "Counter", func() {
 			ui.Text(c, fmt.Sprint(g.count)).FontSize(40).Bold()
-			ui.Row(c).Gap(8).Children(func() {
+			ui.Row(c).Gap(8).Children(func(c ui.Frame) {
 				if ui.Button(c, "−").Width(44).Clicked() {
 					g.count--
 				}
@@ -550,7 +550,7 @@ func (g *gallery) overview(c *ui.Context) {
 			if zone.FileDragOver() {
 				zone.Border(2, t.Accent)
 			}
-			zone.Children(func() {
+			zone.Children(func(c ui.Frame) {
 				if len(g.files) == 0 {
 					ui.Text(c, "Drop files here").TextColor(t.TextMuted)
 				}
@@ -566,7 +566,7 @@ func (g *gallery) overview(c *ui.Context) {
 	})
 }
 
-func (g *gallery) sparkline(c *ui.Context) *ui.Element {
+func (g *gallery) sparkline(c ui.Frame) ui.Element {
 	t := c.Theme()
 	return ui.Box(c).Radius(6).Background(t.Surface).Draw(func(p *ui.Painter, r ui.Rect) {
 		if len(g.samples) < 2 {
@@ -586,26 +586,26 @@ func (g *gallery) sparkline(c *ui.Context) *ui.Element {
 	})
 }
 
-func (g *gallery) controls(c *ui.Context) {
+func (g *gallery) controls(c ui.Frame) {
 	t := c.Theme()
 	card(c, "Choices", func() {
 		ui.Checkbox(c, &g.agree, "I agree to the terms")
-		ui.Row(c).Gap(10).Children(func() {
+		ui.Row(c).Gap(10).Children(func(c ui.Frame) {
 			ui.Switch(c, &g.notify).Label("Notifications")
 			ui.Text(c, map[bool]string{true: "Notifications on", false: "Notifications off"}[g.notify])
 		})
-		ui.RadioGroup(c, func() {
+		ui.RadioGroup(c, func(c ui.Frame) {
 			for _, p := range []string{"Free", "Pro", "Team"} {
 				ui.Radio(c, &g.plan, p, p)
 			}
 		}).Row().Gap(18).Label("Plan")
-		ui.Row(c).Gap(10).Children(func() {
+		ui.Row(c).Gap(10).Children(func(c ui.Frame) {
 			ui.Text(c, "Size")
 			ui.Select(c, &g.size, []string{"Small", "Medium", "Large", "Extra large"})
 		})
 	})
 	card(c, "Search and choose", func() {
-		ui.Row(c).Gap(10).Wrap().Children(func() {
+		ui.Row(c).Gap(10).Wrap().Children(func(c ui.Frame) {
 			ui.SearchField(c, &g.search).Label("Search").Width(220)
 			ui.Combobox(c, &g.font, []string{"Avenir", "Courier", "Futura", "Georgia", "Gill Sans", "Helvetica", "Menlo", "Optima", "Palatino", "Times"}).Label("Font").Width(200)
 			ui.Autocomplete(c, &g.city, []string{"Amsterdam", "Berlin", "Lisbon", "London", "Madrid", "Paris", "Prague", "Rome", "Vienna"}).Label("City").Placeholder("City").Width(200)
@@ -617,7 +617,7 @@ func (g *gallery) controls(c *ui.Context) {
 		if g.tasks == nil {
 			g.tasks = []galleryTask{{"Write the docs", false}, {"Fix the layout", false}, {"Ship it", false}, {"Plan the release", true}}
 		}
-		ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func() {
+		ui.Row(c).Gap(12).AlignItems(ui.Start).Children(func(c ui.Frame) {
 			for col, title := range []string{"To do", "Done"} {
 				done := col == 1
 				bin := ui.Column(c).Grow(1).Basis(0).Gap(6).Padding(10).Radius(8).MinHeight(150).Background(t.Surface).Border(1, t.Border).Label(title)
@@ -627,11 +627,11 @@ func (g *gallery) controls(c *ui.Context) {
 				if task, ok := ui.DragOver[*galleryTask](bin); ok && task.done != done {
 					bin.Border(2, t.Accent)
 				}
-				bin.Children(func() {
+				bin.Children(func(c ui.Frame) {
 					ui.Text(c, title).FontWeight(600)
 					for i := range g.tasks {
 						if task := &g.tasks[i]; task.done == done {
-							ui.Row(c).Key(task.name).Padding(7, 10).Radius(6).Background(t.Background).Border(1, t.Border).Cursor(ui.CursorPointer).Drag(task).Children(func() {
+							ui.Row(c).Key(task.name).Padding(7, 10).Radius(6).Background(t.Background).Border(1, t.Border).Cursor(ui.CursorPointer).Drag(task).Children(func(c ui.Frame) {
 								ui.Text(c, task.name)
 							})
 						}
@@ -642,7 +642,7 @@ func (g *gallery) controls(c *ui.Context) {
 		ui.Text(c, "Drag a task to the other column; Escape gives up.").FontSize(12).TextColor(t.TextMuted)
 	})
 	card(c, "Groups and paths", func() {
-		ui.CheckboxGroup(c, "Notifications", func() {
+		ui.CheckboxGroup(c, "Notifications", func(c ui.Frame) {
 			ui.Checkbox(c, &g.notifyMail, "Mail")
 			ui.Checkbox(c, &g.notifyCalendar, "Calendar")
 			ui.Checkbox(c, &g.notifyMessages, "Messages")
@@ -656,58 +656,58 @@ func (g *gallery) controls(c *ui.Context) {
 		}
 	})
 	card(c, "Disclosure", func() {
-		ui.Collapsible(c, "Advanced options", &g.advanced, func() {
+		ui.Collapsible(c, "Advanced options", &g.advanced, func(c ui.Frame) {
 			ui.Checkbox(c, &g.verbose, "Verbose logging")
 			ui.Text(c, "The arrow turns and the content grows into view, at once where the desktop asks for less motion.").TextColor(t.TextMuted)
 		})
-		ui.Accordion(c, func() {
-			ui.AccordionItem(c, "General", &g.sections[0], func() {
+		ui.Accordion(c, func(c ui.Frame) {
+			ui.AccordionItem(c, "General", &g.sections[0], func(c ui.Frame) {
 				ui.Text(c, "Startup, appearance and updates.")
 			})
-			ui.AccordionItem(c, "Privacy", &g.sections[1], func() {
+			ui.AccordionItem(c, "Privacy", &g.sections[1], func(c ui.Frame) {
 				ui.Checkbox(c, &g.share, "Share usage data")
 			})
-			ui.AccordionItem(c, "Keyboard", &g.sections[2], func() {
+			ui.AccordionItem(c, "Keyboard", &g.sections[2], func(c ui.Frame) {
 				ui.Text(c, "Up and Down move between the headers, as do Home and End; Enter and Space open and close them.").TextColor(t.TextMuted)
 			})
 		})
 	})
 	card(c, "Ranges", func() {
-		ui.Row(c).Gap(12).Children(func() {
+		ui.Row(c).Gap(12).Children(func(c ui.Frame) {
 			ui.Slider(c, &g.volume, 0, 100).Label("Volume").Grow(1)
 			ui.Textf(c, "%3.0f%%", g.volume).Width(48).TextAlign(ui.End)
 		})
 		ui.Progress(c, g.volume/100)
 		ui.Progress(c, -1)
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func(c ui.Frame) {
 			ui.Text(c, "Copies")
 			ui.NumberInput(c, &g.copies, 1, 99, 1).Label("Copies")
 		})
-		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func(c ui.Frame) {
 			ui.Text(c, "Quality").Width(64)
 			ui.StepSlider(c, &g.quality, 0, 100, 25).Label("Quality").Grow(1)
 			ui.Textf(c, "%3.0f%%", g.quality).Width(48).TextAlign(ui.End)
 		})
-		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func(c ui.Frame) {
 			ui.Text(c, "Price").Width(64)
 			ui.RangeSlider(c, &g.priceLow, &g.priceHigh, 0, 500, 10).Label("Price").Grow(1)
 			ui.Textf(c, "$%.0f–%.0f", g.priceLow, g.priceHigh).Width(72).TextAlign(ui.End)
 		})
 	})
 	card(c, "Dates, times and colors", func() {
-		ui.Row(c).Gap(20).AlignItems(ui.Start).Wrap().Children(func() {
+		ui.Row(c).Gap(20).AlignItems(ui.Start).Wrap().Children(func(c ui.Frame) {
 			ui.Calendar(c, &g.meeting).Label("Meeting")
-			ui.Column(c).Gap(12).Children(func() {
-				ui.Form(c, func() {
-					ui.Field(c, "Time", func() { ui.TimeInput(c, &g.meeting).Label("Meeting") })
-					ui.Field(c, "Tint", func() { ui.ColorWell(c, &g.tint) })
+			ui.Column(c).Gap(12).Children(func(c ui.Frame) {
+				ui.Form(c, func(c ui.Frame) {
+					ui.Field(c, "Time", func(c ui.Frame) { ui.TimeInput(c, &g.meeting).Label("Meeting") })
+					ui.Field(c, "Tint", func(c ui.Frame) { ui.ColorWell(c, &g.tint) })
 				})
 				ui.Text(c, g.meeting.Format("Monday, January 2 at 15:04")).TextColor(g.tint)
 			})
 		})
 	})
 	card(c, "Indicators", func() {
-		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func(c ui.Frame) {
 			ui.Spinner(c).Label("Syncing")
 			ui.Text(c, "Syncing…").TextColor(t.TextMuted).Grow(1)
 			ui.Rating(c, &g.stars, 5).Label("Rating")
@@ -716,18 +716,18 @@ func (g *gallery) controls(c *ui.Context) {
 		ui.Textf(c, "Disk: %.0f of 500 GB", disk).FontSize(12).TextColor(t.TextMuted)
 		ui.Meter(c, disk, 0, 500, &ui.MeterLevels{Warning: 400, Critical: 475}).Label("Disk")
 		ui.Textf(c, "Battery: %.0f%%", g.battery).FontSize(12).TextColor(t.TextMuted)
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func(c ui.Frame) {
 			ui.Meter(c, g.battery, 0, 100, &ui.MeterLevels{Warning: 20, Critical: 10}).Label("Battery").Grow(1)
 			ui.Stepper(c, &g.battery, 0, 100, 5).Label("Battery")
 		})
-		ui.Row(c).Gap(8).Children(func() {
+		ui.Row(c).Gap(8).Children(func(c ui.Frame) {
 			for _, name := range []string{"Ada Lovelace", "Grace Hopper", "Alan Turing", "Margaret Hamilton"} {
 				ui.Avatar(c, name, nil).Tooltip(name)
 			}
 		})
 	})
 	card(c, "Buttons", func() {
-		ui.Row(c).Gap(8).Wrap().Children(func() {
+		ui.Row(c).Gap(8).Wrap().Children(func(c ui.Frame) {
 			if ui.PrimaryButton(c, "Save").Clicked() {
 				c.Toast("Saved")
 			}
@@ -745,10 +745,10 @@ func (g *gallery) controls(c *ui.Context) {
 		ui.Text(c, "Tab moves the focus; Enter or Space presses the focused button.").TextColor(t.TextMuted)
 	})
 	card(c, "Toolbar", func() {
-		ui.Toolbar(c, func() {
+		ui.Toolbar(c, func(c ui.Frame) {
 			ui.Button(c, "New")
 			ui.Button(c, "Open")
-			ui.ToggleGroup(c, func() {
+			ui.ToggleGroup(c, func(c ui.Frame) {
 				ui.Toggle(c, &g.bold, "Bold")
 				ui.Toggle(c, &g.italic, "Italic")
 				ui.Toggle(c, &g.underline, "Underline")
@@ -761,30 +761,30 @@ func (g *gallery) controls(c *ui.Context) {
 	})
 	card(c, "Tabs and panes", func() {
 		ui.Tabs(c, &g.tab, "Files", "Search", "History")
-		ui.Split(c, &g.split, func() {
-			ui.Column(c).Fill().Padding(10).Gap(6).Background(t.Surface).Children(func() {
+		ui.Split(c, &g.split, func(c ui.Frame) {
+			ui.Column(c).Fill().Padding(10).Gap(6).Background(t.Surface).Children(func(c ui.Frame) {
 				for _, name := range [][]string{{"main.go", "go.mod", "README.md"}, {"Results"}, {"Yesterday", "Last week"}}[g.tab] {
 					ui.Text(c, name).SingleLine()
 				}
 			})
-		}, func() {
-			ui.Column(c).Fill().Padding(10).Children(func() {
+		}, func(c ui.Frame) {
+			ui.Column(c).Fill().Padding(10).Children(func(c ui.Frame) {
 				ui.Text(c, "Drag the divider, or focus it and press the arrows.").TextColor(t.TextMuted)
 			})
 		}).Height(140).Border(1, t.Border).Radius(t.Radius).Clip()
 	})
 	card(c, "Built on bases", func() {
 		ui.Text(c, "Bases are the widgets without their look: the pointer, the keys, the focus and accessibility, styled here anew.").TextColor(t.TextMuted)
-		ui.Row(c).Gap(16).Wrap().Children(func() {
+		ui.Row(c).Gap(16).Wrap().Children(func(c ui.Frame) {
 			// A segmented control on TabsBase.
 			tabs := ui.TabsBase(c, &g.period, 3)
-			tabs.List.Padding(3).Radius(999).Background(t.Surface).Children(func() {
+			tabs.List.Padding(3).Radius(999).Background(t.Surface).Children(func(c ui.Frame) {
 				for i, name := range []string{"Day", "Week", "Month"} {
 					seg := tabs.Tab(i).Padding(5, 14).Radius(999)
 					if i == g.period {
 						seg.Background(t.Background).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.15))
 					}
-					seg.Children(func() { ui.Text(c, name) })
+					seg.Children(func(c ui.Frame) { ui.Text(c, name) })
 				}
 			})
 			// A pill that toggles, on SwitchBase.
@@ -792,17 +792,17 @@ func (g *gallery) controls(c *ui.Context) {
 			if g.pinned {
 				pill.Background(t.Accent).TextColor(t.AccentText).Border(1, t.Accent)
 			}
-			pill.Children(func() {
+			pill.Children(func(c ui.Frame) {
 				ui.Icon(c, starIcon)
 				ui.Text(c, "Starred")
 			})
 			// A select with check marks, on SelectBase.
 			sel := ui.SelectBase(c, &g.fruit)
-			sel.Trigger.Gap(6).Padding(6, 10).Radius(8).Border(1, t.Border).Children(func() {
+			sel.Trigger.Gap(6).Padding(6, 10).Radius(8).Border(1, t.Border).Children(func(c ui.Frame) {
 				ui.Text(c, g.fruit)
 				ui.Icon(c, chevronIcon).TextColor(t.TextMuted)
 			})
-			sel.Popup(func(panel *ui.Element) {
+			sel.Popup(func(c ui.Frame, panel ui.Element) {
 				panel.Margin(4, 0, 0, 0).Padding(4).Radius(10).Background(t.Background).Border(1, t.Border)
 				panel.Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.15))
 				for _, fruit := range []string{"Apple", "Banana", "Cherry", "Durian"} {
@@ -810,7 +810,7 @@ func (g *gallery) controls(c *ui.Context) {
 					if item.Highlighted() {
 						item.Background(t.Accent).TextColor(t.AccentText)
 					}
-					item.Children(func() {
+					item.Children(func(c ui.Frame) {
 						check := ui.Icon(c, checkIcon)
 						if fruit != g.fruit {
 							check.Opacity(0)
@@ -823,26 +823,26 @@ func (g *gallery) controls(c *ui.Context) {
 	})
 }
 
-func (g *gallery) text(c *ui.Context) {
+func (g *gallery) text(c ui.Frame) {
 	t := c.Theme()
 	card(c, "Form", func() {
-		ui.Form(c, func() {
-			ui.Field(c, "Name", func() { ui.TextInput(c, &g.name).Placeholder("Ada Lovelace") })
+		ui.Form(c, func(c ui.Frame) {
+			ui.Field(c, "Name", func(c ui.Frame) { ui.TextInput(c, &g.name).Placeholder("Ada Lovelace") })
 			invalid := ""
 			if g.email != "" && !strings.Contains(g.email, "@") {
 				invalid = "Enter an email address, such as ada@example.com."
 			}
-			ui.Field(c, "Email", func() {
+			ui.Field(c, "Email", func(c ui.Frame) {
 				if ui.TextInput(c, &g.email).Placeholder("ada@example.com").Submitted() {
 					g.dialog = true
 				}
 			}).Description("Enter opens a dialog.").Error(invalid)
-			ui.Field(c, "About you", func() {
+			ui.Field(c, "About you", func(c ui.Frame) {
 				ui.TextArea(c, &g.bio).Placeholder("Multiple lines, with undo, selection and input methods.").Height(110)
 			}).Description(fmt.Sprintf("%d characters", len([]rune(g.bio))))
-			ui.Fieldset(c, "Optional", func() {
-				ui.Field(c, "Birthday", func() { ui.DateInput(c, &g.birthday) })
-				ui.Field(c, "Updates", func() { ui.Checkbox(c, &g.news, "Send me the newsletter") })
+			ui.Fieldset(c, "Optional", func(c ui.Frame) {
+				ui.Field(c, "Birthday", func(c ui.Frame) { ui.DateInput(c, &g.birthday) })
+				ui.Field(c, "Updates", func(c ui.Frame) { ui.Checkbox(c, &g.news, "Send me the newsletter") })
 			})
 		})
 	})
@@ -877,7 +877,7 @@ func (g *gallery) text(c *ui.Context) {
 		ui.Text(c, strings.Repeat("A single line that ends with an ellipsis when it does not fit. ", 4)).SingleLine()
 	})
 	card(c, "Text selection", func() {
-		ui.Column(c).Selectable().Gap(12).Children(func() {
+		ui.Column(c).Selectable().Gap(12).Children(func(c ui.Frame) {
 			ui.Text(c, "Drag from this paragraph into the next, then copy the selected text.")
 			ui.RichText(c, ui.Span{Text: "Each paragraph keeps its own layout. "}, ui.Span{Text: "They share one selection.", Weight: 700})
 			ui.Text(c, "This hint is excluded from selection.").Unselectable().TextColor(t.TextMuted)
@@ -885,7 +885,7 @@ func (g *gallery) text(c *ui.Context) {
 	})
 }
 
-func (g *gallery) list(c *ui.Context) {
+func (g *gallery) list(c ui.Frame) {
 	t := c.Theme()
 	ui.TextInput(c, &g.filter).Placeholder("Filter 10,000 rows").Label("Filter")
 	var rows []int
@@ -897,7 +897,7 @@ func (g *gallery) list(c *ui.Context) {
 	// The row of the number picked: the list chooses rows by their index,
 	// which the filter changes.
 	at := slices.Index(rows, g.picked)
-	ui.Row(c).Gap(12).Children(func() {
+	ui.Row(c).Gap(12).Children(func(c ui.Frame) {
 		ui.Textf(c, "%d rows; only those in view are built. Pick one with a click or the arrows, open it with a double click or Enter; right-click one for its menu.", len(rows)).TextColor(t.TextMuted).Grow(1)
 		if ui.Button(c, "Show picked").Disabled(at < 0).Clicked() {
 			// The row may not be built: the list scrolls to it all the same.
@@ -909,7 +909,7 @@ func (g *gallery) list(c *ui.Context) {
 	open := func(n int) { g.router.Push(fmt.Sprintf("/list/%d", n)) }
 	g.rows.Selected = &at
 	g.rows.Key = func(i int) any { return rows[i] }
-	list := ui.List(c, &g.rows, len(rows), func(i int) {
+	list := ui.List(c, &g.rows, len(rows), func(c ui.Frame, i int) {
 		n := rows[i]
 		row := ui.Row(c).Height(32).PaddingX(12).Gap(10)
 		if row.DoubleClicked() {
@@ -930,7 +930,7 @@ func (g *gallery) list(c *ui.Context) {
 				mygo.Clipboard.WriteText(fmt.Sprint(n * n))
 			}
 		})
-		row.Children(func() {
+		row.Children(func(c ui.Frame) {
 			label := fmt.Sprintf("Row %d", n)
 			if g.starred[n] {
 				label += "  ★"
@@ -946,7 +946,7 @@ func (g *gallery) list(c *ui.Context) {
 		open(g.picked)
 	}
 	g.chatCard(c)
-	ui.Row(c).Gap(18).AlignItems(ui.Stretch).Height(260).Children(func() {
+	ui.Row(c).Gap(18).AlignItems(ui.Stretch).Height(260).Children(func(c ui.Frame) {
 		card(c, "Tree", func() {
 			item := func(path, label string, children func()) {
 				var open *bool
@@ -955,11 +955,15 @@ func (g *gallery) list(c *ui.Context) {
 					open = &o
 					defer func() { g.tree[path] = o }()
 				}
-				if ui.TreeItem(c, label, open, children).Selected(g.leaf == path).Clicked() {
+				if ui.TreeItem(c, label, open, func(c ui.Frame) {
+					if children != nil {
+						children()
+					}
+				}).Selected(g.leaf == path).Clicked() {
 					g.leaf = path
 				}
 			}
-			ui.Tree(c, func() {
+			ui.Tree(c, func(c ui.Frame) {
 				item("ui", "ui", func() {
 					item("ui/widgets.go", "widgets.go", nil)
 					item("ui/text", "text", func() {
@@ -980,7 +984,7 @@ func (g *gallery) list(c *ui.Context) {
 			g.table.Selected = &g.file
 			g.table.Selection = &g.chosen
 			g.table.Sort = &g.sort
-			if ui.Table(c, &g.table, cols, len(rows), func(row, col int) {
+			if ui.Table(c, &g.table, cols, len(rows), func(c ui.Frame, row, col int) {
 				f := rows[row]
 				switch col {
 				case 0:
@@ -1022,7 +1026,7 @@ func (g *gallery) list(c *ui.Context) {
 		cols := []ui.TableColumn{{Title: "Name", Sortable: true}, {Title: "Kind", Width: 110}}
 		g.outline.List.Selected = &g.outlineRow
 		g.outline.List.Sort = &g.outlineSort
-		ui.OutlineTable(c, &g.outline, cols, names("Folder", 100), children, func(item string, col int) {
+		ui.OutlineTable(c, &g.outline, cols, names("Folder", 100), children, func(c ui.Frame, item string, col int) {
 			switch {
 			case col == 0:
 				ui.Text(c, item[strings.LastIndexByte(item, '/')+1:]).SingleLine()
@@ -1048,7 +1052,7 @@ func (g *gallery) list(c *ui.Context) {
 		g.swatches.Selection = &g.swatchesChosen
 		g.swatches.Label = func(i int) string { return fmt.Sprintf("Swatch %d", g.swatchOrder[i]) }
 		g.swatches.Reorder = func(items []int, to int) { g.swatchOrder = reorder(g.swatchOrder, items, to) }
-		ui.GridView(c, &g.swatches, len(g.swatchOrder), 96, 96, func(i int) {
+		ui.GridView(c, &g.swatches, len(g.swatchOrder), 96, 96, func(c ui.Frame, i int) {
 			n := g.swatchOrder[i]
 			ui.Box(c).Grow(1).Margin(6).Radius(6).Background(hsl(float64(n%36)*10, 0.6, 0.65))
 			ui.Textf(c, "%d", n).FontSize(12).AlignSelf(ui.Center).Padding(0, 0, 4)
@@ -1061,7 +1065,7 @@ func (g *gallery) list(c *ui.Context) {
 // measures as they show, the header of each day pinned at the top, older
 // messages loading above without moving those in view, and new ones
 // followed at the end.
-func (g *gallery) chatCard(c *ui.Context) {
+func (g *gallery) chatCard(c ui.Frame) {
 	t := c.Theme()
 	if g.messages == nil {
 		for id := range 200 {
@@ -1090,7 +1094,7 @@ func (g *gallery) chatCard(c *ui.Context) {
 	}
 	g.chat.Header = func(i int) bool { return items[i].header }
 	card(c, "Chat", func() {
-		ui.Row(c).Gap(8).Children(func() {
+		ui.Row(c).Gap(8).Children(func(c ui.Frame) {
 			ui.Textf(c, "%d messages of every height; older ones load above without moving those in view.", len(g.messages)).TextColor(t.TextMuted).Grow(1)
 			if ui.Button(c, "Load older").Clicked() {
 				older := make([]message, 0, 24)
@@ -1103,28 +1107,28 @@ func (g *gallery) chatCard(c *ui.Context) {
 				g.chat.ScrollToEnd()
 			}
 		})
-		ui.List(c, &g.chat, len(items), func(i int) {
+		ui.List(c, &g.chat, len(items), func(c ui.Frame, i int) {
 			it := items[i]
 			if it.header {
 				label := "Today"
 				if it.day < 0 {
 					label = time.Now().AddDate(0, 0, it.day).Format("Monday, January 2")
 				}
-				ui.Row(c).Justify(ui.Center).PaddingY(6).Children(func() {
+				ui.Row(c).Justify(ui.Center).PaddingY(6).Children(func(c ui.Frame) {
 					ui.Text(c, label).FontSize(12).Bold().Padding(3, 10).Radius(999).Background(t.Surface).Border(1, t.Border)
 				})
 				return
 			}
 			m := it.msg
-			ui.Row(c).Padding(3, 12).Children(func() {
+			ui.Row(c).Padding(3, 12).Children(func(c ui.Frame) {
 				bubble := ui.Box(c).MaxWidthPercent(72).Padding(7, 12).Radius(14).Background(t.Surface)
 				if m.mine {
 					bubble.Margin(0, 0, 0, ui.Auto).Background(t.Accent).TextColor(t.AccentText)
 				}
-				bubble.Children(func() { ui.Text(c, m.text) })
+				bubble.Children(func(c ui.Frame) { ui.Text(c, m.text) })
 			})
 		}).Height(380).Justify(ui.End).PaddingY(4).Border(1, t.Border).Radius(8)
-		ui.Row(c).Gap(8).Children(func() {
+		ui.Row(c).Gap(8).Children(func(c ui.Frame) {
 			input := ui.TextInput(c, &g.draft).Placeholder("Message").Label("Message").Grow(1)
 			send := ui.Button(c, "Send").Disabled(strings.TrimSpace(g.draft) == "")
 			if (send.Clicked() || input.Submitted()) && strings.TrimSpace(g.draft) != "" {
@@ -1136,14 +1140,14 @@ func (g *gallery) chatCard(c *ui.Context) {
 	})
 }
 
-func (g *gallery) styling(c *ui.Context) {
+func (g *gallery) styling(c ui.Frame) {
 	t := c.Theme()
 	ui.Text(c, "Grids, borders of each side, gradients, stripes, text decorations, and motion along easings.").TextColor(t.TextMuted)
-	ui.Grid(c).Columns(2).Gap(16).Children(func() {
+	ui.Grid(c).Columns(2).Gap(16).Children(func(c ui.Frame) {
 		card(c, "Grid", func() {
-			ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1), ui.Fr(1)).Gap(6).Children(func() {
-				cell := func(s string) *ui.Element {
-					return ui.Box(c).Padding(8, 10).Radius(6).Background(t.Surface).Children(func() { ui.Text(c, s).FontSize(12) })
+			ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1), ui.Fr(1)).Gap(6).Children(func(c ui.Frame) {
+				cell := func(s string) ui.Element {
+					return ui.Box(c).Padding(8, 10).Radius(6).Background(t.Surface).Children(func(c ui.Frame) { ui.Text(c, s).FontSize(12) })
 				}
 				cell("ColumnSpan(-1)").ColumnSpan(-1).Background(t.Accent).TextColor(t.AccentText)
 				cell("FitContent").RowSpan(2)
@@ -1153,27 +1157,27 @@ func (g *gallery) styling(c *ui.Context) {
 			})
 		})
 		card(c, "Borders", func() {
-			ui.Row(c).PaddingY(6).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+			ui.Row(c).PaddingY(6).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func(c ui.Frame) {
 				ui.Text(c, "A header with a line below").Bold()
 			})
-			ui.Row(c).Padding(8, 12).Gap(8).BorderWidth(0, 0, 0, 4).BorderColor(t.Accent).Background(t.Surface).Radius(0, 6, 6, 0).Children(func() {
+			ui.Row(c).Padding(8, 12).Gap(8).BorderWidth(0, 0, 0, 4).BorderColor(t.Accent).Background(t.Surface).Radius(0, 6, 6, 0).Children(func(c ui.Frame) {
 				ui.Text(c, "A note with an accent on its left")
 			})
-			ui.Column(c).Height(56).Radius(8).Border(2, t.Border).BorderStyle(ui.BorderDashed).Center().Children(func() {
+			ui.Column(c).Height(56).Radius(8).Border(2, t.Border).BorderStyle(ui.BorderDashed).Center().Children(func(c ui.Frame) {
 				ui.Text(c, "Dashed, as a place to drop files").TextColor(t.TextMuted)
 			})
 		})
 		card(c, "Fills", func() {
 			blue, yellow := ui.Hex("#2563eb"), ui.Hex("#facc15")
-			bar := func(label string) *ui.Element {
-				return ui.Row(c).Height(30).PaddingX(10).Radius(6).Children(func() {
+			bar := func(label string) ui.Element {
+				return ui.Row(c).Height(30).PaddingX(10).Radius(6).Children(func(c ui.Frame) {
 					ui.Text(c, label).FontSize(12).Bold().TextColor(ui.RGB(255, 255, 255))
 				})
 			}
 			bar("sRGB").Gradient(blue, yellow, 90)
 			bar("Oklab").LinearGradient(ui.LinearGradient{From: blue, To: yellow, Angle: 90, Oklab: true})
 			bar("Stops at 40% and 60%").LinearGradient(ui.LinearGradient{From: blue, To: yellow, Angle: 90, Start: 0.4, End: 0.6})
-			ui.Row(c).Height(30).Radius(6).Background(t.Surface).Stripes(t.Border, 4, 6, 45).Center().Children(func() {
+			ui.Row(c).Height(30).Radius(6).Background(t.Surface).Stripes(t.Border, 4, 6, 45).Center().Children(func(c ui.Frame) {
 				ui.Text(c, "Stripes: unavailable").FontSize(12).TextColor(t.TextMuted)
 			})
 		})
@@ -1188,7 +1192,7 @@ func (g *gallery) styling(c *ui.Context) {
 			ui.Text(c, strings.Repeat("A line cut with an ellipsis of its own. ", 3)).SingleLine().Ellipsis(" →")
 		})
 		card(c, "Motion", func() {
-			ui.Row(c).Gap(14).Children(func() {
+			ui.Row(c).Gap(14).Children(func(c ui.Frame) {
 				spin := ui.Icon(c, loaderIcon).FontSize(24).TextColor(t.Accent)
 				spin.Rotate(spin.Loop("spin", time.Second, ui.Linear) * 360)
 				pulse := ui.Box(c).Height(14).Grow(1).Radius(7).Background(t.Border)
@@ -1207,36 +1211,36 @@ func (g *gallery) styling(c *ui.Context) {
 					to = 1
 				}
 				at := track.AnimateWith("x", to, 900*time.Millisecond, e.ease)
-				track.Children(func() {
+				track.Children(func(c ui.Frame) {
 					ui.Text(c, e.name).FontSize(12).Width(70).TextColor(t.TextMuted)
-					ui.Box(c).Grow(1).Height(18).Children(func() {
+					ui.Box(c).Grow(1).Height(18).Children(func(c ui.Frame) {
 						ui.Box(c).Size(18, 18).Radius(9).Background(t.Accent).Absolute().LeftPercent(at * 90)
 					})
 				})
 			}
 		})
 		card(c, "Layout", func() {
-			ui.Row(c).Gap(6).Reverse().Children(func() {
+			ui.Row(c).Gap(6).Reverse().Children(func(c ui.Frame) {
 				for _, s := range []string{"1", "2", "3"} {
-					ui.Box(c).Size(28, 28).Radius(6).Background(t.Surface).Center().Children(func() { ui.Text(c, s) })
+					ui.Box(c).Size(28, 28).Radius(6).Background(t.Surface).Center().Children(func(c ui.Frame) { ui.Text(c, s) })
 				}
 				ui.Text(c, "Reverse()").FontSize(12).TextColor(t.TextMuted).Margin(0, ui.Auto, 0, 0)
 			})
-			ui.Row(c).Gap(6).Children(func() {
+			ui.Row(c).Gap(6).Children(func(c ui.Frame) {
 				ui.Text(c, "Margin(…, Auto) pushes to the end").FontSize(12).TextColor(t.TextMuted)
 				ui.Button(c, "Save").Margin(0, 0, 0, ui.Auto)
 			})
-			ui.Row(c).Gap(6).Children(func() {
+			ui.Row(c).Gap(6).Children(func(c ui.Frame) {
 				ui.Text(c, "Inbox")
 				ui.Text(c, "3").FontSize(10).Bold().Padding(1, 5).Radius(8).Background(t.Danger).TextColor(ui.RGB(255, 255, 255)).Top(-6)
 				ui.Text(c, "Top(-6) moves a badge up").FontSize(12).TextColor(t.TextMuted)
 			})
 		})
 		card(c, "Scrolling both ways", func() {
-			ui.ScrollBoth(c).Height(150).Radius(6).Border(1, t.Border).Children(func() {
-				ui.Grid(c).ColumnTracks(repeat(ui.Fixed(56), 16)...).Gap(4).Padding(6).Children(func() {
+			ui.ScrollBoth(c).Height(150).Radius(6).Border(1, t.Border).Children(func(c ui.Frame) {
+				ui.Grid(c).ColumnTracks(repeat(ui.Fixed(56), 16)...).Gap(4).Padding(6).Children(func(c ui.Frame) {
 					for i := range 16 * 12 {
-						ui.Box(c).Height(28).Radius(4).Background(t.Accent.Alpha(0.08 + 0.6*float32(i%16)/16*float32(i/16)/12)).Center().Children(func() {
+						ui.Box(c).Height(28).Radius(4).Background(t.Accent.Alpha(0.08 + 0.6*float32(i%16)/16*float32(i/16)/12)).Center().Children(func(c ui.Frame) {
 							ui.Textf(c, "%c%d", 'A'+i%16, i/16+1).FontSize(11)
 						})
 					}
@@ -1244,14 +1248,14 @@ func (g *gallery) styling(c *ui.Context) {
 			})
 		})
 		card(c, "Cursors", func() {
-			ui.Row(c).Wrap().Gap(6).Children(func() {
+			ui.Row(c).Wrap().Gap(6).Children(func(c ui.Frame) {
 				for _, k := range []struct {
 					name   string
 					cursor ui.Cursor
 				}{{"ResizeColumn", ui.CursorResizeColumn}, {"ResizeRow", ui.CursorResizeRow}, {"ResizeE", ui.CursorResizeE},
 					{"Copy", ui.CursorCopy}, {"Alias", ui.CursorAlias}, {"ContextMenu", ui.CursorContextMenu},
 					{"VerticalText", ui.CursorVerticalText}, {"None", ui.CursorNone}} {
-					ui.Box(c).Padding(6, 10).Radius(6).Background(t.Surface).Cursor(k.cursor).Children(func() { ui.Text(c, k.name).FontSize(12) })
+					ui.Box(c).Padding(6, 10).Radius(6).Background(t.Surface).Cursor(k.cursor).Children(func(c ui.Frame) { ui.Text(c, k.name).FontSize(12) })
 				}
 			})
 		})
@@ -1267,7 +1271,7 @@ func repeat(t ui.Track, n int) []ui.Track {
 	return out
 }
 
-func (g *gallery) drawing(c *ui.Context) {
+func (g *gallery) drawing(c ui.Frame) {
 	t := c.Theme()
 	ui.Text(c, "Element.Draw paints with rectangles, shadows, paths and text. This drawing moves with the time of each frame, which paints it again without building the page.").TextColor(t.TextMuted)
 	ui.Box(c).Height(320).Radius(10).Background(t.Surface).Draw(func(p *ui.Painter, r ui.Rect) {
@@ -1299,12 +1303,12 @@ func (g *gallery) drawing(c *ui.Context) {
 	card(c, "Vector images", func() {
 		ui.Text(c, "SVGs stay sharp at any size: icons in the color of the text, pictures in their own colors.").TextColor(t.TextMuted)
 		gold := ui.RGB(245, 180, 0)
-		ui.Row(c).Gap(14).Children(func() {
+		ui.Row(c).Gap(14).Children(func(c ui.Frame) {
 			for _, size := range []float32{16, 24, 40} {
 				ui.Icon(c, starIcon).FontSize(size).TextColor(gold)
 			}
 			// A button lays out its children in a row.
-			done := ui.PrimaryButton(c, "").Children(func() {
+			done := ui.PrimaryButton(c, "").Children(func(c ui.Frame) {
 				ui.Icon(c, checkIcon)
 				ui.Text(c, "Done").SingleLine()
 			})
@@ -1320,10 +1324,10 @@ func (g *gallery) drawing(c *ui.Context) {
 // glass shows Liquid Glass: a toolbar floating over content that scrolls
 // under it, on a bar of glass, a scroll edge or a progressive blur, a
 // tinted button, and a lens to drag around.
-func (g *gallery) glassPage(c *ui.Context) {
+func (g *gallery) glassPage(c ui.Frame) {
 	t := c.Theme()
 	ui.Text(c, "The glass plugin's Liquid Glass, a material, as macOS draws it: what is under it shows through, frosted and bent along its edges. Scroll under the toolbar, and drag the lens.").TextColor(t.TextMuted)
-	ui.Row(c).Gap(16).AlignItems(ui.Center).Wrap().Children(func() {
+	ui.Row(c).Gap(16).AlignItems(ui.Center).Wrap().Children(func(c ui.Frame) {
 		ui.Segmented(c, &g.glassStyle, "Regular", "Clear").Label("Glass")
 		ui.Segmented(c, &g.glassEdge, "Glass bar", "Soft edge", "Hard edge", "Progressive blur").Label("Under the toolbar")
 	})
@@ -1333,7 +1337,7 @@ func (g *gallery) glassPage(c *ui.Context) {
 	}
 	tiles := []ui.Color{ui.Hex("#ef4444"), ui.Hex("#f59e0b"), ui.Hex("#10b981"), ui.Hex("#06b6d4"), ui.Hex("#6366f1"), ui.Hex("#ec4899")}
 	area := ui.Box(c).Height(420).Radius(12).Clip().Border(1, t.Border)
-	area.Children(func() {
+	area.Children(func(c ui.Frame) {
 		// What shows through: photos and text, which start below the
 		// toolbar, 64 DIPs down, and scroll under it, with the scroll bar
 		// below what floats over the content.
@@ -1341,12 +1345,12 @@ func (g *gallery) glassPage(c *ui.Context) {
 		if g.glassEdge == 3 {
 			bars = 88
 		}
-		ui.Scroll(c).Fill().Padding(76, 16, 16).ScrollbarInsets(bars, 0, 0).Gap(12).Children(func() {
+		ui.Scroll(c).Fill().Padding(76, 16, 16).ScrollbarInsets(bars, 0, 0).Gap(12).Children(func(c ui.Frame) {
 			for i := range 12 {
-				ui.Row(c).Gap(14).Children(func() {
+				ui.Row(c).Gap(14).Children(func(c ui.Frame) {
 					a, b := tiles[i%len(tiles)], tiles[(i+2)%len(tiles)]
 					ui.Box(c).Size(180, 96).Radius(12).Gradient(a, b, 135)
-					ui.Column(c).Grow(1).Gap(4).Children(func() {
+					ui.Column(c).Grow(1).Gap(4).Children(func(c ui.Frame) {
 						ui.Text(c, fmt.Sprintf("Photo %d", i+1)).Bold()
 						ui.Text(c, "Glass bends the light along its rim, and frosts what is under its middle.").TextColor(t.TextMuted)
 					})
@@ -1373,9 +1377,9 @@ func (g *gallery) glassPage(c *ui.Context) {
 		} else {
 			bar.PassThrough()
 		}
-		bar.Children(func() {
+		bar.Children(func(c ui.Frame) {
 			for _, ic := range []*ui.SVG{chevronIcon, starIcon, checkIcon} {
-				b := ui.Box(c).Size(40, 40).Radius(20).Center().Material(glass.Glass{Style: style, Interactive: true}).Children(func() {
+				b := ui.Box(c).Size(40, 40).Radius(20).Center().Material(glass.Glass{Style: style, Interactive: true}).Children(func(c ui.Frame) {
 					ui.Icon(c, ic).FontSize(18)
 				})
 				if b.Clicked() {
@@ -1383,7 +1387,7 @@ func (g *gallery) glassPage(c *ui.Context) {
 				}
 			}
 			ui.Box(c).Grow(1)
-			done := ui.Row(c).Padding(8, 16).Radius(20).Material(glass.Glass{Style: style, Tint: t.Accent, Interactive: true}).Children(func() {
+			done := ui.Row(c).Padding(8, 16).Radius(20).Material(glass.Glass{Style: style, Tint: t.Accent, Interactive: true}).Children(func(c ui.Frame) {
 				ui.Text(c, "Done").Bold().TextColor(t.AccentText)
 			})
 			if done.Clicked() {
@@ -1417,13 +1421,13 @@ var itemMotion = ui.ElementTransition{
 	Exit:     &ui.Motion{Collapse: true},
 }
 
-func (g *gallery) motion(c *ui.Context) {
+func (g *gallery) motion(c ui.Frame) {
 	t := c.Theme()
 	ui.Text(c, "Transitions move elements where the layout puts them, and in and out as they come and go. "+
 		"F12 (Alt+Cmd+I) opens the inspector of the window's elements.").TextColor(t.TextMuted)
-	ui.Grid(c).Columns(2).Gap(16).Children(func() {
+	ui.Grid(c).Columns(2).Gap(16).Children(func(c ui.Frame) {
 		card(c, "A list that moves", func() {
-			ui.Row(c).Gap(8).Children(func() {
+			ui.Row(c).Gap(8).Children(func(c ui.Frame) {
 				if ui.Button(c, "Add").Clicked() {
 					g.nextItem++
 					at := 0
@@ -1447,10 +1451,10 @@ func (g *gallery) motion(c *ui.Context) {
 			// step, and the column grows and shrinks with them; the lines
 			// between the rows come with the column.
 			ui.Column(c).Radius(8).Border(1, t.Border).Clip().Dividers(1, t.Border).
-				Transition(ui.ElementTransition{Size: true, Duration: itemMotion.Duration, Ease: itemMotion.Ease}).Children(func() {
+				Transition(ui.ElementTransition{Size: true, Duration: itemMotion.Duration, Ease: itemMotion.Ease}).Children(func(c ui.Frame) {
 				removed := -1
 				for _, it := range g.items {
-					ui.Row(c).Key(it.id).Padding(8, 10).Gap(10).AlignItems(ui.Center).Background(t.Background).Transition(itemMotion).Children(func() {
+					ui.Row(c).Key(it.id).Padding(8, 10).Gap(10).AlignItems(ui.Center).Background(t.Background).Transition(itemMotion).Children(func(c ui.Frame) {
 						ui.Box(c).Size(10, 10).Radius(5).Background(motionColors[it.id%len(motionColors)])
 						ui.Text(c, it.name).Grow(1)
 						if ui.Button(c, "Remove").Clicked() {
@@ -1470,7 +1474,7 @@ func (g *gallery) motion(c *ui.Context) {
 			if ui.Button(c, "Toggle the panel").Clicked() {
 				g.panelOpen = !g.panelOpen
 			}
-			ui.Row(c).Height(120).Radius(8).Border(1, t.Border).Clip().Children(func() {
+			ui.Row(c).Height(120).Radius(8).Border(1, t.Border).Clip().Children(func(c ui.Frame) {
 				w := float32(48)
 				if g.panelOpen {
 					w = 160
@@ -1478,22 +1482,22 @@ func (g *gallery) motion(c *ui.Context) {
 				// The panel lays out its content at each width on the way;
 				// the content beside it moves with it.
 				ui.Column(c).Width(w).Shrink(0).Padding(10).Gap(8).Background(t.Surface).ClipX().
-					Transition(ui.ElementTransition{Size: true, Ease: ui.EaseInOut}).Children(func() {
+					Transition(ui.ElementTransition{Size: true, Ease: ui.EaseInOut}).Children(func(c ui.Frame) {
 					for _, p := range []string{"Overview", "Styling", "Drawing"} {
-						ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+						ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func(c ui.Frame) {
 							ui.Icon(c, pageIcons[p]).FontSize(18).Shrink(0)
 							ui.Text(c, p).SingleLine()
 						})
 					}
 				})
-				ui.Column(c).Grow(1).Padding(12).Transition(ui.ElementTransition{Ease: ui.EaseInOut}).Children(func() {
+				ui.Column(c).Grow(1).Padding(12).Transition(ui.ElementTransition{Ease: ui.EaseInOut}).Children(func(c ui.Frame) {
 					ui.Text(c, "The content beside the panel.").TextColor(t.TextMuted)
 				})
 			})
 		})
 		card(c, "Colors that fade", func() {
 			ui.Text(c, "Their backgrounds and borders fade as the pointer comes and goes.").FontSize(12).TextColor(t.TextMuted)
-			ui.Row(c).Gap(10).Children(func() {
+			ui.Row(c).Gap(10).Children(func(c ui.Frame) {
 				for i, col := range motionColors[:3] {
 					tile := ui.Box(c).Key(i).Size(64, 48).Radius(8).Border(2, t.Border)
 					tile.Background(col.Alpha(0.15))
@@ -1506,15 +1510,15 @@ func (g *gallery) motion(c *ui.Context) {
 		})
 		card(c, "Attached", func() {
 			ui.Text(c, "Attach puts a point of an element on a point of its parent.").FontSize(12).TextColor(t.TextMuted)
-			ui.Row(c).Gap(24).PaddingY(8).Children(func() {
+			ui.Row(c).Gap(24).PaddingY(8).Children(func(c ui.Frame) {
 				for i, name := range []string{"Ada Lovelace", "Alan Turing"} {
-					ui.Box(c).Children(func() {
+					ui.Box(c).Children(func(c ui.Frame) {
 						ui.Avatar(c, name, nil)
 						ui.Text(c, fmt.Sprint(3+i*9)).FontSize(10).Bold().Padding(1, 5).Radius(8).
 							Background(t.Danger).TextColor(ui.RGB(255, 255, 255)).Attach(ui.AnchorTopRight, ui.AnchorCenter)
 					})
 				}
-				ui.Box(c).Size(120, 64).Radius(8).Background(t.Surface).Children(func() {
+				ui.Box(c).Size(120, 64).Radius(8).Background(t.Surface).Children(func(c ui.Frame) {
 					ui.Text(c, "Bottom right").FontSize(11).TextColor(t.TextMuted).
 						Attach(ui.AnchorBottomRight, ui.AnchorBottomRight).Right(6).Bottom(4)
 					ui.Text(c, "Center").FontSize(11).Attach(ui.AnchorCenter, ui.AnchorCenter)
@@ -1524,10 +1528,10 @@ func (g *gallery) motion(c *ui.Context) {
 	})
 }
 
-func (g *gallery) overlays(c *ui.Context) {
+func (g *gallery) overlays(c ui.Frame) {
 	t := c.Theme()
 	card(c, "Overlays", func() {
-		ui.Row(c).Gap(10).Children(func() {
+		ui.Row(c).Gap(10).Children(func(c ui.Frame) {
 			if ui.PrimaryButton(c, "Open dialog").Clicked() {
 				g.dialog = true
 			}
@@ -1535,7 +1539,7 @@ func (g *gallery) overlays(c *ui.Context) {
 			if menu.Clicked() {
 				g.menu = !g.menu
 			}
-			ui.Popover(c, menu, &g.menu, func() {
+			ui.Popover(c, menu, &g.menu, func(c ui.Frame) {
 				for _, item := range []string{"New file", "Open…", "Save as…"} {
 					entry := ui.Row(c).Key(item).Padding(6, 12).Radius(5).Width(180)
 					if entry.Hovered() {
@@ -1544,7 +1548,7 @@ func (g *gallery) overlays(c *ui.Context) {
 					if entry.Clicked() {
 						g.menu = false
 					}
-					entry.Children(func() { ui.Text(c, item) })
+					entry.Children(func(c ui.Frame) { ui.Text(c, item) })
 				}
 			})
 			ui.Button(c, "Hover me").Tooltip("Tooltips show after the pointer rests a moment.")
@@ -1565,10 +1569,10 @@ func (g *gallery) overlays(c *ui.Context) {
 		g.notes--
 		c.Toast("Note deleted")
 	}
-	ui.Modal(c, &g.dialog, func() {
+	ui.Modal(c, &g.dialog, func(c ui.Frame) {
 		ui.Text(c, "A modal dialog").FontSize(18).Bold()
 		ui.Text(c, "Click outside or press Escape to close it.").TextColor(t.TextMuted)
-		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func(c ui.Frame) {
 			if ui.PrimaryButton(c, "Done").Clicked() {
 				g.dialog = false
 			}

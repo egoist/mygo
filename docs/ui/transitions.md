@@ -11,10 +11,10 @@ var rowMotion = ui.ElementTransition{
 	Exit:  &ui.Motion{Collapse: true},
 }
 
-ui.Column(c).Children(func() {
+ui.Column(c).Children(func(c ui.Frame) {
 	removed := -1
 	for _, it := range app.items {
-		ui.Row(c).Key(it.ID).Padding(8).Transition(rowMotion).Children(func() {
+		ui.Row(c).Key(it.ID).Padding(8).Transition(rowMotion).Children(func(c ui.Frame) {
 			ui.Text(c, it.Title).Grow(1)
 			if ui.Button(c, "Remove").Clicked() {
 				removed = it.ID // once the loop is done (see Views)
@@ -64,7 +64,7 @@ w := float32(56)
 if open {
 	w = 240
 }
-ui.Row(c).Fill().Children(func() {
+ui.Row(c).Fill().Children(func(c ui.Frame) {
 	ui.Column(c).Width(w).ClipX().Transition(ui.ElementTransition{Size: true})
 	ui.Column(c).Grow(1).Transition(ui.ElementTransition{})
 })

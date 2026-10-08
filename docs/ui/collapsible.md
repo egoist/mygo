@@ -7,7 +7,7 @@ The arrow turns and the content grows into view as it opens. `Changed`
 reports a click.
 
 ```go
-ui.Collapsible(c, "Advanced", &app.advanced, func() {
+ui.Collapsible(c, "Advanced", &app.advanced, func(c ui.Frame) {
 	ui.Checkbox(c, &app.verbose, "Verbose logging")
 	ui.Checkbox(c, &app.experimental, "Experimental features")
 })
@@ -26,7 +26,7 @@ your own:
 
 ```go
 p := ui.CollapsibleBase(c, &app.open)
-p.Trigger.Gap(6).Children(func() {
+p.Trigger.Gap(6).Children(func(c ui.Frame) {
 	ui.Icon(c, chevron).Rotate(90 * p.Progress())
 	ui.Text(c, "Details")
 })

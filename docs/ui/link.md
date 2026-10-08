@@ -25,7 +25,7 @@ Inside a [rich text](text.md#elements-within-a-sentence), a link is part of
 the paragraph, wrapping with it; Tab reaches it all the same:
 
 ```go
-ui.RichText(c).Children(func() {
+ui.RichText(c).Children(func(c ui.Frame) {
 	ui.Text(c, "Read ")
 	ui.Link(c, "the guide", "https://example.com/guide")
 	ui.Text(c, " to get started.")

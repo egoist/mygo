@@ -11,7 +11,7 @@ var saveSVG []byte
 
 var save = ui.MustParseSVG(saveSVG)
 
-ui.Row(c).Gap(6).Children(func() {
+ui.Row(c).Gap(6).Children(func(c ui.Frame) {
 	ui.Icon(c, save)
 	ui.Text(c, "Save")
 })
@@ -27,7 +27,7 @@ Inside a button, which lays out its children in a row and gives them its
 text color, an icon goes before the label:
 
 ```go
-ui.PrimaryButton(c, "").Children(func() {
+ui.PrimaryButton(c, "").Children(func(c ui.Frame) {
 	ui.Icon(c, save)
 	ui.Text(c, "Save").SingleLine()
 })

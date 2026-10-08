@@ -11,12 +11,12 @@ more := ui.Button(c, "More ▾")
 if more.Clicked() {
 	app.menu = !app.menu
 }
-ui.Popover(c, more, &app.menu, func() {
+ui.Popover(c, more, &app.menu, func(c ui.Frame) {
 	if ui.Button(c, "Rename").Clicked() {
 		app.menu, app.renaming = false, true
 	}
 })
-ui.Modal(c, &app.renaming, func() {
+ui.Modal(c, &app.renaming, func(c ui.Frame) {
 	ui.Text(c, "Rename").Bold()
 	if ui.TextInput(c, &app.name).AutoFocus().Submitted() {
 		app.renaming = false
@@ -48,7 +48,7 @@ system's pop-up menus do, and a dialog's backdrop closes it.
 in DIPs of the window:
 
 ```go
-ui.Overlay(c, func() {
+ui.Overlay(c, func(c ui.Frame) {
 	ui.Text(c, "Offline").Absolute().Top(12).Right(12).
 		Padding(4, 10).Radius(999).Background(t.Danger).TextColor(t.AccentText)
 })
@@ -81,10 +81,10 @@ drawer on the right, closing with Escape or a click on its backdrop:
 
 ```go
 if app.drawer {
-	ui.Overlay(c, func() {
+	ui.Overlay(c, func(c ui.Frame) {
 		back := ui.Row(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Justify(ui.End).
 			Background(ui.RGBA(0, 0, 0, 0.3)).Modal()
-		back.Children(func() {
+		back.Children(func(c ui.Frame) {
 			panel := ui.Column(c).Width(320).FillHeight().Padding(16).Background(t.Background).
 				Role(ui.RoleDialog).Label("Filters").Children(app.filters)
 			if panel.PressedOutside() || back.OverlayShortcut(0, ui.KeyEscape) {

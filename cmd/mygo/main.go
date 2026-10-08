@@ -21,6 +21,7 @@ Commands:
 
 	init [dir]           create a new project (Go + TypeScript frontend built with Vite)
 	install-skills [dir] install or update the bundled MyGo agent skills
+	migrate-ui [dir]     preview or apply the checked UI value API migration
 	generate             write the typed TypeScript client for bound Go services
 	dev                  run a development build with live reload
 	build                build production apps (a .app and a .dmg on macOS)
@@ -49,6 +50,8 @@ func main() {
 		err = runInit(args)
 	case "install-skills":
 		err = runInstallSkills(args)
+	case "migrate-ui":
+		err = runMigrateUI(args)
 	case "generate", "gen":
 		err = runGenerate(args)
 	case "dev":

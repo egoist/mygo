@@ -7,13 +7,13 @@ makes three columns of equal width; `ColumnTracks` sets them one by one, as
 `ui.FitContent()`, as wide as their content:
 
 ```go
-ui.Grid(c).Columns(3).Gap(12).Children(func() {
+ui.Grid(c).Columns(3).Gap(12).Children(func(c ui.Frame) {
 	for _, p := range app.photos {
 		ui.Image(c, p).AspectRatio(1).Fit(ui.Cover).Radius(8)
 	}
 })
 
-ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1)).GapX(16).GapY(8).Children(func() {
+ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1)).GapX(16).GapY(8).Children(func(c ui.Frame) {
 	ui.Text(c, "Name").Bold().ColumnSpan(-1) // across every column
 	ui.Text(c, "Email")
 	ui.TextInput(c, &app.email)

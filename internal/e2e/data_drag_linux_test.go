@@ -50,8 +50,8 @@ func TestNativeGTKDataDrag(t *testing.T) {
 	var drops []transfer.Drop
 	var over atomic.Bool
 	targetOperations := transfer.Copy | transfer.Move
-	source := newWindow(t, mygo.WindowOptions{Title: "GTK source", X: 30, Y: 40, Width: 240, Height: 200, Content: ui.View(func(c *ui.Context) { ui.Box(c).Fill() })})
-	target := newWindow(t, mygo.WindowOptions{Title: "GTK destination", X: 340, Y: 40, Width: 240, Height: 200, Content: ui.View(func(c *ui.Context) {
+	source := newWindow(t, mygo.WindowOptions{Title: "GTK source", X: 30, Y: 40, Width: 240, Height: 200, Content: ui.View(func(c ui.Frame) { ui.Box(c).Fill() })})
+	target := newWindow(t, mygo.WindowOptions{Title: "GTK destination", X: 340, Y: 40, Width: 240, Height: 200, Content: ui.View(func(c ui.Frame) {
 		frames.Add(1)
 		e := ui.Box(c).Fill()
 		opts := transfer.DropOptions{Formats: []transfer.Format{custom, transfer.Text, transfer.FileList, transfer.URIList}, Operations: targetOperations}
@@ -143,7 +143,7 @@ func TestNativeGTKDataDrag(t *testing.T) {
 func TestNativeGTKDragCancellationCleanup(t *testing.T) {
 	for _, destroy := range []bool{false, true} {
 		t.Run(map[bool]string{false: "cancel", true: "source destruction"}[destroy], func(t *testing.T) {
-			source := newWindow(t, mygo.WindowOptions{Title: "GTK cancel", X: 30, Y: 40, Width: 240, Height: 200, Content: ui.View(func(c *ui.Context) { ui.Box(c).Fill() })})
+			source := newWindow(t, mygo.WindowOptions{Title: "GTK cancel", X: 30, Y: 40, Width: 240, Height: 200, Content: ui.View(func(c ui.Frame) { ui.Box(c).Fill() })})
 			gtkPressSource(t, source)
 			result := make(chan transfer.Result, 2)
 			mygo.RunOnMain(func() {

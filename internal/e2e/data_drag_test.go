@@ -21,7 +21,7 @@ func TestNativeDataRepresentations(t *testing.T) {
 	opts := transfer.DropOptions{Formats: []transfer.Format{custom, transfer.Text, transfer.FileList, transfer.URIList}, Operations: transfer.Copy | transfer.Move}
 	var frames atomic.Int32
 	var drops []transfer.Drop
-	w := newWindow(t, mygo.WindowOptions{Title: "Data destinations", Width: 400, Height: 220, Content: ui.View(func(c *ui.Context) {
+	w := newWindow(t, mygo.WindowOptions{Title: "Data destinations", Width: 400, Height: 220, Content: ui.View(func(c ui.Frame) {
 		frames.Add(1)
 		e := ui.Box(c).Size(220, 150)
 		if d, ok := ui.DropData(e, opts); ok {

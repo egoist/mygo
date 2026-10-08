@@ -1094,6 +1094,24 @@ format mappings.
 
 ## Native UI (`ui`)
 
+The public build API uses checked values: `Frame` identifies a window,
+build generation and parent scope; `Element` identifies a node in that
+generation. Both have weak ownership of the engine, and resolve storage
+only after checking generation and bounds. `Ref` preserves logical control
+identity for focus requests without preserving a node, and `Services`
+provides persistent clipboard, URL and redraw access for custom controls.
+The render tree uses private `node` and `context` types. `internal/uigen`
+generates the value facade and style application from that private API
+(`go generate ./ui`); public code never receives an arena pointer.
+
+Stateful controls are declared before initialization. The engine realizes
+them with their configured key, disabled state and input settings, then
+runs registered actions before forgetting the pass's input. An action
+that changes the model asks for another pass before presentation. Scoped
+frame arguments make child ownership explicit. See the
+[migration guide](ui/migration.md) for the breaking API changes and the
+`mygo migrate-ui` source migration command.
+
 A window with `WindowOptions.Content` shows a user interface MyGo draws
 itself instead of a web page. The layers stay as everywhere else: the
 toolkit (`ui`) is plain Go above the platform contract, a backend only

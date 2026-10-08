@@ -4,7 +4,7 @@
 beside a [sidebar](sidebar.md)'s item:
 
 ```go
-ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func() {
+ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func(c ui.Frame) {
 	ui.Badge(c, fmt.Sprint(app.unread))
 })
 ```

@@ -7,10 +7,10 @@ face of their own until hovered. `ui.Spacer` pushes those after it to the
 end.
 
 ```go
-ui.Toolbar(c, func() {
+ui.Toolbar(c, func(c ui.Frame) {
 	ui.BackButton(c, app.router)
 	ui.ForwardButton(c, app.router)
-	ui.ToggleGroup(c, func() {
+	ui.ToggleGroup(c, func(c ui.Frame) {
 		ui.Toggle(c, &app.bold, "Bold")
 		ui.Toggle(c, &app.italic, "Italic")
 	})

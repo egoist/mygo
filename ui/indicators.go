@@ -10,10 +10,10 @@ import (
 // spinning progress indicator: spokes turning, as high as the font size.
 // Assistive technology sees a progress indicator of unknown length; name
 // it with Label.
-func Spinner(c *Context) *Element {
+func coreSpinner(c *context) *node {
 	t := c.theme
 	size := t.FontSize * 1.25
-	e := Box(c).Size(size, size).Shrink(0).Role(RoleProgress)
+	e := coreBox(c).Size(size, size).Shrink(0).Role(RoleProgress)
 	e.widget = "Spinner"
 	e.hasRange, e.accRange = true, [3]float64{0, 1, -1}
 	e.Draw(func(p *Painter, r Rect) {
@@ -53,10 +53,10 @@ type MeterLevels struct {
 // level indicator of that value; name it with Label.
 //
 //	ui.Meter(c, app.disk.Used, 0, app.disk.Size, &ui.MeterLevels{Warning: 0.8 * size, Critical: 0.95 * size}).Label("Disk")
-func Meter(c *Context, value, lo, hi float64, levels *MeterLevels) *Element {
+func coreMeter(c *context, value, lo, hi float64, levels *MeterLevels) *node {
 	t := c.theme
 	rad := t.Space(1)
-	e := Box(c).Height(t.Space(2)).MinWidth(t.Space(20)).Radius(rad).Background(t.Border).Clip().Role(RoleMeter)
+	e := coreBox(c).Height(t.Space(2)).MinWidth(t.Space(20)).Radius(rad).Background(t.Border).Clip().Role(RoleMeter)
 	e.widget = "Meter"
 	e.hasRange, e.accRange = true, [3]float64{lo, hi, value}
 	color := t.Success
@@ -81,9 +81,9 @@ func Meter(c *Context, value, lo, hi float64, levels *MeterLevels) *Element {
 // star set clears it, and the arrows, Home and End change it while the
 // rating has the focus. Changed reports a new value. Assistive technology
 // sees a slider from 0 to max; name it with Label.
-func Rating(c *Context, value *int, max int) *Element {
+func coreRating(c *context, value *int, max int) *node {
 	t := c.theme
-	e := Row(c).Gap(t.Space(0.5)).Focusable().Shrink(0).Role(RoleSlider)
+	e := coreRow(c).Gap(t.Space(0.5)).Focusable().Shrink(0).Role(RoleSlider)
 	e.widget = "Rating"
 	e.flags |= flagHover
 	set := func(v int) {
@@ -112,7 +112,7 @@ func Rating(c *Context, value *int, max int) *Element {
 	hover := -1
 	e.Children(func() {
 		for i := range max {
-			star := Box(c).Size(t.FontSize*1.25, t.FontSize*1.25).Shrink(0).Role(RoleNone)
+			star := coreBox(c).Size(t.FontSize*1.25, t.FontSize*1.25).Shrink(0).Role(RoleNone)
 			star.flags |= flagClickable | flagHover
 			if star.Clicked() {
 				if *value == i+1 {
@@ -182,9 +182,9 @@ func starPath(r Rect) *Path {
 // down, as do Up and Down while the stepper has the focus, and holding an
 // arrow keeps stepping. Changed reports a new value. Assistive technology
 // sees a spin button; name it with Label.
-func Stepper(c *Context, value *float64, lo, hi, step float64) *Element {
+func coreStepper(c *context, value *float64, lo, hi, step float64) *node {
 	t := c.theme
-	e := Column(c).Focusable().Shrink(0).Width(t.Space(5)).Radius(t.Radius).Border(1, t.Border).Background(t.Surface).Clip().Role(RoleStepper)
+	e := coreColumn(c).Focusable().Shrink(0).Width(t.Space(5)).Radius(t.Radius).Border(1, t.Border).Background(t.Surface).Clip().Role(RoleStepper)
 	e.widget = "Stepper"
 	e.flags |= flagOwnRing
 	set := func(v float64) {
@@ -208,7 +208,7 @@ func Stepper(c *Context, value *float64, lo, hi, step float64) *Element {
 	e.hasRange, e.accRange, e.accStep = true, [3]float64{lo, hi, *value}, step
 	e.Children(func() {
 		for _, up := range []bool{true, false} {
-			arrow := Box(c).Height(t.Space(3.5)).Role(RoleNone)
+			arrow := coreBox(c).Height(t.Space(3.5)).Role(RoleNone)
 			arrow.flags |= flagClickable | flagHover
 			can := up && *value < hi || !up && *value > lo
 			// A press steps at once, and again as it is held, faster
@@ -237,7 +237,7 @@ func Stepper(c *Context, value *float64, lo, hi, step float64) *Element {
 			} else {
 				arrow.st.holding = false
 			}
-			arrow.styleFn = func(a *Element) {
+			arrow.styleFn = func(a *node) {
 				if a.Pressed() {
 					a.bg = t.SurfacePressed
 				} else if a.Hovered() {
@@ -275,10 +275,10 @@ func Stepper(c *Context, value *float64, lo, hi, step float64) *Element {
 // the values to lo and multiples of step from it, with tick marks. Changed
 // reports a new value. Assistive technology sees two sliders, named by
 // the RangeSlider's Label and "minimum" and "maximum".
-func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element {
+func coreRangeSlider(c *context, low, high *float64, lo, hi, step float64) *node {
 	t := c.theme
 	kw := t.Space(5)
-	e := Box(c).Height(t.Space(5)).MinWidth(t.Space(25)).PaddingX(kw / 2).Shrink(0).Role(RoleGroup)
+	e := coreBox(c).Height(t.Space(5)).MinWidth(t.Space(25)).PaddingX(kw / 2).Shrink(0).Role(RoleGroup)
 	e.widget = "RangeSlider"
 	// Pressed, not clicked: no button to assistive technology.
 	e.flags |= flagDraggable | flagHover
@@ -300,7 +300,7 @@ func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element 
 		keyStep = (hi - lo) / 100
 	}
 	// Which knob the pointer drags: the one nearest to where it pressed.
-	dragging := Local(e, "knob", func() int { return -1 })
+	dragging := coreLocal(e, "knob", func() int { return -1 })
 	st := e.st
 	at := func() float64 {
 		return lo + float64(max(0, min(1, (c.rt.pointerX-st.cx)/max(st.cw, 1))))*(hi-lo)
@@ -308,7 +308,7 @@ func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element 
 	if !st.pressed {
 		*dragging = -1
 	}
-	var knobs [2]*Element
+	var knobs [2]*node
 	e.Children(func() {
 		for k, v := range []*float64{low, high} {
 			from, to := lo, *high
@@ -316,7 +316,7 @@ func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element 
 				from, to = *low, hi
 			}
 			frac := fraction(*v, lo, hi)
-			knob := Box(c).Absolute().Top(0).Bottom(0).Width(kw).Focusable().FocusRing(false).Role(RoleSlider)
+			knob := coreBox(c).Absolute().Top(0).Bottom(0).Width(kw).Focusable().FocusRing(false).Role(RoleSlider)
 			knob.inset[3] = percent(frac * 100)
 			knob.Margin(0, 0, 0, -frac*kw)
 			knob.flags |= flagDraggable | flagHover
@@ -380,13 +380,13 @@ func RangeSlider(c *Context, low, high *float64, lo, hi, step float64) *Element 
 // cropped to a circle, or the initials of name on a color it picks from
 // it, as high as twice the font size. Assistive technology sees an image
 // named name.
-func Avatar(c *Context, name string, image *Bitmap) *Element {
+func coreAvatar(c *context, name string, image *Bitmap) *node {
 	t := c.theme
 	size := t.FontSize * 2.25
-	e := Box(c).Size(size, size).Radius(size / 2).Clip().Shrink(0).Center().Role(RoleImage).Label(name)
+	e := coreBox(c).Size(size, size).Radius(size / 2).Clip().Shrink(0).Center().Role(RoleImage).Label(name)
 	e.widget = "Avatar"
 	if image != nil {
-		e.Children(func() { Image(c, image).Fit(Cover).Size(size, size) })
+		e.Children(func() { coreImage(c, image).Fit(Cover).Size(size, size) })
 		return e
 	}
 	// The hue of the name's FNV-1a hash.
@@ -397,12 +397,12 @@ func Avatar(c *Context, name string, image *Bitmap) *Element {
 	hue := float64(h % 360)
 	e.Background(hslColor(hue, 0.45, 0.55)).TextColor(RGB(255, 255, 255))
 	// The initials of the last frame's name, unless it changed.
-	in := Local(e, "initials", func() [2]string { return [2]string{} })
+	in := coreLocal(e, "initials", func() [2]string { return [2]string{} })
 	if in[0] != name || in[1] == "" && name != "" {
 		in[0], in[1] = name, initials(name)
 	}
 	e.Children(func() {
-		Text(c, in[1]).FontWeight(600).FontSize(size * 0.4).SingleLine()
+		coreText(c, in[1]).FontWeight(600).FontSize(size * 0.4).SingleLine()
 	})
 	return e
 }

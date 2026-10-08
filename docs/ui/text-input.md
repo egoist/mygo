@@ -97,7 +97,7 @@ border in the theme's `Danger` color, and assistive technology reads the
 message with it.
 
 ```go
-ui.Field(c, "Email", func() {
+ui.Field(c, "Email", func(c ui.Frame) {
 	ui.TextInput(c, &app.email)
 }).Error(app.emailError)
 ```

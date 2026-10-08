@@ -58,14 +58,14 @@ func (d *demo) receive(data transfer.Data) {
 	}
 }
 
-func (d *demo) view(c *ui.Context) {
+func (d *demo) view(c ui.Frame) {
 	t := c.Theme()
-	ui.Column(c).Fill().Padding(20).Gap(12).Children(func() {
+	ui.Column(c).Fill().Padding(20).Gap(12).Children(func(c ui.Frame) {
 		ui.Text(c, "Clipboard and drag data").FontSize(24).Bold()
 		ui.Text(c, "Copy or drag the same note as text, HTML, or lazy JSON. Paste in another app to use its preferred representation.").Wrap().TextColor(t.TextMuted)
 		ui.TextInput(c, &d.note.Title).Placeholder("Title")
 		ui.TextArea(c, &d.note.Body).Height(90)
-		ui.Row(c).Gap(8).Children(func() {
+		ui.Row(c).Gap(8).Children(func(c ui.Frame) {
 			if ui.Button(c, "Copy note").Clicked() {
 				err := mygo.Clipboard.Write(d.data(), mygo.ClipboardOptions{OnRelease: func() { d.releases++; d.win.Invalidate() }})
 				if err != nil {
@@ -92,17 +92,17 @@ func (d *demo) view(c *ui.Context) {
 				}
 			}
 		})
-		ui.Box(c).Padding(16).Border(1, t.Border).Radius(8).DragDataFrom(d.data).Children(func() { ui.Text(c, "Drag this note").Bold() })
+		ui.Box(c).Padding(16).Border(1, t.Border).Radius(8).DragDataFrom(d.data).Children(func(c ui.Frame) { ui.Text(c, "Drag this note").Bold() })
 		zone := ui.Box(c).Padding(16).Border(1, t.Border).Radius(8)
 		opts := transfer.DropOptions{Formats: []transfer.Format{noteFormat, transfer.Text, transfer.FileList, transfer.URIList}}
 		if _, over := ui.DataDragOver(zone, opts); over {
 			zone.Border(2, t.Accent)
 		}
-		zone.Children(func() { ui.Text(c, "Drop notes, text, or files here") })
+		zone.Children(func(c ui.Frame) { ui.Text(c, "Drop notes, text, or files here") })
 		if drop, ok := ui.DropData(zone, opts); ok {
 			d.receive(drop.Data)
 		}
-		ui.Row(c).Gap(8).Children(func() {
+		ui.Row(c).Gap(8).Children(func(c ui.Frame) {
 			ui.TextInput(c, &d.path).Grow(1).Placeholder("Absolute file path")
 			if ui.Button(c, "Copy file").Clicked() {
 				if err := mygo.Clipboard.WriteFiles(d.path); err != nil {

@@ -8,7 +8,7 @@ and Page Down, or its buttons, move by months, and Escape closes it.
 of the value.
 
 ```go
-ui.Field(c, "Birthday", func() {
+ui.Field(c, "Birthday", func(c ui.Frame) {
 	ui.DateInput(c, &app.birthday)
 })
 ```
@@ -16,7 +16,7 @@ ui.Field(c, "Birthday", func() {
 With a [time input](time-input.md) beside it, the two edit one `time.Time`:
 
 ```go
-ui.Row(c).Gap(8).Children(func() {
+ui.Row(c).Gap(8).Children(func(c ui.Frame) {
 	ui.DateInput(c, &app.meeting).Label("Date")
 	ui.TimeInput(c, &app.meeting).Label("Time")
 })

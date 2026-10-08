@@ -14,20 +14,22 @@ import (
 // view function receives it on the main thread; it is only valid during
 // that call. A frame may rebuild the view in several passes; neither a
 // Context nor its Elements may be saved for a later call.
-type Context struct {
+type context struct {
 	rt     *engine
-	parent *Element
-	root   *Element
-	chunks [][]Element
+	parent *node
+	root   *node
+	chunks [][]node
 	used   int
 	// dirty is how many elements in the arena have held references since
 	// finish last cleared the unused ones, including earlier build passes.
-	dirty    int
-	theme    *Theme
-	now      time.Time
-	w, h     float32
-	titleBar TitleBar
-	overlay  *Element
+	dirty        int
+	theme        *Theme
+	now          time.Time
+	w, h         float32
+	titleBar     TitleBar
+	overlay      *node
+	reuse        *node
+	inputOptions inputOptions
 	// tree is the Tree being built, for its items.
 	tree *treeBuild
 	// buttons is how the buttons being built look, in a toolbar or a
@@ -44,7 +46,7 @@ type Context struct {
 	row     *rowBuild
 	sidebar *sidebarBuild
 	// reveal lists the elements to scroll into view (ScrollIntoView).
-	reveal []*Element
+	reveal []*node
 	// router is the Router whose page is being built, for Links; routers
 	// counts the Routers built, the first of which takes the window's
 	// keys for going back and forward. inert is set while a page going
@@ -55,7 +57,7 @@ type Context struct {
 	// spare are the chunks of the frame before, which the engine keeps
 	// while elements of that frame may leave with an exit transition, to
 	// copy them (engine.exitsBuilt).
-	spare      [][]Element
+	spare      [][]node
 	spareDirty int
 	// transitions are the elements given a Transition, in the order asked,
 	// and dividers those drawing lines between their children.
@@ -69,24 +71,32 @@ type Context struct {
 const chunkSize = 32
 
 // alloc returns a zeroed element from the frame's arena.
-func (c *Context) alloc() *Element {
+func (c *context) alloc() *node {
 	ci, ei := c.used/chunkSize, c.used%chunkSize
 	if ci == len(c.chunks) {
-		c.chunks = append(c.chunks, make([]Element, chunkSize))
+		c.chunks = append(c.chunks, make([]node, chunkSize))
 	}
 	c.used++
 	e := &c.chunks[ci][ei]
 	shadows, cols, rows, frags := e.shadows[:0], e.cols[:0], e.rows[:0], e.frags[:0]
-	*e = Element{}
+	*e = node{}
 	e.shadows, e.cols, e.rows, e.frags = shadows, cols, rows, frags
 	e.serial = int32(c.used)
+	e.epoch = c.rt.epoch
 	e.shrink = 1
 	e.justify, e.align, e.self, e.alignContent = alignAuto, alignAuto, alignAuto, alignAuto
 	e.justifyItems, e.justifySelf = alignAuto, alignAuto
 	return e
 }
 
-func (c *Context) reset(now time.Time, w, h float32) {
+func (c *context) reset(now time.Time, w, h float32) {
+	c.rt.epoch++
+	clear(c.rt.parts)
+	c.rt.parts = c.rt.parts[:0]
+	clear(c.rt.pending)
+	c.rt.pending = c.rt.pending[:0]
+	clear(c.rt.actions)
+	c.rt.actions = c.rt.actions[:0]
 	c.dirty = max(c.dirty, c.used)
 	c.used = 0
 	c.now = now
@@ -119,13 +129,13 @@ func (c *Context) reset(now time.Time, w, h float32) {
 // those from an earlier pass. Exit transitions have copied what they
 // need from the spare arena by now. Keep one empty chunk for growth, so
 // that a few rows entering and leaving a list do not allocate every frame.
-func (c *Context) finish() {
+func (c *context) finish() {
 	c.chunks = trimArena(c.chunks, c.used, max(c.dirty, c.used))
 	c.spare = trimArena(c.spare, 0, c.spareDirty)
 	c.dirty, c.spareDirty = c.used, 0
 }
 
-func trimArena(chunks [][]Element, used, dirty int) [][]Element {
+func trimArena(chunks [][]node, used, dirty int) [][]node {
 	n := (used + chunkSize - 1) / chunkSize
 	// Only elements used since the last cleanup can retain anything.
 	// Clear at most the two chunks kept; the rest give up their storage.
@@ -147,7 +157,7 @@ var overlayID = mix(1, 0x6f7665726c6179)
 
 // overlayRoot returns the layer above the window's content that Overlay
 // builds into; the frame adds it to the root once the view returns.
-func (c *Context) overlayRoot() *Element {
+func (c *context) overlayRoot() *node {
 	if c.overlay == nil {
 		o := c.alloc()
 		o.c = c
@@ -164,12 +174,46 @@ func (c *Context) overlayRoot() *Element {
 
 // newElement creates an element of kind as the last child of the current
 // parent.
-func (c *Context) newElement(k kind) *Element {
+func (c *context) newElement(k kind) *node {
 	if c.parent == nil {
 		panic("ui: element created outside of a view function")
 	}
 	if c.parent.kind == kindText && k != kindText {
 		panic("ui: only text elements (Text, Link, RichText) go inside a text")
+	}
+	if e := c.reuse; e != nil {
+		c.reuse = nil
+		if e.parent != c.parent {
+			old := e.parent
+			if old.first == e {
+				old.first = e.next
+			} else {
+				for p := old.first; p != nil; p = p.next {
+					if p.next == e {
+						p.next = e.next
+						break
+					}
+				}
+			}
+			if old.last == e {
+				old.last = nil
+				for p := old.first; p != nil; p = p.next {
+					old.last = p
+				}
+			}
+			old.nchild--
+			e.next = nil
+			e.ordinal = uint64(c.parent.nchild)
+			c.parent.add(e)
+		}
+		e.kind = k
+		if e.key == nil {
+			e.id = mix(e.parent.id, e.ordinal+uint64(k)<<56)
+		} else {
+			e.id = keyedID(e.parent.id, e.key)
+		}
+		e.st = c.rt.stateFor(e.id)
+		return e
 	}
 	e := c.alloc()
 	e.c = c
@@ -186,7 +230,7 @@ func (c *Context) newElement(k kind) *Element {
 
 var keySeed = maphash.MakeSeed()
 
-func (c *Context) rekey(e *Element, k any) {
+func (c *context) rekey(e *node, k any) {
 	parent := uint64(0)
 	if e.parent != nil {
 		parent = e.parent.id
@@ -238,18 +282,18 @@ func mix(a, b uint64) uint64 {
 
 // Theme returns the theme of the frame: the light or dark theme following
 // the system's appearance, unless SetTheme replaced it.
-func (c *Context) Theme() *Theme { return c.theme }
+func (c *context) Theme() *Theme { return c.theme }
 
 // SetTheme makes the frame use t, for the window's root and the widgets
 // created after the call.
-func (c *Context) SetTheme(t *Theme) {
+func (c *context) SetTheme(t *Theme) {
 	c.theme = t
 	c.root.bg = t.Background
 	c.root.ts.color, c.root.ts.size, c.root.ts.family = t.Text, t.FontSize, t.Font
 }
 
 // Size returns the size of the window's content in DIPs.
-func (c *Context) Size() (width, height float32) { return c.w, c.h }
+func (c *context) Size() (width, height float32) { return c.w, c.h }
 
 // TitleBar is the room the window controls take at the top of a window
 // with a hidden title bar, in DIPs: they sit in a band of Height along the
@@ -265,41 +309,41 @@ type TitleBar struct{ Height, Left, Right float32 }
 //
 //	bar := c.TitleBar()
 //	ui.Row(c).Height(max(bar.Height, 32)).Padding(0, bar.Right, 0, bar.Left).DragWindow()
-func (c *Context) TitleBar() TitleBar { return c.titleBar }
+func (c *context) TitleBar() TitleBar { return c.titleBar }
 
 // Now returns the time the frame started, for animations.
-func (c *Context) Now() time.Time { return c.now }
+func (c *context) Now() time.Time { return c.now }
 
 // Root returns the element holding the window's content: a column the
 // size of the window.
-func (c *Context) Root() *Element { return c.root }
+func (c *context) Root() *node { return c.root }
 
 // Invalidate asks for another frame. It is safe from any goroutine, for
 // state that changed outside of the window's events.
-func (c *Context) Invalidate() { c.rt.host.invalidate() }
+func (c *context) Invalidate() { c.rt.host.invalidate() }
 
 // AnimationFrame asks for another frame as soon as the display can show
 // it, for something moving. Call it in every frame while it moves. A
 // drawing that moves while the layout stays asks with
 // Painter.AnimationFrame instead, whose frames do not build the view.
-func (c *Context) AnimationFrame() { c.rt.animating = true }
+func (c *context) AnimationFrame() { c.rt.animating = true }
 
 // After asks for another frame after d, for something that changes with
 // time, such as a clock.
-func (c *Context) After(d time.Duration) { c.rt.scheduleAt(c.now.Add(d)) }
+func (c *context) After(d time.Duration) { c.rt.scheduleAt(c.now.Add(d)) }
 
 // ReadClipboard returns the text on the clipboard, and WriteClipboard
 // puts text there, for widgets that copy and paste themselves. Call them
 // on the main thread: in the view, or in an input handler.
-func (c *Context) ReadClipboard() string   { return c.rt.host.readClipboard() }
-func (c *Context) WriteClipboard(s string) { c.rt.host.writeClipboard(s) }
+func (c *context) ReadClipboard() string   { return c.rt.host.readClipboard() }
+func (c *context) WriteClipboard(s string) { c.rt.host.writeClipboard(s) }
 
 // Announce asks screen readers to read text out once, after what they
 // are reading, for news the keyboard focus does not bring, as a search
 // done or a file saved: a Router announces the title of a page it shows,
 // and a toast its text. It does nothing while no assistive technology
 // reads the window.
-func (c *Context) Announce(text string) {
+func (c *context) Announce(text string) {
 	if text != "" && !c.inert {
 		c.rt.announcements = append(c.rt.announcements, text)
 	}
@@ -308,7 +352,7 @@ func (c *Context) Announce(text string) {
 // OpenURL opens a URL in the default browser, or the app registered for
 // its scheme, as a Link does. It returns at once; OpenURLThen tells what
 // came of it.
-func (c *Context) OpenURL(url string) { c.rt.host.openURL(url, nil) }
+func (c *context) OpenURL(url string) { c.rt.host.openURL(url, nil) }
 
 // OpenURLThen opens a URL as OpenURL does, and done, unless nil, gets what
 // came of it in a while, before a frame builds anew with what it changed:
@@ -319,7 +363,7 @@ func (c *Context) OpenURL(url string) { c.rt.host.openURL(url, nil) }
 //			app.failed = url
 //		}
 //	})
-func (c *Context) OpenURLThen(url string, done func(err error)) {
+func (c *context) OpenURLThen(url string, done func(err error)) {
 	rt := c.rt
 	var then func(error)
 	if done != nil {
@@ -336,7 +380,7 @@ func (c *Context) OpenURLThen(url string, done func(err error)) {
 // handled it first: a focused button or link takes Enter and Space, and a
 // check box, switch or radio button Space, so that Enter can press a
 // dialog's default button.
-func (c *Context) Shortcut(mods Modifiers, key Key) bool {
+func (c *context) Shortcut(mods Modifiers, key Key) bool {
 	if !c.insideModal() || c.inert {
 		return false // behind a dialog, or in a page going away
 	}
@@ -346,7 +390,7 @@ func (c *Context) Shortcut(mods Modifiers, key Key) bool {
 // Local returns state of type T that element e keeps from frame to frame,
 // keyed by key among its states; init creates it the first time. Custom
 // widgets keep what they need with it, on the element they create.
-func Local[T any](e *Element, key any, init func() T) *T {
+func coreLocal[T any](e *node, key any, init func() T) *T {
 	st := e.st
 	if st.locals == nil {
 		st.locals = map[any]any{}

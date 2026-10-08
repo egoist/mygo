@@ -3,8 +3,8 @@
 //
 //	type counter struct{ n int }
 //
-//	func (s *counter) view(c *ui.Context) {
-//		ui.Column(c).Fill().Center().Gap(12).Children(func() {
+//	func (s *counter) view(c ui.Frame) {
+//		ui.Column(c).Fill().Center().Gap(12).Children(func(c ui.Frame) {
 //			ui.Text(c, fmt.Sprint(s.n)).FontSize(40).Bold()
 //			if ui.PrimaryButton(c, "Increment").Clicked() {
 //				s.n++

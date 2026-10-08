@@ -69,21 +69,21 @@ the action and close it. Call it once in the view, wherever. Toasts in the
 bottom right corner:
 
 ```go
-ui.ToastViewportBase(c, func(viewport *ui.Element, toasts []ui.Toast) {
+ui.ToastViewportBase(c, func(viewport ui.Element, toasts []ui.Toast) {
 	viewport.Padding(16).AlignItems(ui.End).Gap(8)
 	for _, t := range toasts {
 		toast := ui.ToastBase(c, t)
 		toast.Root.Row().Gap(12).Padding(10, 14).Radius(8).Background(surface).Border(1, border)
 		toast.Root.Transition(ui.ElementTransition{Enter: &ui.Motion{Y: 8}, Exit: &ui.Motion{}})
-		toast.Root.Children(func() {
+		toast.Root.Children(func(c ui.Frame) {
 			if t.Type == "error" {
 				ui.Icon(c, alert).TextColor(danger)
 			}
 			ui.Text(c, t.Title).Grow(1)
 			if t.Action != "" {
-				toast.ActionButton().Children(func() { ui.Text(c, t.Action) })
+				toast.ActionButton().Children(func(c ui.Frame) { ui.Text(c, t.Action) })
 			}
-			toast.CloseButton().Label("Close").Children(func() { ui.Icon(c, x) })
+			toast.CloseButton().Label("Close").Children(func(c ui.Frame) { ui.Icon(c, x) })
 		})
 	}
 })

@@ -15,9 +15,9 @@ import (
 // buttons, named after the field's Label and "hours" and "minutes".
 //
 //	ui.TimeInput(c, &app.alarm).Label("Alarm")
-func TimeInput(c *Context, tm *time.Time) *Element {
+func coreTimeInput(c *context, tm *time.Time) *node {
 	t := c.theme
-	f := Row(c).AlignItems(Center).Padding(t.Space(1.5), t.Space(2)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border).Shrink(0).Role(RoleGroup)
+	f := coreRow(c).AlignItems(Center).Padding(t.Space(1.5), t.Space(2)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border).Shrink(0).Role(RoleGroup)
 	f.widget = "TimeInput"
 	set := func(h, m int) {
 		y, mo, d := tm.Date()
@@ -28,24 +28,24 @@ func TimeInput(c *Context, tm *time.Time) *Element {
 			c.rt.consumed = true
 		}
 	}
-	var segs [2]*Element
+	var segs [2]*node
 	f.Children(func() {
 		for k, name := range []string{"hours", "minutes"} {
 			if k == 1 {
-				Text(c, ":").TextColor(t.TextMuted).Padding(0, 1).Role(RoleNone)
+				coreText(c, ":").TextColor(t.TextMuted).Padding(0, 1).Role(RoleNone)
 			}
 			v := tm.Hour()
 			if k == 1 {
 				v = tm.Minute()
 			}
-			seg := Box(c).Padding(0, t.Space(0.5)).Radius(t.Space(1)).Focusable().FocusRing(false).Role(RoleStepper)
+			seg := coreBox(c).Padding(0, t.Space(0.5)).Radius(t.Space(1)).Focusable().FocusRing(false).Role(RoleStepper)
 			seg.flags |= flagTypeSelect
 			seg.label, seg.nameFrom, seg.nameJoin = name, f, true
 			seg.hasRange, seg.accRange, seg.accStep = true, [3]float64{0, float64([]int{23, 59}[k]), float64(v)}, 1
 			if seg.Focused() {
 				seg.Background(t.Accent).TextColor(t.AccentText)
 			}
-			seg.Children(func() { Text(c, fmt.Sprintf("%02d", v)).FontFeatures("tnum") })
+			seg.Children(func() { coreText(c, fmt.Sprintf("%02d", v)).FontFeatures("tnum") })
 			segs[k] = seg
 		}
 	})
@@ -91,7 +91,7 @@ func TimeInput(c *Context, tm *time.Time) *Element {
 			}
 		}
 	}
-	f.styleFn = func(f *Element) {
+	f.styleFn = func(f *node) {
 		if segs[0].Focused() || segs[1].Focused() {
 			f.borderC = t.Accent
 		}

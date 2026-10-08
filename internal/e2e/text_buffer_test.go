@@ -12,8 +12,8 @@ import (
 func TestContentWindowTextBufferInputMethod(t *testing.T) {
 	var frames atomic.Int32
 	doc := ui.NewTextBuffer("first\ncafe")
-	w := newWindow(t, mygo.WindowOptions{Title: "Indexed input", Width: 400, Height: 200, Content: ui.View(func(c *ui.Context) {
-		ui.Column(c).Fill().Padding(20).Children(func() { ui.TextAreaBuffer(c, doc).Height(120).AutoFocus() })
+	w := newWindow(t, mygo.WindowOptions{Title: "Indexed input", Width: 400, Height: 200, Content: ui.View(func(c ui.Frame) {
+		ui.Column(c).Fill().Padding(20).Children(func(c ui.Frame) { ui.TextAreaBuffer(c, doc).Height(120).AutoFocus() })
 		frames.Add(1)
 	})})
 	eventually(t, "a buffer frame", func() bool { return frames.Load() > 0 })

@@ -10,9 +10,9 @@ import (
 
 // notes builds release notes, in the manner of the page of package
 // updater. Their text is selectable, and links open in the browser.
-func notes(c *ui.Context, t *ui.Theme, blocks []markdown.Block) {
+func notes(c ui.Frame, t *ui.Theme, blocks []markdown.Block) {
 	n := &notesStyle{t: t, rtl: rightToLeft(blocks)}
-	ui.Column(c).Children(func() { n.blocks(c, blocks, false, 0) })
+	ui.Column(c).Children(func(c ui.Frame) { n.blocks(c, blocks, false, 0) })
 }
 
 // notesStyle is how release notes look. Like the page's notes, whose dir
@@ -64,7 +64,7 @@ func rightToLeft(blocks []markdown.Block) bool {
 
 // blocks builds blocks, apart by the room between paragraphs, or by none
 // in the items of a list (tight). depth counts the lists around them.
-func (n *notesStyle) blocks(c *ui.Context, blocks []markdown.Block, tight bool, depth int) {
+func (n *notesStyle) blocks(c ui.Frame, blocks []markdown.Block, tight bool, depth int) {
 	for i, b := range blocks {
 		var gap float32
 		switch {
@@ -84,20 +84,20 @@ func (n *notesStyle) blocks(c *ui.Context, blocks []markdown.Block, tight bool, 
 // relative to the text.
 var headingSizes = [...]float32{16.0 / 13, 14.0 / 13, 1}
 
-func (n *notesStyle) block(c *ui.Context, b markdown.Block, depth int) *ui.Element {
+func (n *notesStyle) block(c ui.Frame, b markdown.Block, depth int) ui.Element {
 	t := n.t
 	switch b.Kind {
 	case markdown.Heading:
 		size := headingSizes[min(b.Level, len(headingSizes))-1]
 		return paragraph(c, t, b.Inlines).FontSize(t.Rem(size)).Bold()
 	case markdown.List:
-		return ui.Column(c).Children(func() {
+		return ui.Column(c).Children(func(c ui.Frame) {
 			for i, item := range b.Items {
 				row := ui.Row(c).AlignItems(ui.Start)
 				if n.rtl {
 					row.Reverse()
 				}
-				row.Children(func() {
+				row.Children(func(c ui.Frame) {
 					marker := bullet(depth)
 					if b.Ordered {
 						marker = strconv.Itoa(i+1) + "."
@@ -109,7 +109,7 @@ func (n *notesStyle) block(c *ui.Context, b markdown.Block, depth int) *ui.Eleme
 					} else {
 						m.TextAlign(ui.End).Padding(0, 6, 0, 0)
 					}
-					ui.Column(c).Grow(1).Children(func() { n.blocks(c, item, true, depth+1) })
+					ui.Column(c).Grow(1).Children(func(c ui.Frame) { n.blocks(c, item, true, depth+1) })
 				})
 			}
 		})
@@ -120,9 +120,9 @@ func (n *notesStyle) block(c *ui.Context, b markdown.Block, depth int) *ui.Eleme
 		} else {
 			quote.BorderWidth(0, 0, 0, 3).Padding(0, 0, 0, 10)
 		}
-		return quote.Children(func() { n.blocks(c, b.Blocks, false, depth) })
+		return quote.Children(func(c ui.Frame) { n.blocks(c, b.Blocks, false, depth) })
 	case markdown.Code:
-		return ui.ScrollHorizontal(c).Background(track(t)).Radius(3).Children(func() {
+		return ui.ScrollHorizontal(c).Background(track(t)).Radius(3).Children(func(c ui.Frame) {
 			ui.Text(c, b.Text).Font("monospace").FontSize(t.Rem(12.0/13)).NoWrap().Padding(6, 8).Selectable()
 		})
 	case markdown.Rule:
@@ -133,8 +133,8 @@ func (n *notesStyle) block(c *ui.Context, b markdown.Block, depth int) *ui.Eleme
 
 // paragraph builds the text of a paragraph or heading, which the user may
 // select.
-func paragraph(c *ui.Context, t *ui.Theme, inlines []markdown.Inline) *ui.Element {
-	return ui.RichText(c).Children(func() { buildInlines(c, t, inlines) }).Selectable()
+func paragraph(c ui.Frame, t *ui.Theme, inlines []markdown.Inline) ui.Element {
+	return ui.RichText(c).Children(func(c ui.Frame) { buildInlines(c, t, inlines) }).Selectable()
 }
 
 // bullet returns the marker of the items of a list in depth lists, as
@@ -151,7 +151,7 @@ func bullet(depth int) string {
 
 // buildInlines builds the text of a paragraph inside it: links open in the
 // browser.
-func buildInlines(c *ui.Context, t *ui.Theme, inlines []markdown.Inline) {
+func buildInlines(c ui.Frame, t *ui.Theme, inlines []markdown.Inline) {
 	for _, in := range inlines {
 		switch in.Kind {
 		case markdown.Text:
@@ -159,11 +159,11 @@ func buildInlines(c *ui.Context, t *ui.Theme, inlines []markdown.Inline) {
 		case markdown.CodeSpan:
 			ui.Text(c, in.Text).Font("monospace").FontSize(t.Rem(12.0 / 13)).TextBackground(track(t))
 		case markdown.Emphasis:
-			ui.RichText(c).Italic().Children(func() { buildInlines(c, t, in.Children) })
+			ui.RichText(c).Italic().Children(func(c ui.Frame) { buildInlines(c, t, in.Children) })
 		case markdown.Strong:
-			ui.RichText(c).Bold().Children(func() { buildInlines(c, t, in.Children) })
+			ui.RichText(c).Bold().Children(func(c ui.Frame) { buildInlines(c, t, in.Children) })
 		case markdown.Link:
-			ui.Link(c, "", in.URL).Children(func() { buildInlines(c, t, in.Children) })
+			ui.Link(c, "", in.URL).Children(func(c ui.Frame) { buildInlines(c, t, in.Children) })
 		}
 	}
 }

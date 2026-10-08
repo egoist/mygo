@@ -8,7 +8,7 @@ input does. `ui.ScrollBoth` scrolls both ways, as a canvas or a wide table
 does.
 
 ```go
-ui.Scroll(c).Grow(1).Padding(16).Gap(12).Children(func() {
+ui.Scroll(c).Grow(1).Padding(16).Gap(12).Children(func(c ui.Frame) {
 	for _, p := range app.posts {
 		post(c, p)
 	}
@@ -67,9 +67,9 @@ what floats over the content, as a toolbar it scrolls under, as AppKit's
 and UIKit's do:
 
 ```go
-ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(64, 0, 0).Children(func() { /* ... */ })
+ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(64, 0, 0).Children(func(c ui.Frame) { /* ... */ })
 // The toolbar floats over the top 64 DIPs.
-ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(64).Children(func() { /* ... */ })
+ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(64).Children(func(c ui.Frame) { /* ... */ })
 ```
 
 ## Accessibility

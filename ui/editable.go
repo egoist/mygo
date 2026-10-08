@@ -35,11 +35,11 @@ const renameDelay = 500 * time.Millisecond
 //			app.rename(row)
 //		}
 //	})
-func EditableText(c *Context, value *string) *Element {
+func coreEditableText(c *context, value *string) *node {
 	t := c.theme
-	box := Row(c).AlignItems(Center).MinWidth(0)
+	box := coreRow(c).AlignItems(Center).MinWidth(0)
 	box.widget = "EditableText"
-	st := Local(box, "edit", func() editState { return editState{} })
+	st := coreLocal(box, "edit", func() editState { return editState{} })
 	row := c.row
 	start := false
 	if row != nil && row.f != nil {
@@ -69,7 +69,7 @@ func EditableText(c *Context, value *string) *Element {
 		c.rt.consumed = true
 	}
 	if !st.editing {
-		box.Children(func() { Text(c, *value).SingleLine() })
+		box.Children(func() { coreText(c, *value).SingleLine() })
 		return box
 	}
 	// done ends editing, keeping what was typed or not, and gives the focus
@@ -88,11 +88,11 @@ func EditableText(c *Context, value *string) *Element {
 		c.rt.focusVisible = true
 		c.rt.consumed = true
 	}
-	var in *Element
+	var in *node
 	box.Children(func() {
 		// Where the text was, within its padding and border.
 		pad := t.Space(0.5)
-		in = TextInputBase(c, &st.draft).Grow(1).MinWidth(t.Space(10)).Padding(pad, pad*2).
+		in = coreTextInputBase(c, &st.draft).Grow(1).MinWidth(t.Space(10)).Padding(pad, pad*2).
 			Margin(-pad-1, -pad*2-1).Radius(t.Space(1)).Background(t.Background).Border(1, t.Accent).
 			TextColor(t.Text)
 	})
