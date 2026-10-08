@@ -139,3 +139,44 @@ func TestShaderBytecode(t *testing.T) {
 		}
 	}
 }
+
+// TestComposed draws into a swap chain for DirectComposition, which shows
+// on the window with its alpha: frames draw as into the window's own, what
+// a scene leaves transparent stays so, and once a renderer is released
+// another composes the window, as after a GPU failure: a window has one
+// DirectComposition target at most.
+func TestComposed(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	s := gputest.Scene()
+	hwnd := hiddenWindow(t, s.Width, s.Height)
+	for i := range 2 {
+		r, err := NewComposed(hwnd)
+		if err != nil {
+			t.Skip("no Direct3D 11:", err)
+		}
+		if err := r.draw(s); err != nil {
+			r.Release()
+			t.Fatalf("renderer %d: %v", i, err)
+		}
+		if r.target == 0 || r.visual == 0 {
+			t.Fatalf("renderer %d: the swap chain shows through no DirectComposition target", i)
+		}
+		pix, stride := r.readBack(t)
+		gputest.Compare(t, "d3d11 composed", pix, stride, s)
+		if err := r.present(1); err != nil {
+			t.Fatal(err)
+		}
+		// A frame of another size, transparent.
+		if err := r.draw(&scene.Scene{Width: s.Width + 20, Height: s.Height + 10}); err != nil {
+			t.Fatal(err)
+		}
+		if pix, _ := r.readBack(t); len(pix) < 4 || pix[0]|pix[1]|pix[2]|pix[3] != 0 {
+			t.Errorf("renderer %d: a transparent frame reads %v", i, pix[:min(len(pix), 4)])
+		}
+		if err := r.present(0); err != nil {
+			t.Fatal(err)
+		}
+		r.Release()
+	}
+}
