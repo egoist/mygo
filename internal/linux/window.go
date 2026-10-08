@@ -70,6 +70,11 @@ type window struct {
 	minW, minH   int32
 	maxW, maxH   int32
 
+	// activationResize holds the latest bounds asked for while a window
+	// drawing with GL on Wayland is not focused, and activationPrevious the
+	// size it had before: the configure event of its activation can bring
+	// that size back. resizeIdle is the idle source that then asks for the
+	// bounds again (cbActivationResize).
 	activationResize   *platform.Rect
 	activationPrevious [2]int32
 	resizeIdle         uint32
@@ -329,7 +334,7 @@ func (w *window) SetBounds(r platform.Rect) {
 	}
 	w.requested = &r
 	if w.resizeIdle != 0 {
-		w.activationResize = &r
+		w.activationResize = &r // the idle callback asks for it
 		return
 	}
 	if !w.b.onX11 && w.surface != nil && w.surface.rendered && w.surface.drawsGL() && w.state&stateFocused == 0 {
@@ -946,8 +951,7 @@ var (
 	cbScriptMessage, cbLoadChanged, cbLoadFailed, cbTitle, cbDecidePolicy       ptr
 	cbCreate, cbClose, cbCrashed, cbButtonPress, cbAsyncReady, cbPNGWrite       ptr
 	cbDragData, cbDragDrop, cbPrintFinished, cbPrintFailed, cbPermission        ptr
-	cbMotion, cbControlsAllocated, cbDecorationLayout                           ptr
-	cbWindowResize                                                              ptr
+	cbMotion, cbControlsAllocated, cbDecorationLayout, cbActivationResize       ptr
 )
 
 func field[T any](p ptr, offset uintptr) T {
@@ -981,9 +985,11 @@ func initWindowCallbacks() {
 		}
 		return false
 	})
-	// GTK/Wayland can acknowledge a resize locally, then deliver an activation
-	// configure for the original buffer. Recheck after GTK's resize handlers run.
-	cbWindowResize = purego.NewCallback(func(data ptr) int32 {
+	// A window drawing with GL on Wayland got focus: the configure event of
+	// the activation can carry the size of the last buffer it drew, from
+	// before a resize GTK already took, and GTK went back to it. Ask for the
+	// latest bounds again then, unless the window manager sized the window.
+	cbActivationResize = purego.NewCallback(func(data ptr) int32 {
 		w := b().window(data)
 		if w == nil {
 			return 0
@@ -994,7 +1000,10 @@ func initWindowCallbacks() {
 		gtkWindowGetSize(w.win, &width, &height)
 		if w.state&(stateMaximized|stateFullscreen|stateTiled) == 0 &&
 			(w.requested != nil || [2]int32{width, height} == w.activationPrevious) {
-			// Consume the configure, then reset GTK's last request to the current size.
+			// GTK skips a request for the size it asked for last: the first
+			// check takes the configure, the second asks for the size the
+			// window has, so that the bounds are asked for again. Handlers
+			// of the new size may close the window.
 			gtkWindowResize(w.win, width, height)
 			gtkContainerCheckResize(w.win)
 			if !w.closed {
@@ -1070,8 +1079,9 @@ func initWindowCallbacks() {
 		changed, state := field[uint32](event, 20), field[uint32](event, 24)
 		w.state = state
 		if changed&stateFocused != 0 && state&stateFocused != 0 && w.activationResize != nil && w.resizeIdle == 0 {
-			// G_PRIORITY_DEFAULT_IDLE: let GTK process the activation event first.
-			w.resizeIdle = gIdleAddFull(200, cbWindowResize, ptr(w.id), 0)
+			// G_PRIORITY_DEFAULT_IDLE: after GTK took the configure event
+			// of the activation.
+			w.resizeIdle = gIdleAddFull(200, cbActivationResize, ptr(w.id), 0)
 		}
 		if changed&stateIconified != 0 {
 			if state&stateIconified != 0 {

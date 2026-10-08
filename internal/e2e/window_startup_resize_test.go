@@ -9,6 +9,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// TestContentWindowResizeFromFirstFrame resizes native UI from its first
+// frame, before the window is activated: on Wayland, the activation's
+// configure event must not bring the size back.
 func TestContentWindowResizeFromFirstFrame(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
