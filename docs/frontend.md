@@ -105,6 +105,25 @@ falling back to `index.html` like the frontend. Handling the `mygo` scheme
 replaces the frontend with your handler. Pages of custom schemes are the
 app's own: they may call Go methods.
 
+Media elements are the exception. `<video>` and `<audio>` do not load from a
+custom scheme on macOS and Linux, where the engines hand media loading to a
+process the scheme handler is not part of: the handler is never called and
+the element reports `MEDIA_ERR_SRC_NOT_SUPPORTED` (`code = 4`). Serve media
+over `http(s)` instead — a loopback server, which is also where a proxy that
+adds request headers belongs:
+
+```go
+go http.ListenAndServe("127.0.0.1:4654", mediaHandler())
+```
+
+```html
+<audio src="http://127.0.0.1:4654/audio-proxy?url=..." controls></audio>
+```
+
+On Windows a custom scheme is served at `http://<scheme>.localhost`, so the
+request may reach the handler there; an app that wants one behaviour
+everywhere should use the loopback server for media either way.
+
 ## The mygo-runtime package
 
 MyGo injects its runtime into every page as `window.mygo`. The

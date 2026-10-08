@@ -276,6 +276,10 @@ func (w *schemeWriter) finish() {
 // FileServer serves files from fsys and falls back to index.html for
 // unknown paths without an extension, so client side routers work. Files
 // are served with their content type and support range requests.
+//
+// A media element cannot load from a custom scheme: see the custom
+// protocols section of the frontend guide, and serve <video> and <audio>
+// sources over http(s).
 func FileServer(fsys fs.FS) http.Handler {
 	files := http.FileServerFS(fsys)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
