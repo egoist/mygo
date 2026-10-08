@@ -57,6 +57,10 @@ type Backend struct {
 	// the number of InPrivate ones made.
 	stores        []*dataStore
 	privateStores int
+	// autoplayEnv records whether the environment was created carrying the
+	// autoplay policy, so that a window asking for it later can be told why
+	// its request does not apply.
+	autoplayEnv bool
 
 	menus menuTable
 
@@ -180,6 +184,9 @@ func (b *Backend) startEnvironment(o *platform.WindowOptions) error {
 			b.envWarned = true
 			log.Print("mygo: ThrottlingOff of a page shown after the first one: WebView2's browser already runs without the arguments that keep hidden pages running; give the option to the first window or web view that shows a page")
 		}
+		if autoplay && !b.autoplayEnv {
+			log.Print("mygo: PageOptions.Autoplay on this window does nothing: the WebView2 environment, which carries the autoplay policy, was created without it. Ask on the first window of the app that shows a page.")
+		}
 		return nil
 	}
 	if autoplay {
@@ -193,6 +200,7 @@ func (b *Backend) startEnvironment(o *platform.WindowOptions) error {
 			}
 			_ = os.Setenv(browserArgumentsEnv, v+autoplayPolicyArg)
 		}
+		b.autoplayEnv = true
 	}
 	dir := os.Getenv("LOCALAPPDATA")
 	if dir == "" {
