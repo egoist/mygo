@@ -36,6 +36,10 @@ type Backend struct {
 	envErr     error
 	envStarted bool
 	envWaiters []func()
+	// autoplayEnv records whether the environment was created carrying the
+	// autoplay policy, so that a window asking for it later can be told why
+	// its request does not apply.
+	autoplayEnv bool
 
 	menus menuTable
 
@@ -135,6 +139,9 @@ const (
 // is shared, so on Windows that window decides for the app.
 func (b *Backend) startEnvironment(autoplay bool) error {
 	if b.envStarted {
+		if autoplay && !b.autoplayEnv {
+			log.Print("mygo: PageOptions.Autoplay on this window does nothing: the WebView2 environment, which carries the autoplay policy, was created without it. Ask on the first window of the app that shows a page.")
+		}
 		return nil
 	}
 	if autoplay {
@@ -148,6 +155,7 @@ func (b *Backend) startEnvironment(autoplay bool) error {
 			}
 			_ = os.Setenv(browserArgumentsEnv, v+autoplayPolicyArg)
 		}
+		b.autoplayEnv = true
 	}
 	dir := os.Getenv("LOCALAPPDATA")
 	if dir == "" {
