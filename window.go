@@ -422,6 +422,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		Modal:          o.Modal,
 		UserAgent:      po.UserAgent,
 		Zoom:           po.ZoomFactor,
+		Autoplay:       po.Autoplay == AutoplayAllow,
 		Schemes:        Protocol.schemes(),
 	}
 	if p.Title == "" {

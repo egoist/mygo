@@ -83,7 +83,7 @@ type window struct {
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
 	if !o.Surface {
-		if err := b.startEnvironment(); err != nil {
+		if err := b.startEnvironment(o.Autoplay); err != nil {
 			return nil, err
 		}
 	}

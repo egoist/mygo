@@ -399,6 +399,7 @@ var (
 	webkitSettingsGetUserAgent                        func(s ptr) ptr
 	webkitSettingsSetAllowFileAccessFromFileURLs      func(s ptr, v bool)
 	webkitSettingsSetJavascriptCanAccessClipboard     func(s ptr, v bool)
+	webkitSettingsSetMediaPlaybackRequiresUserGesture func(s ptr, v bool)
 	webkitWebViewLoadURI                              func(wv ptr, uri *byte)
 	webkitWebViewLoadHTML                             func(wv ptr, html *byte, base *byte)
 	webkitWebViewReload                               func(wv ptr)
@@ -459,6 +460,8 @@ var (
 	webkitNavigationActionIsUserGesture               func(a ptr) bool
 	webkitURIRequestGetURI                            func(r ptr) ptr
 	webkitPolicyDecisionUse                           func(d ptr)
+	webkitPolicyDecisionUseWithPolicies               func(d ptr, p ptr)
+	webkitWebsitePoliciesNewWithPolicies              func(first *byte, args ...any) ptr
 	webkitPolicyDecisionIgnore                        func(d ptr)
 	webkitURISchemeRequestGetURI                      func(r ptr) ptr
 	webkitURISchemeRequestGetHTTPMethod               func(r ptr) ptr
@@ -850,6 +853,7 @@ func loadWebKit() error {
 	mustBind(w, &webkitSettingsGetUserAgent, "webkit_settings_get_user_agent")
 	mustBind(w, &webkitSettingsSetAllowFileAccessFromFileURLs, "webkit_settings_set_allow_file_access_from_file_urls")
 	mustBind(w, &webkitSettingsSetJavascriptCanAccessClipboard, "webkit_settings_set_javascript_can_access_clipboard")
+	mustBind(w, &webkitSettingsSetMediaPlaybackRequiresUserGesture, "webkit_settings_set_media_playback_requires_user_gesture")
 	mustBind(w, &webkitWebViewLoadURI, "webkit_web_view_load_uri")
 	mustBind(w, &webkitWebViewLoadHTML, "webkit_web_view_load_html")
 	mustBind(w, &webkitWebViewReload, "webkit_web_view_reload")
@@ -898,6 +902,8 @@ func loadWebKit() error {
 	mustBind(w, &webkitNavigationActionIsUserGesture, "webkit_navigation_action_is_user_gesture")
 	mustBind(w, &webkitURIRequestGetURI, "webkit_uri_request_get_uri")
 	mustBind(w, &webkitPolicyDecisionUse, "webkit_policy_decision_use")
+	bind(w, &webkitPolicyDecisionUseWithPolicies, "webkit_policy_decision_use_with_policies")
+	bind(w, &webkitWebsitePoliciesNewWithPolicies, "webkit_website_policies_new_with_policies")
 	mustBind(w, &webkitPolicyDecisionIgnore, "webkit_policy_decision_ignore")
 	mustBind(w, &webkitURISchemeRequestGetURI, "webkit_uri_scheme_request_get_uri")
 	mustBind(w, &webkitURISchemeRequestGetWebView, "webkit_uri_scheme_request_get_web_view")

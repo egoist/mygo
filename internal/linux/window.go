@@ -249,6 +249,9 @@ func (w *window) createWebView() {
 	webkitSettingsSetEnableDeveloperExtras(settings, o.DevTools)
 	webkitSettingsSetAllowFileAccessFromFileURLs(settings, true)
 	webkitSettingsSetJavascriptCanAccessClipboard(settings, true)
+	// WebKitGTK requires a gesture for audible media by default, which a
+	// window that is never shown never gets.
+	webkitSettingsSetMediaPlaybackRequiresUserGesture(settings, !o.Autoplay)
 	if o.UserAgent != "" {
 		webkitSettingsSetUserAgent(settings, cs(o.UserAgent))
 	}
@@ -1240,6 +1243,17 @@ func initWindowCallbacks() {
 			nav.IsReload = true
 		}
 		if w.h.WillNavigate(nav) {
+			// WebKit decides autoplay from the website policies of the
+			// navigation, not from the media-playback-requires-user-gesture
+			// setting, which is not enough on its own. WEBKIT_AUTOPLAY_ALLOW
+			// is 0, and the NULL ends the constructor's name/value pairs.
+			if w.opts.Autoplay && webkitPolicyDecisionUseWithPolicies != nil {
+				if policies := webkitWebsitePoliciesNewWithPolicies(cs("autoplay"), int32(0), uintptr(0)); policies != 0 {
+					webkitPolicyDecisionUseWithPolicies(decision, policies)
+					gObjectUnref(policies)
+					return true
+				}
+			}
 			webkitPolicyDecisionUse(decision)
 		} else {
 			webkitPolicyDecisionIgnore(decision)

@@ -241,6 +241,8 @@ type WindowOptions struct {
 	DevTools  bool
 	UserAgent string
 	Zoom      float64
+	// Autoplay lets the page play audible media without a user gesture.
+	Autoplay bool
 	// Native carries backend specific state, e.g. the WKWebViewConfiguration
 	// WebKit hands us for window.open().
 	Native uintptr

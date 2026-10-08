@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -118,13 +119,35 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	return nil
 }
 
+// The WebView2 environment carries the browser arguments for every window of
+// the app, so the autoplay policy is set there rather than on a web view.
+const (
+	browserArgumentsEnv = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+	autoplayPolicyArg   = "--autoplay-policy=no-user-gesture-required"
+)
+
 // startEnvironment starts creating the WebView2 environment, the first time
 // a window that shows a web page is created, and returns why it cannot,
 // such as a missing WebView2 Runtime. Windows that show native UI need
 // none: an app whose windows all do runs without the runtime.
-func (b *Backend) startEnvironment() error {
+//
+// autoplay is the first page window's PageOptions.Autoplay: the environment
+// is shared, so on Windows that window decides for the app.
+func (b *Backend) startEnvironment(autoplay bool) error {
 	if b.envStarted {
 		return nil
+	}
+	if autoplay {
+		// WebView2 reads this variable when the options it is handed carry no
+		// arguments of their own, which is how createEnvironment calls it. An
+		// app that set the variable itself keeps its arguments: the policy is
+		// added to them rather than replacing them.
+		if v := os.Getenv(browserArgumentsEnv); !strings.Contains(v, "--autoplay-policy") {
+			if v != "" {
+				v += " "
+			}
+			_ = os.Setenv(browserArgumentsEnv, v+autoplayPolicyArg)
+		}
 	}
 	dir := os.Getenv("LOCALAPPDATA")
 	if dir == "" {
