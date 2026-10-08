@@ -392,3 +392,27 @@ func TestGenerationWrapRetiresOwner(t *testing.T) {
 		t.Fatal("generation wrap allowed an old alias")
 	}
 }
+
+func TestHandleBoundsBetweenBuilds(t *testing.T) {
+	var h Handle
+	var c *Context
+	show := true
+	tt := NewTester(func(ctx *Context) {
+		c = ctx
+		if show {
+			Box(ctx).Size(80, 40).Bind(&h)
+		}
+	}, 100, 60)
+	if b := h.Bounds(c); b.W != 80 || b.H != 40 {
+		t.Fatalf("bounds %+v", b)
+	}
+	show = false
+	tt.Frame()
+	if b := h.Bounds(c); b != (Rect{}) {
+		t.Fatalf("hidden bounds %+v", b)
+	}
+	tt.rt.close()
+	if b := h.Bounds(c); b != (Rect{}) {
+		t.Fatalf("closed bounds %+v", b)
+	}
+}

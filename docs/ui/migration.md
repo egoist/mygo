@@ -16,7 +16,8 @@ go test ./...
 ```
 
 Review the diff before committing it. The codemod uses Go syntax and the
-actual UI import alias. It converts element and custom-parts pointer types,
+actual UI import alias, sharing field and helper-return declarations across
+files in the same package. It converts element and custom-parts pointer types,
 element nil checks and zero assignments, moves fluent constructor keys into
 `Context.Key`, and renames grid `Rows(n)` to `GridRows(n)`. Context pointers,
 child callback signatures, ordinary model pointers and unrelated nil checks
@@ -99,7 +100,8 @@ window cancels that window's request. `CancelFocus` cancels earlier.
 
 `handle.Focused(c)` and `handle.FocusWithin(c)` read persistent identity,
 including before the control is constructed. `c.Resolve(handle)` returns
-only this pass's element. These are different queries: previous focus can
+only this pass's element. `handle.Bounds(c)` reads the committed control box
+on the UI thread, including from an input callback. These are different queries: previous focus can
 still be observed in the build that removes a control; committing that build
 removes its actual focus.
 

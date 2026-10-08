@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/egoist/mygo/internal/uimigrate"
@@ -24,7 +25,9 @@ func runMigrateUI(args []string) error {
 	if f.NArg() == 1 {
 		dir = f.Arg(0)
 	}
-	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	sources := map[string][]byte{}
+	modes := map[string]fs.FileMode{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -42,26 +45,40 @@ func runMigrateUI(args []string) error {
 		if err != nil {
 			return err
 		}
-		result, err := uimigrate.File(path, source)
+		sources[path] = source
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
+		modes[path] = info.Mode().Perm()
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	results, err := uimigrate.Files(sources)
+	if err != nil {
+		return err
+	}
+	var paths []string
+	for path := range results {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		result := results[path]
 		for _, note := range result.Notes {
 			fmt.Printf("%s: %s\n", path, note)
 		}
 		if !result.Changed {
-			return nil
+			continue
 		}
 		if *write {
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			if err := os.WriteFile(path, result.Source, info.Mode().Perm()); err != nil {
+			if err := os.WriteFile(path, result.Source, modes[path]); err != nil {
 				return err
 			}
 		}
 		fmt.Println(path)
-		return nil
-	})
+	}
+	return nil
 }

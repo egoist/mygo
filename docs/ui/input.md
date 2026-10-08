@@ -74,7 +74,9 @@ Declare `search ui.Handle` in your app state. `app.search.Focus()` requests
 focus and waits while the control is hidden. `CancelFocus()` cancels the
 request. `Focused(c)` and `FocusWithin(c)` read the control's identity before
 or after it is built. `c.Resolve(app.search)` returns only this pass's element.
-Closing a window cancels its focus request.
+`app.search.Bounds(c)` reads its box from the committed frame, including
+between builds in an input callback. Closing a window cancels its focus
+request.
 
 A handle can bind in several windows. Queries take that window's Context;
 use `Focus(c)` or `CancelFocus(c)` to select a window explicitly. The

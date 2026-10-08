@@ -133,3 +133,47 @@ func view(c *native.Context,v *bool){
 		t.Fatal("key migration is not idempotent", err, string(again.Source))
 	}
 }
+
+func TestMigrationSharesPackageFieldsAndTupleHelpers(t *testing.T) {
+	sources := map[string][]byte{
+		"app/window.go": []byte(`package app
+import native "github.com/egoist/mygo/ui"
+type window struct { element *native.Element; other *int }
+`),
+		"app/view.go": []byte(`package app
+import "github.com/egoist/mygo/ui"
+func(w *window)view(c *ui.Context){if w.element!=nil{w.element.Focus()};if w.other!=nil{println(*w.other)}}
+func newWindow()(*window,int){return &window{},0}
+func makeElement(c *ui.Context)*ui.Element{return ui.Text(c,"hello")}
+`),
+		"app/view_test.go": []byte(`package app
+import "github.com/egoist/mygo/ui"
+func check(c *ui.Context){w,_:=newWindow();if w.element==nil{w.element=makeElement(c)};e:=makeElement(c);if e!=nil{e.Focus()}}
+`),
+	}
+	results, err := Files(sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(results["app/view.go"].Source), "w.element.Valid()") || !strings.Contains(string(results["app/view.go"].Source), "w.other != nil") {
+		t.Fatal(string(results["app/view.go"].Source))
+	}
+	for _, want := range []string{"!w.element.Valid()", "e.Valid()"} {
+		if !strings.Contains(string(results["app/view_test.go"].Source), want) {
+			t.Fatal(string(results["app/view_test.go"].Source))
+		}
+	}
+	migrated := map[string][]byte{}
+	for name, r := range results {
+		migrated[name] = r.Source
+	}
+	again, err := Files(migrated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, r := range again {
+		if r.Changed {
+			t.Fatalf("second migration changed %s", name)
+		}
+	}
+}

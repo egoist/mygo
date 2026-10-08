@@ -10,7 +10,9 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -26,44 +28,159 @@ type migration struct {
 	kinds   map[*ast.Object]string
 	structs map[string]map[string]string
 	objects map[*ast.Object]string
+	returns map[string][]typeFact
 	notes   []string
 }
 
-// File transforms one Go file. Dot imports are reported for manual review.
+type typeFact struct{ kind, object string }
+type packageFacts struct {
+	structs map[string]map[string]string
+	returns map[string][]typeFact
+}
+
+// File transforms one file. Files adds declarations from sibling package files.
 func File(filename string, source []byte) (Result, error) {
+	results, err := Files(map[string][]byte{filename: source})
+	return results[filename], err
+}
+
+// Files migrates a source set, sharing syntax facts within each directory and
+// package. It needs no successfully compiled old API or external Go tooling.
+func Files(sources map[string][]byte) (map[string]Result, error) {
 	fs := token.NewFileSet()
-	f, err := parser.ParseFile(fs, filename, source, parser.ParseComments)
-	if err != nil {
-		return Result{}, err
+	files := map[string]*ast.File{}
+	groups := map[string]*packageFacts{}
+	var names []string
+	for name := range sources {
+		names = append(names, name)
 	}
-	m := &migration{kinds: map[*ast.Object]string{}, structs: map[string]map[string]string{}, objects: map[*ast.Object]string{}}
+	sort.Strings(names)
+	for _, name := range names {
+		f, err := parser.ParseFile(fs, name, sources[name], parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		files[name] = f
+		group := filepath.Dir(name) + "\x00" + f.Name.Name
+		facts := groups[group]
+		if facts == nil {
+			facts = &packageFacts{structs: map[string]map[string]string{}, returns: map[string][]typeFact{}}
+			groups[group] = facts
+		}
+		m := newMigration(importAlias(f), facts)
+		ast.Inspect(f, func(node ast.Node) bool {
+			switch n := node.(type) {
+			case *ast.TypeSpec:
+				if structure, ok := n.Type.(*ast.StructType); ok {
+					fields := map[string]string{}
+					for _, field := range structure.Fields.List {
+						if kind := m.uiType(field.Type); kind != "" {
+							for _, id := range field.Names {
+								fields[id.Name] = kind
+							}
+						}
+					}
+					facts.structs[n.Name.Name] = fields
+				}
+			case *ast.FuncDecl:
+				if n.Recv != nil || n.Type.Results == nil {
+					return true
+				}
+				var results []typeFact
+				for _, field := range n.Type.Results.List {
+					fact := m.fact(field.Type)
+					for range max(1, len(field.Names)) {
+						results = append(results, fact)
+					}
+				}
+				facts.returns[n.Name.Name] = results
+			}
+			return true
+		})
+	}
+	results := map[string]Result{}
+	for _, name := range names {
+		f := files[name]
+		alias := importAlias(f)
+		if alias == "" || alias == "_" {
+			results[name] = Result{Source: sources[name]}
+			continue
+		}
+		if alias == "." {
+			results[name] = Result{Source: sources[name], Notes: []string{"replace the dot import with an explicit MyGo UI alias before migrating"}}
+			continue
+		}
+		m := newMigration(alias, groups[filepath.Dir(name)+"\x00"+f.Name.Name])
+		m.collect(f)
+		rewriteTypes(reflect.ValueOf(f), m)
+		ast.Walk(visitor{m: m}, f)
+		var out bytes.Buffer
+		if err := format.Node(&out, fs, f); err != nil {
+			return nil, err
+		}
+		formatted, err := format.Source(out.Bytes())
+		if err != nil {
+			return nil, err
+		}
+		results[name] = Result{Source: formatted, Changed: !bytes.Equal(sources[name], formatted), Notes: m.notes}
+	}
+	return results, nil
+}
+
+func importAlias(f *ast.File) string {
 	for _, im := range f.Imports {
 		if strings.Trim(im.Path.Value, "\"") == "github.com/egoist/mygo/ui" {
-			m.alias = "ui"
 			if im.Name != nil {
-				m.alias = im.Name.Name
+				return im.Name.Name
 			}
+			return "ui"
 		}
 	}
-	if m.alias == "" || m.alias == "_" {
-		return Result{Source: source}, nil
+	return ""
+}
+func newMigration(alias string, facts *packageFacts) *migration {
+	return &migration{alias: alias, kinds: map[*ast.Object]string{}, objects: map[*ast.Object]string{}, structs: facts.structs, returns: facts.returns}
+}
+func (m *migration) fact(e ast.Expr) typeFact {
+	if kind := m.uiType(e); kind != "" {
+		return typeFact{kind: kind}
 	}
-	if m.alias == "." {
-		return Result{Source: source, Notes: []string{"replace the dot import with an explicit MyGo UI alias before migrating"}}, nil
+	if star, ok := e.(*ast.StarExpr); ok {
+		e = star.X
 	}
-	m.collect(f)
-	rewriteTypes(reflect.ValueOf(f), m)
-	ast.Walk(visitor{m: m}, f)
-	var b bytes.Buffer
-	if err := format.Node(&b, fs, f); err != nil {
-		return Result{}, err
+	if name, ok := e.(*ast.Ident); ok {
+		return typeFact{object: name.Name}
 	}
-	formatted, err := format.Source(b.Bytes())
-	if err != nil {
-		return Result{}, err
+	return typeFact{}
+}
+func (m *migration) expressionFact(e ast.Expr) typeFact {
+	if kind := m.kind(e); kind != "" {
+		return typeFact{kind: kind}
 	}
-	changed := !bytes.Equal(source, formatted)
-	return Result{Source: formatted, Changed: changed, Notes: m.notes}, nil
+	switch e := e.(type) {
+	case *ast.Ident:
+		return typeFact{object: m.objects[e.Obj]}
+	case *ast.UnaryExpr:
+		return m.expressionFact(e.X)
+	case *ast.CompositeLit:
+		return m.fact(e.Type)
+	case *ast.CallExpr:
+		if name, ok := e.Fun.(*ast.Ident); ok && len(m.returns[name.Name]) == 1 {
+			return m.returns[name.Name][0]
+		}
+	}
+	return typeFact{}
+}
+func (m *migration) remember(object *ast.Object, fact typeFact) {
+	if object == nil {
+		return
+	}
+	if fact.kind != "" {
+		m.kinds[object] = fact.kind
+	}
+	if fact.object != "" {
+		m.objects[object] = fact.object
+	}
 }
 
 func (m *migration) uiType(e ast.Expr) string {
@@ -102,7 +219,11 @@ func (m *migration) collect(f *ast.File) {
 						for _, id := range field.Names {
 							fields[id.Name] = k
 						}
-						m.notes = append(m.notes, fmt.Sprintf("review stored %s fields on %s; use Handle for persistent control identity", k, n.Name.Name))
+						advice := "Handle for persistent control identity"
+						if k == "Context" {
+							advice = "Services for retained window services"
+						}
+						m.notes = append(m.notes, fmt.Sprintf("review stored %s fields on %s; use %s", k, n.Name.Name, advice))
 					}
 				}
 				m.structs[n.Name.Name] = fields
@@ -124,6 +245,9 @@ func (m *migration) collect(f *ast.File) {
 		case *ast.ValueSpec:
 			k := m.uiType(n.Type)
 			for _, id := range n.Names {
+				m.remember(id.Obj, m.fact(n.Type))
+			}
+			for _, id := range n.Names {
 				if k != "" && id.Obj != nil {
 					m.kinds[id.Obj] = k
 				}
@@ -132,16 +256,36 @@ func (m *migration) collect(f *ast.File) {
 		return true
 	})
 	for range 3 {
-		ast.Inspect(f, func(n ast.Node) bool {
-			if a, ok := n.(*ast.AssignStmt); ok {
+		ast.Inspect(f, func(node ast.Node) bool {
+			if a, ok := node.(*ast.AssignStmt); ok {
+				if len(a.Rhs) == 1 {
+					if call, ok := a.Rhs[0].(*ast.CallExpr); ok {
+						if name, ok := call.Fun.(*ast.Ident); ok {
+							facts := m.returns[name.Name]
+							if len(facts) == len(a.Lhs) {
+								for i, lhs := range a.Lhs {
+									if id, ok := lhs.(*ast.Ident); ok {
+										m.remember(id.Obj, facts[i])
+									}
+								}
+								return true
+							}
+						}
+					}
+				}
 				for i, lhs := range a.Lhs {
 					if i >= len(a.Rhs) {
 						break
 					}
-					if id, ok := lhs.(*ast.Ident); ok && id.Obj != nil {
-						if k := m.kind(a.Rhs[i]); k != "" {
-							m.kinds[id.Obj] = k
-						}
+					if id, ok := lhs.(*ast.Ident); ok {
+						m.remember(id.Obj, m.expressionFact(a.Rhs[i]))
+					}
+				}
+			}
+			if v, ok := node.(*ast.ValueSpec); ok {
+				for i, name := range v.Names {
+					if i < len(v.Values) {
+						m.remember(name.Obj, m.expressionFact(v.Values[i]))
 					}
 				}
 			}
@@ -168,6 +312,9 @@ func (m *migration) kind(e ast.Expr) string {
 			return m.structs[m.objects[id.Obj]][e.Sel.Name]
 		}
 	case *ast.CallExpr:
+		if name, ok := e.Fun.(*ast.Ident); ok && len(m.returns[name.Name]) == 1 {
+			return m.returns[name.Name][0].kind
+		}
 		fn := e.Fun
 		if ix, ok := fn.(*ast.IndexExpr); ok {
 			fn = ix.X

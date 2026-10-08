@@ -201,3 +201,19 @@ func (rt *engine) applyFocusRequests() {
 	}
 	rt.applyFocusBindings()
 }
+
+// Bounds returns the control's box in the committed frame, in window DIPs.
+// It works between builds on the UI thread; hidden or closed controls return
+// an empty box. Use this instead of retaining an Element in input callbacks.
+func (r Handle) Bounds(c *Context) Rect {
+	rt := c.runtime()
+	b := (&r).binding(rt, false)
+	if b == nil || b.closed || b.id == 0 {
+		return Rect{}
+	}
+	s := rt.states[b.id]
+	if s == nil {
+		return Rect{}
+	}
+	return Rect{s.x, s.y, s.w, s.h}
+}
