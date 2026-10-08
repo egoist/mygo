@@ -61,7 +61,8 @@ ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 
 Text over an opaque background keeps the system's subpixel antialiasing
 (ClearType) under a transparent root; over the material, it is
-antialiased in grayscale.
+antialiased in grayscale. `examples/vibrancy` picks the window's material
+in such a sidebar.
 
 ## No webview
 

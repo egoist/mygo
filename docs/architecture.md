@@ -96,7 +96,7 @@ framework safely. Read it before changing anything under `internal/`.
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
-├── examples/           hello, todo, frameless, native, vibrancy; counter-native
+├── examples/           hello, todo, frameless, native; counter-native, vibrancy
 │                       and gallery (native UI)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
