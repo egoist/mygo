@@ -152,6 +152,13 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	return nil
 }
 
+// The WebView2 environment carries the browser arguments for every window of
+// the app, so the autoplay policy is set there rather than on a web view.
+const (
+	browserArgumentsEnv = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+	autoplayPolicyArg   = "--autoplay-policy=no-user-gesture-required"
+)
+
 // startEnvironment starts creating the WebView2 environment, the first time
 // a window that shows a web page is created, and returns why it cannot,
 // such as a missing WebView2 Runtime. Windows that show native UI need
@@ -162,14 +169,30 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 // page asked not to be throttled: the arguments are the browser's, which
 // all the app's pages share, and a page that asks once it runs is too
 // late, which the log tells.
+//
+// autoplay is the first page window's PageOptions.Autoplay: the environment
+// is shared, so on Windows that window decides for the app.
 func (b *Backend) startEnvironment(o *platform.WindowOptions) error {
 	unthrottled := o != nil && o.NoBackgroundThrottling
+	autoplay := o != nil && o.Autoplay
 	if b.envStarted {
 		if unthrottled && !b.envUnthrottled && !b.envWarned {
 			b.envWarned = true
 			log.Print("mygo: ThrottlingOff of a page shown after the first one: WebView2's browser already runs without the arguments that keep hidden pages running; give the option to the first window or web view that shows a page")
 		}
 		return nil
+	}
+	if autoplay {
+		// WebView2 reads this variable when the options it is handed carry no
+		// arguments of their own, which is how createEnvironment calls it. An
+		// app that set the variable itself keeps its arguments: the policy is
+		// added to them rather than replacing them.
+		if v := os.Getenv(browserArgumentsEnv); !strings.Contains(v, "--autoplay-policy") {
+			if v != "" {
+				v += " "
+			}
+			_ = os.Setenv(browserArgumentsEnv, v+autoplayPolicyArg)
+		}
 	}
 	dir := os.Getenv("LOCALAPPDATA")
 	if dir == "" {

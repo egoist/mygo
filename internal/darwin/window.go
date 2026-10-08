@@ -488,6 +488,11 @@ func (w *window) createWebView(content NSRect) {
 	if respondsTo(prefs, "_setAllowsPictureInPictureMediaPlayback:") {
 		send(prefs, "_setAllowsPictureInPictureMediaPlayback:", boolArg(o.PictureInPicture))
 	}
+	if o.Autoplay && respondsTo(cfg, "setMediaTypesRequiringUserActionForPlayback:") {
+		// WKMediaTypesRequiringUserActionForPlaybackNone: audible media
+		// starts on its own, which a window that is never shown needs.
+		send(cfg, "setMediaTypesRequiringUserActionForPlayback:", 0)
+	}
 
 	// Every window gets its own content controller so messages, scripts and
 	// the bridge configuration never leak between windows.

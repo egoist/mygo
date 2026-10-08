@@ -394,6 +394,9 @@ type PageOptions struct {
 	//
 	//	Page: mygo.PageOptions{BackgroundThrottling: mygo.ThrottlingOff}
 	BackgroundThrottling BackgroundThrottling
+	// Autoplay decides whether the page may play audible media without a
+	// user gesture (default AutoplayUserGesture).
+	Autoplay Autoplay
 
 	// SessionState brings back a page as Page.SessionState saved it, in
 	// place of the window's or web view's URL: its back/forward list,
@@ -444,4 +447,28 @@ const (
 	// view of a hidden window on Windows: its web view draws nothing and
 	// requestAnimationFrame waits. Run what must go on with timers.
 	ThrottlingOff
+)
+
+// Autoplay decides whether a window's page may start audible media without a
+// user gesture.
+type Autoplay int
+
+const (
+	// AutoplayUserGesture, the zero value, is what the engines do by default:
+	// a page plays audible media only once the user has interacted with it.
+	// A window that is never shown never gets a gesture, so a hidden window
+	// cannot play sound with this.
+	AutoplayUserGesture Autoplay = iota
+	// AutoplayAllow lets the page start audible media on its own, which a
+	// window that is hidden needs. Starting muted and unmuting afterwards is
+	// not a substitute: where the gesture is still required, unmuting pauses
+	// the element again.
+	//
+	// On Windows the setting reaches WebView2 as the browser argument
+	// --autoplay-policy=no-user-gesture-required, which the WebView2
+	// environment carries, and the environment is shared by every window of
+	// the app. The first window that shows a page decides there, so an app
+	// whose pages need it should ask on that window, or on all of them.
+	// macOS and Linux set it on the window's own web view.
+	AutoplayAllow
 )
