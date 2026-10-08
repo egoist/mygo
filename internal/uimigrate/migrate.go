@@ -79,8 +79,8 @@ func (m *migration) uiType(e ast.Expr) string {
 	if s, ok := e.(*ast.SelectorExpr); ok {
 		if p, ok := s.X.(*ast.Ident); ok && p.Name == m.alias {
 			switch s.Sel.Name {
-			case "Context", "Frame":
-				return "Frame"
+			case "Context":
+				return "Context"
 			case "Element":
 				return "Element"
 			case "SelectParts", "ComboboxParts", "TabsParts", "CollapsibleParts", "SegmentedParts", "ToastParts":
@@ -102,7 +102,7 @@ func (m *migration) collect(f *ast.File) {
 						for _, id := range field.Names {
 							fields[id.Name] = k
 						}
-						m.notes = append(m.notes, fmt.Sprintf("review stored %s fields on %s; use Ref for persistent control identity", k, n.Name.Name))
+						m.notes = append(m.notes, fmt.Sprintf("review stored %s fields on %s; use Handle for persistent control identity", k, n.Name.Name))
 					}
 				}
 				m.structs[n.Name.Name] = fields
@@ -151,7 +151,7 @@ func (m *migration) collect(f *ast.File) {
 }
 
 var queries = map[string]bool{"Clicked": true, "Clicks": true, "Changed": true, "Submitted": true, "Hovered": true, "Pressed": true, "Focused": true, "FocusVisible": true, "FocusWithin": true, "Valid": true, "Shortcut": true, "ID": true, "Bounds": true, "IsDisabled": true, "PointerPosition": true, "Dragged": true, "TextSelection": true, "Composing": true, "DroppedFiles": true, "FileDragOver": true, "Dragging": true, "ClickModifiers": true, "DoubleClicked": true, "RightClicked": true, "PressedOutside": true, "Highlighted": true, "Loop": true, "Animate": true, "AnimateWith": true}
-var nonElements = map[string]bool{"View": true, "NewTester": true, "Render": true, "Local": true, "RGB": true, "RGBA": true, "Hex": true, "LightTheme": true, "DarkTheme": true, "ParseSVG": true, "MustParseSVG": true, "NewBitmap": true, "DecodeBitmap": true, "Shape": true, "ShapeText": true, "ShapeRichText": true, "NewRouter": true, "NewTextBuffer": true, "Fixed": true, "Fr": true, "FitContent": true, "Overlay": true, "Drop": true, "DragOver": true, "DropData": true, "DataDragOver": true, "RegisterFont": true, "AlertDialog": true}
+var nonElements = map[string]bool{"View": true, "NewTester": true, "Render": true, "Local": true, "RGB": true, "RGBA": true, "Hex": true, "LightTheme": true, "DarkTheme": true, "ParseSVG": true, "MustParseSVG": true, "NewBitmap": true, "DecodeBitmap": true, "Shape": true, "ShapeText": true, "ShapeRichText": true, "NewRouter": true, "NewTextBuffer": true, "Fixed": true, "Fr": true, "FitContent": true, "Overlay": true, "Drop": true, "DragOver": true, "DropData": true, "DataDragOver": true, "RegisterFont": true, "AlertDialog": true, "FocusedValue": true}
 
 func (m *migration) kind(e ast.Expr) string {
 	switch e := e.(type) {
@@ -185,7 +185,7 @@ func (m *migration) kind(e ast.Expr) string {
 			if m.kind(s.X) == "Element" && !queries[s.Sel.Name] {
 				return "Element"
 			}
-			if m.kind(s.X) == "Frame" && s.Sel.Name == "Root" {
+			if m.kind(s.X) == "Context" && s.Sel.Name == "Root" {
 				return "Element"
 			}
 		}
@@ -205,7 +205,7 @@ func rewriteTypes(v reflect.Value, m *migration) {
 		}
 		if v.Type() == exprType && v.CanSet() {
 			if star, ok := v.Interface().(*ast.StarExpr); ok {
-				if k := m.uiType(star); k != "" {
+				if k := m.uiType(star); k != "" && k != "Context" {
 					if s, ok := star.X.(*ast.SelectorExpr); ok {
 						s.Sel.Name = k
 					}
@@ -273,40 +273,36 @@ func (v visitor) Visit(n ast.Node) ast.Visitor {
 			}
 		}
 	case *ast.CallExpr:
-		if !v.builderCall(n) {
-			break
-		}
-		for _, arg := range n.Args {
-			if fn, ok := arg.(*ast.FuncLit); ok && (fn.Type.Results == nil || len(fn.Type.Results.List) == 0) && !hasFrame(fn.Type, v.m) {
-				if callbackHasRow(fn.Type) || !buildCallback(fn.Type) {
-					continue
+		if sel, ok := n.Fun.(*ast.SelectorExpr); ok {
+			if sel.Sel.Name == "Key" && v.m.kind(sel.X) == "Element" && len(n.Args) == 1 {
+				if root := v.m.constructor(sel.X); root != nil && len(root.Args) > 0 && v.m.kind(root.Args[0]) == "Context" {
+					root.Args[0] = &ast.CallExpr{Fun: &ast.SelectorExpr{X: root.Args[0], Sel: ast.NewIdent("Key")}, Args: n.Args}
+					if before, ok := sel.X.(*ast.CallExpr); ok {
+						*n = *before
+					}
+				} else {
+					v.m.notes = append(v.m.notes, "move a stored element's Key to Context.Key before its constructor")
 				}
-				name := v.frame
-				if name == "" {
-					name = "frame"
-				}
-				if fn.Type.Params == nil {
-					fn.Type.Params = &ast.FieldList{}
-				}
-				fn.Type.Params.List = append([]*ast.Field{{Names: []*ast.Ident{ast.NewIdent(name)}, Type: &ast.SelectorExpr{X: ast.NewIdent(v.m.alias), Sel: ast.NewIdent("Frame")}}}, fn.Type.Params.List...)
 			}
-		}
-		if s, ok := n.Fun.(*ast.SelectorExpr); ok && s.Sel.Name == "Rows" && v.m.kind(s.X) == "Element" && len(n.Args) == 1 {
-			if _, ok := n.Args[0].(*ast.FuncLit); !ok {
-				s.Sel.Name = "GridRows"
+			if sel.Sel.Name == "Rows" && v.m.kind(sel.X) == "Element" && len(n.Args) == 1 {
+				if _, ok := n.Args[0].(*ast.FuncLit); !ok {
+					if id, ok := n.Args[0].(*ast.Ident); !ok || id.Obj == nil || id.Obj.Kind != ast.Fun {
+						sel.Sel.Name = "GridRows"
+					}
+				}
 			}
 		}
 	case *ast.AssignStmt:
 		for i, rhs := range n.Rhs {
 			if i < len(n.Lhs) && isNil(rhs) {
-				if k := v.m.kind(n.Lhs[i]); k == "Frame" || k == "Element" {
+				if k := v.m.kind(n.Lhs[i]); k == "Element" {
 					n.Rhs[i] = v.zero(k)
 				}
 			}
 		}
 	case *ast.ReturnStmt:
 		for i, rhs := range n.Results {
-			if i < len(v.returns) && isNil(rhs) && v.returns[i] != "" {
+			if i < len(v.returns) && isNil(rhs) && v.returns[i] != "" && v.returns[i] != "Context" {
 				n.Results[i] = v.zero(v.returns[i])
 			}
 		}
@@ -320,7 +316,7 @@ func (v visitor) Visit(n ast.Node) ast.Visitor {
 func (v visitor) function(t *ast.FuncType) visitor {
 	if t.Params != nil {
 		for _, p := range t.Params.List {
-			if v.m.uiType(p.Type) == "Frame" && len(p.Names) > 0 {
+			if v.m.uiType(p.Type) == "Context" && len(p.Names) > 0 {
 				v.frame = p.Names[0].Name
 			}
 		}
@@ -358,7 +354,7 @@ func (v visitor) builderCall(call *ast.CallExpr) bool {
 		kind := v.m.kind(s.X)
 		return kind == "Parts" || strings.HasSuffix(kind, "Parts")
 	case "View":
-		return len(call.Args) > 0 && v.m.kind(call.Args[0]) == "Frame"
+		return len(call.Args) > 0 && v.m.kind(call.Args[0]) == "Context"
 	}
 	return false
 }
@@ -366,7 +362,7 @@ func (v visitor) builderCall(call *ast.CallExpr) bool {
 func hasFrame(t *ast.FuncType, m *migration) bool {
 	if t.Params != nil {
 		for _, p := range t.Params.List {
-			if m.uiType(p.Type) == "Frame" {
+			if m.uiType(p.Type) == "Context" {
 				return true
 			}
 		}
@@ -411,7 +407,7 @@ func replaceComparisons(v reflect.Value, m *migration) {
 			} else if isNil(b.Y) {
 				e = b.X
 			}
-			if e != nil && (m.kind(e) == "Element" || m.kind(e) == "Frame") {
+			if e != nil && m.kind(e) == "Element" {
 				var replacement ast.Expr = &ast.CallExpr{Fun: &ast.SelectorExpr{X: e, Sel: ast.NewIdent("Valid")}}
 				if b.Op == token.EQL {
 					replacement = &ast.UnaryExpr{Op: token.NOT, X: replacement}
@@ -450,4 +446,27 @@ func callbackHasRow(t *ast.FuncType) bool {
 		}
 	}
 	return false
+}
+
+// constructor finds the imported UI factory at the start of a fluent chain.
+func (m *migration) constructor(e ast.Expr) *ast.CallExpr {
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return nil
+	}
+	fn := call.Fun
+	if ix, ok := fn.(*ast.IndexExpr); ok {
+		fn = ix.X
+	}
+	if ix, ok := fn.(*ast.IndexListExpr); ok {
+		fn = ix.X
+	}
+	sel, ok := fn.(*ast.SelectorExpr)
+	if !ok {
+		return nil
+	}
+	if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == m.alias && !nonElements[sel.Sel.Name] {
+		return call
+	}
+	return m.constructor(sel.X)
 }

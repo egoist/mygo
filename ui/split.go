@@ -49,7 +49,7 @@ func split(c *context, size *float32, first, second func(), vertical bool) *node
 			v = max(v, minPane)
 			if v != *size {
 				*size = v
-				e.st.changed = true
+				e.st.markChanged()
 				c.rt.consumed = true
 			}
 		}
@@ -75,12 +75,14 @@ func split(c *context, size *float32, first, second func(), vertical bool) *node
 			if vertical {
 				back, forth = KeyUp, KeyDown
 			}
-			if div.Shortcut(0, back) {
-				set(*size - t.Space(2.5))
-			}
-			if div.Shortcut(0, forth) {
-				set(*size + t.Space(2.5))
-			}
+			div.afterInput(func() {
+				if div.Shortcut(0, back) {
+					set(*size - t.Space(2.5))
+				}
+				if div.Shortcut(0, forth) {
+					set(*size + t.Space(2.5))
+				}
+			})
 			div.hasRange, div.accRange = true, [3]float64{float64(minPane), float64(max(total-1-minPane, minPane)), float64(*size)}
 			div.accStep = float64(t.Space(2.5))
 
@@ -101,14 +103,16 @@ func split(c *context, size *float32, first, second func(), vertical bool) *node
 			}
 			// A press there focuses the line, as a press on it would.
 			dx, dy, held := handle.Dragged()
-			if held {
-				div.Focus()
-				if vertical {
-					set(*size + dy)
-				} else {
-					set(*size + dx)
+			handle.afterInput(func() {
+				if held {
+					div.Focus()
+					if vertical {
+						set(*size + dy)
+					} else {
+						set(*size + dx)
+					}
 				}
-			}
+			})
 			div.Draw(func(p *Painter, r Rect) {
 				line := t.Border
 				if held || handle.Hovered() {

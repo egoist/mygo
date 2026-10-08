@@ -32,7 +32,7 @@ Put `Selectable` on a container to share one selection across its `Text`
 and `RichText` descendants:
 
 ```go
-ui.Column(c).Selectable().Gap(12).Children(func(c ui.Frame) {
+ui.Column(c).Selectable().Gap(12).Children(func() {
 	ui.Text(c, "First paragraph.")
 	ui.Text(c, "Second paragraph.")
 })
@@ -93,7 +93,7 @@ its area. A [link](link.md) inside is a link within the sentence, which Tab
 reaches and assistive technology reads as a link:
 
 ```go
-ui.RichText(c).Children(func(c ui.Frame) {
+ui.RichText(c).Children(func() {
 	ui.Text(c, "Read ")
 	ui.Link(c, "the guide", "https://example.com/guide")
 	ui.Text(c, " or ")

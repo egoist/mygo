@@ -13,8 +13,8 @@ func BenchmarkValueFrame(b *testing.B) {
 	for i := range labels {
 		labels[i] = fmt.Sprintf("Item %d", i)
 	}
-	tt := ui.NewTester(func(f ui.Frame) {
-		ui.Column(f).Fill().Children(func(f ui.Frame) {
+	tt := ui.NewTester(func(f *ui.Context) {
+		ui.Column(f).Fill().Children(func() {
 			for _, label := range labels {
 				ui.Text(f, label).FontSize(12).Padding(1, 2)
 			}
@@ -35,8 +35,8 @@ func TestValueFrameRetainedHeap(t *testing.T) {
 	for i := range labels {
 		labels[i] = fmt.Sprintf("Item %d", i)
 	}
-	view := func(f ui.Frame) {
-		ui.Column(f).Fill().Children(func(f ui.Frame) {
+	view := func(f *ui.Context) {
+		ui.Column(f).Fill().Children(func() {
 			for _, label := range labels {
 				ui.Text(f, label).FontSize(12).Padding(1, 2)
 			}
@@ -63,9 +63,9 @@ func TestValueFrameRetainedHeap(t *testing.T) {
 
 func BenchmarkValueList(b *testing.B) {
 	var list ui.ListState
-	tt := ui.NewTester(func(f ui.Frame) {
-		ui.List(f, &list, 1_000_000).Key("items").Grow(1).
-			Rows(func(row ui.ListRow) { ui.Textf(row.Frame, "Row %d", row.Index).Height(24) })
+	tt := ui.NewTester(func(f *ui.Context) {
+		ui.List(f.Key("items"), &list, 1_000_000).Grow(1).
+			Rows(func(row ui.ListRow) { ui.Textf(row.Context, "Row %d", row.Index).Height(24) })
 	}, 300, 400)
 	for range 10 {
 		tt.Frame()

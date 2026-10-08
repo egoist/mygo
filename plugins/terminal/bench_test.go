@@ -41,7 +41,7 @@ func BenchmarkFrame(b *testing.B) {
 		b.Fatal(err)
 	}
 	defer term.Close()
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill() }, 1600, 1000)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 1600, 1000)
 	tt.SetScale(2)
 	i := 0
 	for b.Loop() {

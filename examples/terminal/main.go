@@ -27,7 +27,7 @@ func main() {
 			Title:  "Terminal",
 			Width:  760,
 			Height: 480,
-			Content: ui.View(func(c ui.Frame) {
+			Content: ui.View(func(c *ui.Context) {
 				terminal.View(c, term).Fill().AutoFocus()
 			}),
 		})

@@ -24,13 +24,13 @@ For segments of icons or of your own look, build them with
 
 ```go
 seg := ui.SegmentedBase(c, &app.view, 2)
-seg.Track.Padding(3).Radius(8).Background(t.Surface).Children(func(c ui.Frame) {
+seg.Track.Padding(3).Radius(8).Background(t.Surface).Children(func() {
 	for i, icon := range []*ui.SVG{listIcon, gridIcon} {
 		s := seg.Segment(i).Padding(4, 10).Radius(6).Label([]string{"List", "Grid"}[i])
 		if i == app.view {
 			s.Background(t.Background)
 		}
-		s.Children(func(c ui.Frame) { ui.Icon(c, icon) })
+		s.Children(func() { ui.Icon(c, icon) })
 	}
 })
 ```

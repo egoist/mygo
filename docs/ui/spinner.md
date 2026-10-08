@@ -5,7 +5,7 @@ spinning progress indicator: spokes turning, in the theme's muted text
 color, a little higher than the theme's font size.
 
 ```go
-ui.Row(c).Gap(8).Children(func(c ui.Frame) {
+ui.Row(c).Gap(8).Children(func() {
 	ui.Spinner(c).Label("Loading")
 	ui.Text(c, "Loading messages…")
 })

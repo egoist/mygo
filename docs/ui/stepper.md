@@ -7,7 +7,7 @@ focus, and holding an arrow keeps stepping, faster the longer it is held.
 `Changed` reports a new value.
 
 ```go
-ui.Row(c).Gap(6).Children(func(c ui.Frame) {
+ui.Row(c).Gap(6).Children(func() {
 	ui.Textf(c, "%.0f copies", app.copies)
 	ui.Stepper(c, &app.copies, 1, 99, 1).Label("Copies")
 })

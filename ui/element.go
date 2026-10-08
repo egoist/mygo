@@ -201,12 +201,8 @@ const (
 // this does not make references to reused storage safe.
 type node struct {
 	epoch      uint64
-	pending    int
-	redirect   *node
 	key        any
-	config     inputOptions
-	ordinal    uint64
-	listConfig *listConfig
+	valueInput func(*node)
 	c          *context
 	id         uint64
 	kind       kind
@@ -502,7 +498,7 @@ func (e *node) Children(fn func()) *node {
 // MyGo logs, and a Tester panics for.
 func (e *node) Key(k any) *node {
 	if e.widget != "" {
-		panic("ui: Key on a " + e.widget + ", which handles its input as it is created: give the key to an element around it")
+		panic("ui: Key on a " + e.widget + ", whose state was initialized: use Context.Key before construction")
 	}
 	e.c.rekey(e, k)
 	return e

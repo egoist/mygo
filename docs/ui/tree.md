@@ -11,7 +11,7 @@ item := func(path, label string, open *bool, children func()) {
 		app.chosen = path
 	}
 }
-ui.Tree(c, func(c ui.Frame) {
+ui.Tree(c, func() {
 	item("src", "src", &app.srcOpen, func() {
 		item("src/main.go", "main.go", nil, nil)
 	})

@@ -6,7 +6,6 @@ import (
 	transfer "github.com/egoist/mygo/transfer"
 	image "image"
 	time "time"
-	"weak"
 )
 
 // Focus gives the list the keyboard focus and reports whether it was
@@ -18,10 +17,8 @@ import (
 //	}
 //
 // Call it after building the list, or while building its rows.
-func (_handle *ListState) Focus(c Frame) bool {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *ListState) Focus(c *Context) bool {
+	_ctx := c.build()
 	if _ctx == nil {
 		return false
 	}
@@ -31,10 +28,8 @@ func (_handle *ListState) Focus(c Frame) bool {
 // FocusWithin reports whether the list or one of its descendants has the
 // keyboard focus, with the same lifetime as Focused. Row builders can use
 // it before List returns, without saving an Element from an earlier frame.
-func (_handle *ListState) FocusWithin(c Frame) bool {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *ListState) FocusWithin(c *Context) bool {
+	_ctx := c.build()
 	if _ctx == nil {
 		return false
 	}
@@ -45,10 +40,8 @@ func (_handle *ListState) FocusWithin(c Frame) bool {
 // the keyboard focus. Call it from the view, after building the list or
 // while building its rows. It returns false when s was not built in the
 // current pass of c, including when the list is hidden.
-func (_handle *ListState) Focused(c Frame) bool {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *ListState) Focused(c *Context) bool {
+	_ctx := c.build()
 	if _ctx == nil {
 		return false
 	}
@@ -59,10 +52,8 @@ func (_handle *ListState) Focused(c Frame) bool {
 // its descendants had the focus, as Element.Shortcut does. Call it after
 // building the list, or while building its rows. A list not built in the
 // current pass of c registers and handles no shortcuts.
-func (_handle *ListState) Shortcut(c Frame, mods Modifiers, key Key) bool {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *ListState) Shortcut(c *Context, mods Modifiers, key Key) bool {
+	_ctx := c.build()
 	if _ctx == nil {
 		return false
 	}
@@ -101,41 +92,37 @@ func (_handle *Route) Page() Element {
 //		})
 //
 // View panics when the pattern Match matched last has no {name...}.
-func (_handle *Route) View(c Frame, fn func(frame Frame, r *Route)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Route) View(c *Context, fn func(r *Route)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(_handle.coreView(_ctx, func(r *Route) { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx), r) }))
+	return wrapElement(_handle.coreView(_ctx, func(r *Route) { fn(r) }))
 }
 
 // View builds the page shown with fn, in a column taking the room it is
 // given, and returns the column. As a page slides in, it builds the one
 // going away too, which takes neither the pointer nor the keyboard.
-func (_handle *Router) View(c Frame, fn func(frame Frame, r *Route)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Router) View(c *Context, fn func(r *Route)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return wrapElement(_handle.coreView(_ctx, func(r *Route) { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx), r) }))
+	return wrapElement(_handle.coreView(_ctx, func(r *Route) { fn(r) }))
 }
 
 // Panel builds fn in the panel of the collapsible while it is open, and as
 // it opens and closes, when the panel grows and shrinks with Progress,
 // clipping what fn built. It returns the column holding what fn builds,
 // to style, and nil while the collapsible is closed.
-func (_handle CollapsibleParts) Panel(fn func(frame Frame)) Element {
+func (_handle CollapsibleParts) Panel(fn func()) Element {
 	_parts := _handle.resolve()
 	if _parts == nil {
 		return Element{}
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Panel(func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) }))
+	return wrapElement(_parts.Panel(func() { fn() }))
 }
 
 // Progress returns how far the collapsible is open, from 0 closed to 1
@@ -202,14 +189,14 @@ func (_handle ComboboxParts) Open() bool {
 // Popup shows the popup below the input, at least as wide, while it is
 // open: fn styles the panel and builds the options with Item. It returns
 // the panel, or nil while closed or without options.
-func (_handle ComboboxParts) Popup(fn func(frame Frame, panel Element)) Element {
+func (_handle ComboboxParts) Popup(fn func(panel Element)) Element {
 	_parts := _handle.resolve()
 	if _parts == nil {
 		return Element{}
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Popup(func(panel *node) { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx), wrapElement(panel)) }))
+	return wrapElement(_parts.Popup(func(panel *node) { fn(wrapElement(panel)) }))
 }
 
 // SetOpen opens or closes the popup.
@@ -233,10 +220,8 @@ func (_handle ComboboxParts) SetOpen(o bool) {
 // Adding a toast with the ID of one showing changes that toast, which
 // shows anew. Toasts show with the theme's look, unless the view builds
 // them with ToastViewportBase.
-func (_handle Frame) AddToast(t Toast) string {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) AddToast(t Toast) string {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return ""
 	}
@@ -245,24 +230,20 @@ func (_handle Frame) AddToast(t Toast) string {
 
 // After asks for another frame after d, for something that changes with
 // time, such as a clock.
-func (_handle Frame) After(d time.Duration) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) After(d time.Duration) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return
 	}
 	_ctx.After(d)
 }
 
-// AnimationFrame asks for another frame as soon as the display can show
+// AnimationContext asks for another frame as soon as the display can show
 // it, for something moving. Call it in every frame while it moves. A
 // drawing that moves while the layout stays asks with
-// Painter.AnimationFrame instead, whose frames do not build the view.
-func (_handle Frame) AnimationFrame() {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+// Painter.AnimationContext instead, whose frames do not build the view.
+func (_handle *Context) AnimationFrame() {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return
 	}
@@ -274,10 +255,8 @@ func (_handle Frame) AnimationFrame() {
 // done or a file saved: a Router announces the title of a page it shows,
 // and a toast its text. It does nothing while no assistive technology
 // reads the window.
-func (_handle Frame) Announce(text string) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) Announce(text string) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return
 	}
@@ -286,10 +265,8 @@ func (_handle Frame) Announce(text string) {
 
 // CloseToast closes the toast with id, or every toast when id is empty,
 // and runs their OnClose.
-func (_handle Frame) CloseToast(id string) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) CloseToast(id string) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return
 	}
@@ -299,10 +276,8 @@ func (_handle Frame) CloseToast(id string) {
 // MeasureText returns the size spans of text take as Painter.RichText draws
 // them, wrapping lines at width DIPs (none for 0), to lay out what depends
 // on it while building.
-func (_handle Frame) MeasureText(width float32, spans ...Span) (float32, float32) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) MeasureText(width float32, spans ...Span) (float32, float32) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return 0, 0
 	}
@@ -312,10 +287,8 @@ func (_handle Frame) MeasureText(width float32, spans ...Span) (float32, float32
 // Modifiers returns the modifier keys held now, as the last key, pointer
 // or modifier event said: a view showing each row's shortcut while Cmd is
 // held reads it, and draws again as it changes.
-func (_handle Frame) Modifiers() Modifiers {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) Modifiers() Modifiers {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return 0
 	}
@@ -323,10 +296,8 @@ func (_handle Frame) Modifiers() Modifiers {
 }
 
 // Now returns the time the frame started, for animations.
-func (_handle Frame) Now() time.Time {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) Now() time.Time {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return *new(time.Time)
 	}
@@ -336,10 +307,8 @@ func (_handle Frame) Now() time.Time {
 // OpenURL opens a URL in the default browser, or the app registered for
 // its scheme, as a Link does. It returns at once; OpenURLThen tells what
 // came of it.
-func (_handle Frame) OpenURL(url string) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) OpenURL(url string) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return
 	}
@@ -355,10 +324,8 @@ func (_handle Frame) OpenURL(url string) {
 //			app.failed = url
 //		}
 //	})
-func (_handle Frame) OpenURLThen(url string, done func(err error)) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) OpenURLThen(url string, done func(err error)) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return
 	}
@@ -367,10 +334,8 @@ func (_handle Frame) OpenURLThen(url string, done func(err error)) {
 
 // Preferences returns the settings of the desktop that controls follow.
 // A frame follows their changes.
-func (_handle Frame) Preferences() Preferences {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) Preferences() Preferences {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return *new(Preferences)
 	}
@@ -380,10 +345,8 @@ func (_handle Frame) Preferences() Preferences {
 // ReadClipboard returns the text on the clipboard, and WriteClipboard
 // puts text there, for widgets that copy and paste themselves. Call them
 // on the main thread: in the view, or in an input handler.
-func (_handle Frame) ReadClipboard() string {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) ReadClipboard() string {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return ""
 	}
@@ -392,10 +355,8 @@ func (_handle Frame) ReadClipboard() string {
 
 // Root returns the element holding the window's content: a column the
 // size of the window.
-func (_handle Frame) Root() Element {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) Root() Element {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -404,10 +365,8 @@ func (_handle Frame) Root() Element {
 
 // SetTheme makes the frame use t, for the window's root and the widgets
 // created after the call.
-func (_handle Frame) SetTheme(t *Theme) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) SetTheme(t *Theme) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return
 	}
@@ -419,10 +378,8 @@ func (_handle Frame) SetTheme(t *Theme) {
 // handled it first: a focused button or link takes Enter and Space, and a
 // check box, switch or radio button Space, so that Enter can press a
 // dialog's default button.
-func (_handle Frame) Shortcut(mods Modifiers, key Key) bool {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) Shortcut(mods Modifiers, key Key) bool {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return false
 	}
@@ -430,10 +387,8 @@ func (_handle Frame) Shortcut(mods Modifiers, key Key) bool {
 }
 
 // Size returns the size of the window's content in DIPs.
-func (_handle Frame) Size() (float32, float32) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) Size() (float32, float32) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return 0, 0
 	}
@@ -442,10 +397,8 @@ func (_handle Frame) Size() (float32, float32) {
 
 // Theme returns the theme of the frame: the light or dark theme following
 // the system's appearance, unless SetTheme replaced it.
-func (_handle Frame) Theme() *Theme {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) Theme() *Theme {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return nil
 	}
@@ -461,10 +414,8 @@ func (_handle Frame) Theme() *Theme {
 //
 //	bar := c.TitleBar()
 //	ui.Row(c).Height(max(bar.Height, 32)).Padding(0, bar.Right, 0, bar.Left).DragWindow()
-func (_handle Frame) TitleBar() TitleBar {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) TitleBar() TitleBar {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return *new(TitleBar)
 	}
@@ -482,10 +433,8 @@ func (_handle Frame) TitleBar() TitleBar {
 // A message already showing shows anew; others stack above it, three at
 // most. It shows for as long as the pointer rests on it. Screen readers
 // read it out. It is AddToast with message as the ID and the title.
-func (_handle Frame) Toast(message string) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) Toast(message string) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return
 	}
@@ -499,20 +448,16 @@ func (_handle Frame) Toast(message string) {
 //
 //	app.trash(note)
 //	c.ToastAction("Note deleted", "Undo", func() { app.restore(note) })
-func (_handle Frame) ToastAction(message string, label string, action func()) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) ToastAction(message string, label string, action func()) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return
 	}
 	_ctx.ToastAction(message, label, func() { action() })
 }
 
-func (_handle Frame) WriteClipboard(s string) {
-	_scope := _handle.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func (_handle *Context) WriteClipboard(s string) {
+	_ctx := _handle.build()
 	if _ctx == nil {
 		return
 	}
@@ -539,31 +484,23 @@ func (_handle Frame) WriteClipboard(s string) {
 //			}
 //		}
 //	}
-func Accordion(c Frame, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Accordion(c *Context, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreAccordion(_ctx, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreAccordion(_ctx, func() { fn() }))
 }
 
 // AccordionItem creates a section of an Accordion: a header showing title,
 // which a click opens and closes, as do Enter and Space, and below it what
 // fn builds while *open is true. Changed reports a click.
-func AccordionItem(c Frame, title string, open *bool, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func AccordionItem(c *Context, title string, open *bool, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreAccordionItem(_ctx, title, open, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreAccordionItem(_ctx, title, open, func() { fn() }))
 }
 
 // AlertDialog shows an alert over the window while *open is true, as
@@ -578,10 +515,8 @@ func AccordionItem(c Frame, title string, open *bool, fn func(frame Frame)) Elem
 //	case 1:
 //		app.delete()
 //	}
-func AlertDialog(c Frame, open *bool, title string, message string, buttons ...string) int {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func AlertDialog(c *Context, open *bool, title string, message string, buttons ...string) int {
+	_ctx := c.build()
 	if _ctx == nil {
 		return 0
 	}
@@ -595,49 +530,41 @@ func AlertDialog(c Frame, open *bool, title string, message string, buttons ...s
 // typed or taken. Name it with Label.
 //
 //	ui.Autocomplete(c, &app.city, cities).Label("City")
-func Autocomplete(c Frame, value *string, suggestions []string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Autocomplete(c *Context, value *string, suggestions []string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreAutocomplete(_ctx, value, suggestions) })
+	return wrapElement(coreAutocomplete(_ctx, value, suggestions))
 }
 
 // Avatar creates a picture of a person or a thing named name: the image,
 // cropped to a circle, or the initials of name on a color it picks from
 // it, as high as twice the font size. Assistive technology sees an image
 // named name.
-func Avatar(c Frame, name string, image *Bitmap) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Avatar(c *Context, name string, image *Bitmap) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreAvatar(_ctx, name, image) })
+	return wrapElement(coreAvatar(_ctx, name, image))
 }
 
 // BackButton creates a button going back in r's history, disabled at its
 // start, as in the toolbar of Finder or a browser; a right click lists
 // the pages before, to go back several. ForwardButton goes forward again.
-func BackButton(c Frame, r *Router) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func BackButton(c *Context, r *Router) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreBackButton(_ctx, r) })
+	return wrapElement(coreBackButton(_ctx, r))
 }
 
 // Badge creates a short text in a pill, as a count of unread messages
 // beside a sidebar's item.
-func Badge(c Frame, text string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Badge(c *Context, text string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -645,10 +572,8 @@ func Badge(c Frame, text string) Element {
 }
 
 // Box creates a container that lays its children out in a column.
-func Box(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Box(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -665,22 +590,18 @@ func Box(c Frame) Element {
 //	if ui.Breadcrumbs(c, path, &app.chosen).Label("Path").Changed() {
 //		app.open(path[:app.chosen+1])
 //	}
-func Breadcrumbs(c Frame, items []string, chosen *int) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Breadcrumbs(c *Context, items []string, chosen *int) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreBreadcrumbs(_ctx, items, chosen) })
+	return wrapElement(coreBreadcrumbs(_ctx, items, chosen))
 }
 
 // Button creates a button showing label. Ask Clicked whether it was
 // clicked; give it other content with Children and an empty label.
-func Button(c Frame, label string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Button(c *Context, label string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -691,10 +612,8 @@ func Button(c Frame, label string) Element {
 // children that takes the keyboard focus, and reports Clicked for the
 // pointer, Enter and Space. Style it and give it children; Button is
 // ButtonBase with the theme's look.
-func ButtonBase(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ButtonBase(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -707,25 +626,21 @@ func ButtonBase(c Frame) Element {
 // months, and Home and End go to the first and the last day of the month.
 // Changed reports a new date, which keeps the time of day and location of
 // *date. Assistive technology reads the day chosen as the arrows move.
-func Calendar(c Frame, date *time.Time) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Calendar(c *Context, date *time.Time) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreCalendar(_ctx, date) })
+	return wrapElement(coreCalendar(_ctx, date))
 }
 
 // Checkbox creates a check box toggling *checked, with a label.
-func Checkbox(c Frame, checked *bool, label string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Checkbox(c *Context, checked *bool, label string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreCheckbox(_ctx, checked, label) })
+	return wrapElement(coreCheckbox(_ctx, checked, label))
 }
 
 // CheckboxBase creates a check box without a look: a row that toggles
@@ -733,14 +648,12 @@ func Checkbox(c Frame, checked *bool, label string) Element {
 // Changed reports, and that assistive technology sees as a check box,
 // checked or not. Draw its box from *checked; Checkbox is CheckboxBase
 // with the theme's look.
-func CheckboxBase(c Frame, checked *bool) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func CheckboxBase(c *Context, checked *bool) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreCheckboxBase(_ctx, checked) })
+	return wrapElement(coreCheckboxBase(_ctx, checked))
 }
 
 // CheckboxGroup creates a check box over the check boxes that fn builds,
@@ -754,16 +667,12 @@ func CheckboxBase(c Frame, checked *bool) Element {
 //		ui.Checkbox(c, &app.mail, "Mail")
 //		ui.Checkbox(c, &app.calendar, "Calendar")
 //	})
-func CheckboxGroup(c Frame, label string, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func CheckboxGroup(c *Context, label string, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreCheckboxGroup(_ctx, label, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreCheckboxGroup(_ctx, label, func() { fn() }))
 }
 
 // Collapsible creates a disclosure, as SwiftUI's DisclosureGroup: label
@@ -774,36 +683,23 @@ func CheckboxGroup(c Frame, label string, fn func(frame Frame)) Element {
 //	ui.Collapsible(c, "Advanced", &app.advanced, func() {
 //		ui.Checkbox(c, &app.verbose, "Verbose logging")
 //	})
-func Collapsible(c Frame, label string, open *bool, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Collapsible(c *Context, label string, open *bool, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreCollapsible(_ctx, label, open, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreCollapsible(_ctx, label, open, func() { fn() }))
 }
 
 // CollapsibleBase creates a collapsible without a look, open while *open:
 // its Trigger, and below it the panel Panel builds. Collapsible is
 // CollapsibleBase with the theme's look.
-func CollapsibleBase(c Frame, open *bool) CollapsibleParts {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func CollapsibleBase(c *Context, open *bool) CollapsibleParts {
+	_ctx := c.build()
 	if _ctx == nil {
 		return CollapsibleParts{}
 	}
-	_box := &partsBox[collapsibleParts]{}
-	_ctx.rt.keepPart(_box)
-	_root := declareNode(_ctx, func(_ctx *context) *node {
-		_value := coreCollapsibleBase(_ctx, open)
-		_box.value = &_value
-		return _box.value.Trigger
-	})
-	return CollapsibleParts{Trigger: _root, raw: weak.Make(_box)}
+	return wrapCollapsibleParts(coreCollapsibleBase(_ctx, open))
 }
 
 // ColorPicker creates a picker of *color, as AppKit's color panel: a
@@ -813,14 +709,12 @@ func CollapsibleBase(c Frame, open *bool) CollapsibleParts {
 // across the square while it has the focus, Up and Down changing the
 // brightness and Left and Right the saturation. Changed reports a new
 // color.
-func ColorPicker(c Frame, color *Color) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ColorPicker(c *Context, color *Color) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreColorPicker(_ctx, color) })
+	return wrapElement(coreColorPicker(_ctx, color))
 }
 
 // ColorWell creates a swatch of *color that opens a ColorPicker below it,
@@ -828,22 +722,18 @@ func ColorPicker(c Frame, color *Color) Element {
 // a click outside closes it. Changed reports a new color. Assistive
 // technology sees a color well whose value is the color in hex; name it
 // with Label.
-func ColorWell(c Frame, color *Color) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ColorWell(c *Context, color *Color) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreColorWell(_ctx, color) })
+	return wrapElement(coreColorWell(_ctx, color))
 }
 
 // Column creates a container that lays its children out from top to
 // bottom, stretched to its width.
-func Column(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Column(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -859,14 +749,12 @@ func Column(c Frame) Element {
 // Label.
 //
 //	ui.Combobox(c, &app.font, fonts).Label("Font")
-func Combobox(c Frame, selected *string, options []string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Combobox(c *Context, selected *string, options []string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreCombobox(_ctx, selected, options) })
+	return wrapElement(coreCombobox(_ctx, selected, options))
 }
 
 // ComboboxBase creates a combobox without a look: a text input editing
@@ -885,7 +773,7 @@ func Combobox(c Frame, selected *string, options []string) Element {
 //			if item.Highlighted() {
 //				item.Background(blue).TextColor(white)
 //			}
-//			item.Children(func(c ui.Frame) { ui.Text(c, f) })
+//			item.Children(func() { ui.Text(c, f) })
 //		}
 //	})
 //	if f, ok := cb.Chosen(); ok {
@@ -893,21 +781,12 @@ func Combobox(c Frame, selected *string, options []string) Element {
 //	}
 //
 // Combobox, Autocomplete and TokenField are built on it.
-func ComboboxBase(c Frame, text *string) ComboboxParts {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ComboboxBase(c *Context, text *string) ComboboxParts {
+	_ctx := c.build()
 	if _ctx == nil {
 		return ComboboxParts{}
 	}
-	_box := &partsBox[comboboxParts]{}
-	_ctx.rt.keepPart(_box)
-	_root := declareNode(_ctx, func(_ctx *context) *node {
-		_value := coreComboboxBase(_ctx, text)
-		_box.value = _value
-		return _box.value.Input
-	})
-	return ComboboxParts{Input: _root, raw: weak.Make(_box)}
+	return wrapComboboxParts(coreComboboxBase(_ctx, text))
 }
 
 // DataDragOver makes e a native destination, as DropData does, and returns
@@ -928,14 +807,12 @@ func DataDragOver(e Element, options transfer.DropOptions) (transfer.Offer, bool
 // click chooses a day, as do the arrows and Enter; Page Up and Page Down,
 // or its buttons, move by months, and Escape closes it. Changed reports a
 // new date, which keeps the time of day and location of *date.
-func DateInput(c Frame, date *time.Time) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func DateInput(c *Context, date *time.Time) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreDateInput(_ctx, date) })
+	return wrapElement(coreDateInput(_ctx, date))
 }
 
 // DialogBase shows a dialog without a look over the window while *open is
@@ -943,26 +820,17 @@ func DateInput(c Frame, date *time.Time) Element {
 // panel, and the panel, and builds the panel's content. Clicking the
 // backdrop or pressing Escape sets *open to false. It returns the panel,
 // or nil while closed; Modal is DialogBase with the theme's look.
-func DialogBase(c Frame, open *bool, fn func(frame Frame, backdrop Element, panel Element)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func DialogBase(c *Context, open *bool, fn func(backdrop Element, panel Element)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreDialogBase(_ctx, open, func(backdrop *node, panel *node) {
-			defer _ctx.rt.flushPending()
-			fn(makeFrame(_ctx), wrapElement(backdrop), wrapElement(panel))
-		})
-	})
+	return wrapElement(coreDialogBase(_ctx, open, func(backdrop *node, panel *node) { fn(wrapElement(backdrop), wrapElement(panel)) }))
 }
 
 // Divider creates a thin line across its row or column.
-func Divider(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Divider(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1028,14 +896,12 @@ func DropData(e Element, options transfer.DropOptions) (transfer.Drop, bool) {
 //			app.rename(row)
 //		}
 //	})
-func EditableText(c Frame, value *string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func EditableText(c *Context, value *string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreEditableText(_ctx, value) })
+	return wrapElement(coreEditableText(_ctx, value))
 }
 
 // Field creates a field: label, above the control that fn builds, or
@@ -1051,16 +917,12 @@ func EditableText(c Frame, value *string) Element {
 //
 // The control is the first element fn builds that takes the focus, or a
 // group of them, such as a RadioGroup.
-func Field(c Frame, label string, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Field(c *Context, label string, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreField(_ctx, label, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreField(_ctx, label, func() { fn() }))
 }
 
 // Fieldset creates a group of the fields that fn builds, under legend,
@@ -1070,16 +932,12 @@ func Field(c Frame, label string, fn func(frame Frame)) Element {
 //	ui.Fieldset(c, "Shipping", func() {
 //		ui.Field(c, "Address", func() { ui.TextInput(c, &app.address) })
 //	})
-func Fieldset(c Frame, legend string, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Fieldset(c *Context, legend string, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreFieldset(_ctx, legend, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreFieldset(_ctx, legend, func() { fn() }))
 }
 
 // FindBar creates a bar for finding text while *open is true, as Safari's
@@ -1092,14 +950,12 @@ func Fieldset(c Frame, legend string, fn func(frame Frame)) Element {
 // *current, which Changed reports moving. Assistive technology hears the
 // count as it changes. While closed, it returns an element showing
 // nothing.
-func FindBar(c Frame, open *bool, query *string, matches int, current *int) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func FindBar(c *Context, open *bool, query *string, matches int, current *int) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreFindBar(_ctx, open, query, matches, current) })
+	return wrapElement(coreFindBar(_ctx, open, query, matches, current))
 }
 
 // Form creates a column of the fields that fn builds (Field, Fieldset),
@@ -1111,28 +967,22 @@ func FindBar(c Frame, open *bool, query *string, matches int, current *int) Elem
 //		ui.Field(c, "Name", func() { ui.TextInput(c, &app.name) })
 //		ui.Field(c, "Size", func() { ui.Select(c, &app.size, sizes) })
 //	})
-func Form(c Frame, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Form(c *Context, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreForm(_ctx, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreForm(_ctx, func() { fn() }))
 }
 
 // ForwardButton creates a button going forward in r's history, as
 // BackButton goes back.
-func ForwardButton(c Frame, r *Router) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ForwardButton(c *Context, r *Router) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreForwardButton(_ctx, r) })
+	return wrapElement(coreForwardButton(_ctx, r))
 }
 
 // Grid creates a grid: its children fill its cells row by row, or go where
@@ -1140,15 +990,13 @@ func ForwardButton(c Frame, r *Router) Element {
 // RowSpan rows. Columns and ColumnTracks set its columns; it adds rows as
 // its children need them.
 //
-//	ui.Grid(c).Columns(3).Gap(12).Children(func(c ui.Frame) {
+//	ui.Grid(c).Columns(3).Gap(12).Children(func() {
 //		for _, p := range photos {
 //			ui.Image(c, p).AspectRatio(1).Fit(ui.Cover)
 //		}
 //	})
-func Grid(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Grid(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1170,16 +1018,12 @@ func Grid(c Frame) Element {
 //	ui.GridView(c, &app.photos, len(photos), 140, 120, func(i int) {
 //		ui.Image(c, thumbs[i]).Fit(ui.Contain).Grow(1)
 //	}).Grow(1)
-func GridView(c Frame, s *GridState, n int, minWidth float32, height float32, item func(frame Frame, i int)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func GridView(c *Context, s *GridState, n int, minWidth float32, height float32, item func(i int)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreGridView(_ctx, s, n, minWidth, height, func(i int) { defer _ctx.rt.flushPending(); item(makeFrame(_ctx), i) })
-	})
+	return wrapElement(coreGridView(_ctx, s, n, minWidth, height, func(i int) { item(i) }))
 }
 
 // Icon creates an element showing an SVG as an icon: its shapes in the
@@ -1189,14 +1033,12 @@ func GridView(c Frame, s *GridState, n int, minWidth float32, height float32, it
 // does not stretch across a column. Icons are decorations that assistive
 // technology does not see, unless Label names them.
 //
-//	ui.Row(c).Gap(6).Children(func(c ui.Frame) {
+//	ui.Row(c).Gap(6).Children(func() {
 //		ui.Icon(c, save)
 //		ui.Text(c, "Save")
 //	})
-func Icon(c Frame, s *SVG) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Icon(c *Context, s *SVG) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1206,10 +1048,8 @@ func Icon(c Frame, s *SVG) Element {
 // Image creates an element showing a bitmap, or an SVG in its own colors
 // (with the text color for its currentColor), by default at its size as
 // DIPs, scaled to fit when given another size.
-func Image(c Frame, src ImageSource) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Image(c *Context, src ImageSource) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1221,14 +1061,12 @@ func Image(c Frame, src ImageSource) Element {
 // scheme, as "/notes/42" or "edit", goes there in the router (Push).
 // Inside a RichText it is a link within the paragraph; give it an empty
 // label and Children to style parts of its text.
-func Link(c Frame, label string, url string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Link(c *Context, label string, url string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreLink(_ctx, label, url) })
+	return wrapElement(coreLink(_ctx, label, url))
 }
 
 // Local returns state of type T that element e keeps from frame to frame,
@@ -1255,14 +1093,12 @@ func Local[T any](e Element, key any, init func() T) *T {
 //			}
 //		}
 //	})
-func MenuButton(c Frame, label string, build func(m *Menu)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func MenuButton(c *Context, label string, build func(m *Menu)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreMenuButton(_ctx, label, func(m *Menu) { build(m) }) })
+	return wrapElement(coreMenuButton(_ctx, label, func(m *Menu) { build(m) }))
 }
 
 // Meter creates a bar showing value between lo and hi, as AppKit's level
@@ -1271,10 +1107,8 @@ func MenuButton(c Frame, label string, build func(m *Menu)) Element {
 // level indicator of that value; name it with Label.
 //
 //	ui.Meter(c, app.disk.Used, 0, app.disk.Size, &ui.MeterLevels{Warning: 0.8 * size, Critical: 0.95 * size}).Label("Disk")
-func Meter(c Frame, value float64, lo float64, hi float64, levels *MeterLevels) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Meter(c *Context, value float64, lo float64, hi float64, levels *MeterLevels) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1283,23 +1117,19 @@ func Meter(c Frame, value float64, lo float64, hi float64, levels *MeterLevels) 
 
 // Modal shows a dialog built by fn over a dimmed window while *open is
 // true; clicking outside it or pressing Escape sets *open to false.
-func Modal(c Frame, open *bool, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Modal(c *Context, open *bool, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreModal(_ctx, open, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreModal(_ctx, open, func() { fn() }))
 }
 
 // NewTester starts testing view in a window of width×height DIPs. Two
 // elements given one key under one parent make it panic where the second
 // was given, as apps only log it.
-func NewTester(view func(c Frame), width int, height int) *Tester {
-	return coreNewTester(func(c *context) { view(makeFrame(c)) }, width, height)
+func NewTester(view func(c *Context), width int, height int) *Tester {
+	return coreNewTester(func(c *context) { view(makeContext(c)) }, width, height)
 }
 
 // NumberInput creates a text input editing *value as a number between lo
@@ -1309,14 +1139,12 @@ func NewTester(view func(c Frame), width int, height int) *Tester {
 // Changed reports a new value.
 //
 //	ui.NumberInput(c, &app.copies, 1, 99, 1)
-func NumberInput(c Frame, value *float64, lo float64, hi float64, step float64) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func NumberInput(c *Context, value *float64, lo float64, hi float64, step float64) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreNumberInput(_ctx, value, lo, hi, step) })
+	return wrapElement(coreNumberInput(_ctx, value, lo, hi, step))
 }
 
 // Outline creates a list of items in a tree, as AppKit's outline view and
@@ -1339,16 +1167,12 @@ func NumberInput(c Frame, value *float64, lo float64, hi float64, step float64) 
 //	}, func(path string) {
 //		ui.Text(c, filepath.Base(path))
 //	}).Grow(1)
-func Outline[K comparable](c Frame, s *OutlineState[K], roots []K, children func(arg0 K) []K, row func(frame Frame, item K)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Outline[K comparable](c *Context, s *OutlineState[K], roots []K, children func(arg0 K) []K, row func(item K)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreOutline[K](_ctx, s, roots, func(a0 K) []K { return children(a0) }, func(item K) { defer _ctx.rt.flushPending(); row(makeFrame(_ctx), item) })
-	})
+	return wrapElement(coreOutline[K](_ctx, s, roots, func(a0 K) []K { return children(a0) }, func(item K) { row(item) }))
 }
 
 // OutlineTable creates an outline whose rows are a Table's, as AppKit's
@@ -1364,44 +1188,34 @@ func Outline[K comparable](c Frame, s *OutlineState[K], roots []K, children func
 //			ui.Text(c, app.size(path))
 //		}
 //	})
-func OutlineTable[K comparable](c Frame, s *OutlineState[K], columns []TableColumn, roots []K, children func(arg0 K) []K, cell func(frame Frame, item K, col int)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func OutlineTable[K comparable](c *Context, s *OutlineState[K], columns []TableColumn, roots []K, children func(arg0 K) []K, cell func(item K, col int)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreOutlineTable[K](_ctx, s, columns, roots, func(a0 K) []K { return children(a0) }, func(item K, col int) { defer _ctx.rt.flushPending(); cell(makeFrame(_ctx), item, col) })
-	})
+	return wrapElement(coreOutlineTable[K](_ctx, s, columns, roots, func(a0 K) []K { return children(a0) }, func(item K, col int) { cell(item, col) }))
 }
 
 // Overlay builds fn's elements above the rest of the window. Place them
 // with Absolute, Left and Top, in DIPs relative to the window, or beside
 // another element with AttachTo. Each, as it goes with the focus in it,
 // gives the focus back to the element that had it as it came.
-func Overlay(c Frame, fn func(frame Frame)) {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Overlay(c *Context, fn func()) {
+	_ctx := c.build()
 	if _ctx == nil {
 		return
 	}
-	coreOverlay(_ctx, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
+	coreOverlay(_ctx, func() { fn() })
 }
 
 // Popover shows fn's elements in a panel below anchor while *open is
 // true; clicking outside it or pressing Escape sets *open to false.
-func Popover(c Frame, anchor Element, open *bool, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Popover(c *Context, anchor Element, open *bool, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return corePopover(_ctx, anchor.nodeFor(_ctx.rt), open, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(corePopover(_ctx, anchor.nodeFor(_ctx.rt), open, func() { fn() }))
 }
 
 // PopoverBase shows a panel without a look below anchor while *open is
@@ -1416,23 +1230,17 @@ func Popover(c Frame, anchor Element, open *bool, fn func(frame Frame)) Element 
 //
 // It returns the panel, or nil while closed; Popover is PopoverBase with
 // the theme's look.
-func PopoverBase(c Frame, anchor Element, open *bool, fn func(frame Frame, panel Element)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func PopoverBase(c *Context, anchor Element, open *bool, fn func(panel Element)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return corePopoverBase(_ctx, anchor.nodeFor(_ctx.rt), open, func(panel *node) { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx), wrapElement(panel)) })
-	})
+	return wrapElement(corePopoverBase(_ctx, anchor.nodeFor(_ctx.rt), open, func(panel *node) { fn(wrapElement(panel)) }))
 }
 
 // PrimaryButton creates a button in the accent color, for the main action.
-func PrimaryButton(c Frame, label string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func PrimaryButton(c *Context, label string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1442,10 +1250,8 @@ func PrimaryButton(c Frame, label string) Element {
 // Progress creates a progress bar filled to value between 0 and 1; a
 // negative value shows activity of unknown length. Reverse fills it from
 // the right, for interfaces laid out from right to left.
-func Progress(c Frame, value float64) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Progress(c *Context, value float64) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1454,14 +1260,12 @@ func Progress(c Frame, value float64) Element {
 
 // Radio creates a radio button that selects value into *selected, with a
 // label.
-func Radio[T comparable](c Frame, selected *T, value T, label string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Radio[T comparable](c *Context, selected *T, value T, label string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreRadio[T](_ctx, selected, value, label) })
+	return wrapElement(coreRadio[T](_ctx, selected, value, label))
 }
 
 // RadioBase creates a radio button without a look: a row that selects
@@ -1469,14 +1273,12 @@ func Radio[T comparable](c Frame, selected *T, value T, label string) Element {
 // focus, which Changed reports, and that assistive technology sees as a
 // radio button, on when *selected is value. Radio is RadioBase with the
 // theme's look.
-func RadioBase[T comparable](c Frame, selected *T, value T) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func RadioBase[T comparable](c *Context, selected *T, value T) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreRadioBase[T](_ctx, selected, value) })
+	return wrapElement(coreRadioBase[T](_ctx, selected, value))
 }
 
 // RadioGroup creates a column of the radio buttons that fn builds (Radio,
@@ -1489,16 +1291,12 @@ func RadioBase[T comparable](c Frame, selected *T, value T) Element {
 //			ui.Radio(c, &app.size, size, size)
 //		}
 //	}).Label("Size")
-func RadioGroup(c Frame, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func RadioGroup(c *Context, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreRadioGroup(_ctx, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreRadioGroup(_ctx, func() { fn() }))
 }
 
 // RangeSlider creates a slider of two knobs setting *low and *high between
@@ -1508,14 +1306,12 @@ func RadioGroup(c Frame, fn func(frame Frame)) Element {
 // the values to lo and multiples of step from it, with tick marks. Changed
 // reports a new value. Assistive technology sees two sliders, named by
 // the RangeSlider's Label and "minimum" and "maximum".
-func RangeSlider(c Frame, low *float64, high *float64, lo float64, hi float64, step float64) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func RangeSlider(c *Context, low *float64, high *float64, lo float64, hi float64, step float64) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreRangeSlider(_ctx, low, high, lo, hi, step) })
+	return wrapElement(coreRangeSlider(_ctx, low, high, lo, hi, step))
 }
 
 // Rating creates a row of max stars, as AppKit's rating level indicator,
@@ -1523,20 +1319,18 @@ func RangeSlider(c Frame, low *float64, high *float64, lo float64, hi float64, s
 // star set clears it, and the arrows, Home and End change it while the
 // rating has the focus. Changed reports a new value. Assistive technology
 // sees a slider from 0 to max; name it with Label.
-func Rating(c Frame, value *int, max int) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Rating(c *Context, value *int, max int) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreRating(_ctx, value, max) })
+	return wrapElement(coreRating(_ctx, value, max))
 }
 
 // Render draws a frame of view in a window of width×height DIPs at scale
 // device pixels per DIP, without a window: for snapshots and tests.
-func Render(view func(c Frame), width int, height int, scale float32) *image.RGBA {
-	return coreRender(func(c *context) { view(makeFrame(c)) }, width, height, scale)
+func Render(view func(c *Context), width int, height int, scale float32) *image.RGBA {
+	return coreRender(func(c *context) { view(makeContext(c)) }, width, height, scale)
 }
 
 // RichText creates a text whose spans differ in style, over the style of
@@ -1557,7 +1351,7 @@ func Render(view func(c Frame), width int, height int, scale float32) *image.RGB
 // Hovered, the focus, a Tooltip, assistive technology) with its words as
 // its area. A link in a sentence:
 //
-//	ui.RichText(c).Children(func(c ui.Frame) {
+//	ui.RichText(c).Children(func() {
 //		ui.Text(c, "Read ")
 //		ui.Link(c, "the guide", url)
 //		ui.Text(c, " to get started.")
@@ -1565,10 +1359,8 @@ func Render(view func(c Frame), width int, height int, scale float32) *image.RGB
 //
 // Only text elements go inside a text, and their sizes, padding, borders
 // and corners do not apply; a background highlights their text.
-func RichText(c Frame, spans ...Span) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func RichText(c *Context, spans ...Span) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1577,10 +1369,8 @@ func RichText(c Frame, spans ...Span) Element {
 
 // Row creates a container that lays its children out from left to right,
 // centered vertically.
-func Row(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Row(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1589,10 +1379,8 @@ func Row(c Frame) Element {
 
 // Scroll creates a container that scrolls its children vertically. Give
 // it a size, or Grow it within its parent.
-func Scroll(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Scroll(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1602,10 +1390,8 @@ func Scroll(c Frame) Element {
 // ScrollBoth creates a container that scrolls its children both ways, as
 // a canvas, a wide table or code does. Give it a size, or Grow it within
 // its parent.
-func ScrollBoth(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ScrollBoth(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1613,10 +1399,8 @@ func ScrollBoth(c Frame) Element {
 }
 
 // ScrollHorizontal creates a row that scrolls its children horizontally.
-func ScrollHorizontal(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ScrollHorizontal(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1632,14 +1416,12 @@ func ScrollHorizontal(c Frame) Element {
 //	if ui.SearchField(c, &app.query).Label("Search mail").Changed() {
 //		app.filter()
 //	}
-func SearchField(c Frame, query *string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func SearchField(c *Context, query *string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreSearchField(_ctx, query) })
+	return wrapElement(coreSearchField(_ctx, query))
 }
 
 // Segmented creates a segmented control showing labels, of which
@@ -1649,14 +1431,12 @@ func SearchField(c Frame, query *string) Element {
 // name it with Label. For icons, build the segments with SegmentedBase.
 //
 //	ui.Segmented(c, &app.view, "List", "Grid").Label("View")
-func Segmented(c Frame, selected *int, labels ...string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Segmented(c *Context, selected *int, labels ...string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreSegmented(_ctx, selected, labels...) })
+	return wrapElement(coreSegmented(_ctx, selected, labels...))
 }
 
 // SegmentedBase creates a segmented control of n segments without a look,
@@ -1664,32 +1444,21 @@ func Segmented(c Frame, selected *int, labels ...string) Element {
 // RadioGroup) whose radio buttons are the segments, built in Track with
 // Segment. Track's Changed reports a new choice. Segmented is
 // SegmentedBase with the theme's look.
-func SegmentedBase(c Frame, selected *int, n int) SegmentedParts {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func SegmentedBase(c *Context, selected *int, n int) SegmentedParts {
+	_ctx := c.build()
 	if _ctx == nil {
 		return SegmentedParts{}
 	}
-	_box := &partsBox[segmentedParts]{}
-	_ctx.rt.keepPart(_box)
-	_root := declareNode(_ctx, func(_ctx *context) *node {
-		_value := coreSegmentedBase(_ctx, selected, n)
-		_box.value = &_value
-		return _box.value.Track
-	})
-	return SegmentedParts{Track: _root, raw: weak.Make(_box)}
+	return wrapSegmentedParts(coreSegmentedBase(_ctx, selected, n))
 }
 
 // Select creates a drop-down choosing one of options into *selected.
-func Select(c Frame, selected *string, options []string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Select(c *Context, selected *string, options []string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreSelect(_ctx, selected, options) })
+	return wrapElement(coreSelect(_ctx, selected, options))
 }
 
 // SelectBase creates a select without a look: a trigger that opens a
@@ -1700,7 +1469,7 @@ func Select(c Frame, selected *string, options []string) Element {
 // build the options in Popup with Item:
 //
 //	sel := ui.SelectBase(c, &app.size)
-//	sel.Trigger.Padding(6, 10).Border(1, gray).Children(func(c ui.Frame) {
+//	sel.Trigger.Padding(6, 10).Border(1, gray).Children(func() {
 //		ui.Text(c, app.size)
 //	})
 //	sel.Popup(func(panel ui.Element) {
@@ -1710,26 +1479,17 @@ func Select(c Frame, selected *string, options []string) Element {
 //			if item.Highlighted() {
 //				item.Background(blue).TextColor(white)
 //			}
-//			item.Children(func(c ui.Frame) { ui.Text(c, size) })
+//			item.Children(func() { ui.Text(c, size) })
 //		}
 //	})
 //
 // Select is SelectBase with the theme's look.
-func SelectBase[T comparable](c Frame, selected *T) SelectParts[T] {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func SelectBase[T comparable](c *Context, selected *T) SelectParts[T] {
+	_ctx := c.build()
 	if _ctx == nil {
 		return SelectParts[T]{}
 	}
-	_box := &partsBox[selectParts[T]]{}
-	_ctx.rt.keepPart(_box)
-	_root := declareNode(_ctx, func(_ctx *context) *node {
-		_value := coreSelectBase[T](_ctx, selected)
-		_box.value = _value
-		return _box.value.Trigger
-	})
-	return SelectParts[T]{Trigger: _root, raw: weak.Make(_box)}
+	return wrapSelectParts[T](coreSelectBase[T](_ctx, selected))
 }
 
 // Sidebar creates a sidebar of the sections and the items that fn builds
@@ -1741,7 +1501,7 @@ func SelectBase[T comparable](c Frame, selected *T) SelectParts[T] {
 //
 //	ui.Sidebar(c, &app.mailbox, func() {
 //		ui.SidebarSection(c, "Mailboxes", &app.mailboxes, func() {
-//			ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func(c ui.Frame) {
+//			ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func() {
 //				ui.Badge(c, "12")
 //			})
 //			ui.SidebarItem(c, "sent", sentIcon, "Sent")
@@ -1749,55 +1509,43 @@ func SelectBase[T comparable](c Frame, selected *T) SelectParts[T] {
 //	}).Width(220)
 //
 // Assistive technology sees a tree, whose sections hold their items.
-func Sidebar(c Frame, selected *string, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Sidebar(c *Context, selected *string, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreSidebar(_ctx, selected, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreSidebar(_ctx, selected, func() { fn() }))
 }
 
 // SidebarItem creates an item of a Sidebar choosing id, showing label
 // after icon, nil for none. Add to it with Children, as a Badge.
-func SidebarItem(c Frame, id string, icon *SVG, label string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func SidebarItem(c *Context, id string, icon *SVG, label string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreSidebarItem(_ctx, id, icon, label) })
+	return wrapElement(coreSidebarItem(_ctx, id, icon, label))
 }
 
 // SidebarSection creates a section of a Sidebar under title, holding the
 // items fn builds while *open is true, as Finder's: a click on the title
 // shows and hides them, as does its arrow, which shows as the pointer
 // rests on the title. A nil open keeps the section open.
-func SidebarSection(c Frame, title string, open *bool, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func SidebarSection(c *Context, title string, open *bool, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreSidebarSection(_ctx, title, open, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreSidebarSection(_ctx, title, open, func() { fn() }))
 }
 
 // Slider creates a slider setting *value between lo and hi.
-func Slider(c Frame, value *float64, lo float64, hi float64) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Slider(c *Context, value *float64, lo float64, hi float64) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreSlider(_ctx, value, lo, hi) })
+	return wrapElement(coreSlider(_ctx, value, lo, hi))
 }
 
 // SliderBase creates a slider without a look: dragging across its
@@ -1817,22 +1565,18 @@ func Slider(c Frame, value *float64, lo float64, hi float64) Element {
 //
 // Vertical makes it go up from lo at the bottom. Slider is SliderBase with
 // the theme's look.
-func SliderBase(c Frame, value *float64, lo float64, hi float64) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func SliderBase(c *Context, value *float64, lo float64, hi float64) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreSliderBase(_ctx, value, lo, hi) })
+	return wrapElement(coreSliderBase(_ctx, value, lo, hi))
 }
 
 // Spacer creates an empty element that takes the free space of its row or
 // column, pushing its siblings apart.
-func Spacer(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Spacer(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1843,10 +1587,8 @@ func Spacer(c Frame) Element {
 // spinning progress indicator: spokes turning, as high as the font size.
 // Assistive technology sees a progress indicator of unknown length; name
 // it with Label.
-func Spinner(c Frame) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Spinner(c *Context) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -1859,42 +1601,32 @@ func Spinner(c Frame) Element {
 // divider keeps 40 DIPs from either edge. Changed reports a move.
 //
 //	ui.Split(c, &app.sidebar, app.files, app.editor).Fill()
-func Split(c Frame, size *float32, first func(frame Frame), second func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Split(c *Context, size *float32, first func(), second func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreSplit(_ctx, size, func() { defer _ctx.rt.flushPending(); first(makeFrame(_ctx)) }, func() { defer _ctx.rt.flushPending(); second(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreSplit(_ctx, size, func() { first() }, func() { second() }))
 }
 
 // SplitVertical is Split with first above second, *size its height.
-func SplitVertical(c Frame, size *float32, first func(frame Frame), second func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func SplitVertical(c *Context, size *float32, first func(), second func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreSplitVertical(_ctx, size, func() { defer _ctx.rt.flushPending(); first(makeFrame(_ctx)) }, func() { defer _ctx.rt.flushPending(); second(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreSplitVertical(_ctx, size, func() { first() }, func() { second() }))
 }
 
 // StepSlider creates a slider setting *value to lo or a multiple of step
 // from it, up to hi, with a tick mark at each, as AppKit's sliders with
 // tick marks: dragging snaps to them, and the arrows step by step.
-func StepSlider(c Frame, value *float64, lo float64, hi float64, step float64) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func StepSlider(c *Context, value *float64, lo float64, hi float64, step float64) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreStepSlider(_ctx, value, lo, hi, step) })
+	return wrapElement(coreStepSlider(_ctx, value, lo, hi, step))
 }
 
 // Stepper creates a pair of arrows changing *value by step between lo and
@@ -1902,38 +1634,32 @@ func StepSlider(c Frame, value *float64, lo float64, hi float64, step float64) E
 // down, as do Up and Down while the stepper has the focus, and holding an
 // arrow keeps stepping. Changed reports a new value. Assistive technology
 // sees a spin button; name it with Label.
-func Stepper(c Frame, value *float64, lo float64, hi float64, step float64) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Stepper(c *Context, value *float64, lo float64, hi float64, step float64) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreStepper(_ctx, value, lo, hi, step) })
+	return wrapElement(coreStepper(_ctx, value, lo, hi, step))
 }
 
 // Switch creates a switch toggling *on.
-func Switch(c Frame, on *bool) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Switch(c *Context, on *bool) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreSwitch(_ctx, on) })
+	return wrapElement(coreSwitch(_ctx, on))
 }
 
 // SwitchBase creates a switch without a look: CheckboxBase, which
 // assistive technology sees as a switch. Switch is SwitchBase with the
 // theme's look.
-func SwitchBase(c Frame, on *bool) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func SwitchBase(c *Context, on *bool) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreSwitchBase(_ctx, on) })
+	return wrapElement(coreSwitchBase(_ctx, on))
 }
 
 // Table creates a table of n rows under a header of columns, whose rows
@@ -1967,16 +1693,12 @@ func SwitchBase(c Frame, on *bool) Element {
 //	}).Grow(1).Submitted() {
 //		app.open(files[app.file])
 //	}
-func Table(c Frame, s *ListState, columns []TableColumn, n int, cell func(frame Frame, row int, col int)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Table(c *Context, s *ListState, columns []TableColumn, n int, cell func(row int, col int)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreTable(_ctx, s, columns, n, func(row int, col int) { defer _ctx.rt.flushPending(); cell(makeFrame(_ctx), row, col) })
-	})
+	return wrapElement(coreTable(_ctx, s, columns, n, func(row int, col int) { cell(row, col) }))
 }
 
 // Tabs creates a row of tabs showing labels, of which *selected is the
@@ -1991,14 +1713,12 @@ func Table(c Frame, s *ListState, columns []TableColumn, n int, cell func(frame 
 //	}
 //
 // Changed reports a new choice.
-func Tabs(c Frame, selected *int, labels ...string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Tabs(c *Context, selected *int, labels ...string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTabs(_ctx, selected, labels...) })
+	return wrapElement(coreTabs(_ctx, selected, labels...))
 }
 
 // TabsBase creates a list of n tabs without a look, of which *selected is
@@ -2008,39 +1728,28 @@ func Tabs(c Frame, selected *int, labels ...string) Element {
 // with Tab:
 //
 //	tabs := ui.TabsBase(c, &app.tab, len(names))
-//	tabs.List.Gap(4).Children(func(c ui.Frame) {
+//	tabs.List.Gap(4).Children(func() {
 //		for i, name := range names {
 //			tab := tabs.Tab(i).Padding(6, 12).Radius(6)
 //			if i == app.tab {
 //				tab.Background(c.Theme().Surface)
 //			}
-//			tab.Children(func(c ui.Frame) { ui.Text(c, name) })
+//			tab.Children(func() { ui.Text(c, name) })
 //		}
 //	})
 //
 // Tabs is TabsBase with the theme's look.
-func TabsBase(c Frame, selected *int, n int) TabsParts {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TabsBase(c *Context, selected *int, n int) TabsParts {
+	_ctx := c.build()
 	if _ctx == nil {
 		return TabsParts{}
 	}
-	_box := &partsBox[tabsParts]{}
-	_ctx.rt.keepPart(_box)
-	_root := declareNode(_ctx, func(_ctx *context) *node {
-		_value := coreTabsBase(_ctx, selected, n)
-		_box.value = &_value
-		return _box.value.List
-	})
-	return TabsParts{List: _root, raw: weak.Make(_box)}
+	return wrapTabsParts(coreTabsBase(_ctx, selected, n))
 }
 
 // Text creates a text, which wraps at the width it gets.
-func Text(c Frame, s string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Text(c *Context, s string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -2048,103 +1757,85 @@ func Text(c Frame, s string) Element {
 }
 
 // TextArea creates a multi-line text input editing *value.
-func TextArea(c Frame, value *string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TextArea(c *Context, value *string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTextArea(_ctx, value) })
+	return wrapElement(coreTextArea(_ctx, value))
 }
 
 // TextAreaBase creates a multi-line text input without a look, editing
 // *value: TextArea without its padding, background, border and corners.
-func TextAreaBase(c Frame, value *string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TextAreaBase(c *Context, value *string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTextAreaBase(_ctx, value) })
+	return wrapElement(coreTextAreaBase(_ctx, value))
 }
 
 // TextAreaBuffer creates a multiline control editing indexed storage.
 // Ordinary edits and native queries never materialize the whole document.
 // Layout retains the paragraphs in view, as TextArea does.
-func TextAreaBuffer(c Frame, value *TextBuffer) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TextAreaBuffer(c *Context, value *TextBuffer) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTextAreaBuffer(_ctx, value) })
+	return wrapElement(coreTextAreaBuffer(_ctx, value))
 }
 
-func TextAreaBufferBase(c Frame, value *TextBuffer) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TextAreaBufferBase(c *Context, value *TextBuffer) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTextAreaBufferBase(_ctx, value) })
+	return wrapElement(coreTextAreaBufferBase(_ctx, value))
 }
 
 // TextInput creates a single-line text input editing *value.
-func TextInput(c Frame, value *string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TextInput(c *Context, value *string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTextInput(_ctx, value) })
+	return wrapElement(coreTextInput(_ctx, value))
 }
 
 // TextInputBase creates a single-line text input without a look, editing
 // *value: TextInput without its padding, background, border and
 // corners.
-func TextInputBase(c Frame, value *string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TextInputBase(c *Context, value *string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTextInputBase(_ctx, value) })
+	return wrapElement(coreTextInputBase(_ctx, value))
 }
 
 // TextInputBuffer creates a single-line control editing indexed storage.
 // It shares TextInput's selection, composition, undo and styling behavior.
-func TextInputBuffer(c Frame, value *TextBuffer) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TextInputBuffer(c *Context, value *TextBuffer) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTextInputBuffer(_ctx, value) })
+	return wrapElement(coreTextInputBuffer(_ctx, value))
 }
 
 // TextInputBufferBase and TextAreaBufferBase are the unstyled buffer controls.
-func TextInputBufferBase(c Frame, value *TextBuffer) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TextInputBufferBase(c *Context, value *TextBuffer) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTextInputBufferBase(_ctx, value) })
+	return wrapElement(coreTextInputBufferBase(_ctx, value))
 }
 
 // Textf creates a text formatted with fmt.Sprintf.
-func Textf(c Frame, format string, args ...any) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Textf(c *Context, format string, args ...any) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
@@ -2160,33 +1851,22 @@ func Textf(c Frame, format string, args ...any) Element {
 // buttons, named after the field's Label and "hours" and "minutes".
 //
 //	ui.TimeInput(c, &app.alarm).Label("Alarm")
-func TimeInput(c Frame, tm *time.Time) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TimeInput(c *Context, tm *time.Time) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTimeInput(_ctx, tm) })
+	return wrapElement(coreTimeInput(_ctx, tm))
 }
 
 // ToastBase creates the toast t without a look, in the viewport of
 // ToastViewportBase.
-func ToastBase(c Frame, t Toast) ToastParts {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ToastBase(c *Context, t Toast) ToastParts {
+	_ctx := c.build()
 	if _ctx == nil {
 		return ToastParts{}
 	}
-	_box := &partsBox[toastParts]{}
-	_ctx.rt.keepPart(_box)
-	_root := declareNode(_ctx, func(_ctx *context) *node {
-		_value := coreToastBase(_ctx, t)
-		_box.value = &_value
-		return _box.value.Root
-	})
-	return ToastParts{Root: _root, raw: weak.Make(_box)}
+	return wrapToastParts(coreToastBase(_ctx, t))
 }
 
 // ToastViewportBase builds the window's toasts without a look, in place of
@@ -2201,9 +1881,9 @@ func ToastBase(c Frame, t Toast) ToastParts {
 //		for _, t := range toasts {
 //			toast := ui.ToastBase(c, t)
 //			toast.Root.Row().Gap(12).Padding(10, 14).Radius(8).Background(surface)
-//			toast.Root.Children(func(c ui.Frame) {
+//			toast.Root.Children(func() {
 //				ui.Text(c, t.Title).Grow(1)
-//				toast.CloseButton().Label("Close").Children(func(c ui.Frame) { ui.Icon(c, x) })
+//				toast.CloseButton().Label("Close").Children(func() { ui.Icon(c, x) })
 //			})
 //		}
 //	})
@@ -2212,19 +1892,12 @@ func ToastBase(c Frame, t Toast) ToastParts {
 // keyboard focus is in it, or the window is in the background. viewport
 // stays while no toast shows, for the last one to go with an exit
 // transition. It returns viewport.
-func ToastViewportBase(c Frame, fn func(frame Frame, viewport Element, toasts []Toast)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ToastViewportBase(c *Context, fn func(viewport Element, toasts []Toast)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreToastViewportBase(_ctx, func(viewport *node, toasts []Toast) {
-			defer _ctx.rt.flushPending()
-			fn(makeFrame(_ctx), wrapElement(viewport), toasts)
-		})
-	})
+	return wrapElement(coreToastViewportBase(_ctx, func(viewport *node, toasts []Toast) { fn(wrapElement(viewport), toasts) }))
 }
 
 // Toggle creates a button that stays pressed while *on, as Bold in an
@@ -2233,29 +1906,25 @@ func ToastViewportBase(c Frame, fn func(frame Frame, viewport Element, toasts []
 // such as an icon, with Children and an empty label, and name it with
 // Label:
 //
-//	ui.Toggle(c, &app.bold, "").Label("Bold").Children(func(c ui.Frame) { ui.Icon(c, boldIcon) })
-func Toggle(c Frame, on *bool, label string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+//	ui.Toggle(c, &app.bold, "").Label("Bold").Children(func() { ui.Icon(c, boldIcon) })
+func Toggle(c *Context, on *bool, label string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreToggle(_ctx, on, label) })
+	return wrapElement(coreToggle(_ctx, on, label))
 }
 
 // ToggleBase creates a toggle button without a look: a row that turns *on
 // over when clicked, or with Space while it has the focus, which Changed
 // reports, and that assistive technology sees as a toggle button, pressed
 // while *on. Toggle is ToggleBase with the theme's look.
-func ToggleBase(c Frame, on *bool) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ToggleBase(c *Context, on *bool) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreToggleBase(_ctx, on) })
+	return wrapElement(coreToggleBase(_ctx, on))
 }
 
 // ToggleGroup creates a row of the toggles and buttons that fn builds,
@@ -2267,16 +1936,12 @@ func ToggleBase(c Frame, on *bool) Element {
 //		ui.Toggle(c, &app.bold, "B")
 //		ui.Toggle(c, &app.italic, "I")
 //	}).Label("Style")
-func ToggleGroup(c Frame, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func ToggleGroup(c *Context, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreToggleGroup(_ctx, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreToggleGroup(_ctx, func() { fn() }))
 }
 
 // TokenField creates a field of tokens, as of tags or the recipients of a
@@ -2288,14 +1953,12 @@ func ToggleGroup(c Frame, fn func(frame Frame)) Element {
 // with Label.
 //
 //	ui.TokenField(c, &app.tags, allTags).Label("Tags")
-func TokenField(c Frame, tokens *[]string, suggestions []string) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TokenField(c *Context, tokens *[]string, suggestions []string) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node { return coreTokenField(_ctx, tokens, suggestions) })
+	return wrapElement(coreTokenField(_ctx, tokens, suggestions))
 }
 
 // Toolbar creates a row of the controls that fn builds, as along the top
@@ -2317,16 +1980,12 @@ func TokenField(c Frame, tokens *[]string, suggestions []string) Element {
 //			app.share()
 //		}
 //	}).Label("Format")
-func Toolbar(c Frame, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Toolbar(c *Context, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreToolbar(_ctx, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreToolbar(_ctx, func() { fn() }))
 }
 
 // TooltipBase shows a tip without a look by anchor: fn styles the tip and
@@ -2344,23 +2003,19 @@ func Toolbar(c Frame, fn func(frame Frame)) Element {
 //	ui.TooltipBase(c, b, func(tip ui.Element) {
 //		tip.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 6)
 //		tip.Padding(4, 8).Radius(6).Background(dark).TextColor(light)
-//		tip.Children(func(c ui.Frame) { ui.Text(c, "Share") })
+//		tip.Children(func() { ui.Text(c, "Share") })
 //	})
 //
 // The pointer goes through the tip, and assistive technology sees it as a
 // tooltip, which it does not read: give anchor a Description to tell what
 // the tip does. It returns the tip, or nil while it does not show;
 // Element.Tooltip is TooltipBase with the theme's look.
-func TooltipBase(c Frame, anchor Element, fn func(frame Frame, tip Element)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TooltipBase(c *Context, anchor Element, fn func(tip Element)) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreTooltipBase(_ctx, anchor.nodeFor(_ctx.rt), func(tip *node) { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx), wrapElement(tip)) })
-	})
+	return wrapElement(coreTooltipBase(_ctx, anchor.nodeFor(_ctx.rt), func(tip *node) { fn(wrapElement(tip)) }))
 }
 
 // Tree creates a tree, whose items TreeItem builds in fn. While an item
@@ -2374,16 +2029,12 @@ func TooltipBase(c Frame, anchor Element, fn func(frame Frame, tip Element)) Ele
 //		})
 //		ui.TreeItem(c, "go.mod", nil, nil)
 //	})
-func Tree(c Frame, fn func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func Tree(c *Context, fn func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreTree(_ctx, func() { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreTree(_ctx, func() { fn() }))
 }
 
 // TreeItem creates an item of a Tree showing label, inside the item it is
@@ -2391,16 +2042,12 @@ func Tree(c Frame, fn func(frame Frame)) Element {
 // is true; nil children, or a nil open, makes a leaf. A click on its arrow
 // opens or closes it; Clicked reports a click elsewhere on it, or Enter,
 // for choosing it, which Selected shows.
-func TreeItem(c Frame, label string, open *bool, children func(frame Frame)) Element {
-	_scope := c.enter()
-	defer _scope.leave()
-	_ctx := _scope.c
+func TreeItem(c *Context, label string, open *bool, children func()) Element {
+	_ctx := c.build()
 	if _ctx == nil {
 		return Element{}
 	}
-	return declareNode(_ctx, func(_ctx *context) *node {
-		return coreTreeItem(_ctx, label, open, func() { defer _ctx.rt.flushPending(); children(makeFrame(_ctx)) })
-	})
+	return wrapElement(coreTreeItem(_ctx, label, open, func() { children() }))
 }
 
 // View returns the content of a window whose user interface view builds,
@@ -2409,11 +2056,11 @@ func TreeItem(c Frame, label string, open *bool, children func(frame Frame)) Ele
 //	mygo.NewWindow(mygo.WindowOptions{Title: "Counter", Content: ui.View(app.View)})
 //
 // view runs on the main thread whenever the window needs a frame: after
-// input, after Frame.Invalidate or Window.Invalidate, and while
+// input, after Context.Invalidate or Window.Invalidate, and while
 // something animates. A Content can serve several windows, each with its
 // own state.
-func View(view func(c Frame)) *Content {
-	return coreView(func(c *context) { view(makeFrame(c)) })
+func View(view func(c *Context)) *Content {
+	return coreView(func(c *context) { view(makeContext(c)) })
 }
 
 // Absolute takes the element out of its parent's layout and places it with
@@ -2422,19 +2069,13 @@ func View(view func(c Frame)) *Content {
 // its padding: Top(0) puts the element just below the border, whatever the
 // padding.
 func (_handle Element) Absolute() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Absolute()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagAbsolute
-	}
-	return _handle
+	return wrapElement(_node.Absolute())
 }
 
 // ActiveDescendant tells assistive technology that d has the keyboard
@@ -2442,18 +2083,13 @@ func (_handle Element) Absolute() Element {
 // a menu that keeps the focus itself, as a combobox's input does. Call it
 // once d is built, inside the element or in its popup.
 func (_handle Element) ActiveDescendant(d Element) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.ActiveDescendant(d.nodeFor(_ctx.rt))
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 53
-	}
-	return _handle
+	return wrapElement(_node.ActiveDescendant(d.nodeFor(_ctx.rt)))
 }
 
 // AlignContent places the lines of a wrapping container across its main
@@ -2461,52 +2097,37 @@ func (_handle Element) ActiveDescendant(d Element) Element {
 // Stretch, SpaceBetween, SpaceAround or SpaceEvenly. In a grid it places
 // the rows, which stretch when it is not set.
 func (_handle Element) AlignContent(a Align) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.AlignContent(a)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 26
-	}
-	return _handle
+	return wrapElement(_node.AlignContent(a))
 }
 
 // AlignItems places the children across the main axis.
 func (_handle Element) AlignItems(a Align) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.AlignItems(a)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 24
-	}
-	return _handle
+	return wrapElement(_node.AlignItems(a))
 }
 
 // AlignSelf places the element across its parent's main axis, overriding
 // the parent's AlignItems; in a grid, it places the element in its cell
 // vertically.
 func (_handle Element) AlignSelf(a Align) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.AlignSelf(a)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 25
-	}
-	return _handle
+	return wrapElement(_node.AlignSelf(a))
 }
 
 // Animate returns a value that moves to target over d, easing out, and
@@ -2537,18 +2158,13 @@ func (_handle Element) AnimateWith(key any, target float32, d time.Duration, eas
 
 // AspectRatio makes the height the width divided by r.
 func (_handle Element) AspectRatio(r float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.AspectRatio(r)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 41
-	}
-	return _handle
+	return wrapElement(_node.AspectRatio(r))
 }
 
 // Attach takes the element out of its parent's layout, as Absolute does,
@@ -2559,20 +2175,13 @@ func (_handle Element) AspectRatio(r float32) Element {
 // Right, Bottom and Left then move it from there; the element keeps its
 // own size.
 func (_handle Element) Attach(at Anchor, self Anchor) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Attach(at, self)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[2] |= uint64(1) << 16
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagAbsolute
-	}
-	return _handle
+	return wrapElement(_node.Attach(at, self))
 }
 
 // AttachTo takes the element out of its parent's layout, as Attach does,
@@ -2590,21 +2199,13 @@ func (_handle Element) Attach(at Anchor, self Anchor) Element {
 // moves, and a press on target is not outside it (PressedOutside). Build
 // target before it, in the same frame.
 func (_handle Element) AttachTo(target Element, at Anchor, self Anchor) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.AttachTo(target.nodeFor(_ctx.rt), at, self)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[2] |= uint64(1) << 16
-		_p.mask[0] |= uint64(1) << 10
-		_p.mask[1] |= uint64(1) << 43
-		_p.flags |= flagAbsolute
-	}
-	return _handle
+	return wrapElement(_node.AttachTo(target.nodeFor(_ctx.rt), at, self))
 }
 
 // AutoFocus gives the element the keyboard focus in the frame it appears,
@@ -2621,120 +2222,83 @@ func (_handle Element) AutoFocus() Element {
 
 // Background fills the element, in place of a gradient.
 func (_handle Element) Background(c Color) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Background(c)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 48
-		_p.mask[0] |= uint64(1) << 49
-	}
-	return _handle
+	return wrapElement(_node.Background(c))
 }
 
 // Basis sets the size along the parent's main axis before growing or
 // shrinking.
 func (_handle Element) Basis(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Basis(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 39
-	}
-	return _handle
+	return wrapElement(_node.Basis(v))
 }
 
 // BasisPercent sets the basis as a percentage of the parent's size along
 // its main axis.
 func (_handle Element) BasisPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.BasisPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 39
-	}
-	return _handle
+	return wrapElement(_node.BasisPercent(p))
 }
 
 // Bold sets a bold font weight.
 func (_handle Element) Bold() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Bold()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.Bold())
 }
 
 // Border draws a border of width DIPs inside the element's edges, on every
 // side; BorderWidth sets different widths. As in CSS, the border takes room
 // within the element's size: the padding and the children are inside it.
 func (_handle Element) Border(width float32, c Color) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Border(width, c)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 52
-		_p.mask[0] |= uint64(1) << 53
-	}
-	return _handle
+	return wrapElement(_node.Border(width, c))
 }
 
 // BorderColor sets the color of the border.
 func (_handle Element) BorderColor(c Color) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.BorderColor(c)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 53
-	}
-	return _handle
+	return wrapElement(_node.BorderColor(c))
 }
 
 // BorderStyle sets whether the border is solid, as by default, or dashed.
 func (_handle Element) BorderStyle(s BorderStyle) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.BorderStyle(s)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 54
-	}
-	return _handle
+	return wrapElement(_node.BorderStyle(s))
 }
 
 // BorderWidth sets the widths of the border on each side, CSS style: all
@@ -2743,48 +2307,33 @@ func (_handle Element) BorderStyle(s BorderStyle) Element {
 //
 //	ui.Row(c).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)
 func (_handle Element) BorderWidth(v ...float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.BorderWidth(v...)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 52
-	}
-	return _handle
+	return wrapElement(_node.BorderWidth(v...))
 }
 
 func (_handle Element) Bottom(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Bottom(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 40
-	}
-	return _handle
+	return wrapElement(_node.Bottom(v))
 }
 
 func (_handle Element) BottomPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.BottomPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 40
-	}
-	return _handle
+	return wrapElement(_node.BottomPercent(p))
 }
 
 // Bounds returns the element's box in the previous frame, in DIPs relative
@@ -2801,19 +2350,13 @@ func (_handle Element) Bounds() Rect {
 
 // Center centers the children along and across the main axis.
 func (_handle Element) Center() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Center()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 24
-		_p.mask[0] |= uint64(1) << 23
-	}
-	return _handle
+	return wrapElement(_node.Center())
 }
 
 // Changed reports whether a widget's value changed since the last frame.
@@ -2831,18 +2374,13 @@ func (_handle Element) Changed() bool {
 // switch, radio button, toggle button or menu item of your own, is on.
 // Bases set it from their value.
 func (_handle Element) Checked(on bool) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Checked(on)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 25
-	}
-	return _handle
+	return wrapElement(_node.Checked(on))
 }
 
 // ClickModifiers returns the modifier keys held as the element was last
@@ -2884,138 +2422,94 @@ func (_handle Element) Clicks() int {
 
 // Clip hides what the children draw outside the element.
 func (_handle Element) Clip() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Clip()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagClip
-	}
-	return _handle
+	return wrapElement(_node.Clip())
 }
 
 // ClipX hides what the children draw left and right of the element, and
 // ClipY what they draw above and below it.
 func (_handle Element) ClipX() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.ClipX()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagClipX
-	}
-	return _handle
+	return wrapElement(_node.ClipX())
 }
 
 func (_handle Element) ClipY() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.ClipY()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagClipY
-	}
-	return _handle
+	return wrapElement(_node.ClipY())
 }
 
 // Column lays the children out from top to bottom.
 func (_handle Element) Column() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Column()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 42
-		_p.mask[0] |= uint64(1) << 19
-	}
-	return _handle
+	return wrapElement(_node.Column())
 }
 
 // ColumnSpan makes the element span n columns of its grid, or, for a
 // negative n, every column from its start to the grid's last, as a header
 // across a grid does.
 func (_handle Element) ColumnSpan(n int) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.ColumnSpan(n)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 46
-	}
-	return _handle
+	return wrapElement(_node.ColumnSpan(n))
 }
 
 // ColumnStart puts the element in column n of its grid, counting from 1.
 func (_handle Element) ColumnStart(n int) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.ColumnStart(n)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 46
-	}
-	return _handle
+	return wrapElement(_node.ColumnStart(n))
 }
 
 // ColumnTracks sets the grid's columns, as a sidebar and the rest:
 //
 //	ui.Grid(c).ColumnTracks(ui.Fixed(220), ui.Fr(1))
 func (_handle Element) ColumnTracks(tracks ...Track) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.ColumnTracks(tracks...)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 43
-	}
-	return _handle
+	return wrapElement(_node.ColumnTracks(tracks...))
 }
 
 // Columns gives the grid n columns of equal width, Fr(1) each.
 func (_handle Element) Columns(n int) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Columns(n)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 43
-	}
-	return _handle
+	return wrapElement(_node.Columns(n))
 }
 
 // Composing reports whether an input method composes text in a text
@@ -3032,14 +2526,14 @@ func (_handle Element) Composing() bool {
 	return _node.Composing()
 }
 
-// FrameMenu gives the element a context menu, which build fills with
+// ContextMenu gives the element a context menu, which build fills with
 // items. The system shows it where the element is clicked with the
 // secondary button, or Control-clicked on macOS, and, while the element or
 // one inside it has the focus, below it when the menu key or Shift+F10 is
 // pressed. build runs when the menu opens, and again in the frame after an
 // item was chosen, where the item's Chosen reports it:
 //
-//	row.FrameMenu(func(m *ui.Menu) {
+//	row.ContextMenu(func(m *ui.Menu) {
 //		if m.Item("Rename").Chosen() {
 //			app.renaming = i
 //		}
@@ -3051,11 +2545,11 @@ func (_handle Element) Composing() bool {
 //
 // The innermost element with a context menu gets the click. Text inputs
 // and selectable text have one with their editing commands, which
-// FrameMenu replaces: on a text input, on a selectable text, or on the
+// ContextMenu replaces: on a text input, on a selectable text, or on the
 // Selectable container whose text was clicked. EditItems puts those
 // commands in a menu of one's own:
 //
-//	message.Selectable().FrameMenu(func(m *ui.Menu) {
+//	message.Selectable().ContextMenu(func(m *ui.Menu) {
 //		if m.Item("Reply").Chosen() {
 //			app.reply(msg)
 //		}
@@ -3063,87 +2557,60 @@ func (_handle Element) Composing() bool {
 //		m.EditItems()
 //	})
 func (_handle Element) ContextMenu(build func(m *Menu)) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.ContextMenu(func(m *Menu) { build(m) })
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagContextMenu
-	}
-	return _handle
+	return wrapElement(_node.ContextMenu(func(m *Menu) { build(m) }))
 }
 
 // Cursor sets the pointer's shape over the element.
 func (_handle Element) Cursor(c Cursor) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Cursor(c)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 60
-	}
-	return _handle
+	return wrapElement(_node.Cursor(c))
 }
 
 // Debug outlines the element and every element inside it, with their
 // padding and margins, to see the layout.
 func (_handle Element) Debug() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Debug()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagDebug
-	}
-	return _handle
+	return wrapElement(_node.Debug())
 }
 
 // DecorationColor sets the color of underlines and strikethroughs, which
 // is the text's otherwise.
 func (_handle Element) DecorationColor(c Color) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.DecorationColor(c)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.DecorationColor(c))
 }
 
 // DecorationThickness sets the thickness of underlines and strikethroughs
 // in DIPs, which follows the font size otherwise.
 func (_handle Element) DecorationThickness(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.DecorationThickness(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.DecorationThickness(v))
 }
 
 // Description tells assistive technology more about the element than its
@@ -3162,19 +2629,13 @@ func (_handle Element) Description(s string) Element {
 // Disabled disables the element and those inside it when d is true: they
 // report no clicks, take no focus, and widgets look disabled.
 func (_handle Element) Disabled(d bool) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Disabled(d)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagDisabled
-	}
-	return _handle
+	return wrapElement(_node.Disabled(d))
 }
 
 // Dividers draws a line width DIPs thick in color c between each two
@@ -3250,19 +2711,13 @@ func (_handle Element) DragDataFrom(data func() transfer.Data, options ...transf
 // title bar of a frameless window. A double click on it maximizes the
 // window, as on a title bar.
 func (_handle Element) DragWindow() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.DragWindow()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagDragWindow
-	}
-	return _handle
+	return wrapElement(_node.DragWindow())
 }
 
 // Dragged reports how far the pointer moved since the last frame while
@@ -3292,34 +2747,24 @@ func (_handle Element) Dragging() bool {
 // children; r is its box. fn only paints: it may run more than once a
 // frame.
 func (_handle Element) Draw(fn func(p *Painter, r Rect)) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Draw(func(p *Painter, r Rect) { fn(p, r) })
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 61
-	}
-	return _handle
+	return wrapElement(_node.Draw(func(p *Painter, r Rect) { fn(p, r) }))
 }
 
 // DrawOver paints on the element with p after its children.
 func (_handle Element) DrawOver(fn func(p *Painter, r Rect)) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.DrawOver(func(p *Painter, r Rect) { fn(p, r) })
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 63
-	}
-	return _handle
+	return wrapElement(_node.DrawOver(func(p *Painter, r Rect) { fn(p, r) }))
 }
 
 // DroppedFiles returns the paths of the files dropped on the element since
@@ -3338,18 +2783,13 @@ func (_handle Element) DroppedFiles() []string {
 // Ellipsis sets what ends text that MaxLines or SingleLine cuts, "…" by
 // default.
 func (_handle Element) Ellipsis(s string) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Ellipsis(s)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 16
-	}
-	return _handle
+	return wrapElement(_node.Ellipsis(s))
 }
 
 // Error marks the element's value as not valid, for msg, which assistive
@@ -3369,18 +2809,13 @@ func (_handle Element) Error(msg string) Element {
 // Expanded tells assistive technology whether what the element opens
 // shows, as the popup of a button or the section below a header.
 func (_handle Element) Expanded(open bool) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Expanded(open)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 26
-	}
-	return _handle
+	return wrapElement(_node.Expanded(open))
 }
 
 // FileDragOver reports whether files dragged from another app are over
@@ -3397,84 +2832,58 @@ func (_handle Element) FileDragOver() bool {
 
 // Fill makes the element as large as its parent's content.
 func (_handle Element) Fill() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Fill()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 32
-		_p.mask[0] |= uint64(1) << 31
-	}
-	return _handle
+	return wrapElement(_node.Fill())
 }
 
 // FillHeight makes the element as tall as its parent's content.
 func (_handle Element) FillHeight() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.FillHeight()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 32
-	}
-	return _handle
+	return wrapElement(_node.FillHeight())
 }
 
 // FillWidth makes the element as wide as its parent's content.
 func (_handle Element) FillWidth() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.FillWidth()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 31
-	}
-	return _handle
+	return wrapElement(_node.FillWidth())
 }
 
 // Fit sets how an Image fills its box.
 func (_handle Element) Fit(f Fit) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Fit(f)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 19
-	}
-	return _handle
+	return wrapElement(_node.Fit(f))
 }
 
 // FixedLineHeight sets the height of lines of text in DIPs, whatever the
 // font size, as for rows of text that line up with a grid.
 func (_handle Element) FixedLineHeight(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.FixedLineHeight(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.FixedLineHeight(v))
 }
 
 // Focus gives the element the keyboard focus. Called in every frame, it
@@ -3499,18 +2908,13 @@ func (_handle Element) Focus() Element {
 // that takes those keys itself, as a slider or a text input does, keeps
 // them. Groups inside a group are part of it.
 func (_handle Element) FocusGroup(o Orientation) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.FocusGroup(o)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 48
-	}
-	return _handle
+	return wrapElement(_node.FocusGroup(o))
 }
 
 // FocusRing sets whether MyGo rings the element when it has the keyboard
@@ -3518,19 +2922,13 @@ func (_handle Element) FocusGroup(o Orientation) Element {
 // of themselves instead, as a check box its box, turn it off and draw
 // their own with Painter.FocusRing while FocusVisible.
 func (_handle Element) FocusRing(show bool) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.FocusRing(show)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagOwnRing
-	}
-	return _handle
+	return wrapElement(_node.FocusRing(show))
 }
 
 // FocusVisible reports whether the element has the keyboard focus and
@@ -3559,19 +2957,13 @@ func (_handle Element) FocusWithin() bool {
 
 // Focusable lets the element take the keyboard focus, by a click or Tab.
 func (_handle Element) Focusable() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Focusable()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagFocusable
-	}
-	return _handle
+	return wrapElement(_node.Focusable())
 }
 
 // Focused reports whether the element has the keyboard focus.
@@ -3590,18 +2982,13 @@ func (_handle Element) Focused() bool {
 // lacks, before the system's choice. "monospace" and "system-ui" are the
 // system's own fonts.
 func (_handle Element) Font(family string) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Font(family)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.Font(family))
 }
 
 // FontFeatures turns on OpenType features of the font, by tag, or sets
@@ -3612,154 +2999,105 @@ func (_handle Element) Font(family string) Element {
 //
 // A font without a feature ignores it.
 func (_handle Element) FontFeatures(features ...string) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.FontFeatures(features...)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.FontFeatures(features...))
 }
 
 // FontSize sets the size of text in DIPs, for the element's text and its
 // descendants'.
 func (_handle Element) FontSize(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.FontSize(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.FontSize(v))
 }
 
 // FontWeight sets the weight of text from 100 (thin) to 900 (black).
 func (_handle Element) FontWeight(w int) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.FontWeight(w)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.FontWeight(w))
 }
 
 // Gap puts space between children, and between the lines of a wrapping
 // container or the tracks of a grid.
 func (_handle Element) Gap(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Gap(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 27
-		_p.mask[0] |= uint64(1) << 28
-	}
-	return _handle
+	return wrapElement(_node.Gap(v))
 }
 
 // GapX sets the horizontal space between children, lines or columns.
 func (_handle Element) GapX(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.GapX(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 27
-	}
-	return _handle
+	return wrapElement(_node.GapX(v))
 }
 
 // GapY sets the vertical space between children, lines or rows.
 func (_handle Element) GapY(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.GapY(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 28
-	}
-	return _handle
+	return wrapElement(_node.GapY(v))
 }
 
 // Gradient fills the element with a linear gradient from one color to
 // another, at angle degrees clockwise from upwards as in CSS: 180 goes
 // from top to bottom, 90 from left to right.
 func (_handle Element) Gradient(from Color, to Color, angle float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Gradient(from, to, angle)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 49
-		_p.mask[0] |= uint64(1) << 50
-	}
-	return _handle
+	return wrapElement(_node.Gradient(from, to, angle))
 }
 
 // Grayscale draws the element's image, or icon, in shades of gray.
 func (_handle Element) Grayscale() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Grayscale()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 20
-	}
-	return _handle
+	return wrapElement(_node.Grayscale())
 }
 
 // Grid lays the children out in a grid, as the function Grid does.
 func (_handle Element) Grid() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Grid()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 24
-		_p.mask[0] |= uint64(1) << 42
-		_p.mask[0] |= uint64(1) << 19
-	}
-	return _handle
+	return wrapElement(_node.Grid())
 }
 
 // Grow gives the element a share f of the free space along its parent's
@@ -3768,19 +3106,13 @@ func (_handle Element) Grid() Element {
 // may shrink below its content in a column, which suits a list or editor
 // filling the rest of a window.
 func (_handle Element) Grow(f float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Grow(f)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 39
-		_p.mask[0] |= uint64(1) << 37
-	}
-	return _handle
+	return wrapElement(_node.Grow(f))
 }
 
 // HandleInput has fn take the element's input as it comes, on the main
@@ -3796,18 +3128,13 @@ func (_handle Element) Grow(f float32) Element {
 // terminal; most widgets ask about their input as they are built instead
 // (Clicked, Shortcut, Dragged).
 func (_handle Element) HandleInput(fn func(ev InputEvent) bool) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.HandleInput(func(ev InputEvent) bool { return fn(ev) })
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 0
-	}
-	return _handle
+	return wrapElement(_node.HandleInput(func(ev InputEvent) bool { return fn(ev) }))
 }
 
 // HandleTextInput connects an element to the system's text-input services.
@@ -3816,53 +3143,35 @@ func (_handle Element) HandleInput(fn func(ev InputEvent) bool) Element {
 // a text buffer, formatting UI or undo history. A nil client disconnects it.
 // Existing TextInput/TextArea widgets and TextCaret handlers are unchanged.
 func (_handle Element) HandleTextInput(client TextInputClient) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.HandleTextInput(client)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 60
-		_p.mask[0] |= uint64(1) << 10
-		_p.mask[1] |= uint64(1) << 1
-		_p.flags |= flagFocusable | flagHover
-	}
-	return _handle
+	return wrapElement(_node.HandleTextInput(client))
 }
 
 // Height sets the height in DIPs.
 func (_handle Element) Height(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Height(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 32
-	}
-	return _handle
+	return wrapElement(_node.Height(v))
 }
 
 // HeightPercent sets the height as a percentage of the parent's.
 func (_handle Element) HeightPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.HeightPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 32
-	}
-	return _handle
+	return wrapElement(_node.HeightPercent(p))
 }
 
 // Highlighted reports whether an option of a select is the one the pointer
@@ -3908,19 +3217,13 @@ func (_handle Element) ID() uint64 {
 // the layout but draw nothing and take neither the pointer nor the focus,
 // as CSS's visibility: hidden does.
 func (_handle Element) Invisible() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Invisible()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagInvisible
-	}
-	return _handle
+	return wrapElement(_node.Invisible())
 }
 
 // IsDisabled reports whether the element or an ancestor is disabled.
@@ -3936,185 +3239,143 @@ func (_handle Element) IsDisabled() bool {
 
 // Italic sets an italic font.
 func (_handle Element) Italic() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Italic()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.Italic())
 }
 
 // Justify places the children along the main axis.
 func (_handle Element) Justify(a Align) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Justify(a)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 23
-	}
-	return _handle
+	return wrapElement(_node.Justify(a))
 }
 
 // JustifyItems places the children of a grid in their cells horizontally:
 // Stretch (the default), Start, Center or End. AlignItems places them
 // vertically.
 func (_handle Element) JustifyItems(a Align) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.JustifyItems(a)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 45
-	}
-	return _handle
+	return wrapElement(_node.JustifyItems(a))
 }
 
 // JustifySelf places the element in its grid cell horizontally, overriding
 // its grid's JustifyItems.
 func (_handle Element) JustifySelf(a Align) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.JustifySelf(a)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 47
-	}
-	return _handle
+	return wrapElement(_node.JustifySelf(a))
 }
 
 // Label names the element for assistive technology and for finding it in
 // tests, when its text does not.
 func (_handle Element) Label(s string) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Label(s)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 22
-	}
-	return _handle
+	return wrapElement(_node.Label(s))
 }
 
 func (_handle Element) Left(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Left(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 40
-	}
-	return _handle
+	return wrapElement(_node.Left(v))
 }
 
 func (_handle Element) LeftPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.LeftPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 40
-	}
-	return _handle
+	return wrapElement(_node.LeftPercent(p))
 }
 
 // LetterSpacing adds v DIPs after every character of text, or tightens it
 // with a negative v, as for labels in capitals.
 func (_handle Element) LetterSpacing(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.LetterSpacing(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.LetterSpacing(v))
 }
 
 // Level tells assistive technology the rank of a heading, from 1 for the
 // highest, or how deep an item of a tree is, from 1 at the top.
 func (_handle Element) Level(n int) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Level(n)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[2] |= uint64(1) << 5
-	}
-	return _handle
+	return wrapElement(_node.Level(n))
 }
 
 // LineHeight sets the height of lines of text as a multiple of the font
 // size.
 func (_handle Element) LineHeight(m float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.LineHeight(m)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.LineHeight(m))
 }
 
 // LinearGradient fills the element with a gradient, of which Gradient sets
 // only the colors and the angle.
 func (_handle Element) LinearGradient(g LinearGradient) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.LinearGradient(g)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 49
-		_p.mask[0] |= uint64(1) << 50
+	return wrapElement(_node.LinearGradient(g))
+}
+
+// Lines makes a text area as high as its text, wrapped at its width, from
+// min lines up to max, past which it scrolls, as a message field grows with
+// what is typed: TextArea(c, &draft).Lines(1, 8). Without it, a text area is
+// as high as its paragraphs, three lines at least, unless given a height.
+func (_handle Element) Lines(min int, max int) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
 	}
-	return _handle
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Lines(min, max))
 }
 
 // Loop returns the progress of an animation that starts over every
@@ -4136,127 +3397,87 @@ func (_handle Element) Loop(key any, period time.Duration, ease Easing) float32 
 // Margin sets the space around the element, as Padding does. Auto
 // margins take the free space on their side.
 func (_handle Element) Margin(v ...float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Margin(v...)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 30
-	}
-	return _handle
+	return wrapElement(_node.Margin(v...))
 }
 
 // MarginX sets the left and right margins.
 func (_handle Element) MarginX(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MarginX(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 30
-	}
-	return _handle
+	return wrapElement(_node.MarginX(v))
 }
 
 // MarginY sets the top and bottom margins.
 func (_handle Element) MarginY(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MarginY(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 30
-	}
-	return _handle
+	return wrapElement(_node.MarginY(v))
 }
 
 func (_handle Element) MaxHeight(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MaxHeight(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 36
-	}
-	return _handle
+	return wrapElement(_node.MaxHeight(v))
 }
 
 func (_handle Element) MaxHeightPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MaxHeightPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 36
-	}
-	return _handle
+	return wrapElement(_node.MaxHeightPercent(p))
 }
 
 // MaxLines shows at most n lines of the element's text, ending it with an
 // ellipsis.
 func (_handle Element) MaxLines(n int) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MaxLines(n)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 13
-	}
-	return _handle
+	return wrapElement(_node.MaxLines(n))
 }
 
 func (_handle Element) MaxWidth(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MaxWidth(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 35
-	}
-	return _handle
+	return wrapElement(_node.MaxWidth(v))
 }
 
 func (_handle Element) MaxWidthPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MaxWidthPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 35
-	}
-	return _handle
+	return wrapElement(_node.MaxWidthPercent(p))
 }
 
 // Menu makes the element a menu button: it opens a menu below it, which
@@ -4264,110 +3485,78 @@ func (_handle Element) MaxWidthPercent(p float32) Element {
 // button does, and for Enter, Space or Down while it has the focus. It
 // takes the focus. build runs when the menu opens, and again in the frame
 // after an item was chosen, where the item's Chosen reports it, as for
-// FrameMenu. MenuButton is a button with a menu:
+// ContextMenu. MenuButton is a button with a menu:
 //
 //	more := ui.ButtonBase(c).Label("More").Padding(4).Radius(6)
-//	more.Children(func(c ui.Frame) { ui.Icon(c, moreIcon).Size(16, 16) })
+//	more.Children(func() { ui.Icon(c, moreIcon).Size(16, 16) })
 //	more.Menu(func(m *ui.Menu) {
 //		if m.Item("Duplicate").Chosen() {
 //			app.duplicate()
 //		}
 //	})
 func (_handle Element) Menu(build func(m *Menu)) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Menu(func(m *Menu) { build(m) })
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.mask[1] |= uint64(1) << 24
-		_p.flags |= flagClickable | flagFocusable | flagMenuButton
-	}
-	return _handle
+	return wrapElement(_node.Menu(func(m *Menu) { build(m) }))
 }
 
 func (_handle Element) MinHeight(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MinHeight(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 34
-	}
-	return _handle
+	return wrapElement(_node.MinHeight(v))
 }
 
 func (_handle Element) MinHeightPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MinHeightPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 34
-	}
-	return _handle
+	return wrapElement(_node.MinHeightPercent(p))
 }
 
 // MinWidth, MinHeight, MaxWidth and MaxHeight bound the size in DIPs.
 func (_handle Element) MinWidth(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MinWidth(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 33
-	}
-	return _handle
+	return wrapElement(_node.MinWidth(v))
 }
 
 // MinWidthPercent, MinHeightPercent, MaxWidthPercent and MaxHeightPercent
 // bound the size by a percentage of the parent's.
 func (_handle Element) MinWidthPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.MinWidthPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 33
-	}
-	return _handle
+	return wrapElement(_node.MinWidthPercent(p))
 }
 
 // Mixed tells assistive technology that the element, a check box, is
 // partly on, as one checking a group whose boxes differ.
 func (_handle Element) Mixed() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Mixed()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 25
-	}
-	return _handle
+	return wrapElement(_node.Mixed())
 }
 
 // Modal makes the element, built in an Overlay, a dialog's backdrop, as
@@ -4376,53 +3565,36 @@ func (_handle Element) Mixed() Element {
 // and assistive technology sees it and what shows above it alone, as what
 // is behind it is inert. Build the dialog inside it.
 func (_handle Element) Modal() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Modal()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagModal
-	}
-	return _handle
+	return wrapElement(_node.Modal())
 }
 
 // NoWrap keeps each line of the element's text whole, breaking it only at
 // newlines, even where it overflows the element.
 func (_handle Element) NoWrap() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.NoWrap()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 15
-	}
-	return _handle
+	return wrapElement(_node.NoWrap())
 }
 
 // Opacity makes the element and its children translucent.
 func (_handle Element) Opacity(o float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Opacity(o)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 58
-		_p.mask[0] |= uint64(1) << 59
-	}
-	return _handle
+	return wrapElement(_node.Opacity(o))
 }
 
 // OverlayShortcut reports whether the key with exactly the modifiers mods
@@ -4447,67 +3619,71 @@ func (_handle Element) OverlayShortcut(mods Modifiers, key Key) bool {
 // Padding sets the space inside the element's edges, CSS style: all
 // sides, vertical and horizontal, or top, right, bottom and left.
 func (_handle Element) Padding(v ...float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Padding(v...)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 29
-	}
-	return _handle
+	return wrapElement(_node.Padding(v...))
 }
 
 // PaddingX sets the left and right padding.
 func (_handle Element) PaddingX(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.PaddingX(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 29
-	}
-	return _handle
+	return wrapElement(_node.PaddingX(v))
 }
 
 // PaddingY sets the top and bottom padding.
 func (_handle Element) PaddingY(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.PaddingY(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 29
-	}
-	return _handle
+	return wrapElement(_node.PaddingY(v))
 }
 
 // PassThrough lets the pointer reach what is under the element.
 func (_handle Element) PassThrough() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.PassThrough()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagPassThrough
+	return wrapElement(_node.PassThrough())
+}
+
+// Password hides what a text input holds, in the frames that call it: an
+// input that stops calling it shows its text again, as a field's eye
+// button does. It does nothing to a text area: as on every platform, only
+// single-line fields hide their text.
+func (_handle Element) Password() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
 	}
-	return _handle
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Password())
+}
+
+// Placeholder shows s in an empty text input.
+func (_handle Element) Placeholder(s string) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Placeholder(s))
 }
 
 // PointerPosition returns the pointer's position relative to the
@@ -4554,70 +3730,63 @@ func (_handle Element) PressedOutside() bool {
 // Radius rounds the corners: one radius for all, or top-left, top-right,
 // bottom-right and bottom-left.
 func (_handle Element) Radius(r ...float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Radius(r...)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 55
-	}
-	return _handle
+	return wrapElement(_node.Radius(r...))
 }
 
 // Range tells assistive technology the range and the value of a slider,
 // progress bar, meter or stepper of your own: value, from lo to hi. Step
 // tells it how far the keys move the value.
 func (_handle Element) Range(lo float64, hi float64, value float64) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Range(lo, hi, value)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 32
-		_p.mask[1] |= uint64(1) << 33
+	return wrapElement(_node.Range(lo, hi, value))
+}
+
+// ReadOnly makes a text input show its text without letting the user
+// change it: the text can still be selected and copied, from the keyboard
+// too, as it takes the focus, without a caret; assistive technology reads
+// it as read-only.
+func (_handle Element) ReadOnly(on bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
 	}
-	return _handle
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.ReadOnly(on))
 }
 
 // Reverse lays the children out in the other direction: a Row from right
 // to left, a Column from bottom to top, as CSS's row-reverse and
 // column-reverse do. Justify's Start is then the right or the bottom.
 func (_handle Element) Reverse() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Reverse()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 21
-	}
-	return _handle
+	return wrapElement(_node.Reverse())
 }
 
 func (_handle Element) Right(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Right(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 40
-	}
-	return _handle
+	return wrapElement(_node.Right(v))
 }
 
 // RightClicked reports a click with the secondary button, as for a
@@ -4633,35 +3802,25 @@ func (_handle Element) RightClicked() bool {
 }
 
 func (_handle Element) RightPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.RightPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 40
-	}
-	return _handle
+	return wrapElement(_node.RightPercent(p))
 }
 
 // Role sets what the element is to assistive technology, for an element
 // drawn as a widget it is not built from, such as a custom toggle.
 func (_handle Element) Role(r Role) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Role(r)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 24
-	}
-	return _handle
+	return wrapElement(_node.Role(r))
 }
 
 // Rotate turns an Icon by degrees clockwise around its center, as a
@@ -4670,102 +3829,70 @@ func (_handle Element) Role(r Role) Element {
 //	spin := ui.Icon(c, loader)
 //	spin.Rotate(spin.Loop("spin", time.Second, ui.Linear) * 360)
 func (_handle Element) Rotate(degrees float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Rotate(degrees)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 21
-	}
-	return _handle
+	return wrapElement(_node.Rotate(degrees))
 }
 
 // Row lays the children out from left to right.
 func (_handle Element) Row() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Row()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 24
-		_p.mask[0] |= uint64(1) << 42
-		_p.mask[0] |= uint64(1) << 19
-	}
-	return _handle
+	return wrapElement(_node.Row())
 }
 
 // RowSpan makes the element span n rows of its grid, or, for a negative n,
 // every row from its start to the last the grid sets.
 func (_handle Element) RowSpan(n int) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.RowSpan(n)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 46
-	}
-	return _handle
+	return wrapElement(_node.RowSpan(n))
 }
 
 // RowStart puts the element in row n of its grid, counting from 1.
 func (_handle Element) RowStart(n int) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.RowStart(n)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 46
-	}
-	return _handle
+	return wrapElement(_node.RowStart(n))
 }
 
 // RowTracks sets the grid's first rows; those it adds after fit their
 // content.
 func (_handle Element) RowTracks(tracks ...Track) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.RowTracks(tracks...)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 44
-	}
-	return _handle
+	return wrapElement(_node.RowTracks(tracks...))
 }
 
 // Rows gives the grid n rows of equal height, Fr(1) each.
 func (_handle Element) GridRows(n int) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Rows(n)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 44
-	}
-	return _handle
+	return wrapElement(_node.Rows(n))
 }
 
 // ScrollIntoView scrolls the containers around the element as little as
@@ -4793,18 +3920,13 @@ func (_handle Element) ScrollIntoView() Element {
 //
 //	ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(64, 0, 0)
 func (_handle Element) ScrollbarInsets(v ...float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.ScrollbarInsets(v...)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 41
-	}
-	return _handle
+	return wrapElement(_node.ScrollbarInsets(v...))
 }
 
 // Selectable lets the user select and copy text by dragging, double-clicking
@@ -4819,19 +3941,13 @@ func (_handle Element) ScrollbarInsets(v ...float32) Element {
 // stays within that paragraph. Inline elements share their paragraph's
 // selection; set Selectable on the paragraph.
 func (_handle Element) Selectable() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Selectable()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagSelectable | flagUnselectable
-	}
-	return _handle
+	return wrapElement(_node.Selectable())
 }
 
 // Selected shows the element as chosen among its siblings, in the accent
@@ -4850,18 +3966,13 @@ func (_handle Element) Selected(on bool) Element {
 // the text inside it, as text on a colored bubble needs one that shows
 // on it; the theme's Selection is the highlight elsewhere.
 func (_handle Element) SelectionColor(c Color) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.SelectionColor(c)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.SelectionColor(c))
 }
 
 // SetTextSelection selects the runes of a text input from start to end, or
@@ -4881,18 +3992,13 @@ func (_handle Element) SetTextSelection(start int, end int) Element {
 // spread DIPs. As CSS's box-shadow, it shows only outside the box: a
 // translucent background does not show it through.
 func (_handle Element) Shadow(x float32, y float32, blur float32, spread float32, c Color) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Shadow(x, y, blur, spread, c)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 56
-	}
-	return _handle
+	return wrapElement(_node.Shadow(x, y, blur, spread, c))
 }
 
 // Shortcut reports whether the key with exactly the modifiers mods was
@@ -4911,87 +4017,60 @@ func (_handle Element) Shortcut(mods Modifiers, key Key) bool {
 // Shrink sets how much the element gives up when its siblings do not fit
 // (1 by default, 0 never).
 func (_handle Element) Shrink(f float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Shrink(f)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 38
-	}
-	return _handle
+	return wrapElement(_node.Shrink(f))
 }
 
 // SingleLine keeps the element's text on one line, ending it with an
 // ellipsis when it does not fit.
 func (_handle Element) SingleLine() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.SingleLine()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 13
-		_p.mask[1] |= uint64(1) << 14
-	}
-	return _handle
+	return wrapElement(_node.SingleLine())
 }
 
 // Size sets the width and height in DIPs.
 func (_handle Element) Size(w float32, h float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Size(w, h)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 32
-		_p.mask[0] |= uint64(1) << 31
-	}
-	return _handle
+	return wrapElement(_node.Size(w, h))
 }
 
 // Step makes the values of a slider lo and the multiples of step from it,
 // which the arrows move between, as a StepSlider's. Of a range of your own
 // (Range), it tells assistive technology how far the keys move the value.
 func (_handle Element) Step(step float64) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Step(step)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 34
-	}
-	return _handle
+	return wrapElement(_node.Step(step))
 }
 
 // Strikethrough strikes text through.
 func (_handle Element) Strikethrough() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Strikethrough()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.Strikethrough())
 }
 
 // Stripes draws stripes of c over the background, width DIPs wide with
@@ -4999,19 +4078,13 @@ func (_handle Element) Strikethrough() Element {
 // 0 draws vertical stripes, 90 horizontal ones, and 45 slanting ones like
 // slashes, as to mark what is unavailable.
 func (_handle Element) Stripes(c Color, width float32, gap float32, angle float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Stripes(c, width, gap, angle)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 49
-		_p.mask[0] |= uint64(1) << 51
-	}
-	return _handle
+	return wrapElement(_node.Stripes(c, width, gap, angle))
 }
 
 // Submitted reports whether Enter was pressed in a single-line text input.
@@ -5027,35 +4100,25 @@ func (_handle Element) Submitted() bool {
 
 // TextAlign aligns the lines of text: Start, Center or End.
 func (_handle Element) TextAlign(a Align) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.TextAlign(a)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.TextAlign(a))
 }
 
 // TextBackground fills the lines of text behind it with c, as a
 // highlight.
 func (_handle Element) TextBackground(c Color) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.TextBackground(c)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.TextBackground(c))
 }
 
 // TextCaret has the element take text from the system's input methods
@@ -5063,35 +4126,24 @@ func (_handle Element) TextBackground(c Color) Element {
 // relative to the element's box: candidate windows show there. Its
 // InputText and Compose events (HandleInput) bring the text.
 func (_handle Element) TextCaret(r Rect) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.TextCaret(r)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 2
-		_p.mask[1] |= uint64(1) << 3
-	}
-	return _handle
+	return wrapElement(_node.TextCaret(r))
 }
 
 // TextColor sets the color of text.
 func (_handle Element) TextColor(c Color) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.TextColor(c)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.TextColor(c))
 }
 
 // TextRanges styles runs of a text input's text, in the frames that call
@@ -5140,36 +4192,26 @@ func (_handle Element) Tooltip(s string) Element {
 // its parent's layout, they move it from where the layout put it, as CSS's
 // relative positioning does, without moving its siblings.
 func (_handle Element) Top(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Top(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 40
-	}
-	return _handle
+	return wrapElement(_node.Top(v))
 }
 
 // TopPercent, RightPercent, BottomPercent and LeftPercent place the
 // element as Top, Right, Bottom and Left do, by a percentage of the
 // parent's height or width.
 func (_handle Element) TopPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.TopPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 40
-	}
-	return _handle
+	return wrapElement(_node.TopPercent(p))
 }
 
 // TrackScroll keeps the scrolling of a scroll container (Scroll,
@@ -5203,7 +4245,7 @@ func (_handle Element) TrackScroll(s *ScrollState) Element {
 // list:
 //
 //	for _, it := range app.items {
-//		ui.Row(c).Key(it.ID).Transition(rowTransition).Children(func(c ui.Frame) {
+//		ui.Row(c).Key(it.ID).Transition(rowTransition).Children(func() {
 //			ui.Text(c, it.Title)
 //		})
 //	}
@@ -5222,54 +4264,38 @@ func (_handle Element) Transition(t ElementTransition) Element {
 
 // Underline underlines text.
 func (_handle Element) Underline() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Underline()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.Underline())
 }
 
 // Unselectable excludes a paragraph or container subtree from a surrounding
 // Selectable container. A Selectable container nested inside it can provide
 // a selection of its own. For inline elements, set it on their paragraph.
 func (_handle Element) Unselectable() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Unselectable()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 10
-		_p.flags |= flagSelectable | flagUnselectable
-	}
-	return _handle
+	return wrapElement(_node.Unselectable())
 }
 
 // Value sets what assistive technology reads as the element's value, as
 // the choice a button opening a popup shows.
 func (_handle Element) Value(s string) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Value(s)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 31
-	}
-	return _handle
+	return wrapElement(_node.Value(s))
 }
 
 // Vertical makes a SliderBase go up, from lo at the bottom of its content
@@ -5277,100 +4303,69 @@ func (_handle Element) Value(s string) Element {
 // the thumb's height, rather than its width. Slider, drawn across, stays
 // so.
 func (_handle Element) Vertical() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Vertical()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 27
-	}
-	return _handle
+	return wrapElement(_node.Vertical())
 }
 
 // WavyUnderline underlines text with a wave, as spell checkers mark words.
 func (_handle Element) WavyUnderline() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.WavyUnderline()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[1] |= uint64(1) << 12
-	}
-	return _handle
+	return wrapElement(_node.WavyUnderline())
 }
 
 // Width sets the width in DIPs.
 func (_handle Element) Width(v float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Width(v)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 31
-	}
-	return _handle
+	return wrapElement(_node.Width(v))
 }
 
 // WidthPercent sets the width as a percentage of the parent's.
 func (_handle Element) WidthPercent(p float32) Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.WidthPercent(p)
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 31
-	}
-	return _handle
+	return wrapElement(_node.WidthPercent(p))
 }
 
 // Wrap starts a new line of children when they do not fit.
 func (_handle Element) Wrap() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.Wrap()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 20
-	}
-	return _handle
+	return wrapElement(_node.Wrap())
 }
 
 // WrapReverse wraps the children onto lines that stack the other way: up
 // in a Row, to the left in a Column.
 func (_handle Element) WrapReverse() Element {
-	_node := _handle.unbuilt()
+	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	_node.WrapReverse()
-	if _node.pending != 0 {
-		_p := &_ctx.rt.pending[_node.pending-1]
-		_p.mask[0] |= uint64(1) << 20
-		_p.mask[0] |= uint64(1) << 22
-	}
-	return _handle
+	return wrapElement(_node.WrapReverse())
 }
 
 // Segment creates segment i: a radio button choosing i. Style it from
@@ -5426,14 +4421,14 @@ func (_handle SelectParts[T]) Open() bool {
 // open: fn styles the panel and builds the options in it with Item.
 // Clicking outside it or pressing Escape closes it. It returns the panel,
 // or nil when the popup is closed.
-func (_handle SelectParts[T]) Popup(fn func(frame Frame, panel Element)) Element {
+func (_handle SelectParts[T]) Popup(fn func(panel Element)) Element {
 	_parts := _handle.resolve()
 	if _parts == nil {
 		return Element{}
 	}
 	_ctx := _parts.c
 	_ = _ctx
-	return wrapElement(_parts.Popup(func(panel *node) { defer _ctx.rt.flushPending(); fn(makeFrame(_ctx), wrapElement(panel)) }))
+	return wrapElement(_parts.Popup(func(panel *node) { fn(wrapElement(panel)) }))
 }
 
 // Tab creates tab i of the list: a row that takes the focus and chooses
@@ -5475,7 +4470,7 @@ func (_handle ToastParts) CloseButton() Element {
 
 // Left returns how long the toast shows still, to count down, or 0 for one
 // that shows until it is closed. It does not move while the time of the
-// toasts stops; ask for frames with Frame.AnimationFrame to draw it
+// toasts stops; ask for frames with Context.AnimationContext to draw it
 // moving.
 func (_handle ToastParts) Left() time.Duration {
 	_parts := _handle.resolve()
@@ -5487,228 +4482,10 @@ func (_handle ToastParts) Left() time.Duration {
 	return _parts.Left()
 }
 
-func applyDeclaredStyle(n, style *node, p pendingNode) {
-	if p.mask[1]&(uint64(1)<<32) != 0 {
-		n.accRange = style.accRange
-	}
-	if p.mask[1]&(uint64(1)<<34) != 0 {
-		n.accStep = style.accStep
-	}
-	if p.mask[1]&(uint64(1)<<31) != 0 {
-		n.accValue = style.accValue
-	}
-	if p.mask[1]&(uint64(1)<<53) != 0 {
-		n.activeDescendant = style.activeDescendant
-	}
-	if p.mask[0]&(uint64(1)<<24) != 0 {
-		n.align = style.align
-	}
-	if p.mask[0]&(uint64(1)<<26) != 0 {
-		n.alignContent = style.alignContent
-	}
-	if p.mask[0]&(uint64(1)<<41) != 0 {
-		n.aspect = style.aspect
-	}
-	if p.mask[2]&(uint64(1)<<16) != 0 {
-		n.attach = style.attach
-	}
-	if p.mask[1]&(uint64(1)<<41) != 0 {
-		n.barInset = style.barInset
-	}
-	if p.mask[0]&(uint64(1)<<39) != 0 {
-		n.basis = style.basis
-	}
-	if p.mask[0]&(uint64(1)<<48) != 0 {
-		n.bg = style.bg
-	}
-	if p.mask[0]&(uint64(1)<<52) != 0 {
-		n.border = style.border
-	}
-	if p.mask[0]&(uint64(1)<<53) != 0 {
-		n.borderC = style.borderC
-	}
-	if p.mask[0]&(uint64(1)<<54) != 0 {
-		n.borderStyle = style.borderStyle
-	}
-	if p.mask[1]&(uint64(1)<<2) != 0 {
-		n.caret = style.caret
-	}
-	if p.mask[0]&(uint64(1)<<46) != 0 {
-		n.cell = style.cell
-	}
-	if p.mask[1]&(uint64(1)<<25) != 0 {
-		n.checked = style.checked
-	}
-	if p.mask[0]&(uint64(1)<<43) != 0 {
-		n.cols = style.cols
-	}
-	if p.mask[0]&(uint64(1)<<60) != 0 {
-		n.cursor = style.cursor
-	}
-	if p.mask[1]&(uint64(1)<<16) != 0 {
-		n.ellipsis = style.ellipsis
-	}
-	if p.mask[1]&(uint64(1)<<26) != 0 {
-		n.expanded = style.expanded
-	}
-	if p.mask[0]&(uint64(1)<<49) != 0 {
-		n.fill = style.fill
-	}
-	if p.mask[1]&(uint64(1)<<19) != 0 {
-		n.fit = style.fit
-	}
-	if p.mask[0]&(uint64(1)<<10) != 0 {
-		n.flags = n.flags&^p.flags | style.flags&p.flags
-	}
-	if p.mask[1]&(uint64(1)<<48) != 0 {
-		n.focusGroup = style.focusGroup
-	}
-	if p.mask[0]&(uint64(1)<<27) != 0 {
-		n.gapX = style.gapX
-	}
-	if p.mask[0]&(uint64(1)<<28) != 0 {
-		n.gapY = style.gapY
-	}
-	if p.mask[0]&(uint64(1)<<50) != 0 {
-		n.grad = style.grad
-	}
-	if p.mask[1]&(uint64(1)<<20) != 0 {
-		n.gray = style.gray
-	}
-	if p.mask[0]&(uint64(1)<<42) != 0 {
-		n.grid = style.grid
-	}
-	if p.mask[0]&(uint64(1)<<37) != 0 {
-		n.grow = style.grow
-	}
-	if p.mask[1]&(uint64(1)<<33) != 0 {
-		n.hasRange = style.hasRange
-	}
-	if p.mask[0]&(uint64(1)<<32) != 0 {
-		n.height = style.height
-	}
-	if p.mask[1]&(uint64(1)<<0) != 0 {
-		n.inputFn = style.inputFn
-	}
-	if p.mask[0]&(uint64(1)<<40) != 0 {
-		n.inset = style.inset
-	}
-	if p.mask[0]&(uint64(1)<<23) != 0 {
-		n.justify = style.justify
-	}
-	if p.mask[0]&(uint64(1)<<45) != 0 {
-		n.justifyItems = style.justifyItems
-	}
-	if p.mask[0]&(uint64(1)<<47) != 0 {
-		n.justifySelf = style.justifySelf
-	}
-	if p.mask[1]&(uint64(1)<<22) != 0 {
-		n.label = style.label
-	}
-	if p.mask[2]&(uint64(1)<<5) != 0 {
-		n.level = style.level
-	}
-	if p.mask[0]&(uint64(1)<<30) != 0 {
-		n.margin = style.margin
-	}
-	if p.mask[0]&(uint64(1)<<36) != 0 {
-		n.maxH = style.maxH
-	}
-	if p.mask[1]&(uint64(1)<<13) != 0 {
-		n.maxLines = style.maxLines
-	}
-	if p.mask[0]&(uint64(1)<<35) != 0 {
-		n.maxW = style.maxW
-	}
-	if p.mask[0]&(uint64(1)<<34) != 0 {
-		n.minH = style.minH
-	}
-	if p.mask[0]&(uint64(1)<<33) != 0 {
-		n.minW = style.minW
-	}
-	if p.mask[1]&(uint64(1)<<15) != 0 {
-		n.noWrap = style.noWrap
-	}
-	if p.mask[0]&(uint64(1)<<58) != 0 {
-		n.opacity = style.opacity
-	}
-	if p.mask[0]&(uint64(1)<<59) != 0 {
-		n.opacitySet = style.opacitySet
-	}
-	if p.mask[0]&(uint64(1)<<29) != 0 {
-		n.pad = style.pad
-	}
-	if p.mask[0]&(uint64(1)<<63) != 0 {
-		n.paintAfterFn = style.paintAfterFn
-	}
-	if p.mask[0]&(uint64(1)<<61) != 0 {
-		n.paintFn = style.paintFn
-	}
-	if p.mask[1]&(uint64(1)<<43) != 0 {
-		n.popover = style.popover
-	}
-	if p.mask[0]&(uint64(1)<<55) != 0 {
-		n.radius = style.radius
-	}
-	if p.mask[0]&(uint64(1)<<21) != 0 {
-		n.reverse = style.reverse
-	}
-	if p.mask[1]&(uint64(1)<<24) != 0 {
-		n.role = style.role
-	}
-	if p.mask[1]&(uint64(1)<<21) != 0 {
-		n.rotate = style.rotate
-	}
-	if p.mask[0]&(uint64(1)<<19) != 0 {
-		n.row = style.row
-	}
-	if p.mask[0]&(uint64(1)<<44) != 0 {
-		n.rows = style.rows
-	}
-	if p.mask[0]&(uint64(1)<<25) != 0 {
-		n.self = style.self
-	}
-	if p.mask[0]&(uint64(1)<<56) != 0 {
-		n.shadows = style.shadows
-	}
-	if p.mask[0]&(uint64(1)<<38) != 0 {
-		n.shrink = style.shrink
-	}
-	if p.mask[1]&(uint64(1)<<14) != 0 {
-		n.single = style.single
-	}
-	if p.mask[0]&(uint64(1)<<51) != 0 {
-		n.stripes = style.stripes
-	}
-	if p.mask[1]&(uint64(1)<<3) != 0 {
-		n.takesText = style.takesText
-	}
-	if p.mask[1]&(uint64(1)<<1) != 0 {
-		n.textClient = style.textClient
-	}
-	if p.mask[1]&(uint64(1)<<12) != 0 {
-		fallback := node{ts: n.ts}
-		merged := node{ts: style.ts, parent: &fallback}
-		n.ts = merged.resolvedText()
-	}
-	if p.mask[1]&(uint64(1)<<27) != 0 {
-		n.vertical = style.vertical
-	}
-	if p.mask[0]&(uint64(1)<<31) != 0 {
-		n.width = style.width
-	}
-	if p.mask[0]&(uint64(1)<<20) != 0 {
-		n.wrap = style.wrap
-	}
-	if p.mask[0]&(uint64(1)<<22) != 0 {
-		n.wrapReverse = style.wrapReverse
-	}
-}
-
 // CollapsibleParts contains checked handles for the parts of a custom widget.
 type CollapsibleParts struct {
 	Trigger Element
-	raw     weak.Pointer[partsBox[collapsibleParts]]
+	part    uint32
 }
 
 func wrapCollapsibleParts(p collapsibleParts) CollapsibleParts {
@@ -5716,25 +4493,24 @@ func wrapCollapsibleParts(p collapsibleParts) CollapsibleParts {
 	if c == nil {
 		return CollapsibleParts{}
 	}
-	_box := &partsBox[collapsibleParts]{value: &p}
-	c.rt.keepPart(_box)
-	return CollapsibleParts{raw: weak.Make(_box), Trigger: wrapElement(p.Trigger)}
+	_slot := c.rt.keepPart(&p)
+	return CollapsibleParts{part: _slot, Trigger: wrapElement(p.Trigger)}
 }
 func (p CollapsibleParts) resolve() *collapsibleParts {
-	if p.Trigger.node() == nil {
+	n := p.Trigger.node()
+	if n == nil {
 		return nil
 	}
-	box := p.raw.Value()
-	if box == nil {
+	if int(p.part) >= len(n.c.rt.parts) {
 		return nil
 	}
-	return box.value
+	return n.c.rt.parts[p.part].(*collapsibleParts)
 }
 
 // ComboboxParts contains checked handles for the parts of a custom widget.
 type ComboboxParts struct {
 	Input Element
-	raw   weak.Pointer[partsBox[comboboxParts]]
+	part  uint32
 }
 
 func wrapComboboxParts(p *comboboxParts) ComboboxParts {
@@ -5745,25 +4521,24 @@ func wrapComboboxParts(p *comboboxParts) ComboboxParts {
 	if c == nil {
 		return ComboboxParts{}
 	}
-	_box := &partsBox[comboboxParts]{value: p}
-	c.rt.keepPart(_box)
-	return ComboboxParts{raw: weak.Make(_box), Input: wrapElement(p.Input)}
+	_slot := c.rt.keepPart(p)
+	return ComboboxParts{part: _slot, Input: wrapElement(p.Input)}
 }
 func (p ComboboxParts) resolve() *comboboxParts {
-	if p.Input.node() == nil {
+	n := p.Input.node()
+	if n == nil {
 		return nil
 	}
-	box := p.raw.Value()
-	if box == nil {
+	if int(p.part) >= len(n.c.rt.parts) {
 		return nil
 	}
-	return box.value
+	return n.c.rt.parts[p.part].(*comboboxParts)
 }
 
 // SegmentedParts contains checked handles for the parts of a custom widget.
 type SegmentedParts struct {
 	Track Element
-	raw   weak.Pointer[partsBox[segmentedParts]]
+	part  uint32
 }
 
 func wrapSegmentedParts(p segmentedParts) SegmentedParts {
@@ -5771,25 +4546,24 @@ func wrapSegmentedParts(p segmentedParts) SegmentedParts {
 	if c == nil {
 		return SegmentedParts{}
 	}
-	_box := &partsBox[segmentedParts]{value: &p}
-	c.rt.keepPart(_box)
-	return SegmentedParts{raw: weak.Make(_box), Track: wrapElement(p.Track)}
+	_slot := c.rt.keepPart(&p)
+	return SegmentedParts{part: _slot, Track: wrapElement(p.Track)}
 }
 func (p SegmentedParts) resolve() *segmentedParts {
-	if p.Track.node() == nil {
+	n := p.Track.node()
+	if n == nil {
 		return nil
 	}
-	box := p.raw.Value()
-	if box == nil {
+	if int(p.part) >= len(n.c.rt.parts) {
 		return nil
 	}
-	return box.value
+	return n.c.rt.parts[p.part].(*segmentedParts)
 }
 
 // SelectParts contains checked handles for the parts of a custom widget.
 type SelectParts[T comparable] struct {
 	Trigger Element
-	raw     weak.Pointer[partsBox[selectParts[T]]]
+	part    uint32
 }
 
 func wrapSelectParts[T comparable](p *selectParts[T]) SelectParts[T] {
@@ -5800,25 +4574,24 @@ func wrapSelectParts[T comparable](p *selectParts[T]) SelectParts[T] {
 	if c == nil {
 		return SelectParts[T]{}
 	}
-	_box := &partsBox[selectParts[T]]{value: p}
-	c.rt.keepPart(_box)
-	return SelectParts[T]{raw: weak.Make(_box), Trigger: wrapElement(p.Trigger)}
+	_slot := c.rt.keepPart(p)
+	return SelectParts[T]{part: _slot, Trigger: wrapElement(p.Trigger)}
 }
 func (p SelectParts[T]) resolve() *selectParts[T] {
-	if p.Trigger.node() == nil {
+	n := p.Trigger.node()
+	if n == nil {
 		return nil
 	}
-	box := p.raw.Value()
-	if box == nil {
+	if int(p.part) >= len(n.c.rt.parts) {
 		return nil
 	}
-	return box.value
+	return n.c.rt.parts[p.part].(*selectParts[T])
 }
 
 // TabsParts contains checked handles for the parts of a custom widget.
 type TabsParts struct {
 	List Element
-	raw  weak.Pointer[partsBox[tabsParts]]
+	part uint32
 }
 
 func wrapTabsParts(p tabsParts) TabsParts {
@@ -5826,25 +4599,24 @@ func wrapTabsParts(p tabsParts) TabsParts {
 	if c == nil {
 		return TabsParts{}
 	}
-	_box := &partsBox[tabsParts]{value: &p}
-	c.rt.keepPart(_box)
-	return TabsParts{raw: weak.Make(_box), List: wrapElement(p.List)}
+	_slot := c.rt.keepPart(&p)
+	return TabsParts{part: _slot, List: wrapElement(p.List)}
 }
 func (p TabsParts) resolve() *tabsParts {
-	if p.List.node() == nil {
+	n := p.List.node()
+	if n == nil {
 		return nil
 	}
-	box := p.raw.Value()
-	if box == nil {
+	if int(p.part) >= len(n.c.rt.parts) {
 		return nil
 	}
-	return box.value
+	return n.c.rt.parts[p.part].(*tabsParts)
 }
 
 // ToastParts contains checked handles for the parts of a custom widget.
 type ToastParts struct {
 	Root Element
-	raw  weak.Pointer[partsBox[toastParts]]
+	part uint32
 }
 
 func wrapToastParts(p toastParts) ToastParts {
@@ -5852,17 +4624,16 @@ func wrapToastParts(p toastParts) ToastParts {
 	if c == nil {
 		return ToastParts{}
 	}
-	_box := &partsBox[toastParts]{value: &p}
-	c.rt.keepPart(_box)
-	return ToastParts{raw: weak.Make(_box), Root: wrapElement(p.Root)}
+	_slot := c.rt.keepPart(&p)
+	return ToastParts{part: _slot, Root: wrapElement(p.Root)}
 }
 func (p ToastParts) resolve() *toastParts {
-	if p.Root.node() == nil {
+	n := p.Root.node()
+	if n == nil {
 		return nil
 	}
-	box := p.raw.Value()
-	if box == nil {
+	if int(p.part) >= len(n.c.rt.parts) {
 		return nil
 	}
-	return box.value
+	return n.c.rt.parts[p.part].(*toastParts)
 }

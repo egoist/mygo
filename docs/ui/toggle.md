@@ -12,7 +12,7 @@ Give it other content, such as an icon, with `Children` and an empty label,
 and name it with `Label`:
 
 ```go
-ui.Toggle(c, &app.bold, "").Label("Bold").Children(func(c ui.Frame) { ui.Icon(c, boldIcon) })
+ui.Toggle(c, &app.bold, "").Label("Bold").Children(func() { ui.Icon(c, boldIcon) })
 ```
 
 ## Toggle groups
@@ -23,7 +23,7 @@ of Tab, among which the arrows move the focus, as in a
 [toolbar](toolbar.md):
 
 ```go
-ui.ToggleGroup(c, func(c ui.Frame) {
+ui.ToggleGroup(c, func() {
 	ui.Toggle(c, &app.bold, "B")
 	ui.Toggle(c, &app.italic, "I")
 	ui.Toggle(c, &app.underline, "U")

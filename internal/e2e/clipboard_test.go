@@ -133,7 +133,7 @@ func TestUnifiedClipboardNativeRoundTrip(t *testing.T) {
 	preserveClipboard(t)
 	var calls, releases atomic.Int32
 	d := clipboardTestData(func() ([]byte, error) { calls.Add(1); return []byte{0, 1, 2, 0}, nil })
-	w := newWindow(t, mygo.WindowOptions{Hidden: true, Content: ui.View(func(c ui.Frame) { ui.Box(c) })})
+	w := newWindow(t, mygo.WindowOptions{Hidden: true, Content: ui.View(func(c *ui.Context) { ui.Box(c) })})
 	if err := mygo.Clipboard.Write(d, mygo.ClipboardOptions{OnRelease: func() { releases.Add(1) }}); err != nil {
 		t.Fatal(err)
 	}

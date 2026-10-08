@@ -5,6 +5,8 @@ import "slices"
 // ScrollState is how far a scroll container scrolls its content, kept in
 // the app's state with TrackScroll.
 type ScrollState struct {
+	Handle
+
 	// X and Y are how far the content is scrolled left and up, in DIPs.
 	// Set them to scroll: the container keeps them within its content, so
 	// that 0 shows the start and math.MaxFloat32 the end.
@@ -29,6 +31,9 @@ type ScrollState struct {
 // A List keeps its place by its rows instead, and scrolls to a row with
 // its ListState.
 func (e *node) TrackScroll(s *ScrollState) *node {
+	if s != nil {
+		wrapElement(e).Bind(&s.Handle)
+	}
 	e.track = s
 	if e.adoptScroll() && e.first != nil {
 		// What is built was built for the old place, as List's rows.

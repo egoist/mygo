@@ -6,7 +6,7 @@ one in the accent color, for the main action of a window or a dialog.
 keyboard focus:
 
 ```go
-ui.Row(c).Gap(8).Justify(ui.End).Children(func(c ui.Frame) {
+ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 	if ui.Button(c, "Cancel").Clicked() {
 		app.editing = false
 	}
@@ -23,7 +23,7 @@ Give it other content, as an icon before the label, with `Children` and an
 empty label:
 
 ```go
-ui.PrimaryButton(c, "").Children(func(c ui.Frame) {
+ui.PrimaryButton(c, "").Children(func() {
 	ui.Icon(c, save)
 	ui.Text(c, "Save").SingleLine()
 })
@@ -33,7 +33,7 @@ A button showing only an icon needs a `Label`, which names it for
 assistive technology, and a `Tooltip`:
 
 ```go
-if ui.Button(c, "").Label("Delete").Tooltip("Delete").Children(func(c ui.Frame) { ui.Icon(c, trash) }).Clicked() {
+if ui.Button(c, "").Label("Delete").Tooltip("Delete").Children(func() { ui.Icon(c, trash) }).Clicked() {
 	app.delete()
 }
 ```

@@ -270,7 +270,8 @@ func (ed *editor) key(c *context, st *state, k editEvent) {
 		if ed.multiline {
 			ed.insert("\n")
 		} else {
-			st.submitted, st.submitMods = true, k.mods
+			st.markSubmitted()
+			st.submitMods = k.mods
 			c.rt.consumed = true
 		}
 		return

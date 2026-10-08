@@ -6,7 +6,7 @@ browser: disabled at the ends of the history, and showing a chevron. Give
 them the router, a `*ui.Router` in your state:
 
 ```go
-ui.Toolbar(c, func(c ui.Frame) {
+ui.Toolbar(c, func() {
 	ui.BackButton(c, app.router)
 	ui.ForwardButton(c, app.router)
 	ui.Text(c, app.router.Title()).Bold()

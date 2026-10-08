@@ -74,7 +74,7 @@ func (s *SVG) imageSize() (float32, float32) {
 // does not stretch across a column. Icons are decorations that assistive
 // technology does not see, unless Label names them.
 //
-//	ui.Row(c).Gap(6).Children(func(c ui.Frame) {
+//	ui.Row(c).Gap(6).Children(func() {
 //		ui.Icon(c, save)
 //		ui.Text(c, "Save")
 //	})

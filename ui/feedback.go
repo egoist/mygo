@@ -31,7 +31,7 @@ func coreCheckboxGroup(c *context, label string, fn func()) *node {
 		head = coreRow(c).Focusable().Shrink(0).Gap(t.Space(2)).FocusRing(false).Role(RoleCheckBox)
 		head.flags |= flagClickable | flagHover | flagToggle
 		head.widget = "CheckboxGroup"
-		clicked := head.Clicked()
+		head.flags |= flagClickable
 		var box *node
 		head.Children(func() {
 			box = coreBox(c).Size(t.Space(4), t.Space(4)).Radius(t.Space(1)).Shrink(0)
@@ -50,13 +50,15 @@ func coreCheckboxGroup(c *context, label string, fn func()) *node {
 			}
 		}
 		all := on == len(group.boxes) && on > 0
-		if clicked {
-			for _, b := range group.boxes {
-				*b = !all
+		head.afterInput(func() {
+			if head.Clicked() {
+				for _, b := range group.boxes {
+					*b = !all
+				}
+				g.st.markChanged()
+				c.rt.consumed = true
 			}
-			g.st.changed = true
-			c.rt.consumed = true
-		}
+		})
 		state := int8(1)
 		switch {
 		case all:
@@ -131,10 +133,12 @@ func coreBreadcrumbs(c *context, items []string, chosen *int) *node {
 			}
 			b.Focusable().Role(RoleLink).TextColor(t.TextMuted)
 			b.flags |= flagClickable | flagHover
-			if b.Clicked() {
-				*chosen = i
-				e.st.changed = true
-			}
+			b.afterInput(func() {
+				if b.Clicked() {
+					*chosen = i
+					e.st.markChanged()
+				}
+			})
 			b.styleFn = func(b *node) {
 				if b.Hovered() {
 					b.bg = t.SurfaceHover
@@ -235,17 +239,20 @@ func coreFindBar(c *context, open *bool, query *string, matches int, current *in
 	step := func(d int) {
 		if matches > 0 {
 			*current = (*current + d + matches) % matches
-			bar.st.changed = true
+			bar.st.markChanged()
 			c.rt.consumed = true
 		}
 	}
-	mac := runtime.GOOS == "darwin"
-	switch {
-	case mac && c.Shortcut(Cmd, KeyG), !mac && c.Shortcut(0, KeyF3):
-		step(1)
-	case mac && c.Shortcut(Shift|Cmd, KeyG), !mac && c.Shortcut(Shift, KeyF3):
-		step(-1)
-	}
+	bar.afterInput(func() {
+		mac := runtime.GOOS == "darwin"
+		switch {
+		case mac && c.Shortcut(Cmd, KeyG), !mac && c.Shortcut(0, KeyF3):
+			step(1)
+		case mac && c.Shortcut(Shift|Cmd, KeyG), !mac && c.Shortcut(Shift, KeyF3):
+			step(-1)
+		}
+
+	})
 	bar.Children(func() {
 		f, in := field(c, func() *node {
 			magnifier(c)
@@ -263,15 +270,18 @@ func coreFindBar(c *context, open *bool, query *string, matches int, current *in
 				ed.selectAll()
 			}
 		}
-		switch {
-		case in.Submitted() && in.st.submitMods&Shift != 0:
-			step(-1)
-		case in.Submitted():
-			step(1)
-		case in.Shortcut(0, KeyEscape):
-			*open = false
-			c.rt.consumed = true
-		}
+		in.afterInput(func() {
+			switch {
+			case in.Submitted() && in.st.submitMods&Shift != 0:
+				step(-1)
+			case in.Submitted():
+				step(1)
+			case in.Shortcut(0, KeyEscape):
+				*open = false
+				c.rt.consumed = true
+			}
+
+		})
 		status := "No matches"
 		switch {
 		case *query == "":
@@ -298,14 +308,19 @@ func coreFindBar(c *context, open *bool, query *string, matches int, current *in
 					p.StrokePath(&path, 1.5, t.Text)
 				})
 			})
-			if btn.Clicked() {
-				step(b.d)
+			btn.afterInput(func() {
+				if btn.Clicked() {
+					step(b.d)
+				}
+			})
+		}
+		done := coreButton(c, "Done")
+		done.afterInput(func() {
+			if done.Clicked() {
+				*open = false
+				c.rt.consumed = true
 			}
-		}
-		if coreButton(c, "Done").Clicked() {
-			*open = false
-			c.rt.consumed = true
-		}
+		})
 	})
 	return bar
 }

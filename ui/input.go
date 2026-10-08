@@ -550,7 +550,8 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 		}
 		if r, ok := typedRune(mods, key); ok && (r != ' ' || s.typed != "") {
 			s.typed += string(r)
-			s.typedAt, s.typing = now, true
+			s.typedAt = now
+			s.markTyping()
 			rt.requestFrame()
 			return false
 		}
@@ -1037,7 +1038,13 @@ func (e *node) Dragged() (dx, dy float32, ok bool) {
 }
 
 // Changed reports whether a widget's value changed since the last frame.
-func (e *node) Changed() bool { return e.hasState() && e.st.changed }
+func (e *node) Changed() bool {
+	if e.hasState() && e.st.changed {
+		e.c.rt.consumed = true
+		return true
+	}
+	return false
+}
 
 // Submitted reports whether Enter was pressed in a single-line text input.
 func (e *node) Submitted() bool { return e.hasState() && e.st.submitted }

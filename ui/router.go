@@ -20,7 +20,7 @@ import (
 //
 //	app := &notesApp{router: ui.NewRouter("/notes")}
 //
-//	func (app *notesApp) view(c ui.Frame) {
+//	func (app *notesApp) view(c *ui.Context) {
 //		app.router.View(c, func(r *ui.Route) {
 //			switch {
 //			case r.Match("/notes"):
@@ -54,6 +54,8 @@ import (
 // and changed on the main thread: from another goroutine, change it in
 // Window.Update.
 type Router struct {
+	Handle
+
 	// Transition is how pages replace each other.
 	Transition Transition
 
@@ -462,6 +464,7 @@ func (r *Router) coreView(c *context, fn func(r *Route)) *node {
 	r.rt = c.rt
 	box := coreColumn(c).Grow(1).AlignSelf(Stretch).MinWidth(0).MinHeight(0)
 	box.widget = "Router"
+	wrapElement(box).Bind(&r.Handle)
 	r.keys(c, box)
 	r.build(c, box, &r.view, nil, fn)
 	return box

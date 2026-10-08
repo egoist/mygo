@@ -966,7 +966,7 @@ func TestMenuLetters(t *testing.T) {
 	prev := mygo.App.Menu()
 	defer mygo.App.SetMenu(prev)
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))
-	view := func(c ui.Frame) { ui.Box(c).Fill() }
+	view := func(c *ui.Context) { ui.Box(c).Fill() }
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, FullScreen: true, Content: ui.View(view)})
 	eventually(t, "the window in full screen", w.IsFullScreen)
 	if shown, _ := menuBarShown(w); shown {
@@ -2221,9 +2221,9 @@ func deviceScale(w *mygo.Window) float64 {
 // paragraphs and copies their selection through the native Edit menu.
 func TestContentWindowTextSelection(t *testing.T) {
 	var frames atomic.Int32
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Column(c).Fill().Padding(20).Gap(20).Selectable().Children(func(c ui.Frame) {
+		ui.Column(c).Fill().Padding(20).Gap(20).Selectable().Children(func() {
 			ui.Text(c, "First paragraph.").Height(30)
 			ui.Text(c, "Second paragraph.").Height(30)
 		})
@@ -2268,9 +2268,9 @@ func TestContentWindowTextSelection(t *testing.T) {
 func TestContentWindowInputMethod(t *testing.T) {
 	var frames atomic.Int32
 	name := "cafe"
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Column(c).Fill().Padding(20).Children(func(c ui.Frame) { ui.TextInput(c, &name) })
+		ui.Column(c).Fill().Padding(20).Children(func() { ui.TextInput(c, &name) })
 	}
 	text := func() (s string) {
 		mygo.RunOnMain(func() { s = name })
@@ -2309,9 +2309,9 @@ func TestContentWindowInputMethod(t *testing.T) {
 func TestContentWindowTextAreaInputMethod(t *testing.T) {
 	var frames atomic.Int32
 	notes := "first\ncafe"
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Column(c).Fill().Padding(20).Children(func(c ui.Frame) { ui.TextArea(c, &notes).Height(120) })
+		ui.Column(c).Fill().Padding(20).Children(func() { ui.TextArea(c, &notes).Height(120) })
 	}
 	text := func() (s string) {
 		mygo.RunOnMain(func() { s = notes })
@@ -2347,7 +2347,7 @@ func TestContentWindowTextAreaInputMethod(t *testing.T) {
 func TestContentWindowFileDrop(t *testing.T) {
 	var frames atomic.Int32
 	var zone []string
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
 		if files := ui.Box(c).Size(200, 100).Background(ui.RGB(200, 200, 200)).DroppedFiles(); files != nil {
 			zone = files
@@ -2388,9 +2388,9 @@ type accessNode struct{ role, label, value string }
 func TestContentWindowAccessibility(t *testing.T) {
 	var frames atomic.Int32
 	count, agree, name, volume := 0, false, "Ada", 30.0
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Column(c).Fill().Padding(20).Gap(10).Children(func(c ui.Frame) {
+		ui.Column(c).Fill().Padding(20).Gap(10).Children(func() {
 			ui.Text(c, "Settings")
 			if ui.Button(c, "Save").Clicked() {
 				count++
@@ -2463,13 +2463,13 @@ func TestContentWindowAccessibility(t *testing.T) {
 func TestContentWindowObserved(t *testing.T) {
 	var frames atomic.Int32
 	name, notes := "Ada", "Read only"
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Column(c).Fill().Padding(20).Gap(10).Children(func(c ui.Frame) {
+		ui.Column(c).Fill().Padding(20).Gap(10).Children(func() {
 			ui.Text(c, "Settings")
 			ui.TextInput(c, &name).Label("Name")
 			ui.TextInput(c, &notes).Label("Notes").ReadOnly(true)
-			ui.Column(c).Role(ui.RoleMenu).Label("Edit menu").Children(func(c ui.Frame) {
+			ui.Column(c).Role(ui.RoleMenu).Label("Edit menu").Children(func() {
 				ui.Text(c, "Bold").Role(ui.RoleMenuItemCheckBox).Checked(true)
 			})
 		})
@@ -2518,10 +2518,10 @@ func TestContentWindowListAccessibility(t *testing.T) {
 	var frames atomic.Int32
 	chosen := -1
 	var list ui.ListState
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
 		list.Selected = &chosen
-		ui.List(c, &list, 10000, func(c ui.Frame, i int) {
+		ui.List(c, &list, 10000, func(i int) {
 			ui.Textf(c, "Item %d", i).Padding(6, 10)
 		}).Fill().Label("Items")
 	}
@@ -2559,10 +2559,10 @@ func TestContentWindowListTypeToChoose(t *testing.T) {
 	words := []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"}
 	label := func(i int) string { return fmt.Sprintf("%s %d", words[i%len(words)], i) }
 	var list ui.ListState
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
 		list.Selected, list.Label = &chosen, label
-		ui.List(c, &list, 1000, func(c ui.Frame, i int) {
+		ui.List(c, &list, 1000, func(i int) {
 			ui.Text(c, label(i)).Padding(6, 10)
 		}).Fill()
 	}
@@ -2590,9 +2590,9 @@ func TestContentWindowListTypeToChoose(t *testing.T) {
 func TestContentWindowTyping(t *testing.T) {
 	var frames atomic.Int32
 	var name string
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Column(c).Fill().Padding(20).Children(func(c ui.Frame) {
+		ui.Column(c).Fill().Padding(20).Children(func() {
 			ui.TextInput(c, &name)
 		})
 	}
@@ -2617,9 +2617,9 @@ func TestContentWindowTyping(t *testing.T) {
 func TestContentWindowComposingKeys(t *testing.T) {
 	var frames atomic.Int32
 	open, submitted, name := true, 0, ""
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Modal(c, &open, func(c ui.Frame) {
+		ui.Modal(c, &open, func() {
 			if ui.TextInput(c, &name).AutoFocus().Submitted() {
 				submitted++
 			}
@@ -2651,9 +2651,9 @@ func TestContentWindow(t *testing.T) {
 	var frames, clicks, rightClicks atomic.Int32
 	var label atomic.Value
 	label.Store("before")
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Box(c).Fill().Background(ui.RGB(30, 144, 255)).Children(func(c ui.Frame) {
+		ui.Box(c).Fill().Background(ui.RGB(30, 144, 255)).Children(func() {
 			b := ui.Box(c).Size(200, 100).Background(ui.RGB(255, 0, 0))
 			if b.Clicked() {
 				clicks.Add(1)
@@ -2743,9 +2743,9 @@ func TestContentWindowRepaintsWhatChanged(t *testing.T) {
 	defer mygo.App.SetMenu(prev)
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))
 	var frames, red atomic.Int32
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Box(c).Fill().Padding(20).Gap(20).Background(ui.RGB(30, 144, 255)).Children(func(c ui.Frame) {
+		ui.Box(c).Fill().Padding(20).Gap(20).Background(ui.RGB(30, 144, 255)).Children(func() {
 			for i := range int32(3) {
 				color := ui.RGB(255, 255, 255)
 				if i == red.Load() {
@@ -2803,9 +2803,9 @@ func TestContentWindowMenuButton(t *testing.T) {
 	var frames atomic.Int32
 	var chosen atomic.Value
 	chosen.Store("")
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Box(c).Fill().Padding(20).Children(func(c ui.Frame) {
+		ui.Box(c).Fill().Padding(20).Children(func() {
 			ui.MenuButton(c, "Export", func(m *ui.Menu) {
 				for _, label := range []string{"As PDF", "As PNG"} {
 					if m.Item(label).Chosen() {
@@ -2855,10 +2855,10 @@ func TestReorderByDragging(t *testing.T) {
 		items = slices.Insert(items, to, moved)
 		order.Store(strings.Join(items, ""))
 	}
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.List(c, &s, len(items), func(c ui.Frame, i int) {
-			ui.Box(c).Height(30).Children(func(c ui.Frame) { ui.Text(c, items[i]) })
+		ui.List(c, &s, len(items), func(i int) {
+			ui.Box(c).Height(30).Children(func() { ui.Text(c, items[i]) })
 		}).Fill()
 	}
 	w := newWindow(t, mygo.WindowOptions{Title: "Reorder", Width: 300, Height: 300, Content: ui.View(view)})
@@ -2878,9 +2878,9 @@ func TestRouterSideButtons(t *testing.T) {
 	r := ui.NewRouter("/a")
 	r.Push("/b")
 	r.Transition = ui.TransitionNone
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		r.View(c, func(c ui.Frame, rt *ui.Route) {
+		r.View(c, func(rt *ui.Route) {
 			path.Store(rt.Path())
 			ui.Text(c, rt.Path())
 		})
@@ -2899,9 +2899,9 @@ func TestContentWindowContextMenu(t *testing.T) {
 	var frames atomic.Int32
 	var chosen atomic.Value
 	chosen.Store("")
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
-		ui.Box(c).Fill().Children(func(c ui.Frame) {
+		ui.Box(c).Fill().Children(func() {
 			ui.Box(c).Size(200, 100).Background(ui.RGB(255, 0, 0)).ContextMenu(func(m *ui.Menu) {
 				for _, label := range []string{"First", "Second"} {
 					if m.Item(label).Chosen() {

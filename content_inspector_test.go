@@ -11,7 +11,7 @@ import (
 
 func TestContentInspector(t *testing.T) {
 	var width float32
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		width, _ = c.Size()
 		ui.Text(c, "Hello")
 	}

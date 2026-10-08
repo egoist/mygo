@@ -27,7 +27,7 @@ double-clicking them zooms or minimizes as a title bar would:
 
 ```go
 bar := c.TitleBar()
-ui.Row(c).Height(max(bar.Height, 32)).Padding(0, bar.Right+12, 0, bar.Left+12).DragWindow().Children(func(c ui.Frame) {
+ui.Row(c).Height(max(bar.Height, 32)).Padding(0, bar.Right+12, 0, bar.Left+12).DragWindow().Children(func() {
 	ui.Text(c, "Inbox").Bold()
 })
 ```
@@ -44,9 +44,9 @@ content does:
 
 ```go
 c.Root().Background(ui.Transparent)
-ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func(c ui.Frame) {
+ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 	app.sidebar(c) // over the material
-	ui.Column(c).Grow(1).Background(c.Theme().Background).Children(func(c ui.Frame) { app.content(c) })
+	ui.Column(c).Grow(1).Background(c.Theme().Background).Children(func() { app.content(c) })
 })
 ```
 

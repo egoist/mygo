@@ -1,166 +1,185 @@
-# Migrating to checked UI values
+# Migrating to checked elements
 
-This redesign is a breaking change to native UI. The window, webview and
-typed IPC APIs keep their existing signatures. Views now receive a
-`ui.Frame` value and widget constructors return `ui.Element` values.
-See the [performance measurements](performance.md) for the measured cost
-of handle validation and deferred list construction.
+This is a breaking change to native UI element types. Views keep their
+`*ui.Context` parameter and child builders keep `func()` callbacks. Widget
+constructors return `ui.Element` values. Window, webview and typed IPC
+signatures keep their existing shape.
 
 ## Apply the source migration
 
-Run the command from the app's checkout, with its usual MyGo CLI:
+From the app's checkout:
 
 ```sh
-go tool mygo migrate-ui .          # preview the affected files
+go tool mygo migrate-ui .          # preview affected files
 go tool mygo migrate-ui -write .   # write the source migration
+go tool mygo vet .
 go test ./...
 ```
 
-In a checkout of MyGo itself, use `go run ./cmd/mygo` instead of
-`go tool mygo`. Review the diff before committing it.
+In MyGo's checkout, use `go run ./cmd/mygo` instead of `go tool mygo`.
+Review the diff before committing it. The codemod uses Go syntax and the
+actual UI import alias. It converts element and custom-parts pointer types,
+element nil checks and zero assignments, moves fluent constructor keys into
+`Context.Key`, and renames grid `Rows(n)` to `GridRows(n)`. Context pointers,
+child callback signatures, ordinary model pointers and unrelated nil checks
+are preserved. Dot imports and keys on separately stored elements need
+manual review. It does not move arbitrary polling control flow into callbacks.
 
-The codemod reads Go syntax and the imported MyGo package name. It changes
-context and element types, adds scoped frame parameters to inline child
-builders, migrates element nil checks and assignments, and renames grid
-`Rows(n)` to `GridRows(n)`. It leaves other libraries and ordinary pointer,
-slice and error nil checks alone. Dot imports and stored handles need
-manual review. Helper functions used as builders may also need a frame
-parameter; the compiler identifies their mismatched signatures.
-
-## Frame and element values
+## Element values and keys
 
 ```go
 // Earlier
-func (a *app) view(c *ui.Context) {
-    ui.Column(c).Children(func() {
-        ui.Text(c, "Hello")
-    })
-}
+var element *ui.Element
+if element != nil { element.Focus() }
 
 // Now
-func (a *app) view(f ui.Frame) {
-    ui.Column(f).Children(func(child ui.Frame) {
-        ui.Text(child, "Hello")
-    })
-}
+var element ui.Element
+if element.Valid() { element.Focus() }
 ```
 
-Every builder receives the frame scoped to its parent. Pass that frame to
-the elements created inside it. A helper should accept `ui.Frame` too:
+Use `ui.Element{}` instead of assigning or returning `nil`. Custom parts
+such as `ui.SelectParts[T]` are values containing checked elements too.
+
+An element expires before the next build pass, including a rebuild within
+the same frame. Generation validation rejects it even when its arena slot
+has been reused. `Tester` and development builds panic with a message naming
+the passes and recommending `ui.Handle`; production builds with
+`mygo_noinspector` return empty query results or ignore stale mutations.
+The absent zero value remains safe in either mode. `Valid` does not panic.
+
+Keys now enter before state initialization:
 
 ```go
-func details(f ui.Frame) { ui.Text(f, "Details") }
-ui.Column(f).Children(details)
+ui.TextInput(c.Key("search"), &a.query).ReadOnly(a.readOnly)
+ui.Checkbox(c.Key(todo.ID), &todo.Done, todo.Title)
+parts := ui.SelectBase(c.Key("choice"), &a.choice)
 ```
 
-Replace `*ui.Element` declarations and callback parameters with
-`ui.Element`. Its zero value is absent. Use `e.Valid()` instead of
-`e != nil`; use `ui.Element{}` instead of assigning or returning `nil`.
-Queries on expired elements return false or zero, and mutations do nothing.
-An absent element's `Children` does not run its callback.
+`Element.Key` remains available for containers before their children or
+local state are built. Use `Context.Key` for stateful widgets, including
+custom base controls. A key names the next outer control, and is consumed
+before it initializes its state.
 
-Frame and element copies retain their original window and generation.
-They expire before the next build pass, including a rebuild in the same
-frame. Keeping one in app state no longer risks accidentally controlling a
-different element, but it does not create a persistent reference.
+## Input and actions
 
-## Handle actions after building
-
-Prefer callbacks for application actions:
+Construction is eager. Bound-value input applies after all controls and
+fluent configuration have been built. A second pass reads the updated model
+and its `Changed`/`Submitted` notices. Changing `Disabled`, `ReadOnly`, or
+slider settings before construction finishes affects that input; interaction
+queries do not trigger constructor realization.
 
 ```go
-ui.Button(f, "Save").Key("save").Disabled(a.saving).OnClick(a.save)
-ui.TextInput(f, &a.query).Key("query").OnChange(a.search)
-ui.TextInput(f, &a.draft).Key("draft").OnSubmit(a.send)
-f.OnShortcut(ui.Cmd, ui.KeyS, a.save)
+ui.Button(c, "Save").Disabled(a.saving).OnClick(a.save)
+ui.TextInput(c.Key("query"), &a.query).OnChange(a.search)
+ui.TextInput(c.Key("draft"), &a.draft).OnSubmit(a.send)
+c.OnShortcut(ui.Cmd, ui.KeyS, a.save)
 ```
 
-Actions run on the UI thread after the view and its configuration are
-built. Handled input is consumed before another pass, so rebuilding does
-not repeat the action. Keep I/O in worker goroutines and publish results
-with `Window.Update`.
+Click and shortcut actions run after configuration and bound input. Change
+and submit actions run when the rebuilt view observes their notices. Handled
+input is consumed before another pass so actions do not repeat. Polling
+methods remain available; prefer callbacks when an action changes the
+collection being built. Keep I/O in workers and publish model results with
+`Window.Update`.
 
-Polling methods such as `Clicked`, `Changed` and `Submitted` remain for
-low-level composition and migration. An interaction query realizes a
-deferred widget immediately, so finish its configuration first. In
-particular, set `Key` before children, interaction queries or local state.
-Stateful controls now accept keys before initialization; `Disabled` and
-text input `ReadOnly` are available before they handle input.
+## Persistent identity
 
-The codemod deliberately does not replace arbitrary polling conditions
-with callbacks: moving `return`, `break`, `continue`, an `else` branch or
-captured variables into a function can change program behavior.
-
-## Keep persistent control references
-
-Replace saved element pointers used for focus with a `ui.Ref`:
+Store `ui.Handle` instead of an element:
 
 ```go
 type app struct {
     query string
-    search ui.Ref
+    search ui.Handle
 }
 
-func (a *app) view(f ui.Frame) {
-    ui.TextInput(f, &a.query).Key("search").Ref(&a.search)
+func (a *app) view(c *ui.Context) {
+    ui.TextInput(c.Key("search"), &a.query).Bind(&a.search)
 }
 
 // On the UI thread, including inside Window.Update:
-a.search.RequestFocus()
+a.search.Focus()
 ```
 
-A request waits while the control is hidden, and coalesces with another
-request. Closing the window cancels it. Use `CancelFocus` to cancel it
-earlier. `f.Resolve(a.search)` returns this build's element, and
-`f.Focused(a.search)` and `f.FocusWithin(a.search)` query its current focus.
-A Ref belongs to one window and can bind one control per build. Keep
-separate references and widget state for separate windows.
+Focus requests coalesce and wait while the control is hidden. Closing its
+window cancels that window's request. `CancelFocus` cancels earlier.
 
-## Lists and row scopes
+`handle.Focused(c)` and `handle.FocusWithin(c)` read persistent identity,
+including before the control is constructed. `c.Resolve(handle)` returns
+only this pass's element. These are different queries: previous focus can
+still be observed in the build that removes a control; committing that build
+removes its actual focus.
+
+A handle supports independent bindings in several windows. Queries take the
+window's Context. Use `handle.Focus(c)` and `CancelFocus(c)` to select a
+window; the no-argument Focus form requires at most one open binding. Before
+the first binding, it waits for that first control. Give each window its own
+widget state and focus field. `Ref`/`RequestFocus` remain aliases for
+`Handle`/`Focus`.
+
+`ListState`, `ScrollState`, `GridState` and `Router` carry a Handle; other
+controls can bind any app-owned handle. Older ListState polling helpers
+remain available; use `state.Handle` for persistent focus and commands.
+
+## Focus bound to app data
 
 ```go
-ui.List(f, &a.list, len(a.files)).Key("files").Ref(&a.filesView).Grow(1).
+type pane int
+const (none pane = iota; files; diff)
+
+ui.List(c, &a.list, len(a.files)).FocusBind(&a.pane, files).
+    Rows(func(row ui.ListRow) { ui.Text(row.Context, a.files[row.Index].Name) })
+
+// An action requests the diff pane, waiting while hidden:
+a.pane = diff
+
+// Actual focus can differ while that request waits:
+focused := ui.FocusedValue(c, &a.pane)
+```
+
+`FocusBind` requires a pointer to a comparable field and a matching value.
+Values are unique within that field in one window; reserve its zero value
+for no focus. The field holds desired focus. User focus changes update it
+when no request is waiting. Setting zero clears focus. `FocusedValue` reads
+actual focus using committed identities, regardless of construction order.
+A hidden binding keeps its desired request, while actual focus can be on
+another control or absent. Use separate fields for separate windows.
+
+## Lists and keyboard commands
+
+```go
+a.filesView.OnShortcut(c, ui.Cmd, ui.KeyK, a.openSelected)
+ui.List(c.Key("files"), &a.list, len(a.files)).Bind(&a.filesView).Grow(1).
     ItemKey(func(i int) any { return a.files[i].ID }).
     Selection(&a.selection).
-    OnShortcut(ui.Cmd, ui.KeyK, a.openSelected).
     Rows(func(row ui.ListRow) {
-        text := ui.Text(row.Frame, a.files[row.Index].Name)
+        text := ui.Text(row.Context, a.files[row.Index].Name)
         if row.Selected() && row.ListFocused() {
-            text.TextColor(row.Frame.Theme().Accent)
+            text.TextColor(c.Theme().Accent)
         }
     })
 ```
 
-`ListRow` supplies its current frame, index, selection and list focus, so a
-row builder does not need a saved list element or an extra focus wrapper.
-`ListState` and `Selection[T]` remain persistent app state. The earlier
-list callback form is available as `func(ui.Frame, int)` while migrating.
-Provide keys for reorderable items; a widget pointer is not item identity.
+A Handle's shortcut may be declared before Bind. It runs after construction
+only if that window built an enabled control for the handle, so a hidden
+control takes no command. `ListRow` supplies the shared Context, index,
+selection and list focus. The original `List(c, state, n, func(i int))`
+constructor remains supported. Configure fluent lists before calling Rows.
 
-## Persistent services for custom controls
+## Persistent services and verification
 
-Do not retain a Frame for input callbacks or background redraw requests.
-Capture its window's `ui.Services` instead:
+Capture `c.Services()` for clipboard/URL callbacks and background redraws.
+Services has weak window ownership and no build data. Clipboard and URL
+methods run on the UI thread; Invalidate is safe from another goroutine.
+Use `Window.Update` when publishing model changes.
 
-```go
-services := f.Services()
-element.HandleInput(func(event ui.InputEvent) bool {
-    services.WriteClipboard("copied")
-    return true
-})
+`mygo vet` runs ordinary Go vet and type-aware checks for elements, parts,
+and Context pointers stored in struct fields/package variables or captured
+by/passed to goroutines. It follows imports, type aliases and inferred
+variables; Handle, Services and view callback signatures are allowed.
+These checks help enforce build lifetimes; they do not prove all lifetimes
+or goroutine safety. Runtime generation checks remain necessary.
 
-// Safe from another goroutine:
-services.Invalidate()
-```
-
-Services has weak window ownership and no frame data. Clipboard and URL
-methods run on the UI thread. Invalidate requests a frame without changing
-model state; use `Window.Update` when publishing a model change.
-
-## Verify the migration
-
-Exercise extra frames while controls disappear and return. Test pending
-focus, keyboard shortcuts, list reordering, text editing and disabled
-states with `ui.NewTester`. Run your normal tests and inspect the app when
-changing callbacks or layout. Custom material builders now receive
-`ui.Element` values; update their method signatures too.
+Exercise controls disappearing and returning, pending focus, list reordering,
+text editing/IME, disabled and read-only settings, and command routing. Run
+normal tests and inspect the app. See [Performance](performance.md) for
+measured costs and reproduction commands.

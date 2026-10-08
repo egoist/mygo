@@ -14,7 +14,7 @@ type fileTree struct {
 	row      int
 }
 
-func (app *fileTree) view(c ui.Frame) {
+func (app *fileTree) view(c *ui.Context) {
 	app.files.List.Selected = &app.row
 	ui.Outline(c, &app.files, []string{"/"}, func(dir string) []string {
 		return app.children[dir] // nil for a file

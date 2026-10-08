@@ -8,7 +8,7 @@ and `Changed` reports it. The value can be of any comparable type.
 one chosen, and the arrows choose among them, as do Home and End.
 
 ```go
-ui.RadioGroup(c, func(c ui.Frame) {
+ui.RadioGroup(c, func() {
 	for _, size := range []string{"Small", "Medium", "Large"} {
 		ui.Radio(c, &app.size, size, size)
 	}
@@ -18,7 +18,7 @@ ui.RadioGroup(c, func(c ui.Frame) {
 A radio group is a column; make it a row with `Row`:
 
 ```go
-ui.RadioGroup(c, func(c ui.Frame) {
+ui.RadioGroup(c, func() {
 	ui.Radio(c, &app.align, ui.Start, "Left")
 	ui.Radio(c, &app.align, ui.Center, "Center")
 	ui.Radio(c, &app.align, ui.End, "Right")

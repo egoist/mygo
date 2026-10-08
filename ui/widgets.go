@@ -217,16 +217,19 @@ func coreLink(c *context, label, url string) *node {
 	t := c.theme
 	e := coreText(c, label).TextColor(t.Accent).Cursor(CursorPointer).Focusable()
 	e.widget, e.role = "Link", RoleLink
-	if e.Clicked() && url != "" {
-		if r := c.router; r != nil && isPath(url) {
-			r.Push(url)
-		} else {
-			c.rt.host.openURL(url, nil)
+	router := c.router
+	e.afterInput(func() {
+		if e.Clicked() && url != "" {
+			if r := router; r != nil && isPath(url) {
+				r.Push(url)
+			} else {
+				c.rt.host.openURL(url, nil)
+			}
 		}
-	}
-	if e.Hovered() {
-		e.Underline()
-	}
+		if e.Hovered() {
+			e.Underline()
+		}
+	})
 	return e
 }
 

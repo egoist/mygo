@@ -31,6 +31,7 @@ type comboboxParts struct {
 	typed     *bool
 	chosen    string
 	isChosen  bool
+	choice    *comboChoice
 }
 
 // ComboboxBase creates a combobox without a look: a text input editing
@@ -49,7 +50,7 @@ type comboboxParts struct {
 //			if item.Highlighted() {
 //				item.Background(blue).TextColor(white)
 //			}
-//			item.Children(func(c ui.Frame) { ui.Text(c, f) })
+//			item.Children(func() { ui.Text(c, f) })
 //		}
 //	})
 //	if f, ok := cb.Chosen(); ok {
@@ -75,61 +76,71 @@ func comboboxBase(c *context, text *string, first bool) *comboboxParts {
 		pointer:   coreLocal(in, "pointer", func() [2]float32 { return [2]float32{} }),
 		typed:     coreLocal(in, "typed", func() bool { return false }),
 	}
-	rt := c.rt
-	typedFirst := -1
-	if first {
-		typedFirst = 0
-	}
-	open := func(o, typed bool, highlight int) {
-		if *p.open != o || *p.typed != typed || *p.highlight != highlight {
-			rt.consumed = true
+	p.choice = coreLocal(in, "choice", func() comboChoice { return comboChoice{} })
+	p.chosen, p.isChosen = p.choice.text, p.choice.ready
+	in.afterInput(func() {
+		p.chosen, p.isChosen = "", false
+		if p.choice.epoch < c.rt.epoch {
+			p.choice.ready = false
 		}
-		*p.open, *p.typed, *p.highlight = o, typed, highlight
-		*p.pointer = [2]float32{rt.pointerX, rt.pointerY}
-	}
-	n := len(*p.values)
-	switch {
-	case !in.Focused():
-		if *p.open {
+		rt := c.rt
+		typedFirst := -1
+		if first {
+			typedFirst = 0
+		}
+		open := func(o, typed bool, highlight int) {
+			if *p.open != o || *p.typed != typed || *p.highlight != highlight {
+				rt.consumed = true
+			}
+			*p.open, *p.typed, *p.highlight = o, typed, highlight
+			*p.pointer = [2]float32{rt.pointerX, rt.pointerY}
+		}
+		n := len(*p.values)
+		switch {
+		case !in.Focused():
+			if *p.open {
+				open(false, false, -1)
+			}
+		case in.Changed():
+			open(true, true, typedFirst)
+		case in.Clicked() && !*p.open:
+			open(true, false, -1)
+		}
+		switch {
+		case in.Shortcut(0, KeyDown):
+			if !*p.open {
+				open(true, *p.typed, 0)
+			} else if n > 0 {
+				*p.highlight = min(*p.highlight+1, n-1)
+				rt.consumed = true
+			}
+		case in.Shortcut(0, KeyUp):
+			if !*p.open {
+				open(true, *p.typed, -2) // the last, once known
+			} else if n > 0 {
+				*p.highlight = max(*p.highlight-1, 0)
+				rt.consumed = true
+			}
+		}
+		// Escape closes the popup; while it is closed, Escape is the
+		// dialog's.
+		if *p.open && in.Shortcut(0, KeyEscape) {
 			open(false, false, -1)
 		}
-	case in.Changed():
-		open(true, true, typedFirst)
-	case in.Clicked() && !*p.open:
-		open(true, false, -1)
-	}
-	switch {
-	case in.Shortcut(0, KeyDown):
-		if !*p.open {
-			open(true, *p.typed, 0)
-		} else if n > 0 {
-			*p.highlight = min(*p.highlight+1, n-1)
-			rt.consumed = true
+		if in.Submitted() && *p.open {
+			if h := *p.highlight; h >= 0 && h < n {
+				p.choose((*p.values)[h])
+			}
 		}
-	case in.Shortcut(0, KeyUp):
-		if !*p.open {
-			open(true, *p.typed, -2) // the last, once known
-		} else if n > 0 {
-			*p.highlight = max(*p.highlight-1, 0)
-			rt.consumed = true
-		}
-	}
-	// Escape closes the popup; while it is closed, Escape is the
-	// dialog's.
-	if *p.open && in.Shortcut(0, KeyEscape) {
-		open(false, false, -1)
-	}
-	if in.Submitted() && *p.open {
-		if h := *p.highlight; h >= 0 && h < n {
-			p.choose((*p.values)[h])
-		}
-	}
+	})
 	in.expanded = *p.open
 	return p
 }
 
 func (p *comboboxParts) choose(v string) {
 	p.chosen, p.isChosen = v, true
+	p.Input.st.submitted = false
+	*p.choice = comboChoice{text: v, ready: true, epoch: p.c.rt.epoch}
 	*p.open, *p.typed, *p.highlight = false, false, -1
 	p.c.rt.consumed = true
 }
@@ -212,9 +223,11 @@ func (p *comboboxParts) Item(value string) *node {
 	// The option the arrows are on is the one assistive technology reads
 	// as chosen, as in a list box.
 	item.checked = 1 + int8(b2f(item.highlighted))
-	if item.Clicked() {
-		p.choose(value)
-	}
+	item.afterInput(func() {
+		if item.Clicked() {
+			p.choose(value)
+		}
+	})
 	return item
 }
 
@@ -303,10 +316,12 @@ func coreCombobox(c *context, selected *string, options []string) *node {
 		p.Input.Grow(1).MinWidth(t.Space(25))
 		arrow := chevronDown(c)
 		arrow.flags |= flagClickable | flagKeepFocus
-		if arrow.Clicked() {
-			p.SetOpen(!p.Open())
-			p.Input.Focus()
-		}
+		arrow.afterInput(func() {
+			if arrow.Clicked() {
+				p.SetOpen(!p.Open())
+				p.Input.Focus()
+			}
+		})
 		return p.Input
 	})
 	p.anchor = f
@@ -315,19 +330,21 @@ func coreCombobox(c *context, selected *string, options []string) *node {
 		shown = matching(options, *text)
 	}
 	styleOptions(c, p, shown)
-	if v, ok := p.Chosen(); ok {
-		if *selected != v {
-			*selected = v
-			f.st.changed = true
+	f.afterInput(func() {
+		if v, ok := p.Chosen(); ok {
+			if *selected != v {
+				*selected = v
+				f.st.markChanged()
+			}
+			*text = v
+			in.st.editor.setText(v)
+			in.st.editor.selectAll()
+		} else if !in.Focused() && !p.Open() && *text != *selected {
+			// What was typed matched no choice.
+			*text = *selected
+			in.st.editor.setText(*selected)
 		}
-		*text = v
-		in.st.editor.setText(v)
-		in.st.editor.selectAll()
-	} else if !in.Focused() && !p.Open() && *text != *selected {
-		// What was typed matched no choice.
-		*text = *selected
-		in.st.editor.setText(*selected)
-	}
+	})
 	return f
 }
 
@@ -353,14 +370,16 @@ func coreAutocomplete(c *context, value *string, suggestions []string) *node {
 		}
 	}
 	styleOptions(c, p, shown)
-	if v, ok := p.Chosen(); ok {
-		if *value != v {
-			*value = v
-			in.st.changed = true
+	in.afterInput(func() {
+		if v, ok := p.Chosen(); ok {
+			if *value != v {
+				*value = v
+				in.st.markChanged()
+			}
+			in.st.editor.setText(v)
+			in.st.editor.caret, in.st.editor.anchor = in.st.editor.buf.n, in.st.editor.buf.n
 		}
-		in.st.editor.setText(v)
-		in.st.editor.caret, in.st.editor.anchor = in.st.editor.buf.n, in.st.editor.buf.n
-	}
+	})
 	return in
 }
 
@@ -390,22 +409,24 @@ func coreSearchField(c *context, query *string) *node {
 				x.MoveTo(r.X+k, r.Y+k).LineTo(r.X+r.W-k, r.Y+r.H-k).MoveTo(r.X+r.W-k, r.Y+k).LineTo(r.X+k, r.Y+r.H-k)
 				p.StrokePath(&x, 1.5, t.Background)
 			})
-			if clear.Clicked() || in.Shortcut(0, KeyEscape) {
-				*query = ""
-				in.st.editor.setText("")
-				in.st.changed = true
-				in.Focus()
-				c.rt.consumed = true
-			}
+			clear.afterInput(func() {
+				if clear.Clicked() || in.Shortcut(0, KeyEscape) {
+					*query = ""
+					in.st.editor.setText("")
+					in.st.markChanged()
+					in.Focus()
+					c.rt.consumed = true
+				}
+			})
 		}
 		return in
 	})
 	f.Padding(t.Space(1.5), t.Space(2))
 	if in.Changed() {
-		f.st.changed = true
+		f.st.markChanged()
 	}
 	if in.Submitted() {
-		f.st.submitted = true
+		f.st.markSubmitted()
 	}
 	return f
 }
@@ -465,11 +486,15 @@ func coreTokenField(c *context, tokens *[]string, suggestions []string) *node {
 					path.MoveTo(r.X+k, r.Y+k).LineTo(r.X+r.W-k, r.Y+r.H-k).MoveTo(r.X+r.W-k, r.Y+k).LineTo(r.X+k, r.Y+r.H-k)
 					pt.StrokePath(&path, 1.25, t.TextMuted)
 				})
-				if x.Clicked() {
-					*tokens = slices.Delete(*tokens, i, i+1)
-					changed = true
-					c.rt.consumed = true
-				}
+				x.afterInput(func() {
+					if x.Clicked() {
+						if at := slices.Index(*tokens, tok); at >= 0 {
+							*tokens = slices.Delete(*tokens, at, at+1)
+							changed = true
+							c.rt.consumed = true
+						}
+					}
+				})
 			})
 		}
 		// The input keeps its identity, whatever tokens come before it.
@@ -482,22 +507,18 @@ func coreTokenField(c *context, tokens *[]string, suggestions []string) *node {
 				in.role = RoleAuto // a text field
 			}
 			in.st.editor.leaveEmptyBackspace = true
-			if in.Shortcut(0, KeyBackspace) && len(*tokens) > 0 {
-				*tokens = (*tokens)[:len(*tokens)-1]
-				changed = true
-			}
+			in.afterInput(func() {
+				if in.Shortcut(0, KeyBackspace) && len(*tokens) > 0 {
+					*tokens = (*tokens)[:len(*tokens)-1]
+					changed = true
+				}
+			})
 		})
 		return in
 	})
 	f.Wrap()
 	p.anchor = f
-	if strings.Contains(*query, ",") {
-		parts := strings.Split(*query, ",")
-		for _, s := range parts[:len(parts)-1] {
-			add(s)
-		}
-		*query = parts[len(parts)-1]
-	}
+
 	var shown []string
 	if q := strings.TrimSpace(*query); q != "" && p.Filtering() {
 		for _, s := range matching(suggestions, q) {
@@ -507,16 +528,31 @@ func coreTokenField(c *context, tokens *[]string, suggestions []string) *node {
 		}
 	}
 	styleOptions(c, p, shown)
-	if v, ok := p.Chosen(); ok {
-		add(v)
-		*query = ""
-	} else if in.Submitted() {
-		add(*query)
-		*query = ""
-	}
-	if changed {
-		f.st.changed = true
-		c.rt.consumed = true
-	}
+	f.afterInput(func() {
+		if strings.Contains(*query, ",") {
+			parts := strings.Split(*query, ",")
+			for _, s := range parts[:len(parts)-1] {
+				add(s)
+			}
+			*query = parts[len(parts)-1]
+		}
+		if v, ok := p.Chosen(); ok {
+			add(v)
+			*query = ""
+		} else if in.Submitted() {
+			add(*query)
+			*query = ""
+		}
+		if changed {
+			f.st.markChanged()
+			c.rt.consumed = true
+		}
+	})
 	return f
+}
+
+type comboChoice struct {
+	text  string
+	ready bool
+	epoch uint64
 }

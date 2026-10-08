@@ -21,7 +21,7 @@ import (
 // scrollback, as does the wheel, unless the program takes the mouse. Hold
 // Shift to select while a program takes the mouse, and Command (Control
 // elsewhere) to open a hyperlink (OSC 8) on click.
-func View(c ui.Frame, t *Terminal) ui.Element {
+func View(c *ui.Context, t *Terminal) ui.Element {
 	v := t.viewOf(c)
 	e := ui.Box(c).Focusable().FocusRing(false).Cursor(ui.CursorText).Clip().Label("Terminal")
 	v.build(c, e)
@@ -34,7 +34,7 @@ func View(c ui.Frame, t *Terminal) ui.Element {
 
 // viewOf returns the terminal's view state, made on the first frame
 // showing it.
-func (t *Terminal) viewOf(c ui.Frame) *view {
+func (t *Terminal) viewOf(c *ui.Context) *view {
 	if t.v == nil {
 		t.v = &view{t: t, blinkStart: time.Now()}
 		t.v.shaped.init(4096)
@@ -102,7 +102,7 @@ type pendingKey struct {
 }
 
 // build updates the view as a frame builds.
-func (v *view) build(c ui.Frame, e ui.Element) {
+func (v *view) build(c *ui.Context, e ui.Element) {
 	t := v.t
 	dark := c.Theme().Dark
 	focused := e.Focused()

@@ -140,9 +140,9 @@ func (f *field) input(ev ui.InputEvent) bool {
 	}
 	return false
 }
-func (f *field) view(c ui.Frame) {
+func (f *field) view(c *ui.Context) {
 	t := c.Theme()
-	ui.Column(c).Fill().Padding(24).Gap(12).Children(func(c ui.Frame) {
+	ui.Column(c).Fill().Padding(24).Gap(12).Children(func() {
 		ui.Text(c, "Application-owned text input").FontSize(22).Bold()
 		ui.Text(c, "Click, type, compose with your input method, select with Shift, and use the Edit menu.").TextColor(t.TextMuted)
 		ui.Box(c).Height(60).Background(t.Surface).Border(1, t.Border).Radius(t.Radius).Label("Custom text field").Role(ui.RoleTextField).Value(f.text).HandleTextInput(f).AutoFocus().HandleInput(func(ev ui.InputEvent) bool { return f.input(ev) }).Draw(func(p *ui.Painter, r ui.Rect) {

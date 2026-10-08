@@ -297,14 +297,16 @@ func tableHeader(c *context, table, h *node, col *TableColumn, s *ListState, dra
 			h.st.clicks = 0
 		}
 	}
-	if s.Sort != nil && col.Sortable && h.Clicked() {
-		if s.Sort.Column == id {
-			s.Sort.Descending = !s.Sort.Descending
-		} else {
-			*s.Sort = SortOrder{Column: id}
+	h.afterInput(func() {
+		if s.Sort != nil && col.Sortable && h.Clicked() {
+			if s.Sort.Column == id {
+				s.Sort.Descending = !s.Sort.Descending
+			} else {
+				*s.Sort = SortOrder{Column: id}
+			}
+			table.st.markChanged()
 		}
-		table.st.changed = true
-	}
+	})
 	if col.Fixed {
 		return
 	}

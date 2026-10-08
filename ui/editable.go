@@ -78,7 +78,7 @@ func coreEditableText(c *context, value *string) *node {
 		st.editing = false
 		if keep && st.draft != *value {
 			*value = st.draft
-			box.st.changed = true
+			box.st.markChanged()
 		}
 		if row != nil && row.f != nil {
 			row.f.owner.Focus()
@@ -96,31 +96,33 @@ func coreEditableText(c *context, value *string) *node {
 			Margin(-pad-1, -pad*2-1).Radius(t.Space(1)).Background(t.Background).Border(1, t.Accent).
 			TextColor(t.Text)
 	})
-	focused := c.rt.focused == in.id
-	switch {
-	case st.fresh:
-		st.fresh = false
-		in.Focus()
-		// The name before its extension, as Finder selects.
-		ed := in.st.editor
-		end := ed.buf.n
-		if dot := strings.LastIndexByte(st.draft, '.'); dot > 0 {
-			end = len([]rune(st.draft[:dot]))
+	box.afterInput(func() {
+		focused := c.rt.focused == in.id
+		switch {
+		case st.fresh:
+			st.fresh = false
+			in.Focus()
+			// The name before its extension, as Finder selects.
+			ed := in.st.editor
+			end := ed.buf.n
+			if dot := strings.LastIndexByte(st.draft, '.'); dot > 0 {
+				end = len([]rune(st.draft[:dot]))
+			}
+			ed.anchor, ed.caret = 0, end
+		case in.Submitted():
+			done(true)
+		case in.Shortcut(0, KeyEscape):
+			done(false)
+		case !focused:
+			// The focus went elsewhere: what was typed stays, and the focus
+			// with it.
+			st.editing = false
+			if st.draft != *value {
+				*value = st.draft
+				box.st.markChanged()
+			}
+			c.rt.consumed = true
 		}
-		ed.anchor, ed.caret = 0, end
-	case in.Submitted():
-		done(true)
-	case in.Shortcut(0, KeyEscape):
-		done(false)
-	case !focused:
-		// The focus went elsewhere: what was typed stays, and the focus
-		// with it.
-		st.editing = false
-		if st.draft != *value {
-			*value = st.draft
-			box.st.changed = true
-		}
-		c.rt.consumed = true
-	}
+	})
 	return box
 }

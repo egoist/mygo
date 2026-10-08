@@ -50,7 +50,7 @@ type Span struct {
 // Hovered, the focus, a Tooltip, assistive technology) with its words as
 // its area. A link in a sentence:
 //
-//	ui.RichText(c).Children(func(c ui.Frame) {
+//	ui.RichText(c).Children(func() {
 //		ui.Text(c, "Read ")
 //		ui.Link(c, "the guide", url)
 //		ui.Text(c, " to get started.")

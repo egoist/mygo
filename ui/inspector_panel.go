@@ -266,9 +266,11 @@ func (in *inspector) tree(c *context, rt *engine) {
 		row.Children(func() { in.treeRow(c, r, n) })
 	}).Grow(1).MinHeight(0).PaddingY(2).FocusRing(false).Label("Elements")
 	in.listID = list.id
-	if list.Changed() && in.row >= 0 && in.row < len(in.rows) {
-		in.choose(in.nodes[in.rows[in.row].node].id)
-	}
+	list.afterInput(func() {
+		if list.Changed() && in.row >= 0 && in.row < len(in.rows) {
+			in.choose(in.nodes[in.rows[in.row].node].id)
+		}
+	})
 	// Left closes the node chosen, else goes to the node around it; Right
 	// opens it, else goes into it.
 	left, right := list.Shortcut(0, KeyLeft), list.Shortcut(0, KeyRight)
@@ -358,18 +360,20 @@ func (in *inspector) find(c *context) {
 	in.findMatches()
 	before := in.query
 	bar := coreFindBar(c, &in.finding, &in.query, len(in.matches), &in.match)
-	if in.query != before {
-		// Typed: the first match of the new query, which the bar counts in
-		// the next pass.
-		in.findMatches()
-		in.match = 0
-		c.rt.consumed = true
-	}
-	if (bar.Changed() || in.query != before) && len(in.matches) > 0 {
-		in.match = max(0, min(in.match, len(in.matches)-1))
-		in.choose(in.nodes[in.matches[in.match]].id)
-		in.reveal = true
-	}
+	bar.afterInput(func() {
+		if in.query != before {
+			// Typed: the first match of the new query, which the bar counts in
+			// the next pass.
+			in.findMatches()
+			in.match = 0
+			c.rt.consumed = true
+		}
+		if (bar.Changed() || in.query != before) && len(in.matches) > 0 {
+			in.match = max(0, min(in.match, len(in.matches)-1))
+			in.choose(in.nodes[in.matches[in.match]].id)
+			in.reveal = true
+		}
+	})
 }
 
 // findMatches lists the nodes whose tag, text, label or key holds the

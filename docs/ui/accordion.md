@@ -8,10 +8,10 @@ Down move the focus between their headers, as do Home and End. An item's
 `Changed` reports a click.
 
 ```go
-ui.Accordion(c, func(c ui.Frame) {
-	ui.AccordionItem(c, "General", &app.general, func(c ui.Frame) { app.generalSettings(c) })
-	ui.AccordionItem(c, "Privacy", &app.privacy, func(c ui.Frame) { app.privacySettings(c) })
-	ui.AccordionItem(c, "Advanced", &app.advanced, func(c ui.Frame) { app.advancedSettings(c) })
+ui.Accordion(c, func() {
+	ui.AccordionItem(c, "General", &app.general, func() { app.generalSettings(c) })
+	ui.AccordionItem(c, "Privacy", &app.privacy, func() { app.privacySettings(c) })
+	ui.AccordionItem(c, "Advanced", &app.advanced, func() { app.advancedSettings(c) })
 })
 ```
 

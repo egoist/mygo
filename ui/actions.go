@@ -12,7 +12,8 @@ const (
 
 type action struct {
 	element Element
-	frame   Frame
+	handle  *Handle
+	window  *Context
 	kind    actionKind
 	mods    Modifiers
 	key     Key
@@ -20,70 +21,82 @@ type action struct {
 }
 
 func (e Element) on(kind actionKind, mods Modifiers, key Key, fn func()) Element {
-	n := e.unbuilt()
-	if n == nil || fn == nil {
-		return e
-	}
-	if kind == actionClick {
-		n.flags |= flagClickable
-		if n.pending != 0 {
-			p := &n.c.rt.pending[n.pending-1]
-			p.flags |= flagClickable
+	if n := e.node(); n != nil && fn != nil {
+		if kind == actionClick {
+			n.flags |= flagClickable
 		}
+		n.c.rt.actions = append(n.c.rt.actions, action{element: e, kind: kind, mods: mods, key: key, fn: fn})
 	}
-	n.c.rt.actions = append(n.c.rt.actions, action{element: e, kind: kind, mods: mods, key: key, fn: fn})
 	return e
 }
 
-// OnClick registers an action that runs on the UI thread after the view's
-// configuration is built, once for the handled input.
+// OnClick runs after construction and bound-value input.
 func (e Element) OnClick(fn func()) Element { return e.on(actionClick, 0, 0, fn) }
 
-// OnChange registers an action for a user change of the bound value.
+// OnChange runs when the rebuilt view observes a user change of its value.
 func (e Element) OnChange(fn func()) Element { return e.on(actionChange, 0, 0, fn) }
 
-// OnSubmit registers an action for a widget's submission gesture.
+// OnSubmit runs when the rebuilt view observes a submission gesture.
 func (e Element) OnSubmit(fn func()) Element { return e.on(actionSubmit, 0, 0, fn) }
 
-// OnShortcut handles a key while focus is in the element or its children.
+// OnShortcut declares a key handler within the element's focus subtree.
 func (e Element) OnShortcut(mods Modifiers, key Key, fn func()) Element {
 	return e.on(actionShortcut, mods, key, fn)
 }
 
-// OnShortcut registers an action scoped to this frame's parent. Root
-// shortcuts handle keys left by the focused control and active overlays.
-func (f Frame) OnShortcut(mods Modifiers, key Key, fn func()) {
-	rt := f.runtime()
-	if rt == nil || fn == nil {
-		return
+// OnShortcut declares a handler in the current context's parent scope.
+func (c *Context) OnShortcut(mods Modifiers, key Key, fn func()) {
+	if raw := c.build(); raw != nil && fn != nil {
+		if raw.parent != raw.root {
+			wrapElement(raw.parent).OnShortcut(mods, key, fn)
+			return
+		}
+		raw.rt.actions = append(raw.rt.actions, action{window: c, kind: actionWindowShortcut, mods: mods, key: key, fn: fn})
 	}
-	if f.parent != 0 {
-		Element{owner: f.owner, epoch: f.epoch, slot: f.parent}.OnShortcut(mods, key, fn)
-		return
-	}
-	rt.actions = append(rt.actions, action{frame: f, kind: actionWindowShortcut, mods: mods, key: key, fn: fn})
 }
-
+func (rt *engine) actionNode(a action) *node {
+	if a.handle != nil {
+		b := a.handle.binding(rt, false)
+		if b == nil || b.closed {
+			return nil
+		}
+		return b.element.lookup()
+	}
+	return a.element.nodeFor(rt)
+}
+func (rt *engine) runNoticeActions() {
+	for _, a := range rt.actions {
+		if rt.closed {
+			return
+		}
+		if a.kind != actionChange && a.kind != actionSubmit {
+			continue
+		}
+		n := rt.actionNode(a)
+		if n == nil || n.disabled() {
+			continue
+		}
+		if a.kind == actionChange && n.Changed() || a.kind == actionSubmit && n.Submitted() {
+			rt.consumed = true
+			a.fn()
+		}
+	}
+}
 func (rt *engine) runActions() {
 	for _, a := range rt.actions {
 		if rt.closed {
 			return
 		}
+		if a.kind == actionChange || a.kind == actionSubmit {
+			continue
+		}
 		handled := false
 		if a.kind == actionWindowShortcut {
-			s := a.frame.enter()
-			if s.c != nil {
-				handled = s.c.Shortcut(a.mods, a.key)
-			}
-			s.leave()
-		} else if n := a.element.nodeFor(rt); n != nil && !n.disabled() {
+			handled = rt.c.Shortcut(a.mods, a.key)
+		} else if n := rt.actionNode(a); n != nil && !n.disabled() {
 			switch a.kind {
 			case actionClick:
 				handled = n.Clicked()
-			case actionChange:
-				handled = n.Changed()
-			case actionSubmit:
-				handled = n.Submitted()
 			case actionShortcut:
 				handled = n.Shortcut(a.mods, a.key)
 			}

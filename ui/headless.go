@@ -137,6 +137,7 @@ func coreNewTester(view func(c *context), width, height int) *Tester {
 	t.rt.collect = true
 	// Duplicate keys panic, so that the test fails where the key was given.
 	t.rt.strict = true
+	t.rt.handleChecks = true
 	t.settle()
 	return t
 }

@@ -28,7 +28,7 @@ func missing() *native.Element { return nil }
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"view(c native.Frame)", "Children(func(c native.Frame)", "e.Valid()", "!a.saved.Valid()", "a.saved = native.Element{}", "return native.Element{}", "files != nil", "a.other != nil"} {
+	for _, want := range []string{"view(c *native.Context)", "Children(func()", "e.Valid()", "!a.saved.Valid()", "a.saved = native.Element{}", "return native.Element{}", "files != nil", "a.other != nil"} {
 		if !strings.Contains(string(r.Source), want) {
 			t.Fatalf("missing %q:\n%s", want, r.Source)
 		}
@@ -76,7 +76,7 @@ func view(c *ui.Context) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"func(c ui.Frame, i int)", "func(c ui.Frame, row, col int)", "func(m *ui.Menu)", "GridRows(3)"} {
+	for _, want := range []string{"func(i int)", "func(row, col int)", "func(m *ui.Menu)", "GridRows(3)"} {
 		if !strings.Contains(string(r.Source), want) {
 			t.Fatalf("missing %q:\n%s", want, r.Source)
 		}
@@ -107,5 +107,29 @@ func render(c *ui.Context, foreign Other) {
 	}
 	if !strings.Contains(string(r.Source), "foreign.Children(func()") {
 		t.Fatalf("unrelated builder changed:\n%s", r.Source)
+	}
+}
+
+func TestMigrationKeysBeforeConstruction(t *testing.T) {
+	source := `package app
+import native "github.com/egoist/mygo/ui"
+func view(c *native.Context,v *bool){
+ native.Checkbox(c,v,"Done").Disabled(false).Key("done").OnChange(func(){})
+ if c!=nil { println("context") }
+}
+`
+	r, err := File("app.go", []byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(r.Source), `Checkbox(c.Key("done"), v, "Done").Disabled(false).OnChange`) {
+		t.Fatal(string(r.Source))
+	}
+	if !strings.Contains(string(r.Source), "c != nil") {
+		t.Fatal("context nil check changed")
+	}
+	again, err := File("app.go", r.Source)
+	if err != nil || again.Changed {
+		t.Fatal("key migration is not idempotent", err, string(again.Source))
 	}
 }

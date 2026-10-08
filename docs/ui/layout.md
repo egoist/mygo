@@ -4,7 +4,7 @@ Elements lay out their children with flexbox, as in CSS, or in a
 [grid](grid.md), in device-independent pixels (DIPs):
 
 ```go
-ui.Row(c).Gap(8).Padding(12).Children(func(c ui.Frame) {
+ui.Row(c).Gap(8).Padding(12).Children(func() {
 	ui.Icon(c, folder)
 	ui.Text(c, "Documents").Grow(1)
 	ui.Text(c, "12 items").TextColor(c.Theme().TextMuted)
@@ -71,7 +71,7 @@ it from where the layout put it, without moving its siblings, as CSS's
 relative positioning does: a badge raised a little above its text.
 
 ```go
-ui.Box(c).Size(40, 40).Children(func(c ui.Frame) {
+ui.Box(c).Size(40, 40).Children(func() {
 	ui.Icon(c, bell).FontSize(24)
 	ui.Badge(c, "3").Absolute().Top(-4).Right(-6)
 })
@@ -84,12 +84,12 @@ element keeps its own size, and `Top`, `Right`, `Bottom` and `Left` move
 it from there:
 
 ```go
-ui.Box(c).Children(func(c ui.Frame) {
+ui.Box(c).Children(func() {
 	ui.Avatar(c, "Ada Lovelace", nil)
 	// Centered on the avatar's top right corner, whatever its size.
 	ui.Badge(c, "3").Attach(ui.AnchorTopRight, ui.AnchorCenter)
 })
-ui.Box(c).Fill().Children(func(c ui.Frame) {
+ui.Box(c).Fill().Children(func() {
 	ui.PrimaryButton(c, "New").Attach(ui.AnchorBottomRight, ui.AnchorBottomRight).Right(16).Bottom(16)
 })
 ```

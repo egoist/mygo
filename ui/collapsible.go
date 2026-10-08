@@ -32,10 +32,8 @@ func coreCollapsibleBase(c *context, open *bool) collapsibleParts {
 	tr := coreRow(c).Focusable().Shrink(0)
 	tr.flags |= flagClickable | flagHover
 	tr.widget, tr.role = "Collapsible", RoleDisclosure
-	if tr.Clicked() {
-		*open = !*open
-		tr.st.changed = true
-	}
+	*valueBinding[*bool](tr) = open
+	tr.onValueInput(toggleInput)
 	tr.expanded = *open
 	p := tr.Animate("open", b2f(*open), 200*time.Millisecond)
 	return collapsibleParts{Trigger: tr, c: c, open: open, progress: p}
@@ -95,7 +93,7 @@ func coreCollapsible(c *context, label string, open *bool, fn func()) *node {
 			coreText(c, label).SingleLine()
 		})
 		if tr.st.changed {
-			root.st.changed = true
+			root.st.markChanged()
 		}
 		if panel := p.Panel(fn); panel != nil {
 			// Below the label.
@@ -194,7 +192,7 @@ func coreAccordionItem(c *context, title string, open *bool, fn func()) *node {
 			disclosureArrow(c, 90+180*p.Progress())
 		})
 		if tr.st.changed {
-			item.st.changed = true
+			item.st.markChanged()
 		}
 		if panel := p.Panel(fn); panel != nil {
 			panel.Padding(0, t.Space(3), t.Space(3)).Gap(t.Space(2))

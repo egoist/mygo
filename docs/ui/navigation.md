@@ -26,8 +26,8 @@ func main() {
 	}
 }
 
-func (app *notesApp) view(c ui.Frame) {
-	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func(c ui.Frame) {
+func (app *notesApp) view(c *ui.Context) {
+	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		app.sidebar(c) // stays as the pages change, see below
 		app.router.View(c, func(r *ui.Route) {
 			switch {
@@ -61,7 +61,7 @@ choosing an item of a [sidebar](sidebar.md) pushes its page, as the sidebar
 of the app above does:
 
 ```go
-func (app *notesApp) sidebar(c ui.Frame) {
+func (app *notesApp) sidebar(c *ui.Context) {
 	page := app.router.Path()
 	if ui.Sidebar(c, &page, func() {
 		ui.SidebarItem(c, "/notes", nil, "Notes")
@@ -101,7 +101,7 @@ A page of settings is another case of the `switch` in the view above:
 
 ```go
 case r.Match("/settings/{section...}"):
-	ui.Row(c).Grow(1).Children(func(c ui.Frame) {
+	ui.Row(c).Grow(1).Children(func() {
 		app.sectionList(c) // pushes "/settings/general", "/settings/fonts"
 		r.View(c, func(r *ui.Route) {
 			switch {

@@ -1094,23 +1094,28 @@ format mappings.
 
 ## Native UI (`ui`)
 
-The public build API uses checked values: `Frame` identifies a window,
-build generation and parent scope; `Element` identifies a node in that
-generation. Both have weak ownership of the engine, and resolve storage
-only after checking generation and bounds. `Ref` preserves logical control
-identity for focus requests without preserving a node, and `Services`
-provides persistent clipboard, URL and redraw access for custom controls.
-The render tree uses private `node` and `context` types. `internal/uigen`
-generates the value facade and style application from that private API
-(`go generate ./ui`); public code never receives an arena pointer.
+The public API keeps one stable `*Context` per window. Child builders share
+it and temporarily change its parent. `Element` is a 16-byte checked value:
+a direct owner record, arena slot and 32-bit generation. The owner detaches
+from the engine on close and retires before generation wrap. Old elements
+cannot alias recycled nodes. Development builds and `Tester` diagnose stale
+use; production methods return empty results or ignore it. `Handle` stores
+persistent control identity separately for each window. Focus queries read
+identity without depending on construction order; focus requests wait for a
+hidden control. `Services` offers persistent clipboard, URL and redraw access.
 
-Stateful controls are declared before initialization. The engine realizes
-them with their configured key, disabled state and input settings, then
-runs registered actions before forgetting the pass's input. An action
-that changes the model asks for another pass before presentation. Scoped
-frame arguments make child ownership explicit. See the
-[migration guide](ui/migration.md) for the breaking API changes and the
-`mygo migrate-ui` source migration command.
+Constructors build and style controls eagerly. `Context.Key` supplies an ID
+before state initialization. Bound-value input runs after all configuration,
+between passes; its `Changed` and `Submitted` notices are observed by the
+following pass. Callback actions consume input once and rebuild before paint.
+There is no deferred constructor replay, style mask or redirect. The private
+render tree still uses `node` and `context`; `internal/uigen` generates the
+checked public facade (`go generate ./ui`). `FocusBind` binds desired focus
+to app data; `FocusedValue` reads actual focus independently of a hidden
+control's pending request.
+
+See the [migration guide](ui/migration.md) for the breaking element API,
+`mygo migrate-ui`, and the Go type-aware lifetime checks in `mygo vet`.
 
 A window with `WindowOptions.Content` shows a user interface MyGo draws
 itself instead of a web page. The layers stay as everywhere else: the
@@ -1252,9 +1257,8 @@ either.
   paints a `scene.Scene`; and presents it. Input between frames goes to the
   states of the last frame's elements. An element's identity hashes its
   parent's with its position or `Key`, so focus, scroll offsets, editors and
-  animations survive rebuilding. `Context` and `Element` are temporary
-  build objects, including between passes of the same frame; an old element
-  pointer may point at cleared or reused arena storage. `ListState` resolves
+  animations survive rebuilding. `Context` is stable for the window; `Element` values expire between build
+  passes and validate their owner, slot and generation before accessing storage. `ListState` resolves
   its focus owner only for the current context, frame and pass, exposing
   focus and shortcuts without retaining an element in app state. Scroll
   offsets move in the layout too

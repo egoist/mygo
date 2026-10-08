@@ -34,6 +34,9 @@ func (w *widgetTextInput) publish() {
 	ed := w.ed
 	if ed.document != nil {
 		if ed.buf.root != ed.published.root {
+			if !ed.bufferDirty {
+				ed.nativeBufferBefore = ed.published
+			}
 			snapshot, ok := ed.document.compareRestore(ed.published, ed.buf.root)
 			if !ok {
 				ed.loadBuffer(snapshot)

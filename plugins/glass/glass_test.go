@@ -15,9 +15,9 @@ func pixelAt(img *image.RGBA, x, y int) [3]int {
 
 func TestGlassPaintsOverWhatIsBehind(t *testing.T) {
 	g := Glass{}
-	view := func(c ui.Frame) {
-		ui.Box(c).Fill().Background(ui.RGB(20, 120, 220)).Children(func(c ui.Frame) {
-			ui.Row(c).Size(200, 44).Radius(22).Material(g).Children(func(c ui.Frame) {
+	view := func(c *ui.Context) {
+		ui.Box(c).Fill().Background(ui.RGB(20, 120, 220)).Children(func() {
+			ui.Row(c).Size(200, 44).Radius(22).Material(g).Children(func() {
 				ui.Text(c, "On glass")
 			})
 		})
@@ -45,8 +45,8 @@ func TestGlassPaintsOverWhatIsBehind(t *testing.T) {
 }
 
 func TestInteractiveGlassGrowsWhilePressed(t *testing.T) {
-	view := func(c ui.Frame) {
-		ui.Box(c).Fill().Background(ui.RGB(0, 0, 0)).Children(func(c ui.Frame) {
+	view := func(c *ui.Context) {
+		ui.Box(c).Fill().Background(ui.RGB(0, 0, 0)).Children(func() {
 			ui.Box(c).Absolute().Left(50).Top(50).Size(200, 100).Radius(20).Material(Glass{Interactive: true})
 		})
 	}
@@ -70,7 +70,7 @@ func TestInteractiveGlassGrowsWhilePressed(t *testing.T) {
 }
 
 func TestPaintInDrawing(t *testing.T) {
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		ui.Box(c).Fill().Background(ui.RGB(0, 0, 0)).Draw(func(p *ui.Painter, r ui.Rect) {
 			Paint(p, ui.Rect{X: 20, Y: 20, W: 100, H: 60}, 20, Glass{})
 		})

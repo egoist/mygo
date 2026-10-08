@@ -9,11 +9,11 @@ import "weak"
 type Services struct{ owner weak.Pointer[engine] }
 
 // Services returns the persistent services of this frame's window.
-func (f Frame) Services() Services {
-	if f.runtime() == nil {
+func (c *Context) Services() Services {
+	if c == nil {
 		return Services{}
 	}
-	return Services{owner: f.owner}
+	return c.services
 }
 
 func (s Services) Invalidate() {

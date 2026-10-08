@@ -108,7 +108,7 @@ func coreOutline[K comparable](c *context, s *OutlineState[K], roots []K, childr
 		r.Role(RoleNone)
 		r.Children(func() { s.prefix(c, i, children, func() { row(s.rows[i].item) }) })
 	}, treeList)
-	s.keys(e, children)
+	e.afterInput(func() { s.keys(e, children) })
 	return e
 }
 
@@ -135,7 +135,7 @@ func coreOutlineTable[K comparable](c *context, s *OutlineState[K], columns []Ta
 		}
 		s.prefix(c, i, children, func() { cell(s.rows[i].item, 0) })
 	}, treeTableList)
-	s.keys(e, children)
+	e.afterInput(func() { s.keys(e, children) })
 	return e
 }
 
@@ -160,21 +160,24 @@ func (s *OutlineState[K]) prefix(c *context, i int, children func(K) []K, conten
 	arrow := coreBox(c).Size(t.Space(4), t.Space(4)).Shrink(0).Role(RoleNone)
 	if r.branch {
 		arrow.flags |= flagClickable | flagKeepFocus
-		toggle := arrow.Clicked()
-		if item != nil && item.st.expand != 0 {
-			// Assistive technology opening or closing it.
-			toggle = (item.st.expand > 0) != open
-			item.st.expand = 0
-			c.rt.consumed = true
-		}
-		if toggle {
-			s.setOpen(r.item, !open, arrow.ClickModifiers()&Alt != 0, children)
-			s.closed(i, open)
-			open = !open
-			if item != nil {
-				item.expanded = open
+		arrow.afterInput(func() {
+			toggle := arrow.Clicked()
+			if item != nil && item.st.expand != 0 {
+				// Assistive technology opening or closing it.
+				toggle = (item.st.expand > 0) != open
+				item.st.expand = 0
+				c.rt.consumed = true
 			}
-		}
+			if toggle {
+				s.setOpen(r.item, !open, arrow.ClickModifiers()&Alt != 0, children)
+				s.closed(i, open)
+				open = !open
+				if item != nil {
+					item.expanded = open
+				}
+			}
+
+		})
 		turn := arrow.Animate("open", 90*b2f(open), 150*time.Millisecond)
 		arrow.Draw(func(p *Painter, rect Rect) {
 			cx, cy, d := rect.X+rect.W/2, rect.Y+rect.H/2, rect.W/8

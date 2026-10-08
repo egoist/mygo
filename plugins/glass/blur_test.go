@@ -96,7 +96,7 @@ func TestBlurWanted(t *testing.T) {
 
 // stripes paints black columns period/2 DIPs wide, period apart, over
 // white: what blurs to gray.
-func stripes(c ui.Frame, period float32) {
+func stripes(c *ui.Context, period float32) {
 	ui.Box(c).Fill().Background(ui.RGB(255, 255, 255)).Draw(func(p *ui.Painter, r ui.Rect) {
 		for x := float32(0); x < r.W; x += period {
 			p.Fill(ui.Rect{X: r.X + x, Y: r.Y, W: period / 2, H: r.H}, ui.RGB(0, 0, 0), 0)
@@ -116,8 +116,8 @@ func contrast(img *image.RGBA, y, x0, x1 int) int {
 }
 
 func TestBlurBlursWhatIsBehind(t *testing.T) {
-	view := func(c ui.Frame) {
-		ui.Box(c).Fill().Children(func(c ui.Frame) {
+	view := func(c *ui.Context) {
+		ui.Box(c).Fill().Children(func() {
 			stripes(c, 2)
 			ui.Box(c).Absolute().Left(0).Top(0).Size(200, 30).Material(Blur{Radius: 4})
 		})
@@ -137,8 +137,8 @@ func TestBlurBlursWhatIsBehind(t *testing.T) {
 }
 
 func TestProgressiveBlur(t *testing.T) {
-	view := func(c ui.Frame) {
-		ui.Box(c).Fill().Children(func(c ui.Frame) {
+	view := func(c *ui.Context) {
+		ui.Box(c).Fill().Children(func() {
 			stripes(c, 8)
 			ui.Box(c).Absolute().Left(0).Top(10).Right(0).Height(80).
 				Material(Blur{Radius: 6, Mask: &ui.LinearGradient{From: ui.RGB(0, 0, 0), To: ui.Transparent, Angle: 180}})

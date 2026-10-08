@@ -16,9 +16,9 @@ type app struct {
 	count int
 }
 
-func (a *app) view(c ui.Frame) {
+func (a *app) view(c *ui.Context) {
 	t := c.Theme()
-	ui.Column(c).Fill().Center().Gap(16).Padding(24).Children(func(c ui.Frame) {
+	ui.Column(c).Fill().Center().Gap(16).Padding(24).Children(func() {
 		ui.Text(c, {{printf "%q" .Name}}).FontSize(26).Bold()
 		ui.TextInput(c, &a.name).Placeholder("Your name").Label("Name").Width(240)
 		greeting := "Hello!"
@@ -26,7 +26,7 @@ func (a *app) view(c ui.Frame) {
 			greeting = fmt.Sprintf("Hello, %s!", a.name)
 		}
 		ui.Text(c, greeting).TextColor(t.TextMuted)
-		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func(c ui.Frame) {
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 			if ui.Button(c, "−").Width(44).Clicked() {
 				a.count--
 			}

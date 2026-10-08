@@ -10,7 +10,7 @@ import (
 func TestMigrateUIPreviewWriteAndIgnoredDirectories(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.go")
-	source := []byte("package main\nimport \"github.com/egoist/mygo/ui\"\nfunc view(c *ui.Context) { ui.Text(c,\"Hello\") }\n")
+	source := []byte("package main\nimport \"github.com/egoist/mygo/ui\"\nfunc view(c *ui.Context) *ui.Element { return ui.Text(c,\"Hello\") }\n")
 	if err := os.WriteFile(path, source, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -38,8 +38,8 @@ func TestMigrateUIPreviewWriteAndIgnoredDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(written), "c ui.Frame") {
-		t.Fatal("write did not migrate the view")
+	if !strings.Contains(string(written), "view(c *ui.Context) ui.Element") {
+		t.Fatal("write did not migrate the element type")
 	}
 	info, err := os.Stat(path)
 	if err != nil {

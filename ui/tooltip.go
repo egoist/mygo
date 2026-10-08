@@ -48,7 +48,7 @@ type tooltips struct {
 //	ui.TooltipBase(c, b, func(tip ui.Element) {
 //		tip.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 6)
 //		tip.Padding(4, 8).Radius(6).Background(dark).TextColor(light)
-//		tip.Children(func(c ui.Frame) { ui.Text(c, "Share") })
+//		tip.Children(func() { ui.Text(c, "Share") })
 //	})
 //
 // The pointer goes through the tip, and assistive technology sees it as a

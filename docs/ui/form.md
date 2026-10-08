@@ -13,7 +13,7 @@ var invalid string
 if app.email != "" && !strings.Contains(app.email, "@") {
 	invalid = "Enter an email address."
 }
-ui.Field(c, "Email", func(c ui.Frame) {
+ui.Field(c, "Email", func() {
 	ui.TextInput(c, &app.email)
 }).Description("For receipts.").Error(invalid)
 ```
@@ -30,10 +30,10 @@ the first line of text of their control, or centered on a control without
 text, such as a switch.
 
 ```go
-ui.Form(c, func(c ui.Frame) {
-	ui.Field(c, "Name", func(c ui.Frame) { ui.TextInput(c, &app.name) })
-	ui.Field(c, "Plan", func(c ui.Frame) { ui.Select(c, &app.plan, plans) })
-	ui.Field(c, "Sound", func(c ui.Frame) { ui.Switch(c, &app.sound) })
+ui.Form(c, func() {
+	ui.Field(c, "Name", func() { ui.TextInput(c, &app.name) })
+	ui.Field(c, "Plan", func() { ui.Select(c, &app.plan, plans) })
+	ui.Field(c, "Sound", func() { ui.Switch(c, &app.sound) })
 })
 ```
 
@@ -43,11 +43,11 @@ A `ui.Fieldset` groups fields under a legend, which names the group; their
 labels line up with the form's others, and `Disabled` disables them all:
 
 ```go
-ui.Form(c, func(c ui.Frame) {
-	ui.Field(c, "Name", func(c ui.Frame) { ui.TextInput(c, &app.name) })
-	ui.Fieldset(c, "Notifications", func(c ui.Frame) {
-		ui.Field(c, "Email", func(c ui.Frame) { ui.Checkbox(c, &app.mail, "Weekly summary") })
-		ui.Field(c, "Sound", func(c ui.Frame) { ui.Switch(c, &app.sound) })
+ui.Form(c, func() {
+	ui.Field(c, "Name", func() { ui.TextInput(c, &app.name) })
+	ui.Fieldset(c, "Notifications", func() {
+		ui.Field(c, "Email", func() { ui.Checkbox(c, &app.mail, "Weekly summary") })
+		ui.Field(c, "Sound", func() { ui.Switch(c, &app.sound) })
 	}).Disabled(!app.signedIn)
 })
 ```

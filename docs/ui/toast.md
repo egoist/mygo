@@ -75,15 +75,15 @@ ui.ToastViewportBase(c, func(viewport ui.Element, toasts []ui.Toast) {
 		toast := ui.ToastBase(c, t)
 		toast.Root.Row().Gap(12).Padding(10, 14).Radius(8).Background(surface).Border(1, border)
 		toast.Root.Transition(ui.ElementTransition{Enter: &ui.Motion{Y: 8}, Exit: &ui.Motion{}})
-		toast.Root.Children(func(c ui.Frame) {
+		toast.Root.Children(func() {
 			if t.Type == "error" {
 				ui.Icon(c, alert).TextColor(danger)
 			}
 			ui.Text(c, t.Title).Grow(1)
 			if t.Action != "" {
-				toast.ActionButton().Children(func(c ui.Frame) { ui.Text(c, t.Action) })
+				toast.ActionButton().Children(func() { ui.Text(c, t.Action) })
 			}
-			toast.CloseButton().Label("Close").Children(func(c ui.Frame) { ui.Icon(c, x) })
+			toast.CloseButton().Label("Close").Children(func() { ui.Icon(c, x) })
 		})
 	}
 })

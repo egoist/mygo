@@ -15,10 +15,6 @@ import (
 	"strings"
 )
 
-var nodeFields = map[string]int{}
-var pureMethods = map[string]bool{}
-var methodFields = map[string]map[string]bool{}
-var methodFlags = map[string]map[string]bool{}
 var parts = map[string]string{
 	"TabsParts": "tabsParts", "SelectParts": "selectParts", "ComboboxParts": "comboboxParts",
 	"CollapsibleParts": "collapsibleParts", "SegmentedParts": "segmentedParts", "ToastParts": "toastParts",
@@ -83,7 +79,6 @@ func main() {
 	if nodeType == nil {
 		check(fmt.Errorf("uigen: run from the MyGo root or ui directory"))
 	}
-	analyzeMethods(funcs, nodeType)
 	sort.Slice(funcs, func(i, j int) bool {
 		return receiver(funcs[i])+funcs[i].Name.Name < receiver(funcs[j])+funcs[j].Name.Name
 	})
@@ -94,7 +89,6 @@ func main() {
 	for _, fn := range funcs {
 		generate(&body, fs, fn)
 	}
-	generateStyleApply(&body)
 	keys := make([]string, 0, len(structs))
 	for name := range structs {
 		keys = append(keys, name)
@@ -117,10 +111,10 @@ func main() {
 		}
 		return true
 	})
-	out.WriteString("import (\n\t\"weak\"\n")
+	out.WriteString("import (\n")
 	keys = keys[:0]
 	for name := range imports {
-		if used[name] && name != "weak" {
+		if used[name] {
 			keys = append(keys, name)
 		}
 	}
@@ -198,7 +192,7 @@ func publicType(fs *token.FileSet, e ast.Expr, callbacks bool) string {
 	case *ast.StarExpr:
 		switch baseName(e.X) {
 		case "context":
-			return "Frame"
+			return "*Context"
 		case "node":
 			return "Element"
 		}
@@ -221,13 +215,7 @@ func publicType(fs *token.FileSet, e ast.Expr, callbacks bool) string {
 		return publicType(fs, e.X, false) + "[" + strings.Join(ix, ",") + "]"
 	case *ast.FuncType:
 		p := params(fs, e.Params, true, false)
-		if callbacks && builderCallback(e) && !mentions(e, "context") {
-			if p != "" {
-				p = "frame Frame," + p
-			} else {
-				p = "frame Frame"
-			}
-		}
+
 		return "func(" + p + ")" + results(fs, e.Results, true)
 	case *ast.Ellipsis:
 		return "..." + publicType(fs, e.Elt, false)
@@ -292,7 +280,7 @@ func fieldsCount(fields *ast.FieldList) int {
 }
 func zero(fs *token.FileSet, e ast.Expr) string {
 	t := publicType(fs, e, false)
-	if t == "Element" || t == "Frame" || publicPart(baseName(e)) != "" {
+	if t == "Element" || publicPart(baseName(e)) != "" {
 		return t + "{}"
 	}
 	switch t {
@@ -331,9 +319,7 @@ func convertArg(fs *token.FileSet, t ast.Expr, name, c string) string {
 	}
 	if ft, ok := t.(*ast.FuncType); ok {
 		var rawNames, args []string
-		if builderCallback(ft) && !mentions(ft, "context") && name != "action" && name != "done" {
-			args = append(args, "makeFrame("+c+")")
-		}
+
 		if ft.Params != nil {
 			for i, p := range ft.Params.List {
 				names := p.Names
@@ -344,7 +330,7 @@ func convertArg(fs *token.FileSet, t ast.Expr, name, c string) string {
 					rawNames = append(rawNames, n.Name+" "+source(fs, p.Type))
 					v := n.Name
 					if mentions(p.Type, "context") {
-						v = "makeFrame(" + v + ")"
+						v = "makeContext(" + v + ")"
 					} else if st, ok := p.Type.(*ast.StarExpr); ok && baseName(st.X) == "node" {
 						v = "wrapElement(" + v + ")"
 					}
@@ -356,7 +342,7 @@ func convertArg(fs *token.FileSet, t ast.Expr, name, c string) string {
 		if ft.Results != nil && len(ft.Results.List) > 0 {
 			ret = "return "
 		}
-		return "func(" + strings.Join(rawNames, ",") + ")" + sourceResults(fs, ft.Results) + " {" + callbackPrelude(ft, name, c) + ret + name + "(" + strings.Join(args, ",") + ")}"
+		return "func(" + strings.Join(rawNames, ",") + ")" + sourceResults(fs, ft.Results) + " {" + ret + name + "(" + strings.Join(args, ",") + ")}"
 	}
 	if _, ok := t.(*ast.Ellipsis); ok {
 		return name + "..."
@@ -379,7 +365,7 @@ func sourceResults(fs *token.FileSet, r *ast.FieldList) string {
 	return " (" + strings.Join(v, ",") + ")"
 }
 
-var special = map[string]bool{"Element.Children": true, "Element.Key": true, "Element.Material": true, "Element.Placeholder": true, "Element.ReadOnly": true, "Element.Password": true, "Element.Lines": true, "Frame.Invalidate": true, "List": true}
+var special = map[string]bool{"Element.Children": true, "Element.Key": true, "Element.Material": true, "Context.Invalidate": true, "List": true}
 
 func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 	r := receiver(fn)
@@ -388,7 +374,7 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 	case "node":
 		pubR = "Element"
 	case "context":
-		pubR = "Frame"
+		pubR = "Context"
 	default:
 		if p := publicPart(r); p != "" {
 			pubR = p
@@ -397,9 +383,6 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 	name := strings.TrimPrefix(fn.Name.Name, "core")
 	if pubR == "Element" && name == "Rows" {
 		name = "GridRows"
-		pureMethods[name] = pureMethods["Rows"]
-		methodFields[name] = methodFields["Rows"]
-		methodFlags[name] = methodFlags["Rows"]
 	}
 	if special[pubR+"."+name] || (r == "" && special[name]) {
 		return
@@ -407,7 +390,7 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 	if fn.Doc != nil {
 		for _, comment := range fn.Doc.List {
 			v := comment.Text
-			v = strings.ReplaceAll(v, "Context", "Frame")
+			v = strings.ReplaceAll(v, "Frame", "Context")
 			v = strings.ReplaceAll(v, "*Element", "Element")
 			for pub, priv := range parts {
 				v = strings.ReplaceAll(v, priv, pub)
@@ -420,7 +403,9 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 	if fn.Recv != nil {
 		rt := pubR
 		if ix, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
-			if r != "node" && r != "context" && publicPart(r) == "" {
+			if r == "context" {
+				rt = "*Context"
+			} else if r != "node" && publicPart(r) == "" {
 				rt = "*" + publicType(fs, ix.X, false)
 			} else if publicPart(r) != "" {
 				rt = publicType(fs, ix.X, false)
@@ -431,7 +416,7 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 				rt = "Element"
 			}
 			if r == "context" {
-				rt = "Frame"
+				rt = "*Context"
 			}
 		}
 		recv = "(_handle " + rt + ") "
@@ -443,21 +428,12 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 	}
 	fmt.Fprintf(out, "func %s%s%s(%s)%s {\n", recv, name, tp, params(fs, fn.Type.Params, true, true), results(fs, fn.Type.Results, true))
 	c := "_ctx"
-	deferred := false
-	if r == "" && fieldsCount(fn.Type.Results) == 1 && mentions(fn.Type.Results, "node") && mentions(fn.Type.Params, "context") {
-		deferred = !fastFactory(name)
-	}
 	if r == "node" {
-		getter := "node"
-		if pureMethods[name] {
-			getter = "unbuilt"
-		}
-		fmt.Fprintf(out, "_node := _handle.%s();", getter)
-		fmt.Fprintln(out, " if _node == nil {", zeroReturn(fs, fn.Type.Results), "}; _ctx := _node.c; _ = _ctx")
+		fmt.Fprintln(out, "_node := _handle.node(); if _node == nil {", zeroReturn(fs, fn.Type.Results), "}; _ctx := _node.c; _ = _ctx")
 		rawRecv = "_node."
 	}
 	if r == "context" {
-		fmt.Fprintln(out, "_scope := _handle.enter(); defer _scope.leave(); _ctx := _scope.c; if _ctx == nil {", zeroReturn(fs, fn.Type.Results), "}")
+		fmt.Fprintln(out, "_ctx := _handle.build(); if _ctx == nil {", zeroReturn(fs, fn.Type.Results), "}")
 		rawRecv = "_ctx."
 	}
 	if publicPart(r) != "" {
@@ -475,7 +451,7 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 			}
 		}
 		if frameParam != "" {
-			fmt.Fprintf(out, "_scope := %s.enter(); defer _scope.leave(); _ctx := _scope.c; if _ctx == nil { %s };\n", frameParam, zeroReturn(fs, fn.Type.Results))
+			fmt.Fprintf(out, "_ctx := %s.build(); if _ctx == nil { %s };\n", frameParam, zeroReturn(fs, fn.Type.Results))
 		} else if mentions(fn.Type, "node") {
 			if name == "Local" || name == "Drop" || name == "DragOver" || name == "DropData" || name == "DataDragOver" {
 				fmt.Fprintln(out, "_node := e.node(); if _node == nil {", zeroReturn(fs, fn.Type.Results), "}; _ctx := _node.c; _ = _ctx")
@@ -495,34 +471,11 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 	call := rawRecv + fn.Name.Name + genericArgs(fs, fn.Type.TypeParams) + "(" + strings.Join(args, ",") + ")"
 	count := fieldsCount(fn.Type.Results)
 	if count == 1 && mentions(fn.Type.Results, "node") {
-		if deferred {
-			fmt.Fprintf(out, "return declareNode(_ctx, func(_ctx *context) *node { return %s })\n", call)
-		} else if r == "node" && pureMethods[name] {
-			fmt.Fprintf(out, "%s;\n", call)
-			generateMark(out, name)
-			fmt.Fprintln(out, "return _handle")
-		} else {
-			fmt.Fprintf(out, "return wrapElement(%s)\n", call)
-		}
+		fmt.Fprintf(out, "return wrapElement(%s)\n", call)
 	} else if count == 1 && publicPart(baseName(fn.Type.Results.List[0].Type)) != "" {
 		part := publicPart(baseName(fn.Type.Results.List[0].Type))
 		arg := genericTypeArguments(fs, fn.Type.Results.List[0].Type)
-		root := partRoot(part)
-		if r == "" && mentions(fn.Type.Params, "context") {
-			raw := source(fs, fn.Type.Results.List[0].Type)
-			typ := strings.TrimPrefix(raw, "*")
-			fmt.Fprintf(out, "_box := &partsBox[%s]{}; _ctx.rt.keepPart(_box);\n", typ)
-			fmt.Fprintf(out, "_root := declareNode(_ctx, func(_ctx *context) *node { _value := %s;\n", call)
-			if strings.HasPrefix(raw, "*") {
-				fmt.Fprintln(out, "_box.value = _value")
-			} else {
-				fmt.Fprintln(out, "_box.value = &_value")
-			}
-			fmt.Fprintf(out, "return _box.value.%s });\n", root)
-			fmt.Fprintf(out, "return %s%s{%s:_root,raw:weak.Make(_box)}\n", part, arg, root)
-		} else {
-			fmt.Fprintf(out, "return wrap%s%s(%s)\n", part, arg, call)
-		}
+		fmt.Fprintf(out, "return wrap%s%s(%s)\n", part, arg, call)
 	} else if count > 0 {
 		fmt.Fprintf(out, "return %s\n", call)
 	} else {
@@ -567,7 +520,7 @@ func generatePart(out *bytes.Buffer, fs *token.FileSet, t *ast.TypeSpec) {
 			}
 		}
 	}
-	fmt.Fprintf(out, "raw weak.Pointer[partsBox[%s%s]]\n}\n", t.Name.Name, args)
+	fmt.Fprintln(out, "part uint32\n}")
 	ptr := ""
 	if pub == "SelectParts" || pub == "ComboboxParts" {
 		ptr = "*"
@@ -579,8 +532,8 @@ func generatePart(out *bytes.Buffer, fs *token.FileSet, t *ast.TypeSpec) {
 		take = "p"
 		fmt.Fprintf(out, "if p == nil { return %s%s{} };\n", pub, args)
 	}
-	fmt.Fprintf(out, "c := p.c; if c == nil { return %s%s{} }; _box := &partsBox[%s%s]{value:%s}; c.rt.keepPart(_box);\n", pub, args, t.Name.Name, args, take)
-	fmt.Fprintf(out, "return %s%s{raw: weak.Make(_box)", pub, args)
+	fmt.Fprintf(out, "c := p.c; if c == nil { return %s%s{} }; _slot := c.rt.keepPart(%s);\n", pub, args, take)
+	fmt.Fprintf(out, "return %s%s{part: _slot", pub, args)
 	for _, f := range st.Fields.List {
 		for _, n := range f.Names {
 			if ast.IsExported(n.Name) {
@@ -589,185 +542,11 @@ func generatePart(out *bytes.Buffer, fs *token.FileSet, t *ast.TypeSpec) {
 		}
 	}
 	fmt.Fprintln(out, "}\n}")
-	fmt.Fprintf(out, "func (p %s%s) resolve() *%s%s { if p.%s.node() == nil { return nil }; box := p.raw.Value(); if box == nil { return nil }; return box.value }\n", pub, args, t.Name.Name, args, root)
+	fmt.Fprintf(out, "func (p %s%s) resolve() *%s%s { n := p.%s.node(); if n == nil { return nil }; if int(p.part) >= len(n.c.rt.parts) { return nil }; return n.c.rt.parts[p.part].(*%s%s) }\n", pub, args, t.Name.Name, args, root, t.Name.Name, args)
 }
 func check(err error) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
-	}
-}
-
-func fastFactory(name string) bool {
-	switch name {
-	case "Box", "Column", "Row", "Text", "Textf", "Spacer", "Divider", "Grid", "Scroll", "ScrollHorizontal", "ScrollBoth", "Icon", "Image", "RichText", "Button", "PrimaryButton", "ButtonBase", "Progress", "Spinner", "Meter", "Badge":
-		return true
-	}
-	return false
-}
-
-func callbackPrelude(ft *ast.FuncType, name, c string) string {
-	if builderCallback(ft) && !mentions(ft, "context") && name != "action" && name != "done" {
-		return "defer " + c + ".rt.flushPending(); "
-	}
-	return ""
-}
-
-func analyzeMethods(funcs []*ast.FuncDecl, nodeType *ast.StructType) {
-	for _, f := range nodeType.Fields.List {
-		for _, name := range f.Names {
-			nodeFields[name.Name] = len(nodeFields)
-		}
-	}
-	methods := map[string]*ast.FuncDecl{}
-	for _, fn := range funcs {
-		if receiver(fn) == "node" {
-			methods[fn.Name.Name] = fn
-		}
-	}
-	for _, fn := range methods {
-		name := fn.Name.Name
-		if fieldsCount(fn.Type.Results) != 1 || !mentions(fn.Type.Results, "node") || special["Element."+name] {
-			continue
-		}
-		bad := false
-		recv := fn.Recv.List[0].Names[0].Name
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			if s, ok := n.(*ast.SelectorExpr); ok {
-				if id, ok := s.X.(*ast.Ident); ok && id.Name == recv && (s.Sel.Name == "st" || s.Sel.Name == "c") {
-					bad = true
-				}
-			}
-			return true
-		})
-		pureMethods[name] = !bad
-		methodFields[name] = map[string]bool{}
-		methodFlags[name] = map[string]bool{}
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			if a, ok := n.(*ast.AssignStmt); ok {
-				for _, lhs := range a.Lhs {
-					for {
-						if ix, ok := lhs.(*ast.IndexExpr); ok {
-							lhs = ix.X
-							continue
-						}
-						s, ok := lhs.(*ast.SelectorExpr)
-						if !ok {
-							break
-						}
-						if id, ok := s.X.(*ast.Ident); ok {
-							if id.Name == recv {
-								methodFields[name][s.Sel.Name] = true
-							}
-							break
-						}
-						lhs = s.X
-					}
-				}
-			}
-			if id, ok := n.(*ast.Ident); ok && strings.HasPrefix(id.Name, "flag") && id.Name != "flags" {
-				methodFlags[name][id.Name] = true
-			}
-			return true
-		})
-	}
-	for range len(methods) {
-		for name, fn := range methods {
-			if !pureMethods[name] {
-				continue
-			}
-			recv := fn.Recv.List[0].Names[0].Name
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				if call, ok := n.(*ast.CallExpr); ok {
-					if s, ok := call.Fun.(*ast.SelectorExpr); ok {
-						if id, ok := s.X.(*ast.Ident); ok && id.Name == recv {
-							if _, ok := methods[s.Sel.Name]; ok {
-								if !pureMethods[s.Sel.Name] {
-									pureMethods[name] = false
-								}
-								for field := range methodFields[s.Sel.Name] {
-									methodFields[name][field] = true
-								}
-								for flag := range methodFlags[s.Sel.Name] {
-									methodFlags[name][flag] = true
-								}
-							}
-						}
-					}
-				}
-				return true
-			})
-		}
-	}
-}
-
-func generateMark(out *bytes.Buffer, name string) {
-	if len(methodFields[name]) == 0 && len(methodFlags[name]) == 0 {
-		return
-	}
-	fmt.Fprintln(out, "if _node.pending != 0 { _p := &_ctx.rt.pending[_node.pending-1];")
-	fields := make([]string, 0, len(methodFields[name]))
-	for field := range methodFields[name] {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-	for _, field := range fields {
-		idx := nodeFields[field]
-		fmt.Fprintf(out, "_p.mask[%d] |= uint64(1)<<%d;\n", idx/64, idx%64)
-	}
-	flags := make([]string, 0, len(methodFlags[name]))
-	for flag := range methodFlags[name] {
-		flags = append(flags, flag)
-	}
-	sort.Strings(flags)
-	if len(flags) > 0 {
-		fmt.Fprintf(out, "_p.flags |= %s;\n", strings.Join(flags, "|"))
-	}
-	fmt.Fprintln(out, "}")
-}
-
-func generateStyleApply(out *bytes.Buffer) {
-	fmt.Fprintln(out, "func applyDeclaredStyle(n, style *node, p pendingNode) {")
-	fields := make([]string, 0, len(nodeFields))
-	for field := range nodeFields {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-	for _, field := range fields {
-		used := false
-		for name, fs := range methodFields {
-			if pureMethods[name] && fs[field] {
-				used = true
-				break
-			}
-		}
-		if !used {
-			continue
-		}
-		idx := nodeFields[field]
-		statement := "n." + field + " = style." + field
-		if field == "flags" {
-			statement = "n.flags = n.flags &^ p.flags | style.flags & p.flags"
-		}
-		if field == "ts" {
-			statement = "fallback := node{ts:n.ts}; merged := node{ts:style.ts,parent:&fallback}; n.ts=merged.resolvedText()"
-		}
-		fmt.Fprintf(out, "if p.mask[%d] & (uint64(1)<<%d) != 0 { %s };\n", idx/64, idx%64, statement)
-	}
-	fmt.Fprintln(out, "}")
-}
-
-func partRoot(part string) string {
-	switch part {
-	case "TabsParts":
-		return "List"
-	case "SegmentedParts":
-		return "Track"
-	case "ComboboxParts":
-		return "Input"
-	case "ToastParts":
-		return "Root"
-	default:
-		return "Trigger"
 	}
 }

@@ -10,7 +10,7 @@ import "fmt"
 // on them:
 //
 //	cb := ui.CheckboxBase(c, &app.sync).Gap(8)
-//	cb.Children(func(c ui.Frame) {
+//	cb.Children(func() {
 //		box := ui.Box(c).Size(18, 18).Radius(5).Border(1.5, gray)
 //		if app.sync {
 //			box.Background(green)
@@ -49,10 +49,8 @@ func toggle(c *context, on *bool, role Role, widget string) *node {
 	e := coreRow(c).Focusable().Shrink(0)
 	e.flags |= flagClickable | flagHover | flagToggle
 	e.widget, e.role = widget, role
-	if e.Clicked() {
-		*on = !*on
-		e.st.changed = true
-	}
+	*valueBinding[*bool](e) = on
+	e.onValueInput(toggleInput)
 	e.checked = 1 + int8(b2f(*on))
 	return e
 }
@@ -66,10 +64,8 @@ func coreRadioBase[T comparable](c *context, selected *T, value T) *node {
 	e := coreRow(c).Focusable().Shrink(0)
 	e.flags |= flagClickable | flagHover | flagToggle
 	e.widget, e.role = "Radio", RoleRadio
-	if e.Clicked() && *selected != value {
-		*selected = value
-		e.st.changed = true
-	}
+	*valueBinding[radioValue[T]](e) = radioValue[T]{selected: selected, value: value}
+	e.onValueInput(radioInput[T])
 	e.checked = 1 + int8(b2f(*selected == value))
 	return e
 }
@@ -112,50 +108,13 @@ func sliderBase(c *context, value *float64, lo, hi, step float64) *node {
 	s := coreBox(c).Focusable()
 	s.flags |= flagDraggable | flagHover
 	s.widget = "Slider"
-	st := s.st
-	// The view says them again as it builds the element.
-	set := coreLocal(s, sliderKey{}, func() sliderSettings { return sliderSettings{} })
-	settings := *set
-	*set = sliderSettings{}
-	if settings.step > 0 {
-		step = settings.step
-	}
-	setValue := func(v float64) {
-		v = snap(max(lo, min(hi, v)), lo, hi, step)
-		if v != *value {
-			*value = v
-			st.changed = true
-			c.rt.consumed = true
-		}
-	}
-	if st.pressed && !s.disabled() {
-		switch {
-		case settings.vertical && st.ch > 0:
-			frac := 1 - (c.rt.pointerY-st.cy)/st.ch
-			setValue(lo + float64(max(0, min(1, frac)))*(hi-lo))
-		case !settings.vertical && st.cw > 0:
-			frac := (c.rt.pointerX - st.cx) / st.cw
-			setValue(lo + float64(max(0, min(1, frac)))*(hi-lo))
-		}
-	}
+	*coreLocal(s, sliderKey{}, func() sliderSettings { return sliderSettings{} }) = sliderSettings{}
+	*valueBinding[sliderValue](s) = sliderValue{value: value, lo: lo, hi: hi, step: step}
+	s.onValueInput(sliderInput)
 	if step <= 0 {
 		step = (hi - lo) / 100
 	}
 	s.accStep = step
-	switch {
-	case s.Shortcut(0, KeyLeft), s.Shortcut(0, KeyDown):
-		setValue(*value - step)
-	case s.Shortcut(0, KeyRight), s.Shortcut(0, KeyUp):
-		setValue(*value + step)
-	case s.Shortcut(0, KeyPageDown):
-		setValue(*value - max(step, (hi-lo)/10))
-	case s.Shortcut(0, KeyPageUp):
-		setValue(*value + max(step, (hi-lo)/10))
-	case s.Shortcut(0, KeyHome):
-		setValue(lo)
-	case s.Shortcut(0, KeyEnd):
-		setValue(hi)
-	}
 	s.role, s.hasRange, s.accRange = RoleSlider, true, [3]float64{lo, hi, *value}
 	return s
 }
@@ -206,13 +165,13 @@ type tabsParts struct {
 // with Tab:
 //
 //	tabs := ui.TabsBase(c, &app.tab, len(names))
-//	tabs.List.Gap(4).Children(func(c ui.Frame) {
+//	tabs.List.Gap(4).Children(func() {
 //		for i, name := range names {
 //			tab := tabs.Tab(i).Padding(6, 12).Radius(6)
 //			if i == app.tab {
 //				tab.Background(c.Theme().Surface)
 //			}
-//			tab.Children(func(c ui.Frame) { ui.Text(c, name) })
+//			tab.Children(func() { ui.Text(c, name) })
 //		}
 //	})
 //
@@ -233,28 +192,30 @@ func (p tabsParts) Tab(i int) *node {
 	tab := coreRow(c).Focusable().Shrink(0).Role(RoleTab)
 	tab.widget = "Tab"
 	tab.flags |= flagClickable | flagHover
-	choose := func(i int, keys bool) {
-		i = (i%p.n + p.n) % p.n
-		if i != *p.selected {
-			*p.selected = i
-			p.List.st.changed = true
-			c.rt.consumed = true
+	tab.afterInput(func() {
+		choose := func(i int, keys bool) {
+			i = (i%p.n + p.n) % p.n
+			if i != *p.selected {
+				*p.selected = i
+				p.List.st.markChanged()
+				c.rt.consumed = true
+			}
+			*p.follow = keys
 		}
-		*p.follow = keys
-	}
-	if tab.Clicked() {
-		choose(i, false)
-	}
-	switch {
-	case tab.Shortcut(0, KeyRight), tab.Shortcut(0, KeyDown):
-		choose(i+1, true)
-	case tab.Shortcut(0, KeyLeft), tab.Shortcut(0, KeyUp):
-		choose(i-1, true)
-	case tab.Shortcut(0, KeyHome):
-		choose(0, true)
-	case tab.Shortcut(0, KeyEnd):
-		choose(p.n-1, true)
-	}
+		if tab.Clicked() {
+			choose(i, false)
+		}
+		switch {
+		case tab.Shortcut(0, KeyRight), tab.Shortcut(0, KeyDown):
+			choose(i+1, true)
+		case tab.Shortcut(0, KeyLeft), tab.Shortcut(0, KeyUp):
+			choose(i-1, true)
+		case tab.Shortcut(0, KeyHome):
+			choose(0, true)
+		case tab.Shortcut(0, KeyEnd):
+			choose(p.n-1, true)
+		}
+	})
 	on := i == *p.selected
 	if on && *p.follow {
 		tab.Focus()
@@ -293,7 +254,7 @@ type selectParts[T comparable] struct {
 // build the options in Popup with Item:
 //
 //	sel := ui.SelectBase(c, &app.size)
-//	sel.Trigger.Padding(6, 10).Border(1, gray).Children(func(c ui.Frame) {
+//	sel.Trigger.Padding(6, 10).Border(1, gray).Children(func() {
 //		ui.Text(c, app.size)
 //	})
 //	sel.Popup(func(panel ui.Element) {
@@ -303,7 +264,7 @@ type selectParts[T comparable] struct {
 //			if item.Highlighted() {
 //				item.Background(blue).TextColor(white)
 //			}
-//			item.Children(func(c ui.Frame) { ui.Text(c, size) })
+//			item.Children(func() { ui.Text(c, size) })
 //		}
 //	})
 //
@@ -318,39 +279,41 @@ func coreSelectBase[T comparable](c *context, selected *T) *selectParts[T] {
 		values:    coreLocal(b, "values", func() []T { return nil }),
 		pointer:   coreLocal(b, "pointer", func() [2]float32 { return [2]float32{} }),
 	}
-	open := func(o bool) {
-		*s.open, *s.highlight = o, -1
-		*s.pointer = [2]float32{c.rt.pointerX, c.rt.pointerY}
-		c.rt.consumed = true
-	}
-	if b.Clicked() {
-		open(!*s.open)
-	}
-	n := len(*s.values)
-	move := func(i int) {
-		*s.highlight = max(0, min(i, n-1))
-		c.rt.consumed = true
-	}
-	if !*s.open {
-		if b.Shortcut(0, KeyDown) || b.Shortcut(0, KeyUp) {
-			open(true)
+	b.afterInput(func() {
+		open := func(o bool) {
+			*s.open, *s.highlight = o, -1
+			*s.pointer = [2]float32{c.rt.pointerX, c.rt.pointerY}
+			c.rt.consumed = true
 		}
-	} else if n > 0 {
-		switch {
-		case b.Shortcut(0, KeyDown):
-			move(*s.highlight + 1)
-		case b.Shortcut(0, KeyUp):
-			move(*s.highlight - 1)
-		case b.Shortcut(0, KeyHome):
-			move(0)
-		case b.Shortcut(0, KeyEnd):
-			move(n - 1)
-		case b.Shortcut(0, KeyEnter), b.Shortcut(0, KeySpace):
-			if h := *s.highlight; h >= 0 && h < n {
-				s.choose((*s.values)[h])
+		if b.Clicked() {
+			open(!*s.open)
+		}
+		n := len(*s.values)
+		move := func(i int) {
+			*s.highlight = max(0, min(i, n-1))
+			c.rt.consumed = true
+		}
+		if !*s.open {
+			if b.Shortcut(0, KeyDown) || b.Shortcut(0, KeyUp) {
+				open(true)
+			}
+		} else if n > 0 {
+			switch {
+			case b.Shortcut(0, KeyDown):
+				move(*s.highlight + 1)
+			case b.Shortcut(0, KeyUp):
+				move(*s.highlight - 1)
+			case b.Shortcut(0, KeyHome):
+				move(0)
+			case b.Shortcut(0, KeyEnd):
+				move(n - 1)
+			case b.Shortcut(0, KeyEnter), b.Shortcut(0, KeySpace):
+				if h := *s.highlight; h >= 0 && h < n {
+					s.choose((*s.values)[h])
+				}
 			}
 		}
-	}
+	})
 	b.expanded = *s.open
 	return s
 }
@@ -358,7 +321,7 @@ func coreSelectBase[T comparable](c *context, selected *T) *selectParts[T] {
 func (s *selectParts[T]) choose(v T) {
 	if *s.selected != v {
 		*s.selected = v
-		s.Trigger.st.changed = true
+		s.Trigger.st.markChanged()
 	}
 	*s.open = false
 	s.c.rt.consumed = true
@@ -419,9 +382,11 @@ func (s *selectParts[T]) Item(value T) *node {
 	}
 	item.highlighted = *s.highlight == i
 	item.checked = 1 + int8(b2f(value == *s.selected))
-	if item.Clicked() {
-		s.choose(value)
-	}
+	item.afterInput(func() {
+		if item.Clicked() {
+			s.choose(value)
+		}
+	})
 	return item
 }
 

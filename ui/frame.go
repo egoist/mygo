@@ -1,81 +1,79 @@
 package ui
 
-import "weak"
-
-// Invalidate requests a frame from any goroutine. It reaches only the
-// original window and touches no build data. Prefer Services when retaining
-// a redraw function outside a view.
-func (f Frame) Invalidate() { Services{owner: f.owner}.Invalidate() }
+import "fmt"
 
 //go:generate go run ../internal/uigen
 
-// Frame describes a window's interface during one build pass. It is a
-// checked value: copies keep their original window, parent and generation.
-// Children and widget builders receive a Frame scoped to their parent.
-// Use it on the UI thread. Publish background results with Window.Update.
-type Frame struct {
-	owner  weak.Pointer[engine]
-	epoch  uint64
-	parent uint32
+// Context is the window's stable UI context. Use it on the UI thread while
+// building a view. Children share it and temporarily change its parent.
+// Publish background results with Window.Update or Services.Invalidate.
+type Context struct {
+	rt       *engine
+	services Services
 }
 
-// Element is a checked value handle to a private, pooled node. Its zero
-// value is absent. Old copies expire before the next build pass; they
-// cannot become references to a different node when storage is reused.
-// Keep a Ref in app state for a control's persistent identity.
-type Element struct {
-	owner weak.Pointer[engine]
-	epoch uint64
-	slot  uint32
-}
-
-type partsBox[T any] struct{ value *T }
-
-func makeFrame(c *context) Frame {
-	if c == nil || c.rt == nil || c.parent == nil {
-		return Frame{}
+func makeContext(c *context) *Context {
+	if c == nil || c.rt == nil {
+		return nil
 	}
-	return Frame{owner: c.rt.owner, epoch: c.rt.epoch, parent: uint32(c.parent.serial - 1)}
+	return c.rt.public
+}
+
+func (c *Context) runtime() *engine {
+	if c == nil || c.rt == nil || c.rt.closed {
+		return nil
+	}
+	return c.rt
+}
+
+func (c *Context) build() *context {
+	rt := c.runtime()
+	if rt == nil || !rt.inFrame {
+		return nil
+	}
+	return &rt.c
+}
+
+// Valid reports whether this context is building a view.
+func (c *Context) Valid() bool { return c.build() != nil }
+
+// Invalidate requests a frame from any goroutine.
+func (c *Context) Invalidate() {
+	if c != nil {
+		c.services.Invalidate()
+	}
+}
+
+// Key assigns the identity of the next control before its state is read.
+// A compound widget consumes the key for its outermost element.
+func (c *Context) Key(key any) *Context {
+	if raw := c.build(); raw != nil {
+		raw.nextKey, raw.keySet = key, true
+	}
+	return c
+}
+
+// elementOwner is detached on close, so saved handles retain only this small
+// record. Retire it before a 32-bit generation wraps to prevent old aliases.
+type elementOwner struct {
+	rt         *engine
+	generation uint32
+}
+
+// Element is a 16-byte, checked handle to a private pooled node. The zero
+// value is absent. It expires before the next build pass, even in the same
+// frame. Keep a Handle for persistent identity.
+type Element struct {
+	owner *elementOwner
+	slot  uint32
+	gen   uint32
 }
 
 func wrapElement(n *node) Element {
 	if n == nil || n.c == nil || n.c.rt == nil || n.serial <= 0 {
 		return Element{}
 	}
-	return Element{owner: n.c.rt.owner, epoch: n.epoch, slot: uint32(n.serial - 1)}
-}
-
-func (f Frame) runtime() *engine {
-	rt := f.owner.Value()
-	if rt == nil || rt.closed || rt.epoch != f.epoch || !rt.inFrame {
-		return nil
-	}
-	return rt
-}
-
-type frameScope struct {
-	c      *context
-	parent *node
-}
-
-func (f Frame) enter() frameScope {
-	rt := f.runtime()
-	if rt == nil {
-		return frameScope{}
-	}
-	n := rt.nodeAt(f.parent)
-	if n == nil {
-		return frameScope{}
-	}
-	s := frameScope{c: &rt.c, parent: rt.c.parent}
-	rt.c.parent = n
-	return s
-}
-
-func (s frameScope) leave() {
-	if s.c != nil {
-		s.c.parent = s.parent
-	}
+	return Element{owner: n.c.rt.arena, slot: uint32(n.serial - 1), gen: uint32(n.epoch)}
 }
 
 func (rt *engine) nodeAt(slot uint32) *node {
@@ -85,78 +83,66 @@ func (rt *engine) nodeAt(slot uint32) *node {
 	return &rt.c.chunks[int(slot)/chunkSize][int(slot)%chunkSize]
 }
 
-func (e Element) unbuilt() *node {
-	rt := e.owner.Value()
-	if rt == nil || rt.closed || rt.epoch != e.epoch || !rt.inFrame {
+func (e Element) lookup() *node {
+	if e.owner == nil || e.owner.rt == nil || e.gen != e.owner.generation {
 		return nil
 	}
-	n := rt.nodeAt(e.slot)
-	if n == nil || n.epoch != e.epoch {
+	rt := e.owner.rt
+	if !rt.inFrame {
 		return nil
 	}
-	return n
+	return rt.nodeAt(e.slot)
 }
 
 func (e Element) node() *node {
-	n := e.unbuilt()
-	if n == nil {
-		return nil
-	}
-	n.c.rt.realize(n)
-	if n.redirect != nil {
-		return n.redirect
+	n := e.lookup()
+	if n == nil && e.owner != nil && e.owner.rt != nil && e.owner.rt.handleChecks {
+		e.expired()
 	}
 	return n
 }
 
+func (e Element) expired() {
+	panic(fmt.Sprintf("ui: element from pass %d used in pass %d; keep a ui.Handle instead", e.gen, e.owner.generation))
+}
+
 func (e Element) nodeFor(rt *engine) *node {
-	if e.owner.Value() != rt {
+	if e.owner != rt.arena {
 		return nil
 	}
 	return e.node()
 }
 
-// Valid reports whether the handle belongs to the active build pass.
-func (e Element) Valid() bool { return e.unbuilt() != nil }
+// Valid reports whether the element belongs to the active build pass.
+// Checking validity does not trigger expired-handle diagnostics.
+func (e Element) Valid() bool { return e.lookup() != nil }
 
-// Valid reports whether the frame belongs to the active build pass.
-func (f Frame) Valid() bool { return f.runtime() != nil }
-
-// Children builds the element's children with an explicitly scoped Frame.
-// An absent or expired element does not run fn.
-func (e Element) Children(fn func(Frame)) Element {
-	n := e.node()
-	if n != nil && fn != nil {
-		n.Children(func() { fn(makeFrame(n.c)) })
+// Children builds children with the same context, scoped to this element.
+// An absent element skips fn. Expired elements are diagnosed in development.
+func (e Element) Children(fn func()) Element {
+	if n := e.node(); n != nil && fn != nil {
+		n.Children(fn)
 	}
 	return e
 }
 
-// Key identifies a control among its siblings before its input is handled.
-// Put it before Children, interaction queries or custom local state.
+// Key keys a container before its children or local state are built.
+// For a stateful control, use Context.Key before construction instead.
 func (e Element) Key(key any) Element {
-	n := e.unbuilt()
-	if n == nil {
-		return e
-	}
-	if n.pending != 0 {
-		n.key = key
-		n.id = keyedID(n.parent.id, key)
-	} else {
+	if n := e.node(); n != nil {
 		n.Key(key)
 	}
 	return e
 }
 
-// MaterialBuilder creates a material using the control's checked handle.
+// MaterialBuilder builds a material using a checked element.
 type MaterialBuilder interface {
 	Material
 	BuildMaterial(Element) Material
 }
 
 func (e Element) Material(m Material) Element {
-	n := e.node()
-	if n != nil {
+	if n := e.node(); n != nil {
 		if b, ok := m.(MaterialBuilder); ok {
 			m = b.BuildMaterial(e)
 		}
@@ -165,7 +151,11 @@ func (e Element) Material(m Material) Element {
 	return e
 }
 
-func (rt *engine) keepPart(p any) { rt.parts = append(rt.parts, p) }
+func (rt *engine) keepPart(p any) uint32 {
+	i := uint32(len(rt.parts))
+	rt.parts = append(rt.parts, p)
+	return i
+}
 
 func (r *Router) rtContext() *context {
 	if r == nil || r.rt == nil || r.rt.closed || !r.rt.inFrame {

@@ -7,7 +7,7 @@ row: the list measures rows as they show and estimates the others from
 them.
 
 ```go
-ui.List(c, nil, len(app.files), func(c ui.Frame, i int) {
+ui.List(c, nil, len(app.files), func(i int) {
 	ui.Text(c, app.files[i].Name).Padding(6, 12)
 }).Grow(1)
 ```
@@ -23,9 +23,9 @@ chat's first messages. What else you build in a list shows while it has no
 rows, as a message that it is empty:
 
 ```go
-ui.List(c, nil, len(results), func(c ui.Frame, i int) {
+ui.List(c, nil, len(results), func(i int) {
 	ui.Text(c, results[i].Title).Padding(6, 12)
-}).Grow(1).Children(func(c ui.Frame) {
+}).Grow(1).Children(func() {
 	if len(results) == 0 {
 		ui.Text(c, "No results").TextColor(c.Theme().TextMuted).Padding(12)
 	}
@@ -81,11 +81,11 @@ type fileList struct {
 	list   ui.ListState
 }
 
-func (app *fileList) view(c ui.Frame) {
+func (app *fileList) view(c *ui.Context) {
 	app.list.Key = func(i int) any { return app.files[i].Path }
 	app.list.Label = func(i int) string { return app.files[i].Name }
 	app.list.Selection = &app.chosen
-	ui.List(c, &app.list, len(app.files), func(c ui.Frame, i int) {
+	ui.List(c, &app.list, len(app.files), func(i int) {
 		ui.Text(c, app.files[i].Name).Padding(6, 12)
 	}).Grow(1)
 	if ui.Button(c, fmt.Sprintf("Delete %d", app.chosen.Len())).Clicked() {
@@ -121,7 +121,7 @@ if first, _ := app.chat.Visible(); first < 5 && app.more {
 if !app.chat.AtEnd() && ui.Button(c, "Jump to latest").Clicked() {
 	app.chat.ScrollToEnd()
 }
-ui.List(c, &app.chat, len(app.messages), func(c ui.Frame, i int) {
+ui.List(c, &app.chat, len(app.messages), func(i int) {
 	message(c, app.messages[i])
 }).Grow(1).Justify(ui.End)
 ```
@@ -157,7 +157,7 @@ reset an `ui.Element` field. Row builders can query focus before `List`
 returns:
 
 ```go
-ui.List(c, &app.list, len(app.files), func(c ui.Frame, i int) {
+ui.List(c, &app.list, len(app.files), func(i int) {
 	row := ui.Text(c, app.files[i].Name).Padding(6, 12)
 	if i == app.current && app.list.FocusWithin(c) {
 		row.TextColor(c.Theme().Accent)

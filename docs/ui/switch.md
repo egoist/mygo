@@ -5,7 +5,7 @@ that applies at once: a click turns it over, as does Space while it has the
 keyboard focus, and its knob slides across. `Changed` reports a click.
 
 ```go
-ui.Row(c).Gap(12).Children(func(c ui.Frame) {
+ui.Row(c).Gap(12).Children(func() {
 	ui.Text(c, "Wi-Fi").Grow(1)
 	ui.Switch(c, &app.wifi).Label("Wi-Fi")
 })
@@ -16,8 +16,8 @@ technology, or put it in a [field](form.md), whose label names it and
 toggles it when clicked:
 
 ```go
-ui.Form(c, func(c ui.Frame) {
-	ui.Field(c, "Sound", func(c ui.Frame) { ui.Switch(c, &app.sound) })
+ui.Form(c, func() {
+	ui.Field(c, "Sound", func() { ui.Switch(c, &app.sound) })
 })
 ```
 

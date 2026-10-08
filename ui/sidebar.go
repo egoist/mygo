@@ -30,7 +30,7 @@ type sidebarEntry struct{ id, label string }
 //
 //	ui.Sidebar(c, &app.mailbox, func() {
 //		ui.SidebarSection(c, "Mailboxes", &app.mailboxes, func() {
-//			ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func(c ui.Frame) {
+//			ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func() {
 //				ui.Badge(c, "12")
 //			})
 //			ui.SidebarItem(c, "sent", sentIcon, "Sent")
@@ -51,7 +51,7 @@ func coreSidebar(c *context, selected *string, fn func()) *node {
 	e.Children(fn)
 	c.sidebar = saved
 	*last = sb.items
-	sb.keys()
+	e.afterInput(sb.keys)
 	// The item chosen has the focus for assistive technology, as a list's
 	// row chosen does.
 	e.activeDescendant = sb.chosen
@@ -91,7 +91,7 @@ func (sb *sidebarBuild) keys() {
 	}
 	if to >= 0 && to < len(items) && items[to].id != *sb.selected {
 		*sb.selected = items[to].id
-		e.st.changed = true
+		e.st.markChanged()
 		e.c.rt.consumed = true
 	}
 }
@@ -116,17 +116,19 @@ func coreSidebarSection(c *context, title string, open *bool, fn func()) *node {
 		if open != nil {
 			head.flags |= flagClickable | flagHover
 			head.expandable, head.expanded = true, *open
-			toggle := head.Clicked()
-			if head.st.expand != 0 {
-				// Assistive technology opening or closing it.
-				toggle = (head.st.expand > 0) != *open
-				head.st.expand = 0
-				c.rt.consumed = true
-			}
-			if toggle {
-				*open = !*open
-				shown, head.expanded = *open, *open
-			}
+			head.afterInput(func() {
+				toggle := head.Clicked()
+				if head.st.expand != 0 {
+					// Assistive technology opening or closing it.
+					toggle = (head.st.expand > 0) != *open
+					head.st.expand = 0
+					c.rt.consumed = true
+				}
+				if toggle {
+					*open = !*open
+					shown, head.expanded = *open, *open
+				}
+			})
 		}
 		head.Children(func() {
 			coreText(c, title).FontSize(t.FontSize - 1).FontWeight(600).TextColor(t.TextMuted).Grow(1).SingleLine()
@@ -169,10 +171,13 @@ func coreSidebarItem(c *context, id string, icon *SVG, label string) *node {
 	focused := false
 	if sb != nil {
 		item.level = sb.depth + 1
-		if item.Clicked() && *sb.selected != id {
-			*sb.selected = id
-			sb.e.st.changed = true
-		}
+		item.afterInput(func() {
+			if item.Clicked() && *sb.selected != id {
+				*sb.selected = id
+				sb.e.st.markChanged()
+			}
+
+		})
 		chosen, focused = *sb.selected == id, sb.e.Focused()
 		sb.items = append(sb.items, sidebarEntry{id, label})
 		if chosen {

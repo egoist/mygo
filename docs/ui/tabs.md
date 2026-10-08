@@ -29,13 +29,13 @@ focus:
 
 ```go
 tabs := ui.TabsBase(c, &app.tab, len(names))
-tabs.List.Gap(4).Children(func(c ui.Frame) {
+tabs.List.Gap(4).Children(func() {
 	for i, name := range names {
 		tab := tabs.Tab(i).Padding(6, 12).Radius(6)
 		if i == app.tab {
 			tab.Background(t.Surface)
 		}
-		tab.Children(func(c ui.Frame) { ui.Text(c, name) })
+		tab.Children(func() { ui.Text(c, name) })
 	}
 })
 ```

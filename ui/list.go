@@ -36,6 +36,9 @@ const listSearch = 1000
 // knows of the heights of its rows, kept in the app's state. Give each
 // List a ListState of its own; set its fields before building the List.
 type ListState struct {
+	// Handle names this list independently of its per-pass node.
+	Handle
+
 	// Key returns an identity for the item row i shows, such as its ID:
 	// comparable, and unique among the rows. Without it, a row is its
 	// index. With it, the state of a row (focus, text being edited, …)
@@ -334,6 +337,7 @@ func buildList(c *context, e, owner *node, s *ListState, n int, row func(i int),
 		s.editables, s.editablesNow = s.editablesNow, false
 	}
 	e.list, owner.rowsOf = f, f
+	wrapElement(owner).Bind(&s.Handle)
 	s.sync(e, n)
 	if s.cursor() != nil && owner == e {
 		e.Focusable()
@@ -356,13 +360,7 @@ func buildList(c *context, e, owner *node, s *ListState, n int, row func(i int),
 			}
 		}
 	})
-	// The keys after the clicks on the rows, which came first: a letter
-	// typed right after a click goes on from the row clicked. A choice
-	// they move builds the rows again.
-	if s.cursor() != nil {
-		f.navigate()
-	}
-	f.reorder()
+	owner.onValueInput(listInput)
 }
 
 // sync follows what changed since the last frame: rows added or removed,
@@ -523,21 +521,14 @@ func (f *listFrame) build(i int) *node {
 		w.Role(RoleListItem)
 	}
 	prev := f.rb
-	f.rb = rowBuild{f: f, i: i, key: key}
+	f.rb = rowBuild{f: f, i: i, key: key, clicked: w.st.clicks > 0 && w.st.clickMods == 0, double: w.st.doubleClicks > 0}
 	rb := &f.rb
 	if sel := s.cursor(); sel != nil && !f.isHeader(i) {
 		t := c.theme
 		w.flags |= flagClickable | flagHover | flagChoosable
 		rb.chosen = f.chosen(i, key)
-		if w.Clicked() {
-			rb.clicked = w.ClickModifiers() == 0
-			f.click(i, w.ClickModifiers())
-			f.owner.Focus()
-		}
-		if w.DoubleClicked() {
-			rb.double = true
-			f.owner.st.submitted = true
-		}
+		*valueBinding[listRowInput](w) = listRowInput{f: f, i: i}
+		w.onValueInput(listRowValueInput)
 		on := f.chosen(i, key)
 		w.Selected(on)
 		switch r := t.Radius; {
@@ -741,7 +732,7 @@ func (f *listFrame) chosen(i int, k any) bool {
 
 // changed reports a new choice.
 func (f *listFrame) changed() {
-	f.owner.st.changed = true
+	f.owner.st.markChanged()
 	f.c.rt.consumed = true
 }
 
@@ -920,7 +911,7 @@ func (f *listFrame) navigate() {
 		s.editKey, s.editAsked = f.key(*sel), true
 		s.ScrollIntoView(*sel)
 	case enter && in:
-		o.st.submitted = true
+		o.st.markSubmitted()
 	}
 	to := -1
 	switch key {

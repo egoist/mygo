@@ -22,7 +22,7 @@ all are, mixed when some are, and a click, or Space while it has the focus,
 checks them all, or none when they all are. `Changed` reports a click.
 
 ```go
-ui.CheckboxGroup(c, "Notifications", func(c ui.Frame) {
+ui.CheckboxGroup(c, "Notifications", func() {
 	ui.Checkbox(c, &app.mail, "Mail")
 	ui.Checkbox(c, &app.calendar, "Calendar")
 	ui.Checkbox(c, &app.messages, "Messages")

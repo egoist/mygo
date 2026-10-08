@@ -6,7 +6,7 @@ the name, so that each person keeps theirs. It is a little more than twice
 as high as the theme's font size.
 
 ```go
-ui.Row(c).Gap(8).Children(func(c ui.Frame) {
+ui.Row(c).Gap(8).Children(func() {
 	ui.Avatar(c, user.Name, user.Photo) // a *ui.Bitmap, or nil
 	ui.Text(c, user.Name)
 })

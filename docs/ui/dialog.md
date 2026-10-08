@@ -7,12 +7,12 @@ a `*bool` is true; clicking outside it or pressing Escape sets it to false.
 if ui.Button(c, "Rename…").Clicked() {
 	app.renaming = true
 }
-ui.Modal(c, &app.renaming, func(c ui.Frame) {
+ui.Modal(c, &app.renaming, func() {
 	ui.Text(c, "Rename").Bold()
 	if ui.TextInput(c, &app.name).AutoFocus().Submitted() {
 		app.renaming = false
 	}
-	ui.Row(c).Gap(8).Justify(ui.End).Children(func(c ui.Frame) {
+	ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 		if ui.Button(c, "Cancel").Clicked() {
 			app.renaming = false
 		}
@@ -43,7 +43,7 @@ backdrop covering the window, which centers the panel, and the panel, and
 builds the panel's content:
 
 ```go
-ui.DialogBase(c, &app.open, func(c ui.Frame, backdrop, panel ui.Element) {
+ui.DialogBase(c, &app.open, func(backdrop, panel ui.Element) {
 	backdrop.Background(ui.RGBA(0, 0, 0, 0.5))
 	panel.Width(360).Padding(24).Radius(16).Background(t.Background)
 	ui.Text(c, "Welcome").FontSize(20).Bold()

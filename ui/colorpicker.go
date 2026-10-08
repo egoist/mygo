@@ -111,7 +111,7 @@ func coreColorPicker(c *context, color *Color) *node {
 		st.hsv = x
 		if next := x.color(); next != *color {
 			*color = next
-			panel.st.changed = true
+			panel.st.markChanged()
 			c.rt.consumed = true
 		}
 		st.last, st.hex = *color, hexOf(*color)
@@ -122,20 +122,23 @@ func coreColorPicker(c *context, color *Color) *node {
 		sq := coreBox(c).Height(t.Space(40)).Radius(t.Radius).Focusable().FocusRing(false).Role(RoleSlider).Label("Saturation and brightness")
 		sq.flags |= flagDraggable | flagHover | flagOwnRing
 		sq.Cursor(CursorCrosshair)
-		if s := sq.st; s.pressed && s.w > 0 && s.h > 0 {
-			px, py := c.rt.pointerX-s.x, c.rt.pointerY-s.y
-			set(hsva{x.h, float64(px / s.w), 1 - float64(py/s.h), x.a})
-		}
-		switch {
-		case sq.Shortcut(0, KeyRight):
-			set(hsva{x.h, x.s + 0.01, x.v, x.a})
-		case sq.Shortcut(0, KeyLeft):
-			set(hsva{x.h, x.s - 0.01, x.v, x.a})
-		case sq.Shortcut(0, KeyUp):
-			set(hsva{x.h, x.s, x.v + 0.01, x.a})
-		case sq.Shortcut(0, KeyDown):
-			set(hsva{x.h, x.s, x.v - 0.01, x.a})
-		}
+		sq.afterInput(func() {
+			if s := sq.st; s.pressed && s.w > 0 && s.h > 0 {
+				px, py := c.rt.pointerX-s.x, c.rt.pointerY-s.y
+				set(hsva{x.h, float64(px / s.w), 1 - float64(py/s.h), x.a})
+			}
+			switch {
+			case sq.Shortcut(0, KeyRight):
+				set(hsva{x.h, x.s + 0.01, x.v, x.a})
+			case sq.Shortcut(0, KeyLeft):
+				set(hsva{x.h, x.s - 0.01, x.v, x.a})
+			case sq.Shortcut(0, KeyUp):
+				set(hsva{x.h, x.s, x.v + 0.01, x.a})
+			case sq.Shortcut(0, KeyDown):
+				set(hsva{x.h, x.s, x.v - 0.01, x.a})
+			}
+
+		})
 		x = st.hsv
 		sq.hasRange, sq.accRange, sq.accStep = true, [3]float64{0, 100, math.Round(x.s * 100)}, 1
 		sq.accValue = fmt.Sprintf("%.0f%% saturation, %.0f%% brightness", x.s*100, x.v*100)
@@ -161,17 +164,23 @@ func coreColorPicker(c *context, color *Color) *node {
 				p.FillGradient(Rect{r.X + w*float32(i), r.Y, w + 0.5, r.H}, LinearGradient{From: hues[i], To: hues[i+1], Angle: 90}, 0)
 			}
 		})
-		if hs.Changed() {
-			set(hsva{h, x.s, x.v, x.a})
-		}
+		hs.afterInput(func() {
+			if hs.Changed() {
+				set(hsva{h, x.s, x.v, x.a})
+			}
+
+		})
 		opaque := hsva{x.h, x.s, x.v, 1}.color()
 		as := channelSlider(c, &a, 1, "Opacity", func(p *Painter, r Rect) {
 			checkers(p, r, t.Space(1.5))
 			p.FillGradient(r, LinearGradient{From: opaque.Alpha(0), To: opaque, Angle: 90}, 0)
 		})
-		if as.Changed() {
-			set(hsva{x.h, x.s, x.v, a})
-		}
+		as.afterInput(func() {
+			if as.Changed() {
+				set(hsva{x.h, x.s, x.v, a})
+			}
+
+		})
 		// The color, and its hex.
 		coreRow(c).Gap(t.Space(2)).AlignItems(Center).Children(func() {
 			now := *color
@@ -180,14 +189,17 @@ func coreColorPicker(c *context, color *Color) *node {
 				p.Fill(r, now, 0)
 			})
 			in := coreTextInput(c, &st.hex).Label("Hex").Grow(1).FontFeatures("tnum")
-			if v, err := parseHex(st.hex); err == nil && in.Changed() {
-				hex := st.hex
-				set(toHSVA(v))
-				st.hex = hex // as typed
-			}
-			if !in.Focused() && st.hex != hexOf(*color) {
-				st.hex = hexOf(*color)
-			}
+			in.afterInput(func() {
+				if v, err := parseHex(st.hex); err == nil && in.Changed() {
+					hex := st.hex
+					set(toHSVA(v))
+					st.hex = hex // as typed
+				}
+				if !in.Focused() && st.hex != hexOf(*color) {
+					st.hex = hexOf(*color)
+				}
+			})
+
 		})
 		// Swatches.
 		coreGrid(c).ColumnTracks(Fr(1), Fr(1), Fr(1), Fr(1), Fr(1), Fr(1)).Gap(t.Space(1.5)).Children(func() {
@@ -196,9 +208,12 @@ func coreColorPicker(c *context, color *Color) *node {
 				if *color == sw.color {
 					b.Border(2, t.Text)
 				}
-				if b.Clicked() {
-					set(toHSVA(sw.color))
-				}
+				b.afterInput(func() {
+					if b.Clicked() {
+						set(toHSVA(sw.color))
+					}
+				})
+
 			}
 		})
 	})
@@ -253,9 +268,12 @@ func coreColorWell(c *context, color *Color) *node {
 	// Read as its value where buttons have none, as on Linux.
 	b.description = hexOf(*color)
 	open := coreLocal(b, "open", func() bool { return false })
-	if b.Clicked() {
-		*open = !*open
-	}
+	b.afterInput(func() {
+		if b.Clicked() {
+			*open = !*open
+		}
+
+	})
 	b.expanded = *open
 	now := *color
 	b.Children(func() {
@@ -268,7 +286,7 @@ func coreColorWell(c *context, color *Color) *node {
 		stylePanel(c, panel)
 		panel.Padding(t.Space(3))
 		if coreColorPicker(c, color).Changed() {
-			b.st.changed = true
+			b.st.markChanged()
 		}
 	})
 	return b

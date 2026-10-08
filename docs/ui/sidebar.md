@@ -7,7 +7,7 @@ one into a `*string`. It scrolls when they do not fit. Give it a width:
 ```go
 ui.Sidebar(c, &app.mailbox, func() {
 	ui.SidebarSection(c, "Mailboxes", &app.mailboxesShown, func() {
-		ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func(c ui.Frame) {
+		ui.SidebarItem(c, "inbox", inboxIcon, "Inbox").Children(func() {
 			ui.Badge(c, fmt.Sprint(app.unread))
 		})
 		ui.SidebarItem(c, "sent", sentIcon, "Sent")

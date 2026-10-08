@@ -188,9 +188,9 @@ func (rt *engine) pauseToasts(paused bool, now time.Time) {
 //		for _, t := range toasts {
 //			toast := ui.ToastBase(c, t)
 //			toast.Root.Row().Gap(12).Padding(10, 14).Radius(8).Background(surface)
-//			toast.Root.Children(func(c ui.Frame) {
+//			toast.Root.Children(func() {
 //				ui.Text(c, t.Title).Grow(1)
-//				toast.CloseButton().Label("Close").Children(func(c ui.Frame) { ui.Icon(c, x) })
+//				toast.CloseButton().Label("Close").Children(func() { ui.Icon(c, x) })
 //			})
 //		}
 //	})

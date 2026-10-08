@@ -38,60 +38,25 @@ func textInputBase(c *context, value *string, multiline bool) *node {
 	}
 	ed := st.editor
 	ed.value = value
-	if ed.nativeDirty {
-		ed.nativeDirty = false
-		before := ed.nativeValue
-		ed.nativeValue = ""
-		if *value == before {
-			if *value != ed.buf.s {
-				st.changed = true
-				c.rt.consumed = true
-			}
-			*value = ed.buf.s
-		}
-	}
+
 	if ed.client == nil {
 		ed.client = &widgetTextInput{ed: ed, rt: c.rt, id: e.id}
 	}
 	e.textClient = ed.client
 	ed.multiline = multiline
-	ed.declaredOptions(c)
 	if multiline && ed.area == nil {
 		ed.area = &area{reveal: true}
 	}
 	// The input shares the string of *value: the same string is equal at
 	// once, whatever its length.
-	if ed.buf.s != *value {
+	if !ed.nativeDirty && ed.buf.s != *value {
 		ed.setText(*value)
 		ed.compose = ""
 	}
-	focused := c.rt.focused == e.id
-	// Input queued while the input had the focus applies even when the
-	// focus left before this frame, as with text typed right before Tab.
-	if focused || len(ed.queue) > 0 {
-		version := ed.buf.version
-		ed.process(c, e)
-		if ed.buf.version != version {
-			if ed.buf.s != *value {
-				st.changed = true
-				c.rt.consumed = true
-			}
-			// Equal or not, the value shares the text's string again.
-			*value = ed.buf.s
-		}
-	}
-	if !focused {
-		ed.compose = ""
-	}
-	// ReadOnly, Password and Lines say again for the next frame's input, as
-	// the frame builds.
-	if !c.inputOptions.active {
-		ed.readOnly, ed.password = false, false
-	}
+	ed.readOnly, ed.password, ed.lines = false, false, [2]int{}
 	ed.ranges = ed.ranges[:0]
-	if !c.inputOptions.active {
-		ed.lines = [2]int{}
-	}
+	e.onValueInput(stringInput)
+
 	return e
 }
 

@@ -58,7 +58,7 @@ const defaultDuration = 200 * time.Millisecond
 // list:
 //
 //	for _, it := range app.items {
-//		ui.Row(c).Key(it.ID).Transition(rowTransition).Children(func(c ui.Frame) {
+//		ui.Row(c).Key(it.ID).Transition(rowTransition).Children(func() {
 //			ui.Text(c, it.Title)
 //		})
 //	}

@@ -18,11 +18,13 @@ func coreDateInput(c *context, date *time.Time) *node {
 	open := coreLocal(b, "open", func() bool { return false })
 	// cursor is the day the keys move in the calendar.
 	cursor := coreLocal(b, "cursor", func() time.Time { return *date })
-	if b.Clicked() {
-		*open = !*open
-		*cursor = *date
-	}
-	b.expanded = *open
+	b.afterInput(func() {
+		if b.Clicked() {
+			*open = !*open
+			*cursor = *date
+		}
+		b.expanded = *open
+	})
 	b.Children(func() {
 		coreText(c, date.Format("2006-01-02")).SingleLine().FontFeatures("tnum")
 		coreBox(c).Size(t.Space(3.5), t.Space(3.5)).Shrink(0).Draw(func(p *Painter, r Rect) {
@@ -33,7 +35,7 @@ func coreDateInput(c *context, date *time.Time) *node {
 	})
 	choose := func(d time.Time) {
 		if setDay(date, d) {
-			b.st.changed = true
+			b.st.markChanged()
 			c.rt.consumed = true
 		}
 		*open = false
@@ -55,17 +57,14 @@ func coreDateInput(c *context, date *time.Time) *node {
 // Changed reports a new date, which keeps the time of day and location of
 // *date. Assistive technology reads the day chosen as the arrows move.
 func coreCalendar(c *context, date *time.Time) *node {
-	changed := false
-	g := calendarGrid(c, date, date, true, func(d time.Time) {
+	var g *node
+	g = calendarGrid(c, date, date, true, func(d time.Time) {
 		if setDay(date, d) {
-			changed = true
+			g.st.markChanged()
 			c.rt.consumed = true
 		}
 	})
 	g.widget = "Calendar"
-	if changed {
-		g.st.changed = true
-	}
 	return g
 }
 
@@ -107,35 +106,45 @@ func calendarGrid(c *context, date, cursor *time.Time, moveChooses bool, choose 
 		}
 		c.rt.consumed = true
 	}
-	switch {
-	case grid.Shortcut(0, KeyLeft):
-		move(cur.AddDate(0, 0, -1))
-	case grid.Shortcut(0, KeyRight):
-		move(cur.AddDate(0, 0, 1))
-	case grid.Shortcut(0, KeyUp):
-		move(cur.AddDate(0, 0, -7))
-	case grid.Shortcut(0, KeyDown):
-		move(cur.AddDate(0, 0, 7))
-	case grid.Shortcut(0, KeyPageUp):
-		move(cur.AddDate(0, -1, 0))
-	case grid.Shortcut(0, KeyPageDown):
-		move(cur.AddDate(0, 1, 0))
-	case grid.Shortcut(0, KeyHome):
-		move(time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, cur.Location()))
-	case grid.Shortcut(0, KeyEnd):
-		move(time.Date(cur.Year(), cur.Month()+1, 0, 0, 0, 0, 0, cur.Location()))
-	case grid.Shortcut(0, KeyEnter), grid.Shortcut(0, KeySpace):
-		choose(cur)
-	}
+	grid.afterInput(func() {
+		switch {
+		case grid.Shortcut(0, KeyLeft):
+			move(cur.AddDate(0, 0, -1))
+		case grid.Shortcut(0, KeyRight):
+			move(cur.AddDate(0, 0, 1))
+		case grid.Shortcut(0, KeyUp):
+			move(cur.AddDate(0, 0, -7))
+		case grid.Shortcut(0, KeyDown):
+			move(cur.AddDate(0, 0, 7))
+		case grid.Shortcut(0, KeyPageUp):
+			move(cur.AddDate(0, -1, 0))
+		case grid.Shortcut(0, KeyPageDown):
+			move(cur.AddDate(0, 1, 0))
+		case grid.Shortcut(0, KeyHome):
+			move(time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, cur.Location()))
+		case grid.Shortcut(0, KeyEnd):
+			move(time.Date(cur.Year(), cur.Month()+1, 0, 0, 0, 0, 0, cur.Location()))
+		case grid.Shortcut(0, KeyEnter), grid.Shortcut(0, KeySpace):
+			choose(cur)
+		}
+	})
 	grid.Children(func() {
 		coreRow(c).AlignItems(Center).Gap(t.Space(1)).Children(func() {
-			if coreButton(c, "‹").Padding(t.Space(0.5), t.Space(2.5)).Label("Previous month").Clicked() {
-				move(cur.AddDate(0, -1, 0))
-			}
+			prev := coreButton(c, "‹").Padding(t.Space(0.5), t.Space(2.5)).Label("Previous month")
+			prev.flags |= flagClickable
+			prev.afterInput(func() {
+				if prev.Clicked() {
+					move(cur.AddDate(0, -1, 0))
+				}
+			})
 			coreText(c, month.Format("January 2006")).Bold().Grow(1).TextAlign(Center)
-			if coreButton(c, "›").Padding(t.Space(0.5), t.Space(2.5)).Label("Next month").Clicked() {
-				move(cur.AddDate(0, 1, 0))
-			}
+			next := coreButton(c, "›").Padding(t.Space(0.5), t.Space(2.5)).Label("Next month")
+			next.flags |= flagClickable
+			next.afterInput(func() {
+				if next.Clicked() {
+					move(cur.AddDate(0, 1, 0))
+				}
+			})
 		})
 		coreRow(c).Children(func() {
 			for _, d := range []string{"Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"} {
@@ -151,12 +160,14 @@ func calendarGrid(c *context, date, cursor *time.Time, moveChooses bool, choose 
 					day := start.AddDate(0, 0, w*7+d)
 					cell := coreBox(c).Size(t.Space(8), t.Space(7)).Center().Radius(t.Radius).Role(RoleButton).Label(day.Format("January 2, 2006"))
 					cell.flags |= flagClickable | flagHover
-					if cell.Clicked() {
-						choose(day)
-						if cursor != date {
-							*cursor = day
+					cell.afterInput(func() {
+						if cell.Clicked() {
+							choose(day)
+							if cursor != date {
+								*cursor = day
+							}
 						}
-					}
+					})
 					chosen, atCursor := sameDay(day, *date), sameDay(day, cur)
 					fg := t.Text
 					if day.Month() != month.Month() {

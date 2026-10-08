@@ -60,7 +60,7 @@ func (c *nativeInputClient) IndexForPoint(p ui.Point) (int, bool) {
 func TestContentWindowTextInputPrimitive(t *testing.T) {
 	var frames atomic.Int32
 	client := &nativeInputClient{text: "A😀cafe", selection: ui.TextInputSelection{Range: ui.TextInputRange{Start: 7, End: 7}}}
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		ui.Box(c).Size(350, 70).HandleTextInput(client).AutoFocus().Label("Application text").Role(ui.RoleTextField).Draw(func(p *ui.Painter, r ui.Rect) { p.Text(r.X+8, r.Y+8, client.text, 18, c.Theme().Text) })
 		frames.Add(1)
 	}

@@ -22,14 +22,14 @@ type context struct {
 	used   int
 	// dirty is how many elements in the arena have held references since
 	// finish last cleared the unused ones, including earlier build passes.
-	dirty        int
-	theme        *Theme
-	now          time.Time
-	w, h         float32
-	titleBar     TitleBar
-	overlay      *node
-	reuse        *node
-	inputOptions inputOptions
+	dirty    int
+	theme    *Theme
+	now      time.Time
+	w, h     float32
+	titleBar TitleBar
+	overlay  *node
+	nextKey  any
+	keySet   bool
 	// tree is the Tree being built, for its items.
 	tree *treeBuild
 	// buttons is how the buttons being built look, in a toolbar or a
@@ -90,11 +90,23 @@ func (c *context) alloc() *node {
 }
 
 func (c *context) reset(now time.Time, w, h float32) {
+	for _, f := range c.rt.focusFields {
+		clear(f.members)
+		f.members = f.members[:0]
+	}
 	c.rt.epoch++
+	if uint32(c.rt.epoch) == 0 {
+		c.rt.arena.rt = nil
+		c.rt.arena = &elementOwner{rt: c.rt}
+	}
+	c.rt.arena.generation = uint32(c.rt.epoch)
+	c.keySet, c.nextKey = false, nil
 	clear(c.rt.parts)
 	c.rt.parts = c.rt.parts[:0]
-	clear(c.rt.pending)
-	c.rt.pending = c.rt.pending[:0]
+	clear(c.rt.afterInputs)
+	c.rt.afterInputs = c.rt.afterInputs[:0]
+	clear(c.rt.inputs)
+	c.rt.inputs = c.rt.inputs[:0]
 	clear(c.rt.actions)
 	c.rt.actions = c.rt.actions[:0]
 	c.dirty = max(c.dirty, c.used)
@@ -181,47 +193,24 @@ func (c *context) newElement(k kind) *node {
 	if c.parent.kind == kindText && k != kindText {
 		panic("ui: only text elements (Text, Link, RichText) go inside a text")
 	}
-	if e := c.reuse; e != nil {
-		c.reuse = nil
-		if e.parent != c.parent {
-			old := e.parent
-			if old.first == e {
-				old.first = e.next
-			} else {
-				for p := old.first; p != nil; p = p.next {
-					if p.next == e {
-						p.next = e.next
-						break
-					}
-				}
-			}
-			if old.last == e {
-				old.last = nil
-				for p := old.first; p != nil; p = p.next {
-					old.last = p
-				}
-			}
-			old.nchild--
-			e.next = nil
-			e.ordinal = uint64(c.parent.nchild)
-			c.parent.add(e)
-		}
-		e.kind = k
-		if e.key == nil {
-			e.id = mix(e.parent.id, e.ordinal+uint64(k)<<56)
-		} else {
-			e.id = keyedID(e.parent.id, e.key)
-		}
-		e.st = c.rt.stateFor(e.id)
-		return e
-	}
+
 	e := c.alloc()
 	e.c = c
 	e.kind = k
 	p := c.parent
 	e.id = mix(p.id, uint64(p.nchild)+uint64(k)<<56)
+	keyed := c.keySet
+	if c.keySet {
+		e.id = keyedID(p.id, c.nextKey)
+		e.key = c.nextKey
+		c.keySet, c.nextKey = false, nil
+	}
 	p.add(e)
-	e.st = c.rt.stateFor(e.id)
+	var built bool
+	e.st, built = c.rt.lookState(e.id)
+	if keyed && built {
+		c.rt.duplicateKey(e.id, e.key)
+	}
 	if c.rt.insp.open && e.id == c.rt.insp.selected {
 		c.rt.insp.noteSource()
 	}
@@ -408,6 +397,10 @@ func coreLocal[T any](e *node, key any, init func() T) *T {
 
 // state is what the runtime keeps about an element from frame to frame.
 type state struct {
+	rt            *engine
+	pendingSubmit bool
+	noticeQueued  bool
+
 	id   uint64
 	seen uint64
 	pass int    // the pass of the frame that built it last
@@ -488,11 +481,12 @@ type state struct {
 	// textScope is the Selectable container this paragraph belongs to.
 	textScope uint64
 	// spans keeps what a text made of its spans in the last frame.
-	spans     *spanCache
-	locals    map[any]any
-	anims     map[any]*anim
-	shortcuts []shortcut
-	delivered []shortcut
+	spans        *spanCache
+	valueBinding any
+	locals       map[any]any
+	anims        map[any]*anim
+	shortcuts    []shortcut
+	delivered    []shortcut
 
 	// input, caret and takesText are those of the last frame's element
 	// (HandleInput, TextCaret).
@@ -539,6 +533,7 @@ func (rt *engine) lookState(id uint64) (s *state, built bool) {
 	} else {
 		built = s.seen == rt.frame && s.pass == rt.pass
 	}
+	s.rt = rt
 	s.seen, s.pass = rt.frame, rt.pass
 	// What the element drags and takes, as this pass asks.
 	s.dragValue, s.dragFn, s.accepts = nil, nil, nil

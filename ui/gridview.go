@@ -8,6 +8,8 @@ import (
 // GridState is the state of a GridView: how its items are told apart and
 // chosen, as a List's rows are, and the place of its rows.
 type GridState struct {
+	Handle
+
 	// Key returns an identity for item i, as ListState.Key does for a
 	// row: the choice and the items' state follow it.
 	Key func(item int) any
@@ -91,6 +93,7 @@ func coreGridView(c *context, s *GridState, n int, minWidth, height float32, ite
 	if s == nil {
 		s = coreLocal(e, "grid", func() GridState { return GridState{} })
 	}
+	wrapElement(e).Bind(&s.Handle)
 	n = max(n, 0)
 	gap := t.Space(2)
 	// The columns: those that fit the width the rows had in the last
@@ -136,7 +139,7 @@ func coreGridView(c *context, s *GridState, n int, minWidth, height float32, ite
 	// assistive technology about its items.
 	e.rowsOf = nil
 	e.gridFit = &gridFit{cols: cols, minW: minWidth, gap: gap}
-	s.keys(e, n)
+	e.afterInput(func() { s.keys(e, n) })
 	e.activeDescendant = cursor
 	s.reorder(e, n, gap)
 	s.cells, s.built = s.built, s.cells
@@ -268,13 +271,16 @@ func (s *GridState) cell(c *context, grid *node, i, n int, height float32, item 
 	}
 	if s.Selected != nil {
 		cell.flags |= flagClickable | flagHover | flagChoosable
-		if cell.Clicked() {
-			s.click(grid, i, cell.ClickModifiers())
-			grid.Focus()
-		}
-		if cell.DoubleClicked() {
-			grid.st.submitted = true
-		}
+		cell.afterInput(func() {
+			if cell.Clicked() {
+				s.click(grid, i, cell.ClickModifiers())
+				grid.Focus()
+			}
+			if cell.DoubleClicked() {
+				grid.st.markSubmitted()
+			}
+
+		})
 		chosen := s.chosen(i)
 		cell.checked = 1 + int8(b2f(chosen))
 		switch {
@@ -320,7 +326,7 @@ func (s *GridState) click(grid *node, i int, mods Modifiers) {
 	case mods&Cmd != 0:
 		s.Selection.set(s.key(i), !s.Selection.has(s.key(i)))
 		*s.Selected, s.pivot = i, i
-		grid.st.changed = true
+		grid.st.markChanged()
 	default:
 		s.choose(grid, i)
 	}
@@ -338,7 +344,7 @@ func (s *GridState) choose(grid *node, i int) {
 	}
 	*s.Selected, s.pivot = i, i
 	if changed {
-		grid.st.changed = true
+		grid.st.markChanged()
 	}
 }
 
@@ -354,7 +360,7 @@ func (s *GridState) extend(grid *node, i int) {
 		s.Selection.set(s.key(j), true)
 	}
 	*s.Selected = i
-	grid.st.changed = true
+	grid.st.markChanged()
 }
 
 // keys moves the choice with the arrows in two dimensions, Home, End and
@@ -396,10 +402,10 @@ func (s *GridState) keys(grid *node, n int) {
 		for j := range n {
 			s.Selection.set(s.key(j), true)
 		}
-		grid.st.changed = true
+		grid.st.markChanged()
 	}
 	if grid.Shortcut(0, KeyEnter) && in {
-		grid.st.submitted = true
+		grid.st.markSubmitted()
 	}
 	if st := grid.st; st.typing && st.typed != "" && s.Label != nil {
 		for k := 1; k <= n; k++ {

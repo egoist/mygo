@@ -54,7 +54,7 @@ func (e *node) ContextMenu(build func(m *Menu)) *node {
 // ContextMenu. MenuButton is a button with a menu:
 //
 //	more := ui.ButtonBase(c).Label("More").Padding(4).Radius(6)
-//	more.Children(func(c ui.Frame) { ui.Icon(c, moreIcon).Size(16, 16) })
+//	more.Children(func() { ui.Icon(c, moreIcon).Size(16, 16) })
 //	more.Menu(func(m *ui.Menu) {
 //		if m.Item("Duplicate").Chosen() {
 //			app.duplicate()

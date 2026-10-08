@@ -81,7 +81,6 @@ func bufferInputBase(c *context, value *TextBuffer, multiline bool) *node {
 	ed := st.editor
 	ed.syncBuffer()
 	ed.multiline = multiline
-	ed.declaredOptions(c)
 	if multiline && ed.area == nil {
 		ed.area = &area{reveal: true}
 	}
@@ -89,30 +88,9 @@ func bufferInputBase(c *context, value *TextBuffer, multiline bool) *node {
 		ed.client = &widgetTextInput{ed: ed, rt: c.rt, id: e.id}
 	}
 	e.textClient = ed.client
-	if ed.bufferDirty {
-		st.changed = true
-		c.rt.consumed = true
-		ed.bufferDirty = false
-	}
-	if c.rt.focused == e.id || len(ed.queue) > 0 {
-		before := ed.buf.version
-		ed.process(c, e)
-		if ed.buf.version != before {
-			ed.client.publish()
-			st.changed = true
-			c.rt.consumed = true
-			ed.bufferDirty = false
-		}
-	}
-	if c.rt.focused != e.id {
-		ed.compose = ""
-	}
-	if !c.inputOptions.active {
-		ed.readOnly, ed.password = false, false
-	}
+	ed.readOnly, ed.password, ed.lines = false, false, [2]int{}
 	ed.ranges = ed.ranges[:0]
-	if !c.inputOptions.active {
-		ed.lines = [2]int{}
-	}
+	e.onValueInput(bufferInput)
+
 	return e
 }

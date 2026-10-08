@@ -166,8 +166,8 @@ func BenchmarkWindowOpen(b *testing.B) {
 // has built the first frame.
 func BenchmarkContentWindowOpen(b *testing.B) {
 	built := make(chan struct{}, 1)
-	view := func(c ui.Frame) {
-		ui.Box(c).Fill().Padding(16).Gap(8).Children(func(c ui.Frame) {
+	view := func(c *ui.Context) {
+		ui.Box(c).Fill().Padding(16).Gap(8).Children(func() {
 			ui.Text(c, "Bench").FontSize(20)
 			for i := range 20 {
 				ui.Text(c, "Row "+strconv.Itoa(i))

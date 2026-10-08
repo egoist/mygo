@@ -24,7 +24,7 @@ func coreTimeInput(c *context, tm *time.Time) *node {
 		next := time.Date(y, mo, d, h, m, tm.Second(), tm.Nanosecond(), tm.Location())
 		if !next.Equal(*tm) {
 			*tm = next
-			f.st.changed = true
+			f.st.markChanged()
 			c.rt.consumed = true
 		}
 	}
@@ -49,48 +49,50 @@ func coreTimeInput(c *context, tm *time.Time) *node {
 			segs[k] = seg
 		}
 	})
-	h, m := tm.Hour(), tm.Minute()
-	for k, seg := range segs {
-		top := []int{24, 60}[k]
-		value := []*int{&h, &m}[k]
-		step := 0
-		switch {
-		case seg.Shortcut(0, KeyUp):
-			step = 1
-		case seg.Shortcut(0, KeyDown):
-			step = -1
-		case seg.Shortcut(0, KeyRight) && k == 0:
-			segs[1].Focus()
-			c.rt.focusVisible = true
-		case seg.Shortcut(0, KeyLeft) && k == 1:
-			segs[0].Focus()
-			c.rt.focusVisible = true
-		}
-		if step != 0 {
-			*value = (*value + step + top) % top
-			set(h, m)
-		}
-		// Digits typed: the first sets the segment, a second makes two
-		// digits of them, or starts anew past the top; both typed, or one
-		// that can't begin two, go on to the minutes.
-		if s := seg.st; s.typing && s.typed != "" {
-			typed := s.typed
-			n, err := strconv.Atoi(typed)
-			if err != nil || len(typed) > 2 || n >= top {
-				typed = typed[len(typed)-1:]
-				n, err = strconv.Atoi(typed)
-				s.typed = typed
+	f.afterInput(func() {
+		h, m := tm.Hour(), tm.Minute()
+		for k, seg := range segs {
+			top := []int{24, 60}[k]
+			value := []*int{&h, &m}[k]
+			step := 0
+			switch {
+			case seg.Shortcut(0, KeyUp):
+				step = 1
+			case seg.Shortcut(0, KeyDown):
+				step = -1
+			case seg.Shortcut(0, KeyRight) && k == 0:
+				segs[1].Focus()
+				c.rt.focusVisible = true
+			case seg.Shortcut(0, KeyLeft) && k == 1:
+				segs[0].Focus()
+				c.rt.focusVisible = true
 			}
-			if err == nil {
-				*value = n
+			if step != 0 {
+				*value = (*value + step + top) % top
 				set(h, m)
-				if (len(typed) == 2 || n*10 >= top) && k == 0 {
-					s.typed = ""
-					segs[1].Focus()
+			}
+			// Digits typed: the first sets the segment, a second makes two
+			// digits of them, or starts anew past the top; both typed, or one
+			// that can't begin two, go on to the minutes.
+			if s := seg.st; s.typing && s.typed != "" {
+				typed := s.typed
+				n, err := strconv.Atoi(typed)
+				if err != nil || len(typed) > 2 || n >= top {
+					typed = typed[len(typed)-1:]
+					n, err = strconv.Atoi(typed)
+					s.typed = typed
+				}
+				if err == nil {
+					*value = n
+					set(h, m)
+					if (len(typed) == 2 || n*10 >= top) && k == 0 {
+						s.typed = ""
+						segs[1].Focus()
+					}
 				}
 			}
 		}
-	}
+	})
 	f.styleFn = func(f *node) {
 		if segs[0].Focused() || segs[1].Focused() {
 			f.borderC = t.Accent

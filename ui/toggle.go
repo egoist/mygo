@@ -24,7 +24,7 @@ func coreToggleBase(c *context, on *bool) *node {
 // such as an icon, with Children and an empty label, and name it with
 // Label:
 //
-//	ui.Toggle(c, &app.bold, "").Label("Bold").Children(func(c ui.Frame) { ui.Icon(c, boldIcon) })
+//	ui.Toggle(c, &app.bold, "").Label("Bold").Children(func() { ui.Icon(c, boldIcon) })
 func coreToggle(c *context, on *bool, label string) *node {
 	b := coreToggleBase(c, on)
 	styleButton(c, b, false)
@@ -133,7 +133,7 @@ func (p segmentedParts) Segment(i int) *node {
 	s := coreRadioBase(p.c, p.selected, i).Center()
 	s.segment = true
 	if s.st.changed {
-		p.Track.st.changed = true
+		p.Track.st.markChanged()
 	}
 	return s
 }

@@ -20,7 +20,7 @@ func TestContentWindowInspector(t *testing.T) {
 	var frames atomic.Int32
 	var width atomic.Value
 	width.Store(float32(0))
-	view := func(c ui.Frame) {
+	view := func(c *ui.Context) {
 		frames.Add(1)
 		w, _ := c.Size()
 		width.Store(w)

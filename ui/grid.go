@@ -41,7 +41,7 @@ type gridCell struct {
 // RowSpan rows. Columns and ColumnTracks set its columns; it adds rows as
 // its children need them.
 //
-//	ui.Grid(c).Columns(3).Gap(12).Children(func(c ui.Frame) {
+//	ui.Grid(c).Columns(3).Gap(12).Children(func() {
 //		for _, p := range photos {
 //			ui.Image(c, p).AspectRatio(1).Fit(ui.Cover)
 //		}

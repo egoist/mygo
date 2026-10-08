@@ -93,20 +93,22 @@ func coreRating(c *context, value *int, max int) *node {
 		}
 		if v != *value {
 			*value = v
-			e.st.changed = true
+			e.st.markChanged()
 			c.rt.consumed = true
 		}
 	}
-	switch {
-	case e.Shortcut(0, KeyRight), e.Shortcut(0, KeyUp):
-		set(*value + 1)
-	case e.Shortcut(0, KeyLeft), e.Shortcut(0, KeyDown):
-		set(*value - 1)
-	case e.Shortcut(0, KeyHome):
-		set(0)
-	case e.Shortcut(0, KeyEnd):
-		set(max)
-	}
+	e.afterInput(func() {
+		switch {
+		case e.Shortcut(0, KeyRight), e.Shortcut(0, KeyUp):
+			set(*value + 1)
+		case e.Shortcut(0, KeyLeft), e.Shortcut(0, KeyDown):
+			set(*value - 1)
+		case e.Shortcut(0, KeyHome):
+			set(0)
+		case e.Shortcut(0, KeyEnd):
+			set(max)
+		}
+	})
 	e.hasRange, e.accRange, e.accStep = true, [3]float64{0, float64(max), float64(*value)}, 1
 	// The stars the pointer would set, shown as it rests on them.
 	hover := -1
@@ -114,14 +116,16 @@ func coreRating(c *context, value *int, max int) *node {
 		for i := range max {
 			star := coreBox(c).Size(t.FontSize*1.25, t.FontSize*1.25).Shrink(0).Role(RoleNone)
 			star.flags |= flagClickable | flagHover
-			if star.Clicked() {
-				if *value == i+1 {
-					set(0)
-				} else {
-					set(i + 1)
+			star.afterInput(func() {
+				if star.Clicked() {
+					if *value == i+1 {
+						set(0)
+					} else {
+						set(i + 1)
+					}
+					e.Focus()
 				}
-				e.Focus()
-			}
+			})
 			if star.Hovered() {
 				hover = i
 			}
@@ -191,20 +195,23 @@ func coreStepper(c *context, value *float64, lo, hi, step float64) *node {
 		v = snap(math.Max(lo, math.Min(hi, v)), lo, hi, step)
 		if v != *value {
 			*value = v
-			e.st.changed = true
+			e.st.markChanged()
 			c.rt.consumed = true
 		}
 	}
-	switch {
-	case e.Shortcut(0, KeyUp), e.Shortcut(0, KeyRight):
-		set(*value + step)
-	case e.Shortcut(0, KeyDown), e.Shortcut(0, KeyLeft):
-		set(*value - step)
-	case e.Shortcut(0, KeyHome):
-		set(lo)
-	case e.Shortcut(0, KeyEnd):
-		set(hi)
-	}
+	e.afterInput(func() {
+		switch {
+		case e.Shortcut(0, KeyUp), e.Shortcut(0, KeyRight):
+			set(*value + step)
+		case e.Shortcut(0, KeyDown), e.Shortcut(0, KeyLeft):
+			set(*value - step)
+		case e.Shortcut(0, KeyHome):
+			set(lo)
+		case e.Shortcut(0, KeyEnd):
+			set(hi)
+		}
+
+	})
 	e.hasRange, e.accRange, e.accStep = true, [3]float64{lo, hi, *value}, step
 	e.Children(func() {
 		for _, up := range []bool{true, false} {
@@ -213,30 +220,33 @@ func coreStepper(c *context, value *float64, lo, hi, step float64) *node {
 			can := up && *value < hi || !up && *value > lo
 			// A press steps at once, and again as it is held, faster
 			// after a while, as AppKit's.
-			if arrow.Pressed() && can {
-				s := arrow.st
-				held := c.now.Sub(s.holdStart)
-				if s.holdStart.IsZero() || !s.holding {
-					s.holdStart, s.holding, s.holdSteps = c.now, true, 0
-					held = 0
-				}
-				due := 1
-				if held > 400*time.Millisecond {
-					due += int((held - 400*time.Millisecond) / (80 * time.Millisecond))
-				}
-				for s.holdSteps < due {
-					s.holdSteps++
-					if up {
-						set(*value + step)
-					} else {
-						set(*value - step)
+			arrow.afterInput(func() {
+				if arrow.Pressed() && can {
+					s := arrow.st
+					held := c.now.Sub(s.holdStart)
+					if s.holdStart.IsZero() || !s.holding {
+						s.holdStart, s.holding, s.holdSteps = c.now, true, 0
+						held = 0
 					}
+					due := 1
+					if held > 400*time.Millisecond {
+						due += int((held - 400*time.Millisecond) / (80 * time.Millisecond))
+					}
+					for s.holdSteps < due {
+						s.holdSteps++
+						if up {
+							set(*value + step)
+						} else {
+							set(*value - step)
+						}
+					}
+					e.Focus()
+					c.After(80 * time.Millisecond)
+				} else {
+					arrow.st.holding = false
 				}
-				e.Focus()
-				c.After(80 * time.Millisecond)
-			} else {
-				arrow.st.holding = false
-			}
+
+			})
 			arrow.styleFn = func(a *node) {
 				if a.Pressed() {
 					a.bg = t.SurfacePressed
@@ -291,7 +301,7 @@ func coreRangeSlider(c *context, low, high *float64, lo, hi, step float64) *node
 		to = snap(math.Max(from, math.Min(until, to)), lo, hi, step)
 		if to != *v {
 			*v = to
-			e.st.changed = true
+			e.st.markChanged()
 			c.rt.consumed = true
 		}
 	}
@@ -323,38 +333,44 @@ func coreRangeSlider(c *context, low, high *float64, lo, hi, step float64) *node
 			knob.hasRange, knob.accRange, knob.accStep = true, [3]float64{lo, hi, *v}, keyStep
 			// Named after the slider, as "Price minimum".
 			knob.label, knob.nameFrom, knob.nameJoin = []string{"minimum", "maximum"}[k], e, true
-			switch {
-			case knob.Shortcut(0, KeyLeft), knob.Shortcut(0, KeyDown):
-				set(v, *v-keyStep, from, to)
-			case knob.Shortcut(0, KeyRight), knob.Shortcut(0, KeyUp):
-				set(v, *v+keyStep, from, to)
-			case knob.Shortcut(0, KeyHome):
-				set(v, from, from, to)
-			case knob.Shortcut(0, KeyEnd):
-				set(v, to, from, to)
-			}
+			knob.afterInput(func() {
+				switch {
+				case knob.Shortcut(0, KeyLeft), knob.Shortcut(0, KeyDown):
+					set(v, *v-keyStep, from, to)
+				case knob.Shortcut(0, KeyRight), knob.Shortcut(0, KeyUp):
+					set(v, *v+keyStep, from, to)
+				case knob.Shortcut(0, KeyHome):
+					set(v, from, from, to)
+				case knob.Shortcut(0, KeyEnd):
+					set(v, to, from, to)
+				}
+
+			})
 			if knob.st.pressed {
 				*dragging = k
 			}
 			knobs[k] = knob
 		}
 	})
-	if (st.pressed || knobs[0].st.pressed || knobs[1].st.pressed) && !e.disabled() {
-		x := at()
-		if *dragging < 0 {
-			// The nearest knob, the high one when they meet past it.
-			*dragging = 0
-			if math.Abs(x-*high) < math.Abs(x-*low) || x > *high {
-				*dragging = 1
+	e.afterInput(func() {
+		if (st.pressed || knobs[0].st.pressed || knobs[1].st.pressed) && !e.disabled() {
+			x := at()
+			if *dragging < 0 {
+				// The nearest knob, the high one when they meet past it.
+				*dragging = 0
+				if math.Abs(x-*high) < math.Abs(x-*low) || x > *high {
+					*dragging = 1
+				}
 			}
+			if *dragging == 0 {
+				set(low, x, lo, *high)
+			} else {
+				set(high, x, *low, hi)
+			}
+			knobs[*dragging].Focus()
 		}
-		if *dragging == 0 {
-			set(low, x, lo, *high)
-		} else {
-			set(high, x, *low, hi)
-		}
-		knobs[*dragging].Focus()
-	}
+
+	})
 	held := e.Animate("held", b2f(*dragging >= 0), 150*time.Millisecond)
 	which := *dragging
 	e.Draw(func(p *Painter, r Rect) {

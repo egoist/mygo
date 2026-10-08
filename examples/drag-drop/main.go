@@ -34,14 +34,14 @@ type pane struct {
 }
 type demo struct{ nextID int }
 
-func (p *pane) view(c ui.Frame) {
+func (p *pane) view(c *ui.Context) {
 	t := c.Theme()
-	ui.Column(c).Fill().Padding(20).Gap(12).Children(func(c ui.Frame) {
+	ui.Column(c).Fill().Padding(20).Gap(12).Children(func() {
 		ui.Text(c, p.name).FontSize(24).Bold()
 		ui.Text(c, "Drag a card to the other window, a text editor, or Finder/Explorer. Drop files, text, and URLs here.").Wrap().TextColor(t.TextMuted)
 		for _, n := range p.notes {
 			n := n
-			card := ui.Box(c).Key(n.ID).Padding(14).Radius(8).Border(1, t.Border).Background(t.Surface)
+			card := ui.Box(c.Key(n.ID)).Padding(14).Radius(8).Border(1, t.Border).Background(t.Surface)
 			card.Drag(n).DragDataFrom(func() transfer.Data {
 				frozen := *n
 				return transfer.New(transfer.NewItem(transfer.Bytes(transfer.Text, []byte(frozen.Title)), transfer.Lazy(noteFormat, func() ([]byte, error) { return json.Marshal(frozen) })))
@@ -50,21 +50,21 @@ func (p *pane) view(c ui.Frame) {
 				if r.Operation == transfer.Move && r.Err == nil {
 					p.notes = slices.DeleteFunc(p.notes, func(v *note) bool { return v == n })
 				}
-			}}).Children(func(c ui.Frame) { ui.Text(c, n.Title) })
+			}}).Children(func() { ui.Text(c, n.Title) })
 			if card.Dragging() {
 				card.Opacity(0.5)
 			}
 		}
 		url, _ := transfer.URLData("https://mygo.egoist.dev")
-		ui.Box(c).Padding(12).Border(1, t.Border).Radius(8).DragData(url, transfer.DragOptions{Done: p.completed}).Children(func(c ui.Frame) { ui.Text(c, "Drag the MyGo website URL") })
+		ui.Box(c).Padding(12).Border(1, t.Border).Radius(8).DragData(url, transfer.DragOptions{Done: p.completed}).Children(func() { ui.Text(c, "Drag the MyGo website URL") })
 		files, _ := transfer.FileData(p.file)
-		ui.Box(c).Padding(12).Border(1, t.Border).Radius(8).DragData(files, transfer.DragOptions{Done: p.completed}).Children(func(c ui.Frame) { ui.Text(c, "Drag a sample .txt file") })
+		ui.Box(c).Padding(12).Border(1, t.Border).Radius(8).DragData(files, transfer.DragOptions{Done: p.completed}).Children(func() { ui.Text(c, "Drag a sample .txt file") })
 		zone := ui.Box(c).Grow(1).MinHeight(100).Padding(16).Radius(8).Border(2, t.Border)
 		opts := transfer.DropOptions{Formats: []transfer.Format{noteFormat, transfer.Text, transfer.FileList, transfer.URIList}, Operations: transfer.Copy | transfer.Move}
 		if _, over := ui.DataDragOver(zone, opts); over {
 			zone.Border(2, t.Accent).Background(t.Surface)
 		}
-		zone.Children(func(c ui.Frame) { ui.Text(c, "Drop here").Bold() })
+		zone.Children(func() { ui.Text(c, "Drop here").Bold() })
 		if drop, ok := ui.DropData(zone, opts); ok {
 			p.receive(drop)
 		}

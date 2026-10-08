@@ -73,7 +73,7 @@ func save(t *testing.T, tt *ui.Tester, name string) {
 func TestTypeInShell(t *testing.T) {
 	loadLib(t)
 	term := shell(t, Options{})
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 480, 240)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 480, 240)
 	waitFor(t, tt, "the prompt", func() bool { return strings.Contains(term.Text(), "$") })
 	for _, r := range "echo hi there" {
 		tt.Type(string(r))
@@ -158,7 +158,7 @@ func TestPaint(t *testing.T) {
 	b.WriteString("└──┴──┘      ╚══╩══╝\r\n")
 	b.WriteString("ligatures? -> => != === <= >=  www  fi fl")
 	term.Feed([]byte(b.String()))
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 640, 280)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 640, 280)
 	tt.SetScale(2)
 	save(t, tt, "paint")
 }
@@ -174,7 +174,7 @@ func TestScrollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer term.Close()
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	var b strings.Builder
 	for i := range 100 {
 		b.WriteString("line " + itoa(i) + "\r\n")
@@ -263,7 +263,7 @@ func TestSelectAndCopy(t *testing.T) {
 	}
 	defer term.Close()
 	term.Feed([]byte("hello world\r\nsecond line"))
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	copyMods := ui.Ctrl | ui.Shift
 	if runtime.GOOS == "darwin" {
 		copyMods = ui.Super
@@ -305,7 +305,7 @@ func TestSelectAndCopy(t *testing.T) {
 func TestPaste(t *testing.T) {
 	loadLib(t)
 	term := shell(t, Options{Command: []string{"/bin/cat"}})
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	tt.SetClipboard("pasted text")
 	pasteMods := ui.Ctrl | ui.Shift
 	if runtime.GOOS == "darwin" {
@@ -324,7 +324,7 @@ func TestKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer term.Close()
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	key := func(mods ui.Modifiers, k ui.Key, text, want string) {
 		t.Helper()
 		if text != "" {
@@ -369,7 +369,7 @@ func TestComposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer term.Close()
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	term.Feed([]byte("abc"))
 	tt.Frame()
 	caret, ok := tt.TextCaret()
@@ -397,7 +397,7 @@ func TestMouse(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer term.Close()
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	term.Feed([]byte("\x1b[?1002h\x1b[?1006h"))
 	tt.Frame()
 	x, y := cellCenter(term, 2, 3)
@@ -461,7 +461,7 @@ func TestMenus(t *testing.T) {
 	}
 	defer term.Close()
 	term.Feed([]byte("some text"))
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	// The Edit menu's roles.
 	tt.Command("selectAll")
 	tt.Command("copy")
@@ -494,7 +494,7 @@ func TestAppearance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
 	bg := func() [3]uint8 {
 		c := tt.Image().RGBAAt(200, 190)
 		return [3]uint8{c.R, c.G, c.B}
@@ -534,7 +534,7 @@ func TestThemes(t *testing.T) {
 	defer term.Close()
 	// A block under the cursor, and two below it, before a space.
 	term.Feed([]byte("\x1b[2;1H██ x\x1b[1;1H█\x1b[D"))
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	at := func(x, y float32) ui.Color {
 		s := term.v.scale
 		c := tt.Image().RGBAAt(int(x*s), int(y*s))
@@ -586,7 +586,7 @@ func TestFont(t *testing.T) {
 		}
 		defer term.Close()
 		term.Feed([]byte("MMMMMMMMMM\r\n"))
-		tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill() }, 400, 120)
+		tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 120)
 		tt.SetScale(2)
 		v := term.v
 		img := tt.Image()
@@ -632,7 +632,7 @@ func TestWindowsShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer term.Close()
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill() }, 640, 300)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 640, 300)
 	select {
 	case <-term.Done():
 	case <-time.After(20 * time.Second):
@@ -647,7 +647,7 @@ func TestWindowsShell(t *testing.T) {
 func TestStartsAtTheViewsSize(t *testing.T) {
 	loadLib(t)
 	term := shell(t, Options{Command: []string{"/bin/sh", "-c", "stty size; sleep 5"}})
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill() }, 300, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 300, 200)
 	cols, rows := term.Size()
 	want := fmt.Sprintf("%d %d", rows, cols)
 	waitFor(t, tt, "stty", func() bool { return strings.Contains(term.Text(), " ") })
@@ -664,7 +664,7 @@ func TestBlurEndsSelecting(t *testing.T) {
 	}
 	defer term.Close()
 	term.Feed([]byte("hello world"))
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	x0, y0 := cellCenter(term, 0, 0)
 	x1, y1 := cellCenter(term, 4, 0)
 	tt.Press(x0-2, y0)
@@ -690,7 +690,7 @@ func TestKeyWithoutText(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer term.Close()
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	// A key that types text, whose text never comes, goes alone when
 	// released.
 	tt.Key(0, ui.KeyB)
@@ -702,7 +702,7 @@ func TestKeyWithoutText(t *testing.T) {
 func TestCloseKillsWhatIgnoresHangups(t *testing.T) {
 	loadLib(t)
 	term := shell(t, Options{Command: []string{"/bin/sh", "-c", "trap '' HUP; echo ready; sleep 30"}})
-	tt := ui.NewTester(func(c ui.Frame) { View(c, term).Fill() }, 300, 200)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 300, 200)
 	waitFor(t, tt, "the program", func() bool { return strings.Contains(term.Text(), "ready") })
 	term.Close()
 	select {
