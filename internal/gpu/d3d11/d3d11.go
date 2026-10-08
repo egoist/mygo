@@ -404,7 +404,10 @@ func (r *Renderer) init() error {
 // of them (SetSourceSize): they are resized only when the window outgrows
 // them, and a frame is free to draw while DWM holds two. A frame
 // settleDelay after the last change, which the settle timer asks for,
-// gives the swap chain two buffers of the window's size again.
+// gives the swap chain two buffers of the window's size again. A swap chain
+// for composition stretches the size it shows over its buffers' instead,
+// which would magnify the frames: it shows its buffers whole, and the
+// window clips what is beyond the frame, which the frame leaves transparent.
 const (
 	resizeBuffers = 3
 	settleTimer   = 0x6d79 // the timer's ID on the window
@@ -427,8 +430,8 @@ func (r *Renderer) resize(w, h int) error {
 	r.resizedAt = time.Now()
 	r.armSettle()
 	if r.resizing && w <= r.bw && h <= r.bh {
-		if hr := call(r.swapChain2, scSetSourceSize, uintptr(w), uintptr(h)); failed(hr) {
-			return fmt.Errorf("d3d11: cannot set the swap chain's source size: %#x", uint32(hr))
+		if err := r.setSourceSize(w, h); err != nil {
+			return err
 		}
 		r.w, r.h = w, h
 		return nil
@@ -459,10 +462,8 @@ func (r *Renderer) buffers(w, h, bw, bh, n int) error {
 	} else if hr := call(r.swapChain, scResizeBuffers, uintptr(n), uintptr(bw), uintptr(bh), 0, 0); failed(hr) {
 		return fmt.Errorf("d3d11: cannot resize the swap chain: %#x", uint32(hr))
 	}
-	if r.swapChain2 != 0 {
-		if hr := call(r.swapChain2, scSetSourceSize, uintptr(w), uintptr(h)); failed(hr) {
-			return fmt.Errorf("d3d11: cannot set the swap chain's source size: %#x", uint32(hr))
-		}
+	if err := r.setSourceSize(w, h); err != nil {
+		return err
 	}
 	r.bw, r.bh = bw, bh
 	var back uintptr
@@ -474,6 +475,18 @@ func (r *Renderer) buffers(w, h, bw, bh, n int) error {
 		return fmt.Errorf("d3d11: cannot create the render target view: %#x", uint32(hr))
 	}
 	r.w, r.h = w, h
+	return nil
+}
+
+// setSourceSize makes the swap chain show the w×h pixels at the top left
+// of its buffers, unless it is for composition, which shows them whole.
+func (r *Renderer) setSourceSize(w, h int) error {
+	if r.swapChain2 == 0 || r.composed {
+		return nil
+	}
+	if hr := call(r.swapChain2, scSetSourceSize, uintptr(w), uintptr(h)); failed(hr) {
+		return fmt.Errorf("d3d11: cannot set the swap chain's source size: %#x", uint32(hr))
+	}
 	return nil
 }
 

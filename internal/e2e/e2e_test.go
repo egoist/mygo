@@ -2757,17 +2757,25 @@ func TestContentWindowVibrancy(t *testing.T) {
 	eventually(t, fmt.Sprintf("the view told the material shows: %v", want), func() bool { return shows.Load() == want })
 
 	if onWindows && noRedirect {
-		red := func() bool {
-			r, g, b, _ := screenColor(w, 300, 150)
+		red := func(x float64) bool {
+			r, g, b, _ := screenColor(w, x, 150)
 			return r > 200 && g < 60 && b < 60
 		}
 		readable := false
 		for deadline := time.Now().Add(3 * time.Second); !readable && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-			readable = red()
+			readable = red(300)
 		}
 		if readable {
 			if r, g, b, _ := screenColor(w, 100, 150); int(r)+int(g)+int(b) < 24 {
 				t.Errorf("the screen shows %d, %d, %d beside the pane, not the material", r, g, b)
+			}
+			// As the window changes size, its frames show as drawn, not
+			// magnified: the pane still starts 200 DIPs in. Only until the
+			// renderer settles, a second after, would they show otherwise.
+			w.SetSize(440, 320)
+			resized := time.Now()
+			if !red(215) && time.Since(resized) < 500*time.Millisecond {
+				t.Error("once the window grew, the screen shows the pane magnified")
 			}
 		} else {
 			t.Log("the screen does not show the window's pane: not reading the material")
