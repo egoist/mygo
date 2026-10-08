@@ -77,6 +77,22 @@ methods remain available; prefer callbacks when an action changes the
 collection being built. Keep I/O in workers and publish model results with
 `Window.Update`.
 
+Bind controls directly to persistent model fields when possible. A local
+value recomputed on every build cannot preserve an edit until the next
+pass's `Changed` notice. When a control edits a derived value, apply it in
+`OnClick`, after bound input has updated that build's value:
+
+```go
+viewed := a.isViewed(file)
+ui.Checkbox(c, &viewed, "Viewed").OnClick(func() {
+    a.setViewed(file, viewed)
+})
+```
+
+The same rule applies to segmented controls whose selected value is derived
+from several model fields. Review these bindings manually after running the
+codemod; it cannot infer how to write a derived value back to your model.
+
 ## Persistent identity
 
 Store `ui.Handle` instead of an element:

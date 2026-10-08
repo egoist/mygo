@@ -14,6 +14,12 @@ func TestMigrateUIPreviewWriteAndIgnoredDirectories(t *testing.T) {
 	if err := os.WriteFile(path, source, 0600); err != nil {
 		t.Fatal(err)
 	}
+	// Compare the filesystem's actual mode: some platforms cannot represent
+	// all of the requested Unix permission bits.
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ignored := filepath.Join(dir, "node_modules")
 	if err := os.Mkdir(ignored, 0700); err != nil {
 		t.Fatal(err)
@@ -45,7 +51,7 @@ func TestMigrateUIPreviewWriteAndIgnoredDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0600 {
-		t.Fatal("migration changed file permissions")
+	if got, want := info.Mode().Perm(), before.Mode().Perm(); got != want {
+		t.Fatalf("migration changed file permissions: %03o -> %03o", want, got)
 	}
 }
