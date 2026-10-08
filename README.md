@@ -26,7 +26,7 @@ memory and CPU use.
   screen reader support, and views you test without a window; Liquid Glass
   on every platform with the glass plugin.
 - **Desktop APIs** for both: windows, menus, tray, dialogs, notifications,
-  global shortcuts, deep links, file associations and more.
+  global shortcuts, deep links, file associations, recent documents and more.
 - **Ready to ship**: app bundles and disk images, Windows installers, Debian
   packages and a Linux install script, code signing, notarization, and signed
   auto-updates with delta updates and an update window in the manner of
