@@ -136,7 +136,7 @@ func mutate(s *scene.Scene, step int) string {
 		return scene.Color{R: uint8(rnd.IntN(256)), G: uint8(rnd.IntN(256)), B: uint8(rnd.IntN(256)), A: uint8(64 + rnd.IntN(192))}
 	}
 	i := drawing[rnd.IntN(len(drawing))]
-	switch rnd.IntN(9) {
+	switch rnd.IntN(11) {
 	case 0:
 		s.Ops[i].Color = color()
 		return "color"
@@ -174,7 +174,22 @@ func mutate(s *scene.Scene, step int) string {
 			return "atlas pixels"
 		}
 		return "nothing"
-	default:
+	case 9:
+		s.Text.Contrast = 0.5 + float32(rnd.IntN(5))*0.25
+		return "text parameters"
+	case 10:
+		if a := s.ColorAtlas; a != nil {
+			for i := range s.Glyphs {
+				g := &s.Glyphs[i]
+				if g.Subpixel && g.UW > 0 && g.VH > 0 {
+					w, h := int(g.UW), int(g.VH)
+					a.Put(int(g.U), int(g.V), w, h, pixels(rnd, w*h*4), w*4)
+					return "subpixel atlas pixels"
+				}
+			}
+		}
+		return "nothing"
+	case 8:
 		if s.Ops[i].Image != nil {
 			copy(s.Ops[i].Image.Pix, pixels(rnd, len(s.Ops[i].Image.Pix)))
 			s.Ops[i].Image.Changed()
@@ -189,6 +204,7 @@ func mutate(s *scene.Scene, step int) string {
 		}
 		return "nothing"
 	}
+	return "nothing"
 }
 
 func pixels(rnd *rand.Rand, n int) []byte {

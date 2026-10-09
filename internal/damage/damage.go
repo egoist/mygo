@@ -13,6 +13,7 @@ package damage
 import (
 	"image"
 	"math"
+	"slices"
 
 	"github.com/egoist/mygo/internal/scene"
 )
@@ -21,11 +22,18 @@ import (
 // memory from frame to frame. Its zero value compares the first scene it
 // sees with nothing, so that one is drawn whole.
 type Tracker struct {
+	// Wide tells that the renderer draws the colors outside the sRGB gamut
+	// that a scene's Wide table holds (Scene.Wide), so that a change in it
+	// changes what it draws; the renderer drawing in memory ignores them,
+	// and so ignores a change in them.
+	Wide bool
 	// valid tells that the last scene, of w×h pixels, is remembered to
 	// compare the next with.
 	valid   bool
 	w, h    int
 	clear   scene.Color
+	text    scene.TextParams
+	wide    []scene.WideColors
 	ops     []scene.Op
 	glyphs  []scene.Glyph
 	effects []scene.EffectOp
@@ -47,11 +55,13 @@ type atlasMark struct {
 
 // Whole starts comparing s with the last scene remembered, and reports
 // whether s must be drawn whole: there is none, s changes too much of it,
-// or its size or clear color did. Rects then returns the area to draw: one
-// rectangle over the whole frame, or what changed.
+// or its size, clear color, text parameters or wide colors did. Rects then
+// returns the area to draw: one rectangle over the whole frame, or what
+// changed.
 func (t *Tracker) Whole(s *scene.Scene) bool {
 	t.next = t.opBounds(s, t.next[:0])
-	if !t.valid || s.Width != t.w || s.Height != t.h || s.Clear != t.clear || !t.diff(s) {
+	if !t.valid || s.Width != t.w || s.Height != t.h || s.Clear != t.clear ||
+		s.Text != t.text || t.Wide && !slices.Equal(s.Wide, t.wide) || !t.diff(s) {
 		t.damage = append(t.damage[:0], image.Rect(0, 0, s.Width, s.Height))
 		return true
 	}
@@ -76,6 +86,8 @@ func (t *Tracker) Remember(s *scene.Scene) {
 	t.valid = true
 	t.w, t.h = s.Width, s.Height
 	t.clear = s.Clear
+	t.text = s.Text
+	t.wide = append(t.wide[:0], s.Wide...)
 	if len(t.ops) > len(s.Ops) {
 		clear(t.ops[len(s.Ops):])
 	}
@@ -215,8 +227,12 @@ func (t *Tracker) same(i int, s *scene.Scene, j int, maskRects, colorRects []ima
 	}
 	a.Start, a.End, b.Start, b.End = 0, 0, 0, 0
 	// The CPU draws the sRGB colors, not those outside its gamut, which
-	// Wide points at in each scene's own table.
-	a.Wide, b.Wide = 0, 0
+	// Wide points at in each scene's own table; a renderer drawing them
+	// compares them, so that a change of an operation's own wide colors
+	// counts. The tables themselves Whole compares.
+	if !t.Wide {
+		a.Wide, b.Wide = 0, 0
+	}
 	if a != b {
 		return false
 	}
@@ -235,7 +251,8 @@ func (t *Tracker) same(i int, s *scene.Scene, j int, maskRects, colorRects []ima
 				}
 			}
 			rects := maskRects
-			if g.Colored {
+			if g.Colored || g.Subpixel {
+				// Subpixel glyphs hold their coverage in the color atlas.
 				rects = colorRects
 			}
 			at := image.Rect(int(g.U), int(g.V), int(g.U)+int(g.UW), int(g.V)+int(g.VH))

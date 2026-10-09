@@ -1008,6 +1008,7 @@ func (r *Renderer) render(s *scene.Scene) error {
 	// which holds the last one, and is then copied into the drawable, whose
 	// own copy of the last frame is gone. The drawable draws straight when
 	// it is not the frame's size, as it has not caught up with a resize.
+	r.damage.Wide = r.wide
 	whole := r.damage.Whole(s)
 	target, copy, made, err := r.frameTarget(texture, s.Width, s.Height)
 	if err != nil {
