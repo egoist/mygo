@@ -131,6 +131,8 @@ type surface struct {
 	updating      bool
 	dataDrag      *macDataSource
 	dragOperation transfer.Operation
+	// webviews are the surface's embedded web views (ui.WebView).
+	webviews []*embeddedWebView
 }
 
 func (w *window) createSurface(content NSRect) {
@@ -158,6 +160,10 @@ func (w *window) createSurface(content NSRect) {
 }
 
 func (s *surface) destroy() {
+	for _, ew := range append([]*embeddedWebView(nil), s.webviews...) {
+		ew.Destroy()
+	}
+	s.webviews = nil
 	s.CancelDataDrag()
 	if s.link != 0 {
 		send(s.link, "invalidate")

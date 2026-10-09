@@ -2092,6 +2092,44 @@ func View(view func(c *Context)) *Content {
 	return coreView(func(c *context) { view(makeContext(c)) })
 }
 
+// WebView creates an element that shows a page in the system's web view,
+// embedded in the window beside the area MyGo draws into. It is sized as a
+// leaf (Width and Height, or Grow in its parent), takes no input itself —
+// the page takes it, over the area it shows — and shows its background
+// until the page loads.
+//
+// The view asks each web view what to show every frame: LoadHTML and
+// LoadURL navigate it, when they ask for another page than the one it
+// shows; Reload re-fetches the page it shows; and Eval runs JavaScript in
+// it. Each navigation, reload and evaluation takes effect once, in the
+// frame that asks it.
+//
+// OnMessage, OnLink, WillNavigate, OnLoadFinished, OnLoadFailed and
+// OnTitleChanged watch the page: the callback the frame set last is the
+// one called, on the main thread, when the event comes.
+//
+// The window's bridge loads in the page (window.mygo), as in a window
+// showing a page, with the window's identity; Bridge(false) opts out,
+// for content that must not have it. The page cannot call the window's
+// bound services through the bridge: its posts, which carry the
+// window's secret, stop at the web view, and OnMessage takes only the
+// plain posts the page makes to the web view's script-message handler.
+//
+// Where the window's surface hosts no web views, the element shows its
+// background in place of the page.
+//
+//	app.showPage = true
+//	ui.WebView(c).Size(320, 240).
+//		LoadHTML(app.page, base).
+//		OnMessage(app.onPageMessage)
+func WebView(c *Context) Element {
+	_ctx := c.build()
+	if _ctx == nil {
+		return Element{}
+	}
+	return wrapElement(coreWebView(_ctx))
+}
+
 // Absolute takes the element out of its parent's layout and places it with
 // Top, Right, Bottom and Left relative to the parent's padding box, above
 // its siblings. As in CSS, that box is inside the parent's border but holds
@@ -2375,6 +2413,20 @@ func (_handle Element) Bounds() Rect {
 	_ctx := _node.c
 	_ = _ctx
 	return _node.Bounds()
+}
+
+// Bridge loads the window's bridge (window.mygo) in the page, as in a
+// window showing a page, where on is true, which it is by default;
+// Bridge(false) opts out, for content that must not have the window's
+// identity.
+func (_handle Element) Bridge(on bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Bridge(on))
 }
 
 // Center centers the children along and across the main axis.
@@ -2838,6 +2890,18 @@ func (_handle Element) Error(msg string) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Error(msg))
+}
+
+// Eval runs js in the page the web view shows: it takes effect once, in
+// the frame that asks it.
+func (_handle Element) Eval(js string) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Eval(js))
 }
 
 // Expanded tells assistive technology whether what the element opens
@@ -3412,6 +3476,32 @@ func (_handle Element) Lines(min int, max int) Element {
 	return wrapElement(_node.Lines(min, max))
 }
 
+// LoadHTML shows html in the web view, resolving its relative references
+// against baseURL. It navigates the web view when html or baseURL change
+// from what it shows, and a frame that asks for the page it shows again
+// does not reload it.
+func (_handle Element) LoadHTML(html string, baseURL string) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.LoadHTML(html, baseURL))
+}
+
+// LoadURL navigates the web view to url, replacing the page it shows, as
+// LoadHTML does when url changes.
+func (_handle Element) LoadURL(url string) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.LoadURL(url))
+}
+
 // Loop returns the progress of an animation that starts over every
 // period, from 0 to 1 along ease, and keeps frames coming while the
 // element is built; key tells apart the animations of the element. A
@@ -3620,6 +3710,68 @@ func (_handle Element) NoWrap() Element {
 	return wrapElement(_node.NoWrap())
 }
 
+// OnLink calls f for a link the page asks to open in a new context, as
+// window.open or target=_blank: the web view does not open it, and f
+// decides where it goes, as Window.OpenURL does for a page.
+func (_handle Element) OnLink(f func(url string)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.OnLink(func(url string) { f(url) }))
+}
+
+// OnLoadFailed calls f with what failed to load the page the web view
+// asked for.
+func (_handle Element) OnLoadFailed(f func(err error)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.OnLoadFailed(func(err error) { f(err) }))
+}
+
+// OnLoadFinished calls f for a page the web view finished loading;
+// OnLoadFailed, for one it could not load.
+func (_handle Element) OnLoadFinished(f func()) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.OnLoadFinished(func() { f() }))
+}
+
+// OnMessage calls f for a message the page posts to the web view's
+// script-message handler, as
+// window.webkit.messageHandlers.mygo.postMessage does from the page. The
+// posts of the window's bridge, where it loads, do not reach f.
+func (_handle Element) OnMessage(f func(msg string)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.OnMessage(func(msg string) { f(msg) }))
+}
+
+// OnTitleChanged calls f for the title the page the web view shows sets.
+func (_handle Element) OnTitleChanged(f func(title string)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.OnTitleChanged(func(title string) { f(title) }))
+}
+
 // Opacity makes the element and its children translucent.
 func (_handle Element) Opacity(o float32) Element {
 	_node := _handle.node()
@@ -3799,6 +3951,18 @@ func (_handle Element) ReadOnly(on bool) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.ReadOnly(on))
+}
+
+// Reload re-fetches the page the web view shows, as the user would from
+// the browser: it takes effect once, in the frame that asks it.
+func (_handle Element) Reload() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Reload())
 }
 
 // Reverse lays the children out in the other direction: a Row from right
@@ -4425,6 +4589,19 @@ func (_handle Element) WidthPercent(p float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.WidthPercent(p))
+}
+
+// WillNavigate calls f before the web view leaves the page it shows, as
+// Window.WillNavigate does for a page: f returning false cancels the
+// navigation.
+func (_handle Element) WillNavigate(f func(url string) bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.WillNavigate(func(url string) bool { return f(url) }))
 }
 
 // Wrap starts a new line of children when they do not fit.

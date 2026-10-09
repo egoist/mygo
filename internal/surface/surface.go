@@ -61,6 +61,14 @@ type Conn struct {
 	// DIPs, once the event being handled returns. chosen receives the ID of
 	// the item chosen, if one is.
 	PopupMenu func(m *platform.Menu, x, y float64, chosen func(id int))
+	// WebViewScript returns this window's page bridge script, for the web
+	// views its content embeds (ui.WebView), and "" where the window has
+	// no page bridge.
+	WebViewScript func() string
+	// Secret prefixes this window's page bridge messages, so its content's
+	// web views (ui.WebView) can tell the bridge's posts from the pages'
+	// own, and "" where the window has no page bridge.
+	Secret string
 
 	// Event receives the surface's events, and Focus and Blur of the
 	// window. It reports whether the content takes dragged files, as

@@ -1197,6 +1197,53 @@ either.
   `IDropTarget`) are `FileDragOver` events, whose answer the drag source
   shows, and a drop a `FileDrop`; files the content does not take go to
   `OnFileDrop`.
+- **Embedded web views.** `ui.WebView` shows a page in a system web view
+  beside the area MyGo draws into: a sized leaf (Width, Height or Grow)
+  that passes the pointer and the keys through to the page
+  (`flagPassThrough`) and shows its background until the page loads. The
+  view asks each web view what to show every frame; the engine gathers
+  the frame's web views — where each lays out, its options, the
+  navigation, one-shot reload or evaluation it asked for since the last
+  frame, and its handler — and gives them to the host
+  (`syncWebViews`). A frame that asks for the page a web view shows does
+  not reload it: the element keys the navigation by what it asks for,
+  and asks again only for another page, or where the host destroyed the
+  web view while it went out of a Router's kept page and comes back.
+  `Reload` and `Eval` take effect once, in the frame that asks them.
+  `OnMessage`, `OnLink`, `WillNavigate`, `OnLoadFinished`, `OnLoadFailed`
+  and `OnTitleChanged` watch the page: the handler the surface gets
+  delivers each event on the main thread to the callbacks the element's
+  frame set last, read at the call. The window's bridge loads in each
+  page by default, with the window's identity, and `Bridge(false)` opts
+  out, for content that must not have it: the bridge's posts are prefixed
+  with the window's secret (`surface.Conn.Secret`), which the web view's
+  handler drops, so the page cannot call the window's bound services, and
+  `OnMessage` takes only the plain posts the page makes to the web view's
+  script-message handler (`mygo`). Only a surface whose window can host
+  web views does: it implements `platform.WebViewSurface` (`CreateWebView`
+  beside `platform.Surface`), as the macOS and the fake backends do — on
+  Linux and Windows the element shows its background in place of the
+  page, and nothing is asked of the host. On macOS each web view is a
+  `WKWebView` in a subview of the surface's view, above what MyGo draws:
+  a configuration with `allowFileAccessFromFileURLs` so a `file://` page
+  loads, and a content controller of its own — the window's page bridge
+  (`surface.Conn.WebViewScript`, filled in `attachContent` with the
+  window's own `bridge.Script`) first, then the frame's user scripts —
+  so messages and scripts never leak between web views or the window's
+  page; its frame is in the surface view's flipped coordinates, and
+  `Move` sets it only where it changes. Its delegate
+  (`MyGoEmbeddedWebDelegate`, looked up by `Backend.byEmbedDelegate`)
+  routes the page's posts to the script-message handler (main frame, an
+  `NSString` body), the
+  navigation decision (`WillNavigate`, whose answer cancels the
+  navigation), a link the page opens in a new context (`Link`), the
+  finished and failed loads (a cancelled or superseded navigation is no
+  failure), the title (KVO, as the window's web view's), and the page's
+  dialogs, on the window that hosts the surface. The window keeps one
+  web view per id, created when the frame first asks it, moved and
+  loaded each frame, destroyed where the frame no longer asks it, and on
+  detach; the surface destroys its web views in `destroy`, before its
+  view goes.
 - **Assistive technology.** Once it asks for a surface's content, the
   backend sends `AccessibilityOn`, and the engine describes every frame
   (`ui/access.go`) as a `platform.AccessTree`: nodes in pre-order with
@@ -2610,3 +2657,4 @@ which npm allows only for packages that exist: the first release uses an
 | native UI data drags | NSDraggingSession, NSPasteboardItemDataProvider, NSDraggingDestination | GTK drag contexts, MIME selections, text/uri-list | OLE IDataObject, IDropSource, IDropTarget, Shell drag images |
 | native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |
 | native UI rendering | Metal, into a CAMetalLayer presenting with the Core Animation transaction | OpenGL 3.3 or ES 3.0 in the GtkGLArea's render signal; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain |
+| native UI web views | a WKWebView subview of the surface view, its own content controller and delegate | the element shows its background | the element shows its background |

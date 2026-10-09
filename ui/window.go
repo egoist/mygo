@@ -100,6 +100,9 @@ type windowHost struct {
 	// shown tells that a frame was presented, which makes the window
 	// ready to show.
 	shown bool
+	// webviews are the window's embedded web views (ui.WebView), by the
+	// id of the element that shows them, hosted where the surface can.
+	webviews map[string]platform.WebView
 }
 
 func (h *windowHost) framePath() string { return h.path }
@@ -375,6 +378,10 @@ func (h *windowHost) detach() {
 	if h.idleTimer != nil {
 		h.idleTimer.Stop()
 	}
+	for _, wv := range h.webviews {
+		wv.Destroy()
+	}
+	h.webviews = nil
 	h.rt.close()
 	h.soft.Release()
 	if h.gpu != nil {
@@ -382,6 +389,74 @@ func (h *windowHost) detach() {
 		h.gpu = nil
 	}
 }
+
+// syncWebViews hosts the frame's web views where the surface can: it
+// creates one for each new id, moves and loads the ones it has, and
+// destroys the ids the frame no longer wants. Where the surface hosts no
+// web views, it has none: the elements show their background in place of
+// the page.
+func (h *windowHost) syncWebViews(want []webviewWant) {
+	var sv platform.WebViewSurface
+	for _, wv := range want {
+		ew := h.webviews[wv.id]
+		if ew == nil {
+			if sv == nil {
+				sv, _ = h.conn.Surface.(platform.WebViewSurface)
+			}
+			if sv == nil {
+				continue
+			}
+			ew = sv.CreateWebView(wv.id, wv.opts, wv.handler)
+			if ew == nil {
+				continue
+			}
+			if h.webviews == nil {
+				h.webviews = make(map[string]platform.WebView)
+			}
+			h.webviews[wv.id] = ew
+		}
+		ew.Move(wv.rect)
+		switch {
+		case wv.load != nil:
+			if wv.load.kind == webviewLoadURL {
+				ew.LoadURL(wv.load.url)
+			} else {
+				ew.LoadHTML(wv.load.html, wv.load.baseURL)
+			}
+		case wv.reload:
+			ew.Reload()
+		}
+		if wv.eval != "" {
+			ew.Eval(wv.eval)
+		}
+	}
+	for id, ew := range h.webviews {
+		gone := true
+		for _, wv := range want {
+			if wv.id == id {
+				gone = false
+				break
+			}
+		}
+		if gone {
+			ew.Destroy()
+			delete(h.webviews, id)
+		}
+	}
+}
+
+// webviewScript is the window's page bridge script, for the frame's web
+// views.
+func (h *windowHost) webviewScript() string {
+	if h.conn.WebViewScript == nil {
+		return ""
+	}
+	return h.conn.WebViewScript()
+}
+
+// webviewSecret is the secret the window's page bridge prefixes its
+// messages with.
+func (h *windowHost) webviewSecret() string { return h.conn.Secret }
 
 func (h *windowHost) requestFrame() { h.conn.Surface.RequestFrame() }
 

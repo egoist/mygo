@@ -73,6 +73,7 @@ const (
 	kindImage
 	kindInput
 	kindIcon
+	kindWebView
 )
 
 // flags of an element.

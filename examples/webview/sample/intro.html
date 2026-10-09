@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebView — intro</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 -apple-system, "SF Pro Text", system-ui, sans-serif;
+         margin: 0; padding: 28px 32px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: #8a8a8e; margin: 0 0 22px; }
+  p { margin: 0 0 14px; max-width: 52ch; }
+  code { background: rgba(127,127,127,.16); padding: 1px 5px; border-radius: 4px;
+         font: 13px ui-monospace, SFMono-Regular, monospace; }
+  .chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 9px;
+          border-radius: 999px; background: rgba(0,122,255,.14); color: #007aff; }
+</style>
+</head>
+<body>
+  <h1>ui.WebView</h1>
+  <p class="sub">A system web view embedded in a MyGo-drawn window</p>
+  <p>This page is rendered by a real web engine, <em>inside</em> the window, beside
+     the native file list on the left. MyGo draws the list; the platform draws this
+     page, in its own view on top of the surface.</p>
+  <p>Load it with <code>LoadHTML</code> or <code>LoadURL</code>. The window's bridge is
+     injected into the page as <code>window.mygo</code>, and a post to the web
+     view's script-message handler,
+     <code>window.webkit.messageHandlers.mygo.postMessage(text)</code>, reaches
+     Go through <code>OnMessage</code>.</p>
+  <span class="chip">file:// intro.html</span>
+</body>
+</html>

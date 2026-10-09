@@ -33,6 +33,18 @@ type host interface {
 	startDataDrag(transfer.Data, any, transfer.DragOptions, float32, float32) error
 	cancelDataDrag()
 	setDropFormats([]transfer.Format)
+	// syncWebViews hosts the frame's web views (ui.WebView), where the
+	// window's surface can, and destroys the ones it no longer wants.
+	syncWebViews(want []webviewWant)
+	// webviewScript is the window's page bridge script, which the frame's
+	// web views load before their own scripts, and "" where the window
+	// has none.
+	webviewScript() string
+	// webviewSecret is the secret the window's page bridge prefixes its
+	// messages with, which the web views' handlers use to tell the
+	// bridge's posts from the pages' own, and "" where the window has
+	// none.
+	webviewSecret() string
 	titleBarDoubleClicked()
 	isDark() bool
 	preferences() platform.Preferences
@@ -97,6 +109,12 @@ type engine struct {
 	// pass is the pass of the view building the frame: the last one
 	// builds the elements that stay.
 	pass int
+
+	// webviewWants are the web views the last frame asked the host for,
+	// and webviewSeen the ids the host still has, so one that comes back
+	// after going away loads its page again.
+	webviewWants []webviewWant
+	webviewSeen  map[string]bool
 
 	// What the last frame laid out, for input until the next one: the
 	// focus order, with the scope of each element, and the dialog on top.
@@ -444,6 +462,7 @@ func (rt *engine) runFrame() {
 	rt.stats.lap(phasePresent)
 	rt.prune()
 	rt.syncDropFormats()
+	rt.syncWebViews()
 	rt.prunePictures()
 	rt.text.EndFrame()
 	rt.regs, rt.nextRegs = rt.nextRegs, rt.regs

@@ -440,7 +440,7 @@ func layoutBox(e *node, w, h float32) {
 	case kindInput:
 		e.layoutInput(cw, ch)
 		return
-	case kindImage, kindIcon:
+	case kindImage, kindIcon, kindWebView:
 		return
 	}
 	if e.list != nil {

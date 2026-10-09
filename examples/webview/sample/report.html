@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usage report</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 -apple-system, "SF Pro Text", system-ui, sans-serif;
+         margin: 0; padding: 28px 32px; }
+  h1 { font-size: 24px; margin: 0 0 18px; }
+  table { border-collapse: collapse; width: 100%; max-width: 560px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(128,128,128,.25); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #8a8a8e; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <h1>Usage report</h1>
+  <table>
+    <thead>
+      <tr><th>Screen</th><th class="num">Opens</th><th class="num">Median</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Preview</td><td class="num">418</td><td class="num">1.2s</td></tr>
+      <tr><td>File list</td><td class="num">302</td><td class="num">0.8s</td></tr>
+      <tr><td>Search</td><td class="num">97</td><td class="num">3.4s</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>

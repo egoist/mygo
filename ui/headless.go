@@ -53,6 +53,12 @@ type headless struct {
 	dragData    transfer.Data
 	dragLocal   any
 	dragOptions transfer.DragOptions
+	// webviews are the web views (ui.WebView) the last frame asked the
+	// window to host, with the navigation it asked of each, for tests.
+	webviews []webviewWant
+	// script is the window's page bridge script, and secret the one its
+	// posts are prefixed with, for the frame's web views; tests set them.
+	script, secret string
 }
 
 func (h *headless) size() (float32, float32, float32) { return h.w, h.h, h.scale }
@@ -70,6 +76,18 @@ func (h *headless) updateAccessibility(t *platform.AccessTree) { h.keepAccess(t)
 func (h *headless) writeClipboard(s string)                    { h.clipboard = s }
 func (h *headless) startDrag()                                 {}
 func (h *headless) setDropFormats([]transfer.Format)           {}
+func (h *headless) syncWebViews(want []webviewWant) {
+	h.webviews = h.webviews[:0]
+	for _, wv := range want {
+		if wv.load != nil {
+			l := *wv.load
+			wv.load = &l
+		}
+		h.webviews = append(h.webviews, wv)
+	}
+}
+func (h *headless) webviewScript() string { return h.script }
+func (h *headless) webviewSecret() string { return h.secret }
 func (h *headless) readClipboard() string {
 	if r := h.reading; r != nil {
 		h.reading = nil

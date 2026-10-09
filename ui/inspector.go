@@ -430,6 +430,8 @@ func elementName(e *node) string {
 		return "Image"
 	case kindIcon:
 		return "Icon"
+	case kindWebView:
+		return "WebView"
 	case kindInput:
 		return "Input"
 	}

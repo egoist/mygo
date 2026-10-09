@@ -8,6 +8,7 @@ import (
 	"math"
 	"slices"
 
+	"github.com/egoist/mygo/internal/bridge"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/surface"
 	"github.com/egoist/mygo/transfer"
@@ -31,9 +32,18 @@ func (w *Window) attachContent() {
 		panic("mygo: the backend " + backend().Name() + " created no surface for the window's Content")
 	}
 	w.conn = &surface.Conn{
-		Surface:        s,
-		Window:         w,
-		Clipboard:      backend().Clipboard(),
+		Surface:   s,
+		Window:    w,
+		Clipboard: backend().Clipboard(),
+		Secret:    w.secret,
+		WebViewScript: func() string {
+			return bridge.Script(bridge.Config{
+				Platform: jsPlatform(),
+				WindowID: w.id,
+				Version:  Version,
+				Secret:   w.secret,
+			})
+		},
 		StartDataDrag:  w.startDataDrag,
 		CancelDataDrag: w.cancelDataDrag,
 		StartDrag: func() {

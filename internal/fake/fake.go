@@ -791,6 +791,7 @@ type Surface struct {
 	rate        float64
 	dataDrag    *platform.DragRequest
 	dropFormats []transfer.Format
+	webviews    map[string]*WebView
 }
 
 func (s *Surface) StartDataDrag(r platform.DragRequest) { s.dataDrag = &r }
@@ -935,4 +936,105 @@ func (s *Surface) Accessibility() (*platform.AccessTree, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.access, s.accessN
+}
+
+// CreateWebView hosts a fake web view at id, which implements
+// platform.WebViewSurface for the content's ui.WebView elements.
+func (s *Surface) CreateWebView(webID string, opts platform.WebViewOptions, handler platform.WebViewHandler) platform.WebView {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.webviews == nil {
+		s.webviews = map[string]*WebView{}
+	}
+	wv := &WebView{ID: webID, Opts: opts, Handler: handler}
+	s.webviews[webID] = wv
+	return wv
+}
+
+// WebViews returns the fake web views the surface hosts, by id.
+func (s *Surface) WebViews() map[string]*WebView {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.webviews
+}
+
+// WebView is a fake embedded web view: it records what the content asks
+// of it, and tests fire its Handler to see what the content does.
+type WebView struct {
+	// ID and Opts are what the surface created it with.
+	ID   string
+	Opts platform.WebViewOptions
+	// Handler takes the events the page sends through; tests fire it.
+	Handler platform.WebViewHandler
+
+	mu     sync.Mutex
+	loads  []string
+	evals  []string
+	rects  []platform.RectF
+	closed bool
+}
+
+func (w *WebView) LoadURL(url string) {
+	w.mu.Lock()
+	w.loads = append(w.loads, "url "+url)
+	w.mu.Unlock()
+}
+
+func (w *WebView) LoadHTML(html, baseURL string) {
+	w.mu.Lock()
+	w.loads = append(w.loads, "html "+html+" "+baseURL)
+	w.mu.Unlock()
+}
+
+func (w *WebView) Reload() {
+	w.mu.Lock()
+	w.loads = append(w.loads, "reload")
+	w.mu.Unlock()
+}
+
+func (w *WebView) Eval(js string) {
+	w.mu.Lock()
+	w.evals = append(w.evals, js)
+	w.mu.Unlock()
+}
+
+func (w *WebView) Move(r platform.RectF) {
+	w.mu.Lock()
+	w.rects = append(w.rects, r)
+	w.mu.Unlock()
+}
+
+func (w *WebView) Destroy() {
+	w.mu.Lock()
+	w.closed = true
+	w.mu.Unlock()
+}
+
+// Loads returns what the content asked the web view to load, in order:
+// "url ..." and "html ... baseURL" navigations, "reload" re-fetches.
+func (w *WebView) Loads() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.loads...)
+}
+
+// Evals returns the scripts the content ran in the web view, in order.
+func (w *WebView) Evals() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.evals...)
+}
+
+// Rects returns where the content moved the web view, in order.
+func (w *WebView) Rects() []platform.RectF {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]platform.RectF(nil), w.rects...)
+}
+
+// Closed reports whether the content destroyed the web view.
+func (w *WebView) Closed() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.closed
 }

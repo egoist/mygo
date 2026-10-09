@@ -25,7 +25,10 @@ type Backend struct {
 	byWebView  map[id]*window
 	byNSWindow map[id]*window
 	bySurface  map[id]*surface
-	byAccess   map[id]*accessElement
+	// byEmbedDelegate maps the embedded web views' (ui.WebView) delegates
+	// to the web views they host.
+	byEmbedDelegate map[id]*embeddedWebView
+	byAccess        map[id]*accessElement
 
 	menuTarget id
 	menuItems  map[int][]id
@@ -57,14 +60,15 @@ type Backend struct {
 func New() *Backend {
 	load()
 	return &Backend{
-		byDelegate: map[id]*window{},
-		byWebView:  map[id]*window{},
-		byNSWindow: map[id]*window{},
-		bySurface:  map[id]*surface{},
-		byAccess:   map[id]*accessElement{},
-		menuItems:  map[int][]id{},
-		trays:      map[id]*tray{},
-		hotkeys:    map[int]uintptr{},
+		byDelegate:      map[id]*window{},
+		byWebView:       map[id]*window{},
+		byNSWindow:      map[id]*window{},
+		bySurface:       map[id]*surface{},
+		byEmbedDelegate: map[id]*embeddedWebView{},
+		byAccess:        map[id]*accessElement{},
+		menuItems:       map[int][]id{},
+		trays:           map[id]*tray{},
+		hotkeys:         map[int]uintptr{},
 	}
 }
 
@@ -219,6 +223,7 @@ func registerClasses() {
 	registerAppDelegate()
 	registerWindowClasses()
 	registerSurfaceClass()
+	registerEmbeddedWebClasses()
 	registerClipboardClass()
 	registerAccessClass()
 	registerMenuTarget()
