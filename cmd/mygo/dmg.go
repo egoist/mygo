@@ -33,10 +33,11 @@ func buildDMG(c *Config, app, dir string, opts buildOptions) (_ string, err erro
 	}
 	defer os.RemoveAll(work)
 
-	// Stage all image contents before hdiutil estimates the filesystem size.
-	// ditto keeps the bundle exactly as signed. Disable cloning so sparse
-	// files occupy their logical size before hdiutil estimates an HFS+ image,
-	// whose copy of those files will not be sparse.
+	// The image starts as a copy of a folder holding all it shows, which
+	// hdiutil sizes: on HFS+ every file takes whole blocks, more than the
+	// sizes add up to. ditto keeps the bundle exactly as signed, and copies
+	// it without cloning: hdiutil counts the blocks a file takes, fewer
+	// than its size in a sparse file, which HFS+ cannot keep sparse.
 	src := filepath.Join(work, "src")
 	appName := filepath.Base(app)
 	if err := os.Mkdir(src, 0o755); err != nil {
@@ -117,8 +118,8 @@ func buildDMG(c *Config, app, dir string, opts buildOptions) (_ string, err erro
 	return dmg, nil
 }
 
-// hdiutilCreateArgs creates a writable HFS+ image, letting hdiutil account
-// for filesystem overhead and allocation rounding when sizing src.
+// hdiutilCreateArgs creates a writable HFS+ image of src, as large as its
+// contents need.
 func hdiutilCreateArgs(volume, src, out string) []string {
 	return []string{
 		"create", "-quiet", "-ov",

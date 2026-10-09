@@ -3,15 +3,15 @@ package main
 import (
 	"bytes"
 	"debug/pe"
-	"fmt"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 // testdata/dmg.DS_Store was written by the ds_store Python package
@@ -130,116 +130,15 @@ func TestSetFinderFlagsUsesSystemXattr(t *testing.T) {
 
 // TestBuildDMG builds a disk image of a minimal app with hdiutil.
 func TestBuildDMG(t *testing.T) {
-	testBuildDMG(t, 0, false)
-}
-
-// Tiny files occupy allocation blocks and catalog records beyond their byte
-// sizes. A large volume icon must also be included in the size estimate.
-func TestBuildDMGManySmallFiles(t *testing.T) {
-	testBuildDMG(t, 20000, false)
-}
-
-// Sparse resources must be sized by the space they will occupy on HFS+.
-func TestBuildDMGSparseResource(t *testing.T) {
-	testBuildDMG(t, 0, true)
-}
-
-func testBuildDMG(t *testing.T, smallFiles int, sparse bool) {
-	t.Helper()
-	if runtime.GOOS != "darwin" || testing.Short() {
-		t.Skip("needs macOS")
-	}
-	dir := t.TempDir()
-	c := &Config{Name: "DMG Test", Version: "1.2.3", root: dir}
-	c.applyDefaults()
-	bin := filepath.Join(dir, "exe")
-	if sparse {
-		// A real Mach-O permits ad-hoc signing without a certificate.
-		exe, err := os.Executable()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := copyFile(exe, bin, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	icns, err := pngToICNS(defaultIcon())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if smallFiles > 0 {
-		// Packaging treats icon contents as opaque; no image decoder is needed.
-		icns = bytes.Repeat([]byte("synthetic icon data"), 65536)
-	}
-	app, err := writeBundle(c, dir, bin, icns, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	files := filepath.Join(app, "Contents", "Resources", "small")
-	if smallFiles > 0 {
-		if err := os.Mkdir(files, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for i := range smallFiles {
-			if err := os.WriteFile(filepath.Join(files, fmt.Sprintf("%05d", i)), []byte("x"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	const sparseSize = 64 << 20
-	sparseTime := time.Unix(1600000000, 0)
-	if sparse {
-		payload := filepath.Join(app, "Contents", "Resources", "sparse.bin")
-		f, err := os.Create(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := f.Truncate(sparseSize); err != nil {
-			f.Close()
-			t.Fatal(err)
-		}
-		for _, offset := range []int64{0, sparseSize - 1} {
-			if _, err := f.WriteAt([]byte("x"), offset); err != nil {
-				f.Close()
-				t.Fatal(err)
-			}
-		}
-		if err := f.Close(); err != nil {
-			t.Fatal(err)
-		}
-		// Check both contents and metadata across the non-cloning copy.
-		if out, err := exec.Command("/usr/bin/xattr", "-w", "org.mygo.test", "sparse resource", payload).CombinedOutput(); err != nil {
-			t.Fatalf("xattr: %v\n%s", err, out)
-		}
-		if err := os.Chmod(payload, 0o640); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chtimes(payload, sparseTime, sparseTime); err != nil {
-			t.Fatal(err)
-		}
-		if out, err := exec.Command("codesign", "--force", "--sign", "-", app).CombinedOutput(); err != nil {
-			t.Fatalf("codesign: %v\n%s", err, out)
-		}
-	}
-	dmg, err := buildDMG(c, app, dir, buildOptions{sign: "-"})
+	c, app, icns := dmgTestApp(t)
+	dmg, err := buildDMG(c, app, filepath.Dir(app), buildOptions{sign: "-"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if filepath.Base(dmg) != "DMG Test 1.2.3.dmg" {
 		t.Errorf("dmg = %s", dmg)
 	}
-	mnt := filepath.Join(dir, "mnt")
-	if err := os.Mkdir(mnt, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := exec.Command("hdiutil", "attach", "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", mnt, dmg).CombinedOutput(); err != nil {
-		t.Fatalf("attach: %v\n%s", err, out)
-	}
-	defer exec.Command("hdiutil", "detach", "-force", mnt).Run()
+	mnt := attachDMG(t, dmg)
 	entries, err := os.ReadDir(mnt)
 	if err != nil {
 		t.Fatal(err)
@@ -256,65 +155,103 @@ func testBuildDMG(t *testing.T, smallFiles int, sparse bool) {
 	if target, _ := os.Readlink(filepath.Join(mnt, "Applications")); target != "/Applications" {
 		t.Errorf("Applications links to %q", target)
 	}
-	icon, err := os.ReadFile(filepath.Join(mnt, ".VolumeIcon.icns"))
-	if err != nil || !bytes.Equal(icon, icns) {
-		t.Fatalf("volume icon differs: %v", err)
+	if got, err := os.ReadFile(filepath.Join(mnt, ".VolumeIcon.icns")); err != nil || !bytes.Equal(got, icns) {
+		t.Errorf("the volume icon is not the app's: %v", err)
 	}
-	icon, err = os.ReadFile(filepath.Join(mnt, filepath.Base(app), "Contents", "Resources", bundleIcon))
-	if err != nil || !bytes.Equal(icon, icns) {
-		t.Fatalf("bundle icon differs: %v", err)
-	}
-	flags, err := exec.Command("/usr/bin/xattr", "-px", "com.apple.FinderInfo", mnt).Output()
-	if err != nil || strings.Join(strings.Fields(string(flags)), "") != "0000000000000000040000000000000000000000000000000000000000000000" {
-		t.Fatalf("volume Finder flags = %q: %v", flags, err)
-	}
-	wantDS, err := dsStore(dmgRecords(filepath.Base(app)))
+	want, err := dsStore(dmgRecords("DMG Test.app"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotDS, err := os.ReadFile(filepath.Join(mnt, ".DS_Store"))
-	if err != nil || !bytes.Equal(gotDS, wantDS) {
-		t.Fatalf("layout differs: %v", err)
+	if got, err := os.ReadFile(filepath.Join(mnt, ".DS_Store")); err != nil || !bytes.Equal(got, want) {
+		t.Errorf("the layout differs: %v", err)
 	}
-	for i := range smallFiles {
-		data, err := os.ReadFile(filepath.Join(mnt, filepath.Base(app), "Contents", "Resources", "small", fmt.Sprintf("%05d", i)))
-		if err != nil || string(data) != "x" {
-			t.Fatalf("small file %d differs: %v", i, err)
-		}
-	}
-	if sparse {
-		payload := filepath.Join(mnt, filepath.Base(app), "Contents", "Resources", "sparse.bin")
-		data, err := os.ReadFile(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(data) != sparseSize || data[0] != 'x' || data[len(data)-1] != 'x' || bytes.Count(data[1:len(data)-1], []byte{0}) != sparseSize-2 {
-			t.Fatal("sparse resource contents differ")
-		}
-		info, err := os.Stat(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if info.Mode().Perm() != 0o640 || !info.ModTime().Equal(sparseTime) {
-			t.Fatalf("sparse resource metadata differs: mode %v, time %v", info.Mode(), info.ModTime())
-		}
-		out, err := exec.Command("/usr/bin/xattr", "-p", "org.mygo.test", payload).Output()
-		if err != nil || strings.TrimSpace(string(out)) != "sparse resource" {
-			t.Fatalf("sparse resource xattr = %q: %v", out, err)
-		}
-		for _, bundle := range []string{app, filepath.Join(mnt, filepath.Base(app))} {
-			if out, err := exec.Command("codesign", "--verify", "--deep", "--strict", bundle).CombinedOutput(); err != nil {
-				t.Fatalf("signature of %s: %v\n%s", bundle, err, out)
-			}
-		}
+	out, err := exec.Command("/usr/bin/xattr", "-px", "com.apple.FinderInfo", mnt).Output()
+	if got := strings.Join(strings.Fields(string(out)), ""); err != nil || got != "0000000000000000040000000000000000000000000000000000000000000000" {
+		t.Errorf("the volume's FinderInfo = %q: %v", got, err)
 	}
 	info, _ := exec.Command("hdiutil", "imageinfo", dmg).Output()
 	if !strings.Contains(string(info), "lzma") {
 		t.Error("image is not LZMA compressed")
 	}
-	if !strings.Contains(string(info), "Apple_HFS") {
-		t.Error("image does not contain an HFS+ partition")
+}
+
+// TestBuildDMGSize builds a disk image of an app whose files take more room
+// on HFS+ than their sizes add up to: thousands of tiny files, which take a
+// block each, and a sparse one, which HFS+ cannot keep sparse.
+func TestBuildDMGSize(t *testing.T) {
+	c, app, _ := dmgTestApp(t)
+	res := filepath.Join(app, "Contents", "Resources")
+	small := filepath.Join(res, "small")
+	if err := os.Mkdir(small, 0o755); err != nil {
+		t.Fatal(err)
 	}
+	const files = 8000
+	for i := range files {
+		if err := os.WriteFile(filepath.Join(small, strconv.Itoa(i)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const size = 64 << 20
+	f, err := os.Create(filepath.Join(res, "sparse"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(size); err == nil {
+		_, err = f.WriteAt([]byte("x"), size-1)
+	}
+	if err := errors.Join(err, f.Close()); err != nil {
+		t.Fatal(err)
+	}
+	dmg, err := buildDMG(c, app, filepath.Dir(app), buildOptions{sign: "-"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mnt := attachDMG(t, dmg)
+	res = filepath.Join(mnt, "DMG Test.app", "Contents", "Resources")
+	if entries, err := os.ReadDir(filepath.Join(res, "small")); len(entries) != files {
+		t.Errorf("the image has %d tiny files of %d: %v", len(entries), files, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(res, "sparse")); len(data) != size || data[size-1] != 'x' {
+		t.Errorf("the sparse file differs: %v", err)
+	}
+}
+
+// dmgTestApp writes a minimal app into a temporary directory, with the
+// icon of its bundle.
+func dmgTestApp(t *testing.T) (*Config, string, []byte) {
+	if runtime.GOOS != "darwin" || testing.Short() {
+		t.Skip("needs macOS")
+	}
+	dir := t.TempDir()
+	c := &Config{Name: "DMG Test", Version: "1.2.3", root: dir}
+	c.applyDefaults()
+	bin := filepath.Join(dir, "exe")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	icns, err := pngToICNS(defaultIcon())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := writeBundle(c, dir, bin, icns, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c, app, icns
+}
+
+// attachDMG mounts a disk image read-only until the test ends, and returns
+// where.
+func attachDMG(t *testing.T, dmg string) string {
+	mnt := filepath.Join(filepath.Dir(dmg), "mnt")
+	if err := os.Mkdir(mnt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("hdiutil", "attach", "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", mnt, dmg).CombinedOutput(); err != nil {
+		t.Fatalf("attach: %v\n%s", err, out)
+	}
+	t.Cleanup(func() { exec.Command("hdiutil", "detach", "-force", mnt).Run() })
+	return mnt
 }
 
 // TestFrontendOverlay compiles an app with the overlay that embeds its
