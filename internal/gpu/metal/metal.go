@@ -25,6 +25,7 @@ import (
 	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
 
+	"github.com/egoist/mygo/internal/damage"
 	"github.com/egoist/mygo/internal/gpu"
 	"github.com/egoist/mygo/internal/scene"
 )
@@ -306,9 +307,11 @@ type formatState struct {
 	format   uint
 	pipeline id
 	// downPipe and blurPipe draw the passes computing the backdrops of
-	// effects, into the textures of backdrop, the second only along rows.
-	downPipe, blurPipe id
-	backdrop           [2]texture
+	// effects, into the textures of backdrop, the second only along rows;
+	// clearPipe fills an area with one color, erasing the damaged area a
+	// frame drawing only part of the window draws over.
+	downPipe, blurPipe, clearPipe id
+	backdrop                      [2]texture
 	// effects are the pipelines of the effects drawn, made as first drawn.
 	effects map[*scene.Effect]*effectPipe
 }
@@ -337,9 +340,18 @@ type Renderer struct {
 	instCap int
 	mask    texture
 	color   texture
-	empty   id // a texture to bind where there is none
-	images  map[uint64]*texture
-	frame   uint64
+	// kept holds the pixels of the last frame drawn, which a frame drawing
+	// only part of the window draws over: the layer's drawables turn, so
+	// their copy of the last frame is gone, and this one keeps it.
+	keptW, keptH int
+	keptFormat   uint
+	kept         id
+	// damage finds what changed since the last frame drawn, so that frame
+	// draws only those areas.
+	damage damage.Tracker
+	empty  id // a texture to bind where there is none
+	images map[uint64]*texture
+	frame  uint64
 	// last is the command buffer of the last frame, which the next waits
 	// for before it changes what the GPU reads.
 	last    id
@@ -474,12 +486,16 @@ func (r *Renderer) makePipelines(f *formatState) (err error) {
 			release(&f.pipeline)
 			release(&f.downPipe)
 			release(&f.blurPipe)
+			release(&f.clearPipe)
 		}
 	}()
 	if f.pipeline, err = r.newPipeline(lib, "ps", f.format); err != nil {
 		return err
 	}
 	if f.downPipe, err = r.passPipeline(lib, "down", f.format); err != nil {
+		return err
+	}
+	if f.clearPipe, err = r.passPipeline(lib, "clearfill", f.format); err != nil {
 		return err
 	}
 	f.blurPipe, err = r.passPipeline(lib, "blur", f.format)
@@ -732,9 +748,11 @@ func (r *Renderer) waitLast() {
 	release(&r.last)
 }
 
-// encode encodes drawing s into target, returning the autoreleased
-// command buffer, not yet committed.
-func (r *Renderer) encode(s *scene.Scene, target id) (id, error) {
+// encode encodes drawing s into target, returning the autoreleased command
+// buffer, not yet committed. whole draws every operation over a target it
+// clears; otherwise it draws only the areas damage found, over what target
+// holds.
+func (r *Renderer) encode(s *scene.Scene, target id, whole bool) (id, error) {
 	if err := r.initGPU(); err != nil {
 		return 0, err
 	}
@@ -776,51 +794,83 @@ func (r *Renderer) encode(s *scene.Scene, target id) (id, error) {
 			return 0, err
 		}
 	}
-	enc, err := r.begin(cb, target, loadActionClear, s)
+	load := uintptr(loadActionLoad)
+	if whole {
+		load = loadActionClear
+	}
+	enc, err := r.begin(cb, target, load, s)
 	if err != nil {
 		return 0, err
 	}
+	// The areas this frame draws: the whole target when the load cleared it,
+	// or what damage found, each erased before its operations.
+	areas := r.damage.Rects()
+	if whole {
+		areas = []image.Rectangle{image.Rect(0, 0, s.Width, s.Height)}
+	}
+	clear := s.Clear.Premul(1)
+	frame := image.Rect(0, 0, s.Width, s.Height)
 	bound, pipe := r.empty, r.cur.pipeline
-	for _, b := range r.b.Batches {
-		// Metal requires scissor rectangles within the target.
-		sc := b.Scissor
-		sc.Left, sc.Top = max(sc.Left, 0), max(sc.Top, 0)
-		sc.Right, sc.Bottom = min(sc.Right, int32(s.Width)), min(sc.Bottom, int32(s.Height))
-		if b.Count == 0 || sc.Empty() {
+	for _, area := range areas {
+		area = area.Intersect(frame)
+		if area.Empty() {
 			continue
 		}
-		want := r.cur.pipeline
-		if b.Effect != nil {
-			if want = r.effectPipeline(b.Effect); want == 0 {
+		if !whole {
+			r.erase(enc, area, clear)
+			// The erase drew with another pipeline than the batches track.
+			pipe = 0
+		}
+		for _, b := range r.b.Batches {
+			// Metal requires scissor rectangles within the target.
+			sc := b.Scissor
+			sc.Left, sc.Top = max(sc.Left, int32(area.Min.X)), max(sc.Top, int32(area.Min.Y))
+			sc.Right, sc.Bottom = min(sc.Right, int32(area.Max.X)), min(sc.Bottom, int32(area.Max.Y))
+			if b.Count == 0 || sc.Empty() {
 				continue
 			}
-		}
-		if b.Backdrop != 0 {
-			// The effect shows what is drawn so far.
-			send(enc, "endEncoding")
-			r.readBackdrop(cb, target, r.b.Backdrops[b.Backdrop-1])
-			if enc, err = r.begin(cb, target, loadActionLoad, s); err != nil {
-				return 0, err
+			want := r.cur.pipeline
+			if b.Effect != nil {
+				if want = r.effectPipeline(b.Effect); want == 0 {
+					continue
+				}
 			}
-			send(enc, "setFragmentTexture:atIndex:", r.cur.backdrop[0].tex, 3)
-			bound, pipe = r.empty, r.cur.pipeline
+			if b.Backdrop != 0 {
+				// The effect shows what is drawn so far.
+				send(enc, "endEncoding")
+				r.readBackdrop(cb, target, r.b.Backdrops[b.Backdrop-1])
+				if enc, err = r.begin(cb, target, loadActionLoad, s); err != nil {
+					return 0, err
+				}
+				send(enc, "setFragmentTexture:atIndex:", r.cur.backdrop[0].tex, 3)
+				bound, pipe = r.empty, r.cur.pipeline
+			}
+			if want != pipe {
+				pipe = want
+				send(enc, "setRenderPipelineState:", pipe)
+			}
+			if b.Image != 0 && b.Image != bound {
+				bound = b.Image
+				send(enc, "setFragmentTexture:atIndex:", bound, 2)
+			}
+			offset := uintptr(b.Start * gpu.InstanceSize)
+			send(enc, "setVertexBuffer:offset:atIndex:", r.instBuf, offset, 0)
+			send(enc, "setFragmentBuffer:offset:atIndex:", r.instBuf, offset, 0)
+			msgSetScissor(enc, sel("setScissorRect:"), mtlScissorRect{uint(sc.Left), uint(sc.Top), uint(sc.Right - sc.Left), uint(sc.Bottom - sc.Top)})
+			send(enc, "drawPrimitives:vertexStart:vertexCount:instanceCount:", primitiveTriStrip, 0, 4, uintptr(b.Count))
 		}
-		if want != pipe {
-			pipe = want
-			send(enc, "setRenderPipelineState:", pipe)
-		}
-		if b.Image != 0 && b.Image != bound {
-			bound = b.Image
-			send(enc, "setFragmentTexture:atIndex:", bound, 2)
-		}
-		offset := uintptr(b.Start * gpu.InstanceSize)
-		send(enc, "setVertexBuffer:offset:atIndex:", r.instBuf, offset, 0)
-		send(enc, "setFragmentBuffer:offset:atIndex:", r.instBuf, offset, 0)
-		msgSetScissor(enc, sel("setScissorRect:"), mtlScissorRect{uint(sc.Left), uint(sc.Top), uint(sc.Right - sc.Left), uint(sc.Bottom - sc.Top)})
-		send(enc, "drawPrimitives:vertexStart:vertexCount:instanceCount:", primitiveTriStrip, 0, 4, uintptr(b.Count))
 	}
 	send(enc, "endEncoding")
 	return cb, nil
+}
+
+// erase fills area of the target being kept with the color a whole frame is
+// cleared with, premultiplied, over the pixels the last frame left there.
+func (r *Renderer) erase(enc id, area image.Rectangle, color [4]float32) {
+	send(enc, "setRenderPipelineState:", r.cur.clearPipe)
+	send(enc, "setFragmentBytes:length:atIndex:", uintptr(unsafe.Pointer(&color[0])), unsafe.Sizeof(color), 0)
+	msgSetScissor(enc, sel("setScissorRect:"), mtlScissorRect{uint(area.Min.X), uint(area.Min.Y), uint(area.Dx()), uint(area.Dy())})
+	send(enc, "drawPrimitives:vertexStart:vertexCount:instanceCount:", primitiveTriStrip, 0, 4, 1)
 }
 
 // begin starts encoding the drawing of s into target, which it clears or
@@ -954,13 +1004,39 @@ func (r *Renderer) render(s *scene.Scene) error {
 		return nil // none came within a second: skip the frame
 	}
 	texture := send(drawable, "texture")
-	cb, err := r.encode(s, texture)
+	// A frame drawing only part of the window draws over the texture kept,
+	// which holds the last one, and is then copied into the drawable, whose
+	// own copy of the last frame is gone. The drawable draws straight when
+	// it is not the frame's size, as it has not caught up with a resize.
+	whole := r.damage.Whole(s)
+	target, copy, made, err := r.frameTarget(texture, s.Width, s.Height)
 	if err != nil {
 		return err
+	}
+	cb, err := r.encode(s, target, whole || made)
+	if err != nil {
+		return err
+	}
+	if copy {
+		blit := send(cb, "blitCommandEncoder")
+		if !r.checked {
+			if err := need(blit, "blit encoder", "copyFromTexture:toTexture:", "endEncoding"); err != nil {
+				return err
+			}
+		}
+		send(blit, "copyFromTexture:toTexture:", r.kept, texture)
+		send(blit, "endEncoding")
 	}
 	send(cb, "commit")
 	send(cb, "waitUntilScheduled")
 	send(drawable, "present")
+	if copy {
+		r.damage.Remember(s)
+	} else {
+		// This frame did not draw over the texture kept, which still holds
+		// an older one: draw whole again next time.
+		r.damage.Invalidate()
+	}
 	r.last = send(cb, "retain")
 	r.lastRender = time.Now()
 	r.armTrim()
@@ -974,6 +1050,38 @@ func (r *Renderer) render(s *scene.Scene) error {
 		}
 	}
 	return nil
+}
+
+// frameTarget returns what a frame of w×h draws into: the texture kept,
+// which holds the last frame, so that only the damage draws over it, and
+// which the frame is copied into the drawable from afterwards; or the
+// drawable itself, which is not copied, when it is not the frame's size, as
+// it has not caught up with a resize. made tells that there is no last
+// frame to draw over, so the frame draws whole.
+func (r *Renderer) frameTarget(drawable id, w, h int) (target id, copy, made bool, err error) {
+	if int(send(drawable, "width")) != w || int(send(drawable, "height")) != h {
+		r.damage.Invalidate()
+		return drawable, false, true, nil
+	}
+	kept, made := r.keptFor(w, h, r.cur.format)
+	if kept == 0 {
+		return 0, false, false, errors.New("metal: cannot create the frame texture")
+	}
+	return kept, true, made, nil
+}
+
+// keptFor makes the texture holding the last frame w×h of format, when it
+// is not already, and returns its handle and whether it made one. Making
+// one forgets the last frame, so the frame must be drawn whole.
+func (r *Renderer) keptFor(w, h int, format uint) (id, bool) {
+	if r.kept != 0 && r.keptW == w && r.keptH == h && r.keptFormat == format {
+		return r.kept, false
+	}
+	release(&r.kept)
+	r.damage.Invalidate()
+	r.kept = r.newTexture(w, h, format, usageRenderTarget|usageShaderRead, nil, 0)
+	r.keptW, r.keptH, r.keptFormat = w, h, format
+	return r.kept, true
 }
 
 // fit sizes the layer and its drawables for frames of w×h pixels at
@@ -1005,6 +1113,9 @@ func (r *Renderer) releaseTextures() {
 	}
 	release(&r.instBuf)
 	r.instCap = 0
+	release(&r.kept)
+	r.keptW, r.keptH, r.keptFormat = 0, 0, 0
+	r.damage.Invalidate()
 	for i := range r.formats {
 		for j := range r.formats[i].backdrop {
 			release(&r.formats[i].backdrop[j].tex)
@@ -1085,7 +1196,7 @@ func (r *Renderer) renderOffscreen(s *scene.Scene) (pix []byte, err error) {
 		}
 		defer release(&tex)
 		var cb id
-		if cb, err = r.encode(s, tex); err != nil {
+		if cb, err = r.encode(s, tex, true); err != nil {
 			return
 		}
 		blit := send(cb, "blitCommandEncoder")
@@ -1130,6 +1241,7 @@ func (r *Renderer) Release() {
 			release(&f.pipeline)
 			release(&f.downPipe)
 			release(&f.blurPipe)
+			release(&f.clearPipe)
 			for _, p := range f.effects {
 				release(&p.pipe)
 			}
