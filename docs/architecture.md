@@ -2359,10 +2359,14 @@ renderer's (`gputest.Compare`).
   `--uninstall` removes only what points into its install, including the
   URL handler entry the app registers.
 - On a macOS host, macOS targets also get "<name> <version>.dmg"
-  (`dmg.go`): `hdiutil` creates a writable HFS+ image from the app, the CLI
-  adds the `/Applications` link, the volume icon and a `.DS_Store` written in
-  pure Go (`dsstore.go`, byte-identical to dmgbuild's `ds_store` package) that
-  lays out the Finder window, then `hdiutil convert` compresses it with LZMA.
+  (`dmg.go`): the CLI stages the app with `ditto --noclone`, the
+  `/Applications` link, the volume icon and a `.DS_Store` written in pure Go
+  (`dsstore.go`, byte-identical to dmgbuild's `ds_store` package) that lays
+  out the Finder window. `hdiutil` sizes a writable HFS+ image from those
+  contents, accounting for filesystem overhead and allocation rounding;
+  disabling cloning makes sparse resources occupy the space they need on
+  HFS+. The CLI sets the volume's Finder flags, then `hdiutil convert`
+  compresses it with LZMA. The staging copy is removed after the build.
   No AppleScript or Finder automation is involved, so it works headless and
   in CI. The image is signed with a real identity and, with `macos.notarize`,
   notarized with `notarytool` and stapled.
