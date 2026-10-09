@@ -193,7 +193,7 @@ func TestWideColors(t *testing.T) {
 		}
 		defer release(&tex)
 		var cb id
-		if cb, err = r.encode(s, tex); err != nil {
+		if cb, err = r.encode(s, tex, true); err != nil {
 			return
 		}
 		blit := send(cb, "blitCommandEncoder")
@@ -312,7 +312,7 @@ func renderRaw(t *testing.T, r *Renderer, s *scene.Scene, wide bool) (raw []byte
 		}
 		defer release(&tex)
 		var cb id
-		if cb, err = r.encode(s, tex); err != nil {
+		if cb, err = r.encode(s, tex, true); err != nil {
 			return
 		}
 		blit := send(cb, "blitCommandEncoder")
@@ -920,7 +920,7 @@ func TestFramesInFlight(t *testing.T) {
 		for i := range targets {
 			step(i)
 			targets[i] = r2.newTexture(w, h, pixelFormatBGRA8Unorm, usageRenderTarget|usageShaderRead, nil, 0)
-			cb, err := r2.encode(s, targets[i])
+			cb, err := r2.encode(s, targets[i], true)
 			if err != nil {
 				t.Error(err)
 				return
