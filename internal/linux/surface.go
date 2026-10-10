@@ -737,7 +737,7 @@ func initSurfaceCallbacks() {
 		s.send(ev)
 		return true
 	})
-	// GdkEventKey: type 0, state 24, keyval 28.
+	// GdkEventKey: type 0, state 24, keyval 28, hardware_keycode 48.
 	cbSurfaceKey = purego.NewCallback(func(widget, event, data ptr) bool {
 		s := b().surfaceOf(data)
 		if s == nil {
@@ -769,14 +769,22 @@ func initSurfaceCallbacks() {
 			return false
 		}
 		k := keyvalKey(field[uint32](event, 28))
-		if k == platform.KeyUnknown {
+		mods := gdkMods(field[uint32](event, 24))
+		// hardware_keycode, an X keycode: evdev's code plus 8.
+		var physical platform.Key
+		if code := field[uint16](event, 48); code >= 8 {
+			physical = platform.KeyForScancode(code - 8)
+		}
+		// A key the layout types no US key for, as S on a Cyrillic layout,
+		// still reaches shortcuts by its position.
+		if k == platform.KeyUnknown && !platform.KeyByPosition(k, physical, mods) {
 			return false
 		}
 		if kind == platform.KeyPressed {
 			s.pressing = event
 			defer func() { s.pressing = 0 }()
 		}
-		s.send(platform.SurfaceEvent{Kind: kind, Key: k, Mods: gdkMods(field[uint32](event, 24))})
+		s.send(platform.SurfaceEvent{Kind: kind, Key: k, PhysicalKey: physical, Mods: mods})
 		return true
 	})
 	cbSurfaceFocusIn = purego.NewCallback(func(widget, event, data ptr) bool {
