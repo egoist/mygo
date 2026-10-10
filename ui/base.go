@@ -239,11 +239,15 @@ type selectParts[T comparable] struct {
 	// on, -1 until the popup finds the chosen one; values are the
 	// options of the last frame that showed them, and next those of this
 	// frame. pointer is where the pointer was when it last highlighted an
-	// option: it highlights another once it moves.
+	// option: it highlights another once it moves. shown is the option
+	// last scrolled into view as the highlight moved to it, while shows
+	// says whether it is one.
 	highlight *int
 	values    *[]T
 	next      []T
 	pointer   *[2]float32
+	shown     *T
+	shows     *bool
 }
 
 // SelectBase creates a select without a look: a trigger that opens a
@@ -278,10 +282,12 @@ func coreSelectBase[T comparable](c *context, selected *T) *selectParts[T] {
 		highlight: coreLocal(b, "highlight", func() int { return -1 }),
 		values:    coreLocal(b, "values", func() []T { return nil }),
 		pointer:   coreLocal(b, "pointer", func() [2]float32 { return [2]float32{} }),
+		shown:     coreLocal(b, "shown", func() T { var zero T; return zero }),
+		shows:     coreLocal(b, "shows", func() bool { return false }),
 	}
 	b.afterInput(func() {
 		open := func(o bool) {
-			*s.open, *s.highlight = o, -1
+			*s.open, *s.highlight, *s.shows = o, -1, false
 			*s.pointer = [2]float32{c.rt.pointerX, c.rt.pointerY}
 			c.rt.consumed = true
 		}
@@ -361,7 +367,8 @@ func (s *selectParts[T]) Popup(fn func(panel *node)) *node {
 
 // Item creates an option choosing value: a row that is Highlighted when
 // the pointer or the arrows are on it, and chooses value and closes the
-// popup when clicked.
+// popup when clicked. The option the highlight moves to scrolls into view,
+// once, so that the wheel scrolls on past it.
 func (s *selectParts[T]) Item(value T) *node {
 	c := s.c
 	i := len(s.next)
@@ -381,6 +388,10 @@ func (s *selectParts[T]) Item(value T) *node {
 		}
 	}
 	item.highlighted = *s.highlight == i
+	if item.highlighted && (!*s.shows || *s.shown != value) {
+		*s.shown, *s.shows = value, true
+		item.ScrollIntoView()
+	}
 	item.checked = 1 + int8(b2f(value == *s.selected))
 	item.afterInput(func() {
 		if item.Clicked() {
