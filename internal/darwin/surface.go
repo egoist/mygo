@@ -513,6 +513,39 @@ func eventKey(ev id) platform.Key {
 	return platform.KeyUnknown
 }
 
+// ansiKeys maps virtual key codes (Carbon's kVK_ANSI_*) to the key at that
+// position of an ANSI US keyboard.
+var ansiKeys = map[uint16]platform.Key{
+	0x00: platform.KeyA, 0x01: platform.KeyS, 0x02: platform.KeyD, 0x03: platform.KeyF,
+	0x04: platform.KeyH, 0x05: platform.KeyG, 0x06: platform.KeyZ, 0x07: platform.KeyX,
+	0x08: platform.KeyC, 0x09: platform.KeyV, 0x0B: platform.KeyB, 0x0C: platform.KeyQ,
+	0x0D: platform.KeyW, 0x0E: platform.KeyE, 0x0F: platform.KeyR, 0x10: platform.KeyY,
+	0x11: platform.KeyT, 0x1F: platform.KeyO, 0x20: platform.KeyU, 0x22: platform.KeyI,
+	0x23: platform.KeyP, 0x25: platform.KeyL, 0x26: platform.KeyJ, 0x28: platform.KeyK,
+	0x2D: platform.KeyN, 0x2E: platform.KeyM,
+	0x12: platform.Key1, 0x13: platform.Key2, 0x14: platform.Key3, 0x15: platform.Key4,
+	0x16: platform.Key6, 0x17: platform.Key5, 0x19: platform.Key9, 0x1A: platform.Key7,
+	0x1C: platform.Key8, 0x1D: platform.Key0,
+	0x18: platform.KeyEqual, 0x1B: platform.KeyMinus, 0x1E: platform.KeyBracketRight,
+	0x21: platform.KeyBracketLeft, 0x27: platform.KeyQuote, 0x29: platform.KeySemicolon,
+	0x2A: platform.KeyBackslash, 0x2B: platform.KeyComma, 0x2C: platform.KeySlash,
+	0x2F: platform.KeyPeriod, 0x32: platform.KeyBackquote,
+}
+
+// keyAtCode returns the key a virtual key code stands for by position:
+// the non-text keys of macKeys, then the ANSI US letter, digit and
+// punctuation keys.
+func keyAtCode(code uint16) platform.Key {
+	if k, ok := macKeys[code]; ok {
+		return k
+	}
+	return ansiKeys[code]
+}
+
+// physicalKey returns the key of ev by position on an ANSI US keyboard,
+// whatever the layout types.
+func physicalKey(ev id) platform.Key { return keyAtCode(uint16(send(ev, "keyCode"))) }
+
 // stringOf returns the text of an NSString or NSAttributedString.
 func stringOf(obj id) string {
 	if obj == 0 {
@@ -751,7 +784,7 @@ func registerSurfaceClass() {
 			// giving the composition up, as GTK's and IMM32's filtering
 			// keeps them on Linux and Windows.
 			if !ime || !s.hasMarkedText() {
-				s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")})
+				s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), PhysicalKey: physicalKey(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")})
 			}
 			// Input methods see the key while a text input has the focus;
 			// they answer with insertText: or setMarkedText:.
@@ -763,7 +796,7 @@ func registerSurfaceClass() {
 		}),
 		method("keyUp:", func(self id, _ objc.SEL, ev id) {
 			if s := b().surfaceOf(self); s != nil {
-				s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: eventKey(ev), Mods: eventMods(ev)})
+				s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: eventKey(ev), PhysicalKey: physicalKey(ev), Mods: eventMods(ev)})
 			}
 		}),
 		method("flagsChanged:", func(self id, _ objc.SEL, ev id) {

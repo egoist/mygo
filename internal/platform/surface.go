@@ -229,10 +229,14 @@ type SurfaceEvent struct {
 	DX, DY  float64
 	Precise bool
 	Key     Key
-	Mods    Modifiers
-	Repeat  bool
-	Text    string
-	Caret   int
+	// PhysicalKey is the key by its position on an ANSI US keyboard,
+	// whatever the active layout types; KeyUnknown where the backend does
+	// not report it. Key and PhysicalKey agree on a US layout.
+	PhysicalKey Key
+	Mods        Modifiers
+	Repeat      bool
+	Text        string
+	Caret       int
 	// Replace makes TextInput replace, and TextComposition compose over,
 	// the runes From to To of the last TextInputState.Text, instead of the
 	// selection.
