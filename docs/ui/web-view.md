@@ -137,6 +137,84 @@ func (s *Notes) Save(ctx context.Context, text string) error {
 
 The page's `window.close()` leaves the window open.
 
+### The typed client
+
+The page calls Go with the client `mygo generate` writes, as a window's
+page does: the client knows nothing of web views. A project of native UI
+has no frontend, and so no client: give it one, say a Vite app in a
+`frontend` directory, with the fields of [the
+frontend](../configuration.md#development-and-the-frontend) in its
+mygo.json:
+
+```json
+{
+  "name": "Notes",
+  "devUrl": "http://localhost:5173",
+  "devCommand": "bun run --cwd frontend dev",
+  "buildCommand": "bun run --cwd frontend build",
+  "frontendDist": "frontend/dist"
+}
+```
+
+The client is then `frontend/src/mygo.ts` (`bindings` changes where),
+which `mygo dev` rewrites as the Go code changes and `mygo build` before
+it builds the frontend; the frontend depends on `mygo-runtime`, which the
+client imports. A web view loading `/` shows the frontend, from the dev
+server during `mygo dev` and embedded in builds (see [how pages
+load](../frontend.md#how-pages-load)), and its page calls the services
+bound with `mygo.Bind` and hears the events declared with `mygo.NewEvent`:
+
+```go
+// Notes is bound for the pages.
+type Notes struct{ likes atomic.Int64 }
+
+// Liked tells pages how many likes there are.
+var Liked = mygo.NewEvent[int]("liked")
+
+// Like counts a like and tells every page.
+func (n *Notes) Like() int {
+	likes := int(n.likes.Add(1))
+	Liked.Broadcast(likes)
+	return likes
+}
+
+var page *mygo.WebView
+
+func view(c *ui.Context) {
+	if page != nil {
+		ui.WebView(c, page).Fill()
+	}
+}
+
+func main() {
+	mygo.Bind(&Notes{})
+	mygo.App.WhenReady(func() {
+		win := mygo.NewWindow(mygo.WindowOptions{Title: "Notes", Content: ui.View(view)})
+		page, _ = win.NewWebView(mygo.WebViewOptions{URL: "/"})
+		win.Invalidate()
+	})
+	// ...
+}
+```
+
+```ts
+import { Notes, events } from "./mygo";
+
+likeButton.onclick = async () => {
+  count.textContent = String(await Notes.like());
+};
+events.liked.on((likes) => (count.textContent = String(likes)));
+```
+
+Calls with a context, errors, [channels](../bindings.md#channels) and
+events work as in a window. A page without a build, such as HTML the app
+loads with `LoadHTML`, calls by name with the runtime the bridge puts in
+every page, `mygo.call("Notes.Like")` and `mygo.on("liked", …)` (see
+[without the generated
+client](../bindings.md#without-the-generated-client)). Pages that are not
+the app's own, as a web view showing `https://example.com`, cannot call Go
+at all: see [who may call](../bindings.md#who-may-call).
+
 ## Limits
 
 The page is the system's web view, which the window composites with the
