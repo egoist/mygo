@@ -237,7 +237,14 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		if err != nil {
 			return nil, err
 		}
-		app, err := writeBundle(c, stage, bin, icns, res)
+		car, err := appCatalog(c)
+		if err != nil {
+			return nil, err
+		}
+		if car != nil && car.icns != nil {
+			icns = car.icns // the .icon's own rendering for older macOS
+		}
+		app, err := writeBundle(c, stage, bin, icns, car, res)
 		if err != nil {
 			return nil, err
 		}
