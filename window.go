@@ -309,7 +309,7 @@ func NewWindow(opts WindowOptions) *Window {
 
 // createWindow creates a window, or a flyout, once the application is
 // ready.
-func createWindow(caller string, opts WindowOptions, bg *background, flyout *platform.Flyout) *Window {
+func createWindow(caller string, opts WindowOptions, bg *background, flyout *flyoutOptions) *Window {
 	if !isMainThread() {
 		App.waitReady()
 	} else if !App.IsReady() {
@@ -359,7 +359,7 @@ func updateBackgrounds() {
 	}
 }
 
-func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *platform.Flyout) *Window {
+func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyoutOptions) *Window {
 	windows.Lock()
 	windows.nextID++
 	id := windows.nextID
@@ -378,10 +378,16 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *platf
 	}
 	popts.Native = native
 	if flyout != nil {
-		w.flyout = flyout
+		w.flyout = flyout.flyout
+		if t := flyout.tray; t != nil {
+			if t.native == nil {
+				panic("mygo: NewFlyout: the tray was destroyed")
+			}
+			w.flyout.Tray = t.native
+		}
 		w.flyoutSize = platform.Size{Width: popts.Width, Height: popts.Height}
-		popts.Flyout = flyout
-		popts.Focusable = flyout.Focusable
+		popts.Flyout = w.flyout
+		popts.Focusable = w.flyout.Focusable
 		popts.Center = false
 	}
 	w.devTools = popts.DevTools

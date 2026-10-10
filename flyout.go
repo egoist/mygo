@@ -50,8 +50,17 @@ var placements = map[Placement]struct {
 // FlyoutOptions configures NewFlyout.
 type FlyoutOptions struct {
 	// Parent owns the flyout, which stays above it, follows it as it moves
-	// and closes with it. Required.
+	// and closes with it. A flyout has a Parent or a Tray.
 	Parent *Window
+	// Tray anchors the flyout to a tray icon instead, as the panel of a
+	// menu bar app: it goes next to the icon, on the side Placement
+	// names (PlacementBottom below an icon of the macOS menu bar, which
+	// flips above one of a taskbar at the bottom of the screen), and
+	// floats above the windows of other apps. Anchor does not apply.
+	// Linux's tray icons tell neither clicks nor where they are: a menu
+	// item of the icon opens it there, in the middle of the primary
+	// display's work area.
+	Tray *Tray
 	// Anchor is the rectangle the flyout is placed against, in DIPs
 	// relative to the parent's content area: the box of the element
 	// that opens it, as ui.Element.Bounds gives it, or a point (a
@@ -120,8 +129,8 @@ type FlyoutOptions struct {
 // page a background, or the native UI's root one. Like NewWindow, it must
 // be called after the application is ready.
 func NewFlyout(opts FlyoutOptions) *Window {
-	if opts.Parent == nil {
-		panic("mygo: NewFlyout needs a Parent")
+	if (opts.Parent == nil) == (opts.Tray == nil) {
+		panic("mygo: NewFlyout needs a Parent or a Tray")
 	}
 	fo, err := opts.platform()
 	if err != nil {
@@ -144,7 +153,14 @@ func NewFlyout(opts FlyoutOptions) *Window {
 		Page:              opts.Page,
 		Content:           opts.Content,
 		Hidden:            opts.Hidden,
-	}, nil, fo)
+	}, nil, &flyoutOptions{fo, opts.Tray})
+}
+
+// flyoutOptions carries what newWindow needs of a flyout: its tray's
+// native icon is read on the main thread.
+type flyoutOptions struct {
+	flyout *platform.Flyout
+	tray   *Tray
 }
 
 func (o *FlyoutOptions) platform() (*platform.Flyout, error) {

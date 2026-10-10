@@ -145,7 +145,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	data := ptr(w.id)
 
 	typ := int32(0) // GTK_WINDOW_TOPLEVEL
-	if o.Flyout != nil {
+	if o.Flyout != nil && o.Flyout.Tray == nil {
 		typ = 1 // GTK_WINDOW_POPUP
 	}
 	w.win = gtkWindowNew(typ)
@@ -1077,6 +1077,9 @@ func initWindowCallbacks() {
 		if w := b().window(data); w != nil {
 			w.altAlone = false
 			w.h.Blurred()
+			if w.trayFlyout() && w.flyout.Focusable && !w.grabbingChild() {
+				w.dismissFlyout(false)
+			}
 		}
 		return false
 	})

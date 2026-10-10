@@ -234,11 +234,45 @@ func (app *App) about(c *ui.Context) {
 }
 ```
 
+A flyout can hang from a tray icon instead of a window, as the panel of
+a menu bar app: give it the `Tray` in place of a `Parent`. It goes next to
+the icon, on the side `Placement` names, and floats over the windows of
+other apps. Below the macOS menu bar, `PlacementBottom` centers it under
+the icon (with `Popover`, the arrow of the system's popover points at
+it); on Windows, the same placement flips above an icon of a taskbar at
+the bottom of the screen. A press on the icon does not dismiss a
+focusable flyout, so the icon's click can toggle it. Keep the app running
+as the flyout, its only window, closes:
+
+```go
+mygo.App.OnWindowAllClosed(func() {})
+tray.OnClick(func() {
+	if panel != nil {
+		panel.Close()
+		return
+	}
+	panel = mygo.NewFlyout(mygo.FlyoutOptions{
+		Tray:      tray,
+		Placement: mygo.PlacementBottom,
+		Width:     280,
+		Height:    230,
+		Focusable: true,
+		Popover:   true,
+		Content:   ui.View(app.panel),
+	})
+	panel.OnClosed(func() { panel = nil })
+})
+```
+
+Linux's tray icons tell neither clicks nor where they are: open the flyout
+from a menu item of the icon there, and it shows in the middle of the
+primary display's work area. `examples/menubar-flyout` is such an app.
+
 How each platform shows them:
 
 | | macOS | Linux | Windows |
 |---|---|---|---|
-| window | a borderless, nonactivating `NSPanel`, a child window of its parent while it shows | a `GTK_WINDOW_POPUP`: override-redirect on X11, an `xdg_popup` of its parent on Wayland | an owned `WS_POPUP`, `WS_EX_TOOLWINDOW`, without a redirection bitmap |
+| window | a borderless, nonactivating `NSPanel`, a child window of its parent while it shows, or at the level of menus for a tray | a `GTK_WINDOW_POPUP`: override-redirect on X11, an `xdg_popup` of its parent on Wayland; for a tray, an undecorated utility window kept above | an owned `WS_POPUP`, `WS_EX_TOOLWINDOW`, without a redirection bitmap; topmost and unowned for a tray |
 | placement | in the screen's visible frame | in the monitor's work area on X11; the compositor's positioner (`gdk_window_move_to_rect`) on Wayland | in the monitor's work area (`MonitorFromRect`) |
 | keyboard | the key window when focusable; the parent stays the main window | a grab of the seat and the app's input when focusable, as GTK's menus | activated when focusable, else `WS_EX_NOACTIVATE` |
 

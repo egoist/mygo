@@ -185,7 +185,9 @@ func (w *Window) PlaceFlyout(f platform.Flyout, size platform.Size) {
 
 func (w *Window) place(f platform.Flyout, size platform.Size) {
 	anchor := f.Anchor
-	if p, ok := w.Opts.Parent.(*Window); ok {
+	if f.Tray != nil {
+		anchor = f.Tray.Bounds()
+	} else if p, ok := w.Opts.Parent.(*Window); ok {
 		c := p.ContentBounds()
 		anchor.X += c.X
 		anchor.Y += c.Y
@@ -812,8 +814,10 @@ func (*tray) SetTitle(string)             {}
 func (*tray) SetToolTip(string)           {}
 func (*tray) SetMenu(*platform.Menu)      {}
 func (*tray) PopUpMenu(*platform.Menu)    {}
-func (*tray) Bounds() platform.Rect       { return platform.Rect{} }
-func (*tray) Destroy()                    {}
+
+// Bounds puts the icon in the menu bar above the fake display's work area.
+func (*tray) Bounds() platform.Rect { return platform.Rect{X: 1300, Width: 30, Height: 25} }
+func (*tray) Destroy()              {}
 
 // Surface is a fake window surface: it records what the content asks of
 // it, and tests deliver events through Send.

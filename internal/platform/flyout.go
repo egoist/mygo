@@ -7,6 +7,11 @@ type Flyout struct {
 	// Anchor is the rectangle the flyout is placed against, in DIPs
 	// relative to the parent's content area.
 	Anchor Rect
+	// Tray anchors the flyout to a tray icon, where it shows without a
+	// parent, above the windows of other apps: the icon's Bounds are the
+	// anchor, on the screen. Where they are empty, it goes in the middle
+	// of the primary display's work area.
+	Tray Tray
 	// Side is where the flyout goes from Anchor, and Align how it lines
 	// up with it along that side.
 	Side  Side
@@ -152,4 +157,26 @@ func overlap(a, b Rect) int {
 		return 0
 	}
 	return w * h
+}
+
+// Centered returns where a flyout of the given size goes without an
+// anchor: in the middle of the work area, as large as it fits.
+func Centered(size Size, work Rect) Rect {
+	r := Rect{Width: min(size.Width, work.Width), Height: min(size.Height, work.Height)}
+	r.X = work.X + (work.Width-r.Width)/2
+	r.Y = work.Y + (work.Height-r.Height)/2
+	return r
+}
+
+// PrimaryWorkArea returns the work area of the primary display.
+func PrimaryWorkArea(displays []Display) Rect {
+	for _, d := range displays {
+		if d.Primary {
+			return d.WorkArea
+		}
+	}
+	if len(displays) > 0 {
+		return displays[0].WorkArea
+	}
+	return Rect{}
 }

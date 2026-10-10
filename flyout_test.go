@@ -144,3 +144,29 @@ func TestFlyoutEscape(t *testing.T) {
 		t.Error("Escape closed a window that is not a flyout")
 	}
 }
+
+func TestTrayFlyout(t *testing.T) {
+	tray, err := NewTray(TrayOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tray.Destroy()
+	fl, fw := testFlyout(t, FlyoutOptions{Tray: tray, Placement: PlacementBottom, Gap: 2, Width: 300, Height: 200, Focusable: true})
+	if fw.Opts.Parent != nil || fw.Opts.Flyout.Tray == nil {
+		t.Errorf("a tray's flyout has parent %v, tray %v", fw.Opts.Parent, fw.Opts.Flyout.Tray)
+	}
+	// Below the icon, centered on it, and slid back into the work area.
+	if got := fl.Bounds(); got != (Rectangle{X: 1140, Y: 27, Width: 300, Height: 200}) {
+		t.Errorf("tray flyout at %+v", got)
+	}
+
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("a flyout with a parent and a tray did not panic")
+			}
+		}()
+		parent, _ := testWindow(t, WindowOptions{})
+		NewFlyout(FlyoutOptions{Parent: parent, Tray: tray})
+	}()
+}

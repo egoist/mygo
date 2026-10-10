@@ -27,6 +27,7 @@ const (
 
 	nsBackingStoreBuffered   = 2
 	nsFloatingWindowLevel    = 3
+	nsPopUpMenuWindowLevel   = 101
 	nsNormalWindowLevel      = 0
 	nsViewWidthHeightSizable = 2 | 16
 
@@ -215,6 +216,10 @@ func (w *window) createFlyout() {
 	// parent instead, and one that takes the keyboard closes.
 	send(w.win, "setHidesOnDeactivate:", 0)
 	send(w.win, "setCollectionBehavior:", collectionTransient|collectionIgnoresCycle|collectionFullScreenAuxiliary)
+	if w.flyout.Tray != nil {
+		// Over the windows of other apps, as the menus of the menu bar.
+		send(w.win, "setLevel:", nsPopUpMenuWindowLevel)
+	}
 	w.fillWindow(content)
 	w.register()
 	w.PlaceFlyout(w.flyout, w.flyoutSize)
@@ -283,13 +288,20 @@ func (w *window) PlaceFlyout(f platform.Flyout, size platform.Size) {
 		w.placePopover()
 		return
 	}
+	displays := screen{}.Displays()
 	anchor := f.Anchor
-	if p := w.parent; p != nil && !p.closed {
+	if t, ok := f.Tray.(*tray); ok {
+		if anchor = t.Bounds(); anchor.Width == 0 || anchor.Height == 0 {
+			r := platform.Centered(size, platform.PrimaryWorkArea(displays))
+			msgSetRectBool(w.win, sel("setFrame:display:"), rectToMac(r), true)
+			return
+		}
+	} else if p := w.parent; p != nil && !p.closed {
 		c := p.ContentBounds()
 		anchor.X += c.X
 		anchor.Y += c.Y
 	}
-	r, _, _ := f.Place(anchor, size, platform.WorkAreaFor(anchor, screen{}.Displays()))
+	r, _, _ := f.Place(anchor, size, platform.WorkAreaFor(anchor, displays))
 	msgSetRectBool(w.win, sel("setFrame:display:"), rectToMac(r), true)
 }
 
@@ -525,6 +537,7 @@ func (w *window) Show() {
 // the app: it shows over a parent the user is using.
 func (w *window) showFlyout(key bool) {
 	if key {
+		w.b.watchOutsideClicks()
 		send(w.win, "makeKeyAndOrderFront:", 0)
 	} else {
 		send(w.win, "orderFront:", 0)
@@ -546,6 +559,35 @@ func (w *window) hideFlyout() {
 		}
 	}
 	send(w.win, "orderOut:", 0)
+}
+
+// outsideClicks is the monitor of clicks outside the app, in other apps or
+// the menu bar, which close focusable flyouts as AppKit's transient
+// popovers close: their panels may take the keyboard without the app
+// being activated, and a click in the menu bar activates no other app, so
+// they would not resign the key window. It is made once, as the first
+// focusable flyout shows.
+var outsideClicks id
+
+func (b *Backend) watchOutsideClicks() {
+	if outsideClicks != 0 {
+		return
+	}
+	const mask = 1<<1 | 1<<3 | 1<<25 // left, right and other mouse down
+	blk := newBlock(func(_ objc.Block, ev id) {
+		var open []*window
+		for _, w := range b.byNSWindow {
+			if w.opts.Flyout != nil && w.popover == 0 && w.flyout.Focusable && !w.closed && sendBool(w.win, "isVisible") {
+				open = append(open, w)
+			}
+		}
+		for _, w := range open {
+			if !w.closed && w.h.ShouldClose() {
+				w.Close()
+			}
+		}
+	})
+	outsideClicks = retain(send(class("NSEvent"), "addGlobalMonitorForEventsMatchingMask:handler:", mask, uintptr(blk)))
 }
 
 // dismissFlyout closes a focusable flyout that lost the keyboard, as the
@@ -1276,8 +1318,11 @@ func registerWindowClasses() {
 					w.h.Blurred()
 					w.surfaceKeyChanged(false)
 					if w.opts.Flyout != nil && w.popover == 0 {
-						// Once AppKit made another window key, or none.
-						b().post(w.dismissFlyout)
+						// Once AppKit made another window key, or none,
+						// unless the press on its tray icon toggles it.
+						if t, ok := w.flyout.Tray.(*tray); !ok || !t.pressed() {
+							b().post(w.dismissFlyout)
+						}
 					}
 				}
 			}),

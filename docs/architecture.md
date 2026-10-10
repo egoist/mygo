@@ -99,8 +99,8 @@ framework safely. Read it before changing anything under `internal/`.
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native; counter-native, vibrancy,
-│                       effort-slider, flyout and gallery (native UI); webview
-│                       (web views in native UI)
+│                       effort-slider, flyout, menubar-flyout and gallery
+│                       (native UI); webview (web views in native UI)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -1080,8 +1080,20 @@ as in Tauri:
   one no handler of the page cancelled (an `escape` message). `Flyout.Popover` shows one in an
   `NSPopover` (`internal/darwin/popover.go`), whose window AppKit makes
   as it shows, and whose transient behavior asks `popoverShouldClose:`.
-  The design follows GPUI's `WindowKind::AnchoredPopup` and winit's
-  `WindowType::Popup`, which model xdg_positioner too.
+  `Flyout.Tray` anchors one to a tray icon's `Bounds` instead, without a
+  parent: the panel at `NSPopUpMenuWindowLevel` or an `NSPopover` shown
+  from the status item's button (macOS), a topmost unowned popup
+  (Windows), and on Linux, whose AppIndicator tells no bounds, an
+  undecorated utility toplevel in the middle of the work area, which a
+  focusable one closes as it loses the keyboard. A press on the icon
+  does not dismiss its flyout (`tray.pressed` in `popoverShouldClose:`
+  and on resigning key, the cursor over `Shell_NotifyIconGetRect` on
+  Windows), so its click toggles it. A global monitor of mouse downs
+  closes macOS's focusable panels on clicks outside the app, which a
+  panel taking the keyboard of an app that was not activated never
+  hears as the key window changing. The design follows GPUI's
+  `WindowKind::AnchoredPopup` and winit's `WindowType::Popup`, which
+  model xdg_positioner too.
 - `window.open()` and `target=_blank` go through `SetWindowOpenHandler`. By
   default http(s) URLs open in the default browser. Allowing one creates a
   window around the configuration or related view WebKit provides, with its

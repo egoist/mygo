@@ -11,6 +11,12 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
+// A flyout of a tray icon has no parent, which a popup needs on Wayland,
+// and AppIndicator tells neither clicks nor where its icon is: it is an
+// undecorated toplevel utility window over the others, in the middle of
+// the primary display's work area where the platform lets apps place
+// windows, which a focusable one closes as it loses the keyboard.
+//
 // A flyout (WindowOptions.Flyout) is a GTK_WINDOW_POPUP window, as GTK's
 // menus and tooltips are: override-redirect on X11, where it goes exactly
 // where Flyout.Place puts it in the work area of a monitor, and an
@@ -33,11 +39,14 @@ var (
 	gdkSeatUngrab                 func(seat ptr)
 	gtkGrabAdd, gtkGrabRemove     func(w ptr)
 	gtkWidgetTranslateCoordinates func(src, dst ptr, x, y int32, dx, dy *int32) bool
+	gtkWindowSetAcceptFocus       func(w ptr, v bool)
+	gtkWindowSetSkipPagerHint     func(w ptr, v bool)
 
 	cbFlyoutPress, cbFlyoutGrabBroken, cbFlyoutUnmap, cbFlyoutPrepare ptr
 )
 
 const (
+	typeHintUtility   = 5  // GDK_WINDOW_TYPE_HINT_UTILITY
 	typeHintPopupMenu = 9  // GDK_WINDOW_TYPE_HINT_POPUP_MENU
 	anchorHintsAll    = 63 // GDK_ANCHOR_FLIP | GDK_ANCHOR_SLIDE | GDK_ANCHOR_RESIZE
 	seatCapabilityAll = 15 // GDK_SEAT_CAPABILITY_ALL
@@ -55,6 +64,8 @@ func loadFlyouts() {
 		mustBind(t, &gtkGrabAdd, "gtk_grab_add")
 		mustBind(t, &gtkGrabRemove, "gtk_grab_remove")
 		mustBind(t, &gtkWidgetTranslateCoordinates, "gtk_widget_translate_coordinates")
+		mustBind(t, &gtkWindowSetAcceptFocus, "gtk_window_set_accept_focus")
+		mustBind(t, &gtkWindowSetSkipPagerHint, "gtk_window_set_skip_pager_hint")
 	})
 }
 
@@ -65,6 +76,14 @@ func gravity(g platform.Gravity) int32 { return int32((g.Y+1)*3 + g.X + 1 + 1) }
 func (w *window) initFlyout() {
 	loadFlyouts()
 	data := ptr(w.id)
+	if w.opts.Flyout.Tray != nil {
+		gtkWindowSetTypeHint(w.win, typeHintUtility)
+		gtkWindowSetSkipPagerHint(w.win, true)
+		w.SetAlwaysOnTop(true)
+		gtkWindowSetAcceptFocus(w.win, w.opts.Flyout.Focusable)
+		w.PlaceFlyout(*w.opts.Flyout, platform.Size{Width: w.opts.Width, Height: w.opts.Height})
+		return
+	}
 	gtkWindowSetTypeHint(w.win, typeHintPopupMenu)
 	// Its size is the one asked for, smaller than its content's natural
 	// size too.
@@ -80,6 +99,12 @@ func (w *window) initFlyout() {
 // popup's position as it maps: there a flyout that shows maps again,
 // unless only its parent moved, which the popup follows.
 func (w *window) PlaceFlyout(f platform.Flyout, size platform.Size) {
+	if w.opts.Flyout != nil && f.Tray != nil && !w.closed {
+		w.flyout, w.flyoutSize, w.placed = f, size, true
+		r := platform.Centered(size, platform.PrimaryWorkArea(screen{}.Displays()))
+		w.SetBounds(r) // Wayland compositors place it themselves
+		return
+	}
 	p, ok := w.opts.Parent.(*window)
 	if w.opts.Flyout == nil || w.closed || !ok || p.closed {
 		return
@@ -130,6 +155,14 @@ func (w *window) contentOrigin() (x, y int32) {
 
 // showFlyout shows a flyout, which takes the keyboard when grab is set.
 func (w *window) showFlyout(grab bool) {
+	if w.trayFlyout() {
+		w.willShow()
+		gtkWidgetShow(w.win)
+		if grab {
+			gtkWindowPresent(w.win)
+		}
+		return
+	}
 	if gtkWidgetGetVisible(w.win) {
 		return
 	}
@@ -170,7 +203,7 @@ func (b *Backend) closePopupsAbove(parent *window) {
 		if top == parent {
 			return
 		}
-		top.dismissFlyout()
+		top.dismissFlyout(false)
 		if !top.closed && gtkWidgetGetVisible(top.win) {
 			top.hideFlyout()
 		}
@@ -183,7 +216,7 @@ func (b *Backend) closePopupsAbove(parent *window) {
 func (b *Backend) dismissFlyouts(focus *window) {
 	for _, w := range b.windows {
 		if w.grabbed && w != focus {
-			w.dismissFlyout()
+			w.dismissFlyout(false)
 		}
 	}
 }
@@ -198,8 +231,9 @@ func (w *window) ungrab() {
 }
 
 // dismissFlyout closes a flyout the user dismissed, as the user closing
-// it. One that stays, which the compositor hid, hides.
-func (w *window) dismissFlyout() {
+// it. One that stays, but lost its popup (the compositor hid it, or its
+// grab broke), hides.
+func (w *window) dismissFlyout(lost bool) {
 	if w.closed || w.dismissing {
 		return
 	}
@@ -207,7 +241,7 @@ func (w *window) dismissFlyout() {
 	defer func() { w.dismissing = false }()
 	if w.h.ShouldClose() {
 		w.Close()
-	} else if !w.grabbed {
+	} else if lost {
 		w.hideFlyout()
 	}
 }
@@ -238,14 +272,14 @@ func initFlyoutCallbacks() {
 		if x >= 0 && y >= 0 && x < float64(a.Width) && y < float64(a.Height) {
 			return false
 		}
-		w.dismissFlyout()
+		w.dismissFlyout(false)
 		return true
 	})
 	cbFlyoutGrabBroken = purego.NewCallback(func(widget, event, data ptr) bool {
 		if w := b().window(data); w != nil && w.grabbed {
 			w.grabbed = false
 			gtkGrabRemove(w.win)
-			w.dismissFlyout()
+			w.dismissFlyout(true)
 		}
 		return false
 	})
@@ -254,8 +288,27 @@ func initFlyoutCallbacks() {
 	cbFlyoutUnmap = purego.NewCallback(func(widget, event, data ptr) bool {
 		if w := b().window(data); w != nil && gtkWidgetGetVisible(w.win) {
 			w.ungrab()
-			w.dismissFlyout()
+			w.dismissFlyout(true)
 		}
 		return false
 	})
+}
+
+// trayFlyout reports a flyout of a tray icon.
+func (w *window) trayFlyout() bool { return w.opts.Flyout != nil && w.opts.Flyout.Tray != nil }
+
+// grabbingChild reports whether a flyout of w's grabs the input, and so
+// has the keyboard w lost to it.
+func (w *window) grabbingChild() bool {
+	for _, x := range w.b.windows {
+		if !x.grabbed {
+			continue
+		}
+		for p, _ := x.opts.Parent.(*window); p != nil; p, _ = p.opts.Parent.(*window) {
+			if p == w {
+				return true
+			}
+		}
+	}
+	return false
 }
