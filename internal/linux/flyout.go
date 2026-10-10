@@ -34,7 +34,6 @@ var (
 	gtkWindowSetTypeHint          func(w ptr, hint int32)
 	gdkWindowSetTransientFor      func(w, parent ptr)
 	gdkWindowMoveToRect           func(w ptr, r *gdkRectangle, rectAnchor, windowAnchor, hints, dx, dy int32)
-	gdkWindowGetOrigin            func(w ptr, x, y *int32) int32
 	gdkSeatGrab                   func(seat, w ptr, caps int32, ownerEvents bool, cursor, event, prepare, data ptr) int32
 	gdkSeatUngrab                 func(seat ptr)
 	gtkGrabAdd, gtkGrabRemove     func(w ptr)
@@ -58,7 +57,6 @@ func loadFlyouts() {
 		mustBind(t, &gtkWindowSetTypeHint, "gtk_window_set_type_hint")
 		mustBind(d, &gdkWindowSetTransientFor, "gdk_window_set_transient_for")
 		mustBind(d, &gdkWindowMoveToRect, "gdk_window_move_to_rect")
-		mustBind(d, &gdkWindowGetOrigin, "gdk_window_get_origin")
 		mustBind(d, &gdkSeatGrab, "gdk_seat_grab")
 		mustBind(d, &gdkSeatUngrab, "gdk_seat_ungrab")
 		mustBind(t, &gtkGrabAdd, "gtk_grab_add")

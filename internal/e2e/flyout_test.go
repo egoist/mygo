@@ -78,21 +78,11 @@ func TestFlyout(t *testing.T) {
 	eventually(t, "the flyout closed with its parent", fl.IsDestroyed)
 }
 
-// eventuallyAt waits for a flyout to be at the bounds want returns. Under
-// a window manager, Linux reports where its frame is, not the content,
-// which the frame's title bar and border push in: up to there.
+// eventuallyAt waits for a flyout to be at the bounds want returns.
 func eventuallyAt(t *testing.T, what string, fl *mygo.Window, want func() mygo.Rectangle) {
 	t.Helper()
-	at := func() bool {
-		got, w := fl.Bounds(), want()
-		if runtime.GOOS != "linux" {
-			return got == w
-		}
-		dx, dy := got.X-w.X, got.Y-w.Y
-		return dx >= 0 && dx <= 10 && dy >= 0 && dy <= 50 && got.Width == w.Width && got.Height == w.Height
-	}
 	deadline := time.Now().Add(5 * time.Second)
-	for !at() {
+	for fl.Bounds() != want() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s: at %+v, not %+v", what, fl.Bounds(), want())
 		}
