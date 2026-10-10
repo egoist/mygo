@@ -31,9 +31,13 @@ type app struct {
 func (a *app) view(c *ui.Context) {
 	t := c.Theme()
 	c.Root().Background(ui.Transparent)
-	box := ui.Column(c).Fill() // over the popover's material on macOS
-	if !c.Vibrancy() {
-		box = ui.Column(c).Fill().Background(t.Surface).Radius(10).Border(1, t.Border)
+	box := ui.Column(c).Fill()
+	switch {
+	case c.Vibrancy(): // over the popover's material on macOS
+	case runtime.GOOS == "windows": // which rounds and outlines the flyout
+		box.Background(t.Surface)
+	default:
+		box.Background(t.Surface).Radius(10).Border(1, t.Border)
 	}
 	box.Padding(16).Gap(12).Children(func() {
 		ui.Text(c, "Focus").FontSize(17).Bold()

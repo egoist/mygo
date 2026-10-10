@@ -215,7 +215,9 @@ cancels with `preventDefault()`, as the web's popovers.
 
 `Shadow` gives it the system's window shadow on macOS, where it follows
 the shape of what the flyout draws and outlines it with a hairline (so
-draw no border of your own there), and on Windows.
+draw no border of your own there), and on Windows, where Windows 11 rounds
+the flyout's corners as it rounds its menus and outlines it (so draw
+neither a border nor rounded corners there).
 
 On macOS, `Popover` gives it the look of the system's popovers instead: it
 shows in an `NSPopover`, which draws its material, rounded corners and an

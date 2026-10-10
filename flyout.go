@@ -99,6 +99,9 @@ type FlyoutOptions struct {
 	// Shadow gives the flyout the system's window shadow (macOS,
 	// Windows). On macOS it follows the shape of what the content draws,
 	// and outlines it with a hairline: the content draws no border there.
+	// On Windows 11 the system rounds the flyout's corners as it rounds
+	// its menus, and outlines it: the content draws neither a border nor
+	// rounded corners there.
 	Shadow bool
 	// Popover gives the flyout the look of the system's popovers on macOS:
 	// it shows in an NSPopover, which draws its material, rounded corners,

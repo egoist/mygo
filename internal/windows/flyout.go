@@ -31,6 +31,15 @@ const (
 
 var procMonitorFromRect = user32.NewProc("MonitorFromRect")
 
+// roundFlyout rounds the corners of a flyout with a shadow, as Windows 11
+// rounds its menus and WinUI's flyouts: DWM clips the window, outlines it
+// and casts the shadow around all of it. Windows 10 rounds nothing, and
+// casts the shadow of its menus, square, along the right and bottom edges.
+func (w *window) roundFlyout() {
+	pref := int32(dwmwcpRound)
+	procDwmSetWindowAttribute.Call(w.hwnd, dwmwaWindowCornerPreference, uintptr(unsafe.Pointer(&pref)), 4)
+}
+
 // flyoutStyles returns the styles of a flyout's window.
 func (w *window) flyoutStyles() (style, ex uint32) {
 	style = wsPopup | wsClipChildren

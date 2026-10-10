@@ -198,12 +198,17 @@ func (a *app) aboutView(c *ui.Context) {
 }
 
 // panel is the box a flyout draws: the window itself draws nothing. The
-// shadow of a window outlines it on macOS: elsewhere, a border does.
+// shadow of a window outlines it on macOS, and Windows rounds and outlines
+// the window too: elsewhere, a border does.
 func panel(c *ui.Context) ui.Element {
 	t := c.Theme()
-	box := ui.Column(c).Fill().Background(t.Surface).Radius(10)
-	if runtime.GOOS != "darwin" {
-		box.Border(1, t.Border)
+	box := ui.Column(c).Fill().Background(t.Surface)
+	switch runtime.GOOS {
+	case "darwin":
+		box.Radius(10)
+	case "windows":
+	default:
+		box.Radius(10).Border(1, t.Border)
 	}
 	return box
 }

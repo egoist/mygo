@@ -2760,7 +2760,7 @@ which npm allows only for packages that exist: the first release uses an
 | window position | honored | ignored by Wayland compositors | honored |
 | resize borders without a title bar | the window's own | the outer 5 px of the page | invisible, outside the window; along the top of a hidden title bar, a child window |
 | content protection, click-through | yes | ignored | yes |
-| flyouts | borderless nonactivating `NSPanel` child window, or an `NSPopover`; placed in the visible frame | `GTK_WINDOW_POPUP` (override-redirect, placed in the work area, on X11; `xdg_popup` with `gdk_window_move_to_rect` on Wayland); focusable ones grab the seat | owned `WS_POPUP` + `WS_EX_TOOLWINDOW`, `WS_EX_NOACTIVATE` unless focusable, `CS_DROPSHADOW` for a shadow |
+| flyouts | borderless nonactivating `NSPanel` child window, or an `NSPopover`; placed in the visible frame | `GTK_WINDOW_POPUP` (override-redirect, placed in the work area, on X11; `xdg_popup` with `gdk_window_move_to_rect` on Wayland); focusable ones grab the seat | owned `WS_POPUP` + `WS_EX_TOOLWINDOW`, `WS_EX_NOACTIVATE` unless focusable, `CS_DROPSHADOW` for a shadow, with corners rounded by DWM on Windows 11 |
 | custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `http://<scheme>.localhost` (the page's `location`) |
 | `LoadHTML` documents | a reload loads the base URL (`about:blank` without one), so the core cancels it (`Navigation.Reload`) and loads the HTML again; not in the history | as macOS | as macOS, but in the history: going back to one with a base URL loads that URL |
 | window.open | keeps the opener | independent window | independent window |

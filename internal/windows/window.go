@@ -146,6 +146,9 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	b.windows[w.hwnd] = w
 	if o.Flyout != nil {
+		if o.HasShadow {
+			w.roundFlyout()
+		}
 		w.PlaceFlyout(*o.Flyout, platform.Size{Width: o.Width, Height: o.Height})
 	} else {
 		w.placeInitially()
