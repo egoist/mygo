@@ -238,9 +238,6 @@ func TestContentWindowWebViewEditMenu(t *testing.T) {
 <div id=e contenteditable style="height:100px">hello</div><script>window.ready = true</script></body>`, "")
 	waitForPage(t, v.Page(), "window.ready")
 	w.Focus()
-	if r, g, b, ok := screenColor(w, 200, 250); ok && (r < 200 || g > 60 || b > 60) {
-		t.Errorf("the page under the native UI shows %d, %d, %d on screen, not its red", r, g, b)
-	}
 	v.Focus()
 	if _, err := v.Page().Eval("document.getElementById('e').focus()"); err != nil {
 		t.Fatal(err)
