@@ -136,7 +136,8 @@ func (w *window) showFlyout(grab bool) {
 		return
 	}
 	if !w.b.onX11 {
-		w.b.closePopupsAbove(w.opts.Parent.(*window))
+		p, _ := w.opts.Parent.(*window)
+		w.b.closePopupsAbove(p)
 		w.b.flyouts = append(w.b.flyouts, w)
 	}
 	w.willShow()

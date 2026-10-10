@@ -610,6 +610,10 @@ func (w *window) Focus() {
 		}
 		return
 	}
+	if w.opts.Flyout != nil {
+		w.Show() // the key window only when it takes the keyboard
+		return
+	}
 	send(w.win, "makeKeyAndOrderFront:", 0)
 	send(w.b.app, "activateIgnoringOtherApps:", 1)
 }

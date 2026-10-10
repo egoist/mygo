@@ -44,6 +44,7 @@ framework safely. Read it before changing anything under `internal/`.
 .                       package mygo: the public API
 ├── app.go              lifecycle, quit sequence, Dock, paths (paths.go)
 ├── window.go           Window: the native window, its options, state and events
+├── flyout.go           NewFlyout: windows owned by a parent, placed next to an anchor
 ├── page.go             Page: the web page a window shows, its loading, Eval and events
 ├── content.go          Content: windows showing native UI instead of a page
 ├── webview.go          WebView: web pages in windows of native UI, under it
@@ -98,8 +99,8 @@ framework safely. Read it before changing anything under `internal/`.
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native; counter-native, vibrancy,
-│                       effort-slider and gallery (native UI); webview (web
-│                       views in native UI)
+│                       effort-slider, flyout and gallery (native UI); webview
+│                       (web views in native UI)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -1057,6 +1058,26 @@ as in Tauri:
   pages are secure contexts with a real origin on every platform, which
   these APIs need. `macos.infoPlist` adds keys such as the camera and
   microphone usage descriptions macOS requires.
+- Flyouts (`flyout.go`, `internal/platform/flyout.go`): `NewFlyout`
+  creates a window with `platform.WindowOptions.Flyout`, which backends
+  make a borderless, transparent popup owned by its parent, and place
+  with `Window.PlaceFlyout` against an anchor in the parent's content
+  area. `Flyout.Place` resolves the placement in the work area of a
+  display as GDK does for `gdk_window_move_to_rect` (`maybe_flip_position`,
+  then slide, then resize, per axis), and `WorkAreaFor` picks the display
+  as GDK's `get_monitor_for_rect`; macOS, X11 and Windows (in physical
+  pixels) use it, Wayland hands the anchor to the compositor's
+  positioner. The core places a window's flyouts again as it moves or
+  resizes (owned windows on Windows and X11 popups do not follow), and
+  as `SetAnchor` and `SetSize` change them. A focusable flyout closes
+  through `WindowHandler.ShouldClose` when it loses the keyboard: as its
+  panel resigns key (macOS), on a press outside it or a broken grab, or
+  as the compositor dismisses the popup (GTK, as `GtkMenu`), and as
+  another window is activated (Windows). `Flyout.Popover` shows one in an
+  `NSPopover` (`internal/darwin/popover.go`), whose window AppKit makes
+  as it shows, and whose transient behavior asks `popoverShouldClose:`.
+  The design follows GPUI's `WindowKind::AnchoredPopup` and winit's
+  `WindowType::Popup`, which model xdg_positioner too.
 - `window.open()` and `target=_blank` go through `SetWindowOpenHandler`. By
   default http(s) URLs open in the default browser. Allowing one creates a
   window around the configuration or related view WebKit provides, with its
@@ -2709,6 +2730,7 @@ which npm allows only for packages that exist: the first release uses an
 | window position | honored | ignored by Wayland compositors | honored |
 | resize borders without a title bar | the window's own | the outer 5 px of the page | invisible, outside the window; along the top of a hidden title bar, a child window |
 | content protection, click-through | yes | ignored | yes |
+| flyouts | borderless nonactivating `NSPanel` child window, or an `NSPopover`; placed in the visible frame | `GTK_WINDOW_POPUP` (override-redirect, placed in the work area, on X11; `xdg_popup` with `gdk_window_move_to_rect` on Wayland); focusable ones grab the seat | owned `WS_POPUP` + `WS_EX_TOOLWINDOW`, `WS_EX_NOACTIVATE` unless focusable, `CS_DROPSHADOW` for a shadow |
 | custom scheme origin | `<scheme>://localhost` | `<scheme>://localhost` | `http://<scheme>.localhost` (the page's `location`) |
 | `LoadHTML` documents | a reload loads the base URL (`about:blank` without one), so the core cancels it (`Navigation.Reload`) and loads the HTML again; not in the history | as macOS | as macOS, but in the history: going back to one with a base URL loads that URL |
 | window.open | keeps the opener | independent window | independent window |

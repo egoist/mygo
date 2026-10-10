@@ -718,6 +718,10 @@ func (w *window) Focus() {
 		w.focusWebView()
 		return
 	}
+	if f := w.opts.Flyout; f != nil && !f.Focusable {
+		w.Show() // never activated
+		return
+	}
 	if w.IsMinimized() {
 		procShowWindow.Call(w.hwnd, swRestore)
 	}

@@ -207,7 +207,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	w.accel = gtkAccelGroupNew()
 	gtkWindowAddAccelGroup(w.win, w.accel)
-	if b.appMenu != nil {
+	if b.appMenu != nil && o.Flyout == nil {
 		w.installMenu(b.appMenu)
 	}
 

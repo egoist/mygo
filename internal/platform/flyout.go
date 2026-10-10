@@ -47,8 +47,8 @@ const (
 )
 
 // Gravity is one of the nine points of a rectangle: its corners, the
-// middles of its edges and its center, as GdkGravity, Wayland's
-// xdg_positioner anchors and gravities, and Win32's TPM_ flags name them.
+// middles of its edges and its center, as GdkGravity and Wayland's
+// xdg_positioner anchors and gravities name them.
 // X and Y are -1 for the left or top, 0 for the middle, 1 for the right or
 // bottom.
 type Gravity struct{ X, Y int }
@@ -56,7 +56,7 @@ type Gravity struct{ X, Y int }
 // Gravities returns the point of the anchor the flyout is placed at, the
 // point of the flyout that goes there, and the offset between them.
 func (f *Flyout) Gravities() (anchor, window Gravity, dx, dy int) {
-	cross := map[Align]int{AlignStart: -1, AlignCenter: 0, AlignEnd: 1}[f.Align]
+	cross := int(f.Align) - 1 // AlignStart, AlignCenter, AlignEnd: -1, 0, 1
 	switch f.Side {
 	case SideTop:
 		return Gravity{cross, -1}, Gravity{cross, 1}, 0, -f.Gap

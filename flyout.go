@@ -27,20 +27,24 @@ const (
 	PlacementLeftEnd     Placement = "left-end"
 )
 
-var placements = map[Placement][2]uint8{
-	"":                   {uint8(platform.SideBottom), uint8(platform.AlignStart)},
-	PlacementBottomStart: {uint8(platform.SideBottom), uint8(platform.AlignStart)},
-	PlacementBottom:      {uint8(platform.SideBottom), uint8(platform.AlignCenter)},
-	PlacementBottomEnd:   {uint8(platform.SideBottom), uint8(platform.AlignEnd)},
-	PlacementTopStart:    {uint8(platform.SideTop), uint8(platform.AlignStart)},
-	PlacementTop:         {uint8(platform.SideTop), uint8(platform.AlignCenter)},
-	PlacementTopEnd:      {uint8(platform.SideTop), uint8(platform.AlignEnd)},
-	PlacementRightStart:  {uint8(platform.SideRight), uint8(platform.AlignStart)},
-	PlacementRight:       {uint8(platform.SideRight), uint8(platform.AlignCenter)},
-	PlacementRightEnd:    {uint8(platform.SideRight), uint8(platform.AlignEnd)},
-	PlacementLeftStart:   {uint8(platform.SideLeft), uint8(platform.AlignStart)},
-	PlacementLeft:        {uint8(platform.SideLeft), uint8(platform.AlignCenter)},
-	PlacementLeftEnd:     {uint8(platform.SideLeft), uint8(platform.AlignEnd)},
+// placements are the sides and alignments of the placements.
+var placements = map[Placement]struct {
+	side  platform.Side
+	align platform.Align
+}{
+	"":                   {platform.SideBottom, platform.AlignStart},
+	PlacementBottomStart: {platform.SideBottom, platform.AlignStart},
+	PlacementBottom:      {platform.SideBottom, platform.AlignCenter},
+	PlacementBottomEnd:   {platform.SideBottom, platform.AlignEnd},
+	PlacementTopStart:    {platform.SideTop, platform.AlignStart},
+	PlacementTop:         {platform.SideTop, platform.AlignCenter},
+	PlacementTopEnd:      {platform.SideTop, platform.AlignEnd},
+	PlacementRightStart:  {platform.SideRight, platform.AlignStart},
+	PlacementRight:       {platform.SideRight, platform.AlignCenter},
+	PlacementRightEnd:    {platform.SideRight, platform.AlignEnd},
+	PlacementLeftStart:   {platform.SideLeft, platform.AlignStart},
+	PlacementLeft:        {platform.SideLeft, platform.AlignCenter},
+	PlacementLeftEnd:     {platform.SideLeft, platform.AlignEnd},
 }
 
 // FlyoutOptions configures NewFlyout.
@@ -140,8 +144,8 @@ func (o *FlyoutOptions) platform() (*platform.Flyout, error) {
 	}
 	return &platform.Flyout{
 		Anchor:    platform.Rect(o.Anchor),
-		Side:      platform.Side(p[0]),
-		Align:     platform.Align(p[1]),
+		Side:      p.side,
+		Align:     p.align,
 		Gap:       o.Gap,
 		Focusable: o.Focusable,
 		Popover:   o.Popover,
