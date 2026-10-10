@@ -539,7 +539,9 @@ func AccordionItem(c *Context, title string, open *bool, fn func()) Element {
 // in the accent color, with the focus, which Enter clicks. Escape closes the
 // alert choosing no button, as canceling does, whatever the buttons say; a
 // click outside the alert does nothing. It returns the index of the button
-// clicked, in the frame it is, which closes the alert, and -1 otherwise.
+// clicked, in the frame it is, which closes the alert, AlertDismissed in
+// the frame Escape closes it, and -1 otherwise. An alert that must be
+// answered stays open by setting *open back to true on AlertDismissed.
 // Assistive technology sees an alert named by title and described by
 // message.
 //

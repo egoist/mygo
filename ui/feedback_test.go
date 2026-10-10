@@ -147,16 +147,41 @@ func TestAlertDialog(t *testing.T) {
 // without a Cancel, one with a single button.
 func TestAlertDialogEscape(t *testing.T) {
 	for _, buttons := range [][]string{{"取消", "删除"}, {"Not Now", "Delete"}, {"OK"}} {
-		open, chosen := true, -1
+		open, got := true, []int{}
 		tt := coreNewTester(func(c *context) {
-			if i := coreAlertDialog(c, &open, "Delete Notes?", "", buttons...); i >= 0 {
-				chosen = i
+			if i := coreAlertDialog(c, &open, "Delete Notes?", "", buttons...); i != -1 {
+				got = append(got, i)
 			}
 		}, 500, 400)
 		tt.Key(0, KeyEscape)
-		if open || chosen != -1 {
-			t.Errorf("%q: Escape left it open %v, chose %d", buttons, open, chosen)
+		if open || len(got) != 1 || got[0] != AlertDismissed {
+			t.Errorf("%q: Escape left it open %v, returned %v", buttons, open, got)
 		}
+	}
+}
+
+// An alert that must be answered stays open on Escape, setting *open back,
+// until a button is clicked.
+func TestAlertDialogKeepOpen(t *testing.T) {
+	open, chosen := true, -1
+	tt := coreNewTester(func(c *context) {
+		switch i := coreAlertDialog(c, &open, "Update required", "", "Restart"); i {
+		case AlertDismissed:
+			open = true
+		case -1:
+		default:
+			chosen = i
+		}
+	}, 500, 400)
+	tt.Key(0, KeyEscape)
+	tt.Frame()
+	if !open || !tt.Focused("Restart") {
+		t.Fatalf("Escape: open %v, the focus on Restart %v", open, tt.Focused("Restart"))
+	}
+	tt.Key(0, KeyEnter)
+	tt.Frame()
+	if open || chosen != 0 {
+		t.Errorf("Enter: open %v, chose %d", open, chosen)
 	}
 }
 
