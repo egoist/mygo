@@ -56,9 +56,11 @@ func DecodeBitmap(data []byte) (*Bitmap, error) {
 // Update shows img in place of the bitmap's picture, for one that changes
 // as video does: the GPU keeps the bitmap's texture and uploads the new
 // pixels, where a new Bitmap a frame would make a texture each, and keep
-// each for a while. An *image.RGBA is taken as it is, without a copy:
-// don't change its pixels until the next Update. Call it on the UI
-// thread.
+// each for a while. An *image.RGBA of rows 4×width bytes long from the
+// origin, as image.NewRGBA makes, is taken as it is, without a copy:
+// don't change its pixels until the next Update. Call it on the main
+// thread, in the view or through Window.Update, which redraws the window
+// to show it.
 func (b *Bitmap) Update(img image.Image) {
 	s := scene.NewImage(img)
 	if s.W == b.img.W && s.H == b.img.H {
