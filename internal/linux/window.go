@@ -64,11 +64,12 @@ type window struct {
 
 	// flyout is how a flyout (WindowOptions.Flyout) was placed last, at
 	// flyoutSize, once placed is set. grabbed tells that a focusable one
-	// grabs the input, dismissing that it asks whether to close.
-	flyout             platform.Flyout
-	flyoutSize         platform.Size
-	placed, grabbed    bool
-	hiding, dismissing bool
+	// grabs the input, dismissing that it asks whether to close; unmaps
+	// counts the unmap events its hiding has yet to bring.
+	flyout                      platform.Flyout
+	flyoutSize                  platform.Size
+	placed, grabbed, dismissing bool
+	unmaps                      int
 
 	closed       bool
 	programmatic bool

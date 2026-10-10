@@ -189,6 +189,9 @@ func (w *window) showFlyout(grab bool) {
 func (w *window) hideFlyout() {
 	w.ungrab()
 	w.b.flyouts = slices.DeleteFunc(w.b.flyouts, func(x *window) bool { return x == w })
+	if gtkWidgetGetMapped(w.win) {
+		w.unmaps++ // its unmap event comes later, maybe once it shows again
+	}
 	gtkWidgetHide(w.win)
 }
 
@@ -281,10 +284,19 @@ func initFlyoutCallbacks() {
 		}
 		return false
 	})
-	// The compositor dismissed the popup, and GDK hid its window, which
-	// GTK still shows: the unmaps of hiding it come once it does not.
+	// A Wayland compositor dismissed the popup, and GDK hid its window:
+	// an unmap the backend's own hiding (unmaps) does not account for.
+	// X11 servers do not dismiss popups.
 	cbFlyoutUnmap = purego.NewCallback(func(widget, event, data ptr) bool {
-		if w := b().window(data); w != nil && gtkWidgetGetVisible(w.win) {
+		w := b().window(data)
+		if w == nil || w.b.onX11 {
+			return false
+		}
+		if w.unmaps > 0 {
+			w.unmaps--
+			return false
+		}
+		if gtkWidgetGetVisible(w.win) {
 			w.ungrab()
 			w.dismissFlyout(true)
 		}
