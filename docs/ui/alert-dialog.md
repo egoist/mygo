@@ -3,9 +3,10 @@
 `ui.AlertDialog` asks about something important over the window while a
 `*bool` is true, as AppKit's alerts: a title, a message, and buttons, the
 last of which is the default, in the accent color, with the focus, which
-Enter clicks. Escape clicks a button labeled Cancel, if any; a click outside
-the alert does nothing. It returns the index of the button clicked, in the
-frame it is, which closes the alert, and -1 otherwise.
+Enter clicks. Escape closes the alert choosing no button, as canceling does,
+whatever the buttons say, in any language; a click outside the alert does
+nothing. It returns the index of the button clicked, in the frame it is,
+which closes the alert, and -1 otherwise.
 
 ```go
 if ui.Button(c, "Delete").Clicked() {

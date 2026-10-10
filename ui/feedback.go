@@ -151,11 +151,12 @@ func coreBreadcrumbs(c *context, items []string, chosen *int) *node {
 
 // AlertDialog shows an alert over the window while *open is true, as
 // AppKit's: title, message, and buttons, the last of which is the default,
-// in the accent color, with the focus, which Enter clicks. Escape clicks a
-// button labeled Cancel, if any; a click outside the alert does nothing.
-// It returns the index of the button clicked, in the frame it is, which
-// closes the alert, and -1 otherwise. Assistive technology sees an alert
-// named by title and described by message.
+// in the accent color, with the focus, which Enter clicks. Escape closes the
+// alert choosing no button, as canceling does, whatever the buttons say; a
+// click outside the alert does nothing. It returns the index of the button
+// clicked, in the frame it is, which closes the alert, and -1 otherwise.
+// Assistive technology sees an alert named by title and described by
+// message.
 //
 //	switch ui.AlertDialog(c, &app.asking, "Delete “Notes”?", "You can't undo this.", "Cancel", "Delete") {
 //	case 1:
@@ -166,18 +167,10 @@ func coreAlertDialog(c *context, open *bool, title, message string, buttons ...s
 		return -1
 	}
 	t := c.theme
-	chosen := -1
+	chosen, dismissed := -1, false
 	coreOverlay(c, func() {
 		back := coreBox(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(RGBA(0, 0, 0, 0.4)).Modal()
-		cancel := -1
-		for i, b := range buttons {
-			if b == "Cancel" {
-				cancel = i
-			}
-		}
-		if back.OverlayShortcut(0, KeyEscape) && cancel >= 0 {
-			chosen = cancel
-		}
+		dismissed = back.OverlayShortcut(0, KeyEscape)
 		back.Children(func() {
 			panel := coreColumn(c).Width(t.Space(75)).MaxWidth(c.w - t.Space(10)).Padding(t.Space(5)).Gap(t.Space(3)).Radius(t.Space(2.5)).Background(t.Background).Role(RoleAlertDialog)
 			panel.Label(title)
@@ -204,7 +197,7 @@ func coreAlertDialog(c *context, open *bool, title, message string, buttons ...s
 			})
 		})
 	})
-	if chosen >= 0 {
+	if chosen >= 0 || dismissed {
 		*open = false
 		c.rt.consumed = true
 	}

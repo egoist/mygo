@@ -536,11 +536,12 @@ func AccordionItem(c *Context, title string, open *bool, fn func()) Element {
 
 // AlertDialog shows an alert over the window while *open is true, as
 // AppKit's: title, message, and buttons, the last of which is the default,
-// in the accent color, with the focus, which Enter clicks. Escape clicks a
-// button labeled Cancel, if any; a click outside the alert does nothing.
-// It returns the index of the button clicked, in the frame it is, which
-// closes the alert, and -1 otherwise. Assistive technology sees an alert
-// named by title and described by message.
+// in the accent color, with the focus, which Enter clicks. Escape closes the
+// alert choosing no button, as canceling does, whatever the buttons say; a
+// click outside the alert does nothing. It returns the index of the button
+// clicked, in the frame it is, which closes the alert, and -1 otherwise.
+// Assistive technology sees an alert named by title and described by
+// message.
 //
 //	switch ui.AlertDialog(c, &app.asking, "Delete “Notes”?", "You can't undo this.", "Cancel", "Delete") {
 //	case 1:

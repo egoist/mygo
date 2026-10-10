@@ -124,15 +124,39 @@ func TestAlertDialog(t *testing.T) {
 	if !open {
 		t.Fatal("a click outside closed the alert")
 	}
+	// Escape closes it, choosing no button.
 	tt.Key(0, KeyEscape)
+	if open || canceled != 0 || deleted != 0 {
+		t.Fatalf("Escape: open %v, %d canceled, %d deleted", open, canceled, deleted)
+	}
+	open = true
+	tt.Frame()
+	tt.Click("Cancel")
 	if open || canceled != 1 {
-		t.Fatalf("Escape: open %v, %d canceled", open, canceled)
+		t.Fatalf("Cancel: open %v, %d canceled", open, canceled)
 	}
 	open = true
 	tt.Frame()
 	tt.Key(0, KeyEnter)
 	if open || deleted != 1 {
 		t.Errorf("Enter: open %v, %d deleted", open, deleted)
+	}
+}
+
+// Escape closes an alert whatever its buttons say: a localized one, one
+// without a Cancel, one with a single button.
+func TestAlertDialogEscape(t *testing.T) {
+	for _, buttons := range [][]string{{"取消", "删除"}, {"Not Now", "Delete"}, {"OK"}} {
+		open, chosen := true, -1
+		tt := coreNewTester(func(c *context) {
+			if i := coreAlertDialog(c, &open, "Delete Notes?", "", buttons...); i >= 0 {
+				chosen = i
+			}
+		}, 500, 400)
+		tt.Key(0, KeyEscape)
+		if open || chosen != -1 {
+			t.Errorf("%q: Escape left it open %v, chose %d", buttons, open, chosen)
+		}
 	}
 }
 
