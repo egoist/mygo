@@ -95,6 +95,15 @@ type Options struct {
 	OnExit   func(code int)
 	OnBell   func()
 	OnNotify func(title, body string)
+
+	// OpenLink takes what a Command+click opens: a hyperlink (OSC 8), a
+	// URL printed as text, or, only with OpenLink set, a file path
+	// printed as text (absolute, ~/, ./ or ../, one with a slash, or a
+	// file name with a :line), as printed, a :line:col suffix included.
+	// It runs on the main thread and reports whether it opened the link;
+	// a URL it leaves, or every URL when it is nil, opens with the system
+	// (Context.OpenURL).
+	OpenLink func(link string) bool
 }
 
 // CursorStyle is the shape of the cursor.
