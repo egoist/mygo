@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 
+	"github.com/egoist/mygo/internal/damage"
 	"github.com/egoist/mygo/internal/scene"
 )
 
@@ -77,7 +78,7 @@ type renderer struct {
 // Render draws s into dst, which must be s.Width×s.Height.
 func Render(dst *Image, s *scene.Scene) {
 	var r Renderer
-	r.d.draw(dst, s, image.Rect(0, 0, dst.W, dst.H), r.opBounds(s, nil))
+	r.d.draw(dst, s, image.Rect(0, 0, dst.W, dst.H), damage.Bounds(s, nil))
 }
 
 // A large area is drawn on several cores at once, in bands of bandRows

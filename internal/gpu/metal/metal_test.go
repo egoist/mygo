@@ -111,7 +111,7 @@ func TestWideColors(t *testing.T) {
 		}
 		defer release(&tex)
 		var cb id
-		if cb, err = r.encode(s, tex); err != nil {
+		if cb, err = r.encode(s, tex, true); err != nil {
 			return
 		}
 		blit := send(cb, "blitCommandEncoder")

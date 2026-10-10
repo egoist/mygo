@@ -496,4 +496,11 @@ fragment float4 blur(PassVSOut v [[stage_in]], texture2d<float> src [[texture(0)
 	return c / sum;
 }
 
+// clearfill writes one color over the target's area, erasing the damage a
+// frame redrawing only part of the window keeps its other pixels for. The
+// color is premultiplied, as the pass pipelines write it straight.
+fragment float4 clearfill(PassVSOut v [[stage_in]], constant float4 &color [[buffer(0)]]) {
+	return color;
+}
+
 #endif
