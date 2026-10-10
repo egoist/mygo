@@ -106,8 +106,11 @@ win.Focus()             // Blur, IsFocused
 
 `Bounds`, `ContentBounds`, `Size`, `ContentSize` and `Position` read them
 back; [`mygo.Screen`](native.md#displays) tells where the displays are.
-On Linux under Wayland the compositor decides where windows go and
-ignores the positions apps set.
+`Bounds` are the whole window's, title bar and borders included (on Linux
+X11, the window manager's frame), and `ContentBounds` those of the area the
+page or native UI shows in, below a menu bar. On Linux under Wayland the
+compositor decides where windows go and ignores the positions apps set,
+and its decorations are not part of `Bounds`.
 
 Other properties:
 

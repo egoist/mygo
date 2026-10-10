@@ -74,16 +74,26 @@ type window struct {
 	programmatic bool
 	keepAbove    bool
 	// requested holds bounds set with SetBounds until the window manager
-	// answers: GTK resizes and moves asynchronously. previous is the size
-	// the window had then, which reports sent before still carry. placing
-	// is set while the window manager places a window that shows.
-	requested    *platform.Rect
-	previous     [2]int32
-	placing      bool
-	state        uint32
-	x, y, w, hgt int32
-	minW, minH   int32
-	maxW, maxH   int32
+	// answers: GTK resizes and moves asynchronously. requestFrame is the
+	// window manager's frame they were asked for with, and requestInside
+	// tells that the size asked for is the one inside it (as with
+	// SetContentBounds). previous is the size GTK gave the window then,
+	// which reports sent before still carry. placing is set while the
+	// window manager places a window that shows.
+	requested     *platform.Rect
+	requestFrame  extents
+	requestInside bool
+	previous      [2]int32
+	placing       bool
+	// framed tells that the window manager framed the window that shows,
+	// and frame is its frame as last seen, once seenFrame is set (see
+	// frameExtents).
+	framed, seenFrame bool
+	frame             extents
+	state             uint32
+	x, y, w, hgt      int32
+	minW, minH        int32
+	maxW, maxH        int32
 
 	// activationResize holds the latest bounds asked for while a window
 	// drawing with GL on Wayland is not focused, and activationPrevious the
@@ -150,7 +160,6 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	w.win = gtkWindowNew(typ)
 	gtkWindowSetTitle(w.win, cs(o.Title))
-	gtkWindowSetDefaultSize(w.win, int32(o.Width), int32(o.Height))
 	if o.Center {
 		gtkWindowSetPosition(w.win, 1) // GTK_WIN_POS_CENTER
 	} else {
@@ -210,6 +219,17 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if b.appMenu != nil && o.Flyout == nil {
 		w.installMenu(b.appMenu)
 	}
+	// GTK sizes the window inside the window manager's frame, with the menu
+	// bar.
+	width, height := int32(o.Width), int32(o.Height)
+	if o.UseContentSize {
+		in := w.contentInsets()
+		width, height = width+in.left+in.right, height+in.top+in.bottom
+	} else {
+		f := w.frameExtents()
+		width, height = width-f.left-f.right, height-f.top-f.bottom
+	}
+	gtkWindowSetDefaultSize(w.win, max(width, 1), max(height, 1))
 
 	connect(w.win, "delete-event", cbDeleteEvent, data)
 	connect(w.win, "destroy", cbDestroy, data)
@@ -357,13 +377,98 @@ func (w *window) WebViewHandle() uintptr { return w.web }
 func (w *window) SetTitle(title string) { gtkWindowSetTitle(w.win, cs(title)) }
 func (w *window) Title() string         { return goStr(gtkWindowGetTitle(w.win)) }
 
-func (w *window) SetBounds(r platform.Rect) {
-	width, height := w.constrain(int32(r.Width), int32(r.Height))
-	r.Width, r.Height = int(width), int(height)
+// extents are the widths of the edges around a rectangle.
+type extents struct{ left, top, right, bottom int32 }
+
+// grow returns r with the extents around it.
+func (e extents) grow(r platform.Rect) platform.Rect {
+	return platform.Rect{
+		X: r.X - int(e.left), Y: r.Y - int(e.top),
+		Width: r.Width + int(e.left+e.right), Height: r.Height + int(e.top+e.bottom),
+	}
+}
+
+// shrink returns r without the extents around its inside.
+func (e extents) shrink(r platform.Rect) platform.Rect {
+	return platform.Rect{
+		X: r.X + int(e.left), Y: r.Y + int(e.top),
+		Width: r.Width - int(e.left+e.right), Height: r.Height - int(e.top+e.bottom),
+	}
+}
+
+// frameExtents returns the extents of the frame a reparenting window
+// manager puts around the window on X11, title bar and borders: GTK sizes
+// the window inside it and positions the frame (NORTH_WEST gravity). They
+// are known once the window manager framed the window that shows, which
+// its first own (synthetic) configure report tells. Until then the window
+// expects the frame it had last, or the one seen last around a decorated
+// window in its normal state that the user can resize or not as this one,
+// or none. Wayland tells no positions, and its compositors' decorations
+// have no say in GTK's sizes.
+func (w *window) frameExtents() extents {
+	if !w.b.onX11 {
+		return extents{}
+	}
+	resizable := 0
+	if gtkWindowGetResizable(w.win) {
+		resizable = 1
+	}
+	if !w.framed || !gtkWidgetGetMapped(w.win) {
+		switch {
+		case w.seenFrame:
+			return w.frame
+		case w.undecorated():
+			return extents{}
+		}
+		return w.b.frames[resizable]
+	}
+	gdkWin := gtkWidgetGetWindow(w.win)
+	var frame gdkRectangle
+	gdkWindowGetFrameExtents(gdkWin, &frame)
+	var x, y, width, height int32
+	gdkWindowGetOrigin(gdkWin, &x, &y)
+	gdkWindowGetGeometry(gdkWin, nil, nil, &width, &height) // from the server, as the frame
+	f := extents{x - frame.X, y - frame.Y, frame.X + frame.Width - x - width, frame.Y + frame.Height - y - height}
+	w.frame, w.seenFrame = f, true
+	const special = stateMaximized | stateFullscreen | stateTiled | stateIconified
+	if !w.undecorated() && w.state&special == 0 {
+		w.b.frames[resizable] = f
+	}
+	return f
+}
+
+// contentInsets returns where the content is inside the window GTK sizes:
+// below the menu bar, which GTK gives its natural height. That holds
+// before GTK lays out a menu bar that just showed or went, unlike where
+// it has the content.
+func (w *window) contentInsets() extents {
+	if w.menubar == 0 || !gtkWidgetGetVisible(w.menubar) {
+		return extents{}
+	}
+	var minimum, natural int32
+	gtkWidgetGetPreferredHeight(w.menubar, &minimum, &natural)
+	return extents{top: natural}
+}
+
+// SetBounds asks for the bounds of the window manager's frame: GTK moves
+// the frame and sizes the window inside it.
+func (w *window) SetBounds(r platform.Rect) { w.setBounds(r, false) }
+
+func (w *window) SetContentBounds(r platform.Rect) {
+	w.setBounds(w.frameExtents().grow(w.contentInsets().grow(r)), true)
+}
+
+// setBounds asks for the bounds of the frame, for the size inside it when
+// inside is set: a frame other than expected keeps that size (see
+// cbConfigure).
+func (w *window) setBounds(r platform.Rect, inside bool) {
+	f := w.frameExtents()
+	width, height := w.constrain(int32(r.Width)-f.left-f.right, int32(r.Height)-f.top-f.bottom)
+	r.Width, r.Height = int(width+f.left+f.right), int(height+f.top+f.bottom)
 	if w.requested == nil {
 		gtkWindowGetSize(w.win, &w.previous[0], &w.previous[1])
 	}
-	w.requested = &r
+	w.requested, w.requestFrame, w.requestInside = &r, f, inside
 	if w.resizeIdle != 0 {
 		w.activationResize = &r // the idle callback asks for it
 		return
@@ -400,18 +505,52 @@ func (w *window) constrain(width, height int32) (int32, int32) {
 	return max(width, w.minW, minW), max(height, w.minH, minH)
 }
 
+// Bounds returns the bounds of the window manager's frame, which are the
+// window's own without one.
 func (w *window) Bounds() platform.Rect {
 	if w.requested != nil {
 		return *w.requested
 	}
+	if w.framed && gtkWidgetGetMapped(w.win) {
+		var r gdkRectangle
+		gdkWindowGetFrameExtents(gtkWidgetGetWindow(w.win), &r)
+		return platform.Rect{X: int(r.X), Y: int(r.Y), Width: int(r.Width), Height: int(r.Height)}
+	}
 	var x, y, width, height int32
-	gtkWindowGetPosition(w.win, &x, &y)
+	gtkWindowGetPosition(w.win, &x, &y) // the frame's
 	gtkWindowGetSize(w.win, &width, &height)
-	return platform.Rect{X: int(x), Y: int(y), Width: int(width), Height: int(height)}
+	f := w.frameExtents()
+	return platform.Rect{X: int(x), Y: int(y), Width: int(width + f.left + f.right), Height: int(height + f.top + f.bottom)}
 }
 
-func (w *window) SetContentBounds(r platform.Rect) { w.SetBounds(r) }
-func (w *window) ContentBounds() platform.Rect     { return w.Bounds() }
+// size returns the size GTK gives the window, or was asked to give it.
+func (w *window) size() (width, height int32) {
+	if r := w.requested; r != nil {
+		f := w.requestFrame
+		return int32(r.Width) - f.left - f.right, int32(r.Height) - f.top - f.bottom
+	}
+	gtkWindowGetSize(w.win, &width, &height)
+	return width, height
+}
+
+// ContentBounds returns where the content is: on X11, where X has the
+// window inside the window manager's frame, below the menu bar.
+func (w *window) ContentBounds() platform.Rect {
+	var r platform.Rect
+	if w.requested == nil && w.b.onX11 && gtkWidgetGetMapped(w.win) {
+		var x, y int32
+		gdkWindowGetOrigin(gtkWidgetGetWindow(w.win), &x, &y)
+		width, height := w.size()
+		r = platform.Rect{X: int(x), Y: int(y), Width: int(width), Height: int(height)}
+	} else {
+		f := w.requestFrame
+		if w.requested == nil {
+			f = w.frameExtents()
+		}
+		r = f.shrink(w.Bounds())
+	}
+	return w.contentInsets().shrink(r)
+}
 
 func (w *window) SetMinimumSize(s platform.Size) {
 	w.minW, w.minH = int32(s.Width), int32(s.Height)
@@ -426,8 +565,8 @@ func (w *window) SetMaximumSize(s platform.Size) {
 func (w *window) SetResizable(v bool) {
 	if !v {
 		// Keep the size it has or was given (see SetBounds).
-		b := w.Bounds()
-		gtkWindowSetDefaultSize(w.win, int32(b.Width), int32(b.Height))
+		width, height := w.size()
+		gtkWindowSetDefaultSize(w.win, width, height)
 	}
 	gtkWindowSetResizable(w.win, v)
 	if w.controls != nil {
@@ -486,10 +625,14 @@ func (w *window) willShow() {
 	if gtkWidgetGetVisible(w.win) {
 		return
 	}
+	w.framed = false // until the window manager frames it again
 	if w.requested == nil {
 		b := w.Bounds() // what GTK asks for, while the window does not show
-		w.requested = &b
-		w.previous = [2]int32{int32(b.Width), int32(b.Height)}
+		// The size it was made with, or had, unless it was made with
+		// that of its frame.
+		inside := w.opts.UseContentSize || w.seenFrame
+		w.requested, w.requestFrame, w.requestInside = &b, w.frameExtents(), inside
+		w.previous[0], w.previous[1] = w.size()
 	}
 	w.placing = w.b.windowManager(w.win)
 }
@@ -1126,23 +1269,46 @@ func initWindowCallbacks() {
 		moved := x != w.x || y != w.y
 		resized := width != w.w || height != w.hgt
 		w.x, w.y, w.w, w.hgt = x, y, width, height
+		// The window manager's own report (GdkEventConfigure's send_event,
+		// at 16) comes once it framed and moved the window.
+		synthetic := field[int8](event, 16) != 0
+		if synthetic && w.b.onX11 {
+			w.framed = true
+		}
 		if r := w.requested; r != nil && w.resizeIdle == 0 {
 			// Without the decorations GTK draws, as requested.
 			var cw, ch int32
 			gtkWindowGetSize(w.win, &cw, &ch)
-			// The window manager's own report (GdkEventConfigure's
-			// send_event, at 16) comes once it moved the window.
-			synthetic := field[int8](event, 16) != 0
+			f := w.frameExtents()
+			if old := w.requestFrame; f != old {
+				// The window manager framed the window otherwise than
+				// expected as it placed it. GTK positions the frame, so
+				// the bounds grow with the frame around the size asked
+				// for inside it, or GTK is asked for the size inside the
+				// frame again, which is done once GTK has it there.
+				if w.requestInside {
+					r.Width += int(f.left + f.right - old.left - old.right)
+					r.Height += int(f.top + f.bottom - old.top - old.bottom)
+					w.requestFrame = f
+				} else {
+					rw, rh := w.constrain(int32(r.Width)-f.left-f.right, int32(r.Height)-f.top-f.bottom)
+					r.Width, r.Height = int(rw+f.left+f.right), int(rh+f.top+f.bottom)
+					w.requestFrame, w.previous, w.placing = f, [2]int32{cw, ch}, false
+					gtkWindowSetDefaultSize(w.win, rw, rh)
+					gtkWindowResize(w.win, rw, rh)
+				}
+			}
+			rw, rh := w.size()
 			done := false
 			switch {
-			case cw != int32(r.Width) || ch != int32(r.Height):
+			case cw != rw || ch != rh:
 				if cw == w.previous[0] && ch == w.previous[1] {
 					// A report from before the window manager took the
 					// request, as openbox sends when the size hints change.
 					// GTK would ask for this size again from it (and keeps a
 					// window the user cannot resize as large), unless asked
 					// for the new one again.
-					gtkWindowResize(w.win, int32(r.Width), int32(r.Height))
+					gtkWindowResize(w.win, rw, rh)
 				} else {
 					done = true // the window manager, or the user, chose it
 				}

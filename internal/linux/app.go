@@ -30,6 +30,11 @@ type Backend struct {
 	// webViews are the web views under surfaces (webview.go), by id.
 	webViews map[int]*window
 	nextID   int
+	// frames are the window manager's frames seen last around a decorated
+	// window in its normal state that the user cannot resize and one they
+	// can, which windows that have not shown yet expect (see
+	// window.frameExtents).
+	frames [2]extents
 
 	appMenu    *platform.Menu
 	schemes    map[string]bool

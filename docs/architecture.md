@@ -265,18 +265,32 @@ purego gives three primitives, used everywhere:
 - The main thread is the one that called `gtk_init_check`; `IsMainThread`
   compares `gettid`. `Step` is `g_main_context_iteration(NULL, TRUE)` and
   `Wake` is `g_main_context_wakeup`.
+- `Bounds` are those of the frame a reparenting X11 window manager puts
+  around the window (`gdk_window_get_frame_extents`): GTK positions the
+  frame (NORTH_WEST gravity) and sizes the window inside it, without the
+  frame. `ContentBounds` are where the content widget is
+  (`gdk_window_get_origin` plus its offset below the menu bar). The
+  frame's extents are known once the window manager framed the window
+  that shows, which its first synthetic configure report tells; until
+  then a window expects the frame it had, or the one seen last around a
+  decorated window that is resizable or not as it is (openbox: 1, 20, 1
+  and 5 px at the bottom, or 1). Wayland has no frame in `Bounds`.
 - GTK geometry changes are asynchronous: `SetBounds` remembers the requested
-  rectangle, within the sizes GTK gives the window (`constrain`), as does a
-  window about to show, which X has where GTK created it, or where it was,
-  until the window manager places it; `Center` moves that rectangle along.
-  `Bounds` reports that rectangle until a configure event reports its size
-  and, on X11, its position, or the window manager's own (synthetic)
-  report of the size comes, or another size, which the window manager or
-  the user chose. A window being placed waits for the window manager's
-  report: a reparenting one first puts its frame where it created it. A
-  report of the previous size was sent before the window manager took the
-  request (openbox sends one when the size hints change); GTK would ask
-  for that size again from it, so the backend asks for the new one again.
+  rectangle, within the sizes GTK gives the window (`constrain`), with the
+  frame it expects, as does a window about to show, which X has where GTK
+  created it, or where it was, until the window manager places it;
+  `Center` moves that rectangle along. `Bounds` reports that rectangle
+  until a configure event reports its size and, on X11, its position, or
+  the window manager's own (synthetic) report of the size comes, or
+  another size, which the window manager or the user chose. A window being
+  placed waits for the window manager's report: a reparenting one first
+  puts its frame where it created it. If the frame is not the one
+  expected, the rectangle grows with it around the size asked for inside
+  it (`SetContentBounds`, `UseContentSize`, a window that showed before),
+  or GTK is asked for the size inside the new frame. A report of the
+  previous size was sent before the window manager took the request
+  (openbox sends one when the size hints change); GTK would ask for that
+  size again from it, so the backend asks for the new one again.
 - On Wayland, the configure event that activates a window can carry the
   size of the last buffer it drew, from before a resize GTK already took
   (Mutter sends one when native UI drawing with GL resizes from its first
