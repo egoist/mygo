@@ -177,6 +177,18 @@ func TestTrafficLights(handle uintptr) (x, y float64) {
 	return math.Min(a.X, b.X), msgRect(win, sel("frame")).Size.Height - math.Max(a.Y, b.Y)
 }
 
+// TestSetWindowAppearance gives a window its own dark or light appearance,
+// apart from the application's.
+func TestSetWindowAppearance(handle uintptr, dark bool) {
+	name := "NSAppearanceNameAqua"
+	if dark {
+		name = "NSAppearanceNameDarkAqua"
+	}
+	withPool(func() {
+		send(id(handle), "setAppearance:", uintptr(send(class("NSAppearance"), "appearanceNamed:", uintptr(nsString(name)))))
+	})
+}
+
 // TestWebViewAttached reports whether a window's web view is in its view
 // hierarchy.
 func TestWebViewAttached(handle uintptr) bool {
@@ -441,8 +453,10 @@ var (
 // TestDropFiles drags files over (x, y), in points from the top-left
 // corner of a window's content, and drops them there, as Finder would:
 // it calls the surface's dragging methods with an NSDraggingInfo of its
-// own. It reports whether the surface took the files over that point and
-// whether it took the drop.
+// own, and puts on the pasteboard the file reference URLs of the files
+// that exist at those paths, with no symbolic links. It reports whether
+// the surface took the files over that point and whether it took the
+// drop.
 func TestDropFiles(handle uintptr, x, y float64, paths []string) (over, dropped bool) {
 	w := theBackend.byNSWindow[id(handle)]
 	if w == nil || w.surface == nil {
@@ -464,7 +478,11 @@ func TestDropFiles(handle uintptr, x, y float64, paths []string) (over, dropped 
 		send(testDragPB, "clearContents")
 		var urls []id
 		for _, p := range paths {
-			urls = append(urls, send(class("NSURL"), "fileURLWithPath:", uintptr(nsString(p))))
+			u := fileURL(p)
+			if ref := send(u, "fileReferenceURL"); ref != 0 && goString(send(send(ref, "filePathURL"), "path")) == p {
+				u = ref
+			}
+			urls = append(urls, u)
 		}
 		send(testDragPB, "writeObjects:", uintptr(nsArray(urls...)))
 		v := w.surface.view

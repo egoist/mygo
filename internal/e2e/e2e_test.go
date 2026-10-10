@@ -678,8 +678,9 @@ func TestFullScreenToolbar(t *testing.T) {
 	}
 }
 
-// AppKit lays the title bar out again when the title or the appearance
-// changes, which must not move the traffic lights back.
+// AppKit lays the title bar out again when the title or the appearance,
+// the application's or the window's own, changes, which must not move the
+// traffic lights back.
 func TestTrafficLightPosition(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 240, TitleBarStyle: mygo.TitleBarHidden,
 		TrafficLightPosition: &mygo.Point{X: 18, Y: 19}})
@@ -704,6 +705,8 @@ func TestTrafficLightPosition(t *testing.T) {
 		mygo.Theme.SetSource(mygo.ThemeDark)
 	}
 	placed("after the appearance changed")
+	setWindowAppearance(w, !mygo.Theme.IsDark())
+	placed("after the window took an appearance of its own")
 }
 
 // GTK gives frameless windows no resize borders, so the outer pixels of
@@ -2378,6 +2381,17 @@ func TestContentWindowFileDrop(t *testing.T) {
 	if e := events.Load(); e == nil || !slices.Equal(e.Paths, []string{"/tmp/c.txt"}) || e.X != 300 || e.Y != 250 {
 		t.Errorf("OnFileDrop got %+v", e)
 	}
+	// Finder drags file reference URLs (file:///.file/id=…), which reach
+	// the app as paths.
+	file := filepath.Join(t.TempDir(), "a b.txt")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, _ = filepath.EvalSymlinks(file)
+	if _, dropped, _ := dropFiles(w, 50, 50, []string{file}); !dropped {
+		t.Fatal("the drop zone did not take a file that exists")
+	}
+	eventually(t, "the path of the file in the zone", func() bool { return slices.Equal(got(), []string{file}) })
 }
 
 // accessNode is an element as assistive technology reads it.
