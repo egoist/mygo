@@ -16,15 +16,15 @@ import (
 	"github.com/egoist/mygo/internal/scene"
 )
 
-// Scene returns a 320×540 scene with fills, borders of every width and
+// Scene returns a 320×600 scene with fills, borders of every width and
 // dashed, gradients mixed in sRGB and Oklab, stripes, shadows, blurred or
-// not, and cut by the boxes casting them, nested rounded clips, glyphs from
+// not, and cut by the boxes casting them, inner shadows, nested rounded clips, glyphs from
 // both atlases and subpixel ones, plain and in gradients, with Direct2D's
 // gamma and contrast, images, in color and in gray, and effects, reading
 // their backdrop blurred at each size or not, over each other, clipped
 // and at the frame's edge, or reading none.
 func Scene() *scene.Scene {
-	s := &scene.Scene{Width: 320, Height: 540, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255},
+	s := &scene.Scene{Width: 320, Height: 600, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255},
 		Text: scene.TextParams{GammaRatios: scene.GammaRatios(1.8), Contrast: 1, SubpixelContrast: 0.5}}
 	mask := scene.NewAtlas(1, 64, 64)
 	color := scene.NewAtlas(4, 64, 32)
@@ -195,6 +195,17 @@ func Scene() *scene.Scene {
 	add(scene.Op{Kind: scene.OpPopClip})
 	effect(LensEffect, scene.Rect{X: 284, Y: 494, W: 50, H: 50}, r4(14), 6, 2, white, 0)
 	effect(TintEffect, scene.Rect{X: 250, Y: 420, W: 30, H: 30}, r4(8), 0, 0, scene.Color{R: 220, G: 40, B: 40, A: 160}, 0)
+
+	// Inner shadows: a hairline blurred along the edge of a dark card,
+	// offset and spread, without blur, and with no hole left.
+	inset := func(box scene.Rect, radius float32, hole scene.Rect, holeRadius float32, c scene.Color, blur float32) {
+		add(scene.Op{Kind: scene.OpFill, Rect: box, Radii: r4(radius), Color: scene.Color{R: 39, G: 39, B: 42, A: 255}})
+		add(scene.Op{Kind: scene.OpShadow, Inset: true, Rect: hole, Radii: r4(holeRadius), Color: c, Blur: blur, Cast: box, CastRadii: r4(radius)})
+	}
+	inset(scene.Rect{X: 10, Y: 548, W: 90, H: 44}, 10, scene.Rect{X: 10, Y: 548, W: 90, H: 44}, 10, scene.Color{R: 255, G: 255, B: 255, A: 120}, 2)
+	inset(scene.Rect{X: 110.5, Y: 548.25, W: 90, H: 44}, 14, scene.Rect{X: 117.5, Y: 556.25, W: 82, H: 36}, 10, yellow, 8)
+	inset(scene.Rect{X: 210, Y: 548, W: 50, H: 44}, 12, scene.Rect{X: 216, Y: 555, W: 38, H: 30}, 6, red, 0)
+	inset(scene.Rect{X: 270, Y: 548, W: 40, H: 44}, 20, scene.Rect{}, 0, blue, 6)
 	return s
 }
 

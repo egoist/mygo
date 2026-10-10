@@ -1756,7 +1756,8 @@ either.
   rectangles with borders of a width per side, solid or dashed, filled
   with a color, a linear gradient mixed in sRGB or Oklab, or stripes;
   shadows (blurred rounded rectangles, cut by the box casting them, as
-  CSS's box-shadow is); runs of glyphs, whose masks may take a gradient
+  CSS's box-shadow is, or inner ones, inside the box where the hole they
+  leave, blurred, does not cover it, as box-shadow: inset is); runs of glyphs, whose masks may take a gradient
   (paths drawn with one); images, in color or gray; effects
   (`OpEffect`); and pushed and popped clips. Renderers draw the whole
   scene each frame and retain only textures. Wavy underlines are stroked
