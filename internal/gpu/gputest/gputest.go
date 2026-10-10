@@ -18,11 +18,11 @@ import (
 
 // Scene returns a 320×600 scene with fills, borders of every width and
 // dashed, gradients mixed in sRGB and Oklab, stripes, shadows, blurred or
-// not, and cut by the boxes casting them, inner shadows, nested rounded clips, glyphs from
-// both atlases and subpixel ones, plain and in gradients, with Direct2D's
-// gamma and contrast, images, in color and in gray, and effects, reading
-// their backdrop blurred at each size or not, over each other, clipped
-// and at the frame's edge, or reading none.
+// not, and cut by the boxes casting them, inner shadows, nested rounded
+// clips, glyphs from both atlases and subpixel ones, plain and in
+// gradients, with Direct2D's gamma and contrast, images, in color and in
+// gray, and effects, reading their backdrop blurred at each size or not,
+// over each other, clipped and at the frame's edge, or reading none.
 func Scene() *scene.Scene {
 	s := &scene.Scene{Width: 320, Height: 600, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255},
 		Text: scene.TextParams{GammaRatios: scene.GammaRatios(1.8), Contrast: 1, SubpixelContrast: 0.5}}
@@ -270,10 +270,11 @@ func absInt(v int) int {
 
 // ContinuousScene returns a 320×70 scene with continuous corners, which
 // only the renderers of macOS draw (scene.Op.Continuous): a card with a
-// border and its shadow, a pill, a circle, which stays one, sides too short
-// for their corners' curves, a corner reaching past the middle of its
-// sides, a clip and an image, a shadow without blur, cut by the box
-// casting it, and an effect reading its backdrop.
+// border, its shadow and an inner one, a pill, a circle, which stays one,
+// sides too short for their corners' curves, one with an inner shadow
+// without blur, a corner reaching past the middle of its sides, a clip and
+// an image, a shadow without blur, cut by the box casting it, and an effect
+// reading its backdrop.
 func ContinuousScene() *scene.Scene {
 	s := &scene.Scene{Width: 320, Height: 70, Clear: scene.Color{R: 236, G: 238, B: 242, A: 255}}
 	pix := make([]byte, 8*8*4)
@@ -298,10 +299,15 @@ func ContinuousScene() *scene.Scene {
 		Cast: card, CastRadii: r4(14)})
 	add(scene.Op{Kind: scene.OpFill, Rect: card, Radii: r4(14), Color: scene.Color{R: 255, G: 255, B: 255, A: 255},
 		Border: scene.Uniform(2), BorderColor: blue})
+	pad, padRadii := scene.InnerRadii(card, r4(14), scene.Uniform(2))
+	add(scene.Op{Kind: scene.OpShadow, Inset: true, Rect: scene.Rect{X: pad.X + 3, Y: pad.Y + 5, W: pad.W - 2, H: pad.H - 2}, Radii: [4]float32{11, 11, 11, 11},
+		Color: scene.Color{R: 220, G: 40, B: 40, A: 160}, Blur: 8, Cast: pad, CastRadii: padRadii})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 88.5, Y: 10.25, W: 70, H: 22}, Radii: r4(999), Color: red, Color2: blue,
 		Paint: scene.PaintLinear, Gradient: [4]float32{88, 10, 158, 32}})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 88, Y: 38, W: 24, H: 24}, Radii: r4(12), Color: ink})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 118, Y: 38, W: 40, H: 24}, Radii: r4(10), Color: blue, Border: scene.Uniform(1), BorderColor: ink})
+	add(scene.Op{Kind: scene.OpShadow, Inset: true, Rect: scene.Rect{X: 120, Y: 41, W: 36, H: 20}, Radii: r4(8), Color: yellow,
+		Cast: scene.Rect{X: 119, Y: 39, W: 38, H: 22}, CastRadii: r4(9)})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 166.5, Y: 8.25, W: 40, H: 54}, Radii: [4]float32{26, 6, 0, 0}, Color: red})
 	add(scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 214, Y: 6, W: 50, H: 58}, Radii: r4(16)})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 204, Y: 0, W: 70, H: 70}, Color: yellow})

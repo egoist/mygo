@@ -84,9 +84,9 @@ type Instance struct {
 	// Params is the kind (0 fill, 1 shadow, 2 mask glyph, 3 color glyph, 4
 	// image, 5 subpixel glyph, 6 effect); 1 for a dashed border, a
 	// grayscale image or an inner shadow, whose box is in Rect and Radii
-	// and the hole it leaves in UV and Inner (none when empty); the shadow's sigma (0 for none), the paint
-	// (scene.Paint) or the size of the squares an effect's backdrop
-	// averages; and the opacity.
+	// and the hole it leaves in UV and Inner (none when empty); the
+	// shadow's sigma (0 for none), the paint (scene.Paint) or the size of
+	// the squares an effect's backdrop averages; and the opacity.
 	Params [4]float32
 }
 

@@ -969,7 +969,17 @@ func (r *renderer) insetShadow(op *scene.Op) {
 	if sigma < 0.5 || empty {
 		for y := y0; y < y1; y++ {
 			row := r.dst.Pix[y*r.dst.Stride:]
+			// Nothing shows where the hole covers the row's pixels
+			// entirely, as it does most of a large box.
+			var sl, sh int
+			if !empty {
+				sl, sh = solidSpan(&hole, float32(y), float32(y+1))
+			}
 			for x := x0; x < x1; x++ {
+				if x >= sl && x < sh {
+					x = sh - 1
+					continue
+				}
 				px, py := float32(x)+0.5, float32(y)+0.5
 				v := coverage(&box, px, py)
 				if !empty {
