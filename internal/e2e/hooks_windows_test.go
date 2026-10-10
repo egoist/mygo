@@ -27,6 +27,9 @@ func click(w *mygo.Window, x, y float64) (ok bool) {
 	return ok
 }
 
+// appClick is click: no event monitors to go through.
+func appClick(w *mygo.Window, x, y float64) bool { return click(w, x, y) }
+
 func sideButton(w *mygo.Window, back bool) (ok bool) {
 	mygo.RunOnMain(func() { ok = win.TestSideButton(w.NativeHandle(), back) })
 	return ok

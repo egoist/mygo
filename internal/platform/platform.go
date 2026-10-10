@@ -232,6 +232,12 @@ type WindowOptions struct {
 	Opacity              float64
 	Parent               Window
 	Modal                bool
+	// Flyout makes the window a flyout of its Parent, placed next to an
+	// anchor (Window.PlaceFlyout), at Width and Height: borderless,
+	// transparent, out of the taskbar, with Focusable telling whether it
+	// takes the keyboard. Show of a flyout that is not focusable shows it
+	// without the keyboard, as ShowInactive.
+	Flyout *Flyout
 
 	// UserScripts are injected into every page, in order.
 	UserScripts []UserScript
@@ -338,6 +344,11 @@ type Window interface {
 	// TitleBarDoubleClicked performs the platform action for a double click
 	// on a custom title bar (zoom/minimize on macOS).
 	TitleBarDoubleClicked()
+	// PlaceFlyout places a flyout (WindowOptions.Flyout) of the given
+	// size next to its anchor again, as Flyout.Place resolves it in the
+	// work area of a display, after the anchor, the size or the parent
+	// changed. It does nothing for other windows.
+	PlaceFlyout(f Flyout, size Size)
 	// Close destroys the window without asking WindowHandler.ShouldClose.
 	Close()
 

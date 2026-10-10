@@ -73,7 +73,14 @@ func TestEndSheet(handle uintptr) bool {
 
 // TestClick sends a left mouse down and up at a point of a window's content
 // (top-left origin, in points), like a user click.
-func TestClick(handle uintptr, x, y float64) {
+func TestClick(handle uintptr, x, y float64) { testClick(handle, x, y, false) }
+
+// TestAppClick is TestClick through the application's event queue, where
+// event monitors see the click as they see the user's, as those of
+// transient popovers that close on clicks elsewhere.
+func TestAppClick(handle uintptr, x, y float64) { testClick(handle, x, y, true) }
+
+func testClick(handle uintptr, x, y float64, viaApp bool) {
 	withPool(func() {
 		win := id(handle)
 		content := msgRect(send(win, "contentView"), sel("frame"))
@@ -82,7 +89,11 @@ func TestClick(handle uintptr, x, y float64) {
 		for _, typ := range []uint{1, 2} { // NSEventTypeLeftMouseDown, LeftMouseUp
 			ev := msgMouseEvent(class("NSEvent"), sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
 				typ, loc, 0, 0, number, 0, 0, 1, 1)
-			send(win, "sendEvent:", uintptr(ev))
+			if viaApp {
+				send(theBackend.app, "postEvent:atStart:", uintptr(ev), 0)
+			} else {
+				send(win, "sendEvent:", uintptr(ev))
+			}
 		}
 	})
 }

@@ -29,6 +29,12 @@ func click(w *mygo.Window, x, y float64) bool {
 	return true
 }
 
+// appClick clicks through the application, whose event monitors see it.
+func appClick(w *mygo.Window, x, y float64) bool {
+	mygo.RunOnMain(func() { darwin.TestAppClick(w.NativeHandle(), x, y) })
+	return true
+}
+
 func sideButton(w *mygo.Window, back bool) (ok bool) {
 	mygo.RunOnMain(func() { ok = darwin.TestSideButton(w.NativeHandle(), back) })
 	return ok
