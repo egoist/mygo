@@ -181,8 +181,8 @@ func (w *window) create() {
 	}
 	if w.trafficLights != nil {
 		w.layoutTrafficLights()
-		// Setting the window's own appearance lays its title bar out
-		// again, which the application's appearance doesn't tell of.
+		// The window's appearance changes with the application's, or when
+		// it is given its own; either lays the title bar out again.
 		send(w.win, "addObserver:forKeyPath:options:context:", uintptr(w.delegate), uintptr(nsString("effectiveAppearance")), 0, 0)
 	}
 
@@ -658,13 +658,6 @@ func (w *window) layoutTrafficLights() {
 	}
 }
 
-// layoutTrafficLights lays out the window buttons of every window.
-func (b *Backend) layoutTrafficLights() {
-	for _, w := range b.byNSWindow {
-		w.layoutTrafficLights()
-	}
-}
-
 // Navigation.
 
 func (w *window) LoadURL(url string) {
@@ -1130,7 +1123,8 @@ func registerWindowClasses() {
 				w.h.Message(goString(body))
 			}),
 
-			// Key-value observing of the page title.
+			// Key-value observing of the page title and the window's
+			// appearance.
 			method("observeValueForKeyPath:ofObject:change:context:", func(self id, _ objc.SEL, keyPath, object, change id, ctx uintptr) {
 				w := b().windowFor(self)
 				if w == nil {

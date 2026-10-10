@@ -184,7 +184,9 @@ func TestSetWindowAppearance(handle uintptr, dark bool) {
 	if dark {
 		name = "NSAppearanceNameDarkAqua"
 	}
-	send(id(handle), "setAppearance:", uintptr(send(class("NSAppearance"), "appearanceNamed:", uintptr(nsString(name)))))
+	withPool(func() {
+		send(id(handle), "setAppearance:", uintptr(send(class("NSAppearance"), "appearanceNamed:", uintptr(nsString(name)))))
+	})
 }
 
 // TestWebViewAttached reports whether a window's web view is in its view

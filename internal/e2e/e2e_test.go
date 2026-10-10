@@ -679,7 +679,8 @@ func TestFullScreenToolbar(t *testing.T) {
 }
 
 // AppKit lays the title bar out again when the title or the appearance,
-// the application's or the window's own, changes, which must not move the traffic lights back.
+// the application's or the window's own, changes, which must not move the
+// traffic lights back.
 func TestTrafficLightPosition(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 240, TitleBarStyle: mygo.TitleBarHidden,
 		TrafficLightPosition: &mygo.Point{X: 18, Y: 19}})
