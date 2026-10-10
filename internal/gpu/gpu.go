@@ -403,7 +403,7 @@ func (b *Builder) addHole(op *scene.Op) {
 	in := Instance{
 		Rect: rect(op.Rect), Radii: scene.Corners(op.Rect, op.Radii, op.Continuous),
 		Color: [4]float32{0, 0, 0, 1}, Clip: rect(cur.rect), ClipRadii: cur.radii,
-		Params: [4]float32{0, 0, float32(scene.PaintSolid), 1},
+		Params: [4]float32{0, 0, float32(scene.PaintSolid), opacity(op.Opacity)},
 	}
 	if n := len(b.Batches); n == 0 || !b.Batches[n-1].Hole || b.Batches[n-1].Scissor != cur.scissor {
 		b.Batches = append(b.Batches, Batch{Start: len(b.Instances), Scissor: cur.scissor, Hole: true})

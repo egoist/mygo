@@ -273,6 +273,18 @@ func observe(*mygo.Window) (func(), bool) { return nil, false }
 // composition the test makes up does not show.
 func pressKey(*mygo.Window, uint16, string) bool { return false }
 
+// X routes a drag to the window under the pointer, which
+// dropFiles, dropping on the content's, skips.
+func dragFiles(*mygo.Window, float64, float64, []string) (bool, bool) { return false, false }
+
+// pressTab presses Tab, with Shift when back, as the keyboard does.
+func pressTab(_ *mygo.Window, back bool) bool {
+	if back {
+		return pressKeys("Shift_L", "Tab")
+	}
+	return pressKeys("Tab")
+}
+
 // AppKit's older accessibility API is macOS's.
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 	return "", false, false, false

@@ -113,6 +113,80 @@ func TestWebViewHole(t *testing.T) {
 	}
 }
 
+// A translucent web view blends over what is painted under it: its hole
+// takes the opacity away from the pixels under it.
+func TestWebViewOpacity(t *testing.T) {
+	page := &testWebView{"page"}
+	tt := coreNewTester(func(c *context) {
+		c.Root().Background(RGB(255, 255, 255))
+		coreBox(c).Fill().Padding(20).Opacity(0.5).Children(func() {
+			coreWebView(c, page).Grow(1)
+		})
+	}, 200, 140)
+	o := tt.Image().PixOffset(100, 70)
+	if c := tt.Image().Pix[o : o+4]; c[3] < 126 || c[3] > 129 {
+		t.Errorf("the hole of a web view at half opacity is %v: want half the white under it", c)
+	}
+	if places := tt.rt.webPlaces; len(places) != 1 {
+		t.Errorf("placed %d web views: want the translucent one", len(places))
+	}
+}
+
+// Tab stops at a web view to give its page the keyboard, from its end
+// going back, and moves on from it as Tab leaves the page.
+func TestWebViewTab(t *testing.T) {
+	page := &testWebView{"page"}
+	var before, after string
+	tt := coreNewTester(func(c *context) {
+		coreBox(c).Fill().Children(func() {
+			coreTextInput(c, &before).Label("Before")
+			coreWebView(c, page).Height(100)
+			coreTextInput(c, &after).Label("After")
+		})
+	}, 200, 200)
+	label := func() string {
+		if s := tt.rt.states[tt.rt.focused]; s != nil && s.webView != nil {
+			return "web view"
+		}
+		for _, l := range []string{"Before", "After"} {
+			if tt.Focused(l) {
+				return l
+			}
+		}
+		return "nothing"
+	}
+	tt.Key(0, KeyTab)
+	if got := label(); got != "Before" {
+		t.Fatalf("Tab focused %q: want Before", got)
+	}
+	tt.Key(0, KeyTab)
+	if label() != "web view" || tt.h.tabbedInto != page || tt.h.tabbedBack {
+		t.Fatalf("Tab after Before focused %q and gave %v the keyboard (back %v): want the page", label(), tt.h.tabbedInto, tt.h.tabbedBack)
+	}
+	tt.rt.webViewTabOut(page, false)
+	tt.Frame()
+	if got := label(); got != "After" {
+		t.Errorf("Tab out of the page focused %q: want After", got)
+	}
+	tt.h.tabbedInto = nil
+	tt.Key(Shift, KeyTab)
+	if label() != "web view" || tt.h.tabbedInto != page || !tt.h.tabbedBack {
+		t.Fatalf("Shift+Tab from After focused %q and gave %v the keyboard (back %v): want the page, from its end", label(), tt.h.tabbedInto, tt.h.tabbedBack)
+	}
+	tt.rt.webViewTabOut(page, true)
+	tt.Frame()
+	if got := label(); got != "Before" {
+		t.Errorf("Shift+Tab out of the page focused %q: want Before", got)
+	}
+	// Clicked into, the page tabs out to what follows its element.
+	tt.rt.focused = 0
+	tt.rt.webViewTabOut(page, false)
+	tt.Frame()
+	if got := label(); got != "After" {
+		t.Errorf("Tab out of a page clicked into focused %q: want After", got)
+	}
+}
+
 // A web view in a scroll container shows the part of it in view, and none
 // once out of view or not built; a press on it takes the focus from the
 // content, and the page sets the cursor over it.

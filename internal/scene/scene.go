@@ -95,7 +95,9 @@ const (
 	// OpHole makes the rounded rectangle Rect with Radii transparent,
 	// within the clip: what the ops before it painted there is gone, and
 	// what the window shows under the frame, as a web view, shows through.
-	// The ops after it paint over it as over any transparent pixels.
+	// The ops after it paint over it as over any transparent pixels. Below
+	// full Opacity, what the ops before it painted fades by Opacity
+	// instead, so what shows through blends over it.
 	OpHole
 )
 

@@ -394,6 +394,10 @@ type WebView interface {
 	Page
 	// Focus gives the web view the keyboard.
 	Focus()
+	// TabInto gives the web view the keyboard as Tab does: at its page's
+	// first element taking the focus, or its last when back, as Shift+Tab
+	// does. Tab past the other end comes back as WebViewTabOut.
+	TabInto(back bool)
 	// SetBackgroundColor paints the web view before its page does.
 	SetBackgroundColor(c Color)
 	// Close destroys the web view; its handler hears no more of it.

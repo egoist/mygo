@@ -51,17 +51,19 @@ type window struct {
 	surface *surface
 	// webViews are the web views under the surface (webview_embed.go), and
 	// host the window whose surface a web view is under, which shows it
-	// through its composition controller comp, in the visual webVis inside
-	// clipVis, at frame clipped to clip while shown. focused tells that it
-	// has the keyboard, and cursor is the cursor its page wants.
-	webViews        []*window
-	host            *window
-	comp            uintptr
-	clipVis, webVis uintptr
-	frame, clip     platform.RectF
-	shown, focused  bool
-	cursor          uintptr
-	saved           struct {
+	// through its composition controller comp (comp3 its drag and drop,
+	// on runtimes having it; uia the provider of its page for UI
+	// Automation), in the visual webVis inside clipVis, at frame clipped
+	// to clip while shown. focused tells that it has the keyboard, and
+	// cursor is the cursor its page wants.
+	webViews         []*window
+	host             *window
+	comp, comp3, uia uintptr
+	clipVis, webVis  uintptr
+	frame, clip      platform.RectF
+	shown, focused   bool
+	cursor           uintptr
+	saved            struct {
 		style, exStyle uintptr
 		placement      windowPlacement
 	}

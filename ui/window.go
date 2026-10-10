@@ -101,8 +101,10 @@ type windowHost struct {
 	// shown tells that a frame was presented, which makes the window
 	// ready to show.
 	shown bool
-	// placed is where the surface shows the window's web views.
+	// placed is where the surface shows the window's web views, views
+	// the web views.
 	placed []platform.WebViewPlacement
+	views  []NativeWebView
 }
 
 func (h *windowHost) framePath() string { return h.path }
@@ -122,6 +124,12 @@ func (h *windowHost) event(ev platform.SurfaceEvent) bool {
 		}
 		h.gpuTried, h.retryAt = false, time.Time{}
 		h.conn.Surface.RequestFrame()
+		return false
+	}
+	if ev.Kind == platform.WebViewTabOut {
+		if i := slices.IndexFunc(h.placed, func(p platform.WebViewPlacement) bool { return p.WebView == ev.WebView }); i >= 0 {
+			h.rt.webViewTabOut(h.views[i], ev.Mods&platform.ModShift != 0)
+		}
 		return false
 	}
 	if ev.Kind == platform.SurfaceFrame {
@@ -493,9 +501,11 @@ func (h *windowHost) openURL(u string, done func(error)) {
 // views, unless it is where the last frame showed them.
 func (h *windowHost) placeWebViews(views []placedWebView) {
 	list := make([]platform.WebViewPlacement, 0, len(views))
+	natives := make([]NativeWebView, 0, len(views))
 	for _, v := range views {
 		if n := v.v.SurfaceWebView(h.conn); n != nil {
 			list = append(list, platform.WebViewPlacement{WebView: n, Frame: v.frame, Clip: v.clip, Covers: v.covers})
+			natives = append(natives, v.v)
 		}
 	}
 	if slices.EqualFunc(list, h.placed, func(a, b platform.WebViewPlacement) bool {
@@ -503,11 +513,21 @@ func (h *windowHost) placeWebViews(views []placedWebView) {
 	}) {
 		return
 	}
-	h.placed = list
+	h.placed, h.views = list, natives
 	if h.conn.PlaceWebViews != nil {
 		h.conn.PlaceWebViews(list)
 	} else {
 		h.conn.Surface.PlaceWebViews(list)
+	}
+}
+
+func (h *windowHost) platformWebView(v NativeWebView) platform.WebView {
+	return v.SurfaceWebView(h.conn)
+}
+
+func (h *windowHost) tabIntoWebView(v NativeWebView, back bool) {
+	if n := v.SurfaceWebView(h.conn); n != nil {
+		n.TabInto(back)
 	}
 }
 

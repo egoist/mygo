@@ -52,9 +52,11 @@ type window struct {
 	// surface shows the content MyGo draws, in place of the web view.
 	surface *surface
 	// webViews are the web views under the surface (webview.go), and host
-	// the window whose surface a web view is under.
-	webViews []*window
-	host     *window
+	// the window whose surface a web view is under; accessParent is the
+	// node of the content its page's accessible is in.
+	webViews     []*window
+	host         *window
+	accessParent ptr
 	// controls are the title buttons over the page of a window with a
 	// hidden title bar (titlebar.go), in an overlay with the web view.
 	controls *windowControls

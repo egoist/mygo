@@ -26,8 +26,11 @@ import (
 var (
 	procDCompositionCreateDevice2 = systemDLL("dcomp.dll").NewProc("DCompositionCreateDevice2")
 
-	iidICoreWebView2Environment3 = guid("80a22ae3-be7c-4ce2-afe1-5a50056cdeeb")
-	iidICoreWebView2Controller   = guid("4d00c0d1-9434-4eb6-8078-8697a560334f")
+	iidICoreWebView2Environment3           = guid("80a22ae3-be7c-4ce2-afe1-5a50056cdeeb")
+	iidICoreWebView2Controller             = guid("4d00c0d1-9434-4eb6-8078-8697a560334f")
+	iidICoreWebView2CompositionController2 = guid("0b6a3d24-49cb-4806-ba20-b5e0734a7b26")
+	iidICoreWebView2CompositionController3 = guid("9570570e-4d76-4361-9ee1-f04d0dbdfb1e")
+	iidICoreWebView2Environment4           = guid("20944379-6dcf-41d6-a0a0-abc0fc50de0d")
 )
 
 // Vtable indices, from WebView2.h and dcomp.h.
@@ -40,9 +43,26 @@ const (
 	compGetCursor           = 7
 	compAddCursorChanged    = 9
 
-	// ICoreWebView2Controller
-	ctlAddGotFocus  = 15
-	ctlAddLostFocus = 17
+	comp2GetAutomationProvider = 11 // ICoreWebView2CompositionController2
+
+	env4GetAutomationProviderForWindow = 11 // ICoreWebView2Environment4
+
+	// ICoreWebView2CompositionController3
+	comp3DragEnter = 12
+	comp3DragLeave = 13
+	comp3DragOver  = 14
+	comp3Drop      = 15
+
+	// ICoreWebView2Controller, and the arguments of MoveFocusRequested
+	ctlAddMoveFocusRequested = 13
+	ctlAddGotFocus           = 15
+	ctlAddLostFocus          = 17
+	moveFocusGetReason       = 3
+	moveFocusPutHandled      = 5
+
+	// COREWEBVIEW2_MOVE_FOCUS_REASON
+	moveFocusNext     = 1
+	moveFocusPrevious = 2
 
 	dcompVisualSetTransform = 8  // IDCompositionVisual: the overload taking a D2D_MATRIX_3X2_F
 	dcompVisualSetClip      = 14 // the overload taking a D2D_RECT_F
@@ -174,7 +194,68 @@ func (w *window) setUpEmbedded(comp uintptr) uintptr {
 	}, func(h uintptr) uintptr { return comCall(comp, compAddCursorChanged, h, tok) })
 	withHandler(func(_, _ uintptr) { w.focused = true }, func(h uintptr) uintptr { return comCall(controller, ctlAddGotFocus, h, tok) })
 	withHandler(func(_, _ uintptr) { w.focused = false }, func(h uintptr) uintptr { return comCall(controller, ctlAddLostFocus, h, tok) })
+	// Tab past the page's ends gives the content the keyboard, not the
+	// next window WebView2 would find.
+	withHandler(func(_, args uintptr) {
+		var reason int32
+		comCall(args, moveFocusGetReason, uintptr(unsafe.Pointer(&reason)))
+		comCall(args, moveFocusPutHandled, 1)
+		w.tabOut(reason == moveFocusPrevious)
+	}, func(h uintptr) uintptr { return comCall(controller, ctlAddMoveFocusRequested, h, tok) })
+	w.comp3 = queryInterface(comp, &iidICoreWebView2CompositionController3)
 	return controller
+}
+
+// TabInto gives the page the keyboard at its first element, or its last
+// going back.
+func (w *window) TabInto(back bool) {
+	if w.closed || w.controller == 0 || !w.shown {
+		return
+	}
+	reason := uintptr(moveFocusNext)
+	if back {
+		reason = moveFocusPrevious
+	}
+	comCall(w.controller, ctlMoveFocus, reason)
+}
+
+// tabOut gives the content the keyboard back as Tab leaves the page of the
+// web view w past its last element, or Shift+Tab past its first.
+func (w *window) tabOut(back bool) {
+	s := w.host.surface
+	if s == nil || w.host.closed {
+		return
+	}
+	procSetFocus.Call(s.hwnd)
+	ev := platform.SurfaceEvent{Kind: platform.WebViewTabOut, Key: platform.KeyTab, WebView: w}
+	if back {
+		ev.Mods = platform.ModShift
+	}
+	s.send(ev)
+}
+
+// automationProvider returns WebView2's UI Automation provider of the
+// page, which the window keeps a reference to, or 0.
+func (w *window) automationProvider() uintptr {
+	if w.uia == 0 && w.comp != 0 {
+		if comp2 := queryInterface(w.comp, &iidICoreWebView2CompositionController2); comp2 != 0 {
+			comCall(comp2, comp2GetAutomationProvider, uintptr(unsafe.Pointer(&w.uia)))
+			release(comp2)
+		}
+	}
+	return w.uia
+}
+
+// pagePoint converts a point of the screen, a POINTL as OLE passes it, to
+// the web view's pixels, as its composition controller takes them.
+func (w *window) pagePoint(pt uintptr) uintptr {
+	s := w.host.surface
+	p := point{int32(uint32(pt)), int32(uint32(pt >> 32))}
+	procScreenToClient.Call(s.hwnd, uintptr(unsafe.Pointer(&p)))
+	dpi := float64(s.dpi())
+	p.X -= int32(math.Round(w.frame.X * dpi / 96))
+	p.Y -= int32(math.Round(w.frame.Y * dpi / 96))
+	return uintptr(uint32(p.X)) | uintptr(uint32(p.Y))<<32
 }
 
 // PlaceWebViews shows the window's web views where the content shows
@@ -407,7 +488,9 @@ func (w *window) closeWebView() {
 		w.controller, w.webview, w.settings = 0, 0, 0
 	}
 	release(w.comp)
-	w.comp = 0
+	release(w.comp3)
+	release(w.uia)
+	w.comp, w.comp3, w.uia = 0, 0, 0
 	if s != nil {
 		if s.webHover == w {
 			s.webHover = nil

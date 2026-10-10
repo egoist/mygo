@@ -74,6 +74,9 @@ type window struct {
 	// pointerIn tells that the page of a web view has the pointer, where
 	// nothing the content painted covers it.
 	pointerIn bool
+	// accessParent is the element of the content showing a web view,
+	// which assistive technology finds its page in.
+	accessParent id
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
@@ -1001,9 +1004,23 @@ func (b *Backend) windowFor(delegate id) *window {
 }
 
 func registerWindowClasses() {
+	// WebKit moves the keyboard out of a page past its ends through the
+	// window's key view loop: a web view in native UI gives it back to
+	// the content.
+	selectKeyView := func(back bool) func(id, objc.SEL, id) {
+		return func(self id, cmd objc.SEL, view id) {
+			if w := webViewOf(view); w != nil && w.host != nil {
+				w.tabOut(back)
+				return
+			}
+			sendSuper(self, "MyGoWindow", cmd, uintptr(view))
+		}
+	}
 	classDef("MyGoWindow", "NSWindow", nil, []objc.MethodDef{
 		method("canBecomeKeyWindow", func(self id, _ objc.SEL) bool { return true }),
 		method("canBecomeMainWindow", func(self id, _ objc.SEL) bool { return true }),
+		method("selectKeyViewFollowingView:", selectKeyView(false)),
+		method("selectKeyViewPrecedingView:", selectKeyView(true)),
 	})
 
 	registerClipViewClass()

@@ -54,8 +54,12 @@ type headless struct {
 	dragData    transfer.Data
 	dragLocal   any
 	dragOptions transfer.DragOptions
-	// webViews are where the last frame showing web views showed them.
-	webViews []placedWebView
+	// webViews are where the last frame showing web views showed them;
+	// tabbedInto the web view Tab gave the keyboard last, from its end
+	// when tabbedBack.
+	webViews   []placedWebView
+	tabbedInto NativeWebView
+	tabbedBack bool
 }
 
 func (h *headless) size() (float32, float32, float32) { return h.w, h.h, h.scale }
@@ -126,6 +130,8 @@ func (h *headless) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
 func (h *headless) placeWebViews(views []placedWebView) {
 	h.webViews = append(h.webViews[:0], views...)
 }
+func (h *headless) tabIntoWebView(v NativeWebView, back bool)      { h.tabbedInto, h.tabbedBack = v, back }
+func (h *headless) platformWebView(NativeWebView) platform.WebView { return nil }
 func (h *headless) image() *image.RGBA {
 	m := &h.img.Image
 	return &image.RGBA{Pix: m.RGBA(), Stride: 4 * m.W, Rect: image.Rect(0, 0, m.W, m.H)}

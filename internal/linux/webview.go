@@ -6,6 +6,8 @@ import (
 	"math"
 	"slices"
 
+	"github.com/ebitengine/purego"
+
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -31,7 +33,12 @@ var (
 	cairoRegionSubtractRectangle     func(region ptr, r *gdkRectangle) int32
 	cairoRegionUnion                 func(region, other ptr) int32
 	cairoRegionDestroy               func(region ptr)
+	gtkWidgetEvent                   func(w, event ptr) bool
+	gtkContainerGetFocusChild        func(c ptr) ptr
 	webViewsLoaded                   bool
+
+	// cbWebViewFocus handles a web view's focus signal.
+	cbWebViewFocus ptr
 )
 
 func loadWebViews() {
@@ -49,6 +56,33 @@ func loadWebViews() {
 	mustBind(libCairo, &cairoRegionSubtractRectangle, "cairo_region_subtract_rectangle")
 	mustBind(libCairo, &cairoRegionUnion, "cairo_region_union")
 	mustBind(libCairo, &cairoRegionDestroy, "cairo_region_destroy")
+	mustBind(libGTK, &gtkWidgetEvent, "gtk_widget_event")
+	mustBind(libGTK, &gtkContainerGetFocusChild, "gtk_container_get_focus_child")
+	// GTK moves the keyboard with Tab through focus signals, which
+	// WebKit's Tab past the page's ends starts: the content takes the
+	// keyboard back, and GTK moving it into a page by itself, as a window
+	// shows, leaves it with the content.
+	cbWebViewFocus = purego.NewCallback(func(widget ptr, direction int32, data ptr) bool {
+		w := theBackend.window(data)
+		if w == nil || w.host == nil {
+			return false
+		}
+		const tabForward, tabBackward = 0, 1 // GtkDirectionType
+		switch {
+		case gtkWidgetHasFocus(w.web):
+			if direction == tabForward || direction == tabBackward {
+				w.tabOut(direction == tabBackward)
+				return true
+			}
+			return false
+		case gtkContainerGetFocusChild(w.web) != 0:
+			return false // a dialog of WebKit's in the view has the keyboard
+		}
+		if s := w.host.surface; s != nil {
+			gtkWidgetGrabFocus(s.area)
+		}
+		return true
+	})
 }
 
 func (s *surface) NewWebView(o *platform.WindowOptions, h platform.WindowHandler) (platform.WebView, error) {
@@ -65,6 +99,7 @@ func (s *surface) NewWebView(o *platform.WindowOptions, h platform.WindowHandler
 	v := &window{b: b, id: b.nextID, h: h, opts: o, win: host.win, host: host}
 	b.webViews[v.id] = v
 	v.createWebView()
+	connect(v.web, "focus", cbWebViewFocus, ptr(v.id))
 	gtkWidgetSetNoShowAll(v.web, true) // hidden until placed
 	gtkLayoutPut(s.web, v.web, 0, 0)
 	b.byWebView[v.web] = v
@@ -78,7 +113,7 @@ func (s *surface) makeLayers() {
 	area := s.area
 	parent := gtkWidgetGetParent(area)
 	focused := gtkWidgetHasFocus(area)
-	s.layers = gtkOverlayNew()
+	s.layers = newOverlay()
 	s.web = gtkLayoutNew(0, 0)
 	gtkContainerAdd(s.layers, s.web)
 	gObjectRef(area)
@@ -222,6 +257,40 @@ func (w *window) focusedWebView() *window {
 		}
 	}
 	return nil
+}
+
+// TabInto gives the web view the keyboard. WebKitGTK focuses no element
+// of the page as the view takes it: once the page let go of the one it
+// had, the Tab moving the focus here, passed on, focuses its first, or
+// its last going back.
+func (w *window) TabInto(back bool) {
+	s := w.host.surface
+	if w.closed || s == nil {
+		return
+	}
+	w.Eval("document.activeElement && document.activeElement.blur()")
+	gtkWidgetGrabFocus(w.web)
+	if ev := s.pressing; ev != 0 {
+		switch field[uint32](ev, 28) {
+		case 0xff09, 0xfe20, 0xff89: // GDK_KEY_Tab, ISO_Left_Tab, KP_Tab
+			gtkWidgetEvent(w.web, ev)
+		}
+	}
+}
+
+// tabOut gives the content the keyboard back as Tab leaves the page of the
+// web view w past its last element, or Shift+Tab past its first.
+func (w *window) tabOut(back bool) {
+	s := w.host.surface
+	if s == nil || w.host.closed {
+		return
+	}
+	gtkWidgetGrabFocus(s.area)
+	ev := platform.SurfaceEvent{Kind: platform.WebViewTabOut, Key: platform.KeyTab, WebView: w}
+	if back {
+		ev.Mods = platform.ModShift
+	}
+	s.send(ev)
 }
 
 // closeWebView closes a web view: by Close, or as its window closes.

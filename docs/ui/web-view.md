@@ -77,7 +77,9 @@ or a size. The page shows in the element's content box: inside its border
 and padding, which paint around it with the element's background, rounded
 as its `Radius` makes the border's inner edge. Scroll containers and clips
 around it cut it as they cut any element, rounded corners included, and a
-web view scrolled out of view hides.
+web view scrolled out of view hides. `Opacity` fades the page with the
+element, as a page of a `Router` fading in does: the page blends over what
+is painted under the element.
 
 ```go
 ui.WebView(c, app.preview).Height(320).Radius(12).Border(1, t.Border)
@@ -102,10 +104,19 @@ ui.WebView(c, app.page).Grow(1).Children(func() {
 The pointer goes to the page where it shows and nothing painted over it
 takes the pointer: a dialog's backdrop or a select's keeps the pointer
 from the page while open, a popover keeps it only over its panel, and an
-element with `PassThrough` lets it through. A press on the page closes the
-popovers it is outside of (`PressedOutside`), and takes the keyboard from
-the native UI, which gets it back as the user clicks it. The page sets the
-cursor over it.
+element with `PassThrough` lets it through. Files dragged there drop on
+the page. A press on the page closes the popovers it is outside of
+(`PressedOutside`), and takes the keyboard from the native UI, which gets
+it back as the user clicks it. The page sets the cursor over it.
+
+Tab stops at the web view among the native UI's controls: its page takes
+the keyboard at its first element, or its last with Shift+Tab, Tab moves
+through its elements, and past its last one goes on to the control after
+the web view. `Focus` gives the page the keyboard where it had it.
+
+Assistive technology finds the page inside the web view's element, where
+it is among the native UI: VoiceOver and Orca read and move through it as
+through the controls around it.
 
 ## Its page
 
@@ -128,16 +139,17 @@ The page's `window.close()` leaves the window open.
 
 ## Limits
 
+The page is the system's web view, which the window composites with the
+native UI; MyGo does not draw it. As with SwiftUI's `WebView`:
+
 - Effects reading what is behind them, as the glass plugin's blur, see
   none of the page: it is not part of the window's frames.
-- Opacity, transforms and a rounded clip other than the element's own and
-  its containers' do not apply to the page.
 - `Window.CapturePage` of the window shows a hole where the page is;
   `WebView.CapturePage` captures the page.
-- Tab moves the focus among the native UI's controls, not into the page;
-  `Focus` gives the page the keyboard.
-- Assistive technology reads the page apart from the native UI around it.
-- On Windows, files dropped on a page go to the native UI's drop targets.
+
+On Windows, WebView2 keeps the elements of a page it shows this way under
+a window of its own: Narrator finds the web view in place, and the page's
+elements in that window, not inside it.
 
 ## Testing
 

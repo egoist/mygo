@@ -801,6 +801,10 @@ func (r *renderer) hole(op *scene.Op) {
 	if op.Rect.Empty() {
 		return
 	}
+	opacity := op.Opacity
+	if opacity == 0 {
+		opacity = 1
+	}
 	shape := newShape(op.Rect, scene.Corners(op.Rect, op.Radii, op.Continuous))
 	x0, y0, x1, y1 := r.pixelBounds(op.Rect)
 	for y := y0; y < y1; y++ {
@@ -809,8 +813,12 @@ func (r *renderer) hole(op *scene.Op) {
 		cl, ch := r.clipSolid(y)
 		ol, oh := solidSpan(&shape, float32(y), float32(y+1))
 		sl, sh := max(ol, cl, x0), min(oh, ch, x1)
-		if sl < sh {
+		if sl < sh && opacity >= 1 {
 			clear(row[4*sl : 4*sh])
+		} else if sl < sh {
+			for x := sl; x < sh; x++ {
+				erase(row[4*x:4*x+4], opacity)
+			}
 		}
 		for x := x0; x < x1; x++ {
 			if x >= sl && x < sh {
@@ -825,7 +833,7 @@ func (r *renderer) hole(op *scene.Op) {
 				cov *= coverage(&shape, float32(x)+0.5, py)
 			}
 			if cov > 0 {
-				erase(row[4*x:4*x+4], cov)
+				erase(row[4*x:4*x+4], cov*opacity)
 			}
 		}
 	}

@@ -209,6 +209,11 @@ const (
 	// press and what follows: the content notes it, as popovers close for
 	// a press outside them, but handles none of it.
 	WebViewPress
+	// WebViewTabOut reports that Tab moved the keyboard out of WebView
+	// past its page's last element, or Shift+Tab (Mods) past its first:
+	// the surface has the keyboard again, and the content moves the focus
+	// on from the web view's element.
+	WebViewTabOut
 )
 
 // SurfaceEvent is input on a Surface, or a change of it.
@@ -240,6 +245,8 @@ type SurfaceEvent struct {
 	// ID and Action are AccessAction's.
 	ID     uint64
 	Action AccessActionKind
+	// WebView is WebViewTabOut's.
+	WebView WebView
 }
 
 // Modifiers are the modifier keys held during an event.

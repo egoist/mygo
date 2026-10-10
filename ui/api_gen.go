@@ -2110,8 +2110,9 @@ func View(view func(c *Context)) *Content {
 // that what paints after it shows over the page: its children, popovers,
 // menus, dialogs, tooltips and toasts. The page takes the pointer where
 // it shows and nothing painted over it takes it, and the keyboard once
-// clicked or focused (mygo.WebView.Focus). Its background and border paint
-// around the page, which its opacity does not fade.
+// clicked, focused (mygo.WebView.Focus) or tabbed into: Tab stops at the
+// element. Its background and border paint around the page, which its
+// opacity fades, and assistive technology finds the page inside it.
 func WebView(c *Context, v NativeWebView) Element {
 	_ctx := c.build()
 	if _ctx == nil {

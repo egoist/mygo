@@ -271,6 +271,29 @@ func choosePopupItem(label string) (ok bool) {
 // composition the test makes up does not show.
 func pressKey(*mygo.Window, uint16, string) bool { return false }
 
+// dragFiles drags files from another application to (x, y) of a window of
+// native UI and drops them, as OLE does, waiting for the target to answer.
+func dragFiles(w *mygo.Window, x, y float64, paths []string) (dropped, ok bool) {
+	mygo.RunOnMain(func() { dropped = win.TestDragFiles(w.NativeHandle(), x, y, paths) })
+	return dropped, true
+}
+
+// pressTab presses Tab, with Shift when back, on the keyboard, in the
+// window brought to the front.
+func pressTab(w *mygo.Window, back bool) (ok bool) {
+	mygo.RunOnMain(func() {
+		if ok = win.TestForeground(w.NativeHandle()); !ok {
+			return
+		}
+		if back {
+			win.TestPressKeys(0x10, 0x09) // VK_SHIFT, VK_TAB
+		} else {
+			win.TestPressKeys(0x09)
+		}
+	})
+	return ok
+}
+
 // AppKit's older accessibility API is macOS's.
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 	return "", false, false, false

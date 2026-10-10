@@ -118,6 +118,9 @@ func choosePopupItem(string) bool                    { return false }
 // themselves here (GTK's filtering, IMM32's VK_PROCESSKEY), which a
 // composition the test makes up does not show.
 func pressKey(*mygo.Window, uint16, string) bool { return false }
+func pressTab(*mygo.Window, bool) bool           { return false }
+
+func dragFiles(*mygo.Window, float64, float64, []string) (bool, bool) { return false, false }
 
 // AppKit's older accessibility API is macOS's.
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {

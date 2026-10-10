@@ -150,7 +150,10 @@ type surface struct {
 	input     platform.TextInputState
 	// lastKey is a copy of the last key press, which a context menu the
 	// key opens shows for.
-	lastKey      ptr
+	lastKey ptr
+	// pressing is the key press being handled, which the Tab moving the
+	// focus to a web view passes on to it (TabInto).
+	pressing     ptr
 	lastPointer  ptr
 	dragContext  ptr
 	dragRequest  *platform.DragRequest
@@ -768,6 +771,10 @@ func initSurfaceCallbacks() {
 		k := keyvalKey(field[uint32](event, 28))
 		if k == platform.KeyUnknown {
 			return false
+		}
+		if kind == platform.KeyPressed {
+			s.pressing = event
+			defer func() { s.pressing = 0 }()
 		}
 		s.send(platform.SurfaceEvent{Kind: kind, Key: k, Mods: gdkMods(field[uint32](event, 24))})
 		return true

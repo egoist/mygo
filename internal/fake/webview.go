@@ -10,10 +10,12 @@ type WebView struct {
 	host *Window
 
 	// Placement is where the content last showed the web view, while
-	// Shown; Focused tells that Focus gave it the keyboard since.
-	Placement platform.WebViewPlacement
-	Shown     bool
-	Focused   bool
+	// Shown; Focused tells that Focus or TabInto gave it the keyboard
+	// since, TabbedBack that TabInto did so going back.
+	Placement  platform.WebViewPlacement
+	Shown      bool
+	Focused    bool
+	TabbedBack bool
 }
 
 func (s *Surface) NewWebView(o *platform.WindowOptions, h platform.WindowHandler) (platform.WebView, error) {
@@ -103,6 +105,25 @@ func (v *WebView) Focus() {
 	v.mu.Lock()
 	v.Focused = true
 	v.mu.Unlock()
+}
+
+func (v *WebView) TabInto(back bool) {
+	v.mu.Lock()
+	v.Focused, v.TabbedBack = true, back
+	v.mu.Unlock()
+}
+
+// TabOut moves the keyboard out of the web view as Tab past its page's
+// last element does, or Shift+Tab past its first when back.
+func (v *WebView) TabOut(back bool) {
+	v.mu.Lock()
+	v.Focused = false
+	v.mu.Unlock()
+	ev := platform.SurfaceEvent{Kind: platform.WebViewTabOut, Key: platform.KeyTab, WebView: v}
+	if back {
+		ev.Mods = platform.ModShift
+	}
+	v.host.surface.Send(ev)
 }
 
 // Close closes the web view; its handler hears no more of it.

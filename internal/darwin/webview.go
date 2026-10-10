@@ -180,6 +180,51 @@ func (w *window) pressed(ev id, button int) {
 	}
 }
 
+// TabInto gives the web view the keyboard as the window's key view loop
+// does, which tells WebKit to focus the page's first element, or its last
+// going back: the web view follows the surface in the loop, or precedes
+// it.
+func (w *window) TabInto(back bool) {
+	s := w.host.surface
+	if w.closed || s == nil {
+		return
+	}
+	withPool(func() {
+		if back {
+			send(w.web, "setNextKeyView:", uintptr(s.view))
+			send(w.win, "selectKeyViewPrecedingView:", uintptr(s.view))
+		} else {
+			send(s.view, "setNextKeyView:", uintptr(w.web))
+			send(w.win, "selectKeyViewFollowingView:", uintptr(s.view))
+		}
+	})
+}
+
+// tabOut gives the content the keyboard back as Tab leaves the page of the
+// web view w past its last element, or Shift+Tab past its first.
+func (w *window) tabOut(back bool) {
+	s := w.host.surface
+	if s == nil || w.host.closed {
+		return
+	}
+	send(w.win, "makeFirstResponder:", uintptr(s.view))
+	ev := platform.SurfaceEvent{Kind: platform.WebViewTabOut, Key: platform.KeyTab, WebView: w}
+	if back {
+		ev.Mods = platform.ModShift
+	}
+	s.send(ev)
+}
+
+// webViewOf returns the web view that is view or holds it.
+func webViewOf(view id) *window {
+	for v := view; v != 0; v = send(v, "superview") {
+		if w := theBackend.byWebView[v]; w != nil {
+			return w
+		}
+	}
+	return nil
+}
+
 // closeWebView closes a web view: by Close, or as its window closes.
 func (w *window) closeWebView() {
 	if w.closed {
@@ -279,11 +324,20 @@ func webViewMethods() []objc.MethodDef {
 		method("mouseEntered:", moved),
 		method("mouseExited:", exited),
 		method("cursorUpdate:", moved),
+		method("accessibilityParent", func(self id, cmd objc.SEL) id {
+			if w := theBackend.byWebView[self]; w != nil && w.accessParent != 0 {
+				return w.accessParent
+			}
+			return sendSuper(self, "MyGoWebView", cmd)
+		}),
 	}
 }
 
 func registerClipViewClass() {
 	classDef("MyGoClipView", "NSView", nil, []objc.MethodDef{
 		method("isFlipped", func(self id, _ objc.SEL) bool { return true }),
+		// Assistive technology finds the page in the element of the
+		// content showing it, not beside the content.
+		method("accessibilityChildren", func(self id, _ objc.SEL) id { return nsArray() }),
 	})
 }

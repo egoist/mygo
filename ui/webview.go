@@ -31,12 +31,16 @@ type NativeWebView = surface.WebView
 // that what paints after it shows over the page: its children, popovers,
 // menus, dialogs, tooltips and toasts. The page takes the pointer where
 // it shows and nothing painted over it takes it, and the keyboard once
-// clicked or focused (mygo.WebView.Focus). Its background and border paint
-// around the page, which its opacity does not fade.
+// clicked, focused (mygo.WebView.Focus) or tabbed into: Tab stops at the
+// element. Its background and border paint around the page, which its
+// opacity fades, and assistive technology finds the page inside it.
 func coreWebView(c *context, v NativeWebView) *node {
 	e := c.newElement(kindBox)
 	e.webView = v
 	e.self = Stretch
+	// Tab stops at it to give its page the keyboard, which shows its
+	// own focus.
+	e.flags |= flagFocusable | flagOwnRing
 	return e
 }
 
@@ -161,6 +165,19 @@ func (rt *engine) webViewPress(x, y float32, button int) {
 	rt.requestFrame()
 }
 
+// webViewTabOut moves the focus on from the element showing v, whose page
+// Tab left past its last element, or Shift+Tab past its first when back.
+func (rt *engine) webViewTabOut(v NativeWebView, back bool) {
+	for _, id := range rt.focusOrder {
+		if s := rt.states[id]; s != nil && s.webView == v {
+			rt.focused = id
+			break
+		}
+	}
+	rt.moveFocus(back)
+	rt.requestFrame()
+}
+
 // overWebView reports whether the element under the pointer is a web
 // view, whose page has the cursor.
 func (rt *engine) overWebView() bool {
@@ -185,7 +202,8 @@ func (p *Painter) hole(e *node) {
 		radii[i] = abs32(radii[i])
 	}
 	r := p.snap(b)
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpHole, Rect: r, Radii: radii, Continuous: continuousCorners})
+	// Translucent, the page blends over what was painted under it.
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpHole, Rect: r, Radii: radii, Continuous: continuousCorners, Opacity: p.opacity})
 	if c := intersect(b, p.clip); c.W > 0 && c.H > 0 {
 		p.holes = append(p.holes, c)
 	}

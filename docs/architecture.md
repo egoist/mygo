@@ -1774,7 +1774,14 @@ either.
   (`cursorUnknown`), whose page sets it. Web views the frame does not build
   hide and keep their pages. Glyphs over a hole are not on an opaque
   background (`Painter.holes`), so that subpixel ones do not color the
-  page. Backends:
+  page. Below full opacity a hole takes only that much of what is under
+  it away (`OpHole`'s `Opacity`), so the page blends over it. The element
+  is a Tab stop: focusing it gives the page the keyboard
+  (`WebView.TabInto`, from its end going back), and Tab past the page's
+  ends comes back as `WebViewTabOut`, from which the focus moves on. The
+  access tree has a node for each page, inside its element
+  (`AccessNode.WebView`), which the backends fill with the page's own
+  accessibility, as SwiftUI's `WebView` is in place. Backends:
   - macOS: the WKWebView is in a flipped clip view (`MyGoClipView`, its
     layer masking to its bounds) placed at the clip, under the surface in
     the content view, in paint order; the Metal layer is not opaque, and
@@ -1786,7 +1793,12 @@ either.
     and as the pointer goes there from the page sends WebKit an exit
     outside the view, which WebKit takes as a move there, unhovering the
     page; WebKit sets its cursor only where `hitTest:` finds the web view,
-    and the surface sets none over a page.
+    and the surface sets none over a page. `TabInto` puts the web view
+    after (before) the surface in the window's key view loop and selects
+    it, so WebKit focuses the page's first (last) element; as Tab leaves
+    the page WebKit selects the next key view, which `MyGoWindow` turns
+    into `WebViewTabOut`. The page's node lists the WKWebView, whose
+    `accessibilityParent` is that node; the clip view lists none.
   - Linux: the first web view puts the surface's area in a `GtkOverlay`,
     over a `GtkLayout` holding the WebKitWebViews (which, unlike a
     `GtkFixed`, asks for no size), as an overlay, which GTK realizes again
@@ -1796,7 +1808,14 @@ either.
     shape on the overlay's window of the area
     (`gdk_window_input_shape_combine_region`) lets the pointer through to
     the pages, whose windows then set the cursor; a web view's own
-    `button-press-event` tells the content.
+    `button-press-event` tells the content. WebKitGTK focuses no element
+    as a view takes the focus, so `TabInto` blurs the page's and passes the
+    Tab being handled on to the view (`gtk_widget_event`); WebKit moves the
+    focus out as Tab leaves the page through GTK's `focus` signal, which
+    the view's handler turns into `WebViewTabOut`. The page's node lists
+    the view's accessible, an `AtkSocket` the web process's tree is
+    embedded in; the overlay is a subclass whose accessible lists the
+    surface's alone.
   - Windows: WebView2 in visual hosting, a composition controller
     (`ICoreWebView2Environment3`) whose visual is in a DirectComposition
     target of the surface's window that is not topmost (a window has one
@@ -1813,6 +1832,17 @@ either.
     press went to until the buttons are let go (with the capture), with a
     leave as the pointer goes; it sets the cursor the page asks for
     (`CursorChanged`), and a press moves the focus into the page.
+    `TabInto` is `MoveFocus` (next or previous), and `MoveFocusRequested`
+    becomes `WebViewTabOut`. The surface's drop target sends drags over a
+    page to its composition controller (`ICoreWebView2CompositionController3`'s
+    `DragEnter` and the others). For UI Automation the root also answers
+    `IRawElementProviderHwndOverride`: for the window WebView2 shows a page
+    with, it returns the page's node, which answers with WebView2's
+    provider of the page (`get_AutomationProvider`), as WinUI 3 does. That
+    provider has no children: the page's elements are under a top-level
+    window of WebView2's (`Chrome_WidgetWin_1`), which
+    `GetAutomationProviderForWindow` does not map to it, so UI Automation
+    finds them there (seen with a runtime of October 2026).
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;

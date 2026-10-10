@@ -1,6 +1,8 @@
 package e2e
 
 import (
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -82,4 +84,128 @@ func TestContentWindowWebView(t *testing.T) {
 	if !v.IsDestroyed() {
 		t.Error("Destroy left the web view")
 	}
+}
+
+// TestContentWindowWebViewTab tabs through a window of native UI with a
+// web view between two text inputs: Tab gives the page the keyboard at its
+// first element, moves among its elements, and past the last one goes back
+// to the native UI after the web view; Shift+Tab goes back through the
+// page from its last element.
+func TestContentWindowWebViewTab(t *testing.T) {
+	var view *mygo.WebView
+	var before, after string
+	var frames atomic.Int32
+	var native atomic.Value // the label of the input with the focus
+	w := newWindow(t, mygo.WindowOptions{Title: "Web view Tab", Width: 400, Height: 300, Content: ui.View(func(c *ui.Context) {
+		frames.Add(1)
+		focused := ""
+		ui.Column(c).Fill().AlignItems(ui.Stretch).Children(func() {
+			if ui.TextInput(c, &before).Label("Before").Focused() {
+				focused = "Before"
+			}
+			if view != nil {
+				ui.WebView(c, view).Grow(1)
+			}
+			if ui.TextInput(c, &after).Label("After").Focused() {
+				focused = "After"
+			}
+		})
+		native.Store(focused)
+	})})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	v, err := w.NewWebView(mygo.WebViewOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Update(func() { view = v })
+	v.Page().LoadHTML(`<input id=a> <input id=b><script>window.ready = true</script>`, "")
+	waitForPage(t, v.Page(), "window.ready")
+	w.Focus()
+	focused := func() string {
+		id, _ := mygo.EvalAs[string](v.Page(), "document.hasFocus() && document.activeElement ? document.activeElement.id : ''")
+		return id
+	}
+	nativeFocus := func() string {
+		w.Invalidate()
+		s, _ := native.Load().(string)
+		return s
+	}
+	tab := func(back bool) {
+		t.Helper()
+		if !pressTab(w, back) {
+			t.Skip("key automation not available on this platform")
+		}
+	}
+
+	tab(false)
+	eventually(t, "Tab to the input before the page", func() bool { return nativeFocus() == "Before" })
+	tab(false)
+	eventually(t, "Tab into the page's first input", func() bool { return focused() == "a" })
+	tab(false)
+	eventually(t, "Tab to the page's second input", func() bool { return focused() == "b" })
+	tab(false)
+	eventually(t, "Tab out of the page, to the input after it", func() bool { return focused() == "" && nativeFocus() == "After" })
+
+	tab(true)
+	eventually(t, "Shift+Tab into the page's last input", func() bool { return focused() == "b" })
+	tab(true)
+	eventually(t, "Shift+Tab to the page's first input", func() bool { return focused() == "a" })
+	tab(true)
+	eventually(t, "Shift+Tab out of the page, to the input before it", func() bool { return focused() == "" && nativeFocus() == "Before" })
+}
+
+// TestContentWindowWebViewDrop drops files on the page of a web view in a
+// window of native UI, which gets them as it would in a window of its own,
+// and beside it, where the native UI does.
+func TestContentWindowWebViewDrop(t *testing.T) {
+	var view *mygo.WebView
+	var zone []string
+	var frames atomic.Int32
+	w := newWindow(t, mygo.WindowOptions{Title: "Web view drop", Width: 400, Height: 300, Content: ui.View(func(c *ui.Context) {
+		frames.Add(1)
+		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+			if files := ui.Box(c).Width(100).Background(ui.RGB(200, 200, 200)).DroppedFiles(); files != nil {
+				zone = files
+			}
+			if view != nil {
+				ui.WebView(c, view).Grow(1)
+			}
+		})
+	})})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	v, err := w.NewWebView(mygo.WebViewOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Update(func() { view = v })
+	v.Page().LoadHTML(`<body style="margin:0;height:100vh"><script>
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", (e) => {
+	e.preventDefault();
+	window.dropped = [...e.dataTransfer.files].map((f) => f.name).join(",");
+});
+window.ready = true;
+</script></body>`, "")
+	waitForPage(t, v.Page(), "window.ready")
+	dir := t.TempDir()
+	file := filepath.Join(dir, "page.txt")
+	if err := os.WriteFile(file, []byte("page"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dropped, ok := dragFiles(w, 250, 150, []string{file})
+	if !ok {
+		t.Skip("drags routed by the window's drop target are Windows's")
+	}
+	if !dropped {
+		t.Error("the page did not take the drop")
+	}
+	waitForPage(t, v.Page(), "window.dropped === 'page.txt'")
+	if dropped, _ := dragFiles(w, 50, 150, []string{file}); !dropped {
+		t.Error("the native UI beside the page did not take the drop")
+	}
+	eventually(t, "the drop beside the page", func() bool {
+		var n int
+		w.Update(func() { n = len(zone) })
+		return n == 1
+	})
 }

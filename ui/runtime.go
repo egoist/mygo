@@ -51,6 +51,11 @@ type host interface {
 	// placeWebViews shows the web views where the frame shows them, and
 	// hides the others.
 	placeWebViews(views []placedWebView)
+	// tabIntoWebView gives the page of v the keyboard as Tab does, from
+	// its end when back (platform.WebView.TabInto).
+	tabIntoWebView(v NativeWebView, back bool)
+	// platformWebView returns the web view of the platform v is, if any.
+	platformWebView(v NativeWebView) platform.WebView
 }
 
 // engine runs the user interface of one window: it builds frames with

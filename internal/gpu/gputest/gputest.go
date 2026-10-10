@@ -146,6 +146,8 @@ func Scene() *scene.Scene {
 	add(scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 270, Y: 344, W: 34, H: 30}, Radii: r4(6), Color: scene.Color{A: 100}, Blur: 8})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 270, Y: 340, W: 34, H: 30}, Radii: r4(6), Color: scene.Color{R: 37, G: 99, B: 235, A: 140}})
 	add(scene.Op{Kind: scene.OpPopClip})
+	// A hole at half opacity, as a web view in a page fading in.
+	add(scene.Op{Kind: scene.OpHole, Rect: scene.Rect{X: 112.5, Y: 354.5, W: 60, H: 20}, Radii: r4(6), Opacity: 0.5})
 
 	// Subpixel glyphs, dark on white and light on dark, half transparent,
 	// in a gradient, and clipped; thin mask glyphs, dark and light.
