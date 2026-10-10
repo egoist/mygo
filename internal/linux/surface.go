@@ -777,8 +777,16 @@ func initSurfaceCallbacks() {
 		}
 		// A key the layout types no US key for, as S on a Cyrillic layout,
 		// still reaches shortcuts by its position.
-		if k == platform.KeyUnknown && !platform.KeyByPosition(k, physical, mods) {
-			return false
+		// A release is sent whatever the modifiers held now, so that a press
+		// sent as a chord is let go of even after Ctrl was.
+		if k == platform.KeyUnknown {
+			switch {
+			case kind == platform.KeyReleased && physical != platform.KeyUnknown:
+				s.send(platform.SurfaceEvent{Kind: kind, PhysicalKey: physical, Mods: mods})
+				return false
+			case !platform.KeyByPosition(k, physical, mods):
+				return false
+			}
 		}
 		if kind == platform.KeyPressed {
 			s.pressing = event

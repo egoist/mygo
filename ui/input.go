@@ -62,8 +62,13 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.modsChanged(Modifiers(ev.Mods))
 	case platform.KeyReleased:
 		rt.modsChanged(Modifiers(ev.Mods))
+		key, physical := Key(ev.Key), Key(ev.PhysicalKey)
+		if key == KeyUnknown && rt.byPosition[physical] {
+			key = physical
+		}
+		delete(rt.byPosition, physical)
 		if h := rt.focusHandler(); h != nil {
-			rt.deliver(h, InputEvent{Kind: InputKeyUp, Key: Key(ev.Key), PhysicalKey: Key(ev.PhysicalKey), Mods: Modifiers(ev.Mods)})
+			rt.deliver(h, InputEvent{Kind: InputKeyUp, Key: key, PhysicalKey: physical, Mods: Modifiers(ev.Mods)})
 		}
 	case platform.TextInput:
 		rt.editEvent(rt.replaced(editEvent{kind: editInsert, text: ev.Text}, ev))
@@ -528,7 +533,11 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 // A chord of a key the layout does not type as a US key, as S on a Cyrillic
 // layout, matches shortcuts by that position; plain typing is untouched.
 func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool) bool {
-	if key == KeyUnknown && physical != KeyUnknown && mods&(Ctrl|Alt|Super) != 0 {
+	if platform.KeyByPosition(platform.Key(key), platform.Key(physical), platform.Modifiers(mods)) {
+		if rt.byPosition == nil {
+			rt.byPosition = map[Key]bool{}
+		}
+		rt.byPosition[physical] = true
 		key = physical
 	}
 	if rt.inspectKey(mods, key) {

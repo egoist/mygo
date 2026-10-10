@@ -44,3 +44,37 @@ func TestPhysicalKeyKeepsCyrillicTyping(t *testing.T) {
 func platformKeyEvent(key, physical Key) platform.SurfaceEvent {
 	return platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(key), PhysicalKey: platform.Key(physical)}
 }
+
+func TestPhysicalKeyReleaseMatchesItsPress(t *testing.T) {
+	type keyEv struct {
+		kind InputKind
+		key  Key
+	}
+	var got []keyEv
+	tt := coreNewTester(func(c *context) {
+		coreBox(c).Size(100, 100).Focusable().Label("Terminal").AutoFocus().HandleInput(func(ev InputEvent) bool {
+			if ev.Kind == InputKeyDown || ev.Kind == InputKeyUp {
+				got = append(got, keyEv{ev.Kind, ev.Key})
+			}
+			return true
+		})
+	}, 200, 100)
+	press := func(kind platform.SurfaceEventKind, mods platform.Modifiers) {
+		tt.send(platform.SurfaceEvent{Kind: kind, PhysicalKey: platform.KeyS, Mods: mods})
+	}
+	// Ctrl+ы, then Ctrl is let go of first: the release still stands for S.
+	press(platform.KeyPressed, platform.ModCtrl)
+	press(platform.KeyReleased, 0)
+	// Plain typing of ы: the release is not turned into S.
+	press(platform.KeyPressed, 0)
+	press(platform.KeyReleased, 0)
+	want := []keyEv{{InputKeyDown, KeyS}, {InputKeyUp, KeyS}, {InputKeyDown, KeyUnknown}, {InputKeyUp, KeyUnknown}}
+	if len(got) != len(want) {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("events = %v, want %v", got, want)
+		}
+	}
+}

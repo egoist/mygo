@@ -556,7 +556,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		if modifierKey(wp) {
 			s.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: mods()})
 		}
-		if k, physical, ok := keyAndPosition(wp, lp); ok {
+		if k, physical, ok := keyAndPosition(wp, lp, false); ok {
 			s.keyTaken = s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, PhysicalKey: physical, Mods: mods(), Repeat: lp&(1<<30) != 0})
 		}
 		// Alt+F4, Alt+Space and F10 keep working.
@@ -565,7 +565,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		if modifierKey(wp) {
 			s.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: mods()})
 		}
-		if k, physical, ok := keyAndPosition(wp, lp); ok {
+		if k, physical, ok := keyAndPosition(wp, lp, true); ok {
 			s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k, PhysicalKey: physical, Mods: mods()})
 		}
 		return 0, m == wmKeyUp
@@ -671,23 +671,30 @@ func wheelLines() int {
 	return surfaceWheelLines
 }
 
-// vkKey maps a virtual key code to a key.
 // keyAndPosition returns the key of a WM_KEYDOWN or WM_KEYUP by virtual
 // key, and by position (the scancode in lp). ok is false for a key to leave
 // out: one the layout types no US key for, unless a shortcut modifier is
-// held and the position is a US key, as S on a Cyrillic layout.
-func keyAndPosition(vk, lp uintptr) (k, physical platform.Key, ok bool) {
+// held and the position is a US key, as S on a Cyrillic layout. A release
+// is sent whatever the modifiers held now, so that a press sent as a chord
+// is let go of even after Ctrl was.
+func keyAndPosition(vk, lp uintptr, release bool) (k, physical platform.Key, ok bool) {
 	k = vkKey(vk)
+	// An input method (VK_PROCESSKEY) or injected Unicode text (VK_PACKET)
+	// keeps the key from the application: the scancode is not a shortcut.
+	if vk == vkProcessKey || vk == vkPacket {
+		return k, platform.KeyUnknown, k != platform.KeyUnknown
+	}
 	// Bit 24 is the extended flag: the keypad's slash shares the code of /.
 	if lp&(1<<24) == 0 {
 		physical = platform.KeyForScancode(uint16(lp >> 16 & 0xFF))
 	}
-	if k == platform.KeyUnknown && !platform.KeyByPosition(k, physical, mods()) {
+	if k == platform.KeyUnknown && !(release && physical != platform.KeyUnknown) && !platform.KeyByPosition(k, physical, mods()) {
 		return k, physical, false
 	}
 	return k, physical, true
 }
 
+// vkKey maps a virtual key code to the key it stands for.
 func vkKey(vk uintptr) platform.Key {
 	switch {
 	case vk >= 'A' && vk <= 'Z':
