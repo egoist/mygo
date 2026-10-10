@@ -24,7 +24,9 @@ type Backend struct {
 
 	windows   map[int]*window
 	byWebView map[ptr]*window
-	nextID    int
+	// webViews are the web views under surfaces (webview.go), by id.
+	webViews map[int]*window
+	nextID   int
 
 	appMenu    *platform.Menu
 	schemes    map[string]bool
@@ -64,6 +66,7 @@ func New() *Backend {
 	return &Backend{
 		windows:   map[int]*window{},
 		byWebView: map[ptr]*window{},
+		webViews:  map[int]*window{},
 		schemes:   map[string]bool{},
 		trays:     map[int]*tray{},
 	}

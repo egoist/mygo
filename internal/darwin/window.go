@@ -66,6 +66,17 @@ type window struct {
 	trafficLights *platform.Point
 	// surface shows the content MyGo draws, in place of the web view.
 	surface *surface
+	// webViews are the web views under the surface (webview.go), and host
+	// the window whose surface a web view is under, in the clip view clip.
+	webViews []*window
+	host     *window
+	clip     id
+	// pointerIn tells that the page of a web view has the pointer, where
+	// nothing the content painted covers it.
+	pointerIn bool
+	// accessParent is the element of the content showing a web view,
+	// which assistive technology finds its page in.
+	accessParent id
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
@@ -273,6 +284,7 @@ func (w *window) cleanup() {
 	if w.closed {
 		return
 	}
+	w.closeWebViews()
 	w.closed = true
 	b := w.b
 	send(w.web, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("title")))
@@ -428,6 +440,12 @@ func (w *window) Hide() {
 func (w *window) IsVisible() bool { return sendBool(w.win, "isVisible") }
 
 func (w *window) Focus() {
+	if w.host != nil {
+		if !w.closed {
+			send(w.win, "makeFirstResponder:", uintptr(w.web))
+		}
+		return
+	}
 	send(w.win, "makeKeyAndOrderFront:", 0)
 	send(w.b.app, "activateIgnoringOtherApps:", 1)
 }
@@ -468,7 +486,12 @@ func (w *window) Center()            { send(w.win, "center") }
 
 func (w *window) SetBackgroundColor(c platform.Color) {
 	withPool(func() {
-		send(w.win, "setBackgroundColor:", uintptr(nsColor(c)))
+		if w.host != nil {
+			// A web view's window is its host's.
+			w.clipBackground(c)
+		} else {
+			send(w.win, "setBackgroundColor:", uintptr(nsColor(c)))
+		}
 		send(w.web, "setValue:forKey:", uintptr(nsBool(false)), uintptr(nsString("drawsBackground")))
 		if respondsTo(w.web, "setUnderPageBackgroundColor:") {
 			send(w.web, "setUnderPageBackgroundColor:", uintptr(nsColor(c)))
@@ -614,6 +637,10 @@ func (w *window) TitleBarDoubleClicked() {
 }
 
 func (w *window) Close() {
+	if w.host != nil {
+		w.closeWebView()
+		return
+	}
 	if w.closed {
 		return
 	}
@@ -977,14 +1004,34 @@ func (b *Backend) windowFor(delegate id) *window {
 }
 
 func registerWindowClasses() {
+	// WebKit moves the keyboard out of a page past its ends through the
+	// window's key view loop: a web view in native UI gives it back to
+	// the content.
+	selectKeyView := func(back bool) func(id, objc.SEL, id) {
+		return func(self id, cmd objc.SEL, view id) {
+			if w := webViewOf(view); w != nil && w.host != nil {
+				w.tabOut(back)
+				return
+			}
+			sendSuper(self, "MyGoWindow", cmd, uintptr(view))
+		}
+	}
 	classDef("MyGoWindow", "NSWindow", nil, []objc.MethodDef{
 		method("canBecomeKeyWindow", func(self id, _ objc.SEL) bool { return true }),
 		method("canBecomeMainWindow", func(self id, _ objc.SEL) bool { return true }),
+		method("selectKeyViewFollowingView:", selectKeyView(false)),
+		method("selectKeyViewPrecedingView:", selectKeyView(true)),
 	})
 
-	classDef("MyGoWebView", "WKWebView", nil, []objc.MethodDef{
+	registerClipViewClass()
+	classDef("MyGoWebView", "WKWebView", nil, append(webViewMethods(), []objc.MethodDef{
 		method("mouseDown:", func(self id, cmd objc.SEL, ev id) {
 			if w := theBackend.byWebView[self]; w != nil {
+				if w.host != nil {
+					w.pressed(ev, 0)
+				}
+				// A web view's page drags the window it is in (StartDrag).
+				w = w.top()
 				release(w.lastMouseDown)
 				w.lastMouseDown = retain(ev)
 			}
@@ -998,7 +1045,7 @@ func registerWindowClasses() {
 			}
 			return byte(sendSuper(self, "MyGoWebView", cmd, uintptr(info))) != 0
 		}),
-	})
+	}...))
 
 	b := func() *Backend { return theBackend }
 	classDef("MyGoWindowDelegate", "NSObject",

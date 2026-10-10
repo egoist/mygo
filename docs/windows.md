@@ -359,7 +359,8 @@ of a page control its inspector, when it has one, see
   the focused one and `mygo.WindowByID(id)` the one with an `ID()`, which
   pages know as `runtime().windowId`.
 - `mygo.CallerWindow(ctx)` returns the window whose page called a bound
-  method.
+  method, and `mygo.CallerPage(ctx)` the page: the window's, or that of a
+  web view in a window of native UI ([Web view](ui/web-view.md)).
 - `mygo.App.OnWindowCreated` is called for every new window.
 
 ## Native access

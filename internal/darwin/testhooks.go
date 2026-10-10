@@ -373,18 +373,28 @@ func TestClickAndType(handle uintptr, x, y float64, text string) bool {
 
 // TestKey presses and releases the key of virtual key code code, typing
 // chars, in a window showing native UI, as the keyboard does: the events
-// go through the window to its surface, and the input method.
+// go through the window to its first responder, the surface and its input
+// method or a web view.
 func TestKey(handle uintptr, code uint16, chars string) bool {
+	return TestKeyShift(handle, code, chars, false)
+}
+
+// TestKeyShift is TestKey with Shift held when shift is set.
+func TestKeyShift(handle uintptr, code uint16, chars string, shift bool) bool {
 	w := theBackend.byNSWindow[id(handle)]
 	if w == nil || w.surface == nil {
 		return false
+	}
+	var flags uint
+	if shift {
+		flags = 1 << 17 // NSEventModifierFlagShift
 	}
 	withPool(func() {
 		number := sendInt(w.win, "windowNumber")
 		s := nsString(chars)
 		for _, typ := range []uint{10, 11} { // NSEventTypeKeyDown, KeyUp
 			ev := msgKeyEvent(class("NSEvent"), sel("keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"),
-				typ, NSPoint{}, 0, 0, number, 0, s, s, false, code)
+				typ, NSPoint{}, flags, 0, number, 0, s, s, false, code)
 			send(w.win, "sendEvent:", uintptr(ev))
 		}
 	})

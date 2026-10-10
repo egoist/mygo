@@ -46,6 +46,7 @@ framework safely. Read it before changing anything under `internal/`.
 ├── window.go           Window: the native window, its options, state and events
 ├── page.go             Page: the web page a window shows, its loading, Eval and events
 ├── content.go          Content: windows showing native UI instead of a page
+├── webview.go          WebView: web pages in windows of native UI, under it
 ├── ipc.go              Bind/BindAs, method calls, Event[T], CallerWindow
 ├── plugin.go           Plugin and Use: services bound as "plugin:<name>"
 ├── channel.go          Channel[T]: values streamed to a call's page
@@ -97,7 +98,8 @@ framework safely. Read it before changing anything under `internal/`.
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native; counter-native, vibrancy,
-│                       effort-slider and gallery (native UI)
+│                       effort-slider and gallery (native UI); webview (web
+│                       views in native UI)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -1739,11 +1741,108 @@ either.
   the other way along the target, where that leaves the window less, and
   moves along the target into the window (`alongTarget`). Popovers have no
   backdrop: the engine notes what each press went down on (`downs`, for a
-  pass), and `PressedOutside` walks from there through parents, and from a
-  popover to its anchor, which keeps presses in popovers of elements inside
-  the panel, and on its anchor, inside it, as the press goes on to what is
-  under it. A select's popup keeps a backdrop taking the presses outside,
+  pass), and `PressedOutside` walks from the last through parents, and from
+  a popover to its anchor, which keeps presses in popovers of elements
+  inside the panel, and on its anchor, inside it, as the press goes on to
+  what is under it; a press on the anchor after one elsewhere in the same
+  pass, as on a web view's page, leaves open the popover it opens. A select's popup keeps a backdrop taking the presses outside,
   as the system's pop-up menus do.
+- **Web views** (`webview.go`, `ui/webview.go`, `webview.go` of each
+  backend). `Window.NewWebView` makes a web view of a window showing
+  `Content`, whose page lives in a `Window` of its own that no list holds,
+  with `host` set: calls, channels, events, `Eval`, custom schemes,
+  downloads and permissions go through the code of windows' pages
+  unchanged, `CallerWindow` returns the host, `CallerPage` the page, and
+  the bridge has the host's id, so the window controls of the page act on
+  it. Its native side (`webViewNative`) takes page methods from the
+  backend's `platform.WebView` and window methods from the host's, which
+  drag regions use. `ui.WebView` places it: committing a frame notes where
+  each web view's element shows (`noteWebView`: its content box on whole
+  pixels, clipped as its hits are), and painting it makes a hole
+  (`OpHole`) through what the window painted, rounded as the border's
+  inner edge and cut by the clips around it, so that what paints after
+  the element paints over the page. The native web view is under the
+  surface, which shows it through its transparent frames; what shows over
+  it blends with it as over any pixels. After presenting a frame, the
+  engine gives the surface each web view's frame and clip and the boxes
+  of the hits after its own within its clip (`Covers`): the pointer is the
+  page's where it shows and nothing painted over it takes the pointer
+  (`WebViewPlacement.At`), as a dialog's backdrop does over all of it. A
+  press there goes to the page and comes to the content as `WebViewPress`,
+  which notes it for `PressedOutside` and takes the focus from the
+  content; the engine sets no cursor while the pointer is over a web view
+  (`cursorUnknown`), whose page sets it. Web views the frame does not build
+  hide and keep their pages. Glyphs over a hole are not on an opaque
+  background (`Painter.holes`), so that subpixel ones do not color the
+  page. Below full opacity a hole takes only that much of what is under
+  it away (`OpHole`'s `Opacity`), so the page blends over it. The element
+  is a Tab stop: focusing it gives the page the keyboard
+  (`WebView.TabInto`, from its end going back), and Tab past the page's
+  ends comes back as `WebViewTabOut`, from which the focus moves on. The
+  access tree has a node for each page, inside its element
+  (`AccessNode.WebView`), which the backends fill with the page's own
+  accessibility, as SwiftUI's `WebView` is in place. Backends:
+  - macOS: the WKWebView is in a flipped clip view (`MyGoClipView`, its
+    layer masking to its bounds) placed at the clip, under the surface in
+    the content view, in paint order; the Metal layer is not opaque, and
+    frames drawn in memory have their alpha. The surface's `hitTest:`
+    returns nil where a web view takes the pointer, so AppKit finds the
+    page under it. A web view's tracking areas get the mouse's moves
+    wherever its frame is: `MyGoWebView` drops `mouseMoved:`,
+    `mouseEntered:` and `cursorUpdate:` where the content painted over it,
+    and as the pointer goes there from the page sends WebKit an exit
+    outside the view, which WebKit takes as a move there, unhovering the
+    page; WebKit sets its cursor only where `hitTest:` finds the web view,
+    and the surface sets none over a page. `TabInto` puts the web view
+    after (before) the surface in the window's key view loop and selects
+    it, so WebKit focuses the page's first (last) element; as Tab leaves
+    the page WebKit selects the next key view, which `MyGoWindow` turns
+    into `WebViewTabOut`. The page's node lists the WKWebView, whose
+    `accessibilityParent` is that node; the clip view lists none.
+  - Linux: the first web view puts the surface's area in a `GtkOverlay`,
+    over a `GtkLayout` holding the WebKitWebViews (which, unlike a
+    `GtkFixed`, asks for no size), as an overlay, which GTK realizes again
+    with a new GL context (the GL renderer makes its objects again). The
+    GtkGLArea has an alpha channel from then on, and frames drawn in
+    memory paint over the web views (`CAIRO_OPERATOR_OVER`). An input
+    shape on the overlay's window of the area
+    (`gdk_window_input_shape_combine_region`) lets the pointer through to
+    the pages, whose windows then set the cursor; a web view's own
+    `button-press-event` tells the content. WebKitGTK focuses no element
+    as a view takes the focus, so `TabInto` blurs the page's and passes the
+    Tab being handled on to the view (`gtk_widget_event`); WebKit moves the
+    focus out as Tab leaves the page through GTK's `focus` signal, which
+    the view's handler turns into `WebViewTabOut`. The page's node lists
+    the view's accessible, an `AtkSocket` the web process's tree is
+    embedded in; the overlay is a subclass whose accessible lists the
+    surface's alone.
+  - Windows: WebView2 in visual hosting, a composition controller
+    (`ICoreWebView2Environment3`) whose visual is in a DirectComposition
+    target of the surface's window that is not topmost (a window has one
+    of each), on a device of its own without a rendering device
+    (`DCompositionCreateDevice2`): the surface's frames, in the topmost
+    target, are over it. The surface composes its frames from its first
+    web view on, as in a window without a redirection bitmap: it sends
+    `SurfaceRenew`, and the content makes its renderer again for a swap
+    chain for composition, or shows frames drawn in memory through the
+    compositor; GDI would draw under the web views. Each web view's
+    visual is in one clipped to its clip, the page at its bounds in the
+    surface's pixels. The surface gets the mouse everywhere and sends it on
+    (`SendMouseInput`) where a web view takes the pointer, or to the one a
+    press went to until the buttons are let go (with the capture), with a
+    leave as the pointer goes; it sets the cursor the page asks for
+    (`CursorChanged`), and a press moves the focus into the page.
+    `TabInto` is `MoveFocus` (next or previous), and `MoveFocusRequested`
+    becomes `WebViewTabOut`. The surface's drop target sends drags over a
+    page to its composition controller (`ICoreWebView2CompositionController3`'s
+    `DragEnter` and the others). For UI Automation the root also answers
+    `IRawElementProviderHwndOverride`: for the window WebView2 shows a page
+    with, it returns the page's node, which answers with WebView2's
+    provider of the page (`get_AutomationProvider`), as WinUI 3 does. That
+    provider has no children: the page's elements are under a top-level
+    window of WebView2's (`Chrome_WidgetWin_1`), which
+    `GetAutomationProviderForWindow` does not map to it, so UI Automation
+    finds them there (seen with a runtime of October 2026).
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;
@@ -1759,7 +1858,9 @@ either.
   CSS's box-shadow is, or inner ones, inside the box where the hole they
   leave, blurred, does not cover it, as box-shadow: inset is); runs of
   glyphs, whose masks may take a gradient (paths drawn with one); images,
-  in color or gray; effects (`OpEffect`); and pushed and popped clips.
+  in color or gray; effects (`OpEffect`); holes (`OpHole`), rounded
+  rectangles made transparent, what was painted there gone, for web
+  views; and pushed and popped clips.
   Renderers draw the whole scene each frame and retain only textures.
   Wavy underlines are stroked paths.
 - **Effects** (`scene.Effect`) are drawings that packages outside the
@@ -1966,7 +2067,9 @@ either.
   renderers blend with it (dual-source blending): it is the color's alpha
   but for subpixel glyphs, whose subpixels cover each channel by its own.
   OpenGL ES without `EXT_blend_func_extended` blends the mean of their
-  subpixels instead. Every GPU renderer draws these instances:
+  subpixels instead. A hole is an opaque fill in a batch of its own
+  (`Batch.Hole`), blended with a source factor of zero: the destination
+  keeps one minus its coverage, as the CPU renderer's `erase` does. Every GPU renderer draws these instances:
   - `internal/gpu/d3d11` with a shader compiled to DXBC ahead of time
     (on Windows, with the system's `d3dcompiler_47.dll`), so apps carry no shader compiler. The
     generated file records the SHA-256 of the source it came from, line
@@ -2613,3 +2716,4 @@ which npm allows only for packages that exist: the first release uses an
 | native UI data drags | NSDraggingSession, NSPasteboardItemDataProvider, NSDraggingDestination | GTK drag contexts, MIME selections, text/uri-list | OLE IDataObject, IDropSource, IDropTarget, Shell drag images |
 | native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |
 | native UI rendering | Metal, into a CAMetalLayer presenting with the Core Animation transaction | OpenGL 3.3 or ES 3.0 in the GtkGLArea's render signal; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain |
+| web views in native UI | WKWebView in a clip view under the surface; `hitTest:` lets the pointer through | WebKitWebView in a `GtkLayout` under the area in a `GtkOverlay`; an input shape lets the pointer through | WebView2 composition controller in a DirectComposition target under the frames'; the surface sends it the mouse |

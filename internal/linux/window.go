@@ -51,6 +51,12 @@ type window struct {
 	autoHideMenu, altAlone bool
 	// surface shows the content MyGo draws, in place of the web view.
 	surface *surface
+	// webViews are the web views under the surface (webview.go), and host
+	// the window whose surface a web view is under; accessParent is the
+	// node of the content its page's accessible is in.
+	webViews     []*window
+	host         *window
+	accessParent ptr
 	// controls are the title buttons over the page of a window with a
 	// hidden title bar (titlebar.go), in an overlay with the web view.
 	controls *windowControls
@@ -110,6 +116,9 @@ type window struct {
 
 func (b *Backend) window(data ptr) *window {
 	w := b.windows[int(data)]
+	if w == nil {
+		w = b.webViews[int(data)]
+	}
 	if w == nil || w.closed {
 		return nil
 	}
@@ -305,6 +314,7 @@ func (w *window) cleanup() {
 	if w.closed {
 		return
 	}
+	w.closeWebViews()
 	w.closed = true
 	delete(w.b.windows, w.id)
 	delete(w.b.byWebView, w.web)
@@ -463,6 +473,12 @@ func (w *window) Hide()           { gtkWidgetHide(w.win) }
 func (w *window) IsVisible() bool { return gtkWidgetGetVisible(w.win) }
 
 func (w *window) Focus() {
+	if w.host != nil {
+		if !w.closed {
+			gtkWidgetGrabFocus(w.web)
+		}
+		return
+	}
 	w.willShow() // presenting shows a hidden window
 	gtkWindowPresent(w.win)
 }
@@ -731,6 +747,10 @@ func (w *window) TitleBarDoubleClicked() {
 }
 
 func (w *window) Close() {
+	if w.host != nil {
+		w.closeWebView()
+		return
+	}
 	if !w.closed {
 		gtkWidgetDestroy(w.win)
 	}
@@ -1164,6 +1184,14 @@ func initWindowCallbacks() {
 		w := b().window(data)
 		if w == nil {
 			return false
+		}
+		if w.host != nil {
+			// GdkEventButton: type 0, x 24, y 32, state 48, button 52.
+			if field[int32](event, 0) == 4 {
+				w.webViewPressed(field[float64](event, 24), field[float64](event, 32), field[uint32](event, 52), gdkMods(field[uint32](event, 48)))
+			}
+			// A web view's page drags the window it is in (StartDrag).
+			w = w.top()
 		}
 		w.altAlone = false
 		// GdkEventButton: time 20, button 52, x_root 64, y_root 72.

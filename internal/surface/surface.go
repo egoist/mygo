@@ -61,6 +61,9 @@ type Conn struct {
 	// DIPs, once the event being handled returns. chosen receives the ID of
 	// the item chosen, if one is.
 	PopupMenu func(m *platform.Menu, x, y float64, chosen func(id int))
+	// PlaceWebViews shows the window's web views where the content's last
+	// frame shows them (Surface.PlaceWebViews).
+	PlaceWebViews func(views []platform.WebViewPlacement)
 
 	// Event receives the surface's events, and Focus and Blur of the
 	// window. It reports whether the content takes dragged files, as
@@ -82,4 +85,12 @@ type Conn struct {
 // Content is implemented by package ui.
 type Content interface {
 	AttachContent(conn *Conn)
+}
+
+// WebView is a web view a window made for its content to show
+// (*mygo.WebView, of Window.NewWebView), which package ui places.
+type WebView interface {
+	// SurfaceWebView returns the web view's native side when it is of the
+	// window of conn and not destroyed, else nil. Main thread only.
+	SurfaceWebView(conn *Conn) platform.WebView
 }

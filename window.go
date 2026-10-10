@@ -171,6 +171,12 @@ type WindowOptions struct {
 type Window struct {
 	id     int
 	parent *Window
+	// host is the window a web view is in, for the page of a web view
+	// (webView); webViews are the pages of a window's web views, guarded
+	// by the lock of windows.
+	host     *Window
+	webView  *WebView
+	webViews []*Window
 	// pg is the window's page, which Page returns unless the window shows
 	// native UI.
 	pg *Page
@@ -336,7 +342,7 @@ func (w *Window) backgroundColor() *platform.Color {
 // updateBackgrounds gives windows with a light and a dark background the
 // one of the current appearance. Main thread only.
 func updateBackgrounds() {
-	for _, w := range Windows() {
+	for _, w := range pageWindows() {
 		if bg := w.background; w.native != nil && bg != nil && bg.light != bg.dark {
 			w.native.SetBackgroundColor(*w.backgroundColor())
 		}
@@ -450,7 +456,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 	}
 	p.UserScripts = []platform.UserScript{{Source: bridge.Script(bridge.Config{
 		Platform: jsPlatform(),
-		WindowID: w.id,
+		WindowID: w.top().id, // the window a web view is in
 		Version:  Version,
 		Secret:   w.secret,
 	})}}
@@ -1290,7 +1296,8 @@ func (p *Page) SetWindowOpenHandler(fn func(req WindowOpenRequest) *WindowOption
 
 // resetPage starts a new page context; the previous one is canceled.
 func (w *Window) resetPage() {
-	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), callerKey{}, w))
+	ctx := context.WithValue(context.WithValue(context.Background(), callerKey{}, w.top()), pageKey{}, w.pg)
+	ctx, cancel := context.WithCancel(ctx)
 	w.mu.Lock()
 	prev := w.pageCancel
 	w.pageCtx, w.pageCancel = ctx, cancel
@@ -1499,6 +1506,7 @@ func (h *windowHandler) Closed() {
 		return
 	}
 	w.cancelDataDrag()
+	w.destroyWebViews()
 	w.detachContent()
 	w.native = nil
 	w.destroyed.Store(true)
@@ -1682,7 +1690,11 @@ func (h *windowHandler) NewWindow(req platform.NewWindowRequest) platform.Window
 	return child.native
 }
 
-func (h *windowHandler) ClosedByPage() { h.w.close() }
+func (h *windowHandler) ClosedByPage() {
+	if h.w.host == nil { // a web view's page does not close its window
+		h.w.close()
+	}
+}
 
 func (h *windowHandler) RenderProcessGone(reason string) { fire1(&h.w.onRenderGone, reason) }
 
@@ -1754,7 +1766,11 @@ func (w *Window) filesDropped(paths []string, x, y int) {
 	if len(paths) == 0 {
 		return
 	}
-	fire1(&w.onFileDrop, &FileDropEvent{Paths: paths, X: x, Y: y})
+	if n, ok := w.native.(*webViewNative); ok {
+		// Where the web view shows in its window.
+		x, y = x+int(n.frame.X), y+int(n.frame.Y)
+	}
+	fire1(&w.top().onFileDrop, &FileDropEvent{Paths: paths, X: x, Y: y})
 	// Local paths are none of other pages' business.
 	if w.trusted {
 		if msg, err := encodeEvent(fileDropEvent, FileDropEvent{Paths: paths, X: x, Y: y}); err == nil {

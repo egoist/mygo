@@ -49,7 +49,21 @@ type window struct {
 	icons [2]uintptr // small and big, from SetIcon
 	// surface shows the content MyGo draws, in place of the webview.
 	surface *surface
-	saved   struct {
+	// webViews are the web views under the surface (webview_embed.go), and
+	// host the window whose surface a web view is under, which shows it
+	// through its composition controller comp (comp3 its drag and drop,
+	// on runtimes having it; uia the provider of its page for UI
+	// Automation), in the visual webVis inside clipVis, at frame clipped
+	// to clip while shown. focused tells that it has the keyboard, and
+	// cursor is the cursor its page wants.
+	webViews         []*window
+	host             *window
+	comp, comp3, uia uintptr
+	clipVis, webVis  uintptr
+	frame, clip      platform.RectF
+	shown, focused   bool
+	cursor           uintptr
+	saved            struct {
 		style, exStyle uintptr
 		placement      windowPlacement
 	}
@@ -291,6 +305,11 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		if w.controller != 0 {
 			comCall(w.controller, ctlNotifyParentWindowPositionChanged)
 		}
+		for _, v := range w.webViews {
+			if v.controller != 0 {
+				comCall(v.controller, ctlNotifyParentWindowPositionChanged)
+			}
+		}
 		w.h.Moved()
 		return 0, true
 	case wmActivate:
@@ -459,6 +478,7 @@ func (w *window) cleanup() {
 	if w.closed {
 		return
 	}
+	w.closeWebViews()
 	w.closed = true
 	if w.opts.Modal && w.parent != nil && !w.parent.closed {
 		procEnableWindow.Call(w.parent.hwnd, 1)
@@ -666,6 +686,10 @@ func (w *window) IsVisible() bool {
 }
 
 func (w *window) Focus() {
+	if w.host != nil {
+		w.focusWebView()
+		return
+	}
 	if w.IsMinimized() {
 		procShowWindow.Call(w.hwnd, swRestore)
 	}
@@ -682,6 +706,9 @@ func (w *window) Blur() {
 }
 
 func (w *window) IsFocused() bool {
+	if w.host != nil {
+		return w.focused
+	}
 	fg, _, _ := procGetForegroundWindow.Call()
 	return fg == w.hwnd
 }
@@ -785,7 +812,9 @@ func (w *window) SetBackgroundColor(c platform.Color) {
 	}
 	w.bgBrush, _, _ = procCreateSolidBrush.Call(uintptr(c.R) | uintptr(c.G)<<8 | uintptr(c.B)<<16)
 	w.withWebView(w.applyWebViewBackground)
-	procInvalidateRect(w.hwnd)
+	if w.hwnd != 0 {
+		procInvalidateRect(w.hwnd)
+	}
 }
 
 // applyWebViewBackground paints the webview before its page does:
@@ -931,6 +960,10 @@ func (w *window) TitleBarDoubleClicked() {
 }
 
 func (w *window) Close() {
+	if w.host != nil {
+		w.closeWebView()
+		return
+	}
 	if !w.closed {
 		w.destroy()
 	}

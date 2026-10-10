@@ -284,6 +284,7 @@ type node struct {
 	ellipsis  string
 	image     *Bitmap
 	svg       *SVG // of an Icon, or an Image in its own colors
+	webView   NativeWebView
 	fit       Fit
 	gray      bool
 	rotate    float32 // of an Icon, in degrees

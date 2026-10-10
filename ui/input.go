@@ -42,6 +42,8 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.PointerUp:
 		rt.pointerMove(x, y)
 		rt.pointerUp(ev.Button, ev.Clicks)
+	case platform.WebViewPress:
+		rt.webViewPress(x, y, ev.Button)
 	case platform.PointerLeave:
 		rt.pointerIn = false
 		if rt.pressed == nil {
@@ -663,10 +665,16 @@ func (rt *engine) moveFocus(back bool) {
 	rt.focused = order[next]
 	rt.focusVisible = true
 	rt.blinkStart = time.Now()
-	if s := rt.states[rt.focused]; s != nil && s.editor != nil {
+	s := rt.states[rt.focused]
+	if s != nil && s.editor != nil {
 		s.editor.selectAll()
 	}
 	rt.reveal(rt.focused)
+	if s != nil && s.webView != nil {
+		// Its page takes the keyboard, and Tab leaving it moves on from
+		// here (webViewTabOut).
+		rt.host.tabIntoWebView(s.webView, back)
+	}
 }
 
 // routeKeys delivers the keys pressed since the last frame to the

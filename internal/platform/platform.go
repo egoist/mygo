@@ -265,8 +265,6 @@ type UserScript struct {
 type Window interface {
 	// Handle returns the native window (NSWindow*, GtkWindow*, HWND).
 	Handle() uintptr
-	// WebViewHandle returns the native webview object.
-	WebViewHandle() uintptr
 	// Surface returns the drawing surface of a window created with
 	// WindowOptions.Surface, nil for others.
 	Surface() Surface
@@ -343,6 +341,14 @@ type Window interface {
 	// Close destroys the window without asking WindowHandler.ShouldClose.
 	Close()
 
+	Page
+}
+
+// Page is the web page of a Window, or of a WebView.
+type Page interface {
+	// WebViewHandle returns the native webview object.
+	WebViewHandle() uintptr
+
 	LoadURL(url string)
 	LoadHTML(html, baseURL string)
 	LoadFile(path, readAccessDir string)
@@ -377,6 +383,53 @@ type Window interface {
 	// "drop" message); backends record the paths before the page sees it.
 	DroppedFiles() []string
 	Print()
+}
+
+// WebView is a web view in a window showing a Surface, which its content
+// places (Surface.NewWebView, Surface.PlaceWebViews): under the surface,
+// which shows it where its frames are transparent, as holes
+// (scene.OpHole) make them. Its page reports to the WindowHandler it was
+// made with, which hears nothing of the window.
+type WebView interface {
+	Page
+	// Focus gives the web view the keyboard.
+	Focus()
+	// TabInto gives the web view the keyboard as Tab does: at its page's
+	// first element taking the focus, or its last when back, as Shift+Tab
+	// does. Tab past the other end comes back as WebViewTabOut.
+	TabInto(back bool)
+	// SetBackgroundColor paints the web view before its page does.
+	SetBackgroundColor(c Color)
+	// Close destroys the web view; its handler hears no more of it.
+	// Backends close the web views of a window that closes before telling
+	// its WindowHandler.Closed, and Close does nothing then.
+	Close()
+}
+
+// WebViewPlacement is where the content of a surface shows a web view
+// (Surface.PlaceWebViews), in DIPs relative to the surface.
+type WebViewPlacement struct {
+	WebView WebView
+	// Frame is the web view's box; Clip the part of it that shows, which
+	// the frames leave transparent but where the content painted over it.
+	Frame, Clip RectF
+	// Covers are the boxes, within Clip, of what the content painted over
+	// the web view that takes the pointer: there the pointer is the
+	// surface's, elsewhere in Clip the web view's.
+	Covers []RectF
+}
+
+// At reports whether the pointer at x, y is the web view's.
+func (p *WebViewPlacement) At(x, y float64) bool {
+	if !p.Clip.Contains(x, y) {
+		return false
+	}
+	for _, c := range p.Covers {
+		if c.Contains(x, y) {
+			return false
+		}
+	}
+	return true
 }
 
 // WindowHandler receives window and webview events from the backend.

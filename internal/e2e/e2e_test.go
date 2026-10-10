@@ -422,7 +422,12 @@ func TestEarlyWindow(t *testing.T) {
 // which may take longer than that on a slow runner.
 func waitFor(t testing.TB, w *mygo.Window, expr string) {
 	t.Helper()
-	p := w.Page()
+	waitForPage(t, w.Page(), expr)
+}
+
+// waitForPage is waitFor for a page, as a web view's.
+func waitForPage(t testing.TB, p *mygo.Page, expr string) {
+	t.Helper()
 	check := "!!(" + expr + ")"
 	start := time.Now()
 	first, cancel := context.WithTimeout(t.Context(), time.Minute)
