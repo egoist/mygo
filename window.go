@@ -12,11 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/egoist/mygo/internal/bridge"
 	"github.com/egoist/mygo/internal/platform"
@@ -214,21 +214,8 @@ type Window struct {
 	mu                sync.Mutex
 	openHandler       func(WindowOpenRequest) *WindowOptions
 	permissionHandler func(PermissionRequest) bool
-	pageCtx           context.Context
-	pageCancel        context.CancelFunc
-	// channels are those of the current page, by the page's id for them.
-	channels map[int64]*channel
-	// closedEarly holds the channels the current page closed before
-	// their calls made them, with the page's token.
-	closedEarly map[int64]string
-
-	outMu    sync.Mutex
-	outbox   []message
-	flushing bool
-	// held keeps events until the page's DOM is ready, so events sent right
-	// after creating a window or during a navigation are not lost.
-	held     []message
-	domReady bool
+	// link is the IPC state of the current page.
+	link *pageLink
 
 	onClose            listeners[func(*CloseEvent)]
 	onClosed           listeners[func()]
@@ -352,7 +339,11 @@ func newWindow(opts WindowOptions, bg *background, native uintptr) *Window {
 	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, secret: rand.Text(), stateKey: opts.StateKey, background: bg, content: opts.Content}
 	w.pg = &Page{w}
 	w.hiddenTitleBar = !opts.Frameless && (opts.TitleBarStyle == TitleBarHidden || opts.TitleBarStyle == TitleBarHiddenInset)
-	w.resetPage()
+	w.link = newPageLink(w, "window "+strconv.Itoa(id), func(js string) {
+		if w.native != nil {
+			w.native.Eval(js)
+		}
+	})
 	popts := w.platformOptions(&opts)
 	popts.BackgroundColor = w.backgroundColor()
 	popts.Surface = opts.Content != nil
@@ -1288,86 +1279,19 @@ func (p *Page) SetWindowOpenHandler(fn func(req WindowOpenRequest) *WindowOption
 	p.w.mu.Unlock()
 }
 
-// resetPage starts a new page context; the previous one is canceled.
-func (w *Window) resetPage() {
-	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), callerKey{}, w))
-	w.mu.Lock()
-	prev := w.pageCancel
-	w.pageCtx, w.pageCancel = ctx, cancel
-	w.channels = nil // they close with the previous page's context
-	w.closedEarly = nil
-	w.mu.Unlock()
-	if prev != nil {
-		prev()
-	}
-}
-
 // pageContext returns the context of the current page. It is canceled when
 // the page navigates away or the window is destroyed.
-func (w *Window) pageContext() context.Context {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.pageCtx
-}
+func (w *Window) pageContext() context.Context { return w.link.context() }
 
-// maxHeldEvents bounds the events kept for a page that never becomes ready
-// (e.g. an image or a failed load).
-const maxHeldEvents = 1024
-
-// enqueue schedules a message for the page. Messages are batched into a
-// single script evaluation per main loop iteration. Events are held until
-// the DOM of the page is ready; replies to calls are sent right away since
-// the page is waiting for them.
+// enqueue schedules a message for the page (see pageLink.enqueue).
 func (w *Window) enqueue(msg message, event bool) {
 	if w.content != nil {
 		return
 	}
-	w.outMu.Lock()
-	if event && !w.domReady {
-		if len(w.held) == maxHeldEvents {
-			w.held = w.held[1:]
-		}
-		w.held = append(w.held, msg)
-		w.outMu.Unlock()
-		return
-	}
-	w.outbox = append(w.outbox, msg)
-	schedule := !w.flushing
-	w.flushing = true
-	w.outMu.Unlock()
-	if schedule {
-		postMain(w.flush)
-	}
+	w.link.enqueue(msg, event)
 }
 
-func (w *Window) flush() {
-	w.outMu.Lock()
-	msgs := w.outbox
-	w.outbox = nil
-	w.flushing = false
-	w.outMu.Unlock()
-	if w.native == nil || len(msgs) == 0 {
-		return
-	}
-	size := 64
-	for _, m := range msgs {
-		size += m.len() + 1
-	}
-	js := make([]byte, 0, size)
-	// A script shaped like a.b(JSON) runs without being compiled: WebKit's
-	// JavaScriptCore parses the value as JSON unless the inspector is on,
-	// several times faster. Pages without the runtime only throw.
-	js = append(js, "__mygo.receive(["...)
-	for i, m := range msgs {
-		if i > 0 {
-			js = append(js, ',')
-		}
-		js = m.appendTo(js)
-	}
-	js = append(js, "])"...)
-	// js is not used again, so the script can share its memory.
-	w.native.Eval(unsafe.String(unsafe.SliceData(js), len(js)))
-}
+func (w *Window) flush() { w.link.flush() }
 
 // OnClose is called when the window is about to close. Call
 // e.PreventDefault to keep it open.
@@ -1528,10 +1452,7 @@ func (h *windowHandler) Closed() {
 		c.destroy()
 	}
 	closingParents--
-	w.mu.Lock()
-	cancel := w.pageCancel
-	w.mu.Unlock()
-	cancel()
+	w.link.end()
 
 	fire(&w.onClosed)
 	if closingParents == 0 && len(Windows()) == 0 {
@@ -1625,10 +1546,7 @@ func (h *windowHandler) NavigationCommitted(url string) {
 		}
 	}
 	h.w.trusted = h.w.isTrusted(url)
-	h.w.outMu.Lock()
-	h.w.domReady = false
-	h.w.outMu.Unlock()
-	h.w.resetPage()
+	h.w.link.reset()
 	fire1(&h.w.onDidNavigate, url)
 }
 
@@ -1697,30 +1615,13 @@ func (w *Window) handleMessage(msg string) {
 	if !ok {
 		return // not from the bridge
 	}
-	// Calls are decoded and executed off the main thread. The page context
-	// is captured here so a navigation cannot slip in between.
-	if len(msg) > 12 && msg[:12] == `{"t":"call",` {
-		go handleCall(w, w.pageContext(), msg, w.trusted)
-		return
-	}
-	var m struct {
-		T string  `json:"t"`
-		X float64 `json:"x"` // drop
-		Y float64 `json:"y"`
-		C int64   `json:"c"` // channels
-		K string  `json:"k"`
-		N int64   `json:"n"`
-	}
-	if err := json.Unmarshal(stringBytes(msg), &m); err != nil {
+	var m linkMessage
+	if w.link.receive(msg, w.trusted, &m) {
 		return
 	}
 	switch m.T {
 	case "dom-ready":
-		w.outMu.Lock()
-		w.domReady = true
-		w.outbox = append(w.outbox, w.held...)
-		w.held = nil
-		w.outMu.Unlock()
+		w.link.ready()
 		// The script at document start may tell a later page the room of
 		// the controls before a change.
 		w.sendTitleBar()
@@ -1739,12 +1640,6 @@ func (w *Window) handleMessage(msg string) {
 		if w.native != nil {
 			w.filesDropped(w.native.DroppedFiles(), int(m.X), int(m.Y))
 		}
-	case "chan-ack":
-		if c := w.channel(m.C, m.K); c != nil {
-			c.ack(m.N)
-		}
-	case "chan-close":
-		w.pageClosedChannel(m.C, m.K)
 	}
 }
 

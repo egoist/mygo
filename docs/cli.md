@@ -97,7 +97,9 @@ Develops the app with live reload. It writes the TypeScript client, runs
 `devCommand` from the configuration, such as a Vite dev server, waits for
 `devUrl` to answer, then builds a development app, which loads `devUrl` in
 place of its built frontend, and starts it. Without `devUrl` the app serves
-`frontendDist` from disk.
+`frontendDist` from disk. It also serves the app to web browsers, at the
+address it prints, with the Go methods its windows call: see
+[in a browser](frontend.md#in-a-browser).
 
 Changes to the Go code, the configuration, the icon or the resources rebuild
 the app, regenerate the TypeScript client and restart the app: the running
@@ -124,6 +126,8 @@ version information that `mygo build` embeds.
 |---|---|
 | `-skip-dev-command` | does not run `devCommand`, e.g. when the dev server already runs |
 | `-sign` | the identity that signs the development app on macOS (default: `-`, ad hoc) |
+| `-browser` | serves the app to web browsers too (default: `true`) |
+| `-browser-port` | the port browsers open (default: a free one, kept while mygo dev runs) |
 
 ## mygo build
 

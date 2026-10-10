@@ -24,14 +24,18 @@ declare global {
   }
 }
 
-/** Reports whether the page runs inside a MyGo window. */
+/**
+ * Reports whether the page has the MyGo runtime: in a MyGo window, or in a
+ * browser at the address `mygo dev` prints.
+ */
 export function isMyGo(): boolean {
   return typeof globalThis === "object" && (globalThis as { mygo?: Runtime }).mygo !== undefined;
 }
 
 /**
- * Returns the MyGo runtime. Throws when the page is not running inside a
- * MyGo window, e.g. when the dev server is opened in a regular browser.
+ * Returns the MyGo runtime. Throws when the page has none, e.g. when the
+ * dev server is opened directly rather than at the address `mygo dev`
+ * prints.
  */
 export function runtime(): Runtime {
   const rt = (globalThis as { mygo?: Runtime }).mygo;

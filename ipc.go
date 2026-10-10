@@ -228,9 +228,9 @@ func lookupMethod(name string) *method {
 	return ipc.methods[name]
 }
 
-// call calls the method for the page of w whose context is page and whose
+// call calls the method for the page of l whose context is page and whose
 // token is token.
-func (m *method) call(w *Window, page context.Context, token string, args []rawValue) (result any, err error) {
+func (m *method) call(l *pageLink, page context.Context, token string, args []rawValue) (result any, err error) {
 	ctx, cancel := page, context.CancelFunc(nil)
 	var chans []*channel
 	if m.streams {
@@ -265,7 +265,7 @@ func (m *method) call(w *Window, page context.Context, token string, args []rawV
 			if id <= 0 {
 				return nil, fmt.Errorf("invalid argument %d: not a Channel", i+1)
 			}
-			c := w.newChannel(page, ctx, cancel, id, token)
+			c := l.newChannel(page, ctx, cancel, id, token)
 			chans = append(chans, c)
 			v := reflect.New(t.Elem())
 			v.Interface().(channelParam).init(c)
@@ -332,7 +332,7 @@ func stringBytes(s string) []byte { return unsafe.Slice(unsafe.StringData(s), le
 // handleCall decodes and runs a call from the page on the current
 // goroutine, then queues the reply. Calls from untrusted pages are
 // rejected.
-func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
+func handleCall(l *pageLink, ctx context.Context, raw string, trusted bool) {
 	var m struct {
 		ID int64      `json:"id"`
 		K  string     `json:"k"`
@@ -340,7 +340,7 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 		A  []rawValue `json:"a"` // shares raw
 	}
 	if err := json.Unmarshal(stringBytes(raw), &m); err != nil {
-		log.Printf("mygo: malformed call from window %d: %v", w.id, err)
+		log.Printf("mygo: malformed call from %s: %v", l.name, err)
 		return
 	}
 	var result any
@@ -350,9 +350,9 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 	} else if mi := lookupMethod(m.M); mi == nil {
 		err = notBound(m.M)
 	} else {
-		result, err = mi.call(w, ctx, m.K, m.A)
+		result, err = mi.call(l, ctx, m.K, m.A)
 	}
-	w.enqueue(encodeReply(m.ID, m.K, result, err), false)
+	l.enqueue(encodeReply(m.ID, m.K, result, err), false)
 }
 
 // message is a message for the page: a JSON object, in parts that are
@@ -446,6 +446,10 @@ func (e *Event[T]) Emit(w *Window, payload T) error {
 		return errDestroyed
 	}
 	w.enqueue(msg, true)
+	// Browser tabs of `mygo dev` stand in for the window too.
+	for _, l := range browserTabsOf(w, false) {
+		l.enqueue(msg, true)
+	}
 	return nil
 }
 
@@ -457,6 +461,9 @@ func (e *Event[T]) Broadcast(payload T) error {
 	}
 	for _, w := range Windows() {
 		w.enqueue(msg, true)
+	}
+	for _, l := range browserTabsOf(nil, true) {
+		l.enqueue(msg, true)
 	}
 	return nil
 }

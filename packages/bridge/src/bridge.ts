@@ -1,5 +1,6 @@
 // Entry point of the script MyGo injects at document start into every page.
 // The Go side wraps the bundle in a function that defines __MYGO_CONFIG__.
+import { browserTransport } from "./browser";
 import { find, stopFind } from "./find";
 import { createRuntime } from "./runtime";
 import type { BridgeConfig } from "./types";
@@ -14,7 +15,7 @@ const INTERACTIVE =
   const w = window as any;
   if (w.__mygo) return;
 
-  const raw = transport(w);
+  const raw = transport(w, __MYGO_CONFIG__);
   if (!raw) return;
   // Only this closure knows the secret: the handler is also reachable from
   // iframes, whose messages Go must ignore.
@@ -144,7 +145,18 @@ interface Transport {
   postWithFiles?(message: string, files: FileList): void;
 }
 
-function transport(w: any): Transport | null {
+function transport(w: any, config: BridgeConfig): Transport | null {
+  if (config.endpoint) {
+    return {
+      post: browserTransport(config.endpoint, config.secret, {
+        fetch: (url, init) => w.fetch(url, init),
+        EventSource: w.EventSource,
+        receive: (messages) => w.__mygo.receive(messages),
+        reload: () => w.location.reload(),
+        setTimeout: (fn, ms) => w.setTimeout(fn, ms),
+      }),
+    };
+  }
   const handler = w.webkit?.messageHandlers?.mygo;
   if (handler) return { post: (m) => handler.postMessage(m) };
   const webview = w.chrome?.webview;

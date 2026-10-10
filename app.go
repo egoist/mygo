@@ -109,6 +109,7 @@ func (a *Application) Run() error {
 		b.App().SetDockMenu(m.snapshot())
 	}
 	quitOnSignals()
+	startDevBrowser()
 	// Run whatever was scheduled before the event loop existed.
 	b.Signal()
 	err := b.Run()

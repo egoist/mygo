@@ -21,6 +21,9 @@ type Config struct {
 	Version  string `json:"version"`
 	// Secret prefixes every message the bridge posts.
 	Secret string `json:"secret"`
+	// Endpoint is where the app serves a browser tab of `mygo dev`, which
+	// then talks to Go over HTTP rather than through a web view.
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 // Script returns the bridge source configured for one window.

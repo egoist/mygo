@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,10 +38,17 @@ resources rebuild the app, regenerate the TypeScript client and relaunch
 it. A build that fails to compile keeps the previous one running; the next
 change tries again. Frontend changes are left to the dev server. Quitting the app ends mygo dev.
 
+The app also serves its frontend to web browsers, at the address mygo dev
+prints, with the bridge its windows have: the pages call Go, stream
+channels and hear events in any browser, with its developer tools and
+extensions. Rebuilds reload them.
+
 On a terminal, type r and Enter to rebuild and restart the app, c to clear
 the console, q to quit, h for help.`)
 	skipDevCommand := flags.Bool("skip-dev-command", false, "do not run devCommand")
 	sign := flags.String("sign", "-", "macOS signing identity for the development app")
+	browser := flags.Bool("browser", true, "also serve the app to web browsers, with its Go methods")
+	browserPort := flags.Int("browser-port", 0, "the port browsers open (default: a free one, kept while mygo dev runs)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -147,7 +156,31 @@ the console, q to quit, h for help.`)
 	if c.DevURL == "" && c.FrontendDist != "" {
 		s.env = append(s.env, "MYGO_FRONTEND_DIST="+c.path(c.FrontendDist))
 	}
+	if *browser && (c.DevURL != "" || c.FrontendDist != "") {
+		addr, err := browserAddr(*browserPort)
+		if err != nil {
+			return err
+		}
+		s.env = append(s.env, "MYGO_DEV_BROWSER="+addr)
+		_, port, _ := net.SplitHostPort(addr)
+		logf("In a browser: %s", cyan("http://localhost:"+port+"/"))
+	}
 	return s.run(ctx, c)
+}
+
+// browserAddr returns the loopback address the app serves browsers at:
+// port, or a free one, which every build of the session keeps, so that
+// tabs come back after a rebuild.
+func browserAddr(port int) (string, error) {
+	if port != 0 {
+		return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), nil
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", fmt.Errorf("no free port for browsers: %w", err)
+	}
+	defer ln.Close()
+	return ln.Addr().String(), nil
 }
 
 // devSession builds and runs development builds of an app.

@@ -201,9 +201,9 @@ func testContentTitleBar(t *testing.T, style TitleBarStyle) {
 			t.Errorf("after a full screen change: frame %v, TitleBar = %+v, want %+v", framed, bar, room)
 		}
 	}
-	w.outMu.Lock()
-	queued := len(w.held) + len(w.outbox)
-	w.outMu.Unlock()
+	w.link.outMu.Lock()
+	queued := len(w.link.held) + len(w.link.outbox)
+	w.link.outMu.Unlock()
 	if queued != 0 || len(fw.Scripts()) != 0 {
 		t.Errorf("title bar changes reached a page: %d queued events, scripts %q", queued, fw.Scripts())
 	}

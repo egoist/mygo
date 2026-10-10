@@ -127,13 +127,43 @@ await currentWindow.toggleMaximize();
 | `call(method, ...args)`, `on(event, listener)`, `once(event, listener)`, `event<T>(name)` | untyped calls and events, see [bindings](bindings.md#without-the-generated-client) |
 | `Channel` | a stream of values from a Go method, see [channels](bindings.md#channels) |
 | `isCallError(err)` | whether a rejection came from a Go error |
-| `isMyGo()` | whether the page runs in a MyGo window, not in a browser tab of the dev server |
+| `isMyGo()` | whether the page has the runtime: in a MyGo window, or in a browser at the address `mygo dev` prints |
 | `runtime()` | the runtime: `platform` (`"darwin"`, `"linux"` or `"win32"`), `windowId` (the Go window's `ID()`) and `version`; throws outside MyGo |
 | `currentWindow` | the page's window: `minimize`, `maximize`, `unmaximize`, `toggleMaximize`, `isMaximized`, `toggleFullScreen`, `close` and `setTitle` |
 | `onFileDrop(listener)` | files dropped on the window, with their paths |
 
-Opened in a regular browser, which is handy for working on the layout,
-pages have no runtime: calls reject and `isMyGo()` is false.
+## In a browser
+
+While `mygo dev` runs, the app also serves its frontend to web browsers,
+at the address mygo dev prints:
+
+```
+  ✓ Dev server ready at http://localhost:5173
+  • In a browser: http://localhost:52731/
+```
+
+Pages opened there have the runtime its windows have: they call Go methods,
+stream channels and hear events, so the browser's developer tools and
+extensions (React, Vue, Svelte…) work on the real app, and so does
+responsive design mode. The address forwards to the dev server, hot reload
+included, or serves `frontendDist` without one, with the bridge at the top
+of every HTML page. When a change to the Go code rebuilds the app, the tabs
+reload once the new build runs. `-browser-port` keeps the address the same
+from one session to the next, and `-browser=false` turns it off.
+
+A tab stands in for the first window that shows a page: `CallerWindow`
+returns that window, so dialogs attach to it and `currentWindow` controls
+it, and the events emitted to it (`Emit`) reach the tab too; broadcast
+events reach every tab. What only a window has does nothing in a tab:
+dragging a frameless window, the room of hidden title bar controls, the
+paths of dropped files. Only this machine's pages may connect: the server
+listens on the loopback interface and turns away requests from other sites
+the browser has open.
+
+Opened directly at the dev server's address (`devUrl`), or in a production
+build, pages have no runtime: calls reject and `isMyGo()` is false. So do
+URLs of custom schemes (`Protocol.Handle`) other than `mygo`, which only
+windows load.
 
 ## Custom title bars
 

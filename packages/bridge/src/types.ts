@@ -10,6 +10,11 @@ export interface BridgeConfig {
   version: string;
   /** Prefixes every message, so Go can tell ours from other frames'. */
   secret: string;
+  /**
+   * Where Go serves a browser tab of `mygo dev`, such as "/__mygo/": the
+   * page runs in a regular browser rather than in a window.
+   */
+  endpoint?: string;
 }
 
 /** Messages posted from the page to Go. */

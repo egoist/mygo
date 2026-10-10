@@ -132,7 +132,7 @@ const (
 
 // channel is a Channel of any type: the stream of one call's argument.
 type channel struct {
-	w      *Window
+	l      *pageLink
 	id     int64 // the page's
 	token  string
 	ctx    context.Context // the call's
@@ -158,8 +158,8 @@ type channelAsk struct{ seq, sent int64 }
 // newChannel creates the channel id of the page with token for a call
 // whose context is ctx, canceled by cancel. page is the context of the page
 // that made the call: after a navigation, the channel starts closed.
-func (w *Window) newChannel(page, ctx context.Context, cancel context.CancelFunc, id int64, token string) *channel {
-	c := &channel{w: w, id: id, token: token, ctx: ctx, cancel: cancel}
+func (l *pageLink) newChannel(page, ctx context.Context, cancel context.CancelFunc, id int64, token string) *channel {
+	c := &channel{l: l, id: id, token: token, ctx: ctx, cancel: cancel}
 	c.cond.L = &c.mu
 	head := make([]byte, 0, 48+len(token))
 	head = append(head, `{"t":"chan","c":`...)
@@ -169,21 +169,21 @@ func (w *Window) newChannel(page, ctx context.Context, cancel context.CancelFunc
 	c.ackHead = append(head[:len(head):len(head)], `,"a":1,"p":`...)
 	c.head = append(head, `,"p":`...)
 
-	w.mu.Lock()
+	l.mu.Lock()
 	early := false
-	if w.pageCtx == page {
-		if w.channels == nil {
-			w.channels = map[int64]*channel{}
+	if l.ctx == page {
+		if l.channels == nil {
+			l.channels = map[int64]*channel{}
 		}
-		w.channels[id] = c
-		if tok, ok := w.closedEarly[id]; ok && tok == token {
-			delete(w.closedEarly, id)
+		l.channels[id] = c
+		if tok, ok := l.closedEarly[id]; ok && tok == token {
+			delete(l.closedEarly, id)
 			early = true
 		}
 	} else {
 		c.closed = true
 	}
-	w.mu.Unlock()
+	l.mu.Unlock()
 	stop := context.AfterFunc(ctx, func() { c.close(closedByLoss) })
 	c.mu.Lock()
 	c.stop = stop
@@ -206,20 +206,20 @@ const maxClosedEarly = 1024
 // Calls make their channels on goroutines of their own, so the page may
 // close one before its call made it, e.g. by aborting a request right
 // after starting it: the call then closes it as soon as it makes it.
-func (w *Window) pageClosedChannel(id int64, token string) {
-	w.mu.Lock()
-	c := w.channels[id]
+func (l *pageLink) pageClosedChannel(id int64, token string) {
+	l.mu.Lock()
+	c := l.channels[id]
 	if c == nil {
-		if len(w.closedEarly) < maxClosedEarly {
-			if w.closedEarly == nil {
-				w.closedEarly = map[int64]string{}
+		if len(l.closedEarly) < maxClosedEarly {
+			if l.closedEarly == nil {
+				l.closedEarly = map[int64]string{}
 			}
-			w.closedEarly[id] = token
+			l.closedEarly[id] = token
 		}
-		w.mu.Unlock()
+		l.mu.Unlock()
 		return
 	}
-	w.mu.Unlock()
+	l.mu.Unlock()
 	if c.token == token {
 		c.close(closedByPage)
 	}
@@ -227,10 +227,10 @@ func (w *Window) pageClosedChannel(id int64, token string) {
 
 // channel returns the channel id of the current page, if token is the
 // page's.
-func (w *Window) channel(id int64, token string) *channel {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if c := w.channels[id]; c != nil && c.token == token {
+func (l *pageLink) channel(id int64, token string) *channel {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if c := l.channels[id]; c != nil && c.token == token {
 		return c
 	}
 	return nil
@@ -257,7 +257,7 @@ func (c *channel) send(p []byte) error {
 		head = c.ackHead
 	}
 	// Under the lock, so values are queued in order.
-	c.w.enqueue(message{head, p, closeBrace}, false)
+	c.l.enqueue(message{head, p, closeBrace}, false)
 	return nil
 }
 
@@ -288,7 +288,7 @@ func (c *channel) close(by int) {
 	if by == closedByGo {
 		// After the values sent so far.
 		end := append(c.head[:len(c.head)-len(`,"p":`):len(c.head)-len(`,"p":`)], `,"end":true}`...)
-		c.w.enqueue(message{head: end}, false)
+		c.l.enqueue(message{head: end}, false)
 	}
 	stop := c.stop
 	c.mu.Unlock()
@@ -296,9 +296,9 @@ func (c *channel) close(by int) {
 	if stop != nil {
 		stop()
 	}
-	c.w.mu.Lock()
-	if c.w.channels[c.id] == c {
-		delete(c.w.channels, c.id)
+	c.l.mu.Lock()
+	if c.l.channels[c.id] == c {
+		delete(c.l.channels, c.id)
 	}
-	c.w.mu.Unlock()
+	c.l.mu.Unlock()
 }

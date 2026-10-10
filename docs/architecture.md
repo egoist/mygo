@@ -647,6 +647,36 @@ if that fails to compile the code is not an expression, and it is run again as
 a function body. A compile error means nothing executed, so code never runs
 twice. The result travels as a JSON string and is decoded in Go.
 
+### Browser tabs of `mygo dev` (`devbrowser.go`)
+
+`mygo dev` gives the app a loopback address (`MYGO_DEV_BROWSER`, a free
+port it keeps for the session) where the app serves its frontend to
+regular browsers: a reverse proxy to `devUrl` (WebSocket upgrades, for hot
+reload, included; `Accept-Encoding` dropped so that pages can be read), or
+the mygo scheme's handler without one. Every HTML page gets
+`<script src="/__mygo/bridge.js">` at the start of its head, a classic
+script, so the runtime exists before the page's modules run.
+
+Each load of `bridge.js` starts a session, a `browserTab`, and configures
+the bridge with a fresh secret and `endpoint: "/__mygo/"`, which selects
+the browser transport (`packages/bridge/src/browser.ts`): the page posts
+batches of messages (a JSON array of strings, one request at a time, so
+they stay in order) to `/__mygo/post`, and hears its messages on an
+`EventSource` (`/__mygo/events`), each batch the JSON array a window would
+get in `__mygo.receive`. A tab is a `pageLink` like a window's page, so
+calls, channels, flow control and held events are the same code; the
+session ends, canceling its calls, when its event stream closes. A tab
+whose stream closes (the app quit for a rebuild) polls `/__mygo/ping` and
+reloads once the next build answers; the new process does not know the old
+session (204 on its stream).
+
+Calls of a tab report the first window that shows a page as theirs
+(`CallerWindow`), and `Emit` to that window reaches the tab, `Broadcast`
+every tab. The server only answers requests whose Host is loopback (DNS
+rebinding), and the bridge, events and posts only from the same origin
+(`Sec-Fetch-Site`; `Origin`, which browsers send with every POST), so
+other sites the browser has open cannot reach bound methods.
+
 ### Trust
 
 Every page gets the runtime, but only trusted pages may call Go: the
