@@ -95,7 +95,7 @@ func (p *Painter) Icon(s *SVG, r Rect, c Color) { p.drawIcon(s, r, c, 0) }
 //
 //	spin := ui.Icon(c, loader)
 //	spin.Rotate(spin.Loop("spin", time.Second, ui.Linear) * 360)
-func (e *node) Rotate(degrees float32) *node { e.rotate = degrees; return e }
+func (e *node) Rotate(degrees float32) *node { e.rotate = degrees; e.rotateB = degrees; return e }
 
 // Grayscale draws the element's image, or icon, in shades of gray.
 func (e *node) Grayscale() *node { e.gray = true; return e }

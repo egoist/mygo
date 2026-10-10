@@ -286,6 +286,7 @@ type node struct {
 	fit       Fit
 	gray      bool
 	rotate    float32 // of an Icon, in degrees
+	rotateB   float32 // of an Image, in degrees
 	label     string
 	// widget names the widget that used the element's state as it created
 	// it, which Key would then lose.

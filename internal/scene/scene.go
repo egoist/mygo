@@ -136,6 +136,9 @@ type Op struct {
 	Image     *Image
 	Src       Rect
 	Grayscale bool
+	// Rotation turns an OpImage clockwise around the center of Rect, in
+	// degrees. Only the CPU renderer draws it; the GPU renderers ignore it.
+	Rotation float32
 	// Opacity multiplies the op's colors; 0 means 1.
 	Opacity float32
 }

@@ -1098,11 +1098,17 @@ func (r *renderer) image(op *scene.Op) {
 	if opacity == 0 {
 		opacity = 1
 	}
+	// Turned, the image sweeps a larger box: it is drawn in the axis-aligned
+	// box that bounds Rect turned about Rect's center, and each pixel reads
+	// the source pixel that turns back onto it. The *shape* it clips to stays
+	// the original Rect with its Radii — a turned cover stays a circle, not a
+	// card — so pixels outside Rect are empty even though the bounding box
+	// reaches there.
+	rect, sx, sy, cos, sin := turned(op)
 	radii := scene.Corners(op.Rect, op.Radii, op.Continuous)
 	box := newShape(op.Rect, radii)
 	round := hasRadii(radii)
-	sx, sy := op.Src.W/op.Rect.W, op.Src.H/op.Rect.H
-	x0, y0, x1, y1 := r.pixelBounds(op.Rect)
+	x0, y0, x1, y1 := r.pixelBounds(rect)
 	for y := y0; y < y1; y++ {
 		row := r.dst.Pix[y*r.dst.Stride:]
 		py := float32(y) + 0.5
@@ -1120,7 +1126,7 @@ func (r *renderer) image(op *scene.Op) {
 			if cov <= 0 {
 				continue
 			}
-			c := sample(img, op.Src.X+(px-op.Rect.X)*sx, op.Src.Y+(py-op.Rect.Y)*sy, op.Src)
+			c := sample(img, op.Src.X+(sampleX(op, rect, cos, sin, px, py))*sx, op.Src.Y+(sampleY(op, rect, cos, sin, px, py))*sy, op.Src)
 			if op.Grayscale {
 				l := 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]
 				c[0], c[1], c[2] = l, l, l
@@ -1151,4 +1157,46 @@ func sample(img *scene.Image, u, v float32, src scene.Rect) [4]float32 {
 		c[i] = (top*(1-ty) + bot*ty) / 255
 	}
 	return c
+}
+
+// turned returns the axis-aligned box that bounds op.Rect turned by
+// op.Rotation about its center, the scale that maps the box to the source,
+// and the cosine and sine of the angle. The scale grows with the turn, as
+// the turned image covers more ground, so that its pixels keep their size.
+func turned(op *scene.Op) (rect scene.Rect, sx, sy, cos, sin float32) {
+	rect = op.Rect
+	sx, sy = op.Src.W/op.Rect.W, op.Src.H/op.Rect.H
+	if op.Rotation == 0 {
+		return rect, sx, sy, 1, 0
+	}
+	a := float64(op.Rotation) * math.Pi / 180
+	c, s := math.Cos(a), math.Sin(a)
+	cos, sin = float32(c), float32(s)
+	// The bounding box of the turned rectangle.
+	acos, asin := float32(math.Abs(float64(cos))), float32(math.Abs(float64(sin)))
+	w := acos*op.Rect.W + asin*op.Rect.H
+	h := asin*op.Rect.W + acos*op.Rect.H
+	rect = scene.Rect{
+		X: op.Rect.X + (op.Rect.W-w)/2, Y: op.Rect.Y + (op.Rect.H-h)/2,
+		W: w, H: h,
+	}
+	// The source reads in turned-pixels: the source maps onto the *original*
+	// Rect, whose pixels are the turned ones scaled to the bounding box.
+	sx = op.Src.W / w
+	sy = op.Src.H / h
+	return rect, sx, sy, cos, sin
+}
+
+// sampleX, sampleY read where the pixel at (px, py) of the turned bounding
+// box comes from in the source: they turn the pixel back about the center.
+func sampleX(op *scene.Op, rect scene.Rect, cos, sin, px, py float32) float32 {
+	cx, cy := rect.X+rect.W/2, rect.Y+rect.H/2
+	dx, dy := px-cx, py-cy
+	return op.Rect.X + op.Rect.W/2 + dx*cos + dy*sin
+}
+
+func sampleY(op *scene.Op, rect scene.Rect, cos, sin, px, py float32) float32 {
+	cx, cy := rect.X+rect.W/2, rect.Y+rect.H/2
+	dx, dy := px-cx, py-cy
+	return op.Rect.Y + op.Rect.H/2 - dx*sin + dy*cos
 }

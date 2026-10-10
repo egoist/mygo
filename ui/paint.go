@@ -168,7 +168,7 @@ func (p *Painter) element(e *node) {
 			var sp spanPaint
 			p.textLayout(e.tl, ox, oy, ts.color, ts, e.paintSpans(&sp))
 		case kindImage:
-			p.image(e)
+			p.image(e, e.rotateB)
 		case kindIcon:
 			c := e.resolvedText().color
 			if e.gray {
@@ -655,7 +655,7 @@ func (e *node) contentBox() Rect {
 	return Rect{e.x + e.contentX(), e.y + e.contentY(), e.w - e.padX(), e.h - e.padY()}
 }
 
-func (p *Painter) image(e *node) {
+func (p *Painter) image(e *node, rotate float32) {
 	if s := e.svg; s != nil {
 		p.drawSVG(s, e.contentBox(), e.fit, e.radius, e.resolvedText().color, e.gray)
 		return
@@ -664,7 +664,7 @@ func (p *Painter) image(e *node) {
 	if img == nil || img.w == 0 || img.h == 0 {
 		return
 	}
-	p.drawBitmap(img, e.contentBox(), e.fit, e.radius, e.gray)
+	p.drawBitmapRotated(img, e.contentBox(), e.fit, e.radius, e.gray, rotate)
 }
 
 // fitIn returns where a picture w×h DIPs goes in box as fit says, and
@@ -692,6 +692,12 @@ func fitIn(box Rect, w, h float32, fit Fit) (dst, src Rect) {
 }
 
 func (p *Painter) drawBitmap(img *Bitmap, box Rect, fit Fit, radius [4]float32, gray bool) {
+	p.drawBitmapRotated(img, box, fit, radius, gray, 0)
+}
+
+// drawBitmapRotated draws the bitmap, turned by degrees around the center
+// of box (the CPU renderer draws it; the GPU renderers ignore the turn).
+func (p *Painter) drawBitmapRotated(img *Bitmap, box Rect, fit Fit, radius [4]float32, gray bool, degrees float32) {
 	// A bitmap's own size is its pixels in DIPs, as an Image lays it out.
 	iw, ih := float32(img.w), float32(img.h)
 	dst, frac := fitIn(box, iw, ih, fit)
@@ -702,7 +708,7 @@ func (p *Painter) drawBitmap(img *Bitmap, box Rect, fit Fit, radius [4]float32, 
 	shown := img.smaller(min(frac.W*iw/(dst.W*p.scale), frac.H*ih/(dst.H*p.scale)))
 	sw, sh := float32(shown.W), float32(shown.H)
 	src := scene.Rect{X: frac.X * sw, Y: frac.Y * sh, W: frac.W * sw, H: frac.H * sh}
-	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Radii: p.radii(radius), Continuous: continuousCorners, Image: shown, Src: src, Opacity: p.opacity, Grayscale: gray})
+	p.s.Ops = append(p.s.Ops, scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Radii: p.radii(radius), Continuous: continuousCorners, Image: shown, Src: src, Opacity: p.opacity, Grayscale: gray, Rotation: degrees})
 }
 
 // scrollbars draws the thumbs of a scroll container whose content
