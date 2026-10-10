@@ -210,7 +210,8 @@ Either closes, as the user closing it, on an Escape its content leaves:
 one no element or shortcut of native UI takes, or no handler of the page
 cancels with `preventDefault()`, as the web's popovers.
 `Shadow` gives it the system's window shadow on macOS, where it follows
-the shape of what the flyout draws, and on Windows.
+the shape of what the flyout draws and outlines it with a hairline (so
+draw no border of your own there), and on Windows.
 
 On macOS, `Popover` gives it the look of the system's popovers instead: it
 shows in an `NSPopover`, which draws its material, rounded corners and an

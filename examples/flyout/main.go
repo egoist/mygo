@@ -9,6 +9,7 @@ package main
 
 import (
 	"log"
+	"runtime"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -196,10 +197,15 @@ func (a *app) aboutView(c *ui.Context) {
 	})
 }
 
-// panel is the box a flyout draws: the window itself draws nothing.
+// panel is the box a flyout draws: the window itself draws nothing. The
+// shadow of a window outlines it on macOS: elsewhere, a border does.
 func panel(c *ui.Context) ui.Element {
 	t := c.Theme()
-	return ui.Column(c).Fill().Background(t.Surface).Radius(10).Border(1, t.Border)
+	box := ui.Column(c).Fill().Background(t.Surface).Radius(10)
+	if runtime.GOOS != "darwin" {
+		box.Border(1, t.Border)
+	}
+	return box
 }
 
 func anchor(r ui.Rect) mygo.Rectangle {

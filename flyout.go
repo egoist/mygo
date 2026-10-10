@@ -87,8 +87,9 @@ type FlyoutOptions struct {
 	Focusable bool
 	// Hidden creates the flyout without showing it.
 	Hidden bool
-	// Shadow gives the flyout the system's window shadow, which follows
-	// the shape of what its content draws on macOS (macOS, Windows).
+	// Shadow gives the flyout the system's window shadow (macOS,
+	// Windows). On macOS it follows the shape of what the content draws,
+	// and outlines it with a hairline: the content draws no border there.
 	Shadow bool
 	// Popover gives the flyout the look of the system's popovers on macOS:
 	// it shows in an NSPopover, which draws its material, rounded corners,
