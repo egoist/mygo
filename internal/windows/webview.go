@@ -321,10 +321,11 @@ func (w *window) navigationStarting(_, args uintptr) {
 	uri := w.appURL(takeWstr(p))
 	var user int32
 	comCall(args, navStartingGetIsUserInitiated, uintptr(unsafe.Pointer(&user)))
-	nav := platform.Navigation{URL: uri, IsMainFrame: true, UserInitiated: user != 0}
+	kind := navigationKind(args)
+	nav := platform.Navigation{URL: uri, IsMainFrame: true, UserInitiated: user != 0, Unasked: kind == navReload || kind == navBackOrForward, Reload: kind == navReload}
 	if w.programmatic {
 		w.programmatic = false
-		nav.IsReload = true
+		nav.Unasked = true
 	}
 	if !w.h.WillNavigate(nav) {
 		comCall(args, navStartingPutCancel, 1)
@@ -332,6 +333,26 @@ func (w *window) navigationStarting(_, args uintptr) {
 	}
 	w.loading = true
 	w.h.NavigationStarted(uri)
+}
+
+// COREWEBVIEW2_NAVIGATION_KIND
+const (
+	navReload = iota
+	navBackOrForward
+	navNewDocument
+)
+
+// navigationKind returns the COREWEBVIEW2_NAVIGATION_KIND of a navigation,
+// or -1 on runtimes older than it.
+func navigationKind(args uintptr) int32 {
+	args3 := queryInterface(args, &iidICoreWebView2NavigationStartingEventArgs3)
+	if args3 == 0 {
+		return -1
+	}
+	defer release(args3)
+	kind := int32(-1)
+	comCall(args3, navStarting3GetNavigationKind, uintptr(unsafe.Pointer(&kind)))
+	return kind
 }
 
 func (w *window) navigationCompleted(_, args uintptr) {
