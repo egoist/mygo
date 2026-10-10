@@ -166,7 +166,9 @@ func (_handle ComboboxParts) Filtering() bool {
 }
 
 // Item creates an option: a row that is Highlighted when the pointer or
-// the arrows are on it, and that chooses value when clicked.
+// the arrows are on it, and that chooses value when clicked. The option
+// the highlight moves to scrolls into view, once, so that the wheel
+// scrolls on past it.
 func (_handle ComboboxParts) Item(value string) Element {
 	_parts := _handle.resolve()
 	if _parts == nil {
@@ -4510,7 +4512,8 @@ func (_handle SelectParts[T]) Highlight(value T) {
 
 // Item creates an option choosing value: a row that is Highlighted when
 // the pointer or the arrows are on it, and chooses value and closes the
-// popup when clicked.
+// popup when clicked. The option the highlight moves to scrolls into view,
+// once, so that the wheel scrolls on past it.
 func (_handle SelectParts[T]) Item(value T) Element {
 	_parts := _handle.resolve()
 	if _parts == nil {
