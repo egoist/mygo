@@ -331,6 +331,13 @@ func (w *window) navigationStarting(_, args uintptr) {
 		comCall(args, navStartingPutCancel, 1)
 		return
 	}
+	// LoadHTML serves its document to its navigation, which may request
+	// it more than once, and not to later ones.
+	if w.htmlNext {
+		w.htmlNext = false
+	} else {
+		clear(w.htmlFor)
+	}
 	w.loading = true
 	w.h.NavigationStarted(uri)
 }
@@ -548,6 +555,7 @@ func (w *window) LoadHTML(html, baseURL string) {
 		// and custom schemes work as in the other backends.
 		target := w.webURL(baseURL)
 		w.htmlFor[target] = html
+		w.htmlNext = true
 		if w.appURL(target) == target { // not covered by the filters of the schemes
 			w.addFilter(target)
 		}
@@ -818,9 +826,11 @@ func (w *window) resourceRequested(_, args uintptr) {
 	var p uintptr
 	comCall(req, reqGetURI, uintptr(unsafe.Pointer(&p)))
 	uri := takeWstr(p)
+	var resource int32
+	comCall(args, resReqGetResourceContext, uintptr(unsafe.Pointer(&resource)))
+	const document = 1 // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT
 
-	if html, ok := w.htmlFor[uri]; ok {
-		delete(w.htmlFor, uri)
+	if html, ok := w.htmlFor[uri]; ok && resource == document {
 		w.respond(args, 0, http.StatusOK, http.Header{"Content-Type": {"text/html; charset=utf-8"}}, []byte(html))
 		return
 	}
@@ -842,9 +852,6 @@ func (w *window) resourceRequested(_, args uintptr) {
 	addRef(args)
 	ctx, cancel := context.WithCancel(context.Background())
 	sreq.Context = ctx
-	var resource int32
-	comCall(args, resReqGetResourceContext, uintptr(unsafe.Pointer(&resource)))
-	const document = 1 // COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT
 	sreq.Responder = &schemeResponse{w: w, args: args, deferral: deferral, cancel: cancel, url: target, document: resource == document}
 	w.h.SchemeRequest(sreq)
 }
