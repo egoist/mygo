@@ -211,3 +211,70 @@ window.ready = true;
 		return n == 1
 	})
 }
+
+// TestContentWindowWebViewEditMenu makes a web view before its window drew
+// a frame, and edits its page through the Edit menu once the page has the
+// keyboard: the menu's actions go to the page, as in a window of its own.
+func TestContentWindowWebViewEditMenu(t *testing.T) {
+	var view *mygo.WebView
+	w := newWindow(t, mygo.WindowOptions{Title: "Web view edit", Width: 400, Height: 300, Content: ui.View(func(c *ui.Context) {
+		ui.Column(c).Fill().AlignItems(ui.Stretch).Children(func() {
+			ui.Button(c, "Native").Height(40)
+			if view != nil {
+				ui.WebView(c, view).Grow(1)
+			}
+		})
+	})})
+	v, err := w.NewWebView(mygo.WebViewOptions{}) // before the first frame
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Update(func() { view = v })
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Role: mygo.RoleEditMenu}}))
+	defer mygo.App.SetMenu(nil)
+	clipboard := mygo.Clipboard.ReadText()
+	defer mygo.Clipboard.WriteText(clipboard)
+	v.Page().LoadHTML(`<body style="margin:0;height:100vh;background:#f00">
+<div id=e contenteditable style="height:100px">hello</div><script>window.ready = true</script></body>`, "")
+	waitForPage(t, v.Page(), "window.ready")
+	w.Focus()
+	if r, g, b, ok := screenColor(w, 200, 250); ok && (r < 200 || g > 60 || b > 60) {
+		t.Errorf("the page under the native UI shows %d, %d, %d on screen, not its red", r, g, b)
+	}
+	v.Focus()
+	if _, err := v.Page().Eval("document.getElementById('e').focus()"); err != nil {
+		t.Fatal(err)
+	}
+	text := func() string {
+		s, _ := mygo.EvalAs[string](v.Page(), "document.getElementById('e').textContent")
+		return s
+	}
+	menu := func(item string) {
+		t.Helper()
+		if err := activateMenu(w, "Edit", item); err != nil {
+			t.Skipf("menu automation: %v", err)
+		}
+	}
+	menu("Select All")
+	waitForPage(t, v.Page(), "getSelection().toString() === 'hello'")
+	mygo.Clipboard.WriteText("before copy")
+	menu("Copy")
+	eventually(t, "Copy to copy the page's selection", func() bool { return mygo.Clipboard.ReadText() == "hello" })
+	menu("Cut")
+	eventually(t, "Cut to take the text out of the page", func() bool { return text() == "" })
+	menu("Paste")
+	eventually(t, "Paste to put it back", func() bool { return text() == "hello" })
+	menu("Undo")
+	eventually(t, "Undo to take the paste back", func() bool { return text() == "" })
+	menu("Undo")
+	eventually(t, "Undo to take the cut back", func() bool { return text() == "hello" })
+	if _, err := v.Page().Eval("getSelection().collapseToEnd()"); err != nil {
+		t.Fatal(err)
+	}
+	if handled, ok := pressShortcut("a", false); ok {
+		if !handled {
+			t.Error("Select All's shortcut found no menu item")
+		}
+		waitForPage(t, v.Page(), "getSelection().toString() === 'hello'")
+	}
+}
