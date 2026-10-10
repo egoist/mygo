@@ -266,6 +266,10 @@ func (v *view) input(ev ui.InputEvent) bool {
 
 func (v *view) keyDown(ev ui.InputEvent) bool {
 	t := v.t
+	if on := t.opts.OnKey; on != nil && on(ev.Mods, ev.Key) {
+		v.pending = nil
+		return true
+	}
 	mac := runtime.GOOS == "darwin"
 	mods, key := ev.Mods, ev.Key
 	copyMods := ui.Ctrl | ui.Shift
@@ -454,6 +458,9 @@ func (v *view) copy() {
 }
 
 func (v *view) paste() {
+	if on := v.t.opts.OnPaste; on != nil && on() {
+		return
+	}
 	if text := v.services.ReadClipboard(); text != "" {
 		v.t.Paste(text)
 	}
