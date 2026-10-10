@@ -26,6 +26,8 @@ type headless struct {
 	cursor    Cursor
 	ime       platform.TextInputState
 	opened    []string
+	// escapes counts the Escapes nothing handled.
+	escapes int
 	openErr   error
 	// later are what the view asked to run after the frame, as a window
 	// posts them to the main thread.
@@ -98,6 +100,7 @@ func (h *headless) finishDataDrag(r transfer.Result) {
 	}
 }
 func (h *headless) titleBarDoubleClicked()            {}
+func (h *headless) escape()                           { h.escapes++ }
 func (h *headless) isDark() bool                      { return h.dark }
 func (h *headless) preferences() platform.Preferences { return h.prefs }
 func (h *headless) titleBar() TitleBar                { return h.bar }

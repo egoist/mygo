@@ -73,7 +73,14 @@ func TestEndSheet(handle uintptr) bool {
 
 // TestClick sends a left mouse down and up at a point of a window's content
 // (top-left origin, in points), like a user click.
-func TestClick(handle uintptr, x, y float64) {
+func TestClick(handle uintptr, x, y float64) { testClick(handle, x, y, false) }
+
+// TestAppClick is TestClick through the application's event queue, where
+// event monitors see the click as they see the user's, as those of
+// transient popovers that close on clicks elsewhere.
+func TestAppClick(handle uintptr, x, y float64) { testClick(handle, x, y, true) }
+
+func testClick(handle uintptr, x, y float64, viaApp bool) {
 	withPool(func() {
 		win := id(handle)
 		content := msgRect(send(win, "contentView"), sel("frame"))
@@ -82,7 +89,11 @@ func TestClick(handle uintptr, x, y float64) {
 		for _, typ := range []uint{1, 2} { // NSEventTypeLeftMouseDown, LeftMouseUp
 			ev := msgMouseEvent(class("NSEvent"), sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
 				typ, loc, 0, 0, number, 0, 0, 1, 1)
-			send(win, "sendEvent:", uintptr(ev))
+			if viaApp {
+				send(theBackend.app, "postEvent:atStart:", uintptr(ev), 0)
+			} else {
+				send(win, "sendEvent:", uintptr(ev))
+			}
 		}
 	})
 }
@@ -377,6 +388,21 @@ func TestClickAndType(handle uintptr, x, y float64, text string) bool {
 // method or a web view.
 func TestKey(handle uintptr, code uint16, chars string) bool {
 	return TestKeyShift(handle, code, chars, false)
+}
+
+// TestAppKey posts a key down and up to the application's event queue,
+// which sends it to the key window as it does the user's keys, to a page
+// or native UI.
+func TestAppKey(code uint16, chars string) {
+	withPool(func() {
+		number := sendInt(send(theBackend.app, "keyWindow"), "windowNumber")
+		s := nsString(chars)
+		for _, typ := range []uint{10, 11} { // NSEventTypeKeyDown, KeyUp
+			ev := msgKeyEvent(class("NSEvent"), sel("keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"),
+				typ, NSPoint{}, 0, 0, number, 0, s, s, false, code)
+			send(theBackend.app, "postEvent:atStart:", uintptr(ev), 0)
+		}
+	})
 }
 
 // TestKeyShift is TestKey with Shift held when shift is set.

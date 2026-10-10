@@ -32,7 +32,9 @@ the focus in it, it gives the focus back to the element that had it. See
 [overlays](overlays.md).
 
 For a menu of the system's, use a [menu button](menu-button.md); for a tip,
-a [tooltip](tooltip.md).
+a [tooltip](tooltip.md). A popover shows in its window: one that must
+extend beyond the window's edges shows in a [flyout](../windows.md#flyouts),
+a window of its own placed next to the anchor.
 
 ## Without a look
 

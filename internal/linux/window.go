@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"unsafe"
@@ -60,6 +61,15 @@ type window struct {
 	// controls are the title buttons over the page of a window with a
 	// hidden title bar (titlebar.go), in an overlay with the web view.
 	controls *windowControls
+
+	// flyout is how a flyout (WindowOptions.Flyout) was placed last, at
+	// flyoutSize, once placed is set. grabbed tells that a focusable one
+	// grabs the input, dismissing that it asks whether to close; unmaps
+	// counts the unmap events its hiding has yet to bring.
+	flyout                      platform.Flyout
+	flyoutSize                  platform.Size
+	placed, grabbed, dismissing bool
+	unmaps                      int
 
 	closed       bool
 	programmatic bool
@@ -145,7 +155,11 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	w := &window{b: b, id: b.nextID, h: h, opts: o, autoHideMenu: o.AutoHideMenu}
 	data := ptr(w.id)
 
-	w.win = gtkWindowNew(0)
+	typ := int32(0) // GTK_WINDOW_TOPLEVEL
+	if o.Flyout != nil && o.Flyout.Tray == nil {
+		typ = 1 // GTK_WINDOW_POPUP
+	}
+	w.win = gtkWindowNew(typ)
 	gtkWindowSetTitle(w.win, cs(o.Title))
 	if o.Center {
 		gtkWindowSetPosition(w.win, 1) // GTK_WIN_POS_CENTER
@@ -203,7 +217,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	w.accel = gtkAccelGroupNew()
 	gtkWindowAddAccelGroup(w.win, w.accel)
-	if b.appMenu != nil {
+	if b.appMenu != nil && o.Flyout == nil {
 		w.installMenu(b.appMenu)
 	}
 	// GTK sizes the window inside the window manager's frame, with the menu
@@ -231,7 +245,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if w.web != 0 {
 		b.byWebView[w.web] = w
 	}
-	if o.Frameless && b.announceCSD != nil {
+	if o.Frameless && o.Flyout == nil && b.announceCSD != nil {
 		// GTK asks a Wayland compositor that speaks
 		// org_kde_kwin_server_decoration (KWin, COSMIC, Sway…) to decorate
 		// every window it does not decorate itself, an undecorated one
@@ -241,6 +255,9 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 		b.announceCSD(gtkWidgetGetWindow(w.win))
 	}
 	gtkWidgetShowAll(w.box)
+	if o.Flyout != nil {
+		w.initFlyout()
+	}
 	if o.FullScreen {
 		gtkWindowFullscreen(w.win)
 	} else if o.Maximized {
@@ -337,6 +354,7 @@ func (w *window) cleanup() {
 	w.closeWebViews()
 	w.closed = true
 	delete(w.b.windows, w.id)
+	w.b.flyouts = slices.DeleteFunc(w.b.flyouts, func(x *window) bool { return x == w })
 	delete(w.b.byWebView, w.web)
 	dropOwner(w.owner)
 	if w.surface != nil {
@@ -582,12 +600,20 @@ func (w *window) SetAlwaysOnTop(v bool) {
 func (w *window) IsAlwaysOnTop() bool { return w.keepAbove || w.state&stateAbove != 0 }
 
 func (w *window) Show() {
+	if w.opts.Flyout != nil {
+		w.showFlyout(w.flyout.Focusable)
+		return
+	}
 	w.willShow()
 	gtkWidgetShow(w.win)
 	gtkWindowPresent(w.win)
 }
 
 func (w *window) ShowInactive() {
+	if w.opts.Flyout != nil {
+		w.showFlyout(false)
+		return
+	}
 	w.willShow()
 	gtkWidgetShow(w.win)
 }
@@ -612,7 +638,14 @@ func (w *window) willShow() {
 	w.placing = w.b.windowManager(w.win)
 }
 
-func (w *window) Hide()           { gtkWidgetHide(w.win) }
+func (w *window) Hide() {
+	if w.opts.Flyout != nil {
+		w.hideFlyout()
+		return
+	}
+	gtkWidgetHide(w.win)
+}
+
 func (w *window) IsVisible() bool { return gtkWidgetGetVisible(w.win) }
 
 func (w *window) Focus() {
@@ -622,6 +655,12 @@ func (w *window) Focus() {
 		}
 		return
 	}
+	if w.opts.Flyout != nil {
+		// A popup takes the keyboard only by its grab, as it shows.
+		w.showFlyout(w.flyout.Focusable)
+		return
+	}
+	w.b.dismissFlyouts(w)
 	w.willShow() // presenting shows a hidden window
 	gtkWindowPresent(w.win)
 }
@@ -895,6 +934,9 @@ func (w *window) Close() {
 		return
 	}
 	if !w.closed {
+		if w.opts.Flyout != nil {
+			w.ungrab()
+		}
 		gtkWidgetDestroy(w.win)
 	}
 }
@@ -1179,6 +1221,9 @@ func initWindowCallbacks() {
 		if w := b().window(data); w != nil {
 			w.altAlone = false
 			w.h.Blurred()
+			if w.trayFlyout() && w.flyout.Focusable && !w.grabbingChild() {
+				w.dismissFlyout(false)
+			}
 		}
 		return false
 	})

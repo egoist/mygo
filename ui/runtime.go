@@ -34,6 +34,8 @@ type host interface {
 	cancelDataDrag()
 	setDropFormats([]transfer.Format)
 	titleBarDoubleClicked()
+	// escape tells the window an Escape nothing handled.
+	escape()
 	isDark() bool
 	preferences() platform.Preferences
 	titleBar() TitleBar

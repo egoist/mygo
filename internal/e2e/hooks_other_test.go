@@ -18,6 +18,8 @@ func endSheet(*mygo.Window) (bool, bool) { return false, false }
 
 func click(*mygo.Window, float64, float64) bool { return false }
 
+func appClick(*mygo.Window, float64, float64) bool { return false }
+
 func drag(*mygo.Window, [][2]float64) bool { return false }
 
 func sideButton(*mygo.Window, bool) bool { return false }
@@ -126,3 +128,5 @@ func dragFiles(*mygo.Window, float64, float64, []string) (bool, bool) { return f
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 	return "", false, false, false
 }
+
+func pressEscape(*mygo.Window) bool { return false }

@@ -171,6 +171,10 @@ type WindowOptions struct {
 type Window struct {
 	id     int
 	parent *Window
+	// flyout places a window NewFlyout created, at flyoutSize, the size
+	// it asked for. Main thread only.
+	flyout     *platform.Flyout
+	flyoutSize platform.Size
 	// host is the window a web view is in, for the page of a web view
 	// (webView); webViews are the pages of a window's web views, guarded
 	// by the lock of windows.
@@ -300,13 +304,19 @@ func NewWindow(opts WindowOptions) *Window {
 	if err != nil {
 		panic(err)
 	}
+	return createWindow("NewWindow", opts, bg, nil)
+}
+
+// createWindow creates a window, or a flyout, once the application is
+// ready.
+func createWindow(caller string, opts WindowOptions, bg *background, flyout *flyoutOptions) *Window {
 	if !isMainThread() {
 		App.waitReady()
 	} else if !App.IsReady() {
-		panic("mygo: NewWindow called before the application is ready; create windows in App.WhenReady")
+		panic("mygo: " + caller + " called before the application is ready; create windows in App.WhenReady")
 	}
 	var w *Window
-	onMain(func() { w = newWindow(opts, bg, 0) })
+	onMain(func() { w = newWindow(opts, bg, 0, flyout) })
 	if w == nil {
 		// The event loop has already stopped.
 		w = &Window{}
@@ -349,7 +359,7 @@ func updateBackgrounds() {
 	}
 }
 
-func newWindow(opts WindowOptions, bg *background, native uintptr) *Window {
+func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyoutOptions) *Window {
 	windows.Lock()
 	windows.nextID++
 	id := windows.nextID
@@ -367,6 +377,19 @@ func newWindow(opts WindowOptions, bg *background, native uintptr) *Window {
 		w.background = nil
 	}
 	popts.Native = native
+	if flyout != nil {
+		w.flyout = flyout.flyout
+		if t := flyout.tray; t != nil {
+			if t.native == nil {
+				panic("mygo: NewFlyout: the tray was destroyed")
+			}
+			w.flyout.Tray = t.native
+		}
+		w.flyoutSize = platform.Size{Width: popts.Width, Height: popts.Height}
+		popts.Flyout = w.flyout
+		popts.Focusable = w.flyout.Focusable
+		popts.Center = false
+	}
 	w.devTools = popts.DevTools
 	if w.stateKey != "" {
 		restoreWindowState(w.stateKey, popts)
@@ -698,6 +721,9 @@ func (w *Window) ContentBounds() Rectangle {
 // SetSize resizes the window.
 func (w *Window) SetSize(width, height int) {
 	w.do(func(n platform.Window) {
+		if w.setFlyoutSize(width, height) {
+			return
+		}
 		b := n.Bounds()
 		b.Width, b.Height = width, height
 		n.SetBounds(b)
@@ -713,6 +739,9 @@ func (w *Window) Size() (width, height int) {
 // SetContentSize resizes the window so the page area has the given size.
 func (w *Window) SetContentSize(width, height int) {
 	w.do(func(n platform.Window) {
+		if w.setFlyoutSize(width, height) {
+			return
+		}
 		b := n.ContentBounds()
 		b.Width, b.Height = width, height
 		n.SetContentBounds(b)
@@ -1573,8 +1602,8 @@ func (h *windowHandler) MenuItemClicked(id int) {
 	}
 }
 
-func (h *windowHandler) Resized()           { h.w.stateChanged(); fire(&h.w.onResize) }
-func (h *windowHandler) Moved()             { h.w.stateChanged(); fire(&h.w.onMove) }
+func (h *windowHandler) Resized()           { h.w.stateChanged(); h.w.placeFlyouts(); fire(&h.w.onResize) }
+func (h *windowHandler) Moved()             { h.w.stateChanged(); h.w.placeFlyouts(); fire(&h.w.onMove) }
 func (h *windowHandler) Minimized()         { h.w.stateChanged(); fire(&h.w.onMinimize) }
 func (h *windowHandler) Restored()          { h.w.stateChanged(); fire(&h.w.onRestore) }
 func (h *windowHandler) Maximized()         { h.w.stateChanged(); fire(&h.w.onMaximize) }
@@ -1686,7 +1715,7 @@ func (h *windowHandler) NewWindow(req platform.NewWindowRequest) platform.Window
 	if err != nil {
 		log.Printf("mygo: window open handler: %v", err)
 	}
-	child := newWindow(o, bg, req.Native)
+	child := newWindow(o, bg, req.Native, nil)
 	return child.native
 }
 
@@ -1747,6 +1776,8 @@ func (w *Window) handleMessage(msg string) {
 		if w.native != nil {
 			w.native.TitleBarDoubleClicked()
 		}
+	case "escape":
+		w.escape()
 	case "drop":
 		if w.native != nil {
 			w.filesDropped(w.native.DroppedFiles(), int(m.X), int(m.Y))

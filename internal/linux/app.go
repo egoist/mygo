@@ -22,7 +22,10 @@ type Backend struct {
 	name    string
 	running bool
 
-	windows   map[int]*window
+	windows map[int]*window
+	// flyouts are the flyouts that show on Wayland, in the order they
+	// showed: each popup's parent is the one before or a toplevel.
+	flyouts   []*window
 	byWebView map[ptr]*window
 	// webViews are the web views under surfaces (webview.go), by id.
 	webViews map[int]*window
@@ -212,6 +215,7 @@ func initCallbacks() {
 			return 0
 		})
 		initWindowCallbacks()
+		initFlyoutCallbacks()
 		initSurfaceCallbacks()
 		initDownloadCallbacks()
 		initMenuCallbacks()

@@ -467,6 +467,12 @@ func (h *windowHost) titleBarDoubleClicked() {
 	}
 }
 
+func (h *windowHost) escape() {
+	if h.conn.Escape != nil {
+		h.conn.Escape()
+	}
+}
+
 func (h *windowHost) isDark() bool { return h.conn.IsDark != nil && h.conn.IsDark() }
 
 func (h *windowHost) preferences() platform.Preferences {

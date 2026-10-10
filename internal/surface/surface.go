@@ -21,6 +21,9 @@ type Conn struct {
 	// TitleBarDoubleClicked does what a double click on a title bar does.
 	StartDrag             func()
 	TitleBarDoubleClicked func()
+	// Escape is called with an Escape that no element or shortcut of the
+	// content handled, which closes a flyout.
+	Escape func()
 	// StartDataDrag connects a UI source to the core's process-local
 	// registry. local never leaves the process.
 	StartDataDrag  func(transfer.Data, any, transfer.DragOptions, float64, float64) error

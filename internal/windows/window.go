@@ -17,6 +17,10 @@ type window struct {
 	opts   *platform.WindowOptions
 	hwnd   uintptr
 	parent *window
+	// flyout is how a flyout (WindowOptions.Flyout) was placed last, at
+	// flyoutSize.
+	flyout     platform.Flyout
+	flyoutSize platform.Size
 
 	// The WebView2 controller is created asynchronously; calls that need
 	// it wait in pending until it exists, or fail with webViewErr, why it
@@ -120,17 +124,32 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	// style is the window's for life: Windows neither adds it nor removes it
 	// later.
 	w.noRedirect = o.Vibrancy != "" && systemBackdrops() && (!w.hiddenTitleBar && !o.Surface || b.composition() != nil)
+	if o.Flyout != nil {
+		// What the content leaves transparent shows what is behind.
+		w.noRedirect = b.composition() != nil
+	}
 	var owner uintptr
 	if p, ok := o.Parent.(*window); ok && p != nil && !p.closed {
 		w.parent, owner = p, p.hwnd
 	}
 	style, ex := w.styles()
-	w.hwnd = createWindow(ex, windowClass, o.Title, style, 0, 0, 0, 0, owner)
+	class := windowClass
+	if o.Flyout != nil {
+		style, ex = w.flyoutStyles()
+		if o.HasShadow {
+			class = flyoutShadowClass
+		}
+	}
+	w.hwnd = createWindow(ex, class, o.Title, style, 0, 0, 0, 0, owner)
 	if w.hwnd == 0 {
 		return nil, errors.New("mygo: cannot create a window")
 	}
 	b.windows[w.hwnd] = w
-	w.placeInitially()
+	if o.Flyout != nil {
+		w.PlaceFlyout(*o.Flyout, platform.Size{Width: o.Width, Height: o.Height})
+	} else {
+		w.placeInitially()
+	}
 
 	if !o.Closable {
 		w.SetClosable(false)
@@ -144,7 +163,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if o.BackgroundColor != nil {
 		w.SetBackgroundColor(*o.BackgroundColor)
 	}
-	if w.captionless() && w.shadow {
+	if w.captionless() && w.shadow && o.Flyout == nil {
 		w.SetHasShadow(true)
 	}
 	if w.hiddenTitleBar {
@@ -163,7 +182,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if b.icon != 0 {
 		w.setIcon(b.icon)
 	}
-	if b.appMenu != nil {
+	if b.appMenu != nil && o.Flyout == nil {
 		w.installMenu(b.appMenu)
 	}
 	if o.Modal && w.parent != nil {
@@ -278,6 +297,14 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 	if m == w.b.taskbarButtonCreated && m != 0 {
 		w.applyTaskbar()
 		return 0, true
+	}
+	if w.opts.Flyout != nil {
+		if r, ok := w.flyoutMessage(m, wp, lp); ok {
+			return r, true
+		}
+	}
+	if m == wmMouseActivate && w.ownsFocusableFlyout() {
+		return maActivateAndEat, true
 	}
 	switch m {
 	case wmClose:
@@ -660,6 +687,10 @@ func (w *window) SetAlwaysOnTop(v bool) {
 func (w *window) IsAlwaysOnTop() bool { return windowLong(w.hwnd, gwlExStyle)&wsExTopmost != 0 }
 
 func (w *window) Show() {
+	if f := w.opts.Flyout; f != nil && !f.Focusable {
+		procShowWindow.Call(w.hwnd, swShowNoActivate)
+		return
+	}
 	if w.showMaximized {
 		w.showMaximized = false
 		procShowWindow.Call(w.hwnd, swShowMaximized)
@@ -688,6 +719,10 @@ func (w *window) IsVisible() bool {
 func (w *window) Focus() {
 	if w.host != nil {
 		w.focusWebView()
+		return
+	}
+	if f := w.opts.Flyout; f != nil && !f.Focusable {
+		w.Show() // never activated
 		return
 	}
 	if w.IsMinimized() {
