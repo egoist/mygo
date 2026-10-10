@@ -207,7 +207,7 @@ window.ready = true;
 	}
 	eventually(t, "the drop beside the page", func() bool {
 		var n int
-		w.Update(func() { n = len(zone) })
+		mygo.RunOnMain(func() { n = len(zone) })
 		return n == 1
 	})
 }
