@@ -85,6 +85,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.selection.dragging = false
 		// Keys let go of elsewhere never come back up here.
 		rt.modsChanged(0)
+		clear(rt.byPosition)
 		if p := rt.pressed; p != nil {
 			// The release will not come: an element taking its input
 			// gets one now.
@@ -539,6 +540,8 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 		}
 		rt.byPosition[physical] = true
 		key = physical
+	} else if !repeat {
+		delete(rt.byPosition, physical)
 	}
 	if rt.inspectKey(mods, key) {
 		return true

@@ -543,6 +543,15 @@ func keyvalKey(keyval uint32) platform.Key {
 	return platform.KeyUnknown
 }
 
+// eventPhysicalKey reads GdkEventKey.hardware_keycode on the supported
+// 64-bit GTK ABI. X11 and Wayland expose the evdev code plus 8 here.
+func eventPhysicalKey(event ptr) platform.Key {
+	if code := field[uint16](event, 48); code >= 8 {
+		return platform.KeyForScancode(code - 8)
+	}
+	return platform.KeyUnknown
+}
+
 func (b *Backend) surfaceOf(data ptr) *surface {
 	if w := b.window(data); w != nil {
 		return w.surface
@@ -770,11 +779,7 @@ func initSurfaceCallbacks() {
 		}
 		k := keyvalKey(field[uint32](event, 28))
 		mods := gdkMods(field[uint32](event, 24))
-		// hardware_keycode, an X keycode: evdev's code plus 8.
-		var physical platform.Key
-		if code := field[uint16](event, 48); code >= 8 {
-			physical = platform.KeyForScancode(code - 8)
-		}
+		physical := eventPhysicalKey(event)
 		// A key the layout types no US key for, as S on a Cyrillic layout,
 		// still reaches shortcuts by its position.
 		// A release is sent whatever the modifiers held now, so that a press

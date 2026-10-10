@@ -3,7 +3,10 @@
 package darwin
 
 import (
+	"runtime"
 	"testing"
+
+	"github.com/ebitengine/purego"
 
 	"github.com/egoist/mygo/internal/platform"
 )
@@ -39,5 +42,46 @@ func TestKeyAtCodeANSI(t *testing.T) {
 	}
 	if len(ansiKeys) != 26+10+11 {
 		t.Errorf("ansiKeys has %d entries, want 47", len(ansiKeys))
+	}
+}
+
+func TestKeyboardLayoutType(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	lib, err := purego.Dlopen("/System/Library/Frameworks/Carbon.framework/Carbon", purego.RTLD_NOW)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer purego.Dlclose(lib)
+	var layoutType func(int16) uint32
+	purego.RegisterLibFunc(&layoutType, lib, "KBGetLayoutType")
+	// Gestalt.h identifies these keyboard types as third-party ANSI/ISO.
+	if got := layoutType(40); got != 0x414E5349 { // kKeyboardANSI
+		t.Errorf("ANSI keyboard layout type: got %#x", got)
+	}
+	if got := layoutType(41); got != macISOLayoutType {
+		t.Errorf("ISO keyboard layout type: got %#x", got)
+	}
+}
+
+func TestKeyAtCodeISO(t *testing.T) {
+	// ISO swaps the upper-left key's virtual code with the extra key beside
+	// left Shift. The latter has no platform.Key counterpart.
+	if got := keyAtCodeForLayout(0x0A, macISOLayoutType); got != platform.KeyBackquote {
+		t.Errorf("ISO upper-left key: got %v, want KeyBackquote", got)
+	}
+	if got := keyAtCodeForLayout(0x32, macISOLayoutType); got != platform.KeyUnknown {
+		t.Errorf("ISO extra key: got %v, want KeyUnknown", got)
+	}
+	if got := keyAtCodeForLayout(0x01, macISOLayoutType); got != platform.KeyS {
+		t.Errorf("ISO S key: got %v, want KeyS", got)
+	}
+	for _, layout := range []uint32{0x414E5349, 0} { // kKeyboardANSI, unknown
+		if got := keyAtCodeForLayout(0x32, layout); got != platform.KeyBackquote {
+			t.Errorf("layout %#x upper-left key: got %v, want KeyBackquote", layout, got)
+		}
+		if got := keyAtCodeForLayout(0x0A, layout); got != platform.KeyUnknown {
+			t.Errorf("layout %#x ISO-only key: got %v, want KeyUnknown", layout, got)
+		}
 	}
 }

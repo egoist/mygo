@@ -51,6 +51,11 @@ var (
 	cgProviderCreate   uintptr
 	cgProviderRelease  uintptr
 	cfDataCreate       uintptr
+	// Read the keyboard type from each event, so an external ISO keyboard
+	// does not inherit the built-in keyboard's ANSI mapping.
+	cgEventGetIntegerValueField func(event uintptr, field uint32) int64
+	kbGetLayoutType             func(keyboardType int16) uint32
+	lmGetKbdType                func() uint8
 
 	// caPass counts the passes of the main run loop, past Core Animation's
 	// commit of each: frames drawn in the same pass go into the same
@@ -80,6 +85,9 @@ func loadSurface() {
 		cgProviderCreate = mustDlsym(libCG, "CGDataProviderCreateWithCFData")
 		cgProviderRelease = mustDlsym(libCG, "CGDataProviderRelease")
 		cfDataCreate = mustDlsym(libCF, "CFDataCreate")
+		purego.RegisterLibFunc(&cgEventGetIntegerValueField, libCG, "CGEventGetIntegerValueField")
+		purego.RegisterLibFunc(&kbGetLayoutType, libCarbon, "KBGetLayoutType")
+		purego.RegisterLibFunc(&lmGetKbdType, libCarbon, "LMGetKbdType")
 		p := mustDlsym(libCG, "kCGColorSpaceSRGB")
 		name := **(**uintptr)(unsafe.Pointer(&p))
 		cgColorSpaceSRGB, _, _ = purego.SyscallN(mustDlsym(libCG, "CGColorSpaceCreateWithName"), name)
@@ -542,9 +550,42 @@ func keyAtCode(code uint16) platform.Key {
 	return ansiKeys[code]
 }
 
-// physicalKey returns the key of ev by position on an ANSI US keyboard,
-// whatever the layout types.
-func physicalKey(ev id) platform.Key { return keyAtCode(uint16(send(ev, "keyCode"))) }
+const (
+	macISOSectionCode = 0x0A
+	macANSIGraveCode  = 0x32
+	macISOLayoutType  = 0x49534F20 // Carbon's kKeyboardISO ('ISO ')
+)
+
+func keyAtCodeForLayout(code uint16, layoutType uint32) platform.Key {
+	if layoutType == macISOLayoutType {
+		// On ISO keyboards the key left of 1 is kVK_ISO_Section, while
+		// kVK_ANSI_Grave is the extra key beside the left Shift.
+		switch code {
+		case macISOSectionCode:
+			return platform.KeyBackquote
+		case macANSIGraveCode:
+			return platform.KeyUnknown // No key for ISO's extra key in platform.Key.
+		}
+	}
+	return keyAtCode(code)
+}
+
+// physicalKey returns the ANSI US key at the event's physical position,
+// independent of the current input source. Only the grave key differs on ISO.
+func physicalKey(ev id) platform.Key {
+	code := uint16(send(ev, "keyCode"))
+	if code != macISOSectionCode && code != macANSIGraveCode {
+		return keyAtCode(code)
+	}
+	var keyboardType int16
+	if cgEvent := send(ev, "CGEvent"); cgEvent != 0 {
+		keyboardType = int16(cgEventGetIntegerValueField(uintptr(cgEvent), 10)) // kCGKeyboardEventKeyboardType
+	}
+	if keyboardType == 0 { // Synthetic NSEvents can lack a keyboard type.
+		keyboardType = int16(lmGetKbdType())
+	}
+	return keyAtCodeForLayout(code, kbGetLayoutType(keyboardType))
+}
 
 // stringOf returns the text of an NSString or NSAttributedString.
 func stringOf(obj id) string {

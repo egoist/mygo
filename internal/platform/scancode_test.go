@@ -45,8 +45,12 @@ func TestKeyByPosition(t *testing.T) {
 		{"cyrillic alt", KeyUnknown, KeyS, ModAlt, true},
 		{"cyrillic typing", KeyUnknown, KeyS, 0, false},
 		{"cyrillic shifted typing", KeyUnknown, KeyS, ModShift, false},
+		{"shifted exclamation chord", KeyForRune('!'), Key1, ModCtrl | ModShift, true},
+		{"shifted plus chord", KeyForRune('+'), KeyEqual, ModCtrl | ModShift, true},
+		{"German sharp S chord", KeyForRune('ß'), KeyMinus, ModCtrl, true},
 		{"latin chord keeps the layout key", KeyS, KeyS, ModCtrl, false},
-		{"layout key differs from position", KeyO, KeyS, ModCtrl, false},
+		{"known AZERTY layout key", KeyQ, KeyA, ModCtrl, false},
+		{"known QWERTZ layout key", KeyZ, KeyY, ModCtrl, false},
 		{"unmapped position", KeyUnknown, KeyUnknown, ModCtrl, false},
 	} {
 		if got := KeyByPosition(c.key, c.physical, c.mods); got != c.want {
