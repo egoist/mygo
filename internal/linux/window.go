@@ -421,25 +421,16 @@ func (w *window) frameExtents() extents {
 }
 
 // contentInsets returns where the content is inside the window GTK sizes:
-// below the menu bar. A window that has not shown expects the menu bar's
-// natural height.
+// below the menu bar, which GTK gives its natural height. That holds
+// before GTK lays out a menu bar that just showed or went, unlike where
+// it has the content.
 func (w *window) contentInsets() extents {
-	content := w.contentWidget()
-	if gtkWidgetGetMapped(w.win) {
-		var x, y int32
-		if gtkWidgetTranslateCoordinates(content, w.box, 0, 0, &x, &y) {
-			var box, page gdkRectangle
-			gtkWidgetGetAllocation(w.box, &box)
-			gtkWidgetGetAllocation(content, &page)
-			return extents{x, y, box.Width - x - page.Width, box.Height - y - page.Height}
-		}
+	if w.menubar == 0 || !gtkWidgetGetVisible(w.menubar) {
+		return extents{}
 	}
-	if w.menubar != 0 && gtkWidgetGetVisible(w.menubar) {
-		var minimum, natural int32
-		gtkWidgetGetPreferredHeight(w.menubar, &minimum, &natural)
-		return extents{top: natural}
-	}
-	return extents{}
+	var minimum, natural int32
+	gtkWidgetGetPreferredHeight(w.menubar, &minimum, &natural)
+	return extents{top: natural}
 }
 
 // SetBounds asks for the bounds of the window manager's frame: GTK moves
@@ -525,7 +516,7 @@ func (w *window) size() (width, height int32) {
 	return width, height
 }
 
-// ContentBounds returns where the content is: on X11, where GTK has the
+// ContentBounds returns where the content is: on X11, where X has the
 // window inside the window manager's frame, below the menu bar.
 func (w *window) ContentBounds() platform.Rect {
 	var r platform.Rect

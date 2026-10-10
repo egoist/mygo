@@ -270,7 +270,6 @@ var (
 	gtkWidgetDestroy                    func(w ptr)
 	gtkWidgetGetVisible                 func(w ptr) bool
 	gtkWidgetGetMapped                  func(w ptr) bool
-	gtkWidgetTranslateCoordinates       func(src, dst ptr, x, y int32, dx, dy *int32) bool
 	gtkWidgetSetOpacity                 func(w ptr, v float64)
 	gtkWidgetGetOpacity                 func(w ptr) float64
 	gtkWidgetGrabFocus                  func(w ptr)
@@ -675,7 +674,6 @@ func load() error {
 	mustBind(t, &gtkWidgetDestroy, "gtk_widget_destroy")
 	mustBind(t, &gtkWidgetGetVisible, "gtk_widget_get_visible")
 	mustBind(t, &gtkWidgetGetMapped, "gtk_widget_get_mapped")
-	mustBind(t, &gtkWidgetTranslateCoordinates, "gtk_widget_translate_coordinates")
 	mustBind(t, &gtkWidgetSetOpacity, "gtk_widget_set_opacity")
 	mustBind(t, &gtkWidgetGetOpacity, "gtk_widget_get_opacity")
 	mustBind(t, &gtkWidgetGrabFocus, "gtk_widget_grab_focus")
