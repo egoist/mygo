@@ -324,6 +324,19 @@ func webViewMethods() []objc.MethodDef {
 		method("mouseEntered:", moved),
 		method("mouseExited:", exited),
 		method("cursorUpdate:", moved),
+		// The content resizes a web view as its window resizes, frame by
+		// frame: told of the window's live resize, WebKit would show the
+		// page's scrollers throughout it, at the page's last width.
+		method("viewWillStartLiveResize", func(self id, cmd objc.SEL) {
+			if w := theBackend.byWebView[self]; w == nil || w.host == nil {
+				sendSuper(self, "MyGoWebView", cmd)
+			}
+		}),
+		method("viewDidEndLiveResize", func(self id, cmd objc.SEL) {
+			if w := theBackend.byWebView[self]; w == nil || w.host == nil {
+				sendSuper(self, "MyGoWebView", cmd)
+			}
+		}),
 		method("accessibilityParent", func(self id, cmd objc.SEL) id {
 			if w := theBackend.byWebView[self]; w != nil && w.accessParent != 0 {
 				return w.accessParent
