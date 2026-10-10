@@ -717,6 +717,8 @@ func (rt *engine) routeKeys() {
 		}
 		if found {
 			rt.delivered = append(rt.delivered, shortcutReg{id: target, mods: k.mods, key: k.key})
+		} else if k == (keyEvent{0, KeyEscape}) {
+			rt.host.escape()
 		}
 	}
 	rt.keys = rt.keys[:0]

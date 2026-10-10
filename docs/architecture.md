@@ -1073,7 +1073,11 @@ as in Tauri:
   through `WindowHandler.ShouldClose` when it loses the keyboard: as its
   panel resigns key (macOS), on a press outside it or a broken grab, or
   as the compositor dismisses the popup (GTK, as `GtkMenu`), and as
-  another window is activated (Windows). `Flyout.Popover` shows one in an
+  another window is activated (Windows), whose activating click its
+  owner eats (`MA_ACTIVATEANDEAT`), as menus' and WinUI's flyouts'. An
+  Escape the content leaves closes a flyout too: native UI reports one
+  no shortcut took (`routeKeys`, `surface.Conn.Escape`), and the bridge
+  one no handler of the page cancelled (an `escape` message). `Flyout.Popover` shows one in an
   `NSPopover` (`internal/darwin/popover.go`), whose window AppKit makes
   as it shows, and whose transient behavior asks `popoverShouldClose:`.
   The design follows GPUI's `WindowKind::AnchoredPopup` and winit's

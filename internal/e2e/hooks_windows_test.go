@@ -27,8 +27,11 @@ func click(w *mygo.Window, x, y float64) (ok bool) {
 	return ok
 }
 
-// appClick is click: no event monitors to go through.
-func appClick(w *mygo.Window, x, y float64) bool { return click(w, x, y) }
+// appClick clicks with the system's input, which activates windows.
+func appClick(w *mygo.Window, x, y float64) (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestInputClick(w.NativeHandle(), x, y) })
+	return ok
+}
 
 func sideButton(w *mygo.Window, back bool) (ok bool) {
 	mygo.RunOnMain(func() { ok = win.TestSideButton(w.NativeHandle(), back) })
@@ -300,4 +303,10 @@ func pressTab(w *mygo.Window, back bool) (ok bool) {
 // AppKit's older accessibility API is macOS's.
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 	return "", false, false, false
+}
+
+// pressEscape presses Escape, as the keyboard does.
+func pressEscape(*mygo.Window) bool {
+	mygo.RunOnMain(func() { win.TestPressKeys(0x1B) }) // VK_ESCAPE
+	return true
 }

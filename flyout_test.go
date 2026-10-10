@@ -112,3 +112,35 @@ func TestFlyoutValidation(t *testing.T) {
 	expectPanic("no parent", func() { NewFlyout(FlyoutOptions{}) })
 	expectPanic("unknown placement", func() { NewFlyout(FlyoutOptions{Parent: parent, Placement: "below"}) })
 }
+
+// TestFlyoutEscape closes a flyout on an Escape its page did not handle,
+// as the user closing it, and no other window.
+func TestFlyoutEscape(t *testing.T) {
+	parent, pw := testWindow(t, WindowOptions{})
+	fl, fw := testFlyout(t, FlyoutOptions{Parent: parent, Focusable: true})
+	keep := true
+	closes := 0
+	fl.OnClose(func(e *CloseEvent) {
+		closes++
+		if keep {
+			e.PreventDefault()
+		}
+	})
+	escape := func(w *fake.Window) {
+		page(w, `{"t":"escape"}`)
+		onMain(func() {}) // the close posted after the message
+	}
+	escape(fw)
+	if closes != 1 || fl.IsDestroyed() {
+		t.Fatalf("OnClose heard %d closes, destroyed %v", closes, fl.IsDestroyed())
+	}
+	keep = false
+	escape(fw)
+	if !fl.IsDestroyed() {
+		t.Error("Escape did not close the flyout")
+	}
+	escape(pw)
+	if parent.IsDestroyed() {
+		t.Error("Escape closed a window that is not a flyout")
+	}
+}

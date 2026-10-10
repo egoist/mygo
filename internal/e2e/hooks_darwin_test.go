@@ -229,3 +229,9 @@ func screenColor(*mygo.Window, float64, float64) (uint8, uint8, uint8, bool) { r
 func rightClick(*mygo.Window, float64, float64) bool { return false }
 func popupMenus() ([][]string, bool)                 { return nil, false }
 func choosePopupItem(string) bool                    { return false }
+
+// pressEscape presses Escape in the key window, as the keyboard does.
+func pressEscape(*mygo.Window) bool {
+	mygo.RunOnMain(func() { darwin.TestAppKey(53, "\x1b") })
+	return true
+}

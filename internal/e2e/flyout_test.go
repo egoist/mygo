@@ -2,10 +2,12 @@ package e2e
 
 import (
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 )
 
 const flyoutPage = `<body style="margin:0;background:transparent">` +
@@ -23,23 +25,8 @@ func TestFlyout(t *testing.T) {
 	if !fl.IsFlyout() || fl.Parent() != parent || !fl.IsVisible() {
 		t.Fatalf("flyout: IsFlyout %v, parent %v, visible %v", fl.IsFlyout(), fl.Parent() == parent, fl.IsVisible())
 	}
-	// Linux reports where the window manager's frame is, not the
-	// content, which a frame's title bar and borders push in: measure it.
-	content := func() mygo.Rectangle { return parent.ContentBounds() }
-	eventually(t, "the flyout placed", func() bool { return fl.Bounds().Width == 220 })
-	if f, c := fl.Bounds(), content(); f.X-c.X != anchor.X || f.Y-c.Y != anchor.Y+anchor.Height+4 {
-		inset := mygo.Point{X: f.X - c.X - anchor.X, Y: f.Y - c.Y - anchor.Y - anchor.Height - 4}
-		if runtime.GOOS != "linux" || inset.X < 0 || inset.Y < 0 || inset.X > 10 || inset.Y > 50 {
-			t.Fatalf("flyout at %+v, not below its anchor %+v in the content at %+v", f, anchor, c)
-		}
-		t.Logf("the content is %+v from where the parent reports it", inset)
-		content = func() mygo.Rectangle {
-			c := parent.ContentBounds()
-			return mygo.Rectangle{X: c.X + inset.X, Y: c.Y + inset.Y, Width: c.Width, Height: c.Height}
-		}
-	}
 	below := func() mygo.Rectangle {
-		c := content()
+		c := parent.ContentBounds()
 		return mygo.Rectangle{X: c.X + anchor.X, Y: c.Y + anchor.Y + anchor.Height + 4, Width: 220, Height: 160}
 	}
 	eventuallyAt(t, "the flyout below its anchor", fl, below)
@@ -67,7 +54,7 @@ func TestFlyout(t *testing.T) {
 	// Where the work area has no room below, it goes above.
 	parent.SetPosition(work.X+100, work.Y+work.Height-210)
 	eventuallyAt(t, "the flyout above its anchor", fl, func() mygo.Rectangle {
-		c := content()
+		c := parent.ContentBounds()
 		return mygo.Rectangle{X: c.X + anchor.X, Y: c.Y + anchor.Y - 4 - 160, Width: 220, Height: 160}
 	})
 
@@ -77,7 +64,7 @@ func TestFlyout(t *testing.T) {
 	fl.SetAnchor(anchor)
 	fl.SetSize(120, 90)
 	eventuallyAt(t, "the flyout at its new anchor and size", fl, func() mygo.Rectangle {
-		c := content()
+		c := parent.ContentBounds()
 		return mygo.Rectangle{X: c.X + anchor.X, Y: c.Y + anchor.Y + anchor.Height + 4, Width: 120, Height: 90}
 	})
 
@@ -86,11 +73,21 @@ func TestFlyout(t *testing.T) {
 	eventually(t, "the flyout closed with its parent", fl.IsDestroyed)
 }
 
-// eventuallyAt waits for a flyout to be at the bounds want returns.
+// eventuallyAt waits for a flyout to be at the bounds want returns. Under
+// a window manager, Linux reports where its frame is, not the content,
+// which the frame's title bar and border push in: up to there.
 func eventuallyAt(t *testing.T, what string, fl *mygo.Window, want func() mygo.Rectangle) {
 	t.Helper()
+	at := func() bool {
+		got, w := fl.Bounds(), want()
+		if runtime.GOOS != "linux" {
+			return got == w
+		}
+		dx, dy := got.X-w.X, got.Y-w.Y
+		return dx >= 0 && dx <= 10 && dy >= 0 && dy <= 50 && got.Width == w.Width && got.Height == w.Height
+	}
 	deadline := time.Now().Add(5 * time.Second)
-	for fl.Bounds() != want() {
+	for !at() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s: at %+v, not %+v", what, fl.Bounds(), want())
 		}
@@ -173,4 +170,112 @@ func TestPopoverFlyout(t *testing.T) {
 			t.Errorf("OnClose heard %d closes", closes)
 		}
 	}
+}
+
+// TestFlyoutToggle opens a focusable flyout from a button of its parent,
+// and closes it with a second click on the button, which the closing
+// does not turn into opening it again.
+func TestFlyoutToggle(t *testing.T) {
+	var parent, fl *mygo.Window // main thread only
+	opened := make(chan struct{}, 4)
+	closed := make(chan struct{}, 4)
+	view := func(c *ui.Context) {
+		if !ui.Button(c.Key("toggle"), "Toggle").Width(120).Height(30).Clicked() {
+			return
+		}
+		if fl != nil {
+			fl.Close()
+			return
+		}
+		fl = mygo.NewFlyout(mygo.FlyoutOptions{Parent: parent, Anchor: mygo.Rectangle{Width: 120, Height: 30}, Width: 150, Height: 100, Focusable: true, Content: ui.View(func(c *ui.Context) {})})
+		fl.OnClosed(func() {
+			fl = nil
+			closed <- struct{}{}
+		})
+		opened <- struct{}{}
+	}
+	drawn := make(chan struct{}, 1)
+	mygo.RunOnMain(func() {
+		parent = mygo.NewWindow(mygo.WindowOptions{Width: 300, Height: 200, Hidden: true, Content: ui.View(view)})
+		parent.OnReadyToShow(func() { drawn <- struct{}{} })
+		parent.Show()
+	})
+	defer parent.Destroy()
+	wait := func(ch chan struct{}, what string) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+	wait(drawn, "the parent drawn")
+	parent.Focus()
+	eventually(t, "the parent focused", parent.IsFocused)
+	// The button lays out at the top-left of the window.
+	if !appClick(parent, 60, 15) {
+		t.Skip("clicks not available on this platform")
+	}
+	wait(opened, "the flyout opened")
+	time.Sleep(300 * time.Millisecond)
+	appClick(parent, 60, 15)
+	wait(closed, "the flyout closed")
+	time.Sleep(500 * time.Millisecond)
+	select {
+	case <-opened:
+		t.Error("the click that closed the flyout opened it again")
+	default:
+	}
+}
+
+// TestFlyoutEscape closes a focusable flyout of native UI, or showing a
+// page, on an Escape its content does not handle, and keeps one whose
+// content does.
+func TestFlyoutEscape(t *testing.T) {
+	parent := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
+	parent.Focus()
+	eventually(t, "the parent focused", parent.IsFocused)
+	var handled atomic.Bool
+	native := mygo.NewFlyout(mygo.FlyoutOptions{Parent: parent, Width: 150, Height: 100, Focusable: true, Content: ui.View(func(c *ui.Context) {
+		if handled.Load() {
+			c.Shortcut(0, ui.KeyEscape)
+		}
+	})})
+	defer native.Destroy()
+	eventually(t, "the flyout focused", native.IsFocused)
+	handled.Store(true)
+	native.Invalidate() // its shortcut registers in a frame
+	time.Sleep(200 * time.Millisecond)
+	if !pressEscape(native) {
+		t.Skip("keys not available on this platform")
+	}
+	time.Sleep(500 * time.Millisecond)
+	if native.IsDestroyed() {
+		t.Fatal("an Escape the content handled closed the flyout")
+	}
+	handled.Store(false)
+	native.Invalidate()
+	time.Sleep(200 * time.Millisecond)
+	pressEscape(native)
+	eventually(t, "the flyout of native UI closed", native.IsDestroyed)
+
+	parent.Focus()
+	eventually(t, "the parent focused", parent.IsFocused)
+	page := mygo.NewFlyout(mygo.FlyoutOptions{Parent: parent, Width: 150, Height: 100, Focusable: true})
+	defer page.Destroy()
+	page.Page().LoadHTML(`<input id=i autofocus>`, "")
+	waitFor(t, page, "document.activeElement && document.activeElement.id === 'i'")
+	eventually(t, "the page's flyout focused", page.IsFocused)
+	pressEscape(page)
+	eventually(t, "the page's flyout closed", page.IsDestroyed)
+
+	// A popover of the system's (macOS) closes so too.
+	parent.Focus()
+	eventually(t, "the parent focused", parent.IsFocused)
+	popover := mygo.NewFlyout(mygo.FlyoutOptions{Parent: parent, Width: 150, Height: 100, Focusable: true, Popover: true, Content: ui.View(func(c *ui.Context) {})})
+	defer popover.Destroy()
+	eventually(t, "the popover focused", popover.IsFocused)
+	time.Sleep(300 * time.Millisecond)
+	pressEscape(popover)
+	eventually(t, "the popover closed", popover.IsDestroyed)
 }

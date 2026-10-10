@@ -190,13 +190,25 @@ stays above its parent, follows it as it moves and closes with it.
 `SetAnchor` places it against another rectangle, and `SetSize` resizes it
 where it goes; `IsFlyout` tells a flyout from other windows.
 
-A flyout never takes the keyboard by default: it stays in the parent,
-whose view can drive what the flyout shows, as the arrows move through the
-list of a combo box, and the flyout stays until it is closed. With
-`Focusable`, it takes the keyboard as it shows, for text fields in it, and
-closes as a menu does when the user presses outside it, another window
-takes the keyboard or the app is deactivated. `OnClose` listeners hear it
-and may keep it open, except on Wayland, whose compositor dismisses it.
+With `Focusable`, a flyout takes the keyboard as it shows and closes as a
+menu does when the user presses outside it, another window takes the
+keyboard or the app is deactivated. `OnClose` listeners hear it and may
+keep it open, except on Wayland, whose compositor dismisses it. On Linux
+and Windows the press only closes the flyout, as it closes their menus,
+so a click on the button that opened it does not open it again; on macOS
+it goes on to what is under the pointer. Menus, lists to choose from and
+popovers are focusable, and handle their own keys: the arrows, Enter.
+
+Without it, a flyout never takes the keyboard, which stays in the parent,
+and it stays until it is closed: a tooltip, a hover card, or the
+suggestions of a text field in the parent, whose view drives them and
+closes them as it sees fit, as when the field loses the keyboard. (On
+Wayland, only a popup that takes the keyboard hears of presses outside
+it.)
+
+Either closes, as the user closing it, on an Escape its content leaves:
+one no element or shortcut of native UI takes, or no handler of the page
+cancels with `preventDefault()`, as the web's popovers.
 `Shadow` gives it the system's window shadow on macOS, where it follows
 the shape of what the flyout draws, and on Windows.
 
@@ -230,8 +242,8 @@ How each platform shows them:
 
 On Wayland, a popup shows only over the topmost one: showing a flyout
 closes the others that show, but its own ancestors, as the user would.
-`examples/flyout` opens a list of colors, a note editor and, on macOS, a
-popover.
+`examples/flyout` opens a list of colors, a note editor and an About box,
+a popover on macOS.
 
 ## Events
 

@@ -17,8 +17,9 @@ import (
 // follow their owner: the core places flyouts again as their parent moves.
 
 const (
-	wmMouseActivate = 0x0021
-	maNoActivate    = 3
+	wmMouseActivate  = 0x0021
+	maActivateAndEat = 2
+	maNoActivate     = 3
 	// wmAppDismiss asks a flyout whether it closes, after the activation
 	// that dismissed it.
 	wmAppDismiss = wmApp + 6
@@ -98,6 +99,24 @@ func (w *window) flyoutMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 		}
 	}
 	return 0, false
+}
+
+// ownsFocusableFlyout reports whether a focusable flyout of w, or of its
+// flyouts, shows: a click activating w only closes it, as it closes menus
+// and WinUI's flyouts, which would otherwise come back as the click on
+// what opened them toggles them.
+func (w *window) ownsFocusableFlyout() bool {
+	for _, x := range w.b.windows {
+		if f := x.opts.Flyout; f == nil || !f.Focusable || x.closed || !x.IsVisible() {
+			continue
+		}
+		for p := x.parent; p != nil; p = p.parent {
+			if p == w {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // dismissFlyout closes a focusable flyout another window was activated

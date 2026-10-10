@@ -1,8 +1,8 @@
-// Flyout opens flyouts from a small window of native UI: a list of colors
-// that the parent's keys drive, a note to edit, which takes the keyboard
-// and closes when the user clicks elsewhere, and an About box with the
-// look of the system's popovers on macOS. They extend beyond the window,
-// and flip or slide to stay on the screen.
+// Flyout opens flyouts from a small window of native UI: a list of colors,
+// a note to edit and an About box with the look of the system's popovers
+// on macOS. They take the keyboard, and close as the user clicks elsewhere
+// or presses Escape. They extend beyond the window, and flip or slide to
+// stay on the screen.
 //
 //	go run ./examples/flyout
 package main
@@ -38,23 +38,6 @@ type app struct {
 
 func (a *app) view(c *ui.Context) {
 	t := c.Theme()
-	if a.list != nil {
-		// The list never takes the keyboard: the window drives it.
-		if c.Shortcut(0, ui.KeyDown) {
-			a.hover = (a.hover + 1) % len(colors)
-			a.list.Invalidate()
-		}
-		if c.Shortcut(0, ui.KeyUp) {
-			a.hover = (a.hover + len(colors) - 1) % len(colors)
-			a.list.Invalidate()
-		}
-		if c.Shortcut(0, ui.KeyEnter) {
-			a.choose(a.hover)
-		}
-		if c.Shortcut(0, ui.KeyEscape) {
-			a.list.Close()
-		}
-	}
 	ui.Column(c).Fill().Center().Gap(12).Padding(16).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Box(c).Width(14).Height(14).Radius(7).Background(colors[a.color].color)
@@ -87,13 +70,14 @@ func (a *app) toggleList(button ui.Rect) {
 	}
 	a.hover = a.color
 	a.list = mygo.NewFlyout(mygo.FlyoutOptions{
-		Parent:  a.win,
-		Anchor:  anchor(button),
-		Gap:     4,
-		Width:   180,
-		Height:  len(colors)*28 + 12,
-		Shadow:  true,
-		Content: ui.View(a.listView),
+		Parent:    a.win,
+		Anchor:    anchor(button),
+		Gap:       4,
+		Width:     180,
+		Height:    len(colors)*28 + 12,
+		Focusable: true,
+		Shadow:    true,
+		Content:   ui.View(a.listView),
 	})
 	a.list.OnClosed(func() {
 		a.list = nil
@@ -104,6 +88,15 @@ func (a *app) toggleList(button ui.Rect) {
 
 func (a *app) listView(c *ui.Context) {
 	t := c.Theme()
+	if c.Shortcut(0, ui.KeyDown) {
+		a.hover = (a.hover + 1) % len(colors)
+	}
+	if c.Shortcut(0, ui.KeyUp) {
+		a.hover = (a.hover + len(colors) - 1) % len(colors)
+	}
+	if c.Shortcut(0, ui.KeyEnter) {
+		a.choose(a.hover)
+	}
 	c.Root().Background(ui.Transparent)
 	panel(c).Padding(6).Children(func() {
 		for i, col := range colors {
@@ -165,7 +158,7 @@ func (a *app) editorView(c *ui.Context) {
 	panel(c).Padding(12).Gap(8).Children(func() {
 		ui.Text(c, "Note").Bold()
 		ui.TextInput(c.Key("note"), &a.note).Placeholder("Write something").AutoFocus()
-		if c.Shortcut(0, ui.KeyEnter) || c.Shortcut(0, ui.KeyEscape) {
+		if c.Shortcut(0, ui.KeyEnter) {
 			a.editor.Close()
 		}
 	})

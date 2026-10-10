@@ -1770,6 +1770,8 @@ func (w *Window) handleMessage(msg string) {
 		if w.native != nil {
 			w.native.TitleBarDoubleClicked()
 		}
+	case "escape":
+		w.escape()
 	case "drop":
 		if w.native != nil {
 			w.filesDropped(w.native.DroppedFiles(), int(m.X), int(m.Y))

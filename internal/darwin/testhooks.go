@@ -390,6 +390,21 @@ func TestKey(handle uintptr, code uint16, chars string) bool {
 	return TestKeyShift(handle, code, chars, false)
 }
 
+// TestAppKey posts a key down and up to the application's event queue,
+// which sends it to the key window as it does the user's keys, to a page
+// or native UI.
+func TestAppKey(code uint16, chars string) {
+	withPool(func() {
+		number := sendInt(send(theBackend.app, "keyWindow"), "windowNumber")
+		s := nsString(chars)
+		for _, typ := range []uint{10, 11} { // NSEventTypeKeyDown, KeyUp
+			ev := msgKeyEvent(class("NSEvent"), sel("keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"),
+				typ, NSPoint{}, 0, 0, number, 0, s, s, false, code)
+			send(theBackend.app, "postEvent:atStart:", uintptr(ev), 0)
+		}
+	})
+}
+
 // TestKeyShift is TestKey with Shift held when shift is set.
 func TestKeyShift(handle uintptr, code uint16, chars string, shift bool) bool {
 	w := theBackend.byNSWindow[id(handle)]

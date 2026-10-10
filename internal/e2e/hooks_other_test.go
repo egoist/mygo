@@ -128,3 +128,5 @@ func dragFiles(*mygo.Window, float64, float64, []string) (bool, bool) { return f
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 	return "", false, false, false
 }
+
+func pressEscape(*mygo.Window) bool { return false }

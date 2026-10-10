@@ -303,6 +303,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			return r, true
 		}
 	}
+	if m == wmMouseActivate && w.ownsFocusableFlyout() {
+		return maActivateAndEat, true
+	}
 	switch m {
 	case wmClose:
 		if w.h.ShouldClose() {

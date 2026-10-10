@@ -29,7 +29,6 @@ var (
 	gdkWindowSetTransientFor      func(w, parent ptr)
 	gdkWindowMoveToRect           func(w ptr, r *gdkRectangle, rectAnchor, windowAnchor, hints, dx, dy int32)
 	gdkWindowGetOrigin            func(w ptr, x, y *int32) int32
-	gdkWindowGetToplevel          func(w ptr) ptr
 	gdkSeatGrab                   func(seat, w ptr, caps int32, ownerEvents bool, cursor, event, prepare, data ptr) int32
 	gdkSeatUngrab                 func(seat ptr)
 	gtkGrabAdd, gtkGrabRemove     func(w ptr)
@@ -51,7 +50,6 @@ func loadFlyouts() {
 		mustBind(d, &gdkWindowSetTransientFor, "gdk_window_set_transient_for")
 		mustBind(d, &gdkWindowMoveToRect, "gdk_window_move_to_rect")
 		mustBind(d, &gdkWindowGetOrigin, "gdk_window_get_origin")
-		mustBind(d, &gdkWindowGetToplevel, "gdk_window_get_toplevel")
 		mustBind(d, &gdkSeatGrab, "gdk_seat_grab")
 		mustBind(d, &gdkSeatUngrab, "gdk_seat_ungrab")
 		mustBind(t, &gtkGrabAdd, "gtk_grab_add")
@@ -229,15 +227,16 @@ func initFlyoutCallbacks() {
 		if w == nil || !w.grabbed {
 			return false
 		}
-		// GdkEventButton: window 8, x 24, y 32.
-		own := gtkWidgetGetWindow(w.win)
-		if gdkWindowGetToplevel(field[ptr](event, 8)) == own {
-			var a gdkRectangle
-			gtkWidgetGetAllocation(w.win, &a)
-			x, y := field[float64](event, 24), field[float64](event, 32)
-			if x >= 0 && y >= 0 && x < float64(a.Width) && y < float64(a.Height) {
-				return false
-			}
+		// Where the press is on the screen, as GtkMenu looks: the event's
+		// window and coordinates may be the grab's or the window's under
+		// the pointer. GdkEventButton: x_root 64, y_root 72.
+		var ox, oy int32
+		gdkWindowGetOrigin(gtkWidgetGetWindow(w.win), &ox, &oy)
+		var a gdkRectangle
+		gtkWidgetGetAllocation(w.win, &a)
+		x, y := field[float64](event, 64)-float64(ox), field[float64](event, 72)-float64(oy)
+		if x >= 0 && y >= 0 && x < float64(a.Width) && y < float64(a.Height) {
+			return false
 		}
 		w.dismissFlyout()
 		return true

@@ -67,14 +67,23 @@ type FlyoutOptions struct {
 	Gap int
 	// Width and Height of the flyout in DIPs (default 200x200).
 	Width, Height int
-	// Focusable makes the flyout take the keyboard as it shows, for text
-	// fields in it, and close as a menu does when the user presses outside
-	// it, another window takes the keyboard or the app is deactivated:
-	// OnClose listeners hear it, and may keep it open, except on Wayland,
-	// whose compositor dismisses it. Without it, the flyout never takes
-	// the keyboard, which stays in the parent, as for a tooltip or the
-	// list of a combo box whose keys the parent handles, and stays until
-	// it is closed.
+	// Focusable makes the flyout take the keyboard as it shows, and close
+	// as a menu does when the user presses outside it, another window
+	// takes the keyboard or the app is deactivated: OnClose listeners
+	// hear it, and may keep it open, except on Wayland, whose compositor
+	// dismisses it. On Linux and Windows the press only closes it, as it
+	// closes their menus; on macOS it goes on to what is under the
+	// pointer. Menus, lists to choose from and popovers are focusable,
+	// and handle their own keys.
+	//
+	// Without it, the flyout never takes the keyboard, which stays in
+	// the parent, and stays until it is closed: tooltips, hover cards,
+	// or the suggestions of a text field in the parent, which closes
+	// them as it sees fit, as when it loses the keyboard.
+	//
+	// Either closes, as the user closing it, on an Escape its content
+	// does not handle: no element or shortcut of native UI takes it, no
+	// handler of the page calls preventDefault.
 	Focusable bool
 	// Hidden creates the flyout without showing it.
 	Hidden bool
@@ -196,4 +205,14 @@ func (w *Window) setFlyoutSize(width, height int) bool {
 	w.flyoutSize = platform.Size{Width: max(width, 1), Height: max(height, 1)}
 	w.placeFlyout()
 	return true
+}
+
+// escape closes a flyout on an Escape its page or native UI did not
+// handle, as the user closing it: menus and popovers close so. Its
+// content may be building a frame: the flyout closes after it. Main
+// thread only.
+func (w *Window) escape() {
+	if w.flyout != nil {
+		postMain(func() { w.close() })
+	}
 }

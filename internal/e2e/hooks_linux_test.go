@@ -26,7 +26,7 @@ func click(w *mygo.Window, x, y float64) (ok bool) {
 	return ok
 }
 
-// appClick is click: no event monitors to go through.
+// appClick is click, already through XTEST.
 func appClick(w *mygo.Window, x, y float64) bool { return click(w, x, y) }
 
 func sideButton(w *mygo.Window, back bool) (ok bool) {
@@ -292,3 +292,6 @@ func pressTab(_ *mygo.Window, back bool) bool {
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 	return "", false, false, false
 }
+
+// pressEscape presses Escape, as the keyboard does.
+func pressEscape(*mygo.Window) bool { return pressKeys("Escape") }
