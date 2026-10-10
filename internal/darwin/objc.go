@@ -397,8 +397,8 @@ func goBytes(data id) []byte {
 func nsURL(s string) id { return send(class("NSURL"), "URLWithString:", uintptr(nsString(s))) }
 
 // filePathURLBytes resolves a file reference URL (file:///.file/id=…,
-// which Finder puts on drag pasteboards) to a path-based file URL. Other
-// bytes come back unchanged.
+// which Finder puts on the pasteboard when it drags or copies files) to a
+// file URL of its path. Other URLs come back unchanged.
 func filePathURLBytes(b []byte) []byte {
 	s := strings.TrimRight(string(b), "\x00")
 	if !strings.HasPrefix(s, "file:///.file/") {
