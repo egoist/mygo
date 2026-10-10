@@ -86,6 +86,7 @@ type Backend interface {
 	Screen() Screen
 	Theme() Theme
 	Power() Power
+	Network() Network
 
 	NewTray(h TrayHandler) (Tray, error)
 	RegisterHotkey(id int, accelerator string) error
@@ -133,6 +134,9 @@ type AppHandler interface {
 	DisplaysChanged()
 	// PowerEvent is "suspend", "resume", "lock-screen" or "unlock-screen".
 	PowerEvent(event string)
+	// NetworkChanged is called when the computer's network state changes,
+	// on the main thread.
+	NetworkChanged(status NetworkStatus)
 	HotkeyPressed(id int)
 	NotificationClicked(id string)
 }
@@ -756,6 +760,23 @@ type Power interface {
 	KeepAwake(display bool, reason string) (release func())
 	OnBattery() bool
 	IdleTime() time.Duration
+}
+
+// NetworkStatus is the state of the computer's network connection.
+type NetworkStatus struct {
+	// Online reports whether the computer can reach the internet.
+	Online bool
+	// Constrained reports whether the connection is expensive or metered,
+	// so the app should send less, or ask the user before it downloads
+	// something large. It is false where the system does not say.
+	Constrained bool
+}
+
+// Network reports the state of the computer's network connection.
+type Network interface {
+	// Status returns the current state, read from the system. It runs on
+	// the main thread.
+	Status() NetworkStatus
 }
 
 // TrayHandler receives tray icon events.
