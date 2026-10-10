@@ -200,8 +200,10 @@ window.ready = true;
 		t.Error("the page did not take the drop")
 	}
 	waitForPage(t, v.Page(), "window.dropped === 'page.txt'")
-	if dropped, _ := dragFiles(w, 50, 150, []string{file}); !dropped {
-		t.Error("the native UI beside the page did not take the drop")
+	// Beside the page, the drop target hands the drag to the native UI,
+	// whose element takes the files as in TestContentWindowFileDrop.
+	if over, dropped, _ := dropFiles(w, 50, 150, []string{file}); !over || !dropped {
+		t.Errorf("the native UI beside the page took the drag %v and the drop %v", over, dropped)
 	}
 	eventually(t, "the drop beside the page", func() bool {
 		var n int
