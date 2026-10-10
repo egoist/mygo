@@ -1082,6 +1082,16 @@ func (e *node) Submitted() bool {
 	return e.st.submitted
 }
 
+// Dismissed reports whether pressing Escape or clicking outside closed the
+// dialog or popover (Modal, DialogBase, Popover, PopoverBase) returning the
+// element, in the frame it did, setting its *open to false: one that must
+// stay open sets it back to true.
+//
+//	if ui.Modal(c, &app.editing, edit).Dismissed() && app.unsaved {
+//		app.editing = true
+//	}
+func (e *node) Dismissed() bool { return e.dismissed }
+
 // scrollbarPress starts dragging the thumb of the scroll container under
 // the pointer when the press is on its scroll bar, or pages toward the
 // press on the bar's track.

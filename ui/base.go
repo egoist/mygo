@@ -407,8 +407,9 @@ func (e *node) Highlighted() bool { return e.highlighted }
 
 // PopoverBase shows a panel without a look below anchor while *open is
 // true: fn styles the panel and builds its content. Pressing outside the
-// panel and the anchor, or Escape, sets *open to false; the press goes on
-// to what is under the pointer, as with the web's popovers. Where there is
+// panel and the anchor, or Escape, sets *open to false, which Dismissed
+// reports; the press goes on to what is under the pointer, as with the
+// web's popovers. Where there is
 // no room below the anchor, the panel shows above it; a top margin keeps
 // it apart from the anchor on either side. fn may place it elsewhere with
 // AttachTo, as to the right of the anchor:
@@ -429,6 +430,7 @@ func popover(c *context, anchor *node, open *bool, modal bool, fn func(panel *no
 		return nil
 	}
 	var panel *node
+	dismissed := false
 	coreOverlay(c, func() {
 		if modal {
 			back := coreBox(c).Absolute().Left(0).Top(0).Right(0).Bottom(0)
@@ -436,6 +438,7 @@ func popover(c *context, anchor *node, open *bool, modal bool, fn func(panel *no
 			back.popover = anchor
 			if back.Clicked() {
 				*open = false
+				dismissed = true
 			}
 		}
 		panel = coreBox(c).Role(RolePopup).AttachTo(anchor, AnchorBottomLeft, AnchorTopLeft)
@@ -444,7 +447,9 @@ func popover(c *context, anchor *node, open *bool, modal bool, fn func(panel *no
 		panel.Children(func() { fn(panel) })
 		if panel.OverlayShortcut(0, KeyEscape) || !modal && panel.PressedOutside() {
 			*open = false
+			dismissed = true
 		}
+		panel.dismissed = dismissed
 	})
 	return panel
 }
@@ -452,8 +457,9 @@ func popover(c *context, anchor *node, open *bool, modal bool, fn func(panel *no
 // DialogBase shows a dialog without a look over the window while *open is
 // true: fn styles the backdrop covering the window, which centers the
 // panel, and the panel, and builds the panel's content. Clicking the
-// backdrop or pressing Escape sets *open to false. It returns the panel,
-// or nil while closed; Modal is DialogBase with the theme's look.
+// backdrop or pressing Escape sets *open to false, which Dismissed
+// reports. It returns the panel, or nil while closed; Modal is DialogBase
+// with the theme's look.
 func coreDialogBase(c *context, open *bool, fn func(backdrop, panel *node)) *node {
 	if !*open {
 		return nil
@@ -462,11 +468,13 @@ func coreDialogBase(c *context, open *bool, fn func(backdrop, panel *node)) *nod
 	coreOverlay(c, func() {
 		back := coreBox(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Modal()
 		back.flags |= flagClickable
-		if back.Clicked() || back.OverlayShortcut(0, KeyEscape) {
+		dismissed := back.Clicked() || back.OverlayShortcut(0, KeyEscape)
+		if dismissed {
 			*open = false
 		}
 		back.Children(func() {
 			panel = coreBox(c).Role(RoleDialog)
+			panel.dismissed = dismissed
 			panel.flags |= flagClickable
 			panel.Children(func() { fn(back, panel) })
 		})

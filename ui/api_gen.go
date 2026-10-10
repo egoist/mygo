@@ -852,8 +852,9 @@ func DateInput(c *Context, date *time.Time) Element {
 // DialogBase shows a dialog without a look over the window while *open is
 // true: fn styles the backdrop covering the window, which centers the
 // panel, and the panel, and builds the panel's content. Clicking the
-// backdrop or pressing Escape sets *open to false. It returns the panel,
-// or nil while closed; Modal is DialogBase with the theme's look.
+// backdrop or pressing Escape sets *open to false, which Dismissed
+// reports. It returns the panel, or nil while closed; Modal is DialogBase
+// with the theme's look.
 func DialogBase(c *Context, open *bool, fn func(backdrop Element, panel Element)) Element {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -1150,7 +1151,8 @@ func Meter(c *Context, value float64, lo float64, hi float64, levels *MeterLevel
 }
 
 // Modal shows a dialog built by fn over a dimmed window while *open is
-// true; clicking outside it or pressing Escape sets *open to false.
+// true; clicking outside it or pressing Escape sets *open to false, which
+// Dismissed reports.
 func Modal(c *Context, open *bool, fn func()) Element {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -1243,7 +1245,8 @@ func Overlay(c *Context, fn func()) {
 }
 
 // Popover shows fn's elements in a panel below anchor while *open is
-// true; clicking outside it or pressing Escape sets *open to false.
+// true; clicking outside it or pressing Escape sets *open to false, which
+// Dismissed reports.
 func Popover(c *Context, anchor Element, open *bool, fn func()) Element {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -1254,8 +1257,9 @@ func Popover(c *Context, anchor Element, open *bool, fn func()) Element {
 
 // PopoverBase shows a panel without a look below anchor while *open is
 // true: fn styles the panel and builds its content. Pressing outside the
-// panel and the anchor, or Escape, sets *open to false; the press goes on
-// to what is under the pointer, as with the web's popovers. Where there is
+// panel and the anchor, or Escape, sets *open to false, which Dismissed
+// reports; the press goes on to what is under the pointer, as with the
+// web's popovers. Where there is
 // no room below the anchor, the panel shows above it; a top margin keeps
 // it apart from the anchor on either side. fn may place it elsewhere with
 // AttachTo, as to the right of the anchor:
@@ -2703,6 +2707,24 @@ func (_handle Element) Disabled(d bool) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Disabled(d))
+}
+
+// Dismissed reports whether pressing Escape or clicking outside closed the
+// dialog or popover (Modal, DialogBase, Popover, PopoverBase) returning the
+// element, in the frame it did, setting its *open to false: one that must
+// stay open sets it back to true.
+//
+//	if ui.Modal(c, &app.editing, edit).Dismissed() && app.unsaved {
+//		app.editing = true
+//	}
+func (_handle Element) Dismissed() bool {
+	_node := _handle.node()
+	if _node == nil {
+		return false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.Dismissed()
 }
 
 // Dividers draws a line width DIPs thick in color c between each two

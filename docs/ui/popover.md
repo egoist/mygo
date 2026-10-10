@@ -24,6 +24,9 @@ ui.Popover(c, more, &app.menu, func() {
 })
 ```
 
+`Dismissed` reports the frame a press outside or Escape closed the popover;
+one that must stay open sets the `*bool` back to true then.
+
 A popover's elements follow its anchor as Tab moves, and as it closes with
 the focus in it, it gives the focus back to the element that had it. See
 [overlays](overlays.md).
