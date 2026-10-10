@@ -105,17 +105,20 @@ type Options struct {
 	// a URL it leaves, or every URL when it is nil, opens with the system
 	// (Context.OpenURL).
 	OpenLink func(link string) bool
-	// OnPaste, when set, sees a paste (Command+V, Control+Shift+V off the
-	// Mac, or a Paste menu item) before the clipboard's text is read, on
-	// the main thread, and takes it by returning true: nothing is pasted.
-	// An app uploads the clipboard's files this way, for a remote program
-	// that can't read them.
-	OnPaste func() bool
-	// OnKey, when set, sees a key press as it comes, on the main thread,
-	// before the terminal encodes it, and takes it by returning true:
-	// nothing is sent. Unlike a shortcut of an element around the view,
-	// which waits for the next frame, it keeps its place among the keys
-	// typed after it.
+	// OnPaste sees a paste (Command+V, Control+Shift+V elsewhere, or a
+	// Paste menu item) before the program gets it, on the main thread:
+	// text is the clipboard's text, empty when it holds none, as with an
+	// image. It reports whether it took the paste; a paste taken sends
+	// nothing, as when an app uploads the clipboard's files for a remote
+	// program and pastes their paths instead.
+	OnPaste func(text string) bool
+	// OnKey sees a key press before the terminal encodes it, on the main
+	// thread, and reports whether it took the key; a key taken sends
+	// nothing, neither the text it types nor its release. Unlike a
+	// shortcut of an element around the view, which runs with the next
+	// frame, it keeps its place among the keys typed after it, as does
+	// what it sends with Send. A key that only types text may come as its
+	// text alone, as on Linux, which OnKey does not see.
 	OnKey func(mods ui.Modifiers, key ui.Key) bool
 }
 

@@ -743,13 +743,14 @@ func TestCommandClickLinks(t *testing.T) {
 	}
 }
 
-// TestOnPasteTakesAPaste: Options.OnPaste sees Command+V before the
-// clipboard's text is read, and a true result pastes nothing.
+// TestOnPasteTakesAPaste: Options.OnPaste sees a paste and the clipboard's
+// text, and a true result pastes nothing.
 func TestOnPasteTakesAPaste(t *testing.T) {
 	loadLib(t)
 	conn := newPipe()
-	calls, take := 0, true
-	term, err := New(Options{Conn: conn, OnPaste: func() bool { calls++; return take }})
+	var seen []string
+	take := true
+	term, err := New(Options{Conn: conn, OnPaste: func(text string) bool { seen = append(seen, text); return take }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -762,9 +763,10 @@ func TestOnPasteTakesAPaste(t *testing.T) {
 		paste = ui.Ctrl | ui.Shift
 	}
 	tt.Key(paste, ui.KeyV)
+	tt.Command("paste") // the Edit menu's Paste
 	tt.Frame()
-	if calls != 1 {
-		t.Fatalf("OnPaste ran %d times, want 1", calls)
+	if !slices.Equal(seen, []string{"hello", "hello"}) {
+		t.Fatalf("OnPaste saw %q", seen)
 	}
 	if got := conn.take(1); len(got) != 0 {
 		t.Errorf("a taken paste sent %q", got)
@@ -772,22 +774,23 @@ func TestOnPasteTakesAPaste(t *testing.T) {
 	take = false
 	tt.Key(paste, ui.KeyV)
 	tt.Frame()
-	if got := conn.take(5); !strings.Contains(string(got), "hello") || calls != 2 {
-		t.Errorf("a paste OnPaste leaves sent %q (calls %d)", got, calls)
+	if got := conn.take(5); got != "hello" || len(seen) != 3 {
+		t.Errorf("a paste OnPaste leaves sent %q (seen %q)", got, seen)
 	}
 }
 
 // TestOnKeyTakesAKey: Options.OnKey sees a key press before the terminal
-// encodes it, in order with the keys after it; a true result sends nothing.
+// encodes it, in order with the keys after it; a true result sends
+// nothing, not even the text the key types.
 func TestOnKeyTakesAKey(t *testing.T) {
 	loadLib(t)
 	conn := newPipe()
 	var seen []ui.Key
+	var term *Terminal
 	term, err := New(Options{Conn: conn, OnKey: func(mods ui.Modifiers, key ui.Key) bool {
 		seen = append(seen, key)
-		if mods == ui.Ctrl && key == ui.KeyV {
-			term := conn
-			term.Write([]byte("<taken>"))
+		if mods == ui.Ctrl && key == ui.KeyV || key == ui.KeyX {
+			term.Send([]byte("<taken>")) // in order with what is typed
 			return true
 		}
 		return false
@@ -800,11 +803,13 @@ func TestOnKeyTakesAKey(t *testing.T) {
 	tt.Frame()
 	tt.Key(ui.Ctrl, ui.KeyV)
 	tt.Key(0, ui.KeyTab)
+	tt.TypeKey(0, ui.KeyX, "x")
+	tt.TypeKey(0, ui.KeyY, "y")
 	tt.Frame()
-	if got := conn.take(8); got != "<taken>\t" {
-		t.Errorf("sent %q, want the taken key's mark, then Tab", got)
+	if got := conn.take(16); got != "<taken>\t<taken>y" {
+		t.Errorf("sent %q, want the taken keys' marks in order with Tab and y", got)
 	}
-	if !slices.Equal(seen, []ui.Key{ui.KeyV, ui.KeyTab}) {
+	if !slices.Equal(seen, []ui.Key{ui.KeyV, ui.KeyTab, ui.KeyX, ui.KeyY}) {
 		t.Errorf("OnKey saw %v", seen)
 	}
 }
