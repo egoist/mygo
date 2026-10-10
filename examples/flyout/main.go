@@ -212,7 +212,7 @@ func main() {
 		a.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:   "Flyout",
 			Width:   300,
-			Height:  180,
+			Height:  240,
 			Content: ui.View(a.view),
 		})
 	})
