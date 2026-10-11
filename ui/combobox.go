@@ -321,16 +321,23 @@ func coreCombobox(c *context, selected *string, options []string) *node {
 	f, in := field(c, func() *node {
 		text = coreLocal(c.parent, "combobox", func() string { return *selected })
 		p = comboboxBase(c, text, true)
-		p.Input.Grow(1).MinWidth(t.Space(25))
+		input := p.Input
+		input.Grow(1).MinWidth(t.Space(25))
 		arrow := chevronDown(c)
 		arrow.flags |= flagClickable | flagKeepFocus
 		arrow.afterInput(func() {
 			if arrow.Clicked() {
-				p.SetOpen(!p.Open())
-				p.Input.Focus()
+				opening := !p.Open()
+				p.SetOpen(opening)
+				input.Focus()
+				if opening {
+					// Opening to pick shows the whole list; select the
+					// choice so typing filters from scratch.
+					input.st.editor.selectAll()
+				}
 			}
 		})
-		return p.Input
+		return input
 	})
 	p.anchor = f
 	shown := options
@@ -339,6 +346,12 @@ func coreCombobox(c *context, selected *string, options []string) *node {
 	}
 	styleOptions(c, p, shown)
 	f.afterInput(func() {
+		// A click opens the options over the choice text; selecting it
+		// makes the next keystroke replace it and filter, as choosing
+		// does, instead of appending to it and matching nothing.
+		if in.Clicked() && !p.Filtering() {
+			in.st.editor.selectAll()
+		}
 		if v, ok := p.Chosen(); ok {
 			if *selected != v {
 				*selected = v

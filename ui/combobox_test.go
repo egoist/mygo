@@ -111,6 +111,40 @@ func TestCombobox(t *testing.T) {
 	}
 }
 
+// Clicking a combobox selects its choice, so typing replaces the choice
+// and filters from scratch, instead of appending to it and matching
+// nothing.
+func TestComboboxClickSelectsChoiceForTyping(t *testing.T) {
+	font, changes := "Arial", 0
+	tt := coreNewTester(func(c *context) {
+		if coreCombobox(c, &font, fonts).Label("Font").Width(200).Changed() {
+			changes++
+		}
+	}, 400, 400)
+	tt.Click("Font")
+	if !tt.HasText("Helvetica") {
+		t.Fatalf("a click shows %q", tt.Texts())
+	}
+	tt.Type("ti")
+	if !tt.HasText("Times") || !tt.HasText("Helvetica") || !tt.HasText("Optima") || tt.HasText("Courier") {
+		t.Fatalf("typing after a click filters %q", tt.Texts())
+	}
+	tt.Key(0, KeyEnter)
+	if font != "Times" || changes != 1 {
+		t.Fatalf("Enter chose %q (%d changes)", font, changes)
+	}
+	// Reopening by click selects the new choice the same way.
+	tt.Click("Font")
+	tt.Type("co")
+	if tt.HasText("Optima") || !tt.HasText("Courier") {
+		t.Fatalf("typing after the chevron filters %q", tt.Texts())
+	}
+	tt.Key(0, KeyEnter)
+	if font != "Courier" || changes != 2 {
+		t.Fatalf("Enter chose %q (%d changes)", font, changes)
+	}
+}
+
 func TestComboboxAccessibility(t *testing.T) {
 	font := "Arial"
 	tt := coreNewTester(func(c *context) {
