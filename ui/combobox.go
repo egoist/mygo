@@ -308,10 +308,10 @@ func chevronDown(c *context) *node {
 // Combobox creates a combobox choosing *selected among options: a field
 // showing the choice, whose text filters the options below it as the user
 // types, those starting with it first, while a click or Down shows them
-// all. Up and Down move among them and Enter chooses, as does a click;
-// Escape closes them, and the text goes back to the choice when the
-// field loses the focus. Changed reports a new choice. Name it with
-// Label.
+// all; a click showing them selects the choice, for typing to replace.
+// Up and Down move among them and Enter chooses, as does a click; Escape
+// closes them, and the text goes back to the choice when the field loses
+// the focus. Changed reports a new choice. Name it with Label.
 //
 //	ui.Combobox(c, &app.font, fonts).Label("Font")
 func coreCombobox(c *context, selected *string, options []string) *node {
@@ -321,35 +321,35 @@ func coreCombobox(c *context, selected *string, options []string) *node {
 	f, in := field(c, func() *node {
 		text = coreLocal(c.parent, "combobox", func() string { return *selected })
 		p = comboboxBase(c, text, true)
-		input := p.Input
-		input.Grow(1).MinWidth(t.Space(25))
+		p.Input.Grow(1).MinWidth(t.Space(25))
 		arrow := chevronDown(c)
 		arrow.flags |= flagClickable | flagKeepFocus
 		arrow.afterInput(func() {
 			if arrow.Clicked() {
-				opening := !p.Open()
-				p.SetOpen(opening)
-				input.Focus()
-				if opening {
-					// Opening to pick shows the whole list; select the
-					// choice so typing filters from scratch.
-					input.st.editor.selectAll()
+				p.SetOpen(!p.Open())
+				p.Input.Focus()
+				if p.Open() {
+					// As a click in the text opening them does.
+					p.Input.st.editor.selectAll()
 				}
 			}
 		})
-		return input
+		return p.Input
 	})
 	p.anchor = f
+	// Whether the popup showed before this frame's input.
+	wasOpen := p.Open()
 	shown := options
 	if p.Filtering() {
 		shown = matching(options, *text)
 	}
 	styleOptions(c, p, shown)
 	f.afterInput(func() {
-		// A click opens the options over the choice text; selecting it
-		// makes the next keystroke replace it and filter, as choosing
-		// does, instead of appending to it and matching nothing.
-		if in.Clicked() && !p.Filtering() {
+		// A click opening the options selects the choice, as choosing
+		// one leaves it, so that the next keystroke replaces it and
+		// filters, instead of appending to it and matching nothing.
+		// Clicks while they show place the caret.
+		if in.Clicked() && !wasOpen && p.Open() && !p.Filtering() {
 			in.st.editor.selectAll()
 		}
 		if v, ok := p.Chosen(); ok {
