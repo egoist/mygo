@@ -123,11 +123,13 @@ type Options struct {
 	// text alone, as on Linux, which OnKey does not see.
 	OnKey func(mods ui.Modifiers, key ui.Key) bool
 	// OnScroll sees the wheel scroll the view by whole rows, negative up,
-	// before the terminal scrolls its scrollback or the screen of a
-	// full-screen program, on the main thread, and reports whether it took
-	// the scroll. It is not asked while the program takes the mouse, which
-	// gets the wheel. It suits a Conn whose history lives at the other end,
-	// as a remote multiplexer streaming only its screen.
+	// before the terminal scrolls its scrollback, on the main thread, and
+	// reports whether it took the scroll; a scroll taken moves nothing. It
+	// is not asked while a program takes the wheel: as the mouse, unless
+	// Shift is held, or, on a full-screen program's screen, as arrow keys
+	// (alternate scroll, which "\x1b[?1007l" turns off). It suits a Conn
+	// whose history lives at the other end, as a remote multiplexer
+	// streaming only its screen.
 	OnScroll func(rows int) bool
 }
 

@@ -860,7 +860,8 @@ func TestOnKeyTakesAKey(t *testing.T) {
 }
 
 // TestOnScrollTakesTheWheel: Options.OnScroll sees the wheel's whole rows
-// before the scrollback moves, unless the program takes the mouse.
+// before the scrollback moves, unless a program takes the wheel: as the
+// mouse, or as the arrows of a full-screen program.
 func TestOnScrollTakesTheWheel(t *testing.T) {
 	loadLib(t)
 	conn := newPipe()
@@ -903,5 +904,21 @@ func TestOnScrollTakesTheWheel(t *testing.T) {
 	}
 	if got := conn.take(10); !strings.HasPrefix(got, "\x1b[<64;") {
 		t.Errorf("wheel sent %q, want a mouse report", got)
+	}
+	// A full-screen program gets it as arrows, unless it turns that off.
+	term.Feed([]byte("\x1b[?1002l\x1b[?1006l\x1b[?1049h"))
+	tt.Frame()
+	tt.Scroll(100, 100, 0, -40)
+	if len(seen) != 2 {
+		t.Errorf("OnScroll saw %v on a full-screen program's screen", seen)
+	}
+	if got := conn.take(9); strings.Count(got, "A") != 3 {
+		t.Errorf("wheel sent %q, want three arrows up", got)
+	}
+	term.Feed([]byte("\x1b[?1007l"))
+	tt.Frame()
+	tt.Scroll(100, 100, 0, -40)
+	if !slices.Equal(seen, []int{-3, 3, -3}) {
+		t.Errorf("OnScroll saw %v without alternate scroll", seen)
 	}
 }
