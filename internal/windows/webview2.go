@@ -195,7 +195,10 @@ func createEnvironment(userData string, done func(env uintptr, err error)) error
 	// WEBVIEW2_BROWSER_EXECUTABLE_FOLDER, else the Evergreen runtime.
 	client, runtimeType := "", uintptr(0)
 	if dir := os.Getenv("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER"); dir != "" {
-		client, runtimeType = clientDLL(dir), 1
+		if client = clientDLL(dir); client == "" {
+			return fmt.Errorf("mygo: WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=%s holds no WebView2 Runtime: no %s at its root, or no %s", dir, browserExe, filepath.Join(clientDirName, archDir(), clientDLLName))
+		}
+		runtimeType = 1
 	} else {
 		client = installedClientDLL()
 	}
@@ -217,12 +220,33 @@ func createEnvironment(userData string, done func(env uintptr, err error)) error
 	return nil
 }
 
-func clientDLL(runtimeDir string) string {
-	arch := "x64"
+// The runtime's pieces, as the loader finds them: its browser process at
+// the root of a runtime's directory, and its client library under EBWebView,
+// for the architecture of this process. `cmd/mygo` checks the same names,
+// which a test keeps the same.
+const (
+	browserExe    = "msedgewebview2.exe"
+	clientDLLName = "EmbeddedBrowserWebView.dll"
+	clientDirName = "EBWebView"
+)
+
+func archDir() string {
 	if runtime.GOARCH == "arm64" {
-		arch = "arm64"
+		return "arm64"
 	}
-	p := filepath.Join(runtimeDir, "EBWebView", arch, "EmbeddedBrowserWebView.dll")
+	return "x64"
+}
+
+// clientDLL returns the client library of the runtime installed in
+// runtimeDir, or "" when there is no runtime there. The library alone is no
+// runtime: the Edge browser keeps one of that name beside itself, with no
+// browser process behind it, and loading it fails later with 0x80070032
+// (ERROR_NOT_SUPPORTED). Its browser process is what proves a runtime.
+func clientDLL(runtimeDir string) string {
+	if _, err := os.Stat(filepath.Join(runtimeDir, browserExe)); err != nil {
+		return ""
+	}
+	p := filepath.Join(runtimeDir, clientDirName, archDir(), clientDLLName)
 	if _, err := os.Stat(p); err != nil {
 		return ""
 	}
@@ -235,7 +259,7 @@ func installedClientDLL() string {
 	for _, channel := range webView2Channels {
 		best, bestVersion := "", []int(nil)
 		for _, root := range []uintptr{hkeyLocalMachine, hkeyCurrentUser} {
-			dir := regString(root, `SOFTWARE\Microsoft\EdgeUpdate\ClientState\`+channel, "EBWebView")
+			dir := regString(root, `SOFTWARE\Microsoft\EdgeUpdate\ClientState\`+channel, clientDirName)
 			if dir == "" {
 				continue
 			}

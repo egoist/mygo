@@ -386,8 +386,11 @@ purego gives three primitives, used everywhere:
   runtime in the registry (`EdgeUpdate\ClientState\<channel>\EBWebView`)
   and calls `CreateWebViewEnvironmentWithOptionsInternal` of its
   `EmbeddedBrowserWebView.dll`, as `WebView2Loader.dll` does; a loader next to
-  the executable wins. The first window that shows a web page starts the
-  environment (`startEnvironment`), and fails without a runtime: windows
+  the executable wins. A runtime is a directory holding that library for this
+  architecture and the browser process `msedgewebview2.exe` at its root: the
+  library alone is the Edge browser's, whose load fails with
+  `ERROR_NOT_SUPPORTED` later. The first window that shows a web page starts
+  the environment (`startEnvironment`), and fails without a runtime: windows
   that show native UI need none, so an app whose windows all do runs
   without WebView2. The environment and each controller are created
   asynchronously: window methods that need the webview wait in `pending`.
