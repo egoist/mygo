@@ -116,6 +116,11 @@ type (
 var pangoLib struct {
 	gObjectRef   func(obj uintptr) uintptr
 	gObjectUnref func(obj uintptr)
+	gFree        func(p uintptr)
+
+	fontMapListFamilies   func(fontMap uintptr, families **uintptr, n *int32)
+	fontFamilyGetName     func(family uintptr) *byte
+	fontFamilyIsMonospace func(family uintptr) bool
 
 	fontMapNew                func() uintptr
 	fontMapCreateContext      func(fontMap uintptr) uintptr
@@ -214,6 +219,10 @@ func loadPango() error {
 	if err != nil {
 		return err
 	}
+	glib, err := open("libglib-2.0.so.0")
+	if err != nil {
+		return err
+	}
 	pangocairo, err := open("libpangocairo-1.0.so.0")
 	if err != nil {
 		return err
@@ -234,6 +243,10 @@ func loadPango() error {
 	l := &pangoLib
 	bind(gobject, &l.gObjectRef, "g_object_ref")
 	bind(gobject, &l.gObjectUnref, "g_object_unref")
+	bind(glib, &l.gFree, "g_free")
+	bind(pango, &l.fontMapListFamilies, "pango_font_map_list_families")
+	bind(pango, &l.fontFamilyGetName, "pango_font_family_get_name")
+	bind(pango, &l.fontFamilyIsMonospace, "pango_font_family_is_monospace")
 	bind(pangocairo, &l.fontMapNew, "pango_cairo_font_map_new")
 	bind(pangocairo, &l.contextSetFontOptions, "pango_cairo_context_set_font_options")
 	bind(pangocairo, &l.fontGetScaledFont, "pango_cairo_font_get_scaled_font")
@@ -893,6 +906,33 @@ func (e *pangoEngine) draw(f *Font, id uint32, scale, dx float32, subpixel bool)
 		}
 	}
 	return b
+}
+
+// families lists the font map's families, the monospaced ones when mono,
+// as fontconfig knows them, without the generic families Pango adds
+// (Sans, Serif, Monospace, System-ui), which are aliases rather than
+// fonts.
+func (e *pangoEngine) families(mono bool) []string {
+	l := &pangoLib
+	var arr *uintptr
+	var n int32
+	l.fontMapListFamilies(e.fontMap, &arr, &n)
+	if arr == nil {
+		return nil
+	}
+	defer l.gFree(uintptr(unsafe.Pointer(arr)))
+	var names []string
+	for _, fam := range unsafe.Slice(arr, int(n)) {
+		if mono && !l.fontFamilyIsMonospace(fam) {
+			continue
+		}
+		switch name := cString(l.fontFamilyGetName(fam)); strings.ToLower(name) {
+		case "", "sans", "serif", "monospace", "system-ui":
+		default:
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // register adds a font file to fontconfig's fonts for the app, from the

@@ -451,6 +451,37 @@ func TestRegisterFont(t *testing.T) {
 	}
 }
 
+// TestFontFamilies lists the app's families first, then the system's, and
+// with mono keeps the monospaced ones.
+func TestFontFamilies(t *testing.T) {
+	s := newSystem()
+	if err := s.RegisterFont(goregular.TTF, "MyGo Test Families"); err != nil {
+		t.Fatal(err)
+	}
+	all, mono := s.FontFamilies(false), s.FontFamilies(true)
+	if len(all) == 0 || all[0] != "MyGo Test Families" || len(mono) == 0 || mono[0] != "MyGo Test Families" {
+		t.Fatalf("the registered family is not first: %q, mono %q", all[:min(3, len(all))], mono[:min(3, len(mono))])
+	}
+	if len(mono) >= len(all) || !slices.IsSorted(all[1:]) || !slices.IsSorted(mono[1:]) {
+		t.Errorf("%d families, %d monospaced, sorted %v", len(all), len(mono), slices.IsSorted(all[1:]))
+	}
+	// A monospaced and a proportional family every such system has.
+	known, ok := map[string][2]string{
+		"windows": {"Consolas", "Segoe UI"},
+		"darwin":  {"Menlo", "Helvetica"},
+	}[runtime.GOOS]
+	if !ok {
+		return // the families of Linux desktops vary
+	}
+	fixed, sans := known[0], known[1]
+	if !slices.Contains(all, fixed) || !slices.Contains(mono, fixed) {
+		t.Errorf("%s: listed %v, as monospaced %v", fixed, slices.Contains(all, fixed), slices.Contains(mono, fixed))
+	}
+	if !slices.Contains(all, sans) || slices.Contains(mono, sans) {
+		t.Errorf("%s: listed %v, as monospaced %v", sans, slices.Contains(all, sans), slices.Contains(mono, sans))
+	}
+}
+
 // TestUIFamily gives system-ui the desktop's interface font where the
 // engine takes it, as Pango does: the family before fontconfig's default.
 func TestUIFamily(t *testing.T) {

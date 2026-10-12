@@ -133,5 +133,12 @@ Then `Font("Inter")` uses it, or set it for every element in the theme's
 the first the system or the app has, and what it lacks with the next that
 has it, before the system's own choice.
 
+`ui.FontFamilies(false)` lists the families text can use, the app's
+registered ones first, then the system's, sorted, as a font setting offers
+them; `ui.FontFamilies(true)` only the monospaced ones, as a terminal's or
+an editor's does. A registered family counts as monospaced. Browsers do
+not tell what fonts they have: there the list holds the registered
+families alone.
+
 Text that a widget lays out itself, as in the cells of a terminal, is
 shaped once with `ui.Shape`: see [drawing](drawing.md#shaping-text).

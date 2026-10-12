@@ -712,6 +712,9 @@ func (e *canvasEngine) decorate(r decoRange) []Stroke {
 	return out
 }
 
+// families is empty: a browser does not tell what fonts it has.
+func (e *canvasEngine) families(mono bool) []string { return nil }
+
 // register adds a font file to the document's fonts, as a FontFace of
 // family, or of its own family when family is "" (which the browser does
 // not tell: the face needs a family). Browsers load faces in the

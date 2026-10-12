@@ -57,6 +57,7 @@ const (
 
 	ctFontUIFontSystem         = 2
 	ctFontItalicTrait          = 1 << 0
+	ctFontMonoSpaceTrait       = 1 << 10
 	ctFontColorGlyphsTrait     = 1 << 13
 	ctFontOrientationDefault   = 0
 	ctRunStatusRightToLeft     = 1 << 0
@@ -108,6 +109,7 @@ var ct struct {
 	descriptorMatching    func(desc, mandatory uintptr) uintptr
 	descriptorAttribute   func(desc, name uintptr) uintptr
 	descriptorsFromData   func(data uintptr) uintptr
+	availableFamilyNames  func() uintptr
 	fontGetAscent         func(font uintptr) float64
 	fontGetDescent        func(font uintptr) float64
 	fontGetLeading        func(font uintptr) float64
@@ -237,6 +239,7 @@ func loadCoreText() error {
 	ct.weightTrait = value(text, "kCTFontWeightTrait")
 	ct.symbolicTrait = value(text, "kCTFontSymbolicTrait")
 	bind(text, &ct.fontWithDescriptor, "CTFontCreateWithFontDescriptor")
+	bind(text, &ct.availableFamilyNames, "CTFontManagerCopyAvailableFontFamilyNames")
 	bind(text, &ct.uiFontForLanguage, "CTFontCreateUIFontForLanguage")
 	bind(text, &ct.fontWithTraits, "CTFontCreateCopyWithSymbolicTraits")
 	bind(text, &ct.fontWithAttrs, "CTFontCreateCopyWithAttributes")
@@ -1267,6 +1270,49 @@ func shadeGray(shade Shade) float64 {
 		return y * 12.92
 	}
 	return 1.055*math.Pow(y, 1/2.4) - 0.055
+}
+
+// families lists the system's families, the monospaced ones when mono:
+// those whose regular font's symbolic traits say so.
+func (e *coreText) families(mono bool) []string {
+	arr := ct.availableFamilyNames()
+	if arr == 0 {
+		return nil
+	}
+	defer ct.release(arr)
+	var names []string
+	for i := range ct.arrayGetCount(arr) {
+		name := goString(ct.arrayGetValueAtIndex(arr, i))
+		if name == "" || strings.HasPrefix(name, ".") {
+			continue // the system's hidden families
+		}
+		if mono && !e.monospaced(name) {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
+// monospaced reports whether a family's regular font is monospaced.
+func (e *coreText) monospaced(family string) bool {
+	desc := e.namedDesc(family, 400, false)
+	if desc == 0 {
+		return false
+	}
+	defer ct.release(desc)
+	traits := ct.descriptorAttribute(desc, ct.traitsAttribute)
+	if traits == 0 {
+		return false
+	}
+	defer ct.release(traits)
+	s := ct.dictionaryGetValue(traits, ct.symbolicTrait)
+	if s == 0 {
+		return false
+	}
+	var v int64
+	ct.numberGetValue(s, cfNumberSInt64Type, unsafe.Pointer(&v))
+	return v&ctFontMonoSpaceTrait != 0
 }
 
 func (e *coreText) register(data []byte, family string) error {
