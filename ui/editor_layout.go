@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -241,7 +242,18 @@ func (ed *editor) rangeSpans(start, end int) (string, *spanPaint) {
 		at = to
 	}
 	last := start
-	for _, r := range ed.ranges {
+	// The ranges are sorted by start and do not overlap (TextRanges): only
+	// the one before the first starting at start or later can reach in,
+	// and none starting at end or later can. A long text's paragraphs
+	// would otherwise each walk them all.
+	first := sort.Search(len(ed.ranges), func(i int) bool { return ed.ranges[i].Start >= start })
+	if first > 0 && ed.ranges[first-1].End > start {
+		first--
+	}
+	for _, r := range ed.ranges[first:] {
+		if r.Start >= end {
+			break
+		}
 		from, to := max(r.Start, start), min(r.End, end)
 		if from >= to || from < last {
 			continue
