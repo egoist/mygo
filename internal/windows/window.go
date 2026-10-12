@@ -483,11 +483,11 @@ func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 		// parked off screen, whose nearest monitor is not the one it comes
 		// back to. Fitting the work area of the wrong monitor leaves the
 		// client area outside the window, and the content shows nothing.
-		mon, _, _ := procMonitorFromRect.Call(lp, monitorDefaultToNearest)
-		if mon == 0 {
-			mon = w.monitor()
+		// A rectangle on no monitor keeps the whole window as its client
+		// area, as winit and tao do.
+		if mon, _, _ := procMonitorFromRect.Call(uintptr(unsafe.Pointer(&params.Rgrc[0])), monitorDefaultToNull); mon != 0 {
+			params.Rgrc[0] = monitorWorkArea(mon)
 		}
-		params.Rgrc[0] = monitorWorkArea(mon)
 		return 0
 	}
 	if windowLong(w.hwnd, gwlStyle)&wsThickFrame != 0 {
