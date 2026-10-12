@@ -106,6 +106,7 @@ type view struct {
 	opening     string
 	openingPath bool
 	scrolled    float32 // scrolling not yet a whole row
+	zoomed      float32 // wheel with the zoom modifier not yet a notch
 	ticking     bool    // an autoscroll tick is due
 }
 
@@ -688,6 +689,27 @@ func (v *view) scroll(ev ui.InputEvent) bool {
 	if v.cellH == 0 {
 		return false
 	}
+	zoomMod := ui.Ctrl
+	if runtime.GOOS == "darwin" {
+		zoomMod = ui.Super
+	}
+	if on := t.opts.OnZoom; on != nil && ev.Mods&zoomMod != 0 {
+		// Rolling up is a step up. DY is the scroll offset's change, so up
+		// comes negative; a wheel's event is a notch, a trackpad's many
+		// small moves, which add up to a step by 40.
+		if !ev.Precise {
+			if ev.DY != 0 {
+				on(-int(sign(ev.DY)))
+			}
+			return true
+		}
+		v.zoomed -= ev.DY
+		if steps := int(v.zoomed / 40); steps != 0 {
+			v.zoomed -= float32(steps) * 40
+			on(steps)
+		}
+		return true
+	}
 	ch := float32(v.cellH) / v.scale
 	dy := ev.DY
 	if !ev.Precise {
@@ -788,4 +810,15 @@ func shiftedText(k ui.Key, unshifted rune) string {
 		return string(unshifted - 'a' + 'A')
 	}
 	return string(unshifted)
+}
+
+// sign is -1, 0 or 1 by v.
+func sign(v float32) float32 {
+	switch {
+	case v < 0:
+		return -1
+	case v > 0:
+		return 1
+	}
+	return 0
 }
