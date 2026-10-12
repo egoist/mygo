@@ -146,6 +146,25 @@ func TestTableReorder(t *testing.T) {
 	}
 }
 
+// A column dragged past several others stays the one dragged: its header
+// keeps the press as the others move aside.
+func TestTableReorderFar(t *testing.T) {
+	s := ListState{}
+	cols := []TableColumn{{Title: "Name"}, {Title: "Kind", Width: 80}, {Title: "Size", Width: 80}, {Title: "Date", Width: 80}}
+	tt := coreNewTester(tableView(&s, cols, []string{"a.txt"}), 600, 300)
+	kind := header(t, tt, "Kind")
+	y := float32(kind.Y + kind.H/2)
+	x := float32(kind.X + 20)
+	tt.Press(x, y)
+	for d := float32(5); d <= 180; d += 15 {
+		tt.Move(x+d, y)
+	}
+	tt.Release(x+180, y)
+	if got := s.Columns.Order; len(got) != 4 || got[1] != "Size" || got[2] != "Date" || got[3] != "Kind" {
+		t.Fatalf("the order after dragging Kind past Size and Date: %q", got)
+	}
+}
+
 func TestTableScrollsSideways(t *testing.T) {
 	s := ListState{}
 	cols := []TableColumn{{Title: "Name", Width: 200}, {Title: "Kind", Width: 200}, {Title: "Size", Width: 200}}
@@ -272,5 +291,64 @@ func TestEditableText(t *testing.T) {
 	tt.Key(0, KeyEnter)
 	if title != "Plan" || !tt.Focused("Plan") {
 		t.Errorf("after Enter: %q, focused %v", title, tt.Focused("Plan"))
+	}
+}
+
+func TestTableRoundRows(t *testing.T) {
+	names := []string{"a.txt", "b.txt", "c.txt"}
+	cols := []TableColumn{{Title: "Name"}, {Title: "Kind", Width: 100}, {Title: "Size", Width: 80, Align: End}}
+	// radius returns the corners of row i's box, or of the box inside it
+	// that shows the pointer over it in a table that does not choose.
+	radius := func(s *ListState, i int, inner bool) [4]float32 {
+		t.Helper()
+		for _, r := range s.frame.rows {
+			if r.i == i {
+				if inner {
+					return r.e.first.radius
+				}
+				return r.e.radius
+			}
+		}
+		t.Fatalf("row %d not built", i)
+		return [4]float32{}
+	}
+	r := LightTheme().Radius
+	square, round := [4]float32{}, [4]float32{r, r, r, r}
+
+	sel := 1
+	s := ListState{Selected: &sel}
+	coreNewTester(tableView(&s, cols, names), 500, 300)
+	if got := radius(&s, 1, false); got != square {
+		t.Errorf("a chosen row by default: %v", got)
+	}
+	s = ListState{Selected: &sel, RoundRows: true}
+	coreNewTester(tableView(&s, cols, names), 500, 300)
+	if got := radius(&s, 1, false); got != round {
+		t.Errorf("a chosen row with RoundRows: %v", got)
+	}
+
+	// Rows chosen together make one block.
+	var chosen Selection[string]
+	chosen.Add("a.txt")
+	chosen.Add("b.txt")
+	s = ListState{Selection: &chosen, Key: func(i int) any { return names[i] }, RoundRows: true}
+	coreNewTester(tableView(&s, cols, names), 500, 300)
+	if got := radius(&s, 0, false); got != [4]float32{r, r, 0, 0} {
+		t.Errorf("the first of two rows chosen: %v", got)
+	}
+	if got := radius(&s, 1, false); got != [4]float32{0, 0, r, r} {
+		t.Errorf("the second of two rows chosen: %v", got)
+	}
+
+	// A table that does not choose shows the pointer over its rows.
+	s = ListState{}
+	coreNewTester(tableView(&s, cols, names), 500, 300)
+	if got := radius(&s, 0, true); got != square {
+		t.Errorf("a row of a table that does not choose, by default: %v", got)
+	}
+	s = ListState{RoundRows: true}
+	coreNewTester(tableView(&s, cols, names), 500, 300)
+	if got := radius(&s, 0, true); got != round {
+		t.Errorf("a row of a table that does not choose, with RoundRows: %v", got)
 	}
 }

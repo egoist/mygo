@@ -34,6 +34,8 @@ type host interface {
 	cancelDataDrag()
 	setDropFormats([]transfer.Format)
 	titleBarDoubleClicked()
+	// escape tells the window an Escape nothing handled.
+	escape()
 	isDark() bool
 	preferences() platform.Preferences
 	titleBar() TitleBar
@@ -48,12 +50,23 @@ type host interface {
 	// popupMenu shows a context menu at (x, y) after the event being
 	// handled; chosen receives the ID of the item chosen.
 	popupMenu(m *platform.Menu, x, y float32, chosen func(id int))
+	// placeWebViews shows the web views where the frame shows them, and
+	// hides the others.
+	placeWebViews(views []placedWebView)
+	// tabIntoWebView gives the page of v the keyboard as Tab does, from
+	// its end when back (platform.WebView.TabInto).
+	tabIntoWebView(v NativeWebView, back bool)
+	// platformWebView returns the web view of the platform v is, if any.
+	platformWebView(v NativeWebView) platform.WebView
 }
 
 // engine runs the user interface of one window: it builds frames with
 // the view function, lays them out, paints them and routes input to the
 // elements of the last frame. Main thread only, except where noted.
 type engine struct {
+	// byPosition holds the keys whose press stood for its physical key
+	// (keyDownPhysical), until their release does the same.
+	byPosition      map[Key]bool
 	owner           weak.Pointer[engine]
 	epoch           uint64
 	parts           []any
@@ -85,9 +98,10 @@ type engine struct {
 	svgs         svgs
 	flex         flexScratch
 	grid         gridScratch
-	// under is the painter's stack of opaque backgrounds, kept from one
-	// frame to the next.
-	under []Rect
+	// under is the painter's stack of opaque backgrounds, and holes the
+	// holes it painted, kept from one frame to the next.
+	under []opaqueBox
+	holes []Rect
 
 	states map[uint64]*state
 	// free are states pruned, which new elements take: rows coming into
@@ -108,6 +122,12 @@ type engine struct {
 	// dialog on top, which assistive technology sees with what is above.
 	modalLayer  uint64
 	commitScope focusScope
+	// webPlaces are where the frame shows web views (WebView), and webOut
+	// what the host got of them; webShown tells that the last frame
+	// showed some.
+	webPlaces []webPlace
+	webOut    []placedWebView
+	webShown  bool
 	// The focus groups of the frame, the group of each element of the
 	// focus order in one, and the element of each that had the focus
 	// last.
@@ -131,7 +151,17 @@ type engine struct {
 	// with an Exit, whose arena the next frame keeps to copy those that
 	// go, laidW and laidH are the size the last frame was laid out at, and
 	// byID maps a frame's elements, for the copies going.
-	trans        map[uint64]*transition
+	trans map[uint64]*transition
+	// matched is where the elements of a Transition's Match showed.
+	matched map[any]*matchRec
+	// instantFrame is the frame that DisableAnimations shows at once.
+	instantFrame uint64
+	// paints counts the frames painted, those painting the last frame's
+	// elements again included.
+	paints uint64
+	// posed are the elements of the last frame built with a pose
+	// (AnimatePose), parents first.
+	posed        []*node
 	exitsBuilt   bool
 	laidW, laidH float32
 	byID         map[uint64]*node
@@ -153,7 +183,10 @@ type engine struct {
 	chain       []uint64
 	pressed     *state
 	pressButton int
-	focused     uint64
+	// pressDragger is the element around the one pressed that drags a
+	// value, which takes the press as it moves (dragMove), or 0.
+	pressDragger uint64
+	focused      uint64
 	// texts are selectable paragraphs in build order; selection spans those
 	// of one Selectable container (textselection.go).
 	texts         []*state
@@ -215,6 +248,7 @@ type engine struct {
 	incoming    *platform.DataDragEvent
 	dataOver    uint64
 	closed      bool
+	closing     bool // the window closed during a frame, which closes the engine as it ends
 	dropFormats []transfer.Format
 	dropScratch []transfer.Format
 	// kept are the pages of the history that Routers keep, and commitPage
@@ -343,7 +377,7 @@ func (rt *engine) runFrame() {
 		return
 	}
 	rt.inFrame = true
-	defer func() { rt.inFrame = false }()
+	defer rt.endFrame()
 
 	rt.frame++
 	rt.stats.begin(rt)
@@ -383,9 +417,9 @@ func (rt *engine) runFrame() {
 		clear(rt.kept)
 		rt.c.reset(now, appW, h)
 		rt.view(&rt.c)
-		if rt.closed {
+		if rt.closing {
 			// The view closed the window, as a close button does: the
-			// window is gone at once on Windows, and the frame with it.
+			// window is gone at once, and the frame ends with the view.
 			return
 		}
 		rt.buildToasts(&rt.c)
@@ -405,7 +439,7 @@ func (rt *engine) runFrame() {
 		rt.prepareSelectable(rt.c.root)
 		rt.resolveMenu()
 		rt.endPass()
-		if rt.closed {
+		if rt.closing {
 			return // an action closed it
 		}
 		if !rt.consumed {
@@ -440,6 +474,7 @@ func (rt *engine) runFrame() {
 	rt.stats.lap(phasePaint)
 	rt.insp.lap(2)
 	rt.host.present(&rt.scene)
+	rt.placeWebViews()
 	rt.stats.lap(phasePresent)
 	rt.prune()
 	rt.syncDropFormats()
@@ -535,13 +570,14 @@ func (rt *engine) surfaceFrame() {
 // armed them.
 func (rt *engine) repaintFrame(w, h, scale float32) {
 	rt.inFrame = true
-	defer func() { rt.inFrame = false }()
+	defer rt.endFrame()
 	rt.stats.begin(rt)
 	start := time.Now()
 	rt.c.now = rt.now()
 	rt.text.BeginFrame()
 	rt.repainting, rt.repaintAt = false, time.Time{}
 	root := rt.c.root
+	rt.repose()
 	rt.paint(root, w, h, scale)
 	for try := 0; try < 2 && rt.text.Full(); try++ {
 		rt.text.MakeRoom()
@@ -588,6 +624,7 @@ func (rt *engine) forgetInput() {
 		s.clicks, s.rightClicks, s.doubleClicks = 0, 0, 0
 		s.pressPending = false
 		s.dragX, s.dragY = 0, 0
+		s.released = false
 		s.dropped = nil
 		s.droppedValue, s.hasDropped = nil, false
 		s.dataDropped = nil
@@ -707,8 +744,16 @@ func (rt *engine) armTimer() {
 	}
 }
 
+// close lets the window's state go when the window closes. A window closed
+// during a frame, as a close button's click closes it, keeps it until the
+// frame ends: the rest of the view builds with a Context that still works,
+// and reads the theme, the size and its state as before.
 func (rt *engine) close() {
-	rt.closed = true
+	if rt.inFrame {
+		rt.closing = true
+		return
+	}
+	rt.closed, rt.closing = true, false
 	clear(rt.focusFields)
 	rt.focusFields = nil
 	for _, r := range rt.refs {
@@ -749,10 +794,23 @@ func (rt *engine) close() {
 	}
 }
 
+// endFrame ends a frame, and closes the engine when its window closed
+// during it.
+func (rt *engine) endFrame() {
+	rt.inFrame = false
+	if rt.closing {
+		rt.close()
+	}
+}
+
 // commit records the laid out frame in the elements' states: their
 // boxes, the hit list in paint order, the focus order.
 func (rt *engine) commit(root *node, w, h float32) {
 	rt.hits = rt.hits[:0]
+	clear(rt.posed)
+	rt.posed = rt.posed[:0]
+	clear(rt.webPlaces)
+	rt.webPlaces = rt.webPlaces[:0]
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
 	rt.modal, rt.modalLayer, rt.commitScope, rt.commitPage = 0, 0, focusScope{}, 0
 	if rt.groups == nil {
@@ -779,6 +837,18 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	if e.flags&flagPage != 0 {
 		rt.commitPage = e.id
 	}
+	if e.poseSet {
+		rt.samplePose(e)
+	}
+	e.world = e.transformAt(e.x, e.y)
+	if e.parent != nil && e != e.c.overlay {
+		e.world = e.parent.world.Mul(e.world)
+	}
+	s.world = e.world
+	s.clips = e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0
+	if s.clips {
+		s.clipRect, s.clipRadii = e.clipRect()
+	}
 	s.x, s.y, s.w, s.h = e.x, e.y, e.w, e.h
 	if e.parent != nil {
 		s.parent = e.parent.id
@@ -796,6 +866,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		s.flags |= flagDisabled
 	}
 	s.cursor, s.tip = e.cursor, e.tip
+	s.webView = e.webView
 	s.role = e.role
 	s.input, s.caret, s.takesText = e.inputFn, e.caret, e.takesText
 	if s.textClient != e.textClient {
@@ -810,7 +881,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	if (e.flags&flagEditable != 0 || e.flags&flagSelectable != 0 && s.editor != nil) && s.cursor == 0 {
 		s.cursor = CursorText + 1
 	}
-	v := intersect(Rect{e.x, e.y, e.w, e.h}, clip)
+	v := intersect(e.visualRect(Rect{e.x, e.y, e.w, e.h}), clip)
 	s.vx, s.vy, s.vw, s.vh = v.X, v.Y, v.W, v.H
 	s.cx, s.cy = e.x+e.contentX(), e.y+e.contentY()
 	s.cw, s.ch = max(e.w-e.padX(), 0), max(e.h-e.padY(), 0)
@@ -821,22 +892,25 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	// What is invisible keeps its box but takes neither the pointer nor
 	// the focus, and has no text to find; so does what is inert, which
 	// shows.
-	invisible := e.flags&(flagInvisible|flagInert) != 0 || hidden
+	invisible := e.flags&(flagInvisible|flagInert) != 0 || hidden || e.backface && e.transform.facesAway()
 	if invisible {
 		s.vw, s.vh = 0, 0
 		if rt.focused == e.id {
 			rt.focused = 0
 		}
 	}
+	if e.webView != nil {
+		rt.noteWebView(e, clip, invisible)
+	}
 	switch {
 	case e.flags&flagPassThrough != 0 || invisible:
 	case inline:
 		// Inline elements take the pointer over their words.
 		for _, r := range e.frags {
-			rt.hits = append(rt.hits, hit{s, intersect(r, clip), e.flags})
+			rt.hits = append(rt.hits, hit{s, r, e.flags})
 		}
 	default:
-		rt.hits = append(rt.hits, hit{s, v, e.flags})
+		rt.hits = append(rt.hits, hit{s, Rect{e.x, e.y, e.w, e.h}, e.flags})
 	}
 	label := e.label
 	if f := e.nameFrom; label == "" && f != nil {
@@ -851,7 +925,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 			rt.labels = append(rt.labels, labelNode{e.id, label, v})
 		case len(e.frags) > 0 && (e.label != "" || e.flags&interactive != 0):
 			// Their paragraph shows the text of the others.
-			rt.labels = append(rt.labels, labelNode{e.id, label, intersect(e.frags[0], clip)})
+			rt.labels = append(rt.labels, labelNode{e.id, label, intersect(e.visualRect(e.frags[0]), clip)})
 		}
 	}
 	if e.flags&flagFocusable != 0 && !e.IsDisabled() && !invisible {
@@ -868,7 +942,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	}
 	if e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0 {
 		r, _ := e.clipRect()
-		clip = intersect(clip, r)
+		clip = intersect(clip, e.visualRect(r))
 	}
 	// Children in flow first, absolute ones above them: the paint order.
 	for ch := e.first; ch != nil; ch = ch.next {
@@ -892,15 +966,31 @@ func intersect(a, b Rect) Rect {
 	return Rect{x0, y0, x1 - x0, y1 - y0}
 }
 
-// updateCursor shows the cursor of the element under the pointer.
+// updateCursor shows the cursor of the element under the pointer: the
+// innermost one's that sets a cursor, up to the innermost element that
+// takes clicks, whose own cursor is the default unless it sets one, so a
+// button in a text field shows no I-beam.
 func (rt *engine) updateCursor() {
+	if rt.pressed == nil && rt.overWebView() {
+		// The page sets the cursor over it: it is set again as the
+		// pointer comes back.
+		rt.cursor = cursorUnknown
+		return
+	}
 	c := CursorDefault
 	if rt.pressed != nil && rt.pressed.cursor != 0 {
 		c = rt.pressed.cursor - 1
 	} else {
 		for _, id := range rt.hover {
-			if s := rt.states[id]; s != nil && s.cursor != 0 {
+			s := rt.states[id]
+			if s == nil {
+				continue
+			}
+			if s.cursor != 0 {
 				c = s.cursor - 1
+				break
+			}
+			if s.flags&flagClickable != 0 {
 				break
 			}
 		}
@@ -910,3 +1000,7 @@ func (rt *engine) updateCursor() {
 		rt.host.setCursor(c)
 	}
 }
+
+// cursorUnknown is the cursor the engine last set while the pointer is
+// over a web view, whose page set another.
+const cursorUnknown Cursor = 255

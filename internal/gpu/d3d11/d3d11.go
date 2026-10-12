@@ -268,9 +268,11 @@ type Renderer struct {
 
 	vs, ps, layout      uintptr
 	blend, raster, samp uintptr
-	cbuf                uintptr
-	instBuf             uintptr
-	instCap             int
+	// holeBlend takes the coverage of holes (scene.OpHole) away.
+	holeBlend uintptr
+	cbuf      uintptr
+	instBuf   uintptr
+	instCap   int
 
 	mask, color texture
 	images      map[uint64]*texture
@@ -356,8 +358,8 @@ func (r *Renderer) init() error {
 			return fmt.Errorf("d3d11: cannot create the %s shader", s.name)
 		}
 	}
-	names := []string{"RECT", "RADII", "INNER", "COLOR", "COLOR", "COLOR", "GRAD", "UV", "CLIP", "CLIPR", "PARAMS"}
-	indices := []uint32{0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0}
+	names := []string{"RECT", "RADII", "INNER", "COLOR", "COLOR", "COLOR", "GRAD", "UV", "CLIP", "CLIPR", "PARAMS", "TRANSFORM", "TRANSFORM", "TRANSFORM"}
+	indices := []uint32{0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 1, 2}
 	elems := make([]inputElement, len(names))
 	cstr := make([][]byte, len(names))
 	for i, n := range names {
@@ -377,6 +379,11 @@ func (r *Renderer) init() error {
 	bd.RenderTarget[0] = rtBlend{BlendEnable: 1, SrcBlend: 2, DestBlend: 17, BlendOp: 1, SrcBlendAlpha: 2, DestBlendAlpha: 19, BlendOpAlpha: 1, WriteMask: 0xf}
 	if failed(call(r.device, devCreateBlendState, uintptr(unsafe.Pointer(&bd)), uintptr(unsafe.Pointer(&r.blend)))) {
 		return errors.New("d3d11: cannot create the blend state")
+	}
+	// Holes take none of the source (D3D11_BLEND_ZERO).
+	bd.RenderTarget[0].SrcBlend, bd.RenderTarget[0].SrcBlendAlpha = 1, 1
+	if failed(call(r.device, devCreateBlendState, uintptr(unsafe.Pointer(&bd)), uintptr(unsafe.Pointer(&r.holeBlend)))) {
+		return errors.New("d3d11: cannot create the blend state of holes")
 	}
 	rd := rasterizerDesc{FillMode: 3, CullMode: 1, DepthClip: 1, Scissor: 1}
 	if failed(call(r.device, devCreateRasterizerState, uintptr(unsafe.Pointer(&rd)), uintptr(unsafe.Pointer(&r.raster)))) {
@@ -566,6 +573,7 @@ func (r *Renderer) armSettle() {
 
 // Release frees the renderer's GPU objects.
 func (r *Renderer) Release() {
+	r.b.Release()
 	if settling[r.hwnd] {
 		delete(settling, r.hwnd)
 		procKillTimer.Call(r.hwnd, settleTimer)
@@ -593,7 +601,7 @@ func (r *Renderer) Release() {
 	}
 	// The target goes first: a window has one at most, which another
 	// renderer of it then makes.
-	for _, p := range []*uintptr{&r.visual, &r.target, &r.dcomp, &r.rtv, &r.swapChain2, &r.swapChain, &r.instBuf, &r.cbuf, &r.passCB, &r.samp, &r.raster, &r.blend, &r.layout,
+	for _, p := range []*uintptr{&r.visual, &r.target, &r.dcomp, &r.rtv, &r.swapChain2, &r.swapChain, &r.instBuf, &r.cbuf, &r.passCB, &r.samp, &r.raster, &r.holeBlend, &r.blend, &r.layout,
 		&r.blurPS, &r.downPS, &r.passVS, &r.ps, &r.vs, &r.factory, &r.ctx, &r.device} {
 		free(p)
 	}
@@ -654,6 +662,11 @@ func (r *Renderer) imageView(img *scene.Image) uintptr {
 		}
 		t.ver = img.Version()
 		r.images[img.ID()] = t
+	} else if t.w != img.W || t.h != img.H {
+		if err := r.newTexture(t, img.W, img.H, formatR8G8B8A8Unorm, img.Pix, 4); err != nil {
+			return 0
+		}
+		t.ver = img.Version()
 	} else if t.ver != img.Version() {
 		call(r.ctx, ctxUpdateSubresource, t.tex, 0, 0, uintptr(unsafe.Pointer(&img.Pix[0])), uintptr(img.W*4), 0)
 		t.ver = img.Version()
@@ -701,7 +714,7 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	if err := r.syncAtlas(&r.color, s.ColorAtlas, formatR8G8B8A8Unorm); err != nil {
 		return err
 	}
-	r.b.Build(s, r.imageView)
+	s = r.b.Build(s, r.imageView)
 	if err := r.fitBackdrop(); err != nil {
 		return err
 	}
@@ -736,7 +749,7 @@ func (r *Renderer) draw(s *scene.Scene) error {
 	call(ctx, ctxRSSetState, r.raster)
 	call(ctx, ctxIASetPrimitiveTopology, topologyTriangleStrip)
 	r.bindState(s, 0)
-	bound, ps := uintptr(0), r.ps
+	bound, ps, blend := uintptr(0), r.ps, r.blend
 	for _, b := range r.b.Batches {
 		if b.Count == 0 {
 			continue
@@ -751,16 +764,26 @@ func (r *Renderer) draw(s *scene.Scene) error {
 			// The effect shows what is drawn so far.
 			r.readBackdrop(r.b.Backdrops[b.Backdrop-1])
 			r.bindState(s, r.backdrop[0].srv)
-			bound, ps = 0, r.ps
+			bound, ps, blend = 0, r.ps, r.blend
 		}
 		if want != ps {
 			ps = want
 			call(ctx, ctxPSSetShader, ps, 0, 0)
 		}
+		wantBlend := r.blend
+		if b.Hole {
+			wantBlend = r.holeBlend
+		}
+		if wantBlend != blend {
+			blend = wantBlend
+			call(ctx, ctxOMSetBlendState, blend, 0, 0xffffffff)
+		}
 		if b.Image != 0 && b.Image != bound {
 			bound = b.Image
 			call(ctx, ctxPSSetShaderResources, 2, 1, uintptr(unsafe.Pointer(&bound)))
 		}
+		mask := b.ClipMask
+		call(ctx, ctxPSSetShaderResources, 5, 1, uintptr(unsafe.Pointer(&mask)))
 		sc := b.Scissor // a D3D11_RECT
 		call(ctx, ctxRSSetScissorRects, 1, uintptr(unsafe.Pointer(&sc)))
 		call(ctx, ctxDrawInstanced, 4, uintptr(b.Count), 0, uintptr(b.Start))

@@ -72,7 +72,9 @@ const (
 	// Radii are the shadow's box, already offset and spread, Blur its blur
 	// radius and Color its color. Unless Cast is empty, the shadow shows
 	// only outside it, the box casting the shadow, as CSS's box-shadow
-	// does.
+	// does. An Inset shadow shows only inside Cast instead, where Rect,
+	// the hole it leaves, blurred, does not cover it, as CSS's box-shadow:
+	// inset does; Rect may then be empty, which leaves no hole.
 	OpShadow
 	// OpGlyphs paints Scene.Glyphs[Start:End]. With a gradient Paint, its
 	// mask glyphs take the gradient from Color to Color2, times Opacity,
@@ -90,12 +92,22 @@ const (
 	// Scene.Effects[Start]: shaders of a package outside the renderers (see
 	// Effect), with Opacity.
 	OpEffect
+	// OpHole makes the rounded rectangle Rect with Radii transparent,
+	// within the clip: what the ops before it painted there is gone, and
+	// what the window shows under the frame, as a web view, shows through.
+	// The ops after it paint over it as over any transparent pixels. Below
+	// full Opacity, what the ops before it painted fades by Opacity
+	// instead, so what shows through blends over it.
+	OpHole
 )
 
 // Op is one drawing operation. Which fields matter depends on Kind.
 type Op struct {
 	Kind Kind
 	Rect Rect
+	// Transform maps this operation's geometry to frame pixels. Clips
+	// retain the transform with which they were pushed.
+	Transform Affine
 	// Radii are the corner radii: top-left, top-right, bottom-right and
 	// bottom-left.
 	Radii [4]float32
@@ -126,7 +138,9 @@ type Op struct {
 	BorderColor Color
 	Dashed      bool
 
-	Blur float32
+	// Inset makes an OpShadow an inner shadow.
+	Inset bool
+	Blur  float32
 	// Cast is the box casting an OpShadow, with CastRadii.
 	Cast      Rect
 	CastRadii [4]float32
@@ -181,6 +195,8 @@ func InnerRadii(r Rect, radii, w [4]float32) (Rect, [4]float32) {
 
 // Glyph is a glyph mask or color glyph copied from an atlas into a frame.
 type Glyph struct {
+	// Transform is applied before its Op's transform, for inline text.
+	Transform Affine
 	// X, Y, W and H place the glyph's bitmap, in device pixels.
 	X, Y, W, H float32
 	// U, V, UW and VH are the bitmap's rectangle in its atlas.
@@ -340,6 +356,19 @@ func (m *Image) Version() uint64 { return m.version }
 
 // Changed records that Pix was modified.
 func (m *Image) Changed() { m.version++ }
+
+// Resize keeps the image's texture-cache identity while changing its size.
+// Renderers replace the backing texture on a size change, so an animated
+// clip does not leave a new texture in the cache on every frame.
+func (m *Image) Resize(w, h int) {
+	m.W, m.H = w, h
+	if cap(m.Pix) >= 4*w*h {
+		m.Pix = m.Pix[:4*w*h]
+	} else {
+		m.Pix = make([]byte, 4*w*h)
+	}
+	m.Changed()
+}
 
 // FitRadii scales corner radii down so that adjacent ones fit along each
 // side of r, as CSS does; renderers apply it before drawing.

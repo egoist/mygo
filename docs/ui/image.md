@@ -1,5 +1,7 @@
 # Image
 
+<!-- preview image 240 -->
+
 `ui.Image` shows a bitmap, or an SVG in its own colors, by default at its
 size in DIPs, scaled to fit when given another size.
 
@@ -21,6 +23,22 @@ view: MyGo keeps a bitmap on the GPU as long as you use it. A bitmap shown
 much smaller than its pixels, as a photo in a thumbnail, is drawn from a
 copy halved as many times as that keeps it no smaller, made once, so that
 it shows every pixel's part rather than shimmering.
+
+`Update` shows another picture in a bitmap, for one that changes as video
+does. Of the same size, it keeps the bitmap's texture on the GPU, which
+uploads the new pixels, where a new bitmap each frame would make a texture
+each. An `*image.RGBA` made by `image.NewRGBA` is taken without a copy:
+leave its pixels as they are until the next `Update`. Frames decoded on a
+goroutine reach the bitmap through `Window.Update`, which redraws the
+window:
+
+```go
+go func() {
+	for frame := range frames { // *image.RGBA, a new one each time
+		win.Update(func() { app.video.Update(frame) })
+	}
+}()
+```
 
 ## Fitting
 

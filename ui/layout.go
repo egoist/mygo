@@ -94,12 +94,17 @@ func layoutTree(root *node, w, h float32) {
 		}
 	}
 	rt.animateLayout(root, w, h)
+	// Reattach overlays to the geometry shown by this frame, after transitions.
+	if ov := root.c.overlay; ov != nil {
+		layoutAbsolute(ov)
+	}
 	if rt.late {
 		// Lists resized by their transitions built rows as they laid out
 		// anew.
 		rt.lateInput()
 	}
 	place(root, 0, 0)
+	rt.animateMatches()
 }
 
 // lateInput forgets the input of the rows built as their lists laid out,
@@ -939,9 +944,6 @@ func layoutAbsolute(e *node) {
 		} else {
 			h = heightAt(c, w, ph)
 		}
-		if c.place.on {
-			left, top = c.place.fit(c, left, top, w, h, pw, ph)
-		}
 		x := left + c.m(3)
 		if !lok && rok {
 			x = pw - right - w - c.m(1)
@@ -987,7 +989,7 @@ func attachTo(c, e *node, pw, ph float32) {
 	} else {
 		h = heightAt(c, w, ph)
 	}
-	t := laidOutBox(c.popover)
+	t := laidOutVisualBox(c.popover)
 	at, self := c.attach.anchors()
 	ax, ay := at.fractions()
 	sx, sy := self.fractions()

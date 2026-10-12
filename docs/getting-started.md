@@ -191,8 +191,8 @@ it when there is one, and packages it for the machine's platform in
 
 | Platform | Output |
 |---|---|
-| macOS | `My App.app`, and a disk image `My App 0.1.0.dmg` |
-| Windows | `My App.exe`, and an installer `My App Setup 0.1.0.exe` |
+| macOS | `My App.app`, and a disk image `My App 0.1.0 arm64.dmg` |
+| Windows | `My App.exe`, and an installer `My App Setup 0.1.0 amd64.exe` |
 | Linux | the executable `my-app` with its desktop entry and icon, their archive with `install.sh`, which installs it for the user, and a `.deb` package |
 
 MyGo needs no cgo, so any machine builds for every platform:
@@ -222,6 +222,8 @@ The apps run where they are, but to ship them to users, sign them: see
     view), `examples/vibrancy` (a translucent sidebar under an inset title
     bar, its material picked in it), `examples/effort-slider` (a web
     demo's animated slider redrawn: letters blurring in, a burst of
-    pixels, a shaking card) and `examples/gallery` (a tour of the
+    pixels, a shaking card), `examples/confetti` (canvas-confetti's
+    demos, every piece flying on poses that only paint) and
+    `examples/gallery` (a tour of the
     toolkit: layout, widgets, text editing, a list of ten thousand rows,
     drawing and overlays).

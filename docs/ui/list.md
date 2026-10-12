@@ -1,5 +1,7 @@
 # List
 
+<!-- preview list 290 -->
+
 `ui.List` shows rows of a collection of any length: it builds only the rows
 in view, and a few beyond, so a list of millions of rows is as fast as one
 of ten. Rows take the height of their content, which may differ from row to
@@ -30,6 +32,21 @@ ui.List(c, nil, len(results), func(i int) {
 		ui.Text(c, "No results").TextColor(c.Theme().TextMuted).Padding(12)
 	}
 })
+```
+
+## Rows wider than the list
+
+`RowWidth(w)` makes the rows at least `w` DIPs wide, as the columns of a
+table ask: where they are wider than the list, it scrolls sideways too, and
+where they are not, they grow to its width. A header above the rows goes
+with them through `ScrollWith`; clip it, so that what scrolls out of it
+does not show. `ui.Table` does this for its columns.
+
+```go
+head := ui.Row(c).Clip().Children(app.titles)
+list := ui.List(c, &app.files, len(app.files)).Grow(1).RowWidth(app.columnsWidth())
+list.Rows(app.row)
+head.ScrollWith(list)
 ```
 
 ## List state
@@ -139,6 +156,10 @@ app.list.Reorder = func(rows []int, to int) {
 	app.items = move(app.items, rows, to)
 }
 ```
+
+Rows that are buttons, which open what they show as they are clicked,
+reorder too: a press on a row's button drags the row once the pointer
+moves, and clicks the button if it does not.
 
 See [drag and drop](drag-and-drop.md).
 

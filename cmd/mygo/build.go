@@ -26,8 +26,9 @@ func runBuild(args []string) error {
 	flags := newFlags("build", "[flags] [dir]", `Builds a production app for each platform. It runs buildCommand from
 mygo.json, then compiles the app with the frontendDist files embedded, served
 at mygo://localhost/. macOS gets a signed .app bundle and a
-"<name> <version>.dmg" disk image whose window invites dragging the app to
-Applications; other platforms get an executable. Linux also gets a Debian
+"<name> <version> <arch>.dmg" disk image, without the arch for
+darwin/universal, whose window invites dragging the app to Applications;
+other platforms get an executable. Linux also gets a Debian
 package, and the app as <name>-<version>-linux-<arch>.tar.gz with
 install.sh, which installs it for the user in ~/.local, where it can update
 itself. The contents of the
@@ -38,8 +39,8 @@ platform, such as resources/darwin or resources/linux-amd64, only ship with
 that platform's apps; darwin/universal combines darwin-arm64 and
 darwin-amd64. MyGo needs no cgo, so any platform can be compiled from any
 machine; signing and disk images need macOS. Windows also gets
-"<name> Setup <version>.exe", made with NSIS, which mygo build downloads
-on Windows when it is not installed.
+"<name> Setup <version> <arch>.exe", made with NSIS, which mygo build
+downloads on Windows when it is not installed.
 
 Set macos.signingIdentity in mygo.json (or -sign) to a Developer ID to ship
 outside the Mac App Store, and macos.notarize to notarize the disk image.
@@ -47,8 +48,12 @@ outside the Mac App Store, and macos.notarize to notarize the disk image.
 With updates in mygo.json and the key of mygo keygen in
 MYGO_UPDATER_PRIVATE_KEY, each platform also gets a signed update archive,
 delta updates from the last versions published (updates.deltas), and
-update-<platform>.json: publish them where updates point to.`)
-	platforms := flags.String("platform", runtime.GOOS+"/"+runtime.GOARCH, "comma separated GOOS/GOARCH targets, e.g. darwin/universal,linux/amd64,windows/amd64")
+update-<platform>.json: publish them where updates point to.
+
+The platform web (or js/wasm) builds an app of native UI for browsers into
+<out>/web: index.html, which loads the app, Go's wasm_exec.js and the app's
+WebAssembly, named by its content: a static site, to serve from anywhere.`)
+	platforms := flags.String("platform", runtime.GOOS+"/"+runtime.GOARCH, "comma separated GOOS/GOARCH targets, e.g. darwin/universal,linux/amd64,windows/amd64, or web for browsers")
 	debug := flags.Bool("debug", false, "keep development features such as the web inspector")
 	skipBuildCommand := flags.Bool("skip-build-command", false, "do not run buildCommand")
 	skipDMG := flags.Bool("skip-dmg", false, "do not create a disk image for macOS")
@@ -83,7 +88,7 @@ update-<platform>.json: publish them where updates point to.`)
 	started := time.Now()
 	// The TypeScript client comes first: the frontend build type-checks and
 	// bundles it.
-	if err := writeClient(context.Background(), c); err != nil {
+	if err := writeClient(context.Background(), c, false); err != nil {
 		return err
 	}
 	if c.BuildCommand != "" && !*skipBuildCommand {
@@ -113,6 +118,14 @@ update-<platform>.json: publish them where updates point to.`)
 
 	var built []string
 	for _, p := range splitList(*platforms) {
+		if isWebPlatform(p) {
+			paths, err := buildWeb(c, opts)
+			built = append(built, paths...)
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		goos, goarch, ok := strings.Cut(p, "/")
 		if !ok {
 			return fmt.Errorf("invalid platform %q, want GOOS/GOARCH", p)
@@ -266,7 +279,7 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		case runtime.GOOS != "darwin":
 			warnf("Skipping the disk image: it needs macOS")
 		default:
-			dmg, err := buildDMG(c, app, stage, opts)
+			dmg, err := buildDMG(c, app, stage, goarch, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -319,7 +332,7 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		}
 	}
 	if goos == "windows" {
-		setup, err := writeInstaller(c, stage, opts.work, name+".exe", installed)
+		setup, err := writeInstaller(c, stage, opts.work, name+".exe", goarch, installed)
 		if err != nil {
 			return nil, err
 		}

@@ -1,5 +1,7 @@
 # Text input
 
+<!-- preview text-input 250 -->
+
 `ui.TextInput` creates a single-line text input editing a `*string`, and
 `ui.TextArea` a multi-line one. They change the string as the user types:
 read it, or ask `Changed` for work that follows, and `Submitted` for Enter
@@ -29,6 +31,26 @@ ui.TextArea(c, &app.notes).Height(160)
   still takes the focus, without a caret, and its text can be selected and
   copied.
 - `Disabled(true)` grays it out.
+- `OnPaste(fn)` sees a paste (Cmd+V or Ctrl+V, the Edit menu's or the
+  context menu's Paste) before it is inserted, with the clipboard's text,
+  empty when it holds none, as with an image. Returning true takes the
+  paste, which then changes nothing, as `preventDefault` does on the web:
+
+  ```go
+  ui.TextArea(c, &app.draft).Lines(1, 8).OnPaste(func(text string) bool {
+  	if len(text) > 10_000 {
+  		app.attach(text) // a large block becomes an attachment
+  		return true
+  	}
+  	if text == "" {
+  		if png := mygo.Clipboard.ReadImage(); png != nil {
+  			app.attachImage(png)
+  			return true
+  		}
+  	}
+  	return false
+  })
+  ```
 
 A `TextInput` too narrow for its text keeps the caret in view while it has
 the focus, and shows the start of its text without it.
@@ -44,7 +66,8 @@ for _, m := range mentions(app.draft) {
 ```
 
 The ranges are runes of the text, found in it each frame, and do not
-overlap; a password shows none.
+overlap; a password shows none. While an input method composes, its text
+sits unstyled at the caret and the ranges keep their style around it.
 
 A text area is at least a few lines high and grows with its text; given a
 height, it scrolls within it, with the wheel and a scroll bar, and keeps
@@ -54,10 +77,11 @@ scrolls, as a message field grows with what is typed:
 
 ```go
 ui.TextArea(c, &app.draft).Lines(1, 8)
-``` It lays out only the paragraphs in view and
-keeps their layouts until they change, so that it holds texts of hundreds
-of thousands of lines, as a log or a source file, and stays as quick to
-type in.
+```
+
+A text area lays out only the paragraphs in view and keeps their layouts
+until they change, so that it holds texts of hundreds of thousands of
+lines, as a log or a source file, and stays as quick to type in.
 
 ## Editing
 
@@ -89,6 +113,38 @@ if start, _ := input.TextSelection(); app.completed != "" {
 	input.SetTextSelection(start, start)
 }
 ```
+
+## Beside the lines
+
+`TrackLines` keeps in a `ui.TextLines` where a text area lays out the lines
+of its text, for an app that paints beside them: numbers by the first row
+of each line, or marks on runs of a line. A line is the text between
+newlines, on several rows where the area wraps it. `Top(i)` is the top of
+line `i` in the area's content, below its padding and before it scrolls,
+`At(y)` the line at a height, `Rows(i)` the runes where each row of line
+`i` starts, and `Height` the height of the text. With the area's
+[`ScrollState`](scroll.md#keeping-the-offset), a gutter numbers the lines
+in view:
+
+```go
+const pad = 8 // the text area's top padding
+ui.Row(c).Grow(1).Children(func() {
+	ui.Box(c).Width(48).FillHeight().Draw(func(p *ui.Painter, r ui.Rect) {
+		top := r.Y + pad - app.scroll.Y // the top of the area's content
+		p.Clip(r, 0, func() {
+			for i := app.lines.At(app.scroll.Y); i < app.lines.Count() && top+app.lines.Top(i) < r.Y+r.H; i++ {
+				p.Text(r.X+8, top+app.lines.Top(i), strconv.Itoa(i+1), 12, p.Theme().TextMuted)
+			}
+		})
+	})
+	ui.TextArea(c, &app.source).Padding(pad, 12).Grow(1).FillHeight().
+		TrackLines(&app.lines).TrackScroll(&app.scroll)
+})
+```
+
+The heights of the lines the area has not laid out are estimates, as its
+scroll bar's are, until it shows them. In `Draw` the lines are those of the
+frame; while the view is built, those of the last one.
 
 ## Errors
 

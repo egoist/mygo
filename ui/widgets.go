@@ -49,6 +49,7 @@ func coreDivider(c *context) *node {
 // keeps frames coming while it moves; key tells apart the animations of
 // the element. The value starts at the first target. When the desktop asks
 // for less motion (Preferences.ReduceMotion), it goes to target at once.
+// AnimateTo takes springs and delays too.
 func (e *node) Animate(key any, target float32, d time.Duration) float32 {
 	return e.AnimateWith(key, target, d, EaseOut)
 }
@@ -56,33 +57,7 @@ func (e *node) Animate(key any, target float32, d time.Duration) float32 {
 // AnimateWith returns a value that moves to target over d as Animate does,
 // along ease.
 func (e *node) AnimateWith(key any, target float32, d time.Duration, ease Easing) float32 {
-	st := e.st
-	if st.anims == nil {
-		st.anims = map[any]*anim{}
-	}
-	a := st.anims[key]
-	now := e.c.now
-	if a == nil {
-		st.anims[key] = &anim{from: target, to: target, value: target}
-		return target
-	}
-	if a.to != target && e.c.rt.preferences().ReduceMotion {
-		// Without the motion.
-		a.from, a.to, a.value = target, target, target
-	}
-	if a.to != target {
-		a.from, a.to, a.start, a.dur = a.value, target, now, d
-	}
-	if a.value != a.to {
-		t := float32(now.Sub(a.start)) / float32(max(a.dur, time.Millisecond))
-		if t >= 1 {
-			a.value = a.to
-		} else {
-			a.value = a.from + (a.to-a.from)*ease(max(t, 0))
-			e.c.AnimationFrame()
-		}
-	}
-	return a.value
+	return e.AnimateTo(key, target, Animation{Duration: max(d, time.Millisecond), Ease: ease})
 }
 
 // Loop returns the progress of an animation that starts over every
@@ -145,11 +120,8 @@ func Bounce(ease Easing) Easing {
 	}
 }
 
-type anim struct {
-	from, to, value float32
-	start           time.Time
-	dur             time.Duration
-}
+// anim is a Loop's: when it started.
+type anim struct{ start time.Time }
 
 func b2f(b bool) float32 {
 	if b {
@@ -596,7 +568,8 @@ func coreOverlay(c *context, fn func()) {
 }
 
 // Modal shows a dialog built by fn over a dimmed window while *open is
-// true; clicking outside it or pressing Escape sets *open to false.
+// true; clicking outside it or pressing Escape sets *open to false, which
+// Dismissed reports.
 func coreModal(c *context, open *bool, fn func()) *node {
 	if !*open {
 		return nil
@@ -611,7 +584,8 @@ func coreModal(c *context, open *bool, fn func()) *node {
 }
 
 // Popover shows fn's elements in a panel below anchor while *open is
-// true; clicking outside it or pressing Escape sets *open to false.
+// true; clicking outside it or pressing Escape sets *open to false, which
+// Dismissed reports.
 func corePopover(c *context, anchor *node, open *bool, fn func()) *node {
 	if !*open {
 		return nil
@@ -687,34 +661,4 @@ func coreMenuButton(c *context, label string, build func(m *Menu)) *node {
 		chevron(c)
 	})
 	return b.Menu(build)
-}
-
-// keepInWindow places an overlay element at (x, y), where the layout,
-// which knows its size, moves it to fit in the window: left when it would
-// overflow the right edge, above, ending at aboveY, when it would
-// overflow the bottom. A top margin keeps it apart from what it is above
-// or below.
-func keepInWindow(e *node, x, y, aboveY float32) {
-	e.Left(x).Top(y)
-	e.place = placement{on: true, above: aboveY}
-}
-
-// placement is where an overlay element goes when it does not fit below
-// what it belongs to: above, its bottom at above.
-type placement struct {
-	on    bool
-	above float32
-}
-
-// fit moves an absolute element w×h at (left, top) in a containing block
-// pw×ph, its placement says, to fit in the block.
-func (p placement) fit(e *node, left, top, w, h, pw, ph float32) (float32, float32) {
-	if left+e.margin[3]+w > pw-4 {
-		left = max(4-e.margin[3], pw-4-w-e.margin[3])
-	}
-	m := e.margin[0]
-	if top+m+h > ph-4 && p.above-m-h > 4 {
-		top = p.above - h - 2*m
-	}
-	return left, top
 }

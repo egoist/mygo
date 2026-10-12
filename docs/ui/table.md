@@ -1,5 +1,7 @@
 # Table
 
+<!-- preview table 310 -->
+
 `ui.Table` puts a [list](list.md)'s rows in columns, under a header of
 `ui.TableColumn`s, each with a title, a width (or 0 to share the room the
 others leave) and an alignment; `cell` builds the content of a row's
@@ -30,6 +32,10 @@ with `Selection` several, and `Submitted` reports a double click or Enter;
 `Key`, `Label`, `Reorder` and the rest work as for a list. A row `Header`
 names spans every column, which `cell` builds as column 0, and stays at the
 top while its section's rows scroll under it.
+
+Chosen and hovered rows are square from edge to edge, as in Finder's list
+view; `RoundRows` rounds their corners at the theme's `Radius`, as a list's
+rows are, for an app whose other lists are rounded.
 
 ## Arranging columns
 
