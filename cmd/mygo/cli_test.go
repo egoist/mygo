@@ -636,13 +636,19 @@ func TestAssetCatalog(t *testing.T) {
 		t.Error("macos.icon accepts a PNG")
 	}
 
-	// An Icon Composer document, which actool compiles where it can.
-	icon := filepath.Join(dir, "Mark.icon")
-	if err := os.MkdirAll(filepath.Join(icon, "Assets"), 0o755); err != nil {
+	// An Icon Composer document, a directory, which actool compiles where
+	// it can.
+	if err := os.WriteFile(filepath.Join(dir, "File.icon"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(icon, "Assets", "mark.png"), defaultIcon(), 0o644)
-	os.WriteFile(filepath.Join(icon, "icon.json"), []byte(`{"groups":[{"layers":[{"image-name":"mark.png","name":"mark"}]}],"supported-platforms":{"squares":"shared"}}`), 0o644)
+	c.MacOS.Icon = "File.icon"
+	if _, err := appCatalog(c); err == nil {
+		t.Error("macos.icon accepts a file named .icon")
+	}
+	writeFiles(t, filepath.Join(dir, "Mark.icon"), map[string]string{
+		"Assets/mark.png": string(defaultIcon()),
+		"icon.json":       `{"groups":[{"layers":[{"image-name":"mark.png","name":"mark"}]}],"supported-platforms":{"squares":"shared"}}`,
+	})
 	c.MacOS.Icon = "Mark.icon"
 	car, err = appCatalog(c)
 	if err != nil {

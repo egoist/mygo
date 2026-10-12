@@ -104,18 +104,23 @@ func appCatalog(c *Config) (*assetCatalog, error) {
 		}
 		return &assetCatalog{data: data}, nil
 	}
-	if _, err := os.Stat(c.path(src)); err != nil {
+	if info, err := os.Stat(c.path(src)); err != nil {
 		return nil, err
+	} else if !info.IsDir() {
+		return nil, fmt.Errorf("macos.icon %s is not an Icon Composer document, which is a directory", src)
 	}
 	if runtime.GOOS != "darwin" {
-		logf("skipping %s: compiling it needs macOS with Xcode", src)
+		warnf("Skipping %s: compiling it needs macOS with Xcode 26 or later", src)
 		return nil, nil
 	}
+	t := con.start("Compiling " + filepath.Base(src))
 	car, err := compileIcon(c.path(src), c.MacOS.MinimumSystemVersion)
 	if err != nil {
-		logf("skipping %s: %v", src, err)
+		t.stop()
+		warnf("Skipping %s: %v", src, err)
 		return nil, nil
 	}
+	t.done("Compiled " + filepath.Base(src))
 	return car, nil
 }
 
@@ -137,7 +142,7 @@ func compileIcon(src, minimumSystemVersion string) (*assetCatalog, error) {
 	if err := os.Mkdir(out, 0o755); err != nil {
 		return nil, err
 	}
-	msg, err := exec.Command("xcrun", "actool", icon, "--compile", out,
+	msg, err := exec.Command("xcrun", "actool", icon, "--compile", out, "--output-format", "human-readable-text",
 		"--platform", "macosx", "--target-device", "mac", "--minimum-deployment-target", minimumSystemVersion,
 		"--app-icon", bundleIconName, "--output-partial-info-plist", filepath.Join(out, "partial.plist")).CombinedOutput()
 	car, carErr := os.ReadFile(filepath.Join(out, bundleCatalog))

@@ -121,8 +121,8 @@ type MacOS struct {
 	// Icon is the app's icon on macOS as an asset catalog: an Assets.car
 	// compiled with actool, whose app icon is named AppIcon unless
 	// infoPlist's CFBundleIconName says otherwise, or an Icon Composer .icon,
-	// which builds on a Mac with Xcode compile and other builds skip. The
-	// .icns from icon remains the fallback.
+	// which builds compile on a Mac with Xcode 26 or later and skip
+	// elsewhere. The .icns from icon remains the fallback.
 	Icon string `json:"icon"`
 	// MinimumSystemVersion is the oldest macOS version supported (default
 	// "12.0").
