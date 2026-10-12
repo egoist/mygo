@@ -1,0 +1,5 @@
+{
+  "name": "Native Content",
+  "identifier": "dev.mygo.examples.content-native",
+  "macos": { "minimumSystemVersion": "13.0" }
+}
