@@ -54,8 +54,10 @@ background or material, as native UI paints nothing under a web view.
 `WebView.Page` returns its page, whose methods are a window's page's:
 `LoadURL`, `LoadHTML`, `Eval`, `GoBack`, `OnDidNavigate`, `OnWillNavigate`
 and the others. `Focus` gives it the keyboard, `SetBackgroundColor`
-changes the color under its page, as a theme switch must, `CapturePage`
-a screenshot of its page, and `Destroy` closes it.
+changes the color it fills with, as when the app's own theme changes
+(one given as `light-dark(<light>, <dark>)` follows the appearance by
+itself), `CapturePage` takes a screenshot of its page, and `Destroy`
+closes it.
 
 Make a web view once, as a window, not in the view: the view only shows
 it. One the view does not build hides and keeps its page, so a view of tabs
