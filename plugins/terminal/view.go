@@ -482,8 +482,17 @@ func (v *view) paste() {
 	if on := v.t.opts.OnPaste; on != nil && on(text) {
 		return
 	}
+	contents := map[string][]byte{}
 	if text != "" {
-		v.t.Paste(text)
+		contents["text/plain"] = []byte(text)
+	}
+	// The image too, for a program that reads the clipboard itself (mode
+	// 5522); others get the text.
+	if png := v.services.ReadClipboardImage(); len(png) > 0 {
+		contents["image/png"] = png
+	}
+	if len(contents) > 0 {
+		v.t.PasteClipboard(contents)
 	}
 }
 
