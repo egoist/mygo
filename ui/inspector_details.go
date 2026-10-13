@@ -155,6 +155,9 @@ func ownStyles(rt *engine, e *node) []inspDecl {
 	if e.self != alignAuto {
 		add("align-self", cssAlign(e.self))
 	}
+	if e.dir&dirSet != 0 {
+		add("direction", Direction(e.dir&dirRTL).String())
+	}
 	switch {
 	case e.attach != 0:
 		at, self := e.attach.anchors()
@@ -372,6 +375,7 @@ func computed(e *node) []inspDecl {
 		display = "image"
 	}
 	add("display", display)
+	add("direction", Direction(e.dir&dirRTL).String())
 	if e.kind == kindBox && !e.grid {
 		dir := "column"
 		if e.row {
