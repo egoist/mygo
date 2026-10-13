@@ -1924,6 +1924,38 @@ either.
   macOS can query arbitrary document ranges directly. `ShapeText` and
   `ShapeRichText` retain per-paragraph `TextLayout` geometry; an application
   owns its buffer, selections, rendering, editing and undo policy.
+- **Right to left** (`ui/direction.go`). Each element has a direction
+  (`node.dir`): built, it takes its parent's, and the root the window's,
+  which `surface.Conn.RightToLeft` gives (package `mygo` from the app's
+  language), unless `MYGO_DIRECTION` or the inspector's toggle
+  (`engine.dirOverride`) override it; `Element.Direction` gives an element
+  its own (`dirSet`), which those already inside take (`setDir`), and
+  `AttachTo` and `Overlay` give what they build the direction of where it
+  was asked for. The coordinate system is not mirrored, as Godot's: the
+  layout places right to left. Flexbox turns a row's main axis
+  (`flipMain`, which `Reverse` turns back) and a column's cross axis
+  (`flipCross`), as `row-reverse` and `wrap-reverse` do; grids place items
+  from the right of the content, which is as wide as the columns where its
+  width is not known; absolute elements go to the right without insets,
+  and `Right` wins over `Left` there and for relative positioning, as CSS
+  says. Logical edges (`PaddingStart`, `MarginEnd`, `Start`, ...) write the
+  physical side of the element's direction as they are set, noting which
+  (`node.logical`), so that a later direction swaps them; logical anchors
+  resolve as they are placed (`Anchor.physical`). A container scrolling
+  sideways keeps its offset from the start (`scrollLeft` turns it into the
+  physical one for placing, revealing and the bars), content narrower
+  than it moves to its right, its wheel and keys negate their horizontal
+  delta (`scrollBy`), and its vertical bar goes on the left
+  (`scrollBars`). Text gets `text.Params.RTL`, the direction of
+  paragraphs without a strong character, and lines start at the right
+  (`text.Right`) whatever they read, while left to right each paragraph
+  starts where it reads from, as before. Widgets read the direction as
+  they build (`node.rtl`, `arrows`, `state.rtl` for input between frames)
+  to draw and step what is directional, and context menus carry
+  `platform.Menu.RightToLeft` to the backends (NSMenu's
+  `userInterfaceLayoutDirection`, `TPM_LAYOUTRTL | TPM_RIGHTALIGN`,
+  `gtk_widget_set_direction` and a north-east anchor, the web's `dir`).
+  Accessibility needs nothing more: bounds are window coordinates.
 - **Preferences.** `platform.Theme.Preferences` reads the settings of the
   desktop that controls follow: on macOS, `controlAccentColor` and
   `NSWorkspace`'s accessibility display options, with their notifications;

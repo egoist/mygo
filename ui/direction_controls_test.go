@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/text"
 )
@@ -439,5 +440,46 @@ func TestRTLWordArrows(t *testing.T) {
 	tt.Key(word, KeyLeft)
 	if ed.caret == 0 {
 		t.Errorf("the word arrow pointing left stayed at the start of a right-to-left paragraph")
+	}
+}
+
+// TestRTLAccessibility gives assistive technology the frames the elements
+// show at, which right to left are mirrored, as the coordinate system is
+// not, and has its increments raise a slider whose Left does.
+func TestRTLAccessibility(t *testing.T) {
+	v := 30.0
+	tt := rtlTester(func(c *context) {
+		coreColumn(c).Padding(10).Gap(10).AlignItems(Start).Children(func() {
+			coreRow(c).Gap(8).Children(func() {
+				coreButton(c, "OK")
+				coreButton(c, "Cancel")
+			})
+			coreSlider(c, &v, 0, 100).Width(200).Label("Volume")
+			coreScrollHorizontal(c).Size(100, 30).Children(func() {
+				coreButton(c, "Wide").Width(250)
+			})
+		})
+	}, 400, 300)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	tree := tt.h.access
+	for _, label := range []string{"OK", "Cancel", "Wide"} {
+		n := accessNode(t, tree, platform.RoleButton, label)
+		r := at(t, tt, label)
+		if b := n.Bounds; float32(b.X) > r.X || float32(b.X+b.W) < r.X+r.W {
+			t.Errorf("%s: assistive technology sees %+v, the frame shows it over %+v", label, b, r)
+		}
+	}
+	ok, cancel := accessNode(t, tree, platform.RoleButton, "OK"), accessNode(t, tree, platform.RoleButton, "Cancel")
+	if ok.Bounds.X+ok.Bounds.W != 390 || cancel.Bounds.X >= ok.Bounds.X {
+		t.Errorf("right to left, OK is at %+v and Cancel at %+v", ok.Bounds, cancel.Bounds)
+	}
+	// The wide button, scrolled to its start at the right, shows its right.
+	if wide := accessNode(t, tree, platform.RoleButton, "Wide"); wide.Bounds.X+wide.Bounds.W != 390 {
+		t.Errorf("right to left, the scrolled button is at %+v, want ending at 390", wide.Bounds)
+	}
+	slider := accessNode(t, tree, platform.RoleSlider, "Volume")
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: slider.ID, Action: platform.AccessIncrement})
+	if v <= 30 {
+		t.Errorf("right to left, incrementing set %v", v)
 	}
 }
