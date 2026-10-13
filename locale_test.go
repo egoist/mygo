@@ -254,6 +254,8 @@ func TestRegion(t *testing.T) {
 		// What the system does not say, the region's.
 		{platform.Region{Locale: "en_US.UTF-8", FirstWeekday: -1}, Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12}},
 		{platform.Region{Locale: "de-DE", FirstWeekday: -1}, Region{Locale: "de-DE", FirstWeekday: time.Monday, HourCycle: 24}},
+		{platform.Region{Locale: "ar_EG", FirstWeekday: -1}, Region{Locale: "ar-EG", FirstWeekday: time.Saturday, HourCycle: 12}},
+		{platform.Region{Locale: "zh-TW", FirstWeekday: -1}, Region{Locale: "zh-TW", FirstWeekday: time.Sunday, HourCycle: 12}},
 		// macOS's formats of another region.
 		{platform.Region{Locale: "en_US@rg=gbzzzz", FirstWeekday: 1, HourCycle: 24}, Region{Locale: "en-GB", FirstWeekday: time.Monday, HourCycle: 24}},
 		{platform.Region{Locale: "en_US@calendar=japanese;rg=gbzzzz", FirstWeekday: 1, HourCycle: 24}, Region{Locale: "en-GB", FirstWeekday: time.Monday, HourCycle: 24}},
@@ -266,8 +268,8 @@ func TestRegion(t *testing.T) {
 			t.Errorf("%+v: Region() = %+v, want %+v", c.system, got, c.want)
 		}
 	}
-	if got := heard.get(); len(got) != 6 {
-		t.Errorf("listeners heard %d changes, want 6: %+v", len(got), got)
+	if got := heard.get(); len(got) != 8 {
+		t.Errorf("listeners heard %d changes, want 8: %+v", len(got), got)
 	}
 }
 
