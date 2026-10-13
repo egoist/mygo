@@ -2008,7 +2008,8 @@ either.
 - **Tables** (`ui/table.go`, `ui/editable.go`). A table's rows are a
   `List`'s that scrolls both ways: the list lays its rows out at least as
   wide as the columns ask (`rowMinW`), and the header, outside the list,
-  follows its horizontal offset as it is placed (`followX`). The order
+  follows its horizontal offset as it is placed (`followX`).
+  `ListState.HeaderMenu` is each header's `ContextMenu`. The order
   and the widths the user gives the columns live in the `ListState`
   (`TableLayout`), by column ID. Dragging a header moves its column once
   the pointer went a few DIPs, past a neighbor whose middle it passes; a

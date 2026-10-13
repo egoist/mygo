@@ -70,6 +70,20 @@ sorted := sortFiles(app.files, app.sort) // by app.sort.Column, Descending or no
 app.files.Key = func(i int) any { return sorted[i].ID }
 ```
 
+## Header menu
+
+`ListState.HeaderMenu` gives the column headers a context menu, built as
+[ContextMenu](context-menu.md)'s is. `col` is the column's index in the
+columns given to `Table`, whatever order the user moved them into:
+
+```go
+app.files.HeaderMenu = func(m *ui.Menu, col int) {
+	if m.Item("Hide Column").Chosen() {
+		app.hide(cols[col].ID)
+	}
+}
+```
+
 ## Renaming in place
 
 An [editable text](editable-text.md) in a cell is renamed in place, as

@@ -124,7 +124,8 @@ type tableDrag struct {
 // The user resizes columns by dragging the edges of their headers, and
 // moves them by dragging the headers, which s.Columns keeps; columns wider
 // than the table scroll sideways, the header with them. With s.Sort, a
-// click on the header of a Sortable column sorts the rows by it.
+// click on the header of a Sortable column sorts the rows by it; with
+// s.HeaderMenu, the headers have a context menu.
 //
 //	cols := []ui.TableColumn{{Title: "Name", Sortable: true}, {Title: "Size", Width: 90, Align: ui.End, Sortable: true}}
 //	app.files.Selected, app.files.Sort = &app.file, &app.sort
@@ -213,7 +214,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				}
 			})
 			for k, j := range order {
-				tableHeader(c, table, heads[k], &columns[j], s, drag, heads, order, columns)
+				tableHeader(c, table, heads[k], j, s, drag, heads, order, columns)
 			}
 		})
 		coreDivider(c)
@@ -261,11 +262,16 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	return table
 }
 
-// tableHeader makes a column's header sort the rows when clicked, move the
-// column when dragged, and resize it from its right edge.
-func tableHeader(c *context, table, h *node, col *TableColumn, s *ListState, drag *tableDrag, heads []*node, order []int, columns []TableColumn) {
+// tableHeader makes the header of columns[j] sort the rows when clicked,
+// move the column when dragged, resize it from its right edge, and open
+// s.HeaderMenu.
+func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDrag, heads []*node, order []int, columns []TableColumn) {
 	t := c.theme
+	col := &columns[j]
 	id := col.id()
+	if menu := s.HeaderMenu; menu != nil {
+		h.ContextMenu(func(m *Menu) { menu(m, j) })
+	}
 	if s.Sort != nil && col.Sortable {
 		h.sort = 1
 		if s.Sort.Column == id && s.Sort.Descending {
