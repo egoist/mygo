@@ -83,6 +83,10 @@ type Config struct {
 
 	root string
 	file string // the configuration file, "" without one
+	// langs are the languages the app ships, which languages reads once.
+	langs     []appLanguage
+	langsErr  error
+	langsRead bool
 }
 
 // configName names the configuration file in messages.

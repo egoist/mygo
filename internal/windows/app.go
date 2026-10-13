@@ -529,13 +529,26 @@ func (a appController) Package() (platform.PackageInfo, bool) {
 	if r, _, _ := procGetFileVersionInfoW.Call(uintptr(unsafe.Pointer(path)), 0, size, uintptr(unsafe.Pointer(&data[0]))); r == 0 {
 		return platform.PackageInfo{}, false
 	}
-	query := func(key string) string {
+	value := func(path string) (uintptr, uint32) {
 		var p uintptr
 		var n uint32
-		if r, _, _ := procVerQueryValueW.Call(uintptr(unsafe.Pointer(&data[0])), uintptr(unsafe.Pointer(u16(`\StringFileInfo\040904b0\`+key))), uintptr(unsafe.Pointer(&p)), uintptr(unsafe.Pointer(&n))); r == 0 || n == 0 {
-			return ""
+		if r, _, _ := procVerQueryValueW.Call(uintptr(unsafe.Pointer(&data[0])), uintptr(unsafe.Pointer(u16(path))), uintptr(unsafe.Pointer(&p)), uintptr(unsafe.Pointer(&n))); r == 0 || n == 0 {
+			return 0, 0
 		}
-		return wstr(p)
+		return p, n
+	}
+	// The strings of the app's own language, the first of its
+	// translations: en-US and Unicode (040904b0) before it shipped others.
+	table := "040904b0"
+	if p, n := value(`\VarFileInfo\Translation`); n >= 4 {
+		lang, codePage := *(*uint16)(native(p)), *(*uint16)(native(p + 2))
+		table = fmt.Sprintf("%04x%04x", lang, codePage)
+	}
+	query := func(key string) string {
+		if p, _ := value(`\StringFileInfo\` + table + `\` + key); p != 0 {
+			return wstr(p)
+		}
+		return ""
 	}
 	info := platform.PackageInfo{Name: query("ProductName"), Version: query("ProductVersion"), Identifier: query("MyGoIdentifier")}
 	if info.Identifier == "" {

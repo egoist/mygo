@@ -71,6 +71,10 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 	if *out != "" {
 		c.Out = *out
 	}
+	// The catalogs name the languages the packages declare.
+	if _, err := c.languages(); err != nil {
+		return err
+	}
 	if *upload {
 		if err := checkUpload(c); err != nil {
 			return err
@@ -540,17 +544,35 @@ func writeLinuxDesktop(c *Config, dir, name string) ([]string, error) {
 }
 
 // linuxDesktopEntry renders the desktop entry of the app, which runs exec
-// and shows icon.
+// and shows icon, with its name and comment in the languages its catalogs
+// have them in (mygo.appName, mygo.appDescription), which launchers show
+// for the system's locale.
 func linuxDesktopEntry(c *Config, exec, icon string) string {
 	categories := c.Linux.Categories
 	if len(categories) == 0 {
 		categories = []string{"Utility"}
 	}
+	langs, _ := c.languages()
+	// localized writes the key of each language whose value is its own,
+	// once a locale.
+	localized := func(b *strings.Builder, key, value string, of func(l appLanguage) string) {
+		seen := map[string]bool{}
+		for _, l := range langs {
+			v, locale := of(l), desktopTag(l.Tag)
+			if v == "" || v == value || seen[locale] {
+				continue
+			}
+			seen[locale] = true
+			b.WriteString(key + "[" + locale + "]=" + v + "\n")
+		}
+	}
 	var b strings.Builder
 	b.WriteString("[Desktop Entry]\nType=Application\nName=" + c.Name + "\n")
+	localized(&b, "Name", c.Name, func(l appLanguage) string { return l.Name })
 	if c.Linux.Comment != "" {
 		b.WriteString("Comment=" + c.Linux.Comment + "\n")
 	}
+	localized(&b, "Comment", c.Linux.Comment, func(l appLanguage) string { return l.Description })
 	var mime []string
 	for _, fa := range c.FileAssociations {
 		t, _ := c.mimeType(fa)
