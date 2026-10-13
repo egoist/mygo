@@ -1132,3 +1132,38 @@ func BenchmarkListScroll(b *testing.B) {
 		tt.Scroll(400, 300, 0, 97)
 	}
 }
+
+// TestListClicked: a click reports its row for the frame, on the row
+// chosen before too, which Changed says nothing of; the next frame
+// reports none.
+func TestListClicked(t *testing.T) {
+	sel := -1
+	s := ListState{Selected: &sel}
+	var clicked, changed []int
+	var list *node
+	tt := coreNewTester(func(c *context) {
+		list = coreList(c, &s, 20, func(i int) {
+			coreBox(c).Height(20).Children(func() { coreTextf(c, "Row %d", i) })
+		}).Grow(1)
+		if row, ok := s.Clicked(); ok {
+			clicked = append(clicked, row)
+		}
+		if list.Changed() {
+			changed = append(changed, sel)
+		}
+	}, 300, 400)
+	if err := tt.Click("Row 2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("Row 2"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if fmt.Sprint(clicked) != "[2 2]" || fmt.Sprint(changed) != "[2]" {
+		t.Errorf("clicked %v, changed %v", clicked, changed)
+	}
+	tt.Key(0, KeyDown)
+	if fmt.Sprint(clicked) != "[2 2]" || sel != 3 {
+		t.Errorf("Down: clicked %v, chose %d", clicked, sel)
+	}
+}

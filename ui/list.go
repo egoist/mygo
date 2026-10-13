@@ -136,6 +136,10 @@ type ListState struct {
 	// tell the app choosing another from rows moving.
 	selRow int
 	selKey any
+	// clicked is the row clicked last and clickFrame the frame it was in;
+	// builtFrame is the frame of the last build, for Clicked.
+	clicked                int
+	clickFrame, builtFrame uint64
 	// lead is the row last chosen in a list choosing several without
 	// Selected. Shift chooses the rows from pivot, whose key is pivotKey,
 	// and chose those from it to pivot+span last.
@@ -176,6 +180,20 @@ type listRowID struct {
 // is measured.
 func (s *ListState) ScrollTo(row int, align Align) {
 	s.req = listRequest{set: true, row: row, align: align}
+}
+
+// Clicked reports the row clicked this frame, whether or not it was the
+// row chosen before: Changed reports a new choice only, so a list that
+// opens a row on a click opens the chosen one again by this.
+//
+//	if row, ok := app.files.List.Clicked(); ok {
+//		app.open(row)
+//	}
+func (s *ListState) Clicked() (row int, ok bool) {
+	if s.clickFrame == 0 || s.clickFrame != s.builtFrame {
+		return -1, false
+	}
+	return s.clicked, true
 }
 
 // ScrollIntoView scrolls the list as little as shows row whole, as
@@ -385,6 +403,7 @@ func buildList(c *context, e, owner *node, s *ListState, n int, row func(i int),
 // items moving, the user or the app scrolling.
 func (s *ListState) sync(e *node, n int) {
 	st, rt := e.st, e.c.rt
+	s.builtFrame = rt.frame
 	if !s.started {
 		s.started = true
 		s.following = s.FollowEnd
@@ -762,6 +781,7 @@ func (f *listFrame) changed() {
 
 // click chooses row i as a click with mods does.
 func (f *listFrame) click(i int, mods Modifiers) {
+	f.s.clicked, f.s.clickFrame = i, f.c.rt.frame
 	switch {
 	case f.s.Selection == nil:
 		f.choose(i)

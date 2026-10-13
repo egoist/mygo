@@ -79,7 +79,9 @@ building the list.
 - `Selected` lets a click, or Up, Down, Home and End while the list has the
   keyboard focus (and Page Up and Page Down on Linux and Windows), choose a
   row, which shows in the accent color; the list's `Changed` reports a new
-  choice, and `Submitted` a double click or Enter.
+  choice, and `Submitted` a double click or Enter. `ListState.Clicked`
+  reports the row clicked this frame whether or not it was chosen before,
+  for a list that opens a row on a click to open the chosen one again.
 - `Selection` lets the user choose several rows, held in a
   `ui.Selection[K]` by the keys of their items (`Key`), or by their indices
   without one: a click chooses one, Cmd-click (Ctrl-click on Linux and
