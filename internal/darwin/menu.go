@@ -193,12 +193,6 @@ func (b *Backend) PopupMenu(m *platform.Menu, pw platform.Window, pos *platform.
 		owner := newOwner()
 		defer dropOwner(owner)
 		menu := b.buildMenu(m, "", owner)
-		if m.RightToLeft {
-			// NSUserInterfaceLayoutDirectionRightToLeft: the menu opens
-			// to the left of the location, its items laid out from the
-			// right.
-			send(menu, "setUserInterfaceLayoutDirection:", 1)
-		}
 		var view id
 		var loc NSPoint
 		if w, ok := pw.(*window); ok && w != nil && !w.closed {
@@ -217,6 +211,18 @@ func (b *Backend) PopupMenu(m *platform.Menu, pw platform.Window, pos *platform.
 			}
 		} else {
 			loc = msgPoint(class("NSEvent"), sel("mouseLocation"))
+		}
+		if m.RightToLeft {
+			// NSUserInterfaceLayoutDirectionRightToLeft lays the items out
+			// from the right and opens submenus to the left. A menu popped
+			// up in a view takes the view's direction, which the surface
+			// has only while the menu shows.
+			send(menu, "setUserInterfaceLayoutDirection:", 1)
+			if view != 0 {
+				was := sendInt(view, "userInterfaceLayoutDirection")
+				send(view, "setUserInterfaceLayoutDirection:", 1)
+				defer send(view, "setUserInterfaceLayoutDirection:", uintptr(was))
+			}
 		}
 		msgPopUpMenu(menu, sel("popUpMenuPositioningItem:atLocation:inView:"), 0, loc, view)
 	})

@@ -1953,7 +1953,9 @@ either.
   they build (`node.rtl`, `arrows`, `state.rtl` for input between frames)
   to draw and step what is directional, and context menus carry
   `platform.Menu.RightToLeft` to the backends (NSMenu's
-  `userInterfaceLayoutDirection`, `TPM_LAYOUTRTL | TPM_RIGHTALIGN`,
+  `userInterfaceLayoutDirection`, and the surface view's while the menu
+  shows, as AppKit pops a menu up from its view's top right corner then,
+  `TPM_LAYOUTRTL | TPM_RIGHTALIGN`,
   `gtk_widget_set_direction` and a north-east anchor, the web's `dir`).
   Accessibility needs nothing more: bounds are window coordinates.
 - **Preferences.** `platform.Theme.Preferences` reads the settings of the
