@@ -99,9 +99,9 @@ func (a *accents) wrap(s string) string {
 type bidi struct{}
 
 const (
-	rlm = "‏" // right-to-left mark
-	rlo = "‮" // right-to-left override
-	pdf = "‬" // pop directional formatting
+	rlm = "\u200f" // right-to-left mark
+	rlo = "\u202e" // right-to-left override
+	pdf = "\u202c" // pop directional formatting
 )
 
 // text shows each word of s, each run of characters other than spaces,
