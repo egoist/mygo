@@ -55,8 +55,16 @@ func (a appController) SaveLocale(string) bool      { return false }
 
 // SetLanguages gives WebKitGTK the languages, as the Accept-Language of
 // its requests and the navigator.language of pages: now if it is loaded,
-// else as it loads for the first web view.
-func (a appController) SetLanguages(tags []string) {
+// else as it loads for the first web view. GTK's widgets, as menus, whose
+// items take no direction from the window, are laid out in the direction.
+func (a appController) SetLanguages(tags []string, rtl bool) {
+	dir := int32(1) // GTK_TEXT_DIR_LTR
+	if rtl {
+		dir = 2
+	}
+	if gtkWidgetSetDefaultDirection != nil {
+		gtkWidgetSetDefaultDirection(dir)
+	}
 	a.b.languages = append([]string(nil), tags...)
 	if libWebKit != 0 {
 		a.b.applyWebLanguages()

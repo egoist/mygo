@@ -103,9 +103,9 @@ func (a appController) SaveLocale(tag string) bool {
 	return true
 }
 
-// SetLanguages does nothing: AppKit and WKWebView take the app's language
-// from its AppleLanguages, at launch.
-func (a appController) SetLanguages([]string) {}
+// SetLanguages does nothing: AppKit and WKWebView take the app's language,
+// and its direction, from its AppleLanguages, at launch.
+func (a appController) SetLanguages([]string, bool) {}
 
 // Region reads the current locale, which macOS makes of the region and the
 // formats the user chose, its calendar's first day of the week, and its

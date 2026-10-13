@@ -122,6 +122,8 @@ type windowHost struct {
 
 func (h *windowHost) framePath() string { return h.path }
 
+func (h *windowHost) rightToLeft() bool { return h.conn.RightToLeft != nil && h.conn.RightToLeft() }
+
 // newGPU makes the GPU renderer of a surface; tests replace it.
 var newGPU = newGPURenderer
 

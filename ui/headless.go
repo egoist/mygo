@@ -24,8 +24,10 @@ type headless struct {
 	dark      bool
 	prefs     platform.Preferences
 	// lang and reg are what SetLocale and SetRegion set.
-	lang      string
-	reg       i18n.Region
+	lang string
+	reg  i18n.Region
+	// rtl lays the window out right to left (SetDirection).
+	rtl       bool
 	clipboard string
 	// clipboardData is what WriteClipboardData copied, with its formats.
 	clipboardData transfer.Data
@@ -141,6 +143,7 @@ func (h *headless) finishDataDrag(r transfer.Result) {
 func (h *headless) titleBarDoubleClicked()            {}
 func (h *headless) escape()                           { h.escapes++ }
 func (h *headless) isDark() bool                      { return h.dark }
+func (h *headless) rightToLeft() bool                 { return h.rtl }
 func (h *headless) preferences() platform.Preferences { return h.prefs }
 func (h *headless) locale() string                    { return h.lang }
 func (h *headless) region() i18n.Region               { return h.reg }
@@ -291,6 +294,13 @@ func (t *Tester) SetRegion(r i18n.Region) {
 	t.h.reg = r
 	t.rt.changed()
 	t.settle()
+}
+
+// SetDirection lays the window out in d, as an app whose language reads
+// so: RightToLeft lays it out from the right.
+func (t *Tester) SetDirection(d Direction) {
+	t.h.rtl = d == RightToLeft
+	t.Frame()
 }
 
 // Frame renders another frame, as when the view's state changed.

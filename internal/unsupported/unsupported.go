@@ -72,7 +72,7 @@ func (app) PreferredLanguages() []string                      { return []string{
 func (app) Region() platform.Region                           { return platform.Region{FirstWeekday: -1} }
 func (app) SavedLocale() (string, bool)                       { return "", false }
 func (app) SaveLocale(string) bool                            { return false }
-func (app) SetLanguages([]string)                             {}
+func (app) SetLanguages([]string, bool)                       {}
 func (app) Package() (platform.PackageInfo, bool)             { return platform.PackageInfo{}, false }
 func (app) RegisterURLScheme(string, string, string) error    { return errUnsupported }
 func (app) UnregisterURLScheme(string, string, string) error  { return errUnsupported }

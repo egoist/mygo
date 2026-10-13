@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -34,6 +35,7 @@ type Backend struct {
 	mu               sync.Mutex
 	windows          []*Window
 	appMenu          *platform.Menu
+	popups           []Popup
 	updates          []*platform.MenuItem
 	hotkeys          map[int]string
 	clipboard        transfer.Data
@@ -54,8 +56,10 @@ type Backend struct {
 	// does, in SavedLocale; without it the core keeps it in a file.
 	KeepsLocale bool
 	savedLocale string
-	// UILanguages are the languages SetLanguages told last.
-	UILanguages []string
+	// UILanguages are the languages SetLanguages told last, and
+	// UIRightToLeft its direction.
+	UILanguages   []string
+	UIRightToLeft bool
 	// Watching reports whether power events were asked for, Awake counts the
 	// KeepAwake calls not released yet.
 	Watching bool
@@ -269,7 +273,25 @@ func (b *Backend) SetApplicationMenu(m *platform.Menu) {
 	b.mu.Unlock()
 }
 
-func (b *Backend) PopupMenu(*platform.Menu, platform.Window, *platform.Point) {}
+// PopupMenu notes the context menu shown, which Popups returns.
+func (b *Backend) PopupMenu(m *platform.Menu, _ platform.Window, pos *platform.Point) {
+	b.mu.Lock()
+	b.popups = append(b.popups, Popup{Menu: m, Pos: pos})
+	b.mu.Unlock()
+}
+
+// Popup is a context menu shown at Pos.
+type Popup struct {
+	Menu *platform.Menu
+	Pos  *platform.Point
+}
+
+// Popups returns the context menus shown, in order.
+func (b *Backend) Popups() []Popup {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.Clone(b.popups)
+}
 
 func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 	b.mu.Lock()
@@ -746,10 +768,11 @@ func (a app) SaveLocale(tag string) bool {
 	return true
 }
 
-func (a app) SetLanguages(tags []string) {
+func (a app) SetLanguages(tags []string, rtl bool) {
 	a.b.mu.Lock()
 	defer a.b.mu.Unlock()
 	a.b.UILanguages = append([]string(nil), tags...)
+	a.b.UIRightToLeft = rtl
 }
 
 func (a app) RegisterURLScheme(scheme, id, name string) error {

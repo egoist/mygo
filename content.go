@@ -51,6 +51,7 @@ func (w *Window) attachContent() {
 		IsDark:        func() bool { return backend().Theme().IsDark() },
 		Preferences:   func() platform.Preferences { return backend().Theme().Preferences() },
 		Locale:        func() string { return App.Locale() },
+		RightToLeft:   appRightToLeft,
 		Region:        func() i18n.Region { return App.Region() },
 		UIFont:        func() string { return backend().Theme().UIFont() },
 		FontRendering: func() platform.FontRendering { return backend().Theme().FontRendering() },
@@ -92,7 +93,7 @@ func (w *Window) attachContent() {
 			// event that asked for it, which the surface is handling.
 			postMain(func() {
 				if w.native != nil {
-					menu.popup(w, pos)
+					menu.popup(w, pos, m.RightToLeft)
 				}
 			})
 		},

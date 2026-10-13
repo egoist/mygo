@@ -207,10 +207,11 @@ type AppController interface {
 	// and reports whether the system keeps one at all.
 	SaveLocale(tag string) bool
 	// SetLanguages tells the backend the languages the app shows, its
-	// own language first, for what shows text the core does not draw:
-	// the web views it creates later and, where it can change, those it
-	// created, and the system's own texts.
-	SetLanguages(tags []string)
+	// own language first, and whether it is laid out right to left, for
+	// what shows text the core does not draw: the web views it creates
+	// later and, where it can change, those it created, and the system's
+	// own texts and widgets.
+	SetLanguages(tags []string, rtl bool)
 	// RegisterURLScheme makes the app, identified by id (its identifier)
 	// and named name, the handler of the URLs of scheme for the user.
 	RegisterURLScheme(scheme, id, name string) error
@@ -679,6 +680,10 @@ const (
 // Menu is a snapshot of a menu tree.
 type Menu struct {
 	Items []*MenuItem
+	// RightToLeft lays a context menu out right to left, as that of an
+	// interface laid out so: its items from the right, opening to the
+	// left of where it shows, which is its top right corner.
+	RightToLeft bool
 }
 
 // MenuItem is a snapshot of a menu item. ID identifies the public item the

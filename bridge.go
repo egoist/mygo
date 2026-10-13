@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/internal/bridge"
 	"github.com/egoist/mygo/internal/platform"
 )
@@ -28,7 +27,7 @@ func (w *Window) bridgeScript() string {
 		Version:  Version,
 		Secret:   w.secret,
 		Locale:   App.Locale(),
-		Dir:      i18n.Direction(App.Locale()).String(),
+		Dir:      appDir(),
 	})
 }
 
@@ -44,7 +43,7 @@ func (w *Window) pageScripts() []platform.UserScript {
 
 // localeEvent returns the message of LocaleEvent for locale.
 func localeEvent(locale string) (message, error) {
-	return encodeEvent(bridge.LocaleEvent, bridge.Locale{Locale: locale, Dir: i18n.Direction(locale).String()})
+	return encodeEvent(bridge.LocaleEvent, bridge.Locale{Locale: locale, Dir: appDir()})
 }
 
 // sendLocale tells the page of a window the language the app shows, which

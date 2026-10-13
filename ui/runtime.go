@@ -50,6 +50,9 @@ type host interface {
 	// regional formats; they cost nothing.
 	locale() string
 	region() i18n.Region
+	// rightToLeft reports whether the window is laid out right to left,
+	// as its language reads.
+	rightToLeft() bool
 	titleBar() TitleBar
 	// vibrancy reports whether the window shows a material where the
 	// frames are transparent.
@@ -181,9 +184,13 @@ type engine struct {
 	byID         map[uint64]*node
 	// insp is the inspector (inspector.go); dupKeys are the duplicate keys
 	// reported, and warnings what the inspector lists.
-	insp     inspector
-	dupKeys  map[uint64]bool
-	warnings []string
+	insp inspector
+	// dirOverride lays the window out left to right (1) or right to left
+	// (2) whatever its language, as the inspector's toggle asks; 0 follows
+	// it.
+	dirOverride uint8
+	dupKeys     map[uint64]bool
+	warnings    []string
 	// strict makes mistakes found while building panic, as duplicate keys
 	// do in a Tester.
 	strict bool
@@ -876,6 +883,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		s.parent = 0
 	}
 	s.flags = e.flags
+	s.rtl = e.rtl()
 	s.anchor = 0
 	if e.popover != nil {
 		s.anchor = e.popover.id

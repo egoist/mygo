@@ -206,18 +206,21 @@ func (m *Menu) itemByID(id string) *MenuItem {
 // It returns once the menu is closed.
 func (m *Menu) Popup(win *Window) {
 	needsApp("Menu.Popup")
-	m.popup(win, nil)
+	m.popup(win, nil, false)
 }
 
 // PopupAt shows the menu as a context menu at a position relative to the
 // top-left corner of win's page area.
 func (m *Menu) PopupAt(win *Window, x, y int) {
 	needsApp("Menu.PopupAt")
-	m.popup(win, &platform.Point{X: x, Y: y})
+	m.popup(win, &platform.Point{X: x, Y: y}, false)
 }
 
-func (m *Menu) popup(win *Window, pos *platform.Point) {
+// popup shows the menu at pos, laid out right to left with rtl, as those of
+// native UI laid out so.
+func (m *Menu) popup(win *Window, pos *platform.Point, rtl bool) {
 	snap := m.snapshot()
+	snap.RightToLeft = rtl
 	onMain(func() {
 		var n platform.Window
 		if win != nil {

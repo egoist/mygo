@@ -243,7 +243,7 @@ func (a *Application) shownLocale() *shownLocale {
 // thread only.
 func (a *Application) startLocale() {
 	a.updateLocale(false)
-	backend().App().SetLanguages(webLanguages(locales.shown.Load()))
+	backend().App().SetLanguages(webLanguages(locales.shown.Load()), appRightToLeft())
 }
 
 // localeChangedFromSystem tells the app that the user's languages or
@@ -269,7 +269,7 @@ func (a *Application) updateLocale(tell bool) {
 	}
 	localeChanged := before.locale != next.locale
 	if (localeChanged || !slices.Equal(before.preferred, next.preferred)) && a.initialized {
-		ctl.SetLanguages(webLanguages(next))
+		ctl.SetLanguages(webLanguages(next), appRightToLeft())
 	}
 	regionChanged := before.region != next.region
 	if !tell || !localeChanged && !regionChanged {
@@ -284,6 +284,28 @@ func (a *Application) updateLocale(tell bool) {
 	if regionChanged {
 		fire1(&locales.onRegionChanged, next.region)
 	}
+}
+
+// appRightToLeft reports whether the app is laid out right to left: as the
+// language it shows is written, unless MYGO_DIRECTION ("rtl" or "ltr")
+// lays it out otherwise, to try a layout without translating the app.
+// Native UI, the pages (mygo.dir) and the backend's widgets agree.
+func appRightToLeft() bool {
+	switch os.Getenv("MYGO_DIRECTION") {
+	case "rtl":
+		return true
+	case "ltr":
+		return false
+	}
+	return i18n.Direction(App.Locale()) == i18n.RightToLeft
+}
+
+// appDir returns the direction of appRightToLeft as pages write it.
+func appDir() string {
+	if appRightToLeft() {
+		return "rtl"
+	}
+	return "ltr"
 }
 
 // resolveLocale returns the language of supported to show a reader of

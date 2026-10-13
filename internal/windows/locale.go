@@ -114,7 +114,7 @@ func (a appController) SaveLocale(string) bool      { return false }
 // file dialogs, are in where Windows has them, and the language of the
 // WebView2 environment, which the first web view creates: one created
 // already keeps its language, as WebView2 cannot change it.
-func (a appController) SetLanguages(tags []string) {
+func (a appController) SetLanguages(tags []string, _ bool) {
 	if slices.Equal(tags, a.b.languages) {
 		return
 	}

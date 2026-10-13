@@ -39,6 +39,11 @@ type Conn struct {
 	// They cost nothing: the content may read them every frame.
 	Locale func() string
 	Region func() i18n.Region
+	// RightToLeft reports whether the content is laid out right to left,
+	// as the app's language reads (i18n.Direction of App.Locale), unless
+	// the window says otherwise; nil is left to right. The content reads
+	// it as it builds each frame: call Changed after it changes.
+	RightToLeft func() bool
 	// UIFont returns the family of the desktop's interface font where the
 	// system's text stack does not know it (Linux), else "".
 	UIFont func() string

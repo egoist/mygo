@@ -225,9 +225,13 @@ type node struct {
 	track *ScrollState
 
 	// Layout.
-	row                    bool
-	wrap                   bool
-	reverse, wrapReverse   bool
+	row                  bool
+	wrap                 bool
+	reverse, wrapReverse bool
+	// dir is the element's direction (dirRTL, dirSet), and logical which
+	// of its horizontal edges were set by their start or end
+	// (direction.go).
+	dir, logical           uint8
 	justify, align, self   Align
 	alignContent           Align
 	gapX, gapY             float32
@@ -595,20 +599,24 @@ func edges(v []float32) [4]float32 {
 
 // Padding sets the space inside the element's edges, CSS style: all
 // sides, vertical and horizontal, or top, right, bottom and left.
-func (e *node) Padding(v ...float32) *node { e.pad = edges(v); return e }
+func (e *node) Padding(v ...float32) *node { e.pad = edges(v); e.logical &^= logPad; return e }
 
 // PaddingX sets the left and right padding.
-func (e *node) PaddingX(v float32) *node { e.pad[1], e.pad[3] = v, v; return e }
+func (e *node) PaddingX(v float32) *node { e.pad[1], e.pad[3] = v, v; e.logical &^= logPad; return e }
 
 // PaddingY sets the top and bottom padding.
 func (e *node) PaddingY(v float32) *node { e.pad[0], e.pad[2] = v, v; return e }
 
 // Margin sets the space around the element, as Padding does. Auto
 // margins take the free space on their side.
-func (e *node) Margin(v ...float32) *node { e.margin = edges(v); return e }
+func (e *node) Margin(v ...float32) *node { e.margin = edges(v); e.logical &^= logMargin; return e }
 
 // MarginX sets the left and right margins.
-func (e *node) MarginX(v float32) *node { e.margin[1], e.margin[3] = v, v; return e }
+func (e *node) MarginX(v float32) *node {
+	e.margin[1], e.margin[3] = v, v
+	e.logical &^= logMargin
+	return e
+}
 
 // MarginY sets the top and bottom margins.
 func (e *node) MarginY(v float32) *node { e.margin[0], e.margin[2] = v, v; return e }
@@ -714,23 +722,26 @@ func (e *node) Absolute() *node { e.flags |= flagAbsolute; return e }
 // its parent's layout, they move it from where the layout put it, as CSS's
 // relative positioning does, without moving its siblings.
 func (e *node) Top(v float32) *node    { e.inset[0] = px(v); return e }
-func (e *node) Right(v float32) *node  { e.inset[1] = px(v); return e }
+func (e *node) Right(v float32) *node  { e.inset[1] = px(v); e.unlog(1, logInset); return e }
 func (e *node) Bottom(v float32) *node { e.inset[2] = px(v); return e }
-func (e *node) Left(v float32) *node   { e.inset[3] = px(v); return e }
+func (e *node) Left(v float32) *node   { e.inset[3] = px(v); e.unlog(3, logInset); return e }
 
 // TopPercent, RightPercent, BottomPercent and LeftPercent place the
 // element as Top, Right, Bottom and Left do, by a percentage of the
 // parent's height or width.
 func (e *node) TopPercent(p float32) *node    { e.inset[0] = percent(p); return e }
-func (e *node) RightPercent(p float32) *node  { e.inset[1] = percent(p); return e }
+func (e *node) RightPercent(p float32) *node  { e.inset[1] = percent(p); e.unlog(1, logInset); return e }
 func (e *node) BottomPercent(p float32) *node { e.inset[2] = percent(p); return e }
-func (e *node) LeftPercent(p float32) *node   { e.inset[3] = percent(p); return e }
+func (e *node) LeftPercent(p float32) *node   { e.inset[3] = percent(p); e.unlog(3, logInset); return e }
 
 // Anchor is a point of a box: a corner, the middle of a side, or the
 // center.
 type Anchor uint8
 
-// Anchors, from left to right and top to bottom.
+// Anchors, from left to right and top to bottom, then those on the side
+// lines start and on the other: on the left and the right, or the right
+// and the left of an element laid out right to left (Direction), as
+// Flutter's AlignmentDirectional.
 const (
 	AnchorTopLeft Anchor = iota
 	AnchorTop
@@ -741,17 +752,37 @@ const (
 	AnchorBottomLeft
 	AnchorBottom
 	AnchorBottomRight
+	AnchorTopStart
+	AnchorStart
+	AnchorBottomStart
+	AnchorTopEnd
+	AnchorEnd
+	AnchorBottomEnd
 )
 
-// fractions returns where the anchor is across a box and down it, from 0
-// to 1.
+// physical returns the anchor on the left or the right that a, which may
+// be on the start or the end side, is in direction rtl.
+func (a Anchor) physical(rtl bool) Anchor {
+	if a < AnchorTopStart {
+		return a
+	}
+	end := a >= AnchorTopEnd
+	row := (a - AnchorTopStart) % 3
+	if end != rtl {
+		return row*3 + 2
+	}
+	return row * 3
+}
+
+// fractions returns where the anchor, on the left or the right, is across
+// a box and down it, from 0 to 1.
 func (a Anchor) fractions() (fx, fy float32) { return float32(a%3) / 2, float32(a/3) / 2 }
 
-// attachment is where Attach puts an element: 1 + at*9 + self, 0 for
+// attachment is where Attach puts an element: 1 + at*15 + self, 0 for
 // nowhere.
 type attachment uint8
 
-func (a attachment) anchors() (at, self Anchor) { return Anchor((a - 1) / 9), Anchor((a - 1) % 9) }
+func (a attachment) anchors() (at, self Anchor) { return Anchor((a - 1) / 15), Anchor((a - 1) % 15) }
 
 // Attach takes the element out of its parent's layout, as Absolute does,
 // and puts its point self on the point at of the parent's padding box:
@@ -762,7 +793,7 @@ func (a attachment) anchors() (at, self Anchor) { return Anchor((a - 1) / 9), An
 // own size.
 func (e *node) Attach(at, self Anchor) *node {
 	e.flags |= flagAbsolute
-	e.attach = attachment(1 + min(at, AnchorBottomRight)*9 + min(self, AnchorBottomRight))
+	e.attach = attachment(1 + min(at, AnchorBottomEnd)*15 + min(self, AnchorBottomEnd))
 	return e
 }
 
@@ -785,8 +816,12 @@ func (e *node) AttachTo(target *node, at, self Anchor) *node {
 		return e
 	}
 	e.flags |= flagAbsolute
-	e.attach = attachment(1 + min(at, AnchorBottomRight)*9 + min(self, AnchorBottomRight))
+	e.attach = attachment(1 + min(at, AnchorBottomEnd)*15 + min(self, AnchorBottomEnd))
 	e.popover = target
+	if e.dir&dirSet == 0 {
+		// Built in an Overlay, it reads as what it is attached to.
+		e.setDir(target.rtl(), false)
+	}
 	return e
 }
 
@@ -860,6 +895,7 @@ func (e *node) Stripes(c Color, width, gap, angle float32) *node {
 // within the element's size: the padding and the children are inside it.
 func (e *node) Border(width float32, c Color) *node {
 	e.border, e.borderC = [4]float32{width, width, width, width}, c
+	e.logical &^= logBorder
 	return e
 }
 
@@ -868,7 +904,11 @@ func (e *node) Border(width float32, c Color) *node {
 // below a header:
 //
 //	ui.Row(c).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)
-func (e *node) BorderWidth(v ...float32) *node { e.border = edges(v); return e }
+func (e *node) BorderWidth(v ...float32) *node {
+	e.border = edges(v)
+	e.logical &^= logBorder
+	return e
+}
 
 // BorderColor sets the color of the border.
 func (e *node) BorderColor(c Color) *node { e.borderC = c; return e }

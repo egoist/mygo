@@ -327,11 +327,18 @@ func (app) SaveLocale(tag string) bool {
 }
 
 // SetLanguages makes the app's language the page's (<html lang>), which
-// browsers draw the text of canvases and read the page aloud in.
-func (app) SetLanguages(tags []string) {
+// browsers draw the text of canvases and read the page aloud in, and its
+// direction the page's (<html dir>).
+func (app) SetLanguages(tags []string, rtl bool) {
+	root := js.Global().Get("document").Get("documentElement")
 	if len(tags) > 0 {
-		js.Global().Get("document").Get("documentElement").Set("lang", tags[0])
+		root.Set("lang", tags[0])
 	}
+	dir := "ltr"
+	if rtl {
+		dir = "rtl"
+	}
+	root.Set("dir", dir)
 }
 
 type dialogs struct{}

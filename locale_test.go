@@ -300,6 +300,11 @@ func TestPagesLocale(t *testing.T) {
 	if l, d := pageLocale(t, scripts); l != "ar" || d != "rtl" {
 		t.Errorf("a page loaded later starts with %q %q", l, d)
 	}
+	onMain(func() {
+		if !fb.UIRightToLeft {
+			t.Error("the backend lays its widgets out left to right in Arabic")
+		}
+	})
 	if !slices.ContainsFunc(scripts, func(s platform.UserScript) bool { return s.Source == "window.preloaded = 1" }) {
 		t.Error("the preload script was lost")
 	}
@@ -388,5 +393,21 @@ func TestCatalogsReadLocale(t *testing.T) {
 	onMain(func() {})
 	if got := i18n.Locale(); got != "en-XA" {
 		t.Errorf("i18n.Locale() = %q under the pseudo locale", got)
+	}
+}
+
+// TestContentDirection checks that native UI is laid out in the direction
+// of the language the app shows.
+func TestContentDirection(t *testing.T) {
+	localeTest(t, []string{"en", "ar"}, "en-US")
+	var dir ui.Direction
+	_, _, s := contentWindow(t, func(c *ui.Context) { dir = c.Direction() })
+	if dir != ui.LeftToRight {
+		t.Errorf("English is laid out %v", dir)
+	}
+	App.SetLocale("ar")
+	onMain(func() { s.Frame() })
+	if dir != ui.RightToLeft {
+		t.Errorf("Arabic is laid out %v", dir)
 	}
 }

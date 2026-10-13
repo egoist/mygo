@@ -375,7 +375,9 @@ const (
 	mfsDisabled   = 0x0003
 
 	tpmRightButton = 0x0002
+	tpmRightAlign  = 0x0008
 	tpmReturnCmd   = 0x0100
+	tpmLayoutRTL   = 0x8000
 	mncClose       = 1
 
 	monitorDefaultToNull    = 0

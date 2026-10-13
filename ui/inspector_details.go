@@ -155,6 +155,9 @@ func ownStyles(rt *engine, e *node) []inspDecl {
 	if e.self != alignAuto {
 		add("align-self", cssAlign(e.self))
 	}
+	if e.dir&dirSet != 0 {
+		add("direction", Direction(e.dir&dirRTL).String())
+	}
 	switch {
 	case e.attach != 0:
 		at, self := e.attach.anchors()
@@ -375,6 +378,7 @@ func computed(e *node) []inspDecl {
 		display = "image"
 	}
 	add("display", display)
+	add("direction", Direction(e.dir&dirRTL).String())
 	if e.kind == kindBox && !e.grid {
 		dir := "column"
 		if e.row {
@@ -521,7 +525,8 @@ func edgesCSS(v [4]float32) (string, bool) {
 }
 
 func anchorText(a Anchor) string {
-	return [...]string{"top left", "top", "top right", "left", "center", "right", "bottom left", "bottom", "bottom right"}[min(int(a), 8)]
+	return [...]string{"top left", "top", "top right", "left", "center", "right", "bottom left", "bottom", "bottom right",
+		"top start", "start", "bottom start", "top end", "end", "bottom end"}[min(int(a), 14)]
 }
 
 func cursorText(c Cursor) string {
