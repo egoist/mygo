@@ -106,6 +106,7 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 	y1 := ed.scrollY + float64(min(r.H, clip.Y+clip.H-r.Y))
 	var f frame
 	f.first, f.last = ed.visibleLines(y0, y1)
+	ed.shown = [2]int{f.first, f.last}
 	if !v.advanceSyntax(f.last+1, 4*time.Millisecond) {
 		more = true
 	}

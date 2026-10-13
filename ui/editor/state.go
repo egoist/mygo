@@ -88,6 +88,11 @@ type State struct {
 	// GutterMarks marks lines in the gutter, as breakpoints or
 	// bookmarks: a dot of their color.
 	GutterMarks []GutterMark
+	// OnInput sees each input event before the editor, as keys for a
+	// mode of the app's such as Vim's: returning true takes it, and the
+	// editor leaves it. Text typed comes as InputText, outside an input
+	// method's composition.
+	OnInput func(ev ui.InputEvent) bool
 
 	// RenderFindBar, RenderGoToLine, RenderCompletions and RenderHover
 	// build the editor's find bar, go to line bar, completions and hovers
@@ -149,7 +154,7 @@ func (st *State) options() options {
 		autoClose: !st.NoAutoClose, folding: !st.NoFolding, activeLine: !st.NoActiveLine, fitContent: st.FitContent,
 		placeholder: st.Placeholder, label: st.Label, theme: st.Theme, bindings: st.Bindings, gutterMarks: st.GutterMarks,
 		diffBase: st.DiffBase, onCompletion: st.OnCompletion, onHover: st.OnHover, onDefinition: st.OnDefinition,
-		onGutterClick: st.OnGutterClick, contextMenu: st.ContextMenu, minDigits: 3,
+		onGutterClick: st.OnGutterClick, contextMenu: st.ContextMenu, onInput: st.OnInput, minDigits: 3,
 		renderFindBar: st.RenderFindBar, renderGoToLine: st.RenderGoToLine,
 		renderCompletions: st.RenderCompletions, renderHover: st.RenderHover,
 	}
@@ -352,6 +357,10 @@ func (st *State) SetSuggestion(offset int, text string) {
 // Focused reports whether the editor had the keyboard focus in the last
 // frame.
 func (st *State) Focused() bool { return st.ed.focused }
+
+// VisibleLines returns the first and the last line, from 0, that the
+// last frame showed, those hidden by folds among them.
+func (st *State) VisibleLines() (first, last int) { return st.ed.shown[0], st.ed.shown[1] }
 
 // ensure readies the state for methods called before the editor is
 // built.

@@ -126,7 +126,15 @@ and set the carets and selections, `Insert` types at each of them, `GoTo`
 moves the caret to a position and `ScrollTo` shows a line. `Find` opens
 the find bar on a query and `FindMatches` counts its matches; `Fold`,
 `Unfold` and `Folded` fold lines; `Focused` reports whether the editor has
-the keyboard focus.
+the keyboard focus, and `VisibleLines` the first and last lines the last
+frame showed, as a half page of Vim's moves by.
+
+`OnInput` sees each input event before the editor does: keys, the text
+typed, edit commands and the pointer. Returning true takes the event, and
+the editor leaves it; the others go on as without it. An app's own mode of
+editing, as Vim's normal mode, takes keys this way while the editor still
+shows and moves the carets. Text an input method composes goes to the
+editor alone.
 
 ## Options
 
