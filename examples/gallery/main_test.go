@@ -1,11 +1,10 @@
 package main
 
 import (
+	"testing"
 	"time"
 
 	"github.com/egoist/mygo/i18n"
-	"testing"
-
 	"github.com/egoist/mygo/ui"
 )
 

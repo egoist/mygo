@@ -202,6 +202,9 @@ func TestFormatLocale(t *testing.T) {
 		{Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12}, "zh-Hant", "zh-Hant-US-u-fw-sun-hc-h12"},
 		{Region{}, "de", "de"},
 		{Region{Locale: "fr"}, "fr-CA", "fr-CA"},
+		// Pseudo locales write the formats in English, as Months does.
+		{Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12}, "ar-XB", "en-US-u-fw-sun-hc-h12"},
+		{Region{}, "en-XA", "en"},
 	} {
 		if got := c.r.FormatLocale(c.language); got != c.want {
 			t.Errorf("%+v.FormatLocale(%q) = %q, want %q", c.r, c.language, got, c.want)

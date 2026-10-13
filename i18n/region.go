@@ -31,10 +31,12 @@ type Region struct {
 // first weekday and hour cycle as the keys of its Unicode extension, as
 // "en-GB-u-fw-mon-hc-h23" for English read with British formats, or
 // "en-DE-u-fw-mon-hc-h23" with German ones. Without a locale of formats
-// it is lang's, with its first weekday and hour cycle when set.
+// it is lang's, with its first weekday and hour cycle when set. The
+// pseudo locales (IsPseudo) write them in English, as the formatting of
+// package i18n reads them.
 func (r Region) FormatLocale(lang string) string {
 	t, ok := parse(lang)
-	if !ok {
+	if !ok || IsPseudo(lang) {
 		t, _ = parse("en")
 	}
 	if rt, ok := parse(r.Locale); ok {
