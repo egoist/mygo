@@ -56,14 +56,14 @@ type fmtKey struct {
 
 // The kinds of fmtKey.
 const (
-	fmtMonthYear uint8 = iota // a calendar's title: the month v of year*12
-	fmtDay                    // a calendar's day: v days after 1970-01-01
-	fmtDayNumber              // the number of a day of the month
-	fmtShortDate              // a date field's date: as fmtDay
-	fmtTwoDigits              // a number of two digits at least
-	fmtNumber                 // a number
-	fmtColorValue             // a color picker's saturation*1000+brightness, in percents
-	fmtColorName              // the name of a color picker's swatch v
+	fmtMonthYear  uint8 = iota // a calendar's title: the month v of year*12
+	fmtDay                     // a calendar's day: v days after 1970-01-01
+	fmtDayNumber               // the number of a day of the month
+	fmtShortDate               // a date field's date: as fmtDay
+	fmtTwoDigits               // a number of two digits at least
+	fmtNumber                  // a number
+	fmtColorValue              // a color picker's saturation*1000+brightness, in percents
+	fmtColorName               // the name of a color picker's swatch v
 )
 
 // formatted returns the string of key, formatting it with make once: the
