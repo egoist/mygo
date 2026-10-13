@@ -148,6 +148,9 @@ method, as `InputText`, as a mode that reads letters as commands wants.
 - `LineNumbers` shows the gutter's numbers, absolute, relative to the
   caret's line, or not at all; `GutterMarks` put dots of a color by lines,
   as breakpoints, and `OnGutterClick` reports clicks on numbers.
+- `LineBackgrounds` fill lines, from `First` to `Last`, with a color under
+  the text and the selections, as the statement a key would run; the
+  gutter keeps its own, and lines a fold hides take no room to fill.
 - `TabSize` and `Indent` set indentation: tabs or spaces, as the
   language's files usually have them when zero (Go's tabs).
 - `Whitespace` shows spaces and tabs as dots and arrows: within selections
