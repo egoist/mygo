@@ -559,6 +559,46 @@ func NotificationsSupported() bool {
 	return onMainValue(func() bool { return backend().NotificationsSupported() })
 }
 
+// WebViewSupported reports whether the system webview is there, and so
+// whether a window showing a web page can work: WKWebView on macOS,
+// WebKitGTK on Linux, the WebView2 Runtime on Windows. A window showing
+// native UI (WindowOptions.Content) needs none, so an app whose windows all
+// do runs without one, and this reports false in browsers, which show
+// native UI only.
+//
+// Ask before creating the first window showing a page, as NewWindow panics
+// when the platform has no webview:
+//
+//	mygo.App.WhenReady(func() {
+//		if mygo.WebViewSupported() {
+//			mygo.NewWindow(mygo.WindowOptions{URL: "/"})
+//		} else {
+//			mygo.NewWindow(mygo.WindowOptions{Content: ui.View(offlineView)})
+//		}
+//	})
+//
+// By default it answers what the machine has, which is cheap: it looks for
+// the runtime and its files, and on Linux loads WebKitGTK. That is not a
+// promise a page will show, as a runtime that is there but broken still
+// answers true. WebViewSupported(true) asks for the runtime to be really
+// tried instead, which only Windows can do: it creates a WebView2
+// environment, starting a browser process and waiting for it to answer, so
+// it takes a moment, and the environment is what the windows the app opens
+// next use. It is the answer to trust when the app decides by it whether to
+// show a page at all, and the cheap answer is for reporting a machine's
+// setup.
+//
+// Even that is not the whole story on Windows: an environment is created
+// before a window's web view is, and a runtime whose files are all there but
+// whose browser is not (a copy of it, say) passes both, then fails to make
+// the web view, which the window reports as calls that need one fail. There
+// is no check short of showing a page.
+func WebViewSupported(force ...bool) bool {
+	needsApp("WebViewSupported")
+	really := len(force) > 0 && force[0]
+	return onMainValue(func() bool { return backend().WebViewSupported(really) })
+}
+
 // NewNotification creates a notification; call Show to display it.
 func NewNotification(opts NotificationOptions) *Notification {
 	id := opts.ID

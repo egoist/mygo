@@ -470,3 +470,10 @@ func (a appController) ClearBrowsingData(done func(error)) {
 		blk.Release()
 	})
 }
+
+// WebViewSupported reports whether a window showing a web page can have
+// one. WKWebView is part of macOS, which the app's own load of WebKit
+// already required, so this holds wherever the app runs at all, and force
+// changes nothing: a WKWebView is the only thing macOS could show a page
+// with, and creating one takes a window.
+func (b *Backend) WebViewSupported(force bool) bool { return hasClass("WKWebView") }

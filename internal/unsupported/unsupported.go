@@ -44,6 +44,7 @@ func (*Backend) NewTray(platform.TrayHandler) (platform.Tray, error)        { re
 func (*Backend) RegisterHotkey(int, string) error                           { return errUnsupported }
 func (*Backend) UnregisterHotkey(int)                                       {}
 func (*Backend) NotificationsSupported() bool                               { return false }
+func (*Backend) WebViewSupported(bool) bool                                 { return false }
 func (*Backend) RemoveNotification(string)                                  {}
 
 func (*Backend) ShowNotification(_ *platform.Notification, done func(error)) {

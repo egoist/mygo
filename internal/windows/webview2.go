@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/webview2"
@@ -158,21 +159,15 @@ func createEnvironment(userData string, done func(env uintptr, err error)) error
 	dataDir := u16(userData)
 
 	// An official loader next to the executable wins.
-	if exe, err := os.Executable(); err == nil {
-		loader := filepath.Join(filepath.Dir(exe), "WebView2Loader.dll")
-		if _, err := os.Stat(loader); err == nil {
-			proc := syscall.NewLazyDLL(loader).NewProc("CreateCoreWebView2EnvironmentWithOptions")
-			if proc.Find() == nil {
-				hr := withHandler(completed, func(h uintptr) uintptr {
-					r, _, _ := proc.Call(0, uintptr(unsafe.Pointer(dataDir)), 0, h)
-					return r
-				})
-				if failed(hr) {
-					return hresultError("CreateCoreWebView2EnvironmentWithOptions", hr)
-				}
-				return nil
-			}
+	if proc := loaderProc(); proc != nil {
+		hr := withHandler(completed, func(h uintptr) uintptr {
+			r, _, _ := proc.Call(0, uintptr(unsafe.Pointer(dataDir)), 0, h)
+			return r
+		})
+		if failed(hr) {
+			return hresultError("CreateCoreWebView2EnvironmentWithOptions", hr)
 		}
+		return nil
 	}
 
 	// Otherwise the runtime's client library, as the loader does: a fixed
@@ -200,6 +195,83 @@ func createEnvironment(userData string, done func(env uintptr, err error)) error
 	}
 	return nil
 }
+
+// loaderProc returns the official WebView2 loader next to the executable and
+// its CreateCoreWebView2EnvironmentWithOptions, or nil when there is no
+// loader to use. createEnvironment calls what it returns, and
+// WebViewSupported asks for it, so the two cannot disagree: a DLL of that
+// name with no such export is no loader, and a runtime is looked for
+// instead.
+func loaderProc() *syscall.LazyProc {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	path := filepath.Join(filepath.Dir(exe), "WebView2Loader.dll")
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	proc := syscall.NewLazyDLL(path).NewProc("CreateCoreWebView2EnvironmentWithOptions")
+	if proc.Find() != nil {
+		return nil
+	}
+	return proc
+}
+
+// WebViewSupported reports whether a window showing a web page can have
+// one. Without force it asks what the machine has, cheaply: the WebView2
+// Runtime, or a loader next to the executable, which loads a fixed version
+// runtime or the installed one itself. With force it really tries one,
+// creating an environment, which starts a browser process and waits for it,
+// and the environment is kept for the windows the app opens next.
+func (b *Backend) WebViewSupported(force bool) bool {
+	if b.env != 0 || b.envErr != nil {
+		return b.envErr == nil
+	}
+	if !force {
+		return loaderProc() != nil || webview2Found()
+	}
+	if err := b.startEnvironment(); err != nil {
+		return false
+	}
+	// An environment that never answers in time is no "yes": the app is
+	// deciding by this whether to show a page at all, and a page that never
+	// shows is worse than a window of native UI.
+	return b.waitEnvironment() && b.envErr == nil
+}
+
+// webview2Found reports whether the machine has a runtime, without creating
+// an environment.
+func webview2Found() bool {
+	_, _, err := webview2.Find()
+	return err == nil
+}
+
+// waitEnvironment pumps the message loop until the environment
+// startEnvironment started exists or failed, or webViewProbeTimeout passes.
+// It reports whether the answer came. Main thread only.
+func (b *Backend) waitEnvironment() bool {
+	done := make(chan struct{})
+	b.whenEnvironment(func() { close(done) })
+	deadline := time.Now().Add(webViewProbeTimeout)
+	for {
+		select {
+		case <-done:
+			return true
+		default:
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		b.Step()
+	}
+}
+
+// webViewProbeTimeout bounds what WebViewSupported(true) waits: creating a
+// runtime's first environment starts a browser, which is slow cold but not
+// this slow, and a probe should not hang an app that asks before showing a
+// window.
+const webViewProbeTimeout = 30 * time.Second
 
 // regDWORD reads a DWORD value, reporting whether it exists.
 func regDWORD(root uintptr, path, name string) (uint32, bool) {

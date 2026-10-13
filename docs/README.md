@@ -162,4 +162,10 @@ Apps run on:
 An app whose windows all show native UI needs neither WebKitGTK nor the
 WebView2 Runtime. Tray icons on Linux also need `libayatana-appindicator3`.
 
+An app that shows web pages can ask whether the machine has a webview with
+`mygo.WebViewSupported()`, and open a window of native UI where it has
+none, as the table's last column describes. `WebViewSupported(true)` asks
+for the runtime to be really tried, which only Windows can: it takes a
+moment, and is the answer to decide by whether to show a page at all.
+
 `mygo doctor` checks a development machine.

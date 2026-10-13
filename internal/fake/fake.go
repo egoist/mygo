@@ -61,6 +61,13 @@ type Backend struct {
 	// NotificationError, when set, is what showing a notification fails
 	// with.
 	NotificationError error
+	// NoWebView makes WebViewSupported report no system webview, as a
+	// machine without one does.
+	NoWebView bool
+	// ForcedProbes counts WebViewSupported(true), which a real backend does
+	// by creating an environment: a test sees that an app asked for the
+	// real check, and not only the cheap one.
+	ForcedProbes int
 	// notifications are the notifications shown and not yet removed, by
 	// id.
 	notifications map[string]*platform.Notification
@@ -275,6 +282,20 @@ func (b *Backend) PressHotkey(acc string) {
 // Notifications are recorded rather than shown, so that a test can see
 // what the app asked for and report a click as a platform does.
 func (b *Backend) NotificationsSupported() bool { return true }
+
+// WebViewSupported reports whether the fake system webview is there:
+// windows showing web pages work, unless NoWebView says otherwise. Probing
+// with force is what a real backend does an environment for; the fake has
+// no runtime to start, so it answers the same either way, counting the
+// probes in ForcedProbes.
+func (b *Backend) WebViewSupported(force bool) bool {
+	if force {
+		b.mu.Lock()
+		b.ForcedProbes++
+		b.mu.Unlock()
+	}
+	return !b.NoWebView
+}
 
 func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 	b.mu.Lock()
