@@ -271,6 +271,13 @@ func TestDiffViewerActiveSide(t *testing.T) {
 	if side, _ := d.Cursor(); side != DiffOld {
 		t.Fatalf("unfocused: side %v", side)
 	}
+	// GoToHunk moves the caret Cursor reads, so an app's Next Change
+	// steps from it.
+	d.GoToHunk(d.CurrentHunk() + 1)
+	tt.Frame()
+	if side, p := d.Cursor(); side != DiffOld || p.Line != 30 || d.CurrentHunk() != 1 {
+		t.Fatalf("after GoToHunk in the old side: %v %+v, hunk %d", side, p, d.CurrentHunk())
+	}
 	tt.SetFocused(true)
 	tt.Frame()
 	if !d.Run(Find) {

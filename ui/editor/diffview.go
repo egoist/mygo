@@ -286,17 +286,22 @@ func (d *DiffState) SetSelectedLines(r DiffLineRange, ok bool) {
 	d.selected, d.hasSel = r, ok
 }
 
-// GoToHunk puts the new side's caret at the start of hunk i and scrolls
-// it to the middle of the view.
+// GoToHunk puts the caret of the active side (see Cursor) at the start
+// of hunk i and scrolls it to the middle of the view.
 func (d *DiffState) GoToHunk(i int) {
 	d.ensure()
 	if i < 0 || i >= len(d.model.hunks) {
 		return
 	}
 	h := d.model.hunks[i]
-	ed := d.editorOf(DiffNew)
+	side := d.activeSide()
+	ed := d.editorOf(side)
+	line := h.B0
+	if side == DiffOld {
+		line = h.A0
+	}
 	r := &ed.view.text
-	off := r.LineStart(min(h.B0, r.LineCount()-1))
+	off := r.LineStart(min(line, r.LineCount()-1))
 	ed.setSels([]sel{ed.newSel(off, off)}, revealCenter)
 }
 
