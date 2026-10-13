@@ -191,10 +191,19 @@ func (e *node) textParams(width float32) text.Params {
 		style.LineHeight = ts.lineHeight / style.FontSize()
 	}
 	p := text.Params{Text: e.text, Width: width, MaxLines: e.maxLines, Style: style, Spans: e.textSpans(), NoWrap: e.noWrap, Ellipsis: e.ellipsis, RTL: e.rtl()}
-	switch ts.align {
-	case Center:
+	switch {
+	case ts.align == Center:
 		p.Align = text.Center
-	case End:
+	case e.rtl():
+		// Lines start at the right of an element laid out right to left,
+		// whatever they read, as in CSS, AppKit's cells and GTK's labels.
+		// Left to right, a paragraph reading right to left starts at the
+		// right, as Apple's guidelines align a paragraph by its language.
+		p.Align = text.Right
+		if ts.align == End {
+			p.Align = text.Left
+		}
+	case ts.align == End:
 		p.Align = text.End
 	}
 	return p

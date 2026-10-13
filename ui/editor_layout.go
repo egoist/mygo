@@ -114,7 +114,7 @@ func (e *node) layoutInput(cw, ch float32) {
 	}
 	// Text narrower than the box goes where TextAlign puts it: Start is
 	// the right of an input laid out right to left, whatever its text, as
-	// in browsers.
+	// that of Text.
 	rtl := e.rtl()
 	if room := cw - l.Width; room > 0 {
 		switch align := e.resolvedText().align; {
@@ -166,14 +166,7 @@ func (e *node) paintInput(p *Painter) {
 	focused := e.Focused()
 	ts := e.resolvedText()
 	if ed.buf.n == 0 && ed.compose == "" && ed.placeholder != "" {
-		params := e.placeholderParams(box.W)
-		pl := textSystem().Layout(params)
-		if e.rtl() && !ed.multiline && params.Align != text.Center && len(pl.Lines) > 0 && !pl.Lines[0].RTL {
-			// A single-line input right to left starts its text at the
-			// right, whatever it reads (layoutInput): its placeholder too.
-			params.Align = text.End - params.Align
-			pl = textSystem().Layout(params)
-		}
+		pl := textSystem().Layout(e.placeholderParams(box.W))
 		// The placeholder aligns itself in the content box, as its layout has the box's width.
 		p.textLayout(pl, e.x+e.contentX(), oy, t.TextMuted, ts, nil)
 	}

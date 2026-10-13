@@ -53,10 +53,14 @@ type Align uint8
 
 const (
 	// Start aligns lines to the left, or to the right in right-to-left
-	// paragraphs (Params.RTL).
+	// paragraphs.
 	Start Align = iota
 	Center
 	End
+	// Left and Right align lines so whatever their direction, as the
+	// start and the end of an interface laid out right to left do.
+	Left
+	Right
 )
 
 // Params describe a text to lay out.
@@ -780,7 +784,7 @@ func (s *System) layout(p Params) *cached {
 		switch align {
 		case Center:
 			dx = (box - line.Width) / 2
-		case End:
+		case End, Right:
 			dx = box - line.Width
 		}
 		if dx != 0 {

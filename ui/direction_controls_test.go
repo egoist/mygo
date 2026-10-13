@@ -48,12 +48,46 @@ func TestRTLParagraphs(t *testing.T) {
 			t.Errorf("%q in an element laid out right to left %v reads right to left %v, want %v", tc.text, tc.rtl, got, tc.want)
 		}
 	}
-	// A number aligns at the right, its paragraph's start.
-	tt := rtlTester(func(c *context) {
-		coreColumn(c).Fill().Children(func() { coreText(c, "42") })
-	}, 300, 100)
-	if r := at(t, tt, "42"); r.X+r.W < 299 {
-		t.Errorf("a number right to left ends at %v, want at the right", r.X+r.W)
+}
+
+// TestRTLTextAlign starts the lines of an element laid out right to left
+// at its right, whatever they read, and its End at the left; left to
+// right, a paragraph reading right to left starts at the right, as before.
+func TestRTLTextAlign(t *testing.T) {
+	glyphsX := func(tt *Tester) (lo, hi float32) {
+		lo, hi = 1e9, -1e9
+		for _, op := range tt.h.last.Ops {
+			if op.Kind == scene.OpGlyphs {
+				for _, g := range tt.h.last.Glyphs[op.Start:op.End] {
+					lo, hi = min(lo, g.X), max(hi, g.X)
+				}
+			}
+		}
+		return lo, hi
+	}
+	align := Start
+	s := "Hello"
+	view := func(c *context) {
+		coreColumn(c).Fill().Children(func() { coreText(c, s).TextAlign(align) })
+	}
+	tt := rtlTester(view, 300, 100)
+	if lo, _ := glyphsX(tt); lo < 200 {
+		t.Errorf("right to left, English starts at %v, want at the right", lo)
+	}
+	align = End
+	tt.Frame()
+	if _, hi := glyphsX(tt); hi > 100 {
+		t.Errorf("right to left, English aligned at the end reaches %v, want at the left", hi)
+	}
+	s, align = "שלום", Start
+	ltr := coreNewTester(view, 300, 100)
+	if lo, _ := glyphsX(ltr); lo < 200 {
+		t.Errorf("left to right, Hebrew starts at %v, want at the right as it reads", lo)
+	}
+	// Custom widgets shaping text in the element's direction align so too.
+	l := ShapeRichTextWith([]Span{{Text: "Hi"}}, Font{}, TextShape{Width: 300, Direction: RightToLeft})
+	if x, _, _ := l.l.CaretAt(text.CaretPosition{}); x < 250 {
+		t.Errorf("shaped right to left, the text starts at %v, want at the right", x)
 	}
 }
 
