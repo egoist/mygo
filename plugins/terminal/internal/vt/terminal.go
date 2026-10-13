@@ -205,6 +205,9 @@ func (t *Terminal) Free() {
 func (t *Terminal) Write(p []byte) {
 	if len(p) > 0 {
 		call(fnTerminalVTWrite, t.h, uintptr(unsafe.Pointer(&p[0])), uintptr(len(p)))
+		// A read that writes no refusal, as OSC 52's, leaves silent set;
+		// it is for that read alone.
+		t.silent = false
 	}
 }
 

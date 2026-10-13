@@ -266,6 +266,13 @@ func New(opts Options) (*Terminal, error) {
 			// once written, which a slow link makes worth watching.
 			total, sent := t.sending, 0
 			t.sending = 0
+			// Told from the queue's goroutine, as the pieces are: here the
+			// terminal is locked, which OnPasteStatus may need.
+			t.in.pushDone(nil, func() {
+				if on := t.opts.OnPasteStatus; on != nil {
+					on(PasteSending, 0, total)
+				}
+			})
 			for len(p) > 0 {
 				n := min(len(p), 64<<10)
 				piece := append([]byte(nil), p[:n]...)
@@ -318,9 +325,6 @@ func New(opts Options) (*Terminal, error) {
 			t.offered = nil
 			// The reply, base64, comes to WritePTY next.
 			t.sending = total * 4 / 3
-			if on := t.opts.OnPasteStatus; on != nil && total > 0 {
-				on(PasteSending, 0, t.sending)
-			}
 			return reply, true
 		},
 		Size: func() (int, int, int, int) { return t.size.cols, t.size.rows, t.size.cellW, t.size.cellH },
@@ -724,8 +728,18 @@ func (t *Terminal) PasteClipboard(contents map[string][]byte) {
 	t.Send(data)
 	t.redraw()
 	if on != nil && status >= 0 {
-		on(status, 0, 0)
+		// Once what the paste sent is written, from the queue's
+		// goroutine as the other statuses.
+		t.in.pushDone(nil, func() { on(status, 0, 0) })
 	}
+}
+
+// readsClipboard reports whether the program reads the clipboard itself
+// (mode 5522), as a paste then offers it the clipboard's image.
+func (t *Terminal) readsClipboard() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.term != nil && t.term.Mode(vt.ModePasteEvents)
 }
 
 // Feed shows data as if the program wrote it: text and escape sequences.
@@ -957,7 +971,9 @@ func (q *inputQueue) run(w io.Writer) {
 		item := q.queue[0]
 		q.queue = q.queue[1:]
 		q.mu.Unlock()
-		if _, err := w.Write(item.p); err != nil {
+		if len(item.p) == 0 {
+			// Only something to run, in its place among the writes.
+		} else if _, err := w.Write(item.p); err != nil {
 			q.close()
 			return
 		}

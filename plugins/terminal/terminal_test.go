@@ -1053,7 +1053,10 @@ func TestPasteImage(t *testing.T) {
 	conn := newPipe()
 	var mu sync.Mutex
 	var statuses []string
-	term, err := New(Options{Conn: conn, OnPasteStatus: func(s PasteStatus, sent, total int) {
+	var term *Terminal
+	var err error
+	term, err = New(Options{Conn: conn, OnPasteStatus: func(s PasteStatus, sent, total int) {
+		term.Title() // the terminal is not locked
 		mu.Lock()
 		statuses = append(statuses, fmt.Sprint(s, sent == total && total > 0))
 		mu.Unlock()

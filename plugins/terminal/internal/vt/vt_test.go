@@ -337,4 +337,9 @@ func TestPasteEvent(t *testing.T) {
 	if out.String() != "\x1b[1;1R" {
 		t.Errorf("after silence, the cursor report = %q", out.String())
 	}
+	// A read that writes no refusal (OSC 52's) does not silence the next.
+	term.Write([]byte("\x1b]52;c;?\x1b\\"))
+	if term.silent {
+		t.Error("an OSC 52 read left the terminal silent")
+	}
 }
