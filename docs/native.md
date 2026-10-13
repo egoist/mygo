@@ -181,6 +181,35 @@ mygo.Theme.SetSource(mygo.ThemeDark) // or ThemeLight, or ThemeSystem to follow 
 `SetSource` may be called before `App.Run`, for example with an appearance
 the user saved in the app's preferences: the app then starts in it.
 
+## Accent color and accessibility
+
+`mygo.Theme.Preferences()` returns the accent color of the desktop's own
+controls and the accessibility settings they follow:
+
+```go
+p := mygo.Theme.Preferences()
+p.Accent       // mygo.Color{R, G, B, A}, A 0 where the desktop has none
+p.ReduceMotion // the desktop asks for less animation
+p.HighContrast // the desktop uses a contrast theme
+p.TextScale    // the factor text grows by; 1 is the usual size
+
+if c := mygo.Theme.AccentColor(); c.A != 0 {
+	log.Println("accent:", c) // "#ff8000", or "#ff800080" when it has an alpha
+}
+```
+
+`AccentColor`, `ReduceMotion`, `HighContrast` and `TextScale` answer the same
+settings one at a time, and `mygo.Color.String()` is the color as CSS writes
+it. `Theme.OnUpdated` fires when the desktop changes any of them, as
+`SetSource` does. Reading them can call out to the desktop (the settings
+portal on Linux), so MyGo reads them once and keeps them until the next
+change.
+
+Pages hear them as the `--mygo-accent` and `--mygo-text-scale` CSS variables
+and the `mygo:preferences` event, see [the frontend guide](frontend.md);
+`prefers-reduced-motion` and `prefers-contrast` already follow the desktop.
+macOS has no text scale, so `Theme.TextScale()` is 1 there.
+
 ## Power
 
 ```go
@@ -201,6 +230,84 @@ The reason given to `KeepAwake` shows where the system lists what keeps it
 awake. On Linux, `OnLockScreen` is called when the screen saver starts,
 which usually locks the screen, and `IdleTime` is 0 on desktops that do not
 report it.
+
+## Network
+
+`mygo.Network` tells whether the computer is online and whether the
+connection is expensive — a phone hotspot or a metered one, where an app
+should hold off on large downloads:
+
+```go
+status := mygo.Network.Status()
+if status.Online && !status.Constrained {
+	syncNow()
+}
+
+mygo.Network.OnChanged(func(s mygo.NetworkStatus) {
+	log.Printf("online: %v, constrained: %v", s.Online, s.Constrained)
+})
+```
+
+`Online` means the system has a connection that leads beyond the
+computer, which does not prove that a server answers: macOS and Linux
+count any route out, and Windows asks whether the internet is reachable.
+`Constrained` is an expensive connection or Low Data Mode on macOS, a
+metered one on Linux and a variable-cost one on Windows. In browsers
+`Online` is `navigator.onLine`, and `Constrained` is false. Changes are
+watched from the first `OnChanged` on, whose listener runs on the main
+thread, only when the status changed; it returns a function that removes
+the listener.
+
+Pages already have `navigator.onLine`. To show the native status in the
+UI, broadcast a typed event from the listener, so the generated client
+receives it:
+
+```go
+// Connectivity is pushed to every window when the connection changes.
+var Connectivity = mygo.NewEvent[mygo.NetworkStatus]("connectivity")
+
+func init() {
+	mygo.Network.OnChanged(func(s mygo.NetworkStatus) { Connectivity.Broadcast(s) })
+}
+```
+
+## Secrets
+
+`mygo.Secrets` keeps small secrets, such as access tokens and API keys, in
+the system's credential store, which encrypts them for the user, unlike a
+file in the user data directory: the login Keychain on macOS, the Secret
+Service on Linux (GNOME Keyring, KWallet, KeePassXC…, through libsecret)
+and the Credential Manager on Windows.
+
+```go
+if err := mygo.Secrets.Set("github-token", []byte(token)); err != nil {
+	log.Println(err)
+}
+
+token, err := mygo.Secrets.Get("github-token")
+if errors.Is(err, mygo.ErrSecretNotFound) {
+	// Ask the user to sign in.
+}
+
+mygo.Secrets.Delete("github-token") // on sign out; nil when there is none
+```
+
+A secret may be at most `mygo.MaxSecretSize` (2560) bytes, the most the
+Credential Manager keeps, and a key at most 256 bytes. The methods are safe from any goroutine, also
+before `Run`, and may block while the system asks the user something, e.g.
+to unlock the keyring; on the main thread the app keeps handling events
+meanwhile. To use them from the page, bind a backend method that calls
+them, so that only what the page needs crosses into it.
+
+Secrets are stored under the app's identifier (its name in development)
+as the service and the key as the account, as Electron's keytar stores
+them, so an app moving from Electron keeps its users signed in. They
+protect against other users and stolen disks, not against other apps of
+the same user: macOS asks the user before another app reads them, and
+before a rebuilt app does when it is not signed with the same identity,
+while Linux and Windows let them read. Linux needs libsecret (the
+`libsecret-1-0` package on Debian and Ubuntu) and a running Secret
+Service; without them the methods return an error.
 
 ## Global shortcuts
 

@@ -1209,7 +1209,11 @@ as in Tauri:
   app, inside the bundle on macOS, with each file's size and SHA-256 and
   how to make it: a copy of a file of the old app with the same content
   (at its path, or elsewhere for moved files), else a patch of the file at
-  its path or its own bytes, whichever is smaller. Patches are bsdiff's
+  its path or its own bytes, whichever is smaller. The stapled ticket
+  (`Contents/CodeResources`) is never made from the old app: the archives'
+  bundles are stapled, but the bundle a user copies from the disk image is
+  not, as `buildDMG` staples the app after copying it into the image.
+  Patches are bsdiff's
   (`bsdiff.go`, with the qsufsort suffix array of `suffix.go`), their
   three streams compressed apart so that they are read from the delta
   file in place. `Update.Install` takes the delta whose `from` is the
@@ -1773,7 +1777,12 @@ either.
   (`ReadAll`, `SettingChanged`). A change goes through
   `Handler.ThemeChanged`, as the appearance's does; package `ui` reads them
   once until the next, the default theme follows them (`Theme.follow`), and
-  `Animate` follows reduced motion.
+  `Animate` follows reduced motion. Package `mygo` reads them the same way:
+  `Theme.Preferences()` (and `AccentColor`, `ReduceMotion`, `HighContrast`,
+  `TextScale`) keeps them until the next change, and every page hears them
+  through the `mygo:preferences` event and the `--mygo-accent` and
+  `--mygo-text-scale` CSS variables, the accent left unset where the desktop
+  has none.
 - **Lists** (`ui/list.go`) build only the rows in view and keep their
   place by a row, the anchor, and how far its top is above where the
   content starts, not by an offset into their content: rows are measured,
@@ -2014,15 +2023,16 @@ either.
   the pointer went a few DIPs, past a neighbor whose middle it passes; a
   double click on a header's edge fits the column as the table lays
   out, from the intrinsic widths of the cells the frame built
-  (`tableFit`). Sorting is the app's: the table sets `ListState.Sort`
-  and shows it, to assistive technology as well (`AccessSortAscending`
-  and `AccessSortDescending`: AppKit's `AXSortDirection`, ATK's `sort`
-  attribute, UIA's ItemStatus). An `EditableText` in a row reads the row
-  being built (`Context.row`): the list, which keeps the focus, asks for
-  the chosen row's text to be edited on Return (macOS) or F2, which it
-  takes only once a row has such a text; a click on the text of a row
-  chosen before the click edits it once the double-click time has
-  passed.
+  (`tableFit`). Sorting is the app's: the table sets `ListState.Sort`,
+  or `SortBy` for several columns (a new slice each time, which
+  `sortClicked` makes), and shows it, to assistive technology as well
+  (`AccessSortAscending` and `AccessSortDescending`: AppKit's
+  `AXSortDirection`, ATK's `sort` attribute, UIA's ItemStatus). An
+  `EditableText` in a row reads the row being built (`Context.row`): the
+  list, which keeps the focus, asks for the chosen row's text to be
+  edited on Return (macOS) or F2, which it takes only once a row has such
+  a text; a click on the text of a row chosen before the click edits it
+  once the double-click time has passed.
 - **Outlines** (`ui/outline.go`). An outline flattens the open part of
   its tree into rows every frame (`OutlineState.flatten`), which a `List`
   or a `Table` builds as they show, keyed by their items. Rows are tree
@@ -3146,7 +3156,9 @@ which npm allows only for packages that exist: the first release uses an
 | global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
 | notifications | UserNotifications, packaged apps only; `Group` is the `threadIdentifier`; the delegate is attached at launch, for the click that launched the app | org.freedesktop.Notifications over D-Bus; no `Group` | notification-area balloons (toasts); no `Group` |
 | notification removal | `removeDeliveredNotificationsWithIdentifiers:`; `ClearNotifications` removes all, earlier runs' too | `CloseNotification` on the bus, for those of this run | hides the balloon, which goes away by itself anyway |
+| secrets | Security.framework generic passwords in the login keychain (`SecItem*`), service and account as keytar | libsecret's `org.freedesktop.Secret.Generic` schema (attributes `service`, `account`), loaded on first use, libsecret 0.19 or later | Credential Manager generic credentials (`CredWriteW`), target `service/account` |
 | vibrancy | all materials, behind pages and native UI | ignored | Windows 11 22H2 Mica, Acrylic, Tabbed, behind pages and native UI, in windows created with a material, which have no menu bar |
+| accent color and accessibility preferences | `NSColor.controlAccentColor` (10.14+), `accessibilityDisplayShouldReduceMotion` (10.12+) and `accessibilityDisplayShouldIncreaseContrast` (10.10+), with `NSSystemColorsDidChangeNotification` and `NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification`; no text scale | GTK's `gtk-enable-animations` and theme name, and the settings portal's accent, contrast and GNOME's `text-scaling-factor` (`ReadAll`, `SettingChanged`) | DWM's `AccentColor`, `SPI_GETCLIENTAREAANIMATION`, `SPI_GETHIGHCONTRAST` and Accessibility's `TextScaleFactor`, with `WM_SETTINGCHANGE` |
 | traffic lights, Dock | yes | ignored | ignored |
 | hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window, through DirectComposition over a material; snap layouts; a top edge that resizes |
 | progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |
@@ -3165,6 +3177,7 @@ which npm allows only for packages that exist: the first release uses an
 | power events | NSWorkspace sleep/wake, `com.apple.screenIsLocked` distributed notifications | logind `PrepareForSleep` (system bus), screen saver `ActiveChanged` (GNOME, freedesktop) | `WM_POWERBROADCAST`, `WM_WTSSESSION_CHANGE` |
 | KeepAwake | `NSProcessInfo` activity (shows in `pmset -g assertions`) | XDG portal `Inhibit`, else `org.freedesktop.ScreenSaver.Inhibit` | `PowerCreateRequest` |
 | IsOnBattery, IdleTime | IOKit power sources, `CGEventSourceSecondsSinceLastEventType` | `/sys/class/power_supply`; Mutter idle monitor or `GetSessionIdleTime` | `GetSystemPowerStatus`, `GetLastInputInfo` |
+| network status | `nw_path_monitor` on a queue of its own, the first `Status` waiting for its first path | `GNetworkMonitor`, `network-available` and `network-metered` | `GetNetworkConnectivityHint`, `NotifyNetworkConnectivityHintChange` |
 | window position | honored | ignored by Wayland compositors | honored |
 | resize borders without a title bar | the window's own | the outer 5 px of the page | invisible, outside the window; along the top of a hidden title bar, a child window |
 | content protection, click-through | yes | ignored | yes |
