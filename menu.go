@@ -569,143 +569,144 @@ var macOnlyRoles = map[MenuRole]bool{
 func roleDefaults(r MenuRole) (label, accel string) {
 	mac := runtime.GOOS == "darwin"
 	name := App.Name()
+	tx := menuMessages()
 	switch r {
 	case RoleUndo:
-		return menuText("menuUndo", "Undo"), "CmdOrCtrl+Z"
+		return tx.MenuUndo(), "CmdOrCtrl+Z"
 	case RoleRedo:
 		if runtime.GOOS == "windows" {
-			return menuText("menuRedo", "Redo"), "Ctrl+Y"
+			return tx.MenuRedo(), "Ctrl+Y"
 		}
-		return menuText("menuRedo", "Redo"), "Shift+CmdOrCtrl+Z"
+		return tx.MenuRedo(), "Shift+CmdOrCtrl+Z"
 	case RoleCut:
-		return menuText("menuCut", "Cut"), "CmdOrCtrl+X"
+		return tx.MenuCut(), "CmdOrCtrl+X"
 	case RoleCopy:
-		return menuText("menuCopy", "Copy"), "CmdOrCtrl+C"
+		return tx.MenuCopy(), "CmdOrCtrl+C"
 	case RolePaste:
-		return menuText("menuPaste", "Paste"), "CmdOrCtrl+V"
+		return tx.MenuPaste(), "CmdOrCtrl+V"
 	case RolePasteAndMatchStyle:
-		return menuText("menuPasteAndMatchStyle", "Paste and Match Style"), "Shift+Alt+CmdOrCtrl+V"
+		return tx.MenuPasteAndMatchStyle(), "Shift+Alt+CmdOrCtrl+V"
 	case RoleDelete:
-		return menuText("menuDelete", "Delete"), ""
+		return tx.MenuDelete(), ""
 	case RoleSelectAll:
-		return menuText("menuSelectAll", "Select All"), "CmdOrCtrl+A"
+		return tx.MenuSelectAll(), "CmdOrCtrl+A"
 	case RoleReload:
-		return menuText("menuReload", "Reload"), "CmdOrCtrl+R"
+		return tx.MenuReload(), "CmdOrCtrl+R"
 	case RoleForceReload:
-		return menuText("menuForceReload", "Force Reload"), "Shift+CmdOrCtrl+R"
+		return tx.MenuForceReload(), "Shift+CmdOrCtrl+R"
 	case RoleToggleDevTools:
 		if mac {
-			return menuText("menuToggleDeveloperTools", "Toggle Developer Tools"), "Alt+Cmd+I"
+			return tx.MenuToggleDevTools(), "Alt+Cmd+I"
 		}
-		return menuText("menuToggleDeveloperTools", "Toggle Developer Tools"), "Ctrl+Shift+I"
+		return tx.MenuToggleDevTools(), "Ctrl+Shift+I"
 	case RoleResetZoom:
-		return menuText("menuActualSize", "Actual Size"), "CmdOrCtrl+0"
+		return tx.MenuActualSize(), "CmdOrCtrl+0"
 	case RoleZoomIn:
-		return menuText("menuZoomIn", "Zoom In"), "CmdOrCtrl+Plus"
+		return tx.MenuZoomIn(), "CmdOrCtrl+Plus"
 	case RoleZoomOut:
-		return menuText("menuZoomOut", "Zoom Out"), "CmdOrCtrl+-"
+		return tx.MenuZoomOut(), "CmdOrCtrl+-"
 	case RoleToggleFullScreen:
 		if mac {
-			return menuText("menuToggleFullScreen", "Toggle Full Screen"), "Ctrl+Cmd+F"
+			return tx.MenuToggleFullScreen(), "Ctrl+Cmd+F"
 		}
-		return menuText("menuToggleFullScreen", "Toggle Full Screen"), "F11"
+		return tx.MenuToggleFullScreen(), "F11"
 	case RoleMinimize:
-		return menuText("menuMinimize", "Minimize"), "CmdOrCtrl+M"
+		return tx.MenuMinimize(), "CmdOrCtrl+M"
 	case RoleZoom:
-		return menuText("menuZoom", "Zoom"), ""
+		return tx.MenuZoom(), ""
 	case RoleClose:
 		if hasDocuments() {
-			return menuText("menuClose", "Close"), "CmdOrCtrl+W"
+			return tx.MenuClose(), "CmdOrCtrl+W"
 		}
-		return menuText("menuCloseWindow", "Close Window"), "CmdOrCtrl+W"
+		return tx.MenuCloseWindow(), "CmdOrCtrl+W"
 	case RoleNew:
-		return menuText("menuNew", "New"), "CmdOrCtrl+N"
+		return tx.MenuNew(), "CmdOrCtrl+N"
 	case RoleOpen:
-		return menuText("menuOpen", "Open…"), "CmdOrCtrl+O"
+		return tx.MenuOpen(), "CmdOrCtrl+O"
 	case RoleOpenRecent:
-		return menuText("menuOpenRecent", "Open Recent"), ""
+		return tx.MenuOpenRecent(), ""
 	case RoleSave:
-		return menuText("menuSave", "Save"), "CmdOrCtrl+S"
+		return tx.MenuSave(), "CmdOrCtrl+S"
 	case RoleSaveAs:
 		if mac {
-			return menuText("menuSaveAs", "Save As…"), "Alt+Shift+Cmd+S"
+			return tx.MenuSaveAs(), "Alt+Shift+Cmd+S"
 		}
-		return menuText("menuSaveAs", "Save As…"), "Ctrl+Shift+S"
+		return tx.MenuSaveAs(), "Ctrl+Shift+S"
 	case RoleDuplicate:
 		if mac {
-			return menuText("menuDuplicate", "Duplicate"), "Shift+Cmd+S"
+			return tx.MenuDuplicate(), "Shift+Cmd+S"
 		}
-		return menuText("menuDuplicate", "Duplicate"), ""
+		return tx.MenuDuplicate(), ""
 	case RoleRename:
-		return menuText("menuRename", "Rename…"), ""
+		return tx.MenuRename(), ""
 	case RoleMoveTo:
-		return menuText("menuMoveTo", "Move To…"), ""
+		return tx.MenuMoveTo(), ""
 	case RoleRevert:
 		if mac {
-			return menuText("menuRevertToSaved", "Revert to Saved"), ""
+			return tx.MenuRevertToSaved(), ""
 		}
-		return menuText("menuRevert", "Revert"), ""
+		return tx.MenuRevert(), ""
 	case RoleQuit:
 		if mac {
-			return menuTextApp("menuQuitApp", "Quit {app}", name), "Cmd+Q"
+			return tx.MenuQuitApp(name), "Cmd+Q"
 		}
 		if runtime.GOOS == "windows" {
-			return menuText("menuExit", "Exit"), ""
+			return tx.MenuExit(), ""
 		}
-		return menuText("menuQuit", "Quit"), "Ctrl+Q"
+		return tx.MenuQuit(), "Ctrl+Q"
 	case RoleAbout:
-		return menuTextApp("menuAboutApp", "About {app}", name), ""
+		return tx.MenuAbout(name), ""
 	case RoleHide:
-		return menuTextApp("menuHideApp", "Hide {app}", name), "Cmd+H"
+		return tx.MenuHide(name), "Cmd+H"
 	case RoleHideOthers:
-		return menuText("menuHideOthers", "Hide Others"), "Alt+Cmd+H"
+		return tx.MenuHideOthers(), "Alt+Cmd+H"
 	case RoleUnhide:
-		return menuText("menuShowAll", "Show All"), ""
+		return tx.MenuShowAll(), ""
 	case RoleFront:
-		return menuText("menuBringAllToFront", "Bring All to Front"), ""
+		return tx.MenuBringAllToFront(), ""
 	case RoleServices:
-		return menuText("menuServices", "Services"), ""
+		return tx.MenuServices(), ""
 	case RoleStartSpeaking:
-		return menuText("menuStartSpeaking", "Start Speaking"), ""
+		return tx.MenuStartSpeaking(), ""
 	case RoleStopSpeaking:
-		return menuText("menuStopSpeaking", "Stop Speaking"), ""
+		return tx.MenuStopSpeaking(), ""
 	case RoleWindow, RoleWindowMenu:
-		return menuText("menuWindow", "Window"), ""
+		return tx.MenuWindow(), ""
 	case RoleHelp:
-		return menuText("menuHelp", "Help"), ""
+		return tx.MenuHelp(), ""
 	case RoleAppMenu:
 		return name, ""
 	case RoleFileMenu:
-		return menuText("menuFile", "File"), ""
+		return tx.MenuFile(), ""
 	case RoleEditMenu:
-		return menuText("menuEdit", "Edit"), ""
+		return tx.MenuEdit(), ""
 	case RoleViewMenu:
-		return menuText("menuView", "View"), ""
+		return tx.MenuView(), ""
 	case RoleFormatMenu:
-		return menuText("menuFormat", "Format"), ""
+		return tx.MenuFormat(), ""
 	case RoleBold:
-		return menuText("menuBold", "Bold"), "CmdOrCtrl+B"
+		return tx.MenuBold(), "CmdOrCtrl+B"
 	case RoleItalic:
-		return menuText("menuItalic", "Italic"), "CmdOrCtrl+I"
+		return tx.MenuItalic(), "CmdOrCtrl+I"
 	case RoleUnderline:
-		return menuText("menuUnderline", "Underline"), "CmdOrCtrl+U"
+		return tx.MenuUnderline(), "CmdOrCtrl+U"
 	case RoleStrikethrough:
-		return menuText("menuStrikethrough", "Strikethrough"), "Shift+CmdOrCtrl+X"
+		return tx.MenuStrikethrough(), "Shift+CmdOrCtrl+X"
 	case RoleAlignLeft:
 		if mac {
-			return menuText("menuAlignLeft", "Align Left"), "Cmd+{"
+			return tx.MenuAlignLeft(), "Cmd+{"
 		}
-		return menuText("menuAlignLeft", "Align Left"), "Ctrl+L"
+		return tx.MenuAlignLeft(), "Ctrl+L"
 	case RoleAlignCenter:
 		if mac {
-			return menuText("menuCenter", "Center"), "Cmd+|"
+			return tx.MenuCenter(), "Cmd+|"
 		}
-		return menuText("menuCenter", "Center"), "Ctrl+E"
+		return tx.MenuCenter(), "Ctrl+E"
 	case RoleAlignRight:
 		if mac {
-			return menuText("menuAlignRight", "Align Right"), "Cmd+}"
+			return tx.MenuAlignRight(), "Cmd+}"
 		}
-		return menuText("menuAlignRight", "Align Right"), "Ctrl+R"
+		return tx.MenuAlignRight(), "Ctrl+R"
 	}
 	return string(r), ""
 }

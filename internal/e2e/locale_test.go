@@ -4,6 +4,8 @@ package e2e
 
 import (
 	"bytes"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -44,6 +46,9 @@ func TestLocaleAtDocumentStart(t *testing.T) {
 
 	mygo.App.SetLocale("ar")
 	waitFor(t, w, `mygo.locale === "ar" && mygo.dir === "rtl" && window.heard.join() === "ar rtl"`)
+	if v, err := w.Page().Eval("navigator.languages.join()"); err == nil {
+		t.Logf("the page's languages: %v", v)
+	}
 
 	w.Page().Reload()
 	waitFor(t, w, `window.started === "ar rtl" && document.readyState === "complete"`)
@@ -63,6 +68,9 @@ func TestLocaleAtDocumentStart(t *testing.T) {
 // app shows, which an element's Lang overrides: 直 and 骨 are drawn apart
 // in Japanese and in Chinese.
 func TestTextLanguage(t *testing.T) {
+	if runtime.GOOS == "linux" && (!hasFonts("ja") || !hasFonts("zh-cn")) {
+		t.Skip("fontconfig has no Japanese or Chinese fonts (fonts-noto-cjk)")
+	}
 	localeLanguages(t, "en", "ja", "zh-Hans")
 	var seen atomic.Value
 	var override atomic.Value
@@ -96,4 +104,10 @@ func TestTextLanguage(t *testing.T) {
 	if got := capture("ja", "zh-Hans"); !bytes.Equal(got, hans) {
 		t.Error("Lang(zh-Hans) in a Japanese app draws other glyphs than Chinese")
 	}
+}
+
+// hasFonts reports whether fontconfig has fonts for a language.
+func hasFonts(lang string) bool {
+	out, err := exec.Command("fc-list", ":lang="+lang, "family").Output()
+	return err == nil && len(bytes.TrimSpace(out)) > 0
 }

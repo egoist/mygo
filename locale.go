@@ -200,10 +200,29 @@ func (a *Application) OnRegionChanged(fn func(Region)) (off func()) {
 	return locales.onRegionChanged.add(fn, false)
 }
 
-// currentLocale returns the language the app shows, for the accessors
-// that code generation writes for an app's catalogs of strings (package
-// i18n), which read it through the hook package i18n gives them.
-func currentLocale() string { return App.Locale() }
+// The accessors of catalogs (package i18n), the app's and MyGo's own, say
+// their messages in the language the app shows.
+func init() { i18n.SetLocaleFunc(currentLocale) }
+
+// currentLocale returns the language the app shows, from any goroutine,
+// for the accessors of catalogs: as App.Locale does once the app works it
+// out on the main thread, or the language MYGO_LOCALE chooses, else the
+// app's own, before, without waiting for the main thread.
+func currentLocale() string {
+	if s := locales.shown.Load(); s != nil {
+		return s.locale
+	}
+	App.mu.Lock()
+	running := App.running
+	App.mu.Unlock()
+	if running || isMainThread() {
+		return App.Locale()
+	}
+	locales.mu.Lock()
+	langs := appLanguages(locales.languages)
+	locales.mu.Unlock()
+	return resolveLocale(i18n.Normalize(os.Getenv("MYGO_LOCALE")), nil, langs)
+}
 
 // shownLocale returns what the app shows, working it out on the main
 // thread the first time.
@@ -273,7 +292,7 @@ func (a *Application) updateLocale(tell bool) {
 func resolveLocale(override string, preferred, supported []string) string {
 	want := preferred
 	if override != "" {
-		if isPseudoLocale(override) {
+		if i18n.IsPseudo(override) {
 			return override
 		}
 		want = append([]string{override}, preferred...)
@@ -282,13 +301,6 @@ func resolveLocale(override string, preferred, supported []string) string {
 		return m
 	}
 	return supported[0]
-}
-
-// isPseudoLocale reports whether tag is en-XA, accented and longer
-// English, or ar-XB, English right to left, which test the translations
-// an app would get.
-func isPseudoLocale(tag string) bool {
-	return strings.EqualFold(tag, "en-XA") || strings.EqualFold(tag, "ar-XB")
 }
 
 // webLanguages returns the languages for what the backend shows: the

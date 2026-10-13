@@ -1,8 +1,7 @@
 package mygo
 
 import (
-	"strings"
-
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -10,24 +9,15 @@ import (
 // own strings: they say the language the app shows (App.Locale), and an
 // item whose label is its role's says the new language's when it changes.
 
-// menuText returns the label of a role in the language the app shows: the
-// framework's string of key (menuStrings).
-func menuText(key, english string) string {
+// menuMessages returns MyGo's own strings, which the labels of roles are,
+// in the language the app shows; in its own language before it worked out
+// which (App.Locale).
+func menuMessages() l10n.Messages {
 	locale := ""
 	if s := locales.shown.Load(); s != nil {
 		locale = s.locale
 	}
-	return menuStrings(locale, key, english)
-}
-
-// menuStrings returns MyGo's own string of key in locale, whose English is
-// english: English until MyGo's catalog of its strings translates them.
-var menuStrings = func(locale, key, english string) string { return english }
-
-// menuTextApp returns the label of a role that names the app, as "Quit
-// {app}", with name in place of {app}.
-func menuTextApp(key, english, name string) string {
-	return strings.ReplaceAll(menuText(key, english), "{app}", name)
+	return l10n.In(locale)
 }
 
 // relabelMenus gives the items whose label is their role's the role's

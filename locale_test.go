@@ -342,17 +342,7 @@ func TestContentLocale(t *testing.T) {
 }
 
 func TestMenuRelabel(t *testing.T) {
-	localeTest(t, []string{"en", "de"}, "en")
-	saved := menuStrings
-	t.Cleanup(func() { onMain(func() { menuStrings = saved; relabelMenus() }) })
-	onMain(func() {
-		menuStrings = func(locale, key, english string) string {
-			if locale == "de" {
-				return map[string]string{"menuCopy": "Kopieren", "menuQuitApp": "{app} beenden", "menuEdit": "Bearbeiten"}[key]
-			}
-			return english
-		}
-	})
+	localeTest(t, []string{"en", "zh-Hans"}, "en")
 	own := &MenuItem{Role: RolePaste, Label: "Insert"}
 	edit := &MenuItem{Role: RoleEditMenu, Submenu: []*MenuItem{{Role: RoleCopy}, own}}
 	quit := &MenuItem{Role: RoleQuit}
@@ -360,20 +350,23 @@ func TestMenuRelabel(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{})
 	w.SetMenu(m)
 	onMain(func() {})
-	App.SetLocale("de")
+	if edit.Label != "Edit" || edit.Submenu[0].Label != "Copy" {
+		t.Fatalf("in English the menu says %q, %q", edit.Label, edit.Submenu[0].Label)
+	}
+	App.SetLocale("zh-Hans")
 	onMain(func() {})
-	if got := edit.Submenu[0].Label; got != "Kopieren" {
+	if got := edit.Submenu[0].Label; got != "复制" {
 		t.Errorf("Copy says %q", got)
 	}
-	if edit.Label != "Bearbeiten" || own.Label != "Insert" {
+	if edit.Label != "编辑" || own.Label != "Insert" {
 		t.Errorf("Edit says %q, the app's own label %q", edit.Label, own.Label)
 	}
-	if want := menuTextApp("menuQuitApp", "Quit {app}", App.Name()); quit.Label != want && quit.Label != "Exit" {
+	if quit.Label == "Quit" || quit.Label == "Exit" || strings.HasPrefix(quit.Label, "Quit ") {
 		t.Errorf("Quit says %q", quit.Label)
 	}
 	onMain(func() {
 		menu := fw.Menu()
-		if menu == nil || menu.Items[0].Label != "Bearbeiten" || menu.Items[0].Submenu.Items[0].Label != "Kopieren" {
+		if menu == nil || menu.Items[0].Label != "编辑" || menu.Items[0].Submenu.Items[0].Label != "复制" {
 			t.Errorf("the window's menu was not shown again: %+v", menu)
 		}
 	})
@@ -381,5 +374,19 @@ func TestMenuRelabel(t *testing.T) {
 	onMain(func() {})
 	if got := edit.Submenu[0].Label; got != "Copy" {
 		t.Errorf("back in English, Copy says %q", got)
+	}
+}
+
+// TestCatalogsReadLocale checks that the accessors of catalogs say their
+// messages in the language the app shows, as MyGo's own strings do.
+func TestCatalogsReadLocale(t *testing.T) {
+	localeTest(t, []string{"en", "zh-Hans"}, "zh-CN")
+	if got := i18n.Locale(); got != "zh-Hans" {
+		t.Errorf("i18n.Locale() = %q, want zh-Hans", got)
+	}
+	App.SetLocale("en-XA")
+	onMain(func() {})
+	if got := i18n.Locale(); got != "en-XA" {
+		t.Errorf("i18n.Locale() = %q under the pseudo locale", got)
 	}
 }
