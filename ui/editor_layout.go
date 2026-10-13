@@ -213,9 +213,12 @@ func (e *node) paintInput(p *Painter) {
 // input method's composition at the caret, between start and end, sits
 // unstyled between the runs, and those after it move past it.
 func (ed *editor) rangeSpans(start, end int) (string, *spanPaint) {
-	// The ranges are sorted and apart (sortRanges): of those starting
-	// before start, only the last can reach in. A paragraph of a long text
-	// skips the others rather than walking them all.
+	if !ed.apart {
+		ed.sortRanges()
+	}
+	// The ranges are sorted and apart: of those starting before start, only
+	// the last can reach in. A paragraph of a long text skips the others
+	// rather than walking them all.
 	first := sort.Search(len(ed.ranges), func(i int) bool { return ed.ranges[i].Start >= start })
 	if first > 0 && ed.ranges[first-1].End > start {
 		first--

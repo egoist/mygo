@@ -214,14 +214,16 @@ func (e *node) TextRanges(ranges ...TextRange) *node {
 	for _, r := range ranges {
 		if r.End > r.Start {
 			ed.ranges = append(ed.ranges, r)
+			ed.apart = false
 		}
 	}
-	ed.sortRanges()
 	return e
 }
 
 // sortRanges sorts the ranges by start and clips where they overlap, as
-// TextRanges says.
+// TextRanges says, once the frame has given them all: a frame calling
+// TextRanges for each range sorts them once, and clipping ranges given
+// earlier would let a later one overlapping them win.
 func (ed *editor) sortRanges() {
 	slices.SortStableFunc(ed.ranges, func(a, b TextRange) int { return a.Start - b.Start })
 	apart := ed.ranges[:0]
@@ -233,5 +235,5 @@ func (ed *editor) sortRanges() {
 			apart = append(apart, r)
 		}
 	}
-	ed.ranges = apart
+	ed.ranges, ed.apart = apart, true
 }

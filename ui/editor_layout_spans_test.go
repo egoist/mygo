@@ -3,6 +3,7 @@ package ui
 import (
 	"math/rand/v2"
 	"reflect"
+	"strings"
 	"testing"
 	"unicode/utf8"
 )
@@ -68,6 +69,36 @@ func TestSortRangesKeepsThemApart(t *testing.T) {
 	}
 }
 
+// A frame calling TextRanges for each range, as the docs' mentions do,
+// styles the text as one call with all of them: a range given later does
+// not win over an earlier one clipped by a third.
+func TestTextRangesCalledForEach(t *testing.T) {
+	red, blue, green := RGB(220, 0, 0), RGB(0, 0, 220), RGB(0, 160, 0)
+	given := []TextRange{
+		{Start: 0, End: 10, Color: red},
+		{Start: 5, End: 20, Color: blue},
+		{Start: 8, End: 15, Color: green}, // inside the blue one once it is clipped
+	}
+	text := strings.Repeat("abcd ", 6)
+	var each, once *node
+	coreNewTester(func(c *context) {
+		coreColumn(c).Children(func() {
+			each = coreTextAreaBase(c, &text).Width(300)
+			for _, r := range given {
+				each.TextRanges(r)
+			}
+			once = coreTextAreaBase(c, &text).Width(300).TextRanges(given...)
+		})
+	}, 320, 240)
+	want := []TextRange{{Start: 0, End: 10, Color: red}, {Start: 10, End: 20, Color: blue}}
+	if got := each.st.editor.ranges; !reflect.DeepEqual(got, want) {
+		t.Errorf("a call for each range kept %v, want %v", got, want)
+	}
+	if got := once.st.editor.ranges; !reflect.DeepEqual(got, want) {
+		t.Errorf("one call kept %v, want %v", got, want)
+	}
+}
+
 // BenchmarkRangeSpans styles every line of a 3,000-line text with ten
 // ranges a line, as a highlighted script has: by the ranges in reach of
 // each line, and by walking all of them.
@@ -95,5 +126,30 @@ func BenchmarkRangeSpans(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// BenchmarkTextAreaRanges builds, lays out and paints the frames of a text
+// area of 3,000 lines with ten ranges a line, given by a TextRanges call
+// for each as the docs' mentions are.
+func BenchmarkTextAreaRanges(b *testing.B) {
+	const lines, perLine, width = 3000, 10, 40
+	text := strings.Repeat(strings.Repeat("abc ", width/4)[:width-1]+"\n", lines)
+	var ranges []TextRange
+	for l := range lines {
+		for i := range perLine {
+			at := l*width + i*4
+			ranges = append(ranges, TextRange{Start: at, End: at + 3, Color: RGB(220, 0, 0)})
+		}
+	}
+	tt := coreNewTester(func(c *context) {
+		a := coreTextAreaBase(c, &text).Width(600).Height(400)
+		for _, r := range ranges {
+			a.TextRanges(r)
+		}
+	}, 640, 480)
+	for b.Loop() {
+		tt.h.img.Invalidate()
+		tt.Frame()
 	}
 }
