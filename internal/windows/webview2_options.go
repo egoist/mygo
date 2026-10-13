@@ -3,6 +3,7 @@
 package windows
 
 import (
+	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -76,7 +77,11 @@ func newEnvOptions(language string) uintptr {
 				return o.language
 			}),
 			ignore, // put_Language
-			str(func(*envOptions) []uint16 { return nil }), // get_TargetCompatibleBrowserVersion
+			// The version of the runtime the app needs at least, which the
+			// official loader picks a runtime by: as Microsoft's options
+			// class does, never none. MyGo needs no newer one than the
+			// first release of WebView2.
+			str(func(*envOptions) []uint16 { return targetBrowserVersion }), // get_TargetCompatibleBrowserVersion
 			ignore, // put_TargetCompatibleBrowserVersion
 			syscall.NewCallback(func(this, out uintptr) uintptr { // get_AllowSingleSignOnUsingOSPrimaryAccount
 				if out == 0 {
@@ -90,7 +95,7 @@ func newEnvOptions(language string) uintptr {
 	})
 	o := &envOptions{vtbl: &envOptionsVtbl, refs: 1}
 	if language != "" {
-		o.language = utf16z(language)
+		o.language = utf16z(chromiumLanguage(language))
 	}
 	p := uintptr(unsafe.Pointer(o))
 	envOptionsMu.Lock()
@@ -133,4 +138,32 @@ func coTaskString(s []uint16) uintptr {
 	}
 	copy(unsafe.Slice((*uint16)(native(p)), len(s)), s)
 	return p
+}
+
+// targetBrowserVersion is the version of the first release of WebView2's
+// runtime.
+var targetBrowserVersion = utf16z("86.0.616.0")
+
+// chromiumLanguage returns the language the browser of WebView2 knows a
+// tag by: Chromium names the scripts of Chinese by the regions that write
+// them, zh-CN and zh-TW, and reads any other zh as zh-CN.
+func chromiumLanguage(tag string) string {
+	parts := strings.Split(tag, "-")
+	if !strings.EqualFold(parts[0], "zh") {
+		return tag
+	}
+	for _, p := range parts[1:] {
+		switch strings.ToUpper(p) {
+		case "HK", "MO":
+			return "zh-" + strings.ToUpper(p)
+		case "TW":
+			return "zh-TW"
+		}
+	}
+	for _, p := range parts[1:] {
+		if strings.EqualFold(p, "Hant") {
+			return "zh-TW"
+		}
+	}
+	return "zh-CN"
 }

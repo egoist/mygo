@@ -121,14 +121,16 @@ func (msgs Messages) Positional(arg0 string, arg1 string) string {
 	return Catalog.Format(msgs.locale, "positional", map[string]any{"0": arg0, "1": arg1})
 }
 
-// Keyword says "{type} {default}"
+// Keyword says "{type} {default} {string} {any}"
 // in the language the app shows.
-func Keyword(type_ string, default_ string) string { return In(i18n.Locale()).Keyword(type_, default_) }
+func Keyword(type_ string, default_ string, string_ string, any_ string) string {
+	return In(i18n.Locale()).Keyword(type_, default_, string_, any_)
+}
 
-// Keyword says "{type} {default}"
+// Keyword says "{type} {default} {string} {any}"
 // in the language of msgs.
-func (msgs Messages) Keyword(type_ string, default_ string) string {
-	return Catalog.Format(msgs.locale, "keyword", map[string]any{"type": type_, "default": default_})
+func (msgs Messages) Keyword(type_ string, default_ string, string_ string, any_ string) string {
+	return Catalog.Format(msgs.locale, "keyword", map[string]any{"type": type_, "default": default_, "string": string_, "any": any_})
 }
 
 // Untyped says "Value: {value}"

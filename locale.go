@@ -39,6 +39,9 @@ type localeState struct {
 	fromEnv  bool
 	// loaded tells that the saved language and MYGO_LOCALE were read.
 	loaded bool
+	// chosen tells that SetLocale chose the language, which reading the
+	// saved one again does not undo.
+	chosen bool
 	// generation counts the SetLocale calls; the work they queue runs for
 	// the last one only.
 	generation uint64
@@ -159,7 +162,7 @@ func (a *Application) SetLocale(tag string) {
 			locales.mu.Unlock()
 			return
 		}
-		locales.override = normalized
+		locales.override, locales.chosen = normalized, true
 		save := !locales.fromEnv
 		locales.mu.Unlock()
 		if save {
@@ -242,8 +245,19 @@ func (a *Application) shownLocale() *shownLocale {
 // startLocale tells the backend the app's languages, once it runs. Main
 // thread only.
 func (a *Application) startLocale() {
+	locales.mu.Lock()
+	if !locales.chosen {
+		// Read before Run, the saved language may have been looked for
+		// under the name and paths the app had then: read it again where
+		// they put it now.
+		locales.loaded = false
+	}
+	locales.mu.Unlock()
 	a.updateLocale(false)
 	backend().App().SetLanguages(webLanguages(locales.shown.Load()), appRightToLeft())
+	// Menus made before the app knew its language took their roles'
+	// labels in its own language.
+	relabelMenus()
 }
 
 // localeChangedFromSystem tells the app that the user's languages or
@@ -410,8 +424,14 @@ func regionOf(r platform.Region, preferred []string) Region {
 // the "rg" key of macOS's locales changes: en_US@rg=gbzzzz has the formats
 // of en-GB.
 func regionLocale(locale string) string {
-	if i := strings.Index(locale, "@rg="); i >= 0 {
-		rg := locale[i+len("@rg="):]
+	if i := strings.IndexByte(locale, '@'); i >= 0 {
+		// Keywords, as "@calendar=japanese;rg=gbzzzz".
+		var rg string
+		for _, kw := range strings.Split(locale[i+1:], ";") {
+			if k, v, ok := strings.Cut(kw, "="); ok && strings.EqualFold(k, "rg") {
+				rg = v
+			}
+		}
 		base := i18n.Normalize(locale[:i])
 		if len(rg) >= 2 && base != "" {
 			lang := base

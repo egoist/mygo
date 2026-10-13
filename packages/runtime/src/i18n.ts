@@ -602,10 +602,14 @@ export function createCatalog<M>(data: CatalogData): Catalog<M> {
     resolved.set(locale, r);
     return r;
   };
+  const has = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
   const lookup = (locale: string, key: string): [string, string] | undefined => {
     const lang = isPseudoLocale(locale) ? data.source : resolve(locale);
     for (const t of data.fallbacks[lang] ?? [data.source]) {
-      const m = data.messages[t]?.[key];
+      // Own keys only: a key named as a property of every object, as
+      // "toString", is a message only where the catalog has it.
+      const messages = has(data.messages, t) ? data.messages[t] : undefined;
+      const m = messages && has(messages, key) ? messages[key] : undefined;
       if (m !== undefined) return [m, t];
     }
     return undefined;

@@ -256,6 +256,7 @@ func TestRegion(t *testing.T) {
 		{platform.Region{Locale: "de-DE", FirstWeekday: -1}, Region{Locale: "de-DE", FirstWeekday: time.Monday, HourCycle: 24}},
 		// macOS's formats of another region.
 		{platform.Region{Locale: "en_US@rg=gbzzzz", FirstWeekday: 1, HourCycle: 24}, Region{Locale: "en-GB", FirstWeekday: time.Monday, HourCycle: 24}},
+		{platform.Region{Locale: "en_US@calendar=japanese;rg=gbzzzz", FirstWeekday: 1, HourCycle: 24}, Region{Locale: "en-GB", FirstWeekday: time.Monday, HourCycle: 24}},
 		{platform.Region{Locale: "zh-Hans_CN", FirstWeekday: 0, HourCycle: 24}, Region{Locale: "zh-Hans-CN", FirstWeekday: time.Sunday, HourCycle: 24}},
 		{platform.Region{FirstWeekday: -1}, Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12}},
 	} {
@@ -379,6 +380,50 @@ func TestMenuRelabel(t *testing.T) {
 	onMain(func() {})
 	if got := edit.Submenu[0].Label; got != "Copy" {
 		t.Errorf("back in English, Copy says %q", got)
+	}
+}
+
+// TestMenuBeforeRun checks that the items of a menu made before the app
+// knew the language it shows, as main makes the app's menu before Run,
+// take their roles' labels in that language as it starts.
+func TestMenuBeforeRun(t *testing.T) {
+	localeTest(t, []string{"en", "zh-Hans"}, "zh-CN")
+	onMain(func() { locales.shown.Store(nil) }) // as before Run
+	edit := &MenuItem{Role: RoleEditMenu, Submenu: []*MenuItem{{Role: RoleCopy}}}
+	NewMenu([]*MenuItem{edit})
+	if edit.Label != "Edit" {
+		t.Fatalf("before the app knew its language, Edit says %q", edit.Label)
+	}
+	onMain(App.startLocale)
+	if edit.Label != "编辑" || edit.Submenu[0].Label != "复制" {
+		t.Errorf("as the app starts, the menu says %q, %q", edit.Label, edit.Submenu[0].Label)
+	}
+}
+
+// TestSavedLocaleWhereRunPutsIt checks that the language saved in an
+// earlier run is read where the app's paths are as it runs, even when
+// something asked for the language before they were set.
+func TestSavedLocaleWhereRunPutsIt(t *testing.T) {
+	dir := localeTest(t, []string{"en", "zh-Hans", "de"}, "en")
+	elsewhere := t.TempDir()
+	App.SetPath(PathUserData, elsewhere)
+	onMain(func() {
+		locales.mu.Lock()
+		locales.loaded, locales.chosen = false, false
+		locales.mu.Unlock()
+		loadLocale() // read early, under the paths of then
+	})
+	App.SetPath(PathUserData, dir)
+	App.SetLocale("de") // saved where the app runs
+	onMain(func() {})
+	onMain(func() {
+		locales.mu.Lock()
+		locales.override, locales.loaded, locales.chosen = "", true, false
+		locales.mu.Unlock()
+		App.startLocale()
+	})
+	if got := App.Locale(); got != "de" {
+		t.Errorf("Locale() = %q after starting, want the saved de", got)
 	}
 }
 

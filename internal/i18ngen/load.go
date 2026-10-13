@@ -668,8 +668,9 @@ func goName(key string) string {
 
 var goKeywords = strings.Fields(`break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var`)
 
-// goReserved are the names the generated functions use.
-var goReserved = []string{"msgs", "i18n", "In", "Catalog", "time"}
+// goReserved are the names the generated functions use, and the
+// predeclared identifiers they name, which a parameter would shadow.
+var goReserved = []string{"msgs", "i18n", "In", "Catalog", "time", "string", "any", "int", "float64", "map", "nil", "true", "false"}
 
 func goParam(name string) string {
 	if r, _ := utf8.DecodeRuneInString(name); unicode.IsDigit(r) {

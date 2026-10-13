@@ -128,6 +128,9 @@ describe("createCatalog", () => {
       ["pt-PT", "color", {}, "Cor"],
       ["fr", "hello", { name: "Ada" }, "Hello, Ada!"],
       ["de", "missing", {}, "missing"],
+      // Properties every object has are no messages.
+      ["de", "toString", {}, "toString"],
+      ["de", "constructor", {}, "constructor"],
       ["de", "files", { n: 1 }, "1 Datei"],
       // English's plural rules for an English message: French says one for 0.
       ["fr", "files", { n: 0 }, "0 files"],

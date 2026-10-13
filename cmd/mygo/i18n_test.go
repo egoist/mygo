@@ -59,7 +59,8 @@ func TestWriteI18n(t *testing.T) {
 		t.Fatal(err)
 	}
 	goFile := filepath.Join("app", "strings", i18ngen.GoFile)
-	if want := []string{goFile, filepath.Join("web", "src", "strings.ts")}; !slices.Equal(out.written, want) {
+	// Written paths are as the CLI shows them, with slashes.
+	if want := []string{filepath.ToSlash(goFile), "web/src/strings.ts"}; !slices.Equal(out.written, want) {
 		t.Errorf("wrote %v, want %v", out.written, want)
 	}
 	if len(out.warnings) != 1 || !strings.Contains(out.warnings[0].String(), "1 of 2 messages missing") {
