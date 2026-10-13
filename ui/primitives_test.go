@@ -630,3 +630,117 @@ func TestPasteDuringFrame(t *testing.T) {
 		t.Fatalf("pasted %q", text)
 	}
 }
+
+// A chat composer sends with Enter and breaks the line with Shift+Enter:
+// OnEnter sees the Enter before the editor takes it, and one it takes
+// changes nothing — a text area inserts no newline, a single-line input
+// does not submit.
+func TestOnEnterTakesEnterByModifier(t *testing.T) {
+	for _, multiline := range []bool{false, true} {
+		text, submits, takes := "", 0, false
+		sent, sends := "", 0
+		tt := coreNewTester(func(c *context) {
+			var in *node
+			if multiline {
+				in = coreTextAreaBase(c, &text)
+			} else {
+				in = coreTextInputBase(c, &text)
+			}
+			in.Width(100).Label("draft")
+			in.OnEnter(func(mods Modifiers) bool {
+				if takes {
+					sends++
+					sent = text
+					if !multiline {
+						in.SetText("") // a composer clears the draft it sent
+					}
+					return true
+				}
+				return false
+			})
+			if in.Submitted() {
+				submits++
+			}
+		}, 200, 50)
+		tt.Click("draft")
+		tt.Type("hello")
+
+		// Not taken: the editor does what it always does.
+		tt.Key(0, KeyEnter)
+		tt.Frame()
+		if multiline {
+			if text != "hello\n" {
+				t.Fatalf("multiline: text %q, want a newline", text)
+			}
+		} else if submits != 1 {
+			t.Fatalf("single-line: submitted %d times, want 1", submits)
+		}
+
+		// Taken: a newline is not inserted, and nothing submits.
+		takes = true
+		tt.Key(Shift, KeyEnter)
+		tt.Frame()
+		if sends != 1 || sent != "hello" && sent != "hello\n" {
+			t.Fatalf("taken Enter: sent %q %d times, want the draft once", sent, sends)
+		}
+		if multiline {
+			if text != "hello\n" {
+				t.Fatalf("taken Shift+Enter: text %q, want the newline kept", text)
+			}
+		} else {
+			if submits != 1 {
+				t.Fatalf("taken Enter: submitted %d times, want still 1", submits)
+			}
+			if text != "" {
+				t.Fatalf("taken Enter: text %q, want the draft cleared", text)
+			}
+		}
+		// The draft still edits normally afterwards.
+		tt.Type("x")
+		tt.Frame()
+		if multiline {
+			if text != "hello\nx" {
+				t.Fatalf("multiline after take: text %q, want hello\nx", text)
+			}
+		} else if text != "x" {
+			t.Fatalf("single-line after clear: text %q, want x", text)
+		}
+	}
+}
+
+// OnEnter holds until the next frame, as ReadOnly does, and reports the
+// modifiers held: Shift+Enter can break the line while Enter sends.
+func TestOnEnterSeesModifiersAndHolds(t *testing.T) {
+	text := ""
+	var seen []Modifiers
+	armed := true
+	tt := coreNewTester(func(c *context) {
+		in := coreTextAreaBase(c, &text).Width(100).Label("draft")
+		in.OnEnter(func(mods Modifiers) bool {
+			if armed {
+				seen = append(seen, mods)
+				return true
+			}
+			return false
+		})
+	}, 200, 80)
+	tt.Click("draft")
+
+	tt.Key(0, KeyEnter)
+	tt.Key(Shift, KeyEnter)
+	tt.Frame()
+	if len(seen) != 2 || seen[0] != 0 || seen[1] != Shift {
+		t.Fatalf("saw mods %v, want [0 Shift]", seen)
+	}
+	if text != "" {
+		t.Fatalf("taken Enters changed nothing, text %q", text)
+	}
+
+	// The next frame without OnEnter goes back to the editor.
+	armed = false
+	tt.Key(0, KeyEnter)
+	tt.Frame()
+	if text != "\n" {
+		t.Fatalf("after the hold lapsed: text %q, want a newline", text)
+	}
+}

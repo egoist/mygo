@@ -3978,6 +3978,34 @@ func (_handle Element) NoWrap() Element {
 	return wrapElement(_node.NoWrap())
 }
 
+// OnEnter has fn see an Enter in the text input, with the modifiers held,
+// before the editor takes it, on the main thread as the key comes. fn
+// reports whether it took the Enter; one taken changes nothing: a text
+// area inserts no newline, and a single-line input does not submit. Like
+// ReadOnly, it holds for the input that comes until the next frame.
+//
+// It is how a chat composer sends with Enter and breaks the line with
+// Shift+Enter, clearing the sent draft with SetText, as writing the
+// bound value alone would be written back over by the editor:
+//
+//	ui.TextArea(c, &app.draft).OnEnter(func(mods ui.Modifiers) bool {
+//		if mods&ui.Shift == 0 {
+//			app.send(app.draft)
+//			composer.SetText("")
+//			return true
+//		}
+//		return false
+//	})
+func (_handle Element) OnEnter(fn func(mods Modifiers) bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.OnEnter(fn))
+}
+
 // OnPaste has fn see a paste into a text input, by Cmd+V, Ctrl+V or a
 // Paste menu item, before it is inserted, on the main thread as the paste
 // comes: text is the clipboard's text, empty when it holds none, as with
@@ -4475,6 +4503,21 @@ func (_handle Element) SelectionColor(c Color) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.SelectionColor(c))
+}
+
+// SetText replaces the whole text, as the combobox does when a row is
+// picked, through the editor so undo, the buffer and the bound value all
+// agree. Writing the bound value directly from an input callback is not
+// enough: the editor takes its buffer as the authority and writes it back
+// over the value at the end of the pass.
+func (_handle Element) SetText(s string) {
+	_node := _handle.node()
+	if _node == nil {
+		return
+	}
+	_ctx := _node.c
+	_ = _ctx
+	_node.SetText(s)
 }
 
 // SetTextSelection selects the runes of a text input from start to end, or

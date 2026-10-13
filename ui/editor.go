@@ -55,6 +55,8 @@ type editor struct {
 	password           bool
 	// onPaste sees a paste before it is inserted (OnPaste).
 	onPaste func(text string) bool
+	// onEnter sees an Enter before the editor takes it (OnEnter).
+	onEnter func(mods Modifiers) bool
 	// leaveEmptyBackspace leaves Backspace to shortcuts while the text is
 	// empty, as a token field's input does to take out a token.
 	leaveEmptyBackspace bool

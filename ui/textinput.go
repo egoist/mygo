@@ -53,7 +53,7 @@ func textInputBase(c *context, value *string, multiline bool) *node {
 		ed.setText(*value)
 		ed.compose = ""
 	}
-	ed.readOnly, ed.password, ed.lines, ed.onPaste = false, false, [2]int{}, nil
+	ed.readOnly, ed.password, ed.lines, ed.onPaste, ed.onEnter = false, false, [2]int{}, nil, nil
 	ed.ranges = ed.ranges[:0]
 	e.onValueInput(stringInput)
 
@@ -97,6 +97,31 @@ func (e *node) OnPaste(fn func(text string) bool) *node {
 	return e
 }
 
+// OnEnter has fn see an Enter in the text input, with the modifiers held,
+// before the editor takes it, on the main thread as the key comes. fn
+// reports whether it took the Enter; one taken changes nothing: a text
+// area inserts no newline, and a single-line input does not submit. Like
+// ReadOnly, it holds for the input that comes until the next frame.
+//
+// It is how a chat composer sends with Enter and breaks the line with
+// Shift+Enter, clearing the sent draft with SetText, as writing the
+// bound value alone would be written back over by the editor:
+//
+//	ui.TextArea(c, &app.draft).OnEnter(func(mods ui.Modifiers) bool {
+//		if mods&ui.Shift == 0 {
+//			app.send(app.draft)
+//			composer.SetText("")
+//			return true
+//		}
+//		return false
+//	})
+func (e *node) OnEnter(fn func(mods Modifiers) bool) *node {
+	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
+		ed.onEnter = fn
+	}
+	return e
+}
+
 // Lines makes a text area as high as its text, wrapped at its width, from
 // min lines up to max, past which it scrolls, as a message field grows with
 // what is typed: TextArea(c, &draft).Lines(1, 8). Without it, a text area is
@@ -106,6 +131,27 @@ func (e *node) Lines(min, max int) *node {
 		ed.lines = [2]int{min, max}
 	}
 	return e
+}
+
+// SetText replaces the whole text, as the combobox does when a row is
+// picked, through the editor so undo, the buffer and the bound value all
+// agree. Writing the bound value directly from an input callback is not
+// enough: the editor takes its buffer as the authority and writes it back
+// over the value at the end of the pass.
+func (e *node) SetText(s string) {
+	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
+		ed.setText(s)
+		if ed.client != nil {
+			ed.client.publish()
+		}
+		if st := e.st; st != nil {
+			st.markChanged()
+			ed.bufferDirty = false
+		}
+		if ed.value != nil {
+			*ed.value = s
+		}
+	}
 }
 
 // TextSelection returns the selection of a text input as offsets in runes

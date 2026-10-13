@@ -267,6 +267,14 @@ func (ed *editor) key(c *context, st *state, k editEvent) {
 		}
 		return
 	case KeyEnter:
+		// OnEnter sees the Enter before the editor takes it, as OnPaste
+		// does a paste: taken, it changes nothing, as a chat composer
+		// sending with Enter and breaking the line with Shift+Enter. No
+		// consumed here: the take changes no UI, and a rebuild pass would
+		// resync *value from buf.s before the app clears the buffer.
+		if ed.onEnter != nil && ed.onEnter(k.mods) {
+			return
+		}
 		if ed.multiline {
 			ed.insert("\n")
 		} else {
