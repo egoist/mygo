@@ -202,10 +202,10 @@ type TextRange struct {
 }
 
 // TextRanges styles runs of a text input's text, in the frames that call
-// it, with ranges that do not overlap. They follow the text as it is: an
-// app that finds them in the text finds them again as it changes. A
-// password shows none; an input method's composition shows unstyled
-// between them.
+// it. Where ranges overlap, the one starting first shows, or given first
+// when they start together. They follow the text as it is: an app that
+// finds them in the text finds them again as it changes. A password shows
+// none; an input method's composition shows unstyled between them.
 func (e *node) TextRanges(ranges ...TextRange) *node {
 	ed := e.st.editor
 	if ed == nil || e.flags&flagEditable == 0 {
@@ -216,6 +216,22 @@ func (e *node) TextRanges(ranges ...TextRange) *node {
 			ed.ranges = append(ed.ranges, r)
 		}
 	}
-	slices.SortFunc(ed.ranges, func(a, b TextRange) int { return a.Start - b.Start })
+	ed.sortRanges()
 	return e
+}
+
+// sortRanges sorts the ranges by start and clips where they overlap, as
+// TextRanges says.
+func (ed *editor) sortRanges() {
+	slices.SortStableFunc(ed.ranges, func(a, b TextRange) int { return a.Start - b.Start })
+	apart := ed.ranges[:0]
+	for _, r := range ed.ranges {
+		if n := len(apart); n > 0 {
+			r.Start = max(r.Start, apart[n-1].End)
+		}
+		if r.End > r.Start {
+			apart = append(apart, r)
+		}
+	}
+	ed.ranges = apart
 }

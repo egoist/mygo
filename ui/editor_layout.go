@@ -213,7 +213,20 @@ func (e *node) paintInput(p *Painter) {
 // input method's composition at the caret, between start and end, sits
 // unstyled between the runs, and those after it move past it.
 func (ed *editor) rangeSpans(start, end int) (string, *spanPaint) {
-	if len(ed.ranges) == 0 {
+	// The ranges are sorted and apart (sortRanges): of those starting
+	// before start, only the last can reach in. A paragraph of a long text
+	// skips the others rather than walking them all.
+	first := sort.Search(len(ed.ranges), func(i int) bool { return ed.ranges[i].Start >= start })
+	if first > 0 && ed.ranges[first-1].End > start {
+		first--
+	}
+	return ed.spansOf(ed.ranges[first:], start, end)
+}
+
+// spansOf is rangeSpans of ranges, sorted and apart: those from the first
+// starting at end or later are out of reach.
+func (ed *editor) spansOf(ranges []TextRange, start, end int) (string, *spanPaint) {
+	if len(ranges) == 0 {
 		return "", nil
 	}
 	caret, n := -1, 0
@@ -241,21 +254,12 @@ func (ed *editor) rangeSpans(start, end int) (string, *spanPaint) {
 		spans = append(spans, Span{Color: r.Color, Weight: r.Weight})
 		at = to
 	}
-	last := start
-	// The ranges are sorted by start and do not overlap (TextRanges): only
-	// the one before the first starting at start or later can reach in,
-	// and none starting at end or later can. A long text's paragraphs
-	// would otherwise each walk them all.
-	first := sort.Search(len(ed.ranges), func(i int) bool { return ed.ranges[i].Start >= start })
-	if first > 0 && ed.ranges[first-1].End > start {
-		first--
-	}
-	for _, r := range ed.ranges[first:] {
+	for _, r := range ranges {
 		if r.Start >= end {
 			break
 		}
 		from, to := max(r.Start, start), min(r.End, end)
-		if from >= to || from < last {
+		if from >= to {
 			continue
 		}
 		if from < caret && caret < to {
@@ -266,7 +270,6 @@ func (ed *editor) rangeSpans(start, end int) (string, *spanPaint) {
 		}
 		weighted = weighted || r.Weight > 0
 		colored = colored || r.Color.A > 0
-		last = to
 	}
 	key := ""
 	if weighted {
