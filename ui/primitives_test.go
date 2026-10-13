@@ -632,7 +632,7 @@ func TestPasteDuringFrame(t *testing.T) {
 }
 
 // A chat composer sends with Enter and breaks the line with Shift+Enter:
-// OnEnter sees the Enter before the editor takes it, and one it takes
+// OnEnter sees the Enter before the editor takes it, and one taken
 // changes nothing — a text area inserts no newline, a single-line input
 // does not submit.
 func TestOnEnterTakesEnterByModifier(t *testing.T) {
