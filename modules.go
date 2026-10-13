@@ -739,26 +739,15 @@ func NotificationsSupported() bool {
 //		}
 //	})
 //
-// By default it answers what the machine has, which is cheap: it looks for
-// the runtime and its files, and on Linux loads WebKitGTK. That is not a
-// promise a page will show, as a runtime that is there but broken still
-// answers true. WebViewSupported(true) asks for the runtime to be really
-// tried instead, which only Windows can do: it creates a WebView2
-// environment, starting a browser process and waiting for it to answer, so
-// it takes a moment, and the environment is what the windows the app opens
-// next use. It is the answer to trust when the app decides by it whether to
-// show a page at all, and the cheap answer is for reporting a machine's
-// setup.
-//
-// Even that is not the whole story on Windows: an environment is created
-// before a window's web view is, and a runtime whose files are all there but
-// whose browser is not (a copy of it, say) passes both, then fails to make
-// the web view, which the window reports as calls that need one fail. There
-// is no check short of showing a page.
-func WebViewSupported(force ...bool) bool {
+// It looks for the runtime without starting it: on Windows for the
+// WebView2 Runtime or a WebView2Loader.dll next to the executable, on
+// Linux by loading WebKitGTK. A runtime that is there but broken still
+// reports true; the window then reports calls that need its page as
+// failed. Once a window showing a page started the runtime, it reports
+// whether that worked.
+func WebViewSupported() bool {
 	needsApp("WebViewSupported")
-	really := len(force) > 0 && force[0]
-	return onMainValue(func() bool { return backend().WebViewSupported(really) })
+	return onMainValue(func() bool { return backend().WebViewSupported() })
 }
 
 // NewNotification creates a notification; call Show to display it.

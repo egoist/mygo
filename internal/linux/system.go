@@ -520,10 +520,9 @@ func (b *Backend) NotificationsSupported() bool {
 // WebViewSupported reports whether a window showing a web page can have
 // one: WebKitGTK, JavaScriptCore and libsoup, which it needs. Windows
 // showing native UI need GTK alone, so an app whose windows all do runs
-// without them. Loading the libraries is the only probe, and a loaded
-// library is as much as can be known before a page loads, so force changes
-// nothing here.
-func (b *Backend) WebViewSupported(force bool) bool { return webKit() == nil }
+// without them. Loading the libraries is as much as can be known before a
+// page loads.
+func (b *Backend) WebViewSupported() bool { return webKit() == nil }
 
 func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 	done(b.showNotification(n))

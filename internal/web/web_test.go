@@ -150,12 +150,9 @@ func TestDroppedFiles(t *testing.T) {
 
 // TestWebViewSupported: browsers have no system webview, so the call says
 // so, and an app opens a window of native UI instead of one showing a page
-// it could not show. force asks a real runtime to be tried, which a browser
-// has none of either.
+// it could not show.
 func TestWebViewSupported(t *testing.T) {
-	for _, force := range []bool{false, true} {
-		if New().WebViewSupported(force) {
-			t.Errorf("WebViewSupported(%v) = true in a browser, which has no webview", force)
-		}
+	if New().WebViewSupported() {
+		t.Error("WebViewSupported = true in a browser, which has no webview")
 	}
 }
