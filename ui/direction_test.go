@@ -209,3 +209,73 @@ func TestDirectionScroll(t *testing.T) {
 	tt.Frame()
 	want("last", 0, 150)
 }
+
+// TestDirectionTableHeader keeps a header that scrolls with its list's
+// rows (ScrollWith) over the cells under it right to left, both laid out
+// from the right, as the rows scroll toward their end at the left.
+func TestDirectionTableHeader(t *testing.T) {
+	var s ui.ListState
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() {
+			head := ui.Row(c).Height(20).Shrink(0).Clip().Children(func() {
+				ui.Text(c, "Name").Width(500).Shrink(0)
+				ui.Text(c, "Size").Width(100).Shrink(0)
+			})
+			list := ui.List(c, &s, 50).Grow(1).RowWidth(600)
+			list.Rows(func(r ui.ListRow) {
+				ui.Row(r.Context).Height(20).Children(func() {
+					ui.Text(r.Context, "file").Width(500).Shrink(0)
+					ui.Text(r.Context, "1 KB").Width(100).Shrink(0)
+				})
+			})
+			head.ScrollWith(list)
+		})
+	}, 300, 200)
+	tt.SetDirection(ui.RightToLeft)
+	name, file := at(t, tt, "Name"), at(t, tt, "file")
+	if name.X != file.X || name.W != file.W || name.X+name.W != 300 {
+		t.Fatalf("at the start right to left, Name shows over %v+%v and the cell under it over %v+%v", name.X, name.W, file.X, file.W)
+	}
+	tt.Scroll(150, 100, -300, 0)
+	size, kb := at(t, tt, "Size"), at(t, tt, "1 KB")
+	if size.X != kb.X || size.W != kb.W || size.X != 0 || size.W != 100 {
+		t.Errorf("scrolled to the end right to left, Size shows over %v+%v and the cell under it over %v+%v, want 0+100", size.X, size.W, kb.X, kb.W)
+	}
+}
+
+// TestDirectionTextArea starts the paragraphs of a text area at its
+// right right to left, its caret too while it is empty.
+func TestDirectionTextArea(t *testing.T) {
+	text := ""
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.TextArea(c, &text).Size(200, 100).Label("Notes")
+	}, 300, 200)
+	tt.SetDirection(ui.RightToLeft)
+	area := at(t, tt, "Notes")
+	tt.Click("Notes")
+	if caret, _ := tt.TextCaret(); caret.X < area.X+area.W-20 {
+		t.Errorf("right to left, an empty text area's caret is at %v of %v+%v, want at its right", caret.X, area.X, area.W)
+	}
+}
+
+// TestDirectionGridView places a grid view's items from the right, which
+// Left goes forward among.
+func TestDirectionGridView(t *testing.T) {
+	sel := 0
+	s := ui.GridState{Selected: &sel}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.GridView(c, &s, 6, 90, 40, func(i int) {
+			ui.Text(c, []string{"zero", "one", "two", "three", "four", "five"}[i])
+		}).Size(300, 200).Label("Items")
+	}, 300, 200)
+	tt.SetDirection(ui.RightToLeft)
+	zero, one := at(t, tt, "zero"), at(t, tt, "one")
+	if one.X >= zero.X || zero.X < 200 {
+		t.Fatalf("right to left, zero is at %v and one at %v", zero.X, one.X)
+	}
+	tt.Click("zero")
+	tt.Key(0, ui.KeyLeft)
+	if sel != 1 {
+		t.Errorf("Left chose item %d, want 1", sel)
+	}
+}
