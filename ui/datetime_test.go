@@ -248,3 +248,30 @@ func TestColorWell(t *testing.T) {
 		t.Error("Escape left the picker open")
 	}
 }
+
+func TestTimeLayout(t *testing.T) {
+	for _, c := range []struct {
+		pattern, sep string
+		periodFirst  bool
+	}{
+		{"h:mm a", ":", false},
+		{"ah:mm", ":", true},
+		{"H 'h' mm", " h ", false},
+		{"HH.mm", ".", false},
+		{"H'm' mm", "m ", false},
+		{"a h'''h' mm", "'h ", true},
+		{"B h:mm", ":", true},
+	} {
+		if sep, first := timeLayout(c.pattern); sep != c.sep || first != c.periodFirst {
+			t.Errorf("timeLayout(%q) = %q, %v; want %q, %v", c.pattern, sep, first, c.sep, c.periodFirst)
+		}
+	}
+	// French of Canada writes 07 h 30.
+	alarm := time.Date(2026, 10, 4, 7, 30, 0, 0, time.UTC)
+	tt := coreNewTester(func(c *context) { coreTimeInput(c, &alarm) }, 300, 100)
+	tt.SetLocale("fr-CA")
+	tt.SetRegion(i18n.Region{Locale: "fr-CA", FirstWeekday: time.Sunday, HourCycle: 24})
+	if !tt.HasText(" h ") {
+		t.Errorf("fr-CA: %q", tt.Texts())
+	}
+}

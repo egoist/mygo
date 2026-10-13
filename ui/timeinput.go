@@ -208,23 +208,67 @@ func coreTimeInput(c *context, tm *time.Time) *node {
 	return f
 }
 
-// timeLayout reads a pattern of hours and minutes, as "h:mm a" or
-// "ah:mm": what separates the hours from the minutes, and whether the
-// half of the day comes before the hours.
+// timeLayout reads a pattern of hours and minutes of CLDR, as "h:mm a",
+// "ah:mm" or "H 'h' mm": the text that separates the hours from the
+// minutes, its quotes removed, and whether the half of the day comes
+// before the hours.
 func timeLayout(pattern string) (sep string, periodFirst bool) {
+	// The fields (a letter repeated, outside quotes) and the literal text
+	// between them.
+	type item struct {
+		field byte
+		text  string
+	}
+	var items []item
+	var lit strings.Builder
+	quoted := false
+	for i := 0; i < len(pattern); i++ {
+		c := pattern[i]
+		switch {
+		case c == '\'':
+			if i+1 < len(pattern) && pattern[i+1] == '\'' {
+				lit.WriteByte('\'')
+				i++
+			} else {
+				quoted = !quoted
+			}
+		case !quoted && (c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'):
+			items = append(items, item{text: lit.String()})
+			lit.Reset()
+			for i+1 < len(pattern) && pattern[i+1] == c {
+				i++
+			}
+			items = append(items, item{field: c})
+		default:
+			lit.WriteByte(c)
+		}
+	}
+	hour, minute, period := -1, -1, -1
+	for i, it := range items {
+		switch it.field {
+		case 'h', 'H', 'k', 'K':
+			if hour < 0 {
+				hour = i
+			}
+		case 'm':
+			if minute < 0 {
+				minute = i
+			}
+		case 'a', 'b', 'B':
+			if period < 0 {
+				period = i
+			}
+		}
+	}
 	sep = ":"
-	h := strings.IndexAny(pattern, "hHkK")
-	if h < 0 {
-		return sep, false
+	if hour >= 0 && minute > hour {
+		var b strings.Builder
+		for _, it := range items[hour+1 : minute] {
+			b.WriteString(it.text)
+		}
+		sep = b.String()
 	}
-	if a := strings.IndexAny(pattern, "aB"); a >= 0 && a < h {
-		periodFirst = true
-	}
-	rest := strings.TrimLeft(pattern[h:], "hHkK")
-	if i := strings.IndexByte(rest, 'm'); i > 0 {
-		sep = strings.Trim(rest[:i], "'")
-	}
-	return sep, periodFirst
+	return sep, period >= 0 && hour >= 0 && period < hour
 }
 
 // startsWith reports whether a name of a half of the day starts with r,
