@@ -51,9 +51,10 @@ type State struct {
 	NoFolding bool
 	// NoActiveLine stops highlighting the lines with a caret.
 	NoActiveLine bool
-	// BlockCaret paints carets as blocks over the character after them,
-	// as Vim's normal mode does, translucent to show the character.
-	BlockCaret bool
+	// CaretShape is the shape of the carets: bars by default, or blocks
+	// over the character after them, as Vim's normal mode has, or
+	// underlines, as its pending operators do.
+	CaretShape CaretShape
 	// FitContent makes the editor as high as its lines, to show in a
 	// scroll view or a list, rather than scrolling them itself.
 	FitContent bool
@@ -96,9 +97,10 @@ type State struct {
 	// editor leaves it. Text typed comes as InputText, outside an input
 	// method's composition.
 	OnInput func(ev ui.InputEvent) bool
-	// NoInputMethod keeps input methods from composing in the editor:
-	// text typed, and what an input method commits, comes whole as
-	// InputText, as keys for Vim's normal mode do.
+	// NoInputMethod keeps input methods from composing in the text:
+	// what they compose comes to OnInput as InputCompose, and text typed,
+	// or what an input method commits, as InputText, as keys for Vim's
+	// normal mode want.
 	NoInputMethod bool
 
 	// RenderFindBar, RenderGoToLine, RenderCompletions and RenderHover
@@ -147,6 +149,18 @@ const (
 	WhitespaceBoundary
 )
 
+// CaretShape is the shape of the carets.
+type CaretShape uint8
+
+const (
+	CaretBar CaretShape = iota
+	// CaretBlock covers the character after the caret, a space's width at
+	// the end of a line, translucent so that the character shows.
+	CaretBlock
+	// CaretUnderline underlines the character after the caret.
+	CaretUnderline
+)
+
 // GutterMark marks a line in the gutter.
 type GutterMark struct {
 	Line  int
@@ -158,7 +172,7 @@ func (st *State) options() options {
 		readOnly: st.ReadOnly, font: st.Font, lineHeight: st.LineHeight, tabSize: st.TabSize, indent: st.Indent,
 		wrap: st.SoftWrap, wrapColumn: st.WrapColumn, lineNumbers: st.LineNumbers, whitespace: st.Whitespace,
 		wrapGuides: st.WrapGuides, indentGuides: !st.NoIndentGuides, scrollPastEnd: !st.NoScrollPastEnd && !st.FitContent,
-		autoClose: !st.NoAutoClose, folding: !st.NoFolding, activeLine: !st.NoActiveLine, blockCaret: st.BlockCaret, fitContent: st.FitContent,
+		autoClose: !st.NoAutoClose, folding: !st.NoFolding, activeLine: !st.NoActiveLine, caretShape: st.CaretShape, fitContent: st.FitContent,
 		placeholder: st.Placeholder, label: st.Label, theme: st.Theme, bindings: st.Bindings, gutterMarks: st.GutterMarks,
 		diffBase: st.DiffBase, onCompletion: st.OnCompletion, onHover: st.OnHover, onDefinition: st.OnDefinition,
 		onGutterClick: st.OnGutterClick, contextMenu: st.ContextMenu, onInput: st.OnInput, noInputMethod: st.NoInputMethod, minDigits: 3,

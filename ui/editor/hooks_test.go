@@ -36,6 +36,27 @@ func TestOnInputTakesKeys(t *testing.T) {
 	}
 }
 
+// OnInput hears of an event once, even when what it does with one it
+// leaves, as edit the buffer, has the editor run its own handling again on
+// the text as it is.
+func TestOnInputOnce(t *testing.T) {
+	ct := newEditorTest(t, "", "ab|")
+	calls := 0
+	ct.st.OnInput = func(ev ui.InputEvent) bool {
+		if ev.Kind == ui.InputText {
+			calls++
+			ct.st.Buffer.Edit(Edit{Start: 0, End: 0, Text: ">"})
+		}
+		return false
+	}
+	ct.tt.Frame()
+	ct.typ("y")
+	ct.want(">aby|")
+	if calls != 1 {
+		t.Fatalf("OnInput heard of the text %d times, want once", calls)
+	}
+}
+
 // VisibleLines are the lines the last frame showed, scrolled or not.
 func TestVisibleLines(t *testing.T) {
 	ct := newEditorTest(t, "", strings.Repeat("line\n", 200))
@@ -65,21 +86,23 @@ func (ct *editorTest) pixel(x, y float32) (r, g, b uint8) {
 var redTheme = &Theme{Background: ui.RGB(255, 255, 255), Cursor: ui.RGB(255, 0, 0)}
 
 // A block caret covers the character after it, or a space's width at the
-// end of a line, in the color of carets made translucent.
-func TestBlockCaret(t *testing.T) {
+// end of a line, in the color of carets made translucent; an underline
+// caret underlines it.
+func TestCaretShape(t *testing.T) {
 	ct := newEditorTest(t, "", "|abc\nab")
 	ct.st.Theme, ct.st.NoActiveLine = redTheme, true
 	ct.tt.Frame()
 	ed := &ct.st.ed
 	cw, lh := ed.view.charWidth, ed.view.lineHeight
-	inBlock := func(line, col int) bool {
-		r, g, _ := ct.pixel(ed.textX+(float32(col)+0.6)*cw, float32(line)*lh+2)
+	red := func(line, col int, y float32) bool {
+		r, g, _ := ct.pixel(ed.textX+(float32(col)+0.6)*cw, float32(line)*lh+y)
 		return r > 200 && g < 230
 	}
+	inBlock := func(line, col int) bool { return red(line, col, 2) }
 	if inBlock(0, 0) {
 		t.Fatal("a bar caret painted a block")
 	}
-	ct.st.BlockCaret = true
+	ct.st.CaretShape = CaretBlock
 	ct.tt.Frame()
 	if !inBlock(0, 0) || inBlock(0, 1) {
 		t.Fatal("the block caret did not cover the first character alone")
@@ -92,6 +115,26 @@ func TestBlockCaret(t *testing.T) {
 	ct.tt.Frame()
 	if !inBlock(1, 2) || inBlock(1, 3) || inBlock(0, 0) {
 		t.Fatal("the block caret at the end of a line is not a space wide")
+	}
+	// An underline under the character, not over it.
+	ct.st.CaretShape = CaretUnderline
+	ct.st.Select(0, 0)
+	ct.tt.Frame()
+	if !red(0, 0, lh-1) || red(0, 0, 2) || red(0, 1, lh-1) {
+		t.Fatal("the underline caret does not underline the first character alone")
+	}
+}
+
+// A block caret covers a whole character, with its combining marks.
+func TestBlockCaretCombining(t *testing.T) {
+	ct := newEditorTest(t, "", "|e\u0301x")
+	ct.st.Theme, ct.st.NoActiveLine, ct.st.CaretShape = redTheme, true, CaretBlock
+	ct.tt.Frame()
+	ed := &ct.st.ed
+	l := ed.view.line(0)
+	want := ed.view.xOf(l, &l.rows[0], l.toDisp(3, false))
+	if w := ed.caretWidth(l, &l.rows[0], 0, ed.view.xOf(l, &l.rows[0], 0)); w != want {
+		t.Fatalf("the block caret is %v wide, want %v, that of é", w, want)
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -435,26 +434,29 @@ func (ed *editor) paintLine(p *ui.Painter, r ui.Rect, f *frame, line int, g line
 					continue
 				}
 				x := ox + v.xOf(l, row, d)
-				if ed.o.blockCaret {
-					p.Fill(ui.Rect{X: x, Y: y, W: ed.blockWidth(l, row, s.head-l.start, x-ox), H: lh}, ct.Cursor.Alpha(0.4), 0)
-					continue
+				switch ed.o.caretShape {
+				case CaretBlock:
+					p.Fill(ui.Rect{X: x, Y: y, W: ed.caretWidth(l, row, s.head, x-ox), H: lh}, ct.Cursor.Alpha(0.4), 0)
+				case CaretUnderline:
+					p.Fill(ui.Rect{X: x, Y: y + lh - 2, W: ed.caretWidth(l, row, s.head, x-ox), H: 2}, ct.Cursor, 0)
+				default:
+					p.Fill(ui.Rect{X: x - 1, Y: y, W: 2, H: lh}, ct.Cursor, 0)
 				}
-				p.Fill(ui.Rect{X: x - 1, Y: y, W: 2, H: lh}, ct.Cursor, 0)
 			}
 		}
 	}
 }
 
-// blockWidth returns the width of a block caret at byte col of a line,
-// at x in row: that of the character after it, or of a space at the end
-// of the line or of the row.
-func (ed *editor) blockWidth(l *lineLayout, row *rowLayout, col int, x float32) float32 {
+// caretWidth returns the width of a block or underline caret at offset
+// at, x in row: that of the character after it, with its combining marks,
+// or of a space at the end of the line or of the row.
+func (ed *editor) caretWidth(l *lineLayout, row *rowLayout, at int, x float32) float32 {
 	v := &ed.view
-	if col >= len(l.text) {
+	end := min(graphemeRight(v.text, at), l.start+len(l.text))
+	if end <= at {
 		return v.charWidth
 	}
-	_, size := utf8.DecodeRuneInString(l.text[col:])
-	d := l.toDisp(col+size, false)
+	d := l.toDisp(end-l.start, false)
 	if d > row.to {
 		return v.charWidth
 	}

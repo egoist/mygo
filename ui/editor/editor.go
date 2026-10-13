@@ -28,7 +28,7 @@ type options struct {
 	autoClose     bool
 	folding       bool
 	activeLine    bool
-	blockCaret    bool
+	caretShape    CaretShape
 	fitContent    bool
 	placeholder   string
 	label         string

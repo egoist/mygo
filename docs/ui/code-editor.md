@@ -133,10 +133,13 @@ frame showed, as a half page of Vim's moves by.
 typed, edit commands and the pointer. Returning true takes the event, and
 the editor leaves it; the others go on as without it. An app's own mode of
 editing, as Vim's normal mode, takes keys this way while the editor still
-shows and moves the carets. Text an input method composes goes to the
-editor alone, unless `NoInputMethod` is set: then no input method composes
-in the editor, and text typed, or committed by an input method, comes to
-`OnInput` as `InputText`, as a mode that reads letters as commands wants.
+shows and moves the carets. Letters typed come as `InputText`: on some
+systems their keys come first as `InputKeyDown` too, and taking a key
+doesn't take its text, so a mode reads letters from `InputText`. Text an
+input method composes goes to the editor alone, unless `NoInputMethod` is
+set: then no input method composes in the text, its composition comes to
+`OnInput` as `InputCompose`, and text typed, or committed by an input
+method, as `InputText`, as a mode that reads letters as commands wants.
 
 ## Options
 
@@ -158,8 +161,9 @@ in the editor, and text typed, or committed by an input method, comes to
   13 DIPs, 1.5 times as high, by default.
 - `NoAutoClose`, `NoFolding`, `NoActiveLine` and `NoScrollPastEnd` turn
   those behaviors off. `Placeholder` shows while the buffer is empty.
-- `BlockCaret` paints carets as blocks over the character after them, as
-  Vim's normal mode does, translucent so that the character shows.
+- `CaretShape` paints carets as bars, as blocks over the character after
+  them, as Vim's normal mode does, translucent so that the character shows,
+  or as underlines, as its pending operators do.
 - `DiffBase` is the text the buffer's changes show against in the gutter,
   as the file in Git: bars mark the lines added and changed, and a mark
   where lines were deleted. Cmd+F8 goes to the next change, and Cmd+Alt+Z
