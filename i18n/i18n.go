@@ -1,5 +1,6 @@
 // Package i18n reads the languages people read and picks, of those an app
-// is written in, the one that suits them best.
+// is written in, the one that suits them best, and says an app's messages
+// in it.
 //
 // A language is a BCP 47 tag, as "en", "en-GB", "zh-Hant" or "sr-Latn-RS".
 // Normalize reads the other forms desktops report, as the POSIX locales of
@@ -7,6 +8,13 @@
 // distances of the Unicode CLDR, through golang.org/x/text/language, so
 // that zh-TW gets zh-Hant and not zh-Hans, es-MX gets es-419 before es, and
 // nb gets no.
+//
+// An app's messages are in catalogs (Catalog), a JSON file per language,
+// of messages of ICU MessageFormat (Message), whose plural forms follow
+// the plural rules of CLDR (PluralCategory). `mygo generate` writes typed
+// Go and TypeScript functions for them, which say them in the language
+// the app shows (Locale). The data of CLDR is generated from a pinned
+// release (CLDRVersion) by `go generate`.
 package i18n
 
 import (
