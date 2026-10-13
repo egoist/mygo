@@ -297,7 +297,7 @@ func ownStyles(rt *engine, e *node) []inspDecl {
 }
 
 // textStyles returns the text styles of ts in set, as CSS declarations.
-func textStyles(ts *textStyle, set uint16) []inspDecl {
+func textStyles(ts *textStyle, set uint32) []inspDecl {
 	var ds []inspDecl
 	add := func(name, value string) { ds = append(ds, inspDecl{name: name, value: value}) }
 	if set&setFamily != 0 {
@@ -334,6 +334,9 @@ func textStyles(ts *textStyle, set uint16) []inspDecl {
 	}
 	if set&setFeatures != 0 {
 		add("font-feature-settings", ts.features)
+	}
+	if set&setLang != 0 {
+		add("lang", ts.lang)
 	}
 	var deco []string
 	if set&setUnderline != 0 && ts.underline {

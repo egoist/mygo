@@ -6,6 +6,7 @@ import (
 	"time"
 	"weak"
 
+	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/text"
@@ -45,6 +46,10 @@ type host interface {
 	escape()
 	isDark() bool
 	preferences() platform.Preferences
+	// locale returns the language the app shows, and region the user's
+	// regional formats; they cost nothing.
+	locale() string
+	region() i18n.Region
 	titleBar() TitleBar
 	// vibrancy reports whether the window shows a material where the
 	// frames are transparent.
@@ -283,6 +288,8 @@ type engine struct {
 	// prefs are the desktop's preferences, read once until they change.
 	prefs      Preferences
 	prefsKnown bool
+	// lang is the language the app shows, read as each frame starts.
+	lang string
 	// theme is the default theme, which follows the appearance and the
 	// preferences, made once until they change (themeOK); each pass
 	// starts from a copy, passTheme, which the view may change.

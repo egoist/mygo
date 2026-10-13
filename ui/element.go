@@ -147,7 +147,7 @@ type shadow struct {
 // textStyle is the text styling of an element; descendants inherit what is
 // set.
 type textStyle struct {
-	set    uint16
+	set    uint32
 	family string
 	size   float32
 	weight int
@@ -162,6 +162,8 @@ type textStyle struct {
 	strike     bool
 	spacing    float32 // letter spacing
 	features   string
+	// lang is the language of the text, a BCP 47 tag (Lang).
+	lang string
 	// decoColor and decoThick are those of underlines and strikethroughs;
 	// background is behind the text.
 	decoColor  Color
@@ -172,7 +174,7 @@ type textStyle struct {
 }
 
 const (
-	setFamily uint16 = 1 << iota
+	setFamily uint32 = 1 << iota
 	setSize
 	setWeight
 	setItalic
@@ -187,9 +189,10 @@ const (
 	setDecoThick
 	setBackground
 	setSelection
+	setLang
 
 	// setAll has every bit of textStyle.set.
-	setAll = setSelection<<1 - 1
+	setAll = setLang<<1 - 1
 )
 
 // Element is a node of a frame's user interface. The functions that create
@@ -1050,6 +1053,26 @@ func (e *node) LetterSpacing(v float32) *node {
 func (e *node) FontFeatures(features ...string) *node {
 	e.ts.features = strings.Join(features, ",")
 	e.ts.set |= setFeatures
+	return e
+}
+
+// Lang sets the language of the element's text, and of the text of the
+// elements inside it, as a BCP 47 tag, as HTML's lang attribute does: the
+// system's text stack draws the glyphs of that language, as the Han
+// characters Chinese and Japanese draw apart, and falls back to its
+// fonts. Text is in the language the app shows (mygo.App.Locale) unless
+// told otherwise: a Japanese quote in a Chinese app,
+//
+//	ui.Text(c, "直").Lang("ja")
+//
+// "" takes the language of the elements around it. Browsers draw text in
+// the page's language whatever the element's.
+func (e *node) Lang(tag string) *node {
+	e.ts.lang = tag
+	e.ts.set |= setLang
+	if tag == "" {
+		e.ts.set &^= setLang
+	}
 	return e
 }
 

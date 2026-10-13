@@ -3,6 +3,7 @@
 package ui
 
 import (
+	i18n "github.com/egoist/mygo/i18n"
 	platform "github.com/egoist/mygo/internal/platform"
 	transfer "github.com/egoist/mygo/transfer"
 	image "image"
@@ -292,6 +293,18 @@ func (_handle *Context) DisableAnimations() {
 	_ctx.DisableAnimations()
 }
 
+// Locale returns the language the app shows (mygo.App.Locale), a BCP 47
+// tag such as "en" or "zh-Hans", for what the view says in it. Text is in
+// it unless an element says otherwise (Element.Lang). A frame follows its
+// changes, as App.SetLocale makes them.
+func (_handle *Context) Locale() string {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return ""
+	}
+	return _ctx.Locale()
+}
+
 // MeasureText returns the size spans of text take as Painter.RichText draws
 // them, wrapping lines at width DIPs (none for 0), to lay out what depends
 // on it while building.
@@ -370,6 +383,17 @@ func (_handle *Context) ReadClipboard() string {
 		return ""
 	}
 	return _ctx.ReadClipboard()
+}
+
+// Region returns the user's regional formats (mygo.App.Region): the
+// locale of the formats, the first day of the week and the hour cycle,
+// which dates and times follow. A frame follows their changes.
+func (_handle *Context) Region() i18n.Region {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return *new(i18n.Region)
+	}
+	return _ctx.Region()
 }
 
 // Root returns the element holding the window's content: a column the
@@ -3692,6 +3716,27 @@ func (_handle Element) Label(s string) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Label(s))
+}
+
+// Lang sets the language of the element's text, and of the text of the
+// elements inside it, as a BCP 47 tag, as HTML's lang attribute does: the
+// system's text stack draws the glyphs of that language, as the Han
+// characters Chinese and Japanese draw apart, and falls back to its
+// fonts. Text is in the language the app shows (mygo.App.Locale) unless
+// told otherwise: a Japanese quote in a Chinese app,
+//
+//	ui.Text(c, "直").Lang("ja")
+//
+// "" takes the language of the elements around it. Browsers draw text in
+// the page's language whatever the element's.
+func (_handle Element) Lang(tag string) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Lang(tag))
 }
 
 // LayoutBounds returns the previous frame's border box before transforms,

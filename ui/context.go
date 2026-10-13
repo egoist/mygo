@@ -116,6 +116,7 @@ func (c *context) reset(now time.Time, w, h float32) {
 	c.now = now
 	c.w, c.h = w, h
 	c.theme = c.rt.defaultTheme()
+	c.rt.lang = c.rt.host.locale()
 	c.tree = nil
 	clear(c.reveal)
 	c.reveal = c.reveal[:0]
@@ -134,6 +135,10 @@ func (c *context) reset(now time.Time, w, h float32) {
 	root.st = c.rt.stateFor(root.id)
 	root.bg = c.theme.Background
 	root.ts = textStyle{set: setColor | setSize | setFamily, color: c.theme.Text, size: c.theme.FontSize, family: c.theme.Font}
+	if c.rt.lang != "" {
+		// Text is in the language the app shows unless told otherwise.
+		root.ts.lang, root.ts.set = c.rt.lang, root.ts.set|setLang
+	}
 	c.root = root
 	c.parent = root
 	c.overlay = nil

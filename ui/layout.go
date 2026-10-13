@@ -181,7 +181,7 @@ func (e *node) textParams(width float32) text.Params {
 	ts := e.resolvedText()
 	style := text.Style{
 		Family: ts.family, Size: ts.size, Weight: ts.weight, Italic: ts.italic, LineHeight: ts.lineHeight,
-		LetterSpacing: ts.spacing, Features: ts.features,
+		LetterSpacing: ts.spacing, Features: ts.features, Lang: ts.lang,
 	}
 	if ts.fixedLine && ts.lineHeight > 0 {
 		style.LineHeight = ts.lineHeight / style.FontSize()
@@ -234,6 +234,9 @@ func (e *node) resolvedText() textStyle {
 		}
 		if take&setFeatures != 0 {
 			out.features = t.features
+		}
+		if take&setLang != 0 {
+			out.lang = t.lang
 		}
 		if take&setStrike != 0 {
 			out.strike = t.strike
