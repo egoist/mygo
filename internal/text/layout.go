@@ -5,7 +5,6 @@ import (
 	"image"
 	"math"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"unicode"
@@ -278,8 +277,6 @@ type System struct {
 	// rasterizing text, if the app gave them (SetFontRendering).
 	uiFamily  string
 	rendering *[3]string
-	// registered are the families the app added with RegisterFont.
-	registered []string
 	// fonts caches the font of each style.
 	fonts map[Style]*Font
 
@@ -458,9 +455,6 @@ func (s *System) RegisterFont(data []byte, family string) error {
 	if err := s.engine().register(data, family); err != nil {
 		return err
 	}
-	if family != "" {
-		s.registered = append(s.registered, family)
-	}
 	s.gen++
 	clear(s.fonts)
 	s.clearLayouts()
@@ -469,28 +463,26 @@ func (s *System) RegisterFont(data []byte, family string) error {
 }
 
 // FontFamilies lists the families text can use, the app's registered
-// ones first, then the system's, sorted: the monospaced ones only when
-// mono (a registered family counts as monospaced).
+// ones first, then the system's, each once and sorted: the monospaced
+// ones only when mono.
 func (s *System) FontFamilies(mono bool) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	app, system := s.engine().families(mono)
 	seen := map[string]bool{}
-	var app, sys []string
-	for _, f := range s.registered {
-		if !seen[strings.ToLower(f)] {
-			seen[strings.ToLower(f)] = true
-			app = append(app, f)
+	unique := func(names []string) []string {
+		var out []string
+		for _, f := range names {
+			if key := strings.ToLower(f); !seen[key] {
+				seen[key] = true
+				out = append(out, f)
+			}
 		}
+		slices.Sort(out)
+		return out
 	}
-	for _, f := range s.engine().families(mono) {
-		if !seen[strings.ToLower(f)] {
-			seen[strings.ToLower(f)] = true
-			sys = append(sys, f)
-		}
-	}
-	sort.Strings(app)
-	sort.Strings(sys)
-	return append(app, sys...)
+	app = unique(app)
+	return append(app, unique(system)...)
 }
 
 // Preload starts the text engine and finds the system UI font, which the

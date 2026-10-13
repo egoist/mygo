@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/internal/scene"
+	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
 )
 
@@ -451,19 +452,26 @@ func TestRegisterFont(t *testing.T) {
 	}
 }
 
-// TestFontFamilies lists the app's families first, then the system's, and
-// with mono keeps the monospaced ones.
+// TestFontFamilies lists the app's families first, under the names it
+// registered fonts with and their own, then the system's, and with mono
+// keeps the monospaced ones, the app's included.
 func TestFontFamilies(t *testing.T) {
 	s := newSystem()
 	if err := s.RegisterFont(goregular.TTF, "MyGo Test Families"); err != nil {
 		t.Fatal(err)
 	}
-	all, mono := s.FontFamilies(false), s.FontFamilies(true)
-	if len(all) == 0 || all[0] != "MyGo Test Families" || len(mono) == 0 || mono[0] != "MyGo Test Families" {
-		t.Fatalf("the registered family is not first: %q, mono %q", all[:min(3, len(all))], mono[:min(3, len(mono))])
+	if err := s.RegisterFont(gomono.TTF, ""); err != nil {
+		t.Fatal(err)
 	}
-	if len(mono) >= len(all) || !slices.IsSorted(all[1:]) || !slices.IsSorted(mono[1:]) {
-		t.Errorf("%d families, %d monospaced, sorted %v", len(all), len(mono), slices.IsSorted(all[1:]))
+	all, mono := s.FontFamilies(false), s.FontFamilies(true)
+	if app := []string{"Go", "Go Mono", "MyGo Test Families"}; len(all) < len(app) || !slices.Equal(all[:len(app)], app) {
+		t.Fatalf("the registered families are not first: %q", all[:min(4, len(all))])
+	}
+	if len(mono) == 0 || mono[0] != "Go Mono" || slices.Contains(mono, "Go") || slices.Contains(mono, "MyGo Test Families") {
+		t.Errorf("monospaced: %q", mono[:min(4, len(mono))])
+	}
+	if len(mono) >= len(all) || !slices.IsSorted(all[3:]) || !slices.IsSorted(mono[1:]) {
+		t.Errorf("%d families, %d monospaced, sorted %v", len(all), len(mono), slices.IsSorted(all[3:]))
 	}
 	// A monospaced and a proportional family every such system has.
 	known, ok := map[string][2]string{

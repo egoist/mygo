@@ -413,6 +413,8 @@ type coreText struct {
 	runIndices   []int
 
 	registered map[string][]registeredFace // by lowercased family
+	// names are the families of registered, as the app gave them.
+	names []string
 }
 
 type attrsKey struct {
@@ -424,6 +426,7 @@ type registeredFace struct {
 	desc   uintptr
 	weight float64 // -1 to 1
 	italic bool
+	mono   bool
 }
 
 func newCoreText() (*coreText, error) {
@@ -1272,15 +1275,19 @@ func shadeGray(shade Shade) float64 {
 	return 1.055*math.Pow(y, 1/2.4) - 0.055
 }
 
-// families lists the system's families, the monospaced ones when mono:
-// those whose regular font's symbolic traits say so.
-func (e *coreText) families(mono bool) []string {
+// families lists the app's families and the system's, the monospaced
+// ones when mono: those whose regular font's symbolic traits say so.
+func (e *coreText) families(mono bool) (app, system []string) {
+	for _, name := range e.names {
+		if !mono || slices.ContainsFunc(e.registered[strings.ToLower(name)], func(f registeredFace) bool { return f.mono }) {
+			app = append(app, name)
+		}
+	}
 	arr := ct.availableFamilyNames()
 	if arr == 0 {
-		return nil
+		return app, nil
 	}
 	defer ct.release(arr)
-	var names []string
 	for i := range ct.arrayGetCount(arr) {
 		name := goString(ct.arrayGetValueAtIndex(arr, i))
 		if name == "" || strings.HasPrefix(name, ".") {
@@ -1289,9 +1296,9 @@ func (e *coreText) families(mono bool) []string {
 		if mono && !e.monospaced(name) {
 			continue
 		}
-		names = append(names, name)
+		system = append(system, name)
 	}
-	return names
+	return app, system
 }
 
 // monospaced reports whether a family's regular font is monospaced.
@@ -1352,10 +1359,15 @@ func (e *coreText) register(data []byte, family string) error {
 			}
 			ct.release(traits)
 		}
+		if font := ct.fontWithDescriptor(desc, 12, 0); font != 0 {
+			face.mono = ct.fontGetSymbolicTraits(font)&ctFontMonoSpaceTrait != 0
+			ct.release(font)
+		}
 		for _, f := range []string{name, family} {
 			if f != "" {
 				key := strings.ToLower(f)
 				e.registered[key] = append(e.registered[key], face)
+				e.names = append(e.names, f)
 			}
 		}
 	}

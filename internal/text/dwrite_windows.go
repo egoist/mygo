@@ -372,11 +372,13 @@ type dwrite struct {
 	aliased      bool
 
 	// The fonts the app registers: their files, a collection of them,
-	// and the family name of each name they are registered under.
+	// the family name of each name they are registered under, and those
+	// names as the app gave them.
 	loader  uintptr
 	files   []uintptr
 	custom  uintptr
 	aliases map[string]string
+	names   []string
 
 	scratch []byte
 }
@@ -1357,8 +1359,10 @@ func (e *dwrite) register(data []byte, family string) error {
 	for _, name := range names {
 		e.aliases[strings.ToLower(name)] = name
 	}
+	e.names = append(e.names, names...)
 	if family != "" {
 		e.aliases[strings.ToLower(family)] = names[0]
+		e.names = append(e.names, family)
 	}
 	for k, f := range e.formats {
 		if k.custom {
@@ -1396,10 +1400,20 @@ func (e *dwrite) newCollection(files []uintptr) (uintptr, error) {
 	return coll, nil
 }
 
-// families lists the system's families, the monospaced ones when mono:
-// those whose regular font IDWriteFont1 (Windows 8 and later) calls so.
-func (e *dwrite) families(mono bool) []string {
-	return collectionFamilies(e.system, mono)
+// families lists the app's families and the system's, the monospaced
+// ones when mono: those whose regular font IDWriteFont1 (Windows 8 and
+// later) calls so.
+func (e *dwrite) families(mono bool) (app, system []string) {
+	var fixed []string // the app's monospaced families
+	if mono && e.custom != 0 {
+		fixed = collectionFamilies(e.custom, true)
+	}
+	for _, name := range e.names {
+		if !mono || slices.Contains(fixed, e.aliases[strings.ToLower(name)]) {
+			app = append(app, name)
+		}
+	}
+	return app, collectionFamilies(e.system, mono)
 }
 
 // familyNames returns the English names of a collection's families.
