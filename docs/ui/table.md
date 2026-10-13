@@ -70,6 +70,34 @@ sorted := sortFiles(app.files, app.sort) // by app.sort.Column, Descending or no
 app.files.Key = func(i int) any { return sorted[i].ID }
 ```
 
+To sort by several columns, set `ListState.SortBy` instead of `Sort`. A
+click still sorts by one column, and reverses it when it was first; a
+Cmd-click (Ctrl-click on Linux and Windows) adds the column after those
+sorted by, ascending; another Cmd-click makes it descending, and a third
+takes it out. The headers show their direction and, when there are several,
+their place. `SortBy` gets a new slice as it changes, so one the app kept
+stays as it was, and when both are set, `SortBy` is used and `Sort` is left
+alone:
+
+```go
+app.files.SortBy = &app.sortBy // []ui.SortOrder, the first first
+sorted := sortFiles(app.files, app.sortBy...)
+```
+
+## Header menu
+
+`ListState.HeaderMenu` gives the column headers a context menu, built as
+[ContextMenu](context-menu.md)'s is. `col` is the column's index in the
+columns given to `Table`, whatever order the user moved them into:
+
+```go
+app.files.HeaderMenu = func(m *ui.Menu, col int) {
+	if m.Item("Hide Column").Chosen() {
+		app.hide(cols[col].ID)
+	}
+}
+```
+
 ## Renaming in place
 
 An [editable text](editable-text.md) in a cell is renamed in place, as

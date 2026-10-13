@@ -200,12 +200,15 @@ func (a *Application) prepareQuit() bool {
 	// closed. Persist them before the native loop ends; callers needing
 	// error handling may Flush explicitly from a quit listener.
 	_ = Clipboard.Flush()
+	stopCookieCalls()
 	return true
 }
 
 // finish runs once after the event loop has stopped.
 func (a *Application) finish() {
 	a.finished.Do(func() {
+		stopCookieCalls()
+		stopFileWatches()
 		clipboardStopped = true
 		backend().Clipboard().Close()
 		saveWindowStates()
@@ -590,9 +593,18 @@ func (appHandler) OpenFiles(paths []string) {
 		fire1(&App.onOpenFile, p)
 	}
 }
-func (appHandler) MenuItemClicked(id int)        { menuItemClicked(id, FocusedWindow()) }
-func (appHandler) ThemeChanged()                 { updateBackgrounds(); contentThemeChanged(); Theme.changed() }
+func (appHandler) MenuItemClicked(id int) { menuItemClicked(id, FocusedWindow()) }
+func (appHandler) ThemeChanged() {
+	updateBackgrounds()
+	contentThemeChanged()
+	Theme.changed()
+	// Pages hear the accent and the settings of accessibility, which the
+	// media queries do not tell them.
+	sendPreferences()
+}
 func (appHandler) DisplaysChanged()              { Screen.changed() }
 func (appHandler) PowerEvent(event string)       { Power.event(event) }
 func (appHandler) HotkeyPressed(id int)          { GlobalShortcut.pressed(id) }
 func (appHandler) NotificationClicked(id string) { notificationClicked(id) }
+
+func (appHandler) NetworkChanged(s platform.NetworkStatus) { Network.changed(networkStatus(s)) }

@@ -2,10 +2,13 @@ package mygo
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"image/png"
 	"math"
 	"runtime"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/egoist/mygo/internal/accelerator"
@@ -44,6 +47,83 @@ func (ShellModule) ShowItemInFolder(path string) {
 func (ShellModule) TrashItem(path string) error {
 	needsApp("Shell.TrashItem")
 	return onMainValue(func() error { return backend().Shell().TrashItem(path) })
+}
+
+// FileIcon returns the icon the file manager shows for a file, a folder or
+// an application, as a PNG image of size by size pixels: pass the size in
+// DIPs times the display's scale factor for a sharp icon. On Windows path
+// may also name a shell item, such as an app of the Start menu by its
+// shell:AppsFolder\<AppUserModelID> path; on Linux, the icon of a desktop
+// entry (.desktop) is its application's, from the icon theme. It fails
+// in browsers.
+func (ShellModule) FileIcon(path string, size int) ([]byte, error) {
+	needsApp("Shell.FileIcon")
+	if size <= 0 {
+		return nil, errors.New("mygo: Shell.FileIcon: size must be positive")
+	}
+	var png []byte
+	err := onMainValue(func() (err error) {
+		png, err = backend().Shell().FileIcon(path, size)
+		return err
+	})
+	return png, err
+}
+
+// InstalledApp is an application installed on the computer, which
+// Shell.InstalledApps lists.
+type InstalledApp struct {
+	// Name is the name the system shows for it, in the user's language.
+	Name string
+	// ID identifies it: its bundle identifier on macOS (or its path for a
+	// bundle without one), its AppUserModelID on Windows (for a desktop
+	// app without one, its path under a known folder), and its desktop
+	// file ID on Linux, such as org.gnome.Nautilus.desktop.
+	ID string
+	// Path is where it is: its .app bundle on macOS, its item of the
+	// Applications folder on Windows (shell:AppsFolder\<ID>), and its
+	// desktop entry on Linux. Shell.FileIcon draws its icon.
+	Path string
+}
+
+// InstalledApps lists the applications installed on the computer, sorted
+// by name, as a launcher shows them:
+//
+//   - macOS: the .app bundles in /Applications, /System/Applications,
+//     ~/Applications and CoreServices' Applications, and in their
+//     folders (Utilities), plus Finder.
+//   - Windows: the Start menu's All apps, desktop and packaged apps
+//     alike (the shell's Applications folder).
+//   - Linux: the applications of the desktop entries menus show.
+//
+// It reads the disk: call it from a goroutine of its own, which it does not
+// block the main thread from. Browsers return an error.
+func (ShellModule) InstalledApps() ([]InstalledApp, error) {
+	needsApp("Shell.InstalledApps")
+	if !isMainThread() {
+		App.waitReady()
+	}
+	found, err := backend().Applications()
+	if err != nil {
+		return nil, err
+	}
+	apps := make([]InstalledApp, len(found))
+	for i, a := range found {
+		apps[i] = InstalledApp(a)
+	}
+	slices.SortStableFunc(apps, func(a, b InstalledApp) int {
+		return cmp.Or(strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)), strings.Compare(a.Path, b.Path))
+	})
+	return apps, nil
+}
+
+// LaunchApp starts an application of InstalledApps, or brings it to the
+// front if it runs.
+func (ShellModule) LaunchApp(app InstalledApp) error {
+	needsApp("Shell.LaunchApp")
+	if app.Path == "" {
+		return errors.New("mygo: Shell.LaunchApp: the app has no path")
+	}
+	return onMainValue(func() error { return backend().Shell().OpenApplication(app.Path) })
 }
 
 // Beep plays the system alert sound.
@@ -225,21 +305,97 @@ const (
 	ThemeDark   ThemeSource = "dark"
 )
 
+// ThemePreferences are the accent color and the accessibility settings of
+// the desktop, which an app and its pages should follow.
+type ThemePreferences struct {
+	// Accent is the color of the desktop's controls, or a Color with A 0
+	// where the desktop has none.
+	Accent Color
+	// ReduceMotion reports that the desktop asks for less animation.
+	ReduceMotion bool
+	// HighContrast reports that the desktop uses a contrast theme.
+	HighContrast bool
+	// TextScale is the factor the desktop asks text to grow by; 1 is usual.
+	TextScale float64
+}
+
 // ThemeModule reads and overrides the light/dark appearance.
 type ThemeModule struct {
 	mu        sync.Mutex
 	source    ThemeSource
 	onUpdated listeners[func()]
+
+	// The preferences read last, until the next change. Main thread only.
+	prefs   ThemePreferences
+	prefsOK bool
 }
 
 // Theme is the system appearance. Pages follow it through the
-// prefers-color-scheme media query.
+// prefers-color-scheme media query, and the accent color and accessibility
+// settings through the --mygo-accent and --mygo-text-scale CSS variables
+// and the mygo:preferences event.
 var Theme = &ThemeModule{}
 
 // IsDark reports whether the app currently uses a dark appearance.
 func (t *ThemeModule) IsDark() bool {
 	needsApp("Theme.IsDark")
 	return onMainValue(func() bool { return backend().Theme().IsDark() })
+}
+
+// Preferences returns the accent color and the accessibility settings of
+// the desktop. It is safe from any goroutine.
+func (t *ThemeModule) Preferences() ThemePreferences {
+	needsApp("Theme.Preferences")
+	prefs := onMainValue(t.preferences)
+	// A call made before App.Run from another goroutine is dropped by onMain
+	// and answers the zero value; 0 is not a text scale.
+	if prefs.TextScale <= 0 {
+		prefs.TextScale = 1
+	}
+	return prefs
+}
+
+// AccentColor returns the color of the desktop's controls, or a Color with
+// A 0 where the desktop has none. It is safe from any goroutine.
+func (t *ThemeModule) AccentColor() Color { return t.Preferences().Accent }
+
+// ReduceMotion reports whether the desktop asks for less animation. It is
+// safe from any goroutine.
+func (t *ThemeModule) ReduceMotion() bool { return t.Preferences().ReduceMotion }
+
+// HighContrast reports whether the desktop uses a contrast theme. It is
+// safe from any goroutine.
+func (t *ThemeModule) HighContrast() bool { return t.Preferences().HighContrast }
+
+// TextScale returns the factor the desktop asks text to grow by; 1 is the
+// usual size, and the value macOS reports, which has no text scale. It is
+// safe from any goroutine.
+func (t *ThemeModule) TextScale() float64 { return t.Preferences().TextScale }
+
+// preferences returns the desktop's preferences, read once per change. The
+// read can call out to the desktop (the settings portal on Linux), so it is
+// kept until the next change, as package ui keeps it. Main thread only.
+func (t *ThemeModule) preferences() ThemePreferences {
+	if !t.prefsOK {
+		t.prefs = themePreferences(backend().Theme().Preferences())
+		t.prefsOK = true
+	}
+	return t.prefs
+}
+
+// themePreferences is the public view of a backend's preferences. Policy
+// lives here, not in the backends.
+func themePreferences(p platform.Preferences) ThemePreferences {
+	prefs := ThemePreferences{
+		Accent:       Color{R: p.Accent.R, G: p.Accent.G, B: p.Accent.B, A: p.Accent.A},
+		ReduceMotion: p.ReduceMotion,
+		HighContrast: p.HighContrast,
+		TextScale:    p.TextScale,
+	}
+	if prefs.TextScale <= 0 {
+		prefs.TextScale = 1 // the usual size, as package ui normalizes it
+	}
+	return prefs
 }
 
 // Source returns the appearance override.
@@ -285,10 +441,16 @@ func (t *ThemeModule) apply() {
 	}
 }
 
-// OnUpdated is called when the effective appearance changes.
+// OnUpdated is called when the effective appearance, or the desktop's
+// preferences (Preferences), change.
 func (t *ThemeModule) OnUpdated(fn func()) (off func()) { return t.onUpdated.add(fn, false) }
 
-func (t *ThemeModule) changed() { fire(&t.onUpdated) }
+// changed forgets the preferences read before and tells the listeners that
+// the system appearance changed. Main thread only.
+func (t *ThemeModule) changed() {
+	t.prefs, t.prefsOK = ThemePreferences{}, false
+	fire(&t.onUpdated)
+}
 
 // GlobalShortcutModule registers system wide keyboard shortcuts.
 type GlobalShortcutModule struct {

@@ -208,6 +208,7 @@ func (b *Backend) Shell() platform.Shell         { return shell{} }
 func (b *Backend) Screen() platform.Screen       { return screen{} }
 func (b *Backend) Theme() platform.Theme         { return theme{b} }
 func (b *Backend) Power() platform.Power         { return power{b} }
+func (b *Backend) Secrets() platform.Secrets     { return secrets{} }
 
 var classesOnce bool
 
@@ -470,6 +471,25 @@ func (a appController) ClearBrowsingData(done func(error)) {
 		blk.Release()
 	})
 }
+
+// AddRecentDocument and ClearRecentDocuments use the shared document
+// controller, as Electron does: AppKit lists its recent documents in the
+// Dock menu, and in an Open Recent menu.
+func (a appController) AddRecentDocument(path string) error {
+	withPool(func() {
+		send(send(class("NSDocumentController"), "sharedDocumentController"), "noteNewRecentDocumentURL:", uintptr(fileURL(path)))
+	})
+	return nil
+}
+
+func (a appController) ClearRecentDocuments() error {
+	withPool(func() {
+		send(send(class("NSDocumentController"), "sharedDocumentController"), "clearRecentDocuments:", 0)
+	})
+	return nil
+}
+
+func (appController) SetJumpListTasks([]platform.JumpListTask) error { return nil }
 
 // WebViewSupported reports whether a window showing a web page can have
 // one. WKWebView is part of macOS, which the app's own load of WebKit

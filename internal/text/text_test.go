@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/internal/scene"
+	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
 )
 
@@ -451,6 +452,44 @@ func TestRegisterFont(t *testing.T) {
 	}
 }
 
+// TestFontFamilies lists the app's families first, under the names it
+// registered fonts with and their own, then the system's, and with mono
+// keeps the monospaced ones, the app's included.
+func TestFontFamilies(t *testing.T) {
+	s := newSystem()
+	if err := s.RegisterFont(goregular.TTF, "MyGo Test Families"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RegisterFont(gomono.TTF, ""); err != nil {
+		t.Fatal(err)
+	}
+	all, mono := s.FontFamilies(false), s.FontFamilies(true)
+	if app := []string{"Go", "Go Mono", "MyGo Test Families"}; len(all) < len(app) || !slices.Equal(all[:len(app)], app) {
+		t.Fatalf("the registered families are not first: %q", all[:min(4, len(all))])
+	}
+	if len(mono) == 0 || mono[0] != "Go Mono" || slices.Contains(mono, "Go") || slices.Contains(mono, "MyGo Test Families") {
+		t.Errorf("monospaced: %q", mono[:min(4, len(mono))])
+	}
+	if len(mono) >= len(all) || !slices.IsSorted(all[3:]) || !slices.IsSorted(mono[1:]) {
+		t.Errorf("%d families, %d monospaced, sorted %v", len(all), len(mono), slices.IsSorted(all[3:]))
+	}
+	// A monospaced and a proportional family every such system has.
+	known, ok := map[string][2]string{
+		"windows": {"Consolas", "Segoe UI"},
+		"darwin":  {"Menlo", "Helvetica"},
+	}[runtime.GOOS]
+	if !ok {
+		return // the families of Linux desktops vary
+	}
+	fixed, sans := known[0], known[1]
+	if !slices.Contains(all, fixed) || !slices.Contains(mono, fixed) {
+		t.Errorf("%s: listed %v, as monospaced %v", fixed, slices.Contains(all, fixed), slices.Contains(mono, fixed))
+	}
+	if !slices.Contains(all, sans) || slices.Contains(mono, sans) {
+		t.Errorf("%s: listed %v, as monospaced %v", sans, slices.Contains(all, sans), slices.Contains(mono, sans))
+	}
+}
+
 // TestUIFamily gives system-ui the desktop's interface font where the
 // engine takes it, as Pango does: the family before fontconfig's default.
 func TestUIFamily(t *testing.T) {
@@ -555,10 +594,10 @@ func TestSpans(t *testing.T) {
 
 func TestEncodeSpans(t *testing.T) {
 	spans := []Span{{End: 3, Family: "A, B", Size: 1.5, Weight: 600, Italic: true, LetterSpacing: -0.5, Features: "tnum"}, {End: 9}}
-	if got := decodeSpans(EncodeSpans(spans)); !slices.Equal(got, spans) {
+	if got := DecodeSpans(EncodeSpans(spans)); !slices.Equal(got, spans) {
 		t.Errorf("decoded %+v, want %+v", got, spans)
 	}
-	if got := decodeSpans(EncodeSpans(spans)[:5]); len(got) != 0 {
+	if got := DecodeSpans(EncodeSpans(spans)[:5]); len(got) != 0 {
 		t.Errorf("a cut encoding decodes to %+v", got)
 	}
 	// The spans of a paragraph, relative to it.

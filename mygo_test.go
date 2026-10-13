@@ -27,6 +27,7 @@ import (
 	"github.com/egoist/mygo/internal/fake"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/transfer"
+	"github.com/egoist/mygo/ui"
 )
 
 var fb *fake.Backend
@@ -148,7 +149,9 @@ func TestWindowDefaults(t *testing.T) {
 	if !o.DevTools {
 		t.Error("devtools should be enabled in development")
 	}
-	if len(o.UserScripts) != 1 || !strings.Contains(o.UserScripts[0].Source, `"windowId":`+fmt.Sprint(w.ID())) {
+	// The bridge configuration, then the settings of the desktop, which it
+	// tells.
+	if len(o.UserScripts) != 2 || !strings.Contains(o.UserScripts[0].Source, `"windowId":`+fmt.Sprint(w.ID())) {
 		t.Errorf("bridge script not configured: %v", o.UserScripts)
 	}
 	if !w.IsVisible() {
@@ -173,7 +176,9 @@ func TestWindowOptions(t *testing.T) {
 	if c := o.BackgroundColor; c == nil || *c != (platform.Color{R: 0x11, G: 0x22, B: 0x33, A: 0x80}) {
 		t.Errorf("background color: %v", c)
 	}
-	if len(o.UserScripts) != 2 || o.UserScripts[1].Source != "window.x = 1" {
+	// The bridge configuration, the settings of the desktop, then the app's
+	// preload script.
+	if len(o.UserScripts) != 3 || o.UserScripts[2].Source != "window.x = 1" {
 		t.Errorf("preload script: %v", o.UserScripts)
 	}
 	if o.Parent == nil {
@@ -1108,6 +1113,102 @@ func TestProtocol(t *testing.T) {
 	}
 }
 
+// Pages of the app are other origins than the custom schemes they fetch:
+// responses carry CORS headers for them, and for them only.
+func TestProtocolCORS(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Count", "3")
+		fmt.Fprint(w, "data")
+	})
+	mux.HandleFunc("/own", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "https://cdn.example.com")
+	})
+	if err := Protocol.Handle("assets", mux); err != nil {
+		t.Fatal(err)
+	}
+	defer Protocol.Unhandle("assets")
+	defer func(v bool) { schemeHosts = v }(schemeHosts)
+	schemeHosts = true // as on Windows
+	_, fw := testWindow(t, WindowOptions{Page: PageOptions{TrustedOrigins: []string{"https://app.example.com"}}})
+
+	send := func(method, path, origin string, extra http.Header) *recorder {
+		t.Helper()
+		rec := &recorder{finished: make(chan struct{})}
+		h := http.Header{}
+		if origin != "" {
+			h.Set("Origin", origin)
+		}
+		for k, v := range extra {
+			h[k] = v
+		}
+		req := &platform.SchemeRequest{Context: context.Background(), Method: method, URL: "assets://localhost" + path, Header: h, Responder: rec}
+		onMain(func() { fw.H.SchemeRequest(req) })
+		select {
+		case <-rec.finished:
+		case <-time.After(3 * time.Second):
+			t.Fatal("request did not finish")
+		}
+		return rec
+	}
+
+	for _, origin := range []string{
+		"mygo://localhost",        // the frontend
+		"http://mygo.localhost",   // the frontend, as WebView2 serves it
+		"http://assets.localhost", // a custom scheme, as WebView2 serves it
+		"https://app.example.com", // in PageOptions.TrustedOrigins
+	} {
+		rec := send("GET", "/data", origin, nil)
+		if rec.status != 200 || rec.body.String() != "data" {
+			t.Errorf("%s: %d %q", origin, rec.status, rec.body.String())
+		}
+		if got := rec.header.Get("Access-Control-Allow-Origin"); got != origin {
+			t.Errorf("%s: Access-Control-Allow-Origin = %q", origin, got)
+		}
+		if rec.header.Get("Access-Control-Expose-Headers") != "*" || rec.header.Get("Vary") != "Origin" {
+			t.Errorf("%s: headers %v", origin, rec.header)
+		}
+	}
+	if IsDev() {
+		// Development builds trust pages served from localhost: the dev server.
+		if got := send("GET", "/data", "http://localhost:5173", nil).header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+			t.Errorf("dev server: Access-Control-Allow-Origin = %q", got)
+		}
+	}
+	for _, origin := range []string{"", "null", "https://example.com", "http://evil.localhost", "http://assets.localhost:8080"} {
+		if got := send("GET", "/data", origin, nil).header.Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("%q got Access-Control-Allow-Origin %q", origin, got)
+		}
+	}
+
+	// Elsewhere, http://<scheme>.localhost is a server on the loopback
+	// interface, not the app.
+	schemeHosts = false
+	if got := send("GET", "/data", "http://mygo.localhost", nil).header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("http://mygo.localhost outside Windows got Access-Control-Allow-Origin %q", got)
+	}
+	schemeHosts = true
+
+	// A preflight is answered for the app's pages, not passed to the handler.
+	rec := send("OPTIONS", "/data", "http://mygo.localhost", http.Header{
+		"Access-Control-Request-Method":  {"POST"},
+		"Access-Control-Request-Headers": {"content-type"},
+	})
+	if rec.status != http.StatusNoContent || rec.body.String() != "" ||
+		rec.header.Get("Access-Control-Allow-Methods") != "POST" ||
+		rec.header.Get("Access-Control-Allow-Headers") != "content-type" {
+		t.Errorf("preflight: %d %q %v", rec.status, rec.body.String(), rec.header)
+	}
+	if rec := send("OPTIONS", "/data", "https://example.com", http.Header{"Access-Control-Request-Method": {"POST"}}); rec.status == http.StatusNoContent {
+		t.Error("a preflight from another site was answered")
+	}
+
+	// A handler's own CORS headers win.
+	if got := send("GET", "/own", "mygo://localhost", nil).header.Get("Access-Control-Allow-Origin"); got != "https://cdn.example.com" {
+		t.Errorf("handler's header overridden: %q", got)
+	}
+}
+
 // bodyRecorder takes the body from the goroutine serving the request, as
 // the Linux backend does.
 type bodyRecorder struct {
@@ -1532,6 +1633,180 @@ func TestModules(t *testing.T) {
 	}
 }
 
+func TestThemePreferences(t *testing.T) {
+	// A desktop that does not say: no accent, and the usual text.
+	onMain(func() { fb.SetPreferences(platform.Preferences{}) })
+	defer onMain(func() { fb.SetPreferences(platform.Preferences{}) })
+	if p := Theme.Preferences(); p != (ThemePreferences{TextScale: 1}) {
+		t.Errorf("Preferences without a desktop = %+v, want TextScale 1", p)
+	}
+	if c := Theme.AccentColor(); c != (Color{}) || c.A != 0 {
+		t.Errorf("AccentColor without an accent = %+v, want the zero color", c)
+	}
+	if s := Theme.TextScale(); s != 1 {
+		t.Errorf("TextScale without a desktop = %v, want 1", s)
+	}
+	if Theme.ReduceMotion() || Theme.HighContrast() {
+		t.Error("a desktop that does not say asked for less motion or contrast")
+	}
+
+	// A desktop with an accent and the settings of accessibility.
+	onMain(func() {
+		fb.SetPreferences(platform.Preferences{
+			Accent:       platform.Color{R: 255, G: 128, B: 0, A: 255},
+			ReduceMotion: true,
+			HighContrast: true,
+			TextScale:    1.25,
+		})
+	})
+	p := Theme.Preferences()
+	want := ThemePreferences{Accent: Color{R: 255, G: 128, B: 0, A: 255}, ReduceMotion: true, HighContrast: true, TextScale: 1.25}
+	if p != want {
+		t.Errorf("Preferences = %+v, want %+v", p, want)
+	}
+	if c := Theme.AccentColor(); c.String() != "#ff8000" {
+		t.Errorf("AccentColor().String() = %q, want #ff8000", c.String())
+	}
+	if !Theme.ReduceMotion() || !Theme.HighContrast() || Theme.TextScale() != 1.25 {
+		t.Errorf("getters = %v, %v, %v", Theme.ReduceMotion(), Theme.HighContrast(), Theme.TextScale())
+	}
+	// A color with an alpha keeps it.
+	if got := (Color{R: 255, G: 128, B: 0, A: 128}).String(); got != "#ff800080" {
+		t.Errorf("Color.String() = %q, want #ff800080", got)
+	}
+
+	// The getters are safe from any goroutine.
+	done := make(chan Color, 1)
+	go func() { done <- Theme.AccentColor() }()
+	select {
+	case c := <-done:
+		if c != want.Accent {
+			t.Errorf("AccentColor from another goroutine = %+v, want %+v", c, want.Accent)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("AccentColor from another goroutine hung")
+	}
+}
+
+// TestThemePreferencesAreReadOnce checks that the desktop is asked for its
+// preferences once per change, as reading them can call out to it (the
+// settings portal on Linux).
+func TestThemePreferencesAreReadOnce(t *testing.T) {
+	onMain(func() { fb.SetPreferences(platform.Preferences{Accent: platform.Color{R: 1, G: 2, B: 3, A: 255}}) })
+	defer onMain(func() { fb.SetPreferences(platform.Preferences{}) })
+	var changed atomic.Int32
+	off := Theme.OnUpdated(func() { changed.Add(1) })
+	defer off()
+
+	if p := Theme.Preferences(); p.Accent.R != 1 {
+		t.Fatalf("Preferences = %+v", p)
+	}
+	before := fb.PreferenceReads()
+	for i := 0; i < 3; i++ {
+		if p := Theme.Preferences(); p.Accent.R != 1 {
+			t.Fatalf("Preferences = %+v", p)
+		}
+	}
+	if n := fb.PreferenceReads() - before; n != 0 {
+		t.Errorf("Preferences read the desktop %d more times, want 0", n)
+	}
+
+	// A change invalidates what was read, and tells the listeners once.
+	onMain(func() { fb.SetPreferences(platform.Preferences{Accent: platform.Color{G: 9, A: 255}, TextScale: 2}) })
+	if p := Theme.Preferences(); p.Accent.G != 9 || p.TextScale != 2 {
+		t.Errorf("Preferences after a change = %+v", p)
+	}
+	if n := changed.Load(); n != 1 {
+		t.Errorf("OnUpdated fired %d times, want 1", n)
+	}
+	before = fb.PreferenceReads()
+	_ = Theme.Preferences()
+	if n := fb.PreferenceReads() - before; n != 0 {
+		t.Errorf("Preferences read the desktop %d times after a change, want 0", n)
+	}
+}
+
+// TestThemePreferencesReachThePage checks that the accent and the settings
+// of accessibility reach a page, at document start and on a change.
+func TestThemePreferencesReachThePage(t *testing.T) {
+	onMain(func() {
+		fb.SetPreferences(platform.Preferences{
+			Accent:       platform.Color{R: 255, G: 128, B: 0, A: 255},
+			ReduceMotion: true,
+			HighContrast: true,
+			TextScale:    1.25,
+		})
+	})
+	defer onMain(func() { fb.SetPreferences(platform.Preferences{}) })
+
+	_, fw := readyWindow(t, WindowOptions{})
+	scaled := func(textScale float64) func(map[string]any) bool {
+		return func(m map[string]any) bool {
+			if m["n"] != "mygo:preferences" {
+				return false
+			}
+			p, _ := m["p"].(map[string]any)
+			return p["textScale"] == textScale
+		}
+	}
+	p, _ := received(t, fw, scaled(1.25))["p"].(map[string]any)
+	if p["accent"] != "#ff8000" || p["reduceMotion"] != true || p["highContrast"] != true {
+		t.Errorf("preferences at document start = %+v", p)
+	}
+
+	// A change reaches the page. A desktop without an accent sends an empty
+	// string, so the page falls back to its own color.
+	onMain(func() { fb.SetPreferences(platform.Preferences{TextScale: 2}) })
+	p, _ = received(t, fw, scaled(2))["p"].(map[string]any)
+	if p["accent"] != "" || p["reduceMotion"] != false || p["highContrast"] != false {
+		t.Errorf("preferences after a change = %+v", p)
+	}
+}
+
+// TestPreferencesScriptAtDocumentStart checks the script that tells the
+// first page: after the bridge, which it tells, and before the preload
+// script of the app.
+func TestPreferencesScriptAtDocumentStart(t *testing.T) {
+	onMain(func() {
+		fb.SetPreferences(platform.Preferences{Accent: platform.Color{R: 0x11, G: 0x22, B: 0x33, A: 255}, TextScale: 1.5})
+	})
+	defer onMain(func() { fb.SetPreferences(platform.Preferences{}) })
+
+	_, fw := testWindow(t, WindowOptions{Page: PageOptions{PreloadScript: "preload();"}})
+	scripts := fw.Opts.UserScripts
+	if len(scripts) != 3 {
+		t.Fatalf("UserScripts = %d, want the bridge, the preferences and the preload script", len(scripts))
+	}
+	if !strings.Contains(scripts[0].Source, `"secret"`) {
+		t.Error("the bridge configuration does not come first")
+	}
+	src := scripts[1].Source
+	for _, want := range []string{"mygo:preferences", `"accent":"#112233"`, `"textScale":1.5`} {
+		if !strings.Contains(src, want) {
+			t.Errorf("preferences script %q does not contain %q", src, want)
+		}
+	}
+	if scripts[2].Source != "preload();" {
+		t.Errorf("preload script = %q, want it last", scripts[2].Source)
+	}
+}
+
+// TestThemePreferencesDoNotReachNativeContent checks that a window that
+// draws itself queues no event for a page it does not have.
+func TestThemePreferencesDoNotReachNativeContent(t *testing.T) {
+	view := func(c *ui.Context) { ui.Text(c, "hello") }
+	w, fw, _ := contentWindow(t, view)
+	onMain(func() { fb.SetPreferences(platform.Preferences{TextScale: 2}) })
+	defer onMain(func() { fb.SetPreferences(platform.Preferences{}) })
+	time.Sleep(20 * time.Millisecond)
+	w.outMu.Lock()
+	queued := len(w.held) + len(w.outbox)
+	w.outMu.Unlock()
+	if queued != 0 || len(fw.Scripts()) != 0 {
+		t.Errorf("preferences reached native content: %d queued events, scripts %q", queued, fw.Scripts())
+	}
+}
+
 // needsAppCalls are the calls that need the running app, which main may
 // not make before Run.
 var needsAppCalls = []struct {
@@ -1555,6 +1830,9 @@ var needsAppCalls = []struct {
 	{"Shell.ShowItemInFolder", func() { Shell.ShowItemInFolder("/") }},
 	{"Shell.TrashItem", func() { Shell.TrashItem("/nonexistent") }},
 	{"Shell.Beep", func() { Shell.Beep() }},
+	{"Shell.FileIcon", func() { Shell.FileIcon("/", 16) }},
+	{"Shell.InstalledApps", func() { Shell.InstalledApps() }},
+	{"Shell.LaunchApp", func() { Shell.LaunchApp(InstalledApp{Path: "/"}) }},
 	{"Clipboard.ReadText", func() { Clipboard.ReadText() }},
 	{"Clipboard.WriteText", func() { Clipboard.WriteText("x") }},
 	{"Clipboard.ReadHTML", func() { Clipboard.ReadHTML() }},
@@ -1576,6 +1854,7 @@ var needsAppCalls = []struct {
 	{"Screen.DisplayNearestPoint", func() { Screen.DisplayNearestPoint(Point{}) }},
 	{"Screen.DisplayMatching", func() { Screen.DisplayMatching(Rectangle{}) }},
 	{"Theme.IsDark", func() { Theme.IsDark() }},
+	{"Theme.Preferences", func() { Theme.Preferences() }},
 	{"GlobalShortcut.Register", func() { GlobalShortcut.Register("CmdOrCtrl+Shift+K", func() {}) }},
 	{"NewTray", func() { NewTray(TrayOptions{}) }},
 	{"NotificationsSupported", func() { NotificationsSupported() }},
@@ -1583,6 +1862,7 @@ var needsAppCalls = []struct {
 	{"Notification.Show", func() { NewNotification(NotificationOptions{}).Show() }},
 	{"Power.KeepAwake", func() { Power.KeepAwake("test", false) }},
 	{"Power.IdleTime", func() { Power.IdleTime() }},
+	{"Network.Status", func() { Network.Status() }},
 	{"Dialog.Open", func() { Dialog.Open(OpenDialogOptions{}) }},
 	{"Dialog.Save", func() { Dialog.Save(SaveDialogOptions{}) }},
 	{"Dialog.Message", func() { Dialog.Message(MessageOptions{}) }},

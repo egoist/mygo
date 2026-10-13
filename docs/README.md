@@ -81,12 +81,19 @@ that must start instantly.
   their events, and what windows showing web pages do with them:
   navigation, downloads, permissions, printing.
 - [The application](app.md): the lifecycle, quitting, a single instance,
-  deep links, file associations, starting at login and well-known
-  directories.
+  deep links, file associations, recent documents, starting at login,
+  well-known directories, the jump list, browsing data and cookies.
+- [Documents](documents.md): document-based apps, a window per file, with
+  the File menu, autosave, recovery after a crash, asking to save before
+  closing and quitting, and files changed by other apps.
 - [Menus and the tray](menus.md): application, context and Dock menus,
   keyboard shortcuts and tray icons.
 - [Desktop APIs](native.md): dialogs, notifications, the clipboard, the
-  shell, displays, dark mode, power and global shortcuts.
+  shell, displays, dark mode, power, the network status, secrets, watching
+  files and global shortcuts.
+- [Launchers](launchers.md): apps in the manner of Spotlight and Raycast,
+  summoned by a shortcut over every app, which find and open the apps
+  installed.
 - [Clipboard and drag data](data-transfer.md): multiple representations,
   file lists, custom formats, lazy providers, and clipboard persistence.
 - [Audio](audio.md): sound effects, streamed music and sound an app makes
@@ -124,6 +131,8 @@ components, from buttons to tables.
   makes, with headers on the handshake.
 - [SQLite](plugins/sqlite.md): local databases with parameterized queries
   and atomic transactions, without cgo.
+- [Watch](plugins/watch.md): changes to files, in the directories the app
+  lets pages watch.
 - [Updater](plugins/updater.md): an update window in the manner of
   Sparkle, which checks for updates and offers to install them.
 - [Terminal](plugins/terminal.md): a terminal for native UI, which runs

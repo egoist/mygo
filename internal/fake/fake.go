@@ -7,6 +7,9 @@ import (
 	"bytes"
 	"cmp"
 	"errors"
+	"image"
+	"image/png"
+	"os"
 	"runtime"
 	"strconv"
 	"sync"
@@ -42,10 +45,21 @@ type Backend struct {
 	ClipboardDuringFlush func()
 	theme                string
 	prefs                platform.Preferences
+	prefsReads           int
 	// Watching reports whether power events were asked for, Awake counts the
 	// KeepAwake calls not released yet.
 	Watching bool
 	Awake    int
+	// Online and Constrained are what Network.Status answers with, and
+	// WatchingNetwork whether Network.Watch was called.
+	Online, Constrained bool
+	WatchingNetwork     bool
+	// FileWatches are the file watches made, FileWatchError what making
+	// one fails with, and FileWatchSubtree whether they take Subtree
+	// targets.
+	FileWatches      []*FileWatch
+	FileWatchError   error
+	FileWatchSubtree bool
 	// URLSchemes are the registered URL schemes, by scheme: "id name".
 	URLSchemes map[string]string
 	// LoginItem is the command that starts the app at login: "id name arg".
@@ -54,10 +68,24 @@ type Backend struct {
 	DockMenu *platform.Menu
 	// Cleared counts ClearBrowsingData calls.
 	Cleared int
+	// cookies holds the cookies of the pages, by name, domain and path.
+	cookies map[platform.CookieKey]platform.Cookie
+	// RecentDocuments are the paths AddRecentDocument recorded, in order,
+	// without the ones ClearRecentDocuments removed.
+	RecentDocuments []string
+	// RecentCleared counts ClearRecentDocuments calls.
+	RecentCleared int
+	// JumpListTasks are the tasks of the last SetJumpListTasks call.
+	JumpListTasks []platform.JumpListTask
 	// Dialog results returned by the next dialog.
 	OpenResult    []string
 	SaveResult    string
 	MessageResult platform.MessageBoxResult
+	// OnOpenDialog, OnSaveDialog and OnMessageBox, when set, answer the
+	// dialogs instead of the results above. They run on the main thread.
+	OnOpenDialog func(opts *platform.OpenDialogOptions) []string
+	OnSaveDialog func(opts *platform.SaveDialogOptions) string
+	OnMessageBox func(opts *platform.MessageBoxOptions) platform.MessageBoxResult
 	// NotificationError, when set, is what showing a notification fails
 	// with.
 	NotificationError error
@@ -71,6 +99,10 @@ type Backend struct {
 	// notifications are the notifications shown and not yet removed, by
 	// id.
 	notifications map[string]*platform.Notification
+	// secretError, when set, is what every Secrets call fails with.
+	secretError error
+	// secrets holds the stored secrets by service and account.
+	secrets map[[2]string][]byte
 }
 
 // New creates a fake backend.
@@ -244,10 +276,19 @@ func (b *Backend) Dialogs() platform.Dialogs   { return dialogs{b} }
 func (b *Backend) Clipboard() platform.Clipboard {
 	return clipboard{b}
 }
-func (b *Backend) Shell() platform.Shell   { return shell{} }
-func (b *Backend) Screen() platform.Screen { return screen{} }
-func (b *Backend) Theme() platform.Theme   { return theme{b} }
-func (b *Backend) Power() platform.Power   { return power{b} }
+func (b *Backend) Shell() platform.Shell     { return shell{} }
+func (b *Backend) Screen() platform.Screen   { return screen{} }
+func (b *Backend) Theme() platform.Theme     { return theme{b} }
+func (b *Backend) Power() platform.Power     { return power{b} }
+func (b *Backend) Network() platform.Network { return network{b} }
+func (b *Backend) Secrets() platform.Secrets { return secrets{b} }
+
+// Apps are the applications Applications lists, which tests set.
+var Apps []platform.Application
+
+func (b *Backend) Applications() ([]platform.Application, error) {
+	return append([]platform.Application(nil), Apps...), nil
+}
 
 func (b *Backend) NewTray(platform.TrayHandler) (platform.Tray, error) { return &tray{}, nil }
 
@@ -390,6 +431,10 @@ type Window struct {
 	OnAllWorkspaces bool
 	AutoHidesMenu   bool
 	Icon            []byte
+	// RepresentedFile and DocumentEdited are what SetRepresentedFile and
+	// SetDocumentEdited set.
+	RepresentedFile string
+	DocumentEdited  bool
 	// TitleBarRoom is what TitleBar returns: set for windows with a hidden
 	// title bar, and changed by tests before they call H.TitleBarChanged.
 	TitleBarRoom platform.TitleBar
@@ -433,6 +478,15 @@ func (w *Window) FlashFrame(v bool)                { w.mu.Lock(); w.Flashing = v
 func (w *Window) SetSkipTaskbar(v bool)            { w.mu.Lock(); w.SkipsTaskbar = v; w.mu.Unlock() }
 func (w *Window) SetVisibleOnAllWorkspaces(v bool) { w.mu.Lock(); w.OnAllWorkspaces = v; w.mu.Unlock() }
 func (w *Window) SetAutoHideMenu(v bool)           { w.mu.Lock(); w.AutoHidesMenu = v; w.mu.Unlock() }
+func (w *Window) SetRepresentedFile(p string)      { w.mu.Lock(); w.RepresentedFile = p; w.mu.Unlock() }
+func (w *Window) SetDocumentEdited(v bool)         { w.mu.Lock(); w.DocumentEdited = v; w.mu.Unlock() }
+
+// Document returns what SetRepresentedFile and SetDocumentEdited set.
+func (w *Window) Document() (path string, edited bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.RepresentedFile, w.DocumentEdited
+}
 func (w *Window) SetIcon(png []byte) error {
 	if png != nil && !bytes.HasPrefix(png, []byte("\x89PNG")) {
 		return errors.New("fake: not a PNG image")
@@ -667,6 +721,7 @@ func (a app) SetDockMenu(m *platform.Menu) { a.b.mu.Lock(); a.b.DockMenu = m; a.
 func (a app) ClearBrowsingData(done func(error)) {
 	a.b.mu.Lock()
 	a.b.Cleared++
+	clear(a.b.cookies)
 	a.b.mu.Unlock()
 	done(nil)
 }
@@ -677,15 +732,49 @@ func (a app) IsURLSchemeRegistered(scheme, id, name string) bool {
 	return a.b.URLSchemes[scheme] == id+" "+name
 }
 
+func (a app) AddRecentDocument(path string) error {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	a.b.RecentDocuments = append(a.b.RecentDocuments, path)
+	return nil
+}
+
+func (a app) ClearRecentDocuments() error {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	a.b.RecentDocuments = nil
+	a.b.RecentCleared++
+	return nil
+}
+
+func (a app) SetJumpListTasks(tasks []platform.JumpListTask) error {
+	a.b.mu.Lock()
+	defer a.b.mu.Unlock()
+	a.b.JumpListTasks = append([]platform.JumpListTask(nil), tasks...)
+	return nil
+}
+
 type dialogs struct{ b *Backend }
 
-func (d dialogs) ShowOpenDialog(_ platform.Window, _ *platform.OpenDialogOptions, cb func([]string, error)) {
+func (d dialogs) ShowOpenDialog(_ platform.Window, o *platform.OpenDialogOptions, cb func([]string, error)) {
+	if f := d.b.OnOpenDialog; f != nil {
+		cb(f(o), nil)
+		return
+	}
 	cb(d.b.OpenResult, nil)
 }
-func (d dialogs) ShowSaveDialog(_ platform.Window, _ *platform.SaveDialogOptions, cb func(string, error)) {
+func (d dialogs) ShowSaveDialog(_ platform.Window, o *platform.SaveDialogOptions, cb func(string, error)) {
+	if f := d.b.OnSaveDialog; f != nil {
+		cb(f(o), nil)
+		return
+	}
 	cb(d.b.SaveResult, nil)
 }
-func (d dialogs) ShowMessageBox(_ platform.Window, _ *platform.MessageBoxOptions, cb func(platform.MessageBoxResult, error)) {
+func (d dialogs) ShowMessageBox(_ platform.Window, o *platform.MessageBoxOptions, cb func(platform.MessageBoxResult, error)) {
+	if f := d.b.OnMessageBox; f != nil {
+		cb(f(o), nil)
+		return
+	}
 	cb(d.b.MessageResult, nil)
 }
 
@@ -769,6 +858,25 @@ func (shell) ShowItemInFolder(string)   {}
 func (shell) TrashItem(string) error    { return nil }
 func (shell) Beep()                     {}
 
+// Opened are the paths OpenApplication was given.
+var Opened []string
+
+func (shell) OpenApplication(path string) error {
+	Opened = append(Opened, path)
+	return nil
+}
+
+// FileIcon returns a transparent PNG of the size asked for, or the error of
+// a path that does not exist.
+func (shell) FileIcon(path string, size int) ([]byte, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, size, size)))
+	return buf.Bytes(), err
+}
+
 type power struct{ b *Backend }
 
 func (p power) Watch() { p.b.mu.Lock(); p.b.Watching = true; p.b.mu.Unlock() }
@@ -783,6 +891,24 @@ func (power) IdleTime() time.Duration { return 42 * time.Second }
 
 // EmitPower simulates a power or session event.
 func (b *Backend) EmitPower(event string) { b.h.PowerEvent(event) }
+
+type network struct{ b *Backend }
+
+func (n network) Status() platform.NetworkStatus {
+	n.b.mu.Lock()
+	defer n.b.mu.Unlock()
+	return platform.NetworkStatus{Online: n.b.Online, Constrained: n.b.Constrained}
+}
+
+func (n network) Watch() {
+	n.b.mu.Lock()
+	defer n.b.mu.Unlock()
+	n.b.WatchingNetwork = true
+}
+
+// EmitNetwork reports a network status to the app, as a backend does when
+// it may have changed.
+func (b *Backend) EmitNetwork(status platform.NetworkStatus) { b.h.NetworkChanged(status) }
 
 type screen struct{}
 
@@ -816,6 +942,7 @@ func (t theme) SetSource(s string) {
 func (t theme) Preferences() platform.Preferences {
 	t.b.mu.Lock()
 	defer t.b.mu.Unlock()
+	t.b.prefsReads++
 	return t.b.prefs
 }
 
@@ -826,6 +953,14 @@ func (b *Backend) SetPreferences(p platform.Preferences) {
 	b.prefs = p
 	b.mu.Unlock()
 	b.h.ThemeChanged()
+}
+
+// PreferenceReads returns how many times Preferences() read the backend,
+// for tests.
+func (b *Backend) PreferenceReads() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.prefsReads
 }
 
 type tray struct{}
@@ -1010,4 +1145,61 @@ func (s *Surface) Accessibility() (*platform.AccessTree, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.access, s.accessN
+}
+
+// secrets keeps secrets in memory. Like the real stores it may be called
+// from any goroutine.
+type secrets struct{ b *Backend }
+
+func (s secrets) SetSecret(service, account string, secret []byte) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if s.b.secretError != nil {
+		return s.b.secretError
+	}
+	if s.b.secrets == nil {
+		s.b.secrets = map[[2]string][]byte{}
+	}
+	s.b.secrets[[2]string{service, account}] = bytes.Clone(secret)
+	return nil
+}
+
+func (s secrets) Secret(service, account string) ([]byte, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if s.b.secretError != nil {
+		return nil, s.b.secretError
+	}
+	v, ok := s.b.secrets[[2]string{service, account}]
+	if !ok {
+		return nil, platform.ErrSecretNotFound
+	}
+	return bytes.Clone(v), nil
+}
+
+func (s secrets) DeleteSecret(service, account string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if s.b.secretError != nil {
+		return s.b.secretError
+	}
+	delete(s.b.secrets, [2]string{service, account})
+	return nil
+}
+
+// StoredSecret returns the secret stored for service and account, as the
+// system's store would show it.
+func (b *Backend) StoredSecret(service, account string) ([]byte, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	v, ok := b.secrets[[2]string{service, account}]
+	return bytes.Clone(v), ok
+}
+
+// SetSecretError makes every Secrets call fail with err, or work again
+// when err is nil. It may be called from any goroutine.
+func (b *Backend) SetSecretError(err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.secretError = err
 }

@@ -37,6 +37,13 @@ func RegisterFont(data []byte, family string) error {
 	return text.Shared().RegisterFont(data, family)
 }
 
+// FontFamilies lists the font families text can use: the app's registered
+// ones first, then the system's, sorted. With mono, only the monospaced
+// ones, as a terminal or an editor offers.
+func FontFamilies(mono bool) []string {
+	return text.Shared().FontFamilies(mono)
+}
+
 // AttachContent connects the content to a window; package mygo calls it.
 func (v *Content) AttachContent(conn *surface.Conn) {
 	h := &windowHost{conn: conn}
@@ -461,9 +468,33 @@ func (h *windowHost) readClipboard() string {
 	return h.conn.Clipboard.ReadText()
 }
 
+func (h *windowHost) readClipboardImage() []byte {
+	if h.conn.Clipboard == nil {
+		return nil
+	}
+	return h.conn.Clipboard.ReadImage()
+}
+
 func (h *windowHost) writeClipboard(s string) {
 	if h.conn.Clipboard != nil {
 		h.conn.Clipboard.WriteText(s)
+	}
+}
+
+func (h *windowHost) readClipboardData(formats []transfer.Format) transfer.Data {
+	if h.conn.Clipboard == nil {
+		return transfer.Data{}
+	}
+	d, err := h.conn.Clipboard.ReadData(formats)
+	if err != nil && len(d.Items()) == 0 {
+		return transfer.Data{}
+	}
+	return d
+}
+
+func (h *windowHost) writeClipboardData(d transfer.Data) {
+	if h.conn.Clipboard != nil {
+		h.conn.Clipboard.WriteData(d, nil)
 	}
 }
 

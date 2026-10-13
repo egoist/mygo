@@ -30,10 +30,10 @@ starts. It may also read what needs no running app, such as `App.Path`,
 `App.Locale` or `Power.IsOnBattery`, and register the app with the system
 (`App.SetOpenAtLogin`, `App.RegisterURLScheme`). Everything else needs the
 running app: when `main` calls the clipboard, displays, dialogs,
-notifications, global shortcuts, trays, Dock badges, `Theme.IsDark` and the
-like before `Run`, they panic with a message naming the call, on every
-platform. Use them from `WhenReady` on; other goroutines may call them
-earlier, and wait for the app to start.
+notifications, global shortcuts, trays, Dock badges, `Theme.IsDark`,
+`Theme.Preferences` and the like before `Run`, they panic with a message
+naming the call, on every platform. Use them from `WhenReady` on; other
+goroutines may call them earlier, and wait for the app to start.
 
 ## Threads
 
@@ -176,6 +176,31 @@ It also gets files dropped on the app's Dock icon (macOS) and files passed
 on the command line. As with deep links, the single instance lock makes the
 first instance get the files of later ones on Windows and Linux.
 
+Apps whose windows each show a file get this and the rest of what
+document-based apps do from [documents](documents.md).
+
+## Recent documents
+
+Record the documents the user opens, so that the system offers them again:
+
+```go
+if err := mygo.App.AddRecentDocument(path); err != nil {
+	log.Println(err)
+}
+```
+
+macOS lists them in the app's Dock menu, Linux in the user's recently used
+files (`~/.local/share/recently-used.xbel`, the Recent of file choosers and
+file managers), and Windows in the Recent category of the app's
+[jump list](#jump-lists), for the file types the app is
+registered to open (see [file associations](#file-associations)). Choosing
+an entry of the Dock menu or the jump list opens the file with the app,
+which gets it through `OnOpenFile`.
+
+`ClearRecentDocuments` removes the documents the app recorded, for example
+when the user asks to clear its history. On Linux the user's other recent
+files stay.
+
 ## Start at login
 
 ```go
@@ -248,9 +273,78 @@ user's language, such as `"en-US"`.
   `App.Show` hide and show all its windows, and `App.ShowAboutPanel` shows
   the standard about panel.
 
+### Jump lists
+
+On Windows, right-clicking the app's taskbar button shows its jump list:
+the documents the user opened recently (see
+[recent documents](#recent-documents)) and tasks, programs to run with
+arguments, often the app itself, such as a text editor's "New note".
+`App.SetJumpListTasks` sets the tasks; Windows keeps them after the app
+quits, so setting them once at startup is enough:
+
+```go
+if err := mygo.App.SetJumpListTasks([]mygo.JumpListTask{
+	{Title: "New note", Args: "--new"},
+	{Title: "Notepad", Path: `C:\Windows\notepad.exe`},
+}); err != nil {
+	log.Println(err)
+}
+```
+
+`Path` is the app's own executable unless set, and the icon is the
+program's own unless `IconPath` (with `IconIndex`) names another. A task
+that runs the app starts another instance with `Args`: with
+[a single instance](#a-single-instance), the first one gets them through
+`OnSecondInstance`. No tasks removes them. `SetJumpListTasks` does nothing
+on macOS and Linux.
+
 ## Browsing data
 
 `App.ClearBrowsingData()` deletes what the app's pages stored: cookies,
 local and session storage, IndexedDB, service workers and caches, for
 example when the user signs out. Open pages keep what they hold in memory
 until they reload.
+
+### Cookies
+
+`mygo.Cookies` reads and changes the cookies the app's pages share,
+`HttpOnly` ones included, for example to sign the pages in with a token
+the backend got, or to read the session a page's sign-in set:
+
+```go
+err := mygo.Cookies.Set(mygo.Cookie{
+	Name:     "session",
+	Value:    token,
+	Domain:   "example.com",
+	Secure:   true,
+	HTTPOnly: true,
+	Expires:  time.Now().Add(30 * 24 * time.Hour),
+})
+
+c, ok, err := mygo.Cookies.Get("session", "example.com", "/")
+
+cookies, err := mygo.Cookies.List() // sorted by domain, path and name
+
+err = mygo.Cookies.Delete("session", "example.com", "/")
+err = mygo.Cookies.Clear() // every cookie, but not the pages' storage
+```
+
+A cookie's name, domain and path identify it. A domain without a leading
+dot is a host's, sent to that host only; with one, `.example.com`, the
+cookie goes to its subdomains too. Domains are ASCII (punycode for
+others) and an empty path is `/`. `Set` replaces the cookie of the same
+name, domain and path; an empty `SameSite` is `Lax`, and `None` needs
+`Secure`. The value takes the characters a `Set-Cookie` header allows:
+encode others, for example in base64. A zero `Expires` makes a cookie
+that lasts until the app quits, and one in the past deletes the cookie.
+
+The methods are safe from any goroutine once the app is running, and on
+the main thread the app keeps handling events while they wait. Cookies
+may carry the user's credentials: rather than binding the module to the
+pages, bind a backend method that does what the page needs.
+
+Windows keeps the cookies in the web views, so the methods need a window
+that shows a web page, and fail without one. On Linux they need
+WebKitGTK 2.42 or newer, and `Set` libsoup 2.70 or newer. WebKitGTK's
+default context keeps cookies in memory, so they last until the app
+quits.

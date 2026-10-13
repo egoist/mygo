@@ -4,6 +4,7 @@ package linux
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -191,10 +192,11 @@ func (b *Backend) Dialogs() platform.Dialogs   { return dialogs{b} }
 func (b *Backend) Clipboard() platform.Clipboard {
 	return clipboard{}
 }
-func (b *Backend) Shell() platform.Shell   { return shell{} }
-func (b *Backend) Screen() platform.Screen { return screen{} }
-func (b *Backend) Theme() platform.Theme   { return theme{b} }
-func (b *Backend) Power() platform.Power   { return power{b} }
+func (b *Backend) Shell() platform.Shell     { return shell{} }
+func (b *Backend) Screen() platform.Screen   { return screen{} }
+func (b *Backend) Theme() platform.Theme     { return theme{b} }
+func (b *Backend) Power() platform.Power     { return power{b} }
+func (b *Backend) Secrets() platform.Secrets { return secrets{} }
 
 // Callbacks are created once; purego callbacks are never freed.
 var (
@@ -325,3 +327,43 @@ func (a appController) ClearBrowsingData(done func(error)) {
 	})
 	webkitWebsiteDataManagerClear(manager, all, 0, 0, cbAsyncReady, id)
 }
+
+func (a appController) AddRecentDocument(path string) error {
+	uri := fileURI(path)
+	if uri == "" {
+		return fmt.Errorf("mygo: cannot record %q as a recent document", path)
+	}
+	// GTK records the item asynchronously, under the application name, so
+	// a failure to write the list is not reported here.
+	if !gtkRecentManagerAddItem(gtkRecentManagerGetDefault(), cs(uri)) {
+		return fmt.Errorf("mygo: the recent files list refused %q", path)
+	}
+	return nil
+}
+
+// ClearRecentDocuments removes the items of the shared list that this
+// application registered, including those of earlier runs, and leaves the
+// other applications' items alone.
+func (a appController) ClearRecentDocuments() error {
+	m := gtkRecentManagerGetDefault()
+	name := gGetApplicationName()
+	if name == 0 {
+		return nil
+	}
+	var uris []string
+	list := gtkRecentManagerGetItems(m)
+	for node := list; node != 0; node = field[ptr](node, 8) {
+		info := field[ptr](node, 0)
+		if gtkRecentInfoHasApplication(info, name) {
+			uris = append(uris, goStr(gtkRecentInfoGetURI(info)))
+		}
+		gtkRecentInfoUnref(info)
+	}
+	gListFree(list)
+	for _, uri := range uris {
+		gtkRecentManagerRemoveItem(m, cs(uri), 0)
+	}
+	return nil
+}
+
+func (appController) SetJumpListTasks([]platform.JumpListTask) error { return nil }

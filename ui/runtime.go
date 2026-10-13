@@ -28,7 +28,14 @@ type host interface {
 	setTextInput(t platform.TextInputState)
 	updateAccessibility(tree *platform.AccessTree)
 	readClipboard() string
+	// readClipboardImage reads the clipboard's image as PNG, nil without
+	// one.
+	readClipboardImage() []byte
 	writeClipboard(string)
+	// readClipboardData reads the representations of formats on the
+	// clipboard, all for nil; writeClipboardData puts data there.
+	readClipboardData(formats []transfer.Format) transfer.Data
+	writeClipboardData(transfer.Data)
 	startDrag()
 	startDataDrag(transfer.Data, any, transfer.DragOptions, float32, float32) error
 	cancelDataDrag()
@@ -64,6 +71,8 @@ type host interface {
 // the view function, lays them out, paints them and routes input to the
 // elements of the last frame. Main thread only, except where noted.
 type engine struct {
+	// inlineRects is placeInline's scratch, kept from frame to frame.
+	inlineRects []text.Rect
 	// byPosition holds the keys whose press stood for its physical key
 	// (keyDownPhysical), until their release does the same.
 	byPosition      map[Key]bool
@@ -873,6 +882,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	s.webView = e.webView
 	s.role = e.role
 	s.input, s.caret, s.takesText = e.inputFn, e.caret, e.takesText
+	s.copyData = e.copyData
 	if s.textClient != e.textClient {
 		if s.textAdapter != nil {
 			s.textAdapter.release()

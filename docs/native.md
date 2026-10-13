@@ -145,6 +145,56 @@ mygo.Shell.TrashItem(path)                     // to the trash
 mygo.Shell.Beep()
 ```
 
+`FileIcon` returns the icon the file manager shows for a file, a folder
+or an application, as a PNG of the size asked for in pixels: pass the size
+in DIPs times the display's scale factor.
+
+```go
+png, err := mygo.Shell.FileIcon("/Applications/Safari.app", 64)
+```
+
+On macOS it is Finder's icon (`NSWorkspace`), drawn from the
+representation that fits the size best; a symbolic link has the icon of
+what it points to, without Finder's arrow. On Windows it is Explorer's
+(`IShellItemImageFactory`, icons only, no thumbnails), and the path may
+also name a shell item, such as an app of the Start menu by
+`shell:AppsFolder\<AppUserModelID>`. On Linux it is the icon of the file's
+content type from the icon theme, and for a desktop entry (`.desktop`), the
+icon of its application, or where the theme has none, that of desktop
+entries.
+
+`InstalledApps` lists the applications installed on the computer, sorted
+by name, as a launcher shows them, and `LaunchApp` starts one, or brings
+it to the front:
+
+```go
+go func() {
+	apps, err := mygo.Shell.InstalledApps() // reads the disk: off the main thread
+	if err != nil {
+		return
+	}
+	for _, app := range apps {
+		fmt.Println(app.Name, app.ID)
+	}
+	icon, _ := mygo.Shell.FileIcon(apps[0].Path, 64)
+	_ = mygo.Shell.LaunchApp(apps[0])
+}()
+```
+
+Each app has the `Name` the system shows, in the user's language, an
+`ID` and the `Path` whose icon `FileIcon` draws:
+
+| | the apps | `ID` | `Path` |
+|---|---|---|---|
+| macOS | the `.app` bundles of `/Applications`, `/System/Applications`, `~/Applications` and CoreServices' `Applications`, and of their folders (Utilities), plus Finder; an app behind symbolic links once, at the link, as `/Applications/Safari.app` | the bundle identifier, or the path for a bundle without one | the bundle |
+| Windows | the Start menu's All apps, desktop and packaged apps alike (the shell's Applications folder) | the AppUserModelID, or for a desktop app without one, its path under a known folder | `shell:AppsFolder\<ID>` |
+| Linux | the desktop entries menus show (not `NoDisplay`, `Hidden`, or meant for another desktop) | the desktop file ID, such as `org.gnome.Nautilus.desktop` | the desktop entry |
+
+`InstalledApps` does not block the main thread when called from another
+goroutine, and returns in tens of milliseconds. Drawing icons takes a few
+milliseconds each, on the main thread: draw those that show, and keep
+them.
+
 ## Displays
 
 `mygo.Screen` describes the connected displays, in device-independent
@@ -181,6 +231,35 @@ mygo.Theme.SetSource(mygo.ThemeDark) // or ThemeLight, or ThemeSystem to follow 
 `SetSource` may be called before `App.Run`, for example with an appearance
 the user saved in the app's preferences: the app then starts in it.
 
+## Accent color and accessibility
+
+`mygo.Theme.Preferences()` returns the accent color of the desktop's own
+controls and the accessibility settings they follow:
+
+```go
+p := mygo.Theme.Preferences()
+p.Accent       // mygo.Color{R, G, B, A}, A 0 where the desktop has none
+p.ReduceMotion // the desktop asks for less animation
+p.HighContrast // the desktop uses a contrast theme
+p.TextScale    // the factor text grows by; 1 is the usual size
+
+if c := mygo.Theme.AccentColor(); c.A != 0 {
+	log.Println("accent:", c) // "#ff8000", or "#ff800080" when it has an alpha
+}
+```
+
+`AccentColor`, `ReduceMotion`, `HighContrast` and `TextScale` answer the same
+settings one at a time, and `mygo.Color.String()` is the color as CSS writes
+it. `Theme.OnUpdated` fires when the desktop changes any of them, as
+`SetSource` does. Reading them can call out to the desktop (the settings
+portal on Linux), so MyGo reads them once and keeps them until the next
+change.
+
+Pages hear them as the `--mygo-accent` and `--mygo-text-scale` CSS variables
+and the `mygo:preferences` event, see [the frontend guide](frontend.md);
+`prefers-reduced-motion` and `prefers-contrast` already follow the desktop.
+macOS has no text scale, so `Theme.TextScale()` is 1 there.
+
 ## Power
 
 ```go
@@ -201,6 +280,126 @@ The reason given to `KeepAwake` shows where the system lists what keeps it
 awake. On Linux, `OnLockScreen` is called when the screen saver starts,
 which usually locks the screen, and `IdleTime` is 0 on desktops that do not
 report it.
+
+## Network
+
+`mygo.Network` tells whether the computer is online and whether the
+connection is expensive — a phone hotspot or a metered one, where an app
+should hold off on large downloads:
+
+```go
+status := mygo.Network.Status()
+if status.Online && !status.Constrained {
+	syncNow()
+}
+
+mygo.Network.OnChanged(func(s mygo.NetworkStatus) {
+	log.Printf("online: %v, constrained: %v", s.Online, s.Constrained)
+})
+```
+
+`Online` means the system has a connection that leads beyond the
+computer, which does not prove that a server answers: macOS and Linux
+count any route out, and Windows asks whether the internet is reachable.
+`Constrained` is an expensive connection or Low Data Mode on macOS, a
+metered one on Linux and a variable-cost one on Windows. In browsers
+`Online` is `navigator.onLine`, and `Constrained` is false. Changes are
+watched from the first `OnChanged` on, whose listener runs on the main
+thread, only when the status changed; it returns a function that removes
+the listener.
+
+Pages already have `navigator.onLine`. To show the native status in the
+UI, broadcast a typed event from the listener, so the generated client
+receives it:
+
+```go
+// Connectivity is pushed to every window when the connection changes.
+var Connectivity = mygo.NewEvent[mygo.NetworkStatus]("connectivity")
+
+func init() {
+	mygo.Network.OnChanged(func(s mygo.NetworkStatus) { Connectivity.Broadcast(s) })
+}
+```
+
+## Secrets
+
+`mygo.Secrets` keeps small secrets, such as access tokens and API keys, in
+the system's credential store, which encrypts them for the user, unlike a
+file in the user data directory: the login Keychain on macOS, the Secret
+Service on Linux (GNOME Keyring, KWallet, KeePassXC…, through libsecret)
+and the Credential Manager on Windows.
+
+```go
+if err := mygo.Secrets.Set("github-token", []byte(token)); err != nil {
+	log.Println(err)
+}
+
+token, err := mygo.Secrets.Get("github-token")
+if errors.Is(err, mygo.ErrSecretNotFound) {
+	// Ask the user to sign in.
+}
+
+mygo.Secrets.Delete("github-token") // on sign out; nil when there is none
+```
+
+A secret may be at most `mygo.MaxSecretSize` (2560) bytes, the most the
+Credential Manager keeps, and a key at most 256 bytes. The methods are safe from any goroutine, also
+before `Run`, and may block while the system asks the user something, e.g.
+to unlock the keyring; on the main thread the app keeps handling events
+meanwhile. To use them from the page, bind a backend method that calls
+them, so that only what the page needs crosses into it.
+
+Secrets are stored under the app's identifier (its name in development)
+as the service and the key as the account, as Electron's keytar stores
+them, so an app moving from Electron keeps its users signed in. They
+protect against other users and stolen disks, not against other apps of
+the same user: macOS asks the user before another app reads them, and
+before a rebuilt app does when it is not signed with the same identity,
+while Linux and Windows let them read. Linux needs libsecret (the
+`libsecret-1-0` package on Debian and Ubuntu) and a running Secret
+Service; without them the methods return an error.
+
+## Watching files
+
+`mygo.WatchFiles` watches a directory, and with `Recursive` the
+directories in it, for changes to the files in it. It returns once
+everything is watched, and `Next` waits for each change; use it on a
+goroutine of its own:
+
+```go
+w, err := mygo.WatchFiles(ctx, dir, mygo.FileWatchOptions{Recursive: true})
+if err != nil {
+	return err
+}
+go func() {
+	defer w.Close()
+	for {
+		event, err := w.Next(ctx)
+		if err != nil {
+			return // io.EOF once closed
+		}
+		log.Println(event.Op, event.Path)
+	}
+}()
+```
+
+An event's `Path` is relative to the directory and separated by slashes,
+`.` for the directory itself, and `Op` is `mygo.FileCreate`, `FileWrite`,
+`FileRemove` or `FileRename`, with `OldPath` where a rename moved from.
+What is already there is not reported. Changes wait for 50 ms of quiet
+(`Debounce`) before they are reported, and never more than 500 ms
+(`MaxDelay`). A watch compares what it sees with what it saw, so events say
+what is different, not every step that made it so: treat them as hints to
+read the files again.
+
+Canceling the context given to `WatchFiles`, or `Close`, stops the watch;
+`Done` is closed once it has released its handles, and the app stops its
+watches when it quits. A watch stops with `mygo.ErrWatchOverflow` when more
+than 1024 events (`Buffer`) waited for `Next`, after which read the files
+again and start a new one, and with `mygo.ErrWatchLimit` when the directory
+has more than 8192 files and directories (`MaxEntries`). The
+[watch plugin](plugins/watch.md) gives pages watches of the directories an
+app chooses, and says how each platform watches.
 
 ## Global shortcuts
 
