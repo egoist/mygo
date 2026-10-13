@@ -25,7 +25,8 @@ const { locales, autonyms } = JSON.parse(await readFile(join(dir, "format_locale
 
 type NumberCase = { kind: "number"; value: string; options: Intl.NumberFormatOptions & { roundingMode?: string } };
 type DateCase = { kind: "date"; time: string; zone?: string; options: Intl.DateTimeFormatOptions };
-type Case = NumberCase | DateCase | { kind: "firstDay" | "hourCycle" };
+type NamesCase = { kind: "names"; times: string[]; options: Intl.DateTimeFormatOptions };
+type Case = NumberCase | DateCase | NamesCase | { kind: "firstDay" | "hourCycle" };
 
 const cases: Case[] = [];
 
@@ -96,8 +97,18 @@ for (const zone of ["Etc/GMT-8", "Etc/GMT+5"]) {
   for (const s of ["full", "long"] as const) cases.push({ kind: "date", time: times[0]!, zone, options: { timeStyle: s } });
 }
 
-// The names of months and weekdays are those the dates above write;
-// Intl gives no list of them that is not a date's pattern.
+// The names of months and weekdays, as dates of every month and weekday
+// write them: Intl gives no list of them but its patterns'.
+const monthTimes = Array.from({ length: 12 }, (_, m) => new Date(Date.UTC(2023, m, 15)).toISOString());
+const dayTimes = Array.from({ length: 7 }, (_, d) => new Date(Date.UTC(2023, 0, 1 + d)).toISOString());
+for (const month of ["long", "short", "narrow"] as const) {
+  cases.push({ kind: "names", times: monthTimes, options: { month } });
+  cases.push({ kind: "names", times: monthTimes, options: { month, day: "numeric" } });
+}
+for (const weekday of ["long", "short", "narrow"] as const) {
+  cases.push({ kind: "names", times: dayTimes, options: { weekday } });
+}
+cases.push({ kind: "names", times: dayTimes, options: { weekday: "long", year: "numeric", month: "long", day: "numeric" } });
 cases.push({ kind: "firstDay" }, { kind: "hourCycle" });
 
 const hourCycles: Record<string, number> = { h11: 12, h12: 12, h23: 24, h24: 24 };
@@ -113,6 +124,11 @@ for (const locale of locales) {
       case "date":
         row.push(new Intl.DateTimeFormat(`${locale}-u-ca-gregory`, { timeZone: c.zone ?? "UTC", ...c.options }).format(new Date(c.time)));
         break;
+      case "names": {
+        const f = new Intl.DateTimeFormat(`${locale}-u-ca-gregory`, { timeZone: "UTC", ...c.options });
+        row.push(c.times.map((t) => f.format(new Date(t))).join("|"));
+        break;
+      }
       case "firstDay": {
         const info = (new Intl.Locale(locale) as Intl.Locale & { getWeekInfo(): { firstDay: number } }).getWeekInfo();
         row.push(String(info.firstDay % 7));

@@ -18,8 +18,7 @@ type icuCase struct {
 	Time       string         `json:"time"`
 	Zone       string         `json:"zone"`
 	Options    map[string]any `json:"options"`
-	Width      string         `json:"width"`
-	StandAlone bool           `json:"standAlone"`
+	Times      []string       `json:"times"`
 }
 
 // knownDifference returns why package i18n writes a case of a locale
@@ -57,7 +56,7 @@ func TestKnownDifferencesDiffer(t *testing.T) {
 	for l, row := range golden.Locales {
 		for i, want := range row {
 			c := golden.Cases[i]
-			if c.Kind == "date" && knownDifference(l, c) != "" && formatCase(l, c) == want {
+			if (c.Kind == "date" || c.Kind == "names") && knownDifference(l, c) != "" && formatCase(l, c) == want {
 				if l != "ht" && l != "el-polyton" {
 					t.Errorf("%s %v agrees with ICU now: %s", l, c, knownDifference(l, c))
 				}
@@ -147,8 +146,6 @@ func zoneOf(name string) *time.Location {
 	panic("unknown zone " + name)
 }
 
-var widthNames = map[string]Width{"long": Wide, "short": Abbreviated, "narrow": Narrow}
-
 // formatCase formats a case as package i18n does.
 func formatCase(locale string, c icuCase) string {
 	switch c.Kind {
@@ -160,12 +157,17 @@ func formatCase(locale string, c icuCase) string {
 			panic(err)
 		}
 		return FormatDate(locale, t.In(zoneOf(c.Zone)), dateOptions(c.Options))
-	case "months":
-		m := Months(locale, widthNames[c.Width], c.StandAlone)
-		return strings.Join(m[:], "|")
-	case "weekdays":
-		w := Weekdays(locale, widthNames[c.Width], c.StandAlone)
-		return strings.Join(w[:], "|")
+	case "names":
+		f := NewDateFormatter(locale, dateOptions(c.Options))
+		var out []string
+		for _, s := range c.Times {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				panic(err)
+			}
+			out = append(out, f.Format(t))
+		}
+		return strings.Join(out, "|")
 	case "firstDay":
 		return fmt.Sprint(int(FirstWeekday(locale)))
 	case "hourCycle":
