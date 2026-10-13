@@ -83,7 +83,7 @@ type ListState struct {
 	// Sort, when set, is the column a Table's rows are sorted by: a click
 	// on the header of a Sortable column sorts by it, ascending, and
 	// another reverses the order, which the header shows. Sort the rows as
-	// it says, when it changes.
+	// it says, when it changes. SortBy sorts by several columns.
 	Sort *SortOrder
 	// SortBy, set in place of Sort, sorts a Table's rows by several
 	// columns, the first first. A click on a Sortable column's header sorts

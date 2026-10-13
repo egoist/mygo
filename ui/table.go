@@ -10,7 +10,7 @@ import (
 type TableColumn struct {
 	// Title heads the column. ID identifies it among the others, for the
 	// order and the widths the user gives the columns (ListState.Columns)
-	// and for the sort (ListState.Sort): the Title when empty.
+	// and for the sort (ListState.Sort and SortBy): the Title when empty.
 	Title, ID string
 	// Width is the column's width in DIPs, or 0 to share the room the
 	// others leave. The user resizes the column by dragging the right edge
@@ -20,7 +20,7 @@ type TableColumn struct {
 	// Align aligns the content of its cells.
 	Align Align
 	// Sortable lets a click on the column's header sort the rows by it,
-	// with ListState.Sort.
+	// with ListState.Sort or SortBy.
 	Sortable bool
 	// Fixed keeps the column where it is and as wide as it is: the user
 	// neither moves nor resizes it.
