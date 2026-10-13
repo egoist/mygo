@@ -86,8 +86,17 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 
 	con.startBanner("build")
 	started := time.Now()
-	// The TypeScript client comes first: the frontend build type-checks and
-	// bundles it.
+	// The accessors of the catalogs come first, which the app calls, then
+	// the TypeScript client: the frontend build type-checks and bundles
+	// them.
+	if err := generateI18n(c); err != nil {
+		return err
+	}
+	if c.I18n != nil {
+		if dirs := compiledDirs(c); dirs != nil {
+			checkCatalogImported(c, dirs)
+		}
+	}
 	if err := writeClient(context.Background(), c, false); err != nil {
 		return err
 	}
