@@ -647,12 +647,12 @@ func TestOnEnterTakesEnterByModifier(t *testing.T) {
 				in = coreTextInputBase(c, &text)
 			}
 			in.Width(100).Label("draft")
-			in.OnEnter(func(mods Modifiers) bool {
+			in.OnEnter(func(e Enter) bool {
 				if takes {
 					sends++
-					sent = text
+					sent = e.Text()
 					if !multiline {
-						in.SetText("") // a composer clears the draft it sent
+						e.SetText("") // a composer clears the draft it sent
 					}
 					return true
 				}
@@ -716,9 +716,9 @@ func TestOnEnterSeesModifiersAndHolds(t *testing.T) {
 	armed := true
 	tt := coreNewTester(func(c *context) {
 		in := coreTextAreaBase(c, &text).Width(100).Label("draft")
-		in.OnEnter(func(mods Modifiers) bool {
+		in.OnEnter(func(e Enter) bool {
 			if armed {
-				seen = append(seen, mods)
+				seen = append(seen, e.Mods)
 				return true
 			}
 			return false
@@ -742,5 +742,67 @@ func TestOnEnterSeesModifiersAndHolds(t *testing.T) {
 	tt.Frame()
 	if text != "\n" {
 		t.Fatalf("after the hold lapsed: text %q, want a newline", text)
+	}
+}
+
+// The usage OnEnter documents, through the public API: fn runs as the key
+// comes, between frames, where the Element the view kept is no longer
+// valid, and sends and clears the draft through its Enter.
+func TestOnEnterComposer(t *testing.T) {
+	for _, buffered := range []bool{false, true} {
+		draft, buffer := "", NewTextBuffer("")
+		var sent []string
+		var kept Enter
+		tt := NewTester(func(c *Context) {
+			var composer Element
+			if buffered {
+				composer = TextAreaBuffer(c, buffer)
+			} else {
+				composer = TextArea(c, &draft)
+			}
+			composer.Label("draft").OnEnter(func(e Enter) bool {
+				if e.Mods&Shift != 0 {
+					return false
+				}
+				sent = append(sent, e.Text())
+				e.SetText("")
+				kept = e
+				return true
+			})
+		}, 200, 80)
+		text := func() string {
+			if buffered {
+				return buffer.String()
+			}
+			return draft
+		}
+		tt.Click("draft")
+
+		tt.Type("hello")
+		tt.Key(Shift, KeyEnter) // breaks the line
+		tt.Type("world")
+		tt.Key(0, KeyEnter)
+		if len(sent) != 1 || sent[0] != "hello\nworld" || text() != "" {
+			t.Fatalf("buffered %v: sent %q, text %q; want the draft sent and cleared", buffered, sent, text())
+		}
+
+		// The text typed with the Enter before a frame, which the bound
+		// value does not hold yet, is what fn reads.
+		tt.rt.event(platform.SurfaceEvent{Kind: platform.TextInput, Text: "again"})
+		tt.rt.event(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(KeyEnter)})
+		tt.Frame()
+		if len(sent) != 2 || sent[1] != "again" || text() != "" {
+			t.Fatalf("buffered %v: sent %q, text %q; want the typed text sent", buffered, sent, text())
+		}
+
+		// The input edits on after a clear, and an Enter kept past fn
+		// changes nothing.
+		tt.Type("next")
+		kept.SetText("stale")
+		tt.Frame()
+		if text() != "next" || kept.Text() != "" {
+			t.Fatalf("buffered %v: text %q after a kept Enter set it", buffered, text())
+		}
+		tt.rt.close()
 	}
 }
