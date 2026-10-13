@@ -640,6 +640,10 @@ const (
 // Menu is a snapshot of a menu tree.
 type Menu struct {
 	Items []*MenuItem
+	// RightToLeft lays a context menu out right to left, as that of an
+	// interface laid out so: its items from the right, opening to the
+	// left of where it shows, which is its top right corner.
+	RightToLeft bool
 }
 
 // MenuItem is a snapshot of a menu item. ID identifies the public item the

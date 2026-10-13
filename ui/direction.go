@@ -241,6 +241,16 @@ func (e *node) EndPercent(p float32) *node {
 	return e
 }
 
+// arrows returns the arrow keys that go back and forth along a line of
+// the element: Left and Right, or Right and Left right to left, as the
+// arrows move among tabs, segments and items laid out from the right.
+func (e *node) arrows() (back, forth Key) {
+	if e.rtl() {
+		return KeyRight, KeyLeft
+	}
+	return KeyLeft, KeyRight
+}
+
 // direction returns the direction of the window: the debugging override
 // (MYGO_DIRECTION, or the inspector's), else the one the window was
 // given, which package mygo takes from the app's language.

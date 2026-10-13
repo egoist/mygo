@@ -193,6 +193,12 @@ func (b *Backend) PopupMenu(m *platform.Menu, pw platform.Window, pos *platform.
 		owner := newOwner()
 		defer dropOwner(owner)
 		menu := b.buildMenu(m, "", owner)
+		if m.RightToLeft {
+			// NSUserInterfaceLayoutDirectionRightToLeft: the menu opens
+			// to the left of the location, its items laid out from the
+			// right.
+			send(menu, "setUserInterfaceLayoutDirection:", 1)
+		}
 		var view id
 		var loc NSPoint
 		if w, ok := pw.(*window); ok && w != nil && !w.closed {

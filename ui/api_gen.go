@@ -1302,12 +1302,13 @@ func Popover(c *Context, anchor Element, open *bool, fn func()) Element {
 // true: fn styles the panel and builds its content. Pressing outside the
 // panel and the anchor, or Escape, sets *open to false, which Dismissed
 // reports; the press goes on to what is under the pointer, as with the
-// web's popovers. Where there is
+// web's popovers. It starts at the anchor's start: its left, or its right
+// right to left (Direction). Where there is
 // no room below the anchor, the panel shows above it; a top margin keeps
 // it apart from the anchor on either side. fn may place it elsewhere with
-// AttachTo, as to the right of the anchor:
+// AttachTo, as after the anchor:
 //
-//	panel.AttachTo(anchor, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 6)
+//	panel.AttachTo(anchor, ui.AnchorEnd, ui.AnchorStart).MarginStart(6)
 //
 // It returns the panel, or nil while closed; Popover is PopoverBase with
 // the theme's look.
@@ -1329,8 +1330,9 @@ func PrimaryButton(c *Context, label string) Element {
 }
 
 // Progress creates a progress bar filled to value between 0 and 1; a
-// negative value shows activity of unknown length. Reverse fills it from
-// the right, for interfaces laid out from right to left.
+// negative value shows activity of unknown length. It fills from its
+// start: the right right to left (Direction). Reverse fills it from the
+// other side.
 func Progress(c *Context, value float64) Element {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -1635,7 +1637,9 @@ func Slider(c *Context, value *float64, lo float64, hi float64) Element {
 // range unless Step says otherwise; Changed reports a new value, and
 // assistive technology sees a slider of that range. Draw its track and
 // thumb where (*value-lo)/(hi-lo) puts them, and pad it by half the
-// thumb's width to keep the thumb inside it:
+// thumb's width to keep the thumb inside it. Right to left
+// (Context.Direction), lo is at the right of the content box, as the
+// arrows go: draw it mirrored.
 //
 //	s := ui.SliderBase(c, &app.volume, 0, 100).Height(24).PaddingX(12)
 //	s.Draw(func(p *ui.Painter, r ui.Rect) {
@@ -1680,7 +1684,8 @@ func Spinner(c *Context) Element {
 // Split lays out first and second side by side, with a divider between
 // them that the user drags to resize them, or moves with the arrows once
 // it has the keyboard focus: *size is the width of first, which the
-// divider keeps 40 DIPs from either edge. Changed reports a move.
+// divider keeps 40 DIPs from either edge. Changed reports a move. Right to
+// left (Direction), first is on the right.
 //
 //	ui.Split(c, &app.sidebar, app.files, app.editor).Fill()
 func Split(c *Context, size *float32, first func(), second func()) Element {
@@ -1932,7 +1937,9 @@ func Textf(c *Context, format string, args ...any) Element {
 // typed set it, going on to the minutes once the hours are typed, and Left
 // and Right move between them. Changed reports a new time, which keeps the
 // date and the location of *tm. Assistive technology sees two spin
-// buttons, named after the field's Label and "hours" and "minutes".
+// buttons, named after the field's Label and "hours" and "minutes". It
+// reads left to right in an interface laid out right to left too, as
+// times are written there.
 //
 //	ui.TimeInput(c, &app.alarm).Label("Alarm")
 func TimeInput(c *Context, tm *time.Time) Element {
@@ -2082,10 +2089,10 @@ func Toolbar(c *Context, fn func()) Element {
 // shows; one shows at a time.
 //
 // The tip goes above anchor, centered, or below it where there is no room
-// above; fn may place it elsewhere with AttachTo, as to the right:
+// above; fn may place it elsewhere with AttachTo, as after it:
 //
 //	ui.TooltipBase(c, b, func(tip ui.Element) {
-//		tip.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).Margin(0, 0, 0, 6)
+//		tip.AttachTo(b, ui.AnchorEnd, ui.AnchorStart).MarginStart(6)
 //		tip.Padding(4, 8).Radius(6).Background(dark).TextColor(light)
 //		tip.Children(func() { ui.Text(c, "Share") })
 //	})
