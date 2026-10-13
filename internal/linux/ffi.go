@@ -382,6 +382,7 @@ var (
 	webkitWebContextRegisterURIScheme                 func(ctx ptr, scheme *byte, cb ptr, data ptr, destroy ptr)
 	webkitWebContextGetSecurityManager                func(ctx ptr) ptr
 	webkitWebContextGetWebsiteDataManager             func(ctx ptr) ptr
+	webkitWebContextSetPreferredLanguages             func(ctx ptr, languages **byte)
 	webkitWebsiteDataManagerClear                     func(m ptr, types uint32, timespan int64, cancellable ptr, cb ptr, data ptr)
 	webkitWebsiteDataManagerClearFinish               func(m, res ptr, err *ptr) bool
 	webkitDownloadGetWebView                          func(d ptr) ptr
@@ -868,6 +869,7 @@ func loadWebKit() error {
 	mustBind(w, &webkitWebContextRegisterURIScheme, "webkit_web_context_register_uri_scheme")
 	mustBind(w, &webkitWebContextGetSecurityManager, "webkit_web_context_get_security_manager")
 	mustBind(w, &webkitWebContextGetWebsiteDataManager, "webkit_web_context_get_website_data_manager")
+	bind(w, &webkitWebContextSetPreferredLanguages, "webkit_web_context_set_preferred_languages")
 	mustBind(w, &webkitWebsiteDataManagerClear, "webkit_website_data_manager_clear")
 	mustBind(w, &webkitWebsiteDataManagerClearFinish, "webkit_website_data_manager_clear_finish")
 	mustBind(w, &webkitDownloadGetWebView, "webkit_download_get_web_view")

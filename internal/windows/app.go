@@ -27,7 +27,10 @@ type Backend struct {
 	signaled atomic.Bool
 
 	windows map[uintptr]*window // by HWND
-	appMenu *platform.Menu
+	// languages are those SetLanguages told: the first is the language
+	// of the WebView2 environment, once made.
+	languages []string
+	appMenu   *platform.Menu
 
 	// The WebView2 environment is created asynchronously, when the first
 	// window that shows a web page needs it; windows wait.
@@ -133,7 +136,11 @@ func (b *Backend) startEnvironment() error {
 	}
 	userData := filepath.Join(dir, sanitize(b.name), "WebView2")
 	_ = os.MkdirAll(userData, 0o755)
-	err := createEnvironment(userData, func(env uintptr, err error) {
+	language := ""
+	if len(b.languages) > 0 {
+		language = b.languages[0]
+	}
+	err := createEnvironment(userData, language, func(env uintptr, err error) {
 		b.env, b.envErr = env, err
 		if err != nil {
 			log.Print(err)
@@ -333,6 +340,9 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 		case lp != 0 && wstr(lp) == settingImmersiveColorSet:
 			b.applyTheme()
 			b.h.ThemeChanged()
+		case lp != 0 && wstr(lp) == settingIntl:
+			// The display languages or the regional formats.
+			b.h.LocaleChanged()
 		case preferencesChanged(wp, lp):
 			b.h.ThemeChanged()
 		}
@@ -501,14 +511,6 @@ func (a appController) ShowAboutPanel(o platform.AboutPanelOptions) {
 		}
 	}
 	a.b.messageBox(0, &platform.MessageBoxOptions{Type: "info", Title: "About " + o.ApplicationName, Message: o.ApplicationName, Detail: detail, Buttons: []string{"OK"}})
-}
-
-func (a appController) Locale() string {
-	buf := make([]uint16, 85) // LOCALE_NAME_MAX_LENGTH
-	if n, _, _ := procGetUserDefaultLocaleNm.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf))); n > 0 {
-		return syscall.UTF16ToString(buf)
-	}
-	return "en-US"
 }
 
 // Package reads the version resource `mygo build` embeds in the
