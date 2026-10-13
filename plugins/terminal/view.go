@@ -105,8 +105,10 @@ type view struct {
 	// does not open.
 	opening     string
 	openingPath bool
-	// pasting is a secondary click's copy-or-paste, done once t.mu is
+	// copying is the selection a release ended with Options.CopyOnSelect,
+	// and pasting a secondary click's copy-or-paste, done once t.mu is
 	// released, as opening is.
+	copying  string
 	pasting  bool
 	scrolled float32 // scrolling not yet a whole row
 	ticking  bool    // an autoscroll tick is due
@@ -272,6 +274,12 @@ func (v *view) input(ev ui.InputEvent) bool {
 			if open := v.t.opts.OpenLink; (open == nil || !open(link)) && !v.openingPath {
 				v.services.OpenURL(link)
 			}
+		}
+		if text := v.copying; text != "" {
+			// Outside pointerEvent's lock, which the clipboard may hold
+			// up while another program has it.
+			v.copying = ""
+			v.services.WriteClipboard(text)
 		}
 		if v.pasting {
 			// Outside pointerEvent's lock, which copying and pasting take.
@@ -638,8 +646,8 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 			v.gesture.Release(t.term, nil)
 		}
 		if t.opts.CopyOnSelect {
-			if text, ok := t.term.SelectionText(); ok && text != "" {
-				v.services.WriteClipboard(text)
+			if text, ok := t.term.SelectionText(); ok {
+				v.copying = text
 			}
 		}
 		return true
