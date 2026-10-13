@@ -60,8 +60,10 @@ type candidates struct {
 // NewCatalog returns the catalog of the JSON files at the root of fsys,
 // "<tag>.json", whose source language, the one its messages are written
 // in first, is source: the language whose messages the others fall back
-// to. Their names must be BCP 47 tags; their contents are read as they are
-// needed.
+// to. Their names must be BCP 47 tags in their canonical form; their
+// contents are read as they are needed. A message that does not parse, or
+// a file that does not, is left out, and its keys fall back as missing ones
+// do: `mygo generate` and `mygo i18n check` report them.
 func NewCatalog(fsys fs.FS, source string) (*Catalog, error) {
 	src := Normalize(source)
 	if src == "" || IsPseudo(src) {
