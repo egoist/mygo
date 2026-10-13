@@ -518,7 +518,8 @@ func edgesCSS(v [4]float32) (string, bool) {
 }
 
 func anchorText(a Anchor) string {
-	return [...]string{"top left", "top", "top right", "left", "center", "right", "bottom left", "bottom", "bottom right"}[min(int(a), 8)]
+	return [...]string{"top left", "top", "top right", "left", "center", "right", "bottom left", "bottom", "bottom right",
+		"top start", "start", "bottom start", "top end", "end", "bottom end"}[min(int(a), 14)]
 }
 
 func cursorText(c Cursor) string {

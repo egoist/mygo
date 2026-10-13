@@ -112,19 +112,26 @@ func (e *node) layoutInput(cw, ch float32) {
 	if len(l.Lines) > 0 {
 		ed.originY += max((ch-l.Lines[0].Height)/2, 0)
 	}
-	// Text narrower than the box goes where TextAlign puts it.
+	// Text narrower than the box goes where TextAlign puts it: Start is
+	// the right of an input laid out right to left, whatever its text, as
+	// in browsers.
+	rtl := e.rtl()
 	if room := cw - l.Width; room > 0 {
-		switch e.resolvedText().align {
-		case End:
-			ed.originX += room
-		case Center:
+		switch align := e.resolvedText().align; {
+		case align == Center:
 			ed.originX += room / 2
+		case (align == End) != rtl:
+			ed.originX += room
 		}
 	}
 	// Keep the caret in view while the input has the focus. Without it, the
-	// input shows the start of its text, as fields do on macOS and the web.
+	// input shows the start of its text, as fields do on macOS and the web:
+	// its right right to left.
 	if e.c.rt.focused != e.id {
 		ed.scrollX = 0
+		if rtl {
+			ed.scrollX = max(l.Width-cw+1, 0)
+		}
 	} else if x, _, _ := l.Caret(ed.displayIndex(ed.caret) + ed.composeCaret); x-ed.scrollX < 0 {
 		ed.scrollX = x
 	} else if x-ed.scrollX > cw-1 {
@@ -159,7 +166,14 @@ func (e *node) paintInput(p *Painter) {
 	focused := e.Focused()
 	ts := e.resolvedText()
 	if ed.buf.n == 0 && ed.compose == "" && ed.placeholder != "" {
-		pl := textSystem().Layout(e.placeholderParams(box.W))
+		params := e.placeholderParams(box.W)
+		pl := textSystem().Layout(params)
+		if e.rtl() && !ed.multiline && params.Align != text.Center && len(pl.Lines) > 0 && !pl.Lines[0].RTL {
+			// A single-line input right to left starts its text at the
+			// right, whatever it reads (layoutInput): its placeholder too.
+			params.Align = text.End - params.Align
+			pl = textSystem().Layout(params)
+		}
 		// The placeholder aligns itself in the content box, as its layout has the box's width.
 		p.textLayout(pl, e.x+e.contentX(), oy, t.TextMuted, ts, nil)
 	}

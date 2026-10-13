@@ -278,6 +278,22 @@ func (_handle *Context) CloseToast(id string) {
 	_ctx.CloseToast(id)
 }
 
+// Direction returns the direction of the elements built now: that of the
+// element they go in. Widgets of an app's own read it to draw what points
+// along the line, as an arrow forward:
+//
+//	forward := "M5 2 11 8 5 14"
+//	if c.Direction() == ui.RightToLeft {
+//		forward = "M11 2 5 8 11 14"
+//	}
+func (_handle *Context) Direction() Direction {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return *new(Direction)
+	}
+	return _ctx.Direction()
+}
+
 // DisableAnimations makes the values that animate in this frame
 // (AnimateTo, Animate, Spring), the element transitions and the pages of
 // routers go to their targets at once, as SwiftUI's disablesAnimations:
@@ -2487,6 +2503,29 @@ func (_handle Element) BorderColor(c Color) Element {
 	return wrapElement(_node.BorderColor(c))
 }
 
+func (_handle Element) BorderEndWidth(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.BorderEndWidth(v))
+}
+
+// BorderStartWidth and BorderEndWidth set the width of the border on the
+// side lines start and on the other, as PaddingStart does: a line
+// between a sidebar and the content is BorderEndWidth(1) on the sidebar.
+func (_handle Element) BorderStartWidth(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.BorderStartWidth(v))
+}
+
 // BorderStyle sets whether the border is solid, as by default, or dashed.
 func (_handle Element) BorderStyle(s BorderStyle) Element {
 	_node := _handle.node()
@@ -2860,6 +2899,27 @@ func (_handle Element) Description(s string) Element {
 	return wrapElement(_node.Description(s))
 }
 
+// Direction lays the element and what is inside it out in d, whatever the
+// direction around it: Direction(ui.LeftToRight) keeps a code sample, a
+// phone number or a media player's controls left to right in a
+// right-to-left window, as Flutter's Directionality and SwiftUI's
+// layoutDirection environment do. The elements built inside it inherit it,
+// as do the popups attached to it.
+//
+// Give it right after creating the element, before its children, logical
+// edges and the parts that read it, as widgets do as they are built:
+// elements already inside take it, and logical edges move to the other
+// side, but what read the old direction keeps it.
+func (_handle Element) Direction(d Direction) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Direction(d))
+}
+
 // Disabled disables the element and those inside it when d is true: they
 // report no clicks, take no focus, and widgets look disabled.
 func (_handle Element) Disabled(d bool) Element {
@@ -3117,6 +3177,26 @@ func (_handle Element) Ellipsis(s string) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Ellipsis(s))
+}
+
+func (_handle Element) End(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.End(v))
+}
+
+func (_handle Element) EndPercent(p float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.EndPercent(p))
 }
 
 // Error marks the element's value as not valid, for msg, which assistive
@@ -3827,6 +3907,29 @@ func (_handle Element) Margin(v ...float32) Element {
 	return wrapElement(_node.Margin(v...))
 }
 
+func (_handle Element) MarginEnd(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.MarginEnd(v))
+}
+
+// MarginStart and MarginEnd set the margin on the side lines start and
+// on the other, as PaddingStart does: Auto takes the free space there, so
+// that a Row's child with MarginStart(ui.Auto) goes to its end.
+func (_handle Element) MarginStart(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.MarginStart(v))
+}
+
 // MarginX sets the left and right margins.
 func (_handle Element) MarginX(v float32) Element {
 	_node := _handle.node()
@@ -4095,6 +4198,29 @@ func (_handle Element) Padding(v ...float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Padding(v...))
+}
+
+func (_handle Element) PaddingEnd(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PaddingEnd(v))
+}
+
+// PaddingStart sets the padding on the side lines start: the left, or
+// the right of an element laid out right to left, as CSS's
+// padding-inline-start does. PaddingEnd sets the other side's.
+func (_handle Element) PaddingStart(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PaddingStart(v))
 }
 
 // PaddingX sets the left and right padding.
@@ -4672,6 +4798,33 @@ func (_handle Element) Spring(key any, target float32, options ...SpringOptions)
 	_ctx := _node.c
 	_ = _ctx
 	return _node.Spring(key, target, options...)
+}
+
+// Start and End place an Absolute element from the side lines start and
+// from the other, as Left and Right do, as CSS's inset-inline-start and
+// inset-inline-end: from the left and the right, or the right and the
+// left right to left. On an element in its parent's layout, they move it
+// as relative positioning does.
+func (_handle Element) Start(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Start(v))
+}
+
+// StartPercent and EndPercent place the element as Start and End do, by
+// a percentage of the parent's width.
+func (_handle Element) StartPercent(p float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.StartPercent(p))
 }
 
 // Step makes the values of a slider lo and the multiples of step from it,

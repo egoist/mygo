@@ -22,6 +22,8 @@ type headless struct {
 	requested atomic.Bool
 	dark      bool
 	prefs     platform.Preferences
+	// rtl lays the window out right to left (SetDirection).
+	rtl       bool
 	clipboard string
 	// clipboardData is what WriteClipboardData copied, with its formats.
 	clipboardData transfer.Data
@@ -137,6 +139,7 @@ func (h *headless) finishDataDrag(r transfer.Result) {
 func (h *headless) titleBarDoubleClicked()            {}
 func (h *headless) escape()                           { h.escapes++ }
 func (h *headless) isDark() bool                      { return h.dark }
+func (h *headless) rightToLeft() bool                 { return h.rtl }
 func (h *headless) preferences() platform.Preferences { return h.prefs }
 func (h *headless) titleBar() TitleBar                { return h.bar }
 func (h *headless) vibrancy() bool                    { return h.material }
@@ -266,6 +269,13 @@ func (t *Tester) SetPreferences(p Preferences) {
 		HighContrast: p.HighContrast, TextScale: float64(p.TextScale)}
 	t.rt.themeChanged()
 	t.settle()
+}
+
+// SetDirection lays the window out in d, as an app whose language reads
+// so: RightToLeft lays it out from the right.
+func (t *Tester) SetDirection(d Direction) {
+	t.h.rtl = d == RightToLeft
+	t.Frame()
 }
 
 // Frame renders another frame, as when the view's state changed.

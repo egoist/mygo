@@ -53,7 +53,7 @@ type Align uint8
 
 const (
 	// Start aligns lines to the left, or to the right in right-to-left
-	// paragraphs.
+	// paragraphs (Params.RTL).
 	Start Align = iota
 	Center
 	End
@@ -74,6 +74,12 @@ type Params struct {
 	// all the same.
 	NoWrap bool
 	Align  Align
+	// RTL makes paragraphs without a strongly directional character, as
+	// numbers or an empty line, right to left, as in an interface laid out
+	// right to left; the others read in the direction of their first
+	// strongly directional character, as Unicode's bidirectional
+	// algorithm finds it by default (rules P2 and P3), whichever this is.
+	RTL bool
 	// KeepSpaces keeps the advance of whitespace at the end of wrapped
 	// lines, as text editors do.
 	KeepSpaces bool
@@ -797,7 +803,7 @@ func (s *System) paragraph(out []Line, p Params, spans []Span, runes []rune, sta
 	if n := len(text); n > 0 && text[n-1] == '\r' {
 		text = text[:n-1]
 	}
-	rtl := isRTL(text)
+	rtl := isRTL(text, p.RTL)
 	spans = spansIn(spans, start, start+len(text))
 	var shaped []shapedLine
 	if len(text) > 0 {
@@ -1043,8 +1049,8 @@ func advance(l shapedLine) float32 {
 }
 
 // isRTL reports whether a paragraph is right-to-left: whether its first
-// strongly directional rune is.
-func isRTL(para []rune) bool {
+// strongly directional rune is, else neutral.
+func isRTL(para []rune, neutral bool) bool {
 	for _, r := range para {
 		switch {
 		case unicode.In(r, unicode.Hebrew, unicode.Arabic, unicode.Syriac, unicode.Thaana, unicode.Nko, unicode.Samaritan, unicode.Mandaic, unicode.Adlam):
@@ -1053,5 +1059,5 @@ func isRTL(para []rune) bool {
 			return false
 		}
 	}
-	return false
+	return neutral
 }
