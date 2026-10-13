@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -91,5 +92,35 @@ func TestBlockCaret(t *testing.T) {
 	ct.tt.Frame()
 	if !inBlock(1, 2) || inBlock(1, 3) || inBlock(0, 0) {
 		t.Fatal("the block caret at the end of a line is not a space wide")
+	}
+}
+
+// With NoInputMethod, no input method composes in the editor: typed text,
+// composed text too once committed, comes as InputText for OnInput, as
+// keys do in Vim's normal mode.
+func TestNoInputMethod(t *testing.T) {
+	ct := newEditorTest(t, "", "ab|")
+	ct.st.NoInputMethod = true
+	var typed []string
+	ct.st.OnInput = func(ev ui.InputEvent) bool {
+		if ev.Kind == ui.InputText {
+			typed = append(typed, ev.Text)
+			return true
+		}
+		return false
+	}
+	ct.tt.Frame()
+	ct.tt.Compose("に", 1)
+	ct.tt.Frame()
+	ct.want("ab|")
+	ct.tt.Type("に")
+	ct.tt.Frame()
+	ct.want("ab|")
+	if fmt.Sprint(typed) != "[に]" {
+		t.Fatalf("OnInput saw %q", typed)
+	}
+	// The host's text input stays on, else keys would type no text.
+	if _, ok := ct.tt.TextCaret(); !ok {
+		t.Fatal("the host's text input is off: keys type no text")
 	}
 }

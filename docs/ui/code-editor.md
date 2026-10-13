@@ -134,7 +134,9 @@ typed, edit commands and the pointer. Returning true takes the event, and
 the editor leaves it; the others go on as without it. An app's own mode of
 editing, as Vim's normal mode, takes keys this way while the editor still
 shows and moves the carets. Text an input method composes goes to the
-editor alone.
+editor alone, unless `NoInputMethod` is set: then no input method composes
+in the editor, and text typed, or committed by an input method, comes to
+`OnInput` as `InputText`, as a mode that reads letters as commands wants.
 
 ## Options
 
