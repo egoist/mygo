@@ -142,6 +142,7 @@ await currentWindow.toggleMaximize();
 | `currentWindow` | the page's window: `minimize`, `maximize`, `unmaximize`, `toggleMaximize`, `isMaximized`, `toggleFullScreen`, `close` and `setTitle` |
 | `onFileDrop(listener)` | files dropped on the window, with their paths |
 | `onPreferences(listener)` | the accent color and the accessibility settings of the desktop, and the changes that follow |
+| `locale()`, `direction()`, `onLocaleChange(listener)` | the language the app shows (`App.Locale`), such as `"zh-Hans"`, its direction, `"ltr"` or `"rtl"`, and its changes; the page has them from document start, as `mygo.locale` and `mygo.dir` |
 
 `mygo-runtime/i18n` formats messages of ICU MessageFormat, as package
 `i18n` does in Go. The module `mygo generate` writes for the app's

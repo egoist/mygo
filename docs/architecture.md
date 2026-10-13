@@ -1101,6 +1101,41 @@ interfaces, one object per service with camelCased methods, and an `events`
 object. `WriteTypeScript` only rewrites the file when its
 content changes, so dev servers don't reload needlessly.
 
+## The language the app shows (`locale.go`)
+
+The app shows one language, which `localeState.shown` holds with the
+user's languages and regional formats: an atomic pointer the main thread
+replaces (`updateLocale`), so that `App.Locale`, the menus, the catalogs'
+`i18n.Locale` and native UI read it from any goroutine for nothing. The
+first read works it out on the main thread. `updateLocale` reads the
+backend's `PreferredLanguages`, `Region` and, once, the saved language
+(`SavedLocale`, where the system keeps one, else the file `locale` in
+PathUserData; `MYGO_LOCALE` over both), resolves it with `i18n.Match`
+against `App.Languages()`, and, when it changed, tells: windows of native
+UI (`Conn.LocaleChanged`, after which `ui` reads `Conn.Locale` and
+`Conn.Region` and sets the text system's language), pages (the event, and
+`Page.SetUserScripts` with a bridge configuration of the new language, for
+pages loaded later), menus (`relabelMenus`: items whose label is still
+their role's take `internal/l10n`'s), the backend (`SetLanguages`: the app's
+language, then the user's others) and the listeners. `SetLocale` calls the
+main thread may not have reached yet show the last tag only (a
+generation counter). A backend's `LocaleChanged` reports changes of the
+system's languages or formats, which `updateLocale` compares.
+
+The text engine takes a language per style and span (`text.Style.Lang`),
+and one of the system for those without (`System.SetLanguage`, a new
+generation of layouts): Core Text's `kCTLanguageAttributeName`,
+DirectWrite's locale of text formats and of ranges
+(`IDWriteTextLayout::SetLocaleName`), Pango's language attributes. Han
+characters in a language that does not write them get the engine's own
+choice (`langRuns`), as Chromium's `LocaleForHan` does; Core Text does so
+by itself.
+
+WebView2's environment takes the language through
+`ICoreWebView2EnvironmentOptions`, a COM object of ours
+(`webview2_options.go`) whose vtable's callbacks are made once; a runtime
+that fails with it is asked for an environment without it.
+
 ## Catalogs of messages (`i18n`, `internal/i18ngen`, `internal/l10n`)
 
 Package `i18n` is a leaf (it imports golang.org/x/text/language only):
@@ -3456,6 +3491,10 @@ which npm allows only for packages that exist: the first release uses an
 | secrets | Security.framework generic passwords in the login keychain (`SecItem*`), service and account as keytar | libsecret's `org.freedesktop.Secret.Generic` schema (attributes `service`, `account`), loaded on first use, libsecret 0.19 or later | Credential Manager generic credentials (`CredWriteW`), target `service/account` |
 | vibrancy | all materials, behind pages and native UI | ignored | Windows 11 22H2 Mica, Acrylic, Tabbed, behind pages and native UI, in windows created with a material, which have no menu bar |
 | accent color and accessibility preferences | `NSColor.controlAccentColor` (10.14+), `accessibilityDisplayShouldReduceMotion` (10.12+) and `accessibilityDisplayShouldIncreaseContrast` (10.10+), with `NSSystemColorsDidChangeNotification` and `NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification`; no text scale | GTK's `gtk-enable-animations` and theme name, and the settings portal's accent, contrast and GNOME's `text-scaling-factor` (`ReadAll`, `SettingChanged`) | DWM's `AccentColor`, `SPI_GETCLIENTAREAANIMATION`, `SPI_GETHIGHCONTRAST` and Accessibility's `TextScaleFactor`, with `WM_SETTINGCHANGE` |
+| preferred languages | the global `AppleLanguages` (`CFPreferencesCopyValue`), not the app's | `LANGUAGE`, then `LC_ALL`, `LC_MESSAGES`, `LANG`; read when asked, no changes reported | `GetUserPreferredUILanguages`, `WM_SETTINGCHANGE` "intl" |
+| regional formats | `autoupdatingCurrentLocale`, its calendar's first weekday, the hour of the skeleton "j"; `NSCurrentLocaleDidChangeNotification` and System Settings' distributed notifications | glibc's `nl_langinfo_l` of `LC_TIME` (`_NL_TIME_FIRST_WEEKDAY`, `T_FMT`), else by region | `GetLocaleInfoEx` of the user's default: `LOCALE_IFIRSTDAYOFWEEK`, `LOCALE_STIMEFORMAT` |
+| the app's language kept | `AppleLanguages` of the app's defaults | the file `locale` in PathUserData | the file `locale` in PathUserData, and the process's preferred UI languages |
+| web views' language | from the app's `AppleLanguages`, next launch | `webkit_web_context_set_preferred_languages`, live | the environment's `Language`, as it is created |
 | traffic lights, Dock | yes | ignored | ignored |
 | hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window, through DirectComposition over a material; snap layouts; a top edge that resizes |
 | progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |
