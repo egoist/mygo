@@ -25,6 +25,9 @@ type NumberOptions struct {
 	// style's default (3, none for percents), or MinFractionDigits when
 	// that is more.
 	MinFractionDigits, MaxFractionDigits int
+	// MinIntegerDigits pads the integer part with zeros to as many
+	// digits: 7 with 2 is "07".
+	MinIntegerDigits int
 	// NoGrouping leaves out the separators of thousands: "12345".
 	NoGrouping bool
 	// HalfEven rounds a number halfway between two to the even one, as
@@ -160,7 +163,7 @@ func (f *NumberFormatter) formatDecimal(decimal string) string {
 	} else {
 		b.WriteString(p.prefix)
 	}
-	f.sys.writeInteger(&b, intPart, p, !f.o.NoGrouping)
+	f.sys.writeInteger(&b, intPart, p, !f.o.NoGrouping, f.o.MinIntegerDigits)
 	if frac != "" {
 		b.WriteString(f.sys.decimalSep)
 		f.sys.writeDigits(&b, frac)
@@ -306,8 +309,8 @@ func (s *numberSystem) writeDigits(b *strings.Builder, digits string) {
 
 // writeInteger writes the integer digits, grouped as the pattern groups
 // them when group.
-func (s *numberSystem) writeInteger(b *strings.Builder, digits string, p *numberPattern, group bool) {
-	for len(digits) < p.minInt {
+func (s *numberSystem) writeInteger(b *strings.Builder, digits string, p *numberPattern, group bool, minInt int) {
+	for len(digits) < max(p.minInt, minInt) {
 		digits = "0" + digits
 	}
 	if !group || p.primary == 0 || len(digits) < p.primary+s.minGrouping {

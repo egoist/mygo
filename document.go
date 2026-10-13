@@ -3,6 +3,7 @@ package mygo
 import (
 	"errors"
 	"fmt"
+	"github.com/egoist/mygo/internal/l10n"
 	"io"
 	"os"
 	"path/filepath"
@@ -657,12 +658,34 @@ func (b *docBase) persist() {
 // for tests.
 var docWork sync.WaitGroup
 
-// untitledName returns the name of untitled document n.
+// untitledName returns the name of untitled document n, in the language
+// the app shows: "Untitled", "Untitled 2".
 func untitledName(n int) string {
 	if n == 1 {
-		return "Untitled"
+		return menuMessages().Untitled()
 	}
-	return "Untitled " + strconv.Itoa(n)
+	return menuMessages().UntitledNumbered(n)
+}
+
+// untitledNumber returns the number of an untitled document by its name,
+// as untitledName writes it in the language the app shows or in English
+// (the app's language may have changed since it was named), or 0.
+func untitledNumber(name string) int {
+	for _, locale := range []string{appLanguage(), "en"} {
+		if name == l10n.In(locale).Untitled() {
+			return 1
+		}
+		// The message around the number.
+		format := l10n.Catalog.Format(locale, "untitledNumbered", map[string]any{"n": "\x00"})
+		before, after, ok := strings.Cut(format, "\x00")
+		if !ok || !strings.HasPrefix(name, before) || !strings.HasSuffix(name, after) || len(name) < len(before)+len(after) {
+			continue
+		}
+		if n, err := strconv.Atoi(name[len(before) : len(name)-len(after)]); err == nil && n > 1 {
+			return n
+		}
+	}
+	return 0
 }
 
 // docKind is what Documents of any content type share: options, the open

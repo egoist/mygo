@@ -29,6 +29,8 @@ func TestFormatNumber(t *testing.T) {
 		{"en", -0.0001, NumberOptions{}, "-0"},
 		{"en", 0.256, NumberOptions{Percent: true}, "26%"},
 		{"en", 12345, NumberOptions{NoGrouping: true}, "12345"},
+		{"en", 7, NumberOptions{MinIntegerDigits: 2}, "07"},
+		{"fa", 7, NumberOptions{MinIntegerDigits: 2}, "۰۷"},
 		{"en", math.NaN(), NumberOptions{}, "NaN"},
 		{"en", math.Inf(-1), NumberOptions{}, "-∞"},
 		{"en", "lots", NumberOptions{}, "lots"},
@@ -186,5 +188,26 @@ func BenchmarkLoadTables(b *testing.B) {
 	for b.Loop() {
 		tables.once = sync.Once{}
 		loadTables()
+	}
+}
+
+func TestFormatLocale(t *testing.T) {
+	for _, c := range []struct {
+		r        Region
+		language string
+		want     string
+	}{
+		{Region{Locale: "en-GB", FirstWeekday: time.Monday, HourCycle: 24}, "en", "en-GB-u-fw-mon-hc-h23"},
+		{Region{Locale: "de-DE", FirstWeekday: time.Monday, HourCycle: 24}, "en", "en-DE-u-fw-mon-hc-h23"},
+		{Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12}, "zh-Hant", "zh-Hant-US-u-fw-sun-hc-h12"},
+		{Region{}, "de", "de"},
+		{Region{Locale: "fr"}, "fr-CA", "fr-CA"},
+	} {
+		if got := c.r.FormatLocale(c.language); got != c.want {
+			t.Errorf("%+v.FormatLocale(%q) = %q, want %q", c.r, c.language, got, c.want)
+		}
+	}
+	if got := FormatDate((Region{Locale: "en-GB", FirstWeekday: time.Monday, HourCycle: 24}).FormatLocale("en"), time.Date(2026, 1, 5, 13, 7, 0, 0, time.UTC), DateOptions{Date: ShortStyle, Time: ShortStyle}); got != "05/01/2026, 13:07" {
+		t.Errorf("English with British formats: %q", got)
 	}
 }

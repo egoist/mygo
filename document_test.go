@@ -560,3 +560,16 @@ func TestDocumentService(t *testing.T) {
 		t.Errorf("state: %v", r)
 	}
 }
+
+func TestUntitledNumber(t *testing.T) {
+	for name, want := range map[string]int{
+		"Untitled": 1, "Untitled 2": 2, "Untitled 12": 12, "Untitled x": 0, "Notes": 0, "Untitled 1": 0,
+	} {
+		if got := untitledNumber(name); got != want {
+			t.Errorf("untitledNumber(%q) = %d, want %d", name, got, want)
+		}
+	}
+	if got := untitledName(3); got != "Untitled 3" || untitledNumber(got) != 3 {
+		t.Errorf("untitledName(3) = %q", got)
+	}
+}
