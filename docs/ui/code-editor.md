@@ -156,6 +156,8 @@ editor alone.
   13 DIPs, 1.5 times as high, by default.
 - `NoAutoClose`, `NoFolding`, `NoActiveLine` and `NoScrollPastEnd` turn
   those behaviors off. `Placeholder` shows while the buffer is empty.
+- `BlockCaret` paints carets as blocks over the character after them, as
+  Vim's normal mode does, translucent so that the character shows.
 - `DiffBase` is the text the buffer's changes show against in the gutter,
   as the file in Git: bars mark the lines added and changed, and a mark
   where lines were deleted. Cmd+F8 goes to the next change, and Cmd+Alt+Z

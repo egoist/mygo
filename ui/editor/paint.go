@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -434,10 +435,33 @@ func (ed *editor) paintLine(p *ui.Painter, r ui.Rect, f *frame, line int, g line
 					continue
 				}
 				x := ox + v.xOf(l, row, d)
+				if ed.o.blockCaret {
+					p.Fill(ui.Rect{X: x, Y: y, W: ed.blockWidth(l, row, s.head-l.start, x-ox), H: lh}, ct.Cursor.Alpha(0.4), 0)
+					continue
+				}
 				p.Fill(ui.Rect{X: x - 1, Y: y, W: 2, H: lh}, ct.Cursor, 0)
 			}
 		}
 	}
+}
+
+// blockWidth returns the width of a block caret at byte col of a line,
+// at x in row: that of the character after it, or of a space at the end
+// of the line or of the row.
+func (ed *editor) blockWidth(l *lineLayout, row *rowLayout, col int, x float32) float32 {
+	v := &ed.view
+	if col >= len(l.text) {
+		return v.charWidth
+	}
+	_, size := utf8.DecodeRuneInString(l.text[col:])
+	d := l.toDisp(col+size, false)
+	if d > row.to {
+		return v.charWidth
+	}
+	if w := v.xOf(l, row, d) - x; w > 0 {
+		return w
+	}
+	return v.charWidth
 }
 
 func (s lineLook) word(ct *Theme, ed *editor) ui.Color {
