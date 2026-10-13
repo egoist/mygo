@@ -13,12 +13,12 @@ import (
 // icuCase is a case of testdata/format_icu.json, which
 // scripts/format-golden.ts writes with Node.js's Intl.
 type icuCase struct {
-	Kind       string         `json:"kind"`
-	Value      string         `json:"value"`
-	Time       string         `json:"time"`
-	Zone       string         `json:"zone"`
-	Options    map[string]any `json:"options"`
-	Times      []string       `json:"times"`
+	Kind    string         `json:"kind"`
+	Value   string         `json:"value"`
+	Time    string         `json:"time"`
+	Zone    string         `json:"zone"`
+	Options map[string]any `json:"options"`
+	Times   []string       `json:"times"`
 }
 
 // knownDifference returns why package i18n writes a case of a locale
