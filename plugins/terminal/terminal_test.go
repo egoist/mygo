@@ -1059,10 +1059,7 @@ func TestOnZoom(t *testing.T) {
 	defer term.Close()
 	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 	tt.Frame()
-	zoomMod := ui.Ctrl
-	if runtime.GOOS == "darwin" {
-		zoomMod = ui.Super
-	}
+	zoomMod := ui.Cmd
 	wheel := func(mods ui.Modifiers, dy float32, precise bool) {
 		term.v.scroll(ui.InputEvent{Kind: ui.InputScroll, DY: dy, Mods: mods, Precise: precise})
 	}
