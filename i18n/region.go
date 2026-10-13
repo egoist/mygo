@@ -44,8 +44,14 @@ func (r Region) FormatLocale(lang string) string {
 			b, _ := t.Base()
 			s, sconf := t.Script()
 			parts := []any{b}
-			if sconf == language.Exact {
-				parts = append(parts, s)
+			// The script the reader reads, named or implied (zh-HK reads
+			// Hant), unless the new region implies it too: zh-HK with
+			// German formats is zh-Hant-DE, not zh-DE, which is Hans.
+			if sconf != language.No {
+				implied, _ := language.Make(b.String() + "-" + reg.String()).Script()
+				if sconf == language.Exact || implied != s {
+					parts = append(parts, s)
+				}
 			}
 			parts = append(parts, reg)
 			if c, err := language.Compose(parts...); err == nil {

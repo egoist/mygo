@@ -201,6 +201,11 @@ func TestFormatLocale(t *testing.T) {
 		{Region{Locale: "de-DE", FirstWeekday: time.Monday, HourCycle: 24}, "en", "en-DE-u-fw-mon-hc-h23"},
 		{Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12}, "zh-Hant", "zh-Hant-US-u-fw-sun-hc-h12"},
 		{Region{}, "de", "de"},
+		{Region{Locale: "de-DE", FirstWeekday: time.Monday, HourCycle: 24}, "zh-HK", "zh-Hant-DE-u-fw-mon-hc-h23"},
+		{Region{Locale: "fr-FR", FirstWeekday: time.Monday, HourCycle: 24}, "zh-TW", "zh-Hant-FR-u-fw-mon-hc-h23"},
+		{Region{Locale: "zh-TW", FirstWeekday: time.Sunday, HourCycle: 12}, "zh", "zh-Hans-TW-u-fw-sun-hc-h12"},
+		{Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12}, "sr-ME", "sr-Latn-US-u-fw-sun-hc-h12"},
+		{Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12}, "de-AT", "de-US-u-fw-sun-hc-h12"},
 		{Region{Locale: "fr"}, "fr-CA", "fr-CA"},
 		// Pseudo locales write the formats in English, as Months does.
 		{Region{Locale: "en-US", FirstWeekday: time.Sunday, HourCycle: 12}, "ar-XB", "en-US-u-fw-sun-hc-h12"},
@@ -212,5 +217,8 @@ func TestFormatLocale(t *testing.T) {
 	}
 	if got := FormatDate((Region{Locale: "en-GB", FirstWeekday: time.Monday, HourCycle: 24}).FormatLocale("en"), time.Date(2026, 1, 5, 13, 7, 0, 0, time.UTC), DateOptions{Date: ShortStyle, Time: ShortStyle}); got != "05/01/2026, 13:07" {
 		t.Errorf("English with British formats: %q", got)
+	}
+	if got := Weekdays((Region{Locale: "de-DE", FirstWeekday: time.Monday, HourCycle: 24}).FormatLocale("zh-HK"), Abbreviated, true)[time.Monday]; got != "週一" {
+		t.Errorf("Traditional Chinese with German formats says Monday %q", got)
 	}
 }
