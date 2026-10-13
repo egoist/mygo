@@ -12,9 +12,9 @@ import (
 //go:embed *.json
 var files embed.FS
 
-// Catalog holds the messages in en, the source language, and de, en-GB and zh-Hant.
-// It is registered with package i18n, which makes its languages the
-// app's.
+// Catalog holds the messages in en, the source language, and de, en-GB and
+// zh-Hant. It is registered with package i18n, which makes its languages
+// the app's.
 var Catalog *i18n.Catalog
 
 func init() {

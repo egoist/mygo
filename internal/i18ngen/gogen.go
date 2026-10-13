@@ -38,13 +38,13 @@ func Go(c *Catalog, pkg string) ([]byte, error) {
 	}
 	w("\n\t\"github.com/egoist/mygo/i18n\"\n)\n\n")
 	w("//go:embed *.json\nvar files embed.FS\n\n")
+	doc := fmt.Sprintf("Catalog holds the messages in %s, the source language, and %s.", c.Source, languageList(c.Languages[1:]))
 	if c.Namespace == "" {
-		w("// Catalog holds the messages in %s, the source language, and %s.\n", c.Source, languageList(c.Languages[1:]))
-		w("// It is registered with package i18n, which makes its languages the\n// app's.\n")
+		doc += " It is registered with package i18n, which makes its languages the app's."
 	} else {
-		w("// Catalog holds the messages in %s, the source language, and %s. Apps\n", c.Source, languageList(c.Languages[1:]))
-		w("// change them, or translate them, with keys %q in their catalogs.\n", c.Namespace+".<key>")
+		doc += fmt.Sprintf(" Apps change them, or translate them, with keys %q in their catalogs.", c.Namespace+".<key>")
 	}
+	w("%s", comment(doc))
 	w("var Catalog *i18n.Catalog\n\n")
 	w("func init() {\n\tvar err error\n")
 	if c.Namespace == "" {
@@ -89,16 +89,24 @@ func goDoc(k *Key, where string) string {
 		msg = msg[:strings.LastIndexFunc(msg[:117], func(r rune) bool { return r < 0x80 || unicode.IsSpace(r) })+1] + "…"
 	}
 	fmt.Fprintf(&b, "// %s says %s\n// in %s.\n", k.GoName, strconv.Quote(msg), where)
-	first := true
-	for _, line := range strings.Split(strings.TrimSpace(k.Description), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			if first {
-				b.WriteString("//\n")
-				first = false
-			}
-			b.WriteString("// " + line + "\n")
-		}
+	if desc := strings.Join(strings.Fields(k.Description), " "); desc != "" {
+		b.WriteString("//\n" + comment(desc))
 	}
+	return b.String()
+}
+
+// comment writes text as a Go comment, its lines wrapped at 76 columns.
+func comment(text string) string {
+	var b strings.Builder
+	line := "//"
+	for _, word := range strings.Fields(text) {
+		if len(line) > 2 && len(line)+1+len(word) > 76 {
+			b.WriteString(line + "\n")
+			line = "//"
+		}
+		line += " " + word
+	}
+	b.WriteString(line + "\n")
 	return b.String()
 }
 
