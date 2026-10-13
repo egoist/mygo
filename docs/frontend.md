@@ -143,6 +143,12 @@ await currentWindow.toggleMaximize();
 | `onFileDrop(listener)` | files dropped on the window, with their paths |
 | `onPreferences(listener)` | the accent color and the accessibility settings of the desktop, and the changes that follow |
 
+`mygo-runtime/i18n` formats messages of ICU MessageFormat, as package
+`i18n` does in Go. The module `mygo generate` writes for the app's
+[catalogs](i18n.md#in-pages), `locales.ts`, is built on it, and holds the
+messages of every language, which the frontend's build bundles: a page
+says its first words in the app's language without waiting for a request.
+
 Opened in a regular browser, which is handy for working on the layout,
 pages have no runtime: calls reject and `isMyGo()` is false.
 
