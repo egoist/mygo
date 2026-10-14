@@ -32,6 +32,10 @@ func TestFormatNumber(t *testing.T) {
 		{"en", 7, NumberOptions{MinIntegerDigits: 2}, "07"},
 		{"fa", 7, NumberOptions{MinIntegerDigits: 2}, "۰۷"},
 		{"en", math.NaN(), NumberOptions{}, "NaN"},
+		{"en", math.NaN(), NumberOptions{Percent: true}, "NaN%"},
+		{"de", math.NaN(), NumberOptions{Percent: true}, "NaN\u00a0%"},
+		{"tr", math.NaN(), NumberOptions{Percent: true}, "%NaN"},
+		{"tr", math.Inf(-1), NumberOptions{Percent: true}, "-%∞"},
 		{"en", math.Inf(-1), NumberOptions{}, "-∞"},
 		{"en", "lots", NumberOptions{}, "lots"},
 		{"de", 1234.5, NumberOptions{}, "1.234,5"},
@@ -235,5 +239,15 @@ func TestFormatLocale(t *testing.T) {
 	}
 	if got := Weekdays((Region{Locale: "de-DE", FirstWeekday: time.Monday, HourCycle: 24}).FormatLocale("zh-HK"), Abbreviated, true)[time.Monday]; got != "週一" {
 		t.Errorf("Traditional Chinese with German formats says Monday %q", got)
+	}
+}
+
+func TestPeriodRulesCrossMidnight(t *testing.T) {
+	// morning1 06:00-12:00, afternoon1 12:00-18:00, evening1 18:00-21:00,
+	// night1 21:00-06:00, as CLDR writes the rules of English.
+	r := parsePeriodRules("4:360-720 6:720-1080 8:1080-1260 10:1260-360 3@720")
+	want := [24]int{10, 10, 10, 10, 10, 10, 4, 4, 4, 4, 4, 4, 6, 6, 6, 6, 6, 6, 8, 8, 8, 10, 10, 10}
+	if r.byHour != want || !r.noon {
+		t.Errorf("rules by hour %v, noon %v", r.byHour, r.noon)
 	}
 }

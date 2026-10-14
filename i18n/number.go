@@ -132,7 +132,8 @@ func (f *NumberFormatter) Format(n any) string {
 func (f *NumberFormatter) special(v float64) (string, bool) {
 	switch {
 	case math.IsNaN(v):
-		return f.sys.nan, true
+		// In the pattern's affixes, as ICU writes it: "NaN%", "%NaN".
+		return f.pat.prefix + f.sys.nan + f.pat.suffix, true
 	case math.IsInf(v, 1):
 		return f.pat.prefix + f.sys.infinity + f.pat.suffix, true
 	case math.IsInf(v, -1):

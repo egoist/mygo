@@ -410,6 +410,15 @@ func periodRules(lang, tag string) *dayPeriodRules {
 	if r, ok := periodRuleCache.Load(i); ok {
 		return r.(*dayPeriodRules)
 	}
+	r := parsePeriodRules(fmtPeriodRules[i])
+	periodRuleCache.Store(i, r)
+	return r
+}
+
+// parsePeriodRules reads the rules of fmtPeriodRules: period@minute, or
+// period:from-before in minutes, a span that may cross midnight
+// (night1:1260-360 is 21:00 to 06:00).
+func parsePeriodRules(text string) *dayPeriodRules {
 	r := &dayPeriodRules{}
 	for h := range r.byHour {
 		r.byHour[h] = 0
@@ -417,7 +426,7 @@ func periodRules(lang, tag string) *dayPeriodRules {
 			r.byHour[h] = 1
 		}
 	}
-	for _, rule := range strings.Fields(fmtPeriodRules[i]) {
+	for _, rule := range strings.Fields(text) {
 		if p, at, ok := strings.Cut(rule, "@"); ok {
 			if pi, _ := strconv.Atoi(p); pi == 3 && at == "720" {
 				r.noon = true
@@ -429,11 +438,13 @@ func periodRules(lang, tag string) *dayPeriodRules {
 		pi, _ := strconv.Atoi(p)
 		lo, _ := strconv.Atoi(from)
 		hi, _ := strconv.Atoi(before)
+		if hi <= lo {
+			hi += 24 * 60
+		}
 		for m := lo; m < hi; m += 60 {
-			r.byHour[m/60] = pi
+			r.byHour[m/60%24] = pi
 		}
 	}
-	periodRuleCache.Store(i, r)
 	return r
 }
 
