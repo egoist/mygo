@@ -3,9 +3,12 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -212,4 +215,54 @@ func TestCookiesBeforePages(t *testing.T) {
 	t.Cleanup(func() { _ = mygo.Cookies.Delete(mygo.Cookie{Name: name, Domain: host}) })
 	w := newWindow(t, mygo.WindowOptions{Title: "Early cookie", Width: 200, Height: 100, URL: server.URL})
 	waitFor(t, w, "document.title === 'early:first'")
+}
+
+// TestCookieCallsWhileWindowOpens reads cookies as a window is made, before
+// any window shows a page, so on Windows the calls take the hidden web view
+// while the window's own web view is being made: closing that view from the
+// callback that finished the calls crashed the message loop. The test
+// process has windows showing pages from TestMain, so the calls run in a
+// helper process with none.
+func TestCookieCallsWhileWindowOpens(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), "MYGO_E2E_COOKIES_WHILE_OPENING=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "cookies: the page loaded\n") {
+		t.Errorf("exit: %v, output %q", err, out)
+	}
+}
+
+// cookiesWhileOpening is the helper process of TestCookieCallsWhileWindowOpens.
+func cookiesWhileOpening() {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "<!doctype html><title>opened</title>")
+	}))
+	defer server.Close()
+	mygo.App.WhenReady(func() {
+		go func() {
+			defer mygo.App.Quit()
+			w := mygo.NewWindow(mygo.WindowOptions{Title: "Cookies while opening", Width: 200, Height: 100, URL: server.URL})
+			defer w.Destroy()
+			for i := 0; i < 16; i++ {
+				if _, err := mygo.Cookies.List(mygo.CookieFilter{}); err != nil {
+					fmt.Printf("cookies: List %d: %v\n", i, err)
+					return
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+				if loaded, err := mygo.EvalAs[bool](w.Page(), "document.title === 'opened'"); err == nil && loaded {
+					fmt.Println("cookies: the page loaded")
+					return
+				}
+			}
+			fmt.Println("cookies: the page did not load")
+		}()
+	})
+	if err := mygo.App.Run(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 }

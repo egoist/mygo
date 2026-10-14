@@ -336,6 +336,9 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 		return 0, true
 	case wmAppWake:
 		return 0, true
+	case wmAppCookieView:
+		b.closeCookieViewNow()
+		return 0, true
 	case wmAppTray:
 		b.trayMessage(uint32(wp), uint32(loword(lp)))
 		return 0, true

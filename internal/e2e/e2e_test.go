@@ -119,6 +119,10 @@ func TestMain(m *testing.M) {
 		beforeRun(mygo.ThemeSource(s))
 		return
 	}
+	if os.Getenv("MYGO_E2E_COOKIES_WHILE_OPENING") == "1" {
+		cookiesWhileOpening()
+		return
+	}
 	mygo.Bind(Greeter{}, probe, streams, Bench{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

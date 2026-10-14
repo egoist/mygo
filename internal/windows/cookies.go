@@ -54,6 +54,7 @@ type cookieStore struct {
 	controller uintptr // the hidden web view's, once made
 	webview    uintptr
 	creating   bool
+	closing    bool // a close of the hidden web view is posted
 	waiting    []func(error)
 	requests   map[*cookieRequest]struct{}
 	next       uint64       // the number of the next request
@@ -245,9 +246,23 @@ func (b *Backend) cookieView(done func(error)) {
 }
 
 // closeCookieView closes the hidden web view once windows show pages and
-// no call needs it.
+// no call needs it. It does so from the message loop, not here: a call
+// finishes in a completion handler of the hidden web view, and closing the
+// view from inside one crashes the message loop.
 func (b *Backend) closeCookieView() {
 	s := &b.cookies
+	if s.controller == 0 || s.closing {
+		return
+	}
+	s.closing = true
+	postMessage(b.appHwnd, wmAppCookieView, 0, 0)
+}
+
+// closeCookieViewNow closes the hidden web view, as closeCookieView asks,
+// if windows show pages and no call needs it by now.
+func (b *Backend) closeCookieViewNow() {
+	s := &b.cookies
+	s.closing = false
 	if s.controller == 0 || len(s.requests) > 0 || b.pageWebView() == nil {
 		return
 	}
