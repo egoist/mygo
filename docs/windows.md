@@ -89,6 +89,11 @@ as long as it would show on a connected display. They override `X`, `Y`,
 stay the defaults of the first launch. Give each kind of window its own key:
 `"main"`, `"preferences"`.
 
+A [reload](reload.md) of `mygo dev` keeps a window's place as well, without
+a `StateKey` and without writing anything: where the window was, whether it
+was showing and whether it had the focus is handed to the build that
+replaces it, so a reload does not move the window it is rebuilding.
+
 An app that keeps its data elsewhere, such as in its own database, keeps
 the states there with a `WindowStateStore`, set before the first window
 with a `StateKey`, and no `window-state.json` is written:
