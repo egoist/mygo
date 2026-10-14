@@ -174,5 +174,9 @@
   "reviewBeforeQuittingDetail": "如果你不检查文稿，所有更改都将丢失。",
   "saveManyChanges": "要保存对以下 {n} 个文稿的更改吗？",
   "documentFailed": "{action, select, opened {无法打开文稿“{name}”。} renamed {无法重新命名文稿“{name}”。} moved {无法移动文稿“{name}”。} reverted {无法还原文稿“{name}”。} other {无法保存文稿“{name}”。}}",
-  "colorName": "{color, select, red {红色} orange {橙色} yellow {黄色} green {绿色} teal {蓝绿色} blue {蓝色} indigo {靛蓝色} purple {紫色} pink {粉色} brown {棕色} gray {灰色} black {黑色} other {{color}}}"
+  "colorName": "{color, select, red {红色} orange {橙色} yellow {黄色} green {绿色} teal {蓝绿色} blue {蓝色} indigo {靛蓝色} purple {紫色} pink {粉色} brown {棕色} gray {灰色} black {黑色} other {{color}}}",
+  "ok": "好",
+  "open": "打开",
+  "selectFolder": "选择文件夹",
+  "clearScrollback": "清除回滚"
 }

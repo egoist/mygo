@@ -840,5 +840,21 @@
         "type": "String"
       }
     }
+  },
+  "ok": "OK",
+  "@ok": {
+    "description": "The button of a dialog that only tells something, and of a page's alert, confirm and prompt."
+  },
+  "open": "Open",
+  "@open": {
+    "description": "The title and the button of the dialog that opens files."
+  },
+  "selectFolder": "Select Folder",
+  "@selectFolder": {
+    "description": "The title of the dialog that chooses a folder."
+  },
+  "clearScrollback": "Clear Scrollback",
+  "@clearScrollback": {
+    "description": "An item of a terminal's menu, which clears the lines scrolled out of view."
   }
 }

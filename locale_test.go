@@ -458,3 +458,31 @@ func TestContentDirection(t *testing.T) {
 		t.Errorf("Arabic is laid out %v", dir)
 	}
 }
+
+// TestBackendTexts checks that the backends' own words (platform.Texts)
+// and a message dialog's default button follow the language the app
+// shows.
+func TestBackendTexts(t *testing.T) {
+	localeTest(t, []string{"en", "zh-Hans"}, "en")
+	onMain(func() {})
+	if got := platform.CurrentTexts(); got.OK != "OK" || got.Cancel != "Cancel" || got.About != "About \x00" {
+		t.Fatalf("in English: %+v", got)
+	}
+	App.SetLocale("zh-Hans")
+	onMain(func() {})
+	if got := platform.CurrentTexts(); got.OK != "好" || got.Cancel != "取消" || got.Open != "打开" || got.SelectFolder != "选择文件夹" || got.About != "关于\x00" {
+		t.Errorf("in Chinese: %+v", got)
+	}
+	var buttons []string
+	fb.OnMessageBox = func(o *platform.MessageBoxOptions) platform.MessageBoxResult {
+		buttons = o.Buttons
+		return platform.MessageBoxResult{}
+	}
+	t.Cleanup(func() { fb.OnMessageBox = nil })
+	if _, err := Dialog.Message(MessageOptions{Message: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(buttons, []string{"好"}) {
+		t.Errorf("a message's default button: %q", buttons)
+	}
+}

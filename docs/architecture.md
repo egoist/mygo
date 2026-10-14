@@ -1204,6 +1204,12 @@ follow (CLDR's for the language when the system says none) and its
 calendar, the date and time fields and the color picker write, so a frame
 formats nothing it formatted before.
 
+Backends say a few words of their own (the buttons of pages' alert,
+confirm and prompt panels, file dialogs' titles, the about panel's
+title): package mygo gives them in the app's language through
+`platform.SetTexts` as the language changes, so that `internal/<os>`
+does not import `internal/l10n`.
+
 `internal/i18ngen` checks catalogs and writes their functions:
 `catalog_gen.go` in the catalogs' directory (an embed, the catalog,
 registered for apps, and a function and a method of `Messages` per key)

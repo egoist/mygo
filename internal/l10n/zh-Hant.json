@@ -174,5 +174,9 @@
   "reviewBeforeQuittingDetail": "如果你不檢查文件，所有變更都將遺失。",
   "saveManyChanges": "要儲存對以下 {n} 份文件的變更嗎？",
   "documentFailed": "{action, select, opened {無法開啟文件「{name}」。} renamed {無法重新命名文件「{name}」。} moved {無法移動文件「{name}」。} reverted {無法回復文件「{name}」。} other {無法儲存文件「{name}」。}}",
-  "colorName": "{color, select, red {紅色} orange {橙色} yellow {黃色} green {綠色} teal {藍綠色} blue {藍色} indigo {靛藍色} purple {紫色} pink {粉紅色} brown {棕色} gray {灰色} black {黑色} other {{color}}}"
+  "colorName": "{color, select, red {紅色} orange {橙色} yellow {黃色} green {綠色} teal {藍綠色} blue {藍色} indigo {靛藍色} purple {紫色} pink {粉紅色} brown {棕色} gray {灰色} black {黑色} other {{color}}}",
+  "ok": "好",
+  "open": "開啟",
+  "selectFolder": "選擇檔案夾",
+  "clearScrollback": "清除捲動緩衝區"
 }

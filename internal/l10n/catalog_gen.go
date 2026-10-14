@@ -2546,3 +2546,63 @@ func ColorName(color string) string { return In(i18n.Locale()).ColorName(color) 
 func (msgs Messages) ColorName(color string) string {
 	return Catalog.Format(msgs.locale, "colorName", map[string]any{"color": color})
 }
+
+// Ok says "OK"
+// in the language the app shows.
+//
+// The button of a dialog that only tells something, and of a page's alert,
+// confirm and prompt.
+func Ok() string { return In(i18n.Locale()).Ok() }
+
+// Ok says "OK"
+// in the language of msgs.
+//
+// The button of a dialog that only tells something, and of a page's alert,
+// confirm and prompt.
+func (msgs Messages) Ok() string {
+	return Catalog.Format(msgs.locale, "ok", nil)
+}
+
+// Open says "Open"
+// in the language the app shows.
+//
+// The title and the button of the dialog that opens files.
+func Open() string { return In(i18n.Locale()).Open() }
+
+// Open says "Open"
+// in the language of msgs.
+//
+// The title and the button of the dialog that opens files.
+func (msgs Messages) Open() string {
+	return Catalog.Format(msgs.locale, "open", nil)
+}
+
+// SelectFolder says "Select Folder"
+// in the language the app shows.
+//
+// The title of the dialog that chooses a folder.
+func SelectFolder() string { return In(i18n.Locale()).SelectFolder() }
+
+// SelectFolder says "Select Folder"
+// in the language of msgs.
+//
+// The title of the dialog that chooses a folder.
+func (msgs Messages) SelectFolder() string {
+	return Catalog.Format(msgs.locale, "selectFolder", nil)
+}
+
+// ClearScrollback says "Clear Scrollback"
+// in the language the app shows.
+//
+// An item of a terminal's menu, which clears the lines scrolled out of
+// view.
+func ClearScrollback() string { return In(i18n.Locale()).ClearScrollback() }
+
+// ClearScrollback says "Clear Scrollback"
+// in the language of msgs.
+//
+// An item of a terminal's menu, which clears the lines scrolled out of
+// view.
+func (msgs Messages) ClearScrollback() string {
+	return Catalog.Format(msgs.locale, "clearScrollback", nil)
+}

@@ -23,6 +23,14 @@ func appLanguage() string {
 	return ""
 }
 
+// platformTexts returns the words the backends say of their own in a
+// language (platform.Texts).
+func platformTexts(locale string) platform.Texts {
+	tx := l10n.In(locale)
+	return platform.Texts{OK: tx.Ok(), Cancel: tx.Cancel(), Open: tx.Open(), Save: tx.Save(),
+		SelectFolder: tx.SelectFolder(), About: tx.MenuAbout("\x00")}
+}
+
 // relabelMenus gives the items whose label is their role's the role's
 // label now, as the language the app shows changed, and shows the menus
 // in use with them: the menus of the app and of windows anew, and the

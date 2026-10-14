@@ -278,6 +278,9 @@ func (a *Application) updateLocale(tell bool) {
 	locales.mu.Unlock()
 	next.region = regionOf(ctl.Region(), next.preferred)
 	before := locales.shown.Swap(next)
+	if before == nil || before.locale != next.locale {
+		platform.SetTexts(platformTexts(next.locale))
+	}
 	if before == nil {
 		return // nothing heard of a language before
 	}
