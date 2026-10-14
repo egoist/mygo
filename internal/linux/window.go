@@ -283,6 +283,11 @@ func (w *window) createWebView() {
 	o := w.opts
 	data := ptr(w.id)
 	w.ucm = webkitUserContentManagerNew()
+	if !w.b.webLanguages {
+		// The first web view: WebKit just loaded.
+		w.b.webLanguages = true
+		w.b.applyWebLanguages()
+	}
 	for _, s := range o.Schemes {
 		w.b.registerScheme(s)
 	}

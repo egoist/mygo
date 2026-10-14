@@ -1,4 +1,13 @@
-import type { BridgeConfig, Channel, Incoming, Outgoing, Runtime, ThemePreferences } from "./types";
+import type {
+  BridgeConfig,
+  Channel,
+  Direction,
+  Incoming,
+  LocaleChange,
+  Outgoing,
+  Runtime,
+  ThemePreferences,
+} from "./types";
 
 type Pending = {
   method: string;
@@ -69,6 +78,10 @@ export function createRuntime(
   const channels = new Map<number, ChannelState>();
   const states = new WeakMap<object, ChannelState>();
   let channelSeq = 0;
+  // The language the app shows: the configuration tells it at document
+  // start, and the mygo:locale event when it changes.
+  let locale = config.locale || "en";
+  let dir: Direction = config.dir === "rtl" ? "rtl" : "ltr";
 
   const send = (message: Outgoing) => post(JSON.stringify(message));
 
@@ -238,6 +251,16 @@ export function createRuntime(
         if (msg.t === "event") {
           // Before the listeners, which may read it.
           if (msg.n === "mygo:preferences") preferences = Object.freeze(msg.p as ThemePreferences);
+          if (msg.n === "mygo:locale") {
+            const p = msg.p as Partial<LocaleChange> | undefined;
+            if (typeof p?.locale !== "string") continue;
+            // Go tells a page the language again as it loads, for one that
+            // started loading as it changed: listeners hear of a language
+            // the page did not have only.
+            if (p.locale === locale) continue;
+            locale = p.locale;
+            dir = p.dir === "rtl" ? "rtl" : "ltr";
+          }
           const set = listeners.get(msg.n);
           if (!set) continue;
           for (const listener of [...set]) {
@@ -280,6 +303,12 @@ export function createRuntime(
     version: config.version,
     get preferences() {
       return preferences;
+    },
+    get locale() {
+      return locale;
+    },
+    get dir() {
+      return dir;
     },
     window: Object.freeze({
       minimize: win("Minimize"),

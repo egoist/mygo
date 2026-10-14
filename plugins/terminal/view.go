@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
@@ -31,7 +32,8 @@ import (
 // text, or a file path with Options.OpenLink.
 func View(c *ui.Context, t *Terminal) ui.Element {
 	v := t.viewOf(c)
-	e := ui.Box(c).Focusable().FocusRing(false).Clip().Label("Terminal")
+	// A terminal's grid is left to right in a right-to-left interface too.
+	e := ui.Box(c).Direction(ui.LeftToRight).Focusable().FocusRing(false).Clip().Label("Terminal")
 	v.build(c, e)
 	cursor := ui.CursorText
 	if v.hoverLink {
@@ -66,6 +68,8 @@ func (t *Terminal) viewOf(c *ui.Context) *view {
 type view struct {
 	t        *Terminal
 	services ui.Services
+	// lang is the window's language, for the menu's items.
+	lang string
 
 	theme   *Theme
 	applied *Theme // the theme the emulator has
@@ -135,6 +139,7 @@ type pendingKey struct {
 // build updates the view as a frame builds.
 func (v *view) build(c *ui.Context, e ui.Element) {
 	t := v.t
+	v.lang = c.Locale()
 	dark := c.Theme().Dark
 	focused := e.Focused()
 	t.mu.Lock()
@@ -231,17 +236,18 @@ func (v *view) menu(m *ui.Menu) {
 		text, selected = t.term.SelectionText()
 	}
 	t.mu.Unlock()
-	if v.menuItem(m, "Copy", ActionCopy).Disabled(!selected || text == "").Chosen() {
+	tx := l10n.In(v.lang)
+	if v.menuItem(m, tx.Copy(), ActionCopy).Disabled(!selected || text == "").Chosen() {
 		v.services.WriteClipboard(text)
 	}
-	if v.menuItem(m, "Paste", ActionPaste).Chosen() {
+	if v.menuItem(m, tx.Paste(), ActionPaste).Chosen() {
 		v.paste()
 	}
-	if v.menuItem(m, "Select All", ActionSelectAll).Chosen() {
+	if v.menuItem(m, tx.SelectAll(), ActionSelectAll).Chosen() {
 		v.selectAll()
 	}
 	m.Separator()
-	if m.Item("Clear Scrollback").Chosen() {
+	if m.Item(tx.ClearScrollback()).Chosen() {
 		t.Feed([]byte("\x1b[3J"))
 	}
 }

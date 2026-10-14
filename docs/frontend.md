@@ -143,6 +143,13 @@ await currentWindow.toggleMaximize();
 | `onFileDrop(listener)` | files dropped on the window, with their paths |
 | `preferences()` | the accent color and the accessibility settings of the desktop; throws outside MyGo |
 | `onPreferences(listener)` | the changes of `preferences()` |
+| `locale()`, `direction()`, `onLocaleChange(listener)` | the language the app shows (`App.Locale`), such as `"zh-Hans"`, its direction, `"ltr"` or `"rtl"`, and its changes; the page has them from document start, as `mygo.locale` and `mygo.dir` |
+
+`mygo-runtime/i18n` formats messages of ICU MessageFormat, as package
+`i18n` does in Go. The module `mygo generate` writes for the app's
+[catalogs](i18n.md#in-pages), `locales.ts`, is built on it, and holds the
+messages of every language, which the frontend's build bundles: a page
+says its first words in the app's language without waiting for a request.
 
 Opened in a regular browser, which is handy for working on the layout,
 pages have no runtime: calls reject and `isMyGo()` is false.

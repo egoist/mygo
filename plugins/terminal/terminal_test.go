@@ -18,6 +18,9 @@ import (
 	"github.com/egoist/mygo/ui"
 	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/gomonobold"
+
+	// MyGo's own strings in Traditional Chinese, which a test shows.
+	_ "github.com/egoist/mygo/locales/zh-Hant"
 )
 
 // loadLib loads libghostty-vt, or skips the test where it cannot.
@@ -489,6 +492,12 @@ func TestMenus(t *testing.T) {
 	}
 	if got := conn.take(5); got != "again" {
 		t.Errorf("the menu's Paste sent %q", got)
+	}
+	// In the window's language.
+	tt.SetLocale("zh-Hant")
+	tt.RightClickAt(x, y)
+	if got := strings.Join(tt.Menu(), ","); !strings.Contains(got, "複製") || !strings.Contains(got, "清除捲動緩衝區") {
+		t.Errorf("context menu in Traditional Chinese = %q", got)
 	}
 }
 

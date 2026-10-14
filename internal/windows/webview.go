@@ -648,7 +648,7 @@ func (w *window) addUserScripts() {
 			src = "if(window===window.top){\n" + src + "\n}"
 		}
 		withHandler(func(hr, id uintptr) {
-			if failed(hr) || id == 0 || w.webview == 0 {
+			if failed(hr) || id == 0 || w.closed || w.webview == 0 {
 				return
 			}
 			if s := wstr(id); w.scriptGen == gen {

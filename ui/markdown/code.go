@@ -3,6 +3,7 @@ package markdown
 import (
 	"time"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 )
@@ -85,7 +86,7 @@ func (st *viewState) codeBlock(c *ui.Context, i int) ui.Element {
 // with the language and a copy button above the highlighted code.
 func DefaultCodeBlock(c *ui.Context, b *CodeBlockView) ui.Element {
 	th := &b.st.th
-	box := ui.Column(c).Background(th.CodeBlockBackground).Border(1, th.CodeBlockBorder).Radius(th.CodeBlockRadius).AlignSelf(ui.Stretch).Clip()
+	box := ui.Column(c).Direction(ui.LeftToRight).Background(th.CodeBlockBackground).Border(1, th.CodeBlockBorder).Radius(th.CodeBlockRadius).AlignSelf(ui.Stretch).Clip()
 	box.Role(ui.RoleGroup).Label(codeLabel(b.Language))
 	return box.Children(func() {
 		head := ui.Row(c).AlignItems(ui.Center).Padding(th.em(0.35), th.em(0.4), 0, th.em(th.CodeBlockPadding))
@@ -117,14 +118,15 @@ func (b *CodeBlockView) CopyButton(c *ui.Context) ui.Element {
 	th := &st.th
 	cs := st.codeState(b.Index)
 	copied := !cs.copiedAt.IsZero() && c.Now().Sub(cs.copiedAt) < 2*time.Second
-	btn := ui.ButtonBase(c).Padding(th.em(0.2), th.em(0.45)).Radius(5).Gap(th.em(0.3)).Label("Copy code").Disabled(b.Open)
+	tx := l10n.In(c.Locale())
+	btn := ui.ButtonBase(c).Padding(th.em(0.2), th.em(0.45)).Radius(5).Gap(th.em(0.3)).Label(tx.CopyCode()).Disabled(b.Open)
 	if btn.Hovered() && !b.Open {
 		btn.Background(th.Text.Alpha(0.08))
 	}
 	btn.Children(func() {
-		icon, label := copyIcon, "Copy"
+		icon, label := copyIcon, tx.Copy()
 		if copied {
-			icon, label = checkIcon, "Copied"
+			icon, label = checkIcon, tx.Copied()
 		}
 		size := th.em(0.95)
 		ui.Icon(c, icon).Size(size, size).TextColor(th.Muted)
@@ -152,7 +154,9 @@ func (b *CodeBlockView) Body(c *ui.Context) ui.Element {
 	} else {
 		outer = ui.ScrollHorizontal(c)
 	}
-	outer.AlignSelf(ui.Stretch).Font(th.CodeFont).FontSize(th.em(th.CodeSize)).LineHeight(th.CodeLineHeight)
+	// Code reads left to right in a right-to-left interface too, as in
+	// editors.
+	outer.Direction(ui.LeftToRight).AlignSelf(ui.Stretch).Font(th.CodeFont).FontSize(th.em(th.CodeSize)).LineHeight(th.CodeLineHeight)
 	return outer.Children(func() {
 		col := ui.Column(c).Padding(th.em(0.25), pad, pad, pad)
 		if !st.o.WrapCode {

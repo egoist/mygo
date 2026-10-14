@@ -4,6 +4,7 @@ package windows
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -145,9 +146,32 @@ const (
 	keyQueryValue   = 0x0001
 )
 
-// createEnvironment starts creating the WebView2 environment; done runs on
-// the main thread with it, or with an error.
-func createEnvironment(userData string, done func(env uintptr, err error)) error {
+// createEnvironment starts creating the WebView2 environment, in language,
+// the app's (envOptions), or the system's for ""; done runs on the main
+// thread with it, or with an error. A runtime that fails to create one with
+// the options is asked for one without them.
+func createEnvironment(userData, language string, done func(env uintptr, err error)) error {
+	err := createEnvironmentWith(userData, language, func(env uintptr, err error) {
+		if err != nil && language != "" {
+			// A runtime that takes no options of ours: one without them,
+			// in the language of the system.
+			log.Printf("%v; creating it again without its language", err)
+			if err := createEnvironmentWith(userData, "", done); err != nil {
+				done(0, err)
+			}
+			return
+		}
+		done(env, err)
+	})
+	if err != nil && language != "" {
+		return createEnvironmentWith(userData, "", done)
+	}
+	return err
+}
+
+// createEnvironmentWith creates the environment as createEnvironment does,
+// with the options of language, or none for "".
+func createEnvironmentWith(userData, language string, done func(env uintptr, err error)) error {
 	completed := func(hr, env uintptr) {
 		if failed(hr) || env == 0 {
 			done(0, hresultError("creating the WebView2 environment", hr))
@@ -157,11 +181,16 @@ func createEnvironment(userData string, done func(env uintptr, err error)) error
 		done(env, nil)
 	}
 	dataDir := u16(userData)
+	var options uintptr
+	if language != "" {
+		options = newEnvOptions(language)
+		defer release(options) // the environment takes its own reference
+	}
 
 	// An official loader next to the executable wins.
 	if proc := loaderProc(); proc != nil {
 		hr := withHandler(completed, func(h uintptr) uintptr {
-			r, _, _ := proc.Call(0, uintptr(unsafe.Pointer(dataDir)), 0, h)
+			r, _, _ := proc.Call(0, uintptr(unsafe.Pointer(dataDir)), options, h)
 			return r
 		})
 		if failed(hr) {
@@ -187,7 +216,7 @@ func createEnvironment(userData string, done func(env uintptr, err error)) error
 		return fmt.Errorf("mygo: unsupported WebView2 Runtime at %s: %w", client, err)
 	}
 	hr := withHandler(completed, func(h uintptr) uintptr {
-		r, _, _ := proc.Call(1, runtimeType, uintptr(unsafe.Pointer(dataDir)), 0, h)
+		r, _, _ := proc.Call(1, runtimeType, uintptr(unsafe.Pointer(dataDir)), options, h)
 		return r
 	})
 	if failed(hr) {

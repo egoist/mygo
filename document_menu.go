@@ -49,10 +49,7 @@ func documentRole(role MenuRole, win *Window) {
 		}
 		if err != nil && !errors.Is(err, ErrCanceled) {
 			what := map[MenuRole]string{RoleRename: "renamed", RoleMoveTo: "moved", RoleRevert: "reverted"}[role]
-			if what == "" {
-				what = "saved"
-			}
-			showDocumentError(b.parent(), "The document “"+b.Name()+"” could not be "+what+".", err)
+			showDocumentError(b.parent(), menuMessages().DocumentFailed(what, b.Name()), err)
 		}
 	}()
 }
@@ -86,7 +83,7 @@ func openDocumentPath(path string) {
 		return
 	}
 	if _, err := kind.open(path); err != nil {
-		showDocumentError(nil, "The document “"+filepath.Base(path)+"” could not be opened.", err)
+		showDocumentError(nil, menuMessages().DocumentFailed("opened", filepath.Base(path)), err)
 	}
 }
 
@@ -149,7 +146,7 @@ func recentMenuItems() []*MenuItem {
 	if len(items) > 0 {
 		items = append(items, Separator())
 	}
-	return append(items, &MenuItem{Label: "Clear Menu", Disabled: len(items) == 0, Click: func(*MenuItem, *Window) {
+	return append(items, &MenuItem{Label: menuMessages().MenuClearRecent(), Disabled: len(items) == 0, Click: func(*MenuItem, *Window) {
 		go func() {
 			if err := App.ClearRecentDocuments(); err != nil {
 				log.Printf("mygo: recent documents: %v", err)
