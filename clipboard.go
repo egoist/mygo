@@ -79,6 +79,7 @@ func withClipboardOperation(fn func()) {
 			for _, release := range pending {
 				queueClipboardRelease(release)
 			}
+			clipboardChanges.schedule()
 		}
 	}()
 	fn()

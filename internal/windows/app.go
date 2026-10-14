@@ -52,8 +52,9 @@ type Backend struct {
 	taskbarFailed        bool
 	taskbarButtonCreated uint32
 
-	watchingPower bool
-	notifications map[string]*notification
+	watchingPower    bool
+	clipboardChanged func()
+	notifications    map[string]*notification
 
 	themeSource string
 	badge       string
@@ -326,6 +327,11 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 		b.h.Dispatch()
 		return 0, true
 	case wmAppWake:
+		return 0, true
+	case wmClipboardUpdate:
+		if b.clipboardChanged != nil {
+			b.clipboardChanged()
+		}
 		return 0, true
 	case wmAppTray:
 		b.trayMessage(uint32(wp), uint32(loword(lp)))
