@@ -226,6 +226,7 @@ describe("skeletons and number stems", () => {
     expect(skeletonOptions("jm")).toEqual({ hour: "numeric", minute: "numeric" });
     expect(skeletonOptions("Hmm")).toEqual({ hour: "numeric", hourCycle: "h23", minute: "2-digit" });
     expect(skeletonOptions("EEEEd")).toEqual({ weekday: "long", day: "numeric" });
+    expect(skeletonOptions("Kms")).toEqual({ hour: "numeric", hourCycle: "h11", minute: "numeric", second: "numeric" });
     expect(formatMessage("en", "{d, date, ::yMMMM}", { d: day })).toBe(
       new Intl.DateTimeFormat("en", { year: "numeric", month: "long" }).format(day),
     );

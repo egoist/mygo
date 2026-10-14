@@ -373,7 +373,10 @@ export const formatters = {
 /**
  * The options of Intl.DateTimeFormat of a skeleton of CLDR, "yMMMd" or
  * "jm": V8 makes the skeleton back of them, and finds its pattern with
- * ICU's DateTimePatternGenerator.
+ * ICU's DateTimePatternGenerator. An hour letter other than j is an
+ * hourCycle, as in package i18n. EEEEEE, CLDR's short weekday ("Mo"),
+ * has no option of Intl: it is the abbreviated one ("Mon"), where package
+ * i18n writes the short one.
  */
 export function skeletonOptions(skeleton: string): Intl.DateTimeFormatOptions {
   const o: Intl.DateTimeFormatOptions = {};

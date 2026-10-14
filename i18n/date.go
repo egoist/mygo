@@ -40,7 +40,10 @@ type DateOptions struct {
 	// The locale's pattern that suits it best is found as ICU's
 	// DateTimePatternGenerator finds it. Letters: y, M, L (a month
 	// standing alone), d, E (weekday), j, h, H, K, k, a, m, s, z. No
-	// style and no skeleton is "yMd".
+	// style and no skeleton is "yMd". An hour letter other than j is that
+	// hour cycle (h 1 to 12, H 0 to 23, K 0 to 11, k 1 to 24), as V8
+	// reads Intl's hourCycle. EEEEEE, CLDR's short weekday ("Mo"), has no
+	// option of Intl: pages write the abbreviated one ("Mon") in its place.
 	Skeleton string
 	// HourCycle is 12 or 24 to write times so whatever the locale's
 	// hours, as the user's regional settings say (Region.HourCycle); 0
@@ -133,6 +136,14 @@ func datePattern(k *localeKey, d *localeData, o DateOptions) string {
 		skel := o.Skeleton
 		if skel == "" {
 			skel = "yMd"
+		}
+		if o.HourCycle == 0 {
+			// An hour letter of the skeleton is an hour cycle, as V8
+			// reads the options Intl makes of it: "hm" is 12:30 AM in
+			// Japanese too, whose own patterns have 0:30.
+			if i := strings.IndexAny(skel, "hHkK"); i >= 0 {
+				hc = skel[i]
+			}
 		}
 		if hc != 0 {
 			skel = replaceHours(strings.ReplaceAll(skel, "j", "h"), hc)

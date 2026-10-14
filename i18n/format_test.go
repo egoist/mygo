@@ -79,9 +79,24 @@ func TestFormatDate(t *testing.T) {
 		{"fa", DateOptions{Date: ShortStyle}, "۲۰۲۶/۱/۵"},
 		{"en", DateOptions{Date: LongStyle, Time: LongStyle}, "January 5, 2026 at 1:07:09 PM UTC"},
 		{"ar-XB", DateOptions{Skeleton: "MMMd"}, "Jan 5"},
+		{"en", DateOptions{Skeleton: "EEEEEEd"}, "5 Mo"},
 	} {
 		if got := FormatDate(c.locale, day, c.o); got != c.want {
 			t.Errorf("FormatDate(%q, %+v) = %q, want %q", c.locale, c.o, got, c.want)
+		}
+	}
+	// An hour letter of a skeleton is its hour cycle, as V8 (Node 26)
+	// writes them.
+	half := time.Date(2026, 1, 5, 0, 30, 0, 0, time.UTC)
+	for _, c := range []struct{ locale, skeleton, want string }{
+		{"ja", "hm", "午前12:30"},
+		{"en", "Kms", "0:30:00 AM"},
+		{"en", "km", "24:30"},
+		{"de", "hm", "12:30 AM"},
+		{"en", "Hm", "00:30"},
+	} {
+		if got := FormatDate(c.locale, half, DateOptions{Skeleton: c.skeleton}); got != c.want {
+			t.Errorf("FormatDate(%q, %q) = %q, want %q", c.locale, c.skeleton, got, c.want)
 		}
 	}
 	shanghai := time.FixedZone("CST", 8*3600)
