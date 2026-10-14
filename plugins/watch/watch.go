@@ -168,7 +168,8 @@ func validateRoot(path string) (os.FileInfo, error) {
 			break
 		}
 	}
-	return os.Lstat(path)
+	info, err := os.Lstat(path)
+	return mygo.StatIdentity(info), err
 }
 
 // validPath reports whether p is a path relative to a root, separated by

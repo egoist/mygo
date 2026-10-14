@@ -84,6 +84,7 @@ func (s *fileWatchScan) start() ([]FileEvent, error) {
 	if err != nil {
 		return nil, err
 	}
+	info = StatIdentity(info)
 	s.dir = s.w.root
 	if !info.IsDir() {
 		// A file is watched through its directory, which names it.
@@ -98,10 +99,12 @@ func (s *fileWatchScan) start() ([]FileEvent, error) {
 	if s.identity, err = s.root.Stat("."); err != nil {
 		return nil, err
 	}
+	s.identity = StatIdentity(s.identity)
 	if s.file {
 		if info, err = os.Lstat(s.dir); err != nil {
 			return nil, err
 		}
+		info = StatIdentity(info)
 	}
 	if !os.SameFile(info, s.identity) {
 		return nil, &os.PathError{Op: "watch", Path: s.dir, Err: errWatchRootChanged}
@@ -141,14 +144,14 @@ func (s *fileWatchScan) watchParent() error {
 	if err != nil {
 		return err
 	}
-	return s.add("..", info)
+	return s.add("..", StatIdentity(info))
 }
 
 // gone reports whether the watched directory, or the directory of the
 // watched file, went away or was replaced.
 func (s *fileWatchScan) gone() bool {
 	info, err := os.Lstat(s.dir)
-	return errors.Is(err, fs.ErrNotExist) || err == nil && (!info.IsDir() || !os.SameFile(info, s.identity))
+	return errors.Is(err, fs.ErrNotExist) || err == nil && (!info.IsDir() || !os.SameFile(StatIdentity(info), s.identity))
 }
 
 // goneEvents are the last events of a watch whose directory went away.
@@ -312,7 +315,7 @@ func (s *fileWatchScan) update() ([]FileEvent, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !info.IsDir() || !os.SameFile(info, s.identity) {
+	if info = StatIdentity(info); !info.IsDir() || !os.SameFile(info, s.identity) {
 		return nil, &os.PathError{Op: "watch", Path: s.dir, Err: errWatchRootChanged}
 	}
 	if err = s.watchParent(); err != nil {
@@ -704,7 +707,9 @@ func (s *fileWatchScan) touch(p string) {
 
 func (s *fileWatchScan) set(p string, info os.FileInfo) {
 	s.touch(p)
-	s.entries[p] = info
+	// What an update compares with what came before it, so the identity
+	// doesn't follow a later replacement of the entry (StatIdentity).
+	s.entries[p] = StatIdentity(info)
 	if p != "." {
 		dir := path.Dir(p)
 		if s.children[dir] == nil {

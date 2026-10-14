@@ -80,6 +80,7 @@ func watchDocumentFile(ctx context.Context, path string) {
 	}
 	// The file as last seen, to find it when it is renamed.
 	known, _ := os.Lstat(w.Root())
+	known = StatIdentity(known)
 	for {
 		events, err := w.Next(ctx)
 		if err != nil {
@@ -100,7 +101,7 @@ func watchDocumentFile(ctx context.Context, path string) {
 			return // moved watches the new path
 		}
 		if info, err := os.Lstat(w.Root()); err == nil {
-			known = info
+			known = StatIdentity(info)
 		}
 	}
 }
