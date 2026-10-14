@@ -14,7 +14,9 @@ framework safely. Read it before changing anything under `internal/`.
   takes 44 MB on macOS, and the counter example 65 to 67 MB on Linux, tiled
   to half of a 4K display at scale 2, 15 MB of it the window's buffer,
   without loading Mesa (122 to 155 MB with it). Nothing
-  polls: all work is driven by native events or explicit wake-ups.
+  polls by default: work is driven by native events or explicit wake-ups.
+  Opting into clipboard observation on macOS adds a 250 ms change-count
+  check while listeners exist, since AppKit provides no change notification.
 - **No cgo.** Everything builds with `CGO_ENABLED=0`, so any platform can be
   cross-compiled from any machine. Native APIs are called at run time through
   [purego](https://github.com/ebitengine/purego) (`dlopen` + assembly
@@ -1543,6 +1545,14 @@ clipboard lock. Callback signatures are allocated once and routed by native
 object or user data. Native reads copy bytes so application data outlives
 native handles. See [Clipboard and drag data](data-transfer.md) for API and
 format mappings.
+
+`Clipboard.OnChanged` shares one backend watch across listeners. The core
+coalesces notifications and defers callbacks until clipboard operations and
+other change callbacks unwind; removing the last listener stops the watch.
+Windows uses its hidden app window for `WM_CLIPBOARDUPDATE`, GTK reuses its
+owner-change signal, and macOS installs an NSTimer only while subscribed.
+Observation never reads clipboard types or providers. Browser and unsupported
+backends reject it.
 
 ## Audio (`audio`)
 

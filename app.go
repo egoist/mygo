@@ -211,6 +211,7 @@ func (a *Application) finish() {
 		stopCookieCalls()
 		stopFileWatches()
 		clipboardStopped = true
+		clipboardChanges.close()
 		backend().Clipboard().Close()
 		saveWindowStates()
 		fire(&a.onQuit)
