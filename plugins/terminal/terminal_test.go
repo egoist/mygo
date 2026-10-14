@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image/png"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -1449,7 +1450,13 @@ func TestPasteData(t *testing.T) {
 	}
 	defer term.Close()
 	read := 0
-	files, err := transfer.FileData("/tmp/a.png")
+	path := filepath.Join(t.TempDir(), "a.png")
+	files, err := transfer.FileData(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The file URL as FileData wrote it: Windows paths have a drive letter.
+	uri, err := files.Items()[0].Read(transfer.FileList)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1482,7 +1489,7 @@ func TestPasteData(t *testing.T) {
 	b64 := base64.StdEncoding.EncodeToString
 	term.Feed([]byte("\x1b]5522;type=read:pw=" + pw + ":name=" + b64([]byte("Paste event")) + ";" + b64([]byte("image/jpeg text/uri-list")) + "\x1b\\"))
 	reply := conn.take(1)
-	if read != 1 || !strings.Contains(reply, b64([]byte("JPEG"))) || !strings.Contains(reply, b64([]byte("file:///tmp/a.png"))) {
+	if read != 1 || !strings.Contains(reply, b64([]byte("JPEG"))) || !strings.Contains(reply, b64(uri)) {
 		t.Errorf("read %d times, replied %q", read, reply)
 	}
 }
