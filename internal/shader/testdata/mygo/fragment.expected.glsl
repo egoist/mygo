@@ -48,13 +48,16 @@ vec4 F5(in vec2 l0) {
 
 vec4 F15(in vec4 l0, in vec2 l1) {
 	float l2 = float(0);
-	uint l4 = 0u;
+	uint l5 = 0u;
 	l2 = 0.0;
 	for (int l3 = 0; l3 < U4; l3++) {
 		l2 = (l2) + ((((U5)[l3]).z) / ((1.0) + (distance(l1, ((U5)[l3]).xy))));
 	}
-	l4 = F0(((uint(int((l0).x))) * (2654435769u)) ^ (F0((uint(int((l0).y))) ^ (U3))));
-	return (((F5((l1) * (F2()))) * (float((l4) % (255u)))) / (255.0)) * (l2);
+	for (uint l4 = 0u; l4 < U3; l4 += 2u) {
+		l2 = (l2) + (1.0000000000e-01);
+	}
+	l5 = F0((((uvec3(uint(int((l0).x)))).z) * (2654435769u)) ^ (F0((uint(int((l0).y))) ^ (U3))));
+	return (((F5((l1) * (F2()))) * (float((l5) % (255u)))) / (255.0)) * (l2);
 }
 
 vec4 shaderFragment(vec4 position, vec2 v0) {

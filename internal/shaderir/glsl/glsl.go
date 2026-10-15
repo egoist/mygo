@@ -655,10 +655,10 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 			default:
 				d := s.ForDelta
 				if val > 0 {
-					delta = fmt.Sprintf("%s += %s", v, constantToNumberLiteral(d))
+					delta = fmt.Sprintf("%s += %s", v, numberLiteral(d, s.ForVarType.Scalar() == shaderir.Uint))
 				} else {
 					d = constant.UnaryOp(token.SUB, d, 0)
-					delta = fmt.Sprintf("%s -= %s", v, constantToNumberLiteral(d))
+					delta = fmt.Sprintf("%s -= %s", v, numberLiteral(d, s.ForVarType.Scalar() == shaderir.Uint))
 				}
 			}
 			var op string

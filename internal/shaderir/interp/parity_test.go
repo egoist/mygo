@@ -54,8 +54,23 @@ func Fragment(dst vec4, pos vec2) vec4 {
 		d := distance(pos, Taps[i].xy)
 		glow += Taps[i].z * exp(-d*d/(Taps[i].w*Taps[i].w))
 	}
+	// A uint loop by twos, a uvec of one scalar, a range over a count the
+	// body changes (read once, as Go reads it), and smoothstep between
+	// equal edges (0, not NaN).
+	k := 0.0
+	for j := uint(0); j < Seed%7+uint(int(pos.x/40)); j += 2 {
+		k += 0.02
+	}
+	m := Count + int(pos.y/30)
+	for i := range m {
+		m--
+		k += 0.01 * float(i+1)
+	}
+	u := uvec3(Seed + uint(int(pos.x)))
+	k += float(u.y%5)*0.01 + smoothstep(Time, Time, Time)
 	c := vec3(n, smoothstep(0.2, 0.8, n), clamp(glow, 0, 1))
 	c.rb = c.br * vec2(1, 0.5+0.5*sin(pos.x/7))
+	c.g = fract(c.g + k)
 	return vec4(c*0.9, 0.9)
 }
 `

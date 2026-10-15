@@ -163,7 +163,13 @@ func (c *compiler) builtin(fn *function, e *shaderir.Expr) operand {
 		})
 	case shaderir.Smoothstep:
 		return c.lanes3(t, args, func(e0, e1, x uint32) uint32 {
-			k := min(max((f32(x)-f32(e0))/(f32(e1)-f32(e0)), 0), 1)
+			// Clamped as GPUs clamp: a NaN, as from equal edges, gives 0.
+			k := (f32(x) - f32(e0)) / (f32(e1) - f32(e0))
+			if !(k > 0) {
+				k = 0
+			} else if k > 1 {
+				k = 1
+			}
 			return bits(k * k * (3 - 2*k))
 		})
 	case shaderir.Length:

@@ -273,3 +273,29 @@ func BenchmarkNoise(b *testing.B) {
 		prog.Color(in, [4]float32{x, 10, 0, 1}, x, 10)
 	}
 }
+
+// A range reads its count once, as Go does, though the body changes it;
+// smoothstep between equal edges is 0, as GPUs clamp its NaN.
+func TestRangeAndSmoothstep(t *testing.T) {
+	p, prog := compile(t, `package main
+
+var N int
+var X float
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	n := N
+	sum := 0.0
+	for i := range n {
+		n--
+		sum += 1
+		_ = i
+	}
+	return vec4(sum, float(n), smoothstep(X, X, X), 0)
+}
+`)
+	in := &interp.Inputs{Uniforms: uniforms(p, map[string][]uint32{"N": {5}, "X": f(0.5)})}
+	got, _ := prog.Color(in, [4]float32{}, 0, 0)
+	if want := [4]float32{5, 0, 0, 0}; got != want {
+		t.Errorf("%v, want %v", got, want)
+	}
+}

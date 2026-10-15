@@ -43,6 +43,14 @@ func TestFragment(t *testing.T) {
 		if got != string(want) {
 			t.Errorf("%s: got\n%s", name, got)
 		}
+		// A uint loop steps by a uint, and HLSL makes a vector of one scalar
+		// by a cast, as it does not spread one.
+		if !strings.Contains(got, "+= 2u") {
+			t.Errorf("%s: the uint loop does not step by 2u", name)
+		}
+		if ext == "hlsl" && !strings.Contains(got, "(uint3)(") {
+			t.Errorf("%s: uvec3 of a scalar is not a cast", name)
+		}
 	}
 }
 

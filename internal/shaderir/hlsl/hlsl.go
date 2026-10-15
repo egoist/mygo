@@ -513,7 +513,8 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 			}
 			if callee.Type == shaderir.BuiltinFuncExpr {
 				switch callee.BuiltinFunc {
-				case shaderir.Vec2F, shaderir.Vec3F, shaderir.Vec4F, shaderir.IVec2F, shaderir.IVec3F, shaderir.IVec4F:
+				case shaderir.Vec2F, shaderir.Vec3F, shaderir.Vec4F, shaderir.IVec2F, shaderir.IVec3F, shaderir.IVec4F,
+					shaderir.UVec2F, shaderir.UVec3F, shaderir.UVec4F:
 					if len(args) == 1 {
 						// Use casting. For example, `float4(1)` doesn't work.
 						return fmt.Sprintf("(%s)(%s)", expr(&e.Exprs[0]), args[0])
@@ -606,10 +607,10 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 			default:
 				d := s.ForDelta
 				if val > 0 {
-					delta = fmt.Sprintf("%s += %s", v, constantToNumberLiteral(d))
+					delta = fmt.Sprintf("%s += %s", v, numberLiteral(d, s.ForVarType.Scalar() == shaderir.Uint))
 				} else {
 					d = constant.UnaryOp(token.SUB, d, 0)
-					delta = fmt.Sprintf("%s -= %s", v, constantToNumberLiteral(d))
+					delta = fmt.Sprintf("%s -= %s", v, numberLiteral(d, s.ForVarType.Scalar() == shaderir.Uint))
 				}
 			}
 			var op string

@@ -1237,6 +1237,17 @@ func (cs *compileState) parseForRange(block *block, fname string, stmt *ast.Rang
 		}
 	}
 
+	// A count that is not a constant is read once, before the loop, as Go reads it: into a local of
+	// its own, which the body cannot reach (MyGo's).
+	var count []shaderir.Stmt
+	if end == nil {
+		idx := block.totalLocalVariableCount()
+		block.vars = append(block.vars, variable{typ: shaderir.Type{Main: shaderir.Int}})
+		local := shaderir.Expr{Type: shaderir.LocalVariable, Index: idx}
+		count = append(count, shaderir.Stmt{Type: shaderir.Assign, Exprs: []shaderir.Expr{local, endExpr}})
+		endExpr = local
+	}
+
 	// Create a new pseudo block for the iteration variables, so that the variables belong to the new
 	// pseudo block for each for-loop. Without this, the same-named variables in different for-loops
 	// confuse the parser.
@@ -1311,17 +1322,15 @@ func (cs *compileState) parseForRange(block *block, fname string, stmt *ast.Rang
 	if end != nil {
 		endExpr = shaderir.Expr{Type: shaderir.NumberExpr, Const: end}
 	}
-	return []shaderir.Stmt{
-		{
-			Type:        shaderir.For,
-			Exprs:       []shaderir.Expr{{Type: shaderir.NumberExpr, Const: gconstant.MakeInt64(0)}, endExpr},
-			Blocks:      []*shaderir.Block{bodyir},
-			ForVarType:  vartype,
-			ForVarIndex: varidx,
-			ForInit:     gconstant.MakeInt64(0),
-			ForEnd:      end,
-			ForOp:       shaderir.LessThanOp,
-			ForDelta:    gconstant.MakeInt64(1),
-		},
-	}, true
+	return append(count, shaderir.Stmt{
+		Type:        shaderir.For,
+		Exprs:       []shaderir.Expr{{Type: shaderir.NumberExpr, Const: gconstant.MakeInt64(0)}, endExpr},
+		Blocks:      []*shaderir.Block{bodyir},
+		ForVarType:  vartype,
+		ForVarIndex: varidx,
+		ForInit:     gconstant.MakeInt64(0),
+		ForEnd:      end,
+		ForOp:       shaderir.LessThanOp,
+		ForDelta:    gconstant.MakeInt64(1),
+	}), true
 }

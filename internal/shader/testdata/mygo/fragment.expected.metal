@@ -74,13 +74,16 @@ float4 F5(constant Uniforms& uniforms, texture2d<float> T0, texture2d<float> T1,
 
 float4 F15(constant Uniforms& uniforms, texture2d<float> T0, texture2d<float> T1, texture2d<float> T2, texture2d<float> T3, float4 l0, float2 l1) {
 	float l2 = float(0);
-	uint l4 = 0u;
+	uint l5 = 0u;
 	l2 = 0.0;
 	for (int l3 = 0; l3 < uniforms.U4; l3++) {
 		l2 = (l2) + ((((uniforms.U5)[l3]).z) / ((1.0) + (distance(l1, ((uniforms.U5)[l3]).xy))));
 	}
-	l4 = F0(uniforms, T0, T1, T2, T3, ((static_cast<uint>(static_cast<int>((l0).x))) * (2654435769u)) ^ (F0(uniforms, T0, T1, T2, T3, (static_cast<uint>(static_cast<int>((l0).y))) ^ (uniforms.U3))));
-	return (((F5(uniforms, T0, T1, T2, T3, (l1) * (F2(uniforms, T0, T1, T2, T3)))) * (static_cast<float>((l4) % (255u)))) / (255.0)) * (l2);
+	for (uint l4 = 0u; l4 < uniforms.U3; l4 += 2u) {
+		l2 = (l2) + (1.0000000000e-01);
+	}
+	l5 = F0(uniforms, T0, T1, T2, T3, (((uint3(static_cast<uint>(static_cast<int>((l0).x)))).z) * (2654435769u)) ^ (F0(uniforms, T0, T1, T2, T3, (static_cast<uint>(static_cast<int>((l0).y))) ^ (uniforms.U3))));
+	return (((F5(uniforms, T0, T1, T2, T3, (l1) * (F2(uniforms, T0, T1, T2, T3)))) * (static_cast<float>((l5) % (255u)))) / (255.0)) * (l2);
 }
 
 float4 shaderFragment(constant Uniforms& uniforms, texture2d<float> T0, texture2d<float> T1, texture2d<float> T2, texture2d<float> T3, float4 position, float2 v0) {
