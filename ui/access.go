@@ -3,7 +3,6 @@ package ui
 import (
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/internal/platform"
 )
@@ -566,7 +565,7 @@ func (rt *engine) focusOn(s *state) {
 	}
 	if rt.focused != s.id {
 		rt.focused = s.id
-		rt.blinkStart = time.Now()
+		rt.blinkStart = rt.now()
 	}
 	rt.focusVisible = true
 	rt.reveal(s.id)

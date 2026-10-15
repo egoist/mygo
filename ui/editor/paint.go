@@ -116,6 +116,9 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 	}
 	ed.prepare(&f)
 	if ed.focused {
+		if ed.blinkStart.IsZero() {
+			ed.blinkStart = ed.frameNow
+		}
 		phase := ed.frameNow.Sub(ed.blinkStart)
 		f.caretsOn = (phase/blinkInterval)%2 == 0 || ed.gesture.active
 		if !ed.gesture.active {

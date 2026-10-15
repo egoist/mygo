@@ -12,9 +12,8 @@ import (
 // they faded; the stage throws a burst of its own from the pointer.
 func TestBursts(t *testing.T) {
 	s := newApp()
-	now := time.Unix(1000, 0)
-	s.clock = func() time.Time { return now }
 	tt := ui.NewTester(s.view, windowW, windowH)
+	tt.SetTimeFlowing(false)
 
 	if err := tt.Click("Basic Cannon"); err != nil {
 		t.Fatal(err)
@@ -22,11 +21,11 @@ func TestBursts(t *testing.T) {
 	if s.inAir() != 100 || !tt.HasText("100 in the air") {
 		t.Fatalf("%d pieces after Basic Cannon, want 100", s.inAir())
 	}
+	tt.Advance(tick)
 	if s.bursts[0].launched.IsZero() {
 		t.Fatal("the burst did not head off")
 	}
-	now = now.Add(200 * tick)
-	tt.Frame()
+	tt.Advance(200 * tick)
 	if len(s.bursts) != 0 {
 		t.Errorf("%d bursts after they faded, want 0", len(s.bursts))
 	}
@@ -47,9 +46,8 @@ func TestBursts(t *testing.T) {
 // Pressing a demo again and again lets the oldest pieces go first.
 func TestMaxPieces(t *testing.T) {
 	s := newApp()
-	now := time.Unix(1000, 0)
-	s.clock = func() time.Time { return now }
 	tt := ui.NewTester(s.view, windowW, windowH)
+	tt.SetTimeFlowing(false)
 	for range 8 {
 		if err := tt.Click("Realistic Look"); err != nil {
 			t.Fatal(err)
@@ -65,9 +63,8 @@ func TestMaxPieces(t *testing.T) {
 // Fireworks fire two bursts now and two more every 250 ms for 5 seconds.
 func TestFireworks(t *testing.T) {
 	s := newApp()
-	now := time.Unix(1000, 0)
-	s.clock = func() time.Time { return now }
 	tt := ui.NewTester(s.view, windowW, windowH)
+	tt.SetTimeFlowing(false)
 
 	if err := tt.Click("Fireworks"); err != nil {
 		t.Fatal(err)
@@ -75,13 +72,11 @@ func TestFireworks(t *testing.T) {
 	if s.inAir() != 100 || len(s.emitters) != 1 {
 		t.Fatalf("%d pieces and %d emitters after Fireworks, want 100 and 1", s.inAir(), len(s.emitters))
 	}
-	now = now.Add(250 * time.Millisecond)
-	tt.Frame()
+	tt.Advance(250 * time.Millisecond)
 	if s.inAir() != 100+2*(50*19/20) {
 		t.Errorf("%d pieces 250 ms in, want %d", s.inAir(), 100+2*(50*19/20))
 	}
-	now = now.Add(5 * time.Second)
-	tt.Frame()
+	tt.Advance(5 * time.Second)
 	if len(s.emitters) != 0 {
 		t.Errorf("%d emitters after 5 s, want 0", len(s.emitters))
 	}
@@ -91,6 +86,7 @@ func TestFireworks(t *testing.T) {
 func TestReduceMotion(t *testing.T) {
 	s := newApp()
 	tt := ui.NewTester(s.view, windowW, windowH)
+	tt.SetTimeFlowing(false)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	if err := tt.Click("Realistic Look"); err != nil {
 		t.Fatal(err)

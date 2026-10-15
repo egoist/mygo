@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 	"testing"
+	"time"
 	"weak"
 )
 
@@ -259,6 +260,154 @@ func TestFramePending(t *testing.T) {
 	tt.Frame()
 	if tt.FramePending() {
 		t.Error("a frame is pending after the view settled")
+	}
+}
+
+// A Tester's time follows the system's clock; Advance jumps it and
+// SetTimeFlowing stops it.
+func TestTesterTime(t *testing.T) {
+	var now time.Time
+	tt := NewTester(func(c *Context) { now = c.Now() }, 100, 50)
+	start := now
+	time.Sleep(10 * time.Millisecond)
+	tt.Frame()
+	if d := now.Sub(start); d < 10*time.Millisecond {
+		t.Errorf("flowing: the time moved by %v over 10 ms", d)
+	}
+
+	tt.SetTimeFlowing(false)
+	start = tt.Now()
+	time.Sleep(10 * time.Millisecond)
+	tt.Advance(time.Hour)
+	tt.Frame()
+	if d := now.Sub(start); d != time.Hour {
+		t.Errorf("stopped: the time moved by %v with Advance(1h)", d)
+	}
+	tt.SetTimeFlowing(true)
+	if d := tt.Now().Sub(now); d < 0 || d > time.Second {
+		t.Errorf("the time leapt by %v as it flowed again", d)
+	}
+}
+
+// Advance runs a frame each refresh while something moves.
+func TestAdvanceRunsAFrameEachRefresh(t *testing.T) {
+	target := float32(0)
+	var value float32
+	builds := 0
+	tt := NewTester(func(c *Context) {
+		builds++
+		value = Box(c).Animate("x", target, 100*time.Millisecond)
+	}, 100, 50)
+	tt.SetTimeFlowing(false)
+	target = 100
+	tt.Frame()
+	builds = 0
+	tt.Advance(50 * time.Millisecond) // frames at 16.7, 33.3 and 50 ms
+	if builds != 3 || value <= 0 || value >= 100 {
+		t.Errorf("50 ms built %d frames, want 3, the value at %v", builds, value)
+	}
+	tt.Advance(time.Second)
+	if value != 100 || tt.FramePending() {
+		t.Errorf("after a second, the value at %v, a frame pending %v", value, tt.FramePending())
+	}
+}
+
+// FramePending reports After's frame once the system's clock reaches it.
+func TestFramePendingAfter(t *testing.T) {
+	ask := true
+	tt := NewTester(func(c *Context) {
+		if ask {
+			ask = false
+			c.After(5 * time.Millisecond)
+		}
+	}, 100, 50)
+	time.Sleep(10 * time.Millisecond)
+	if !tt.FramePending() {
+		t.Fatal("no frame pending once After's time came")
+	}
+	tt.Frame()
+	if tt.FramePending() {
+		t.Error("a frame pending after After's")
+	}
+}
+
+// Advance paints again at Painter.After's time, without building the view.
+func TestAdvanceRunsPainterAfter(t *testing.T) {
+	ask := false
+	builds, draws := 0, 0
+	tt := coreNewTester(func(c *context) {
+		builds++
+		coreBox(c).Size(10, 10).Draw(func(p *Painter, r Rect) {
+			draws++
+			if ask {
+				ask = false
+				p.After(50 * time.Millisecond)
+			}
+		})
+	}, 100, 50)
+	tt.SetTimeFlowing(false)
+	ask = true
+	tt.Frame()
+	builds, draws = 0, 0
+	tt.Advance(49 * time.Millisecond)
+	if draws != 0 {
+		t.Fatalf("painted %d times before its time", draws)
+	}
+	tt.Advance(time.Millisecond)
+	if builds != 0 || draws != 1 {
+		t.Errorf("built %d frames, painted %d, want 0 and 1", builds, draws)
+	}
+}
+
+// After's frame builds the view anew at its time, while drawings only
+// paint again.
+func TestAdvanceRunsAfter(t *testing.T) {
+	var at time.Time
+	builds := 0
+	tt := coreNewTester(func(c *context) {
+		builds++
+		if wait := at.Sub(c.Now()); wait > 0 {
+			c.After(wait)
+		}
+		coreBox(c).Size(10, 10).Draw(func(p *Painter, r Rect) { p.AnimationFrame() })
+	}, 100, 50)
+	tt.SetTimeFlowing(false)
+	at = tt.Now().Add(100 * time.Millisecond)
+	tt.Frame()
+	builds = 0
+	tt.Advance(150 * time.Millisecond)
+	if builds != 1 {
+		t.Errorf("built %d frames, want After's", builds)
+	}
+}
+
+// Double clicks and undo steps of text inputs go by the Tester's time.
+func TestAdvanceMovesInputTime(t *testing.T) {
+	text := ""
+	doubles := 0
+	tt := NewTester(func(c *Context) {
+		Column(c).Children(func() {
+			TextInput(c, &text).Label("Field")
+			if Box(c).Size(50, 20).Label("Box").DoubleClicked() {
+				doubles++
+			}
+		})
+	}, 200, 100)
+	tt.SetTimeFlowing(false)
+	tt.Click("Box")
+	tt.Advance(time.Second)
+	tt.Click("Box")
+	if doubles != 0 {
+		t.Fatalf("clicks a second apart made %d double clicks", doubles)
+	}
+
+	tt.Click("Field")
+	tt.Type("a")
+	tt.Advance(time.Second)
+	tt.Type("b")
+	tt.Key(Cmd, KeyZ)
+	if text != "a" {
+		t.Errorf("undo left %q, want %q", text, "a")
 	}
 }
 

@@ -109,6 +109,9 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 		h.pending, h.restOff = false, -1
 	}
 	if h.pending && ed.pointerIn && !ed.gesture.active {
+		if h.restAt.IsZero() {
+			h.restAt = c.Now()
+		}
 		if wait := 600*time.Millisecond - c.Now().Sub(h.restAt); wait > 0 {
 			c.After(wait)
 		} else {
@@ -157,9 +160,10 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 		switch {
 		case h.over || h.focused:
 			h.hideAt = time.Time{}
-		case outside && h.byPointer && h.hideAt.IsZero():
+		case (h.left || outside && h.byPointer) && h.hideAt.IsZero():
 			h.hideAt = c.Now().Add(hoverHideDelay)
 		}
+		h.left = false
 		if !h.hideAt.IsZero() {
 			if wait := h.hideAt.Sub(c.Now()); wait > 0 {
 				c.After(wait)

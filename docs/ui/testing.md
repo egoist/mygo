@@ -50,4 +50,22 @@ panics where the second key was given, as apps only log it.
   view once at a given scale. Inputs and `tt.Frame` run the frames the
   view asks for until it asks for no more, or 20 of them:
   `tt.FramePending` tells whether it still asks, as a view that animates
-  or never settles does.
+  or never settles does, or once a timer of `c.After` or `Painter.After`
+  is due.
+- **Time.** `tt.Now()` follows the system's clock. `tt.Advance(d)`
+  jumps it ahead by d, running the frames due meanwhile: one each
+  refresh while something moves, and those of `c.After` and
+  `Painter.After` at their time. `tt.SetTimeFlowing(false)` stops it, so
+  only `tt.Advance` moves it and every run sees the same times. Text
+  inputs, `ui/editor` and `ui/richtext` go by it, but the undo steps of
+  an `editor.Buffer` and a `richtext.Document` use the system's clock.
+
+  ```go
+  tt := ui.NewTester(app.view, 320, 240)
+  tt.SetTimeFlowing(false)
+  tt.Click("Open")
+  tt.Advance(time.Second) // the panel's transition, a frame each refresh
+  if tt.FramePending() {
+  	t.Error("the panel keeps asking for frames")
+  }
+  ```

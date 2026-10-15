@@ -68,7 +68,7 @@ func (ed *editor) setText(s string) {
 // record starts a step of undo before an edit; typing in a row makes one
 // step.
 func (ed *editor) record(typing bool) {
-	now := time.Now()
+	now := ed.now()
 	if typing && ed.coalesce && now.Sub(ed.lastEdit) < time.Second && len(ed.undo) > 0 {
 		ed.lastEdit = now
 		return
@@ -82,6 +82,14 @@ func (ed *editor) record(typing bool) {
 	ed.redo = ed.redo[:0]
 	ed.coalesce = typing
 	ed.lastEdit = now
+}
+
+// now returns the window's time, which a Tester sets.
+func (ed *editor) now() time.Time {
+	if ed.client != nil {
+		return ed.client.rt.now()
+	}
+	return time.Now()
 }
 
 // replace replaces the runes from start to end with s, as the last step

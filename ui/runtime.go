@@ -25,6 +25,10 @@ type host interface {
 	occluded() bool
 	present(s *scene.Scene)
 	requestFrame()
+	// afterTimer and repaintTimer arm the timers of After and
+	// Painter.After for at, or stop them for the zero time.
+	afterTimer(at time.Time)
+	repaintTimer(at time.Time)
 	setCursor(Cursor)
 	setTextInput(t platform.TextInputState)
 	updateAccessibility(tree *platform.AccessTree)
@@ -202,7 +206,7 @@ type engine struct {
 	// strict makes mistakes found while building panic, as duplicate keys
 	// do in a Tester.
 	strict bool
-	// clock is the time of frames for tests, time.Now when nil.
+	// clock is a Tester's time, time.Now when nil.
 	clock func() time.Time
 
 	pointerX, pointerY float32
@@ -251,18 +255,17 @@ type engine struct {
 	// tells that the next frame may paint again, as no event came and
 	// nothing else asked for one since; painted is the size and scale of
 	// the window, and gen the text system's Generation, as the last frame
-	// was built. repaintTimer asks for a frame at repaintDue, unless one
-	// came or was asked for since. held tells that what moves waits for
-	// the window to show.
-	animating    bool
-	repainting   bool
-	repaintAt    time.Time
-	redraw       bool
-	held         bool
-	painted      [3]float32
-	gen          uint64
-	repaintTimer *time.Timer
-	repaintDue   time.Time
+	// was built. The host's repaintTimer asks for a frame at repaintDue,
+	// unless one came or was asked for since. held tells that what moves
+	// waits for the window to show.
+	animating  bool
+	repainting bool
+	repaintAt  time.Time
+	redraw     bool
+	held       bool
+	painted    [3]float32
+	gen        uint64
+	repaintDue time.Time
 	// late is set when lists built elements while laying out.
 	late bool
 	// revealIDs are the elements to scroll into view once the frame is
@@ -270,7 +273,6 @@ type engine struct {
 	revealIDs []uint64
 	wakeMu    sync.Mutex
 	wakeAt    time.Time
-	timer     *time.Timer
 	cursor    Cursor
 	// ime is the text input state the host has, and base the rune of the
 	// focused editor its text starts at.
@@ -547,7 +549,7 @@ func (rt *engine) runFrame() {
 	rt.stats.end(rt)
 }
 
-// now returns the time, which tests set (clock).
+// now returns the time, which a Tester sets (clock).
 func (rt *engine) now() time.Time {
 	if rt.clock != nil {
 		return rt.clock()
@@ -574,17 +576,8 @@ func (rt *engine) next() {
 		rt.host.requestFrame()
 	case !rt.repaintAt.IsZero():
 		rt.redraw, rt.repaintDue = true, rt.repaintAt
-		d := max(rt.repaintAt.Sub(rt.now()), time.Millisecond)
-		if rt.repaintTimer == nil {
-			rt.repaintTimer = time.AfterFunc(d, func() { rt.host.post(rt.repaintNow) })
-		} else {
-			rt.repaintTimer.Reset(d)
-		}
-		return
 	}
-	if rt.repaintTimer != nil {
-		rt.repaintTimer.Stop()
-	}
+	rt.host.repaintTimer(rt.repaintDue)
 }
 
 // repaintNow asks for the frame that Painter.After asked for, unless
@@ -774,22 +767,13 @@ func (rt *engine) scheduleAt(t time.Time) {
 	rt.wakeMu.Unlock()
 }
 
-// armTimer starts a timer for the earliest frame After asked for.
+// armTimer arms the host's timer for the earliest frame After asked for.
 func (rt *engine) armTimer() {
 	rt.wakeMu.Lock()
 	at := rt.wakeAt
 	rt.wakeAt = time.Time{}
 	rt.wakeMu.Unlock()
-	switch {
-	case at.IsZero():
-		if rt.timer != nil {
-			rt.timer.Stop()
-		}
-	case rt.timer != nil:
-		rt.timer.Reset(max(time.Until(at), time.Millisecond))
-	default:
-		rt.timer = time.AfterFunc(max(time.Until(at), time.Millisecond), rt.host.invalidate)
-	}
+	rt.host.afterTimer(at)
 }
 
 // close lets the window's state go when the window closes. A window closed
@@ -834,12 +818,8 @@ func (rt *engine) close() {
 			s.textAdapter.release()
 		}
 	}
-	if rt.timer != nil {
-		rt.timer.Stop()
-	}
-	if rt.repaintTimer != nil {
-		rt.repaintTimer.Stop()
-	}
+	rt.host.afterTimer(time.Time{})
+	rt.host.repaintTimer(time.Time{})
 }
 
 // endFrame ends a frame, and closes the engine when its window closed
