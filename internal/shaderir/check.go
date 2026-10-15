@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: uint and uvecN.
+
 package shaderir
 
 import (
@@ -55,7 +57,7 @@ func ResolveUntypedConstsForBinaryOp(op Op, lhs, rhs constant.Value, lhst, rhst 
 		if (rhst.Main == Float || rhst.IsFloatVector() || rhst.IsMatrix()) && constant.ToFloat(lhs).Kind() != constant.Unknown {
 			return constant.ToFloat(lhs), rhs, true
 		}
-		if (rhst.Main == Int || rhst.IsIntVector()) && constant.ToInt(lhs).Kind() != constant.Unknown {
+		if rhst.IsInteger() && constant.ToInt(lhs).Kind() != constant.Unknown {
 			return constant.ToInt(lhs), rhs, true
 		}
 		if rhst.Main == Bool && lhs.Kind() == constant.Bool {
@@ -68,7 +70,7 @@ func ResolveUntypedConstsForBinaryOp(op Op, lhs, rhs constant.Value, lhst, rhst 
 		if (lhst.Main == Float || lhst.IsFloatVector() || lhst.IsMatrix()) && constant.ToFloat(rhs).Kind() != constant.Unknown {
 			return lhs, constant.ToFloat(rhs), true
 		}
-		if (lhst.Main == Int || lhst.IsIntVector()) && constant.ToInt(rhs).Kind() != constant.Unknown {
+		if lhst.IsInteger() && constant.ToInt(rhs).Kind() != constant.Unknown {
 			return lhs, constant.ToInt(rhs), true
 		}
 		if lhst.Main == Bool && rhs.Kind() == constant.Bool {
@@ -165,14 +167,14 @@ func TypeFromBinaryOp(op Op, lhst, rhst Type, lhsConst, rhsConst constant.Value)
 	}
 
 	if op == VectorEqualOp || op == VectorNotEqualOp {
-		if (lhst.IsFloatVector() || lhst.IsIntVector()) && (rhst.IsFloatVector() || rhst.IsIntVector()) && lhst.Equal(&rhst) {
+		if (lhst.IsFloatVector() || lhst.IsIntegerVector()) && lhst.Equal(&rhst) {
 			return Type{Main: Bool}, true
 		}
 		return Type{}, false
 	}
 
 	if op == LessThanOp || op == LessThanEqualOp || op == GreaterThanOp || op == GreaterThanEqualOp {
-		if (lhst.Main == Int && rhst.Main == Int) || (lhst.Main == Float && rhst.Main == Float) {
+		if (lhst.Main == Int && rhst.Main == Int) || (lhst.Main == Uint && rhst.Main == Uint) || (lhst.Main == Float && rhst.Main == Float) {
 			return Type{Main: Bool}, true
 		}
 		return Type{}, false
@@ -202,49 +204,35 @@ func TypeFromBinaryOp(op Op, lhst, rhst Type, lhsConst, rhsConst constant.Value)
 		return Type{}, false
 	}
 
-	if op == ModOp {
-		if lhst.Main == IVec2 && rhst.Main == IVec2 {
-			return Type{Main: IVec2}, true
+	// The operands of %, &, &^, |, ^ are integers of one kind: int and ivecN,
+	// or uint and uvecN (MyGo's), a vector with a vector of its size or a
+	// scalar (on either side, but for %).
+	if op == ModOp || op == And || op == AndNot || op == Or || op == Xor {
+		if !lhst.IsInteger() || !rhst.IsInteger() || lhst.Scalar() != rhst.Scalar() {
+			return Type{}, false
 		}
-		if lhst.Main == IVec3 && rhst.Main == IVec3 {
-			return Type{Main: IVec3}, true
-		}
-		if lhst.Main == IVec4 && rhst.Main == IVec4 {
-			return Type{Main: IVec4}, true
-		}
-		if (lhst.Main == Int || lhst.IsIntVector()) && rhst.Main == Int {
+		if lhst.Equal(&rhst) {
 			return lhst, true
 		}
-		return Type{}, false
-	}
-
-	if op == And || op == AndNot || op == Or || op == Xor {
-		if lhst.Main == Int && rhst.Main == Int {
-			return Type{Main: Int}, true
-		}
-		if lhst.Main == IVec2 && rhst.Main == IVec2 {
-			return Type{Main: IVec2}, true
-		}
-		if lhst.Main == IVec3 && rhst.Main == IVec3 {
-			return Type{Main: IVec3}, true
-		}
-		if lhst.Main == IVec4 && rhst.Main == IVec4 {
-			return Type{Main: IVec4}, true
-		}
-		if lhst.IsIntVector() && rhst.Main == Int {
+		if lhst.IsIntegerVector() && !rhst.IsIntegerVector() {
 			return lhst, true
 		}
-		if lhst.Main == Int && rhst.IsIntVector() {
+		if op != ModOp && !lhst.IsIntegerVector() && rhst.IsIntegerVector() {
 			return rhst, true
 		}
 		return Type{}, false
 	}
 
+	// A shift's count may be of either kind of integer, as in Go: a scalar,
+	// or a vector of the shifted vector's size.
 	if op == LeftShift || op == RightShift {
-		if (lhst.Main == Int || lhst.IsIntVector()) && rhst.Main == Int {
+		if !lhst.IsInteger() || !rhst.IsInteger() {
+			return Type{}, false
+		}
+		if !rhst.IsIntegerVector() {
 			return lhst, true
 		}
-		if lhst.IsIntVector() && rhst.IsIntVector() && lhst.VectorElementCount() == rhst.VectorElementCount() {
+		if lhst.IsIntegerVector() && lhst.VectorElementCount() == rhst.VectorElementCount() {
 			return lhst, true
 		}
 		return Type{}, false
@@ -302,6 +290,12 @@ func TypeFromBinaryOp(op Op, lhst, rhst Type, lhsConst, rhsConst constant.Value)
 		return lhst, true
 	}
 	if lhst.Main == Int && rhst.IsIntVector() {
+		return rhst, true
+	}
+	if lhst.IsUintVector() && rhst.Main == Uint {
+		return lhst, true
+	}
+	if lhst.Main == Uint && rhst.IsUintVector() {
 		return rhst, true
 	}
 

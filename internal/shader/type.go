@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: uint and uvecN.
+
 package shader
 
 import (
@@ -54,6 +56,14 @@ func (cs *compileState) parseType(block *block, fname string, expr ast.Expr) (sh
 			return shaderir.Type{Main: shaderir.IVec3}, true
 		case "ivec4":
 			return shaderir.Type{Main: shaderir.IVec4}, true
+		case "uint":
+			return shaderir.Type{Main: shaderir.Uint}, true
+		case "uvec2":
+			return shaderir.Type{Main: shaderir.UVec2}, true
+		case "uvec3":
+			return shaderir.Type{Main: shaderir.UVec3}, true
+		case "uvec4":
+			return shaderir.Type{Main: shaderir.UVec4}, true
 		case "mat2":
 			return shaderir.Type{Main: shaderir.Mat2}, true
 		case "mat3":
@@ -197,7 +207,7 @@ func checkArgsForIntBuiltinFunc(args []shaderir.Expr, argts []shaderir.Type) err
 	if len(args) != 1 {
 		return fmt.Errorf("number of int's arguments must be 1 but %d", len(args))
 	}
-	if argts[0].Main == shaderir.Int || argts[0].Main == shaderir.Float {
+	if argts[0].Main == shaderir.Int || argts[0].Main == shaderir.Uint || argts[0].Main == shaderir.Float {
 		return nil
 	}
 	if args[0].Const != nil && gconstant.ToInt(args[0].Const).Kind() != gconstant.Unknown {
@@ -214,7 +224,7 @@ func checkArgsForFloatBuiltinFunc(args []shaderir.Expr, argts []shaderir.Type) e
 	if len(args) != 1 {
 		return fmt.Errorf("number of float's arguments must be 1 but %d", len(args))
 	}
-	if argts[0].Main == shaderir.Int || argts[0].Main == shaderir.Float {
+	if argts[0].Main == shaderir.Int || argts[0].Main == shaderir.Uint || argts[0].Main == shaderir.Float {
 		return nil
 	}
 	if args[0].Const != nil && gconstant.ToFloat(args[0].Const).Kind() != gconstant.Unknown {
@@ -234,7 +244,7 @@ func checkArgsForVec2BuiltinFunc(args []shaderir.Expr, argts []shaderir.Type) er
 			return nil
 		}
 		// Allow any vectors to perform a cast-like function.
-		if (argts[0].IsFloatVector() || argts[0].IsIntVector()) && argts[0].VectorElementCount() == 2 {
+		if (argts[0].IsFloatVector() || argts[0].IsIntegerVector()) && argts[0].VectorElementCount() == 2 {
 			return nil
 		}
 	case 2:
@@ -263,7 +273,7 @@ func checkArgsForVec3BuiltinFunc(args []shaderir.Expr, argts []shaderir.Type) er
 			return nil
 		}
 		// Allow any vectors to perform a cast-like function.
-		if (argts[0].IsFloatVector() || argts[0].IsIntVector()) && argts[0].VectorElementCount() == 3 {
+		if (argts[0].IsFloatVector() || argts[0].IsIntegerVector()) && argts[0].VectorElementCount() == 3 {
 			return nil
 		}
 	case 2:
@@ -299,7 +309,7 @@ func checkArgsForVec4BuiltinFunc(args []shaderir.Expr, argts []shaderir.Type) er
 			return nil
 		}
 		// Allow any vectors to perform a cast-like function.
-		if (argts[0].IsFloatVector() || argts[0].IsIntVector()) && argts[0].VectorElementCount() == 4 {
+		if (argts[0].IsFloatVector() || argts[0].IsIntegerVector()) && argts[0].VectorElementCount() == 4 {
 			return nil
 		}
 	case 2:
@@ -348,7 +358,7 @@ func checkArgsForIVec2BuiltinFunc(args []shaderir.Expr, argts []shaderir.Type) e
 			return nil
 		}
 		// Allow any vectors to perform a cast-like function.
-		if (argts[0].IsFloatVector() || argts[0].IsIntVector()) && argts[0].VectorElementCount() == 2 {
+		if (argts[0].IsFloatVector() || argts[0].IsIntegerVector()) && argts[0].VectorElementCount() == 2 {
 			return nil
 		}
 	case 2:
@@ -377,7 +387,7 @@ func checkArgsForIVec3BuiltinFunc(args []shaderir.Expr, argts []shaderir.Type) e
 			return nil
 		}
 		// Allow any vectors to perform a cast-like function.
-		if (argts[0].IsFloatVector() || argts[0].IsIntVector()) && argts[0].VectorElementCount() == 3 {
+		if (argts[0].IsFloatVector() || argts[0].IsIntegerVector()) && argts[0].VectorElementCount() == 3 {
 			return nil
 		}
 	case 2:
@@ -413,7 +423,7 @@ func checkArgsForIVec4BuiltinFunc(args []shaderir.Expr, argts []shaderir.Type) e
 			return nil
 		}
 		// Allow any vectors to perform a cast-like function.
-		if (argts[0].IsFloatVector() || argts[0].IsIntVector()) && argts[0].VectorElementCount() == 4 {
+		if (argts[0].IsFloatVector() || argts[0].IsIntegerVector()) && argts[0].VectorElementCount() == 4 {
 			return nil
 		}
 	case 2:
@@ -571,4 +581,64 @@ func checkArgsForMat4BuiltinFunc(args []shaderir.Expr, argts []shaderir.Type) er
 		str = append(str, typeString(t, args[i].Const))
 	}
 	return fmt.Errorf("invalid arguments for mat4: (%s)", strings.Join(str, ", "))
+}
+
+func isUint(expr shaderir.Expr, t shaderir.Type) bool {
+	if expr.Const != nil {
+		return t.Main == shaderir.Uint || t.Main == shaderir.None && canTruncateToInteger(expr.Const)
+	}
+	return t.Main == shaderir.Uint
+}
+
+func checkArgsForUintBuiltinFunc(args []shaderir.Expr, argts []shaderir.Type) error {
+	if len(args) != len(argts) {
+		return fmt.Errorf("the number of arguments and types doesn't match: %d vs %d", len(args), len(argts))
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("number of uint's arguments must be 1 but %d", len(args))
+	}
+	if argts[0].Main == shaderir.Int || argts[0].Main == shaderir.Uint || argts[0].Main == shaderir.Float {
+		return nil
+	}
+	if args[0].Const != nil && gconstant.ToInt(args[0].Const).Kind() != gconstant.Unknown {
+		return nil
+	}
+	return fmt.Errorf("invalid arguments for uint: (%s)", typeString(argts[0], args[0].Const))
+}
+
+// checkArgsForUVecBuiltinFunc checks the arguments of uvecN: n uints, or
+// uints and uvecs of n components in all, or a vector of any kind of n
+// components, converted.
+func checkArgsForUVecBuiltinFunc(n int, args []shaderir.Expr, argts []shaderir.Type) error {
+	if len(args) != len(argts) {
+		return fmt.Errorf("the number of arguments and types doesn't match: %d vs %d", len(args), len(argts))
+	}
+	if len(args) == 1 && (argts[0].IsFloatVector() || argts[0].IsIntegerVector()) && argts[0].VectorElementCount() == n {
+		return nil
+	}
+	if len(args) == 1 && isUint(args[0], argts[0]) {
+		return nil
+	}
+	count := 0
+	for i := range args {
+		switch {
+		case isUint(args[i], argts[i]):
+			count++
+		case argts[i].IsUintVector():
+			count += argts[i].VectorElementCount()
+		default:
+			count = -1
+		}
+		if count < 0 {
+			break
+		}
+	}
+	if count == n && len(args) > 1 {
+		return nil
+	}
+	var str []string
+	for i, t := range argts {
+		str = append(str, typeString(t, args[i].Const))
+	}
+	return fmt.Errorf("invalid arguments for uvec%d: (%s)", n, strings.Join(str, ", "))
 }

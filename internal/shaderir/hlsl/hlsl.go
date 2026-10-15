@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: fragment libraries (library, and
+// Fragment in fragment.go).
+
 package hlsl
 
 import (
@@ -32,6 +35,9 @@ const (
 type compileContext struct {
 	structNames map[string]string
 	structTypes []shaderir.Type
+
+	// library is set for a fragment library (Fragment), drawn only with front faces.
+	library bool
 }
 
 func (c *compileContext) structName(p *shaderir.Program, t *shaderir.Type) string {
@@ -310,6 +316,8 @@ func (c *compileContext) varInit(p *shaderir.Program, t *shaderir.Type) string {
 		return "false"
 	case shaderir.Int, shaderir.IVec2, shaderir.IVec3, shaderir.IVec4:
 		return "0"
+	case shaderir.Uint, shaderir.UVec2, shaderir.UVec3, shaderir.UVec4:
+		return "0u"
 	case shaderir.Float, shaderir.Vec2, shaderir.Vec3, shaderir.Vec4, shaderir.Mat2, shaderir.Mat3, shaderir.Mat4:
 		return "0.0"
 	default:
@@ -350,6 +358,11 @@ func (c *compileContext) function(p *shaderir.Program, f *shaderir.Func, prototy
 }
 
 func constantToNumberLiteral(v constant.Value) string {
+	return numberLiteral(v, false)
+}
+
+// numberLiteral writes v, as an unsigned integer for unsigned (1u).
+func numberLiteral(v constant.Value, unsigned bool) string {
 	switch v.Kind() {
 	case constant.Bool:
 		if constant.BoolVal(v) {
@@ -358,6 +371,9 @@ func constantToNumberLiteral(v constant.Value) string {
 		return "false"
 	case constant.Int:
 		x, _ := constant.Int64Val(v)
+		if unsigned {
+			return fmt.Sprintf("%du", uint32(x))
+		}
 		return fmt.Sprintf("%d", x)
 	case constant.Float:
 		x, _ := constant.Float64Val(v)
@@ -440,7 +456,7 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 	expr = func(e *shaderir.Expr) string {
 		switch e.Type {
 		case shaderir.NumberExpr:
-			return constantToNumberLiteral(e.Const)
+			return numberLiteral(e.Const, e.Unsigned)
 		case shaderir.UniformVariable:
 			return fmt.Sprintf("U%d", e.Index)
 		case shaderir.TextureVariable:
@@ -478,6 +494,9 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 				// Swap the order of the lhs and the rhs since matrices are row-major in HLSL.
 				return fmt.Sprintf("mul(%s, %s)", expr(&e.Exprs[1]), expr(&e.Exprs[0]))
 			case shaderir.ModOp:
+				if e.Unsigned {
+					break // unsigned integers have the plain operator
+				}
 				// Use modInt instead of '%' to avoid fxc's warning X3556 for signed integers.
 				return fmt.Sprintf("modInt((%s), (%s))", expr(&e.Exprs[0]), expr(&e.Exprs[1]))
 			case shaderir.AndNot:
@@ -528,6 +547,9 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 				return result
 			}
 			if callee.Type == shaderir.BuiltinFuncExpr && callee.BuiltinFunc == shaderir.FrontFacing {
+				if c.library {
+					return "(true)"
+				}
 				return fmt.Sprintf("%s.FrontFacing", vsOut)
 			}
 			return fmt.Sprintf("%s(%s)", expr(&e.Exprs[0]), strings.Join(args, ", "))

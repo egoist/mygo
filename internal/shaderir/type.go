@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: uint and uvecN.
+
 package shaderir
 
 import (
@@ -71,6 +73,14 @@ func (t Type) String() string {
 		return "mat3"
 	case Mat4:
 		return "mat4"
+	case Uint:
+		return "uint"
+	case UVec2:
+		return "uvec2"
+	case UVec3:
+		return "uvec3"
+	case UVec4:
+		return "uvec4"
 	case Texture:
 		return "texture"
 	case Array:
@@ -116,6 +126,14 @@ func (t Type) DwordCount() int {
 		return 9
 	case Mat4:
 		return 16
+	case Uint:
+		return 1
+	case UVec2:
+		return 2
+	case UVec3:
+		return 3
+	case UVec4:
+		return 4
 	case Array:
 		return t.Length * t.Sub[0].DwordCount()
 	default: // TODO: Parse a struct correctly
@@ -139,8 +157,68 @@ func (t Type) IsIntVector() bool {
 	return false
 }
 
+// IsUintVector reports whether t is uvec2, uvec3 or uvec4.
+func (t Type) IsUintVector() bool {
+	switch t.Main {
+	case UVec2, UVec3, UVec4:
+		return true
+	}
+	return false
+}
+
+// IsIntegerVector reports whether t is a vector of int or uint.
+func (t Type) IsIntegerVector() bool { return t.IsIntVector() || t.IsUintVector() }
+
+// IsInteger reports whether t is int, uint, or a vector of either.
+func (t Type) IsInteger() bool {
+	return t.Main == Int || t.Main == Uint || t.IsIntegerVector()
+}
+
+// Scalar returns the type of t's components: float for a float vector or
+// a matrix, int or uint for an integer vector, and t's own for a scalar.
+func (t Type) Scalar() BasicType {
+	switch t.Main {
+	case Vec2, Vec3, Vec4, Mat2, Mat3, Mat4:
+		return Float
+	case IVec2, IVec3, IVec4:
+		return Int
+	case UVec2, UVec3, UVec4:
+		return Uint
+	}
+	return t.Main
+}
+
+// VectorOf returns the vector of n components of type scalar, or scalar
+// itself for n 1.
+func VectorOf(scalar BasicType, n int) BasicType {
+	if n == 1 {
+		return scalar
+	}
+	var v [3]BasicType
+	switch scalar {
+	case Float:
+		v = [3]BasicType{Vec2, Vec3, Vec4}
+	case Int:
+		v = [3]BasicType{IVec2, IVec3, IVec4}
+	case Uint:
+		v = [3]BasicType{UVec2, UVec3, UVec4}
+	case Bool:
+		return None
+	}
+	if n < 2 || n > 4 {
+		return None
+	}
+	return v[n-2]
+}
+
 func (t Type) VectorElementCount() int {
 	switch t.Main {
+	case UVec2:
+		return 2
+	case UVec3:
+		return 3
+	case UVec4:
+		return 4
 	case Vec2:
 		return 2
 	case Vec3:
@@ -198,6 +276,12 @@ const (
 	Texture
 	Array
 	Struct
+
+	// Added by MyGo, after Ebitengine's types.
+	Uint
+	UVec2
+	UVec3
+	UVec4
 )
 
 func descendantLocalVars(block, target *Block) ([]Type, bool) {

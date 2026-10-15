@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: fragment libraries (library, and
+// Fragment in fragment.go).
+
 package msl
 
 import (
@@ -37,9 +40,16 @@ type compileContext struct {
 	// vertexFuncIndices is the set of the indices of the functions reachable from the vertex entry point.
 	// Metal allows [[front_facing]] only in fragment functions, so these functions do not take front_facing.
 	vertexFuncIndices map[int]struct{}
+
+	// library is set for a fragment library (Fragment), whose functions take no front_facing:
+	// MyGo's renderers draw only front faces.
+	library bool
 }
 
 func (c *compileContext) isVertexFunc(index int) bool {
+	if c.library {
+		return true
+	}
 	_, ok := c.vertexFuncIndices[index]
 	return ok
 }
@@ -266,8 +276,11 @@ func (c *compileContext) varInit(p *shaderir.Program, t *shaderir.Type) string {
 		return "false"
 	case shaderir.Int:
 		return "0"
+	case shaderir.Uint:
+		return "0u"
 	case shaderir.Float, shaderir.Vec2, shaderir.Vec3, shaderir.Vec4,
 		shaderir.IVec2, shaderir.IVec3, shaderir.IVec4,
+		shaderir.UVec2, shaderir.UVec3, shaderir.UVec4,
 		shaderir.Mat2, shaderir.Mat3, shaderir.Mat4:
 		return fmt.Sprintf("%s(0)", basicTypeString(t.Main))
 	default:
@@ -320,6 +333,11 @@ func (c *compileContext) function(p *shaderir.Program, f *shaderir.Func, prototy
 }
 
 func constantToNumberLiteral(v constant.Value) string {
+	return numberLiteral(v, false)
+}
+
+// numberLiteral writes v, as an unsigned integer for unsigned (1u).
+func numberLiteral(v constant.Value, unsigned bool) string {
 	switch v.Kind() {
 	case constant.Bool:
 		if constant.BoolVal(v) {
@@ -328,6 +346,9 @@ func constantToNumberLiteral(v constant.Value) string {
 		return "false"
 	case constant.Int:
 		x, _ := constant.Int64Val(v)
+		if unsigned {
+			return fmt.Sprintf("%du", uint32(x))
+		}
 		return fmt.Sprintf("%d", x)
 	case constant.Float:
 		x, _ := constant.Float64Val(v)
@@ -415,7 +436,7 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 	expr = func(e *shaderir.Expr) string {
 		switch e.Type {
 		case shaderir.NumberExpr:
-			return constantToNumberLiteral(e.Const)
+			return numberLiteral(e.Const, e.Unsigned)
 		case shaderir.UniformVariable:
 			return fmt.Sprintf("uniforms.U%d", e.Index)
 		case shaderir.TextureVariable:
@@ -484,6 +505,9 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 				return result
 			}
 			if callee.Type == shaderir.BuiltinFuncExpr && callee.BuiltinFunc == shaderir.FrontFacing {
+				if c.library {
+					return "(true)"
+				}
 				return "(front_facing)"
 			}
 			return fmt.Sprintf("%s(%s)", expr(&callee), strings.Join(args, ", "))

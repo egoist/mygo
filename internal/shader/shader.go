@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: uint and uvecN, and dynamic loops.
+
 package shader
 
 import (
@@ -823,7 +825,7 @@ func (s *compileState) parseVariable(block *block, fname string, vs *ast.ValueSp
 				}
 				if es[i].Const != nil {
 					switch t.Main {
-					case shaderir.Int:
+					case shaderir.Int, shaderir.Uint:
 						es[i].Const = gconstant.ToInt(es[i].Const)
 					case shaderir.Float:
 						es[i].Const = gconstant.ToFloat(es[i].Const)
@@ -956,6 +958,11 @@ func (s *compileState) parseConstant(block *block, fname string, vs *ast.ValueSp
 		case shaderir.Int:
 			c = gconstant.ToInt(c)
 			if !s.checkIntConstRange(vs.Pos(), c) {
+				return nil, false
+			}
+		case shaderir.Uint:
+			c = gconstant.ToInt(c)
+			if !s.checkUintConstRange(vs.Pos(), c) {
 				return nil, false
 			}
 		case shaderir.Float:
@@ -1131,34 +1138,17 @@ func (cs *compileState) checkIntConstRange(pos token.Pos, v gconstant.Value) boo
 	return false
 }
 
-// checkIntConstRangeInStmts reports an error at pos for every integer constant in stmts that does not fit in a 32-bit integer.
-// Nested blocks are not checked, as parseBlock checks each block it parses.
-func (cs *compileState) checkIntConstRangeInStmts(pos token.Pos, stmts []shaderir.Stmt) bool {
-	ok := true
-	var checkExpr func(e *shaderir.Expr)
-	checkExpr = func(e *shaderir.Expr) {
-		if e.Type == shaderir.NumberExpr && !cs.checkIntConstRange(pos, e.Const) {
-			ok = false
-		}
-		for i := range e.Exprs {
-			checkExpr(&e.Exprs[i])
-		}
+// checkUintConstRange reports an error at pos when v is an integer constant that does not fit in a 32-bit
+// unsigned integer.
+func (cs *compileState) checkUintConstRange(pos token.Pos, v gconstant.Value) bool {
+	if v == nil || v.Kind() != gconstant.Int {
+		return true
 	}
-	for i := range stmts {
-		s := &stmts[i]
-		for j := range s.Exprs {
-			checkExpr(&s.Exprs[j])
-		}
-		if s.Type != shaderir.For {
-			continue
-		}
-		for _, v := range []gconstant.Value{s.ForInit, s.ForEnd, s.ForDelta} {
-			if !cs.checkIntConstRange(pos, v) {
-				ok = false
-			}
-		}
+	if x, exact := gconstant.Uint64Val(v); exact && x <= math.MaxUint32 {
+		return true
 	}
-	return ok
+	cs.addError(pos, fmt.Sprintf("constant %s overflows uint", v.String()))
+	return false
 }
 
 // isTerminating reports whether stmts ends in a statement that returns or discards on every path.
@@ -1236,7 +1226,7 @@ func (cs *compileState) parseBlock(outer *block, fname string, stmts []ast.Stmt,
 		if !ok {
 			return nil, false
 		}
-		if !cs.checkIntConstRangeInStmts(stmt.Pos(), ss) {
+		if !cs.typeConsts(stmt.Pos(), block, ss, returnType) {
 			return nil, false
 		}
 		block.ir.Stmts = append(block.ir.Stmts, ss...)

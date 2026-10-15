@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: uint and uvecN, and dynamic loops.
+
 package shader
 
 import (
@@ -129,7 +131,7 @@ func (cs *compileState) parseStmt(block *block, fname string, stmt ast.Stmt, inP
 			}
 
 			if lts[0].Main == rts[0].Main {
-				if lts[0].Main != shaderir.Int && lts[0].Main != shaderir.Float && !lts[0].IsIntVector() && !lts[0].IsFloatVector() && !lts[0].IsMatrix() {
+				if lts[0].Main != shaderir.Float && !lts[0].IsInteger() && !lts[0].IsFloatVector() && !lts[0].IsMatrix() {
 					cs.addError(stmt.Pos(), fmt.Sprintf("invalid operation: operator %s not defined on %s", stmt.Tok, lts[0].String()))
 					return nil, false
 				}
@@ -138,22 +140,34 @@ func (cs *compileState) parseStmt(block *block, fname string, stmt ast.Stmt, inP
 					return nil, false
 				}
 				if op == shaderir.And || op == shaderir.AndNot || op == shaderir.Or || op == shaderir.Xor || op == shaderir.LeftShift || op == shaderir.RightShift {
-					if lts[0].Main != shaderir.Int && !lts[0].IsIntVector() {
+					if !lts[0].IsInteger() {
 						cs.addError(stmt.Pos(), fmt.Sprintf("invalid operation: operator %s not defined on %s", stmt.Tok, lts[0].String()))
 						return nil, false
 					}
-					if rts[0].Main != shaderir.Int && !rts[0].IsIntVector() {
+					if !rts[0].IsInteger() {
 						cs.addError(stmt.Pos(), fmt.Sprintf("invalid operation: operator %s not defined on %s", stmt.Tok, rts[0].String()))
 						return nil, false
 					}
 				}
-				if lts[0].Main == shaderir.Int && rhs[0].Const != nil {
+				if (lts[0].Main == shaderir.Int || lts[0].Main == shaderir.Uint) && rhs[0].Const != nil {
 					if !cs.forceToInt(stmt, &rhs[0]) {
 						return nil, false
 					}
 				}
 			} else {
 				switch lts[0].Main {
+				case shaderir.Uint, shaderir.UVec2, shaderir.UVec3, shaderir.UVec4:
+					// A shift's count may be of either kind of integer.
+					shift := op == shaderir.LeftShift || op == shaderir.RightShift
+					if rts[0].Main != shaderir.Uint && !(shift && rts[0].Main == shaderir.Int) {
+						if !rts[0].Equal(&shaderir.Type{}) {
+							cs.addError(stmt.Pos(), fmt.Sprintf("invalid operation: mismatched types %s and %s", lts[0].String(), typeString(rts[0], rhs[0].Const)))
+							return nil, false
+						}
+						if !cs.forceToInt(stmt, &rhs[0]) {
+							return nil, false
+						}
+					}
 				case shaderir.Int, shaderir.IVec2, shaderir.IVec3, shaderir.IVec4:
 					if rts[0].Main != shaderir.Int {
 						if !rts[0].Equal(&shaderir.Type{}) {
@@ -212,7 +226,7 @@ func (cs *compileState) parseStmt(block *block, fname string, stmt ast.Stmt, inP
 				}
 			}
 
-			if op == shaderir.ModOp && lts[0].Main != shaderir.Int && lts[0].Main != shaderir.IVec2 && lts[0].Main != shaderir.IVec3 && lts[0].Main != shaderir.IVec4 {
+			if op == shaderir.ModOp && !lts[0].IsInteger() {
 				cs.addError(stmt.Pos(), fmt.Sprintf("invalid operation: operator %% not defined on %s", lts[0].String()))
 				return nil, false
 			}
@@ -358,7 +372,7 @@ func (cs *compileState) parseStmt(block *block, fname string, stmt ast.Stmt, inP
 		}
 		var c gconstant.Value
 		switch {
-		case ts[0].Main == shaderir.Int, ts[0].IsIntVector():
+		case ts[0].IsInteger():
 			c = gconstant.MakeInt64(1)
 		case ts[0].Main == shaderir.Float, ts[0].IsFloatVector():
 			c = gconstant.MakeFloat64(1)
@@ -463,13 +477,13 @@ func (cs *compileState) parseStmt(block *block, fname string, stmt ast.Stmt, inP
 						return nil, false
 					}
 					t = shaderir.Type{Main: shaderir.Bool}
-				case shaderir.Int:
+				case shaderir.Int, shaderir.Uint:
 					if gconstant.ToInt(expr.Const).Kind() == gconstant.Unknown {
 						cs.addError(positions[i], fmt.Sprintf("cannot use type %s as type %s in %s", typeString(t, expr.Const), &outT, result))
 						return nil, false
 					}
 					expr.Const = gconstant.ToInt(expr.Const)
-					t = shaderir.Type{Main: shaderir.Int}
+					t = shaderir.Type{Main: outT.Main}
 				case shaderir.Float:
 					if gconstant.ToFloat(expr.Const).Kind() == gconstant.Unknown {
 						cs.addError(positions[i], fmt.Sprintf("cannot use type %s as type %s in %s", typeString(t, expr.Const), &outT, result))
@@ -722,7 +736,7 @@ func (cs *compileState) assign(block *block, fname string, pos token.Pos, lhs, r
 				}
 				if r[i].Const != nil {
 					switch lts[0].Main {
-					case shaderir.Int:
+					case shaderir.Int, shaderir.Uint:
 						r[i].Const = gconstant.ToInt(r[i].Const)
 					case shaderir.Float:
 						r[i].Const = gconstant.ToFloat(r[i].Const)
@@ -961,7 +975,7 @@ func canAssign(lt *shaderir.Type, rt *shaderir.Type, rc gconstant.Value) bool {
 	switch lt.Main {
 	case shaderir.Bool:
 		return rc.Kind() == gconstant.Bool
-	case shaderir.Int:
+	case shaderir.Int, shaderir.Uint:
 		return gconstant.ToInt(rc).Kind() != gconstant.Unknown
 	case shaderir.Float:
 		return gconstant.ToFloat(rc).Kind() != gconstant.Unknown

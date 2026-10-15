@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: uint and uvecN.
+
 package hlsl
 
 import (
@@ -106,6 +108,14 @@ func basicTypeString(t shaderir.BasicType) string {
 		return "float3x3"
 	case shaderir.Mat4:
 		return "float4x4"
+	case shaderir.Uint:
+		return "uint"
+	case shaderir.UVec2:
+		return "uint2"
+	case shaderir.UVec3:
+		return "uint3"
+	case shaderir.UVec4:
+		return "uint4"
 	case shaderir.Array:
 		return "?(array)"
 	case shaderir.Struct:
@@ -123,6 +133,12 @@ func (c *compileContext) builtinFuncString(f shaderir.BuiltinFunc) string {
 		return "float3"
 	case shaderir.Vec4F:
 		return "float4"
+	case shaderir.UVec2F:
+		return "uint2"
+	case shaderir.UVec3F:
+		return "uint3"
+	case shaderir.UVec4F:
+		return "uint4"
 	case shaderir.IVec2F:
 		return "int2"
 	case shaderir.IVec3F:

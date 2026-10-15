@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: uint and uvecN.
+
 package hlsl
 
 import (
@@ -47,22 +49,22 @@ func UniformVariableOffsetsInDwords(program *shaderir.Program) []int {
 		case shaderir.Float:
 			offsetsInDwords = append(offsetsInDwords, headInDwords)
 			headInDwords += 1
-		case shaderir.Int:
+		case shaderir.Int, shaderir.Uint:
 			offsetsInDwords = append(offsetsInDwords, headInDwords)
 			headInDwords += 1
-		case shaderir.Vec2, shaderir.IVec2:
+		case shaderir.Vec2, shaderir.IVec2, shaderir.UVec2:
 			if headInDwords%UniformVariableBoundaryInDwords >= 3 {
 				headInDwords = align(headInDwords)
 			}
 			offsetsInDwords = append(offsetsInDwords, headInDwords)
 			headInDwords += 2
-		case shaderir.Vec3, shaderir.IVec3:
+		case shaderir.Vec3, shaderir.IVec3, shaderir.UVec3:
 			if headInDwords%UniformVariableBoundaryInDwords >= 2 {
 				headInDwords = align(headInDwords)
 			}
 			offsetsInDwords = append(offsetsInDwords, headInDwords)
 			headInDwords += 3
-		case shaderir.Vec4, shaderir.IVec4:
+		case shaderir.Vec4, shaderir.IVec4, shaderir.UVec4:
 			if headInDwords%UniformVariableBoundaryInDwords >= 1 {
 				headInDwords = align(headInDwords)
 			}

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: uint and uvecN, and dynamic loops.
+
 // Package shaderir offers intermediate representation for shader programs,
 // forked from Ebitengine with package shader (see its documentation).
 package shaderir
@@ -143,6 +145,11 @@ type Expr struct {
 	SwizzlingSet SwizzlingSet
 	Index        int
 	Op           Op
+
+	// Unsigned marks an expression of type uint or uvecN, as the compiler
+	// infers it: a constant of it is written as one (1u), which GLSL ES
+	// needs, as it converts no int to uint.
+	Unsigned bool
 }
 
 type ExprType int
@@ -228,12 +235,12 @@ func OpFromToken(t token.Token, lhs, rhs Type) (Op, bool) {
 	case token.GEQ:
 		return GreaterThanEqualOp, true
 	case token.EQL:
-		if lhs.IsFloatVector() || lhs.IsIntVector() || rhs.IsFloatVector() || rhs.IsIntVector() {
+		if lhs.IsFloatVector() || lhs.IsIntegerVector() || rhs.IsFloatVector() || rhs.IsIntegerVector() {
 			return VectorEqualOp, true
 		}
 		return EqualOp, true
 	case token.NEQ:
-		if lhs.IsFloatVector() || lhs.IsIntVector() || rhs.IsFloatVector() || rhs.IsIntVector() {
+		if lhs.IsFloatVector() || lhs.IsIntegerVector() || rhs.IsFloatVector() || rhs.IsIntegerVector() {
 			return VectorNotEqualOp, true
 		}
 		return NotEqualOp, true
@@ -267,6 +274,10 @@ const (
 	IVec2F      BuiltinFunc = "ivec2"
 	IVec3F      BuiltinFunc = "ivec3"
 	IVec4F      BuiltinFunc = "ivec4"
+	UintF       BuiltinFunc = "uint"
+	UVec2F      BuiltinFunc = "uvec2"
+	UVec3F      BuiltinFunc = "uvec3"
+	UVec4F      BuiltinFunc = "uvec4"
 	Mat2F       BuiltinFunc = "mat2"
 	Mat3F       BuiltinFunc = "mat3"
 	Mat4F       BuiltinFunc = "mat4"
@@ -328,6 +339,10 @@ func ParseBuiltinFunc(str string) (BuiltinFunc, bool) {
 		IVec2F,
 		IVec3F,
 		IVec4F,
+		UintF,
+		UVec2F,
+		UVec3F,
+		UVec4F,
 		Mat2F,
 		Mat3F,
 		Mat4F,

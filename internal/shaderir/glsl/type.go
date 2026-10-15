@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: uint and uvecN.
+
 package glsl
 
 import (
@@ -106,6 +108,14 @@ func basicTypeString(t shaderir.BasicType) string {
 		return "mat3"
 	case shaderir.Mat4:
 		return "mat4"
+	case shaderir.Uint:
+		return "uint"
+	case shaderir.UVec2:
+		return "uvec2"
+	case shaderir.UVec3:
+		return "uvec3"
+	case shaderir.UVec4:
+		return "uvec4"
 	case shaderir.Array:
 		return "?(array)"
 	case shaderir.Struct:
