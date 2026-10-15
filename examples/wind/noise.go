@@ -2,10 +2,10 @@ package main
 
 import "math"
 
-// The texture's randomness: PCG hashes of whole numbers, on which lie
-// value noise and gradient noise, as the app's shaders compute them in
-// 32-bit unsigned integers and floats, and the hash of the visit's seed
-// that picks its wind.
+// The texture's randomness on the CPU: PCG hashes of whole numbers and
+// value noise on them, as wind.kage computes them, for how far the wind
+// has carried its gusts, and the hash of the visit's seed that picks its
+// wind. The shaders compute the rest.
 
 // pcg hashes v, as PCG's RXS-M-XS output of one step from v.
 func pcg(v uint32) uint32 {
@@ -57,25 +57,6 @@ func (n *noises) value(x, y, z float32, salt uint32) float32 {
 	return mix(
 		mix(mix(v(l.x0^l.a), v(l.x1^l.a), l.w[0]), mix(v(l.x0^l.b), v(l.x1^l.b), l.w[0]), l.w[1]),
 		mix(mix(v(l.x0^l.c), v(l.x1^l.c), l.w[0]), mix(v(l.x0^l.d), v(l.x1^l.d), l.w[0]), l.w[1]),
-		l.w[2])
-}
-
-// gradient is gradient noise, about -1 to 1, on the same lattice: a
-// random slope at each point, so that it crosses zero between every pair
-// of points and has no soft blobs.
-func (n *noises) gradient(x, y, z float32, salt uint32) float32 {
-	l := n.lattice(x, y, z, salt)
-	fx, fy, fz := l.f[0], l.f[1], l.f[2]
-	g := func(h uint32, x, y, z float32) float32 {
-		h = pcg(h)
-		const k = 2.0 / 1023
-		return (float32(h&1023)*k-1)*x + (float32((h>>10)&1023)*k-1)*y + (float32((h>>20)&1023)*k-1)*z
-	}
-	return 1.5 * mix(
-		mix(mix(g(l.x0^l.a, fx, fy, fz), g(l.x1^l.a, fx-1, fy, fz), l.w[0]),
-			mix(g(l.x0^l.b, fx, fy-1, fz), g(l.x1^l.b, fx-1, fy-1, fz), l.w[0]), l.w[1]),
-		mix(mix(g(l.x0^l.c, fx, fy, fz-1), g(l.x1^l.c, fx-1, fy, fz-1), l.w[0]),
-			mix(g(l.x0^l.d, fx, fy-1, fz-1), g(l.x1^l.d, fx-1, fy-1, fz-1), l.w[0]), l.w[1]),
 		l.w[2])
 }
 

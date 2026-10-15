@@ -128,7 +128,7 @@ framework safely. Read it before changing anything under `internal/`.
 │                       UI), timeline (motion on one playhead); webview (web
 │                       views in native UI); launcher (a Spotlight-like panel,
 │                       native UI); wind (a texture of glyphs lit by a
-│                       wind, native UI)
+│                       wind, two shaders of ui/shader)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered

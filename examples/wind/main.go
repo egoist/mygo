@@ -7,12 +7,14 @@
 //
 //	go run ./examples/wind
 //
-// It draws as the app's WebGL does, on the CPU: the wind is worked out
-// at two samples a cell, the glyphs come from an atlas the system's text
-// engine rasterizes (ui.Render), and each pixel of their ink is lit by
-// the wind's samples around it, more where its edge faces the wind,
-// into a bitmap shown as video is (Bitmap.Update). Every visit has a
-// wind of its own, picked by a random seed; ⌘R (Ctrl+R) starts another.
+// It draws as the app's WebGL does, with two shaders (package ui/shader)
+// in Go's syntax: wind.kage works out the wind at two samples a cell, a
+// pixel each of a canvas, and glyphs.kage lights each pixel of the
+// glyphs' ink, from an atlas the system's text engine rasterizes
+// (ui.Render), by the wind's samples around it, more where its edge faces
+// the wind. The CPU only moves the clock and the pointer's blows on, a few
+// hundred numbers a frame. Every visit has a wind of its own, picked by a
+// random seed; ⌘R (Ctrl+R) starts another.
 // After three minutes without input the wind settles and the texture
 // fades out, to come back at the next move.
 package main

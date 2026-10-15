@@ -49,8 +49,9 @@ func TestWind(t *testing.T) {
 // Clicks on the pane blow ripples from the pointer, every third a heart;
 // a click on the composer blows none.
 func TestClicks(t *testing.T) {
+	// Without an atlas the texture draws nothing: the clicks are what is
+	// tested.
 	s := newApp(7)
-	s.tex.atlases[atlasKey{7, 1}] = newAtlas(7, 1)
 	tt := ui.NewTester(s.view, windowW, windowH)
 
 	for i := range 3 {
@@ -95,44 +96,45 @@ func TestSettles(t *testing.T) {
 	}
 }
 
-// A frame shows glyphs in the plain ink where the wind blows, and a
-// ripple tints those its front reaches.
-func TestRender(t *testing.T) {
+// render draws the texture on the CPU, the shaders interpreted, in a pane
+// of 300×200 DIPs, its wind still at a time, with a click a second old
+// unless click is false, and returns how many pixels show the plain ink
+// and how many the ripples' tint.
+func render(t *testing.T, click bool) (plain, tinted int) {
+	t.Helper()
 	tex := newTexture(0x3fa1c2d9, nil)
-	g, _ := gridOf(800, 600, 1)
-	a := newAtlas(g.cellW, 1)
-	r := ui.Rect{W: 800, H: 600}
-	start := time.Unix(1000, 0)
-	tex.shown = start.Add(-fadeTime)
-	frame := func(at time.Duration) (plain, tinted int) {
-		now := start.Add(at)
-		tex.step(now)
-		tex.render(g, a, r, false, now)
-		pix := tex.images[tex.front].Pix
-		for i := 0; i < len(pix); i += 4 {
-			if pix[i+3] < 40 {
-				continue
-			}
-			if int(pix[i+2]) > int(pix[i])+20 {
-				tinted++
-			} else {
-				plain++
-			}
+	tex.windTime = 21.5
+	tex.calm, tex.active, tex.revealFrom, tex.energy = true, 10, 0, 1
+	tex.atlases[atlasKey{7, 1}] = newAtlas(7, 1)
+	tex.shown = time.Now().Add(-time.Hour)
+	if click {
+		tex.hand.tap(150, 100, 0)
+		tex.start = time.Now().Add(-time.Second)
+	}
+	img := ui.Render(func(c *ui.Context) {
+		c.Root().Background(ui.Hex("#ffffff"))
+		ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) { tex.draw(p, r, false) })
+	}, 300, 200, 1)
+	for i := 0; i < len(img.Pix); i += 4 {
+		r, g, b := int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])
+		switch {
+		case r == 255 && g == 255 && b == 255:
+		case b > r+20:
+			tinted++
+		default:
+			plain++
 		}
-		return plain, tinted
 	}
-	for at := time.Duration(0); at < 5*time.Second; at += 40 * time.Millisecond {
-		frame(at)
+	return plain, tinted
+}
+
+// The shaders draw glyphs in the plain ink where the wind blows, and a
+// click's ripple tints those its front reaches.
+func TestRender(t *testing.T) {
+	if plain, tinted := render(t, false); plain == 0 || tinted != 0 {
+		t.Errorf("%d plain and %d tinted pixels, want some plain and none tinted", plain, tinted)
 	}
-	plain, tinted := frame(5 * time.Second)
-	if plain == 0 || tinted != 0 {
-		t.Fatalf("%d plain and %d tinted pixels once revealed, want some plain and none tinted", plain, tinted)
-	}
-	tex.tap(400, 300, start.Add(5*time.Second))
-	for at := 5 * time.Second; at < 6*time.Second; at += 40 * time.Millisecond {
-		frame(at)
-	}
-	if _, tinted := frame(6 * time.Second); tinted == 0 {
+	if _, tinted := render(t, true); tinted == 0 {
 		t.Error("no pixel tinted a second after a click")
 	}
 }

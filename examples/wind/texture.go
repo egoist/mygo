@@ -1,13 +1,12 @@
 package main
 
 import (
-	"image"
+	_ "embed"
 	"math"
-	"runtime"
-	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/shader"
 )
 
 // The grid: cells cellSize DIPs wide and twice as high, at least minCols
@@ -30,7 +29,7 @@ const (
 	fadeTime                       = 3 * time.Second
 	// strength is how strong the canvas shows: its light is drawn
 	// headroom times weaker, leaving room for the ripples' color above it.
-	strength = 0.26
+	strength, headroom = 0.26, 3
 )
 
 var (
@@ -96,7 +95,6 @@ type texture struct {
 	atlases map[atlasKey]*atlas
 	asked   map[atlasKey]bool
 	hand    hand
-	field   field
 	// The clock: when the texture started, which the hand's times count
 	// from, its last frame, and when it first showed.
 	start, last, shown time.Time
@@ -110,15 +108,17 @@ type texture struct {
 	// still draws a frame that does not move, while the desktop asks for
 	// less motion.
 	still bool
-	// The frame shown: two images, one shown while the other is drawn,
-	// and the bitmap that shows them.
-	images [2]*image.RGBA
-	front  int
-	bitmap *ui.Bitmap
-	drawn  grid
-	// When the frame shown was drawn, and on which theme.
-	rendered time.Time
-	dark     bool
+	// The frame shown: the wind's field, drawn by wind.kage, one pixel a
+	// sample, and the uniforms of the shaders (windValues for wind.kage,
+	// glyphValues for glyphs.kage), for the grid drawn.
+	field                   *ui.Canvas
+	windValues, glyphValues map[string]any
+	drawn                   grid
+	// When the frame shown was worked out, and on which theme; and
+	// whether the field is drawn for it.
+	rendered  time.Time
+	dark      bool
+	fieldDone bool
 }
 
 // newTexture returns a texture blown by the wind of seed.
@@ -230,8 +230,20 @@ func (t *texture) step(now time.Time) {
 
 func smooth(v float64) float64 { return float64(smoothstep(0, 1, float32(v))) }
 
+// The shaders: the wind's field, and the glyphs it lights.
+var (
+	//go:embed wind.kage
+	windSource string
+	//go:embed glyphs.kage
+	glyphSource string
+
+	windShader  = shader.MustCompile(windSource)
+	glyphShader = shader.MustCompile(glyphSource)
+)
+
 // draw paints the texture in r, the pane, with p, moving it on when its
-// next frame is due.
+// next frame is due: the shaders draw it, the wind's field into a canvas
+// of a pixel a sample, then the glyphs, which read it.
 func (t *texture) draw(p *ui.Painter, r ui.Rect, dark bool) {
 	scale := p.Scale()
 	g, ok := gridOf(int(math.Round(float64(r.W*scale))), int(math.Round(float64(r.H*scale))), scale)
@@ -255,7 +267,7 @@ func (t *texture) draw(p *ui.Painter, r ui.Rect, dark bool) {
 	moving := !t.still && !t.calm
 	// A frame may paint this more than once, and other repaints do too, as
 	// the caret blinks: the texture moves on at its own pace.
-	due := t.bitmap == nil || g != t.drawn || dark != t.dark || t.shown.IsZero() ||
+	due := t.windValues == nil || g != t.drawn || dark != t.dark || t.shown.IsZero() ||
 		!now.Equal(t.rendered) && (moving && now.Sub(t.last) >= t.interval(now)/2 ||
 			now.Sub(t.shown) < fadeTime+frameTime)
 	if due {
@@ -265,23 +277,40 @@ func (t *texture) draw(p *ui.Painter, r ui.Rect, dark bool) {
 		if moving {
 			t.step(now)
 		}
-		t.render(g, a, r, dark, now)
-		t.rendered, t.dark = now, dark
+		t.uniforms(g, a, r, dark, now)
+		t.rendered, t.dark, t.drawn, t.fieldDone = now, dark, g, false
 		if moving && t.energy == 0 && !t.hand.busy(t.clock(now)) {
 			t.calm = true
 		}
 	}
-	if t.bitmap != nil {
-		k := 1 / scale
-		dst := ui.Rect{X: r.X + float32(g.left)*k, Y: r.Y + float32(g.top)*k, W: float32(g.cols*g.cellW) * k, H: float32(g.rows*g.cellH) * k}
-		p.Clip(r, 0, func() { p.ImageRegion(t.bitmap, ui.Rect{}, dst, ui.ImageOptions{}) })
+
+	if w, h := g.cols, 2*g.rows; t.field == nil || !sameSize(t.field, w, h) {
+		t.field, t.fieldDone = ui.NewCanvas(w, h), false
 	}
+	if !t.fieldDone {
+		t.fieldDone = true
+		w, h := t.field.Size()
+		t.field.Draw(p, func(cp *ui.Painter) {
+			windShader.Draw(cp, ui.Rect{W: float32(w), H: float32(h)}, shader.Options{Uniforms: t.windValues})
+		})
+	}
+	k := 1 / scale
+	dst := ui.Rect{X: r.X + float32(g.left)*k, Y: r.Y + float32(g.top)*k, W: float32(g.cols*g.cellW) * k, H: float32(g.rows*g.cellH) * k}
+	p.Clip(r, 0, func() {
+		glyphShader.Draw(p, dst, shader.Options{Uniforms: t.glyphValues, Images: [4]*ui.Bitmap{t.field.Bitmap(), a.bitmap}})
+	})
+
 	switch {
 	case !t.still && !t.calm:
 		p.After(t.interval(now))
 	case now.Sub(t.shown) < fadeTime:
 		p.After(frameTime)
 	}
+}
+
+func sameSize(c *ui.Canvas, w, h int) bool {
+	cw, ch := c.Size()
+	return cw == w && ch == h
 }
 
 // interval returns the time between frames at now.
@@ -292,48 +321,62 @@ func (t *texture) interval(now time.Time) time.Duration {
 	return frameTime
 }
 
-// render draws a frame of the texture, of grid g in pane r, into the
-// image not shown, and shows it.
-func (t *texture) render(g grid, a *atlas, r ui.Rect, dark bool, now time.Time) {
-	w, h := g.cols*g.cellW, g.rows*g.cellH
-	back := 1 - t.front
-	img := t.images[back]
-	if img == nil || img.Rect.Dx() != w || img.Rect.Dy() != h {
-		img = image.NewRGBA(image.Rect(0, 0, w, h))
-		t.images[back] = img
-	} else {
-		clear(img.Pix)
-	}
-
-	f := &t.field
-	f.noises = noises{seed: t.w.seed}
-	f.w, f.hand = &t.w, &t.hand
-	f.time = float32(t.windTime)
+// uniforms works out the shaders' uniforms for a frame of grid g in pane
+// r, at now: the wind's time and its reveal, the hand's blows, and the
+// light, as the app's vertex shaders and its code around them do.
+func (t *texture) uniforms(g grid, a *atlas, r ui.Rect, dark bool, now time.Time) {
 	reveal := smooth((t.active-t.revealFrom)/revealTime) * t.energy
 	if t.still {
 		reveal = 1
 		t.hand = hand{}
 	}
-	f.reveal = float32(reveal)
-	t.hand.frame(t.clock(now))
+	h := &t.hand
+	h.frame(t.clock(now))
 	k := 1 / g.scale
-	f.paneW, f.paneH = r.W, r.H
-	f.cols, f.rows = g.cols, 2*g.rows
-	f.originX, f.originY = float32(g.left)*k, float32(g.top)*k
-	f.stepX, f.stepY = float32(g.cellW)*k, float32(g.cellH)*k/2
-	f.prepare(float32(w)*k, float32(h)*k)
-	parallel(f.rows, f.compute)
+	wt := float32(t.windTime)
+	cw, ch := float32(g.cols*g.cellW)*k, float32(g.rows*g.cellH)*k
 
+	taps := make([]float32, 0, 4*maxTaps)
+	for _, tp := range h.taps {
+		taps = append(taps, tp.x, tp.y, tp.at, tp.force)
+	}
+	wakes := make([]float32, 0, 4*maxWakes)
+	ways := make([]float32, 0, 4*maxWakes)
+	for _, w := range h.warm {
+		wakes = append(wakes, w.x, w.y, w.heat, w.reach)
+		ways = append(ways, w.dirX, w.dirY, w.half, 0)
+	}
+	t.windValues = map[string]any{
+		"Seed":       t.w.seed,
+		"Time":       wt,
+		"Reveal":     float32(reveal),
+		"Heading":    []float32{cos(t.w.heading), float32(math.Sin(float64(t.w.heading)))},
+		"Carried":    t.w.carried(wt),
+		"Span":       t.w.span(cw, ch),
+		"GustLength": t.w.gustLength,
+		"GustWidth":  t.w.gustWidth,
+		"Bend":       t.w.bend,
+		"BendScale":  t.w.bendScale,
+		"PaneSize":   []float32{r.W, r.H},
+		"Origin":     []float32{float32(g.left) * k, float32(g.top) * k},
+		"Step":       []float32{float32(g.cellW) * k, float32(g.cellH) * k / 2},
+		"Now":        h.now,
+		"TapCount":   len(h.taps),
+		"Taps":       taps,
+		"WakeCount":  len(h.warm),
+		"Wakes":      wakes,
+		"Ways":       ways,
+	}
+
+	seq := a.sequence(t.w.look)
+	boxes := make([]float32, 0, 4*len(seq))
+	for _, c := range seq {
+		b := a.boxes[c]
+		boxes = append(boxes, b[:]...)
+	}
 	glow := glowLight
 	if dark {
 		glow = glowDark
-	}
-	pt := &paint{
-		ink:      [3]float32{float32(inkColor.R) / 255, float32(inkColor.G) / 255, float32(inkColor.B) / 255},
-		glow:     glow,
-		inkAlpha: float32(inkColor.A) / 255,
-		pix:      img.Pix,
-		stride:   img.Stride,
 	}
 	// The canvas shows headroom times as strong as its plain light, and
 	// fades in with the pane holding it, both over fadeTime.
@@ -342,34 +385,20 @@ func (t *texture) render(g grid, a *atlas, r ui.Rect, dark bool, now time.Time) 
 		e := fadeEase(float32(since) / float32(fadeTime))
 		fade = e * e
 	}
-	pt.opacity = min(1, strength*headroom) * fade
-	seq := a.sequence(t.w.look)
-	parallel(g.rows, func(from, to int) { glyphRows(g, a, seq, f, pt, from, to) })
-
-	if t.bitmap == nil {
-		t.bitmap = ui.NewBitmap(img)
-	} else {
-		t.bitmap.Update(img)
+	t.glyphValues = map[string]any{
+		"Seed":     t.w.seed,
+		"Time":     wt,
+		"Grid":     []float32{float32(g.cellW), float32(g.cellH), float32(g.cols), float32(g.rows)},
+		"Cells":    []float32{g.cellX(0), g.cellY(0), float32(g.cellW) * k, float32(g.cellH) * k},
+		"Seq":      seq,
+		"SeqLen":   len(seq),
+		"Boxes":    boxes,
+		"Now":      h.now,
+		"TapCount": len(h.taps),
+		"Taps":     taps,
+		"Ink":      []float32{float32(inkColor.R) / 255, float32(inkColor.G) / 255, float32(inkColor.B) / 255},
+		"InkAlpha": float32(inkColor.A) / 255,
+		"Glow":     glow[:],
+		"Opacity":  min(1, strength*headroom) * fade,
 	}
-	t.front, t.drawn = back, g
-}
-
-// parallel calls fn on runs of n rows, from as many goroutines as there
-// are processors, and returns when they are done.
-func parallel(n int, fn func(from, to int)) {
-	workers := min(runtime.GOMAXPROCS(0), n)
-	if workers <= 1 {
-		fn(0, n)
-		return
-	}
-	var wg sync.WaitGroup
-	chunk := (n + workers - 1) / workers
-	for from := 0; from < n; from += chunk {
-		wg.Add(1)
-		go func(from, to int) {
-			defer wg.Done()
-			fn(from, to)
-		}(from, min(from+chunk, n))
-	}
-	wg.Wait()
 }
