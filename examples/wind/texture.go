@@ -108,17 +108,20 @@ type texture struct {
 	// still draws a frame that does not move, while the desktop asks for
 	// less motion.
 	still bool
+	// soft draws the texture where the frame does not draw on a GPU too,
+	// for tests: the app shows none on software renderers.
+	soft bool
 	// The frame shown: the wind's field, drawn by wind.kage, one pixel a
 	// sample, and the uniforms of the shaders (windValues for wind.kage,
 	// glyphValues for glyphs.kage), for the grid drawn.
 	field                   *ui.Canvas
 	windValues, glyphValues map[string]any
 	drawn                   grid
-	// When the frame shown was worked out, and on which theme; and
-	// whether the field is drawn for it.
-	rendered  time.Time
-	dark      bool
-	fieldDone bool
+	// When the frame shown was worked out, on which theme and whether
+	// still; and whether the field is drawn for it.
+	rendered         time.Time
+	dark, stillDrawn bool
+	fieldDone        bool
 }
 
 // newTexture returns a texture blown by the wind of seed.
@@ -243,8 +246,13 @@ var (
 
 // draw paints the texture in r, the pane, with p, moving it on when its
 // next frame is due: the shaders draw it, the wind's field into a canvas
-// of a pixel a sample, then the glyphs, which read it.
+// of a pixel a sample, then the glyphs, which read it. Where the frame
+// does not draw on a GPU, it draws nothing, as the app shows no texture on
+// software renderers: there the shaders would take seconds a frame.
 func (t *texture) draw(p *ui.Painter, r ui.Rect, dark bool) {
+	if !p.Accelerated() && !t.soft {
+		return
+	}
 	scale := p.Scale()
 	g, ok := gridOf(int(math.Round(float64(r.W*scale))), int(math.Round(float64(r.H*scale))), scale)
 	if !ok {
@@ -267,7 +275,7 @@ func (t *texture) draw(p *ui.Painter, r ui.Rect, dark bool) {
 	moving := !t.still && !t.calm
 	// A frame may paint this more than once, and other repaints do too, as
 	// the caret blinks: the texture moves on at its own pace.
-	due := t.windValues == nil || g != t.drawn || dark != t.dark || t.shown.IsZero() ||
+	due := t.windValues == nil || g != t.drawn || dark != t.dark || t.still != t.stillDrawn || t.shown.IsZero() ||
 		!now.Equal(t.rendered) && (moving && now.Sub(t.last) >= t.interval(now)/2 ||
 			now.Sub(t.shown) < fadeTime+frameTime)
 	if due {
@@ -278,7 +286,7 @@ func (t *texture) draw(p *ui.Painter, r ui.Rect, dark bool) {
 			t.step(now)
 		}
 		t.uniforms(g, a, r, dark, now)
-		t.rendered, t.dark, t.drawn, t.fieldDone = now, dark, g, false
+		t.rendered, t.dark, t.stillDrawn, t.drawn, t.fieldDone = now, dark, t.still, g, false
 		if moving && t.energy == 0 && !t.hand.busy(t.clock(now)) {
 			t.calm = true
 		}

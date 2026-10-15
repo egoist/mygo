@@ -96,13 +96,12 @@ func TestSettles(t *testing.T) {
 	}
 }
 
-// render draws the texture on the CPU, the shaders interpreted, in a pane
-// of 300×200 DIPs, its wind still at a time, with a click a second old
-// unless click is false, and returns how many pixels show the plain ink
-// and how many the ripples' tint.
-func render(t *testing.T, click bool) (plain, tinted int) {
-	t.Helper()
+// stillTexture returns a texture whose wind stands still at a time, in a
+// pane of 300×200 DIPs at 1, shown long ago: drawn on the CPU too when
+// soft, and with a click a second old when click.
+func stillTexture(soft, click bool) *texture {
 	tex := newTexture(0x3fa1c2d9, nil)
+	tex.soft = soft
 	tex.windTime = 21.5
 	tex.calm, tex.active, tex.revealFrom, tex.energy = true, 10, 0, 1
 	tex.atlases[atlasKey{7, 1}] = newAtlas(7, 1)
@@ -111,6 +110,13 @@ func render(t *testing.T, click bool) (plain, tinted int) {
 		tex.hand.tap(150, 100, 0)
 		tex.start = time.Now().Add(-time.Second)
 	}
+	return tex
+}
+
+// render draws tex in a pane of 300×200 DIPs, on the CPU, the shaders
+// interpreted, and returns how many pixels show the plain ink and how many
+// the ripples' tint.
+func render(tex *texture) (plain, tinted int) {
 	img := ui.Render(func(c *ui.Context) {
 		c.Root().Background(ui.Hex("#ffffff"))
 		ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) { tex.draw(p, r, false) })
@@ -131,10 +137,37 @@ func render(t *testing.T, click bool) (plain, tinted int) {
 // The shaders draw glyphs in the plain ink where the wind blows, and a
 // click's ripple tints those its front reaches.
 func TestRender(t *testing.T) {
-	if plain, tinted := render(t, false); plain == 0 || tinted != 0 {
+	if plain, tinted := render(stillTexture(true, false)); plain == 0 || tinted != 0 {
 		t.Errorf("%d plain and %d tinted pixels, want some plain and none tinted", plain, tinted)
 	}
-	if _, tinted := render(t, true); tinted == 0 {
+	if _, tinted := render(stillTexture(true, true)); tinted == 0 {
 		t.Error("no pixel tinted a second after a click")
+	}
+}
+
+// Where the frame does not draw on a GPU, as here, the texture shows
+// nothing, as the app's on software renderers.
+func TestNotAccelerated(t *testing.T) {
+	tex := stillTexture(false, true)
+	if plain, tinted := render(tex); plain+tinted != 0 || tex.windValues != nil {
+		t.Errorf("%d pixels drawn without a GPU, want none", plain+tinted)
+	}
+}
+
+// Settled, the texture has faded out; asking for less motion then shows
+// the wind as it stands, at once.
+func TestStillWhileCalm(t *testing.T) {
+	tex := stillTexture(true, false)
+	tex.energy = 0
+	if plain, _ := render(tex); plain != 0 {
+		t.Fatalf("%d pixels drawn once settled, want none", plain)
+	}
+	tex.still = true
+	if plain, _ := render(tex); plain == 0 {
+		t.Error("nothing drawn once still")
+	}
+	tex.still = false
+	if plain, _ := render(tex); plain != 0 {
+		t.Errorf("%d pixels drawn once moving again, settled, want none", plain)
 	}
 }

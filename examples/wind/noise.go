@@ -85,10 +85,9 @@ func smoothstep(e0, e1, x float32) float32 {
 	return t * t * (3 - 2*t)
 }
 
-func exp(v float32) float32  { return float32(math.Exp(float64(v))) }
-func cos(v float32) float32  { return float32(math.Cos(float64(v))) }
-func sqrt(v float32) float32 { return float32(math.Sqrt(float64(v))) }
-func abs(v float32) float32  { return float32(math.Abs(float64(v))) }
+func exp(v float32) float32 { return float32(math.Exp(float64(v))) }
+func cos(v float32) float32 { return float32(math.Cos(float64(v))) }
+func abs(v float32) float32 { return float32(math.Abs(float64(v))) }
 func hypot(x, y float32) float32 {
 	return float32(math.Hypot(float64(x), float64(y)))
 }

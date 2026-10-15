@@ -2,8 +2,6 @@ package main
 
 import "math"
 
-const tau = 2 * math.Pi
-
 // wind is a visit's wind, which its seed picks: its look, the set of
 // characters it shows; the heading it blows toward, in radians with y
 // down; its speed, in DIPs a second; the length and width of a gust; and
