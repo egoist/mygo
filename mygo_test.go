@@ -721,10 +721,14 @@ func TestChannels(t *testing.T) {
 		t.Fatalf("Send did not wait for the page: %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
+	// The main thread posts the values Send queued as it gets to them.
 	asks := 0
-	for _, m := range pageMessages(t, fw) {
-		if m["c"] == float64(8) && m["a"] == float64(1) {
-			asks++
+	for deadline := time.Now().Add(3 * time.Second); asks < 2 && time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		asks = 0
+		for _, m := range pageMessages(t, fw) {
+			if m["c"] == float64(8) && m["a"] == float64(1) {
+				asks++
+			}
 		}
 	}
 	if asks != 2 {
@@ -831,8 +835,7 @@ func (badStreams) Variadic(chs ...*Channel[int])    {}
 
 func TestChannelsAreParameters(t *testing.T) {
 	for _, name := range []string{"Result", "Nested", "Variadic"} {
-		m, _ := reflect.TypeFor[badStreams]().MethodByName(name)
-		if _, err := newMethod("Bad", m, reflect.ValueOf(badStreams{})); err == nil {
+		if _, err := newMethod("Bad", name, reflect.ValueOf(badStreams{}).MethodByName(name)); err == nil {
 			t.Errorf("%s: a misplaced channel should not bind", name)
 		}
 	}

@@ -63,7 +63,7 @@ func textInputBase(c *context, value *string, multiline bool) *node {
 		ed.caret = min(st.reloadCaret, ed.buf.n)
 		ed.anchor = min(st.reloadAnchor, ed.buf.n)
 	}
-	ed.readOnly, ed.password, ed.lines, ed.onPaste, ed.onTextKey = false, false, [2]int{}, nil, nil
+	ed.rebuild()
 	ed.ranges = ed.ranges[:0]
 	e.onValueInput(stringInput)
 

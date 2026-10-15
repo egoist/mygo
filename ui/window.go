@@ -134,6 +134,9 @@ type windowHost struct {
 	lastFrame time.Time
 	// framing tells that the surface asked for the frame being drawn.
 	framing bool
+	// told is what accelerated last told the frame being painted, asked
+	// that it did.
+	told, asked bool
 	// path is how the last frame was drawn, for MYGO_FRAME_STATS.
 	path string
 	// wide tells that the GPU renderer draws the colors of scenes outside
@@ -154,7 +157,15 @@ type windowHost struct {
 	views  []NativeWebView
 }
 
-func (h *windowHost) framePath() string { return h.path }
+func (h *windowHost) framePath() string {
+	if h.path == "drawn on the GPU" && h.gpu != nil {
+		// The stats logger calls this only while MYGO_FRAME_STATS is enabled.
+		if f, ok := h.gpu.(interface{ FrameInfo() string }); ok {
+			return h.path + ": " + f.FrameInfo()
+		}
+	}
+	return h.path
+}
 
 func (h *windowHost) rightToLeft() bool { return h.conn.RightToLeft != nil && h.conn.RightToLeft() }
 
@@ -235,6 +246,7 @@ func (h *windowHost) size() (float32, float32, float32) {
 
 func (h *windowHost) present(s *scene.Scene) {
 	h.last, h.path = s, ""
+	defer h.recheck()
 	if s.Width <= 0 || s.Height <= 0 {
 		return
 	}
@@ -413,6 +425,27 @@ func (h *windowHost) makeGPU() {
 	}
 	h.gpu, h.gpuSince = r, time.Now()
 	h.wide = false // the renderer draws sRGB until told otherwise
+}
+
+// accelerated reports whether the frame draws on a GPU (Painter.Accelerated).
+// The first frame makes its GPU renderer as it paints rather than as it
+// presents, to tell.
+func (h *windowHost) accelerated() bool {
+	if h.framing && !h.gpuTried {
+		h.makeGPU()
+	}
+	h.told, h.asked = h.gpu != nil && !software(h.gpu), true
+	return h.told
+}
+
+// recheck paints the window again when the frame presented draws on a GPU
+// and accelerated told its painters otherwise, or the other way round: the
+// GPU went away or came back as it presented.
+func (h *windowHost) recheck() {
+	if h.asked && h.told != (h.gpu != nil && !software(h.gpu)) && h.conn.Invalidate != nil {
+		h.invalidate()
+	}
+	h.asked = false
 }
 
 // software reports whether a renderer draws on the CPU, as Direct3D's WARP.
