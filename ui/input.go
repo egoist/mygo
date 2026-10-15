@@ -295,7 +295,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 		}
 	}
 	h := rt.handler(chain)
-	clicks = rt.countPress(target, h, max(clicks, 1))
+	clicks = rt.countPress(chain, target, h, max(clicks, 1))
 	if h != nil && rt.deliver(h, InputEvent{Kind: InputPointerDown, Button: button, Mods: mods, Clicks: clicks}) {
 		// It takes the moves and the release.
 		rt.pressed, rt.pressButton, rt.pressClicks = h, button, clicks
@@ -345,13 +345,16 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 }
 
 // countPress counts the backend's n-th quick press from the first on the
-// element pressed, the target or else the handler.
-func (rt *engine) countPress(target, h *state, n int) int {
+// element pressed: the innermost of the target and the handler, so that
+// two handlers in one focusable element, or two buttons in one handler,
+// count apart.
+func (rt *engine) countPress(chain []uint64, target, h *state, n int) int {
 	id := uint64(0)
-	if target != nil {
-		id = target.id
-	} else if h != nil {
-		id = h.id
+	for _, c := range chain {
+		if target != nil && c == target.id || h != nil && c == h.id {
+			id = c
+			break
+		}
 	}
 	lp := &rt.lastPress
 	if id != lp.prev || n <= lp.base {

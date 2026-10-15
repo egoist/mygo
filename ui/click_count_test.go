@@ -114,6 +114,35 @@ func TestBackendCountPerElement(t *testing.T) {
 	}
 }
 
+// Two handlers in one focusable element count apart: the element pressed
+// is the innermost of the target and the handler.
+func TestBackendCountPerHandlerInFocusable(t *testing.T) {
+	var a, b []int
+	record := func(to *[]int) func(InputEvent) bool {
+		return func(ev InputEvent) bool {
+			if ev.Kind == InputPointerDown {
+				*to = append(*to, ev.Clicks)
+			}
+			return true
+		}
+	}
+	tt := NewTester(func(c *Context) {
+		Row(c).Focusable().Label("Grid").Children(func() {
+			Box(c).Size(50, 50).HandleInput(record(&a))
+			Box(c).Size(50, 50).HandleInput(record(&b))
+		})
+	}, 100, 50)
+	defer tt.rt.close()
+	tt.Frame()
+	for i, x := range []float64{25, 75, 75} {
+		tt.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: x, Y: 25, Clicks: i + 1})
+		tt.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: x, Y: 25, Clicks: i + 1})
+	}
+	if !slices.Equal(a, []int{1}) || !slices.Equal(b, []int{1, 2}) {
+		t.Fatalf("the left box saw clicks %v and the right %v, want [1] and [1 2]", a, b)
+	}
+}
+
 // A press the scroll bar takes is of no element: a click on the content,
 // one on the bar beside it, and one on the content again make no double
 // click.
