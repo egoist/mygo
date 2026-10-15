@@ -64,7 +64,10 @@ type ShaderLayout struct {
 }
 
 // Pack writes words into buf, grown to the layout's size, as the layout
-// lays them out, and returns it.
+// lays them out, and returns it. A lane takes 4 bytes, but for a bool of
+// Metal, which takes 1 and may lie in the last bytes: the bytes that fit
+// are written, little end first, and lanes in ascending order write over
+// what the one before spilled.
 func (l *ShaderLayout) Pack(buf []byte, words []uint32) []byte {
 	if cap(buf) < l.Size {
 		buf = make([]byte, l.Size)
@@ -72,9 +75,12 @@ func (l *ShaderLayout) Pack(buf []byte, words []uint32) []byte {
 	buf = buf[:l.Size]
 	clear(buf)
 	for i, at := range l.Lanes {
-		if i < len(words) && int(at)+4 <= len(buf) {
-			w := words[i]
-			buf[at], buf[at+1], buf[at+2], buf[at+3] = byte(w), byte(w>>8), byte(w>>16), byte(w>>24)
+		if i >= len(words) {
+			break
+		}
+		w := words[i]
+		for k := 0; k < 4 && int(at)+k < len(buf); k++ {
+			buf[int(at)+k] = byte(w >> (8 * k))
 		}
 	}
 	return buf

@@ -42,6 +42,7 @@ package shader
 import (
 	"fmt"
 	"math"
+	"reflect"
 
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/shader"
@@ -117,11 +118,12 @@ func MustCompile(src string) *Shader {
 // Options are what a shader draws with.
 type Options struct {
 	// Uniforms are the values of the shader's uniform variables, by name:
-	// a number (float32, float64, int, int32, uint32, uint, bool) for one
-	// of a scalar type, or a slice or an array of numbers, or a ui.Color
-	// (its components from 0 to 1, not premultiplied), for a vector, a
-	// matrix (by columns) or an array (elements in order); a variable
-	// missing is zero, and a name the shader has not is left out.
+	// a number of any of Go's kinds (bool, an integer, a float) for one of
+	// a scalar type, or a slice or an array of numbers, or a ui.Color (its
+	// components from 0 to 1, not premultiplied), for a vector, a matrix
+	// (by columns) or an array (elements in order); a variable missing is
+	// zero, and a name the shader has not is left out. Integers set ints
+	// and uints by their low 32 bits, as Go converts them.
 	Uniforms map[string]any
 	// Images are the images image0 to image3 read: bitmaps, or canvases'
 	// (ui.Canvas.Bitmap); nil for none, which reads as transparent.
@@ -154,79 +156,76 @@ func (s *Shader) Draw(p *ui.Painter, r ui.Rect, o Options) {
 	p.ShaderEffect(s.fx, r, o.Radius, words, o.Images)
 }
 
-// set writes value v of uniform name into its lanes, as numbers of kind.
+// set writes value v of uniform name into its lanes, as numbers of kind:
+// a number, a slice or an array of numbers of any of Go's kinds, or a
+// ui.Color. Integers convert to int and uint keeping their low 32 bits, as
+// Go converts them; floats drop their fraction.
 func set(lanes []uint32, kind shaderir.BasicType, name string, v any) {
-	put := func(i int, x float64) {
-		if i >= len(lanes) {
-			return
-		}
-		switch kind {
-		case shaderir.Float:
-			lanes[i] = math.Float32bits(float32(x))
-		case shaderir.Int:
-			lanes[i] = uint32(int32(x))
-		case shaderir.Uint:
-			lanes[i] = uint32(int64(x))
-		case shaderir.Bool:
-			if x != 0 {
-				lanes[i] = 1
-			} else {
-				lanes[i] = 0
+	if c, ok := v.(ui.Color); ok {
+		for i, x := range [4]uint8{c.R, c.G, c.B, c.A} {
+			if i < len(lanes) {
+				lanes[i] = lane(kind, reflect.ValueOf(float64(x)/255))
 			}
 		}
+		return
 	}
-	switch v := v.(type) {
-	case float32:
-		put(0, float64(v))
-	case float64:
-		put(0, v)
-	case int:
-		put(0, float64(v))
-	case int32:
-		put(0, float64(v))
-	case uint32:
-		put(0, float64(v))
-	case uint:
-		put(0, float64(v))
-	case bool:
-		if v {
-			put(0, 1)
-		} else {
-			put(0, 0)
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < rv.Len() && i < len(lanes); i++ {
+			if !number(rv.Index(i)) {
+				panic(fmt.Sprintf("shader: the uniform %s is set to a %T, not numbers", name, v))
+			}
+			lanes[i] = lane(kind, rv.Index(i))
 		}
-	case ui.Color:
-		for i, c := range [4]uint8{v.R, v.G, v.B, v.A} {
-			put(i, float64(c)/255)
-		}
-	case []float32:
-		for i, x := range v {
-			put(i, float64(x))
-		}
-	case []float64:
-		for i, x := range v {
-			put(i, x)
-		}
-	case []int:
-		for i, x := range v {
-			put(i, float64(x))
-		}
-	case []int32:
-		for i, x := range v {
-			put(i, float64(x))
-		}
-	case []uint32:
-		for i, x := range v {
-			put(i, float64(x))
-		}
-	case [2]float32:
-		set(lanes, kind, name, v[:])
-	case [3]float32:
-		set(lanes, kind, name, v[:])
-	case [4]float32:
-		set(lanes, kind, name, v[:])
 	default:
-		panic(fmt.Sprintf("shader: the uniform %s is set to a %T, not a number, numbers or a ui.Color", name, v))
+		if !rv.IsValid() || !number(rv) {
+			panic(fmt.Sprintf("shader: the uniform %s is set to a %T, not a number, numbers or a ui.Color", name, v))
+		}
+		if len(lanes) > 0 {
+			lanes[0] = lane(kind, rv)
+		}
 	}
+}
+
+// number reports whether x is a bool, an integer or a float.
+func number(x reflect.Value) bool {
+	switch x.Kind() {
+	case reflect.Bool, reflect.Float32, reflect.Float64,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return true
+	}
+	return false
+}
+
+// lane returns the number x as a lane of kind.
+func lane(kind shaderir.BasicType, x reflect.Value) uint32 {
+	var i int64
+	var f float64
+	switch x.Kind() {
+	case reflect.Bool:
+		if x.Bool() {
+			i, f = 1, 1
+		}
+	case reflect.Float32, reflect.Float64:
+		f = x.Float()
+		i = int64(f)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		i, f = int64(x.Uint()), float64(x.Uint())
+	default:
+		i, f = x.Int(), float64(x.Int())
+	}
+	switch kind {
+	case shaderir.Float:
+		return math.Float32bits(float32(f))
+	case shaderir.Bool:
+		if f != 0 {
+			return 1
+		}
+		return 0
+	}
+	return uint32(i)
 }
 
 // pixels draws a shader on the CPU, with the interpreter.

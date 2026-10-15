@@ -245,6 +245,7 @@ func glUniform1i(l, v int32)            { call("uniform1i", location(l), v) }
 func glUniform2f(l int32, x, y float32) { call("uniform2f", location(l), x, y) }
 func glUniform1f(l int32, v float32)    { call("uniform1f", location(l), v) }
 func glUniform2i(l, x, y int32)         { call("uniform2i", location(l), x, y) }
+func glUniform4i(l, x, y, z, w int32)   { call("uniform4i", location(l), x, y, z, w) }
 
 func glCopyTexSubImage2D(target uint32, level, xoff, yoff, x, y, w, h int32) {
 	call("copyTexSubImage2D", target, level, xoff, yoff, x, y, w, h)

@@ -35,3 +35,40 @@ func TestOpenGL(t *testing.T) {
 		gputest.Compare(t, name, pix, sc.Width*4, sc)
 	}
 }
+
+// TestOpenGLBools checks that OpenGL reads bool uniforms as the CPU does.
+func TestOpenGLBools(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	sc := boolScene()
+	o, err := gl.NewOffscreen(false, sc.Width, sc.Height)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer o.Release()
+	pix, err := o.Render(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gputest.Compare(t, "ui-shader-gl-bools", pix, sc.Width*4, sc)
+}
+
+// TestOpenGLDfdy checks that dfdy grows downward on OpenGL, in a canvas
+// and in the frame, whose rows go up.
+func TestOpenGLDfdy(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for _, es := range []bool{false, true} {
+		sc := dfdyScene()
+		o, err := gl.NewOffscreen(es, sc.Width, sc.Height)
+		if err != nil {
+			t.Skip(err)
+		}
+		pix, err := o.Render(sc)
+		o.Release()
+		if err != nil {
+			t.Fatal(err)
+		}
+		checkDfdy(t, pix, sc.Width*4)
+	}
+}

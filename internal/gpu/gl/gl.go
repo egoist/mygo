@@ -159,7 +159,10 @@ type Renderer struct {
 type effectProgram struct {
 	program uint32
 	uSize   int32
-	err     error
+	// flipRows is the location of a shader's uShaderFlipRows, which tells
+	// it the canvases among its images, whose rows go up.
+	flipRows int32
+	err      error
 }
 
 // passProgram is the program of a pass computing backdrops and its
@@ -288,6 +291,7 @@ func (r *Renderer) effectProgram(e *scene.Effect) *effectProgram {
 				glUniform1i(l, int32(5+i))
 			}
 		}
+		p.flipRows = glGetUniformLocation(p.program, "uShaderFlipRows")
 	}
 	return p
 }
@@ -305,11 +309,20 @@ func (r *Renderer) bindShader(b gpu.Batch) {
 		glBufferData(glUniformBuffer, n, unsafe.Pointer(&r.shaderBytes[0]), glStreamDraw)
 		glBindBufferBase(glUniformBuffer, 0, r.ubo)
 	}
+	// A canvas's rows go up, as GL's framebuffers draw them: the shader
+	// flips the rows of those it reads.
+	var flip [4]int32
 	for i, t := range b.Textures {
 		glActiveTexture(glTexture0 + 5 + uint32(i))
 		glBindTexture(glTexture2D, or(uint32(t), r.empty))
+		if img := b.Shader.Images[i]; t != 0 && img != nil && r.canvasTex[uint32(t)] {
+			flip[i] = int32(img.H)
+		}
 	}
 	glActiveTexture(glTexture0 + 2)
+	if p := r.effects[b.Effect]; p != nil && p.flipRows >= 0 {
+		glUniform4i(p.flipRows, flip[0], flip[1], flip[2], flip[3])
+	}
 }
 
 // link compiles a vertex and a fragment shader and links them.

@@ -18,3 +18,23 @@ func TestMetal(t *testing.T) {
 	}
 	gputest.Compare(t, "ui-shader-metal", pix, sc.Width*4, sc)
 }
+
+// TestMetalBools checks that Metal reads bools at the end of its struct of
+// uniforms, a byte each.
+func TestMetalBools(t *testing.T) {
+	sc := boolScene()
+	pix, err := metal.RenderOffscreen(sc)
+	if err != nil {
+		t.Skip("no Metal:", err)
+	}
+	gputest.Compare(t, "ui-shader-metal-bools", pix, sc.Width*4, sc)
+}
+
+// TestMetalDfdy checks that dfdy grows downward on Metal.
+func TestMetalDfdy(t *testing.T) {
+	pix, err := metal.RenderOffscreen(dfdyScene())
+	if err != nil {
+		t.Skip("no Metal:", err)
+	}
+	checkDfdy(t, pix, 40*4)
+}
