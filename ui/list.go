@@ -170,6 +170,8 @@ type ListState struct {
 	// and chose those from it to pivot+span last.
 	lead, pivot, span int
 	pivotKey          any
+	// pivotRow is the pivot as the last frame left it, of key pivotKey.
+	pivotRow int
 
 	header listHeader
 	// rows are the last frame's rows by their elements' IDs, to find the
@@ -440,12 +442,14 @@ func (s *ListState) sync(e *node, n int) {
 			}
 			*sel, s.selRow = j, j
 		}
-		if s.pivotKey != nil {
+		if s.pivotKey != nil && s.pivot == s.pivotRow {
+			// Follow the pivot's key, as the choice does, unless this
+			// frame's input already moved the pivot.
 			j, ok := s.find(s.pivotKey, s.pivot, n)
 			if !ok {
 				j = -1
 			}
-			s.pivot = j
+			s.pivot, s.pivotRow = j, j
 		}
 	}
 	if n != s.heights.n {
@@ -1413,6 +1417,7 @@ func (s *ListState) remember(e *node, first, last int, atEnd bool, scroll float6
 			s.selKey = s.Key(*sel)
 		}
 	}
+	s.pivotRow = s.pivot
 	if s.Key != nil && s.Selection != nil && s.pivot >= 0 && s.pivot < n {
 		s.pivotKey = s.Key(s.pivot)
 	}

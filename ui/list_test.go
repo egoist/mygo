@@ -1196,3 +1196,66 @@ func TestListFollowAnimation(t *testing.T) {
 		t.Errorf("reduced motion: the last row ends at %v", r.Y+r.H)
 	}
 }
+
+// A List built inside another constructor, as a Split's pane, reports
+// its changes and submits in the pass they come, as one built alone does.
+func TestListInsideConstructorReportsChanged(t *testing.T) {
+	for _, rows := range []bool{false, true} {
+		sel := -1
+		s := ListState{Selected: &sel}
+		size := float32(150)
+		changed, submitted := 0, 0
+		tt := NewTester(func(c *Context) {
+			Split(c, &size, func() {
+				var list Element
+				if rows {
+					list = List(c, &s, 5).Rows(func(r ListRow) { Textf(r.Context, "Row %d", r.Index) })
+				} else {
+					list = List(c, &s, 5, func(i int) { Textf(c, "Row %d", i) })
+				}
+				if list.Grow(1).Changed() {
+					changed++
+				}
+				if list.Submitted() {
+					submitted++
+				}
+			}, func() {})
+		}, 400, 300)
+		tt.Frame()
+		if err := tt.Click("Row 2"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Key(0, KeyDown)
+		tt.Key(0, KeyEnter)
+		if sel != 3 || changed != 2 || submitted != 1 {
+			t.Errorf("rows %v: chose %d, changed %d times, submitted %d times; want 3, 2, 1", rows, sel, changed, submitted)
+		}
+	}
+}
+
+func chosenRows(sel *Selection[int]) []int { return slices.Sorted(sel.All()) }
+
+// Shift extends from the row clicked last though the view builds the frame
+// again, as one reading the list's Changed does: a rebuild does not take
+// the row Shift extends from back to where the last frame had it.
+func TestPivotKeptAcrossRebuilds(t *testing.T) {
+	var s ListState
+	var sel Selection[int]
+	s.Selection = &sel
+	s.Key = func(i int) any { return i }
+	rebuilt := 0
+	tt := NewTester(func(c *Context) {
+		if List(c, &s, 6, func(i int) { Textf(c, "Row %d", i) }).Grow(1).Changed() {
+			rebuilt++
+			c.Invalidate()
+		}
+	}, 300, 300)
+	tt.Frame()
+	tt.Click("Row 1")
+	tt.Key(0, KeyDown)
+	tt.Click("Row 0")
+	tt.Key(Shift, KeyDown)
+	if got := chosenRows(&sel); !slices.Equal(got, []int{0, 1}) {
+		t.Fatalf("click Row 1, Down, click Row 0, Shift+Down: chose %v (rebuilt %d times)", got, rebuilt)
+	}
+}
