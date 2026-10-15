@@ -99,10 +99,10 @@ func TestStickWalks(t *testing.T) {
 func TestView(t *testing.T) {
 	g := newFarm(false)
 	tt := ui.NewTester(g.view, 960, 640)
+	tt.SetTimeFlowing(false)
 	// Keys act in the game's next step.
 	step := func() {
-		time.Sleep(3 * time.Second / game.Rate)
-		tt.Frame()
+		tt.Advance(3 * time.Second / game.Rate)
 	}
 	tt.Key(0, ui.Key3)
 	step()
@@ -116,8 +116,7 @@ func TestView(t *testing.T) {
 	}
 	x := g.w.x
 	tt.KeyDown(ui.KeyD)
-	time.Sleep(200 * time.Millisecond)
-	tt.Frame()
+	tt.Advance(200 * time.Millisecond)
 	if g.w.x <= x || g.w.facing != right {
 		t.Errorf("D held: at %v facing %v", g.w.x, g.w.facing)
 	}

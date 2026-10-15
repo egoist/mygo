@@ -142,22 +142,21 @@ func TestRevealPaces(t *testing.T) {
 			Stream(c, text, o)
 		}
 	}, 600, 400)
+	tt.SetTimeFlowing(false)
 	text = strings.Repeat("word ", 200)
 	tt.Frame()
 	first := strings.Join(tt.Texts(), "")
 	if len(first) >= len(text)-1 {
 		t.Fatalf("a burst showed at once: %d of %d bytes", len(first), len(text))
 	}
-	time.Sleep(60 * time.Millisecond)
-	tt.Frame()
+	tt.Advance(60 * time.Millisecond)
 	if second := strings.Join(tt.Texts(), ""); len(second) <= len(first) {
 		t.Fatalf("no more text after a while: %d then %d bytes", len(first), len(second))
 	}
 	done = true
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
-		tt.Frame()
+	tt.Frame()
+	for range 100 {
+		tt.Advance(20 * time.Millisecond)
 		if strings.Join(tt.Texts(), "") == strings.TrimSpace(text) {
 			return
 		}
@@ -254,13 +253,14 @@ func TestFadeReplayed(t *testing.T) {
 		}
 		st = *ui.Local(root, stateKey{}, newState)
 	}, 600, 400)
+	tt.SetTimeFlowing(false)
 	text, done = "", false
 	tt.Frame()
 	text = src
+	tt.Frame()
 	faded := false
 	for range 20 {
-		time.Sleep(10 * time.Millisecond)
-		tt.Frame()
+		tt.Advance(10 * time.Millisecond)
 		for i := range st.paras {
 			for _, pc := range st.paras[i].p.pieces {
 				for _, s := range pc.spans {
@@ -305,19 +305,16 @@ func TestRevealBySentence(t *testing.T) {
 			Stream(c, text, o)
 		}
 	}, 600, 400)
+	tt.SetTimeFlowing(false)
 	text = "First sentence here. Second one is still"
-	for range 10 {
-		time.Sleep(10 * time.Millisecond)
-		tt.Frame()
-	}
+	tt.Frame()
+	tt.Advance(100 * time.Millisecond)
 	if got := strings.Join(tt.Texts(), ""); got != "First sentence here." {
 		t.Errorf("streaming shows %q", got)
 	}
 	done = true
-	for range 10 {
-		time.Sleep(10 * time.Millisecond)
-		tt.Frame()
-	}
+	tt.Frame()
+	tt.Advance(100 * time.Millisecond)
 	if got := strings.Join(tt.Texts(), ""); got != text {
 		t.Errorf("done, shows %q", got)
 	}
