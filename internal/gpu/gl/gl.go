@@ -55,6 +55,8 @@ const (
 	glOneMinusSrc1Alpha  = 0x88FB
 	glColorBufferBit     = 0x4000
 	glArrayBuffer        = 0x8892
+	glUniformBuffer      = 0x8A11
+	glInvalidIndex       = 0xFFFFFFFF
 	glStreamDraw         = 0x88E0
 	glFloat              = 0x1406
 	glUnsignedByte       = 0x1401
@@ -144,6 +146,10 @@ type Renderer struct {
 	// the effects drawn, made as first drawn.
 	header  string
 	effects map[*scene.Effect]*effectProgram
+	// ubo holds the uniforms of the shader being drawn (package ui/shader),
+	// laid out in shaderBytes, which binding point 0 reads.
+	ubo         uint32
+	shaderBytes []byte
 
 	b gpu.Builder
 }
@@ -271,7 +277,39 @@ func (r *Renderer) effectProgram(e *scene.Effect) *effectProgram {
 	p.uSize = glGetUniformLocation(p.program, "uSize")
 	glUniform1i(glGetUniformLocation(p.program, "uBackdrop"), 3)
 	glUniform1i(glGetUniformLocation(p.program, "uClipMask"), 4)
+	if e.Shader != nil {
+		// A shader's uniforms come from binding point 0, its images from
+		// units 5 to 8.
+		if i := glGetUniformBlockIndex(p.program, "ShaderUniforms"); i != glInvalidIndex {
+			glUniformBlockBinding(p.program, i, 0)
+		}
+		for i := range 4 {
+			if l := glGetUniformLocation(p.program, fmt.Sprintf("T%d", i)); l >= 0 {
+				glUniform1i(l, int32(5+i))
+			}
+		}
+	}
 	return p
+}
+
+// bindShader binds what the shader of batch b reads: its uniforms, laid
+// out as its effect says, at binding point 0, and its images to units 5
+// to 8. Unit 2 is active after.
+func (r *Renderer) bindShader(b gpu.Batch) {
+	r.shaderBytes = b.Effect.Shader.Pack(r.shaderBytes, b.Shader.Uniforms)
+	if n := len(r.shaderBytes); n > 0 {
+		if r.ubo == 0 {
+			glGenBuffers(1, &r.ubo)
+		}
+		glBindBuffer(glUniformBuffer, r.ubo)
+		glBufferData(glUniformBuffer, n, unsafe.Pointer(&r.shaderBytes[0]), glStreamDraw)
+		glBindBufferBase(glUniformBuffer, 0, r.ubo)
+	}
+	for i, t := range b.Textures {
+		glActiveTexture(glTexture0 + 5 + uint32(i))
+		glBindTexture(glTexture2D, or(uint32(t), r.empty))
+	}
+	glActiveTexture(glTexture0 + 2)
 }
 
 // link compiles a vertex and a fragment shader and links them.
@@ -650,6 +688,9 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder) error {
 		glActiveTexture(glTexture0 + 4)
 		glBindTexture(glTexture2D, or(uint32(bt.ClipMask), r.empty))
 		glActiveTexture(glTexture0 + 2)
+		if bt.Shader != nil {
+			r.bindShader(bt)
+		}
 		// Instances draw from the batch's first: without base instances in
 		// OpenGL ES 3.0, the attributes start there.
 		offset := uintptr(bt.Start * gpu.InstanceSize)
@@ -664,12 +705,13 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder) error {
 	// expects it.
 	glDisable(glScissorTest)
 	glDisable(glBlend)
-	for unit := range 5 {
+	for unit := range 9 {
 		glActiveTexture(glTexture0 + uint32(unit))
 		glBindTexture(glTexture2D, 0)
 	}
 	glActiveTexture(glTexture0)
 	glBindBuffer(glArrayBuffer, 0)
+	glBindBuffer(glUniformBuffer, 0)
 	glBindVertexArray(0)
 	glUseProgram(0)
 	return nil
@@ -803,7 +845,7 @@ func or(a, b uint32) uint32 {
 
 // forget drops the objects of a context that is gone.
 func (r *Renderer) forget() {
-	r.program, r.vao, r.buf, r.empty = 0, 0, 0, 0
+	r.program, r.vao, r.buf, r.empty, r.ubo = 0, 0, 0, 0, 0
 	r.down, r.blur, r.passVAO = passProgram{}, passProgram{}, 0
 	clear(r.effects)
 	r.grab, r.backdrop, r.backdropFB = texture{}, [2]texture{}, [2]uint32{}
@@ -852,6 +894,9 @@ func (r *Renderer) Release() {
 	}
 	if r.passVAO != 0 {
 		glDeleteVertexArrays(1, &r.passVAO)
+	}
+	if r.ubo != 0 {
+		glDeleteBuffers(1, &r.ubo)
 	}
 	if r.buf != 0 {
 		glDeleteBuffers(1, &r.buf)

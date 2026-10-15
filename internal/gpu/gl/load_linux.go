@@ -38,6 +38,9 @@ var (
 	glUseProgram            func(program uint32)
 	glDeleteProgram         func(program uint32)
 	glGetUniformLocation    func(program uint32, name string) int32
+	glGetUniformBlockIndex  func(program uint32, name string) uint32
+	glUniformBlockBinding   func(program, index, binding uint32)
+	glBindBufferBase        func(target, index, buffer uint32)
 	glUniform1i             func(location, v int32)
 	glUniform2f             func(location int32, x, y float32)
 	glUniform1f             func(location int32, v float32)
@@ -125,6 +128,9 @@ func load() error {
 		gl(&glUseProgram, "glUseProgram")
 		gl(&glDeleteProgram, "glDeleteProgram")
 		gl(&glGetUniformLocation, "glGetUniformLocation")
+		gl(&glGetUniformBlockIndex, "glGetUniformBlockIndex")
+		gl(&glUniformBlockBinding, "glUniformBlockBinding")
+		gl(&glBindBufferBase, "glBindBufferBase")
 		gl(&glUniform1i, "glUniform1i")
 		gl(&glUniform2f, "glUniform2f")
 		gl(&glUniform1f, "glUniform1f")

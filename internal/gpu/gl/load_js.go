@@ -222,6 +222,18 @@ func glGetUniformLocation(program uint32, uniform string) int32 {
 	return int32(len(locations) - 1)
 }
 
+func glGetUniformBlockIndex(program uint32, block string) uint32 {
+	return uint32(call("getUniformBlockIndex", object(program), block).Int())
+}
+
+func glUniformBlockBinding(program, index, binding uint32) {
+	call("uniformBlockBinding", object(program), index, binding)
+}
+
+func glBindBufferBase(target, index, buffer uint32) {
+	call("bindBufferBase", target, index, object(buffer))
+}
+
 func location(l int32) js.Value {
 	if l < 0 || int(l) >= len(locations) {
 		return js.Null()
