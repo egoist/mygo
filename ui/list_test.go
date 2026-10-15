@@ -1235,6 +1235,116 @@ func TestListInsideConstructorReportsChanged(t *testing.T) {
 
 func chosenRows(sel *Selection[int]) []int { return slices.Sorted(sel.All()) }
 
+// ExtendTo chooses from the row Shift extends from, as Shift-click does.
+func TestExtendToFromPivot(t *testing.T) {
+	var s ListState
+	var sel Selection[int]
+	s.Selection = &sel
+	extend := -1
+	tt := NewTester(func(c *Context) {
+		List(c, &s, 10, func(i int) { Textf(c, "Row %d", i) }).Grow(1)
+		if extend >= 0 {
+			s.ExtendTo(extend)
+			extend = -1
+		}
+	}, 300, 400)
+	tt.Frame()
+	tt.Click("Row 2")
+	extend = 6
+	tt.Frame()
+	if got := chosenRows(&sel); !slices.Equal(got, []int{2, 3, 4, 5, 6}) {
+		t.Fatalf("ExtendTo(6) from row 2: chose %v", got)
+	}
+	tt.Key(Shift, KeyUp)
+	if got := chosenRows(&sel); !slices.Equal(got, []int{2, 3, 4, 5}) {
+		t.Fatalf("then Shift+Up: chose %v", got)
+	}
+}
+
+// A right-click on a row outside the choice chooses it before its menu
+// opens, as Finder does; one on a chosen row keeps the choice.
+func TestRightClickChoosesRowOutsideSelection(t *testing.T) {
+	var s ListState
+	var sel Selection[int]
+	s.Selection = &sel
+	menuRow := -1
+	tt := NewTester(func(c *Context) {
+		List(c, &s, 6, func(i int) {
+			Text(c, "Row "+string(rune('0'+i))).ContextMenu(func(m *Menu) {
+				menuRow = i
+				m.Item("Delete")
+			})
+		}).Grow(1)
+	}, 300, 300)
+	tt.Frame()
+	tt.Click("Row 1")
+	if err := tt.RightClick("Row 4"); err != nil {
+		t.Fatal(err)
+	}
+	if got := chosenRows(&sel); !slices.Equal(got, []int{4}) || menuRow != 4 {
+		t.Fatalf("right-click Row 4 with Row 1 chosen: chose %v, menu of row %d", got, menuRow)
+	}
+	tt.CloseMenu()
+	tt.Click("Row 1")
+	tt.ClickWith(Shift, "Row 3")
+	if err := tt.RightClick("Row 2"); err != nil {
+		t.Fatal(err)
+	}
+	if got := chosenRows(&sel); !slices.Equal(got, []int{1, 2, 3}) {
+		t.Fatalf("right-click a chosen row: chose %v, want [1 2 3] kept", got)
+	}
+	tt.CloseMenu()
+}
+
+// A list with Selected alone leaves its choice as it is on a right-click:
+// only lists with Selection choose the row first.
+func TestRightClickSingleChoiceKeepsChoice(t *testing.T) {
+	sel := 1
+	s := ListState{Selected: &sel}
+	menuRow := -1
+	tt := NewTester(func(c *Context) {
+		List(c, &s, 6, func(i int) {
+			Text(c, "Row "+string(rune('0'+i))).ContextMenu(func(m *Menu) {
+				menuRow = i
+				m.Item("Delete")
+			})
+		}).Grow(1)
+	}, 300, 300)
+	tt.Frame()
+	if err := tt.RightClick("Row 4"); err != nil {
+		t.Fatal(err)
+	}
+	if sel != 1 || menuRow != 4 {
+		t.Fatalf("right-click Row 4 with Row 1 chosen: chose %d, menu of row %d", sel, menuRow)
+	}
+	tt.CloseMenu()
+}
+
+// MenuKeepsSelection leaves the rows chosen as they are on a right-click,
+// and the menu still opens on the row clicked.
+func TestMenuKeepsSelection(t *testing.T) {
+	var sel Selection[int]
+	s := ListState{Selection: &sel, MenuKeepsSelection: true}
+	menuRow := -1
+	tt := NewTester(func(c *Context) {
+		List(c, &s, 6, func(i int) {
+			Text(c, "Row "+string(rune('0'+i))).ContextMenu(func(m *Menu) {
+				menuRow = i
+				m.Item("Delete")
+			})
+		}).Grow(1)
+	}, 300, 300)
+	tt.Frame()
+	tt.Click("Row 1")
+	if err := tt.RightClick("Row 4"); err != nil {
+		t.Fatal(err)
+	}
+	if got := chosenRows(&sel); !slices.Equal(got, []int{1}) || menuRow != 4 {
+		t.Fatalf("right-click Row 4 with Row 1 chosen: chose %v, menu of row %d", got, menuRow)
+	}
+	tt.CloseMenu()
+}
+
 // Shift extends from the row clicked last though the view builds the frame
 // again, as one reading the list's Changed does: a rebuild does not take
 // the row Shift extends from back to where the last frame had it.
@@ -1258,4 +1368,27 @@ func TestPivotKeptAcrossRebuilds(t *testing.T) {
 	if got := chosenRows(&sel); !slices.Equal(got, []int{0, 1}) {
 		t.Fatalf("click Row 1, Down, click Row 0, Shift+Down: chose %v (rebuilt %d times)", got, rebuilt)
 	}
+}
+
+// A right-click that chooses a row reports the new choice through the
+// list's Changed, as a click does.
+func TestRightClickChoiceIsChanged(t *testing.T) {
+	var sel Selection[int]
+	s := ListState{Selection: &sel}
+	changed := 0
+	tt := NewTester(func(c *Context) {
+		if List(c, &s, 5, func(i int) {
+			Textf(c, "Row %d", i).ContextMenu(func(m *Menu) { m.Item("Open") })
+		}).Grow(1).Changed() {
+			changed++
+		}
+	}, 300, 300)
+	tt.Frame()
+	if err := tt.RightClick("Row 3"); err != nil {
+		t.Fatal(err)
+	}
+	if got := chosenRows(&sel); !slices.Equal(got, []int{3}) || changed != 1 {
+		t.Fatalf("right-click Row 3: chose %v, changed %d times", got, changed)
+	}
+	tt.CloseMenu()
 }
