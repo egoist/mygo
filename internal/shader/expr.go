@@ -174,7 +174,7 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 			if lhst.Scalar() == shaderir.Uint && op2 != shaderir.LeftShift && op2 != shaderir.RightShift {
 				rkind = shaderir.Uint
 			}
-			if lhs[0].Const != nil {
+			if lhs[0].Const != nil && lhst.Main == shaderir.None {
 				switch lhs[0].Const.Kind() {
 				case gconstant.Float:
 					lhst = shaderir.Type{Main: shaderir.Float}
@@ -184,7 +184,7 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 					lhst = shaderir.Type{Main: shaderir.Bool}
 				}
 			}
-			if rhs[0].Const != nil {
+			if rhs[0].Const != nil && rhst.Main == shaderir.None {
 				switch rhs[0].Const.Kind() {
 				case gconstant.Float:
 					rhst = shaderir.Type{Main: shaderir.Float}
