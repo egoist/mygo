@@ -228,12 +228,37 @@ func TestWindowServicesOutliveBuild(t *testing.T) {
 		t.Fatal("services expired with the frame")
 	}
 	services.Invalidate()
-	if !tt.h.requested.Load() {
+	if !tt.FramePending() {
 		t.Fatal("services did not request a frame")
 	}
 	tt.rt.close()
 	if services.ReadClipboard() != "" {
 		t.Fatal("services reached a closed window")
+	}
+}
+
+// A view that asks for a frame as each one builds never settles: after
+// Frame, one is still pending, and none once it stops asking.
+func TestFramePending(t *testing.T) {
+	asking := false
+	tt := NewTester(func(c *Context) {
+		if asking {
+			c.Services().Invalidate()
+		}
+		Text(c, "Hello")
+	}, 100, 50)
+	if tt.FramePending() {
+		t.Fatal("a still view has a frame pending")
+	}
+	asking = true
+	tt.Frame()
+	if !tt.FramePending() {
+		t.Fatal("a view that never settles has no frame pending")
+	}
+	asking = false
+	tt.Frame()
+	if tt.FramePending() {
+		t.Error("a frame is pending after the view settled")
 	}
 }
 

@@ -309,6 +309,10 @@ func (t *Tester) SetDirection(d Direction) {
 // Frame renders another frame, as when the view's state changed.
 func (t *Tester) Frame() { t.h.requested.Store(true); t.settle() }
 
+// FramePending reports whether the view still asks for a frame, as one
+// that animates or never settles does after an input or Frame.
+func (t *Tester) FramePending() bool { return t.h.requested.Load() || len(t.h.later) > 0 }
+
 // Image returns the last frame.
 func (t *Tester) Image() *image.RGBA { return t.h.image() }
 
