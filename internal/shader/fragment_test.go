@@ -26,7 +26,7 @@ func TestFragment(t *testing.T) {
 	}
 	for ext, got := range map[string]string{
 		"metal": msl.Fragment(p, "shaderFragment"),
-		"glsl":  glsl.Fragment(p, "shaderFragment", "flipY"),
+		"glsl":  glsl.Fragment(p, "shaderFragment", "flipY", ""),
 		"hlsl":  hlsl.Fragment(p, "shaderFragment", 2, 6),
 	} {
 		name := filepath.Join("testdata", "mygo", "fragment.expected."+ext)

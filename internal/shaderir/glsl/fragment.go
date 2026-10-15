@@ -18,8 +18,10 @@ import (
 // The position counts its y from the top of the target, as the renderer
 // passes it; flipY is a boolean expression of the renderer's, true where
 // GL's window y counts up, as in the default framebuffer, which negates
-// dFdy, or "" where it never does.
-func Fragment(p *shaderir.Program, name, flipY string) string {
+// dFdy, or "" where it never does. With block, the uniforms are the
+// members of a uniform block so named, laid out as std140
+// (UniformLanes says how).
+func Fragment(p *shaderir.Program, name, flipY, block string) string {
 	lib, entry, funcs := p.FragmentLibrary()
 	if entry == nil {
 		return ""
@@ -27,8 +29,16 @@ func Fragment(p *shaderir.Program, name, flipY string) string {
 	c := &compileContext{version: GLSLVersionES300, projectionMatrixUniformIndex: -1, structNames: map[string]string{}, library: true, flipY: flipY}
 
 	lines := []string{"{{.Structs}}", ""}
-	for i, t := range lib.Uniforms {
-		lines = append(lines, fmt.Sprintf("uniform %s;", c.varDecl(lib, &t, fmt.Sprintf("U%d", i))))
+	if block != "" && len(lib.Uniforms) > 0 {
+		lines = append(lines, fmt.Sprintf("layout(std140) uniform %s {", block))
+		for i, t := range lib.Uniforms {
+			lines = append(lines, fmt.Sprintf("	%s;", c.varDecl(lib, &t, fmt.Sprintf("U%d", i))))
+		}
+		lines = append(lines, "};")
+	} else {
+		for i, t := range lib.Uniforms {
+			lines = append(lines, fmt.Sprintf("uniform %s;", c.varDecl(lib, &t, fmt.Sprintf("U%d", i))))
+		}
 	}
 	for i := 0; i < lib.TextureCount; i++ {
 		lines = append(lines, fmt.Sprintf("uniform sampler2D T%d;", i))
