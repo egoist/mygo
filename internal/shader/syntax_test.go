@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modified by the MyGo contributors: loops that are not constant.
+
 package shader_test
 
 import (
@@ -5059,8 +5061,9 @@ func TestSyntaxForRange(t *testing.T) {
 			err:  true,
 		},
 		{
+			// MyGo's loops may run to a count that is not a constant.
 			stmt: "n := 3; for i := range n { _ = i }",
-			err:  true,
+			err:  false,
 		},
 
 		{
@@ -7041,6 +7044,7 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	}
 }
 
+// MyGo's loops may start from any value of the counter's type.
 func TestSyntaxForNonConstantInitialValue(t *testing.T) {
 	cases := []struct {
 		src string
@@ -7056,7 +7060,7 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	}
 	return vec4(0)
 }`,
-			err: true,
+			err: false,
 		},
 		{
 			src: `package main
@@ -7068,7 +7072,7 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	}
 	return vec4(0)
 }`,
-			err: true,
+			err: false,
 		},
 		{
 			src: `package main
@@ -7080,7 +7084,7 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	}
 	return vec4(0)
 }`,
-			err: true,
+			err: false,
 		},
 		{
 			src: `package main
@@ -7092,7 +7096,7 @@ func Fragment(dstPos vec4, src0Pos vec2, color vec4) vec4 {
 	}
 	return vec4(0)
 }`,
-			err: true,
+			err: false,
 		},
 		{
 			src: `package main

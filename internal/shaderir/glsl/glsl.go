@@ -670,8 +670,12 @@ func (c *compileContext) block(p *shaderir.Program, topBlock, block *shaderir.Bl
 			}
 
 			t := s.ForVarType
-			init := constantToNumberLiteral(s.ForInit)
-			end := constantToNumberLiteral(s.ForEnd)
+			var init, end string
+			if len(s.Exprs) == 2 {
+				init, end = expr(&s.Exprs[0]), expr(&s.Exprs[1])
+			} else {
+				init, end = constantToNumberLiteral(s.ForInit), constantToNumberLiteral(s.ForEnd)
+			}
 			t0, t1 := typeString(&t)
 			lines = append(lines, fmt.Sprintf("%sfor (%s %s%s = %s; %s %s %s; %s) {", idt, t0, v, t1, init, v, op, end, delta))
 			lines = append(lines, c.block(p, topBlock, s.Blocks[0], level+1)...)

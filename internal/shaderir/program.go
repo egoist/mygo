@@ -107,6 +107,11 @@ type Block struct {
 	Stmts               []Stmt
 }
 
+// Stmt is a statement. A For loop's counter starts from ForInit and runs
+// while it compares with ForEnd as ForOp says, ForDelta at a time; where
+// the compiler made it, Exprs holds the start and the end as expressions,
+// which need not be constants (MyGo's), and ForInit and ForEnd are nil
+// for those that are not.
 type Stmt struct {
 	Type        StmtType
 	Exprs       []Expr

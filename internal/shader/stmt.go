@@ -985,7 +985,7 @@ func canAssign(lt *shaderir.Type, rt *shaderir.Type, rc gconstant.Value) bool {
 }
 
 func (cs *compileState) parseFor(block *block, fname string, stmt *ast.ForStmt, inParams, outParams []variable, returnType shaderir.Type, checkLocalVariableUsage bool) ([]shaderir.Stmt, bool) {
-	msg := "for-statement must follow this format: for (varname) := (constant); (varname) (op) (constant); (varname) (op) (constant) { ..."
+	msg := "for-statement must follow this format: for (varname) := (expression); (varname) (op) (expression); (varname) (op) (constant) { ..."
 	if stmt.Init == nil {
 		cs.addError(stmt.Pos(), msg)
 		return nil, false
@@ -1022,10 +1022,6 @@ func (cs *compileState) parseFor(block *block, fname string, stmt *ast.ForStmt, 
 		return nil, false
 	}
 	varidx := ss[0].Exprs[0].Index
-	if ss[0].Exprs[1].Const == nil {
-		cs.addError(stmt.Init.Pos(), msg)
-		return nil, false
-	}
 
 	if len(pseudoBlock.vars) != 1 {
 		cs.addError(stmt.Init.Pos(), msg)
@@ -1033,7 +1029,10 @@ func (cs *compileState) parseFor(block *block, fname string, stmt *ast.ForStmt, 
 	}
 
 	vartype := pseudoBlock.vars[0].typ
-	init := ss[0].Exprs[1].Const
+	// The loop starts from an expression and runs to another, evaluated
+	// before each iteration, as MyGo's renderers' shading languages allow.
+	initExpr := ss[0].Exprs[1]
+	init := initExpr.Const
 
 	exprs, ts, ss, ok := cs.parseExpr(pseudoBlock, fname, stmt.Cond, true)
 	if !ok {
@@ -1068,11 +1067,8 @@ func (cs *compileState) parseFor(block *block, fname string, stmt *ast.ForStmt, 
 		cs.addError(stmt.Cond.Pos(), msg)
 		return nil, false
 	}
-	if exprs[0].Exprs[1].Const == nil {
-		cs.addError(stmt.Cond.Pos(), msg)
-		return nil, false
-	}
-	end := exprs[0].Exprs[1].Const
+	endExpr := exprs[0].Exprs[1]
+	end := endExpr.Const
 
 	postSs, ok := cs.parseStmt(pseudoBlock, fname, stmt.Post, inParams, outParams, returnType)
 	if !ok {
@@ -1143,6 +1139,7 @@ func (cs *compileState) parseFor(block *block, fname string, stmt *ast.ForStmt, 
 	return []shaderir.Stmt{
 		{
 			Type:        shaderir.For,
+			Exprs:       []shaderir.Expr{initExpr, endExpr},
 			Blocks:      []*shaderir.Block{bodyir},
 			ForVarType:  vartype,
 			ForVarIndex: varidx,
@@ -1189,6 +1186,7 @@ func (cs *compileState) parseForRange(block *block, fname string, stmt *ast.Rang
 	}
 
 	var end gconstant.Value
+	var endExpr shaderir.Expr
 	var elmType shaderir.Type
 	switch t.Main {
 	case shaderir.Int:
@@ -1197,8 +1195,9 @@ func (cs *compileState) parseForRange(block *block, fname string, stmt *ast.Rang
 			return nil, false
 		}
 		if exprs[0].Const == nil {
-			cs.addError(stmt.X.Pos(), "a range expression must be a constant")
-			return nil, false
+			// The count is evaluated before each iteration.
+			endExpr = exprs[0]
+			break
 		}
 		end = gconstant.ToInt(exprs[0].Const)
 	case shaderir.Array:
@@ -1309,9 +1308,13 @@ func (cs *compileState) parseForRange(block *block, fname string, stmt *ast.Rang
 		block.vars = append(block.vars, value)
 	}
 
+	if end != nil {
+		endExpr = shaderir.Expr{Type: shaderir.NumberExpr, Const: end}
+	}
 	return []shaderir.Stmt{
 		{
 			Type:        shaderir.For,
+			Exprs:       []shaderir.Expr{{Type: shaderir.NumberExpr, Const: gconstant.MakeInt64(0)}, endExpr},
 			Blocks:      []*shaderir.Block{bodyir},
 			ForVarType:  vartype,
 			ForVarIndex: varidx,
