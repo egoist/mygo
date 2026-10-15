@@ -57,7 +57,8 @@ var shaderEffectSource string
 // ShaderSource returns the source of the library of a shader of package
 // ui/shader, whose code src ends with shaderMain: as an effect's, with a
 // tail of its own (shader_ps), which reads the shader's uniforms and
-// images.
+// images. The shader's effect holds it whole (scene.Effect's Metal), so
+// that apps drawing no shader do not carry the tail.
 func ShaderSource(src string) string {
 	head, _, _ := strings.Cut(effectSource, "\n// effect\n")
 	return "#define EFFECT\n" + shaderSource + "\n" + head + "\n" + src + "\n" + shaderEffectSource
@@ -747,7 +748,7 @@ func (r *Renderer) effectPipeline(e *scene.Effect) id {
 	f.effects[e] = p
 	src, fn := EffectSource(e.Metal.Source), "effect_ps"
 	if e.Shader != nil {
-		src, fn = ShaderSource(e.Metal.Source), "shader_ps"
+		src, fn = e.Metal.Source, "shader_ps" // ShaderSource's
 	}
 	var lib id
 	if len(e.Metal.Compiled) > 0 && e.Metal.Sum == gpu.SourceSum(src) {

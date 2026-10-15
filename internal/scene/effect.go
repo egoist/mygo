@@ -49,8 +49,9 @@ type Effect struct {
 	// draws: its code is the shader's (the Fragment of package shaderir's
 	// backends, and a function calling it), which reads the words of
 	// EffectOp.Uniforms in a buffer laid out as Shader says, and the images
-	// of EffectOp.Images. Metal's calls it from a tail of its own
-	// (ShaderSource in package metal), the others' from the effect's.
+	// of EffectOp.Images. Metal's is a whole library, with a tail of its
+	// own (ShaderSource in package metal); the others' go between the
+	// effects' head and tail.
 	Shader *ShaderLayout
 }
 
