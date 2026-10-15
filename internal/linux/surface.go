@@ -118,6 +118,9 @@ func loadSurface() {
 }
 
 type surface struct {
+	// buttonEvents counts the presses and releases of buttons the surface
+	// handled, which tests wait for (TestButtonEvents).
+	buttonEvents      int
 	clientComposition platform.InputComposition
 	w                 *window
 	area              ptr // GtkGLArea, or GtkDrawingArea
@@ -705,6 +708,7 @@ func initSurfaceCallbacks() {
 		if typ != 4 && typ != 7 { // GDK_BUTTON_PRESS, GDK_BUTTON_RELEASE: GTK's own double click events add nothing
 			return true
 		}
+		s.buttonEvents++
 		n, mods := field[uint32](event, 52), gdkMods(field[uint32](event, 48))
 		if n == 8 || n == 9 {
 			// The side buttons go back and forward, as keys do.

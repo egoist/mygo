@@ -42,6 +42,16 @@ func surfaceByHandle(handle uintptr) *surface {
 	return nil
 }
 
+// TestButtonEvents returns how many presses and releases of buttons a
+// window showing native UI handled: XTEST's events reach GTK after the
+// hooks sending them return, so tests wait for them to count.
+func TestButtonEvents(handle uintptr) int {
+	if s := surfaceByHandle(handle); s != nil {
+		return s.buttonEvents
+	}
+	return 0
+}
+
 // TestSurrounding returns the text around the caret that input methods get
 // from a window showing native UI, and the caret's offset in runes. GTK's
 // own input method reads it back: others, as fcitx5's, keep it to

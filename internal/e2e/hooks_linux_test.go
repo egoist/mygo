@@ -21,26 +21,53 @@ func pressShortcut(string, bool) (bool, bool) { return false, false }
 func endSheet(*mygo.Window) (bool, bool) { return false, false }
 
 // Clicks reach windows showing native UI only, through XTEST.
-func click(w *mygo.Window, x, y float64) (ok bool) {
+func click(w *mygo.Window, x, y float64) bool {
+	return pointer(w, func() bool { return linux.TestClickSurface(w.NativeHandle(), x, y) })
+}
+
+// pointer sends a press and a release of a button through XTEST with send,
+// and waits until the window handled both: XTEST's events reach GTK only
+// after send returns, so a test acting at once acts before them, as a
+// copy before the drag selecting what it copies.
+func pointer(w *mygo.Window, send func() bool) (ok bool) {
+	var before int
+	mygo.RunOnMain(func() {
+		before = linux.TestButtonEvents(w.NativeHandle())
+		ok = send()
+	})
+	if !ok {
+		return false
+	}
+	// A grab elsewhere may take them, as a flyout's: then waiting ends.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var n int
+		mygo.RunOnMain(func() { n = linux.TestButtonEvents(w.NativeHandle()) })
+		if n >= before+2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return true
+}
+
+// appClick is click, already through XTEST, without waiting for the
+// window to handle it: the grab of a focusable flyout takes it.
+func appClick(w *mygo.Window, x, y float64) (ok bool) {
 	mygo.RunOnMain(func() { ok = linux.TestClickSurface(w.NativeHandle(), x, y) })
 	return ok
 }
-
-// appClick is click, already through XTEST.
-func appClick(w *mygo.Window, x, y float64) bool { return click(w, x, y) }
 
 // heldAppClick is appClick: the grab of a focusable flyout eats the press
 // that closes it, however long it is held.
 func heldAppClick(w *mygo.Window, x, y float64) bool { return appClick(w, x, y) }
 
-func sideButton(w *mygo.Window, back bool) (ok bool) {
-	mygo.RunOnMain(func() { ok = linux.TestSideButton(w.NativeHandle(), back) })
-	return ok
+func sideButton(w *mygo.Window, back bool) bool {
+	return pointer(w, func() bool { return linux.TestSideButton(w.NativeHandle(), back) })
 }
 
-func drag(w *mygo.Window, points [][2]float64) (ok bool) {
-	mygo.RunOnMain(func() { ok = linux.TestDragSurface(w.NativeHandle(), points) })
-	return ok
+func drag(w *mygo.Window, points [][2]float64) bool {
+	return pointer(w, func() bool { return linux.TestDragSurface(w.NativeHandle(), points) })
 }
 
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
@@ -270,9 +297,8 @@ func surfaceOnScreen(w *mygo.Window) (png []byte, supported bool) {
 
 // rightClick clicks (x, y) in a window showing native UI with the
 // secondary button, through XTEST.
-func rightClick(w *mygo.Window, x, y float64) (ok bool) {
-	mygo.RunOnMain(func() { ok = linux.TestRightClickSurface(w.NativeHandle(), x, y) })
-	return ok
+func rightClick(w *mygo.Window, x, y float64) bool {
+	return pointer(w, func() bool { return linux.TestRightClickSurface(w.NativeHandle(), x, y) })
 }
 
 // popupMenus returns the labels of the items of the context menus shown.
