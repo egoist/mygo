@@ -101,6 +101,21 @@ func hasExtension(name string) bool {
 
 func versionString() string { return cur.v.Call("getParameter", glVersion).String() }
 
+// rendererString names the context's renderer: as the browser names it
+// (Firefox, the GPU's, sanitized), or, where that is WebGL's own name
+// (Chrome and Safari), as the GPU's driver does, should the browser tell
+// (WEBGL_debug_renderer_info, which Firefox deprecates).
+func rendererString() string {
+	const unmaskedRenderer = 0x9246
+	name := cur.v.Call("getParameter", glRenderer).String()
+	if name == "WebKit WebGL" && !cur.v.Call("getExtension", "WEBGL_debug_renderer_info").IsNull() {
+		if v := cur.v.Call("getParameter", unmaskedRenderer); v.Type() == js.TypeString {
+			return v.String()
+		}
+	}
+	return name
+}
+
 func call(name string, args ...any) js.Value { return cur.v.Call(name, args...) }
 
 // name numbers a new WebGL object.

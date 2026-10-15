@@ -134,5 +134,19 @@ box.Draw(func(p *ui.Painter, r ui.Rect) {
 shaders once, as package variables with `MustCompile`. A shader costs
 little to draw on a GPU, whatever it computes per pixel; on the CPU (the
 renderer of last resort, and `ui.Tester`) it runs interpreted, a few
-microseconds a pixel. `Draw` panics on a uniform set to a value that is
+microseconds a pixel: seconds for a window. A shader covering much of the
+window can ask `p.Accelerated()`, which is false there and where the GPU's
+renderer draws on the CPU (WARP, llvmpipe, SwiftShader), and draw less,
+or nothing:
+
+```go
+ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {
+	if !p.Accelerated() {
+		return // a backdrop, which the window does without
+	}
+	backdrop.Draw(p, r, shader.Options{})
+})
+```
+
+`Draw` panics on a uniform set to a value that is
 not a number.

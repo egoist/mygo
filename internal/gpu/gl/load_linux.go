@@ -216,6 +216,9 @@ func hasExtension(name string) bool { return epoxyHasExtension(name) }
 // versionString describes the current context's version, for errors.
 func versionString() string { return goString(glGetString(glVersion)) }
 
+// rendererString names the current context's renderer.
+func rendererString() string { return goString(glGetString(glRenderer)) }
+
 // setShaderSource sets the source of a shader.
 func setShaderSource(s uint32, src string) {
 	b := append([]byte(src), 0)

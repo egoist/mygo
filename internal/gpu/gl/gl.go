@@ -118,7 +118,9 @@ type Renderer struct {
 	es      bool
 	// dual tells that the context blends with a second color from the
 	// shader (OpenGL 3.3, or GLES with EXT_blend_func_extended).
-	dual     bool
+	dual bool
+	// software tells that the context draws on the CPU (Software).
+	software bool
 	maxSize  int
 	program  uint32
 	vao, buf uint32
@@ -196,6 +198,7 @@ func (r *Renderer) init() error {
 	glGetIntegerv(glMaxTextureSize, &size)
 	r.maxSize = int(size)
 	r.dual = !r.es || hasExtension("GL_EXT_blend_func_extended")
+	r.software = softwareRenderer(rendererString())
 	header := "#version 330 core\n#define DUAL\n"
 	if r.es {
 		header = "#version 300 es\n"
@@ -869,6 +872,24 @@ func (r *Renderer) forget() {
 	}
 	clear(r.canvases)
 	clear(r.canvasTex)
+}
+
+// Software reports whether the context draws on the CPU, as Mesa's
+// llvmpipe (where MYGO_GPU=1 has Linux draw with OpenGL anyway) and the
+// SwiftShader of browsers without a GPU, for ui's Painter.Accelerated.
+func (r *Renderer) Software() bool { return r.software }
+
+// softwareRenderer reports whether a context's renderer string names a
+// renderer drawing on the CPU (internal/linux's softwareGL, which picks
+// whether surfaces draw with OpenGL, knows Mesa's).
+func softwareRenderer(name string) bool {
+	n := strings.ToLower(name)
+	for _, s := range []string{"llvmpipe", "softpipe", "swrast", "software rasterizer", "swiftshader", "basic render driver"} {
+		if strings.Contains(n, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // Release deletes the renderer's objects when its context is current, and
