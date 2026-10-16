@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -358,12 +359,17 @@ func codesignArgs(path, identity, entitlements string, production bool) []string
 	return append(args, path)
 }
 
+var errProfileAdHoc = errors.New("macos.provisioningProfile needs a signing identity, not ad-hoc signing: set macos.signingIdentity or pass -sign")
+
 // codesign signs a bundle, and the code among its resources. Signing needs
 // macOS: elsewhere only the executable's ad-hoc signature from the Go linker
 // remains.
 func codesign(c *Config, path, identity string, production bool) error {
 	if c.MacOS.ProvisioningProfile != "" && identity == "-" {
-		return fmt.Errorf("macos.provisioningProfile needs a signing identity, not ad-hoc signing: set macos.signingIdentity or pass -sign")
+		if production {
+			return errProfileAdHoc
+		}
+		return fmt.Errorf(`macos.provisioningProfile needs a signing identity, not ad-hoc signing: pass -sign, or leave the profile out when the command is "dev"`)
 	}
 	if runtime.GOOS != "darwin" {
 		if identity != "-" {

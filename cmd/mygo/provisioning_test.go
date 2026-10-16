@@ -99,7 +99,11 @@ func TestProvisioningProfileNeedsSigningIdentity(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"macos":{"provisioningProfile":"App.provisionprofile"}}`), c); err != nil {
 		t.Fatal(err)
 	}
-	if err := codesign(c, t.TempDir(), "-", false); err == nil || !strings.Contains(err.Error(), "signing identity") {
+	if err := codesign(c, t.TempDir(), "-", true); err != errProfileAdHoc {
 		t.Fatalf("ad-hoc signing with a profile: %v", err)
+	}
+	// dev does not read macos.signingIdentity.
+	if err := codesign(c, t.TempDir(), "-", false); err == nil || !strings.Contains(err.Error(), "-sign") || strings.Contains(err.Error(), "macos.signingIdentity") {
+		t.Fatalf("ad-hoc development signing with a profile: %v", err)
 	}
 }

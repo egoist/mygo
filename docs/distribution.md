@@ -336,8 +336,25 @@ The profile must match the signing certificate, bundle identifier and
 entitlements, including the application and team identifiers. MyGo embeds
 it as supplied; it does not create profiles or derive entitlements from
 them. Apple validates their authorization when the app runs. A profile
-cannot be used with ad-hoc signing (`-sign -`); `dev` needs `-sign` with a
-real identity and a profile for its `<identifier>.dev` identifier. It
+cannot be used with ad-hoc signing (`-sign -`). `dev` signs ad hoc unless
+it is given `-sign` (it does not use `macos.signingIdentity`), and its app's
+identifier is `<identifier>.dev`, which the app's profile does not
+authorize: leave the profile and the restricted entitlements out of
+development builds with a [computed configuration](configuration.md#computed-configuration),
+
+```ts
+export default defineConfig(({ command }) => ({
+  macos: {
+    signingIdentity: process.env.MACOS_SIGNING_IDENTITY,
+    ...(command === "build" && {
+      provisioningProfile: process.env.MACOS_PROVISIONING_PROFILE,
+      entitlements: "entitlements.plist",
+    }),
+  },
+}));
+```
+
+or pass `-sign` and give `dev` a profile for `<identifier>.dev`. It
 watches the profile and rebuilds when it changes.
 
 Keep profiles out of version control and provide their paths through the
