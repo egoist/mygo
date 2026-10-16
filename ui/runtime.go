@@ -1057,7 +1057,13 @@ func (rt *engine) endPass() {
 		}
 		mr.later = 0
 	}
-	rt.menu.chosen = 0
+	// A choice the view made after the element whose menu it is was built
+	// (ShownMenu.Choose) is for the next pass.
+	if rt.menu.chosenLate {
+		rt.menu.chosenLate = false
+	} else {
+		rt.menu.chosen = 0
+	}
 	// A shortcut the view did not ask for again, as it changed: what
 	// this frame built may take the key (settleKeys).
 	rt.unrouted = append(rt.unrouted, rt.delivered...)
