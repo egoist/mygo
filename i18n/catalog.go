@@ -52,6 +52,15 @@ type Catalog struct {
 	textMu       sync.RWMutex
 	texts        map[textKey]string
 	textsVersion uint64
+
+	found      sync.Map     // textKey -> *foundMessage, kept by lookup
+	foundCount atomic.Int32 // what lookup stored in found
+}
+
+type foundMessage struct {
+	version uint64
+	m       *Message
+	lang    string
 }
 
 type textKey struct{ locale, key string }
@@ -279,8 +288,25 @@ func (c *Catalog) Message(locale, key string) (m *Message, lang string, ok bool)
 }
 
 // lookup finds the message of key for locale among the catalog's and,
-// for a library's, the overrides of the registered catalogs.
+// for a library's, the overrides of the registered catalogs, kept until
+// the registry changes.
 func (c *Catalog) lookup(locale, key string) (*Message, string, bool) {
+	k, version := textKey{locale, key}, registry.version.Load()
+	v, _ := c.found.Load(k)
+	if f, _ := v.(*foundMessage); f != nil && f.version == version {
+		return f.m, f.lang, f.m != nil
+	}
+	m, lang, ok := c.find(locale, key)
+	if c.foundCount.Add(1) > 4096 { // as texts, keep it from growing
+		c.found.Clear()
+		c.foundCount.Store(0)
+	}
+	c.found.Store(k, &foundMessage{version, m, lang})
+	return m, lang, ok
+}
+
+// find is lookup without its cache.
+func (c *Catalog) find(locale, key string) (*Message, string, bool) {
 	sources := c.sources()
 	for _, tag := range c.candidates(locale, sources) {
 		for _, s := range sources {
