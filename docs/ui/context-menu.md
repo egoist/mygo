@@ -168,3 +168,25 @@ m.Popup(func(panel ui.Element) {
 	}
 })
 ```
+
+## Menus the app draws
+
+`DrawnMenu` has a window hand its popup menus to the app instead of
+showing the system's, in each frame whose view calls it: those of
+`ContextMenu` and menu buttons, a table's, and the editing menus of text
+inputs and editors. The menu bar's and the tray's stay the system's. It
+returns the menu open: its items, of a `Kind` (an item, a separator, a
+checkbox or radio item, a submenu), and the `Anchor` it opens from, a menu
+button's box or the point a context menu opens at. The app draws it in its
+theme, takes the keys and the focus as the system's menu would, and calls
+`Choose` with the item chosen or `Close` once dismissed. The functions that
+build menus do not change:
+
+```go
+if m, ok := ui.DrawnMenu(c); ok {
+	drawMenu(c, m) // m.Items from m.Anchor; m.Choose(id) or m.Close()
+}
+```
+
+A `Tester`'s `Menu`, `ChooseMenuItem` and `CloseMenu` work on such menus
+as on the system's.
