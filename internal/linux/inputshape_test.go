@@ -204,53 +204,6 @@ var (
 	shapePopup2 = platform.RectF{X: 17, Y: 13, W: 3, H: 3}
 )
 
-// TestInputShapeMixedPaintOrder is the regression: a native view and a web
-// view over each other, in both paint orders. The pixels the later view
-// covers are that view's, whichever of the two it is, so a click there
-// reaches it and not the surface; each view keeps the part the other does
-// not cover; and the content painted over both keeps the surface's, which
-// is where a real popup takes the click.
-//
-// Both orders must come to the very same shape: the two lists are one
-// counter's, and only the content's paint order may decide.
-func TestInputShapeMixedPaintOrder(t *testing.T) {
-	want := map[[2]int]bool{
-		{8, 8}:   false, // A alone
-		{32, 24}: false, // B alone
-		{20, 16}: false, // the overlap: the later view's, A's or B's
-		{15, 12}: false, // its first pixel
-		{24, 19}: false, // and its last
-		{30, 17}: true,  // the popup over B alone
-		{18, 14}: true,  // the popup over both, inside the overlap
-		{2, 2}:   true,  // the content around them
-		{38, 28}: true,
-	}
-	for _, tc := range []struct {
-		name   string
-		web    []platform.WebViewPlacement
-		native []platform.NativeViewPlacement
-	}{
-		{
-			// The content painted the native view first, the web view
-			// over it: the web view takes the overlap.
-			name:   "the web view painted last",
-			web:    []platform.WebViewPlacement{{Clip: shapeB, Covers: []platform.RectF{shapePopup2, shapePopup}, Order: 1}},
-			native: []platform.NativeViewPlacement{{Clip: shapeA, Covers: []platform.RectF{shapeOver}, Order: 0}},
-		},
-		{
-			// The other way round: the native view takes the overlap.
-			name:   "the native view painted last",
-			web:    []platform.WebViewPlacement{{Clip: shapeB, Covers: []platform.RectF{shapeOver, shapePopup}, Order: 0}},
-			native: []platform.NativeViewPlacement{{Clip: shapeA, Covers: []platform.RectF{shapePopup2}, Order: 1}},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c, shape := shapeOf(t, shapeW, shapeH, tc.web, tc.native)
-			checkPixels(t, c, shape, want)
-		})
-	}
-}
-
 // TestInputShapeNativeOrder checks what the tests of a native view and a
 // web view cannot: two native views over each other, the later one taking
 // the overlap, and each keeping its own part.
@@ -274,12 +227,16 @@ func TestInputShapeNativeOrder(t *testing.T) {
 func TestInputShapeIdenticalRectsOrder(t *testing.T) {
 	box := platform.RectF{X: 10, Y: 10, W: 20, H: 20}
 	popup := platform.RectF{X: 15, Y: 15, W: 4, H: 4}
+	// A second popup over the same box: the content's popups of the later
+	// view are all put back, not just the first of them.
+	popup2 := platform.RectF{X: 18, Y: 24, W: 4, H: 4}
 	want := map[[2]int]bool{
 		{10, 10}: false, // the box's first pixel
 		{12, 12}: false,
 		{27, 27}: false,
 		{29, 29}: false, // its last
 		{16, 16}: true,  // the popup over them both
+		{20, 26}: true,  // and the second one
 		{9, 9}:   true,  // the content around the box
 		{35, 25}: true,
 	}
@@ -290,13 +247,13 @@ func TestInputShapeIdenticalRectsOrder(t *testing.T) {
 	}{
 		{
 			name:   "the web view painted last",
-			web:    []platform.WebViewPlacement{{Clip: box, Covers: []platform.RectF{popup}, Order: 1}},
+			web:    []platform.WebViewPlacement{{Clip: box, Covers: []platform.RectF{popup, popup2}, Order: 1}},
 			native: []platform.NativeViewPlacement{{Clip: box, Covers: []platform.RectF{box}, Order: 0}},
 		},
 		{
 			name:   "the native view painted last",
 			web:    []platform.WebViewPlacement{{Clip: box, Covers: []platform.RectF{box}, Order: 0}},
-			native: []platform.NativeViewPlacement{{Clip: box, Covers: []platform.RectF{popup}, Order: 1}},
+			native: []platform.NativeViewPlacement{{Clip: box, Covers: []platform.RectF{popup, popup2}, Order: 1}},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

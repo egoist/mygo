@@ -494,7 +494,7 @@ func (h *nativeViewSurface) NewNativeView(make func(platform.NativeViewHost) (pl
 	}
 	if view == nil {
 		h.dropNativeView(v)
-		return nil, nil
+		return nil, errors.New("mygo: windows: the native view's factory made none")
 	}
 	if w.closed || w.destroying || s.hwnd == 0 || !isWindow(s.hwnd) {
 		// The window closed while the app made its view (its factory may

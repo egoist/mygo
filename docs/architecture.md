@@ -2849,73 +2849,39 @@ either.
   guarantees, and
   [`examples/native-view-hosting`](../examples/native-view-hosting/README.md)
   for the platform code to copy.
-  - The factory runs once, on the main thread, with a `NativeViewHost`:
-    `Platform` (`"darwin"`, `"windows"` or `"linux"`), `Parent` (the handle
-    of the container MyGo made for this view and lends it — an `NSView*`, an
-    `HWND`, a `GtkWidget*`: framework-owned for the view's lifetime, and not
-    the app's to take over or release), `Scale` (device pixels per DIP
-    **when the factory ran** — an initial snapshot, not a live value: a
-    platform that needs the scale now asks for it, as Windows asks
-    `GetDpiForWindow`, and keeps this only as a fallback), and the
-    `Focused`, `TabOut(back)` and `PointerDown(x, y)` callbacks. They are
-    set before the factory runs and are safe from any goroutine, but a view
-    is not live until the factory returns and MyGo has hosted the handle, so
-    a report that arrives before then reaches no window.
-    `PointerDown` is in logical DIPs from the top-left of the root MyGo
-    hosts — the view the factory returned, not the platform's own event
-    coordinates (not the coordinates of the `GdkWindow` that delivered a GTK
-    event: a windowless widget's private text area is inset from the widget by
-    its CSS border and padding, so that window's origin in the common window
-    is translated against the hosted view's, both already logical; not a
-    Windows client-area point, which is strictly inside the window rectangle
-    MyGo placed the control's window at, so the client area's screen origin is
-    translated against the frame's and divided by the DPI the window has now;
-    not a document point inside an `NSScrollView`, which carries the
-    document's scroll offset) — and the window moves it into the content's
-    space with the frame the view shows in.
-  - The factory returns the app's `NativeViewAdapter` (`NativeHandle`,
-    `Focus(back)`, `Destroy`), or an error; a factory that fails after
-    making its control returns it with the error, and MyGo destroys it,
-    once. The app owns the native object. MyGo reads `NativeHandle` once,
-    wraps the adapter in a view of its own that answers that handle, sets
-    the control to the element's frame (it positions and clips, it does not
-    lay out), shows the part the clips around the element leave, and hides
-    the view where the frame does not build its element: hidden keeps
-    everything (the text, the caret, the selection, the scroll), and only
-    `Destroy`, or the window closing, releases the control, with the app's
-    `Destroy` called once on the main thread. `NativeHandle` answers 0 and
-    `ui.NativeView` shows nothing afterward. A view belongs to its window
-    and has one placement — one element per view instance; building the
-    element twice for one view logs it once and shows the first, and a
-    `ui.Tester` panics there. `NewNativeView`, `Destroy` and `Focus` are
-    safe from any goroutine. Constructor-created lifecycle state owns the
-    window's views and registers the cleanup with the first of them, called
-    as the window closes. An element is not the control: when siblings before
-    it are added, removed or reordered, key the element
-    ([Keys](ui/views.md#keys)) so it follows the view rather than the
-    position, while the text, the caret, the selection and the scroll stay in
-    the platform's object and outlive the element.
-  - **The handle is the root MyGo sets the element's frame on**, so the
-    control must honor that frame: one that sizes itself to its own content
-    is not that root (an AppKit text view as a root answers the element's
-    box with its content's height, about 14 DIPs when it is empty), so wrap
-    it in a container that honors the frame (the example's `NSScrollView`),
-    or turn the root's self-sizing off before its first layout. The control
-    must be fresh, in the container the factory was given, and never one
-    that is already in another window or another parent: macOS and Linux
+  - The factory, the host it hears (`Parent`, the framework-owned container
+    MyGo made for this view and lends it; `Scale`, the window's scale when it
+    ran, kept only as a fallback; and the `Focused`, `TabOut`, `PointerDown`
+    callbacks, whose point is in logical DIPs from the top-left of the root
+    MyGo hosts whatever the platform's own event carries), the adapter MyGo
+    hosts (`NativeHandle`, `Focus`, `Destroy`), and the lifecycle — a report
+    that arrives before the factory returned reaches no window, an element is
+    not the control, hidden keeps the control's text, caret, selection and
+    scroll, one placement per view instance, `Destroy` or the window closing
+    releases the control once, and the calls are safe from any goroutine — are
+    the [native views guide](native-views.md)'s. Constructor lifecycle state
+    owns the window's views and registers that cleanup with the first of them,
+    called as the window closes.
+  - **The handle is the root MyGo sets the element's frame on**, so it must
+    honor that frame: a control that sizes itself to its own content is not
+    that root (an AppKit text view as a root answers the element's box with
+    its content's height, about 14 DIPs when it is empty), and a control
+    nested under an intermediate window would be placed at that window's
+    offset. The control must be fresh, in the container the factory was given
+    and never one already in another window or another parent: macOS and Linux
     refuse such a handle, Linux also refuses the controls it cannot clip (a
     `GtkGLArea`, a `GtkSocket`, a `GtkPlug`, a `GtkWindow`, a widget of
-    MyGo's own), and on Windows the handle must be a **direct child** of
-    `Parent` — `checkNativeChild` reads `GetParent`, not the
-    `GWLP_HWNDPARENT` word, since a control nested under an intermediate
-    window would be placed at that window's offset — while descendants
-    inside the returned root are the control's own business.
+    MyGo's own), and on Windows `checkNativeChild` reads `GetParent` rather
+    than the `GWLP_HWNDPARENT` word to hold the view to a **direct child** of
+    `Parent`, while descendants inside the returned root are the control's own
+    business.
   - **Which surface hosts a view is core policy, and the backends opt in.**
     `nativeViewSurfaceFor(conn.Surface)` is a small build-tagged constructor
     per platform: it asks the backend's provider (`darwin.NativeViewSurface`,
     and the same in `internal/linux` and `internal/windows`) and otherwise
     falls back to the optional `platform.NativeViewSurface` interface, which
-    the fake surface of the core's own tests and a custom surface implement.
+    the fake surface of the core's own tests implements and which is the
+    provider itself on the js and unsupported platforms.
     A surface with neither hosts nothing, and `NewNativeView` reports an
     error matching `errors.ErrUnsupported`. A separate optional provider
     wrapper holds the provider, keeping the native factory methods off the
@@ -2955,9 +2921,9 @@ either.
     control at its offset from the clip and at its frame — so a scrolling
     clip moves the control without resizing it — with the clip's region
     leaving out the boxes a web view painted after the view shows, so the
-    page shows and takes the pointer there. A cover window above every clip
-    (`WS_EX_TRANSPARENT`, its region the covers) sends the presses where the
-    content painted over a view on to the surface, so a popup over the
+    page shows and takes the pointer there. A cover window above every clip,
+    drawing nothing and with its region the covers, sends the presses where
+    the content painted over a view on to the surface, so a popup over the
     control is the content's. The surface composes through DirectComposition
     while it hosts a view; a window without it fails the creation with a
     message saying so.

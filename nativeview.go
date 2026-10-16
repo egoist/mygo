@@ -235,11 +235,12 @@ func (nativeViewUnsupportedError) Is(target error) bool {
 }
 
 // nativeViewSurfaceFallback returns s as a surface that hosts native views
-// through the optional interface (platform.NativeViewSurface), for surfaces
-// whose backend reaches it that way rather than through an always-linked
-// provider: the fake surface of the core's own tests, and a custom surface an
-// app's tests show native views with. It reports nil for a surface that hosts
-// no native view.
+// through the optional interface (platform.NativeViewSurface), for the
+// surfaces whose backend reaches the interface that way rather than through
+// an always-linked provider: the fake surface the core's own tests show
+// native views with, and the surfaces of the platforms whose provider is the
+// interface itself (nativeview_backend_js.go, nativeview_backend_other.go).
+// It reports nil for a surface that hosts no native view.
 func nativeViewSurfaceFallback(s platform.Surface) platform.NativeViewSurface {
 	if s == nil {
 		return nil
@@ -380,23 +381,10 @@ func newNativeView(w *Window, opts NativeViewOptions) (*NativeView, error) {
 		return nil, fmt.Errorf("mygo: cannot create a native view: %w", err)
 	}
 	if n == nil || adapter == nil {
-		// The platform attached no view, or one its factory did not make:
-		// mygo has nothing to show, and destroys what the platform holds.
-		v.fail()
-		if n != nil {
-			n.Destroy()
-		} else if view != nil {
-			view.Destroy()
-		}
-		return nil, errNativeViewNoAdapter
-	}
-	if err := nativeViewOwner(w, conn); err != nil {
-		// The window closed, or its content went away, while the platform
-		// attached the view: the view is destroyed here, once, as its own
-		// window's cleanup does not know it yet.
-		v.fail()
-		n.Destroy()
-		return nil, err
+		// The platform's surface returns the view its factory made, or an
+		// error; it holds no app code of its own after the factory ran, so a
+		// view it did not make is a backend bug, not a state an app reaches.
+		panic("mygo: the " + backend().Name() + " backend attached no view for the native view's factory")
 	}
 	v.native, v.provider, v.adapter, v.handle, v.host = n, ns, adapter, handle, host
 

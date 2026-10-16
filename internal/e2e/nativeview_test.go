@@ -397,6 +397,40 @@ func TestNativeViewShowsRealControl(t *testing.T) {
 	eventually(t, "the control's text", func() bool { return n.fixture.Text() == "hello" })
 }
 
+// TestNativeViewSurvivesCompositionLoss takes the GPU device away from the
+// DirectComposition device of the window's pixels, which the surface of a
+// window that hosts a native view goes through: the hosting of the control is
+// not part of it — the platform does not build the clip it hosts the control
+// in on the device — so the control is still the one the content placed, in
+// the same box, and the content can still take it away and show it again.
+// Whether the frames of the window come back is the ui's own renderer's
+// business (it presents these windows through DirectComposition itself).
+func TestNativeViewSurvivesCompositionLoss(t *testing.T) {
+	n := newNativeViewTest(t)
+	before, _ := n.fixture.Box()
+	if !loseComposition(true) {
+		t.Skip("no DirectComposition device to take away")
+	}
+	eventually(t, "the control still placed", n.shows)
+	after, visible := n.fixture.Box()
+	if !nvSame(before, after) {
+		t.Errorf("the control moved from %+v to %+v when the device went away", before, after)
+	}
+	if !nvSame(after, visible) {
+		t.Errorf("the control shows %+v of its box %+v after the device went away", visible, after)
+	}
+	// The content still places it: hiding it and showing it again works.
+	n.shown.Store(false)
+	n.w.Update(func() {})
+	eventually(t, "the control hidden after the device went away", func() bool {
+		_, visible := n.fixture.Box()
+		return visible.Width == 0 && visible.Height == 0
+	})
+	n.shown.Store(true)
+	n.w.Update(func() {})
+	eventually(t, "the control showing again after the device went away", n.shows)
+}
+
 // TestNativeViewClickGivesItTheKeyboard clicks the control: the window's
 // own event routing takes the click to the real control, which takes the
 // keyboard there and reports its focus and the press to the content.
@@ -670,48 +704,41 @@ func TestNativeViewResizeAndPartialClip(t *testing.T) {
 	})
 }
 
-// TestNativeViewDestroyIsOnce destroys the view from the app: the control's
-// own Destroy runs exactly once, and a second Destroy does nothing.
+// TestNativeViewDestroyIsOnce destroys the view from the app, and from the
+// window closing: the control's own Destroy runs exactly once either way, a
+// later Destroy does nothing, and a destroyed view keeps no handle. The app
+// destroying the view the window closed is how a view the content outlives
+// its window goes.
 func TestNativeViewDestroyIsOnce(t *testing.T) {
-	n := newNativeViewTest(t)
-	eventually(t, "the control showing", n.shows)
+	for _, tt := range []struct {
+		name    string
+		destroy func(n *nativeViewTest)
+	}{
+		{"the app destroys it", func(n *nativeViewTest) { n.view.Destroy() }},
+		{"the window closes", func(n *nativeViewTest) { n.w.Destroy() }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			n := newNativeViewTest(t)
+			eventually(t, "the control showing", n.shows)
 
-	n.view.Destroy()
-	if !n.view.IsDestroyed() {
-		t.Error("Destroy left the view alive")
-	}
-	if h := n.view.NativeHandle(); h != 0 {
-		t.Errorf("a destroyed view still has its native handle %#x", h)
-	}
-	if got := n.fixture.Reports().Destroyed(); got != 1 {
-		t.Errorf("Destroy ran the control's Destroy %d times, want 1", got)
-	}
-	n.view.Destroy()
-	if got := n.fixture.Reports().Destroyed(); got != 1 {
-		t.Errorf("a second Destroy ran the control's Destroy %d times, want 1", got)
-	}
-}
-
-// TestNativeViewWindowCloseDestroysOnce closes the window holding the
-// control: the window destroys the view once, and the app's own Destroy
-// after that does nothing.
-func TestNativeViewWindowCloseDestroysOnce(t *testing.T) {
-	n := newNativeViewTest(t)
-	eventually(t, "the control showing", n.shows)
-
-	n.w.Destroy()
-	if got := n.fixture.Reports().Destroyed(); got != 1 {
-		t.Errorf("closing the window ran the control's Destroy %d times, want 1", got)
-	}
-	if !n.view.IsDestroyed() {
-		t.Error("closing the window left its native view alive")
-	}
-	// The app destroying the view the window closed, and the window
-	// closing again, must not destroy the control a second time.
-	n.view.Destroy()
-	n.w.Destroy()
-	if got := n.fixture.Reports().Destroyed(); got != 1 {
-		t.Errorf("the control's Destroy ran %d times after the window closed, want 1", got)
+			tt.destroy(n)
+			if !n.view.IsDestroyed() {
+				t.Error("Destroy left the view alive")
+			}
+			if h := n.view.NativeHandle(); h != 0 {
+				t.Errorf("a destroyed view still has its native handle %#x", h)
+			}
+			if got := n.fixture.Reports().Destroyed(); got != 1 {
+				t.Errorf("Destroy ran the control's Destroy %d times, want 1", got)
+			}
+			// The app destroying the view again, and the window closing
+			// again, must not destroy the control a second time.
+			n.view.Destroy()
+			n.w.Destroy()
+			if got := n.fixture.Reports().Destroyed(); got != 1 {
+				t.Errorf("a second Destroy ran the control's Destroy %d times, want 1", got)
+			}
+		})
 	}
 }
 

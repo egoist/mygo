@@ -44,9 +44,11 @@ type NativeViewHost struct {
 type NativeViewSurface interface {
 	// NewNativeView makes the platform side of a native view: it calls
 	// make with the host of the view, and returns what make made, which
-	// it has attached to the window by the time it returns. An error, or
-	// a nil view, fails the creation: mygo destroys the view make
-	// returned, so the surface must not. Main thread only.
+	// it has attached to the window by the time it returns. It returns
+	// the view make made, or an error: a surface that attaches no view is
+	// a bug in the backend, which mygo reports as one. An error fails the
+	// creation: mygo destroys the view make returned, so the surface must
+	// not. Main thread only.
 	NewNativeView(make func(NativeViewHost) (NativeView, error)) (NativeView, error)
 	// PlaceNativeViews shows the native views of the surface where the
 	// content's last frame shows them, in the order it painted them among

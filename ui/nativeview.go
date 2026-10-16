@@ -78,15 +78,12 @@ type nativeViewSurfaceHost interface {
 }
 
 // nativeObserver is what a test host sees of a window's native views, which
-// a window is not: headless records where they were placed, the view Tab
-// went into, and the keyboard the content took back.
-// The frames and the view are handed over as any: the types are this file's
-// (dead in an app that shows no native view), and a host that keeps what it
-// is given in always-linked state would keep them with it.
+// a window is not: headless records where they were placed.
+// The frames are handed over as any: the type is this file's (dead in an app
+// that shows no native view), and a host that keeps what it is given in
+// always-linked state would keep it with it.
 type nativeObserver interface {
 	nativePlaced(frames any)
-	nativeTabbed(v any, back bool)
-	nativeTookBack()
 }
 
 // placedNativeView is where a frame shows a native view, for the surface.
@@ -474,9 +471,6 @@ func (s *nativeHostState) moved(st *state, back bool) {
 // tabInto gives the view of v the keyboard as Tab does, from its last
 // control when back.
 func (s *nativeHostState) tabInto(v NativeHostView, back bool) {
-	if o, ok := s.rt.host.(nativeObserver); ok {
-		o.nativeTabbed(v, back)
-	}
 	if n := v.SurfaceNativeView(s.conn); n != nil {
 		n.Focus(back)
 	}
@@ -492,14 +486,10 @@ func (s *nativeHostState) takeBack() {
 	s.takeBackFocus()
 }
 
-// takeBackFocus gives the content the keyboard back: the surface takes it,
-// and a test host notes it.
+// takeBackFocus gives the content the keyboard back: the surface takes it.
 func (s *nativeHostState) takeBackFocus() {
 	if p := s.provider(); p != nil {
 		p.TakeFocus()
-	}
-	if o, ok := s.rt.host.(nativeObserver); ok {
-		o.nativeTookBack()
 	}
 }
 

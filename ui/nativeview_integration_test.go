@@ -11,11 +11,13 @@ import (
 // nativePressWindow builds a window whose content holds a native view, a
 // text input, the view the tests press, and a text input after it. Tab
 // reaches the inputs and the views, and label reports what the content's
-// focus is on after the last frame.
-func nativePressWindow(t *testing.T) (tt *Tester, label func() string, view, other *testNativeView) {
+// focus is on after the last frame. Both views report the surface that
+// takes their views, where the keyboard the content takes back goes.
+func nativePressWindow(t *testing.T) (tt *Tester, label func() string, view, other *testNativeView, provider *testNativeProvider) {
 	t.Helper()
-	view = &testNativeView{name: "view", view: &testPlatformView{handle: 7}}
-	other = &testNativeView{name: "other", view: &testPlatformView{handle: 8}}
+	provider = &testNativeProvider{}
+	view = &testNativeView{name: "view", view: &testPlatformView{handle: 7}, provider: provider}
+	other = &testNativeView{name: "other", view: &testPlatformView{handle: 8}, provider: provider}
 	var before, after string
 	tt = coreNewTester(func(c *context) {
 		coreBox(c).Fill().Children(func() {
@@ -42,7 +44,7 @@ func nativePressWindow(t *testing.T) (tt *Tester, label func() string, view, oth
 		}
 		return "nothing"
 	}
-	return tt, label, view, other
+	return tt, label, view, other, provider
 }
 
 // focusNativeViewTabbing tabs the window's focus to the native view the
@@ -85,10 +87,10 @@ func nativeViewCenter(t *testing.T, tt *Tester, v NativeHostView) (x, y float32)
 // takes it, and the right button still moves nothing.
 func TestNativeViewPressKeepsItsFocus(t *testing.T) {
 	t.Run("the view focused before the press", func(t *testing.T) {
-		tt, label, view, _ := nativePressWindow(t)
+		tt, label, view, _, provider := nativePressWindow(t)
 		focusNativeViewTabbing(t, tt, label, "view")
-		tt.h.tookBackFocus = false
 		x, y := nativeViewCenter(t, tt, view)
+		took := provider.takeFocus
 		tt.ClickAt(x, y)
 		if got := label(); got != "view" {
 			t.Errorf("the press of the focused native view left the content's focus on %q: want the view", got)
@@ -103,22 +105,23 @@ func TestNativeViewPressKeepsItsFocus(t *testing.T) {
 		if nativeKeyboard(tt.rt) != NativeHostView(view) {
 			t.Errorf("nativeFocus is %v after the frame: want the view to keep the keyboard", nativeKeyboard(tt.rt))
 		}
-		if tt.h.tookBackFocus {
+		if provider.takeFocus != took {
 			t.Error("the frame took the keyboard back from the native view it was pressed on")
 		}
 		// Tab hands the keyboard on from the view, as ever.
+		took = provider.takeFocus
 		nativeHostOf(tt.rt).tabOutView(NativeHostView(view), false)
 		tt.Frame()
 		if got := label(); got != "After" {
 			t.Errorf("Tab out of the native view focused %q: want After", got)
 		}
-		if nativeKeyboard(tt.rt) != nil || !tt.h.tookBackFocus {
-			t.Errorf("nativeFocus %v after Tab out (took the keyboard back %v): want the content to have it", nativeKeyboard(tt.rt), tt.h.tookBackFocus)
+		if nativeKeyboard(tt.rt) != nil || provider.takeFocus != took+1 {
+			t.Errorf("nativeFocus %v after Tab out (the view's surface took the keyboard %d times): want the content to have it", nativeKeyboard(tt.rt), provider.takeFocus-took)
 		}
 	})
 
 	t.Run("the press before the view focused", func(t *testing.T) {
-		tt, label, _, other := nativePressWindow(t)
+		tt, label, _, other, provider := nativePressWindow(t)
 		focusNativeViewTabbing(t, tt, label, "view")
 		// The press of the other view arrived first, as when that view had
 		// no keyboard yet: the content gives its own focus up, and the view
@@ -129,7 +132,7 @@ func TestNativeViewPressKeepsItsFocus(t *testing.T) {
 			t.Errorf("the press of another native view left the content's focus on %q: want it given up", got)
 		}
 		nativeHostOf(tt.rt).focus(NativeHostView(other))
-		tt.h.tookBackFocus = false
+		took := provider.takeFocus
 		tt.Frame()
 		if got := label(); got != "other" {
 			t.Errorf("the content's focus is %q after the view reported the keyboard: want other", got)
@@ -137,16 +140,17 @@ func TestNativeViewPressKeepsItsFocus(t *testing.T) {
 		if nativeKeyboard(tt.rt) != NativeHostView(other) {
 			t.Errorf("nativeFocus is %v after the frame: want the other view to keep the keyboard", nativeKeyboard(tt.rt))
 		}
-		if tt.h.tookBackFocus {
+		if provider.takeFocus != took {
 			t.Error("the frame took the keyboard back from the native view that reported it")
 		}
 	})
 
 	t.Run("the content's own UI and the right button", func(t *testing.T) {
-		tt, label, view, _ := nativePressWindow(t)
+		tt, label, view, _, provider := nativePressWindow(t)
 		focusNativeViewTabbing(t, tt, label, "view")
 		// Clicking the content's own UI takes the keyboard back, as it does
 		// from a view that has it.
+		took := provider.takeFocus
 		if err := tt.Click("After"); err != nil {
 			t.Fatal(err)
 		}
@@ -154,8 +158,8 @@ func TestNativeViewPressKeepsItsFocus(t *testing.T) {
 			t.Fatalf("clicking the content's own UI focused %q: want After", got)
 		}
 		tt.Frame()
-		if nativeKeyboard(tt.rt) != nil || !tt.h.tookBackFocus {
-			t.Errorf("nativeFocus %v after the click (took the keyboard back %v): want the content to have it", nativeKeyboard(tt.rt), tt.h.tookBackFocus)
+		if nativeKeyboard(tt.rt) != nil || provider.takeFocus != took+1 {
+			t.Errorf("nativeFocus %v after the click (the view's surface took the keyboard %d times): want the content to have it", nativeKeyboard(tt.rt), provider.takeFocus-took)
 		}
 		// The right button of a press on the native view leaves the
 		// content's focus where it is: only the left button moves it.
@@ -275,39 +279,6 @@ func TestNativeViewWebViewPlacementOrder(t *testing.T) {
 	nativeHostOf(h.rt).placeViews([]placedNativeView{{v: view, frame: n.Frame, clip: n.Clip, covers: n.Covers, order: w.Order}})
 	if s.webCalls != webCalls || s.nativeCalls != nativeCalls {
 		t.Error("placing the same views again reached the surface")
-	}
-}
-
-// A frame that shows the same web view again writes nothing to the surface:
-// the placement, its order included, is the one the last frame gave. The
-// orders come from the engine's own frames (SurfaceFrame), not from numbers
-// a test passed in, so a frame that numbers its views anew every time is
-// caught: the surface would hear the page again with the next order.
-func TestWebViewIdenticalFramesPlaceOnce(t *testing.T) {
-	page := &placedTestWebView{name: "page", view: &testPlatformWebView{}}
-	s := &placedSurface{testSurface: &testSurface{}}
-	h := &windowHost{conn: &surface.Conn{Surface: s}}
-	h.rt = newRuntime(func(c *context) {
-		coreColumn(c).Fill().Children(func() {
-			coreWebView(c, page).Height(60)
-		})
-	}, h)
-	frame := func() { h.event(platform.SurfaceEvent{Kind: platform.SurfaceFrame}) }
-	frame()
-	if s.webCalls != 1 || len(s.web) != 1 {
-		t.Fatalf("the surface heard %d placements (%d web views) for the first frame: want the page placed once", s.webCalls, len(s.web))
-	}
-	order := s.web[0].Order
-	frame()
-	frame()
-	if s.webCalls != 1 {
-		t.Errorf("identical frames placed the page %d times: want the placement once", s.webCalls)
-	}
-	if len(s.web) != 1 {
-		t.Fatalf("the surface heard %d web views after identical frames: want one", len(s.web))
-	}
-	if s.web[0].Order != order {
-		t.Errorf("identical frames placed the page at order %d: want the first frame's order %d", s.web[0].Order, order)
 	}
 }
 

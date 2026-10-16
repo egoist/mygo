@@ -66,7 +66,7 @@ state: the control of the tab that is not shown stays alive.
 | field | what it is |
 | --- | --- |
 | `Platform` | `"darwin"`, `"windows"` or `"linux"` |
-| `Parent` | the platform handle of the container MyGo made for this view and lends the factory: an `NSView*`, an `HWND`, a `GtkWidget*`. It is framework-owned for the view's lifetime — a clip view or a container MyGo made, not the app's whole window — and the factory must not take it over, release it or remove the control MyGo put in it |
+| `Parent` | the platform handle of the container MyGo made for this view and lends the factory: an `NSView*`, an `HWND`, a `GtkWidget*`. It is framework-owned for the view's lifetime — a clip view or a container MyGo made, not the app's whole window — and the factory must not take it over, release it or remove the control it put in it |
 | `Scale` | the window's scale **when the factory ran**: how many device pixels a DIP was. An initial snapshot, not the window's current scale: a platform that needs the scale now asks for it (Windows' `GetDpiForWindow`), and keeps this only as a fallback |
 | `Focused()` | the view took the keyboard, as a click on one of its controls does |
 | `TabOut(back)` | Tab moved past the view's last control, or Shift+Tab past its first (`back`) |
@@ -167,9 +167,10 @@ on a text view used as the root).
 - **Destroyed once.** `mygo.NativeView.Destroy` releases the view for good
   and the content stops showing it; the window closing does the same for
   the views of its content. A destroyed view cannot be shown again —
-  `NativeHandle` answers 0 and `ui.NativeView` shows nothing — so an app
-  that wants the control back makes a new one. Call `Destroy` from an event
-  handler or a bound method, not while a frame is building the view.
+  `IsDestroyed` answers true, `NativeHandle` answers 0 and `ui.NativeView`
+  shows nothing — so an app that wants the control back makes a new one.
+  Call `Destroy` from an event handler or a bound method, not while a frame
+  is building the view.
 - **Focus.** `mygo.NativeView.Focus(back)` moves the keyboard to the view
   as a press on it would, and is safe from any goroutine. It does nothing
   for a view the frame does not show, one that was destroyed, or one whose
@@ -206,18 +207,18 @@ everything inside it:
     of the control's own window. MyGo sizes that whole **window rectangle**
     to the element's frame (a `WS_BORDER`ed root has its client area strictly
     inside it), so the message's point is not a point of the frame yet.
-    `pressDIPs` (`text_windows_geom.go`) adds the client area's own screen
+    `pressDIPs` (`coords.go`) adds the client area's own screen
     origin (`ClientToScreen`) and takes the window rectangle's off
     (`GetWindowRect`), then divides by the DPI the window has **now**
     (`GetDpiForWindow(hwnd) / 96`), not by the scale the factory heard:
-    `localDIPs = (clientPoint + ClientToScreen(clientOrigin) - GetWindowRect(root).topLeft) / currentScale`.
+    `localDIPs = (clientPoint + ClientToScreen({0, 0}) - GetWindowRect(root).topLeft) / currentScale`.
     The two origins are asked of the system, never assumed, and `Scale` is
     only the fallback where the system cannot answer.
   - **Linux** gets `gdk_event_get_coords`, in the coordinates of the
     `GdkWindow` that delivered the event — not always the widget's own: a
     windowless widget such as `GtkEntry` makes a private text-area window
     inset from it by its CSS border and padding. `eventToViewDIPs`
-    (`coords_window.go`) adds that window's origin and takes the hosted
+    (`coords.go`) adds that window's origin and takes the hosted
     view's off, both in the coordinates of their common window:
     `localDIPs = eventPoint + eventWindowOriginInCommonWindow - rootWidgetOriginInCommonWindow`.
     Every one of those is a logical unit — GDK reports event coordinates,
@@ -277,19 +278,15 @@ platform, and they are what to copy:
 - `text_other.go` — the browser and the unsupported platforms: an error
   matching `errors.ErrUnsupported`.
 - `coords.go` — the arithmetic a press goes through on its way to
-  `PointerDown`: the bounds origin comes off (the scroll offset of a scrolled
-  view) and `isFlipped` decides whether `y` is inverted against the bounds
-  height, all of it free of native events, so `coords_test.go` unit-tests the
-  flipped, the unflipped and the scrolled cases.
-- `coords_window.go` — the same for GTK, whose press arrives in the
-  coordinates of the `GdkWindow` that delivered it: that window's origin is
-  added and the root's taken off, and `coords_window_test.go` holds it,
-  including the raw-point mistake as a regression.
-- `text_windows_geom.go` — the Windows one: a client-area point plus the
-  client area's screen origin, less the frame's, over the window's current
-  scale; `text_windows_geom_test.go` tests the bordered, the borderless and
-  the fractional-scale cases, and the regression that divided a client-area
-  point as if it were a frame point.
+  `PointerDown`, all three platforms' versions, free of native events and so
+  tested by `coords_test.go` without a display: macOS takes the bounds origin
+  off (the scroll offset of a scrolled view) and asks `isFlipped` whether `y`
+  is inverted against the bounds height; GTK, whose press arrives in the
+  coordinates of the `GdkWindow` that delivered it, adds that window's origin
+  and takes the root's off, the raw-point mistake held as a regression; and
+  Windows takes a client-area point plus the client area's screen origin, less
+  the frame's, over the window's current scale, the bordered, borderless and
+  fractional-scale cases included.
 
 Three rules the reader has to keep, from [AGENTS.md](../AGENTS.md):
 
@@ -338,10 +335,9 @@ real GUI session, and a cross-build proves neither.
 the platform arithmetic that takes no event:
 
 - `go test ./examples/native-view-hosting` covers the adapter's forwarding
-  to the control, and in `coords_test.go`, `coords_window_test.go` and
-  `text_windows_geom_test.go` the coordinate arithmetic the platform files
-  call — including the GTK event-window inset and the Windows frame-and-border
-  arithmetic the regressions below are about.
+  to the control, and in `coords_test.go` the coordinate arithmetic the
+  platform files call — including the GTK event-window inset and the Windows
+  frame-and-border arithmetic the regressions below are about.
 - `GOOS=darwin go test -tags nativegeom ./internal/windows/` decides which
   handles MyGo will host, the direct-child rule included, on a host that is
   not Windows.
@@ -359,7 +355,8 @@ MYGO_E2E=1 go test ./internal/e2e                      # the whole GUI suite
 The `TestNativeView*` cases cover the control in the element's box; a click
 giving it the keyboard, and `Focus` doing so programmatically; Tab and
 Shift+Tab across it; a popover over it taking the click while the control
-hears nothing; hide and show keeping its text; resize and partial clip;
+hears nothing; hide and show keeping its text; resize and partial clip; the
+composition device taken away and the control still placed (Windows);
 `Destroy` once, and a window close doing the same; a failing factory
 cleaning up; and two native views over each other — and a native view over
 an embedded page — in both paint orders. Three of them are about a real

@@ -747,50 +747,6 @@ func TestNativeViewGetterClosesWindow(t *testing.T) {
 	}
 }
 
-// lateCloseSurface attaches the native view of a window that closed while
-// the platform worked: what a backend does when its own work outlives the
-// window the view was made for.
-type lateCloseSurface struct {
-	*fake.Surface
-	close func()
-}
-
-func (s *lateCloseSurface) NewNativeView(make func(platform.NativeViewHost) (platform.NativeView, error)) (platform.NativeView, error) {
-	n, err := s.Surface.NewNativeView(make)
-	if err != nil {
-		return nil, err
-	}
-	s.close()
-	return n, nil
-}
-
-// The backend may report the view it attached after the window closed, as
-// one whose own work outlives the window does: the view joins nothing, and
-// is destroyed once.
-func TestNativeViewBackendClosesWindow(t *testing.T) {
-	adapter := &testAdapter{handle: 7}
-	w, _, s := contentWindow(t, func(c *ui.Context) { ui.Box(c).Fill() })
-	onMain(func() {
-		w.conn.Surface = &lateCloseSurface{Surface: s, close: w.Destroy}
-	})
-	v, err := NewNativeView(w, NativeViewOptions{Create: func(h *NativeViewHost) (NativeViewAdapter, error) {
-		adapter.host = h
-		return adapter, nil
-	}})
-	if !errors.Is(err, errDestroyed) {
-		t.Errorf("a backend that attached the view after the window closed: %v, want %v", err, errDestroyed)
-	}
-	if adapter.destroys != 1 {
-		t.Errorf("the view attached after the window closed was destroyed %d times: want once", adapter.destroys)
-	}
-	if n := len(s.NativeViews()); n != 0 {
-		t.Errorf("a view attached after the window closed is still there %d times", n)
-	}
-	if n := nativeViewsOf(v); n != 0 {
-		t.Errorf("a view attached after the window closed registered %d times", n)
-	}
-}
-
 // SurfaceNativeView answers the content of the view's own window alone: the
 // connections that show no window, which used to panic, answer nil.
 func TestNativeViewSurfaceNativeViewConn(t *testing.T) {

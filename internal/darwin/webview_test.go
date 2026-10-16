@@ -9,16 +9,17 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-// TestShownClipsPaintOrder checks that the clip views of the views the
-// content shows come out in the order it painted them, merged from the two
-// placement lists: the web view wins a tie, entries the frame does not show
-// (hidden, closed, destroyed or of another kind) take no place, and a view
-// the content painted twice keeps both places. Repeated calls return the
-// same list.
+// TestShownClipsPaintOrder checks what the exhaustive merge test below
+// cannot state: an entry that carries no view at all, which a content that
+// never painted it can still leave in either list, and a view the content
+// painted twice, which keeps both places. Repeated calls return the same
+// list. Everything else about the merge — the interleaving, the web view
+// winning a tie, and the entries the frame does not show (hidden, closed or
+// destroyed, so absent from the shown lists) — is
+// TestShownClipsMatchesStableSort's.
 func TestShownClipsPaintOrder(t *testing.T) {
-	webA, webB, webC := &window{clip: 11}, &window{clip: 12}, &window{clip: 13}
-	nativeA, nativeB := &nativeView{clip: 21}, &nativeView{clip: 22}
-	nativeB.closed = true // destroyed: the frame does not show it
+	webA := &window{clip: 11}
+	nativeA := &nativeView{clip: 21}
 
 	tests := []struct {
 		name         string
@@ -29,39 +30,14 @@ func TestShownClipsPaintOrder(t *testing.T) {
 		want         []id
 	}{
 		{
-			name: "interleaved",
-			webPlaced: []platform.WebViewPlacement{
-				{WebView: platform.WebView(webA), Order: 1},
-				{WebView: platform.WebView(webB), Order: 3},
-			},
-			nativePlaced: []platform.NativeViewPlacement{
-				{View: platform.NativeView(nativeA), Order: 0},
-				{View: platform.NativeView(nativeB), Order: 2},
-			},
-			web:    []*window{webA, webB},
-			native: []placedNative{nativeA, nativeB},
-			want:   []id{21, 11, 22, 12},
-		},
-		{
-			name:         "tie keeps the web view first",
-			webPlaced:    []platform.WebViewPlacement{{WebView: platform.WebView(webA), Order: 2}},
-			nativePlaced: []platform.NativeViewPlacement{{View: platform.NativeView(nativeA), Order: 2}},
-			web:          []*window{webA},
-			native:       []placedNative{nativeA},
-			want:         []id{11, 21},
-		},
-		{
-			name: "hidden, closed and missing entries are skipped",
+			name: "an entry that carries no view is skipped",
 			webPlaced: []platform.WebViewPlacement{
 				{Order: 0}, // no view at all
 				{WebView: platform.WebView(webA), Order: 1},
-				{WebView: platform.WebView(webB), Order: 2}, // closed: not in web
-				{WebView: platform.WebView(webC), Order: 4}, // hidden: not in web
 			},
 			nativePlaced: []platform.NativeViewPlacement{
 				{Order: 0}, // no view at all
 				{View: platform.NativeView(nativeA), Order: 3},
-				{View: platform.NativeView(nativeB), Order: 5}, // destroyed: not in native
 			},
 			web:    []*window{webA},
 			native: []placedNative{nativeA},
@@ -77,29 +53,6 @@ func TestShownClipsPaintOrder(t *testing.T) {
 			web:          []*window{webA},
 			native:       []placedNative{nativeA},
 			want:         []id{11, 21, 11},
-		},
-		{
-			name: "web views alone",
-			webPlaced: []platform.WebViewPlacement{
-				{WebView: platform.WebView(webA), Order: 0},
-				{WebView: platform.WebView(webB), Order: 1},
-			},
-			web:  []*window{webA, webB},
-			want: []id{11, 12},
-		},
-		{
-			name:         "native views alone",
-			nativePlaced: []platform.NativeViewPlacement{{View: platform.NativeView(nativeA), Order: 0}},
-			native:       []placedNative{nativeA},
-			want:         []id{21},
-		},
-		{
-			name: "nothing",
-		},
-		{
-			name:         "nothing shown",
-			webPlaced:    []platform.WebViewPlacement{{WebView: platform.WebView(webA), Order: 0}},
-			nativePlaced: []platform.NativeViewPlacement{{View: platform.NativeView(nativeA), Order: 1}},
 		},
 	}
 	for _, tt := range tests {

@@ -513,12 +513,22 @@ func (f *winFixture) Box() (box, visible mygo.Rectangle) {
 		scale := winScale(f.hwnd, f.fallbackScale())
 		var frame winRect
 		winGetWindowRect.Call(f.hwnd, uintptr(unsafe.Pointer(&frame)))
+		// The clip window's client area: GetClientRect answers in the clip
+		// window's own coordinates, and ClientToScreen says where those
+		// begin on screen, so adding the origin makes the rectangle a screen
+		// one -- the space winBoxOn takes and the surface's origin is in.
 		var clip winRect
 		winGetClientRect.Call(f.parent, uintptr(unsafe.Pointer(&clip)))
 		var clipOrigin winPoint
 		winClientToScreen.Call(f.parent, uintptr(unsafe.Pointer(&clipOrigin)))
+		clip = winRect{
+			Left:   clip.Left + clipOrigin.X,
+			Top:    clip.Top + clipOrigin.Y,
+			Right:  clip.Right + clipOrigin.X,
+			Bottom: clip.Bottom + clipOrigin.Y,
+		}
 		box = winBoxOn(frame, origin, scale)
-		visible = intersectRectangles(box, winBoxOn(clip, clipOrigin, scale))
+		visible = intersectRectangles(box, winBoxOn(clip, origin, scale))
 	})
 	return box, visible
 }

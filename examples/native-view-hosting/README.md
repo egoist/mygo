@@ -34,11 +34,9 @@ releases the control, and `Create` makes a new one with no text.
 | --- | --- |
 | `main.go` | the app: the window, the layout, and what the host reported |
 | `host.go` | the shared part: `textView`, and `adapter`, which is what MyGo hosts |
-| `coords.go` | the arithmetic that turns AppKit's point into the root-local DIPs `PointerDown` asks for |
-| `coords_window.go` | the same for the `GdkWindow`-relative point GTK reports |
+| `coords.go` | the arithmetic of a press on its way to `PointerDown`: AppKit's point and GTK's `GdkWindow`-relative one to the root-local DIPs, and the Windows client-area point to the DIPs of the frame MyGo placed, current DPI and measured border included |
 | `text_darwin.go` | AppKit through purego: `MyGoExampleTextView`, a subclass of `NSTextView` |
 | `text_windows.go` | user32 through `syscall`: an `EDIT` control, subclassed |
-| `text_windows_geom.go` | the Windows arithmetic: a client-area point to the DIPs of the frame MyGo placed, current DPI and measured border included |
 | `text_linux.go` | GTK 3 through purego: a `GtkEntry` |
 | `text_other.go` | the browser and the unsupported platforms: an error saying so |
 
@@ -132,7 +130,7 @@ and its guarantees.
     (`internal/windows/nativeview.go`'s `placeNative`), so a root with a
     border — this example's `EDIT` has `WS_BORDER` — has its client area
     strictly inside that frame, and the message's point is not a point of the
-    frame yet. `text_windows_geom.go`'s `pressDIPs` adds the client area's own
+    frame yet. `coords.go`'s `pressDIPs` adds the client area's own
     screen origin, takes the frame's off, and divides by the DPI the window
     has **now**, `GetDpiForWindow(hwnd) / 96`, asked on the message itself: a
     window dragged to a display with another scale would otherwise report
@@ -146,7 +144,7 @@ and its guarantees.
     `GdkWindow` that delivered the event, not necessarily the widget's own: a
     windowless widget such as `GtkEntry` makes a private text-area window,
     inset from the entry by its CSS border and padding, and the press arrives
-    on that. `coords_window.go`'s `eventToViewDIPs` adds the delivering
+    on that. `coords.go`'s `eventToViewDIPs` adds the delivering
     window's origin and takes the root's off. Every one of those is logical —
     GDK divides X11's device pixels by the window's scale factor itself — so
     nothing multiplies by a scale factor.
@@ -202,60 +200,20 @@ and its guarantees.
 
 ## Validation
 
-Two kinds of check, and which one a claim rests on matters.
-
-Without a display, `go test ./examples/native-view-hosting` covers the
-adapter's forwarding to the control and the coordinate arithmetic the platform
-files call: `coords_test.go`, `coords_window_test.go` (including the GTK
-event-window inset) and `text_windows_geom_test.go` (the Windows frame and
-border arithmetic). `GOOS=darwin go test -tags nativegeom ./internal/windows/`
-decides which handles MyGo will host, the direct-child rule included, on a
-host that is not Windows. Neither shows a control.
-
-The GUI tests in `internal/e2e` make a real control of each platform's toolkit
-and drive it with the platform's own input:
+`go test ./examples/native-view-hosting` covers what this example adds: the
+adapter's forwarding to the control, and in `coords_test.go` the coordinate
+arithmetic the platform files call, the GTK event-window inset and the Windows
+frame-and-border arithmetic included. The tests that host a real control of
+each platform's toolkit live in `internal/e2e`:
 
 ```sh
 MYGO_E2E=1 go test ./internal/e2e -run TestNativeView
 ```
 
-They cover the control in the element's box; a click giving it the keyboard,
-and `Focus(back)` doing so programmatically; Tab and Shift+Tab across it; a
-MyGo panel over it taking the click while the control hears nothing; hide
-and show keeping its text; resize and partial clip; `Destroy` once, and a
-window close doing the same; a failing factory cleaning up; and two native
-views over each other — and a native view over an embedded page — in both
-paint orders. Three of them come from a real problem or a real fixture:
-
-- `TestNativeViewPointerCoordinates` (Linux) is the regression: a `GtkEntry`
-  makes a private text-area window, inset from the entry by its CSS border and
-  padding, so `gdk_event_get_coords` is not the widget's own coordinates, and
-  forwarding the raw event point missed the press by that inset. The test
-  forces a large padding, presses a known point of the text area, and runs
-  again at `GDK_SCALE` 1 and 2: the reported DIPs must be the widget's own at
-  both scales.
-- The Windows fixture is the bordered root and keyboard one: it gives the
-  control a `WS_BORDER`, so a client-area point and a frame point differ,
-  presses inside the frame and compares the report with where the system says
-  the pointer was, and types through `SendInput` packets, whose layout
-  `TestWindowsInputLayout` and `TestWindowsTypePackets` check without a
-  window.
-- On macOS, `TestNativeViewDarwinKeepsMarkedText` checks that the marked text
-  the control's own input client composed survives MyGo's frames: the
-  marked-text protocol, not a physical input method, so it certifies no IME
-  behavior.
-
-A real GUI session is required: macOS a desktop session; Linux a container
-with WebKitGTK 4.1 (GTK 3), `xvfb` and `dbus` (`dbus-run-session -- xvfb-run
--a ./e2e.test`, see "Testing" in
-[the architecture guide](../../docs/architecture.md#testing)). The Linux
-input cases are X11, through XTEST, so a Wayland session is not covered.
-Windows needs Windows with the WebView2 Runtime, which the fixture's own input
-hooks need.
-
-The cross-builds (`GOOS=linux`, `GOOS=windows`, `GOOS=js GOARCH=wasm`,
-`GOOS=freebsd`, all with `CGO_ENABLED=0`) and `go vet` prove the platform
-files compile, not that they run.
+The [native views guide's Validation section](../../docs/native-views.md#validation)
+says what each kind of check rests on, which of those tests is a regression,
+and which session each platform needs. The cross-builds and `go vet` prove the
+platform files compile, not that they run.
 
 ### Which backends host a view today
 

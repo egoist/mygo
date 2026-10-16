@@ -535,20 +535,12 @@ the desktop provides one, as GNOME does.
 A window whose content is MyGo's own UI can host a real control of the
 platform inside it — an `NSView`, an `HWND` or a `GtkWidget` — where
 `ui.NativeView` places it, with the platform drawing, scrolling and editing
-it there:
+it there. It needs a window that shows `WindowOptions.Content`, and a browser
+or a platform without native views reports an error matching
+`errors.ErrUnsupported` rather than doing nothing.
 
-```go
-v, err := mygo.NewNativeView(win, mygo.NativeViewOptions{
-	Create: func(h *mygo.NativeViewHost) (mygo.NativeViewAdapter, error) {
-		return newTerminalView(h) // the platform's own type
-	},
-})
-```
-
-[The native views guide](native-views.md) covers the factory and the host,
-the adapter, the lifecycle, what MyGo draws and what the platform draws, and
-the pointer and focus contract;
-[the example](../examples/native-view-hosting/README.md) is a small form
-that hosts a text control on each platform. It needs a window that shows
-`WindowOptions.Content`, and a browser or a platform without native views
-reports an error matching `errors.ErrUnsupported` rather than doing nothing.
+[The native views guide](native-views.md) is the page for it — the factory and
+the host, the adapter, the lifecycle, what MyGo draws and what the platform
+draws, and the pointer and focus contract;
+[the example](../examples/native-view-hosting/README.md) is a small form that
+hosts a text control on each platform.

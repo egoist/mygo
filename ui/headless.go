@@ -68,17 +68,13 @@ type headless struct {
 	dragOptions transfer.DragOptions
 	// webViews are where the last frame showing web views showed them;
 	// tabbedInto the web view Tab gave the keyboard last, from its end
-	// when tabbedBack. nativeViews, tabbedIntoNative and tookBackFocus are
-	// the same for native views; the native two hold what the native
-	// runtime (ui/nativeview.go) reported, as any, so that no
-	// always-linked state of this host names a native type.
-	webViews             []placedWebView
-	tabbedInto           NativeWebView
-	tabbedBack           bool
-	nativeViews          any
-	tabbedIntoNative     any
-	tabbedIntoNativeBack bool
-	tookBackFocus        bool
+	// when tabbedBack. nativeViews is the same for native views: it holds
+	// what the native runtime (ui/nativeview.go) reported, as any, so that
+	// no always-linked state of this host names a native type.
+	webViews    []placedWebView
+	tabbedInto  NativeWebView
+	tabbedBack  bool
+	nativeViews any
 	// conn is what the host hands the views of the content
 	// (surface.Conn); the tests' stand-ins ignore it.
 	conn surface.Conn
@@ -208,16 +204,12 @@ func (h *headless) tabIntoWebView(v NativeWebView, back bool) { h.tabbedInto, h.
 
 // The native views of a content are its native runtime's (ui/nativeview.go):
 // headless is what that runtime reports them to, which no window is
-// (nativeObserver). What arrives is a slice and a view of that runtime's
-// types, handed over as any so that this host's always-linked state names
-// none of them; the Tester narrows them back.
+// (nativeObserver). What arrives is a slice of that runtime's types, handed
+// over as any so that this host's always-linked state names none of them;
+// the Tester narrows them back.
 func (h *headless) nativePlaced(frames any) {
 	h.nativeViews = frames
 }
-func (h *headless) nativeTabbed(v any, back bool) {
-	h.tabbedIntoNative, h.tabbedIntoNativeBack = v, back
-}
-func (h *headless) nativeTookBack() { h.tookBackFocus = true }
 
 func (h *headless) platformWebView(NativeWebView) platform.WebView { return nil }
 func (h *headless) image() *image.RGBA {

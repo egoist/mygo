@@ -15,9 +15,13 @@ import (
 
 // testNativeView stands for a *mygo.NativeView in the tests of ui: its
 // platform side is what SurfaceNativeView hands back, none once destroyed.
+// A provider stands for the surface it reports taking its views
+// (SurfaceNativeViewHost), which is where the keyboard it gives back goes;
+// none when the test drives a Tester, whose host has no surface.
 type testNativeView struct {
-	name string
-	view *testPlatformView
+	name     string
+	view     *testPlatformView
+	provider *testNativeProvider
 }
 
 func (v *testNativeView) SurfaceNativeView(*surface.Conn) platform.NativeView {
@@ -25,6 +29,13 @@ func (v *testNativeView) SurfaceNativeView(*surface.Conn) platform.NativeView {
 		return nil
 	}
 	return v.view
+}
+
+func (v *testNativeView) SurfaceNativeViewHost(*surface.Conn) platform.NativeViewSurface {
+	if v.provider == nil {
+		return nil
+	}
+	return v.provider
 }
 
 // IsDestroyed stands for a *mygo.NativeView the app already destroyed: the
@@ -64,13 +75,6 @@ func nativeState(t *testing.T, conn *surface.Conn) *surface.NativeViewBridge {
 func nativePlacedFrames(tt *Tester) []placedNativeView {
 	frames, _ := tt.h.nativeViews.([]placedNativeView)
 	return frames
-}
-
-// nativeTabbedInto returns the native view Tab gave the keyboard last, and
-// whether it did so from the view's end.
-func nativeTabbedInto(tt *Tester) (NativeHostView, bool) {
-	v, _ := tt.h.tabbedIntoNative.(NativeHostView)
-	return v, tt.h.tabbedIntoNativeBack
 }
 
 // placedNative returns where the last frame showed v, if it did.
@@ -339,10 +343,12 @@ func TestNativeViewTab(t *testing.T) {
 		t.Fatalf("Tab focused %q: want Before", got)
 	}
 	tt.Key(0, KeyTab)
-	tabbedView, tabbedBack := nativeTabbedInto(tt)
-	if label() != "native view" || tabbedView != view || tabbedBack {
-		t.Fatalf("Tab after Before focused %q and gave %v the keyboard (back %v): want the native view", label(), tabbedView, tabbedBack)
+	if got := label(); got != "native view" {
+		t.Fatalf("Tab after Before focused %q: want the native view", got)
 	}
+	// The view the keyboard went into is the one whose own toolkit heard
+	// the Focus call, from its first control: only the view the frame
+	// shows hears one.
 	if len(view.view.focuses) != 1 || view.view.focuses[0] {
 		t.Fatalf("the native view was focused %v: want once, not back", view.view.focuses)
 	}
@@ -351,11 +357,9 @@ func TestNativeViewTab(t *testing.T) {
 	if got := label(); got != "After" {
 		t.Errorf("Tab out of the native view focused %q: want After", got)
 	}
-	tt.h.tabbedIntoNative = nil
 	tt.Key(Shift, KeyTab)
-	tabbedView, tabbedBack = nativeTabbedInto(tt)
-	if label() != "native view" || tabbedView != view || !tabbedBack {
-		t.Fatalf("Shift+Tab from After focused %q and gave %v the keyboard (back %v): want the native view, from its end", label(), tabbedView, tabbedBack)
+	if got := label(); got != "native view" {
+		t.Fatalf("Shift+Tab from After focused %q: want the native view", got)
 	}
 	if n := len(view.view.focuses); n != 2 || !view.view.focuses[1] {
 		t.Fatalf("the native view was focused %v: want back the second time", view.view.focuses)
@@ -378,7 +382,12 @@ func TestNativeViewTab(t *testing.T) {
 // native view that had it, and the view takes it from the content when it
 // does show, as its own controls are clicked into.
 func TestNativeViewFocusTakeBack(t *testing.T) {
-	view := &testNativeView{name: "view", view: &testPlatformView{handle: 7}}
+	// The view reports the surface that takes its views, which is where the
+	// keyboard the content takes back goes: a Tester's own host has no
+	// surface, and this call is what a framework user's window does as the
+	// content gets the keyboard again.
+	provider := &testNativeProvider{}
+	view := &testNativeView{name: "view", view: &testPlatformView{handle: 7}, provider: provider}
 	shown := true
 	tt := coreNewTester(func(c *context) {
 		coreBox(c).Fill().Children(func() {
@@ -391,29 +400,30 @@ func TestNativeViewFocusTakeBack(t *testing.T) {
 	if nativeKeyboard(tt.rt) != NativeHostView(view) {
 		t.Fatalf("Tab did not give the native view the keyboard: %v", nativeKeyboard(tt.rt))
 	}
-	// The view itself takes the keyboard, and the content gives it up.
+	// The view itself takes the keyboard, and the content gives it up: its
+	// surface takes the keyboard back.
 	nativeHostOf(tt.rt).press(view, 50, 50, 0)
 	tt.rt.focused = 1
+	took := provider.takeFocus
 	tt.Frame()
 	if tt.rt.focused != 0 {
 		t.Error("the content kept the focus as the native view was pressed")
 	}
-	if !tt.h.tookBackFocus {
-		t.Error("the content did not take the keyboard back")
+	if provider.takeFocus != took+1 {
+		t.Errorf("the view's surface took the keyboard %d times: want once, the content taking it back", provider.takeFocus-took)
 	}
-	tt.h.tookBackFocus = false
 	tt.Key(0, KeyTab)
 	if nativeKeyboard(tt.rt) != NativeHostView(view) {
 		t.Fatalf("Tab did not give the native view the keyboard: %v", nativeKeyboard(tt.rt))
 	}
 	// Gone from the frame, its keyboard goes back to the content.
 	shown = false
+	took = provider.takeFocus
 	tt.Frame()
-	if nativeKeyboard(tt.rt) != nil || !tt.h.tookBackFocus {
-		t.Errorf("nativeFocus %v, took back %v: want the content to take the keyboard back", nativeKeyboard(tt.rt), tt.h.tookBackFocus)
+	if nativeKeyboard(tt.rt) != nil || provider.takeFocus != took+1 {
+		t.Errorf("nativeFocus %v, the view's surface took the keyboard %d times: want the content to take it back", nativeKeyboard(tt.rt), provider.takeFocus-took)
 	}
 	// And a view destroyed under it, still shown, does too.
-	tt.h.tookBackFocus = false
 	shown = true
 	tt.Frame()
 	tt.Key(0, KeyTab)
@@ -421,16 +431,18 @@ func TestNativeViewFocusTakeBack(t *testing.T) {
 		t.Fatal("Tab did not give the native view the keyboard")
 	}
 	view.view.destroyed = true
+	took = provider.takeFocus
 	tt.Frame()
-	if nativeKeyboard(tt.rt) != nil || !tt.h.tookBackFocus {
-		t.Errorf("nativeFocus %v, took back %v: want the content to take the keyboard back", nativeKeyboard(tt.rt), tt.h.tookBackFocus)
+	if nativeKeyboard(tt.rt) != nil || provider.takeFocus != took+1 {
+		t.Errorf("nativeFocus %v, the view's surface took the keyboard %d times: want the content to take it back", nativeKeyboard(tt.rt), provider.takeFocus-took)
 	}
 }
 
 // Tab out of the only native view a frame shows still gives the content
 // the keyboard, which moves on from its element.
 func TestNativeViewTabOutLast(t *testing.T) {
-	view := &testNativeView{name: "view", view: &testPlatformView{handle: 7}}
+	provider := &testNativeProvider{}
+	view := &testNativeView{name: "view", view: &testPlatformView{handle: 7}, provider: provider}
 	tt := coreNewTester(func(c *context) {
 		coreBox(c).Fill().Children(func() {
 			coreNativeView(c, view).Height(100)
@@ -440,10 +452,11 @@ func TestNativeViewTabOutLast(t *testing.T) {
 	if nativeKeyboard(tt.rt) != NativeHostView(view) {
 		t.Fatal("Tab did not give the native view the keyboard")
 	}
+	took := provider.takeFocus
 	nativeHostOf(tt.rt).tabOutView(view, false)
 	tt.Frame()
-	if !tt.h.tookBackFocus {
-		t.Error("Tab out of the native view did not give the content the keyboard back")
+	if provider.takeFocus != took+1 {
+		t.Errorf("the view's surface took the keyboard %d times: want once, the content taking it back", provider.takeFocus-took)
 	}
 	if nativeKeyboard(tt.rt) != nil {
 		t.Errorf("the native view still has the keyboard: %v", nativeKeyboard(tt.rt))
@@ -493,8 +506,10 @@ func TestNativeViewDestroyed(t *testing.T) {
 		t.Fatal("Tab focused nothing before the native view")
 	}
 	tt.Key(0, KeyTab)
-	if tabbedView, _ := nativeTabbedInto(tt); tabbedView != nil || !tt.Focused("After") {
-		t.Errorf("Tab gave %v the keyboard instead of moving to After: want the destroyed view skipped", tabbedView)
+	// The destroyed view's toolkit heard no Focus call and holds no
+	// keyboard: Tab moves on to the element after its own.
+	if n := len(view.view.focuses); n != 0 || nativeKeyboard(tt.rt) != nil || !tt.Focused("After") {
+		t.Errorf("Tab focused the destroyed view %v and left the keyboard on %v: want it moving to After", view.view.focuses, nativeKeyboard(tt.rt))
 	}
 }
 

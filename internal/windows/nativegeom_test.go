@@ -142,7 +142,11 @@ func TestSubtractRectSplits(t *testing.T) {
 
 func TestCoverStepsTileTheClip(t *testing.T) {
 	// Every pixel of a clip is either the app's control's or the content's:
-	// the two together are the clip, and never overlap.
+	// the two together are the clip, and never overlap. A step of no size at
+	// all is no step. And the order decides which step a pixel belongs to: a
+	// later view is over an earlier one, so at its own place it takes what an
+	// earlier view took, and the boxes the content painted over it are the
+	// content's.
 	placements := []platform.NativeViewPlacement{
 		{Order: 0, Clip: platform.RectF{W: 100, H: 100}, Covers: []platform.RectF{{X: 20, Y: 20, W: 40, H: 40}}},
 		{Order: 1, Clip: platform.RectF{X: 50, Y: 50, W: 100, H: 100}, Covers: []platform.RectF{{X: 110, Y: 110, W: 30, H: 30}}},
@@ -174,16 +178,6 @@ func TestCoverStepsTileTheClip(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestCoverStepsOrderDecides(t *testing.T) {
-	// A later view is over an earlier one: at its own place, it takes the
-	// pointer from what an earlier view took, and the boxes the content
-	// painted over it are the content's.
-	steps := coverSteps([]platform.NativeViewPlacement{
-		{Order: 0, Clip: platform.RectF{W: 100, H: 100}, Covers: []platform.RectF{{X: 20, Y: 20, W: 40, H: 40}}},
-		{Order: 1, Clip: platform.RectF{X: 50, Y: 50, W: 100, H: 100}, Covers: []platform.RectF{{X: 110, Y: 110, W: 30, H: 30}}},
-	}, 96)
 	// takeAt is the rule the cover window's region is built from: each step in
 	// turn, its control first, its covers after, and nothing outside a clip.
 	takeAt := func(x, y int32) (string, int) {
@@ -336,20 +330,6 @@ func TestClipHolesOnlyLaterWebViews(t *testing.T) {
 	}
 }
 
-func TestClipHolesBothOrders(t *testing.T) {
-	// The same two boxes, once with the web view painted after the native view
-	// and once before it: only the later one cuts.
-	clip := pixelRect{0, 0, 50, 50}
-	web := platform.RectF{X: 10, Y: 10, W: 30, H: 30}
-	after := clipHoles(clip, 4, []platform.WebViewPlacement{{Order: 5, Clip: web}}, 96)
-	if want := []pixelRect{{10, 10, 40, 40}}; !slices.Equal(after, want) {
-		t.Errorf("the web view painted after the native view cut %+v, want %+v", after, want)
-	}
-	if before := clipHoles(clip, 5, []platform.WebViewPlacement{{Order: 4, Clip: web}}, 96); len(before) != 0 {
-		t.Errorf("the web view painted before the native view cut %+v, want nothing", before)
-	}
-}
-
 func TestClipHolesAreInTheClipWindow(t *testing.T) {
 	// A clip window is as big as its clip and sits at the clip's own origin:
 	// the region of the cut is in the window's pixels, never the surface's.
@@ -403,29 +383,6 @@ func TestClipRegionTilesTheClip(t *testing.T) {
 	taken := pixelRect{0, 0, 40, 40}
 	if region := clipRegion(taken, clipHoles(taken, 0, []platform.WebViewPlacement{{Order: 1, Clip: platform.RectF{W: 100, H: 100}}}, 96)); len(region) != 0 {
 		t.Errorf("a clip a later web view covers whole kept %+v, want nothing", region)
-	}
-}
-
-func TestClipRegionReorderSameGeometry(t *testing.T) {
-	// Two native views over the same pixels and one web view over them too:
-	// which clip window is cut follows the paint order alone, so the same
-	// geometry stacks both ways.
-	clip := pixelRect{0, 0, 100, 100}
-	web := []platform.WebViewPlacement{{Order: 1, Clip: platform.RectF{W: 100, H: 100}}}
-	// The web view was painted between the two: over the first, under the
-	// second.
-	if region := clipRegion(clip, clipHoles(clip, 0, web, 96)); len(region) != 0 {
-		t.Errorf("the native view painted before the web view kept %+v, want nothing", region)
-	}
-	if region := clipRegion(clip, clipHoles(clip, 2, web, 96)); !slices.Equal(region, []pixelRect{clip}) {
-		t.Errorf("the native view painted after the web view kept %+v, want the whole clip", region)
-	}
-	// Swapping which one was painted first swaps which one is cut.
-	if region := clipRegion(clip, clipHoles(clip, 2, web, 96)); !slices.Equal(region, []pixelRect{clip}) {
-		t.Errorf("swapped: the native view painted last kept %+v, want the whole clip", region)
-	}
-	if region := clipRegion(clip, clipHoles(clip, 0, web, 96)); len(region) != 0 {
-		t.Errorf("swapped: the native view painted first kept %+v, want nothing", region)
 	}
 }
 
