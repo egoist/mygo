@@ -31,6 +31,11 @@ func writeBundle(c *Config, dir, bin string, icns []byte, car *assetCatalog, res
 			return "", err
 		}
 	}
+	if p := c.MacOS.ProvisioningProfile; p != "" {
+		if err := copyFile(c.path(p), filepath.Join(contents, "embedded.provisionprofile"), 0o644); err != nil {
+			return "", fmt.Errorf("provisioning profile %s: %w", p, err)
+		}
+	}
 	if err := os.Rename(bin, filepath.Join(contents, "MacOS", name)); err != nil {
 		return "", err
 	}
@@ -357,6 +362,9 @@ func codesignArgs(path, identity, entitlements string, production bool) []string
 // macOS: elsewhere only the executable's ad-hoc signature from the Go linker
 // remains.
 func codesign(c *Config, path, identity string, production bool) error {
+	if c.MacOS.ProvisioningProfile != "" && identity == "-" {
+		return fmt.Errorf("macos.provisioningProfile needs a signing identity, not ad-hoc signing: set macos.signingIdentity or pass -sign")
+	}
 	if runtime.GOOS != "darwin" {
 		if identity != "-" {
 			warnf("Not signing %s: code signing needs macOS", filepath.Base(path))

@@ -313,6 +313,37 @@ export default defineConfig({
 `minimumSystemVersion` is the oldest macOS the app runs on, 12.0 by
 default.
 
+### Provisioning profiles
+
+Restricted entitlements, such as Communication Notifications, need a
+provisioning profile that authorizes them, including for Developer ID
+distribution. Set `macos.provisioningProfile` to its path, relative to the
+project or absolute. `build` and `dev` copy it to the bundle's
+`Contents/embedded.provisionprofile` before signing, so the signed app,
+disk image and update archive contain it.
+
+```ts
+export default defineConfig({
+  macos: {
+    signingIdentity: process.env.MACOS_SIGNING_IDENTITY,
+    provisioningProfile: process.env.MACOS_PROVISIONING_PROFILE,
+    entitlements: "entitlements.plist",
+  },
+});
+```
+
+The profile must match the signing certificate, bundle identifier and
+entitlements, including the application and team identifiers. MyGo embeds
+it as supplied; it does not create profiles or derive entitlements from
+them. Apple validates their authorization when the app runs. A profile
+cannot be used with ad-hoc signing (`-sign -`); `dev` needs `-sign` with a
+real identity and a profile for its `<identifier>.dev` identifier. It
+watches the profile and rebuilds when it changes.
+
+Keep profiles out of version control and provide their paths through the
+build environment. See Apple's
+[Inside code signing: provisioning profiles](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles).
+
 ## Windows
 
 The executable carries the icon, the version information and a manifest
