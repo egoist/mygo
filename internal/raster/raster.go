@@ -113,7 +113,7 @@ const (
 // holds the backdrops of the effects in it (Renderer.diff).
 func (d *drawer) draw(dst *Image, s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) {
 	area = area.Intersect(image.Rect(0, 0, dst.W, dst.H))
-	d.blurred = d.blurImages(s)
+	d.blurred = d.blurImages(s, area, bounds)
 	defer func() { d.blurred = nil }()
 	// px draws operation from, an effect over the backdrop b.
 	from, px, b := 0, scene.EffectPixels(nil), (*scene.BackdropImage)(nil)

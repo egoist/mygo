@@ -439,7 +439,17 @@ func (p *Painter) border(e *node, box Rect) {
 		// The gradient paints it, times opaque white.
 		op.BorderPaint, op.BorderColor, op.Wide = true, scene.Color{R: 255, G: 255, B: 255, A: 255}, 0
 		if g.border == borderLinear {
-			p.gradient(&op, g.borderLinear)
+			// As stops: Color, which two colors' From would be, is the
+			// inside's, none.
+			lg := g.borderLinear
+			if len(lg.Stops) == 0 {
+				start, end := lg.Start, lg.End
+				if start == 0 && end == 0 {
+					end = 1
+				}
+				lg.Stops = []GradientStop{{lg.From, start}, {lg.To, end}}
+			}
+			p.gradient(&op, lg)
 		} else {
 			p.conic(&op, g.borderConic)
 		}

@@ -84,13 +84,17 @@ func TestBorderConicGradient(t *testing.T) {
 	if got := rgba(img, 50, 50); got != [4]uint8{255, 255, 255, 255} {
 		t.Errorf("the inside %v, want the background", got)
 	}
-	// A linear gradient too, from left to right.
+	// A linear gradient of two colors too, from left to right, leaving
+	// the inside as what is under it, as outside the element.
 	tt = NewTester(func(c *Context) {
 		Box(c).Size(100, 100).Border(8, Color{}).BorderLinearGradient(LinearGradient{From: gRed, To: gBlue, Angle: 90})
-	}, 100, 100)
+	}, 120, 120)
 	img = tt.Image()
 	if l, r := rgba(img, 3, 50), rgba(img, 96, 50); l[0] < 200 || r[2] < 200 {
 		t.Errorf("the border's sides %v and %v, want red then blue", l, r)
+	}
+	if in, out := rgba(img, 50, 50), rgba(img, 110, 110); in != out {
+		t.Errorf("the inside %v, want %v, what is under it", in, out)
 	}
 }
 

@@ -141,9 +141,9 @@ type Op struct {
 	Border      [4]float32
 	BorderColor Color
 	Dashed      bool
-	// BorderPaint paints an OpFill's border with Paint, its gradient,
-	// times BorderColor (opaque white for the gradient as it is), and its
-	// inside with plain Color.
+	// BorderPaint paints an OpFill's border with Paint, its gradient of
+	// stops (Paint.HasStops), times BorderColor (opaque white for the
+	// gradient as it is), and its inside with plain Color.
 	BorderPaint bool
 
 	// Inset makes an OpShadow an inner shadow.

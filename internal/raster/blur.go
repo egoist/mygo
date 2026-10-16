@@ -1,6 +1,7 @@
 package raster
 
 import (
+	"image"
 	"runtime"
 	"sync"
 
@@ -14,13 +15,14 @@ type blurredImage struct {
 	src scene.Rect
 }
 
-// blurImages returns, for each OpImage of s that blurs its image, the
-// image blurred, as the GPU renderers compute it; nil when none does.
-func (d *drawer) blurImages(s *scene.Scene) []*blurredImage {
+// blurImages returns, for each OpImage of s that blurs its image and
+// whose bounds meet area, the image blurred, as the GPU renderers compute
+// it; nil when none does. Those missing the area are not drawn.
+func (d *drawer) blurImages(s *scene.Scene, area image.Rectangle, bounds []image.Rectangle) []*blurredImage {
 	var out []*blurredImage
 	for i := range s.Ops {
 		op := &s.Ops[i]
-		if op.Kind != scene.OpImage || op.Blur <= 0 || op.Image == nil || op.Image.W == 0 || op.Image.H == 0 {
+		if op.Kind != scene.OpImage || op.Blur <= 0 || op.Image == nil || op.Image.W == 0 || op.Image.H == 0 || !bounds[i].Overlaps(area) {
 			continue
 		}
 		if out == nil {
