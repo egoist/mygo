@@ -299,6 +299,12 @@ func registerWindowMessage(name string) uint32 {
 	return uint32(r)
 }
 
+// wndProc is the window procedure of the app's own classes: the application
+// window, an app window, a caption and the direct composition flyout shadow.
+// The native-view hosting owns its own class and its own procedure
+// (nativeview.go, nativeHostClass), so this one names no hosting type and an
+// app that shows no native view links none of it (AGENTS.md: apps pay only
+// for what they use).
 func wndProc(hwnd, m, wp, lp uintptr) uintptr {
 	b := theBackend
 	if b != nil {

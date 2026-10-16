@@ -69,13 +69,41 @@ type host interface {
 	// handled; chosen receives the ID of the item chosen.
 	popupMenu(m *platform.Menu, x, y float32, chosen func(id int))
 	// placeWebViews shows the web views where the frame shows them, and
-	// hides the others.
+	// hides the others. Native views are the engine's native runtime's
+	// (ui/nativeview.go): a host that links it places those itself.
 	placeWebViews(views []placedWebView)
 	// tabIntoWebView gives the page of v the keyboard as Tab does, from
 	// its end when back (platform.WebView.TabInto).
 	tabIntoWebView(v NativeWebView, back bool)
 	// platformWebView returns the web view of the platform v is, if any.
 	platformWebView(v NativeWebView) platform.WebView
+}
+
+// nativeHost is the native views of a window's content: the placements a
+// frame makes, the surface they go to, and the keyboard they take. The
+// engine holds it behind this interface, installed by the first frame that
+// builds a native view (ui/nativeview.go): a content that shows none links
+// neither its code nor this interface's implementations. The nil engine
+// field is the check the frame, the host and the input paths make; no
+// always-linked code names the implementation.
+type nativeHost interface {
+	// note records where the frame shows the native view of v, laid out
+	// within clip, unless none of it shows. v is the view as any: the
+	// payload stays opaque here so that a content showing no native view
+	// keeps none of their type metadata (ui/nativeview.go narrows it, and
+	// refuses a payload of another type).
+	note(v any, frame, clip Rect, invisible bool)
+	// place shows the frame's native views where it shows them, and hides
+	// the others.
+	place()
+	// release gives the content the keyboard back from a view the frame no
+	// longer shows, once a frame.
+	release()
+	// moved follows the content's focus as moveFocus moves it.
+	moved(st *state, back bool)
+	// dropFocus gives up the keyboard of a native view without asking the
+	// content for it, as a press of a web view's page does.
+	dropFocus()
 }
 
 // engine runs the user interface of one window: it builds frames with
@@ -151,12 +179,19 @@ type engine struct {
 	// dialog on top, which assistive technology sees with what is above.
 	modalLayer  uint64
 	commitScope focusScope
-	// webPlaces are where the frame shows web views (WebView), and webOut
-	// what the host got of them; webShown tells that the last frame
-	// showed some.
-	webPlaces []webPlace
-	webOut    []placedWebView
-	webShown  bool
+	// hostPlaces are where the frame shows web views, webOut what the host
+	// got of them, webShown that the last frame showed some, and viewOrder
+	// numbers the views it paints, web and native, from 0 with each commit
+	// so that a frame that shows them as the last one did places nothing
+	// again (ui/nativeview.go).
+	hostPlaces []webPlace
+	webOut     []placedWebView
+	webShown   bool
+	viewOrder  int
+	// native is the window's native views (ui/nativeview.go): nil until a
+	// frame builds one, and the check the paths below make, so that a
+	// content showing none links none of it.
+	native nativeHost
 	// The focus groups of the frame, the group of each element of the
 	// focus order in one, and the element of each that had the focus
 	// last.
@@ -536,6 +571,12 @@ func (rt *engine) runFrame() {
 	rt.placeWebViews()
 	rt.stats.lap(phasePresent)
 	rt.prune()
+	// The frame's elements are known: a native view that did not build, or
+	// that the focus left for an element of the content's, gives the
+	// keyboard back (ui/nativeview.go).
+	if rt.native != nil {
+		rt.native.release()
+	}
 	rt.syncDropFormats()
 	rt.prunePictures()
 	rt.text.EndFrame()
@@ -855,8 +896,12 @@ func (rt *engine) commit(root *node, w, h float32) {
 	rt.hits = rt.hits[:0]
 	clear(rt.posed)
 	rt.posed = rt.posed[:0]
-	clear(rt.webPlaces)
-	rt.webPlaces = rt.webPlaces[:0]
+	clear(rt.hostPlaces)
+	rt.hostPlaces = rt.hostPlaces[:0]
+	// The frame numbers the views it paints from 0 (noteHostView): the
+	// placement of an identical frame is the last one's, order included, so
+	// that the host and the native runtime write nothing.
+	rt.viewOrder = 0
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
 	rt.modal, rt.modalLayer, rt.commitScope, rt.commitPage = 0, 0, focusScope{}, 0
 	if rt.groups == nil {
@@ -913,7 +958,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		s.flags |= flagDisabled
 	}
 	s.cursor, s.tip = e.cursor, e.tip
-	s.webView = e.webView
+	s.webView, s.nativeView = e.webView, e.nativeView
 	s.role = e.role
 	s.input, s.caret, s.takesText, s.noIME = e.inputFn, e.caret, e.takesText, e.noIME
 	s.copyData = e.copyData
@@ -947,8 +992,8 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 			rt.focused = 0
 		}
 	}
-	if e.webView != nil {
-		rt.noteWebView(e, clip, invisible)
+	if e.webView != nil || e.nativeView != nil {
+		rt.noteHostView(e, clip, invisible)
 	}
 	switch {
 	case e.flags&flagPassThrough != 0 || invisible:
@@ -1019,9 +1064,9 @@ func intersect(a, b Rect) Rect {
 // takes clicks, whose own cursor is the default unless it sets one, so a
 // button in a text field shows no I-beam.
 func (rt *engine) updateCursor() {
-	if rt.pressed == nil && rt.overWebView() {
-		// The page sets the cursor over it: it is set again as the
-		// pointer comes back.
+	if rt.pressed == nil && rt.overHostView() {
+		// The page or the view sets the cursor over it: it is set again
+		// as the pointer comes back.
 		rt.cursor = cursorUnknown
 		return
 	}

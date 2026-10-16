@@ -153,7 +153,52 @@ type surface struct {
 	placed               []platform.WebViewPlacement
 	stacked              []*window
 	webHover, webCapture *window
+
+	// nativeHost is the surface's native-view hosting, made by the first call
+	// to NativeViewSurface (nativeview.go); nil for a window that shows no
+	// native view. The hosting keeps the views, their placement, the clip
+	// windows and the cover window itself; what is always linked here reaches
+	// it only through the hooks below, which its constructor installs, and
+	// names no hosting type, so that a build that shows no native view links
+	// none of the hosting (AGENTS.md: apps pay only for what they use).
+	//
+	// The slot is opaque on purpose: naming the hosting's type here puts that
+	// type -- the native-view provider interface, and every type its method
+	// signatures name -- in the type metadata of every app's surface, whether
+	// or not it shows a native view. nativeview.go asserts the one concrete
+	// type it stores (nativeViewSurface) back out of it.
+	//
+	// nativeComposing reports whether a native view is hosted right now, whose
+	// frames the content must then show over (viaComposition). nativeEvent is
+	// how the surface's own events reach the hosting: a resize or a change of
+	// DPI, a placement of the web views, the window's teardown and the
+	// surface's own, as the codes below. One function value for all of them:
+	// what the surface carries is what every app pays for, whether or not it
+	// shows a native view.
+	nativeHost      any
+	nativeComposing func() bool
+	nativeEvent     func(nativeEvent uint8)
 }
+
+// The events the always-linked surface sends the native-view hosting that
+// installed its hooks (nativeEvent, nativeview.go). They are constants, which
+// cost nothing in an app whose surface never sends one.
+const (
+	// nativeEvFit is a resize or a change of DPI: the native views and the
+	// cover window keep their place in DIPs, in other pixels (wmSize).
+	nativeEvFit uint8 = iota
+	// nativeEvPlaced is a placement of the web views, which decides where a
+	// native view shows at all: a view the content painted before a web view
+	// leaves its boxes out of its clip window's region (PlaceWebViews).
+	nativeEvPlaced
+	// nativeEvClose is the teardown of the surface's window, before Windows
+	// destroys its children, so that the app's own Destroy runs while its
+	// control still lives (window.go, destroy).
+	nativeEvClose
+	// nativeEvReset is the surface's own teardown, once its window is gone:
+	// the bookkeeping of the views it hosted (wmDestroy).
+	nativeEvReset
+)
 
 func registerSurfaceClass() {
 	if surfaceClassRegistered {
@@ -203,10 +248,16 @@ func (s *surface) Native() platform.SurfaceNative {
 	return platform.SurfaceNative{HWND: s.hwnd, Composed: s.viaComposition()}
 }
 
-// viaComposition reports whether the frames show through
-// DirectComposition: in a window without a redirection bitmap, and over
-// web views.
-func (s *surface) viaComposition() bool { return s.w.noRedirect || s.layer != nil }
+// viaComposition reports whether the frames of the content show through
+// DirectComposition: a window without a redirection bitmap has no GDI surface
+// to show them (compositor.go), and the frames of a window that hosts a native
+// view must show over it, which they do as a topmost composition target, over
+// every child window (nativeview.go).
+func (s *surface) viaComposition() bool {
+	// A surface that shows no native view has no hook, and links none of the
+	// hosting behind it.
+	return s.w.noRedirect || s.layer != nil || (s.nativeComposing != nil && s.nativeComposing())
+}
 
 // ShowsMaterial reports whether the window shows its material behind the
 // content: it has one, and no redirection bitmap to cover it.
@@ -464,6 +515,11 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 			}
 			s.layer.commit()
 		}
+		// The native views and the cover window keep their place in DIPs too
+		// (nativeview.go).
+		if s.nativeEvent != nil {
+			s.nativeEvent(nativeEvFit)
+		}
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceResize})
 		// Draw at once, so the content follows the window while it is
 		// resized.
@@ -671,6 +727,15 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		s.destroyAccess()
 		s.revokeFileDrops()
 		s.freeComp()
+		// The window gave up the app's native views before Windows destroyed
+		// its children (window.go, destroy -> nativeEvClose): each app's
+		// Destroy ran while its control still lived. What is left here is the
+		// bookkeeping of the views, and the clip windows and the cover window,
+		// which go with the surface: a native view made after the window began
+		// to close is refused (nativeview.go, NewNativeView).
+		if s.nativeEvent != nil {
+			s.nativeEvent(nativeEvReset)
+		}
 		delete(s.w.b.surfaces, hwnd)
 		return 0, true
 	}

@@ -199,7 +199,7 @@ func (p *Painter) element(e *node) {
 			}
 		}
 		p.background(e, box, !borderOver)
-		if e.webView != nil {
+		if e.webView != nil || e.nativeView != nil {
 			p.hole(e)
 		}
 		// Over a web view's page, as over a background.

@@ -45,24 +45,30 @@ func coreWebView(c *context, v NativeWebView) *node {
 }
 
 // webPlace is where a frame shows a web view: hit is the index of its
-// element's own hit, inert that it shows but takes no pointer.
+// element's own hit, order where it was painted among the frame's views,
+// and inert that it shows but takes no pointer. Native views are the
+// engine's native runtime's (ui/nativeview.go).
 type webPlace struct {
 	v     NativeWebView
 	frame Rect
 	clip  Rect
 	hit   int
+	order int
 	inert bool
 }
 
-// noteWebView notes where the frame shows the web view of e, laid out
-// within clip, unless none of it shows. Called while committing, before
-// the element's own hit.
-func (rt *engine) noteWebView(e *node, clip Rect, invisible bool) {
+// noteHostView notes where the frame shows the web view or the native view
+// of e, laid out within clip, unless none of it shows. Called while
+// committing, before the element's own hit.
+func (rt *engine) noteHostView(e *node, clip Rect, invisible bool) {
 	if e.flags&flagInvisible != 0 {
 		return
 	}
+	if e.webView == nil && e.nativeView == nil {
+		return
+	}
 	// The hole the painter makes: the content box on whole pixels. Native
-	// web views stay upright, covering a transformed box's bounds.
+	// views stay upright, covering a transformed box's bounds.
 	b := e.visualRect(e.contentBox())
 	if s := rt.painted[2]; s > 0 {
 		x0, y0 := float32(math.Round(float64(b.X*s)))/s, float32(math.Round(float64(b.Y*s)))/s
@@ -73,7 +79,15 @@ func (rt *engine) noteWebView(e *node, clip Rect, invisible bool) {
 	if b.W <= 0 || b.H <= 0 || v.W <= 0 || v.H <= 0 {
 		return
 	}
-	rt.webPlaces = append(rt.webPlaces, webPlace{v: e.webView, frame: b, clip: v, hit: len(rt.hits), inert: invisible})
+	if e.webView != nil {
+		rt.hostPlaces = append(rt.hostPlaces, webPlace{v: e.webView, frame: b, clip: v, hit: len(rt.hits), order: rt.viewOrder, inert: invisible})
+		rt.viewOrder++
+	}
+	if e.nativeView != nil && rt.native != nil {
+		// The window's native runtime holds its own placements, installed
+		// when the frame built this view (coreNativeView).
+		rt.native.note(e.nativeView, b, v, invisible)
+	}
 }
 
 // placedWebView is where a frame shows a web view, for the host.
@@ -81,44 +95,50 @@ type placedWebView struct {
 	v           NativeWebView
 	frame, clip platform.RectF
 	covers      []platform.RectF
+	order       int
 }
 
-// webViewPlacements returns where the frame shows its web views, in the
-// order it paints them, each with the boxes of what is painted over it
-// and takes the pointer: the hits after its own. A web view built twice,
-// as by an exit transition, shows where it takes the pointer.
-func (rt *engine) webViewPlacements() []placedWebView {
-	out := rt.webOut[:0]
-	for i := range rt.webPlaces {
-		wp := &rt.webPlaces[i]
-		dup := slices.IndexFunc(rt.webPlaces[:i], func(o webPlace) bool { return o.v == wp.v })
-		if dup >= 0 && (wp.inert || !rt.webPlaces[dup].inert) {
+// webPlacements returns where the frame shows its web views, in the order
+// it paints them, each with the boxes of what is painted over it and takes
+// the pointer: the hits after its own. A view built twice, as by an exit
+// transition, shows where it takes the pointer.
+func (rt *engine) webPlacements() []placedWebView {
+	web := rt.webOut[:0]
+	for i := range rt.hostPlaces {
+		wp := &rt.hostPlaces[i]
+		dup := slices.IndexFunc(rt.hostPlaces[:i], func(o webPlace) bool { return o.v == wp.v })
+		if dup >= 0 && (wp.inert || !rt.hostPlaces[dup].inert) {
 			continue
 		}
 		if dup >= 0 {
 			// The inert one went first: this one takes its place.
-			out = slices.DeleteFunc(out, func(o placedWebView) bool { return o.v == wp.v })
+			web = slices.DeleteFunc(web, func(o placedWebView) bool { return o.v == wp.v })
 		}
-		out = append(out, placedWebView{v: wp.v, frame: rectF(wp.frame), clip: rectF(wp.clip), covers: wp.covers(rt.hits)})
+		own := func(s *state) bool { return s.webView == wp.v }
+		web = append(web, placedWebView{v: wp.v, frame: rectF(wp.frame), clip: rectF(wp.clip), covers: covers(rt.hits, wp.clip, wp.hit, wp.inert, own), order: wp.order})
 	}
-	rt.webOut = out
-	return out
+	rt.webOut = web
+	return web
 }
 
-// covers returns the boxes, within the web view's clip, of the hits after
-// its own: those inside a box already found add nothing.
-func (wp *webPlace) covers(hits []hit) []platform.RectF {
-	if wp.inert {
-		return []platform.RectF{rectF(wp.clip)}
+// covers returns the boxes, within clip, of the hits after the view's own:
+// those inside a box already found add nothing. own reports whether the
+// element of a hit is the one showing the view.
+func covers(hits []hit, clip Rect, hit int, inert bool, own func(*state) bool) []platform.RectF {
+	if inert {
+		return []platform.RectF{rectF(clip)}
 	}
 	var out []platform.RectF
-	start := wp.hit
-	if start < len(hits) && hits[start].st != nil && hits[start].st.webView == wp.v {
-		start++ // its own
+	start := hit
+	if start < len(hits) && hits[start].st != nil {
+		// Its own, which is not over it.
+		if own(hits[start].st) {
+			start++
+		}
 	}
 next:
 	for _, h := range hits[start:] {
-		r := intersect(h.r, wp.clip)
+		r := intersect(h.r, clip)
 		if r.W <= 0 || r.H <= 0 {
 			continue
 		}
@@ -137,13 +157,21 @@ func rectF(r Rect) platform.RectF {
 	return platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
 }
 
-// placeWebViews tells the host where the frame shows its web views.
+// placeWebViews tells the host where the frame shows its web views, and the
+// window's native runtime where it shows its native views, once each, and
+// hides what it does not show.
 func (rt *engine) placeWebViews() {
-	if len(rt.webPlaces) == 0 && !rt.webShown {
+	if rt.native != nil {
+		rt.native.place()
+	}
+	if len(rt.hostPlaces) == 0 && !rt.webShown {
 		return
 	}
-	rt.webShown = len(rt.webPlaces) > 0
-	rt.host.placeWebViews(rt.webViewPlacements())
+	web := rt.webPlacements()
+	if len(web) > 0 || rt.webShown {
+		rt.webShown = len(web) > 0
+		rt.host.placeWebViews(web)
+	}
 }
 
 // webViewPress handles a press that went to the web view at x, y: the
@@ -163,6 +191,11 @@ func (rt *engine) webViewPress(x, y float32, button int) {
 		rt.focused = 0
 		rt.focusVisible = false
 	}
+	// The page has the keyboard, not the native view it was in: the content
+	// does not ask for it back, as the platform gives it to the page.
+	if rt.native != nil {
+		rt.native.dropFocus()
+	}
 	rt.requestFrame()
 }
 
@@ -179,28 +212,33 @@ func (rt *engine) webViewTabOut(v NativeWebView, back bool) {
 	rt.requestFrame()
 }
 
-// overWebView reports whether the element under the pointer is a web
-// view, whose page has the cursor.
-func (rt *engine) overWebView() bool {
+// overHostView reports whether the element under the pointer is a web
+// view or a native view, which sets the cursor itself.
+func (rt *engine) overHostView() bool {
 	if len(rt.hover) == 0 {
 		return false
 	}
 	s := rt.states[rt.hover[0]]
-	return s != nil && s.webView != nil
+	return s != nil && (s.webView != nil || s.nativeView != nil)
 }
 
-// hole paints the hole showing the web view of e: its content box,
-// rounded as its border's inner edge less its padding.
+// hole paints the hole showing the web view or the native view of e: its
+// content box, rounded as its border's inner edge less its padding. A
+// native view is a rectangular view of the platform's, which Radius does
+// not cut.
 func (p *Painter) hole(e *node) {
 	b := e.contentBox()
 	if b.W <= 0 || b.H <= 0 {
 		return
 	}
-	in := [4]float32{e.border[0] + e.pad[0], e.border[1] + e.pad[1], e.border[2] + e.pad[2], e.border[3] + e.pad[3]}
-	box := p.snap(Rect{e.x, e.y, e.w, e.h})
-	_, radii := scene.InnerRadii(box, scene.Corners(box, p.radii(e.radius), continuousCorners), p.radii(in))
-	for i := range radii {
-		radii[i] = abs32(radii[i])
+	var radii [4]float32
+	if e.nativeView == nil {
+		in := [4]float32{e.border[0] + e.pad[0], e.border[1] + e.pad[1], e.border[2] + e.pad[2], e.border[3] + e.pad[3]}
+		box := p.snap(Rect{e.x, e.y, e.w, e.h})
+		_, inner := scene.InnerRadii(box, scene.Corners(box, p.radii(e.radius), continuousCorners), p.radii(in))
+		for i := range inner {
+			radii[i] = abs32(inner[i])
+		}
 	}
 	r := p.snap(b)
 	// Translucent, the page blends over what was painted under it.

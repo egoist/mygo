@@ -202,10 +202,29 @@ func pressKey(w *mygo.Window, code uint16, chars string) (ok bool) {
 // dropFiles, dropping on the content's, skips.
 func dragFiles(*mygo.Window, float64, float64, []string) (bool, bool) { return false, false }
 
+// backtabChar is AppKit's NSBackTabCharacter (NSText.h: NSBackTabCharacter
+// = 0x0019): the one character a keyboard types for Shift+Tab. It is what
+// AppKit's own key binding dictionary maps to insertBacktab:, while U+0009
+// (a plain Tab, whatever the modifier flags say) maps to insertTab:.
+const backtabChar = "\x19"
+
 // pressTab presses Tab in a window of native UI, with Shift when back, as
 // the keyboard does: in the content or in the page of a web view.
+//
+// Shift+Tab is not Tab with the Shift flag alone. AppKit's
+// StandardKeyBinding.dict binds the character U+0009 to insertTab: and
+// NSBackTabCharacter (U+0019) to insertBacktab:, so a key event whose
+// characters stay "\t" makes a text view insert a tab forward even with
+// Shift held: hardware never sends that, and it hid a wrong payload behind
+// the WebKit test, which reads Shift from the modifier flags alone
+// (KeyEventCocoa.mm maps both characters to "U+0009"/"Tab" for the page,
+// so it is unchanged by the real one).
 func pressTab(w *mygo.Window, back bool) (ok bool) {
-	mygo.RunOnMain(func() { ok = darwin.TestKeyShift(w.NativeHandle(), 48, "\t", back) })
+	chars := "\t"
+	if back {
+		chars = backtabChar
+	}
+	mygo.RunOnMain(func() { ok = darwin.TestKeyShift(w.NativeHandle(), 48, chars, back) })
 	return ok
 }
 

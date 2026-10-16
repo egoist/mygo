@@ -113,6 +113,9 @@ What every app has, whether its windows show native UI or web pages.
 layout, input, navigation and accessibility, and a page for each of its
 components, from buttons to tables.
 
+[Native views](native-views.md) covers the other direction: hosting a real
+`NSView`, `HWND` or `GtkWidget` of the app's own inside a window MyGo draws.
+
 ## Web pages
 
 - [The frontend](frontend.md): how pages load during development and in

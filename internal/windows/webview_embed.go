@@ -260,9 +260,12 @@ func (w *window) pagePoint(pt uintptr) uintptr {
 
 // PlaceWebViews shows the window's web views where the content shows
 // them, in its paint order under the surface's frames, and hides the
-// others.
+// others. A web view the content painted after a native view shows over it,
+// through the region of that view's clip window: the boxes and the order of
+// the web views are given again here, so the native views are cut again
+// (cutNativeClips, nativeview.go).
 func (s *surface) PlaceWebViews(views []platform.WebViewPlacement) {
-	if s.w.closed || s.layer == nil {
+	if s.w.closed || s.w.destroying || s.layer == nil {
 		return
 	}
 	s.placed = append(s.placed[:0], views...)
@@ -297,6 +300,14 @@ func (s *surface) PlaceWebViews(views []platform.WebViewPlacement) {
 		v.placeEmbedded()
 	}
 	s.layer.commit()
+	// The web views of the surface decide where a native view shows at all: a
+	// view the content painted before one leaves its boxes out of its clip
+	// window's region (nativeview.go, cutNativeClips). A surface that hosts no
+	// native view carries no hook, and one that hosts a view but has none left
+	// is left alone by the event itself.
+	if s.nativeEvent != nil {
+		s.nativeEvent(nativeEvPlaced)
+	}
 }
 
 const dcompVisualRemoveAllVisuals = 18

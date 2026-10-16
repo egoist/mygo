@@ -163,9 +163,18 @@ type surface struct {
 	dataDrop     *gtkDataDrop
 	// layers is the overlay of the area over web, the layout of the web
 	// views under it, and placed where the content shows them
-	// (webview.go), once the window has some.
+	// (webview.go), once the window has some: ordered is what their
+	// windows came to be in, and orderDirty that one of them had no
+	// window yet. ext is the native-view extension of the surface, nil
+	// until a native view is made in it (nativeview.go): the placement,
+	// input shape, ordering and accessibility of the surface reach the
+	// app's own controls through it, and a surface that makes no native
+	// view names no native type at all.
 	layers, web ptr
 	placed      []platform.WebViewPlacement
+	ext         surfacePlacement
+	ordered     []ptr
+	orderDirty  bool
 }
 
 // GDK event masks of the drawing area.
@@ -605,6 +614,14 @@ func initSurfaceCallbacks() {
 		s := b().surfaceOf(data)
 		if s == nil {
 			return true
+		}
+		if s.ext != nil && s.orderDirty {
+			// A view's window maps over its siblings as the window is
+			// realized: the frame after that puts them in the content's
+			// order (nativeview.go orderViews). Only the extension of a
+			// surface that made a native view orders view windows, and so
+			// is the only one that sets orderDirty.
+			s.ext.orderViews()
 		}
 		// A GtkGLArea draws in its render signal, unless it has no context:
 		// then, as a drawing area, in this one.

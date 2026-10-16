@@ -141,9 +141,22 @@ type surface struct {
 	updating      bool
 	dataDrag      *macDataSource
 	dragOperation transfer.Operation
-	// placed are where the content shows the window's web views, under
-	// it (webview.go).
-	placed []platform.WebViewPlacement
+	// placed are where the content shows the window's web views, under it
+	// (webview.go). The native-view extension of a surface that made a
+	// native view is opaque here, reached through the two hooks its
+	// constructor installs (nativeview.go), nil until then: this file
+	// names no native type, and a surface that made no native view links
+	// none of the extension's code (AGENTS.md: apps pay only for what
+	// they use).
+	//
+	// placeNative shows the web views and the native views together, and
+	// hitNative returns the web view that takes the pointer at x, y and
+	// whether a view of the surface takes it there (pointerTaken,
+	// webview.go). ext belongs to nativeview.go alone.
+	placed      []platform.WebViewPlacement
+	ext         any
+	placeNative func()
+	hitNative   func(x, y float64) (*window, bool)
 }
 
 func (w *window) createSurface(content NSRect) {
@@ -352,13 +365,13 @@ var cursorFallbacks = map[platform.Cursor]string{
 }
 
 // applyCursor sets the content's cursor, unless the pointer is over a
-// web view, whose page sets its own.
+// web view, whose page sets its own, or a native view, which does.
 func (s *surface) applyCursor() {
-	if len(s.placed) > 0 {
+	if len(s.placed) > 0 || s.hitNative != nil {
 		p := msgPoint(class("NSEvent"), sel("mouseLocation"))
 		inWindow := msgRectToRect(s.w.win, sel("convertRectFromScreen:"), NSRect{Origin: p})
 		local := msgPointFromView(s.view, sel("convertPoint:fromView:"), inWindow.Origin, 0)
-		if s.webViewAt(local.X, local.Y) != nil {
+		if s.pointerTaken(local.X, local.Y) {
 			return
 		}
 	}
@@ -711,12 +724,13 @@ func registerSurfaceClass() {
 	}
 	classDef("MyGoSurfaceView", "NSView", []string{"NSTextInputClient"}, append(append(methods, accessViewMethods()...), []objc.MethodDef{
 		method("isFlipped", func(self id, _ objc.SEL) bool { return true }),
-		// The pointer goes through to the web views under the surface
-		// where the content shows them (webview.go).
+		// The pointer goes through to the web views and the native views
+		// under the surface where the content shows them (webview.go,
+		// nativeview.go).
 		method("hitTest:", func(self id, cmd objc.SEL, p NSPoint) id {
-			if s := b().surfaceOf(self); s != nil && len(s.placed) > 0 {
+			if s := b().surfaceOf(self); s != nil && (len(s.placed) > 0 || s.hitNative != nil) {
 				local := msgPointFromView(self, sel("convertPoint:fromView:"), p, send(self, "superview"))
-				if s.webViewAt(local.X, local.Y) != nil {
+				if s.pointerTaken(local.X, local.Y) {
 					return 0
 				}
 			}

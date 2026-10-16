@@ -29,17 +29,46 @@ var (
 	gtkWidgetGetParent               func(w ptr) ptr
 	gtkWidgetGetParentWindow         func(w ptr) ptr
 	gdkWindowInputShapeCombineRegion func(w, region ptr, x, y int32)
+	gdkWindowRestack                 func(w, sibling ptr, above bool)
 	cairoRegionCreateRectangle       func(r *gdkRectangle) ptr
 	cairoRegionSubtractRectangle     func(region ptr, r *gdkRectangle) int32
 	cairoRegionUnion                 func(region, other ptr) int32
 	cairoRegionDestroy               func(region ptr)
 	gtkWidgetEvent                   func(w, event ptr) bool
 	gtkContainerGetFocusChild        func(c ptr) ptr
-	webViewsLoaded                   bool
+	// layersLoaded is the native views' own binding flag (loadLayers):
+	// no app that makes none links it, or the bindings under it.
+	layersLoaded, webViewsLoaded bool
 
 	// cbWebViewFocus handles a web view's focus signal.
 	cbWebViewFocus ptr
 )
+
+// loadLayers binds what the native views of the surface's area are laid
+// out with: the layout they go in, the area's input shape over them, and
+// the restacking of their windows (nativeview.go). The web views bind the
+// same calls for themselves (loadWebViews), so that an app that makes no
+// native view links none of this, and the feature's own path keeps its
+// binding without the web views' callback.
+func loadLayers() {
+	if layersLoaded {
+		return
+	}
+	layersLoaded = true
+	mustBind(libGTK, &gtkLayoutNew, "gtk_layout_new")
+	mustBind(libGTK, &gtkLayoutPut, "gtk_layout_put")
+	mustBind(libGTK, &gtkLayoutMove, "gtk_layout_move")
+	mustBind(libGTK, &gtkWidgetGetParent, "gtk_widget_get_parent")
+	mustBind(libGTK, &gtkWidgetGetParentWindow, "gtk_widget_get_parent_window")
+	mustBind(libGDK, &gdkWindowInputShapeCombineRegion, "gdk_window_input_shape_combine_region")
+	// The views are z-ordered among themselves with the windows their
+	// layouts give them (stackWindows).
+	mustBind(libGDK, &gdkWindowRestack, "gdk_window_restack")
+	mustBind(libCairo, &cairoRegionCreateRectangle, "cairo_region_create_rectangle")
+	mustBind(libCairo, &cairoRegionSubtractRectangle, "cairo_region_subtract_rectangle")
+	mustBind(libCairo, &cairoRegionUnion, "cairo_region_union")
+	mustBind(libCairo, &cairoRegionDestroy, "cairo_region_destroy")
+}
 
 func loadWebViews() {
 	if webViewsLoaded {
@@ -52,6 +81,9 @@ func loadWebViews() {
 	mustBind(libGTK, &gtkWidgetGetParent, "gtk_widget_get_parent")
 	mustBind(libGTK, &gtkWidgetGetParentWindow, "gtk_widget_get_parent_window")
 	mustBind(libGDK, &gdkWindowInputShapeCombineRegion, "gdk_window_input_shape_combine_region")
+	// The web views alone are not re-ordered among themselves: only the
+	// extension of a surface that made a native view orders view windows
+	// (stackWindows), and it binds gdk_window_restack itself (loadLayers).
 	mustBind(libCairo, &cairoRegionCreateRectangle, "cairo_region_create_rectangle")
 	mustBind(libCairo, &cairoRegionSubtractRectangle, "cairo_region_subtract_rectangle")
 	mustBind(libCairo, &cairoRegionUnion, "cairo_region_union")
@@ -142,15 +174,47 @@ func (s *surface) makeLayers() {
 	}
 }
 
+// surfacePlacement is the native-view extension of a surface: what the
+// placement code of a surface, which every app links, asks of an
+// implementation of native views without naming one (nativeview.go). A
+// surface makes no extension until a native view is made in it, so a
+// webview-only surface reaches none of this: the surface itself holds the
+// state and the code of the feature nowhere (AGENTS.md: apps pay only for
+// what they use). None of the methods names a native type; the extension
+// holds the placements, the views and the GTK widgets of the app's
+// controls.
+type surfacePlacement interface {
+	// placeViews shows the content's native views where it shows them,
+	// with the web views, and hides the others.
+	placeViews()
+	// shapeInput lets the pointer through the area where the views under
+	// it take it, web and native in the content's paint order.
+	shapeInput()
+	// orderViews puts the view windows in the content's paint order.
+	orderViews()
+	// accessibles returns the accessible of each native view the content
+	// shows, for the overlay of the surface's area (surface_access.go).
+	accessibles() []ptr
+}
+
 // PlaceWebViews shows the window's web views where the content shows
 // them, in its paint order under the surface, and hides the others; the
-// area's input shape lets the pointer through to them.
+// area's input shape lets the pointer through to them. A surface that made
+// a native view hands the placement to its extension, which places the web
+// views and the native views together, in the content's one paint order
+// (nativeview.go). One that made none places its web views alone, with the
+// code every app has always linked (AGENTS.md: apps pay only for what they
+// use): no part of the feature, no helper it added, is reachable from here.
 func (s *surface) PlaceWebViews(views []platform.WebViewPlacement) {
 	host := s.w
 	if host.closed || s.layers == 0 {
 		return
 	}
 	s.placed = append(s.placed[:0], views...)
+	if s.ext != nil {
+		s.ext.placeViews()
+		return
+	}
 	shown := make([]*window, 0, len(views))
 	for _, p := range views {
 		v, ok := p.WebView.(*window)
@@ -179,9 +243,114 @@ func (s *surface) PlaceWebViews(views []platform.WebViewPlacement) {
 	s.shapeInput()
 }
 
-// shapeInput lets the pointer through the area where the web views take
-// it: in their clips but where the content painted over them.
+// placeWeb shows the window's web views where the content shows them and
+// hides the others: the placement of a surface that made a native view,
+// which merges it with the native views and orders and shapes the lot
+// itself (nativeview.go).
+func (s *surface) placeWeb() {
+	host := s.w
+	shown := make([]*window, 0, len(s.placed))
+	for _, p := range s.placed {
+		v, ok := p.WebView.(*window)
+		if !ok || v.host != host || v.closed {
+			continue
+		}
+		f := p.Frame
+		x, y := int32(math.Round(f.X)), int32(math.Round(f.Y))
+		gtkLayoutMove(s.web, v.web, x, y)
+		gtkWidgetSetSizeRequest(v.web, int32(math.Round(f.X+f.W))-x, int32(math.Round(f.Y+f.H))-y)
+		if !gtkWidgetGetVisible(v.web) {
+			// Showing the page's window maps it over its siblings,
+			// whatever order the content painted them in: the order the
+			// surface remembers (orderViews) no longer describes the
+			// windows, which a page that goes away and comes back shows,
+			// so ordering forgets it and puts them back.
+			s.ordered = s.ordered[:0]
+			gtkWidgetShow(v.web)
+		}
+		shown = append(shown, v)
+	}
+	for _, v := range host.webViews {
+		if !slices.Contains(shown, v) && gtkWidgetGetVisible(v.web) {
+			if gtkWidgetHasFocus(v.web) {
+				// A hidden view keeps no keyboard: it goes back to the
+				// content.
+				gtkWidgetGrabFocus(s.area)
+			}
+			gtkWidgetHide(v.web)
+		}
+	}
+}
+
+// windowOrder is one window of a view of the surface: the order the
+// content painted the view in, and the view's window, zero until GTK
+// realizes it.
+type windowOrder struct {
+	order int
+	win   ptr
+}
+
+// stackWindows puts the windows of the views the content shows in the
+// order it painted them: the first painted first, the last over the
+// others. A container maps a window over its siblings as it shows it, and
+// the surface's area is an overlay over them all (makeLayers), so the
+// order of the view windows among themselves is the content's. Only the
+// surface's extension orders them (nativeview.go): a surface that made no
+// native view has nothing to order them under, and links none of this
+// (AGENTS.md: apps pay only for what they use). Windows that are not
+// realized yet are ordered by the frame that realizes them (orderDirty):
+// shown is how many views the content shows, more than len(entries) when
+// some have no window yet.
+func (s *surface) stackWindows(entries []windowOrder, shown int) {
+	s.orderDirty = len(entries) < shown
+	if len(entries) < 2 {
+		// Nothing to order: one window cannot be in the wrong place
+		// among the others, and no window at all less so. What the
+		// surface remembers is not what it shows any more, though (a
+		// view went away, or has no window yet), and it is what the
+		// next frame with two windows compares against: forgetting it
+		// makes that frame put them in the content's order rather than
+		// trust an order that describes windows that are not these.
+		s.ordered = s.ordered[:0]
+		return
+	}
+	// A window shows a handful of views, and the content numbers them in
+	// the order it painted them: sorting them is a few moves, and an
+	// insertion sort of them stays stable and keeps the generic
+	// instantiations of a sort out of the path every app links.
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0 && entries[j-1].order > entries[j].order; j-- {
+			entries[j-1], entries[j] = entries[j], entries[j-1]
+		}
+	}
+	same := len(s.ordered) == len(entries)
+	for i := 0; same && i < len(entries); i++ {
+		same = s.ordered[i] == entries[i].win
+	}
+	if same {
+		// The windows are in the order the surface remembers: a frame
+		// that changed nothing is not a reason to call into GDK.
+		return
+	}
+	for i := 1; i < len(entries); i++ {
+		// Each after the one before it: the last ends on top.
+		gdkWindowRestack(entries[i].win, entries[i-1].win, true)
+	}
+	s.ordered = s.ordered[:0]
+	for _, e := range entries {
+		s.ordered = append(s.ordered, e.win)
+	}
+}
+
+// shapeInput lets the pointer through the area where the views under it
+// take it: the web views alone when the surface made no native view, and
+// the web views merged with the native views, in the content's paint
+// order, through the surface's extension when it made one (nativeview.go).
 func (s *surface) shapeInput() {
+	if s.ext != nil {
+		s.ext.shapeInput()
+		return
+	}
 	win := gtkWidgetGetParentWindow(s.area) // the overlay's window of the area
 	if win == 0 || win == gtkWidgetGetWindow(s.w.win) {
 		return
@@ -203,6 +372,16 @@ func (s *surface) shapeInput() {
 	}
 	gdkWindowInputShapeCombineRegion(win, region, 0, 0)
 	cairoRegionDestroy(region)
+}
+
+// nativeAccessibles returns the accessibles of the native views the
+// content shows, which the overlay of the surface holds under its area
+// (surface_access.go): none when the surface made no native view.
+func (s *surface) nativeAccessibles() []ptr {
+	if s.ext == nil {
+		return nil
+	}
+	return s.ext.accessibles()
 }
 
 // gdkRect returns the pixels of r, in DIPs, that it covers wholly.

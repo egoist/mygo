@@ -45,8 +45,9 @@ type WebViewOptions struct {
 	Transparent bool
 }
 
-// errNoContent is returned by NewWebView for windows showing a page.
-var errNoContent = errors.New("mygo: web views go in windows showing native UI (WindowOptions.Content)")
+// errNoContent is returned by NewWebView and NewNativeView for windows
+// showing a page.
+var errNoContent = errors.New("mygo: web views and native views go in windows showing native UI (WindowOptions.Content)")
 
 // NewWebView creates a web view for the window's native UI, which shows it
 // where its view places it with ui.WebView. The window must show Content;
