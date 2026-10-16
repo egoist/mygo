@@ -435,3 +435,47 @@ func TestCellSelectUnderTransform(t *testing.T) {
 	tt.Click("r1c1")
 	wantBlock(t, s, sel, "click r1c1 under Translate(-60, 0)", []int{1}, ColumnRange{Cursor: "B", Anchor: "B"}, []string{"B"})
 }
+
+// A drag over the row headers chooses whole rows though their column has
+// no title, which makes its ID "".
+func TestRowHeaderDragUntitled(t *testing.T) {
+	s := &ListState{CellSelect: true}
+	sel := &Selection[int]{}
+	s.Selection = sel
+	cols := []TableColumn{{RowHeader: true, Width: 40, Fixed: true}, {Title: "A"}, {Title: "B"}}
+	tt := NewTester(func(c *Context) {
+		Table(c, s, cols, 6, func(row, col int) { Textf(c, "r%dc%d", row, col) }).Grow(1)
+	}, 400, 300)
+	tt.Frame()
+	x, y := rowCenter(t, tt, "r1c0")
+	_, y2 := rowCenter(t, tt, "r3c0")
+	tt.Press(x, y)
+	tt.Move(x, y+3)
+	tt.Move(x, y2)
+	tt.Release(x, y2)
+	wantBlock(t, s, sel, "drag the untitled row headers of rows 1 to 3", []int{1, 2, 3}, ColumnRange{Cursor: "A", Anchor: "A", All: true}, []string{"A", "B"})
+}
+
+// In an OutlineTable choosing cells, Right and Left still open and close
+// the row chosen, and leave the columns as they are.
+func TestOutlineTableCellSelectKeys(t *testing.T) {
+	var s OutlineState[string]
+	s.List.Selection, s.List.CellSelect = &Selection[string]{}, true
+	cols := []TableColumn{{Title: "Name"}, {Title: "Kind", Width: 100}}
+	tt := NewTester(func(c *Context) {
+		OutlineTable(c, &s, cols, []string{"src", "docs", "README.md"}, children, func(path string, col int) {
+			Textf(c, "%s/%d", baseName(path), col).SingleLine()
+		}).Grow(1)
+	}, 400, 300)
+	tt.Frame()
+	tt.Click("src/0")
+	want := ColumnRange{Cursor: "Name", Anchor: "Name"}
+	tt.Key(0, KeyRight)
+	if !s.Open.Has("src") || s.List.Cells != want {
+		t.Fatalf("Right: open %v, cells %+v", s.Open.Has("src"), s.List.Cells)
+	}
+	tt.Key(0, KeyLeft)
+	if s.Open.Has("src") || s.List.Cells != want {
+		t.Fatalf("Left: open %v, cells %+v", s.Open.Has("src"), s.List.Cells)
+	}
+}

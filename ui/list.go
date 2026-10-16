@@ -119,8 +119,10 @@ type ListState struct {
 	// columns to it, and a Cmd-click adds its row or takes it out, keeping
 	// the columns. Dragging over cells chooses those it goes over, as
 	// DragSelect does the rows, scrolling sideways too. Left and Right
-	// move Cells.Cursor, and Shift with them extends the columns; the keys
-	// that move the rows leave one column, unless with Shift. The cells
+	// move Cells.Cursor, and Shift with them extends the columns, except in
+	// an OutlineTable, where they open and close the rows as they do
+	// without CellSelect; the keys that move the rows leave one column,
+	// unless with Shift. The cells
 	// of the block show as a chosen row does, as do the RowHeader cells of
 	// whole rows chosen, and the one at Cells.Cursor in the row the keys
 	// move from has a border while the table has the focus. A RowHeader

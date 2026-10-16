@@ -221,11 +221,13 @@ func (f *listFrame) cellInBlockAt(x, y float32) bool {
 // with Shift, as the screen shows them right to left too; without Shift
 // they leave the cursor's cell alone. collapse leaves one column, as the
 // keys moving the rows without Shift do, and all chooses every column, as
-// Cmd+A does.
+// Cmd+A does. In an OutlineTable, Left and Right stay the outline's, which
+// open and close the rows.
 func (f *listFrame) cellKeys(collapse, all bool) {
 	s, o := f.s, f.owner
 	d, extend := 0, false
 	switch {
+	case f.tree:
 	case o.Shortcut(0, KeyLeft):
 		d = -1
 	case o.Shortcut(0, KeyRight):
@@ -286,7 +288,9 @@ func (f *listFrame) revealColumn(k int) {
 func (f *listFrame) dragCells() {
 	s, rt := f.s, f.c.rt
 	from := s.colIndex(s.dragSel.fromCol)
-	if from < 0 {
+	if from < 0 || s.tableCols[from].rowHeader {
+		// None, or a drag from a RowHeader cell, which chooses whole rows
+		// (fromCol is "", which an untitled RowHeader column's ID is too).
 		return
 	}
 	to := f.columnAt(rt.pointerX, rt.pointerY)
