@@ -46,7 +46,7 @@ func TestKeysOfDifferentTypesDiffer(t *testing.T) {
 	type id int32
 	var states []*int
 	NewTester(func(c *Context) {
-		states = keyedStates(c, []any{int32(1), uint32(1), id(1), [1]int32{1}, keyItem{"a"}})
+		states = keyedStates(c, []any{int(1), int64(1), uint64(1), int32(1), uint32(1), id(1), [1]int32{1}, keyItem{"a"}})
 	}, 50, 50)
 	seen := map[*int]bool{}
 	for _, s := range states {
@@ -84,7 +84,7 @@ func TestNaNKeys(t *testing.T) {
 // Keying by a pointer or a struct allocates nothing, frame after frame.
 func TestKeysAllocateNothing(t *testing.T) {
 	p, v := &keyItem{"a"}, keyItem{"b"}
-	for _, k := range []any{p, v, int32(1)} {
+	for _, k := range []any{p, v, int32(1), 1, "a"} {
 		if n := testing.AllocsPerRun(100, func() { keyedID(1, k) }); n != 0 {
 			t.Errorf("keying by %T allocates %v times", k, n)
 		}

@@ -281,12 +281,13 @@ func keyedID(parent uint64, k any) uint64 {
 	switch k := k.(type) {
 	case string:
 		h = maphash.String(keySeed, k)
+	// Integers of different types are different keys, as in a map.
 	case int:
 		h = uint64(k)*0x9E3779B97F4A7C15 + 1
 	case int64:
-		h = uint64(k)*0x9E3779B97F4A7C15 + 1
+		h = uint64(k)*0x9E3779B97F4A7C15 + 2
 	case uint64:
-		h = k*0x9E3779B97F4A7C15 + 1
+		h = k*0x9E3779B97F4A7C15 + 3
 	default:
 		h = keyHash(k)
 	}
