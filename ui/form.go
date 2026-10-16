@@ -296,7 +296,10 @@ func alignBaselines(e *node) {
 	if ascent == 0 {
 		return
 	}
-	at := func(ch *node) (float32, bool) { return anchor(ch, ascent, descent) }
+	at := func(ch *node) (float32, bool) {
+		b, _, ok := anchor(ch, ascent, descent)
+		return b, ok
+	}
 	var top float32
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute == 0 {
@@ -318,31 +321,44 @@ func alignBaselines(e *node) {
 // is: that of its first line of text, or, where a control comes first, a
 // line of the row's text centered on it, so that a control without text,
 // as a row of swatches, lines up with its label rather than with a
-// description under it.
-func anchor(e *node, ascent, descent float32) (float32, bool) {
+// description under it. In a row, whose children sit side by side, text
+// comes before what is drawn beside it, as a status dot or an icon. text
+// reports whether the baseline is that of a text.
+func anchor(e *node, ascent, descent float32) (b float32, text, ok bool) {
 	if e.flags&flagInvisible != 0 {
-		return 0, false
+		return 0, false, false
 	}
 	switch {
 	case e.kind == kindText || e.kind == kindInput:
-		return firstBaseline(e)
+		b, ok := firstBaseline(e)
+		return b, ok, ok
 	case e.flags&(flagFocusable|flagEditable|flagClickable) != 0 || e.first == nil:
 		if b, ok := firstBaseline(e); ok {
-			return b, true
+			return b, true, true
 		}
 		if e.h > 0 {
-			return e.h/2 + (ascent-descent)/2, true
+			return e.h/2 + (ascent-descent)/2, false, true
 		}
-		return 0, false
+		return 0, false, false
 	}
+	var first float32
+	found := false
 	for ch := e.first; ch != nil; ch = ch.next {
-		if ch.flags&(flagAbsolute|flagInvisible) == 0 {
-			if b, ok := anchor(ch, ascent, descent); ok {
-				return ch.y + b, true
-			}
+		if ch.flags&(flagAbsolute|flagInvisible) != 0 {
+			continue
+		}
+		b, text, ok := anchor(ch, ascent, descent)
+		if !ok {
+			continue
+		}
+		if text || !e.row {
+			return ch.y + b, text, true
+		}
+		if !found {
+			first, found = ch.y+b, true
 		}
 	}
-	return 0, false
+	return first, false, found
 }
 
 // firstLine returns the first line of text in the element, as last laid
