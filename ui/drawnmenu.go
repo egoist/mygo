@@ -80,6 +80,7 @@ func (m *ShownMenu) Choose(id int) {
 	}
 	m.rt.drawn = nil
 	m.rt.menuChosen(m.p, id)
+	m.rt.menu.chosenLate = m.rt.inFrame
 	m.rt.soon()
 }
 

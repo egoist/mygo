@@ -489,3 +489,30 @@ func TestDrawnMenuFrames(t *testing.T) {
 		t.Fatalf("chosen %d, still shown %v", chosen, shown != nil)
 	}
 }
+
+// An app's menu chooses while its view builds, as a click on a row of it
+// does: the element whose menu it is hears of it in the same frame.
+func TestDrawnMenuChosenInTheView(t *testing.T) {
+	var (
+		chosen int
+		choose bool
+	)
+	view := func(c *context) {
+		row := coreRow(c).Padding(8).Children(func() { coreText(c, "Report.pdf") })
+		row.ContextMenu(func(m *Menu) {
+			if m.Item("Open").Chosen() {
+				chosen++
+			}
+		})
+		if m, ok := DrawnMenu(makeContext(c)); ok && choose {
+			m.Choose(m.Items[0].ID)
+		}
+	}
+	tt := coreNewTester(view, 400, 300)
+	tt.RightClick("Report.pdf")
+	choose = true
+	tt.Frame()
+	if chosen != 1 || tt.rt.drawn != nil {
+		t.Fatalf("chosen %d, still shown %v", chosen, tt.rt.drawn != nil)
+	}
+}
