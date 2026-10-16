@@ -1,6 +1,9 @@
 package ui
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 type keyItem struct{ title string }
 
@@ -62,6 +65,19 @@ func TestUncomparableKeys(t *testing.T) {
 	tt.Frame()
 	if *states[0] != 1 || states[0] == states[1] {
 		t.Fatalf("slice keys: states %d and %d", *states[0], *states[1])
+	}
+}
+
+// A key not equal to itself, as a NaN, keeps its element's state from
+// frame to frame, though a map would hash it anew each time.
+func TestNaNKeys(t *testing.T) {
+	nan := math.NaN()
+	var states []*int
+	tt := NewTester(func(c *Context) { states = keyedStates(c, []any{nan, [1]float64{nan}}) }, 50, 50)
+	*states[0], *states[1] = 1, 2
+	tt.Frame()
+	if *states[0] != 1 || *states[1] != 2 {
+		t.Fatalf("NaN keys lost their states: %d and %d", *states[0], *states[1])
 	}
 }
 

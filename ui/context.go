@@ -296,13 +296,19 @@ func keyedID(parent uint64, k any) uint64 {
 // keyHash hashes a key as Go compares it, as a map's key: a pointer by the
 // object it points to, whatever the object holds, a struct or an array by
 // its fields or elements, and keys of different types apart. A key Go
-// cannot compare, such as a slice, is hashed by its value printed.
+// cannot compare, such as a slice, is hashed by its value printed, and so
+// is a key not equal to itself, as a NaN, which a map would hash anew
+// each time.
 func keyHash(k any) (h uint64) {
+	printed := func() uint64 { return maphash.String(keySeed, fmt.Sprintf("%T:%v", k, k)) }
 	defer func() {
 		if recover() != nil {
-			h = maphash.String(keySeed, fmt.Sprintf("%T:%v", k, k))
+			h = printed()
 		}
 	}()
+	if k != k { // panics for a key Go cannot compare
+		return printed()
+	}
 	// One instance of Comparable for both: another, for reflect.Type,
 	// would grow every native app by 16 KB.
 	return maphash.Comparable[any](keySeed, k) ^ maphash.Comparable[any](keySeed, reflect.TypeOf(k))*0x9E3779B97F4A7C15
