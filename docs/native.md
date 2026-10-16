@@ -138,10 +138,11 @@ the subtitle is included above the message in the body.
 Enable **Communication Notifications** for the app's Apple App ID and add
 `INSendMessageIntent` to `macos.infoPlist.NSUserActivityTypes`. Sign with
 `com.apple.developer.usernotifications.communication` and embed a matching
-provisioning profile in `Contents/embedded.provisionprofile` before signing,
-including for Developer ID distribution. The profile must authorize the
-app's identifier, certificate and entitlements. CLI profile embedding is
-covered separately by [#408](https://github.com/egoist/mygo/pull/408).
+provisioning profile, including for Developer ID distribution: set
+`macos.provisioningProfile`, which `mygo build` copies to
+`Contents/embedded.provisionprofile` before signing (see
+[Provisioning profiles](distribution.md#provisioning-profiles)). The
+profile must authorize the app's identifier, certificate and entitlements.
 Do not add the restricted entitlement to an ad-hoc build: macOS can refuse
 to launch it.
 
