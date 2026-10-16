@@ -119,7 +119,9 @@ func TestFormLayout(t *testing.T) {
 			coreField(c, "Name", func() { coreTextInput(c, &name) })
 			coreField(c, "Email address", func() { coreTextInput(c, &email) }).Description("For receipts.")
 			coreField(c, "Notifications", func() { coreCheckbox(c, &notify, "Send emails") })
-			coreField(c, "Express", func() { coreSwitch(c, &express) })
+			// A description under a control without text leaves its label
+			// level with the control, not with the description.
+			coreField(c, "Express", func() { coreSwitch(c, &express) }).Description("Ships the next day.")
 			coreFieldset(c, "Shipping", func() {
 				coreField(c, "City", func() { coreTextInput(c, &city) })
 			})

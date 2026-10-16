@@ -296,15 +296,7 @@ func alignBaselines(e *node) {
 	if ascent == 0 {
 		return
 	}
-	at := func(ch *node) (float32, bool) {
-		if b, ok := firstBaseline(ch); ok {
-			return b, true
-		}
-		if y, h, ok := firstControl(ch); ok {
-			return y + h/2 + (ascent-descent)/2, true
-		}
-		return 0, false
-	}
+	at := func(ch *node) (float32, bool) { return anchor(ch, ascent, descent) }
 	var top float32
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute == 0 {
@@ -320,6 +312,37 @@ func alignBaselines(e *node) {
 			}
 		}
 	}
+}
+
+// anchor returns how far below e's top the baseline its row lines up on
+// is: that of its first line of text, or, where a control comes first, a
+// line of the row's text centered on it, so that a control without text,
+// as a row of swatches, lines up with its label rather than with a
+// description under it.
+func anchor(e *node, ascent, descent float32) (float32, bool) {
+	if e.flags&flagInvisible != 0 {
+		return 0, false
+	}
+	switch {
+	case e.kind == kindText || e.kind == kindInput:
+		return firstBaseline(e)
+	case e.flags&(flagFocusable|flagEditable|flagClickable) != 0 || e.first == nil:
+		if b, ok := firstBaseline(e); ok {
+			return b, true
+		}
+		if e.h > 0 {
+			return e.h/2 + (ascent-descent)/2, true
+		}
+		return 0, false
+	}
+	for ch := e.first; ch != nil; ch = ch.next {
+		if ch.flags&(flagAbsolute|flagInvisible) == 0 {
+			if b, ok := anchor(ch, ascent, descent); ok {
+				return ch.y + b, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // firstLine returns the first line of text in the element, as last laid
@@ -348,23 +371,6 @@ func firstLine(e *node) *text.Line {
 		}
 	}
 	return nil
-}
-
-// firstControl returns the top and the height of the first element inside
-// e, or e itself, that takes the focus, is clicked or holds nothing,
-// relative to e's top.
-func firstControl(e *node) (y, h float32, ok bool) {
-	if e.flags&(flagFocusable|flagEditable|flagClickable) != 0 || e.first == nil {
-		return 0, e.h, e.h > 0
-	}
-	for ch := e.first; ch != nil; ch = ch.next {
-		if ch.flags&(flagAbsolute|flagInvisible) == 0 {
-			if y, h, ok := firstControl(ch); ok {
-				return ch.y + y, h, true
-			}
-		}
-	}
-	return 0, 0, false
 }
 
 // firstBaseline returns how far below the element's top the baseline of
