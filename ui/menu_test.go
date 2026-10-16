@@ -343,3 +343,149 @@ func TestMenuAndContextMenuOfOneElement(t *testing.T) {
 		t.Errorf("chose %q", chosen)
 	}
 }
+
+// A window whose app draws its menus (DrawnMenu) hands each one over, as
+// the system's would show it: a view's at the point, a menu button's from
+// the button, a text input's editing menu; the item chosen reaches the
+// view as from the system's menu. A view that stops drawing them has the
+// system's again.
+func TestDrawnMenu(t *testing.T) {
+	var (
+		chosen []string
+		shown  *ShownMenu
+		text   = "hello"
+		draws  = true
+		button Rect
+	)
+	view := func(c *context) {
+		cx := makeContext(c)
+		coreColumn(c).Fill().Padding(20).Gap(10).Children(func() {
+			row := coreRow(c).Padding(8).Children(func() { coreText(c, "Report.pdf") })
+			row.ContextMenu(func(m *Menu) {
+				if m.Item("Open").Shortcut(Ctrl, KeyO).Chosen() {
+					chosen = append(chosen, "Open")
+				}
+				m.Separator()
+				m.Submenu("Move to", func(m *Menu) {
+					if m.Item("Desktop").Checked(true).Chosen() {
+						chosen = append(chosen, "Desktop")
+					}
+				})
+				m.Item("Delete").Disabled(true)
+			})
+			more := coreButton(c, "More").Menu(func(m *Menu) { m.Item("Rename") })
+			button = more.Bounds()
+			coreTextInput(c, &text).Label("name")
+		})
+		shown = nil
+		if draws {
+			shown, _ = DrawnMenu(cx)
+		}
+	}
+	tt := coreNewTester(view, 400, 300)
+	if err := tt.RightClick("Report.pdf"); err != nil {
+		t.Fatal(err)
+	}
+	if tt.h.menu != nil || shown == nil {
+		t.Fatalf("the system's menu %v, the app's %v", tt.h.menu, shown)
+	}
+	at, _ := tt.Find("Report.pdf")
+	if a := shown.Anchor; a.W != 0 || a.H != 0 || a.X < at.X || a.X > at.X+at.W || a.Y < at.Y || a.Y > at.Y+at.H {
+		t.Errorf("a context menu anchored at %+v, not at the click in %+v", a, at)
+	}
+	items := shown.Items
+	if len(items) != 4 {
+		t.Fatalf("items %+v", items)
+	}
+	if items[0].Kind != MenuEntryItem || items[0].Label != "Open" || items[0].Keys != "Ctrl+O" {
+		t.Errorf("Open: %+v", items[0])
+	}
+	if items[1].Kind != MenuEntrySeparator || items[3].Kind != MenuEntryItem || !items[3].Disabled {
+		t.Errorf("the separator %+v, Delete %+v", items[1], items[3])
+	}
+	desktop := items[2].Submenu[0]
+	if items[2].Kind != MenuEntrySubmenu || desktop.Kind != MenuEntryCheckbox || !desktop.Checked {
+		t.Errorf("Move to %+v", items[2])
+	}
+	shown.Choose(desktop.ID)
+	tt.Frame()
+	if !slices.Equal(chosen, []string{"Desktop"}) || shown != nil {
+		t.Fatalf("chosen %q, still shown %v", chosen, shown)
+	}
+
+	// The tester's helpers choose in a drawn menu too.
+	tt.RightClick("Report.pdf")
+	if err := tt.ChooseMenuItem("Open"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(chosen, []string{"Desktop", "Open"}) {
+		t.Fatalf("chosen %q", chosen)
+	}
+
+	// A menu button's menu opens from the button.
+	tt.Click("More")
+	if shown == nil || shown.Anchor != button {
+		t.Fatalf("the button's menu anchored at %+v, the button at %+v", shown, button)
+	}
+	tt.CloseMenu()
+
+	// A text input's editing menu.
+	tt.RightClick("name")
+	if shown == nil || !slices.ContainsFunc(shown.Items, func(e MenuEntry) bool { return e.Label == "Select All" }) {
+		t.Fatalf("the input's menu %+v", shown)
+	}
+	tt.CloseMenu()
+	if shown != nil {
+		t.Fatal("CloseMenu left the menu shown")
+	}
+
+	// The view draws them no more: the system's menu again.
+	draws = false
+	tt.Frame()
+	tt.RightClick("Report.pdf")
+	if !slices.Equal(tt.Menu(), []string{"Open", "-", "Move to", "Delete"}) || tt.rt.drawn != nil {
+		t.Fatalf("the system's menu %q, drawn %v", tt.Menu(), tt.rt.drawn != nil)
+	}
+}
+
+// A menu handed to the app shows in the frame after the one that built
+// it, not at the next frame something else asks for; the item chosen
+// acts, and the menu closes, in the frame that chose it.
+func TestDrawnMenuFrames(t *testing.T) {
+	var (
+		shown  *ShownMenu
+		chosen int
+		frames int
+	)
+	view := func(c *context) {
+		frames++
+		cx := makeContext(c)
+		row := coreRow(c).Padding(8).Focusable().Label("row").Children(func() { coreText(c, "Report.pdf") })
+		row.AutoFocus()
+		row.ContextMenu(func(m *Menu) {
+			if m.Item("Open").Chosen() {
+				chosen++
+			}
+		})
+		shown, _ = DrawnMenu(cx)
+		if shown != nil && frames > 100 {
+			t.Fatal("frames never settle")
+		}
+	}
+	tt := coreNewTester(view, 400, 300)
+	tt.Frame()
+	// One event, the key going down: nothing else asks for a frame.
+	tt.KeyDown(KeyContextMenu)
+	if shown == nil {
+		t.Fatal("the menu asked for by the keys did not show: no frame drew it")
+	}
+	m := shown
+	frames = 0
+	m.Choose(m.Items[0].ID)
+	if tt.FramePending() {
+		tt.Frame()
+	}
+	if chosen != 1 || shown != nil {
+		t.Fatalf("chosen %d, still shown %v", chosen, shown != nil)
+	}
+}

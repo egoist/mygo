@@ -450,6 +450,10 @@ func (rt *engine) showMenu() {
 		return
 	}
 	rt.menu.pending = nil
+	if rt.drawsMenus {
+		handOverMenu(rt, p)
+		return
+	}
 	rt.host.popupMenu(p.menu, p.x, p.y, func(id int) { rt.menuChosen(p, id) })
 }
 

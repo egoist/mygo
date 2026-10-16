@@ -245,6 +245,10 @@ type engine struct {
 	keys, retried []keyEvent
 	unrouted      []shortcutReg
 	menu          menuState
+	// drawsMenus is set in a frame whose view draws the window's menus
+	// (DrawnMenu), and drawn is the one it draws, open.
+	drawsMenus bool
+	drawn      *ShownMenu
 	// windowFocused tells that the window has the keyboard focus, which
 	// windowFocus reads; focusRead, that the last frame read it, so that a
 	// change of it draws a frame.
@@ -447,6 +451,7 @@ func (rt *engine) runFrame() {
 	defer rt.endFrame()
 
 	rt.frame++
+	rt.drawsMenus = false
 	rt.focusRead = false
 	rt.stats.begin(rt)
 	now := rt.now()

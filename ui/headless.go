@@ -524,11 +524,12 @@ func (t *Tester) RightClickAt(x, y float32) {
 // Menu returns the labels of the items of the context menu shown, "-" for
 // separators, or nil when none is.
 func (t *Tester) Menu() []string {
-	if t.h.menu == nil {
+	m, _ := t.shownMenu()
+	if m == nil {
 		return nil
 	}
 	out := []string{}
-	for _, it := range t.h.menu.Items {
+	for _, it := range m.Items {
 		label := it.Label
 		if it.Type == platform.MenuItemSeparator {
 			label = "-"
@@ -541,7 +542,7 @@ func (t *Tester) Menu() []string {
 // ChooseMenuItem chooses the item of the context menu shown labeled with
 // the last of path, in the submenus the others label, and closes the menu.
 func (t *Tester) ChooseMenuItem(path ...string) error {
-	m := t.h.menu
+	m, choose := t.shownMenu()
 	if m == nil {
 		return fmt.Errorf("ui: no context menu is shown")
 	}
@@ -572,15 +573,29 @@ func (t *Tester) ChooseMenuItem(path ...string) error {
 	if found.Type == platform.MenuItemSubmenu {
 		return fmt.Errorf("ui: %q opens a submenu", strings.Join(path, " > "))
 	}
-	chosen := t.h.chosen
-	t.h.menu, t.h.chosen = nil, nil
-	chosen(found.ID)
+	choose(found.ID)
 	t.settle()
 	return nil
 }
 
+// shownMenu returns the context menu shown, the system's or one the app
+// draws (DrawnMenu), and what chooses its items.
+func (t *Tester) shownMenu() (*platform.Menu, func(id int)) {
+	if d := t.rt.drawn; d != nil {
+		return d.p.menu, d.Choose
+	}
+	chosen := t.h.chosen
+	return t.h.menu, func(id int) { t.h.menu, t.h.chosen = nil, nil; chosen(id) }
+}
+
 // CloseMenu closes the context menu shown without choosing an item.
-func (t *Tester) CloseMenu() { t.h.menu, t.h.chosen = nil, nil }
+func (t *Tester) CloseMenu() {
+	t.h.menu, t.h.chosen = nil, nil
+	if d := t.rt.drawn; d != nil {
+		d.Close()
+		t.settle()
+	}
+}
 
 // Press presses (x, y) without releasing; Release releases it.
 func (t *Tester) Press(x, y float32) {
