@@ -34,16 +34,17 @@ const (
 	winGWLWndProc = ^uintptr(3)  // GWLP_WNDPROC, -4
 	winGWLStyle   = ^uintptr(15) // GWL_STYLE, -16
 
-	winWMSetFocus    = 0x0007
-	winWMKeyDown     = 0x0100
-	winWMLButtonDown = 0x0201
-	winVKTab         = 0x09
-	winVKShift       = 0x10
-	winWSChild       = 0x40000000
-	winWSVisible     = 0x10000000
-	winWSTabStop     = 0x00010000
-	winWSBorder      = 0x00800000
-	winESAutoHScroll = 0x0080
+	winWMSetFocus      = 0x0007
+	winWMKeyDown       = 0x0100
+	winWMLButtonDown   = 0x0201
+	winWMLButtonDblClk = 0x0203
+	winVKTab           = 0x09
+	winVKShift         = 0x10
+	winWSChild         = 0x40000000
+	winWSVisible       = 0x10000000
+	winWSTabStop       = 0x00010000
+	winWSBorder        = 0x00800000
+	winESAutoHScroll   = 0x0080
 
 	// The SetWindowPos flags of giving a window made without a border one:
 	// nothing moves or resizes, and the frame is worked out again.
@@ -131,7 +132,10 @@ func winWindowProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			// The ui owns the focus order: the control does not see it.
 			return 0
 		}
-	case winWMLButtonDown:
+	case winWMLButtonDown, winWMLButtonDblClk:
+		// A double click is a press too: the system sends the second press
+		// of one as this message instead of a press of its own, and mygo's
+		// own surface counts both as one (internal/windows/surface.go).
 		if f != nil {
 			// The message carries device pixels in the control's client
 			// area, and the contract asks for the DIPs of the view itself:
