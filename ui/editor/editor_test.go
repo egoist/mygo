@@ -272,7 +272,6 @@ func TestCodeEditorLines(t *testing.T) {
 func TestCodeEditorCaretBlinks(t *testing.T) {
 	ct := newEditorTest(t, "", "hello|")
 	tt := ct.tt
-	tt.SetTimeFlowing(false)
 	ct.key(0, ui.KeyLeft)
 	shown := bytes.Clone(tt.Image().Pix)
 	tt.Advance(blinkInterval)

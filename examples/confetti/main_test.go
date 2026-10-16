@@ -13,7 +13,6 @@ import (
 func TestBursts(t *testing.T) {
 	s := newApp()
 	tt := ui.NewTester(s.view, windowW, windowH)
-	tt.SetTimeFlowing(false)
 
 	if err := tt.Click("Basic Cannon"); err != nil {
 		t.Fatal(err)
@@ -47,7 +46,6 @@ func TestBursts(t *testing.T) {
 func TestMaxPieces(t *testing.T) {
 	s := newApp()
 	tt := ui.NewTester(s.view, windowW, windowH)
-	tt.SetTimeFlowing(false)
 	for range 8 {
 		if err := tt.Click("Realistic Look"); err != nil {
 			t.Fatal(err)
@@ -64,7 +62,6 @@ func TestMaxPieces(t *testing.T) {
 func TestFireworks(t *testing.T) {
 	s := newApp()
 	tt := ui.NewTester(s.view, windowW, windowH)
-	tt.SetTimeFlowing(false)
 
 	if err := tt.Click("Fireworks"); err != nil {
 		t.Fatal(err)
@@ -86,7 +83,6 @@ func TestFireworks(t *testing.T) {
 func TestReduceMotion(t *testing.T) {
 	s := newApp()
 	tt := ui.NewTester(s.view, windowW, windowH)
-	tt.SetTimeFlowing(false)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	if err := tt.Click("Realistic Look"); err != nil {
 		t.Fatal(err)

@@ -623,9 +623,10 @@ func TestRouterLayouts(t *testing.T) {
 			}
 		})
 	}, 500, 300)
-	tt.SetTimeFlowing(false)
 	pages := func(e *node) int { return len(e.children()) }
-	settle := func() { tt.Advance(300 * time.Millisecond) }
+	settle := func() {
+		tt.Advance(300 * time.Millisecond)
+	}
 	tt.Click("Layout 0")
 	if !tt.HasText("General page") || !tt.HasText("Layout 1") || section != "general" {
 		t.Fatalf("shows %q, section %q", tt.Texts(), section)

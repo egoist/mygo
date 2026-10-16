@@ -13,7 +13,6 @@ import (
 func TestSlider(t *testing.T) {
 	s := newSlider()
 	tt := ui.NewTester(s.view, windowW, windowH)
-	tt.SetTimeFlowing(false)
 	now := tt.Now()
 	ox, oy := float32(126), float32(cardY)
 	at := func(pos float32) (float32, float32) { return ox + stopX + stopGap*pos, oy + brainY }
@@ -50,7 +49,6 @@ func TestSlider(t *testing.T) {
 func TestGalaxy(t *testing.T) {
 	s := newSlider()
 	tt := ui.NewTester(s.view, windowW, windowH)
-	tt.SetTimeFlowing(false)
 	tt.ClickAt(126+stopX, cardY+brainY)
 	tt.Key(0, ui.KeyEnd)
 	if g := s.galaxyLevel(tt.Now()); s.level != galaxy || g != 0 {

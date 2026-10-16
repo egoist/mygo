@@ -546,7 +546,7 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 			break
 		}
 		if s.input != nil {
-			s.input(InputEvent{Kind: InputSelect, Start: ev.From, End: ev.To})
+			s.input(InputEvent{Kind: InputSelect, Start: ev.From, End: ev.To, Time: rt.now()})
 		}
 	case platform.AccessSetValue:
 		if s.editor == nil || s.flags&flagEditable == 0 || s.editor.readOnly {

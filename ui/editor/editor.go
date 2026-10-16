@@ -154,8 +154,6 @@ type editor struct {
 	viewH      float32
 	shown      [2]int // the first and last lines the last frame showed
 	focused    bool   // the editor and its window have the keyboard
-	// blinkStart is when the caret began to blink; zero restarts it at
-	// the next frame.
 	blinkStart time.Time
 	services   ui.Services
 	chord      *Binding
@@ -237,7 +235,7 @@ func (ed *editor) init(buf *Buffer, o options, t *ui.Theme) {
 	if ed.sels == nil {
 		ed.sels = []sel{{goal: -1, id: 0}}
 		ed.nextID = 1
-		ed.blinkStart = time.Time{}
+		ed.blinkStart = ed.frameNow
 		ed.hover.asked = -1
 		ed.hoverLine = -1
 	}
@@ -388,7 +386,7 @@ func (ed *editor) setSels(sels []sel, reveal reveal) {
 	if reveal != revealNone {
 		ed.reveal = max(ed.reveal, reveal)
 	}
-	ed.blinkStart = time.Time{}
+	ed.blinkStart = ed.frameNow
 	ed.autoclosed = ed.autoclosed[:0]
 	// What select next, add cursor and select larger go on from.
 	ed.wholeWord = false

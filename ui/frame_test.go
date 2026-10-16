@@ -263,29 +263,23 @@ func TestFramePending(t *testing.T) {
 	}
 }
 
-// A Tester's time follows the system's clock; Advance jumps it and
-// SetTimeFlowing stops it.
+// A Tester's clock stands still, however long the test takes, until
+// Advance moves it.
 func TestTesterTime(t *testing.T) {
 	var now time.Time
 	tt := NewTester(func(c *Context) { now = c.Now() }, 100, 50)
 	start := now
-	time.Sleep(10 * time.Millisecond)
-	tt.Frame()
-	if d := now.Sub(start); d < 10*time.Millisecond {
-		t.Errorf("flowing: the time moved by %v over 10 ms", d)
+	if !tt.Now().Equal(start) {
+		t.Fatalf("Now is %v, the frame's time %v", tt.Now(), start)
 	}
-
-	tt.SetTimeFlowing(false)
-	start = tt.Now()
-	time.Sleep(10 * time.Millisecond)
+	tt.Frame()
+	if d := now.Sub(start); d != 0 {
+		t.Errorf("a frame moved the time by %v", d)
+	}
 	tt.Advance(time.Hour)
 	tt.Frame()
 	if d := now.Sub(start); d != time.Hour {
-		t.Errorf("stopped: the time moved by %v with Advance(1h)", d)
-	}
-	tt.SetTimeFlowing(true)
-	if d := tt.Now().Sub(now); d < 0 || d > time.Second {
-		t.Errorf("the time leapt by %v as it flowed again", d)
+		t.Errorf("the time moved by %v with Advance(1h)", d)
 	}
 }
 
@@ -298,7 +292,6 @@ func TestAdvanceRunsAFrameEachRefresh(t *testing.T) {
 		builds++
 		value = Box(c).Animate("x", target, 100*time.Millisecond)
 	}, 100, 50)
-	tt.SetTimeFlowing(false)
 	target = 100
 	tt.Frame()
 	builds = 0
@@ -312,22 +305,28 @@ func TestAdvanceRunsAFrameEachRefresh(t *testing.T) {
 	}
 }
 
-// FramePending reports After's frame once the system's clock reaches it.
+// After's frame waits for Advance to reach its time.
 func TestFramePendingAfter(t *testing.T) {
 	ask := true
+	builds := 0
 	tt := NewTester(func(c *Context) {
+		builds++
 		if ask {
 			ask = false
 			c.After(5 * time.Millisecond)
 		}
 	}, 100, 50)
-	time.Sleep(10 * time.Millisecond)
-	if !tt.FramePending() {
-		t.Fatal("no frame pending once After's time came")
-	}
-	tt.Frame()
 	if tt.FramePending() {
-		t.Error("a frame pending after After's")
+		t.Fatal("a frame pending before After's time")
+	}
+	builds = 0
+	tt.Advance(4 * time.Millisecond)
+	if builds != 0 {
+		t.Fatalf("built %d frames before After's time", builds)
+	}
+	tt.Advance(time.Millisecond)
+	if builds != 1 || tt.FramePending() {
+		t.Errorf("built %d frames at After's time, want 1, a frame pending %v", builds, tt.FramePending())
 	}
 }
 
@@ -345,7 +344,6 @@ func TestAdvanceRunsPainterAfter(t *testing.T) {
 			}
 		})
 	}, 100, 50)
-	tt.SetTimeFlowing(false)
 	ask = true
 	tt.Frame()
 	builds, draws = 0, 0
@@ -371,7 +369,6 @@ func TestAdvanceRunsAfter(t *testing.T) {
 		}
 		coreBox(c).Size(10, 10).Draw(func(p *Painter, r Rect) { p.AnimationFrame() })
 	}, 100, 50)
-	tt.SetTimeFlowing(false)
 	at = tt.Now().Add(100 * time.Millisecond)
 	tt.Frame()
 	builds = 0
@@ -393,7 +390,6 @@ func TestAdvanceMovesInputTime(t *testing.T) {
 			}
 		})
 	}, 200, 100)
-	tt.SetTimeFlowing(false)
 	tt.Click("Box")
 	tt.Advance(time.Second)
 	tt.Click("Box")

@@ -215,10 +215,6 @@ func build(c *ui.Context, doc *Document, options []EditorOptions, styled bool) u
 			v.dragging, v.thumb = false, false
 		}
 	}
-	if v.blinkStart.IsZero() {
-		// The caret blinks again from this frame.
-		v.blinkStart = c.Now()
-	}
 	if v.changed {
 		v.changed = false
 		e.SetChanged()

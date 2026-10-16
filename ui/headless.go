@@ -210,17 +210,19 @@ func coreRender(view func(c *context), width, height int, scale float32) *image.
 
 // Tester runs a view without a window, as a test drives it: it renders
 // frames in memory and sends the view pointer and keyboard input, between
-// which it settles the frames the view asks for. Its time follows the
-// system's clock; Advance jumps it ahead and SetTimeFlowing stops it.
+// which it settles the frames the view asks for.
+//
+// Its clock stands still unless the test moves it with Advance, so what
+// depends on time (animations, Context.After, the clicks that make a
+// double click, typing that undoes in one step, tooltips) does the same
+// however fast the machine runs the test.
 type Tester struct {
 	rt     *engine
 	h      *headless
 	clicks platform.ClickCounter
-	// offset is how far Advance moved the time ahead of the system's
-	// clock; while stopped, the time is at. frameAt is the last frame's.
-	offset  time.Duration
-	stopped bool
-	at      time.Time
+	// now is the Tester's time, which only Advance moves, and frameAt
+	// that of the last frame.
+	now     time.Time
 	frameAt time.Time
 }
 
@@ -229,7 +231,7 @@ type Tester struct {
 // was given, as apps only log it.
 func coreNewTester(view func(c *context), width, height int) *Tester {
 	h := &headless{w: float32(width), h: float32(height), scale: 1}
-	t := &Tester{rt: newRuntime(view, h), h: h}
+	t := &Tester{rt: newRuntime(view, h), h: h, now: time.Now()}
 	t.rt.clock = t.Now
 	h.clock = t.Now
 	t.rt.collect = true
@@ -266,41 +268,23 @@ func (t *Tester) runLater() {
 	}
 }
 
-// Now returns the Tester's time, that of its next frame.
-func (t *Tester) Now() time.Time {
-	if t.stopped {
-		return t.at
-	}
-	if t.offset == 0 {
-		return time.Now()
-	}
-	return time.Now().Add(t.offset)
-}
+// Now returns the Tester's time, that of its next frame, which stands
+// still until Advance moves it.
+func (t *Tester) Now() time.Time { return t.now }
 
-// SetTimeFlowing starts or stops the Tester's time. It starts flowing;
-// stopped, only Advance moves it, so tests see the same times every run.
-func (t *Tester) SetTimeFlowing(flowing bool) {
-	switch {
-	case flowing && t.stopped:
-		t.offset, t.stopped = t.at.Sub(time.Now()), false
-	case !flowing && !t.stopped:
-		t.at, t.stopped = t.Now(), true
-	}
-}
-
-// Advance moves the Tester's time on by d at once, running the frames due
-// meanwhile: one each refresh while something moves, and those of After
-// and Painter.After at their time.
+// Advance moves the Tester's clock on by d, running the frames due
+// meanwhile at their times: one each refresh while something moves, and
+// those of After and Painter.After when they come due. An animation of
+// 200 ms is a quarter of the way after Advance(50 * time.Millisecond),
+// and done after another Advance(150 * time.Millisecond).
 func (t *Tester) Advance(d time.Duration) {
-	flowing := !t.stopped
-	t.SetTimeFlowing(false)
-	end := t.at.Add(max(d, 0))
+	end := t.now.Add(max(d, 0))
 	for {
 		at, ok := t.due()
 		if !ok || at.After(end) {
 			break
 		}
-		t.at = at
+		t.now = at
 		if h := t.h; !h.afterAt.IsZero() && !at.Before(h.afterAt) {
 			h.afterAt = time.Time{}
 			h.invalidate()
@@ -320,8 +304,7 @@ func (t *Tester) Advance(d time.Duration) {
 			t.frameAt = at
 		}
 	}
-	t.at = end
-	t.SetTimeFlowing(flowing)
+	t.now = end
 }
 
 // due returns when the next frame is due: the next refresh if one was
@@ -368,7 +351,7 @@ func (t *Tester) timerDue(at, armed time.Time) (time.Time, bool) {
 func (t *Tester) send(ev platform.SurfaceEvent) {
 	if ev.Kind == platform.PointerDown && ev.Clicks == 0 {
 		// Counted as a backend counts.
-		ev.Clicks = t.clicks.Press(ev.Button, ev.X, ev.Y, uint32(t.Now().UnixMilli()), platform.DefaultDoubleClick)
+		ev.Clicks = t.clicks.Press(ev.Button, ev.X, ev.Y, uint32(t.now.UnixMilli()), platform.DefaultDoubleClick)
 	}
 	t.rt.event(ev)
 	t.settle()
@@ -446,20 +429,10 @@ func (t *Tester) SetDirection(d Direction) {
 func (t *Tester) Frame() { t.h.requested.Store(true); t.settle() }
 
 // FramePending reports whether the view still asks for a frame, as one
-// that animates or never settles does after an input or Frame, or a timer
-// of After or Painter.After came due.
-func (t *Tester) FramePending() bool {
-	if t.asked() {
-		return true
-	}
-	now := t.Now()
-	for _, at := range [][2]time.Time{{t.h.afterAt, t.h.afterFrom}, {t.h.repaintAt, t.frameAt}} {
-		if due, ok := t.timerDue(at[0], at[1]); ok && !now.Before(due) {
-			return true
-		}
-	}
-	return false
-}
+// that animates or never settles does after an input or Frame. The
+// frames of After and Painter.After wait for Advance to reach their
+// time, as the clock stands still until then.
+func (t *Tester) FramePending() bool { return t.asked() }
 
 // Image returns the last frame.
 func (t *Tester) Image() *image.RGBA { return t.h.image() }

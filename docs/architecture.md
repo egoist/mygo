@@ -1477,7 +1477,12 @@ as in Tauri:
   would make the parent key, which closes the flyout before the release
   clicks the anchor and opens it again. An
   Escape the content leaves closes a flyout too: native UI reports one
-  no shortcut took (`routeKeys`, `surface.Conn.Escape`), and the bridge
+  no shortcut took (`surface.Conn.Escape`), neither one of the last
+  frame (`routeKeys`) nor one the frame handling the key builds, which
+  takes it in the next frame (`settleKeys`): a key pressed as the view
+  changes, before a frame shows the change, goes where the view now
+  sends it, so an Escape typed ahead of the frame that builds a
+  flyout's shortcut for it never closes the flyout. The bridge reports
   one no handler of the page cancelled (an `escape` message). `Flyout.Popover` shows one in an
   `NSPopover` (`internal/darwin/popover.go`), whose window AppKit makes
   as it shows, and whose transient behavior asks `popoverShouldClose:`.
@@ -2909,7 +2914,13 @@ either.
   effect's entry point (`ColorEffect`, `DistortionEffect`, `LayerEffect`)
   a `Fragment` that calls it, and the bridge reads the content as image 3
   (`LayerImage`) from where the box's corner lies in it
-  (`__layerInset`). Direct3D's compiler takes from 0.1 s to more than 1 s
+  (`__layerInset`). A shader reading its backdrop (`backdropAt`,
+  `backdropSample`) is an effect with `Backdrop`: `Painter.EffectBackdrop`
+  computes the backdrop as the builder will (`scene.BackdropOf` of the
+  op's bounds), the bridge maps positions to its texels
+  (`__backdropRow0`, `__backdropRow1`, `__backdropArea`), and the
+  renderers bind their backdrop texture as its image 2
+  (`gpu.BackdropImage`); the CPU twin reads `scene.BackdropImage`. Direct3D's compiler takes from 0.1 s to more than 1 s
   for a shader's effect (the renderer's head and tail, with its coverage,
   are most of a small one's; optimization levels barely change it), so
   `ui/shader` starts it as it compiles one (`d3d11.PrecompileEffect`), on
@@ -2918,7 +2929,13 @@ either.
   in `%LOCALAPPDATA%\MyGo\ShaderCache`, a file named by the SHA-256 of
   what it compiled from, one directory for the user as Windows' own
   D3DSCache is, the least recently used removed beyond 32 MB. Effects
-  compiled ahead of time, and apps without shaders, do not link it.
+  compiled ahead of time, and apps without shaders, do not link it. On
+  macOS, `metal.PrecompileShader` does the same with the system's default
+  device: Metal's library (about 85 ms the first time) and the pipeline
+  for BGRA8 windows (about 60 ms), which renderers on that device retain
+  (`sharedShader`) in place of making them; Metal's own disk cache keeps
+  them for later launches, and wide-gamut windows make their pipeline
+  from the shared library.
 - **Corners.** On macOS, rounded corners are continuous, as AppKit's and
   SwiftUI's (`scene.Op.Continuous`), and drawn as Core Animation draws
   them on screen, with the function of its shaders (QuartzCore's
@@ -3328,11 +3345,10 @@ either.
   draws in memory for good.
 - **Tests.** `ui.Tester` runs views against a host in memory
   (`ui/headless.go`) with the CPU renderer, at its own time
-  (`engine.clock`), which `Tester.Advance` jumps and
-  `Tester.SetTimeFlowing` stops. Its host runs no timer; it notes their
-  deadlines, and `Advance` runs the frames due. The fake backend's
-  surface lets the core's tests drive content windows through
-  `package mygo`.
+  (`engine.clock`), which stands still until `Tester.Advance` moves it.
+  Its host runs no timer; it notes their deadlines, and `Advance` runs
+  the frames due. The fake backend's surface lets the core's tests drive
+  content windows through `package mygo`.
   `BenchmarkFrame` in `ui` measures a frame of a large window on the CPU,
   and `BenchmarkListScroll` the frames scrolling a list of a million rows;
   `BenchmarkDiff*` the frames of a window as godiff's, two lists of texts
@@ -3516,7 +3532,15 @@ renderer's (`gputest.Compare`).
   of the target finds them, the CLI downloads each once into
   `<user cache>/mygo/natives/<sha256>/`, checking its SHA-256, and installs
   it at the top of the resources like a listed resource, both
-  architectures of a universal app combined.
+  architectures of a universal app combined. The CLI and the plugins
+  download into that cache with `internal/download`: a 5xx, 408 or 429
+  response, or a connection that fails or breaks off, is tried again
+  after 1, 2 and 4 s (GitHub's release downloads answer 502 and 504 now
+  and then), and a lock on `.lock` in the file's directory (`flock`,
+  `LockFileEx`) has processes that need the file at once download it
+  once: the others wait, then find it. Without it each renamed its own
+  copy onto the file, which Windows refuses ("Access is denied") while
+  another process has it open or loaded.
   `resources/icon.png` is the default icon. Each platform's output
   directory is assembled in a staging directory that replaces it whole, so
   removed resources do not linger; development builds on Linux and Windows
@@ -3534,10 +3558,11 @@ renderer's (`gputest.Compare`).
   few seconds after it appears, not sharing it for deletion, and `Delete`
   fails meanwhile.
   `makensis` comes from an installation of NSIS or, on Windows, where NSIS
-  is rarely installed, from the official zip of the release `nsisRelease`
-  pins, which the CLI downloads once, checks against its SHA-256 and
-  unpacks into `<user cache>/mygo`, as Tauri does. It tries the copies of
-  the zip in `nsisRelease.urls` in order, until one answers with the right
+  is rarely installed, from the official zip of the release that
+  `Release` in `internal/nsis` pins, which the CLI downloads once, checks
+  against its SHA-256 and unpacks into `<user cache>/mygo`, as Tauri
+  does. It tries the copies of
+  the zip in `Release.URLs` in order, until one answers with the right
   SHA-256: the asset of this repository's `nsis-<version>` release, then
   SourceForge, where NSIS publishes it. SourceForge's download host has
   been down for hours at a time, and its mirrors then redirect to it, so
@@ -3658,6 +3683,33 @@ D-Bus activates get `DISPLAY`, set `XDG_CURRENT_DESKTOP=KDE`, start
 the test binary's app ID. It passes on Debian 13 (portal 1.20, Plasma 6.3)
 and Debian 12 (portal 1.16, Plasma 5.27); Ubuntu 24.04 (portal 1.18, Plasma
 5.27) binds no shortcuts for any app.
+
+### Waiting in tests
+
+A test never decides on how long something took. CI runners are slow
+and loaded at random, so a test that sleeps then checks, or gives up
+after a few seconds, fails now and then although the code is right, and
+a longer timeout only makes that rarer. So:
+
+- Wait for the condition or the event itself, with `internal/wait`:
+  `wait.Until(t, "the window closed", w.IsDestroyed)`, `wait.For(t,
+  "the reply", ch)`, `wait.Context(t)` for calls that take a context.
+  Its guard, a minute, only turns a hang into a failure that says what
+  never happened. It is not tuned: a wait that reaches it found a race
+  that lost the event, or a condition that can't become true, and the
+  fix goes there.
+- Wait for what the product says it did, not for a side effect that
+  comes later: the backup's state rather than its file, an identity the
+  watch saw rather than a stat after it, the input queue drained rather
+  than bytes counted.
+- Native UI tests move the `ui.Tester`'s clock with `Advance`; it stands
+  still otherwise, so animations, delays and double clicks don't depend
+  on the machine.
+- Performance is measured by counts (steps, allocations) in tests, by
+  time only in benchmarks, which `bench.yml` tracks.
+- Checks that nothing happens (`select` on `time.After` with nothing to
+  fail) may wait a short while: a slow machine can only make them miss
+  a bug, never fail right code.
 
 ### Benchmarks
 
@@ -3815,13 +3867,17 @@ for the tag and creates the GitHub release.
 
 It does not run the tests again: `ci.yml` runs them on every push to main,
 for every platform, GUI tests included, so tag a commit whose CI passed.
-Its Windows job keeps the NSIS that the installer tests download in the
-Actions cache, under a key of `cmd/mygo/nsis.go`.
+Before the tests, each job downloads what they would download into the
+user's cache otherwise (`go run ./internal/prefetch`): the plugins'
+native libraries for its platform, and NSIS on Windows. It keeps them in
+the Actions cache, under a key of the files that pin them (the plugins'
+`mygo-plugin.json` and `internal/nsis/nsis.go`), so that the tests do
+not depend on the network.
 
-The NSIS that `mygo build` downloads (`nsisRelease` in `cmd/mygo/nsis.go`)
+The NSIS that `mygo build` downloads (`Release` in `internal/nsis/nsis.go`)
 has a copy on a release of this repository, which a new version of NSIS
 needs before a MyGo release that pins it. Download the official zip,
-check that its SHA-256 is the one `nsisRelease` pins, and publish it,
+check that its SHA-256 is the one `Release` pins, and publish it,
 without making the release the latest:
 
 ```sh

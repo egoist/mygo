@@ -67,7 +67,7 @@ func TestCollapsibleAnimates(t *testing.T) {
 			clip, inner = panel.parent.id, panel.id
 		}
 	}, 400, 400)
-	tt.SetTimeFlowing(false)
+	// A while into the animation.
 	partway := func() { tt.Advance(60 * time.Millisecond) }
 	tt.Click("More")
 	partway()

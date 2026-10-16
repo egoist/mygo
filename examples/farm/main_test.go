@@ -99,7 +99,6 @@ func TestStickWalks(t *testing.T) {
 func TestView(t *testing.T) {
 	g := newFarm(false)
 	tt := ui.NewTester(g.view, 960, 640)
-	tt.SetTimeFlowing(false)
 	// Keys act in the game's next step.
 	step := func() {
 		tt.Advance(3 * time.Second / game.Rate)

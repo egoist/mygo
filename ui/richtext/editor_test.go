@@ -78,7 +78,6 @@ func typeRunes(tt *ui.Tester, s string) {
 func TestRichTextCaretBlinks(t *testing.T) {
 	const blink = 530 * time.Millisecond
 	tt, _ := richTester(t, NewDocument(Text{}))
-	tt.SetTimeFlowing(false)
 	tt.Type("hello")
 	shown := bytes.Clone(tt.Image().Pix)
 	tt.Advance(blink)

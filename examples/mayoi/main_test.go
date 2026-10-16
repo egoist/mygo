@@ -144,7 +144,6 @@ func TestSpawn(t *testing.T) {
 func TestView(t *testing.T) {
 	h := newMayoi(false)
 	tt := ui.NewTester(h.view, 960, 640)
-	tt.SetTimeFlowing(false)
 	step := func() {
 		tt.Advance(3 * time.Second / game.Rate)
 	}

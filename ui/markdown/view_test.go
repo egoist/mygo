@@ -142,7 +142,6 @@ func TestRevealPaces(t *testing.T) {
 			Stream(c, text, o)
 		}
 	}, 600, 400)
-	tt.SetTimeFlowing(false)
 	text = strings.Repeat("word ", 200)
 	tt.Frame()
 	first := strings.Join(tt.Texts(), "")
@@ -154,7 +153,7 @@ func TestRevealPaces(t *testing.T) {
 		t.Fatalf("no more text after a while: %d then %d bytes", len(first), len(second))
 	}
 	done = true
-	tt.Frame()
+	// Within two seconds of the clock.
 	for range 100 {
 		tt.Advance(20 * time.Millisecond)
 		if strings.Join(tt.Texts(), "") == strings.TrimSpace(text) {
@@ -253,7 +252,6 @@ func TestFadeReplayed(t *testing.T) {
 		}
 		st = *ui.Local(root, stateKey{}, newState)
 	}, 600, 400)
-	tt.SetTimeFlowing(false)
 	text, done = "", false
 	tt.Frame()
 	text = src
@@ -305,7 +303,6 @@ func TestRevealBySentence(t *testing.T) {
 			Stream(c, text, o)
 		}
 	}, 600, 400)
-	tt.SetTimeFlowing(false)
 	text = "First sentence here. Second one is still"
 	tt.Frame()
 	tt.Advance(100 * time.Millisecond)

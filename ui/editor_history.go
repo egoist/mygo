@@ -84,14 +84,6 @@ func (ed *editor) record(typing bool) {
 	ed.lastEdit = now
 }
 
-// now returns the window's time, which a Tester sets.
-func (ed *editor) now() time.Time {
-	if ed.client != nil {
-		return ed.client.rt.now()
-	}
-	return time.Now()
-}
-
 // replace replaces the runes from start to end with s, as the last step
 // of undo notes, and puts the caret after it.
 func (ed *editor) replace(start, end int, s string) {

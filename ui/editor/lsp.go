@@ -302,8 +302,7 @@ func (ed *editor) acceptCompletion() bool {
 }
 
 // hover is the popover of what the text under the pointer is, and
-// the diagnostics there. restAt is when the pointer came to rest at
-// restOff, zero until the next frame.
+// the diagnostics there.
 type hover struct {
 	shown   bool
 	start   int
@@ -320,11 +319,10 @@ type hover struct {
 	// as the pointer leaves, rather than the keyboard.
 	byPointer bool
 	// hideAt is when the hover goes, the pointer having left the text
-	// hovered, unless it goes into the hover first; left tells the next
-	// frame to set hideAt. focused reports the keyboard in the hover, as
-	// its text is selected and copied, which keeps it.
+	// hovered, unless it goes into the hover first; focused reports the
+	// keyboard in the hover, as its text is selected and copied, which
+	// keeps it.
 	hideAt  time.Time
-	left    bool
 	focused bool
 }
 
@@ -337,7 +335,7 @@ func (h *hover) open() bool { return h.shown }
 
 func (h *hover) close() {
 	h.shown, h.build, h.text, h.diags, h.byPointer = false, nil, "", nil, false
-	h.hideAt, h.left, h.focused = time.Time{}, false, false
+	h.hideAt, h.focused = time.Time{}, false
 	h.asked = -1
 	h.pending = false
 }
