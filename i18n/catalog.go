@@ -293,53 +293,41 @@ func (c *Catalog) Message(locale, key string) (m *Message, lang string, ok bool)
 func (c *Catalog) lookup(locale, key string) (*Message, string, bool) {
 	k, version := textKey{locale, key}, registry.version.Load()
 	v, _ := c.found.Load(k)
-	if f, _ := v.(*foundMessage); f != nil && f.version == version {
-		return f.m, f.lang, f.m != nil
+	f, _ := v.(*foundMessage)
+	if f == nil || f.version != version {
+		m, lang := c.find(locale, key)
+		f = &foundMessage{version, m, lang}
+		// Count new keys only; past 4096, empty it, as texts.
+		if _, loaded := c.found.Swap(k, f); !loaded && c.foundCount.Add(1) > 4096 {
+			c.found.Clear()
+			c.foundCount.Store(0)
+		}
 	}
-	m, lang, ok := c.find(locale, key)
-	if c.foundCount.Add(1) > 4096 { // as texts, keep it from growing
-		c.found.Clear()
-		c.foundCount.Store(0)
-	}
-	c.found.Store(k, &foundMessage{version, m, lang})
-	return m, lang, ok
+	return f.m, f.lang, f.m != nil
 }
 
 // find is lookup without its cache.
-func (c *Catalog) find(locale, key string) (*Message, string, bool) {
-	sources := c.sources()
-	for _, tag := range c.candidates(locale, sources) {
-		for _, s := range sources {
-			if m := s.catalog.message(tag, s.prefix+key); m != nil {
-				return m, tag, true
+func (c *Catalog) find(locale, key string) (*Message, string) {
+	var apps []*Catalog // whose keys "<namespace>.<key>" change a library's
+	if c.namespace != "" {
+		apps = registered()
+	}
+	nsKey := c.namespace + "." + key // on the stack when short
+	for _, tag := range c.candidates(locale, apps) {
+		for _, a := range apps {
+			if m := a.message(tag, nsKey); m != nil {
+				return m, tag
 			}
 		}
+		if m := c.message(tag, key); m != nil {
+			return m, tag
+		}
 	}
-	return nil, "", false
-}
-
-// lookupSource is a catalog to look a key up in, with the prefix of its
-// keys.
-type lookupSource struct {
-	catalog *Catalog
-	prefix  string
-}
-
-// sources returns the catalogs a key of c is looked up in: c, after the
-// registered catalogs for a library's.
-func (c *Catalog) sources() []lookupSource {
-	if c.namespace == "" {
-		return []lookupSource{{c, ""}}
-	}
-	var out []lookupSource
-	for _, r := range registered() {
-		out = append(out, lookupSource{r, c.namespace + "."})
-	}
-	return append(out, lookupSource{c, ""})
+	return nil, ""
 }
 
 // candidates returns the tags to look a key up in for locale, in order.
-func (c *Catalog) candidates(locale string, sources []lookupSource) []string {
+func (c *Catalog) candidates(locale string, apps []*Catalog) []string {
 	version := registry.version.Load()
 	c.candMu.Lock()
 	if cached, ok := c.cands[locale]; ok && cached.version == version {
@@ -361,8 +349,8 @@ func (c *Catalog) candidates(locale string, sources []lookupSource) []string {
 		add(chain(tag))
 		// The language each catalog has that suits locale best, as
 		// zh-Hant for zh-TW, whose chain (zh-TW, zh) has none of it.
-		for _, s := range sources {
-			langs := s.catalog.langs()
+		for _, s := range append(apps, c) {
+			langs := s.langs()
 			if slices.Contains(langs, tag) {
 				continue
 			}
@@ -372,8 +360,8 @@ func (c *Catalog) candidates(locale string, sources []lookupSource) []string {
 		}
 	}
 	// The source language of the app, then the library's.
-	if len(sources) > 1 {
-		add(chain(sources[0].catalog.source))
+	if len(apps) > 0 {
+		add(chain(apps[0].source))
 	}
 	add(chain(c.source))
 
@@ -430,7 +418,7 @@ func (l *langMsgs) load() map[string]*Message {
 // registry holds the catalogs apps registered.
 var registry struct {
 	mu       sync.Mutex
-	catalogs []*Catalog
+	catalogs []*Catalog    // replaced, never changed in place: registered shares it
 	version  atomic.Uint64 // counts registrations, for caches
 }
 
@@ -448,7 +436,7 @@ func Register(c *Catalog) {
 		registry.mu.Unlock()
 		return
 	}
-	registry.catalogs = append(registry.catalogs, c)
+	registry.catalogs = append(slices.Clip(registry.catalogs), c) // a copy
 	registry.version.Add(1)
 	registry.mu.Unlock()
 	declare(c.source, c.langs()[1:])
@@ -458,7 +446,7 @@ func Register(c *Catalog) {
 func registered() []*Catalog {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	return slices.Clone(registry.catalogs)
+	return slices.Clip(registry.catalogs) // clipped: an append copies it
 }
 
 // localeFunc returns the language the app shows.
