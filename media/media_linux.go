@@ -978,6 +978,14 @@ func platformCapabilities() Caps {
 	if has(caps.Encoders, CodecH264) {
 		caps.Features = append(caps.Features, FeatureEncode)
 	}
+	// Capture needs the plugin that reads the device or the display, and an
+	// X11 display to read.
+	if linux.Find("v4l2src") {
+		caps.Features = append(caps.Features, FeatureCamera)
+	}
+	if linux.Find("ximagesrc") && os.Getenv("DISPLAY") != "" {
+		caps.Features = append(caps.Features, FeatureScreenCapture)
+	}
 
 	return caps
 }
