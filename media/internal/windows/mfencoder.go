@@ -370,7 +370,7 @@ func (e *H264Encoder) Encode(rgba []byte, pts time.Duration) error {
 			}
 			continue
 		}
-		hr := comCall(e.p, slotTransformProcessInput, 0, sample)
+		hr := comCall(e.p, slotTransformProcessInput, 0, sample, 0)
 		if !failed(hr) {
 			if e.async {
 				e.needIn--
@@ -650,28 +650,40 @@ func (e *H264Encoder) Close() error {
 		return e.err
 	}
 	e.closed = true
-	comCall(e.p, slotTransformProcessMessage, messageCommandDrain, 0)
-	if e.async && e.events != 0 {
-		// The encoder says when it has given back the last picture: wait
-		// for that rather than guessing how long it takes.
+	defer e.stop()
+	// Stop accepting input before asking for the tail. A failed drain does
+	// not promise a DrainComplete event, so never wait for one in that case.
+	for _, message := range []uintptr{messageNotifyEndOfStream, messageCommandDrain} {
+		if hr := comCall(e.p, slotTransformProcessMessage, message, 0); failed(hr) {
+			if e.err == nil {
+				e.err = hresultError("IMFTransform::ProcessMessage(end/drain)", hr)
+			}
+			return e.err
+		}
+	}
+	if e.async {
 		for e.drained == 0 {
 			if err := e.waitEvent(); err != nil {
-				e.stop()
+				if e.err == nil {
+					e.err = err
+				}
 				return e.err
 			}
 			if err := e.handleOutputs(); err != nil {
-				e.stop()
-				return e.err
+				return err
 			}
 		}
+	} else {
+		// Synchronous transforms do not push the buffered frames themselves.
+		// Drain until NEED_MORE_INPUT, not the usual per-frame batch limit.
+		for e.pullOne() {
+		}
 	}
-	e.stop()
 	return e.err
 }
 
 // stop ends the stream and gives up the encoder and its events.
 func (e *H264Encoder) stop() {
-	comCall(e.p, slotTransformProcessMessage, messageNotifyEndOfStream, 0)
 	comCall(e.p, slotTransformProcessMessage, messageNotifyEndStreaming, 0)
 	if e.events != 0 {
 		release(e.events)
