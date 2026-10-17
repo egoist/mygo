@@ -452,6 +452,17 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyou
 	if w.stateKey != "" {
 		restoreWindowState(w.stateKey, popts)
 	}
+	// A reload puts the window where it was, which is more recent than the
+	// state saved under its key, and puts it on the window its state key
+	// names (a flyout is placed at its window or tray).
+	var reloadState reloadWindowState
+	reloaded := false
+	if devReloadable {
+		reloadState, reloaded = reloadWindowFor(w.stateKey, flyout == nil)
+	}
+	if reloaded {
+		restoreReloadBounds(popts, reloadState)
+	}
 	w.title = popts.Title
 	nw, err := backend().NewWindow(popts, &windowHandler{w})
 	if err != nil {
@@ -468,6 +479,11 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyou
 	windows.Lock()
 	windows.list = append(windows.list, w)
 	windows.Unlock()
+
+	if reloaded {
+		// The content's own state, before it draws its first frame.
+		reloadedWindow(w, &opts, reloadState)
+	}
 
 	fire1(&App.onWindowCreated, w)
 	if opts.URL != "" && w.content == nil {

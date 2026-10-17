@@ -77,6 +77,8 @@ that must start instantly.
 
 - [Getting started](getting-started.md): install the tools, then create,
   develop and build an app, with native UI or a web frontend.
+- [Reloading](reload.md): what `mygo dev` keeps when it restarts the app,
+  and how an app hands its own state to the build that replaces it.
 
 ## Building the app
 
