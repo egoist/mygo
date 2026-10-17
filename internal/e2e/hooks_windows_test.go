@@ -356,3 +356,7 @@ func panelStyles(w *mygo.Window) (tool, topmost, owned, supported bool) {
 	mygo.RunOnMain(func() { tool, topmost, owned = win.TestPanelStyles(w.NativeHandle()) })
 	return tool, topmost, owned, true
 }
+
+func menuItemLook(...string) (title, subtitle string, imageHeight float64, supported bool, err error) {
+	return "", "", 0, false, nil
+}

@@ -376,6 +376,7 @@ const (
 	miimState     = 0x0001
 	miimFType     = 0x0100
 	miimString    = 0x0040
+	miimBitmap    = 0x0080
 	mftRadioCheck = 0x0200
 	mfsChecked    = 0x0008
 	mfsDisabled   = 0x0003

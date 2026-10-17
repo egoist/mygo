@@ -3,7 +3,9 @@
 package windows
 
 import (
+	"bytes"
 	"encoding/json"
+	"image/png"
 	"strings"
 	"unsafe"
 
@@ -20,15 +22,21 @@ type menuEntry struct {
 	menu  uintptr // the HMENU holding the item
 	radio bool
 	accel string
+	bmp   uintptr // the item's icon, deleted with the entry
 }
 
 type menuTable struct {
 	entries   map[uint16]*menuEntry
 	next      uint16
 	nextOwner int
+	// bitmaps are the icons of an owner's submenu items, which have no
+	// entry.
+	bitmaps map[int][]uintptr
 }
 
-func newMenuTable() menuTable { return menuTable{entries: map[uint16]*menuEntry{}} }
+func newMenuTable() menuTable {
+	return menuTable{entries: map[uint16]*menuEntry{}, bitmaps: map[int][]uintptr{}}
+}
 
 func (t *menuTable) newOwner() int {
 	t.nextOwner++
@@ -55,8 +63,19 @@ func (t *menuTable) drop(owner int) {
 	}
 	for id, e := range t.entries {
 		if e.owner == owner {
+			deleteObject(e.bmp)
 			delete(t.entries, id)
 		}
+	}
+	for _, bmp := range t.bitmaps[owner] {
+		deleteObject(bmp)
+	}
+	delete(t.bitmaps, owner)
+}
+
+func deleteObject(h uintptr) {
+	if h != 0 {
+		procDeleteObject.Call(h)
 	}
 }
 
@@ -82,7 +101,12 @@ func (b *Backend) buildMenu(m *platform.Menu, bar bool, owner int, accels map[ac
 		}
 		if it.Submenu != nil {
 			sub := b.buildMenu(it.Submenu, false, owner, accels)
-			procAppendMenuW.Call(h, flags|mfPopup, sub, uintptr(unsafe.Pointer(u16(it.Label))))
+			procAppendMenuW.Call(h, flags|mfPopup, sub, uintptr(unsafe.Pointer(u16(it.LabelWithSubtitle()))))
+			if bmp := menuBitmap(it.Icon); bmp != 0 {
+				n, _, _ := procGetMenuItemCount.Call(h)
+				setItemBitmap(h, n-1, true, bmp)
+				b.menus.bitmaps[owner] = append(b.menus.bitmaps[owner], bmp)
+			}
 			continue
 		}
 		if it.Checked {
@@ -90,7 +114,7 @@ func (b *Backend) buildMenu(m *platform.Menu, bar bool, owner int, accels map[ac
 		}
 		e := &menuEntry{uid: it.ID, role: it.Role, owner: owner, menu: h, radio: it.Type == platform.MenuItemRadio}
 		cmd := b.menus.add(e)
-		label := it.Label
+		label := it.LabelWithSubtitle()
 		if a, err := accelerator.Parse(it.Accelerator, "windows"); err == nil && it.Accelerator != "" {
 			e.accel = acceleratorText(a)
 			label += "\t" + e.accel
@@ -102,25 +126,88 @@ func (b *Backend) buildMenu(m *platform.Menu, bar bool, owner int, accels map[ac
 		if e.radio {
 			setItemInfo(h, cmd, label, it.Enabled, it.Checked, true)
 		}
+		if e.bmp = menuBitmap(it.Icon); e.bmp != 0 {
+			setItemBitmap(h, uintptr(cmd), false, e.bmp)
+		}
 	}
 	return h
 }
 
-func setItemInfo(menu uintptr, cmd uint16, label string, enabled, checked, radio bool) {
-	type menuItemInfo struct {
-		Size         uint32
-		Mask         uint32
-		Type         uint32
-		State        uint32
-		ID           uint32
-		SubMenu      uintptr
-		BmpChecked   uintptr
-		BmpUnchecked uintptr
-		ItemData     uintptr
-		TypeData     *uint16
-		Cch          uint32
-		BmpItem      uintptr
+// setItemBitmap shows bmp before the label of the item at position or with
+// the command id item.
+func setItemBitmap(menu, item uintptr, byPosition bool, bmp uintptr) {
+	mi := menuItemInfo{Mask: miimBitmap, BmpItem: bmp}
+	mi.Size = uint32(unsafe.Sizeof(mi))
+	procSetMenuItemInfoW.Call(menu, item, boolArg(byPosition), uintptr(unsafe.Pointer(&mi)))
+}
+
+// menuBitmap makes the bitmap of a menu item's icon, 16 points tall at the
+// system's DPI, or returns 0 for none.
+func menuBitmap(data []byte) uintptr {
+	if len(data) == 0 {
+		return 0
 	}
+	size := int(toPx(16, dpiOf(0)))
+	px, err := menuBitmapPixels(data, size)
+	if err != nil {
+		return 0
+	}
+	bi := bitmapInfoHeader{Width: int32(size), Height: -int32(size), Planes: 1, BitCount: 32}
+	bi.Size = uint32(unsafe.Sizeof(bi))
+	var bits uintptr
+	bmp, _, _ := procCreateDIBSection.Call(0, uintptr(unsafe.Pointer(&bi)), 0, uintptr(unsafe.Pointer(&bits)), 0, 0)
+	if bmp == 0 {
+		return 0
+	}
+	copy(unsafe.Slice((*byte)(native(bits)), len(px)), px)
+	return bmp
+}
+
+// menuBitmapPixels scales a PNG image to size by size pixels as the
+// premultiplied BGRA, top-down, that menus draw with its alpha.
+func menuBitmapPixels(data []byte, size int) ([]byte, error) {
+	src, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	// Each pixel averages the source pixels it covers, which
+	// golang.org/x/image/draw would do for 100 KB more of every app.
+	b := src.Bounds()
+	px := make([]byte, size*size*4)
+	for y := range size {
+		y0, y1 := b.Min.Y+y*b.Dy()/size, b.Min.Y+max((y+1)*b.Dy()/size, y*b.Dy()/size+1)
+		for x := range size {
+			x0, x1 := b.Min.X+x*b.Dx()/size, b.Min.X+max((x+1)*b.Dx()/size, x*b.Dx()/size+1)
+			var r, g, bl, a, n uint32
+			for sy := y0; sy < y1; sy++ {
+				for sx := x0; sx < x1; sx++ {
+					cr, cg, cb, ca := src.At(sx, sy).RGBA() // premultiplied
+					r, g, bl, a, n = r+cr, g+cg, bl+cb, a+ca, n+1
+				}
+			}
+			i := (y*size + x) * 4
+			px[i], px[i+1], px[i+2], px[i+3] = byte(bl/n>>8), byte(g/n>>8), byte(r/n>>8), byte(a/n>>8)
+		}
+	}
+	return px, nil
+}
+
+type menuItemInfo struct {
+	Size         uint32
+	Mask         uint32
+	Type         uint32
+	State        uint32
+	ID           uint32
+	SubMenu      uintptr
+	BmpChecked   uintptr
+	BmpUnchecked uintptr
+	ItemData     uintptr
+	TypeData     *uint16
+	Cch          uint32
+	BmpItem      uintptr
+}
+
+func setItemInfo(menu uintptr, cmd uint16, label string, enabled, checked, radio bool) {
 	mi := menuItemInfo{Mask: miimState | miimFType | miimString, TypeData: u16(label)}
 	mi.Size = uint32(unsafe.Sizeof(mi))
 	if radio {
@@ -259,11 +346,15 @@ func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 		if e.uid != it.ID {
 			continue
 		}
-		label := it.Label
+		label := it.LabelWithSubtitle()
 		if e.accel != "" {
 			label += "\t" + e.accel
 		}
 		setItemInfo(e.menu, cmd, label, it.Enabled, it.Checked, e.radio)
+		old := e.bmp
+		e.bmp = menuBitmap(it.Icon)
+		setItemBitmap(e.menu, uintptr(cmd), false, e.bmp)
+		deleteObject(old)
 	}
 	for _, w := range b.windows {
 		if w.menuShown() {

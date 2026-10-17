@@ -1471,6 +1471,30 @@ func TestMenuRolesAndState(t *testing.T) {
 	}
 }
 
+func TestMenuItemIconAndSubtitle(t *testing.T) {
+	icon := []byte("\x89PNG")
+	menu := NewMenu([]*MenuItem{
+		{ID: "code", Label: "123456", Subtitle: "GitHub · 2 min ago", Icon: icon, IconIsTemplate: true},
+	})
+	p := menu.snapshot().Items[0]
+	if p.Subtitle != "GitHub · 2 min ago" || string(p.Icon) != string(icon) || !p.Template {
+		t.Errorf("snapshot = %+v", p)
+	}
+	if got := p.LabelWithSubtitle(); got != "123456 — GitHub · 2 min ago" {
+		t.Errorf("LabelWithSubtitle = %q", got)
+	}
+
+	item := menu.ItemByID("code")
+	item.SetSubtitle("")
+	item.SetIcon(nil)
+	onMain(func() {})
+	updates := fb.MenuUpdates()
+	last := updates[len(updates)-1]
+	if last.ID != item.uid || last.Subtitle != "" || last.Icon != nil || last.LabelWithSubtitle() != "123456" {
+		t.Errorf("SetSubtitle/SetIcon not propagated: %+v", last)
+	}
+}
+
 func TestDefaultMenu(t *testing.T) {
 	m := fb.AppMenu()
 	if runtime.GOOS != "darwin" {

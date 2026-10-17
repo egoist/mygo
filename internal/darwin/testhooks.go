@@ -45,6 +45,35 @@ func TestPerformMenuItem(path ...string) error {
 	return err
 }
 
+// TestMenuItemLook finds an item of the application menu by the titles
+// along its path and returns its title, subtitle (empty before macOS 14)
+// and the height of its image in points (0 without one).
+func TestMenuItemLook(path ...string) (title, subtitle string, imageHeight float64, err error) {
+	withPool(func() {
+		menu := send(theBackend.app, "mainMenu")
+		var item id
+		for _, t := range path {
+			if menu == 0 {
+				err = fmt.Errorf("mygo: no submenu holds %q", t)
+				return
+			}
+			if item = send(menu, "itemWithTitle:", uintptr(nsString(t))); item == 0 {
+				err = fmt.Errorf("mygo: no menu item %q", t)
+				return
+			}
+			menu = send(item, "submenu")
+		}
+		title = goString(send(item, "title"))
+		if respondsTo(item, "subtitle") {
+			subtitle = goString(send(item, "subtitle"))
+		}
+		if img := send(item, "image"); img != 0 {
+			imageHeight = msgSize(img, sel("size")).Height
+		}
+	})
+	return
+}
+
 // TestPerformKeyEquivalent sends a key press with the Command key (and
 // shift when requested) to the application menu and reports whether an item
 // handled it.

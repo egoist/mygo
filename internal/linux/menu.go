@@ -175,6 +175,8 @@ func buildMenu(shell ptr, m *platform.Menu, accel ptr, owner, windowID int) {
 	}
 }
 
+// buildItem leaves out the item's icon: GtkImageMenuItem is deprecated.
+// The subtitle follows the label.
 func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int) ptr {
 	var item ptr
 	check := false
@@ -182,11 +184,11 @@ func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int) ptr {
 	case platform.MenuItemSeparator:
 		item = gtkSeparatorMenuItemNew()
 	case platform.MenuItemCheckbox, platform.MenuItemRadio:
-		item = gtkCheckMenuItemNewWithLabel(cs(it.Label))
+		item = gtkCheckMenuItemNewWithLabel(cs(it.LabelWithSubtitle()))
 		gtkCheckMenuItemSetDrawAsRadio(item, it.Type == platform.MenuItemRadio)
 		check = true
 	default:
-		item = gtkMenuItemNewWithLabel(cs(it.Label))
+		item = gtkMenuItemNewWithLabel(cs(it.LabelWithSubtitle()))
 	}
 	if it.Submenu != nil {
 		sub := gtkMenuNew()
@@ -361,7 +363,7 @@ func firstMenu(bar ptr) ptr {
 func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 	for _, n := range itemsByID[it.ID] {
 		if it.Type != platform.MenuItemSeparator {
-			gtkMenuItemSetLabel(n.item, cs(it.Label))
+			gtkMenuItemSetLabel(n.item, cs(it.LabelWithSubtitle()))
 		}
 		applyState(n.item, it, n.check)
 	}

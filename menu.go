@@ -102,7 +102,17 @@ type MenuItem struct {
 	// before Click is called.
 	Checked bool
 	ToolTip string
-	Submenu []*MenuItem
+	// Subtitle is a second, smaller line under the label. macOS 14 and
+	// later and browsers show it so; earlier macOS, Windows and Linux
+	// append it to the label after an em dash.
+	Subtitle string
+	// Icon is a PNG image shown before the label, 16 points tall. Linux
+	// does not show it.
+	Icon []byte
+	// IconIsTemplate lets macOS tint a black-and-transparent icon to match
+	// the menu, as TrayOptions.IconIsTemplate does.
+	IconIsTemplate bool
+	Submenu        []*MenuItem
 	// Click is called on the main thread when the item is chosen. On Linux
 	// and Windows, win is the window whose menu bar or context menu was
 	// chosen. Other menus use the focused window, which may be nil.
@@ -261,6 +271,12 @@ func (it *MenuItem) SetLabel(label string) { it.update(func() { it.Label = label
 
 // SetAccelerator changes the keyboard shortcut of the item.
 func (it *MenuItem) SetAccelerator(acc string) { it.update(func() { it.Accelerator = acc }) }
+
+// SetSubtitle changes the second line of the item.
+func (it *MenuItem) SetSubtitle(subtitle string) { it.update(func() { it.Subtitle = subtitle }) }
+
+// SetIcon changes the icon of the item, a PNG image; nil removes it.
+func (it *MenuItem) SetIcon(png []byte) { it.update(func() { it.Icon = png }) }
 
 func (it *MenuItem) get(fn func() bool) bool {
 	menuMu.Lock()
@@ -423,6 +439,9 @@ func (it *MenuItem) snapshotLocked() *platform.MenuItem {
 		Visible:     !it.Hidden,
 		Checked:     it.Checked,
 		ToolTip:     it.ToolTip,
+		Subtitle:    it.Subtitle,
+		Icon:        it.Icon,
+		Template:    it.IconIsTemplate,
 	}
 	switch it.Type {
 	case MenuItemSeparator:

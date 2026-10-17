@@ -163,6 +163,37 @@ func applyItemState(item id, it *platform.MenuItem) {
 	if it.ToolTip != "" {
 		send(item, "setToolTip:", uintptr(nsString(it.ToolTip)))
 	}
+	if it.Type == platform.MenuItemSeparator {
+		return
+	}
+	// NSMenuItem shows a subtitle from macOS 14.
+	if respondsTo(item, "setSubtitle:") {
+		var sub id
+		if it.Subtitle != "" {
+			sub = nsString(it.Subtitle)
+		}
+		send(item, "setSubtitle:", uintptr(sub))
+	} else if it.Subtitle != "" {
+		send(item, "setTitle:", uintptr(nsString(it.LabelWithSubtitle())))
+	}
+	send(item, "setImage:", uintptr(menuImage(it.Icon, it.Template)))
+}
+
+// menuImage makes an autoreleased NSImage 16 points tall of a PNG image,
+// or returns 0 for none.
+func menuImage(png []byte, template bool) id {
+	if len(png) == 0 {
+		return 0
+	}
+	img := autorelease(send(send(class("NSImage"), "alloc"), "initWithData:", uintptr(nsData(png))))
+	if img == 0 {
+		return 0
+	}
+	if size := msgSize(img, sel("size")); size.Height > 0 {
+		msgSetSize(img, sel("setSize:"), NSSize{size.Width * 16 / size.Height, 16})
+	}
+	send(img, "setTemplate:", boolArg(template))
+	return img
 }
 
 func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
