@@ -745,6 +745,15 @@ func ghostOf(e *node) *node {
 	return g
 }
 
+// forgetColors shows the colors of the elements at once: a route change is
+// where an element that comes back shows its own colors, not the color of
+// the element that took its place while it was away.
+func (rt *engine) forgetColors() {
+	for _, r := range rt.trans {
+		r.colorSet = false
+	}
+}
+
 // animateColors moves e's background and border colors, once its styleFn
 // set them, as its Transition asks: even while the desktop asks for less
 // motion, as changing colors moves nothing.
