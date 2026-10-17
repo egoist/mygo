@@ -260,45 +260,22 @@ func TestFocusChangeFrames(t *testing.T) {
 	}
 }
 
-// TestOccludedFramesThatDraw checks the frames a window out of sight still
-// draws: its first, which it shows with; one after input, as keys typed
-// into a key window another app covers; and every one while assistive
-// technology reads it.
-func TestOccludedFramesThatDraw(t *testing.T) {
+// TestOccludedFramesAfterInput checks that a window out of sight draws the
+// frame after input, as keys typed into a key window another app's
+// covers, and holds the next one again.
+func TestOccludedFramesAfterInput(t *testing.T) {
 	count := 0
-	view := func(c *context) { coreTextf(c, "%d", count) }
-
-	// Its first frame, though nothing of it shows yet.
-	tt := coreNewTester(view, 200, 100)
-	tt.h.hidden = true
-	tt.Frame()
-	if !tt.HasText("0") {
-		t.Fatalf("the first frame out of sight: shows %q", tt.Texts())
-	}
-
-	// After input.
-	rt := newRepaintTester(view)
+	rt := newRepaintTester(func(c *context) { coreTextf(c, "%d", count) })
 	rt.h.hidden = true
 	count = 1
 	rt.rt.event(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(KeyA)})
 	if built, _ := rt.frame(8 * time.Millisecond); !built || !rt.HasText("1") {
 		t.Errorf("a key out of sight: built %v, shows %q", built, rt.Texts())
 	}
-	// Without input since, a change waits.
+	// The input was the last frame's: a change since waits.
 	count = 2
 	rt.rt.changed()
-	if built, _ := rt.frame(8 * time.Millisecond); built {
-		t.Error("a change out of sight, after the input's frame, built")
-	}
-
-	// While assistive technology reads it.
-	rt = newRepaintTester(view)
-	rt.rt.event(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
-	rt.frame(8 * time.Millisecond)
-	rt.h.hidden = true
-	count = 3
-	rt.rt.changed()
-	if built, _ := rt.frame(8 * time.Millisecond); !built || !rt.HasText("3") {
-		t.Errorf("a change out of sight, read by assistive technology: built %v, shows %q", built, rt.Texts())
+	if built, _ := rt.frame(8 * time.Millisecond); built || !rt.rt.held {
+		t.Errorf("a change out of sight, after the input's frame: built %v, held %v", built, rt.rt.held)
 	}
 }

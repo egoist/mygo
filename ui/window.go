@@ -226,7 +226,13 @@ const frameIdle = 2 * time.Second
 
 func (h *windowHost) refreshRate() float32 { return float32(h.conn.Surface.RefreshRate()) }
 
+// occluded reports whether nothing of the window shows: never before its
+// first frame reached the surface, which a window made hidden waits for
+// to become ready to show (OnReadyToShow), though it shows nothing yet.
 func (h *windowHost) occluded() bool {
+	if !h.shown {
+		return false
+	}
 	s, ok := h.conn.Surface.(platform.OccludableSurface)
 	return ok && s.Occluded()
 }

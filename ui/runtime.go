@@ -642,11 +642,12 @@ func (rt *engine) surfaceFrame() {
 // reporting whether it did: what changed draws once some of it shows
 // (SurfaceShown), as browsers draw nothing for windows out of sight and
 // as Apple asks of Mac apps, rather than frames nobody sees. A window
-// still draws its first frame, which it shows with; one after input, as
-// keys typed into a key window another app's covers; and every one while
-// assistive technology reads it.
+// still draws one after input, as keys typed into a key window another
+// app's covers, and one as assistive technology turns on
+// (accessibilityOn); and none waits before the window's first frame
+// reached its surface (windowHost.occluded).
 func (rt *engine) holdFrame() bool {
-	if rt.frame == 0 || rt.input || rt.access || rt.inFrame || !rt.host.occluded() {
+	if rt.input || rt.inFrame || !rt.host.occluded() {
 		return false
 	}
 	rt.held = true
