@@ -211,6 +211,9 @@ var (
 	procMFStartup                           = mfplat.NewProc("MFStartup")
 	procMFCreateAttributes                  = mfplat.NewProc("MFCreateAttributes")
 	procMFCreateMediaType                   = mfplat.NewProc("MFCreateMediaType")
+	procMFCreateSample                      = mfplat.NewProc("MFCreateSample")
+	procMFCreateMemoryBuffer                = mfplat.NewProc("MFCreateMemoryBuffer")
+	procMFTEnumEx                           = mfplat.NewProc("MFTEnumEx")
 	procMFCreateFile                        = mfplat.NewProc("MFCreateFile")
 	procMFGetStrideForBitmapInfoHeader      = mfplat.NewProc("MFGetStrideForBitmapInfoHeader")
 	procMFEnumDeviceSources                 = mf.NewProc("MFEnumDeviceSources")
@@ -245,6 +248,7 @@ func Load() error {
 func load() error {
 	procs := []*syscall.LazyProc{
 		procMFStartup, procMFCreateAttributes, procMFCreateMediaType,
+		procMFCreateSample, procMFCreateMemoryBuffer, procMFTEnumEx,
 		procMFCreateFile, procMFGetStrideForBitmapInfoHeader,
 		procMFCreateSourceReaderFromURL, procMFCreateSourceReaderFromByteStream,
 	}

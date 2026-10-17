@@ -177,6 +177,7 @@ func open() {
 		"/System/Library/Frameworks/AVFoundation.framework/AVFoundation",
 		"/System/Library/Frameworks/CoreMedia.framework/CoreMedia",
 		"/System/Library/Frameworks/CoreVideo.framework/CoreVideo",
+		"/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox",
 	}
 	for _, path := range frameworks {
 		lib, err := purego.Dlopen(path, purego.RTLD_LAZY|purego.RTLD_GLOBAL)
@@ -268,6 +269,9 @@ func open() {
 	sym(corevideo, "CVPixelBufferGetBaseAddressOfPlane", &cvPixelBufferPlaneBase)
 	sym(corevideo, "CVPixelBufferGetBytesPerRowOfPlane", &cvPixelBufferPlaneStride)
 	if globalPixelFormatKey, loadErr = symbol(corevideo, "kCVPixelBufferPixelFormatTypeKey"); loadErr != nil {
+		return
+	}
+	if loadErr = bindVideoToolbox(libs[5]); loadErr != nil {
 		return
 	}
 }

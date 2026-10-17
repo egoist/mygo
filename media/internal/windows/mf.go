@@ -254,6 +254,13 @@ func (a Attributes) SetGUID(key, value *GUID) error {
 }
 
 // SetUINT32 sets key to value.
+func (a Attributes) SetUINT64(key *GUID, v uint64) error {
+	if hr := comCall(a.p, slotSetUINT64, uintptr(unsafe.Pointer(key)), uintptr(v)); failed(hr) {
+		return hresultError("IMFAttributes::SetUINT64", hr)
+	}
+	return nil
+}
+
 func (a Attributes) SetUINT32(key *GUID, v uint32) error {
 	if hr := comCall(a.p, slotSetUINT32, uintptr(unsafe.Pointer(key)), uintptr(v)); failed(hr) {
 		return hresultError("IMFAttributes::SetUINT32", hr)
@@ -333,6 +340,8 @@ func (m MediaType) SetGUID(key, value *GUID) error { return m.attrs().SetGUID(ke
 
 // SetUINT32 sets key to value.
 func (m MediaType) SetUINT32(key *GUID, v uint32) error { return m.attrs().SetUINT32(key, v) }
+
+func (m MediaType) SetUINT64(key *GUID, v uint64) error { return m.attrs().SetUINT64(key, v) }
 
 // GetGUID returns key's value, or the HRESULT Windows gave.
 func (m MediaType) GetGUID(key *GUID) (GUID, error) { return m.attrs().GetGUID(key) }
@@ -803,6 +812,20 @@ func (b Buffer) Lock() (unsafe.Pointer, int, error) {
 		return nil, 0, hresultError("IMFMediaBuffer::Lock", hr)
 	}
 	return p, int(curLen), nil
+}
+
+// LockWrite locks a buffer for writing and says how much room it has, which
+// is the length it was made with, not the length it says it holds.
+func (b Buffer) LockWrite() (unsafe.Pointer, int, error) {
+	var (
+		p      unsafe.Pointer
+		maxLen uint32
+		curLen uint32
+	)
+	if hr := comCall(b.p, slotBufferLock, uintptr(unsafe.Pointer(&p)), uintptr(unsafe.Pointer(&maxLen)), uintptr(unsafe.Pointer(&curLen))); failed(hr) {
+		return nil, 0, hresultError("IMFMediaBuffer::Lock", hr)
+	}
+	return p, int(maxLen), nil
 }
 
 // Unlock lets the buffer be written again.

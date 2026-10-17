@@ -93,10 +93,10 @@ const (
 // buffer's timestamps and a message's type are at these offsets. The media
 // tests read real buffers and messages through them.
 const (
-	offsetMessageType  = 64
-	offsetBufferPTS    = 72
-	offsetBufferDTS    = 80
-	offsetBufferLength = 88
+	offsetMessageType    = 64
+	offsetBufferPTS      = 72
+	offsetBufferDTS      = 80
+	offsetBufferDuration = 88
 )
 
 // A mapInfo is a GstMapInfo: what gst_buffer_map fills in and what
@@ -175,6 +175,8 @@ var (
 	gstSampleGetCaps              func(sample uintptr) uintptr
 	gstBufferMap                  func(buffer uintptr, info *mapInfo, flags int32) int32
 	gstBufferUnmap                func(buffer uintptr, info *mapInfo)
+	gstBufferNewAllocate          func(allocator uintptr, size, align uintptr) uintptr
+	gstBufferFill                 func(buffer uintptr, offset uintptr, src unsafe.Pointer, size uintptr) uintptr
 	gstCapsGetSize                func(caps uintptr) uint32
 	gstCapsGetStructure           func(caps uintptr, index uint32) uintptr
 	gstCapsToString               func(caps uintptr) *byte
@@ -206,6 +208,8 @@ var (
 	gstAppSinkIsEOS         func(sink uintptr) int32
 	gstAppSinkSetDrop       func(sink uintptr, drop int32)
 	gstAppSinkSetMaxBuffers func(sink uintptr, max int32)
+	gstAppSrcPushBuffer     func(src uintptr, buffer uintptr) int32
+	gstAppSrcEndOfStream    func(src uintptr) int32
 
 	// libglib-2.0 and libgobject-2.0
 	gFree              func(p unsafe.Pointer)
@@ -271,6 +275,8 @@ func open() {
 	sym(core, "gst_sample_get_caps", &gstSampleGetCaps)
 	sym(core, "gst_buffer_map", &gstBufferMap)
 	sym(core, "gst_buffer_unmap", &gstBufferUnmap)
+	sym(core, "gst_buffer_new_allocate", &gstBufferNewAllocate)
+	sym(core, "gst_buffer_fill", &gstBufferFill)
 	sym(core, "gst_caps_get_size", &gstCapsGetSize)
 	sym(core, "gst_caps_get_structure", &gstCapsGetStructure)
 	sym(core, "gst_caps_to_string", &gstCapsToString)
@@ -301,6 +307,8 @@ func open() {
 	sym(app, "gst_app_sink_is_eos", &gstAppSinkIsEOS)
 	sym(app, "gst_app_sink_set_drop", &gstAppSinkSetDrop)
 	sym(app, "gst_app_sink_set_max_buffers", &gstAppSinkSetMaxBuffers)
+	sym(app, "gst_app_src_push_buffer", &gstAppSrcPushBuffer)
+	sym(app, "gst_app_src_end_of_stream", &gstAppSrcEndOfStream)
 
 	sym(gobject, "g_object_ref_sink", &gObjectRefSink)
 	sym(gobject, "g_object_set", &gObjectSetString)
@@ -658,6 +666,47 @@ func (s AppSink) SetDrop(drop bool) {
 // them or makes the pipeline wait.
 func (s AppSink) SetMaxBuffers(n int) { gstAppSinkSetMaxBuffers(s.ptr, int32(n)) }
 
+// An AppSrc is the start of a pipeline media pushes buffers into, rather than
+// one that reads them from a file: what a recorder hands the machine's encoder
+// the pictures through.
+type AppSrc struct{ Element }
+
+// Push hands one buffer of bytes over, which belongs at pts and lasts
+// duration. GStreamer takes the buffer, including when it says it would not
+// have it.
+func (s AppSrc) Push(data []byte, pts, duration time.Duration) error {
+	if len(data) == 0 {
+		return errors.New("gstreamer: no bytes to push")
+	}
+	buf := gstBufferNewAllocate(0, uintptr(len(data)), 0)
+	if buf == 0 {
+		return errors.New("gstreamer: a buffer the machine would not make")
+	}
+	if gstBufferFill(buf, 0, unsafe.Pointer(&data[0]), uintptr(len(data))) != uintptr(len(data)) {
+		gstMiniObjectUnref(buf)
+		return errors.New("gstreamer: a buffer that would not take the bytes")
+	}
+	// The timestamps live in fields GStreamer only names in macros; the
+	// offsets are the ones above, which the same ABI keeps.
+	base := native(buf)
+	*(*uint64)(unsafe.Add(base, offsetBufferPTS)) = uint64(pts)
+	*(*uint64)(unsafe.Add(base, offsetBufferDTS)) = uint64(pts)
+	*(*uint64)(unsafe.Add(base, offsetBufferDuration)) = uint64(duration)
+	if flow := gstAppSrcPushBuffer(s.ptr, buf); flow < 0 {
+		return fmt.Errorf("gstreamer: the source would not take a buffer (flow %d)", flow)
+	}
+	return nil
+}
+
+// EndOfStream tells the pipeline there are no more buffers, which is how it
+// finishes what it still holds.
+func (s AppSrc) EndOfStream() error {
+	if flow := gstAppSrcEndOfStream(s.ptr); flow < 0 {
+		return fmt.Errorf("gstreamer: the source would not end (flow %d)", flow)
+	}
+	return nil
+}
+
 // A Sample is one buffer of data and the caps that describe it, as an
 // appsink hands it out. The caller releases it.
 type Sample struct{ ptr uintptr }
@@ -684,7 +733,7 @@ func (s *Sample) Caps() Caps {
 func (s *Sample) Time() (time.Duration, bool) { return s.clock(offsetBufferPTS) }
 
 // Duration returns how long the sample lasts, when it says.
-func (s *Sample) Duration() (time.Duration, bool) { return s.clock(offsetBufferLength) }
+func (s *Sample) Duration() (time.Duration, bool) { return s.clock(offsetBufferDuration) }
 
 func (s *Sample) clock(offset uintptr) (time.Duration, bool) {
 	ptr := gstSampleGetBuffer(s.ptr)
