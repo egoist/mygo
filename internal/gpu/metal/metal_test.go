@@ -145,14 +145,47 @@ func TestTrimDrawables(t *testing.T) {
 			t.Errorf("drawable count = %d, want 3", n)
 		}
 		r.trim()
-		if !r.trimmed {
+		if !r.trimmed || !r.shrunk {
 			t.Error("idle trim did not shrink the drawables")
 		}
 		r.fit(800, 600, 1)
-		if r.trimmed {
+		if r.shrunk {
 			t.Error("next frame did not restore the drawables")
 		}
+		r.burst = true
+		r.shrinkDrawables()
+		if !r.shrunk || r.burst {
+			t.Error("the end of a burst did not shrink the drawables")
+		}
 	})
+}
+
+// TestIdleStep checks when a window's drawables shrink and trim: shortly
+// after a burst of frames ends, so that a window drawing once a second
+// keeps two, and later whatever it drew.
+func TestIdleStep(t *testing.T) {
+	const ms = time.Millisecond
+	tests := []struct {
+		name                   string
+		idle                   time.Duration
+		burst, shrunk, trimmed bool
+		shrink, trim           bool
+		wait                   time.Duration
+	}{
+		{name: "drawing now and then", idle: 0, wait: trimAfter},
+		{name: "a second after a frame", idle: 1000 * ms, wait: trimAfter - 1000*ms},
+		{name: "in a burst", idle: 0, burst: true, wait: spareAfter},
+		{name: "a burst ended", idle: spareAfter, burst: true, shrink: true, wait: trimAfter - spareAfter},
+		{name: "shrunk already", idle: spareAfter, burst: true, shrunk: true, wait: trimAfter - spareAfter},
+		{name: "idle", idle: trimAfter, burst: true, trim: true},
+		{name: "trimmed", idle: 5 * trimAfter, trimmed: true},
+	}
+	for _, tt := range tests {
+		shrink, trim, wait := idleStep(tt.idle, tt.burst, tt.shrunk, tt.trimmed)
+		if shrink != tt.shrink || trim != tt.trim || wait != tt.wait {
+			t.Errorf("%s: idleStep = %v, %v, %v; want %v, %v, %v", tt.name, shrink, trim, wait, tt.shrink, tt.trim, tt.wait)
+		}
+	}
 }
 
 // TestChangedSince checks what frames drawn in memory copy into the

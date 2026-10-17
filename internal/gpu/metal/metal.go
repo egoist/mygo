@@ -425,13 +425,16 @@ type Renderer struct {
 	err         error
 	checked     bool
 
-	// lastRender is when the last frame drew; trimTimer trims the
-	// drawables once none has for a while, armed until it fires, and
-	// trimmed is whether it did.
-	lastRender         time.Time
-	trimTimer          uintptr
-	trimHandle         uintptr
-	trimArmed, trimmed bool
+	// lastRender is when the last frame drew, and burst whether frames
+	// came back to back since the drawables last shrank; trimTimer shrinks
+	// the drawables once none has drawn for a while, and trims the
+	// textures later, armed until it fires; shrunk and trimmed are whether
+	// it did.
+	lastRender                 time.Time
+	burst                      bool
+	trimTimer                  uintptr
+	trimHandle                 uintptr
+	trimArmed, shrunk, trimmed bool
 
 	// drawState is the frames'.
 	drawState
@@ -467,7 +470,8 @@ func New(layer uintptr) (r *Renderer, err error) {
 		// catch up (render) helped for a few frames only. Three, as Core
 		// Animation makes while a window animates, also let both instance
 		// slots have a frame in flight while the display shows a third.
-		// They cost a frame of memory until the window idles (trim).
+		// They cost a frame of memory until the window's frames stop
+		// coming back to back (shrinkDrawables).
 		if respondsTo(ml, "setMaximumDrawableCount:") {
 			send(ml, "setMaximumDrawableCount:", 3)
 		}
@@ -1448,7 +1452,10 @@ func (r *Renderer) render(s *scene.Scene) error {
 		send(cb, "commit")
 	}
 	r.track(cb)
-	r.lastRender = time.Now()
+	if now.Sub(r.lastRender) < burstGap {
+		r.burst = true
+	}
+	r.lastRender, r.trimmed = time.Now(), false
 	r.armTrim()
 	if r.frame%120 == 0 {
 		r.sweep()
@@ -1460,7 +1467,7 @@ func (r *Renderer) render(s *scene.Scene) error {
 // scale, and as its view, and reports whether they changed.
 func (r *Renderer) fit(w, h int, scale float64) (changed bool) {
 	bounds := msgRect(r.superlayer, sel("bounds"))
-	if w == r.w && h == r.h && scale == r.scale && bounds == r.bounds && !r.trimmed {
+	if w == r.w && h == r.h && scale == r.scale && bounds == r.bounds && !r.shrunk {
 		return false
 	}
 	// Without animating the change, as layers do by default.
@@ -1471,7 +1478,7 @@ func (r *Renderer) fit(w, h int, scale float64) (changed bool) {
 	msgSetFloat(r.layer, sel("setContentsScale:"), scale)
 	msgSetSize(r.layer, sel("setDrawableSize:"), cgSize{float64(w), float64(h)})
 	send(tx, "commit")
-	r.w, r.h, r.scale, r.bounds, r.trimmed = w, h, scale, bounds, false
+	r.w, r.h, r.scale, r.bounds, r.shrunk = w, h, scale, bounds, false
 	return true
 }
 
@@ -1510,13 +1517,47 @@ func (r *Renderer) releaseTextures() {
 }
 
 // trimAfter is how long a window draws nothing before its spare drawables
-// go: about when the Metal driver frees its own memory of frames.
+// and textures go: about when the Metal driver frees its own memory of
+// frames.
 const trimAfter = 2 * time.Second
 
-// armTrim has the renderer's timer trim the drawables once it draws
-// nothing for trimAfter.
+// An animation draws frames burstGap apart at most; once a burst of them
+// ends, a window draws nothing for spareAfter before the drawables it made
+// for it go. A window then drawing now and then, as one showing a value
+// each second, keeps two, the one shown and the one drawn into, rather
+// than the third an animation made: a frame of memory, 19 MB for a window
+// of 1470×826 points on a Retina display. Its next animation makes the
+// third again.
+const (
+	burstGap   = 50 * time.Millisecond
+	spareAfter = 300 * time.Millisecond
+)
+
+// idleStep tells what a renderer that drew nothing for idle does: shrink
+// its drawables, after a burst of frames, then trim them and its textures;
+// and how long until it looks again, 0 for when it draws next.
+func idleStep(idle time.Duration, burst, shrunk, trimmed bool) (shrink, trim bool, wait time.Duration) {
+	if trimmed {
+		return false, false, 0
+	}
+	if idle >= trimAfter {
+		return false, true, 0
+	}
+	if burst && !shrunk {
+		if idle >= spareAfter {
+			return true, false, trimAfter - idle
+		}
+		return false, false, spareAfter - idle
+	}
+	return false, false, trimAfter - idle
+}
+
+// armTrim has the renderer's timer shrink the drawables once it draws
+// nothing for spareAfter after a burst of frames, and trim them for
+// trimAfter.
 func (r *Renderer) armTrim() {
-	if r.trimArmed {
+	// Each frame of a burst puts the shrinking off.
+	if r.trimArmed && !r.burst {
 		return
 	}
 	if r.trimTimer == 0 {
@@ -1532,25 +1573,50 @@ func (r *Renderer) armTrim() {
 		mainLoop, _, _ := purego.SyscallN(cfRunLoopGetMain)
 		purego.SyscallN(cfRunLoopAddTimer, mainLoop, r.trimTimer, commonModes)
 	}
-	cfRunLoopTimerSetNextFireDate(r.trimTimer, cfAbsoluteTimeGetCurrent()+trimAfter.Seconds())
+	_, _, wait := idleStep(0, r.burst, r.shrunk, false)
+	cfRunLoopTimerSetNextFireDate(r.trimTimer, cfAbsoluteTimeGetCurrent()+wait.Seconds())
 	r.trimArmed = true
 }
 
-// trimIfIdle trims the drawables if the window drew nothing for trimAfter,
-// and waits for that time otherwise.
+// trimIfIdle shrinks the drawables or trims them, as idleStep says for the
+// time the window drew nothing, and waits for the next step otherwise.
 func (r *Renderer) trimIfIdle() {
-	if wait := trimAfter - time.Since(r.lastRender); wait > 0 {
+	shrink, trim, wait := idleStep(time.Since(r.lastRender), r.burst, r.shrunk, r.trimmed)
+	if shrink {
+		r.shrinkDrawables()
+	}
+	if trim {
+		r.trim()
+	}
+	if wait > 0 {
 		cfRunLoopTimerSetNextFireDate(r.trimTimer, cfAbsoluteTimeGetCurrent()+wait.Seconds())
 		return
 	}
 	r.trimArmed = false
 	cfRunLoopTimerSetNextFireDate(r.trimTimer, cfAbsoluteTimeGetCurrent()+1e9)
-	r.trim()
 }
 
-// trim gives back the drawables the layer does not show. Shrinking them
-// frees those, and Core Animation keeps showing the last frame; the next
-// makes them again at full size.
+// shrinkDrawables gives back the drawables the layer does not show.
+// Shrinking them frees those, and Core Animation keeps showing the last
+// frame; the next makes them again at full size, as many as frames need.
+func (r *Renderer) shrinkDrawables() {
+	r.burst = false
+	if r.layer == 0 || r.shrunk {
+		return
+	}
+	pool(func() {
+		r.waitLast()
+		tx := class("CATransaction")
+		send(tx, "begin")
+		send(tx, "setDisableActions:", 1)
+		msgSetSize(r.layer, sel("setDrawableSize:"), cgSize{1, 1})
+		send(tx, "commit")
+	})
+	r.shrunk = true
+}
+
+// trim gives back the drawables the layer does not show and the textures
+// of the frames, which the next makes again.
 func (r *Renderer) trim() {
 	if r.layer == 0 || r.trimmed {
 		return
@@ -1558,12 +1624,8 @@ func (r *Renderer) trim() {
 	pool(func() {
 		r.waitLast()
 		r.releaseTextures()
-		tx := class("CATransaction")
-		send(tx, "begin")
-		send(tx, "setDisableActions:", 1)
-		msgSetSize(r.layer, sel("setDrawableSize:"), cgSize{1, 1})
-		send(tx, "commit")
 	})
+	r.shrinkDrawables()
 	r.trimmed = true
 }
 
