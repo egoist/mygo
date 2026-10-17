@@ -146,8 +146,11 @@ type windowHost struct {
 	// shown tells that a frame was presented, which makes the window
 	// ready to show.
 	shown bool
-	// placed is where the surface shows the window's web views, views
-	// the web views.
+	// placed is where the surface shows the window's web views, and views
+	// the web views. The native views of the window are its content's
+	// native runtime's (ui/nativeview.go), which installs the connection's
+	// own focus request hook as the content builds one: a window whose
+	// content builds no native view holds none of it.
 	placed []platform.WebViewPlacement
 	views  []NativeWebView
 }
@@ -483,6 +486,10 @@ func (h *windowHost) capture() (int, int, []byte) {
 
 func (h *windowHost) detach() {
 	h.detached = true
+	// The native runtime hears no more of this window, and nothing of it
+	// may reach the window through the connection after this: a focus
+	// request kept from before finds no state to ask (ui/nativeview.go).
+	h.conn.NativeViews = nil
 	if h.idleTimer != nil {
 		h.idleTimer.Stop()
 	}
@@ -671,12 +678,12 @@ func (h *windowHost) placeWebViews(views []placedWebView) {
 	natives := make([]NativeWebView, 0, len(views))
 	for _, v := range views {
 		if n := v.v.SurfaceWebView(h.conn); n != nil {
-			list = append(list, platform.WebViewPlacement{WebView: n, Frame: v.frame, Clip: v.clip, Covers: v.covers})
+			list = append(list, platform.WebViewPlacement{WebView: n, Frame: v.frame, Clip: v.clip, Covers: v.covers, Order: v.order})
 			natives = append(natives, v.v)
 		}
 	}
 	if slices.EqualFunc(list, h.placed, func(a, b platform.WebViewPlacement) bool {
-		return a.WebView == b.WebView && a.Frame == b.Frame && a.Clip == b.Clip && slices.Equal(a.Covers, b.Covers)
+		return a.WebView == b.WebView && a.Frame == b.Frame && a.Clip == b.Clip && slices.Equal(a.Covers, b.Covers) && a.Order == b.Order
 	}) {
 		return
 	}
@@ -697,6 +704,11 @@ func (h *windowHost) tabIntoWebView(v NativeWebView, back bool) {
 		n.TabInto(back)
 	}
 }
+
+// placeNativeViews, tabIntoNativeView, takeBackFocus, nativeViewShown and
+// nativeViewPress live in the window's native runtime (ui/nativeview.go),
+// installed once its content builds a native view: no window that shows
+// none of them reaches that code, and none of it is named here.
 
 func (h *windowHost) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
 	if h.conn.PopupMenu != nil {

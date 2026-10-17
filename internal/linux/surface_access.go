@@ -843,15 +843,26 @@ func initAccessCallbacks() {
 		rootParentIndex = *slot(class, atkGetIndexInParent)
 		*slot(class, atkGetIndexInParent) = rootIndex
 	})
+	// In the overlay holding web views, the surface is its first child,
+	// and the app's native controls, which the content shows under it,
+	// follow: without them assistive technology would see the content
+	// alone (nativeview.go).
 	overlayChildren := purego.NewCallback(func(obj ptr) int32 {
-		if layersOf(gtkAccessibleGetWidget(obj)) != nil {
-			return 1
+		if s := layersOf(gtkAccessibleGetWidget(obj)); s != nil {
+			return 1 + int32(len(s.nativeAccessibles()))
 		}
 		return 0
 	})
 	overlayChild := purego.NewCallback(func(obj ptr, i int32) ptr {
-		if s := layersOf(gtkAccessibleGetWidget(obj)); s != nil && i == 0 {
+		s := layersOf(gtkAccessibleGetWidget(obj))
+		if s == nil || i < 0 {
+			return 0
+		}
+		if i == 0 {
 			return gObjectRef(gtkWidgetGetAccessible(s.area))
+		}
+		if a := s.nativeAccessibles(); int(i) <= len(a) {
+			return gObjectRef(a[i-1])
 		}
 		return 0
 	})

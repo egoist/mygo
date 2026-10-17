@@ -550,6 +550,10 @@ type WebViewPlacement struct {
 	// the web view that takes the pointer: there the pointer is the
 	// surface's, elsewhere in Clip the web view's.
 	Covers []RectF
+	// Order is where the content painted the web view among the web views
+	// and native views of the frame, first painted first: a view shows
+	// over what was painted before it.
+	Order int
 }
 
 // At reports whether the pointer at x, y is the web view's.

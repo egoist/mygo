@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/raster"
 	"github.com/egoist/mygo/internal/scene"
+	"github.com/egoist/mygo/internal/surface"
 	"github.com/egoist/mygo/transfer"
 )
 
@@ -67,10 +68,16 @@ type headless struct {
 	dragOptions transfer.DragOptions
 	// webViews are where the last frame showing web views showed them;
 	// tabbedInto the web view Tab gave the keyboard last, from its end
-	// when tabbedBack.
-	webViews   []placedWebView
-	tabbedInto NativeWebView
-	tabbedBack bool
+	// when tabbedBack. nativeViews is the same for native views: it holds
+	// what the native runtime (ui/nativeview.go) reported, as any, so that
+	// no always-linked state of this host names a native type.
+	webViews    []placedWebView
+	tabbedInto  NativeWebView
+	tabbedBack  bool
+	nativeViews any
+	// conn is what the host hands the views of the content
+	// (surface.Conn); the tests' stand-ins ignore it.
+	conn surface.Conn
 
 	// invalidated asks for a frame built anew, as a window's Changed.
 	invalidated atomic.Bool
@@ -193,7 +200,17 @@ func (h *headless) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
 func (h *headless) placeWebViews(views []placedWebView) {
 	h.webViews = append(h.webViews[:0], views...)
 }
-func (h *headless) tabIntoWebView(v NativeWebView, back bool)      { h.tabbedInto, h.tabbedBack = v, back }
+func (h *headless) tabIntoWebView(v NativeWebView, back bool) { h.tabbedInto, h.tabbedBack = v, back }
+
+// The native views of a content are its native runtime's (ui/nativeview.go):
+// headless is what that runtime reports them to, which no window is
+// (nativeObserver). What arrives is a slice of that runtime's types, handed
+// over as any so that this host's always-linked state names none of them;
+// the Tester narrows them back.
+func (h *headless) nativePlaced(frames any) {
+	h.nativeViews = frames
+}
+
 func (h *headless) platformWebView(NativeWebView) platform.WebView { return nil }
 func (h *headless) image() *image.RGBA {
 	m := &h.img.Image
@@ -491,10 +508,14 @@ func (t *Tester) ClickWith(mods Modifiers, s string) error {
 }
 
 // ClickAtWith clicks at (x, y), in DIPs, holding the modifier keys mods:
-// a web view that takes the pointer there (WebViewAt) takes the click.
+// a web view or a native view that takes the pointer there (WebViewAt,
+// NativeViewAt) takes the click.
 func (t *Tester) ClickAtWith(mods Modifiers, x, y float32) {
 	m := platform.Modifiers(mods)
 	if t.webViewPress(x, y, 0, m) {
+		return
+	}
+	if t.nativeViewPress(x, y, 0, m) {
 		return
 	}
 	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y), Mods: m})
@@ -515,6 +536,9 @@ func (t *Tester) RightClick(s string) error {
 // RightClickAt clicks at (x, y), in DIPs, with the secondary button.
 func (t *Tester) RightClickAt(x, y float32) {
 	if t.webViewPress(x, y, 1, 0) {
+		return
+	}
+	if t.nativeViewPress(x, y, 1, 0) {
 		return
 	}
 	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y), Button: 1})
@@ -587,6 +611,9 @@ func (t *Tester) Press(x, y float32) {
 	if t.webViewPress(x, y, 0, 0) {
 		return
 	}
+	if t.nativeViewPress(x, y, 0, 0) {
+		return
+	}
 	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y)})
 }
 
@@ -616,6 +643,39 @@ func (t *Tester) webViewPress(x, y float32, button int, mods platform.Modifiers)
 		return false
 	}
 	t.send(platform.SurfaceEvent{Kind: platform.WebViewPress, X: float64(x), Y: float64(y), Button: button, Mods: mods})
+	return true
+}
+
+// NativeViewAt returns the native view (NativeView) that takes the pointer
+// at (x, y), as the window shows it: where the last frame showed it and
+// painted nothing over it that takes the pointer; nil for none.
+func (t *Tester) NativeViewAt(x, y float32) NativeHostView {
+	frames, _ := t.h.nativeViews.([]placedNativeView)
+	for _, v := range slices.Backward(frames) {
+		p := platform.NativeViewPlacement{Clip: v.clip, Covers: v.covers}
+		if p.At(float64(x), float64(y)) {
+			return v.v
+		}
+	}
+	return nil
+}
+
+// nativeViewPress presses button at (x, y) on the native view taking the
+// pointer there, which the content notes as a press over it, and reports
+// whether one took it.
+func (t *Tester) nativeViewPress(x, y float32, button int, mods platform.Modifiers) bool {
+	v := t.NativeViewAt(x, y)
+	if v == nil {
+		return false
+	}
+	// The content's native runtime handles the press (ui/nativeview.go),
+	// which is nil while no frame built a native view. The point is already
+	// in the content's own space, as NativeViewAt looks the view up there,
+	// and the button comes through as the backend's would: a Tester press
+	// stands in for the platform reporting both.
+	if s := nativeHostOf(t.rt); s != nil {
+		s.press(v, x, y, button)
+	}
 	return true
 }
 

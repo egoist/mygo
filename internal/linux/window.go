@@ -53,11 +53,15 @@ type window struct {
 	// surface shows the content MyGo draws, in place of the web view.
 	surface *surface
 	// webViews are the web views under the surface (webview.go), and host
-	// the window whose surface a web view is under; accessParent is the
-	// node of the content its page's accessible is in.
-	webViews     []*window
-	host         *window
-	accessParent ptr
+	// the window whose surface a web view is under; closeNativeViews is
+	// installed by the native-view provider when it makes the first view
+	// of the window, so that the teardown of a webview-only window names
+	// nothing of the feature (nativeview.go); accessParent is the node of
+	// the content its page's accessible is in.
+	webViews         []*window
+	closeNativeViews func()
+	host             *window
+	accessParent     ptr
 	// controls are the title buttons over the page of a window with a
 	// hidden title bar (titlebar.go), in an overlay with the web view.
 	controls *windowControls
@@ -352,8 +356,17 @@ func (w *window) cleanup() {
 	if w.closed {
 		return
 	}
-	w.closeWebViews()
+	// The window is closed from here on, before the teardown calls into
+	// the app: a native view's adapter is destroyed under the
+	// closeNativeViews hook the provider installed (nativeview.go), and
+	// the app's Destroy may close its owner again. A reentrant cleanup
+	// would take the same windows down twice, and a reentrant Close
+	// (window.go) would destroy a window on its way out.
 	w.closed = true
+	w.closeWebViews()
+	if w.closeNativeViews != nil {
+		w.closeNativeViews()
+	}
 	delete(w.b.windows, w.id)
 	w.b.flyouts = slices.DeleteFunc(w.b.flyouts, func(x *window) bool { return x == w })
 	delete(w.b.byWebView, w.web)

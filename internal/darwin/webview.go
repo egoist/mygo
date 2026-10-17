@@ -68,6 +68,13 @@ func (s *surface) PlaceWebViews(views []platform.WebViewPlacement) {
 		return
 	}
 	s.placed = append(s.placed[:0], views...)
+	if s.placeNative != nil {
+		// The surface made a native view: its extension shows the web
+		// views and the native views together, in one paint order
+		// (nativeview.go).
+		s.placeNative()
+		return
+	}
 	height := msgRect(host.view, sel("bounds")).Size.Height
 	shown := make([]*window, 0, len(views))
 	withPool(func() {
@@ -99,8 +106,10 @@ func (s *surface) PlaceWebViews(views []platform.WebViewPlacement) {
 	})
 }
 
-// stackWebViews puts the clip views of the web views shown in the order
-// the content painted them, under the surface, unless they are.
+// stackWebViews puts the clip views of the web views shown in the order the
+// content painted them, under the surface, unless they are. The extension
+// stacks the web views among the native views with the same steps
+// (nativeview.go).
 func (s *surface) stackWebViews(shown []*window) {
 	if len(shown) < 2 {
 		return
@@ -130,9 +139,24 @@ func (s *surface) stackWebViews(shown []*window) {
 	}
 }
 
+// pointerTaken reports whether a view of the surface takes the pointer at
+// x, y, so that the cursor and the hit test leave it to the view: the web
+// view the content placed last there, or, on a surface that made a native
+// view, whichever web or native view its extension finds there
+// (nativeview.go).
+func (s *surface) pointerTaken(x, y float64) bool {
+	if s.hitNative != nil {
+		_, taken := s.hitNative(x, y)
+		return taken
+	}
+	return s.webViewAt(x, y) != nil
+}
+
 // webViewAt returns the web view that takes the pointer at x, y in the
-// surface: the last placed, as the content painted it over the others,
-// whose placement takes it.
+// surface, among the web views alone: the last placed, as the content
+// painted it over the others, whose placement takes it. A surface that
+// shows a native view asks its extension instead (pointerTaken,
+// nativeview.go), which knows the views of both kinds.
 func (s *surface) webViewAt(x, y float64) *window {
 	for i := len(s.placed) - 1; i >= 0; i-- {
 		if p := &s.placed[i]; p.At(x, y) {
@@ -152,6 +176,10 @@ func (w *window) covered(ev id) bool {
 		return false
 	}
 	x, y := s.location(ev)
+	if s.hitNative != nil {
+		web, _ := s.hitNative(x, y)
+		return web != w
+	}
 	return s.webViewAt(x, y) != w
 }
 
