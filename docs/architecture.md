@@ -121,6 +121,10 @@ framework safely. Read it before changing anything under `internal/`.
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── audio/              sound: players, the mixer, the output of each platform, WAV;
 │                       audio/vorbis and audio/mp3 decode Ogg Vorbis and MP3
+├── media/              pictures and sound from files, cameras and screens,
+│                       decoded and captured by each platform's own media stack,
+│                       and recording to MP4 with its encoder and MyGo's muxer;
+│                       media/mediaui shows a source's frames in native UI
 ├── cmd/mygo/           the CLI: init, generate, dev, build, doctor
 ├── examples/           hello, todo, frameless, native; counter-native, vibrancy,
 │                       effort-slider, flyout, menubar-flyout, piano, farm
