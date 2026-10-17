@@ -4,6 +4,7 @@ package windows
 
 import (
 	"fmt"
+	"runtime"
 	"time"
 	"unsafe"
 )
@@ -180,14 +181,28 @@ func NewH264Encoder(width, height, bitrate, fps int) (*H264Encoder, error) {
 		count     uint32
 	)
 	flags := uintptr(mftEnumSyncMFT | mftEnumAsyncMFT | mftEnumHardwareMFT | mftEnumSortAndFilter)
-	hr, _, _ := procMFTEnumEx.Call(
-		uintptr(unsafe.Pointer(&MFTCategoryVideoEncoder)),
-		flags,
-		uintptr(unsafe.Pointer(&in)),
-		uintptr(unsafe.Pointer(&out)),
-		uintptr(unsafe.Pointer(&activates)),
-		uintptr(unsafe.Pointer(&count)),
-	)
+	var hr uintptr
+	// MFTEnumEx takes the category GUID by value, unlike COM's REFGUID
+	// parameters. x64 passes a 16-byte aggregate indirectly; ARM64 passes
+	// its two halves in x0/x1, shifting every remaining argument by one.
+	if runtime.GOARCH == "arm64" {
+		category := *(*[2]uintptr)(unsafe.Pointer(&MFTCategoryVideoEncoder))
+		hr, _, _ = procMFTEnumEx.Call(
+			category[0], category[1], flags,
+			uintptr(unsafe.Pointer(&in)),
+			uintptr(unsafe.Pointer(&out)),
+			uintptr(unsafe.Pointer(&activates)),
+			uintptr(unsafe.Pointer(&count)),
+		)
+	} else {
+		hr, _, _ = procMFTEnumEx.Call(
+			uintptr(unsafe.Pointer(&MFTCategoryVideoEncoder)), flags,
+			uintptr(unsafe.Pointer(&in)),
+			uintptr(unsafe.Pointer(&out)),
+			uintptr(unsafe.Pointer(&activates)),
+			uintptr(unsafe.Pointer(&count)),
+		)
+	}
 	if failed(hr) {
 		return nil, hresultError("MFTEnumEx", hr)
 	}
