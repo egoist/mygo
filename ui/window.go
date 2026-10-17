@@ -466,9 +466,11 @@ func (h *windowHost) retryLater() {
 	h.retryAt = time.Now().Add(h.backoff)
 }
 
-// capture renders the last frame in memory.
+// capture renders the last frame in memory: built now where none was yet,
+// or where one waits for the window to show (holdFrame), so that a window
+// out of sight shows what it shows now.
 func (h *windowHost) capture() (int, int, []byte) {
-	if h.last == nil {
+	if h.last == nil || h.rt.held {
 		h.rt.runFrame()
 	}
 	s := h.last

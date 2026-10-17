@@ -271,13 +271,16 @@ type engine struct {
 	// nothing else asked for one since; painted is the size and scale of
 	// the window, and gen the text system's Generation, as the last frame
 	// was built. The host's repaintTimer asks for a frame at repaintDue,
-	// unless one came or was asked for since. held tells that what moves
-	// waits for the window to show.
+	// unless one came or was asked for since. held tells that a frame, for
+	// what moves or what changed, waits for the window to show; input
+	// tells that an event other than a frame's came since the last frame
+	// built.
 	animating  bool
 	repainting bool
 	repaintAt  time.Time
 	redraw     bool
 	held       bool
+	input      bool
 	painted    [3]float32
 	gen        uint64
 	repaintDue time.Time
@@ -447,6 +450,7 @@ func (rt *engine) runFrame() {
 	defer rt.endFrame()
 
 	rt.frame++
+	rt.input = false
 	rt.focusRead = false
 	rt.stats.begin(rt)
 	now := rt.now()
@@ -623,12 +627,32 @@ func (rt *engine) repaintNow() {
 // elements painted again when only drawings moved since, else a frame
 // built anew.
 func (rt *engine) surfaceFrame() {
+	if rt.holdFrame() {
+		return
+	}
 	if w, h, scale := rt.host.size(); rt.redraw && !rt.inFrame && rt.c.root != nil &&
 		rt.painted == [3]float32{w, h, scale} && rt.text.Generation() == rt.gen {
 		rt.repaintFrame(w, h, scale)
 		return
 	}
 	rt.runFrame()
+}
+
+// holdFrame keeps a frame from drawing while nothing of the window shows,
+// reporting whether it did: what changed draws once some of it shows
+// (SurfaceShown), as browsers draw nothing for windows out of sight and
+// as Apple asks of Mac apps, rather than frames nobody sees. A window
+// still draws its first frame, which it shows with; one after input, as
+// keys typed into a key window another app's covers; and every one while
+// assistive technology reads it.
+func (rt *engine) holdFrame() bool {
+	if rt.frame == 0 || rt.input || rt.access || rt.inFrame || !rt.host.occluded() {
+		return false
+	}
+	rt.held = true
+	rt.redraw, rt.repaintDue = false, time.Time{}
+	rt.host.repaintTimer(time.Time{})
+	return true
 }
 
 // repaintFrame paints the elements of the last frame again, at the time of
