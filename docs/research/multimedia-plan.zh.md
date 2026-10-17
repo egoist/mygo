@@ -18,7 +18,7 @@ Windows / Linux），wasm 与其他平台只要还能编译、构造时返回结
 | Q14 | 录制默认组合：v1 三平台统一 MP4+H.264（音频采集与 WebM mux 都还没做，macOS/Windows 的 AAC、Linux 的 WebM+VP9+Opus 留到音频采集落地后再切默认）；编码器仍是系统栈：VideoToolbox / Media Foundation / GStreamer `x264enc` |
 | Q15 | Linux 屏幕捕获：X11/XWayland 用 `ximagesrc`（已做）；Wayland 的 XDG ScreenCast portal + `pipewiresrc` 这版未做，遇到 Wayland 会话给结构化 `ErrUnsupported`，绝不黑帧 |
 | Q16 | `media` 与 `ui` 互不 import；适配层放 `media/mediaui` |
-| Q17 | 权限用 `PermissionStatus` + 每对象 `Permission()/RequestPermission()` + `OpenPermissionSettings()` |
+| Q17 | 权限用 `PermissionStatus` + 按源类型的包级函数（`CameraPermission/RequestCameraPermission/OpenCameraPermissionSettings`、`ScreenPermission/RequestScreenPermission/OpenScreenPermissionSettings`）：对象要先有权限才能打开，每对象方法的顺序不成立；打开被拒返回 `ErrPermissionDenied`；macOS 相机还需 `Info.plist` 的 `NSCameraUsageDescription` |
 | Q18 | audio 补齐采集；media 只做容器/编解码；主时钟 = 音频设备（`audio.Clock`） |
 
 ## 里程碑
@@ -31,7 +31,7 @@ Windows / Linux），wasm 与其他平台只要还能编译、构造时返回结
 | M4 | 相机采集（AVCaptureSession / MediaCapture / GStreamer v4l2src） | 完成（Windows 真机 23/23；Linux 容器 23 通过 + 3 无摄像头跳过、`videotestsrc` 钩子测试全通过；macOS 真机 22/22，真实 1920x1080 帧，原生 `2vuy` 在 Go 里转 RGBA） |
 | M5 | 屏幕捕获（ScreenCaptureKit / GDI，DXGI 桌面复制留作升级 / ximagesrc） | 完成（macOS 真机 4/4、SCK 3420x2224 变化驱动；Linux 容器 Xvfb + ximagesrc 6/6；Windows 交互式桌面 GDI 6/6，ssh 非交互会话枚举与钩子通过、真采集给结构化 `MissingComponentError`） |
 | M6 | 编码与 Recorder（VTCompressionSession / MFT / GStreamer appsink + 纯 Go mux） | 完成（三平台各 6/6 录制测试：macOS VideoToolbox 真机、Linux 容器 `x264enc`、Windows 真机 MFT；写出的分片 MP4 由各自系统播放器读回 30/30 帧） |
-| M7 | 文档、示例、发行版安装说明、权限 API 收尾 | 未开始 |
+| M7 | 文档、示例、发行版安装说明、权限 API 收尾 | 完成（`docs/media.md` 用户指南 + README 索引/依赖 + architecture 布局；`examples/recorder` 录制并回放；`Capabilities` 补 `FeatureCamera`/`FeatureScreenCapture`；发行版安装说明与 macOS `Info.plist` 相机用途；三平台 gates 全绿） |
 
 ## 已定不变量
 
@@ -172,6 +172,23 @@ mux 用纯 Go 的 `github.com/Eyevinn/mp4ff`：`trak.SetAVCDescriptor("avc1", sp
   **width 在高 32 位**（一开始写反，录出来是 120x160）；`MFCreateMemoryBuffer` 之后要 `SetCurrentLength`
   （`Lock` 返回的是当前长度，新 buffer 是 0，得用 `GetMaxLength`/新加的 `LockWrite`）；编码器自己提供输出
   样本，所以 `ProcessOutput` 传 `pSample=nullptr`。
+
+### 文档、示例与安装说明（M7）
+- 用户指南 `docs/media.md`：播放与媒体时间的语义、native UI 里用 `media/mediaui` 画任意 `Source`、
+  相机、屏幕、权限、录制（`Record`/`Recorder`/mux）、`Capabilities` 与 `MissingComponentError`、
+  逐平台安装项与 Debian/Ubuntu 一行 apt、示例链接；`docs/README.md` 的指南索引与 Requirements 增加
+  media 与 GStreamer 包；`docs/architecture.md` 的仓库布局加 `media/`。
+- 示例 `examples/recorder`：把屏幕或相机录成 MP4，窗口里先显示正在录，完成后在同一窗口回放刚写的文件；
+  flag `-source screen|camera`、`-id`、`-out`、`-seconds`、`-list`。测试不碰相机/屏幕/权限：用只有画面的
+  `framesSource` 录 10 帧，再用 `media.Open` 读回校验 H.264/尺寸/首帧；机器没有编码器时按
+  `errors.ErrUnsupported` 跳过。
+- 权限 API 收尾：最终形态是按源类型的包级函数（见 Q17 改动），对象在权限通过后才存在；打开被拒仍是
+  `ErrPermissionDenied`。macOS 相机的 `NSCameraUsageDescription` 在 `docs/media.md` 与
+  `docs/distribution.md`（macOS `infoPlist`）都写明。
+- `Capabilities` 补齐：macOS / Windows 报告 `FeatureCamera` 与 `FeatureScreenCapture`；Linux 按 GStreamer
+  是否找到 `v4l2src`（相机）和 `ximagesrc` + `DISPLAY`（屏幕）判断；`FeatureEncode` 已在 M6 加入。
+- 发行版安装说明：`docs/media.md` 给逐平台表格与 Debian/Ubuntu 的 apt 一行；`docs/distribution.md` 提示
+  Linux 包的 `depends` 要加 GStreamer 包、macOS 的 `infoPlist` 要加相机用途。
 
 ## 测试与验证通道
 
