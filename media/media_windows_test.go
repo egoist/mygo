@@ -1,0 +1,521 @@
+//go:build windows && (amd64 || arm64)
+
+package media
+
+import (
+	"context"
+	"errors"
+	"io"
+	"math"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/audio"
+	"github.com/egoist/mygo/internal/wait"
+	"github.com/egoist/mygo/media/internal/windows"
+)
+
+// The fixtures are a two second 160×120 H.264 video with mono AAC sound, and
+// a second of a 220 Hz tone in a mono 44.1 kHz WAV, both made with ffmpeg.
+const (
+	clipPath = "testdata/clip.mp4"
+	wavPath  = "testdata/tone.wav"
+)
+
+func openTest(t *testing.T, path string) Source {
+	t.Helper()
+	s, err := openSource(path, options{})
+	if err != nil {
+		t.Fatalf("openSource(%q): %v", path, err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+func TestCapabilitiesReportTheSystemsOwnCodecs(t *testing.T) {
+	c := Capabilities()
+	for _, f := range []Feature{FeaturePlayback} {
+		if !c.Supports(f) {
+			t.Errorf("Capabilities() = %s, without %s", c, f)
+		}
+	}
+	// H.264 and AAC are what a Windows always has. H.265 and AV1 are
+	// optional codec packs, so they are not claimed here.
+	for _, codec := range []Codec{CodecH264, CodecAAC} {
+		if !c.CanDecode(codec) {
+			t.Errorf("Capabilities() = %s, which cannot decode %s", c, codec)
+		}
+	}
+	if !c.CanRead(ContainerMP4) {
+		t.Errorf("Capabilities() = %s, which cannot read %s", c, ContainerMP4)
+	}
+}
+
+func TestTracksAreTheFilesOwn(t *testing.T) {
+	s := openTest(t, clipPath)
+	ts, ok := s.(TrackSource)
+	if !ok {
+		t.Fatalf("%T does not tell its tracks", s)
+	}
+	tracks := ts.Tracks()
+	if len(tracks) != 2 {
+		t.Fatalf("the file has %d tracks, want 2: %+v", len(tracks), tracks)
+	}
+	var video, sound *Track
+	for i := range tracks {
+		switch tracks[i].Kind {
+		case TrackVideo:
+			video = &tracks[i]
+		case TrackAudio:
+			sound = &tracks[i]
+		}
+	}
+	if video == nil {
+		t.Fatalf("the file has no picture: %+v", tracks)
+	}
+	if video.Codec != CodecH264 {
+		t.Errorf("the picture is %s, want H.264", video.Codec)
+	}
+	if video.Width != 160 || video.Height != 120 {
+		t.Errorf("the picture is %dx%d, want 160x120", video.Width, video.Height)
+	}
+	if sound == nil {
+		t.Fatalf("the file has no sound: %+v", tracks)
+	}
+	if sound.Codec != CodecAAC {
+		t.Errorf("the sound is %s, want AAC", sound.Codec)
+	}
+	if sound.SampleRate != 44100 || sound.Channels != 1 {
+		t.Errorf("the sound is %d Hz in %d channels, want 44100 in 1", sound.SampleRate, sound.Channels)
+	}
+	d, ok := s.(DurationSource)
+	if !ok {
+		t.Fatalf("%T does not tell its length", s)
+	}
+	if got := d.Duration(); got < 1900*time.Millisecond || got > 2100*time.Millisecond {
+		t.Errorf("the file is %v long, want about 2s", got)
+	}
+}
+
+func TestNextFrameHandsOutTheFilesPictures(t *testing.T) {
+	s := openTest(t, clipPath)
+	ctx := context.Background()
+	var last, step time.Duration
+	for i := range 5 {
+		f, err := s.NextFrame(ctx)
+		if err != nil {
+			t.Fatalf("frame %d: %v", i, err)
+		}
+		if f.Format != PixelRGBA {
+			t.Fatalf("frame %d is %s, want RGBA", i, f.Format)
+		}
+		if f.Width != 160 || f.Height != 120 {
+			t.Fatalf("frame %d is %dx%d, want 160x120", i, f.Width, f.Height)
+		}
+		if len(f.Planes) != 1 {
+			t.Fatalf("frame %d has %d planes, want 1", i, len(f.Planes))
+		}
+		if p := f.Planes[0]; p.Stride != 4*f.Width || len(p.Pix) != p.Stride*f.Height {
+			t.Fatalf("frame %d holds %d bytes in rows of %d", i, len(p.Pix), p.Stride)
+		}
+		if i > 0 && f.PTS <= last {
+			t.Fatalf("frame %d is at %v, after frame %d at %v", i, f.PTS, i-1, last)
+		}
+		if f.PTS < 0 || f.PTS > 2*time.Second {
+			t.Fatalf("frame %d is at %v, outside the file", i, f.PTS)
+		}
+		if f.Duration < 0 {
+			t.Errorf("frame %d lasts %v", i, f.Duration)
+		}
+		if i == 1 {
+			step = f.PTS - last
+		}
+		f.Release()
+		last = f.PTS
+	}
+	// The file is 15 frames a second, so its pictures are 66ms apart.
+	if step < 50*time.Millisecond || step > 85*time.Millisecond {
+		t.Errorf("the pictures are %v apart, want about %v", step, time.Second/15)
+	}
+}
+
+func TestFramesShowThePicture(t *testing.T) {
+	s := openTest(t, clipPath)
+	f, err := s.NextFrame(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Release()
+	img := f.Image()
+	if img == nil {
+		t.Fatal("the frame has no image")
+	}
+	if img.Rect.Dx() != 160 || img.Rect.Dy() != 120 {
+		t.Fatalf("the image is %v", img.Rect)
+	}
+	// A test picture is not one color, and its pixels are opaque.
+	first := [4]byte{img.Pix[0], img.Pix[1], img.Pix[2], img.Pix[3]}
+	var differ bool
+	for i := 4; i < len(img.Pix); i += 4 {
+		if img.Pix[i] != first[0] || img.Pix[i+1] != first[1] || img.Pix[i+2] != first[2] {
+			differ = true
+			break
+		}
+	}
+	if !differ {
+		t.Error("every pixel of the picture is the same color")
+	}
+	if first[3] != 0xff {
+		t.Errorf("the first pixel's alpha is %#x, want opaque", first[3])
+	}
+}
+
+func TestTheEndOfTheFileIsTheEndOfTheSource(t *testing.T) {
+	s := openTest(t, clipPath)
+	ctx := context.Background()
+	// The file is two seconds at 15 frames a second: no more than a few
+	// hundred pictures come out of it.
+	for i := 0; i < 1000; i++ {
+		f, err := s.NextFrame(ctx)
+		if errors.Is(err, ErrEnd) {
+			if i < 15 {
+				t.Fatalf("the file ended after %d pictures", i)
+			}
+			return
+		}
+		if err != nil {
+			t.Fatalf("frame %d: %v", i, err)
+		}
+		f.Release()
+	}
+	t.Fatal("the file never ended")
+}
+
+func TestSeekReadsFromThere(t *testing.T) {
+	s := openTest(t, clipPath)
+	if err := s.(Seekable).Seek(1200 * time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	f, err := s.NextFrame(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Release()
+	// Media Foundation does not promise an exact seek: it goes to the key
+	// frame at or before the sought time and reads on. The fixture's key
+	// frames are a second apart, so 1.2s lands on 1.0s.
+	if f.PTS < 900*time.Millisecond || f.PTS > 1400*time.Millisecond {
+		t.Errorf("after seeking to 1.2s the first picture is at %v", f.PTS)
+	}
+}
+
+func TestSoundDecodesToWhatTheAudioPackageMixes(t *testing.T) {
+	s := openTest(t, clipPath)
+	ss, ok := s.(soundSource)
+	if !ok {
+		t.Fatalf("%T has no sound", s)
+	}
+	d := ss.Sound()
+	if d == nil {
+		t.Fatal("the file's sound is nil")
+	}
+	// The sound is asked for as the audio package mixes it, and the
+	// platform says what it settled on.
+	rate, channels := d.SampleRate(), d.Channels()
+	if rate <= 0 || channels <= 0 {
+		t.Fatalf("the sound is %d Hz in %d channels", rate, channels)
+	}
+	frames, peak := readSound(t, d, 0)
+	if want := 2 * rate; frames < want-want/10 || frames > want+want/10 {
+		t.Errorf("the sound is %d frames long, want about %d", frames, want)
+	}
+	if peak < 0.1 {
+		t.Errorf("the loudest sample is %v: the sound is silent", peak)
+	}
+	if l := d.Len(); l < int64(1900*rate/1000) || l > int64(2100*rate/1000) {
+		t.Errorf("Len() is %d, want about %d", l, 2*rate)
+	}
+}
+
+// TestSoundSeeksToAFrame checks that the sound can be started anywhere, which
+// is a reader asked to move, or made again where it will not.
+func TestSoundSeeksToAFrame(t *testing.T) {
+	s := openTest(t, clipPath)
+	d := s.(soundSource).Sound()
+	if d == nil {
+		t.Fatal("the file's sound is nil")
+	}
+	rate := d.SampleRate()
+	if err := d.SetPosition(int64(rate)); err != nil { // one second in
+		t.Fatal(err)
+	}
+	frames, peak := readSound(t, d, 0)
+	if want := rate; frames < want-want/10 || frames > want+want/10 {
+		t.Errorf("the sound from 1s is %d frames long, want about %d", frames, want)
+	}
+	if peak < 0.1 {
+		t.Errorf("the loudest sample after seeking is %v: the sound is silent", peak)
+	}
+}
+
+// readSound reads a decoder to its end, and returns how many frames it gave
+// and how loud its loudest sample was.
+func readSound(t *testing.T, d audio.Decoder, limit int) (frames int, peak float32) {
+	t.Helper()
+	channels := d.Channels()
+	buf := make([]float32, 2048*channels)
+	for i := 0; ; i++ {
+		n, err := d.Read(buf)
+		if n > 0 {
+			frames += n
+			for _, v := range buf[:n*channels] {
+				peak = max(peak, float32(math.Abs(float64(v))))
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, ErrEnd) {
+				return frames, peak
+			}
+			t.Fatalf("reading the sound: %v", err)
+		}
+		if n == 0 {
+			t.Fatal("reading the sound made no progress")
+		}
+		if limit > 0 && frames > limit {
+			return frames, peak
+		}
+		if i > 10000 {
+			t.Fatal("the sound never ended")
+		}
+	}
+}
+
+func TestAnAudioOnlyFileHasNoPicture(t *testing.T) {
+	s := openTest(t, wavPath)
+	tracks := s.(TrackSource).Tracks()
+	if len(tracks) != 1 || tracks[0].Kind != TrackAudio {
+		t.Fatalf("the file's tracks are %+v, want one sound track", tracks)
+	}
+	if _, err := s.NextFrame(context.Background()); !errors.Is(err, ErrEnd) {
+		t.Errorf("a file with no picture gave %v, want the end of the source", err)
+	}
+	d := s.(soundSource).Sound()
+	if d == nil {
+		t.Fatal("the file's sound is nil")
+	}
+	rate := d.SampleRate()
+	frames, peak := readSound(t, d, 0)
+	if want := rate; frames < want-want/10 || frames > want+want/10 {
+		t.Errorf("the sound is %d frames long, want about %d", frames, want)
+	}
+	if peak < 0.1 {
+		t.Errorf("the loudest sample is %v: the sound is silent", peak)
+	}
+}
+
+// TestChoosingTracksTurnsThemOnAndOff checks the readers are made again for
+// the tracks asked for: the fixture has one of each, so choosing none of one
+// kind is how a file with several would choose another. A track is chosen by
+// the number the file's own listing gives it, which is not always where it
+// sits in that listing.
+func TestChoosingTracksTurnsThemOnAndOff(t *testing.T) {
+	s := openTest(t, clipPath)
+	ts := s.(TrackSource)
+	tracks := ts.Tracks()
+	if len(tracks) != 2 {
+		t.Fatalf("the fixture has %+v, want a picture and a sound", tracks)
+	}
+	t.Logf("the fixture's tracks: %+v", tracks)
+	video, audio := -1, -1
+	for _, tr := range tracks {
+		switch tr.Kind {
+		case TrackVideo:
+			video = tr.Index
+		case TrackAudio:
+			audio = tr.Index
+		}
+	}
+	missing := 0
+	for _, tr := range tracks {
+		if tr.Index >= missing {
+			missing = tr.Index + 1
+		}
+	}
+	if err := ts.SelectTracks(-1, audio); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.NextFrame(context.Background()); !errors.Is(err, ErrEnd) {
+		t.Errorf("with no picture chosen, reading gave %v, want the end of the source", err)
+	}
+	if s.(soundSource).Sound() == nil {
+		t.Error("choosing no picture gave up the sound too")
+	}
+	if err := ts.SelectTracks(video, -1); err != nil {
+		t.Fatal(err)
+	}
+	if s.(soundSource).Sound() != nil {
+		t.Error("choosing no sound left a sound")
+	}
+	f, err := s.NextFrame(context.Background())
+	if err != nil {
+		t.Fatalf("with a picture chosen again: %v", err)
+	}
+	f.Release()
+	if err := ts.SelectTracks(missing, audio); err == nil {
+		t.Error("choosing a track the file does not have worked")
+	}
+}
+
+func TestAFileThatIsNotThereFails(t *testing.T) {
+	s, err := openSource("testdata/nothing-here.mp4", options{})
+	if err == nil {
+		s.Close()
+		t.Fatal("opening a file that is not there worked")
+	}
+	if errors.Is(err, ErrEnd) {
+		t.Errorf("a file that is not there is not the end of a source: %v", err)
+	}
+	t.Logf("error: %v", err)
+}
+
+// TestAFileURLReadsLikeAPath checks the other way in: a target with a scheme
+// is handed to the platform as a location, which for a file is a file URL.
+func TestAFileURLReadsLikeAPath(t *testing.T) {
+	abs, err := filepath.Abs(clipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	url := "file:///" + strings.ReplaceAll(abs, `\`, "/")
+	s, err := openSource(url, options{})
+	if err != nil {
+		t.Fatalf("openSource(%q): %v", url, err)
+	}
+	defer s.Close()
+	f, err := s.NextFrame(context.Background())
+	if err != nil {
+		t.Fatalf("reading %q: %v", url, err)
+	}
+	defer f.Release()
+	if f.Width != 160 || f.Height != 120 {
+		t.Errorf("%q gave a %dx%d picture, want 160x120", url, f.Width, f.Height)
+	}
+}
+
+// TestASourceWithoutSoundHasNone checks that WithAudio(false) means on
+// Windows what it means on every platform: the file's sound is not decoded at
+// all, rather than decoded for nobody.
+func TestASourceWithoutSoundHasNone(t *testing.T) {
+	s, err := openSource(clipPath, options{noSound: true})
+	if err != nil {
+		t.Fatalf("openSource(%q) with its sound off: %v", clipPath, err)
+	}
+	defer s.Close()
+	if got := s.(soundSource).Sound(); got != nil {
+		t.Error("a source with its sound turned off gave sound")
+	}
+	// The pictures of a file whose sound is left out are still read.
+	f, err := s.NextFrame(context.Background())
+	if err != nil {
+		t.Fatalf("NextFrame with its sound off: %v", err)
+	}
+	f.Release()
+}
+
+// TestCloseStopsTheFrameThatWaits is a close while a picture is being read:
+// the read is a request the platform reports, so the close takes it back and
+// the caller waiting for the picture hears the end instead of waiting for a
+// reader that is gone.
+func TestCloseStopsTheFrameThatWaits(t *testing.T) {
+	s := openTest(t, clipPath)
+	frames := make(chan error, 1)
+	go func() {
+		f, err := s.NextFrame(context.Background())
+		if f != nil {
+			f.Release()
+		}
+		frames <- err
+	}()
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := wait.For(t, "the frame read to come back", frames); err != nil && !errors.Is(err, ErrEnd) {
+		t.Fatalf("NextFrame after the close = %v; want nil or %v", err, ErrEnd)
+	}
+	if _, err := s.NextFrame(context.Background()); !errors.Is(err, ErrEnd) {
+		t.Fatalf("NextFrame on a closed source = %v; want %v", err, ErrEnd)
+	}
+}
+
+// TestCloseStopsTheSoundThatReads is the sound's half of it: its decoder reads
+// through a pump of its own, and a close ends it as the end of the track.
+func TestCloseStopsTheSoundThatReads(t *testing.T) {
+	s := openTest(t, clipPath)
+	sound := s.(soundSource).Sound()
+	if sound == nil {
+		t.Fatal("the clip has no sound")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	buf := make([]float32, 1024)
+	if n, err := sound.Read(buf); n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("Read after the close = %d, %v; want 0, %v", n, err, io.EOF)
+	}
+}
+
+func TestPictureBuffersComeBackInTheOrderTheyWereFreed(t *testing.T) {
+	var p pixPool
+	a := p.get(4)[:1]
+	b := p.get(4)[:1]
+	p.put(a)
+	p.put(b)
+	if got := p.get(4)[:1]; &got[0] != &a[0] {
+		t.Error("the pool gave back the last buffer freed, not the first")
+	}
+}
+
+// TestWhatAReportedReadAsksFor is the reading of the reads with no sample the
+// platform reports, which the end of a file and a live source's gaps both are:
+// the end of the stream, another read, or a failure to say.
+func TestWhatAReportedReadAsksFor(t *testing.T) {
+	tests := []struct {
+		name      string
+		hr        uint32
+		flags     uint32
+		hasSample bool
+		empty     int
+		want      readNeed
+	}{
+		{"a sample", 0, 0, true, 0, readTakes},
+		{"the end of the stream", 0, windows.FlagEndOfStream, false, 0, readEnds},
+		{"the end with a sample", 0, windows.FlagEndOfStream, true, 0, readEnds},
+		{"a gap in a live stream", 0, windows.FlagStreamTick, false, 0, readAgain},
+		{"a read that failed", 0x80004005, 0, false, 0, readFails},
+		{"a failed read with a sample", 0xc00d36b4, 0, true, 0, readFails},
+		{"a stream that says it failed", 0, windows.FlagError, false, 0, readFails},
+		{"eight reads with nothing", 0, 0, false, 7, readAgain},
+		{"the ninth read with nothing", 0, 0, false, 8, readEnds},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := readNeedOf(tt.hr, tt.flags, tt.hasSample, tt.empty); got != tt.want {
+				t.Errorf("readNeedOf(%#x, %#x, %v, %d) = %v; want %v", tt.hr, tt.flags, tt.hasSample, tt.empty, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFlushingAReaderThatWasNeverOpened checks the half of flushReader a test
+// can hold without a platform: a reader that was never made has no read in
+// flight and no callback to wait for, so there is nothing to take back and no
+// error. Taking a read back from a live reader needs Media Foundation, which
+// the tests here cannot run; the async hand-over it waits for is covered by
+// the pump's tests, which run on every platform.
+func TestFlushingAReaderThatWasNeverOpened(t *testing.T) {
+	pump := newReaderPump[readResult](func(readResult) {})
+	if err := flushReader(windows.SourceReader{}, nil, pump, 0); err != nil {
+		t.Fatalf("flushReader of no reader = %v; want nil", err)
+	}
+}

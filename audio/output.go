@@ -67,6 +67,9 @@ func run() {
 		} else {
 			setErr(nil)
 		}
+		// The output timeline the clock reads starts here.
+		produced.Store(0)
+		setDevice(dev)
 		buf := make([]float32, n*channels)
 		idle := time.Duration(0)
 		per := frames(int64(n), sampleRate)
@@ -76,17 +79,26 @@ func run() {
 				// Lost, or a null device trying the real one again.
 				break
 			}
+			produced.Add(int64(n))
 			if busy {
 				idle = 0
 			} else if idle += per; idle >= idleClose {
 				break
 			}
 		}
-		dev.close()
+		stopDevice(dev)
 	}
 }
 
 var errUnsupported = errors.New("audio: no audio output on this platform")
+
+// stopDevice closes the output's device. It forgets the device first, so
+// that a clock query that took it finishes before close lets go of the
+// device's native handle: the query holds deviceMu until it has asked.
+func stopDevice(d device) {
+	setDevice(nil)
+	d.close()
+}
 
 // nullFrames is how many frames a null device takes at a time: 10 ms.
 const nullFrames = sampleRate / 100

@@ -3,6 +3,7 @@ module github.com/egoist/mygo
 go 1.27.1
 
 require (
+	github.com/Eyevinn/mp4ff v0.60.0
 	github.com/ebitengine/purego v0.11.1
 	github.com/go-text/typesetting v0.3.5
 	github.com/hajimehoshi/go-mp3 v0.3.4

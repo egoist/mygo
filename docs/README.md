@@ -103,6 +103,9 @@ What every app has, whether its windows show native UI or web pages.
   file lists, custom formats, lazy providers, and clipboard persistence.
 - [Audio](audio.md): sound effects, streamed music and sound an app makes
   itself, mixed in Go, with WAV, Ogg Vorbis and MP3.
+- [Media](media.md): playing video and sound from files, reading cameras and
+  screens, showing the pictures in native UI, and recording them to MP4 files,
+  through the media stack each platform already has.
 - [Launchers](launchers.md): apps in the manner of Spotlight and Raycast,
   summoned by a shortcut over every app, which find and open the apps
   installed.
@@ -181,6 +184,15 @@ Apps run on:
 
 An app whose windows all show native UI needs neither WebKitGTK nor the
 WebView2 Runtime. Tray icons on Linux also need `libayatana-appindicator3`.
+
+An app that imports package `media` needs the media stack of its platform,
+which is part of macOS and Windows (an N edition of Windows needs the Media
+Feature Pack) and on Linux is GStreamer, with the plugins for what the app
+does: `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good` and
+`gstreamer1.0-libav` to play, `gstreamer1.0-x` to capture a screen,
+`gstreamer1.0-plugins-ugly` to record. [Media](media.md) lists them per
+platform, and a source that needs something missing says what it is and what
+to install.
 
 An app that shows web pages can ask whether the machine has a webview with
 `mygo.WebViewAvailable()`, also before `App.Run`, and open a window of native UI where it has
