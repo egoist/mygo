@@ -710,6 +710,6 @@ func platformCapabilities() Caps {
 		Containers: []Container{ContainerMP4, ContainerWAV, ContainerMP3},
 		Decoders:   []Codec{CodecH264, CodecHEVC, CodecAAC, CodecMP3, CodecPCM, CodecProRes},
 		Encoders:   []Codec{CodecH264, CodecAAC},
-		Features:   []Feature{FeaturePlayback},
+		Features:   []Feature{FeaturePlayback, FeatureEncode},
 	}
 }

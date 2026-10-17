@@ -15,7 +15,7 @@ Windows / Linux），wasm 与其他平台只要还能编译、构造时返回结
 | Q9 | 新建顶层包 `github.com/egoist/mygo/media`，不经过 `internal/platform.Backend` |
 | Q10 | media 自带三平台互操作层，不动 `internal/{darwin,windows,linux}` |
 | Q13 | macOS 12.3 为下限，能力按 API availability 分层 |
-| Q14 | 录制默认组合：macOS/Windows MP4+H.264+AAC；Linux WebM+VP9+Opus |
+| Q14 | 录制默认组合：v1 三平台统一 MP4+H.264（音频采集与 WebM mux 都还没做，macOS/Windows 的 AAC、Linux 的 WebM+VP9+Opus 留到音频采集落地后再切默认）；编码器仍是系统栈：VideoToolbox / Media Foundation / GStreamer `x264enc` |
 | Q15 | Linux 屏幕捕获：X11/XWayland 用 `ximagesrc`（已做）；Wayland 的 XDG ScreenCast portal + `pipewiresrc` 这版未做，遇到 Wayland 会话给结构化 `ErrUnsupported`，绝不黑帧 |
 | Q16 | `media` 与 `ui` 互不 import；适配层放 `media/mediaui` |
 | Q17 | 权限用 `PermissionStatus` + 每对象 `Permission()/RequestPermission()` + `OpenPermissionSettings()` |
@@ -30,7 +30,7 @@ Windows / Linux），wasm 与其他平台只要还能编译、构造时返回结
 | M3 | Linux 文件播放（GStreamer）+ capability probing | 完成（容器 15 测试通过；`WithVideo(false)` 三平台行为一致） |
 | M4 | 相机采集（AVCaptureSession / MediaCapture / GStreamer v4l2src） | 完成（Windows 真机 23/23；Linux 容器 23 通过 + 3 无摄像头跳过、`videotestsrc` 钩子测试全通过；macOS 真机 22/22，真实 1920x1080 帧，原生 `2vuy` 在 Go 里转 RGBA） |
 | M5 | 屏幕捕获（ScreenCaptureKit / GDI，DXGI 桌面复制留作升级 / ximagesrc） | 完成（macOS 真机 4/4、SCK 3420x2224 变化驱动；Linux 容器 Xvfb + ximagesrc 6/6；Windows 交互式桌面 GDI 6/6，ssh 非交互会话枚举与钩子通过、真采集给结构化 `MissingComponentError`） |
-| M6 | 编码与 Recorder（VTCompressionSession / MFT / GStreamer appsink + 纯 Go mux） | 未开始 |
+| M6 | 编码与 Recorder（VTCompressionSession / MFT / GStreamer appsink + 纯 Go mux） | 完成（三平台各 6/6 录制测试：macOS VideoToolbox 真机、Linux 容器 `x264enc`、Windows 真机 MFT；写出的分片 MP4 由各自系统播放器读回 30/30 帧） |
 | M7 | 文档、示例、发行版安装说明、权限 API 收尾 | 未开始 |
 
 ## 已定不变量
@@ -142,6 +142,37 @@ DSH Desktop 里跑会因为没有 `com.apple.security.device.camera` 被 TCC 拒
 - 关掉水管的竞态：`gstLive` 的 run 循环在 `PullSample` 返回空后先看 `stopped()` 再判 EOS，否则 Close 时
   EOS 会把 `ErrEnd` 覆盖成"the source stopped"（Linux 屏幕用例抓到的）。
 
+### 编码与录制（M6）
+公共面：`NewRecorder(w, opts...)` / `Recorder.WriteFrame(f)` / `Recorder.Close()`，以及一步到位的
+`Record(ctx, path, src, opts...)`；选项 `WithRecordCodec/WithRecordContainer/WithRecordBitrate/
+WithRecordFrameRate`。容器 v1 只写 MP4（分片写：一个 init segment + 每个关键帧一个 fragment），
+`Muxer`/`NewMuxer`/`CanMux` 是底层，`EncodedPacket`/`CodecConfig` 是编解码器与 mux 之间的约定。
+mux 用纯 Go 的 `github.com/Eyevinn/mp4ff`：`trak.SetAVCDescriptor("avc1", sps, pps, true)` 生成 avcC，
+样本从 Annex B 的 start code 换成 4 字节长度前缀（`nalusOf`/`lengthSize`），avcC 也可由
+`avcCFromSPSPPS` 手拼。Recorder 用第一帧的尺寸懒建编码器、把 PTS 归一到第一帧、最后一个包留到下一个包
+或 `Close` 才确定时长（`flush(all)`）；`Record` 中途失败也会 `Close` 出一个能播到最后一帧的文件，并且不关源。
+
+- macOS：VideoToolbox `VTCompressionSession`，输入是 Go 内存里的 `CVPixelBuffer`（`'BGRA'`），输出按
+  refcon 路由回各自的 encoder（`routes sync.Map`）；像素 buffer 要留在 Go 里直到回调（`pending`）。
+  踩过的坑：`kVTEncodeInfo_FrameDropped` 是 **bit 1（2）**，最初按 bit 0 判断，把所有帧都当丢弃，结果永远
+  没有包；`AllowFrameReordering=false`、`RealTime=true`、`MaxKeyFrameInterval=fps`；参数集用
+  `CMFormatDescriptionGetH264ParameterSetAtIndex` 取，只挂到第一个包。
+- Linux：`appsrc is-live=true format=time ! videoconvert ! video/x-raw,format=I420 ! x264enc
+  tune=zerolatency speed-preset=ultrafast bitrate=… key-int-max=… ! video/x-h264,
+  stream-format=byte-stream,alignment=au ! appsink`（RGBA→I420 交给 GStreamer）；appsink 侧按 start code
+  切 NALU，type 5 是关键帧、7/8 是参数集。缺插件时 `MissingComponentError{Feature:FeatureEncode}`，提示
+  `apt install gstreamer1.0-plugins-ugly`（x264enc）。
+- Windows：`MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, NV12→H264)` 枚举编码器 MFT 逐个试；输入 NV12 在 Go 里
+  从 RGBA 转（BT.601 limited range）。**MFT 是异步的**：要先 `MF_TRANSFORM_ASYNC_UNLOCK`；发完
+  `MFT_MESSAGE_NOTIFY_BEGIN_STREAMING` 还必须发 `MFT_MESSAGE_NOTIFY_START_OF_STREAM`，否则它永远不发
+  `METransformNeedInput`，阻塞式 `GetEvent` 直接卡死（真机上就卡在这）。一个 `METransformHaveOutput` 只对应
+  **一次** `ProcessOutput`，多调一次就是 `E_UNEXPECTED 0x8000ffff`；编码中途会给
+  `MF_E_TRANSFORM_STREAM_CHANGE 0xc00d6d61`，要枚举 `GetOutputAvailableType` 重设输出类型再继续；
+  `Close` 发 `COMMAND_DRAIN` 等 `METransformDrainComplete` 再收尾。属性坑：`MF_MT_FRAME_SIZE` 是
+  **width 在高 32 位**（一开始写反，录出来是 120x160）；`MFCreateMemoryBuffer` 之后要 `SetCurrentLength`
+  （`Lock` 返回的是当前长度，新 buffer 是 0，得用 `GetMaxLength`/新加的 `LockWrite`）；编码器自己提供输出
+  样本，所以 `ProcessOutput` 传 `pSample=nullptr`。
+
 ## 测试与验证通道
 
 - macOS：本机 `go test ./media/...`（相机用例要 Terminal 有相机权限；屏幕用例要屏幕录制权限，本机已授予
@@ -160,6 +191,8 @@ DSH Desktop 里跑会因为没有 `com.apple.security.device.camera` 被 TCC 拒
   需要桌面（屏幕采集）的用例走交互式会话：写一个 `runtest.bat` 送到 `d:\Program\mygo\media-test\`，
   `schtasks /create /tn … /tr <bat> /sc once /st 23:59 /it /f` 再 `schtasks /run`，结果重定向到文件，
   读完后 `schtasks /delete`。非交互 ssh 会话里 GDI 真采集会报 `MissingComponentError{an interactive desktop}`。
+  录制用例在非交互会话里也能跑（不需要桌面）：`-test.run Recorder` 与 `-test.run Recording` 分开跑，
+  因为 cmd 里 `|` 是管道，`-test.run 'Recorder|Recording'` 传不进去。
 - 每次改动的 gate：`gofmt -l`；三平台 build+vet；`go vet -tags mygo_noinspector`；wasm build+vet
   （用 `go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}'` 排除 `/cmd/mygo`）；`go test ./...`；
   `bun run test` + `bun run typecheck`；两条 release 体积命令。

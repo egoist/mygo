@@ -974,5 +974,10 @@ func platformCapabilities() Caps {
 	encoder(CodecVorbis, "vorbisenc")
 	encoder(CodecFLAC, "flacenc")
 
+	// Recording writes H.264 into MP4, so that is what the feature needs.
+	if has(caps.Encoders, CodecH264) {
+		caps.Features = append(caps.Features, FeatureEncode)
+	}
+
 	return caps
 }
