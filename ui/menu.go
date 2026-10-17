@@ -247,6 +247,7 @@ type menuState struct {
 	release, releaseText uint64
 	pending              *shownMenu
 	chosen               uint64
+	chosenLate           bool
 	choice               int
 	label                string
 }
@@ -450,6 +451,10 @@ func (rt *engine) showMenu() {
 		return
 	}
 	rt.menu.pending = nil
+	if rt.drawsMenus {
+		handOverMenu(rt, p)
+		return
+	}
 	rt.host.popupMenu(p.menu, p.x, p.y, func(id int) { rt.menuChosen(p, id) })
 }
 
