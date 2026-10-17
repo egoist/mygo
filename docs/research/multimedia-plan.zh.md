@@ -16,7 +16,7 @@ Windows / Linux），wasm 与其他平台只要还能编译、构造时返回结
 | Q10 | media 自带三平台互操作层，不动 `internal/{darwin,windows,linux}` |
 | Q13 | macOS 12.3 为下限，能力按 API availability 分层 |
 | Q14 | 录制默认组合：macOS/Windows MP4+H.264+AAC；Linux WebM+VP9+Opus |
-| Q15 | Linux 屏幕捕获：X11/XWayland 用 `ximagesrc`，Wayland 用 XDG ScreenCast portal + `pipewiresrc`，缺失则结构化 ErrUnsupported，绝不黑帧 |
+| Q15 | Linux 屏幕捕获：X11/XWayland 用 `ximagesrc`（已做）；Wayland 的 XDG ScreenCast portal + `pipewiresrc` 这版未做，遇到 Wayland 会话给结构化 `ErrUnsupported`，绝不黑帧 |
 | Q16 | `media` 与 `ui` 互不 import；适配层放 `media/mediaui` |
 | Q17 | 权限用 `PermissionStatus` + 每对象 `Permission()/RequestPermission()` + `OpenPermissionSettings()` |
 | Q18 | audio 补齐采集；media 只做容器/编解码；主时钟 = 音频设备（`audio.Clock`） |
@@ -29,7 +29,7 @@ Windows / Linux），wasm 与其他平台只要还能编译、构造时返回结
 | M2 | Windows 文件播放（Media Foundation） | 完成（真机 14 测试通过） |
 | M3 | Linux 文件播放（GStreamer）+ capability probing | 完成（容器 15 测试通过；`WithVideo(false)` 三平台行为一致） |
 | M4 | 相机采集（AVCaptureSession / MediaCapture / GStreamer v4l2src） | 完成（Windows 真机 23/23；Linux 容器 23 通过 + 3 无摄像头跳过、`videotestsrc` 钩子测试全通过；macOS 真机 22/22，真实 1920x1080 帧，原生 `2vuy` 在 Go 里转 RGBA） |
-| M5 | 屏幕捕获（ScreenCaptureKit / Graphics Capture / pipewiresrc+ximagesrc） | 未开始 |
+| M5 | 屏幕捕获（ScreenCaptureKit / GDI，DXGI 桌面复制留作升级 / ximagesrc） | 完成（macOS 真机 4/4、SCK 3420x2224 变化驱动；Linux 容器 Xvfb + ximagesrc 6/6；Windows 交互式桌面 GDI 6/6，ssh 非交互会话枚举与钩子通过、真采集给结构化 `MissingComponentError`） |
 | M6 | 编码与 Recorder（VTCompressionSession / MFT / GStreamer appsink + 纯 Go mux） | 未开始 |
 | M7 | 文档、示例、发行版安装说明、权限 API 收尾 | 未开始 |
 
@@ -108,19 +108,58 @@ DSH Desktop 里跑会因为没有 `com.apple.security.device.camera` 被 TCC 拒
 上面「不能配置 `videoSettings`」的结论就是这次用临时探针（`media/internal/camprobe`，已删除）逐项试出来的：
 跳过 `setVideoSettings:` 才活下来，并且把收下来的帧转成 PNG 与原生长相一致。
 
+### 屏幕捕获（M5）
+公共面：`media.Screens()` / `media.OpenScreen(id)` / `Screen.NextFrame(ctx)`，屏幕和相机、文件一样是
+`media.Source`；`ScreenInfo{ID,Name,Width,Height}`、`ErrNoScreen`、`ErrPermissionDenied`，权限
+`ScreenPermission()/RequestScreenPermission(ctx)/OpenScreenPermissionSettings()`。画面统一成
+`PixelRGBA` 一平面，队列沿用 `liveFrames`（4 帧、丢最旧）。
+
+- macOS：ScreenCaptureKit（`SCShareableContent`、`SCContentFilter`、`SCStreamConfiguration`、`SCStream`）。
+  列表是异步的：`getShareableContentWithCompletionHandler:` 用一个 `objc.NewBlock` 接答案，Go 侧 channel
+  等；`SCDisplay` 的 `width/height` 是**点数**（Retina 上是像素的一半），所以采集尺寸取
+  `CGDisplayCopyDisplayMode` + `CGDisplayModeGetPixelWidth/Height`（本机 3420x2224）。像素格式直接请求
+  `'BGRA'`，由系统转换（和相机相反：这里配置的是自己的 stream，不像 `AVCaptureVideoDataOutput` 会 abort）。
+  `SCStream` 的 delegate 是 weak，要自己 retain 一个 `MyGoScreenOutput` 对象（`objc.RegisterClass` 带上
+  `SCStreamOutput` 协议，`stream:didOutputSampleBuffer:ofType:` 按对象路由到各自的 capture）；
+  `addStreamOutput:type:sampleHandlerQueue:error:` 用共享的 capture queue，`startCapture`/`stopCapture`
+  各用一个 completion block 等完成。**ScreenCaptureKit 是变化驱动的**：画面不动就没有新帧（实测帧间隔
+  33ms → 350ms 跳变），所以 `NextFrame` 只保证"有新画面时给最新的"，不承诺固定帧率。权限是 TCC 的屏幕录制：
+  `CGPreflightScreenCaptureAccess`/`CGRequestScreenCaptureAccess`；macOS 分不出"没问过"和"拒绝了"，
+  `ScreenPermission()` 未授权时一律报 `PermissionNotDetermined`，改答案后要重启 app；设置页
+  `x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture`。
+- Windows：GDI `EnumDisplayMonitors` + `GetMonitorInfoW` 枚举，`CreateDIBSection`（32bpp、自顶向下）
+  + `BitBlt(SRCCOPY)` 抓图，30fps 轮询；像素是 BGRA，Go 里翻成 RGBA。**ssh 的非交互会话没有桌面**：
+  `GetDC(0)` 能拿到句柄但 `BitBlt` 返回 `ERROR_INVALID_HANDLE`，这里翻译成
+  `MissingComponentError{Component:"an interactive desktop"}`；真采集要用交互式会话验证（本机用
+  `schtasks /create /it` 在已登录桌面里跑，6 个用例全过）。变化驱动的 DXGI Desktop Duplication 需要
+  Direct3D 设备与 GPU 纹理拷贝，留作后续升级；测试钩子 `screenTestCapture` 让无桌面的会话也能覆盖出帧/失败路径。
+- Linux：`ximagesrc use-damage=false ! videoconvert ! video/x-raw,format=RGBA ! appsink sync=false
+  max-buffers=2 drop=true`；`DISPLAY` 必须存在（X11/XWayland），缺 X11 插件或被 Wayland 的 XDG ScreenCast
+  portal 挡住时给结构化 `MissingComponentError`（Wayland 原生的 portal + `pipewiresrc` 这版没做，只报
+  `ErrUnsupported`，绝不黑帧）。相机的 live 管线抽成共用类型 `gstLive`，屏幕复用同一条 pull 队列；
+  容器里用 `Xvfb :99 -screen 0 800x600x24` + `DISPLAY=:99` 实测真实 `ximagesrc` 出帧。测试钩子
+  `screenTestSource` 走 `videotestsrc is-live=true` 覆盖管线本身。
+- 关掉水管的竞态：`gstLive` 的 run 循环在 `PullSample` 返回空后先看 `stopped()` 再判 EOS，否则 Close 时
+  EOS 会把 `ErrEnd` 覆盖成"the source stopped"（Linux 屏幕用例抓到的）。
+
 ## 测试与验证通道
 
-- macOS：本机 `go test ./media/...`（相机用例要 Terminal 有相机权限）；GUI 闭环
+- macOS：本机 `go test ./media/...`（相机用例要 Terminal 有相机权限；屏幕用例要屏幕录制权限，本机已授予
+  DSH Desktop，`screencapture` 能截到别的窗口）；GUI 闭环
   `MYGO_E2E=1 go test ./internal/e2e -run TestVideoInAWindow`。本机 e2e 全量里
   `TestLocaleAtDocumentStart`/`TestPlugins`/`TestSQLitePlugin` 这 3 个 JS-bridge 用例在干净 HEAD 上也失败
   （DSH Desktop 环境问题，与本任务无关，已用 `git stash -u` 在干净树上复现）；media 相关 e2e 通过。
-- Linux：colima 容器 `mygo-linuxtest`（Debian 13 + Go 1.27，仓库只读挂 `/src`，已装 GStreamer 1.26.2）；
+- Linux：colima 容器 `mygo-linuxtest`（Debian 13 + Go 1.27，仓库只读挂 `/src`，已装 GStreamer 1.26.2 +
+  `ximagesrc`/`Xvfb`；屏幕用例先 `Xvfb :99 -screen 0 800x600x24 &` 再 `DISPLAY=:99` 跑）；
   本机 `CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -c -o /tmp/media-linux.test ./media`，
   `docker cp` 进去，`docker exec -w /src/media mygo-linuxtest /tmp/media.test -test.v`。
 - Windows：本机 `GOOS=windows GOARCH=amd64 go test -c -o /tmp/media.test.exe ./media`；`scp` 落在
   `C:\Users\zhanw`，再 `move` 到 `d:\Program\mygo\media-test\`（该机 proxy 不通，只能送预编译二进制）；
   `media/testdata` 用 `tar czf` 打包后一起送过去解压（Mac 带的 `._*` 无妨）。远端 shell 是 cmd：一条
   `ssh` 命令里用 `&` 串联、`|` 会被当成管道，输出先 `chcp 65001` 才不是 GBK 乱码。
+  需要桌面（屏幕采集）的用例走交互式会话：写一个 `runtest.bat` 送到 `d:\Program\mygo\media-test\`，
+  `schtasks /create /tn … /tr <bat> /sc once /st 23:59 /it /f` 再 `schtasks /run`，结果重定向到文件，
+  读完后 `schtasks /delete`。非交互 ssh 会话里 GDI 真采集会报 `MissingComponentError{an interactive desktop}`。
 - 每次改动的 gate：`gofmt -l`；三平台 build+vet；`go vet -tags mygo_noinspector`；wasm build+vet
   （用 `go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}'` 排除 `/cmd/mygo`）；`go test ./...`；
   `bun run test` + `bun run typecheck`；两条 release 体积命令。
