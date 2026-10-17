@@ -48,6 +48,32 @@ not earlier, and one whose time has passed while the app was busy is
 dropped rather than shown late. From a file with no sound the player keeps
 a clock of its own.
 
+### Network locations on macOS
+
+On macOS, `OpenURL` reads an `http` or `https` URL through a transport of
+MyGo's own: the asset's media loading requests are answered over Go's
+`net/http`, and the bytes AVFoundation reads are the origin's bytes, not a
+representation a content encoding made: the loader asks for the identity
+encoding and refuses a `Content-Encoding` it does not understand. The origin
+must therefore answer with its length — a `Content-Length`, or a
+`Content-Range` for a range request — or the open fails. The container is
+recognised from the URL's extension, or from the origin's content type when
+the extension says nothing: MP4, MOV, M4A, MP3 and WAV.
+
+This is what lets `Close` stop a read that waits for the network: it fails
+the loading requests, and the native read that waited on their data returns
+before the readers are freed. `Seek` does not depend on the origin's range
+support: a range it cannot get as a range is skipped to from the start of
+the reply. A URL of any other scheme than `file` or `http(s)` is reported as
+unsupported, because AVFoundation's reader would load it outside this
+transport, where a read of it could not be stopped. Playlists (HLS) and
+streaming protocols (RTSP, RTMP) are not read this way: the reader cannot
+read them at all.
+
+`Open` and `OpenURL` take no context yet: the first load of an asset's
+metadata is synchronous, and `Close` cannot stop an open that has not
+returned. `Close` covers what a returned source is doing.
+
 ## Showing pictures in native UI
 
 `media/mediaui` draws a source's pictures in a window MyGo draws itself,

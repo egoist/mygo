@@ -184,27 +184,46 @@ func shareableContent() (uintptr, error) {
 	}
 	type answer struct {
 		content uintptr
-		err     uintptr
+		problem error // the system's error, said while it was valid
 	}
 	done := make(chan answer, 1)
 	block := objc.NewBlock(func(b objc.Block, content, errRef uintptr) {
 		if content != 0 {
 			Retain(content)
 		}
-		done <- answer{content, errRef}
+		// The error belongs to the system for the length of this callback:
+		// ask what it means here, not after the callback returned.
+		done <- answer{content, errorOf(errRef)}
 	})
 	handler := block.Copy()
 	SendVoid1(Class("SCShareableContent"), Sel("getShareableContentWithCompletionHandler:"), uintptr(handler))
 	handler.Release()
 	block.Release()
 	a := <-done
-	if a.err != 0 {
-		return 0, fmt.Errorf("media: macOS will not share the screen: %s", ErrorString(a.err))
+	if a.problem != nil {
+		if a.content != 0 {
+			// The system gave both: the content is ours to release,
+			// since the caller gets the error instead.
+			Release(a.content)
+		}
+		return 0, fmt.Errorf("media: macOS will not share the screen: %w", a.problem)
 	}
 	if a.content == 0 {
 		return 0, fmt.Errorf("media: macOS shared no screens")
 	}
 	return a.content, nil
+}
+
+// errorOf says what a completion callback's NSError means, as a Go error, or
+// nil when there was none. It must be called inside the callback: the error
+// belongs to the system and may not outlive it. A Go error is returned even
+// when the system's description is empty, so that an error object is never
+// mistaken for success by its text.
+func errorOf(errRef uintptr) error {
+	if errRef == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s", ErrorString(errRef))
 }
 
 // A ScreenCapture is a running ScreenCaptureKit stream. fn is called with each
@@ -300,14 +319,18 @@ func OpenScreen(displayID uint32, fn func(sample uintptr), onStop func(err uintp
 
 		// Starting runs the system's own capture, and answers on a queue of
 		// its own: wait for it rather than hand out a stream that may not run.
-		started := make(chan uintptr, 1)
-		block := objc.NewBlock(func(b objc.Block, startErr uintptr) { started <- startErr })
+		started := make(chan error, 1)
+		block := objc.NewBlock(func(b objc.Block, startErr uintptr) {
+			// The error belongs to the system for the length of this
+			// callback: ask what it means here, not after it returned.
+			started <- errorOf(startErr)
+		})
 		handler := block.Copy()
 		SendVoid1(c.stream, Sel("startCaptureWithCompletionHandler:"), uintptr(handler))
 		handler.Release()
 		block.Release()
-		if startErr := <-started; startErr != 0 {
-			openErr = fmt.Errorf("media: macOS did not start capturing the screen: %s", ErrorString(startErr))
+		if problem := <-started; problem != nil {
+			openErr = fmt.Errorf("media: macOS did not start capturing the screen: %w", problem)
 		}
 	})
 	if openErr != nil {

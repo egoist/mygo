@@ -131,9 +131,7 @@ func (m *mp4Muxer) WritePacket(p EncodedPacket) error {
 		t.frag = f
 	}
 	decode := p.DTS
-	if decode == 0 {
-		decode = p.PTS
-	}
+	composition := ticksOf(p.PTS, t.timescale) - ticksOf(decode, t.timescale)
 	flags := mp4.SetNonSyncSampleFlags(0)
 	if p.Keyframe {
 		flags = mp4.SetSyncSampleFlags(0)
@@ -152,7 +150,7 @@ func (m *mp4Muxer) WritePacket(p EncodedPacket) error {
 		data = append(data, n...)
 	}
 	t.frag.AddFullSample(mp4.FullSample{
-		Sample:     mp4.Sample{Flags: flags, Dur: uint32(dur), Size: uint32(len(data))},
+		Sample:     mp4.Sample{Flags: flags, Dur: uint32(dur), Size: uint32(len(data)), CompositionTimeOffset: int32(composition)},
 		DecodeTime: uint64(ticksOf(decode, t.timescale)),
 		Data:       data,
 	})
@@ -309,5 +307,7 @@ func nalusOf(data []byte) ([][]byte, error) {
 
 // ticksOf turns a duration into a track's own ticks.
 func ticksOf(d time.Duration, timescale uint32) int64 {
-	return int64(d) * int64(timescale) / int64(time.Second)
+	// Split whole seconds from the remainder before multiplying: nanoseconds
+	// times a 90 kHz scale otherwise overflow after roughly 28 hours.
+	return int64(d/time.Second)*int64(timescale) + int64(d%time.Second)*int64(timescale)/int64(time.Second)
 }

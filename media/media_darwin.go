@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	neturl "net/url"
 	"strings"
 	"sync"
 	"time"
@@ -50,53 +51,157 @@ func openSource(target string, o options) (Source, error) {
 // promises. A seek is a reader made again at the new time, as a reader
 // cannot be rewound.
 type avSource struct {
-	// mu guards the readers: a pull holds it while it reads, a seek
-	// replaces them.
+	// mu guards the readers, the read in flight, and closed: a read holds
+	// its own reference to the readers it uses, so a seek replaces the
+	// source's reference without waiting for it, and a close gives it up
+	// once every read has returned.
 	mu     sync.RWMutex
 	closed bool
+	done   chan struct{} // closed by Close: reads waiting elsewhere stop waiting
+	// closeDone is closed by the first Close once it has given back
+	// everything: a second Close waits for it rather than returning
+	// before the resources are freed.
+	closeDone chan struct{}
 
-	asset    uintptr         // AVURLAsset
-	tracks   []Track         // what the file has
-	handles  map[int]uintptr // track index -> retained AVAssetTrack
-	videos   []int           // track indices of the video tracks
-	audios   []int           // and of the sound tracks
-	video    int             // the chosen video track index, or -1
-	audio    int             // and the chosen sound track index, or -1
-	pictures bool            // whether pictures are read at all
-	vreader  uintptr         // AVAssetReader of the chosen video track
-	vout     uintptr         // its AVAssetReaderTrackOutput
-	areader  uintptr         // the same for the chosen sound track
-	aout     uintptr         //
-	start    time.Duration   // where the readers start
-	dur      time.Duration   // how long the file is
-	pool     pixPool         // buffers for the pictures handed out
+	asset     uintptr         // AVURLAsset
+	tracks    []Track         // what the file has
+	handles   map[int]uintptr // track index -> retained AVAssetTrack
+	videos    []int           // track indices of the video tracks
+	audios    []int           // and of the sound tracks
+	video     int             // the chosen video track index, or -1
+	audio     int             // and the chosen sound track index, or -1
+	pictures  bool            // whether pictures are read at all
+	withSound bool            // whether sound is read at all
+	vset      *avReadSet      // the reader of the chosen video track
+	aset      *avReadSet      // the same for the chosen sound track
+	start     time.Duration   // where the readers start
+	dur       time.Duration   // how long the file is
+	pool      pixPool         // buffers for the pictures handed out
+	vpull     *avPull         // the picture read in flight, or not taken yet
+	turn      chan struct{}   // one picture is pulled at a time
+	reads     sync.WaitGroup  // the native reads in flight, of every generation
+	loader    *darwin.Loader  // the transport of an http(s) asset, or nil
+	// readSample reads one sample of a track output, which blocks while the
+	// decoder works. It is [readSample]; a test replaces it to hold a read in
+	// flight.
+	readSample func(out uintptr) uintptr
+}
+
+// An avReadSet is one AVAssetReader and the output it reads a track with.
+// refs counts its owners: the source itself, and every read in flight. A seek
+// or a close gives up the source's reference and leaves the object alive until
+// the reads using it have returned, which is when the last one frees it.
+type avReadSet struct {
+	reader uintptr
+	out    uintptr
+	refs   int
+}
+
+// An avPull is one read of a picture, running on a goroutine of its own so
+// that the caller waiting for it can stop waiting when its context is done or
+// the source closes. Its fields other than done are guarded by the source's
+// mu, and ready says they are final.
+type avPull struct {
+	set  *avReadSet
+	done chan struct{} // closed when the read returned
+
+	sb        uintptr // the sample, or 0 with err
+	err       error   // why the read gave no sample
+	ready     bool    // sb and err are final
+	abandoned bool    // the caller gave up: whoever reads releases sb
+}
+
+// readSample reads the next sample of a track output, or 0 at the end of what
+// it reads. The sample belongs to the caller, which CFReleases it.
+func readSample(out uintptr) uintptr {
+	var sb uintptr
+	darwin.WithPool(func() { sb = darwin.SendID(out, darwin.Sel("copyNextSampleBuffer")) })
+	return sb
 }
 
 func openFile(target string, o options) (*avSource, error) {
-	var url uintptr
-	if strings.Contains(target, "://") {
+	var (
+		url     uintptr
+		options uintptr
+		loader  *darwin.Loader
+	)
+	// What the URL says it is, whatever its case: AVFoundation's own
+	// schemes go in lower case.
+	scheme := ""
+	if u, err := neturl.Parse(target); err == nil {
+		scheme = strings.ToLower(u.Scheme)
+	}
+	switch scheme {
+	case "http", "https":
+		// AVFoundation on a bare http(s) URL has AVAssetReader block on
+		// its own network loading, which cannot be stopped: read it
+		// through a loader of ours, which can fail the loading requests.
+		var err error
+		loader, err = darwin.OpenLoader(target)
+		if err != nil {
+			return nil, unsupported("reading %q: %v", target, err)
+		}
+		url = darwin.URL(loader.URL())
+		// Only data in the container itself: a reference it points at is
+		// not the loader's to load, so refuse it rather than let
+		// AVFoundation fetch it around the loader.
+		options = darwin.MutableDict()
+		darwin.DictSet(options, darwin.NSNumberUint(darwin.ReferenceRestrictionsForbidAll), darwin.Global("AVURLAssetReferenceRestrictionsKey"))
+	case "file":
 		url = darwin.URL(target)
-	} else {
+	case "":
 		url = darwin.FileURL(target)
+	default:
+		// Any other scheme is one this version cannot read, and saying
+		// so is better than letting AVFoundation report a file without
+		// tracks: a remote one would load outside the loader, where a
+		// read of it could not be stopped.
+		return nil, unsupported("reading %q: this version reads files and http(s) URLs", target)
 	}
 	if url == 0 {
+		if loader != nil {
+			loader.Close()
+		}
 		return nil, unsupported("reading %q", target)
 	}
-	asset := darwin.SendID2(darwin.Alloc(darwin.Class("AVURLAsset")), darwin.Sel("initWithURL:options:"), url, 0)
+	asset := darwin.SendID2(darwin.Alloc(darwin.Class("AVURLAsset")), darwin.Sel("initWithURL:options:"), url, options)
 	if asset == 0 {
+		if loader != nil {
+			loader.Close()
+		}
 		return nil, unsupported("reading %q", target)
+	}
+	if loader != nil {
+		if err := loader.Attach(asset); err != nil {
+			darwin.Release(asset)
+			loader.Close()
+			return nil, unsupported("reading %q: %v", target, err)
+		}
 	}
 	s := &avSource{
-		asset:    asset,
-		handles:  make(map[int]uintptr),
-		video:    -1,
-		audio:    -1,
-		pictures: o.pictures(),
+		asset:      asset,
+		handles:    make(map[int]uintptr),
+		video:      -1,
+		audio:      -1,
+		pictures:   o.pictures(),
+		withSound:  o.sound(),
+		done:       make(chan struct{}),
+		closeDone:  make(chan struct{}),
+		turn:       make(chan struct{}, 1),
+		readSample: readSample,
+		loader:     loader,
 	}
 	s.dur = darwin.Time(darwin.SendTime(asset, darwin.Sel("duration")))
 	s.listTracks()
 	if s.video < 0 && s.audio < 0 {
+		problem := error(nil)
+		if loader != nil {
+			problem = loader.Problem()
+		}
 		s.Close()
+		if problem != nil {
+			return nil, unsupported("reading %q: %v", target, problem)
+		}
 		return nil, unsupported("%q has no picture or sound", target)
 	}
 	if err := s.build(); err != nil {
@@ -152,35 +257,35 @@ func (s *avSource) listTracks() {
 func (s *avSource) build() error {
 	s.unbuild()
 	if s.video >= 0 && s.pictures {
-		reader, out, err := s.reader(s.handles[s.video], videoSettings())
+		set, err := s.reader(s.handles[s.video], videoSettings())
 		if err != nil {
 			return err
 		}
-		s.vreader, s.vout = reader, out
+		s.vset = set
 	}
-	if s.audio >= 0 {
-		reader, out, err := s.reader(s.handles[s.audio], audioSettings())
+	if s.audio >= 0 && s.withSound {
+		set, err := s.reader(s.handles[s.audio], audioSettings())
 		if err != nil {
 			return err
 		}
-		s.areader, s.aout = reader, out
+		s.aset = set
 	}
 	return nil
 }
 
 // reader makes a reader of one track, from the current start.
-func (s *avSource) reader(track, settings uintptr) (reader, out uintptr, err error) {
-	reader = darwin.SendID2(darwin.Alloc(darwin.Class("AVAssetReader")), darwin.Sel("initWithAsset:error:"), s.asset, 0)
+func (s *avSource) reader(track, settings uintptr) (*avReadSet, error) {
+	reader := darwin.SendID2(darwin.Alloc(darwin.Class("AVAssetReader")), darwin.Sel("initWithAsset:error:"), s.asset, 0)
 	if reader == 0 {
-		return 0, 0, unsupported("a reader for this file")
+		return nil, unsupported("a reader for this file")
 	}
 	// The output comes autoreleased from a factory method: keep a
 	// reference of our own, so that giving it up again is ours to do and
 	// the pool's later release is not a second one.
-	out = darwin.Retain(darwin.SendID2(darwin.Class("AVAssetReaderTrackOutput"), darwin.Sel("assetReaderTrackOutputWithTrack:outputSettings:"), track, settings))
+	out := darwin.Retain(darwin.SendID2(darwin.Class("AVAssetReaderTrackOutput"), darwin.Sel("assetReaderTrackOutputWithTrack:outputSettings:"), track, settings))
 	if out == 0 {
 		darwin.Release(reader)
-		return 0, 0, unsupported("an output for a track")
+		return nil, unsupported("an output for a track")
 	}
 	// The pictures are copied out of the decoder's own buffers straight
 	// away, so it need not copy them for us.
@@ -190,7 +295,7 @@ func (s *avSource) reader(track, settings uintptr) (reader, out uintptr, err err
 	if !darwin.SendBool1(reader, darwin.Sel("canAddOutput:"), out) {
 		darwin.Release(out)
 		darwin.Release(reader)
-		return 0, 0, unsupported("an output for this track")
+		return nil, unsupported("an output for this track")
 	}
 	darwin.SendVoid1(reader, darwin.Sel("addOutput:"), out)
 	if s.start > 0 || s.dur > 0 {
@@ -208,46 +313,202 @@ func (s *avSource) reader(track, settings uintptr) (reader, out uintptr, err err
 		err := darwin.ErrorString(darwin.SendID(reader, darwin.Sel("error")))
 		darwin.Release(out)
 		darwin.Release(reader)
-		return 0, 0, fmt.Errorf("media: reading this file: %s", err)
+		return nil, fmt.Errorf("media: reading this file: %s", err)
 	}
-	return reader, out, nil
+	return &avReadSet{reader: reader, out: out, refs: 1}, nil
 }
 
 // unbuild gives up the readers, which a seek replaces.
 func (s *avSource) unbuild() {
-	if s.vreader != 0 {
-		darwin.SendVoid(s.vreader, darwin.Sel("cancelReading"))
-		darwin.Release(s.vout)
-		darwin.Release(s.vreader)
-		s.vreader, s.vout = 0, 0
+	if s.vset != nil {
+		s.dropSet(s.vset)
+		s.vset = nil
 	}
-	if s.areader != 0 {
-		darwin.SendVoid(s.areader, darwin.Sel("cancelReading"))
-		darwin.Release(s.aout)
-		darwin.Release(s.areader)
-		s.areader, s.aout = 0, 0
+	if s.aset != nil {
+		s.dropSet(s.aset)
+		s.aset = nil
 	}
+}
+
+// dropSet gives up one reference to a reader set, and frees it with the last.
+// Its caller holds mu.
+func (s *avSource) dropSet(set *avReadSet) {
+	if set == nil {
+		return
+	}
+	if set.refs--; set.refs == 0 {
+		freeSet(set)
+	}
+}
+
+// freeSet gives up a reader set whose references are gone, canceling its
+// reader first. AVFoundation says cancelReading "should not be called
+// concurrently with any calls to -[AVAssetReaderOutput copyNextSampleBuffer]"
+// (AVAssetReader.h), so a reader is canceled here only once every read of it
+// has returned: a seek or Close gives up the source's reference, and the read
+// in flight keeps its own until it returns.
+//
+// Close leaves no such read running: it fails the asset's loading requests,
+// which is the documented way to make a read waiting on the network return,
+// and then waits for it. A context that is done gives up only the waiting:
+// the read it left runs on until it returns, and is what a later NextFrame
+// takes.
+func freeSet(set *avReadSet) {
+	if set.reader == 0 && set.out == 0 {
+		return
+	}
+	darwin.WithPool(func() {
+		darwin.SendVoid(set.reader, darwin.Sel("cancelReading"))
+		darwin.Release(set.out)
+		darwin.Release(set.reader)
+	})
+	set.reader, set.out = 0, 0
 }
 
 // NextFrame returns the next picture of the file, and hands its ownership to
 // the caller, which releases it. The end of the file is [ErrEnd].
 func (s *avSource) NextFrame(ctx context.Context) (*Frame, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.closed || s.vout == 0 {
+	// One caller pulls at a time: a sample is handed out once, and a
+	// second caller waits for its own rather than sharing the read of
+	// the first and taking the same sample twice.
+	select {
+	case s.turn <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-s.done:
 		return nil, ErrEnd
 	}
-	var sb uintptr
-	darwin.WithPool(func() { sb = darwin.SendID(s.vout, darwin.Sel("copyNextSampleBuffer")) })
-	if sb == 0 {
-		return nil, s.why(s.vreader, "picture")
+	defer func() { <-s.turn }()
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		p, err := s.picturePull()
+		if err != nil {
+			return nil, err
+		}
+		select {
+		case <-p.done:
+			sb, err, retry := s.settlePull(p)
+			if retry {
+				// A seek replaced the readers while the read was in
+				// flight: its sample is from where playback was.
+				continue
+			}
+			if sb == 0 {
+				return nil, err
+			}
+			f, err := s.picture(sb)
+			darwin.CFReleaseItem(sb)
+			return f, err
+		case <-ctx.Done():
+			// The read runs on and holds the readers until it returns:
+			// its sample is the next picture, which a later call takes
+			// rather than losing, and Close gives it up if there is no
+			// later call.
+			return nil, ctx.Err()
+		case <-s.done:
+			// Close gave up the read and its sample already.
+			return nil, ErrEnd
+		}
 	}
-	f, err := s.picture(sb)
-	darwin.CFReleaseItem(sb)
-	return f, err
+}
+
+// picturePull returns the read of the next picture, starting one when none is
+// in flight. The read runs on a goroutine of its own: what waits for it must
+// be able to stop waiting while the decoder works.
+func (s *avSource) picturePull() (*avPull, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.vset == nil {
+		return nil, ErrEnd
+	}
+	if p := s.vpull; p != nil {
+		// Only one read runs at a time, even across a seek: a read of
+		// a generation a seek replaced is waited for and its sample
+		// given up by settlePull, rather than left running while
+		// another is started for every seek.
+		return p, nil
+	}
+	set := s.vset
+	set.refs++     // the read holds the readers until it returns
+	s.reads.Add(1) // and Close waits for it
+	p := &avPull{set: set, done: make(chan struct{})}
+	s.vpull = p
+	read := s.readSample
+	go s.readPicture(p, read)
+	return p, nil
+}
+
+// readPicture reads one picture for p, and hands its sample to whoever waits
+// for the read, or releases it when that caller gave up.
+func (s *avSource) readPicture(p *avPull, read func(out uintptr) uintptr) {
+	defer s.reads.Done()
+	sb := read(p.set.out)
+	var err error
+	if sb == 0 {
+		err = s.why(p.set.reader, "picture")
+	}
+	s.mu.Lock()
+	p.sb, p.err, p.ready = sb, err, true
+	drop := false
+	if p.abandoned {
+		p.sb, drop = 0, true
+	}
+	s.dropSet(p.set) // the read's own reference
+	s.mu.Unlock()
+	if drop && sb != 0 {
+		darwin.CFReleaseItem(sb)
+	}
+	close(p.done)
+}
+
+// settlePull takes the sample of a read that returned, or gives it up when the
+// source closed or a seek made it obsolete; retry says the caller has to read
+// again.
+func (s *avSource) settlePull(p *avPull) (sb uintptr, err error, retry bool) {
+	s.mu.Lock()
+	if s.vpull == p {
+		s.vpull = nil
+	}
+	switch {
+	case s.closed:
+		sb = p.sb
+		p.sb = 0
+		s.mu.Unlock()
+		if sb != 0 {
+			darwin.CFReleaseItem(sb)
+		}
+		return 0, ErrEnd, false
+	case p.set != s.vset:
+		sb = p.sb
+		p.sb = 0
+		s.mu.Unlock()
+		if sb != 0 {
+			darwin.CFReleaseItem(sb)
+		}
+		return 0, nil, true
+	}
+	sb, err = p.sb, p.err
+	p.sb = 0
+	s.mu.Unlock()
+	return sb, err, false
+}
+
+// abandonLocked gives up the sample of a read whose caller stopped waiting,
+// or of one Close gives up: a read that has already returned releases its
+// sample here, one still in flight releases it when it returns. Its caller
+// holds mu.
+func (s *avSource) abandonLocked(p *avPull) {
+	if p.ready {
+		sb := p.sb
+		p.sb = 0
+		if sb != 0 {
+			darwin.CFReleaseItem(sb)
+		}
+		return
+	}
+	p.abandoned = true
 }
 
 // why says why a reader gave up its samples: the end of what it reads, or
@@ -329,7 +590,7 @@ func fourCC(v uint32) string {
 func (s *avSource) Sound() audio.Decoder {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.aout == 0 {
+	if s.aset == nil {
 		return nil
 	}
 	return &avSound{s: s}
@@ -401,7 +662,7 @@ func (s *avSource) seek(t time.Duration) (time.Duration, error) {
 	if s.dur > 0 && t > s.dur {
 		t = s.dur
 	}
-	if s.start == t && (s.vreader != 0 || s.areader != 0) {
+	if s.start == t && (s.vset != nil || s.aset != nil) {
 		return t, nil
 	}
 	s.start = t
@@ -410,23 +671,68 @@ func (s *avSource) seek(t time.Duration) (time.Duration, error) {
 	return t, err
 }
 
-// Close gives up everything the file holds. Closing twice is fine.
+// Close gives up everything the file holds and returns once nothing of it is
+// running any more: it fails what the asset is loading over the network, waits
+// for every native read of every generation to return, and frees the readers
+// and the asset then. Closing twice is fine.
+//
+// A native read cannot be interrupted by itself (see [freeSet]), so Close
+// reaches it the documented way: failing its resource loading requests makes
+// the blocked read return. For a file there is no loading to fail, but its
+// reads return.
 func (s *avSource) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
+		// The first Close is the one that frees everything: wait for
+		// it, so that closing twice waits too.
+		done := s.closeDone
+		s.mu.Unlock()
+		<-done
 		return nil
 	}
 	s.closed = true
-	s.unbuild()
+	close(s.done)
+	if s.vpull != nil {
+		// Give up the sample of the read in flight; the read itself is
+		// waited for below.
+		s.abandonLocked(s.vpull)
+		s.vpull = nil
+	}
+	loader := s.loader
+	s.loader = nil
+	s.mu.Unlock()
+
+	if loader != nil {
+		// This is the guarantee: the loading requests are failed, so a
+		// native read waiting on their data returns.
+		loader.Close()
+	}
+	// Canceling the asset's loading is an optimization on top: the failed
+	// requests above are what Close promises.
+	darwin.WithPool(func() {
+		if s.asset != 0 {
+			darwin.SendVoid(s.asset, darwin.Sel("cancelLoading"))
+		}
+	})
+	// No s.mu while waiting: the reads take it to give up their readers.
+	// The readers' own cancellation is only safe once they have returned,
+	// so the current ones are given up afterwards, here.
+	s.reads.Wait()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.unbuild()              // the source's references; the reads are done
 	darwin.WithPool(func() { // the tracks live in the pool of the file's own
 		for _, track := range s.handles {
 			darwin.Release(track)
 		}
-		darwin.Release(s.asset)
+		if s.asset != 0 {
+			darwin.Release(s.asset)
+		}
 	})
 	s.handles = nil
 	s.asset = 0
+	close(s.closeDone)
 	return nil
 }
 
@@ -540,15 +846,39 @@ func (d *avSound) fill() error {
 
 // pull reads the next sample of the sound track.
 func (d *avSound) pull() (uintptr, error) {
-	d.s.mu.RLock()
-	defer d.s.mu.RUnlock()
-	if d.s.closed || d.s.aout == 0 {
+	s := d.s
+	s.mu.Lock()
+	if s.closed || s.aset == nil {
+		s.mu.Unlock()
 		return 0, ErrEnd
 	}
-	var sb uintptr
-	darwin.WithPool(func() { sb = darwin.SendID(d.s.aout, darwin.Sel("copyNextSampleBuffer")) })
+	set := s.aset
+	set.refs++     // the read holds the readers until it returns
+	s.reads.Add(1) // and Close waits for it
+	read := s.readSample
+	s.mu.Unlock()
+	defer s.reads.Done()
+
+	sb := read(set.out)
+	var err error
 	if sb == 0 {
-		return 0, d.s.why(d.s.areader, "sound")
+		err = s.why(set.reader, "sound")
+	}
+
+	s.mu.Lock()
+	s.dropSet(set) // the read's own reference
+	gone := s.closed || s.aset != set
+	s.mu.Unlock()
+	if gone {
+		// The source closed, or was told to read from somewhere else,
+		// while this sample decoded.
+		if sb != 0 {
+			darwin.CFReleaseItem(sb)
+		}
+		return 0, ErrEnd
+	}
+	if sb == 0 {
+		return 0, err
 	}
 	return sb, nil
 }

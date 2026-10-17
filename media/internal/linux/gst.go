@@ -173,6 +173,9 @@ var (
 	gstMessageParseError          func(message uintptr, err **gError, debug **byte)
 	gstSampleGetBuffer            func(sample uintptr) uintptr
 	gstSampleGetCaps              func(sample uintptr) uintptr
+	gstSampleGetSegment           func(sample uintptr) uintptr
+	gstSegmentToStreamTime        func(segment uintptr, format int32, position uint64) uint64
+	gstURIIsValid                 func(uri *byte) int32
 	gstBufferMap                  func(buffer uintptr, info *mapInfo, flags int32) int32
 	gstBufferUnmap                func(buffer uintptr, info *mapInfo)
 	gstBufferNewAllocate          func(allocator uintptr, size, align uintptr) uintptr
@@ -273,6 +276,9 @@ func open() {
 	sym(core, "gst_message_parse_error", &gstMessageParseError)
 	sym(core, "gst_sample_get_buffer", &gstSampleGetBuffer)
 	sym(core, "gst_sample_get_caps", &gstSampleGetCaps)
+	sym(core, "gst_sample_get_segment", &gstSampleGetSegment)
+	sym(core, "gst_segment_to_stream_time", &gstSegmentToStreamTime)
+	sym(core, "gst_uri_is_valid", &gstURIIsValid)
 	sym(core, "gst_buffer_map", &gstBufferMap)
 	sym(core, "gst_buffer_unmap", &gstBufferUnmap)
 	sym(core, "gst_buffer_new_allocate", &gstBufferNewAllocate)
@@ -621,6 +627,10 @@ func FileURI(target string) (string, error) {
 		err error
 	)
 	withCString(target, func(text *byte) {
+		if gstURIIsValid(text) != 0 {
+			out = target
+			return
+		}
 		var gerr *gError
 		uri := gstFilenameToURI(text, &gerr)
 		if uri == nil {
@@ -731,6 +741,25 @@ func (s *Sample) Caps() Caps {
 
 // Time returns when the sample is due on the media's own timeline.
 func (s *Sample) Time() (time.Duration, bool) { return s.clock(offsetBufferPTS) }
+
+// StreamTime maps the buffer timestamp through its segment to the input
+// media timeline. Encoders such as x264enc shift buffer timestamps (by up
+// to 1000 hours); the segment carries that shift, including nonzero starts.
+func (s *Sample) StreamTime() (time.Duration, bool) {
+	pts, ok := s.Time()
+	if !ok {
+		return 0, false
+	}
+	segment := gstSampleGetSegment(s.ptr)
+	if segment == 0 {
+		return 0, false
+	}
+	ns := gstSegmentToStreamTime(segment, formatTime, uint64(pts))
+	if ns == clockTimeNone {
+		return 0, false
+	}
+	return time.Duration(ns), true
+}
 
 // Duration returns how long the sample lasts, when it says.
 func (s *Sample) Duration() (time.Duration, bool) { return s.clock(offsetBufferDuration) }

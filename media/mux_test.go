@@ -65,6 +65,7 @@ func clipPackets(t *testing.T) (CodecConfig, []EncodedPacket) {
 		dur := time.Duration(int64(s.Dur) * int64(time.Second) / int64(timescale))
 		packets = append(packets, EncodedPacket{
 			PTS:      pts,
+			DTS:      pts,
 			Duration: dur,
 			Keyframe: s.IsSync(),
 			Data:     avccToStartCodes(all[at:at+size], 4),

@@ -61,17 +61,94 @@ type mfSource struct {
 	video    int     // the chosen picture stream, or -1
 	audio    int     // and the chosen sound stream, or -1
 	pictures bool    // whether pictures are read at all
+	soundOn  bool    // and whether the sound is
 
-	vr windows.SourceReader // the reader of the chosen picture stream
-	ar windows.SourceReader // and of the chosen sound stream
-	vw int                  // the picture's width, as the platform
-	vh int                  // negotiated it
+	// The readers read asynchronously: a read is a request the platform
+	// answers on a callback, which is handed to a pump and waited for
+	// there. A seek or a close can then take the request back instead of
+	// waiting for a picture that is not coming.
+	vr    windows.SourceReader    // the reader of the chosen picture stream
+	vcb   *windows.AsyncCallback  // and the callback it reports reads to
+	vpump *readerPump[readResult] // and where those reports wait to be taken
+	ar    windows.SourceReader    // the reader of the chosen sound stream
+	acb   *windows.AsyncCallback
+	apump *readerPump[readResult]
+	vw    int // the picture's width, as the platform
+	vh    int // negotiated it
 
 	sound *mfSound // the sound as the audio package's decoder
 
 	start time.Duration // where the readers start
 	dur   time.Duration // how long the file is
 	pool  pixPool       // buffers for the pictures handed out
+}
+
+// A readResult is one read an asynchronous reader completed: the platform's
+// status for it, the flags of the read, and the sample, whose reference the
+// pump holds and releases when nobody takes it.
+type readResult struct {
+	hr     uint32
+	flags  uint32
+	sample windows.Sample
+}
+
+// openAsyncReader makes a reader of the opened file that reports its reads
+// instead of waiting for them: the pump is where the pull waits for one, and
+// the callback hands each over as the platform completes it.
+func (s *mfSource) openAsyncReader(video bool) (windows.SourceReader, *windows.AsyncCallback, *readerPump[readResult], error) {
+	pump := newReaderPump(func(r readResult) { r.sample.Release() })
+	cb := windows.NewAsyncCallback(func(r windows.ReadResult) {
+		pump.deliver(readResult{hr: r.HR, flags: r.Flags, sample: r.Sample})
+	})
+	var (
+		r   windows.SourceReader
+		err error
+	)
+	if s.path {
+		r, err = windows.OpenReaderFromPathAsync(s.target, video, cb)
+	} else {
+		r, err = windows.OpenReaderFromURLAsync(s.target, video, cb)
+	}
+	if err != nil {
+		return windows.SourceReader{}, nil, nil, readerError(err, FeaturePlayback, "")
+	}
+	return r, cb, pump, nil
+}
+
+// flushReader takes back the read a reader may have in flight and waits for
+// the platform to confirm it, so that the reader can be moved or let go: a
+// reader let go with a read pending would call back into a source that is
+// gone. A reader with no read pending needs no flush, and waiting for a
+// confirmation that has nothing to confirm would wait on the platform's word
+// alone.
+//
+// The pump is reset before the flush, so the read being taken back is dropped
+// and released if the platform still reports it while the flush completes. It
+// is not reported after that: the platform calls OnFlush when the flush is
+// done, which is when the request is over. And a new read cannot join it,
+// because the caller holds the source's write lock and a read is only started
+// under its read lock, so no result can be taken for a later request.
+//
+// A flush the platform cannot start leaves the request in the pump's past but
+// possibly still to be reported: the reader is not moved then but made again,
+// which lets the old reader go and with it whatever it would have called back
+// with. The error is only the platform's word that the flush did not start; a
+// caller that lets the reader go ignores it, since it has nothing better to
+// try and the pump has already dropped what the read would have been for.
+func flushReader(r windows.SourceReader, cb *windows.AsyncCallback, pump *readerPump[readResult], stream int) error {
+	if !r.Valid() {
+		return nil
+	}
+	pending := pump != nil && pump.hasRead()
+	if pump != nil {
+		pump.reset()
+	}
+	if !pending || cb == nil {
+		return nil
+	}
+	// FlushAsync forgets a confirmation left by an earlier flush, so that
+	// the wait below is for this flush's own.
+	return r.FlushAsync(context.Background(), stream)
 }
 
 func openFile(target string, o options) (*mfSource, error) {
@@ -84,11 +161,11 @@ func openFile(target string, o options) (*mfSource, error) {
 			return nil, err
 		}
 	}
-	s := &mfSource{target: target, path: !url, video: -1, audio: -1, pictures: o.pictures()}
+	s := &mfSource{target: target, path: !url, video: -1, audio: -1, pictures: o.pictures(), soundOn: o.sound()}
 	if err := s.listTracks(); err != nil {
 		return nil, err
 	}
-	if s.video < 0 && s.audio < 0 {
+	if (s.video < 0 || !s.pictures) && (s.audio < 0 || !s.soundOn) {
 		return nil, unsupported("%q has no picture or sound", target)
 	}
 	if err := s.build(); err != nil {
@@ -98,9 +175,9 @@ func openFile(target string, o options) (*mfSource, error) {
 	return s, nil
 }
 
-// openReader makes a reader over what was opened. A picture reader is set up
-// with the platform's own video processing, which is what turns a file's
-// colour into the packed RGB32 the UI draws without a pass of our own.
+// openReader makes a reader over what was opened that reads synchronously,
+// which is what reading a file's tracks needs: it asks one question of every
+// stream and has the answer to go on with. Playing reads asynchronously.
 func (s *mfSource) openReader(video bool) (windows.SourceReader, error) {
 	if s.path {
 		return windows.OpenReaderFromPath(s.target, video)
@@ -167,19 +244,19 @@ func (s *mfSource) listTracks() error {
 func (s *mfSource) build() error {
 	s.unbuild()
 	if s.video >= 0 && s.pictures {
-		r, w, h, err := s.openPicture(s.video)
+		r, cb, pump, w, h, err := s.openPicture(s.video)
 		if err != nil {
 			return err
 		}
-		s.vr, s.vw, s.vh = r, w, h
+		s.vr, s.vcb, s.vpump, s.vw, s.vh = r, cb, pump, w, h
 	}
-	if s.audio >= 0 {
-		r, f, err := s.openSound(s.audio)
+	if s.audio >= 0 && s.soundOn {
+		r, cb, pump, f, err := s.openSound(s.audio)
 		if err != nil {
 			s.unbuild()
 			return err
 		}
-		s.ar = r
+		s.ar, s.acb, s.apump = r, cb, pump
 		if s.sound == nil {
 			s.sound = &mfSound{s: s}
 		}
@@ -194,10 +271,10 @@ func (s *mfSource) build() error {
 // openPicture makes the reader of one picture stream, asked for the packed
 // 8-bit colour the UI draws: the platform's video processor does the
 // conversion, on the way to us.
-func (s *mfSource) openPicture(stream int) (windows.SourceReader, int, int, error) {
-	r, err := s.openReader(true)
+func (s *mfSource) openPicture(stream int) (windows.SourceReader, *windows.AsyncCallback, *readerPump[readResult], int, int, error) {
+	r, cb, pump, err := s.openAsyncReader(true)
 	if err != nil {
-		return windows.SourceReader{}, 0, 0, readerError(err, FeaturePlayback, "")
+		return windows.SourceReader{}, nil, nil, 0, 0, err
 	}
 	keep := false
 	defer func() {
@@ -207,51 +284,51 @@ func (s *mfSource) openPicture(stream int) (windows.SourceReader, int, int, erro
 		}
 	}()
 	if err := selectStream(r, stream); err != nil {
-		return windows.SourceReader{}, 0, 0, err
+		return windows.SourceReader{}, nil, nil, 0, 0, err
 	}
 	codec, err := nativeCodec(r, stream)
 	if err != nil {
-		return windows.SourceReader{}, 0, 0, err
+		return windows.SourceReader{}, nil, nil, 0, 0, err
 	}
 	mt, err := windows.NewMediaType()
 	if err != nil {
-		return windows.SourceReader{}, 0, 0, err
+		return windows.SourceReader{}, nil, nil, 0, 0, err
 	}
 	ok := mt.SetGUID(&windows.KeyMajorType, &windows.MajorVideo) == nil &&
 		mt.SetGUID(&windows.KeySubtype, &windows.FormatRGB32) == nil
 	if !ok {
 		mt.Release()
-		return windows.SourceReader{}, 0, 0, errors.New("media: asking for a picture format")
+		return windows.SourceReader{}, nil, nil, 0, 0, errors.New("media: asking for a picture format")
 	}
 	err = r.SetCurrentMediaType(stream, mt)
 	mt.Release()
 	if err != nil {
-		return windows.SourceReader{}, 0, 0, readerError(err, FeaturePlayback, codec)
+		return windows.SourceReader{}, nil, nil, 0, 0, readerError(err, FeaturePlayback, codec)
 	}
 	current, err := r.CurrentMediaType(stream)
 	if err != nil {
-		return windows.SourceReader{}, 0, 0, readerError(err, FeaturePlayback, codec)
+		return windows.SourceReader{}, nil, nil, 0, 0, readerError(err, FeaturePlayback, codec)
 	}
 	defer current.Release()
 	if sub, err := current.Subtype(); err == nil && sub != windows.FormatRGB32 && sub != windows.FormatARGB32 {
-		return windows.SourceReader{}, 0, 0, unsupported("a picture of format %s", sub)
+		return windows.SourceReader{}, nil, nil, 0, 0, unsupported("a picture of format %s", sub)
 	}
 	w, h, has := current.FrameSize()
 	if !has || w <= 0 || h <= 0 {
-		return windows.SourceReader{}, 0, 0, unsupported("a picture of %dx%d", w, h)
+		return windows.SourceReader{}, nil, nil, 0, 0, unsupported("a picture of %dx%d", w, h)
 	}
 	keep = true
-	return r, w, h, nil
+	return r, cb, pump, w, h, nil
 }
 
 // openSound makes the reader of one sound stream, asked for the float samples
 // the audio package mixes: the platform's own converter does the sample rate
 // and channel conversion where it can, and where it cannot the sound is read
 // as it is and converted here.
-func (s *mfSource) openSound(stream int) (windows.SourceReader, soundFormat, error) {
-	r, err := s.openReader(false)
+func (s *mfSource) openSound(stream int) (windows.SourceReader, *windows.AsyncCallback, *readerPump[readResult], soundFormat, error) {
+	r, cb, pump, err := s.openAsyncReader(false)
 	if err != nil {
-		return windows.SourceReader{}, soundFormat{}, readerError(err, FeaturePlayback, "")
+		return windows.SourceReader{}, nil, nil, soundFormat{}, err
 	}
 	keep := false
 	defer func() {
@@ -261,11 +338,11 @@ func (s *mfSource) openSound(stream int) (windows.SourceReader, soundFormat, err
 		}
 	}()
 	if err := selectStream(r, stream); err != nil {
-		return windows.SourceReader{}, soundFormat{}, err
+		return windows.SourceReader{}, nil, nil, soundFormat{}, err
 	}
 	codec, rate, channels, err := nativeSound(r, stream)
 	if err != nil {
-		return windows.SourceReader{}, soundFormat{}, err
+		return windows.SourceReader{}, nil, nil, soundFormat{}, err
 	}
 	asks := []soundFormat{
 		{rate: soundRate, channels: soundChannels, bits: 32, float: true},
@@ -280,7 +357,7 @@ func (s *mfSource) openSound(stream int) (windows.SourceReader, soundFormat, err
 		}
 		mt, err := soundType(ask)
 		if err != nil {
-			return windows.SourceReader{}, soundFormat{}, err
+			return windows.SourceReader{}, nil, nil, soundFormat{}, err
 		}
 		err = r.SetCurrentMediaType(stream, mt)
 		mt.Release()
@@ -291,11 +368,11 @@ func (s *mfSource) openSound(stream int) (windows.SourceReader, soundFormat, err
 		last = err
 	}
 	if last != nil {
-		return windows.SourceReader{}, soundFormat{}, readerError(last, FeaturePlayback, codec)
+		return windows.SourceReader{}, nil, nil, soundFormat{}, readerError(last, FeaturePlayback, codec)
 	}
 	current, err := r.CurrentMediaType(stream)
 	if err != nil {
-		return windows.SourceReader{}, soundFormat{}, readerError(err, FeaturePlayback, codec)
+		return windows.SourceReader{}, nil, nil, soundFormat{}, readerError(err, FeaturePlayback, codec)
 	}
 	defer current.Release()
 	f := soundFormat{rate: rate, channels: channels, bits: 16}
@@ -312,10 +389,10 @@ func (s *mfSource) openSound(stream int) (windows.SourceReader, soundFormat, err
 		f.float = sub == windows.FormatFloat
 	}
 	if !f.float && f.bits != 8 && f.bits != 16 && f.bits != 24 && f.bits != 32 {
-		return windows.SourceReader{}, soundFormat{}, unsupported("sound of %d bits", f.bits)
+		return windows.SourceReader{}, nil, nil, soundFormat{}, unsupported("sound of %d bits", f.bits)
 	}
 	keep = true
-	return r, f, nil
+	return r, cb, pump, f, nil
 }
 
 // selectStream turns every stream off and the one asked for on, so that one
@@ -331,55 +408,126 @@ func selectStream(r windows.SourceReader, stream int) error {
 }
 
 // unbuild gives up the readers, which a change of tracks or a seek the
-// platform refuses replaces.
+// platform refuses replaces. A reader is only let go once the read it may have
+// in flight is taken back and the platform has confirmed it, so that nothing
+// calls back into the source after it is gone.
 func (s *mfSource) unbuild() {
 	if s.vr.Valid() {
+		// A flush that does not start is no reason to keep the reader:
+		// letting it go is all that is left, and the pump has dropped
+		// what the read would have been for.
+		flushReader(s.vr, s.vcb, s.vpump, s.video)
 		s.vr.Shutdown()
 		s.vr.Release()
-		s.vr, s.vw, s.vh = windows.SourceReader{}, 0, 0
+		s.vr, s.vcb, s.vpump, s.vw, s.vh = windows.SourceReader{}, nil, nil, 0, 0
 	}
 	if s.ar.Valid() {
+		flushReader(s.ar, s.acb, s.apump, s.audio)
 		s.ar.Shutdown()
 		s.ar.Release()
-		s.ar = windows.SourceReader{}
+		s.ar, s.acb, s.apump = windows.SourceReader{}, nil, nil
 	}
+}
+
+// readNeed is what a read the platform reported asks of the source: a sample
+// to show, another read, the end, or a failure to say.
+type readNeed int
+
+const (
+	// readTakes is a read with a sample: it is the next picture.
+	readTakes readNeed = iota
+	// readAgain is a read with nothing: a live source has moments
+	// without a picture.
+	readAgain
+	// readEnds is the end of the stream.
+	readEnds
+	// readFails is a read that failed, or one that says the stream did.
+	readFails
+)
+
+// readNeedOf says what a reported read asks of the source, and what a run of
+// reads with nothing in them means: empty is how many such reads it has been.
+// A stream with nothing at this time is read again, up to nine times, and
+// then it is the end: a live source has gaps between its pictures, a file does
+// not.
+func readNeedOf(hr, flags uint32, hasSample bool, empty int) readNeed {
+	switch {
+	case int32(hr) < 0:
+		return readFails
+	case flags&windows.FlagEndOfStream != 0:
+		return readEnds
+	case hasSample:
+		return readTakes
+	case flags&windows.FlagError != 0:
+		return readFails
+	case empty >= 8:
+		return readEnds
+	}
+	return readAgain
 }
 
 // NextFrame returns the next picture of the file, and hands its ownership to
 // the caller, which releases it. The end of the file is [ErrEnd].
+//
+// The read is a request the platform answers on a callback, and the waiting
+// for it is the pump's, not a lock's: a seek or a close can take the request
+// back while this waits, and the wait says to start again from wherever the
+// file is then. Only the choosing of the reader and the starting of the read
+// hold the lock, and only for as long as that takes: everything the reported
+// read is said against is taken from under the lock with it, so that a change
+// of tracks while it is waited for cannot be read into this one's picture.
 func (s *mfSource) NextFrame(ctx context.Context) (*Frame, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	windows.Enter()
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.closed || !s.vr.Valid() {
-		return nil, ErrEnd
-	}
 	for empty := 0; ; {
-		sample, flags, _, err := s.vr.ReadSample(s.video)
-		if err != nil {
-			return nil, readerError(err, FeaturePlayback, s.videoCodec())
-		}
-		if flags&windows.FlagEndOfStream != 0 {
-			sample.Release()
+		s.mu.RLock()
+		if s.closed || !s.vr.Valid() || s.vpump == nil {
+			s.mu.RUnlock()
 			return nil, ErrEnd
 		}
-		if sample.Empty() {
-			// A stream with nothing at this time: a live source does
-			// that, a file does not. A run of them is the end.
-			if flags&windows.FlagError != 0 {
-				return nil, errors.New("media: reading the picture")
-			}
-			if empty++; empty > 8 {
+		vr, stream, pump, w, h := s.vr, s.video, s.vpump, s.vw, s.vh
+		codec := s.videoCodec()
+		if err := pump.read(func() error { return vr.ReadSampleAsync(stream) }); err != nil {
+			s.mu.RUnlock()
+			if errors.Is(err, errPumpClosed) {
 				return nil, ErrEnd
 			}
-			continue
+			return nil, readerError(err, FeaturePlayback, codec)
 		}
-		f, err := s.picture(sample)
-		sample.Release()
-		return f, err
+		s.mu.RUnlock()
+		res, err := pump.wait(ctx)
+		switch {
+		case errors.Is(err, errPumpRestarted):
+			// The reader was flushed and moved under the read: it no
+			// longer belongs here, and the next read does.
+			continue
+		case errors.Is(err, errPumpClosed):
+			return nil, ErrEnd
+		case err != nil:
+			return nil, err
+		}
+		switch readNeedOf(res.hr, res.flags, !res.sample.Empty(), empty) {
+		case readTakes:
+			f, err := pictureOf(res.sample, &s.pool, w, h, 0, FeaturePlayback)
+			res.sample.Release()
+			return f, err
+		case readAgain:
+			res.sample.Release()
+			empty++
+			continue
+		case readEnds:
+			res.sample.Release()
+			return nil, ErrEnd
+		}
+		// The read failed, or the stream said it did while bringing no
+		// sample to show.
+		res.sample.Release()
+		if int32(res.hr) < 0 {
+			return nil, readerError(&windows.Error{What: "IMFSourceReader::ReadSample", HR: res.hr}, FeaturePlayback, codec)
+		}
+		return nil, errors.New("media: reading the picture")
 	}
 }
 
@@ -390,12 +538,6 @@ func (s *mfSource) videoCodec() Codec {
 		return ""
 	}
 	return s.tracks[s.video].Codec
-}
-
-// picture copies a sample's picture out of its buffer as the packed 8-bit
-// RGBA that the UI draws.
-func (s *mfSource) picture(sample windows.Sample) (*Frame, error) {
-	return pictureOf(sample, &s.pool, s.vw, s.vh, 0, FeaturePlayback)
 }
 
 // pictureOf copies a sample's picture out of its buffer as the packed 8-bit
@@ -429,64 +571,27 @@ func pictureOf(sample windows.Sample, pool *pixPool, w, h, stride int, feature F
 // is read with, or zero for one packed the way the UI wants it.
 func copyPicture(dst []byte, buf windows.Buffer, w, h, stride int, feature Feature) error {
 	if twoD, ok := buf.TwoD(); ok {
+		// A 2D buffer is locked as the picture's first displayed row
+		// and the distance to the row below it, whose sign says which
+		// way that is: the rows are not one stretch to slice from a
+		// start, since the start is the top row, not the bottom of the
+		// memory.
 		defer twoD.Release()
-		base, pitch, err := twoD.Lock2D()
+		first, pitch, err := twoD.Lock2D()
 		if err != nil {
 			return readerError(err, feature, "")
 		}
 		defer twoD.Unlock2D()
-		return copyRows(dst, base, w, h, int(pitch))
+		return copyRGB32Rows(dst, first, w, h, int(pitch))
 	}
-	// A buffer with no rows of its own is one flat stretch of pixels.
+	// A buffer with no rows of its own is one flat stretch of pixels,
+	// stored as the stride the caller knows it by says.
 	base, length, err := buf.Lock()
 	if err != nil {
 		return readerError(err, feature, "")
 	}
 	defer buf.Unlock()
-	span := stride
-	if span < 0 {
-		span = -span
-	}
-	if span < w*4 || length < span*h {
-		return unsupported("a picture of %d bytes", length)
-	}
-	if stride == 0 {
-		stride = w * 4
-	}
-	return copyRows(dst, base, w, h, stride)
-}
-
-// copyRows copies rows of 32-bit blue, green, red and unused pixels into dst
-// as RGBA, with stride the distance between two rows in memory: negative
-// when the picture is stored from its bottom row up, which is how Media
-// Foundation stores its colour formats.
-func copyRows(dst []byte, base unsafe.Pointer, w, h, stride int) error {
-	span := stride
-	if span < 0 {
-		span = -span
-	}
-	if span < w*4 {
-		return unsupported("a picture with a stride of %d", stride)
-	}
-	if base == nil {
-		return unsupported("a picture with no memory")
-	}
-	src := unsafe.Slice((*byte)(base), span*h)
-	for y := range h {
-		row := y
-		if stride < 0 {
-			row = h - 1 - y
-		}
-		in := src[row*span : row*span+w*4]
-		out := dst[y*w*4 : (y+1)*w*4]
-		for x := range w {
-			out[x*4+0] = in[x*4+2]
-			out[x*4+1] = in[x*4+1]
-			out[x*4+2] = in[x*4+0]
-			out[x*4+3] = 0xff
-		}
-	}
-	return nil
+	return copyRGB32Flat(dst, base, length, w, h, stride)
 }
 
 // Sound returns the file's sound, decoded by a reader of its own, or nil
@@ -567,13 +672,25 @@ func (s *mfSource) seek(t time.Duration) (time.Duration, error) {
 		t = s.dur
 	}
 	s.start = t
-	if err := s.move(t); err != nil {
-		// A reader whose read is still pending refuses to move, and a
-		// file is only read one sample at a time: read it again from
-		// the top, which is what a reader made again does.
-		if err := s.build(); err != nil {
-			return t, err
+	// A reader with a read pending refuses to move, and a read that waited
+	// for a picture that the move makes wrong is not worth keeping: take
+	// back what the readers were asked for, then move them. A reader whose
+	// read could not be taken back may still report it, so its report could
+	// be taken for one of the new position's: it is not moved then but made
+	// again, which lets the old reader go and with it whatever it would
+	// have called back with.
+	if err := flushReader(s.vr, s.vcb, s.vpump, s.video); err == nil {
+		if err := flushReader(s.ar, s.acb, s.apump, s.audio); err == nil {
+			if err := s.move(t); err == nil {
+				return t, nil
+			}
 		}
+	}
+	// A reader the platform could not take a read back from, or still
+	// refuses to move, is made again, which reads the file from the top
+	// and lands on the key frame before t.
+	if err := s.build(); err != nil {
+		return t, err
 	}
 	return t, nil
 }
@@ -603,7 +720,20 @@ func (s *mfSource) Close() error {
 		return nil
 	}
 	s.closed = true
+	// Giving up the readers takes back the reads in flight, so the
+	// goroutine waiting on one hears the end rather than the platform.
+	pumps := [...]*readerPump[readResult]{s.vpump, s.apump}
 	s.unbuild()
+	// The pumps are closed after their readers are gone: a caller still
+	// waiting on one, or one that comes back to it, hears that the source
+	// is closed instead of waiting for a read that would be started on a
+	// reader that no longer exists. A result still held there is released,
+	// and so is one the platform reports after this.
+	for _, pump := range pumps {
+		if pump != nil {
+			pump.close()
+		}
+	}
 	return nil
 }
 
@@ -811,26 +941,49 @@ func (d *mfSound) convert(raw []byte, f soundFormat) []float32 {
 	return d.f32
 }
 
-// pull reads the next sample of the sound track.
+// pull reads the next sample of the sound track, the same way NextFrame reads
+// a picture: as a request the platform reports, waited for without the lock, so
+// that a seek or a close can take it back. The sound has no context of its own
+// to be canceled by: a close says so with the pump.
 func (d *mfSound) pull() (windows.Sample, error) {
 	windows.Enter()
-	d.s.mu.RLock()
-	defer d.s.mu.RUnlock()
-	if d.s.closed || !d.s.ar.Valid() {
-		return windows.Sample{}, ErrEnd
+	for {
+		d.s.mu.RLock()
+		if d.s.closed || !d.s.ar.Valid() || d.s.apump == nil {
+			d.s.mu.RUnlock()
+			return windows.Sample{}, ErrEnd
+		}
+		ar, stream, pump := d.s.ar, d.s.audio, d.s.apump
+		if err := pump.read(func() error { return ar.ReadSampleAsync(stream) }); err != nil {
+			d.s.mu.RUnlock()
+			if errors.Is(err, errPumpClosed) {
+				return windows.Sample{}, ErrEnd
+			}
+			return windows.Sample{}, readerError(err, FeaturePlayback, "")
+		}
+		d.s.mu.RUnlock()
+		res, err := pump.wait(context.Background())
+		switch {
+		case errors.Is(err, errPumpRestarted):
+			continue
+		case errors.Is(err, errPumpClosed):
+			return windows.Sample{}, ErrEnd
+		case err != nil:
+			return windows.Sample{}, err
+		}
+		if int32(res.hr) < 0 {
+			res.sample.Release()
+			return windows.Sample{}, readerError(&windows.Error{What: "IMFSourceReader::ReadSample", HR: res.hr}, FeaturePlayback, "")
+		}
+		if res.flags&windows.FlagEndOfStream != 0 {
+			res.sample.Release()
+			return windows.Sample{}, ErrEnd
+		}
+		if res.sample.Empty() {
+			return windows.Sample{}, ErrEnd
+		}
+		return res.sample, nil
 	}
-	sample, flags, _, err := d.s.ar.ReadSample(d.s.audio)
-	if err != nil {
-		return windows.Sample{}, readerError(err, FeaturePlayback, "")
-	}
-	if flags&windows.FlagEndOfStream != 0 {
-		sample.Release()
-		return windows.Sample{}, ErrEnd
-	}
-	if sample.Empty() {
-		return windows.Sample{}, ErrEnd
-	}
-	return sample, nil
 }
 
 // SetPosition starts the sound at a frame of the media's timeline, which with

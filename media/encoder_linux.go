@@ -153,7 +153,7 @@ func (e *gstH264) keepSample(sample *linux.Sample) error {
 	m.Unmap()
 
 	e.mu.Lock()
-	pts, ok := sample.Time()
+	pts, ok := sample.StreamTime()
 	if !ok {
 		pts = e.lastPTS
 	}
@@ -187,7 +187,7 @@ func (e *gstH264) keepSample(sample *linux.Sample) error {
 			}
 		}
 	}
-	s := encodedSample{packet: EncodedPacket{PTS: pts, Keyframe: keyframe, Data: data}}
+	s := encodedSample{packet: EncodedPacket{PTS: pts, DTS: pts, Keyframe: keyframe, Data: data}}
 	if e.cfg != nil {
 		s.cfg = e.cfg
 	}

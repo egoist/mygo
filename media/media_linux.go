@@ -361,43 +361,48 @@ func (s *gstSource) ended() bool {
 // NextFrame returns the next picture of the file, and hands its ownership to
 // the caller, which releases it. The end of the file is [ErrEnd].
 func (s *gstSource) NextFrame(ctx context.Context) (*Frame, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.closed || !s.videoSink.Valid() {
-		return nil, ErrEnd
-	}
-	for {
-		sample := s.videoSink.PullSample(pullWait)
-		if sample == nil {
-			if s.videoSink.IsEOS() {
-				return nil, ErrEnd
-			}
-			// A pull that comes back with nothing is not
-			// necessarily the end: the pipeline may be
-			// between a flush and the frame that follows it.
-			if err := s.failed("the picture"); err != nil {
-				return nil, err
-			}
+	// One pull at a time, each under the read lock, so that a close or a
+	// seek waiting for the write lock is let in between two pulls: the
+	// pictures are made under it, and none outlives a seek that replaced
+	// the pipeline it came from.
+	return pullSample(&s.mu,
+		func() error {
 			if err := ctx.Err(); err != nil {
-				return nil, err
+				return err
 			}
-			continue
-		}
-		// What is read after a seek is read from the time asked for:
-		// a pipeline that reads a file from its key frames hands out
-		// the pictures before that time as well, and they are not
-		// this caller's.
-		if pts, ok := sample.Time(); ok && pts < s.start {
-			sample.Release()
-			continue
-		}
-		f, err := s.picture(sample)
-		sample.Release()
-		return f, err
-	}
+			if s.closed || !s.videoSink.Valid() {
+				return ErrEnd
+			}
+			return nil
+		},
+		func() (*Frame, bool, error) {
+			sample := s.videoSink.PullSample(pullWait)
+			if sample == nil {
+				return nil, false, nil
+			}
+			defer sample.Release()
+			// What is read after a seek is read from the time asked
+			// for: a pipeline that reads a file from its key frames
+			// hands out the pictures before that time as well, and
+			// they are not this caller's.
+			if pts, ok := sample.Time(); ok && pts < s.start {
+				return nil, false, nil
+			}
+			f, err := s.picture(sample)
+			if err != nil {
+				return nil, false, err
+			}
+			return f, true, nil
+		},
+		func() error {
+			// A pull that comes back with nothing is not necessarily
+			// the end: the pipeline may be between a flush and the
+			// frame that follows it.
+			if s.videoSink.IsEOS() {
+				return ErrEnd
+			}
+			return s.failed("the picture")
+		})
 }
 
 // failed reports what the pipeline said went wrong, which is the other way a
@@ -735,27 +740,32 @@ func (d *gstSound) fill() error {
 
 // pull reads the next sample of the sound track.
 func (d *gstSound) pull() (*linux.Sample, error) {
-	d.s.mu.RLock()
-	defer d.s.mu.RUnlock()
-	if d.s.closed || !d.s.soundSink.Valid() {
-		return nil, ErrEnd
-	}
+	// As with pictures, one bounded pull at a time, so that a close is let
+	// in between two pulls rather than after the sound has finished.
 	deadline := time.Now().Add(30 * time.Second)
-	for {
-		sample := d.s.soundSink.PullSample(pullWait)
-		if sample != nil {
-			return sample, nil
-		}
-		if d.s.soundSink.IsEOS() {
-			return nil, ErrEnd
-		}
-		if err := d.s.failed("the sound"); err != nil {
-			return nil, err
-		}
-		if time.Now().After(deadline) {
-			return nil, errors.New("media: the sound stopped")
-		}
-	}
+	return pullSample(&d.s.mu,
+		func() error {
+			if d.s.closed || !d.s.soundSink.Valid() {
+				return ErrEnd
+			}
+			return nil
+		},
+		func() (*linux.Sample, bool, error) {
+			sample := d.s.soundSink.PullSample(pullWait)
+			return sample, sample != nil, nil
+		},
+		func() error {
+			if d.s.soundSink.IsEOS() {
+				return ErrEnd
+			}
+			if err := d.s.failed("the sound"); err != nil {
+				return err
+			}
+			if time.Now().After(deadline) {
+				return errors.New("media: the sound stopped")
+			}
+			return nil
+		})
 }
 
 // SetPosition starts the sound at a frame of the media's timeline, which

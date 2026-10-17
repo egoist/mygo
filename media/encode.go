@@ -24,7 +24,9 @@ type EncodedPacket struct {
 	// Track is the track the packet belongs to.
 	Track int
 	// PTS is when the packet is presented, DTS when it must be decoded,
-	// from the start of the media, and Duration how long it lasts.
+	// from the start of the media, and Duration how long it lasts. DTS is
+	// always explicit: zero is the start, not an unspecified value. Encoders
+	// without frame reordering set DTS to PTS.
 	PTS, DTS, Duration time.Duration
 	// Keyframe reports whether decoding can start here.
 	Keyframe bool

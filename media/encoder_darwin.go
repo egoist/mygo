@@ -46,6 +46,7 @@ type darwinH264 struct {
 func (e *darwinH264) gotPacket(p darwin.H264Packet) {
 	sample := encodedSample{packet: EncodedPacket{
 		PTS:      p.PTS,
+		DTS:      p.PTS,
 		Keyframe: p.Keyframe,
 		Data:     p.Data,
 	}}

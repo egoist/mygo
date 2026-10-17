@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/audio"
+	"github.com/egoist/mygo/internal/wait"
+	"github.com/egoist/mygo/media/internal/windows"
 )
 
 // The fixtures are a two second 160×120 H.264 video with mono AAC sound, and
@@ -401,6 +403,68 @@ func TestAFileURLReadsLikeAPath(t *testing.T) {
 	}
 }
 
+// TestASourceWithoutSoundHasNone checks that WithAudio(false) means on
+// Windows what it means on every platform: the file's sound is not decoded at
+// all, rather than decoded for nobody.
+func TestASourceWithoutSoundHasNone(t *testing.T) {
+	s, err := openSource(clipPath, options{noSound: true})
+	if err != nil {
+		t.Fatalf("openSource(%q) with its sound off: %v", clipPath, err)
+	}
+	defer s.Close()
+	if got := s.(soundSource).Sound(); got != nil {
+		t.Error("a source with its sound turned off gave sound")
+	}
+	// The pictures of a file whose sound is left out are still read.
+	f, err := s.NextFrame(context.Background())
+	if err != nil {
+		t.Fatalf("NextFrame with its sound off: %v", err)
+	}
+	f.Release()
+}
+
+// TestCloseStopsTheFrameThatWaits is a close while a picture is being read:
+// the read is a request the platform reports, so the close takes it back and
+// the caller waiting for the picture hears the end instead of waiting for a
+// reader that is gone.
+func TestCloseStopsTheFrameThatWaits(t *testing.T) {
+	s := openTest(t, clipPath)
+	frames := make(chan error, 1)
+	go func() {
+		f, err := s.NextFrame(context.Background())
+		if f != nil {
+			f.Release()
+		}
+		frames <- err
+	}()
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := wait.For(t, "the frame read to come back", frames); err != nil && !errors.Is(err, ErrEnd) {
+		t.Fatalf("NextFrame after the close = %v; want nil or %v", err, ErrEnd)
+	}
+	if _, err := s.NextFrame(context.Background()); !errors.Is(err, ErrEnd) {
+		t.Fatalf("NextFrame on a closed source = %v; want %v", err, ErrEnd)
+	}
+}
+
+// TestCloseStopsTheSoundThatReads is the sound's half of it: its decoder reads
+// through a pump of its own, and a close ends it as the end of the track.
+func TestCloseStopsTheSoundThatReads(t *testing.T) {
+	s := openTest(t, clipPath)
+	sound := s.(soundSource).Sound()
+	if sound == nil {
+		t.Fatal("the clip has no sound")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	buf := make([]float32, 1024)
+	if n, err := sound.Read(buf); n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("Read after the close = %d, %v; want 0, %v", n, err, io.EOF)
+	}
+}
+
 func TestPictureBuffersComeBackInTheOrderTheyWereFreed(t *testing.T) {
 	var p pixPool
 	a := p.get(4)[:1]
@@ -409,5 +473,49 @@ func TestPictureBuffersComeBackInTheOrderTheyWereFreed(t *testing.T) {
 	p.put(b)
 	if got := p.get(4)[:1]; &got[0] != &a[0] {
 		t.Error("the pool gave back the last buffer freed, not the first")
+	}
+}
+
+// TestWhatAReportedReadAsksFor is the reading of the reads with no sample the
+// platform reports, which the end of a file and a live source's gaps both are:
+// the end of the stream, another read, or a failure to say.
+func TestWhatAReportedReadAsksFor(t *testing.T) {
+	tests := []struct {
+		name      string
+		hr        uint32
+		flags     uint32
+		hasSample bool
+		empty     int
+		want      readNeed
+	}{
+		{"a sample", 0, 0, true, 0, readTakes},
+		{"the end of the stream", 0, windows.FlagEndOfStream, false, 0, readEnds},
+		{"the end with a sample", 0, windows.FlagEndOfStream, true, 0, readEnds},
+		{"a gap in a live stream", 0, windows.FlagStreamTick, false, 0, readAgain},
+		{"a read that failed", 0x80004005, 0, false, 0, readFails},
+		{"a failed read with a sample", 0xc00d36b4, 0, true, 0, readFails},
+		{"a stream that says it failed", 0, windows.FlagError, false, 0, readFails},
+		{"eight reads with nothing", 0, 0, false, 7, readAgain},
+		{"the ninth read with nothing", 0, 0, false, 8, readEnds},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := readNeedOf(tt.hr, tt.flags, tt.hasSample, tt.empty); got != tt.want {
+				t.Errorf("readNeedOf(%#x, %#x, %v, %d) = %v; want %v", tt.hr, tt.flags, tt.hasSample, tt.empty, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFlushingAReaderThatWasNeverOpened checks the half of flushReader a test
+// can hold without a platform: a reader that was never made has no read in
+// flight and no callback to wait for, so there is nothing to take back and no
+// error. Taking a read back from a live reader needs Media Foundation, which
+// the tests here cannot run; the async hand-over it waits for is covered by
+// the pump's tests, which run on every platform.
+func TestFlushingAReaderThatWasNeverOpened(t *testing.T) {
+	pump := newReaderPump[readResult](func(readResult) {})
+	if err := flushReader(windows.SourceReader{}, nil, pump, 0); err != nil {
+		t.Fatalf("flushReader of no reader = %v; want nil", err)
 	}
 }

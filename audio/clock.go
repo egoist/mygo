@@ -56,12 +56,15 @@ func setDevice(d device) {
 
 // playedFrames returns how many output frames the device has played: what
 // the mixer handed it, less what it says it still holds.
+//
+// The device is asked under deviceMu: stopDevice, which closes it, takes
+// the same lock to forget it, so a device's close releases its native
+// handle only after a read in flight has returned.
 func playedFrames() int64 {
 	n := produced.Load()
 	deviceMu.Lock()
-	dev := deviceCur
-	deviceMu.Unlock()
-	if l, ok := dev.(deviceLag); ok {
+	defer deviceMu.Unlock()
+	if l, ok := deviceCur.(deviceLag); ok {
 		if held, ok := l.lag(); ok {
 			return max(n-held, 0)
 		}

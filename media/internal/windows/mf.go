@@ -30,9 +30,10 @@ const (
 
 	slotGetAllocatedString = 13
 
-	slotSetUINT32 = 21
-	slotSetUINT64 = 22
-	slotSetGUID   = 24
+	slotSetUINT32  = 21
+	slotSetUINT64  = 22
+	slotSetGUID    = 24
+	slotSetUnknown = 27
 
 	slotGetMajorType = 33
 
@@ -174,14 +175,20 @@ var (
 	// How the source reader is set up.
 	KeyEnableAdvancedVideoProcessing = guid("0f81da2c-b537-4672-a8b2-a681b17307a3")
 	KeyDisableConverters             = guid("98d5b065-1374-4847-8d5d-31520fee7156")
+	// attrAsyncCallback makes a reader report its reads to an
+	// IMFSourceReaderCallback instead of waiting for them, which is
+	// MF_SOURCE_READER_ASYNC_CALLBACK.
+	attrAsyncCallback = guid("1e3dbeac-bb43-4c35-b507-cd644464c965")
 
 	// What a source says about itself.
 	KeyDuration = guid("6c990d33-bb8e-477a-8598-0d5d96fcd88a")
 
 	// Interfaces.
-	IIDMediaSource = guid("279a808d-aec7-40c8-9c6b-a6b492c78a66")
-	iid2DBuffer    = guid("7dc9d5f9-9ed9-44ec-9bbf-0600bb589fbb")
-	guidNull       = GUID{}
+	IIDMediaSource          = guid("279a808d-aec7-40c8-9c6b-a6b492c78a66")
+	iid2DBuffer             = guid("7dc9d5f9-9ed9-44ec-9bbf-0600bb589fbb")
+	iidSourceReaderCallback = guid("deec8d99-fa1d-4d82-84c2-2c8969944867")
+	iidUnknown              = guid("00000000-0000-0000-c000-000000000046")
+	guidNull                = GUID{}
 )
 
 // What a capture device says about itself, and how the machine is asked for
@@ -264,6 +271,15 @@ func (a Attributes) SetUINT64(key *GUID, v uint64) error {
 func (a Attributes) SetUINT32(key *GUID, v uint32) error {
 	if hr := comCall(a.p, slotSetUINT32, uintptr(unsafe.Pointer(key)), uintptr(v)); failed(hr) {
 		return hresultError("IMFAttributes::SetUINT32", hr)
+	}
+	return nil
+}
+
+// SetUnknown sets key to the interface at v, which the bag holds a reference to
+// as long as it lives.
+func (a Attributes) SetUnknown(key *GUID, v uintptr) error {
+	if hr := comCall(a.p, slotSetUnknown, uintptr(unsafe.Pointer(key)), v); failed(hr) {
+		return hresultError("IMFAttributes::SetUnknown", hr)
 	}
 	return nil
 }
@@ -426,13 +442,20 @@ func StrideForBitmap(format uint32, width int) (int32, error) {
 // A SourceReader is IMFSourceReader: one stream of a file or a device,
 // read a sample at a time. It is not safe to read from two goroutines at
 // once, and one reader serves one stream.
-type SourceReader struct{ p uintptr }
+//
+// A reader made by one of the Async opens reads asynchronously: its reads are
+// started with ReadSampleAsync and reported to cb, whose reference the reader
+// holds and gives up with itself.
+type SourceReader struct {
+	p  uintptr
+	cb *AsyncCallback
+}
 
 // OpenReaderFromPath opens a reader over the file at path, which is a
 // Windows path rather than a URL: Media Foundation reads it through its own
 // file byte stream, so that a drive letter is not taken for a URL scheme.
 func OpenReaderFromPath(path string, video bool) (SourceReader, error) {
-	attrs, err := readerAttrs(video)
+	attrs, err := readerAttrs(video, nil)
 	if err != nil {
 		return SourceReader{}, err
 	}
@@ -458,7 +481,7 @@ func OpenReaderFromPath(path string, video bool) (SourceReader, error) {
 // OpenReaderFromURL opens a reader over a location rather than a path: what
 // Media Foundation's own scheme handlers can read over the network.
 func OpenReaderFromURL(url string, video bool) (SourceReader, error) {
-	attrs, err := readerAttrs(video)
+	attrs, err := readerAttrs(video, nil)
 	if err != nil {
 		return SourceReader{}, err
 	}
@@ -471,6 +494,57 @@ func OpenReaderFromURL(url string, video bool) (SourceReader, error) {
 		return SourceReader{}, hresultError("MFCreateSourceReaderFromURL", hr)
 	}
 	return SourceReader{p: r}, nil
+}
+
+// OpenReaderFromPathAsync opens a reader over the file at path that reads
+// asynchronously: it reports its samples to cb instead of making its caller
+// wait for them. The reader takes over the caller's reference to cb, and gives
+// it up with itself; a reader that cannot be made releases it here.
+func OpenReaderFromPathAsync(path string, video bool, cb *AsyncCallback) (SourceReader, error) {
+	attrs, err := readerAttrs(video, cb)
+	if err != nil {
+		cb.release()
+		return SourceReader{}, err
+	}
+	defer attrs.Release()
+	var stream uintptr
+	p := u16(path)
+	hr, _, _ := procMFCreateFile.Call(
+		mfAccessRead, mfOpenFailIfNotExist, mfFileFlagsNone,
+		uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(&stream)))
+	runtime.KeepAlive(p)
+	if failed(hr) {
+		cb.release()
+		return SourceReader{}, hresultError("MFCreateFile", hr)
+	}
+	defer release(stream)
+	var r uintptr
+	hr, _, _ = procMFCreateSourceReaderFromByteStream.Call(stream, attrs.p, uintptr(unsafe.Pointer(&r)))
+	if failed(hr) {
+		cb.release()
+		return SourceReader{}, hresultError("MFCreateSourceReaderFromByteStream", hr)
+	}
+	return SourceReader{p: r, cb: cb}, nil
+}
+
+// OpenReaderFromURLAsync opens an asynchronous reader over a location rather
+// than a path, as OpenReaderFromURL does, reporting to cb.
+func OpenReaderFromURLAsync(url string, video bool, cb *AsyncCallback) (SourceReader, error) {
+	attrs, err := readerAttrs(video, cb)
+	if err != nil {
+		cb.release()
+		return SourceReader{}, err
+	}
+	defer attrs.Release()
+	var r uintptr
+	p := u16(url)
+	hr, _, _ := procMFCreateSourceReaderFromURL.Call(uintptr(unsafe.Pointer(p)), attrs.p, uintptr(unsafe.Pointer(&r)))
+	runtime.KeepAlive(p)
+	if failed(hr) {
+		cb.release()
+		return SourceReader{}, hresultError("MFCreateSourceReaderFromURL", hr)
+	}
+	return SourceReader{p: r, cb: cb}, nil
 }
 
 // File access modes, as Media Foundation names them.
@@ -577,7 +651,7 @@ func OpenReaderFromSource(source uintptr, video bool) (SourceReader, error) {
 		return SourceReader{}, err
 	}
 	enter()
-	attrs, err := readerAttrs(video)
+	attrs, err := readerAttrs(video, nil)
 	if err != nil {
 		return SourceReader{}, err
 	}
@@ -594,10 +668,16 @@ func OpenReaderFromSource(source uintptr, video bool) (SourceReader, error) {
 // platform turns a file's own encoding into the picture and sound asked of
 // it, and the video processor that does the colour conversion in the reader
 // rather than in a pass of its own.
-func readerAttrs(video bool) (Attributes, error) {
+func readerAttrs(video bool, cb *AsyncCallback) (Attributes, error) {
 	attrs, err := NewAttributes()
 	if err != nil {
 		return Attributes{}, err
+	}
+	if cb != nil {
+		if err := attrs.SetUnknown(&attrAsyncCallback, cb.addr()); err != nil {
+			attrs.Release()
+			return Attributes{}, err
+		}
 	}
 	if err := attrs.SetUINT32(&KeyDisableConverters, 0); err != nil {
 		attrs.Release()
@@ -612,8 +692,16 @@ func readerAttrs(video bool) (Attributes, error) {
 	return attrs, nil
 }
 
-// Release gives up the reader.
-func (r SourceReader) Release() { release(r.p) }
+// Release gives up the reader, and with it the callback it reports reads to:
+// the reader takes back any request still pending, so no callback arrives
+// after this.
+func (r SourceReader) Release() {
+	release(r.p)
+	if r.cb != nil {
+		r.cb.release()
+		r.cb = nil
+	}
+}
 
 // Valid reports whether there is a reader behind this value: the zero value
 // is not one.

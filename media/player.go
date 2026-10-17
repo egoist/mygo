@@ -76,8 +76,11 @@ type Player struct {
 	sound *audio.Player
 	dur   time.Duration
 
-	mu      sync.Mutex
-	playing bool
+	mu        sync.Mutex
+	playing   bool
+	done      chan struct{}
+	closeOnce sync.Once
+	closeErr  error
 	// wake carries a seek: what is waiting for a picture's time gives up
 	// on it, as that picture is no longer the one coming.
 	wake   chan struct{}
@@ -134,7 +137,13 @@ func open(target string, o options) (*Player, error) {
 // picture is late only because the app was. From a source with no sound the
 // player keeps a clock of its own, counting the time it has played.
 func (p *Player) NextFrame(ctx context.Context) (*Frame, error) {
+	done := p.closedSignal()
 	for {
+		select {
+		case <-done:
+			return nil, ErrEnd
+		default:
+		}
 		f, err := p.src.NextFrame(ctx)
 		if err != nil {
 			return nil, err
@@ -167,6 +176,7 @@ var errSeeked = errors.New("media: seeked")
 // wait sleeps until the clock reaches until, or something makes the frame
 // no longer the one coming: a seek, a pause, ctx.
 func (p *Player) wait(ctx context.Context, until time.Duration) error {
+	done := p.closedSignal()
 	t := time.NewTimer(time.Hour)
 	if !t.Stop() {
 		<-t.C
@@ -179,6 +189,8 @@ func (p *Player) wait(ctx context.Context, until time.Duration) error {
 		}
 		if !p.Playing() {
 			select {
+			case <-done:
+				return ErrEnd
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-p.wake:
@@ -189,6 +201,8 @@ func (p *Player) wait(ctx context.Context, until time.Duration) error {
 		}
 		t.Reset(min(d, 10*time.Millisecond))
 		select {
+		case <-done:
+			return ErrEnd
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-p.wake:
@@ -212,6 +226,12 @@ func (p *Player) clock() time.Duration {
 // Play starts or resumes playing the sound and the clock.
 func (p *Player) Play() {
 	p.mu.Lock()
+	select {
+	case <-p.done:
+		p.mu.Unlock()
+		return
+	default:
+	}
 	was := p.playing
 	p.playing = true
 	p.mu.Unlock()
@@ -334,13 +354,33 @@ func (p *Player) SelectTracks(video, audio int) error {
 // Close stops playback, giving up the sound and the source, and with them
 // the frames that were not released. Closing twice is fine.
 func (p *Player) Close() error {
-	if p.sound != nil {
-		p.sound.Close()
+	p.closeOnce.Do(func() {
+		p.mu.Lock()
+		if p.done == nil {
+			p.done = make(chan struct{})
+		}
+		close(p.done)
+		p.playing = false
+		p.mu.Unlock()
+		p.wall.pause()
+		if p.sound != nil {
+			p.sound.Close()
+		}
+		if p.src != nil {
+			p.closeErr = p.src.Close()
+		}
+	})
+	return p.closeErr
+}
+
+// closedSignal also supports players assembled directly by package tests.
+func (p *Player) closedSignal() <-chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.done == nil {
+		p.done = make(chan struct{})
 	}
-	if p.src != nil {
-		return p.src.Close()
-	}
-	return nil
+	return p.done
 }
 
 // A wallClock is the time a player with no sound to keep time with has

@@ -86,12 +86,19 @@ func run() {
 				break
 			}
 		}
-		dev.close()
-		setDevice(nil)
+		stopDevice(dev)
 	}
 }
 
 var errUnsupported = errors.New("audio: no audio output on this platform")
+
+// stopDevice closes the output's device. It forgets the device first, so
+// that a clock query that took it finishes before close lets go of the
+// device's native handle: the query holds deviceMu until it has asked.
+func stopDevice(d device) {
+	setDevice(nil)
+	d.close()
+}
 
 // nullFrames is how many frames a null device takes at a time: 10 ms.
 const nullFrames = sampleRate / 100

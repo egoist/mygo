@@ -89,6 +89,7 @@ func (e *winH264) keep(packets []windows.EncoderPacket) {
 	for _, p := range packets {
 		sample := encodedSample{packet: EncodedPacket{
 			PTS:      p.PTS,
+			DTS:      p.PTS,
 			Keyframe: p.Keyframe,
 			Data:     p.Data,
 		}}
