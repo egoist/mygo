@@ -7,16 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/egoist/mygo/media/internal/linux"
 )
-
-// cameraPullWait is how long a pull from a camera waits before it looks at
-// whether the camera is still wanted. A live source is not always ready with a
-// picture, and a pull that waits is a pull that does not spin.
-const cameraPullWait = 100 * time.Millisecond
 
 // cameraTestSource, when it is set, is what a camera is read from instead of a
 // device: a test's way of putting pictures through a capture that no machine
@@ -59,32 +52,7 @@ func openCamera(info CameraInfo, q *liveFrames) (cameraHandle, error) {
 	if err != nil {
 		return nil, err
 	}
-	pipe, err := linux.NewPipelineFrom(description)
-	if err != nil {
-		return nil, cameraError(err)
-	}
-	sink := pipe.ByName("video")
-	if !sink.Valid() {
-		pipe.Release()
-		return nil, errors.New("media: the camera's pipeline has no sink to read pictures from")
-	}
-	c := &gstCamera{
-		q:    q,
-		pipe: pipe,
-		sink: linux.AppSink{Element: sink},
-		bus:  pipe.Bus(),
-		done: make(chan struct{}),
-	}
-	if pipe.SetState(linux.StatePlaying) == linux.StateChangeFailure {
-		err := c.busError()
-		c.release()
-		if err == nil {
-			err = fmt.Errorf("media: the camera %q would not start", info.Name)
-		}
-		return nil, err
-	}
-	go c.run()
-	return c, nil
+	return startGSTLive(description, q, cameraError)
 }
 
 // cameraPipeline is the pipeline a camera is read through: the device, a
@@ -126,97 +94,6 @@ func cameraError(err error) error {
 		return &MissingComponentError{Component: what, Feature: FeatureCamera, Hint: pluginHint}
 	}
 	return err
-}
-
-// A gstCamera is a camera read through a GStreamer pipeline: the pipeline
-// pushes pictures into an appsink, and a goroutine of its own hands them to the
-// queue the caller reads.
-type gstCamera struct {
-	q    *liveFrames
-	pipe linux.Element
-	sink linux.AppSink
-	bus  *linux.Bus
-	done chan struct{}
-	pool pixPool
-
-	mu     sync.Mutex
-	closed bool
-}
-
-// run reads the camera's pictures until it stops or breaks.
-func (c *gstCamera) run() {
-	defer close(c.done)
-	for {
-		if c.stopped() {
-			return
-		}
-		sample := c.sink.PullSample(cameraPullWait)
-		if sample == nil {
-			if c.sink.IsEOS() {
-				c.q.fail(errors.New("media: the camera stopped"))
-				return
-			}
-			if err := c.busError(); err != nil {
-				c.q.fail(err)
-				return
-			}
-			continue
-		}
-		f, err := pictureFrame(sample, &c.pool)
-		sample.Release()
-		if err != nil {
-			c.q.fail(err)
-			return
-		}
-		c.q.push(f)
-	}
-}
-
-// busError is what the pipeline said went wrong, when it said anything.
-func (c *gstCamera) busError() error {
-	if c.bus == nil {
-		return nil
-	}
-	message := c.bus.Pop(linux.MessageError, 0)
-	if message == nil {
-		return nil
-	}
-	defer message.Release()
-	return cameraError(message.PipelineError())
-}
-
-// stopped reports whether the camera is being closed, which is what a pull
-// that came back with nothing looks at.
-func (c *gstCamera) stopped() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.closed
-}
-
-// close stops the pipeline, which is what lets the reading goroutine go, and
-// waits for it before letting go of the pipeline it reads from.
-func (c *gstCamera) close() error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return nil
-	}
-	c.closed = true
-	c.mu.Unlock()
-	c.pipe.SetState(linux.StateNull)
-	<-c.done
-	c.release()
-	return nil
-}
-
-// release drops what the camera holds of the pipeline.
-func (c *gstCamera) release() {
-	c.sink.Element.Release()
-	if c.bus != nil {
-		c.bus.Release()
-		c.bus = nil
-	}
-	c.pipe.Release()
 }
 
 // cameraPermission is what Linux says about a camera: nothing, as a camera here

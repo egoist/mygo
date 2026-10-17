@@ -81,6 +81,16 @@ func LoadCamera() error {
 	return cameraErr
 }
 
+// CaptureQueue is the dispatch queue the platform calls capture callbacks on.
+// Cameras and screen capture share it: each callback copies one picture and
+// returns, so a second source waits on that copy rather than losing a frame.
+func CaptureQueue() (uintptr, error) {
+	if err := LoadCamera(); err != nil {
+		return 0, err
+	}
+	return cameraQueue, nil
+}
+
 // VideoMediaType is AVFoundation's name for video, which is what asks about
 // cameras and what a session takes pictures in.
 func VideoMediaType() uintptr { return Global("AVMediaTypeVideo") }

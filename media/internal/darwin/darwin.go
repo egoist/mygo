@@ -83,6 +83,8 @@ var (
 	sendVoid  func(id, sel uintptr)
 	sendVoid1 func(id, sel, a uintptr)
 	sendVoid2 func(id, sel, a, b uintptr)
+	sendVoid3 func(id, sel, a, b, c uintptr)
+	sendVoid4 func(id, sel, a, b, c, d uintptr)
 	sendVoidT func(id, sel uintptr, r CMTimeRange)
 	sendBool  func(id, sel uintptr) bool
 	sendBool1 func(id, sel, a uintptr) bool
@@ -212,6 +214,8 @@ func open() {
 	bind(&sendVoid, msgSend)
 	bind(&sendVoid1, msgSend)
 	bind(&sendVoid2, msgSend)
+	bind(&sendVoid3, msgSend)
+	bind(&sendVoid4, msgSend)
 	bind(&sendVoidT, msgSend)
 	bind(&sendBool, msgSend)
 	bind(&sendBool1, msgSend)
@@ -404,6 +408,12 @@ func SendVoid1(id, sel, a uintptr) { sendVoid1(id, sel, a) }
 
 // SendVoid2 sends a message with two arguments that returns nothing.
 func SendVoid2(id, sel, a, b uintptr) { sendVoid2(id, sel, a, b) }
+
+// SendVoid3 sends a message with three arguments that returns nothing.
+func SendVoid3(id, sel, a, b, c uintptr) { sendVoid3(id, sel, a, b, c) }
+
+// SendVoid4 sends a message with four arguments that returns nothing.
+func SendVoid4(id, sel, a, b, c, d uintptr) { sendVoid4(id, sel, a, b, c, d) }
 
 // SendBool sends a message that returns a boolean.
 func SendBool(id, sel uintptr) bool { return sendBool(id, sel) }
