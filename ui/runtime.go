@@ -768,6 +768,19 @@ func (rt *engine) prune() {
 		}
 		rt.setHover(chain)
 	}
+	// The pointer hovers elements, by ID, not places: an element that is
+	// gone is not hovered, though a route change can give its ID to
+	// another element, or back to one that comes back. No repaint is
+	// asked for: an element that went away cannot show a hover.
+	if len(rt.hover) > 0 {
+		hover := rt.hover[:0]
+		for _, id := range rt.hover {
+			if s := rt.states[id]; s != nil && s.seen == rt.frame && s.pass == rt.pass {
+				hover = append(hover, id)
+			}
+		}
+		rt.hover = hover
+	}
 	rt.restoreFocus()
 	// The focus does not stay in a page kept out of sight.
 	if s := rt.states[rt.focused]; s != nil && (s.seen != rt.frame || s.pass != rt.pass) {
