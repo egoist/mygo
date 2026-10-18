@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown/parser"
+	"github.com/egoist/mygo/ui/richtext"
 )
 
 const (
@@ -240,8 +241,58 @@ func TestViewFrontmatterCopyMetadata(t *testing.T) {
 			t.Errorf("%s copied %q", name, got)
 		}
 	}
-	if !strings.Contains(html, "title: Secret") {
-		t.Errorf("HTML copied %q: the metadata is gone", html)
+	if want := `<pre><code class="language-yaml">title: Secret` + "\n" + `tags: [a, b]` + "\n" + `</code></pre>`; !strings.Contains(html, want) {
+		t.Errorf("HTML copied %q, want %q", html, want)
+	}
+}
+
+// TestViewFrontmatterCopyLiteral checks that metadata copied alone pastes
+// into a rich text editor as it is written: its lines are not Markdown,
+// whose HTML would turn a comment into a heading, a dash into a list item
+// and a tag into an element.
+func TestViewFrontmatterCopyLiteral(t *testing.T) {
+	for _, meta := range []string{
+		"title: \"<!-- keep me -->\"",
+		"# a note\ntags:\n  - a\n  - b",
+		"name: \"<b>bold</b> & *more*\"",
+	} {
+		src := "---\n" + meta + "\n---\nbody\n"
+		tt := ui.NewTester(func(c *ui.Context) { View(c, src, fmOptions(false)) }, 600, 400)
+		if err := tt.Click("yaml"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Advance(time.Second)
+		r, ok := tt.Find(meta)
+		if !ok {
+			t.Fatalf("no %q in %q", meta, tt.Texts())
+		}
+		selectLines(tt, r, strings.Count(meta, "\n")+1, 0, strings.Count(meta, "\n")+1)
+		tt.Command("copy")
+		text, html, _ := copied(t, tt)
+		if text != meta {
+			t.Errorf("%q: copied text %q", meta, text)
+		}
+		if pasted := richtext.ParseHTML(html).String(); pasted != meta {
+			t.Errorf("%q: pastes as %q, from HTML %q", meta, pasted, html)
+		}
+	}
+}
+
+// TestViewFrontmatterCopyWithBody checks that a selection of the metadata
+// and what follows it is still the HTML of its Markdown.
+func TestViewFrontmatterCopyWithBody(t *testing.T) {
+	tt := ui.NewTester(func(c *ui.Context) { View(c, fmDoc, fmOptions(false)) }, 600, 400)
+	if err := tt.Click("yaml"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	r, _ := tt.Find("Some body text.")
+	tt.ClickAt(r.X+2, r.Y+r.H/2)
+	tt.Command("selectAll")
+	tt.Command("copy")
+	_, html, _ := copied(t, tt)
+	if !strings.Contains(html, "<h1>Title</h1>") || !strings.Contains(html, "<li>one</li>") {
+		t.Errorf("HTML copied %q: the body is not Markdown's", html)
 	}
 }
 
