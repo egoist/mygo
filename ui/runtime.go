@@ -254,6 +254,15 @@ type engine struct {
 	// pressClicks is the press's count of clicks, which its release
 	// carries.
 	pressClicks int
+	// listMenu and listDrag are the parts of lists a right-click and a
+	// drag reach, set as the first list builds, and cellClick and
+	// cellInBlock the parts of tables choosing cells a click and a press
+	// reach, set as the first of those builds, so apps without them do not
+	// link them.
+	listMenu    func(rt *engine, chain []uint64, x, y float32)
+	listDrag    func(rt *engine)
+	cellClick   func(f *listFrame, x, y float32, mods Modifiers)
+	cellInBlock func(f *listFrame, x, y float32) bool
 	// pressDragger is the element around the one pressed that drags a
 	// value, which takes the press as it moves (dragMove), or 0.
 	pressDragger uint64
@@ -297,13 +306,16 @@ type engine struct {
 	// nothing else asked for one since; painted is the size and scale of
 	// the window, and gen the text system's Generation, as the last frame
 	// was built. The host's repaintTimer asks for a frame at repaintDue,
-	// unless one came or was asked for since. held tells that what moves
-	// waits for the window to show.
+	// unless one came or was asked for since. held tells that a frame, for
+	// what moves or what changed, waits for the window to show; input
+	// tells that an event other than a frame's came since the last frame
+	// built.
 	animating  bool
 	repainting bool
 	repaintAt  time.Time
 	redraw     bool
 	held       bool
+	input      bool
 	painted    [3]float32
 	gen        uint64
 	repaintDue time.Time
@@ -370,6 +382,9 @@ type engine struct {
 	labels     []labelNode
 	tips       tooltips
 	scrollDrag scrollDrag
+	// wheeling are the elements of the scroll containers that the notches
+	// of a mouse wheel scroll smoothly (glideWheels).
+	wheeling []uint64
 	// lastPress is the element of the press (id) and of the one before
 	// (prev), and how many of the backend's count of clicks were before
 	// the first on it.
@@ -473,6 +488,7 @@ func (rt *engine) runFrame() {
 	defer rt.endFrame()
 
 	rt.frame++
+	rt.input = false
 	rt.focusRead = false
 	rt.stats.begin(rt)
 	now := rt.now()
@@ -487,12 +503,16 @@ func (rt *engine) runFrame() {
 	rt.painted = [3]float32{w, h, scale}
 	rt.animating, rt.repainting, rt.repaintAt = false, false, time.Time{}
 	rt.routeKeys()
+	rt.glideWheels(now)
 	if rt.drag != nil {
 		// The source's element is this frame's, if it builds one.
 		rt.drag.elem = nil
 		rt.dragScroll()
 	}
 	rt.scrollTextSelection()
+	if rt.listDrag != nil {
+		rt.listDrag(rt)
+	}
 
 	if rt.exitsBuilt {
 		// The last frame's elements stay as they are while this one builds,
@@ -652,12 +672,33 @@ func (rt *engine) repaintNow() {
 // elements painted again when only drawings moved since, else a frame
 // built anew.
 func (rt *engine) surfaceFrame() {
+	if rt.holdFrame() {
+		return
+	}
 	if w, h, scale := rt.host.size(); rt.redraw && !rt.inFrame && rt.c.root != nil &&
 		rt.painted == [3]float32{w, h, scale} && rt.text.Generation() == rt.gen {
 		rt.repaintFrame(w, h, scale)
 		return
 	}
 	rt.runFrame()
+}
+
+// holdFrame keeps a frame from drawing while nothing of the window shows,
+// reporting whether it did: what changed draws once some of it shows
+// (SurfaceShown), as browsers draw nothing for windows out of sight and
+// as Apple asks of Mac apps, rather than frames nobody sees. A window
+// still draws one after input, as keys typed into a key window another
+// app's covers, and one as assistive technology turns on
+// (accessibilityOn); and none waits before the window's first frame
+// reached its surface (windowHost.occluded).
+func (rt *engine) holdFrame() bool {
+	if rt.input || rt.inFrame || !rt.host.occluded() {
+		return false
+	}
+	rt.held = true
+	rt.redraw, rt.repaintDue = false, time.Time{}
+	rt.host.repaintTimer(time.Time{})
+	return true
 }
 
 // repaintFrame paints the elements of the last frame again, at the time of
