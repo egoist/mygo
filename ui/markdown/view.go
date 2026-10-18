@@ -120,6 +120,10 @@ type Options struct {
 	// Block, when set, is asked first for each block, and builds it in
 	// its place when it returns true.
 	Block func(c *ui.Context, d *parser.Document, i int) bool
+	// HideFrontmatter leaves out the front matter that Extensions read
+	// when they include parser.ExtFrontmatter, which shows as a collapsed
+	// block of code otherwise.
+	HideFrontmatter bool
 
 	// Reveal is how Stream shows text as it comes: DefaultReveal when nil.
 	Reveal *Reveal
@@ -225,6 +229,8 @@ type viewState struct {
 	reveal revealState
 	codes  map[int]*codeState
 	tables map[int]*tableState
+	// fmOpen tells that the block of front matter is open.
+	fmOpen bool
 	// scrollTo is a block to scroll into view, -1 for none.
 	scrollTo      int
 	anchor        string
@@ -413,6 +419,9 @@ func (st *viewState) blocks(c *ui.Context, parent int, tight bool, base spanStyl
 			// Footnotes show at the end, and an alert's marker not at all.
 			continue
 		}
+		if b.Kind == parser.Frontmatter && st.o.HideFrontmatter && st.o.Block == nil {
+			continue
+		}
 		top := float32(0)
 		if !first {
 			top = th.em(th.BlockSpacing)
@@ -426,7 +435,10 @@ func (st *viewState) blocks(c *ui.Context, parent int, tight bool, base spanStyl
 				top = max(top, th.em(th.Headings[b.Level-1].Top))
 			}
 		}
-		el := st.block(c, j, tight, base)
+		el, shown := st.block(c, j, tight, base)
+		if !shown {
+			continue
+		}
 		st.fadeIn(el, b)
 		if top > 0 {
 			el.Margin(top, 0, 0, 0)
@@ -443,8 +455,9 @@ func (st *viewState) blocks(c *ui.Context, parent int, tight bool, base spanStyl
 	}
 }
 
-// block builds block i.
-func (st *viewState) block(c *ui.Context, i int, tight bool, base spanStyle) ui.Element {
+// block builds block i, and reports whether it shows anything: hidden
+// front matter shows only where Options.Block builds it.
+func (st *viewState) block(c *ui.Context, i int, tight bool, base spanStyle) (ui.Element, bool) {
 	d := st.doc
 	o := st.o
 	th := &st.th
@@ -456,13 +469,14 @@ func (st *viewState) block(c *ui.Context, i int, tight bool, base spanStyle) ui.
 		done := false
 		box.Children(func() { done = o.Block(c, d, i) })
 		if done {
-			return box
+			return box, true
 		}
-		return box.Children(func() { st.defaultBlock(c, i, tight, base) })
+		if d.Block(i).Kind == parser.Frontmatter && o.HideFrontmatter {
+			return box, false
+		}
+		return box.Children(func() { st.defaultBlock(c, i, tight, base) }), true
 	}
-	_ = b
-	_ = th
-	return st.defaultBlock(c, i, tight, base)
+	return st.defaultBlock(c, i, tight, base), true
 }
 
 func (st *viewState) defaultBlock(c *ui.Context, i int, tight bool, base spanStyle) ui.Element {
@@ -497,6 +511,8 @@ func (st *viewState) defaultBlock(c *ui.Context, i int, tight bool, base spanSty
 		el := ui.Text(c, html).Font(th.CodeFont).FontSize(th.em(th.CodeSize)).TextColor(th.Muted)
 		st.note(el.ID(), i, 0)
 		return el
+	case parser.Frontmatter:
+		return st.frontmatter(c, i)
 	case parser.MathBlock:
 		tex := strings.TrimRight(d.Lines(i), "\n")
 		if st.o.Math != nil {
