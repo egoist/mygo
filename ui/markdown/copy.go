@@ -49,7 +49,9 @@ func (st *viewState) copyText(parts []ui.SelectedText) string {
 // text, as HTML and as Markdown.
 func (st *viewState) copyData(parts []ui.SelectedText) transfer.Data {
 	md := st.copyMarkdown(parts)
-	d := parser.New(st.doc.Extensions())
+	// A selection is not a document: lines of it that look like the fences
+	// of front matter, as code of YAML selected in part, are not any.
+	d := parser.New(st.doc.Extensions() &^ parser.ExtFrontmatter)
 	d.Set(md)
 	return transfer.New(transfer.NewItem(
 		transfer.Bytes(transfer.Text, []byte(st.copyText(parts))),
@@ -133,7 +135,7 @@ func (st *viewState) srcAt(inf elemInfo, r int, end bool) int {
 	d := st.doc
 	b := d.Block(inf.block)
 	switch b.Kind {
-	case parser.CodeBlock, parser.HTMLBlock, parser.MathBlock:
+	case parser.CodeBlock, parser.HTMLBlock, parser.MathBlock, parser.Frontmatter:
 		// Lines from inf.line on, each followed by a newline.
 		n := d.LineCount(inf.block)
 		for k := max(inf.line, 0); k < n; k++ {
@@ -178,7 +180,7 @@ func (st *viewState) copyMarkdown(parts []ui.SelectedText) string {
 	b := st.srcAt(li, last.End, true)
 	atStart := first.Start == 0 && fi.line <= 0
 	atEnd := last.End >= utf8.RuneCountInString(last.Text)
-	if lb.Kind == parser.CodeBlock && atEnd {
+	if (lb.Kind == parser.CodeBlock || lb.Kind == parser.Frontmatter) && atEnd {
 		// Only the last chunk of lines ends the block.
 		atEnd = li.line+chunkLines >= d.LineCount(li.block)
 	}
@@ -192,7 +194,8 @@ func (st *viewState) copyMarkdown(parts []ui.SelectedText) string {
 		if fi.block == fb.Parent+1 && li.block != fi.block {
 			a = lineStartOf(d.Source(), fb.Start)
 		}
-	case fb.Kind == parser.CodeBlock:
+	case fb.Kind == parser.CodeBlock, fb.Kind == parser.Frontmatter:
+		// Front matter is never Fenced: its lines go without its fences.
 		if fb.Fenced && atEnd && fi.block == li.block {
 			a = lineStartOf(d.Source(), fb.Start)
 		}
@@ -205,7 +208,7 @@ func (st *viewState) copyMarkdown(parts []ui.SelectedText) string {
 		if lb.Next == d.Block(lb.Parent).Next && li.block != fi.block {
 			b = lineEndOf(d.Source(), lb.End)
 		}
-	case lb.Kind == parser.CodeBlock:
+	case lb.Kind == parser.CodeBlock, lb.Kind == parser.Frontmatter:
 		if lb.Fenced && !lb.Open && atStart && fi.block == li.block {
 			b = lb.End
 		}
