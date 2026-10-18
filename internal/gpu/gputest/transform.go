@@ -60,3 +60,21 @@ func AxisClipScene() *scene.Scene {
 	}
 	return s
 }
+
+// TranslatedScenes are the reference scene moved by translations, by
+// whole pixels and between them, which renderers fold into the geometry
+// of its fills, shadows, images and (by whole pixels) glyphs, its clips
+// and effects keeping theirs (scene.TranslationFolder).
+func TranslatedScenes() []*scene.Scene {
+	scene.FoldTranslations() // as package ui does
+	var ss []*scene.Scene
+	for _, m := range []scene.Affine{scene.Translation(12, 7), scene.Translation(-6.5, 4.25)} {
+		s := Scene()
+		s.Clear = scene.Color{R: 100, G: 120, B: 160, A: 80}
+		for i := range s.Ops {
+			s.Ops[i].Transform = m
+		}
+		ss = append(ss, s)
+	}
+	return ss
+}
