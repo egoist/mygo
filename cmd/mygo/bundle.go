@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -29,6 +30,11 @@ func writeBundle(c *Config, dir, bin string, icns []byte, car *assetCatalog, res
 	for _, d := range []string{"MacOS", "Resources"} {
 		if err := os.MkdirAll(filepath.Join(contents, d), 0o755); err != nil {
 			return "", err
+		}
+	}
+	if p := c.MacOS.ProvisioningProfile; p != "" {
+		if err := copyFile(c.path(p), filepath.Join(contents, "embedded.provisionprofile"), 0o644); err != nil {
+			return "", fmt.Errorf("provisioning profile %s: %w", p, err)
 		}
 	}
 	if err := os.Rename(bin, filepath.Join(contents, "MacOS", name)); err != nil {
@@ -77,7 +83,11 @@ func bundleExecutable(app string) string {
 // app ships into the Resources of its bundle, named as Xcode names them,
 // which make AppKit say its own texts in the language and System Settings
 // list the language for the app; the InfoPlist.strings of each names the
-// app in the language where its catalog does (mygo.appName).
+// app in the language where its catalog does (mygo.appName). An
+// InfoPlist.strings the app's resources put there already is kept, and
+// the name added to it where it has none: its strings translate those of
+// Info.plist, such as the reasons the system shows as it asks for a
+// permission.
 func writeLocalizations(c *Config, resources string, langs []appLanguage) error {
 	for _, l := range langs {
 		dir := filepath.Join(resources, lprojName(l.Tag)+".lproj")
@@ -85,8 +95,22 @@ func writeLocalizations(c *Config, resources string, langs []appLanguage) error 
 			return err
 		}
 		names := map[string]any{}
+		path := filepath.Join(dir, "InfoPlist.strings")
+		if data, err := os.ReadFile(path); err == nil {
+			own, err := parseStrings(data)
+			if err != nil {
+				return fmt.Errorf("%s.lproj/InfoPlist.strings of the resources: %w", lprojName(l.Tag), err)
+			}
+			for k, v := range own {
+				names[k] = v
+			}
+		}
 		if l.Name != "" && l.Name != c.Name {
-			names["CFBundleName"], names["CFBundleDisplayName"] = l.Name, l.Name
+			for _, k := range []string{"CFBundleName", "CFBundleDisplayName"} {
+				if names[k] == nil {
+					names[k] = l.Name
+				}
+			}
 		}
 		var b bytes.Buffer
 		b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
@@ -95,7 +119,11 @@ func writeLocalizations(c *Config, resources string, langs []appLanguage) error 
 `)
 		writePlistValue(&b, names, "")
 		b.WriteString("</plist>\n")
-		if err := os.WriteFile(filepath.Join(dir, "InfoPlist.strings"), b.Bytes(), 0o644); err != nil {
+		// The copy of the resources keeps links: write a new file, not through one.
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.WriteFile(path, b.Bytes(), 0o644); err != nil {
 			return err
 		}
 	}
@@ -331,10 +359,18 @@ func codesignArgs(path, identity, entitlements string, production bool) []string
 	return append(args, path)
 }
 
+var errProfileAdHoc = errors.New("macos.provisioningProfile needs a signing identity, not ad-hoc signing: set macos.signingIdentity or pass -sign")
+
 // codesign signs a bundle, and the code among its resources. Signing needs
 // macOS: elsewhere only the executable's ad-hoc signature from the Go linker
 // remains.
 func codesign(c *Config, path, identity string, production bool) error {
+	if c.MacOS.ProvisioningProfile != "" && identity == "-" {
+		if production {
+			return errProfileAdHoc
+		}
+		return fmt.Errorf(`macos.provisioningProfile needs a signing identity, not ad-hoc signing: pass -sign, or leave the profile out when the command is "dev"`)
+	}
 	if runtime.GOOS != "darwin" {
 		if identity != "-" {
 			warnf("Not signing %s: code signing needs macOS", filepath.Base(path))

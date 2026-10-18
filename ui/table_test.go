@@ -248,8 +248,7 @@ func TestEditableTextInTable(t *testing.T) {
 	if tt.HasText("beach.jpeg") != true {
 		t.Fatal("the click edited at once")
 	}
-	time.Sleep(renameDelay + 50*time.Millisecond)
-	tt.Frame()
+	tt.Advance(renameDelay + 50*time.Millisecond)
 	tt.Type("sea")
 	tt.Click("notes.txt")
 	if names[1] != "sea.jpeg" || sel != 0 {
@@ -258,8 +257,7 @@ func TestEditableTextInTable(t *testing.T) {
 	// A double click opens, and does not edit.
 	tt.Click("notes.txt")
 	tt.Click("notes.txt")
-	time.Sleep(renameDelay + 50*time.Millisecond)
-	tt.Frame()
+	tt.Advance(renameDelay + 50*time.Millisecond)
 	tt.Type("x")
 	if opened != 0 || names[0] != "notes.txt" {
 		t.Errorf("a double click: opened %d, the name %q", opened, names[0])
@@ -489,5 +487,34 @@ func TestTableHeaderMenuPastTheColumns(t *testing.T) {
 	tt.RightClick("Kind")
 	if built != 1 {
 		t.Fatalf("a column's header built the menu for column %d", built)
+	}
+}
+
+// CellMenu gives the cells a context menu over the whole cell, its padding
+// too, told the row and the column as the cell builder receives them.
+func TestTableCellMenu(t *testing.T) {
+	var s ListState
+	cols := []TableColumn{{Title: "A", Width: 100, Fixed: true}, {Title: "B", Width: 100, Fixed: true}}
+	gotRow, gotCol := -1, -1
+	s.CellMenu = func(m *Menu, row, col int) {
+		gotRow, gotCol = row, col
+		if col == 1 {
+			m.Item("Open")
+		}
+	}
+	tt := NewTester(func(c *Context) {
+		Table(c, &s, cols, 4, func(row, col int) { Textf(c, "r%dc%d", row, col) }).Grow(1)
+	}, 400, 300)
+	tt.Frame()
+	r, _ := tt.Find("r2c1")
+	tt.RightClickAt(r.X+r.W+20, r.Y+r.H/2) // past the text, in the cell
+	if m := tt.Menu(); len(m) != 1 || m[0] != "Open" || gotRow != 2 || gotCol != 1 {
+		t.Fatalf("right-click in r2c1 past its text: menu %q, row %d, col %d", m, gotRow, gotCol)
+	}
+	tt.CloseMenu()
+	r, _ = tt.Find("r1c0")
+	tt.RightClickAt(r.X+2, r.Y+r.H/2)
+	if m := tt.Menu(); m != nil || gotRow != 1 || gotCol != 0 {
+		t.Fatalf("a menu built without items opened: %q (row %d, col %d)", m, gotRow, gotCol)
 	}
 }

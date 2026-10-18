@@ -72,3 +72,65 @@ func TestOpenGLDfdy(t *testing.T) {
 		checkDfdy(t, pix, sc.Width*4)
 	}
 }
+
+// TestOpenGLMasked checks that OpenGL fills mask glyphs with a shader, as
+// text and paths, as the CPU does.
+func TestOpenGLMasked(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for _, es := range []bool{false, true} {
+		sc := maskedScene(MustCompile(maskedSource))
+		o, err := gl.NewOffscreen(es, sc.Width, sc.Height)
+		if err != nil {
+			t.Skip(err)
+		}
+		pix, err := o.Render(sc)
+		o.Release()
+		if err != nil {
+			t.Fatal(err)
+		}
+		gputest.Compare(t, "ui-shader-gl-masked", pix, sc.Width*4, sc)
+	}
+}
+
+// TestOpenGLEffect checks that OpenGL draws an effect's shader from its
+// content, as the CPU does.
+func TestOpenGLEffect(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for _, es := range []bool{false, true} {
+		for name, sc := range effectScenes(MustCompile(effectSource)) {
+			o, err := gl.NewOffscreen(es, sc.Width, sc.Height)
+			if err != nil {
+				t.Skip(err)
+			}
+			pix, err := o.Render(sc)
+			o.Release()
+			if err != nil {
+				t.Fatal(err)
+			}
+			gputest.Compare(t, "ui-shader-gl-effect-"+name, pix, sc.Width*4, sc)
+		}
+	}
+}
+
+// TestOpenGLBackdrop checks that OpenGL gives a shader its backdrop, as
+// the CPU does.
+func TestOpenGLBackdrop(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for _, es := range []bool{false, true} {
+		for name, sc := range backdropCases() {
+			o, err := gl.NewOffscreen(es, sc.Width, sc.Height)
+			if err != nil {
+				t.Skip(err)
+			}
+			pix, err := o.Render(sc)
+			o.Release()
+			if err != nil {
+				t.Fatal(err)
+			}
+			gputest.Compare(t, "ui-shader-gl-backdrop-"+name, pix, sc.Width*4, sc)
+		}
+	}
+}

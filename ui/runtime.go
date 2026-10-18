@@ -25,6 +25,10 @@ type host interface {
 	occluded() bool
 	present(s *scene.Scene)
 	requestFrame()
+	// afterTimer and repaintTimer arm the timers of After and
+	// Painter.After for at, or stop them for the zero time.
+	afterTimer(at time.Time)
+	repaintTimer(at time.Time)
 	setCursor(Cursor)
 	setTextInput(t platform.TextInputState)
 	updateAccessibility(tree *platform.AccessTree)
@@ -208,7 +212,7 @@ type engine struct {
 	// strict makes mistakes found while building panic, as duplicate keys
 	// do in a Tester.
 	strict bool
-	// clock is the time of frames for tests, time.Now when nil.
+	// clock is a Tester's time, time.Now when nil.
 	clock func() time.Time
 
 	pointerX, pointerY float32
@@ -218,6 +222,18 @@ type engine struct {
 	chain       []uint64
 	pressed     *state
 	pressButton int
+	// pressClicks is the press's count of clicks, which its release
+	// carries.
+	pressClicks int
+	// listMenu and listDrag are the parts of lists a right-click and a
+	// drag reach, set as the first list builds, and cellClick and
+	// cellInBlock the parts of tables choosing cells a click and a press
+	// reach, set as the first of those builds, so apps without them do not
+	// link them.
+	listMenu    func(rt *engine, chain []uint64, x, y float32)
+	listDrag    func(rt *engine)
+	cellClick   func(f *listFrame, x, y float32, mods Modifiers)
+	cellInBlock func(f *listFrame, x, y float32) bool
 	// pressDragger is the element around the one pressed that drags a
 	// value, which takes the press as it moves (dragMove), or 0.
 	pressDragger uint64
@@ -227,8 +243,14 @@ type engine struct {
 	texts        []*state
 	selection    textSelection
 	focusVisible bool
-	keys         []keyEvent
-	menu         menuState
+	// keys are the keys pressed since the last frame, for its shortcuts;
+	// retried, keys no shortcut of the frame they came to took, which the
+	// shortcuts that frame built take in the next one; unrouted, those
+	// the frame being built gave no shortcut, or gave one the view no
+	// longer asks for (routeKeys, settleKeys).
+	keys, retried []keyEvent
+	unrouted      []shortcutReg
+	menu          menuState
 	// windowFocused tells that the window has the keyboard focus, which
 	// windowFocus reads; focusRead, that the last frame read it, so that a
 	// change of it draws a frame.
@@ -254,18 +276,20 @@ type engine struct {
 	// tells that the next frame may paint again, as no event came and
 	// nothing else asked for one since; painted is the size and scale of
 	// the window, and gen the text system's Generation, as the last frame
-	// was built. repaintTimer asks for a frame at repaintDue, unless one
-	// came or was asked for since. held tells that what moves waits for
-	// the window to show.
-	animating    bool
-	repainting   bool
-	repaintAt    time.Time
-	redraw       bool
-	held         bool
-	painted      [3]float32
-	gen          uint64
-	repaintTimer *time.Timer
-	repaintDue   time.Time
+	// was built. The host's repaintTimer asks for a frame at repaintDue,
+	// unless one came or was asked for since. held tells that a frame, for
+	// what moves or what changed, waits for the window to show; input
+	// tells that an event other than a frame's came since the last frame
+	// built.
+	animating  bool
+	repainting bool
+	repaintAt  time.Time
+	redraw     bool
+	held       bool
+	input      bool
+	painted    [3]float32
+	gen        uint64
+	repaintDue time.Time
 	// late is set when lists built elements while laying out.
 	late bool
 	// revealIDs are the elements to scroll into view once the frame is
@@ -273,7 +297,6 @@ type engine struct {
 	revealIDs []uint64
 	wakeMu    sync.Mutex
 	wakeAt    time.Time
-	timer     *time.Timer
 	cursor    Cursor
 	// ime is the text input state the host has, and base the rune of the
 	// focused editor its text starts at.
@@ -330,11 +353,15 @@ type engine struct {
 	labels     []labelNode
 	tips       tooltips
 	scrollDrag scrollDrag
-	lastPress  struct {
-		at     time.Time
-		x, y   float32
-		id     uint64
-		clicks int
+	// wheeling are the elements of the scroll containers that the notches
+	// of a mouse wheel scroll smoothly (glideWheels).
+	wheeling []uint64
+	// lastPress is the element of the press (id) and of the one before
+	// (prev), and how many of the backend's count of clicks were before
+	// the first on it.
+	lastPress struct {
+		id, prev uint64
+		base     int
 	}
 }
 
@@ -372,6 +399,9 @@ type shortcutReg struct {
 	// made serial-th in its pass: the overlay made last is on top.
 	overlay bool
 	serial  int32
+	// retried marks a key delivered, or left unrouted, in the frame after
+	// the one it came to (settleKeys): it is not retried again.
+	retried bool
 }
 
 type keyEvent struct {
@@ -429,6 +459,7 @@ func (rt *engine) runFrame() {
 	defer rt.endFrame()
 
 	rt.frame++
+	rt.input = false
 	rt.focusRead = false
 	rt.stats.begin(rt)
 	now := rt.now()
@@ -443,12 +474,16 @@ func (rt *engine) runFrame() {
 	rt.painted = [3]float32{w, h, scale}
 	rt.animating, rt.repainting, rt.repaintAt = false, false, time.Time{}
 	rt.routeKeys()
+	rt.glideWheels(now)
 	if rt.drag != nil {
 		// The source's element is this frame's, if it builds one.
 		rt.drag.elem = nil
 		rt.dragScroll()
 	}
 	rt.scrollTextSelection()
+	if rt.listDrag != nil {
+		rt.listDrag(rt)
+	}
 
 	if rt.exitsBuilt {
 		// The last frame's elements stay as they are while this one builds,
@@ -530,6 +565,7 @@ func (rt *engine) runFrame() {
 	rt.syncDropFormats()
 	rt.prunePictures()
 	rt.text.EndFrame()
+	rt.settleKeys()
 	rt.regs, rt.nextRegs = rt.nextRegs, rt.regs
 	rt.updateTextInput()
 	rt.updateCursor()
@@ -542,6 +578,11 @@ func (rt *engine) runFrame() {
 	}
 	rt.announcements = rt.announcements[:0]
 	rt.next()
+	if len(rt.retried) > 0 {
+		// The keys retried route in a frame built anew, at once.
+		rt.redraw, rt.repaintDue = false, time.Time{}
+		rt.host.requestFrame()
+	}
 	rt.armTimer()
 	rt.showMenu()
 	rt.c.finish()
@@ -549,7 +590,7 @@ func (rt *engine) runFrame() {
 	rt.stats.end(rt)
 }
 
-// now returns the time, which tests set (clock).
+// now returns the time, which a Tester sets (clock).
 func (rt *engine) now() time.Time {
 	if rt.clock != nil {
 		return rt.clock()
@@ -576,17 +617,8 @@ func (rt *engine) next() {
 		rt.host.requestFrame()
 	case !rt.repaintAt.IsZero():
 		rt.redraw, rt.repaintDue = true, rt.repaintAt
-		d := max(rt.repaintAt.Sub(rt.now()), time.Millisecond)
-		if rt.repaintTimer == nil {
-			rt.repaintTimer = time.AfterFunc(d, func() { rt.host.post(rt.repaintNow) })
-		} else {
-			rt.repaintTimer.Reset(d)
-		}
-		return
 	}
-	if rt.repaintTimer != nil {
-		rt.repaintTimer.Stop()
-	}
+	rt.host.repaintTimer(rt.repaintDue)
 }
 
 // repaintNow asks for the frame that Painter.After asked for, unless
@@ -605,12 +637,33 @@ func (rt *engine) repaintNow() {
 // elements painted again when only drawings moved since, else a frame
 // built anew.
 func (rt *engine) surfaceFrame() {
+	if rt.holdFrame() {
+		return
+	}
 	if w, h, scale := rt.host.size(); rt.redraw && !rt.inFrame && rt.c.root != nil &&
 		rt.painted == [3]float32{w, h, scale} && rt.text.Generation() == rt.gen {
 		rt.repaintFrame(w, h, scale)
 		return
 	}
 	rt.runFrame()
+}
+
+// holdFrame keeps a frame from drawing while nothing of the window shows,
+// reporting whether it did: what changed draws once some of it shows
+// (SurfaceShown), as browsers draw nothing for windows out of sight and
+// as Apple asks of Mac apps, rather than frames nobody sees. A window
+// still draws one after input, as keys typed into a key window another
+// app's covers, and one as assistive technology turns on
+// (accessibilityOn); and none waits before the window's first frame
+// reached its surface (windowHost.occluded).
+func (rt *engine) holdFrame() bool {
+	if rt.input || rt.inFrame || !rt.host.occluded() {
+		return false
+	}
+	rt.held = true
+	rt.redraw, rt.repaintDue = false, time.Time{}
+	rt.host.repaintTimer(time.Time{})
+	return true
 }
 
 // repaintFrame paints the elements of the last frame again, at the time of
@@ -654,6 +707,9 @@ func (rt *engine) endPass() {
 	}
 	rt.clickLater = rt.clickLater[:0]
 	rt.menu.chosen = 0
+	// A shortcut the view did not ask for again, as it changed: what
+	// this frame built may take the key (settleKeys).
+	rt.unrouted = append(rt.unrouted, rt.delivered...)
 	rt.delivered = rt.delivered[:0]
 	rt.downs = rt.downs[:0]
 	// The next pass may not ask again, as when the view cleared what asked.
@@ -776,22 +832,13 @@ func (rt *engine) scheduleAt(t time.Time) {
 	rt.wakeMu.Unlock()
 }
 
-// armTimer starts a timer for the earliest frame After asked for.
+// armTimer arms the host's timer for the earliest frame After asked for.
 func (rt *engine) armTimer() {
 	rt.wakeMu.Lock()
 	at := rt.wakeAt
 	rt.wakeAt = time.Time{}
 	rt.wakeMu.Unlock()
-	switch {
-	case at.IsZero():
-		if rt.timer != nil {
-			rt.timer.Stop()
-		}
-	case rt.timer != nil:
-		rt.timer.Reset(max(time.Until(at), time.Millisecond))
-	default:
-		rt.timer = time.AfterFunc(max(time.Until(at), time.Millisecond), rt.host.invalidate)
-	}
+	rt.host.afterTimer(at)
 }
 
 // close lets the window's state go when the window closes. A window closed
@@ -836,12 +883,8 @@ func (rt *engine) close() {
 			s.textAdapter.release()
 		}
 	}
-	if rt.timer != nil {
-		rt.timer.Stop()
-	}
-	if rt.repaintTimer != nil {
-		rt.repaintTimer.Stop()
-	}
+	rt.host.afterTimer(time.Time{})
+	rt.host.repaintTimer(time.Time{})
 }
 
 // endFrame ends a frame, and closes the engine when its window closed
