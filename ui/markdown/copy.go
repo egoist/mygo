@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"html"
 	"slices"
 	"strings"
 	"unicode"
@@ -49,15 +50,39 @@ func (st *viewState) copyText(parts []ui.SelectedText) string {
 // text, as HTML and as Markdown.
 func (st *viewState) copyData(parts []ui.SelectedText) transfer.Data {
 	md := st.copyMarkdown(parts)
-	// A selection is not a document: lines of it that look like the fences
-	// of front matter, as code of YAML selected in part, are not any.
-	d := parser.New(st.doc.Extensions() &^ parser.ExtFrontmatter)
-	d.Set(md)
+	text := st.copyText(parts)
+	var body string
+	if fm := st.inFrontmatter(parts); fm > 0 {
+		// Metadata is not Markdown, which would read a comment as a
+		// heading and a dash as a list item: its lines are code.
+		body = `<pre><code class="language-` + html.EscapeString(st.doc.Block(fm).Info()) + `">` + html.EscapeString(text) + "\n</code></pre>\n"
+	} else {
+		// A selection is not a document: lines of it that look like the
+		// fences of front matter, as code of YAML selected in part, are
+		// not any.
+		d := parser.New(st.doc.Extensions() &^ parser.ExtFrontmatter)
+		d.Set(md)
+		body = d.HTML()
+	}
 	return transfer.New(transfer.NewItem(
-		transfer.Bytes(transfer.Text, []byte(st.copyText(parts))),
-		transfer.Bytes(transfer.HTML, []byte(`<meta charset="utf-8">`+d.HTML())),
+		transfer.Bytes(transfer.Text, []byte(text)),
+		transfer.Bytes(transfer.HTML, []byte(`<meta charset="utf-8">`+body)),
 		transfer.Bytes(transfer.Markdown, []byte(md)),
 	))
+}
+
+// inFrontmatter returns the block of front matter that all the selected
+// parts are in, or 0.
+func (st *viewState) inFrontmatter(parts []ui.SelectedText) int {
+	fm := 0
+	for _, p := range parts {
+		inf, ok := st.elem(p.ID)
+		if !ok || st.doc.Block(inf.block).Kind != parser.Frontmatter {
+			return 0
+		}
+		fm = inf.block
+	}
+	return fm
 }
 
 // markdownData returns Markdown as Copy as Markdown puts it on the
