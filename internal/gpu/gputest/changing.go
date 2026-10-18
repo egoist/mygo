@@ -8,8 +8,9 @@ import (
 
 // Changing makes random scenes and changes them a little at a time, as the
 // frames of an app do, for the tests of renderers drawing only what
-// changed: fills, shadows, glyphs, images, gradients, effects reading
-// their backdrops, clips, transforms, and colors outside the sRGB gamut.
+// changed: fills (with continuous corners too), shadows, glyphs, images,
+// gradients, effects reading their backdrops, clips, transforms, and
+// colors outside the sRGB gamut.
 type Changing struct {
 	rnd   *rand.Rand
 	atlas *scene.Atlas
@@ -83,7 +84,7 @@ func (m *Changing) op(s *scene.Scene) scene.Op {
 	case 0, 1:
 		r := m.rnd.Float32() * 12
 		op = scene.Op{Kind: scene.OpFill, Rect: m.rect(), Radii: scene.Uniform(r), Color: m.color(),
-			Border: scene.Uniform(float32(m.rnd.IntN(3))), BorderColor: m.color()}
+			Border: scene.Uniform(float32(m.rnd.IntN(3))), BorderColor: m.color(), Continuous: m.rnd.IntN(3) == 0}
 		if m.rnd.IntN(4) == 0 {
 			op.Paint, op.Color2 = scene.PaintLinear, m.color()
 			op.Gradient = [4]float32{op.Rect.X, op.Rect.Y, op.Rect.X + op.Rect.W, op.Rect.Y + op.Rect.H}
