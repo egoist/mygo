@@ -55,6 +55,9 @@ func (t *Terminal) viewOf(c *ui.Context) *view {
 	if t.v == nil {
 		t.v = &view{t: t, blinkStart: time.Now()}
 		t.v.shaped.init(4096)
+		if t.opts.ImageStorageBytes > 0 {
+			t.v.images = newViewImages()
+		}
 	}
 	v := t.v
 	if v.services != c.Services() {
@@ -91,6 +94,9 @@ type view struct {
 	scrollbar vt.Scrollbar
 	lines     []rowCache
 	shaped    lru
+	// images are the images the view draws, nil unless
+	// Options.ImageStorageBytes lets the terminal keep them.
+	images *viewImages
 
 	keys    *vt.KeyEncoder
 	mouse   *vt.MouseEncoder

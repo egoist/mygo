@@ -68,7 +68,9 @@ The terminal does what terminal apps do:
   (OSC 7), copying to and reading the clipboard (OSC 52, OSC 5522) as the
   app allows (see `ClipboardRead`), and paste events of the Kitty
   clipboard protocol (OSC 5522, mode 5522), which let programs take
-  pasted images.
+  pasted images;
+- images of the Kitty graphics protocol, as the app allows (see
+  `ImageStorageBytes`).
 
 ## Using it
 
@@ -151,6 +153,20 @@ term, err := terminal.New(terminal.Options{
 - `Cursor` and `NoBlink` set the cursor, which programs may change.
 - `Scrollback` is about how many bytes of output to keep above the
   screen: 10 MB by default, none when negative.
+- `ImageStorageBytes` lets programs show images with the Kitty graphics
+  protocol, as `kitten icat`, yazi, chafa and coding agents do: the
+  terminal keeps up to that many bytes of their decoded pixels (Ghostty
+  keeps 320 MB) and draws them on the GPU with the text, below the cells'
+  backgrounds, between them and the text, or over it, as programs place
+  them; each image goes to the GPU once, and again only when it changes,
+  as frames of an animation do. Zero, the default, keeps none, so images
+  are refused and programs fall back to something else. It is a budget of
+  its own, apart from `Scrollback`'s for text: a placement goes when the
+  scrollback drops the lines it sits on, and an image's pixels when this
+  budget needs the room, oldest first, or the program deletes it. Images
+  come in the program's output, so they reach over ssh; the terminal never
+  reads them from files or shared memory, and draws none of Unicode
+  placeholders (U+10EEEE), the way tmux passes them on.
 - `Transparent` leaves the background undrawn, as Ghostty's
   `background-opacity`, so that what is under the view shows through: the
   window's material, or an element's translucent background. Cells with a

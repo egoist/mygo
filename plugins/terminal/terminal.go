@@ -15,9 +15,10 @@
 // paste, focus reports, synchronized output, hyperlinks (OSC 8), titles,
 // the working directory (OSC 7) and the clipboard (OSC 52, OSC 5522),
 // which programs write through by default and read as Options.ClipboardRead
-// allows. Selecting with the pointer copies as Ghostty does: a drag selects
-// cells, a double click words and a triple click lines; Option (macOS) or
-// Alt drags a rectangle.
+// allows, and, as Options.ImageStorageBytes allows, images of the Kitty
+// graphics protocol. Selecting with the pointer copies as Ghostty does: a
+// drag selects cells, a double click words and a triple click lines;
+// Option (macOS) or Alt drags a rectangle.
 //
 // libghostty-vt is a native library loaded at run time, with no cgo: `mygo
 // build` and `mygo dev` put the build this package binds into the app, and
@@ -79,6 +80,19 @@ type Options struct {
 	// Scrollback is about how many bytes of output the terminal keeps above
 	// the screen: 10 MB when zero, none when negative.
 	Scrollback int
+	// ImageStorageBytes lets programs show images with the Kitty graphics
+	// protocol, as Kitty, Ghostty and WezTerm do: the terminal keeps up to
+	// that many bytes of their decoded pixels, and draws them with the
+	// text, below or over it as programs place them. Zero, the default,
+	// keeps none, so images are refused and programs fall back to
+	// something else. Ghostty keeps 320 MB. It is a budget of its own,
+	// apart from Scrollback's for text: a placement goes when the
+	// scrollback drops the lines it sits on, and an image's pixels when
+	// this budget needs the room, oldest first, or the program deletes it.
+	// Images come in the program's output, which reaches over ssh; the
+	// terminal never reads them from files or shared memory, and draws no
+	// images of Unicode placeholders (U+10EEEE), as tmux passes them.
+	ImageStorageBytes int
 	// OptionAsAlt makes Option on macOS the Alt key of programs (Meta),
 	// rather than the key that types accented letters and symbols.
 	OptionAsAlt bool
@@ -453,6 +467,9 @@ func New(opts Options) (*Terminal, error) {
 		t.term.SetScrollback(opts.Scrollback)
 	default:
 		t.term.SetScrollback(10 << 20)
+	}
+	if opts.ImageStorageBytes > 0 {
+		t.term.SetImageStorageLimit(uint64(opts.ImageStorageBytes))
 	}
 	t.term.SetDefaultCursor(vtCursor(opts.Cursor), !opts.NoBlink)
 	if t.rs, err = vt.NewRenderState(); err != nil {

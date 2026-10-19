@@ -272,6 +272,8 @@ func layouts() map[string]layout {
 		pr  progressReport
 		da  deviceAttributes
 		fo  formatterOptions
+		ri  placementRenderInfo
+		si  sysImage
 	)
 	return map[string]layout{
 		"GhosttyColorRgb":   {unsafe.Sizeof(RGB{}), map[string]uintptr{"r": 0, "g": 1, "b": 2}},
@@ -343,5 +345,16 @@ func layouts() map[string]layout {
 		}},
 		"GhosttyFormatterTerminalExtra": {unsafe.Sizeof(fo.extra), map[string]uintptr{"keyboard": unsafe.Offsetof(fo.extra.keyboard), "screen": unsafe.Offsetof(fo.extra.screen)}},
 		"GhosttyFormatterScreenExtra":   {unsafe.Sizeof(fo.extra.screen), map[string]uintptr{"charsets": unsafe.Offsetof(fo.extra.screen.charsets)}},
+		"GhosttyKittyGraphicsPlacementRenderInfo": {unsafe.Sizeof(ri), map[string]uintptr{
+			"pixel_width": unsafe.Offsetof(ri.pixelWidth), "pixel_height": unsafe.Offsetof(ri.pixelHeight),
+			"grid_cols": unsafe.Offsetof(ri.gridCols), "grid_rows": unsafe.Offsetof(ri.gridRows),
+			"viewport_col": unsafe.Offsetof(ri.viewportCol), "viewport_row": unsafe.Offsetof(ri.viewportRow),
+			"viewport_visible": unsafe.Offsetof(ri.viewportVisible), "source_x": unsafe.Offsetof(ri.sourceX),
+			"source_y": unsafe.Offsetof(ri.sourceY), "source_width": unsafe.Offsetof(ri.sourceWidth), "source_height": unsafe.Offsetof(ri.sourceHeight),
+		}},
+		"GhosttySysImage": {unsafe.Sizeof(si), map[string]uintptr{
+			"width": unsafe.Offsetof(si.width), "height": unsafe.Offsetof(si.height),
+			"data": unsafe.Offsetof(si.data), "data_len": unsafe.Offsetof(si.dataLen),
+		}},
 	}
 }

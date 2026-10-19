@@ -47,6 +47,9 @@ var (
 
 	fnGridRefHyperlinkURI, fnGridRefGraphemes, fnGridRefCell, fnTypeJSON, fnFormatterFormatAlloc, fnFormatterFree uintptr
 
+	fnAlloc, fnSysSet, fnKittyGraphicsGet, fnKittyGraphicsImage, fnKittyImageGet, fnKittyPlacementIteratorNew,
+	fnKittyPlacementIteratorFree, fnKittyPlacementNext, fnKittyPlacementGet, fnKittyPlacementRenderInfo uintptr
+
 	// Bound with registerFunc below: they take structs or floats.
 	fnTerminalScrollViewport, fnTerminalGridRef, fnMouseEventSetPosition, fnSelectionFormatAlloc, fnFormatterTerminalNew uintptr
 )
@@ -139,6 +142,16 @@ var symbols = []struct {
 	{"ghostty_formatter_terminal_new", &fnFormatterTerminalNew},
 	{"ghostty_formatter_format_alloc", &fnFormatterFormatAlloc},
 	{"ghostty_formatter_free", &fnFormatterFree},
+	{"ghostty_alloc", &fnAlloc},
+	{"ghostty_sys_set", &fnSysSet},
+	{"ghostty_kitty_graphics_get", &fnKittyGraphicsGet},
+	{"ghostty_kitty_graphics_image", &fnKittyGraphicsImage},
+	{"ghostty_kitty_graphics_image_get", &fnKittyImageGet},
+	{"ghostty_kitty_graphics_placement_iterator_new", &fnKittyPlacementIteratorNew},
+	{"ghostty_kitty_graphics_placement_iterator_free", &fnKittyPlacementIteratorFree},
+	{"ghostty_kitty_graphics_placement_next", &fnKittyPlacementNext},
+	{"ghostty_kitty_graphics_placement_get", &fnKittyPlacementGet},
+	{"ghostty_kitty_graphics_placement_render_info", &fnKittyPlacementRenderInfo},
 }
 
 // Load loads the library at path. Only the first call loads one: later
@@ -309,6 +322,25 @@ var enums = []struct {
 	{"GhosttyPointTag", "VIEWPORT", 1},
 	{"GhosttyClipboardWriteResult", "UNSUPPORTED", 2},
 	{"GhosttySelectionGestureEventType", "DRAG", gestureDrag},
+	{"GhosttyTerminalData", "KITTY_GRAPHICS", dataKittyGraphics},
+	{"GhosttyTerminalOption", "KITTY_IMAGE_STORAGE_LIMIT", optKittyImageLimit},
+	{"GhosttySysOption", "DECODE_PNG", sysOptDecodePNG},
+	{"GhosttyKittyGraphicsData", "PLACEMENT_ITERATOR", kittyDataPlacementIterator},
+	{"GhosttyKittyGraphicsData", "GENERATION", kittyDataGeneration},
+	{"GhosttyKittyGraphicsPlacementData", "IMAGE_ID", placementDataImageID},
+	{"GhosttyKittyGraphicsPlacementData", "X_OFFSET", placementDataXOffset},
+	{"GhosttyKittyGraphicsPlacementData", "Y_OFFSET", placementDataYOffset},
+	{"GhosttyKittyGraphicsPlacementData", "Z", placementDataZ},
+	{"GhosttyKittyGraphicsImageData", "WIDTH", imageDataWidth},
+	{"GhosttyKittyGraphicsImageData", "HEIGHT", imageDataHeight},
+	{"GhosttyKittyGraphicsImageData", "FORMAT", imageDataFormat},
+	{"GhosttyKittyGraphicsImageData", "DATA_PTR", imageDataDataPtr},
+	{"GhosttyKittyGraphicsImageData", "DATA_LEN", imageDataDataLen},
+	{"GhosttyKittyGraphicsImageData", "GENERATION", imageDataGeneration},
+	{"GhosttyKittyImageFormat", "RGB", int64(ImageRGB)},
+	{"GhosttyKittyImageFormat", "RGBA", int64(ImageRGBA)},
+	{"GhosttyKittyImageFormat", "GRAY_ALPHA", int64(ImageGrayAlpha)},
+	{"GhosttyKittyImageFormat", "GRAY", int64(ImageGray)},
 }
 
 type fieldInfo struct {

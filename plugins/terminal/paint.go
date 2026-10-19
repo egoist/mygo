@@ -115,12 +115,18 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	held := t.held
 	if !held {
 		t.rs.BeginUpdate(t.term)
+		if v.images != nil {
+			v.images.snapshot(t.term)
+		}
 	}
 	v.scrollbar = t.term.Scrollbar()
 	t.mu.Unlock()
 	rs := t.rs
 	if !held {
 		rs.EndUpdate()
+		if v.images != nil {
+			v.images.update()
+		}
 	}
 	colors := rs.Colors()
 	full := rs.Dirty() == vt.Full || colors != v.colors
@@ -399,6 +405,7 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	if !v.t.opts.Transparent {
 		p.Fill(r, color(v.colors.Background), 0)
 	}
+	v.drawImages(p, imagesBelowBackground, ox, oy)
 	selection := v.theme.Selection
 	if selection.A == 0 {
 		selection = color(v.colors.Foreground).Alpha(0.3)
@@ -413,6 +420,7 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 			p.Fill(ui.Rect{X: ox + float32(line.selA)*cw, Y: ry, W: float32(line.selB-line.selA+1) * cw, H: ch}, selection, 0)
 		}
 	}
+	v.drawImages(p, imagesBelowText, ox, oy)
 	cur, curColor, curText, block := v.cursorRect(ox, oy, cw, ch)
 	if block {
 		p.Fill(cur, curColor, 0)
@@ -432,6 +440,7 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 		p.Clip(ui.Rect{X: a, Y: r.Y, W: b - a, H: r.H}, 0, func() { text(v.theme.SelectionText) })
 		p.Clip(ui.Rect{X: b, Y: r.Y, W: r.X + r.W - b, H: r.H}, 0, func() { text(ui.Color{}) })
 	}
+	v.drawImages(p, imagesAboveText, ox, oy)
 	if cur.W > 0 && !block {
 		if v.focused || v.cursor.Style != vt.CursorBlock {
 			p.Fill(cur, curColor, 0)

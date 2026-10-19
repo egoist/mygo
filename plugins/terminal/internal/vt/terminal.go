@@ -28,6 +28,9 @@ type Terminal struct {
 	// reply gathers what the library writes while it answers a clipboard
 	// read, which WritePTY then gets at once.
 	reply *[]byte
+	// placements is the iterator over images' placements, made as they
+	// are first asked for.
+	placements uintptr
 }
 
 // ClipboardRead is a program's request to read the clipboard.
@@ -212,6 +215,10 @@ func (t *Terminal) get(data int, out unsafe.Pointer) error {
 func (t *Terminal) Free() {
 	if t.h == 0 {
 		return
+	}
+	if t.placements != 0 {
+		call(fnKittyPlacementIteratorFree, t.placements)
+		t.placements = 0
 	}
 	call(fnTerminalFree, t.h)
 	t.h = 0
