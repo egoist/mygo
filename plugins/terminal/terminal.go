@@ -62,7 +62,10 @@ type Options struct {
 	// Conn connects the terminal to something other than a program, such
 	// as a remote shell: what the terminal reads from it shows, and what
 	// is typed is written to it. Command, Dir and Env are then ignored. A
-	// Conn with a method Resize(cols, rows int) error is told the size.
+	// Conn with a method Resize(cols, rows int) error is told the size,
+	// and one with ResizePixels(cols, rows, width, height int) error is
+	// told it in its place with the screen's size in pixels too, as a
+	// pseudo-terminal's, which programs that show images read.
 	Conn io.ReadWriteCloser
 
 	// Font is the font of the text: the system's monospaced font at 13
@@ -890,9 +893,9 @@ func (t *Terminal) closeSrc() error {
 	return t.srcErr
 }
 
-// resizeConn tells Conn the size of the screen, from a goroutine, the
-// latest size only once it told the one before.
-func (t *Terminal) resizeConn(c interface{ Resize(cols, rows int) error }, s gridSize) {
+// resizeConn tells Conn the size of the screen with tell, from a
+// goroutine, the latest size only once it told the one before.
+func (t *Terminal) resizeConn(tell func(gridSize), s gridSize) {
 	t.connMu.Lock()
 	defer t.connMu.Unlock()
 	t.connSize = s
@@ -911,7 +914,7 @@ func (t *Terminal) resizeConn(c interface{ Resize(cols, rows int) error }, s gri
 				return
 			}
 			t.connMu.Unlock()
-			c.Resize(s.cols, s.rows)
+			tell(s)
 			sent = s
 		}
 	}()
@@ -935,8 +938,12 @@ func (t *Terminal) resize(s gridSize) {
 	switch src := t.src.(type) {
 	case *pty.PTY:
 		src.Resize(s.cols, s.rows, s.cols*s.cellW, s.rows*s.cellH)
+	case interface {
+		ResizePixels(cols, rows, width, height int) error
+	}:
+		t.resizeConn(func(s gridSize) { src.ResizePixels(s.cols, s.rows, s.cols*s.cellW, s.rows*s.cellH) }, s)
 	case interface{ Resize(cols, rows int) error }:
-		t.resizeConn(src, s)
+		t.resizeConn(func(s gridSize) { src.Resize(s.cols, s.rows) }, s)
 	}
 }
 

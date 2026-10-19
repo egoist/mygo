@@ -7,7 +7,10 @@ import (
 	"image"
 	imgcolor "image/color"
 	"image/png"
+	"io"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -57,5 +60,73 @@ func TestImages(t *testing.T) {
 				t.Errorf("the image's cell is %v; want red: %v", px, c.red)
 			}
 		})
+	}
+}
+
+// pixelConn and cellConn are Conns that are told the size of the screen.
+type pixelConn struct {
+	*pipe
+	mu   sync.Mutex
+	size [4]int
+}
+
+func (c *pixelConn) ResizePixels(cols, rows, width, height int) error {
+	c.mu.Lock()
+	c.size = [4]int{cols, rows, width, height}
+	c.mu.Unlock()
+	return nil
+}
+
+type cellConn struct {
+	*pipe
+	mu   sync.Mutex
+	size [2]int
+}
+
+func (c *cellConn) Resize(cols, rows int) error {
+	c.mu.Lock()
+	c.size = [2]int{cols, rows}
+	c.mu.Unlock()
+	return nil
+}
+
+// A Conn with ResizePixels is told the screen's size in pixels with its
+// cells, which programs that show images read from a pseudo-terminal; one
+// with Resize alone is told the cells, as before.
+func TestConnResizePixels(t *testing.T) {
+	loadLib(t)
+	frame := func(conn io.ReadWriteCloser) *Terminal {
+		term, err := New(Options{Conn: conn})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { term.Close() })
+		ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200).Frame()
+		return term
+	}
+	wait := func(done func() bool) {
+		for range 100 {
+			if done() {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	pc := &pixelConn{pipe: newPipe()}
+	term := frame(pc)
+	v := term.v
+	want := [4]int{v.cols, v.rows, v.cols * v.cellW, v.rows * v.cellH}
+	got := func() [4]int { pc.mu.Lock(); defer pc.mu.Unlock(); return pc.size }
+	wait(func() bool { return got() == want })
+	if got() != want || want[2] == 0 || want[3] == 0 {
+		t.Errorf("ResizePixels got %v, want %v", got(), want)
+	}
+	cc := &cellConn{pipe: newPipe()}
+	term = frame(cc)
+	cells := [2]int{term.v.cols, term.v.rows}
+	gotCells := func() [2]int { cc.mu.Lock(); defer cc.mu.Unlock(); return cc.size }
+	wait(func() bool { return gotCells() == cells })
+	if gotCells() != cells {
+		t.Errorf("Resize got %v, want %v", gotCells(), cells)
 	}
 }

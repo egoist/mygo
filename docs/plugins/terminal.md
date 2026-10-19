@@ -454,7 +454,10 @@ The terminal's methods are safe from any goroutine:
 `Conn` connects the terminal to anything that reads and writes, such as an
 SSH session or a serial port, instead of a program: what the terminal reads
 from it shows, and what is typed is written to it. A `Conn` with a method
-`Resize(cols, rows int) error` is told the size of the terminal:
+`Resize(cols, rows int) error` is told the size of the terminal, and one
+with `ResizePixels(cols, rows, width, height int) error` is told it in its
+place with the size in pixels too, as a pseudo-terminal is, which programs
+that show images (`kitten icat`, chafa) read to size them:
 
 ```go
 term, err := terminal.New(terminal.Options{Conn: session})
