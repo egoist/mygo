@@ -402,9 +402,15 @@ purego gives three primitives, used everywhere:
 
 #### Why not GTK 4
 
-The backend stays on GTK 3 because GTK 4 dropped what MyGo's API promises
-on Linux, and GTK 3 and GTK 4 cannot share a process, so there is no
-moving one feature at a time:
+GTK 3 and GTK 4 cannot share a process, and GTK 4 changed or removed
+nearly every GTK 3 call the backend makes, so the backend cannot move one
+feature at a time: GTK 4 means rewriting most of `internal/linux` at once.
+That rewrite is not what holds it back. Even rewritten as a whole, a GTK 4
+backend would do less, run on fewer systems and give apps nothing they
+lack on GTK 3.
+
+**It would do less.** Some of what MyGo's API promises has no GTK 4
+counterpart, not even a renamed one:
 
 - **Window placement.** GTK 4 has no `gtk_window_move`,
   `gtk_window_get_position`, `gtk_window_set_position` or
@@ -415,36 +421,53 @@ moving one feature at a time:
   more.
 - **Window hints.** `gtk_window_set_keep_above`,
   `gtk_window_set_skip_taskbar_hint` and `gtk_window_set_type_hint` are
-  gone (always on top, windows kept out of the taskbar, flyouts), and with
-  `gtk_widget_set_visual` and `gtk_widget_set_app_paintable`, the way to
-  make a window transparent.
-- **Menus.** `GtkMenu` and `GtkMenuBar` are gone: GTK 4's menus are
-  `GMenuModel`s shown in popovers, which stay inside their window. Context
-  menus at the pointer or a rectangle (`gtk_menu_popup_at_*`) and the menu
-  bar build `GtkMenu`s, and AppIndicator, which draws tray icons, takes a
-  `GtkMenu`.
-- **Events.** GTK 4 replaced the `button-press-event`,
-  `motion-notify-event`, `key-press-event` and `configure-event` signals
-  with event controllers and made `GdkEvent` opaque, where the backend
-  reads its fields at fixed offsets (`field[T]`). `gtk_widget_event`,
-  which hands Tab to the web view, is gone, as is `GtkLayout`, which holds
-  the web views over native UI.
-- **Clipboard, drag and drop, accessibility.** `GtkClipboard`, the
-  `gtk_drag_*` functions and ATK, which native UI's accessible tree
-  implements (`surface_access.go`) and GTK 3 bridges to AT-SPI, became
-  `GdkClipboard`, `GtkDragSource`/`GtkDropTarget` and `GtkAccessible`,
-  whose API for text an app draws itself came only with GTK 4.14.
-- **Dialogs.** `gtk_dialog_run` and `gtk_native_dialog_run` are gone,
-  which run the main loop until a message or file dialog is answered, so
-  that the call that opened it returns the answer.
+  gone: no always on top, no windows kept out of the taskbar, no utility
+  or popup menu windows for flyouts and panels.
+- **Tray icons.** AppIndicator, which draws them, takes a `GtkMenu`,
+  which GTK 4 removed with `GtkMenuBar`, and has no GTK 4 version: the
+  backend would serve StatusNotifierItem and dbusmenu over D-Bus itself.
 
-GTK 4 means WebKitGTK 6.0 too, which replaces 4.1 and 4.0 rather than
-adding to them, so apps could no longer fall back to the WebKitGTK 4.0 of
-older distributions. GTK 3 is still maintained, installed on every desktop
-MyGo targets, and what WebKitGTK 4.1, AppIndicator and gtk-layer-shell are
-built against. A GTK 4 backend would be a rewrite of most of
-`internal/linux`, worth it once GTK 3 or WebKitGTK 4.1 leaves the
-distributions apps ship to.
+Only X11 could get placement and hints back, through Xlib and EWMH beside
+GTK (`XMoveWindow`, `_NET_WM_STATE_ABOVE`, `_NET_WM_STATE_SKIP_TASKBAR`),
+and GTK 4.18 deprecated its X11 backend, to be removed in GTK 5: the
+rewrite would rest those features on what GTK is dropping. Wayland is no
+reason to move either: no GTK version places windows there.
+
+**It would run on fewer systems.** GTK 4 replaced ATK, which native UI's
+accessible tree implements (`surface_access.go`) and GTK 3 bridges to
+AT-SPI, with `GtkAccessible`, and only GTK 4.14 lets an app expose text it
+draws itself (`GtkAccessibleText`), which screen readers need to read
+native UI's text fields and editors. Ubuntu 22.04 ships GTK 4.6 and
+Debian 12 GTK 4.8, both still supported, where GTK 3 gives native UI the
+same accessibility as everywhere else. GTK 4 also means WebKitGTK 6.0,
+which replaces 4.1 and 4.0 rather than adding to them, so apps could no
+longer fall back to the WebKitGTK 4.0 of older distributions.
+
+**It would give apps nothing.** A MyGo window shows a web page or native
+UI, which MyGo draws itself; GTK's own widgets show only in title bar
+buttons, menus and dialogs. WebKitGTK 6.0 is the same WebKit as 4.1,
+built from the same releases, so pages render and behave the same.
+
+**And it would cost the rewrite.** Beyond the above, GTK 4 replaced the
+`button-press-event`, `motion-notify-event`, `key-press-event` and
+`configure-event` signals with event controllers and made `GdkEvent`
+opaque, where the backend reads its fields at fixed offsets (`field[T]`);
+removed `gtk_widget_event`, which hands Tab to the web view, and
+`GtkLayout`, which holds the web views over native UI; turned
+`GtkClipboard` and `gtk_drag_*` into `GdkClipboard` and
+`GtkDragSource`/`GtkDropTarget`; made menus `GMenuModel`s in popovers; and
+removed `gtk_dialog_run` and `gtk_native_dialog_run`, which run the main
+loop until a message or file dialog is answered so that the call that
+opened it returns the answer. The window manager quirks the bounds
+handling above works around would have to be found again on GTK 4, across
+the same X11 window managers and Wayland compositors.
+
+GTK 3 is still maintained, installed on every desktop MyGo targets, and
+what WebKitGTK 4.1, AppIndicator and gtk-layer-shell are built against.
+The trade turns once WebKitGTK stops releasing 4.1, GTK 3 leaves the
+distributions apps ship to, or those that are still supported all have
+GTK 4.14: then a GTK 4 backend loses nothing GTK 3 still gives, and the
+features GTK 4 lacks become X11-only code beside it.
 
 ### Windows (`internal/windows`)
 
