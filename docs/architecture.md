@@ -402,12 +402,9 @@ purego gives three primitives, used everywhere:
 
 #### Why not GTK 4
 
-GTK 3 and GTK 4 cannot share a process, and GTK 4 changed or removed
-nearly every GTK 3 call the backend makes, so the backend cannot move one
-feature at a time: GTK 4 means rewriting most of `internal/linux` at once.
-That rewrite is not what holds it back. Even rewritten as a whole, a GTK 4
-backend would do less, run on fewer systems and give apps nothing they
-lack on GTK 3.
+The backend uses GTK 3 because a GTK 4 backend would do less, run on
+fewer systems and give apps nothing they lack on GTK 3, at the cost of
+rewriting most of `internal/linux`.
 
 **It would do less.** Some of what MyGo's API promises has no GTK 4
 counterpart, not even a renamed one:
@@ -429,8 +426,8 @@ counterpart, not even a renamed one:
 
 Only X11 could get placement and hints back, through Xlib and EWMH beside
 GTK (`XMoveWindow`, `_NET_WM_STATE_ABOVE`, `_NET_WM_STATE_SKIP_TASKBAR`),
-and GTK 4.18 deprecated its X11 backend, to be removed in GTK 5: the
-rewrite would rest those features on what GTK is dropping. Wayland is no
+and GTK 4.18 deprecated its X11 backend, to be removed in GTK 5: a
+GTK 4 backend would rest those features on what GTK is dropping. Wayland is no
 reason to move either: no GTK version places windows there.
 
 **It would run on fewer systems.** GTK 4 replaced ATK, which native UI's
