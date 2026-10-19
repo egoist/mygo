@@ -301,7 +301,7 @@ func layouts() map[string]layout {
 		"GhosttyTerminalModeConfig":      {unsafe.Sizeof(mc), map[string]uintptr{"mode": 0, "value": unsafe.Offsetof(mc.value)}},
 		"GhosttyGridRef":                 {unsafe.Sizeof(gr), map[string]uintptr{"node": unsafe.Offsetof(gr.node), "x": unsafe.Offsetof(gr.x), "y": unsafe.Offsetof(gr.y)}},
 		"GhosttyPoint":                   {unsafe.Sizeof(pt), map[string]uintptr{"tag": 0, "value": unsafe.Offsetof(pt.x)}},
-		"GhosttyPointCoordinate":         {8, map[string]uintptr{"x": unsafe.Offsetof(pt.x) - unsafe.Offsetof(pt.x), "y": unsafe.Offsetof(pt.y) - unsafe.Offsetof(pt.x)}},
+		"GhosttyPointCoordinate":         {unsafe.Sizeof(pointCoordinate{}), map[string]uintptr{"x": 0, "y": unsafe.Offsetof(pointCoordinate{}.y)}},
 		"GhosttySelection":               {unsafe.Sizeof(sel), map[string]uintptr{"start": unsafe.Offsetof(sel.start), "end": unsafe.Offsetof(sel.end), "rectangle": unsafe.Offsetof(sel.rectangle)}},
 		"GhosttyTerminalSelectionFormatOptions": {unsafe.Sizeof(sfo), map[string]uintptr{
 			"emit": unsafe.Offsetof(sfo.emit), "unwrap": unsafe.Offsetof(sfo.unwrap), "trim": unsafe.Offsetof(sfo.trim), "selection": unsafe.Offsetof(sfo.selection),

@@ -525,9 +525,10 @@ const formatVT = 1
 // VT returns the terminal's state as escape sequences, which restore it in
 // a terminal of the same size: the scrollback and the screen with their
 // styles and hyperlinks, then the modes, the scrolling region, the tab
-// stops, the working directory, the keyboard's flags and the cursor. The
-// palette is left out, as the terminal it restores in has colors of its
-// own.
+// stops, the working directory, the keyboard's flags and the cursor, and
+// the images of the Kitty graphics protocol placed, when the terminal
+// keeps them. The palette is left out, as the terminal it restores in has
+// colors of its own.
 func (t *Terminal) VT() []byte {
 	opts := formatterOptions{size: unsafe.Sizeof(formatterOptions{}), emit: formatVT}
 	x := &opts.extra
@@ -548,7 +549,7 @@ func (t *Terminal) VT() []byte {
 	if p != 0 {
 		call(fnFree, 0, p, n)
 	}
-	return b
+	return t.withImages(b)
 }
 
 // Compress compresses some of the scrollback, as when the terminal is

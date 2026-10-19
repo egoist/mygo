@@ -170,3 +170,76 @@ func TestVirtualPlacements(t *testing.T) {
 		t.Errorf("placement without a grid %+v", v)
 	}
 }
+
+// A snapshot restores the images placed in a terminal that keeps images,
+// where they are: one scrolled into the scrollback, one on the cursor's
+// row, after which no row is written, and a virtual one, with their
+// pixels and what the program gave.
+func TestSnapshotImages(t *testing.T) {
+	src := newImageTerm(t, 16<<20)
+	src.Write([]byte("ab" + kittyPNG(t, 7, 4, 2, ",X=3,Y=5")))
+	src.Write([]byte(strings.Repeat("line\r\n", 8)))
+	rgb := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+	src.Write([]byte("tail " + kittyCmd("a=T,f=24,s=2,v=2,i=8,z=-5,x=1,y=0,w=1,h=2,C=1", rgb)))
+	src.Write([]byte(kittyPNG(t, 9, 3, 1, ",U=1,p=4")))
+	want := src.snapshotPlacements()
+	sortPlacements(want)
+	if len(want) != 3 || want[0].active != -1 || want[1].active != 4 {
+		t.Fatalf("placements before %+v", want)
+	}
+
+	dst := newImageTerm(t, 16<<20)
+	dst.Write(src.VT())
+	got := dst.snapshotPlacements()
+	sortPlacements(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("placements\n got %+v\nwant %+v", got, want)
+	}
+	if g, w := dst.Placements(nil), src.Placements(nil); !slices.Equal(g, w) {
+		t.Errorf("on the screen\n got %+v\nwant %+v", g, w)
+	}
+	if g, w := dst.Text(), src.Text(); g != w {
+		t.Errorf("text\n got %q\nwant %q", g, w)
+	}
+	gx, gy := dst.Cursor()
+	wx, wy := src.Cursor()
+	if gx != wx || gy != wy {
+		t.Errorf("cursor %d,%d, want %d,%d", gx, gy, wx, wy)
+	}
+	for _, id := range []uint32{7, 8, 9} {
+		a, _ := src.Image(id)
+		b, ok := dst.Image(id)
+		if !ok || !samePixels(imageOf(a), imageOf(b)) {
+			t.Errorf("image %d: %+v, want the pixels of %+v", id, b, a)
+		}
+	}
+}
+
+// Without images, as by default, a snapshot has no Kitty graphics
+// commands, even of an image a program sent.
+func TestSnapshotWithoutImages(t *testing.T) {
+	term := newImageTerm(t, 0)
+	term.Write([]byte("ab" + kittyPNG(t, 7, 4, 2, "")))
+	if vt := term.VT(); bytes.Contains(vt, []byte("\x1b_G")) {
+		t.Errorf("snapshot %q", vt)
+	}
+}
+
+func sortPlacements(ps []snapPlacement) {
+	slices.SortFunc(ps, func(a, b snapPlacement) int { return int(a.image) - int(b.image) })
+}
+
+func samePixels(a, b image.Image) bool {
+	if a == nil || b == nil || a.Bounds() != b.Bounds() {
+		return false
+	}
+	r := a.Bounds()
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			if color.NRGBAModel.Convert(a.At(x, y)) != color.NRGBAModel.Convert(b.At(x, y)) {
+				return false
+			}
+		}
+	}
+	return true
+}

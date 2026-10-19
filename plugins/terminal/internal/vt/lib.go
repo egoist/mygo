@@ -48,7 +48,8 @@ var (
 	fnGridRefHyperlinkURI, fnGridRefGraphemes, fnGridRefCell, fnTypeJSON, fnFormatterFormatAlloc, fnFormatterFree uintptr
 
 	fnAlloc, fnSysSet, fnKittyGraphicsGet, fnKittyGraphicsImage, fnKittyImageGet, fnKittyPlacementIteratorNew,
-	fnKittyPlacementIteratorFree, fnKittyPlacementNext, fnKittyPlacementGet, fnKittyPlacementRenderInfo uintptr
+	fnKittyPlacementIteratorFree, fnKittyPlacementNext, fnKittyPlacementGet, fnKittyPlacementRenderInfo,
+	fnKittyPlacementRect, fnTerminalPointFromGridRef uintptr
 
 	// Bound with registerFunc below: they take structs or floats.
 	fnTerminalScrollViewport, fnTerminalGridRef, fnMouseEventSetPosition, fnSelectionFormatAlloc, fnFormatterTerminalNew uintptr
@@ -152,6 +153,8 @@ var symbols = []struct {
 	{"ghostty_kitty_graphics_placement_next", &fnKittyPlacementNext},
 	{"ghostty_kitty_graphics_placement_get", &fnKittyPlacementGet},
 	{"ghostty_kitty_graphics_placement_render_info", &fnKittyPlacementRenderInfo},
+	{"ghostty_kitty_graphics_placement_rect", &fnKittyPlacementRect},
+	{"ghostty_terminal_point_from_grid_ref", &fnTerminalPointFromGridRef},
 }
 
 // Load loads the library at path. Only the first call loads one: later
@@ -332,9 +335,15 @@ var enums = []struct {
 	{"GhosttyKittyGraphicsPlacementData", "IS_VIRTUAL", placementDataIsVirtual},
 	{"GhosttyKittyGraphicsPlacementData", "X_OFFSET", placementDataXOffset},
 	{"GhosttyKittyGraphicsPlacementData", "Y_OFFSET", placementDataYOffset},
+	{"GhosttyKittyGraphicsPlacementData", "SOURCE_X", placementDataSourceX},
+	{"GhosttyKittyGraphicsPlacementData", "SOURCE_Y", placementDataSourceY},
+	{"GhosttyKittyGraphicsPlacementData", "SOURCE_WIDTH", placementDataSourceWidth},
+	{"GhosttyKittyGraphicsPlacementData", "SOURCE_HEIGHT", placementDataSourceHeight},
 	{"GhosttyKittyGraphicsPlacementData", "COLUMNS", placementDataColumns},
 	{"GhosttyKittyGraphicsPlacementData", "ROWS", placementDataRows},
 	{"GhosttyKittyGraphicsPlacementData", "Z", placementDataZ},
+	{"GhosttyPointTag", "ACTIVE", pointTagActive},
+	{"GhosttyPointTag", "SCREEN", pointTagScreen},
 	{"GhosttyKittyGraphicsImageData", "WIDTH", imageDataWidth},
 	{"GhosttyKittyGraphicsImageData", "HEIGHT", imageDataHeight},
 	{"GhosttyKittyGraphicsImageData", "FORMAT", imageDataFormat},

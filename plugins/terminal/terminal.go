@@ -812,10 +812,22 @@ func (t *Terminal) Resize(cols, rows int) {
 	t.resize(gridSize{max(cols, 1), max(rows, 1), t.size.cellW, t.size.cellH})
 }
 
+// ResizePixels sets the size of the screen in cells and in pixels, for a
+// terminal no view shows, as Resize does: images of the Kitty graphics
+// protocol take the cells their size in pixels covers, so that the screen
+// matches that of the window it is shown in.
+func (t *Terminal) ResizePixels(cols, rows, width, height int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	cols, rows = max(cols, 1), max(rows, 1)
+	t.resize(gridSize{cols, rows, max(width/cols, 1), max(height/rows, 1)})
+}
+
 // Snapshot returns what the terminal shows as escape sequences: its
 // scrollback and screen with their styles, the cursor and the modes
-// programs set. Fed to a new terminal of the same size, it shows the same,
-// as a terminal attaching again to a session a server keeps.
+// programs set, and the images placed when ImageStorageBytes lets it keep
+// them. Fed to a new terminal of the same size, it shows the same, as a
+// terminal attaching again to a session a server keeps.
 func (t *Terminal) Snapshot() []byte {
 	t.mu.Lock()
 	defer t.mu.Unlock()

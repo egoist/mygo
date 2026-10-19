@@ -168,7 +168,8 @@ term, err := terminal.New(terminal.Options{
   reads them from files or shared memory. Images of Unicode placeholders
   (U+10EEEE) draw too: cells of text that say the tile of an image each
   shows, which programs print under tmux, so that tmux keeps, scrolls and
-  redraws them as text, and the image follows.
+  redraws them as text, and the image follows. A terminal that keeps
+  images puts them in its `Snapshot`.
 - `Transparent` leaves the background undrawn, as Ghostty's
   `background-opacity`, so that what is under the view shows through: the
   window's material, or an element's translucent background. Cells with a
@@ -444,11 +445,15 @@ The terminal's methods are safe from any goroutine:
   `Text` (the screen and its scrollback) read the terminal.
 - `SetFont` and `SetTheme` change the font and the colors; `SetFont` also
   sets the size a zoom resets to, and drops the zoom.
-- `Resize` sets the size of a terminal no view shows, and `Snapshot`
-  returns what a terminal shows as escape sequences: its scrollback and
-  screen with their styles, the cursor and the modes programs set. Fed to
-  a new terminal of the same size, it shows the same, as when a server
-  keeps a session's screen for the windows that attach to it.
+- `Resize` sets the size of a terminal no view shows, and `ResizePixels`
+  its size in pixels too, which images of the Kitty graphics protocol are
+  sized by. `Snapshot` returns what a terminal shows as escape sequences:
+  its scrollback and screen with their styles, the cursor and the modes
+  programs set, and, when `ImageStorageBytes` lets it keep images, those
+  placed: each sent again once, with its ID, and placed where it is, in
+  the scrollback too. Fed to a new terminal of the same size, it shows the
+  same, as when a server keeps a session's screen for the windows that
+  attach to it.
 - `Close` hangs up the program, which gets SIGHUP, and frees the terminal.
 
 ## Without a program

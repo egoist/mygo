@@ -20,14 +20,21 @@ const (
 	kittyDataPlacementIterator = 1
 	kittyDataGeneration        = 2
 
-	placementDataImageID     = 1
-	placementDataPlacementID = 2
-	placementDataIsVirtual   = 3
-	placementDataXOffset     = 4
-	placementDataYOffset     = 5
-	placementDataColumns     = 10
-	placementDataRows        = 11
-	placementDataZ           = 12
+	placementDataImageID      = 1
+	placementDataPlacementID  = 2
+	placementDataIsVirtual    = 3
+	placementDataXOffset      = 4
+	placementDataYOffset      = 5
+	placementDataSourceX      = 6
+	placementDataSourceY      = 7
+	placementDataSourceWidth  = 8
+	placementDataSourceHeight = 9
+	placementDataColumns      = 10
+	placementDataRows         = 11
+	placementDataZ            = 12
+
+	pointTagActive = 0 // GHOSTTY_POINT_TAG_ACTIVE
+	pointTagScreen = 2 // GHOSTTY_POINT_TAG_SCREEN
 
 	imageDataWidth      = 3
 	imageDataHeight     = 4
