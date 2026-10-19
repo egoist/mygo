@@ -93,8 +93,8 @@ type Options struct {
 	// scrollback drops the lines it sits on, and an image's pixels when
 	// this budget needs the room, oldest first, or the program deletes it.
 	// Images come in the program's output, which reaches over ssh; the
-	// terminal never reads them from files or shared memory, and draws no
-	// images of Unicode placeholders (U+10EEEE), as tmux passes them.
+	// terminal never reads them from files or shared memory. Images of
+	// Unicode placeholders (U+10EEEE), which tmux passes on, draw too.
 	ImageStorageBytes int
 	// OptionAsAlt makes Option on macOS the Alt key of programs (Meta),
 	// rather than the key that types accented letters and symbols.

@@ -63,6 +63,66 @@ func TestImages(t *testing.T) {
 	}
 }
 
+// Unicode placeholders show the tiles of an image their cells say, and
+// nothing for an image of another ID or with images refused.
+func TestPlaceholders(t *testing.T) {
+	loadLib(t)
+	// 2×1 pixels, red then green, placed virtually over a grid of 2×1
+	// cells: a cell shows each.
+	img := image.NewNRGBA(image.Rect(0, 0, 2, 1))
+	img.SetNRGBA(0, 0, imgcolor.NRGBA{255, 0, 0, 255})
+	img.SetNRGBA(1, 0, imgcolor.NRGBA{0, 255, 0, 255})
+	var b bytes.Buffer
+	png.Encode(&b, img)
+	send := "\x1b_Ga=T,f=100,i=1,U=1,c=2,r=1,q=2;" + base64.StdEncoding.EncodeToString(b.Bytes()) + "\x1b\\"
+	const ph = "\U0010EEEE"
+	row, col0, col1 := "\u0305", "\u0305", "\u030D" // diacritics 0, 0, 1
+	cells := func(fg int, text string) string { return fmt.Sprintf("\x1b[H\x1b[38;5;%dm%s\x1b[0m", fg, text) }
+	const none, red, green = 0, 1, 2
+	for _, c := range []struct {
+		name   string
+		images int
+		feed   string
+		want   [2]int
+	}{
+		{"each cell its tile", 16 << 20, cells(1, ph+row+col0+ph+row+col1), [2]int{red, green}},
+		{"tiles swapped", 16 << 20, cells(1, ph+row+col1+ph+row+col0), [2]int{green, red}},
+		{"a cell saying nothing continues", 16 << 20, cells(1, ph+row+col0+ph), [2]int{red, green}},
+		{"another image's ID", 16 << 20, cells(2, ph+row+col0+ph+row+col1), [2]int{none, none}},
+		{"refused by default", 0, cells(1, ph+row+col0+ph+row+col1), [2]int{none, none}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			term, err := New(Options{Conn: newPipe(), ImageStorageBytes: c.images, NoBlink: true, Theme: &Theme{Background: ui.RGB(10, 10, 10), Foreground: ui.RGB(200, 200, 200)}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer term.Close()
+			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+			tt.Frame()
+			term.Feed([]byte(send + c.feed))
+			// The first frame finds the image the cells show; the next
+			// one has its pixels.
+			tt.Frame()
+			tt.Frame()
+			s := term.v.scale
+			for i, want := range c.want {
+				x, y := cellCenter(term, i, 0)
+				px := tt.Image().RGBAAt(int(x*s), int(y*s))
+				got := none
+				switch {
+				case px.R > 200 && px.G < 40 && px.B < 40:
+					got = red
+				case px.G > 200 && px.R < 40 && px.B < 40:
+					got = green
+				}
+				if got != want {
+					t.Errorf("cell %d is %v; want %v", i, px, []string{"neither", "red", "green"}[want])
+				}
+			}
+		})
+	}
+}
+
 // pixelConn and cellConn are Conns that are told the size of the screen.
 type pixelConn struct {
 	*pipe

@@ -24,6 +24,9 @@ type rowCache struct {
 	selB  int
 	sel   bool
 	wide  []int16 // the columns of wide characters
+	// holders are the row's runs of Unicode placeholders of images,
+	// when the view draws images.
+	holders []placeholderRun
 }
 
 type bgSpan struct {
@@ -124,9 +127,6 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	rs := t.rs
 	if !held {
 		rs.EndUpdate()
-		if v.images != nil {
-			v.images.update()
-		}
 	}
 	colors := rs.Colors()
 	full := rs.Dirty() == vt.Full || colors != v.colors
@@ -144,6 +144,14 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		}
 	}
 	rs.Clean()
+	if v.images != nil && !held {
+		// An image placeholders show first gets its pixels in the next
+		// frame's snapshot.
+		if v.images.placeholders(v.lines, v.cellW, v.cellH) {
+			v.services.Invalidate()
+		}
+		v.images.update()
+	}
 	v.draw(p, r)
 }
 
@@ -190,7 +198,7 @@ func (v *view) resolve(s vt.Style) resolved {
 
 // buildRow makes the cache of the render state's current row.
 func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
-	*line = rowCache{ok: true, bgs: line.bgs[:0], runs: line.runs[:0], decos: line.decos[:0], boxes: line.boxes[:0], wide: line.wide[:0]}
+	*line = rowCache{ok: true, bgs: line.bgs[:0], runs: line.runs[:0], decos: line.decos[:0], boxes: line.boxes[:0], wide: line.wide[:0], holders: line.holders[:0]}
 	cells := rs.RowCells()
 	line.selA, line.selB, line.sel = rs.RowSelection()
 	def := resolved{fg: color(v.colors.Foreground), bg: color(v.colors.Background)}
@@ -225,9 +233,25 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 		v.shapeRun(line, run.text, run.cols, run.widths, run.fg, run.variant)
 		run.text, run.cols, run.widths = run.text[:0], run.cols[:0], run.widths[:0]
 	}
-	var buf []rune
+	var buf, marks []rune
+	var holders placeholderRuns
 	for x := 0; x < len(cells) && x < cols; x++ {
 		c := cells[x]
+		if v.images != nil {
+			if c.Codepoint == placeholder {
+				// A tile of an image, which draws no text.
+				var tile []rune // the diacritics after U+10EEEE
+				if c.Grapheme {
+					if marks = rs.CellGraphemes(x, marks[:0]); len(marks) > 1 {
+						tile = marks[1:]
+					}
+				}
+				line.holders = holders.add(line.holders, x, parsePlaceholder(rs.CellStyle(x), tile))
+				c.Codepoint, c.Grapheme = 0, false
+			} else {
+				line.holders = holders.end(line.holders)
+			}
+		}
 		if c.Wide == vt.SpacerTail || c.Wide == vt.SpacerHead {
 			continue
 		}
@@ -297,6 +321,7 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 		}
 	}
 	flush()
+	line.holders = holders.end(line.holders)
 }
 
 func (r resolved) ulColor() ui.Color {

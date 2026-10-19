@@ -20,10 +20,14 @@ const (
 	kittyDataPlacementIterator = 1
 	kittyDataGeneration        = 2
 
-	placementDataImageID = 1
-	placementDataXOffset = 4
-	placementDataYOffset = 5
-	placementDataZ       = 12
+	placementDataImageID     = 1
+	placementDataPlacementID = 2
+	placementDataIsVirtual   = 3
+	placementDataXOffset     = 4
+	placementDataYOffset     = 5
+	placementDataColumns     = 10
+	placementDataRows        = 11
+	placementDataZ           = 12
 
 	imageDataWidth      = 3
 	imageDataHeight     = 4
@@ -174,18 +178,10 @@ func (t *Terminal) ImagesGeneration() uint64 {
 
 // Placements appends to dst the placements that show in the viewport, in
 // the order the library keeps them. Placements of Unicode placeholders,
-// which cells draw, are left out.
+// which cells draw, are left out: VirtualPlacements reads those.
 func (t *Terminal) Placements(dst []Placement) []Placement {
-	g := t.graphics()
-	if g == 0 {
-		return dst
-	}
-	if t.placements == 0 && !ok(call(fnKittyPlacementIteratorNew, 0, uintptr(unsafe.Pointer(&t.placements)))) {
-		t.placements = 0
-		return dst
-	}
-	it := t.placements
-	if !ok(call(fnKittyGraphicsGet, g, kittyDataPlacementIterator, uintptr(unsafe.Pointer(&it)))) {
+	g, it := t.placementIterator()
+	if it == 0 {
 		return dst
 	}
 	for cbool(call(fnKittyPlacementNext, it)) {
@@ -214,6 +210,58 @@ func (t *Terminal) Placements(dst []Placement) []Placement {
 		})
 	}
 	return dst
+}
+
+// VirtualPlacement is a placement of an image that Unicode placeholders
+// show: cells of U+10EEEE, which say the image and the tile of the
+// placement's grid each shows.
+type VirtualPlacement struct {
+	Image, ID uint32
+	// Cols and Rows are the grid the image fits in, 0 for the cells the
+	// image covers at its size.
+	Cols, Rows int
+}
+
+// VirtualPlacements appends to dst the placements of Unicode
+// placeholders, of every image.
+func (t *Terminal) VirtualPlacements(dst []VirtualPlacement) []VirtualPlacement {
+	_, it := t.placementIterator()
+	if it == 0 {
+		return dst
+	}
+	for cbool(call(fnKittyPlacementNext, it)) {
+		var virtual bool
+		if !ok(call(fnKittyPlacementGet, it, placementDataIsVirtual, uintptr(unsafe.Pointer(&virtual)))) || !virtual {
+			continue
+		}
+		var img, id, cols, rows uint32
+		if !ok(call(fnKittyPlacementGet, it, placementDataImageID, uintptr(unsafe.Pointer(&img)))) ||
+			!ok(call(fnKittyPlacementGet, it, placementDataPlacementID, uintptr(unsafe.Pointer(&id)))) {
+			continue
+		}
+		call(fnKittyPlacementGet, it, placementDataColumns, uintptr(unsafe.Pointer(&cols)))
+		call(fnKittyPlacementGet, it, placementDataRows, uintptr(unsafe.Pointer(&rows)))
+		dst = append(dst, VirtualPlacement{Image: img, ID: id, Cols: int(cols), Rows: int(rows)})
+	}
+	return dst
+}
+
+// placementIterator returns the image storage of the active screen and
+// the terminal's placement iterator over it, or 0s.
+func (t *Terminal) placementIterator() (g, it uintptr) {
+	g = t.graphics()
+	if g == 0 {
+		return 0, 0
+	}
+	if t.placements == 0 && !ok(call(fnKittyPlacementIteratorNew, 0, uintptr(unsafe.Pointer(&t.placements)))) {
+		t.placements = 0
+		return 0, 0
+	}
+	it = t.placements
+	if !ok(call(fnKittyGraphicsGet, g, kittyDataPlacementIterator, uintptr(unsafe.Pointer(&it)))) {
+		return 0, 0
+	}
+	return g, it
 }
 
 // Image returns the image of an ID, and false when there is none or its

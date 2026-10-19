@@ -165,8 +165,10 @@ term, err := terminal.New(terminal.Options{
   scrollback drops the lines it sits on, and an image's pixels when this
   budget needs the room, oldest first, or the program deletes it. Images
   come in the program's output, so they reach over ssh; the terminal never
-  reads them from files or shared memory, and draws none of Unicode
-  placeholders (U+10EEEE), the way tmux passes them on.
+  reads them from files or shared memory. Images of Unicode placeholders
+  (U+10EEEE) draw too: cells of text that say the tile of an image each
+  shows, which programs print under tmux, so that tmux keeps, scrolls and
+  redraws them as text, and the image follows.
 - `Transparent` leaves the background undrawn, as Ghostty's
   `background-opacity`, so that what is under the view shows through: the
   window's material, or an element's translucent background. Cells with a

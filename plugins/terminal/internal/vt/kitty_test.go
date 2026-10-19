@@ -148,3 +148,25 @@ func TestImageScrolls(t *testing.T) {
 		t.Errorf("scrolled out, still at row %d", r)
 	}
 }
+
+// A virtual placement (U=1) is not placed on the screen: it is read with
+// its grid, for the Unicode placeholders that show it.
+func TestVirtualPlacements(t *testing.T) {
+	term := newImageTerm(t, 16<<20)
+	term.Write([]byte(kittyPNG(t, 5, 4, 2, ",U=1,p=9")))
+	term.Write([]byte(kittyPNG(t, 6, 0, 0, ",U=1")))
+	if ps := term.Placements(nil); len(ps) != 0 {
+		t.Errorf("virtual placements on the screen: %+v", ps)
+	}
+	vs := term.VirtualPlacements(nil)
+	if len(vs) != 2 {
+		t.Fatalf("virtual placements %+v", vs)
+	}
+	slices.SortFunc(vs, func(a, b VirtualPlacement) int { return int(a.Image) - int(b.Image) })
+	if want := (VirtualPlacement{Image: 5, ID: 9, Cols: 4, Rows: 2}); vs[0] != want {
+		t.Errorf("placement %+v, want %+v", vs[0], want)
+	}
+	if v := vs[1]; v.Image != 6 || v.Cols != 0 || v.Rows != 0 {
+		t.Errorf("placement without a grid %+v", v)
+	}
+}
