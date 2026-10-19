@@ -400,6 +400,52 @@ purego gives three primitives, used everywhere:
   becomes the display's startup notification id while the callback runs,
   so the window it shows or focuses may take the focus.
 
+#### Why not GTK 4
+
+The backend stays on GTK 3 because GTK 4 dropped what MyGo's API promises
+on Linux, and GTK 3 and GTK 4 cannot share a process, so there is no
+moving one feature at a time:
+
+- **Window placement.** GTK 4 has no `gtk_window_move`,
+  `gtk_window_get_position`, `gtk_window_set_position` or
+  `gdk_window_get_frame_extents`, on X11 too: an app cannot put a window
+  anywhere or ask where it is. `Bounds`, `SetBounds`, `Center` and the
+  frame handling above rest on them, and flyouts are anchored to a
+  rectangle with `gdk_window_move_to_rect`, of a `GdkWindow` GTK 4 has no
+  more.
+- **Window hints.** `gtk_window_set_keep_above`,
+  `gtk_window_set_skip_taskbar_hint` and `gtk_window_set_type_hint` are
+  gone (always on top, windows kept out of the taskbar, flyouts), and with
+  `gtk_widget_set_visual` and `gtk_widget_set_app_paintable`, the way to
+  make a window transparent.
+- **Menus.** `GtkMenu` and `GtkMenuBar` are gone: GTK 4's menus are
+  `GMenuModel`s shown in popovers, which stay inside their window. Context
+  menus at the pointer or a rectangle (`gtk_menu_popup_at_*`) and the menu
+  bar build `GtkMenu`s, and AppIndicator, which draws tray icons, takes a
+  `GtkMenu`.
+- **Events.** GTK 4 replaced the `button-press-event`,
+  `motion-notify-event`, `key-press-event` and `configure-event` signals
+  with event controllers and made `GdkEvent` opaque, where the backend
+  reads its fields at fixed offsets (`field[T]`). `gtk_widget_event`,
+  which hands Tab to the web view, is gone, as is `GtkLayout`, which holds
+  the web views over native UI.
+- **Clipboard, drag and drop, accessibility.** `GtkClipboard`, the
+  `gtk_drag_*` functions and ATK, which native UI's accessible tree
+  implements (`surface_access.go`) and GTK 3 bridges to AT-SPI, became
+  `GdkClipboard`, `GtkDragSource`/`GtkDropTarget` and `GtkAccessible`,
+  whose API for text an app draws itself came only with GTK 4.14.
+- **Dialogs.** `gtk_dialog_run` and `gtk_native_dialog_run` are gone,
+  which run the main loop until a message or file dialog is answered, so
+  that the call that opened it returns the answer.
+
+GTK 4 means WebKitGTK 6.0 too, which replaces 4.1 and 4.0 rather than
+adding to them, so apps could no longer fall back to the WebKitGTK 4.0 of
+older distributions. GTK 3 is still maintained, installed on every desktop
+MyGo targets, and what WebKitGTK 4.1, AppIndicator and gtk-layer-shell are
+built against. A GTK 4 backend would be a rewrite of most of
+`internal/linux`, worth it once GTK 3 or WebKitGTK 4.1 leaves the
+distributions apps ship to.
+
 ### Windows (`internal/windows`)
 
 - Win32 is called through `syscall` (`LazyDLL` procs; system DLLs are loaded
