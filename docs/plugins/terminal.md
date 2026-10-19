@@ -482,6 +482,23 @@ term, err := terminal.New(terminal.Options{Conn: session})
 A terminal whose `Conn` never sends anything shows what the app writes
 with `Feed`, as a log with colors would.
 
+A client of a server that keeps the session's own terminal, as a
+multiplexer does, sets `ResizeByConn`. The view then only asks `Conn` for
+the size it fits, and the screen keeps its size until the app calls
+`Resize`, which it does where the server's output says the server resized.
+Both screens then lay out each byte at the same size. Resized at once, the
+client's screen would lay out output the program wrote for the old size at
+the new one, which the server laid out at the old: a line would wrap in one
+and not the other, and the program's next redraw, which moves the cursor
+from where it thinks it is, would land elsewhere. The server's screen, which
+the next client attaching gets, would then show the cursor astray.
+
+```go
+term, err := terminal.New(terminal.Options{Conn: stream, ResizeByConn: true})
+// As the server's output says it resized to cols×rows:
+term.Resize(cols, rows)
+```
+
 ## The library
 
 libghostty-vt is a native library of Ghostty, built for each platform from
