@@ -165,6 +165,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 // resolved is a cell's style with its colors resolved.
 type resolved struct {
 	fg, bg, ul       ui.Color
+	shapeFg          ui.Color // fg without the minimum contrast (noMinContrast)
 	hasBg, hasUl     bool
 	variant          int // 1 bold, 2 italic
 	inverse          bool
@@ -191,11 +192,12 @@ func (v *view) resolve(s vt.Style) resolved {
 	if s.Inverse {
 		r.fg, r.bg, r.hasBg, r.inverse = r.bg, r.fg, true, true
 	}
+	r.shapeFg = r.fg
 	if v.contrast > 1 {
 		r.fg = contrasted(r.fg, r.bg, v.contrast)
 	}
 	if s.Faint {
-		r.fg = r.fg.Alpha(0.5)
+		r.fg, r.shapeFg = r.fg.Alpha(0.5), r.shapeFg.Alpha(0.5)
 	}
 	if s.Bold {
 		r.variant |= 1
@@ -258,6 +260,7 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 	cells := rs.RowCells()
 	line.selA, line.selB, line.sel = rs.RowSelection()
 	def := resolved{fg: color(v.colors.Foreground), bg: color(v.colors.Background)}
+	def.shapeFg = def.fg
 	var styles []struct {
 		id uint16
 		r  resolved
@@ -330,6 +333,9 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 		cp := c.Codepoint
 		if cp == 0 || st.invisible {
 			cp = ' '
+		}
+		if noMinContrast(cp) {
+			st.fg = st.shapeFg
 		}
 		if drawn(cp) {
 			line.boxes = append(line.boxes, boxCell{x, cp, st.fg})

@@ -257,6 +257,7 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 		if v.applied != theme {
 			theme.apply(t.term)
 			v.applied = theme
+			t.themeConn(theme)
 		}
 		t.curTheme = theme
 		if focused != v.focused && t.term.Mode(vt.ModeFocusEvent) {
