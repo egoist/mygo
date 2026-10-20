@@ -58,10 +58,10 @@ const (
 	PaddingBackground PaddingColor = iota
 	// PaddingExtend extends the backgrounds of the cells nearest to the
 	// padding into it: a row's beside it, the top and the bottom rows'
-	// above and below the grid, as Ghostty's extend. While a full-screen
-	// program shows (the alternate screen) it extends every row's; on the
-	// main screen only those of rows whose every cell has a background of
-	// its own, so that a shell's highlights stay in their cells. A lone
+	// above and below the grid, as Ghostty's extend: those of rows whose
+	// every cell has a background of its own, as a full-screen program
+	// painting its own background has, so that a shell's highlights, a
+	// program's tabs or the box it draws keep to their cells. A lone
 	// character in inverse video, as a program draws its own cursor,
 	// keeps its background in its cell.
 	PaddingExtend

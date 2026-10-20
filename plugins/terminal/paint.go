@@ -134,7 +134,6 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		t.rs.BeginUpdate(t.term)
 	}
 	v.scrollbar = t.term.Scrollbar()
-	v.alt = t.term.AltScreen()
 	contrast := t.opts.MinimumContrast
 	tc, tr := t.term.Size()
 	v.matches, v.matchBuf = t.viewportMatches(v.matches, v.matchBuf, tc, tr)
@@ -605,7 +604,7 @@ func (v *view) extendPadding(p *ui.Painter, r ui.Rect, ox, oy, cw, ch float32) {
 	if len(v.lines) == 0 {
 		return
 	}
-	always := v.t.opts.PaddingColor == PaddingExtendAlways || v.alt
+	always := v.t.opts.PaddingColor == PaddingExtendAlways
 	extends := func(line *rowCache) bool { return always || line.filled }
 	cols := v.cols
 	left, right := r.X, r.X+r.W

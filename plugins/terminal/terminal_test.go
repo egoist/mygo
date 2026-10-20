@@ -2262,3 +2262,40 @@ func TestUseTheme(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+// A full-screen program's rows with cells of the default background keep
+// their colors in their cells, as in Ghostty: Copilot CLI's tabs on its
+// top row grew up into the padding, and the row of its input box, which
+// starts with a border on the default background, stuck out past the box.
+func TestPaddingPartialRows(t *testing.T) {
+	loadLib(t)
+	th := LightTheme()
+	term, err := New(Options{Conn: newPipe(), Theme: th, NoBlink: true, Padding: Padding{X: 20, Y: 12}, PaddingColor: PaddingExtend})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	tt.Frame()
+	pad := strings.Repeat(" ", term.v.cols)
+	term.Feed([]byte("\x1b[?1049h\x1b[H \x1b[44m Current \x1b[0m \x1b[47m Gists \x1b[0m\x1b[3;1H┃\x1b[47m" + pad[1:] + "\x1b[0m"))
+	tt.Frame()
+	at := func(x, y float32) ui.Color {
+		s := term.v.scale
+		c := tt.Image().RGBAAt(int(x*s), int(y*s))
+		return ui.RGB(c.R, c.G, c.B)
+	}
+	x, _ := cellCenter(term, 3, 0)
+	_, y2 := cellCenter(term, 0, 2)
+	for _, c := range []struct {
+		name string
+		x, y float32
+	}{
+		{"above a tab", x, 3},
+		{"past the end of a box's row", 397, y2},
+	} {
+		if got := at(c.x, c.y); got != th.Background {
+			t.Errorf("the padding %s is %v, want the background %v", c.name, got, th.Background)
+		}
+	}
+}
