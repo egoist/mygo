@@ -43,6 +43,11 @@ A `MenuItem` has:
   group, in which checking one unchecks the others. Checkbox and radio
   items toggle `Checked` before `Click` runs;
 - `Disabled`, `Hidden` and `ToolTip`;
+- `Subtitle`, a second, smaller line under the label, and `Icon`, a PNG
+  image 16 points tall before it (`IconIsTemplate` lets macOS tint it, as
+  for [tray icons](#tray-icons)). macOS 14 and later, and browsers, show
+  the subtitle on its own line; earlier macOS, Windows and Linux append it
+  to the label after an em dash. Linux shows no icons;
 - `ID`, to find the item with `Menu.ItemByID`;
 - `Role`, a built-in behavior with its label and accelerator.
 
@@ -82,8 +87,8 @@ template serves every platform.
 ### Changing items
 
 Change items of a menu in use with their methods, so that the native menu
-follows: `SetLabel`, `SetEnabled`, `SetVisible`, `SetChecked` and
-`SetAccelerator`:
+follows: `SetLabel`, `SetEnabled`, `SetVisible`, `SetChecked`,
+`SetAccelerator`, `SetSubtitle` and `SetIcon`:
 
 ```go
 item := menu.ItemByID("sidebar")

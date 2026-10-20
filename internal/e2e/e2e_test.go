@@ -357,6 +357,47 @@ document.body.append(f);
 	probe.n.Store(0)
 }
 
+// Menu items show an icon 16 points tall, and their subtitle on a line of
+// its own from macOS 14, else after the label.
+func TestMenuItemIconAndSubtitle(t *testing.T) {
+	if _, _, _, supported, _ := menuItemLook(); !supported {
+		t.Skip("reading menu items back needs macOS")
+	}
+	var icon bytes.Buffer
+	if err := png.Encode(&icon, image.NewRGBA(image.Rect(0, 0, 64, 64))); err != nil {
+		t.Fatal(err)
+	}
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	menu := mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{
+		{ID: "code", Label: "123456", Subtitle: "GitHub", Icon: icon.Bytes()},
+	}}})
+	mygo.App.SetMenu(menu)
+	var title, subtitle string
+	var height float64
+	eventually(t, "the item in the menu", func() bool {
+		var err error
+		if title, subtitle, height, _, err = menuItemLook("App", "123456"); err != nil {
+			title, subtitle, height, _, err = menuItemLook("App", "123456 — GitHub")
+		}
+		return err == nil
+	})
+	if height != 16 {
+		t.Errorf("image height = %v, want 16", height)
+	}
+	if !(title == "123456" && subtitle == "GitHub" || title == "123456 — GitHub" && subtitle == "") {
+		t.Errorf("title %q, subtitle %q", title, subtitle)
+	}
+
+	item := menu.ItemByID("code")
+	item.SetSubtitle("")
+	item.SetIcon(nil)
+	eventually(t, "the item without subtitle and icon", func() bool {
+		_, subtitle, height, _, err := menuItemLook("App", "123456")
+		return err == nil && subtitle == "" && height == 0
+	})
+}
+
 func TestPopupMenu(t *testing.T) {
 	if _, ok := dismissPopups(); !ok {
 		t.Skip("popup automation not available on this platform")

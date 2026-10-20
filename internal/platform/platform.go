@@ -737,7 +737,19 @@ type MenuItem struct {
 	Visible     bool
 	Checked     bool
 	ToolTip     string
+	Subtitle    string
+	Icon        []byte // PNG
+	Template    bool   // Icon is a template image (macOS)
 	Submenu     *Menu
+}
+
+// LabelWithSubtitle is the label of backends that cannot show the subtitle
+// on a line of its own.
+func (it *MenuItem) LabelWithSubtitle() string {
+	if it.Subtitle == "" {
+		return it.Label
+	}
+	return it.Label + " — " + it.Subtitle
 }
 
 // FileFilter restricts the files shown in file dialogs.

@@ -26,6 +26,11 @@ func activateMenu(w *mygo.Window, path ...string) (err error) {
 	return err
 }
 
+func menuItemLook(path ...string) (title, subtitle string, imageHeight float64, supported bool, err error) {
+	mygo.RunOnMain(func() { title, subtitle, imageHeight, err = darwin.TestMenuItemLook(path...) })
+	return title, subtitle, imageHeight, true, err
+}
+
 func pressShortcut(key string, shift bool) (handled bool, supported bool) {
 	mygo.RunOnMain(func() { handled = darwin.TestPerformKeyEquivalent(key, shift) })
 	return handled, true
