@@ -272,6 +272,11 @@ const (
 	// ClipboardAsk asks the app first: Options.OnClipboardRequest when
 	// set, else the terminal's own prompt in the view.
 	ClipboardAsk
+	// ClipboardForward leaves OSC 52 reads to the terminals that show
+	// this one's Mirror frames, which pass them on: the terminal answering
+	// is theirs, with their clipboard and their policy. This one answers
+	// nothing, and refuses the Kitty protocol's reads (OSC 5522).
+	ClipboardForward
 )
 
 // CursorStyle is the shape of the cursor.
@@ -410,6 +415,9 @@ type Terminal struct {
 	events  events
 	closed  bool
 	clipOut []string // what programs copied, for the view to write
+	// clipForward are reads of the clipboard for a Mirror to pass on, with
+	// ClipboardForward: whether each is of the primary selection.
+	clipForward []bool
 	// clipReads are reads of the clipboard waiting for the main thread to
 	// answer them: a frame takes them, reads the clipboard and writes the
 	// reply (see view.answerReads).
