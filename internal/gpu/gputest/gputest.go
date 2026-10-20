@@ -24,7 +24,7 @@ import (
 // gray, and effects, reading their backdrop blurred at each size or not,
 // over each other, clipped and at the frame's edge, or reading none.
 func Scene() *scene.Scene {
-	s := &scene.Scene{Width: 320, Height: 740, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255},
+	s := &scene.Scene{Width: 320, Height: 800, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255},
 		Text: scene.TextParams{GammaRatios: scene.GammaRatios(1.8), Contrast: 1, SubpixelContrast: 0.5}}
 	mask := scene.NewAtlas(1, 64, 64)
 	color := scene.NewAtlas(4, 64, 32)
@@ -195,7 +195,7 @@ func Scene() *scene.Scene {
 	// Effects over them: reading their backdrop blurred at a quarter of
 	// the size, over each other at the same size, unblurred, clipped and
 	// half transparent at full size, past the frame's edge at half the
-	// size; and one reading none.
+	// size; one reading none; and two sharing one.
 	effect := func(e *scene.Effect, r scene.Rect, radii [4]float32, blur, shift float32, tint scene.Color, opacity float32) {
 		fx := scene.EffectOp{Effect: e, Blur: blur}
 		fx.Params[0] = [4]float32{shift}
@@ -214,6 +214,12 @@ func Scene() *scene.Scene {
 	add(scene.Op{Kind: scene.OpPopClip})
 	effect(LensEffect, scene.Rect{X: 284, Y: 494, W: 50, H: 50}, r4(14), 6, 2, white, 0)
 	effect(TintEffect, scene.Rect{X: 250, Y: 420, W: 30, H: 30}, r4(8), 0, 0, scene.Color{R: 220, G: 40, B: 40, A: 160}, 0)
+	// Two effects sharing a backdrop (scene.EffectOp.Shared), the second
+	// over the first, which it does not show: it reads what was under
+	// both, blurred by its own.
+	effect(LensEffect, scene.Rect{X: 196, Y: 474, W: 60, H: 26}, r4(6), 2, 0, scene.Color{R: 37, G: 99, B: 235, A: 255}, 0)
+	effect(LensEffect, scene.Rect{X: 226, Y: 480, W: 50, H: 34}, r4(10), 5, 1, scene.Color{R: 255, G: 255, B: 255, A: 40}, 0)
+	s.Effects[len(s.Effects)-1].Shared = true
 
 	// Inner shadows: a hairline blurred along the edge of a dark card,
 	// offset and spread, without blur, and with no hole left.
@@ -250,6 +256,15 @@ func Scene() *scene.Scene {
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 230, Y: 670, W: 80, H: 30}, Radii: r4(6), Border: scene.Uniform(3),
 		BorderColor: scene.Color{R: 255, G: 255, B: 255, A: 200}, BorderPaint: true, Dashed: true, Paint: scene.PaintLinearStops,
 		Gradient: [4]float32{230, 0, 310, 0}, Stops: stops(scene.Stop{Color: green, At: 0}, scene.Stop{Color: red, At: 1})})
+	// Radial gradients: round in sRGB, an ellipse off center in Oklab
+	// through a translucent stop, and a border.
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 10, Y: 742, W: 50, H: 50}, Radii: r4(25), Paint: scene.PaintRadial,
+		Gradient: [4]float32{35, 767, 25, 25}, Stops: stops(scene.Stop{Color: yellow, At: 0}, scene.Stop{Color: red, At: 0.6}, scene.Stop{Color: blue, At: 1})})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 70.5, Y: 742.25, W: 110, H: 50}, Radii: r4(10), Paint: scene.PaintRadialOklab,
+		Gradient: [4]float32{100, 760, 80, 30}, Stops: stops(scene.Stop{Color: blue, At: 0.1}, scene.Stop{Color: scene.Color{R: 250, G: 204, B: 21, A: 90}, At: 0.5}, scene.Stop{Color: green, At: 0.9})})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 190.5, Y: 742.25, W: 120, H: 50}, Radii: r4(12), Color: scene.Color{R: 255, G: 255, B: 255, A: 160},
+		Border: scene.Uniform(5), BorderColor: scene.Color{R: 255, G: 255, B: 255, A: 255}, BorderPaint: true, Paint: scene.PaintRadial,
+		Gradient: [4]float32{250, 767, 60, 25}, Stops: stops(scene.Stop{Color: red, At: 0.7}, scene.Stop{Color: blue, At: 1})})
 	start = int32(len(s.Glyphs))
 	for i := range 3 {
 		s.Glyphs = append(s.Glyphs, scene.Glyph{X: float32(10 + i*18), Y: 676, W: 16, H: 16, U: uint16(dx), V: uint16(dy), UW: 16, VH: 16, Color: ink})

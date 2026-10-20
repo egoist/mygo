@@ -200,6 +200,12 @@ const (
 	// CSS's conic-gradient() is; PaintConicOklab mixes them in Oklab.
 	PaintConic
 	PaintConicOklab
+	// PaintRadial is a radial gradient of the op's Stops from (Gradient[0],
+	// Gradient[1]) at 0 out to the ellipse of half axes Gradient[2] across
+	// and Gradient[3] down at 1, mixed in sRGB, as CSS's radial-gradient()
+	// is; PaintRadialOklab mixes them in Oklab.
+	PaintRadial
+	PaintRadialOklab
 )
 
 // Stop is a color of a gradient with stops (Op.Stops), at a place along
@@ -216,7 +222,7 @@ type Stop struct {
 const MaxStops = 32
 
 // HasStops reports whether paint takes its colors from the op's Stops.
-func (p Paint) HasStops() bool { return p >= PaintLinearStops && p <= PaintConicOklab }
+func (p Paint) HasStops() bool { return p >= PaintLinearStops && p <= PaintRadialOklab }
 
 // Uniform returns the widths of a border as wide on every side.
 func Uniform(w float32) [4]float32 { return [4]float32{w, w, w, w} }
@@ -374,6 +380,22 @@ func (s *Scene) BackdropOf(r Rect, blur float32, w, h int) Backdrop {
 		w, h = min(w, s.Drawn.X), min(h, s.Drawn.Y)
 	}
 	return BackdropOf(r, blur, w, h)
+}
+
+// Backdrops returns the backdrops op, an effect reading its backdrop, reads
+// in s, a frame of w×h pixels: blurred by its Blur, and, for one reading
+// a second (EffectOp.Backdrop2), blurred by its Blur2, with the same
+// texels (BackdropsOf), ending at the edge of the part Drawn says.
+func (s *Scene) Backdrops(op *Op, w, h int) (Backdrop, Backdrop) {
+	fx := &s.Effects[op.Start]
+	if s.Drawn != (image.Point{}) {
+		w, h = min(w, s.Drawn.X), min(h, s.Drawn.Y)
+	}
+	r := op.Transform.Bounds(op.Rect)
+	if !fx.Backdrop2 {
+		return BackdropOf(r, fx.Blur, w, h), Backdrop{}
+	}
+	return BackdropsOf(r, fx.Blur, fx.Blur2, w, h)
 }
 
 // EachCanvas calls fn with the canvases the scene draws anew or shows,
