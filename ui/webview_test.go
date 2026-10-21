@@ -127,7 +127,7 @@ func TestWebViewOpacity(t *testing.T) {
 	if c := tt.Image().Pix[o : o+4]; c[3] < 126 || c[3] > 129 {
 		t.Errorf("the hole of a web view at half opacity is %v: want half the white under it", c)
 	}
-	if places := tt.rt.webPlaces; len(places) != 1 {
+	if places := tt.rt.hostPlaces; len(places) != 1 {
 		t.Errorf("placed %d web views: want the translucent one", len(places))
 	}
 }

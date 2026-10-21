@@ -2998,6 +2998,99 @@ either.
     window of WebView2's (`Chrome_WidgetWin_1`), which
     `GetAutomationProviderForWindow` does not map to it, so UI Automation
     finds them there (seen with a runtime of October 2026).
+- **Native views** (`nativeview.go`, `ui/nativeview.go`, `nativeview.go` of
+  each backend). A window whose content is MyGo's own UI can host a real
+  control of the platform inside it: an `NSView`, an `HWND`, a `GtkWidget`.
+  `mygo.NewNativeView(w, NativeViewOptions{Create: ...})` returns the view
+  the app makes there, and `ui.NativeView(c, v)` shows it in an element's
+  content box: MyGo leaves the hole the control shows through, the platform
+  draws and edits it (its caret, selection, scrolling and input method are
+  all its own, and nothing of it is composed in Go), and what the content
+  paints after the element shows over it. It is a control of the same
+  process — never a web page, never a cross-process handle, and never an
+  arbitrary GPU or video surface, whose pixels MyGo could not cut.
+  See the [native views guide](native-views.md) for the API and its
+  guarantees, and
+  [`examples/native-view-hosting`](../examples/native-view-hosting/README.md)
+  for the platform code to copy.
+  - The factory, the host it hears (`Parent`, the framework-owned container
+    MyGo made for this view and lends it; `Scale`, the window's scale when it
+    ran, kept only as a fallback; and the `Focused`, `TabOut`, `PointerDown`
+    callbacks, whose point is in logical DIPs from the top-left of the root
+    MyGo hosts whatever the platform's own event carries), the adapter MyGo
+    hosts (`NativeHandle`, `Focus`, `Destroy`), and the lifecycle — a report
+    that arrives before the factory returned reaches no window, an element is
+    not the control, hidden keeps the control's text, caret, selection and
+    scroll, one placement per view instance, `Destroy` or the window closing
+    releases the control once, and the calls are safe from any goroutine — are
+    the [native views guide](native-views.md)'s. Constructor lifecycle state
+    owns the window's views and registers that cleanup with the first of them,
+    called as the window closes.
+  - **The handle is the root MyGo sets the element's frame on**, so it must
+    honor that frame: a control that sizes itself to its own content is not
+    that root (an AppKit text view as a root answers the element's box with
+    its content's height, about 14 DIPs when it is empty), and a control
+    nested under an intermediate window would be placed at that window's
+    offset. The control must be fresh, in the container the factory was given
+    and never one already in another window or another parent: macOS and Linux
+    refuse such a handle, Linux also refuses the controls it cannot clip (a
+    `GtkGLArea`, a `GtkSocket`, a `GtkPlug`, a `GtkWindow`, a widget of
+    MyGo's own), and on Windows `checkNativeChild` reads `GetParent` rather
+    than the `GWLP_HWNDPARENT` word to hold the view to a **direct child** of
+    `Parent`, while descendants inside the returned root are the control's own
+    business.
+  - **Which surface hosts a view is core policy, and the backends opt in.**
+    `nativeViewSurfaceFor(conn.Surface)` is a small build-tagged constructor
+    per platform: it asks the backend's provider (`darwin.NativeViewSurface`,
+    and the same in `internal/linux` and `internal/windows`) and otherwise
+    falls back to the optional `platform.NativeViewSurface` interface, which
+    the fake surface of the core's own tests implements and which is the
+    provider itself on the js and unsupported platforms.
+    A surface with neither hosts nothing, and `NewNativeView` reports an
+    error matching `errors.ErrUnsupported`. A separate optional provider
+    wrapper holds the provider, keeping the native factory methods off the
+    always-interface-held `*surface`, so an app that makes no native view
+    links neither the hosting code nor what it names.
+  - `NewNativeView` is a free function rather than a `*Window` method for
+    the linker: a `*Window` is stored in the `any` field `surface.Conn.Window`
+    (`content.go`), which marks the type as used in an interface, and
+    reflection over interface-held values (what `Bind` does, `ipc.go`) can
+    retain the exported methods of interface-reachable types — not every
+    exported method of the program. `*Window` in `Conn.Window`'s `any` is the
+    observed reason: a method on it would join that set in every app, whether
+    or not it hosts a view. It is not that `*Window` is converted to a
+    `platform.WindowHandler`: `*windowHandler` is the type that implements
+    it (`window.go`).
+  - macOS: the app's view sits in a flipped clip view of MyGo's
+    (`MyGoNativeClipView`, a subview of the content view under the surface,
+    as a web view's clip view is), at its frame's offset from the clip, so a
+    clip that changes size as the content scrolls moves the view without
+    resizing it. The surface's frames are transparent where the content
+    shows the view and its `hitTest:` lets the pointer through there, except
+    where the content painted over it (`NativeViewPlacement.Covers`); the
+    clip overrides no accessibility method, so the app's controls stay the
+    window's and are found where they show.
+  - Linux: two `GtkLayout`s of MyGo's hold the view, in the layout under the
+    surface's area that the first native view of the window puts where the
+    area was (`makeLayers`, as a web view does): `wrap` is the part the
+    content shows (`Clip`) and `parent` the view's own box (`Frame`), which
+    the app's control is added to, so a frame the content slides under its
+    clip moves the control without resizing it. The layouts' windows order
+    it among the web views and the other views, and the area's input shape
+    lets the pointer through to it. MyGo takes the control out of its layout
+    before the adapter's `Destroy`, so GTK never destroys a widget the app
+    still owns.
+  - Windows: each view gets a clip window, a child of the surface's window,
+    only as big as the part the content shows (`Clip`), holding the app's
+    control at its offset from the clip and at its frame — so a scrolling
+    clip moves the control without resizing it — with the clip's region
+    leaving out the boxes a web view painted after the view shows, so the
+    page shows and takes the pointer there. A cover window above every clip,
+    drawing nothing and with its region the covers, sends the presses where
+    the content painted over a view on to the surface, so a popup over the
+    control is the content's. The surface composes through DirectComposition
+    while it hosts a view; a window without it fails the creation with a
+    message saying so.
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;

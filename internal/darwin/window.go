@@ -89,6 +89,12 @@ type window struct {
 	webViews []*window
 	host     *window
 	clip     id
+	// closeNativeViews destroys the window's native views, when it shows
+	// any: the native-view extension of the surface installs it when it
+	// makes the first one (nativeview.go). The extension holds the views
+	// themselves, so the window names no native type of its own, and a
+	// window that shows none pays a nil check.
+	closeNativeViews func()
 	// pointerIn tells that the page of a web view has the pointer, where
 	// nothing the content painted covers it.
 	pointerIn bool
@@ -432,8 +438,18 @@ func (w *window) cleanup() {
 	if w.closed {
 		return
 	}
-	w.closeWebViews()
+	// The window is closed from here on, before anything below runs a
+	// callback into the app: the Destroy of a native view, above all,
+	// which may come back into Close or Destroy of the window. That
+	// teardown then finds the window closed and does nothing, instead of
+	// running a nested cleanup that detaches the parent's child window,
+	// destroys the surface and releases the views a second time.
+	// closeWebView sets the same flag before it runs its own teardown.
 	w.closed = true
+	w.closeWebViews()
+	if w.closeNativeViews != nil {
+		w.closeNativeViews()
+	}
 	b := w.b
 	send(w.web, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("title")))
 	if w.trafficLights != nil {

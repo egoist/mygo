@@ -121,6 +121,9 @@ type Backend struct {
 	// NoWebView makes WebViewAvailable report no system webview, as a
 	// machine without one does.
 	NoWebView bool
+	// nativeErr, when set, is what making a native view fails with
+	// (FailNativeViews).
+	nativeErr error
 	// notifications are the notifications shown and not yet removed, by
 	// id.
 	notifications map[string]*platform.Notification
@@ -1196,6 +1199,13 @@ type Surface struct {
 	webViews   []*WebView
 	order      []*WebView
 	placements int
+	// nativeViews are those made (nativeview.go), nativeOrder those shown
+	// in the order the content painted them, nativePlacements counts
+	// PlaceNativeViews, and tookFocus counts TakeFocus.
+	nativeViews      []*NativeView
+	nativeOrder      []*NativeView
+	nativePlacements int
+	tookFocus        int
 }
 
 func (s *Surface) StartDataDrag(r platform.DragRequest) { s.dataDrag = &r }

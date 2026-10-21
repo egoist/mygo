@@ -579,3 +579,18 @@ needs the app installed, since it identifies apps by their desktop entry.
 The shortcut works shortly after `Register` returns. Windows the function
 shows or focuses take the focus with the key press's activation token where
 the desktop provides one, as GNOME does.
+
+## Native views
+
+A window whose content is MyGo's own UI can host a real control of the
+platform inside it — an `NSView`, an `HWND` or a `GtkWidget` — where
+`ui.NativeView` places it, with the platform drawing, scrolling and editing
+it there. It needs a window that shows `WindowOptions.Content`, and a browser
+or a platform without native views reports an error matching
+`errors.ErrUnsupported` rather than doing nothing.
+
+[The native views guide](native-views.md) is the page for it — the factory and
+the host, the adapter, the lifecycle, what MyGo draws and what the platform
+draws, and the pointer and focus contract;
+[the example](../examples/native-view-hosting/README.md) is a small form that
+hosts a text control on each platform.

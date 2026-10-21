@@ -1614,6 +1614,9 @@ func (h *windowHandler) Closed() {
 	}
 	w.cancelDataDrag()
 	w.destroyWebViews()
+	// The views of the window's content, which its app made
+	// (NewNativeView), are destroyed as the content is detached below: the
+	// state of the feature carries them, so this path names none of it.
 	w.detachContent()
 	w.native = nil
 	w.destroyed.Store(true)

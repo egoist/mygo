@@ -2,6 +2,16 @@
 
 // Package windows implements the MyGo backend for Windows: Win32 windows
 // hosting WebView2, called through the syscall package (no cgo).
+//
+// A window of native UI may host native views, controls the app makes with its
+// own toolkit, with web content painted around them (nativeview.go). Mixing
+// web content over a native view is limited to an opaque page: what a page
+// painted after the view shows is the surface's own pixels, not the control's
+// under them, so a translucent or blurring page over a native view has no
+// native backing under it and shows what is behind the view. Opaque web
+// content over a native view is exact in both pixels and input. This backend's
+// side of that hosting is opt-in (NativeViewSurface): a window that shows no
+// native view carries none of it.
 package windows
 
 import (
@@ -294,6 +304,9 @@ const (
 	wmAppCookieView = wmApp + 8
 	// wmAppTrayAdd adds the tray icons made since (tray.go).
 	wmAppTrayAdd = wmApp + 9
+	// wmApp + 10 to wmApp + 15 are free. wmApp + 16 is the message a clip
+	// window of a native view reaps itself with, once the call that gave the
+	// view up returned (wmNativeViewReap, nativeview.go).
 
 	wsOverlapped       = 0x00000000
 	wsPopup            = 0x80000000

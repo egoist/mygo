@@ -5,12 +5,14 @@ package windows
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"syscall"
 	"time"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/accelerator"
+	"github.com/egoist/mygo/internal/platform"
 )
 
 // The functions in this file drive native UI the way a user would, for the
@@ -303,9 +305,25 @@ func TestInputClick(hwnd uintptr, x, y float64) (ok bool, missed string) {
 	scale := float64(w.surface.dpi()) / 96
 	pt := point{int32(x * scale), int32(y * scale)}
 	procClientToScreen.Call(w.surface.hwnd, uintptr(unsafe.Pointer(&pt)))
+	// The window a click lands on is the one the mouse is over: put the
+	// cursor on the point, as the hand does.
 	user32.NewProc("SetCursorPos").Call(uintptr(pt.X), uintptr(pt.Y))
+	// The system takes the second press of the same button at the same place
+	// within the double-click time as a double click: the window gets
+	// WM_LBUTTONDBLCLK and the release, and no press of its own, so a
+	// control never hears the click and never takes the keyboard. A click
+	// here is one click, so keep the presses further apart than the
+	// double-click time where they would otherwise be two halves of one.
+	ms, _, _ := procGetDoubleClickTime.Call()
+	clickApart(pt, platform.DoubleClick{
+		Time: time.Duration(ms) * time.Millisecond,
+		DX:   float64(systemMetric(smCxDoubleClk, w.surface.hwnd)) / 2,
+		DY:   float64(systemMetric(smCyDoubleClk, w.surface.hwnd)) / 2,
+	})
+	const (
+		leftDown, leftUp = 0x0002, 0x0004
+	)
 	mouse := user32.NewProc("mouse_event")
-	const leftDown, leftUp = 0x0002, 0x0004
 	mouse.Call(leftDown, 0, 0, 0, 0)
 	mouse.Call(leftUp, 0, 0, 0, 0)
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
@@ -327,6 +345,34 @@ func TestInputClick(hwnd uintptr, x, y float64) (ok bool, missed string) {
 		}
 	}
 	return true, windowAt(pt)
+}
+
+// lastClick is when and where the hook pressed last, in the window's
+// pixels, so that its presses are not taken for a double click. The hooks
+// run on the main thread, so one of these is enough.
+var lastClick struct {
+	at time.Time
+	pt point
+}
+
+// clickApart waits the rest of the double-click time out when a press at pt
+// would be the second half of a double click with the last one. The system
+// makes that press a WM_LBUTTONDBLCLK with no press of its own, which a
+// control counting presses, and one taking the keyboard on a press, never
+// hears.
+func clickApart(pt point, d platform.DoubleClick) {
+	if !lastClick.at.IsZero() {
+		dt := time.Since(lastClick.at)
+		near := math.Abs(float64(pt.X-lastClick.pt.X)) <= d.DX && math.Abs(float64(pt.Y-lastClick.pt.Y)) <= d.DY
+		if dt < d.Time && near {
+			// The margin is more than the double-click time: the system
+			// times the press from when it handled it, which is after the
+			// hook injected it, so a gap of exactly the double-click time
+			// here still counts as one to the system.
+			time.Sleep(d.Time - dt + 250*time.Millisecond)
+		}
+	}
+	lastClick.at, lastClick.pt = time.Now(), pt
 }
 
 // windowAt describes the top-level window at a point of the screen, in

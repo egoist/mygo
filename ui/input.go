@@ -778,6 +778,12 @@ func (rt *engine) moveFocus(back bool) {
 		s.editor.selectAll()
 	}
 	rt.reveal(rt.focused)
+	if rt.native != nil {
+		// The view of the element takes the keyboard, and Tab leaving it
+		// moves on from here, or the content takes the keyboard back from
+		// the view it was in (ui/nativeview.go).
+		rt.native.moved(s, back)
+	}
 	if s != nil && s.webView != nil {
 		// Its page takes the keyboard, and Tab leaving it moves on from
 		// here (webViewTabOut).

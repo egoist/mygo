@@ -1359,6 +1359,45 @@ func Modal(c *Context, open *bool, fn func()) Element {
 	return wrapElement(_e)
 }
 
+// NativeView shows a native view, made with mygo.NewNativeView, in the
+// element's content box. A native view has no size of its own: the element
+// stretches across its container (AlignSelf(Stretch)), and takes the room
+// along it with Grow or a size:
+//
+//	ui.Row(c).Fill().Children(func() {
+//		sidebar(c)
+//		ui.NativeView(c, terminal).Grow(1)
+//	})
+//
+// The view shows while a frame builds its element and hides when one does
+// not, keeping its state: a view switching tabs builds the native view of
+// the tab shown. The element paints a hole through the window's content
+// (the native view is under it, a view of the platform's, drawn by the
+// system), cut by the scroll containers and clips around it, so that what
+// paints after it shows over the view: its children, popovers, menus,
+// dialogs, tooltips and toasts. The view takes the pointer in the part of
+// its box the content paints nothing over: where the content paints over
+// it, that content is what takes the pointer, as it shows. It takes the
+// keyboard once clicked, focused or tabbed into: Tab stops at the element.
+//
+// The platform draws the view itself: its radius, shadow, opacity and
+// transform are the view's, and MyGo shows only the part of it within the
+// element's content box, cut by the clips around it.
+//
+// A view the app destroyed while the content still builds it is a plain box
+// from the frame on: it keeps no hole, shows no view and stops taking Tab,
+// which is what mygo.NativeView.Destroy promises.
+func NativeView(c *Context, v NativeHostView) Element {
+	_ctx := c.build()
+	if _ctx == nil {
+		return Element{}
+	}
+	_ctx.rt.beginBuild()
+	_e := coreNativeView(_ctx, v)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
+}
+
 // NewTester starts testing view in a window of width×height DIPs. Two
 // elements given one key under one parent make it panic where the second
 // was given, as apps only log it.

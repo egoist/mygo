@@ -578,10 +578,22 @@ func (w *window) destroy() {
 	if w.closed || w.destroying {
 		return
 	}
+	// The closing flag first: a native view the app makes from here on (or a
+	// placement it gives one) is refused, and the surface's teardown does not
+	// rebuild its windows (nativeview.go). The core's own cleanup runs much
+	// later, on the WM_DESTROY of the window.
 	w.destroying = true
 	// Re-enable the owner first, or Windows activates another app.
 	if w.opts.Modal && w.parent != nil && !w.parent.closed {
 		procEnableWindow.Call(w.parent.hwnd, 1)
+	}
+	if s := w.surface; s != nil && s.nativeEvent != nil {
+		// DestroyWindow destroys the child windows of the window before it
+		// sends WM_DESTROY to it, and the core destroys the native views of a
+		// window on that message: the app's own Destroy would then run after
+		// Windows took its control with the clip window, and it must run
+		// first, once, while its control still lives.
+		s.nativeEvent(nativeEvClose)
 	}
 	procDestroyWindow.Call(w.hwnd)
 }

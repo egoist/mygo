@@ -355,6 +355,11 @@ type node struct {
 	image     *Bitmap
 	svg       *SVG // of an Icon, or an Image in its own colors
 	webView   NativeWebView
+	// nativeView is the platform view an app made (mygo.NewNativeView),
+	// which the element shows where the painter leaves a hole. It is held
+	// as any so that naming its type keeps nothing: the content's native
+	// runtime narrows it (ui/nativeview.go).
+	nativeView any
 	// maximizeButton marks the window's maximize button (MaximizeButton).
 	maximizeButton bool
 	fit            Fit

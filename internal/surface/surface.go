@@ -79,6 +79,16 @@ type Conn struct {
 	// frame shows them (Surface.PlaceWebViews).
 	PlaceWebViews func(views []platform.WebViewPlacement)
 
+	// NativeViews is the state of the native views of this window, which
+	// the content shows (mygo.NewNativeView): a *NativeViewBridge, or nil
+	// in a window whose app makes none. It is opaque here, so that the
+	// windows that show no native view keep no name and no field of the
+	// feature (AGENTS.md: apps pay only for what they use); the code a
+	// native view's constructor and the content's native runtime install
+	// reaches it through NativeViewState (mygo/nativeview.go,
+	// ui/nativeview.go). Main thread only.
+	NativeViews any
+
 	// Event receives the surface's events, and Focus and Blur of the
 	// window. It reports whether the content takes dragged files, as
 	// WindowHandler.SurfaceEvent does.
@@ -104,10 +114,76 @@ type Content interface {
 	AttachContent(conn *Conn)
 }
 
+// NativeViewBridge is the state of the native views of one window: the views
+// its app made, which the window destroys when it lets its content go, and
+// the hooks of the content's native runtime, which hears what the views
+// report and asks them for the keyboard. It lives on Conn.NativeViews,
+// opaque: naming its fields here would keep the code and the types of the
+// native views in every app, and the apps that show none must not link them
+// (AGENTS.md: apps pay only for what they use). Package mygo puts it there
+// from the constructor of a window's first native view, and package ui fills
+// the hooks as its first frame builds one; both are code the apps that show
+// no native view never link.
+type NativeViewBridge struct {
+	// Views are the native views of the window that live, as
+	// *mygo.NativeView, which its content still shows. NewNativeView
+	// appends to it and NativeView.invalidate takes a destroyed view out,
+	// both under the window's lock; destroyViews reads it under the same
+	// lock when the content is detached.
+	Views []any
+	// RequestFocus asks the content to give the keyboard to the view of v,
+	// at its first control or, back, its last (mygo.NativeView.Focus).
+	// ReportFocus, ReportTabOut and ReportPress report the view of v to
+	// the content, as the platform reports it (NativeViewHost of package
+	// mygo: Focused, TabOut, PointerDown). Every hook takes the view as
+	// any, opaque, and is nil until the content's native runtime installs
+	// it: a window whose content shows no native view keeps them all nil.
+	RequestFocus func(v any, back bool)
+	ReportFocus  func(v any)
+	ReportTabOut func(v any, back bool)
+	ReportPress  func(v any, x, y float64)
+	// destroyViews, when set, destroys Views: package mygo installs it with
+	// the first view of the window, and the Detach hook below calls it.
+	destroyViews func(*NativeViewBridge)
+}
+
+// NativeViewState returns the native view state of the connection, making it
+// when it is not there yet. destroy, when not nil and the state has none, is
+// what destroys the window's views: the state's Detach hook then calls it
+// before the content's own Detach, once, so that the views of a window are
+// gone before its content hears that it closed, wherever a view was made.
+// Main thread only.
+func NativeViewState(c *Conn, destroy func(*NativeViewBridge)) *NativeViewBridge {
+	b, ok := c.NativeViews.(*NativeViewBridge)
+	if !ok || b == nil {
+		b = &NativeViewBridge{}
+		c.NativeViews = b
+	}
+	if destroy != nil && b.destroyViews == nil {
+		b.destroyViews = destroy
+		prev := c.Detach
+		c.Detach = func() {
+			b.destroyViews(b)
+			if prev != nil {
+				prev()
+			}
+		}
+	}
+	return b
+}
+
 // WebView is a web view a window made for its content to show
 // (*mygo.WebView, of Window.NewWebView), which package ui places.
 type WebView interface {
 	// SurfaceWebView returns the web view's native side when it is of the
 	// window of conn and not destroyed, else nil. Main thread only.
 	SurfaceWebView(conn *Conn) platform.WebView
+}
+
+// NativeView is a platform view an app made for its content to show
+// (*mygo.NativeView, of mygo.NewNativeView), which package ui places.
+type NativeView interface {
+	// SurfaceNativeView returns the view's adapter when it is of the
+	// window of conn and not destroyed, else nil. Main thread only.
+	SurfaceNativeView(conn *Conn) platform.NativeView
 }
