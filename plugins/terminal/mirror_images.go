@@ -5,6 +5,7 @@ import (
 	"compress/zlib"
 	"encoding/base64"
 	"fmt"
+	"slices"
 
 	"github.com/egoist/mygo/plugins/terminal/internal/vt"
 )
@@ -20,32 +21,46 @@ type imageKey struct {
 	z                          int32
 }
 
+// virtualKey is a virtual placement of an image, which Unicode
+// placeholders show, with its ID and grid.
+type virtualKey struct {
+	img, id    uint32
+	cols, rows int
+}
+
 // mirroredImages are the images a Mirror sent of a screen, by id, at
-// their generations, and the placements it made, with their ids in the
-// other terminal.
+// their generations, the placements it made, with their ids in the other
+// terminal, and the virtual placements it made.
 type mirroredImages struct {
-	gens   map[uint32]uint64
-	placed map[imageKey]uint32
+	gens    map[uint32]uint64
+	placed  map[imageKey]uint32
+	virtual map[virtualKey]bool
 }
 
 // images brings the other terminal's images of the screen that shows to
 // this one's (Kitty graphics): it sends the pixels of those placed, once
 // for each generation, places what shows that it has not, and deletes
 // what went. A placement whose top scrolled off before a frame saw it, as
-// when a Mirror starts over, does not show there. top is the screen's
-// first row from the top of the scrollback.
+// when a Mirror starts over, does not show there. Virtual placements go
+// as they are, for the cells of Unicode placeholders, which frames draw
+// as text. top is the screen's first row from the top of the scrollback.
 func (m *Mirror) images(out *bytes.Buffer, term *vt.Terminal, alt bool, top, rows int) {
 	st := &m.imgs[0]
 	if alt {
 		st = &m.imgs[1]
 	}
 	if st.gens == nil {
-		st.gens, st.placed = map[uint32]uint64{}, map[imageKey]uint32{}
+		st.gens, st.placed, st.virtual = map[uint32]uint64{}, map[imageKey]uint32{}, map[virtualKey]bool{}
 	}
 	seen := map[imageKey]bool{}
 	var place []imageKey
+	var virtual []virtualKey
 	term.Placements(func(pl vt.Placement) {
-		if pl.Virtual || !pl.Visible {
+		if pl.Virtual {
+			virtual = append(virtual, virtualKey{img: pl.ImageID, id: pl.ID, cols: pl.ParamCols, rows: pl.ParamRows})
+			return
+		}
+		if !pl.Visible {
 			return
 		}
 		k := imageKey{
@@ -77,6 +92,11 @@ func (m *Mirror) images(out *bytes.Buffer, term *vt.Terminal, alt bool, top, row
 				}
 			}
 		}
+		for k := range st.virtual {
+			if k.img == id {
+				delete(st.virtual, k) // placed again below, while it is here
+			}
+		}
 	}
 	// Placements gone from where they would show; those that scrolled off
 	// stay, as they do here.
@@ -87,23 +107,47 @@ func (m *Mirror) images(out *bytes.Buffer, term *vt.Terminal, alt bool, top, row
 		}
 	}
 	for _, k := range place {
-		gen := term.ImageGeneration(k.img)
-		if gen == 0 {
+		if !m.sendPixels(out, term, st, k.img) {
 			continue
-		}
-		if st.gens[k.img] != gen {
-			img, ok := term.Image(k.img)
-			if !ok {
-				continue
-			}
-			sendImage(out, img)
-			st.gens[k.img] = gen
 		}
 		m.placement++
 		fmt.Fprintf(out, "\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,X=%d,Y=%d,x=%d,y=%d,w=%d,h=%d,c=%d,r=%d,z=%d,C=1,q=2\x1b\\",
 			k.row-top+1, k.col+1, k.img, m.placement, k.xoff, k.yoff, k.srcX, k.srcY, k.srcW, k.srcH, k.cols, k.rows, k.z)
 		st.placed[k] = m.placement
 	}
+	// Virtual placements, which the cells of Unicode placeholders show:
+	// placed with the IDs they have here, which the cells name.
+	for k := range st.virtual {
+		if !slices.Contains(virtual, k) {
+			fmt.Fprintf(out, "\x1b_Ga=d,d=i,i=%d,p=%d,q=2\x1b\\", k.img, k.id)
+			delete(st.virtual, k)
+		}
+	}
+	for _, k := range virtual {
+		if st.virtual[k] || !m.sendPixels(out, term, st, k.img) {
+			continue
+		}
+		fmt.Fprintf(out, "\x1b_Ga=p,U=1,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", k.img, k.id, k.cols, k.rows)
+		st.virtual[k] = true
+	}
+}
+
+// sendPixels sends the pixels of an image the other terminal does not
+// have as of its generation, and reports whether it has them.
+func (m *Mirror) sendPixels(out *bytes.Buffer, term *vt.Terminal, st *mirroredImages, id uint32) bool {
+	gen := term.ImageGeneration(id)
+	if gen == 0 {
+		return false
+	}
+	if st.gens[id] != gen {
+		img, ok := term.Image(id)
+		if !ok {
+			return false
+		}
+		sendImage(out, img)
+		st.gens[id] = gen
+	}
+	return true
 }
 
 // sendImage writes the sequences that transmit an image's pixels, as

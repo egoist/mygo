@@ -166,9 +166,14 @@ type view struct {
 	lines     []rowCache
 	shaped    lru
 	// images are the placements of images that show, and bitmaps their
-	// images' (readImages).
+	// images' (readImages). virtual are the virtual placements of Unicode
+	// placeholders, and shown the images the placeholders of the last
+	// frame showed, whose bitmaps the next reads; spare is a buffer.
 	images  []shownImage
 	bitmaps map[uint32]*cachedImage
+	virtual []virtualPlacement
+	shown   []uint32
+	spare   []uint32
 
 	keys    *vt.KeyEncoder
 	mouse   *vt.MouseEncoder

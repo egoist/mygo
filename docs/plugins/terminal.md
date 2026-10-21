@@ -60,6 +60,9 @@ The terminal does what terminal apps do:
   from the font, so that the lines of full-screen programs join;
 - a scrollback that reflows when the terminal resizes, and the alternate
   screen of full-screen programs;
+- images of the Kitty graphics protocol, placed where programs place them
+  or shown by the cells of Unicode placeholders (U+10EEEE), which tmux and
+  agents' interfaces print, in the memory `ImageLimit` gives them;
 - the keyboard as programs ask: legacy sequences, xterm's modifyOtherKeys
   or the Kitty keyboard protocol, and input methods, which compose at the
   cursor;
