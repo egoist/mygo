@@ -127,7 +127,8 @@ mygo.NewNotification(mygo.NotificationOptions{
 
 `Sender.ID` identifies the person in the app; it is not inferred to be an
 email address or phone number. `Name` defaults to `Title`. `Avatar` holds
-encoded image bytes, such as PNG or JPEG; the app fetches them and decides
+encoded image bytes, such as PNG, JPEG or SVG; macOS rasterizes them as PNG
+before donation. The app fetches them and decides
 whether the message's sender and content may be shared with the system.
 `NewNotification` copies the sender and image, so the app can reuse its
 buffers. `Group` is the conversation identifier; without one, it uses the
@@ -187,6 +188,12 @@ mygo.Shell.ShowItemInFolder(path)              // Finder, Explorer, the file man
 mygo.Shell.TrashItem(path)                     // to the trash
 mygo.Shell.Beep()
 ```
+
+`TrashItem` never deletes for good: when the item cannot go to the trash
+it fails and leaves the item where it is. On Windows that is an item too
+big for the recycle bin, or on a drive without one, as network shares and
+many removable drives are, which Windows would otherwise delete without
+asking.
 
 `FileIcon` returns the icon the file manager shows for a file, a folder
 or an application, as a PNG of the size asked for in pixels: pass the size

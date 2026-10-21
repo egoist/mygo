@@ -80,6 +80,9 @@ type Backend struct {
 	FileWatchNoFiles bool
 	// FileWatchAddHook is the AddHook of the file watches made.
 	FileWatchAddHook func(platform.FileWatchTarget) error
+	// ReplaceFileHook, when set, replaces files in place of ReplaceFile,
+	// as a system that fails halfway would.
+	ReplaceFileHook func(target, replacement string) error
 	// URLSchemes are the registered URL schemes, by scheme: "id name".
 	URLSchemes map[string]string
 	// LoginItem is the command that starts the app at login: "id name arg".
@@ -221,7 +224,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if o.Surface {
 		w.surface = &Surface{w: w, Scale: 1}
 	}
-	if !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset") {
+	if !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset") && !o.HideWindowButtons {
 		// Three buttons 46 wide at the top right, as on Windows.
 		w.TitleBarRoom = platform.TitleBar{Height: cmp.Or(o.TitleBarHeight, 32), Right: 138}
 	}
@@ -499,6 +502,9 @@ type Window struct {
 	// TitleBarRoom is what TitleBar returns: set for windows with a hidden
 	// title bar, and changed by tests before they call H.TitleBarChanged.
 	TitleBarRoom platform.TitleBar
+	// MaximizeButton is where the content last said it shows the maximize
+	// button.
+	MaximizeButton platform.RectF
 	// AsyncFunction answers CallAsyncFunction.
 	AsyncFunction func(body string) (string, error)
 	// AsyncCallback, when set, receives CallAsyncFunction calls to answer
@@ -989,8 +995,15 @@ type shell struct{}
 func (shell) OpenExternal(string) error { return nil }
 func (shell) OpenPath(string) error     { return nil }
 func (shell) ShowItemInFolder(string)   {}
-func (shell) TrashItem(string) error    { return nil }
 func (shell) Beep()                     {}
+
+// Trashed are the paths TrashItem was given.
+var Trashed []string
+
+func (shell) TrashItem(path string) error {
+	Trashed = append(Trashed, path)
+	return nil
+}
 
 // Opened are the paths OpenApplication was given.
 var Opened []string
@@ -1186,7 +1199,10 @@ type Surface struct {
 }
 
 func (s *Surface) StartDataDrag(r platform.DragRequest) { s.dataDrag = &r }
-func (s *Surface) CancelDataDrag()                      { s.FinishDataDrag(transfer.Result{Canceled: true}) }
+func (s *Surface) CancelDataDrag() {
+	p := screen{}.CursorPoint()
+	s.FinishDataDrag(transfer.Result{Canceled: true, Escaped: true, Point: image.Point{X: p.X, Y: p.Y}})
+}
 func (s *Surface) SetDropFormats(f []transfer.Format) {
 	s.dropFormats = append([]transfer.Format(nil), f...)
 }
@@ -1203,6 +1219,10 @@ func (s *Surface) FinishDataDrag(r transfer.Result) {
 }
 
 func (s *Surface) Native() platform.SurfaceNative { return platform.SurfaceNative{} }
+
+// SetMaximizeButton records the button in the window's MaximizeButton
+// (platform.MaximizeButtonSurface).
+func (s *Surface) SetMaximizeButton(r platform.RectF) { s.w.MaximizeButton = r }
 
 func (s *Surface) Size() (float64, float64, float64) {
 	s.w.mu.Lock()

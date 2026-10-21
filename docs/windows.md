@@ -51,6 +51,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `TitleBarStyle` | hides the title bar but keeps the window buttons over the page, see [custom title bars](frontend.md#custom-title-bars), or over [native UI](ui/windows.md) |
 | `TrafficLightPosition` | moves the window buttons of a hidden title bar (macOS) |
 | `TitleBarHeight` | the height of the title bar the page draws under the window buttons (Linux, Windows) |
+| `HideWindowButtons` | hides the window buttons of a hidden title bar, which keeps its resizing top edge, shadow and corners: the page draws its own and calls `Minimize`, `Maximize`, `Unmaximize` and `Close` |
 | `Transparent`, `Vibrancy` | a transparent window, and the material behind a transparent page or [native UI](ui/windows.md) (macOS, Windows 11 22H2). On Windows, a window with a material has no menu bar: Alt and F10 open its menus in a popup |
 | `BackgroundColor` | fills the window until the page paints, in CSS syntax such as `"#1e1e1e"`, or `"light-dark(#f5f5f7, #1e1e1e)"` to follow the appearance |
 | `Opacity` | between 0 and 1 |
@@ -60,7 +61,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `AutoHideMenuBar` | shows the menu bar only while the keyboard is in it, from Alt or F10 (Linux, Windows), see [the menu bar](menus.md#the-menu-bar) |
 | `Parent`, `Modal` | a child window, modal to its parent; for one placed next to a part of it, see [flyouts](#flyouts) |
 | `Panel` | the window of a launcher or a quick entry, floating above all apps, see [panels](#panels) |
-| `Page` | the options of the window's [page](#pages): its preload script, trusted origins, web inspector, zoom and user agent |
+| `Page` | the options of the window's [page](#pages): its preload script, trusted origins, web inspector, zoom, user agent and its suffix |
 
 ## Show windows without flashing
 
@@ -479,8 +480,14 @@ mygo.NewWindow(mygo.WindowOptions{
 |---|---|
 | `PreloadScript` | JavaScript run before every page's own scripts |
 | `TrustedOrigins` | other origins whose pages may call Go, see [who may call](bindings.md#who-may-call) |
-| `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled`; for a window of native UI, its [inspector](ui/inspector.md) |
+| `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled`, which also turns WebView2's own keys, as F5 reloading, on or off (Windows); for a window of native UI, its [inspector](ui/inspector.md) |
 | `ZoomFactor`, `UserAgent` | the page's zoom (1 is 100%) and user agent |
+| `SafariTabFocus` | leaves Tab to text fields and elements with a tabindex, as Safari does unless the system's keyboard navigation is on; by default Tab reaches links, buttons, checkboxes and selects too (macOS) |
+| `UserAgentSuffix` | appended to the user agent instead of replacing it, which `UserAgent` does, such as `"MyApp/1.2"`; it appends to `UserAgent` too, and `SetUserAgent` keeps it, and leading and trailing spaces are trimmed |
+
+`UserAgentSuffix` is for the sites that want to see the app, and for the ones
+that serve a bare web view older pages because its user agent names no browser:
+`"Version/17.0 Safari/605.1.15"` makes the page look like Safari.
 
 Page events, on `win.Page()`:
 
@@ -541,6 +548,14 @@ png, err := win.CapturePage() // what the window shows, as a PNG
 `PrintToPDF` lays the page out for printing, so its print style sheets
 apply. The zero `PDFOptions` prints Letter pages in portrait with margins of
 0.4 inch and no backgrounds, like a browser's print dialog.
+
+The PDF's text copies and searches as the page's. On macOS, the PDFs that
+WebKit prints name radicals for many Chinese characters, such as ⼈
+(U+2F08) for 人, which the system's fonts draw with the same glyph.
+`PrintToPDF` asks the installed fonts which characters their glyphs are
+and appends corrected text maps to the PDF, which leaves its pages as they
+were. Text in a font that is not installed, such as a web font, keeps the
+radicals.
 
 ### Downloads
 
