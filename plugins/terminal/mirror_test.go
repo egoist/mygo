@@ -626,6 +626,7 @@ func TestMirrorMouse(t *testing.T) {
 		{"\x1b[?1002h\x1b[?1006h", "\x1b[<0;3;4M", "\x1b[<32;6;4M"},
 		{"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h", "\x1b[<35;3;4M\x1b[<0;3;4M", "\x1b[<32;6;4M"},
 		{"\x1b[?1000h", "\x1b[M #$", ""},
+		{"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h", "\x1b[<35;3;4M\x1b[<0;3;4M", "\x1b[<32;6;4M"},
 	} {
 		src, err := New(Options{Conn: newPipe()})
 		if err != nil {

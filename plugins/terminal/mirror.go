@@ -530,7 +530,9 @@ func readLine(term *vt.Terminal, rs *vt.RenderState, y int) line {
 var mirroredModes = []vt.Mode{
 	vt.ModeCursorKeys, 66, // DECCKM, DECNKM (the keypad's)
 	vt.ModeFocusEvent, vt.ModeAltScroll, vt.ModeBracketedPaste, vt.ModeGraphemes,
-	9, 1000, 1002, 1003, 1005, 1006, 1015, 1016, // the mouse's
+	// The mouse's: the formats in the order programs set them, falling
+	// back first (crossterm sets 1015, then 1006).
+	9, 1000, 1002, 1003, 1005, 1015, 1006, 1016,
 	5, // DECSCNM, the screen in reverse video
 }
 
