@@ -5,6 +5,7 @@ package audio
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"syscall"
 	"time"
 	"unsafe"
@@ -131,6 +132,8 @@ func defaultID(enumerator uintptr) (string, error) {
 
 func openDevice(ahead time.Duration) (device, int, error) {
 	if !comInitialized {
+		// COM is initialized per thread: run's goroutine keeps this one.
+		runtime.LockOSThread()
 		// S_FALSE, already initialized, succeeds as well.
 		if hr, _, _ := procCoInitializeEx.Call(0, coinitMultithreaded); failed(hr) {
 			return nil, 0, hresult("CoInitializeEx", hr)
