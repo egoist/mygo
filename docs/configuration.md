@@ -46,7 +46,7 @@ the fields of [the frontend](#development-and-the-frontend).
 | `identifier` | `com.mygo.` and the name's letters and digits, e.g. `com.mygo.myapp` | a reverse DNS name unique to the app, e.g. `com.example.myapp`; systems key preferences, permissions and registrations on it |
 | `version` | `0.1.0` | the version of the app, which `App.Version()` returns and updates compare |
 | `copyright` | | the copyright notice of the app, in its `Info.plist` (macOS) and file properties (Windows) |
-| `icon` | `resources/icon.png` when it exists | a square PNG, ideally 1024×1024 |
+| `icon` | `resources/icon.png` when it exists | a square PNG, ideally 1024×1024; its name with `-dev`, as `icon-dev.png`, beside it is the development app's, when it exists |
 | `main` | `.` | the Go package of the app, relative to the project |
 
 ## Development and the frontend
@@ -140,6 +140,7 @@ See [Windows](distribution.md#windows).
 | `comment` | | a short description, for the desktop entry and the package |
 | `categories` | `["Utility"]` | the categories of the desktop entry, which place it in application menus |
 | `depends` | | Debian packages the app needs besides GTK and WebKitGTK |
+| `webview` | `true` | `false` for an app that shows no web page, as one of native UI: the Debian package depends on GTK alone, and install.sh and `mygo doctor` do not ask for WebKitGTK |
 | `command` | none | a command that runs the app: `/usr/bin/<command>` from the Debian package, `~/.local/bin/<command>` from install.sh |
 
 See [Linux](distribution.md#linux).

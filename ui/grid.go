@@ -252,6 +252,26 @@ func track(tracks []Track, i int) Track {
 	return Track{}
 }
 
+// contributes reports whether sizing the tracks along an axis reads what
+// an item spanning span of them from start asks (sizeTracks): of those
+// spanning a FitContent track, and, where the room is not known, of those
+// spanning an Fr track, as large as the content asks. The others take no
+// part, as CSS's minmax(0, 1fr) tracks with room known measure no items,
+// and are not measured.
+func contributes(tracks []Track, start, span int, avail float32, minContent bool) bool {
+	for i := start; i < start+span; i++ {
+		switch track(tracks, i).kind {
+		case trackFit:
+			return true
+		case trackFr:
+			if !minContent && !finite(avail) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // sizeTracks sizes n tracks along an axis, of which tracks are explicit,
 // with room avail (inf when unknown) and gap between them, from what the
 // items ask: their min-content sizes when minContent. Stretch spreads room
@@ -415,7 +435,7 @@ func gridColumns(e *node, s *gridScratch, items []gridItem, nc int, avail, cw fl
 		if v, ok := c.width.resolve(base(cw)); ok {
 			w := c.clampW(v, cw) + c.marginX()
 			cs[i].min, cs[i].max = w, w
-		} else {
+		} else if contributes(e.cols, it.col, it.colSpan, avail, minContent) || e.c.rt.noLayoutCache {
 			cs[i].min = intrinsic(c, false) + c.marginX()
 			cs[i].max = intrinsic(c, true) + c.marginX()
 		}
@@ -430,7 +450,11 @@ func gridColumns(e *node, s *gridScratch, items []gridItem, nc int, avail, cw fl
 func gridIntrinsic(e *node, maxContent bool) float32 {
 	s := &e.c.rt.grid
 	firstItem, firstF := len(s.items), len(s.f)
-	defer func() { s.items, s.f = s.items[:firstItem], s.f[:firstF] }()
+	defer func() {
+		// Laid out again only when it changed, it lets go of its elements.
+		clear(s.items[firstItem:])
+		s.items, s.f = s.items[:firstItem], s.f[:firstF]
+	}()
 	items, nc, _ := gridPlace(e, s)
 	sizes := gridColumns(e, s, items, nc, inf, inf, !maxContent)
 	w := e.gapX * float32(max(nc-1, 0))
@@ -447,7 +471,10 @@ func gridIntrinsic(e *node, maxContent bool) float32 {
 func gridLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	s := &e.c.rt.grid
 	firstItem, firstF, firstC := len(s.items), len(s.f), len(s.cs)
-	defer func() { s.items, s.f, s.cs = s.items[:firstItem], s.f[:firstF], s.cs[:firstC] }()
+	defer func() {
+		clear(s.items[firstItem:])
+		s.items, s.f, s.cs = s.items[:firstItem], s.f[:firstF], s.cs[:firstC]
+	}()
 	items, nc, nr := gridPlace(e, s)
 	cols := gridColumns(e, s, items, nc, cw, cw, false)
 

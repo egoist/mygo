@@ -71,6 +71,7 @@ func base(v float32) float32 {
 func layoutTree(root *node, w, h float32) {
 	rt := root.c.rt
 	rt.consumed = false
+	rt.beginLayout(root)
 	layoutBox(root, w, h)
 	// Lists build rows as they lay out, which may ask to come into view.
 	for _, e := range root.c.reveal {
@@ -289,23 +290,10 @@ func (e *node) leafWidths() (maxW, minW float32) {
 		}
 		// Measured once a frame: the layout asks for both widths a few
 		// times.
-		if e.leafOK {
-			return e.leaf[0], e.leaf[1]
+		if !e.leafOK {
+			e.leaf, e.leafOK = e.textWidths(), true
 		}
-		sys := textSystem()
-		p := e.textParams(0)
-		p.MaxLines = 0
-		full := sys.Layout(p).Width
-		min := float32(0)
-		switch {
-		case e.noWrap:
-			min = full
-		case !e.single:
-			p.Width, p.NoBreakWords = 1, true
-			min = sys.Layout(p).Width
-		}
-		e.leaf, e.leafOK = [2]float32{full, min}, true
-		return full, min
+		return e.leaf[0], e.leaf[1]
 	case kindImage:
 		w, _ := e.intrinsicSize()
 		return w, 0
@@ -363,6 +351,7 @@ func contentWidth(e *node, maxContent bool) float32 {
 func (e *node) forgetIntrinsic() {
 	for p := e; p != nil && p.intrOK != 0; p = p.parent {
 		p.intrOK = 0
+		p.keepMeasured()
 	}
 }
 
@@ -384,8 +373,19 @@ func measureIntrinsic(e *node, maxContent bool) float32 {
 		}
 	default:
 		n := 0
+		// A toolbar's overflow button is chrome, not content: it shows only
+		// when controls overflow, so it must not widen the toolbar when
+		// everything fits. Skipping it here (rather than relying on its
+		// collapsed state) also keeps the measured width stable across
+		// frames, as the button collapses and reappears during layout.
+		var more *node
+		if e.overflow != nil {
+			for ch := e.first; ch != nil; ch = ch.next {
+				more = ch
+			}
+		}
 		for ch := e.first; ch != nil; ch = ch.next {
-			if ch.flags&flagAbsolute != 0 {
+			if ch == more || ch.flags&flagAbsolute != 0 {
 				continue
 			}
 			cw := intrinsic(ch, maxContent)
@@ -492,7 +492,7 @@ func naturalHeight(e *node, w, cbH float32) float32 {
 func contentHeight(e *node, cw float32) float32 {
 	switch e.kind {
 	case kindText:
-		return textSystem().Layout(e.textParams(max(cw, 1))).Height
+		return e.textLayout(max(cw, 1)).Height
 	case kindImage, kindIcon:
 		if w, h := e.intrinsicSize(); w > 0 {
 			return cw * h / w
@@ -528,15 +528,35 @@ func boxLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	return flexLayout(e, cw, ch, commit)
 }
 
-// layoutBox gives the element its size and lays out its content.
+// layoutBox gives the element its size and lays out its content, as it
+// did in the last frame when it can (layoutcache.go).
 func layoutBox(e *node, w, h float32) {
+	rt := e.c.rt
+	rt.laySeq++
+	e.laid = rt.laySeq
+	if e.lay&layReuse != 0 {
+		if r := &e.st.lay; r.sized && r.w == w && r.h == h {
+			reuseBox(e, r)
+			return
+		}
+	}
+	start := rt.laySeq
+	rt.computed++
+	computeBox(e, w, h)
+	if e.lay&layOwner != 0 {
+		keepBox(e, w, h, start)
+	}
+}
+
+// computeBox gives the element its size and lays out its content.
+func computeBox(e *node, w, h float32) {
 	e.w, e.h = w, h
 	cw, ch := max(w-e.padX(), 0), max(h-e.padY(), 0)
 	switch e.kind {
 	case kindText:
 		// Lists may build paragraphs while laying out, after the view's pass.
 		e.prepareSelectable()
-		e.tl = textSystem().Layout(e.textParams(max(cw, 1)))
+		e.tl = e.textLayout(max(cw, 1))
 		if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 {
 			// Selectable text hit-tests and selects in what it shows.
 			ed.layout = e.tl
@@ -647,7 +667,12 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	scratch := &e.c.rt.flex
 	firstItem, firstLine := len(scratch.items), len(scratch.lines)
 	baselines := align == Baseline // whether children align by their baselines
-	defer func() { scratch.items, scratch.lines = scratch.items[:firstItem], scratch.lines[:firstLine] }()
+	defer func() {
+		// Laid out again only when they change (layoutcache.go), the
+		// items let go of their elements.
+		clear(scratch.items[firstItem:])
+		scratch.items, scratch.lines = scratch.items[:firstItem], scratch.lines[:firstLine]
+	}()
 	for c := e.first; c != nil; c = c.next {
 		if c.flags&flagAbsolute != 0 {
 			continue

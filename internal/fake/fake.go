@@ -80,6 +80,9 @@ type Backend struct {
 	FileWatchNoFiles bool
 	// FileWatchAddHook is the AddHook of the file watches made.
 	FileWatchAddHook func(platform.FileWatchTarget) error
+	// ReplaceFileHook, when set, replaces files in place of ReplaceFile,
+	// as a system that fails halfway would.
+	ReplaceFileHook func(target, replacement string) error
 	// URLSchemes are the registered URL schemes, by scheme: "id name".
 	URLSchemes map[string]string
 	// LoginItem is the command that starts the app at login: "id name arg".
@@ -221,7 +224,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if o.Surface {
 		w.surface = &Surface{w: w, Scale: 1}
 	}
-	if !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset") {
+	if !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset") && !o.HideWindowButtons {
 		// Three buttons 46 wide at the top right, as on Windows.
 		w.TitleBarRoom = platform.TitleBar{Height: cmp.Or(o.TitleBarHeight, 32), Right: 138}
 	}
@@ -499,6 +502,9 @@ type Window struct {
 	// TitleBarRoom is what TitleBar returns: set for windows with a hidden
 	// title bar, and changed by tests before they call H.TitleBarChanged.
 	TitleBarRoom platform.TitleBar
+	// MaximizeButton is where the content last said it shows the maximize
+	// button.
+	MaximizeButton platform.RectF
 	// AsyncFunction answers CallAsyncFunction.
 	AsyncFunction func(body string) (string, error)
 	// AsyncCallback, when set, receives CallAsyncFunction calls to answer
@@ -1213,6 +1219,10 @@ func (s *Surface) FinishDataDrag(r transfer.Result) {
 }
 
 func (s *Surface) Native() platform.SurfaceNative { return platform.SurfaceNative{} }
+
+// SetMaximizeButton records the button in the window's MaximizeButton
+// (platform.MaximizeButtonSurface).
+func (s *Surface) SetMaximizeButton(r platform.RectF) { s.w.MaximizeButton = r }
 
 func (s *Surface) Size() (float64, float64, float64) {
 	s.w.mu.Lock()

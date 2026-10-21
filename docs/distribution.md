@@ -76,6 +76,9 @@ export default defineConfig({
 The icon is `resources/icon.png`, or the `icon` of the configuration: a square PNG,
 ideally 1024×1024. `mygo build` makes it the `.icns` of macOS, the icon
 resource of the Windows executable and the icon of the Linux desktop entry.
+Beside it, the same name with `-dev` (`resources/icon-dev.png`) is the icon
+of the development app that `mygo dev` builds, when it exists, to tell it
+from the app in the Dock or the taskbar; it does not ship with the app.
 
 On macOS, `macos.icon` adds an asset catalog, which macOS prefers to the
 `.icns`: an `Assets.car` compiled with `actool`, whose app icon is named
@@ -435,6 +438,10 @@ export default defineConfig({
 ```
 
 The package depends on GTK 3 and WebKitGTK; `depends` adds more packages.
+An app that shows no web page, in a window or a `ui.WebView`, as an app of
+[native UI](native.md), needs GTK alone: `webview: false` leaves WebKitGTK
+out of its package, and out of what `install.sh` and `mygo doctor` (in the
+project) check, as the app never loads it.
 `maintainer` defaults to the `author` of package.json, else the name of
 the app.
 `comment` describes the app in its desktop entry and package, and
@@ -477,7 +484,8 @@ sh install.sh --uninstall   # keeps the settings and data of the app
 Running it again installs the version it finds over the installed one.
 The app needs WebKitGTK, which `install.sh` does not install: when the
 system's library cache has none, it says so after installing, with the
-command that installs it on Debian, Ubuntu, Fedora, Arch and openSUSE.
+command that installs it on Debian, Ubuntu, Fedora, Arch and openSUSE,
+unless `linux.webview` is `false`.
 When the app updates itself, it registers the desktop entry and file types
 of the new version, so a version that adds URL schemes or file types gets
 them. The Debian package suits people who want the system's package manager to

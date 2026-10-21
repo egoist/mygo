@@ -90,6 +90,28 @@ type MaterialSurface interface {
 	ShowsMaterial() bool
 }
 
+// PacedSurface is a Surface whose frames following each other come at the
+// display's refreshes, marked Paced: a renderer that waits for the display
+// lets such a frame draw once the display can take it, with FrameNow.
+type PacedSurface interface {
+	// FrameNow sends a SurfaceFrame at once, as a refresh would, for a
+	// frame a Paced one left to draw.
+	FrameNow()
+}
+
+// MaximizeButtonSurface is a Surface whose window makes the maximize
+// button its content draws (in a window without its own, as
+// WindowOptions.HideWindowButtons) the system's for the pointer: Windows
+// shows the snap layouts over it. Package ui reaches it only once a view
+// marks such a button (ui.Element.MaximizeButton), for apps that mark none
+// not to link it.
+type MaximizeButtonSurface interface {
+	// SetMaximizeButton tells where the content shows the window's
+	// maximize button, in DIPs from the top-left corner of the content.
+	// The zero RectF is nowhere.
+	SetMaximizeButton(r RectF)
+}
+
 // IdleSurface is a Surface that can give back memory once frames stop.
 type IdleSurface interface {
 	// Idle tells that no frame came for a while: the surface may give
@@ -265,6 +287,11 @@ type SurfaceEvent struct {
 	Action AccessActionKind
 	// WebView is WebViewTabOut's.
 	WebView WebView
+	// Paced marks a SurfaceFrame of frames following each other at the
+	// display's refreshes (PacedSurface): the content may draw it later,
+	// once the display can take it, which it tells by returning true from
+	// SurfaceEvent; the refreshes go on meanwhile.
+	Paced bool
 }
 
 // Modifiers are the modifier keys held during an event.
