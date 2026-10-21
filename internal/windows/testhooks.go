@@ -106,7 +106,7 @@ func TestActivateAccelerator(hwnd uintptr, acc string) bool {
 	if !ok {
 		return false
 	}
-	cmd, ok := w.accels[accelKey{vk: vk, mods: a.Modifiers}]
+	cmd, ok := w.pageAccelerator(accelKey{vk: vk, mods: a.Modifiers})
 	if ok {
 		theBackend.menuCommand(cmd, w)
 	}
@@ -622,3 +622,72 @@ func TestRecentDocuments() []string {
 
 // TestWindowTitle returns the text of a window's title bar.
 func TestWindowTitle(hwnd uintptr) string { return (&window{hwnd: hwnd}).Title() }
+
+// TestMaximizeButton reports what Windows' hit test answers in the middle
+// of the maximize button the content draws (SetMaximizeButton), and, when
+// press, presses and releases it there as the mouse does: with the
+// non-client messages that a window answering HTMAXBUTTON gets. It reports
+// 0 when no window is over the button.
+func TestMaximizeButton(hwnd uintptr, press bool) uintptr {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.caption == nil || w.caption.snap == 0 || w.surface == nil {
+		return 0
+	}
+	if v, _, _ := procIsWindowVisible.Call(w.caption.snap); v == 0 {
+		return 0
+	}
+	var r rect
+	procGetWindowRect.Call(w.caption.snap, uintptr(unsafe.Pointer(&r)))
+	lp := uintptr(uint16(int16((r.Top+r.Bottom)/2)))<<16 | uintptr(uint16(int16((r.Left+r.Right)/2)))
+	hit, _, _ := procSendMessageW.Call(w.caption.snap, wmNCHitTest, 0, lp)
+	if press {
+		procSendMessageW.Call(w.caption.snap, wmNCMouseMove, hit, lp)
+		procSendMessageW.Call(w.caption.snap, wmNCLButtonDown, hit, lp)
+		procSendMessageW.Call(w.caption.snap, wmNCLButtonUp, hit, lp)
+	}
+	return hit
+}
+
+// TestSurfaceKey presses and releases a key in a window showing native UI,
+// with the modifiers held, as the thread's keyboard state tells them while
+// it handles the messages: the window needs not be in front.
+func TestSurfaceKey(hwnd uintptr, vk byte, mods ...byte) bool {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	getState, setState := user32.NewProc("GetKeyboardState"), user32.NewProc("SetKeyboardState")
+	var saved, state [256]byte
+	getState.Call(uintptr(unsafe.Pointer(&saved)))
+	state = saved
+	for _, m := range mods {
+		state[m] = 0x80
+	}
+	setState.Call(uintptr(unsafe.Pointer(&state)))
+	defer setState.Call(uintptr(unsafe.Pointer(&saved)))
+	down, up := uint32(wmKeyDown), uint32(wmKeyUp)
+	if state[vkMenu] != 0 {
+		down, up = wmSysKeyDown, wmSysKeyUp
+	}
+	procSendMessageW.Call(w.surface.hwnd, uintptr(down), uintptr(vk), 1)
+	procSendMessageW.Call(w.surface.hwnd, uintptr(up), uintptr(vk), 1|3<<30)
+	return true
+}
+
+// TestBrowserAcceleratorKeys reports whether WebView2's own keys (F5 and
+// Ctrl+R reloading, Ctrl+P printing, ...) work in a window's page; ok is
+// false without a web view or a runtime with ICoreWebView2Settings3.
+func TestBrowserAcceleratorKeys(hwnd uintptr) (on, ok bool) {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.settings == 0 {
+		return false, false
+	}
+	s3 := queryInterface(w.settings, &iidICoreWebView2Settings3)
+	if s3 == 0 {
+		return false, false
+	}
+	defer release(s3)
+	var v int32
+	comCall(s3, set3GetAreBrowserAcceleratorKeysEnabled, uintptr(unsafe.Pointer(&v)))
+	return v != 0, true
+}

@@ -213,7 +213,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	// its natural size.
 	gtkWidgetSetSizeRequest(w.box, 1, 1)
 	gtkContainerAdd(w.win, w.box)
-	if w.hiddenTitleBar() {
+	if w.hiddenTitleBar() && !o.HideWindowButtons {
 		w.newControls()
 	}
 	if o.Surface {
@@ -305,7 +305,9 @@ func (w *window) createWebView() {
 	webkitSettingsSetAllowFileAccessFromFileURLs(settings, true)
 	webkitSettingsSetJavascriptCanAccessClipboard(settings, true)
 	if o.UserAgent != "" {
-		webkitSettingsSetUserAgent(settings, cs(o.UserAgent))
+		webkitSettingsSetUserAgent(settings, cs(userAgentWithSuffix(o.UserAgent, o.UserAgentSuffix)))
+	} else if o.UserAgentSuffix != "" {
+		webkitSettingsSetUserAgentSuffix(settings, o.UserAgentSuffix)
 	}
 	if o.Zoom > 0 && o.Zoom != 1 {
 		webkitWebViewSetZoomLevel(w.web, o.Zoom)
@@ -1081,7 +1083,37 @@ func (w *window) SetZoom(f float64) { webkitWebViewSetZoomLevel(w.web, f) }
 func (w *window) Zoom() float64     { return webkitWebViewGetZoomLevel(w.web) }
 
 func (w *window) SetUserAgent(ua string) {
-	webkitSettingsSetUserAgent(webkitWebViewGetSettings(w.web), optCS(ua))
+	settings := webkitWebViewGetSettings(w.web)
+	suffix := w.opts.UserAgentSuffix
+	if ua == "" {
+		// An empty one restores the default user agent, and the suffix
+		// appends to that.
+		if suffix != "" {
+			webkitSettingsSetUserAgentSuffix(settings, suffix)
+			return
+		}
+		webkitSettingsSetUserAgent(settings, nil)
+		return
+	}
+	webkitSettingsSetUserAgent(settings, cs(userAgentWithSuffix(ua, suffix)))
+}
+
+// userAgentWithSuffix appends the suffix the options set, after a space.
+func userAgentWithSuffix(ua, suffix string) string {
+	if suffix == "" {
+		return ua
+	}
+	return ua + " " + suffix
+}
+
+// webkitSettingsSetUserAgentSuffix appends suffix to the default user agent
+// of settings, after a space, as the other backends do. WebKitGTK's
+// application details would join a name and a version with "/", and give
+// a suffix without one WebKit's version.
+func webkitSettingsSetUserAgentSuffix(settings ptr, suffix string) {
+	webkitSettingsSetUserAgent(settings, nil)
+	ua := goStr(webkitSettingsGetUserAgent(settings))
+	webkitSettingsSetUserAgent(settings, cs(userAgentWithSuffix(ua, suffix)))
 }
 
 func (w *window) UserAgent() string {
