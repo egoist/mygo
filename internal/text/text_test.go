@@ -729,11 +729,18 @@ func TestFontsOfManySizes(t *testing.T) {
 
 // TestGlyphsOfFontsForgotten draws a glyph kept from before the system let
 // go of its fonts, as the callers of ui.Shape keep theirs, and releases
-// its font once nothing refers to it.
+// its font once nothing refers to it. The glyph is of a family no other
+// text takes, as DirectWrite's Fonts of a face at every size share it.
 func TestGlyphsOfFontsForgotten(t *testing.T) {
 	s := newSystem()
-	if _, ok := s.engine().(fontForgetter); !ok {
+	f, ok := s.engine().(fontForgetter)
+	if !ok {
 		t.Skip("the engine keeps no fonts")
+	}
+	r := &releases{engine: s.eng, fontForgetter: f}
+	s.eng = r
+	if err := s.RegisterFont(goregular.TTF, "MyGo Test Kept"); err != nil {
+		t.Fatal(err)
 	}
 	forget := func() {
 		gen := s.Generation()
@@ -742,7 +749,7 @@ func TestGlyphsOfFontsForgotten(t *testing.T) {
 			s.EndFrame()
 		}
 	}
-	g := s.Shape(Params{Text: "H", Style: Style{Size: 13}}).Lines[0].Glyphs[0]
+	g := s.Shape(Params{Text: "H", Style: Style{Size: 13, Family: "MyGo Test Kept"}}).Lines[0].Glyphs[0]
 	before := s.Glyph(g.Font, g.ID, 1, 0, 0, false)
 	if !before.OK {
 		t.Fatal("no glyph")
@@ -755,19 +762,27 @@ func TestGlyphsOfFontsForgotten(t *testing.T) {
 	// The glyph drawn again holds its font until the system forgets it.
 	forget()
 	native := g.Font.native
+	if slices.Contains(r.released, native) {
+		t.Fatal("the font was released while a glyph referred to it")
+	}
 	g = Glyph{}
 	wait.Until(t, "the font nothing refers to anymore to be released", func() bool {
 		runtime.GC()
-		s.unusedMu.Lock()
-		defer s.unusedMu.Unlock()
-		return slices.Contains(s.unused, native)
+		s.EndFrame()
+		return slices.Contains(r.released, native)
 	})
-	s.EndFrame()
-	s.unusedMu.Lock()
-	defer s.unusedMu.Unlock()
-	if slices.Contains(s.unused, native) {
-		t.Error("EndFrame left the font unreleased")
-	}
+}
+
+// releases is an engine that records the native fonts it releases.
+type releases struct {
+	engine
+	fontForgetter
+	released []uintptr
+}
+
+func (r *releases) releaseFonts(natives []uintptr) {
+	r.released = append(r.released, natives...)
+	r.fontForgetter.releaseFonts(natives)
 }
 
 // TestPlacement checks that glyphs go to the positions within a pixel the
