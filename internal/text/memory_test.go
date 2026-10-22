@@ -72,7 +72,7 @@ func TestLayoutCacheKeepsFrequentlyUsedText(t *testing.T) {
 	}
 }
 
-func TestLayoutCacheSkipsOversizedParagraph(t *testing.T) {
+func TestOversizedParagraphKeepsLabels(t *testing.T) {
 	s := newSystem()
 	s.eng = &stubEngine{}
 	p := Params{Text: "a small label"}
@@ -81,7 +81,7 @@ func TestLayoutCacheSkipsOversizedParagraph(t *testing.T) {
 	if len(large.Runes) != maxLayoutBytes/32 || len(large.Lines) == 0 {
 		t.Fatal("oversized text did not lay out")
 	}
-	if len(s.layouts) != 1 || s.Layout(p) != l {
+	if _, ok := s.layouts[p]; !ok || s.Layout(p) != l {
 		t.Fatal("an oversized paragraph displaced the ordinary labels")
 	}
 }

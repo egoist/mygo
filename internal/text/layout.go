@@ -658,9 +658,14 @@ func (s *System) Layout(p Params) *Layout {
 	p.Style.Lang = strings.Clone(p.Style.Lang)
 	c := s.layout(p)
 	c.bytes = layoutBytes(c)
-	// A large paragraph still lays out correctly; keeping it would evict
-	// all the ordinary labels and lines of other windows.
-	if c.bytes <= maxLayoutBytes {
+	// A large paragraph still lays out correctly; keeping it must not
+	// evict the ordinary labels and lines of other windows. One above the
+	// ordinary budget is kept only when the layouts that recent frames
+	// used leave it room within the live budget (fitsLive): making that
+	// room evicts only layouts no recent frame used, and EndFrame gives its
+	// memory back once frames stop using it. Without it, such a paragraph
+	// is shaped again on every frame (#628).
+	if c.bytes <= maxLayoutBytes || c.bytes <= maxLiveLayoutBytes && s.fitsLive(c.bytes) {
 		for s.oldest != nil && (s.overLayoutBudget(c.bytes) || len(s.layouts) >= maxLayouts) {
 			s.removeLayout(s.oldest)
 		}
@@ -688,6 +693,22 @@ const (
 func (s *System) overLayoutBudget(n int) bool {
 	return s.layoutBytes+n > maxLiveLayoutBytes ||
 		s.layoutBytes+n > maxLayoutBytes && s.oldest != nil && s.frame-s.oldest.used >= liveLayoutFrames
+}
+
+// fitsLive reports whether a layout of n bytes fits in the cache next to
+// the layouts used within liveLayoutFrames, within maxLiveLayoutBytes and
+// maxLayouts. The list runs from the least recently used, so making room
+// for it evicts the others first, and none of these.
+func (s *System) fitsLive(n int) bool {
+	count := 0
+	for c := s.newest; c != nil && s.frame-c.used < liveLayoutFrames; c = c.prev {
+		n += c.bytes
+		count++
+		if n > maxLiveLayoutBytes || count >= maxLayouts {
+			return false
+		}
+	}
+	return true
 }
 
 func layoutBytes(c *cached) int {
