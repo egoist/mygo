@@ -159,3 +159,66 @@ func TestNearLiveBudgetLayoutKeepsLiveLabels(t *testing.T) {
 		t.Fatalf("%d layouts made in 3 frames, want 3 (the paragraph only)", got)
 	}
 }
+
+// Once a paragraph near the live budget is cached next to the labels that
+// frames draw, an ordinary cache miss that takes the cache over the live
+// budget evicts that paragraph first, not the labels.
+func TestOrdinaryMissEvictsOversizedBeforeLiveLabels(t *testing.T) {
+	s := newSystem()
+	s.eng = &stubEngine{}
+	size := func(p Params) int {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return layoutBytes(s.layout(p))
+	}
+	var labels []Params
+	var labelBytes int
+	for i := range 4 {
+		p := Params{Text: strings.Repeat("Grace Hopper ", 100) + strings.Repeat("!", i)}
+		labels = append(labels, p)
+		labelBytes += size(p)
+	}
+	miss := Params{Text: strings.Repeat("Ada Lovelace ", 2000)}
+	missBytes := size(miss)
+	// The largest paragraph that fits next to the labels.
+	big := func(k int) Params { return Params{Text: strings.Repeat("mixed 中文。 ", k), Width: 700} }
+	lo, hi := 1, 1<<17
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if size(big(mid))+labelBytes <= maxLiveLayoutBytes {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	p := big(lo)
+	n := size(p)
+	if n <= maxLayoutBytes || n+labelBytes+missBytes <= maxLiveLayoutBytes || missBytes > maxLayoutBytes {
+		t.Fatalf("fixture: paragraph %d, labels %d, miss %d bytes do not go over the live budget", n, labelBytes, missBytes)
+	}
+	kept := make([]*Layout, len(labels))
+	for i, l := range labels {
+		kept[i] = s.Layout(l)
+	}
+	s.Layout(p)
+	s.mu.Lock()
+	_, cached := s.layouts[p]
+	s.mu.Unlock()
+	if !cached {
+		t.Fatal("fixture: the paragraph was not cached next to the labels")
+	}
+	s.Layout(miss)
+	s.mu.Lock()
+	for i, l := range labels {
+		if c, ok := s.layouts[l]; !ok || &c.layout != kept[i] {
+			s.mu.Unlock()
+			t.Fatalf("label %d was evicted by an ordinary miss while an oversized paragraph stayed", i)
+		}
+	}
+	_, still := s.layouts[p]
+	over := s.layoutBytes > maxLiveLayoutBytes
+	s.mu.Unlock()
+	if still || over {
+		t.Fatalf("oversized paragraph kept: %v, bytes over the live budget: %v", still, over)
+	}
+}

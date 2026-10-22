@@ -667,7 +667,7 @@ func (s *System) Layout(p Params) *Layout {
 	// is shaped again on every frame (#628).
 	if c.bytes <= maxLayoutBytes || c.bytes <= maxLiveLayoutBytes && s.fitsLive(c.bytes) {
 		for s.oldest != nil && (s.overLayoutBudget(c.bytes) || len(s.layouts) >= maxLayouts) {
-			s.removeLayout(s.oldest)
+			s.removeLayout(s.evictee(c.bytes))
 		}
 		s.layouts[p] = c
 		s.layoutBytes += c.bytes
@@ -693,6 +693,20 @@ const (
 func (s *System) overLayoutBudget(n int) bool {
 	return s.layoutBytes+n > maxLiveLayoutBytes ||
 		s.layoutBytes+n > maxLayoutBytes && s.oldest != nil && s.frame-s.oldest.used >= liveLayoutFrames
+}
+
+// evictee returns the layout to evict to make room for n bytes: over the
+// live budget, a layout above maxLayoutBytes goes before the ordinary
+// labels and lines that recent frames use; otherwise the oldest.
+func (s *System) evictee(n int) *cached {
+	if s.layoutBytes+n > maxLiveLayoutBytes {
+		for c := s.oldest; c != nil; c = c.next {
+			if c.bytes > maxLayoutBytes {
+				return c
+			}
+		}
+	}
+	return s.oldest
 }
 
 // fitsLive reports whether a layout of n bytes fits in the cache next to
