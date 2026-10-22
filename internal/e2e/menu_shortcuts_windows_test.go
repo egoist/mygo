@@ -53,6 +53,35 @@ func TestNativeMenuShortcuts(t *testing.T) {
 	}
 }
 
+// A text field takes the edit keys it handles, as Ctrl+V: Edit › Paste,
+// whose key it is too, doesn't paste again after it.
+func TestNativeTextEditKeys(t *testing.T) {
+	preserveClipboard(t)
+	mygo.Clipboard.WriteText("X")
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Role: mygo.RoleEditMenu}}))
+	var text string
+	w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200, Content: ui.View(func(c *ui.Context) {
+		ui.TextInput(c, &text).AutoFocus()
+	})})
+	got := func() (s string) {
+		mygo.RunOnMain(func() { s = text })
+		return
+	}
+	var ok bool
+	// The key and the item's command, had it run, both come before the
+	// frame that applies them.
+	mygo.RunOnMain(func() { ok = win.TestSurfaceKey(w.NativeHandle(), 'V', 0x11) }) // VK_CONTROL
+	if !ok {
+		t.Fatal("no window of native UI to press keys in")
+	}
+	eventually(t, "Ctrl+V to paste", func() bool { return got() != "" })
+	if s := got(); s != "X" {
+		t.Errorf("Ctrl+V made the text %q, want X", s)
+	}
+}
+
 // In a page, the edit roles' keys are the page's, as in a browser and as in
 // native UI: WebView2 pastes with the page's own paste event and every
 // format of the clipboard, where Edit › Paste would type its text alone.
