@@ -53,6 +53,42 @@ func TestNativeMenuShortcuts(t *testing.T) {
 	}
 }
 
+// A text field takes the edit keys it handles, as Ctrl+V: Edit › Paste,
+// whose key it is too, doesn't paste again after it.
+func TestNativeTextEditKeys(t *testing.T) {
+	preserveClipboard(t)
+	mygo.Clipboard.WriteText("X")
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Role: mygo.RoleEditMenu}}))
+	var text string
+	var focused bool
+	w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200, Content: ui.View(func(c *ui.Context) {
+		focused = ui.TextInput(c, &text).AutoFocus().Focused()
+	})})
+	got := func() (s string, f bool) {
+		mygo.RunOnMain(func() { s, f = text, focused })
+		return
+	}
+	var ok bool
+	mygo.RunOnMain(func() { ok = win.TestForeground(w.NativeHandle()) })
+	if !ok {
+		t.Fatal("the window did not come to the front")
+	}
+	// The key goes to the field once it has the keyboard.
+	eventually(t, "the field to have the keyboard", func() bool { _, f := got(); return f })
+	// The key and the item's command, had it run, both come before the
+	// frame that applies them.
+	mygo.RunOnMain(func() { ok = win.TestSurfaceKey(w.NativeHandle(), 'V', 0x11) }) // VK_CONTROL
+	if !ok {
+		t.Fatal("no window of native UI to press keys in")
+	}
+	eventually(t, "Ctrl+V to paste", func() bool { s, _ := got(); return s != "" })
+	if s, _ := got(); s != "X" {
+		t.Errorf("Ctrl+V made the text %q, want X", s)
+	}
+}
+
 // In a page, the edit roles' keys are the page's, as in a browser and as in
 // native UI: WebView2 pastes with the page's own paste event and every
 // format of the clipboard, where Edit › Paste would type its text alone.

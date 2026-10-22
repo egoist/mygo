@@ -270,6 +270,7 @@ var (
 	gtkWindowBeginMoveDrag              func(w ptr, button int32, rootX, rootY int32, timestamp uint32)
 	gtkWindowBeginResizeDrag            func(w ptr, edge, button int32, rootX, rootY int32, timestamp uint32)
 	gtkWindowAddAccelGroup              func(w, group ptr)
+	gtkWindowActivateKey                func(w, event ptr) bool
 	gtkWindowPropagateKeyEvent          func(w, event ptr) bool
 	gtkWindowRemoveAccelGroup           func(w, group ptr)
 	gtkWindowSetUrgencyHint             func(w ptr, v bool)
@@ -697,6 +698,7 @@ func load() error {
 	mustBind(t, &gtkWindowBeginMoveDrag, "gtk_window_begin_move_drag")
 	mustBind(t, &gtkWindowBeginResizeDrag, "gtk_window_begin_resize_drag")
 	mustBind(t, &gtkWindowAddAccelGroup, "gtk_window_add_accel_group")
+	mustBind(t, &gtkWindowActivateKey, "gtk_window_activate_key")
 	mustBind(t, &gtkWindowPropagateKeyEvent, "gtk_window_propagate_key_event")
 	mustBind(t, &gtkWindowRemoveAccelGroup, "gtk_window_remove_accel_group")
 	mustBind(t, &gtkWindowSetUrgencyHint, "gtk_window_set_urgency_hint")

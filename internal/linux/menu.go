@@ -120,7 +120,15 @@ func initMenuCallbacks() {
 		// GTK runs those it leaves. The app's own items go first, as on macOS.
 		if field[int32](event, 0) == 8 && w.surface != nil { // GDK_KEY_PRESS
 			k := [2]uint32{gdkKeyvalToLower(field[uint32](event, 28)), field[uint32](event, 24) & modifierMask}
+			// The surface says whether its content took the key; what else
+			// has the keyboard, a web view, takes what it handles.
+			w.surface.keyTaken = true
 			if roleKeys[w.accel][k] && gtkWindowPropagateKeyEvent(w.win, event) {
+				if !w.surface.keyTaken {
+					// The surface handles every key, so GTK would offer
+					// this one to it again if its item doesn't run.
+					gtkWindowActivateKey(w.win, event)
+				}
 				return true
 			}
 		}

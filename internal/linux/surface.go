@@ -155,6 +155,10 @@ type surface struct {
 	// lastKey is a copy of the last key press, which a context menu the
 	// key opens shows for.
 	lastKey ptr
+	// keyTaken tells whether the content took the last key press it got,
+	// which the window then leaves to it rather than run the item of a
+	// role with that key (cbMenuKey).
+	keyTaken bool
 	// pressing is the key press being handled, which the Tab moving the
 	// focus to a web view passes on to it (TabInto).
 	pressing     ptr
@@ -877,7 +881,10 @@ func initSurfaceCallbacks() {
 			s.pressing = event
 			defer func() { s.pressing = 0 }()
 		}
-		s.send(platform.SurfaceEvent{Kind: kind, Key: k, PhysicalKey: physical, Mods: mods})
+		taken := s.send(platform.SurfaceEvent{Kind: kind, Key: k, PhysicalKey: physical, Mods: mods})
+		if kind == platform.KeyPressed {
+			s.keyTaken = taken
+		}
 		return true
 	})
 	cbSurfaceFocusIn = purego.NewCallback(func(widget, event, data ptr) bool {

@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo"
@@ -46,5 +48,49 @@ func TestNativeMenuShortcutsLinux(t *testing.T) {
 	eventually(t, "the content's Ctrl+C", func() bool { _, _, c, _ := counts(); return c == 1 })
 	if _, _, _, ty := counts(); ty != 0 {
 		t.Errorf("Ctrl+, reached the content %d times", ty)
+	}
+}
+
+// A role's key the content leaves runs the role's item, as Ctrl+A Edit ›
+// Select All, which gives the content the command; one it takes doesn't,
+// as a text field's Ctrl+V, which pastes once.
+func TestNativeRoleShortcutsLinux(t *testing.T) {
+	preserveClipboard(t)
+	mygo.Clipboard.WriteText("X")
+	prev := mygo.App.Menu()
+	defer mygo.App.SetMenu(prev)
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Role: mygo.RoleEditMenu}}))
+	var commands []string
+	var text string
+	w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200, Content: ui.View(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() {
+			ui.Box(c).Size(300, 100).Focusable().AutoFocus().HandleInput(func(ev ui.InputEvent) bool {
+				if ev.Kind == ui.InputCommand {
+					commands = append(commands, ev.Text)
+					return true
+				}
+				return false
+			})
+			ui.TextInput(c, &text).Width(300)
+		})
+	})})
+	if !click(w, 50, 50) {
+		t.Skip("click automation unavailable")
+	}
+	got := func() (cs []string, tx string) {
+		mygo.RunOnMain(func() { cs, tx = slices.Clone(commands), text })
+		return
+	}
+	if !pressKeys("Control_L", "a") {
+		t.Skip("no X server to press keys with")
+	}
+	eventually(t, "Ctrl+A to run Select All", func() bool { cs, _ := got(); return slices.Equal(cs, []string{"selectAll"}) })
+	click(w, 50, 120)
+	pressKeys("Control_L", "v")
+	// A key typed after it comes after Edit › Paste's paste, had it run.
+	pressKeys("b")
+	eventually(t, "Ctrl+V and b", func() bool { _, tx := got(); return strings.HasSuffix(tx, "b") })
+	if cs, tx := got(); tx != "Xb" || len(cs) != 1 {
+		t.Errorf("text %q, commands %q after Ctrl+V", tx, cs)
 	}
 }

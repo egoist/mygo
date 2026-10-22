@@ -195,3 +195,30 @@ func TestWidgetNativeQueryMalformedUTF8(t *testing.T) {
 		t.Fatalf("native query %q %+v", doc, actual)
 	}
 }
+
+// A text field takes the keys it handles, as Ctrl+V, which Windows and
+// Linux then don't give to Edit › Paste too; those it leaves, as Ctrl+N,
+// go on to the menus' items.
+func TestWidgetInputTakesItsKeys(t *testing.T) {
+	s := ""
+	tt := inputTester(&s, false)
+	defer tt.rt.close()
+	tt.SetClipboard("X")
+	press := func(k Key) bool {
+		taken := tt.rt.event(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(k), Mods: platform.Modifiers(Cmd)})
+		if !taken && k == KeyV {
+			// The backends run the item of a role with the key the
+			// content leaves.
+			tt.rt.event(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "paste"})
+		}
+		tt.rt.event(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: platform.Key(k), Mods: platform.Modifiers(Cmd)})
+		tt.Frame()
+		return taken
+	}
+	if taken := press(KeyV); !taken || s != "X" {
+		t.Fatalf("Cmd+V: taken %v, text %q; want taken, X", taken, s)
+	}
+	if press(KeyN) {
+		t.Fatal("Cmd+N was taken from the menus")
+	}
+}
