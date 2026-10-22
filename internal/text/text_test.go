@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/internal/scene"
+	"github.com/egoist/mygo/internal/wait"
 	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
@@ -723,6 +724,49 @@ func TestFontsOfManySizes(t *testing.T) {
 		if n := f.fontCount(); n > maxFonts {
 			t.Fatalf("%d fonts after a frame", n)
 		}
+	}
+}
+
+// TestGlyphsOfFontsForgotten draws a glyph kept from before the system let
+// go of its fonts, as the callers of ui.Shape keep theirs, and releases
+// its font once nothing refers to it.
+func TestGlyphsOfFontsForgotten(t *testing.T) {
+	s := newSystem()
+	if _, ok := s.engine().(fontForgetter); !ok {
+		t.Skip("the engine keeps no fonts")
+	}
+	forget := func() {
+		gen := s.Generation()
+		for i := 0; s.Generation() == gen; i++ {
+			s.Layout(Params{Text: "x", Style: Style{Size: 20 + float32(i)/10}})
+			s.EndFrame()
+		}
+	}
+	g := s.Shape(Params{Text: "H", Style: Style{Size: 13}}).Lines[0].Glyphs[0]
+	before := s.Glyph(g.Font, g.ID, 1, 0, 0, false)
+	if !before.OK {
+		t.Fatal("no glyph")
+	}
+	forget()
+	after := s.Glyph(g.Font, g.ID, 1, 0, 0, false)
+	if !after.OK || after.W != before.W || after.H != before.H || after.Left != before.Left || after.Top != before.Top {
+		t.Fatalf("the glyph kept drew %+v once its font was forgotten, %+v before", after, before)
+	}
+	// The glyph drawn again holds its font until the system forgets it.
+	forget()
+	native := g.Font.native
+	g = Glyph{}
+	wait.Until(t, "the font nothing refers to anymore to be released", func() bool {
+		runtime.GC()
+		s.unusedMu.Lock()
+		defer s.unusedMu.Unlock()
+		return slices.Contains(s.unused, native)
+	})
+	s.EndFrame()
+	s.unusedMu.Lock()
+	defer s.unusedMu.Unlock()
+	if slices.Contains(s.unused, native) {
+		t.Error("EndFrame left the font unreleased")
 	}
 }
 

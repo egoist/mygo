@@ -1544,11 +1544,22 @@ func englishName(strs uintptr) string {
 
 func (e *dwrite) fontCount() int { return len(e.fonts) }
 
-// forgetFonts lets go of the faces of the Fonts made so far; the faces of
-// the families stay.
-func (e *dwrite) forgetFonts() {
+// forgetFonts forgets the Fonts made so far.
+func (e *dwrite) forgetFonts() []*Font {
+	out := make([]*Font, 0, len(e.fonts))
 	for _, f := range e.fonts {
-		release(f.native)
+		out = append(out, f)
 	}
 	clear(e.fonts)
+	return out
+}
+
+// releaseFonts lets go of faces, and of what is known by their addresses,
+// which others may take.
+func (e *dwrite) releaseFonts(natives []uintptr) {
+	for _, face := range natives {
+		release(face)
+		delete(e.color, face)
+		delete(e.thin, face)
+	}
 }

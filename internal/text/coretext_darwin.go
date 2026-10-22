@@ -1545,16 +1545,26 @@ func (e *coreText) fontCount() int {
 	return n
 }
 
-// forgetFonts lets go of the CTFonts of the Fonts made so far, and of
-// what is known of them; the fonts of styles stay.
-func (e *coreText) forgetFonts() {
+// forgetFonts forgets the Fonts made so far, and what is known of them;
+// the fonts of styles stay.
+func (e *coreText) forgetFonts() []*Font {
+	var out []*Font
 	for _, fs := range e.fonts {
-		for _, f := range fs {
-			ct.release(f.native)
-		}
+		out = append(out, fs...)
 	}
 	clear(e.fonts)
 	clear(e.native)
 	clear(e.oblique)
 	clear(e.color)
+	return out
+}
+
+// releaseFonts lets go of CTFonts, and of what is known by their
+// addresses, which others may take.
+func (e *coreText) releaseFonts(natives []uintptr) {
+	for _, font := range natives {
+		ct.release(font)
+		delete(e.color, font)
+	}
+	clear(e.bands)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"image"
 	"math"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -367,6 +368,10 @@ type System struct {
 	ellipsized []rune
 	// marks caches the width of the ellipsis of each style.
 	marks map[markKey]float32
+	// unused holds the native fonts of forgotten Fonts nothing refers to,
+	// for EndFrame to release; cleanups add to it (unusedMu).
+	unusedMu sync.Mutex
+	unused   []uintptr
 }
 
 type markKey struct {
@@ -431,7 +436,10 @@ const maxFonts = 512
 // are many.
 type fontForgetter interface {
 	fontCount() int
-	forgetFonts()
+	// forgetFonts returns the Fonts made so far, forgotten but not
+	// released: kept glyphs still draw with them (releaseFonts).
+	forgetFonts() []*Font
+	releaseFonts(natives []uintptr)
 }
 
 // uiFamilySetter is an engine that takes the family of the desktop's
@@ -616,7 +624,17 @@ func (s *System) EndFrame() {
 		}
 	}
 	s.frame++
-	if f, ok := s.eng.(fontForgetter); ok && f.fontCount() > maxFonts {
+	f, forgets := s.eng.(fontForgetter)
+	if forgets {
+		s.unusedMu.Lock()
+		unused := s.unused
+		s.unused = nil
+		s.unusedMu.Unlock()
+		if len(unused) > 0 {
+			f.releaseFonts(unused)
+		}
+	}
+	if forgets && f.fontCount() > maxFonts {
 		// Fonts pile up with sizes, as with animated ones: let them all go,
 		// with what refers to them. The atlas takes back the room of their
 		// glyphs as it makes room; the next frame lays out and draws its
@@ -628,7 +646,9 @@ func (s *System) EndFrame() {
 		clear(s.glyphs)
 		clear(s.places)
 		clear(s.runs)
-		f.forgetFonts()
+		for _, font := range f.forgetFonts() {
+			runtime.AddCleanup(font, s.unuse, font.native)
+		}
 		return
 	}
 	for s.oldest != nil && s.overLayoutBudget(0) {
@@ -637,6 +657,13 @@ func (s *System) EndFrame() {
 	for s.oldest != nil && s.frame-s.oldest.used > 240 {
 		s.removeLayout(s.oldest)
 	}
+}
+
+// unuse queues the native font of a Font nothing refers to anymore.
+func (s *System) unuse(native uintptr) {
+	s.unusedMu.Lock()
+	s.unused = append(s.unused, native)
+	s.unusedMu.Unlock()
 }
 
 // Layout shapes and wraps p.Text. The result is shared and must not be
@@ -763,8 +790,7 @@ func (s *System) LayoutsMade() uint64 {
 
 // Generation returns a number that changes whenever the system forgets
 // its layouts, as it lets go of its fonts (EndFrame) or takes other ones:
-// the layouts it returned before are then to be made anew, and those of
-// fonts it let go of must not be drawn.
+// the layouts it returned before are then to be made anew.
 func (s *System) Generation() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
