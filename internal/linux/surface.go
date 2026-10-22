@@ -127,6 +127,8 @@ type surface struct {
 	// gl tells that the area is a GtkGLArea, rendering that its render
 	// signal is in progress, rendered that it ran.
 	gl, rendering, rendered bool
+	cornerFrame             cornerFrame
+	cornerSplitOff          bool
 	// present shows the frames the content draws in memory in a GtkGLArea,
 	// as when its GL renderer fails; inMemory tells that it did, failed
 	// that it failed too.
@@ -671,6 +673,7 @@ func initSurfaceCallbacks() {
 			return false
 		}
 		s.rendering, s.rendered, s.inMemory = true, true, false
+		s.recordCornerFrame()
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame})
 		s.rendering = false
 		return true
@@ -690,6 +693,8 @@ func initSurfaceCallbacks() {
 	// has them: fcitx5's disconnects from it.
 	cbSurfaceUnrealize = purego.NewCallback(func(widget, data ptr) {
 		if s := b().surfaceOf(data); s != nil {
+			s.cornerFrame = cornerFrame{}
+			s.cornerSplitOff = false
 			gtkIMContextSetClientWindow(s.im, 0)
 		}
 	})

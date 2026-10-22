@@ -381,6 +381,19 @@ purego gives three primitives, used everywhere:
   decorations, unlike a frameless one, so the compositor's title bar, or a
   tiling compositor's lack of one, stands for the buttons, whatever the
   layout says.
+- Hidden-title-bar windows without server-side decorations use an RGBA
+  visual and clip their contents to a 12 DIP rounded rectangle
+  (`corners.go`). Their input shape excludes the transparent corners;
+  their opaque region excludes only the corner squares. Both follow
+  size, window-state and compositing changes. Maximized, full-screen and
+  tiled windows are rectangular; explicitly transparent windows keep
+  their own shape. A native GtkGLArea filling the window (`corners_gl.go`)
+  draws its interior through GTK's usual handler with a rectangular
+  clip, then copies only the four small corner squares with a curved
+  clip. GDK otherwise reads back the entire GL source for a curved clip.
+  The render signal records the current framebuffer attachment, which
+  is discarded on unrealize. Web pages and composite widget trees use
+  GTK's ordinary drawing under the curved clip.
 - `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set unless the user set it, which
   avoids blank webviews on NVIDIA drivers, VMs and containers.
 - XDG desktop portal calls go through `portalCall` (`portal.go`), which

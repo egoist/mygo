@@ -92,6 +92,9 @@ type WindowOptions struct {
 	// --mygo-titlebar-* CSS variables and drag the window by their title
 	// bar with --app-region: drag, as in a frameless window; native UI
 	// with ui.Context.TitleBar and ui.Element.DragWindow.
+	// On composited Linux desktops without server-side decorations,
+	// opaque windows have rounded corners, except while maximized,
+	// full screen or tiled. Transparent windows keep the app's shape.
 	TitleBarStyle TitleBarStyle
 	// TrafficLightPosition moves the window controls of a window with a
 	// hidden title bar (macOS): the top-left corner of the close button

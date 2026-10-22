@@ -40,7 +40,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth dbus-x11 libgl1-mesa-dri libglx-mesa0 libegl-mesa0
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth dbus-x11 libgl1-mesa-dri libglx-mesa0 libegl-mesa0 openbox xcompmgr
       - run: bun install --frozen-lockfile
       - name: Build the JavaScript packages
         run: bun run build
@@ -112,6 +112,20 @@ jobs:
           MYGO_E2E: 1
           MYGO_GPU: 1
         run: xvfb-run -a dbus-run-session -- go test -run 'TestContentWindow' ./internal/e2e
+      - name: Rounded Linux windows with a compositing window manager
+        if: runner.os == 'Linux'
+        env:
+          MYGO_E2E: 1
+          MYGO_E2E_COMPOSITED: 1
+          MYGO_E2E_WINDOW_MANAGER: 1
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24' dbus-run-session -- sh -c '
+            openbox >/tmp/openbox.log 2>&1 &
+            xcompmgr -a >/tmp/xcompmgr.log 2>&1 &
+            MYGO_GPU=0 go test -count=1 -run "TestRounded" ./internal/e2e &&
+            MYGO_GPU=1 go test -count=1 -run "TestRounded" ./internal/e2e &&
+            GDK_SCALE=2 MYGO_GPU=1 go test -count=1 -run "TestRounded" ./internal/e2e
+          '
 
   # Windows on ARM64, which no machine of the maintainers runs: DirectWrite's
   # methods taking floats go through purego, which sets the floating point
