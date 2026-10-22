@@ -234,11 +234,12 @@ mygo.Shell.PreviewItem(path)                   // Quick Look, as the space bar d
 mygo.Shell.Beep()
 ```
 
-`TrashItem` never deletes for good: when the item cannot go to the trash
-it fails and leaves the item where it is. On Windows that is an item too
-big for the recycle bin, or on a drive without one, as network shares and
-many removable drives are, which Windows would otherwise delete without
-asking.
+`TrashItem` fails and leaves the item where it is when it cannot go to
+the trash. On Windows that is an item too big for the recycle bin, or on
+a drive without one, as network shares and many removable drives are,
+which Windows would otherwise delete without asking. In the rare case
+Windows deletes it for good all the same, `TrashItem` fails and says it
+was deleted.
 
 `PreviewItem` shows a file in the Quick Look panel, the preview Finder
 opens with the space bar: the panel stays open until the user closes it,
