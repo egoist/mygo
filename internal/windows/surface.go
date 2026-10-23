@@ -216,8 +216,12 @@ func (s *surface) Native() platform.SurfaceNative {
 func (s *surface) viaComposition() bool { return s.w.noRedirect || s.layer != nil }
 
 // ShowsMaterial reports whether the window shows its material behind the
-// content: it has one, and no redirection bitmap to cover it.
-func (s *surface) ShowsMaterial() bool { return s.w.noRedirect && s.w.vibrancy != "" }
+// content: it has one, no redirection bitmap to cover it, and Windows draws
+// system backdrops. A flyout has no redirection bitmap on any Windows, so
+// that what its content leaves transparent shows what is behind.
+func (s *surface) ShowsMaterial() bool {
+	return s.w.noRedirect && s.w.vibrancy != "" && systemBackdrops()
+}
 
 func (s *surface) freeComp() {
 	if s.comp != nil {
