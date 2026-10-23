@@ -3,6 +3,7 @@
 package web
 
 import (
+	"image"
 	"log"
 	"math"
 	"strconv"
@@ -29,6 +30,11 @@ type surface struct {
 	ctx2d         js.Value
 	image         js.Value // ImageData of the frames drawn in memory
 	rgba          []byte
+	// dmgImages caches scratch ImageDatas by size, so PresentDamage
+	// doesn't allocate one per rect: damage rectangles often repeat
+	// (a button, a line of text), differing by a pixel as glyphs change.
+	dmgImages [8]dmgImage
+	dmgImageN int
 
 	// width and height are the canvas's size in DIPs, CSS pixels, and
 	// scale the device pixels of one.
@@ -637,6 +643,72 @@ func (s *surface) PresentPixels(pix []byte, stride, width, height int) {
 	}
 	js.CopyBytesToJS(s.image.Get("data"), rgba)
 	s.ctx2d.Call("putImageData", s.image, 0, 0)
+}
+
+// PresentDamage is PresentPixels for a frame that differs from the last
+// one presented only within damage, in device pixels. Where the browser
+// has no WebGL 2, only the damaged rectangles are converted and uploaded,
+// instead of the whole frame.
+func (s *surface) PresentDamage(pix []byte, stride, width, height int, damage []image.Rectangle) {
+	if s.gl != nil {
+		s.PresentPixels(pix, stride, width, height)
+		return
+	}
+	if s.ctx2d.IsUndefined() || s.ctx2d.IsNull() || width <= 0 || height <= 0 {
+		return
+	}
+	frame := image.Rect(0, 0, width, height)
+	for _, d := range damage {
+		d = d.Intersect(frame)
+		if d.Empty() {
+			continue
+		}
+		dw, dh := d.Dx(), d.Dy()
+		// ImageData holds straight RGBA; frames are premultiplied BGRA.
+		n := 4 * dw * dh
+		if cap(s.rgba) < n {
+			s.rgba = make([]byte, n)
+		}
+		rgba := s.rgba[:n]
+		for y := 0; y < dh; y++ {
+			src := pix[(d.Min.Y+y)*stride+d.Min.X*4:][:4*dw]
+			dst := rgba[4*dw*y:][:4*dw]
+			for x := 0; x < 4*dw; x += 4 {
+				b, g, r, a := src[x], src[x+1], src[x+2], src[x+3]
+				if a != 0 && a != 255 {
+					r, g, b = unpremul(r, a), unpremul(g, a), unpremul(b, a)
+				}
+				dst[x], dst[x+1], dst[x+2], dst[x+3] = r, g, b, a
+			}
+		}
+		img := s.dmgScratch(dw, dh)
+		js.CopyBytesToJS(img.Get("data"), rgba)
+		s.ctx2d.Call("putImageData", img, d.Min.X, d.Min.Y)
+	}
+}
+
+// dmgImage is a scratch ImageData of one size, reused across frames.
+type dmgImage struct {
+	w, h int
+	img  js.Value
+}
+
+// dmgScratch returns a scratch ImageData of dw×dh, reusing a cached one
+// when a rectangle of that size was uploaded before.
+func (s *surface) dmgScratch(dw, dh int) js.Value {
+	for i := 0; i < s.dmgImageN; i++ {
+		if d := &s.dmgImages[i]; d.w == dw && d.h == dh {
+			return d.img
+		}
+	}
+	img := s.ctx2d.Call("createImageData", dw, dh)
+	if s.dmgImageN < len(s.dmgImages) {
+		s.dmgImages[s.dmgImageN] = dmgImage{dw, dh, img}
+		s.dmgImageN++
+	} else {
+		s.dmgImages[0] = dmgImage{dw, dh, img}
+	}
+	return img
 }
 
 func unpremul(c, a byte) byte { return byte(min(255, (int(c)*255+int(a)/2)/int(a))) }
