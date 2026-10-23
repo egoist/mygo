@@ -82,25 +82,46 @@ func (v *view) layout(r ui.Rect, scale float32) {
 	fk := f.key(scale)
 	t.mu.Unlock()
 	if fk != v.font {
-		v.font, v.scale = fk, scale
-		for i := range v.fonts {
-			v.fonts[i] = fk.variant(i)
-		}
-		m := v.fonts[0].Metrics()
-		adv := float32(0)
-		for _, g := range ui.Shape(asciiPrintable, v.fonts[0]) {
-			adv = max(adv, g.Advance)
-		}
-		v.cellW = max(int(math.Ceil(float64(adv*scale-0.05))), 1)
-		v.cellH = max(int(math.Ceil(float64((m.Ascent+m.Descent+m.LineGap)*fk.lineHeight*scale-0.05))), 1)
-		v.baseline = int(math.Round(float64((float32(v.cellH)-(m.Ascent+m.Descent)*scale)/2 + m.Ascent*scale)))
-		v.shaped.clear()
-		v.lines = v.lines[:0]
+		v.setFont(fk)
 	}
 	px, py := t.opts.padding()
 	v.ox, v.oy = int(math.Round(float64(px*scale))), int(math.Round(float64(py*scale)))
 	w, h := int(math.Round(float64(r.W*scale)))-2*v.ox, int(math.Round(float64(r.H*scale)))-2*v.oy
 	v.cols, v.rows = max(w/v.cellW, 1), max(h/v.cellH, 1)
+}
+
+// setFont takes a font and measures its cell, and forgets what the old
+// one drew.
+func (v *view) setFont(fk fontKey) {
+	v.font, v.scale = fk, fk.scale
+	for i := range v.fonts {
+		v.fonts[i] = fk.variant(i)
+	}
+	v.cellW, v.cellH, v.baseline = fk.cell(v.fonts[0])
+	v.shaped.clear()
+	v.lines = v.lines[:0]
+}
+
+// cell returns the size of a cell of the font, whose regular face is f,
+// and the baseline in it, in device pixels.
+func (k fontKey) cell(f ui.Font) (w, h, baseline int) {
+	m := f.Metrics()
+	adv := float32(0)
+	for _, g := range ui.Shape(asciiPrintable, f) {
+		adv = max(adv, g.Advance)
+	}
+	w = max(int(math.Ceil(float64(adv*k.scale-0.05))), 1)
+	h = max(int(math.Ceil(float64((m.Ascent+m.Descent+m.LineGap)*k.lineHeight*k.scale-0.05))), 1)
+	baseline = int(math.Round(float64((float32(h)-(m.Ascent+m.Descent)*k.scale)/2 + m.Ascent*k.scale)))
+	return w, h, baseline
+}
+
+// CellSize returns the size of a cell of the font at a scale, in device
+// pixels per DIP, as View and Grid make it, in device pixels.
+func CellSize(f Font, scale float32) (w, h int) {
+	k := f.key(scale)
+	w, h, _ = k.cell(k.variant(0))
+	return w, h
 }
 
 const asciiPrintable = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
@@ -135,6 +156,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	}
 	v.scrollbar = t.term.Scrollbar()
 	contrast := t.opts.MinimumContrast
+	v.transparent, v.padding = t.opts.Transparent, t.opts.PaddingColor
 	tc, tr := t.term.Size()
 	v.matches, v.matchBuf = t.viewportMatches(v.matches, v.matchBuf, tc, tr)
 	if !held {
@@ -258,18 +280,16 @@ func contrast(a, b float32) float32 {
 
 // buildRow makes the cache of the render state's current row.
 func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
-	*line = rowCache{ok: true, bgs: line.bgs[:0], runs: line.runs[:0], decos: line.decos[:0], boxes: line.boxes[:0], wide: line.wide[:0], filled: true}
+	b := v.newRow(line)
 	cells := rs.RowCells()
 	line.selA, line.selB, line.sel = rs.RowSelection()
-	def := resolved{fg: color(v.colors.Foreground), bg: color(v.colors.Background)}
-	def.shapeFg = def.fg
 	var styles []struct {
 		id uint16
 		r  resolved
 	}
 	styleOf := func(c vt.Cell, x int) resolved {
 		if c.Style == 0 {
-			return def
+			return b.def
 		}
 		for _, s := range styles {
 			if s.id == c.Style {
@@ -283,17 +303,6 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 		}{c.Style, r})
 		return r
 	}
-	var run struct {
-		text    []rune
-		cols    []int16 // the column of each rune
-		widths  []int8
-		fg      ui.Color
-		variant int
-	}
-	flush := func() {
-		v.shapeRun(line, run.text, run.cols, run.widths, run.fg, run.variant)
-		run.text, run.cols, run.widths = run.text[:0], run.cols[:0], run.widths[:0]
-	}
 	var buf []rune
 	for x := 0; x < len(cells) && x < cols; x++ {
 		c := cells[x]
@@ -303,7 +312,6 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 		w := 1
 		if c.Wide == vt.WideChar {
 			w = 2
-			line.wide = append(line.wide, int16(x))
 		}
 		st := styleOf(c, x)
 		if c.HasBackground {
@@ -313,47 +321,7 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 			}
 			st.bg, st.hasBg = color(bg), true
 		}
-		if !st.hasBg || st.bg == def.bg {
-			line.filled = false
-		}
-		if st.hasBg && st.bg != def.bg {
-			if n := len(line.bgs); n > 0 && line.bgs[n-1].x1 == x && line.bgs[n-1].c == st.bg {
-				line.bgs[n-1].x1, line.bgs[n-1].cursor = x+w, false
-			} else {
-				line.bgs = append(line.bgs, bgSpan{x, x + w, st.bg, st.inverse})
-			}
-		}
-		if st.underline != 0 {
-			v.addDeco(line, x, x+w, st.underline, st.ulColor())
-		}
-		if st.strike {
-			v.addDeco(line, x, x+w, decoStrike, st.fg)
-		}
-		if st.overline {
-			v.addDeco(line, x, x+w, decoOverline, st.fg)
-		}
-		cp := c.Codepoint
-		if cp == 0 || st.invisible {
-			cp = ' '
-		}
-		if noMinContrast(cp) {
-			st.fg = st.shapeFg
-		}
-		if drawn(cp) {
-			line.boxes = append(line.boxes, boxCell{x, cp, st.fg})
-			cp = ' '
-		}
-		if len(run.text) > 0 && (st.variant != run.variant || st.fg != run.fg) {
-			if cp == ' ' {
-				// A space draws nothing: it can join any run.
-				st.variant, st.fg = run.variant, run.fg
-			} else {
-				flush()
-			}
-		}
-		if len(run.text) == 0 {
-			run.fg, run.variant = st.fg, st.variant
-		}
+		cp := b.cell(x, w, st, c.Codepoint)
 		buf = buf[:0]
 		if c.Grapheme && cp != ' ' {
 			buf = rs.CellGraphemes(x, buf)
@@ -361,17 +329,104 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 		if len(buf) == 0 {
 			buf = append(buf, cp)
 		}
-		for i, r := range buf {
-			run.text = append(run.text, r)
-			run.cols = append(run.cols, int16(x))
-			ww := int8(0) // the runes after the first share its cell
-			if i == 0 {
-				ww = int8(w)
-			}
-			run.widths = append(run.widths, ww)
+		b.text(x, w, buf)
+	}
+	b.flush()
+}
+
+// rowBuilder makes the cache of a row from its cells, left to right.
+type rowBuilder struct {
+	v    *view
+	line *rowCache
+	def  resolved // the default colors
+	run  struct {
+		text    []rune
+		cols    []int16 // the column of each rune
+		widths  []int8
+		fg      ui.Color
+		variant int
+	}
+}
+
+// newRow starts the cache of a row anew in line.
+func (v *view) newRow(line *rowCache) *rowBuilder {
+	*line = rowCache{ok: true, bgs: line.bgs[:0], runs: line.runs[:0], decos: line.decos[:0], boxes: line.boxes[:0], wide: line.wide[:0], filled: true}
+	b := &rowBuilder{v: v, line: line, def: resolved{fg: color(v.colors.Foreground), bg: color(v.colors.Background)}}
+	b.def.shapeFg = b.def.fg
+	return b
+}
+
+// cell adds the background, the lines and a drawn character of the cell at
+// column x, w columns wide, of style st and character cp, and returns the
+// character the font shows: ' ' for none.
+func (b *rowBuilder) cell(x, w int, st resolved, cp rune) rune {
+	v, line := b.v, b.line
+	if w == 2 {
+		line.wide = append(line.wide, int16(x))
+	}
+	if !st.hasBg || st.bg == b.def.bg {
+		line.filled = false
+	}
+	if st.hasBg && st.bg != b.def.bg {
+		if n := len(line.bgs); n > 0 && line.bgs[n-1].x1 == x && line.bgs[n-1].c == st.bg {
+			line.bgs[n-1].x1, line.bgs[n-1].cursor = x+w, false
+		} else {
+			line.bgs = append(line.bgs, bgSpan{x, x + w, st.bg, st.inverse})
 		}
 	}
-	flush()
+	if st.underline != 0 {
+		v.addDeco(line, x, x+w, st.underline, st.ulColor())
+	}
+	if st.strike {
+		v.addDeco(line, x, x+w, decoStrike, st.fg)
+	}
+	if st.overline {
+		v.addDeco(line, x, x+w, decoOverline, st.fg)
+	}
+	if cp == 0 || st.invisible {
+		cp = ' '
+	}
+	if noMinContrast(cp) {
+		st.fg = st.shapeFg
+	}
+	if drawn(cp) {
+		line.boxes = append(line.boxes, boxCell{x, cp, st.fg})
+		cp = ' '
+	}
+	run := &b.run
+	if len(run.text) > 0 && (st.variant != run.variant || st.fg != run.fg) {
+		if cp == ' ' {
+			// A space draws nothing: it can join any run.
+			st.variant, st.fg = run.variant, run.fg
+		} else {
+			b.flush()
+		}
+	}
+	if len(run.text) == 0 {
+		run.fg, run.variant = st.fg, st.variant
+	}
+	return cp
+}
+
+// text adds the runes of the cell at column x, w columns wide, to the run.
+func (b *rowBuilder) text(x, w int, runes []rune) {
+	run := &b.run
+	for i, r := range runes {
+		run.text = append(run.text, r)
+		run.cols = append(run.cols, int16(x))
+		ww := int8(0) // the runes after the first share its cell
+		if i == 0 {
+			ww = int8(w)
+		}
+		run.widths = append(run.widths, ww)
+	}
+}
+
+// flush shapes the run so far.
+func (b *rowBuilder) flush() {
+	run := &b.run
+	b.v.shapeRun(b.line, run.text, run.cols, run.widths, run.fg, run.variant)
+	run.text, run.cols, run.widths = run.text[:0], run.cols[:0], run.widths[:0]
 }
 
 func (r resolved) ulColor() ui.Color {
@@ -479,10 +534,10 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	base := float32(v.baseline) / s
 	// A transparent terminal still draws a background a program set (OSC
 	// 11), as Ghostty shows it.
-	if !v.t.opts.Transparent || v.colors.Background != rgb(v.theme.Background) {
+	if !v.transparent || v.colors.Background != rgb(v.theme.Background) {
 		p.Fill(r, color(v.colors.Background), 0)
 	}
-	if v.t.opts.PaddingColor != PaddingBackground {
+	if v.padding != PaddingBackground {
 		v.extendPadding(p, r, ox, oy, cw, ch)
 	}
 	selection := v.theme.Selection
@@ -559,11 +614,19 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	if h := v.hover; h.on() && h.row < len(v.lines) {
 		v.drawDeco(p, deco{h.x0, h.x1, vt.UnderlineSingle, v.linkColor(&v.lines[h.row], h)}, ox, oy+float32(h.row)*ch, cw, ch, base)
 	}
+	v.drawCursor(p, cur, curColor, curText, block, ox, oy, cw, ch, base)
+	v.drawScrollbar(p, r)
+}
+
+// drawCursor draws, over the text, the cursor cursorRect returned (a
+// filled block is filled before the text) or the text under a filled
+// block in the cursor's text color; and the preedit.
+func (v *view) drawCursor(p *ui.Painter, cur ui.Rect, curColor, curText ui.Color, block bool, ox, oy, cw, ch, base float32) {
 	if cur.W > 0 && !block {
 		if v.focused || v.cursor.Style != vt.CursorBlock {
 			p.Fill(cur, curColor, 0)
 		} else {
-			p.Stroke(cur, curColor, 0, 1/s)
+			p.Stroke(cur, curColor, 0, 1/v.scale)
 		}
 	}
 	if block && v.cursor.Y < len(v.lines) {
@@ -588,7 +651,6 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	if v.preedit != "" && v.focused {
 		v.drawPreedit(p, ox, oy, cw, ch, base)
 	}
-	v.drawScrollbar(p, r)
 }
 
 // searchColors returns the colors of the search's matches and their text,
@@ -612,7 +674,7 @@ func (v *view) extendPadding(p *ui.Painter, r ui.Rect, ox, oy, cw, ch float32) {
 	if len(v.lines) == 0 {
 		return
 	}
-	always := v.t.opts.PaddingColor == PaddingExtendAlways
+	always := v.padding == PaddingExtendAlways
 	extends := func(line *rowCache) bool { return always || line.filled }
 	cols := v.cols
 	left, right := r.X, r.X+r.W

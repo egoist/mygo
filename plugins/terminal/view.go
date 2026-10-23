@@ -159,6 +159,10 @@ type view struct {
 	ox, oy                 int
 	cols, rows             int
 
+	// Options.Transparent and Options.PaddingColor, as of the last paint.
+	transparent bool
+	padding     PaddingColor
+
 	colors    vt.Colors
 	contrast  float32 // Options.MinimumContrast, as of the last paint
 	cursor    vt.Cursor
