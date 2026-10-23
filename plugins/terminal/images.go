@@ -26,44 +26,35 @@ type shownImage struct {
 	layer      int
 }
 
-// cachedImage is an image's bitmap, as of its generation.
+// cachedImage is an image's bitmap, as of its generation, and its size.
 type cachedImage struct {
 	gen  uint64
 	bmp  *ui.Bitmap
+	w, h int
 	seen bool
 }
 
-// readImages reads the placements that show and the bitmaps of their
-// images, which it keeps while placements show them; t.mu is held.
+// readImages reads the placements that show, the virtual placements of
+// Unicode placeholders, and the bitmaps of the images they show, which it
+// keeps while placements show them: for placeholders, the images those of
+// the last frame showed. t.mu is held.
 func (v *view) readImages(term *vt.Terminal) {
-	v.images = v.images[:0]
+	v.images, v.virtual = v.images[:0], v.virtual[:0]
 	for _, c := range v.bitmaps {
 		c.seen = false
 	}
 	term.Placements(func(pl vt.Placement) {
-		if pl.Virtual || !pl.Visible || pl.Width <= 0 || pl.Height <= 0 || pl.SrcW <= 0 || pl.SrcH <= 0 {
+		if pl.Virtual {
+			v.virtual = append(v.virtual, virtualPlacement{image: pl.ImageID, id: pl.ID, cols: pl.ParamCols, rows: pl.ParamRows})
 			return
 		}
-		gen := term.ImageGeneration(pl.ImageID)
-		if gen == 0 {
+		if !pl.Visible || pl.Width <= 0 || pl.Height <= 0 || pl.SrcW <= 0 || pl.SrcH <= 0 {
+			return
+		}
+		c := v.bitmap(term, pl.ImageID)
+		if c == nil {
 			return // its pixels have yet to arrive
 		}
-		c := v.bitmaps[pl.ImageID]
-		if c == nil || c.gen != gen {
-			img, ok := term.Image(pl.ImageID)
-			if !ok {
-				return
-			}
-			if c == nil {
-				if v.bitmaps == nil {
-					v.bitmaps = map[uint32]*cachedImage{}
-				}
-				c = &cachedImage{}
-				v.bitmaps[pl.ImageID] = c
-			}
-			c.gen, c.bmp = gen, ui.NewBitmap(decoded(img))
-		}
-		c.seen = true
 		layer := aboveText
 		switch {
 		case pl.Z < -(1 << 30):
@@ -78,12 +69,82 @@ func (v *view) readImages(term *vt.Terminal) {
 			z: pl.Z, layer: layer,
 		})
 	})
+	for _, id := range v.shown {
+		v.bitmap(term, id)
+	}
 	for id, c := range v.bitmaps {
 		if !c.seen {
 			delete(v.bitmaps, id)
 		}
 	}
 	slices.SortStableFunc(v.images, func(a, b shownImage) int { return int(a.z) - int(b.z) })
+}
+
+// bitmap returns the bitmap of an image, made anew when its pixels
+// changed, and keeps it; nil when its pixels have yet to arrive. t.mu is
+// held.
+func (v *view) bitmap(term *vt.Terminal, id uint32) *cachedImage {
+	gen := term.ImageGeneration(id)
+	if gen == 0 {
+		return nil
+	}
+	c := v.bitmaps[id]
+	if c == nil || c.gen != gen {
+		img, ok := term.Image(id)
+		if !ok {
+			return nil
+		}
+		if c == nil {
+			if v.bitmaps == nil {
+				v.bitmaps = map[uint32]*cachedImage{}
+			}
+			c = &cachedImage{}
+			v.bitmaps[id] = c
+		}
+		c.gen, c.bmp, c.w, c.h = gen, ui.NewBitmap(decoded(img)), img.Width, img.Height
+	}
+	c.seen = true
+	return c
+}
+
+// placeholderImages adds the tiles the rows' Unicode placeholders show to
+// the images drawn, over the cells' backgrounds and below the text, as
+// Ghostty draws them, and reports whether an image they show was not
+// read with the frame: the next frame reads it and draws it.
+func (v *view) placeholderImages() (more bool) {
+	read := v.shown
+	v.shown = v.spare[:0]
+	added := false
+	for y := range v.lines {
+		for _, r := range v.lines[y].holders {
+			vp, ok := target(v.virtual, r.image, r.id)
+			if !ok {
+				continue
+			}
+			if !slices.Contains(v.shown, r.image) {
+				v.shown = append(v.shown, r.image)
+			}
+			if !slices.Contains(read, r.image) {
+				// Not read with the frame: its pixels may be new.
+				more = true
+			}
+			c := v.bitmaps[r.image]
+			if c == nil {
+				continue // its pixels have yet to arrive, or to be read
+			}
+			tile, ok := placeholderPlacement(r, y, vp.cols, vp.rows, c.w, c.h, v.cellW, v.cellH)
+			if !ok {
+				continue
+			}
+			v.images = append(v.images, shownImage{bmp: c.bmp, src: tile.src, x: tile.x, y: tile.y, w: tile.w, h: tile.h, z: -1, layer: belowText})
+			added = true
+		}
+	}
+	v.spare = read
+	if added {
+		slices.SortStableFunc(v.images, func(a, b shownImage) int { return int(a.z) - int(b.z) })
+	}
+	return more
 }
 
 // drawImages draws the images of a layer, within the grid.

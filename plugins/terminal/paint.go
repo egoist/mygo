@@ -36,6 +36,8 @@ type rowCache struct {
 	// filled tells that every cell has a background of its own, other
 	// than the default, from which PaddingExtend extends.
 	filled bool
+	// holders are the row's runs of Unicode placeholders of images.
+	holders []placeholderRun
 }
 
 type bgSpan struct {
@@ -161,6 +163,9 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		}
 	}
 	rs.Clean()
+	if !held && v.placeholderImages() {
+		v.services.Invalidate()
+	}
 	v.draw(p, r)
 }
 
@@ -258,7 +263,7 @@ func contrast(a, b float32) float32 {
 
 // buildRow makes the cache of the render state's current row.
 func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
-	*line = rowCache{ok: true, bgs: line.bgs[:0], runs: line.runs[:0], decos: line.decos[:0], boxes: line.boxes[:0], wide: line.wide[:0], filled: true}
+	*line = rowCache{ok: true, bgs: line.bgs[:0], runs: line.runs[:0], decos: line.decos[:0], boxes: line.boxes[:0], wide: line.wide[:0], holders: line.holders[:0], filled: true}
 	cells := rs.RowCells()
 	line.selA, line.selB, line.sel = rs.RowSelection()
 	def := resolved{fg: color(v.colors.Foreground), bg: color(v.colors.Background)}
@@ -295,6 +300,7 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 		run.text, run.cols, run.widths = run.text[:0], run.cols[:0], run.widths[:0]
 	}
 	var buf []rune
+	var holders placeholderRuns
 	for x := 0; x < len(cells) && x < cols; x++ {
 		c := cells[x]
 		if c.Wide == vt.SpacerTail || c.Wide == vt.SpacerHead {
@@ -333,6 +339,20 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 			v.addDeco(line, x, x+w, decoOverline, st.fg)
 		}
 		cp := c.Codepoint
+		if cp == placeholder {
+			// A tile of an image (Unicode placeholders), which draws no
+			// text: placeholderImages draws the image.
+			var tile []rune // the diacritics after U+10EEEE
+			if c.Grapheme {
+				if buf = rs.CellGraphemes(x, buf[:0]); len(buf) > 1 {
+					tile = buf[1:]
+				}
+			}
+			line.holders = holders.add(line.holders, x, parsePlaceholder(rs.CellStyle(x), tile))
+			cp = 0
+		} else {
+			line.holders = holders.end(line.holders)
+		}
 		if cp == 0 || st.invisible {
 			cp = ' '
 		}
@@ -372,6 +392,7 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cols int) {
 		}
 	}
 	flush()
+	line.holders = holders.end(line.holders)
 }
 
 func (r resolved) ulColor() ui.Color {
