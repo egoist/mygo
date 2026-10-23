@@ -3151,6 +3151,11 @@ either.
   every other process. The package assembles their lines into layouts, with
   its own whitespace trimming, ellipsis, alignment, carets and selection, so
   those behave the same everywhere, and caches layouts by their parameters.
+  Fonts pile up with sizes, as a canvas zooms: past 512, `EndFrame`
+  forgets them, with what refers to them (`Generation`). Glyphs an app
+  keeps (`ui.Shape`) still draw: a `runtime.AddCleanup` queues each font
+  once nothing refers to it, for the next `EndFrame` to release; the
+  canvas engine keeps the tables of a generation as long.
   The engines rasterize glyphs too (`IDWriteGlyphRunAnalysis`,
   `CTFontDrawGlyphs`, cairo) into a coverage atlas, color glyphs (emoji)
   into a color atlas, and subpixel glyphs, the coverage of each pixel's

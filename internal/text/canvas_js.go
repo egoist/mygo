@@ -42,13 +42,19 @@ type canvasEngine struct {
 	// its fillStyle.
 	current, kerning, fill string
 	fonts                  map[string]*Font
-	css                    []fontCSS // the CSS font of each Font, by native
+	// css is the CSS font of each Font, by native's low bits; its high
+	// bits are the generation, gen.
+	css []fontCSS
+	gen uint32
 	// emoji are the twins of fonts that draw emoji, unshaded: emoji
 	// keep their colors whatever the text's.
 	emoji map[*Font]*Font
 	// The glyphs' texts, by ID.
 	ids   map[string]uint32
 	texts []string
+	// forgotten keeps the tables of generations before while their Fonts
+	// live (releaseFonts).
+	forgotten map[uint32]*canvasGen
 	// words caches the pen positions of the clusters of words.
 	words map[wordKey][]float32
 	// names are the families the app registered fonts under.
@@ -63,6 +69,14 @@ type canvasEngine struct {
 // fontCSS is a CSS font without its size: the style and weight before it,
 // the families after.
 type fontCSS struct{ pre, family string }
+
+// canvasGen is a forgotten generation's tables, and how many of its Fonts
+// live.
+type canvasGen struct {
+	css   []fontCSS
+	texts []string
+	fonts int
+}
 
 type wordKey struct {
 	font   uintptr
@@ -147,7 +161,7 @@ func (e *canvasEngine) font(style Style) *Font {
 	// Core Text's font smoothing emboldens lighter text more, and Skia
 	// corrects coverage by the text's luminance. Thick text is drawn in
 	// white, the boldest.
-	f := &Font{Size: size, native: uintptr(len(e.css)), shaded: true, thickens: true}
+	f := &Font{Size: size, native: uintptr(e.gen)<<32 | uintptr(len(e.css)), shaded: true, thickens: true}
 	if a := m.Get("fontBoundingBoxAscent"); a.Type() == js.TypeNumber {
 		f.Ascent, f.Descent = float32(a.Float()), float32(m.Get("fontBoundingBoxDescent").Float())
 	} else {
@@ -207,7 +221,18 @@ func noKern(style Style) bool {
 }
 
 // sized returns the CSS font of f at size px.
-func (e *canvasEngine) sized(f *Font, size float32) string { return e.css[f.native].at(size) }
+func (e *canvasEngine) sized(f *Font, size float32) string { return e.css[uint32(f.native)].at(size) }
+
+// tables returns the CSS fonts and the glyphs' texts of f's generation.
+func (e *canvasEngine) tables(f *Font) ([]fontCSS, []string) {
+	if g := uint32(f.native >> 32); g != e.gen {
+		if t := e.forgotten[g]; t != nil {
+			return t.css, t.texts
+		}
+		return nil, nil
+	}
+	return e.css, e.texts
+}
 
 // cluster is a glyph being laid out: a grapheme cluster, or a word of a
 // script whose letters join, of runes [start, end).
@@ -566,10 +591,11 @@ var shadeGray = [...]uint8{0, 137, 188, 225, 255, 0}
 // glyph draws a glyph's text in the gray of its shade and reads its
 // coverage back: gray, or color for color fonts (emoji).
 func (e *canvasEngine) glyph(f *Font, id uint32, scale, dx float32, shade Shade, _ bool) bitmap {
-	if int(id) >= len(e.texts) || id == 0 {
+	css, texts := e.tables(f)
+	if int(id) >= len(texts) || id == 0 || int(uint32(f.native)) >= len(css) {
 		return bitmap{}
 	}
-	text := e.texts[id]
+	text := texts[id]
 	if strings.TrimSpace(text) == "" {
 		return bitmap{}
 	}
@@ -577,7 +603,8 @@ func (e *canvasEngine) glyph(f *Font, id uint32, scale, dx float32, shade Shade,
 	// the pixels' size, the system's font may take another optical size
 	// (SF Pro Display rather than Text), whose glyphs the advances measured
 	// do not fit, as pages draw at the CSS size, scaled.
-	e.setFont(e.sized(f, f.Size))
+	font := css[uint32(f.native)].at(f.Size)
+	e.setFont(font)
 	m := e.ctx.Call("measureText", text)
 	s := float64(scale)
 	l, r := s*m.Get("actualBoundingBoxLeft").Float(), s*m.Get("actualBoundingBoxRight").Float()
@@ -597,7 +624,7 @@ func (e *canvasEngine) glyph(f *Font, id uint32, scale, dx float32, shade Shade,
 		e.canvas.Set("height", e.h)
 		// A canvas resized forgets its state.
 		e.current = ""
-		e.setFont(e.sized(f, f.Size))
+		e.setFont(font)
 		e.ctx.Set("textBaseline", "alphabetic")
 		e.ctx.Set("textAlign", "left")
 		e.fill = ""
@@ -683,16 +710,43 @@ func (e *canvasEngine) fontCount() int {
 	return len(e.fonts)
 }
 
-// forgetFonts lets go of the fonts, and of the glyphs and measurements,
-// which refer to them by number.
-func (e *canvasEngine) forgetFonts() {
+// forgetFonts starts a generation: it forgets the fonts, with their twins,
+// and the glyphs and measurements, which refer to them by number.
+func (e *canvasEngine) forgetFonts() []*Font {
+	out := make([]*Font, 0, len(e.fonts)+len(e.emoji))
+	for _, f := range e.fonts {
+		out = append(out, f)
+	}
+	for _, f := range e.emoji {
+		out = append(out, f)
+	}
+	if len(out) > 0 {
+		if e.forgotten == nil {
+			e.forgotten = map[uint32]*canvasGen{}
+		}
+		e.forgotten[e.gen] = &canvasGen{css: e.css, texts: e.texts, fonts: len(out)}
+	}
+	e.gen++
 	clear(e.fonts)
 	clear(e.emoji)
-	e.css = e.css[:0]
+	e.css = nil
 	clear(e.words)
 	clear(e.ids)
 	e.ids[""] = 0
-	e.texts = e.texts[:1]
+	e.texts = []string{""}
+	return out
+}
+
+// releaseFonts lets go of a generation's tables once its Fonts are.
+func (e *canvasEngine) releaseFonts(natives []uintptr) {
+	for _, native := range natives {
+		g := uint32(native >> 32)
+		if t := e.forgotten[g]; t != nil {
+			if t.fonts--; t.fonts == 0 {
+				delete(e.forgotten, g)
+			}
+		}
+	}
 }
 
 // textParams leaves coverage as the browser drew it, without subpixel
