@@ -26,6 +26,8 @@ const (
 	stateAbove      = 1 << 5
 	stateFocused    = 1 << 7
 	stateTiled      = 1 << 8
+	// GTK 3.22.23 also reports tiling separately for each edge.
+	stateAnyTiled = stateTiled | 1<<9 | 1<<11 | 1<<13 | 1<<15
 	// The edges the window manager lets resize (GDK 3.22.23 and later).
 	stateTopResizable    = 1 << 10
 	stateRightResizable  = 1 << 12
@@ -60,7 +62,8 @@ type window struct {
 	accessParent ptr
 	// controls are the title buttons over the page of a window with a
 	// hidden title bar (titlebar.go), in an overlay with the web view.
-	controls *windowControls
+	controls     *windowControls
+	roundCorners bool
 
 	// flyout is how a flyout (WindowOptions.Flyout) was placed last, at
 	// flyoutSize, once placed is set. grabbed tells that a focusable one
@@ -196,6 +199,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 		}
 		gtkWidgetSetAppPaintable(w.win, true)
 	}
+	w.initCorners()
 	if p, ok := o.Parent.(*window); ok && p != nil {
 		gtkWindowSetTransientFor(w.win, p.win)
 		if o.Modal {
@@ -1437,6 +1441,10 @@ func initWindowCallbacks() {
 		// GdkEventWindowState: changed_mask at 20, new_window_state at 24.
 		changed, state := field[uint32](event, 20), field[uint32](event, 24)
 		w.state = state
+		if w.roundCorners && changed&(stateMaximized|stateFullscreen|stateAnyTiled) != 0 {
+			w.updateCornerInput()
+			gtkWidgetQueueDraw(w.win)
+		}
 		if changed&stateFocused != 0 && state&stateFocused != 0 && w.activationResize != nil && w.resizeIdle == 0 {
 			// G_PRIORITY_DEFAULT_IDLE: after GTK took the configure event
 			// of the activation.

@@ -237,6 +237,10 @@ the window:
   that decorates windows itself, as KWin, Hyprland and Sway do, has none:
   its own title bar holds the buttons, and a tiling one shows none. The
   outer pixels of the page resize the window, as a frameless one's.
+  On composited desktops without server-side decorations, opaque
+  windows have 12 DIP rounded corners. Maximized, full-screen and tiled
+  windows keep square corners. `Transparent` windows keep the shape the
+  app draws; rounding needs no CSS on the page.
 
 ```go
 mygo.NewWindow(mygo.WindowOptions{
