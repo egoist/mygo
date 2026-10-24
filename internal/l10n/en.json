@@ -624,6 +624,10 @@
   "@copied": {
     "description": "What the copy button of a code block of Markdown says once it copied the code."
   },
+  "frontMatter": "Front matter",
+  "@frontMatter": {
+    "description": "Names the collapsible block of a view of Markdown that holds a document's front matter, the metadata at its start."
+  },
   "copyAsMarkdown": "Copy as Markdown",
   "@copyAsMarkdown": {
     "description": "An item of the menu of a view of Markdown."

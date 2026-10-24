@@ -30,6 +30,15 @@ const (
 	// dollar followed by a space or a digit, nor before a closing one
 	// following a space or followed by a digit. It needs ExtMath.
 	ExtDollarMath
+	// ExtFrontmatter is the front matter of a document: lines between
+	// --- and --- (YAML) or +++ and +++ (TOML) at its very start, which
+	// make a Frontmatter block, whose lines are the metadata, unparsed. The
+	// fences stand alone on their lines, but for spaces and tabs after
+	// them. Without a closing fence there is no front matter, and the
+	// lines read as CommonMark does. It is not in Default: a reply that
+	// opens with a thematic break and has another further down is no
+	// front matter.
+	ExtFrontmatter
 
 	// GFM is GitHub Flavored Markdown.
 	GFM = ExtTables | ExtTaskLists | ExtStrikethrough | ExtAutolinks
@@ -71,9 +80,14 @@ const (
 	FootnoteDefinition
 	// MathBlock is display math, whose lines are its TeX.
 	MathBlock
+	// Frontmatter is the metadata at the start of a document (see
+	// ExtFrontmatter), whose lines are those between the fences, and Info
+	// its format, "yaml" or "toml". It is the first block, and holds no
+	// inlines: reading the metadata is up to the caller.
+	Frontmatter
 )
 
-var kindNames = [...]string{"root", "paragraph", "heading", "thematic break", "code block", "HTML block", "quote", "list", "item", "table", "table row", "table cell", "footnote definition", "math block"}
+var kindNames = [...]string{"root", "paragraph", "heading", "thematic break", "code block", "HTML block", "quote", "list", "item", "table", "table row", "table cell", "footnote definition", "math block", "front matter"}
 
 func (k Kind) String() string {
 	if int(k) < len(kindNames) {
@@ -167,9 +181,10 @@ type seg struct {
 }
 
 // Info returns a fenced code block's info string, unescaped, its
-// language first (see Language).
+// language first (see Language), or the format of front matter: "yaml" or
+// "toml".
 func (b *Block) Info() string {
-	if b.Kind != CodeBlock {
+	if b.Kind != CodeBlock && b.Kind != Frontmatter {
 		return ""
 	}
 	return b.info
@@ -247,6 +262,14 @@ type Document struct {
 	steps int
 	// marks is the buffer of the last sourceMap.
 	marks []int
+	// fmScanned is, while the source opens with a fence that no line
+	// closes (see ExtFrontmatter), the offset of the first line not yet
+	// searched for the closing fence, so that appended text is searched
+	// alone; 0 when nothing was.
+	fmScanned int
+	// fmSteps counts the bytes searched for closing fences, for tests to
+	// check that text is searched once.
+	fmSteps int
 }
 
 type oldInline struct {
@@ -304,6 +327,7 @@ func (d *Document) reset() {
 	d.defs = d.defs[:0]
 	d.notes = map[string]int{}
 	d.restart, d.restartAt = 0, 1
+	d.fmScanned = 0
 }
 
 // Source returns the text of the document.

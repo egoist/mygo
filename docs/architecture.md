@@ -2679,11 +2679,18 @@ either.
   outermost block open after the last complete line (`restart`), which
   CommonMark makes sound: no rule looks ahead, and those rewriting an
   earlier block touch only open ones; the partial last line never decides
-  what is closed. Definitions made or unmade parse anew the inlines of the
-  blocks that looked their labels up, and the inlines of blocks parsed
-  again are reused when their text is the same. An edit parses from the
-  top-level block before it until a top-level block starts with nothing
-  open (`quiet`) where one did, and splices the old ones after, shifted.
+  what is closed. Front matter (`ExtFrontmatter`, opt-in) is the one
+  exception, since its closing fence, which may come later, decides whether
+  the first lines are front matter: `parse` looks for it before the block
+  parser runs when it starts at the top, and `parseTail` and `edit` ask
+  `frontmatterArrived`, which searches only the text not searched before
+  (`fmScanned`), and parse from the top when it has come; a closing fence
+  whose line may still grow does so too. Definitions made or unmade parse
+  anew the inlines of the blocks that looked their labels up, and the
+  inlines of blocks parsed again are reused when their text is the same. An
+  edit parses from the top-level block before it until a top-level block
+  starts with nothing open (`quiet`) where one did, and splices the old ones
+  after, shifted.
   Streaming completes the tail's inlines from the openers the parser left
   (`heal.go`) and holds back lines that may still change. The view keeps
   the document in its root's local state and the spans of each paragraph
