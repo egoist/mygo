@@ -294,8 +294,9 @@ counts the Developer IDs.
 ### Info.plist and entitlements
 
 `macos.infoPlist` adds keys to the app's `Info.plist`, or replaces MyGo's,
-for example the usage descriptions that pages using the camera or the
-microphone need:
+for example the usage descriptions the camera needs, from a page asking for it
+or from package [media](media.md) capturing it — macOS refuses a camera to an
+app whose `Info.plist` has no `NSCameraUsageDescription`:
 
 ```ts
 export default defineConfig({
@@ -437,7 +438,9 @@ export default defineConfig({
 });
 ```
 
-The package depends on GTK 3 and WebKitGTK; `depends` adds more packages.
+The package depends on GTK 3 and WebKitGTK; `depends` adds more packages,
+such as the GStreamer packages an app that imports package [media](media.md)
+needs to play, capture and record.
 An app that shows no web page, in a window or a `ui.WebView`, as an app of
 [native UI](native.md), needs GTK alone: `webview: false` leaves WebKitGTK
 out of its package, and out of what `install.sh` and `mygo doctor` (in the
