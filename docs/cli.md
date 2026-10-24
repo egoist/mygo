@@ -108,6 +108,15 @@ running one. Frontend changes are the dev server's to handle. Quitting the app, 
 Ctrl+C, ends mygo dev (press Ctrl+C again not to wait for the app to quit),
 and `App.Relaunch` restarts the app.
 
+A reload does not have to start the app fresh: before the running build
+quits, mygo dev asks it for the state it should keep, and the build that
+starts next gets it as it starts, before the `WhenReady` callbacks create
+its windows. An app says what to keep with `App.OnReload`; MyGo keeps the
+window's place, the scroll and the focus of its elements, and the caret of
+the input the user was in, by itself; the window is shown once it drew what
+it restored, so a reload does not flash an empty window. See
+[Reloading](reload.md).
+
 On a terminal, each step shows a spinner with what it does, such as the Go
 packages being compiled, then how long it took; what the dev server and the
 app print is labeled `web │` and `app │`, and a rebuild names the files that
@@ -132,6 +141,7 @@ compiles. `o` opens the page again.
 
 | Flag | |
 |---|---|
+| `-no-reload-state` | restarts the app without the state of the build it replaces |
 | `-skip-dev-command` | does not run `devCommand`, e.g. when the dev server already runs |
 | `-sign` | the identity that signs the development app on macOS (default: `-`, ad hoc) |
 | `-web` | develops the app in browsers |

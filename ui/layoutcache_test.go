@@ -448,7 +448,7 @@ func TestLayoutInputs(t *testing.T) {
 		"first last next nchild parent st c measured tl lay laid x y w h contentW contentH frags runes paragraph " +
 		"ownText merged spansKey collapsed rowMinW field"
 	// Fields the layout never reads.
-	other := "epoch key valueInput id depth track transform originX originY originSet world content contentSet " +
+	other := "epoch key valueInput id reloadID depth track transform originX originY originSet world content contentSet " +
 		"pose poseAnim poseSet poseM poseFade reposed ink noCull backface bg fill grad stripes borderC borderStyle radius " +
 		"shadows material effect effecting grads blur opacity opacitySet cursor paintFn styleFn paintAfterFn " +
 		"inputFn textClient caret takesText noIME copyData webView maximizeButton fit gray dismissed rotate label widget role " +
