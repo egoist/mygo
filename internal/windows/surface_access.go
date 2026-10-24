@@ -202,6 +202,9 @@ type uiaElement struct {
 	runesOf   string
 	parent    *uiaElement
 	children  []*uiaElement
+	// oldChildren are the children of the last tree while update builds
+	// the next one, which then reuses it for its children.
+	oldChildren []*uiaElement
 }
 
 // uiaTree is what UI Automation sees of a surface.
@@ -214,6 +217,19 @@ type uiaTree struct {
 	quiet bool // building the tree a client asked for
 	// announced is the text of the live region of announcements.
 	announced string
+
+	// What update reuses from frame to frame, as the content describes
+	// every frame once a client asked: the map and the order of the last
+	// tree but one, the last tree's nodes and whether the elements are
+	// new, the nodes with the announcer, and the children a parent gained
+	// and lost.
+	spareNodes     map[uint64]*uiaElement
+	spareOrder     []*uiaElement
+	prev           []platform.AccessNode
+	fresh          []bool
+	withAnnouncer  []platform.AccessNode
+	announcerTree  platform.AccessTree
+	added, removed []*uiaElement
 }
 
 func (e *uiaElement) ptr(i int) uintptr { return uintptr(unsafe.Pointer(&e.ifaces[i])) }
@@ -394,7 +410,33 @@ func (e *uiaElement) disconnect() {
 	e.release()
 }
 
-func listening() bool {
+// childChanges returns the children of now that were not in old, and
+// those of old no longer in now, appended to added and removed emptied.
+func childChanges(old, now, added, removed []*uiaElement) ([]*uiaElement, []*uiaElement) {
+	added, removed = added[:0], removed[:0]
+	for _, k := range old {
+		if !slices.Contains(now, k) {
+			removed = append(removed, k)
+		}
+	}
+	for _, k := range now {
+		if !slices.Contains(old, k) {
+			added = append(added, k)
+		}
+	}
+	return added, removed
+}
+
+// clearSlice empties s, letting go of what it held, and returns it to
+// fill again.
+func clearSlice[T any](s []T) []T {
+	clear(s)
+	return s[:0]
+}
+
+// listening reports whether clients of UI Automation listen for its
+// events; tests replace it.
+var listening = func() bool {
 	r, _, _ := procUiaClientsAreListening.Call()
 	return r != 0
 }
@@ -410,30 +452,45 @@ func (t *uiaTree) update(tree *platform.AccessTree) {
 	}
 	if t.announced != "" {
 		announcer := platform.AccessNode{ID: announcerID, Parent: -1, Role: platform.RoleText, Label: t.announced, Bounds: platform.RectF{W: 1, H: 1}}
-		tree = &platform.AccessTree{Nodes: append(slices.Clip(tree.Nodes), announcer), Focus: tree.Focus, Announcements: tree.Announcements}
+		t.withAnnouncer = append(append(t.withAnnouncer[:0], tree.Nodes...), announcer)
+		t.announcerTree = platform.AccessTree{Nodes: t.withAnnouncer, Focus: tree.Focus, Announcements: tree.Announcements}
+		tree = &t.announcerTree
 	}
 	notify := !t.quiet && listening()
+	n := len(tree.Nodes)
 	old := t.nodes
-	t.nodes = make(map[uint64]*uiaElement, len(tree.Nodes))
-	order := make([]*uiaElement, len(tree.Nodes))
-	prev := make([]platform.AccessNode, len(tree.Nodes))
-	fresh := make([]bool, len(tree.Nodes))
-	oldKids := map[*uiaElement][]*uiaElement{t.root: t.root.children}
-	for i, n := range tree.Nodes {
-		e := old[n.ID]
+	t.nodes, t.spareNodes = t.spareNodes, nil
+	if t.nodes == nil {
+		t.nodes = make(map[uint64]*uiaElement, n)
+	}
+	order := slices.Grow(t.spareOrder[:0], n)[:n]
+	var prev []platform.AccessNode
+	var fresh []bool
+	if notify {
+		prev, fresh = slices.Grow(t.prev[:0], n)[:n], slices.Grow(t.fresh[:0], n)[:n]
+		clear(fresh)
+		t.prev, t.fresh = prev, fresh
+	}
+	keepChildren := func(e *uiaElement) { e.oldChildren, e.children = e.children, e.oldChildren[:0] }
+	keepChildren(t.root)
+	for i, node := range tree.Nodes {
+		e := old[node.ID]
 		if e != nil {
-			delete(old, n.ID)
-			oldKids[e] = e.children
-			prev[i] = e.n
+			delete(old, node.ID)
+			keepChildren(e)
+			if notify {
+				prev[i] = e.n
+			}
 		} else {
 			e = newUIAElement(t)
-			fresh[i] = true
+			if notify {
+				fresh[i] = true
+			}
 		}
-		e.n, e.children = n, nil
-		t.nodes[n.ID] = e
+		e.n = node
+		t.nodes[node.ID] = e
 		order[i] = e
 	}
-	t.root.children = nil
 	for _, e := range order {
 		e.parent = t.root
 		if e.n.Parent >= 0 {
@@ -441,20 +498,14 @@ func (t *uiaTree) update(tree *platform.AccessTree) {
 		}
 		e.parent.children = append(e.parent.children, e)
 	}
-	t.order = order
+	t.spareOrder, t.order = t.order, order
+	clear(t.spareOrder) // the elements of the last tree but one
 	if notify {
-		for parent, kids := range oldKids {
-			var added, removed []*uiaElement
-			for _, k := range kids {
-				if !slices.Contains(parent.children, k) {
-					removed = append(removed, k)
-				}
-			}
-			for _, k := range parent.children {
-				if !slices.Contains(kids, k) {
-					added = append(added, k)
-				}
-			}
+		// The children elements gained and lost, of the root and of the
+		// elements the last tree had too.
+		structure := func(parent *uiaElement) {
+			added, removed := childChanges(parent.oldChildren, parent.children, t.added, t.removed)
+			defer func() { t.added, t.removed = clearSlice(added), clearSlice(removed) }()
 			switch {
 			case len(added)+len(removed) > 1:
 				id := parent.runtimeID()
@@ -470,15 +521,30 @@ func (t *uiaTree) update(tree *platform.AccessTree) {
 					uintptr(unsafe.Pointer(&id[0])), uintptr(len(id)))
 			}
 		}
+		structure(t.root)
+		for i, e := range order {
+			if !fresh[i] {
+				structure(e)
+			}
+		}
 		for i, e := range order {
 			if !fresh[i] {
 				e.notifyChanges(prev[i])
 			}
 		}
+		clear(prev) // let go of the last tree's strings
+	}
+	// The children of the last tree are no longer needed, but their
+	// slices are, for the next.
+	t.root.oldChildren = clearSlice(t.root.oldChildren)
+	for _, e := range order {
+		e.oldChildren = clearSlice(e.oldChildren)
 	}
 	for _, e := range old {
 		e.disconnect()
 	}
+	clear(old)
+	t.spareNodes = old
 	if tree.Focus != t.focus {
 		t.focus = tree.Focus
 		if e := t.nodes[t.focus]; e != nil && notify {
