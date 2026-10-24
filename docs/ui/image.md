@@ -24,6 +24,23 @@ much smaller than its pixels, as a photo in a thumbnail, is drawn from a
 copy halved as many times as that keeps it no smaller, made once, so that
 it shows every pixel's part rather than shimmering.
 
+A bitmap keeps its pixels on the CPU as well as on the GPU, which
+applications full of photos notice. Once a bitmap has shown, `ReleasePixels`
+drops its CPU copies, of the picture and of the halved ones: it draws as
+before from the GPU, and the pixels are made again from the picture the
+bitmap was made of — the data `DecodeBitmap` decoded, the image `NewBitmap`
+converted, or the last one `Update` took, which it keeps for that — when
+something needs them again, as a GPU that lost its textures, the CPU
+renderer, or a halved copy for drawing it smaller, and a GPU's upload drops
+them again. The data of an encoded source costs a fraction of the pixels;
+call `ReleasePixels` on the main thread, as drawing does:
+
+```go
+cover, _ := ui.DecodeBitmap(fileData)
+// … once the cover has shown:
+cover.ReleasePixels()
+```
+
 `Update` shows another picture in a bitmap, for one that changes as video
 does. Of the same size, it keeps the bitmap's texture on the GPU, which
 uploads the new pixels, where a new bitmap each frame would make a texture

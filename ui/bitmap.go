@@ -29,6 +29,13 @@ type Bitmap struct {
 	fresh int
 	// pixelated draws each pixel as a square of its color.
 	pixelated bool
+	// from re-makes the pixels of the base image, and released tells that
+	// ReleasePixels dropped them and those of the levels, to keep only
+	// the textures of a GPU renderer, which re-upload from what from
+	// re-makes, and drop them again once uploaded. All of this runs on
+	// the main thread, as drawing does.
+	from     func() *scene.Image
+	released bool
 }
 
 // Pixelated draws the bitmap's pixels as squares of their colors where it
@@ -44,28 +51,42 @@ func (b *Bitmap) Pixelated() *Bitmap {
 	return b
 }
 
-// NewBitmap converts img.
+// NewBitmap converts img, which it keeps to re-create the pixels after
+// ReleasePixels. An image the conversion copies as it is, an *image.RGBA
+// of rows 4×width bytes long from the origin, costs no more kept; others
+// cost their own pixels' worth, as the price of re-creating them.
 func NewBitmap(img image.Image) *Bitmap {
 	s := scene.NewImage(img)
-	return &Bitmap{img: s, w: s.W, h: s.H}
+	return &Bitmap{img: s, w: s.W, h: s.H, from: func() *scene.Image { return scene.NewImage(img) }}
 }
 
 // DecodeBitmap decodes a PNG, JPEG, GIF (its first frame), WebP or BMP
 // image. A JPEG photo shows upright, as its camera's EXIF orientation
 // says.
 func DecodeBitmap(data []byte) (*Bitmap, error) {
-	img, format, err := image.Decode(bytes.NewReader(data))
+	s, err := decodeImage(data)
 	if err != nil {
 		return nil, err
 	}
-	b := NewBitmap(img)
-	if format == "jpeg" {
-		if o := exifOrientation(data); o > 1 {
-			b.img = orient(b.img, o)
-			b.w, b.h = b.img.W, b.img.H
-		}
+	// The bytes cost a fraction of the pixels, and re-make them.
+	return &Bitmap{img: s, w: s.W, h: s.H, from: func() *scene.Image {
+		s, _ := decodeImage(data)
+		return s
+	}}, nil
+}
+
+// decodeImage decodes the bytes to a premultiplied RGBA bitmap, upright
+// as a JPEG's EXIF orientation says.
+func decodeImage(data []byte) (*scene.Image, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
 	}
-	return b, nil
+	s := scene.NewImage(img)
+	if o := exifOrientation(data); o > 1 {
+		s = orient(s, o)
+	}
+	return s, nil
 }
 
 // Update shows img in place of the bitmap's picture, for one that changes
@@ -80,6 +101,9 @@ func (b *Bitmap) Update(img image.Image) {
 	if b.img.Scene != nil {
 		return // a canvas's: Canvas.Draw draws it
 	}
+	// The pixels a released bitmap re-makes are of the picture it last
+	// took, which is this one now.
+	b.from = func() *scene.Image { return scene.NewImage(img) }
 	s := scene.NewImage(img)
 	if s.W == b.img.W && s.H == b.img.H {
 		b.img.Pix = s.Pix
@@ -88,12 +112,63 @@ func (b *Bitmap) Update(img image.Image) {
 		b.img = s
 		b.w, b.h = s.W, s.H
 		b.levels = nil
+		if b.released {
+			// The new base draws from its texture once the renderer has
+			// uploaded it, which drops its pixels again.
+			b.armBase()
+		}
 	}
 	b.fresh = 0
 }
 
 // Size returns the bitmap's size in pixels, which Image shows as DIPs.
 func (b *Bitmap) Size() (w, h int) { return b.w, b.h }
+
+// ReleasePixels drops the bitmap's CPU pixels, those of its base image
+// and of its levels, keeping the copies a GPU renderer uploaded: the
+// bitmap draws as before. The pixels come back from the picture the
+// bitmap was made of when something needs them again — a renderer that
+// lost its textures or let one go, the CPU renderer, or a level for
+// drawing the bitmap smaller — and a GPU renderer's upload drops them
+// again. Call it once the bitmap has shown, on the main thread, as
+// drawing does.
+func (b *Bitmap) ReleasePixels() {
+	b.released = true
+	b.armBase()
+	b.img.Pix = nil
+	for i, lvl := range b.levels {
+		lvl.Restore, lvl.Dropped = b.levelPix(i), func() { lvl.Pix = nil }
+		lvl.Pix = nil
+	}
+}
+
+// armBase has the base image re-make its pixels from the picture the
+// bitmap last took, and drop them again once a renderer uploaded them.
+func (b *Bitmap) armBase() {
+	b.img.Restore = func() []byte {
+		s := b.from()
+		if s == nil {
+			return nil
+		}
+		return s.Pix
+	}
+	b.img.Dropped = func() { b.img.Pix = nil }
+}
+
+// levelPix re-makes the pixels of levels[i], i+1 halvings of the base,
+// from the picture the bitmap last took.
+func (b *Bitmap) levelPix(i int) func() []byte {
+	return func() []byte {
+		s := b.from()
+		if s == nil {
+			return nil
+		}
+		for j := 0; j <= i; j++ {
+			s = halve(s)
+		}
+		return s.Pix
+	}
+}
 
 func (b *Bitmap) imageSize() (float32, float32) {
 	if b == nil {
@@ -121,8 +196,20 @@ func (b *Bitmap) smaller(shrink float32) *scene.Image {
 			if img.W < 2 && img.H < 2 {
 				return img
 			}
-			b.levels = append(b.levels, halve(img))
+			lvl := halve(img)
+			if b.released {
+				lvl.Restore, lvl.Dropped = b.levelPix(i), func() { lvl.Pix = nil }
+				// The level was made of the previous image's pixels:
+				// released, they go again.
+				img.Pix = nil
+			}
+			b.levels = append(b.levels, lvl)
 		case i >= b.fresh: // made from an earlier picture
+			if lvl := b.levels[i]; lvl.Pix == nil && lvl.Restore == nil {
+				// Released with no pixels to redo in place: a buffer of
+				// its size, which halveInto fills.
+				lvl.Pix = make([]byte, 4*lvl.W*lvl.H)
+			}
 			halveInto(b.levels[i], img)
 			b.levels[i].Changed()
 		}
@@ -145,7 +232,7 @@ func halve(img *scene.Image) *scene.Image {
 func halveInto(dst, img *scene.Image) {
 	w, h := dst.W, dst.H
 	out := dst.Pix
-	src, stride := img.Pix, 4*img.W
+	src, stride := img.Pixels(), 4*img.W
 	for y := range h {
 		y0, y1 := 2*y, min(2*y+1, img.H-1)
 		r0, r1 := src[y0*stride:], src[y1*stride:]
