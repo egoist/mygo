@@ -317,6 +317,23 @@ func TestCatalogFormatKeepsTexts(t *testing.T) {
 	}
 }
 
+// TestCatalogKeepsFewLookups checks that what lookup keeps stays bounded
+// when an app formats ever-new keys.
+func TestCatalogKeepsFewLookups(t *testing.T) {
+	c, err := NewCatalog(files(appFiles), "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 5000 {
+		c.Format("de", fmt.Sprint("missing", i), map[string]any{"n": 1})
+	}
+	n := 0
+	c.found.Range(func(any, any) bool { n++; return true })
+	if n == 0 || n > 4096 {
+		t.Errorf("lookup keeps %d messages, want 1 to 4096", n)
+	}
+}
+
 func BenchmarkCatalogText(b *testing.B) {
 	c, err := NewCatalog(files(appFiles), "en")
 	if err != nil {
