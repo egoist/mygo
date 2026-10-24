@@ -112,6 +112,16 @@ func collectionBehavior(w *mygo.Window) (behavior uint, supported bool) {
 	return behavior, true
 }
 
+func material(w *mygo.Window) (class string, style int, radius float64, active bool, supported bool) {
+	mygo.RunOnMain(func() { class, style, radius, active = darwin.TestMaterial(w.NativeHandle()) })
+	return class, style, radius, active, true
+}
+
+func roundedBacking(w *mygo.Window) (opaque bool, alpha float64, supported bool) {
+	mygo.RunOnMain(func() { opaque, alpha = darwin.TestRoundedBacking(w.NativeHandle()) })
+	return opaque, alpha, true
+}
+
 func dockDevTools(w *mygo.Window) (ok bool) {
 	mygo.RunOnMain(func() { ok = darwin.TestDockInspector(w.NativeHandle()) })
 	return ok
