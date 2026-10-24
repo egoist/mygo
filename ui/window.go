@@ -18,7 +18,8 @@ import (
 // Content is a user interface for a window, the value of
 // mygo.WindowOptions.Content. Create it with View.
 type Content struct {
-	view func(*context)
+	view     func(*context)
+	automate func(*engine, *surface.Conn)
 }
 
 // View returns the content of a window whose user interface view builds,
@@ -77,6 +78,9 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 	h := &windowHost{conn: conn}
 	rt := newRuntime(v.view, h)
 	h.rt = rt
+	if v.automate != nil {
+		v.automate(rt, conn)
+	}
 	conn.Event = h.event
 	conn.ThemeChanged = func() {
 		// The interface font is part of the appearance.

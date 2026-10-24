@@ -25,6 +25,132 @@ Two elements given the same `Key` under one parent share one state, so
 that a click or the focus meant for one goes to the other: a tester
 panics where the second key was given, as apps only log it.
 
+## Semantic snapshots and control actions
+
+`Inspect` and `Perform` expose the existing accessibility hierarchy to
+agents and test tools. Import `github.com/egoist/mygo/ui/automation` for
+the detached data types, action constants and sentinel errors:
+
+```go
+snapshot := tt.Inspect()
+target, err := snapshot.Resolve(0, "Agree") // exact accessible name or leaf text
+if err != nil {
+	t.Fatal(err)
+}
+if err := tt.Perform(target, automation.Request{Action: automation.Press}); err != nil {
+	t.Fatal(err)
+}
+fresh := tt.Inspect() // updated checked state, focus, values and geometry
+data, err := json.Marshal(fresh) // encoding/json; suitable for an MCP response
+if err != nil {
+	t.Fatal(err)
+}
+_ = data
+```
+
+The runnable `ExampleTester_Inspect` in package `ui` shows the complete
+sequence. Run it with `go test ./ui -run ExampleTester_Inspect` from the
+repository root.
+
+Nodes have an ID, parent index (`-1` at the top), role, accessible name,
+available leaf text, value, bounds, states and supported actions. Chosen list
+items, table rows, tabs and tree items have `Selected: true`; `Checked` also
+retains their accessibility checked state. Checked checkboxes and radios do
+not imply `Selected`. An explicit `Label` changes `Name`; available leaf
+`Text` remains separately searchable.
+`Resolve(id, "")` selects by ID. Duplicate name/text matches return
+`automation.ErrAmbiguous`; inspect the nodes and select the desired ID.
+Missing targets return `ErrMissing`. JSON encodes IDs, sessions, generations
+and revisions as decimal strings to preserve all 64 bits in JavaScript clients.
+
+Targets belong to one tester/window and one element lifetime. They survive
+rebuilds and animation repaints while the element keeps its identity.
+Removal returns `ErrMissing`; recreation with the same ID returns `ErrStale`,
+as does using a target in another tester/window. Each action checks the
+current semantic tree, enabled state, supported actions and, for clicks,
+current geometry. Take fresh snapshots to observe the results of actions
+and re-resolve removed or stale targets. Targets are local to the current
+process; never persist them across restarts. `Snapshot.Revision` counts
+paints for observation; it does not expire targets. `Inspect` itself does
+not rebuild a frame.
+
+The tree is semantic, rather than every layout box. Layout-only containers
+and `RoleNone` are flattened. Invisible and inert content, including the
+background of a modal dialog, is omitted. Only built virtualized rows are
+included, and embedded web pages are not traversed. Bounds are transformed
+axis-aligned boxes in DIPs relative to the native content surface, before
+clipping and occlusion. `Offscreen` describes built content outside a scroll
+viewport; it does not detect another desktop window covering the app.
+
+`Actions` lists each control's supported operations. `Press` activates a
+control semantically: it can toggle a checkbox even when another element
+covers it. `Click` sends a single primary pointer down/up at its center and
+rejects covered, clipped, off-surface or embedded-page targets with
+`ErrCovered`. It does not move the system cursor or detect desktop window
+occlusion. Existing `ClickAt`, keyboard and scrolling APIs remain available.
+`Focus` can select a choosable row. `SetValue`, `SelectText` (rune offsets)
+and `InsertText` edit through the control's normal input path; `Increment`
+and `Decrement` use its keyboard behavior. `ScrollIntoView` reveals a built
+target, while `Expand` and `Collapse` operate on expandable tree items.
+Unsupported actions return `ErrUnsupported`; disabled controls return
+`ErrDisabled`. Read-only fields allow selection but reject editing. Password
+values and selections are redacted, including disabled password fields.
+No operation reads or writes arbitrary application memory.
+
+### Opted-in native windows
+
+Enable the same engine path for a real window explicitly:
+
+```go
+win := mygo.NewWindow(mygo.WindowOptions{
+	Content: ui.View(app.view).Automatable(),
+})
+driver := mygo.Automate(win)
+snapshot, err := driver.Inspect()
+// After checking err, use snapshot.Resolve and driver.Perform as above.
+```
+
+`driver.Input` sends keyboard, text and precise scrolling events through
+the same input paths as a user. Focus a control with `Perform` first for
+keyboard input. This also drives the code editor and rich-text editor,
+whose text actions are not those of the core text fields:
+
+```go
+err = driver.Input(automation.Input{Kind: automation.KeyInput, Key: "CmdOrCtrl+A"})
+// Check err before sending the next input.
+err = driver.Input(automation.Input{Kind: automation.TextInput, Text: "Replacement text"})
+// Check err before sending the next input.
+err = driver.Input(automation.Input{Kind: automation.KeyInput, Key: "Enter"})
+```
+
+Key input uses menu accelerator syntax, such as `Tab`, `Shift+Tab`,
+`Escape` or `CmdOrCtrl+S`, and sends a press followed by a release. It does
+not type characters; text input commits the supplied text at the current
+selection. Unsupported keys and malformed chords return an error.
+`automation.ScrollInput` takes `X`, `Y`, `DX` and `DY` in surface DIPs;
+positive `DY` scrolls down. Scroll inside a list to build distant virtualized
+rows before resolving them. Coordinates must be finite and on the surface;
+embedded web pages are not driven. `tt.Input` accepts the same requests;
+the existing tester keyboard and pointer helpers remain available.
+
+Create the window inside `App.WhenReady`. Driver calls are safe from any
+goroutine and run on the main UI thread. Call them outside view construction
+and control callbacks; reentrant calls return `ErrUnsupported`. A snapshot
+before the first rendered frame is empty. Pending `Window.Update` or
+`Invalidate` changes appear after their next rendered frame. Each successful
+action renders its resulting input before returning; asynchronous work and
+animations can require later snapshots. Driver operations on a closed
+window return `ErrClosed`. Web pages and content without `.Automatable()`
+return `ErrUnsupported`.
+
+This API works in ordinary production builds, including `mygo_noinspector`.
+It opens no endpoint or listener. The host or MCP package chooses access
+policy, transport and serialization, and should retain the session and
+generation when forwarding targets. The API does not enable the inspector or
+subscribe the app to continuous accessibility snapshots. Keep tester calls
+on their driving goroutine; `Perform` settles frames without advancing its
+simulated clock.
+
 ## What a tester does
 
 - **Pointer.** `tt.Click`, `tt.ClickAt`, `tt.ClickWith(ui.Shift, "Row 3")`,

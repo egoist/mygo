@@ -113,3 +113,7 @@ MyGo describes frames only once assistive technology asked, so apps pay
 nothing for it otherwise.
 
 Each component's page says what assistive technology sees of it.
+
+Hosts can expose the same semantic tree and control actions to automation
+through [`Inspect` and `Perform`](testing.md#semantic-snapshots-and-control-actions).
+Native windows require an explicit opt-in; no network service is started.

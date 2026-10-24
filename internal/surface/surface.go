@@ -7,13 +7,17 @@ import (
 	"github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/transfer"
+	"github.com/egoist/mygo/ui/automation"
 )
 
 // Conn is a window's side of the connection. Package mygo fills it before
 // calling Content.AttachContent; the content sets the hooks it handles.
 // Everything runs on the main thread, except Invalidate and Post.
 type Conn struct {
-	Surface platform.Surface
+	// Automation is an *Automation only for explicitly automatable content.
+	// Keeping it opaque leaves its data types out of unused apps.
+	Automation any
+	Surface    platform.Surface
 	// Window is the *mygo.Window.
 	Window any
 	// Clipboard is the system clipboard.
@@ -97,6 +101,13 @@ type Conn struct {
 	ToggleDevTools func()
 	// Detach is called once the window is closed.
 	Detach func()
+}
+
+// Automation connects opt-in native automation on the main thread.
+type Automation struct {
+	Inspect func() (automation.Snapshot, error)
+	Perform func(automation.Target, automation.Request) error
+	Input   func(automation.Input) error
 }
 
 // Content is implemented by package ui.
