@@ -44,6 +44,8 @@ type fontKey struct {
 	lineHeight float32
 	thicken    bool
 	scale      float32
+	// flat draws without font smoothing (Grid.Antialiased); View never does.
+	flat bool
 }
 
 func (f *Font) key(scale float32) fontKey {
@@ -70,7 +72,7 @@ func (k fontKey) variant(i int) ui.Font {
 	if i&1 != 0 {
 		w = min(max(w+300, 700), 900)
 	}
-	return ui.Font{Family: k.family, Size: k.size, Weight: w, Italic: i&2 != 0, Features: k.features, Thicken: k.thicken}
+	return ui.Font{Family: k.family, Size: k.size, Weight: w, Italic: i&2 != 0, Features: k.features, Thicken: k.thicken, Antialiased: k.flat}
 }
 
 // featureList converts features as Font.Features has them into the list
