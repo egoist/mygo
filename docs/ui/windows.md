@@ -41,6 +41,11 @@ To draw the window controls too, where the view wants them, add
 resize it, the top one included. The view's buttons call `Minimize`,
 `Maximize`, `Unmaximize` and `Close`.
 
+On Linux desktops with compositing and no server-side decorations, a
+hidden title bar also rounds an opaque window's corners, for both native
+UI and web pages. Maximizing, full screen and tiling make the corners
+square again. `Transparent` and `Frameless` windows keep the app's shape.
+
 ## Vibrancy
 
 A window's `Vibrancy` shows wherever its native UI draws no background, on

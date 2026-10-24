@@ -47,6 +47,10 @@ memory and CPU use.
   auto-updates with delta updates and an update window in the manner of
   Sparkle.
 
+On Linux, [hidden title bars](docs/frontend.md#hidden-title-bars) keep
+rounded window corners on composited desktops without server-side
+decorations; maximized, full-screen and tiled windows are rectangular.
+
 A window with a web page, whose frontend calls Go:
 
 ```go
