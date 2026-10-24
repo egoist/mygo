@@ -247,6 +247,59 @@ For the points of a band scale, `xs` are their middles; `chart.Nearest`
 finds the point nearest a fraction for selections of your own, and a
 band's `Index` the band.
 
+## Repeated queries of growing data
+
+`MinMax` is stateless and takes plot fractions. For large histories that
+mostly stay unchanged, keep a `MinMaxIndex` per series instead. `Update`
+borrows the full raw X and Y slices and indexes only their appended suffix;
+`Query` maps X to fractions for the requested viewport and leaves Y unchanged:
+
+```go
+var index chart.MinMaxIndex
+var dx, dy []float32
+// After appending samples to rawX and rawY:
+index.Update(rawX, rawY)
+// In the plot's Draw callback, with finite float32 viewport bounds lo < hi:
+dx, dy = index.Query(dx, dy, lo, hi, int(math.Ceil(float64(r.W*p.Scale()))))
+p.StrokePath(chart.LineInto(&path, r, dx, dy, chart.CurveLinear), 2, color)
+```
+
+Declare `path` as a retained `ui.Path`. `StrokePolyline` can use these same
+fractions after converting them with `chart.X` and `chart.Y`. Keep the raw
+samples for precise cursor readings; reduced points are drawing geometry.
+
+X must be nondecreasing within each finite run. NaN and infinity in either
+input break the line. Query uses float32 `(x-lo)/(hi-lo)`, including its
+rounding, before assigning pixel columns, and preserves MinMax's first
+equal extremum, time order and boundary neighbors. Invalid bounds, an
+overflowing span, or a nonpositive pixel width return empty output.
+
+Do not modify existing samples while indexed. Reallocation from appending
+is fine, but replacing data, editing it or removing its prefix requires
+`Reset` followed by `Update` of the retained history. Reset releases all
+borrowed slices and index memory. Bound your own history and rebuild
+periodically for a sliding window, as `examples/chart-streaming` does.
+Do not copy a populated index or access it concurrently; output must not alias input.
+Pan, zoom and DPI changes need only another query, without a rebuild.
+
+The index stores two original sample positions per completed 16-sample
+block and per completed pair of blocks above it. Construction is O(N),
+append amortizes to O(K) for K new samples, and storage is O(N/16 + R),
+where R is the finite-run count. On 64-bit systems the completed hierarchy
+uses about two bytes per sample before slice capacity slack, plus run
+bounds. Queries binary-search each run, skip whole blocks inside a pixel
+column, and scan blocks crossing a column boundary. Dense-query work is
+O(R log N + P log N + 16P), bounded by a full scan, for P occupied columns;
+highly fragmented input can still require visiting every run. A reusable
+normalization buffer handles low-density visible ranges with MinMax.
+
+For small data, a single query, frequently edited samples, or very many
+gaps, prefer `MinMax`: building an index may cost more than it saves. For
+a tiny visible fraction of sorted finite X, binary-searching the visible
+slice and calling MinMax may already suffice; retain one neighbor on each
+side and preserve gap markers. Index construction, capacity growth and
+explicit rebuilds allocate; warmed queries reuse their buffers.
+
 ## Accessibility
 
 Name the plot with `Label` and say what it shows with `Description`.
