@@ -54,8 +54,6 @@ func inTest() bool {
 
 // run opens the device while anything plays, and mixes into it.
 func run() {
-	// Devices that need it, as COM's, stay on one thread.
-	runtime.LockOSThread()
 	for {
 		for !active() {
 			<-wake
@@ -72,6 +70,9 @@ func run() {
 		per := frames(int64(n), sampleRate)
 		for !inTest() {
 			busy := mix(buf)
+			// write blocks in C, keeping the P, which the runtime would
+			// take back every 10 ms, waking more often after.
+			runtime.Gosched()
 			if err := dev.write(buf); err != nil {
 				// Lost, or a null device trying the real one again.
 				break
