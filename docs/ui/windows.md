@@ -70,6 +70,21 @@ Text over an opaque background keeps the system's subpixel antialiasing
 antialiased in grayscale. `examples/vibrancy` picks the window's material
 in such a sidebar.
 
+## Zoom
+
+A window's `Zoom` shows its native UI that many times larger, as a
+browser's zoom does a page: text, icons, images and the room between them
+grow together, are laid out anew in the room the window leaves them, and
+stay sharp. A view's sizes stay as they are; the window keeps its own.
+`SetZoom` changes it at once, for a text size setting:
+
+```go
+win := mygo.NewWindow(mygo.WindowOptions{Content: ui.View(app.View), Zoom: prefs.Zoom})
+win.SetZoom(1.25) // Larger
+```
+
+It goes from 0.25 to 5; 0 is 1.
+
 ## Closing
 
 A view can close its own window, from a button's click or its callback.

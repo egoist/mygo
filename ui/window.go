@@ -89,6 +89,7 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 		h.textLanguage()
 		rt.changed()
 	}
+	conn.ZoomChanged = h.zoomChanged
 	conn.Capture = h.capture
 	conn.Detach = h.detach
 	rt.insp.enabled = conn.DevTools
@@ -159,6 +160,70 @@ type windowHost struct {
 	waitedAt     time.Time
 	wake         func()
 	displayReady func()
+	// ime is the last state of text input the frame gave, unzoomed.
+	ime platform.TextInputState
+}
+
+// zoom returns how many times larger than usual the window shows the
+// content (mygo.WindowOptions.Zoom). The frames are laid out in a surface
+// that many times smaller, and painted at that many times its scale; what
+// comes from the surface and goes to it, in its DIPs, is turned between.
+func (h *windowHost) zoom() float32 {
+	if h.conn.Zoom == nil {
+		return 1
+	}
+	if z := float32(h.conn.Zoom()); z > 0 {
+		return z
+	}
+	return 1
+}
+
+// zoomChanged lays the content out anew at the window's new zoom, and
+// tells the surface where the caret, the web views and the maximize
+// button are now.
+func (h *windowHost) zoomChanged() {
+	h.placed = nil
+	if h.ime.Active {
+		h.conn.Surface.SetTextInput(h.zoomed(h.ime))
+	}
+	if r := h.rt.maxSent; r != (Rect{}) {
+		h.setMaximizeButton(r)
+	}
+	h.rt.changed()
+}
+
+// zoomRect returns r, in the frame's units, in the surface's DIPs.
+func zoomRect(r platform.RectF, z float64) platform.RectF {
+	return platform.RectF{X: r.X * z, Y: r.Y * z, W: r.W * z, H: r.H * z}
+}
+
+// zoomed returns t in the surface's DIPs.
+func (h *windowHost) zoomed(t platform.TextInputState) platform.TextInputState {
+	z := float64(h.zoom())
+	if z == 1 {
+		return t
+	}
+	t.Caret = zoomRect(t.Caret, z)
+	if t.Client != nil {
+		t.Client = zoomedClient{t.Client, z}
+	}
+	return t
+}
+
+// zoomedClient is a text input client whose geometry is in the surface's
+// DIPs, at the window's zoom z.
+type zoomedClient struct {
+	platform.TextInputClient
+	z float64
+}
+
+func (c zoomedClient) BoundsForRange(r platform.TextRange) (platform.RectF, platform.TextRange, bool) {
+	b, actual, ok := c.TextInputClient.BoundsForRange(r)
+	return zoomRect(b, c.z), actual, ok
+}
+
+func (c zoomedClient) IndexForPoint(x, y float64) (int, bool) {
+	return c.TextInputClient.IndexForPoint(x/c.z, y/c.z)
 }
 
 // displayWaiter is a GPU renderer that waits for the display off the main
@@ -218,6 +283,9 @@ func (h *windowHost) event(ev platform.SurfaceEvent) bool {
 		h.waiting, h.waitingOn = false, nil
 		h.framing = true
 		defer func() { h.framing = false }()
+	}
+	if z := float64(h.zoom()); z != 1 {
+		ev.X, ev.Y, ev.DX, ev.DY = ev.X/z, ev.Y/z, ev.DX/z, ev.DY/z
 	}
 	return h.rt.event(ev)
 }
@@ -309,7 +377,8 @@ func (h *windowHost) size() (float32, float32, float32) {
 	if s <= 0 {
 		s = 1
 	}
-	return float32(w), float32(ht), float32(s)
+	z := h.zoom()
+	return float32(w) / z, float32(ht) / z, float32(s) * z
 }
 
 func (h *windowHost) present(s *scene.Scene) {
@@ -592,7 +661,8 @@ func (h *windowHost) repaintTimer(at time.Time) {
 }
 
 func (h *windowHost) startDataDrag(data transfer.Data, local any, options transfer.DragOptions, x, y float32) error {
-	return h.conn.StartDataDrag(data, local, options, float64(x), float64(y))
+	z := h.zoom()
+	return h.conn.StartDataDrag(data, local, options, float64(x*z), float64(y*z))
 }
 func (h *windowHost) cancelDataDrag()                    { h.conn.CancelDataDrag() }
 func (h *windowHost) setDropFormats(f []transfer.Format) { h.conn.Surface.SetDropFormats(f) }
@@ -620,9 +690,18 @@ func (h *windowHost) uiFont() {
 
 func (h *windowHost) setCursor(c Cursor) { h.conn.Surface.SetCursor(platform.Cursor(c)) }
 
-func (h *windowHost) setTextInput(t platform.TextInputState) { h.conn.Surface.SetTextInput(t) }
+func (h *windowHost) setTextInput(t platform.TextInputState) {
+	h.ime = t
+	h.conn.Surface.SetTextInput(h.zoomed(t))
+}
 
 func (h *windowHost) updateAccessibility(tree *platform.AccessTree) {
+	// Each frame's tree is new: it takes the surface's DIPs in place.
+	if z := float64(h.zoom()); z != 1 && tree != nil {
+		for i := range tree.Nodes {
+			tree.Nodes[i].Bounds = zoomRect(tree.Nodes[i].Bounds, z)
+		}
+	}
 	h.conn.Surface.UpdateAccessibility(tree)
 }
 
@@ -688,7 +767,7 @@ var placeMaximizeButton func(h *windowHost, r Rect)
 
 func sendMaximizeButton(h *windowHost, r Rect) {
 	if s, ok := h.conn.Surface.(platform.MaximizeButtonSurface); ok {
-		s.SetMaximizeButton(rectF(r))
+		s.SetMaximizeButton(zoomRect(rectF(r), float64(h.zoom())))
 	}
 }
 
@@ -731,8 +810,8 @@ func (h *windowHost) titleBar() TitleBar {
 	if h.conn.TitleBar == nil {
 		return TitleBar{}
 	}
-	t := h.conn.TitleBar()
-	return TitleBar{Height: float32(t.Height), Left: float32(t.Left), Right: float32(t.Right)}
+	t, z := h.conn.TitleBar(), h.zoom()
+	return TitleBar{Height: float32(t.Height) / z, Left: float32(t.Left) / z, Right: float32(t.Right) / z}
 }
 
 func (h *windowHost) vibrancy() bool {
@@ -753,9 +832,18 @@ func (h *windowHost) openURL(u string, done func(error)) {
 func (h *windowHost) placeWebViews(views []placedWebView) {
 	list := make([]platform.WebViewPlacement, 0, len(views))
 	natives := make([]NativeWebView, 0, len(views))
+	z := float64(h.zoom())
 	for _, v := range views {
 		if n := v.v.SurfaceWebView(h.conn); n != nil {
-			list = append(list, platform.WebViewPlacement{WebView: n, Frame: v.frame, Clip: v.clip, Covers: v.covers})
+			p := platform.WebViewPlacement{WebView: n, Frame: v.frame, Clip: v.clip, Covers: v.covers}
+			if z != 1 {
+				p.Frame, p.Clip = zoomRect(p.Frame, z), zoomRect(p.Clip, z)
+				p.Covers = make([]platform.RectF, len(v.covers))
+				for i, c := range v.covers {
+					p.Covers[i] = zoomRect(c, z)
+				}
+			}
+			list = append(list, p)
 			natives = append(natives, v.v)
 		}
 	}
@@ -784,6 +872,7 @@ func (h *windowHost) tabIntoWebView(v NativeWebView, back bool) {
 
 func (h *windowHost) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
 	if h.conn.PopupMenu != nil {
-		h.conn.PopupMenu(m, float64(x), float64(y), chosen)
+		z := h.zoom()
+		h.conn.PopupMenu(m, float64(x*z), float64(y*z), chosen)
 	}
 }

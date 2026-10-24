@@ -178,6 +178,11 @@ type WindowOptions struct {
 	// package ui. The window then has no page (Window.Page is nil): URL
 	// and Page are ignored.
 	Content Content
+	// Zoom shows the Content that many times larger than usual, as a
+	// browser's zoom: text, images, room and all, laid out anew in the
+	// room that leaves, and sharp as at their own size. 0 is 1. A web page
+	// ignores it. Window.SetZoom changes it.
+	Zoom float64
 }
 
 // WindowState is what WindowOptions.StateKey remembers of a window: its
@@ -242,8 +247,10 @@ type Window struct {
 	// surface (main thread only). devTools tells that PageOptions.DevTools
 	// turned the developer tools on: the web inspector, or the inspector
 	// of the Content.
-	content      Content
-	conn         *surface.Conn
+	content Content
+	conn    *surface.Conn
+	// zoom is WindowOptions.Zoom, at least minZoom (main thread only).
+	zoom         float64
 	devTools     bool
 	invalidating atomic.Bool
 	// userScripts are the scripts the window's pages run at document
@@ -431,7 +438,7 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyou
 	id := windows.nextID
 	windows.Unlock()
 
-	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, secret: randomText(), stateKey: opts.StateKey, background: bg, content: opts.Content, panel: opts.Panel && flyout == nil}
+	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, secret: randomText(), stateKey: opts.StateKey, background: bg, content: opts.Content, zoom: clampZoom(opts.Zoom), panel: opts.Panel && flyout == nil}
 	w.pg = &Page{w}
 	w.hiddenTitleBar = !opts.Frameless && (opts.TitleBarStyle == TitleBarHidden || opts.TitleBarStyle == TitleBarHiddenInset)
 	w.resetPage()
@@ -635,6 +642,38 @@ func get[T any](w *Window, fn func(n platform.Window) T) T {
 		return fn(w.native)
 	})
 }
+
+// The zooms of a window's Content, beyond which SetZoom keeps it.
+const minZoom, maxZoom = 0.25, 5
+
+// clampZoom returns z within minZoom and maxZoom, and 1 for 0 (or less, or
+// NaN).
+func clampZoom(z float64) float64 {
+	if !(z > 0) {
+		return 1
+	}
+	return min(max(z, minZoom), maxZoom)
+}
+
+// SetZoom shows the window's Content z times larger than usual
+// (WindowOptions.Zoom), from 0.25 to 5; 0 is 1. The Content is laid out
+// anew at once; the window keeps its size. It does nothing for a web page.
+func (w *Window) SetZoom(z float64) {
+	z = clampZoom(z)
+	onMain(func() {
+		if w.zoom == z {
+			return
+		}
+		w.zoom = z
+		if w.conn != nil && w.conn.ZoomChanged != nil && w.native != nil {
+			w.conn.ZoomChanged()
+		}
+	})
+}
+
+// Zoom returns how many times larger than usual the window shows its
+// Content (SetZoom).
+func (w *Window) Zoom() float64 { return onMainValue(func() float64 { return clampZoom(w.zoom) }) }
 
 // Close closes the window as if the user clicked its close button, so
 // OnClose listeners can cancel it.

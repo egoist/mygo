@@ -422,3 +422,33 @@ func TestContentMaximizeButton(t *testing.T) {
 		t.Errorf("maximize button at %+v after it went", fw.MaximizeButton)
 	}
 }
+
+// TestContentZoom checks that a window's Content shows as large as its
+// zoom, which SetZoom changes at once within its bounds.
+func TestContentZoom(t *testing.T) {
+	view := func(c *ui.Context) {
+		ui.Box(c).Absolute().Left(0).Top(0).Size(100, 50).Background(ui.RGB(255, 0, 0))
+	}
+	w := NewWindow(WindowOptions{Width: 300, Height: 200, Content: ui.View(view), Zoom: 2})
+	t.Cleanup(w.Destroy)
+	wins := fb.Windows()
+	s := wins[len(wins)-1].FakeSurface()
+	red := [4]byte{0, 0, 255, 255}
+	onMain(func() { s.Frame() })
+	if p := s.Pixel(150, 75); p != red || w.Zoom() != 2 {
+		t.Fatalf("at zoom %v, the box's pixel at 150, 75 is %v", w.Zoom(), p)
+	}
+	w.SetZoom(0)
+	onMain(func() { s.Frame() })
+	if p := s.Pixel(150, 75); p == red || w.Zoom() != 1 {
+		t.Fatalf("at zoom %v, the pixel past the box is %v", w.Zoom(), p)
+	}
+	if p := s.Pixel(90, 40); p != red {
+		t.Fatalf("at zoom 1, the box's pixel at 90, 40 is %v", p)
+	}
+	for _, c := range []struct{ set, want float64 }{{10, 5}, {0.1, 0.25}, {-1, 1}, {1.5, 1.5}} {
+		if w.SetZoom(c.set); w.Zoom() != c.want {
+			t.Errorf("SetZoom(%v): zoom %v, want %v", c.set, w.Zoom(), c.want)
+		}
+	}
+}

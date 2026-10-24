@@ -78,6 +78,10 @@ type Conn struct {
 	// PlaceWebViews shows the window's web views where the content's last
 	// frame shows them (Surface.PlaceWebViews).
 	PlaceWebViews func(views []platform.WebViewPlacement)
+	// Zoom returns how many times larger than usual the content shows
+	// (WindowOptions.Zoom): it lays out in a surface that much smaller,
+	// and paints that much finer. nil or 0 is 1.
+	Zoom func() float64
 
 	// Event receives the surface's events, and Focus and Blur of the
 	// window. It reports whether the content takes dragged files, as
@@ -90,6 +94,8 @@ type Conn struct {
 	// LocaleChanged is called when Locale or Region changed, for the
 	// content to build its frame anew.
 	LocaleChanged func()
+	// ZoomChanged is called when Zoom does.
+	ZoomChanged func()
 	// Capture renders the content as it is now into premultiplied RGBA.
 	Capture func() (width, height int, rgba []byte)
 	// ToggleDevTools opens or closes the content's inspector, for the

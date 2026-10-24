@@ -86,6 +86,7 @@ func (w *Window) attachContent() {
 			})
 		},
 		PlaceWebViews: w.placeWebViews,
+		Zoom:          func() float64 { return w.zoom },
 		PopupMenu: func(m *platform.Menu, x, y float64, chosen func(int)) {
 			pos := &platform.Point{X: int(math.Round(x)), Y: int(math.Round(y))}
 			menu := NewMenu(contentMenu(m, chosen))
