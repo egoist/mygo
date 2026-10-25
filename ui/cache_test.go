@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// cacheCard is a card of a gradient, a shadow, text and a child beyond its
-// box, with a drawing moving next to it, kept by Cache when cached; tilt
+// cacheCard is a card with a shadow, text, a gradient and a child beyond
+// its box, with a drawing moving next to it, kept by Cache when cached; tilt
 // rotates it, wide widens it, and accent colors its text.
 type cacheCard struct {
 	cached     bool
@@ -20,10 +20,12 @@ type cacheCard struct {
 
 func (v *cacheCard) view(c *context) {
 	coreColumn(c).Fill().Background(RGB(255, 255, 255)).Padding(20).Children(func() {
-		card := coreBox(c).Width(120+v.wide).Height(50).Radius(12).
-			Gradient(RGB(30, 60, 200), RGB(200, 40, 120), 30).Shadow(0, 4, 10, 2, RGBA(0, 0, 0, 90)).
-			Padding(8).Children(func() {
+		// Text over the card's opaque background, smoothed as over the
+		// window's (ClearType's subpixels on Windows), in its bitmap too.
+		card := coreBox(c).Width(120+v.wide).Height(50).Radius(12).Background(RGB(30, 60, 200)).
+			Shadow(0, 4, 10, 2, RGBA(0, 0, 0, 90)).Padding(8).Children(func() {
 			coreText(c, "Daily mix").TextColor(v.accent)
+			coreBox(c).Absolute().Right(0).Top(0).Size(30, 50).Radius(12).Gradient(RGB(30, 60, 200), RGB(200, 40, 120), 30)
 			// Beyond the card, which does not clip it.
 			coreBox(c).Absolute().Left(150+v.wide).Top(30).Size(30, 14).Background(RGB(20, 160, 60))
 		})
