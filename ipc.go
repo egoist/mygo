@@ -401,6 +401,9 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 	} else {
 		result, err = mi.call(w, ctx, m.K, m.A)
 	}
+	if ctx.Err() != nil {
+		return // the page that asked is gone: no page is waiting for the reply
+	}
 	w.enqueue(encodeReply(m.ID, m.K, result, err), false)
 }
 

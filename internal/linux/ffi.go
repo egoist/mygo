@@ -410,6 +410,9 @@ var (
 	webkitUserContentManagerNew                       func() ptr
 	webkitUserContentManagerRegisterHandler           func(ucm ptr, name *byte) bool
 	webkitUserContentManagerUnregisterHandler         func(ucm ptr, name *byte)
+	webkitUserContentManagerRegisterHandlerInWorld    func(ucm ptr, name, world *byte) bool
+	webkitUserContentManagerUnregisterHandlerInWorld  func(ucm ptr, name, world *byte)
+	webkitUserScriptNewForWorld                       func(src *byte, frames, time int32, world *byte, allow, block ptr) ptr
 	webkitUserContentManagerAddScript                 func(ucm, script ptr)
 	webkitUserContentManagerRemoveAllScripts          func(ucm ptr)
 	webkitUserScriptNew                               func(src *byte, frames, time int32, allow, block ptr) ptr
@@ -914,6 +917,11 @@ func loadWebKit() error {
 	mustBind(w, &webkitUserContentManagerRemoveAllScripts, "webkit_user_content_manager_remove_all_scripts")
 	mustBind(w, &webkitUserScriptNew, "webkit_user_script_new")
 	mustBind(w, &webkitUserScriptUnref, "webkit_user_script_unref")
+	// WebKitGTK 2.22 and newer: a script and its message handler in a world
+	// of their own (see inWorlds).
+	bind(w, &webkitUserContentManagerRegisterHandlerInWorld, "webkit_user_content_manager_register_script_message_handler_in_world")
+	bind(w, &webkitUserContentManagerUnregisterHandlerInWorld, "webkit_user_content_manager_unregister_script_message_handler_in_world")
+	bind(w, &webkitUserScriptNewForWorld, "webkit_user_script_new_for_world")
 	mustBind(w, &webkitWebViewNewWithUserContentManager, "webkit_web_view_new_with_user_content_manager")
 	mustBind(w, &webkitWebViewGetSettings, "webkit_web_view_get_settings")
 	mustBind(w, &webkitSettingsSetEnableDeveloperExtras, "webkit_settings_set_enable_developer_extras")

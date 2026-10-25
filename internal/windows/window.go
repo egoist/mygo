@@ -113,6 +113,7 @@ type window struct {
 
 	programmatic bool
 	loading      bool
+	domEvent     bool // the web view tells DOMContentLoaded (ICoreWebView2_2)
 	zoom         float64
 	devTools     bool
 	htmlFor      map[string]string // LoadHTML documents by the URL they load at

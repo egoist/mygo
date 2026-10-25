@@ -34,7 +34,7 @@ type FindResult struct {
 //
 // Text split by markup, such as "my<b>go</b>", is not found.
 func (p *Page) FindInPage(text string, opts FindOptions) (FindResult, error) {
-	res, err := EvalAs[FindResult](p, findScript(text, opts))
+	res, err := EvalAs[FindResult](p, p.w.findScript(text, opts))
 	if err != nil {
 		return FindResult{}, fmt.Errorf("mygo: finding in the page: %w", err)
 	}

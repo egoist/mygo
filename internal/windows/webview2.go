@@ -86,6 +86,7 @@ const (
 	navStarting3GetNavigationKind = 12
 	navCompletedGetIsSuccess      = 3
 	navCompletedGetWebErrorStatus = 4
+	msgGetSource                  = 3
 	msgTryGetWebMessageAsString   = 5
 	msg2GetAdditionalObjects      = 6
 	objectsGetCount               = 3
@@ -117,6 +118,7 @@ const (
 	iterMoveNext                  = 5
 	deferralComplete              = 3
 	procFailedGetKind             = 3
+	wv2AddDOMContentLoaded        = 64  // ICoreWebView2_2
 	wv4AddDownloadStarting        = 75  // ICoreWebView2_4
 	wv13GetProfile                = 105 // ICoreWebView2_13
 	profile2ClearBrowsingDataAll  = 12  // ICoreWebView2Profile2

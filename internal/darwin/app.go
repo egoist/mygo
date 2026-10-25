@@ -52,6 +52,9 @@ type Backend struct {
 	// dockMenu is returned by applicationDockMenu: (retained).
 	dockMenu      id
 	dockMenuOwner int
+	// domWorld is the content world of the DOMContentLoaded script, made
+	// with the first web view and kept (retained).
+	domWorld id
 }
 
 // New creates the macOS backend.

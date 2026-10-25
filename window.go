@@ -2,6 +2,7 @@ package mygo
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"log"
@@ -287,10 +288,27 @@ type Window struct {
 	stateKey   string
 	stateTimer *time.Timer
 
-	// trusted reports whether the current page may call bound methods.
-	// Main thread only.
+	// trusted reports whether the current page may call bound methods: the
+	// document the last navigation committed is a trusted page's (see
+	// NavigationCommitted). Main thread only.
 	trusted        bool
 	trustedOrigins []string
+	// popup is a window a page opened (SetWindowOpenHandler): no `about:`
+	// document of it is the app's own (isTrusted).
+	popup bool
+	// navigated reports that a document committed in this window already;
+	// the first one, a blank page, is the window's own. Main thread only.
+	navigated bool
+	// senderURL is the URL of the last document trustsSender judged,
+	// senderTrusted its trust, and senderGen the protocol generation it
+	// was judged in (zero: none yet). Main thread only.
+	senderURL     string
+	senderTrusted bool
+	senderGen     uint64
+	// domLoaded reports that the backend told DOMContentLoaded of the
+	// current page, which only a page that is not trusted needs. Main
+	// thread only.
+	domLoaded bool
 	// html is the document LoadHTML loaded, while it is the page's or
 	// about to be. Main thread only.
 	html *htmlDocument
@@ -306,13 +324,19 @@ type Window struct {
 	// their calls made them, with the page's token.
 	closedEarly map[int64]string
 
-	outMu    sync.Mutex
+	outMu sync.Mutex
+	// outbox is what the page shown now is to hear, which flush sends; a
+	// navigation drops it.
 	outbox   []message
 	flushing bool
 	// held keeps events until the page's DOM is ready, so events sent right
 	// after creating a window or during a navigation are not lost.
 	held     []message
 	domReady bool
+	// docToken names the document whose dom-ready the core took, which
+	// flush sends the outbox for (empty before that, and after a
+	// navigation).
+	docToken string
 
 	onClose            listeners[func(*CloseEvent)]
 	onClosed           listeners[func()]
@@ -390,7 +414,7 @@ func createWindow(caller string, opts WindowOptions, bg *background, flyout *fly
 		panic("mygo: " + caller + " called before the application is ready; create windows in App.WhenReady")
 	}
 	var w *Window
-	onMain(func() { w = newWindow(opts, bg, 0, flyout) })
+	onMain(func() { w = newWindow(opts, bg, 0, flyout, false) })
 	if w == nil {
 		// The event loop has already stopped.
 		w = &Window{}
@@ -433,13 +457,13 @@ func updateBackgrounds() {
 	}
 }
 
-func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyoutOptions) *Window {
+func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyoutOptions, popup bool) *Window {
 	windows.Lock()
 	windows.nextID++
 	id := windows.nextID
 	windows.Unlock()
 
-	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, secret: randomText(), stateKey: opts.StateKey, background: bg, content: opts.Content, panel: opts.Panel && flyout == nil}
+	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, popup: popup, secret: randomText(), stateKey: opts.StateKey, background: bg, content: opts.Content, panel: opts.Panel && flyout == nil}
 	w.pg = &Page{w}
 	w.hiddenTitleBar = !opts.Frameless && (opts.TitleBarStyle == TitleBarHidden || opts.TitleBarStyle == TitleBarHiddenInset)
 	w.resetPage()
@@ -1186,7 +1210,12 @@ func (w *Window) isTrusted(rawURL string) bool {
 	}
 	scheme := strings.ToLower(u.Scheme)
 	switch {
-	case scheme == "about" || scheme == "file" || scheme == frontendScheme:
+	case scheme == "about":
+		// Only where the app makes the pages (NavigationCommitted decides
+		// which about: documents are its own): a window a page opened
+		// shows what that page makes.
+		return !w.popup
+	case scheme == "file" || scheme == frontendScheme:
 		return true
 	case Protocol.IsHandled(scheme):
 		return true
@@ -1207,6 +1236,12 @@ func (w *Window) isTrusted(rawURL string) bool {
 		}
 	}
 	return false
+}
+
+// isAbout reports whether rawURL is an about: URL.
+func isAbout(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	return err == nil && strings.EqualFold(u.Scheme, "about")
 }
 
 // LoadHTML loads an HTML string. Relative URLs in it resolve against
@@ -1480,29 +1515,38 @@ func (w *Window) enqueue(msg message, event bool) {
 
 func (w *Window) flush() {
 	w.outMu.Lock()
-	msgs := w.outbox
+	msgs, token := w.outbox, w.docToken
 	w.outbox = nil
 	w.flushing = false
 	w.outMu.Unlock()
 	if w.native == nil || len(msgs) == 0 {
 		return
 	}
-	size := 64
+	size := 96 + len(token)
 	for _, m := range msgs {
 		size += m.len() + 1
 	}
 	js := make([]byte, 0, size)
 	// A script shaped like a.b(JSON) runs without being compiled: WebKit's
 	// JavaScriptCore parses the value as JSON unless the inspector is on,
-	// several times faster. Pages without the runtime only throw.
-	js = append(js, "__mygo.receive(["...)
+	// several times faster. __mygo is the bridge's in every page (pinned at
+	// document start, where the page is not trusted it only ignores this),
+	// and a document other than the one that named token ignores it too:
+	// the web view may show another page by now than the one Go heard of.
+	js = append(js, "__mygo.deliver({"...)
+	if token != "" {
+		js = append(js, `"d":`...)
+		js, _ = jsontext.AppendQuote(js, token)
+		js = append(js, ',')
+	}
+	js = append(js, `"m":[`...)
 	for i, m := range msgs {
 		if i > 0 {
 			js = append(js, ',')
 		}
 		js = m.appendTo(js)
 	}
-	js = append(js, "])"...)
+	js = append(js, "]})"...)
 	// js is not used again, so the script can share its memory.
 	w.native.Eval(unsafe.String(unsafe.SliceData(js), len(js)))
 }
@@ -1594,7 +1638,9 @@ func (p *Page) OnDidNavigate(fn func(url string)) (off func()) {
 	return p.w.onDidNavigate.add(fn, false)
 }
 
-// OnDOMReady is called when the page's DOM is ready (DOMContentLoaded).
+// OnDOMReady is called when the page's DOM is ready (DOMContentLoaded),
+// once for every document, whether or not it has the bridge (see
+// PageOptions.TrustedOrigins).
 func (p *Page) OnDOMReady(fn func()) (off func()) { return p.w.onDOMReady.add(fn, false) }
 
 // OnDidFinishLoad is called when the page finished loading.
@@ -1719,7 +1765,7 @@ func (h *windowHandler) TitleBarChanged() {
 	}
 }
 
-func (h *windowHandler) Message(msg string) { h.w.handleMessage(msg) }
+func (h *windowHandler) Message(msg, url string) { h.w.handleMessage(msg, url) }
 
 func (h *windowHandler) WillNavigate(nav platform.Navigation) bool {
 	if doc := h.w.html; nav.IsMainFrame && nav.Reload && doc != nil && doc.shown {
@@ -1742,25 +1788,59 @@ func (h *windowHandler) WillNavigate(nav platform.Navigation) bool {
 func (h *windowHandler) NavigationStarted(string) {}
 
 func (h *windowHandler) NavigationCommitted(url string) {
-	if doc := h.w.html; doc != nil {
+	w := h.w
+	own := false // the app made the document
+	if doc := w.html; doc != nil {
 		switch {
 		case doc.shown:
-			h.w.html = nil // another document replaced it
+			w.html = nil // another document replaced it
 		case doc.isAt(url):
 			doc.shown = true
+			own = true
+		default:
+			// Another document committed before the HTML did, and the
+			// web view drops the load of the HTML for it: a later commit
+			// of the same URL is not the app's.
+			w.html = nil
 		}
 	}
-	h.w.trusted = h.w.isTrusted(url)
-	h.w.outMu.Lock()
-	h.w.domReady = false
-	h.w.outMu.Unlock()
-	h.w.resetPage()
-	fire1(&h.w.onDidNavigate, url)
+	first := !w.navigated
+	w.navigated = true
+	// A page of a trusted origin is trusted, whoever made the document. An
+	// about: document takes the origin of the page that made it, and a page
+	// can make one in a window it holds (a popup it opened, or the window
+	// it navigates to about:blank): only the documents the app made are
+	// its own, those LoadHTML loads and the blank one a window starts
+	// with.
+	w.trusted = w.isTrusted(url) && (!isAbout(url) || own || first && url == "about:blank")
+	w.domLoaded = false
+	w.outMu.Lock()
+	w.domReady = false
+	w.docToken = ""
+	w.outbox = nil // all of it was for the document that went
+	w.outMu.Unlock()
+	w.resetPage()
+	fire1(&w.onDidNavigate, url)
+}
+
+// DOMContentLoaded is the backend telling, in its own way, that the DOM of
+// the page is ready: the page cannot say it, post it or see it. A trusted
+// page's bridge says it too, and that message is the one that counts, as it
+// sends the events held for the page; so this is for a page without the
+// bridge, and the backend's word is taken once for a document.
+func (h *windowHandler) DOMContentLoaded() {
+	w := h.w
+	if w.trusted || w.domLoaded {
+		return
+	}
+	w.domLoaded = true
+	fire(&w.onDOMReady)
+	w.readyToShow()
 }
 
 func (h *windowHandler) LoadFinished() {
 	fire(&h.w.onDidFinishLoad)
-	// Pages without the bridge (e.g. images) never report DOM ready.
+	// Documents with no DOM (e.g. images) never report DOM ready.
 	h.w.readyToShow()
 }
 
@@ -1805,7 +1885,7 @@ func (h *windowHandler) NewWindow(req platform.NewWindowRequest) platform.Window
 	if err != nil {
 		log.Printf("mygo: window open handler: %v", err)
 	}
-	child := newWindow(o, bg, req.Native, nil)
+	child := newWindow(o, bg, req.Native, nil, true)
 	return child.native
 }
 

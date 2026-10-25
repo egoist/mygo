@@ -541,7 +541,9 @@ features GTK 4 lacks become X11-only code beside it.
   the clipboard text.
 - Scripts injected at document creation run in every frame, so the
   main-frame-only ones (the bridge) are wrapped in `window === window.top`.
-  Iframes get no `chrome.webview` handler.
+  Iframes see `chrome.webview` as well, so a script for every frame
+  (`bridge.HideScript`) removes it from them; `WebMessageReceived` reports
+  the document that posted a message (`Source`), which the core checks.
 - **ABI.** On x64, structs over 8 bytes are passed by reference and Go
   mirrors the first integer arguments into the XMM registers, so doubles can
   be passed as bits. On ARM64, 16-byte structs travel in two registers and
@@ -782,12 +784,18 @@ gained one field, `SurfaceNative.Canvas`.
 `packages/bridge/src/bridge.ts` is bundled by Bun into an IIFE
 and committed, so building an app never needs Bun. The core wraps it with the
 window's configuration (`bridge.Script`) and every backend injects it at
-document start into the main frame. It installs:
+document start into the main frame. First it takes the channel to Go (see
+the transport below) and hides it from the page; then it checks the page
+against `trust` of its configuration (`trust.ts`, the rule of `isTrusted`,
+see Trust below) and, in a page that is not trusted, goes no further than
+pinning an inert `window.__mygo`. Pages that are get:
 
 - `window.mygo`: `call(method, ...args)`, `on(event, fn)`, `once`, the
   `window` controls (`minimize`, `toggleMaximize`, `close`, …), `platform`,
   `windowId`, `version`. Frozen, so pages cannot tamper with it.
-- `window.__mygo.receive(messages)`, used by Go to deliver messages.
+- `window.__mygo`: `deliver(batch)`, used by Go to deliver messages to this
+  document (see Delivery to the right document), `receive(messages)`, and
+  `find`/`stopFind`.
 - dom-ready notification and `--app-region: drag` handling for frameless
   windows (the mousedown is reported, the backend starts a native window drag
   from the recorded mouse event).
@@ -823,7 +831,16 @@ document start into the main frame. It installs:
   selected instead. Being JavaScript, it works the same in every engine.
 
 The transport is `window.webkit.messageHandlers.mygo.postMessage` on both
-WebKit platforms and `window.chrome.webview.postMessage` on WebView2.
+WebKit platforms and `window.chrome.webview.postMessage` on WebView2. The
+bridge keeps the function and takes the channel away from the page, in every
+page, trusted or not, before any script of the page runs: `webkit.messageHandlers`
+is an accessor on the prototype of `webkit`, which the bridge deletes (a page
+cannot remove `window.webkit` itself, an empty object after that), and
+`chrome.webview` is deleted from `chrome`, which then has what Edge's has.
+A script for every frame (`bridge.HideScript`, the last of a window's user
+scripts, which does nothing in the top frame) does the same in the frames,
+whose documents have no bridge but would find the channel, including the
+documents of `about:blank` and `srcdoc` frames.
 
 ### The `mygo-runtime` package (`packages/runtime`)
 
@@ -873,20 +890,22 @@ package: docs say `bunx mygo-cli`, never `bunx mygo`, outside a project.
 ### Wire protocol
 
 Page → Go (a JSON string per message, prefixed with the window's secret; see
-Trust):
+Trust). Only a trusted page's `call` is answered, with an error if it is not;
+the other messages do nothing unless a trusted page posted them:
 
 | message | meaning |
 |---|---|
 | `{"t":"call","id":N,"k":token,"m":"Service.Method","a":[...]}` | call a bound method |
 | `{"t":"chan-ack","c":N,"k":token,"n":S}` | the page took the values of channel N up to the S-th |
 | `{"t":"chan-close","c":N,"k":token}` | the page closed channel N |
-| `{"t":"dom-ready"}` | DOMContentLoaded fired |
+| `{"t":"dom-ready","k":token}` | DOMContentLoaded fired (a page without the bridge is told by the backend, see Trust) |
 | `{"t":"drag"}` / `{"t":"dblclick"}` | mousedown / double click on a drag region |
 
-Go → page, batched into one `__mygo.receive([...])` evaluation per
-main-loop turn. JavaScriptCore runs a script of that shape, `a.b(JSON)`,
-with its JSON parser instead of compiling it, which is several times
-faster, unless the inspector is enabled (development builds):
+Go → page, batched into one `__mygo.deliver({"d":token,"m":[...]})`
+evaluation per main-loop turn (`d` is left out until Go has the token of
+the page's `dom-ready`). JavaScriptCore runs a script of that shape,
+`a.b(JSON)`, with its JSON parser instead of compiling it, which is several
+times faster, unless the inspector is enabled (development builds):
 
 | message | meaning |
 |---|---|
@@ -897,15 +916,17 @@ faster, unless the inspector is enabled (development builds):
 | `{"t":"event","n":"name","p":payload}` | typed event |
 
 `k` is a random per-page token: a reply meant for a page that has since
-navigated away can never resolve a promise of the new page.
+navigated away can never resolve a promise of the new page. The same token,
+which `dom-ready` tells Go, names the document in the batches of events.
 
 ### Calls
 
-1. `WindowHandler.Message` runs on the main thread. Messages starting with
+1. `WindowHandler.Message(msg, url)` runs on the main thread, with the URL
+   of the document that posted the message. Messages starting with
    `{"t":"call",` are handed to a goroutine (`handleCall`) together with the
-   page context and the page's trust decision, captured on the main thread so
-   a racing navigation cannot change them. Everything else is decoded on the
-   main thread.
+   page context and the sender's trust decision, captured on the main thread so
+   a racing navigation cannot change them. Everything else is dropped if the
+   sender is not trusted, and decoded on the main thread if it is.
 2. `handleCall` decodes the envelope with `encoding/json/v2`, looks up the
    method, decodes each argument into the parameter type, calls it and
    encodes the result. Panics are recovered, logged with a stack trace and
@@ -976,21 +997,148 @@ twice. The result travels as a JSON string and is decoded in Go.
 
 ### Trust
 
-Every page gets the runtime, but only trusted pages may call Go: the
+Only trusted pages get the bridge, and may call Go: the
 frontend (`mygo:` and the `mygo dev` server), custom-scheme pages
-(`Protocol.Handle`), `file:` and `about:` pages, loopback `http(s)` dev
-servers in development, and origins listed in `PageOptions.TrustedOrigins`
-(`"*"` trusts everything). The decision is
-recomputed on every committed navigation. Untrusted calls are rejected
-without running any Go code.
+(`Protocol.Handle`), `file:` pages, `about:` pages the app made, loopback
+`http(s)` dev servers in development, and origins listed in
+`PageOptions.TrustedOrigins` (`"*"` trusts everything). Two decisions
+follow the one rule, `isTrusted`:
 
-The message handler is reachable from every frame, while trust is decided
-by the main frame's URL, so an iframe of another origin must not be able to
-talk to Go: each window has a random secret (`crypto/rand`), passed only to
-the bridge's closure in its configuration, which prefixes every message;
+- In the page, at document start, before its scripts run: the bridge checks
+  `location` against `Trust` of its configuration (`Window.bridgeTrust`, which
+  turns the rule into data: the schemes, the origins, whether loopback
+  servers count; on Windows also the schemes WebView2 serves at
+  `http://<scheme>.localhost` and `http://<host>.<scheme>.localhost`, with
+  no port, no credentials and a host of DNS labels, as
+  `internal/schemehost` maps them back for the core), and a page that is not
+  trusted gets no `window.mygo` and no channel to Go (see the transport
+  above), and a `window.__mygo` that ignores what Go delivers (see Delivery
+  to the right document below). A page that navigates gets a new document,
+  and so a new decision. `TestBridgeTrust` and `trust.test.ts` hold the same
+  cases, to keep the two implementations of the rule together. The scripts
+  that are not the bridge, such as `PageOptions.PreloadScript`, run in every
+  page.
+- In Go, for every message, whatever the page does: the page is trusted, as
+  the last committed navigation decided, and so is the URL of the document
+  that posted the message (`WindowHandler.Message`'s second argument: the
+  `request` of the message's `WKFrameInfo` on macOS, `Source` of the event
+  arguments on WebView2, the web view's URL on Linux, where WebKitGTK reports
+  no frame). A `call` from a sender that is not trusted is rejected without
+  running any Go code, and every other message from one is dropped, as is
+  one without a sender URL. A page with no channel cannot send any, so this
+  guards against what the first decision misses: a document that was trusted
+  a moment before, a frame, or a bug of an engine. The decision for the last
+  sender URL is kept until a protocol is handled or unhandled
+  (`ProtocolModule.generation`). A page that is not trusted gets no events
+  either (they wait for a dom-ready it never sends); its `OnDOMReady` is the
+  backend's word, below.
+
+`about:` is the one scheme whose pages the rule cannot settle from the URL.
+A document at `about:blank` takes the origin of the page that made it, and a
+page can make one in a window it holds: by navigating its own window to
+`about:blank`, or by opening a popup (`SetWindowOpenHandler`) and setting
+the popup's location. The URL says nothing of who made the document, so
+`NavigationCommitted` decides: an `about:` document is trusted if the app
+made it, which is the one `LoadHTML` loaded (`htmlDocument.shown`, set when
+the commit of the HTML the app loaded arrives: a page cannot say it) or the
+first document a window commits, when that is `about:blank`. In a popup
+(`Window.popup`, set for windows the window-open handler made) no `about:`
+page is trusted: `isTrusted` is false for the scheme there, and
+`bridgeTrust` leaves it out of the schemes the bridge applies, so the bridge
+gives such a page nothing. In a window the app made, the bridge cannot tell
+who made an `about:` document and gives it a `window.mygo`; Go does not
+trust the page that navigated its own window to `about:blank`, so it
+ignores what that bridge posts and sends it nothing (the token below keeps
+what was queued for the page before from it). `NavigationCommitted` takes a
+commit of `about:blank` for the app's own while a `LoadHTML` waits for its
+commit, and only until another document commits: the web view drops the
+load of the HTML for that one, so the wait ends. A page that commits an
+`about:blank` of its own in the moment between the app's call and the web
+view's commit is taken for the app's document, until that document commits
+and replaces it.
+
+An iframe of another origin must not be able to talk to Go either. The
+frames do not see the channel; besides that, each window has a random secret
+(`crypto/rand`), passed only to the bridge's closure in its configuration,
+which prefixes every message;
 `handleMessage` drops messages without it. macOS additionally only accepts
 messages from the main frame (`WKScriptMessage.frameInfo.isMainFrame`);
 WebKitGTK exposes no frame information, so Linux relies on the secret.
+
+`Page.FindInPage` calls `window.__mygo.find`, which the bridge pins in every
+page (see Delivery to the right document below), so the page it asks is not
+the one that answers.
+
+#### Delivery to the right document
+
+Go queues what it says to a page (replies, channel values, events) and
+evaluates it in the page the window shows when `flush` runs. That page can
+be another than the one the messages were for: the web view makes the next
+document before Go hears `NavigationCommitted`, and a method that a trusted
+page called may return after the window moved on to a page that is not
+trusted. Three things keep a message from reaching the wrong document, each
+enough for a case the others miss:
+
+- Go drops the outbox at `NavigationCommitted`, and does not queue the
+  reply of a call whose page context is canceled, so once Go has heard of
+  the navigation nothing queued for the page that went is left to send.
+  `held` events stay: they are for the next trusted page, which they reach
+  at its dom-ready only.
+- The bridge defines `window.__mygo` in every document at document start,
+  before a script of the page runs, as a property that cannot be changed
+  or deleted, so the evaluated `__mygo.deliver(...)` never calls a function
+  a page defined. In a page that is not trusted it is `{receive, deliver}`
+  that ignore their argument, and `find`, `stopFind`; in a trusted one it is
+  the runtime's. A page cannot use this to learn anything: the object
+  holds none of the secret, the token or the channel.
+- The batch names its document. The bridge makes a token for each document
+  (the `k` of its calls, its replies and its channels) and tells it with
+  `dom-ready`; Go keeps it as `docToken` until the next navigation and
+  evaluates `__mygo.deliver({"d":token,"m":[...]})`. Any other document, a
+  trusted one included (the same URL reloaded, or an `about:` page that Go
+  does not trust but the bridge, which cannot tell, gave a bridge), ignores
+  it. Replies and channel values name their document themselves, and a
+  batch made before dom-ready has no `d`.
+
+`OnDOMReady` of a page without the bridge is the backend's word. The page
+cannot say it: it has no channel to Go, and what a page could post would be a
+forgery. `WindowHandler.DOMContentLoaded` is called for every document of
+the main frame, after `NavigationCommitted` and before `LoadFinished`, from a
+path the page can neither post to nor see. The core takes it for a page that
+is not trusted, once for each document (`Window.domLoaded`, reset at
+`NavigationCommitted`). For a trusted page the bridge's `dom-ready` is the
+one that counts, as it releases the events held for the page, and the
+backend's call is dropped; so `OnDOMReady` runs once for each document of
+either kind. It does not wait for the images and subframes of the page: it
+runs at `DOMContentLoaded`, not at `LoadFinished`. A page that WebKit
+restores from its page cache on a history navigation is the document it was,
+not parsed again: it gets no `OnDOMReady`, with the bridge or without it.
+
+- **macOS.** `bridge.DOMReadyScript` is a user script for the main frame, at
+  document start, in a `WKContentWorld` of its own (`bridge.DOMReadyWorld`),
+  with a message handler registered in that world
+  (`addScriptMessageHandler:contentWorld:name:`, the window's delegate, so
+  that no callback is made for it). WebKit gives each world its own
+  JavaScript objects and handlers: the page's world has neither the handler
+  nor what the script keeps, and what the page does to its prototypes does
+  not reach the script. The DOM is shared, though, so a page can dispatch a
+  `DOMContentLoaded` event of its own, or stop the real one: the script
+  listens on the window in the capture phase, where its listener is the
+  first, before any the page adds, and takes events whose `isTrusted` is
+  true, which the engine's are and the page's are not. The delegate tells
+  the message of that world by `WKScriptMessage.world`. The script adds one
+  message to every document of the window, which the core drops for a trusted
+  page.
+- **Linux.** The same script, in a world of its own through
+  `webkit_user_script_new_for_world` and
+  `webkit_user_content_manager_register_script_message_handler_in_world`
+  (WebKitGTK 2.22). The handler's name is its own, and so is the callback of
+  its signal, created once with the others. WebKitGTK before 2.22 has no
+  worlds: the backend then calls `DOMContentLoaded` when the load finished.
+- **Windows.** `ICoreWebView2_2::add_DOMContentLoaded`, the engine's event
+  for the top-level document, which a frame's `DOMContentLoaded` does not
+  raise, with no script. A runtime older than `ICoreWebView2_2` has none:
+  the backend then calls it when the navigation completed.
 
 ### Plugins
 

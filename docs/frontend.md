@@ -140,11 +140,11 @@ URLs with another host or a port aren't served there.
 ### Trust
 
 A window trusts the app's own pages: its frontend, pages of custom schemes,
-`file:` and `about:` pages (`LoadHTML` without a base URL shows
-`about:blank`), origins in `PageOptions.TrustedOrigins`, and in development
-builds pages served from localhost. Trust follows the page's URL, in a
-window or a [web view](ui/web-view.md), and changes as it navigates. A
-trusted page may:
+`file:` pages, the `about:` pages the app makes (`LoadHTML` without a base
+URL shows `about:blank`), origins in `PageOptions.TrustedOrigins`, and in
+development builds pages served from localhost. Trust follows the page's
+URL, in a window or a [web view](ui/web-view.md), and changes as it
+navigates. A trusted page may:
 
 - call every method bound with `mygo.Bind`, and the plugins the app uses;
 - call `window.mygo.window` to set the title of its window, minimize,
@@ -159,16 +159,16 @@ So never serve third-party or user-supplied HTML from a custom scheme, nor
 load it with `LoadHTML` without a base URL: a plugin's UI or a preview of
 a user's HTML would get all of the above. Show it from an origin the
 window does not trust instead, such as an `https` site or a `data:` URL:
-it calls no Go method, and gets no permission unless a
-[permission handler](windows.md#permissions) grants it.
+it has no `window.mygo`, calls no Go method, and gets no permission unless
+a [permission handler](windows.md#permissions) grants it.
+
+A page that is not trusted gets no bridge: no `window.mygo`, no events
+(`Broadcast`, `Emit` and `EmitPage` wait for a bridge it does not have),
+and no way to post a message to Go (see [who may
+call](bindings.md#who-may-call)).
 
 Some things reach every page, trusted or not:
 
-- events: `Broadcast` sends to every page of every window, and `Emit` to
-  every web view of a window of native UI. Send to one page with
-  `EmitPage`.
-- messages to Go: an untrusted page's calls are rejected, but the app
-  receives and decodes them first, whatever their size.
 - `window.open` and `target="_blank"` links open `http(s)` URLs in the
   default browser, unless `SetWindowOpenHandler` decides
   ([links and new windows](#links-and-new-windows)).
@@ -180,7 +180,9 @@ Some things reach every page, trusted or not:
 
 ## The mygo-runtime package
 
-MyGo injects its runtime into every page as `window.mygo`. The
+MyGo injects its runtime into the app's own pages as `window.mygo`, and
+those of the origins a window trusts (see [who may
+call](bindings.md#who-may-call)); other pages do not have it. The
 `mygo-runtime` npm package, which new projects depend on, gives it types
 and imports; the generated client is built on it.
 
@@ -442,7 +444,8 @@ app's window on the app: see [Windows](windows.md#pages).
 ## Preload scripts
 
 `PageOptions.PreloadScript` runs JavaScript in every page of the window
-before the page's own scripts, once `window.mygo` exists.
+before the page's own scripts, once `window.mygo` exists in the pages that
+get it: it runs in the pages of other sites as well, without `window.mygo`.
 
 ## The web inspector
 

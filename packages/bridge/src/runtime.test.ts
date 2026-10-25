@@ -7,7 +7,7 @@ type CallMsg = Extract<Outgoing, { t: "call" }>;
 function setup() {
   const sent: Outgoing[] = [];
   const rt = createRuntime(
-    { platform: "darwin", windowId: 7, version: "0.0.0-test", secret: "s", locale: "en", dir: "ltr" },
+    { platform: "darwin", windowId: 7, version: "0.0.0-test", secret: "s", locale: "en", dir: "ltr", trust: { schemes: [], origins: ["*"], hosted: [], loopback: false } },
     (m) => sent.push(JSON.parse(m)),
   );
   return { sent, ...rt };
@@ -88,6 +88,31 @@ describe("events", () => {
     off1();
     internal.receive({ t: "event", n: "x" });
     expect(n).toBe(3);
+  });
+});
+
+describe("deliver", () => {
+  test("a batch is for the document that named it, and no other", () => {
+    const { runtime, internal, token } = setup();
+    const seen: unknown[] = [];
+    runtime.on("tick", (v) => seen.push(v));
+
+    internal.deliver({ d: token, m: [{ t: "event", n: "tick", p: 1 }] });
+    // What Go held for another document, which the window showed before.
+    internal.deliver({ d: "another-document", m: [{ t: "event", n: "tick", p: 2 }] });
+    // A batch that names none, as before the page's dom-ready: replies name their own.
+    internal.deliver({ m: [{ t: "event", n: "tick", p: 3 }] });
+    expect(seen).toEqual([1, 3]);
+  });
+
+  test("replies keep to their own document in a batch for it", async () => {
+    const { sent, runtime, internal, token } = setup();
+    const p = runtime.call("A.Do");
+    const { id, k } = sent[0] as CallMsg;
+    expect(k).toBe(token);
+    internal.deliver({ d: "another-document", m: [{ t: "reply", id, k, ok: true, v: "wrong" }] });
+    internal.deliver({ d: token, m: [{ t: "reply", id, k, ok: true, v: "right" }] });
+    expect(await p).toBe("right");
   });
 });
 

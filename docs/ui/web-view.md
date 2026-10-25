@@ -219,11 +219,11 @@ events.liked.on((likes) => (count.textContent = String(likes)));
 Calls with a context, errors, [channels](../bindings.md#channels) and
 events work as in a window. A page without a build, such as HTML the app
 loads with `LoadHTML`, calls by name with the runtime the bridge puts in
-every page, `mygo.call("Notes.Like")` and `mygo.on("liked", …)` (see
+the app's pages, `mygo.call("Notes.Like")` and `mygo.on("liked", …)` (see
 [without the generated
 client](../bindings.md#without-the-generated-client)). Pages that are not
 the app's own, as a web view showing `https://example.com`, cannot call Go
-at all: see [who may call](../bindings.md#who-may-call).
+at all, and get no bridge: see [who may call](../bindings.md#who-may-call).
 
 ## Limits
 

@@ -34,10 +34,21 @@ const report = (err: unknown) =>
     throw err;
   });
 
+/** What Go queued for the page, in the order it did. */
+export interface Batch {
+  /** The token of the document it is for (the `k` its dom-ready message told),
+   * absent for messages that name their own, as replies do. */
+  d?: string;
+  m: Incoming[];
+}
+
 /** Internal API called by the Go side through `window.__mygo`. */
 export interface Internal {
   /** Delivers one or more messages from Go. */
   receive(messages: Incoming | Incoming[]): void;
+  /** Delivers what Go queued for one document: any other document that
+   * is shown by the time it comes ignores it. */
+  deliver(batch: Batch): void;
 }
 
 /** Error thrown by `call` when the Go method returns an error. */
@@ -58,9 +69,10 @@ export class CallError extends Error {
 export function createRuntime(
   config: BridgeConfig,
   post: (message: string) => void,
-): { runtime: Runtime; internal: Internal } {
+): { runtime: Runtime; internal: Internal; token: string } {
   // A per-page token keeps replies addressed to a previous page (before a
-  // navigation) from resolving promises of the current one.
+  // navigation) from resolving promises of the current one, and tells Go
+  // which document its messages are for (Batch).
   const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
   const pending = new Map<number, Pending>();
   const listeners = new Map<string, Set<Listener>>();
@@ -290,6 +302,10 @@ export function createRuntime(
         }
       }
     },
+    deliver(batch) {
+      if (batch.d !== undefined && batch.d !== token) return;
+      internal.receive(batch.m);
+    },
   };
 
   const win = (op: string) => () => call<any>(`mygo:window.${op}`);
@@ -322,5 +338,5 @@ export function createRuntime(
     }),
   });
 
-  return { runtime, internal };
+  return { runtime, internal, token };
 }

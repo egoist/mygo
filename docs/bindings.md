@@ -350,11 +350,11 @@ Missing arguments arrive in Go as zero values.
 ## Who may call
 
 Only the app's own pages may call Go methods: pages of its frontend and of
-custom protocols (see [the frontend](frontend.md)), `file:` and `about:`
-pages, and in development builds pages served from localhost, such as the
-dev server. A window that shows other sites, `https://example.com` for
-example, keeps them from calling Go unless `PageOptions.TrustedOrigins` lists
-their origin:
+custom protocols (see [the frontend](frontend.md)), `file:` pages, the
+`about:` pages the app made (below), and in development builds pages
+served from localhost, such as the dev server. A window that shows other
+sites, `https://example.com` for example, keeps them from calling Go unless
+`PageOptions.TrustedOrigins` lists their origin:
 
 ```go
 mygo.NewWindow(mygo.WindowOptions{
@@ -367,6 +367,44 @@ mygo.NewWindow(mygo.WindowOptions{
 it in windows that show content you do not control. Frames embedded in a
 page never call Go, whatever their origin; only the top-level page of a
 window does.
+
+An `about:` page is the app's own only when the app made it: a document
+`LoadHTML` loaded without a base URL, or the blank page a window starts
+with. A page cannot make one that is trusted: a document at `about:blank`
+has the origin of the page that made it, so a page that navigates its window
+to `about:blank`, or opens a popup the window-open handler allows
+(`SetWindowOpenHandler`) and sets its location to `about:blank`, would
+otherwise get the bridge. No `about:` page of a popup, a window a page
+opened, is trusted. Where the web view keeps `LoadHTML` documents in its
+history (WebView2), going back to one commits a document the app did not
+make: it is not trusted, so load the page again.
+
+A page that may not call Go does not get the bridge at all. It finds no
+`window.mygo`, and no script of the page can post a message to Go: the
+channel the bridge talks to Go through, `webkit.messageHandlers.mygo` in
+WebKit and `chrome.webview` in WebView2, is taken out of the page before its
+scripts run, from the pages that may call Go as well, and from every frame
+inside any page. Go ignores everything a page that may not call Go posts
+besides, such as the messages for window drags, Escape and dropped files.
+`OnDOMReady` still runs for such a page, once for each document, when its DOM
+is ready: the web view tells Go, not the page, in a way the page cannot see
+or post to, so a page can neither make it run before its DOM is ready or
+twice, nor keep it from running. Events never reach the page, and neither do
+the paths of dropped files, nor the replies of calls that were made before
+the window showed the page. `PageOptions.PreloadScript` still runs in the
+page, without `window.mygo`.
+
+What Go sends to a page, it sends through `window.__mygo`, which every page
+has: the bridge defines it before any script of the page runs, so a page
+cannot define it first. For a page that is not trusted it is an object that
+ignores what it is given, and that `FindInPage` finds with: the page cannot
+answer for the app. What Go queued for one document is delivered to that
+document only: a window that shows another page by the time the message is
+sent, such as a page that is not trusted the window navigated to as a call
+was running, drops it. The page can still see that it runs in a web view,
+and which one: `window.webkit` stays an empty object in WebKit, which does
+not let a page remove it, and the user agent, the client hints and the
+differences of the engines are the web view's own.
 
 What else a trusted page may do, and how to show content that is not the
 app's: see [trust](frontend.md#trust).

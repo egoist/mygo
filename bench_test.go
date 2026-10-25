@@ -78,7 +78,7 @@ func benchmarkCall(b *testing.B, method string, args any) {
 	b.SetBytes(int64(len(msg)))
 	b.ReportAllocs()
 	for b.Loop() {
-		onMain(func() { fw.H.Message(msg) })
+		onMain(func() { fw.H.Message(msg, "about:blank") })
 		<-replies
 	}
 }

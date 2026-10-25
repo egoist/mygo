@@ -325,13 +325,14 @@ func TestBeforeRun(t *testing.T) {
 	}
 }
 
-// TestIframeCannotCall: the message handler is reachable from iframes, but
-// only the page's bridge may call Go.
+// TestIframeCannotCall: frames never see the channel to Go, the message
+// handler of WebKit and chrome.webview of WebView2, so only the page's bridge
+// can call Go.
 func TestIframeCannotCall(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Hidden: true})
 	forged := `{"t":"call","id":1,"k":"x","m":"Probe.Touch","a":[]}`
 	frame := `<script>
-const h = window.webkit && webkit.messageHandlers && webkit.messageHandlers.mygo;
+const h = (window.webkit && webkit.messageHandlers && webkit.messageHandlers.mygo) || (window.chrome && chrome.webview);
 if (h) h.postMessage(` + "`" + forged + "`" + `);
 parent.postMessage(h ? "posted" : "no handler", "*");
 </script>`
@@ -343,11 +344,9 @@ f.src = "data:text/html," + encodeURIComponent(`+string(src)+`);
 document.body.append(f);
 </script>`, "app://localhost/")
 	waitFor(t, w, "window.frameResult")
-	result, _ := mygo.EvalAs[string](w.Page(), "window.frameResult")
-	if result != "posted" {
-		t.Skipf("the iframe had no message handler (%q)", result)
+	if result, _ := mygo.EvalAs[string](w.Page(), "window.frameResult"); result != "no handler" {
+		t.Errorf("the iframe's result = %q, want it to see no channel to Go", result)
 	}
-	time.Sleep(200 * time.Millisecond)
 	if n := probe.n.Load(); n != 0 {
 		t.Fatalf("a call forged by an iframe ran %d times", n)
 	}

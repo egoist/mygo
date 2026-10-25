@@ -30,13 +30,16 @@ func (p *Page) WebView() *WebView { return p.w.webView }
 // PageOptions configure the web page of a window.
 type PageOptions struct {
 	// PreloadScript is JavaScript injected into every page before the
-	// page's own scripts, after window.mygo is available.
+	// page's own scripts, after window.mygo is available in the pages that
+	// have it: those that may call bound Go methods (TrustedOrigins). The
+	// script runs in the other pages too, without window.mygo.
 	PreloadScript string
 	// TrustedOrigins lists extra origins, such as "https://example.com",
 	// whose pages may call bound Go methods. By default only the app's own
 	// content can: custom schemes registered with Protocol, file: and
 	// about: pages, and loopback dev servers during development. "*"
-	// trusts every origin.
+	// trusts every origin. These pages get the bridge, window.mygo; the
+	// others get none of it.
 	TrustedOrigins []string
 	// DevTools controls the web inspector, and for a window showing
 	// Content, the inspector of its native UI.

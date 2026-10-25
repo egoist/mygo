@@ -629,12 +629,22 @@ type WindowHandler interface {
 	// window enters full screen or the desktop's button layout changes.
 	TitleBarChanged()
 
-	// Message delivers a message posted by the renderer bridge.
-	Message(msg string)
+	// Message delivers a message posted by the renderer bridge; url is the
+	// URL of the document that posted it (backends that cannot tell the
+	// frame report the page's current URL; "" when unknown).
+	Message(msg, url string)
 	// WillNavigate is called before a navigation; returning false cancels it.
 	WillNavigate(nav Navigation) bool
 	NavigationStarted(url string)
 	NavigationCommitted(url string)
+	// DOMContentLoaded is called once for every document of the main frame,
+	// when its DOM is ready (DOMContentLoaded), after NavigationCommitted
+	// and before LoadFinished. The backend learns it from the engine or from
+	// a script the page cannot see or post to (a user script in a world of
+	// its own): the bridge of a trusted page tells it too, but a page that
+	// is not trusted has none. A backend whose engine cannot say it calls
+	// DOMContentLoaded when the load finished.
+	DOMContentLoaded()
 	LoadFinished()
 	LoadFailed(url string, code int, description string)
 	TitleChanged(title string)

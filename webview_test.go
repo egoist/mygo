@@ -61,7 +61,7 @@ func TestWebViewThemePreferences(t *testing.T) {
 	defer onMain(func() { fb.SetPreferences(platform.Preferences{}) })
 	show := true
 	_, _, _, fv := webViewWindow(t, &show)
-	if len(fv.Opts.UserScripts) != 2 || !strings.Contains(fv.Opts.UserScripts[1].Source, `"textScale":1.5`) {
+	if len(fv.Opts.UserScripts) != 3 || !strings.Contains(fv.Opts.UserScripts[1].Source, `"textScale":1.5`) {
 		t.Fatal("web view does not install initial preferences")
 	}
 	onMain(func() { fb.SetPreferences(platform.Preferences{TextScale: 2}) })

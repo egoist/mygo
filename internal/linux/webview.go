@@ -339,7 +339,7 @@ func (w *window) closeWebView() {
 	if gtkWidgetHasFocus(w.web) && w.host.surface != nil {
 		gtkWidgetGrabFocus(w.host.surface.area)
 	}
-	webkitUserContentManagerUnregisterHandler(w.ucm, cs("mygo"))
+	w.removeScriptHandlers()
 	webkitUserContentManagerRemoveAllScripts(w.ucm)
 	gtkWidgetDestroy(w.web)
 	gObjectUnref(w.ucm)

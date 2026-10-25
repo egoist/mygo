@@ -237,7 +237,7 @@ func (w *window) closeWebView() {
 			send(w.win, "makeFirstResponder:", uintptr(w.host.surface.view))
 		}
 		send(w.web, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("title")))
-		send(w.ucc, "removeScriptMessageHandlerForName:", uintptr(nsString("mygo")))
+		w.removeScriptHandlers()
 		send(w.ucc, "removeAllUserScripts")
 		send(w.web, "stopLoading")
 		send(w.web, "setNavigationDelegate:", 0)

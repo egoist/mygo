@@ -226,6 +226,15 @@ func (w *window) setUp(controller uintptr) {
 	add(wvAddNavigationStarting, w.navigationStarting)
 	add(wvAddContentLoading, func(_, _ uintptr) { w.h.NavigationCommitted(w.URL()) })
 	add(wvAddNavigationCompleted, w.navigationCompleted)
+	if wv2 := queryInterface(w.webview, &iidICoreWebView2_2); wv2 != 0 {
+		// The engine's own word that the DOM of the top-level document is
+		// ready, for the pages without a bridge to say it.
+		hr := withHandler(func(_, _ uintptr) { w.h.DOMContentLoaded() }, func(h uintptr) uintptr {
+			return comCall(wv2, wv2AddDOMContentLoaded, h, uintptr(unsafe.Pointer(&tok)))
+		})
+		w.domEvent = !failed(hr)
+		release(wv2)
+	}
 	add(wvAddDocumentTitleChanged, func(_, _ uintptr) {
 		var p uintptr
 		comCall(w.webview, wvGetDocumentTitle, uintptr(unsafe.Pointer(&p)))
@@ -239,7 +248,11 @@ func (w *window) setUp(controller uintptr) {
 		if paths := postedFiles(args); len(paths) > 0 {
 			w.dropped = paths
 		}
-		w.h.Message(takeWstr(p))
+		var src uintptr
+		if failed(comCall(args, msgGetSource, uintptr(unsafe.Pointer(&src)))) {
+			src = 0
+		}
+		w.h.Message(takeWstr(p), w.appURL(takeWstr(src)))
 	})
 	add(wvAddNewWindowRequested, w.newWindowRequested)
 	add(wvAddPermissionRequested, w.permissionRequested)
@@ -393,6 +406,9 @@ func (w *window) navigationCompleted(_, args uintptr) {
 		}
 		if zoomByScript && w.zoom != 1 {
 			putZoom(w, w.zoom) // a new document starts unzoomed
+		}
+		if !w.domEvent {
+			w.h.DOMContentLoaded() // a runtime older than ICoreWebView2_2: ready by now
 		}
 		w.h.LoadFinished()
 		return

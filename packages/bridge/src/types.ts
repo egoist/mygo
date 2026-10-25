@@ -1,5 +1,6 @@
 // The public types are those of the mygo-runtime package.
 import type { Direction, Platform } from "../../runtime/src/types";
+import type { Trust } from "./trust";
 
 export type {
   Channel,
@@ -21,6 +22,8 @@ export interface BridgeConfig {
   /** The language the app shows, e.g. "zh-Hans", and its direction. */
   locale: string;
   dir: Direction;
+  /** Which pages may use the bridge; the others get none of it. */
+  trust: Trust;
 }
 
 /** Messages posted from the page to Go. */
@@ -29,7 +32,8 @@ export type Outgoing =
   /** Channel c took the values up to the n-th. */
   | { t: "chan-ack"; c: number; k: string; n: number }
   | { t: "chan-close"; c: number; k: string }
-  | { t: "dom-ready" }
+  /** The document is ready; k is its token (see Batch). */
+  | { t: "dom-ready"; k: string }
   | { t: "drag" }
   | { t: "dblclick" };
 

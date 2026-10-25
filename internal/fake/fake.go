@@ -499,6 +499,9 @@ type Window struct {
 	HTML []string
 	// UserScriptUpdates counts the calls of SetUserScripts.
 	UserScriptUpdates int
+	// DragStarts and TitleBarDoubleClicks count the calls of StartDrag
+	// and TitleBarDoubleClicked.
+	DragStarts, TitleBarDoubleClicks int
 	// contentRules are the lists SetContentRules set, whose calls
 	// ContentRuleUpdates counts.
 	contentRules       []*ContentRuleList
@@ -689,8 +692,8 @@ func (w *Window) SetActiveAppearance(v bool) { w.mu.Lock(); w.active = v; w.mu.U
 // ActiveAppearance reports what SetActiveAppearance set last.
 func (w *Window) ActiveAppearance() bool             { w.mu.Lock(); defer w.mu.Unlock(); return w.active }
 func (w *Window) SetMenu(m *platform.Menu)           { w.mu.Lock(); w.menu = m; w.mu.Unlock() }
-func (w *Window) StartDrag()                         {}
-func (w *Window) TitleBarDoubleClicked()             {}
+func (w *Window) StartDrag()                         { w.mu.Lock(); w.DragStarts++; w.mu.Unlock() }
+func (w *Window) TitleBarDoubleClicked()             { w.mu.Lock(); w.TitleBarDoubleClicks++; w.mu.Unlock() }
 func (w *Window) LoadURL(url string)                 { w.mu.Lock(); w.url = url; w.mu.Unlock() }
 func (w *Window) LoadHTML(html, _ string)            { w.addHTML(html) }
 func (w *Window) LoadFile(path, _ string)            { w.mu.Lock(); w.url = "file://" + path; w.mu.Unlock() }

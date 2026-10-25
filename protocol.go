@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/schemehost"
@@ -25,7 +26,14 @@ import (
 type ProtocolModule struct {
 	mu       sync.RWMutex
 	handlers map[string]http.Handler
+	// gen counts the changes of the handlers, which decide which pages are
+	// the app's own, so that what was judged before them is judged again.
+	gen atomic.Uint64
 }
+
+// generation returns a number that is never zero and changes with the
+// handlers.
+func (p *ProtocolModule) generation() uint64 { return p.gen.Load() + 1 }
 
 // Protocol serves custom URL schemes such as app:// from Go.
 var Protocol = &ProtocolModule{handlers: map[string]http.Handler{}}
@@ -58,6 +66,7 @@ func (p *ProtocolModule) Handle(scheme string, handler http.Handler) error {
 	}
 	p.mu.Lock()
 	p.handlers[scheme] = handler
+	p.gen.Add(1)
 	p.mu.Unlock()
 	return nil
 }
@@ -71,6 +80,7 @@ func (p *ProtocolModule) HandleFunc(scheme string, fn func(http.ResponseWriter, 
 func (p *ProtocolModule) Unhandle(scheme string) {
 	p.mu.Lock()
 	delete(p.handlers, strings.ToLower(scheme))
+	p.gen.Add(1)
 	p.mu.Unlock()
 }
 

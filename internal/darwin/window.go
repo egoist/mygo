@@ -440,7 +440,7 @@ func (w *window) createWebView(content NSRect) {
 	// Every window gets its own content controller so messages, scripts and
 	// the bridge configuration never leak between windows.
 	w.ucc = alloc("WKUserContentController")
-	send(w.ucc, "addScriptMessageHandler:name:", uintptr(w.delegate), uintptr(nsString("mygo")))
+	w.addScriptHandlers()
 	w.addUserScripts(o.Zoom)
 	send(cfg, "setUserContentController:", uintptr(w.ucc))
 
@@ -501,7 +501,7 @@ func (w *window) cleanup() {
 	if w.trafficLights != nil {
 		send(w.win, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("effectiveAppearance")))
 	}
-	send(w.ucc, "removeScriptMessageHandlerForName:", uintptr(nsString("mygo")))
+	w.removeScriptHandlers()
 	send(w.ucc, "removeAllUserScripts")
 	send(w.web, "stopLoading")
 	send(w.web, "setNavigationDelegate:", 0)
@@ -1225,8 +1225,37 @@ func (w *window) URL() string {
 	return s
 }
 
+// domReadyWorld returns the content world of the DOMContentLoaded script
+// and its message handler, which no script of a page reaches: WebKit gives
+// each world its own JavaScript objects and its own message handlers, and
+// the page sees only those of its own. The handler tells its messages by it.
+// It is made once and kept. Pool required.
+func (b *Backend) domReadyWorld() id {
+	if b.domWorld == 0 {
+		b.domWorld = retain(send(class("WKContentWorld"), "worldWithName:", uintptr(nsString(bridge.DOMReadyWorld))))
+	}
+	return b.domWorld
+}
+
+// addScriptHandlers has the window's delegate receive the bridge's messages,
+// from the page's world, and those of the DOMContentLoaded script, from the
+// world of its own. Pool required.
+func (w *window) addScriptHandlers() {
+	send(w.ucc, "addScriptMessageHandler:name:", uintptr(w.delegate), uintptr(nsString("mygo")))
+	send(w.ucc, "addScriptMessageHandler:contentWorld:name:", uintptr(w.delegate), uintptr(w.b.domReadyWorld()), uintptr(nsString(bridge.DOMReadyHandler)))
+}
+
+// removeScriptHandlers undoes addScriptHandlers, which the content
+// controller holds on to the delegate until then. Pool required.
+func (w *window) removeScriptHandlers() {
+	send(w.ucc, "removeScriptMessageHandlerForName:", uintptr(nsString("mygo")))
+	send(w.ucc, "removeScriptMessageHandlerForName:contentWorld:", uintptr(nsString(bridge.DOMReadyHandler)), uintptr(w.b.domReadyWorld()))
+}
+
 // addUserScripts adds the user scripts of the options to the content
-// controller, and the title bar's after them. Pool required.
+// controller, and the title bar's after them, and the one that tells
+// DOMContentLoaded, in the main frame, from a world of its own. Pool
+// required.
 func (w *window) addUserScripts(zoom float64) {
 	add := func(src string, injection uintptr, mainFrameOnly bool) {
 		script := send(send(class("WKUserScript"), "alloc"), "initWithSource:injectionTime:forMainFrameOnly:",
@@ -1245,6 +1274,10 @@ func (w *window) addUserScripts(zoom float64) {
 		// After the bridge, which it tells: the room of the traffic lights.
 		add(bridge.TitleBarScript(w.TitleBar(), zoom), 0, true)
 	}
+	ready := send(send(class("WKUserScript"), "alloc"), "initWithSource:injectionTime:forMainFrameOnly:inContentWorld:",
+		uintptr(nsString(bridge.DOMReadyScript)), 0, 1, uintptr(w.b.domReadyWorld()))
+	send(w.ucc, "addUserScript:", uintptr(ready))
+	release(ready)
 }
 
 // SetUserScripts replaces the user scripts: a content controller can only
@@ -1723,14 +1756,22 @@ func registerWindowClasses() {
 				}
 				// The handler is reachable from every frame; only the
 				// page's own bridge may talk to Go.
-				if frame := send(msg, "frameInfo"); frame == 0 || !sendBool(frame, "isMainFrame") {
+				frame := send(msg, "frameInfo")
+				if frame == 0 || !sendBool(frame, "isMainFrame") {
+					return
+				}
+				if send(msg, "world") == b().domWorld {
+					// The world of the DOMContentLoaded script, which the
+					// page cannot post from: what it says is all it says.
+					w.h.DOMContentLoaded()
 					return
 				}
 				body := send(msg, "body")
 				if body == 0 || !sendBool(body, "isKindOfClass:", uintptr(class("NSString"))) {
 					return
 				}
-				w.h.Message(goString(body))
+				// A nil request or URL reads as "".
+				w.h.Message(goString(body), goString(send(send(send(frame, "request"), "URL"), "absoluteString")))
 			}),
 
 			// Key-value observing of the page title and the window's
