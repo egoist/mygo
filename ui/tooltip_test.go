@@ -221,3 +221,70 @@ func TestTooltipNative(t *testing.T) {
 		t.Errorf("tip %q over no element with one", tt.h.tipText)
 	}
 }
+
+// Where the system shows the pointer's tips, the keyboard focus's tip is
+// drawn still, and none goes to the system while it shows.
+func TestTooltipNativeFocus(t *testing.T) {
+	tt, now := clockTester(func(c *context) {
+		coreColumn(c).Padding(40).Gap(20).Children(func() {
+			coreButton(c, "Save").Label("save").Tooltip("Saves the file")
+			coreButton(c, "Open").Label("open").Tooltip("Opens a file")
+		})
+	}, 400, 300)
+	tt.h.nativeTips = true
+	tick := ticker(tt, now)
+	tick(0)
+	tt.Key(0, KeyTab)
+	if !tt.HasText("Saves the file") {
+		t.Fatalf("no tip for the focus; texts %q", tt.Texts())
+	}
+	o, _ := tt.Find("open")
+	tt.Move(o.X+o.W/2, o.Y+o.H/2)
+	tick(time.Second)
+	if !tt.HasText("Saves the file") || tt.h.tipText != "" {
+		t.Errorf("with the focus's tip drawn: texts %q, system's tip %q", tt.Texts(), tt.h.tipText)
+	}
+	// Escape hides the focus's tip; the pointer's goes to the system then.
+	tt.Key(0, KeyEscape)
+	tick(16 * time.Millisecond)
+	if tt.HasText("Saves the file") || tt.HasText("Opens a file") || tt.h.tipText != "Opens a file" {
+		t.Errorf("after Escape: texts %q, system's tip %q", tt.Texts(), tt.h.tipText)
+	}
+}
+
+// Of a drawn tip and one the system shows on elements inside one another,
+// only the innermost element's shows.
+func TestTooltipNativeNested(t *testing.T) {
+	var inner, outer *node
+	tt, now := clockTester(func(c *context) {
+		coreColumn(c).Padding(40).Gap(20).Children(func() {
+			coreRow(c).Label("custom-outer").Padding(20).Tooltip("Outer").Children(func() {
+				b := coreButton(c, "Rich").Label("rich")
+				inner = coreTooltipBase(c, b, func(tip *node) {
+					tip.Children(func() { coreText(c, "Rich tip") })
+				})
+			})
+			r := coreRow(c).Label("native-inner").Padding(20).Children(func() {
+				coreButton(c, "Plain").Label("plain").Tooltip("Plain tip")
+			})
+			outer = coreTooltipBase(c, r, func(tip *node) {
+				tip.Children(func() { coreText(c, "Row tip") })
+			})
+		})
+	}, 400, 300)
+	tt.h.nativeTips = true
+	tick := ticker(tt, now)
+	tick(0)
+	b, _ := tt.Find("rich")
+	tt.Move(b.X+b.W/2, b.Y+b.H/2)
+	tick(time.Second)
+	if inner == nil || tt.h.tipText != "" {
+		t.Errorf("over a drawn tip in one the system shows: drawn %v, system's %q", inner != nil, tt.h.tipText)
+	}
+	p, _ := tt.Find("plain")
+	tt.Move(p.X+p.W/2, p.Y+p.H/2)
+	tick(time.Second)
+	if outer != nil || tt.h.tipText != "Plain tip" {
+		t.Errorf("over one the system shows in a drawn tip: drawn %v, system's %q", outer != nil, tt.h.tipText)
+	}
+}
