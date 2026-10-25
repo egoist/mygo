@@ -189,3 +189,35 @@ func TestTooltipInnermost(t *testing.T) {
 		t.Errorf("over the toolbar: texts %q", tt.Texts())
 	}
 }
+
+// Where the system shows tips, Tooltip draws none: it gives the host the
+// tip of the element under the pointer, a disabled one's too, and where
+// the element shows, and none over no tip or while a button is down.
+func TestTooltipNative(t *testing.T) {
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Padding(40).Gap(20).Children(func() {
+			coreButton(c, "Save").Label("save").Tooltip("Saves the file")
+			coreButton(c, "Open").Label("open").Tooltip("Opens a file").Disabled(true)
+		})
+	}, 400, 300)
+	tt.h.nativeTips = true
+	tt.Frame()
+	s, _ := tt.Find("save")
+	tt.Move(s.X+s.W/2, s.Y+s.H/2)
+	tt.Frame()
+	if tt.h.tipText != "Saves the file" || tt.h.tipRect != s {
+		t.Errorf("tip %q at %v, want over %v", tt.h.tipText, tt.h.tipRect, s)
+	}
+	if tt.HasText("Saves the file") {
+		t.Error("a tip is drawn where the system shows them")
+	}
+	o, _ := tt.Find("open")
+	tt.Move(o.X+o.W/2, o.Y+o.H/2)
+	if tt.h.tipText != "Opens a file" || tt.h.tipRect != o {
+		t.Errorf("over the disabled button: tip %q at %v", tt.h.tipText, tt.h.tipRect)
+	}
+	tt.Move(390, 290)
+	if tt.h.tipText != "" {
+		t.Errorf("tip %q over no element with one", tt.h.tipText)
+	}
+}

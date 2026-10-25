@@ -620,6 +620,17 @@ func (h *windowHost) uiFont() {
 
 func (h *windowHost) setCursor(c Cursor) { h.conn.Surface.SetCursor(platform.Cursor(c)) }
 
+func (h *windowHost) nativeTooltips() bool {
+	_, ok := h.conn.Surface.(platform.TooltipSurface)
+	return ok
+}
+
+func (h *windowHost) setTooltip(text string, r Rect) {
+	if s, ok := h.conn.Surface.(platform.TooltipSurface); ok {
+		s.SetTooltip(text, platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)})
+	}
+}
+
 func (h *windowHost) setTextInput(t platform.TextInputState) { h.conn.Surface.SetTextInput(t) }
 
 func (h *windowHost) updateAccessibility(tree *platform.AccessTree) {

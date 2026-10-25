@@ -180,6 +180,7 @@ func (rt *engine) setHover(chain []uint64) bool {
 		rt.requestFrame()
 	}
 	rt.updateCursor()
+	rt.updateNativeTip()
 	return true
 }
 
@@ -269,6 +270,7 @@ func (rt *engine) pointerMove(x, y float32) {
 			rt.chain = chain[:0]
 			// The pointer may have gone onto a scroll bar, or off it.
 			rt.updateCursor()
+			rt.updateNativeTip()
 		}
 	}
 	if moved {
@@ -432,6 +434,7 @@ func (rt *engine) pointerUp(button, clicks int) {
 		// The pointer may have left the bar, over what the hover missed.
 		rt.setHover(rt.hitChain(rt.pointerX, rt.pointerY))
 		rt.updateCursor()
+		rt.updateNativeTip()
 		rt.requestFrame()
 		return
 	}

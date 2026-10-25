@@ -35,8 +35,13 @@ type headless struct {
 	// clipboardData is what WriteClipboardData copied, with its formats.
 	clipboardData transfer.Data
 	cursor        Cursor
-	ime           platform.TextInputState
-	opened        []string
+	// nativeTips has Tooltip's tips shown as the system's, the last one
+	// given tipText at tipRect.
+	nativeTips bool
+	tipText    string
+	tipRect    Rect
+	ime        platform.TextInputState
+	opened     []string
 	// escapes counts the Escapes nothing handled.
 	escapes int
 	openErr error
@@ -100,6 +105,8 @@ func (h *headless) framePath() string                          { return "drawn i
 func (h *headless) requestFrame()                              { h.requested.Store(true) }
 func (h *headless) repaintTimer(at time.Time)                  { h.repaintAt = at }
 func (h *headless) setCursor(c Cursor)                         { h.cursor = c }
+func (h *headless) nativeTooltips() bool                       { return h.nativeTips }
+func (h *headless) setTooltip(text string, r Rect)             { h.tipText, h.tipRect = text, r }
 func (h *headless) setTextInput(t platform.TextInputState)     { h.ime = t }
 func (h *headless) updateAccessibility(t *platform.AccessTree) { h.keepAccess(t) }
 func (h *headless) writeClipboard(s string)                    { h.clipboard, h.clipboardData = s, transfer.Data{} }

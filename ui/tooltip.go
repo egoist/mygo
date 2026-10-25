@@ -101,6 +101,10 @@ func (e *node) Tooltip(s string) *node {
 		return e
 	}
 	c := e.c
+	if c.rt.host.nativeTooltips() {
+		e.tipText = s
+		return e
+	}
 	t := c.theme
 	fill, text := t.inverse()
 	tooltipBase(c, e, func(tip *node) {
@@ -111,6 +115,35 @@ func (e *node) Tooltip(s string) *node {
 		tip.AttachTo(e, AnchorTop, AnchorBottom).Margin(0, 0, t.Space(1.5), 0)
 	})
 	return e
+}
+
+// nativeTip is the tip the system shows: its text and where the element
+// shows it, in the window.
+type nativeTip struct {
+	text string
+	r    Rect
+}
+
+// updateNativeTip gives the host the tip of the innermost element with one
+// under the pointer, disabled or not, as AppKit shows a disabled button's,
+// for the system to show as it does its own.
+func (rt *engine) updateNativeTip() {
+	if !rt.host.nativeTooltips() {
+		return
+	}
+	var tip nativeTip
+	if rt.pressed == nil && rt.scrollDrag.st == nil && !rt.overWebView() {
+		for _, id := range rt.hover {
+			if s := rt.states[id]; s != nil && s.tipText != "" {
+				tip = nativeTip{s.tipText, Rect{s.vx, s.vy, s.vw, s.vh}}
+				break
+			}
+		}
+	}
+	if tip != rt.nativeTip {
+		rt.nativeTip = tip
+		rt.host.setTooltip(tip.text, tip.r)
+	}
 }
 
 // showTooltip returns the element whose tip shows in the frame, deciding it
