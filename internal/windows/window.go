@@ -54,6 +54,11 @@ type window struct {
 	// (newWindowRequested).
 	reloadAdopted bool
 
+	// sharing is what Share shows the share window for (share.go), and
+	// shareCleanup forgets it as the window goes.
+	sharing      *sharing
+	shareCleanup func()
+
 	minW, minH, maxW, maxH int // DIPs
 	movable, closable      bool
 	frameless              bool
@@ -737,6 +742,10 @@ func (w *window) cleanup() {
 		w.bgBrush = 0
 	}
 	w.freeIcons()
+	if w.shareCleanup != nil {
+		w.shareCleanup()
+		w.shareCleanup = nil
+	}
 	delete(w.b.windows, w.hwnd)
 }
 
