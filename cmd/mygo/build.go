@@ -686,6 +686,7 @@ func linuxDesktopEntry(c *Config, exec, icon string) string {
 	// .deb and the PKGBUILD name with its path in /opt, before the arguments
 	// of a file or URL land in Exec.
 	wmClass := filepath.Base(exec)
+	exec = desktopExec(exec)
 	categories := c.Linux.Categories
 	if len(categories) == 0 {
 		categories = []string{"Utility"}
