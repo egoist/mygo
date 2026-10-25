@@ -486,13 +486,22 @@ func (a appController) Package() (platform.PackageInfo, bool) {
 }
 
 func (a appController) ClearBrowsingData(done func(error)) {
-	withPool(func() {
-		store := send(class("WKWebsiteDataStore"), "defaultDataStore")
-		types := send(class("WKWebsiteDataStore"), "allWebsiteDataTypes")
-		blk := newBlock(func(_ objc.Block) { a.b.runOnMain(func() { done(nil) }) })
-		send(store, "removeDataOfTypes:modifiedSince:completionHandler:", uintptr(types), uintptr(send(class("NSDate"), "distantPast")), uintptr(blk))
-		blk.Release()
+	withPool(func() { a.clearDataStore(send(class("WKWebsiteDataStore"), "defaultDataStore"), done) })
+}
+
+// clearDataStore deletes all the website data of store, whose completion
+// runs done on the main thread.
+func (a appController) clearDataStore(store id, done func(error)) {
+	retain(store)
+	types := send(class("WKWebsiteDataStore"), "allWebsiteDataTypes")
+	blk := newBlock(func(_ objc.Block) {
+		a.b.runOnMain(func() {
+			release(store)
+			done(nil)
+		})
 	})
+	send(store, "removeDataOfTypes:modifiedSince:completionHandler:", uintptr(types), uintptr(send(class("NSDate"), "distantPast")), uintptr(blk))
+	blk.Release()
 }
 
 // AddRecentDocument and ClearRecentDocuments use the shared document

@@ -50,8 +50,14 @@ var errNoContent = errors.New("mygo: web views go in windows showing native UI (
 
 // NewWebView creates a web view for the window's native UI, which shows it
 // where its view places it with ui.WebView. The window must show Content;
-// the web view closes with it.
+// the web view closes with it. A StorageID that is not valid
+// (PageOptions.StorageID) fails with an error matching ErrInvalidStorageID,
+// and one the platform cannot keep apart with an error matching
+// errors.ErrUnsupported.
 func (w *Window) NewWebView(opts WebViewOptions) (*WebView, error) {
+	if err := checkStorageID(opts.Page.StorageID); err != nil {
+		return nil, err
+	}
 	bg, err := backgroundOption(opts.BackgroundColor)
 	if err != nil {
 		return nil, err

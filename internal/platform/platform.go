@@ -202,6 +202,13 @@ type AppController interface {
 	// ClearBrowsingData deletes the data pages stored; done runs on the
 	// main thread.
 	ClearBrowsingData(done func(error))
+	// ClearStorage deletes what the pages with a StorageID stored (see
+	// WindowOptions.StorageID), and leaves every other store alone; done
+	// runs on the main thread. The ID is valid and not empty. It works
+	// whether or not a page of that ID is open or its store exists. Where
+	// the system cannot keep stores apart, as where a page with a
+	// StorageID fails, done gets an error matching ErrUnsupported.
+	ClearStorage(storageID string, done func(error))
 	// Cookie operations address the default page store. Calls and exactly-once
 	// completions run on main; ListCookies returns independent Go values:
 	// every cookie, or with an http or https url the cookies a request to
@@ -385,7 +392,16 @@ type WindowOptions struct {
 	// UserAgentSuffix is appended to UserAgent, or to the webview's own
 	// user agent, after a space. The public package trims it.
 	UserAgentSuffix string
-	Zoom            float64
+	// StorageID names the persistent data store the page keeps its
+	// cookies, local storage, IndexedDB and cache in: pages with the same
+	// StorageID share one, pages with different ones share nothing, and
+	// "" is the app's default store. The public package checks it (1 to 64
+	// of a-z, A-Z, 0-9, ".", "_" and "-", case-sensitive), so backends may
+	// use it as it is. A backend that cannot give a page a store of its
+	// own, or not on this system, fails NewWindow or Surface.NewWebView
+	// with ErrUnsupported.
+	StorageID string
+	Zoom      float64
 	// TabFocusesLinks makes Tab reach links and form controls that are not
 	// text fields (macOS, WKPreferences.tabFocusesLinks); the other
 	// platforms reach them already.

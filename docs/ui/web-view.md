@@ -63,6 +63,11 @@ A web view trusts the app's own pages as a window does, pages of custom
 schemes included: show third-party or user-supplied HTML from an origin it
 does not trust, see [trust](../frontend.md#trust).
 
+Web views share the app's cookies and local storage, as windows do. A
+`Page.StorageID` gives one a store of its own, shared with the pages of
+the same ID: one web view for each account of a site, signed in side by
+side (see [separate sign-ins](../windows.md#separate-sign-ins)).
+
 Make a web view once, as a window, not in the view: the view only shows
 it. One the view does not build hides and keeps its page, so a view of tabs
 builds the web view of the tab shown, and switching back finds the page

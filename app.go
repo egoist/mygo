@@ -2,6 +2,7 @@ package mygo
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -495,12 +496,44 @@ func (a *Application) OnWindowCreated(fn func(w *Window)) (off func()) {
 // ClearBrowsingData deletes what the app's pages stored: cookies, local
 // and session storage, IndexedDB, service workers and caches, e.g. when the
 // user signs out. Open pages keep what they hold in memory until they are
-// reloaded.
+// reloaded. It acts on the default store, that of the pages without a
+// StorageID (PageOptions.StorageID); ClearStorage clears the store of one.
+//
+// After the app has quit, and when it quits before the store is cleared,
+// the call fails at once with an error saying the event loop has stopped.
 func (a *Application) ClearBrowsingData() error {
 	needsApp("App.ClearBrowsingData")
-	ch := make(chan error, 1)
-	onMain(func() { backend().App().ClearBrowsingData(func(err error) { deliver(ch, err) }) })
-	return await(ch)
+	return nativeCall(func(done func(nativeResult)) {
+		backend().App().ClearBrowsingData(func(err error) { done(nativeResult{err: err}) })
+	}).err
+}
+
+// ClearStorage deletes what the pages with a StorageID stored
+// (PageOptions.StorageID): cookies, local and session storage, IndexedDB,
+// service workers and caches, as ClearBrowsingData does for the pages
+// without one, e.g. when the user signs one account out. The stores of
+// other StorageIDs and the default store keep their data. It works while
+// pages with the ID are open, which keep what they hold in memory until
+// they are reloaded, and when none is or the app never made one.
+//
+// An ID that is empty (ClearBrowsingData clears the default store) or not
+// valid fails with an error matching ErrInvalidStorageID, and where pages
+// cannot have a StorageID the call fails with an error matching
+// errors.ErrUnsupported.
+//
+// After the app has quit, and when it quits before the store is cleared,
+// the call fails at once with an error saying the event loop has stopped.
+func (a *Application) ClearStorage(storageID string) error {
+	needsApp("App.ClearStorage")
+	if storageID == "" {
+		return fmt.Errorf("%w: ClearStorage needs one (ClearBrowsingData clears the default store)", ErrInvalidStorageID)
+	}
+	if err := checkStorageID(storageID); err != nil {
+		return err
+	}
+	return nativeCall(func(done func(nativeResult)) {
+		backend().App().ClearStorage(storageID, func(err error) { done(nativeResult{err: err}) })
+	}).err
 }
 
 // Dock controls the application's Dock icon (macOS). Its methods do

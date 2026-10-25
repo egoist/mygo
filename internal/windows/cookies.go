@@ -127,11 +127,13 @@ func (b *Backend) holdForCookies(w *window) bool {
 	return true
 }
 
-// pageWebView returns a window whose web view shows pages, or nil.
+// pageWebView returns a window whose web view shows pages of the default
+// profile, or nil: a window with a StorageID has a profile of its own,
+// whose cookies the app's cookie calls do not touch.
 func (b *Backend) pageWebView() *window {
 	var selected *window
 	for hwnd, w := range b.windows {
-		if w.closed || w.surface != nil || !w.ready || w.webview == 0 {
+		if w.closed || w.surface != nil || !w.ready || w.webview == 0 || w.opts.StorageID != "" {
 			continue
 		}
 		if selected == nil || hwnd < selected.hwnd {

@@ -28,6 +28,9 @@ import (
 const nsViewMinYMargin = 8
 
 func (s *surface) NewWebView(o *platform.WindowOptions, h platform.WindowHandler) (platform.WebView, error) {
+	if err := checkStorage(o.StorageID); err != nil {
+		return nil, err
+	}
 	host := s.w
 	b := host.b
 	v := &window{b: b, h: h, opts: o, win: host.win, host: host, downloads: map[id][2]string{}}

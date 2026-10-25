@@ -108,6 +108,11 @@ type window struct {
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
+	if !o.Surface {
+		if err := checkStorage(o.StorageID); err != nil {
+			return nil, err
+		}
+	}
 	w := &window{b: b, h: h, opts: o, trafficLights: o.TrafficLightPosition, downloads: map[id][2]string{}}
 	if p, ok := o.Parent.(*window); ok && p != nil {
 		w.parent = p
@@ -422,6 +427,11 @@ func (w *window) createWebView(content NSRect) {
 		cfg = alloc("WKWebViewConfiguration")
 		for _, s := range o.Schemes {
 			send(cfg, "setURLSchemeHandler:forURLScheme:", uintptr(schemeHandler()), uintptr(nsString(s)))
+		}
+		// The page's own data store; one a window.open() window gets with
+		// the configuration is its opener's.
+		if o.StorageID != "" {
+			send(cfg, "setWebsiteDataStore:", uintptr(dataStore(o.StorageID)))
 		}
 	}
 	prefs := send(cfg, "preferences")

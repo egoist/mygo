@@ -166,8 +166,13 @@ func (s *surface) NewWebView(o *platform.WindowOptions, h platform.WindowHandler
 }
 
 // createEmbedded asks WebView2 for the composition controller of a web
-// view in a window of native UI, through handler.
-func (w *window) createEmbedded(handler uintptr) uintptr {
+// view in a window of native UI, through handler, of the profile options
+// names (with env10, the environment's ICoreWebView2Environment10) unless
+// it is 0.
+func (w *window) createEmbedded(handler, env10, options uintptr) uintptr {
+	if options != 0 {
+		return comCall(env10, env10CreateCompositionControllerWithOptions, w.host.surface.hwnd, options, handler)
+	}
 	env3 := queryInterface(w.b.env, &iidICoreWebView2Environment3)
 	if env3 == 0 {
 		return 0x80004002 // E_NOINTERFACE: a runtime older than visual hosting

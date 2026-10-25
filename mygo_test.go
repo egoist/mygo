@@ -1924,6 +1924,7 @@ var needsAppCalls = []struct {
 	{"App.SetBadgeCount", func() { App.SetBadgeCount(1) }},
 	{"App.ShowAboutPanel", func() { App.ShowAboutPanel(AboutPanelOptions{}) }},
 	{"App.ClearBrowsingData", func() { App.ClearBrowsingData() }},
+	{"App.ClearStorage", func() { App.ClearStorage("acct") }},
 	{"App.Dock.SetBadge", func() { App.Dock.SetBadge("1") }},
 	{"App.Dock.Badge", func() { App.Dock.Badge() }},
 	{"App.Dock.Bounce", func() { App.Dock.Bounce(false) }},

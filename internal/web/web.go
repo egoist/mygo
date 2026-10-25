@@ -246,6 +246,7 @@ func (app) OpenAtLogin(string, string, string) bool           { return false }
 func (app) OpenedAtLogin() bool                               { return false }
 func (app) SetDockMenu(*platform.Menu)                        {}
 func (app) ClearBrowsingData(done func(error))                { done(errUnsupported) }
+func (app) ClearStorage(_ string, done func(error))           { done(errUnsupported) }
 
 // PreferredLanguages returns the browser's languages, navigator.languages.
 func (app) PreferredLanguages() []string {

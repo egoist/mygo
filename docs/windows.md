@@ -491,6 +491,7 @@ mygo.NewWindow(mygo.WindowOptions{
 | `ZoomFactor`, `UserAgent` | the page's zoom (1 is 100%) and user agent |
 | `SafariTabFocus` | leaves Tab to text fields and elements with a tabindex, as Safari does unless the system's keyboard navigation is on; by default Tab reaches links, buttons, checkboxes and selects too (macOS) |
 | `UserAgentSuffix` | appended to the user agent instead of replacing it, which `UserAgent` does, such as `"MyApp/1.2"`; it appends to `UserAgent` too, and `SetUserAgent` keeps it, and leading and trailing spaces are trimmed |
+| `StorageID` | the page's own store of cookies, local storage, IndexedDB and cache, shared by the pages with the same ID, see [separate sign-ins](#separate-sign-ins) |
 | `ContentRules` | rules that block what the page loads and hide parts of it, see [blocking content](#blocking-content) |
 
 `UserAgentSuffix` is for the sites that want to see the app, and for the ones
@@ -525,6 +526,82 @@ check the host, or `mygo.IsDev()`, when your rule depends on the scheme.
 
 Links that open new windows go through the window's open handler, see
 [links and new windows](frontend.md#links-and-new-windows).
+
+### Separate sign-ins
+
+The pages of an app share one store of cookies, local storage, IndexedDB
+and cache, so a site signed in on one page is signed in on all. To sign
+two accounts of a site in at once, as a client of several mailboxes
+does, give each account's page a `StorageID`:
+
+```go
+for _, account := range []string{"work", "home"} {
+	view, err := win.NewWebView(mygo.WebViewOptions{
+		URL:  "https://mail.example.com/",
+		Page: mygo.PageOptions{StorageID: account},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	views[account] = view
+}
+```
+
+Pages with the same `StorageID`, windows and web views alike, share one
+store, which stays from one run of the app to the next, and pages with
+different ones, or none, share nothing. A page's `StorageID` is fixed
+when it is made. A window the page opens (`SetWindowOpenHandler`) uses
+its store, whatever the `StorageID` of the options the handler returns.
+A window showing native UI has no page, and so no store: its
+`StorageID` does nothing, and its web views' do.
+
+An ID is 1 to 64 letters, digits, `-`, `_` and `.`, and capitals and
+lowercase letters tell IDs apart. `NewWebView` returns an error
+matching `mygo.ErrInvalidStorageID` for another, and `NewWindow`, which
+returns no error, panics with one, as it does for an invalid
+`BackgroundColor`. Where the system cannot keep stores apart, the call
+fails with an error matching `errors.ErrUnsupported`, so an app can
+fall back to one account:
+
+```go
+if errors.Is(err, errors.ErrUnsupported) {
+	// One store only: ask the user to sign out first.
+}
+```
+
+| | `StorageID` |
+|---|---|
+| macOS | `WKWebsiteDataStore` of an identifier (macOS 14 or newer): MyGo makes the identifier, a UUID, of the ID, and WebKit keeps the data in `~/Library/WebKit/<bundle id>/WebsiteDataStore/`. Before macOS 14, the call fails with `errors.ErrUnsupported` |
+| Windows | a WebView2 profile in the app's one environment (`ICoreWebView2Environment10`, WebView2 Runtime 1.0.1210.39 or newer), named `mygo-` and the first 40 hex digits of the ID's SHA-256, as profile names ignore case and may not end with a period; WebView2 keeps it in the directory `WV2Profile_<name>` in `EBWebView` of the user data folder (`%LocalAppData%\<Name>\WebView2`). With an older runtime the page gets no web view: the error, matching `errors.ErrUnsupported`, is logged and what the page's methods return, as WebView2 makes web views after `NewWebView` and `NewWindow` return |
+| Linux | not supported: WebKitGTK's web views share one data manager; the call fails with `errors.ErrUnsupported` |
+
+`App.ClearBrowsingData` and `mygo.Cookies` act on the default store only
+(see [browsing data](app.md#browsing-data)), and leave the data of a page
+with a `StorageID` alone. `App.ClearStorage(id)` clears the store of one
+`StorageID`, cookies (`HttpOnly` ones too), local and session storage,
+IndexedDB, service workers and caches, and no other store, for example
+when the user signs that account out or deletes it:
+
+```go
+err := mygo.App.ClearStorage("work")
+```
+
+Pages of the ID that are open keep what they hold in memory until they
+reload. It works with no page of the ID open too, and when no store of
+the ID exists yet (it makes none). The empty ID, which is the default
+store's, and an invalid one fail with an error matching
+`mygo.ErrInvalidStorageID`; where the system cannot keep stores apart,
+the call fails with one matching `errors.ErrUnsupported`.
+
+After the app has quit, and when it quits while the call waits, the call
+returns an error saying the event loop has stopped, as `ClearBrowsingData`
+does, instead of waiting for ever.
+
+| | `ClearStorage` |
+|---|---|
+| macOS | `removeDataOfTypes:modifiedSince:completionHandler:` of the store, all types, from the beginning of time. The store is cleared rather than removed (`removeDataStoreForIdentifier:`), which fails with "Data store is in use" while a web view holds it, and does here even after the web views are destroyed. A store `fetchAllDataStoreIdentifiers:` does not list has no data, and is left unmade |
+| Windows | `ClearBrowsingDataAll` of the profile (`ICoreWebView2_13`'s `Profile`, `ICoreWebView2Profile2`), through a web view of the ID that is open (a window's, or a web view in native UI), or with none a hidden web view made in that profile for the call and closed after it. A profile with no directory `WV2Profile_<name>` in `EBWebView` has no data, and is left unmade. An older WebView2 Runtime fails the call with `errors.ErrUnsupported` |
+| Linux | not supported: the call fails with `errors.ErrUnsupported` |
 
 ### Find in page
 

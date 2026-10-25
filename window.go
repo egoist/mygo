@@ -265,6 +265,9 @@ type Window struct {
 	// preload is PageOptions.PreloadScript, which the scripts of the pages
 	// loaded later keep (pageScripts).
 	preload string
+	// storageID is PageOptions.StorageID, which the windows the page opens
+	// share.
+	storageID string
 
 	// native is only accessed on the main thread; nil once destroyed.
 	native    platform.Window
@@ -374,6 +377,9 @@ var windows struct {
 // waits for that.
 func NewWindow(opts WindowOptions) *Window {
 	// Validate in the caller's goroutine so mistakes point at the call.
+	if err := checkStorageID(opts.Page.StorageID); err != nil {
+		panic(err)
+	}
 	bg, err := backgroundOption(opts.BackgroundColor)
 	if err != nil {
 		panic(err)
@@ -533,6 +539,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		Modal:             o.Modal,
 		UserAgent:         po.UserAgent,
 		UserAgentSuffix:   strings.TrimSpace(po.UserAgentSuffix),
+		StorageID:         po.StorageID,
 		Zoom:              po.ZoomFactor,
 		// Tab reaches every control, as desktop apps do, unless the app
 		// asked for Safari's behavior.
@@ -566,6 +573,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		p.Parent = o.Parent.native
 	}
 	w.preload = po.PreloadScript
+	w.storageID = po.StorageID
 	p.UserScripts = w.pageScripts()
 	// Kept to replace the preferences' and the locale's (sendPreferences,
 	// pagesLocaleChanged).
@@ -1801,6 +1809,9 @@ func (h *windowHandler) NewWindow(req platform.NewWindowRequest) platform.Window
 	}
 	// The webview loads the URL itself.
 	o.URL = ""
+	// The window shares the store of the page that opened it, as it does
+	// in a browser.
+	o.Page.StorageID = h.w.storageID
 	bg, err := backgroundOption(o.BackgroundColor)
 	if err != nil {
 		log.Printf("mygo: window open handler: %v", err)

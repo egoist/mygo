@@ -3,7 +3,6 @@
 package windows
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -49,6 +48,8 @@ type Backend struct {
 
 	// cookies gives cookie calls a cookie manager (cookies.go).
 	cookies cookieStore
+	// storageClears are the ClearStorage calls under way (storage.go).
+	storageClears map[*storageClear]struct{}
 
 	menus menuTable
 
@@ -152,11 +153,7 @@ func (b *Backend) startEnvironment() error {
 	if b.envStarted {
 		return nil
 	}
-	dir := os.Getenv("LOCALAPPDATA")
-	if dir == "" {
-		dir = os.TempDir()
-	}
-	userData := filepath.Join(dir, sanitize(b.name), "WebView2")
+	userData := b.userDataFolder()
 	_ = os.MkdirAll(userData, 0o755)
 	language := ""
 	if len(b.languages) > 0 {
@@ -179,6 +176,16 @@ func (b *Backend) startEnvironment() error {
 	// A runtime installed later is found by the next window.
 	b.envStarted = err == nil
 	return err
+}
+
+// userDataFolder returns the user data folder of the WebView2 environment,
+// where each profile has a directory in EBWebView.
+func (b *Backend) userDataFolder() string {
+	dir := os.Getenv("LOCALAPPDATA")
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	return filepath.Join(dir, sanitize(b.name), "WebView2")
 }
 
 // whenEnvironment runs fn once the WebView2 environment, which
@@ -654,30 +661,40 @@ func (a appController) Package() (platform.PackageInfo, bool) {
 // window shows a page (cookies.go).
 func (a appController) ClearBrowsingData(done func(error)) {
 	a.withCookieManager(func(_ []platform.Cookie, err error) { done(err) }, func(r *cookieRequest) {
-		wv13 := queryInterface(r.webview, &iidICoreWebView2_13)
-		if wv13 == 0 {
-			r.finish(nil, errors.New("mygo: clearing browsing data needs a newer WebView2 Runtime"))
-			return
-		}
-		var profile uintptr
-		comCall(wv13, wv13GetProfile, uintptr(unsafe.Pointer(&profile)))
-		release(wv13)
-		p2 := queryInterface(profile, &iidICoreWebView2Profile2)
-		release(profile)
-		if p2 == 0 {
-			r.finish(nil, errors.New("mygo: clearing browsing data needs a newer WebView2 Runtime"))
-			return
-		}
-		defer release(p2)
-		hr := withHandler(func(result, _ uintptr) {
-			if failed(result) {
-				r.finish(nil, hresultError("clearing browsing data", result))
-				return
-			}
-			r.finish(nil, nil)
-		}, func(h uintptr) uintptr { return comCall(p2, profile2ClearBrowsingDataAll, h) })
-		if failed(hr) {
-			r.finish(nil, hresultError("clearing browsing data", hr))
-		}
+		clearProfile(r.webview, func(err error) { r.finish(nil, err) })
 	})
+}
+
+// errClearProfile is what clearing a profile fails with when the WebView2
+// Runtime has no ICoreWebView2_13 or ICoreWebView2Profile2.
+var errClearProfile = fmt.Errorf("mygo: clearing browsing data needs a newer WebView2 Runtime: %w", platform.ErrUnsupported)
+
+// clearProfile clears all the browsing data of the profile of webview, and
+// calls done once, perhaps before it returns.
+func clearProfile(webview uintptr, done func(error)) {
+	wv13 := queryInterface(webview, &iidICoreWebView2_13)
+	if wv13 == 0 {
+		done(errClearProfile)
+		return
+	}
+	var profile uintptr
+	comCall(wv13, wv13GetProfile, uintptr(unsafe.Pointer(&profile)))
+	release(wv13)
+	p2 := queryInterface(profile, &iidICoreWebView2Profile2)
+	release(profile)
+	if p2 == 0 {
+		done(errClearProfile)
+		return
+	}
+	defer release(p2)
+	hr := withHandler(func(result, _ uintptr) {
+		if failed(result) {
+			done(hresultError("clearing browsing data", result))
+			return
+		}
+		done(nil)
+	}, func(h uintptr) uintptr { return comCall(p2, profile2ClearBrowsingDataAll, h) })
+	if failed(hr) {
+		done(hresultError("clearing browsing data", hr))
+	}
 }

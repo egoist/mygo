@@ -330,13 +330,37 @@ local and session storage, IndexedDB, service workers and caches, for
 example when the user signs out. Open pages keep what they hold in memory
 until they reload.
 
+`ClearBrowsingData` and `mygo.Cookies` act on the default store, the one
+pages without a [`StorageID`](windows.md#separate-sign-ins) use, and
+leave the stores of pages with one alone. `App.ClearStorage(id)` clears
+one of those, for example to sign one account out without touching the
+others:
+
+```go
+err := mygo.App.ClearStorage("work")
+```
+
+It deletes what `ClearBrowsingData` does, in the store of the `StorageID`
+only: no other store and not the default one. It works whether pages
+with the ID are open (they keep what they hold in memory until they
+reload) or not, and an ID no page ever used has nothing to clear and
+makes no store. The empty ID fails with an error matching
+`mygo.ErrInvalidStorageID`, as an invalid one does (the default store is
+`ClearBrowsingData`'s), and a system that cannot keep stores apart, as
+Linux and macOS before 14, with one matching `errors.ErrUnsupported`.
+
+After the app has quit, and when it quits while a call waits for the
+store to be cleared, `ClearBrowsingData` and `ClearStorage` return an
+error saying the event loop has stopped, instead of waiting for ever.
+
 ### Cookies
 
 `mygo.Cookies` reads and changes the cookies of the app's pages, `HttpOnly`
-ones included: the default cookie store, which all windows share and
-which the system webview keeps from one run to the next. Set one, for
-example, to sign the pages in with a token the backend got, before the
-first page loads, or read the session a page's sign-in set:
+ones included: the default cookie store, which the windows without a
+`StorageID` share and which the system webview keeps from one run to the
+next. Set one, for example, to sign the pages in with a token the backend
+got, before the first page loads, or read the session a page's sign-in
+set:
 
 ```go
 err := mygo.Cookies.Set(mygo.Cookie{

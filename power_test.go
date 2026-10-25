@@ -3,6 +3,9 @@
 package mygo
 
 import (
+	"errors"
+	"maps"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,5 +133,130 @@ func TestClearBrowsingDataFake(t *testing.T) {
 	}
 	if onMainValue(func() int { return fb.Cleared }) != before+1 {
 		t.Error("the backend did not clear")
+	}
+}
+
+// TestClearStorageFake sends a StorageID to the backend, and neither the
+// empty one nor an invalid one: those fail before it.
+func TestClearStorageFake(t *testing.T) {
+	counts := func() map[string]int {
+		return onMainValue(func() map[string]int { return maps.Clone(fb.StorageCleared) })
+	}
+	before := counts()
+	cleared := onMainValue(func() int { return fb.Cleared })
+	if err := App.ClearStorage("acct-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := App.ClearStorage("acct-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := App.ClearStorage("acct-b"); err != nil {
+		t.Fatal(err)
+	}
+	after := counts()
+	want := maps.Clone(before)
+	if want == nil {
+		want = map[string]int{}
+	}
+	want["acct-a"] += 2
+	want["acct-b"]++
+	if !maps.Equal(after, want) {
+		t.Errorf("the backend cleared %v, want %v: acct-a twice, acct-b once, no other ID", after, want)
+	}
+	if onMainValue(func() int { return fb.Cleared }) != cleared {
+		t.Error("ClearStorage cleared the default store")
+	}
+
+	for _, id := range []string{"", "a/b", strings.Repeat("x", 65)} {
+		if err := App.ClearStorage(id); !errors.Is(err, ErrInvalidStorageID) {
+			t.Errorf("ClearStorage(%q) = %v, want ErrInvalidStorageID", id, err)
+		}
+	}
+	if got := counts(); !maps.Equal(got, after) {
+		t.Errorf("an ID that is not valid reached the backend: %v", got)
+	}
+}
+
+// quitLoop simulates the end of the event loop for a test, as quitting
+// does: pending native calls are failed and later posts are rejected. The
+// cleanup restores them for the next test. The returned function reopens
+// the loop at once, and may be called again by the cleanup.
+func quitLoop(t *testing.T) (reopen func()) {
+	t.Helper()
+	onMain(stopNativeCalls)
+	loop.mu.Lock()
+	loop.closed = true
+	loop.mu.Unlock()
+	reopen = func() {
+		loop.mu.Lock()
+		loop.closed = false
+		loop.mu.Unlock()
+	}
+	t.Cleanup(func() {
+		reopen()
+		onMain(func() { nativeCalls.stopped = false })
+	})
+	return reopen
+}
+
+// clearCalls are the calls that wait for a backend to clear a store.
+var clearCalls = []struct {
+	name string
+	call func() error
+}{
+	{"ClearBrowsingData", func() error { return App.ClearBrowsingData() }},
+	{"ClearStorage", func() error { return App.ClearStorage("acct-a") }},
+}
+
+// TestClearAfterQuit checks that the calls return an error once the event
+// loop has stopped, rather than wait for ever.
+func TestClearAfterQuit(t *testing.T) {
+	for _, c := range clearCalls {
+		t.Run(c.name, func(t *testing.T) {
+			quitLoop(t)
+			done := make(chan error, 1)
+			go func() { done <- c.call() }()
+			if err := wait.For(t, c.name+" to return", done); !errors.Is(err, errLoopStopped) {
+				t.Errorf("%s after quit = %v, want errLoopStopped", c.name, err)
+			}
+		})
+	}
+}
+
+// TestClearInFlightQuit checks that a call the backend never answers
+// returns an error when the app quits, and that an answer after that is
+// harmless, as is a quit after an answer.
+func TestClearInFlightQuit(t *testing.T) {
+	for _, c := range clearCalls {
+		t.Run(c.name, func(t *testing.T) {
+			onMain(func() { fb.HoldClears = true; fb.HeldClears = nil })
+			t.Cleanup(func() { onMain(func() { fb.HoldClears = false; fb.HeldClears = nil }) })
+			held := func() []func(error) {
+				return onMainValue(func() []func(error) { return append([]func(error){}, fb.HeldClears...) })
+			}
+			done := make(chan error, 1)
+			go func() { done <- c.call() }()
+			wait.Until(t, "the backend to get the call", func() bool { return len(held()) == 1 })
+			reopen := quitLoop(t)
+			if err := wait.For(t, c.name+" to return", done); !errors.Is(err, errLoopStopped) {
+				t.Errorf("%s in flight at quit = %v, want errLoopStopped", c.name, err)
+			}
+			// The backend answers late: nothing to deliver to, no panic.
+			reopen()
+			onMain(func() { held()[0](nil) })
+		})
+	}
+}
+
+// TestClearQuitAfterAnswer checks that a quit after a call has returned
+// does not complete it a second time.
+func TestClearQuitAfterAnswer(t *testing.T) {
+	for _, c := range clearCalls {
+		t.Run(c.name, func(t *testing.T) {
+			if err := c.call(); err != nil {
+				t.Fatal(err)
+			}
+			quitLoop(t)
+		})
 	}
 }

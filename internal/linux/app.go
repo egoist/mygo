@@ -325,6 +325,10 @@ func (a appController) ClearBrowsingData(done func(error)) {
 	webkitWebsiteDataManagerClear(manager, all, 0, 0, cbAsyncReady, id)
 }
 
+// ClearStorage fails: WebKitGTK keeps the data of all web views in one
+// place, so a page has no StorageID (errStorageID).
+func (a appController) ClearStorage(_ string, done func(error)) { done(errStorageID) }
+
 func (a appController) AddRecentDocument(path string) error {
 	uri := fileURI(path)
 	if uri == "" {

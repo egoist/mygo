@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -91,6 +92,47 @@ func TestWebViewTabFocus(t *testing.T) {
 	}
 	if views := s.WebViews(); len(views) != 2 || !views[1].Opts.TabFocusesLinks {
 		t.Error("Tab reaches every control by default")
+	}
+}
+
+// TestWebViewStorageID gives each web view its StorageID, and the windows
+// its page opens the same one; an invalid one makes no web view.
+func TestWebViewStorageID(t *testing.T) {
+	w, _, s := contentWindow(t, func(c *ui.Context) {})
+	ids := []string{"acct-a", "acct-b", "", "acct-a"}
+	for _, id := range ids {
+		if _, err := w.NewWebView(WebViewOptions{Page: PageOptions{StorageID: id}}); err != nil {
+			t.Fatalf("StorageID %q: %v", id, err)
+		}
+	}
+	views := s.WebViews()
+	var got []string
+	for _, v := range views {
+		got = append(got, v.Opts.StorageID)
+	}
+	if !slices.Equal(got, ids) {
+		t.Errorf("web views' StorageIDs %q, want %q", got, ids)
+	}
+	for _, id := range []string{"a/b", strings.Repeat("x", 65)} {
+		if _, err := w.NewWebView(WebViewOptions{Page: PageOptions{StorageID: id}}); !errors.Is(err, ErrInvalidStorageID) {
+			t.Errorf("StorageID %q: %v, want ErrInvalidStorageID", id, err)
+		}
+	}
+	if n := len(s.WebViews()); n != len(views) {
+		t.Errorf("invalid StorageIDs made %d web views", n-len(views))
+	}
+
+	// A window the page of a web view opens shares its store.
+	v, err := w.NewWebView(WebViewOptions{Page: PageOptions{StorageID: "acct-c"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v.Page().SetWindowOpenHandler(func(WindowOpenRequest) *WindowOptions { return &WindowOptions{Hidden: true} })
+	fv := s.WebViews()[len(views)]
+	onMain(func() { fv.H.NewWindow(platform.NewWindowRequest{URL: "https://example.com/"}) })
+	wins := fb.Windows()
+	if got := wins[len(wins)-1].Opts.StorageID; got != "acct-c" {
+		t.Errorf("the window the web view's page opened got StorageID %q, want its own", got)
 	}
 }
 

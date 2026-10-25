@@ -153,7 +153,14 @@ func (b *Backend) window(data ptr) *window {
 	return w
 }
 
+// errStorageID is what a page with a StorageID fails with: WebKitGTK keeps
+// the data of all the app's web views in one place.
+var errStorageID = fmt.Errorf("mygo: PageOptions.StorageID is not supported on Linux: %w", platform.ErrUnsupported)
+
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
+	if !o.Surface && o.StorageID != "" {
+		return nil, errStorageID
+	}
 	if !o.Surface {
 		if err := webKit(); err != nil {
 			return nil, err

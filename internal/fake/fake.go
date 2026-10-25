@@ -100,6 +100,13 @@ type Backend struct {
 	ActivationToken string
 	// Cleared counts ClearBrowsingData calls.
 	Cleared int
+	// StorageCleared counts ClearStorage calls by StorageID.
+	StorageCleared map[string]int
+	// HoldClears makes ClearBrowsingData and ClearStorage keep their
+	// callbacks in HeldClears, never calling them, like a web view that
+	// does not answer.
+	HoldClears bool
+	HeldClears []func(error)
 	// cookies holds the cookies of the pages, by name, domain and path.
 	cookies map[platform.CookieKey]platform.Cookie
 	// contentLists are the content rule lists compiled, by identifier;
@@ -888,7 +895,29 @@ func (a app) ClearBrowsingData(done func(error)) {
 	a.b.mu.Lock()
 	a.b.Cleared++
 	clear(a.b.cookies)
-	a.b.mu.Unlock()
+	a.b.answerClear(done)
+}
+
+// ClearStorage counts the call of each StorageID in StorageCleared: the
+// fake keeps one store of cookies, whatever a page's StorageID.
+func (a app) ClearStorage(storageID string, done func(error)) {
+	a.b.mu.Lock()
+	if a.b.StorageCleared == nil {
+		a.b.StorageCleared = map[string]int{}
+	}
+	a.b.StorageCleared[storageID]++
+	a.b.answerClear(done)
+}
+
+// answerClear completes a clear, or keeps done when HoldClears is set. It
+// unlocks b.mu, which the caller holds.
+func (b *Backend) answerClear(done func(error)) {
+	if b.HoldClears {
+		b.HeldClears = append(b.HeldClears, done)
+		b.mu.Unlock()
+		return
+	}
+	b.mu.Unlock()
 	done(nil)
 }
 
