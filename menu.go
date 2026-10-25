@@ -90,6 +90,11 @@ type MenuItem struct {
 	// ID identifies the item for Menu.ItemByID.
 	ID    string
 	Label string
+	// Badge is text at the trailing edge of the item, such as a count or a
+	// latency. macOS aligns the badges of a menu with an attributed title
+	// and draws them in a monospaced-digit font. Other platforms show it
+	// after the label.
+	Badge string
 	Type  MenuItemType
 	// Role gives the item a predefined behavior; Label and Accelerator
 	// default to the role's.
@@ -259,6 +264,9 @@ func (it *MenuItem) IsChecked() bool { return it.get(func() bool { return it.Che
 // SetLabel changes the label of the item.
 func (it *MenuItem) SetLabel(label string) { it.update(func() { it.Label = label }) }
 
+// SetBadge changes the badge of the item, empty to remove it.
+func (it *MenuItem) SetBadge(badge string) { it.update(func() { it.Badge = badge }) }
+
 // SetAccelerator changes the keyboard shortcut of the item.
 func (it *MenuItem) SetAccelerator(acc string) { it.update(func() { it.Accelerator = acc }) }
 
@@ -417,6 +425,7 @@ func (it *MenuItem) snapshotLocked() *platform.MenuItem {
 	p := &platform.MenuItem{
 		ID:          it.uid,
 		Label:       it.Label,
+		Badge:       it.Badge,
 		Role:        string(it.Role),
 		Accelerator: it.Accelerator,
 		Enabled:     !it.Disabled,

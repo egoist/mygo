@@ -3,6 +3,8 @@
 package darwin
 
 import (
+	"strings"
+
 	"github.com/ebitengine/purego/objc"
 
 	"github.com/egoist/mygo/internal/accelerator"
@@ -11,9 +13,12 @@ import (
 
 // Native menu items are tracked per owner (the app menu, a tray, a popup)
 // so they can be updated in place and released when the owner rebuilds.
+// badgeTab is the column its badge ends at, kept so updates keep the
+// alignment the menu was built with.
 type nativeItem struct {
-	owner int
-	item  id
+	owner    int
+	item     id
+	badgeTab float64
 }
 
 const ownerAppMenu = 0
@@ -50,8 +55,8 @@ func newOwner() int {
 	return menuOwners
 }
 
-func track(owner, itemID int, item id) {
-	itemsByID[itemID] = append(itemsByID[itemID], nativeItem{owner, retain(item)})
+func track(owner, itemID int, item id, badgeTab float64) {
+	itemsByID[itemID] = append(itemsByID[itemID], nativeItem{owner, retain(item), badgeTab})
 }
 
 func dropOwner(owner int) {
@@ -95,19 +100,20 @@ func (b *Backend) SetApplicationMenu(m *platform.Menu) {
 func (b *Backend) buildMenu(m *platform.Menu, title string, owner int) id {
 	menu := autorelease(send(send(class("NSMenu"), "alloc"), "initWithTitle:", uintptr(nsString(title))))
 	send(menu, "setAutoenablesItems:", 0)
+	tab := badgeTab(m)
 	for _, it := range m.Items {
 		if it.Type == platform.MenuItemSeparator {
 			item := send(class("NSMenuItem"), "separatorItem")
 			send(item, "setHidden:", boolArg(!it.Visible))
 			send(menu, "addItem:", uintptr(item))
-			track(owner, it.ID, item)
+			track(owner, it.ID, item, 0)
 			continue
 		}
-		item := b.buildItem(it, owner)
+		item := b.buildItem(it, owner, tab)
 		send(menu, "addItem:", uintptr(item))
 		if it.Role == "zoomIn" {
 			// Also accept Cmd+= (no shift) like other macOS apps.
-			alt := b.buildItem(&platform.MenuItem{ID: it.ID, Label: it.Label, Role: it.Role, Accelerator: "CmdOrCtrl+=", Enabled: it.Enabled}, owner)
+			alt := b.buildItem(&platform.MenuItem{ID: it.ID, Label: it.Label, Role: it.Role, Accelerator: "CmdOrCtrl+=", Enabled: it.Enabled}, owner, 0)
 			send(alt, "setHidden:", 1)
 			if respondsTo(alt, "setAllowsKeyEquivalentWhenHidden:") {
 				send(alt, "setAllowsKeyEquivalentWhenHidden:", 1)
@@ -118,7 +124,7 @@ func (b *Backend) buildMenu(m *platform.Menu, title string, owner int) id {
 	return menu
 }
 
-func (b *Backend) buildItem(it *platform.MenuItem, owner int) id {
+func (b *Backend) buildItem(it *platform.MenuItem, owner int, badgeTab float64) id {
 	action := sel("mygoMenuItemClicked:")
 	target := b.menuTarget
 	if s, ok := nativeRoleSel[it.Role]; ok {
@@ -148,8 +154,91 @@ func (b *Backend) buildItem(it *platform.MenuItem, owner int) id {
 			send(b.app, "setHelpMenu:", uintptr(sub))
 		}
 	}
-	track(owner, it.ID, item)
+	setItemTitle(item, it, badgeTab)
+	track(owner, it.ID, item, badgeTab)
 	return item
+}
+
+// menuBadgeGap is the least space between the longest label of a menu and
+// its badges' left edge.
+const menuBadgeGap = 24
+
+// badgeTab returns the x at which the badges of m end: past the menu's
+// longest label and wide enough for its widest badge. Zero when no item
+// has one.
+func badgeTab(m *platform.Menu) float64 {
+	found := false
+	for _, it := range m.Items {
+		if it.Visible && it.Badge != "" && it.Type != platform.MenuItemSeparator {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return 0
+	}
+	labelFont, badgeFont := menuFont(), menuBadgeFont()
+	var maxLabel, maxBadge float64
+	for _, it := range m.Items {
+		if !it.Visible || it.Type == platform.MenuItemSeparator {
+			continue
+		}
+		maxLabel = max(maxLabel, textWidth(it.Label, labelFont))
+		maxBadge = max(maxBadge, textWidth(it.Badge, badgeFont))
+	}
+	return maxLabel + menuBadgeGap + maxBadge
+}
+
+// menuFont is the font AppKit draws menu item titles in, autoreleased.
+func menuFont() id {
+	return msgFloatID(class("NSFont"), sel("menuFontOfSize:"), 0)
+}
+
+// menuBadgeFont is the monospaced-digit font of a badge, so that latencies
+// and counts keep their width as their digits change, autoreleased.
+func menuBadgeFont() id {
+	return msgFloat2ID(class("NSFont"), sel("monospacedDigitSystemFontOfSize:weight:"), 12, 0)
+}
+
+// textWidth measures s in font, in points.
+func textWidth(s string, font id) float64 {
+	if s == "" || font == 0 {
+		return 0
+	}
+	attrs := send(class("NSMutableDictionary"), "dictionary")
+	send(attrs, "setObject:forKey:", uintptr(font), uintptr(nsString("NSFont")))
+	str := autorelease(send(send(class("NSAttributedString"), "alloc"), "initWithString:attributes:",
+		uintptr(nsString(s)), uintptr(attrs)))
+	return msgSize(str, sel("size")).Width
+}
+
+// setItemTitle shows the label of it and, at the right-aligned tab stop
+// tab, its badge in a monospaced-digit font.
+func setItemTitle(item id, it *platform.MenuItem, tab float64) {
+	label := strings.ReplaceAll(it.Label, "\t", " ")
+	badge := strings.ReplaceAll(it.Badge, "\t", " ")
+	if badge == "" || tab <= 0 {
+		send(item, "setAttributedTitle:", 0)
+		send(item, "setTitle:", uintptr(nsString(label)))
+		return
+	}
+	style := autorelease(send(send(class("NSMutableParagraphStyle"), "alloc"), "init"))
+	stop := autorelease(msgInitTextTab(send(class("NSTextTab"), "alloc"),
+		sel("initWithTextAlignment:location:options:"), 2 /* right */, tab, 0))
+	send(style, "setTabStops:", uintptr(nsArray(stop)))
+	attrs := send(class("NSMutableDictionary"), "dictionary")
+	if font := menuFont(); font != 0 {
+		send(attrs, "setObject:forKey:", uintptr(font), uintptr(nsString("NSFont")))
+	}
+	send(attrs, "setObject:forKey:", uintptr(style), uintptr(nsString("NSParagraphStyle")))
+	title := autorelease(send(send(class("NSMutableAttributedString"), "alloc"), "initWithString:attributes:",
+		uintptr(nsString(label+"\t"+badge)), uintptr(attrs)))
+	if font := menuBadgeFont(); font != 0 {
+		send(title, "addAttribute:value:range:",
+			uintptr(nsString("NSFont")), uintptr(font),
+			uintptr(units([]rune(label+"\t"))), uintptr(units([]rune(badge))))
+	}
+	send(item, "setAttributedTitle:", uintptr(title))
 }
 
 func applyItemState(item id, it *platform.MenuItem) {
@@ -176,7 +265,7 @@ func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 				continue
 			}
 			if it.Type != platform.MenuItemSeparator {
-				send(n.item, "setTitle:", uintptr(nsString(it.Label)))
+				setItemTitle(n.item, it, n.badgeTab)
 				if sub := send(n.item, "submenu"); sub != 0 {
 					send(sub, "setTitle:", uintptr(nsString(it.Label)))
 				}

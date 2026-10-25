@@ -119,8 +119,8 @@ func (b *Backend) buildMenu(m *platform.Menu, bar bool, owner int, accels map[ac
 		}
 		if it.Submenu != nil {
 			sub := b.buildMenu(it.Submenu, false, owner, accels)
-			procAppendMenuW.Call(h, flags|mfPopup, sub, uintptr(unsafe.Pointer(u16(it.Label))))
-			look(&menuLook{label: it.Label, submenu: true})
+			procAppendMenuW.Call(h, flags|mfPopup, sub, uintptr(unsafe.Pointer(u16(it.LabelWithBadge()))))
+			look(&menuLook{label: it.LabelWithBadge(), submenu: true})
 			continue
 		}
 		if it.Checked {
@@ -128,7 +128,7 @@ func (b *Backend) buildMenu(m *platform.Menu, bar bool, owner int, accels map[ac
 		}
 		e := &menuEntry{uid: it.ID, role: it.Role, owner: owner, menu: h, radio: it.Type == platform.MenuItemRadio}
 		cmd := b.menus.add(e)
-		label := it.Label
+		label := it.LabelWithBadge()
 		if a, err := accelerator.Parse(it.Accelerator, "windows"); err == nil && it.Accelerator != "" {
 			e.accel = acceleratorText(a)
 			label += "\t" + e.accel
@@ -137,7 +137,7 @@ func (b *Backend) buildMenu(m *platform.Menu, bar bool, owner int, accels map[ac
 			}
 		}
 		procAppendMenuW.Call(h, flags, uintptr(cmd), uintptr(unsafe.Pointer(u16(label))))
-		e.look = look(&menuLook{label: it.Label, accel: e.accel, radio: e.radio})
+		e.look = look(&menuLook{label: it.LabelWithBadge(), accel: e.accel, radio: e.radio})
 		if e.radio && e.look == nil {
 			setItemInfo(h, cmd, label, it.Enabled, it.Checked, true, false)
 		}
@@ -296,12 +296,12 @@ func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 		if e.uid != it.ID {
 			continue
 		}
-		label := it.Label
+		label := it.LabelWithBadge()
 		if e.accel != "" {
 			label += "\t" + e.accel
 		}
 		if e.look != nil {
-			e.look.label = it.Label
+			e.look.label = it.LabelWithBadge()
 		}
 		setItemInfo(e.menu, cmd, label, it.Enabled, it.Checked, e.radio, e.look != nil)
 	}

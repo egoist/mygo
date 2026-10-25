@@ -43,6 +43,11 @@ A `MenuItem` has:
   group, in which checking one unchecks the others. Checkbox and radio
   items toggle `Checked` before `Click` runs;
 - `Disabled`, `Hidden` and `ToolTip`;
+- `Badge`, text at the trailing edge of the item, as a count or a latency.
+  macOS aligns the badges of a menu with a right-aligned tab stop, after
+  its longest label, and draws them in a monospaced-digit font, so a
+  measure keeps its width as its digits change. Other platforms show it
+  after the label;
 - `ID`, to find the item with `Menu.ItemByID`;
 - `Role`, a built-in behavior with its label and accelerator.
 
@@ -87,8 +92,8 @@ template serves every platform.
 ### Changing items
 
 Change items of a menu in use with their methods, so that the native menu
-follows: `SetLabel`, `SetEnabled`, `SetVisible`, `SetChecked` and
-`SetAccelerator`:
+follows: `SetLabel`, `SetBadge`, `SetEnabled`, `SetVisible`, `SetChecked`
+and `SetAccelerator`:
 
 ```go
 item := menu.ItemByID("sidebar")

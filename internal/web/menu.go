@@ -171,7 +171,7 @@ func (p *popup) open(m *platform.Menu, x, y float64, level int, choose func(int)
 		}
 		label := doc.Call("createElement", "span")
 		label.Set("className", "label")
-		label.Set("textContent", strings.ReplaceAll(it.Label, "&", ""))
+		label.Set("textContent", strings.ReplaceAll(it.LabelWithBadge(), "&", ""))
 		row.Call("appendChild", label)
 		accel := doc.Call("createElement", "span")
 		accel.Set("className", "accel")
