@@ -986,9 +986,9 @@ func ringCore(r scene.Rect, radii, bw [4]float32, continuous bool) Scissor {
 // nothing: the outer and inner coverages are both 1 there, the border's is
 // their difference, and the color is transparent. Where its corners are
 // round, it is drawn in bands of rows that leave out what lies outside its
-// outer edge too, where both coverages are 0 (planBands). Without it a 2 pixel ring around
-// a 5 Mpx panel shaded the whole panel, twice over, through the general
-// path. The pixels are identical.
+// outer edge too, where both coverages are 0 (planBands). Without it a 2
+// pixel ring around a 5 Mpx panel shaded the whole panel, twice over,
+// through the general path. The pixels are identical.
 //
 // An opaque fill with a large core is drawn as that core, in a batch
 // renderers draw without blending, and blended pieces around it (addOpaque).
