@@ -43,6 +43,16 @@ A `MenuItem` has:
   group, in which checking one unchecks the others. Checkbox and radio
   items toggle `Checked` before `Click` runs;
 - `Disabled`, `Hidden` and `ToolTip`;
+- `Badge`, text at the trailing edge of the item, as a count or a latency.
+  macOS aligns the badges of a menu with a right-aligned tab stop, after
+  its longest label, and draws them in a monospaced-digit font, so a
+  measure keeps its width as its digits change. Other platforms show it
+  after the label;
+- `KeepOpen`, which keeps the menu open when the item is chosen on macOS.
+  MyGo draws the item itself, with its label, badge and check mark, in a
+  view that handles the click: the item's menu and the menu above it stay
+  up, so a click can show a state change or start work in place. It does
+  not apply to items with a submenu, or on other platforms;
 - `ID`, to find the item with `Menu.ItemByID`;
 - `Role`, a built-in behavior with its label and accelerator.
 
@@ -87,8 +97,8 @@ template serves every platform.
 ### Changing items
 
 Change items of a menu in use with their methods, so that the native menu
-follows: `SetLabel`, `SetEnabled`, `SetVisible`, `SetChecked` and
-`SetAccelerator`:
+follows: `SetLabel`, `SetBadge`, `SetEnabled`, `SetVisible`, `SetChecked`
+and `SetAccelerator`:
 
 ```go
 item := menu.ItemByID("sidebar")
@@ -96,6 +106,24 @@ item.SetChecked(false)
 ```
 
 `Menu.Append` and `Menu.Insert` add items.
+
+### Keeping a menu open
+
+A menu usually closes when the user picks an item. `KeepOpen` keeps the
+item's menu, and the menu above it, open, so a submenu of nodes can show
+which one is chosen without closing and reopening:
+
+```go
+mygo.NewMenu([]*mygo.MenuItem{
+	{Label: "Hong Kong 01", Badge: "45 ms", Type: mygo.MenuItemCheckbox, KeepOpen: true},
+	{Label: "Tokyo IEPL", Badge: "120 ms", Type: mygo.MenuItemCheckbox, KeepOpen: true},
+})
+```
+
+MyGo draws each such item in a view of its own, with its label, badge and
+check mark; `Click` still runs, and `SetLabel`, `SetBadge` and `SetChecked`
+update the view. The item keeps the menu open on macOS; other platforms
+close the menu as they always do.
 
 ## The menu bar
 

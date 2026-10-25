@@ -3,6 +3,9 @@
 package darwin
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/ebitengine/purego/objc"
 
 	"github.com/egoist/mygo/internal/accelerator"
@@ -11,9 +14,12 @@ import (
 
 // Native menu items are tracked per owner (the app menu, a tray, a popup)
 // so they can be updated in place and released when the owner rebuilds.
+// badgeTab is the column its badge ends at, kept so updates keep the
+// alignment the menu was built with.
 type nativeItem struct {
-	owner int
-	item  id
+	owner    int
+	item     id
+	badgeTab float64
 }
 
 const ownerAppMenu = 0
@@ -50,8 +56,8 @@ func newOwner() int {
 	return menuOwners
 }
 
-func track(owner, itemID int, item id) {
-	itemsByID[itemID] = append(itemsByID[itemID], nativeItem{owner, retain(item)})
+func track(owner, itemID int, item id, badgeTab float64) {
+	itemsByID[itemID] = append(itemsByID[itemID], nativeItem{owner, retain(item), badgeTab})
 }
 
 func dropOwner(owner int) {
@@ -78,6 +84,24 @@ func registerMenuTarget() {
 			theBackend.h.MenuItemClicked(sendInt(item, "tag"))
 		}),
 	})
+	// Items that keep their menu open show a view MyGo draws: the view
+	// handles the click itself, so NSMenu does not end its tracking and
+	// the item's menu and the one above it stay up.
+	classDef("MyGoMenuKeepOpenView", "NSView", nil, []objc.MethodDef{
+		method("mouseUp:", func(self id, _ objc.SEL, _ id) {
+			item := send(self, "enclosingMenuItem")
+			if item == 0 || !sendBool(item, "isEnabled") {
+				return
+			}
+			theBackend.h.MenuItemClicked(sendInt(send(self, "identifier"), "integerValue"))
+		}),
+		method("mouseEntered:", func(self id, _ objc.SEL, _ id) {
+			setMenuViewHighlighted(self, true)
+		}),
+		method("mouseExited:", func(self id, _ objc.SEL, _ id) {
+			setMenuViewHighlighted(self, false)
+		}),
+	})
 }
 
 func (b *Backend) SetApplicationMenu(m *platform.Menu) {
@@ -91,23 +115,33 @@ func (b *Backend) SetApplicationMenu(m *platform.Menu) {
 	})
 }
 
+// menuMetrics are the columns a menu's items share: the x badges end at
+// and the width of the views of its KeepOpen items.
+type menuMetrics struct {
+	badgeTab      float64
+	keepOpenTab   float64
+	keepOpenWidth float64
+}
+
 // buildMenu creates an autoreleased NSMenu.
 func (b *Backend) buildMenu(m *platform.Menu, title string, owner int) id {
 	menu := autorelease(send(send(class("NSMenu"), "alloc"), "initWithTitle:", uintptr(nsString(title))))
 	send(menu, "setAutoenablesItems:", 0)
+	keepOpenTab, keepOpenWidth := keepOpenMetrics(m)
+	metrics := menuMetrics{badgeTab: badgeTab(m), keepOpenTab: keepOpenTab, keepOpenWidth: keepOpenWidth}
 	for _, it := range m.Items {
 		if it.Type == platform.MenuItemSeparator {
 			item := send(class("NSMenuItem"), "separatorItem")
 			send(item, "setHidden:", boolArg(!it.Visible))
 			send(menu, "addItem:", uintptr(item))
-			track(owner, it.ID, item)
+			track(owner, it.ID, item, 0)
 			continue
 		}
-		item := b.buildItem(it, owner)
+		item := b.buildItem(it, owner, metrics)
 		send(menu, "addItem:", uintptr(item))
 		if it.Role == "zoomIn" {
 			// Also accept Cmd+= (no shift) like other macOS apps.
-			alt := b.buildItem(&platform.MenuItem{ID: it.ID, Label: it.Label, Role: it.Role, Accelerator: "CmdOrCtrl+=", Enabled: it.Enabled}, owner)
+			alt := b.buildItem(&platform.MenuItem{ID: it.ID, Label: it.Label, Role: it.Role, Accelerator: "CmdOrCtrl+=", Enabled: it.Enabled}, owner, menuMetrics{})
 			send(alt, "setHidden:", 1)
 			if respondsTo(alt, "setAllowsKeyEquivalentWhenHidden:") {
 				send(alt, "setAllowsKeyEquivalentWhenHidden:", 1)
@@ -118,7 +152,7 @@ func (b *Backend) buildMenu(m *platform.Menu, title string, owner int) id {
 	return menu
 }
 
-func (b *Backend) buildItem(it *platform.MenuItem, owner int) id {
+func (b *Backend) buildItem(it *platform.MenuItem, owner int, metrics menuMetrics) id {
 	action := sel("mygoMenuItemClicked:")
 	target := b.menuTarget
 	if s, ok := nativeRoleSel[it.Role]; ok {
@@ -148,8 +182,263 @@ func (b *Backend) buildItem(it *platform.MenuItem, owner int) id {
 			send(b.app, "setHelpMenu:", uintptr(sub))
 		}
 	}
-	track(owner, it.ID, item)
+	tab := metrics.badgeTab
+	if it.KeepOpen && it.Submenu == nil {
+		view := buildKeepOpenView(it, metrics)
+		send(item, "setView:", uintptr(view))
+		updateKeepOpenView(view, it, metrics.keepOpenTab)
+		tab = metrics.keepOpenTab
+	} else {
+		setItemTitle(item, it, metrics.badgeTab)
+	}
+	track(owner, it.ID, item, tab)
 	return item
+}
+
+// menuBadgeGap is the least space between the longest label of a menu and
+// its badges' left edge.
+const menuBadgeGap = 24
+
+// badgeTab returns the x at which the badges of m end: past the menu's
+// longest label and wide enough for its widest badge. Zero when no item
+// has one.
+func badgeTab(m *platform.Menu) float64 {
+	found := false
+	for _, it := range m.Items {
+		if it.Visible && it.Badge != "" && it.Type != platform.MenuItemSeparator {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return 0
+	}
+	labelFont, badgeFont := menuFont(), menuBadgeFont()
+	var maxLabel, maxBadge float64
+	for _, it := range m.Items {
+		if !it.Visible || it.Type == platform.MenuItemSeparator {
+			continue
+		}
+		maxLabel = max(maxLabel, textWidth(it.Label, labelFont))
+		maxBadge = max(maxBadge, textWidth(it.Badge, badgeFont))
+	}
+	return maxLabel + menuBadgeGap + maxBadge
+}
+
+// menuFont is the font AppKit draws menu item titles in, autoreleased.
+func menuFont() id {
+	return msgFloatID(class("NSFont"), sel("menuFontOfSize:"), 0)
+}
+
+// menuBadgeFont is the monospaced-digit font of a badge, so that latencies
+// and counts keep their width as their digits change, autoreleased.
+func menuBadgeFont() id {
+	return msgFloat2ID(class("NSFont"), sel("monospacedDigitSystemFontOfSize:weight:"), 12, 0)
+}
+
+// textWidth measures s in font, in points.
+func textWidth(s string, font id) float64 {
+	if s == "" || font == 0 {
+		return 0
+	}
+	attrs := send(class("NSMutableDictionary"), "dictionary")
+	send(attrs, "setObject:forKey:", uintptr(font), uintptr(nsString("NSFont")))
+	str := autorelease(send(send(class("NSAttributedString"), "alloc"), "initWithString:attributes:",
+		uintptr(nsString(s)), uintptr(attrs)))
+	return msgSize(str, sel("size")).Width
+}
+
+// menuTitle returns the attributed title of a label and, at the
+// right-aligned tab stop tab, its badge in a monospaced-digit font.
+func menuTitle(label, badge string, tab float64) id {
+	label = strings.ReplaceAll(label, "\t", " ")
+	badge = strings.ReplaceAll(badge, "\t", " ")
+	attrs := send(class("NSMutableDictionary"), "dictionary")
+	if font := menuFont(); font != 0 {
+		send(attrs, "setObject:forKey:", uintptr(font), uintptr(nsString("NSFont")))
+	}
+	if badge == "" || tab <= 0 {
+		return autorelease(send(send(class("NSAttributedString"), "alloc"), "initWithString:attributes:",
+			uintptr(nsString(label)), uintptr(attrs)))
+	}
+	style := autorelease(send(send(class("NSMutableParagraphStyle"), "alloc"), "init"))
+	stop := autorelease(msgInitTextTab(send(class("NSTextTab"), "alloc"),
+		sel("initWithTextAlignment:location:options:"), 2 /* right */, tab, 0))
+	send(style, "setTabStops:", uintptr(nsArray(stop)))
+	send(attrs, "setObject:forKey:", uintptr(style), uintptr(nsString("NSParagraphStyle")))
+	title := autorelease(send(send(class("NSMutableAttributedString"), "alloc"), "initWithString:attributes:",
+		uintptr(nsString(label+"\t"+badge)), uintptr(attrs)))
+	if font := menuBadgeFont(); font != 0 {
+		send(title, "addAttribute:value:range:",
+			uintptr(nsString("NSFont")), uintptr(font),
+			uintptr(units([]rune(label+"\t"))), uintptr(units([]rune(badge))))
+	}
+	return title
+}
+
+// setItemTitle shows the label of it and, at the right-aligned tab stop
+// tab, its badge in a monospaced-digit font.
+func setItemTitle(item id, it *platform.MenuItem, tab float64) {
+	label := strings.ReplaceAll(it.Label, "\t", " ")
+	if it.Badge == "" || tab <= 0 {
+		send(item, "setAttributedTitle:", 0)
+		send(item, "setTitle:", uintptr(nsString(label)))
+		return
+	}
+	send(item, "setAttributedTitle:", uintptr(menuTitle(it.Label, it.Badge, tab)))
+}
+
+// The layout of the view of an item that keeps its menu open: a check
+// mark column, the label and its badge, and room after them.
+const (
+	menuKeepOpenHeight = 22
+	menuKeepOpenLabelX = 26
+	menuKeepOpenRight  = 10
+	menuViewBackdrop   = 1
+	menuViewCheck      = 2
+	menuViewLabel      = 3
+)
+
+// keepOpenMetrics returns the x badges end at in the views of m's KeepOpen
+// items and the width those views share, zero when it has none.
+func keepOpenMetrics(m *platform.Menu) (tab, width float64) {
+	found := false
+	for _, it := range m.Items {
+		if it.Visible && it.KeepOpen && it.Submenu == nil && it.Type != platform.MenuItemSeparator {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return 0, 0
+	}
+	labelFont := menuFont()
+	hasBadge := false
+	var maxLabel, maxBadge float64
+	for _, it := range m.Items {
+		if !it.Visible || !it.KeepOpen || it.Submenu != nil || it.Type == platform.MenuItemSeparator {
+			continue
+		}
+		maxLabel = max(maxLabel, textWidth(it.Label, labelFont))
+		if it.Badge != "" {
+			hasBadge = true
+			maxBadge = max(maxBadge, textWidth(it.Badge, menuBadgeFont()))
+		}
+	}
+	tab = maxLabel
+	if hasBadge {
+		tab = maxLabel + menuBadgeGap + maxBadge
+	}
+	return tab, menuKeepOpenLabelX + tab + menuKeepOpenRight
+}
+
+// buildKeepOpenView returns the view of an item that keeps its menu open:
+// MyGo draws the check mark, label and badge, and handles the mouse itself
+// so NSMenu does not end its tracking when the item is clicked.
+func buildKeepOpenView(it *platform.MenuItem, metrics menuMetrics) id {
+	width := max(metrics.keepOpenWidth, menuKeepOpenLabelX+120)
+	view := autorelease(msgInitRect(send(class("MyGoMenuKeepOpenView"), "alloc"),
+		sel("initWithFrame:"), NSRect{Size: NSSize{width, menuKeepOpenHeight}}))
+	send(view, "setIdentifier:", uintptr(nsString(strconv.Itoa(it.ID))))
+	send(view, "setWantsLayer:", 1)
+	send(view, "setAutoresizingMask:", 2) // NSViewWidthSizable
+	layer := send(view, "layer")
+	if layer != 0 {
+		backdrop := autorelease(send(send(class("CALayer"), "alloc"), "init"))
+		msgSetRect(backdrop, sel("setFrame:"), NSRect{
+			Origin: NSPoint{X: 4, Y: 1},
+			Size:   NSSize{Width: width - 8, Height: menuKeepOpenHeight - 2},
+		})
+		msgSetFloat(backdrop, sel("setCornerRadius:"), 4)
+		send(backdrop, "setHidden:", 1)
+		send(layer, "addSublayer:", uintptr(backdrop))
+	}
+
+	check := autorelease(msgInitRect(send(class("NSImageView"), "alloc"), sel("initWithFrame:"),
+		NSRect{Origin: NSPoint{X: 6, Y: (menuKeepOpenHeight - 14) / 2}, Size: NSSize{Width: 14, Height: 14}}))
+	send(check, "setImage:", uintptr(send(class("NSImage"), "imageNamed:", uintptr(nsString("NSMenuOnStateTemplate")))))
+	send(check, "setTag:", menuViewCheck)
+	send(view, "addSubview:", uintptr(check))
+
+	label := autorelease(msgInitRect(send(class("NSTextField"), "alloc"), sel("initWithFrame:"),
+		NSRect{Origin: NSPoint{X: menuKeepOpenLabelX, Y: 2},
+			Size: NSSize{Width: width - menuKeepOpenLabelX - 4, Height: menuKeepOpenHeight - 4}}))
+	send(label, "setBezeled:", 0)
+	send(label, "setEditable:", 0)
+	send(label, "setSelectable:", 0)
+	send(label, "setDrawsBackground:", 0)
+	send(label, "setAlignment:", 0)
+	send(label, "setFont:", uintptr(menuFont()))
+	send(label, "setTag:", menuViewLabel)
+	send(label, "setAutoresizingMask:", 2) // NSViewWidthSizable
+	send(label, "setAttributedStringValue:", uintptr(menuTitle(it.Label, it.Badge, metrics.keepOpenTab)))
+	send(view, "addSubview:", uintptr(label))
+
+	const options = 0x01 | 0x80 | 0x200 // entered/exited, active always, visible rect
+	tracking := msgInitMenuTrack(send(class("NSTrackingArea"), "alloc"),
+		sel("initWithRect:options:owner:userInfo:"), NSRect{}, options, view, 0)
+	send(view, "addTrackingArea:", uintptr(tracking))
+	release(tracking)
+	return view
+}
+
+// updateKeepOpenView follows the state of it in the view of a KeepOpen item.
+func updateKeepOpenView(view id, it *platform.MenuItem, tab float64) {
+	send(view, "setIdentifier:", uintptr(nsString(strconv.Itoa(it.ID))))
+	if label := send(view, "viewWithTag:", menuViewLabel); label != 0 {
+		send(label, "setAttributedStringValue:", uintptr(menuTitle(it.Label, it.Badge, tab)))
+	}
+	if check := send(view, "viewWithTag:", menuViewCheck); check != 0 {
+		checked := it.Checked && (it.Type == platform.MenuItemCheckbox || it.Type == platform.MenuItemRadio)
+		send(check, "setHidden:", boolArg(!checked))
+	}
+	alpha := 1.0
+	if !it.Enabled {
+		alpha = 0.45
+	}
+	msgSetFloat(view, sel("setAlphaValue:"), alpha)
+	setMenuViewColors(view)
+}
+
+// menuBackdrop returns the selection layer of a KeepOpen view.
+func menuBackdrop(view id) id {
+	sublayers := send(send(view, "layer"), "sublayers")
+	if sublayers == 0 {
+		return 0
+	}
+	layers := arrayItems(sublayers)
+	if len(layers) == 0 {
+		return 0
+	}
+	return layers[0]
+}
+
+// setMenuViewHighlighted shows the selection of a KeepOpen view under the
+// mouse, as NSMenu does for the items it draws itself.
+func setMenuViewHighlighted(view id, on bool) {
+	if backdrop := menuBackdrop(view); backdrop != 0 {
+		if on {
+			color := send(class("NSColor"), "selectedContentBackgroundColor")
+			send(backdrop, "setBackgroundColor:", uintptr(send(color, "CGColor")))
+		}
+		send(backdrop, "setHidden:", boolArg(!on))
+	}
+	setMenuViewColors(view)
+}
+
+// setMenuViewColors colors the label of a KeepOpen view for its state.
+func setMenuViewColors(view id) {
+	label := send(view, "viewWithTag:", menuViewLabel)
+	if label == 0 {
+		return
+	}
+	name := "labelColor"
+	if backdrop := menuBackdrop(view); backdrop != 0 && !sendBool(backdrop, "isHidden") {
+		name = "alternateSelectedControlTextColor"
+	} else if item := send(view, "enclosingMenuItem"); item != 0 && !sendBool(item, "isEnabled") {
+		name = "disabledControlTextColor"
+	}
+	send(label, "setTextColor:", uintptr(send(class("NSColor"), name)))
 }
 
 func applyItemState(item id, it *platform.MenuItem) {
@@ -175,8 +464,12 @@ func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 				send(n.item, "setEnabled:", boolArg(it.Enabled))
 				continue
 			}
+			var view id
 			if it.Type != platform.MenuItemSeparator {
-				send(n.item, "setTitle:", uintptr(nsString(it.Label)))
+				view = send(n.item, "view")
+				if view == 0 {
+					setItemTitle(n.item, it, n.badgeTab)
+				}
 				if sub := send(n.item, "submenu"); sub != 0 {
 					send(sub, "setTitle:", uintptr(nsString(it.Label)))
 				}
@@ -184,6 +477,9 @@ func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 				send(n.item, "setKeyEquivalentModifierMask:", uintptr(mods))
 			}
 			applyItemState(n.item, it)
+			if view != 0 {
+				updateKeepOpenView(view, it, n.badgeTab)
+			}
 		}
 	})
 }

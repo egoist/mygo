@@ -90,7 +90,19 @@ type MenuItem struct {
 	// ID identifies the item for Menu.ItemByID.
 	ID    string
 	Label string
-	Type  MenuItemType
+	// Badge is text at the trailing edge of the item, such as a count or a
+	// latency. macOS aligns the badges of a menu with an attributed title
+	// and draws them in a monospaced-digit font. Other platforms show it
+	// after the label.
+	Badge string
+	// KeepOpen keeps the menu open when the item is chosen (macOS): the
+	// item's menu and the menu above it stay up, so choosing a node or
+	// starting a test can show its state change without reopening the
+	// menus. macOS draws such an item itself, with its label, badge and
+	// check mark; items with a submenu, and menus elsewhere, are not
+	// affected.
+	KeepOpen bool
+	Type     MenuItemType
 	// Role gives the item a predefined behavior; Label and Accelerator
 	// default to the role's.
 	Role MenuRole
@@ -259,6 +271,9 @@ func (it *MenuItem) IsChecked() bool { return it.get(func() bool { return it.Che
 // SetLabel changes the label of the item.
 func (it *MenuItem) SetLabel(label string) { it.update(func() { it.Label = label }) }
 
+// SetBadge changes the badge of the item, empty to remove it.
+func (it *MenuItem) SetBadge(badge string) { it.update(func() { it.Badge = badge }) }
+
 // SetAccelerator changes the keyboard shortcut of the item.
 func (it *MenuItem) SetAccelerator(acc string) { it.update(func() { it.Accelerator = acc }) }
 
@@ -417,6 +432,8 @@ func (it *MenuItem) snapshotLocked() *platform.MenuItem {
 	p := &platform.MenuItem{
 		ID:          it.uid,
 		Label:       it.Label,
+		Badge:       it.Badge,
+		KeepOpen:    it.KeepOpen,
 		Role:        string(it.Role),
 		Accelerator: it.Accelerator,
 		Enabled:     !it.Disabled,

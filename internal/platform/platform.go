@@ -753,6 +753,8 @@ type MenuItem struct {
 	ID          int
 	Type        MenuItemType
 	Label       string
+	Badge       string
+	KeepOpen    bool
 	Role        string
 	Accelerator string
 	Enabled     bool
@@ -760,6 +762,15 @@ type MenuItem struct {
 	Checked     bool
 	ToolTip     string
 	Submenu     *Menu
+}
+
+// LabelWithBadge returns the label followed by its badge, for platforms
+// that draw no trailing badge of their own.
+func (it *MenuItem) LabelWithBadge() string {
+	if it.Badge == "" {
+		return it.Label
+	}
+	return it.Label + "  " + it.Badge
 }
 
 // FileFilter restricts the files shown in file dialogs.
