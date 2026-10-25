@@ -47,6 +47,11 @@ A `MenuItem` has:
 - `Subtitle`, a second, smaller line under the label. macOS 14 and browsers
   show it so; earlier macOS, Windows and Linux show it after the label, as
   `Label — Subtitle`;
+- `Badge`, text at the trailing edge of the item, as a count or a latency.
+  macOS aligns the badges of a menu with a right-aligned tab stop, after
+  its longest label (and subtitle, where that follows it), and draws them
+  in a monospaced-digit font, so a measure keeps its width as its digits
+  change. Other platforms show it after the label and subtitle;
 - `ID`, to find the item with `Menu.ItemByID`;
 - `Role`, a built-in behavior with its label and accelerator.
 
@@ -106,7 +111,7 @@ the state the app gave them. An item the app disables stays disabled.
 ### Changing items
 
 Change items of a menu in use with their methods, so that the native menu
-follows: `SetLabel`, `SetEnabled`, `SetVisible`, `SetChecked`,
+follows: `SetLabel`, `SetBadge`, `SetEnabled`, `SetVisible`, `SetChecked`,
 `SetAccelerator`, `SetSubtitle` and `SetIcon`:
 
 ```go
