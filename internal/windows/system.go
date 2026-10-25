@@ -380,9 +380,15 @@ func (theme) UIFont() string { return "" }
 
 func (theme) FontRendering() platform.FontRendering { return platform.FontRendering{} }
 
+// SetSource applies the appearance and, as macOS's KVO of the effective
+// appearance does, reports it only when the effective appearance changed.
 func (t theme) SetSource(source string) {
+	was := t.b.isDark()
 	t.b.themeSource = source
 	t.b.applyTheme()
+	if t.b.isDark() != was {
+		t.b.h.ThemeChanged()
+	}
 }
 
 const (
@@ -474,6 +480,9 @@ func (b *Backend) applyTheme() {
 	for _, w := range b.windows {
 		b.applyWindowTheme(w)
 		w.withWebView(func() { b.applyWebViewTheme(w) })
+		for _, v := range w.webViews {
+			v.withWebView(func() { b.applyWebViewTheme(v) })
+		}
 	}
 }
 
@@ -494,13 +503,48 @@ func (b *Backend) applyWindowTheme(w *window) {
 	}
 }
 
+// COREWEBVIEW2_PREFERRED_COLOR_SCHEME
+const (
+	preferredColorSchemeAuto = iota
+	preferredColorSchemeLight
+	preferredColorSchemeDark
+)
+
 // applyWebViewTheme makes prefers-color-scheme follow an overridden
-// appearance; "system" leaves it to WebView2.
+// appearance, for every web view of the profile of w's: the scheme is the
+// profile's, which WebView2 applies to its web views, those of windows and
+// of native UI, hidden ones too, at once. A runtime older than 1.0.1054.31
+// has no ICoreWebView2_13 and keeps the system's.
 func (b *Backend) applyWebViewTheme(w *window) {
-	value := ""
-	switch b.themeSource {
-	case "dark", "light":
-		value = b.themeSource
+	wv13 := queryInterface(w.webview, &iidICoreWebView2_13)
+	if wv13 == 0 {
+		return
 	}
-	w.devtools("Emulation.setEmulatedMedia", `{"features":[{"name":"prefers-color-scheme","value":"`+value+`"}]}`, nil)
+	defer release(wv13)
+	var profile uintptr
+	comCall(wv13, wv13GetProfile, uintptr(unsafe.Pointer(&profile)))
+	if profile == 0 {
+		return
+	}
+	defer release(profile)
+	b.applyProfileTheme(profile)
+}
+
+// preferredColorScheme is the COREWEBVIEW2_PREFERRED_COLOR_SCHEME of a
+// theme source: the appearance an app overrides, and WebView2's own
+// (the system's) for "system".
+func preferredColorScheme(source string) uintptr {
+	switch source {
+	case "light":
+		return preferredColorSchemeLight
+	case "dark":
+		return preferredColorSchemeDark
+	}
+	return preferredColorSchemeAuto
+}
+
+// applyProfileTheme sets the color scheme of a WebView2 profile. Every
+// profile of the app needs it when it is created.
+func (b *Backend) applyProfileTheme(profile uintptr) {
+	comCall(profile, profilePutPreferredColorScheme, preferredColorScheme(b.themeSource))
 }

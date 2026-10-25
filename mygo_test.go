@@ -2248,3 +2248,27 @@ func TestSingleInstance(t *testing.T) {
 		t.Fatal("OnOpenURL not called for the forwarded URL")
 	}
 }
+
+// SetSource tells OnUpdated's listeners, once for each call, with the
+// effective appearance it set already.
+func TestThemeSourceUpdates(t *testing.T) {
+	defer Theme.SetSource(ThemeSystem)
+	var dark []bool
+	off := Theme.OnUpdated(func() { dark = append(dark, Theme.IsDark()) })
+	defer off()
+	for _, s := range []ThemeSource{ThemeDark, ThemeLight, ThemeSystem} {
+		Theme.SetSource(s)
+	}
+	want := []bool{true, false, false}
+	if len(dark) != len(want) {
+		t.Fatalf("OnUpdated fired %d times, want %d", len(dark), len(want))
+	}
+	for i := range want {
+		if dark[i] != want[i] {
+			t.Errorf("Theme.IsDark() in call %d's OnUpdated = %v, want %v", i+1, dark[i], want[i])
+		}
+	}
+	if Theme.Source() != ThemeSystem {
+		t.Errorf("Source = %q", Theme.Source())
+	}
+}
