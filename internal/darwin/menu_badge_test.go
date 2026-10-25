@@ -10,7 +10,12 @@ import (
 
 // titleTab returns the x the badge of item ends at, zero when it has none.
 func titleTab(item id) float64 {
-	title := send(item, "attributedTitle")
+	return attributedTab(send(item, "attributedTitle"))
+}
+
+// attributedTab returns the right-aligned tab stop of a title, zero when it
+// has none.
+func attributedTab(title id) float64 {
 	if title == 0 {
 		return 0
 	}
