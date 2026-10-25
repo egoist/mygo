@@ -3,6 +3,7 @@
 package windows
 
 import (
+	"log"
 	"math"
 	"time"
 	"unicode/utf16"
@@ -150,6 +151,9 @@ type surface struct {
 	// redirection bitmap, where GDI cannot (compositor.go); nil while none
 	// shows.
 	comp *compositor
+	// gdiFailed tells that SetDIBitsToDevice refused a frame, which was
+	// logged once.
+	gdiFailed bool
 
 	// layer holds the web views under the frames, once there are some
 	// (webview_embed.go): placed are where the content shows them, and
@@ -216,8 +220,12 @@ func (s *surface) Native() platform.SurfaceNative {
 func (s *surface) viaComposition() bool { return s.w.noRedirect || s.layer != nil }
 
 // ShowsMaterial reports whether the window shows its material behind the
-// content: it has one, and no redirection bitmap to cover it.
-func (s *surface) ShowsMaterial() bool { return s.w.noRedirect && s.w.vibrancy != "" }
+// content: it has one, no redirection bitmap to cover it, and DWM draws
+// materials. A flyout has no redirection bitmap before Windows 11 22H2 as
+// well, to show what is behind it, but no material there.
+func (s *surface) ShowsMaterial() bool {
+	return s.w.noRedirect && s.w.vibrancy != "" && systemBackdrops()
+}
 
 func (s *surface) freeComp() {
 	if s.comp != nil {
@@ -290,8 +298,12 @@ func (s *surface) PresentPixels(pix []byte, stride, width, height int) {
 	}
 	bi := bitmapInfoHeader{Width: int32(stride / 4), Height: -int32(height), Planes: 1, BitCount: 32}
 	bi.Size = uint32(unsafe.Sizeof(bi))
-	procSetDIBitsToDevice.Call(dc, 0, 0, uintptr(width), uintptr(height), 0, 0, 0, uintptr(height),
+	lines, _, _ := procSetDIBitsToDevice.Call(dc, 0, 0, uintptr(width), uintptr(height), 0, 0, 0, uintptr(height),
 		uintptr(unsafe.Pointer(&pix[0])), uintptr(unsafe.Pointer(&bi)), 0)
+	if lines == 0 && !s.gdiFailed {
+		s.gdiFailed = true
+		log.Printf("mygo: native UI shows nothing: SetDIBitsToDevice drew no lines of a %dx%d frame", width, height)
+	}
 }
 
 func (s *surface) SetCursor(c platform.Cursor) {

@@ -543,6 +543,19 @@ func (s *surface) sideButton(kind platform.SurfaceEventKind, back bool, mods pla
 	}
 }
 
+// swipeBack reports whether a swipe of deltaX goes back, as Safari and
+// WebKit read swipeWithEvent:'s deltaX: positive, a swipe to the left,
+// goes back, negative forward; ok is false for a vertical swipe.
+func swipeBack(deltaX float64) (back, ok bool) {
+	switch {
+	case deltaX > 0:
+		return true, true
+	case deltaX < 0:
+		return false, true
+	}
+	return false, false
+}
+
 func (s *surface) mouse(kind platform.SurfaceEventKind, ev id, button int) {
 	x, y := s.location(ev)
 	s.send(platform.SurfaceEvent{Kind: kind, X: x, Y: y, Button: button, Clicks: sendInt(ev, "clickCount"), Mods: eventMods(ev)})
@@ -868,11 +881,12 @@ func registerSurfaceClass() {
 			x, y := s.location(ev)
 			dx, dy := msgFloat(ev, sel("scrollingDeltaX")), msgFloat(ev, sel("scrollingDeltaY"))
 			precise := sendBool(ev, "hasPreciseScrollingDeltas")
+			momentum := sendInt(ev, "momentumPhase") != 0
 			if !precise {
 				// A mouse wheel scrolls by lines: 40 DIPs, as in browsers.
 				dx, dy = dx*40, dy*40
 			}
-			s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: -dx, DY: -dy, Precise: precise, Mods: eventMods(ev)})
+			s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: -dx, DY: -dy, Precise: precise, Momentum: momentum, Mods: eventMods(ev)})
 		}),
 		method("magnifyWithEvent:", func(self id, _ objc.SEL, ev id) {
 			s := b().surfaceOf(self)
@@ -883,6 +897,21 @@ func registerSurfaceClass() {
 			// its last event, as a fraction of its size then.
 			x, y := s.location(ev)
 			s.send(platform.SurfaceEvent{Kind: platform.PointerZoom, X: x, Y: y, Scale: 1 + msgFloat(ev, sel("magnification")), Mods: eventMods(ev)})
+		}),
+		method("swipeWithEvent:", func(self id, _ objc.SEL, ev id) {
+			s := b().surfaceOf(self)
+			if s == nil {
+				return
+			}
+			// A swipe goes back and forward, as the side buttons do: the
+			// buttons of mice whose makers' software sends swipes for
+			// them, as Logi Options+ does, and touchpads set to swipe
+			// between pages.
+			if back, ok := swipeBack(msgFloat(ev, sel("deltaX"))); ok {
+				mods := eventMods(ev)
+				s.sideButton(platform.PointerDown, back, mods)
+				s.sideButton(platform.PointerUp, back, mods)
+			}
 		}),
 		method("keyDown:", func(self id, _ objc.SEL, ev id) {
 			s := b().surfaceOf(self)

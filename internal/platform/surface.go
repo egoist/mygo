@@ -264,9 +264,11 @@ type SurfaceEvent struct {
 	Button int
 	Clicks int
 	// DX and DY are scroll distances in DIPs; Precise marks touchpads and
-	// other devices that scroll by pixels rather than by lines.
-	DX, DY  float64
-	Precise bool
+	// other devices that scroll by pixels rather than by lines. Momentum
+	// marks scrolling that continues after the fingers leave a touchpad.
+	DX, DY   float64
+	Precise  bool
+	Momentum bool
 	// Scale is PointerZoom's.
 	Scale float64
 	Key   Key
@@ -392,7 +394,8 @@ const (
 	KeyY
 	KeyZ
 	// KeyBack and KeyForward go back and forward in a history: the side
-	// buttons of a mouse, and the keys of keyboards that have them.
+	// buttons of a mouse, the keys of keyboards that have them, and on
+	// macOS swipes between pages.
 	KeyBack
 	KeyForward
 )
