@@ -37,6 +37,11 @@ type host interface {
 	afterTimer(at time.Time)
 	repaintTimer(at time.Time)
 	setCursor(Cursor)
+	// nativeTooltips reports whether the system shows Tooltip's tips, to
+	// which setTooltip gives the tip of the element under the pointer and
+	// where it is, the empty text for none.
+	nativeTooltips() bool
+	setTooltip(text string, r Rect)
 	setTextInput(t platform.TextInputState)
 	updateAccessibility(tree *platform.AccessTree)
 	readClipboard() string
@@ -427,6 +432,7 @@ type engine struct {
 	collect    bool
 	labels     []labelNode
 	tips       tooltips
+	nativeTip  nativeTip
 	scrollDrag scrollDrag
 	// wheeling are the elements of the scroll containers that the notches
 	// of a mouse wheel scroll smoothly (glideWheels).
@@ -661,6 +667,7 @@ func (rt *engine) runFrame() {
 	rt.regs, rt.nextRegs = rt.nextRegs, rt.regs
 	rt.updateTextInput()
 	rt.updateCursor()
+	rt.updateNativeTip()
 	if rt.access {
 		rt.host.updateAccessibility(rt.accessTree())
 	}
@@ -1137,7 +1144,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		// disabled after building it, as a Fieldset.
 		s.flags |= flagDisabled
 	}
-	s.cursor, s.tip = e.cursor, e.tip
+	s.cursor, s.tip, s.tipText = e.cursor, e.tip, e.tipText
 	s.webView = e.webView
 	s.role = e.role
 	s.input, s.caret, s.takesText, s.noIME = e.inputFn, e.caret, e.takesText, e.noIME

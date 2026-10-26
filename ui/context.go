@@ -523,8 +523,10 @@ type state struct {
 	parent         uint64
 	flags          uint32
 	cursor         Cursor
-	// tip marks an element with a tooltip (TooltipBase).
-	tip bool
+	// tip marks an element with a tooltip (TooltipBase), and tipText one
+	// the system shows (Tooltip).
+	tip     bool
+	tipText string
 	// effectLayer is what the element and its children render into for
 	// its Effect, kept from frame to frame.
 	effectLayer *Canvas

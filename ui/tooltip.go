@@ -91,8 +91,10 @@ func tooltipBase(c *context, anchor *node, fn func(tip *node)) (*node, bool) {
 
 // Tooltip shows s by the element when the pointer rests on it, or the
 // keyboard focus comes to it, as TooltipBase does: above the element,
-// centered, or below it where there is no room above. It describes the
-// element to assistive technology where Description does not.
+// centered, or below it where there is no room above. Where the system
+// shows tips (macOS), the pointer's is the system's, as it shows its own;
+// the keyboard focus's is drawn still. It describes the element to
+// assistive technology where Description does not.
 func (e *node) Tooltip(s string) *node {
 	if e.description == "" {
 		e.description = s
@@ -101,6 +103,9 @@ func (e *node) Tooltip(s string) *node {
 		return e
 	}
 	c := e.c
+	if c.rt.host.nativeTooltips() {
+		e.tipText = s
+	}
 	t := c.theme
 	fill, text := t.inverse()
 	tooltipBase(c, e, func(tip *node) {
@@ -113,10 +118,56 @@ func (e *node) Tooltip(s string) *node {
 	return e
 }
 
+// nativeTip is the tip the system shows: its text and where the element
+// shows it, in the window.
+type nativeTip struct {
+	text string
+	r    Rect
+}
+
+// hoverTip returns the innermost element under the pointer with a tip,
+// of either kind, and whether the system shows it: one the system shows
+// whether the element is disabled or not, as AppKit shows a disabled
+// button's, a drawn one only while it is enabled.
+func (rt *engine) hoverTip() (id uint64, native bool) {
+	for _, id := range rt.hover {
+		s := rt.states[id]
+		switch {
+		case s == nil:
+		case s.tipText != "":
+			return id, true
+		case s.tip && s.flags&flagDisabled == 0:
+			return id, false
+		}
+	}
+	return 0, false
+}
+
+// updateNativeTip gives the host the tip of the innermost element with one
+// under the pointer, where the system shows it (hoverTip), for the system
+// to show as it does its own; none while a drawn tip shows, as of the
+// keyboard focus, so one shows at a time.
+func (rt *engine) updateNativeTip() {
+	if !rt.host.nativeTooltips() {
+		return
+	}
+	var tip nativeTip
+	if rt.pressed == nil && rt.scrollDrag.st == nil && rt.tips.shown == 0 && !rt.overWebView() {
+		if id, native := rt.hoverTip(); native {
+			s := rt.states[id]
+			tip = nativeTip{s.tipText, Rect{s.vx, s.vy, s.vw, s.vh}}
+		}
+	}
+	if tip != rt.nativeTip {
+		rt.nativeTip = tip
+		rt.host.setTooltip(tip.text, tip.r)
+	}
+}
+
 // showTooltip returns the element whose tip shows in the frame, deciding it
 // once: the innermost element with a tip under the pointer once it has
-// rested there long enough, or the one with the keyboard focus from the
-// keyboard, whichever came last.
+// rested there long enough, unless the system shows that one's, or the
+// one with the keyboard focus from the keyboard, whichever came last.
 func (rt *engine) showTooltip(c *context) uint64 {
 	t := &rt.tips
 	if t.frame == rt.frame && t.pass == rt.pass {
@@ -132,12 +183,9 @@ func (rt *engine) showTooltip(c *context) uint64 {
 		s := rt.states[id]
 		return s != nil && s.tip && s.flags&flagDisabled == 0
 	}
-	var hover uint64
-	for _, id := range rt.hover {
-		if tipped(id) {
-			hover = id
-			break
-		}
+	hover, native := rt.hoverTip()
+	if native {
+		hover = 0
 	}
 	if hover != t.hover {
 		t.hover, t.hoverSince = hover, now

@@ -126,6 +126,9 @@ type surface struct {
 	framePass uint64
 	cursor    platform.Cursor
 	inside    bool
+	// tip is the string AppKit shows as the tooltip of the element under
+	// the pointer (SetTooltip), which it does not keep itself.
+	tip id
 	ctrlClick bool // the primary button is down for a Control-click
 
 	// input is the state of the text input with the keyboard; marked is
@@ -181,6 +184,7 @@ func (s *surface) destroy() {
 		s.link = 0
 	}
 	s.destroyAccess()
+	s.SetTooltip("", platform.RectF{})
 	send(s.view, "removeTrackingArea:", uintptr(s.tracking))
 	release(s.tracking)
 	delete(s.w.b.bySurface, s.view)
@@ -474,6 +478,26 @@ func (s *surface) SetCursor(c platform.Cursor) {
 	if s.inside {
 		s.applyCursor()
 	}
+}
+
+// SetTooltip gives AppKit the tip of the area r of the view, which it shows
+// as its own: once the pointer rests there, by the pointer, and gone as it
+// leaves or presses. The string is the tip's owner, whose description, the
+// text, AppKit shows.
+func (s *surface) SetTooltip(text string, r platform.RectF) {
+	withPool(func() {
+		send(s.view, "removeAllToolTips")
+		if s.tip != 0 {
+			release(s.tip)
+			s.tip = 0
+		}
+		if text == "" || r.W <= 0 || r.H <= 0 {
+			return
+		}
+		s.tip = retain(nsString(text))
+		rect := NSRect{Origin: NSPoint{r.X, r.Y}, Size: NSSize{r.W, r.H}}
+		msgRectIDUint(s.view, sel("addToolTipRect:owner:userData:"), rect, s.tip, 0)
+	})
 }
 
 func (s *surface) SetTextInput(t platform.TextInputState) {

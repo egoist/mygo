@@ -64,6 +64,16 @@ type DamageSurface interface {
 	PresentDamage(pix []byte, stride, width, height int, damage []image.Rectangle)
 }
 
+// TooltipSurface is a Surface that shows tooltips of its own, as the
+// system draws them (macOS's): the content gives it the tip of the element
+// under the pointer instead of drawing one.
+type TooltipSurface interface {
+	// SetTooltip shows text as the tip of the area r, in DIPs from the
+	// surface's top left, once the pointer rests in it as the system
+	// times it; empty text for none.
+	SetTooltip(text string, r RectF)
+}
+
 // OccludableSurface is a Surface that tells when nothing of it shows, as
 // when other windows cover its window, while the system may still give it
 // frames: the content then draws nothing that moves until it shows again.
