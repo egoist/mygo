@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"log"
 	"net/url"
 	"os"
@@ -76,6 +77,16 @@ type WindowOptions struct {
 	X, Y                int
 	MinWidth, MinHeight int
 	MaxWidth, MaxHeight int
+	// FitContent sizes the page area to its page's content, and follows
+	// it as it changes, as FlyoutOptions.FitContent sizes a flyout: a
+	// panel showing a launcher's results, say. Width and Height are its
+	// size until the page tells its own. MinWidth, MinHeight, MaxWidth
+	// and MaxHeight bound it, and the work area of its display. It changes
+	// only when the content's size does, and only in the dimension that
+	// changed, so a size the user gives a resizable window holds until
+	// then, and not while the window is maximized or in full screen.
+	// Native UI (Content) does not fit.
+	FitContent bool
 
 	// Hidden creates the window without showing it. Call Show, typically
 	// from OnReadyToShow, to avoid a blank window while the page loads.
@@ -144,6 +155,14 @@ type WindowOptions struct {
 	// material can show one, and it has no menu bar: Alt and F10 open its
 	// menus in a popup.
 	Vibrancy Vibrancy
+	// CornerRadius rounds a frameless window's corners on macOS, in DIPs:
+	// its content and material are cut to them, and its shadow follows
+	// them, as a launcher's or a floating panel's. The window need not be
+	// Transparent: its BackgroundColor fills its content, inside the
+	// corners. Windows 11 rounds a
+	// frameless window given one with the corners of its own windows,
+	// whatever the radius; Linux does not round it.
+	CornerRadius int
 	// Opacity of the window between 0 and 1 (default 1).
 	Opacity float64
 	// Parent makes this window a child window that stays on top of it.
@@ -229,6 +248,9 @@ type Window struct {
 	flyoutSize platform.Size
 	// panel is WindowOptions.Panel.
 	panel bool
+	// fit sizes a window that takes its page's size (FitContent), nil
+	// for others. Main thread only.
+	fit *fitContent
 	// host is the window a web view is in, for the page of a web view
 	// (webView); webViews are the pages of a window's web views, guarded
 	// by the lock of windows.
@@ -331,6 +353,22 @@ type Window struct {
 	onDidFinishLoad    listeners[func()]
 	onDidFailLoad      listeners[func(*LoadError)]
 	onRenderGone       listeners[func(string)]
+
+	// themeColor is the page's theme color, as its bridge told it, and
+	// hasThemeColor whether it has one. themeColorPending is set from a
+	// navigation's commit until the new page tells its color, which it
+	// does by the time its DOM is ready; a page without the bridge (an
+	// image) never does, and has none once it loaded. Main thread only.
+	themeColor          platform.Color
+	hasThemeColor       bool
+	themeColorPending   bool
+	onThemeColorChanged listeners[func(color.NRGBA, bool)]
+
+	// audible is what the backend last told of the page's sound
+	// (AudibleChanged), so that listeners hear only changes. Main thread
+	// only.
+	audible          bool
+	onAudibleChanged listeners[func(bool)]
 }
 
 // LoadError describes a failed page load.
@@ -352,6 +390,11 @@ type WindowOpenRequest struct {
 	// Width and Height requested through window.open() features; 0 when
 	// not specified.
 	Width, Height int
+	// UserInitiated is true when a user's gesture opened the window: a
+	// click on the link, or a click or key press whose handler called
+	// window.open(). It is false for a window a script opened on its own,
+	// as a pop-up from a timer or at load, which a handler may refuse.
+	UserInitiated bool
 }
 
 var windows struct {
@@ -433,6 +476,16 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyou
 
 	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, secret: randomText(), stateKey: opts.StateKey, background: bg, content: opts.Content, panel: opts.Panel && flyout == nil}
 	w.pg = &Page{w}
+	if opts.Content == nil {
+		if flyout != nil {
+			w.fit = flyout.fit
+		} else if opts.FitContent {
+			w.fit = &fitContent{
+				min: platform.Size{Width: opts.MinWidth, Height: opts.MinHeight},
+				max: platform.Size{Width: opts.MaxWidth, Height: opts.MaxHeight},
+			}
+		}
+	}
 	w.hiddenTitleBar = !opts.Frameless && (opts.TitleBarStyle == TitleBarHidden || opts.TitleBarStyle == TitleBarHiddenInset)
 	w.resetPage()
 	popts := w.platformOptions(&opts)
@@ -471,6 +524,8 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyou
 	}
 	if w.content != nil {
 		w.attachContent()
+	} else {
+		startContentRules(nw, opts.Page.ContentRules)
 	}
 
 	windows.Lock()
@@ -518,6 +573,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		TitleBarHeight:    max(o.TitleBarHeight, 0),
 		HideWindowButtons: o.HideWindowButtons,
 		Vibrancy:          string(o.Vibrancy),
+		CornerRadius:      max(o.CornerRadius, 0),
 		Opacity:           o.Opacity,
 		Modal:             o.Modal,
 		UserAgent:         po.UserAgent,
@@ -555,6 +611,9 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		p.Parent = o.Parent.native
 	}
 	w.preload = po.PreloadScript
+	if w.fit != nil {
+		w.fit.zoom = p.Zoom
+	}
 	p.UserScripts = w.pageScripts()
 	// Kept to replace the preferences' and the locale's (sendPreferences,
 	// pagesLocaleChanged).
@@ -973,7 +1032,8 @@ func (w *Window) SetOpacity(v float64) {
 // Opacity returns the window opacity.
 func (w *Window) Opacity() float64 { return get(w, platform.Window.Opacity) }
 
-// SetHasShadow sets whether the window has a shadow.
+// SetHasShadow sets whether the window has a shadow. On Linux a window
+// keeps the shadow it was created with (DisableShadow).
 func (w *Window) SetHasShadow(v bool) { w.do(func(n platform.Window) { n.SetHasShadow(v) }) }
 
 // HasShadow reports whether the window has a shadow.
@@ -982,6 +1042,32 @@ func (w *Window) HasShadow() bool { return get(w, platform.Window.HasShadow) }
 // SetIgnoreMouseEvents makes the window transparent to mouse events.
 func (w *Window) SetIgnoreMouseEvents(v bool) {
 	w.do(func(n platform.Window) { n.SetIgnoreMouseEvents(v) })
+}
+
+// SetActiveAppearance keeps the window drawn as active, the key window of
+// the app in front, while it is not (macOS): its controls and material keep
+// their active look, as the clear Liquid Glass (VibrancyGlassClear) stays
+// clear in a panel floating over another app, which never is active and
+// whose glass the system would frost. It uses AppKit's private
+// _setForceMainAppearance:, which a later macOS may drop: the window then
+// looks as any other. Apps for the Mac App Store should not call it.
+func (w *Window) SetActiveAppearance(v bool) {
+	w.do(func(n platform.Window) { n.SetActiveAppearance(v) })
+}
+
+// SetWindowButtonsTheme draws the window controls of a window with a
+// hidden title bar (TitleBarStyle) for a light or a dark background,
+// whatever the app's appearance, for a page whose title bar differs from
+// it, as a dark view under the controls of a light app: ThemeDark draws
+// light glyphs, ThemeLight dark ones, and ThemeSystem follows the app's
+// appearance again (Theme.SetSource). The page's prefers-color-scheme and
+// the menus keep the app's. Windows only: the traffic lights of macOS and
+// GTK's title buttons on Linux keep the app's appearance.
+func (w *Window) SetWindowButtonsTheme(s ThemeSource) {
+	if s == "" {
+		s = ThemeSystem
+	}
+	w.do(func(n platform.Window) { n.SetWindowButtonsTheme(string(s)) })
 }
 
 // SetContentProtection keeps the window content out of screenshots and
@@ -1256,7 +1342,7 @@ func (p *Page) SetZoomFactor(f float64) {
 	}
 	p.w.page(func(n platform.Window) {
 		n.SetZoom(f)
-		p.w.sendTitleBar() // the controls take other CSS pixels
+		p.w.zoomChanged()
 	})
 }
 
@@ -1268,6 +1354,22 @@ func (p *Page) SetUserAgent(ua string) { p.w.page(func(n platform.Window) { n.Se
 
 // UserAgent returns the user agent of the page.
 func (p *Page) UserAgent() string { return pageGet(p.w, platform.Window.UserAgent) }
+
+// ProcessID returns the ID of the operating system's process that runs
+// the page, 0 when it is unknown: before the web view started one, after
+// the window closed, for a window showing native UI, and on Linux. Which
+// process it is depends on the platform:
+//
+//   - macOS: the page's web content process (WebKit's
+//     com.apple.WebKit.WebContent), from WebKit's private
+//     -[WKWebView _webProcessIdentifier]; 0 when WebKit doesn't answer it.
+//     WebKit may give a page another process as it navigates to another
+//     site or after its process crashed, so ask again rather than keep it.
+//   - Windows: WebView2's browser process (msedgewebview2.exe), the
+//     parent of the page's renderer and other processes, which the app's
+//     web views share (ICoreWebView2::get_BrowserProcessId).
+//   - Linux: always 0, WebKitGTK has no API for the web process of a page.
+func (p *Page) ProcessID() int { return pageGet(p.w, platform.Window.ProcessID) }
 
 // OpenDevTools opens the web inspector (unless disabled with
 // PageOptions.DevTools).
@@ -1378,10 +1480,13 @@ func (e *EvalError) Error() string { return "mygo: javascript error: " + e.Messa
 // target="_blank" links. The handler returns the options of the window to
 // open, or nil to deny the request. Without a handler, http(s) URLs open in
 // the default browser and everything else is denied.
+// WindowOpenRequest.UserInitiated tells the windows a user opened from
+// the pop-ups a script opened on its own.
 //
-// On macOS the new page keeps its relation to the opener (window.opener).
-// On Linux it opens as an independent page, because WebKitGTK would share
-// the opener's script message routing with a related page.
+// On macOS and Windows the new page keeps its relation to the opener
+// (window.opener). On Linux it opens as an independent page, because
+// WebKitGTK would share the opener's script message routing with a
+// related page.
 func (p *Page) SetWindowOpenHandler(fn func(req WindowOpenRequest) *WindowOptions) {
 	p.w.mu.Lock()
 	p.w.openHandler = fn
@@ -1731,16 +1836,19 @@ func (h *windowHandler) NavigationCommitted(url string) {
 	h.w.domReady = false
 	h.w.outMu.Unlock()
 	h.w.resetPage()
+	h.w.themeColorPending = true
 	fire1(&h.w.onDidNavigate, url)
 }
 
 func (h *windowHandler) LoadFinished() {
+	h.w.themeColorSettled()
 	fire(&h.w.onDidFinishLoad)
 	// Pages without the bridge (e.g. images) never report DOM ready.
 	h.w.readyToShow()
 }
 
 func (h *windowHandler) LoadFailed(url string, code int, desc string) {
+	h.w.themeColorSettled()
 	fire1(&h.w.onDidFailLoad, &LoadError{URL: url, Code: code, Description: desc})
 }
 
@@ -1760,7 +1868,7 @@ func (h *windowHandler) NewWindow(req platform.NewWindowRequest) platform.Window
 	h.w.mu.Lock()
 	handler := h.w.openHandler
 	h.w.mu.Unlock()
-	r := WindowOpenRequest{URL: req.URL, FrameName: req.FrameName, Width: req.Width, Height: req.Height}
+	r := WindowOpenRequest{URL: req.URL, FrameName: req.FrameName, Width: req.Width, Height: req.Height, UserInitiated: req.UserInitiated}
 	if handler == nil {
 		if u, err := url.Parse(req.URL); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
 			go Shell.OpenExternal(req.URL)
@@ -1792,6 +1900,14 @@ func (h *windowHandler) ClosedByPage() {
 }
 
 func (h *windowHandler) RenderProcessGone(reason string) { fire1(&h.w.onRenderGone, reason) }
+
+func (h *windowHandler) AudibleChanged(audible bool) {
+	if audible == h.w.audible {
+		return
+	}
+	h.w.audible = audible
+	fire1(&h.w.onAudibleChanged, audible)
+}
 
 // filesDropped tells OnFileDrop listeners, and the app's own pages, about
 // dropped files.

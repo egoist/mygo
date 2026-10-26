@@ -3,6 +3,8 @@
 package windows
 
 import (
+	"log"
+	"math"
 	"time"
 	"unicode/utf16"
 	"unsafe"
@@ -149,6 +151,9 @@ type surface struct {
 	// redirection bitmap, where GDI cannot (compositor.go); nil while none
 	// shows.
 	comp *compositor
+	// gdiFailed tells that SetDIBitsToDevice refused a frame, which was
+	// logged once.
+	gdiFailed bool
 
 	// layer holds the web views under the frames, once there are some
 	// (webview_embed.go): placed are where the content shows them, and
@@ -215,8 +220,12 @@ func (s *surface) Native() platform.SurfaceNative {
 func (s *surface) viaComposition() bool { return s.w.noRedirect || s.layer != nil }
 
 // ShowsMaterial reports whether the window shows its material behind the
-// content: it has one, and no redirection bitmap to cover it.
-func (s *surface) ShowsMaterial() bool { return s.w.noRedirect && s.w.vibrancy != "" }
+// content: it has one, no redirection bitmap to cover it, and DWM draws
+// materials. A flyout has no redirection bitmap before Windows 11 22H2 as
+// well, to show what is behind it, but no material there.
+func (s *surface) ShowsMaterial() bool {
+	return s.w.noRedirect && s.w.vibrancy != "" && systemBackdrops()
+}
 
 func (s *surface) freeComp() {
 	if s.comp != nil {
@@ -232,6 +241,10 @@ func (s *surface) Size() (float64, float64, float64) {
 }
 
 func (s *surface) RequestFrame() { procInvalidateRectW.Call(s.hwnd, 0, 0) }
+
+// FramesAtOnce marks that RequestFrame paints at once, not at the display's
+// next refresh (platform.ImmediateFrameSurface).
+func (s *surface) FramesAtOnce() {}
 
 // FrameNow draws a frame at once, for one the content left to draw until
 // the swap chain had room for it.
@@ -264,6 +277,15 @@ func (s *surface) RefreshRate() float64 {
 	return float64(dm.DisplayFrequency)
 }
 
+// AwaitRefresh returns once DWM composes its next frame (DwmFlush): the
+// frames drawn in memory show at once, through GDI or DirectComposition,
+// and WM_PAINT comes as soon as one is asked for, so the content holds
+// them to the refreshes with it (platform.RefreshSurface). It is called
+// off the main thread.
+func (s *surface) AwaitRefresh() { procDwmFlush.Call() }
+
+var _ platform.RefreshSurface = (*surface)(nil)
+
 func (s *surface) PresentPixels(pix []byte, stride, width, height int) {
 	if len(pix) < stride*height || width == 0 || height == 0 {
 		return
@@ -289,8 +311,12 @@ func (s *surface) PresentPixels(pix []byte, stride, width, height int) {
 	}
 	bi := bitmapInfoHeader{Width: int32(stride / 4), Height: -int32(height), Planes: 1, BitCount: 32}
 	bi.Size = uint32(unsafe.Sizeof(bi))
-	procSetDIBitsToDevice.Call(dc, 0, 0, uintptr(width), uintptr(height), 0, 0, 0, uintptr(height),
+	lines, _, _ := procSetDIBitsToDevice.Call(dc, 0, 0, uintptr(width), uintptr(height), 0, 0, 0, uintptr(height),
 		uintptr(unsafe.Pointer(&pix[0])), uintptr(unsafe.Pointer(&bi)), 0)
+	if lines == 0 && !s.gdiFailed {
+		s.gdiFailed = true
+		log.Printf("mygo: native UI shows nothing: SetDIBitsToDevice drew no lines of a %dx%d frame", width, height)
+	}
 }
 
 func (s *surface) SetCursor(c platform.Cursor) {
@@ -472,7 +498,8 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		dc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		s.paintDC = dc
 		// Frames that follow each other as the content asks for them may
-		// wait until the swap chain has room for one.
+		// wait until the swap chain has room for one, or, drawn in memory,
+		// until the display's next refresh (AwaitRefresh).
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame, Paced: !s.now})
 		s.paintDC = 0
 		procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
@@ -582,8 +609,19 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		pt := point{int32(int16(loword(lp))), int32(int16(hiword(lp)))}
 		procScreenToClient.Call(hwnd, uintptr(unsafe.Pointer(&pt)))
 		delta := float64(int16(hiword(wp)))
+		precise := int(delta)%120 != 0
+		if m == wmMouseWheel && precise && loword(wp)&0x0008 != 0 { // MK_CONTROL
+			// A touchpad's pinch, which Windows sends as scrolling with
+			// Ctrl held, as it does Ctrl and two fingers: three notches'
+			// worth zoom twice as large.
+			s.send(platform.SurfaceEvent{Kind: platform.PointerZoom, X: s.toDIP(pt.X), Y: s.toDIP(pt.Y), Scale: math.Exp(delta / 120 * math.Ln2 / 3), Mods: mods()})
+			return 0, true
+		}
+		// A line of the system's "lines to scroll" is 33 DIPs, as
+		// browsers scroll about 100 pixels a notch at the default 3;
+		// the terminal plugin scrolls a row a line (wheelRows).
 		dist := delta / 120 * float64(wheelLines()) * 33
-		ev := platform.SurfaceEvent{Kind: platform.PointerScroll, X: s.toDIP(pt.X), Y: s.toDIP(pt.Y), Mods: mods(), Precise: int(delta)%120 != 0}
+		ev := platform.SurfaceEvent{Kind: platform.PointerScroll, X: s.toDIP(pt.X), Y: s.toDIP(pt.Y), Mods: mods(), Precise: precise}
 		if m == wmMouseWheel {
 			ev.DY = -dist
 		} else {

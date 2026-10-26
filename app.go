@@ -102,7 +102,7 @@ func (a *Application) Run() error {
 	b := backend()
 	if err := b.Init(appHandler{}, platform.AppOptions{
 		Name:             a.Name(),
-		ActivationPolicy: string(a.activationPolicy()),
+		ActivationPolicy: string(a.ActivationPolicy()),
 	}); err != nil {
 		return err
 	}
@@ -203,14 +203,14 @@ func (a *Application) prepareQuit() bool {
 	// closed. Persist them before the native loop ends; callers needing
 	// error handling may Flush explicitly from a quit listener.
 	_ = Clipboard.Flush()
-	stopCookieCalls()
+	stopNativeCalls()
 	return true
 }
 
 // finish runs once after the event loop has stopped.
 func (a *Application) finish() {
 	a.finished.Do(func() {
-		stopCookieCalls()
+		stopNativeCalls()
 		stopFileWatches()
 		clipboardStopped = true
 		backend().Clipboard().Close()
@@ -346,7 +346,9 @@ func (a *Application) Menu() *Menu {
 	return a.menu
 }
 
-func (a *Application) activationPolicy() ActivationPolicy {
+// ActivationPolicy returns how the app appears in the Dock (macOS):
+// ActivationPolicyRegular unless SetActivationPolicy changed it.
+func (a *Application) ActivationPolicy() ActivationPolicy {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.policy == "" {
@@ -370,6 +372,14 @@ func (a *Application) SetActivationPolicy(p ActivationPolicy) {
 func (a *Application) Focus() {
 	needsApp("App.Focus")
 	onMain(func() { backend().App().Activate() })
+}
+
+// IsActive reports whether the application is the active one: the app in
+// front on macOS, the app with the window that has the keyboard on Windows
+// and Linux, the focused page in browsers.
+func (a *Application) IsActive() bool {
+	needsApp("App.IsActive")
+	return onMainValue(func() bool { return backend().App().IsActive() })
 }
 
 // Hide hides all windows of the application (macOS).

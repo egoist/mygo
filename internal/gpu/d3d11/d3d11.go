@@ -294,9 +294,11 @@ type Renderer struct {
 	// lat is the swap chain's frame latency object (latency.go), pending
 	// tells that the frame drawn presents once it is signaled, through
 	// post, presentLater, and failed is why that failed; wake is what Ready
-	// was given meanwhile.
+	// was given meanwhile, or while refreshing tells that a frame that
+	// changed nothing waits for the display's next refresh (waitRefresh).
 	lat          latency
 	pending      bool
+	refreshing   bool
 	post         func(func())
 	presentLater func()
 	failed       error
@@ -356,7 +358,7 @@ type Renderer struct {
 	diff      scene.Differ
 	pipelines gpu.Pipelines
 	held      bool
-	part      gpu.Scissor
+	part      gpu.Part
 	redrew    redrawn
 }
 
@@ -667,7 +669,7 @@ func (r *Renderer) armSettle() {
 
 // Release frees the renderer's GPU objects.
 func (r *Renderer) Release() {
-	r.pending, r.wake = false, nil
+	r.pending, r.refreshing, r.wake = false, false, nil
 	r.lat.release()
 	r.b.Release()
 	if settling[r.hwnd] {
@@ -771,20 +773,31 @@ func (r *Renderer) imageView(img *scene.Image) uintptr {
 	}
 	t := r.images[img.ID()]
 	if t == nil {
+		pix := img.Pixels()
+		if pix == nil {
+			return 0
+		}
 		t = &texture{}
-		if err := r.newTexture(t, img.W, img.H, formatR8G8B8A8Unorm, img.Pix, 4); err != nil {
+		if err := r.newTexture(t, img.W, img.H, formatR8G8B8A8Unorm, pix, 4); err != nil {
 			return 0
 		}
 		t.ver = img.Version()
 		r.images[img.ID()] = t
+		img.Uploaded()
 	} else if t.w != img.W || t.h != img.H {
-		if err := r.newTexture(t, img.W, img.H, formatR8G8B8A8Unorm, img.Pix, 4); err != nil {
-			return 0
+		if pix := img.Pixels(); pix != nil {
+			if err := r.newTexture(t, img.W, img.H, formatR8G8B8A8Unorm, pix, 4); err != nil {
+				return 0
+			}
+			t.ver = img.Version()
+			img.Uploaded()
 		}
-		t.ver = img.Version()
 	} else if t.ver != img.Version() {
-		call(r.ctx, ctxUpdateSubresource, t.tex, 0, 0, uintptr(unsafe.Pointer(&img.Pix[0])), uintptr(img.W*4), 0)
-		t.ver = img.Version()
+		if pix := img.Pixels(); pix != nil {
+			call(r.ctx, ctxUpdateSubresource, t.tex, 0, 0, uintptr(unsafe.Pointer(&pix[0])), uintptr(img.W*4), 0)
+			t.ver = img.Version()
+			img.Uploaded()
+		}
 	}
 	t.lastFrame = r.frame
 	return t.srv
@@ -806,8 +819,12 @@ func (r *Renderer) Render(s *scene.Scene) error {
 	}
 	resized := r.swapChain != 0 && (s.Width != r.w || s.Height != r.h)
 	drawn, err := r.drawFrame(s)
-	if err != nil || !drawn {
+	if err != nil {
 		return err
+	}
+	if !drawn {
+		r.waitRefresh()
+		return nil
 	}
 	// A frame of a new size is presented at once (sync interval 0), not
 	// after the frame queued before it, which would miss the next
@@ -875,18 +892,20 @@ func (r *Renderer) drawFrame(s *scene.Scene) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	var part *gpu.Scissor
+	var part *gpu.Part
 	r.redrew = redrewWhole
 	if r.ctx1 != 0 {
 		damage = r.pipelines.Damage(&r.b, r.batchKey, &r.diff, damage, known)
-		if known {
-			var changed image.Rectangle
-			for _, d := range damage {
-				changed = changed.Union(d)
+		if known && r.part.Set(damage, s.Width, s.Height, func(d []image.Rectangle) []image.Rectangle { return r.diff.AddBackdrops(s, d) }) {
+			if len(r.part.Rects) == 0 {
+				// What changed is outside the frame: the swap chain shows
+				// it already.
+				r.redrew = redrewNothing
+				r.diff.Remember(s)
+				r.pipelines.Remember()
+				return false, nil
 			}
-			if area, ok := gpu.Partial(changed, s.Width, s.Height, func(d []image.Rectangle) []image.Rectangle { return r.diff.AddBackdrops(s, d) }); ok {
-				part, r.part, r.redrew = &area, area, redrewPart
-			}
+			part, r.redrew = &r.part, redrewPart
 		}
 	}
 	r.held = false
@@ -987,11 +1006,11 @@ func (r *Renderer) buildScene(s *scene.Scene, b *gpu.Builder) (*scene.Scene, err
 }
 
 // drawBuilt draws s, built with b (buildScene), into the render target
-// rtv, whole or, unless part is nil, only within part, keeping what rtv
-// holds elsewhere.
-func (r *Renderer) drawBuilt(s *scene.Scene, b *gpu.Builder, rtv uintptr, part *gpu.Scissor) error {
+// rtv, whole or, unless part is nil, only within its rectangles, keeping
+// what rtv holds elsewhere.
+func (r *Renderer) drawBuilt(s *scene.Scene, b *gpu.Builder, rtv uintptr, part *gpu.Part) error {
 	r.drawing = rtv
-	if part != nil && part.Empty() {
+	if part != nil && len(part.Rects) == 0 {
 		return nil
 	}
 
@@ -1021,8 +1040,10 @@ func (r *Renderer) drawBuilt(s *scene.Scene, b *gpu.Builder, rtv uintptr, part *
 	ctx := r.ctx
 	call(ctx, ctxOMSetRenderTargets, 1, uintptr(unsafe.Pointer(&rtv)), 0)
 	clear := s.Clear.Premul(1)
+	areas := []gpu.Scissor{{Right: int32(s.Width), Bottom: int32(s.Height)}}
 	if part != nil {
-		call(r.ctx1, ctx1ClearView, rtv, uintptr(unsafe.Pointer(&clear[0])), uintptr(unsafe.Pointer(part)), 1)
+		areas = part.Rects
+		call(r.ctx1, ctx1ClearView, rtv, uintptr(unsafe.Pointer(&clear[0])), uintptr(unsafe.Pointer(&areas[0])), uintptr(len(areas)))
 	} else {
 		call(ctx, ctxClearRenderTargetView, rtv, uintptr(unsafe.Pointer(&clear[0])))
 	}
@@ -1031,7 +1052,7 @@ func (r *Renderer) drawBuilt(s *scene.Scene, b *gpu.Builder, rtv uintptr, part *
 	r.bindState(s, 0)
 	bound, ps, blend, shaders := uintptr(0), r.ps, r.blend, false
 	for _, bt := range b.Batches {
-		if bt.Count == 0 {
+		if bt.Count == 0 || !meets(bt.Scissor, areas) {
 			continue
 		}
 		want := r.ps
@@ -1070,14 +1091,16 @@ func (r *Renderer) drawBuilt(s *scene.Scene, b *gpu.Builder, rtv uintptr, part *
 			}
 			shaders = true
 		}
-		sc := bt.Scissor // a D3D11_RECT
-		if part != nil {
-			if sc = sc.Intersect(*part); sc.Empty() {
+		// Drawn once in each rectangle of the part it meets, which are
+		// apart from each other.
+		for _, a := range areas {
+			sc := bt.Scissor.Intersect(a) // a D3D11_RECT
+			if sc.Empty() {
 				continue
 			}
+			call(ctx, ctxRSSetScissorRects, 1, uintptr(unsafe.Pointer(&sc)))
+			call(ctx, ctxDrawInstanced, 4, uintptr(bt.Count), 0, uintptr(bt.Start))
 		}
-		call(ctx, ctxRSSetScissorRects, 1, uintptr(unsafe.Pointer(&sc)))
-		call(ctx, ctxDrawInstanced, 4, uintptr(bt.Count), 0, uintptr(bt.Start))
 	}
 	if shaders {
 		// Images may be drawn into next, as canvases.
@@ -1348,7 +1371,7 @@ func (r *Renderer) newTarget(t *texture, w, h int, drawn bool) error {
 // as none waits to present (latency.go); otherwise wake runs, on the main
 // thread, once it has.
 func (r *Renderer) Ready(wake func()) bool {
-	if !r.pending {
+	if !r.pending && !r.refreshing {
 		return true
 	}
 	r.wake = wake
@@ -1375,10 +1398,70 @@ func (r *Renderer) presentPending() {
 	if err := r.present(1); err != nil && r.failed == nil {
 		r.failed = err // the next frame finds it
 	}
+	r.woke()
+}
+
+// woke runs what Ready was given.
+func (r *Renderer) woke() {
 	if w := r.wake; w != nil {
 		r.wake = nil
 		w()
 	}
+}
+
+// awaitRefresh returns once the display's next refresh shows; tests
+// replace it. DwmFlush may return at once when DWM has nothing to
+// compose, or wait until it next has, so the wait lasts at least
+// minRefresh and at most maxRefresh.
+var awaitRefresh = func() {
+	start := time.Now()
+	done := make(chan struct{})
+	go func() {
+		procDwmFlush.Call()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(maxRefresh):
+	}
+	if d := minRefresh - time.Since(start); d > 0 {
+		time.Sleep(d)
+	}
+}
+
+// minRefresh and maxRefresh bound awaitRefresh's wait: a 60 Hz refresh's
+// period, as frames that show nothing new need come no faster, and a few
+// of them, so that an animation goes on when DWM composes nothing.
+const (
+	minRefresh = time.Second / 60
+	maxRefresh = 4 * minRefresh
+)
+
+// waitRefresh has the frame following one that changed nothing, which
+// presents nothing to wait for, wait for the display's next refresh as a
+// frame presented would (Ready), a goroutine waiting for it meanwhile:
+// otherwise frames that change nothing, as an animation's moving less than
+// a pixel, follow each other as fast as the main thread draws them.
+func (r *Renderer) waitRefresh() {
+	if r.post == nil || r.refreshing {
+		return
+	}
+	r.refreshing = true
+	post := r.post
+	go func() {
+		awaitRefresh()
+		post(r.refreshed)
+	}()
+}
+
+// refreshed runs on the main thread once the refresh waitRefresh waited
+// for came.
+func (r *Renderer) refreshed() {
+	if !r.refreshing {
+		return
+	}
+	r.refreshing = false
+	r.woke()
 }
 
 // present shows the back buffer, after sync vertical blanks, once the
@@ -1388,7 +1471,7 @@ func (r *Renderer) present(sync uintptr) error {
 	r.lat.take()
 	var hr uintptr
 	if r.redrew == redrewPart {
-		params := presentParameters{DirtyRectsCount: 1, DirtyRects: &r.part}
+		params := presentParameters{DirtyRectsCount: uint32(len(r.part.Rects)), DirtyRects: unsafe.SliceData(r.part.Rects)}
 		hr = call(r.swapChain, scPresent1, sync, 0, uintptr(unsafe.Pointer(&params)))
 	} else {
 		hr = call(r.swapChain, scPresent, sync, 0)
@@ -1407,8 +1490,7 @@ func (r *Renderer) present(sync uintptr) error {
 func (r *Renderer) FrameInfo() string {
 	switch r.redrew {
 	case redrewPart:
-		a := r.part
-		return fmt.Sprintf("redrew %d×%d at %d,%d, %s", a.Right-a.Left, a.Bottom-a.Top, a.Left, a.Top, r.b.Summary())
+		return fmt.Sprintf("redrew %s, %s", r.part.String(), r.b.Summary())
 	case redrewNothing:
 		return "unchanged"
 	}
@@ -1432,4 +1514,14 @@ func (r *Renderer) sweep() {
 			delete(r.canvases, id)
 		}
 	}
+}
+
+// meets reports whether sc meets one of areas.
+func meets(sc gpu.Scissor, areas []gpu.Scissor) bool {
+	for _, a := range areas {
+		if !sc.Intersect(a).Empty() {
+			return true
+		}
+	}
+	return false
 }

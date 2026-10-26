@@ -48,6 +48,11 @@ func click(w *mygo.Window, x, y float64) bool {
 	return fake(func() bool { return linux.TestClickSurface(w.NativeHandle(), x, y) })
 }
 
+// clickPage clicks a window's page, through XTEST.
+func clickPage(w *mygo.Window, x, y float64) bool {
+	return fake(func() bool { return linux.TestClickPage(w.NativeHandle(), x, y) })
+}
+
 // appClick is click, already through XTEST.
 func appClick(w *mygo.Window, x, y float64) bool { return click(w, x, y) }
 
@@ -59,6 +64,13 @@ func sideButton(w *mygo.Window, back bool) bool {
 	return fake(func() bool { return linux.TestSideButton(w.NativeHandle(), back) })
 }
 
+// pinch pinches the touchpad at (x, y) by scale with GDK's events, which
+// only Wayland makes.
+func pinch(w *mygo.Window, x, y, scale float64) (got float64, ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestPinchSurface(w.NativeHandle(), x, y, scale) })
+	return scale, ok
+}
+
 func drag(w *mygo.Window, points [][2]float64) bool {
 	return fake(func() bool { return linux.TestDragSurface(w.NativeHandle(), points) })
 }
@@ -66,9 +78,11 @@ func drag(w *mygo.Window, points [][2]float64) bool {
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
 // Collection behaviors and deactivating the app are macOS's.
-func collectionBehavior(*mygo.Window) (uint, bool) { return 0, false }
-func deactivateApp() bool                          { return false }
-func appActive() (bool, bool)                      { return false, false }
+func collectionBehavior(*mygo.Window) (uint, bool)               { return 0, false }
+func deactivateApp() bool                                        { return false }
+func material(*mygo.Window) (string, int, float64, bool, bool)   { return "", 0, 0, false, false }
+func roundedBacking(*mygo.Window) (bool, float64, float64, bool) { return false, 0, 0, false }
+func appActive() (bool, bool)                                    { return false, false }
 
 // WebKitGTK docks the inspector inside the web view.
 func dockDevTools(*mygo.Window) bool { return false }

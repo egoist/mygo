@@ -73,7 +73,11 @@ if app.added {
 }
 ```
 
-The keyboard focus scrolls into view as it moves.
+The keyboard focus scrolls into view as it moves. An element with a
+`TextInputClient` of the app's ([text input clients](text-input-client.md))
+scrolls its caret into view, where `BoundsForRange` places it, rather than
+its whole box: a code editor as high as its lines shows the line being
+edited as it takes the focus, not its first.
 
 ## Scroll bars
 
@@ -94,6 +98,10 @@ ui.Scroll(c).Fill().Padding(64, 16, 16).ScrollbarInsets(64, 0, 0).Children(func(
 // The toolbar floats over the top 64 DIPs.
 ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(64).Children(func() { /* ... */ })
 ```
+
+An element inside that zooms or pans with the wheel, the touchpad and
+pinches, as a chart, takes them from the container: see
+[Scrolling and pinching](input.md#scrolling-and-pinching).
 
 ## Accessibility
 

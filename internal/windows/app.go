@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -26,6 +27,9 @@ type Backend struct {
 	running bool
 
 	signaled atomic.Bool
+	// posted are the functions post runs on the main thread.
+	postedMu sync.Mutex
+	posted   []func()
 
 	windows map[uintptr]*window // by HWND
 	// languages are those SetLanguages told: the first is the language
@@ -68,7 +72,10 @@ type Backend struct {
 
 	// captions are the windows of the controls of windows with a hidden
 	// title bar (titlebar.go), captionFonts their glyphs by DPI.
-	captions     map[uintptr]*captionBar
+	captions map[uintptr]*captionBar
+	// topEdges are the windows over the top resize borders of windows
+	// without a caption (topedge.go), and their windows.
+	topEdges     map[uintptr]*window
 	captionFonts map[int]captionFont
 	// menuFonts are the fonts of the menu items MyGo draws by DPI, and
 	// menuBrushes the brushes of menus' backgrounds by color
@@ -103,6 +110,7 @@ func New() *Backend {
 		menus:         newMenuTable(),
 		themeSource:   "system",
 		captions:      map[uintptr]*captionBar{},
+		topEdges:      map[uintptr]*window{},
 		captionFonts:  map[int]captionFont{},
 		surfaces:      map[uintptr]*surface{},
 	}
@@ -224,6 +232,24 @@ func (b *Backend) Signal() {
 	postMessage(b.appHwnd, wmAppDispatch, 0, 0)
 }
 
+// post runs fn on the main thread, for the backend's own goroutines.
+func (b *Backend) post(fn func()) {
+	b.postedMu.Lock()
+	b.posted = append(b.posted, fn)
+	b.postedMu.Unlock()
+	postMessage(b.appHwnd, wmAppRun, 0, 0)
+}
+
+func (b *Backend) runPosted() {
+	b.postedMu.Lock()
+	posted := b.posted
+	b.posted = nil
+	b.postedMu.Unlock()
+	for _, fn := range posted {
+		fn()
+	}
+}
+
 func (b *Backend) Step() {
 	procMsgWaitForMultipleObjectsEx.Call(0, 0, 500, qsAllInput, mwmoInputAvailable)
 	var m msg
@@ -321,6 +347,10 @@ func wndProc(hwnd, m, wp, lp uintptr) uintptr {
 			if r, ok := c.message(hwnd, uint32(m), wp, lp); ok {
 				return r
 			}
+		} else if w := b.topEdges[hwnd]; w != nil {
+			if r, ok := w.topEdgeMessage(uint32(m), wp, lp); ok {
+				return r
+			}
 		} else if s := b.surfaces[hwnd]; s != nil {
 			if r, ok := s.message(hwnd, uint32(m), wp, lp); ok {
 				return r
@@ -345,6 +375,9 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 		b.h.Dispatch()
 		return 0, true
 	case wmAppWake:
+		return 0, true
+	case wmAppRun:
+		b.runPosted()
 		return 0, true
 	case wmAppCookieView:
 		b.closeCookieViewNow()
@@ -463,6 +496,8 @@ func (a appController) AllowForeground() {
 	procAllowSetForegroundWindow.Call(asfwAny)
 }
 
+func (a appController) WithActivationToken(_ string, fn func()) { fn() }
+
 // Activate brings the app forward as macOS does, with its windows in their
 // order: a window of the app already in front stays there, else the one
 // the user had last, the highest of them in the z-order, comes forward.
@@ -508,6 +543,12 @@ func (a appController) Unhide() {
 func (a appController) IsHidden() bool        { return len(a.b.hidden) > 0 }
 func (a appController) SetBadge(label string) { a.b.badge = label }
 func (a appController) Badge() string         { return a.b.badge }
+
+// IsActive reports whether the window in front is one of the app's.
+func (a appController) IsActive() bool {
+	fg, _, _ := procGetForegroundWindow.Call()
+	return a.b.windows[fg] != nil
+}
 
 const (
 	flashwStop      = 0

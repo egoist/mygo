@@ -230,7 +230,7 @@ type Options struct {
 	// OpenLink takes what a Command+click (Control+click elsewhere)
 	// opens: a hyperlink (OSC 8), a URL printed as text, or, only with
 	// OpenLink set, a file path printed as text (absolute, ~/, ./ or ../,
-	// one with a slash, or a file name with a :line), as printed, a
+	// one with a slash, or a file name with an extension), as printed, a
 	// :line:col suffix included; a relative one is the program's, as of
 	// Dir. It runs on the main thread and reports whether it opened the
 	// link; a hyperlink or a URL it leaves, or every one when it is nil,
@@ -253,9 +253,11 @@ type Options struct {
 	// it, as does what it sends with Send. A key that only types text may
 	// come as its text alone, as on Linux, which OnKey does not see.
 	OnKey func(mods ui.Modifiers, key ui.Key) bool
-	// OnScroll sees the wheel scroll the view by whole rows, negative up,
-	// before the terminal scrolls its scrollback, on the main thread, and
-	// reports whether it took the scroll; a scroll taken moves nothing. It
+	// OnScroll sees the wheel scroll the view by whole rows, negative up
+	// (a mouse wheel's notch is three, or on Windows as many as its "lines
+	// to scroll" setting asks), before the terminal scrolls its
+	// scrollback, on the main thread, and reports whether it took the
+	// scroll; a scroll taken moves nothing. It
 	// is not asked while a program takes the wheel: as the mouse, unless
 	// Shift is held, or, on a full-screen program's screen, as arrow keys
 	// (alternate scroll, which "\x1b[?1007l" turns off). It suits a Conn
@@ -1052,7 +1054,13 @@ func (t *Terminal) ClearScreen() bool {
 	// Under the lock, so that no output comes between the cursor read and
 	// the rows deleted.
 	t.term.Write([]byte(seq))
+	proc := t.proc
 	t.mu.Unlock()
+	if proc != nil {
+		// ConPTY's console clears its own screen too, else it draws its
+		// next frames with the prompt where it was.
+		proc.ClearScreen()
+	}
 	t.redraw()
 	return true
 }

@@ -25,6 +25,13 @@ type host interface {
 	occluded() bool
 	present(s *scene.Scene)
 	requestFrame()
+	// setFrameRate tells the surface how many frames a second come while
+	// only drawings move, 0 for one each refresh (engine.pace).
+	setFrameRate(fps float32)
+	// framesAtOnce reports whether requestFrame has a frame come at once
+	// rather than at the display's next refresh
+	// (platform.ImmediateFrameSurface).
+	framesAtOnce() bool
 	// afterTimer and repaintTimer arm the timers of After and
 	// Painter.After for at, or stop them for the zero time.
 	afterTimer(at time.Time)
@@ -247,6 +254,11 @@ type engine struct {
 	// pressClicks is the press's count of clicks, which its release
 	// carries.
 	pressClicks int
+	// downing counts the presses pointerDown is handling, and ups holds the
+	// releases (button, clicks) that came meanwhile, through a main loop
+	// a handler ran nested, for it to apply once the press is recorded.
+	downing int
+	ups     [][2]int
 	// listMenu and listDrag are the parts of lists a right-click and a
 	// drag reach, set as the first list builds, and cellClick and
 	// cellInBlock the parts of tables choosing cells a click and a press
@@ -311,6 +323,39 @@ type engine struct {
 	input      bool
 	painted    [3]float32
 	gen        uint64
+	// repaintRate is the most frames a second the drawings that move ask
+	// for with Painter.AnimationFrameRate, repaintFull whether one asked
+	// for the display's with Painter.AnimationFrame. paceEvery is how many
+	// of the display's refreshes a frame that only paints again comes
+	// every, 1 for each, and paceRate the frames a second the surface was
+	// told of (pace); pacedAt is when the last frame began, and pacedNext
+	// when the repaint timer asked for the next (framesAtOnce).
+	repaintRate float32
+	repaintFull bool
+	// drawn are the Draw and DrawOver callbacks of the last frame painted
+	// that asked to be painted again (paintPart), and untracked tells that
+	// something else asked, or that painting the parts alone would not do:
+	// the window is painted whole. partsBase is how much data the scene
+	// held painted whole (sceneData), partOps the operations of the scene
+	// painted before, and partPaints counts the frames painted in parts;
+	// noParts paints every frame whole, for tests that compare. atlases
+	// are the generations of the glyph atlases the scene was painted with,
+	// partTransient how many masks of the atlas's transient room the parts
+	// drew (text.System.TransientUses), and transient whether the rest of
+	// the scene draws any.
+	drawn         []paintPart
+	untracked     bool
+	partsBase     int
+	atlases       [2]uint64
+	partTransient uint64
+	transient     bool
+	partOps       []scene.Op
+	partPaints    int
+	noParts       bool
+	paceEvery     int
+	paceRate      float32
+	pacedAt       time.Time
+	pacedNext     time.Time
 	// inkStale tells that elements moved since commit found their ink
 	// (node.ink), as poses do in frames that only paint: painting then
 	// skips none.
@@ -342,19 +387,23 @@ type engine struct {
 	// the page around the elements being committed.
 	kept       map[uint64]bool
 	commitPage uint64
+	// commitHidden is set while commit is inside a Hidden element.
+	commitHidden bool
 	// announcements are the texts for assistive technology to read out
 	// (Context.Announce).
 	announcements []string
 	// stats measures frames for MYGO_FRAME_STATS, nil when it is unset.
 	stats *frameStats
 	// dropOver is the element files are dragged over; access is true once
-	// assistive technology asked for the content.
-	dropOver   uint64
-	access     bool
-	blinkStart time.Time
-	inFrame    bool
-	dark       bool
-	darkKnown  bool
+	// assistive technology asked for the content, and accessNodes is how
+	// many nodes the last frame's tree had.
+	dropOver    uint64
+	access      bool
+	accessNodes int
+	blinkStart  time.Time
+	inFrame     bool
+	dark        bool
+	darkKnown   bool
 	// prefs are the desktop's preferences, read once until they change.
 	prefs      Preferences
 	prefsKnown bool
@@ -499,13 +548,14 @@ func (rt *engine) runFrame() {
 	rt.gen = rt.text.Generation()
 	rt.painted = [3]float32{w, h, scale}
 	rt.animating, rt.repainting, rt.repaintAt = false, false, time.Time{}
+	rt.repaintRate, rt.repaintFull, rt.untracked = 0, false, false
 	rt.routeKeys()
 	rt.glideWheels(now)
 	if rt.drag != nil {
 		// The source's element is this frame's, if it builds one.
 		rt.drag.elem = nil
-		rt.dragScroll()
 	}
+	rt.dragScroll()
 	rt.scrollTextSelection()
 	if rt.listDrag != nil {
 		rt.listDrag(rt)
@@ -565,6 +615,18 @@ func (rt *engine) runFrame() {
 	root := rt.c.root
 	layoutTree(root, appW, h)
 	rt.commit(root, w, h)
+	// Scrolling can put a new native drop target under a stationary
+	// pointer. Resolve it against this frame's geometry, then rebuild if
+	// needed so DragOver/DataDragOver show the new target too.
+	if in := rt.incoming; in != nil {
+		over := uint64(0)
+		if s := rt.dataTargetAt(rt.pointerX, rt.pointerY, in); s != nil {
+			over = s.id
+		}
+		if rt.dataOver != over {
+			rt.dataOver, rt.animating = over, true
+		}
+	}
 	rt.commitFocusBindings()
 	clear(rt.texts)
 	rt.texts = rt.texts[:0]
@@ -613,6 +675,11 @@ func (rt *engine) runFrame() {
 		rt.redraw, rt.repaintDue = false, time.Time{}
 		rt.host.requestFrame()
 	}
+	// What the frame moved under the pointer hovers; with the element
+	// pressed gone, as a button showing over a row the pointer left, what
+	// the pointer is over now hovers rather than what it was over as the
+	// press began.
+	rt.rehover()
 	rt.armTimer()
 	rt.showMenu()
 	rt.c.finish()
@@ -652,14 +719,59 @@ func (rt *engine) next() {
 	case moving && rt.host.occluded():
 		rt.held = true
 	case rt.animating:
+		rt.pace(0)
 		rt.host.requestFrame()
 	case rt.repainting:
 		rt.redraw = true
+		fps := rt.repaintRate
+		if rt.repaintFull {
+			fps = 0
+		}
+		rt.pace(fps)
 		rt.host.requestFrame()
 	case !rt.repaintAt.IsZero():
+		rt.pace(0)
 		rt.redraw, rt.repaintDue = true, rt.repaintAt
+	default:
+		rt.pace(0)
 	}
 	rt.host.repaintTimer(rt.repaintDue)
+}
+
+// pace has the frames that only paint again come at fps frames a second,
+// or at each of the display's refreshes for 0: every so many refreshes,
+// the most that still give fps frames a second, so that they come evenly,
+// as a 120 Hz display draws 60, 40 or 30 frames a second but not 50. The
+// surface is told, where it can have the display refresh as often
+// (platform.FrameRateSurface), as ProMotion displays do; elsewhere, and
+// until it does, the refreshes between draw nothing (surfaceFrame). With
+// the display's rate unknown, as in browsers, frames come at each.
+func (rt *engine) pace(fps float32) {
+	every, rate := 1, float32(0)
+	if hz := rt.host.refreshRate(); fps > 0 && hz > 0 {
+		// A display of 59.94 Hz draws 30 frames a second every 2.
+		every = max(1, int(hz/fps+0.05))
+		if every > 1 {
+			rate = hz / float32(every)
+		}
+	}
+	rt.paceEvery = every
+	if rate != rt.paceRate {
+		rt.paceRate = rate
+		rt.host.setFrameRate(rate)
+	}
+}
+
+// paceSkips reports whether the frame the surface asks for now comes
+// before the frames that only paint again are due (pace), half a refresh
+// early at most, as refreshes come a little late or early.
+func (rt *engine) paceSkips() bool {
+	hz := rt.host.refreshRate()
+	if !rt.redraw || rt.paceEvery <= 1 || hz <= 0 || rt.pacedAt.IsZero() {
+		return false
+	}
+	due := time.Duration((float32(rt.paceEvery) - 0.5) * float32(time.Second) / hz)
+	return rt.now().Sub(rt.pacedAt) < due
 }
 
 // repaintNow asks for the frame that Painter.After asked for, unless
@@ -680,6 +792,31 @@ func (rt *engine) repaintNow() {
 func (rt *engine) surfaceFrame() {
 	if rt.holdFrame() {
 		return
+	}
+	if rt.paceSkips() {
+		rt.frameAt = time.Time{}
+		if rt.host.framesAtOnce() {
+			// A frame asked for would come at once, again and again
+			// until this one is due: the repaint timer asks for it then.
+			hz := rt.host.refreshRate()
+			rt.repaintDue = rt.pacedAt.Add(time.Duration(float64(rt.paceEvery) * float64(time.Second) / float64(hz)))
+			rt.pacedNext = rt.repaintDue
+			rt.host.repaintTimer(rt.repaintDue)
+			return
+		}
+		// The display's next refresh asks again; the frame waited for
+		// it draws at its own time.
+		rt.host.requestFrame()
+		return
+	}
+	rt.pacedAt = rt.now()
+	if next := rt.pacedNext; !next.IsZero() {
+		// The frame the timer asked for keeps the pace's own times, as the
+		// timer fires a little late: frames would come later and later.
+		rt.pacedNext = time.Time{}
+		if d := rt.pacedAt.Sub(next); d > -time.Millisecond && float32(d.Seconds())*rt.host.refreshRate() < 1 {
+			rt.pacedAt = next
+		}
 	}
 	if w, h, scale := rt.host.size(); rt.redraw && !rt.inFrame && rt.c.root != nil &&
 		rt.painted == [3]float32{w, h, scale} && rt.text.Generation() == rt.gen {
@@ -724,9 +861,12 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	rt.c.now = rt.frameTime()
 	rt.text.BeginFrame()
 	rt.repainting, rt.repaintAt = false, time.Time{}
+	rt.repaintRate, rt.repaintFull, rt.untracked = 0, false, false
 	root := rt.c.root
 	rt.repose()
-	rt.paint(root, w, h, scale)
+	if !rt.repaintParts() {
+		rt.paint(root, w, h, scale)
+	}
 	for try := 0; try < 2 && rt.text.Full(); try++ {
 		rt.text.MakeRoom()
 		rt.paint(root, w, h, scale)
@@ -790,11 +930,10 @@ func (rt *engine) prune() {
 			rt.host.cancelDataDrag()
 		}
 	}
-	unpressed := false
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
 			if rt.pressed == s {
-				rt.pressed, unpressed = nil, true
+				rt.pressed = nil
 			}
 			if !rt.keptAlive(s) {
 				if s.textAdapter != nil {
@@ -812,16 +951,6 @@ func (rt *engine) prune() {
 				}
 			}
 		}
-	}
-	if unpressed {
-		// The element pressed went away, as a button showing over a row
-		// the pointer left: what the pointer is over now hovers, rather
-		// than what it was over as the press began.
-		var chain []uint64
-		if rt.pointerIn {
-			chain = rt.hitChain(rt.pointerX, rt.pointerY)
-		}
-		rt.setHover(chain)
 	}
 	rt.restoreFocus()
 	// The focus does not stay in a page kept out of sight.
@@ -970,8 +1099,10 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	if e.kind == kindText && e.first != nil && !inline {
 		placeInline(e, e, 0)
 	}
+	savedHidden := rt.commitHidden
+	rt.commitHidden = savedHidden || e.hidden
 	saved, savedPage := rt.enterScope(e), rt.commitPage
-	defer func() { rt.commitScope, rt.commitPage = saved, savedPage }()
+	defer func() { rt.commitScope, rt.commitPage, rt.commitHidden = saved, savedPage, savedHidden }()
 	s := e.st
 	s.page = rt.commitPage
 	if e.flags&flagPage != 0 {
@@ -1034,8 +1165,8 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	}
 	// What is invisible keeps its box but takes neither the pointer nor
 	// the focus, and has no text to find; so does what is inert, which
-	// shows.
-	invisible := e.flags&(flagInvisible|flagInert) != 0 || hidden || e.backface && e.transform.facesAway()
+	// shows, and what is Hidden, which has no box.
+	invisible := e.flags&(flagInvisible|flagInert) != 0 || hidden || e.hidden || e.backface && e.transform.facesAway()
 	if invisible {
 		s.vw, s.vh = 0, 0
 		if rt.focused == e.id {
@@ -1102,6 +1233,10 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		}
 	}
 	e.setInk(vis)
+	if e.hidden {
+		// It paints nothing, wherever it is.
+		e.ink, e.noCull = [4]float32{inf, inf, -inf, -inf}, false
+	}
 }
 
 func intersect(a, b Rect) Rect {
@@ -1116,18 +1251,24 @@ func intersect(a, b Rect) Rect {
 // updateCursor shows the cursor of the element under the pointer: the
 // innermost one's that sets a cursor, up to the innermost element that
 // takes clicks, whose own cursor is the default unless it sets one, so a
-// button in a text field shows no I-beam.
+// button in a text field shows no I-beam. A scroll bar's track, and the
+// thumb being dragged wherever the pointer goes, show the default, not
+// the cursor of the text under the bar.
 func (rt *engine) updateCursor() {
-	if rt.pressed == nil && rt.overWebView() {
+	if rt.pressed == nil && rt.scrollDrag.st == nil && rt.overWebView() {
 		// The page sets the cursor over it: it is set again as the
 		// pointer comes back.
 		rt.cursor = cursorUnknown
 		return
 	}
 	c := CursorDefault
-	if rt.pressed != nil && rt.pressed.cursor != 0 {
+	switch {
+	case rt.scrollDrag.st != nil:
+	case rt.pressed != nil && rt.pressed.cursor != 0:
 		c = rt.pressed.cursor - 1
-	} else {
+	case slices.ContainsFunc(rt.hover, rt.overScrollbar):
+		// The bar takes presses before what is under it (scrollbarPress).
+	default:
 		for _, id := range rt.hover {
 			s := rt.states[id]
 			if s == nil {
@@ -1146,6 +1287,20 @@ func (rt *engine) updateCursor() {
 		rt.cursor = c
 		rt.host.setCursor(c)
 	}
+}
+
+// overScrollbar reports whether the pointer is over the track of a scroll
+// bar element id shows.
+func (rt *engine) overScrollbar(id uint64) bool {
+	s := rt.states[id]
+	if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 {
+		return false
+	}
+	x, y := s.local(rt.pointerX, rt.pointerY)
+	x += s.x
+	y += s.y
+	g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth(), s.rtl)
+	return g.vertical && g.vTrack.Contains(x, y) || g.horizontal && g.hTrack.Contains(x, y)
 }
 
 // cursorUnknown is the cursor the engine last set while the pointer is

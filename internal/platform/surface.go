@@ -99,6 +99,36 @@ type PacedSurface interface {
 	FrameNow()
 }
 
+// RefreshSurface is a PacedSurface whose frames drawn in memory
+// (PresentPixels) show at once, and whose frames asked for (RequestFrame)
+// come at once, not at the display's refreshes, as Windows' do: after
+// each frame drawn in memory, the content waits for the next refresh off
+// the main thread, and Paced frames that come meanwhile wait for it.
+type RefreshSurface interface {
+	// AwaitRefresh returns once the display shows its next refresh, or
+	// at once when nothing is to show. It blocks, and is called from a
+	// goroutine of its own, never the main thread.
+	AwaitRefresh()
+}
+
+// FrameRateSurface is a Surface that can have its display refresh less
+// often than it can while frames come at a lower rate, as macOS's display
+// links do on ProMotion displays.
+type FrameRateSurface interface {
+	// SetFrameRate tells how many frames a second come from now on while
+	// they follow each other, a whole fraction of RefreshRate, or 0 for
+	// one each refresh.
+	SetFrameRate(fps float64)
+}
+
+// ImmediateFrameSurface is a Surface whose RequestFrame sends a
+// SurfaceFrame at once, as Windows' does, rather than at the display's next
+// refresh: a frame due at a later refresh waits on a timer instead.
+type ImmediateFrameSurface interface {
+	// FramesAtOnce marks the surface.
+	FramesAtOnce()
+}
+
 // MaximizeButtonSurface is a Surface whose window makes the maximize
 // button its content draws (in a window without its own, as
 // WindowOptions.HideWindowButtons) the system's for the pointer: Windows
@@ -192,6 +222,9 @@ const (
 	// PointerScroll scrolls by DX, DY DIPs at X, Y: positive DY moves the
 	// view down the content, as dragging a scroll bar's thumb down does.
 	PointerScroll
+	// PointerZoom zooms by Scale at X, Y, as pinching a touchpad does: 2
+	// shows the content twice as large as it was.
+	PointerZoom
 	// KeyPressed and KeyReleased report Key with Mods; Repeat marks
 	// auto-repeat.
 	KeyPressed
@@ -261,10 +294,14 @@ type SurfaceEvent struct {
 	Button int
 	Clicks int
 	// DX and DY are scroll distances in DIPs; Precise marks touchpads and
-	// other devices that scroll by pixels rather than by lines.
-	DX, DY  float64
-	Precise bool
-	Key     Key
+	// other devices that scroll by pixels rather than by lines. Momentum
+	// marks scrolling that continues after the fingers leave a touchpad.
+	DX, DY   float64
+	Precise  bool
+	Momentum bool
+	// Scale is PointerZoom's.
+	Scale float64
+	Key   Key
 	// PhysicalKey is the key by its position on an ANSI US keyboard,
 	// whatever the active layout types; KeyUnknown where the backend does
 	// not report it. Key and PhysicalKey agree on a US layout.
@@ -387,7 +424,8 @@ const (
 	KeyY
 	KeyZ
 	// KeyBack and KeyForward go back and forward in a history: the side
-	// buttons of a mouse, and the keys of keyboards that have them.
+	// buttons of a mouse, the keys of keyboards that have them, and on
+	// macOS swipes between pages.
 	KeyBack
 	KeyForward
 )

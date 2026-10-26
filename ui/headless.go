@@ -57,6 +57,12 @@ type headless struct {
 	// window shows.
 	hz     float32
 	hidden bool
+	// frameRate is what the engine last told of the frames a second that
+	// come while only drawings move (setFrameRate).
+	frameRate float32
+	// atOnce has requestFrame stand for a surface whose frames come at
+	// once rather than at the display's next refresh (framesAtOnce).
+	atOnce bool
 	// material tells that the window shows one (SetVibrancy).
 	material bool
 	// reading runs once as the clipboard is next read, as GTK's nested
@@ -85,6 +91,8 @@ type headless struct {
 
 func (h *headless) size() (float32, float32, float32) { return h.w, h.h, h.scale }
 func (h *headless) refreshRate() float32              { return h.hz }
+func (h *headless) setFrameRate(fps float32)          { h.frameRate = fps }
+func (h *headless) framesAtOnce() bool                { return h.atOnce }
 func (h *headless) occluded() bool                    { return h.hidden }
 func (h *headless) present(s *scene.Scene) {
 	h.last = s
@@ -667,6 +675,12 @@ func (t *Tester) DropFiles(x, y float32, paths ...string) bool {
 // which advancing the clock (Advance) shows.
 func (t *Tester) Wheel(x, y, dx, dy float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: float64(x), Y: float64(y), DX: float64(dx), DY: float64(dy)})
+}
+
+// Pinch zooms by scale with the pointer at (x, y), as pinching a touchpad
+// does (InputZoom).
+func (t *Tester) Pinch(x, y, scale float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.PointerZoom, X: float64(x), Y: float64(y), Scale: float64(scale)})
 }
 
 // HoldModifiers presses or lets go of modifier keys on their own, as holding

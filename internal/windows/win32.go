@@ -215,7 +215,9 @@ var (
 
 	// dwmapi
 	procDwmSetWindowAttribute        = dwmapi.NewProc("DwmSetWindowAttribute")
+	procDwmGetWindowAttribute        = dwmapi.NewProc("DwmGetWindowAttribute")
 	procDwmExtendFrameIntoClientArea = dwmapi.NewProc("DwmExtendFrameIntoClientArea")
+	procDwmFlush                     = dwmapi.NewProc("DwmFlush")
 
 	// shcore
 	procGetDpiForMonitor = shcore.NewProc("GetDpiForMonitor")
@@ -294,6 +296,8 @@ const (
 	wmAppCookieView = wmApp + 8
 	// wmAppTrayAdd adds the tray icons made since (tray.go).
 	wmAppTrayAdd = wmApp + 9
+	// wmAppRun runs what Backend.post posted.
+	wmAppRun = wmApp + 10
 
 	wsOverlapped       = 0x00000000
 	wsPopup            = 0x80000000
@@ -414,6 +418,7 @@ const (
 
 	idcArrow = 32512
 
+	dwmwaExtendedFrameBounds    = 9
 	dwmwaUseImmersiveDarkMode   = 20
 	dwmwaWindowCornerPreference = 33
 	dwmwaSystemBackdropType     = 38
