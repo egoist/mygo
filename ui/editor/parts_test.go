@@ -388,3 +388,32 @@ func TestDiffFitContentBuildsSeparatorsInView(t *testing.T) {
 		}
 	}
 }
+
+// A long diff that fits its content measures the wraps of the lines it
+// shows, not of those it folds away, which it measures once they show:
+// a window resized through widths would else measure every line at each.
+func TestDiffFitContentMeasuresLinesShown(t *testing.T) {
+	var lines []string
+	for i := range 20000 {
+		lines = append(lines, "line "+strconv.Itoa(i)+" "+strings.Repeat("word ", i%40))
+	}
+	old := strings.Join(lines, "\n")
+	lines[10000] = "changed"
+	nw := strings.Join(lines, "\n")
+	d := &DiffState{Old: NewBuffer(old), New: NewBuffer(nw), Wrap: true, FitContent: true}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Scroll(c).Fill().Children(func() { DiffView(c, d).FillWidth() })
+	}, 800, 600)
+	tt.Frame()
+	tt.Frame()
+	v := &d.eds[1].view
+	if known := v.heights.wraps.known; known == 0 || known > 1000 {
+		t.Errorf("%d of the %d lines' wraps measured, those shown being a few", known, v.text.LineCount())
+	}
+	d.ExpandUnchanged = true
+	tt.Frame()
+	tt.Frame()
+	if known := v.heights.wraps.known; known < v.text.LineCount() {
+		t.Errorf("all lines shown, %d of their %d wraps measured", known, v.text.LineCount())
+	}
+}

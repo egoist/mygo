@@ -82,7 +82,11 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 	if o.fitContent {
 		// As high as the lines, at the width of the last frame.
 		ed.layout(ed.fitWidth(), ed.viewH, max(1, ed.view.scale))
-		ed.view.measureWraps(0, time.Second)
+		// A diff's side measures as its viewer fits it (DiffState.fit),
+		// once it knows the lines it folds away, which it leaves.
+		if _, diff := ed.o.decor.(*diffSide); !diff {
+			ed.view.measureWraps(0, time.Second)
+		}
 		e.Height(float32(ed.view.heights.total()))
 		ed.scrollY = 0
 	} else if ed.r.W > 0 {

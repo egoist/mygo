@@ -2,6 +2,7 @@ package editor
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -520,10 +521,25 @@ func (d *DiffState) fit() {
 		d.oldView.setStyle(ed.view.font, ed.o.lineHeight, max(1, ed.view.scale), ed.tabSize())
 		d.oldView.setWrap(ed.view.wrap, ed.view.wrapWidth)
 	}
-	d.prepare()
+	layout := func() {
+		d.prepare()
+		for i := range eds {
+			ed := &eds[i]
+			ed.layout(ed.fitWidth(), ed.viewH, max(1, ed.view.scale))
+		}
+	}
+	layout()
+	// The wraps of the lines shown, those folded away left, and the
+	// layout again for the rows they found.
+	measured := false
 	for i := range eds {
-		ed := &eds[i]
-		ed.layout(ed.fitWidth(), ed.viewH, max(1, ed.view.scale))
+		v := &eds[i].view
+		before := v.heights.wraps.version
+		v.measureWraps(0, time.Second)
+		measured = measured || v.heights.wraps.version != before
+	}
+	if measured {
+		layout()
 	}
 }
 
