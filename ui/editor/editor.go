@@ -150,11 +150,22 @@ type editor struct {
 	anchorOff  float64
 	reveal     reveal
 	r          ui.Rect // the element's box of the last frame, in the window
-	gutterW    float32
-	textX      float32
-	viewH      float32
-	shown      [2]int // the first and last lines the last frame showed
-	focused    bool   // the editor and its window have the keyboard
+	// laidW is the width the editor was laid out at last, which an editor
+	// as high as its content lays out at again as it builds: the element's,
+	// or the half of a split diff's its row's Draw gives it while the
+	// element itself, out of view, does not paint.
+	laidW   float32
+	gutterW float32
+	textX   float32
+	viewH   float32
+	shown   [2]int // the first and last lines the last frame showed
+	// shownY is the part of the content the last frame painted showed,
+	// and pad the height of the view it showed in, for an editor as high
+	// as its content, painted at paintedAt.
+	shownY     [2]float64
+	pad        float64
+	paintedAt  time.Time
+	focused    bool // the editor and its window have the keyboard
 	blinkStart time.Time
 	services   ui.Services
 	chord      *Binding

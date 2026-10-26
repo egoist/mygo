@@ -355,3 +355,36 @@ func TestDiffFitContentFoldsBeforeDrawn(t *testing.T) {
 		}
 	}
 }
+
+// A long diff that fits its content builds the separators of the folded
+// lines in view of the scroll container it is in, not all of its own.
+func TestDiffFitContentBuildsSeparatorsInView(t *testing.T) {
+	var lines []string
+	for i := range 20000 {
+		lines = append(lines, "line "+strconv.Itoa(i))
+	}
+	old := strings.Join(lines, "\n")
+	for i := 0; i < len(lines); i += 50 {
+		lines[i] = "changed " + strconv.Itoa(i)
+	}
+	nw := strings.Join(lines, "\n")
+	for _, layout := range []DiffLayout{DiffUnified, DiffSplit} {
+		built := 0
+		d := &DiffState{Old: NewBuffer(old), New: NewBuffer(nw), Layout: layout, FitContent: true}
+		d.RenderSeparator = func(c *ui.Context, sep ui.Element, s *DiffSeparator) {
+			built++
+			DefaultSeparator(c, sep, s)
+		}
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Scroll(c).Fill().Children(func() { DiffView(c, d).FillWidth() })
+		}, 800, 600)
+		tt.Frame()
+		tt.Frame()
+		built = 0
+		tt.Scroll(400, 300, 0, 200)
+		tt.Frame()
+		if built == 0 || built > 100 {
+			t.Errorf("layout %v: a frame built %d of the diff's 400 separators", layout, built)
+		}
+	}
+}

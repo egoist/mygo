@@ -81,11 +81,7 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 	e.ContextMenu(ed.menu)
 	if o.fitContent {
 		// As high as the lines, at the width of the last frame.
-		w := ed.r.W
-		if w <= 0 {
-			w = 600
-		}
-		ed.layout(w, ed.viewH, max(1, ed.view.scale))
+		ed.layout(ed.fitWidth(), ed.viewH, max(1, ed.view.scale))
 		ed.view.measureWraps(0, time.Second)
 		e.Height(float32(ed.view.heights.total()))
 		ed.scrollY = 0

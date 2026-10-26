@@ -523,11 +523,7 @@ func (d *DiffState) fit() {
 	d.prepare()
 	for i := range eds {
 		ed := &eds[i]
-		w := ed.r.W
-		if w <= 0 {
-			w = 600
-		}
-		ed.layout(w, ed.viewH, max(1, ed.view.scale))
+		ed.layout(ed.fitWidth(), ed.viewH, max(1, ed.view.scale))
 	}
 }
 
