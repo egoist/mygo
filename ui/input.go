@@ -16,7 +16,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.redraw = false
 	}
 	switch ev.Kind {
-	case platform.SurfaceFrame, platform.SurfaceResize, platform.SurfaceShown:
+	case platform.SurfaceFrame, platform.SurfaceResize, platform.SurfaceShown, platform.SurfaceShowRequested:
 	default:
 		// Input, which the next frame builds even out of sight.
 		rt.input = true
@@ -39,8 +39,18 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.SurfaceResize:
 		rt.requestFrame()
 	case platform.SurfaceShown:
+		rt.shown = false
 		if rt.held {
 			// What moves goes on from where the time puts it.
+			rt.held = false
+			rt.requestFrame()
+		}
+	case platform.SurfaceShowRequested:
+		// The frame waiting, or the one a change asked for while the
+		// window was hidden, builds though the system still reports the
+		// window out of sight: it may do so for good (holdFrame).
+		rt.shown = true
+		if rt.held {
 			rt.held = false
 			rt.requestFrame()
 		}

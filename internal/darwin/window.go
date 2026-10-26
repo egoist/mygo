@@ -684,6 +684,17 @@ func (w *window) Show() {
 	if !w.opts.Panel {
 		send(w.b.app, "activateIgnoringOtherApps:", 1)
 	}
+	w.showRequested()
+}
+
+// showRequested tells the content of a window that the app showed it: the
+// system may report the window out of sight for a while after, or for
+// good, when it was hidden just before (macOS's Stage Manager then keeps
+// it off its stage), and the content builds the frame waiting anyway.
+func (w *window) showRequested() {
+	if w.surface != nil {
+		w.surface.send(platform.SurfaceEvent{Kind: platform.SurfaceShowRequested})
+	}
 }
 
 // showFlyout shows a flyout above its parent, as its child window, and
@@ -845,6 +856,7 @@ func (w *window) ShowInactive() {
 	if w.parent != nil && !w.parent.closed {
 		send(w.parent.win, "addChildWindow:ordered:", uintptr(w.win), 1)
 	}
+	w.showRequested()
 }
 
 func (w *window) Hide() {
@@ -886,6 +898,7 @@ func (w *window) Focus() {
 	if !w.opts.Panel {
 		send(w.b.app, "activateIgnoringOtherApps:", 1)
 	}
+	w.showRequested()
 }
 
 func (w *window) Blur() { send(w.win, "orderBack:", 0) }

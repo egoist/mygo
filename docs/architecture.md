@@ -2368,12 +2368,18 @@ either.
   (`windowDidChangeOcclusionState:`), draws what changed, and has a held
   animation go on from where the time puts it. The window shows its last
   frame until then, about a refresh: captures of it meanwhile, as sharing
-  its window in a video call, see that frame. A frame still builds after
-  input (`input`, as keys typed into a key window another app's covers),
-  as assistive technology turns on, and for `CapturePage`, which builds
-  the frame waiting; and none waits before the window's first frame
-  reached its surface (`windowHost.occluded`), which a window made hidden
-  waits for to become ready to show.
+  its window in a video call, see that frame. The system may take longer
+  to tell, or never tell: with Stage Manager on, macOS keeps a window shown
+  again within a fraction of a second after it was hidden off its stage,
+  reporting it out of sight, until the app activates again (seen with a
+  plain `NSWindow`, without MyGo). A window the app shows (`Window.Show`,
+  `Focus`, `ShowInactive`: `SurfaceShowRequested`) builds the frame
+  waiting at once (`shown`), once, and holds the frames after it again.
+  A frame still builds after input (`input`, as keys typed into a key
+  window another app's covers), as assistive technology turns on, and for
+  `CapturePage`, which builds the frame waiting; and none waits before the
+  window's first frame reached its surface (`windowHost.occluded`), which
+  a window made hidden waits for to become ready to show.
   The window gaining or losing the keyboard focus draws a frame only when
   the last frame read it (`windowFocus`, as a focus ring, a caret, a
   selection's color or a focused text input's IME state do): a window

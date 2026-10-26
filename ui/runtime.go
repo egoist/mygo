@@ -314,13 +314,14 @@ type engine struct {
 	// unless one came or was asked for since. held tells that a frame, for
 	// what moves or what changed, waits for the window to show; input
 	// tells that an event other than a frame's came since the last frame
-	// built.
+	// built, and shown that the app showed the window since.
 	animating  bool
 	repainting bool
 	repaintAt  time.Time
 	redraw     bool
 	held       bool
 	input      bool
+	shown      bool
 	painted    [3]float32
 	gen        uint64
 	// repaintRate is the most frames a second the drawings that move ask
@@ -534,7 +535,7 @@ func (rt *engine) runFrame() {
 	defer rt.endFrame()
 
 	rt.frame++
-	rt.input = false
+	rt.input, rt.shown = false, false
 	rt.focusRead = false
 	rt.stats.begin(rt)
 	now := rt.frameTime()
@@ -831,11 +832,13 @@ func (rt *engine) surfaceFrame() {
 // (SurfaceShown), as browsers draw nothing for windows out of sight and
 // as Apple asks of Mac apps, rather than frames nobody sees. A window
 // still draws one after input, as keys typed into a key window another
-// app's covers, and one as assistive technology turns on
-// (accessibilityOn); and none waits before the window's first frame
-// reached its surface (windowHost.occluded).
+// app's covers, one after the app showed it (SurfaceShowRequested: the
+// system may go on reporting it out of sight for good, as macOS does for
+// a window shown again soon after it was hidden), and one as assistive
+// technology turns on (accessibilityOn); and none waits before the
+// window's first frame reached its surface (windowHost.occluded).
 func (rt *engine) holdFrame() bool {
-	if rt.input || rt.inFrame || !rt.host.occluded() {
+	if rt.input || rt.shown || rt.inFrame || !rt.host.occluded() {
 		return false
 	}
 	rt.held = true

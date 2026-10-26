@@ -467,8 +467,10 @@ pages out of sight and as Apple asks of Mac apps. The view does not run,
 wait. As soon as some of the window shows, it draws once, with everything
 that changed meanwhile; until then the screen shows its last frame, for
 about a refresh. A frame still builds after input (keys typed into a key
-window another app's window covers), when assistive technology turns on,
-and for `Window.CapturePage`, so that a capture shows the window as it is
+window another app's window covers), when the app shows the window
+(`Window.Show`: macOS may go on reporting a window shown again soon after
+it was hidden as out of sight), when assistive technology turns on, and
+for `Window.CapturePage`, so that a capture shows the window as it is
 now. Windows and Linux do not tell MyGo when a window is out of sight, so
 there it draws as it always did.
 

@@ -128,3 +128,66 @@ func TestOccludedHoldsWithAccessibility(t *testing.T) {
 		t.Errorf("accessibility reads %q, not what the window shows now", o.shows())
 	}
 }
+
+// TestShownWindowBuildsFrame checks that a window the app shows draws what
+// changed while it was hidden, though the system goes on reporting
+// nothing of it on screen, as macOS does for a window shown again soon
+// after it was hidden, whose web view had the keyboard: waiting for the
+// system to say it shows would wait for good. The window waits again for
+// the frames after that.
+func TestShownWindowBuildsFrame(t *testing.T) {
+	// The change comes while the window is hidden, and its frame after the
+	// app showed it.
+	o := newOccludedHost(t, false)
+	o.frame()
+	o.s.occluded = true
+	o.count = 1
+	o.rt.changed()
+	o.event(platform.SurfaceEvent{Kind: platform.SurfaceShowRequested})
+	o.frame()
+	if o.builds != 2 || o.shows() != "1" {
+		t.Fatalf("a change before the show: %d builds, showing %q", o.builds, o.shows())
+	}
+	o.count = 2
+	o.rt.changed()
+	o.frame()
+	if o.builds != 2 || !o.rt.held {
+		t.Fatalf("a change after the frame, out of sight: %d builds, held %v", o.builds, o.rt.held)
+	}
+
+	// The frame waits already as the app shows the window.
+	o = newOccludedHost(t, false)
+	o.frame()
+	o.s.occluded = true
+	o.count = 1
+	o.rt.changed()
+	o.frame()
+	if o.builds != 1 || !o.rt.held {
+		t.Fatalf("a change out of sight: %d builds, held %v", o.builds, o.rt.held)
+	}
+	asked := o.s.requested
+	o.event(platform.SurfaceEvent{Kind: platform.SurfaceShowRequested})
+	if o.s.requested == asked || o.rt.held {
+		t.Fatalf("shown while a frame waits: asked for %d frames, held %v", o.s.requested-asked, o.rt.held)
+	}
+	o.frame()
+	if o.builds != 2 || o.shows() != "1" {
+		t.Fatalf("the frame waiting: %d builds, showing %q", o.builds, o.shows())
+	}
+
+	// The system shows the window before any frame: it holds frames again
+	// once other windows cover it.
+	o = newOccludedHost(t, false)
+	o.frame()
+	o.s.occluded = true
+	o.event(platform.SurfaceEvent{Kind: platform.SurfaceShowRequested})
+	o.s.occluded = false
+	o.event(platform.SurfaceEvent{Kind: platform.SurfaceShown})
+	o.s.occluded = true
+	o.count = 1
+	o.rt.changed()
+	o.frame()
+	if o.builds != 1 || !o.rt.held {
+		t.Fatalf("covered after it showed: %d builds, held %v", o.builds, o.rt.held)
+	}
+}

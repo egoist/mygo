@@ -69,7 +69,9 @@ type DamageSurface interface {
 // frames: the content then draws nothing that moves until it shows again.
 type OccludableSurface interface {
 	// Occluded reports whether nothing of the surface shows on screen. The
-	// surface sends SurfaceShown once some of it shows again.
+	// surface sends SurfaceShown once some of it shows again. It may go
+	// on reporting it after the app showed the window
+	// (SurfaceShowRequested).
 	Occluded() bool
 }
 
@@ -264,6 +266,11 @@ const (
 	// SurfaceShown reports that some of an OccludableSurface shows again
 	// after none did.
 	SurfaceShown
+	// SurfaceShowRequested reports that the app asked to show the window of
+	// an OccludableSurface, which the system may report as out of sight
+	// for a while after, or for good, as macOS does for a window it shows
+	// again quickly. The content builds the frame waiting at once.
+	SurfaceShowRequested
 	// DataDragOver queries a destination; DataDrop commits a transfer.
 	// DataDragLeave clears its hover state. Drag carries the query/result.
 	DataDragOver
