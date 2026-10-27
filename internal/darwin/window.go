@@ -455,6 +455,9 @@ func (w *window) createWebView(content NSRect) {
 	if respondsTo(prefs, "setTabFocusesLinks:") {
 		send(prefs, "setTabFocusesLinks:", boolArg(o.TabFocusesLinks))
 	}
+	if o.NoBackgroundThrottling || o.Native != 0 {
+		setBackgroundThrottling(cfg, prefs, !o.NoBackgroundThrottling, o.Native != 0)
+	}
 
 	// Every window gets its own content controller so messages, scripts and
 	// the bridge configuration never leak between windows.
@@ -490,6 +493,10 @@ func (w *window) createWebView(content NSRect) {
 	if respondsTo(w.web, "setInspectable:") {
 		send(w.web, "setInspectable:", boolArg(o.DevTools))
 	}
+	if o.NoBackgroundThrottling && respondsTo(w.web, "_setWindowOcclusionDetectionEnabled:") {
+		// A window behind others counts as visible.
+		send(w.web, "_setWindowOcclusionDetectionEnabled:", 0)
+	}
 	if o.UserAgent != "" {
 		ua := o.UserAgent
 		if o.UserAgentSuffix != "" {
@@ -506,6 +513,64 @@ func (w *window) createWebView(content NSRect) {
 		// didChangeValueForKey:, as Safari's tabs' speaker icons hear.
 		w.observesAudio = true
 		send(w.web, "addObserver:forKeyPath:options:context:", uintptr(w.delegate), uintptr(nsString("_isPlayingAudio")), 0, 0)
+	}
+}
+
+// throttlingPrefs are the preferences with which WebKit slows down a page
+// it can't see, and the value of each that keeps the page running
+// (PageOptions.BackgroundThrottling): the public inactiveSchedulingPolicy,
+// whose WKInactiveSchedulingPolicyNone keeps the web content process of a
+// window behind others from being suspended (macOS 14+), and private
+// ones, looked up with respondsToSelector:, that throttle a hidden page's
+// timers to once a second, suspend its CSS animations and let App Nap
+// slow down its process.
+var throttlingPrefs = [...]struct {
+	get, set string
+	off      uintptr
+	boolean  bool
+}{
+	{"inactiveSchedulingPolicy", "setInactiveSchedulingPolicy:", 2, false},
+	{"_hiddenPageDOMTimerThrottlingEnabled", "_setHiddenPageDOMTimerThrottlingEnabled:", 0, true},
+	{"_hiddenPageCSSAnimationSuspensionEnabled", "_setHiddenPageCSSAnimationSuspensionEnabled:", 0, true},
+	{"_pageVisibilityBasedProcessSuppressionEnabled", "_setPageVisibilityBasedProcessSuppressionEnabled:", 0, true},
+}
+
+// setBackgroundThrottling sets throttlingPrefs in prefs, the preferences
+// of cfg: to WebKit's defaults when throttle, else to the values that keep
+// a hidden page running. The preferences of a configuration window.open()
+// hands over (shared) are the opener's: a window that wants them
+// otherwise gets a copy, which leaves the opener's as they are.
+func setBackgroundThrottling(cfg, prefs id, throttle, shared bool) {
+	var defaults id
+	if throttle {
+		defaults = alloc("WKPreferences")
+		defer release(defaults)
+	}
+	get := func(o id, p int) uintptr {
+		v := uintptr(send(o, throttlingPrefs[p].get))
+		if throttlingPrefs[p].boolean {
+			v = boolArg(byte(v) != 0)
+		}
+		return v
+	}
+	for i, p := range throttlingPrefs {
+		if !respondsTo(prefs, p.set) || !respondsTo(prefs, p.get) {
+			continue
+		}
+		v := p.off
+		if throttle {
+			v = get(defaults, i)
+		}
+		if get(prefs, i) == v {
+			continue
+		}
+		if shared && respondsTo(prefs, "copyWithZone:") {
+			shared = false
+			prefs = send(prefs, "copy")
+			send(cfg, "setPreferences:", uintptr(prefs))
+			release(prefs) // the configuration keeps it
+		}
+		send(prefs, p.set, v)
 	}
 }
 

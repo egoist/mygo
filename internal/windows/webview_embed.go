@@ -132,7 +132,7 @@ func clipVisual(visual uintptr, w, h float32) {
 
 func (s *surface) NewWebView(o *platform.WindowOptions, h platform.WindowHandler) (platform.WebView, error) {
 	b := s.w.b
-	if err := b.startEnvironment(); err != nil {
+	if err := b.startEnvironment(o); err != nil {
 		return nil, err
 	}
 	if s.layer == nil {
@@ -329,7 +329,9 @@ func (w *window) placeEmbedded() {
 	if w.shown {
 		putBounds(w.controller, rect{int32(fx), int32(fy), int32(px(w.frame.X + w.frame.W)), int32(px(w.frame.Y + w.frame.H))})
 	}
-	comCall(w.controller, ctlPutIsVisible, boolArg(w.shown && !w.host.hidden))
+	// A page that must keep running stays visible to WebView2 while its
+	// host is hidden (PageOptions.BackgroundThrottling).
+	comCall(w.controller, ctlPutIsVisible, boolArg(w.shown && (!w.host.hidden || w.opts.NoBackgroundThrottling)))
 }
 
 // webViewAt returns the web view that takes the pointer at x, y in the

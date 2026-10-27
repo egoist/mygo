@@ -599,3 +599,34 @@ func TestDecorations(handle uintptr) Decorations {
 	d.Content = [2]int{int(content.Width), int(content.Height)}
 	return d
 }
+
+// TestBackgroundThrottlingOff reports whether the page of a window, or of
+// its first web view, has every background throttling feature WebKitGTK
+// has turned off, and how many it has.
+func TestBackgroundThrottlingOff(handle uintptr, webView bool) (off bool, features int) {
+	w := windowByHandle(handle)
+	if w == nil {
+		return false, 0
+	}
+	web := w.web
+	if webView {
+		if len(w.webViews) == 0 {
+			return false, 0
+		}
+		web = w.webViews[0].web
+	}
+	if web == 0 {
+		return false, 0
+	}
+	var enabled func(settings, f ptr) bool
+	if !bind(libWebKit, &enabled, "webkit_settings_get_feature_enabled") {
+		return false, 0
+	}
+	settings := webkitWebViewGetSettings(web)
+	off = true
+	eachBackgroundFeature(func(f ptr) {
+		features++
+		off = off && !enabled(settings, f)
+	})
+	return off, features
+}

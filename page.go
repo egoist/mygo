@@ -204,4 +204,55 @@ type PageOptions struct {
 	// with CallerPage(r.Context()), but it cannot read the responses of
 	// other origins than its own.
 	Untrusted bool
+	// BackgroundThrottling decides whether the page slows down while its
+	// window is hidden, minimized or covered, as web views do to save
+	// power. ThrottlingOff keeps it running, for a page that plays, syncs
+	// or computes in the background, as Electron's backgroundThrottling:
+	// false does:
+	//
+	//	Page: mygo.PageOptions{BackgroundThrottling: mygo.ThrottlingOff}
+	BackgroundThrottling BackgroundThrottling
 }
+
+// BackgroundThrottling tells whether a page slows down while it can't be
+// seen (PageOptions.BackgroundThrottling).
+type BackgroundThrottling int
+
+const (
+	// ThrottlingOn, the default, leaves the page to its web view, which
+	// slows down a page it can't see: its timers fire once a second at
+	// most, requestAnimationFrame waits, and macOS may suspend the page of
+	// a window behind others.
+	ThrottlingOn BackgroundThrottling = iota
+	// ThrottlingOff keeps the page's timers at their rate while its window
+	// is hidden, minimized or covered, and its process at the priority of
+	// a visible one:
+	//
+	//   - macOS: WKPreferences' inactiveSchedulingPolicy none (macOS 14 or
+	//     later) and WebKit's private preferences that throttle a hidden
+	//     page's timers, suspend its CSS animations and let App Nap slow
+	//     its process turned off; the private
+	//     -[WKWebView _setWindowOcclusionDetectionEnabled:NO] makes a
+	//     window behind others count as visible, so that its page keeps
+	//     requestAnimationFrame too. Private ones are looked up with
+	//     respondsToSelector:.
+	//   - Linux: WebKitGTK's HiddenPageDOMTimerThrottling and
+	//     HiddenPageCSSAnimationSuspension features turned off (WebKitGTK
+	//     2.42 or later; nothing before).
+	//   - Windows: the page stays visible to WebView2 while its window is
+	//     hidden, and the browser runs with
+	//     --disable-background-timer-throttling,
+	//     --disable-renderer-backgrounding and
+	//     --disable-backgrounding-occluded-windows. Those are the WebView2
+	//     environment's, which all the app's pages share and the first
+	//     window or web view showing a page creates: give that one the
+	//     option, and then no page of the app has its timers throttled.
+	//     A page that asks after it only stays visible, which the log
+	//     tells.
+	//
+	// The page of a hidden or minimized window still goes hidden
+	// (document.visibilityState) on macOS and Linux, where its web view
+	// draws nothing and requestAnimationFrame waits: run what must go on
+	// with timers.
+	ThrottlingOff
+)
