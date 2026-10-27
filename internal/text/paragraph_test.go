@@ -182,7 +182,13 @@ func TestSoftHyphensOfEngine(t *testing.T) {
 	for w := float32(60); w <= 260; w += 5 {
 		l := s.Layout(Params{Text: text, Style: Style{Size: 16}, Width: w})
 		for i, line := range l.Lines {
-			if line.Width > w+0.5 {
+			// A line broken at a soft hyphen with no other place to break
+			// may overflow, as a word too long for a line does: at 60,
+			// DirectWrite fits "ordinary" but not "ordinary-", and Core
+			// Text neither.
+			word := i < len(l.Lines)-1 && line.End > line.Start && l.Runes[line.End-1] == softHyphen &&
+				!strings.ContainsAny(string(l.Runes[line.Start:line.End-1]), " \u00AD")
+			if line.Width > w+0.5 && !word {
 				t.Errorf("at %v, line %d (%q) is %v wide", w, i, lineText(l, i), line.Width)
 			}
 			for r := line.Start; r < line.End; r++ {

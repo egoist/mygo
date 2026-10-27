@@ -135,7 +135,8 @@ ui.RichText(c,
 
 A soft hyphen (U+00AD) in a text is a place a line may break at: it
 shows as a hyphen where a line breaks there, and as nothing elsewhere, as
-in browsers.
+in browsers. When the hyphen itself does not fit and the line has no
+other place to break but within a word, the hyphen overflows the width.
 
 ## Elements within a sentence
 
