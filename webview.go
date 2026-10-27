@@ -302,3 +302,9 @@ func (n *webViewNative) CapturePage(cb func([]byte, error)) {
 func (n *webViewNative) PrintToPDF(opts platform.PDFOptions, cb func([]byte, error)) {
 	n.web.PrintToPDF(opts, cb)
 }
+func (n *webViewNative) CaptureState(kind platform.CaptureKind) platform.CaptureState {
+	return n.web.CaptureState(kind)
+}
+func (n *webViewNative) SetCaptureState(kind platform.CaptureKind, state platform.CaptureState) {
+	n.web.SetCaptureState(kind, state)
+}

@@ -375,3 +375,6 @@ func panelStyles(w *mygo.Window) (tool, topmost, owned, supported bool) {
 	mygo.RunOnMain(func() { tool, topmost, owned = win.TestPanelStyles(w.NativeHandle()) })
 	return tool, topmost, owned, true
 }
+
+// WebView2 tells no capture.
+func mockCapture(*mygo.Window) bool { return false }

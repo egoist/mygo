@@ -346,3 +346,9 @@ func endSheetButton(*mygo.Window, int) bool               { return false }
 
 // Panels' window styles are Windows'.
 func panelStyles(*mygo.Window) (bool, bool, bool, bool) { return false, false, false, false }
+
+// mockCapture gives a window's page WebKit's mock camera and microphone.
+func mockCapture(w *mygo.Window) (ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestMockCaptureDevices(w.NativeHandle()) })
+	return ok
+}
