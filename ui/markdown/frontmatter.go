@@ -34,7 +34,6 @@ func (st *viewState) frontmatter(c *ui.Context, i int) ui.Element {
 		tr.Children(func() {
 			chevron(c, th, 90*p.Progress())
 			ui.Text(c, tx.FrontMatter()).FontSize(th.em(0.8)).SingleLine().Unselectable()
-			ui.Text(c, b.Info()).FontSize(th.em(0.8)).TextColor(th.Muted).SingleLine().Unselectable()
 		})
 		// Nothing while closed.
 		p.Panel(func() { cb.Body(c) }).BorderWidth(1, 0, 0, 0).BorderColor(th.CodeBlockBorder)
