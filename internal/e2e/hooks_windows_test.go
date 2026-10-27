@@ -395,8 +395,14 @@ func pageGestures(w *mygo.Window, webView int) (swipe, pinch, ok bool) {
 // can't send it.
 func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }
 
-// takeForeground brings a window to the foreground, which a process may
-// while no other window has it.
+// takeForeground brings a window to the foreground, after Alt pressed and
+// released when Windows refuses it: a process that sent the last input may
+// take the foreground.
 func takeForeground(w *mygo.Window) {
-	mygo.RunOnMain(func() { win.TestForeground(w.NativeHandle()) })
+	mygo.RunOnMain(func() {
+		if !win.TestForeground(w.NativeHandle()) {
+			win.TestPressKeys(0x12) // VK_MENU
+			win.TestForeground(w.NativeHandle())
+		}
+	})
 }
