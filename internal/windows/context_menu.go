@@ -113,10 +113,10 @@ func (w *window) contextMenuRequested(args uintptr) {
 		return
 	}
 	c := &contextNatives{}
-	var at point // in the web view's pixels
+	// In DIPs, whatever the display's scale, unlike the web view's bounds.
+	var at point
 	comCall(args, cmReqGetLocation, uintptr(unsafe.Pointer(&at)))
-	dpi := float64(dpiOf(w.hwnd))
-	m := &platform.ContextMenu{Pointer: true, X: float64(at.X) * 96 / dpi, Y: float64(at.Y) * 96 / dpi, Items: c.describe(list)}
+	m := &platform.ContextMenu{Pointer: true, X: float64(at.X), Y: float64(at.Y), Items: c.describe(list)}
 	// What WebView2 leaves out of a click in the page's own document, as
 	// the URL of a data: image, the page's contextmenu event tells; one in
 	// a frame never reaches it.
@@ -156,9 +156,11 @@ func (w *window) contextMenuRequested(args uintptr) {
 // tells WebView2 the menu closed, or the app's, after.
 func (w *window) showContextMenu(m *platform.Menu, c *contextNatives, at point, args uintptr, done func()) {
 	relabel(m.Items, c)
+	m.TidySeparators() // around the items relabel hid
 	var bounds rect
 	comCall(w.controller, ctlGetBounds, uintptr(unsafe.Pointer(&bounds)))
-	pt := point{bounds.Left + at.X, bounds.Top + at.Y}
+	dpi := int32(dpiOf(w.hwnd))
+	pt := point{bounds.Left + (at.X*dpi+48)/96, bounds.Top + (at.Y*dpi+48)/96}
 	parent := w.hwnd
 	if w.host != nil && w.host.surface != nil {
 		parent = w.host.surface.hwnd

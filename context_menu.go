@@ -187,39 +187,8 @@ func contextMenu(w *Window, m *platform.ContextMenu) platform.ContextMenuRespons
 	if sameItems(snap.Items, m.Items) {
 		return platform.ContextMenuResponse{Default: true}
 	}
-	tidySeparators(snap)
+	snap.TidySeparators()
 	return platform.ContextMenuResponse{Menu: snap}
-}
-
-// tidySeparators drops the separators of a menu shown that would start or
-// end it, or follow another, as the items removed between them leave:
-// Remove(ContextMenuBack, ContextMenuForward, ContextMenuReload) leaves the
-// one after them first.
-func tidySeparators(m *platform.Menu) {
-	kept := m.Items[:0]
-	afterItem := false // a visible item other than a separator came last
-	for _, it := range m.Items {
-		if it.Submenu != nil {
-			tidySeparators(it.Submenu)
-		}
-		if it.Visible {
-			sep := it.Type == platform.MenuItemSeparator
-			if sep && !afterItem {
-				continue
-			}
-			afterItem = !sep
-		}
-		kept = append(kept, it)
-	}
-	if !afterItem { // a separator came last
-		for i := len(kept) - 1; i >= 0; i-- {
-			if kept[i].Visible {
-				kept = append(kept[:i], kept[i+1:]...)
-				break
-			}
-		}
-	}
-	m.Items = kept
 }
 
 func fill(s *string, v string) {

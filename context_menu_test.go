@@ -312,7 +312,7 @@ func TestTidySeparators(t *testing.T) {
 			Submenu: &platform.Menu{Items: []*platform.MenuItem{sep(), item("Speak", true), sep()}}},
 		sep(), item("Gone", false),
 	}}
-	tidySeparators(m)
+	m.TidySeparators()
 	var got []string
 	var list func(prefix string, items []*platform.MenuItem)
 	list = func(prefix string, items []*platform.MenuItem) {
