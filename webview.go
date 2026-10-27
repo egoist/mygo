@@ -311,3 +311,9 @@ func (n *webViewNative) CaptureState(kind platform.CaptureKind) platform.Capture
 func (n *webViewNative) SetCaptureState(kind platform.CaptureKind, state platform.CaptureState) {
 	n.web.SetCaptureState(kind, state)
 }
+func (n *webViewNative) TogglePictureInPicture() {
+	n.web.TogglePictureInPicture()
+}
+func (n *webViewNative) PictureInPictureActive(cb func(bool)) {
+	n.web.PictureInPictureActive(cb)
+}

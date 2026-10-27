@@ -1271,6 +1271,14 @@ func (w *window) SetCaptureState(kind platform.CaptureKind, state platform.Captu
 	set(w.web, int32(state))
 }
 
+// TogglePictureInPicture does nothing: WebKitGTK has no picture in
+// picture.
+func (w *window) TogglePictureInPicture() {}
+
+// PictureInPictureActive is always false: WebKitGTK has no picture in
+// picture.
+func (w *window) PictureInPictureActive(cb func(bool)) { cb(false) }
+
 func (w *window) OpenDevTools() {
 	if w.opts.DevTools {
 		webkitWebInspectorShow(webkitWebViewGetInspector(w.web))

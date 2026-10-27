@@ -139,6 +139,10 @@ func TestMain(m *testing.M) {
 		w.Header().Set("Content-Type", "text/html")
 		io.WriteString(w, capturePage)
 	})
+	mux.HandleFunc("/pip", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		io.WriteString(w, pipPage)
+	})
 	mux.HandleFunc("/session/", sessionPage)
 	mux.HandleFunc("POST /echo", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)

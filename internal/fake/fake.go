@@ -513,6 +513,7 @@ type Window struct {
 	muted     bool // SetAudioMuted
 	// capture is the page's capture of each kind (SetCapture).
 	capture [platform.CaptureDisplay + 1]platform.CaptureState
+	pip     bool // TogglePictureInPicture
 	// Restored is the last state RestoreSessionState put back.
 	Restored []byte
 	// Dropped is what DroppedFiles returns, once.
@@ -741,6 +742,17 @@ func (w *Window) CloseDevTools()                     { w.mu.Lock(); w.devtools =
 func (w *Window) IsDevToolsOpened() bool             { w.mu.Lock(); defer w.mu.Unlock(); return w.devtools }
 func (w *Window) CapturePage(cb func([]byte, error)) { cb([]byte("png"), nil) }
 func (w *Window) Print()                             {}
+
+// TogglePictureInPicture moves the page's video into picture in picture
+// or back, as a page with a video it can move.
+func (w *Window) TogglePictureInPicture() { w.mu.Lock(); w.pip = !w.pip; w.mu.Unlock() }
+
+func (w *Window) PictureInPictureActive(cb func(bool)) {
+	w.mu.Lock()
+	pip := w.pip
+	w.mu.Unlock()
+	cb(pip)
+}
 
 // fakeSession begins the session states of the fake engine, which
 // SessionState makes of the page's URL.
