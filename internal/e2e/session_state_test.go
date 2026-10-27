@@ -77,10 +77,12 @@ func TestSessionState(t *testing.T) {
 		}
 		return
 	}
-	waitFor(t, r, `scrollY === 1200 && field.value === "typed second"`)
+	t.Logf("restored: %v", mustEval(t, r, `JSON.stringify([scrollY, field.value, history.length, innerHeight, document.body.scrollHeight, document.visibilityState])`))
 	if !r.Page().CanGoBack() {
-		t.Fatal("CanGoBack = false in the page restored")
+		t.Fatal("CanGoBack = false in the page restored: it loaded the URL alone")
 	}
+	waitFor(t, r, `scrollY === 1200`)
+	waitFor(t, r, `field.value === "typed second"`)
 	r.Page().GoBack()
 	waitFor(t, r, `document.title === "one" && document.readyState === "complete"`)
 	waitFor(t, r, `scrollY === 700`)
