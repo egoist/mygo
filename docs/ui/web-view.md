@@ -77,6 +77,25 @@ if app.tab == "docs" {
 }
 ```
 
+## A web view that was not shown
+
+A web view the view never built is loaded, not shown. Its page runs: it
+loads, its scripts and `Eval` run, and [input](../windows.md#input-events)
+reaches it (not the mouse, on macOS). But it is hidden to the page, as one the view stopped building is:
+`document.visibilityState` is `"hidden"` and it draws no animation frames.
+Its viewport is not the element's, which does not exist yet: it is 0 by 0 on
+macOS, and a default size that WebView2 picks on Windows (1027 by 1104 on a
+machine tested), so a page that lays out by its viewport lays out for the
+wrong size until the view builds the web view once. It then gets the
+element's size, and keeps it when the view stops building it. An app that
+reads a page's layout (a driver that reads rows, or a rectangle) waits for
+the first build.
+
+On Windows, calls on a web view wait until WebView2 has made it, which for
+the first views of an app that makes several at once can take seconds: an
+`EvalContext` with a short timeout can expire before the page exists, shown
+or not.
+
 ## Its box
 
 A web view has no size of its own. The element stretches across its

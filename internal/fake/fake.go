@@ -508,6 +508,10 @@ type Window struct {
 	Dropped []string
 	// PDF holds the options of the last PrintToPDF.
 	PDF platform.PDFOptions
+	// Mouse, Keys and Inserted record the input sent to the page.
+	Mouse    []platform.PageMouseEvent
+	Keys     []platform.PageKeyEvent
+	Inserted []string
 	// HTML holds the documents LoadHTML loaded, in order.
 	HTML []string
 	// UserScriptUpdates counts the calls of SetUserScripts.
@@ -606,6 +610,30 @@ func (w *Window) SetIcon(png []byte) error {
 	w.Icon = png
 	w.mu.Unlock()
 	return nil
+}
+
+// Page.SendMouse finds PageInput at run time: this has the compiler check it.
+var _ platform.PageInput = (*Window)(nil)
+
+func (w *Window) SendMouse(e platform.PageMouseEvent, done func(error)) {
+	w.mu.Lock()
+	w.Mouse = append(w.Mouse, e)
+	w.mu.Unlock()
+	done(nil)
+}
+
+func (w *Window) SendKey(e platform.PageKeyEvent, done func(error)) {
+	w.mu.Lock()
+	w.Keys = append(w.Keys, e)
+	w.mu.Unlock()
+	done(nil)
+}
+
+func (w *Window) InsertText(text string, done func(error)) {
+	w.mu.Lock()
+	w.Inserted = append(w.Inserted, text)
+	w.mu.Unlock()
+	done(nil)
 }
 
 func (w *Window) PrintToPDF(o platform.PDFOptions, cb func([]byte, error)) {

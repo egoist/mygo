@@ -671,6 +671,76 @@ fmt.Printf("%d of %d\n", res.Active, res.Matches)
 win.Page().StopFindInPage()
 ```
 
+### Input events
+
+`SendMouse`, `SendKey` and `InsertText` give a page input as the system
+does: the page's events are trusted (`isTrusted` is true), which scripts
+cannot make, so pages that ignore `dispatchEvent` take them. They need no key
+window and no active app, and, except on Linux, no shown window (see below):
+
+```go
+p := win.Page()
+for _, t := range []mygo.MouseEventType{mygo.MouseMove, mygo.MouseDown, mygo.MouseUp} {
+	p.SendMouse(mygo.MouseEvent{Type: t, X: 220, Y: 172}) // CSS pixels in the viewport
+}
+// wait until the page shows the focus the click gave, then:
+p.InsertText("Xin chào")                // what an input method commits
+p.SendKey(mygo.KeyEvent{Key: "Enter"})  // keydown, keypress, keyup
+```
+
+The methods return when the page took the input, not when it handled it:
+WebKit queues a click while it handles one, and takes keys at once, so a key
+sent right after a click can overtake it. Wait for what the click did, such
+as the focus, before the text and the key. A double click is a click and a
+second one with `ClickCount: 2`. The keys of `SendKey` are those of a US
+keyboard (Enter, Tab, Escape, Backspace, Delete, the arrows, Home, End,
+Page Up and Down, space, letters and digits; a capital letter is the letter
+with Shift); other text goes through `InsertText`. Only the primary button
+and no wheel, drag or touch; no input method composes, and a shortcut with
+`ModSuper` is not reliable (macOS answers it as a key equivalent). On Linux
+the web view must be shown: for a hidden window `SendMouse` and `SendKey`
+return an error, as WebKitGTK drops their presses. Browsers return an error
+matching `errors.ErrUnsupported`.
+
+A page that is not shown takes input on macOS and Windows: a hidden window,
+a [web view](ui/web-view.md) its window's view does not build or a box
+covers, and on Windows a minimized window too. Two things differ:
+
+- A web view that was never shown has no size on macOS and hears no mouse
+  event (keys and text go in); on Windows its viewport is WebView2's
+  default, not the element's (see [a web view that was not
+  shown](ui/web-view.md#a-web-view-that-was-not-shown)).
+- A page that is not shown draws no frames, and WebView2 answers a mouse
+  move only when the page draws one, or after five seconds. `SendMouse`
+  with a `MouseMove` therefore returns on Windows when it sent the move, not
+  when the page took it; the page gets it before the next event.
+
+### Text into a named element
+
+A page that moves the focus by itself, as chat apps do when a message
+arrives, can take `InsertText`'s text in another field than the one the app
+checked a moment before. `InsertTextInto` takes a CSS selector and inserts
+nothing unless the element that takes the text matches it: the check runs
+inside the page, in the task that inserts the text, so the focus cannot move
+between the check and the insert. When it does not match, the text does not
+reach the page's own handlers either, and the error matches `ErrWrongFocus`:
+
+```go
+err := p.InsertTextInto("[data-composer]", "Xin chào")
+if errors.Is(err, mygo.ErrWrongFocus) {
+	// the page moved the focus: click the composer again
+}
+```
+
+The selector is matched against the element that takes the text (a focused
+field or editing host) and its ancestors, across open shadow roots. The
+guard is a listener on the top window of the document, so a focus inside a
+frame is refused before the insert, and a page that stops its
+`beforeinput` events in a capturing listener of the window, registered
+before MyGo's, hides them: the call then returns an error although the text
+may have gone in. The same error is returned when nothing that takes text
+has the focus (nothing goes in then). Call it one at a time for a page.
+
 ### Printing, PDF and screenshots
 
 ```go

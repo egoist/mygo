@@ -96,7 +96,10 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   benchmarks branch's commits say it.
 - New behavior goes into `package mygo` first; backends only translate
   `internal/platform` calls to native ones. Implement every platform method in
-  `darwin`, `linux`, `windows`, `web`, `fake` and `unsupported`.
+  `darwin`, `linux`, `windows`, `web`, `fake` and `unsupported`, except the
+  methods of an optional interface (`platform.PageInput`), which only the
+  backends that have the feature implement ("Binary size" in the
+  architecture guide).
 - Objective-C: `alloc`/`init` objects are owned and must be released; wrap
   temporary objects in `withPool`; copy blocks you call later.
 - Official plugins live in `plugins/<name>`: the Go package and its npm
