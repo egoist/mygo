@@ -914,6 +914,13 @@ func TestWindowButtonsTheme(t *testing.T) {
 	if _, _, _, ok := titleButtonColor(w, "minimize"); !ok {
 		t.Skip("mygo draws the window controls on Windows")
 	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			r, g, b, ok := titleButtonColor(w, "minimize")
+			noRedirect, composed, _ := composition(w)
+			t.Logf("the minimize button shows %02x%02x%02x (read %v); no redirection bitmap %v, composed %v", r, g, b, ok, noRedirect, composed)
+		}
+	})
 	readable := false
 	for deadline := time.Now().Add(3 * time.Second); !readable && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		l, ok := light()
