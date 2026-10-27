@@ -116,7 +116,7 @@ func (r *cookieRequest) finish(c []platform.Cookie, err error) {
 // cookiesOf returns the cookie calls' state of store, nil for the
 // default profile.
 func (b *Backend) cookiesOf(store platform.DataStore) *cookieStore {
-	if s, ok := store.(*dataStore); ok {
+	if s := storeOf(store); s != nil {
 		return &s.cookies
 	}
 	return &b.cookies

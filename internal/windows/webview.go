@@ -167,7 +167,7 @@ func (w *window) createWebView() {
 		if w.host != nil {
 			return w.createEmbedded(h)
 		}
-		return w.b.createController(w.opts.DataStore, w.hwnd, false, h)
+		return w.b.createController(storeOf(w.opts.DataStore), w.hwnd, false, h)
 	})
 	if failed(hr) {
 		w.creationFailed(hr)

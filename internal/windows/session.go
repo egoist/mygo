@@ -89,13 +89,19 @@ func (b *Backend) hasProfiles() bool {
 	return true
 }
 
+// storeOf returns the profile of store, nil for the default one.
+func storeOf(store platform.DataStore) *dataStore {
+	s, _ := store.(*dataStore)
+	return s
+}
+
 // createController asks the environment for the controller of a web view
-// of the profile of store, nil for the default one, in hwnd, through
-// handler; composition asks for a composition controller (an embedded web
-// view's).
-func (b *Backend) createController(store platform.DataStore, hwnd uintptr, composition bool, handler uintptr) uintptr {
-	s, ok := store.(*dataStore)
-	if !ok {
+// of the profile s, nil for the default one, in hwnd, through handler;
+// composition asks for a composition controller (an embedded web view's).
+// s is a *dataStore, not a platform.DataStore, which a nil *dataStore
+// would make a non-nil interface of.
+func (b *Backend) createController(s *dataStore, hwnd uintptr, composition bool, handler uintptr) uintptr {
+	if s == nil {
 		if composition {
 			env3 := queryInterface(b.env, &iidICoreWebView2Environment3)
 			if env3 == 0 {
