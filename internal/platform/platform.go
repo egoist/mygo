@@ -587,6 +587,16 @@ type Page interface {
 	// the main thread exactly once, maybe before PictureInPictureActive
 	// returns.
 	PictureInPictureActive(cb func(active bool))
+	// SessionState returns the engine's own state of the page's
+	// back/forward list, with the scroll positions and form state it
+	// saved of its entries, nil where the backend keeps none.
+	SessionState() []byte
+	// RestoreSessionState puts back a back/forward list that
+	// SessionState returned and loads its current entry, as LoadURL
+	// loads a page, and reports whether it did: false where the backend
+	// keeps no state or can't read this one, for the core to load the
+	// page's URL instead.
+	RestoreSessionState(state []byte) bool
 	OpenDevTools()
 	CloseDevTools()
 	IsDevToolsOpened() bool
