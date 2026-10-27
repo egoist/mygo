@@ -337,3 +337,15 @@ func mockCapture(w *mygo.Window) (ok bool) {
 	mygo.RunOnMain(func() { ok = darwin.TestMockCaptureDevices(w.NativeHandle()) })
 	return ok
 }
+
+// pageGestures reports whether a swipe navigates and a pinch magnifies the
+// page of a window, or with webView 0 or more, of its web view of that
+// index.
+func pageGestures(w *mygo.Window, webView int) (swipe, pinch, ok bool) {
+	mygo.RunOnMain(func() { swipe, pinch, ok = darwin.TestPageGestures(w.NativeHandle(), webView) })
+	return swipe, pinch, ok
+}
+
+// A WKWebView's magnification follows a trackpad's gesture through its
+// phases, which a test can't make.
+func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }

@@ -378,3 +378,14 @@ func panelStyles(w *mygo.Window) (tool, topmost, owned, supported bool) {
 
 // WebView2 tells no capture.
 func mockCapture(*mygo.Window) bool { return false }
+
+// pageGestures reports whether a swipe navigates and a pinch zooms the page
+// of a window, or with webView 0 or more, of its web view of that index.
+func pageGestures(w *mygo.Window, webView int) (swipe, pinch, ok bool) {
+	mygo.RunOnMain(func() { swipe, pinch, ok = win.TestPageGestures(w.NativeHandle(), webView) })
+	return swipe, pinch, ok
+}
+
+// WebView2 takes touch input from Windows' pointer messages, which a test
+// can't send it.
+func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }
