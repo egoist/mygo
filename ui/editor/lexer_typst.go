@@ -4,6 +4,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/egoist/mygo/internal/text"
 )
 
 // typstLexer lexes Typst: markup, with the code a # starts and the math
@@ -60,12 +62,17 @@ func (s typstState) pack() uint64 {
 // typstLine is a line being lexed.
 type typstLine struct {
 	typstState
-	lx      *typstLexer
-	line    string
-	out     lexOut
-	first   int  // where the first character that is no space is
-	start   bool // the line starts as one of markup, where = and - mark headings and lists
-	heading bool
+	lx   *typstLexer
+	line string
+	out  lexOut
+	// markerAt is where a heading's =, a list's - or + or a term's / may
+	// be: the first character that is no space of a line of markup, or of a
+	// content block, or -1.
+	markerAt int
+	// A heading goes on to the end of the line, or of the content block it
+	// is in, which is the depth of the brackets it started at.
+	heading      bool
+	headingDepth int
 	// A strong or emphasized span ends at spanEnd, with the delimiter
 	// that closes it, or -1.
 	spanEnd  int
@@ -80,10 +87,11 @@ func (l *typstLine) add(end int, k TokenKind) {
 }
 
 func (lx *typstLexer) Tokenize(line string, state uint64, tokens []Token) ([]Token, uint64) {
-	l := typstLine{typstState: typstUnpack(state), lx: lx, line: line, out: lexOut{toks: tokens}, spanEnd: -1}
+	l := typstLine{typstState: typstUnpack(state), lx: lx, line: line, out: lexOut{toks: tokens}, markerAt: -1, spanEnd: -1}
 	n := len(line)
-	l.first = n - len(strings.TrimLeft(line, " \t"))
-	l.start = l.raw == 0 && l.comment == 0 && !l.str && l.embed == typstNone && l.ctx() == typstContent
+	if l.raw == 0 && l.comment == 0 && !l.str && l.embed == typstNone && l.ctx() == typstContent {
+		l.markerAt = n - len(strings.TrimLeft(line, " \t"))
+	}
 	for i, steps := 0, 0; i < n; steps++ {
 		if steps > 3*n+8 {
 			// Every step moves on, or ends an embedded expression.
@@ -132,7 +140,7 @@ func (l *typstLine) textKind() TokenKind {
 	switch {
 	case l.spanEnd >= 0:
 		return l.spanKind
-	case l.heading:
+	case l.heading && l.depth >= l.headingDepth:
 		return TokenHeading
 	}
 	return TokenText
@@ -216,16 +224,49 @@ func typstEscapeEnd(line string, i int) int {
 	return i + 1 + w
 }
 
-// typstLabelByte reports whether c can be in the name of a label.
-func typstLabelByte(c byte) bool {
-	return isIdentByte(c) || c == '-' || c == ':' || c == '.' || c >= utf8.RuneSelf
-}
-
-func typstLabelRun(line string, i int) int {
-	for i < len(line) && typstLabelByte(line[i]) {
-		i++
+// typstLabelEnd returns where the name of a label or a reference that starts
+// at i ends, or i when none does: identifier characters, which are letters,
+// digits, marks, _ and -, and : and . inside it.
+func typstLabelEnd(line string, i int) int {
+	if i >= len(line) || line[i] == '.' || line[i] == ':' {
+		return i
+	}
+	for i < len(line) {
+		if c := line[i]; c < utf8.RuneSelf {
+			if !isIdentByte(c) && c != '-' && c != ':' && c != '.' {
+				break
+			}
+			i++
+			continue
+		}
+		r, w := utf8.DecodeRuneInString(line[i:])
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsMark(r) {
+			break
+		}
+		i += w
 	}
 	return i
+}
+
+// typstRefEnd returns where the reference whose name starts at i ends, or i
+// when it has none: the name of a label, but for the : and . it ends with.
+func typstRefEnd(line string, i int) int {
+	j := typstLabelEnd(line, i)
+	for j > i && (line[j-1] == '.' || line[j-1] == ':') {
+		j--
+	}
+	return j
+}
+
+// typstWordy reports whether r is of a word: a letter or a digit, but not
+// one of Chinese, Japanese or Korean, where no word has two characters
+// joined by a * or a _.
+func typstWordy(r rune) bool {
+	return (unicode.IsLetter(r) || unicode.IsNumber(r)) && !text.StandsAlone(r) && !typstHangul(r)
+}
+
+func typstHangul(r rune) bool {
+	return r >= 0x1100 && r <= 0x11ff || r >= 0x3130 && r <= 0x318f || r >= 0xa960 && r <= 0xa97f || r >= 0xac00 && r <= 0xd7ff || r >= 0xffa0 && r <= 0xffdc
 }
 
 // typstInWord reports whether the * or _ at i is inside a word, which
@@ -234,8 +275,9 @@ func typstInWord(line string, i int) bool {
 	if i == 0 || i+1 >= len(line) {
 		return false
 	}
-	a, b := line[i-1], line[i+1]
-	return (isIdentByte(a) && a != '_' || a >= utf8.RuneSelf) && (isIdentByte(b) && b != '_' || b >= utf8.RuneSelf)
+	a, _ := utf8.DecodeLastRuneInString(line[:i])
+	b, _ := utf8.DecodeRuneInString(line[i+1:])
+	return typstWordy(a) && typstWordy(b)
 }
 
 // typstFenceAt returns where the first run of exactly fence backticks in s
@@ -331,13 +373,18 @@ func (l *typstLine) stringBody(i int) int {
 	return n
 }
 
-// rawBody lexes the code of a raw block from i, to the fence that closes it
-// when it is on the line.
+// rawBody lexes the code of raw text from i, to the run of backticks of the
+// length of fence that closes it when it is on the line.
 func (l *typstLine) rawBody(i, fence int) int {
 	line := l.line
 	if e := typstFenceAt(line[i:], fence); e >= 0 {
 		l.add(i+e, TokenCode)
-		l.add(i+e+fence, TokenPunctuation)
+		// The backticks of a span are code, and a block's fences are not.
+		kind := TokenCode
+		if fence >= 3 {
+			kind = TokenPunctuation
+		}
+		l.add(i+e+fence, kind)
 		l.raw = 0
 		return i + e + fence
 	}
@@ -346,28 +393,34 @@ func (l *typstLine) rawBody(i, fence int) int {
 	return len(line)
 }
 
-// rawStart lexes raw text from the backticks at i: a span of code if it ends
-// on the line, else, from three backticks, a block that goes on over lines.
+// rawStart lexes raw text from the backticks at i: code up to as many, which
+// goes on over lines when they are not on this one. From three backticks it
+// is a block, where a language may follow them.
 func (l *typstLine) rawStart(i int) int {
 	line, n := l.line, len(l.line)
 	run := 1
 	for i+run < n && line[i+run] == '`' {
 		run++
 	}
-	if run < 3 {
-		if e := strings.Index(line[i+run:], line[i:i+run]); e >= 0 {
-			l.add(i+run+e+run, TokenCode)
-			return i + run + e + run
-		}
-	}
-	if run < 3 || run > 7 {
+	switch {
+	case run == 2:
+		// Two backticks are raw text with nothing in it.
+		l.add(i+2, TokenCode)
+		return i + 2
+	case run > 7:
 		l.add(i+run, l.textKind())
 		return i + run
+	case run < 3:
+		l.add(i+run, TokenCode)
+		return l.rawBody(i+run, run)
 	}
 	l.add(i+run, TokenPunctuation)
 	j := i + run
-	for j < n && (isIdentByte(line[j]) || line[j] == '-' || line[j] == '+' || line[j] == '#') {
-		j++
+	if j < n && identStart(line[j:], "") {
+		for j < n && identPart(line[j:], "-") {
+			_, w := utf8.DecodeRuneInString(line[j:])
+			j += w
+		}
 	}
 	l.add(j, TokenType)
 	return l.rawBody(j, run)
@@ -408,7 +461,7 @@ func (l *typstLine) lineStart(i int) int {
 			j++
 		}
 		if end(j) {
-			l.heading = true
+			l.heading, l.headingDepth = true, l.depth
 			l.add(j, TokenHeading)
 			return j
 		}
@@ -448,11 +501,11 @@ func (l *typstLine) markup(i int) int {
 		// A token went past the end of the span.
 		l.spanEnd = -1
 	}
-	if i < l.first {
-		l.add(l.first, TokenText)
-		return l.first
+	if i < l.markerAt {
+		l.add(l.markerAt, l.textKind())
+		return l.markerAt
 	}
-	if l.start && i == l.first && l.spanEnd < 0 {
+	if i == l.markerAt && l.spanEnd < 0 {
 		if j := l.lineStart(i); j > i {
 			return j
 		}
@@ -492,15 +545,13 @@ func (l *typstLine) markup(i int) int {
 			l.closed(i + 1)
 		}
 		return i + 1
-	case c == '@' && next != 0 && (isIdentByte(next) || next >= utf8.RuneSelf):
-		j := typstLabelRun(line, i+1)
-		for line[j-1] == '.' || line[j-1] == ':' {
-			j--
+	case c == '@':
+		if j := typstRefEnd(line, i+1); j > i+1 {
+			l.add(j, TokenLink)
+			return j
 		}
-		l.add(j, TokenLink)
-		return j
 	case c == '<':
-		if j := typstLabelRun(line, i+1); j > i+1 && j < n && line[j] == '>' {
+		if j := typstLabelEnd(line, i+1); j > i+1 && j < n && line[j] == '>' {
 			l.add(j+1, TokenTag)
 			return j + 1
 		}
@@ -665,7 +716,12 @@ func (l *typstLine) code(i int) int {
 		return i + 1
 	case c == '[':
 		l.add(i+1, TokenPunctuation)
+		depth := l.depth
 		l.push(typstContent)
+		if l.depth > depth {
+			// A content block starts as a line of markup does.
+			l.markerAt = n - len(strings.TrimLeft(line[i+1:], " \t"))
+		}
 		return i + 1
 	case c == '$':
 		l.add(i+1, TokenPunctuation)
@@ -685,7 +741,7 @@ func (l *typstLine) code(i int) int {
 		}
 		return i + 1
 	case c == '<':
-		if j := typstLabelRun(line, i+1); j > i+1 && j < n && line[j] == '>' {
+		if j := typstLabelEnd(line, i+1); j > i+1 && j < n && line[j] == '>' {
 			l.add(j+1, TokenTag)
 			return j + 1
 		}
@@ -762,11 +818,12 @@ func (l *typstLine) math(i int) int {
 		l.add(j, TokenNumber)
 		return j
 	case c >= utf8.RuneSelf || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z':
-		// A single letter is a variable; more are a symbol or a function.
+		// A name is a letter, and the letters and digits after it: one
+		// character is a variable, more are a symbol or a function.
 		j, letters := i, 0
 		for j < n {
 			r, w := utf8.DecodeRuneInString(line[j:])
-			if !unicode.IsLetter(r) {
+			if !unicode.IsLetter(r) && (j == i || !unicode.IsDigit(r) && !unicode.IsMark(r)) {
 				break
 			}
 			j += w
