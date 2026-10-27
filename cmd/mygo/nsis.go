@@ -199,6 +199,7 @@ SetCompressor /SOLID lzma
 ` + nsisName(c.windowsName()) + `
 OutFile ` + nsisString(out) + `
 ` + signing + `InstallDir "$LOCALAPPDATA\Programs\` + nsisEscape(fsName(c.Name)) + `"
+InstallDirRegKey HKCU ` + nsisString(uninstallKey) + ` "InstallLocation"
 RequestExecutionLevel user
 BrandingText " "
 ` + icon + `!define MUI_FINISHPAGE_RUN "$INSTDIR\` + nsisEscape(exe) + `"

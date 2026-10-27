@@ -37,6 +37,23 @@ func TestNSISUninstallEntry(t *testing.T) {
 	}
 }
 
+// TestNSISReusesInstallLocation makes a second interactive install start in
+// the directory chosen by the first one, instead of creating a second copy.
+func TestNSISReusesInstallLocation(t *testing.T) {
+	c := &Config{Name: "My App", Identifier: "com.example.app", Version: "1.2.0"}
+	script, err := installerScript(c, `C:\out\setup.exe`, "My App.exe", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	installDir := `InstallDir "$LOCALAPPDATA\Programs\My App"`
+	installKey := `InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.example.app" "InstallLocation"`
+	dir := strings.Index(script, installDir)
+	key := strings.Index(script, installKey)
+	if dir < 0 || key != dir+len(installDir)+1 {
+		t.Fatalf("installer does not reuse its registered install location:\n%s", script)
+	}
+}
+
 func TestConfigPublisher(t *testing.T) {
 	for copyright, want := range map[string]string{
 		"":                          "",
