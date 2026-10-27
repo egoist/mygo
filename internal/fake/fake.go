@@ -105,10 +105,13 @@ type Backend struct {
 	// ActivationToken is the token of WithActivationToken while its
 	// function runs.
 	ActivationToken string
-	// Cleared counts ClearBrowsingData calls.
+	// Cleared counts ClearBrowsingData calls for the default store.
 	Cleared int
-	// cookies holds the cookies of the pages, by name, domain and path.
+	// cookies holds the cookies of the default store's pages, by name,
+	// domain and path.
 	cookies map[platform.CookieKey]platform.Cookie
+	// DataStores are the stores NewDataStore made, in order.
+	DataStores []*DataStore
 	// contentLists are the content rule lists compiled, by identifier;
 	// ContentRuleCompiles counts the compiles.
 	contentLists        map[string]*ContentRuleList
@@ -511,6 +514,9 @@ type Window struct {
 	pid       int  // SetProcessID
 	audible   bool // SetAudible
 	muted     bool // SetAudioMuted
+	// capture is the page's capture of each kind (SetCapture).
+	capture [platform.CaptureDisplay + 1]platform.CaptureState
+	pip     bool // TogglePictureInPicture
 	// Restored is the last state RestoreSessionState put back.
 	Restored []byte
 	// Dropped is what DroppedFiles returns, once.
@@ -740,6 +746,17 @@ func (w *Window) IsDevToolsOpened() bool             { w.mu.Lock(); defer w.mu.U
 func (w *Window) CapturePage(cb func([]byte, error)) { cb([]byte("png"), nil) }
 func (w *Window) Print()                             {}
 
+// TogglePictureInPicture moves the page's video into picture in picture
+// or back, as a page with a video it can move.
+func (w *Window) TogglePictureInPicture() { w.mu.Lock(); w.pip = !w.pip; w.mu.Unlock() }
+
+func (w *Window) PictureInPictureActive(cb func(bool)) {
+	w.mu.Lock()
+	pip := w.pip
+	w.mu.Unlock()
+	cb(pip)
+}
+
 // fakeSession begins the session states of the fake engine, which
 // SessionState makes of the page's URL.
 const fakeSession = "fake session of "
@@ -784,6 +801,32 @@ func (w *Window) SetAudible(v bool) {
 	w.audible = v
 	w.mu.Unlock()
 	w.H.AudibleChanged(v)
+}
+
+// SetCapture sets the page's capture of kind (CaptureState) and reports
+// it to the handler (CaptureStateChanged), as a backend does whenever the
+// page starts, mutes or stops capturing; it reports it even when it did
+// not change. Call it on the main thread, where backends report it.
+func (w *Window) SetCapture(kind platform.CaptureKind, state platform.CaptureState) {
+	w.mu.Lock()
+	w.capture[kind] = state
+	w.mu.Unlock()
+	w.H.CaptureStateChanged(kind, state)
+}
+
+func (w *Window) CaptureState(kind platform.CaptureKind) platform.CaptureState {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.capture[kind]
+}
+
+// SetCaptureState mutes, unmutes or stops the page's capture of kind, as
+// a page takes it, and reports it to the handler; it does nothing while
+// the page captures no such device.
+func (w *Window) SetCaptureState(kind platform.CaptureKind, state platform.CaptureState) {
+	if w.CaptureState(kind) != platform.CaptureNone {
+		w.SetCapture(kind, state)
+	}
 }
 
 // addHTML records a document LoadHTML loads.
@@ -958,14 +1001,6 @@ func (a app) OpenAtLogin(id, name, arg string) bool {
 func (app) OpenedAtLogin() bool { return false }
 
 func (a app) SetDockMenu(m *platform.Menu) { a.b.mu.Lock(); a.b.DockMenu = m; a.b.mu.Unlock() }
-
-func (a app) ClearBrowsingData(done func(error)) {
-	a.b.mu.Lock()
-	a.b.Cleared++
-	clear(a.b.cookies)
-	a.b.mu.Unlock()
-	done(nil)
-}
 
 func (a app) IsURLSchemeRegistered(scheme, id, name string) bool {
 	a.b.mu.Lock()

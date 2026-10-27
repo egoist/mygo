@@ -586,10 +586,13 @@ mygo.NewWindow(mygo.WindowOptions{
 | `DevTools` | `DevToolsAuto` (the inspector in development builds), `DevToolsEnabled` or `DevToolsDisabled`, which also turns WebView2's own keys, as F5 reloading, on or off (Windows); for a window of native UI, its [inspector](ui/inspector.md) |
 | `ZoomFactor`, `UserAgent` | the page's zoom (1 is 100%) and user agent |
 | `SafariTabFocus` | leaves Tab to text fields and elements with a tabindex, as Safari does unless the system's keyboard navigation is on; by default Tab reaches links, buttons, checkboxes and selects too (macOS) |
+| `PictureInPicture` | lets the page's videos go into picture in picture, see [picture in picture](#picture-in-picture) (macOS; WebView2 lets them already) |
 | `SwipeNavigation` | a horizontal swipe goes back and forward through the page's history, as in browsers, see [gestures](#swipes-and-pinches) |
 | `PinchZoom` | a pinch magnifies the page, as in browsers, see [gestures](#swipes-and-pinches) |
 | `UserAgentSuffix` | appended to the user agent instead of replacing it, which `UserAgent` does, such as `"MyApp/1.2"`; it appends to `UserAgent` too, and `SetUserAgent` keeps it, and leading and trailing spaces are trimmed |
 | `ContentRules` | rules that block what the page loads and hide parts of it, see [blocking content](#blocking-content) |
+| `BackgroundThrottling` | `ThrottlingOn` (the web view's own) or `ThrottlingOff`, which keeps the page running while its window is hidden, minimized or covered, see [background pages](#background-pages) |
+| `Session` | the store of the page's cookies, storage and caches, apart from other sessions', see [sessions](app.md#sessions); nil is the default session |
 
 `UserAgentSuffix` is for the sites that want to see the app, and for the ones
 that serve a bare web view older pages because its user agent names no browser:
@@ -608,6 +611,7 @@ Page events, on `win.Page()`:
 | `OnThemeColorChanged(func(c color.NRGBA, ok bool))` | the page's [theme color](#the-theme-color) changed; `ok` is false when it has none any more |
 | `OnRenderProcessGone(func(reason string))` | the web content process crashed or was killed; `Reload` recovers |
 | `OnAudibleChanged(func(audible bool))` | the page started or stopped [making sound](#sound) |
+| `OnCaptureStateChanged(func(kind mygo.CaptureKind, s mygo.CaptureState))` | the page started or stopped [capturing](#camera-and-microphone) the camera, the microphone or the display, or the capture was muted or unmuted |
 
 Keep a window on the app's own pages and open other links in the browser:
 
@@ -729,6 +733,127 @@ counting, which can take a moment after the sound stops.
 Where a platform can't mute, `IsAudioMuted` is false. Both are false for a
 window showing native UI and after the window closed. A [web view's](ui/web-view.md)
 page has them too.
+
+### Background pages
+
+Web views slow down a page nobody can see, to save power: once its window is
+hidden, minimized or behind others, its timers fire once a second at most,
+`requestAnimationFrame` waits, and macOS may suspend it. A page that plays,
+syncs or computes in the background keeps running with `ThrottlingOff`, as
+Electron's `backgroundThrottling: false`:
+
+```go
+mygo.NewWindow(mygo.WindowOptions{
+	URL:  "/player",
+	Page: mygo.PageOptions{BackgroundThrottling: mygo.ThrottlingOff},
+})
+```
+
+Its timers keep their rate and its process the priority of a visible page's,
+in windows and in [web views](ui/web-view.md) alike. A covered window's page keeps
+its animation frames too on macOS and Windows, but the page of a hidden or
+minimized window still goes hidden (`document.visibilityState`) on macOS and
+Linux, and so does a web view of a hidden window on Windows, which draws
+nothing then: run what must go on with timers.
+
+| | |
+|---|---|
+| macOS | `WKPreferences.inactiveSchedulingPolicy` none (macOS 14+), WebKit's private hidden-page timer throttling, CSS animation suspension and process suppression off, and window occlusion detection off, so that a covered window counts as visible |
+| Linux | WebKitGTK's `HiddenPageDOMTimerThrottling` and `HiddenPageCSSAnimationSuspension` features off (WebKitGTK 2.42+; nothing before) |
+| Windows | its browser runs with `--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows` |
+
+On Windows those arguments are the WebView2 environment's, which all of an
+app's pages share and which the first window or web view that shows a page
+creates: give the option to that one. Then no page of the app has its timers
+throttled; a page that asks later is too late, and the log says so. Two
+processes of the app share the browser too, so they must agree: WebView2
+refuses web views to a second one whose first page asks otherwise than the
+running one's did. A web
+view in a hidden window's [native UI](ui/web-view.md) still goes hidden, as
+it must for its window to leave the screen.
+
+### Camera and microphone
+
+`CaptureState` tells whether a page captures the camera, the microphone or
+the display (`getUserMedia()`, `getDisplayMedia()`), from any of its frames,
+and whether the capture is muted: `CaptureNone`, `CaptureActive` or
+`CaptureMuted`. `OnCaptureStateChanged` tells when that changes, for a
+recording indicator in the window or the menu bar, as Safari shows.
+`SetCaptureState` mutes, unmutes or stops a capture without the page's
+help, as the mute button of a call app: a muted capture keeps the page's
+tracks, which get silence or black frames, and a stopped one ends them.
+
+```go
+page := win.Page()
+page.OnCaptureStateChanged(func(kind mygo.CaptureKind, s mygo.CaptureState) {
+	if kind == mygo.CaptureMicrophone {
+		log.Println("microphone live:", s == mygo.CaptureActive) // show a recording indicator
+	}
+})
+
+// A menu item that mutes or unmutes the microphone of the window it was chosen for.
+mute := &mygo.MenuItem{Label: "Mute or Unmute Microphone", Accelerator: "CmdOrCtrl+Shift+M", Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+	if win == nil || win.Page() == nil {
+		return
+	}
+	p := win.Page()
+	switch p.CaptureState(mygo.CaptureMicrophone) {
+	case mygo.CaptureActive:
+		p.SetCaptureState(mygo.CaptureMicrophone, mygo.CaptureMuted)
+	case mygo.CaptureMuted:
+		p.SetCaptureState(mygo.CaptureMicrophone, mygo.CaptureActive)
+	}
+}}
+```
+
+The page asks for the devices first, which [permissions](#permissions)
+decide. A change shows in `CaptureState` and the event once the page took
+it, a moment after `SetCaptureState`, which does nothing while the page
+captures no such device. The page can't unmute a capture itself: asking for
+the device again goes to the permission handler, as a new capture does.
+
+| Platform | Capture state | Muting and stopping |
+|---|---|---|
+| macOS | `cameraCaptureState` and `microphoneCaptureState` of `WKWebView` (macOS 12+), and WebKit's private `_displayCaptureState` (macOS 13+), observed; `CaptureNone` if WebKit doesn't answer them | `setCameraCaptureState:completionHandler:`, `setMicrophoneCaptureState:completionHandler:` and the private `_setDisplayCaptureState:completionHandler:`; while only one of the camera and the microphone is muted, muting or unmuting the page's sound (`SetAudioMuted`) mutes the other for a moment, as WebKit mutes them together |
+| Linux | `webkit_web_view_get_camera_capture_state` and its microphone and display siblings, WebKitGTK 2.34 or later, and their `notify` signals | their setters; muting or unmuting the page's sound (`SetAudioMuted`) unmutes every capture in WebKitGTK, which MyGo mutes again at once, so a muted capture may be live for a moment |
+| Windows | always `CaptureNone`: WebView2 tells no capture | does nothing |
+
+`CaptureState` is `CaptureNone` for a window showing native UI and after
+the window closed. A [web view's](ui/web-view.md) page has them too.
+
+### Picture in picture
+
+`PageOptions.PictureInPicture` lets a page's videos float out into picture
+in picture, a small window over every app's, as they do in Safari: the
+button of a video's controls, the item of its context menu, and
+`requestPictureInPicture()` in the page's script. WKWebView keeps it to
+Safari, so a page on macOS needs the option; WebView2 lets videos go
+whatever it says. `TogglePictureInPicture` moves a video out, or the one
+out back into the page, without a click in the page, and
+`IsPictureInPictureActive` tells whether one is out, whoever put it there:
+
+```go
+win := mygo.NewWindow(mygo.WindowOptions{
+	URL:  "/player",
+	Page: mygo.PageOptions{PictureInPicture: true},
+})
+
+// A menu item that floats the video of the window it was chosen for.
+pip := &mygo.MenuItem{Label: "Picture in Picture", Accelerator: "CmdOrCtrl+Shift+P", Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+	if win != nil && win.Page() != nil {
+		win.Page().TogglePictureInPicture()
+	}
+}}
+```
+
+| Platform | |
+|---|---|
+| macOS | WebKit's private `_allowsPictureInPictureMediaPlayback` preference, and `_togglePictureInPicture`, `_canTogglePictureInPicture` and `_isPictureInPictureActive` for the video WebKit picks for its media controls; all do nothing, or false, if WebKit stops answering them. A page that navigates with its video out is left out of the back/forward cache (private `_setUsesPageCache:`), from which WebKit would bring it back believing its video still out |
+| Windows | Chromium's, on in every page. `TogglePictureInPicture` calls `requestPictureInPicture()` of the video playing, else of the largest, in the page's document, not its frames, as a user's gesture, and `IsPictureInPictureActive` asks the page for `document.pictureInPictureElement`, which a video in a frame leaves null |
+| Linux | none: WebKitGTK has no picture in picture, so `TogglePictureInPicture` does nothing and `IsPictureInPictureActive` is false |
+
+Both do nothing, or false, for a window showing native UI and after the
+window closed. A [web view's](ui/web-view.md) page has them too.
 
 ### Find in page
 

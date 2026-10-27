@@ -853,3 +853,21 @@ func TestChoosePageMenuItem(label string) bool {
 	}
 	return false
 }
+
+// TestBackgroundThrottlingOff reports whether the page of a window, or of
+// its first web view, keeps running while it can't be seen: WebView2's
+// browser runs with unthrottledArguments, the one setting, which all
+// pages share.
+func TestBackgroundThrottlingOff(hwnd uintptr, webView bool) (off bool, settings int) {
+	w := theBackend.windows[hwnd]
+	if w != nil && webView {
+		if len(w.webViews) == 0 {
+			return false, 0
+		}
+		w = w.webViews[0]
+	}
+	if w == nil || w.controller == 0 {
+		return false, 0
+	}
+	return theBackend.envUnthrottled, 1
+}

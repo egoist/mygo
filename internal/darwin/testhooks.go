@@ -453,6 +453,86 @@ func TestTabFocusesLinks(handle uintptr) bool {
 	return w != nil && w.web != 0 && sendBool(send(send(w.web, "configuration"), "preferences"), "tabFocusesLinks")
 }
 
+// TestBackgroundThrottlingOff reports whether the page of a window, or of
+// its first web view, keeps running while it can't be seen: every one of
+// throttlingPrefs WebKit has at its value for that, and the web view's
+// window occlusion detection off where WebKit has it; and how many of
+// those settings WebKit has.
+func TestBackgroundThrottlingOff(handle uintptr, webView bool) (off bool, settings int) {
+	w := theBackend.byNSWindow[id(handle)]
+	if w != nil && webView {
+		if len(w.webViews) == 0 {
+			return false, 0
+		}
+		w = w.webViews[0]
+	}
+	if w == nil || w.web == 0 {
+		return false, 0
+	}
+	off = true
+	withPool(func() {
+		prefs := send(send(w.web, "configuration"), "preferences")
+		for _, p := range throttlingPrefs {
+			if respondsTo(prefs, p.get) {
+				settings++
+				v := uintptr(send(prefs, p.get))
+				if p.boolean {
+					v = boolArg(byte(v) != 0)
+				}
+				off = off && v == p.off
+			}
+		}
+		if respondsTo(w.web, "_windowOcclusionDetectionEnabled") {
+			settings++
+			off = off && !sendBool(w.web, "_windowOcclusionDetectionEnabled")
+		}
+	})
+	return off, settings
+}
+
+// TestMockCaptureDevices gives a window's page WebKit's mock camera and
+// microphone, which getUserMedia() captures without devices or the
+// system's permission (private -[WKPreferences
+// _setMockCaptureDevicesEnabled:]), even while the page is not focused
+// (_setGetUserMediaRequiresFocus:), for the pages it loads from then on;
+// false when WebKit doesn't answer them.
+func TestMockCaptureDevices(handle uintptr) bool {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.web == 0 {
+		return false
+	}
+	prefs := send(send(w.web, "configuration"), "preferences")
+	if !respondsTo(prefs, "_setMockCaptureDevicesEnabled:") {
+		return false
+	}
+	send(prefs, "_setMockCaptureDevicesEnabled:", boolArg(true))
+	if respondsTo(prefs, "_setMediaDevicesEnabled:") {
+		send(prefs, "_setMediaDevicesEnabled:", boolArg(true))
+	}
+	if respondsTo(prefs, "_setMockCaptureDevicesPromptEnabled:") {
+		send(prefs, "_setMockCaptureDevicesPromptEnabled:", boolArg(false))
+	}
+	if respondsTo(prefs, "_setGetUserMediaRequiresFocus:") {
+		send(prefs, "_setGetUserMediaRequiresFocus:", boolArg(false))
+	}
+	return true
+}
+
+// TestAllowsPictureInPicture reports whether a window's page lets its
+// videos go into picture in picture, and false for supported when WebKit
+// doesn't answer its private _allowsPictureInPictureMediaPlayback.
+func TestAllowsPictureInPicture(handle uintptr) (allowed, supported bool) {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.web == 0 {
+		return false, false
+	}
+	prefs := send(send(w.web, "configuration"), "preferences")
+	if !respondsTo(prefs, "_allowsPictureInPictureMediaPlayback") {
+		return false, false
+	}
+	return sendBool(prefs, "_allowsPictureInPictureMediaPlayback"), true
+}
+
 // TestPageGestures reports whether a swipe navigates and a pinch magnifies
 // the page of a window, or with webView 0 or more, of its web view of that
 // index, as WKWebView's properties say. ok is false without that page.

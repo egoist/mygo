@@ -126,6 +126,10 @@ func (w *window) createWebView() {
 		w.webViewFailed(w.b.envErr)
 		return
 	}
+	if w.opts.DataStore != nil && !w.b.hasProfiles() {
+		w.webViewFailed(errNoProfiles)
+		return
+	}
 	fail := testFailWebViews > 0
 	if fail {
 		testFailWebViews--
@@ -163,7 +167,7 @@ func (w *window) createWebView() {
 		if w.host != nil {
 			return w.createEmbedded(h)
 		}
-		return comCall(w.b.env, envCreateController, w.hwnd, h)
+		return w.b.createController(storeOf(w.opts.DataStore), w.hwnd, false, h)
 	})
 	if failed(hr) {
 		w.creationFailed(hr)
@@ -324,7 +328,7 @@ func (w *window) becomeReady() {
 		return
 	}
 	w.ready = true
-	w.b.closeCookieView()
+	w.b.closeCookieView(w.b.cookiesOf(w.opts.DataStore))
 	pending := w.pending
 	w.pending = nil
 	for i, c := range pending {
@@ -1037,6 +1041,36 @@ func (w *window) IsAudioMuted() bool {
 		return w.muted && w.webViewErr == nil
 	}
 	return w.getBool8(wv8GetIsMuted)
+}
+
+// CaptureState is always CaptureNone: WebView2 tells nothing of a page's
+// capture of the camera, the microphone or the display.
+func (w *window) CaptureState(platform.CaptureKind) platform.CaptureState {
+	return platform.CaptureNone
+}
+
+// SetCaptureState does nothing: WebView2 can't mute or stop a page's
+// capture.
+func (w *window) SetCaptureState(platform.CaptureKind, platform.CaptureState) {}
+
+// TogglePictureInPicture runs platform.TogglePictureInPicture through the
+// DevTools protocol as a user's gesture, which
+// requestPictureInPicture() needs.
+func (w *window) TogglePictureInPicture() {
+	params, _ := json.Marshal(map[string]any{"expression": platform.TogglePictureInPicture, "userGesture": true})
+	w.withWebView(func() { w.devtools("Runtime.evaluate", string(params), nil) })
+}
+
+// PictureInPictureActive asks the page for its
+// document.pictureInPictureElement; false before the web view is made.
+func (w *window) PictureInPictureActive(cb func(bool)) {
+	if !w.ready || w.closed {
+		cb(false)
+		return
+	}
+	w.CallAsyncFunction(platform.PictureInPictureActive, func(s string, err error) {
+		cb(err == nil && s == "true")
+	})
 }
 
 // SessionState is nil: WebView2 has no API for the back/forward list,
