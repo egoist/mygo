@@ -470,6 +470,8 @@ func (w *window) createWebView(content NSRect) {
 	}
 	if o.NoBackgroundThrottling || o.Native != 0 {
 		setBackgroundThrottling(cfg, prefs, !o.NoBackgroundThrottling, o.Native != 0)
+		// It may have given a window.open window a copy of its opener's.
+		prefs = send(cfg, "preferences")
 	}
 	// Picture in picture, which WKWebView keeps to Safari: the button of
 	// videos' controls, their context menu's item and
