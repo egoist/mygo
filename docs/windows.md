@@ -550,6 +550,15 @@ mygo.NewWindow(mygo.WindowOptions{
 that serve a bare web view older pages because its user agent names no browser:
 `"Version/17.0 Safari/605.1.15"` makes the page look like Safari.
 
+On macOS a page reads its window's frame as it does in Safari: `outerWidth`
+and `outerHeight` are the size of `Bounds`, and `screenX` and `screenY`
+(`screenLeft`, `screenTop`) its position, in CSS pixels (points), from the
+top-left of the primary screen; a window that moves or resizes shows the new
+numbers at once, and a hidden one its last frame. A web view in a window of
+native UI reads the frame of that window, not its own. WebKit gives a web
+view with no answer an empty frame at the bottom of the screen, which no
+browser has. The page's `moveTo`, `resizeTo` and `moveBy` do nothing.
+
 Page events, on `win.Page()`:
 
 | Event | When |

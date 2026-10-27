@@ -480,6 +480,25 @@ func callBlock(block uintptr, args ...uintptr) {
 	purego.SyscallN(lit[2], a[:n+1]...)
 }
 
+// blockRectCalls calls blocks that take a CGRect, by their invoke
+// function: a struct of four doubles goes in the floating-point registers
+// (arm64) or on the stack (amd64), which callBlock cannot pass.
+var blockRectCalls = map[uintptr]func(block uintptr, r NSRect){}
+
+// callBlockRect invokes a block received from the system that takes a
+// CGRect, such as WebKit's completion handler of a window frame. It runs
+// on the main thread, where WebKit calls its delegates. Blocks of one kind
+// share an invoke function, so each is bound once.
+func callBlockRect(block uintptr, r NSRect) {
+	invoke := (*(**[3]uintptr)(unsafe.Pointer(&block)))[2]
+	call := blockRectCalls[invoke]
+	if call == nil {
+		purego.RegisterFunc(&call, invoke)
+		blockRectCalls[invoke] = call
+	}
+	call(block, r)
+}
+
 // newBlock creates a block backed by a Go function. The function must take
 // objc.Block as its first parameter.
 func newBlock(fn any) objc.Block { return objc.NewBlock(fn) }

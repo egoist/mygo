@@ -2021,6 +2021,22 @@ func registerWindowClasses() {
 				}
 				return child.web
 			}),
+			// WKUIDelegatePrivate: the frame of the window the web view is
+			// in, which the page reads as window.outerWidth, outerHeight,
+			// screenX and screenY, as it does in Safari. WebKit asks each
+			// time the page reads one, so a window that moves or resizes
+			// needs no push. It takes the frame as AppKit has it, from the
+			// bottom-left of the primary screen, and flips it. With no
+			// answer the page sees an empty frame at the bottom of the
+			// screen. A web view in native UI gives its window's frame, not
+			// its own.
+			method("_webView:getWindowFrameWithCompletionHandler:", func(self id, _ objc.SEL, web id, handler uintptr) {
+				var frame NSRect
+				if win := send(web, "window"); win != 0 {
+					frame = msgRect(win, sel("frame"))
+				}
+				callBlockRect(handler, frame)
+			}),
 			method("webViewDidClose:", func(self id, _ objc.SEL, web id) {
 				if w := b().windowFor(self); w != nil {
 					w.h.ClosedByPage()
