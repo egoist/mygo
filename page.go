@@ -239,20 +239,18 @@ const (
 	//   - Linux: WebKitGTK's HiddenPageDOMTimerThrottling and
 	//     HiddenPageCSSAnimationSuspension features turned off (WebKitGTK
 	//     2.42 or later; nothing before).
-	//   - Windows: the page stays visible to WebView2 while its window is
-	//     hidden, and the browser runs with
+	//   - Windows: the browser runs with
 	//     --disable-background-timer-throttling,
 	//     --disable-renderer-backgrounding and
 	//     --disable-backgrounding-occluded-windows. Those are the WebView2
 	//     environment's, which all the app's pages share and the first
 	//     window or web view showing a page creates: give that one the
 	//     option, and then no page of the app has its timers throttled.
-	//     A page that asks after it only stays visible, which the log
-	//     tells.
+	//     A page that asks after it is too late, which the log tells.
 	//
 	// The page of a hidden or minimized window still goes hidden
-	// (document.visibilityState) on macOS and Linux, where its web view
-	// draws nothing and requestAnimationFrame waits: run what must go on
-	// with timers.
+	// (document.visibilityState) on macOS and Linux, and so does a web
+	// view of a hidden window on Windows: its web view draws nothing and
+	// requestAnimationFrame waits. Run what must go on with timers.
 	ThrottlingOff
 )

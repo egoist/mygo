@@ -784,8 +784,8 @@ func TestGDIObjects() int {
 
 // TestBackgroundThrottlingOff reports whether the page of a window, or of
 // its first web view, keeps running while it can't be seen: WebView2's
-// browser runs with unthrottledArguments and the page's controller is
-// visible; settings counts those two.
+// browser runs with unthrottledArguments, the one setting, which all
+// pages share.
 func TestBackgroundThrottlingOff(hwnd uintptr, webView bool) (off bool, settings int) {
 	w := theBackend.windows[hwnd]
 	if w != nil && webView {
@@ -797,8 +797,5 @@ func TestBackgroundThrottlingOff(hwnd uintptr, webView bool) (off bool, settings
 	if w == nil || w.controller == 0 {
 		return false, 0
 	}
-	const ctlGetIsVisible = 3
-	var visible int32
-	comCall(w.controller, ctlGetIsVisible, uintptr(unsafe.Pointer(&visible)))
-	return theBackend.envUnthrottled && visible != 0, 2
+	return theBackend.envUnthrottled, 1
 }

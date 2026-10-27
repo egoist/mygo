@@ -329,9 +329,7 @@ func (w *window) placeEmbedded() {
 	if w.shown {
 		putBounds(w.controller, rect{int32(fx), int32(fy), int32(px(w.frame.X + w.frame.W)), int32(px(w.frame.Y + w.frame.H))})
 	}
-	// A page that must keep running stays visible to WebView2 while its
-	// host is hidden (PageOptions.BackgroundThrottling).
-	comCall(w.controller, ctlPutIsVisible, boolArg(w.shown && (!w.host.hidden || w.opts.NoBackgroundThrottling)))
+	comCall(w.controller, ctlPutIsVisible, boolArg(w.shown && !w.host.hidden))
 }
 
 // webViewAt returns the web view that takes the pointer at x, y in the

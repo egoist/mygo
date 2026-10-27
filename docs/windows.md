@@ -679,19 +679,21 @@ Its timers keep their rate and its process the priority of a visible page's,
 in windows and in [web views](ui/web-view.md) alike. A covered window's page keeps
 its animation frames too on macOS and Windows, but the page of a hidden or
 minimized window still goes hidden (`document.visibilityState`) on macOS and
-Linux, where its web view draws nothing: run what must go on with timers.
+Linux, and so does a web view of a hidden window on Windows, which draws
+nothing then: run what must go on with timers.
 
 | | |
 |---|---|
 | macOS | `WKPreferences.inactiveSchedulingPolicy` none (macOS 14+), WebKit's private hidden-page timer throttling, CSS animation suspension and process suppression off, and window occlusion detection off, so that a covered window counts as visible |
 | Linux | WebKitGTK's `HiddenPageDOMTimerThrottling` and `HiddenPageCSSAnimationSuspension` features off (WebKitGTK 2.42+; nothing before) |
-| Windows | the page stays visible to WebView2, and its browser runs with `--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows` |
+| Windows | its browser runs with `--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows` |
 
 On Windows those arguments are the WebView2 environment's, which all of an
 app's pages share and which the first window or web view that shows a page
 creates: give the option to that one. Then no page of the app has its timers
-throttled, though the others still go hidden with their windows; a page that
-asks later only stays visible, and the log says so.
+throttled; a page that asks later is too late, and the log says so. A web
+view in a hidden window's [native UI](ui/web-view.md) still goes hidden, as
+it must for its window to leave the screen.
 
 ### Find in page
 
