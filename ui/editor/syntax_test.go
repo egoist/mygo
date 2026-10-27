@@ -3,9 +3,11 @@ package editor
 import (
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 var tokenNames = [...]string{"text", "kw", "type", "fn", "var", "prop", "const", "num", "str", "esc", "re", "comment", "op", "punct",
@@ -94,6 +96,23 @@ func TestTokenizers(t *testing.T) {
 		{"graphql", []string{`query Get($id: ID!) @cached { user(id: $id) { ...F ... on User { name } } } # c`, `"""Doc`, `"""`},
 			`kw(query)type(Get)punct(()var($id)op(:)type(ID)op(!)punct())meta(@cached)punct({)var(user)punct(()prop(id)op(:)var($id)punct())punct({)` +
 				`punct(...)type(F)punct(...)kw(on)type(User)punct({)var(name)punct(})punct(})punct(})comment(# c) / str("""Doc) / str(""")`},
+		{"typst", []string{"= Intro *bold* _it_ snake_case", "- item `raw` <lbl> @ref https://typst.app.", "/ Term: text"},
+			"heading(= Intro)strong(*bold*)em(_it_)heading(snake_case) / punct(-)text(item)code(`raw`)tag(<lbl>)link(@ref)link(https://typst.app)text(.) / punct(/)strong(Term)punct(:)text(text)"},
+		{"typst", []string{`#set text(size: 11pt, fill: rgb("#222"))`, `#let f(x, y: 1.5em) = {`, `  [*hi* #x]`, `}`, `#f(2)[body] after`},
+			`meta(#)kw(set)fn(text)punct(()prop(size)punct(:)num(11pt)punct(,)prop(fill)punct(:)fn(rgb)punct(()str("#222")punct())) / ` +
+				`meta(#)kw(let)fn(f)punct(()var(x)punct(,)prop(y)punct(:)num(1.5em)punct())op(=)punct({) / punct([)strong(*hi*)meta(#)var(x)punct(]) / punct(}) / ` +
+				`meta(#)fn(f)punct(()num(2)punct()[)text(body)punct(])text(after)`},
+		// An embedded expression ends where nothing goes on with it: after a
+		// set rule's arguments, and after the last block of an if.
+		{"typst", []string{"#if x > 1 [yes] else [no] after", "#set text(red) Hello"},
+			"meta(#)kw(if)var(x)op(>)num(1)punct([)text(yes)punct(])kw(else)punct([)text(no)punct(])text(after) / meta(#)kw(set)fn(text)punct(()var(red)punct())text(Hello)"},
+		{"typst", []string{`$ x^2 + alpha_1 = sum_(i=0)^n f(i) "s" #g(x) $ end`},
+			`punct($)var(x)op(^)num(2)op(+)const(alpha)op(_)num(1)op(=)const(sum)op(_)punct(()var(i)op(=)num(0)punct())op(^)var(n)fn(f)punct(()var(i)punct())str("s")meta(#)fn(g)punct(()var(x)punct())punct($)text(end)`},
+		{"typst", []string{"```rust", "fn main() {}", "``` x", "/* a /* b */ c", "d */ e", `#let s = "a`, `b\n" ok`},
+			"punct(```)type(rust) / code(fn main() {}) / punct(```)text(x) / comment(/* a /* b */ c) / comment(d */)text(e) / " +
+				`meta(#)kw(let)var(s)op(=)str("a) / str(b)esc(\n)str(")text(ok)`},
+		{"typst", []string{`\# \u{1F600} ~ --- ... //c`, `#let m = (..rest, k: v)`},
+			`esc(\#)esc(\u{1F600})esc(~)esc(---)esc(...)comment(//c) / meta(#)kw(let)var(m)op(=)punct(()op(..)var(rest)punct(,)prop(k)punct(:)var(v)punct())`},
 	} {
 		l := LanguageNamed(c.lang)
 		if l == nil {
@@ -123,7 +142,7 @@ func TestInterpolatedStringsFit(t *testing.T) {
 
 func TestLanguageFor(t *testing.T) {
 	for name, want := range map[string]string{"main.go": "Go", "a/b/Makefile": "Makefile", "x.TSX": "TypeScript", "Dockerfile": "Dockerfile", "x.unknown": "",
-		"main.dart": "Dart", "schema.graphql": "GraphQL", "q.gql": "GraphQL", "plot.r": "R", "plot.R": "R", "Main.scala": "Scala", "build.sc": "Scala"} {
+		"main.dart": "Dart", "schema.graphql": "GraphQL", "q.gql": "GraphQL", "plot.r": "R", "plot.R": "R", "Main.scala": "Scala", "build.sc": "Scala", "paper.typ": "Typst"} {
 		l := LanguageFor(name)
 		got := ""
 		if l != nil {
@@ -144,6 +163,7 @@ func TestLanguageNamed(t *testing.T) {
 		"GraphQL": {"graphql", "GraphQL", "gql"},
 		"R":       {"r", "R", " r "},
 		"Scala":   {"scala", "Scala", "sc"},
+		"Typst":   {"typst", "Typst", "typ"},
 	} {
 		for _, name := range names {
 			l := LanguageNamed(name)
@@ -164,7 +184,7 @@ func TestLanguageNamed(t *testing.T) {
 // Each language's comments and brackets.
 func TestLanguageCommentsAndBrackets(t *testing.T) {
 	for name, want := range map[string][3]string{
-		"dart": {"//", "/*", "*/"}, "scala": {"//", "/*", "*/"}, "graphql": {"#", "", ""}, "r": {"#", "", ""},
+		"dart": {"//", "/*", "*/"}, "scala": {"//", "/*", "*/"}, "graphql": {"#", "", ""}, "r": {"#", "", ""}, "typst": {"//", "/*", "*/"},
 	} {
 		l := LanguageNamed(name)
 		if got := [3]string{l.LineComment, l.BlockComment[0], l.BlockComment[1]}; got != want {
@@ -180,16 +200,91 @@ func TestLanguageCommentsAndBrackets(t *testing.T) {
 	}
 }
 
+// Typst's tokens cover the line they are of, at the boundaries of its
+// characters, however its markup, code and math nest in each other, and its
+// state fits the 40 bits Markdown keeps for the code of its blocks.
+func TestTypstState(t *testing.T) {
+	lx := LanguageNamed("typst").Tokenizer
+	r := rand.New(rand.NewPCG(3, 4))
+	pieces := []string{"#", "$", "`", "```", "*", "_", "[", "]", "(", ")", "{", "}", "\"", "\\", "/*", "*/", "//", "<", ">", "@", "=", "- ",
+		" ", "x", "let", "set", "if", "1.5em", ".", "..", ":", "http://a.b", "é", "你", "~", "--", "\t", "\\u{1F600}"}
+	for range 5000 {
+		var state uint64
+		for range 1 + r.IntN(10) {
+			var b strings.Builder
+			for range r.IntN(14) {
+				b.WriteString(pieces[r.IntN(len(pieces))])
+			}
+			line := b.String()
+			toks, next := lx.Tokenize(line, state, nil)
+			from := 0
+			for _, tk := range toks {
+				if tk.End <= from || tk.End > len(line) || tk.Kind >= tokenKinds || tk.End < len(line) && !utf8.RuneStart(line[tk.End]) {
+					t.Fatalf("token %+v after %d in %q, from state %x", tk, from, line, state)
+				}
+				from = tk.End
+			}
+			if from != len(line) {
+				t.Fatalf("tokens end at %d of %q, from state %x", from, line, state)
+			}
+			if next >= 1<<40 {
+				t.Fatalf("%q leaves state %x, from state %x", line, next, state)
+			}
+			again, nextAgain := lx.Tokenize(line, state, nil)
+			if !slices.Equal(toks, again) || next != nextAgain {
+				t.Fatalf("%q lexes in two ways from state %x", line, state)
+			}
+			state = next
+		}
+	}
+}
+
+// Once what lines open is closed, a line starts in the state the text
+// started in, so that tokenizing goes on from the top alike after an edit.
+func TestTypstBalanced(t *testing.T) {
+	lx := LanguageNamed("typst").Tokenizer
+	var state uint64
+	for _, line := range []string{"#let f(x) = {", "  let a = [", "    *b* #g(", "      1,", "    )", "  ]", `  "s`, `t"`, "  /* c", "  */", "}",
+		"$ x", "y $", "```", "z", "```", "#f[", "#g[", "]", "]", "text"} {
+		_, state = lx.Tokenize(line, state, nil)
+	}
+	if state != 0 {
+		t.Errorf("state %x after balanced lines, want 0", state)
+	}
+}
+
+// A long line lexes in one pass, whatever opens and does not close in it.
+func TestTypstLongLine(t *testing.T) {
+	lx := LanguageNamed("typst").Tokenizer
+	for _, unit := range []string{"*a ", "_a ", "#f(", "$ x ", "[ ", "`a ", "<a ", "@a ", "/* ", "\"a ", "#a.b", "h"} {
+		line := strings.Repeat(unit, 100000)
+		toks, _ := lx.Tokenize(line, 0, nil)
+		if len(toks) == 0 || toks[len(toks)-1].End != len(line) {
+			t.Errorf("%q repeated is not lexed to its end", unit)
+		}
+	}
+}
+
+// Markdown's code blocks name Typst, and keep what its brackets, comments
+// and strings carry from line to line.
+func TestTypstInMarkdown(t *testing.T) {
+	got := lexLines(LanguageNamed("markdown").Tokenizer, "```typst", "#let x = [", "*a*]", "```", "# Title")
+	want := "punct(```)type(typst) / meta(#)kw(let)var(x)op(=)punct([) / strong(*a*)punct(]) / punct(```) / heading(# Title)"
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
 // After any edits, the states the syntax keeps are those of tokenizing
 // the text from the top.
 func TestSyntaxIncremental(t *testing.T) {
 	r := rand.New(rand.NewPCG(7, 8))
-	pieces := []string{"x", "\n", "/*", "*/", "`", "\"", " ", "func", "{", "}", "// c\n", "${", "a\nb"}
+	pieces := []string{"x", "\n", "/*", "*/", "`", "\"", " ", "func", "{", "}", "// c\n", "${", "a\nb", "#", "[", "]", "$", "*", "_"}
 	b := NewBuffer(strings.Repeat("func f() {\n\tx := `a\nb` /* c */\n}\n", 20))
 	b.SetLanguage(LanguageNamed("go"))
 	for round := range 300 {
 		if round%3 == 0 {
-			b.SetLanguage(LanguageNamed([]string{"go", "javascript", "markdown"}[round/3%3]))
+			b.SetLanguage(LanguageNamed([]string{"go", "javascript", "markdown", "typst"}[round/3%4]))
 		}
 		text, _ := b.snapshot()
 		for range r.IntN(3) + 1 {
