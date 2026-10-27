@@ -224,6 +224,7 @@ func initCallbacks() {
 		initSurfaceCallbacks()
 		initDownloadCallbacks()
 		initAuthCallbacks()
+		initContextMenuCallbacks()
 		initMenuCallbacks()
 		initSystemCallbacks()
 		initClipboardCallbacks()
