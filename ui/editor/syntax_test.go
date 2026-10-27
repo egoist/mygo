@@ -113,6 +113,24 @@ func TestTokenizers(t *testing.T) {
 				`meta(#)kw(let)var(s)op(=)str("a) / str(b)esc(\n)str(")text(ok)`},
 		{"typst", []string{`\# \u{1F600} ~ --- ... //c`, `#let m = (..rest, k: v)`},
 			`esc(\#)esc(\u{1F600})esc(~)esc(---)esc(...)comment(//c) / meta(#)kw(let)var(m)op(=)punct(()op(..)var(rest)punct(,)prop(k)punct(:)var(v)punct())`},
+		// A * or _ between two characters of a word is text, but Chinese,
+		// Japanese and Korean have no such words.
+		{"typst", []string{"中*文*字 and a*b*c, 한*글*자, snake_case"},
+			"text(中)strong(*文*)text(字 and a*b*c, 한)strong(*글*)text(자, snake_case)"},
+		// The name of a reference or a label has letters, digits, marks, _ and -,
+		// and : and . inside it: not the punctuation of Chinese.
+		{"typst", []string{"见@fig:1。再见@intro，好 <标签>。 @a.b. @x:"},
+			"text(见)link(@fig:1)text(。再见)link(@intro)text(，好)tag(<标签>)text(。)link(@a.b)text(.)link(@x)text(:)"},
+		// Raw text goes on over lines until the backticks that match its
+		// opening ones, as many: none of what is in it is code, and two are
+		// raw text with nothing in it.
+		{"typst", []string{"`foo", "#bar[ x", "baz` after", "`a``b` c `` d"},
+			"code(`foo) / code(#bar[ x) / code(baz`)text(after) / code(`a``b`)text(c)code(``)text(d)"},
+		// A content block starts as a line of markup does, so a heading or a
+		// list's marker may be first in it, and the heading ends with the block.
+		{"typst", []string{"#box[= Title] after", "#box[- a] and #f[ + b] and text [= x]", "#box[", "= Title] after", "= Real #f[x] still heading", "plain"},
+			"meta(#)fn(box)punct([)heading(= Title)punct(])text(after) / meta(#)fn(box)punct([-)text(a)punct(])text(and)meta(#)fn(f)punct([)punct(+)text(b)punct(])text(and text [= x]) / " +
+				"meta(#)fn(box)punct([) / heading(= Title)punct(])text(after) / heading(= Real)meta(#)fn(f)punct([)heading(x)punct(])heading(still heading) / text(plain)"},
 	} {
 		l := LanguageNamed(c.lang)
 		if l == nil {
@@ -245,7 +263,7 @@ func TestTypstBalanced(t *testing.T) {
 	lx := LanguageNamed("typst").Tokenizer
 	var state uint64
 	for _, line := range []string{"#let f(x) = {", "  let a = [", "    *b* #g(", "      1,", "    )", "  ]", `  "s`, `t"`, "  /* c", "  */", "}",
-		"$ x", "y $", "```", "z", "```", "#f[", "#g[", "]", "]", "text"} {
+		"$ x", "y $", "```", "z", "```", "`a", "b`", "#f[", "#g[", "]", "]", "text"} {
 		_, state = lx.Tokenize(line, state, nil)
 	}
 	if state != 0 {
