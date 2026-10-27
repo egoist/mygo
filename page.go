@@ -238,6 +238,15 @@ type PageOptions struct {
 	//
 	//	Page: mygo.PageOptions{BackgroundThrottling: mygo.ThrottlingOff}
 	BackgroundThrottling BackgroundThrottling
+
+	// SessionState brings back a page as Page.SessionState saved it, in
+	// place of the window's or web view's URL: its back/forward list,
+	// with the scroll positions and form fields saved, at the entry it
+	// was at. Where the platform keeps no such state (Windows), or can't
+	// read this one (it comes from another platform, or a version of the
+	// web engine that encodes it otherwise), the page loads the URL it
+	// was at alone; a state that isn't one loads URL.
+	SessionState []byte
 }
 
 // BackgroundThrottling tells whether a page slows down while it can't be
