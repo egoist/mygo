@@ -404,7 +404,8 @@ type WindowOptions struct {
 	// (mygo.PageOptions.BackgroundThrottling): its timers unthrottled, its
 	// process at the priority of a visible one.
 	NoBackgroundThrottling bool
-	// Autoplay lets the page play audible media without a user gesture.
+	// Autoplay lets the page play audible media without a user gesture
+	// (mygo.PageOptions.Autoplay).
 	Autoplay bool
 	// PictureInPicture lets the page's videos go into picture in picture
 	// (macOS, WebKit's private _allowsPictureInPictureMediaPlayback);

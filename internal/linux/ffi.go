@@ -421,7 +421,6 @@ var (
 	webkitSettingsGetUserAgent                        func(s ptr) ptr
 	webkitSettingsSetAllowFileAccessFromFileURLs      func(s ptr, v bool)
 	webkitSettingsSetJavascriptCanAccessClipboard     func(s ptr, v bool)
-	webkitSettingsSetMediaPlaybackRequiresUserGesture func(s ptr, v bool)
 	webkitWebViewLoadURI                              func(wv ptr, uri *byte)
 	webkitWebViewLoadHTML                             func(wv ptr, html *byte, base *byte)
 	webkitWebViewReload                               func(wv ptr)
@@ -499,7 +498,7 @@ var (
 	webkitURIRequestGetURI                            func(r ptr) ptr
 	webkitPolicyDecisionUse                           func(d ptr)
 	webkitPolicyDecisionUseWithPolicies               func(d ptr, p ptr)
-	webkitWebsitePoliciesNewWithPolicies              func(first *byte, args ...any) ptr
+	webkitWebsitePoliciesNewWithPolicies              func(name *byte, value int32, end ptr) ptr
 	webkitPolicyDecisionIgnore                        func(d ptr)
 	webkitURISchemeRequestGetURI                      func(r ptr) ptr
 	webkitURISchemeRequestGetHTTPMethod               func(r ptr) ptr
@@ -932,7 +931,6 @@ func loadWebKit() error {
 	mustBind(w, &webkitSettingsGetUserAgent, "webkit_settings_get_user_agent")
 	mustBind(w, &webkitSettingsSetAllowFileAccessFromFileURLs, "webkit_settings_set_allow_file_access_from_file_urls")
 	mustBind(w, &webkitSettingsSetJavascriptCanAccessClipboard, "webkit_settings_set_javascript_can_access_clipboard")
-	mustBind(w, &webkitSettingsSetMediaPlaybackRequiresUserGesture, "webkit_settings_set_media_playback_requires_user_gesture")
 	mustBind(w, &webkitWebViewLoadURI, "webkit_web_view_load_uri")
 	mustBind(w, &webkitWebViewLoadHTML, "webkit_web_view_load_html")
 	mustBind(w, &webkitWebViewReload, "webkit_web_view_reload")

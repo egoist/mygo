@@ -394,8 +394,12 @@ type PageOptions struct {
 	//
 	//	Page: mygo.PageOptions{BackgroundThrottling: mygo.ThrottlingOff}
 	BackgroundThrottling BackgroundThrottling
-	// Autoplay decides whether the page may play audible media without a
-	// user gesture (default AutoplayUserGesture).
+	// Autoplay decides whether the page may play audible media before the
+	// user clicked or typed in it. AutoplayAllow lets it, for a page the
+	// user never touches, such as that of a hidden window playing the
+	// sound of an app whose interface is native UI:
+	//
+	//	Page: mygo.PageOptions{Autoplay: mygo.AutoplayAllow}
 	Autoplay Autoplay
 
 	// SessionState brings back a page as Page.SessionState saved it, in
@@ -449,26 +453,33 @@ const (
 	ThrottlingOff
 )
 
-// Autoplay decides whether a window's page may start audible media without a
-// user gesture.
+// Autoplay tells whether a page may play audible media without a user
+// gesture (PageOptions.Autoplay).
 type Autoplay int
 
 const (
-	// AutoplayUserGesture, the zero value, is what the engines do by default:
-	// a page plays audible media only once the user has interacted with it.
-	// A window that is never shown never gets a gesture, so a hidden window
-	// cannot play sound with this.
+	// AutoplayUserGesture, the default, leaves the page to its web view's
+	// autoplay policy. WebKitGTK's and WebView2's start an unmuted <audio>
+	// or <video> only once the user clicked or typed in the page: play()
+	// rejects with NotAllowedError before, and muted media that plays is
+	// paused again when it is unmuted. A hidden window gets no gesture, so
+	// its page can't play sound there.
 	AutoplayUserGesture Autoplay = iota
-	// AutoplayAllow lets the page start audible media on its own, which a
-	// window that is hidden needs. Starting muted and unmuting afterwards is
-	// not a substitute: where the gesture is still required, unmuting pauses
-	// the element again.
+	// AutoplayAllow lets the page start audible media on its own: play()
+	// of an unmuted element resolves, and autoplay elements start with
+	// their sound, in a hidden window too.
 	//
-	// On Windows the setting reaches WebView2 as the browser argument
-	// --autoplay-policy=no-user-gesture-required, which the WebView2
-	// environment carries, and the environment is shared by every window of
-	// the app. The first window that shows a page decides there, so an app
-	// whose pages need it should ask on that window, or on all of them.
-	// macOS and Linux set it on the window's own web view.
+	//   - macOS: WKWebViewConfiguration's
+	//     mediaTypesRequiringUserActionForPlayback set to none.
+	//   - Linux: the website policies of the page's main-frame
+	//     navigations allow autoplay (WEBKIT_AUTOPLAY_ALLOW; WebKitGTK
+	//     2.30 or later, nothing before).
+	//   - Windows: the browser runs with
+	//     --autoplay-policy=no-user-gesture-required. That is the WebView2
+	//     environment's, which all the app's pages share and the first
+	//     window or web view showing a page creates: give that one the
+	//     option, and then every page of the app may play without a
+	//     gesture, those that keep AutoplayUserGesture too. A page that
+	//     asks after it is too late, which the log tells.
 	AutoplayAllow
 )

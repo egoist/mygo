@@ -43,10 +43,14 @@ type Backend struct {
 	envErr     error
 	envStarted bool
 	envWaiters []func()
-	// envUnthrottled tells that the environment's browser runs with
-	// unthrottledArguments, which the page that started it asked for;
-	// envWarned that a page that asked later was told it was too late.
+	// envUnthrottled tells that the environment's browser runs, or is
+	// starting, with unthrottledArguments, which the page that started it
+	// asked for; envWarned that a page that asked later was told it was
+	// too late.
 	envUnthrottled, envWarned bool
+	// envAutoplay and envAutoplayWarned are the same for autoplayArguments
+	// (PageOptions.Autoplay).
+	envAutoplay, envAutoplayWarned bool
 	// envResult is whether the environment was created (1) or failed (2),
 	// 0 before, for WebViewAvailable, which any goroutine may call.
 	envResult atomic.Int32
@@ -57,10 +61,6 @@ type Backend struct {
 	// the number of InPrivate ones made.
 	stores        []*dataStore
 	privateStores int
-	// autoplayEnv records whether the environment was created carrying the
-	// autoplay policy, so that a window asking for it later can be told why
-	// its request does not apply.
-	autoplayEnv bool
 
 	menus menuTable
 
@@ -156,13 +156,6 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	return nil
 }
 
-// The WebView2 environment carries the browser arguments for every window of
-// the app, so the autoplay policy is set there rather than on a web view.
-const (
-	browserArgumentsEnv = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
-	autoplayPolicyArg   = "--autoplay-policy=no-user-gesture-required"
-)
-
 // startEnvironment starts creating the WebView2 environment, the first time
 // a window that shows a web page is created, and returns why it cannot,
 // such as a missing WebView2 Runtime. Windows that show native UI need
@@ -170,12 +163,10 @@ const (
 // options of the page that needs it, nil for none.
 //
 // The environment's browser runs with unthrottledArguments when that first
-// page asked not to be throttled: the arguments are the browser's, which
+// page asked not to be throttled, and with autoplayArguments when it asked
+// to play without a user gesture: the arguments are the browser's, which
 // all the app's pages share, and a page that asks once it runs is too
 // late, which the log tells.
-//
-// autoplay is the first page window's PageOptions.Autoplay: the environment
-// is shared, so on Windows that window decides for the app.
 func (b *Backend) startEnvironment(o *platform.WindowOptions) error {
 	unthrottled := o != nil && o.NoBackgroundThrottling
 	autoplay := o != nil && o.Autoplay
@@ -184,23 +175,11 @@ func (b *Backend) startEnvironment(o *platform.WindowOptions) error {
 			b.envWarned = true
 			log.Print("mygo: ThrottlingOff of a page shown after the first one: WebView2's browser already runs without the arguments that keep hidden pages running; give the option to the first window or web view that shows a page")
 		}
-		if autoplay && !b.autoplayEnv {
-			log.Print("mygo: PageOptions.Autoplay on this window does nothing: the WebView2 environment, which carries the autoplay policy, was created without it. Ask on the first window of the app that shows a page.")
+		if autoplay && !b.envAutoplay && !b.envAutoplayWarned {
+			b.envAutoplayWarned = true
+			log.Print("mygo: AutoplayAllow of a page shown after the first one: WebView2's browser already runs without the argument that lets pages play sound without a user gesture; give the option to the first window or web view that shows a page")
 		}
 		return nil
-	}
-	if autoplay {
-		// WebView2 reads this variable when the options it is handed carry no
-		// arguments of their own, which is how createEnvironment calls it. An
-		// app that set the variable itself keeps its arguments: the policy is
-		// added to them rather than replacing them.
-		if v := os.Getenv(browserArgumentsEnv); !strings.Contains(v, "--autoplay-policy") {
-			if v != "" {
-				v += " "
-			}
-			_ = os.Setenv(browserArgumentsEnv, v+autoplayPolicyArg)
-		}
-		b.autoplayEnv = true
 	}
 	dir := os.Getenv("LOCALAPPDATA")
 	if dir == "" {
@@ -212,13 +191,14 @@ func (b *Backend) startEnvironment(o *platform.WindowOptions) error {
 	if len(b.languages) > 0 {
 		language = b.languages[0]
 	}
-	args := ""
-	if unthrottled {
-		args = unthrottledArguments
-	}
-	err := createEnvironment(userData, language, args, func(env uintptr, withArgs bool, err error) {
+	// What the first page asked for counts from now, so that a page shown
+	// while the environment is being made isn't told it is too late.
+	b.envUnthrottled, b.envAutoplay = unthrottled, autoplay
+	err := createEnvironment(userData, language, browserArguments(unthrottled, autoplay), func(env uintptr, withArgs bool, err error) {
 		b.env, b.envErr = env, err
-		b.envUnthrottled = err == nil && withArgs
+		if err != nil || !withArgs {
+			b.envUnthrottled, b.envAutoplay = false, false
+		}
 		if err != nil {
 			log.Print(err)
 			b.envResult.Store(2)
