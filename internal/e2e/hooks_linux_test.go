@@ -354,3 +354,18 @@ func throttlingOff(w *mygo.Window, webView bool) (off bool, settings int) {
 	mygo.RunOnMain(func() { off, settings = linux.TestBackgroundThrottlingOff(w.NativeHandle(), webView) })
 	return off, settings
 }
+
+// pageGestures reports whether a swipe navigates and a pinch zooms the page
+// of a window, or with webView 0 or more, of its web view of that index.
+func pageGestures(w *mygo.Window, webView int) (swipe, pinch, ok bool) {
+	mygo.RunOnMain(func() { swipe, pinch, ok = linux.TestPageGestures(w.NativeHandle(), webView) })
+	return swipe, pinch, ok
+}
+
+// pinchPage pinches the touchpad over the page of a window, or of its web
+// view, from 1 through scales, with GDK's events, which only Wayland
+// makes.
+func pinchPage(w *mygo.Window, webView int, x, y float64, scales ...float64) (ok bool) {
+	mygo.RunOnMain(func() { ok = linux.TestPinchPage(w.NativeHandle(), webView, x, y, scales) })
+	return ok
+}

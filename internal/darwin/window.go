@@ -62,6 +62,9 @@ type window struct {
 	// NSVisualEffectView, or an NSGlassEffectView when glass is.
 	effect id
 	glass  bool
+	// provisionalURL is the URL of the navigation started last, which a
+	// load failed before it committed is of when its error doesn't tell.
+	provisionalURL string
 	// radius is the corners the content view is cut to (Flyout.Radius,
 	// WindowOptions.CornerRadius), which the material follows.
 	radius int
@@ -496,6 +499,13 @@ func (w *window) createWebView(content NSRect) {
 	if o.NoBackgroundThrottling && respondsTo(w.web, "_setWindowOcclusionDetectionEnabled:") {
 		// A window behind others counts as visible.
 		send(w.web, "_setWindowOcclusionDetectionEnabled:", 0)
+	}
+	// Both are off in a new WKWebView.
+	if o.SwipeNavigation {
+		send(w.web, "setAllowsBackForwardNavigationGestures:", 1)
+	}
+	if o.PinchZoom {
+		send(w.web, "setAllowsMagnification:", 1)
 	}
 	if o.UserAgent != "" {
 		ua := o.UserAgent
@@ -2028,7 +2038,8 @@ func registerWindowClasses() {
 			}),
 			method("webView:didStartProvisionalNavigation:", func(self id, _ objc.SEL, web, nav id) {
 				if w := b().windowFor(self); w != nil {
-					w.h.NavigationStarted(w.URL())
+					w.provisionalURL = w.URL()
+					w.h.NavigationStarted(w.provisionalURL)
 				}
 			}),
 			method("webView:didCommitNavigation:", func(self id, _ objc.SEL, web, nav id) {
@@ -2043,12 +2054,20 @@ func registerWindowClasses() {
 			}),
 			method("webView:didFailProvisionalNavigation:withError:", func(self id, _ objc.SEL, web, nav, err id) {
 				if w := b().windowFor(self); w != nil {
-					w.loadFailed(err)
+					w.loadFailed(err, w.provisionalURL)
 				}
 			}),
 			method("webView:didFailNavigation:withError:", func(self id, _ objc.SEL, web, nav, err id) {
 				if w := b().windowFor(self); w != nil {
-					w.loadFailed(err)
+					w.loadFailed(err, w.URL())
+				}
+			}),
+			// HTTP sign-in and server certificates (auth.go).
+			method("webView:didReceiveAuthenticationChallenge:completionHandler:", func(self id, _ objc.SEL, web, challenge id, handler uintptr) {
+				if w := b().windowFor(self); w != nil {
+					w.authChallenge(challenge, handler)
+				} else {
+					callBlock(handler, authDefault, 0)
 				}
 			}),
 			method("webViewWebContentProcessDidTerminate:", func(self id, _ objc.SEL, web id) {
@@ -2122,7 +2141,10 @@ func userInitiated(action id, navType int) bool {
 	return navType == 0 || navType == 1 // WKNavigationTypeLinkActivated, FormSubmitted
 }
 
-func (w *window) loadFailed(err id) {
+// loadFailed reports a failed load of the URL its error names: the
+// string or the NSURL, which is all WebKit keeps of a certificate error;
+// else of fallback.
+func (w *window) loadFailed(err id, fallback string) {
 	code := sendInt(err, "code")
 	// Cancelled (-999) and "frame load interrupted" (102) happen when a
 	// navigation is replaced or denied; they are not failures.
@@ -2133,7 +2155,13 @@ func (w *window) loadFailed(err id) {
 	withPool(func() {
 		info := send(err, "userInfo")
 		url = goString(send(info, "objectForKey:", uintptr(nsString("NSErrorFailingURLStringKey"))))
+		if u := send(info, "objectForKey:", uintptr(nsString("NSErrorFailingURLKey"))); url == "" && u != 0 && sendBool(u, "isKindOfClass:", uintptr(class("NSURL"))) {
+			url = goString(send(u, "absoluteString"))
+		}
 		desc = goString(send(err, "localizedDescription"))
 	})
+	if url == "" {
+		url = fallback
+	}
 	w.h.LoadFailed(url, code, desc)
 }
