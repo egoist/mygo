@@ -131,6 +131,9 @@ type window struct {
 	// cache off as its page left with a video in picture in picture
 	// (leavingPage).
 	pageCacheOff bool
+	// pipActive tells that the page's document has a video in picture in
+	// picture, as its pipScript last said.
+	pipActive bool
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
@@ -473,6 +476,9 @@ func (w *window) createWebView(content NSRect) {
 	// the bridge configuration never leak between windows.
 	w.ucc = alloc("WKUserContentController")
 	send(w.ucc, "addScriptMessageHandler:name:", uintptr(w.delegate), uintptr(nsString("mygo")))
+	if o.PictureInPicture {
+		send(w.ucc, "addScriptMessageHandler:name:", uintptr(w.delegate), uintptr(nsString(pipHandler)))
+	}
 	w.addUserScripts(o.Zoom)
 	send(cfg, "setUserContentController:", uintptr(w.ucc))
 
@@ -557,6 +563,9 @@ func (w *window) cleanup() {
 		send(w.win, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("effectiveAppearance")))
 	}
 	send(w.ucc, "removeScriptMessageHandlerForName:", uintptr(nsString("mygo")))
+	if w.opts.PictureInPicture {
+		send(w.ucc, "removeScriptMessageHandlerForName:", uintptr(nsString(pipHandler)))
+	}
 	send(w.ucc, "removeAllUserScripts")
 	send(w.web, "stopLoading")
 	send(w.web, "setNavigationDelegate:", 0)
@@ -1307,6 +1316,9 @@ func (w *window) addUserScripts(zoom float64) {
 		}
 		add(s.Source, injection, !s.AllFrames)
 	}
+	if w.opts.PictureInPicture {
+		add(pipScript, 0, true)
+	}
 	if w.hiddenTitleBar() {
 		// After the bridge, which it tells: the room of the traffic lights.
 		add(bridge.TitleBarScript(w.TitleBar(), zoom), 0, true)
@@ -1466,6 +1478,22 @@ func (w *window) PictureInPictureActive(cb func(bool)) {
 	})
 }
 
+// pipHandler is the name of the script message handler that pipScript
+// tells whether the page's document has a video in picture in picture.
+const pipHandler = "mygoPictureInPicture"
+
+// pipScript tells pipHandler, as the page shows and as a video of its
+// document goes into picture in picture or out of it, whether one is in.
+// WebKit's _isPictureInPictureActive knows only of its media controls'
+// picture in picture, not of requestPictureInPicture().
+const pipScript = `(() => {
+	const h = window.webkit.messageHandlers.` + pipHandler + `;
+	const tell = () => h.postMessage(String(!!document.pictureInPictureElement));
+	addEventListener("enterpictureinpicture", tell, true);
+	addEventListener("leavepictureinpicture", tell, true);
+	addEventListener("pageshow", tell);
+})()`
+
 // leavingPage runs as the page is about to navigate. WebKit restores a
 // page from its back/forward cache believing that the video it had in
 // picture in picture still is, so a page leaving with one is not kept
@@ -1476,7 +1504,7 @@ func (w *window) leavingPage() {
 	if !w.opts.PictureInPicture || w.closed {
 		return
 	}
-	off := w.isPictureInPictureActive()
+	off := w.pipActive || w.isPictureInPictureActive()
 	if off == w.pageCacheOff {
 		return
 	}
@@ -1959,6 +1987,10 @@ func registerWindowClasses() {
 				}
 				body := send(msg, "body")
 				if body == 0 || !sendBool(body, "isKindOfClass:", uintptr(class("NSString"))) {
+					return
+				}
+				if goString(send(msg, "name")) == pipHandler {
+					w.pipActive = goString(body) == "true"
 					return
 				}
 				w.h.Message(goString(body))
