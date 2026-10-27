@@ -32,27 +32,23 @@ func shows(tt *ui.Tester, s string) bool {
 func TestViewFrontmatterCollapsed(t *testing.T) {
 	o := fmOptions(false)
 	tt := ui.NewTester(func(c *ui.Context) { View(c, fmDoc, o) }, 600, 800)
-	for _, s := range []string{"Front matter", "yaml", "Title", "Some body text."} {
+	for _, s := range []string{"Front matter", "Title", "Some body text."} {
 		if !shows(tt, s) {
 			t.Errorf("no %q in %q", s, tt.Texts())
 		}
 	}
-	for _, s := range []string{"Secret", "tags", "---", "Copy"} {
+	for _, s := range []string{"Secret", "tags", "---", "Copy", "yaml"} {
 		if shows(tt, s) {
 			t.Errorf("shows %q in %q", s, tt.Texts())
 		}
 	}
 	// The header opens and closes it.
-	if err := tt.Click("yaml"); err != nil {
-		t.Fatal(err)
-	}
+	toggleFrontmatter(t, tt)
 	tt.Advance(time.Second) // it opens in a moment
 	if !shows(tt, "title: Secret") || !shows(tt, "tags: [a, b]") {
 		t.Errorf("no metadata once opened, in %q", tt.Texts())
 	}
-	if err := tt.Click("yaml"); err != nil {
-		t.Fatal(err)
-	}
+	toggleFrontmatter(t, tt)
 	tt.Advance(time.Second)
 	if shows(tt, "Secret") {
 		t.Errorf("shows the metadata once closed, in %q", tt.Texts())
@@ -90,12 +86,10 @@ func TestViewFrontmatterOff(t *testing.T) {
 func TestViewFrontmatterTOML(t *testing.T) {
 	src := "+++\ntitle = \"x\"\n+++\ntext\n"
 	tt := ui.NewTester(func(c *ui.Context) { View(c, src, fmOptions(false)) }, 600, 800)
-	if !shows(tt, "toml") || shows(tt, `title = "x"`) {
+	if !shows(tt, "Front matter") || shows(tt, "toml") || shows(tt, `title = "x"`) {
 		t.Errorf("shows %q", tt.Texts())
 	}
-	if err := tt.Click("toml"); err != nil {
-		t.Fatal(err)
-	}
+	toggleFrontmatter(t, tt)
 	tt.Advance(time.Second)
 	if !shows(tt, `title = "x"`) {
 		t.Errorf("no metadata once opened, in %q", tt.Texts())
@@ -194,6 +188,17 @@ func TestViewFrontmatterCopy(t *testing.T) {
 	}
 }
 
+// toggleFrontmatter clicks the header of the block of front matter: the box
+// is the first element named Front matter, and its top is the header.
+func toggleFrontmatter(t *testing.T, tt *ui.Tester) {
+	t.Helper()
+	r, ok := tt.Find("Front matter")
+	if !ok {
+		t.Fatalf("no front matter in %q", tt.Texts())
+	}
+	tt.ClickAt(r.X+r.W/2, r.Y+12)
+}
+
 // copied returns the representations of what the tester copied last.
 func copied(t *testing.T, tt *ui.Tester) (text, html, md string) {
 	t.Helper()
@@ -228,9 +233,7 @@ func selectLines(tt *ui.Tester, r ui.Rect, n, from, to int) {
 // HTML of a selection leaves out.
 func TestViewFrontmatterCopyMetadata(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { View(c, fmDoc, fmOptions(false)) }, 600, 400)
-	if err := tt.Click("yaml"); err != nil {
-		t.Fatal(err)
-	}
+	toggleFrontmatter(t, tt)
 	tt.Advance(time.Second)
 	r, _ := tt.Find("title: Secret\ntags: [a, b]")
 	selectLines(tt, r, 2, 0, 2)
@@ -258,9 +261,7 @@ func TestViewFrontmatterCopyLiteral(t *testing.T) {
 	} {
 		src := "---\n" + meta + "\n---\nbody\n"
 		tt := ui.NewTester(func(c *ui.Context) { View(c, src, fmOptions(false)) }, 600, 400)
-		if err := tt.Click("yaml"); err != nil {
-			t.Fatal(err)
-		}
+		toggleFrontmatter(t, tt)
 		tt.Advance(time.Second)
 		r, ok := tt.Find(meta)
 		if !ok {
@@ -282,9 +283,7 @@ func TestViewFrontmatterCopyLiteral(t *testing.T) {
 // and what follows it is still the HTML of its Markdown.
 func TestViewFrontmatterCopyWithBody(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { View(c, fmDoc, fmOptions(false)) }, 600, 400)
-	if err := tt.Click("yaml"); err != nil {
-		t.Fatal(err)
-	}
+	toggleFrontmatter(t, tt)
 	tt.Advance(time.Second)
 	r, _ := tt.Find("Some body text.")
 	tt.ClickAt(r.X+2, r.Y+r.H/2)
