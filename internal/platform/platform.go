@@ -397,6 +397,12 @@ type WindowOptions struct {
 	// (macOS, WebKit's private _allowsPictureInPictureMediaPlayback);
 	// WebView2 lets them already, and WebKitGTK has none.
 	PictureInPicture bool
+	// SwipeNavigation lets a swipe go back and forward through the page's
+	// history (mygo.PageOptions.SwipeNavigation).
+	SwipeNavigation bool
+	// PinchZoom lets a pinch magnify the page; the backends turn it off
+	// where their webview has it on by default (mygo.PageOptions.PinchZoom).
+	PinchZoom bool
 	// Native carries backend specific state, e.g. the WKWebViewConfiguration
 	// WebKit hands us for window.open().
 	Native uintptr
@@ -693,6 +699,16 @@ type WindowHandler interface {
 	// PermissionRequested asks whether the page at origin may use kinds:
 	// "camera", "microphone", "geolocation" or "notifications".
 	PermissionRequested(kinds []string, origin string) bool
+	// AuthRequested answers an HTTP authentication challenge of the page,
+	// or of what it loads.
+	AuthRequested(req AuthRequest) AuthResponse
+	// CertificateError asks whether to load what a server sent with a
+	// certificate that does not verify: false fails it, as without the
+	// call. A backend that verifies certificates itself to tell (macOS)
+	// does so only while HandlesCertificateErrors reports true, and
+	// leaves them to the web view otherwise.
+	CertificateError(e CertificateError) bool
+	HandlesCertificateErrors() bool
 
 	// SurfaceEvent delivers input on the window's Surface, and changes of
 	// it. For FileDragOver and FileDrop it reports whether the content

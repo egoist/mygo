@@ -140,7 +140,8 @@ framework safely. Read it before changing anything under `internal/`.
 │                       views in native UI); launcher (a Spotlight-like panel,
 │                       native UI); wind (a texture of glyphs lit by a
 │                       wind, two shaders of ui/shader); loading (the
-│                       loading plugin's indicators)
+│                       loading plugin's indicators); video (a GIF
+│                       looping behind a window's content)
 ├── docs/               the user guides, the official plugins' pages
 │                       (plugins/), and this architecture guide
 └── website/            the website, with these docs: TanStack Start, prerendered
@@ -1680,6 +1681,17 @@ as in Tauri:
   pages are secure contexts with a real origin on every platform, which
   these APIs need. `macos.infoPlist` adds keys such as the camera and
   microphone usage descriptions macOS requires.
+- Sign-in and certificates (`auth.go`): the backends route HTTP
+  authentication challenges (Basic, Digest, NTLM, Negotiate, the server's
+  or a proxy's) to `WindowHandler.AuthRequested`, which `SetAuthHandler`
+  answers with credentials, or none to get the server's refusal; without
+  a handler the answer is `Default`, the web view's own handling.
+  Server certificates that do not verify go to
+  `WindowHandler.CertificateError`, false unless `SetCertificateErrorHandler`
+  allows them; macOS checks certificates itself
+  (`SecTrustEvaluateAsyncWithError`) only while
+  `HandlesCertificateErrors` is true, and Linux and Windows extract the
+  certificate only then. Client certificates are left to the platform.
 - Flyouts (`flyout.go`, `internal/platform/flyout.go`): `NewFlyout`
   creates a window with `platform.WindowOptions.Flyout`, which backends
   make a borderless, transparent popup owned by its parent, and place
@@ -2396,7 +2408,14 @@ either.
   `Draw` and the work `After` drives wait until some of the window shows.
   `SurfaceShown`, sent as some of the window shows again
   (`windowDidChangeOcclusionState:`), draws what changed, and has a held
-  animation go on from where the time puts it. The window shows its last
+  animation go on from where the time puts it; a video (`VideoPlayer`)
+  goes on from where it stood instead, counting its time from then
+  (`engine.shown`), as one the view stopped building does. Its frames
+  decode on a goroutine, two ahead, into frames handed back for it to
+  decode into again; the view takes the last frame due, passing over the
+  others, has the bitmap show it (`Bitmap.Update`), and asks for the next
+  with `After`, or waits for the goroutine to wake the window (`waiting`)
+  when it has no frame due yet. The window shows its last
   frame until then, about a refresh: captures of it meanwhile, as sharing
   its window in a video call, see that frame. A frame still builds after
   input (`input`, as keys typed into a key window another app's covers),
@@ -4588,8 +4607,11 @@ which npm allows only for packages that exist: the first release uses an
 | a page's sound (`IsAudible`, `SetAudioMuted`) | private `-[WKWebView _isPlayingAudio]`, key-value observed, and `_mediaMutedState` / `_setPageMuted:` with the `_WKMediaAudioMuted` bit, the capture bits kept; looked up with `respondsToSelector:`, not audible and not muted where WebKit doesn't answer | `webkit_web_view_is_playing_audio` and `notify::is-playing-audio`; `webkit_web_view_set_is_muted` / `get_is_muted` (2.30+, bound when present) | `ICoreWebView2_8`'s `IsDocumentPlayingAudio`, `IsDocumentPlayingAudioChanged` and `IsMuted`, queried for each call; a mute set before the web view is made is put in `setUp`, before its first navigation |
 | picture in picture (`PageOptions.PictureInPicture`) | private `-[WKPreferences _setAllowsPictureInPictureMediaPlayback:]`; `-[WKWebView _canTogglePictureInPicture]`, `_togglePictureInPicture` and `_isPictureInPictureActive`, looked up with `respondsToSelector:`; a main-frame navigation leaving with a video out turns `_setUsesPageCache:` off until one leaves without, as WebKit restores such a page believing its video still out | none: `TogglePictureInPicture` does nothing, `IsPictureInPictureActive` is false | Chromium's, on whatever the option; `TogglePictureInPicture` runs `requestPictureInPicture()` (or `exitPictureInPicture()`) through the DevTools protocol's `Runtime.evaluate` with `userGesture`, `IsPictureInPictureActive` evaluates `document.pictureInPictureElement` |
 | ClearBrowsingData | default `WKWebsiteDataStore`, all types | the web context's website data manager | the WebView2 profile's `ClearBrowsingDataAll` (needs a window) |
+| HTTP sign-in (`SetAuthHandler`) | `webView:didReceiveAuthenticationChallenge:completionHandler:`, `NSURLCredential` for the session; none: no prompt, the 401 page; empty answer: `RejectProtectionSpace` | `WebKitWebView::authenticate`, `webkit_credential_new` for the session; none: WebKitGTK's dialog; empty answer: authenticates without credentials | `ICoreWebView2_10`'s `BasicAuthenticationRequested`, scheme and realm parsed from its challenge, no proxy flag; none: WebView2's dialog; empty answer: `Cancel` |
+| certificate errors (`SetCertificateErrorHandler`) | the server trust challenge of every connection, checked with `SecTrustEvaluateAsyncWithError` while a handler is set, allowed with `credentialForTrust:` for that connection | `load-failed-with-tls-errors`, the main frame only; allowed with `webkit_web_context_allow_tls_certificate_for_host` (app-wide) and loaded again | `ICoreWebView2_14`'s `ServerCertificateErrorDetected`, every request, after `NavigationCompleted` failed; allowed with `ALWAYS_ALLOW` (app-wide) |
 | permissions | `WKUIDelegate` media capture (camera, microphone) | `permission-request` (camera, microphone, geolocation, notifications) | `PermissionRequested` (the same four; WebView2 asks about others) |
 | user agent | `customUserAgent`; `UserAgentSuffix` is the configuration's `applicationNameForUserAgent`, which a `window.open()` window does not inherit | `WebKitSettings:user-agent`; `UserAgentSuffix` appends application details, split at the first "/" | `ICoreWebView2Settings2`'s user agent, and a suffix appended to the settings' own user agent; a runtime without `Settings2` ignores both |
+| swipes and pinches (`SwipeNavigation`, `PinchZoom`) | `allowsBackForwardNavigationGestures` and `allowsMagnification` of the `WKWebView`, both off unless asked for | `WebKitSettings:enable-back-forward-navigation-gestures`; WebKitGTK has no setting for pinches, so the web view's `GtkGestureZoom`, which it keeps in its data as `wk-view-zoom-gesture` (2.38+), is given `GTK_PHASE_NONE` unless `PinchZoom`: it then sees neither a touchpad's pinch nor a touchscreen's | `ICoreWebView2Settings6`'s `IsSwipeNavigationEnabled` and `ICoreWebView2Settings5`'s `IsPinchZoomEnabled`, both on in WebView2 and put to the options' values in `setUp`, before the first navigation |
 | the browser's keys (reload, print, find, zoom) | none | none | WebView2's (F5, Ctrl+R, Ctrl+P, Ctrl+F, Ctrl+Plus, ...) only with the inspector (`ICoreWebView2Settings3`'s `AreBrowserAcceleratorKeysEnabled`); `AcceleratorKeyPressed` still gives the menus every key |
 | file associations | `CFBundleDocumentTypes`; files arrive with `application:openURLs:` | desktop entry `MimeType` (`%U`), a shared-mime-info package in the .deb for types the app defines (`x-`) | ProgIDs and `OpenWithProgids` written by the installer |
 | document windows | `representedURL` (proxy icon, Command-click folder menu) and `setDocumentEdited:` (the dot), then the traffic lights are laid out again | the core puts `*` before the title | the core puts `*` before the title |
