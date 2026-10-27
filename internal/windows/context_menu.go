@@ -47,6 +47,7 @@ const (
 	cmTargetGetKind                    = 3
 	cmTargetGetIsEditable              = 4
 	cmTargetGetIsRequestedForMainFrame = 5
+	cmTargetGetPageURI                 = 6
 	cmTargetGetFrameURI                = 7
 	cmTargetGetHasLinkURI              = 8
 	cmTargetGetLinkURI                 = 9
@@ -112,7 +113,14 @@ func (w *window) contextMenuRequested(args uintptr) {
 		return
 	}
 	c := &contextNatives{}
-	m := &platform.ContextMenu{Target: w.contextMenuTarget(args), Complete: true, Items: c.describe(list)}
+	var at point // in the web view's pixels
+	comCall(args, cmReqGetLocation, uintptr(unsafe.Pointer(&at)))
+	dpi := float64(dpiOf(w.hwnd))
+	m := &platform.ContextMenu{Pointer: true, X: float64(at.X) * 96 / dpi, Y: float64(at.Y) * 96 / dpi, Items: c.describe(list)}
+	// What WebView2 leaves out of a click in the page's own document, as
+	// the URL of a data: image, the page's contextmenu event tells; one in
+	// a frame never reaches it.
+	m.Target, m.Complete = w.contextMenuTarget(args)
 	release(list)
 	resp := w.h.ContextMenu(m)
 	if resp.Default {
@@ -125,8 +133,6 @@ func (w *window) contextMenuRequested(args uintptr) {
 		c.release()
 		return
 	}
-	var at point // in the web view's pixels
-	comCall(args, cmReqGetLocation, uintptr(unsafe.Pointer(&at)))
 	addRef(args)
 	// The menu shows once WebView2 got its answer, as the sample of its
 	// documentation does: its modal loop must not run in WebView2's call.
@@ -178,11 +184,15 @@ func (w *window) showContextMenu(m *platform.Menu, c *contextNatives, at point, 
 }
 
 // relabel gives WebView2's items whose labels the core left as they were
-// WebView2's own, with their mnemonics.
+// WebView2's own, with their mnemonics, and hides those still without a
+// label: WebView2 tells the spelling suggestions with none.
 func relabel(items []*platform.MenuItem, c *contextNatives) {
 	for _, it := range items {
 		if it.Native > 0 && it.Native <= len(c.labels) && it.Label == withoutAmpersands(c.labels[it.Native-1]) {
 			it.Label = c.labels[it.Native-1]
+		}
+		if it.Native > 0 && it.Label == "" && it.Type != platform.MenuItemSeparator {
+			it.Visible = false
 		}
 		if it.Submenu != nil {
 			relabel(it.Submenu.Items, c)
@@ -249,6 +259,7 @@ var contextNames = map[string]string{
 	"copyAudioLocation": "copyMediaURL",
 	"loop":              "mediaLoop",
 	"showAllControls":   "mediaControls",
+	"spellcheck":        "spellingGuess",
 }
 
 // contextItemName names an item of WebView2's: MyGo's name for the items
@@ -277,11 +288,12 @@ func withoutAmpersands(s string) string {
 }
 
 // contextMenuTarget tells what a context menu was opened on, with the
-// URLs of the app's schemes as the app knows them.
-func (w *window) contextMenuTarget(args uintptr) (t platform.ContextMenuTarget) {
+// URLs of the app's schemes as the app knows them, and whether it was
+// opened in a frame, whose target WebView2 tells all of.
+func (w *window) contextMenuTarget(args uintptr) (t platform.ContextMenuTarget, inFrame bool) {
 	var target uintptr
 	if failed(comCall(args, cmReqGetContextMenuTarget, uintptr(unsafe.Pointer(&target)))) || target == 0 {
-		return t
+		return t, false
 	}
 	defer release(target)
 	flag := func(i int) bool {
@@ -314,8 +326,12 @@ func (w *window) contextMenuTarget(args uintptr) (t platform.ContextMenuTarget) 
 	if flag(cmTargetGetHasSelection) {
 		t.SelectionText = str(cmTargetGetSelectionText)
 	}
+	// IsRequestedForMainFrame says false for the page's own document too,
+	// whose frame is the page.
 	if !flag(cmTargetGetIsRequestedForMainFrame) {
-		t.FrameURL = w.appURL(str(cmTargetGetFrameURI))
+		if frame := str(cmTargetGetFrameURI); frame != str(cmTargetGetPageURI) {
+			t.FrameURL, inFrame = w.appURL(frame), true
+		}
 	}
-	return t
+	return t, inFrame
 }

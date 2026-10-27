@@ -291,7 +291,13 @@ What each platform does:
 - **Windows** gets everything from WebView2 (1.0.1185 and later; older
   runtimes never call the listeners). A menu the app changed is drawn by
   MyGo, like its other popup menus, with WebView2's items doing what they
-  do; a menu left as it was is WebView2's own.
+  do; a menu left as it was is WebView2's own. WebView2 gives the spelling
+  suggestions no words, so a menu MyGo draws leaves them out, and it
+  leaves out the URL of a `data:` image, which the page's `contextmenu`
+  event then tells.
+
+A menu the app changed shows no separator first, last or after another,
+as removing the items between two leaves.
 
 ## The Dock menu
 

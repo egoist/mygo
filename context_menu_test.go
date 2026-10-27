@@ -3,6 +3,7 @@
 package mygo
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/internal/fake"
@@ -295,5 +296,40 @@ func TestMenuRemove(t *testing.T) {
 	}
 	if items := m.Items(); len(items) != 2 || items[1].Label != "No ID" {
 		t.Errorf("items left = %d", len(items))
+	}
+}
+
+// TestTidySeparators drops the separators that would start or end a menu
+// shown, or follow another, hidden items between them aside.
+func TestTidySeparators(t *testing.T) {
+	sep := func() *platform.MenuItem { return &platform.MenuItem{Type: platform.MenuItemSeparator, Visible: true} }
+	item := func(label string, visible bool) *platform.MenuItem {
+		return &platform.MenuItem{Label: label, Visible: visible}
+	}
+	m := &platform.Menu{Items: []*platform.MenuItem{
+		sep(), item("Back", false), sep(), item("Copy", true), sep(), item("Hidden", false), sep(),
+		item("Paste", true), {Label: "More", Visible: true, Type: platform.MenuItemSubmenu,
+			Submenu: &platform.Menu{Items: []*platform.MenuItem{sep(), item("Speak", true), sep()}}},
+		sep(), item("Gone", false),
+	}}
+	tidySeparators(m)
+	var got []string
+	var list func(prefix string, items []*platform.MenuItem)
+	list = func(prefix string, items []*platform.MenuItem) {
+		for _, it := range items {
+			if it.Type == platform.MenuItemSeparator {
+				got = append(got, prefix+"-")
+				continue
+			}
+			got = append(got, prefix+it.Label)
+			if it.Submenu != nil {
+				list(prefix+it.Label+"/", it.Submenu.Items)
+			}
+		}
+	}
+	list("", m.Items)
+	want := []string{"Back", "Copy", "-", "Hidden", "Paste", "More", "More/Speak", "Gone"}
+	if !slices.Equal(got, want) {
+		t.Errorf("tidied menu %v, want %v", got, want)
 	}
 }

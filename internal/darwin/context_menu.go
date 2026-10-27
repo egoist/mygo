@@ -122,10 +122,17 @@ func (w *window) contextMenu(menu, ev id) {
 	if resp.Menu != nil {
 		c.fill(menu, resp.Menu.Items)
 	}
-	// An empty menu shows nothing: AppKit pops up none.
 	if sendInt(menu, "numberOfItems") > 0 {
 		openContextMenu = menu
+		return
 	}
+	// An empty menu shows nothing, but AppKit still tracks it, and WebKit
+	// pops up no other until it closed: it closes once its tracking began.
+	retain(menu)
+	theBackend.post(func() {
+		send(menu, "cancelTrackingWithoutAnimation")
+		release(menu)
+	})
 }
 
 // describeContextMenu describes WebKit's items of menu and its submenus,
@@ -187,7 +194,7 @@ var contextIdentifiers = map[string]string{
 var contextTags = [...]string{
 	1: "openLinkInNewWindow", 2: "downloadLink", 3: "copyLink", 4: "openImageInNewWindow", 5: "downloadImage",
 	6: "copyImage", 7: "openFrameInNewWindow", 8: "copy", 9: "back", 10: "forward", 11: "stop", 12: "reload",
-	13: "cut", 14: "paste", 15: "spellingGuess",
+	13: "cut", 14: "paste", 15: "spellingGuess", 21: "searchWeb", 22: "lookUp",
 }
 
 // contextSelectors name AppKit's items by their actions, as the editing
@@ -205,7 +212,9 @@ func contextItemName(item id) string {
 	if name, ok := contextIdentifiers[ident]; ok {
 		return name
 	}
-	if ident != "" {
+	// AppKit names an item WebKit gave no identifier by its action, as
+	// "forwardContextMenuAction:", which tells nothing.
+	if strings.HasPrefix(ident, "WKMenuItemIdentifier") {
 		return ident
 	}
 	action := objc.SEL(send(item, "action"))
