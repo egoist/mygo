@@ -469,6 +469,9 @@ func TestMockCaptureDevices(handle uintptr) bool {
 		return false
 	}
 	send(prefs, "_setMockCaptureDevicesEnabled:", boolArg(true))
+	if respondsTo(prefs, "_setMediaDevicesEnabled:") {
+		send(prefs, "_setMediaDevicesEnabled:", boolArg(true))
+	}
 	if respondsTo(prefs, "_setMockCaptureDevicesPromptEnabled:") {
 		send(prefs, "_setMockCaptureDevicesPromptEnabled:", boolArg(false))
 	}

@@ -106,7 +106,8 @@ func TestCaptureState(t *testing.T) {
 	waitFor(t, w, `location.pathname === "/capture" && window.capture`)
 	ctx := wait.Context(t)
 	if got, err := p.EvalContext(ctx, `capture({audio: true, video: true})`); err != nil || got != "ok" {
-		t.Skipf("the page can't capture: %v %v", got, err)
+		info := mustEval(t, w, `[isSecureContext, typeof navigator.mediaDevices].join(" ")`)
+		t.Skipf("the page can't capture: %v %v (secure context, navigator.mediaDevices: %v)", got, err, info)
 	}
 	told("the camera capturing", mygo.CaptureCamera, mygo.CaptureActive)
 	told("the microphone capturing", mygo.CaptureMicrophone, mygo.CaptureActive)
