@@ -28,7 +28,9 @@ panics where the second key was given, as apps only log it.
 ## What a tester does
 
 - **Pointer.** `tt.Click`, `tt.ClickAt`, `tt.ClickWith(ui.Shift, "Row 3")`,
-  `tt.Press`, `tt.Move` and `tt.Release`, and `tt.Scroll`.
+  `tt.Press`, `tt.Move` and `tt.Release`, `tt.Scroll`, which scrolls at
+  once as a touchpad does, and `tt.Wheel`, a notch of a mouse wheel, which
+  glides there as the clock advances (`tt.Advance`).
 - **Keyboard.** `tt.Key(ui.Cmd, ui.KeyS)` presses a key, `tt.TypeKey` a key
   with the text it types, and `tt.Type` types text into the focused
   element. `tt.Compose` shows the composition of an input method,
@@ -36,7 +38,9 @@ panics where the second key was given, as apps only log it.
   `tt.TextCaret` returns where input methods would compose.
 - **Menus.** `tt.RightClick` opens a context menu, which `tt.Menu` lists and
   `tt.ChooseMenuItem("Move to", "Archive")` chooses from.
-- **The window.** `tt.SetSize`, `tt.SetScale`, `tt.SetDark`,
+- **The window.** `tt.SetSize`, `tt.SetScale`, `tt.SetZoom` (the content's
+  [zoom](windows.md#zoom), as `Context.SetZoom`; the tester's coordinates,
+  of `Find`, `ClickAt`, `Move` and `TextCaret`, stay the window's), `tt.SetDark`,
   `tt.SetPreferences` and `tt.SetDirection` (lay it out
   [right to left](right-to-left.md)) change the window and the desktop's
   settings;

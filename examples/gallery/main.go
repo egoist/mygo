@@ -40,6 +40,8 @@ type gallery struct {
 	// language is the language chosen on the Languages page, "" for the
 	// system's.
 	language string
+	// zoom is how many steps of zooms the gallery is zoomed from 1.
+	zoom     int
 	count    int
 	agree    bool
 	notify   bool
@@ -396,7 +398,24 @@ func (g *gallery) view(c *ui.Context) {
 			g.router.Push(pagePath(p))
 		}
 	}
+	// Ctrl+= and Ctrl+- (Cmd on macOS) zoom the gallery in and out, as a
+	// browser zooms a page, sharp; Ctrl+0 zooms it back.
+	switch {
+	case c.Shortcut(ui.Cmd, ui.KeyEqual) || c.Shortcut(ui.Cmd|ui.Shift, ui.KeyEqual):
+		g.zoom = min(g.zoom+1, len(zooms)-1-zoomOne)
+	case c.Shortcut(ui.Cmd, ui.KeyMinus):
+		g.zoom = max(g.zoom-1, -zoomOne)
+	case c.Shortcut(ui.Cmd, ui.Key0):
+		g.zoom = 0
+	}
+	c.SetZoom(zooms[zoomOne+g.zoom])
 }
+
+// zooms are the zooms Ctrl+= and Ctrl+- step through, as browsers'.
+var zooms = []float32{0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3}
+
+// zoomOne is the index of 1 in zooms.
+const zoomOne = 5
 
 // toolbar goes back and forward in the history of the pages, and shows
 // the path of the page: Cmd+[ and Cmd+] on macOS, Alt+Left and Alt+Right
@@ -1278,6 +1297,11 @@ func (g *gallery) styling(c *ui.Context) {
 				ui.Text(c, "Inbox")
 				ui.Text(c, "3").FontSize(10).Bold().Padding(1, 5).Radius(8).Background(t.Danger).TextColor(ui.RGB(255, 255, 255)).Top(-6)
 				ui.Text(c, "Top(-6) moves a badge up").FontSize(12).TextColor(t.TextMuted)
+			})
+			ui.Row(c).Gap(6).AlignItems(ui.Baseline).Children(func() {
+				ui.Text(c, "$42").FontSize(28).Bold()
+				ui.Text(c, "/month").TextColor(t.TextMuted)
+				ui.Text(c, "AlignItems(Baseline) lines up text").FontSize(12).TextColor(t.TextMuted).Margin(0, 0, 0, ui.Auto)
 			})
 		})
 		card(c, "Scrolling both ways", func() {

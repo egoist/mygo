@@ -71,6 +71,7 @@ func base(v float32) float32 {
 func layoutTree(root *node, w, h float32) {
 	rt := root.c.rt
 	rt.consumed = false
+	rt.beginLayout(root)
 	layoutBox(root, w, h)
 	// Lists build rows as they lay out, which may ask to come into view.
 	for _, e := range root.c.reveal {
@@ -124,6 +125,11 @@ func (rt *engine) lateInput() {
 func place(e *node, x, y float32) {
 	e.x += x
 	e.y += y
+	if e.hidden {
+		// Not laid out: nor is what is inside it placed, whose scroll
+		// offsets stay as they were for when it shows again.
+		return
+	}
 	cx, cy := e.x, e.y
 	if f := e.followX; f != nil {
 		cx -= float32(f.followShift())
@@ -282,23 +288,10 @@ func (e *node) leafWidths() (maxW, minW float32) {
 		}
 		// Measured once a frame: the layout asks for both widths a few
 		// times.
-		if e.leafOK {
-			return e.leaf[0], e.leaf[1]
+		if !e.leafOK {
+			e.leaf, e.leafOK = e.textWidths(), true
 		}
-		sys := textSystem()
-		p := e.textParams(0)
-		p.MaxLines = 0
-		full := sys.Layout(p).Width
-		min := float32(0)
-		switch {
-		case e.noWrap:
-			min = full
-		case !e.single:
-			p.Width, p.NoBreakWords = 1, true
-			min = sys.Layout(p).Width
-		}
-		e.leaf, e.leafOK = [2]float32{full, min}, true
-		return full, min
+		return e.leaf[0], e.leaf[1]
 	case kindImage:
 		w, _ := e.intrinsicSize()
 		return w, 0
@@ -356,6 +349,7 @@ func contentWidth(e *node, maxContent bool) float32 {
 func (e *node) forgetIntrinsic() {
 	for p := e; p != nil && p.intrOK != 0; p = p.parent {
 		p.intrOK = 0
+		p.keepMeasured()
 	}
 }
 
@@ -377,8 +371,19 @@ func measureIntrinsic(e *node, maxContent bool) float32 {
 		}
 	default:
 		n := 0
+		// A toolbar's overflow button is chrome, not content: it shows only
+		// when controls overflow, so it must not widen the toolbar when
+		// everything fits. Skipping it here (rather than relying on its
+		// collapsed state) also keeps the measured width stable across
+		// frames, as the button collapses and reappears during layout.
+		var more *node
+		if e.overflow != nil {
+			for ch := e.first; ch != nil; ch = ch.next {
+				more = ch
+			}
+		}
 		for ch := e.first; ch != nil; ch = ch.next {
-			if ch.flags&flagAbsolute != 0 {
+			if ch == more || ch.flags&flagAbsolute != 0 || ch.hidden {
 				continue
 			}
 			cw := intrinsic(ch, maxContent)
@@ -485,7 +490,7 @@ func naturalHeight(e *node, w, cbH float32) float32 {
 func contentHeight(e *node, cw float32) float32 {
 	switch e.kind {
 	case kindText:
-		return textSystem().Layout(e.textParams(max(cw, 1))).Height
+		return e.textLayout(max(cw, 1)).Height
 	case kindImage, kindIcon:
 		if w, h := e.intrinsicSize(); w > 0 {
 			return cw * h / w
@@ -521,15 +526,35 @@ func boxLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	return flexLayout(e, cw, ch, commit)
 }
 
-// layoutBox gives the element its size and lays out its content.
+// layoutBox gives the element its size and lays out its content, as it
+// did in the last frame when it can (layoutcache.go).
 func layoutBox(e *node, w, h float32) {
+	rt := e.c.rt
+	rt.laySeq++
+	e.laid = rt.laySeq
+	if e.lay&layReuse != 0 {
+		if r := &e.st.lay; r.sized && r.w == w && r.h == h {
+			reuseBox(e, r)
+			return
+		}
+	}
+	start := rt.laySeq
+	rt.computed++
+	computeBox(e, w, h)
+	if e.lay&layOwner != 0 {
+		keepBox(e, w, h, start)
+	}
+}
+
+// computeBox gives the element its size and lays out its content.
+func computeBox(e *node, w, h float32) {
 	e.w, e.h = w, h
 	cw, ch := max(w-e.padX(), 0), max(h-e.padY(), 0)
 	switch e.kind {
 	case kindText:
 		// Lists may build paragraphs while laying out, after the view's pass.
 		e.prepareSelectable()
-		e.tl = textSystem().Layout(e.textParams(max(cw, 1)))
+		e.tl = e.textLayout(max(cw, 1))
 		if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 {
 			// Selectable text hit-tests and selects in what it shows.
 			ed.layout = e.tl
@@ -582,10 +607,14 @@ type flexItem struct {
 	pad                  float32 // padding and border along the main axis
 	minMain, maxMain     float32
 	main, cross          float32
-	frozen               bool
 	violation            float32 // how far clamping moved main, resolving
 	marginMain, marginCr float32
-	line                 int
+	// baseline is how far from the start of its margin box across the
+	// line the baseline of an item aligned by its baseline (byBaseline)
+	// is, and laidOut is set on those of a row, laid out to find theirs.
+	baseline                float32
+	frozen, byBase, laidOut bool
+	line                    int
 }
 
 type flexLine struct {
@@ -593,6 +622,7 @@ type flexLine struct {
 	main       float32 // sum of outer main sizes and gaps
 	cross      float32
 	pos        float32 // where it starts across the container
+	baseline   float32 // of the items aligned by their baselines, below its top
 }
 
 // flexScratch holds the items and lines of the flex containers being laid
@@ -634,9 +664,15 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	}
 	scratch := &e.c.rt.flex
 	firstItem, firstLine := len(scratch.items), len(scratch.lines)
-	defer func() { scratch.items, scratch.lines = scratch.items[:firstItem], scratch.lines[:firstLine] }()
+	baselines := align == Baseline // whether children align by their baselines
+	defer func() {
+		// Laid out again only when they change (layoutcache.go), the
+		// items let go of their elements.
+		clear(scratch.items[firstItem:])
+		scratch.items, scratch.lines = scratch.items[:firstItem], scratch.lines[:firstLine]
+	}()
 	for c := e.first; c != nil; c = c.next {
-		if c.flags&flagAbsolute != 0 {
+		if c.flags&flagAbsolute != 0 || c.hidden {
 			continue
 		}
 		it := flexItem{e: c}
@@ -701,6 +737,7 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 		it.pad, it.base = pad, max(it.base, pad)
 		it.minMain, it.maxMain = max(it.minMain, pad), max(it.maxMain, pad)
 		it.hyp = max(it.minMain, min(it.base, it.maxMain))
+		baselines = baselines || c.self == Baseline
 		// After the child's measures, which lay out containers in it.
 		scratch.items = append(scratch.items, it)
 	}
@@ -763,6 +800,40 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 				}
 			}
 			ln.cross = max(ln.cross, it.cross+it.marginCr)
+		}
+		// The items aligned by their baselines line them up: the line
+		// is as high as the highest baseline above and the deepest
+		// descent below.
+		// Across a column, their left edges are their baselines, as in
+		// Chrome, even laid out right to left.
+		ascent, descent := -inf, -inf
+		for i := ln.start; i < ln.end && baselines; i++ {
+			it := &items[i]
+			c := it.e
+			if !byBaseline(c, align, e) {
+				continue
+			}
+			switch {
+			case row:
+				layoutBox(c, it.main, it.cross)
+				it.laidOut = true
+				b, ok := boxBaseline(c)
+				if !ok {
+					b = it.cross
+				}
+				it.baseline = c.m(0) + b
+			case e.rtl():
+				it.baseline = c.m(1) + it.cross
+			default:
+				it.baseline = c.m(3)
+			}
+			it.byBase = true
+			ascent = max(ascent, it.baseline)
+			descent = max(descent, it.cross+it.marginCr-it.baseline)
+		}
+		if finite(-ascent) {
+			ln.baseline = ascent
+			ln.cross = max(ln.cross, ascent+descent)
 		}
 	}
 	if len(lines) == 1 && finite(crossSize) && !e.wrap {
@@ -885,6 +956,8 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 			case autoS:
 				crossOff = max(free, 0)
 			case autoE:
+			case it.byBase:
+				crossOff = ln.baseline - it.baseline
 			default:
 				switch selfAlign(c, align) {
 				case Center:
@@ -900,7 +973,9 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 			if row {
 				c.x = e.contentX() + mainOff
 				c.y = e.contentY() + crossOff
-				layoutBox(c, it.main, it.cross)
+				if !it.laidOut {
+					layoutBox(c, it.main, it.cross)
+				}
 			} else {
 				c.x = e.contentX() + crossOff
 				c.y = e.contentY() + mainOff
@@ -935,6 +1010,70 @@ func crossOf(c *node, cw float32, align Align, wrap bool) float32 {
 func stretches(c *node, align Align, row bool) bool {
 	m := crossMargins[b2i(row)]
 	return selfAlign(c, align) == Stretch && c.kind != kindIcon && !isAuto(c.margin[m[0]]) && !isAuto(c.margin[m[1]])
+}
+
+// byBaseline reports whether c, a child of the row (or grid) e, lines up
+// its baseline with its siblings', as aligning by align asks: not where
+// automatic margins place it across, nor in a row wrapping in reverse,
+// where Baseline is Start.
+func byBaseline(c *node, align Align, e *node) bool {
+	m := crossMargins[b2i(e.row && !e.grid)]
+	if e.grid {
+		m = [2]int{0, 2}
+	}
+	return selfAlign(c, align) == Baseline && !isAuto(c.margin[m[0]]) && !isAuto(c.margin[m[1]]) && !e.wrapReverse
+}
+
+// boxBaseline returns how far below the top of an element laid out its
+// first baseline is, as CSS's: that of its first line of text, or that of
+// its first child (in a row, of the first child aligned by its baseline),
+// which a child without one takes from its bottom; false for an element
+// with neither text nor children.
+func boxBaseline(e *node) (float32, bool) {
+	switch e.kind {
+	case kindText:
+		if e.tl != nil && len(e.tl.Lines) > 0 {
+			return e.contentY() + e.tl.Lines[0].Baseline, true
+		}
+		return 0, false
+	case kindInput:
+		if ed := e.st.editor; ed != nil {
+			if l := ed.firstLine(); l != nil {
+				return ed.originY + l.Baseline, true
+			}
+		}
+		return 0, false
+	case kindImage, kindIcon:
+		return 0, false
+	}
+	align := e.align
+	if align == alignAuto {
+		align = Stretch
+	}
+	var first *node
+	for ch := e.first; ch != nil; ch = ch.next {
+		if ch.flags&(flagAbsolute|flagInvisible) != 0 || ch.hidden {
+			continue
+		}
+		if first == nil {
+			first = ch
+		}
+		if !e.row || e.grid {
+			break
+		}
+		if byBaseline(ch, align, e) {
+			first = ch
+			break
+		}
+	}
+	if first == nil {
+		return 0, false
+	}
+	b, ok := boxBaseline(first)
+	if !ok {
+		b = first.h
+	}
+	return first.y + b, true
 }
 
 func selfAlign(c *node, align Align) Align {
@@ -1039,11 +1178,16 @@ func justifyOffsets(j Align, free float32, n int) (start, between float32) {
 func layoutAbsolute(e *node) {
 	pw, ph := e.w-e.border[1]-e.border[3], e.h-e.border[0]-e.border[2]
 	for c := e.first; c != nil; c = c.next {
-		if c.flags&flagAbsolute == 0 || c.leaving != 0 {
+		if c.flags&flagAbsolute == 0 || c.leaving != 0 || c.hidden {
 			// Copies of elements leaving are placed by their transitions.
 			continue
 		}
 		if c.attach != 0 {
+			if c.popover != nil && c.popover.inHidden() {
+				// Nowhere to attach to: it hides with its target.
+				c.hidden = true
+				continue
+			}
 			if c.popover != nil {
 				attachTo(c, e, pw, ph)
 			} else {
@@ -1130,6 +1274,9 @@ func attachTo(c, e *node, pw, ph float32) {
 	at, self = at.physical(c.rtl()), self.physical(c.rtl())
 	ax, ay := at.fractions()
 	sx, sy := self.fractions()
+	if c.flags&flagScrollY != 0 {
+		h = min(h, roomAlong(t.Y, t.H, beside(ay, sy), c.m(0)+c.m(2), c.c.h))
+	}
 	x := alongTarget(t.X, t.W, ax, sx, w, c.m(3)-c.m(1), c.c.w)
 	y := alongTarget(t.Y, t.H, ay, sy, h, c.m(0)-c.m(2), c.c.h)
 	dx, dy := c.relative(pw, ph)
@@ -1140,6 +1287,22 @@ func attachTo(c, e *node, pw, ph float32) {
 
 // windowMargin keeps what overlays place apart from the window's edges.
 const windowMargin = 4
+
+// roomAlong returns the most an element attached to target can be along
+// an axis of the window, limit long, and stay in it: the larger side of
+// target for one placed beside it, else the window. One that scrolls, as a
+// select's long list of options, is no longer.
+func roomAlong(t0, tsize float32, beside bool, margins, limit float32) float32 {
+	room := limit - 2*windowMargin - margins
+	if beside {
+		room = max(t0, limit-(t0+tsize)) - windowMargin - margins
+	}
+	return max(room, 0)
+}
+
+// beside reports whether an element with its point at fraction self on
+// its target's point at fraction at goes before or after the target.
+func beside(at, self float32) bool { return at == 1 && self == 0 || at == 0 && self == 1 }
 
 // alongTarget returns where an element size long goes along an axis of the
 // window, limit long, with its point at fraction self on target's point at
@@ -1157,8 +1320,7 @@ func alongTarget(t0, tsize, at, self, size, off, limit float32) float32 {
 			p = q
 		}
 	}
-	beside := at == 1 && self == 0 || at == 0 && self == 1
-	if !beside && over(p) > 0 {
+	if !beside(at, self) && over(p) > 0 {
 		p = max(windowMargin, min(p, limit-windowMargin-size))
 	}
 	return p

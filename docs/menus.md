@@ -43,6 +43,7 @@ A `MenuItem` has:
   group, in which checking one unchecks the others. Checkbox and radio
   items toggle `Checked` before `Click` runs;
 - `Disabled`, `Hidden` and `ToolTip`;
+- `Icon`, an image shown beside the label (see [icons](#icons));
 - `ID`, to find the item with `Menu.ItemByID`;
 - `Role`, a built-in behavior with its label and accelerator.
 
@@ -52,7 +53,12 @@ Roles do what users expect of standard items, with their usual label and
 shortcut, which `Label` and `Accelerator` override:
 
 - editing: `RoleUndo`, `RoleRedo`, `RoleCut`, `RoleCopy`, `RolePaste`,
-  `RoleDelete`, `RoleSelectAll`, and on macOS `RolePasteAndMatchStyle`;
+  `RoleDelete`, `RoleSelectAll`, and on macOS `RolePasteAndMatchStyle`.
+  Their keys go to the content first, as in a browser: in a page on
+  Windows, WebView2 cuts, copies and pastes with the page's own events and
+  every format of the clipboard, while choosing Paste from the menu types
+  the clipboard's text, as pages may not read the clipboard (as does an
+  edit role given a key the page has no use for, as Copy on Ctrl+Shift+C);
 - formatting: `RoleBold`, `RoleItalic`, `RoleUnderline`,
   `RoleStrikethrough`, `RoleAlignLeft`, `RoleAlignCenter` and
   `RoleAlignRight`, which format the selection of a [rich text
@@ -82,8 +88,8 @@ template serves every platform.
 ### Changing items
 
 Change items of a menu in use with their methods, so that the native menu
-follows: `SetLabel`, `SetEnabled`, `SetVisible`, `SetChecked` and
-`SetAccelerator`:
+follows: `SetLabel`, `SetEnabled`, `SetVisible`, `SetChecked`,
+`SetAccelerator` and `SetIcon`:
 
 ```go
 item := menu.ItemByID("sidebar")
@@ -91,6 +97,65 @@ item.SetChecked(false)
 ```
 
 `Menu.Append` and `Menu.Insert` add items.
+
+### Icons
+
+An item's `Icon` is an image shown beside its label, as the flag of each
+server of a VPN's tray menu. `NewMenuIcon` makes one of a PNG image, in
+its own colors, and returns an error for data that is not a PNG image;
+make each once and give it to as many items as show it:
+
+```go
+//go:embed flags/jp.png
+var japanPNG []byte
+
+japan, err := mygo.NewMenuIcon(japanPNG, false)
+if err != nil {
+	log.Fatal(err)
+}
+servers := mygo.NewMenu([]*mygo.MenuItem{
+	{ID: "tokyo", Label: "Tokyo", Type: mygo.MenuItemRadio, Checked: true, Icon: japan},
+	{ID: "osaka", Label: "Osaka", Type: mygo.MenuItemRadio, Icon: japan},
+	{ID: "direct", Label: "Direct", Type: mygo.MenuItemRadio},
+})
+```
+
+The image fits a box of 16 by 16 points, keeping its aspect: give it at
+least 32 by 32 pixels, or 48 by 48, so that it stays sharp on
+high-resolution displays and at 150% and 200% scaling. A checkbox or radio
+item shows its check as well. `SetIcon`
+replaces an item's icon in menus in use, and nil removes it:
+
+```go
+servers.ItemByID("tokyo").SetIcon(warning)
+servers.ItemByID("osaka").SetIcon(nil)
+```
+
+`NewMenuIcon`'s second argument, template, makes a black and transparent
+image take the color of the menu's text, as macOS tints its template
+images: white in a dark menu and on the highlight. Linux shows template
+icons as they are.
+
+MyGo decodes and scales each image once, however many items show it and
+however often their menus open or are made again, the icons of the same
+image included, and frees what it made of it once neither the app nor a
+menu holds the icon; the bitmaps of Windows 10's menus go with their
+menus. Apps that make no icon don't link the code that draws them.
+
+- **macOS** shows the icon (an `NSImage`) after the column of checks, on
+  every menu, the menu bar's own items included, which show it in the
+  menu bar.
+- **Windows 11** menus, which MyGo draws, give icons a column of their
+  own between the checks and the labels, as the system's menus do, at the
+  menu's display scaling. **Windows 10** draws them as the items'
+  bitmaps (32-bit, with alpha), in the column of its checks: a checked
+  item shows its icon framed as checked in place of a check mark. The
+  items of the menu bar itself show no icon.
+- **Linux** shows icons in the items of menu bars' menus and context
+  menus (GTK); the items of the menu bar itself show none. A tray icon's
+  menu is drawn by the panel, which gets the icons over DBusMenu
+  (`icon-data`): GNOME Shell's AppIndicator extension and KDE Plasma
+  show them, other panels may not.
 
 ## The menu bar
 
@@ -110,7 +175,9 @@ window its own, and windows have none by default, except in apps with
 removes the menu.
 
 On Windows, menu bars and menus follow the appearance, light or dark, as
-the title bar does (see [dark mode](frontend.md#dark-mode)).
+the title bar does (see [dark mode](frontend.md#dark-mode)). On Windows 11
+they look like the system's own menus, as File Explorer's: roomier items,
+highlights with rounded corners, and shortcuts in a fainter color.
 
 A window with `AutoHideMenuBar` keeps its menu bar out of sight, and the
 room for the page. Alt pressed alone, or F10, shows the bar with the
@@ -125,7 +192,10 @@ mygo.NewWindow(mygo.WindowOptions{URL: "/", AutoHideMenuBar: true})
 A Windows window without a title bar, frameless or with a hidden title
 bar, has no room for a menu bar either: Alt and F10 open its menus in a
 popup from the top-left corner, below the title bar the page draws. On
-Linux the bar shows above the page.
+Linux a window with a hidden title bar hides its menu bar as
+`AutoHideMenuBar` does, so that the window buttons stay at the top of the
+window, in the page's title bar; a frameless window shows the bar above
+the page.
 
 A window in full screen leaves the whole screen to the page: its menu bar
 hides until it leaves full screen. Alt and F10 still open its menus, in a
@@ -203,9 +273,35 @@ mygo.App.WhenReady(func() {
 The icon is a PNG, ideally 16×16 points (a 32×32 image for high-resolution
 displays); a template icon, black on transparent, lets macOS tint it for
 light and dark menu bars. A tray with a menu shows it on click. Without a
-menu, clicks reach `OnClick`, and `OnRightClick` gets right-clicks. Change
+menu, clicks reach `OnClick`, and `OnRightClick` gets right-clicks, and on
+macOS Control-clicks, as a Control-click is a secondary click there. Change
 the tray with `SetIcon`, `SetMenu`, `SetToolTip` and, on macOS,
 `SetTitle`, the text next to the icon; `Destroy` removes it.
+
+The items of a tray's menu can show [icons](#icons), as a country's flag
+beside each server, and change as the items of any menu do: the menu
+shows their state the next time it opens.
+
+A title that shows a changing number, such as a network speed, should
+keep its width, or the item grows and shrinks and the icon and the items
+beside it move. On macOS the title's digits all have the same width, so a
+value padded to a fixed number of characters keeps it: pad with figure
+spaces (U+2007), which are as wide as a digit, since an ordinary space is
+narrower.
+
+```go
+// "  9.0 MB/s", " 12.5 MB/s", "128.0 MB/s": all as wide.
+func speed(mbps float64) string {
+	return strings.ReplaceAll(fmt.Sprintf("%5.1f", mbps), " ", "\u2007") + " MB/s"
+}
+
+tray.SetTitle(speed(rate))
+```
+
+Only digits are tabular: letters keep their own widths, so a title that
+switches units (`9 KB/s`, then `1.2 MB/s`) changes width with the unit.
+Keeping that steady is the app's choice, by showing the value in one unit
+as above, for one.
 
 An app may show several icons, as a menu bar app showing its measures each
 in an item of its own. On macOS a new icon goes left of those already
@@ -235,9 +331,32 @@ while the menu is open. To show a menu only on right-click while keeping
 primary clicks available, set the menu in `OnRightClick`, call
 `PopUpMenu`, then clear it with `SetMenu(nil)` when the call returns.
 
+A tray icon does not keep the app running: the app quits when its last
+window closes ([Quitting](app.md#quitting)). To close a window to the
+tray, hide it instead, which keeps the window and the app. A quit, as the
+tray menu's `RoleQuit`, starts before the windows close, so `OnClose` can
+tell the closes it makes from the user's:
+
+```go
+var quitting bool // OnBeforeQuit and OnClose run on the main thread
+mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting = true })
+
+win.OnClose(func(e *mygo.CloseEvent) {
+	if !quitting {
+		e.PreventDefault()
+		win.Hide()
+	}
+})
+// The icon's click, without a menu, or an item of its menu, brings it back.
+tray.OnClick(win.Show)
+```
+
 On Linux tray icons use AppIndicator, which needs
-`libayatana-appindicator3`: they show a menu and report no clicks, and
-`NewTray` returns an error without the library.
+`libayatana-appindicator3`: they show a menu, and an icon with an `OnClick`
+listener answers activation (with a release of the library that has the
+`activate` signal; older ones report no clicks), which GNOME's AppIndicator extension sends on
+a double click and which opens the menu on a single one after the double
+click time. `NewTray` returns an error without the library.
 
 Apps that live in the menu bar usually drop their Dock icon on macOS:
 

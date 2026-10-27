@@ -38,6 +38,10 @@ func click(w *mygo.Window, x, y float64) (ok bool) {
 	return ok
 }
 
+// Clicks reach windows showing native UI only: a web view's page is
+// not clicked.
+func clickPage(*mygo.Window, float64, float64) bool { return false }
+
 // appClick clicks with the system's input, which activates windows, and
 // returns once the app handled the click.
 func appClick(w *mygo.Window, x, y float64) (ok bool) {
@@ -58,6 +62,13 @@ func sideButton(w *mygo.Window, back bool) (ok bool) {
 	return ok
 }
 
+// pinch pinches the touchpad at (x, y) as Windows sends it, scrolling
+// with Ctrl held, which rounds scale.
+func pinch(w *mygo.Window, x, y, scale float64) (got float64, ok bool) {
+	mygo.RunOnMain(func() { got, ok = win.TestPinchSurface(w.NativeHandle(), x, y, scale) })
+	return got, ok
+}
+
 func drag(w *mygo.Window, points [][2]float64) (ok bool) {
 	mygo.RunOnMain(func() { ok = win.TestDragSurface(w.NativeHandle(), points) })
 	return ok
@@ -66,9 +77,11 @@ func drag(w *mygo.Window, points [][2]float64) (ok bool) {
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
 // Collection behaviors and deactivating the app are macOS's.
-func collectionBehavior(*mygo.Window) (uint, bool) { return 0, false }
-func deactivateApp() bool                          { return false }
-func appActive() (bool, bool)                      { return false, false }
+func collectionBehavior(*mygo.Window) (uint, bool)               { return 0, false }
+func deactivateApp() bool                                        { return false }
+func material(*mygo.Window) (string, int, float64, bool, bool)   { return "", 0, 0, false, false }
+func roundedBacking(*mygo.Window) (bool, float64, float64, bool) { return false, 0, 0, false }
+func appActive() (bool, bool)                                    { return false, false }
 
 // WebView2 opens DevTools in a window of its own.
 func dockDevTools(*mygo.Window) bool { return false }
@@ -201,6 +214,12 @@ func titleButtonColor(w *mygo.Window, name string) (r, g, b uint8, ok bool) {
 func composition(w *mygo.Window) (noRedirect, composed, supported bool) {
 	mygo.RunOnMain(func() { noRedirect, composed = win.TestComposed(w.NativeHandle()) })
 	return noRedirect, composed, true
+}
+
+// canCompose reports whether DirectComposition is available.
+func canCompose() (ok bool) {
+	mygo.RunOnMain(func() { ok = win.TestCanCompose() })
+	return ok
 }
 
 // loseComposition takes the device of DirectComposition away, as a draw

@@ -10,6 +10,7 @@ import { defineConfig } from "mygo-cli";
 
 export default defineConfig({
   name: "My App",
+  slug: "my-app",
   identifier: "com.example.myapp",
   version: "1.2.0",
   copyright: "© 2026 Example Inc.",
@@ -42,11 +43,13 @@ the fields of [the frontend](#development-and-the-frontend).
 
 | Field | Default | |
 |---|---|---|
-| `name` | the directory's name | the name users see: the app, its executable, menus, installers |
+| `name` | the directory's name | the name users see: the app, its executable, menus, installers; Windows can show another, [`windows.displayName`](#windows) |
+| `slug` | the name in lower case, with hyphens between its words, e.g. `my-app` of `My App`; Chinese characters take their most common Mandarin reading without tones, each its own word, and kana and Hangul their romanization, e.g. `yun-yin-le` of `云音乐`, `ramen` of `ラーメン` | the name of the app's files where a name must be plain ASCII: the disk images of macOS and the installers of Windows, the Linux executable, its desktop entry, icon, Debian package and `/opt` directory, the [update archives](updates.md) of every platform, the variables of the [install scripts](distribution.md#install-scripts-for-macos-and-windows) and the MIME types the app defines; lower-case letters and digits with single hyphens between them. Set it to choose another, as `cloud-music` for `云音乐`, and keep it once the app is released (see [Linux](distribution.md#linux)) |
 | `identifier` | `com.mygo.` and the name's letters and digits, e.g. `com.mygo.myapp` | a reverse DNS name unique to the app, e.g. `com.example.myapp`; systems key preferences, permissions and registrations on it |
 | `version` | `0.1.0` | the version of the app, which `App.Version()` returns and updates compare |
 | `copyright` | | the copyright notice of the app, in its `Info.plist` (macOS) and file properties (Windows) |
-| `icon` | `resources/icon.png` when it exists | a square PNG, ideally 1024×1024 |
+| `publisher` | the copyright notice without its "©" and years, e.g. `Example Inc.` of `© 2026 Example Inc.` | who makes the app: the publisher that Settings > Apps lists for the installed app on Windows, and its company in the file properties |
+| `icon` | `resources/icon.png` when it exists | a square PNG, ideally 1024×1024; its name with `-dev`, as `icon-dev.png`, beside it is the development app's, when it exists |
 | `main` | `.` | the Go package of the app, relative to the project |
 
 ## Development and the frontend
@@ -57,7 +60,7 @@ the fields of [the frontend](#development-and-the-frontend).
 | `devCommand` | | runs in the project directory while `mygo dev` runs, e.g. a Vite dev server; the app starts once `devUrl` answers |
 | `buildCommand` | | builds the frontend before `mygo build` compiles the app |
 | `frontendDist` | | the directory of the built frontend, which `mygo build` embeds into the app; `mygo dev` serves it from disk when there is no `devUrl` |
-| `bindings` | `frontend/src/mygo.ts` when there is a `frontend` directory, else `src/mygo.ts` when package.json is at the root, else `mygo.ts` when the configuration has a frontend (`devUrl`, `devCommand`, `buildCommand` or `frontendDist`); none for an app without one, such as one of [native UI](ui/README.md) | where `mygo generate` writes the TypeScript client |
+| `bindings` | `frontend/src/mygo.ts` when `frontend/package.json` depends on `mygo-runtime`, else `src/mygo.ts` when package.json at the root does, else `mygo.ts` when the configuration has a frontend (`devUrl`, `devCommand`, `buildCommand` or `frontendDist`); none for an app without one, such as one of [native UI](ui/README.md) | where `mygo generate` writes the TypeScript client |
 | `out` | `dist` | where `mygo build` writes the builds, one directory per platform |
 
 See [the frontend](frontend.md#how-pages-load) for how they fit together.
@@ -77,7 +80,7 @@ Each file association has:
 |---|---|
 | `ext` | the file name extensions, without dots: `["md", "markdown"]` |
 | `name` | what the files are: `"Markdown Document"` |
-| `mimeType` | their MIME type, by which Linux identifies files; without one the app defines `application/x-<app>-<ext>` |
+| `mimeType` | their MIME type, by which Linux identifies files; the app defines an unregistered one (`x-`), and without one `application/x-<app>-<ext>` |
 | `role` | `Editor` (the default) or `Viewer`, on macOS |
 
 ## i18n
@@ -126,9 +129,11 @@ See [macOS](distribution.md#macos).
 
 | Field | Default | |
 |---|---|---|
+| `displayName` | `name` | the name Windows shows the app by: its Start menu and desktop shortcuts, its entry in Settings > Apps, the installer's title and messages, and the product name in the executable's file properties. The executable, its install folder and the files named after `name` or `slug` keep their names, e.g. `天气助手` for an app named `weather`, whose executable stays `weather.exe` |
 | `certificate` | | a code signing certificate (`.pfx`) for the executable, the unsigned executables and libraries among the resources, and the installer; its password comes from `MYGO_WINDOWS_CERTIFICATE_PASSWORD` |
 | `signCommand` | | instead of `certificate`, a command that signs a file, with `%1` for its path |
 | `timestampUrl` | `http://timestamp.digicert.com` | the time stamping server of `certificate` |
+| `installerInclude` | | an NSIS script that the installer includes, e.g. `build/installer.nsh`, whose `customInit`, `customInstall` and `customUnInstall` macros run when the installer starts, at the end of the install, and in the uninstall before the app's folder is removed. See [installer hooks](distribution.md#installer-hooks) |
 
 See [Windows](distribution.md#windows).
 
@@ -140,6 +145,7 @@ See [Windows](distribution.md#windows).
 | `comment` | | a short description, for the desktop entry and the package |
 | `categories` | `["Utility"]` | the categories of the desktop entry, which place it in application menus |
 | `depends` | | Debian packages the app needs besides GTK and WebKitGTK |
+| `webview` | `true` | `false` for an app that shows no web page, as one of native UI: the Debian package depends on GTK alone, and install.sh and `mygo doctor` do not ask for WebKitGTK |
 | `command` | none | a command that runs the app: `/usr/bin/<command>` from the Debian package, `~/.local/bin/<command>` from install.sh |
 
 See [Linux](distribution.md#linux).

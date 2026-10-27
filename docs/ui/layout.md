@@ -61,12 +61,25 @@ either direction.
 
 `Justify` places the children along the direction (`Start`, `Center`,
 `End`, `SpaceBetween`, `SpaceAround`, `SpaceEvenly`), `AlignItems` across
-it (`Start`, `Center`, `End`, `Stretch`), `AlignSelf` one child; `Center`
+it (`Start`, `Center`, `End`, `Stretch`, `Baseline`), `AlignSelf` one child; `Center`
 centers them both ways. `Start` is the left of a row and the top of a
 column, and the right of an element laid out
 [right to left](right-to-left.md), which lays a row out from there. `Wrap` wraps a row onto more lines, which
 `WrapReverse` stacks upward, and `AlignContent` places those lines (as
 `Justify` places children, or `Stretch`).
+
+`Baseline` lines up the first lines of text of a row's children, as a
+large price beside its small unit, and the row is as high as that takes.
+The baseline of a box is that of its first child (in a row, of its first
+child aligned by its baseline), and a child without text lines up its
+bottom, as in CSS:
+
+```go
+ui.Row(c).AlignItems(ui.Baseline).Gap(4).Children(func() {
+	ui.Text(c, "$42").FontSize(40)
+	ui.Text(c, "/month").TextColor(t.TextMuted)
+})
+```
 
 ## Positioning
 
@@ -114,7 +127,21 @@ ui.Box(c).Fill().Children(func() {
   draws over them; `ClipX` and `ClipY` clip only on the sides or above and
   below.
 - `Invisible` hides an element and its children, which keep their room
-  but draw nothing and take neither the pointer nor the focus.
+  but draw nothing and take neither the pointer nor the focus, as CSS's
+  `visibility: hidden`.
+- `Hidden(true)` hides them and takes their room away too, as CSS's
+  `display: none`: the siblings close up, with no gap left for it, and
+  assistive technology does not read it. Unlike not building the element,
+  it keeps the state of what is inside it, a scroll offset, text being
+  edited, an animation, for when `Hidden(false)` shows it again. The focus
+  leaves it as it hides, and what is attached to it (`AttachTo`) hides with
+  it.
+
+  ```go
+  ui.Column(c).Hidden(!app.showDetails).Children(func() {
+  	ui.TextArea(c, &app.notes)
+  })
+  ```
 - `Debug` outlines an element and everything inside it, with their padding
   and margins, to see why the layout is what it is. The
   [inspector](inspector.md) shows the boxes of every element, and why.

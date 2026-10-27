@@ -127,7 +127,8 @@ mygo.NewNotification(mygo.NotificationOptions{
 
 `Sender.ID` identifies the person in the app; it is not inferred to be an
 email address or phone number. `Name` defaults to `Title`. `Avatar` holds
-encoded image bytes, such as PNG or JPEG; the app fetches them and decides
+encoded image bytes, such as PNG, JPEG or SVG; macOS rasterizes them as PNG
+before donation. The app fetches them and decides
 whether the message's sender and content may be shared with the system.
 `NewNotification` copies the sender and image, so the app can reuse its
 buffers. `Group` is the conversation identifier; without one, it uses the
@@ -343,6 +344,54 @@ awake. On Linux, `OnLockScreen` is called when the screen saver starts,
 which usually locks the screen, and `IdleTime` is 0 on desktops that do not
 report it.
 
+## Now Playing and media keys
+
+`mygo.NowPlaying` shows what the app plays where the system shows media:
+Now Playing in Control Center and the menu bar on macOS, the media
+controls of the volume flyout and the lock screen on Windows, and on Linux
+the MPRIS clients, as GNOME's and KDE's media controls and `playerctl`.
+While it shows something, the media keys of keyboards and headsets, and
+those controls, send the app commands:
+
+```go
+mygo.NowPlaying.Set(mygo.NowPlayingInfo{
+	Title: "Spring", Artist: "Vivaldi", Album: "The Four Seasons",
+	Artwork:  cover, // PNG or JPEG
+	Duration: 3*time.Minute + 20*time.Second,
+	Commands: mygo.MediaPlay | mygo.MediaPause | mygo.MediaNext | mygo.MediaPrevious | mygo.MediaSeek,
+})
+mygo.NowPlaying.OnCommand(func(cmd mygo.MediaCommand, pos time.Duration) {
+	switch cmd {
+	case mygo.MediaPause:
+		player.Pause()
+		mygo.NowPlaying.SetPlayback(mygo.PlaybackPaused, pos) // where playback is
+	case mygo.MediaSeek:
+		player.Seek(pos)
+		mygo.NowPlaying.SetPlayback(mygo.PlaybackPlaying, pos)
+	case mygo.MediaNext:
+		playNext() // and Set the next track's info
+	}
+})
+mygo.NowPlaying.Clear() // the app no longer shows in the controls
+```
+
+The system advances the position while the state is `PlaybackPlaying`, so
+the app sets it again only when playback jumps. The play/pause key sends
+`MediaPause` while the state is playing and `MediaPlay` otherwise, and
+only the commands the info offers reach `OnCommand` (`Commands` 0 offers
+play, pause and stop). `pos` is where `MediaSeek` moves to, and for the
+other commands where playback is as they come. An app playing a player of package `audio` can let
+`Control` play, pause, stop and seek it, and show its state:
+
+```go
+release := mygo.NowPlaying.Control(music) // an *audio.Player
+defer release()
+```
+
+`Control` hears the player's end; after the app plays, pauses or seeks it
+itself, `NowPlaying.Sync` shows it. In browsers, `NowPlaying` is the
+page's Media Session.
+
 ## Network
 
 `mygo.Network` tells whether the computer is online and whether the
@@ -497,9 +546,11 @@ negative) before they are reported, and never more than 500 ms
 (`MaxDelay`). A watch compares what it sees with what it saw, so events say
 what is different, not every step that made it so: treat them as hints to
 read the files again. A write is a file whose size or modification time
-changed, or that the system says was written: permissions and other
-metadata, which indexers and antivirus touch, are not reported, nor are
-directories written, whose changes are their entries'.
+changed, or that the system says was written, or a file replaced at its
+path by another, as editors and atomic saves replace it (a temporary file
+renamed over it): permissions and other metadata, which indexers and
+antivirus touch, are not reported, nor are directories written, whose
+changes are their entries'.
 
 A watch doesn't look again until `Next` has taken the last batch: when the
 app is busy, what changed meanwhile comes in the next batch, so nothing is

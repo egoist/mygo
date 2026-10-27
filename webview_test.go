@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -73,6 +74,24 @@ func TestWebViewThemePreferences(t *testing.T) {
 	src := onMainValue(func() string { return fv.Opts.UserScripts[1].Source })
 	if !strings.Contains(src, `"textScale":2`) {
 		t.Errorf("web view's preferences script after a change = %s", src)
+	}
+}
+
+// TestWebViewTabFocus passes the page's Tab behavior to a web view: every
+// control by default, Safari's text fields only when asked for.
+func TestWebViewTabFocus(t *testing.T) {
+	w, _, s := contentWindow(t, func(c *ui.Context) {})
+	if _, err := w.NewWebView(WebViewOptions{Page: PageOptions{SafariTabFocus: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if views := s.WebViews(); len(views) != 1 || views[0].Opts.TabFocusesLinks {
+		t.Errorf("web views %d: SafariTabFocus not applied", len(views))
+	}
+	if _, err := w.NewWebView(WebViewOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if views := s.WebViews(); len(views) != 2 || !views[1].Opts.TabFocusesLinks {
+		t.Error("Tab reaches every control by default")
 	}
 }
 
@@ -171,6 +190,20 @@ func TestWebViewPage(t *testing.T) {
 	}
 	if got := v.Page().URL(); got != "https://example.com/" {
 		t.Errorf("URL %q", got)
+	}
+	fv.SetProcessID(31)
+	if got := v.Page().ProcessID(); got != 31 {
+		t.Errorf("ProcessID %d, want 31", got)
+	}
+	v.Page().SetAudioMuted(true)
+	if !fv.IsAudioMuted() || !v.Page().IsAudioMuted() {
+		t.Errorf("SetAudioMuted: the web view's %v, the page's %v", fv.IsAudioMuted(), v.Page().IsAudioMuted())
+	}
+	var audible []bool
+	v.Page().OnAudibleChanged(func(a bool) { audible = append(audible, a) })
+	onMain(func() { fv.SetAudible(true) })
+	if !v.Page().IsAudible() || !slices.Equal(audible, []bool{true}) {
+		t.Errorf("a web view playing: IsAudible %v, changes %v", v.Page().IsAudible(), audible)
 	}
 }
 
