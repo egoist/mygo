@@ -1986,6 +1986,14 @@ func registerWindowClasses() {
 					w.loadFailed(err)
 				}
 			}),
+			// HTTP sign-in and server certificates (auth.go).
+			method("webView:didReceiveAuthenticationChallenge:completionHandler:", func(self id, _ objc.SEL, web, challenge id, handler uintptr) {
+				if w := b().windowFor(self); w != nil {
+					w.authChallenge(challenge, handler)
+				} else {
+					callBlock(handler, authDefault, 0)
+				}
+			}),
 			method("webViewWebContentProcessDidTerminate:", func(self id, _ objc.SEL, web id) {
 				if w := b().windowFor(self); w != nil {
 					w.h.RenderProcessGone("terminated")
