@@ -161,3 +161,5 @@ func panelStyles(*mygo.Window) (bool, bool, bool, bool) { return false, false, f
 func throttlingOff(*mygo.Window, bool) (bool, int)                   { return false, 0 }
 func pageGestures(*mygo.Window, int) (bool, bool, bool)              { return false, false, false }
 func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }
+
+func takeForeground(*mygo.Window) {}

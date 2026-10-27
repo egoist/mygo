@@ -351,3 +351,6 @@ func pageGestures(w *mygo.Window, webView int) (swipe, pinch, ok bool) {
 // A WKWebView's magnification follows a trackpad's gesture through its
 // phases, which a test can't make.
 func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }
+
+// Only Windows' tests start a process that takes the foreground.
+func takeForeground(*mygo.Window) {}

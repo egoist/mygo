@@ -394,3 +394,9 @@ func pageGestures(w *mygo.Window, webView int) (swipe, pinch, ok bool) {
 // WebView2 takes touch input from Windows' pointer messages, which a test
 // can't send it.
 func pinchPage(*mygo.Window, int, float64, float64, ...float64) bool { return false }
+
+// takeForeground brings a window to the foreground, which a process may
+// while no other window has it.
+func takeForeground(w *mygo.Window) {
+	mygo.RunOnMain(func() { win.TestForeground(w.NativeHandle()) })
+}

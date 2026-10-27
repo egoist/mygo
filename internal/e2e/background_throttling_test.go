@@ -92,6 +92,9 @@ func TestBackgroundThrottling(t *testing.T) {
 		cmd.Env = append(os.Environ(), "MYGO_E2E_UNTHROTTLED=1", "LOCALAPPDATA="+data)
 		out, err := cmd.CombinedOutput()
 		t.Logf("%s", out)
+		// The child's windows had the foreground, which the tests after
+		// expect this process's to get.
+		takeForeground(newWindow(t, mygo.WindowOptions{Title: "front", Width: 120, Height: 80}))
 		if err != nil {
 			t.Fatal(err)
 		}

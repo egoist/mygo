@@ -369,3 +369,6 @@ func pinchPage(w *mygo.Window, webView int, x, y float64, scales ...float64) (ok
 	mygo.RunOnMain(func() { ok = linux.TestPinchPage(w.NativeHandle(), webView, x, y, scales) })
 	return ok
 }
+
+// Only Windows' tests start a process that takes the foreground.
+func takeForeground(*mygo.Window) {}
