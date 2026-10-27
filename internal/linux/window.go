@@ -299,10 +299,7 @@ func (w *window) createWebView() {
 		w.b.webLanguages = true
 		w.b.applyWebLanguages()
 	}
-	for _, s := range o.Schemes {
-		w.b.registerScheme(s)
-	}
-	w.web = webkitWebViewNewWithUserContentManager(w.ucm)
+	w.web = w.newWebView()
 	webkitUserContentManagerRegisterHandler(w.ucm, cs("mygo"))
 	connect(w.ucm, "script-message-received::mygo", cbScriptMessage, data)
 	w.addUserScripts()
@@ -1275,6 +1272,14 @@ func (w *window) SetAudioMuted(v bool) {
 func (w *window) IsAudioMuted() bool {
 	return webkitWebViewGetIsMuted != nil && webkitWebViewGetIsMuted(w.web)
 }
+
+// TogglePictureInPicture does nothing: WebKitGTK has no picture in
+// picture.
+func (w *window) TogglePictureInPicture() {}
+
+// PictureInPictureActive is always false: WebKitGTK has no picture in
+// picture.
+func (w *window) PictureInPictureActive(cb func(bool)) { cb(false) }
 
 func (w *window) OpenDevTools() {
 	if w.opts.DevTools {

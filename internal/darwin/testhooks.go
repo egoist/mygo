@@ -490,6 +490,21 @@ func TestBackgroundThrottlingOff(handle uintptr, webView bool) (off bool, settin
 	return off, settings
 }
 
+// TestAllowsPictureInPicture reports whether a window's page lets its
+// videos go into picture in picture, and false for supported when WebKit
+// doesn't answer its private _allowsPictureInPictureMediaPlayback.
+func TestAllowsPictureInPicture(handle uintptr) (allowed, supported bool) {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.web == 0 {
+		return false, false
+	}
+	prefs := send(send(w.web, "configuration"), "preferences")
+	if !respondsTo(prefs, "_allowsPictureInPictureMediaPlayback") {
+		return false, false
+	}
+	return sendBool(prefs, "_allowsPictureInPictureMediaPlayback"), true
+}
+
 // TestPageGestures reports whether a swipe navigates and a pinch magnifies
 // the page of a window, or with webView 0 or more, of its web view of that
 // index, as WKWebView's properties say. ok is false without that page.
