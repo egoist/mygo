@@ -78,11 +78,18 @@ func TestBackgroundThrottling(t *testing.T) {
 	if runtime.GOOS == "windows" && os.Getenv("MYGO_E2E_UNTHROTTLED") == "" {
 		// WebView2's browser takes the arguments of the first page, the
 		// warm-up's in this process: the test runs in one whose warm-up
-		// asks for them.
+		// asks for them, with a user data folder of its own, as a browser
+		// running with other arguments refuses it this process's.
 		ctx, cancel := context.WithTimeout(t.Context(), 4*wait.Guard)
 		defer cancel()
+		data, err := os.MkdirTemp("", "mygo-unthrottled")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The browser may hold the folder a moment after the test ends.
+		defer os.RemoveAll(data)
 		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestBackgroundThrottling$", "-test.v")
-		cmd.Env = append(os.Environ(), "MYGO_E2E_UNTHROTTLED=1")
+		cmd.Env = append(os.Environ(), "MYGO_E2E_UNTHROTTLED=1", "LOCALAPPDATA="+data)
 		out, err := cmd.CombinedOutput()
 		t.Logf("%s", out)
 		if err != nil {

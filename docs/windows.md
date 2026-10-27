@@ -719,7 +719,10 @@ nothing then: run what must go on with timers.
 On Windows those arguments are the WebView2 environment's, which all of an
 app's pages share and which the first window or web view that shows a page
 creates: give the option to that one. Then no page of the app has its timers
-throttled; a page that asks later is too late, and the log says so. A web
+throttled; a page that asks later is too late, and the log says so. Two
+processes of the app share the browser too, so they must agree: WebView2
+refuses web views to a second one whose first page asks otherwise than the
+running one's did. A web
 view in a hidden window's [native UI](ui/web-view.md) still goes hidden, as
 it must for its window to leave the screen.
 
