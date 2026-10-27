@@ -78,7 +78,9 @@ func TestCaptureState(t *testing.T) {
 	changes := make(chan change, 64) // listeners must not block
 	defer p.OnCaptureStateChanged(func(kind mygo.CaptureKind, s mygo.CaptureState) { changes <- change{kind, s} })()
 	// told waits until the last change listeners heard of kind is to s,
-	// and checks that CaptureState says so too. The changes of other
+	// and CaptureState says so too: a change on the way, as SetAudioMuted
+	// on macOS mutes the camera with the microphone and unmutes it again,
+	// may be heard after the one before it is done. The changes of other
 	// kinds, which may come first, are kept for later.
 	var heard []change
 	told := func(what string, kind mygo.CaptureKind, s mygo.CaptureState) {
@@ -90,14 +92,11 @@ func TestCaptureState(t *testing.T) {
 					last = i
 				}
 			}
-			if last >= 0 && heard[last].state == s {
+			if last >= 0 && heard[last].state == s && p.CaptureState(kind) == s {
 				heard = slices.DeleteFunc(heard, func(c change) bool { return c.kind == kind })
 				break
 			}
 			heard = append(heard, wait.For(t, what, changes))
-		}
-		if got := p.CaptureState(kind); got != s {
-			t.Errorf("%s: CaptureState(%d) = %d, want %d", what, kind, got, s)
 		}
 	}
 	if err := p.LoadURL("app://localhost/capture"); err != nil {
