@@ -234,6 +234,8 @@ func (w *window) ProcessID() int                                           { ret
 func (w *window) IsAudible() bool                                          { return false }
 func (w *window) SetAudioMuted(bool)                                       {}
 func (w *window) IsAudioMuted() bool                                       { return false }
+func (w *window) TogglePictureInPicture()                                  {}
+func (w *window) PictureInPictureActive(cb func(bool))                     { cb(false) }
 func (w *window) DroppedFiles() []string                                   { return nil }
 func (w *window) Print()                                                   {}
 func (w *window) CapturePage(cb func([]byte, error))                       { cb(nil, errUnsupported) }

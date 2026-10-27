@@ -453,6 +453,21 @@ func TestTabFocusesLinks(handle uintptr) bool {
 	return w != nil && w.web != 0 && sendBool(send(send(w.web, "configuration"), "preferences"), "tabFocusesLinks")
 }
 
+// TestAllowsPictureInPicture reports whether a window's page lets its
+// videos go into picture in picture, and false for supported when WebKit
+// doesn't answer its private _allowsPictureInPictureMediaPlayback.
+func TestAllowsPictureInPicture(handle uintptr) (allowed, supported bool) {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.web == 0 {
+		return false, false
+	}
+	prefs := send(send(w.web, "configuration"), "preferences")
+	if !respondsTo(prefs, "_allowsPictureInPictureMediaPlayback") {
+		return false, false
+	}
+	return sendBool(prefs, "_allowsPictureInPictureMediaPlayback"), true
+}
+
 // TestIsFrontmost reports whether the application is the frontmost one,
 // which NSApp's isActive does not tell while a nonactivating panel is the
 // key window: it reports the app active then.

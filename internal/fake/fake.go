@@ -504,6 +504,7 @@ type Window struct {
 	pid       int  // SetProcessID
 	audible   bool // SetAudible
 	muted     bool // SetAudioMuted
+	pip       bool // TogglePictureInPicture
 	// Dropped is what DroppedFiles returns, once.
 	Dropped []string
 	// PDF holds the options of the last PrintToPDF.
@@ -730,6 +731,17 @@ func (w *Window) CloseDevTools()                     { w.mu.Lock(); w.devtools =
 func (w *Window) IsDevToolsOpened() bool             { w.mu.Lock(); defer w.mu.Unlock(); return w.devtools }
 func (w *Window) CapturePage(cb func([]byte, error)) { cb([]byte("png"), nil) }
 func (w *Window) Print()                             {}
+
+// TogglePictureInPicture moves the page's video into picture in picture
+// or back, as a page with a video it can move.
+func (w *Window) TogglePictureInPicture() { w.mu.Lock(); w.pip = !w.pip; w.mu.Unlock() }
+
+func (w *Window) PictureInPictureActive(cb func(bool)) {
+	w.mu.Lock()
+	pip := w.pip
+	w.mu.Unlock()
+	cb(pip)
+}
 
 // SetProcessID sets the process ID the page reports, as a backend whose
 // web view runs in a process of that ID; 0, the default, is none known.

@@ -124,6 +124,10 @@ type window struct {
 	// observesAudio tells that the window observes its web view's
 	// _isPlayingAudio, which WebKit answers (IsAudible).
 	observesAudio bool
+	// pageCacheOff tells that the window turned WebKit's back/forward
+	// cache off as its page left with a video in picture in picture
+	// (leavingPage).
+	pageCacheOff bool
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
@@ -454,6 +458,12 @@ func (w *window) createWebView(content NSRect) {
 	// navigation setting, unless the app asked for Safari's behavior.
 	if respondsTo(prefs, "setTabFocusesLinks:") {
 		send(prefs, "setTabFocusesLinks:", boolArg(o.TabFocusesLinks))
+	}
+	// Picture in picture, which WKWebView keeps to Safari: the button of
+	// videos' controls, their context menu's item and
+	// requestPictureInPicture().
+	if respondsTo(prefs, "_setAllowsPictureInPictureMediaPlayback:") {
+		send(prefs, "_setAllowsPictureInPictureMediaPlayback:", boolArg(o.PictureInPicture))
 	}
 
 	// Every window gets its own content controller so messages, scripts and
@@ -1407,6 +1417,48 @@ func (w *window) IsAudioMuted() bool {
 	return w.canMute() && uintptr(send(w.web, "_mediaMutedState"))&wkMediaAudioMuted != 0
 }
 
+// TogglePictureInPicture moves the page's video into picture in picture,
+// or back, with WebKit's private -[WKWebView _togglePictureInPicture],
+// when _canTogglePictureInPicture says it can; it does nothing in a page
+// without the option and when WebKit doesn't answer them.
+func (w *window) TogglePictureInPicture() {
+	if w.opts.PictureInPicture && respondsTo(w.web, "_canTogglePictureInPicture") &&
+		respondsTo(w.web, "_togglePictureInPicture") && sendBool(w.web, "_canTogglePictureInPicture") {
+		send(w.web, "_togglePictureInPicture")
+	}
+}
+
+// isPictureInPictureActive reports WebKit's private
+// -[WKWebView _isPictureInPictureActive], false when WebKit doesn't
+// answer it.
+func (w *window) isPictureInPictureActive() bool {
+	return respondsTo(w.web, "_isPictureInPictureActive") && sendBool(w.web, "_isPictureInPictureActive")
+}
+
+func (w *window) PictureInPictureActive(cb func(bool)) { cb(w.isPictureInPictureActive()) }
+
+// leavingPage runs as the page is about to navigate. WebKit restores a
+// page from its back/forward cache believing that the video it had in
+// picture in picture still is, so a page leaving with one is not kept
+// there: WebKit's private -[WKPreferences _setUsesPageCache:] turns the
+// cache off until a page leaves without one. Pages of windows without
+// PictureInPicture are cached as usual.
+func (w *window) leavingPage() {
+	if !w.opts.PictureInPicture || w.closed {
+		return
+	}
+	off := w.isPictureInPictureActive()
+	if off == w.pageCacheOff {
+		return
+	}
+	prefs := send(send(w.web, "configuration"), "preferences")
+	if !respondsTo(prefs, "_setUsesPageCache:") {
+		return
+	}
+	w.pageCacheOff = off
+	send(prefs, "_setUsesPageCache:", boolArg(!off))
+}
+
 func (w *window) inspector() id {
 	if !w.opts.DevTools || !respondsTo(w.web, "_inspector") {
 		return 0
@@ -1892,6 +1944,9 @@ func registerWindowClasses() {
 						nav.Unasked = true
 					}
 					allow = w.h.WillNavigate(nav)
+					if allow && nav.IsMainFrame {
+						w.leavingPage()
+					}
 				}
 				callBlock(handler, boolArg(allow))
 			}),
