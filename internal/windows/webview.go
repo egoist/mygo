@@ -1038,28 +1038,11 @@ func (w *window) IsAudioMuted() bool {
 	return w.getBool8(wv8GetIsMuted)
 }
 
-// togglePictureInPicture moves the page's video into picture in picture,
-// or the one out back: the video playing, else the largest that loaded,
-// of the page's document.
-const togglePictureInPicture = `(() => {
-	if (document.pictureInPictureElement) {
-		document.exitPictureInPicture().catch(() => {});
-		return;
-	}
-	let video, most = -1;
-	for (const v of document.querySelectorAll("video")) {
-		if (v.disablePictureInPicture || v.readyState === 0) continue;
-		const r = v.getBoundingClientRect(), score = (v.paused ? 0 : 1e9) + r.width * r.height;
-		if (score > most) { video = v; most = score; }
-	}
-	if (video) video.requestPictureInPicture().catch(() => {});
-})()`
-
-// TogglePictureInPicture runs togglePictureInPicture through the
+// TogglePictureInPicture runs platform.TogglePictureInPicture through the
 // DevTools protocol as a user's gesture, which
 // requestPictureInPicture() needs.
 func (w *window) TogglePictureInPicture() {
-	params, _ := json.Marshal(map[string]any{"expression": togglePictureInPicture, "userGesture": true})
+	params, _ := json.Marshal(map[string]any{"expression": platform.TogglePictureInPicture, "userGesture": true})
 	w.withWebView(func() { w.devtools("Runtime.evaluate", string(params), nil) })
 }
 
@@ -1070,7 +1053,7 @@ func (w *window) PictureInPictureActive(cb func(bool)) {
 		cb(false)
 		return
 	}
-	w.CallAsyncFunction("return String(!!document.pictureInPictureElement)", func(s string, err error) {
+	w.CallAsyncFunction(platform.PictureInPictureActive, func(s string, err error) {
 		cb(err == nil && s == "true")
 	})
 }

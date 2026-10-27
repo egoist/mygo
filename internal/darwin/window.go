@@ -1428,14 +1428,22 @@ func (w *window) IsAudioMuted() bool {
 }
 
 // TogglePictureInPicture moves the page's video into picture in picture,
-// or back, with WebKit's private -[WKWebView _togglePictureInPicture],
-// when _canTogglePictureInPicture says it can; it does nothing in a page
-// without the option and when WebKit doesn't answer them.
+// or back, with WebKit's private -[WKWebView _togglePictureInPicture]
+// when _canTogglePictureInPicture says it can, else with the page's
+// script, which evaluateJavaScript runs as a user's gesture: it says no on
+// a Mac without a Touch Bar (a MacBook Air on macOS 27), where the script
+// works. It does nothing in a page without the option, where WebKit
+// refuses picture in picture.
 func (w *window) TogglePictureInPicture() {
-	if w.opts.PictureInPicture && respondsTo(w.web, "_canTogglePictureInPicture") &&
-		respondsTo(w.web, "_togglePictureInPicture") && sendBool(w.web, "_canTogglePictureInPicture") {
-		send(w.web, "_togglePictureInPicture")
+	if !w.opts.PictureInPicture {
+		return
 	}
+	if respondsTo(w.web, "_canTogglePictureInPicture") && respondsTo(w.web, "_togglePictureInPicture") &&
+		sendBool(w.web, "_canTogglePictureInPicture") {
+		send(w.web, "_togglePictureInPicture")
+		return
+	}
+	w.Eval(platform.TogglePictureInPicture)
 }
 
 // isPictureInPictureActive reports WebKit's private
@@ -1445,7 +1453,18 @@ func (w *window) isPictureInPictureActive() bool {
 	return respondsTo(w.web, "_isPictureInPictureActive") && sendBool(w.web, "_isPictureInPictureActive")
 }
 
-func (w *window) PictureInPictureActive(cb func(bool)) { cb(w.isPictureInPictureActive()) }
+// PictureInPictureActive tells WebKit's _isPictureInPictureActive, which
+// knows of picture in picture through its media controls only, else the
+// page's document.pictureInPictureElement, which the script's sets.
+func (w *window) PictureInPictureActive(cb func(bool)) {
+	if w.isPictureInPictureActive() || !w.opts.PictureInPicture || w.closed {
+		cb(w.isPictureInPictureActive())
+		return
+	}
+	w.CallAsyncFunction(platform.PictureInPictureActive, func(s string, err error) {
+		cb(err == nil && s == "true")
+	})
+}
 
 // leavingPage runs as the page is about to navigate. WebKit restores a
 // page from its back/forward cache believing that the video it had in

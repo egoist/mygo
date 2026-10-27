@@ -158,9 +158,10 @@ func (p *Page) IsAudioMuted() bool { return pageGet(p.w, platform.Window.IsAudio
 //
 //   - macOS: WebKit's private -[WKWebView _togglePictureInPicture], for
 //     the video WebKit picks for its media controls, when
-//     _canTogglePictureInPicture says it can, both looked up with
-//     respondsToSelector:; nothing in a page without
-//     PageOptions.PictureInPicture and when WebKit doesn't answer them.
+//     _canTogglePictureInPicture says it can (a Mac with a Touch Bar),
+//     both looked up with respondsToSelector:, else the page's script,
+//     as on Windows; nothing in a page without
+//     PageOptions.PictureInPicture.
 //   - Windows: requestPictureInPicture() of the video playing, else of the
 //     largest, in the page's document, not its frames, as a user's
 //     gesture; document.exitPictureInPicture() for one out.
@@ -173,8 +174,10 @@ func (p *Page) TogglePictureInPicture() { p.w.page(platform.Window.TogglePicture
 // native UI, after the window closed and where the platform can't tell:
 //
 //   - macOS: WebKit's private -[WKWebView _isPictureInPictureActive],
-//     looked up with respondsToSelector:; false when WebKit doesn't answer
-//     it.
+//     looked up with respondsToSelector:, which knows of the media
+//     controls' picture in picture, else, in a page with
+//     PageOptions.PictureInPicture, its document.pictureInPictureElement,
+//     as on Windows.
 //   - Windows: the page's document.pictureInPictureElement, which a video
 //     of one of its frames leaves null; it asks the page, and waits for
 //     its answer.
