@@ -1317,16 +1317,25 @@ func xmlEscape(s string) string {
 
 func (e *pangoEngine) fontCount() int { return len(e.fonts) }
 
-// forgetFonts lets go of the Pango and cairo fonts of the Fonts made so
-// far.
-func (e *pangoEngine) forgetFonts() {
+// forgetFonts forgets the Fonts made so far, and lets go of their cairo
+// fonts.
+func (e *pangoEngine) forgetFonts() []*Font {
 	l := &pangoLib
 	for _, sf := range e.scaled {
 		l.cairoScaledFontDestroy(sf)
 	}
 	clear(e.scaled)
+	out := make([]*Font, 0, len(e.fonts))
 	for _, f := range e.fonts {
-		l.gObjectUnref(f.native)
+		out = append(out, f)
 	}
 	clear(e.fonts)
+	return out
+}
+
+// releaseFonts lets go of Pango fonts.
+func (e *pangoEngine) releaseFonts(natives []uintptr) {
+	for _, font := range natives {
+		pangoLib.gObjectUnref(font)
+	}
 }
