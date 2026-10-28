@@ -115,6 +115,12 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 		ed.shownY[0], ed.shownY[1] = ed.shownY[1], ed.shownY[0]
 	}
 	ed.pad, ed.paintedAt = float64(max(clip.H, 400)), p.Now()
+	// Scrolled past what the blocks were built for, by its container in
+	// one turn of the wheel or a drag of its scroll bar: build them again
+	// around what shows, which no other change asks for.
+	if ed.o.fitContent && (ed.shownY[0] < ed.builtY[0] || ed.shownY[1] > ed.builtY[1]) {
+		ed.services.Invalidate()
+	}
 	if !v.advanceSyntax(f.last+1, 4*time.Millisecond) {
 		more = true
 	}

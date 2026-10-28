@@ -389,6 +389,46 @@ func TestDiffFitContentBuildsSeparatorsInView(t *testing.T) {
 	}
 }
 
+// A long diff that fits its content builds the separators that come into
+// view as its scroll container jumps further than it built around what it
+// showed last, in one wheel's turn or a scroll bar's drag.
+func TestDiffFitContentBuildsSeparatorsScrolledTo(t *testing.T) {
+	var lines []string
+	for i := range 20000 {
+		lines = append(lines, "line "+strconv.Itoa(i))
+	}
+	old := strings.Join(lines, "\n")
+	for i := 0; i < len(lines); i += 50 {
+		lines[i] = "changed " + strconv.Itoa(i)
+	}
+	nw := strings.Join(lines, "\n")
+	for _, layout := range []DiffLayout{DiffUnified, DiffSplit} {
+		d := &DiffState{Old: NewBuffer(old), New: NewBuffer(nw), Layout: layout, FitContent: true}
+		var labels []string
+		d.RenderSeparator = func(c *ui.Context, sep ui.Element, s *DiffSeparator) {
+			l := "separator " + strconv.Itoa(s.a)
+			labels = append(labels, l)
+			sep.Children(func() { ui.Text(c, l) })
+		}
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Scroll(c).Fill().Children(func() { DiffView(c, d).FillWidth() })
+		}, 800, 600)
+		tt.Frame()
+		tt.Frame()
+		// No frame but those the scroll asks for, as in a window.
+		tt.Scroll(400, 300, 0, 3000)
+		shown := 0
+		for _, l := range labels {
+			if r, ok := tt.Find(l); ok && r.Y+r.H > 0 && r.Y < 600 {
+				shown++
+			}
+		}
+		if shown == 0 {
+			t.Errorf("layout %v: no separator shown in view after scrolling 3000", layout)
+		}
+	}
+}
+
 // A long diff that fits its content measures the wraps of the lines it
 // shows, not of those it folds away, which it measures once they show:
 // a window resized through widths would else measure every line at each.

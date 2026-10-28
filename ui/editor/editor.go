@@ -161,10 +161,12 @@ type editor struct {
 	shown   [2]int // the first and last lines the last frame showed
 	// shownY is the part of the content the last frame painted showed,
 	// and pad the height of the view it showed in, for an editor as high
-	// as its content, painted at paintedAt.
+	// as its content, painted at paintedAt; builtY is the part the last
+	// build built the blocks of (buildRange).
 	shownY     [2]float64
 	pad        float64
 	paintedAt  time.Time
+	builtY     [2]float64
 	focused    bool // the editor and its window have the keyboard
 	blinkStart time.Time
 	services   ui.Services
