@@ -871,30 +871,45 @@ func (rt *engine) moveFocus(back bool) {
 // innermost element around the focus that handles them, else to the
 // overlay on top that does, else to the window's shortcuts, as the last
 // frame registered them. Those it finds no shortcut for wait for what
-// this frame builds (settleKeys).
+// this frame builds (settleKeys). An element takes one key a frame: from
+// a second key for one, the keys wait for the next frame, which the
+// first changed, as a Down and an Enter typed quickly into a menu, the
+// Enter choosing the item the Down highlighted.
 func (rt *engine) routeKeys() {
 	rt.unrouted = rt.unrouted[:0]
 	if len(rt.keys) == 0 && len(rt.retried) == 0 {
 		return
 	}
 	chain := rt.focusChain()
-	route := func(k keyEvent, retried bool) {
+	route := func(k keyEvent, retried bool) bool {
 		r := shortcutReg{mods: k.mods, key: k.key, retried: retried}
 		if target, found := routeKey(rt.regs, chain, k); found {
+			if slices.ContainsFunc(rt.delivered, func(d shortcutReg) bool { return d.id == target }) {
+				return false
+			}
 			r.id = target
 			rt.delivered = append(rt.delivered, r)
 		} else {
 			rt.unrouted = append(rt.unrouted, r)
 		}
+		return true
 	}
 	// Keys retried came before those pressed since.
-	for _, k := range rt.retried {
-		route(k, true)
+	var later []keyEvent
+	for i, k := range rt.retried {
+		if !route(k, true) {
+			later = append(later, rt.retried[i:]...)
+			break
+		}
 	}
-	for _, k := range rt.keys {
-		route(k, false)
+	for i, k := range rt.keys {
+		if later != nil || !route(k, false) {
+			later = append(later, rt.keys[i:]...)
+			break
+		}
 	}
-	rt.retried, rt.keys = rt.retried[:0], rt.keys[:0]
+	rt.retried = rt.retried[:0]
+	rt.keys = append(rt.keys[:0], later...)
 }
 
 // routeKey returns the element that takes key k by shortcuts regs, the

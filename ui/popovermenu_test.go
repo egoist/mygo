@@ -768,6 +768,33 @@ func TestPopoverMenuButtonKeyboard(t *testing.T) {
 	}
 }
 
+// TestPopoverMenuButtonKeysInOneFrame checks keys typed quickly, coming
+// in one frame: each goes where the one before left the view, in order.
+func TestPopoverMenuButtonKeysInOneFrame(t *testing.T) {
+	a := &buttonMenuApp{}
+	tt := coreNewTester(a.view, 400, 400)
+	keys := func(ks ...Key) {
+		for _, k := range ks {
+			tt.rt.event(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(k)})
+			tt.rt.event(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: platform.Key(k)})
+		}
+		tt.settle()
+	}
+	tt.Click("Actions")
+	keys(KeyDown, KeyDown, KeyEnter)
+	if !a.pinned || menuShows(tt) {
+		t.Errorf("Down, Down and Enter: pinned %v, menu shows %v", a.pinned, menuShows(tt))
+	}
+
+	// Enter chooses the item highlighted before the Down after it.
+	tt.Click("Actions")
+	keys(KeyDown)
+	keys(KeyEnter, KeyDown)
+	if !slices.Equal(a.chosen, []string{"Open"}) || !a.pinned || menuShows(tt) {
+		t.Errorf("Enter and Down: chose %q, pinned %v, menu shows %v", a.chosen, a.pinned, menuShows(tt))
+	}
+}
+
 func TestPopoverMenuButtonPointer(t *testing.T) {
 	a := &buttonMenuApp{}
 	tt := coreNewTester(a.view, 400, 400)

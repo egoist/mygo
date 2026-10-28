@@ -698,8 +698,9 @@ func (rt *engine) runFrame() {
 	}
 	rt.announcements = rt.announcements[:0]
 	rt.next()
-	if len(rt.retried) > 0 {
-		// The keys retried route in a frame built anew, at once.
+	if len(rt.retried) > 0 || len(rt.keys) > 0 {
+		// The keys retried, and those waiting for an element that took
+		// one (routeKeys), route in a frame built anew, at once.
 		rt.redraw, rt.repaintDue = false, time.Time{}
 		rt.host.requestFrame()
 	}
