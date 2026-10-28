@@ -1730,8 +1730,8 @@ func ScrollHorizontal(c *Context) Element {
 // SearchField creates a field for searching, editing *query: a magnifying
 // glass, the text, and a button clearing it while it holds any, as Escape
 // does then. Enter is its Submitted, and Changed reports a change. It
-// shows Search while empty, and assistive technology sees a search field;
-// name it with Label.
+// shows Search while empty, or what Placeholder sets, and assistive
+// technology sees a search field; name it with Label.
 //
 //	if ui.SearchField(c, &app.query).Label("Search mail").Changed() {
 //		app.filter()
@@ -4955,7 +4955,9 @@ func (_handle Element) Perspective(distance float32) Element {
 	return wrapElement(_node.Perspective(distance))
 }
 
-// Placeholder shows s in an empty text input.
+// Placeholder shows s in an empty text input. On a field around an input,
+// as SearchField, TokenField and Combobox, it shows in the field's input,
+// in place of the field's own: SearchField shows Search without one.
 func (_handle Element) Placeholder(s string) Element {
 	_node := _handle.node()
 	if _node == nil {
