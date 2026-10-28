@@ -80,14 +80,13 @@ func coreCalendar(c *context, date *time.Time) *node {
 func monthChevron(c *context, back bool) {
 	t := c.theme
 	e := coreBox(c).Size(t.Space(1.5), t.Space(2.5)).Shrink(0)
-	left := back != e.rtl()
+	tip, ends := float32(0.15), float32(0.85) // ‹
+	if back == e.rtl() {
+		tip, ends = ends, tip // ›
+	}
 	e.Draw(func(p *Painter, r Rect) {
 		var path Path
-		if left {
-			path.MoveTo(r.X+r.W*0.85, r.Y+r.H*0.1).LineTo(r.X+r.W*0.15, r.Y+r.H*0.5).LineTo(r.X+r.W*0.85, r.Y+r.H*0.9)
-		} else {
-			path.MoveTo(r.X+r.W*0.15, r.Y+r.H*0.1).LineTo(r.X+r.W*0.85, r.Y+r.H*0.5).LineTo(r.X+r.W*0.15, r.Y+r.H*0.9)
-		}
+		path.MoveTo(r.X+r.W*ends, r.Y+r.H*0.1).LineTo(r.X+r.W*tip, r.Y+r.H*0.5).LineTo(r.X+r.W*ends, r.Y+r.H*0.9)
 		p.StrokePath(&path, 1.5, t.Text)
 	})
 }
