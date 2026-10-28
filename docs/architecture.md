@@ -2374,7 +2374,8 @@ either.
   again by their parameters, as Taffy keeps a node's measurements: an
   element laid out anew whose text is the same, as the rows of a List
   each frame, asks nothing of the text system's cache, whose key costs
-  more to hash than to compare. A grid measures the widths of only the
+  more to hash than to compare, and one laid out at another width asks
+  for it from the last (`text.System.LayoutFrom`). A grid measures the widths of only the
   items its columns read (`contributes`): none for Fr columns with room
   known, as CSS's minmax(0, 1fr). Transforms and scroll offsets of other
   containers apply after layout and change nothing there. Elements that lay
@@ -2542,9 +2543,49 @@ either.
   its velocity through changes and a delay holds them. Colors move as
   elements paint, after their `styleFn`. A `Match` moves an element
   appearing where another of the same identity showed the frame before
-  (`rt.matched`, in window coordinates) after `place` (`animateMatches`),
-  laying it out anew at each box on the way, across parents and scroll
-  offsets. An element appears with
+  (`ui/match.go`, `matchRec`, in window coordinates) after `place`
+  (`matches.move`), laying it out anew at each box on the way, or scaling
+  it (`ScaleContent`), across parents and scroll offsets, and blends its
+  corners, opacity, text color and transform (decomposed as CSS does, in
+  3D into a quaternion slerped the short way, whose sign holds at half a
+  turn)
+  from the other's. The element it came from goes with it, fading out as
+  it fades in (Motion's crossfade curves): itself while still built, as in
+  a page going away, else a copy that `matches.claim` takes, before
+  `animateExits`, in place of its `Exit`, from the arena of the frame
+  before, which frames with a `Match` keep as those with an `Exit` do;
+  copies of its ancestors going away hide theirs. Both are `lift`ed: the
+  root paints them after its children, before the overlays, so that they
+  leave their ancestors' clips and opacity, and `commit` lists their hits
+  there too (`engine.liftHits`), where `contains` stops at them the clips
+  around them, so that they take the pointer where they paint. Each is
+  placed where its content sits on the pixels as at rest, and shown where
+  it is with a translation (`matches.pin`), which elements on their way
+  inside it take into account, so that its text moves as one, smoothly,
+  and ends as text at rest. A text with a `Match` and
+  `ContentTransition`'s `Morph` takes the other's text layout into its
+  content transition instead, whose `morph` (`ui/morph.go`) pairs the
+  glyphs it comes from (`morphGlyph`, the old layout's, colored by the
+  spans its rich text last painted with, which `morphRest` keeps) with the
+  clusters of its layout (their longest common sequence, then the nearest
+  of the same characters left) and moves, scales and recolors the glyphs
+  of each pair, fading the others, the old text's going with the
+  element's box, and the lines and highlights of both texts' styles and
+  spans. It places each glyph as text at rest where the box goes
+  would (`text.System.Origin`), drawn at the quarter of an octave nearest
+  the size it shows, and moves it from there with a transform, so that
+  the glyphs move smoothly and together, rather than each a pixel at a
+  time, and end as text at rest; a flight ends with its look, its box
+  within a quarter of a point of its own. A text sent back to the one it
+  morphs from before it got there morphs back from as far from the end as
+  it was from the start (`matchRec.morph`), which shows the same; one that
+  another text takes over morphs from its glyphs as they showed
+  (`snapMorph`, from the same walk of them, `morphPairs.each`, as painting
+  them). The
+  engine has its `matcher`
+  only once a `Transition` has a `Match` or `ScaleContent`, and
+  `ContentTransition` links `morph` only for a `Morph`, so that apps
+  without them link none of it. An element appears with
   its `Enter` only in a parent the frame before had. One no longer built,
   whose parent still is, goes with its `Exit` as an inert copy, laid out
   and painted under its siblings without taking room: frames that built
@@ -2773,7 +2814,11 @@ either.
   over the page left, the one going away built too, inert (`flagInert`:
   painted, without hits, focus, labels, accessibility nor `Context`
   shortcuts), absolutely positioned over the one in flow, both offset by
-  their insets as relative positioning; others fade in alone. The first
+  their insets as relative positioning; others fade in alone. With
+  `TransitionMatch`, the page going away is built too, inert, fading out
+  under the page coming, absolutely positioned and fading in, while the
+  elements of a `Match` move between them: those of the page going away
+  that went with the page's show no more (`transitionUse.inert`). The first
   router of a frame takes the back and forward keys for the window, each
   one also for the focus inside it, which comes first.
 - **Comboboxes** (`ui/combobox.go`). A combobox is a text input with a
@@ -3457,7 +3502,14 @@ either.
   every other process. The package assembles their lines into layouts, with
   its own whitespace trimming, ellipsis, alignment, carets and selection, so
   those behave the same everywhere, and caches layouts by their parameters.
-  The engines rasterize glyphs too (`IDWriteGlyphRunAnalysis`,
+  A text that wraps none of its lines lays out alike at any width they
+  fit in, but for where its alignment puts its lines: `LayoutFrom` lays
+  it out at another width as the layout it is given (`ui` gives an
+  element's last), or as the text's layout without a width, once made,
+  sharing its lines, or copying those its alignment moves (`realign`), so
+  that a text whose box grows or shrinks, as a transition or the window
+  resizes it, is shaped once, and one measured, then laid out at the
+  width it gets, too. The engines rasterize glyphs too (`IDWriteGlyphRunAnalysis`,
   `CTFontDrawGlyphs`, cairo) into a coverage atlas, color glyphs (emoji)
   into a color atlas, and subpixel glyphs, the coverage of each pixel's
   red, green and blue, into the color atlas as well. Text looks as each

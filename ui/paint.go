@@ -38,6 +38,9 @@ type Painter struct {
 	// window's scene, and asked that it asked to be painted again (see
 	// paintPart).
 	drawing, asked bool
+	// lifting is the element of a Match on its way being painted over the
+	// window (engine.lifted), which elsewhere paints nothing.
+	lifting *node
 }
 
 // opaqueBox is the box of an element painting an opaque background, and
@@ -230,7 +233,7 @@ func (p *Painter) paintable(e *node) bool {
 }
 
 func (p *Painter) element(e *node) {
-	if e.hidden {
+	if e.hidden || e.lift && p.lifting != e {
 		return
 	}
 	savedTransform, savedInline := p.transform, p.inline
@@ -275,8 +278,11 @@ func (p *Painter) element(e *node) {
 	// What the element paints lands on an opaque background when all of
 	// it that shows does.
 	p.opaque = p.covered(intersect(box, p.clip))
-	if e.world.Set {
-		// Transformed glyphs are drawn with grayscale coverage.
+	if _, _, moved := e.world.Translation(); e.world.Set && (p.lifting == nil || !moved) {
+		// Transformed glyphs are drawn with grayscale coverage; but those
+		// of an element of a Match on its way, which a translation shows
+		// where it is (matches.pin), as at rest, which renderers make gray
+		// while it moves, so that they are the text at rest once there.
 		p.opaque = false
 	}
 	margin := e.shadowMargin()
@@ -359,10 +365,20 @@ func (p *Painter) element(e *node) {
 		if e.flags&flagDividers != 0 && !e.grid {
 			p.dividers(e)
 		}
+		// The elements of a Match on their way go over the window's, under
+		// its overlays.
+		lift := e.parent == nil && len(p.rt.lifted) > 0
 		for c := e.first; c != nil; c = c.next {
+			if lift && c == e.c.overlay {
+				p.rt.matches.paint(p)
+				lift = false
+			}
 			if c.flags&flagAbsolute != 0 && c.leaving == 0 && p.paintable(c) {
 				p.element(c)
 			}
+		}
+		if lift {
+			p.rt.matches.paint(p)
 		}
 	}
 	if clips {

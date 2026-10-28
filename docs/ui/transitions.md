@@ -127,16 +127,15 @@ element comes back from where its copy was.
 `Match` gives an element an identity it shares with another, as a photo's
 thumbnail in a grid and the photo in its detail view. An element with a
 `Match` appearing where one with the same `Match` showed in the frame
-before comes from there, at that one's size and in its colors, even from
-another parent, as SwiftUI's `matchedGeometryEffect` and Motion's
-`layoutId` do:
+before comes from there, even from another parent, as Keynote's Magic
+Move, SwiftUI's `matchedGeometryEffect` and Motion's `layoutId` do:
 
 ```go
 type photoMatch struct{ id int }
 
 if app.open == nil {
 	for _, p := range app.photos {
-		thumb := ui.Image(c.Key(p.ID), p.Thumb).Size(64, 64).
+		thumb := ui.Image(c.Key(p.ID), p.Thumb).Size(64, 64).Radius(8).
 			Transition(ui.ElementTransition{Animation: &ui.Snappy, Match: photoMatch{p.ID}})
 		if thumb.Clicked() {
 			app.open = p
@@ -148,21 +147,98 @@ if app.open == nil {
 }
 ```
 
-Use a type of your own for the identity, so that it is no other's. The
-element appearing goes from the other's box to its own, its content laid
-out at each size on the way, as `Size` lays it out, so nothing in it
-stretches, its rounded corners included. Give one element a `Match` at a
-time; the one gone goes as its own `Exit` says, if it has one.
+On its way, the element appearing:
+
+- goes from the other's box to its own, its content laid out at each size
+  on the way, as `Size` lays it out, so nothing in it stretches (or
+  scaled, with `ScaleContent`, below);
+- goes from the other's look to its own: its background and border
+  colors, its rounded corners, its opacity, the color of its text, and its
+  transform, turning the short way round, in 3D and in perspective too, as
+  CSS interpolates transforms;
+- paints over the rest of the window, under its overlays, and takes the
+  pointer where it paints: out of the clips of the scroll views and
+  containers around it, over the elements after it, and as opaque as it
+  is itself, whatever the opacity of the elements around it;
+- moves its content as one, smoothly, rather than each line of its text a
+  pixel at a time, as text at rest once there;
+- fades in over the element it came from, which goes with it, laid out at
+  each box too, fading out: the one coming is opaque by half the way, and
+  the other fades over the second half, as Motion crossfades. Gone from
+  the view, that element goes as a copy of itself, rather than as its own
+  `Exit` says; still built, as in a page going away, it goes itself.
+
+Use a type of your own for the identity, so that it is no other's, and
+give one element a `Match` at a time, but in a page going away.
+
+### Everything else
+
+Keynote's Magic Move fades what the slides do not share as what they share
+moves. Do it between two views by giving each a key, in a parent that
+stays, with an `Enter` and an `Exit` that fade: what the views share moves
+from one to the other, and the rest fades out and in. The copy of the view
+going away shows nothing of the elements that go with the other's.
+
+```go
+fade := ui.ElementTransition{Animation: &ui.Snappy, Enter: &ui.Motion{}, Exit: &ui.Motion{}}
+ui.Box(c.Key("stage")).Grow(1).Children(func() {
+	if app.open == nil {
+		ui.Column(c.Key("grid")).Absolute().Fill().Transition(fade).Children(app.grid)
+	} else {
+		ui.Column(c.Key("detail")).Absolute().Fill().Transition(fade).Children(app.detail)
+	}
+})
+```
+
+A [`Router`](navigation.md#transitions) does it for its pages with
+`TransitionMatch`.
+
+### Scaled content
+
+`ScaleContent` shows the element's size changing by scaling it from its
+own size, laid out once, rather than laying out its content at each size:
+its text keeps its lines, growing or shrinking with it, as a title into a
+heading, and a picture stretches with its box. It scales the element of a
+`Match` on its way, and changes of `Size`.
+
+### Text that morphs
+
+A text with a `Match` and `ContentTransition{Morph: true}` morphs from the
+text of the element of its `Match`: the characters both have move from
+where they were to where they are, growing or shrinking to their size and
+going to their color, the other characters fading out, going with the
+text, and in, as Keynote's Magic Move by characters. Its box moves as any
+element's of a `Match`, and its text, laid out once at its own size, moves
+into it. Taken over before it got there, by the element it came from or
+another of its `Match`, it morphs on from where its characters are. Rich
+text morphs too: its characters go to the colors of their spans, and its
+underlines, strikethroughs and highlights fade out and in:
+
+```go
+type titleMatch struct{ id int }
+morph := ui.ContentTransition{Morph: true}
+
+// In the grid.
+ui.Text(c, p.Title).FontSize(12).
+	Transition(ui.ElementTransition{Animation: &ui.Snappy, Match: titleMatch{p.ID}}).ContentTransition(morph)
+// In the detail view.
+ui.Text(c, p.Title+" in "+p.Place).FontSize(24).Bold().
+	Transition(ui.ElementTransition{Animation: &ui.Snappy, Match: titleMatch{p.ID}}).ContentTransition(morph)
+```
+
+`Morph` morphs a text changing in place too (see
+[Motion](motion.md#content-that-changes)).
 
 ## When nothing moves
 
 Changes that resizing the window makes do not animate. While the desktop
 asks for less motion (`c.Preferences().ReduceMotion`), nothing moves:
-elements show where the layout puts them at once, and shared elements do
-not fly. Colors still change smoothly, and an `Enter` or `Exit` that fades
-without collapsing fades in place, as Apple's guidelines suggest; one that
-collapses, which moves its siblings, is at once. Frames are drawn only
-while something moves.
+elements show where the layout puts them at once, shared elements do not
+fly, and those they came from go as their `Exit` says. Colors still
+change smoothly, and an `Enter` or `Exit` that fades without collapsing
+fades in place, as Apple's guidelines suggest; one that collapses, which
+moves its siblings, is at once. Frames are drawn only while something
+moves.
 
 Rows of a [`List`](list.md) are placed by the list, which builds only
 those in view: their content can have transitions, but the rows do not

@@ -153,9 +153,16 @@ in. With less motion asked of the desktop, all fade, and
 `router.Transition = ui.TransitionNone` shows them at once. The page going
 away takes neither the pointer nor the keyboard as it slides.
 
+`router.Transition = ui.TransitionMatch` fades the page going away out as
+the page coming fades in, while the elements of a
+[`Match`](transitions.md#shared-elements) in both move from the one to the
+other, as Keynote's Magic Move: a photo's thumbnail opening into its page,
+its title morphing into the page's heading. The elements of the page going
+away that went with those of the page coming show no more.
+
 `router.Animation` sets how pages move, as a spring or a curve (see
-[Motion](motion.md)), in place of easing out over 250 ms as they slide and
-150 ms as they fade:
+[Motion](motion.md)), in place of easing out over 250 ms as they slide,
+150 ms as they fade, and 300 ms as they fade into each other:
 
 ```go
 router.Animation = &ui.Snappy
