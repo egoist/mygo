@@ -919,6 +919,12 @@ func (rt *engine) endPass() {
 		}
 	}
 	rt.clickLater = rt.clickLater[:0]
+	if mr := &rt.menu; mr.later != 0 {
+		if s := rt.states[mr.later]; s != nil {
+			rt.askMenu(s, mr.laterX, mr.laterY, true)
+		}
+		mr.later = 0
+	}
 	rt.menu.chosen = 0
 	// A shortcut the view did not ask for again, as it changed: what
 	// this frame built may take the key (settleKeys).

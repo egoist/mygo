@@ -361,7 +361,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 	if button == 0 && target.flags&flagMenuButton != 0 && target.flags&flagDisabled == 0 {
 		// A menu button's menu opens as the button goes down, and takes
 		// the release.
-		rt.openMenuButton(target)
+		rt.openMenuButton(target, false)
 		return
 	}
 	if button == 0 && target.flags&flagDragWindow != 0 && target.flags&(interactive&^flagDragWindow) == 0 {
@@ -761,7 +761,7 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 	if s := rt.states[rt.focused]; s != nil && s.flags&flagMenuButton != 0 && s.flags&flagDisabled == 0 && !rt.claimedBy(k, false) &&
 		(mods == 0 && (key == KeyEnter || key == KeySpace || key == KeyDown) || mods == Alt && key == KeyDown) {
 		rt.focusVisible = true
-		rt.openMenuButton(s)
+		rt.openMenuButton(s, true)
 		return false
 	}
 	if (key == KeyEnter || key == KeySpace) && mods == 0 {

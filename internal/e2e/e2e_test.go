@@ -3703,6 +3703,46 @@ func TestContentWindowMenuButton(t *testing.T) {
 	})
 }
 
+// TestContentWindowPopoverMenuButton opens the drawn menu of a menu
+// button as the button goes down, with no menu of the system's, and
+// chooses an item with the keys.
+func TestContentWindowPopoverMenuButton(t *testing.T) {
+	var frames atomic.Int32
+	var chosen atomic.Value
+	chosen.Store("")
+	// built counts the runs of the menu's function, which runs in each
+	// frame while the menu shows.
+	var built atomic.Int32
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.Box(c).Fill().Padding(20).Children(func() {
+			ui.PopoverMenuButton(c, "Export", func(m *ui.Menu) {
+				built.Add(1)
+				for _, label := range []string{"As PDF", "As PNG"} {
+					if m.Item(label).Chosen() {
+						chosen.Store(label)
+					}
+				}
+			}).Size(120, 40)
+		})
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Drawn menu button", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	if !click(w, 80, 40) {
+		t.Skip("pointer automation not available on this platform")
+	}
+	eventually(t, "the menu", func() bool { return built.Load() > 0 })
+	if menus, ok := popupMenus(); ok && len(menus) != 0 {
+		t.Errorf("the system shows a menu too: %q", menus)
+	}
+	if !pressKeys("Down") {
+		t.Skip("key automation not available on this platform")
+	}
+	pressKeys("Down")
+	pressKeys("Return")
+	eventually(t, "the choice", func() bool { return chosen.Load() == "As PNG" })
+}
+
 // TestReorderByDragging drags a row of a list below another with the
 // events of a real mouse.
 func TestReorderByDragging(t *testing.T) {
