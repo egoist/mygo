@@ -213,7 +213,13 @@ rules are:
      calls `deliver`, which sends and then `Backend.Wake`s the loop. This is
      what makes `Page.Eval`, `CapturePage` and dialogs usable from event
      listeners without deadlocking. Nested runs of the dispatch source are
-     expected and safe.
+     expected and safe. A nested loop started inside a run loop observer
+     is not: CFRunLoop never runs that observer again meanwhile, and in
+     the one AppKit displays views and Core Animation commits in, no
+     window, panel or sheet would show. So native UI's frames, whose
+     handlers (`Clicked`) may show a dialog, draw outside it on macOS,
+     but those AppKit asks for, as a resize's (`drawSoon` in
+     `internal/darwin/surface.go`).
 4. **Event listeners run on the main thread**, synchronously, so cancelable
    events (`OnClose`, `OnBeforeQuit`, `OnWillNavigate`, …) can answer the
    native toolkit immediately. **IPC calls run on their own goroutines**, so
@@ -2200,9 +2206,11 @@ either.
   `gdk_monitor_get_refresh_rate`, the display mode's frequency from
   `EnumDisplaySettingsW`); asks for a frame (`RequestFrame`: a
   paused `CADisplayLink`, whose ticks draw frames that follow each other
-  themselves while a frame after a pause, or after a resize, draws when
-  AppKit displays the view, before macOS 14 an `NSTimer` at the display's
-  rate, `gtk_widget_queue_draw` or a tick callback of GTK's frame clock,
+  themselves while a frame after a pause draws at once, in the same pass
+  of the run loop, from the backend's queue (`drawSoon`), and a resize's
+  when AppKit displays the view, before macOS 14 an `NSTimer` at the
+  display's rate, `gtk_widget_queue_draw` or a tick callback of GTK's
+  frame clock,
   `InvalidateRect`); presents
   pixels drawn on the CPU (`PresentPixels`: a CGImage as the layer's
   contents, cairo in the `draw` signal, `SetDIBitsToDevice` in `WM_PAINT`;
