@@ -1266,31 +1266,34 @@ func (w *window) extendGlass(always bool) {
 
 // glassFromBottom reports a window whose frame extends from the bottom
 // over its client area (glassMargins) rather than all over: a frameless
-// window, and a maximized one with a hidden title bar. Flyouts are popups
-// without a caption, whose frame DWM draws no buttons in.
+// window, and one with a hidden title bar outside full screen. Flyouts are
+// popups without a caption, and windows in full screen have none, whose
+// frame DWM draws no buttons in.
 //
 // A frameless window keeps WS_CAPTION, WS_SYSMENU and the boxes of its
 // styles, for snapping, Win+arrow keys, the taskbar's minimize and the
 // window menu of Alt+Space; frameCalcSize leaves it no title bar. Extended
 // all over, the frame covers the window's top, and DWM draws its caption
-// buttons there, over the page.
+// buttons there, over the page. A window with a hidden title bar keeps its
+// caption too, and DWM's buttons show through the transparent backplates
+// of its own: a second row above them when the title bar is taller than
+// DWM's caption (TitleBarHeight), and above the title bar's own once the
+// window is maximized.
 func (w *window) glassFromBottom() bool {
 	if w.frameless {
 		return w.opts.Flyout == nil
 	}
-	return w.hiddenTitleBar && !w.fullScreen && w.IsMaximized()
+	return w.hiddenTitleBar && !w.fullScreen
 }
 
 // glassMargins returns the frame's extension that shows the material over
 // a client area height pixels high. DWM draws the caption buttons of a
-// window's styles in the frame at the top. A restored window with a hidden
-// title bar draws its own over them. Maximized, its client area starts
-// below the top of the window (frameCalcSize) and DWM's buttons would show
-// above the title bar's; a frameless window has no buttons of its own at
-// all. fromBottom extends the frame from the bottom over the whole client
-// area instead: the material still shows everywhere, and the frame's top
-// is only what lies above the client area, a strip off screen or nothing,
-// too short for buttons.
+// window's styles in the frame at the top. fromBottom extends the frame
+// from the bottom over the whole client area instead: the material still
+// shows everywhere, and the frame's top is only what lies above the client
+// area, a strip off screen, the pixel a hidden title bar keeps on Windows
+// 11 (frameCalcSize), which the window's border covers, or nothing: too
+// short for buttons.
 func glassMargins(fromBottom bool, height int32) margins {
 	if fromBottom {
 		return margins{Bottom: max(height, 1)}

@@ -25,8 +25,9 @@ func TestGlassMargins(t *testing.T) {
 }
 
 // TestGlassFromBottom checks which windows extend their frame from the
-// bottom: a frameless window, whose styles keep a caption whose buttons DWM
-// would draw over its page, and not a flyout, a popup without a caption.
+// bottom: a frameless window and one with a hidden title bar, whose styles
+// keep a caption whose buttons DWM would draw over the page, and not a
+// flyout, a popup without a caption, or a window in full screen.
 func TestGlassFromBottom(t *testing.T) {
 	frameless := &window{frameless: true, opts: &platform.WindowOptions{Frameless: true}}
 	if !frameless.glassFromBottom() {
@@ -35,6 +36,14 @@ func TestGlassFromBottom(t *testing.T) {
 	flyout := &window{frameless: true, opts: &platform.WindowOptions{Frameless: true, Flyout: &platform.Flyout{}}}
 	if flyout.glassFromBottom() {
 		t.Error("a flyout extends its frame from the bottom")
+	}
+	restored := &window{hiddenTitleBar: true, opts: &platform.WindowOptions{TitleBarStyle: "hiddenInset", TitleBarHeight: 52}}
+	if !restored.glassFromBottom() {
+		t.Error("a restored window with a hidden title bar extends its frame all over: DWM's caption buttons show through its own, a second row under a tall title bar")
+	}
+	maximized := &window{hiddenTitleBar: true, showMaximized: true, opts: &platform.WindowOptions{TitleBarStyle: "hiddenInset"}}
+	if !maximized.glassFromBottom() {
+		t.Error("a maximized window with a hidden title bar extends its frame all over: DWM's caption buttons show above its own")
 	}
 	fullScreen := &window{hiddenTitleBar: true, fullScreen: true, opts: &platform.WindowOptions{}}
 	if fullScreen.glassFromBottom() {
