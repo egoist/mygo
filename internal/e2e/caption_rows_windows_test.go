@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,12 +18,28 @@ import (
 // and they show through the all but transparent backplates of the
 // window's own: under a title bar taller than DWM's caption, a second row
 // above them.
-func TestMaterialCaptionButtonsOneRow(t *testing.T) {
+//
+// The material shows where the view draws no background, as Downbit's main
+// window draws none at its top; elsewhere DWM's buttons hide under the
+// view. Windows Server, which the x64 runners have, shows no material.
+func TestContentWindowMaterialCaptionButtons(t *testing.T) {
 	const height = 52
+	var drawn, material atomic.Bool
 	w := newWindow(t, mygo.WindowOptions{X: 80, Y: 80, Width: 480, Height: 320, AlwaysOnTop: true,
 		TitleBarStyle: mygo.TitleBarHiddenInset, TitleBarHeight: height, Vibrancy: mygo.VibrancyUnderWindow,
-		Content: ui.View(func(c *ui.Context) { ui.Text(c, "native") })})
+		Content: ui.View(func(c *ui.Context) {
+			material.Store(c.Vibrancy())
+			drawn.Store(true)
+			if c.Vibrancy() {
+				c.Root().Background(ui.Transparent)
+			}
+			ui.Text(c, "native")
+		})})
 	w.Focus()
+	eventually(t, "the view drawn", drawn.Load)
+	if !material.Load() {
+		t.Skip("no material on this version of Windows: the view covers the frame")
+	}
 	names := [...]string{"minimize", "maximize", "close"}
 	for _, state := range []string{"restored", "maximized"} {
 		if state == "maximized" {
