@@ -872,3 +872,35 @@ func TestBackgroundThrottlingOff(hwnd uintptr, webView bool) (off bool, settings
 	}
 	return theBackend.envUnthrottled, 1
 }
+
+// TestScreenTopRight returns what the screen shows in the top-right corner
+// of a window's client area, width by height DIPs, once Windows has
+// composed it: 0xRRGGBB pixels, row by row, and the corner's width and
+// height in pixels. It reads the screen, not the window, so it shows what
+// DWM draws over the window too, such as caption buttons of its own.
+func TestScreenTopRight(hwnd uintptr, width, height int) (px []uint32, w, h int32, ok bool) {
+	dwmapi.NewProc("DwmFlush").Call() // until the next frame shows what was drawn
+	dpi := dpiOf(hwnd)
+	w, h = toPx(width, dpi), toPx(height, dpi)
+	var r rect
+	procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&r)))
+	origin := point{r.Right - w, 0}
+	procClientToScreen.Call(hwnd, uintptr(unsafe.Pointer(&origin)))
+	screen, _, _ := procGetDC.Call(0)
+	defer procReleaseDC.Call(0, screen)
+	img := newBitmap(screen, w, h)
+	if img == nil {
+		return nil, 0, 0, false
+	}
+	defer img.free()
+	const captureBlt = 0x40000000 // layered windows too
+	if res, _, _ := procBitBlt.Call(img.dc, 0, 0, uintptr(w), uintptr(h), screen, uintptr(origin.X), uintptr(origin.Y), srcCopy|captureBlt); res == 0 {
+		return nil, 0, 0, false
+	}
+	procGdiFlush.Call()
+	px = make([]uint32, len(img.px))
+	for i, p := range img.px {
+		px[i] = p & 0xFFFFFF
+	}
+	return px, w, h, true
+}
