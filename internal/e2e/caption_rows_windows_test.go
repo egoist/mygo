@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -45,11 +46,14 @@ func TestMaterialCaptionButtonsOneRow(t *testing.T) {
 			readable = shown()
 		}
 		if !readable {
+			t.Errorf("DIAGNOSTIC %s unreadable: glyphs %v scale %v\n%s", state, glyphs, scale, inkMap(w, height))
+
 			t.Skipf("%s: the screen does not show the window's controls (glyphs at %v): not comparing", state, glyphs)
 		}
 		// Whatever else DWM draws, it has drawn by a few frames later.
 		time.Sleep(200 * time.Millisecond)
 		shown()
+		t.Errorf("DIAGNOSTIC %s: readable %v glyphs %v scale %v\n%s", state, readable, glyphs, scale, inkMap(w, height))
 		for i, g := range glyphs {
 			if len(g) != 1 || (g[0][0]+g[0][1])/2 < height/2-4 || (g[0][0]+g[0][1])/2 > height/2+4 {
 				t.Errorf("%s: the %s button shows glyphs in rows %v DIPs (%.2fx), want one, centered in the %d DIPs of the title bar",
@@ -124,4 +128,33 @@ func colorDistance(a, b uint32) int {
 		d = max(d, ca-cb, cb-ca)
 	}
 	return d
+}
+
+// inkMap draws the top-right corner as text, a character per pixel, for
+// diagnostics: '#' far from the first pixel's color, '+' a little, '.' not.
+func inkMap(w *mygo.Window, height int) string {
+	var px []uint32
+	var pw, ph int32
+	var ok bool
+	mygo.RunOnMain(func() { px, pw, ph, ok = win.TestScreenTopRight(w.NativeHandle(), 3*46, height) })
+	if !ok {
+		return "no pixels"
+	}
+	var b []byte
+	b = fmt.Appendf(b, "%dx%d first %06x\n", pw, ph, px[0])
+	for y := range int(ph) {
+		for x := range int(pw) {
+			d := colorDistance(px[y*int(pw)+x], px[y*int(pw)])
+			switch {
+			case d > 48:
+				b = append(b, '#')
+			case d > 12:
+				b = append(b, '+')
+			default:
+				b = append(b, '.')
+			}
+		}
+		b = fmt.Appendf(b, " %06x\n", px[y*int(pw)+int(pw)/2])
+	}
+	return string(b)
 }
