@@ -805,6 +805,7 @@ func ButtonBase(c *Context) Element {
 // months, and Home and End go to the first and the last day of the month.
 // Changed reports a new date, which keeps the time of day and location of
 // *date. Assistive technology reads the day chosen as the arrows move.
+// Browse makes the keys and the buttons move without choosing.
 func Calendar(c *Context, date *time.Time) Element {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -3088,6 +3089,23 @@ func (_handle Element) Bounds() Rect {
 	_ctx := _node.c
 	_ = _ctx
 	return _node.Bounds()
+}
+
+// Browse lets the user move about a Calendar without choosing a day: its
+// buttons and Page Up and Page Down only show other months, and the
+// arrows, Home and End only move among the days, until a click, Enter or
+// Space chooses one, as in a date input's calendar. Changed then reports
+// only a day chosen, as a calendar in a popover that closes when the
+// user picks a day needs. The calendar goes back to *date as the app
+// sets another.
+func (_handle Element) Browse() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Browse())
 }
 
 // Cache keeps what the element paints, with its children, in a bitmap of
