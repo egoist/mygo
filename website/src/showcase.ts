@@ -151,4 +151,13 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/godwit.jpg",
   },
+  {
+    name: "Video-Downloader",
+    description:
+      "Native desktop video downloader built with Go, MyGo, yt-dlp, and FFmpeg. The application analyzes videos and playlists, lets users choose quality, audio, subtitles, and containers, manages downloads in a queue, converts local media, and stores download history.",
+    url: "https://github.com/fazi-gondal/video-downloader-mygo",
+    author: "Faizan",
+    mode: "native",
+    image: "/showcase/downloader.jpg",
+  },
 ]
