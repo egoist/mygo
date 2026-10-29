@@ -369,6 +369,35 @@ func textWidth(dc, font uintptr, text string) int32 {
 	return r.Right - r.Left
 }
 
+// width returns what an item answers to WM_MEASUREITEM: the width of its
+// label (text) and shortcut (accel, when it has one) in pixels, with its
+// padding, its columns of marks and icons and its submenu's chevron, less
+// the pixels that Windows adds to the width of every item itself (added).
+func (l *menuLook) width(dpi int, text, accel, added int32) int32 {
+	w := toPx(menuInset+menuPadding, dpi)*2 + text
+	if l.column {
+		w += toPx(menuMarkColumn, dpi)
+	}
+	if l.icons {
+		w += toPx(menuIconColumn, dpi)
+	}
+	if l.accel != "" {
+		w += toPx(menuAccelGap, dpi) + accel
+	}
+	if l.submenu {
+		w += toPx(menuAccelGap/2+menuChevron, dpi)
+	}
+	return max(w-added, 0)
+}
+
+// labelEdge returns where the label of an item with the rectangle r is cut:
+// at its highlight's edge, not at its padding's start. Windows adds a width
+// of its own to an item's that MyGo only knows within a few pixels, and the
+// longest label sets the menu's width with no room to spare, so it would
+// lose the end of its label by the difference, while the padding has room
+// for it.
+func labelEdge(r rect, dpi int) int32 { return r.Right - toPx(menuInset, dpi) }
+
 func (b *Backend) measureItem(hwnd uintptr, l *menuLook, mis *measureItemStruct) {
 	dpi := dpiOf(hwnd)
 	top, bottom := l.padding(dpi)
@@ -379,22 +408,14 @@ func (b *Backend) measureItem(hwnd uintptr, l *menuLook, mis *measureItemStruct)
 	f := b.menuFace(dpi)
 	dc, _, _ := procGetDC.Call(0)
 	defer procReleaseDC.Call(0, dc)
-	w := toPx(menuInset+menuPadding, dpi)*2 + textWidth(dc, f.text, l.label)
-	if l.column {
-		w += toPx(menuMarkColumn, dpi)
-	}
-	if l.icons {
-		w += toPx(menuIconColumn, dpi)
-	}
+	text := textWidth(dc, f.text, l.label)
+	var accel int32
 	if l.accel != "" {
-		w += toPx(menuAccelGap, dpi) + textWidth(dc, f.text, l.accel)
-	}
-	if l.submenu {
-		w += toPx(menuAccelGap/2+menuChevron, dpi)
+		accel = textWidth(dc, f.text, l.accel)
 	}
 	// Windows adds the width of its checks to that of every item.
 	check, _, _ := procGetSystemMetricsForDpi.Call(smCxMenuCheck, uintptr(dpi))
-	w = max(w-int32(check)+1, 0)
+	w := l.width(dpi, text, accel, int32(check)-1)
 	mis.ItemWidth, mis.ItemHeight = uint32(w), uint32(toPx(menuItemHeight, dpi)+top+bottom)
 }
 
@@ -486,12 +507,13 @@ func (b *Backend) drawItem(hwnd uintptr, l *menuLook, d *drawItemStruct) {
 			flags |= dtHidePrefix
 		}
 		procSetTextColor.Call(dc, uintptr(fore))
-		text := rect{x, r.Top, right, r.Bottom}
+		label := rect{x, r.Top, labelEdge(r, dpi), r.Bottom}
 		s := u16(l.label)
-		procDrawTextW.Call(dc, uintptr(unsafe.Pointer(s)), ^uintptr(0), uintptr(unsafe.Pointer(&text)), flags)
+		procDrawTextW.Call(dc, uintptr(unsafe.Pointer(s)), ^uintptr(0), uintptr(unsafe.Pointer(&label)), flags)
 		if l.accel != "" {
 			procSetTextColor.Call(dc, uintptr(secondary))
 			s := u16(l.accel)
+			text := rect{x, r.Top, right, r.Bottom}
 			procDrawTextW.Call(dc, uintptr(unsafe.Pointer(s)), ^uintptr(0), uintptr(unsafe.Pointer(&text)), dtSingleLine|dtVCenter|dtRight|dtNoPrefix)
 		}
 	})
