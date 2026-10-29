@@ -482,6 +482,8 @@ func (p *Painter) background(e *node, box Rect, withBorder bool) {
 		visible = e.bg.A > 0 || e.stripes.c.A > 0
 	case fillConic:
 		visible = anyVisible(e.grads.conic.Stops)
+	case fillRadial:
+		visible = anyVisible(e.grads.radial.Stops)
 	}
 	if !visible && !border {
 		return
@@ -502,6 +504,9 @@ func (p *Painter) background(e *node, box Rect, withBorder bool) {
 		}
 	case fillConic:
 		p.conic(&op, e.grads.conic)
+		c = Color{}
+	case fillRadial:
+		p.radial(&op, e.grads.radial)
 		c = Color{}
 	case fillStripes:
 		st := e.stripes
@@ -606,6 +611,29 @@ func (p *Painter) conic(op *scene.Op, g ConicGradient) {
 		op.Paint = scene.PaintConicOklab
 	}
 	op.Gradient = [4]float32{op.Rect.X + op.Rect.W*c.X, op.Rect.Y + op.Rect.H*c.Y, g.Angle * math.Pi / 180, 0}
+	op.Stops = p.stops(g.Stops)
+}
+
+// radial sets the paint of op to g, from a point of its rectangle.
+func (p *Painter) radial(op *scene.Op, g RadialGradient) {
+	c := g.Center
+	if c == (Point{}) {
+		c = Point{0.5, 0.5}
+	}
+	r := op.Rect
+	cx, cy := r.X+r.W*c.X, r.Y+r.H*c.Y
+	radius := g.Radius * p.scale
+	if radius <= 0 {
+		// The farthest corner, as CSS's farthest-corner.
+		dx, dy := max(abs32(cx-r.X), abs32(r.X+r.W-cx)), max(abs32(cy-r.Y), abs32(r.Y+r.H-cy))
+		radius = float32(math.Sqrt(float64(dx*dx + dy*dy)))
+	}
+	op.Paint = scene.PaintRadial
+	if g.Oklab {
+		op.Paint = scene.PaintRadialOklab
+	}
+	// At least half a pixel, as in an empty box: its stops a hard edge.
+	op.Gradient = [4]float32{cx, cy, max(radius, 0.5), 0}
 	op.Stops = p.stops(g.Stops)
 }
 
@@ -1196,6 +1224,14 @@ func (p *Painter) FillGradient(r Rect, g LinearGradient, radius float32) {
 func (p *Painter) FillConicGradient(r Rect, g ConicGradient, radius float32) {
 	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Continuous: continuousCorners, Opacity: p.opacity}
 	p.conic(&op, g)
+	p.add(op)
+}
+
+// FillRadialGradient fills a rounded rectangle with a radial gradient,
+// its colors spreading out from a point of it.
+func (p *Painter) FillRadialGradient(r Rect, g RadialGradient, radius float32) {
+	op := scene.Op{Kind: scene.OpFill, Rect: p.snap(r), Radii: p.radii([4]float32{radius, radius, radius, radius}), Continuous: continuousCorners, Opacity: p.opacity}
+	p.radial(&op, g)
 	p.add(op)
 }
 
