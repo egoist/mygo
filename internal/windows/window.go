@@ -505,6 +505,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		return 1, true
 	case wmWindowPosChanging:
 		pos := (*windowPos)(native(lp))
+		if pos.Flags&swpShowWindow != 0 && w.surface != nil {
+			w.surface.showing()
+		}
 		w.maximizeInWorkArea(pos)
 		if !w.movable {
 			pos.Flags |= swpNoMove

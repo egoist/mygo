@@ -430,3 +430,14 @@ func TestWindowPixelsUnderSurface(hwnd uintptr) (off string, ok bool) {
 	}
 	return "", true
 }
+
+// TestCloaked reports whether DWM keeps the window hwnd out of sight
+// (DWMWA_CLOAKED), and whether the first frame of its native UI reached
+// its surface.
+func TestCloaked(hwnd uintptr) (cloaked, drawn bool) {
+	const dwmwaCloaked = 14
+	var v uint32
+	procDwmGetWindowAttribute.Call(hwnd, dwmwaCloaked, uintptr(unsafe.Pointer(&v)), unsafe.Sizeof(v))
+	s := surfaceByHandle(hwnd)
+	return v != 0, s != nil && s.drawn
+}
