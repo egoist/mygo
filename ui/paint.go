@@ -1263,7 +1263,10 @@ func (p *Painter) insetShadow(box Rect, rad, bw [4]float32, sh shadow) {
 }
 
 // Line paints a straight horizontal or vertical line between two points,
-// width DIPs thick.
+// width DIPs thick. It draws no other angle: between points that differ in
+// both x and y, it paints the longer of the top and left edges of the box
+// between them, the top if they are as long. StrokePolyline draws a
+// slanted line.
 func (p *Painter) Line(x0, y0, x1, y1, width float32, c Color) {
 	r := Rect{min(x0, x1), min(y0, y1), abs32(x1 - x0), abs32(y1 - y0)}
 	if r.W < r.H {
