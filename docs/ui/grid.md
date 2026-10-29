@@ -35,7 +35,11 @@ and row, counting from 1. `RowTracks` and `Rows` set the first rows, which
 
 Children stretch to fill their cells unless `JustifyItems` (horizontally)
 and `AlignItems` (vertically) say otherwise, or `JustifySelf` and
-`AlignSelf` for one; automatic margins center them. `AlignItems(ui.Baseline)`
+`AlignSelf` for one; automatic margins center them. A child's percentage
+sizes are of its cell, as CSS resolves a grid item's percentages against
+its grid area: `FillWidth` fills the cell it lands in, `FillHeight` the
+row, and `Top`, `Left` and their `Percent` forms offset it from the cell.
+`AlignItems(ui.Baseline)`
 lines up the first lines of text of the items of each row, as in a
 [row](layout.md#alignment). Tracks that fit their
 content share the room left over unless `Justify` or `AlignContent` place

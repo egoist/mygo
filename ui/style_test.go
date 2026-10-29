@@ -132,6 +132,52 @@ func TestGrid(t *testing.T) {
 			t.Errorf("rows did not take the wrapped text's height: grid %v, x %v", b["grid"], b["x"])
 		}
 	})
+	t.Run("percentages of a cell", func(t *testing.T) {
+		b := boxes(t, func(c *context) {
+			coreGrid(c).Columns(2).Gap(12).Width(600).Children(func() {
+				coreBox(c).FillWidth().Height(30).Label("a")
+				coreBox(c).FillWidth().Height(30).Label("b")
+			})
+			coreGrid(c).Columns(2).Gap(12).Width(600).Children(func() {
+				coreBox(c).Size(50, 10).Label("c").LeftPercent(25).TopPercent(50)
+				coreBox(c).Size(50, 10).Label("d")
+			})
+		}, 600, 100, "a", "b", "c", "d")
+		// Two cells of 294 and a gap of 12: FillWidth fills the cell, not
+		// the grid.
+		if !nearRect(b["a"], Rect{0, 0, 294, 30}) || !nearRect(b["b"], Rect{306, 0, 294, 30}) {
+			t.Errorf("a at %v, b at %v: FillWidth went past its cell", b["a"], b["b"])
+		}
+		// Insets are of the cell too: a quarter of 294 across, half of the
+		// 10-high row down, under the first grid.
+		if !nearRect(b["c"], Rect{73.5, 35, 50, 10}) {
+			t.Errorf("c at %v, want insets of its cell", b["c"])
+		}
+	})
+	t.Run("FillHeight fills its row", func(t *testing.T) {
+		b := boxes(t, func(c *context) {
+			coreGrid(c).Columns(1).RowTracks(Fixed(100)).Width(100).Height(400).Children(func() {
+				coreBox(c).FillHeight().Label("a")
+			})
+		}, 100, 400, "a")
+		// The row is 100 high: FillHeight fills the row, not the grid.
+		if !nearRect(b["a"], Rect{0, 0, 100, 100}) {
+			t.Errorf("a at %v, want 100 high, its row", b["a"])
+		}
+	})
+	t.Run("percent width in a fit-content track", func(t *testing.T) {
+		b := boxes(t, func(c *context) {
+			coreGrid(c).ColumnTracks(FitContent(), Fr(1)).GapX(10).Width(400).Children(func() {
+				coreBox(c).FillWidth().Height(10).MinWidth(50).Label("a")
+				coreBox(c).Height(10).Label("b")
+			})
+		}, 400, 100, "a", "b")
+		// A percentage is not of a track still being sized: the track fits
+		// the content, as CSS treats it as auto there.
+		if !nearRect(b["a"], Rect{0, 0, 50, 10}) {
+			t.Errorf("a at %v, want its track at its content, 50", b["a"])
+		}
+	})
 }
 
 func TestFlexOptions(t *testing.T) {
