@@ -577,8 +577,14 @@ features GTK 4 lacks become X11-only code beside it.
   bar keeps one pixel of its top, under the window's border, without which
   the maximize button opens no snap layouts while the window is not
   maximized. Windows 10, which has no snap layouts, keeps none: over a
-  window that keeps any of its top it draws its whole title bar. The build
-  comes from `RtlGetVersion`, which no manifest changes.
+  window that keeps any of its top it draws its whole title bar. A
+  resizable frameless window on Windows 10 takes the visible pixel of its
+  borders into its client area too, where the content covers the line DWM
+  draws there, white whatever the content (#916), and its frame is not
+  extended for the shadow, which its invisible borders cast: extended, it
+  shows as a white line along the top. Other windows without a caption
+  extend it by a pixel, without which a window with no borders has no
+  shadow. The build comes from `RtlGetVersion`, which no manifest changes.
 - The top edge of a window without a caption (`topedge.go`), which
   `WM_NCCALCSIZE` gives to the client area, where the webview's or the
   surface's window answers `HTCLIENT`, is a child window above them: a
