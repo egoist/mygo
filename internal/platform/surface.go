@@ -160,9 +160,10 @@ type BackgroundSurface interface {
 }
 
 // FirstFrameSurface is a Surface told when the content's first frame
-// reached it, as Windows' is: its window stays out of sight until then,
-// rather than show what it holds before, white, and a window made hidden
-// draws that frame while hidden, which makes it ready to show.
+// reached it: a window made hidden draws that frame while hidden, which
+// no paint or refresh of the display asks for, and which makes it ready
+// to show. Windows' window also stays out of sight until then, rather
+// than show what it holds before, white.
 type FirstFrameSurface interface {
 	// FirstFrame tells that the content presented its first frame. It is
 	// called once, within the frame, before the window is told it is

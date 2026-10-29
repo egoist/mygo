@@ -81,8 +81,8 @@ win.OnReadyToShow(win.Show)
 Windows of native UI need neither: they have no page to load, and show
 with their first frame (on Windows, the window stays out of sight until
 it drew it). One created `Hidden` is ready to show once it drew its first
-frame, which it draws while hidden on Windows, but may not draw until
-shown on macOS and Linux: there, show it yourself.
+frame, which it draws while hidden, so `OnReadyToShow(win.Show)` shows it
+as it does a page's.
 
 ## Remember where windows were
 

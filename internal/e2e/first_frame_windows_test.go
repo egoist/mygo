@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/internal/wait"
 	win "github.com/egoist/mygo/internal/windows"
 	"github.com/egoist/mygo/ui"
 )
@@ -63,29 +62,9 @@ func TestContentWindowCloakedUntilFirstFrame(t *testing.T) {
 	}
 }
 
-// TestContentWindowHiddenReadyToShow checks that a window of native UI
-// made hidden draws its first frame, which no WM_PAINT asks for while it is
-// hidden, and so becomes ready to show: OnReadyToShow(w.Show) never showed
-// it (#905). It shows once shown, uncloaked.
-func TestContentWindowHiddenReadyToShow(t *testing.T) {
-	var frames atomic.Int32
-	var w *mygo.Window
-	readyHidden := make(chan bool, 1)
-	mygo.RunOnMain(func() {
-		w = newWindow(t, mygo.WindowOptions{Width: 320, Height: 240, Hidden: true, Content: ui.View(func(c *ui.Context) {
-			frames.Add(1)
-			c.Root().Background(ui.RGB(30, 30, 30))
-		})})
-		w.OnReadyToShow(func() {
-			readyHidden <- !w.IsVisible()
-			w.Show()
-		})
-	})
-	if !wait.For(t, "ready to show", readyHidden) {
-		t.Fatalf("ready to show once visible, not while hidden (%d builds)", frames.Load())
-	}
-	eventually(t, "the window shown and uncloaked", func() bool {
-		c, drawn := cloaked(w)
-		return w.IsVisible() && !c && drawn
-	})
+// firstFrameRevealed reports whether w, whose first frame was drawn, is
+// out of DWM's cloak: shown, it showed its frame.
+func firstFrameRevealed(w *mygo.Window) bool {
+	c, drawn := cloaked(w)
+	return !c && drawn
 }
