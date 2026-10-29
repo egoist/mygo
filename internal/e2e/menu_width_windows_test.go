@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"sync/atomic"
 	"testing"
 
 	"github.com/egoist/mygo"
@@ -15,7 +16,9 @@ import (
 // widens them by as much as it doesn't tell (#922). The first menu may be
 // wider than it needs; the next, measured knowing that, are no wider.
 func TestContextMenuItemWidths(t *testing.T) {
+	var frames atomic.Int32
 	view := func(c *ui.Context) {
+		frames.Add(1)
 		ui.Box(c).Fill().ContextMenu(func(m *ui.Menu) {
 			m.Item("复制歌名和歌手")
 			m.Separator()
@@ -29,6 +32,7 @@ func TestContextMenuItemWidths(t *testing.T) {
 		})
 	}
 	w := newWindow(t, mygo.WindowOptions{Title: "Menu widths", Width: 400, Height: 300, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
 	for _, pass := range []string{"the first menu", "the next"} {
 		if !rightClick(w, 100, 50) {
 			t.Fatalf("%s: right-clicking failed", pass)
