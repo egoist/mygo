@@ -3749,7 +3749,13 @@ either.
     `scene.Scene.Background`), and the window paints what it grew by
     around its surface with that background before fitting the surface
     to it (`platform.BackgroundSurface`, `fillUncovered`): what shows
-    meanwhile is the background, not black. Resizing the buffers takes DWM longer
+    meanwhile is the background, not black. As the window shrinks, the
+    surface takes the new size and presents its frame before DWM takes
+    the window's, so DWM may show the window at its last size for a
+    refresh, and around the surface the window's own pixels where the
+    surface was, which the swap chain covered: the window paints them with
+    the background too, under the surface, at each size (`fillUnder`),
+    unless its frames are drawn in memory onto them. Resizing the buffers takes DWM longer
     than a frame for a window about as large as a 4K screen, so while
     the window changes size the swap chain has three buffers a quarter
     larger than the window, until a frame a second after the last change,
