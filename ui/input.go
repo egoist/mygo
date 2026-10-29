@@ -1005,15 +1005,22 @@ func (rt *engine) editEvent(ev editEvent) {
 		}
 		if handled {
 			rt.blinkStart = rt.now()
+		} else {
+			rt.commandKey(ev, nil)
 		}
 		return
 	}
 	s := rt.states[rt.focused]
 	if s == nil || s.editor == nil {
+		rt.commandKey(ev, nil)
 		return
 	}
 	// Selectable text takes the menus' commands, as Copy, not text.
 	if s.flags&flagEditable == 0 && (s.flags&flagSelectable == 0 || ev.kind != editCommand) {
+		rt.commandKey(ev, nil)
+		return
+	}
+	if s.editor.readOnly && rt.commandKey(ev, s.editor) {
 		return
 	}
 	if ev.kind == editCommand && rt.textSelectionCommand(s, ev.text) {
@@ -1023,6 +1030,27 @@ func (rt *engine) editEvent(ev editEvent) {
 	s.editor.queue = append(s.editor.queue, ev)
 	rt.blinkStart = rt.now()
 	rt.requestFrame()
+}
+
+// commandKeys are the keys of the Edit menu's commands.
+var commandKeys = map[string]keyEvent{
+	"copy": {Cmd, KeyC}, "cut": {Cmd, KeyX}, "paste": {Cmd, KeyV}, "selectAll": {Cmd, KeyA},
+	"undo": {Cmd, KeyZ}, "redo": {Cmd | Shift, KeyZ},
+}
+
+// commandKey has an edit command that the focus, or ed, doesn't take go to
+// the shortcuts of its key, and reports whether it did. On macOS the Edit
+// menu takes Command+V and the others before the window sees the key, so a
+// window's Cmd+V would otherwise run only from a text input; elsewhere the
+// key comes first, and the menu only after.
+func (rt *engine) commandKey(ev editEvent, ed *editor) bool {
+	k, ok := commandKeys[ev.text]
+	if runtime.GOOS != "darwin" || ev.kind != editCommand || !ok || ed != nil && ed.wants(k) {
+		return false
+	}
+	rt.keys = append(rt.keys, k)
+	rt.requestFrame()
+	return true
 }
 
 // imeContext is how many runes around the selection input methods see.
