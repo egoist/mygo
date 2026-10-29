@@ -25,7 +25,8 @@ func cloaked(w *mygo.Window) (cloaked, drawn bool) {
 func TestContentWindowCloakedUntilFirstFrame(t *testing.T) {
 	var w atomic.Pointer[mygo.Window]
 	// atBuild is how the first build found the window: 1 cloaked, 2 not,
-	// 3 not created yet.
+	// 3 not found. The build may run while NewWindow creates the window,
+	// before w is set (at 200%, say), so it looks for windows not drawn yet.
 	var atBuild atomic.Int32
 	var ready atomic.Bool
 	mygo.RunOnMain(func() {
@@ -34,10 +35,10 @@ func TestContentWindowCloakedUntilFirstFrame(t *testing.T) {
 			if atBuild.Load() != 0 {
 				return
 			}
-			switch v := w.Load(); {
-			case v == nil:
+			switch n, cloaked := win.TestUndrawnCloaked(); {
+			case n == 0:
 				atBuild.Store(3)
-			case func() bool { c, _ := win.TestCloaked(v.NativeHandle()); return c }():
+			case cloaked:
 				atBuild.Store(1)
 			default:
 				atBuild.Store(2)
@@ -51,7 +52,7 @@ func TestContentWindowCloakedUntilFirstFrame(t *testing.T) {
 	case 2:
 		t.Fatal("shown before its first frame: not cloaked as it drew it")
 	case 3:
-		t.Fatal("its first frame built before NewWindow returned")
+		t.Fatal("no window of native UI waiting for its first frame as it built")
 	}
 	eventually(t, "the window uncloaked after its first frame", func() bool {
 		c, drawn := cloaked(w.Load())
