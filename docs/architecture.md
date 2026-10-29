@@ -4258,8 +4258,8 @@ renderer's (`gputest.Compare`).
   syntax. Linux
   gets a Debian package written in pure Go (`deb.go`), whose maintainer
   is `linux.maintainer`, else the `author` of package.json, else the name
-  of the app: the app in `/opt/<name>`, a `/usr/bin` link named
-  `linux.command` when there is one, the desktop entry (categories,
+  of the app: the app in `/opt/<name>`, a `/usr/bin` link for each name
+  of `linux.command`, the desktop entry (categories,
   comment, URL schemes; `Exec` is the app's path) and hicolor icons,
   depending on GTK 3 and WebKitGTK 4.1. Packages hold the same files as
   the update archive; apps installed by a package manager do not update
@@ -4268,8 +4268,8 @@ renderer's (`gputest.Compare`).
   (`installscript.go`), a POSIX sh script, the same for every
   architecture, that installs the archive for the user in
   `~/.local/<name>.app` (which updates can replace), links
-  `~/.local/bin/<linux.command>` when there is one and no other program
-  is there (and removes a `~/.local/bin/<name>` link of its own, which
+  `~/.local/bin/<command>` for each name of `linux.command` that no other
+  program has (and removes a `~/.local/bin/<name>` link of its own, which
   earlier scripts made), and registers the app's `<name>.desktop`, with
   absolute `Exec` and `Icon` paths, and `<name>.xml`, the shared-mime-info
   package of the types it defines, under `$XDG_DATA_HOME`. It then warns

@@ -543,9 +543,9 @@ the app.
 `categories` places it in application menus (`Utility` by default).
 The app opens from the applications menu. `command` also gives it a
 command, `/usr/bin/my-app` from the package and `~/.local/bin/my-app` from
-[`install.sh`](#the-install-script); without it, neither adds a command,
-which leaves the name to a command-line tool of the same name, such as
-the app's own.
+[`install.sh`](#the-install-script), or several, as `["my-app", "ma"]`,
+which adds a short name; without it, neither adds a command, which leaves
+the name to a command-line tool of the same name, such as the app's own.
 
 Keep the slug of a released app. Its Linux files are named after it, and
 an update replaces the files of the same names: one to a version with
@@ -561,12 +561,12 @@ Every Linux build also gets the app as an archive,
 `my-app-1.2.0-linux-amd64.tar.gz`, and `install.sh`, which installs it for
 the user without root: the app in `~/.local/my-app.app`, where it can
 [update itself](updates.md), its desktop entry, icon, URL schemes and file
-types, and with `linux.command` that command in `~/.local/bin`, unless
-another program is there. With
-[updates](updates.md) configured, it downloads the latest version, which
-the update manifest of the machine names, and checks its size and its
-Ed25519 signature against `updates.publicKey`, as the app's updater does,
-before installing it, so one line installs the app:
+types, and with `linux.command` its commands in `~/.local/bin`, each
+unless another program is there; it says to run the app by the first it
+links. With [updates](updates.md) configured, it downloads the latest
+version, which the update manifest of the machine names, and checks its
+size and its Ed25519 signature against `updates.publicKey`, as the app's
+updater does, before installing it, so one line installs the app:
 
 ```sh
 curl -fsSL https://github.com/me/my-app/releases/latest/download/install.sh | sh
@@ -592,7 +592,10 @@ sh install.sh my-app-1.2.0-linux-amd64.tar.gz
 sh install.sh --uninstall   # keeps the settings and data of the app
 ```
 
-Running it again installs the version it finds over the installed one.
+Running it again installs the version it finds over the installed one; a
+link of a name the app no longer has, other than its slug, stays, as one
+the user made would, until `--uninstall` removes every link to the app in
+`~/.local/bin`.
 The app needs WebKitGTK, which `install.sh` does not install: when the
 system's library cache has none, it says so after installing, with the
 command that installs it on Debian, Ubuntu, Fedora, Arch and openSUSE,
