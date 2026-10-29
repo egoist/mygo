@@ -160,4 +160,13 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/downloader.jpg",
   },
+  {
+    name: "Lumilo",
+    description:
+      "A menu-bar panel for local LLM engines on macOS. Start and stop Splash or llama.cpp, watch memory and speed, get models from Hugging Face and launch coding agents against the local server.",
+    url: "https://github.com/kotuke/lumilo",
+    author: "kotuke",
+    mode: "native",
+    image: "/showcase/lumilo.jpg",
+  },
 ]
