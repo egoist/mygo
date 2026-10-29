@@ -2338,8 +2338,9 @@ either.
   focus colors appear together; holding the pointer asks for no further
   build passes. The engine lays it out with flexbox (`layout.go`) or
   as a grid (`grid.go`, CSS grid's placement and track sizing for fixed,
-  fractional and content-sized tracks), laying out again only what changed
-  since the last frame (see below); commits the boxes to the elements'
+  fractional and content-sized tracks, with the items' percentages of
+  their grid areas, as auto while the tracks are sized), laying out again
+  only what changed since the last frame (see below); commits the boxes to the elements'
   states with the hit list in paint order, the focus order and the labels;
   paints a `scene.Scene`; and presents it. Input between frames goes to the
   states of the last frame's elements. An element's identity hashes its
