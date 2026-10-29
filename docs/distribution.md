@@ -49,7 +49,8 @@ when cross-compiling, set `CC` to a suitable cross compiler.
 | Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-amd64.tar.gz` with [`install.sh`](#the-install-script), and the Debian package `my-app_0.1.0_amd64.deb` |
 
 Other flags: `-debug` keeps development features such as the inspector,
-`-skip-dmg` and `-skip-notarize` skip those steps, `-sign` overrides the
+`-skip-dmg`, `-skip-notarize` and `-skip-installer` (the Windows
+installer) skip those steps, `-sign` overrides the
 signing identity of macOS, and `-o` the output directory. See
 [the CLI](cli.md#mygo-build).
 
@@ -433,6 +434,13 @@ a copy on MyGo's GitHub releases or else from SourceForge, checked against
 its SHA-256 and kept in `%LOCALAPPDATA%\mygo`. On macOS and
 Linux, install NSIS to make Windows installers (`brew install makensis`,
 `apt install nsis`); without it, `mygo build` skips the installer.
+
+`mygo build -skip-installer` makes no installer, and neither looks for
+NSIS nor downloads it: the build has the app's files to ship as you
+choose, and with [updates](updates.md) the update archive and manifest,
+which apps installed before keep updating from. It writes no `install.ps1`
+either, which runs the installer, so the one-line install needs a release
+that has both.
 
 ### Installer hooks
 
