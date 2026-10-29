@@ -277,8 +277,8 @@ func drawSextant(r rune, x0, y0, w, h float32, fill func(ax, ay, bx, by float32)
 	ry := func(f float32) float32 { return y0 + float32(math.Round(float64(h*f))) }
 	xm := rx(0.5)
 	ya, yb := ry(1.0/3), ry(2.0/3)
-	xs := [...]float32{x0, xm, x0+w}
-	ys := [...]float32{y0, ya, yb, y0+h}
+	xs := [...]float32{x0, xm, x0 + w}
+	ys := [...]float32{y0, ya, yb, y0 + h}
 	for i := range 6 {
 		if pattern&(1<<i) == 0 {
 			continue
