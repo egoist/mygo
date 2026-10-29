@@ -1,4 +1,4 @@
-// Package automation describes native MyGo UI for host-provided automation.
+// Package automation describes headless MyGo UI for test tools.
 // It provides data and control actions, without a transport or access policy.
 package automation
 
@@ -9,8 +9,7 @@ var (
 	ErrAmbiguous   = errors.New("automation: target is ambiguous")
 	ErrStale       = errors.New("automation: target belongs to another session or element lifetime")
 	ErrDisabled    = errors.New("automation: target is disabled")
-	ErrUnsupported = errors.New("automation: operation is unsupported or automation is not enabled")
-	ErrClosed      = errors.New("automation: window is closed")
+	ErrUnsupported = errors.New("automation: operation is unsupported")
 	ErrCovered     = errors.New("automation: target center is outside the surface or covered")
 )
 
@@ -93,7 +92,7 @@ type Request struct {
 	From, To int
 }
 
-// InputKind identifies input delivered through the window's normal event path.
+// InputKind identifies input delivered through the Tester's normal event path.
 type InputKind string
 
 const (

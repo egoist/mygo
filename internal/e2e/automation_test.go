@@ -1,288 +1,278 @@
-//go:build !js
+//go:build !mygo_noinspector && !js
 
 package e2e
 
 import (
-	"errors"
+	"bufio"
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"image/png"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/internal/wait"
+	_ "github.com/egoist/mygo/plugins/automation"
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/automation"
-	"github.com/egoist/mygo/ui/editor"
 )
 
-func inspectAutomation(t *testing.T, driver *mygo.Automation) automation.Snapshot {
-	t.Helper()
-	s, err := driver.Inspect()
+// automationApp is the app TestAutomation drives from another process: a
+// counter and a text field of native UI, and a menu that resets the
+// counter and quits. MYGO_AUTOMATION names its socket.
+func automationApp() {
+	count, name := 0, ""
+	var w *mygo.Window
+	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "Test", Submenu: []*mygo.MenuItem{
+		{Label: "Reset", Click: func(*mygo.MenuItem, *mygo.Window) {
+			count = 0
+			w.Invalidate()
+		}},
+		{Label: "Quit", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
+	}}}))
+	view := func(c *ui.Context) {
+		ui.Column(c).Fill().Padding(20).Gap(10).Children(func() {
+			ui.Text(c, fmt.Sprintf("Count: %d", count))
+			if ui.Button(c, "Add").Key("add").Clicked() {
+				count++
+			}
+			c.Key("name")
+			ui.TextInput(c, &name).Label("Name")
+			ui.Text(c, "Hello, "+name)
+		})
+	}
+	mygo.App.WhenReady(func() {
+		w = mygo.NewWindow(mygo.WindowOptions{Title: "Automation", Width: 400, Height: 300, Content: ui.View(view)})
+	})
+	if err := mygo.App.Run(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
+
+// automationClient sends requests to an app's socket, one at a time.
+type automationClient struct {
+	t    *testing.T
+	conn net.Conn
+	r    *bufio.Reader
+	n    int
+}
+
+type automationError struct{ Code, Message string }
+
+// call sends a request and returns its result, or its error.
+func (c *automationClient) call(method string, params any) (json.RawMessage, *automationError) {
+	c.t.Helper()
+	c.n++
+	line, err := json.Marshal(map[string]any{"id": c.n, "method": method, "params": params})
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if _, err := c.conn.Write(append(line, '\n')); err != nil {
+		c.t.Fatal(err)
+	}
+	answer, err := c.r.ReadBytes('\n')
+	if err != nil {
+		c.t.Fatalf("%s: %v", method, err)
+	}
+	var res struct {
+		ID     int
+		Result json.RawMessage
+		Error  *automationError
+	}
+	if err := json.Unmarshal(answer, &res); err != nil || res.ID != c.n {
+		c.t.Fatalf("%s: answer %s (%v)", method, answer, err)
+	}
+	return res.Result, res.Error
+}
+
+// must is call for requests that succeed, decoding the result into v.
+func (c *automationClient) must(method string, params any, v any) {
+	c.t.Helper()
+	res, e := c.call(method, params)
+	if e != nil {
+		c.t.Fatalf("%s %v: %s: %s", method, params, e.Code, e.Message)
+	}
+	if v != nil {
+		if err := json.Unmarshal(res, v); err != nil {
+			c.t.Fatalf("%s: %s: %v", method, res, err)
+		}
+	}
+}
+
+type automationNode struct {
+	ID, Role, Label, Value string
+	Key                    any
+	Bounds                 struct{ X, Y, Width, Height float64 }
+}
+
+// TestAutomation drives an app of native UI from another process through
+// plugins/automation's socket: it lists the windows, reads the elements,
+// presses a button, clicks a text field and types, chooses menu items,
+// captures the window and waits for it to settle.
+func TestAutomation(t *testing.T) {
+	dir, err := os.MkdirTemp("", "mygo-e2e")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return s
-}
-
-func waitForAutomation(t *testing.T, driver *mygo.Automation, name string) automation.Snapshot {
-	t.Helper()
-	var s automation.Snapshot
-	eventually(t, name, func() bool {
-		s = inspectAutomation(t, driver)
-		_, err := s.Resolve(0, name)
-		if err != nil && !errors.Is(err, automation.ErrMissing) {
-			t.Fatal(err)
-		}
-		return err == nil
-	})
-	return s
-}
-
-func automationTarget(t *testing.T, s automation.Snapshot, name string) automation.Target {
-	t.Helper()
-	target, err := s.Resolve(0, name)
-	if err != nil {
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "app.sock")
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), "MYGO_E2E_AUTOMATION_APP=1", "MYGO_AUTOMATION="+path)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	return target
-}
-
-func automationNode(t *testing.T, s automation.Snapshot, id uint64) automation.Node {
-	t.Helper()
-	for _, n := range s.Nodes {
-		if n.ID == id {
-			return n
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	ended := false
+	defer func() {
+		if !ended {
+			cmd.Process.Kill()
+			<-exited
 		}
-	}
-	t.Fatalf("automation node %d missing", id)
-	return automation.Node{}
-}
-
-func TestContentWindowAutomation(t *testing.T) {
-	on := false
-	w := newWindow(t, mygo.WindowOptions{Title: "Automation", Width: 320, Height: 240,
-		Content: ui.View(func(c *ui.Context) { ui.Checkbox(c, &on, "Agree") }).Automatable()})
-	driver := mygo.Automate(w)
-	var snapshot automation.Snapshot
-	eventually(t, "the semantic tree", func() bool {
-		var err error
-		snapshot, err = driver.Inspect()
-		if err != nil {
-			t.Fatal(err)
+		if t.Failed() {
+			t.Logf("the app's output:\n%s", out.String())
 		}
-		_, err = snapshot.Resolve(0, "Agree")
+	}()
+
+	var conn net.Conn
+	wait.Until(t, "the app's socket", func() bool {
+		select {
+		case err := <-exited:
+			ended = true
+			t.Fatalf("the app exited: %v", err)
+		default:
+		}
+		conn, err = net.Dial("unix", path)
 		return err == nil
 	})
-	for _, action := range []automation.Action{automation.Press, automation.Click} {
-		target, err := snapshot.Resolve(0, "Agree")
-		if err != nil {
-			t.Fatal(err)
+	defer conn.Close()
+	if runtime.GOOS != "windows" {
+		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("the socket's mode: %v, %v", fi.Mode(), err)
 		}
-		if err := driver.Perform(target, automation.Request{Action: action}); err != nil {
-			t.Fatal(err)
+	}
+	c := &automationClient{t: t, conn: conn, r: bufio.NewReader(conn)}
+
+	type window struct {
+		ID          int
+		Title, Kind string
+	}
+	var win window
+	wait.Until(t, "the app's window", func() bool {
+		var res struct{ Windows []window }
+		c.must("windows", nil, &res)
+		if len(res.Windows) == 1 {
+			win = res.Windows[0]
 		}
-		snapshot, err = driver.Inspect()
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, node := range snapshot.Nodes {
-			if node.Name == "Agree" && node.Checked != (action == automation.Press) {
-				t.Fatalf("state after %s: %+v", action, node)
+		return len(res.Windows) == 1
+	})
+	if win.Title != "Automation" || win.Kind != "content" {
+		t.Fatalf("window %+v", win)
+	}
+	at := map[string]any{"window": win.ID}
+	c.must("idle", at, nil)
+
+	tree := func() []automationNode {
+		var res struct{ Nodes []automationNode }
+		c.must("tree", at, &res)
+		return res.Nodes
+	}
+	find := func(role, label string) automationNode {
+		t.Helper()
+		nodes := tree()
+		for _, n := range nodes {
+			if n.Role == role && n.Label == label {
+				return n
 			}
 		}
+		t.Fatalf("no %s %q in %+v", role, label, nodes)
+		return automationNode{}
 	}
-	w.Destroy()
-	if _, err := driver.Inspect(); !errors.Is(err, automation.ErrClosed) {
-		t.Fatalf("closed: %v", err)
+	find("text", "Count: 0")
+	add := find("button", "Add")
+	if add.Key != "add" || add.ID == "" || add.Bounds.Width == 0 {
+		t.Errorf("the button %+v", add)
 	}
-}
+	field := find("textField", "Name")
+	if field.Key != "name" {
+		t.Errorf("the text field %+v", field)
+	}
 
-func TestContentWindowAutomationInput(t *testing.T) {
-	value := "before"
-	w := newWindow(t, mygo.WindowOptions{Width: 320, Height: 240,
-		Content: ui.View(func(c *ui.Context) { ui.TextInput(c, &value).Label("Name") }).Automatable()})
-	driver := mygo.Automate(w)
-	var target automation.Target
-	eventually(t, "the text field", func() bool {
-		s, err := driver.Inspect()
-		if err != nil {
-			t.Fatal(err)
-		}
-		target, err = s.Resolve(0, "Name")
-		return err == nil
-	})
-	if err := driver.Perform(target, automation.Request{Action: automation.Focus}); err != nil {
-		t.Fatal(err)
+	// Pressing as assistive technology does, by the key and by the ID.
+	c.must("act", map[string]any{"window": win.ID, "key": "add", "action": "press"}, nil)
+	c.must("idle", at, nil)
+	find("text", "Count: 1")
+	c.must("act", map[string]any{"window": win.ID, "id": add.ID, "action": "press"}, nil)
+	c.must("idle", at, nil)
+	find("text", "Count: 2")
+
+	// Clicking the text field, then typing into it.
+	b := field.Bounds
+	c.must("input", map[string]any{"window": win.ID, "events": []any{
+		map[string]any{"type": "click", "x": b.X + b.Width/2, "y": b.Y + b.Height/2},
+	}}, nil)
+	c.must("idle", at, nil)
+	c.must("input", map[string]any{"window": win.ID, "events": []any{map[string]any{"type": "text", "text": "Grace"}}}, nil)
+	c.must("idle", at, nil)
+	find("text", "Hello, Grace")
+	c.must("input", map[string]any{"window": win.ID, "events": []any{map[string]any{"type": "key", "key": "Backspace"}}}, nil)
+	c.must("idle", at, nil)
+	if f := find("textField", "Name"); f.Value != "Grac" {
+		t.Errorf("the text field after Backspace: %+v", f)
 	}
-	for _, input := range []automation.Input{
-		{Kind: automation.KeyInput, Key: "CmdOrCtrl+A"},
-		{Kind: automation.TextInput, Text: "after 🌍"},
-	} {
-		if err := driver.Input(input); err != nil {
-			t.Fatal(err)
-		}
+
+	// The window as an image.
+	var shot struct {
+		PNG           string
+		Width, Height int
 	}
-	snapshot, err := driver.Inspect()
+	c.must("capture", at, &shot)
+	data, err := base64.StdEncoding.DecodeString(shot.PNG)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := snapshot.Resolve(target.ID, ""); err != nil {
-		t.Fatal(err)
-	}
-	for _, node := range snapshot.Nodes {
-		if node.ID == target.ID && node.Value != "after 🌍" {
-			t.Fatalf("text input: %q", node.Value)
-		}
-	}
-}
-
-func TestContentWindowAutomationCoveredClick(t *testing.T) {
-	clicks, coveredClicks := 0, 0
-	w := newWindow(t, mygo.WindowOptions{Width: 360, Height: 240,
-		Content: ui.View(func(c *ui.Context) {
-			ui.Button(c, "Visible").OnClick(func() { clicks++ })
-			ui.Box(c).Size(120, 40).Children(func() {
-				ui.Button(c, "Under").Absolute().Size(120, 40).OnClick(func() { coveredClicks++ })
-				ui.Button(c, "Cover").Absolute().Size(120, 40)
-			})
-		}).Automatable()})
-	driver := mygo.Automate(w)
-	s := waitForAutomation(t, driver, "Under")
-	if err := driver.Perform(automationTarget(t, s, "Visible"), automation.Request{Action: automation.Click}); err != nil {
-		t.Fatal(err)
-	}
-	if err := driver.Perform(automationTarget(t, s, "Under"), automation.Request{Action: automation.Click}); !errors.Is(err, automation.ErrCovered) {
-		t.Fatalf("covered click: %v", err)
-	}
-	if clicks != 1 || coveredClicks != 0 {
-		t.Fatalf("clicks=%d, coveredClicks=%d", clicks, coveredClicks)
-	}
-}
-
-func TestContentWindowAutomationEditorAndList(t *testing.T) {
-	code := &editor.State{Buffer: editor.NewBuffer("before")}
-	selected := -1
-	list := ui.ListState{Selected: &selected}
-	w := newWindow(t, mygo.WindowOptions{Width: 420, Height: 360,
-		Content: ui.View(func(c *ui.Context) {
-			editor.View(c, code).Height(80).Label("Code")
-			ui.List(c, &list, 5000, func(i int) { ui.Textf(c, "Row %d", i).Height(24) }).Grow(1).Label("Rows")
-		}).Automatable()})
-	driver := mygo.Automate(w)
-	s := waitForAutomation(t, driver, "Code")
-	codeTarget := automationTarget(t, s, "Code")
-	if err := driver.Perform(codeTarget, automation.Request{Action: automation.Focus}); err != nil {
-		t.Fatal(err)
-	}
-	for _, input := range []automation.Input{
-		{Kind: automation.KeyInput, Key: "CmdOrCtrl+A"},
-		{Kind: automation.TextInput, Text: "first 🌍"},
-		{Kind: automation.KeyInput, Key: "Enter"},
-		{Kind: automation.TextInput, Text: "second"},
-	} {
-		if err := driver.Input(input); err != nil {
-			t.Fatalf("%+v: %v", input, err)
-		}
-	}
-	s = inspectAutomation(t, driver)
-	if got := automationNode(t, s, codeTarget.ID).Value; got != "first 🌍\nsecond" {
-		t.Fatalf("code editor value: %q", got)
-	}
-	if _, err := s.Resolve(0, "Row 3000"); !errors.Is(err, automation.ErrMissing) {
-		t.Fatalf("distant row already built: %v", err)
-	}
-	rows := automationNode(t, s, automationTarget(t, s, "Rows").ID)
-	if err := driver.Input(automation.Input{Kind: automation.ScrollInput,
-		X: rows.Bounds.X + rows.Bounds.W/2, Y: rows.Bounds.Y + rows.Bounds.H/2, DY: 3000 * 24}); err != nil {
-		t.Fatal(err)
-	}
-	s = inspectAutomation(t, driver)
-	var row automation.Node
-	for _, n := range s.Nodes {
-		if n.Role == "listItem" && n.PosInSet == 3001 {
-			row = n
-		}
-	}
-	if row.ID == 0 || row.Offscreen || row.Selected {
-		t.Fatalf("distant row before click: %+v", row)
-	}
-	target, err := s.Resolve(row.ID, "")
+	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.Perform(target, automation.Request{Action: automation.Click}); err != nil {
-		t.Fatal(err)
+	if s := img.Bounds().Size(); s.X != shot.Width || s.Y != shot.Height || s.X < 200 || s.Y < 150 {
+		t.Errorf("the capture is %v, said %dx%d", s, shot.Width, shot.Height)
 	}
-	row = automationNode(t, inspectAutomation(t, driver), row.ID)
-	if !row.Selected || !row.Checked || selected != 3000 {
-		t.Fatalf("selected row=%d, node=%+v", selected, row)
-	}
-}
 
-func TestContentWindowAutomationTargets(t *testing.T) {
-	show, presses := true, 0
-	content := func() *ui.Content {
-		return ui.View(func(c *ui.Context) {
-			ui.Button(c, "Toggle").OnClick(func() { show = !show })
-			if show {
-				ui.Button(c, "Ephemeral").Key("ephemeral").OnClick(func() { presses++ })
-			}
-			ui.Box(c).Size(10, 10).Draw(func(p *ui.Painter, _ ui.Rect) { p.AnimationFrame() })
-		}).Automatable()
+	// What the window cannot do, and what no window can.
+	if _, e := c.call("eval", map[string]any{"window": win.ID, "script": "1"}); e == nil || e.Code != "unsupported" {
+		t.Errorf("eval in native UI: %+v", e)
 	}
-	w := newWindow(t, mygo.WindowOptions{Title: "Automation targets", Width: 320, Height: 240, Content: content()})
-	driver := mygo.Automate(w)
-	s := waitForAutomation(t, driver, "Ephemeral")
-	target := automationTarget(t, s, "Ephemeral")
-	eventually(t, "an animation repaint", func() bool { return inspectAutomation(t, driver).Revision > s.Revision })
-	for _, action := range []automation.Action{automation.Press, automation.Click} {
-		if err := driver.Perform(target, automation.Request{Action: action}); err != nil {
-			t.Fatalf("%s after repaint: %v", action, err)
-		}
+	if _, e := c.call("tree", map[string]any{"window": win.ID + 1000}); e == nil || e.Code != "no_window" {
+		t.Errorf("tree of no window: %+v", e)
 	}
-	if presses != 2 {
-		t.Fatalf("presses after repaint: %d", presses)
+	if _, e := c.call("act", map[string]any{"window": win.ID, "id": "1", "action": "press"}); e == nil || e.Code != "no_element" {
+		t.Errorf("act on no element: %+v", e)
 	}
-	toggle := automationTarget(t, s, "Toggle")
-	if err := driver.Perform(toggle, automation.Request{Action: automation.Press}); err != nil {
-		t.Fatal(err)
+
+	// The application menu.
+	if _, e := c.call("menu", map[string]any{"window": win.ID, "path": []string{"Test", "Reset"}}); e != nil {
+		t.Skipf("menus cannot be chosen on this platform: %s: %s", e.Code, e.Message)
 	}
-	if err := driver.Perform(target, automation.Request{Action: automation.Press}); !errors.Is(err, automation.ErrMissing) {
-		t.Fatalf("removed target: %v", err)
+	c.must("idle", at, nil)
+	find("text", "Count: 0")
+	// Quitting closes the socket, which leaves no file. The answer may
+	// not come.
+	line, _ := json.Marshal(map[string]any{"id": 0, "method": "menu", "params": map[string]any{"window": win.ID, "path": []string{"Test", "Quit"}}})
+	conn.Write(append(line, '\n'))
+	if err := wait.For(t, "the app to quit", exited); err != nil {
+		t.Errorf("the app exited: %v", err)
 	}
-	if err := driver.Perform(toggle, automation.Request{Action: automation.Press}); err != nil {
-		t.Fatal(err)
-	}
-	again := automationTarget(t, inspectAutomation(t, driver), "Ephemeral")
-	if again.ID != target.ID || again.Generation == target.Generation {
-		t.Fatalf("recreated target: old=%+v, new=%+v", target, again)
-	}
-	if err := driver.Perform(target, automation.Request{Action: automation.Press}); !errors.Is(err, automation.ErrStale) {
-		t.Fatalf("recreated target accepted old generation: %v", err)
-	}
-	if err := driver.Perform(again, automation.Request{Action: automation.Press}); err != nil {
-		t.Fatal(err)
-	}
-	other := newWindow(t, mygo.WindowOptions{Width: 320, Height: 240, Content: content()})
-	otherDriver := mygo.Automate(other)
-	otherTarget := automationTarget(t, waitForAutomation(t, otherDriver, "Ephemeral"), "Ephemeral")
-	if err := otherDriver.Perform(again, automation.Request{Action: automation.Press}); !errors.Is(err, automation.ErrStale) {
-		t.Fatalf("another window's target: %v", err)
-	}
-	if err := driver.Perform(otherTarget, automation.Request{Action: automation.Press}); !errors.Is(err, automation.ErrStale) {
-		t.Fatalf("other window's target on original: %v", err)
-	}
-	w.Destroy()
-	if err := driver.Perform(again, automation.Request{Action: automation.Press}); !errors.Is(err, automation.ErrClosed) {
-		t.Fatalf("closed window perform: %v", err)
-	}
-	if err := driver.Input(automation.Input{Kind: automation.TextInput, Text: "x"}); !errors.Is(err, automation.ErrClosed) {
-		t.Fatalf("closed window input: %v", err)
-	}
-	rebuilt := newWindow(t, mygo.WindowOptions{Title: "Automation targets", Width: 320, Height: 240, Content: content()})
-	rebuiltDriver := mygo.Automate(rebuilt)
-	waitForAutomation(t, rebuiltDriver, "Ephemeral")
-	if err := rebuiltDriver.Perform(again, automation.Request{Action: automation.Press}); !errors.Is(err, automation.ErrStale) {
-		t.Fatalf("old window's target on rebuilt window: %v", err)
-	}
-	if presses != 3 {
-		t.Fatalf("a rejected target invoked its handler: presses=%d", presses)
+	ended = true
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Errorf("the socket stays: %v", err)
 	}
 }

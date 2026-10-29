@@ -63,10 +63,10 @@ not imply `Selected`. An explicit `Label` changes `Name`; available leaf
 Missing targets return `ErrMissing`. JSON encodes IDs, sessions, generations
 and revisions as decimal strings to preserve all 64 bits in JavaScript clients.
 
-Targets belong to one tester/window and one element lifetime. They survive
+Targets belong to one tester and one element lifetime. They survive
 rebuilds and animation repaints while the element keeps its identity.
 Removal returns `ErrMissing`; recreation with the same ID returns `ErrStale`,
-as does using a target in another tester/window. Each action checks the
+as does using a target in another tester. Each action checks the
 current semantic tree, enabled state, supported actions and, for clicks,
 current geometry. Take fresh snapshots to observe the results of actions
 and re-resolve removed or stale targets. Targets are local to the current
@@ -97,30 +97,16 @@ Unsupported actions return `ErrUnsupported`; disabled controls return
 values and selections are redacted, including disabled password fields.
 No operation reads or writes arbitrary application memory.
 
-### Opted-in native windows
+### Keyboard, text and scrolling
 
-Enable the same engine path for a real window explicitly:
-
-```go
-win := mygo.NewWindow(mygo.WindowOptions{
-	Content: ui.View(app.view).Automatable(),
-})
-driver := mygo.Automate(win)
-snapshot, err := driver.Inspect()
-// After checking err, use snapshot.Resolve and driver.Perform as above.
-```
-
-`driver.Input` sends keyboard, text and precise scrolling events through
-the same input paths as a user. Focus a control with `Perform` first for
-keyboard input. This also drives the code editor and rich-text editor,
-whose text actions are not those of the core text fields:
+`tt.Input` sends keyboard, text and precise scrolling through the normal
+input paths, including the code and rich-text editors. Focus a control
+with `Perform` first for keyboard input:
 
 ```go
-err = driver.Input(automation.Input{Kind: automation.KeyInput, Key: "CmdOrCtrl+A"})
+err = tt.Input(automation.Input{Kind: automation.KeyInput, Key: "CmdOrCtrl+A"})
 // Check err before sending the next input.
-err = driver.Input(automation.Input{Kind: automation.TextInput, Text: "Replacement text"})
-// Check err before sending the next input.
-err = driver.Input(automation.Input{Kind: automation.KeyInput, Key: "Enter"})
+err = tt.Input(automation.Input{Kind: automation.TextInput, Text: "Replacement text"})
 ```
 
 Key input uses menu accelerator syntax, such as `Tab`, `Shift+Tab`,
@@ -133,23 +119,12 @@ rows before resolving them. Coordinates must be finite and on the surface;
 embedded web pages are not driven. `tt.Input` accepts the same requests;
 the existing tester keyboard and pointer helpers remain available.
 
-Create the window inside `App.WhenReady`. Driver calls are safe from any
-goroutine and run on the main UI thread. Call them outside view construction
-and control callbacks; reentrant calls return `ErrUnsupported`. A snapshot
-before the first rendered frame is empty. Pending `Window.Update` or
-`Invalidate` changes appear after their next rendered frame. Each successful
-action renders its resulting input before returning; asynchronous work and
-animations can require later snapshots. Driver operations on a closed
-window return `ErrClosed`. Web pages and content without `.Automatable()`
-return `ErrUnsupported`.
-
-This API works in ordinary production builds, including `mygo_noinspector`.
-It opens no endpoint or listener. The host or MCP package chooses access
-policy, transport and serialization, and should retain the session and
-generation when forwarding targets. The API does not enable the inspector or
-subscribe the app to continuous accessibility snapshots. Keep tester calls
-on their driving goroutine; `Perform` settles frames without advancing its
-simulated clock.
+Keep tester calls on their driving goroutine, outside view construction
+and control callbacks. `Perform` and `Input` reject reentrant calls and
+settle frames without advancing the simulated clock. These headless APIs
+work in production-tag builds and open no listener. For live windows use
+the [automation plugin](../plugins/automation.md), which owns the
+development-only socket and window automation.
 
 ## What a tester does
 
@@ -164,7 +139,9 @@ simulated clock.
   `tt.TextCaret` returns where input methods would compose.
 - **Menus.** `tt.RightClick` opens a context menu, which `tt.Menu` lists and
   `tt.ChooseMenuItem("Move to", "Archive")` chooses from.
-- **The window.** `tt.SetSize`, `tt.SetScale`, `tt.SetDark`,
+- **The window.** `tt.SetSize`, `tt.SetScale`, `tt.SetZoom` (the content's
+  [zoom](windows.md#zoom), as `Context.SetZoom`; the tester's coordinates,
+  of `Find`, `ClickAt`, `Move` and `TextCaret`, stay the window's), `tt.SetDark`,
   `tt.SetPreferences` and `tt.SetDirection` (lay it out
   [right to left](right-to-left.md)) change the window and the desktop's
   settings;
@@ -201,3 +178,12 @@ simulated clock.
   	t.Error("the panel keeps asking for frames")
   }
   ```
+
+## Testing the built app
+
+A tester runs a view inside `go test`. To test the app as built, with its
+real windows, from another process, as an end-to-end test runner or an
+agent does, import the [automation plugin](../plugins/automation.md) into
+a test build: it reads the elements of every window as a tester's
+`Find` does, by their labels or by their `Key`, acts on them, sends
+input, and waits for frames as `FramePending` tells.
