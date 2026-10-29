@@ -3752,9 +3752,16 @@ either.
     meanwhile is the background, not black. Resizing the buffers takes DWM longer
     than a frame for a window about as large as a 4K screen, so while
     the window changes size the swap chain has three buffers a quarter
-    larger than the window, and shows the window's size of them
-    (`SetSourceSize`), until a frame a second after the last change,
-    which a timer asks for, gives it two of the window's size again.
+    larger than the window, until a frame a second after the last change,
+    which a timer asks for, gives it two of the window's size again. The
+    unscaled swap chain shows those buffers whole, from the top left
+    corner, and the window clips them: showing only the window's size of
+    them (`SetSourceSize`) would stretch that part over the buffers' size,
+    magnifying the frame (#892), as it does for a swap chain for
+    composition. A frame drawn whole fills what is beyond it in the
+    buffers with the content's background (`clearWhole`), which shows
+    where the window grows within them. A swap chain that stretches, where
+    the unscaled one is refused, shows the window's size of the buffers.
     The swap chain flips in sequence (`FLIP_SEQUENTIAL`), so that a frame
     draws only what changed since the last, as Metal's (below): DXGI keeps
     what each buffer holds, and as a frame is presented with the
