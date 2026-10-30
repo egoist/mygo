@@ -115,3 +115,7 @@ MyGo describes frames only once assistive technology asked, so apps pay
 nothing for it otherwise.
 
 Each component's page says what assistive technology sees of it.
+
+Headless tests can inspect the same semantic tree and drive control actions
+through [`Inspect` and `Perform`](testing.md#semantic-snapshots-and-control-actions).
+For live windows, use the development-only [automation plugin](../plugins/automation.md).

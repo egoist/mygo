@@ -465,27 +465,24 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	if st := e.st; (st.vw <= 0 || st.vh <= 0) && e.w > 0 && e.h > 0 {
 		n.States |= platform.AccessOffscreen
 	}
-	if disabled {
-		return
-	}
-	if e.flags&(flagFocusable|flagEditable|flagChoosable) != 0 {
+	if !disabled && e.flags&(flagFocusable|flagEditable|flagChoosable) != 0 {
 		// Focusing a row a list chooses chooses it.
 		n.States |= platform.AccessFocusable
 		n.Actions |= platform.ActionFocus
 	}
-	if e.flags&flagClickable != 0 {
+	if !disabled && e.flags&flagClickable != 0 {
 		n.Actions |= platform.ActionPress
 	}
-	if n.Role == platform.RoleSlider || n.Role == platform.RoleStepper {
+	if !disabled && (n.Role == platform.RoleSlider || n.Role == platform.RoleStepper) {
 		n.Actions |= platform.ActionIncrement | platform.ActionDecrement
 	}
-	if e.expandable {
+	if !disabled && e.expandable {
 		n.Actions |= platform.ActionExpand
 	}
 	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
 		if ed.readOnly {
 			n.States |= platform.AccessReadOnly
-		} else {
+		} else if !disabled {
 			n.Actions |= platform.ActionSetValue
 		}
 		if ed.multiline {
@@ -499,7 +496,7 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 			n.SelStart, n.SelEnd = ed.selection()
 		}
 	}
-	if e.accFill != nil {
+	if !disabled && e.accFill != nil {
 		e.accFill(n)
 	}
 }
