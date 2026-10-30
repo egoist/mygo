@@ -2272,6 +2272,11 @@ either.
   with UI Automation's events.
   What assistive technology does comes back as `AccessAction` events,
   which the engine performs as the pointer or the keyboard would.
+  An element ignoring input (`IgnoreInput`: a field of the node, as
+  the flags are all taken, and of its state, which the elements inside
+  it inherit at commit) adds no hits nor stop of Tab and drops the focus,
+  but stays in the tree, its presses counted as any other's; it offers no
+  focus, nor the increments that go through the keys.
   `AccessTree.Announcements` are texts to read out once
   (`Context.Announce`, toasts, routers): `AXAnnouncementRequested` posted
   on the application with a medium priority on macOS, AtkObject's
