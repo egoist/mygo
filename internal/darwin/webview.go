@@ -286,9 +286,9 @@ func (w *window) leave(ev id) {
 
 // webViewMethods are the overrides of MyGoWebView for web views in a
 // window of native UI: a press tells the content, which closes its
-// popovers, and the mouse moving where the content painted over the page
-// is the content's alone, which sets the cursor there; the page hears
-// that it left.
+// popovers, the wheel scrolls the surface, and the mouse moving where the
+// content painted over the page is the content's alone, which sets the cursor
+// there; the page hears that it left.
 func webViewMethods() []objc.MethodDef {
 	press := func(button int) func(id, objc.SEL, id) {
 		return func(self id, cmd objc.SEL, ev id) {
@@ -318,6 +318,14 @@ func webViewMethods() []objc.MethodDef {
 		sendSuper(self, "MyGoWebView", cmd, uintptr(ev))
 	}
 	return []objc.MethodDef{
+		method("scrollWheel:", func(self id, _ objc.SEL, ev id) {
+			w := theBackend.byWebView[self]
+			if w == nil || w.host == nil || w.host.surface == nil {
+				return
+			}
+			s := w.host.surface
+			scrollWheel(s, ev)
+		}),
 		method("rightMouseDown:", press(1)),
 		method("otherMouseDown:", press(2)),
 		method("mouseMoved:", moved),
