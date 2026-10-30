@@ -887,3 +887,112 @@ func TestLayoutAtMeasuredWidth(t *testing.T) {
 		}
 	}
 }
+
+// TestLayoutUnwrappedAtWidths checks that a text laid out at widths its
+// lines fit in is shaped once for every width, and lays out as it would at
+// each, its lines where its alignment puts them.
+func TestLayoutUnwrappedAtWidths(t *testing.T) {
+	style := Style{Size: 14}
+	for _, c := range []struct {
+		name   string
+		p      Params
+		shares bool
+	}{
+		{"label", Params{Text: "Forest in the rain", Style: style}, true},
+		{"lines", Params{Text: "Forest\nin the rain\n", Style: style}, true},
+		{"indented", Params{Text: "Forest in the rain", Style: style, Indent: 12}, true},
+		{"spans", Params{Text: "Forest in the rain", Style: style, Spans: EncodeSpans([]Span{{End: 6, Weight: 700}, {End: 18}})}, true},
+		{"right to left", Params{Text: "שלום עולם", Style: style}, true},
+		{"right to left at the end", Params{Text: "שלום עולם", Style: style, Align: End}, true},
+		{"centered", Params{Text: "Forest in the rain", Style: style, Align: Center}, true},
+		{"centered lines", Params{Text: "Forest\nin the rain", Style: style, Align: Center, Indent: 8}, true},
+		{"at the right", Params{Text: "Forest in the rain", Style: style, Align: Right}, true},
+		{"centered, not wrapped", Params{Text: "Forest in the rain, and the sea", Style: style, Align: Center, NoWrap: true}, true},
+		{"no wrap", Params{Text: "Forest in the rain, and the sea", Style: style, NoWrap: true}, true},
+		{"justified", Params{Text: "Forest in the rain", Style: style, Justify: true}, true},
+		{"cut", Params{Text: "Forest in the rain", Style: style, MaxLines: 1}, false},
+		{"wrapping", Params{Text: "Forest in the rain, and the sea at dusk", Style: style}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// From the layout at the width before, as a box resizing lays
+			// its text out, and from the text's unwrapped layout.
+			for _, unwrapped := range []bool{false, true} {
+				s := newSystem()
+				if unwrapped {
+					s.Layout(unwrappedParams(c.p))
+				}
+				var last *Layout
+				var n uint64
+				for _, w := range []float32{400, 300, 250.5, 200, 180} {
+					p := c.p
+					p.Width = w
+					made := s.LayoutsMade()
+					got := s.LayoutFrom(last, p)
+					if unwrapped {
+						got = s.Layout(p)
+					}
+					n += s.LayoutsMade() - made
+					// Made anew by the same system, whose glyph IDs are the
+					// same, as the browser's engine numbers glyphs as it meets
+					// them.
+					want := &s.layout(p).layout
+					last = got
+					if got.Params != p {
+						t.Fatalf("at %v, the layout's parameters are %+v", w, got.Params)
+					}
+					if !sameLayout(got, want) {
+						t.Fatalf("at %v, the layout differs from one made at that width:\n%+v\n%+v", w, got.Lines, want.Lines)
+					}
+					for i := range len(want.Runes) + 1 {
+						gx, gy, _ := got.CaretAt(CaretPosition{Index: i})
+						wx, wy, _ := want.CaretAt(CaretPosition{Index: i})
+						if gx != wx || gy != wy {
+							t.Fatalf("at %v, the caret at %d is at %v, %v, not %v, %v", w, i, gx, gy, wx, wy)
+						}
+					}
+				}
+				shaped := uint64(1)
+				if unwrapped {
+					shaped = 0
+				}
+				if c.shares && n != shaped {
+					t.Errorf("unwrapped first %v, laid out %d times, not %d", unwrapped, n, shaped)
+				}
+			}
+		})
+	}
+	// A text laid out at a width is shaped once, wrapping or not.
+	s := newSystem()
+	for _, p := range []Params{
+		{Text: "Harbor lights at night", Style: style, Width: 40},
+		{Text: "Lighthouse keepers", Style: style, Width: 400},
+	} {
+		made := s.LayoutsMade()
+		s.Layout(p)
+		if n := s.LayoutsMade() - made; n != 1 {
+			t.Errorf("%q at %v laid out %d times", p.Text, p.Width, n)
+		}
+	}
+}
+
+// sameLayout reports whether a and b place the same glyphs on the same
+// lines.
+func sameLayout(a, b *Layout) bool {
+	if a.Width != b.Width || a.Height != b.Height || a.Truncated != b.Truncated || !slices.Equal(a.Runes, b.Runes) || len(a.Lines) != len(b.Lines) {
+		return false
+	}
+	for i := range a.Lines {
+		x, y := &a.Lines[i], &b.Lines[i]
+		if x.X != y.X || x.Y != y.Y || x.Width != y.Width || x.Height != y.Height || x.Baseline != y.Baseline ||
+			x.Start != y.Start || x.End != y.End || x.RTL != y.RTL || len(x.Glyphs) != len(y.Glyphs) {
+			return false
+		}
+		for j := range x.Glyphs {
+			g, h := x.Glyphs[j], y.Glyphs[j]
+			if g.ID != h.ID || g.X != h.X || g.Y != h.Y || g.Advance != h.Advance || g.Cluster != h.Cluster || g.Size != h.Size {
+				return false
+			}
+		}
+	}
+	return true
+}
