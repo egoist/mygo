@@ -312,11 +312,12 @@ func writeDeltas(c *Config, key ed25519.PrivateKey, stage, target string, entrie
 	if strings.HasPrefix(target, "darwin-") {
 		newDir, newEntries = filepath.Join(stage, entries[0]), nil
 	}
+	get := c.archiveGetter()
 	var files []string
 	for i, base := range bases {
 		name := c.slug() + "-" + base.Version + "-to-" + c.Version + "-" + target + ".delta"
 		path := filepath.Join(stage, name)
-		d, err := writeDelta(key, base, filepath.Join(work, strconv.Itoa(i)), path, c.Version, newDir, newEntries)
+		d, err := writeDelta(get, key, base, filepath.Join(work, strconv.Itoa(i)), path, c.Version, newDir, newEntries)
 		switch {
 		case err != nil:
 			warnf("No delta update from %s for %s: %v", base.Version, target, err)
@@ -334,15 +335,15 @@ func writeDeltas(c *Config, key ed25519.PrivateKey, stage, target string, entrie
 	return files, nil
 }
 
-// writeDelta downloads the archive of base into work, checks that it is
-// signed with key, and writes the delta from it to the app of version in
-// newDir to path.
-func writeDelta(key ed25519.PrivateKey, base update.Archive, work, path, version, newDir string, newEntries []string) (update.Delta, error) {
+// writeDelta downloads the archive of base into work with get, checks that
+// it is signed with key, and writes the delta from it to the app of version
+// in newDir to path.
+func writeDelta(get archiveGetter, key ed25519.PrivateKey, base update.Archive, work, path, version, newDir string, newEntries []string) (update.Delta, error) {
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		return update.Delta{}, err
 	}
 	archive := filepath.Join(work, "archive.tar.gz")
-	if err := fetchSigned(base.URL, base.Size, base.Signature, key.Public().(ed25519.PublicKey), archive); err != nil {
+	if err := fetchSigned(get, base.URL, base.Size, base.Signature, key.Public().(ed25519.PublicKey), archive); err != nil {
 		return update.Delta{}, err
 	}
 	f, err := os.Open(archive)
@@ -401,38 +402,129 @@ func fetchManifest(feed string) (*update.Manifest, error) {
 	return &m, nil
 }
 
-// fetchSigned downloads a file of an update to path and checks its size
-// and signature.
-func fetchSigned(u string, size int64, signature string, pub ed25519.PublicKey, path string) error {
-	resp, err := updateGet(u, 10*time.Minute)
-	if err != nil {
-		return err
+// archiveGetter requests a published file of an update by its URL, with
+// ctx.
+type archiveGetter func(ctx context.Context, u string) (*http.Response, error)
+
+// archiveGetter returns how writeDeltas downloads the archives of earlier
+// versions: from the bucket of updates.s3 when its credentials are set, as
+// a CDN in front of it, serving updates.url, can stall on a file it has
+// not cached, else from their URLs.
+func (c *Config) archiveGetter() archiveGetter {
+	get := func(ctx context.Context, u string) (*http.Response, error) {
+		return updateGetContext(ctx, u, 0)
 	}
-	defer resp.Body.Close()
-	f, err := os.Create(path)
-	if err != nil {
-		return err
+	if c.Updates.S3 == nil {
+		return get
 	}
-	sum := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, sum), io.LimitReader(resp.Body, size+1))
-	if cerr := f.Close(); err == nil {
-		err = cerr
+	bucket, err := newS3Client(c.Updates.S3)
+	if err != nil {
+		return get // no credentials
+	}
+	prefix := strings.TrimSuffix(c.Updates.URL, "/") + "/"
+	return func(ctx context.Context, u string) (*http.Response, error) {
+		rest, ok := strings.CutPrefix(u, prefix)
+		name, err := url.PathUnescape(rest)
+		if !ok || err != nil || name == "" {
+			return get(ctx, u) // served from elsewhere
+		}
+		return bucket.get(ctx, bucket.key(name))
+	}
+}
+
+// Downloads of archives are retried when they stall: no byte for
+// fetchStall, as when a CDN hangs on a file, or fetchTimeout in all.
+var (
+	fetchAttempts = 3
+	fetchStall    = 30 * time.Second
+	fetchTimeout  = 10 * time.Minute
+)
+
+var errStalled = errors.New("stalled")
+
+// fetchSigned downloads a file of an update to path with get, and checks
+// its size and signature.
+func fetchSigned(get archiveGetter, u string, size int64, signature string, pub ed25519.PublicKey, path string) error {
+	var sum []byte
+	var err error
+	for range fetchAttempts {
+		if sum, err = fetchOnce(get, u, size, path); err == nil || errors.Is(err, errNotPublished) {
+			break
+		}
 	}
 	switch {
 	case err != nil:
-		return fmt.Errorf("downloading %s: %w", u, err)
-	case n != size:
-		return fmt.Errorf("%s has %d bytes, not %d", u, n, size)
-	case update.Verify(pub, sum.Sum(nil), signature) != nil:
+		return err
+	case update.Verify(pub, sum, signature) != nil:
 		return fmt.Errorf("%s is not signed with the key of updates.publicKey", u)
 	}
 	return nil
 }
 
+// fetchOnce downloads the size bytes of u to path, giving up when they
+// stall, and returns their SHA-256.
+func fetchOnce(get archiveGetter, u string, size int64, path string) ([]byte, error) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	ctx, stop := context.WithTimeout(ctx, fetchTimeout)
+	defer stop()
+	stall := time.AfterFunc(fetchStall, func() { cancel(errStalled) })
+	defer stall.Stop()
+	resp, err := get(ctx, u)
+	if err != nil {
+		return nil, stallError(ctx, u, err)
+	}
+	defer resp.Body.Close()
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.New()
+	body := &progressReader{io.LimitReader(resp.Body, size+1), func() { stall.Reset(fetchStall) }}
+	n, err := io.Copy(io.MultiWriter(f, sum), body)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	switch {
+	case err != nil:
+		return nil, stallError(ctx, u, err)
+	case n != size:
+		return nil, fmt.Errorf("%s has %d bytes, not %d", u, n, size)
+	}
+	return sum.Sum(nil), nil
+}
+
+// stallError describes err, of downloading u with ctx.
+func stallError(ctx context.Context, u string, err error) error {
+	if errors.Is(context.Cause(ctx), errStalled) {
+		return fmt.Errorf("downloading %s: no data for %v", u, fetchStall)
+	}
+	return fmt.Errorf("downloading %s: %w", u, err)
+}
+
+// progressReader calls progress after each read of r that returns bytes.
+type progressReader struct {
+	r        io.Reader
+	progress func()
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if n > 0 {
+		p.progress()
+	}
+	return n, err
+}
+
 // updateGet requests a published file of an update, which takes at most
 // timeout.
 func updateGet(u string, timeout time.Duration) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	return updateGetContext(context.Background(), u, timeout)
+}
+
+// updateGetContext is updateGet with ctx; a timeout of 0 sets none.
+func updateGetContext(ctx context.Context, u string, timeout time.Duration) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}

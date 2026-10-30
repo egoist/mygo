@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -462,5 +463,50 @@ func TestPublishGitHub(t *testing.T) {
 	b, _ = os.ReadFile(calls)
 	if lines := strings.Split(strings.TrimSpace(string(b)), "\n"); len(lines) != 4 || !strings.HasPrefix(lines[1], "release create desktop-v1.2.0 --repo me/app --draft") || !strings.HasSuffix(lines[1], " --latest=false") {
 		t.Errorf("gh calls:\n%s", b)
+	}
+}
+
+// TestFetchSignedStall retries a download that stalls, as a CDN can on a
+// file it has not cached.
+func TestFetchSignedStall(t *testing.T) {
+	defer func(stall time.Duration) { fetchStall = stall }(fetchStall)
+	fetchStall = 200 * time.Millisecond
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	archive := bytes.Repeat([]byte("archive "), 10_000)
+	sum := sha256.Sum256(archive)
+	var mu sync.Mutex
+	stalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		stall := stalls > 0
+		stalls--
+		mu.Unlock()
+		w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+		if stall {
+			w.Write(archive[:1000])
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			return
+		}
+		w.Write(archive)
+	}))
+	defer srv.Close()
+	get := (&Config{Updates: &Updates{URL: srv.URL}}).archiveGetter()
+	fetch := func(n int) error {
+		mu.Lock()
+		stalls = n
+		mu.Unlock()
+		path := filepath.Join(t.TempDir(), "archive.tar.gz")
+		return fetchSigned(get, srv.URL+"/app-1.0.0.tar.gz", int64(len(archive)), update.Sign(priv, sum[:]), pub, path)
+	}
+	start := time.Now()
+	if err := fetch(fetchAttempts - 1); err != nil {
+		t.Fatalf("after %d stalls: %v", fetchAttempts-1, err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("took %v", d)
+	}
+	if err := fetch(fetchAttempts); err == nil || !strings.Contains(err.Error(), "no data for") {
+		t.Errorf("after %d stalls: %v", fetchAttempts, err)
 	}
 }
