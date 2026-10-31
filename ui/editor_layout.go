@@ -167,8 +167,12 @@ func (e *node) paintInput(p *Painter) {
 	ts := e.resolvedText()
 	if ed.buf.n == 0 && ed.compose == "" && ed.placeholder != "" {
 		pl := textSystem().Layout(e.placeholderParams(box.W))
+		color := t.TextMuted
+		if ed.placeholderColorSet {
+			color = ed.placeholderColor
+		}
 		// The placeholder aligns itself in the content box, as its layout has the box's width.
-		p.textLayout(pl, e.x+e.contentX(), oy, t.TextMuted, ts, nil)
+		p.textLayout(pl, e.x+e.contentX(), oy, color, ts, nil)
 	}
 	if ed.area != nil {
 		ed.area.paint(e, p, e.x+ed.originX, e.y+ed.originY)
