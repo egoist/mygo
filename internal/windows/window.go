@@ -409,6 +409,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 	if m == wmMouseActivate && w.ownsFocusableFlyout() {
 		return maActivateAndEat, true
 	}
+	if m == wmInitMenuPopup {
+		w.enableEditItems(wp)
+	}
 	if r, ok := w.b.menuItemMessage(w.hwnd, m, wp, lp); ok {
 		return r, true
 	}

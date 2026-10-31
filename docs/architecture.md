@@ -1837,7 +1837,15 @@ backend, which:
   else through `WindowHandler.MenuItemClicked` for a window's menu, or
   `AppHandler.MenuItemClicked` for menus without one; the core toggles
   checkbox/radio state, performs window and view roles and calls `Click`
-  with the menu's window, even while a submenu has focus instead.
+  with the menu's window, even while a submenu has focus instead,
+- enables the edit roles' items of native UI as the content answers a
+  `SurfaceCommandEnabled` (package ui's `commandEnabled`, which follows
+  `editEvent`): on macOS the menus holding them validate their items
+  (`autoenablesItems`), the surface answering `validateMenuItem:` and the
+  menu target keeping the app's state, which a disabled role's item
+  targets; Windows and Linux ask as a menu opens (`WM_INITMENUPOPUP`, a
+  submenu's `map`, a popup before it shows), and again before a role's
+  shortcut runs.
 
 Item icons (`MenuItem.Icon`, made by `NewMenuIcon`) travel as a
 `*platform.MenuIcon`, which the core shares between the icons of the same

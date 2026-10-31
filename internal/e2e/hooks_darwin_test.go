@@ -26,6 +26,11 @@ func activateMenu(w *mygo.Window, path ...string) (err error) {
 	return err
 }
 
+func menuItemEnabled(_ *mygo.Window, path ...string) (enabled bool, err error) {
+	mygo.RunOnMain(func() { enabled, err = darwin.TestMenuItemEnabled(path...) })
+	return enabled, err
+}
+
 func pressShortcut(key string, shift bool) (handled bool, supported bool) {
 	mygo.RunOnMain(func() { handled = darwin.TestPerformKeyEquivalent(key, shift) })
 	return handled, true
@@ -311,6 +316,7 @@ func screenColor(*mygo.Window, float64, float64) (uint8, uint8, uint8, bool) { r
 func rightClick(*mygo.Window, float64, float64) bool { return false }
 func popupMenus() ([][]string, bool)                 { return nil, false }
 func choosePopupItem(string) bool                    { return false }
+func popupItemEnabled(string) (bool, bool)           { return false, false }
 
 // pressEscape presses Escape in the key window, as the keyboard does.
 func pressEscape(*mygo.Window) bool {

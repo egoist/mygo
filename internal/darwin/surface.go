@@ -1060,7 +1060,16 @@ func registerSurfaceClass() {
 				s.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "pasteAndMatchStyle"})
 			}
 		}),
-		method("validateMenuItem:", func(self id, _ objc.SEL, item id) bool { return true }),
+		method("validateMenuItem:", func(self id, _ objc.SEL, item id) bool {
+			s := b().surfaceOf(self)
+			action := objc.SEL(send(item, "action"))
+			for selector, name := range contextSelectors {
+				if action == sel(selector) {
+					return s != nil && s.send(platform.SurfaceEvent{Kind: platform.SurfaceCommandEnabled, Text: name})
+				}
+			}
+			return true
+		}),
 
 		// NSTextInputClient
 		method("hasMarkedText", func(self id, _ objc.SEL) bool {

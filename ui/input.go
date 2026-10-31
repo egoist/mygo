@@ -11,6 +11,10 @@ import (
 // event handles a surface event on the main thread. It reports whether
 // an element takes files dragged over or dropped at the event's position.
 func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
+	if ev.Kind == platform.SurfaceCommandEnabled {
+		// A menu asking about its item changes nothing.
+		return rt.commandEnabled(ev.Text)
+	}
 	if ev.Kind != platform.SurfaceFrame {
 		// Whatever the event changes, the next frame builds anew.
 		rt.redraw = false
@@ -1051,6 +1055,37 @@ func (rt *engine) commandKey(ev editEvent, ed *editor) bool {
 	rt.keys = append(rt.keys, k)
 	rt.requestFrame()
 	return true
+}
+
+// commandEnabled reports whether the edit command name would act where
+// editEvent takes it, for the Edit menu to enable its item.
+func (rt *engine) commandEnabled(name string) bool {
+	s := rt.states[rt.focused]
+	// As focusHandler, without windowFocus, which would have the next
+	// change of the window's focus draw a frame.
+	if s != nil && s.input != nil && s.editor == nil && rt.windowFocused {
+		// Such an element tells what it does with a command only by
+		// doing it.
+		return true
+	}
+	if s == nil || s.editor == nil || s.flags&(flagEditable|flagSelectable) == 0 {
+		return rt.commandShortcut(name)
+	}
+	if k, ok := commandKeys[name]; ok && s.editor.readOnly && !s.editor.wants(k) {
+		return rt.commandShortcut(name)
+	}
+	return rt.editCommandOn(s, name)
+}
+
+// commandShortcut reports whether commandKey would have a shortcut take
+// the edit command name.
+func (rt *engine) commandShortcut(name string) bool {
+	k, ok := commandKeys[name]
+	if runtime.GOOS != "darwin" || !ok {
+		return false
+	}
+	_, found := routeKey(rt.regs, rt.focusChain(), k)
+	return found
 }
 
 // imeContext is how many runes around the selection input methods see.

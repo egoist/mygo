@@ -25,25 +25,48 @@ import (
 func TestPerformMenuItem(path ...string) error {
 	var err error
 	withPool(func() {
-		menu := send(theBackend.app, "mainMenu")
-		for i, title := range path {
-			if menu == 0 {
-				err = fmt.Errorf("mygo: menu %q has no submenu", path[i-1])
-				return
-			}
-			index := sendInt(menu, "indexOfItemWithTitle:", uintptr(nsString(title)))
-			if index < 0 {
-				err = fmt.Errorf("mygo: no menu item %q", title)
-				return
-			}
-			if i == len(path)-1 {
-				send(menu, "performActionForItemAtIndex:", uintptr(index))
-				return
-			}
-			menu = send(send(menu, "itemAtIndex:", uintptr(index)), "submenu")
+		var menu id
+		var index int
+		if menu, index, err = menuItemAt(path); err == nil {
+			send(menu, "performActionForItemAtIndex:", uintptr(index))
 		}
 	})
 	return err
+}
+
+// TestMenuItemEnabled reports whether an item of the application menu,
+// found as TestPerformMenuItem finds it, is enabled once its menu
+// validates its items, as before it opens.
+func TestMenuItemEnabled(path ...string) (enabled bool, err error) {
+	withPool(func() {
+		var menu id
+		var index int
+		if menu, index, err = menuItemAt(path); err == nil {
+			send(menu, "update")
+			enabled = sendBool(send(menu, "itemAtIndex:", uintptr(index)), "isEnabled")
+		}
+	})
+	return enabled, err
+}
+
+// menuItemAt finds an item of the application menu by the titles along
+// its path, and returns its menu and its index there.
+func menuItemAt(path []string) (menu id, index int, err error) {
+	menu = send(theBackend.app, "mainMenu")
+	for i, title := range path {
+		if menu == 0 {
+			return 0, 0, fmt.Errorf("mygo: menu %q has no submenu", path[i-1])
+		}
+		index = sendInt(menu, "indexOfItemWithTitle:", uintptr(nsString(title)))
+		if index < 0 {
+			return 0, 0, fmt.Errorf("mygo: no menu item %q", title)
+		}
+		if i == len(path)-1 {
+			return menu, index, nil
+		}
+		menu = send(send(menu, "itemAtIndex:", uintptr(index)), "submenu")
+	}
+	return 0, 0, fmt.Errorf("mygo: no menu item")
 }
 
 // TestPerformKeyEquivalent sends a key press with the Command key (and
