@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/internal/darwin"
+	"github.com/egoist/mygo/internal/wait"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -90,25 +91,29 @@ func TestDialogFromClick(t *testing.T) {
 	}
 }
 
-// TestMessageButtonRoles shows message sheets. Escape presses the cancel
-// button also when it is the default button, which alone has Return, and
-// Cmd+. presses it too; a DefaultButton of -1 gives Return to no button,
-// and DestructiveButtons marks theirs.
+// TestMessageButtonRoles presses keys in message sheets: a button has one
+// key equivalent, so Escape and Cmd+. must still reach a cancel button
+// whose key equivalent is Return, as it is the default button too, and
+// Return must answer nothing without a default button.
 func TestMessageButtonRoles(t *testing.T) {
+	type key struct {
+		code  uint16
+		chars string
+		cmd   bool
+	}
+	ret, esc, cmdPeriod := key{36, "\r", false}, key{53, "\x1b", false}, key{47, ".", true}
+	cancelIsDefault := mygo.MessageOptions{Buttons: []string{"Continue Editing", "Discard"}, DestructiveButtons: []int{1}}
+	noDefault := mygo.MessageOptions{Buttons: []string{"Delete", "Cancel"}, DefaultButton: -1, DestructiveButtons: []int{0}}
 	cases := []struct {
 		name        string
 		opts        mygo.MessageOptions
-		code        uint16
-		chars       string
-		cmd         bool
-		keys        []string
+		keys        []key
 		destructive []bool
-		cancel      int
+		want        int
 	}{
-		{"Escape on the default", mygo.MessageOptions{Buttons: []string{"Continue Editing", "Discard"}, DestructiveButtons: []int{1}},
-			53, "\x1b", false, []string{"\r", ""}, []bool{false, true}, 0},
-		{"Cmd+. without a default", mygo.MessageOptions{Buttons: []string{"Delete", "Cancel"}, DefaultButton: -1, DestructiveButtons: []int{0}},
-			47, ".", true, []string{"", ""}, []bool{true, false}, 1},
+		{"Return on a default that cancels", cancelIsDefault, []key{ret}, []bool{false, true}, 0},
+		{"Escape on a default that cancels", cancelIsDefault, []key{esc}, []bool{false, true}, 0},
+		{"Return and Cmd+. without a default", noDefault, []key{ret, cmdPeriod}, []bool{true, false}, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -129,24 +134,20 @@ func TestMessageButtonRoles(t *testing.T) {
 				answered <- res
 			}()
 			handle := w.NativeHandle()
-			var keys []string
 			var destructive []bool
 			eventually(t, "the sheet", func() bool {
 				var ok bool
-				mygo.RunOnMain(func() { keys, destructive, ok = darwin.TestSheetButtonRoles(handle) })
-				return ok && len(keys) == len(tc.keys)
+				mygo.RunOnMain(func() { destructive, ok = darwin.TestSheetDestructive(handle) })
+				return ok && len(destructive) == len(tc.destructive)
 			})
-			if !slices.Equal(keys, tc.keys) || !slices.Equal(destructive, tc.destructive) {
-				t.Errorf("key equivalents %q, destructive %v; want %q, %v", keys, destructive, tc.keys, tc.destructive)
+			if !slices.Equal(destructive, tc.destructive) {
+				t.Errorf("destructive buttons %v, want %v", destructive, tc.destructive)
 			}
-			mygo.RunOnMain(func() { darwin.TestSheetKey(handle, tc.code, tc.chars, tc.cmd) })
-			eventually(t, "the sheet to close", func() bool {
-				var ok bool
-				mygo.RunOnMain(func() { _, _, ok = darwin.TestSheetButtonRoles(handle) })
-				return !ok
-			})
-			if res := <-answered; res.Button != tc.cancel {
-				t.Errorf("the key pressed button %d, want %d", res.Button, tc.cancel)
+			for _, k := range tc.keys {
+				mygo.RunOnMain(func() { darwin.TestSheetKey(handle, k.code, k.chars, k.cmd) })
+			}
+			if res := wait.For(t, "the message's answer", answered); res.Button != tc.want {
+				t.Errorf("the keys answered button %d, want %d", res.Button, tc.want)
 			}
 		})
 	}

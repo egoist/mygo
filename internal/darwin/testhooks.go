@@ -1208,10 +1208,10 @@ func TestEndSheetButton(handle uintptr, i int) bool {
 	return true
 }
 
-// TestSheetButtonRoles returns the key equivalents of the buttons of the
-// alert attached to a window as a sheet, in the order the alert was given
-// them, and whether each has a destructive action.
-func TestSheetButtonRoles(handle uintptr) (keys []string, destructive []bool, ok bool) {
+// TestSheetDestructive reports whether each button of the alert attached
+// to a window as a sheet, in the order the alert was given them, has a
+// destructive action.
+func TestSheetDestructive(handle uintptr) (destructive []bool, ok bool) {
 	withPool(func() {
 		sheet := send(id(handle), "attachedSheet")
 		if sheet == 0 {
@@ -1232,17 +1232,16 @@ func TestSheetButtonRoles(handle uintptr) (keys []string, destructive []bool, ok
 		}
 		walk(send(sheet, "contentView"))
 		for i := 0; i < len(tagged); i++ {
-			keys = append(keys, goString(send(tagged[i], "keyEquivalent")))
 			destructive = append(destructive, respondsTo(tagged[i], "hasDestructiveAction") && sendBool(tagged[i], "hasDestructiveAction"))
 		}
 	})
 	return
 }
 
-// TestSheetKey presses and releases the key of virtual key code code,
-// typing chars, with Command held when cmd is set, in the sheet attached to
-// a window: it goes through the application's event queue, as the
-// keyboard's keys do. It reports whether there was a sheet.
+// TestSheetKey presses and releases a key in the sheet attached to a
+// window, with Command held when cmd is set, through the application's
+// event queue as the keyboard's keys go. It reports whether there was a
+// sheet.
 func TestSheetKey(handle uintptr, code uint16, chars string, cmd bool) bool {
 	sheet := send(id(handle), "attachedSheet")
 	if sheet == 0 {

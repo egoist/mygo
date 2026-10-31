@@ -33,11 +33,11 @@ res, err := mygo.Dialog.Message(mygo.MessageOptions{
 	Type:               mygo.MessageWarning,
 	Message:            "Delete 3 notes?",
 	Detail:             "You cannot undo this.",
-	Buttons:            []string{"Delete", "Cancel"},
-	DestructiveButtons: []int{0},
+	Buttons:            []string{"Cancel", "Delete"},
+	DestructiveButtons: []int{1},
 	CheckboxLabel:      "Don't ask again",
 })
-if res.Button == 0 { /* Delete */ }
+if res.Button == 1 { /* Delete */ }
 
 // Report an error.
 mygo.Dialog.Error("Import failed", err.Error())
@@ -46,11 +46,10 @@ mygo.Dialog.Error("Import failed", err.Error())
 `OpenDialogOptions` also pick directories (`Directory`), show hidden files
 and, on macOS, a message and a New Folder button. In message dialogs Enter
 activates `DefaultButton` and Escape `CancelButton` (by default the first
-button labeled Cancel or No), even when the two are the same button; on
-macOS Cmd+. cancels too. A `DefaultButton` of -1 leaves Enter to no button on
-macOS, for a question not to be answered by reflex. `DestructiveButtons`
-shows buttons that delete or can't be undone as such, on macOS 11 and
-later and on Linux.
+button labeled Cancel or No), also when they are one button, as Cancel
+above; on macOS Cmd+. cancels too, and a `DefaultButton` of -1 leaves Enter
+to no button. `DestructiveButtons` sets apart buttons that delete or can't
+be undone.
 
 ## Notifications
 

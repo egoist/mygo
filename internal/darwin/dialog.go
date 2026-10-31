@@ -135,8 +135,6 @@ func (d dialogs) ShowSaveDialog(parent platform.Window, o *platform.SaveDialogOp
 
 const nsAlertFirstButtonReturn = 1000
 
-// newAlert makes an alert whose button defaultID, if any, Return presses
-// (its key equivalent).
 func newAlert(kind, message, detail string, buttons []string, defaultID int, destructive []int) id {
 	alert := autorelease(alloc("NSAlert"))
 	style := uintptr(1) // NSAlertStyleInformational
@@ -170,15 +168,19 @@ func newAlert(kind, message, detail string, buttons []string, defaultID int, des
 	return alert
 }
 
-// alertCancels maps the window of each alert showing to its cancel button.
-var (
-	alertCancels    = map[id]id{}
-	alertKeyMonitor id
-)
+// alertKeys is the monitor of keys in the app that presses the cancel
+// button of the alert in front on Escape and Cmd+., the keys AppKit binds
+// to canceling, rather than a key equivalent: a button has one, which is
+// Return for a cancel button that is the default too. It is made once,
+// with the first alert.
+var alertKeys id
 
-// runAlert shows an alert as runPanel does, its button cancelID pressed by
-// Escape and Cmd+., as AppKit binds them to canceling. A key equivalent
-// would not do: a button has one, and the default button's is Return.
+// alertCancels maps the window of each alert showing to its cancel
+// button. Main thread only.
+var alertCancels = map[id]id{}
+
+// runAlert shows an alert as runPanel does, alertKeys pressing its button
+// cancelID.
 func runAlert(alert id, parent *window, cancelID int, done func(resp int)) {
 	win := send(alert, "window")
 	if items := arrayItems(send(alert, "buttons")); cancelID >= 0 && cancelID < len(items) {
@@ -192,23 +194,31 @@ func runAlert(alert id, parent *window, cancelID int, done func(resp int)) {
 }
 
 func watchAlertKeys() {
-	if alertKeyMonitor != 0 {
+	if alertKeys != 0 {
 		return
 	}
 	const mask = 1 << 10 // NSEventMaskKeyDown
 	blk := newBlock(func(_ objc.Block, ev id) id {
-		btn := alertCancels[send(ev, "window")]
+		win := send(ev, "window")
+		btn := alertCancels[win]
 		if btn == 0 {
 			return ev
 		}
+		// A key typed while the input method composes in a prompt's field
+		// is the input method's, as Escape giving the composition up.
+		if field := send(win, "firstResponder"); respondsTo(field, "hasMarkedText") && sendBool(field, "hasMarkedText") {
+			return ev
+		}
+		// Shift may type the period, as on AZERTY, which AppKit's key
+		// bindings allow.
 		mods, chars := eventMods(ev), goString(send(ev, "charactersIgnoringModifiers"))
-		if mods == 0 && chars == "\x1b" || mods == platform.ModSuper && chars == "." {
+		if mods == 0 && chars == "\x1b" || mods&^platform.ModShift == platform.ModSuper && chars == "." {
 			send(btn, "performClick:", 0)
 			return 0
 		}
 		return ev
 	})
-	alertKeyMonitor = retain(send(class("NSEvent"), "addLocalMonitorForEventsMatchingMask:handler:", mask, uintptr(blk)))
+	alertKeys = retain(send(class("NSEvent"), "addLocalMonitorForEventsMatchingMask:handler:", mask, uintptr(blk)))
 }
 
 func (d dialogs) ShowMessageBox(parent platform.Window, o *platform.MessageBoxOptions, cb func(platform.MessageBoxResult, error)) {
