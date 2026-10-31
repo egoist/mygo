@@ -316,7 +316,9 @@ func TestContentWindowWebViewScrollToContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.Update(func() { reader, page = r, p })
-	const tall = `<body style="margin:0;height:3000px"><script>window.ready = true</script></body>`
+	// Ready once the page has drawn: a wheel that comes sooner, while its
+	// first frame is still on the way, can find nothing to scroll yet.
+	const tall = `<body style="margin:0;height:3000px"><script>requestAnimationFrame(() => requestAnimationFrame(() => { window.ready = true }))</script></body>`
 	r.Page().LoadHTML(tall, "")
 	p.Page().LoadHTML(tall, "")
 	waitForPage(t, r.Page(), "window.ready")
