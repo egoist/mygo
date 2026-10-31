@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <android/log.h>
 #include <android/looper.h>
+#include <android/native_window_jni.h>
 #include "_cgo_export.h"
 
 static JavaVM *vm;
@@ -77,19 +78,19 @@ static int on_wake(int fd, int events, void *data) {
 	return 1;
 }
 
-JNIEXPORT void JNICALL Java_dev_mygo_MyGoNative_start(JNIEnv *env, jclass c, jstring files, jstring cache) {
+JNIEXPORT void JNICALL Java_dev_mygo_MyGoNative_start(JNIEnv *env, jclass c) {
 	if (wake[0] >= 0) return;
 	pipe2(wake, O_NONBLOCK | O_CLOEXEC);
 	ALooper_addFd(ALooper_forThread(), wake[0], ALOOPER_POLL_CALLBACK, ALOOPER_EVENT_INPUT, on_wake, NULL);
-	const char *f = (*env)->GetStringUTFChars(env, files, NULL);
-	const char *k = (*env)->GetStringUTFChars(env, cache, NULL);
-	// HOME and TMPDIR, which Android leaves unset, for os.UserHomeDir,
-	// os.UserConfigDir and os.TempDir.
-	setenv("HOME", f, 1);
-	setenv("TMPDIR", k, 1);
-	(*env)->ReleaseStringUTFChars(env, files, f);
-	(*env)->ReleaseStringUTFChars(env, cache, k);
 	mygo_start_android();
+}
+
+JNIEXPORT jlong JNICALL Java_dev_mygo_MyGoNative_nativeWindow(JNIEnv *env, jclass c, jobject surface) {
+	return (jlong)(intptr_t)ANativeWindow_fromSurface(env, surface);
+}
+
+JNIEXPORT void JNICALL Java_dev_mygo_MyGoNative_releaseNativeWindow(JNIEnv *env, jclass c, jlong window) {
+	if (window != 0) ANativeWindow_release((ANativeWindow *)(intptr_t)window);
 }
 
 JNIEXPORT jbyteArray JNICALL Java_dev_mygo_MyGoNative_event(JNIEnv *env, jclass c, jbyteArray msg, jboolean on_ui) {

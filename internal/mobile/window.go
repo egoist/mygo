@@ -1,9 +1,36 @@
 package mobile
 
 import (
+	"runtime"
+	"slices"
+
 	"github.com/egoist/mygo/internal/mobile/wire"
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/schemehost"
 )
+
+// mapsSchemes tells that the web view loads no custom scheme, as
+// Android's: the app's schemes are served at https://<scheme>.localhost
+// (package schemehost), which pages and the core never see.
+var mapsSchemes = runtime.GOOS == "android"
+
+// webURL is the URL the web view loads for url.
+func (w *window) webURL(url string) string {
+	if !mapsSchemes || url == "" {
+		return url
+	}
+	return schemehost.WebURLOf(url, "https", w.hasScheme)
+}
+
+// appURL is the URL of the app's that the web view's url stands for.
+func (w *window) appURL(url string) string {
+	if !mapsSchemes || url == "" {
+		return url
+	}
+	return schemehost.AppURLOf(url, "https", w.hasScheme)
+}
+
+func (w *window) hasScheme(s string) bool { return slices.Contains(w.opts.Schemes, s) }
 
 // window is a screen of the app: a web view, or a surface for native UI,
 // filling the screen while it is the window in front. Its size is the
@@ -265,11 +292,11 @@ func (w *window) WebViewHandle() uintptr { return uintptr(w.id) }
 
 func (w *window) LoadURL(url string) {
 	w.url = url
-	w.b.call(&wire.LoadURL{ID: w.id, URL: url}, nil)
+	w.b.call(&wire.LoadURL{ID: w.id, URL: w.webURL(url)}, nil)
 }
 
 func (w *window) LoadHTML(html, baseURL string) {
-	w.b.call(&wire.LoadHTML{ID: w.id, HTML: html, BaseURL: baseURL}, nil)
+	w.b.call(&wire.LoadHTML{ID: w.id, HTML: html, BaseURL: w.webURL(baseURL)}, nil)
 }
 
 func (w *window) LoadFile(path, _ string) { w.LoadURL("file://" + path) }

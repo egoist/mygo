@@ -108,7 +108,7 @@ func (b *Backend) handle(msg []byte) []byte {
 		e.Decode(&r)
 		reply := wire.WillNavigateReply{Allow: true}
 		if win := win(e.ID); win != nil {
-			reply.Allow = win.h.WillNavigate(platform.Navigation{URL: e.URL, IsMainFrame: e.MainFrame,
+			reply.Allow = win.h.WillNavigate(platform.Navigation{URL: win.appURL(e.URL), IsMainFrame: e.MainFrame,
 				UserInitiated: e.UserInitiated, Unasked: e.Unasked, Reload: e.Reload})
 		}
 		reply.Encode(&w)
@@ -117,10 +117,10 @@ func (b *Backend) handle(msg []byte) []byte {
 		e.Decode(&r)
 		reply := wire.NewWindowReply{}
 		if win := win(e.ID); win != nil {
-			nw := win.h.NewWindow(platform.NewWindowRequest{URL: e.URL, UserInitiated: e.UserInitiated, Disposition: "new-window"})
+			nw := win.h.NewWindow(platform.NewWindowRequest{URL: win.appURL(e.URL), UserInitiated: e.UserInitiated, Disposition: "new-window"})
 			if nw, ok := nw.(*window); ok && nw != nil {
 				// The app's window takes the page: phones show it in front.
-				nw.LoadURL(e.URL)
+				nw.LoadURL(win.appURL(e.URL))
 				reply.Handled = true
 			}
 		}
@@ -129,7 +129,7 @@ func (b *Backend) handle(msg []byte) []byte {
 		var e wire.PageStateEvent
 		e.Decode(&r)
 		if w := win(e.ID); w != nil {
-			w.url, w.loading, w.canBack, w.canFwd = e.URL, e.Loading, e.CanGoBack, e.CanGoForward
+			w.url, w.loading, w.canBack, w.canFwd = w.appURL(e.URL), e.Loading, e.CanGoBack, e.CanGoForward
 			if e.Title != w.pageTitle {
 				w.pageTitle = e.Title
 				w.h.TitleChanged(e.Title)
@@ -140,14 +140,14 @@ func (b *Backend) handle(msg []byte) []byte {
 		e.Decode(&r)
 		if w := win(e.ID); w != nil {
 			w.loading = true
-			w.h.NavigationStarted(e.URL)
+			w.h.NavigationStarted(w.appURL(e.URL))
 		}
 	case wire.EventNavigationCommitted:
 		var e wire.NavigationCommittedEvent
 		e.Decode(&r)
 		if w := win(e.ID); w != nil {
-			w.url = e.URL
-			w.h.NavigationCommitted(e.URL)
+			w.url = w.appURL(e.URL)
+			w.h.NavigationCommitted(w.url)
 		}
 	case wire.EventLoadFinished:
 		var e wire.LoadFinishedEvent
@@ -161,7 +161,7 @@ func (b *Backend) handle(msg []byte) []byte {
 		e.Decode(&r)
 		if w := win(e.ID); w != nil {
 			w.loading = false
-			w.h.LoadFailed(e.URL, e.Code, e.Description)
+			w.h.LoadFailed(w.appURL(e.URL), e.Code, e.Description)
 		}
 	case wire.EventClosedByPage:
 		var e wire.ClosedByPageEvent
@@ -180,7 +180,7 @@ func (b *Backend) handle(msg []byte) []byte {
 		e.Decode(&r)
 		reply := wire.PermissionRequestedReply{}
 		if w := win(e.ID); w != nil {
-			reply.Allow = w.h.PermissionRequested(e.Kinds, e.Origin)
+			reply.Allow = w.h.PermissionRequested(e.Kinds, w.appURL(e.Origin))
 		}
 		reply.Encode(&w)
 	case wire.EventSchemeRequest:
@@ -256,7 +256,7 @@ func (b *Backend) schemeRequest(e *wire.SchemeRequestEvent) {
 	if e.HasBody {
 		body = io.NopCloser(bytes.NewReader(e.Body))
 	}
-	w.h.SchemeRequest(&platform.SchemeRequest{Context: ctx, Method: e.Method, URL: e.URL, Header: header, Body: body, Responder: s})
+	w.h.SchemeRequest(&platform.SchemeRequest{Context: ctx, Method: e.Method, URL: w.appURL(e.URL), Header: header, Body: body, Responder: s})
 }
 
 func (s *schemeRequest) Respond(status int, header map[string][]string) {

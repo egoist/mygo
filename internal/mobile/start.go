@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"bufio"
+	"bytes"
 	"os"
 	"runtime"
 	_ "unsafe" // go:linkname
@@ -53,8 +54,31 @@ func redirectOutput() {
 			s := bufio.NewScanner(r)
 			s.Buffer(make([]byte, 4096), 1<<20)
 			for s.Scan() {
-				hostLog(isErr, s.Bytes())
+				if !chromiumLine(s.Bytes()) {
+					hostLog(isErr, s.Bytes())
+				}
 			}
 		}()
 	}
+}
+
+// chromiumLine reports whether line is a log line of Android's web view,
+// which writes to the process's standard error too, as
+// "[1031/124014.395252:INFO:file.cc:67] ...": it logs to the system's log
+// itself.
+func chromiumLine(line []byte) bool {
+	if len(line) < 2 || line[0] != '[' {
+		return false
+	}
+	end := bytes.IndexByte(line, ']')
+	if end < 0 {
+		return false
+	}
+	head := line[1:end]
+	for _, level := range []string{":INFO:", ":WARNING:", ":ERROR:", ":VERBOSE"} {
+		if bytes.Contains(head, []byte(level)) || bytes.HasPrefix(head, []byte(level[1:])) {
+			return true
+		}
+	}
+	return false
 }
