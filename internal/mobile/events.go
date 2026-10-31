@@ -18,6 +18,7 @@ func (b *Backend) handle(msg []byte) []byte {
 	win := func(id int) *window { return b.windows[id] }
 	switch op {
 	case wire.EventReady:
+		b.ready = true
 		b.h.Ready()
 	case wire.EventActive:
 		var e wire.ActiveEvent
@@ -30,11 +31,18 @@ func (b *Backend) handle(msg []byte) []byte {
 	case wire.EventBackground:
 		var e wire.BackgroundEvent
 		e.Decode(&r)
-		if e.Background {
+		switch {
+		case e.Background && !b.background:
+			b.background = true
 			b.h.PowerEvent("suspend")
-		} else {
+		case !e.Background && b.background:
+			// Coming back is the app opened again, as clicking its Dock
+			// icon is on macOS; launching is not.
+			b.background = false
 			b.h.PowerEvent("resume")
-			b.h.Activated(b.front() != nil)
+			if b.ready {
+				b.h.Activated(b.front() != nil)
+			}
 		}
 	case wire.EventThemeChanged:
 		var t wire.ThemeReply

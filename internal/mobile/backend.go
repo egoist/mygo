@@ -64,6 +64,9 @@ type Backend struct {
 	// shown lists the windows on screen, the one in front last.
 	shown []*window
 	dark  bool
+	// ready is set once the core heard Ready, background while the app is
+	// in the background.
+	ready, background bool
 
 	infoMu sync.Mutex
 	infoOK bool
@@ -159,7 +162,8 @@ func (b *Backend) Run() error {
 // host started Go once it had launched.
 func (b *Backend) postReady() {
 	b.mu.Lock()
-	b.events = append(b.events, event{msg: readyMsg})
+	// Before what the host sent while the app started.
+	b.events = append([]event{{msg: readyMsg}}, b.events...)
 	b.mu.Unlock()
 	b.wakeLoop()
 }
