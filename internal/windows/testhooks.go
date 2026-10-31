@@ -715,6 +715,24 @@ func TestPageGestures(hwnd uintptr, webView int) (swipe, pinch, ok bool) {
 	return sw != 0, pz != 0, true
 }
 
+// TestWheelSurface turns a mouse's wheel a notch down at (x, y), in DIPs,
+// in a window showing native UI, with the message Windows sends for it,
+// over whatever shows there: the content, or a web view's page.
+func TestWheelSurface(hwnd uintptr, x, y float64) bool {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	dpi := float64(w.surface.dpi()) / 96
+	pt := point{int32(x * dpi), int32(y * dpi)}
+	procClientToScreen.Call(w.surface.hwnd, uintptr(unsafe.Pointer(&pt)))
+	down := int16(-120) // WHEEL_DELTA, toward the user
+	wp := uintptr(uint16(down)) << 16
+	lp := uintptr(uint16(int16(pt.Y)))<<16 | uintptr(uint16(int16(pt.X)))
+	procSendMessageW.Call(w.surface.hwnd, wmMouseWheel, wp, lp)
+	return true
+}
+
 // TestPinchSurface pinches a touchpad at (x, y), in DIPs, in a window
 // showing native UI, by scale, with the message Windows sends for it: the
 // wheel with Ctrl held, by less than a notch at a time. It reports the

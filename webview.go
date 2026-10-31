@@ -46,7 +46,10 @@ type WebViewOptions struct {
 	Transparent bool
 	// ScrollToContainer scrolls the native container around the web view
 	// instead of its page. It suits a document that fills its own height in
-	// a native reader, rather than a page that scrolls itself.
+	// a native reader, rather than a page that scrolls itself. The wheel
+	// and the touchpad over the web view scroll the native UI as over its
+	// own elements, on macOS, Windows and Linux; a touchpad's pinch still
+	// goes to the page.
 	ScrollToContainer bool
 }
 

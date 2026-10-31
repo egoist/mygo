@@ -495,6 +495,13 @@ func TestRightClickSurface(handle uintptr, x, y float64) bool {
 	return clickSurface(handle, x, y, 3)
 }
 
+// TestWheelSurface turns a mouse's wheel a notch down at (x, y), in DIPs,
+// in a window showing native UI, through XTEST (button 5), over whatever
+// shows there: the content, or a web view's page.
+func TestWheelSurface(handle uintptr, x, y float64) bool {
+	return clickSurface(handle, x, y, 5)
+}
+
 // TestHasRecentItem reports whether the shared recent files list holds the
 // file at path, as App.AddRecentDocument put it there.
 func TestHasRecentItem(path string) bool {

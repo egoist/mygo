@@ -95,6 +95,10 @@ func drag(w *mygo.Window, points [][2]float64) bool {
 	return true
 }
 
+// The wheel over a web view is covered by internal/darwin's
+// TestEmbeddedWebViewScrollReachesSurface, with AppKit's events.
+func wheel(*mygo.Window, float64, float64) bool { return false }
+
 func webViewAttached(w *mygo.Window) (attached bool, supported bool) {
 	mygo.RunOnMain(func() { attached = darwin.TestWebViewAttached(w.NativeHandle()) })
 	return attached, true
