@@ -781,11 +781,8 @@ func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 	shown := ed.pointerIn || ed.scrollbar.active
 	if vertical {
 		x := r.X + r.W - scrollbarWidth
-		track := ui.Rect{X: x, Y: r.Y, W: scrollbarWidth, H: r.H}
+		// No track under the thumb, as a scroll container draws none.
 		hovered := ed.pointerIn && ed.region == regionVScroll
-		if hovered || ed.scrollbar.active {
-			p.Fill(track, t.Scrollbar.Alpha(0.15), 0)
-		}
 		span := float32(ed.scrollMax()) + ed.viewH
 		mark := func(y float64, h float32, x0, w float32, c ui.Color) {
 			yy := r.Y + float32(y/float64(span))*r.H
