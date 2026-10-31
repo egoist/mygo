@@ -20,9 +20,12 @@ type Theme struct {
 	// Font is the family of text, the window theme's when empty, and
 	// CodeFont that of code, the system's monospaced font when empty.
 	Font, CodeFont string
-	// LineHeight is how many times its font's line height a line of text
-	// is: 1.5 by default, and CodeLineHeight that of code, 1.4.
+	// LineHeight is the line height as a multiple of the font size:
+	// 1.5 by default, and CodeLineHeight that of code, 1.4.
 	LineHeight, CodeLineHeight float32
+	// FixedLineHeight and CodeFixedLineHeight override those multipliers
+	// with line heights in DIPs when positive. Zero keeps the multiplier.
+	FixedLineHeight, CodeFixedLineHeight float32
 
 	// Text colors text, Muted what is secondary (list markers, quotes,
 	// a code block's language, footnotes), Link links, and Strong strong
@@ -81,6 +84,9 @@ type Color = ui.Color
 
 // HeadingStyle is how headings of one level look.
 type HeadingStyle struct {
+	// FixedLineHeight overrides the view's line height in DIPs when
+	// positive. Zero inherits the view's line height.
+	FixedLineHeight float32
 	// Size is their size in ems, and Weight their weight.
 	Size   float32
 	Weight int

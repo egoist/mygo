@@ -179,6 +179,9 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 	st.fade = st.reveal.fader(c, o.Reveal)
 
 	root.FontSize(th.FontSize).LineHeight(th.LineHeight).TextColor(th.Text)
+	if th.FixedLineHeight > 0 {
+		root.FixedLineHeight(th.FixedLineHeight)
+	}
 	if th.Font != "" {
 		root.Font(th.Font)
 	}
@@ -315,6 +318,9 @@ func (st *viewState) defaultBlock(c *ui.Context, i int, tight bool, base spanSty
 		s := base
 		s.weight, s.size, s.color = h.Weight, th.em(h.Size), h.Color
 		el := st.paragraph(c, i, s).Role(ui.RoleHeading).Level(b.Level)
+		if h.FixedLineHeight > 0 {
+			el.FixedLineHeight(h.FixedLineHeight)
+		}
 		if h.Rule {
 			el.BorderWidth(0, 0, 1, 0).BorderColor(th.Rule).Padding(0, 0, th.em(0.3), 0)
 		}
@@ -586,6 +592,9 @@ func (st *viewState) marker(c *ui.Context, list, item *parser.Block, n, depth in
 		case item.Task != parser.NoTask:
 			size := th.em(0.95)
 			lineH := th.FontSize * th.LineHeight * 1.2
+			if th.FixedLineHeight > 0 {
+				lineH = th.FixedLineHeight
+			}
 			checked := item.Task == parser.Checked
 			cb := ui.Box(c).Size(size, size).Radius(max(3, size/5)).Margin(max(0, (lineH-size)/2-1), 0, 0, 0).Role(ui.RoleCheckBox).Checked(checked)
 			if checked {
