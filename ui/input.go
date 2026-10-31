@@ -11,6 +11,7 @@ import (
 // event handles a surface event on the main thread. It reports whether
 // an element takes files dragged over or dropped at the event's position.
 func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
+	defer rt.publishHoverChanges()
 	if ev.Kind != platform.SurfaceFrame {
 		// Whatever the event changes, the next frame builds anew.
 		rt.redraw = false
@@ -65,6 +66,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		} else {
 			// The elements around the one pressed hover no more.
 			rt.requestFrame()
+			rt.syncHoverCallbacks()
 		}
 	case platform.PointerScroll:
 		rt.pointerMove(x, y)
@@ -175,11 +177,21 @@ func (rt *engine) setHover(chain []uint64) bool {
 		}
 	}
 	if !changed {
+		rt.syncHoverCallbacks()
 		return false
 	}
 	// Only elements that look at their hover need a frame.
 	need := rt.watchHover(chain) || rt.watchHover(rt.hover)
+	old := rt.hover
 	rt.hover = chain
+	for _, id := range old {
+		if !slices.Contains(chain, id) {
+			if s := rt.states[id]; s != nil {
+				rt.changeHover(s, false)
+			}
+		}
+	}
+	rt.syncHoverCallbacks()
 	if need {
 		rt.requestFrame()
 	}
@@ -260,6 +272,9 @@ func (rt *engine) pointerMove(x, y float32) {
 	}
 	moved := x != rt.pointerX || y != rt.pointerY
 	rt.pointerX, rt.pointerY, rt.pointerIn = x, y, true
+	if rt.pressed != nil {
+		rt.syncHoverCallbacks()
+	}
 	if rt.selection.dragging && rt.pressed != nil {
 		rt.moveTextSelection(x, y)
 	}

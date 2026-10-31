@@ -348,6 +348,7 @@ type node struct {
 	// Input the element takes itself (HandleInput), and where the caret of
 	// the text it takes is (TextCaret).
 	inputFn    func(InputEvent) bool
+	hoverFn    func(bool)
 	textClient TextInputClient
 	caret      Rect
 	takesText  bool
