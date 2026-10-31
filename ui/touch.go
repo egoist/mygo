@@ -22,7 +22,8 @@ var (
 	touchFrame func(rt *engine, now time.Time)
 	// insetRoot keeps the content out from under what covers the
 	// window's edges, which only phones' do.
-	insetRoot func(rt *engine, root *node)
+	insetRoot     func(rt *engine, root *node)
+	extendScrolls func(rt *engine, root *node, h float32)
 )
 
 // enableTouch has the engines handle touches.
@@ -30,6 +31,7 @@ func enableTouch() {
 	touchInput = (*engine).touchEvent
 	touchFrame = (*engine).flingStep
 	insetRoot = (*engine).padInsets
+	extendScrolls = (*engine).extendUnderBottom
 }
 
 // touchSlop is how far a finger moves, in DIPs, before it pans rather

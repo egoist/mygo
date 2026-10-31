@@ -651,6 +651,9 @@ func (rt *engine) runFrame() {
 		insetRoot(rt, root)
 	}
 	layoutTree(root, appW, h)
+	if extendScrolls != nil {
+		extendScrolls(rt, root, h)
+	}
 	rt.commit(root, w, h)
 	// Scrolling can put a new native drop target under a stationary
 	// pointer. Resolve it against this frame's geometry, then rebuild if
@@ -1356,6 +1359,43 @@ func (rt *engine) overScrollbar(id uint64) bool {
 // cursorUnknown is the cursor the engine last set while the pointer is
 // over a web view, whose page set another.
 const cursorUnknown Cursor = 255
+
+// extendUnderBottom has the scroll containers that reach the bottom of
+// what the window's insets leave go on under the inset at the bottom, as
+// UIKit's scroll views go under a floating tab bar and the home
+// indicator, and Android's under the gesture bar: their content scrolls
+// there, and as far again, for its end to come out from under it. What
+// does not scroll stays clear of it.
+func (rt *engine) extendUnderBottom(root *node, h float32) {
+	hs, ok := rt.host.(interface{ insets() platform.Insets })
+	if !ok {
+		return
+	}
+	in := hs.insets()
+	b := float32(in.Bottom)
+	if rt.zoomed() {
+		b /= rt.contentZoom
+	}
+	if b <= 0 {
+		return
+	}
+	edge := h - b
+	var walk func(e *node)
+	walk = func(e *node) {
+		for c := e.first; c != nil; c = c.next {
+			if c.flags&flagScrollY != 0 {
+				if c.y+c.h >= edge-0.5 && c.y+c.h <= edge+0.5 {
+					c.h += b
+					c.contentH += float64(b)
+					c.barInset[2] += b
+				}
+				continue // what scrolls inside moves with it
+			}
+			walk(c)
+		}
+	}
+	walk(root)
+}
 
 // padInsets keeps the content out from under what covers the window's
 // edges, as a phone's bars, cutout and keyboard: the root takes them as

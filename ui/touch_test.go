@@ -79,3 +79,31 @@ func TestTouchPans(t *testing.T) {
 		t.Errorf("a tap on a fling: moved from %v to %v, %d clicks", stopped, s.Y, clicks)
 	}
 }
+
+// A scroll container reaching the bottom of the safe area goes on under
+// the bottom inset, as UIKit's under a floating tab bar, and scrolls as
+// far again; what does not scroll stays clear of the insets.
+func TestScrollUnderBottomInset(t *testing.T) {
+	var s ScrollState
+	var box *node
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Children(func() {
+			box = coreBox(c).Height(20).Shrink(0)
+			coreScroll(c).Grow(1).TrackScroll(&s).Children(func() {
+				coreBox(c).Height(1000).Shrink(0)
+			})
+		})
+	}, 200, 400)
+	tt.SetInsets(30, 0, 50, 0)
+	if box.y != 30 {
+		t.Errorf("the box is at %v, under the top inset", box.y)
+	}
+	s.Y = 10000
+	tt.Frame()
+	tt.Frame()
+	// 400 high: 30 above, 20 of box, the scroll from 50 to the bottom
+	// edge, 350 high, whose end comes out 50 above it.
+	if want := float32(1000 - (400 - 50 - 50)); s.Y != want {
+		t.Errorf("scrolled to the end at %v, want %v", s.Y, want)
+	}
+}

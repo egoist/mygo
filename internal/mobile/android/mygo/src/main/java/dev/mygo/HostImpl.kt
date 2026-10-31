@@ -48,8 +48,6 @@ object HostImpl : HostCalls {
     lateinit var root: FrameLayout
         private set
     val windows = HashMap<Long, HostWindow>()
-    /** The windows on screen, the one in front last. */
-    private val shown = ArrayList<HostWindow>()
     private var started = false
 
     // What covers the screen's edges, in pixels: the system's bars and
@@ -73,7 +71,7 @@ object HostImpl : HostCalls {
             ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
                 bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
                 ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-                for (w in windows.values) w.insetsChanged()
+                Navigation.insetsChanged()
                 insets
             }
             root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
@@ -121,9 +119,22 @@ object HostImpl : HostCalls {
 
     val density get() = app.resources.displayMetrics.density
 
+    /** The window in front: the visible window highest on screen. */
+    fun front(): HostWindow? = windows.values.filter { it.view.isShown }.maxByOrNull { w ->
+        var depth = 0
+        var v: View? = w.view
+        while (v != null && v !== root) {
+            val parent = v.parent as? android.view.ViewGroup ?: break
+            depth = depth * 64 + parent.indexOfChild(v)
+            v = parent
+        }
+        depth
+    }
+
     /** Android's back: the window in front's page goes back, or the app takes it. */
     fun back(): Boolean {
-        val w = shown.lastOrNull() ?: return false
+        if (Navigation.back()) return true
+        val w = front() ?: return false
         val r = Go.ask(Event.backPressed(w.id)) ?: return false
         return BackPressedReply(r).handled
     }
@@ -207,25 +218,35 @@ object HostImpl : HostCalls {
 
     override fun showWindow(c: ShowWindowCall) {
         val w = windows[c.id] ?: return
-        shown.remove(w)
-        shown.add(w)
-        (w.view.parent as? android.view.ViewGroup)?.removeView(w.view)
-        root.addView(w.view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        Navigation.show(w)
         w.insetsChanged()
     }
 
     override fun hideWindow(c: HideWindowCall) {
         val w = windows[c.id] ?: return
-        shown.remove(w)
-        root.removeView(w.view)
+        Navigation.hide(w)
     }
 
     override fun closeWindow(c: CloseWindowCall) {
         val w = windows.remove(c.id) ?: return
-        shown.remove(w)
-        root.removeView(w.view)
+        Navigation.hide(w)
+        Navigation.forget(w)
         w.close()
     }
+
+    override fun setTitle(c: SetTitleCall) { windows[c.id]?.let { Navigation.setTitle(it, c.title) } }
+    override fun createTabs(c: CreateTabsCall) = Navigation.createTabs(c.id, context)
+    override fun addTab(c: AddTabCall) { windows[c.window]?.let { Navigation.addTab(c.id, it, c.title, c.icon) } }
+    override fun showTabs(c: ShowTabsCall) = Navigation.showTabs(c.id)
+    override fun selectTab(c: SelectTabCall) { Navigation.tabs[c.id]?.select(c.index.toInt()) }
+    override fun setTabBadge(c: SetTabBadgeCall) = Navigation.setBadge(c.id, c.index.toInt(), c.badge)
+    override fun closeTabs(c: CloseTabsCall) = Navigation.closeTabs(c.id)
+    override fun pushWindow(c: PushWindowCall) {
+        val p = windows[c.parent] ?: return
+        val w = windows[c.child] ?: return
+        Navigation.push(w, p, c.title, c.animated)
+    }
+    override fun popWindow(c: PopWindowCall) { windows[c.id]?.let { Navigation.pop(it, c.animated) } }
 
     override fun setBackground(c: SetBackgroundCall) {
         windows[c.id]?.setBackground(rgbaToARGB(c.color))
@@ -480,7 +501,7 @@ object HostImpl : HostCalls {
     }
 
     override fun haptic(c: HapticCall) {
-        val v: View = shown.lastOrNull()?.view ?: root
+        val v: View = front()?.view ?: root
         val k = when (c.kind) {
             "selection" -> HapticFeedbackConstants.CLOCK_TICK
             "light" -> HapticFeedbackConstants.KEYBOARD_TAP
@@ -501,7 +522,7 @@ object HostImpl : HostCalls {
     override fun textInputChanged(c: TextInputChangedCall) { surface(c.id)?.textInputChanged() }
     override fun setCursor(c: SetCursorCall) { surface(c.id)?.setCursor(c.cursor) }
     override fun accessibilityChanged(c: AccessibilityChangedCall) { surface(c.id)?.accessibilityChanged(c.focus) }
-    override fun announce(c: AnnounceCall) { (shown.lastOrNull()?.view ?: root).announceForAccessibility(c.text) }
+    override fun announce(c: AnnounceCall) { (front()?.view ?: root).announceForAccessibility(c.text) }
     override fun showMenu(c: ShowMenuCall) { surface(c.id)?.showMenu(c) }
     override fun textMetrics(c: TextMetricsCall): TextMetricsReply = Text.metrics(c)
     override fun measureText(c: MeasureTextCall): MeasureTextReply = Text.measure(c)

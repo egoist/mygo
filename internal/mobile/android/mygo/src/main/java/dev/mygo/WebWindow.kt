@@ -70,11 +70,12 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
 
     /** Lays the page out inside the system's bars and above the keyboard. */
     override fun insetsChanged() {
-        val bars = HostImpl.bars
-        val ime = HostImpl.ime
+        val c = covered()
         val lp = web.layoutParams as FrameLayout.LayoutParams
-        lp.setMargins(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
-        web.layoutParams = lp
+        if (lp.leftMargin != c[1] || lp.topMargin != c[0] || lp.rightMargin != c[3] || lp.bottomMargin != maxOf(c[2], c[4])) {
+            lp.setMargins(c[1], c[0], c[3], maxOf(c[2], c[4]))
+            web.layoutParams = lp
+        }
         reportSize()
     }
 

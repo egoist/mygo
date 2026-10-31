@@ -22,4 +22,5 @@ dependencies {
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.activity:activity:1.10.1") // back, edge to edge
     implementation("androidx.webkit:webkit:1.14.0") // the web view's document-start scripts
+    implementation("com.google.android.material:material:1.13.0") // bottom navigation, toolbars
 }
