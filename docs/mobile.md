@@ -83,6 +83,38 @@ export default defineConfig({
 });
 ```
 
+## Tabs and stacks
+
+Phones move through an app with the system's bar of tabs at the bottom
+and stacks of screens, each with a bar at the top holding its title and a
+back button. `mygo.NewTabs` shows a bar of tabs (UIKit's on iOS, Material's
+bottom navigation on Android), and `Window.Push` shows a window over
+another, on its tab's stack:
+
+```go
+mygo.App.WhenReady(func() {
+	list := mygo.NewWindow(mygo.WindowOptions{Title: "Fruits", Content: ui.View(app.list), Hidden: true})
+	web := mygo.NewWindow(mygo.WindowOptions{Title: "Web", URL: "/", Hidden: true})
+	tabs, _ := mygo.NewTabs(
+		mygo.TabItem{Title: "Fruits", Symbol: "leaf", Icon: leafPNG, Window: list},
+		mygo.TabItem{Title: "Web", Symbol: "globe", Icon: globePNG, Window: web},
+	)
+	tabs.SetBadge(1, "3")
+	app.open = func(fruit string) {
+		list.Push(mygo.NewWindow(mygo.WindowOptions{Title: fruit, Content: ui.View(app.detail(fruit)), Hidden: true}))
+	}
+})
+```
+
+A tab names an SF Symbol for iOS and gives a PNG for Android (and for iOS
+without a symbol), drawn as a template in the bar's colors. The back
+button, iOS's swipe from the left edge and Android's back pop a pushed
+window, which closes it; `Window.Pop` does too. On iOS the bars float
+over native UI, whose lists scroll on beneath the tab bar's glass; on
+Android the bars take the color of the window's background. On desktops
+the windows are windows: `Tabs.Select` shows one, and a pushed window
+shows as one. `examples/tabs` shows both, with a page in one of its tabs.
+
 ## How apps behave on phones
 
 - **One screen**: the window shown last fills the screen, above those
@@ -93,15 +125,17 @@ export default defineConfig({
   background fills the edges. Pages lay out inside the bars, and above the
   keyboard on Android.
 - **Touch**: a tap is a click; a finger that moves pans what scrolls under
-  it and flings it on as it lifts; two fingers pinch (`InputZoom`).
+  it and flings it on as it lifts, pressing nothing it started on; two
+  fingers pinch (`InputZoom`).
   `Tester.TouchDown`, `TouchMove` and `TouchUp` test views with a finger.
 - **The keyboard** shows while an element of native UI takes text, with
   the system's suggestions and input methods (composition included), and
   a hardware keyboard's keys work as on the desktop.
 - **Accessibility**: VoiceOver and TalkBack read native UI's elements and
   act on them.
-- **Android's back** goes back in a page, closes what Escape closes in
-  native UI, or leaves the app running in the background.
+- **Android's back** pops the window pushed last, goes back in a page,
+  closes what Escape closes in native UI, goes back in a `ui.Router`, or
+  else leaves the app running in the background.
 - **Lifecycle**: the app never quits itself. Going to the background is a
   power event `"suspend"` (`Power.OnSuspend`), and coming back `"resume"`
   and `App.OnActivate`. The system may end an app in the background.
@@ -110,6 +144,8 @@ export default defineConfig({
   its document picker and gives copies of the files chosen, in the app's
   temporary files. `Dialog.Save` is not supported: write into the app's
   directories and share the file (`Shell.OpenPath`).
+- **Files**: `WatchFiles` watches the app's directories as on the
+  desktop.
 - **Secrets** go to the Keychain on iOS, and on Android to the app's
   storage, encrypted with a key of Android's keystore.
 - **Notifications** ask for the user's permission the first time.
@@ -119,5 +155,7 @@ export default defineConfig({
 Android's web view loads no custom schemes: the app's frontend
 (`mygo://localhost`) and its other schemes are served at
 `https://<scheme>.localhost`, which pages never notice but in
-`location.href`; Android gives no body of a request to such a scheme, so
-pages post to Go through bound methods rather than with `fetch`.
+`location.href`. Requests of `fetch` and `XMLHttpRequest` to the app's
+schemes keep their bodies; a form posted to one arrives without its body
+on Android, which does not give it, so post forms with `fetch` or through
+bound methods.
