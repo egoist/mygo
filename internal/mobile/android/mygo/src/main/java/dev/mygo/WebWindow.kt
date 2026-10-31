@@ -65,6 +65,9 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
         web.webViewClient = Client()
         web.webChromeClient = Chrome()
         setScripts(c.scripts, c.scriptFlags)
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(web, Schemes.bodyScript, setOf("*"))
+        }
         // The web view's own background, which the bars around it take,
         // until the app gives one.
         val dark = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
@@ -160,6 +163,10 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
 
         @JavascriptInterface
         fun asyncResult(req: Long, result: String, error: String) = Go.send(Event.asyncResult(req, result, error))
+
+        /** The body of a request to the app's schemes, which Android does not give shouldInterceptRequest. */
+        @JavascriptInterface
+        fun putBody(id: String, base64: String) = Schemes.putBody(id, base64)
     }
 
     private inner class Client : WebViewClient() {
@@ -316,11 +323,63 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
  * are served at https://<scheme>.localhost, whose requests go to Go
  * (shouldInterceptRequest, on a thread of the web view's), which answers
  * with SchemeRespond, SchemeData and SchemeFinish. Android gives no body
- * of a request.
+ * of a request: fetch and XMLHttpRequest put theirs aside (bodyScript).
  */
 object Schemes {
     private val next = AtomicLong()
     private val pending = java.util.concurrent.ConcurrentHashMap<Long, Pending>()
+    private val bodies = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+    private const val BODY_HEADER = "X-MyGo-Body"
+
+    fun putBody(id: String, base64: String) {
+        if (bodies.size > 64) bodies.clear() // bodies of requests that never came
+        bodies[id] = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+    }
+
+    /**
+     * Puts the bodies of fetch's and XMLHttpRequest's requests to the app's
+     * schemes (https URLs of the hosts under localhost) aside through putBody, and has the
+     * requests name them in a header, which request takes them back by.
+     */
+    val bodyScript = """
+(() => {
+  if (!window.mygoAndroid || window.__mygoBodies) return;
+  window.__mygoBodies = true;
+  const app = (u) => { try { const x = new URL(u, location.href); return x.protocol === 'https:' && x.hostname.endsWith('.localhost'); } catch (e) { return false; } };
+  const put = (buf) => {
+    const b = new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
+    window.mygoAndroid.putBody(id, btoa(s));
+    return id;
+  };
+  const fetch0 = window.fetch;
+  window.fetch = async function (input, init) {
+    const req = new Request(input, init);
+    if (!app(req.url) || req.method === 'GET' || req.method === 'HEAD' || req.body === null) return fetch0.call(this, input, init);
+    const headers = new Headers(req.headers);
+    headers.set('$BODY_HEADER', put(await req.arrayBuffer()));
+    return fetch0.call(this, req.url, { method: req.method, headers, credentials: req.credentials, cache: req.cache,
+      redirect: req.redirect, referrer: req.referrer, signal: req.signal, mode: req.mode });
+  };
+  const open0 = XMLHttpRequest.prototype.open, send0 = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url, async) {
+    this.__mygo = { method: String(method).toUpperCase(), url: String(url), async: async !== false };
+    return open0.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function (body) {
+    const m = this.__mygo;
+    if (!m || !m.async || body == null || m.method === 'GET' || m.method === 'HEAD' || !app(m.url)) return send0.call(this, body);
+    const r = new Response(body), type = r.headers.get('content-type');
+    r.arrayBuffer().then((buf) => {
+      if (type) try { this.setRequestHeader('Content-Type', type); } catch (e) {}
+      this.setRequestHeader('$BODY_HEADER', put(buf));
+      send0.call(this);
+    });
+  };
+})();
+"""
 
     private class Pending {
         val responded = CountDownLatch(1)
@@ -334,11 +393,16 @@ object Schemes {
         val p = Pending()
         pending[req] = p
         val header = ArrayList<String>()
+        var body: ByteArray? = null
         for ((k, v) in r.requestHeaders) {
+            if (k.equals(BODY_HEADER, true)) {
+                body = bodies.remove(v)
+                continue
+            }
             header.add(k)
             header.add(v)
         }
-        Go.send(Event.schemeRequest(window, req, r.method, r.url.toString(), header, ByteArray(0), false))
+        Go.send(Event.schemeRequest(window, req, r.method, r.url.toString(), header, body ?: ByteArray(0), body != null))
         if (!p.responded.await(60, TimeUnit.SECONDS)) {
             pending.remove(req)
             Go.send(Event.schemeCancel(req))
