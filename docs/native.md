@@ -44,12 +44,15 @@ mygo.Dialog.Error("Import failed", err.Error())
 ```
 
 `OpenDialogOptions` also pick directories (`Directory`), show hidden files
-and, on macOS, a message and a New Folder button. In message dialogs Enter
-activates `DefaultButton` and Escape `CancelButton` (by default the first
-button labeled Cancel or No), also when they are one button, as Cancel
-above; on macOS Cmd+. cancels too, and a `DefaultButton` of -1 leaves Enter
-to no button. `DestructiveButtons` sets apart buttons that delete or can't
-be undone.
+and, on macOS, a message and a New Folder button.
+
+In message dialogs Enter activates `DefaultButton` and Escape
+`CancelButton`, also when they are one button, as Cancel above. On macOS
+Cmd+. cancels too, and a `DefaultButton` of -1 leaves Enter to no button.
+`CancelButton` defaults to the first button labeled Cancel or No, else to
+the first button. For Delete / Keep, set `CancelButton: 1` to choose Keep;
+otherwise Escape chooses Delete. `DestructiveButtons` sets apart buttons
+that delete or can't be undone.
 
 ## Notifications
 
