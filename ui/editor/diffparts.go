@@ -115,6 +115,19 @@ func DefaultSeparator(c *ui.Context, sep ui.Element, s *DiffSeparator) {
 	})
 }
 
+// separatorInput takes a wheel over the separator, scrolling the diff's
+// sides as over its lines, and leaves the rest of the input shielded
+// from them, as the clicks and drags on their lines are.
+func separatorInput(ed *editor) func(ui.InputEvent) bool {
+	return func(ev ui.InputEvent) bool {
+		if ev.DY != 0 || ev.DX != 0 {
+			ed.wheel(ev)
+			return true
+		}
+		return shield(ev)
+	}
+}
+
 // buildSeparators places the separators in view across the viewer, both
 // sides of a split one, over the room the lines leave them, and builds
 // them.
@@ -144,7 +157,7 @@ func (d *DiffState) buildSeparators(c *ui.Context, ct *Theme) {
 			label = l10n.In(c.Locale()).UnmodifiedLines(s.Lines)
 		}
 		sep := ui.Box(c).Key(key).Absolute().Left(0).Right(ed.trackWidth()).Top(float32(top - ed.scrollY)).Height(b.height).
-			Role(ui.RoleGroup).Label(label).Cursor(ui.CursorDefault).KeepFocus().HandleInput(shield)
+			Role(ui.RoleGroup).Label(label).Cursor(ui.CursorDefault).KeepFocus().HandleInput(separatorInput(ed))
 		render(c, sep, s)
 	})
 }
