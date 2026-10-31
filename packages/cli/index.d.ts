@@ -126,6 +126,10 @@ export interface Config {
   windows?: WindowsConfig;
   /** Linux packaging. */
   linux?: LinuxConfig;
+  /** The iOS app (`mygo build -platform ios`, `ios/simulator`). */
+  ios?: IOSConfig;
+  /** The Android app (`mygo build -platform android`). */
+  android?: AndroidConfig;
 }
 
 /**
@@ -273,6 +277,38 @@ export interface WindowsConfig {
 }
 
 /** Linux packaging. */
+/** The iOS app. */
+export interface IOSConfig {
+  /** The oldest iOS the app runs on (default: `17.0`). */
+  minimumSystemVersion?: string;
+  /** The ID of the Apple developer team that signs the app for devices. */
+  team?: string;
+  /** The provisioning profile to sign with: its name, UUID or the path of a `.mobileprovision` (default: the installed one that best fits). */
+  provisioningProfile?: string;
+  /** What the build is for (default: `app-store`, TestFlight too). */
+  distribution?: "app-store" | "ad-hoc" | "development" | "enterprise";
+  /** `CFBundleVersion`, which must grow with every upload of a version (default: the version). */
+  buildNumber?: string;
+  /** The orientations the app turns to on iPhones (default: both); iPads take every one. */
+  orientations?: ("portrait" | "landscape")[];
+  /** Extra keys of Info.plist, which replace MyGo's own, as usage descriptions. */
+  infoPlist?: Record<string, unknown>;
+}
+
+/** The Android app. */
+export interface AndroidConfig {
+  /** The oldest Android API level the app runs on (default: `26`, Android 8.0). */
+  minSdk?: number;
+  /** The integer version Google Play orders uploads by (default: from the version, major×10000 + minor×100 + patch). */
+  versionCode?: number;
+  /** Permissions the manifest declares besides INTERNET, as `android.permission.CAMERA` or `CAMERA`. */
+  permissions?: string[];
+  /** The keystore of the upload key that signs release builds; its passwords come from `MYGO_ANDROID_KEYSTORE_PASSWORD` and `MYGO_ANDROID_KEY_PASSWORD`. Without one, builds are signed with the debug key. */
+  keystore?: string;
+  /** The alias of the upload key in the keystore. */
+  keyAlias?: string;
+}
+
 export interface LinuxConfig {
   /** `Name <email>`, the maintainer of the Debian package (default: `author` in package.json, else the app's name). */
   maintainer?: string;

@@ -591,7 +591,12 @@ func (r *Router) keys(c *context, box *node) {
 	if runtime.GOOS == "darwin" {
 		back[1], forward[1] = shortcut{Super, KeyBracketLeft}, shortcut{Super, KeyBracketRight}
 	}
-	pressed := func(keys [2]shortcut) bool {
+	// Only while there is somewhere to go: the keys are the window's
+	// otherwise, and Android's back leaves the app.
+	pressed := func(keys [2]shortcut, can bool) bool {
+		if !can {
+			return false
+		}
 		hit := false
 		for _, k := range keys {
 			if box.Shortcut(k.mods, k.key) || first && c.Shortcut(k.mods, k.key) {
@@ -600,10 +605,10 @@ func (r *Router) keys(c *context, box *node) {
 		}
 		return hit
 	}
-	if pressed(back) {
+	if pressed(back, r.CanGoBack()) {
 		r.Back()
 	}
-	if pressed(forward) {
+	if pressed(forward, r.CanGoForward()) {
 		r.Forward()
 	}
 }

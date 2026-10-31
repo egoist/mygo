@@ -97,6 +97,15 @@ jobs:
           go build $(go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v /cmd/mygo)
           go vet $(go list ./... | grep -v /cmd/mygo)
           go test -exec "$(go env GOROOT)/lib/wasm/go_js_wasm_exec" ./internal/web ./internal/gpu/gl
+      # Phones link with their own toolchains (cgo): Xcode's clang for iOS,
+      # the NDK's for Android, which the macOS runners have.
+      - name: Vet iOS and Android
+        if: runner.os == 'macOS'
+        run: |
+          sdk=$(xcrun --sdk iphoneos --show-sdk-path)
+          GOOS=ios GOARCH=arm64 CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $sdk -arch arm64 -miphoneos-version-min=16.0" go vet ./...
+          ndk=$(ls -d "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/*/bin)
+          GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC=$ndk/aarch64-linux-android26-clang go vet ./...
       # The plugins' tests load the native libraries their mygo-plugin.json
       # pins, and on Windows the installer tests run the NSIS that
       # internal/nsis pins, all of which they download into the user's cache

@@ -11,15 +11,21 @@ wire protocol, TypeScript generation, and the checklist for adding features.
 
 ## Hard rules
 
-- **No cgo.** Everything must build with `CGO_ENABLED=0`. Call native code
-  through purego (`internal/darwin`, `internal/linux`) or `syscall`
-  (`internal/windows`), never `import "C"`.
+- **No cgo**, but to link for phones. Everything must build with
+  `CGO_ENABLED=0` for desktops and browsers. Call native code through
+  purego (`internal/darwin`, `internal/linux`) or `syscall`
+  (`internal/windows`), never `import "C"`. iOS and Android link with
+  their own toolchains (`CGO_ENABLED=1`, Xcode's and the NDK's clang), as
+  Go needs for them: `import "C"` is only in `internal/mobile`'s glue, and
+  on iOS purego reaches Metal and Core Text alone, the hosts (Swift,
+  Kotlin) everything else (see "Phones" in the architecture guide).
 - **Bun is dev tooling only.** The repository is a Bun workspace
   (`packages/bridge`, `packages/runtime`, `packages/cli` with its platform
   packages, the plugins' packages in `plugins/`, and examples with a frontend, which keep it at their root like
   the project template, and `website`); Bun also installs and runs the template's scripts
   (Vite, the mygo-cli package). Nothing in an app may need Bun at run time.
-- **Scope:** system webview on macOS, Linux and Windows (WebView2), and
+- **Scope:** system webview on macOS, Linux and Windows (WebView2), on
+  iOS and Android (`internal/mobile`, with Swift and Kotlin hosts), and
   native UI that MyGo draws itself (`WindowOptions.Content`, package `ui`;
   see "Native UI" in the architecture guide), which also runs in browsers
   (`GOOS=js GOARCH=wasm`, `internal/web`, drawn with WebGL 2 by the GL
@@ -55,6 +61,8 @@ go build ./... && GOOS=linux go build ./... && GOOS=windows go build ./...  # al
 go vet ./... && GOOS=linux go vet ./... && GOOS=windows go vet ./...
 go vet -tags mygo_noinspector ./...        # production builds, without the inspector of native UI
 GOOS=js GOARCH=wasm go vet $(GOOS=js GOARCH=wasm go list ./... | grep -v /cmd/mygo)  # browsers, all but the CLI
+GOOS=ios GOARCH=arm64 CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64" go vet ./...  # iPhones (Xcode)
+GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC=$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang go vet ./...  # Android (the NDK)
 go test ./...                              # core (fake backend), tsgen, CLI, accelerator
 go build -trimpath -tags mygo_noinspector -ldflags "-s -w -X github.com/egoist/mygo.production=1" -o /tmp/counter-native ./examples/counter-native  # an app's release size, as the benchmarks build it
 MYGO_E2E=1 go test ./internal/e2e          # real GUI tests (macOS desktop session)
@@ -66,6 +74,11 @@ go run ./cmd/mygo dev examples/todo        # live reload (dev bundle in examples
 go run ./cmd/mygo dev -web examples/counter-native   # native UI in the browser, with live reload
 go run ./cmd/mygo build examples/todo      # .app + .dmg in examples/todo/build
 go run ./cmd/mygo build -platform web examples/counter-native   # a static site in examples/counter-native/dist/web
+go run ./cmd/mygo dev -platform ios examples/todo        # on the booted iOS simulator (Xcode)
+go run ./cmd/mygo dev -platform android examples/todo    # on the device or emulator adb reaches (SDK + NDK)
+go run ./cmd/mygo build -platform ios/simulator examples/counter-native   # an .app for the simulator (ios: a signed .ipa)
+go run ./cmd/mygo build -platform android examples/counter-native         # an .apk and an .aab
+go generate ./internal/mobile/wire          # the messages of phones' backend and hosts: Go, Swift, Kotlin
 go run ./examples/gallery                  # the native UI toolkit's tour
 go run ./examples/code-editor              # the code editor and the diff viewer (ui/editor)
 go run ./examples/markdown-chat            # Markdown replies streaming in (ui/markdown)
@@ -96,7 +109,10 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   benchmarks branch's commits say it.
 - New behavior goes into `package mygo` first; backends only translate
   `internal/platform` calls to native ones. Implement every platform method in
-  `darwin`, `linux`, `windows`, `web`, `fake` and `unsupported`.
+  `darwin`, `linux`, `windows`, `web`, `mobile`, `fake` and `unsupported`.
+  A call of `mobile`'s host is a message of `internal/mobile/wire/gen/spec.go`,
+  implemented in the Swift host (`internal/mobile/ios`) and the Kotlin one
+  (`internal/mobile/android`).
 - Objective-C: `alloc`/`init` objects are owned and must be released; wrap
   temporary objects in `withPool`; copy blocks you call later.
 - Official plugins live in `plugins/<name>`: the Go package and its npm

@@ -1,4 +1,4 @@
-//go:build !(darwin || linux || windows) || !(amd64 || arm64)
+//go:build !((darwin && !ios) || (linux && !android) || windows) || !(amd64 || arm64)
 
 package sqlite
 
