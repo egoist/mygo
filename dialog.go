@@ -81,13 +81,21 @@ type MessageOptions struct {
 	Detail string
 	// Buttons defaults to a single "OK" button.
 	Buttons []string
-	// DefaultButton is the index of the button activated with Enter.
+	// DefaultButton is the index of the button activated with Enter, or -1
+	// for none, for a question not to be answered by reflex: on macOS, Enter
+	// then presses no button. Windows makes the first button the default
+	// all the same.
 	DefaultButton int
-	// CancelButton is the index of the button activated with Escape. When
-	// zero, the first button labeled "Cancel" or "No" is used.
-	CancelButton    int
-	CheckboxLabel   string
-	CheckboxChecked bool
+	// CancelButton is the index of the button activated with Escape (and
+	// Cmd+. on macOS), also when it is the default button. When zero, the
+	// first button labeled "Cancel" or "No" is used.
+	CancelButton int
+	// DestructiveButtons are the indexes of buttons that destroy data or
+	// can't be undone, such as Delete: macOS 11 and later and Linux show
+	// them as such.
+	DestructiveButtons []int
+	CheckboxLabel      string
+	CheckboxChecked    bool
 }
 
 // MessageResult is the outcome of Dialog.Message.
@@ -205,6 +213,7 @@ func (DialogModule) Message(opts MessageOptions) (MessageResult, error) {
 		Buttons:         buttons,
 		DefaultID:       opts.DefaultButton,
 		CancelID:        cancel,
+		DestructiveIDs:  opts.DestructiveButtons,
 		CheckboxLabel:   opts.CheckboxLabel,
 		CheckboxChecked: opts.CheckboxChecked,
 	}

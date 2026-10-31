@@ -1208,6 +1208,63 @@ func TestEndSheetButton(handle uintptr, i int) bool {
 	return true
 }
 
+// TestSheetButtonRoles returns the key equivalents of the buttons of the
+// alert attached to a window as a sheet, in the order the alert was given
+// them, and whether each has a destructive action.
+func TestSheetButtonRoles(handle uintptr) (keys []string, destructive []bool, ok bool) {
+	withPool(func() {
+		sheet := send(id(handle), "attachedSheet")
+		if sheet == 0 {
+			return
+		}
+		ok = true
+		tagged := map[int]id{}
+		var walk func(v id)
+		walk = func(v id) {
+			if sendBool(v, "isKindOfClass:", uintptr(class("NSButton"))) {
+				if i := sendInt(v, "tag") - nsAlertFirstButtonReturn; i >= 0 {
+					tagged[i] = v
+				}
+			}
+			for _, sub := range arrayItems(send(v, "subviews")) {
+				walk(sub)
+			}
+		}
+		walk(send(sheet, "contentView"))
+		for i := 0; i < len(tagged); i++ {
+			keys = append(keys, goString(send(tagged[i], "keyEquivalent")))
+			destructive = append(destructive, respondsTo(tagged[i], "hasDestructiveAction") && sendBool(tagged[i], "hasDestructiveAction"))
+		}
+	})
+	return
+}
+
+// TestSheetKey presses and releases the key of virtual key code code,
+// typing chars, with Command held when cmd is set, in the sheet attached to
+// a window: it goes through the application's event queue, as the
+// keyboard's keys do. It reports whether there was a sheet.
+func TestSheetKey(handle uintptr, code uint16, chars string, cmd bool) bool {
+	sheet := send(id(handle), "attachedSheet")
+	if sheet == 0 {
+		return false
+	}
+	var flags uint
+	if cmd {
+		flags = 1 << 20 // NSEventModifierFlagCommand
+	}
+	withPool(func() {
+		number := sendInt(sheet, "windowNumber")
+		s := nsString(chars)
+		for _, typ := range []uint{10, 11} { // NSEventTypeKeyDown, KeyUp
+			ev := msgKeyEvent(class("NSEvent"), sel("keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"),
+				typ, NSPoint{}, flags, 0, number, 0, s, s, false, code)
+			send(theBackend.app, "postEvent:atStart:", uintptr(ev), 0)
+		}
+	})
+	handlePosted()
+	return true
+}
+
 // TestModal reports whether a dialog runs for a window, as its sheet or
 // application modal (runModal), and whether it shows: AppKit ordered it
 // in, and the window server put it on screen.
