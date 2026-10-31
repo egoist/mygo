@@ -5602,6 +5602,21 @@ func (_handle Element) ScrollbarInsets(v ...float32) Element {
 	return wrapElement(_node.ScrollbarInsets(v...))
 }
 
+// Scrollbars controls the overlay indicators and their pointer hit targets on
+// this scroll container. They show on hover by default. With false, scrolling
+// by wheel, TrackScroll, keyboard focus and accessibility remains available.
+// It applies to Scroll, ScrollHorizontal, ScrollBoth and List, not the internal
+// indicators of custom controls such as a code editor, and is not inherited.
+func (_handle Element) Scrollbars(visible bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Scrollbars(visible))
+}
+
 // Selectable lets the user select and copy text by dragging, double-clicking
 // a word, triple-clicking a line, or using Shift with the arrows. Its context
 // menu has Copy and Select All; Cmd+C copies the selection.
