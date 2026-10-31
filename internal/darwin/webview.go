@@ -321,6 +321,14 @@ func webViewMethods() []objc.MethodDef {
 		sendSuper(self, "MyGoWebView", cmd, uintptr(ev))
 	}
 	return []objc.MethodDef{
+		method("scrollWheel:", func(self id, cmd objc.SEL, ev id) {
+			w := theBackend.byWebView[self]
+			if w == nil || w.host == nil || w.host.surface == nil || w.opts == nil || !w.opts.ScrollToContainer {
+				sendSuper(self, "MyGoWebView", cmd, uintptr(ev))
+				return
+			}
+			scrollWheel(w.host.surface, ev)
+		}),
 		method("rightMouseDown:", press(1)),
 		method("otherMouseDown:", press(2)),
 		method("mouseMoved:", moved),

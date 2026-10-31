@@ -425,6 +425,9 @@ type WindowOptions struct {
 	// WebKit hands us for window.open().
 	Native uintptr
 
+	// ScrollToContainer scrolls the native container around an embedded web
+	// view instead of its page. Ordinary pages keep their own wheel input.
+	ScrollToContainer bool
 	// Surface creates the window with a Surface, which content MyGo draws
 	// itself fills, instead of a webview: Window.Surface returns it, the
 	// webview methods do nothing and the webview options are ignored.

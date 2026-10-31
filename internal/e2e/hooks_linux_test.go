@@ -75,6 +75,11 @@ func drag(w *mygo.Window, points [][2]float64) bool {
 	return fake(func() bool { return linux.TestDragSurface(w.NativeHandle(), points) })
 }
 
+// wheel turns the mouse's wheel a notch down at (x, y), through XTEST.
+func wheel(w *mygo.Window, x, y float64) bool {
+	return fake(func() bool { return linux.TestWheelSurface(w.NativeHandle(), x, y) })
+}
+
 func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
 // Collection behaviors and deactivating the app are macOS's.

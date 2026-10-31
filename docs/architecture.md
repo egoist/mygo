@@ -3260,7 +3260,9 @@ either.
     it, so WebKit focuses the page's first (last) element; as Tab leaves
     the page WebKit selects the next key view, which `MyGoWindow` turns
     into `WebViewTabOut`. The page's node lists the WKWebView, whose
-    `accessibilityParent` is that node; the clip view lists none.
+    `accessibilityParent` is that node; the clip view lists none. With
+    `ScrollToContainer`, `MyGoWebView`'s `scrollWheel:` gives the event to
+    the surface's conversion (`scrollWheel`) instead of WebKit.
   - Linux: the first web view puts the surface's area in a `GtkOverlay`,
     over a `GtkLayout` holding the WebKitWebViews (which, unlike a
     `GtkFixed`, asks for no size), as an overlay, which GTK realizes again
@@ -3277,7 +3279,10 @@ either.
     the view's handler turns into `WebViewTabOut`. The page's node lists
     the view's accessible, an `AtkSocket` the web process's tree is
     embedded in; the overlay is a subclass whose accessible lists the
-    surface's alone.
+    surface's alone. With `ScrollToContainer`, a handler of the view's
+    `scroll-event`, which runs before WebKit's class handler, converts the
+    event as the area's does (`scrollEvent`, moved by the view's
+    allocation), sends it to the content and stops the signal.
   - Windows: WebView2 in visual hosting, a composition controller
     (`ICoreWebView2Environment3`) whose visual is in a DirectComposition
     target of the surface's window that is not topmost (a window has one
@@ -3297,12 +3302,17 @@ either.
     `TabInto` is `MoveFocus` (next or previous), and `MoveFocusRequested`
     becomes `WebViewTabOut`. The surface's drop target sends drags over a
     page to its composition controller (`ICoreWebView2CompositionController3`'s
-    `DragEnter` and the others). For UI Automation the root also answers
-    `IRawElementProviderHwndOverride`: for the window WebView2 shows a page
-    with, it returns the page's node, which answers with WebView2's
-    provider of the page (`get_AutomationProvider`), as WinUI 3 does. That
-    provider has no children: the page's elements are under a top-level
-    window of WebView2's (`Chrome_WidgetWin_1`), which
+    `DragEnter` and the others). With `ScrollToContainer`, `forwardMouse`
+    keeps the wheel over that web view (`WM_MOUSEWHEEL`, `WM_MOUSEHWHEEL`)
+    for the surface, which scrolls the content as over its own elements;
+    a touchpad's pinch, the wheel by less than a notch with Ctrl held,
+    still goes to the page, as pinches do on the other platforms. For UI
+    Automation the root also answers `IRawElementProviderHwndOverride`:
+    for the window WebView2 shows a page with, it returns the page's node,
+    which answers with WebView2's provider of the page
+    (`get_AutomationProvider`), as WinUI 3 does. That provider has no
+    children: the page's elements are under a top-level window of
+    WebView2's (`Chrome_WidgetWin_1`), which
     `GetAutomationProviderForWindow` does not map to it, so UI Automation
     finds them there (seen with a runtime of October 2026).
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
