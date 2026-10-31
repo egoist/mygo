@@ -1,7 +1,12 @@
 package metal
 
-// The compiled library is macOS's, which iOS cannot load: the renderer
-// compiles the shader's source there as it starts.
-const shaderLibrarySum = ""
+import "os"
 
-var shaderLibrary []byte
+// shaderLibrary is the library compiled for where the app runs: the
+// simulator sets SIMULATOR_DEVICE_NAME in its apps' environment.
+var shaderLibrary = func() []byte {
+	if os.Getenv("SIMULATOR_DEVICE_NAME") != "" {
+		return shaderLibrarySimulator
+	}
+	return shaderLibraryDevice
+}()

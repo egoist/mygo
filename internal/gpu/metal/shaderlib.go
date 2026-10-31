@@ -4,7 +4,7 @@
 
 package metal
 
-// shaderLibrarySum is the SHA-256 of the shader.metal shaderLibrary was
+// shaderLibrarySum is the SHA-256 of the shader.metal the libraries were
 // compiled from.
 const shaderLibrarySum = "4aa49106cf6e1f0171255cfc953f5ba8698b4eb1671796f2773a81f74b13a13a"
 

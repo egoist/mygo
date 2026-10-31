@@ -851,7 +851,9 @@ func (r *Renderer) effectPipeline(e *scene.Effect) id {
 			lib = shared
 		}
 	}
-	if lib == 0 && len(e.Metal.Compiled) > 0 && e.Metal.Sum == gpu.SourceSum(src) {
+	// Effects compile ahead of time for macOS only: iOS compiles them as
+	// they first draw.
+	if lib == 0 && runtime.GOOS != "ios" && len(e.Metal.Compiled) > 0 && e.Metal.Sum == gpu.SourceSum(src) {
 		lib = r.libraryFromData(e.Metal.Compiled)
 	}
 	if lib == 0 {
