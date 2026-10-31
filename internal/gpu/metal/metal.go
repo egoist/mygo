@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 // Package metal draws scenes with Metal into a CAMetalLayer, called through
 // the Objective-C runtime with purego like the rest of the macOS backend

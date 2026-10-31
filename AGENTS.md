@@ -55,6 +55,8 @@ go build ./... && GOOS=linux go build ./... && GOOS=windows go build ./...  # al
 go vet ./... && GOOS=linux go vet ./... && GOOS=windows go vet ./...
 go vet -tags mygo_noinspector ./...        # production builds, without the inspector of native UI
 GOOS=js GOARCH=wasm go vet $(GOOS=js GOARCH=wasm go list ./... | grep -v /cmd/mygo)  # browsers, all but the CLI
+GOOS=ios GOARCH=arm64 CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64" go vet ./...  # iPhones (Xcode)
+GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC=$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang go vet ./...  # Android (the NDK)
 go test ./...                              # core (fake backend), tsgen, CLI, accelerator
 go build -trimpath -tags mygo_noinspector -ldflags "-s -w -X github.com/egoist/mygo.production=1" -o /tmp/counter-native ./examples/counter-native  # an app's release size, as the benchmarks build it
 MYGO_E2E=1 go test ./internal/e2e          # real GUI tests (macOS desktop session)
