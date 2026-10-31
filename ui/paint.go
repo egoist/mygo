@@ -1011,7 +1011,7 @@ func (p *Painter) decorationRun(l *text.Layout, li, i, j int, x, y float32, d de
 				continue
 			}
 			if k == text.Underline && d.dotted {
-				p.dots(st.X0, st.X1, st.Bottom, c)
+				p.dots(st.X0, st.X1, st.Bottom, st.Bottom-st.Top, c)
 				continue
 			}
 			p.add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: st.X0, Y: st.Top, W: st.X1 - st.X0, H: st.Bottom - st.Top}, Color: c.scene(), Wide: p.wide(c, Color{}, Color{}), Opacity: p.opacity})
@@ -1037,11 +1037,12 @@ func (p *Painter) wave(x0, x1, y, thick float32, c Color) {
 	p.StrokePath(&path, thick/s, c)
 }
 
-// dots fills one-DIP dots every three DIPs along an underline stroke,
-// which ends at its bottom in device pixels, as links mark hover.
-func (p *Painter) dots(x0, x1, bottom float32, c Color) {
-	size := max(float32(math.Round(float64(p.scale))), 1)
-	for x := x0; x < x1; x += 3 * p.scale {
+// dots fills square dots as thick as the underline's stroke, which ends
+// at bottom in device pixels, every three DIPs or two dots' widths apart
+// when they are thicker, as links mark hover.
+func (p *Painter) dots(x0, x1, bottom, thick float32, c Color) {
+	size := max(float32(math.Round(float64(thick))), 1)
+	for x := x0; x < x1; x += max(3*p.scale, 2*size) {
 		p.add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: x, Y: bottom - size, W: size, H: size}, Color: c.scene(), Wide: p.wide(c, Color{}, Color{}), Opacity: p.opacity})
 	}
 }

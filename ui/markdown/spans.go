@@ -201,9 +201,7 @@ func (sb *spanBuilder) addSpan(text string, src, end int, exact bool, s spanStyl
 	if s.font != "" {
 		sp.Font = s.font
 	}
-	// A code span inside a link shows as the link — the monospace face and
-	// the wash distinguish code from prose, and the link already does.
-	if s.code && !s.inLink {
+	if s.code {
 		sp.Font = th.CodeFont
 		sp.Size = th.em(th.CodeSize)
 		if s.size != 0 {
@@ -211,7 +209,9 @@ func (sb *spanBuilder) addSpan(text string, src, end int, exact bool, s spanStyl
 		}
 		sp.Background = th.CodeBackground
 		sp.Radius = max(3, sp.Size/4)
-		sp.Color = th.Code
+		if !s.inLink {
+			sp.Color = th.Code
+		}
 	}
 	if s.inLink && th.LinkWeight > s.weight {
 		sp.Weight = th.LinkWeight

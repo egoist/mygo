@@ -36,10 +36,18 @@ func TestViewAnchorInitialAndRepeated(t *testing.T) {
 	}
 }
 
-func TestViewLocalAnchorPrecedesOnLink(t *testing.T) {
+// TestViewOnLinkSetsAnchor checks that OnLink keeps getting #a-heading
+// links, and scrolls the view to the heading by setting Anchor.
+func TestViewOnLinkSetsAnchor(t *testing.T) {
 	var scroll ui.ScrollState
 	var clicked []string
-	o := Options{OnLink: func(dest string) { clicked = append(clicked, dest) }}
+	var o Options
+	o.OnLink = func(dest string) {
+		clicked = append(clicked, dest)
+		if strings.HasPrefix(dest, "#") {
+			o.Anchor = dest
+		}
+	}
 	source := "[Jump](#target) [File](next.md)\n\n" + strings.Repeat("A paragraph before the destination.\n\n", 30) + "# Target\n\nDestination.\n"
 	tt := ui.NewTester(func(c *ui.Context) {
 		c.DisableAnimations()
@@ -48,18 +56,15 @@ func TestViewLocalAnchorPrecedesOnLink(t *testing.T) {
 	if err := tt.Click("File"); err != nil {
 		t.Fatal(err)
 	}
-	if len(clicked) != 1 || clicked[0] != "next.md" {
-		t.Fatalf("file did not reach OnLink: %q", clicked)
-	}
 	if err := tt.Click("Jump"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if len(clicked) != 1 {
-		t.Fatalf("local heading was intercepted by OnLink: %q", clicked)
+	if len(clicked) != 2 || clicked[0] != "next.md" || clicked[1] != "#target" {
+		t.Fatalf("OnLink got %q, want next.md and #target", clicked)
 	}
 	if scroll.Y <= 0 {
-		t.Fatal("local anchor did not reveal its heading")
+		t.Fatal("the anchor OnLink set did not reveal its heading")
 	}
 	if len(tt.OpenedURLs()) != 0 {
 		t.Fatalf("links escaped to the system opener: %q", tt.OpenedURLs())

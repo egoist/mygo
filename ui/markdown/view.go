@@ -22,16 +22,18 @@ type Options struct {
 	Extensions parser.Extensions
 
 	// OnLink, when set, handles a click on a link, given its destination.
-	// Document-local #heading links always scroll within this view.
 	// Without it, links to http, https and mailto addresses open as a
 	// ui.Link opens them, a path without a scheme goes there in the
 	// router around the view, a link to #a-heading scrolls to that
 	// heading, and links of other schemes do nothing.
 	OnLink func(url string)
-	// Anchor scrolls to a heading slug, optionally prefixed with "#", when
-	// it changes or another document replaces the view's source.
+	// Anchor scrolls to the heading of this slug, with or without its "#",
+	// when the document first shows, when another document replaces it,
+	// and when Anchor changes: a docs reader opens guide.md#install at
+	// its heading. An OnLink that takes #a-heading links sets it.
 	Anchor string
-	// AnchorVersion requests another jump to the same Anchor when changed.
+	// AnchorVersion scrolls to Anchor again when it changes, for the same
+	// heading asked for twice.
 	AnchorVersion uint64
 	// LoadImage loads the image at url, on a goroutine of its own, for the
 	// views to show; until it has, they show its description. Without
@@ -470,15 +472,15 @@ func (st *viewState) link(c *ui.Context, in *parser.Inline, children func()) {
 	switch {
 	case in.Pending:
 		l = ui.Link(c, "", "")
-	case strings.HasPrefix(dest, "#"):
-		l = ui.Link(c, "", "")
-		if l.Clicked() {
-			st.scrollTo = st.headingNamed(dest[1:])
-		}
 	case st.o.OnLink != nil:
 		l = ui.Link(c, "", "")
 		if l.Clicked() {
 			st.o.OnLink(dest)
+		}
+	case strings.HasPrefix(dest, "#"):
+		l = ui.Link(c, "", "")
+		if l.Clicked() {
+			st.scrollTo = st.headingNamed(dest[1:])
 		}
 	case linkAllowed(dest, c.Router() != nil):
 		l = ui.Link(c, "", dest)
