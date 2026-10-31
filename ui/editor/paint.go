@@ -775,6 +775,10 @@ func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 	ct := ed.theme
 	t := p.Theme()
 	vertical, horizontal := ed.scrollbars()
+	// The thumbs and the carets' marks show while the pointer is over the
+	// editor, or drags a thumb, as a scroll container's do; the marks of
+	// changes, matches and diagnostics always.
+	shown := ed.pointerIn || ed.scrollbar.active
 	if vertical {
 		x := r.X + r.W - scrollbarWidth
 		track := ui.Rect{X: x, Y: r.Y, W: scrollbarWidth, H: r.H}
@@ -840,6 +844,9 @@ func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 			}
 			mark(h.top(v.text.LineOf(d.Start)), v.lineHeight, 7, 3, ct.SeverityColor(d.Severity))
 		}
+		if !shown {
+			return
+		}
 		// Carets.
 		if len(ed.sels) <= 100 {
 			for _, s := range ed.sels {
@@ -854,7 +861,7 @@ func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 		}
 		p.Fill(thumb, t.Scrollbar.Alpha(alpha), (scrollbarWidth-4)/2)
 	}
-	if horizontal {
+	if horizontal && shown {
 		t0, t1 := ed.thumb(true)
 		y := r.Y + r.H - scrollbarWidth
 		alpha := float32(0.4)
