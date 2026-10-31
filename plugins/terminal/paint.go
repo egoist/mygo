@@ -814,54 +814,35 @@ func (v *view) drawPreedit(p *ui.Painter, ox, oy, cw, ch, base float32) {
 	p.Fill(ui.Rect{X: x, Y: y + ch - 1/v.scale, W: w, H: 1 / v.scale}, fg, 0)
 }
 
-// How long the scroll bar stays after the viewport last moved, or the
-// pointer left it, and how long it then takes to fade out.
-const (
-	barLinger = time.Second
-	barFade   = 300 * time.Millisecond
-)
-
-// drawScrollbar shows where the viewport is in the scrollback, as macOS's
-// overlay scroll bars do: as the viewport moves, and while the pointer is
-// over the bar's strip or drags it, when it widens; a while after, it
-// fades out.
+// drawScrollbar shows where the viewport is in the scrollback, as the
+// code editor's and scroll containers' bars do: the thumb, on no track,
+// while the pointer is over the terminal or drags it, bolder over its
+// strip, in the terminal's text color as faint as the theme's bars.
 func (v *view) drawScrollbar(p *ui.Painter, r ui.Rect) {
 	sb := v.scrollbar
-	now := p.Now()
-	if back := int64(sb.Total) - int64(sb.Len) - int64(sb.Offset); back != v.barBack {
-		v.barBack, v.barSeen = back, now
-	}
-	lit := v.barHeld || v.barHover
-	if v.barLit && !lit {
-		v.barSeen = now
-	}
-	v.barLit = lit
-	if sb.Total <= sb.Len {
+	if sb.Total <= sb.Len || !v.inView && !v.barHeld {
 		return
 	}
-	a := float32(1)
-	if !lit {
-		switch d := now.Sub(v.barSeen); {
-		case d < barLinger:
-			p.After(barLinger - d)
-		case d < barLinger+barFade:
-			a = 1 - float32(d-barLinger)/float32(barFade)
-			p.AnimationFrame()
-		default:
-			return
-		}
-	}
 	fg := color(v.colors.Foreground)
-	y, h := thumb(sb, r.H)
-	w, inset, c := float32(4), float32(3), fg.Alpha(0.35*a)
-	if lit {
-		w, inset = 8, 2
-		if v.barHeld {
-			c = fg.Alpha(0.5)
-		}
+	// The theme's bars: black at 0.32 on light, white at 0.35 on dark.
+	c := fg.Alpha(0.32)
+	if luminance(fg) > 0.5 {
+		c = fg.Alpha(0.35)
 	}
-	p.Fill(ui.Rect{X: r.X + r.W - inset - w, Y: r.Y + y + 2, W: w, H: h - 4}, c, w/2)
+	a := float32(0.5)
+	if v.barHover || v.barHeld {
+		a = 0.9
+	}
+	y, h := thumb(sb, r.H)
+	p.Fill(ui.Rect{X: r.X + r.W - barInset - barWidth, Y: r.Y + y, W: barWidth, H: h}, c.Alpha(a), barWidth/2)
 }
+
+// The thumb's width, and how far in from the right edge it is, as the
+// code editor's.
+const (
+	barWidth = 6
+	barInset = 2
+)
 
 // thumb returns the top of the scroll bar's thumb in a track h DIPs high,
 // and its height; the scrollback is longer than the viewport.
