@@ -249,7 +249,11 @@ object HostImpl : HostCalls {
     override fun popWindow(c: PopWindowCall) { windows[c.id]?.let { Navigation.pop(it, c.animated) } }
 
     override fun setBackground(c: SetBackgroundCall) {
-        windows[c.id]?.setBackground(rgbaToARGB(c.color))
+        val w = windows[c.id] ?: return
+        val argb = rgbaToARGB(c.color)
+        w.fill = argb
+        w.setBackground(argb)
+        Navigation.backgroundChanged(w)
     }
 
     override fun focus(c: FocusCall) {

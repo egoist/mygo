@@ -123,6 +123,17 @@ func (s *surface) PresentPixels([]byte, int, int, int) {}
 
 func (s *surface) SetCursor(c platform.Cursor) {}
 
+// SetBackground tells the host the color the content's frames fill the
+// window with, which the system's bars around it take on Android (its
+// toolbar, its bottom navigation), for the screen to be of one color.
+func (s *surface) SetBackground(c platform.Color) {
+	if c == s.w.bg {
+		return
+	}
+	s.w.bg = c
+	s.w.b.call(&wire.SetBackground{ID: s.w.id, Color: rgba(c)}, nil)
+}
+
 // SetTextInput shows the keyboard while an element takes text, and gives
 // the host the text around the caret, which the keyboard's suggestions
 // and input methods read.

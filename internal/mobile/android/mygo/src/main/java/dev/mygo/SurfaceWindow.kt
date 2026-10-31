@@ -48,7 +48,11 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
 
     private var nodes: List<Node>? = null
 
-    override fun setBackground(argb: Int) = surface.setBackgroundColor(argb)
+    // A SurfaceView's background would draw over its surface, hiding the
+    // frames: the page around it takes the color.
+    override fun setBackground(argb: Int) {
+        (surface.parent as? View)?.setBackgroundColor(argb)
+    }
 
     fun requestFrame() {
         if (framePending) return

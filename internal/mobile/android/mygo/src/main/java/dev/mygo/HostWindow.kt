@@ -10,6 +10,8 @@ import android.view.View
 abstract class HostWindow(val context: Context, val id: Long) {
     abstract val view: View
     private var last: DoubleArray? = null
+    /** The color the window's content fills it with, 0 while unknown. */
+    var fill = 0
 
     /**
      * What covers the window, in pixels: the system's bars and the cutout

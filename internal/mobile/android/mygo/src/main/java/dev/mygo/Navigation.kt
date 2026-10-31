@@ -53,6 +53,7 @@ object Navigation {
         fun select(i: Int) {
             if (i !in stacks.indices) return
             selected = i
+            stacks[i].pages.lastOrNull()?.window?.let { tint(it) }
             for ((k, s) in stacks.withIndex()) s.visibility = if (k == i) View.VISIBLE else View.GONE
             if (bar.selectedItemId != i) bar.selectedItemId = i
             for (p in stacks[i].pages) p.window.reportSize()
@@ -79,7 +80,7 @@ object Navigation {
                 t.setNavigationContentDescription(androidx.appcompat.R.string.abc_action_bar_up_description)
                 t.setNavigationOnClickListener { pop(w, true) }
             }
-            t.setBackgroundColor(HostImpl.themeColor(android.R.attr.colorBackground))
+            t.setBackgroundColor(if (w.fill != 0) w.fill else HostImpl.themeColor(android.R.attr.colorBackground))
             v.addView(t, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             toolbar = t
         }
@@ -151,6 +152,7 @@ object Navigation {
         stacks[w.id] = s
         s.addView(p.view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         insetsChanged()
+        tint(w)
         if (animated && s.width > 0) {
             p.view.translationX = s.width.toFloat()
             p.view.animate().translationX(0f).setDuration(250).withEndAction { below?.view?.visibility = View.INVISIBLE }.start()
@@ -173,6 +175,7 @@ object Navigation {
         val below = s.pages.lastOrNull()
         below?.view?.visibility = View.VISIBLE
         below?.view?.translationX = 0f
+        below?.window?.let { tint(it) }
         for ((k, p) in gone.withIndex()) {
             stacks.remove(p.window.id)
             val last = k == gone.size - 1
@@ -251,6 +254,23 @@ object Navigation {
     fun closeTabs(id: Long) {
         val t = tabs.remove(id) ?: return
         root.removeView(t)
+    }
+
+    /**
+     * The bars around a window take the color its content fills it with:
+     * its toolbar, and the bar of tabs while it is in front of its tab.
+     */
+    fun backgroundChanged(w: HostWindow) {
+        val s = stacks[w.id] ?: return
+        s.pages.firstOrNull { it.window === w }?.toolbar?.setBackgroundColor(w.fill)
+        val t = s.tabs ?: return
+        if (t.stacks.getOrNull(t.selected) === s && s.pages.lastOrNull()?.window === w) tint(w)
+    }
+
+    private fun tint(w: HostWindow) {
+        if (w.fill == 0) return
+        val s = stacks[w.id] ?: return
+        s.tabs?.bar?.setBackgroundColor(w.fill)
     }
 
     fun setTitle(w: HostWindow, title: String) {
