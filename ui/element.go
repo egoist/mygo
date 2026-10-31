@@ -164,6 +164,7 @@ type textStyle struct {
 	align      Align
 	underline  bool
 	wavy       bool
+	dotted     bool
 	strike     bool
 	spacing    float32 // letter spacing
 	features   string
@@ -1322,14 +1323,22 @@ func (e *node) TextAlign(a Align) *node { e.ts.align = a; e.ts.set |= setAlign; 
 
 // Underline underlines text.
 func (e *node) Underline() *node {
-	e.ts.underline, e.ts.wavy = true, false
+	e.ts.underline, e.ts.wavy, e.ts.dotted = true, false, false
 	e.ts.set |= setUnderline
 	return e
 }
 
 // WavyUnderline underlines text with a wave, as spell checkers mark words.
 func (e *node) WavyUnderline() *node {
-	e.ts.underline, e.ts.wavy = true, true
+	e.ts.underline, e.ts.wavy, e.ts.dotted = true, true, false
+	e.ts.set |= setUnderline
+	return e
+}
+
+// DottedUnderline underlines text with a line of dots, as links mark
+// hover.
+func (e *node) DottedUnderline() *node {
+	e.ts.underline, e.ts.wavy, e.ts.dotted = true, false, true
 	e.ts.set |= setUnderline
 	return e
 }
