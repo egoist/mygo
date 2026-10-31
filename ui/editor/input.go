@@ -156,7 +156,7 @@ func (ed *editor) regionAt(x, y float32) region {
 	if vertical && x >= ed.r.W-scrollbarWidth {
 		return regionVScroll
 	}
-	if horizontal && y >= ed.viewH-scrollbarWidth {
+	if horizontal && y >= ed.hbarY && y < ed.hbarY+scrollbarWidth {
 		return regionHScroll
 	}
 	if x < ed.gutterW {
@@ -429,13 +429,18 @@ func (ed *editor) trackWidth() float32 {
 
 // scrollbars reports which scroll bars the editor shows, and takes
 // presses on: the vertical one while it scrolls, as it does past the end
-// of a short text, and the horizontal one while a line runs under the
-// vertical one or beyond.
+// of a short text, and never for an editor as high as its content or the
+// old side of a split diff; the horizontal one while a line runs under
+// the vertical one's track or beyond.
 func (ed *editor) scrollbars() (vertical, horizontal bool) {
-	if ed.o.noScrollbar || ed.o.fitContent {
-		return false, false
-	}
-	return ed.scrollMax() > 0, !ed.view.wrap && ed.view.maxLine > ed.r.W-ed.textX-scrollbarWidth
+	vertical = !ed.o.noScrollbar && !ed.o.fitContent && ed.scrollMax() > 0
+	return vertical, !ed.view.wrap && ed.view.maxLine > ed.hTrack()
+}
+
+// hTrack is the length of the horizontal scroll bar's track: the text's
+// width, short of the vertical one's.
+func (ed *editor) hTrack() float32 {
+	return ed.r.W - ed.textX - ed.trackWidth()
 }
 
 func (ed *editor) maxScrollX() float32 {
@@ -463,7 +468,7 @@ func (ed *editor) dragScrollbar(ev ui.InputEvent) {
 	t0, t1 := ed.thumb(ed.scrollbar.horizontal)
 	size := t1 - t0
 	if ed.scrollbar.horizontal {
-		track := ed.r.W - ed.textX - scrollbarWidth
+		track := ed.hTrack()
 		f := (ev.X - ed.textX - ed.scrollbar.grab) / max(1, track-size)
 		ed.scrollX = max(0, min(f*ed.maxScrollX(), ed.maxScrollX()))
 		if s := ed.o.sharedScroll; s != nil {
@@ -489,7 +494,7 @@ func (ed *editor) setScrollShared(y float64) {
 // thumb returns where the scroll bar's thumb is along its track.
 func (ed *editor) thumb(horizontal bool) (float32, float32) {
 	if horizontal {
-		track := ed.r.W - ed.textX - scrollbarWidth
+		track := ed.hTrack()
 		content := ed.view.maxLine + ed.view.charWidth*4
 		size := max(24, track*track/max(content, track))
 		f := float32(0)

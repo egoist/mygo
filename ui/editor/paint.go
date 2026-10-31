@@ -107,6 +107,9 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 	clip := p.Visible()
 	y0 := ed.scrollY + float64(max(0, clip.Y-r.Y))
 	y1 := ed.scrollY + float64(min(r.H, clip.Y+clip.H-r.Y))
+	// The horizontal scroll bar at the bottom of what shows, as an editor
+	// as high as its content may run far below the window's.
+	ed.hbarY = max(0, min(r.H, clip.Y+clip.H-r.Y)) - scrollbarWidth
 	var f frame
 	f.first, f.last = ed.visibleLines(y0, y1)
 	ed.shown = [2]int{f.first, f.last}
@@ -860,7 +863,7 @@ func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 	}
 	if horizontal && shown {
 		t0, t1 := ed.thumb(true)
-		y := r.Y + r.H - scrollbarWidth
+		y := r.Y + ed.hbarY
 		alpha := float32(0.4)
 		if ed.pointerIn && ed.region == regionHScroll || ed.scrollbar.active {
 			alpha = 0.9
