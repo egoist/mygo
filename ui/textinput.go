@@ -76,6 +76,18 @@ func (e *node) Placeholder(s string) *node {
 	return e
 }
 
+// CaretWidth sets this input's painted caret width in DIPs for this build.
+// It defaults to one DIP. Positive widths are rounded to device pixels,
+// at least one pixel wide; zero and negative widths hide the caret. It does
+// not change text layout, input-method candidate bounds or caret blinking.
+// Other elements are unaffected.
+func (e *node) CaretWidth(width float32) *node {
+	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
+		ed.caretWidth = max(width, 0)
+	}
+	return e
+}
+
 // ReadOnly makes a text input show its text without letting the user
 // change it: the text can still be selected and copied, from the keyboard
 // too, as it takes the focus, without a caret; assistive technology reads
