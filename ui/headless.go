@@ -401,6 +401,7 @@ func (t *Tester) SetTitleBar(bar TitleBar) {
 // as a phone's bars, cutout and keyboard cover its screen: the view lays
 // out inside them.
 func (t *Tester) SetInsets(top, right, bottom, left float32) {
+	enableTouch()
 	t.h.inset = platform.Insets{Top: float64(top), Right: float64(right), Bottom: float64(bottom), Left: float64(left)}
 	t.Frame()
 }
@@ -675,6 +676,7 @@ func (t *Tester) webViewPress(x, y float32, button int, mods platform.Modifiers)
 // and lifted as it moves it flings it on, which advancing the clock
 // (Advance) shows.
 func (t *Tester) TouchDown(x, y float32) {
+	enableTouch()
 	t.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: float64(x), Y: float64(y), Touch: true})
 	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y), Clicks: 1, Touch: true})
 }

@@ -14,6 +14,24 @@ import (
 // decelerates (UIScrollView.DecelerationRate.normal), from frame to
 // frame of the window's clock.
 
+// Desktops send no touches: what handles them is reached only where the
+// platform has touch screens (touch_mobile.go), or a Tester touches, for
+// apps of desktops not to link it.
+var (
+	touchInput func(rt *engine, ev platform.SurfaceEvent, x, y float32) bool
+	touchFrame func(rt *engine, now time.Time)
+	// insetRoot keeps the content out from under what covers the
+	// window's edges, which only phones' do.
+	insetRoot func(rt *engine, root *node)
+)
+
+// enableTouch has the engines handle touches.
+func enableTouch() {
+	touchInput = (*engine).touchEvent
+	touchFrame = (*engine).flingStep
+	insetRoot = (*engine).padInsets
+}
+
 // touchSlop is how far a finger moves, in DIPs, before it pans rather
 // than presses: UIKit's and Android's touch slop, about a millimeter.
 const touchSlop = 8

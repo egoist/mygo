@@ -573,7 +573,7 @@ func (e *coreText) systemFont(size float32, weight int, italic, mono bool) uintp
 			font = ct.uiFontForLanguage(ctFontUIFontSystem, float64(size), 0)
 			// iOS has no NSFont: the weight goes in the system font's
 			// descriptor, as UIFont's systemFontOfSize:weight: does.
-			if font != 0 && weight != 400 {
+			if runtime.GOOS == "ios" && font != 0 && weight != 400 {
 				if f := e.weighted(font, size, weight); f != 0 {
 					ct.release(font)
 					font = f

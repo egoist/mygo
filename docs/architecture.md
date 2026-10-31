@@ -23,7 +23,9 @@ framework safely. Read it before changing anything under `internal/`.
   cross-compiled from any machine. Native APIs are called at run time through
   [purego](https://github.com/ebitengine/purego) (`dlopen` + assembly
   trampolines) on macOS and Linux and through the `syscall` package on
-  Windows, never through `import "C"`.
+  Windows, never through `import "C"`. Phones are the exception Go makes:
+  iOS and Android link with their own toolchains, with cgo (see
+  [Phones](#phones-internalmobile)).
 - **Two kinds of windows.** Web pages show in the system webview:
   WKWebView on macOS, WebKitGTK 4.1 (4.0 as a fallback) on Linux, WebView2
   on Windows (amd64 and arm64); no browser engine is bundled. Native UI is
@@ -81,6 +83,8 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── windows/        Windows: Win32 + WebView2 through syscall and COM
 │   ├── schemehost/     maps custom scheme URLs to the http://*.localhost URLs WebView2 serves them at
 │   ├── web/            browsers (js/wasm): native UI on canvases, through syscall/js
+│   ├── mobile/         iOS and Android: one backend; wire/ its messages; ios/ the
+│   │                   Swift host, android/ the Kotlin host (a Gradle project)
 │   ├── unsupported/    stub for other platforms
 │   ├── fake/           in-memory backend for unit tests
 │   ├── watchdriver/    the goroutine that runs a backend's file watcher
@@ -804,6 +808,92 @@ gained one field, `SurfaceNative.Canvas`.
   the router's first or after its last, as after a reload (which takes
   the number of the browser's entry for the router's), becomes the
   router's; a fragment typed in, without a state, is pushed.
+
+### Phones (`internal/mobile`)
+
+With `GOOS=ios` or `GOOS=android`, `backend_mobile.go` picks
+`internal/mobile`, one backend for both: Go and the system meet in a host
+written in the system's language, Swift with UIKit on iOS
+(`internal/mobile/ios`), Kotlin with Android's views on Android
+(`internal/mobile/android`), which owns the process's UI thread and does
+what only it does well: the views, the web view and its delegates, the
+keyboard, accessibility, the system's dialogs and Swift-only or Java-only
+APIs. Phones' build modes need cgo to link (`c-archive` linked into the
+Swift host by swiftc, `c-shared` loaded by the Kotlin one), the only cgo of
+MyGo, in `glue_ios.go` and `glue_android.go` (with `jni_android.c`); the
+rest of the backend builds anywhere, and its tests run on desktops with a
+fake host. Desktop files of `darwin` and `linux` exclude `ios` and
+`android`, which their constraints otherwise include.
+
+- **Threads.** Go runs on a thread of its own, the core's main thread:
+  the host's `mygo_start` (once the app launched) runs the app's `main`
+  there, found with `go:linkname` as the build modes compile but don't run
+  it, and `App.Run` loops over the host's events, as the browser backend
+  does. Go's calls of the host run on the UI thread (`transport`): queued,
+  then drained when the host runs `mygo_drain` (Go asks with `post`: a
+  `DispatchQueue.main` block on iOS, a pipe the main `ALooper` watches on
+  Android, so that no thread of Go's attaches to the JVM), or at once while
+  the UI thread waits for Go's answer to an event it sent: a handler of
+  `WillNavigate` may call the host. Neither side ever waits for the other
+  without serving it, and `Step` waits for events without the UI thread,
+  which goes on.
+- **Messages** (`internal/mobile/wire`) are numbered and binary, their
+  fields in the order of `gen/spec.go`, from which `go generate` writes
+  the Go side and the Swift and Kotlin ones (`Wire.swift`, `Wire.kt`): a
+  `HostCalls` protocol the hosts implement and the encoders of events. A
+  call without a reply is not waited for, so most cost Go a queue append;
+  answers that come later (a dialog's, `CallAsync`'s) are events carrying
+  the request's number.
+- **Windows** fill the screen, the one shown last in front. Their size is
+  the root view's, and the insets of what covers it (the system's bars,
+  the cutout, the keyboard) come with it (`Resized`): native UI lays out
+  inside them (`platform.InsetSurface`, `ui`'s `padInsets`), pages inside
+  the bars on Android and as WKWebView insets them on iOS.
+- **Pages.** WKWebView takes the app's schemes as `WKURLSchemeHandler`s
+  and the bridge's messages through `messageHandlers.mygo`, as on macOS.
+  Android's WebView loads no custom scheme: as WebView2, it is served the
+  app's at `https://<scheme>.localhost` (`schemehost.WebURLOf`, mapped back
+  for the core), answered from `shouldInterceptRequest` with a stream Go
+  writes, without the request's body, which Android does not give; the
+  bridge posts through the host's JavaScript interface (`mygoAndroid`),
+  and document-start scripts come from androidx.webkit. Android starts a
+  page as it commits it (`onPageStarted`), when the core takes its URL to
+  trust it, before its scripts run.
+- **Native UI.** iOS draws with the Metal renderer and Core Text, through
+  purego as on macOS, on Go's thread: frames present through the command
+  buffer (no transaction to present with, which needs a run loop) and Core
+  Animation's transactions are flushed (`flushTransactions`); the renderer
+  adds its CAMetalLayer to the view's layer, sizes it each frame, and uses
+  shared storage, as iOS has no managed textures. Core Text's system font
+  takes its weight from its descriptor, as there is no NSFont, and smooths
+  nothing. Android draws with the GL renderer, OpenGL ES 3 in an EGL context
+  of its own (`gl.NewWindow`) on the surface's ANativeWindow; the host
+  waits for Go to let go of it before Android does (`SurfaceDestroyed`).
+  Android's text is Minikin's and Skia's, through the host's `Paint`
+  (`internal/text/paint_android.go`): an engine sharing the browsers'
+  layout of grapheme clusters (`clusters.go`), whose words the host
+  measures (`getTextRunAdvances`) and whose clusters it draws. Frames come
+  at the display's refreshes (CADisplayLink, Choreographer) when asked.
+- **Input.** A finger is the pointer while it touches (`SurfaceEvent.Touch`,
+  the first one; two pinch), and `ui` pans what scrolls under one that
+  moves and flings it on (`ui/touch.go`, reached only where touches come:
+  `touch_mobile.go`, or a Tester touching). The hosts take the keyboard
+  with `UITextInput` and an `InputConnection`, the text around the caret
+  mirrored from `SetTextInput`, the input methods' marked or composing text
+  sent as compositions; VoiceOver and TalkBack ask for the accessibility
+  tree when they read the window (`AccessibilityTree`), which turns on the
+  content's (`AccessibilityOn`).
+- **Packaging** is the CLI's (`cmd/mygo/ios.go`, `android.go`): for iOS,
+  swiftc compiles the embedded host and links it with the Go archive,
+  actool compiles the icon, and the bundle gets the build keys App Store
+  validation checks, a privacy manifest of the APIs the binary uses and the
+  provisioning profile that fits; for Android, the embedded Gradle project
+  goes into `.mygo/android` and builds with the app's libraries, manifest,
+  icons and resources (copied out of the APK's assets on first launch, as
+  `PathResources`). `mygo dev` installs and relaunches builds with simctl
+  and adb, the environment of a launch passed as simctl's `SIMCTL_CHILD_`
+  variables or an extra of Android's intent (which Go reads again as it
+  starts, having copied the environment as its library loaded).
 
 ## IPC
 

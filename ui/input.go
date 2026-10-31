@@ -31,7 +31,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	if rt.insp.pointer(rt, ev, x, y) {
 		return true
 	}
-	if ev.Touch && rt.touchEvent(ev, x, y) {
+	if ev.Touch && touchInput != nil && touchInput(rt, ev, x, y) {
 		return false
 	}
 	switch ev.Kind {

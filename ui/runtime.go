@@ -67,9 +67,6 @@ type host interface {
 	// as its language reads.
 	rightToLeft() bool
 	titleBar() TitleBar
-	// insets are how far in from each edge something covers the window,
-	// as a phone's bars and keyboard: the content lays out inside them.
-	insets() platform.Insets
 	// vibrancy reports whether the window shows a material where the
 	// frames are transparent.
 	vibrancy() bool
@@ -566,7 +563,9 @@ func (rt *engine) runFrame() {
 	rt.repaintRate, rt.repaintFull, rt.untracked = 0, false, false
 	rt.routeKeys()
 	rt.glideWheels(now)
-	rt.flingStep(now)
+	if touchFrame != nil {
+		touchFrame(rt, now)
+	}
 	if rt.drag != nil {
 		// The source's element is this frame's, if it builds one.
 		rt.drag.elem = nil
@@ -648,7 +647,9 @@ func (rt *engine) runFrame() {
 	rt.stats.lap(phaseBuild)
 	rt.insp.lap(0)
 	root := rt.c.root
-	rt.insetRoot(root)
+	if insetRoot != nil {
+		insetRoot(rt, root)
+	}
 	layoutTree(root, appW, h)
 	rt.commit(root, w, h)
 	// Scrolling can put a new native drop target under a stationary
@@ -1356,11 +1357,15 @@ func (rt *engine) overScrollbar(id uint64) bool {
 // over a web view, whose page set another.
 const cursorUnknown Cursor = 255
 
-// insetRoot keeps the content out from under what covers the window's
+// padInsets keeps the content out from under what covers the window's
 // edges, as a phone's bars, cutout and keyboard: the root takes them as
 // padding, while the window's background fills them.
-func (rt *engine) insetRoot(root *node) {
-	in := rt.host.insets()
+func (rt *engine) padInsets(root *node) {
+	h, ok := rt.host.(interface{ insets() platform.Insets })
+	if !ok {
+		return
+	}
+	in := h.insets()
 	if in == (platform.Insets{}) {
 		return
 	}

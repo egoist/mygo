@@ -536,13 +536,17 @@ func New(layer uintptr) (r *Renderer, err error) {
 			// iOS's layers have no autoresizing: fit sizes it each frame.
 			send(ml, "setAutoresizingMask:", layerWidthSizable|layerHeightSizable)
 		}
-		// In a transaction of its own: on iOS the thread has no run loop
-		// to commit the one Core Animation would begin.
-		tx := class("CATransaction")
-		send(tx, "begin")
-		send(layer, "addSublayer:", ml)
-		send(tx, "commit")
-		flushTransactions()
+		if runtime.GOOS == "ios" {
+			// In a transaction of its own: the thread has no run loop to
+			// commit the one Core Animation would begin.
+			tx := class("CATransaction")
+			send(tx, "begin")
+			send(layer, "addSublayer:", ml)
+			send(tx, "commit")
+			flushTransactions()
+		} else {
+			send(layer, "addSublayer:", ml)
+		}
 		r.layer, r.superlayer = ml, layer
 	})
 	if err != nil {
