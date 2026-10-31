@@ -1537,7 +1537,7 @@ func (e *node) Dismissed() bool { return e.dismissed }
 func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 	for _, id := range chain {
 		s := rt.states[id]
-		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 || !s.barsShown {
+		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 || !s.barsShown || s.hideScrollbars {
 			continue
 		}
 		lx, ly := s.local(x, y)

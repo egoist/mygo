@@ -71,7 +71,9 @@ desktop's notification service, Windows as notification-area balloons.
 `Show` returns once the system has the notification. On macOS the first
 one asks the user whether to allow notifications, and `Show` waits for the
 answer; it returns `mygo.ErrNotificationsDenied` when they are not allowed,
-by that answer or later in System Settings.
+by that answer or later in System Settings. `ShowContext(ctx)` stops
+waiting when `ctx` is done, as an app quits with the question still open,
+and takes away a notification that the answer lets through after that.
 
 macOS keeps a notification in Notification Center after it is clicked,
 until the app removes it: `Close` it in `OnClick` to take it away, or call

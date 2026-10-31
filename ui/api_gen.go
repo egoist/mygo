@@ -3215,6 +3215,21 @@ func (_handle Element) Cache() Element {
 	return wrapElement(_node.Cache())
 }
 
+// CaretWidth sets this input's painted caret width in DIPs for this build.
+// It defaults to one DIP. Positive widths are rounded to device pixels,
+// at least one pixel wide; zero and negative widths hide the caret. It does
+// not change text layout, input-method candidate bounds or caret blinking.
+// Other elements are unaffected.
+func (_handle Element) CaretWidth(width float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.CaretWidth(width))
+}
+
 // Center centers the children along and across the main axis.
 func (_handle Element) Center() Element {
 	_node := _handle.node()
@@ -5585,6 +5600,21 @@ func (_handle Element) ScrollbarInsets(v ...float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.ScrollbarInsets(v...))
+}
+
+// Scrollbars controls the overlay indicators and their pointer hit targets on
+// this scroll container. They show on hover by default. With false, scrolling
+// by wheel, TrackScroll, keyboard focus and accessibility remains available.
+// It applies to Scroll, ScrollHorizontal, ScrollBoth and List, not the internal
+// indicators of custom controls such as a code editor, and is not inherited.
+func (_handle Element) Scrollbars(visible bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Scrollbars(visible))
 }
 
 // Selectable lets the user select and copy text by dragging, double-clicking

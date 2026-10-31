@@ -24,6 +24,8 @@ ui.TextArea(c, &app.notes).Height(160)
   `SearchField`, `TokenField` or `Combobox`, it shows in that input.
   `PlaceholderColor` paints it in another color than the theme's
   `TextMuted`, as a warning hint in a form.
+- `CaretWidth` paints the caret wider than one DIP, as a terminal's block
+  or a large-print theme's, or hides it with zero; it changes nothing else.
 - `Password` hides what it holds, and keeps it from the clipboard and input
   methods, in the frames that call it: an eye button that shows the text
   stops calling it. Only a `TextInput` takes it: as on every platform, a text
