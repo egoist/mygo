@@ -10,10 +10,17 @@ package mobile
 void mygo_android_call(uint8_t *msg, size_t len, uint8_t **reply, size_t *reply_len);
 void mygo_android_post(void);
 void mygo_android_log(int error, uint8_t *line, size_t len);
+
+extern char **environ;
+static char *mygo_environ(int i) { return environ[i]; }
 */
 import "C"
 
-import "unsafe"
+import (
+	"os"
+	"strings"
+	"unsafe"
+)
 
 // cHost is the Kotlin host, through JNI (jni_android.c).
 type cHost struct{}
@@ -43,7 +50,23 @@ func hostLog(isErr bool, line []byte) {
 //export mygo_start_android
 func mygo_start_android() {
 	theHost = cHost{}
+	syncEnviron()
 	start()
+}
+
+// syncEnviron takes the variables the host set (HOME, TMPDIR, mygo dev's)
+// into Go's environment, which Go copied as the library loaded, before
+// the host set them.
+func syncEnviron() {
+	for i := 0; ; i++ {
+		p := C.mygo_environ(C.int(i))
+		if p == nil {
+			return
+		}
+		if k, v, ok := strings.Cut(C.GoString(p), "="); ok && os.Getenv(k) != v {
+			os.Setenv(k, v)
+		}
+	}
 }
 
 //export mygo_event

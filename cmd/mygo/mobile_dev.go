@@ -240,6 +240,9 @@ func (s *devSession) launchMobile(dc *Config, app string) (*devProcess, error) {
 // the system's rather than the app's: the simulator's warnings about its
 // own frameworks, simctl's line of the app's process ID.
 func mobileNoise(line, id string) bool {
+	if strings.HasPrefix(line, "--------- beginning of ") { // logcat's
+		return true
+	}
 	if strings.Contains(line, "is implemented in both") && strings.Contains(line, ".simruntime") {
 		return true
 	}
