@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"math"
 	"slices"
 	"time"
 
@@ -807,27 +806,33 @@ func (ed *editor) IndexForPoint(p ui.Point) (int, bool) {
 	return ed.view.text.UTF16(off), true
 }
 
-// autoscroll scrolls while a drag goes past the top or the bottom, and
-// reports whether it did.
+// autoscroll scrolls while a drag goes past the top or the bottom, or,
+// without wrapping, past the text's left or right edge, and reports
+// whether it did.
 func (ed *editor) autoscroll() bool {
 	if !ed.gesture.active {
 		return false
 	}
-	y := ed.pointer.Y
-	var dy float32
-	switch {
-	case y < 0:
-		dy = y
-	case y > ed.viewH:
-		dy = y - ed.viewH
-	default:
+	dy := past(ed.pointer.Y, 0, ed.viewH)
+	before := ed.scrollX
+	if !ed.view.wrap {
+		// The vertical scroll bar's column counts as past the right edge, so
+		// that an editor at the screen's edge still scrolls right.
+		if dx := past(ed.pointer.X, ed.textX, ed.r.W-ed.trackWidth()); dx != 0 {
+			x := ed.scrollX + edgeSpeed(dx)
+			if s := ed.o.sharedScroll; s != nil {
+				s.setX(x)
+			} else {
+				ed.scrollX = max(0, min(x, ed.maxScrollX()))
+			}
+		}
+	}
+	if dy == 0 && ed.scrollX == before {
 		return false
 	}
-	speed := float32(math.Min(float64(abs(dy)), 300)) / 4
-	if dy < 0 {
-		speed = -speed
+	if dy != 0 {
+		ed.setScrollShared(ed.scrollY + float64(edgeSpeed(dy)))
 	}
-	ed.setScrollShared(ed.scrollY + float64(speed))
 	cx, cy := ed.toContent(ed.pointer.X, ed.pointer.Y)
 	if ed.gesture.mode == 3 {
 		ed.columnSelect(cx, cy)
@@ -835,6 +840,28 @@ func (ed *editor) autoscroll() bool {
 		ed.extendGesture(ed.offsetAt(cx, cy))
 	}
 	return true
+}
+
+// past returns how far v lies outside [lo, hi]: negative below lo,
+// positive above hi, and 0 within.
+func past(v, lo, hi float32) float32 {
+	switch {
+	case v < lo:
+		return v - lo
+	case v > hi:
+		return v - hi
+	}
+	return 0
+}
+
+// edgeSpeed returns how far a frame of autoscroll moves for a pointer
+// d past the edge.
+func edgeSpeed(d float32) float32 {
+	s := min(abs(d), 300) / 4
+	if d < 0 {
+		return -s
+	}
+	return s
 }
 
 func abs(f float32) float32 {
