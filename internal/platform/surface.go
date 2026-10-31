@@ -223,6 +223,11 @@ func (r RectF) Contains(x, y float64) bool {
 	return x >= r.X && y >= r.Y && x < r.X+r.W && y < r.Y+r.H
 }
 
+// Insets are how far in from each edge of a surface its content is
+// covered, in DIPs: by the system's bars, a display's cutout or rounded
+// corners, or the keyboard (phones).
+type Insets struct{ Top, Left, Bottom, Right float64 }
+
 // SurfaceEventKind is the kind of a SurfaceEvent.
 type SurfaceEventKind uint8
 
