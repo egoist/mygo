@@ -891,6 +891,21 @@ func Collapsible(c *Context, label string, open *bool, fn func()) Element {
 // CollapsibleBase creates a collapsible without a look, open while *open:
 // its Trigger, and below it the panel Panel builds. Collapsible is
 // CollapsibleBase with the theme's look.
+// CollapsibleBaseWithAnimation creates CollapsibleBase using animation for its
+// expansion and collapse. It keeps the same trigger, panel, keyboard and
+// accessibility behavior. Animation's zero value uses its default spring;
+// reduced motion and DisableAnimations still move to the target immediately.
+func CollapsibleBaseWithAnimation(c *Context, open *bool, animation Animation) CollapsibleParts {
+	_ctx := c.build()
+	if _ctx == nil {
+		return CollapsibleParts{}
+	}
+	_ctx.rt.beginBuild()
+	_p := coreCollapsibleBaseWithAnimation(_ctx, open, animation)
+	_ctx.rt.endBuild()
+	return wrapCollapsibleParts(_p)
+}
+
 func CollapsibleBase(c *Context, open *bool) CollapsibleParts {
 	_ctx := c.build()
 	if _ctx == nil {

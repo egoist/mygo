@@ -29,13 +29,21 @@ type collapsibleParts struct {
 // its Trigger, and below it the panel Panel builds. Collapsible is
 // CollapsibleBase with the theme's look.
 func coreCollapsibleBase(c *context, open *bool) collapsibleParts {
+	return coreCollapsibleBaseWithAnimation(c, open, Animation{Duration: 200 * time.Millisecond, Ease: EaseOut})
+}
+
+// CollapsibleBaseWithAnimation creates CollapsibleBase using animation for its
+// expansion and collapse. It keeps the same trigger, panel, keyboard and
+// accessibility behavior. Animation's zero value uses its default spring;
+// reduced motion and DisableAnimations still move to the target immediately.
+func coreCollapsibleBaseWithAnimation(c *context, open *bool, animation Animation) collapsibleParts {
 	tr := coreRow(c).Focusable().Shrink(0)
 	tr.flags |= flagClickable | flagHover
 	tr.widget, tr.role = "Collapsible", RoleDisclosure
 	*valueBinding[*bool](tr) = open
 	tr.onValueInput(toggleInput)
 	tr.expanded = *open
-	p := tr.Animate("open", b2f(*open), 200*time.Millisecond)
+	p := min(float32(1), max(float32(0), tr.AnimateTo("open", b2f(*open), animation)))
 	return collapsibleParts{Trigger: tr, c: c, open: open, progress: p}
 }
 
