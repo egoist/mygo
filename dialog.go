@@ -87,7 +87,10 @@ type MessageOptions struct {
 	DefaultButton int
 	// CancelButton is the index of the button activated with Escape (and
 	// Cmd+. on macOS), also when it is the default button. When zero, the
-	// first button labeled "Cancel" or "No" is used.
+	// first button labeled "Cancel" or "No" is used, else the first button,
+	// even a destructive one. -1 is none: Escape then does nothing on
+	// macOS, and dismissing the dialog reports Button -1 on Linux, in
+	// Windows task dialogs and in browsers' confirm dialogs.
 	CancelButton int
 	// DestructiveButtons are the indexes of buttons whose actions delete
 	// data or can't be undone. macOS 11 and later and Linux set them apart;
