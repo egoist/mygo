@@ -71,6 +71,9 @@ type editor struct {
 	// wrapped text between them; zero for the paragraphs, at least three.
 	lines       [2]int
 	placeholder string
+	// Placeholder color is paint-only and reset by each widget build.
+	placeholderColor    Color
+	placeholderColorSet bool
 	// ranges style runs of the text (TextRanges): as given until apart is
 	// set, then merged into runs apart, sorted by Start (sortRanges).
 	ranges []TextRange
@@ -133,6 +136,7 @@ type editorOptions struct {
 func (ed *editor) rebuild() {
 	ed.shown = editorOptions{ed.readOnly, ed.password, ed.onPaste, ed.onTextKey}
 	ed.readOnly, ed.password, ed.lines, ed.onPaste, ed.onTextKey = false, false, [2]int{}, nil, nil
+	ed.placeholderColorSet = false
 }
 
 // withShown runs fn, which applies the user's edits, with the options of

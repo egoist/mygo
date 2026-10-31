@@ -76,6 +76,16 @@ func (e *node) Placeholder(s string) *node {
 	return e
 }
 
+// PlaceholderColor sets the color of this input's placeholder for this build.
+// When unset it uses the theme's TextMuted. It does not change entered text,
+// other inputs or the theme. A transparent color hides the placeholder.
+func (e *node) PlaceholderColor(color Color) *node {
+	if ed := e.st.editor; ed != nil && e.flags&flagEditable != 0 {
+		ed.placeholderColor, ed.placeholderColorSet = color, true
+	}
+	return e
+}
+
 // ReadOnly makes a text input show its text without letting the user
 // change it: the text can still be selected and copied, from the keyboard
 // too, as it takes the focus, without a caret; assistive technology reads

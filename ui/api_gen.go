@@ -5103,6 +5103,19 @@ func (_handle Element) Perspective(distance float32) Element {
 // Placeholder shows s in an empty text input. On a field around an input,
 // as SearchField, TokenField and Combobox, it shows in the field's input,
 // in place of the field's own: SearchField shows Search without one.
+// PlaceholderColor sets the color of this input's placeholder for this build.
+// When unset it uses the theme's TextMuted. It does not change entered text,
+// other inputs or the theme. A transparent color hides the placeholder.
+func (_handle Element) PlaceholderColor(color Color) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PlaceholderColor(color))
+}
+
 func (_handle Element) Placeholder(s string) Element {
 	_node := _handle.node()
 	if _node == nil {
