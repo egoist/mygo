@@ -86,6 +86,7 @@ const (
 
 	usageShaderRead   = 1
 	usageRenderTarget = 4
+	storageShared     = 0
 	storageManaged    = 1
 
 	loadActionDontCare     = 0
@@ -939,7 +940,13 @@ func (r *Renderer) newTexture(w, h int, format, usage uint, pix []byte, stride i
 	}
 	send(desc, "setUsage:", uintptr(usage))
 	if usage&usageRenderTarget != 0 {
-		send(desc, "setStorageMode:", storageManaged)
+		// iOS's GPUs share the memory with the CPU, and have no managed
+		// textures, which keep a copy on each side.
+		if runtime.GOOS == "ios" {
+			send(desc, "setStorageMode:", storageShared)
+		} else {
+			send(desc, "setStorageMode:", storageManaged)
+		}
 	}
 	tex := send(r.device, "newTextureWithDescriptor:", desc)
 	if tex != 0 && len(pix) > 0 {
@@ -1974,9 +1981,11 @@ func (r *Renderer) renderOffscreen(s *scene.Scene) (pix []byte, err error) {
 		if cb, err = r.encode(s, tex); err != nil {
 			return
 		}
-		blit := send(cb, "blitCommandEncoder")
-		send(blit, "synchronizeResource:", tex)
-		send(blit, "endEncoding")
+		if runtime.GOOS != "ios" {
+			blit := send(cb, "blitCommandEncoder")
+			send(blit, "synchronizeResource:", tex)
+			send(blit, "endEncoding")
+		}
 		send(cb, "commit")
 		send(cb, "waitUntilCompleted")
 		if int(send(cb, "status")) == statusError {
