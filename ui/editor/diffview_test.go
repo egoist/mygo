@@ -546,3 +546,49 @@ func TestDiffViewerFillerHatched(t *testing.T) {
 		}
 	}
 }
+
+// A diff as high as its lines, in a scroll container, shows a horizontal
+// scroll bar at the bottom of the part of it the window shows, on both
+// sides of a split diff, and dragging it scrolls the lines sideways.
+func TestFitContentDiffHorizontalScrollbar(t *testing.T) {
+	var a []string
+	for i := range 200 {
+		a = append(a, "line "+strconv.Itoa(i)+" "+strings.Repeat("x", 200))
+	}
+	b := append([]string(nil), a...)
+	b[1] = "changed " + strings.Repeat("y", 200)
+	for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
+		d := &DiffState{Old: NewBuffer(strings.Join(a, "\n")), New: NewBuffer(strings.Join(b, "\n")), Layout: layout, FitContent: true, ExpandUnchanged: true}
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Scroll(c).Fill().Children(func() { DiffView(c, d).FillWidth() })
+		}, 900, 400)
+		tt.Frame()
+		tt.Frame()
+		eds := []*editor{&d.eds[1]}
+		if layout == DiffSplit {
+			eds = append(eds, &d.eds[0])
+		}
+		for _, ed := range eds {
+			if ed.r.H <= 400 {
+				t.Fatalf("%v: editor %v high, want its lines", layout, ed.r.H)
+			}
+			if _, h := ed.scrollbars(); !h {
+				t.Fatalf("%v: no horizontal scroll bar over lines wider than the view", layout)
+			}
+			if want := 400 - ed.r.Y - scrollbarWidth; ed.hbarY != want {
+				t.Fatalf("%v: horizontal bar at %v, want %v, at the window's bottom", layout, ed.hbarY, want)
+			}
+		}
+		ed := eds[0]
+		y := ed.r.Y + ed.hbarY + scrollbarWidth/2
+		x := ed.r.X + ed.textX + 2
+		tt.Move(x, y)
+		tt.Press(x, y)
+		tt.Move(x+200, y)
+		tt.Release(x+200, y)
+		tt.Frame()
+		if ed.scrollX <= 0 {
+			t.Fatalf("%v: dragging the bar scrolled to %v", layout, ed.scrollX)
+		}
+	}
+}
