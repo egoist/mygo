@@ -60,6 +60,7 @@ type Backend struct {
 	reqs    map[int]func(wire.Reader)
 	nextReq int
 	schemes map[int]*schemeRequest
+	tabs    map[int]*tabBar
 	notes   map[string]bool
 	// shown lists the windows on screen, the one in front last.
 	shown []*window
@@ -89,6 +90,7 @@ func New() *Backend {
 		windows: map[int]*window{},
 		reqs:    map[int]func(wire.Reader){},
 		schemes: map[int]*schemeRequest{},
+		tabs:    map[int]*tabBar{},
 		notes:   map[string]bool{},
 	}
 	if theHost != nil {

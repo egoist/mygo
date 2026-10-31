@@ -15,49 +15,58 @@ const (
 	CallCloseWindow            = 9
 	CallSetBackground          = 10
 	CallFocus                  = 11
-	CallLoadURL                = 12
-	CallLoadHTML               = 13
-	CallReload                 = 14
-	CallStopLoading            = 15
-	CallGoBack                 = 16
-	CallGoForward              = 17
-	CallEval                   = 18
-	CallCallAsync              = 19
-	CallSetZoom                = 20
-	CallSetUserAgent           = 21
-	CallSetUserScripts         = 22
-	CallCapturePage            = 23
-	CallUserAgent              = 24
-	CallSchemeRespond          = 25
-	CallSchemeData             = 26
-	CallSchemeFinish           = 27
-	CallSchemeFail             = 28
-	CallMessageBox             = 29
-	CallOpenFiles              = 30
-	CallShareFile              = 31
-	CallClipboardText          = 32
-	CallSetClipboardText       = 33
-	CallOpenURL                = 34
-	CallSecretGet              = 35
-	CallSecretSet              = 36
-	CallSecretDelete           = 37
-	CallNotify                 = 38
-	CallRemoveNotification     = 39
-	CallRemoveAllNotifications = 40
-	CallKeepAwake              = 41
-	CallHaptic                 = 42
-	CallRequestFrame           = 43
-	CallSetTextInput           = 44
-	CallTextInputChanged       = 45
-	CallSetCursor              = 46
-	CallAccessibilityChanged   = 47
-	CallAnnounce               = 48
-	CallShowMenu               = 49
-	CallTextMetrics            = 50
-	CallMeasureText            = 51
-	CallTextAdvances           = 52
-	CallDrawText               = 53
-	CallRegisterFont           = 54
+	CallSetTitle               = 12
+	CallCreateTabs             = 13
+	CallAddTab                 = 14
+	CallShowTabs               = 15
+	CallSelectTab              = 16
+	CallSetTabBadge            = 17
+	CallCloseTabs              = 18
+	CallPushWindow             = 19
+	CallPopWindow              = 20
+	CallLoadURL                = 21
+	CallLoadHTML               = 22
+	CallReload                 = 23
+	CallStopLoading            = 24
+	CallGoBack                 = 25
+	CallGoForward              = 26
+	CallEval                   = 27
+	CallCallAsync              = 28
+	CallSetZoom                = 29
+	CallSetUserAgent           = 30
+	CallSetUserScripts         = 31
+	CallCapturePage            = 32
+	CallUserAgent              = 33
+	CallSchemeRespond          = 34
+	CallSchemeData             = 35
+	CallSchemeFinish           = 36
+	CallSchemeFail             = 37
+	CallMessageBox             = 38
+	CallOpenFiles              = 39
+	CallShareFile              = 40
+	CallClipboardText          = 41
+	CallSetClipboardText       = 42
+	CallOpenURL                = 43
+	CallSecretGet              = 44
+	CallSecretSet              = 45
+	CallSecretDelete           = 46
+	CallNotify                 = 47
+	CallRemoveNotification     = 48
+	CallRemoveAllNotifications = 49
+	CallKeepAwake              = 50
+	CallHaptic                 = 51
+	CallRequestFrame           = 52
+	CallSetTextInput           = 53
+	CallTextInputChanged       = 54
+	CallSetCursor              = 55
+	CallAccessibilityChanged   = 56
+	CallAnnounce               = 57
+	CallShowMenu               = 58
+	CallTextMetrics            = 59
+	CallMeasureText            = 60
+	CallTextAdvances           = 61
+	CallDrawText               = 62
+	CallRegisterFont           = 63
 )
 
 // Numbers of events.
@@ -71,42 +80,44 @@ const (
 	EventMemoryWarning       = 7
 	EventTerminating         = 8
 	EventResized             = 9
-	EventBackPressed         = 10
-	EventMessage             = 11
-	EventWillNavigate        = 12
-	EventNewWindow           = 13
-	EventPageState           = 14
-	EventNavigationStarted   = 15
-	EventNavigationCommitted = 16
-	EventLoadFinished        = 17
-	EventLoadFailed          = 18
-	EventClosedByPage        = 19
-	EventProcessGone         = 20
-	EventPermissionRequested = 21
-	EventSchemeRequest       = 22
-	EventSchemeCancel        = 23
-	EventAsyncResult         = 24
-	EventCaptured            = 25
-	EventMessageBoxResult    = 26
-	EventFilesResult         = 27
-	EventNotifyDone          = 28
-	EventNotificationClicked = 29
-	EventFrame               = 30
-	EventSurfaceChanged      = 31
-	EventSurfaceDestroyed    = 32
-	EventTouch               = 33
-	EventScroll              = 34
-	EventKey                 = 35
-	EventTextInsert          = 36
-	EventTextMarked          = 37
-	EventTextDelete          = 38
-	EventTextCommand         = 39
-	EventTextState           = 40
-	EventTextSelect          = 41
-	EventTextInputEnded      = 42
-	EventMenuChosen          = 43
-	EventAccessibilityTree   = 44
-	EventAccessibilityAction = 45
+	EventTabSelected         = 10
+	EventPopped              = 11
+	EventBackPressed         = 12
+	EventMessage             = 13
+	EventWillNavigate        = 14
+	EventNewWindow           = 15
+	EventPageState           = 16
+	EventNavigationStarted   = 17
+	EventNavigationCommitted = 18
+	EventLoadFinished        = 19
+	EventLoadFailed          = 20
+	EventClosedByPage        = 21
+	EventProcessGone         = 22
+	EventPermissionRequested = 23
+	EventSchemeRequest       = 24
+	EventSchemeCancel        = 25
+	EventAsyncResult         = 26
+	EventCaptured            = 27
+	EventMessageBoxResult    = 28
+	EventFilesResult         = 29
+	EventNotifyDone          = 30
+	EventNotificationClicked = 31
+	EventFrame               = 32
+	EventSurfaceChanged      = 33
+	EventSurfaceDestroyed    = 34
+	EventTouch               = 35
+	EventScroll              = 36
+	EventKey                 = 37
+	EventTextInsert          = 38
+	EventTextMarked          = 39
+	EventTextDelete          = 40
+	EventTextCommand         = 41
+	EventTextState           = 42
+	EventTextSelect          = 43
+	EventTextInputEnded      = 44
+	EventMenuChosen          = 45
+	EventAccessibilityTree   = 46
+	EventAccessibilityAction = 47
 )
 
 // AppInfo is the app's bundle and the system's settings, asked once at start.
@@ -344,6 +355,141 @@ func (m *Focus) Encode(w *Writer) {
 
 // Wait reports whether the caller waits for the host to run it.
 func (*Focus) Wait() bool { return false }
+
+// SetTitle is the window's title, which a navigation bar shows.
+type SetTitle struct {
+	ID    int
+	Title string
+}
+
+func (m *SetTitle) Encode(w *Writer) {
+	w.Uvarint(CallSetTitle)
+	w.Int(m.ID)
+	w.String(m.Title)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*SetTitle) Wait() bool { return false }
+
+// CreateTabs is a bar of tabs, whose tabs AddTab adds before ShowTabs shows it.
+type CreateTabs struct {
+	ID int
+}
+
+func (m *CreateTabs) Encode(w *Writer) {
+	w.Uvarint(CallCreateTabs)
+	w.Int(m.ID)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*CreateTabs) Wait() bool { return false }
+
+type AddTab struct {
+	ID     int
+	Window int
+	Title  string
+	Symbol string
+	Icon   []byte
+}
+
+func (m *AddTab) Encode(w *Writer) {
+	w.Uvarint(CallAddTab)
+	w.Int(m.ID)
+	w.Int(m.Window)
+	w.String(m.Title)
+	w.String(m.Symbol)
+	w.Bytes(m.Icon)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*AddTab) Wait() bool { return false }
+
+type ShowTabs struct {
+	ID int
+}
+
+func (m *ShowTabs) Encode(w *Writer) {
+	w.Uvarint(CallShowTabs)
+	w.Int(m.ID)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*ShowTabs) Wait() bool { return false }
+
+type SelectTab struct {
+	ID    int
+	Index int
+}
+
+func (m *SelectTab) Encode(w *Writer) {
+	w.Uvarint(CallSelectTab)
+	w.Int(m.ID)
+	w.Int(m.Index)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*SelectTab) Wait() bool { return false }
+
+type SetTabBadge struct {
+	ID    int
+	Index int
+	Badge string
+}
+
+func (m *SetTabBadge) Encode(w *Writer) {
+	w.Uvarint(CallSetTabBadge)
+	w.Int(m.ID)
+	w.Int(m.Index)
+	w.String(m.Badge)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*SetTabBadge) Wait() bool { return false }
+
+type CloseTabs struct {
+	ID int
+}
+
+func (m *CloseTabs) Encode(w *Writer) {
+	w.Uvarint(CallCloseTabs)
+	w.Int(m.ID)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*CloseTabs) Wait() bool { return false }
+
+// PushWindow is shows Child over Parent in Parent's stack, under a bar with its Title and a back button.
+type PushWindow struct {
+	Parent   int
+	Child    int
+	Title    string
+	Animated bool
+}
+
+func (m *PushWindow) Encode(w *Writer) {
+	w.Uvarint(CallPushWindow)
+	w.Int(m.Parent)
+	w.Int(m.Child)
+	w.String(m.Title)
+	w.Bool(m.Animated)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*PushWindow) Wait() bool { return false }
+
+type PopWindow struct {
+	ID       int
+	Animated bool
+}
+
+func (m *PopWindow) Encode(w *Writer) {
+	w.Uvarint(CallPopWindow)
+	w.Int(m.ID)
+	w.Bool(m.Animated)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*PopWindow) Wait() bool { return false }
 
 type LoadURL struct {
 	ID  int
@@ -1220,6 +1366,26 @@ func (m *ResizedEvent) Decode(r *Reader) {
 	m.SafeBottom = r.Float()
 	m.SafeRight = r.Float()
 	m.Keyboard = r.Float()
+}
+
+// TabSelectedEvent is the user chose tab Index.
+type TabSelectedEvent struct {
+	ID    int
+	Index int
+}
+
+func (m *TabSelectedEvent) Decode(r *Reader) {
+	m.ID = r.Int()
+	m.Index = r.Int()
+}
+
+// PoppedEvent is the window left its stack: the back button, a swipe, Android's back, or PopWindow.
+type PoppedEvent struct {
+	ID int
+}
+
+func (m *PoppedEvent) Decode(r *Reader) {
+	m.ID = r.Int()
 }
 
 // BackPressedEvent is Android's back: whether the app took it.

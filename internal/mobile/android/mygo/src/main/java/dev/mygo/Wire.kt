@@ -251,6 +251,102 @@ class FocusCall(
     }
 }
 
+class SetTitleCall(
+    @JvmField var id: Long = 0L,
+    @JvmField var title: String = "",
+) {
+    constructor(r: WireReader) : this() {
+        id = r.int()
+        title = r.string()
+    }
+}
+
+class CreateTabsCall(
+    @JvmField var id: Long = 0L,
+) {
+    constructor(r: WireReader) : this() {
+        id = r.int()
+    }
+}
+
+class AddTabCall(
+    @JvmField var id: Long = 0L,
+    @JvmField var window: Long = 0L,
+    @JvmField var title: String = "",
+    @JvmField var symbol: String = "",
+    @JvmField var icon: ByteArray = ByteArray(0),
+) {
+    constructor(r: WireReader) : this() {
+        id = r.int()
+        window = r.int()
+        title = r.string()
+        symbol = r.string()
+        icon = r.bytes()
+    }
+}
+
+class ShowTabsCall(
+    @JvmField var id: Long = 0L,
+) {
+    constructor(r: WireReader) : this() {
+        id = r.int()
+    }
+}
+
+class SelectTabCall(
+    @JvmField var id: Long = 0L,
+    @JvmField var index: Long = 0L,
+) {
+    constructor(r: WireReader) : this() {
+        id = r.int()
+        index = r.int()
+    }
+}
+
+class SetTabBadgeCall(
+    @JvmField var id: Long = 0L,
+    @JvmField var index: Long = 0L,
+    @JvmField var badge: String = "",
+) {
+    constructor(r: WireReader) : this() {
+        id = r.int()
+        index = r.int()
+        badge = r.string()
+    }
+}
+
+class CloseTabsCall(
+    @JvmField var id: Long = 0L,
+) {
+    constructor(r: WireReader) : this() {
+        id = r.int()
+    }
+}
+
+class PushWindowCall(
+    @JvmField var parent: Long = 0L,
+    @JvmField var child: Long = 0L,
+    @JvmField var title: String = "",
+    @JvmField var animated: Boolean = false,
+) {
+    constructor(r: WireReader) : this() {
+        parent = r.int()
+        child = r.int()
+        title = r.string()
+        animated = r.bool()
+    }
+}
+
+class PopWindowCall(
+    @JvmField var id: Long = 0L,
+    @JvmField var animated: Boolean = false,
+) {
+    constructor(r: WireReader) : this() {
+        id = r.int()
+        animated = r.bool()
+    }
+}
+
 class LoadURLCall(
     @JvmField var id: Long = 0L,
     @JvmField var url: String = "",
@@ -860,6 +956,18 @@ interface HostCalls {
     fun closeWindow(c: CloseWindowCall)
     fun setBackground(c: SetBackgroundCall)
     fun focus(c: FocusCall)
+    /** the window's title, which a navigation bar shows */
+    fun setTitle(c: SetTitleCall)
+    /** a bar of tabs, whose tabs AddTab adds before ShowTabs shows it */
+    fun createTabs(c: CreateTabsCall)
+    fun addTab(c: AddTabCall)
+    fun showTabs(c: ShowTabsCall)
+    fun selectTab(c: SelectTabCall)
+    fun setTabBadge(c: SetTabBadgeCall)
+    fun closeTabs(c: CloseTabsCall)
+    /** shows Child over Parent in Parent's stack, under a bar with its Title and a back button */
+    fun pushWindow(c: PushWindowCall)
+    fun popWindow(c: PopWindowCall)
     fun loadURL(c: LoadURLCall)
     fun loadHTML(c: LoadHTMLCall)
     fun reload(c: ReloadCall)
@@ -942,49 +1050,58 @@ fun dispatchCall(h: HostCalls, buf: ByteArray): ByteArray? {
         9 -> h.closeWindow(CloseWindowCall(r))
         10 -> h.setBackground(SetBackgroundCall(r))
         11 -> h.focus(FocusCall(r))
-        12 -> h.loadURL(LoadURLCall(r))
-        13 -> h.loadHTML(LoadHTMLCall(r))
-        14 -> h.reload(ReloadCall(r))
-        15 -> h.stopLoading(StopLoadingCall(r))
-        16 -> h.goBack(GoBackCall(r))
-        17 -> h.goForward(GoForwardCall(r))
-        18 -> h.eval(EvalCall(r))
-        19 -> h.callAsync(CallAsyncCall(r))
-        20 -> h.setZoom(SetZoomCall(r))
-        21 -> h.setUserAgent(SetUserAgentCall(r))
-        22 -> h.setUserScripts(SetUserScriptsCall(r))
-        23 -> h.capturePage(CapturePageCall(r))
-        24 -> { h.userAgent(UserAgentCall(r)).encode(w); return w.toByteArray() }
-        25 -> h.schemeRespond(SchemeRespondCall(r))
-        26 -> h.schemeData(SchemeDataCall(r))
-        27 -> h.schemeFinish(SchemeFinishCall(r))
-        28 -> h.schemeFail(SchemeFailCall(r))
-        29 -> h.messageBox(MessageBoxCall(r))
-        30 -> h.openFiles(OpenFilesCall(r))
-        31 -> h.shareFile(ShareFileCall(r))
-        32 -> { h.clipboardText().encode(w); return w.toByteArray() }
-        33 -> h.setClipboardText(SetClipboardTextCall(r))
-        34 -> { h.openURL(OpenURLCall(r)).encode(w); return w.toByteArray() }
-        35 -> { h.secretGet(SecretGetCall(r)).encode(w); return w.toByteArray() }
-        36 -> { h.secretSet(SecretSetCall(r)).encode(w); return w.toByteArray() }
-        37 -> { h.secretDelete(SecretDeleteCall(r)).encode(w); return w.toByteArray() }
-        38 -> h.notify(NotifyCall(r))
-        39 -> h.removeNotification(RemoveNotificationCall(r))
-        40 -> h.removeAllNotifications()
-        41 -> h.keepAwake(KeepAwakeCall(r))
-        42 -> h.haptic(HapticCall(r))
-        43 -> h.requestFrame(RequestFrameCall(r))
-        44 -> h.setTextInput(SetTextInputCall(r))
-        45 -> h.textInputChanged(TextInputChangedCall(r))
-        46 -> h.setCursor(SetCursorCall(r))
-        47 -> h.accessibilityChanged(AccessibilityChangedCall(r))
-        48 -> h.announce(AnnounceCall(r))
-        49 -> h.showMenu(ShowMenuCall(r))
-        50 -> { h.textMetrics(TextMetricsCall(r)).encode(w); return w.toByteArray() }
-        51 -> { h.measureText(MeasureTextCall(r)).encode(w); return w.toByteArray() }
-        52 -> { h.textAdvances(TextAdvancesCall(r)).encode(w); return w.toByteArray() }
-        53 -> { h.drawText(DrawTextCall(r)).encode(w); return w.toByteArray() }
-        54 -> { h.registerFont(RegisterFontCall(r)).encode(w); return w.toByteArray() }
+        12 -> h.setTitle(SetTitleCall(r))
+        13 -> h.createTabs(CreateTabsCall(r))
+        14 -> h.addTab(AddTabCall(r))
+        15 -> h.showTabs(ShowTabsCall(r))
+        16 -> h.selectTab(SelectTabCall(r))
+        17 -> h.setTabBadge(SetTabBadgeCall(r))
+        18 -> h.closeTabs(CloseTabsCall(r))
+        19 -> h.pushWindow(PushWindowCall(r))
+        20 -> h.popWindow(PopWindowCall(r))
+        21 -> h.loadURL(LoadURLCall(r))
+        22 -> h.loadHTML(LoadHTMLCall(r))
+        23 -> h.reload(ReloadCall(r))
+        24 -> h.stopLoading(StopLoadingCall(r))
+        25 -> h.goBack(GoBackCall(r))
+        26 -> h.goForward(GoForwardCall(r))
+        27 -> h.eval(EvalCall(r))
+        28 -> h.callAsync(CallAsyncCall(r))
+        29 -> h.setZoom(SetZoomCall(r))
+        30 -> h.setUserAgent(SetUserAgentCall(r))
+        31 -> h.setUserScripts(SetUserScriptsCall(r))
+        32 -> h.capturePage(CapturePageCall(r))
+        33 -> { h.userAgent(UserAgentCall(r)).encode(w); return w.toByteArray() }
+        34 -> h.schemeRespond(SchemeRespondCall(r))
+        35 -> h.schemeData(SchemeDataCall(r))
+        36 -> h.schemeFinish(SchemeFinishCall(r))
+        37 -> h.schemeFail(SchemeFailCall(r))
+        38 -> h.messageBox(MessageBoxCall(r))
+        39 -> h.openFiles(OpenFilesCall(r))
+        40 -> h.shareFile(ShareFileCall(r))
+        41 -> { h.clipboardText().encode(w); return w.toByteArray() }
+        42 -> h.setClipboardText(SetClipboardTextCall(r))
+        43 -> { h.openURL(OpenURLCall(r)).encode(w); return w.toByteArray() }
+        44 -> { h.secretGet(SecretGetCall(r)).encode(w); return w.toByteArray() }
+        45 -> { h.secretSet(SecretSetCall(r)).encode(w); return w.toByteArray() }
+        46 -> { h.secretDelete(SecretDeleteCall(r)).encode(w); return w.toByteArray() }
+        47 -> h.notify(NotifyCall(r))
+        48 -> h.removeNotification(RemoveNotificationCall(r))
+        49 -> h.removeAllNotifications()
+        50 -> h.keepAwake(KeepAwakeCall(r))
+        51 -> h.haptic(HapticCall(r))
+        52 -> h.requestFrame(RequestFrameCall(r))
+        53 -> h.setTextInput(SetTextInputCall(r))
+        54 -> h.textInputChanged(TextInputChangedCall(r))
+        55 -> h.setCursor(SetCursorCall(r))
+        56 -> h.accessibilityChanged(AccessibilityChangedCall(r))
+        57 -> h.announce(AnnounceCall(r))
+        58 -> h.showMenu(ShowMenuCall(r))
+        59 -> { h.textMetrics(TextMetricsCall(r)).encode(w); return w.toByteArray() }
+        60 -> { h.measureText(MeasureTextCall(r)).encode(w); return w.toByteArray() }
+        61 -> { h.textAdvances(TextAdvancesCall(r)).encode(w); return w.toByteArray() }
+        62 -> { h.drawText(DrawTextCall(r)).encode(w); return w.toByteArray() }
+        63 -> { h.registerFont(RegisterFontCall(r)).encode(w); return w.toByteArray() }
     }
     return null
 }
@@ -1052,24 +1169,39 @@ object Event {
         w.float(keyboard)
         return w.toByteArray()
     }
+    /** the user chose tab Index */
+    @JvmStatic fun tabSelected(id: Long, index: Long): ByteArray {
+        val w = WireWriter()
+        w.uvarint(10)
+        w.int(id)
+        w.int(index)
+        return w.toByteArray()
+    }
+    /** the window left its stack: the back button, a swipe, Android's back, or PopWindow */
+    @JvmStatic fun popped(id: Long): ByteArray {
+        val w = WireWriter()
+        w.uvarint(11)
+        w.int(id)
+        return w.toByteArray()
+    }
     /** Android's back: whether the app took it */
     @JvmStatic fun backPressed(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(10)
+        w.uvarint(12)
         w.int(id)
         return w.toByteArray()
     }
     /** a message the page's bridge posted */
     @JvmStatic fun message(id: Long, text: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(11)
+        w.uvarint(13)
         w.int(id)
         w.string(text)
         return w.toByteArray()
     }
     @JvmStatic fun willNavigate(id: Long, url: String, mainFrame: Boolean, userInitiated: Boolean, unasked: Boolean, reload: Boolean): ByteArray {
         val w = WireWriter()
-        w.uvarint(12)
+        w.uvarint(14)
         w.int(id)
         w.string(url)
         w.bool(mainFrame)
@@ -1081,7 +1213,7 @@ object Event {
     /** window.open or a link to _blank: whether the app opened it */
     @JvmStatic fun newWindow(id: Long, url: String, userInitiated: Boolean): ByteArray {
         val w = WireWriter()
-        w.uvarint(13)
+        w.uvarint(15)
         w.int(id)
         w.string(url)
         w.bool(userInitiated)
@@ -1090,7 +1222,7 @@ object Event {
     /** what the page is at, after any change of it */
     @JvmStatic fun pageState(id: Long, url: String, title: String, loading: Boolean, canGoBack: Boolean, canGoForward: Boolean): ByteArray {
         val w = WireWriter()
-        w.uvarint(14)
+        w.uvarint(16)
         w.int(id)
         w.string(url)
         w.string(title)
@@ -1101,27 +1233,27 @@ object Event {
     }
     @JvmStatic fun navigationStarted(id: Long, url: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(15)
+        w.uvarint(17)
         w.int(id)
         w.string(url)
         return w.toByteArray()
     }
     @JvmStatic fun navigationCommitted(id: Long, url: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(16)
+        w.uvarint(18)
         w.int(id)
         w.string(url)
         return w.toByteArray()
     }
     @JvmStatic fun loadFinished(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(17)
+        w.uvarint(19)
         w.int(id)
         return w.toByteArray()
     }
     @JvmStatic fun loadFailed(id: Long, url: String, code: Long, description: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(18)
+        w.uvarint(20)
         w.int(id)
         w.string(url)
         w.int(code)
@@ -1130,20 +1262,20 @@ object Event {
     }
     @JvmStatic fun closedByPage(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(19)
+        w.uvarint(21)
         w.int(id)
         return w.toByteArray()
     }
     @JvmStatic fun processGone(id: Long, reason: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(20)
+        w.uvarint(22)
         w.int(id)
         w.string(reason)
         return w.toByteArray()
     }
     @JvmStatic fun permissionRequested(id: Long, kinds: List<String>, origin: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(21)
+        w.uvarint(23)
         w.int(id)
         w.strings(kinds)
         w.string(origin)
@@ -1152,7 +1284,7 @@ object Event {
     /** a request of one of the app's schemes (Header: names and values in turn) */
     @JvmStatic fun schemeRequest(id: Long, req: Long, method: String, url: String, header: List<String>, body: ByteArray, hasBody: Boolean): ByteArray {
         val w = WireWriter()
-        w.uvarint(22)
+        w.uvarint(24)
         w.int(id)
         w.int(req)
         w.string(method)
@@ -1164,13 +1296,13 @@ object Event {
     }
     @JvmStatic fun schemeCancel(req: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(23)
+        w.uvarint(25)
         w.int(req)
         return w.toByteArray()
     }
     @JvmStatic fun asyncResult(req: Long, result: String, error: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(24)
+        w.uvarint(26)
         w.int(req)
         w.string(result)
         w.string(error)
@@ -1178,7 +1310,7 @@ object Event {
     }
     @JvmStatic fun captured(req: Long, png: ByteArray, error: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(25)
+        w.uvarint(27)
         w.int(req)
         w.bytes(png)
         w.string(error)
@@ -1186,14 +1318,14 @@ object Event {
     }
     @JvmStatic fun messageBoxResult(req: Long, response: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(26)
+        w.uvarint(28)
         w.int(req)
         w.int(response)
         return w.toByteArray()
     }
     @JvmStatic fun filesResult(req: Long, paths: List<String>, error: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(27)
+        w.uvarint(29)
         w.int(req)
         w.strings(paths)
         w.string(error)
@@ -1201,28 +1333,28 @@ object Event {
     }
     @JvmStatic fun notifyDone(req: Long, error: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(28)
+        w.uvarint(30)
         w.int(req)
         w.string(error)
         return w.toByteArray()
     }
     @JvmStatic fun notificationClicked(notificationID: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(29)
+        w.uvarint(31)
         w.string(notificationID)
         return w.toByteArray()
     }
     /** the display refreshes: draw a frame if one was asked for */
     @JvmStatic fun frame(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(30)
+        w.uvarint(32)
         w.int(id)
         return w.toByteArray()
     }
     /** the native surface to draw on (a CAMetalLayer, an ANativeWindow), 0 when gone */
     @JvmStatic fun surfaceChanged(id: Long, handle: Long, width: Double, height: Double, scale: Double, refresh: Double): ByteArray {
         val w = WireWriter()
-        w.uvarint(31)
+        w.uvarint(33)
         w.int(id)
         w.int(handle)
         w.float(width)
@@ -1234,14 +1366,14 @@ object Event {
     /** the native surface goes: the host waits for Go to let go of it */
     @JvmStatic fun surfaceDestroyed(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(32)
+        w.uvarint(34)
         w.int(id)
         return w.toByteArray()
     }
     /** a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse" */
     @JvmStatic fun touch(id: Long, pointer: Long, phase: String, kind: String, x: Double, y: Double, pressure: Double, buttons: Long, time: Double): ByteArray {
         val w = WireWriter()
-        w.uvarint(33)
+        w.uvarint(35)
         w.int(id)
         w.int(pointer)
         w.string(phase)
@@ -1256,7 +1388,7 @@ object Event {
     /** a mouse's or a trackpad's scrolling, in DIPs */
     @JvmStatic fun scroll(id: Long, x: Double, y: Double, dx: Double, dy: Double, precise: Boolean, phase: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(34)
+        w.uvarint(36)
         w.int(id)
         w.float(x)
         w.float(y)
@@ -1269,7 +1401,7 @@ object Event {
     /** a hardware keyboard's key: Down, its name (as ui names keys) and the text it types */
     @JvmStatic fun key(id: Long, down: Boolean, key: String, text: String, mods: Long, repeated: Boolean): ByteArray {
         val w = WireWriter()
-        w.uvarint(35)
+        w.uvarint(37)
         w.int(id)
         w.bool(down)
         w.string(key)
@@ -1281,7 +1413,7 @@ object Event {
     /** the keyboard typed Text, in place of the marked text if any */
     @JvmStatic fun textInsert(id: Long, text: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(36)
+        w.uvarint(38)
         w.int(id)
         w.string(text)
         return w.toByteArray()
@@ -1289,7 +1421,7 @@ object Event {
     /** the input method's text being composed, its selection in runes */
     @JvmStatic fun textMarked(id: Long, text: String, selStart: Long, selEnd: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(37)
+        w.uvarint(39)
         w.int(id)
         w.string(text)
         w.int(selStart)
@@ -1299,7 +1431,7 @@ object Event {
     /** the keyboard deleted Before runes before the caret and After after it */
     @JvmStatic fun textDelete(id: Long, before: Long, after: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(38)
+        w.uvarint(40)
         w.int(id)
         w.int(before)
         w.int(after)
@@ -1308,7 +1440,7 @@ object Event {
     /** an editing action of the keyboard or the edit menu: "newline", "tab", "cut", "copy", "paste", "selectAll", "left", … */
     @JvmStatic fun textCommand(id: Long, command: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(39)
+        w.uvarint(41)
         w.int(id)
         w.string(command)
         return w.toByteArray()
@@ -1316,14 +1448,14 @@ object Event {
     /** the text around the caret and the selection, in runes, for the keyboard's suggestions */
     @JvmStatic fun textState(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(40)
+        w.uvarint(42)
         w.int(id)
         return w.toByteArray()
     }
     /** the keyboard moved the caret or the selection, by runes from the caret */
     @JvmStatic fun textSelect(id: Long, start: Long, end: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(41)
+        w.uvarint(43)
         w.int(id)
         w.int(start)
         w.int(end)
@@ -1332,13 +1464,13 @@ object Event {
     /** the keyboard went away */
     @JvmStatic fun textInputEnded(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(42)
+        w.uvarint(44)
         w.int(id)
         return w.toByteArray()
     }
     @JvmStatic fun menuChosen(id: Long, req: Long, action: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(43)
+        w.uvarint(45)
         w.int(id)
         w.int(req)
         w.string(action)
@@ -1347,14 +1479,14 @@ object Event {
     /** the accessible elements, encoded as Nodes: for each, its ID, parent, role, label, value, hint, frame and actions */
     @JvmStatic fun accessibilityTree(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(44)
+        w.uvarint(46)
         w.int(id)
         return w.toByteArray()
     }
     /** an assistive technology's action on an element: "press", "increment", "decrement", "focus", "scrollForward", … */
     @JvmStatic fun accessibilityAction(id: Long, node: Long, action: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(45)
+        w.uvarint(47)
         w.int(id)
         w.int(node)
         w.string(action)

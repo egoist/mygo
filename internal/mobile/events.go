@@ -204,8 +204,8 @@ func (b *Backend) handle(msg []byte) []byte {
 		e.Decode(&r)
 		b.h.NotificationClicked(e.NotificationID)
 	default:
-		if b.handleSurface(op, &r, &w) {
-			break
+		if !b.handleNavigation(op, &r) {
+			b.handleSurface(op, &r, &w)
 		}
 	}
 	if !wire.EventWaits(op) {

@@ -157,10 +157,7 @@ final class RootViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        for w in Host.shared.windows.values {
-            w.frame = view.bounds
-            w.reportSize()
-        }
+        for w in Host.shared.windows.values { w.reportSize() }
     }
 
     override func viewSafeAreaInsetsDidChange() {

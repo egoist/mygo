@@ -13,7 +13,6 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
     var window: UIWindow?
     var windows: [Int: HostWindow] = [:]
     /// The windows on screen, the one in front last.
-    var shown: [HostWindow] = []
     var pickers: [UIDocumentPickerViewController: Int] = [:]
 
     /// The view controller to present over: the root, or what it presents.
@@ -93,23 +92,41 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
 
     func showWindow(_ c: ShowWindowCall) {
         guard let w = windows[c.id] else { return }
-        shown.removeAll { $0 === w }
-        shown.append(w)
-        w.frame = root.view.bounds
-        root.view.addSubview(w)
+        Navigation.shared.show(w)
         w.reportSize()
     }
 
     func hideWindow(_ c: HideWindowCall) {
         guard let w = windows[c.id] else { return }
-        shown.removeAll { $0 === w }
-        w.removeFromSuperview()
+        Navigation.shared.hide(w)
     }
 
     func closeWindow(_ c: CloseWindowCall) {
         guard let w = windows.removeValue(forKey: c.id) else { return }
-        shown.removeAll { $0 === w }
+        Navigation.shared.hide(w)
+        Navigation.shared.forget(w)
         w.close()
+    }
+
+    func setTitle(_ c: SetTitleCall) { windows[c.id].map { Navigation.shared.controller($0).title = c.title } }
+    func createTabs(_ c: CreateTabsCall) { Navigation.shared.createTabs(c.id) }
+    func addTab(_ c: AddTabCall) {
+        guard let w = windows[c.window] else { return }
+        Navigation.shared.addTab(c.id, w, title: c.title, symbol: c.symbol, icon: c.icon)
+    }
+    func showTabs(_ c: ShowTabsCall) { Navigation.shared.showTabs(c.id) }
+    func selectTab(_ c: SelectTabCall) { Navigation.shared.tabs[c.id]?.selectedIndex = c.index }
+    func setTabBadge(_ c: SetTabBadgeCall) {
+        Navigation.shared.tabs[c.id]?.viewControllers?[safe: c.index]?.tabBarItem.badgeValue = c.badge.isEmpty ? nil : c.badge
+    }
+    func closeTabs(_ c: CloseTabsCall) { Navigation.shared.closeTabs(c.id) }
+    func pushWindow(_ c: PushWindowCall) {
+        guard let p = windows[c.parent], let w = windows[c.child] else { return }
+        Navigation.shared.push(w, over: p, title: c.title, animated: c.animated)
+    }
+    func popWindow(_ c: PopWindowCall) {
+        guard let w = windows[c.id] else { return }
+        Navigation.shared.pop(w, animated: c.animated)
     }
 
     func setBackground(_ c: SetBackgroundCall) { windows[c.id]?.setBackground(UIColor(rgba: c.color)) }
