@@ -771,12 +771,19 @@ func barStripes(r ui.Rect, top float64, fn func(ui.Rect)) {
 	}
 }
 
+// barIn returns a scroll bar in the window, the element at r.
+func (ed *editor) barIn(r ui.Rect, horizontal bool) ui.Scrollbar {
+	b := ed.bar(horizontal)
+	b.Box.X += r.X
+	b.Box.Y += r.Y
+	return b
+}
+
 // paintScrollbars draws the scroll bars, the vertical one with markers
 // of the matches, diagnostics, changes and carets.
 func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 	v := &ed.view
 	ct := ed.theme
-	t := p.Theme()
 	vertical, horizontal := ed.scrollbars()
 	// The thumbs and the carets' marks show while the pointer is over the
 	// editor, or drags a thumb, as a scroll container's do; the marks of
@@ -784,8 +791,6 @@ func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 	shown := ed.pointerIn || ed.scrollbar.active
 	if vertical {
 		x := r.X + r.W - scrollbarWidth
-		// No track under the thumb, as a scroll container draws none.
-		hovered := ed.pointerIn && ed.region == regionVScroll
 		span := float32(ed.scrollMax()) + ed.viewH
 		mark := func(y float64, h float32, x0, w float32, c ui.Color) {
 			yy := r.Y + float32(y/float64(span))*r.H
@@ -853,21 +858,9 @@ func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 				mark(h.top(v.text.LineOf(s.head)), 2, 0, scrollbarWidth, ct.Text.Alpha(0.5))
 			}
 		}
-		t0, t1 := ed.thumb(false)
-		thumb := ui.Rect{X: x + 2, Y: r.Y + t0, W: scrollbarWidth - 4, H: t1 - t0}
-		alpha := float32(0.5)
-		if hovered || ed.scrollbar.active {
-			alpha = 0.9
-		}
-		p.Fill(thumb, t.Scrollbar.Alpha(alpha), (scrollbarWidth-4)/2)
+		p.Scrollbar(ed.barIn(r, false), ui.ScrollbarState{Dragging: ed.scrollbar.active && !ed.scrollbar.horizontal})
 	}
 	if horizontal && shown {
-		t0, t1 := ed.thumb(true)
-		y := r.Y + ed.hbarY
-		alpha := float32(0.4)
-		if ed.pointerIn && ed.region == regionHScroll || ed.scrollbar.active {
-			alpha = 0.9
-		}
-		p.Fill(ui.Rect{X: r.X + ed.textX + t0, Y: y + 2, W: t1 - t0, H: scrollbarWidth - 4}, t.Scrollbar.Alpha(alpha), (scrollbarWidth-4)/2)
+		p.Scrollbar(ed.barIn(r, true), ui.ScrollbarState{Dragging: ed.scrollbar.active && ed.scrollbar.horizontal})
 	}
 }
