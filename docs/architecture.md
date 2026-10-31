@@ -3985,8 +3985,8 @@ either.
   ten times the CPU renderer's work on an animated page; and once a window
   has a GL context GTK composites it with OpenGL, so the choice is made
   before any surface has one; `MYGO_GPU=1` skips it and draws with OpenGL
-  wherever GDK makes a context, from the first frame, as the GUI tests of
-  CI do on llvmpipe. The devices answer first where they can: no GtkGLArea
+  wherever GDK makes a context and libepoxy loads, from the first frame,
+  as the GUI tests of CI do on llvmpipe. The devices answer first where they can: no GtkGLArea
   without NVIDIA's devices or a render node of a DRM driver with 3D
   (simpledrm, bochs, VirtualBox's or Hyper-V's only show what the CPU
   drew), nor on WSL's device without `GALLIUM_DRIVER=d3d12`. A GtkGLArea shows only
