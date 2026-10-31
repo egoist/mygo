@@ -1,9 +1,25 @@
 package ui
 
+import "slices"
+
 // Files dragged from other apps, such as Finder or Explorer, drop on the
 // elements that ask for them with DroppedFiles. The window takes them only
 // over such an element, or anywhere when the window has OnFileDrop
 // listeners, which get what no element takes.
+
+// OnFilesDrop receives files dropped from another application, on the main
+// thread while handling the native drop event, never while building the view.
+// The callback belongs to the latest committed element and receives its own
+// copy of the paths. It consumes the drop instead of delivering DroppedFiles.
+// Disabled, removed and hidden elements receive no drops. Keep a stable Key
+// when rows reorder, and do not retain Element or Context in the callback.
+func (e *node) OnFilesDrop(fn func([]string)) *node {
+	if e.hasState() && fn != nil {
+		e.flags |= flagDropTarget
+		e.filesDropFn = fn
+	}
+	return e
+}
 
 // DroppedFiles returns the paths of the files dropped on the element since
 // the last frame, nil when none, and makes the element take files dragged
@@ -56,7 +72,12 @@ func (rt *engine) fileDrop(x, y float32, files []string) bool {
 	if s == nil || len(files) == 0 {
 		return false
 	}
-	s.dropped = append(s.dropped, files...)
-	rt.requestFrame()
+	if fn := s.onFilesDrop; fn != nil {
+		rt.requestFrame()
+		fn(slices.Clone(files))
+	} else {
+		s.dropped = append(s.dropped, files...)
+		rt.requestFrame()
+	}
 	return true
 }

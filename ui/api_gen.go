@@ -5113,6 +5113,22 @@ func (_handle Element) Placeholder(s string) Element {
 	return wrapElement(_node.Placeholder(s))
 }
 
+// OnFilesDrop receives files dropped from another application, on the main
+// thread while handling the native drop event, never while building the view.
+// The callback belongs to the latest committed element and receives its own
+// copy of the paths. It consumes the drop instead of delivering DroppedFiles.
+// Disabled, removed and hidden elements receive no drops. Keep a stable Key
+// when rows reorder, and do not retain Element or Context in the callback.
+func (_handle Element) OnFilesDrop(fn func(arg0 []string)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.OnFilesDrop(fn))
+}
+
 // PointerPosition returns the pointer's position relative to the
 // element's box and whether it is over the element. Elements asking for it
 // get a frame whenever the pointer moves over them.
