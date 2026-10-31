@@ -453,6 +453,17 @@ func (_handle *Context) Router() *Router {
 // SetTheme makes the frame use t, for the window's root and the widgets
 // created after the call. Inside the children of a Themed, which keep its
 // theme, t is for the root and the widgets after the Themed.
+// SetMotionPreferences overrides motion for this window, until called again.
+// Call it before building the window's controls. The preferences are copied;
+// nil restores the desktop defaults. It does not alter system preferences.
+func (_handle *Context) SetMotionPreferences(p *MotionPreferences) {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return
+	}
+	_ctx.SetMotionPreferences(p)
+}
+
 func (_handle *Context) SetTheme(t *Theme) {
 	_ctx := _handle.build()
 	if _ctx == nil {

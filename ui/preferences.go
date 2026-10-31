@@ -24,6 +24,43 @@ type Preferences struct {
 	TextScale float32
 }
 
+// MotionPreference selects how an application's motion follows the desktop.
+type MotionPreference uint8
+
+const (
+	// MotionSystem follows the desktop's Reduce Motion setting.
+	MotionSystem MotionPreference = iota
+	// MotionFull allows motion even when the desktop asks for less.
+	MotionFull
+	// MotionReduced asks controls to avoid motion.
+	MotionReduced
+)
+
+// MotionPreferences override motion for one native UI window. SmoothScrolling
+// controls mouse-wheel notch gliding; precise touchpad input and input handled
+// by custom controls are unchanged. Reduced motion always disables gliding.
+type MotionPreferences struct {
+	Motion          MotionPreference
+	SmoothScrolling bool
+}
+
+// SetMotionPreferences overrides motion for this window, until called again.
+// Call it before building the window's controls. The preferences are copied;
+// nil restores the desktop defaults. It does not alter system preferences.
+func (c *context) SetMotionPreferences(p *MotionPreferences) {
+	if p != nil && p.Motion > MotionReduced {
+		panic("ui: invalid motion preference")
+	}
+	c.rt.motionPreferencesSet = p != nil
+	if p != nil {
+		c.rt.motionPreferences = *p
+	}
+	if !c.rt.wheelGlides() {
+		// Finish an existing glide when the user turns smooth scrolling off.
+		c.rt.glideWheels(c.now)
+	}
+}
+
 // Preferences returns the settings of the desktop that controls follow.
 // A frame follows their changes.
 func (c *context) Preferences() Preferences { return c.rt.preferences() }
@@ -43,7 +80,20 @@ func (rt *engine) preferences() Preferences {
 		}
 		rt.prefsKnown = true
 	}
-	return rt.prefs
+	p := rt.prefs
+	if rt.motionPreferencesSet {
+		switch rt.motionPreferences.Motion {
+		case MotionFull:
+			p.ReduceMotion = false
+		case MotionReduced:
+			p.ReduceMotion = true
+		}
+	}
+	return p
+}
+
+func (rt *engine) wheelGlides() bool {
+	return !rt.preferences().ReduceMotion && (!rt.motionPreferencesSet || rt.motionPreferences.SmoothScrolling)
 }
 
 // follow makes the theme follow the desktop's settings.

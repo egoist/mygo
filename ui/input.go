@@ -509,7 +509,7 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool)
 	}
 	// A wheel's notches glide, as browsers scroll them; a touchpad's
 	// small moves already follow the fingers.
-	glide := !precise && !rt.preferences().ReduceMotion
+	glide := !precise && rt.wheelGlides()
 	for _, id := range chain {
 		s := rt.states[id]
 		if s == nil {

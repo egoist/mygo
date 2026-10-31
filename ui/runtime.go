@@ -414,6 +414,9 @@ type engine struct {
 	// prefs are the desktop's preferences, read once until they change.
 	prefs      Preferences
 	prefsKnown bool
+	// Application motion settings are separate from the cached desktop values.
+	motionPreferences    MotionPreferences
+	motionPreferencesSet bool
 	// lang is the language the app shows, read as each frame starts.
 	lang string
 	// fmtRegion and fmtLocale are the formats the controls write dates

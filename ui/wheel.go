@@ -97,6 +97,12 @@ func (rt *engine) glideWheels(now time.Time) {
 			continue
 		}
 		g := s.wheel
+		if !rt.wheelGlides() {
+			dx, dy := g.ahead()
+			s.wheel = nil
+			scrollBy(s, float32(dx), float32(dy))
+			continue
+		}
 		g.x.advance(now)
 		g.y.advance(now)
 		dx, dy := g.x.value-g.doneX, g.y.value-g.doneY
