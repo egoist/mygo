@@ -92,15 +92,17 @@ ui.TextInput(c.Key("search"), &app.query).Bind(&app.search)
 ```
 
 Declare `search ui.Handle` in your app state. `app.search.Focus()` requests
-focus and waits while the control is hidden. `CancelFocus()` cancels the
-request. `Focused(c)` and `FocusWithin(c)` read the control's identity before
+focus and waits while the control is hidden. `app.search.SelectAll()` does
+the same and selects all of the input's text, as Tab into it does, even when it
+has the focus already: a search box opened again selects its query, and typing
+replaces it. `CancelFocus()` cancels the request. `Focused(c)` and `FocusWithin(c)` read the control's identity before
 or after it is built. `c.Resolve(app.search)` returns only this pass's element.
 `app.search.Bounds(c)` reads its box from the committed frame, including
 between builds in an input callback. Closing a window cancels its focus
 request.
 
 A handle can bind in several windows. Queries take that window's Context;
-use `Focus(c)` or `CancelFocus(c)` to select a window explicitly. The
+use `Focus(c)`, `SelectAll(c)` or `CancelFocus(c)` to select a window explicitly. The
 no-argument focus form requires at most one open binding.
 
 ## Focus bound to data
