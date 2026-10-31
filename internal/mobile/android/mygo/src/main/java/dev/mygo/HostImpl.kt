@@ -208,7 +208,10 @@ object HostImpl : HostCalls {
         val r = CreateWindowReply()
         try {
             val w = if (c.surface) SurfaceWindow(context, c.id) else WebWindow(context, c)
-            if (c.hasBackground) w.setBackground(rgbaToARGB(c.background))
+            if (c.hasBackground) {
+                w.fill = rgbaToARGB(c.background)
+                w.setBackground(w.fill)
+            }
             windows[c.id] = w
         } catch (e: Throwable) {
             r.error = "mygo: ${e.message ?: e.toString()}"

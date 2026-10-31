@@ -72,12 +72,18 @@ func (s *surface) themeChanged() { s.RequestFrame() }
 
 func (s *surface) idle() {}
 
-// back hands Android's back to the content as Escape, which closes a menu,
-// a dialog or a page of a router; it took it if it handled the key.
+// back hands Android's back to the content: Escape, which closes a menu
+// or a dialog, then the Back key, as a mouse's back button, which a
+// Router takes to go back. It reports whether the content took either.
 func (s *surface) back() bool {
-	taken := s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.KeyEscape})
-	s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: platform.KeyEscape})
-	return taken
+	for _, k := range []platform.Key{platform.KeyEscape, platform.KeyBack} {
+		taken := s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k})
+		s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k})
+		if taken {
+			return true
+		}
+	}
+	return false
 }
 
 // Native is the CAMetalLayer of iOS, the ANativeWindow of Android.

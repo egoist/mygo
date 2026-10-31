@@ -65,6 +65,11 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
         web.webViewClient = Client()
         web.webChromeClient = Chrome()
         setScripts(c.scripts, c.scriptFlags)
+        // The web view's own background, which the bars around it take,
+        // until the app gives one.
+        val dark = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        fill = if (dark) 0xFF121212.toInt() else android.graphics.Color.WHITE
         frame.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
