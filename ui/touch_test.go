@@ -107,3 +107,35 @@ func TestScrollUnderBottomInset(t *testing.T) {
 		t.Errorf("scrolled to the end at %v, want %v", s.Y, want)
 	}
 }
+
+// A finger on what scrolls presses only once pressDelay passed without
+// it moving: a pan that starts sooner presses nothing.
+func TestTouchPressDelay(t *testing.T) {
+	pressed := false
+	tt := coreNewTester(func(c *context) {
+		coreScroll(c).Fill().Children(func() {
+			b := coreBox(c).Height(1000).Shrink(0)
+			b.Clicked()
+			pressed = b.Pressed()
+		})
+	}, 200, 200)
+	tt.TouchDown(100, 100)
+	tt.Frame()
+	if pressed {
+		t.Error("pressed before the delay")
+	}
+	tt.Advance(pressDelay + 20*time.Millisecond)
+	if !pressed {
+		t.Error("not pressed after the delay")
+	}
+	tt.TouchUp(100, 100)
+	tt.Advance(time.Second)
+	tt.TouchDown(100, 150)
+	tt.Advance(16 * time.Millisecond)
+	tt.TouchMove(100, 120)
+	tt.Advance(pressDelay * 2)
+	if pressed {
+		t.Error("a pan pressed")
+	}
+	tt.TouchUp(100, 100)
+}

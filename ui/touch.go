@@ -45,6 +45,11 @@ const flingDecay = 0.998
 // flingStop is the speed, in DIPs a second, under which a fling stops.
 const flingStop = 20
 
+// pressDelay is how long a finger on what scrolls waits before it presses,
+// Android's tap timeout: a drag that starts sooner scrolls, pressing
+// nothing, as UIKit's scroll views delay their content's touches.
+const pressDelay = 100 * time.Millisecond
+
 // touchPan is the finger on the screen.
 type touchPan struct {
 	down    bool
@@ -52,6 +57,11 @@ type touchPan struct {
 	// swallow drops what the finger does: it went down to stop a fling,
 	// which takes no tap.
 	swallow bool
+	// waiting is a press held back until pressDelay passed (at), on what
+	// scrolls, with its clicks.
+	waiting bool
+	at      time.Time
+	clicks  int
 	x0, y0  float32 // where it went down
 	lx, ly  float32 // where it was last
 	// samples are its last positions, for its speed as it lifts.
@@ -86,6 +96,11 @@ func (rt *engine) touchEvent(ev platform.SurfaceEvent, x, y float32) bool {
 			t.swallow = true
 			return true
 		}
+		if rt.overScroller(x, y) {
+			t.waiting, t.at, t.clicks = true, rt.now(), ev.Clicks
+			rt.requestFrame()
+			return true
+		}
 		return false
 	case platform.PointerMove:
 		if !t.down {
@@ -96,10 +111,14 @@ func (rt *engine) touchEvent(ev platform.SurfaceEvent, x, y float32) bool {
 		}
 		if !t.panning {
 			if math.Hypot(float64(x-t.x0), float64(y-t.y0)) < touchSlop || rt.dragsPress() {
-				return false
+				return t.waiting
 			}
 			t.panning = true
-			rt.cancelPress()
+			if t.waiting {
+				t.waiting = false // it never pressed
+			} else {
+				rt.cancelPress()
+			}
 			// From where it went down, past the slop: the content does
 			// not jump.
 			t.lx, t.ly = x, y
@@ -114,9 +133,14 @@ func (rt *engine) touchEvent(ev platform.SurfaceEvent, x, y float32) bool {
 			return false
 		}
 		was := *t
-		t.down = false
+		t.down, t.waiting = false, false
 		if was.swallow {
 			return true
+		}
+		if was.waiting {
+			// A tap quicker than the delay: it presses, and lets go.
+			rt.pressNow(was)
+			return false
 		}
 		if !was.panning {
 			return false
@@ -132,6 +156,32 @@ func (rt *engine) touchEvent(ev platform.SurfaceEvent, x, y float32) bool {
 		return t.panning || t.swallow
 	}
 	return false
+}
+
+// overScroller reports whether a finger at x, y is on what scrolls, whose
+// press waits for pressDelay, rather than on what it drags itself, as a
+// slider, which it presses at once.
+func (rt *engine) overScroller(x, y float32) bool {
+	scrolls := false
+	for _, id := range rt.hitChain(x, y) {
+		s := rt.states[id]
+		if s == nil {
+			continue
+		}
+		if !scrolls && s.flags&(flagDraggable|flagTrackPointer) != 0 {
+			return false
+		}
+		if s.flags&flagScrollY != 0 && s.contentH > float64(s.h) || s.flags&flagScrollX != 0 && s.contentW > float64(s.w) {
+			scrolls = true
+		}
+	}
+	return scrolls
+}
+
+// pressNow presses where a finger waited.
+func (rt *engine) pressNow(t touchPan) {
+	rt.pointerMove(t.x0, t.y0)
+	rt.pointerDown(t.x0, t.y0, 0, rt.mods, max(t.clicks, 1))
 }
 
 func (t *touchPan) sample(now time.Time, x, y float32) {
@@ -215,6 +265,14 @@ func (rt *engine) pan(x, y, dx, dy float32, momentum bool) bool {
 // flingStep moves flinging content on to now, slowing it down, and stops
 // it once it is slow or can go no further.
 func (rt *engine) flingStep(now time.Time) {
+	if t := &rt.touch; t.waiting {
+		if now.Sub(t.at) >= pressDelay {
+			t.waiting = false
+			rt.pressNow(*t)
+		} else {
+			rt.animating = true
+		}
+	}
 	f := &rt.flinging
 	if !f.on {
 		return
