@@ -44,6 +44,7 @@ type headless struct {
 	// posts them to the main thread.
 	later  []func()
 	bar    TitleBar
+	inset  platform.Insets
 	access *platform.AccessTree
 	// told are the announcements of the trees, and announced those the
 	// view made.
@@ -172,6 +173,7 @@ func (h *headless) preferences() platform.Preferences { return h.prefs }
 func (h *headless) locale() string                    { return h.lang }
 func (h *headless) region() i18n.Region               { return h.reg }
 func (h *headless) titleBar() TitleBar                { return h.bar }
+func (h *headless) insets() platform.Insets           { return h.inset }
 func (h *headless) vibrancy() bool                    { return h.material }
 func (h *headless) invalidate() {
 	h.invalidated.Store(true)
@@ -392,6 +394,14 @@ func (t *Tester) SetZoom(z float32) {
 // title bar take, which Context.TitleBar returns.
 func (t *Tester) SetTitleBar(bar TitleBar) {
 	t.h.bar = bar
+	t.Frame()
+}
+
+// SetInsets sets how far in from each edge the window is covered, in DIPs,
+// as a phone's bars, cutout and keyboard cover its screen: the view lays
+// out inside them.
+func (t *Tester) SetInsets(top, right, bottom, left float32) {
+	t.h.inset = platform.Insets{Top: float64(top), Right: float64(right), Bottom: float64(bottom), Left: float64(left)}
 	t.Frame()
 }
 
@@ -658,6 +668,26 @@ func (t *Tester) webViewPress(x, y float32, button int, mods platform.Modifiers)
 	}
 	t.send(platform.SurfaceEvent{Kind: platform.WebViewPress, X: float64(x), Y: float64(y), Button: button, Mods: mods})
 	return true
+}
+
+// TouchDown puts a finger on a touch screen at (x, y); TouchMove moves it
+// and TouchUp lifts it: a press that moves pans what scrolls under it,
+// and lifted as it moves it flings it on, which advancing the clock
+// (Advance) shows.
+func (t *Tester) TouchDown(x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: float64(x), Y: float64(y), Touch: true})
+	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y), Clicks: 1, Touch: true})
+}
+
+// TouchMove moves the finger on the screen to (x, y).
+func (t *Tester) TouchMove(x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: float64(x), Y: float64(y), Touch: true})
+}
+
+// TouchUp lifts the finger at (x, y).
+func (t *Tester) TouchUp(x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: float64(x), Y: float64(y), Clicks: 1, Touch: true})
+	t.send(platform.SurfaceEvent{Kind: platform.PointerLeave, Touch: true})
 }
 
 // Move moves the pointer to (x, y).

@@ -81,7 +81,7 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
         let w: HostWindow
         if c.surface {
             let s = SurfaceWindow(id: c.id)
-            r.layer = Int(bitPattern: Unmanaged.passUnretained(s.metalLayer).toOpaque())
+            r.layer = Int(bitPattern: Unmanaged.passUnretained(s.layer).toOpaque())
             w = s
         } else {
             w = WebWindow(id: c.id, c)

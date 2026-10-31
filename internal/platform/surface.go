@@ -142,6 +142,14 @@ type MaximizeButtonSurface interface {
 	SetMaximizeButton(r RectF)
 }
 
+// InsetSurface is a Surface whose edges something covers, as the system's
+// bars, a display's cutout and the keyboard cover a phone's screen.
+type InsetSurface interface {
+	// Insets are how far in from each edge the content is covered: the
+	// content lays out inside them and paints its background under them.
+	Insets() Insets
+}
+
 // IdleSurface is a Surface that can give back memory once frames stop.
 type IdleSurface interface {
 	// Idle tells that no frame came for a while: the surface may give
@@ -213,6 +221,9 @@ type SurfaceNative struct {
 	// Context.ID), current while SurfaceFrame events are handled
 	// (browsers).
 	Canvas uintptr
+	// Window is the surface's ANativeWindow, which an EGL context draws
+	// into (Android); Layer is its CAMetalLayer on iOS.
+	Window uintptr
 }
 
 // RectF is a rectangle in DIPs with fractional coordinates.
@@ -351,6 +362,10 @@ type SurfaceEvent struct {
 	Action AccessActionKind
 	// WebView is WebViewTabOut's.
 	WebView WebView
+	// Touch marks pointer events of a finger on a touch screen, which
+	// has no hover: a drag of one pans what scrolls under it, and no
+	// pointer stays over the content after it lifts.
+	Touch bool
 	// Paced marks a SurfaceFrame of frames following each other at the
 	// display's refreshes (PacedSurface): the content may draw it later,
 	// once the display can take it, which it tells by returning true from

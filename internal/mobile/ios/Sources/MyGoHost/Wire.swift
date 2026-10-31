@@ -601,6 +601,9 @@ public struct SetTextInputCall {
     public var height: Double = 0
     public var kind: String = ""
     public var secure: Bool = false
+    public var text: String = ""
+    public var selStart: Int = 0
+    public var selEnd: Int = 0
     public init() {}
     init(_ r: inout WireReader) {
         id = r.int()
@@ -611,6 +614,9 @@ public struct SetTextInputCall {
         height = r.float()
         kind = r.string()
         secure = r.bool()
+        text = r.string()
+        selStart = r.int()
+        selEnd = r.int()
     }
 }
 
@@ -1207,7 +1213,7 @@ public enum Event {
         return w.buf
     }
     /// the native surface to draw on (a CAMetalLayer, an ANativeWindow), 0 when gone
-    public static func surfaceChanged(id: Int, handle: Int, width: Double, height: Double, scale: Double) -> [UInt8] {
+    public static func surfaceChanged(id: Int, handle: Int, width: Double, height: Double, scale: Double, refresh: Double) -> [UInt8] {
         var w = WireWriter()
         w.uvarint(31)
         w.int(id)
@@ -1215,6 +1221,7 @@ public enum Event {
         w.float(width)
         w.float(height)
         w.float(scale)
+        w.float(refresh)
         return w.buf
     }
     /// a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse"

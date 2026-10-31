@@ -860,14 +860,17 @@ func (*RequestFrame) Wait() bool { return false }
 
 // SetTextInput is where the caret of the text being edited is, and whether the keyboard shows for it.
 type SetTextInput struct {
-	ID     int
-	Active bool
-	X      float64
-	Y      float64
-	Width  float64
-	Height float64
-	Kind   string
-	Secure bool
+	ID       int
+	Active   bool
+	X        float64
+	Y        float64
+	Width    float64
+	Height   float64
+	Kind     string
+	Secure   bool
+	Text     string
+	SelStart int
+	SelEnd   int
 }
 
 func (m *SetTextInput) Encode(w *Writer) {
@@ -880,6 +883,9 @@ func (m *SetTextInput) Encode(w *Writer) {
 	w.Float(m.Height)
 	w.String(m.Kind)
 	w.Bool(m.Secure)
+	w.String(m.Text)
+	w.Int(m.SelStart)
+	w.Int(m.SelEnd)
 }
 
 // Wait reports whether the caller waits for the host to run it.
@@ -1399,11 +1405,12 @@ func (m *FrameEvent) Decode(r *Reader) {
 
 // SurfaceChangedEvent is the native surface to draw on (a CAMetalLayer, an ANativeWindow), 0 when gone.
 type SurfaceChangedEvent struct {
-	ID     int
-	Handle int
-	Width  float64
-	Height float64
-	Scale  float64
+	ID      int
+	Handle  int
+	Width   float64
+	Height  float64
+	Scale   float64
+	Refresh float64
 }
 
 func (m *SurfaceChangedEvent) Decode(r *Reader) {
@@ -1412,6 +1419,7 @@ func (m *SurfaceChangedEvent) Decode(r *Reader) {
 	m.Width = r.Float()
 	m.Height = r.Float()
 	m.Scale = r.Float()
+	m.Refresh = r.Float()
 }
 
 // TouchEvent is a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse".

@@ -104,6 +104,7 @@ func (b *Backend) newWindow(opts *platform.WindowOptions, h platform.WindowHandl
 	}
 	if opts.Surface {
 		w.s = newSurface(w)
+		w.s.handle = uintptr(r.Layer) // iOS's layer; Android's window comes with SurfaceChanged
 	}
 	b.windows[w.id] = w
 	if w.zoom != 1 && !opts.Surface {

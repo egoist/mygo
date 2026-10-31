@@ -102,7 +102,7 @@ var calls = []msg{
 	{name: "RequestFrame", doc: "asks for a Frame at the next refresh of the display", args: []field{f("ID", "int")}},
 	{name: "SetTextInput", doc: "where the caret of the text being edited is, and whether the keyboard shows for it",
 		args: []field{f("ID", "int"), f("Active", "bool"), f("X", "float"), f("Y", "float"), f("Width", "float"), f("Height", "float"),
-			f("Kind", "string"), f("Secure", "bool")}},
+			f("Kind", "string"), f("Secure", "bool"), f("Text", "string"), f("SelStart", "int"), f("SelEnd", "int")}},
 	{name: "TextInputChanged", doc: "the text around the caret changed, which the keyboard's suggestions read again", args: []field{f("ID", "int")}},
 	{name: "SetCursor", doc: "the pointer's shape, for a mouse or a trackpad", args: []field{f("ID", "int"), f("Cursor", "string")}},
 	{name: "AccessibilityChanged", doc: "the tree of accessible elements changed; Focus names the one with the focus",
@@ -162,7 +162,7 @@ var events = []msg{
 	// Native UI.
 	{name: "Frame", doc: "the display refreshes: draw a frame if one was asked for", args: []field{f("ID", "int")}},
 	{name: "SurfaceChanged", doc: "the native surface to draw on (a CAMetalLayer, an ANativeWindow), 0 when gone",
-		args: []field{f("ID", "int"), f("Handle", "int"), f("Width", "float"), f("Height", "float"), f("Scale", "float")}},
+		args: []field{f("ID", "int"), f("Handle", "int"), f("Width", "float"), f("Height", "float"), f("Scale", "float"), f("Refresh", "float")}},
 	{name: "Touch", doc: `a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse"`,
 		args: []field{f("ID", "int"), f("Pointer", "int"), f("Phase", "string"), f("Kind", "string"), f("X", "float"), f("Y", "float"),
 			f("Pressure", "float"), f("Buttons", "int"), f("Time", "float")}},

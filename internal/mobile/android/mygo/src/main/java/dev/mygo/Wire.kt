@@ -621,6 +621,9 @@ class SetTextInputCall(
     @JvmField var height: Double = 0.0,
     @JvmField var kind: String = "",
     @JvmField var secure: Boolean = false,
+    @JvmField var text: String = "",
+    @JvmField var selStart: Long = 0L,
+    @JvmField var selEnd: Long = 0L,
 ) {
     constructor(r: WireReader) : this() {
         id = r.int()
@@ -631,6 +634,9 @@ class SetTextInputCall(
         height = r.float()
         kind = r.string()
         secure = r.bool()
+        text = r.string()
+        selStart = r.int()
+        selEnd = r.int()
     }
 }
 
@@ -1124,7 +1130,7 @@ object Event {
         return w.toByteArray()
     }
     /** the native surface to draw on (a CAMetalLayer, an ANativeWindow), 0 when gone */
-    @JvmStatic fun surfaceChanged(id: Long, handle: Long, width: Double, height: Double, scale: Double): ByteArray {
+    @JvmStatic fun surfaceChanged(id: Long, handle: Long, width: Double, height: Double, scale: Double, refresh: Double): ByteArray {
         val w = WireWriter()
         w.uvarint(31)
         w.int(id)
@@ -1132,6 +1138,7 @@ object Event {
         w.float(width)
         w.float(height)
         w.float(scale)
+        w.float(refresh)
         return w.toByteArray()
     }
     /** a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse" */

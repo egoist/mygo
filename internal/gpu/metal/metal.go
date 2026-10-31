@@ -1,4 +1,4 @@
-//go:build darwin && !ios
+//go:build darwin
 
 // Package metal draws scenes with Metal into a CAMetalLayer, called through
 // the Objective-C runtime with purego like the rest of the macOS backend
@@ -506,7 +506,7 @@ func New(layer uintptr) (r *Renderer, err error) {
 		}
 		ml := send(send(class("CAMetalLayer"), "alloc"), "init")
 		if err = need(ml, "CAMetalLayer", "setDevice:", "setPixelFormat:", "setFramebufferOnly:", "setPresentsWithTransaction:",
-			"setColorspace:", "setDrawableSize:", "setContentsScale:", "setFrame:", "setAutoresizingMask:", "nextDrawable"); err != nil {
+			"setColorspace:", "setDrawableSize:", "setContentsScale:", "setFrame:", "nextDrawable"); err != nil {
 			release(&ml)
 			return
 		}
@@ -525,12 +525,23 @@ func New(layer uintptr) (r *Renderer, err error) {
 		}
 		// The first frame shows with the window's other changes; render
 		// decides for each frame.
-		send(ml, "setPresentsWithTransaction:", 1)
-		r.synced = true
+		if runtime.GOOS != "ios" {
+			send(ml, "setPresentsWithTransaction:", 1)
+			r.synced = true
+		}
 		send(ml, "setColorspace:", srgb)
 		send(ml, "setOpaque:", 0)
-		send(ml, "setAutoresizingMask:", layerWidthSizable|layerHeightSizable)
+		if runtime.GOOS != "ios" {
+			// iOS's layers have no autoresizing: fit sizes it each frame.
+			send(ml, "setAutoresizingMask:", layerWidthSizable|layerHeightSizable)
+		}
+		// In a transaction of its own: on iOS the thread has no run loop
+		// to commit the one Core Animation would begin.
+		tx := class("CATransaction")
+		send(tx, "begin")
 		send(layer, "addSublayer:", ml)
+		send(tx, "commit")
+		flushTransactions()
 		r.layer, r.superlayer = ml, layer
 	})
 	if err != nil {
@@ -903,6 +914,16 @@ func (r *Renderer) libraryFromData(code []byte) id {
 	defer purego.SyscallN(dispatchRelease, data)
 	var errObj id
 	return send(r.device, "newLibraryWithData:error:", data, uintptr(unsafe.Pointer(&errObj)))
+}
+
+// flushTransactions commits the transaction Core Animation began itself
+// for what changed on this thread, as a run loop would: on iOS frames draw
+// on Go's thread, which has none, and the layers it changed would never
+// reach the screen.
+func flushTransactions() {
+	if runtime.GOOS == "ios" {
+		send(class("CATransaction"), "flush")
+	}
 }
 
 func respondsTo(obj id, method string) bool {
@@ -1647,6 +1668,11 @@ func (r *Renderer) render(s *scene.Scene) error {
 	// transaction for each.
 	holes := hasHoles(s)
 	sync := changed || holes || r.holes
+	if runtime.GOOS == "ios" {
+		// The frames draw on Go's thread, apart from UIKit's, which has
+		// no run loop to commit a transaction they would present with.
+		sync = false
+	}
 	r.holes = holes
 	if sync {
 		// A drawable fetched before the layer changed, or to present
@@ -1828,6 +1854,7 @@ func (r *Renderer) fit(w, h int, scale float64) (changed bool) {
 	msgSetFloat(r.layer, sel("setContentsScale:"), scale)
 	msgSetSize(r.layer, sel("setDrawableSize:"), cgSize{float64(w), float64(h)})
 	send(tx, "commit")
+	flushTransactions()
 	r.w, r.h, r.scale, r.bounds, r.trimmed = w, h, scale, bounds, false
 	return true
 }
@@ -1873,7 +1900,10 @@ const trimAfter = 2 * time.Second
 // armTrim has the renderer's timer trim the drawables once it draws
 // nothing for trimAfter.
 func (r *Renderer) armTrim() {
-	if r.trimArmed {
+	// The timer fires on the main run loop, which on iOS is UIKit's
+	// thread, not the one drawing: the system's memory warnings trim there
+	// instead (Renderer.Trim).
+	if r.trimArmed || runtime.GOOS == "ios" {
 		return
 	}
 	if r.trimTimer == 0 {
