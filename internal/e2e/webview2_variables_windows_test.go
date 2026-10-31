@@ -28,10 +28,20 @@ func TestWebView2LoaderVariables(t *testing.T) {
 	if os.Getenv("MYGO_E2E_WEBVIEW2_VARIABLES") != "1" {
 		// WebView2 reads these when the helper's first page creates its
 		// environment, during TestMain's warm-up.
+		// Not t.TempDir: the page's browser processes outlive the helper
+		// for a moment and keep files of the folder open, which fails
+		// TempDir's removal. Remove it once they let go.
+		folder, err := os.MkdirTemp("", "mygo-webview2-variables-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			wait.Until(t, "WebView2's browser processes to let go of "+folder, func() bool { return os.RemoveAll(folder) == nil })
+		})
 		cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestWebView2LoaderVariables$", "-test.v")
 		cmd.Env = append(os.Environ(),
 			"MYGO_E2E_WEBVIEW2_VARIABLES=1",
-			"WEBVIEW2_USER_DATA_FOLDER="+t.TempDir(),
+			"WEBVIEW2_USER_DATA_FOLDER="+folder,
 			"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=0",
 		)
 		if out, err := cmd.CombinedOutput(); err != nil {
