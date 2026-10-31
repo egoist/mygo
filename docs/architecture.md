@@ -854,11 +854,30 @@ fake host. Desktop files of `darwin` and `linux` exclude `ios` and
   Android's WebView loads no custom scheme: as WebView2, it is served the
   app's at `https://<scheme>.localhost` (`schemehost.WebURLOf`, mapped back
   for the core), answered from `shouldInterceptRequest` with a stream Go
-  writes, without the request's body, which Android does not give; the
-  bridge posts through the host's JavaScript interface (`mygoAndroid`),
+  writes. Android gives that no request's body, so a document-start script
+  (`Schemes.bodyScript`) puts the bodies of `fetch` and XHR to those hosts
+  aside through the host (`putBody`) and tags their requests with
+  `X-MyGo-Body`, which the host looks them up by; a form's post still
+  comes without one. The bridge posts through the host's JavaScript interface (`mygoAndroid`),
   and document-start scripts come from androidx.webkit. Android starts a
   page as it commits it (`onPageStarted`), when the core takes its URL to
   trust it, before its scripts run.
+- **Navigation** (`navigation.go`, `platform.NavigationBackend`, which
+  only phones implement: desktops show the windows as windows). `Tabs`
+  are UIKit's `UITabBarController` and Material's
+  `BottomNavigationView`, a stack in each tab; `Window.Push` puts a window
+  on its stack, a `UINavigationController` on iOS and a page with a
+  `MaterialToolbar` on Android, and the user's back (the bar's button,
+  iOS's edge swipe, Android's back) pops it, which the host reports
+  (`Popped`) and the core takes as a close. Each window's insets come
+  from where layout put it (Android: its position in the root, ignoring
+  the translation of a page sliding in), so a window under a toolbar has
+  no top inset and one above the tab bar no bottom one. iOS 26's bars
+  float over the content: a scroll container flush with the root's padded
+  bottom goes on under the bottom inset with as much more to scroll
+  (`extendUnderBottom`), so lists pass under the tab bar's glass. Android
+  colors its bars with the window's background (`SetBackground`), which
+  a `SurfaceView` can't take itself, as it would hide the frames.
 - **Native UI.** iOS draws with the Metal renderer and Core Text, through
   purego as on macOS, on Go's thread: frames present through the command
   buffer (no transaction to present with, which needs a run loop) and Core
@@ -877,12 +896,21 @@ fake host. Desktop files of `darwin` and `linux` exclude `ios` and
 - **Input.** A finger is the pointer while it touches (`SurfaceEvent.Touch`,
   the first one; two pinch), and `ui` pans what scrolls under one that
   moves and flings it on (`ui/touch.go`, reached only where touches come:
-  `touch_mobile.go`, or a Tester touching). The hosts take the keyboard
+  `touch_mobile.go`, or a Tester touching). A finger on what scrolls
+  presses only after `pressDelay` (Android's tap timeout, as UIKit's
+  scroll views delay their content's touches) or as it lifts sooner, so a
+  drag that starts at once presses nothing. Android's back goes first to
+  the stack in front, then to the content as Escape and `KeyBack`, which
+  `ui` reports taken when a shortcut claims it (a Router only while it
+  can go back); untaken, the app goes to the background. The hosts take the keyboard
   with `UITextInput` and an `InputConnection`, the text around the caret
   mirrored from `SetTextInput`, the input methods' marked or composing text
   sent as compositions; VoiceOver and TalkBack ask for the accessibility
   tree when they read the window (`AccessibilityTree`), which turns on the
   content's (`AccessibilityOn`).
+- **Files** are watched with inotify on Android (`internal/inotify`, as
+  on desktop Linux) and kqueue on iOS (`internal/kqueue`; see "Watching
+  files").
 - **Packaging** is the CLI's (`cmd/mygo/ios.go`, `android.go`): for iOS,
   swiftc compiles the embedded host and links it with the Go archive,
   actool compiles the icon, and the bundle gets the build keys App Store
@@ -2143,7 +2171,7 @@ main thread, so watches work before the app runs and don't wait on it.
   are batched. The stream starts `SinceNow`, but fseventsd can report a
   change made just before it started; the core's snapshot is taken as
   targets are enrolled, so nothing comes of it.
-- Linux: one inotify instance for the process, as fsnotify, with a watch
+- Linux and Android (`internal/inotify`): one inotify instance for the process, as fsnotify, with a watch
   per directory, which names the child that changed: watches cost watch
   descriptors, not instances, of which many systems allow 128 per user
   for all apps. A goroutine reads it through the runtime's poller and
@@ -2153,6 +2181,15 @@ main thread, so watches work before the app runs and don't wait on it.
   `IN_IGNORED` must not be taken for a new one's, so the backend keeps
   generations of targets, each its watch and ID, per descriptor; the
   last target of a descriptor removes it.
+- iOS (`internal/kqueue`), which has no FSEvents: a kqueue per watch,
+  with a descriptor for every file and directory, opened `O_EVTONLY` as
+  fsnotify's are, and a user event that wakes `Wait`. A directory's
+  `NOTE_WRITE` names no child, so its notice says only that the directory
+  changed, which the core lists again; a file's is a write. A target
+  deleted, renamed or revoked is lost, since its descriptor follows the
+  file, and the core enrolls what is at the path now. Links, pipes and
+  devices get no descriptor (opening a pipe waits for a writer): their
+  directory names what happens to them.
 - Windows: `ReadDirectoryChangesW` on overlapped handles, completing on a
   completion port per watch. Windows refuses to rename a directory while a
   handle is open on something beneath it, so a recursive watch is one
@@ -2171,7 +2208,8 @@ main thread, so watches work before the app runs and don't wait on it.
 Backends report a write (`FileWatchWrite`) only for content: FSEvents'
 `ItemModified` on a file (its `ItemCreated`, which APFS also sets on an
 `O_TRUNC` write, stays dirty and lets the core's comparison report the
-change), inotify's `IN_MODIFY` and `IN_CLOSE_WRITE`,
+change), inotify's `IN_MODIFY` and `IN_CLOSE_WRITE`, kqueue's `NOTE_WRITE` and
+`NOTE_EXTEND` on a file,
 and Windows without `FILE_NOTIFY_CHANGE_ATTRIBUTES`. Attribute changes are
 dirty, and the core compares only size and modification time, so that
 indexers and antivirus touching metadata report nothing.
@@ -3918,7 +3956,8 @@ either.
     tenth of the CPU's time it took drawn whole;
   - `internal/gpu/metal` with a shader in Metal Shading Language
     compiled into a Metal library ahead of time (on macOS, with
-    Xcode's `metal` tools), which
+    Xcode's `metal` tools, and for iOS's devices and simulator, which
+    `shaderlib_ios.go` tells apart by `SIMULATOR_DEVICE_NAME`), which
     spares a first launch the 100 to 150 ms Metal takes to compile the
     source until it has cached it; a library older than `shader.metal`
     falls back to that, and its test fails. It draws into a CAMetalLayer
