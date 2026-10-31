@@ -168,19 +168,15 @@ func newAlert(kind, message, detail string, buttons []string, defaultID int, des
 	return alert
 }
 
-// alertKeys is the monitor of keys in the app that presses the cancel
-// button of the alert in front on Escape and Cmd+., the keys AppKit binds
-// to canceling, rather than a key equivalent: a button has one, which is
-// Return for a cancel button that is the default too. It is made once,
-// with the first alert.
+// alertKeys handles Escape and Cmd+. because a button has only one key
+// equivalent, already used by Return when cancel is the default.
+// The monitor is made once, with the first cancelable alert.
 var alertKeys id
 
 // alertCancels maps the window of each alert showing to its cancel
 // button. Main thread only.
 var alertCancels = map[id]id{}
 
-// runAlert shows an alert as runPanel does, alertKeys pressing its button
-// cancelID.
 func runAlert(alert id, parent *window, cancelID int, done func(resp int)) {
 	win := send(alert, "window")
 	if items := arrayItems(send(alert, "buttons")); cancelID >= 0 && cancelID < len(items) {

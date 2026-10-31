@@ -91,10 +91,6 @@ func TestDialogFromClick(t *testing.T) {
 	}
 }
 
-// TestMessageButtonRoles presses keys in message sheets: a button has one
-// key equivalent, so Escape and Cmd+. must still reach a cancel button
-// whose key equivalent is Return, as it is the default button too, and
-// Return must answer nothing without a default button.
 func TestMessageButtonRoles(t *testing.T) {
 	type key struct {
 		code  uint16
@@ -103,8 +99,8 @@ func TestMessageButtonRoles(t *testing.T) {
 	}
 	ret, esc, cmdPeriod := key{36, "\r", false}, key{53, "\x1b", false}, key{47, ".", true}
 	cancelIsDefault := mygo.MessageOptions{Buttons: []string{"Continue Editing", "Discard"}, DestructiveButtons: []int{1}}
-	// Not destructive, as AppKit keeps Return from a destructive button
-	// itself.
+	// The first button must not be destructive: AppKit may suppress Return
+	// for it even when it is the default.
 	noDefault := mygo.MessageOptions{Buttons: []string{"Continue", "Cancel"}, DefaultButton: -1}
 	cases := []struct {
 		name        string

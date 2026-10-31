@@ -82,18 +82,16 @@ type MessageOptions struct {
 	// Buttons defaults to a single "OK" button.
 	Buttons []string
 	// DefaultButton is the index of the button activated with Enter, or -1
-	// for none, for a question not to be answered by reflex. Only macOS
-	// honors -1: Windows makes the first button the default all the same,
-	// and GTK gives Enter to the focused control.
+	// for none (macOS only). Windows uses the first button for -1;
+	// GTK gives Enter to the focused control.
 	DefaultButton int
 	// CancelButton is the index of the button activated with Escape (and
 	// Cmd+. on macOS), also when it is the default button. When zero, the
 	// first button labeled "Cancel" or "No" is used.
 	CancelButton int
-	// DestructiveButtons are the indexes of buttons that delete data or
-	// can't be undone, such as Delete, which macOS 11 and later and Linux
-	// set apart. macOS may also keep Enter from activating one, even as the
-	// default button.
+	// DestructiveButtons are the indexes of buttons whose actions delete
+	// data or can't be undone. macOS 11 and later and Linux set them apart;
+	// macOS may keep Enter from activating them, even as the default.
 	DestructiveButtons []int
 	CheckboxLabel      string
 	CheckboxChecked    bool
