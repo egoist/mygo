@@ -22,11 +22,17 @@ type Options struct {
 	Extensions parser.Extensions
 
 	// OnLink, when set, handles a click on a link, given its destination.
+	// Document-local #heading links always scroll within this view.
 	// Without it, links to http, https and mailto addresses open as a
 	// ui.Link opens them, a path without a scheme goes there in the
 	// router around the view, a link to #a-heading scrolls to that
 	// heading, and links of other schemes do nothing.
 	OnLink func(url string)
+	// Anchor scrolls to a heading slug, optionally prefixed with "#", when
+	// it changes or another document replaces the view's source.
+	Anchor string
+	// AnchorVersion requests another jump to the same Anchor when changed.
+	AnchorVersion uint64
 	// LoadImage loads the image at url, on a goroutine of its own, for the
 	// views to show; until it has, they show its description. Without
 	// it, images show as their descriptions. FileImages loads files.
@@ -127,10 +133,12 @@ type viewState struct {
 	codes  map[int]*codeState
 	tables map[int]*tableState
 	// scrollTo is a block to scroll into view, -1 for none.
-	scrollTo int
-	notes    map[string]int
-	sb       spanBuilder
-	fade     func(src int) float32
+	scrollTo      int
+	anchor        string
+	anchorVersion uint64
+	notes         map[string]int
+	sb            spanBuilder
+	fade          func(src int) float32
 }
 
 type paraCache struct {
@@ -161,7 +169,8 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 	if ext == 0 {
 		ext = parser.Default
 	}
-	if st.doc == nil || st.ext != ext {
+	documentChanged := st.doc == nil || st.ext != ext
+	if documentChanged {
 		st.doc, st.ext = parser.New(ext), ext
 		st.paras = st.paras[:0]
 	}
@@ -174,8 +183,13 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 		// Another text, not more of it: blocks where blocks were may
 		// show other text.
 		st.forget()
+		documentChanged = true
 	}
 	st.doc.Set(src[:shown])
+	if o.Anchor != "" && (documentChanged || st.anchor != o.Anchor || st.anchorVersion != o.AnchorVersion) {
+		st.scrollTo = st.headingNamed(strings.TrimPrefix(o.Anchor, "#"))
+	}
+	st.anchor, st.anchorVersion = o.Anchor, o.AnchorVersion
 	st.fade = st.reveal.fader(c, o.Reveal)
 
 	root.FontSize(th.FontSize).LineHeight(th.LineHeight).TextColor(th.Text)
@@ -456,15 +470,15 @@ func (st *viewState) link(c *ui.Context, in *parser.Inline, children func()) {
 	switch {
 	case in.Pending:
 		l = ui.Link(c, "", "")
-	case st.o.OnLink != nil:
-		l = ui.Link(c, "", "")
-		if l.Clicked() {
-			st.o.OnLink(dest)
-		}
 	case strings.HasPrefix(dest, "#"):
 		l = ui.Link(c, "", "")
 		if l.Clicked() {
 			st.scrollTo = st.headingNamed(dest[1:])
+		}
+	case st.o.OnLink != nil:
+		l = ui.Link(c, "", "")
+		if l.Clicked() {
+			st.o.OnLink(dest)
 		}
 	case linkAllowed(dest, c.Router() != nil):
 		l = ui.Link(c, "", dest)
