@@ -45,7 +45,7 @@ func TestMain(m *testing.M) {
 		backendOnce.Do(func() { theBackend = helper })
 		packageIdentifier = os.Getenv("MYGO_TEST_IDENTIFIER")
 		App.SetName("MyGoTest")
-		if App.RequestSingleInstanceLock() {
+		if App.RequestSingleInstanceLockFor(os.Getenv("MYGO_TEST_LOCK_KEY")) {
 			fmt.Println("locked")
 			releaseSingleInstanceLock()
 		} else {
@@ -2281,6 +2281,35 @@ func TestSingleInstanceIdentifier(t *testing.T) {
 	}
 	if strings.TrimSpace(string(out)) != "locked" {
 		t.Fatalf("an app with another identifier printed %q", out)
+	}
+}
+
+// TestSingleInstanceKey checks that the key of RequestSingleInstanceLockFor
+// is part of the lock: another key runs next to the first instance, the
+// same key hands over to it, and an empty key is the plain lock's.
+func TestSingleInstanceKey(t *testing.T) {
+	releaseSingleInstanceLock() // an earlier test may hold the plain lock
+	if !App.RequestSingleInstanceLockFor("dir-a") {
+		t.Fatal("first instance did not get the lock")
+	}
+	defer releaseSingleInstanceLock()
+	for _, c := range []struct{ key, want string }{
+		{"dir-b", "locked"},
+		{"", "locked"},
+		{"dir-a", "forwarded"},
+	} {
+		cmd := exec.Command(os.Args[0], "-test.run=^$")
+		cmd.Env = append(os.Environ(), "MYGO_TEST_SECOND_INSTANCE=1", "MYGO_TEST_LOCK_KEY="+c.key)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n"); got != c.want {
+			t.Errorf("key %q printed %q, want %q", c.key, got, c.want)
+		}
+	}
+	if a, b := singleInstanceKey("n", ""), singleInstanceKey("n", "k"); a == b || singleInstanceKey("n", "k") != b {
+		t.Errorf("keys %q and %q must differ and be stable", a, b)
 	}
 }
 
