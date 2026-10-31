@@ -53,7 +53,9 @@ object Text {
     private fun set(family: String, size: Double, weight: Long, italic: Boolean, noKern: Boolean = false): Paint {
         paint.typeface = typeface(family, weight, italic)
         paint.textSize = size.toFloat()
-        paint.fontFeatureSettings = if (noKern) "'kern' 0" else null
+        // Go draws clusters alone, which ligatures would join: "fl" would
+        // take the advance of both, and draw as an f before a gap.
+        paint.fontFeatureSettings = if (noKern) "'liga' 0, 'clig' 0, 'kern' 0" else "'liga' 0, 'clig' 0"
         paint.color = Color.WHITE
         return paint
     }
