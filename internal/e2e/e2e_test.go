@@ -2899,6 +2899,24 @@ func TestClick(t *testing.T) {
 	}
 }
 
+// TestFirstClick clicks a page once in a window that is not key: the click
+// makes it key and reaches the page, as it does native UI.
+func TestFirstClick(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300})
+	w.Page().LoadHTML(`<body style="margin:0"><button id="b" style="width:200px;height:100px" onclick="window.clicked=(window.clicked||0)+1">x</button></body>`, "")
+	waitFor(t, w, "document.getElementById('b')")
+	other := newWindow(t, mygo.WindowOptions{Width: 200, Height: 150, X: 600, Y: 400})
+	other.Focus()
+	eventually(t, "the other window focused", other.IsFocused)
+	if w.IsFocused() {
+		t.Skip("the page's window stayed key")
+	}
+	if !appClick(w, 50, 50) {
+		t.Skip("click automation not available on this platform")
+	}
+	waitFor(t, w, "window.clicked === 1")
+}
+
 // deviceScale returns the device pixels per DIP of the display w shows on.
 func deviceScale(w *mygo.Window) float64 {
 	b := w.Bounds()
