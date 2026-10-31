@@ -6169,6 +6169,18 @@ func (_handle Element) WavyUnderline() Element {
 	return wrapElement(_node.WavyUnderline())
 }
 
+// DottedUnderline underlines text with a line of dots, as links mark
+// hover.
+func (_handle Element) DottedUnderline() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.WavyUnderline())
+}
+
 // Width sets the width in DIPs.
 func (_handle Element) Width(v float32) Element {
 	_node := _handle.node()

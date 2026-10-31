@@ -853,7 +853,7 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 	}
 	sys := p.rt.text
 	s := p.scale
-	deco := decoration{underline: ts.underline, wavy: ts.wavy, strike: ts.strike, color: ts.decoColor, thick: ts.decoThick}
+	deco := decoration{underline: ts.underline, wavy: ts.wavy, dotted: ts.dotted, strike: ts.strike, color: ts.decoColor, thick: ts.decoThick}
 	shade := text.ShadeOf(color.R, color.G, color.B)
 	start := int32(len(p.s.Glyphs))
 	// Inline transforms do not change while the text paints; look for them once.
@@ -964,7 +964,7 @@ func (r *glyphRun) flush(p *Painter, baseline float32) {
 
 // decoration is how lines go through or under text.
 type decoration struct {
-	underline, wavy, strike bool
+	underline, wavy, dotted, strike bool
 	// color, if set, is the lines', and thick their thickness in DIPs.
 	color Color
 	thick float32
@@ -1010,6 +1010,10 @@ func (p *Painter) decorationRun(l *text.Layout, li, i, j int, x, y float32, d de
 				p.wave(st.X0, st.X1, (st.Top+st.Bottom)/2, max(st.Bottom-st.Top, 1), c)
 				continue
 			}
+			if k == text.Underline && d.dotted {
+				p.dots(st.X0, st.X1, st.Bottom, c)
+				continue
+			}
 			p.add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: st.X0, Y: st.Top, W: st.X1 - st.X0, H: st.Bottom - st.Top}, Color: c.scene(), Wide: p.wide(c, Color{}, Color{}), Opacity: p.opacity})
 		}
 	}
@@ -1031,6 +1035,15 @@ func (p *Painter) wave(x0, x1, y, thick float32, c Color) {
 		path.LineTo(x/s, (y-amp*float32(math.Sin(float64((x-x0)/length*2*math.Pi))))/s)
 	}
 	p.StrokePath(&path, thick/s, c)
+}
+
+// dots fills one-DIP dots every three DIPs along an underline stroke,
+// which ends at its bottom in device pixels, as links mark hover.
+func (p *Painter) dots(x0, x1, bottom float32, c Color) {
+	size := max(float32(math.Round(float64(p.scale))), 1)
+	for x := x0; x < x1; x += 3 * p.scale {
+		p.add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: x, Y: bottom - size, W: size, H: size}, Color: c.scene(), Wide: p.wide(c, Color{}, Color{}), Opacity: p.opacity})
+	}
 }
 
 // contentBox returns the element's box inside its padding and border.
