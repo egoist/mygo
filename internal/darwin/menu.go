@@ -4,6 +4,7 @@ package darwin
 
 import (
 	"runtime"
+	"slices"
 
 	"github.com/ebitengine/purego/objc"
 
@@ -47,6 +48,12 @@ var (
 	}
 )
 
+// validatesItem reports whether the first responder enables it as it can
+// act on its role, so that its menu has AppKit validate its items.
+func validatesItem(it *platform.MenuItem) bool {
+	return platform.EditCommands[it.Role] || it.Role == "startSpeaking" || it.Role == "stopSpeaking"
+}
+
 func newOwner() int {
 	menuOwners++
 	return menuOwners
@@ -80,6 +87,9 @@ func registerMenuTarget() {
 			theBackend.h.MenuItemClicked(sendInt(item, "tag"))
 		}),
 		method("mygoContextItemClicked:", contextItemClicked),
+		// The app's items keep the state it gave them in a menu that
+		// validates its items.
+		method("validateMenuItem:", func(self id, _ objc.SEL, item id) bool { return sendBool(item, "isEnabled") }),
 	})
 }
 
@@ -97,7 +107,7 @@ func (b *Backend) SetApplicationMenu(m *platform.Menu) {
 // buildMenu creates an autoreleased NSMenu.
 func (b *Backend) buildMenu(m *platform.Menu, title string, owner int) id {
 	menu := autorelease(send(send(class("NSMenu"), "alloc"), "initWithTitle:", uintptr(nsString(title))))
-	send(menu, "setAutoenablesItems:", 0)
+	send(menu, "setAutoenablesItems:", boolArg(slices.ContainsFunc(m.Items, validatesItem)))
 	for _, it := range m.Items {
 		if it.Type == platform.MenuItemSeparator {
 			item := send(class("NSMenuItem"), "separatorItem")
@@ -166,6 +176,16 @@ func applyItemState(item id, it *platform.MenuItem) {
 		}
 	}
 	send(item, "setEnabled:", boolArg(it.Enabled))
+	if _, ok := nativeRoleSel[it.Role]; ok {
+		// In a menu validating its items, the first responder would enable
+		// a role's item: disabled, it targets an object without its action,
+		// which its menu disables.
+		var target id
+		if !it.Enabled {
+			target = theBackend.menuTarget
+		}
+		send(item, "setTarget:", uintptr(target))
+	}
 	send(item, "setHidden:", boolArg(!it.Visible))
 	state := uintptr(0)
 	if it.Checked && (it.Type == platform.MenuItemCheckbox || it.Type == platform.MenuItemRadio) {

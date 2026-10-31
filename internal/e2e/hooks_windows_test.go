@@ -18,6 +18,11 @@ func activateMenu(w *mygo.Window, path ...string) (err error) {
 	return err
 }
 
+func menuItemEnabled(w *mygo.Window, path ...string) (enabled bool, err error) {
+	mygo.RunOnMain(func() { enabled, err = win.TestMenuItemEnabled(w.NativeHandle(), path...) })
+	return enabled, err
+}
+
 // Keyboard, dialog and popup automation are not wired on Windows.
 func pressShortcut(string, bool) (bool, bool) { return false, false }
 
@@ -328,6 +333,11 @@ func popupMenus() (menus [][]string, supported bool) {
 func choosePopupItem(label string) (ok bool) {
 	mygo.RunOnMain(func() { ok = win.TestChoosePopupItem(label) })
 	return ok
+}
+
+func popupItemEnabled(label string) (enabled, ok bool) {
+	mygo.RunOnMain(func() { enabled, ok = win.TestPopupItemEnabled(label) })
+	return enabled, ok
 }
 
 // Input methods keep the keys typed while they compose from the content

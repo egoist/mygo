@@ -12,6 +12,8 @@ import (
 // Platforms without a backend run no GUI tests.
 func activateMenu(*mygo.Window, ...string) error { return errors.New("unsupported") }
 
+func menuItemEnabled(*mygo.Window, ...string) (bool, error) { return false, errors.ErrUnsupported }
+
 func pressShortcut(string, bool) (bool, bool) { return false, false }
 
 func endSheet(*mygo.Window) (bool, bool) { return false, false }
@@ -135,6 +137,7 @@ func observe(*mygo.Window) (func(), bool) { return nil, false }
 func rightClick(*mygo.Window, float64, float64) bool { return false }
 func popupMenus() ([][]string, bool)                 { return nil, false }
 func choosePopupItem(string) bool                    { return false }
+func popupItemEnabled(string) (bool, bool)           { return false, false }
 
 // Input methods keep the keys typed while they compose from the content
 // themselves here (GTK's filtering, IMM32's VK_PROCESSKEY), which a

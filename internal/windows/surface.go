@@ -1097,6 +1097,11 @@ func (s *surface) menuShortcut(vk uintptr, roles bool) bool {
 	if e == nil || (e.role != "") != roles {
 		return false
 	}
+	if roles {
+		// The items of edit roles are grayed as the content was when their
+		// menu last opened, not as it is now.
+		w.enableEditItems(e.menu)
+	}
 	if st, _, _ := procGetMenuState.Call(e.menu, uintptr(cmd), mfByCommand); uint32(st) != 0xFFFFFFFF && st&mfGrayed != 0 {
 		return false
 	}

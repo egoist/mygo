@@ -15,6 +15,11 @@ func activateMenu(w *mygo.Window, path ...string) (err error) {
 	return err
 }
 
+func menuItemEnabled(w *mygo.Window, path ...string) (enabled bool, err error) {
+	mygo.RunOnMain(func() { enabled, err = linux.TestMenuItemEnabled(w.NativeHandle(), path...) })
+	return enabled, err
+}
+
 // Key presses and dialogs need an input device under Xvfb; not covered.
 func pressShortcut(string, bool) (bool, bool) { return false, false }
 
@@ -310,6 +315,11 @@ func popupMenus() (menus [][]string, supported bool) {
 func choosePopupItem(label string) (ok bool) {
 	mygo.RunOnMain(func() { ok = linux.TestChoosePopupItem(label) })
 	return ok
+}
+
+func popupItemEnabled(label string) (enabled, ok bool) {
+	mygo.RunOnMain(func() { enabled, ok = linux.TestPopupItemEnabled(label) })
+	return enabled, ok
 }
 
 // Only macOS has key-value observing.
