@@ -92,7 +92,8 @@ type MessageOptions struct {
 	CancelButton int
 	// DestructiveButtons are the indexes of buttons that delete data or
 	// can't be undone, such as Delete, which macOS 11 and later and Linux
-	// set apart.
+	// set apart. macOS may also keep Enter from activating one, even as the
+	// default button.
 	DestructiveButtons []int
 	CheckboxLabel      string
 	CheckboxChecked    bool

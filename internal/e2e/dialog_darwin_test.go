@@ -103,7 +103,9 @@ func TestMessageButtonRoles(t *testing.T) {
 	}
 	ret, esc, cmdPeriod := key{36, "\r", false}, key{53, "\x1b", false}, key{47, ".", true}
 	cancelIsDefault := mygo.MessageOptions{Buttons: []string{"Continue Editing", "Discard"}, DestructiveButtons: []int{1}}
-	noDefault := mygo.MessageOptions{Buttons: []string{"Delete", "Cancel"}, DefaultButton: -1, DestructiveButtons: []int{0}}
+	// Not destructive, as AppKit keeps Return from a destructive button
+	// itself.
+	noDefault := mygo.MessageOptions{Buttons: []string{"Continue", "Cancel"}, DefaultButton: -1}
 	cases := []struct {
 		name        string
 		opts        mygo.MessageOptions
@@ -113,7 +115,7 @@ func TestMessageButtonRoles(t *testing.T) {
 	}{
 		{"Return on a default that cancels", cancelIsDefault, []key{ret}, []bool{false, true}, 0},
 		{"Escape on a default that cancels", cancelIsDefault, []key{esc}, []bool{false, true}, 0},
-		{"Return and Cmd+. without a default", noDefault, []key{ret, cmdPeriod}, []bool{true, false}, 1},
+		{"Return and Cmd+. without a default", noDefault, []key{ret, cmdPeriod}, []bool{false, false}, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
