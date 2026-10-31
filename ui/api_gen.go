@@ -325,6 +325,17 @@ func (_handle *Context) DisableAnimations() {
 	_ctx.DisableAnimations()
 }
 
+// Instant reports whether this frame shows animated values at once
+// (DisableAnimations). Views read it to render a change settled in the same
+// frames where its animations are disabled.
+func (_handle *Context) Instant() bool {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return false
+	}
+	return _ctx.Instant()
+}
+
 // Locale returns the language the app shows (mygo.App.Locale), a BCP 47
 // tag such as "en" or "zh-Hans", for what the view says in it. Text is in
 // it unless an element says otherwise (Element.Lang). A frame follows its
@@ -3602,6 +3613,18 @@ func (_handle Element) Dividers(width float32, c Color) Element {
 	return wrapElement(_node.Dividers(width, c))
 }
 
+// DottedUnderline underlines text with a line of dots, as links mark
+// hover.
+func (_handle Element) DottedUnderline() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.DottedUnderline())
+}
+
 // DoubleClicked reports a double click on the element.
 func (_handle Element) DoubleClicked() bool {
 	_node := _handle.node()
@@ -5111,6 +5134,19 @@ func (_handle Element) Placeholder(s string) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Placeholder(s))
+}
+
+// PlaceholderColor sets the color of this input's placeholder for this build.
+// When unset it uses the theme's TextMuted. It does not change entered text,
+// other inputs or the theme. A transparent color hides the placeholder.
+func (_handle Element) PlaceholderColor(color Color) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PlaceholderColor(color))
 }
 
 // PointerPosition returns the pointer's position relative to the
