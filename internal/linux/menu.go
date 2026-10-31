@@ -553,7 +553,17 @@ func (t *tray) SetID(string) {}
 
 func (t *tray) SetTitle(title string) { appIndicatorSetLabel(t.ind, cs(title), cs(title)) }
 
+// SetToolTip sets the tooltip, which is a property of its own: a host that
+// draws the hover text reads it and refreshes on NewToolTip. Setting the title
+// instead only sends NewTitle, so the host kept the text it read when the item
+// registered, and a host that joins the title and the tooltip showed the same
+// text twice. The title setter is the fallback for a library without the
+// tooltip one.
 func (t *tray) SetToolTip(tip string) {
+	if appIndicatorSetTooltipTitle != nil {
+		appIndicatorSetTooltipTitle(t.ind, cs(tip))
+		return
+	}
 	if appIndicatorSetTitle != nil {
 		appIndicatorSetTitle(t.ind, cs(tip))
 	}
