@@ -34,6 +34,7 @@ class WireWriter {
     fun bytes(v: ByteArray) { uvarint(v.size.toLong()); room(v.size); v.copyInto(buf, size); size += v.size }
     fun string(v: String) = bytes(v.toByteArray(Charsets.UTF_8))
     fun strings(v: List<String>) { uvarint(v.size.toLong()); for (s in v) string(s) }
+    fun floats(v: DoubleArray) { uvarint(v.size.toLong()); for (f in v) float(f) }
     fun toByteArray(): ByteArray = buf.copyOf(size)
 }
 
@@ -75,6 +76,10 @@ class WireReader(private val buf: ByteArray) {
         val s = ArrayList<String>(minOf(n, buf.size - at).coerceAtLeast(0))
         for (i in 0 until minOf(n, buf.size - at)) s.add(string())
         return s
+    }
+    fun floats(): DoubleArray {
+        val n = minOf(uvarint().toInt(), (buf.size - at) / 8).coerceAtLeast(0)
+        return DoubleArray(n) { float() }
     }
 }
 
@@ -692,71 +697,147 @@ class ShowMenuCall(
     }
 }
 
-class ShapeCall(
-    @JvmField var text: String = "",
-    @JvmField var font: String = "",
+class TextMetricsCall(
+    @JvmField var family: String = "",
     @JvmField var size: Double = 0.0,
     @JvmField var weight: Long = 0L,
     @JvmField var italic: Boolean = false,
-    @JvmField var rtl: Boolean = false,
 ) {
     constructor(r: WireReader) : this() {
-        text = r.string()
-        font = r.string()
+        family = r.string()
         size = r.float()
         weight = r.int()
         italic = r.bool()
+    }
+}
+
+class TextMetricsReply(
+    @JvmField var ascent: Double = 0.0,
+    @JvmField var descent: Double = 0.0,
+    @JvmField var xHeight: Double = 0.0,
+    @JvmField var underlinePosition: Double = 0.0,
+    @JvmField var underlineThickness: Double = 0.0,
+    @JvmField var strikePosition: Double = 0.0,
+) {
+    fun encode(w: WireWriter) {
+        w.float(ascent)
+        w.float(descent)
+        w.float(xHeight)
+        w.float(underlinePosition)
+        w.float(underlineThickness)
+        w.float(strikePosition)
+    }
+}
+
+class MeasureTextCall(
+    @JvmField var family: String = "",
+    @JvmField var size: Double = 0.0,
+    @JvmField var weight: Long = 0L,
+    @JvmField var italic: Boolean = false,
+    @JvmField var noKern: Boolean = false,
+    @JvmField var texts: List<String> = emptyList(),
+) {
+    constructor(r: WireReader) : this() {
+        family = r.string()
+        size = r.float()
+        weight = r.int()
+        italic = r.bool()
+        noKern = r.bool()
+        texts = r.strings()
+    }
+}
+
+class MeasureTextReply(
+    @JvmField var widths: DoubleArray = DoubleArray(0),
+) {
+    fun encode(w: WireWriter) {
+        w.floats(widths)
+    }
+}
+
+class TextAdvancesCall(
+    @JvmField var family: String = "",
+    @JvmField var size: Double = 0.0,
+    @JvmField var weight: Long = 0L,
+    @JvmField var italic: Boolean = false,
+    @JvmField var noKern: Boolean = false,
+    @JvmField var text: String = "",
+    @JvmField var rtl: Boolean = false,
+) {
+    constructor(r: WireReader) : this() {
+        family = r.string()
+        size = r.float()
+        weight = r.int()
+        italic = r.bool()
+        noKern = r.bool()
+        text = r.string()
         rtl = r.bool()
     }
 }
 
-class ShapeReply(
-    @JvmField var glyphs: ByteArray = ByteArray(0),
-    @JvmField var fonts: List<String> = emptyList(),
-    @JvmField var ascent: Double = 0.0,
-    @JvmField var descent: Double = 0.0,
-    @JvmField var leading: Double = 0.0,
+class TextAdvancesReply(
+    @JvmField var advances: DoubleArray = DoubleArray(0),
 ) {
     fun encode(w: WireWriter) {
-        w.bytes(glyphs)
-        w.strings(fonts)
-        w.float(ascent)
-        w.float(descent)
-        w.float(leading)
+        w.floats(advances)
     }
 }
 
-class DrawGlyphsCall(
-    @JvmField var fontFile: String = "",
+class DrawTextCall(
+    @JvmField var family: String = "",
     @JvmField var size: Double = 0.0,
     @JvmField var weight: Long = 0L,
     @JvmField var italic: Boolean = false,
-    @JvmField var glyphs: ByteArray = ByteArray(0),
+    @JvmField var text: String = "",
     @JvmField var scale: Double = 0.0,
+    @JvmField var dx: Double = 0.0,
 ) {
     constructor(r: WireReader) : this() {
-        fontFile = r.string()
+        family = r.string()
         size = r.float()
         weight = r.int()
         italic = r.bool()
-        glyphs = r.bytes()
+        text = r.string()
         scale = r.float()
+        dx = r.float()
     }
 }
 
-class DrawGlyphsReply(
-    @JvmField var width: Long = 0L,
-    @JvmField var height: Long = 0L,
+class DrawTextReply(
     @JvmField var left: Long = 0L,
     @JvmField var top: Long = 0L,
-    @JvmField var mask: ByteArray = ByteArray(0),
+    @JvmField var width: Long = 0L,
+    @JvmField var height: Long = 0L,
+    @JvmField var color: Boolean = false,
+    @JvmField var pixels: ByteArray = ByteArray(0),
 ) {
     fun encode(w: WireWriter) {
-        w.int(width)
-        w.int(height)
         w.int(left)
         w.int(top)
-        w.bytes(mask)
+        w.int(width)
+        w.int(height)
+        w.bool(color)
+        w.bytes(pixels)
+    }
+}
+
+class RegisterFontCall(
+    @JvmField var data: ByteArray = ByteArray(0),
+    @JvmField var family: String = "",
+) {
+    constructor(r: WireReader) : this() {
+        data = r.bytes()
+        family = r.string()
+    }
+}
+
+class RegisterFontReply(
+    @JvmField var family: String = "",
+    @JvmField var error: String = "",
+) {
+    fun encode(w: WireWriter) {
+        w.string(family)
+        w.string(error)
     }
 }
 
@@ -833,10 +914,16 @@ interface HostCalls {
     fun announce(c: AnnounceCall)
     /** the system's edit menu at a point, with the actions given (cut, copy, paste, selectAll and labels); MenuChosen answers */
     fun showMenu(c: ShowMenuCall)
-    /** shapes Text in Font (Android): glyph IDs, advances and offsets, as Minikin does for a TextView */
-    fun shape(c: ShapeCall): ShapeReply
-    /** draws glyphs of a font file into a mask (Android): their coverage, a byte per pixel */
-    fun drawGlyphs(c: DrawGlyphsCall): DrawGlyphsReply
+    /** the metrics of a font (Android's Paint): ascent and descent, x-height, underline and strikethrough */
+    fun textMetrics(c: TextMetricsCall): TextMetricsReply
+    /** how wide each of Texts is in a font, kerned unless NoKern */
+    fun measureText(c: MeasureTextCall): MeasureTextReply
+    /** the advance of each UTF-16 unit of Text laid out as a whole (getTextRunAdvances) */
+    fun textAdvances(c: TextAdvancesCall): TextAdvancesReply
+    /** draws Text in white at Scale pixels per DIP, its pen DX pixels right of a pixel's edge: its ink's box from the pen and its pixels, a byte of coverage each, or premultiplied RGBA when Color */
+    fun drawText(c: DrawTextCall): DrawTextReply
+    /** adds a font file under Family, or its own family when empty */
+    fun registerFont(c: RegisterFontCall): RegisterFontReply
 }
 
 /** Runs a call on h and encodes its reply, null for a call not waited for. */
@@ -893,8 +980,11 @@ fun dispatchCall(h: HostCalls, buf: ByteArray): ByteArray? {
         47 -> h.accessibilityChanged(AccessibilityChangedCall(r))
         48 -> h.announce(AnnounceCall(r))
         49 -> h.showMenu(ShowMenuCall(r))
-        50 -> { h.shape(ShapeCall(r)).encode(w); return w.toByteArray() }
-        51 -> { h.drawGlyphs(DrawGlyphsCall(r)).encode(w); return w.toByteArray() }
+        50 -> { h.textMetrics(TextMetricsCall(r)).encode(w); return w.toByteArray() }
+        51 -> { h.measureText(MeasureTextCall(r)).encode(w); return w.toByteArray() }
+        52 -> { h.textAdvances(TextAdvancesCall(r)).encode(w); return w.toByteArray() }
+        53 -> { h.drawText(DrawTextCall(r)).encode(w); return w.toByteArray() }
+        54 -> { h.registerFont(RegisterFontCall(r)).encode(w); return w.toByteArray() }
     }
     return null
 }
@@ -1141,10 +1231,17 @@ object Event {
         w.float(refresh)
         return w.toByteArray()
     }
+    /** the native surface goes: the host waits for Go to let go of it */
+    @JvmStatic fun surfaceDestroyed(id: Long): ByteArray {
+        val w = WireWriter()
+        w.uvarint(32)
+        w.int(id)
+        return w.toByteArray()
+    }
     /** a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse" */
     @JvmStatic fun touch(id: Long, pointer: Long, phase: String, kind: String, x: Double, y: Double, pressure: Double, buttons: Long, time: Double): ByteArray {
         val w = WireWriter()
-        w.uvarint(32)
+        w.uvarint(33)
         w.int(id)
         w.int(pointer)
         w.string(phase)
@@ -1159,7 +1256,7 @@ object Event {
     /** a mouse's or a trackpad's scrolling, in DIPs */
     @JvmStatic fun scroll(id: Long, x: Double, y: Double, dx: Double, dy: Double, precise: Boolean, phase: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(33)
+        w.uvarint(34)
         w.int(id)
         w.float(x)
         w.float(y)
@@ -1172,7 +1269,7 @@ object Event {
     /** a hardware keyboard's key: Down, its name (as ui names keys) and the text it types */
     @JvmStatic fun key(id: Long, down: Boolean, key: String, text: String, mods: Long, repeated: Boolean): ByteArray {
         val w = WireWriter()
-        w.uvarint(34)
+        w.uvarint(35)
         w.int(id)
         w.bool(down)
         w.string(key)
@@ -1184,7 +1281,7 @@ object Event {
     /** the keyboard typed Text, in place of the marked text if any */
     @JvmStatic fun textInsert(id: Long, text: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(35)
+        w.uvarint(36)
         w.int(id)
         w.string(text)
         return w.toByteArray()
@@ -1192,7 +1289,7 @@ object Event {
     /** the input method's text being composed, its selection in runes */
     @JvmStatic fun textMarked(id: Long, text: String, selStart: Long, selEnd: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(36)
+        w.uvarint(37)
         w.int(id)
         w.string(text)
         w.int(selStart)
@@ -1202,7 +1299,7 @@ object Event {
     /** the keyboard deleted Before runes before the caret and After after it */
     @JvmStatic fun textDelete(id: Long, before: Long, after: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(37)
+        w.uvarint(38)
         w.int(id)
         w.int(before)
         w.int(after)
@@ -1211,7 +1308,7 @@ object Event {
     /** an editing action of the keyboard or the edit menu: "newline", "tab", "cut", "copy", "paste", "selectAll", "left", … */
     @JvmStatic fun textCommand(id: Long, command: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(38)
+        w.uvarint(39)
         w.int(id)
         w.string(command)
         return w.toByteArray()
@@ -1219,14 +1316,14 @@ object Event {
     /** the text around the caret and the selection, in runes, for the keyboard's suggestions */
     @JvmStatic fun textState(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(39)
+        w.uvarint(40)
         w.int(id)
         return w.toByteArray()
     }
     /** the keyboard moved the caret or the selection, by runes from the caret */
     @JvmStatic fun textSelect(id: Long, start: Long, end: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(40)
+        w.uvarint(41)
         w.int(id)
         w.int(start)
         w.int(end)
@@ -1235,13 +1332,13 @@ object Event {
     /** the keyboard went away */
     @JvmStatic fun textInputEnded(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(41)
+        w.uvarint(42)
         w.int(id)
         return w.toByteArray()
     }
     @JvmStatic fun menuChosen(id: Long, req: Long, action: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(42)
+        w.uvarint(43)
         w.int(id)
         w.int(req)
         w.string(action)
@@ -1250,14 +1347,14 @@ object Event {
     /** the accessible elements, encoded as Nodes: for each, its ID, parent, role, label, value, hint, frame and actions */
     @JvmStatic fun accessibilityTree(id: Long): ByteArray {
         val w = WireWriter()
-        w.uvarint(43)
+        w.uvarint(44)
         w.int(id)
         return w.toByteArray()
     }
     /** an assistive technology's action on an element: "press", "increment", "decrement", "focus", "scrollForward", … */
     @JvmStatic fun accessibilityAction(id: Long, node: Long, action: String): ByteArray {
         val w = WireWriter()
-        w.uvarint(44)
+        w.uvarint(45)
         w.int(id)
         w.int(node)
         w.string(action)
@@ -1294,6 +1391,11 @@ class PermissionRequestedReply(
 ) {
     constructor(r: WireReader) : this() {
         allow = r.bool()
+    }
+}
+
+class SurfaceDestroyedReply() {
+    constructor(r: WireReader) : this() {
     }
 }
 

@@ -53,8 +53,11 @@ const (
 	CallAccessibilityChanged   = 47
 	CallAnnounce               = 48
 	CallShowMenu               = 49
-	CallShape                  = 50
-	CallDrawGlyphs             = 51
+	CallTextMetrics            = 50
+	CallMeasureText            = 51
+	CallTextAdvances           = 52
+	CallDrawText               = 53
+	CallRegisterFont           = 54
 )
 
 // Numbers of events.
@@ -90,19 +93,20 @@ const (
 	EventNotificationClicked = 29
 	EventFrame               = 30
 	EventSurfaceChanged      = 31
-	EventTouch               = 32
-	EventScroll              = 33
-	EventKey                 = 34
-	EventTextInsert          = 35
-	EventTextMarked          = 36
-	EventTextDelete          = 37
-	EventTextCommand         = 38
-	EventTextState           = 39
-	EventTextSelect          = 40
-	EventTextInputEnded      = 41
-	EventMenuChosen          = 42
-	EventAccessibilityTree   = 43
-	EventAccessibilityAction = 44
+	EventSurfaceDestroyed    = 32
+	EventTouch               = 33
+	EventScroll              = 34
+	EventKey                 = 35
+	EventTextInsert          = 36
+	EventTextMarked          = 37
+	EventTextDelete          = 38
+	EventTextCommand         = 39
+	EventTextState           = 40
+	EventTextSelect          = 41
+	EventTextInputEnded      = 42
+	EventMenuChosen          = 43
+	EventAccessibilityTree   = 44
+	EventAccessibilityAction = 45
 )
 
 // AppInfo is the app's bundle and the system's settings, asked once at start.
@@ -967,82 +971,173 @@ func (m *ShowMenu) Encode(w *Writer) {
 // Wait reports whether the caller waits for the host to run it.
 func (*ShowMenu) Wait() bool { return false }
 
-// Shape is shapes Text in Font (Android): glyph IDs, advances and offsets, as Minikin does for a TextView.
-type Shape struct {
-	Text   string
-	Font   string
+// TextMetrics is the metrics of a font (Android's Paint): ascent and descent, x-height, underline and strikethrough.
+type TextMetrics struct {
+	Family string
 	Size   float64
 	Weight int
 	Italic bool
-	RTL    bool
 }
 
-func (m *Shape) Encode(w *Writer) {
-	w.Uvarint(CallShape)
-	w.String(m.Text)
-	w.String(m.Font)
+func (m *TextMetrics) Encode(w *Writer) {
+	w.Uvarint(CallTextMetrics)
+	w.String(m.Family)
 	w.Float(m.Size)
 	w.Int(m.Weight)
 	w.Bool(m.Italic)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*TextMetrics) Wait() bool { return true }
+
+type TextMetricsReply struct {
+	Ascent             float64
+	Descent            float64
+	XHeight            float64
+	UnderlinePosition  float64
+	UnderlineThickness float64
+	StrikePosition     float64
+}
+
+func (m *TextMetricsReply) Decode(r *Reader) {
+	m.Ascent = r.Float()
+	m.Descent = r.Float()
+	m.XHeight = r.Float()
+	m.UnderlinePosition = r.Float()
+	m.UnderlineThickness = r.Float()
+	m.StrikePosition = r.Float()
+}
+
+// MeasureText is how wide each of Texts is in a font, kerned unless NoKern.
+type MeasureText struct {
+	Family string
+	Size   float64
+	Weight int
+	Italic bool
+	NoKern bool
+	Texts  []string
+}
+
+func (m *MeasureText) Encode(w *Writer) {
+	w.Uvarint(CallMeasureText)
+	w.String(m.Family)
+	w.Float(m.Size)
+	w.Int(m.Weight)
+	w.Bool(m.Italic)
+	w.Bool(m.NoKern)
+	w.Strings(m.Texts)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*MeasureText) Wait() bool { return true }
+
+type MeasureTextReply struct {
+	Widths []float64
+}
+
+func (m *MeasureTextReply) Decode(r *Reader) {
+	m.Widths = r.Floats()
+}
+
+// TextAdvances is the advance of each UTF-16 unit of Text laid out as a whole (getTextRunAdvances).
+type TextAdvances struct {
+	Family string
+	Size   float64
+	Weight int
+	Italic bool
+	NoKern bool
+	Text   string
+	RTL    bool
+}
+
+func (m *TextAdvances) Encode(w *Writer) {
+	w.Uvarint(CallTextAdvances)
+	w.String(m.Family)
+	w.Float(m.Size)
+	w.Int(m.Weight)
+	w.Bool(m.Italic)
+	w.Bool(m.NoKern)
+	w.String(m.Text)
 	w.Bool(m.RTL)
 }
 
 // Wait reports whether the caller waits for the host to run it.
-func (*Shape) Wait() bool { return true }
+func (*TextAdvances) Wait() bool { return true }
 
-type ShapeReply struct {
-	Glyphs  []byte
-	Fonts   []string
-	Ascent  float64
-	Descent float64
-	Leading float64
+type TextAdvancesReply struct {
+	Advances []float64
 }
 
-func (m *ShapeReply) Decode(r *Reader) {
-	m.Glyphs = r.Bytes()
-	m.Fonts = r.Strings()
-	m.Ascent = r.Float()
-	m.Descent = r.Float()
-	m.Leading = r.Float()
+func (m *TextAdvancesReply) Decode(r *Reader) {
+	m.Advances = r.Floats()
 }
 
-// DrawGlyphs is draws glyphs of a font file into a mask (Android): their coverage, a byte per pixel.
-type DrawGlyphs struct {
-	FontFile string
-	Size     float64
-	Weight   int
-	Italic   bool
-	Glyphs   []byte
-	Scale    float64
+// DrawText is draws Text in white at Scale pixels per DIP, its pen DX pixels right of a pixel's edge: its ink's box from the pen and its pixels, a byte of coverage each, or premultiplied RGBA when Color.
+type DrawText struct {
+	Family string
+	Size   float64
+	Weight int
+	Italic bool
+	Text   string
+	Scale  float64
+	DX     float64
 }
 
-func (m *DrawGlyphs) Encode(w *Writer) {
-	w.Uvarint(CallDrawGlyphs)
-	w.String(m.FontFile)
+func (m *DrawText) Encode(w *Writer) {
+	w.Uvarint(CallDrawText)
+	w.String(m.Family)
 	w.Float(m.Size)
 	w.Int(m.Weight)
 	w.Bool(m.Italic)
-	w.Bytes(m.Glyphs)
+	w.String(m.Text)
 	w.Float(m.Scale)
+	w.Float(m.DX)
 }
 
 // Wait reports whether the caller waits for the host to run it.
-func (*DrawGlyphs) Wait() bool { return true }
+func (*DrawText) Wait() bool { return true }
 
-type DrawGlyphsReply struct {
-	Width  int
-	Height int
+type DrawTextReply struct {
 	Left   int
 	Top    int
-	Mask   []byte
+	Width  int
+	Height int
+	Color  bool
+	Pixels []byte
 }
 
-func (m *DrawGlyphsReply) Decode(r *Reader) {
-	m.Width = r.Int()
-	m.Height = r.Int()
+func (m *DrawTextReply) Decode(r *Reader) {
 	m.Left = r.Int()
 	m.Top = r.Int()
-	m.Mask = r.Bytes()
+	m.Width = r.Int()
+	m.Height = r.Int()
+	m.Color = r.Bool()
+	m.Pixels = r.Bytes()
+}
+
+// RegisterFont is adds a font file under Family, or its own family when empty.
+type RegisterFont struct {
+	Data   []byte
+	Family string
+}
+
+func (m *RegisterFont) Encode(w *Writer) {
+	w.Uvarint(CallRegisterFont)
+	w.Bytes(m.Data)
+	w.String(m.Family)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*RegisterFont) Wait() bool { return true }
+
+type RegisterFontReply struct {
+	Family string
+	Error  string
+}
+
+func (m *RegisterFontReply) Decode(r *Reader) {
+	m.Family = r.String()
+	m.Error = r.String()
 }
 
 // ReadyEvent is the app finished launching.
@@ -1422,6 +1517,21 @@ func (m *SurfaceChangedEvent) Decode(r *Reader) {
 	m.Refresh = r.Float()
 }
 
+// SurfaceDestroyedEvent is the native surface goes: the host waits for Go to let go of it.
+type SurfaceDestroyedEvent struct {
+	ID int
+}
+
+func (m *SurfaceDestroyedEvent) Decode(r *Reader) {
+	m.ID = r.Int()
+}
+
+type SurfaceDestroyedReply struct {
+}
+
+func (m *SurfaceDestroyedReply) Encode(w *Writer) {
+}
+
 // TouchEvent is a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse".
 type TouchEvent struct {
 	ID       int
@@ -1649,7 +1759,7 @@ func (m *AccessibilityActionReply) Encode(w *Writer) {
 // EventWaits reports whether the host waits for the reply of event op.
 func EventWaits(op uint64) bool {
 	switch op {
-	case EventBackPressed, EventWillNavigate, EventNewWindow, EventPermissionRequested, EventKey, EventTextState, EventAccessibilityTree, EventAccessibilityAction:
+	case EventBackPressed, EventWillNavigate, EventNewWindow, EventPermissionRequested, EventSurfaceDestroyed, EventKey, EventTextState, EventAccessibilityTree, EventAccessibilityAction:
 		return true
 	}
 	return false

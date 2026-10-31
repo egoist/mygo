@@ -503,8 +503,11 @@ object HostImpl : HostCalls {
     override fun accessibilityChanged(c: AccessibilityChangedCall) { surface(c.id)?.accessibilityChanged(c.focus) }
     override fun announce(c: AnnounceCall) { (shown.lastOrNull()?.view ?: root).announceForAccessibility(c.text) }
     override fun showMenu(c: ShowMenuCall) { surface(c.id)?.showMenu(c) }
-    override fun shape(c: ShapeCall): ShapeReply = Text.shape(c)
-    override fun drawGlyphs(c: DrawGlyphsCall): DrawGlyphsReply = Text.draw(c)
+    override fun textMetrics(c: TextMetricsCall): TextMetricsReply = Text.metrics(c)
+    override fun measureText(c: MeasureTextCall): MeasureTextReply = Text.measure(c)
+    override fun textAdvances(c: TextAdvancesCall): TextAdvancesReply = Text.advances(c)
+    override fun drawText(c: DrawTextCall): DrawTextReply = Text.draw(c)
+    override fun registerFont(c: RegisterFontCall): RegisterFontReply = Text.register(c)
 }
 
 /** 0xRRGGBBAA, as Go writes colors, to Android's 0xAARRGGBB. */

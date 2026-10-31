@@ -5,7 +5,8 @@
 //
 // Integers are zigzag varints, floats 8 bytes little endian, booleans a
 // byte, strings and bytes a uvarint length and their bytes, lists of
-// strings a uvarint count and the strings. msgs.go, Wire.swift and
+// strings a uvarint count and the strings, lists of floats a count and
+// the floats. msgs.go, Wire.swift and
 // Wire.kt are generated from the spec (go generate), so the three sides
 // agree on every message.
 package wire
@@ -51,6 +52,13 @@ func (w *Writer) String(s string) {
 func (w *Writer) Bytes(b []byte) {
 	w.Uvarint(uint64(len(b)))
 	w.Buf = append(w.Buf, b...)
+}
+
+func (w *Writer) Floats(f []float64) {
+	w.Uvarint(uint64(len(f)))
+	for _, v := range f {
+		w.Float(v)
+	}
 }
 
 func (w *Writer) Strings(s []string) {
@@ -148,4 +156,17 @@ func (r *Reader) Strings() []string {
 		s = append(s, r.String())
 	}
 	return s
+}
+
+func (r *Reader) Floats() []float64 {
+	n := r.Uvarint()
+	if n > uint64(len(r.Buf))/8 {
+		r.fail()
+		return nil
+	}
+	f := make([]float64, n)
+	for i := range f {
+		f[i] = r.Float()
+	}
+	return f
 }

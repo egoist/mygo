@@ -427,6 +427,14 @@ func (b *Backend) handleSurface(op uint64, r *wire.Reader, w *wire.Writer) bool 
 				s.RequestFrame()
 			}
 		}
+	case wire.EventSurfaceDestroyed:
+		var e wire.SurfaceDestroyedEvent
+		e.Decode(r)
+		if s := sf(e.ID); s != nil && s.handle != 0 {
+			s.handle = 0
+			// The content lets go of its renderer at once.
+			s.send(platform.SurfaceEvent{Kind: platform.SurfaceRenew})
+		}
 	case wire.EventTouch:
 		var e wire.TouchEvent
 		e.Decode(r)

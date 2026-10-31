@@ -351,7 +351,10 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
     func accessibilityChanged(_ c: AccessibilityChangedCall) { surface(c.id)?.accessibilityChanged(focus: c.focus) }
     func announce(_ c: AnnounceCall) { UIAccessibility.post(notification: .announcement, argument: c.text) }
     func showMenu(_ c: ShowMenuCall) { surface(c.id)?.showMenu(c) }
-    // Go shapes and draws text with Core Text on iOS.
-    func shape(_ c: ShapeCall) -> ShapeReply { ShapeReply() }
-    func drawGlyphs(_ c: DrawGlyphsCall) -> DrawGlyphsReply { DrawGlyphsReply() }
+    // Go lays out and draws text with Core Text on iOS.
+    func textMetrics(_ c: TextMetricsCall) -> TextMetricsReply { TextMetricsReply() }
+    func measureText(_ c: MeasureTextCall) -> MeasureTextReply { MeasureTextReply() }
+    func textAdvances(_ c: TextAdvancesCall) -> TextAdvancesReply { TextAdvancesReply() }
+    func drawText(_ c: DrawTextCall) -> DrawTextReply { DrawTextReply() }
+    func registerFont(_ c: RegisterFontCall) -> RegisterFontReply { RegisterFontReply() }
 }

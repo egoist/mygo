@@ -17,6 +17,7 @@ public struct WireWriter {
     mutating func string(_ v: String) { let u = Array(v.utf8); uvarint(UInt64(u.count)); buf.append(contentsOf: u) }
     mutating func bytes(_ v: [UInt8]) { uvarint(UInt64(v.count)); buf.append(contentsOf: v) }
     mutating func strings(_ v: [String]) { uvarint(UInt64(v.count)); for s in v { string(s) } }
+    mutating func floats(_ v: [Double]) { uvarint(UInt64(v.count)); for f in v { float(f) } }
 }
 
 /// Reads the values of a message; past its end they read as zero.
@@ -55,6 +56,12 @@ public struct WireReader {
         var s: [String] = []
         for _ in 0..<min(n, buf.count - at) { s.append(string()) }
         return s
+    }
+    mutating func floats() -> [Double] {
+        let n = Int(uvarint())
+        var f: [Double] = []
+        for _ in 0..<min(n, (buf.count - at) / 8) { f.append(float()) }
+        return f
     }
 }
 
@@ -672,71 +679,147 @@ public struct ShowMenuCall {
     }
 }
 
-public struct ShapeCall {
-    public var text: String = ""
-    public var font: String = ""
+public struct TextMetricsCall {
+    public var family: String = ""
     public var size: Double = 0
     public var weight: Int = 0
     public var italic: Bool = false
-    public var rtl: Bool = false
     public init() {}
     init(_ r: inout WireReader) {
-        text = r.string()
-        font = r.string()
+        family = r.string()
         size = r.float()
         weight = r.int()
         italic = r.bool()
+    }
+}
+
+public struct TextMetricsReply {
+    public var ascent: Double = 0
+    public var descent: Double = 0
+    public var xHeight: Double = 0
+    public var underlinePosition: Double = 0
+    public var underlineThickness: Double = 0
+    public var strikePosition: Double = 0
+    public init() {}
+    func encode(_ w: inout WireWriter) {
+        w.float(ascent)
+        w.float(descent)
+        w.float(xHeight)
+        w.float(underlinePosition)
+        w.float(underlineThickness)
+        w.float(strikePosition)
+    }
+}
+
+public struct MeasureTextCall {
+    public var family: String = ""
+    public var size: Double = 0
+    public var weight: Int = 0
+    public var italic: Bool = false
+    public var noKern: Bool = false
+    public var texts: [String] = []
+    public init() {}
+    init(_ r: inout WireReader) {
+        family = r.string()
+        size = r.float()
+        weight = r.int()
+        italic = r.bool()
+        noKern = r.bool()
+        texts = r.strings()
+    }
+}
+
+public struct MeasureTextReply {
+    public var widths: [Double] = []
+    public init() {}
+    func encode(_ w: inout WireWriter) {
+        w.floats(widths)
+    }
+}
+
+public struct TextAdvancesCall {
+    public var family: String = ""
+    public var size: Double = 0
+    public var weight: Int = 0
+    public var italic: Bool = false
+    public var noKern: Bool = false
+    public var text: String = ""
+    public var rtl: Bool = false
+    public init() {}
+    init(_ r: inout WireReader) {
+        family = r.string()
+        size = r.float()
+        weight = r.int()
+        italic = r.bool()
+        noKern = r.bool()
+        text = r.string()
         rtl = r.bool()
     }
 }
 
-public struct ShapeReply {
-    public var glyphs: [UInt8] = []
-    public var fonts: [String] = []
-    public var ascent: Double = 0
-    public var descent: Double = 0
-    public var leading: Double = 0
+public struct TextAdvancesReply {
+    public var advances: [Double] = []
     public init() {}
     func encode(_ w: inout WireWriter) {
-        w.bytes(glyphs)
-        w.strings(fonts)
-        w.float(ascent)
-        w.float(descent)
-        w.float(leading)
+        w.floats(advances)
     }
 }
 
-public struct DrawGlyphsCall {
-    public var fontFile: String = ""
+public struct DrawTextCall {
+    public var family: String = ""
     public var size: Double = 0
     public var weight: Int = 0
     public var italic: Bool = false
-    public var glyphs: [UInt8] = []
+    public var text: String = ""
     public var scale: Double = 0
+    public var dx: Double = 0
     public init() {}
     init(_ r: inout WireReader) {
-        fontFile = r.string()
+        family = r.string()
         size = r.float()
         weight = r.int()
         italic = r.bool()
-        glyphs = r.bytes()
+        text = r.string()
         scale = r.float()
+        dx = r.float()
     }
 }
 
-public struct DrawGlyphsReply {
-    public var width: Int = 0
-    public var height: Int = 0
+public struct DrawTextReply {
     public var left: Int = 0
     public var top: Int = 0
-    public var mask: [UInt8] = []
+    public var width: Int = 0
+    public var height: Int = 0
+    public var color: Bool = false
+    public var pixels: [UInt8] = []
     public init() {}
     func encode(_ w: inout WireWriter) {
-        w.int(width)
-        w.int(height)
         w.int(left)
         w.int(top)
-        w.bytes(mask)
+        w.int(width)
+        w.int(height)
+        w.bool(color)
+        w.bytes(pixels)
+    }
+}
+
+public struct RegisterFontCall {
+    public var data: [UInt8] = []
+    public var family: String = ""
+    public init() {}
+    init(_ r: inout WireReader) {
+        data = r.bytes()
+        family = r.string()
+    }
+}
+
+public struct RegisterFontReply {
+    public var family: String = ""
+    public var error: String = ""
+    public init() {}
+    func encode(_ w: inout WireWriter) {
+        w.string(family)
+        w.string(error)
     }
 }
 
@@ -813,10 +896,16 @@ public protocol HostCalls: AnyObject {
     func announce(_ c: AnnounceCall)
     /// the system's edit menu at a point, with the actions given (cut, copy, paste, selectAll and labels); MenuChosen answers
     func showMenu(_ c: ShowMenuCall)
-    /// shapes Text in Font (Android): glyph IDs, advances and offsets, as Minikin does for a TextView
-    func shape(_ c: ShapeCall) -> ShapeReply
-    /// draws glyphs of a font file into a mask (Android): their coverage, a byte per pixel
-    func drawGlyphs(_ c: DrawGlyphsCall) -> DrawGlyphsReply
+    /// the metrics of a font (Android's Paint): ascent and descent, x-height, underline and strikethrough
+    func textMetrics(_ c: TextMetricsCall) -> TextMetricsReply
+    /// how wide each of Texts is in a font, kerned unless NoKern
+    func measureText(_ c: MeasureTextCall) -> MeasureTextReply
+    /// the advance of each UTF-16 unit of Text laid out as a whole (getTextRunAdvances)
+    func textAdvances(_ c: TextAdvancesCall) -> TextAdvancesReply
+    /// draws Text in white at Scale pixels per DIP, its pen DX pixels right of a pixel's edge: its ink's box from the pen and its pixels, a byte of coverage each, or premultiplied RGBA when Color
+    func drawText(_ c: DrawTextCall) -> DrawTextReply
+    /// adds a font file under Family, or its own family when empty
+    func registerFont(_ c: RegisterFontCall) -> RegisterFontReply
 }
 
 /// Runs a call on h and encodes its reply, nil for a call not waited for.
@@ -972,10 +1061,19 @@ public func dispatchCall(_ h: HostCalls, _ buf: UnsafeRawBufferPointer) -> [UInt
         h.showMenu(ShowMenuCall(&r))
         return nil
     case 50:
-        h.shape(ShapeCall(&r)).encode(&w)
+        h.textMetrics(TextMetricsCall(&r)).encode(&w)
         return w.buf
     case 51:
-        h.drawGlyphs(DrawGlyphsCall(&r)).encode(&w)
+        h.measureText(MeasureTextCall(&r)).encode(&w)
+        return w.buf
+    case 52:
+        h.textAdvances(TextAdvancesCall(&r)).encode(&w)
+        return w.buf
+    case 53:
+        h.drawText(DrawTextCall(&r)).encode(&w)
+        return w.buf
+    case 54:
+        h.registerFont(RegisterFontCall(&r)).encode(&w)
         return w.buf
     default:
         return nil
@@ -1224,10 +1322,17 @@ public enum Event {
         w.float(refresh)
         return w.buf
     }
+    /// the native surface goes: the host waits for Go to let go of it
+    public static func surfaceDestroyed(id: Int) -> [UInt8] {
+        var w = WireWriter()
+        w.uvarint(32)
+        w.int(id)
+        return w.buf
+    }
     /// a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse"
     public static func touch(id: Int, pointer: Int, phase: String, kind: String, x: Double, y: Double, pressure: Double, buttons: Int, time: Double) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(32)
+        w.uvarint(33)
         w.int(id)
         w.int(pointer)
         w.string(phase)
@@ -1242,7 +1347,7 @@ public enum Event {
     /// a mouse's or a trackpad's scrolling, in DIPs
     public static func scroll(id: Int, x: Double, y: Double, dx: Double, dy: Double, precise: Bool, phase: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(33)
+        w.uvarint(34)
         w.int(id)
         w.float(x)
         w.float(y)
@@ -1255,7 +1360,7 @@ public enum Event {
     /// a hardware keyboard's key: Down, its name (as ui names keys) and the text it types
     public static func key(id: Int, down: Bool, key: String, text: String, mods: Int, repeated: Bool) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(34)
+        w.uvarint(35)
         w.int(id)
         w.bool(down)
         w.string(key)
@@ -1267,7 +1372,7 @@ public enum Event {
     /// the keyboard typed Text, in place of the marked text if any
     public static func textInsert(id: Int, text: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(35)
+        w.uvarint(36)
         w.int(id)
         w.string(text)
         return w.buf
@@ -1275,7 +1380,7 @@ public enum Event {
     /// the input method's text being composed, its selection in runes
     public static func textMarked(id: Int, text: String, selStart: Int, selEnd: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(36)
+        w.uvarint(37)
         w.int(id)
         w.string(text)
         w.int(selStart)
@@ -1285,7 +1390,7 @@ public enum Event {
     /// the keyboard deleted Before runes before the caret and After after it
     public static func textDelete(id: Int, before: Int, after: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(37)
+        w.uvarint(38)
         w.int(id)
         w.int(before)
         w.int(after)
@@ -1294,7 +1399,7 @@ public enum Event {
     /// an editing action of the keyboard or the edit menu: "newline", "tab", "cut", "copy", "paste", "selectAll", "left", …
     public static func textCommand(id: Int, command: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(38)
+        w.uvarint(39)
         w.int(id)
         w.string(command)
         return w.buf
@@ -1302,14 +1407,14 @@ public enum Event {
     /// the text around the caret and the selection, in runes, for the keyboard's suggestions
     public static func textState(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(39)
+        w.uvarint(40)
         w.int(id)
         return w.buf
     }
     /// the keyboard moved the caret or the selection, by runes from the caret
     public static func textSelect(id: Int, start: Int, end: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(40)
+        w.uvarint(41)
         w.int(id)
         w.int(start)
         w.int(end)
@@ -1318,13 +1423,13 @@ public enum Event {
     /// the keyboard went away
     public static func textInputEnded(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(41)
+        w.uvarint(42)
         w.int(id)
         return w.buf
     }
     public static func menuChosen(id: Int, req: Int, action: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(42)
+        w.uvarint(43)
         w.int(id)
         w.int(req)
         w.string(action)
@@ -1333,14 +1438,14 @@ public enum Event {
     /// the accessible elements, encoded as Nodes: for each, its ID, parent, role, label, value, hint, frame and actions
     public static func accessibilityTree(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(43)
+        w.uvarint(44)
         w.int(id)
         return w.buf
     }
     /// an assistive technology's action on an element: "press", "increment", "decrement", "focus", "scrollForward", …
     public static func accessibilityAction(id: Int, node: Int, action: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(44)
+        w.uvarint(45)
         w.int(id)
         w.int(node)
         w.string(action)
@@ -1377,6 +1482,12 @@ public struct PermissionRequestedReply {
     public init() {}
     init(_ r: inout WireReader) {
         allow = r.bool()
+    }
+}
+
+public struct SurfaceDestroyedReply {
+    public init() {}
+    init(_ r: inout WireReader) {
     }
 }
 
