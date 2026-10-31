@@ -230,6 +230,8 @@ type layoutStyle struct {
 	basis                  length
 	inset                  [4]length
 	aspect                 float32
+	snapMargin             float32
+	snapToWindow           bool
 	grid                   bool
 	justifyItems           Align // of a grid
 	cell                   gridCell
@@ -990,7 +992,7 @@ func (e *node) Attach(at, self Anchor) *node {
 //
 // The element is target's popover: its elements follow target as Tab
 // moves, and a press on target is not outside it (PressedOutside). Build
-// target before it, in the same frame.
+// target before it, in the same frame. SnapToWindow opts out of flipping.
 func (e *node) AttachTo(target *node, at, self Anchor) *node {
 	if target == nil {
 		return e
@@ -1002,6 +1004,18 @@ func (e *node) AttachTo(target *node, at, self Anchor) *node {
 		// Built in an Overlay, it reads as what it is attached to.
 		e.setDir(target.rtl(), false)
 	}
+	return e
+}
+
+// SnapToWindow fits an element placed with AttachTo into the window without
+// flipping its anchors. It uses this layout's full margin box, including
+// padding and border: an overflowing right or bottom edge moves to margin
+// inside that window edge, then a negative left or top edge moves to margin.
+// A box larger than the window therefore keeps its left or top edge visible.
+// Edges already inside the window stay where they are, even nearer than margin.
+// Calling this with zero still opts out of AttachTo's default flipping.
+func (e *node) SnapToWindow(margin float32) *node {
+	e.snapToWindow, e.snapMargin = true, margin
 	return e
 }
 

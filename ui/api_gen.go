@@ -2915,7 +2915,7 @@ func (_handle Element) Attach(at Anchor, self Anchor) Element {
 //
 // The element is target's popover: its elements follow target as Tab
 // moves, and a press on target is not outside it (PressedOutside). Build
-// target before it, in the same frame.
+// target before it, in the same frame. SnapToWindow opts out of flipping.
 func (_handle Element) AttachTo(target Element, at Anchor, self Anchor) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -5722,6 +5722,23 @@ func (_handle Element) Skew(x float32, y float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Skew(x, y))
+}
+
+// SnapToWindow fits an element placed with AttachTo into the window without
+// flipping its anchors. It uses this layout's full margin box, including
+// padding and border: an overflowing right or bottom edge moves to margin
+// inside that window edge, then a negative left or top edge moves to margin.
+// A box larger than the window therefore keeps its left or top edge visible.
+// Edges already inside the window stay where they are, even nearer than margin.
+// Calling this with zero still opts out of AttachTo's default flipping.
+func (_handle Element) SnapToWindow(margin float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.SnapToWindow(margin))
 }
 
 // Spring returns a value following target with a spring, as AnimateTo
