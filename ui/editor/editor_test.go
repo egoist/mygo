@@ -212,7 +212,7 @@ func TestCodeEditorScrollbar(t *testing.T) {
 
 // TestCodeEditorScrollbarOnHover checks that the scroll bar's thumb
 // shows while the pointer is over the editor, as a scroll container's
-// does, and not otherwise.
+// does, and not otherwise, and over no track.
 func TestCodeEditorScrollbarOnHover(t *testing.T) {
 	ct := newEditorTest(t, "go", "|package main\n\nfunc main() {}\n")
 	thumb := func() bool {
@@ -234,6 +234,16 @@ func TestCodeEditorScrollbarOnHover(t *testing.T) {
 	ct.tt.Frame()
 	if thumb() {
 		t.Fatal("the thumb stayed as the pointer left")
+	}
+	// Over the bar, the thumb and no track: below the thumb, the bar is
+	// the editor's background.
+	x := float32(600 - scrollbarWidth/2)
+	ct.tt.Move(x, 5)
+	ct.tt.Frame()
+	img := ct.tt.Image()
+	s := img.Bounds().Dx() / 600
+	if img.RGBAAt(int(x)*s, 390*s) != img.RGBAAt((int(x)-scrollbarWidth)*s, 390*s) {
+		t.Error("the bar shows a track under its thumb")
 	}
 }
 
