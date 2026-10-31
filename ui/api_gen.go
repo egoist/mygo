@@ -317,6 +317,17 @@ func (_handle *Context) Direction() Direction {
 // state or jumping to a search result. Call it before building what
 // changes. Keyframes and timelines, which play on their own rather than
 // towards a target, go on as they were: Seek a Timeline to jump it.
+// Instant reports whether this frame shows animated values at once
+// (DisableAnimations). Views read it to render a change settled in the same
+// frames where its animations are disabled.
+func (_handle *Context) Instant() bool {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return false
+	}
+	return _ctx.Instant()
+}
+
 func (_handle *Context) DisableAnimations() {
 	_ctx := _handle.build()
 	if _ctx == nil {

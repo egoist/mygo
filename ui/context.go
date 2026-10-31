@@ -476,6 +476,11 @@ func (c *context) DisableAnimations() { c.rt.instantFrame = c.rt.frame }
 // (DisableAnimations).
 func (rt *engine) instant() bool { return rt.instantFrame == rt.frame && rt.frame != 0 }
 
+// Instant reports whether this frame shows animated values at once
+// (DisableAnimations). Views read it to render a change settled in the same
+// frames where its animations are disabled.
+func (c *context) Instant() bool { return c.rt.instant() }
+
 // After asks for another frame after d, for something that changes with
 // time, such as a clock.
 func (c *context) After(d time.Duration) { c.rt.scheduleAt(c.now.Add(d)) }
