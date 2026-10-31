@@ -136,6 +136,11 @@ var pangoLib struct {
 	fontGetHBFont             func(font uintptr) uintptr
 	hbNominalGlyph            func(font uintptr, r rune, glyph *uint32) int32
 	hbGlyphHAdvance           func(font uintptr, glyph uint32) int32
+	hbFontGetFace             func(font uintptr) uintptr
+	hbColorHasLayers          func(face uintptr) int32
+	hbColorHasPNG             func(face uintptr) int32
+	hbColorHasSVG             func(face uintptr) int32
+	hbColorHasPaint           func(face uintptr) int32 // HarfBuzz 7
 	metricsGetAscent          func(metrics uintptr) int32
 	metricsGetUnderlinePos    func(metrics uintptr) int32
 	metricsGetUnderlineThick  func(metrics uintptr) int32
@@ -340,6 +345,11 @@ func loadPango() error {
 	if hb, err := open("libharfbuzz.so.0"); err == nil {
 		bind(hb, &l.hbNominalGlyph, "hb_font_get_nominal_glyph")
 		bind(hb, &l.hbGlyphHAdvance, "hb_font_get_glyph_h_advance")
+		bind(hb, &l.hbFontGetFace, "hb_font_get_face")
+		bind(hb, &l.hbColorHasLayers, "hb_ot_color_has_layers")
+		bind(hb, &l.hbColorHasPNG, "hb_ot_color_has_png")
+		bind(hb, &l.hbColorHasSVG, "hb_ot_color_has_svg")
+		bind(hb, &l.hbColorHasPaint, "hb_ot_color_has_paint")
 	}
 	if ft, err := open("libpangoft2-1.0.so.0"); err == nil {
 		bind(ft, &l.fontMapConfigChanged, "pango_fc_font_map_config_changed")
@@ -367,9 +377,11 @@ type pangoEngine struct {
 	fontMap uintptr
 	context uintptr
 
-	descs  map[Style]uintptr // font descriptions, by style
-	fonts  map[uintptr]*Font // by PangoFont
-	scaled map[scaledKey]uintptr
+	descs map[Style]uintptr // font descriptions, by style
+	fonts map[uintptr]*Font // by PangoFont
+	// colored tells whether each Font has color glyphs (colorFont).
+	colored map[*Font]bool
+	scaled  map[scaledKey]uintptr
 
 	registered map[string]bool // files of registered fonts
 	// names are the names the app's fonts are listed under: the one the
@@ -450,6 +462,7 @@ func newPango() (*pangoEngine, error) {
 		appFamily:   map[string]string{},
 		languages:   map[string]uintptr{},
 		hanFamilies: map[[2]string]string{},
+		colored:     map[*Font]bool{},
 	}
 	// A font map of our own: the default one belongs to the thread that
 	// asks for it, and goroutines move between threads.
@@ -702,8 +715,10 @@ func (e *pangoEngine) shape(text []rune, style Style, spans []Span, width float3
 				for j, g := range infos {
 					cluster := at(item.offset + clusters[j])
 					// Pango empties the space ending a wrapped line; the
-					// other engines keep it, as editors need.
-					if g.glyph == pangoGlyphEmpty && cluster < len(text) && unicode.IsSpace(text[cluster]) {
+					// other engines keep it, as editors need. Tabs are
+					// empty too, as wide as to their stops, which they
+					// keep.
+					if g.glyph == pangoGlyphEmpty && g.width == 0 && cluster < len(text) && unicode.IsSpace(text[cluster]) {
 						g.glyph, g.width = e.space(item.font, text[cluster])
 					}
 					sr.glyphs[j] = Glyph{
@@ -1036,6 +1051,26 @@ func (e *pangoEngine) glyph(f *Font, id uint32, scale, dx float32, _ Shade, subp
 	return e.draw(f, id, scale, dx, true)
 }
 
+// colorFont reports whether f has color glyphs, of layers, bitmaps, SVG
+// or paints, as HarfBuzz finds them; true where HarfBuzz cannot say.
+func (e *pangoEngine) colorFont(f *Font) bool {
+	if c, ok := e.colored[f]; ok {
+		return c
+	}
+	l := &pangoLib
+	c := true
+	if l.fontGetHBFont != nil && l.hbFontGetFace != nil && l.hbColorHasLayers != nil &&
+		l.hbColorHasPNG != nil && l.hbColorHasSVG != nil {
+		if hb := l.fontGetHBFont(f.native); hb != 0 {
+			face := l.hbFontGetFace(hb)
+			c = l.hbColorHasLayers(face) != 0 || l.hbColorHasPNG(face) != 0 || l.hbColorHasSVG(face) != 0 ||
+				(l.hbColorHasPaint != nil && l.hbColorHasPaint(face) != 0)
+		}
+	}
+	e.colored[f] = c
+	return c
+}
+
 // draw rasterizes a glyph with cairo: with subpixel antialiasing if
 // subpixel, else in grayscale, or in color for color fonts.
 func (e *pangoEngine) draw(f *Font, id uint32, scale, dx float32, subpixel bool) bitmap {
@@ -1104,6 +1139,21 @@ func (e *pangoEngine) draw(f *Font, id uint32, scale, dx float32, subpixel bool)
 				break
 			}
 		}
+	}
+	// cairo before 1.17.2 antialiases the glyphs of a font whose
+	// fontconfig pattern asks for subpixels so, though asked for
+	// grayscale, as on Ubuntu 22.04: white, they are colored but in no
+	// color font, and their coverage is that of their subpixels'.
+	if color && !e.colorFont(f) {
+		b := bitmap{left: left, top: top, w: w, h: h, pix: make([]byte, w*h)}
+		for y := range h {
+			row := src[y*stride:]
+			for x := range w {
+				q := row[4*x:]
+				b.pix[y*w+x] = uint8((uint16(q[0]) + uint16(q[1]) + uint16(q[2]) + 1) / 3)
+			}
+		}
+		return b
 	}
 	b := bitmap{left: left, top: top, w: w, h: h, color: color}
 	if color {
@@ -1329,4 +1379,5 @@ func (e *pangoEngine) forgetFonts() {
 		l.gObjectUnref(f.native)
 	}
 	clear(e.fonts)
+	clear(e.colored)
 }
