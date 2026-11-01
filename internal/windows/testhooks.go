@@ -302,6 +302,16 @@ func TestTopNonClient(hwnd uintptr) (px, want int32) {
 	return origin.Y - r.Top, want
 }
 
+// TestFrameExtension returns how far a window's frame extends over the top
+// and the bottom of its client area, -1 for all over.
+func TestFrameExtension(hwnd uintptr) (top, bottom int32) {
+	w := theBackend.windows[hwnd]
+	if w == nil {
+		return 0, 0
+	}
+	return w.glass.Top, w.glass.Bottom
+}
+
 // TestClickSurface clicks (x, y), in DIPs, in a window showing native UI,
 // with the messages a mouse sends. It reports false for a window showing a
 // web page.

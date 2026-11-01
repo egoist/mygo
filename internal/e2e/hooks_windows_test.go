@@ -213,6 +213,13 @@ func topNonClient(w *mygo.Window) (px, want int32, supported bool) {
 	return px, want, true
 }
 
+// frameExtension returns how far a window's frame extends over the top and
+// the bottom of its client area, -1 for all over.
+func frameExtension(w *mygo.Window) (top, bottom int32) {
+	mygo.RunOnMain(func() { top, bottom = win.TestFrameExtension(w.NativeHandle()) })
+	return top, bottom
+}
+
 // titleButtonColor puts the pointer over a window control of a hidden
 // title bar and returns the color on the screen beside its glyph.
 func titleButtonColor(w *mygo.Window, name string) (r, g, b uint8, ok bool) {
