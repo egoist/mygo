@@ -260,6 +260,12 @@ type engine struct {
 	// pressClicks is the press's count of clicks, which its release
 	// carries.
 	pressClicks int
+	// pressLost is the handler of the element pressed when the frame
+	// built another element without one in its place, for prune to give
+	// the release to at pressLostX, pressLostY, the pointer in the axes
+	// the element had.
+	pressLost              func(InputEvent) bool
+	pressLostX, pressLostY float32
 	// downing counts the presses pointerDown is handling, and ups holds the
 	// releases (button, clicks) that came meanwhile, through a main loop
 	// a handler ran nested, for it to apply once the press is recorded.
@@ -965,11 +971,27 @@ func (rt *engine) prune() {
 			rt.host.cancelDataDrag()
 		}
 	}
+	if p := rt.pressed; p != nil {
+		// The element pressed is gone, as when its press moved it into
+		// another container: not built again, or built over by one that
+		// does not take its input. Its release will not come to it, so
+		// its handler gets one now, as when the window loses the focus,
+		// rather than taking the next press for that release.
+		input, gone := p.input, p.seen != rt.frame || p.pass != rt.pass
+		x, y := p.local(rt.pointerX, rt.pointerY)
+		if rt.pressLost != nil {
+			input, gone, x, y = rt.pressLost, true, rt.pressLostX, rt.pressLostY
+		}
+		if gone {
+			rt.endPress(input, x, y)
+			// A frame built anew for the press ended and what the handler
+			// did with it, not one only painting again.
+			rt.animating = true
+		}
+	}
+	rt.pressLost = nil
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
-			if rt.pressed == s {
-				rt.pressed = nil
-			}
 			if !rt.keptAlive(s) {
 				if s.textAdapter != nil {
 					s.textAdapter.release()
@@ -1139,6 +1161,12 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	saved, savedPage := rt.enterScope(e), rt.commitPage
 	defer func() { rt.commitScope, rt.commitPage, rt.commitHidden = saved, savedPage, savedHidden }()
 	s := e.st
+	if s == rt.pressed && s.input != nil && e.inputFn == nil {
+		// Another element took the place of the one pressed (prune), in
+		// the axes the element pressed had.
+		rt.pressLost = s.input
+		rt.pressLostX, rt.pressLostY = s.local(rt.pointerX, rt.pointerY)
+	}
 	s.page = rt.commitPage
 	if e.flags&flagPage != 0 {
 		rt.commitPage = e.id

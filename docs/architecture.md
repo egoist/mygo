@@ -2634,7 +2634,11 @@ either.
   ignores), text, compositions and edit commands while it has the focus,
   unless a `Shortcut` around it claims the key, and the pointer pressed on
   it, moving over it or scrolling over it; once it takes a press, the
-  moves and the release come to it, as to a pressed element. Its
+  moves and the release come to it, as to a pressed element, and the
+  release comes as the window loses the focus or once a frame builds the
+  element no more (not built again, or built over by an element without
+  `HandleInput`, as when the press moved it into a split), so that the
+  next press starts anew. Its
   `TextCaret` turns on the input method at that caret, with no text around
   it; `InputMethod(false)` (`TextInputState.NoInputMethod`) keeps text on
   but input methods off, as winit's `set_ime_allowed(false)`: macOS skips
