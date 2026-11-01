@@ -124,6 +124,10 @@ type windowHost struct {
 	backoff  time.Duration
 	soft     raster.Renderer
 	last     *scene.Scene
+	// atlases are the versions of the atlases last was painted with
+	// (scene.Atlas.Version): another window's frame since may have put its
+	// glyphs and masks where last's were.
+	atlases [2]uint64
 	// lastFrame is when the last frame was presented.
 	lastFrame time.Time
 	// framing tells that the surface asked for the frame being drawn, and
@@ -431,6 +435,7 @@ func (h *windowHost) size() (float32, float32, float32) {
 
 func (h *windowHost) present(s *scene.Scene) {
 	h.last, h.path = s, ""
+	h.atlases = atlasVersions(s)
 	defer h.recheck()
 	if s.Width <= 0 || s.Height <= 0 {
 		return
@@ -661,9 +666,11 @@ func (h *windowHost) retryLater() {
 
 // capture renders the last frame in memory: built now where none was yet,
 // or where one waits for the window to show (holdFrame), so that a window
-// out of sight shows what it shows now.
+// out of sight shows what it shows now, or where the atlases changed since
+// it was painted, as other windows draw into them, so that the glyphs and
+// masks it drew are where it says.
 func (h *windowHost) capture() (int, int, []byte) {
-	if h.last == nil || h.rt.held {
+	if h.last == nil || h.rt.held || h.atlases != atlasVersions(h.last) {
 		h.rt.runFrame()
 	}
 	s := h.last
@@ -674,6 +681,17 @@ func (h *windowHost) capture() (int, int, []byte) {
 	img.Resize(s.Width, s.Height)
 	raster.Render(&img, s)
 	return img.W, img.H, img.RGBA()
+}
+
+// atlasVersions returns the versions of the atlases of s.
+func atlasVersions(s *scene.Scene) (v [2]uint64) {
+	if s.MaskAtlas != nil {
+		v[0] = s.MaskAtlas.Version()
+	}
+	if s.ColorAtlas != nil {
+		v[1] = s.ColorAtlas.Version()
+	}
+	return v
 }
 
 func (h *windowHost) detach() {
