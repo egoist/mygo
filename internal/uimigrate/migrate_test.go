@@ -292,3 +292,50 @@ func element(c *ui.Context) {
 		t.Fatalf("migrated source does not compile: %v\n%s", err, got)
 	}
 }
+
+// A declared alias of a UI type, in the file or a sibling of it, is the
+// kind it stands for.
+func TestMigrationDeclaredUIAliases(t *testing.T) {
+	sources := map[string][]byte{
+		"types.go": []byte(`package repro
+
+import "github.com/egoist/mygo/ui"
+
+type E = *ui.Element
+`),
+		"app.go": []byte(`package repro
+
+import "github.com/egoist/mygo/ui"
+
+func shown(c *ui.Context) bool {
+	var e E = ui.Text(c, "hello")
+	if e != nil {
+		e = nil
+	}
+	return e != nil
+}
+`),
+	}
+	results, err := Files(sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(results["app.go"].Source)
+	for _, want := range []string{"if e.Valid() {", "e = ui.Element{}", "return e.Valid()"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q:\n%s", want, got)
+		}
+	}
+	fs := token.NewFileSet()
+	var files []*ast.File
+	for _, name := range []string{"types.go", "app.go"} {
+		f, err := parser.ParseFile(fs, name, results[name].Source, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	if _, err := (&types.Config{Importer: uiImporter(t)}).Check("repro", fs, files, nil); err != nil {
+		t.Fatalf("migrated source does not compile: %v\n%s%s", err, results["types.go"].Source, got)
+	}
+}

@@ -29,6 +29,7 @@ type migration struct {
 	structs map[string]map[string]string
 	objects map[*ast.Object]string
 	returns map[string][]typeFact
+	aliases map[string]string
 	// declared holds the objects whose type is written in their declaration;
 	// an assignment never overrides it.
 	declared map[*ast.Object]bool
@@ -39,6 +40,9 @@ type typeFact struct{ kind, object string }
 type packageFacts struct {
 	structs map[string]map[string]string
 	returns map[string][]typeFact
+	// aliases maps the package's aliases of UI types, as type E =
+	// *ui.Element, to the kind they stand for.
+	aliases map[string]string
 }
 
 // File transforms one file. Files adds declarations from sibling package files.
@@ -58,6 +62,8 @@ func Files(sources map[string][]byte) (map[string]Result, error) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	// Aliases of UI types first, as declarations in any file of the
+	// package may name them.
 	for _, name := range names {
 		f, err := parser.ParseFile(fs, name, sources[name], parser.ParseComments)
 		if err != nil {
@@ -67,9 +73,22 @@ func Files(sources map[string][]byte) (map[string]Result, error) {
 		group := filepath.Dir(name) + "\x00" + f.Name.Name
 		facts := groups[group]
 		if facts == nil {
-			facts = &packageFacts{structs: map[string]map[string]string{}, returns: map[string][]typeFact{}}
+			facts = &packageFacts{structs: map[string]map[string]string{}, returns: map[string][]typeFact{}, aliases: map[string]string{}}
 			groups[group] = facts
 		}
+		m := newMigration(importAlias(f), facts)
+		ast.Inspect(f, func(node ast.Node) bool {
+			if n, ok := node.(*ast.TypeSpec); ok && n.Assign.IsValid() {
+				if kind := m.uiType(n.Type); kind != "" {
+					facts.aliases[n.Name.Name] = kind
+				}
+			}
+			return true
+		})
+	}
+	for _, name := range names {
+		f := files[name]
+		facts := groups[filepath.Dir(name)+"\x00"+f.Name.Name]
 		m := newMigration(importAlias(f), facts)
 		ast.Inspect(f, func(node ast.Node) bool {
 			switch n := node.(type) {
@@ -142,7 +161,7 @@ func importAlias(f *ast.File) string {
 	return ""
 }
 func newMigration(alias string, facts *packageFacts) *migration {
-	return &migration{alias: alias, kinds: map[*ast.Object]string{}, objects: map[*ast.Object]string{}, declared: map[*ast.Object]bool{}, structs: facts.structs, returns: facts.returns}
+	return &migration{alias: alias, kinds: map[*ast.Object]string{}, objects: map[*ast.Object]string{}, declared: map[*ast.Object]bool{}, structs: facts.structs, returns: facts.returns, aliases: facts.aliases}
 }
 func (m *migration) fact(e ast.Expr) typeFact {
 	if kind := m.uiType(e); kind != "" {
@@ -152,6 +171,9 @@ func (m *migration) fact(e ast.Expr) typeFact {
 		e = star.X
 	}
 	if name, ok := e.(*ast.Ident); ok {
+		if kind := m.aliases[name.Name]; kind != "" {
+			return typeFact{kind: kind}
+		}
 		return typeFact{object: name.Name}
 	}
 	return typeFact{}
