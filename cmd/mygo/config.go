@@ -100,6 +100,8 @@ type Config struct {
 	MacOS   MacOS    `json:"macos"`
 	Windows Windows  `json:"windows"`
 	Linux   Linux    `json:"linux"`
+	IOS     IOS      `json:"ios"`
+	Android Android  `json:"android"`
 
 	root string
 	file string // the configuration file, "" without one
@@ -210,6 +212,53 @@ type MacOS struct {
 	// Notarize submits production disk images to Apple's notary service and
 	// staples the ticket. It needs a Developer ID signing identity.
 	Notarize *Notarize `json:"notarize"`
+}
+
+// IOS configures the iOS app (mygo build -platform ios, ios/simulator).
+type IOS struct {
+	// MinimumSystemVersion is the oldest iOS version supported (default
+	// "17.0").
+	MinimumSystemVersion string `json:"minimumSystemVersion"`
+	// Team is the ID of the Apple developer team that signs the app for
+	// devices, as Xcode's Signing & Capabilities shows it.
+	Team string `json:"team"`
+	// ProvisioningProfile is the profile to sign with: its name, UUID or
+	// the path of a .mobileprovision (default: the installed profile that
+	// best fits the identifier and the distribution).
+	ProvisioningProfile string `json:"provisioningProfile"`
+	// Distribution is what the build is for: "app-store" (default, and
+	// TestFlight), "ad-hoc", "development" or "enterprise".
+	Distribution string `json:"distribution"`
+	// BuildNumber is CFBundleVersion, which must grow with every upload of
+	// a version (default: the version).
+	BuildNumber string `json:"buildNumber"`
+	// Orientations are those the app turns to on iPhones: "portrait" and
+	// "landscape" (default both). iPads take every one.
+	Orientations []string `json:"orientations"`
+	// InfoPlist holds extra keys for the app's Info.plist, which replace
+	// MyGo's own, e.g. the usage descriptions of what the app asks for:
+	//   "NSCameraUsageDescription": "Scan documents with the camera."
+	InfoPlist map[string]any `json:"infoPlist"`
+}
+
+// Android configures the Android app (mygo build -platform android).
+type Android struct {
+	// MinSdk is the oldest Android API level supported (default 26,
+	// Android 8.0).
+	MinSdk int `json:"minSdk"`
+	// VersionCode is the integer version Google Play orders uploads by
+	// (default: from the version, major×10000 + minor×100 + patch).
+	VersionCode int `json:"versionCode"`
+	// Permissions are those the manifest declares, in addition to INTERNET,
+	// as "android.permission.CAMERA" or just "CAMERA".
+	Permissions []string `json:"permissions"`
+	// Keystore is the keystore of the upload key that signs release
+	// builds, KeyAlias the key's alias in it; their passwords come from
+	// MYGO_ANDROID_KEYSTORE_PASSWORD and MYGO_ANDROID_KEY_PASSWORD
+	// (default: the latter the former). Without a keystore, builds are
+	// signed with the debug key.
+	Keystore string `json:"keystore"`
+	KeyAlias string `json:"keyAlias"`
 }
 
 // Notarize holds notarytool credentials stored in the keychain with
@@ -378,6 +427,15 @@ func (c *Config) applyDefaults() {
 	}
 	if c.MacOS.SigningIdentity == "" {
 		c.MacOS.SigningIdentity = "-"
+	}
+	if c.IOS.MinimumSystemVersion == "" {
+		c.IOS.MinimumSystemVersion = "17.0"
+	}
+	if c.IOS.Distribution == "" {
+		c.IOS.Distribution = "app-store"
+	}
+	if c.Android.MinSdk == 0 {
+		c.Android.MinSdk = 26
 	}
 	if c.MacOS.DMGTitle == "" {
 		c.MacOS.DMGTitle = c.Name

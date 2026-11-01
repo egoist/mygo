@@ -435,6 +435,10 @@ type engine struct {
 	labels     []labelNode
 	tips       tooltips
 	scrollDrag scrollDrag
+	// touch is the finger on a touch screen, flinging the content it
+	// flung as it lifted (touch.go).
+	touch    touchPan
+	flinging fling
 	// wheeling are the elements of the scroll containers that the notches
 	// of a mouse wheel scroll smoothly (glideWheels).
 	wheeling []uint64
@@ -559,6 +563,9 @@ func (rt *engine) runFrame() {
 	rt.repaintRate, rt.repaintFull, rt.untracked = 0, false, false
 	rt.routeKeys()
 	rt.glideWheels(now)
+	if touchFrame != nil {
+		touchFrame(rt, now)
+	}
 	if rt.drag != nil {
 		// The source's element is this frame's, if it builds one.
 		rt.drag.elem = nil
@@ -640,7 +647,13 @@ func (rt *engine) runFrame() {
 	rt.stats.lap(phaseBuild)
 	rt.insp.lap(0)
 	root := rt.c.root
+	if insetRoot != nil {
+		insetRoot(rt, root)
+	}
 	layoutTree(root, appW, h)
+	if extendScrolls != nil {
+		extendScrolls(rt, root, h)
+	}
 	rt.commit(root, w, h)
 	// Scrolling can put a new native drop target under a stationary
 	// pointer. Resolve it against this frame's geometry, then rebuild if
@@ -1350,3 +1363,62 @@ func (rt *engine) overScrollbar(id uint64) bool {
 // cursorUnknown is the cursor the engine last set while the pointer is
 // over a web view, whose page set another.
 const cursorUnknown Cursor = 255
+
+// extendUnderBottom has the scroll containers that reach the bottom of
+// what the window's insets leave go on under the inset at the bottom, as
+// UIKit's scroll views go under a floating tab bar and the home
+// indicator, and Android's under the gesture bar: their content scrolls
+// there, and as far again, for its end to come out from under it. What
+// does not scroll stays clear of it.
+func (rt *engine) extendUnderBottom(root *node, h float32) {
+	hs, ok := rt.host.(interface{ insets() platform.Insets })
+	if !ok {
+		return
+	}
+	in := hs.insets()
+	b := float32(in.Bottom)
+	if rt.zoomed() {
+		b /= rt.contentZoom
+	}
+	if b <= 0 {
+		return
+	}
+	edge := h - b
+	var walk func(e *node)
+	walk = func(e *node) {
+		for c := e.first; c != nil; c = c.next {
+			if c.flags&flagScrollY != 0 {
+				if c.y+c.h >= edge-0.5 && c.y+c.h <= edge+0.5 {
+					c.h += b
+					c.contentH += float64(b)
+					c.barInset[2] += b
+				}
+				continue // what scrolls inside moves with it
+			}
+			walk(c)
+		}
+	}
+	walk(root)
+}
+
+// padInsets keeps the content out from under what covers the window's
+// edges, as a phone's bars, cutout and keyboard: the root takes them as
+// padding, while the window's background fills them.
+func (rt *engine) padInsets(root *node) {
+	h, ok := rt.host.(interface{ insets() platform.Insets })
+	if !ok {
+		return
+	}
+	in := h.insets()
+	if in == (platform.Insets{}) {
+		return
+	}
+	z := float32(1)
+	if rt.zoomed() {
+		z = rt.contentZoom
+	}
+	root.pad[0] += float32(in.Top) / z
+	root.pad[1] += float32(in.Right) / z
+	root.pad[2] += float32(in.Bottom) / z
+	root.pad[3] += float32(in.Left) / z
+}

@@ -869,6 +869,14 @@ func (h *windowHost) textLanguage() {
 	text.Shared().SetLanguage(h.locale())
 }
 
+// insets are those the surface tells, as a phone's.
+func (h *windowHost) insets() platform.Insets {
+	if s, ok := h.conn.Surface.(platform.InsetSurface); ok {
+		return s.Insets()
+	}
+	return platform.Insets{}
+}
+
 func (h *windowHost) titleBar() TitleBar {
 	if h.conn.TitleBar == nil {
 		return TitleBar{}

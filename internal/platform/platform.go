@@ -1256,3 +1256,49 @@ type NotificationSender struct {
 	ID, Name string
 	Avatar   []byte
 }
+
+// NavigationBackend is a Backend with the navigation of phones: a bar of
+// tabs, each showing a window, and stacks of windows pushed over others,
+// both the system's own (UIKit's tab bar and navigation controllers,
+// Android's bottom navigation and toolbars). Backends of desktops have
+// none: the core shows the windows as windows.
+type NavigationBackend interface {
+	// NewTabs shows a bar of tabs at the bottom of the screen, tab i
+	// showing tabs[i].Window, over the windows shown before.
+	NewTabs(tabs []Tab, h TabsHandler) (TabBar, error)
+	// PushWindow shows child over parent in parent's stack, with a bar
+	// at the top holding child's title and a back button, which pops it.
+	PushWindow(parent, child Window, animated bool)
+	// PopWindow takes w out of its stack, back to the window under it.
+	PopWindow(w Window, animated bool)
+}
+
+// Tab is a tab of a TabBar.
+type Tab struct {
+	Title string
+	// Symbol names an SF Symbol, which iOS draws; Icon is a PNG drawn as
+	// a template (its alpha, in the bar's colors), which Android draws,
+	// and iOS without a Symbol.
+	Symbol string
+	Icon   []byte
+	Window Window
+}
+
+// TabBar is a bar of tabs of a NavigationBackend.
+type TabBar interface {
+	Select(i int)
+	SetBadge(i int, badge string)
+	Close()
+}
+
+// TabsHandler hears of a TabBar, on the main thread.
+type TabsHandler interface {
+	// TabSelected reports that the user chose tab i.
+	TabSelected(i int)
+}
+
+// NavigationHandler is a WindowHandler told that the user popped its
+// window off its stack (the back button, a swipe, Android's back).
+type NavigationHandler interface {
+	Popped()
+}
