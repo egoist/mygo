@@ -1,0 +1,34 @@
+# GPUI's side of internal/gpuibench, built as Zed builds its releases. Its
+# own workspace, out of Bun's and Go's sight: the first build downloads Zed.
+[package]
+name = "gpuibench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+autobins = false
+
+[workspace]
+
+[[bin]]
+name = "gpuibench-gpui"
+path = "src/main.rs"
+
+[[bin]]
+name = "gpuibench-gpui-hello"
+path = "src/bin/hello.rs"
+
+[dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "d94f32a1d948c273ab7d5a9fd344e3fd22f971eb" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "d94f32a1d948c273ab7d5a9fd344e3fd22f971eb" }
+
+# As Zed's workspace builds them: a dependency's patches do not apply here.
+[patch.crates-io]
+async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
+async-task = { git = "https://github.com/zed-industries/async-task.git", rev = "015845a19fc31752c02367567d3b8900a406f9da" }
+calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee14c40066d64777e2a36b6ffcc22590" }
+
+# Zed's release profile, without its debug information.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

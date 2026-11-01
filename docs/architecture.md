@@ -4660,8 +4660,10 @@ frame latency object tells room for (Direct3D 11 above): the frame drawn
 while one waits presents once the screen took that one, and the next,
 built when input asks for one after, reads input from that refresh, as
 it did when `Present` blocked. Linux's frames follow GTK's frame clock.
-Neither is measured: GitHub's runners and the containers have no display
-that refreshes.
+Neither is measured on CI: GitHub's runners and the containers have no
+display that refreshes. On a Windows desktop, `go run ./internal/gpuibench`
+times frames and input against GPUI's: its README has how, and the results
+of a Ryzen 7 8745HS with a Radeon 780M at 60 Hz.
 
 ### Binary size
 

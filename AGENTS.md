@@ -82,6 +82,7 @@ bun run --cwd website dev                  # the website, with docs/ at /docs (s
 bun scripts/bench.ts run [--e2e]           # benchmarks and app sizes, medians of 6 runs (CI: bench.yml, /benchmarks)
 go run ./internal/idlemem app...           # apps' memory once idle, with their webviews' processes
 go run ./internal/inputlatency             # native UI's input-to-screen latency on macOS (opens windows)
+go run ./internal/gpuibench                # native UI against GPUI on Windows, about an hour (opens windows; see its README)
 ```
 
 Linux GUI tests cross-compile and run in a container with WebKitGTK and Xvfb;
