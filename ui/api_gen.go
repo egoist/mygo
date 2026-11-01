@@ -3781,7 +3781,9 @@ func (_handle Element) Draggable(offset *Point, o DraggableOptions) Element {
 }
 
 // Dragged reports how far the pointer moved in the element's local axes
-// since the last frame while pressing it.
+// since the last frame while pressing it. The moves just before the
+// pointer let go come while the element is still pressed, and the press
+// ends in the build after.
 func (_handle Element) Dragged() (float32, float32, bool) {
 	_node := _handle.node()
 	if _node == nil {
@@ -5183,7 +5185,8 @@ func (_handle Element) PlaceholderColor(color Color) Element {
 
 // PointerPosition returns the pointer's position relative to the
 // element's box and whether it is over the element. Elements asking for it
-// get a frame whenever the pointer moves over them.
+// get a frame whenever the pointer moves over them. The build that reads
+// the last moves of a press on the element sees where the pointer let go.
 func (_handle Element) PointerPosition() (float32, float32, bool) {
 	_node := _handle.node()
 	if _node == nil {

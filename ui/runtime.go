@@ -921,8 +921,7 @@ func (rt *engine) endPass() {
 	// Clicks the view gave its elements, which the next pass sees.
 	for _, id := range rt.clickLater {
 		if s := rt.states[id]; s != nil {
-			s.clicks++
-			s.clickMods = 0
+			s.click(0)
 		}
 	}
 	rt.clickLater = rt.clickLater[:0]
@@ -960,6 +959,12 @@ func (rt *engine) forgetInput() {
 		s.dropped = nil
 		s.droppedValue, s.hasDropped = nil, false
 		s.dataDropped = nil
+		if s.releaseLater.due {
+			// The pass read the moves of a press that ended: the next
+			// pass sees it end, and the clicks it gave.
+			rt.applyRelease(s)
+			rt.consumed = true
+		}
 	}
 }
 

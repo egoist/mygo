@@ -631,6 +631,18 @@ type state struct {
 	releaseVX, releaseVY float32
 	releaseWX, releaseWY float32
 	pressPending         bool // the press began since the last build pass
+	// releaseLater is what the release of the press gives the element,
+	// kept when it came with moves no pass had read for the pass that
+	// reads them to apply as it ends (forgetInput): where the pointer let
+	// go, which the element sees as the pointer meanwhile (pointer),
+	// whether it ended a drag, and the clicks since, the release's own
+	// first (click).
+	releaseLater struct {
+		due, released       bool
+		x, y                float32
+		clicks, rightClicks int
+		clickMods           Modifiers
+	}
 	// dragRec is what Draggable keeps of the element from frame to frame.
 	dragRec *dragRec
 
