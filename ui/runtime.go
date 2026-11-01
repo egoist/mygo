@@ -1064,7 +1064,7 @@ func (rt *engine) close() {
 	rt.focusFields = nil
 	for _, r := range rt.refs {
 		r.closed = true
-		r.requested = false
+		r.requested, r.selectAll = false, false
 	}
 	clear(rt.refs)
 	rt.refs = nil
