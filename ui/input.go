@@ -108,14 +108,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.modsChanged(0)
 		clear(rt.byPosition)
 		if p := rt.pressed; p != nil {
-			// The release will not come: an element taking its input
-			// gets one now.
-			if p.input != nil {
-				rt.deliver(p, InputEvent{Kind: InputPointerUp, Button: rt.pressButton, Mods: rt.mods, Clicks: rt.pressClicks})
-			}
-			p.pressed = false
-			rt.pressed = nil
-			rt.requestFrame()
+			rt.endPress(p.input)
 		}
 		rt.focusChanged()
 	case platform.FileDragOver:
@@ -392,6 +385,24 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 	if clicks == 2 && button == 0 {
 		target.doubleClicks++
 	}
+}
+
+// endPress ends the press whose release will not come, as the window lost
+// the focus, or the element pressed is gone: input, the handler of the
+// element pressed, gets one now, and endPress reports whether it took it.
+// The element gets no click, and the next press starts anew.
+func (rt *engine) endPress(input func(InputEvent) bool) (taken bool) {
+	p := rt.pressed
+	if input != nil {
+		ev := InputEvent{Kind: InputPointerUp, Button: rt.pressButton, Mods: rt.mods, Clicks: rt.pressClicks}
+		ev.X, ev.Y = p.local(rt.pointerX, rt.pointerY)
+		ev.Time = rt.now()
+		taken = input(ev)
+	}
+	p.pressed = false
+	rt.pressed = nil
+	rt.requestFrame()
+	return taken
 }
 
 // endDown applies the releases that came while pointerDown handled a

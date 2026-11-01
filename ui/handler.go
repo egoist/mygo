@@ -30,7 +30,9 @@ const (
 	// released at X, Y, with Clicks the count of quick successive presses
 	// (2 for a double click). Once the element takes an InputPointerDown,
 	// the pointer's moves and its release come to it wherever they are,
-	// and the release comes when the window loses the keyboard too.
+	// and the release comes when the window loses the keyboard too, or
+	// once a frame builds the element no more, as when the press moved it
+	// into another container.
 	InputPointerDown
 	InputPointerUp
 	// InputPointerMove reports the pointer at X, Y, with Button held, or

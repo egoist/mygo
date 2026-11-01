@@ -260,6 +260,10 @@ type engine struct {
 	// pressClicks is the press's count of clicks, which its release
 	// carries.
 	pressClicks int
+	// pressLost is the handler of the element pressed when the frame
+	// built another element without one in its place, for prune to give
+	// the release to.
+	pressLost func(InputEvent) bool
 	// downing counts the presses pointerDown is handling, and ups holds the
 	// releases (button, clicks) that came meanwhile, through a main loop
 	// a handler ran nested, for it to apply once the press is recorded.
@@ -965,11 +969,23 @@ func (rt *engine) prune() {
 			rt.host.cancelDataDrag()
 		}
 	}
+	if p := rt.pressed; p != nil {
+		// The element pressed is gone, as when its press moved it into
+		// another container: not built again, or built over by one that
+		// does not take its input. Its release will not come to it, so
+		// its handler gets one now, as when the window loses the focus,
+		// rather than taking the next press for that release.
+		input, gone := p.input, p.seen != rt.frame || p.pass != rt.pass
+		if rt.pressLost != nil {
+			input, gone = rt.pressLost, true
+		}
+		if gone && rt.endPress(input) {
+			rt.host.requestFrame() // for what the handler did with it
+		}
+	}
+	rt.pressLost = nil
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
-			if rt.pressed == s {
-				rt.pressed = nil
-			}
 			if !rt.keptAlive(s) {
 				if s.textAdapter != nil {
 					s.textAdapter.release()
@@ -1176,6 +1192,10 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	s.cursor, s.tip = e.cursor, e.tip
 	s.webView = e.webView
 	s.role = e.role
+	if s == rt.pressed && s.input != nil && e.inputFn == nil {
+		// Another element took the place of the one pressed (prune).
+		rt.pressLost = s.input
+	}
 	s.input, s.caret, s.takesText, s.noIME = e.inputFn, e.caret, e.takesText, e.noIME
 	s.copyData = e.copyData
 	if s.textClient != e.textClient {
