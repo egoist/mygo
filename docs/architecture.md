@@ -2412,10 +2412,12 @@ either.
   again by their parameters, as Taffy keeps a node's measurements: an
   element laid out anew whose text is the same, as the rows of a List
   each frame, asks nothing of the text system's cache, whose key costs
-  more to hash than to compare. A grid measures the widths of only the
-  items its columns read (`contributes`): none for Fr columns with room
-  known, as CSS's minmax(0, 1fr). Transforms and scroll offsets of other
-  containers apply after layout and change nothing there. Elements that lay
+  more to hash than to compare, and one laid out at another width asks
+  for it from the last (`text.System.LayoutFrom`). A grid measures the
+  widths of only the items its columns read (`contributes`): none for Fr
+  columns with room known, as CSS's minmax(0, 1fr). Transforms and scroll
+  offsets of other containers apply after layout and change nothing
+  there. Elements that lay
   out by more than they are built with are never reused, nor anything
   around them: a List (rows built as it lays out), a Form, a Table's
   fitted columns and a toolbar (which change elements inside them as they
@@ -3532,7 +3534,14 @@ either.
   every other process. The package assembles their lines into layouts, with
   its own whitespace trimming, ellipsis, alignment, carets and selection, so
   those behave the same everywhere, and caches layouts by their parameters.
-  The engines rasterize glyphs too (`IDWriteGlyphRunAnalysis`,
+  A text that wraps none of its lines lays out alike at any width they
+  fit in, but for where its alignment puts its lines: `LayoutFrom` lays
+  it out at another width as the layout it is given (`ui` gives an
+  element's last), or as the text's layout without a width, once made,
+  sharing its lines, or copying those its alignment moves (`realign`), so
+  that a text whose box grows or shrinks, as a transition or the window
+  resizes it, is shaped once, and one measured, then laid out at the
+  width it gets, too. The engines rasterize glyphs too (`IDWriteGlyphRunAnalysis`,
   `CTFontDrawGlyphs`, cairo) into a coverage atlas, color glyphs (emoji)
   into a color atlas, and subpixel glyphs, the coverage of each pixel's
   red, green and blue, into the color atlas as well. Text looks as each
