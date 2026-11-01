@@ -75,18 +75,29 @@ func MovedClip(r Rect, m Affine) (Rect, Affine) {
 
 // Reshaped reports whether op of s draws under a transform that does more
 // than move it (scales, turns, skews it or shows it in perspective): its
-// own, or, for glyphs, a glyph's. Drawing a transform only moves lies in
-// its clips as it would unmoved, which the GPU's renderers cut in the
-// frame's coordinates whatever the transform, so the clips around it need
-// no mask (gpu.Builder), and damage tracking has them change no more than
+// own, or, for glyphs and an effect masked by glyphs, a glyph's. Drawing
+// a transform only moves lies in its clips as it would unmoved, which the
+// GPU's renderers cut in the frame's coordinates whatever the transform,
+// so the clips around it need no mask (gpu.Builder), and damage tracking has them change no more than
 // for drawing not moved (Differ). Clips are the same (MovedClip): a clip
 // pushed under a transform that only moves it reshapes none around it.
 func Reshaped(s *Scene, op *Op) bool {
 	if op.Transform.Set && !op.Transform.moves() {
 		return true
 	}
-	if op.Kind == OpGlyphs && op.Start >= 0 && op.Start <= op.End && int(op.End) <= len(s.Glyphs) {
-		for _, g := range s.Glyphs[op.Start:op.End] {
+	start, end := int32(-1), int32(-1)
+	switch op.Kind {
+	case OpGlyphs:
+		start, end = op.Start, op.End
+	case OpEffect:
+		// A shader's effect masked by glyphs draws them with their own
+		// transforms too (EffectOp.Glyphs).
+		if op.Start >= 0 && int(op.Start) < len(s.Effects) {
+			start, end = s.Effects[op.Start].Glyphs[0], s.Effects[op.Start].Glyphs[1]
+		}
+	}
+	if start >= 0 && start <= end && int(end) <= len(s.Glyphs) {
+		for _, g := range s.Glyphs[start:end] {
 			if g.Transform.Set && !g.Transform.moves() {
 				return true
 			}
