@@ -4415,8 +4415,10 @@ profile).
 
 ## Testing
 
-Regenerate checked UI wrappers with `go generate ./ui`. Native library and
-shader generation commands are listed in [AGENTS.md](../AGENTS.md).
+Regenerate checked UI wrappers with `go generate ./ui`, then what
+`mygo migrate-ui` knows of their results (`internal/uimigrate/uiapi.go`,
+which `TestUIAPI` checks) with `go test ./internal/uimigrate -update`.
+Native library and shader generation commands are listed in [AGENTS.md](../AGENTS.md).
 
 | suite | command | covers |
 |---|---|---|

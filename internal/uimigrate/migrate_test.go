@@ -1,9 +1,11 @@
 package uimigrate
 
 import (
+	"go/ast"
 	"go/format"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"strings"
 	"testing"
 )
@@ -222,5 +224,71 @@ func check(c *ui.Context){w,_:=newWindow();if w.element==nil{w.element=makeEleme
 		if r.Changed {
 			t.Fatalf("second migration changed %s", name)
 		}
+	}
+}
+
+// Values of package ui that are not elements keep their nil checks, whatever
+// assigned them; only elements become Valid, and the result compiles.
+func TestMigrationNilChecksFollowUISignatures(t *testing.T) {
+	source := `package repro
+
+import "github.com/egoist/mygo/ui"
+
+func decode(data []byte) bool {
+	var b ui.ImageSource
+	b, _ = ui.DecodeImage(data)
+	return b != nil
+}
+
+func short(data []byte) bool {
+	b, err := ui.DecodeImage(data)
+	return err == nil && b != nil
+}
+
+func player(d ui.VideoDecoder) {
+	p, err := ui.NewVideoPlayer(d)
+	if err == nil && p != nil {
+		p.Close()
+	}
+}
+
+func timeline(c *ui.Context) bool {
+	var s, err = ui.DecodeImage(nil)
+	t := ui.Text(c, "intro").Timeline("intro", ui.TimelineOptions{})
+	return s != nil && err == nil && t != nil && ui.Text(c, "copy").SelectedTexts() != nil
+}
+
+func declared(c *ui.Context) bool {
+	var focuser interface{ Focus() ui.Element }
+	focuser = ui.Text(c, "focus")
+	return focuser != nil
+}
+
+func element(c *ui.Context) {
+	var shown *ui.Element
+	e := ui.Text(c, "hello").Padding(4)
+	if e != nil && shown == nil {
+		shown = ui.Button(c, "focus")
+		shown.Focus()
+	}
+}
+`
+	r, err := File("repro.go", []byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(r.Source)
+	for _, want := range []string{"return b != nil", "err == nil && b != nil", "err == nil && p != nil", "s != nil && err == nil && t != nil", "SelectedTexts() != nil", "return focuser != nil", "if e.Valid() && !shown.Valid()", "var shown ui.Element"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q:\n%s", want, got)
+		}
+	}
+	fs := token.NewFileSet()
+	f, err := parser.ParseFile(fs, "repro.go", r.Source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&types.Config{Importer: uiImporter(t)}).Check("repro", fs, []*ast.File{f}, nil); err != nil {
+		t.Fatalf("migrated source does not compile: %v\n%s", err, got)
 	}
 }
