@@ -222,6 +222,15 @@ content type from the icon theme, and for a desktop entry (`.desktop`), the
 icon of its application, or where the theme has none, that of desktop
 entries.
 
+`TypeIcon` returns the icon of a file type, by its extension, with or
+without the dot, without a file of that type on disk: the icon of an
+attachment not yet downloaded, say. It is drawn as `FileIcon` draws its
+icon, and fails in browsers.
+
+```go
+png, err := mygo.Shell.TypeIcon("pdf", 64)
+```
+
 `InstalledApps` lists the applications installed on the computer, sorted
 by name, as a launcher shows them, and `LaunchApp` starts one, or brings
 it to the front:
