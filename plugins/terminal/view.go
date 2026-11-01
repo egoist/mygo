@@ -253,6 +253,10 @@ type pendingKey struct {
 	// taken: Options.OnKey took the key, whose text and release are
 	// dropped.
 	taken bool
+	// sent: the key went as Alt (Option as Alt on macOS), and the text
+	// macOS still types or composes for it is dropped; its release goes
+	// as any key's.
+	sent bool
 }
 
 // build updates the view as a frame builds.
@@ -579,6 +583,11 @@ func (v *view) input(ev ui.InputEvent) bool {
 		v.typed(ev.Text)
 		return true
 	case ui.InputCompose:
+		if p := v.pending; p != nil && p.sent {
+			// A dead key's, as ´ of Option-E: refused, so that macOS
+			// gives it up rather than compose the next key with it.
+			return false
+		}
 		v.preedit, v.preeditCaret, v.pending = ev.Text, ev.Caret, nil
 		return true
 	case ui.InputCommand:
@@ -630,6 +639,9 @@ func (v *view) input(ev ui.InputEvent) bool {
 	return false
 }
 
+// goos is the system whose keys keyDown reads; tests read macOS's.
+var goos = runtime.GOOS
+
 func (v *view) keyDown(ev ui.InputEvent) bool {
 	t := v.t
 	if on := t.opts.OnKey; on != nil && on(ev.Mods, ev.Key) {
@@ -637,7 +649,7 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 		v.pending = &pendingKey{key: k, taken: true}
 		return true
 	}
-	mac := runtime.GOOS == "darwin"
+	mac := goos == "darwin"
 	mods, key := ev.Mods, ev.Key
 	if b, ok := t.binding(mods, key); ok {
 		if v.perform(b.Action, b.Performable) || !b.Performable {
@@ -656,7 +668,7 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 	}
 	altMeta := mods&ui.Alt != 0 && (!mac || t.opts.OptionAsAlt)
 	// AltGr types text on Windows, where it is Control and Alt.
-	altGr := runtime.GOOS == "windows" && mods&(ui.Ctrl|ui.Alt) == ui.Ctrl|ui.Alt
+	altGr := goos == "windows" && mods&(ui.Ctrl|ui.Alt) == ui.Ctrl|ui.Alt
 	if typesText(key) && (mods&(ui.Ctrl|ui.Alt) == 0 || mods&ui.Alt != 0 && !altMeta && mods&ui.Ctrl == 0 || altGr) {
 		// The text it types comes next.
 		v.pending = &pendingKey{key: k, unshifted: unshifted, mods: mods, repeat: ev.Repeat}
@@ -669,6 +681,11 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 		text = string(unshifted)
 		if mods&ui.Shift != 0 {
 			text = shiftedText(key, unshifted)
+		}
+		if mac {
+			// interpretKeyEvents still types the key's text, or
+			// composes it, after this.
+			v.pending = &pendingKey{key: k, sent: true}
 		}
 	}
 	action := vt.KeyPress
@@ -773,6 +790,9 @@ func (v *view) keyUp(ev ui.InputEvent) bool {
 		v.pending = nil
 		return true
 	}
+	if p := v.pending; p != nil && p.sent && p.key == k {
+		v.pending = nil // sent as it went down
+	}
 	if k == vt.KeyUnidentified || ev.Mods&ui.Super != 0 {
 		return false
 	}
@@ -801,8 +821,8 @@ func (v *view) typed(text string) {
 	v.preedit = ""
 	p := v.pending
 	v.pending = nil
-	if p != nil && p.taken {
-		return // the text of a key OnKey took
+	if p != nil && (p.taken || p.sent) {
+		return // the text of a key OnKey took, or sent as Alt
 	}
 	if p == nil {
 		// Text without a key: of an input method, or every key typing

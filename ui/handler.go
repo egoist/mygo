@@ -17,7 +17,10 @@ const (
 	// InputText is text typed, or committed by an input method.
 	InputText
 	// InputCompose is the composition of an input method, with its caret
-	// at rune Caret; an empty Text ends it.
+	// at rune Caret; an empty Text ends it. One the element leaves, the
+	// input method gives up on macOS, as a terminal does the dead key ´ of
+	// Option-E that it sent as Alt, so that the next key isn't composed
+	// with it.
 	InputCompose
 	// InputCommand is an edit command of the menus, such as Copy of the
 	// Edit menu: "copy", "cut", "paste", "pasteAndMatchStyle" (which

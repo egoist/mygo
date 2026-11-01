@@ -2256,6 +2256,11 @@ either.
   alone, as Enter choosing a candidate: on macOS `keyDown:` sends no
   `KeyPressed` while there is marked text, as GTK's input method filters
   such keys on Linux and IMM32 makes them `VK_PROCESSKEY` on Windows.
+  A composition the content does not take (`SurfaceEvent` returns false
+  for `TextComposition`) macOS gives up (`discardMarkedText`, once
+  `interpretKeyEvents:` returns), as the terminal leaves the dead key ´
+  of Option-E that it sent as Alt, so that the next key is not composed
+  with it.
   Input methods name what text and compositions replace in the text
   around the caret (`Replace`, `From`, `To`): NSTextInputClient's
   replacement ranges, GtkIMContext's `delete-surrounding`, IMM32's
@@ -2647,9 +2652,10 @@ either.
   `interpretKeyEvents:` and inserts the event's `characters`, Windows
   disassociates the IMM context and keeps `WM_CHAR`, and GTK takes the
   focus from the IM context and sends the keyval's character; browsers
-  cannot. `ui.Shape` lays out text without the cache of layouts, for widgets
-  that keep their glyphs, and `Painter.Glyphs` draws them where they
-  placed them.
+  cannot. A composition fn leaves (returns false for `InputCompose`), the
+  input method gives up on macOS. `ui.Shape` lays out text without the
+  cache of layouts, for widgets that keep their glyphs, and
+  `Painter.Glyphs` draws them where they placed them.
   A text input's `OnTextKey` gets the keys that type no text as they
   come too, after `HandleInput`, but first applies the input queued for
   the editor (`widgetTextInput.prepare`, as the platform's queries do),

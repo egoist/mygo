@@ -172,6 +172,9 @@ type surface struct {
 	marked    string
 	markedSel nsRange
 	keyDown   bool // in interpretKeyEvents: text typed with the key
+	// refused: the content left the composition set in
+	// interpretKeyEvents, given up once it returns.
+	refused bool
 
 	// Accessibility: whether the content describes its frames, the last
 	// tree, the elements of its nodes and those at the top (an NSArray).
@@ -552,17 +555,14 @@ func (s *surface) SetCursor(c platform.Cursor) {
 
 func (s *surface) SetTextInput(t platform.TextInputState) {
 	if s.input.Client != t.Client && s.input.Active {
-		s.marked = ""
-		send(send(s.view, "inputContext"), "discardMarkedText")
+		s.discardComposition()
 	}
 	if s.input.Active && t.Active && t.NoInputMethod && !s.input.NoInputMethod {
 		// Input methods turned off give up what they composed.
-		s.marked = ""
-		send(send(s.view, "inputContext"), "discardMarkedText")
+		s.discardComposition()
 	}
 	if s.input.Active && !t.Active && s.marked != "" {
-		s.marked = ""
-		send(send(s.view, "inputContext"), "discardMarkedText")
+		s.discardComposition()
 	}
 	moved := t.Active != s.input.Active || t.Caret != s.input.Caret
 	s.input = t
@@ -1042,6 +1042,10 @@ func registerSurfaceClass() {
 				s.keyDown = true
 				send(self, "interpretKeyEvents:", uintptr(nsArray(ev)))
 				s.keyDown = false
+				if s.refused {
+					s.refused = false
+					s.discardComposition()
+				}
 			} else if text {
 				// Input methods off: the key types the characters of the
 				// layout, as winit's keys do without them.
