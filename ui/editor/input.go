@@ -415,12 +415,12 @@ func (ed *editor) wheel(ev ui.InputEvent) bool {
 }
 
 // trackWidth is the room the scroll bar's track takes at the right edge:
-// none when the editor fits its content, as it then never scrolls. The
-// old side of a split diff, which draws no scroll bar of its own
-// (noScrollbar), keeps the room all the same, so that both sides wrap
-// their lines at the same width.
+// none when the editor fits its content, as it then never scrolls, or
+// hides its scroll bars (NoScrollbars). The old side of a split diff,
+// which draws no scroll bar of its own (noScrollbar), keeps the room all
+// the same, so that both sides wrap their lines at the same width.
 func (ed *editor) trackWidth() float32 {
-	if ed.o.fitContent {
+	if ed.o.fitContent || ed.o.hideScrollbars {
 		return 0
 	}
 	return scrollbarWidth
@@ -430,8 +430,11 @@ func (ed *editor) trackWidth() float32 {
 // presses on: the vertical one while it scrolls, as it does past the end
 // of a short text, and never for an editor as high as its content or the
 // old side of a split diff; the horizontal one while a line runs under
-// the vertical one's track or beyond.
+// the vertical one's track or beyond; neither with NoScrollbars.
 func (ed *editor) scrollbars() (vertical, horizontal bool) {
+	if ed.o.hideScrollbars {
+		return false, false
+	}
 	vertical = !ed.o.noScrollbar && !ed.o.fitContent && ed.scrollMax() > 0
 	return vertical, !ed.view.wrap && ed.view.maxLine > ed.hTrack()
 }

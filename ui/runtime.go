@@ -1200,7 +1200,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		s.barInset = e.barInset
 		s.barWidth = e.theme().scrollbarWidth()
 	}
-	s.hideScrollbars = e.hideScrollbars
+	s.hideScrollbars, _ = e.scrollbars()
 	// What is invisible keeps its box but takes neither the pointer nor
 	// the focus, and has no text to find; so does what is inert, which
 	// shows, and what is Hidden, which has no box.

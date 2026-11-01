@@ -40,6 +40,10 @@ type DiffState struct {
 	// FitContent makes the viewer as high as its lines, as a file of a
 	// list of them, rather than scrolling them itself.
 	FitContent bool
+	// KeepScrollbars and NoScrollbars are those of State: the scroll
+	// bars stay with the pointer away, or are taken away with their room.
+	KeepScrollbars bool
+	NoScrollbars   bool
 	// Font, LineHeight, TabSize and Theme are those of State.
 	Font       ui.Font
 	LineHeight float32
@@ -306,6 +310,107 @@ func (d *DiffState) GoToHunk(i int) {
 	ed.setSels([]sel{ed.newSel(off, off)}, revealCenter)
 }
 
+// ScrollY returns how far the diff's rows are scrolled up, in DIPs, as the
+// last frame laid them out, however they were scrolled: by the wheel, the
+// keys, the scroll bar, GoToHunk or SetScrollY. It is the new side's, which
+// the old side of a split view shares, 0 for a viewer as high as its lines
+// (FitContent). SetScrollY scrolls them, as far as they scroll, as a
+// minimap beside the diff does when it is clicked or dragged.
+func (d *DiffState) ScrollY() float64 { return d.eds[1].scrollY }
+
+func (d *DiffState) SetScrollY(y float64) {
+	ed := d.editorOf(DiffNew)
+	if d.Layout == DiffSplit && !d.FitContent {
+		// Both sides, which the frame keeps together (sharedScroll).
+		d.scroll.set(y)
+		return
+	}
+	ed.setScroll(y)
+}
+
+// ViewportHeight returns the height of the part of the diff the viewer
+// shows, in DIPs, as the last frame laid it out: from ScrollY to ScrollY
+// plus ViewportHeight, against LineTop, is what is in view. A viewer as
+// high as its lines (FitContent) is that high.
+func (d *DiffState) ViewportHeight() float64 { return float64(d.eds[1].viewH) }
+
+// LineTop returns the top of a line of a side, from 0, in DIPs below the
+// top of the diff's first row, as the last frame laid the diff out: less
+// ScrollY, it is where the line shows in the viewer, as State's LineTop.
+// The separators, the annotations and the room a split view leaves across
+// from lines of the other side take their heights; unchanged lines
+// collapsed into a separator take none, and are at its top. In a unified
+// view, a line the new text deleted is among the deleted lines above its
+// change, and an unchanged line of the old text where it is in the new.
+// LineTop of a side's count of lines is the height of the whole diff, as
+// a minimap scales it.
+func (d *DiffState) LineTop(side DiffSide, line int) float64 {
+	d.ensure()
+	line = max(line, 0)
+	h := &d.eds[1].view.heights
+	switch {
+	case side == DiffOld && d.Layout == DiffSplit:
+		h = &d.eds[0].view.heights
+	case side == DiffOld:
+		if nl, ok := d.model.newLineOf(line); ok || line >= d.Old.LineCount() {
+			if !ok {
+				nl = h.n
+			}
+			return rowsTop(h, nl)
+		}
+		return d.deletedTop(line)
+	}
+	return rowsTop(h, line)
+}
+
+// rowsTop returns the top of the rows of line, below its blocks above,
+// or the height of them all past the last line.
+func rowsTop(h *heights, line int) float64 {
+	if line >= h.n {
+		return h.total()
+	}
+	return h.geometry(line).rows
+}
+
+// deletedTop returns the top of a deleted line of the old text in a
+// unified view, in the block of the deleted lines of its change.
+func (d *DiffState) deletedTop(line int) float64 {
+	ed := &d.eds[1]
+	h := &ed.view.heights
+	n := h.n
+	for i, hk := range d.model.hunks {
+		if line < hk.A0 || line >= hk.A1 {
+			continue
+		}
+		// Where prepare put the block: above the change's first new line,
+		// or below the last line of the text.
+		at, below := hk.B0, false
+		if at >= n {
+			at, below = n-1, true
+		}
+		if at < 0 {
+			return 0
+		}
+		g := h.geometry(at)
+		above, under := h.blocksOf(at)
+		blks, top := above, g.top
+		if below {
+			blks, top = under, g.below
+		}
+		for _, b := range blks {
+			if b.kind == blockDeleted && b.hunk == i {
+				for l := b.from; l < line; l++ {
+					top += float64(float32(d.oldView.heights.wraps.rows(l))*ed.view.lineHeight + d.annotationHeight(DiffOld, l))
+				}
+				return top
+			}
+			top += float64(b.height)
+		}
+		return g.rows
+	}
+	return h.total()
+}
+
 // Run runs a command in the editor of the active side (ActiveSide), as
 // its key would, and reports whether it did something: Find opens its
 // find bar, as an app's menu item does.
@@ -396,6 +501,7 @@ func (d *DiffState) sideOptions(old bool) options {
 		readOnly: old || !d.Editable, font: d.Font, lineHeight: d.LineHeight, tabSize: d.TabSize,
 		wrap: d.Wrap, lineNumbers: LineNumbersOn, whitespace: WhitespaceNone, autoClose: true,
 		theme: d.Theme, bindings: d.Bindings, fitContent: d.FitContent, minDigits: digits,
+		keepScrollbars: d.KeepScrollbars, hideScrollbars: d.NoScrollbars,
 		renderFindBar: d.RenderFindBar, renderGoToLine: d.RenderGoToLine,
 	}
 	if d.NoLineNumbers {
@@ -411,6 +517,16 @@ func (d *DiffState) sideOptions(old bool) options {
 // DiffView builds the diff viewer.
 func DiffView(c *ui.Context, d *DiffState) ui.Element {
 	d.ensure()
+	// The new side's editor scrolls as it is built, as to a caret
+	// GoToHunk moved, where a split view's scrolls as it is drawn
+	// (rebuildIfMoved): either builds the view again, for what read
+	// ScrollY before.
+	scrolled := d.eds[1].scrollY
+	defer func() {
+		if d.eds[1].scrollY != scrolled {
+			c.Invalidate()
+		}
+	}()
 	t := c.Theme()
 	ct := d.Theme.resolve(t)
 	opts := d.sideOptions

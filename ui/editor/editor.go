@@ -63,8 +63,12 @@ type options struct {
 	// decor shows a diff in the editor.
 	decor decor
 	// noScrollbar draws no vertical scroll bar, as the old side of a split
-	// diff, whose sides share the new one's.
+	// diff, whose sides share the new one's, though it keeps its room.
 	noScrollbar bool
+	// keepScrollbars shows the thumbs with the pointer away, and
+	// hideScrollbars shows no bars, nor keeps their room (KeepScrollbars,
+	// NoScrollbars).
+	keepScrollbars, hideScrollbars bool
 	// minDigits is how many digits the gutter has room for at least.
 	minDigits int
 	// sharedScroll scrolls the sides of a split diff together.
