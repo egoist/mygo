@@ -4549,6 +4549,23 @@ func (_handle Element) KeepFocus() Element {
 	return wrapElement(_node.KeepFocus())
 }
 
+// KeepScrollbars keeps this scroll container's scroll bars showing while its
+// content overflows it, with the pointer over it or not, rather than only
+// while it is hovered or a bar is dragged: a view whose place in its content
+// matters, as a long diff filling a window, shows how far down it is. The
+// bars look and take presses as they do on hover; Scrollbars(false) hides
+// them still. It applies where Scrollbars does (a code editor's State has
+// KeepScrollbars), and is not inherited.
+func (_handle Element) KeepScrollbars(keep bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.KeepScrollbars(keep))
+}
+
 // Keyframes plays a sequence, holding its last value when done. It starts
 // on the first call, with the first frame's value. Keep the element and
 // key stable, and change Run when changing the sequence. Only active
@@ -5605,8 +5622,9 @@ func (_handle Element) ScrollbarInsets(v ...float32) Element {
 // Scrollbars controls the overlay indicators and their pointer hit targets on
 // this scroll container. They show on hover by default. With false, scrolling
 // by wheel, TrackScroll, keyboard focus and accessibility remains available.
-// It applies to Scroll, ScrollHorizontal, ScrollBoth and List, not the internal
-// indicators of custom controls such as a code editor, and is not inherited.
+// It applies to Scroll, ScrollHorizontal, ScrollBoth, List and Table, not the
+// internal indicators of custom controls such as a code editor (whose State
+// has NoScrollbars), and is not inherited.
 func (_handle Element) Scrollbars(visible bool) Element {
 	_node := _handle.node()
 	if _node == nil {

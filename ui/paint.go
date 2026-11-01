@@ -1121,8 +1121,10 @@ func (p *Painter) scrollbars(e *node) {
 	}
 	dragging := rt.scrollDrag.st == st
 	// A press takes the bars only where the window shows them
-	// (scrollbarPress).
-	st.barsShown = !e.hideScrollbars && (hovered || dragging)
+	// (scrollbarPress). Kept, they show as on hover, the same thumb on no
+	// track, so that the pointer coming over changes nothing.
+	hide, keep := e.scrollbars()
+	st.barsShown = !hide && (keep || hovered || dragging)
 	if !st.barsShown {
 		return
 	}
