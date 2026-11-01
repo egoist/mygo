@@ -223,6 +223,41 @@ text, the tags of formatting that models write (`<b>`, `<i>`, `<u>`,
 `<s>`, `<code>`, `<kbd>`, `<mark>`, `<sub>`, `<sup>` and `<br>`) apply;
 `HTML` builds HTML blocks, as for `<details>` or `<think>`.
 
+## Front matter
+
+The metadata at the start of a document, YAML between `---` lines or TOML
+between `+++` lines, is read with the `ExtFrontmatter` extension, which
+`Default` leaves out: a reply that opens with a thematic break and has
+another further down is not front matter.
+
+```go
+app.md.Extensions = parser.Default | parser.ExtFrontmatter
+```
+
+The fences stand alone on the document's first line and on a later one,
+the closing fence the opening one's. Without a closing fence there is no
+front matter, and the lines read as CommonMark does.
+
+A view shows it as a collapsible block of code, closed at first, its
+metadata highlighted as YAML or TOML: nothing reads it as either, so
+lists, nested maps and values on several lines show as written.
+`HideFrontmatter` shows nothing of it. `Block` builds it as you like
+instead, from the block's `Info`, `yaml` or `toml`, and `Lines`, the
+metadata between the fences. To read it, parse the source once, as it is
+loaded, not in `Block`, which runs every frame:
+
+```go
+d := parser.New(parser.Default | parser.ExtFrontmatter)
+d.Set(src)
+if d.Len() > 1 && d.Block(1).Kind == parser.Frontmatter {
+	meta := parseYAML(d.Lines(1)) // with the YAML library of your choice
+}
+```
+
+`Stream` shows the lines as CommonMark does until the closing fence's line
+is complete, so front matter streaming in shows for a moment as a thematic
+break and a heading.
+
 ## Styling
 
 A view looks as the window does, in its fonts and colors. `Theme` sets
@@ -274,7 +309,8 @@ Headings are headings of their level, lists and their items lists and
 list items, links links, tables tables of rows, column headers and
 cells, task items check boxes, checked or not, images images named by
 their descriptions, and code blocks groups named by their language,
-with a Copy code button.
+with a Copy code button. Front matter is a group named Front matter, whose
+header is a disclosure, expanded or collapsed.
 
 ## The parser
 
@@ -305,7 +341,9 @@ Blocks and inlines are flat slices in document order, each with its
 byte range in the source (`Start` and `End`) and the index after its
 children (`Next`). `Inlines` parses a block's inlines the first time it
 is asked. `New(ext)` reads other extensions than `Default`, and
-`SetStreaming` completes the end as `Stream` does.
+`SetStreaming` completes the end as `Stream` does. With `ExtFrontmatter`,
+the document's first block may be a `Frontmatter`, whose lines (`Lines`)
+are the metadata, unparsed.
 
 It passes all 652 examples of the CommonMark 0.31.2 spec and those of
 GitHub's extensions, takes linear time on the inputs that are slow in
