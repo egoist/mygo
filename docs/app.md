@@ -112,6 +112,19 @@ func main() {
 }
 ```
 
+The lock is identified by the app name and, in a packaged app, its
+identifier. An app that keeps a separate state per directory, such as a
+development copy with its own data directory next to the installed app,
+passes the directory to `RequestSingleInstanceLockFor`: instances with
+different keys run side by side, and instances with the same key hand over to
+the first one. The empty key is the plain lock's.
+
+```go
+if !mygo.App.RequestSingleInstanceLockFor(dataDir) {
+	return
+}
+```
+
 ## Deep links
 
 Apps open URLs of their own schemes, such as `myapp://open?note=42`. List
