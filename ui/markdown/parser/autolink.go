@@ -147,10 +147,11 @@ func autolinkEnd(data string, end int) int {
 }
 
 // endsAutolink reports whether r, beyond ASCII, ends an extended
-// autolink: punctuation but dashes and connectors, which paths such as
-// Wikipedia's use.
+// autolink: any space, line and paragraph separators included, and
+// punctuation but dashes and connectors, which paths such as Wikipedia's
+// use.
 func endsAutolink(r rune) bool {
-	return unicode.IsPunct(r) && !unicode.In(r, unicode.Pd, unicode.Pc)
+	return unicode.IsSpace(r) || unicode.IsPunct(r) && !unicode.In(r, unicode.Pd, unicode.Pc)
 }
 
 func isUnicodeSpaceByte(c byte) bool {
