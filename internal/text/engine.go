@@ -8,8 +8,10 @@
 package text
 
 import (
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -148,7 +150,8 @@ type bitmap struct {
 
 // Font is a font of the system, or of the app, at a size. Layouts and
 // glyphs refer to fonts by pointer: an engine returns the same Font for
-// the same font and size.
+// the same font and size. A Font draws for as long as anything refers to
+// it, after the System let go of it too (nativeFonts).
 type Font struct {
 	// Size is the em size in DIPs.
 	Size float32
@@ -157,14 +160,55 @@ type Font struct {
 	Ascent, Descent, LineGap float32
 
 	native uintptr // the engine's font
+	// data is what an engine keeps of the font in Go, which lives as long
+	// as the Font: the canvas engine's CSS font and its glyphs' texts.
+	data any
 	// shaded fonts' glyphs differ by the shade of the text; thin ones are
 	// too thin for antialiasing (GlyphImage.Thin). The engine draws the
-	// glyphs of fonts that thicken thicker for Thick.
-	shaded, thin, thickens bool
+	// glyphs of fonts that thicken thicker for Thick. color ones draw
+	// their glyphs in color (emoji), for the engines that ask (Core Text
+	// and DirectWrite).
+	shaded, thin, thickens, color bool
 	// The tops of the font's underline and strikethrough, in DIPs above
 	// the baseline, and their thickness, for engines that decorate with
 	// them (DirectWrite and Pango).
 	underlineTop, underlineThick, strikeTop, strikeThick float32
+}
+
+// nativeFonts releases the native fonts of an engine's Fonts once nothing
+// refers to them. The System lets go of an engine's Fonts when they are
+// many (EndFrame), but layouts kept out of its caches, as the text a
+// cross-fade fades out or the lines an editor keeps, may still draw with
+// them: their native fonts go with the Fonts, not before. Engines embed
+// it, own the native font of each Font they make, and release the native
+// fonts of the Fonts found unreachable as the System asks
+// (fontForgetter.releaseFonts), with its lock held.
+type nativeFonts struct {
+	mu   sync.Mutex
+	dead []uintptr // native fonts to release
+}
+
+// own has the native font of f released once f is unreachable.
+func (n *nativeFonts) own(f *Font) { runtime.AddCleanup(f, n.unreachable, f.native) }
+
+// unreachable runs on the runtime's cleanup goroutine: the native font
+// waits for releaseDead, as engines run with the System's lock held.
+func (n *nativeFonts) unreachable(native uintptr) {
+	n.mu.Lock()
+	n.dead = append(n.dead, native)
+	n.mu.Unlock()
+}
+
+// releaseDead releases the native fonts of the Fonts found unreachable
+// since it last ran.
+func (n *nativeFonts) releaseDead(release func(native uintptr)) {
+	n.mu.Lock()
+	dead := n.dead
+	n.dead = nil
+	n.mu.Unlock()
+	for _, native := range dead {
+		release(native)
+	}
 }
 
 // generic names the families "system-ui", "sans-serif", "serif" and
