@@ -143,7 +143,10 @@ func build() (mygoExe, mygoHello, gpuiExe, gpuiHello string, err error) {
 	}
 	target := os.Getenv("CARGO_TARGET_DIR")
 	if target == "" {
-		target = filepath.Join(*gpuiDir, "target")
+		target = "target"
+	}
+	if !filepath.IsAbs(target) { // Cargo's, which runs in the project
+		target = filepath.Join(*gpuiDir, target)
 	}
 	gpuiExe = filepath.Join(target, "release", "gpuibench-gpui.exe")
 	gpuiHello = filepath.Join(target, "release", "gpuibench-gpui-hello.exe")
@@ -341,11 +344,11 @@ func frameOnce(side framework, s scene, refresh float64, screen bool) (frameRun,
 			return r, err
 		}
 	}
-	seconds := float64(qpc()-t0) / qpcHz
 	gpu1, err := gpu.seconds()
 	if err != nil {
 		return r, err
 	}
+	seconds := float64(qpc()-t0) / qpcHz
 	busy1 := systemBusy()
 	mem, err := memoryOf(pid)
 	if err != nil {
@@ -371,8 +374,10 @@ func frameOnce(side framework, s scene, refresh float64, screen bool) (frameRun,
 	r.Missed = float64(missed) / n
 	r.MainMS = float64(m.ThreadCycles) / cycleRate * 1e3 / n
 	r.ProcessMS = float64(m.ProcessCycles) / cycleRate * 1e3 / n
-	r.GPUMS = (gpu1 - gpu0) * 1e3 / n
-	r.GPUBusy = (gpu1 - gpu0) / (total / 1e3)
+	// The samples are a frame or so outside the frames measured, which the apps
+	// go on drawing: the GPU's share of the time between them, at the frames' rate.
+	r.GPUBusy = (gpu1 - gpu0) / seconds
+	r.GPUMS = r.GPUBusy * total / n
 	r.OtherCores = (busy1-busy0)/seconds - float64(m.ProcessCycles)/cycleRate/seconds
 	r.PrivateMB = float64(mem.PrivateWorkingSetSize) / (1 << 20)
 	r.PeakMB = float64(mem.PeakWorkingSetSize) / (1 << 20)
@@ -475,7 +480,12 @@ func measureLatency(sides []framework) (map[string]map[string][][]float64, error
 				side := sides[(i+run)%len(sides)]
 				v, err := latencyOnce(side, name)
 				if err != nil {
-					return nil, fmt.Errorf("%s %s: %w", side.name, name, err)
+					// Something on the desktop can take a move on its way, as a
+					// notification over the window does: another run, said out loud.
+					fmt.Printf("run %d %-11s %-5s failed, once more: %v\n", run+1, name, side.name, err)
+					if v, err = latencyOnce(side, name); err != nil {
+						return nil, fmt.Errorf("%s %s: %w", side.name, name, err)
+					}
 				}
 				all[name][side.name] = append(all[name][side.name], v)
 				fmt.Printf("run %d %-11s %-5s %s\n", run+1, name, side.name, describeLatency(v))

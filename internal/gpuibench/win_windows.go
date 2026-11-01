@@ -344,6 +344,17 @@ func newDuplicator() (*duplicator, error) {
 	if hr := call(output1, 22, d.dev, uintptr(unsafe.Pointer(&d.dup))); failed(hr) {
 		return nil, fmt.Errorf("DuplicateOutput: %#x", uint32(hr))
 	}
+	// DXGI_OUTPUT_DESC: the device's name, then where the output is on the desktop.
+	var place struct {
+		name    [32]uint16
+		desktop rect
+		rest    [4]uint64
+	}
+	call(output1, 7, uintptr(unsafe.Pointer(&place)))
+	if place.desktop.left != 0 || place.desktop.top != 0 {
+		d.close()
+		return nil, errors.New("the adapter's first output is not the primary display, where the windows open")
+	}
 	var desc outduplDesc
 	call(d.dup, 7, uintptr(unsafe.Pointer(&desc)))
 	const bgra8 = 87

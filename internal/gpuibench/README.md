@@ -22,8 +22,9 @@ Radeon 780M (driver 32.0.12019.1028), a 3840×2160 display at 59.94 Hz and scale
 2, on the Balanced power plan. MyGo at 1ee84625 with Go 1.27.3; GPUI at d94f32a1
 with Rust 1.98.1.
 
-Each figure is the median of six runs, alternating frameworks; from run to run
-they mostly moved by a few percent (`results.json` has every run).
+Each figure is the median of six runs, alternating frameworks. From run to run
+the CPU and GPU figures moved by under 10%, and a whole second pass gave them
+again to within 6% (`results.json` has every run of the last).
 
 ### Frames
 
@@ -33,21 +34,21 @@ its 3D engine, each a frame; memory is the private working set at the end.
 
 | Scene | fps MyGo | fps GPUI | CPU ms MyGo | CPU ms GPUI | GPU ms MyGo | GPU ms GPUI | MB MyGo | MB GPUI |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `boxes`: 600 with shadows, moving | 59.9 | 59.9 | **2.23** | 2.67 | 7.04 | **4.41** | 32 | **25** |
-| `labels`: 300 changing numbers | 59.9 | 59.9 | **3.23** | 4.03 | 1.49 | **0.62** | 54 | **27** |
-| `translated_column`: 1000 rows, moved | **59.9** | 46.5 | **5.80** | 21.71 | 1.27 | **0.54** | 65 | **46** |
-| `scrolled_column`: 1000 rows, scrolled | **59.9** | 46.9 | **5.86** | 21.56 | 1.27 | **0.53** | 69 | **46** |
-| `list`: virtual list of 100,000 rows | 59.9 | 59.9 | 2.57 | **1.33** | **0.38** | 0.49 | 41 | **22** |
-| `dashboard`: 12 cards | 59.9 | 59.9 | 2.60 | **1.88** | 2.59 | **1.60** | 48 | **23** |
-| `dashboard large`: at 3600×2000 pixels | 59.9 | 59.9 | 2.68 | **2.29** | 5.58 | **2.95** | 48 | **23** |
-| `paragraphs`: 24 wrapped, reshaped | 59.9 | 59.9 | 4.39 | **2.89** | 1.71 | **0.68** | 90 | **24** |
-| `boxes×4`: 2,400 | 30.0 | **59.9** | **4.90** | 10.33 | 23.42 | **11.08** | 46 | **37** |
-| `boxes×16`: 9,600 | **20.0** | 16.8 | **20.28** | 60.31 | **35.18** | 40.89 | 110 | **87** |
-| `boxes×64`: 38,400 | **7.4** | 3.5 | **83.88** | 286.76 | **130.19** | 155.42 | 380 | **271** |
+| `boxes`: 600 with shadows, moving | 59.9 | 59.9 | **2.21** | 2.74 | 7.02 | **4.41** | 32 | **25** |
+| `labels`: 300 changing numbers | 59.9 | 59.9 | **3.23** | 3.99 | 1.48 | **0.63** | 54 | **26** |
+| `translated_column`: 1000 rows, moved | **59.9** | 46.3 | **5.97** | 21.83 | 1.26 | **0.54** | 65 | **46** |
+| `scrolled_column`: 1000 rows, scrolled | **59.9** | 45.9 | **5.88** | 21.99 | 1.28 | **0.53** | 68 | **46** |
+| `list`: virtual list of 100,000 rows | 59.9 | 59.9 | 2.59 | **1.41** | **0.39** | 0.50 | 41 | **22** |
+| `dashboard`: 12 cards | 59.9 | 59.9 | 2.62 | **1.90** | 2.58 | **1.60** | 48 | **23** |
+| `dashboard large`: at 3600×2000 pixels | 59.9 | 59.9 | 2.69 | **2.26** | 5.58 | **2.95** | 48 | **23** |
+| `paragraphs`: 24 wrapped, reshaped | 59.9 | 59.9 | 4.41 | **2.91** | 1.71 | **0.68** | 90 | **24** |
+| `boxes×4`: 2,400 | 29.9 | **59.9** | **4.89** | 10.13 | 23.38 | **11.07** | 46 | **37** |
+| `boxes×16`: 9,600 | **20.0** | 16.7 | **20.23** | 60.86 | **35.11** | 41.01 | 110 | **87** |
+| `boxes×64`: 38,400 | **7.4** | 3.5 | **84.64** | 290.44 | **129.54** | 151.35 | 410 | **273** |
 
 - **MyGo builds big scenes for much less CPU**: 2,400 to 38,400 boxes take a
-  half to under a third of GPUI's, and 1,000 rows take 5.8 ms, where GPUI's
-  21.7 ms miss a fifth of the display's refreshes. GPUI takes less for the list,
+  half to under a third of GPUI's, and 1,000 rows take 5.9 ms, where GPUI's
+  22 ms miss more than a fifth of the display's refreshes. GPUI takes less for the list,
   the dashboard and paragraphs.
 - **GPUI draws for less GPU**, up to 2.5 times less, in every scene but the list
   and the two largest. It decides `boxes×4`, where MyGo's frames take 23 ms of
@@ -56,15 +57,14 @@ its 3D engine, each a frame; memory is the private working set at the end.
 - **GPUI takes less memory** in every scene, 1.2 to 3.8 times less.
 
 The fps and CPU figures agree with each other where a side is saturated (GPUI's
-`translated_column`: 21.5 ms on the main thread, a frame every 21.5 ms), and the
+`translated_column`: 21.6 ms on the main thread, a frame every 21.6 ms), and the
 GPU's with the fps where the GPU is (MyGo's `boxes×64`: 130 ms, a frame every
 135 ms).
 
 With the display watched as well (`-modes screen`, two runs, which itself costs
-each run a copy of the desktop), 99% or more of GPUI's frames showed as new
-images in every scene. Of MyGo's, 96 to 99% did in the scenes at 60 fps (57.5 of
-59.8 at worst, in `labels`), and all of them in those below it. Why was not
-looked into.
+each run a copy of the desktop), 98% or more of the frames each side counted
+showed as new images, on both sides and in every scene. A first pass had MyGo's
+as low as 96% at 60 fps, which this one did not repeat.
 
 ### Input to display
 
@@ -75,10 +75,10 @@ within a refresh.
 
 | Scene | | mean ms | p50 ms | p95 ms | p99 ms |
 |---|---|---:|---:|---:|---:|
-| `input`: the window idle until the move | MyGo | **14.5** | 14.7 | 22.0 | 23.3 |
-| | GPUI | 27.0 | 26.5 | 34.8 | 36.3 |
-| `input-busy`: 300 boxes moving as well | MyGo | 44.0 | 44.5 | 51.6 | 52.7 |
-| | GPUI | **24.3** | 24.0 | 32.3 | 33.5 |
+| `input`: the window idle until the move | MyGo | **14.5** | 15.0 | 22.5 | 23.8 |
+| | GPUI | 26.9 | 26.9 | 34.5 | 35.9 |
+| `input-busy`: 300 boxes moving as well | MyGo | 43.6 | 43.9 | 51.5 | 53.5 |
+| | GPUI | **24.5** | 23.7 | 32.3 | 33.4 |
 
 Idle, MyGo shows a move a refresh sooner; while animating, GPUI does, by a
 refresh and a bit. The likely reasons, from reading the code and not measured
@@ -91,11 +91,11 @@ presents without waiting (`Present(0, …)`).
 
 | | MyGo | GPUI |
 |---|---:|---:|
-| Process start to first frame on the display, ms (median of 11) | **180** | 260 |
-| Private working set, idle, MB | 24.4 | **21.0** |
+| Process start to first frame on the display, ms (median of 11) | **180** | 259 |
+| Private working set, idle, MB | 24.4 | **21.1** |
 | Working set, idle, MB | 59.6 | **54.5** |
 | Committed, idle, MB | **85.2** | 122.0 |
-| CPU, idle, % of a core | **0.008** | 0.878 |
+| CPU, idle, % of a core | **0.007** | 0.859 |
 | Release build of `hello`, MiB | 9.4 | **8.5** |
 
 Memory is read six seconds after the start, as `internal/idlemem` does, and
@@ -118,7 +118,10 @@ changing. GPUI's thread waiting for refreshes runs all the while.
   not to (`inactive_frame_interval: None`), as MyGo does not.
 - Moves are posted to the window's queue, leaving out the system's input
   thread, and stop at the display's refresh, leaving out the panel. Both are
-  the same on both sides. Duplicating the desktop runs meanwhile.
+  the same on both sides. Duplicating the desktop runs meanwhile. Something on
+  the desktop can take a move on its way, which fails the run: the driver says
+  so and runs it again. One run of GPUI's did, in a pass whose latencies are not
+  kept here; none did in the one that is.
 - GPU time leaves out what the window manager spends compositing. Both draw
   through a flip-model swap chain.
 - The machine was in use as a desktop: other processes, the window manager

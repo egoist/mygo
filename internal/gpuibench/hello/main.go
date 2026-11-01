@@ -13,7 +13,8 @@ import (
 type hello struct{ n int }
 
 func (h *hello) view(c *ui.Context) {
-	ui.Column(c).Fill().Center().Gap(16).Background(ui.RGB(255, 255, 255)).Children(func() {
+	// The light theme whatever the system's, as GPUI has none.
+	ui.Themed(c, ui.LightTheme()).Fill().Center().Gap(16).Background(ui.RGB(255, 255, 255)).Children(func() {
 		ui.Textf(c, "%d", h.n).FontSize(56)
 		add := ui.Box(c.Key("add")).PaddingX(16).PaddingY(8).Radius(6).Background(ui.RGB(229, 231, 235))
 		add.Children(func() { ui.Text(c, "Add") })
