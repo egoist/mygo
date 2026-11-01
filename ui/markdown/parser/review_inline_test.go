@@ -75,6 +75,11 @@ func TestReviewAutolinkUnicodePunct(t *testing.T) {
 		{"https://en.wikipedia.org/wiki/1990–91_season", `<p><a href="https://en.wikipedia.org/wiki/1990%E2%80%9391_season">https://en.wikipedia.org/wiki/1990–91_season</a></p>` + "\n"},
 		{"https://example.com\u3000下一句", `<p><a href="https://example.com">https://example.com</a>` + "\u3000下一句</p>\n"},
 		{"邮箱：a@example.com，谢谢", `<p>邮箱：<a href="mailto:a@example.com">a@example.com</a>，谢谢</p>` + "\n"},
+		// Written links keep their whole destination and text.
+		{"[文档，下载](https://example.org/文档，下载)", `<p><a href="https://example.org/%E6%96%87%E6%A1%A3%EF%BC%8C%E4%B8%8B%E8%BD%BD">文档，下载</a></p>` + "\n"},
+		{"[https://example.org/文档，下载](https://example.org/文档，下载)", `<p><a href="https://example.org/%E6%96%87%E6%A1%A3%EF%BC%8C%E4%B8%8B%E8%BD%BD">https://example.org/文档，下载</a></p>` + "\n"},
+		{"<https://example.org/x，y>", `<p><a href="https://example.org/x%EF%BC%8Cy">https://example.org/x，y</a></p>` + "\n"},
+		{"[见 https://example.org/a，b](https://c.org)", `<p><a href="https://c.org">见 https://example.org/a，b</a></p>` + "\n"},
 	} {
 		if got := render(c.src, Default); got != c.want {
 			t.Errorf("%q:\ngot  %q\nwant %q", c.src, got, c.want)
