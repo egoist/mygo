@@ -161,7 +161,10 @@ type surface struct {
 	framePass uint64
 	cursor    platform.Cursor
 	inside    bool
-	ctrlClick bool // the primary button is down for a Control-click
+	// secondaryClick is set while the primary button is down for a secondary
+	// click: a Control-click, or a press of the secondary button that an event
+	// tap posted again as a primary one.
+	secondaryClick bool
 
 	// input is the state of the text input with the keyboard; marked is
 	// the input method's composition and markedSel its selection in it.
@@ -807,10 +810,13 @@ func registerSurfaceClass() {
 				}
 				btn = min(n, 2)
 			case button == 0 && kind == platform.PointerDown:
-				// A Control-click is a secondary click, until its release.
-				s.ctrlClick = eventMods(ev)&platform.ModCtrl != 0
+				// A Control-click is a secondary click, until its release, as
+				// is a press that keeps the secondary button's number: data loss
+				// prevention agents tap the secondary button's events and post
+				// them again as the primary button's.
+				s.secondaryClick = eventMods(ev)&platform.ModCtrl != 0 || sendInt(ev, "buttonNumber") == 1
 			}
-			if button == 0 && s.ctrlClick {
+			if button == 0 && s.secondaryClick {
 				btn = 1
 			}
 			if kind == platform.PointerDown {
@@ -824,7 +830,7 @@ func registerSurfaceClass() {
 			}
 			s.mouse(kind, ev, btn)
 			if kind == platform.PointerUp && button == 0 {
-				s.ctrlClick = false
+				s.secondaryClick = false
 			}
 		}
 	}

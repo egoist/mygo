@@ -225,6 +225,8 @@ func failWebViews(int) bool { return false }
 // A Control-click is a secondary click on macOS only.
 func controlClick(*mygo.Window, float64, float64) bool { return false }
 
+func secondaryClickAsPrimary(*mygo.Window, float64, float64) bool { return false }
+
 // composeOver does what an input method that edits typed text does through
 // GTK: it deletes the text around the caret it composes over, then
 // composes or commits.

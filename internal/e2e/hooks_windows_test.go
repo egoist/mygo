@@ -257,6 +257,8 @@ func failWebViews(n int) bool {
 // A Control-click is a secondary click on macOS only.
 func controlClick(*mygo.Window, float64, float64) bool { return false }
 
+func secondaryClickAsPrimary(*mygo.Window, float64, float64) bool { return false }
+
 // composeOver does what an input method that converts typed text again
 // does through IMM32: it settles the range it reconverts, then composes or
 // commits.

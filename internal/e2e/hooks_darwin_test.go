@@ -249,6 +249,11 @@ func controlClick(w *mygo.Window, x, y float64) bool {
 	return true
 }
 
+func secondaryClickAsPrimary(w *mygo.Window, x, y float64) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestSecondaryClickAsPrimary(w.NativeHandle(), x, y) })
+	return ok
+}
+
 func composeOver(w *mygo.Window, text string, caret int, commit bool, from, length int) (ok bool) {
 	mygo.RunOnMain(func() { ok = darwin.TestComposeOver(w.NativeHandle(), text, caret, commit, from, length) })
 	return ok
