@@ -828,6 +828,10 @@ type Shell interface {
 	// FileIcon returns the icon the file manager shows for a file, a
 	// folder or an application, as a PNG image of size by size pixels.
 	FileIcon(path string, size int) ([]byte, error)
+	// TypeIcon returns the icon the file manager shows for files with the
+	// extension ext (without its dot), as FileIcon does, though no such
+	// file exists.
+	TypeIcon(ext string, size int) ([]byte, error)
 	// OpenApplication starts the application at Application.Path, or
 	// brings it to the front.
 	OpenApplication(path string) error
