@@ -1410,6 +1410,66 @@ func TestKeyWithoutText(t *testing.T) {
 	}
 }
 
+// TestOptionAsAltDropsText: with Options.OptionAsAlt on macOS, Option
+// and a letter go as Alt (Esc and the letter), and what macOS still types
+// for the key, or composes for a dead key as ´ for Option-E, is dropped
+// (#1000). The composition is refused, which has macOS give it up rather
+// than compose the next key with it. The key's release goes as any key's.
+func TestOptionAsAltDropsText(t *testing.T) {
+	loadLib(t)
+	defer func(was string) { goos = was }(goos)
+	goos = "darwin"
+	conn := newPipe()
+	term, err := New(Options{Conn: conn, OptionAsAlt: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	v := term.v
+	// press presses key with mods as macOS does, its text coming from
+	// interpretKeyEvents: typed as text, or composed for a dead key until
+	// the next key, which macOS then composes with it unless the
+	// composition was refused.
+	composing := false
+	press := func(mods ui.Modifiers, key ui.Key, text string, dead bool) {
+		t.Helper()
+		if composing {
+			// Composed with the dead key: no key, the composition's end,
+			// then both characters.
+			composing = false
+			v.input(ui.InputEvent{Kind: ui.InputCompose})
+			v.input(ui.InputEvent{Kind: ui.InputText, Text: "´" + text})
+		} else {
+			v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: mods, Key: key})
+			if dead {
+				composing = v.input(ui.InputEvent{Kind: ui.InputCompose, Text: text, Caret: 1})
+			} else {
+				v.input(ui.InputEvent{Kind: ui.InputText, Text: text})
+			}
+		}
+		v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: mods, Key: key})
+	}
+	press(ui.Alt, ui.KeyE, "´", true)
+	press(0, ui.KeyX, "x", false)
+	if got, want := conn.take(term), "\x1bex"; got != want {
+		t.Errorf("Option-E and x sent %q, want %q", got, want)
+	}
+	// Option-X types ≈ on a US layout, as text.
+	press(ui.Alt, ui.KeyX, "≈", false)
+	if got, want := conn.take(term), "\x1bx"; got != want {
+		t.Errorf("Option-X sent %q, want %q", got, want)
+	}
+	// Programs that ask for the Kitty keyboard protocol's releases get
+	// them.
+	term.Feed([]byte("\x1b[>11u"))
+	press(ui.Alt, ui.KeyE, "´", true)
+	if got, want := conn.take(term), "\x1b[101;3u\x1b[101;3:3u"; got != want {
+		t.Errorf("Option-E with the Kitty keyboard protocol sent %q, want %q", got, want)
+	}
+}
+
 func TestCloseKillsWhatIgnoresHangups(t *testing.T) {
 	loadLib(t)
 	term := shell(t, Options{Command: []string{"/bin/sh", "-c", "trap '' HUP; echo ready; sleep 30"}})

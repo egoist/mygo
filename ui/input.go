@@ -9,7 +9,8 @@ import (
 )
 
 // event handles a surface event on the main thread. It reports whether
-// an element takes files dragged over or dropped at the event's position.
+// an element takes files dragged over or dropped at the event's position,
+// the key pressed or the composition (platform.WindowHandler.SurfaceEvent).
 func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	if ev.Kind == platform.SurfaceCommandEnabled {
 		// A menu asking about its item changes nothing.
@@ -94,7 +95,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.TextInput:
 		rt.editEvent(rt.replaced(editEvent{kind: editInsert, text: ev.Text}, ev))
 	case platform.TextComposition:
-		rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret}, ev))
+		taken = rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret}, ev))
 	case platform.SurfaceCommand:
 		rt.editEvent(editEvent{kind: editCommand, text: ev.Text})
 	case platform.SurfaceFocus:
@@ -983,7 +984,9 @@ func (rt *engine) shortcut(id uint64, mods Modifiers, key Key) bool {
 	return false
 }
 
-func (rt *engine) editEvent(ev editEvent) {
+// editEvent delivers text, a composition or an edit command to the focus,
+// and reports whether an element took it.
+func (rt *engine) editEvent(ev editEvent) bool {
 	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocus() && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
 		if ev.kind == editInsert || ev.kind == editCompose {
 			var r *TextInputRange
@@ -997,7 +1000,7 @@ func (rt *engine) editEvent(ev editEvent) {
 				caret := platform.UTF16Len(string([]rune(ev.text)[:max(0, min(ev.caret, len([]rune(ev.text))))]))
 				s.textAdapter.SetMarkedText(r, ev.text, TextInputRange{Start: caret, End: caret})
 			}
-			return
+			return true
 		}
 	}
 	if h := rt.focusHandler(); h != nil && h.editor == nil {
@@ -1012,28 +1015,29 @@ func (rt *engine) editEvent(ev editEvent) {
 		} else {
 			rt.commandKey(ev, nil)
 		}
-		return
+		return handled
 	}
 	s := rt.states[rt.focused]
 	if s == nil || s.editor == nil {
 		rt.commandKey(ev, nil)
-		return
+		return false
 	}
 	// Selectable text takes the menus' commands, as Copy, not text.
 	if s.flags&flagEditable == 0 && (s.flags&flagSelectable == 0 || ev.kind != editCommand) {
 		rt.commandKey(ev, nil)
-		return
+		return false
 	}
 	if s.editor.readOnly && rt.commandKey(ev, s.editor) {
-		return
+		return true
 	}
 	if ev.kind == editCommand && rt.textSelectionCommand(s, ev.text) {
 		rt.requestFrame()
-		return
+		return true
 	}
 	s.editor.queue = append(s.editor.queue, ev)
 	rt.blinkStart = rt.now()
 	rt.requestFrame()
+	return true
 }
 
 // commandKeys are the keys of the Edit menu's commands.

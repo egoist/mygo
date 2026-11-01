@@ -828,8 +828,10 @@ type WindowHandler interface {
 	// it. For FileDragOver and FileDrop it reports whether the content
 	// takes the files where they are, for KeyPressed whether it took
 	// the key itself, which the system then leaves alone (Windows opens no
-	// menu for Alt and the key), and for SurfaceCommandEnabled whether the
-	// command would act; it returns false for other events.
+	// menu for Alt and the key), for TextComposition whether it took the
+	// composition, which the input method gives up otherwise (macOS), and
+	// for SurfaceCommandEnabled whether the command would act; it returns
+	// false for other events.
 	SurfaceEvent(ev SurfaceEvent) bool
 }
 
