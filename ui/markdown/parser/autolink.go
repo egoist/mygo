@@ -15,7 +15,7 @@ func isHostChar(s string) bool {
 	if n == 0 || r == utf8.RuneError && n == 1 {
 		return false
 	}
-	if isUnicodeSpace(r) {
+	if unicode.IsSpace(r) {
 		return false
 	}
 	if r < utf8.RuneSelf {
