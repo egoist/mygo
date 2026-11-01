@@ -571,6 +571,7 @@ func TestCodeEditorFoldImports(t *testing.T) {
 		{"typescript", "// x\nimport a from './a'\nimport {\n  b,\n  c,\n} from './b'\n\nimport './d'\n\nconst e = a", []fold{{1, 7}}},
 		{"python", "\"\"\"Doc.\"\"\"\nimport os\nfrom x import (\n    a,\n)\nimport sys\n\nprint(os)", []fold{{1, 5}}},
 		{"rust", "use std::io;\npub use crate::x;\n\nfn main() {}", []fold{{0, 1}}},
+		{"typst", "#import \"a.typ\": x\n#import \"b.typ\": y\n\n= Title", []fold{{0, 1}}},
 		{"c", "#include <stdio.h>\n#include \"x.h\"\n\nint main() {}", []fold{{0, 1}}},
 		{"java", "package a;\n\nimport a.B;\nimport a.C;\n\nclass D {}", []fold{{2, 3}}},
 		// Not the lines of a docstring.
