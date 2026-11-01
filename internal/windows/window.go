@@ -4,6 +4,7 @@ package windows
 
 import (
 	"errors"
+	"time"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -59,6 +60,7 @@ type window struct {
 	frameless              bool
 	hiddenTitleBar         bool        // a TitleBarStyle that hides the caption
 	caption                *captionBar // the controls in its place, nil if they failed
+	buttonsTheme           string      // "light" or "dark" for the controls (SetWindowButtonsTheme), "" as the app
 	topEdge                uintptr     // the window over the top resize border of one without a caption (topedge.go), or 0
 	noRedirect             bool        // no redirection bitmap, for a material behind the page
 	fullScreen             bool
@@ -79,13 +81,17 @@ type window struct {
 	// on runtimes having it; uia the provider of its page for UI
 	// Automation), in the visual webVis inside clipVis, at frame clipped
 	// to clip while shown. focused tells that it has the keyboard, and
-	// cursor is the cursor its page wants.
+	// cursor is the cursor its page wants. hidden tells that a host is
+	// hidden, which hides its web views too: WebView2 shows their pages
+	// in windows of its own, which hiding the host alone leaves on the
+	// desktop.
 	webViews         []*window
 	host             *window
 	comp, comp3, uia uintptr
 	clipVis, webVis  uintptr
 	frame, clip      platform.RectF
 	shown, focused   bool
+	hidden           bool
 	cursor           uintptr
 	saved            struct {
 		style, exStyle uintptr
@@ -114,6 +120,8 @@ type window struct {
 	programmatic bool
 	loading      bool
 	zoom         float64
+	muted        bool      // SetAudioMuted, which setUp applies to a web view made later
+	mutePut      time.Time // when the IsMuted put in flight was made, zero for none
 	devTools     bool
 	htmlFor      map[string]string // LoadHTML documents by the URL they load at
 	htmlNext     bool              // LoadHTML started the next navigation
@@ -123,7 +131,7 @@ type window struct {
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
 	if !o.Surface {
-		if err := b.startEnvironment(); err != nil {
+		if err := b.startEnvironment(o); err != nil {
 			return nil, err
 		}
 	}
@@ -145,8 +153,10 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	// style is the window's for life: Windows neither adds it nor removes it
 	// later.
 	w.noRedirect = o.Vibrancy != "" && systemBackdrops() && (!w.hiddenTitleBar && !o.Surface || b.composition() != nil)
-	if o.Flyout != nil {
-		// What the content leaves transparent shows what is behind.
+	if o.Flyout != nil || o.Transparent && o.Surface {
+		// What the content leaves transparent shows what is behind: native
+		// UI's frames show their alpha through DirectComposition, which an
+		// opaque redirection bitmap would cover.
 		w.noRedirect = b.composition() != nil
 	}
 	var owner uintptr
@@ -200,6 +210,9 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	if w.captionless() && w.shadow && o.Flyout == nil {
 		w.SetHasShadow(true)
+	}
+	if w.captionless() {
+		w.plainCaption()
 	}
 	if w.hiddenTitleBar {
 		w.caption = newCaptionBar(w)
@@ -328,8 +341,9 @@ func (w *window) outerSize(width, height int32, dpi int) (int32, int32) {
 
 // addFrame grows r, a page area in pixels, to the window around it. A window
 // without a caption has no title bar or menu bar, and keeps what
-// frameCalcSize leaves it: the borders of a resizable one, and the pixel at
-// the top of a hidden title bar on Windows 11.
+// frameCalcSize leaves it: the borders of a resizable one, less what the
+// client area takes of them (frameBorder), and the pixel at the top of a
+// hidden title bar on Windows 11.
 func (w *window) addFrame(r *rect, menu uintptr, dpi int) {
 	style, ex := windowLong(w.hwnd, gwlStyle), windowLong(w.hwnd, gwlExStyle)
 	captionless := w.captionless()
@@ -346,6 +360,8 @@ func (w *window) addFrame(r *rect, menu uintptr, dpi int) {
 		if w.hiddenTitleBar && windows11() {
 			r.Top--
 		}
+		b := w.frameBorder()
+		r.Left, r.Right, r.Bottom = r.Left+b, r.Right-b, r.Bottom-b
 	}
 }
 
@@ -393,6 +409,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 	if m == wmMouseActivate && w.ownsFocusableFlyout() {
 		return maActivateAndEat, true
 	}
+	if m == wmInitMenuPopup {
+		w.enableEditItems(wp)
+	}
 	if r, ok := w.b.menuItemMessage(w.hwnd, m, wp, lp); ok {
 		return r, true
 	}
@@ -421,6 +440,12 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			w.sized(wp)
 		}
 		return 0, true
+	case wmShowWindow:
+		w.hidden = wp == 0
+		for _, v := range w.webViews {
+			v.placeEmbedded()
+		}
+		return 0, false
 	case wmMove:
 		if w.controller != 0 {
 			comCall(w.controller, ctlNotifyParentWindowPositionChanged)
@@ -471,14 +496,24 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			return w.frameCalcSize(wp, lp), true
 		}
 	case wmEraseBkgnd:
-		if w.bgBrush != 0 && w.vibrancy == "" {
+		brush := w.bgBrush
+		if w.surface != nil && w.surface.bgBrush != 0 {
+			// Native UI's own background, around its surface (which the
+			// window clips out) while the surface does not fill the window
+			// yet: see fillUncovered.
+			brush = w.surface.bgBrush
+		}
+		if brush != 0 && w.vibrancy == "" {
 			var r rect
 			procGetClientRect.Call(w.hwnd, uintptr(unsafe.Pointer(&r)))
-			procFillRect.Call(wp, uintptr(unsafe.Pointer(&r)), w.bgBrush)
+			procFillRect.Call(wp, uintptr(unsafe.Pointer(&r)), brush)
 		}
 		return 1, true
 	case wmWindowPosChanging:
 		pos := (*windowPos)(native(lp))
+		if pos.Flags&swpShowWindow != 0 && w.surface != nil {
+			w.surface.showing()
+		}
 		w.maximizeInWorkArea(pos)
 		if !w.movable {
 			pos.Flags |= swpNoMove
@@ -520,7 +555,14 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 func (w *window) sized(kind uintptr) {
 	w.resizeWebView()
 	if w.surface != nil {
+		// What the window grew by shows the content's background, not
+		// black, until the surface presents the frame of its new size,
+		// which fitting it draws at once. The window's own pixels under
+		// the surface take it too, which show where the window next
+		// shrinks, until DWM takes its new size (fillUnder).
+		w.surface.fillUncovered()
 		w.surface.fit()
+		w.surface.fillUnder()
 	}
 	if kind != sizeMinimized {
 		w.layoutControls()
@@ -650,6 +692,19 @@ func (w *window) layoutControls() {
 // hidden title bar.
 func (w *window) captionless() bool { return w.frameless || w.hiddenTitleBar }
 
+// plainCaption keeps the accent color off the top of a window without a
+// caption. With "Show accent color on title bars and window borders" on,
+// Windows 11 paints the caption in the accent, and what is left of it, the
+// pixel frameCalcSize keeps and the frame SetHasShadow extends, shows as a
+// strip of the accent over the page. Windows 10 knows no caption color.
+func (w *window) plainCaption() {
+	if !windows11() {
+		return
+	}
+	none := uint32(dwmColorNone)
+	procDwmSetWindowAttribute.Call(w.hwnd, dwmwaCaptionColor, uintptr(unsafe.Pointer(&none)), 4)
+}
+
 // frameCalcSize removes the title bar of windows without a caption.
 // Resizable ones keep their left, right and bottom borders, which Windows
 // 10 and later draw invisible outside the window, so they still resize.
@@ -661,6 +716,9 @@ func (w *window) captionless() bool { return w.frameless || w.hiddenTitleBar }
 // snap layouts over the maximize button of a window that is not maximized.
 // Windows 10 has no snap layouts, and over a window that keeps any of its top
 // it draws its whole title bar, above the page and the controls.
+//
+// A frameless window on Windows 10 takes the visible pixel of its borders
+// too (frameBorder), and keeps only the invisible ones.
 func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 	params := (*ncCalcSizeParams)(native(lp))
 	if w.IsMaximized() {
@@ -683,8 +741,31 @@ func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 		if w.hiddenTitleBar && windows11() {
 			params.Rgrc[0].Top++
 		}
+		if b := w.frameBorder(); b > 0 {
+			params.Rgrc[0].Left -= b
+			params.Rgrc[0].Right += b
+			params.Rgrc[0].Bottom += b
+		}
 	}
 	return 0
+}
+
+// frameBorder returns how many pixels of the left, right and bottom
+// borders that DefWindowProc keeps a resizable frameless window are its
+// client area's on Windows 10: the innermost, which DWM draws as the
+// visible line around windows, inside the invisible ones that resize them.
+// Windows 10 draws that line in the non-client area only, white or of the
+// accent color, and it showed as a white frame around the content,
+// whatever its color (#916). Over the client area, the content covers it:
+// the window shows the content to its edges, and DWM's shadow around it.
+// The line is a pixel at any scale. Windows 11 draws a border of its own
+// color around the rounded corners, which is left as it is, and windows
+// with a hidden title bar keep the line of other apps' windows.
+func (w *window) frameBorder() int32 {
+	if !w.frameless || w.opts.Flyout != nil || windows11() || !w.hasStyle(wsThickFrame) {
+		return 0
+	}
+	return 1
 }
 
 func (w *window) destroy() {
@@ -848,6 +929,11 @@ func (w *window) SetResizable(v bool) {
 		bits |= wsMaximizeBox
 	}
 	w.setStyle(bits, v)
+	if w.captionless() && w.shadow && w.opts.Flyout == nil {
+		// Without borders, the window needs its frame extended for its
+		// shadow, which with borders it may not have (frameBorder).
+		w.SetHasShadow(true)
+	}
 	w.captionChanged()
 }
 
@@ -1105,13 +1191,20 @@ func (w *window) updateLayered() {
 	}
 }
 
+// SetHasShadow casts DWM's shadow around a window without a caption, or
+// none, by extending its frame a pixel into the client area: a window
+// whose client area is all of it, with no borders, has no shadow
+// otherwise. A resizable frameless window on Windows 10 keeps borders,
+// invisible ones (frameBorder), which DWM casts the shadow around: it is
+// left unextended, as Windows 10 draws the frame extended as a white line
+// along the top of the client area.
 func (w *window) SetHasShadow(v bool) {
 	w.shadow = v
 	if !w.captionless() || w.vibrancy != "" {
 		return
 	}
 	m := margins{}
-	if v {
+	if v && w.frameBorder() == 0 {
 		m.Top = 1 // a frame the size of a pixel brings the shadow back
 	}
 	procDwmExtendFrameIntoClientArea.Call(w.hwnd, uintptr(unsafe.Pointer(&m)))
@@ -1163,6 +1256,34 @@ func backdropFor(material string) int32 {
 // SetActiveAppearance does nothing: Windows has no way to draw a window
 // that is not active as one that is.
 func (w *window) SetActiveAppearance(bool) {}
+
+// SetWindowButtonsTheme draws the controls of a hidden title bar for a
+// "light" or "dark" background, whatever the app's appearance; "system"
+// follows it again.
+func (w *window) SetWindowButtonsTheme(source string) {
+	if source == "system" {
+		source = ""
+	}
+	if source == w.buttonsTheme {
+		return
+	}
+	w.buttonsTheme = source
+	if w.caption != nil {
+		w.caption.paint()
+	}
+}
+
+// buttonsDark reports whether the controls of a hidden title bar draw for
+// a dark background: as SetWindowButtonsTheme says, else as the app.
+func (w *window) buttonsDark() bool {
+	switch w.buttonsTheme {
+	case "dark":
+		return true
+	case "light":
+		return false
+	}
+	return w.b.isDark()
+}
 
 func (w *window) SetVibrancy(material string) {
 	w.vibrancy = material

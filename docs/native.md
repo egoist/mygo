@@ -29,23 +29,30 @@ path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
 
 // Ask a question.
 res, err := mygo.Dialog.Message(mygo.MessageOptions{
-	Parent:        win,
-	Type:          mygo.MessageWarning,
-	Message:       "Delete 3 notes?",
-	Detail:        "You cannot undo this.",
-	Buttons:       []string{"Delete", "Cancel"},
-	CheckboxLabel: "Don't ask again",
+	Parent:             win,
+	Type:               mygo.MessageWarning,
+	Message:            "Delete 3 notes?",
+	Detail:             "You cannot undo this.",
+	Buttons:            []string{"Cancel", "Delete"},
+	DestructiveButtons: []int{1},
+	CheckboxLabel:      "Don't ask again",
 })
-if res.Button == 0 { /* Delete */ }
+if res.Button == 1 { /* Delete */ }
 
 // Report an error.
 mygo.Dialog.Error("Import failed", err.Error())
 ```
 
 `OpenDialogOptions` also pick directories (`Directory`), show hidden files
-and, on macOS, a message and a New Folder button. In message dialogs Enter
-activates `DefaultButton` and Escape `CancelButton`, by default the first
-button labeled Cancel or No.
+and, on macOS, a message and a New Folder button.
+
+In message dialogs Enter activates `DefaultButton` and Escape
+`CancelButton`, also when they are one button, as Cancel above. On macOS
+Cmd+. cancels too, and a `DefaultButton` of -1 leaves Enter to no button.
+`CancelButton` defaults to the first button labeled Cancel or No, else to
+the first button. For Delete / Keep, set `CancelButton: 1` to choose Keep;
+otherwise Escape chooses Delete. `DestructiveButtons` sets apart buttons
+that delete or can't be undone.
 
 ## Notifications
 
@@ -67,7 +74,9 @@ desktop's notification service, Windows as notification-area balloons.
 `Show` returns once the system has the notification. On macOS the first
 one asks the user whether to allow notifications, and `Show` waits for the
 answer; it returns `mygo.ErrNotificationsDenied` when they are not allowed,
-by that answer or later in System Settings.
+by that answer or later in System Settings. `ShowContext(ctx)` stops
+waiting when `ctx` is done, as an app quits with the question still open,
+and takes away a notification that the answer lets through after that.
 
 macOS keeps a notification in Notification Center after it is clicked,
 until the app removes it: `Close` it in `OnClick` to take it away, or call
@@ -439,6 +448,50 @@ func init() {
 	mygo.Network.OnChanged(func(s mygo.NetworkStatus) { Connectivity.Broadcast(s) })
 }
 ```
+
+### Proxies
+
+Web pages reach the network through the webview, which follows the
+proxy the user set in the system's settings, with its bypass list and
+setup script (PAC file): WebView2 as Chromium does, from Windows' proxy
+settings; WKWebView from macOS's; WebKitGTK through GIO's default proxy
+resolver, which reads GNOME's settings, or KDE's through libproxy.
+
+Go's `http.DefaultClient` reads only `HTTP_PROXY`, `HTTPS_PROXY` and
+`NO_PROXY`. Package `netproxy` makes Go's requests follow the system's
+settings as the pages do, and MyGo's own requests use it: those of the
+[updater](updates.md) and, unless their options name a client, of the
+[fetch](plugins/fetch.md) and [websocket](plugins/websocket.md) plugins.
+Your own clients opt in with its transport:
+
+```go
+import "github.com/egoist/mygo/netproxy"
+
+client := &http.Client{Transport: netproxy.Transport(), Timeout: time.Minute}
+```
+
+or, for a transport of your own, `t.Proxy = netproxy.Proxy`. For each
+request:
+
+1. Loopback hosts (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`) are
+   reached directly.
+2. When `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` or `NO_PROXY` (or its
+   lowercase name) is set, the environment decides, as
+   `http.ProxyFromEnvironment` does, so that a proxy set for one run of
+   the app wins.
+3. Otherwise the system's settings for the URL decide: on Windows the
+   user's, read by WinHTTP, with automatic detection (WPAD) and setup
+   scripts; on macOS those of System Settings > Network > Proxies, read
+   by CFNetwork, with setup scripts; on Linux GIO's default proxy
+   resolver, as WebKitGTK. Without an answer, requests go direct.
+
+The system's answer for a scheme and host is kept for 5 seconds, so
+turning the proxy on or off, or changing it, applies to the requests that
+follow while the app runs. Requests under way, such as a download or a
+stream, keep their connection. Go's transport speaks to HTTP and HTTPS
+proxies and SOCKS5, not SOCKS4; it sends a proxy's password only when the
+system's answer holds it, as GNOME's settings can. In browsers, the
+browser makes Go's requests, through its own proxy.
 
 ## Secrets
 

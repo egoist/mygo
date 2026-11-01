@@ -133,7 +133,10 @@ frame showed, as a half page of Vim's moves by. `ScrollY` and
 `SetScrollY` read and set how far the lines are scrolled, in DIPs, and
 `LineTop` where a line starts, below the first: editors side by side
 scroll together with them, and an app draws what joins their lines, as
-the bands between the panes of a merge.
+the bands between the panes of a merge. The scroll bars' thumbs show
+while the pointer is over the editor, or drags one, as a scroll
+container's do; the marks of changes, matches and diagnostics on the
+vertical one show all the time.
 
 `OnInput` sees each input event before the editor does: keys, the text
 typed, edit commands and the pointer. Returning true takes the event, and
@@ -215,13 +218,13 @@ app.code.OnInput = func(ev ui.InputEvent) bool {
 
 `LanguageFor` finds a file's language by its name, and `LanguageNamed` by
 its own; `Languages` lists them. The editor knows Go, JavaScript,
-TypeScript, JSON, Python, Rust, C, C++, Java, Kotlin, Swift, C#, shell
-scripts, YAML, TOML, SQL, Ruby, Lua, PHP, CSS, HTML, XML, Markdown, diffs,
-Dockerfiles, Makefiles, Protocol Buffers and Zig. A `Language` says how to
-highlight, comment, match brackets and indent its text, and with
-`Imports`, a pattern of a line that imports (`^import\b` for Go), which
-lines fold as a run: build one for another language, or copy one and
-change it.
+TypeScript, JSON, Python, Rust, C, C++, Java, Kotlin, Scala, Swift, Dart,
+C#, shell scripts, YAML, TOML, SQL, R, Ruby, Lua, PHP, CSS, HTML, XML,
+Markdown, diffs, Dockerfiles, Makefiles, Protocol Buffers, GraphQL and Zig.
+A `Language` says how to highlight, comment, match brackets and indent its
+text, and with `Imports`, a pattern of a line that imports (`^import\b` for
+Go), which lines fold as a run: build one for another language, or copy
+one and change it.
 
 A language highlights its text with a `Tokenizer` by default: a function
 from a line, and the state the line before it ended in, to the line's

@@ -194,11 +194,22 @@ func leafRole(r platform.AccessRole) bool {
 }
 
 // innerText returns the texts of an element and those inside it, joined
-// by spaces. Assistive technology names elements by it every frame, so a
-// single text is returned as it is, without a copy.
+// by spaces. An element inside it with a Label gives its label in place
+// of its texts, as a name from content takes a descendant's aria-label on
+// the web: a row reads "Branch main (checked out)" rather than the "✓
+// main" drawn for it. Assistive technology names elements by it every
+// frame, so a single text is returned as it is, without a copy.
 func (e *node) innerText() string {
+	if e.flags&flagInvisible != 0 || e.hidden {
+		return ""
+	}
+	if e.kind == kindText {
+		return e.text // its text holds that of the elements inside it
+	}
 	var t innerTexts
-	t.walk(e)
+	for ch := e.first; ch != nil; ch = ch.next {
+		t.walk(ch)
+	}
 	if t.b.Len() == 0 {
 		return t.first
 	}
@@ -213,13 +224,15 @@ type innerTexts struct {
 }
 
 func (t *innerTexts) walk(e *node) {
-	if e.flags&flagInvisible != 0 {
+	if e.flags&flagInvisible != 0 || e.hidden {
+		return
+	}
+	if e.label != "" {
+		t.add(e.label)
 		return
 	}
 	if e.kind == kindText {
-		if e.text != "" {
-			t.add(e.text)
-		}
+		t.add(e.text)
 		return // its text holds that of the elements inside it
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
@@ -229,6 +242,7 @@ func (t *innerTexts) walk(e *node) {
 
 func (t *innerTexts) add(s string) {
 	switch {
+	case s == "":
 	case t.first == "":
 		t.first = s
 	case t.b.Len() == 0:
@@ -310,7 +324,7 @@ func (e *node) rowsOfElement() *listFrame {
 // node parent; scrolled is set inside a scroll container, and focused gets
 // the element with the keyboard focus.
 func (rt *engine) accessElement(t *platform.AccessTree, e *node, parent int, scrolled bool, focused **node) {
-	if e.flags&(flagInvisible|flagInert) != 0 {
+	if e.flags&(flagInvisible|flagInert) != 0 || e.hidden {
 		return
 	}
 	if e.id == rt.focused {
@@ -454,7 +468,10 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	if disabled {
 		return
 	}
-	if e.flags&(flagFocusable|flagEditable|flagChoosable) != 0 {
+	// What ignores input takes no focus, which moving a slider with its
+	// keys needs, but is pressed as any other.
+	keys := !e.st.ignoreInput
+	if e.flags&(flagFocusable|flagEditable|flagChoosable) != 0 && keys {
 		// Focusing a row a list chooses chooses it.
 		n.States |= platform.AccessFocusable
 		n.Actions |= platform.ActionFocus
@@ -462,7 +479,7 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	if e.flags&flagClickable != 0 {
 		n.Actions |= platform.ActionPress
 	}
-	if n.Role == platform.RoleSlider || n.Role == platform.RoleStepper {
+	if (n.Role == platform.RoleSlider || n.Role == platform.RoleStepper) && keys {
 		n.Actions |= platform.ActionIncrement | platform.ActionDecrement
 	}
 	if e.expandable {
@@ -485,6 +502,11 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 			n.SelStart, n.SelEnd = ed.selection()
 		}
 	}
+	// Custom text clients without an editor take set-value here; inputs and
+	// text areas with an editor follow the editor branch above.
+	if e.textClient != nil && (e.st == nil || e.st.editor == nil || e.flags&flagEditable == 0) {
+		n.Actions |= platform.ActionSetValue
+	}
 	if e.accFill != nil {
 		e.accFill(n)
 	}
@@ -502,7 +524,7 @@ func (rt *engine) accessibilityOn() {
 			rt.requestFrame()
 		}
 	}
-	rt.host.updateAccessibility(rt.accessTree())
+	rt.host.updateAccessibility(rt.windowAccess(rt.accessTree()))
 }
 
 // accessAction performs an action of assistive technology on an element
@@ -515,7 +537,7 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 	switch ev.Action {
 	case platform.AccessPress:
 		if s.flags&flagMenuButton != 0 {
-			rt.openMenuButton(s)
+			rt.openMenuButton(s, true)
 			break
 		}
 		if s.flags&flagClickable != 0 {
@@ -525,6 +547,9 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 			rt.focusOn(s)
 		}
 	case platform.AccessFocus:
+		if s.ignoreInput {
+			return
+		}
 		if s.flags&flagChoosable != 0 {
 			// A row of a list choosing rows: its list takes the focus for
 			// it, choosing it.
@@ -548,6 +573,9 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 		}
 		rt.reveal(s.id)
 	case platform.AccessIncrement, platform.AccessDecrement:
+		if s.ignoreInput {
+			return // the keys would go to the element with the focus
+		}
 		rt.focusOn(s)
 		// Sliders step right and left, spin buttons up and down, as do
 		// sliders laid out right to left, whose Right goes down.
@@ -579,12 +607,23 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 			s.input(InputEvent{Kind: InputSelect, Start: ev.From, End: ev.To, Time: rt.now()})
 		}
 	case platform.AccessSetValue:
+		if s.textClient != nil && (s.editor == nil || s.flags&flagEditable == 0) {
+			rt.focusOn(s)
+			_, span := s.textClient.TextForRange(TextInputRange{End: int(^uint(0) >> 1)})
+			s.textClient.ReplaceText(&span, ev.Text)
+			break
+		}
 		if s.editor == nil || s.flags&flagEditable == 0 || s.editor.readOnly {
 			return
 		}
 		rt.focusOn(s)
 		s.editor.queue = append(s.editor.queue, editEvent{kind: editCommand, text: "selectAll"}, editEvent{kind: editInsert, text: ev.Text})
 	case platform.AccessInsertText:
+		if s.textClient != nil && (s.editor == nil || s.flags&flagEditable == 0) {
+			rt.focusOn(s)
+			s.textClient.ReplaceText(nil, ev.Text)
+			break
+		}
 		if s.editor == nil || s.flags&flagEditable == 0 || s.editor.readOnly {
 			return
 		}
@@ -594,9 +633,10 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 	rt.requestFrame()
 }
 
-// focusOn gives an element the keyboard focus, as Tab would.
+// focusOn gives an element the keyboard focus, as Tab would, unless it
+// ignores input.
 func (rt *engine) focusOn(s *state) {
-	if s.flags&(flagFocusable|flagEditable) == 0 {
+	if s.flags&(flagFocusable|flagEditable) == 0 || s.ignoreInput {
 		return
 	}
 	if rt.focused != s.id {
