@@ -82,6 +82,24 @@ func (ShellModule) FileIcon(path string, size int) ([]byte, error) {
 	return png, err
 }
 
+// TypeIcon returns the icon the file manager shows for files with the
+// extension ext, such as "pdf" or ".pdf", as a PNG image of size by size
+// pixels, as FileIcon does, though no such file needs to exist: the icon
+// of an attachment not yet downloaded. It fails in browsers.
+func (ShellModule) TypeIcon(ext string, size int) ([]byte, error) {
+	needsApp("Shell.TypeIcon")
+	if size <= 0 {
+		return nil, errors.New("mygo: Shell.TypeIcon: size must be positive")
+	}
+	ext = strings.TrimPrefix(ext, ".")
+	var png []byte
+	err := onMainValue(func() (err error) {
+		png, err = backend().Shell().TypeIcon(ext, size)
+		return err
+	})
+	return png, err
+}
+
 // InstalledApp is an application installed on the computer, which
 // Shell.InstalledApps lists.
 type InstalledApp struct {

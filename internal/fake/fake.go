@@ -1169,6 +1169,11 @@ func (shell) FileIcon(path string, size int) ([]byte, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, err
 	}
+	return shell{}.TypeIcon("", size)
+}
+
+// TypeIcon returns a transparent PNG of the size asked for.
+func (shell) TypeIcon(ext string, size int) ([]byte, error) {
 	var buf bytes.Buffer
 	err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, size, size)))
 	return buf.Bytes(), err
