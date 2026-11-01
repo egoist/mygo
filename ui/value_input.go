@@ -201,7 +201,7 @@ func sliderInput(n *node) {
 	}
 	st, rt := n.st, n.c.rt
 	if st.pressed {
-		x, y := st.local(rt.pointerX, rt.pointerY)
+		x, y := st.local(st.pointer(rt))
 		x += st.x
 		y += st.y
 		if settings.vertical && st.ch > 0 {

@@ -228,6 +228,10 @@ if dx, _, ok := dial.Dragged(); ok {
 dial.Transform(ui.Rotation(turn))
 ```
 
+The last moves of a drag come while `Dragged` still reports the press, and
+`DragEnded` in the build after: the dial turns as far as the pointer went
+before it springs to a notch.
+
 `DragVelocity` is the pointer's velocity while it presses, in DIPs per
 second along the element's axes, zero once it rests a moment. `Velocity(key)`
 is the velocity of an animated value. A click, which does not move, ends no

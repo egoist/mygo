@@ -2376,7 +2376,11 @@ either.
   only what changed since the last frame (see below); commits the boxes to the elements'
   states with the hit list in paint order, the focus order and the labels;
   paints a `scene.Scene`; and presents it. Input between frames goes to the
-  states of the last frame's elements. An element's identity hashes its
+  states of the last frame's elements. A release that comes with moves no
+  pass read waits in the element's state (`releaseLater`) for the pass
+  that reads them, which applies it as it ends (`forgetInput`): the view
+  sees the element still pressed where the pointer let go, and released
+  in the pass after. An element's identity hashes its
   parent's with its position or `Key`, so focus, scroll offsets, editors and
   animations survive rebuilding. `Context` is stable for the window; `Element` values expire between build
   passes and validate their owner, slot and generation before accessing storage. `ListState` resolves
