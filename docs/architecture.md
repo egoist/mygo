@@ -2523,9 +2523,11 @@ either.
   CPU renderer's sample points, mapped back from the pixel's center
   through the inverse. Nested
   transformed or rounded clips use cached masks, independent of content
-  moving within them; hard clips in the drawing's coordinates evaluate on
-  the GPU. Backdrop effects map local samples into the frame. With a GPU,
-  every frame draws there, including resting changes to transformed content.
+  moving within them, once they hold content that a transform does more
+  than move (`scene.Reshaped`); hard clips in the drawing's coordinates,
+  and clips around content only moved, evaluate on the GPU. Backdrop
+  effects map local samples into the frame. With a GPU, every frame draws
+  there, including resting changes to transformed content.
   Metal retains wide colors under transforms. See
   [Transforms](ui/transforms.md#rendering) for rendering details.
 - **Motion** (`ui/motion.go`): every animated value of an element

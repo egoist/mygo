@@ -73,6 +73,28 @@ func MovedClip(r Rect, m Affine) (Rect, Affine) {
 	return r, Affine{}
 }
 
+// Reshaped reports whether op of s draws under a transform that does more
+// than move it (scales, turns, skews it or shows it in perspective): its
+// own, or, for glyphs, a glyph's. Drawing a transform only moves lies in
+// its clips as it would unmoved, which the GPU's renderers cut in the
+// frame's coordinates whatever the transform, so the clips around it need
+// no mask (gpu.Builder), and damage tracking has them change no more than
+// for drawing not moved (Differ). Clips are the same (MovedClip): a clip
+// pushed under a transform that only moves it reshapes none around it.
+func Reshaped(s *Scene, op *Op) bool {
+	if op.Transform.Set && !op.Transform.moves() {
+		return true
+	}
+	if op.Kind == OpGlyphs && op.Start >= 0 && op.Start <= op.End && int(op.End) <= len(s.Glyphs) {
+		for _, g := range s.Glyphs[op.Start:op.End] {
+			if g.Transform.Set && !g.Transform.moves() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // moves reports whether m only moves what it maps, without scaling,
 // turning, skewing it or showing it in perspective.
 func (m Affine) moves() bool {
