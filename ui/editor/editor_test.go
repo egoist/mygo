@@ -812,3 +812,25 @@ func TestFitContentFocusRevealsCaret(t *testing.T) {
 		t.Fatalf("focused, the view scrolled to %v, which doesn't show the caret at %v", scroll.Y, top)
 	}
 }
+
+// TestCodeEditorNoScrollbarsCancelsDrag checks that hiding the bars while
+// a thumb is dragged lets the drag go: the pointer's moves scroll no
+// more.
+func TestCodeEditorNoScrollbarsCancelsDrag(t *testing.T) {
+	ct := newEditorTest(t, "", "|"+strings.Repeat("line\n", 200))
+	x := float32(600 - scrollbarWidth/2)
+	ct.tt.Move(x, 5)
+	ct.tt.Press(x, 5)
+	ct.tt.Move(x, 50)
+	if ct.st.ScrollY() <= 0 {
+		t.Fatal("dragging the thumb did not scroll")
+	}
+	ct.st.NoScrollbars = true
+	ct.tt.Frame()
+	before := ct.st.ScrollY()
+	ct.tt.Move(x, 300)
+	if ct.st.ed.scrollbar.active || ct.st.ScrollY() != before {
+		t.Fatalf("hidden bars kept the drag: active %v, scrolled from %v to %v", ct.st.ed.scrollbar.active, before, ct.st.ScrollY())
+	}
+	ct.tt.Release(x, 300)
+}

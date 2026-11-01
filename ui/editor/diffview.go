@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"sort"
 	"strconv"
 
 	"github.com/egoist/mygo/ui"
@@ -363,13 +364,49 @@ func (d *DiffState) LineTop(side DiffSide, line int) float64 {
 	return rowsTop(h, line)
 }
 
-// rowsTop returns the top of the rows of line, below its blocks above,
-// or the height of them all past the last line.
+// rowsTop returns the top of the rows of line, below its blocks above;
+// for a line collapsed into a separator, the separator's top; past the
+// last line, the height of them all.
 func rowsTop(h *heights, line int) float64 {
 	if line >= h.n {
 		return h.total()
 	}
+	if h.isHidden(line) {
+		// The separator of the run is above the line after it, or, for
+		// the run after the last change, below the line before it.
+		i := sort.Search(len(h.hidden), func(i int) bool { return h.hidden[i].to >= line })
+		span := h.hidden[i]
+		sep := func(b *block) bool { return b.kind == blockSeparator && line >= b.from && line < b.to }
+		if span.to+1 < h.n {
+			if top, ok := blockTop(h, span.to+1, false, sep); ok {
+				return top
+			}
+		}
+		if span.from > 0 {
+			if top, ok := blockTop(h, span.from-1, true, sep); ok {
+				return top
+			}
+		}
+	}
 	return h.geometry(line).rows
+}
+
+// blockTop returns the top of the first block of line that is is, among
+// those above it or those below, and whether there is one.
+func blockTop(h *heights, line int, below bool, is func(b *block) bool) (float64, bool) {
+	g := h.geometry(line)
+	above, under := h.blocksOf(line)
+	blks, top := above, g.top
+	if below {
+		blks, top = under, g.below
+	}
+	for i := range blks {
+		if is(&blks[i]) {
+			return top, true
+		}
+		top += float64(blks[i].height)
+	}
+	return 0, false
 }
 
 // deletedTop returns the top of a deleted line of the old text in a
@@ -391,22 +428,14 @@ func (d *DiffState) deletedTop(line int) float64 {
 		if at < 0 {
 			return 0
 		}
-		g := h.geometry(at)
-		above, under := h.blocksOf(at)
-		blks, top := above, g.top
-		if below {
-			blks, top = under, g.below
+		top, ok := blockTop(h, at, below, func(b *block) bool { return b.kind == blockDeleted && b.hunk == i })
+		if !ok {
+			return h.geometry(at).rows
 		}
-		for _, b := range blks {
-			if b.kind == blockDeleted && b.hunk == i {
-				for l := b.from; l < line; l++ {
-					top += float64(float32(d.oldView.heights.wraps.rows(l))*ed.view.lineHeight + d.annotationHeight(DiffOld, l))
-				}
-				return top
-			}
-			top += float64(b.height)
+		for l := hk.A0; l < line; l++ {
+			top += float64(float32(d.oldView.heights.wraps.rows(l))*ed.view.lineHeight + d.annotationHeight(DiffOld, l))
 		}
-		return g.rows
+		return top
 	}
 	return h.total()
 }

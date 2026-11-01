@@ -864,3 +864,69 @@ func TestDiffMinimap(t *testing.T) {
 		t.Fatalf("the view's box stayed at %v as the diff scrolled up", box.Y)
 	}
 }
+
+// Unchanged lines collapsed into a separator are at the separator's top,
+// before the first change, between changes and after the last, on both
+// sides of both layouts; past the last line is the height of the diff.
+func TestDiffLineTopCollapsed(t *testing.T) {
+	var a []string
+	for i := range 100 {
+		a = append(a, "line "+strconv.Itoa(i))
+	}
+	b := append([]string(nil), a...)
+	b[20], b[60] = "changed", "changed"
+	for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
+		d := &DiffState{Old: NewBuffer(strings.Join(a, "\n")), New: NewBuffer(strings.Join(b, "\n")), Layout: layout}
+		seps := map[int]float64{} // by the old line the gap starts at
+		d.RenderSeparator = func(c *ui.Context, sep ui.Element, s *DiffSeparator) {
+			seps[s.a] = float64(sep.Bounds().Y)
+			DefaultSeparator(c, sep, s)
+		}
+		tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 2000)
+		tt.Frame()
+		tt.Frame()
+		// The gaps: lines 0 to 16, 24 to 56 and 64 to 99 collapse.
+		for _, gap := range []struct{ start, line int }{{0, 5}, {21, 40}, {61, 80}} {
+			top, ok := seps[gap.start]
+			if !ok {
+				t.Fatalf("layout %v: no separator of the gap at %d: %v", layout, gap.start, seps)
+			}
+			for _, side := range []DiffSide{DiffOld, DiffNew} {
+				if got := d.LineTop(side, gap.line); got != top {
+					t.Errorf("layout %v, side %v: collapsed line %d at %v, its separator's top %v", layout, side, gap.line, got, top)
+				}
+			}
+		}
+		total := d.eds[1].view.heights.total()
+		for _, side := range []DiffSide{DiffOld, DiffNew} {
+			if got := d.LineTop(side, 100); got != total {
+				t.Errorf("layout %v, side %v: past the last line at %v, want the height %v", layout, side, got, total)
+			}
+		}
+	}
+}
+
+// A view built after the diff or the editor was resized reads the height
+// it shows now, though the scroll and the content stay.
+func TestViewportHeightAfterResize(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\nc"), New: NewBuffer("a\nB\nc")}
+	st := &State{Buffer: NewBuffer("a\nb\nc")}
+	var diffH, editorH float64
+	tt := ui.NewTester(func(c *ui.Context) {
+		diffH, editorH = d.ViewportHeight(), st.ViewportHeight()
+		ui.Column(c).Fill().Children(func() {
+			DiffView(c, d).Grow(1).FillWidth()
+			View(c, st).Grow(1).FillWidth()
+		})
+	}, 800, 600)
+	tt.Frame()
+	if diffH != 300 || editorH != 300 {
+		t.Fatalf("the view read heights %v and %v, want 300", diffH, editorH)
+	}
+	// The frame of the resize builds before it lays out: the view is
+	// built again, with no other frame asked for.
+	tt.SetSize(800, 400)
+	if d.ViewportHeight() != 200 || diffH != 200 || editorH != 200 {
+		t.Fatalf("after a resize the view read heights %v and %v, the diff's %v, want 200", diffH, editorH, d.ViewportHeight())
+	}
+}

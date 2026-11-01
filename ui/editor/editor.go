@@ -157,6 +157,10 @@ type editor struct {
 	gutterW    float32
 	textX      float32
 	viewH      float32
+	// builtViewH is the viewH the view was last built with, which a
+	// frame laying the editor out at another height builds it again for
+	// (ViewportHeight).
+	builtViewH float32
 	// hbarY is the top of the horizontal scroll bar, at the bottom of the
 	// part of the editor the window showed last frame.
 	hbarY      float32
@@ -233,6 +237,11 @@ type gesture struct {
 // init sets up the editor for a frame.
 func (ed *editor) init(buf *Buffer, o options, t *ui.Theme) {
 	ed.o = o
+	if o.hideScrollbars {
+		// Bars taken away while a thumb is dragged let it go, rather than
+		// scroll on under the pointer (NoScrollbars).
+		ed.scrollbar = scrollbarDrag{}
+	}
 	ed.theme = o.theme.resolve(t)
 	ed.view.setTheme(ed.theme)
 	ed.view.readOnly = o.readOnly

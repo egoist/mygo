@@ -2951,8 +2951,10 @@ either.
     old one. Unchanged runs collapse into hidden spans under separator
     blocks. The split view's editors scroll as it is drawn, the unified
     view's as it is built; a frame whose layout or build moved the scroll
-    builds the view again (`rebuildIfMoved`, `DiffView`), so that what
-    read `ScrollY` before, as an app's minimap, follows.
+    builds the view again (`rebuildIfMoved`, `DiffView`), as one laying
+    an editor out at another height does (`builtViewH`), so that what
+    read `ScrollY` or `ViewportHeight` before, as an app's minimap,
+    follows.
   - *Parts* (`parts.go`, `diffparts.go`). The bars and popups around the
     text (find, go to line, completions, hovers) and a diff's separators,
     actions on changes and gutter button are elements the editor places

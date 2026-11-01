@@ -90,6 +90,12 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 	ed.frameNow = p.Now()
 	ed.r = r
 	ed.layout(r.W, r.H, p.Scale())
+	if ed.viewH != ed.builtViewH && !ed.o.fitContent {
+		// Resized: what read ViewportHeight as the view was built reads
+		// it again.
+		ed.builtViewH = ed.viewH
+		ed.services.Invalidate()
+	}
 	more := false
 	if !v.measureWraps(ed.anchorLine, 4*time.Millisecond) {
 		more = true
