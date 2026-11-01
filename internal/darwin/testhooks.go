@@ -299,6 +299,55 @@ func TestControlClick(handle uintptr, x, y float64) {
 	})
 }
 
+// TestSecondaryClickAsPrimary clicks (x, y), in points from the top-left
+// corner of a window's content, with the secondary button as data loss
+// prevention agents post its events again: as the primary button's press
+// and release, which keep the secondary button's number.
+func TestSecondaryClickAsPrimary(handle uintptr, x, y float64) (ok bool) {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	testSideOnce.Do(func() {
+		purego.RegisterLibFunc(&cgEventSetIntegerValueField, libCG, "CGEventSetIntegerValueField")
+	})
+	testPinchOnce.Do(func() {
+		purego.RegisterLibFunc(&cgEventSetType, libCG, "CGEventSetType")
+		purego.RegisterLibFunc(&cgEventSetDoubleValueField, libCG, "CGEventSetDoubleValueField")
+		purego.RegisterLibFunc(&cgEventSetLocation, libCG, "CGEventSetLocation")
+	})
+	withPool(func() {
+		content := msgRect(send(w.win, "contentView"), sel("frame"))
+		want := NSPoint{x, content.Size.Height - y}
+		near := func(p NSPoint) bool { return math.Abs(p.X-want.X) < 0.5 && math.Abs(p.Y-want.Y) < 0.5 }
+		number := sendInt(w.win, "windowNumber")
+		for _, typ := range []uint{1, 2} { // NSEventTypeLeftMouseDown, LeftMouseUp
+			ev := msgMouseEvent(class("NSEvent"), sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
+				typ, want, 0, 0, number, 0, 0, 1, 1)
+			cg := uintptr(send(ev, "CGEvent"))
+			cgEventSetIntegerValueField(cg, 3, 1) // kCGMouseEventButtonNumber: the secondary button
+			ev = send(class("NSEvent"), "eventWithCGEvent:", cg)
+			// The way through CGEvent moves the point by the window's origin
+			// once more: move it back (CoreGraphics' y goes down).
+			if got := msgPoint(ev, sel("locationInWindow")); ev != 0 && !near(got) {
+				at := cgEventGetLocation(cg)
+				cgEventSetLocation(cg, NSPoint{at.X - (got.X - want.X), at.Y + (got.Y - want.Y)})
+				ev = send(class("NSEvent"), "eventWithCGEvent:", cg)
+			}
+			if ev == 0 || sendInt(ev, "type") != int(typ) || sendInt(ev, "buttonNumber") != 1 || !near(msgPoint(ev, sel("locationInWindow"))) {
+				return
+			}
+			name := "mouseDown:"
+			if typ == 2 {
+				name = "mouseUp:"
+			}
+			send(w.surface.view, name, uintptr(ev))
+		}
+		ok = true
+	})
+	return ok
+}
+
 var (
 	testSideOnce sync.Once
 	// cgEventSetIntegerValueField is CGEventSetIntegerValueField.

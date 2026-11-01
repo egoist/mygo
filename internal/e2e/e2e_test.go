@@ -3649,6 +3649,16 @@ func TestContentWindow(t *testing.T) {
 			t.Errorf("the Control-click clicked: %d clicks", clicks.Load())
 		}
 	}
+	// So is a press of the secondary button that an event tap posted again
+	// as the primary button's, keeping its number, as data loss prevention
+	// agents do.
+	secondaries := rightClicks.Load()
+	if secondaryClickAsPrimary(w, 100, 50) {
+		eventually(t, "the secondary click posted as a primary one", func() bool { return rightClicks.Load() == secondaries+1 })
+		if clicks.Load() != 2 {
+			t.Errorf("the secondary click posted as a primary one clicked: %d clicks", clicks.Load())
+		}
+	}
 }
 
 // TestContentWindowVibrancy shows native UI over the window's material,

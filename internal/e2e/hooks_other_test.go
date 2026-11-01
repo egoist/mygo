@@ -103,6 +103,8 @@ func failWebViews(int) bool { return false }
 // A Control-click is a secondary click on macOS only.
 func controlClick(*mygo.Window, float64, float64) bool { return false }
 
+func secondaryClickAsPrimary(*mygo.Window, float64, float64) bool { return false }
+
 // Input methods, file drops and assistive technology are only automated
 // on macOS.
 func composeOver(*mygo.Window, string, int, bool, int, int) bool { return false }
