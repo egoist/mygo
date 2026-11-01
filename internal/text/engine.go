@@ -92,6 +92,10 @@ func (s *shapeScratch) resetScratch() {
 	s.glyphs, s.runs, s.lines = s.glyphs[:0], s.runs[:0], s.lines[:0]
 }
 
+// dropScratch lets go of the room, and of the Fonts its glyphs and runs
+// still refer to past their lengths, so that those can be released.
+func (s *shapeScratch) dropScratch() { *s = shapeScratch{} }
+
 // glyphRoom returns room for n glyphs until the next layout.
 func (s *shapeScratch) glyphRoom(n int) []Glyph {
 	if cap(s.glyphs)-len(s.glyphs) < n {
@@ -184,28 +188,43 @@ type Font struct {
 // fonts of the Fonts found unreachable as the System asks
 // (fontForgetter.releaseFonts), with its lock held.
 type nativeFonts struct {
-	mu   sync.Mutex
-	dead []uintptr // native fonts to release
+	// dead is apart from the engine, so that the cleanups, which refer
+	// to it, keep neither the engine nor the Fonts its maps hold.
+	dead *deadFonts
+}
+
+// deadFonts are the native fonts of Fonts found unreachable, to release.
+type deadFonts struct {
+	mu     sync.Mutex
+	native []uintptr
 }
 
 // own has the native font of f released once f is unreachable.
-func (n *nativeFonts) own(f *Font) { runtime.AddCleanup(f, n.unreachable, f.native) }
+func (n *nativeFonts) own(f *Font) {
+	if n.dead == nil {
+		n.dead = &deadFonts{}
+	}
+	runtime.AddCleanup(f, n.dead.add, f.native)
+}
 
-// unreachable runs on the runtime's cleanup goroutine: the native font
-// waits for releaseDead, as engines run with the System's lock held.
-func (n *nativeFonts) unreachable(native uintptr) {
-	n.mu.Lock()
-	n.dead = append(n.dead, native)
-	n.mu.Unlock()
+// add runs on the runtime's cleanup goroutine: the native font waits for
+// releaseDead, as engines run with the System's lock held.
+func (d *deadFonts) add(native uintptr) {
+	d.mu.Lock()
+	d.native = append(d.native, native)
+	d.mu.Unlock()
 }
 
 // releaseDead releases the native fonts of the Fonts found unreachable
 // since it last ran.
 func (n *nativeFonts) releaseDead(release func(native uintptr)) {
-	n.mu.Lock()
-	dead := n.dead
-	n.dead = nil
-	n.mu.Unlock()
+	if n.dead == nil {
+		return
+	}
+	n.dead.mu.Lock()
+	dead := n.dead.native
+	n.dead.native = nil
+	n.dead.mu.Unlock()
 	for _, native := range dead {
 		release(native)
 	}

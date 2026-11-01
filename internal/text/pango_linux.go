@@ -1330,6 +1330,7 @@ func (e *pangoEngine) forgetFonts() {
 	}
 	clear(e.scaled)
 	clear(e.fonts)
+	e.dropScratch()
 }
 
 // releaseFonts releases the Pango fonts of the Fonts nothing refers to.

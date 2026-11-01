@@ -1548,6 +1548,7 @@ func (e *coreText) forgetFonts() {
 	clear(e.native)
 	clear(e.oblique)
 	clear(e.bands)
+	e.dropScratch()
 }
 
 // releaseFonts releases the CTFonts of the Fonts nothing refers to.

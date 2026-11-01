@@ -1554,7 +1554,10 @@ func (e *dwrite) fontCount() int { return len(e.fonts) }
 // forgetFonts lets go of the Fonts made so far; the faces of the families
 // stay. The Fonts' references to their faces go with them, once nothing
 // refers to them (releaseFonts).
-func (e *dwrite) forgetFonts() { clear(e.fonts) }
+func (e *dwrite) forgetFonts() {
+	clear(e.fonts)
+	e.dropScratch()
+}
 
 // releaseFonts releases the faces of the Fonts nothing refers to.
 func (e *dwrite) releaseFonts() { e.releaseDead(release) }
