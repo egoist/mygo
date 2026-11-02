@@ -9,6 +9,7 @@ const press = (key: string, mods: Partial<KeyPress> = {}): KeyPress => ({
   alt: false,
   shift: false,
   meta: false,
+  altGraph: false,
   composing: false,
   ...mods,
 });
@@ -30,6 +31,15 @@ describe("forward", () => {
       expect(forward(press(key), "other", never, false)).toBe(false);
     }
     expect(forward(press("j", { composing: true }), "other", never, false)).toBe(false);
+  });
+
+  test("keeps what AltGr types, outside text fields too", () => {
+    // AltGr+Q types @ on a German layout; Chromium tells neither Ctrl nor
+    // Alt with it, but the key code of Q.
+    const at = press("@", { keyCode: 81, altGraph: true });
+    expect(forward(at, "other", never, false)).toBe(false);
+    expect(forward(at, "text", never, false)).toBe(false);
+    expect(forward(press("q", { ctrl: true, alt: true, altGraph: true }), "other", never, false)).toBe(false);
   });
 
   test("keeps what types or edits in a text field, not other chords", () => {

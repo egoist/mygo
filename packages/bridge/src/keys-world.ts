@@ -43,6 +43,7 @@ const ADJUSTABLE = 'input[type="range"],input[type="radio"],audio[controls],vide
         alt: e.altKey,
         shift: e.shiftKey,
         meta: e.metaKey,
+        altGraph: e.getModifierState("AltGraph"),
         composing: e.isComposing || e.keyCode === 229,
       };
       // Decided as the key comes, before the page scrolls with it.

@@ -14,6 +14,10 @@ export interface KeyPress {
   alt: boolean;
   shift: boolean;
   meta: boolean;
+  /** AltGr is held (getModifierState("AltGraph")), which types the
+   * layout's third characters, as @ on a German keyboard: Chromium may
+   * tell neither Ctrl nor Alt with it. */
+  altGraph: boolean;
   /** An input method composes with it (isComposing, or keyCode 229). */
   composing: boolean;
 }
@@ -82,14 +86,14 @@ export function scrollDirection(k: KeyPress): Direction | null {
 /**
  * forward reports whether a key the page did not cancel goes to the native
  * UI. It does not when it is Tab, which moves the focus, a modifier on its
- * own, a key of the input method's, one that types or edits in a text
- * field, activates a control or changes it, copies or selects (Ctrl+C,
- * Ctrl+A), scrolls something that can scroll that way (scrolls), or
- * Escape while a modal dialog, a popover or full screen is open (modal),
- * which closes it.
+ * own, a key of the input method's, one typed with AltGr, one that types
+ * or edits in a text field, activates a control or changes it, copies or
+ * selects (Ctrl+C, Ctrl+A), scrolls something that can scroll that way
+ * (scrolls), or Escape while a modal dialog, a popover or full screen is
+ * open (modal), which closes it.
  */
 export function forward(k: KeyPress, target: Target, scrolls: (d: Direction) => boolean, modal: boolean): boolean {
-  if (k.composing || k.key === "Tab" || k.key === "Dead" || k.key === "Process" || MODIFIERS.has(k.key)) return false;
+  if (k.composing || k.altGraph || k.key === "Tab" || k.key === "Dead" || k.key === "Process" || MODIFIERS.has(k.key)) return false;
   if (k.key === "Escape") return !modal;
   if (/^F\d+$/.test(k.key)) return true;
   const chord = (k.ctrl || k.meta) && !(k.ctrl && k.alt); // Ctrl+Alt is AltGr, which types

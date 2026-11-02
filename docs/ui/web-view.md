@@ -161,7 +161,8 @@ The page keeps a key when it:
 
 - cancels it (`preventDefault` in a `keydown` handler);
 - types or edits with it in a text field, a textarea or editable content,
-  or an input method composes with it;
+  or an input method composes with it, or it types a character with
+  AltGr, as @ on a German keyboard, wherever the focus is;
 - acts with it: Enter or Space on a link or a button, the arrows on a
   slider, Ctrl+C copying its selection, the arrows, Space and Page Down
   scrolling it while it can scroll that way;
