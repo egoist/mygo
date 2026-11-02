@@ -131,7 +131,7 @@ jobs:
         if: runner.os != 'Linux'
         env:
           MYGO_E2E: 1
-        run: go test -v -failfast -count=25 -run "UnhandledKeys$" ./internal/e2e && go test ./internal/e2e
+        run: go test ./internal/e2e
       - name: GUI tests
         if: runner.os == 'Linux'
         env:

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -356,7 +355,7 @@ func TestContentWindowWebViewScrollToContainer(t *testing.T) {
 // keeps those it cancels and those typed into its text field.
 func TestContentWindowWebViewUnhandledKeys(t *testing.T) {
 	var view *mygo.WebView
-	var js, ks, ls, cmdKs atomic.Int32
+	var js, ks, ls, cmdKs, shown atomic.Int32
 	w := newWindow(t, mygo.WindowOptions{Title: "Web view keys", Width: 400, Height: 300, Content: ui.View(func(c *ui.Context) {
 		if c.Shortcut(ui.Cmd, ui.KeyK) {
 			cmdKs.Add(1)
@@ -369,6 +368,7 @@ func TestContentWindowWebViewUnhandledKeys(t *testing.T) {
 			reader := ui.Column(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
 				if view != nil {
 					ui.WebView(c, view).Grow(1)
+					shown.Add(1)
 				}
 			})
 			if reader.Shortcut(0, ui.KeyJ) {
@@ -390,33 +390,25 @@ addEventListener("keydown", (e) => { if (e.key === "l") { e.preventDefault(); wi
 window.ready = true;
 </script>`, "")
 	waitForPage(t, v.Page(), "window.ready")
-	w.Focus()
-	v.Focus()
-	waitForPage(t, v.Page(), "document.hasFocus()")
 	count := func(n *atomic.Int32) int32 {
 		w.Invalidate()
 		return n.Load()
 	}
+	// The window learns where a frame showed the web view once it
+	// presented it: the frame after that one has.
+	eventually(t, "two frames showing the web view", func() bool { return count(&shown) >= 2 })
+	w.Focus()
+	v.Focus()
+	waitForPage(t, v.Page(), "document.hasFocus()")
 	press := func(letter byte, cmd bool) {
 		t.Helper()
 		if !pressLetter(w, letter, cmd) {
-			t.Fatal("TEMP: key automation not available on this platform")
+			t.Skip("key automation not available on this platform")
 		}
 	}
 
-	if _, err := v.Page().Eval("window.downs = 0; addEventListener('keydown', () => window.downs++, true)"); err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("TEMP before J: %s", responderState(w))
 	press('J', false)
-	for deadline := time.Now().Add(15 * time.Second); count(&js) != 1; time.Sleep(50 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			downs, _ := mygo.EvalAs[float64](v.Page(), "window.downs")
-			focus, _ := mygo.EvalAs[string](v.Page(), "document.hasFocus() + ' ' + (document.activeElement && document.activeElement.tagName)")
-			t.Fatalf("TEMP J not forwarded: page keydowns %v, focus %s, state %s", downs, focus, responderState(w))
-		}
-	}
-	t.Logf("TEMP after J: %s", responderState(w))
+	eventually(t, "J the page leaves to reach the shortcut around the web view", func() bool { return count(&js) == 1 })
 	press('L', false)
 	waitForPage(t, v.Page(), "window.took === 'l'")
 	press('K', false)
@@ -447,13 +439,14 @@ window.ready = true;
 // reaches the window's shortcut as the page's own keys do.
 func TestContentWindowWebViewUnhandledKeysInFrame(t *testing.T) {
 	var view *mygo.WebView
-	var js atomic.Int32
+	var js, shown atomic.Int32
 	w := newWindow(t, mygo.WindowOptions{Title: "Web view frame keys", Width: 400, Height: 300, Content: ui.View(func(c *ui.Context) {
 		if c.Shortcut(0, ui.KeyJ) {
 			js.Add(1)
 		}
 		if view != nil {
 			ui.WebView(c, view).Fill()
+			shown.Add(1)
 		}
 	})})
 	v, err := w.NewWebView(mygo.WebViewOptions{Page: mygo.PageOptions{Untrusted: true}})
@@ -464,6 +457,10 @@ func TestContentWindowWebViewUnhandledKeysInFrame(t *testing.T) {
 	v.Page().LoadHTML(`<p>Outside the frame.</p><iframe srcdoc="<p id=x tabindex=0>In the frame.</p>"></iframe>
 <script>window.ready = true</script>`, "")
 	waitForPage(t, v.Page(), "window.ready && document.querySelector('iframe').contentDocument?.getElementById('x')")
+	eventually(t, "two frames showing the web view", func() bool {
+		w.Invalidate()
+		return shown.Load() >= 2
+	})
 	w.Focus()
 	v.Focus()
 	if _, err := v.Page().Eval("document.querySelector('iframe').contentDocument.getElementById('x').focus()"); err != nil {
@@ -471,9 +468,8 @@ func TestContentWindowWebViewUnhandledKeysInFrame(t *testing.T) {
 	}
 	waitForPage(t, v.Page(), "document.hasFocus() && document.activeElement.tagName === 'IFRAME'")
 	if !pressLetter(w, 'J', false) {
-		t.Fatal("TEMP: key automation not available on this platform")
+		t.Skip("key automation not available on this platform")
 	}
-	defer t.Log("TEMP-RAN frame")
 	eventually(t, "J the frame leaves to reach the window's shortcut", func() bool {
 		w.Invalidate()
 		return js.Load() == 1
