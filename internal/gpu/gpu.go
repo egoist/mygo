@@ -250,10 +250,13 @@ type Builder struct {
 	// instance (see addCorners), for tests that compare the two.
 	NoCornerSplit bool
 	cutCorners    func(b *Builder, in Instance, image uintptr, m scene.Affine)
+	// bands are the bands planBands planned last, and bandsTry its scratch.
+	bands, bandsTry []band
 	// NoClasses puts every batch in ClassGeneral, for tests and
 	// measurements that compare the specialized shaders with the general one.
 	NoClasses bool
-	// Classes separates batches for renderers with specialized fragment shaders.
+	// Classes separates batches for renderers with specialized fragment shaders
+	// (Metal's and Direct3D 11's).
 	Classes bool
 	// GeneralClasses has a bit (1 << Class) for each class that draws with the
 	// general shader, for tests that find which specialized one differs.
@@ -295,7 +298,8 @@ type Builder struct {
 	splitScissor        Scissor
 	stack               []clip
 	// encloses tells, for each op of the scene, that it pushes a clip with
-	// a transformed op or glyph inside it.
+	// an op or glyph inside it that a transform does more than move
+	// (scene.Reshaped).
 	encloses     []bool
 	pushes       []int
 	clipShapes   []scene.ClipShape
@@ -397,12 +401,13 @@ type clip struct {
 // pushed returns the clip that op (an OpPushClip) makes within top, without
 // a mask slot or texture.
 func (b *Builder) pushed(top *clip, op *scene.Op, encloses bool) clip {
-	bounds := top.bounds.Intersect(op.Transform.Bounds(op.Rect))
+	rect, transform := scene.MovedClip(op.Rect, op.Transform)
+	bounds := top.bounds.Intersect(transform.Bounds(rect))
 	// The innermost clip shapes its edges in the shader, the others cut
 	// with the scissor rectangle.
-	c := clip{rect: op.Rect, radii: scene.Corners(op.Rect, op.Radii, op.Continuous), bounds: bounds,
-		shape: scene.ClipShape{Rect: op.Rect, Radii: op.Radii, Transform: op.Transform, Continuous: op.Continuous}, maskSlot: -1}
-	c.moved = top.moved || op.Transform.Set
+	c := clip{rect: rect, radii: scene.Corners(rect, op.Radii, op.Continuous), bounds: bounds,
+		shape: scene.ClipShape{Rect: rect, Radii: op.Radii, Transform: transform, Continuous: op.Continuous}, maskSlot: -1}
+	c.moved = top.moved || transform.Set
 	c.masked = c.moved || encloses && (top.masked || c.radii != [4]float32{})
 	if bounds.W > 0 && bounds.H > 0 {
 		c.scissor = Scissor{int32(math.Floor(float64(bounds.X))), int32(math.Floor(float64(bounds.Y))),
@@ -415,8 +420,9 @@ func (b *Builder) pushed(top *clip, op *scene.Op, encloses bool) clip {
 // and composing transforms in the vertex shader. Nested affine clips use
 // cached masks; stationary clipping never rasterizes again as content moves.
 // A clip is masked only when it is transformed, nested in a transformed
-// clip, or rounded (or masked) with transformed content inside: the others
-// cut in the shader as in a scene without transforms.
+// clip, or rounded (or masked) with content inside that a transform scales,
+// turns, skews or shows in perspective: the others, and those holding
+// content only moved, cut in the shader as in a scene without transforms.
 func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene.Scene {
 	if !b.NoFold {
 		s = b.fold.Fold(s)
@@ -730,12 +736,14 @@ func (b *Builder) markEnclosing(s *scene.Scene) {
 			}
 			continue
 		}
-		transformed := op.Transform.Set
-		if op.Kind == scene.OpGlyphs {
-			for _, g := range s.Glyphs[op.Start:op.End] {
-				transformed = transformed || g.Transform.Set
-			}
-		}
+		// The shaders cut the innermost clip in the frame's coordinates,
+		// whatever transform the drawing has, and the clips around it with
+		// the scissor rectangle; their masks keep the rounded ones' corners
+		// for drawing that is scaled, turned, skewed or in perspective
+		// (zoomed content filling a card). Drawing or a clip only moved,
+		// as a label by a fraction of a pixel, which glyphs are not folded
+		// by, is cut as drawing that is not: no mask around it (#1002).
+		transformed := scene.Reshaped(s, op)
 		// Every clip open around it encloses it, from the innermost out to
 		// the first already marked, whose own are.
 		for j := len(b.pushes) - 1; transformed && j >= 0 && !b.encloses[b.pushes[j]]; j-- {
@@ -850,9 +858,10 @@ func (s Scissor) area() int64 {
 }
 
 // addShadow appends the instance of a shadow. A large shadow of a box
-// (Cast) is drawn as up to four instances around the core of that box,
-// each with a scissor rectangle of its own, so that the renderers shade no
-// fragment of the core, where the shadow is multiplied by zero and the
+// (Cast) is drawn as several instances around that box, each with a
+// scissor rectangle of its own (in bands of rows where its corners are
+// round, planBands, else around its core), so that the renderers shade no
+// fragment inside it, where the shadow is multiplied by zero and the
 // pixels are the same either way. A shadow of a box that fills the window
 // would otherwise shade, with its blur, all of it, once for each layer of
 // an elevation.
@@ -862,12 +871,22 @@ func (b *Builder) addShadow(in Instance, op *scene.Op, sigma float32) {
 		b.addCut(in, 0, op.Transform)
 		return
 	}
-	core := shadowCore(op.Cast, scene.Corners(op.Cast, op.CastRadii, op.Continuous), op.Continuous)
-	reach := 3 * sigma // what the vertex shader grows the quad by; shadowSupport bounds it
+	reach := 3*sigma + 1 // what the vertex shader grows the quad by; shadowSupport bounds it
 	quad := Scissor{
 		Left: int32(math.Floor(float64(op.Rect.X - reach))), Top: int32(math.Floor(float64(op.Rect.Y - reach))),
 		Right: int32(math.Ceil(float64(op.Rect.X + op.Rect.W + reach))), Bottom: int32(math.Ceil(float64(op.Rect.Y + op.Rect.H + reach))),
 	}.intersect(cur.scissor)
+	if !op.Continuous {
+		// In bands that follow round corners (bands.go).
+		cast := [1]rounded{{op.Cast, in.Inner}}
+		if !b.planBands(quad, nil, cast[:]) {
+			b.addCut(in, 0, op.Transform)
+			return
+		}
+		b.addBands(in, op.Transform)
+		return
+	}
+	core := shadowCore(op.Cast, in.Inner, true)
 	if !worthSplitting(core, quad) {
 		b.addCut(in, 0, op.Transform)
 		return
@@ -960,14 +979,16 @@ func ringCore(r scene.Rect, radii, bw [4]float32, continuous bool) Scissor {
 }
 
 // addFill appends the instance of a fill. A fill that draws only its border
-// (a transparent solid color, a border of some width: focus rings, outlines
-// and card borders around window-sized panels) is drawn as up to four
-// instances around the core inside its border, as addShadow does, so that
-// the renderers shade no fragment where the shader writes exactly nothing: the
-// outer and inner coverages are both 1 there, the border's is their
-// difference, and the color is transparent. Without it a 2 pixel ring around
-// a 5 Mpx panel shaded the whole panel, twice over, through the general
-// path. The pixels are identical.
+// (a transparent solid color, a border of some width: focus rings, outlines,
+// card borders around window-sized panels, and circles) is drawn as
+// several instances around the core inside its border, as addShadow does,
+// so that the renderers shade no fragment where the shader writes exactly
+// nothing: the outer and inner coverages are both 1 there, the border's is
+// their difference, and the color is transparent. Where its corners are
+// round, it is drawn in bands of rows that leave out what lies outside its
+// outer edge too, where both coverages are 0 (planBands). Without it a 2
+// pixel ring around a 5 Mpx panel shaded the whole panel, twice over,
+// through the general path. The pixels are identical.
 //
 // An opaque fill with a large core is drawn as that core, in a batch
 // renderers draw without blending, and blended pieces around it (addOpaque).
@@ -995,7 +1016,18 @@ func (b *Builder) addFill(s *scene.Scene, in Instance, op *scene.Op) {
 		Left: int32(math.Floor(float64(op.Rect.X - 1))), Top: int32(math.Floor(float64(op.Rect.Y - 1))),
 		Right: int32(math.Ceil(float64(op.Rect.X + op.Rect.W + 1))), Bottom: int32(math.Ceil(float64(op.Rect.Y + op.Rect.H + 1))),
 	}.intersect(cur.scissor)
-	core := ringCore(op.Rect, in.Radii, in.UV, op.Continuous)
+	if !op.Continuous {
+		// In bands that follow round corners (bands.go).
+		inner, innerRadii := scene.InnerRadii(op.Rect, in.Radii, in.UV)
+		edges := [2]rounded{{op.Rect, in.Radii}, {inner, innerRadii}}
+		if !b.planBands(quad, &edges[0], edges[:]) {
+			b.addCut(in, 0, op.Transform)
+			return
+		}
+		b.addBands(in, op.Transform)
+		return
+	}
+	core := ringCore(op.Rect, in.Radii, in.UV, true)
 	if !worthSplitting(core, quad) {
 		b.addCut(in, 0, op.Transform)
 		return

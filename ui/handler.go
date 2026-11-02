@@ -17,7 +17,10 @@ const (
 	// InputText is text typed, or committed by an input method.
 	InputText
 	// InputCompose is the composition of an input method, with its caret
-	// at rune Caret; an empty Text ends it.
+	// at rune Caret; an empty Text ends it. One the element leaves, the
+	// input method gives up on macOS, as a terminal does the dead key ´ of
+	// Option-E that it sent as Alt, so that the next key isn't composed
+	// with it.
 	InputCompose
 	// InputCommand is an edit command of the menus, such as Copy of the
 	// Edit menu: "copy", "cut", "paste", "pasteAndMatchStyle" (which
@@ -30,7 +33,9 @@ const (
 	// released at X, Y, with Clicks the count of quick successive presses
 	// (2 for a double click). Once the element takes an InputPointerDown,
 	// the pointer's moves and its release come to it wherever they are,
-	// and the release comes when the window loses the keyboard too.
+	// and the release comes when the window loses the keyboard too, or
+	// once a frame builds the element no more, as when the press moved it
+	// into another container.
 	InputPointerDown
 	InputPointerUp
 	// InputPointerMove reports the pointer at X, Y, with Button held, or
@@ -38,7 +43,8 @@ const (
 	InputPointerMove
 	// InputScroll scrolls by DX, DY DIPs at X, Y; Precise marks
 	// touchpads, which scroll by pixels rather than by lines. One the
-	// element leaves scrolls the scroll containers around it.
+	// element leaves scrolls the scroll containers around it. Momentum
+	// marks scrolling that continues after the fingers leave a touchpad.
 	InputScroll
 	// InputSelect selects runes Start to End of the text an element
 	// describes to assistive technology (Element.Access), as a screen
@@ -75,8 +81,9 @@ type InputEvent struct {
 	Clicks int
 	// DX and DY are what InputScroll scrolls by, in local axes; positive DY moves the view
 	// down the content.
-	DX, DY  float32
-	Precise bool
+	DX, DY   float32
+	Precise  bool
+	Momentum bool
 	// Scale is what InputZoom zooms by.
 	Scale float32
 	// Start and End are the runes InputSelect selects.

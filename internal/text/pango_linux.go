@@ -364,11 +364,14 @@ func loadPango() error {
 
 type pangoEngine struct {
 	shapeScratch
+	nativeFonts
 	fontMap uintptr
 	context uintptr
 
-	descs  map[Style]uintptr // font descriptions, by style
-	fonts  map[uintptr]*Font // by PangoFont
+	descs map[Style]uintptr // font descriptions, by style
+	// fonts finds Fonts by their PangoFont, which they hold a reference
+	// to until they are unreachable (nativeFonts).
+	fonts  map[uintptr]*Font
 	scaled map[scaledKey]uintptr
 
 	registered map[string]bool // files of registered fonts
@@ -617,6 +620,7 @@ func (e *pangoEngine) fontOf(font uintptr) *Font {
 	l := &pangoLib
 	l.gObjectRef(font)
 	f := &Font{native: font}
+	e.own(f)
 	if d := l.fontDescribeAbsolute(font); d != 0 {
 		f.Size = float32(l.descGetSize(d)) / pangoScale
 		l.descFree(d)
@@ -822,9 +826,9 @@ func (e *pangoEngine) attributes(style Style, spans []Span, text []rune) uintptr
 		add(features(sp.Features), b0, b1)
 		if sp.ObjectWidth > 0 {
 			// Each rune an inline object: a shape of its size standing on
-			// the baseline, in its own attribute.
+			// the baseline, its descent below it, in its own attribute.
 			box := pangoRectangle{y: -int32(math.Round(float64(sp.ObjectHeight) * pangoScale)),
-				width: int32(math.Round(float64(sp.ObjectWidth) * pangoScale)), height: int32(math.Round(float64(sp.ObjectHeight) * pangoScale))}
+				width: int32(math.Round(float64(sp.ObjectWidth) * pangoScale)), height: int32(math.Round(float64(sp.ObjectHeight+sp.ObjectDescent) * pangoScale))}
 			for k := start; k < to; k++ {
 				add(l.attrShapeNew(&box, &box), at[k], at[k+1])
 			}
@@ -1186,6 +1190,39 @@ func (e *pangoEngine) systemFamilies() func() []FontFamily {
 	return func() []FontFamily { return out }
 }
 
+// writeCacheFile writes data to path in dir unless path is there, through
+// a temporary file of its own renamed into place, so that processes that
+// write the same file at once neither break each other's rename nor leave
+// a file cut short (#682). A rename that fails while another process put
+// path there leaves that file, as its bytes are the same.
+func writeCacheFile(dir, path string, data []byte) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, 0o644)
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		os.Remove(tmp)
+		if _, serr := os.Stat(path); serr == nil {
+			return nil
+		}
+	}
+	return err
+}
+
 // register adds a font file to fontconfig's fonts for the app, from the
 // user's cache directory, and an alias for family.
 func (e *pangoEngine) register(data []byte, family string) error {
@@ -1203,14 +1240,8 @@ func (e *pangoEngine) register(data []byte, family string) error {
 		return fmt.Errorf("mygo: cannot add font: %w", err)
 	}
 	path := filepath.Join(dir, hex.EncodeToString(sum[:16])+".font")
-	if _, err := os.Stat(path); err != nil {
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, data, 0o644); err != nil {
-			return fmt.Errorf("mygo: cannot add font: %w", err)
-		}
-		if err := os.Rename(tmp, path); err != nil {
-			return fmt.Errorf("mygo: cannot add font: %w", err)
-		}
+	if err := writeCacheFile(dir, path, data); err != nil {
+		return fmt.Errorf("mygo: cannot add font: %w", err)
 	}
 	config := l.fcConfigGetCurrent()
 	if !e.registered[path] {
@@ -1290,16 +1321,17 @@ func xmlEscape(s string) string {
 
 func (e *pangoEngine) fontCount() int { return len(e.fonts) }
 
-// forgetFonts lets go of the Pango and cairo fonts of the Fonts made so
-// far.
+// forgetFonts lets go of the Fonts made so far, and of their cairo
+// fonts, which a Font drawing on makes anew. Their Pango fonts go with
+// them, once nothing refers to them (releaseFonts).
 func (e *pangoEngine) forgetFonts() {
-	l := &pangoLib
 	for _, sf := range e.scaled {
-		l.cairoScaledFontDestroy(sf)
+		pangoLib.cairoScaledFontDestroy(sf)
 	}
 	clear(e.scaled)
-	for _, f := range e.fonts {
-		l.gObjectUnref(f.native)
-	}
 	clear(e.fonts)
+	e.dropScratch()
 }
+
+// releaseFonts releases the Pango fonts of the Fonts nothing refers to.
+func (e *pangoEngine) releaseFonts() { e.releaseDead(pangoLib.gObjectUnref) }

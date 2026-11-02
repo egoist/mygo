@@ -98,6 +98,34 @@ func TestTextInputClientCompositionAndReplacement(t *testing.T) {
 	}
 }
 
+// TestCompositionTaken: the window tells the system whether the focus took
+// a composition, which input methods give up otherwise on macOS. An element
+// taking text itself (TextCaret) that leaves one, as a terminal leaves the
+// dead key of a key it sent as Alt, does not take it; a text input client
+// takes it, whatever its HandleInput answers.
+func TestCompositionTaken(t *testing.T) {
+	take := true
+	tt := coreNewTester(func(c *context) {
+		coreBox(c).Size(100, 40).Focusable().AutoFocus().TextCaret(Rect{0, 0, 1, 16}).HandleInput(func(ev InputEvent) bool {
+			return ev.Kind != InputCompose || take
+		})
+	}, 200, 100)
+	defer tt.rt.close()
+	compose := platform.SurfaceEvent{Kind: platform.TextComposition, Text: "´", Caret: 1}
+	if !tt.send2(compose) {
+		t.Error("a composition the element took was not taken")
+	}
+	take = false
+	if tt.send2(compose) {
+		t.Error("a composition the element left was taken")
+	}
+	client := primitiveTester(&primitiveClient{})
+	defer client.rt.close()
+	if !client.send2(compose) {
+		t.Error("a text input client's composition was not taken")
+	}
+}
+
 func TestTextInputClientNativeEndBeforeCommit(t *testing.T) {
 	c := &primitiveClient{text: "abc", selection: TextInputSelection{Range: TextInputRange{Start: 3, End: 3}}}
 	tt := primitiveTester(c)
@@ -248,5 +276,57 @@ func TestTextLayoutVisualCaretUTF16(t *testing.T) {
 	position := l.PositionAt(Point{X: up.X, Y: up.Y + up.H/2})
 	if got := l.CaretAt(position); got.X != up.X || got.Y != up.Y {
 		t.Fatalf("hit-test lost visual edge: %+v %+v", up, got)
+	}
+}
+
+// tallClient is the text of a code editor as high as its lines: its caret
+// is far down its box.
+type tallClient struct {
+	primitiveClient
+	caretY float32
+}
+
+func (c *tallClient) BoundsForRange(r TextInputRange) (Rect, TextInputRange, bool) {
+	return Rect{X: 40, Y: c.caretY, W: 1, H: 20}, r, true
+}
+
+// Focusing an app's text field taller than the scroll view around it, by
+// Tab or by assistive technology and the input methods that act as it,
+// scrolls its caret into view, not the top of its box.
+func TestFocusRevealsClientCaret(t *testing.T) {
+	var s ScrollState
+	c := &tallClient{caretY: 1500}
+	tt := coreNewTester(func(ctx *context) {
+		coreScroll(ctx).Fill().TrackScroll(&s).Children(func() {
+			coreBox(ctx).Height(500).Shrink(0)
+			coreBox(ctx).Size(250, 2000).Shrink(0).HandleTextInput(c).Role(RoleTextField).Label("code")
+			coreBox(ctx).Height(500).Shrink(0)
+		})
+	}, 300, 200)
+	defer tt.rt.close()
+	// The caret is 500+1500 down the content, 20 high, in a view 200 high.
+	shows := func() bool { return s.Y <= 2000 && s.Y+200 >= 2020 }
+	tt.Key(0, KeyTab)
+	tt.Frame()
+	if !shows() {
+		t.Fatalf("Tab into the field scrolled to %v, which doesn't show its caret", s.Y)
+	}
+	s.Y = 0
+	tt.Frame()
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	field := accessNode(t, tt.h.access, platform.RoleTextField, "code")
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: field.ID, Action: platform.AccessFocus})
+	tt.Frame()
+	if !shows() {
+		t.Fatalf("focusing the field scrolled to %v, which doesn't show its caret", s.Y)
+	}
+	// Up the field, the caret comes into view from above.
+	c.caretY = 100
+	s.Y = 2200
+	tt.Frame()
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: field.ID, Action: platform.AccessFocus})
+	tt.Frame()
+	if s.Y > 600 || s.Y+200 < 620 {
+		t.Fatalf("focusing the field scrolled to %v, which doesn't show its caret at 600", s.Y)
 	}
 }

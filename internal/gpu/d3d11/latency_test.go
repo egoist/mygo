@@ -5,6 +5,7 @@ package d3d11
 import (
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/internal/gpu/gputest"
 	"github.com/egoist/mygo/internal/wait"
@@ -71,6 +72,43 @@ func TestFrameLatencyTokens(t *testing.T) {
 	}
 }
 
+// TestLapsedWaitPresentsAtOnce checks that a present whose goroutine's
+// wait on the object timed out, as it does while the window shows
+// nowhere, takes no token and does not wait for one again on the main
+// thread, which would stall it a whole timeout more for each such frame.
+func TestLapsedWaitPresentsAtOnce(t *testing.T) {
+	defer func(ms uintptr) { latencyTimeout = ms }(latencyTimeout)
+	latencyTimeout = 400
+	h, _, err := procCreateSemaphore.Call(0, 0, 8, 0)
+	if h == 0 {
+		t.Fatal(err)
+	}
+	l := latency{handle: h}
+	defer l.release()
+
+	woke := make(chan struct{}, 1)
+	l.waitThen(func() { woke <- struct{}{} })
+	wait.For(t, "the wait's timeout", woke)
+	start := time.Now()
+	l.take()
+	if d := time.Since(start); d >= 200*time.Millisecond {
+		t.Fatalf("the present waited %v again after a lapsed wait", d)
+	}
+	if l.token || l.lapsed {
+		t.Fatalf("after the present: token %v, lapsed %v", l.token, l.lapsed)
+	}
+	// The next present that the screen has room for takes its token as
+	// before.
+	procReleaseSemaphore.Call(h, 1, 0)
+	if !l.ready() {
+		t.Fatal("not ready when signaled")
+	}
+	l.take()
+	if l.waitObject(0) {
+		t.Fatal("the object's count drifted")
+	}
+}
+
 // TestUnchangedFrameWaitsForRefresh checks that a frame that changes
 // nothing, and so presents nothing, still has the next wait for the
 // display (Ready), until the refresh it waits for comes: an animation
@@ -80,8 +118,8 @@ func TestUnchangedFrameWaitsForRefresh(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	refresh := make(chan struct{})
-	defer func(f func()) { awaitRefresh = f }(awaitRefresh)
-	awaitRefresh = func() { <-refresh }
+	defer func(f func(_, _ time.Duration)) { awaitRefresh = f }(awaitRefresh)
+	awaitRefresh = func(_, _ time.Duration) { <-refresh }
 
 	s := gputest.NewChanging(1).Scene()
 	r, err := New(hiddenWindow(t, s.Width, s.Height))
@@ -94,6 +132,7 @@ func TestUnchangedFrameWaitsForRefresh(t *testing.T) {
 	}
 	posted := make(chan func(), 4)
 	r.SetPost(func(f func()) { posted <- f })
+	r.cost.estimate = time.Hour // frames that go through the frame latency object
 	if err := r.Render(s); err != nil {
 		t.Fatal(err)
 	}

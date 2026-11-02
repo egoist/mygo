@@ -117,8 +117,12 @@ geometry on the GPU. Fills, borders, shadows, images, text, and effects keep
 local coordinates; backdrop reads map back into window coordinates. Metal
 preserves wide-gamut colors under transforms.
 
-Nested rounded or transformed clips use retained coverage masks. Moving
-content under a stationary clip reuses that mask without CPU pixel work.
+Nested rounded or transformed clips use retained coverage masks once
+content inside them is scaled, rotated, skewed or in perspective. Content
+that a transform only moves, such as a label translated by a fraction of a
+pixel, needs no mask: its clips are cut as for content that isn't
+transformed. Moving content under a stationary clip reuses that mask
+without CPU pixel work.
 Hard clips sharing their content's coordinates, including transformed text
 inputs, are evaluated directly in the fragment shader and reuse their
 ancestor's mask. Changing a complex clip recomputes its coverage; resizing
@@ -128,7 +132,9 @@ The CPU compositor remains the renderer for machines without a GPU and for
 small resting updates. Active transformed motion uses the GPU where one is
 available. Text bitmaps are sampled bilinearly when transformed, and
 transformed text uses grayscale coverage. GPU antialiasing follows the CPU
-renderer in device-pixel coordinates.
+renderer in device-pixel coordinates. To zoom a whole window, sharp, use
+the content's zoom (`Context.SetZoom`, see
+[Windows](windows.md#zoom)) rather than a transform.
 
 The gallery's **Motion** page shows nested transformed editable controls,
 an anchored popover, springs retargeted and thrown, keyframe sequences, and

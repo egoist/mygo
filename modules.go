@@ -3,6 +3,7 @@ package mygo
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -76,6 +77,24 @@ func (ShellModule) FileIcon(path string, size int) ([]byte, error) {
 	var png []byte
 	err := onMainValue(func() (err error) {
 		png, err = backend().Shell().FileIcon(path, size)
+		return err
+	})
+	return png, err
+}
+
+// TypeIcon returns the icon the file manager shows for files with the
+// extension ext, such as "pdf" or ".pdf", as a PNG image of size by size
+// pixels, as FileIcon does, though no such file needs to exist: the icon
+// of an attachment not yet downloaded. It fails in browsers.
+func (ShellModule) TypeIcon(ext string, size int) ([]byte, error) {
+	needsApp("Shell.TypeIcon")
+	if size <= 0 {
+		return nil, errors.New("mygo: Shell.TypeIcon: size must be positive")
+	}
+	ext = strings.TrimPrefix(ext, ".")
+	var png []byte
+	err := onMainValue(func() (err error) {
+		png, err = backend().Shell().TypeIcon(ext, size)
 		return err
 	})
 	return png, err
@@ -737,7 +756,11 @@ func (t *Tray) SetIcon(png []byte, template bool) error {
 	return err
 }
 
-// SetTitle sets the text next to the icon (macOS).
+// SetTitle sets the text next to the icon (macOS). Its digits all have
+// the same width, so a number that changes, such as a rate, keeps the
+// item's width as long as the text keeps its length: pad the value to a
+// fixed number of characters with figure spaces (U+2007), as wide as a
+// digit, rather than ordinary spaces.
 func (t *Tray) SetTitle(title string) { t.do(func(n platform.Tray) { n.SetTitle(title) }) }
 
 // SetToolTip sets the hover text.
@@ -757,7 +780,9 @@ func (t *Tray) PopUpMenu() {
 	t.do(func(n platform.Tray) { n.PopUpMenu(snap) })
 }
 
-// Bounds returns the position of the icon on screen.
+// Bounds returns the position of the icon on screen. macOS shows a menu bar
+// item on each display: Bounds is the one the user last clicked, so a window
+// placed against it, as a flyout, goes on the display the user clicked.
 func (t *Tray) Bounds() Rectangle {
 	return onMainValue(func() Rectangle {
 		if t.native == nil {
@@ -777,10 +802,29 @@ func (t *Tray) Destroy() {
 	})
 }
 
-// OnClick is called when the icon is clicked and it has no menu.
-func (t *Tray) OnClick(fn func()) (off func()) { return t.onClick.add(fn, false) }
+// OnClick is called when the icon is clicked and it has no menu. On Linux
+// it is the panel's activation as well: GNOME's AppIndicator extension
+// sends it for a double click, and opens the menu for a single one after
+// the double click time. While nothing listens the icon answers no
+// activation, so its menu still opens on the first click.
+func (t *Tray) OnClick(fn func()) func() {
+	off := t.onClick.add(fn, false)
+	t.activatable()
+	return func() {
+		off()
+		t.activatable()
+	}
+}
 
-// OnRightClick is called when the icon is right-clicked.
+// activatable tells the native tray whether a click has anywhere to go. It
+// reads the listeners on the main thread, so that the last call wins
+// whichever goroutines add and remove them.
+func (t *Tray) activatable() {
+	t.do(func(n platform.Tray) { n.SetActivatable(t.onClick.len() > 0) })
+}
+
+// OnRightClick is called when the icon is right-clicked, or Control-clicked
+// on macOS.
 func (t *Tray) OnRightClick(fn func()) (off func()) { return t.onRight.add(fn, false) }
 
 // Dark reports whether the bar the icon shows on is dark: the macOS menu
@@ -818,6 +862,14 @@ type NotificationOptions struct {
 	// Notification Center (macOS), such as the messages of a conversation.
 	// Empty leaves them in the app's.
 	Group string
+	// Image is an encoded image, PNG or JPEG, that the notification shows
+	// with its text, such as the cover of the track that started playing:
+	// an attachment on macOS, whose thumbnail grows as the notification
+	// expands, the notification's image on Linux, and the balloon's large
+	// icon on Windows. An image the system cannot decode leaves the
+	// notification without one. MyGo does not fetch remote images.
+	// NewNotification copies it.
+	Image []byte
 	// Sender describes the sender of an incoming direct message. macOS 12+
 	// can show its avatar with the app's small icon when the signed app has
 	// the Communication Notifications capability. Otherwise, or if preparing
@@ -891,6 +943,10 @@ func NewNotification(opts NotificationOptions) *Notification {
 		// Unique across runs too, as notifications outlive them.
 		id = "mygo-" + randomText()
 	}
+	opts.Image = slices.Clone(opts.Image)
+	if len(opts.Image) > 0 {
+		linkNotificationImages()
+	}
 	if opts.Sender != nil {
 		sender := *opts.Sender
 		sender.Name = cmp.Or(sender.Name, opts.Title)
@@ -914,16 +970,40 @@ var ErrNotificationsDenied = platform.ErrNotificationsDenied
 // Show waits for the answer; it returns ErrNotificationsDenied when they
 // are not allowed.
 func (n *Notification) Show() error {
+	return n.ShowContext(context.Background())
+}
+
+// ShowContext is Show with a cancellable delivery wait. Cancellation stops
+// waiting for authorization and removes an undelivered notification. The
+// context governs delivery only; a successfully shown notification stays.
+func (n *Notification) ShowContext(ctx context.Context) error {
 	needsApp("Notification.Show")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	notifications.Lock()
 	if notifications.byID == nil {
 		notifications.byID = map[string]*Notification{}
 	}
-	_, shown := notifications.byID[n.id]
+	previous, shown := notifications.byID[n.id]
 	notifications.byID[n.id] = n
 	notifications.Unlock()
 	ch := make(chan error, 1)
-	onMain(func() {
+	var completeOnce sync.Once
+	canceled := false
+	complete := func(err error, fromContext bool) {
+		completeOnce.Do(func() {
+			canceled = fromContext
+			deliver(ch, err)
+		})
+	}
+	stop := context.AfterFunc(ctx, func() { complete(ctx.Err(), true) })
+	defer stop()
+	show := func() {
+		if ctx.Err() != nil {
+			complete(ctx.Err(), true)
+			return
+		}
 		note := &platform.Notification{
 			ID:       n.id,
 			Title:    n.opts.Title,
@@ -931,17 +1011,43 @@ func (n *Notification) Show() error {
 			Body:     n.opts.Body,
 			Silent:   n.opts.Silent,
 			Group:    n.opts.Group,
+			Image:    n.opts.Image,
 		}
 		if s := n.opts.Sender; s != nil {
 			note.Sender = &platform.NotificationSender{ID: s.ID, Name: s.Name, Avatar: s.Avatar}
 		}
-		backend().ShowNotification(note, func(err error) { deliver(ch, err) })
-	})
+		backend().ShowNotification(note, func(err error) {
+			complete(err, false)
+			if canceled {
+				// An authorization answer can arrive after cancellation.
+				// Do not remove a newer notification sharing this ID.
+				postMain(func() {
+					notifications.Lock()
+					current := notifications.byID[n.id]
+					notifications.Unlock()
+					if current == nil || current == n || current == previous {
+						backend().RemoveNotification(n.id)
+					}
+				})
+			}
+		})
+	}
+	if isMainThread() {
+		show()
+	} else if !postMain(show) {
+		complete(errLoopStopped, false)
+	}
 	err := await(ch)
-	if err != nil && !shown {
+	if err != nil {
 		// Nothing will be clicked.
 		notifications.Lock()
-		delete(notifications.byID, n.id)
+		if notifications.byID[n.id] == n {
+			if shown {
+				notifications.byID[n.id] = previous
+			} else {
+				delete(notifications.byID, n.id)
+			}
+		}
 		notifications.Unlock()
 	}
 	return err

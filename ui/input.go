@@ -9,8 +9,13 @@ import (
 )
 
 // event handles a surface event on the main thread. It reports whether
-// an element takes files dragged over or dropped at the event's position.
+// an element takes files dragged over or dropped at the event's position,
+// the key pressed or the composition (platform.WindowHandler.SurfaceEvent).
 func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
+	if ev.Kind == platform.SurfaceCommandEnabled {
+		// A menu asking about its item changes nothing.
+		return rt.commandEnabled(ev.Text)
+	}
 	if ev.Kind != platform.SurfaceFrame {
 		// Whatever the event changes, the next frame builds anew.
 		rt.redraw = false
@@ -21,6 +26,8 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		// Input, which the next frame builds even out of sight.
 		rt.input = true
 	}
+	// The window's DIPs, zoomed, are the content's.
+	rt.fromWindow(&ev)
 	x, y := float32(ev.X), float32(ev.Y)
 	if ev.Kind == platform.PointerDown || ev.Kind == platform.WebViewPress {
 		// A press is of no element until countPress finds it one.
@@ -39,6 +46,8 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.SurfaceResize:
 		rt.requestFrame()
 	case platform.SurfaceShown:
+		// A video goes on from where it stood out of sight.
+		rt.shown = rt.now()
 		if rt.held {
 			// What moves goes on from where the time puts it.
 			rt.held = false
@@ -64,7 +73,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		}
 	case platform.PointerScroll:
 		rt.pointerMove(x, y)
-		rt.scroll(float32(ev.DX), float32(ev.DY), Modifiers(ev.Mods), ev.Precise)
+		rt.scroll(float32(ev.DX), float32(ev.DY), Modifiers(ev.Mods), ev.Precise, ev.Momentum)
 	case platform.PointerZoom:
 		rt.pointerMove(x, y)
 		rt.zoom(float32(ev.Scale), Modifiers(ev.Mods))
@@ -86,7 +95,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.TextInput:
 		rt.editEvent(rt.replaced(editEvent{kind: editInsert, text: ev.Text}, ev))
 	case platform.TextComposition:
-		rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret}, ev))
+		taken = rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret}, ev))
 	case platform.SurfaceCommand:
 		rt.editEvent(editEvent{kind: editCommand, text: ev.Text})
 	case platform.SurfaceFocus:
@@ -100,14 +109,8 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.modsChanged(0)
 		clear(rt.byPosition)
 		if p := rt.pressed; p != nil {
-			// The release will not come: an element taking its input
-			// gets one now.
-			if p.input != nil {
-				rt.deliver(p, InputEvent{Kind: InputPointerUp, Button: rt.pressButton, Mods: rt.mods, Clicks: rt.pressClicks})
-			}
-			p.pressed = false
-			rt.pressed = nil
-			rt.requestFrame()
+			x, y := p.local(rt.pointerX, rt.pointerY)
+			rt.endPress(p.input, x, y)
 		}
 		rt.focusChanged()
 	case platform.FileDragOver:
@@ -222,7 +225,7 @@ func (rt *engine) rehover() {
 func (rt *engine) pointerMove(x, y float32) {
 	if d := &rt.scrollDrag; d.st != nil {
 		s := d.st
-		g := d.bars(rt.c.theme.scrollbarWidth())
+		g := d.bars(s.barWidth)
 		lx, ly := s.local(x, y)
 		lx += s.x
 		ly += s.y
@@ -292,12 +295,25 @@ func (rt *engine) pointerMove(x, y float32) {
 	}
 }
 
+// pointer returns where the pointer is in the window as the element sees
+// it: where it let go of the element while the release waits
+// (releaseLater), else where it is.
+func (s *state) pointer(rt *engine) (x, y float32) {
+	if r := &s.releaseLater; r.due {
+		return r.x, r.y
+	}
+	return rt.pointerX, rt.pointerY
+}
+
 const interactive = flagClickable | flagFocusable | flagEditable | flagSelectable | flagDragWindow | flagDraggable | flagTrackPointer
 
 func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks int) {
+	rt.downing++
+	defer rt.endDown()
 	chain := rt.hitChain(x, y)
 	rt.setHover(chain)
 	rt.pressDragger = 0
+	rt.pressEnded = nil
 	if len(chain) > 0 {
 		rt.downs = append(rt.downs, chain[0])
 	} else {
@@ -355,7 +371,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 	if button == 0 && target.flags&flagMenuButton != 0 && target.flags&flagDisabled == 0 {
 		// A menu button's menu opens as the button goes down, and takes
 		// the release.
-		rt.openMenuButton(target)
+		rt.openMenuButton(target, false)
 		return
 	}
 	if button == 0 && target.flags&flagDragWindow != 0 && target.flags&(interactive&^flagDragWindow) == 0 {
@@ -384,6 +400,35 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 	}
 }
 
+// endPress ends the press whose release will not come, as the window lost
+// the focus, or the element pressed is gone: input, the handler of the
+// element pressed, gets one now, at x, y in its own axes. The element
+// gets no click, and the next press starts anew. The press ends before
+// the handler runs, so that a release or press coming meanwhile, through
+// a main loop the handler runs nested, is the next press's.
+func (rt *engine) endPress(input func(InputEvent) bool, x, y float32) {
+	p := rt.pressed
+	p.pressed = false
+	rt.pressed = nil
+	rt.requestFrame()
+	if input != nil {
+		input(InputEvent{Kind: InputPointerUp, X: x, Y: y, Button: rt.pressButton, Mods: rt.mods, Clicks: rt.pressClicks, Time: rt.now()})
+	}
+}
+
+// endDown applies the releases that came while pointerDown handled a
+// press.
+func (rt *engine) endDown() {
+	if rt.downing--; rt.downing > 0 {
+		return
+	}
+	for len(rt.ups) > 0 {
+		up := rt.ups[0]
+		rt.ups = rt.ups[1:]
+		rt.pointerUp(up[0], up[1])
+	}
+}
+
 // countPress counts the backend's n-th quick press from the first on the
 // element pressed: the innermost of the target and the handler, so that
 // two handlers in one focusable element, or two buttons in one handler,
@@ -405,6 +450,10 @@ func (rt *engine) countPress(chain []uint64, target, h *state, n int) int {
 }
 
 func (rt *engine) pointerUp(button, clicks int) {
+	if rt.downing > 0 {
+		rt.ups = append(rt.ups, [2]int{button, clicks})
+		return
+	}
 	if button == rt.pressButton {
 		clicks = rt.pressClicks // the engine's, which may have started over
 	}
@@ -438,13 +487,19 @@ func (rt *engine) pointerUp(button, clicks int) {
 		rt.selection.dragging = false
 	}
 	rt.pressed = nil
-	s.pressed = false
+	r := &s.releaseLater
+	r.due, r.x, r.y = true, rt.pointerX, rt.pointerY
 	// A press that moved ends a drag; a click does not.
-	s.released = s.drag.n > 1
+	r.released = s.drag.n > 1
 	v := s.drag.velocities(rt.now())
 	s.releaseVX, s.releaseVY, s.releaseWX, s.releaseWY = v[0], v[1], v[2], v[3]
-	if s.editor != nil {
-		s.editor.release()
+	if ed := s.editor; ed != nil {
+		if ed.dragging {
+			// Its selection ends where the pointer let go, as the text
+			// selection's does, before the keys that come after.
+			ed.drag(s.local(rt.pointerX, rt.pointerY))
+		}
+		ed.release()
 	}
 	inside := rt.contains(s, Rect{s.x, s.y, s.w, s.h}, rt.pointerX, rt.pointerY)
 	if inside && s.flags&flagDisabled == 0 {
@@ -453,21 +508,68 @@ func (rt *engine) pointerUp(button, clicks int) {
 			if s.dragRec.dragged(rt, s) {
 				break // it moved the element (Draggable): no click
 			}
-			s.clicks++
-			s.clickMods = s.pressMods
+			s.click(s.pressMods)
 		case 1:
-			s.rightClicks++
+			r.rightClicks++
 		}
+	}
+	// Moves no pass read yet (Dragged, or the pointer while Pressed) come
+	// with the element still pressed, and the pass that reads them applies
+	// the release as it ends (forgetInput); with none waiting, it applies
+	// now.
+	if s.dragX == 0 && s.dragY == 0 {
+		rt.applyRelease(s)
+	} else {
+		rt.pressEnded = s
 	}
 	rt.setHover(rt.hitChain(rt.pointerX, rt.pointerY))
 	rt.requestFrame()
 }
 
-func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise bool) {
+// applyRelease gives s what the release of its press does, as frames see
+// it. A press that came since the release keeps it pressed.
+func (rt *engine) applyRelease(s *state) {
+	r := &s.releaseLater
+	s.pressed = rt.pressed == s
+	s.released = r.released
+	s.clicks += r.clicks
+	s.rightClicks += r.rightClicks
+	if r.clicks > 0 {
+		s.clickMods = r.clickMods
+	}
+	r.due, r.clicks, r.rightClicks = false, 0, 0
+	if rt.pressEnded == s {
+		rt.pressEnded = nil
+	}
+}
+
+// click clicks s with mods held, for the next pass to see: after the
+// release of its press while that waits (releaseLater), so that the clicks
+// come in order, with the last one's modifiers.
+func (s *state) click(mods Modifiers) {
+	if r := &s.releaseLater; r.due {
+		r.clicks++
+		r.clickMods = mods
+		return
+	}
+	s.clicks++
+	s.clickMods = mods
+}
+
+func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool) {
 	chain := rt.appendHitChain(rt.chain[:0], rt.pointerX, rt.pointerY)
 	rt.chain = chain[:0]
-	if h := rt.handler(chain); h != nil && rt.deliver(h, InputEvent{Kind: InputScroll, DX: dx, DY: dy, Mods: mods, Precise: precise}) {
-		return
+	// From the innermost element out, the first handling its input to
+	// take it: one whose handler leaves it passes it on, as it would
+	// without the handler, to the handlers around it, as an editor
+	// scrolls under what it shows over its text. Scroll containers move
+	// only when no handler takes it, so a handler around one, as a canvas
+	// that zooms with Ctrl and the wheel, still sees it first.
+	ev := InputEvent{Kind: InputScroll, DX: dx, DY: dy, Mods: mods, Precise: precise, Momentum: momentum}
+	for _, id := range chain {
+		if s := rt.states[id]; s != nil && s.input != nil && s.flags&flagDisabled == 0 && rt.deliver(s, ev) {
+			return
+		}
 	}
 	// Shift turns the wheel sideways: down is toward the end, which is
 	// to the left right to left.
@@ -699,7 +801,9 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 		s.editor.queue = append(s.editor.queue, editEvent{kind: editKey, mods: mods, key: key})
 		rt.blinkStart = rt.now()
 		rt.requestFrame()
-		return false
+		// Taken: the menu item of the key, as Edit › Paste's Ctrl+V on
+		// Windows, leaves it rather than pasting a second time.
+		return true
 	}
 	if s := rt.states[rt.focused]; s != nil && s.flags&flagTypeSelect != 0 && !rt.claimed(k) {
 		// The first letters of a row of a list: they add up while typed
@@ -727,7 +831,7 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 	if s := rt.states[rt.focused]; s != nil && s.flags&flagMenuButton != 0 && s.flags&flagDisabled == 0 && !rt.claimedBy(k, false) &&
 		(mods == 0 && (key == KeyEnter || key == KeySpace || key == KeyDown) || mods == Alt && key == KeyDown) {
 		rt.focusVisible = true
-		rt.openMenuButton(s)
+		rt.openMenuButton(s, true)
 		return false
 	}
 	if (key == KeyEnter || key == KeySpace) && mods == 0 {
@@ -737,8 +841,7 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 		s := rt.states[rt.focused]
 		window := s != nil && key == KeyEnter && s.flags&flagToggle != 0
 		if s != nil && !rt.claimedBy(k, window) && s.flags&flagClickable != 0 && s.flags&flagDisabled == 0 {
-			s.clicks++
-			s.clickMods = 0
+			s.click(0)
 			rt.focusVisible = true
 			rt.requestFrame()
 			return false
@@ -837,30 +940,45 @@ func (rt *engine) moveFocus(back bool) {
 // innermost element around the focus that handles them, else to the
 // overlay on top that does, else to the window's shortcuts, as the last
 // frame registered them. Those it finds no shortcut for wait for what
-// this frame builds (settleKeys).
+// this frame builds (settleKeys). An element takes one key a frame: from
+// a second key for one, the keys wait for the next frame, which the
+// first changed, as a Down and an Enter typed quickly into a menu, the
+// Enter choosing the item the Down highlighted.
 func (rt *engine) routeKeys() {
 	rt.unrouted = rt.unrouted[:0]
 	if len(rt.keys) == 0 && len(rt.retried) == 0 {
 		return
 	}
 	chain := rt.focusChain()
-	route := func(k keyEvent, retried bool) {
+	route := func(k keyEvent, retried bool) bool {
 		r := shortcutReg{mods: k.mods, key: k.key, retried: retried}
 		if target, found := routeKey(rt.regs, chain, k); found {
+			if slices.ContainsFunc(rt.delivered, func(d shortcutReg) bool { return d.id == target }) {
+				return false
+			}
 			r.id = target
 			rt.delivered = append(rt.delivered, r)
 		} else {
 			rt.unrouted = append(rt.unrouted, r)
 		}
+		return true
 	}
 	// Keys retried came before those pressed since.
-	for _, k := range rt.retried {
-		route(k, true)
+	var later []keyEvent
+	for i, k := range rt.retried {
+		if !route(k, true) {
+			later = append(later, rt.retried[i:]...)
+			break
+		}
 	}
-	for _, k := range rt.keys {
-		route(k, false)
+	for i, k := range rt.keys {
+		if later != nil || !route(k, false) {
+			later = append(later, rt.keys[i:]...)
+			break
+		}
 	}
-	rt.retried, rt.keys = rt.retried[:0], rt.keys[:0]
+	rt.retried = rt.retried[:0]
+	rt.keys = append(rt.keys[:0], later...)
 }
 
 // routeKey returns the element that takes key k by shortcuts regs, the
@@ -930,7 +1048,9 @@ func (rt *engine) shortcut(id uint64, mods Modifiers, key Key) bool {
 	return false
 }
 
-func (rt *engine) editEvent(ev editEvent) {
+// editEvent delivers text, a composition or an edit command to the focus,
+// and reports whether an element took it.
+func (rt *engine) editEvent(ev editEvent) bool {
 	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocus() && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
 		if ev.kind == editInsert || ev.kind == editCompose {
 			var r *TextInputRange
@@ -944,7 +1064,7 @@ func (rt *engine) editEvent(ev editEvent) {
 				caret := platform.UTF16Len(string([]rune(ev.text)[:max(0, min(ev.caret, len([]rune(ev.text))))]))
 				s.textAdapter.SetMarkedText(r, ev.text, TextInputRange{Start: caret, End: caret})
 			}
-			return
+			return true
 		}
 	}
 	if h := rt.focusHandler(); h != nil && h.editor == nil {
@@ -956,24 +1076,84 @@ func (rt *engine) editEvent(ev editEvent) {
 		}
 		if handled {
 			rt.blinkStart = rt.now()
+		} else {
+			rt.commandKey(ev, nil)
 		}
-		return
+		return handled
 	}
 	s := rt.states[rt.focused]
 	if s == nil || s.editor == nil {
-		return
+		rt.commandKey(ev, nil)
+		return false
 	}
 	// Selectable text takes the menus' commands, as Copy, not text.
 	if s.flags&flagEditable == 0 && (s.flags&flagSelectable == 0 || ev.kind != editCommand) {
-		return
+		rt.commandKey(ev, nil)
+		return false
+	}
+	if s.editor.readOnly && rt.commandKey(ev, s.editor) {
+		return true
 	}
 	if ev.kind == editCommand && rt.textSelectionCommand(s, ev.text) {
 		rt.requestFrame()
-		return
+		return true
 	}
 	s.editor.queue = append(s.editor.queue, ev)
 	rt.blinkStart = rt.now()
 	rt.requestFrame()
+	return true
+}
+
+// commandKeys are the keys of the Edit menu's commands.
+var commandKeys = map[string]keyEvent{
+	"copy": {Cmd, KeyC}, "cut": {Cmd, KeyX}, "paste": {Cmd, KeyV}, "selectAll": {Cmd, KeyA},
+	"undo": {Cmd, KeyZ}, "redo": {Cmd | Shift, KeyZ},
+}
+
+// commandKey has an edit command that the focus, or ed, doesn't take go to
+// the shortcuts of its key, and reports whether it did. On macOS the Edit
+// menu takes Command+V and the others before the window sees the key, so a
+// window's Cmd+V would otherwise run only from a text input; elsewhere the
+// key comes first, and the menu only after.
+func (rt *engine) commandKey(ev editEvent, ed *editor) bool {
+	k, ok := commandKeys[ev.text]
+	if runtime.GOOS != "darwin" || ev.kind != editCommand || !ok || ed != nil && ed.wants(k) {
+		return false
+	}
+	rt.keys = append(rt.keys, k)
+	rt.requestFrame()
+	return true
+}
+
+// commandEnabled reports whether the edit command name would act where
+// editEvent takes it, for the Edit menu to enable its item.
+func (rt *engine) commandEnabled(name string) bool {
+	s := rt.states[rt.focused]
+	// As focusHandler, without windowFocus, which would have the next
+	// change of the window's focus draw a frame.
+	if s != nil && s.input != nil && s.editor == nil && rt.windowFocused {
+		// Such an element tells what it does with a command only by
+		// doing it.
+		return true
+	}
+	if s == nil || s.editor == nil || s.flags&(flagEditable|flagSelectable) == 0 {
+		return rt.commandShortcut(name)
+	}
+	if k, ok := commandKeys[name]; ok && s.editor.readOnly && !s.editor.wants(k) {
+		return rt.commandShortcut(name)
+	}
+	return rt.editCommandOn(s, name)
+}
+
+// commandShortcut reports whether commandKey would have a shortcut take
+// the edit command name.
+func (rt *engine) commandShortcut(name string) bool {
+	k, ok := commandKeys[name]
+	if runtime.GOOS != "darwin" || !ok {
+		return false
+	}
+	_, found := routeKey(rt.regs, rt.focusChain(), k)
+	return found
 }
 
 // imeContext is how many runes around the selection input methods see.
@@ -992,13 +1172,13 @@ func (rt *engine) updateTextInput() {
 			t.Caret = bounds
 		} else {
 			r := transformRect(s.world, Rect{X: s.x, Y: s.y, W: 1, H: s.h})
-			t.Caret = platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
+			t.Caret = rt.toWindow(platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)})
 		}
 	} else if s != nil && s.editor == nil && s.input != nil && s.takesText && rt.windowFocus() {
 		// An element taking text itself: no text around the caret.
 		t.Active, t.NoInputMethod = true, s.noIME
 		r := transformRect(s.world, Rect{s.x + s.caret.X, s.y + s.caret.Y, s.caret.W, s.caret.H})
-		t.Caret = platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
+		t.Caret = rt.toWindow(platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)})
 	}
 	if t != rt.ime.state {
 		if t.Client != rt.ime.state.Client {
@@ -1154,7 +1334,8 @@ func (e *node) Pressed() bool {
 	e.flags |= flagClickable | flagHover
 	s := e.st
 	rt := e.c.rt
-	if !s.pressed || e.disabled() || !rt.contains(s, Rect{s.x, s.y, s.w, s.h}, rt.pointerX, rt.pointerY) {
+	x, y := s.pointer(rt)
+	if !s.pressed || e.disabled() || !rt.contains(s, Rect{s.x, s.y, s.w, s.h}, x, y) {
 		return false
 	}
 	if s.pressPending {
@@ -1166,8 +1347,12 @@ func (e *node) Pressed() bool {
 	return true
 }
 
-// Focused reports whether the element has the keyboard focus.
+// Focused reports whether the element has the keyboard focus: for a field
+// around an input, as SearchField's, whether its input has it.
 func (e *node) Focused() bool {
+	if e != nil && e.focusTo != nil {
+		return e.focusTo.Focused()
+	}
 	return e.hasState() && e.c.rt.focused == e.id && e.c.rt.windowFocus()
 }
 
@@ -1194,8 +1379,13 @@ func (e *node) FocusWithin() bool {
 }
 
 // Focus gives the element the keyboard focus. Called in every frame, it
-// keeps it there; AutoFocus gives it once.
+// keeps it there; AutoFocus gives it once. A field around an input, as
+// SearchField's, gives it to its input, where typing goes.
 func (e *node) Focus() *node {
+	if e != nil && e.focusTo != nil {
+		e.focusTo.Focus()
+		return e
+	}
 	if !e.hasState() {
 		return e
 	}
@@ -1229,7 +1419,8 @@ func (e *node) Shortcut(mods Modifiers, key Key) bool {
 
 // PointerPosition returns the pointer's position relative to the
 // element's box and whether it is over the element. Elements asking for it
-// get a frame whenever the pointer moves over them.
+// get a frame whenever the pointer moves over them. The build that reads
+// the last moves of a press on the element sees where the pointer let go.
 func (e *node) PointerPosition() (x, y float32, over bool) {
 	if !e.hasState() {
 		return 0, 0, false
@@ -1237,12 +1428,15 @@ func (e *node) PointerPosition() (x, y float32, over bool) {
 	e.flags |= flagTrackPointer
 	rt := e.c.rt
 	s := e.st
-	x, y = s.local(rt.pointerX, rt.pointerY)
-	return x, y, rt.pointerIn && rt.contains(s, Rect{s.x, s.y, s.w, s.h}, rt.pointerX, rt.pointerY)
+	wx, wy := s.pointer(rt)
+	x, y = s.local(wx, wy)
+	return x, y, rt.pointerIn && rt.contains(s, Rect{s.x, s.y, s.w, s.h}, wx, wy)
 }
 
 // Dragged reports how far the pointer moved in the element's local axes
-// since the last frame while pressing it.
+// since the last frame while pressing it. The moves just before the
+// pointer let go come while the element is still pressed, and the press
+// ends in the build after.
 func (e *node) Dragged() (dx, dy float32, ok bool) {
 	if !e.hasState() {
 		return 0, 0, false
@@ -1416,13 +1610,13 @@ func (e *node) Dismissed() bool { return e.dismissed }
 func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 	for _, id := range chain {
 		s := rt.states[id]
-		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 || !s.barsShown {
+		if s == nil || s.flags&(flagScrollX|flagScrollY) == 0 || !s.barsShown || s.hideScrollbars {
 			continue
 		}
 		lx, ly := s.local(x, y)
 		lx += s.x
 		ly += s.y
-		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, rt.c.theme.scrollbarWidth(), s.rtl)
+		g := scrollBars(Rect{s.x, s.y, s.w, s.h}, s.barInset, float32(s.contentW), float32(s.contentH), float32(s.scrollX), float32(s.scrollY), s.flags, s.barWidth, s.rtl)
 		d := &rt.scrollDrag
 		w, h := float64(s.w), float64(s.h)
 		s.wheel = nil

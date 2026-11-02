@@ -48,6 +48,20 @@ type ElementTransition struct {
 	// colors, as SwiftUI's matchedGeometryEffect and Motion's layoutId.
 	// Use a value of a type of your own, as a struct of the photo's ID.
 	Match any
+	// Fly, with a Match, flies the element appearing from where the other
+	// was, as Keynote's Magic Move and Flutter's Hero do: from its
+	// corners, opacity, text color and transform (in 3D too), and from the
+	// transforms of the elements around it, drawn over the rest of the
+	// window (or of its overlay) on the way, out of the clips around it,
+	// where it takes the pointer. The other, flying too, goes with it,
+	// fading out under it, rather than as its Exit says.
+	Fly bool
+	// ScaleContent shows the element's size changing, as it resizes or
+	// comes from the element of its Match, by scaling it from its own size
+	// rather than laying its content out at each size on the way: its text
+	// keeps its lines, growing or shrinking with it, as a title into a
+	// heading, and a picture stretches with its box.
+	ScaleContent bool
 }
 
 // Motion is where an element appearing comes from, or where one going
@@ -88,6 +102,9 @@ const defaultDuration = 200 * time.Millisecond
 // collapsing fades in place.
 func (e *node) Transition(t ElementTransition) *node {
 	e.c.transitions = append(e.c.transitions, transitionUse{e: e, t: t})
+	if t.Match != nil || t.ScaleContent {
+		e.c.rt.linkMatches()
+	}
 	scene.FoldTranslations() // renderers draw the poses that only move as untransformed content
 	return e
 }
@@ -180,10 +197,11 @@ type transition struct {
 	// index is where the element was among its siblings in the frame it
 	// went from, which orders the copies going under one parent.
 	index int
-	// match moves an element appearing where the one it Matches showed:
-	// its box in the window, from the box that one had.
-	match    [4]channel
+	// matching moves an element appearing from where the one it Matches
+	// showed, and match is the record of its Match it had last
+	// (*matchRec, match.go), which apps without one do not link.
 	matching bool
+	match    any
 }
 
 // animation returns how the transition's changes go.
@@ -405,6 +423,13 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 		if e.parent == nil {
 			continue // the root's
 		}
+		if e.inHidden() {
+			// Hidden, it has no box to go from or to, and shows again
+			// where it is then, as it hides, at once.
+			delete(rt.trans, e.id)
+			e.st.trec = nil
+			continue
+		}
 		r := rt.trans[e.id]
 		if r == nil {
 			r = &transition{}
@@ -425,7 +450,9 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 			r.head(r.next, moveAll, now)
 		}
 		e.st.trec = r
-		if u.t.Exit != nil {
+		if u.t.Exit != nil || u.t.Fly && u.t.Match != nil {
+			// The next frame copies it if it goes: to go as its Exit
+			// says, or to fly with the element taking its Match.
 			rt.exitsBuilt = true
 		}
 		u.r = r
@@ -484,83 +511,10 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 		r.shown = shown
 		r.apply(e, shown)
 	}
+	if rt.matches != nil {
+		rt.matches.claim()
+	}
 	rt.animateExits(root, now, still, resized)
-}
-
-// matchRec is where the element of a Match showed in a frame, in the
-// window, and its colors.
-type matchRec struct {
-	frame, id uint64
-	box       Rect
-	colors    [2]Color
-}
-
-// animateMatches moves the elements of a Transition's Match appearing
-// from where the element of their Match showed in the frame before, by a
-// transform: once the frame's boxes are in the window.
-func (rt *engine) animateMatches() {
-	for m, rec := range rt.matched {
-		if rec.frame+1 < rt.frame {
-			delete(rt.matched, m)
-		}
-	}
-	now := rt.c.now
-	still := rt.preferences().ReduceMotion
-	for _, u := range rt.c.transitions {
-		m, e := u.t.Match, u.e
-		r := e.st.trec
-		if m == nil || r == nil || r.elem != e || r.built != rt.frame {
-			continue
-		}
-		box := Rect{e.x, e.y, e.w, e.h}
-		rec := rt.matched[m]
-		switch {
-		case still || rt.instant():
-			r.matching = false
-		case r.fresh && rec != nil && rec.id != e.id && rec.frame+1 == rt.frame:
-			from := [4]float32{rec.box.X, rec.box.Y, rec.box.W, rec.box.H}
-			for i := range r.match {
-				r.match[i] = channel{value: float64(from[i]), target: float64(from[i]), at: now}
-			}
-			r.matching = true
-			if rec.colors != ([2]Color{}) {
-				// Its colors come from the other's too.
-				r.colorSet, r.colorTarget, r.colorShown, r.colorFrame = true, rec.colors, rec.colors, rt.frame-1
-			}
-		}
-		shown := box
-		if r.matching {
-			a := r.animation()
-			to := [4]float32{box.X, box.Y, box.W, box.H}
-			var v [4]float32
-			moving := false
-			for i := range r.match {
-				ch := &r.match[i]
-				headFor(ch, float64(to[i]), a, now)
-				ch.advance(now)
-				moving = moving || ch.moving || ch.pending
-				v[i] = float32(ch.value)
-			}
-			if !moving {
-				r.matching = false
-			} else {
-				shown = Rect{v[0], v[1], max(v[2], 0), max(v[3], 0)}
-				e.showAt(shown)
-				rt.animating = true
-			}
-		}
-		if rec == nil {
-			if rt.matched == nil {
-				rt.matched = map[any]*matchRec{}
-			}
-			rec = &matchRec{}
-			rt.matched[m] = rec
-		}
-		if rec.id != e.id {
-			rec.colors = [2]Color{}
-		}
-		rec.frame, rec.id, rec.box = rt.frame, e.id, shown
-	}
 }
 
 // showAt shows e in the window's box r, its content laid out at r's size
@@ -609,11 +563,15 @@ func (c *context) byDepth(uses []transitionUse) []transitionUse {
 // apply shows e at s.
 func (r *transition) apply(e *node, s tbox) {
 	if s.w != e.w || s.h != e.h {
-		if r.collapse != 0 {
+		switch {
+		case r.collapse != 0:
 			// Collapsing: the content keeps its layout, clipped.
 			e.w, e.h = max(s.w, 0), max(s.h, 0)
 			e.flags |= flagClip
-		} else {
+		case r.t.ScaleContent && e.c.rt.matches != nil:
+			// Laid out at its size, and scaled to s.
+			e.c.rt.matches.scale(e, max(s.w, 0), max(s.h, 0))
+		default:
 			layoutBox(e, max(s.w, 0), max(s.h, 0))
 		}
 	}
@@ -781,9 +739,15 @@ func ghostOf(e *node) *node {
 	g.parent, g.first, g.last, g.next, g.nchild = nil, nil, nil, nil, 0
 	g.shadows, g.cols, g.rows, g.frags = slices.Clone(e.shadows), slices.Clone(e.cols), slices.Clone(e.rows), slices.Clone(e.frags)
 	g.track, g.popover, g.list, g.rowsOf, g.overflow = nil, nil, nil, nil, nil
-	g.activeDescendant, g.nameFrom, g.field, g.form = nil, nil, nil, nil
+	g.activeDescendant, g.nameFrom, g.focusTo, g.field, g.form = nil, nil, nil, nil, nil
 	g.followX, g.colFit, g.gridFit = nil, nil, nil
-	g.inputFn, g.ghosts = nil, false
+	// It no longer flies (Fly), if it did: it goes as its parent's copy.
+	g.inputFn, g.ghosts, g.lift = nil, false, false
+	if g.themed != nil {
+		// The app may change its theme while the copy leaves.
+		t := *g.themed
+		g.themed = &t
+	}
 	g.poseSet = false // it keeps the pose it had
 	g.tl, g.nmeasure, g.leafOK, g.intrOK, g.lay = nil, 0, false, 0, 0
 	g.flags = g.flags&^(flagModal|flagPage|flagFocusTarget) | flagInert
@@ -828,13 +792,17 @@ func (rt *engine) animateColors(e *node, r *transition) {
 				rt.animating = true
 			}
 		}
-		if m := r.t.Match; m != nil {
-			if rec := rt.matched[m]; rec != nil && rec.id == e.id {
-				rec.colors = r.colorShown
-			}
-		}
 	}
 	e.bg, e.borderC = r.colorShown[0], r.colorShown[1]
+}
+
+// forgetColors shows the colors of the elements at once: a route change is
+// where an element that comes back shows its own colors, not the color of
+// the element that took its place while it was away.
+func (rt *engine) forgetColors() {
+	for _, r := range rt.trans {
+		r.colorSet = false
+	}
 }
 
 // mixPremultiplied returns the color k of the way from a to b, mixed with

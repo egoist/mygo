@@ -59,6 +59,53 @@ func Rotation(degrees float32) Affine {
 // Perspective reports whether m is projective, not affine.
 func (m Affine) Perspective() bool { return m.Set && (m.G != 0 || m.H != 0) }
 
+// MovedClip returns the rectangle of a clip of r under m, and what of m is
+// left to apply to it: nothing when m only moves it, as a pose sliding a
+// panel in or a card lifting under the pointer does. A clip only moved is
+// a rectangle like any other, which renderers cut as they cut those that
+// nothing transforms, rather than with a mask of its transformed shape.
+func MovedClip(r Rect, m Affine) (Rect, Affine) {
+	if !m.Set || m.A != 1 || m.B != 0 || m.C != 0 || m.D != 1 || m.G != 0 || m.H != 0 {
+		return r, m
+	}
+	r.X += m.X
+	r.Y += m.Y
+	return r, Affine{}
+}
+
+// Reshaped reports whether op of s draws under a transform that does more
+// than move it (scales, turns, skews it or shows it in perspective): its
+// own, or, for glyphs and an effect masked by glyphs, a glyph's. Drawing
+// a transform only moves lies in its clips as it would unmoved, which the
+// GPU's renderers cut in the frame's coordinates whatever the transform,
+// so the clips around it need no mask (gpu.Builder), and damage tracking has them change no more than
+// for drawing not moved (Differ). Clips are the same (MovedClip): a clip
+// pushed under a transform that only moves it reshapes none around it.
+func Reshaped(s *Scene, op *Op) bool {
+	if op.Transform.Set && !op.Transform.moves() {
+		return true
+	}
+	start, end := int32(-1), int32(-1)
+	switch op.Kind {
+	case OpGlyphs:
+		start, end = op.Start, op.End
+	case OpEffect:
+		// A shader's effect masked by glyphs draws them with their own
+		// transforms too (EffectOp.Glyphs).
+		if op.Start >= 0 && int(op.Start) < len(s.Effects) {
+			start, end = s.Effects[op.Start].Glyphs[0], s.Effects[op.Start].Glyphs[1]
+		}
+	}
+	if start >= 0 && start <= end && int(end) <= len(s.Glyphs) {
+		for _, g := range s.Glyphs[start:end] {
+			if g.Transform.Set && !g.Transform.moves() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // moves reports whether m only moves what it maps, without scaling,
 // turning, skewing it or showing it in perspective.
 func (m Affine) moves() bool {
