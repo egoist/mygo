@@ -8,8 +8,8 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-// TestInitialWindowBounds places restored windows on their target display
-// before Windows can rescale their already converted physical size.
+// TestInitialWindowBounds creates a restored window on its display: moved
+// there, it would have its size scaled a second time by Windows.
 func TestInitialWindowBounds(t *testing.T) {
 	saved := platform.Rect{X: 3941, Y: 748, Width: 1575, Height: 1050}
 	for _, tt := range []struct {
@@ -40,7 +40,8 @@ func TestInitialWindowBounds(t *testing.T) {
 	}
 }
 
-// TestRestoreStateBounds preserves physical placement; the regression selected a monitor by treating saved DIPs as pixels.
+// TestRestoreStateBounds keeps a window at its pixels, with its size in
+// the scale of its display, as long as it would show on a display.
 func TestRestoreStateBounds(t *testing.T) {
 	primary := stateDisplay{
 		bounds: platform.Rect{Width: 3072, Height: 1920},
@@ -174,7 +175,9 @@ func TestRestoreStateBounds(t *testing.T) {
 	}
 }
 
-// TestRestoreStateBoundsRepeated prevents the mixed-DPI restart regression from accumulating position or size drift.
+// TestRestoreStateBoundsRepeated restores a window on a display of
+// another scale than the primary's 20 times, as many launches, and it
+// neither moves nor changes size.
 func TestRestoreStateBoundsRepeated(t *testing.T) {
 	for _, tt := range []struct {
 		name          string

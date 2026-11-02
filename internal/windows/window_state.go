@@ -8,37 +8,31 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-// stateDisplay keeps every rectangle in physical pixels. Per-display DIP
-// rectangles can overlap, so they cannot select a saved window's display.
+// stateDisplay is a display in the screen's pixels, in which displays
+// never overlap: their rectangles in DIPs, each in its own scale, can.
 type stateDisplay struct {
 	bounds, work platform.Rect
 	dpi          int
 }
 
-// WindowStateBounds captures the actual normal rectangle without rounding
-// its screen position through the window's current DPI.
+// WindowStateBounds is the window's rectangle in the screen's pixels,
+// which Bounds rounds through the scale of the window's display.
 func (w *window) WindowStateBounds() platform.Rect {
 	var r rect
 	procGetWindowRect.Call(w.hwnd, uintptr(unsafe.Pointer(&r)))
-	return platform.Rect{X: int(r.Left), Y: int(r.Top), Width: int(r.Right - r.Left), Height: int(r.Bottom - r.Top)}
+	return pixelRect(r)
 }
 
-// RestoreWindowState resolves the monitor in physical coordinates before
-// converting the saved DIP size. Legacy states have no unambiguous physical
-// rectangle and fall back to the core's centered placement once.
-func (b *Backend) RestoreWindowState(o *platform.WindowOptions, saved *platform.Rect) bool {
-	if saved == nil {
-		return false
-	}
+// RestoreWindowState finds the display of a state's pixels, which its
+// DIPs cannot tell when displays have different scales, and the window's
+// size in that display's scale.
+func (b *Backend) RestoreWindowState(o *platform.WindowOptions, pixels platform.Rect) bool {
 	var displays []stateDisplay
 	enumMonitors(func(m uintptr) {
 		info := monitorInfo(m)
-		convert := func(r rect) platform.Rect {
-			return platform.Rect{X: int(r.Left), Y: int(r.Top), Width: int(r.Right - r.Left), Height: int(r.Bottom - r.Top)}
-		}
-		displays = append(displays, stateDisplay{bounds: convert(info.Monitor), work: convert(info.Work), dpi: monitorDPI(m)})
+		displays = append(displays, stateDisplay{bounds: pixelRect(info.Monitor), work: pixelRect(info.Work), dpi: monitorDPI(m)})
 	})
-	r, ok := restoreStateBounds(*saved, platform.Size{Width: o.Width, Height: o.Height}, displays)
+	r, ok := restoreStateBounds(pixels, platform.Size{Width: o.Width, Height: o.Height}, displays)
 	if !ok {
 		return false
 	}
@@ -46,9 +40,14 @@ func (b *Backend) RestoreWindowState(o *platform.WindowOptions, saved *platform.
 	return true
 }
 
-// restoreStateBounds uses the display containing most of the saved window,
-// as Windows does for a window spanning displays. Position stays in pixels;
-// size follows the target display's current DPI.
+func pixelRect(r rect) platform.Rect {
+	return platform.Rect{X: int(r.Left), Y: int(r.Top), Width: int(r.Right - r.Left), Height: int(r.Bottom - r.Top)}
+}
+
+// restoreStateBounds places a window of size, in DIPs, at saved, in
+// pixels, if enough of it shows on a display to reach it, as onDisplay
+// decides in the core. Its size is in the scale of the display with the
+// most of saved, whose scale Windows gives a window across displays.
 func restoreStateBounds(saved platform.Rect, size platform.Size, displays []stateDisplay) (platform.Rect, bool) {
 	if saved.Width <= 0 || saved.Height <= 0 || size.Width <= 0 || size.Height <= 0 {
 		return platform.Rect{}, false

@@ -122,30 +122,26 @@ func restoreWindowState(key string, p *platform.WindowOptions) {
 	restoreWindowStateFrom(st, p, backend())
 }
 
-// restoreWindowStateFrom applies st through b. Windows can restore native
-// physical bounds that the DIP rectangle alone cannot identify.
+// restoreWindowStateFrom applies st to p, through b. A backend that
+// places windows in pixels (Windows) restores the state's pixels. It
+// takes X and Y, in the scale of the window's display, only for a state
+// without pixels while every display has the same scale.
 func restoreWindowStateFrom(st WindowState, p *platform.WindowOptions, b platform.Backend) {
 	r := Rectangle{st.X, st.Y, st.Width, st.Height}
-	displays := b.Screen().Displays()
 	p.UseContentSize = false
 	p.Maximized, p.FullScreen = st.Maximized, st.FullScreen
 	p.Width, p.Height = r.Width, r.Height
-	native, nativeOK := b.(platform.WindowStateBackend)
-	if nativeOK {
-		var bounds *platform.Rect
-		if b := st.WindowsBounds; b != nil {
-			bounds = &platform.Rect{X: b.X, Y: b.Y, Width: b.Width, Height: b.Height}
-		}
-		if native.RestoreWindowState(p, bounds) {
-			return
-		}
+	pixels := platform.Rect{X: st.PixelX, Y: st.PixelY, Width: st.PixelWidth, Height: st.PixelHeight}
+	native, inPixels := b.(platform.WindowStateBackend)
+	if inPixels && native.RestoreWindowState(p, pixels) {
+		return
 	}
-	if onDisplay(r, displays) && (!nativeOK || st.WindowsBounds == nil && sameScale(displays)) {
-		p.X, p.Y, p.Width, p.Height = r.X, r.Y, r.Width, r.Height
+	displays := b.Screen().Displays()
+	if onDisplay(r, displays) && (!inPixels || (pixels.Width <= 0 && sameScale(displays))) {
+		p.X, p.Y = r.X, r.Y
 		p.Center = false
 		return
 	}
-	p.Width, p.Height = r.Width, r.Height
 	for _, d := range displays {
 		if d.Primary {
 			p.Width, p.Height = min(r.Width, d.WorkArea.Width), min(r.Height, d.WorkArea.Height)
@@ -154,9 +150,9 @@ func restoreWindowStateFrom(st WindowState, p *platform.WindowOptions, b platfor
 	p.Center = true
 }
 
-// sameScale reports that display coordinates share one DIP scale.
+// sameScale reports whether all the displays have the same scale.
 func sameScale(displays []platform.Display) bool {
-	for _, d := range displays[1:] {
+	for _, d := range displays {
 		if d.ScaleFactor != displays[0].ScaleFactor {
 			return false
 		}
@@ -228,21 +224,24 @@ func (w *Window) captureState() {
 }
 
 // captureWindowState takes the current state from n into st. A maximized,
-// full screen or minimized window keeps st's normal bounds.
+// full screen or minimized window keeps st's normal bounds, and so does
+// one whose bounds or pixels the system does not give.
 func captureWindowState(st WindowState, n platform.Window) WindowState {
 	st.Maximized, st.FullScreen = n.IsMaximized(), n.IsFullScreen()
-	if !st.Maximized && !st.FullScreen && !n.IsMinimized() {
-		if b := n.Bounds(); b.Width > 0 && b.Height > 0 {
-			st.X, st.Y, st.Width, st.Height = b.X, b.Y, b.Width, b.Height
+	if st.Maximized || st.FullScreen || n.IsMinimized() {
+		return st
+	}
+	b := n.Bounds()
+	var px platform.Rect
+	if w, ok := n.(platform.WindowStateWindow); ok {
+		px = w.WindowStateBounds()
+		if px.Width <= 0 || px.Height <= 0 {
+			return st
 		}
-		if native, ok := n.(platform.WindowStateWindow); ok {
-			if b := native.WindowStateBounds(); b.Width > 0 && b.Height > 0 {
-				r := Rectangle{X: b.X, Y: b.Y, Width: b.Width, Height: b.Height}
-				if st.WindowsBounds == nil || *st.WindowsBounds != r {
-					st.WindowsBounds = &r
-				}
-			}
-		}
+	}
+	if b.Width > 0 && b.Height > 0 {
+		st.X, st.Y, st.Width, st.Height = b.X, b.Y, b.Width, b.Height
+		st.PixelX, st.PixelY, st.PixelWidth, st.PixelHeight = px.X, px.Y, px.Width, px.Height
 	}
 	return st
 }

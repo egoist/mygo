@@ -132,17 +132,21 @@ type Backend interface {
 	WebViewAvailable() bool
 }
 
-// WindowStateWindow optionally preserves native geometry that cannot be
-// represented unambiguously by a window's DIP bounds (Windows).
+// WindowStateWindow is a window whose bounds in DIPs, in the scale of its
+// display, cannot tell apart displays of different scales (Windows).
+// WindowStateBounds is its rectangle in the screen's pixels, which window
+// states keep with them.
 type WindowStateWindow interface {
 	WindowStateBounds() Rect
 }
 
-// WindowStateBackend optionally restores that geometry. A false result lets
-// the core use the saved DIP rectangle where its scale makes that
-// unambiguous.
+// WindowStateBackend restores windows at their pixels (Windows):
+// RestoreWindowState sets opts.StateBounds and returns true when pixels,
+// zero for none, would show on a connected display. Otherwise the core
+// restores the state's DIPs where every display has the same scale, and
+// centers the window where they have not.
 type WindowStateBackend interface {
-	RestoreWindowState(opts *WindowOptions, bounds *Rect) bool
+	RestoreWindowState(opts *WindowOptions, pixels Rect) bool
 }
 
 // AppOptions configures Backend.Init.
@@ -345,9 +349,9 @@ type WindowOptions struct {
 	UseContentSize bool
 	MinSize        Size
 	MaxSize        Size
-	// StateBounds is the restored normal rectangle in physical screen
-	// pixels, set by WindowStateBackend on Windows. It overrides X/Y and
-	// Width/Height when the backend places the window.
+	// StateBounds is the window's restored normal rectangle in the
+	// screen's pixels, set by WindowStateBackend. It overrides X, Y,
+	// Width and Height.
 	StateBounds *Rect
 
 	Resizable      bool
