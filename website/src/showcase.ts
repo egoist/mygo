@@ -178,4 +178,14 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/tomoru.jpg",
   },
+  {
+    name: "Quaver Astra",
+    description:
+      "Quaver Astra is a lightweight, cross-platform, native-like build of Quaver Music, developed by Team Quaver using MyGo and enhanced with Wish Coding patches, including GL context guards, Wayland rendering suspension, application identity, GTK accent color integration, UI font scaling, and more.",
+    url: "https://quaver.0w0.red",
+    author: "Ne0W0r1d x Team Quaver",
+    mode: "native",
+    image: "/showcase/quaver-astra.webp",
+  },
+
 ]
