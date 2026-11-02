@@ -125,6 +125,20 @@ func TestFrameCostFits(t *testing.T) {
 	}
 }
 
+// TestFrameCostWithoutReady checks that a frame no Ready started, as a resize's
+// drawn at once, counts no main-thread time: counted from the last frame Ready
+// started, a drag of seconds would have frames build ahead long after it.
+func TestFrameCostWithoutReady(t *testing.T) {
+	var c frameCost
+	c.start = time.Now().Add(-3 * time.Second)
+	if d := c.took(); d < 3*time.Second {
+		t.Fatalf("a frame Ready started took %v", d)
+	}
+	if d := c.took(); d >= 0 {
+		t.Fatalf("the next frame, which no Ready started, took %v", d)
+	}
+}
+
 // TestFittingFrameWaitsForComposition checks a frame that fits: it presents at
 // once, with nothing left pending, and the next waits for the window manager's
 // composition, whose end wakes it, once the screen has room.

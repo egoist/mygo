@@ -48,7 +48,9 @@ type frameCost struct {
 type frameQuery struct {
 	disjoint, t0, t1 uintptr
 	busy             bool
-	main             time.Duration
+	// main is the main thread's part of the frame, or -1 when no Ready started
+	// it, as a resize's frame drawn at once: its cost is not known.
+	main time.Duration
 }
 
 // A frame that takes more of a refresh than fitShare may miss it when building
@@ -116,15 +118,26 @@ func (c *frameCost) begin(ctx uintptr) *frameQuery {
 }
 
 // end notes that the GPU finishes drawing the frame of q and, for its main
-// thread's part, that it took since start.
+// thread's part, that it took since start, which only this frame takes.
 func (c *frameCost) end(ctx uintptr, q *frameQuery) {
 	call(ctx, ctxEnd, q.t1)
 	call(ctx, ctxEnd, q.disjoint)
 	q.busy = true
-	if !c.start.IsZero() {
-		q.main = time.Since(c.start)
-	}
+	q.main = c.took()
 	c.next = (c.next + 1) % len(c.queries)
+}
+
+// took returns how long the main thread took on the frame since start, and
+// forgets start: a frame no Ready started, as the ones a resize draws at once,
+// would count all the time since the last that one did, seconds of a drag, and
+// have frames build ahead long after. Its cost is not known (-1).
+func (c *frameCost) took() time.Duration {
+	if c.start.IsZero() {
+		return -1
+	}
+	d := time.Since(c.start)
+	c.start = time.Time{}
+	return d
 }
 
 // read takes in the timestamps that came, oldest first, without waiting.
@@ -154,7 +167,7 @@ func (c *frameCost) read(ctx uintptr) {
 			return
 		}
 		q.busy = false
-		if clock.Disjoint == 0 && clock.Frequency != 0 && t1 >= t0 {
+		if q.main >= 0 && clock.Disjoint == 0 && clock.Frequency != 0 && t1 >= t0 {
 			c.add(q.main + time.Duration(float64(t1-t0)/float64(clock.Frequency)*float64(time.Second)))
 		}
 	}

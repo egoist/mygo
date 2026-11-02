@@ -3828,7 +3828,8 @@ either.
     frames the screen can take. Frames that make the refresh without building
     ahead, as the last ones' cost tells (`frameCost`: the main thread's time and
     the GPU's timestamps, taken after the frame's clear, which waits for the
-    window manager to give the buffer back), build once it composed the last
+    window manager to give the buffer back; a frame no `Ready` started, as a
+    resize's, counts none, its main thread's time not known), build once it composed the last
     (`DwmFlush`) and there is room, and present with sync interval 0, to show at
     its next composition. Heavier frames build ahead and present with sync
     interval 1, which keeps them at the display's pace a refresh later. A frame of a new size is
