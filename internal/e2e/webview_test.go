@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -403,8 +404,19 @@ window.ready = true;
 		}
 	}
 
+	if _, err := v.Page().Eval("window.downs = 0; addEventListener('keydown', () => window.downs++, true)"); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("TEMP before J: %s", responderState(w))
 	press('J', false)
-	eventually(t, "J the page leaves to reach the shortcut around the web view", func() bool { return count(&js) == 1 })
+	for deadline := time.Now().Add(15 * time.Second); count(&js) != 1; time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			downs, _ := mygo.EvalAs[float64](v.Page(), "window.downs")
+			focus, _ := mygo.EvalAs[string](v.Page(), "document.hasFocus() + ' ' + (document.activeElement && document.activeElement.tagName)")
+			t.Fatalf("TEMP J not forwarded: page keydowns %v, focus %s, state %s", downs, focus, responderState(w))
+		}
+	}
+	t.Logf("TEMP after J: %s", responderState(w))
 	press('L', false)
 	waitForPage(t, v.Page(), "window.took === 'l'")
 	press('K', false)

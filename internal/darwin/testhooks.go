@@ -1453,3 +1453,26 @@ func TestDismissPageMenu() {
 		send(openContextMenu, "cancelTracking")
 	}
 }
+
+// TestResponderState is a TEMP diagnostic.
+func TestResponderState(handle uintptr) string {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil {
+		return "no window"
+	}
+	var out string
+	withPool(func() {
+		r := send(w.win, "firstResponder")
+		cls := ""
+		if r != 0 {
+			cls = goString(send(send(r, "className"), "description"))
+		}
+		kw := send(theBackend.app, "keyWindow")
+		out = fmt.Sprintf("firstResponder=%s isKey=%v appActive=%v keyWindowIsOurs=%v keyWindow=%#x webViews=%d", cls, sendBool(w.win, "isKeyWindow"), sendBool(theBackend.app, "isActive"), kw == w.win, kw, len(w.webViews))
+		if len(w.webViews) > 0 {
+			v := w.webViews[0]
+			out += fmt.Sprintf(" clip=%#x clipSuper=%#x webSuper=%#x webNext=%#x", v.clip, send(v.clip, "superview"), send(v.web, "superview"), send(v.web, "nextResponder"))
+		}
+	})
+	return out
+}
