@@ -95,6 +95,9 @@ as long as it would show on a connected display. They override `X`, `Y`,
 stay the defaults of the first launch. Give each kind of window its own key:
 `"main"`, `"preferences"`.
 
+On Windows, MyGo also keeps the normal window's physical pixel bounds, so
+windows on displays with different scale factors return to the same place.
+
 An app that keeps its data elsewhere, such as in its own database, keeps
 the states there with a `WindowStateStore`, set before the first window
 with a `StateKey`, and no `window-state.json` is written:

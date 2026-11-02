@@ -119,11 +119,28 @@ func restoreWindowState(key string, p *platform.WindowOptions) {
 	if !ok || st.Width <= 0 || st.Height <= 0 {
 		return
 	}
+	restoreWindowStateFrom(st, p, backend())
+}
+
+// restoreWindowStateFrom applies st through b. Windows can restore native
+// physical bounds that the DIP rectangle alone cannot identify.
+func restoreWindowStateFrom(st WindowState, p *platform.WindowOptions, b platform.Backend) {
 	r := Rectangle{st.X, st.Y, st.Width, st.Height}
-	displays := backend().Screen().Displays()
+	displays := b.Screen().Displays()
 	p.UseContentSize = false
 	p.Maximized, p.FullScreen = st.Maximized, st.FullScreen
-	if onDisplay(r, displays) {
+	p.Width, p.Height = r.Width, r.Height
+	native, nativeOK := b.(platform.WindowStateBackend)
+	if nativeOK {
+		var bounds *platform.Rect
+		if b := st.WindowsBounds; b != nil {
+			bounds = &platform.Rect{X: b.X, Y: b.Y, Width: b.Width, Height: b.Height}
+		}
+		if native.RestoreWindowState(p, bounds) {
+			return
+		}
+	}
+	if onDisplay(r, displays) && (!nativeOK || st.WindowsBounds == nil && sameScale(displays)) {
 		p.X, p.Y, p.Width, p.Height = r.X, r.Y, r.Width, r.Height
 		p.Center = false
 		return
@@ -135,6 +152,16 @@ func restoreWindowState(key string, p *platform.WindowOptions) {
 		}
 	}
 	p.Center = true
+}
+
+// sameScale reports that display coordinates share one DIP scale.
+func sameScale(displays []platform.Display) bool {
+	for _, d := range displays[1:] {
+		if d.ScaleFactor != displays[0].ScaleFactor {
+			return false
+		}
+	}
+	return true
 }
 
 // onDisplay reports whether enough of r shows on a display to reach it.
@@ -190,13 +217,7 @@ func (w *Window) captureState() {
 		return
 	}
 	loadWindowStates()
-	st := windowStates.byKey[w.stateKey]
-	st.Maximized, st.FullScreen = n.IsMaximized(), n.IsFullScreen()
-	if !st.Maximized && !st.FullScreen && !n.IsMinimized() {
-		if b := n.Bounds(); b.Width > 0 && b.Height > 0 {
-			st.X, st.Y, st.Width, st.Height = b.X, b.Y, b.Width, b.Height
-		}
-	}
+	st := captureWindowState(windowStates.byKey[w.stateKey], n)
 	if st.Width <= 0 || st.Height <= 0 {
 		return
 	}
@@ -204,6 +225,26 @@ func (w *Window) captureState() {
 		windowStates.byKey[w.stateKey] = st
 		windowStates.dirty = true
 	}
+}
+
+// captureWindowState takes the current state from n into st. A maximized,
+// full screen or minimized window keeps st's normal bounds.
+func captureWindowState(st WindowState, n platform.Window) WindowState {
+	st.Maximized, st.FullScreen = n.IsMaximized(), n.IsFullScreen()
+	if !st.Maximized && !st.FullScreen && !n.IsMinimized() {
+		if b := n.Bounds(); b.Width > 0 && b.Height > 0 {
+			st.X, st.Y, st.Width, st.Height = b.X, b.Y, b.Width, b.Height
+		}
+		if native, ok := n.(platform.WindowStateWindow); ok {
+			if b := native.WindowStateBounds(); b.Width > 0 && b.Height > 0 {
+				r := Rectangle{X: b.X, Y: b.Y, Width: b.Width, Height: b.Height}
+				if st.WindowsBounds == nil || *st.WindowsBounds != r {
+					st.WindowsBounds = &r
+				}
+			}
+		}
+	}
+	return st
 }
 
 // closeState captures the state of a closing window for the last time,
