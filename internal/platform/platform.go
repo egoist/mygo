@@ -1253,7 +1253,11 @@ type Notification struct {
 	Silent   bool
 	// Group gathers the notifications that share it (threadIdentifier on
 	// macOS).
-	Group  string
+	Group string
+	// Image is shown with the notification: PNG or JPEG, or nil. The core
+	// links the backend's code of images (LinkNotificationImages) before
+	// it gives one.
+	Image  []byte
 	Sender *NotificationSender
 }
 

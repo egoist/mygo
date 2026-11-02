@@ -119,6 +119,26 @@ mygo.NewNotification(mygo.NotificationOptions{
 }).Show()
 ```
 
+`Image` shows an image with the notification, the bytes of a PNG or JPEG,
+such as the cover of the track that started playing. macOS attaches it,
+as a thumbnail that grows as the notification expands; Linux gives the
+desktop's notification service its pixels, scaled down to fit 256 pixels;
+Windows shows it as the balloon's large icon, in place of the app's. An
+image the system cannot decode leaves the notification without one.
+`NewNotification` copies it, so the app can reuse its buffer; MyGo does
+not fetch remote images:
+
+```go
+// One notification for what plays, replaced as the track changes.
+mygo.NewNotification(mygo.NotificationOptions{
+	ID:     "now-playing",
+	Title:  track.Title,
+	Body:   track.Artist + " — " + track.Album,
+	Image:  track.Cover,
+	Silent: true,
+}).Show()
+```
+
 ### Sender avatars on macOS
 
 An incoming direct message can supply a sender to display a prominent

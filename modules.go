@@ -862,6 +862,14 @@ type NotificationOptions struct {
 	// Notification Center (macOS), such as the messages of a conversation.
 	// Empty leaves them in the app's.
 	Group string
+	// Image is an encoded image, PNG or JPEG, that the notification shows
+	// with its text, such as the cover of the track that started playing:
+	// an attachment on macOS, whose thumbnail grows as the notification
+	// expands, the notification's image on Linux, and the balloon's large
+	// icon on Windows. An image the system cannot decode leaves the
+	// notification without one. MyGo does not fetch remote images.
+	// NewNotification copies it.
+	Image []byte
 	// Sender describes the sender of an incoming direct message. macOS 12+
 	// can show its avatar with the app's small icon when the signed app has
 	// the Communication Notifications capability. Otherwise, or if preparing
@@ -935,6 +943,10 @@ func NewNotification(opts NotificationOptions) *Notification {
 		// Unique across runs too, as notifications outlive them.
 		id = "mygo-" + randomText()
 	}
+	opts.Image = slices.Clone(opts.Image)
+	if len(opts.Image) > 0 {
+		linkNotificationImages()
+	}
 	if opts.Sender != nil {
 		sender := *opts.Sender
 		sender.Name = cmp.Or(sender.Name, opts.Title)
@@ -999,6 +1011,7 @@ func (n *Notification) ShowContext(ctx context.Context) error {
 			Body:     n.opts.Body,
 			Silent:   n.opts.Silent,
 			Group:    n.opts.Group,
+			Image:    n.opts.Image,
 		}
 		if s := n.opts.Sender; s != nil {
 			note.Sender = &platform.NotificationSender{ID: s.ID, Name: s.Name, Avatar: s.Avatar}
