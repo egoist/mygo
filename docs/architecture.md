@@ -3419,7 +3419,12 @@ either.
     the surface's conversion (`scrollWheel`) instead of WebKit. WebKit
     sends a key the page did not handle again, and the WKWebView on up
     the responder chain: `MyGoClipView`'s `keyDown:` sends it to the
-    surface as `WebViewKey` (`unhandledKey`), Tab aside.
+    surface as `WebViewKey` (`unhandledKey`), Tab aside. An Escape (or
+    Cmd+.) comes as `cancelOperation:` first: WebKit sends a command its
+    web process does not know up the chain and resends the key only if
+    no responder took the command, and the `NSPanel` of a flyout takes
+    it, so `MyGoClipView` takes `cancelOperation:` itself and sends
+    `WebViewKey` with Escape (`unhandledCommand`).
   - Linux: the first web view puts the surface's area in a `GtkOverlay`,
     over a `GtkLayout` holding the WebKitWebViews (which, unlike a
     `GtkFixed`, asks for no size), as an overlay, which GTK realizes again
