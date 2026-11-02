@@ -2582,9 +2582,63 @@ either.
   its velocity through changes and a delay holds them. Colors move as
   elements paint, after their `styleFn`. A `Match` moves an element
   appearing where another of the same identity showed the frame before
-  (`rt.matched`, in window coordinates) after `place` (`animateMatches`),
-  laying it out anew at each box on the way, across parents and scroll
-  offsets. An element appears with
+  (`ui/match.go`, `matchRec`, in window coordinates) after `place`
+  (`matches.move`), laying it out anew at each box on the way, or scaling
+  it (`ScaleContent`), across parents and scroll offsets, from the colors
+  the other showed (`matches.claim` notes them before `animateExits`
+  forgets it). With `Fly`, it blends the other's corners, opacity, text
+  color and transform into its own (decomposed as CSS does, in 3D into a
+  quaternion slerped the short way, whose sign holds at half a turn), and
+  the transform of the
+  elements around the other into that of its own (`worldAround`, shown
+  with a transform of its own, `under`). The element it came from goes
+  with it if it flies too, fading out as it fades in (Motion's crossfade
+  curves): itself while still built, as in a page going away, else a copy
+  that `matches.claim` takes, in place of its `Exit`, from the arena of
+  the frame before, which frames with an element flying keep as those
+  with an `Exit` do, with the text style and the theme of the elements
+  around it; copies of its ancestors going away hide theirs. Both are
+  `lift`ed, over the rest of their layer: the window's content, which the
+  root paints them over before the overlays, or the overlay they are in,
+  which its layer paints them over (`matches.paint`), out of their
+  ancestors' clips and opacity, in the theme of the `Themed` around them.
+  `commit` lists their hits there too (`engine.liftHits`, put over each
+  layer as the next starts), where `contains` stops at them the clips
+  around them, so that they take the pointer where they paint. Each is
+  placed where its content sits on the pixels as at rest, and shown where
+  it is with a translation (`matches.pin`), which elements flying inside
+  it take into account, so that its text moves as one, smoothly, and ends
+  as text at rest; a flight ends with its look, its box within a quarter
+  of a point of its own. One gone with an ancestor going as its `Exit`
+  says flies on as its copy in the ancestor's (`matches.flyOn`), from
+  where it showed to where that copy has it, its colors going on as its
+  transition moved them, fading as that copy fades; other copies of
+  elements flying (`ghostOf`) no longer fly. A text flying with
+  `ContentTransition`'s `Morph` takes the other's text layout into its
+  content transition instead, whose `morph` (`ui/morph.go`) pairs the
+  glyphs it comes from (`morphGlyph`, the old layout's, colored by the
+  spans its rich text last painted with, which `morphRest` keeps) with
+  the clusters of its layout (their longest common sequence, then the
+  nearest of the same characters left) and moves, scales and recolors the
+  glyphs of each pair, fading the others, the old text's going with the
+  element's box, and the lines and highlights of both texts' styles and
+  spans. It places each glyph as text at rest where the box goes would
+  (`text.System.Origin`), drawn at the quarter of an octave nearest the
+  size it shows, and moves it from there with a transform, so that the
+  glyphs move smoothly and together, rather than each a pixel at a time,
+  and end as text at rest. A text sent back to the one it morphs from
+  before it got there morphs back from as far from the end as it was from
+  the start, which shows the same; one that another text takes over
+  morphs from its glyphs as they showed (`snapMorph`, from the same walk
+  of them, `morphPairs.each`, as painting them). `ContentTransition`
+  links `morph` only for a `Morph`, so that apps without one link none of
+  it. A frame without an
+  element on its way notes only where each `Match` showed and the element
+  that showed it (`matchRec.node`), whose look and the transform of the
+  elements around it an element flying from it reads in the next frame,
+  from the arena kept, rather than each frame noting them. The engine has
+  its `matcher` only once a `Transition` has a `Match` or `ScaleContent`,
+  so that apps without them link none of it. An element appears with
   its `Enter` only in a parent the frame before had. One no longer built,
   whose parent still is, goes with its `Exit` as an inert copy, laid out
   and painted under its siblings without taking room: frames that built
@@ -2833,7 +2887,11 @@ either.
   over the page left, the one going away built too, inert (`flagInert`:
   painted, without hits, focus, labels, accessibility nor `Context`
   shortcuts), absolutely positioned over the one in flow, both offset by
-  their insets as relative positioning; others fade in alone. The first
+  their insets as relative positioning; others fade in alone. With
+  `TransitionMatch`, the page going away is built too, inert, fading out
+  under the page coming, absolutely positioned and fading in, while the
+  elements of a `Match` move between them: those of the page going away
+  that flew with the page's show no more (`inert`, in `match.go`). The first
   router of a frame takes the back and forward keys for the window, each
   one also for the focus inside it, which comes first.
 - **Comboboxes** (`ui/combobox.go`). A combobox is a text input with a
