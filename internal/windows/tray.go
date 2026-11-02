@@ -361,6 +361,11 @@ func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 }
 
 func (b *Backend) showNotification(n *platform.Notification) error {
+	if old := b.notifications[n.ID]; old != nil {
+		// Shown again under its ID: the notification it replaces gives up
+		// its tray, and its balloon's icon, rather than leaving them.
+		b.finishNotification(old.tray)
+	}
 	var t *tray
 	for _, x := range b.trays {
 		if !x.temporary && x.notification == "" && x.added {
