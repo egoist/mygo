@@ -573,6 +573,10 @@ type state struct {
 
 	world scene.Affine
 	clips bool
+	// lifted tells that it was an element flying with a Match, which
+	// takes the pointer where it paints: over the rest of its layer, out
+	// of its ancestors' clips (matches.lifted).
+	lifted bool
 	// rtl tells that the element was laid out right to left: a scroll
 	// container's horizontal offset counts from the right, and its
 	// vertical scroll bar is on the left.

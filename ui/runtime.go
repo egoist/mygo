@@ -175,7 +175,12 @@ type engine struct {
 
 	// What the last frame laid out, for input until the next one: the
 	// focus order, with the scope of each element, and the dialog on top.
-	hits        []hit
+	hits []hit
+	// liftHits gathers the hits of the elements flying as the frame
+	// commits, which go over the rest of their layer, as they paint
+	// (matches.paint); lifting tells that one is committing.
+	liftHits    []hit
+	lifting     bool
 	focusOrder  []uint64
 	focusScopes []focusScope
 	modal       uint64
@@ -213,12 +218,14 @@ type engine struct {
 
 	// trans are the transitions of the elements given one, by ID
 	// (transition.go): exitsBuilt tells that the last frame built elements
-	// with an Exit, whose arena the next frame keeps to copy those that
-	// go, laidW and laidH are the size the last frame was laid out at, and
-	// byID maps a frame's elements, for the copies going.
+	// with an Exit or flying with a Match, whose arena the next frame
+	// keeps to copy those that go, laidW and laidH are the size the last
+	// frame was laid out at, and byID maps a frame's elements, for the
+	// copies going.
 	trans map[uint64]*transition
-	// matched is where the elements of a Transition's Match showed.
-	matched map[any]*matchRec
+	// matches moves the elements of a Transition's Match, once one has
+	// one (match.go).
+	matches matcher
 	// instantFrame is the frame that DisableAnimations shows at once.
 	instantFrame uint64
 	// paints counts the frames painted, those painting the last frame's
@@ -1135,7 +1142,7 @@ func (rt *engine) endFrame() {
 // commit records the laid out frame in the elements' states: their
 // boxes, the hit list in paint order, the focus order.
 func (rt *engine) commit(root *node, w, h float32) {
-	rt.hits = rt.hits[:0]
+	rt.hits, rt.liftHits = rt.hits[:0], rt.liftHits[:0]
 	clear(rt.posed)
 	rt.posed = rt.posed[:0]
 	clear(rt.webPlaces)
@@ -1151,6 +1158,7 @@ func (rt *engine) commit(root *node, w, h float32) {
 	// The window, which the inspector shares with the root.
 	full := Rect{0, 0, w, h}
 	rt.commitElement(root, full, false)
+	rt.liftHitsOver()
 	rt.inkStale = false
 	rt.arrangeFocus()
 	rt.noteGroups()
@@ -1187,6 +1195,16 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	s.clips = e.flags&(flagClipX|flagClipY|flagScrollX|flagScrollY) != 0
 	if s.clips {
 		s.clipRect, s.clipRadii = e.clipRect()
+	}
+	if len(rt.liftHits) > 0 && (e == e.c.overlay || e.parent != nil && e.parent == e.c.overlay) {
+		// The elements flying in the layer before, the window's content
+		// or an overlay, go over it, under this one.
+		rt.liftHitsOver()
+	}
+	s.lifted = e.lift
+	lifting := e.lift && !rt.lifting
+	if lifting {
+		clip = rt.lift()
 	}
 	s.x, s.y, s.w, s.h = e.x, e.y, e.w, e.h
 	if e.parent != nil {
@@ -1306,11 +1324,32 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 			rt.commitElement(ch, clip, invisible)
 		}
 	}
+	if lifting {
+		rt.lift()
+	}
 	e.setInk(vis)
 	if e.hidden {
 		// It paints nothing, wherever it is.
 		e.ink, e.noCull = [4]float32{inf, inf, -inf, -inf}, false
 	}
+}
+
+// lift starts or ends committing an element flying, which takes the
+// pointer where it paints: its hits go over the rest of its layer
+// (liftHits), out of the clips around it, but the window's, which it
+// returns.
+func (rt *engine) lift() Rect {
+	rt.lifting = !rt.lifting
+	rt.hits, rt.liftHits = rt.liftHits, rt.hits
+	w, h, _ := rt.size()
+	return Rect{0, 0, w, h}
+}
+
+// liftHitsOver puts the hits of the elements flying over those committed
+// so far, as a layer ends: the window's content or an overlay.
+func (rt *engine) liftHitsOver() {
+	rt.hits = append(rt.hits, rt.liftHits...)
+	rt.liftHits = rt.liftHits[:0]
 }
 
 func intersect(a, b Rect) Rect {
