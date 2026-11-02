@@ -361,9 +361,38 @@ func webViewMethods() []objc.MethodDef {
 	}
 }
 
+// unhandledKey gives the content a key that the page of the web view in
+// the clip view clip left unhandled, and reports whether it did. WebKit
+// sends such a key on up the responder chain, to the clip view: the
+// surface, a sibling of the clip view, would never get it. Tab stays out
+// of it, as WebKit moves the keyboard with it.
+func unhandledKey(clip, ev id) bool {
+	var w *window
+	for _, v := range theBackend.byWebView {
+		if v.clip == clip {
+			w = v
+			break
+		}
+	}
+	if w == nil || w.host == nil || w.host.closed || w.host.surface == nil {
+		return false
+	}
+	k := eventKey(ev)
+	if k == platform.KeyTab {
+		return false
+	}
+	w.host.surface.send(platform.SurfaceEvent{Kind: platform.WebViewKey, Key: k, PhysicalKey: physicalKey(ev), Mods: eventMods(ev), Repeat: sendBool(ev, "isARepeat"), WebView: w})
+	return true
+}
+
 func registerClipViewClass() {
 	classDef("MyGoClipView", "NSView", nil, []objc.MethodDef{
 		method("isFlipped", func(self id, _ objc.SEL) bool { return true }),
+		method("keyDown:", func(self id, cmd objc.SEL, ev id) {
+			if !unhandledKey(self, ev) {
+				sendSuper(self, "MyGoClipView", cmd, uintptr(ev))
+			}
+		}),
 		// Assistive technology finds the page in the element of the
 		// content showing it, not beside the content.
 		method("accessibilityChildren", func(self id, _ objc.SEL) id { return nsArray() }),
