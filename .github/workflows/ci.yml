@@ -131,14 +131,14 @@ jobs:
         if: runner.os != 'Linux'
         env:
           MYGO_E2E: 1
-        run: go test ./internal/e2e
+        run: go test -v -run "UnhandledKey" ./internal/e2e && go test ./internal/e2e
       - name: GUI tests
         if: runner.os == 'Linux'
         env:
           MYGO_E2E: 1
           XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
           XDG_CONFIG_HOME: ${{ runner.temp }}/xdg-config
-        run: xvfb-run -a dbus-run-session -- go test ./internal/e2e
+        run: xvfb-run -a dbus-run-session -- go test -v -run "UnhandledKey" ./internal/e2e && go test ./internal/e2e
       # Runners have no GPU, so native UI draws on the CPU above; MYGO_GPU=1
       # draws it with OpenGL all the same, on Mesa's llvmpipe.
       - name: GUI tests of native UI drawn with OpenGL

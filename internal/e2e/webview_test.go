@@ -399,7 +399,7 @@ window.ready = true;
 	press := func(letter byte, cmd bool) {
 		t.Helper()
 		if !pressLetter(w, letter, cmd) {
-			t.Skip("key automation not available on this platform")
+			t.Fatal("TEMP: key automation not available on this platform")
 		}
 	}
 
@@ -459,8 +459,9 @@ func TestContentWindowWebViewUnhandledKeysInFrame(t *testing.T) {
 	}
 	waitForPage(t, v.Page(), "document.hasFocus() && document.activeElement.tagName === 'IFRAME'")
 	if !pressLetter(w, 'J', false) {
-		t.Skip("key automation not available on this platform")
+		t.Fatal("TEMP: key automation not available on this platform")
 	}
+	defer t.Log("TEMP-RAN frame")
 	eventually(t, "J the frame leaves to reach the window's shortcut", func() bool {
 		w.Invalidate()
 		return js.Load() == 1
