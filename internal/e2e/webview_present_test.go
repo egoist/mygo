@@ -154,18 +154,6 @@ requestAnimationFrame(() => requestAnimationFrame(() => { window.ready = true })
 	}
 
 	f := at(1)
-	if runtime.GOOS == "windows" {
-		// Temporary: what the display shows, to tell the runners apart.
-		var seen string
-		for _, p := range [][2]float32{{24, 24}, {f.X + f.W/2, f.Y + f.H/2}, {f.X + 3, f.Y + 3}, {f.X + f.W - 4, f.Y + f.H - 4}, {390, 290}} {
-			r, g, b, ok := screenPixel(w, float64(p[0]), float64(p[1]))
-			seen += fmt.Sprintf(" (%.0f, %.0f) #%02x%02x%02x %v", p[0], p[1], r, g, b, ok)
-		}
-		noRedirect, composed, _ := composition(w)
-		t.Cleanup(func() {
-			t.Errorf("diagnostic, %s: patch %s, readable %v; unscaled the display shows%s; no redirection %v, composed %v; resizes %q", runtime.GOARCH, patch, readable, seen, noRedirect, composed, resizes())
-		})
-	}
 	shows("unscaled", f)
 	if !click(w, float64(f.X+f.W/2), float64(f.Y+f.H/2)) {
 		t.Skip("click automation not available on this platform")
