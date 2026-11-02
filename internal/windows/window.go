@@ -312,10 +312,17 @@ func (w *window) styles() (style, ex uint32) {
 // monitor it appears on: the primary one for a centered window, and for
 // one with a position, the one its rectangle is on in the screen's DIPs
 // (dipSpace).
+//
+// It has Windows compute the frame again (SWP_FRAMECHANGED): during
+// CreateWindowEx the window is not in Backend.windows yet, so
+// WM_NCCALCSIZE gives it the frame of DefWindowProc, a whole title bar
+// on one without a caption (frameCalcSize). A window created at its
+// rectangle (initialWindowBounds) keeps its size here, and a move alone
+// sends no WM_NCCALCSIZE.
 func (w *window) placeInitially() {
 	o := w.opts
 	if r := o.StateBounds; r != nil {
-		w.place(rect{int32(r.X), int32(r.Y), int32(r.X + r.Width), int32(r.Y + r.Height)})
+		w.place(rect{int32(r.X), int32(r.Y), int32(r.X + r.Width), int32(r.Y + r.Height)}, swpFrameChanged)
 		return
 	}
 	var p platform.Rect // the window's, or its content's, in pixels
@@ -340,20 +347,20 @@ func (w *window) placeInitially() {
 		x = work.Left + (work.Right-work.Left-width)/2
 		y = work.Top + (work.Bottom-work.Top-height)/2
 	}
-	w.place(rect{x, y, x + width, y + height})
+	w.place(rect{x, y, x + width, y + height}, swpFrameChanged)
 	if o.UseContentSize && !w.captionless() {
 		w.fitContent(width, height, int32(p.Width), int32(p.Height), false, 0, 0)
 	}
 }
 
 // place moves the window to r, in pixels, computed in the DPI of the
-// display r is on: where that DPI is not the window's, WM_DPICHANGED keeps
-// r, rather than the rectangle it suggests, which scales r's size by the
-// change of DPI a second time.
-func (w *window) place(r rect) {
+// display r is on, with SetWindowPos's flags besides: where that DPI is
+// not the window's, WM_DPICHANGED keeps r, rather than the rectangle it
+// suggests, which scales r's size by the change of DPI a second time.
+func (w *window) place(r rect, flags uintptr) {
 	prev := w.placing
 	w.placing = &r
-	procSetWindowPos.Call(w.hwnd, 0, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right-r.Left), uintptr(r.Bottom-r.Top), swpNoZOrder|swpNoActivate)
+	procSetWindowPos.Call(w.hwnd, 0, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right-r.Left), uintptr(r.Bottom-r.Top), swpNoZOrder|swpNoActivate|flags)
 	w.placing = prev
 }
 
@@ -376,7 +383,7 @@ func (w *window) fitContent(outerW, outerH, wantW, wantH int32, at bool, atX, at
 	if dw == 0 && dh == 0 && dx == 0 && dy == 0 {
 		return
 	}
-	w.place(rect{wr.Left + dx, wr.Top + dy, wr.Left + dx + outerW + dw, wr.Top + dy + outerH + dh})
+	w.place(rect{wr.Left + dx, wr.Top + dy, wr.Left + dx + outerW + dw, wr.Top + dy + outerH + dh}, 0)
 }
 
 // outerSize returns the window size for a content size, in pixels.
@@ -929,7 +936,7 @@ func utf16Decode(b []uint16) []rune {
 // the scale of the display r is on.
 func (w *window) SetBounds(r platform.Rect) {
 	p, _ := screenSpace().rectToPixels(r)
-	w.place(rect{int32(p.X), int32(p.Y), int32(p.X + p.Width), int32(p.Y + p.Height)})
+	w.place(rect{int32(p.X), int32(p.Y), int32(p.X + p.Width), int32(p.Y + p.Height)}, 0)
 }
 
 // Bounds returns the window's rectangle in the screen's DIPs, at the
@@ -952,7 +959,7 @@ func (w *window) SetContentBounds(r platform.Rect) {
 		menu = 1
 	}
 	w.addFrame(&outer, menu, dpi)
-	w.place(outer)
+	w.place(outer, 0)
 	if !w.captionless() {
 		w.fitContent(outer.Right-outer.Left, outer.Bottom-outer.Top, int32(p.Width), int32(p.Height), true, int32(p.X), int32(p.Y))
 	}
