@@ -530,6 +530,7 @@ var (
 	appIndicatorSetIconThemePath func(ind ptr, path *byte)
 	appIndicatorSetTitle         func(ind ptr, title *byte)
 	appIndicatorSetLabel         func(ind ptr, label, guide *byte)
+	appIndicatorSetTooltipTitle  func(ind ptr, title *byte)
 )
 
 var webkitVersion string
@@ -852,6 +853,7 @@ func load() error {
 		bind(libIndicator, &appIndicatorSetIconThemePath, "app_indicator_set_icon_theme_path")
 		bind(libIndicator, &appIndicatorSetTitle, "app_indicator_set_title")
 		bind(libIndicator, &appIndicatorSetLabel, "app_indicator_set_label")
+		bind(libIndicator, &appIndicatorSetTooltipTitle, "app_indicator_set_tooltip_title")
 	}
 	return nil
 }
