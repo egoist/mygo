@@ -97,6 +97,15 @@ jobs:
           go build $(go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v /cmd/mygo)
           go vet $(go list ./... | grep -v /cmd/mygo)
           go test -exec "$(go env GOROOT)/lib/wasm/go_js_wasm_exec" ./internal/web ./internal/gpu/gl
+      # Phones link with their own toolchains (cgo): Xcode's clang for iOS,
+      # the NDK's for Android, which the macOS runners have.
+      - name: Vet iOS and Android
+        if: runner.os == 'macOS'
+        run: |
+          sdk=$(xcrun --sdk iphoneos --show-sdk-path)
+          GOOS=ios GOARCH=arm64 CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $sdk -arch arm64 -miphoneos-version-min=16.0" go vet ./...
+          ndk=$(ls -d "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/*/bin)
+          GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC=$ndk/aarch64-linux-android26-clang go vet ./...
       # The plugins' tests load the native libraries their mygo-plugin.json
       # pins, and on Windows the installer tests run the NSIS that
       # internal/nsis pins, all of which they download into the user's cache
@@ -188,3 +197,33 @@ jobs:
         env:
           MYGO_E2E: 1
         run: go test -run 'TestContentWindow' ./internal/e2e
+
+  # The hosts of phones are in Swift and Kotlin, which go vet does not read:
+  # building an app compiles them, with the Go code linked in. One target of
+  # each is enough, as the host's source is the same for the others.
+  mobile:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: iOS app, os: macos-latest, platform: ios/simulator }
+          - { name: Android app, os: ubuntu-latest, platform: android/arm64 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v6
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v4
+        if: runner.os == 'Linux'
+        with:
+          packages: platform-tools platforms;android-36 ndk;27.1.12297006
+      - name: Build the app
+        run: go run ./cmd/mygo build -platform ${{ matrix.platform }} examples/counter-native

@@ -92,6 +92,9 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	p.cull = !rt.inkStale && !rt.noCull
 	p.element(root)
 	p.cull = false
+	if touchPaint != nil {
+		touchPaint(rt, p)
+	}
 	if rt.insp.open {
 		rt.insp.paintHighlight(rt, p, h)
 	}
@@ -402,6 +405,9 @@ func (p *Painter) element(e *node) {
 	}
 	if e.scrolls() && own {
 		p.scrollbars(e)
+		if refreshPainter != nil {
+			refreshPainter(p, e)
+		}
 	}
 	if own && borderOver {
 		p.border(e, box)
@@ -1155,11 +1161,24 @@ func (p *Painter) scrollbars(e *node) {
 	// (scrollbarPress). Kept, they show as on hover, the same thumb on no
 	// track, so that the pointer coming over changes nothing.
 	hide, keep := e.scrollbars()
-	st.barsShown = !hide && (keep || hovered || dragging)
-	if !st.barsShown {
-		return
-	}
+	// A finger is no pointer hovering, on it or after it, however it ended: only
+	// a mouse or a trackpad, as on a tablet, shows them by being over them.
+	st.barsShown = !hide && (keep || hovered && !rt.lastPointerTouch || dragging)
 	color := theme.Scrollbar
+	touching := false
+	if !st.barsShown {
+		// A finger shows it for a moment as it moves the content, and it
+		// fades: no press takes it.
+		if touchBars == nil {
+			return
+		}
+		fade := touchBars(st, rt)
+		if hide || fade <= 0 {
+			return
+		}
+		color.A = uint8(float32(color.A) * fade)
+		touching = true
+	}
 	w, h := e.contentW, e.contentH
 	x, y := st.scrollX, st.scrollY
 	if dragging {
@@ -1170,7 +1189,11 @@ func (p *Painter) scrollbars(e *node) {
 		x = rescale(x, e.contentW-float64(e.w), w-float64(e.w))
 		y = rescale(y, e.contentH-float64(e.h), h-float64(e.h))
 	}
-	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, float32(w), float32(h), float32(x), float32(y), e.flags, theme.scrollbarWidth(), e.rtl())
+	width := theme.scrollbarWidth()
+	if touching {
+		width = touchIndicatorWidth
+	}
+	g := scrollBars(Rect{e.x, e.y, e.w, e.h}, e.barInset, float32(w), float32(h), float32(x), float32(y), e.flags, width, e.rtl())
 	if g.vertical {
 		p.scrollThumbFill(g.v, false, dragging && !rt.scrollDrag.horizontal, color)
 	}

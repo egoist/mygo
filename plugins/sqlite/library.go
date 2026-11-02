@@ -60,6 +60,10 @@ func LibraryPath() (string, error) {
 	if path := os.Getenv("MYGO_SQLITE_LIBRARY"); path != "" {
 		return filepath.Abs(path)
 	}
+	// Phones: the CLI compiled it into the app (mobile.native).
+	if path := mygo.NativeLibrary("mygo-sqlite3"); path != "" {
+		return path, nil
+	}
 	var m struct {
 		Libraries []struct {
 			Name  string                `json:"name"`

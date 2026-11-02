@@ -1,7 +1,8 @@
 # SQLite
 
 SQLite for MyGo, with Go connections and the `@mygo-plugins/sqlite`
-TypeScript client. The plugin ships prebuilt SQLite libraries and loads
+TypeScript client. On phones the CLI compiles SQLite into the app with the
+SDK's compiler, 64-bit only. Elsewhere the plugin ships prebuilt SQLite libraries and loads
 them through purego, so apps build without cgo or a C compiler.
 
 Register `mygo.Use(sqlite.Plugin)` only when the web frontend uses

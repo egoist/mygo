@@ -31,6 +31,8 @@ Commands:
 	dev                  run a development build with live reload
 	build                build production apps (a .app and a .dmg on macOS)
 	keygen               create the key pair that signs updates
+	devices              list the simulators, emulators and devices mygo dev -device takes
+	publish              upload a build to the App Store or Google Play
 	doctor               check that the development environment is ready
 	version              print the MyGo version
 
@@ -51,7 +53,7 @@ func main() {
 	}
 	// Ctrl+C leaves the line of a step in progress, not its spinner. mygo dev
 	// stops its app first.
-	if cmd == "build" || cmd == "generate" || cmd == "gen" || cmd == "init" {
+	if cmd == "build" || cmd == "generate" || cmd == "gen" || cmd == "init" || cmd == "publish" {
 		go func() {
 			sig := make(chan os.Signal, 1)
 			signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -80,6 +82,10 @@ func main() {
 		err = runBuild(args)
 	case "doctor":
 		err = runDoctor(args)
+	case "devices":
+		err = runDevices(args)
+	case "publish":
+		err = runPublish(args)
 	case "keygen":
 		err = runKeygen(args)
 	case "sign-uninstaller": // run by makensis, see uninstallerSigning

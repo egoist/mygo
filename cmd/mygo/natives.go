@@ -63,7 +63,7 @@ func (c *Config) natives(goos, goarch string) ([]source, error) {
 		arch = "arm64" // the packages are the same
 	}
 	var out, stderr bytes.Buffer
-	cmd := goCommand(c.root, []string{"GOOS=" + goos, "GOARCH=" + arch}, "list", "-e", "-deps", "-f", "{{.Dir}}", c.Main)
+	cmd := goCommand(c.root, listEnv(goos, arch), "list", "-e", "-deps", "-f", "{{.Dir}}", c.Main)
 	cmd.Stdout, cmd.Stderr = &out, &stderr
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("go list: %v\n%s", err, strings.TrimSpace(stderr.String()))
@@ -83,7 +83,7 @@ func (c *Config) natives(goos, goarch string) ([]source, error) {
 			return nil, fmt.Errorf("%s: %w", filepath.Join(dir, pluginFile), err)
 		}
 		for _, l := range n.Libraries {
-			if seen[l.Name] {
+			if seen[l.Name] || ((goos == "ios" || goos == "android") && builtForPhones(data, l.Name)) {
 				continue
 			}
 			seen[l.Name] = true

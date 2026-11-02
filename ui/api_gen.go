@@ -461,6 +461,18 @@ func (_handle *Context) Router() *Router {
 	return _ctx.Router()
 }
 
+// SafeArea returns how far in from each edge of the window what the system
+// draws covers it, in DIPs: a phone's bars, its cutout and the keyboard. The
+// window's root keeps its content inside them; what draws in the Overlay, as
+// a sheet, or under them, reads them here.
+func (_handle *Context) SafeArea() (float32, float32, float32, float32) {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return 0, 0, 0, 0
+	}
+	return _ctx.SafeArea()
+}
+
 // SetTheme makes the frame use t, for the window's root and the widgets
 // created after the call. Inside the children of a Themed, which keep its
 // theme, t is for the root and the widgets after the Themed.
@@ -2970,6 +2982,31 @@ func (_handle Element) AutoFocus() Element {
 	return wrapElement(_node.AutoFocus())
 }
 
+// Autocorrect turns an on-screen keyboard's corrections and suggestions on
+// or off for a text input, on by default where the keyboard has them.
+func (_handle Element) Autocorrect(on bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Autocorrect(on))
+}
+
+// Autofill tells the system what a text input holds, for it to offer it
+// from its passwords and contacts, as with iOS's Passwords above the
+// keyboard.
+func (_handle Element) Autofill(k AutofillKind) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Autofill(k))
+}
+
 // BackfaceHidden hides the element, and takes it from the pointer, while
 // its 3D transform turns its back to the viewer, as CSS's
 // backface-visibility: hidden: the two faces of a card turning over, the
@@ -3234,6 +3271,17 @@ func (_handle Element) Cache() Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Cache())
+}
+
+// Capitalize sets what an on-screen keyboard capitalizes as one types.
+func (_handle Element) Capitalize(c Capitalization) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Capitalize(c))
 }
 
 // CaretWidth sets this input's painted caret width in DIPs for this build.
@@ -4589,6 +4637,18 @@ func (_handle Element) KeepScrollbars(keep bool) Element {
 	return wrapElement(_node.KeepScrollbars(keep))
 }
 
+// Keyboard chooses the on-screen keyboard's layout for a text input, on
+// phones and tablets.
+func (_handle Element) Keyboard(k KeyboardType) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Keyboard(k))
+}
+
 // Keyframes plays a sequence, holding its last value when done. It starts
 // on the first call, with the first frame's value. Keep the element and
 // key stable, and change Run when changing the sequence. Only active
@@ -4740,6 +4800,19 @@ func (_handle Element) LocalToWindow(x float32, y float32) (float32, float32) {
 	_ctx := _node.c
 	_ = _ctx
 	return _node.LocalToWindow(x, y)
+}
+
+// LongPressed reports whether a finger held the element still for half a
+// second since the last frame, on a touch screen. The press then clicks
+// nothing as it lifts.
+func (_handle Element) LongPressed() bool {
+	_node := _handle.node()
+	if _node == nil {
+		return false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.LongPressed()
 }
 
 // Loop returns the progress of an animation that starts over every
@@ -5327,6 +5400,29 @@ func (_handle Element) PressedOutside() bool {
 	return _node.PressedOutside()
 }
 
+// PullToRefresh lets a finger pull a scroll container's content past its top
+// to refresh it, as with iOS's UIRefreshControl and Android's swipe to
+// refresh, each drawn as on its system: an indicator shows, spinning while
+// s.Refreshing. It reports whether the finger just asked to refresh: fetch
+// what's new, and set s.Refreshing to false.
+//
+//	list := ui.Scroll(c).Fill()
+//	if list.PullToRefresh(&app.refresh) {
+//		go func() {
+//			items := fetch()
+//			win.Update(func() { app.items, app.refresh.Refreshing = items, false })
+//		}()
+//	}
+func (_handle Element) PullToRefresh(s *RefreshState) bool {
+	_node := _handle.node()
+	if _node == nil {
+		return false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.PullToRefresh(s)
+}
+
 // RadialGradient fills the element with a radial gradient, its colors
 // spreading out from a point (CSS's radial-gradient()), as a glow:
 //
@@ -5380,6 +5476,19 @@ func (_handle Element) ReadOnly(on bool) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.ReadOnly(on))
+}
+
+// ReturnKey sets what the return key of an on-screen keyboard says, for a
+// single-line input. It submits the input as Enter does; ReturnNext moves
+// the focus on as well.
+func (_handle Element) ReturnKey(k ReturnKeyType) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.ReturnKey(k))
 }
 
 // Reverse lays the children out in the other direction: a Row from right

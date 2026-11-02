@@ -142,6 +142,40 @@ type MaximizeButtonSurface interface {
 	SetMaximizeButton(r RectF)
 }
 
+// InsetSurface is a Surface whose edges something covers, as the system's
+// bars, a display's cutout and the keyboard cover a phone's screen.
+type InsetSurface interface {
+	// Insets are how far in from each edge the content is covered: the
+	// content lays out inside them and paints its background under them.
+	Insets() Insets
+}
+
+// TouchSurface is a Surface of a touch screen, whose system has more to say
+// to fingers than pixels.
+type TouchSurface interface {
+	// Haptic plays a haptic (DeviceBackend.Haptic).
+	Haptic(kind string)
+	// ShowEditMenu shows the system's menu of the editing commands named, of
+	// "cut", "copy", "paste" and "selectAll", at a point in DIPs; they come as
+	// SurfaceCommand.
+	ShowEditMenu(x, y float64, actions []string)
+	// ShowMagnifier shows the system's magnifier of what is at a point in
+	// DIPs, as a finger drags a text handle, until HideMagnifier.
+	ShowMagnifier(x, y float64)
+	HideMagnifier()
+	// SetBackAvailable tells whether the content takes the system's back:
+	// without, it leaves the app, as the system's predictive back shows.
+	SetBackAvailable(on bool)
+}
+
+// PluginViewSurface is a Surface that holds native views of plugins' native
+// code, as it does web views: under it, where its frames leave holes. The
+// WebView of one has no page: only its place, its keyboard and Close do
+// anything.
+type PluginViewSurface interface {
+	NewPluginView(viewType string, args []byte, h WindowHandler) (WebView, error)
+}
+
 // IdleSurface is a Surface that can give back memory once frames stop.
 type IdleSurface interface {
 	// Idle tells that no frame came for a while: the surface may give
@@ -192,7 +226,88 @@ type TextInputState struct {
 	// composed, as winit's set_ime_allowed(false). Browsers cannot turn
 	// input methods off, and ignore it.
 	NoInputMethod bool
+	// Traits describe the input to on-screen keyboards.
+	Traits TextTraits
+	// ShowKeyboard counts the requests for the on-screen keyboard to show,
+	// as a finger taps the input again after the keyboard was dismissed
+	// while it kept the focus.
+	ShowKeyboard uint32
 }
+
+// TextTraits describe a text input to on-screen keyboards, as phones have.
+// Other platforms ignore them. Zero values are the keyboard's defaults.
+type TextTraits struct {
+	Keyboard    KeyboardKind
+	ReturnKey   ReturnKeyKind
+	Capitalize  CapitalizeKind
+	Autocorrect AutocorrectKind
+	Autofill    AutofillKind
+	// Multiline and Secure tell a text area and a password field.
+	Multiline, Secure bool
+}
+
+// KeyboardKind is the layout of an on-screen keyboard.
+type KeyboardKind uint8
+
+const (
+	KeyboardDefault KeyboardKind = iota
+	KeyboardEmail
+	KeyboardNumber
+	KeyboardDecimal
+	KeyboardPhone
+	KeyboardURL
+	KeyboardSearch
+)
+
+// ReturnKeyKind is what the return key of an on-screen keyboard says.
+type ReturnKeyKind uint8
+
+const (
+	ReturnDefault ReturnKeyKind = iota
+	ReturnDone
+	ReturnGo
+	ReturnNext
+	ReturnSearch
+	ReturnSend
+)
+
+// CapitalizeKind is what an on-screen keyboard capitalizes.
+type CapitalizeKind uint8
+
+const (
+	CapitalizeDefault CapitalizeKind = iota
+	CapitalizeNone
+	CapitalizeWords
+	CapitalizeSentences
+	CapitalizeCharacters
+)
+
+// AutocorrectKind is whether an on-screen keyboard corrects what is typed.
+type AutocorrectKind uint8
+
+const (
+	AutocorrectDefault AutocorrectKind = iota
+	AutocorrectOn
+	AutocorrectOff
+)
+
+// AutofillKind names what an input holds, for the system's passwords and
+// contacts.
+type AutofillKind uint8
+
+const (
+	AutofillNone AutofillKind = iota
+	AutofillUsername
+	AutofillPassword
+	AutofillNewPassword
+	AutofillOneTimeCode
+	AutofillEmail
+	AutofillName
+	AutofillPhone
+	AutofillAddress
+	AutofillPostalCode
+	AutofillCreditCard
+)
 
 // SurfaceNative holds the native objects of a Surface.
 type SurfaceNative struct {
@@ -213,6 +328,9 @@ type SurfaceNative struct {
 	// Context.ID), current while SurfaceFrame events are handled
 	// (browsers).
 	Canvas uintptr
+	// Window is the surface's ANativeWindow, which an EGL context draws
+	// into (Android); Layer is its CAMetalLayer on iOS.
+	Window uintptr
 }
 
 // RectF is a rectangle in DIPs with fractional coordinates.
@@ -222,6 +340,11 @@ type RectF struct{ X, Y, W, H float64 }
 func (r RectF) Contains(x, y float64) bool {
 	return x >= r.X && y >= r.Y && x < r.X+r.W && y < r.Y+r.H
 }
+
+// Insets are how far in from each edge of a surface its content is
+// covered, in DIPs: by the system's bars, a display's cutout or rounded
+// corners, or the keyboard (phones).
+type Insets struct{ Top, Left, Bottom, Right float64 }
 
 // SurfaceEventKind is the kind of a SurfaceEvent.
 type SurfaceEventKind uint8
@@ -309,6 +432,17 @@ const (
 	// the surface has the keyboard again, and the content moves the focus
 	// on from the web view's element.
 	WebViewTabOut
+	// SurfaceLowMemory reports that the system is short of memory: the
+	// content lets go of what it can make again.
+	SurfaceLowMemory
+	// SurfaceBackGesture reports the system's gesture of going back as it
+	// goes, Android's predictive back: Text is "started", "progress" with
+	// how far in Scale, from 0 to 1, or "cancelled"; going back comes as the
+	// back key.
+	SurfaceBackGesture
+	// SurfaceScrollToTop reports a tap on iOS's status bar, which sends what
+	// scrolls under it back to its top.
+	SurfaceScrollToTop
 )
 
 // EditCommands are the menu roles of edit commands, which native UI takes as
@@ -332,9 +466,10 @@ type SurfaceEvent struct {
 	DX, DY   float64
 	Precise  bool
 	Momentum bool
-	// Scale is PointerZoom's.
-	Scale float64
-	Key   Key
+	// Scale is PointerZoom's, and Rotation the radians clockwise two fingers
+	// turned since the last, on touch screens.
+	Scale, Rotation float64
+	Key             Key
 	// PhysicalKey is the key by its position on an ANSI US keyboard,
 	// whatever the active layout types; KeyUnknown where the backend does
 	// not report it. Key and PhysicalKey agree on a US layout.
@@ -357,6 +492,13 @@ type SurfaceEvent struct {
 	Action AccessActionKind
 	// WebView is WebViewTabOut's.
 	WebView WebView
+	// Canceled marks a PointerUp of a finger the system took away, as a second
+	// finger or its own gesture does: it clicks nothing and throws nothing.
+	Canceled bool
+	// Touch marks pointer events of a finger on a touch screen, which
+	// has no hover: a drag of one pans what scrolls under it, and no
+	// pointer stays over the content after it lifts.
+	Touch bool
 	// Paced marks a SurfaceFrame of frames following each other at the
 	// display's refreshes (PacedSurface): the content may draw it later,
 	// once the display can take it, which it tells by returning true from

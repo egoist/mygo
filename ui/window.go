@@ -101,6 +101,9 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 	h.uiFont()
 	h.textLanguage()
 	h.automate()
+	if devAttach != nil {
+		devAttach(h)
+	}
 	// Load the fonts while the window shows up.
 	go text.Shared().Preload()
 	h.requestFrame()
@@ -314,6 +317,22 @@ func (h *windowHost) event(ev platform.SurfaceEvent) bool {
 		}
 		h.gpuTried, h.retryAt = false, time.Time{}
 		h.requestFrame()
+		return false
+	}
+	if ev.Kind >= platform.SurfaceLowMemory && ev.Kind <= platform.SurfaceScrollToTop {
+		if ev.Kind == platform.SurfaceLowMemory {
+			// What the next frame makes again: the renderer's textures, its
+			// atlases and pipelines among them.
+			if h.gpu != nil {
+				h.gpu.Release()
+				h.gpu = nil
+				h.gpuTried, h.retryAt = false, time.Time{}
+			}
+			h.requestFrame()
+		}
+		if touchSystem != nil {
+			touchSystem(h.rt, ev)
+		}
 		return false
 	}
 	if ev.Kind == platform.WebViewTabOut {
@@ -870,6 +889,14 @@ func (h *windowHost) textLanguage() {
 	text.Shared().SetLanguage(h.locale())
 }
 
+// insets are those the surface tells, as a phone's.
+func (h *windowHost) insets() platform.Insets {
+	if s, ok := h.conn.Surface.(platform.InsetSurface); ok {
+		return s.Insets()
+	}
+	return platform.Insets{}
+}
+
 func (h *windowHost) titleBar() TitleBar {
 	if h.conn.TitleBar == nil {
 		return TitleBar{}
@@ -925,6 +952,11 @@ func (h *windowHost) tabIntoWebView(v NativeWebView, back bool) {
 	if n := v.SurfaceWebView(h.conn); n != nil {
 		n.TabInto(back)
 	}
+}
+
+func (h *windowHost) touchSurface() platform.TouchSurface {
+	s, _ := h.conn.Surface.(platform.TouchSurface)
+	return s
 }
 
 func (h *windowHost) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {

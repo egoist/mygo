@@ -126,6 +126,9 @@ components, from buttons to tables.
 
 ## Shipping
 
+- [Phones and tablets](mobile.md): the same app on iOS and Android,
+  developed on a simulator, an emulator or a device, built for the App
+  Store and Google Play.
 - [Building and distributing](distribution.md): packaged apps for macOS,
   Windows and Linux, signing, installers and disk images.
 - [Auto-updates](updates.md): signed updates from GitHub releases, an S3
