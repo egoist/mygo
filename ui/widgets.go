@@ -158,7 +158,9 @@ func styleButton(c *context, b *node, primary bool) {
 		base, hover, pressed, fg, border = t.Accent, t.AccentHover, t.AccentPressed, t.AccentText, Color{}
 	case primary:
 		// As other buttons in a window not drawn as active, as AppKit's
-		// default button.
+		// default button: its border inside the padding, so that it is as
+		// large as active and nothing around it moves.
+		b.Padding(t.Space(1.5)-1, t.Space(3.5)-1)
 	case c.buttons == toolbarButtons:
 		b.Padding(t.Space(1.5), t.Space(2.5))
 		base, border = Color{}, Color{}

@@ -179,3 +179,32 @@ func contrast(a, b Color) float64 {
 	}
 	return x / y
 }
+
+// TestWindowActiveKeepsLayout checks that a primary button, drawn as other
+// buttons in a window not drawn as active, keeps its size, so that what is
+// around it does not move as the window loses or takes the keyboard.
+func TestWindowActiveKeepsLayout(t *testing.T) {
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Padding(10).Gap(10).Children(func() {
+			corePrimaryButton(c, "Send").Label("send")
+			coreText(c, "below").Label("below")
+		})
+	}, 300, 200)
+	boxes := func() (Rect, Rect) {
+		b, ok := tt.Find("send")
+		if !ok {
+			t.Fatalf("no button: %q", tt.Texts())
+		}
+		l, ok := tt.Find("below")
+		if !ok {
+			t.Fatalf("no text: %q", tt.Texts())
+		}
+		return b, l
+	}
+	b0, l0 := boxes()
+	tt.SetWindowActive(false)
+	b1, l1 := boxes()
+	if b1 != b0 || l1 != l0 {
+		t.Errorf("inactive, the button is %v and the text below %v; active, %v and %v", b1, l1, b0, l0)
+	}
+}
