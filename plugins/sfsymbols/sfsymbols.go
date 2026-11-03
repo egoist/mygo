@@ -27,12 +27,13 @@ type Options struct {
 // Weight is the weight of a symbol's strokes, as a font's.
 type Weight int
 
-// The weights of SF Symbols, from the lightest to the heaviest.
+// The weights of SF Symbols, from the lightest to the heaviest, in that
+// order; the zero Weight is Regular.
 const (
-	Regular Weight = iota
-	UltraLight
+	UltraLight Weight = iota - 3
 	Thin
 	Light
+	Regular
 	Medium
 	Semibold
 	Bold

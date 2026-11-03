@@ -50,7 +50,8 @@ another OS, or on a macOS that lacks it. `Available` reports whether the
 system draws SF Symbols at all.
 
 - `opts` holds `Natural` and `Weight`, as Symbol's modifiers.
-- `px` is limited to 8 through 256. Draw at two or three times the size in
+- `px` is limited to 8 through 512; a Symbol larger than that in pixels
+  is scaled up from 512. Draw at two or three times the size in
   DIPs, so that the symbol stays sharp on any display.
 - By default the symbol's ink fills its box, centered with a small inset.
   `Options{Natural: true}` draws every symbol at one scale instead, the

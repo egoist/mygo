@@ -30,7 +30,7 @@ func TestImage(t *testing.T) {
 // TestCoverage checks that a symbol covers some of its box and not
 // all of it, and that tint keeps the premultiplied alpha of the shape.
 func TestCoverage(t *testing.T) {
-	coverage, ok := rasterize("xmark", 64, false, Regular)
+	coverage, ok, _ := rasterize("xmark", 64, false, Regular)
 	if !ok {
 		t.Fatal("xmark drew nothing")
 	}
@@ -60,8 +60,8 @@ func TestCoverage(t *testing.T) {
 // than the alignment margins of the image it comes in, and that it sits
 // centered in it.
 func TestFillsItsBox(t *testing.T) {
-	for _, name := range []string{"xmark", "gearshape", "rectangle.split.2x1", "chevron.down"} {
-		coverage, ok := rasterize(name, 48, false, Regular)
+	for _, name := range []string{"xmark", "gearshape", "rectangle.split.2x1", "chevron.down", "square.and.arrow.up"} {
+		coverage, ok, _ := rasterize(name, 48, false, Regular)
 		if !ok {
 			t.Fatalf("%s drew nothing", name)
 		}
@@ -70,7 +70,12 @@ func TestFillsItsBox(t *testing.T) {
 			t.Fatalf("%s: ink is %dx%d, want about 41x41 in a 48 box", name, b.Dx(), b.Dy())
 		}
 		cx, cy := (b.Min.X+b.Max.X)/2, (b.Min.Y+b.Max.Y)/2
-		if max(cx-24, 24-cx) > 2 || max(cy-24, 24-cy) > 2 {
+		// Margins on either side within a pixel: centered, not shifted by
+		// the image's uneven alignment margins.
+		if l, r, tp, bt := b.Min.X, 48-b.Max.X, b.Min.Y, 48-b.Max.Y; max(l-r, r-l) > 1 || max(tp-bt, bt-tp) > 1 {
+			t.Fatalf("%s: margins %d left, %d right, %d top, %d bottom: want even", name, l, r, tp, bt)
+		}
+		if max(cx-24, 24-cx) > 1 || max(cy-24, 24-cy) > 1 {
 			t.Fatalf("%s: ink centered at %d,%d, want 24,24", name, cx, cy)
 		}
 	}
@@ -94,16 +99,57 @@ func inkOf(coverage *image.RGBA) image.Rectangle {
 // TestNatural checks that a symbol drawn at its natural size is smaller
 // than one that fills its box.
 func TestNatural(t *testing.T) {
-	filled, ok := rasterize("xmark", 64, false, Regular)
+	filled, ok, _ := rasterize("xmark", 64, false, Regular)
 	if !ok {
 		t.Fatal("xmark drew nothing")
 	}
-	natural, ok := rasterize("xmark", 64, true, Regular)
+	natural, ok, _ := rasterize("xmark", 64, true, Regular)
 	if !ok {
 		t.Fatal("xmark drew nothing at its natural size")
 	}
 	if f, n := inkOf(filled), inkOf(natural); n.Dx() >= f.Dx() {
 		t.Fatalf("natural ink %d wide, filled %d: want smaller", n.Dx(), f.Dx())
+	}
+}
+
+// TestNaturalBalances checks that at their natural size a cross stays
+// smaller than a wide rectangle, as SF Symbols balance them, while both
+// fill their boxes alike otherwise.
+func TestNaturalBalances(t *testing.T) {
+	width := func(name string, natural bool) int {
+		c, ok, _ := rasterize(name, 100, natural, Regular)
+		if !ok {
+			t.Fatalf("%s drew nothing", name)
+		}
+		return inkOf(c).Dx()
+	}
+	if x, r := width("xmark", true), width("rectangle.on.rectangle", true); x >= r*4/5 {
+		t.Errorf("natural xmark %d wide, rectangle.on.rectangle %d: want the cross well smaller", x, r)
+	}
+	if r := width("rectangle.on.rectangle", true); r > 92 || r < 80 {
+		t.Errorf("natural rectangle.on.rectangle %d wide in 100: want it to nearly fill", r)
+	}
+}
+
+// TestRasterizeAlone checks that rasterize loads what it needs, so that a
+// test calling it runs alone.
+func TestRasterizeAlone(t *testing.T) {
+	if _, ok, absent := rasterize("no.symbol.of.that.name", 32, false, Regular); ok || !absent {
+		t.Errorf("a missing name: ok %v, absent %v; want false, true", ok, absent)
+	}
+}
+
+// TestWeightOrder checks that the weights' order is their heaviness.
+func TestWeightOrder(t *testing.T) {
+	ws := []Weight{UltraLight, Thin, Light, Regular, Medium, Semibold, Bold, Heavy, Black}
+	for i := 1; i < len(ws); i++ {
+		if ws[i] <= ws[i-1] || ws[i].fontWeight() <= ws[i-1].fontWeight() {
+			t.Errorf("%d after %d is not heavier", ws[i], ws[i-1])
+		}
+	}
+	var zero Weight
+	if zero != Regular {
+		t.Error("the zero Weight is not Regular")
 	}
 }
 
@@ -145,7 +191,7 @@ func TestCacheBounded(t *testing.T) {
 // TestWeight checks that a heavier weight draws more ink.
 func TestWeight(t *testing.T) {
 	ink := func(w Weight) int {
-		coverage, ok := rasterize("circle", 64, true, w)
+		coverage, ok, _ := rasterize("circle", 64, true, w)
 		if !ok {
 			t.Fatalf("circle at %d drew nothing", w)
 		}
