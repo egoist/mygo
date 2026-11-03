@@ -2466,9 +2466,9 @@ func ToastBase(c *Context, t Toast) ToastParts {
 //	})
 //
 // The time of the toasts stops while the pointer rests on viewport, the
-// keyboard focus is in it, or the window is in the background. viewport
-// stays while no toast shows, for the last one to go with an exit
-// transition. It returns viewport.
+// keyboard focus is in it, or the window is in the background, for those
+// without RunInBackground. viewport stays while no toast shows, for the
+// last one to go with an exit transition. It returns viewport.
 func ToastViewportBase(c *Context, fn func(viewport Element, toasts []Toast)) Element {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -2587,7 +2587,8 @@ func Toolbar(c *Context, fn func()) Element {
 // builds its content. It shows once the pointer has rested on anchor for
 // 0.6 seconds, at once as anchor gets the keyboard focus from the
 // keyboard, and at once too within 0.4 seconds of another tip going, as
-// the pointer moves along a toolbar. It goes as the pointer leaves anchor
+// the pointer moves along a toolbar; the theme's TooltipDelay changes
+// both. It goes as the pointer leaves anchor
 // or presses it, and with Escape, until the pointer comes back or the
 // focus does. Over elements inside one another, the innermost one's tip
 // shows; one shows at a time.

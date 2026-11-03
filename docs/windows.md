@@ -84,6 +84,24 @@ it drew it). One created `Hidden` is ready to show once it drew its first
 frame, which it draws while hidden, so `OnReadyToShow(win.Show)` shows it
 as it does a page's.
 
+The view of native UI first runs once `NewWindow` returned, so it can use
+the window `NewWindow` returns:
+
+```go
+app.win = mygo.NewWindow(mygo.WindowOptions{Content: ui.View(func(c *ui.Context) {
+	ui.Text(c, app.win.Title()) // never nil
+})})
+```
+
+Called on the main thread, as in `App.WhenReady` or an event handler,
+`NewWindow` leaves showing the window to the main loop's next turn, when
+the window draws its first frame, or to the first method that acts on it,
+such as `IsVisible` or `Maximize`, which finds it shown. `OnShow` added
+right after `NewWindow` hears that show, and `Hide` keeps it from
+happening. Called from another goroutine, `NewWindow` shows the window and
+returns while the main thread goes on drawing it: guard the variable
+there, or set it with `Window.Update`.
+
 ## Remember where windows were
 
 With a `StateKey`, a window remembers its position, size, and maximized and
@@ -384,7 +402,11 @@ it); on Windows, the same placement flips above an icon of a taskbar at
 the bottom of the screen. On macOS, which shows a menu bar item on each
 display, it goes under the copy of the icon the user clicked. A press on
 the icon does not dismiss a focusable flyout, so the icon's click can
-toggle it. Keep the app running as the flyout, its only window, closes:
+toggle it; with `Popover`, the click closes it, as AppKit's popovers
+close on their anchor, and does not reach `OnClick`. Either way, a click
+on the icon closes the open flyout with the code below, and does not
+open it again. Keep the app running as the flyout, its only window,
+closes:
 
 ```go
 mygo.App.OnWindowAllClosed(func() {})
