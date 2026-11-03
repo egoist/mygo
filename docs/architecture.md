@@ -925,7 +925,15 @@ document start into the main frame. It installs:
   `SurfaceResize` brings the frame laid out at the new size. A frame laid
   out at a new size that measures the size told before the last one
   holds, so that a view building its content after `Context.Size` does
-  not resize the flyout back and forth.
+  not resize the flyout back and forth. A hidden window draws no frames,
+  so `Show` and `ShowInactive` of a hidden flyout first call
+  `fitContent.show` (`fitBeforeShow`), which `NewFlyout` sets with
+  `native`: where the content waits to draw a frame, `surface.Conn.Fit`
+  builds and lays it out at once, as a capture does, and the flyout
+  takes the size it measured before the platform shows it; the
+  surface's next frame draws it at that size. `Fit` builds nothing
+  within the content's frame or before its first, so the view never
+  runs within `NewFlyout`.
 - Find in page (`find.ts`, `Page.FindInPage`): the bridge walks the
   visible text nodes, marks matches with the CSS Custom Highlight API (a
   constructed style sheet, which a Content Security Policy allows) and

@@ -473,7 +473,10 @@ as it lays out, and measure as their content. Elements placed `Absolute`, as men
 toasts, take none of it. A frame that measures another size resizes the
 flyout, placed again against its anchor (flipping where the work area
 has no room), and the next frame lays the content out at that size: the
-first frame after a change shows it at the size the flyout had. A frame
+first frame after a change shows it at the size the flyout had. A
+hidden flyout draws no frames: content changed while it was hidden
+(with `Update` or `Invalidate`) lays out as `Show` or `ShowInactive`
+shows it, and the flyout shows at the size that content takes. A frame
 that measures what the last did resizes nothing, so a size `SetSize`
 gives holds until the content's changes. A view that builds its content
 after the window's size (`Context.Size`) settles at the size it took

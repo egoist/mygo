@@ -815,6 +815,9 @@ func (w *Window) Show() {
 			return
 		}
 		visible := w.native.IsVisible()
+		if w.fitShow(visible); w.native == nil {
+			return // the frame it laid out closed it
+		}
 		w.native.Show()
 		w.shown = true
 		if !visible {
@@ -830,6 +833,9 @@ func (w *Window) ShowInactive() {
 			return
 		}
 		visible := w.native.IsVisible()
+		if w.fitShow(visible); w.native == nil {
+			return // the frame it laid out closed it
+		}
 		w.native.ShowInactive()
 		w.shown = true
 		if !w.focusKnown {
@@ -840,6 +846,15 @@ func (w *Window) ShowInactive() {
 			fire(&w.onShow)
 		}
 	})
+}
+
+// fitShow sizes a hidden flyout of native UI that takes its content's
+// size to that content before it shows (fitContent.show). Main thread
+// only.
+func (w *Window) fitShow(visible bool) {
+	if f := w.fit; f != nil && f.show != nil && !visible {
+		f.show(w)
+	}
 }
 
 // Hide hides the window.

@@ -92,6 +92,12 @@ type Conn struct {
 	// size it took.
 	ContentSize func(width, height float64)
 	FitWidth    func() (min, max float64)
+	// Fit, set by the content where ContentSize is, builds and lays out
+	// at once the frame the content waits to draw, if one waits, as in a
+	// hidden window, which tells ContentSize the size it takes if that
+	// changed, and reports whether it did build one. The window calls
+	// it before it shows, to show at that size.
+	Fit func() bool
 
 	// Event receives the surface's events, and Focus and Blur of the
 	// window. It reports whether the content takes dragged files, as

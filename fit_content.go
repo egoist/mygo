@@ -10,17 +10,22 @@ import (
 // fitContent is what a window that takes the size of its page's content
 // (FlyoutOptions.FitContent, WindowOptions.FitContent) keeps: the limits
 // of that size, the zoom its page's scripts were made at, the size it
-// last took, and the content's size its page last told, which another
-// zoom makes another size. Main thread only.
+// last took, and the content's size its page, or native UI, last told,
+// which another zoom makes another size. Main thread only.
 type fitContent struct {
 	min, max platform.Size // DIPs, 0 for none
 	zoom     float64
 	size     platform.Size
 	content  contentSize
 	told     bool // the page told content
-	// native connects a flyout's native UI to it (connectFit), nil for
-	// a page: NewFlyout sets it, so that apps without one link none of it.
-	native func(w *Window, c *surface.Conn)
+	// native connects a flyout's native UI to it (connectFit), and show
+	// sizes it to that UI before it shows (fitBeforeShow), nil for a
+	// page: NewFlyout sets them, so that apps without one link none of
+	// it. measured tells that the native UI told content, which the
+	// flyout has yet to take (resizeFitNative).
+	native   func(w *Window, c *surface.Conn)
+	show     func(w *Window)
+	measured bool
 }
 
 // contentSize is the size of a page's content as its bridge tells it, in
@@ -97,27 +102,54 @@ func (w *Window) connectFit(c *surface.Conn) {
 // itself again after that frame, and the next lays the content out at
 // its size. Main thread only.
 func (w *Window) fitNative(width, height float64) {
-	postMain(func() {
-		f := w.fit
-		if f == nil || w.native == nil || w.flyout == nil {
-			return
-		}
-		maxW, maxH := w.fitWorkArea()
-		s, ok := f.fit(contentSize{Width: width, Height: height}, 1, maxH)
-		if !ok {
-			return
-		}
-		if maxW > 0 {
-			s.Width = min(s.Width, maxW)
-		}
-		if s == f.size {
-			return
-		}
-		f.size = s
-		if s != w.flyoutSize {
-			w.setFlyoutSize(s.Width, s.Height)
-		}
-	})
+	if f := w.fit; f != nil {
+		f.content, f.measured = contentSize{Width: width, Height: height}, true
+		postMain(w.resizeFitNative)
+	}
+}
+
+// resizeFitNative resizes a flyout of native UI to the size its content
+// last measured (fitNative), unless it took it already. Main thread only.
+func (w *Window) resizeFitNative() {
+	f := w.fit
+	if f == nil || !f.measured || w.native == nil || w.flyout == nil {
+		return
+	}
+	f.measured = false
+	maxW, maxH := w.fitWorkArea()
+	s, ok := f.fit(f.content, 1, maxH)
+	if !ok {
+		return
+	}
+	if maxW > 0 {
+		s.Width = min(s.Width, maxW)
+	}
+	if s == f.size {
+		return
+	}
+	f.size = s
+	if s != w.flyoutSize {
+		w.setFlyoutSize(s.Width, s.Height)
+	}
+}
+
+// fitBeforeShow sizes a hidden flyout of native UI that takes its
+// content's size to the content it shows now, before it shows: a hidden
+// window draws no frames, so the content changed since it hid lays out
+// now (surface.Conn.Fit), rather than in the frame that shows it, at the
+// size it had. Main thread only.
+func (w *Window) fitBeforeShow() {
+	c := w.conn
+	if c == nil || c.Fit == nil {
+		return
+	}
+	if w.invalidating.Load() {
+		// Invalidate asked for a frame that has yet to be asked for.
+		w.contentChanged()
+	}
+	if c.Fit() {
+		w.resizeFitNative()
+	}
 }
 
 // fitWidths returns the least and the most width native UI that takes its

@@ -92,9 +92,12 @@ type FlyoutOptions struct {
 	// MinHeight and MaxHeight, beyond which a Scroll in it scrolls; what
 	// is placed Absolute takes none of it. A frame that measures another
 	// size resizes the flyout, and the next lays the content out at that
-	// size: two frames, the first at the size the flyout had. A view that
-	// sizes its content after the window's (Context.Size) settles at the
-	// size it took, rather than resize back and forth.
+	// size: two frames, the first at the size the flyout had. A hidden
+	// flyout draws no frames: content changed while it was hidden lays
+	// out as Show or ShowInactive shows it, which shows the flyout at the
+	// size it takes. A view that sizes its content after the window's
+	// (Context.Size) settles at the size it took, rather than resize back
+	// and forth.
 	FitContent bool
 	// MinWidth, MinHeight, MaxWidth and MaxHeight bound the size
 	// FitContent gives the flyout, in DIPs; 0 is no bound. The work area
@@ -183,7 +186,7 @@ func NewFlyout(opts FlyoutOptions) *Window {
 			max: platform.Size{Width: opts.MaxWidth, Height: opts.MaxHeight},
 		}
 		if opts.Content != nil {
-			fit.native = (*Window).connectFit
+			fit.native, fit.show = (*Window).connectFit, (*Window).fitBeforeShow
 		}
 	}
 	return createWindow("NewFlyout", WindowOptions{
