@@ -61,7 +61,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `AlwaysOnTop` | keeps the window above others |
 | `SkipTaskbar` | leaves the window out of the taskbar (Linux, Windows) |
 | `AutoHideMenuBar` | shows the menu bar only while the keyboard is in it, from Alt or F10 (Linux, Windows), see [the menu bar](menus.md#the-menu-bar) |
-| `Parent`, `Modal` | a child window, modal to its parent; for one placed next to a part of it, see [flyouts](#flyouts) |
+| `Parent`, `Modal` | a child window, modal to its parent, a [flyout](#a-dialog-over-a-flyout) too; for one placed next to a part of it, see [flyouts](#flyouts) |
 | `Panel` | the window of a launcher or a quick entry, floating above all apps, see [panels](#panels) |
 | `Page` | the options of the window's [page](#pages): its preload script, trusted origins, web inspector, zoom, user agent and its suffix, swipes and pinches |
 
@@ -214,8 +214,12 @@ win.Hide()              // Show, ShowInactive (without focusing), IsVisible
 win.Focus()             // Blur, IsFocused
 ```
 
-`Bounds`, `ContentBounds`, `Size`, `ContentSize` and `Position` read them
-back; [`mygo.Screen`](native.md#displays) tells where the displays are.
+Sizes and positions are in the window's DIPs, whatever the zoom of its
+page (`Page.SetZoomFactor`) or of its [native UI](ui/windows.md#zoom):
+at a zoom of 1.25, a page area of 1000 DIPs shows 800 of the page's CSS
+pixels, or of the view's DIPs. `Bounds`, `ContentBounds`, `Size`,
+`ContentSize` and `Position` read them back;
+[`mygo.Screen`](native.md#displays) tells where the displays are.
 `Bounds` are the whole window's, title bar and borders included (on Linux
 X11, the window manager's frame), and `ContentBounds` those of the area the
 page or native UI shows in, below a menu bar. On Linux under Wayland the
@@ -311,6 +315,9 @@ prefs := mygo.NewWindow(mygo.WindowOptions{
 	Height: 400,
 })
 ```
+
+On macOS a modal window is a sheet of its parent. Its parent may be a
+flyout too: see [a dialog over a flyout](#a-dialog-over-a-flyout).
 
 ## Flyouts
 
@@ -431,6 +438,40 @@ tray.OnClick(func() {
 Linux's tray icons tell neither clicks nor where they are: open the flyout
 from a menu item of the icon there, and it shows in the middle of the
 primary display's work area. `examples/menubar-flyout` is such an app.
+
+### A dialog over a flyout
+
+A [dialog](ui/dialog.md) of native UI draws in its window, so a flyout's is
+cut to the flyout, and a tray's flyout may have no other window that shows.
+Ask from a window modal to the flyout instead: give it the flyout as its
+`Parent`, with `Modal`. Without `X` and `Y`, it is centered over the
+flyout, moved into the work area of its display, and it stays above the
+flyout, over other apps' windows too for a tray's. The flyout takes no
+input while it shows, and stays open wherever the keyboard goes: a
+focusable flyout gets the keyboard back as the window closes, and from
+then on closes as it loses it again. Closing the flyout, as a click on
+the tray icon may, closes the window.
+
+```go
+if ui.Button(c, "Quit…").Clicked() {
+	mygo.NewWindow(mygo.WindowOptions{
+		Title:          "Quit?",
+		Parent:         panel,
+		Modal:          true,
+		Width:          360,
+		Height:         140,
+		UseContentSize: true,
+		DisableResize:  true,
+		Content:        ui.View(app.confirmQuit),
+	})
+}
+```
+
+On macOS the window is no sheet of the flyout, which a sheet would hang
+from, but a window attached to it, at its level. On Wayland, where a
+flyout with a `Parent` is a popup, the compositor decides whether the
+popup stays as the window takes the keyboard; a tray's flyout is a
+window there, and stays.
 
 ### Size a flyout to its content
 
