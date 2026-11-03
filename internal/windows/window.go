@@ -82,7 +82,7 @@ type window struct {
 	// host the window whose surface a web view is under, which shows it
 	// through its composition controller comp (comp3 its drag and drop,
 	// on runtimes having it; uia the provider of its page for UI
-	// Automation), in the visual webVis inside clipVis, where place puts
+	// Automation), in the visual webVis inside clipVis, where placement puts
 	// it while shown: scaled by pageScale from pageAt, in the surface's
 	// pixels, and cut to its corners by corners, a rectangle clip of
 	// webVis. focused tells that it has the keyboard, and
@@ -94,7 +94,7 @@ type window struct {
 	host             *window
 	comp, comp3, uia uintptr
 	clipVis, webVis  uintptr
-	place            platform.WebViewPlacement
+	placement        platform.WebViewPlacement
 	pageAt           [2]float32
 	pageScale        [2]float32
 	corners          uintptr

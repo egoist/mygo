@@ -321,8 +321,8 @@ func (s *surface) PlaceWebViews(views []platform.WebViewPlacement) {
 	var shown []*window
 	for _, p := range views {
 		if v, ok := p.WebView.(*window); ok && v.host == s.w && !v.closed {
-			v.place, v.shown = p, true
-			v.place.Covers = nil
+			v.placement, v.shown = p, true
+			v.placement.Covers = nil
 			shown = append(shown, v)
 		}
 	}
@@ -364,7 +364,7 @@ func (w *window) placeEmbedded() {
 	}
 	k := float64(s.dpi()) / 96
 	px := func(v float64) float32 { return float32(math.Round(v * k)) }
-	f, c := w.place.Frame, w.place.Clip
+	f, c := w.placement.Frame, w.placement.Clip
 	cx, cy := px(c.X), px(c.Y)
 	fx, fy := px(f.X), px(f.Y)
 	clipVisual(w.clipVis, px(c.X+c.W)-cx, px(c.Y+c.H)-cy)
@@ -373,8 +373,8 @@ func (w *window) placeEmbedded() {
 	// frame, if a transform of the content scales it.
 	width, height := px(f.X+f.W)-fx, px(f.Y+f.H)-fy
 	at, scale := [2]float32{fx, fy}, [2]float32{1, 1}
-	if sx, sy := w.place.Scale(); sx != 1 || sy != 1 {
-		pw, ph := w.place.Size()
+	if sx, sy := w.placement.Scale(); sx != 1 || sy != 1 {
+		pw, ph := w.placement.Size()
 		width, height = max(px(pw), 1), max(px(ph), 1)
 		at = [2]float32{float32(f.X * k), float32(f.Y * k)}
 		scale = [2]float32{float32(f.W*k) / width, float32(f.H*k) / height}
@@ -383,7 +383,7 @@ func (w *window) placeEmbedded() {
 	// The page draws from its visual's origin.
 	place(w.webVis, at[0]-cx, at[1]-cy, scale[0], scale[1])
 	var radii [4]float32
-	for i, r := range w.place.Radii {
+	for i, r := range w.placement.Radii {
 		radii[i] = float32(r * k)
 	}
 	w.roundCorners(s.layer, width, height, radii)
