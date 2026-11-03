@@ -97,9 +97,10 @@ type window struct {
 	flyoutSize platform.Size
 	// popover shows a flyout with the look of AppKit's popovers
 	// (Flyout.Popover), in its window, win while it shows; popoverClosing
-	// tells that the backend closes it, not the user.
-	popover, popoverController id
-	popoverClosing             bool
+	// tells that the backend closes it, not the user; popoverHeld that
+	// a window was modal to it as it showed (holdPopover).
+	popover, popoverController  id
+	popoverClosing, popoverHeld bool
 
 	lastMouseDown id
 	dropped       []string         // DroppedFiles
@@ -901,7 +902,7 @@ func (w *window) showOverFlyout(key bool) {
 	w.b.watchModalInput()
 	w.applyLevel() // a popover's window is made as it shows
 	p := w.parent
-	p.holdPopover(true)
+	p.holdPopover()
 	if key {
 		send(w.b.app, "activateIgnoringOtherApps:", 1)
 		send(w.win, "makeKeyAndOrderFront:", 0)
@@ -919,11 +920,7 @@ func (w *window) showOverFlyout(key bool) {
 func (w *window) leaveFlyout() {
 	p := w.parent
 	key := sendBool(w.win, "isKeyWindow")
-	if p.closed {
-		return
-	}
-	p.holdPopover(false)
-	if p.win == 0 {
+	if p.closed || p.win == 0 {
 		return
 	}
 	send(p.win, "removeChildWindow:", uintptr(w.win))
@@ -1029,6 +1026,7 @@ func (b *Backend) watchOutsideClicks() {
 				w.Close()
 			}
 		}
+		b.closeHeldPopovers(0)
 	})
 	outsideClicks = retain(send(class("NSEvent"), "addGlobalMonitorForEventsMatchingMask:handler:", mask, uintptr(blk)))
 	b.watchAnchorPresses()
@@ -1063,6 +1061,7 @@ func (b *Backend) watchAnchorPresses() {
 			}
 		default: // a press, which ends any other
 			eatingPress = 0
+			b.closeHeldPopovers(send(ev, "window"))
 			if w := b.flyoutAnchoredAt(ev); w != nil {
 				eatingPress = typ + 1
 				if w.h.ShouldClose() {
