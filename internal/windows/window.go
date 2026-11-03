@@ -854,6 +854,12 @@ func (w *window) destroy() {
 	// Re-enable the owner first, or Windows activates another app.
 	if w.opts.Modal && w.parent != nil && !w.parent.closed {
 		procEnableWindow.Call(w.parent.hwnd, 1)
+		// And give it the activation while w has it, as EndDialog does:
+		// Windows otherwise activates the window under w, another app's
+		// once the user switched to one and back (#1055).
+		if fg, _, _ := procGetForegroundWindow.Call(); fg == w.hwnd && w.parent.IsVisible() && !w.parent.IsMinimized() {
+			w.parent.Focus()
+		}
 	}
 	procDestroyWindow.Call(w.hwnd)
 }
