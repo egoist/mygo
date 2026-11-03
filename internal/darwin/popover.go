@@ -174,6 +174,9 @@ func popoverDelegateMethods() []objc.MethodDef {
 			if t, ok := w.flyout.Tray.(*tray); ok && t.pressed() {
 				return false
 			}
+			if w.modalChild() != nil {
+				return false // as the user answers the window modal to it
+			}
 			return w.h.ShouldClose()
 		}),
 		method("popoverDidClose:", func(self id, _ objc.SEL, n id) {

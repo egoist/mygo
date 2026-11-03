@@ -184,6 +184,10 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 			class = flyoutShadowClass
 		}
 	}
+	if p := w.parent; p != nil && p.opts.Flyout != nil && p.IsAlwaysOnTop() {
+		// Above a tray's flyout, which is above other apps' windows.
+		ex |= wsExTopmost
+	}
 	initial := initialWindowBounds(o, screenSpace())
 	w.hwnd = createWindow(ex, class, o.Title, style, initial.Left, initial.Top, initial.Right-initial.Left, initial.Bottom-initial.Top, owner)
 	if w.hwnd == 0 {
