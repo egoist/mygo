@@ -118,12 +118,18 @@ func TestListReorder(t *testing.T) {
 	if len(moves) != 1 || !slices.Equal(moves[0], []int{1, 4}) || !slices.Equal(items, []string{"a", "c", "d", "b", "e", "f"}) {
 		t.Fatalf("moves %v, items %q", moves, items)
 	}
-	// The rows chosen move together.
+	// The rows chosen move together, the badge counting them.
 	tt.Click("c")
 	tt.ClickWith(Cmd, "e")
 	e, _ := tt.Find("e")
 	a, _ := tt.Find("a")
-	drag(tt, e.X, e.Y+e.H/2, a.X, a.Y+2)
+	tt.Press(e.X, e.Y+e.H/2)
+	tt.Move(e.X, e.Y)
+	tt.Move(a.X, a.Y+2)
+	if d := tt.rt.drag; d == nil || d.count != 2 {
+		t.Errorf("the drag of two rows is %+v", d)
+	}
+	tt.Release(a.X, a.Y+2)
 	if len(moves) != 2 || !slices.Equal(moves[1], []int{1, 4, 0}) || !slices.Equal(items, []string{"c", "e", "a", "d", "b", "f"}) {
 		t.Errorf("moves %v, items %q", moves, items)
 	}
@@ -226,11 +232,17 @@ func TestListDragRows(t *testing.T) {
 	if len(around) != 1 || !slices.Equal(items, []string{"a", "b", "c", "d", "e", "f"}) {
 		t.Fatalf("around %q, items %q", around, items)
 	}
-	// The rows chosen drag together.
+	// The rows chosen drag together, the badge counting them.
 	tt.Click("c")
 	tt.ClickWith(Cmd, "e")
 	e := find("e")
-	drag(tt, e.X, e.Y+e.H/2, bin.X+20, bin.Y+20)
+	tt.Press(e.X, e.Y+e.H/2)
+	tt.Move(e.X, e.Y+e.H/2+10)
+	tt.Move(bin.X+20, bin.Y+20)
+	if d := tt.rt.drag; d == nil || d.count != 2 {
+		t.Errorf("the drag of two rows is %+v", d)
+	}
+	tt.Release(bin.X+20, bin.Y+20)
 	if len(trash) != 2 || !slices.Equal(trash[1], []string{"c", "e"}) {
 		t.Fatalf("dropped on the trash: %q, rows asked for %v", trash, asked)
 	}

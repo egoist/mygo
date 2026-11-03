@@ -10,7 +10,8 @@ import (
 // with a copy of the element following the pointer; Drop and DragOver make
 // an element take values of a type, the innermost under the pointer taking
 // them. Escape gives up a drag. Lists and grids reorder their rows by
-// dragging them (ListState.Reorder, GridState.Reorder).
+// dragging them (ListState.Reorder, GridState.Reorder), and lists drag
+// them out for other elements to take (ListState.DragRows).
 
 // dragStart is how far the pointer moves pressing a source before it
 // drags it.
@@ -28,8 +29,8 @@ type valueDrag struct {
 	elem     *node
 	canceled bool
 	native   bool
-	// count is how many things the value stands for, as rows dragged out
-	// of a list (countedDrag), for the badge beside the pointer.
+	// count is how many things the value stands for, as rows dragged
+	// (countedDrag), for the badge beside the pointer.
 	count int
 }
 
@@ -189,7 +190,8 @@ func (rt *engine) dragMove(x, y float32) {
 }
 
 // countedDrag is a value a source drags with how many things it stands
-// for: the drag carries the value alone, and shows the number.
+// for, as a list's rows or a grid's items: the drag carries the value
+// alone, and shows the number.
 type countedDrag struct {
 	value any
 	n     int
@@ -334,11 +336,7 @@ func (rt *engine) paintDrag(p *Painter, w, h float32) {
 	p.element(e)
 	p.opacity = 1
 	// How many go with it, as several rows dragged.
-	n := d.count
-	if c, ok := d.value.(interface{ dragCount() int }); ok {
-		n = c.dragCount()
-	}
-	if n > 1 {
+	if n := d.count; n > 1 {
 		t := p.Theme()
 		label := Span{Text: itoa(n), Size: t.FontSize - 2, Weight: 600, Color: t.AccentText}
 		tw, th := p.MeasureText(0, label)

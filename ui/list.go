@@ -118,7 +118,7 @@ type ListState struct {
 	// pointer goes down, as a click would, and a press on a row chosen
 	// waits for the release, so that a drag of the choice keeps it; this
 	// is so in a Table choosing cells too. A list cannot both DragSelect
-	// and Reorder.
+	// and Reorder (or DragRows).
 	DragSelect bool
 	// CellSelect, with Selection, makes a Table choose a block of cells:
 	// the rows chosen, times the columns from Cells.Anchor to Cells.Cursor
@@ -135,7 +135,7 @@ type ListState struct {
 	// whole rows chosen, and the one at Cells.Cursor in the row the keys
 	// move from has a border while the table has the focus. A RowHeader
 	// column chooses whole rows. A table cannot both CellSelect and
-	// Reorder.
+	// Reorder (or DragRows).
 	CellSelect bool
 	// Cells are the columns of the block CellSelect chooses.
 	Cells ColumnRange
@@ -799,16 +799,15 @@ type rowDrag struct {
 	rows []int
 }
 
-func (d *rowDrag) dragCount() int { return len(d.rows) }
-
 // dragValue returns what a drag from row i drags: the rows to reorder,
 // or the value DragRows makes of them, with their number.
 func (f *listFrame) dragValue(i int) any {
 	rows := f.dragged(i)
+	var v any = &rowDrag{s: f.s, rows: rows}
 	if f.s.DragRows != nil {
-		return countedDrag{f.s.DragRows(rows), len(rows)}
+		v = f.s.DragRows(rows)
 	}
-	return &rowDrag{s: f.s, rows: rows}
+	return countedDrag{v, len(rows)}
 }
 
 // dragged returns the rows a drag from row i moves: those chosen when it
