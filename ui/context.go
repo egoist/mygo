@@ -44,7 +44,7 @@ type context struct {
 	// form and accordion are the Form and the Accordion being built, for
 	// their fields and sections.
 	form      *formBuild
-	accordion *accordionBuild
+	accordion *accordionParts
 	// checks is the CheckboxGroup being built.
 	checks *checkGroup
 	// row is the row of a List or a Table being built, and sidebar the
@@ -69,6 +69,9 @@ type context struct {
 	// and dividers those drawing lines between their children.
 	transitions []transitionUse
 	dividers    []dividers
+	// childExits are the Exits that elements gave their children going
+	// in this frame (ChildExit).
+	childExits []childExit
 	// sortedUses and depthStarts are byDepth's.
 	sortedUses  []transitionUse
 	depthStarts []int
@@ -133,6 +136,8 @@ func (c *context) reset(now time.Time, w, h float32) {
 	c.sortedUses = c.sortedUses[:0]
 	clear(c.dividers)
 	c.dividers = c.dividers[:0]
+	clear(c.childExits)
+	c.childExits = c.childExits[:0]
 	c.router, c.routers, c.inert = nil, 0, false
 	root := c.alloc()
 	root.c = c

@@ -2666,7 +2666,10 @@ either.
   into its parent's plane as CSS's flat transform-style does, composes
   with its ancestors after layout as a projective map
   (`scene.Affine`, with G and H in perspective); boxes keep their original
-  layout space. Painting stores the composed transform on scene
+  layout space. `TranslatePercent` stays apart from the transform
+  (`translatePct`): `transformAt` resolves it from the box as laid out,
+  after the transform and before the pose, as a pose's percents
+  (`showPose`) and a `Motion`'s (`tbox.moved`) are. Painting stores the composed transform on scene
   operations and clips, and committing keeps it on the state for
   inverse-mapped pointer input, carets, accessibility bounds, and overlays
   attached to visual bounds. The CPU renderer inverse maps pixels for
@@ -2739,9 +2742,12 @@ either.
   which then moves itself). Moving with a parent or a scroll offset is no
   change; resizing the window animates nothing, and reduced motion only
   fades and colors. Each moving component (position, size, opacity, and a
-  `Motion`'s scale and rotation) is a motion `channel`, so a spring keeps
-  its velocity through changes and a delay holds them. Colors move as
-  elements paint, after their `styleFn`. A `Match` moves an element
+  `Motion`'s scale, rotation and blur) is a motion `channel`, so a spring keeps
+  its velocity through changes and a delay holds them. A blur goes with
+  the opacity, as it moves nothing, and adds to the element's `Blur` as
+  Gaussians compose, which `paintEffect` draws on every renderer. Colors move as
+  elements paint, after their `styleFn`, mixed premultiplied in sRGB, or
+  in Oklab (`mixLab`) with the `Oklab` of their `Animation`. A `Match` moves an element
   appearing where another of the same identity showed the frame before
   (`ui/match.go`, `matchRec`, in window coordinates) after `place`
   (`matches.move`), laying it out anew at each box on the way, or scaling
@@ -2806,7 +2812,12 @@ either.
   elements with an `Exit` leave their arena to the next frame, which
   builds in the other (`Context.spare`), so that the next one copies those
   gone (`ghostOf`), with states of their own and nothing referring to the
-  app's state. Siblings are not laid out around a size moving; they move
+  app's state. The parent's `ChildExit` in the frame it goes
+  (`context.childExits`) takes the place of its `Exit`. An element
+  appearing with `AfterExits` waits unseen (`transition.held`,
+  `flagInvisible`) while copies leave under its parent (`ghosts`, which
+  `animateExits` sets after the elements built have moved), and comes in
+  with its `Enter` in the frame they are gone. Siblings are not laid out around a size moving; they move
   with their own transitions, in step when they share it.
 - **The inspector** (`ui/inspector.go`, `inspector_details.go`,
   `inspector_panel.go`, `inspector_overlay.go`), as Chrome's developer
@@ -3640,27 +3651,37 @@ either.
   the function matches to report `Chosen`; text inputs' menus queue their
   editing commands instead. `PopoverMenu` opens the same way and draws
   the menu in the window instead (`ui/popovermenu.go`): the frame that
-  would show it notes it (`menuState.drawn`: where it opened, from the
-  element's corner, and the submenus open with their highlights), and
-  while it shows, each frame runs the function to collect the
-  `platform.Menu` and builds from it an overlay of a point attached to
-  the element where the menu opened, so that the menu flips about that
-  point at the window's edges, and a panel (`RoleMenu`) for the menu and
-  each submenu open, each attached to the item opening it. A panel keeps
-  the focus for its items, which the keys and the pointer highlight
-  (`ActiveDescendant`), and the menu closes for presses outside it but in
-  the frame it opened, whose press opened it. An item chosen runs the
-  function again at once, as the choice from a menu of the system's does
-  in the next frame, or does its editing command; the overlay going gives
-  the focus back to the element that had it. A menu whose element a pass
-  does not build closes (`resolveMenu`). `PopoverMenuButton` draws a menu
-  button's menu so (`drawnMenu.below`): opened below the button itself
-  (`menuState.below`, which `openMenuButton` sets), its panel attaches to
-  the button's bottom, flipping above it, and the button shows expanded;
-  opened from a toolbar's overflow menu, it goes at the overflow button's
-  corner as a context menu goes at its point. Opened by the keys or
-  assistive technology (`menuState.key`), it starts on its first item,
-  and a press on the button while it shows closes it (`buildMenu`).
+  would show it notes it (`menuState.drawn`, whose `menuShown` holds where
+  it opened, from the element's corner, and the submenus open with their
+  highlights), and while it shows, each frame runs the function to
+  collect the `platform.Menu` and builds the menu from it with the parts
+  of `MenuBase` (`menuParts`), which hold the keyboard and focus model of
+  every drawn menu: themed, and headless for `MenuBase` and
+  `ContextMenuBase`, whose `menuShown` is a local of their trigger and
+  whose open state is the app's `*bool`. `Popup` builds an overlay of a
+  point attached to the element where the menu opened, so that the menu
+  flips about that point at the window's edges, and a panel (`RoleMenu`)
+  for the menu and each submenu open, each attached to the item opening
+  it (the submenus that `Submenu` registers, built after their menu's
+  panel, as its siblings). A panel keeps the focus for its items, which
+  the keys and the pointer highlight (`ActiveDescendant`), by their
+  element IDs; the keys are read once the panel's items are built, which
+  they move among, and Enter clicks the item highlighted for the next
+  pass (`clickLater`), which reports it as `Clicked`. The menu closes for
+  presses outside it but in the frame it opened, whose press opened it.
+  An item chosen runs the function again at once, as the choice from a
+  menu of the system's does in the next frame, or does its editing
+  command; the overlay going gives the focus back to the element that
+  had it. A menu whose element a pass does not build closes
+  (`resolveMenu`). `PopoverMenuButton` draws a menu button's menu so
+  (`menuShown.below`): opened below the button itself (`menuState.below`,
+  which `openMenuButton` sets), its panel attaches to the button's
+  bottom, flipping above it, and the button shows expanded; opened from a
+  toolbar's overflow menu, it goes at the overflow button's corner as a
+  context menu goes at its point. Opened by the keys or assistive
+  technology (`menuState.key`), it starts on its first item, and a press
+  on the button while it shows closes it (`buildMenu`, and `newMenu` for
+  the bases).
 - **Scenes** are flat lists of operations in device pixels: rounded
   rectangles with borders of a width per side, solid or dashed, filled
   with a color, a linear gradient mixed in sRGB or Oklab, a gradient of
