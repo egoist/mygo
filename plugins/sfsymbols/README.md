@@ -8,9 +8,8 @@ image.
 ```go
 import "github.com/egoist/mygo/plugins/sfsymbols"
 
-if src, ok := sfsymbols.Image("gearshape", 48, t.Text, sfsymbols.Options{}); ok {
-	ui.Image(c, src).Size(16, 16)
-}
+sfsymbols.Symbol(c, "gearshape")
+sfsymbols.Symbol(c, "trash").Size(20).Color(t.Accent).Weight(sfsymbols.Semibold).Fill()
 ```
 
 See [the documentation](../../docs/plugins/sfsymbols.md), and

@@ -88,6 +88,7 @@ type shapeKey struct {
 	name    string
 	px      int
 	natural bool
+	weight  Weight
 }
 
 type tintKey struct {
@@ -106,7 +107,10 @@ const (
 var (
 	mu     sync.Mutex
 	shapes = newLRU[shapeKey, *image.RGBA](shapeLimit)
-	tinted = newLRU[tintKey, *ui.Bitmap](tintLimit)
+	// missing holds the names this macOS has no symbol for, so that a
+	// Symbol trying a variant (Fill) does not ask AppKit every frame.
+	missing = newLRU[string, struct{}](shapeLimit)
+	tinted  = newLRU[tintKey, *ui.Bitmap](tintLimit)
 )
 
 // Image returns the SF Symbol named name (as "gearshape"), drawn px pixels
@@ -118,17 +122,24 @@ func Image(name string, px int, col ui.Color, o Options) (ui.ImageSource, bool) 
 		return nil, false
 	}
 	px = min(max(px, 8), 256)
-	sk := shapeKey{name: name, px: px, natural: o.Natural}
+	sk := shapeKey{name: name, px: px, natural: o.Natural, weight: o.Weight}
 	tk := tintKey{shapeKey: sk, r: col.R, g: col.G, b: col.B, a: col.A}
 	mu.Lock()
 	b, ok := tinted.get(tk)
 	coverage, drawn := shapes.get(sk)
+	_, absent := missing.get(name)
 	mu.Unlock()
 	if ok {
 		return b, true
 	}
+	if absent {
+		return nil, false
+	}
 	if !drawn {
-		if coverage, drawn = rasterize(name, px, o.Natural); !drawn {
+		if coverage, drawn = rasterize(name, px, o.Natural, o.Weight); !drawn {
+			mu.Lock()
+			missing.put(name, struct{}{})
+			mu.Unlock()
 			return nil, false
 		}
 	}
@@ -159,7 +170,7 @@ func canvas(pix []byte, w, h int) (uintptr, func()) {
 // inset a little. With natural, every symbol takes one scale, as AppKit
 // draws them at one point size: a cross stays smaller than a wide
 // rectangle, rather than each filling the box.
-func rasterize(name string, px int, natural bool) (out *image.RGBA, ok bool) {
+func rasterize(name string, px int, natural bool, weight Weight) (out *image.RGBA, ok bool) {
 	// AppKit's temporary objects are autoreleased: drain them here, on the
 	// thread that made them.
 	runtime.LockOSThread()
@@ -175,7 +186,7 @@ func rasterize(name string, px int, natural bool) (out *image.RGBA, ok bool) {
 	}
 	// A point size of px pixels renders at least 2× that on a Retina
 	// screen: the canvas below scales it down, never up.
-	cfg := objc.Send[objc.ID](objc.ID(objc.GetClass("NSImageSymbolConfiguration")), selSymbolConfg, float64(px), 0.0)
+	cfg := objc.Send[objc.ID](objc.ID(objc.GetClass("NSImageSymbolConfiguration")), selSymbolConfg, float64(px), weight.fontWeight())
 	img = objc.Send[objc.ID](img, selSymbolApply, cfg)
 	if img == 0 {
 		return nil, false

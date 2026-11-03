@@ -1,14 +1,14 @@
 // SF Symbols shows Apple's SF Symbols, drawn by the running macOS through
-// the sfsymbols plugin, in native UI, with their options: size, color, and
+// the sfsymbols plugin, in native UI, as SwiftUI's Image(systemName:) shows
+// them, with their modifiers: size, color, weight, the filled variant, and
 // whether each fills its box or keeps its natural size. A name the system
-// has no symbol for, and every symbol on another OS, shows a dash instead.
+// has no symbol for, and every symbol on another OS, shows its fallback.
 //
 //	go run ./examples/sf-symbols
 package main
 
 import (
 	"log"
-	"math"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/sfsymbols"
@@ -25,11 +25,16 @@ var names = []string{
 	"server.rack", "display", "laptopcomputer", "no.such.symbol",
 }
 
+// missing is the fallback of a symbol the system has not: a dashed square.
+var missing = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"><rect x="3" y="3" width="18" height="18" rx="3"/></svg>`))
+
 // gallery is what the window shows: the options chosen.
 type gallery struct {
-	size, color int
-	natural     bool
+	size, color, weight int
+	fill, natural       bool
 }
+
+var weights = [...]sfsymbols.Weight{sfsymbols.Light, sfsymbols.Regular, sfsymbols.Semibold, sfsymbols.Black}
 
 var sizes = [...]float32{16, 24, 32, 48}
 
@@ -37,12 +42,12 @@ func (g *gallery) view(c *ui.Context) {
 	t := c.Theme()
 	size := sizes[g.size]
 	col := [...]ui.Color{t.Text, t.Accent, t.TextMuted}[g.color]
-	// Three pixels to a DIP: the symbols stay sharp on any display.
-	px := int(math.Round(float64(size) * 3))
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).Wrap().Gap(12).Padding(16).AlignItems(ui.Center).Children(func() {
 			ui.Segmented(c, &g.size, "16", "24", "32", "48").Label("Size")
 			ui.Segmented(c, &g.color, "Text", "Accent", "Muted").Label("Color")
+			ui.Segmented(c, &g.weight, "Light", "Regular", "Semibold", "Black").Label("Weight")
+			ui.Checkbox(c, &g.fill, "Fill")
 			ui.Checkbox(c, &g.natural, "Natural size")
 			if !sfsymbols.Available() {
 				ui.Text(c, "This system has no SF Symbols").TextColor(t.TextMuted)
@@ -54,10 +59,12 @@ func (g *gallery) view(c *ui.Context) {
 					ui.Column(c).Width(148).Height(108).Center().Gap(12).Radius(t.Radius).
 						Background(t.Surface).Border(1, t.Border).Children(func() {
 						ui.Column(c).Height(48).Center().Children(func() {
-							if src, ok := sfsymbols.Image(name, px, col, sfsymbols.Options{Natural: g.natural}); ok {
-								ui.Image(c, src).Size(size, size)
-							} else {
-								ui.Text(c, "—").FontSize(size).TextColor(t.TextMuted)
+							s := sfsymbols.Symbol(c, name).Size(size).Color(col).Weight(weights[g.weight]).Fallback(missing)
+							if g.fill {
+								s.Fill()
+							}
+							if g.natural {
+								s.Natural()
 							}
 						})
 						ui.Text(c, name).FontSize(12).TextColor(t.TextMuted)
@@ -69,7 +76,7 @@ func (g *gallery) view(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{size: 1}
+	g := &gallery{size: 1, weight: 1}
 	mygo.App.WhenReady(func() {
 		mygo.NewWindow(mygo.WindowOptions{
 			Title:   "SF Symbols",

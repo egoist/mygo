@@ -30,7 +30,7 @@ func TestImage(t *testing.T) {
 // TestCoverage checks that a symbol covers some of its box and not
 // all of it, and that tint keeps the premultiplied alpha of the shape.
 func TestCoverage(t *testing.T) {
-	coverage, ok := rasterize("xmark", 64, false)
+	coverage, ok := rasterize("xmark", 64, false, Regular)
 	if !ok {
 		t.Fatal("xmark drew nothing")
 	}
@@ -61,7 +61,7 @@ func TestCoverage(t *testing.T) {
 // centered in it.
 func TestFillsItsBox(t *testing.T) {
 	for _, name := range []string{"xmark", "gearshape", "rectangle.split.2x1", "chevron.down"} {
-		coverage, ok := rasterize(name, 48, false)
+		coverage, ok := rasterize(name, 48, false, Regular)
 		if !ok {
 			t.Fatalf("%s drew nothing", name)
 		}
@@ -94,11 +94,11 @@ func inkOf(coverage *image.RGBA) image.Rectangle {
 // TestNatural checks that a symbol drawn at its natural size is smaller
 // than one that fills its box.
 func TestNatural(t *testing.T) {
-	filled, ok := rasterize("xmark", 64, false)
+	filled, ok := rasterize("xmark", 64, false, Regular)
 	if !ok {
 		t.Fatal("xmark drew nothing")
 	}
-	natural, ok := rasterize("xmark", 64, true)
+	natural, ok := rasterize("xmark", 64, true, Regular)
 	if !ok {
 		t.Fatal("xmark drew nothing at its natural size")
 	}
@@ -139,5 +139,61 @@ func TestCacheBounded(t *testing.T) {
 	}
 	if !drawn {
 		t.Error("gearshape's shape dropped while it was in use")
+	}
+}
+
+// TestWeight checks that a heavier weight draws more ink.
+func TestWeight(t *testing.T) {
+	ink := func(w Weight) int {
+		coverage, ok := rasterize("circle", 64, true, w)
+		if !ok {
+			t.Fatalf("circle at %d drew nothing", w)
+		}
+		n := 0
+		for i := range len(coverage.Pix) / 4 {
+			n += int(coverage.Pix[i*4+3])
+		}
+		return n
+	}
+	if light, black := ink(UltraLight), ink(Black); black <= light {
+		t.Errorf("black ink %d, ultralight %d: want more", black, light)
+	}
+}
+
+// TestFillVariant checks that a filled variant draws, and that a name
+// missing once answers from the cache.
+func TestFillVariant(t *testing.T) {
+	if _, ok := Image("trash.fill", 32, ui.RGB(0, 0, 0), Options{}); !ok {
+		t.Fatal("trash.fill drew nothing")
+	}
+	if _, ok := Image("gearshape.nope", 32, ui.RGB(0, 0, 0), Options{}); ok {
+		t.Fatal("a missing name drew")
+	}
+	mu.Lock()
+	_, absent := missing.get("gearshape.nope")
+	mu.Unlock()
+	if !absent {
+		t.Error("a missing name was not remembered")
+	}
+}
+
+// TestSymbolDraws checks that a Symbol paints the system's symbol in its
+// color.
+func TestSymbolDraws(t *testing.T) {
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Background(ui.RGB(255, 255, 255)).Children(func() {
+			Symbol(c, "square.fill").Size(30).Color(ui.RGB(0, 0, 255))
+		})
+	}, 40, 40)
+	tt.Frame()
+	img := tt.Image()
+	blue := 0
+	for i := 0; i < len(img.Pix); i += 4 {
+		if img.Pix[i+2] > 200 && img.Pix[i] < 60 {
+			blue++
+		}
+	}
+	if blue == 0 {
+		t.Error("square.fill painted no blue")
 	}
 }

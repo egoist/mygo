@@ -8,7 +8,7 @@ import (
 
 // The gallery names every symbol, and its options change them.
 func TestGallery(t *testing.T) {
-	g := &gallery{size: 1}
+	g := &gallery{size: 1, weight: 1}
 	tt := ui.NewTester(g.view, 840, 2000)
 	for _, name := range names {
 		if _, ok := tt.Find(name); !ok {
@@ -26,5 +26,14 @@ func TestGallery(t *testing.T) {
 	}
 	if !g.natural {
 		t.Error("not natural after Natural size")
+	}
+	if err := tt.Click("Black"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("Fill"); err != nil {
+		t.Fatal(err)
+	}
+	if g.weight != 3 || !g.fill {
+		t.Errorf("weight %d, fill %v after Black and Fill, want 3 and true", g.weight, g.fill)
 	}
 }
