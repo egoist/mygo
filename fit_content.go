@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/surface"
 )
 
 // fitContent is what a window that takes the size of its page's content
@@ -17,6 +18,9 @@ type fitContent struct {
 	size     platform.Size
 	content  contentSize
 	told     bool // the page told content
+	// native connects a flyout's native UI to it (connectFit), nil for
+	// a page: NewFlyout sets it, so that apps without one link none of it.
+	native func(w *Window, c *surface.Conn)
 }
 
 // contentSize is the size of a page's content as its bridge tells it, in
@@ -77,6 +81,66 @@ func (f *fitContent) fit(c contentSize, zoom float64, maxHeight int) (platform.S
 		Width:  within(dips(width), f.min.Width, f.max.Width),
 		Height: within(dips(height), f.min.Height, maxH),
 	}, true
+}
+
+// connectFit has a flyout's native UI tell the size of its content
+// (surface.Conn.ContentSize) as it lays it out. Main thread only.
+func (w *Window) connectFit(c *surface.Conn) {
+	c.FitWidth, c.ContentSize = w.fitWidths, w.fitNative
+}
+
+// fitNative sizes a flyout of native UI that takes its content's size
+// (FlyoutOptions.FitContent) to the size its content measured, in DIPs,
+// within its limits and the work area its flyout goes to (fitWidths):
+// as for a page, a size SetSize gave holds until that changes. The
+// content measures it as it builds a frame: the flyout resizes and places
+// itself again after that frame, and the next lays the content out at
+// its size. Main thread only.
+func (w *Window) fitNative(width, height float64) {
+	postMain(func() {
+		f := w.fit
+		if f == nil || w.native == nil || w.flyout == nil {
+			return
+		}
+		maxW, maxH := w.fitWorkArea()
+		s, ok := f.fit(contentSize{Width: width, Height: height}, 1, maxH)
+		if !ok {
+			return
+		}
+		if maxW > 0 {
+			s.Width = min(s.Width, maxW)
+		}
+		if s == f.size {
+			return
+		}
+		f.size = s
+		if s != w.flyoutSize {
+			w.setFlyoutSize(s.Width, s.Height)
+		}
+	})
+}
+
+// fitWidths returns the least and the most width native UI that takes its
+// content's size may take, in DIPs, 0 for no bound: its limits, and the
+// work area its flyout goes to. Main thread only.
+func (w *Window) fitWidths() (lo, hi float64) {
+	f := w.fit
+	if f == nil || w.native == nil {
+		return 0, 0
+	}
+	maxW, _ := w.fitWorkArea()
+	if f.max.Width > 0 && (maxW == 0 || f.max.Width < maxW) {
+		maxW = f.max.Width
+	}
+	return float64(f.min.Width), float64(maxW)
+}
+
+// fitWorkArea returns the size of the work area a flyout is in, which
+// the platforms keep it within: that of the display it was placed on
+// next to its anchor. Zero where none is known. Main thread only.
+func (w *Window) fitWorkArea() (width, height int) {
+	wa := platform.WorkAreaFor(w.native.Bounds(), backend().Screen().Displays())
+	return max(wa.Width, 0), max(wa.Height, 0)
 }
 
 // fitContentSize sizes a window that takes its page's size to the size of

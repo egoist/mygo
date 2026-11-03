@@ -520,14 +520,12 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyou
 
 	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, untrusted: opts.Page.Untrusted, secret: randomText(), stateKey: opts.StateKey, background: bg, content: opts.Content, panel: opts.Panel && flyout == nil, active: true}
 	w.pg = &Page{w}
-	if opts.Content == nil {
-		if flyout != nil {
-			w.fit = flyout.fit
-		} else if opts.FitContent {
-			w.fit = &fitContent{
-				min: platform.Size{Width: opts.MinWidth, Height: opts.MinHeight},
-				max: platform.Size{Width: opts.MaxWidth, Height: opts.MaxHeight},
-			}
+	if flyout != nil {
+		w.fit = flyout.fit
+	} else if opts.Content == nil && opts.FitContent {
+		w.fit = &fitContent{
+			min: platform.Size{Width: opts.MinWidth, Height: opts.MinHeight},
+			max: platform.Size{Width: opts.MaxWidth, Height: opts.MaxHeight},
 		}
 	}
 	w.hiddenTitleBar = !opts.Frameless && (opts.TitleBarStyle == TitleBarHidden || opts.TitleBarStyle == TitleBarHiddenInset)

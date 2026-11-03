@@ -84,8 +84,17 @@ type FlyoutOptions struct {
 	// at which its text wraps; its height is its content's, the body's
 	// margins included, within MinHeight and MaxHeight, beyond which the
 	// page scrolls. A page that gives html a size of its own, as
-	// height: 100%, keeps the flyout at that size. Native UI (Content)
-	// does not fit.
+	// height: 100%, keeps the flyout at that size.
+	//
+	// Native UI (Content) fits as well: each frame measures the root's
+	// content as it lays it out, at its max-content width within
+	// MinWidth and MaxWidth and its height at that width, within
+	// MinHeight and MaxHeight, beyond which a Scroll in it scrolls; what
+	// is placed Absolute takes none of it. A frame that measures another
+	// size resizes the flyout, and the next lays the content out at that
+	// size: two frames, the first at the size the flyout had. A view that
+	// sizes its content after the window's (Context.Size) settles at the
+	// size it took, rather than resize back and forth.
 	FitContent bool
 	// MinWidth, MinHeight, MaxWidth and MaxHeight bound the size
 	// FitContent gives the flyout, in DIPs; 0 is no bound. The work area
@@ -172,6 +181,9 @@ func NewFlyout(opts FlyoutOptions) *Window {
 		fit = &fitContent{
 			min: platform.Size{Width: opts.MinWidth, Height: opts.MinHeight},
 			max: platform.Size{Width: opts.MaxWidth, Height: opts.MaxHeight},
+		}
+		if opts.Content != nil {
+			fit.native = (*Window).connectFit
 		}
 	}
 	return createWindow("NewFlyout", WindowOptions{
