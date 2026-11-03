@@ -511,11 +511,12 @@ func unhandledCommand(clip id, k platform.Key) bool {
 	return true
 }
 
-// clipWebView returns the web view in the clip view clip, while its
-// window shows native UI.
+// clipWebView returns the web view in the clip view clip, or in the pane
+// inside it, which is the web view's next responder, while its window
+// shows native UI.
 func clipWebView(clip id) *window {
 	for _, v := range theBackend.byWebView {
-		if v.clip == clip {
+		if v.clip == clip || v.pane == clip {
 			if v.host == nil || v.host.closed || v.host.surface == nil {
 				return nil
 			}
@@ -537,9 +538,14 @@ func registerClipViewClass() {
 		// for: WebKit sends the commands its web process does not know up
 		// the responder chain first, and resends the key only if no
 		// responder took the command, which a panel, as a flyout's, does.
+		// NSView has no cancelOperation: of its own: a command no web view
+		// takes goes on up the responder chain, as NSResponder's
+		// doCommandBySelector: sends it.
 		method("cancelOperation:", func(self id, cmd objc.SEL, sender id) {
 			if !unhandledCommand(self, platform.KeyEscape) {
-				sendSuper(self, "MyGoClipView", cmd, uintptr(sender))
+				if next := send(self, "nextResponder"); next != 0 {
+					send(next, "doCommandBySelector:", uintptr(cmd))
+				}
 			}
 		}),
 		// Assistive technology finds the page in the element of the
