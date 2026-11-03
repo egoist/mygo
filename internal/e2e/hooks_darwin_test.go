@@ -428,3 +428,20 @@ func pressLetter(w *mygo.Window, letter byte, cmd bool) (ok bool) {
 	})
 	return ok
 }
+
+func glassTint(w *mygo.Window) (red, green, blue, alpha float64, ok bool) {
+	mygo.RunOnMain(func() { red, green, blue, alpha = darwin.TestGlassTint(w.NativeHandle()) })
+	return red, green, blue, alpha, true
+}
+
+func nativeGlass(w *mygo.Window) (class string, frame [4]float64, style int, ok bool) {
+	mygo.RunOnMain(func() { class, frame, style, ok = darwin.TestNativeGlass(w.NativeHandle()) })
+	return class, frame, style, ok
+}
+
+func nativeGlassTint(w *mygo.Window) (red, green, blue, alpha float64) {
+	mygo.RunOnMain(func() { red, green, blue, alpha = darwin.TestNativeGlassTint(w.NativeHandle()) })
+	return red, green, blue, alpha
+}
+
+func activateApp() { mygo.RunOnMain(darwin.TestActivate) }

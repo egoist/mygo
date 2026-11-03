@@ -916,6 +916,19 @@ func (h *windowHost) openURL(u string, done func(error)) {
 	}
 }
 
+// nativeGlass reports whether the surface draws the system's glass.
+func (h *windowHost) nativeGlass() bool {
+	s, ok := h.conn.Surface.(platform.GlassSurface)
+	return ok && s.NativeGlassSupported()
+}
+
+// placeGlass gives the surface where the frame shows the system's glass.
+func (h *windowHost) placeGlass(places []platform.GlassPlacement) {
+	if s, ok := h.conn.Surface.(platform.GlassSurface); ok {
+		s.PlaceGlass(places)
+	}
+}
+
 // placeWebViews gives the surface where the frame shows the window's web
 // views, unless it is where the last frame showed them.
 func (h *windowHost) placeWebViews(views []placedWebView) {
