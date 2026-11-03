@@ -129,3 +129,32 @@ func TestDocumentRecoveryCleansOnlyRestoredEntries(t *testing.T) {
 		t.Fatalf("the fully restored session remains: %v", err)
 	}
 }
+
+func TestDocumentRecoveryRemovesSessionsWithoutEntries(t *testing.T) {
+	for _, missingIndex := range []bool{false, true} {
+		name := "empty-index"
+		if missingIndex {
+			name = "missing-index"
+		}
+		t.Run(name, func(t *testing.T) {
+			ds := recoveryDocs(t)
+			var copies map[string]string
+			if missingIndex {
+				copies = map[string]string{"unindexed": "unsaved changes"}
+			}
+			dir := writeRecoveryOrphan(t, ds, name, []recoveryEntry{}, copies)
+			if missingIndex {
+				if err := os.Remove(filepath.Join(dir, "index.json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if n := ds.kind.restore(); n != 0 {
+				t.Fatalf("restored %d documents, want none", n)
+			}
+			if _, err := os.Stat(dir); !os.IsNotExist(err) {
+				t.Fatalf("the session without entries remains: %v", err)
+			}
+		})
+	}
+}

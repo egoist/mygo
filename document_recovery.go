@@ -222,7 +222,7 @@ func (s *recoveryStore) claim() (orphans []orphan, done func(restored map[string
 				os.Remove(filepath.Join(c.dir, e.ID))
 			}
 			c.lock.Close()
-			if len(c.entries) > 0 && len(kept) == 0 {
+			if len(kept) == 0 {
 				os.RemoveAll(c.dir)
 			}
 		}
