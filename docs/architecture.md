@@ -559,8 +559,13 @@ features GTK 4 lacks become X11-only code beside it.
   base URL serves the document from that URL the same way.
 - **Eval** goes through the DevTools protocol (`Runtime.evaluate` with
   `awaitPromise`), which reports syntax errors and ignores the page's CSP.
-  Edit roles run `document.execCommand` with a user gesture; paste inserts
-  the clipboard text.
+  Edit roles run `document.execCommand` with a user gesture, except Paste:
+  `Input.dispatchKeyEvent` carries Chromium's `paste` command on an
+  `Unidentified` raw key-down, followed by key-up once it completes. The
+  page sees these events without modifiers, avoiding its Ctrl+V handlers,
+  and a paste event with the clipboard's formats. The controller gets
+  focus first, after the menu closes. Paste and Match Style still inserts
+  the clipboard's text with `Input.insertText`.
 - Scripts injected at document creation run in every frame, so the
   main-frame-only ones (the bridge) are wrapped in `window === window.top`.
   Iframes get no `chrome.webview` handler.
@@ -574,8 +579,20 @@ features GTK 4 lacks become X11-only code beside it.
   in assembly (`uia_*.s`), which move the doubles' bits to the integer
   registers of their positions, touching only registers a call may
   change, and jump to the callbacks.
-- DPI: the process is per-monitor aware (v2); the backend converts between
-  pixels and DIPs with the window's or monitor's DPI. Frameless windows, and
+- DPI: the process is per-monitor aware (v2); the backend converts sizes
+  between pixels and DIPs with the window's or monitor's DPI, and points
+  and rectangles of the screen (windows' bounds, the displays, the cursor,
+  tray icons) through one space of DIPs in which displays never overlap
+  and a point names one display (`dipSpace`, in `dips.go`, which builds
+  on every platform for its tests): a display's DIPs start at its
+  top-left pixel scaled by the smallest scale of the displays, as Qt
+  anchors them at that pixel, and go on in its own scale. The primary
+  display's DIPs, and those of displays that all have one scale, are the
+  screen's pixels at that scale. A window takes the scale of the display
+  it is the most on, whose DPI Windows gives it; it is created on its
+  display, at its rectangle, and `place` moves it, keeping its rectangle
+  in `WM_DPICHANGED`, whose suggested one would scale the size, already
+  in the new display's scale, a second time (#1039). Frameless windows, and
   those with a hidden title bar, drop the caption in `WM_NCCALCSIZE` but
   keep the side and bottom borders, which Windows 10+ draws invisibly
   outside the window, so they still resize. On Windows 11 a hidden title
@@ -629,7 +646,10 @@ features GTK 4 lacks become X11-only code beside it.
   widens every owner-drawn item past the width it asks for, by as much as
   it doesn't tell (not `SM_CXMENUCHECK`, #922): items ask for all they need
   until one draws, whose width less the widest asked for in its menu is
-  that widening at the DPI, and for that much less after. The items
+  that widening at the DPI, and for that much less after. Labels are
+  measured by their advance and drawn unclipped (`DT_NOCLIP`), into the
+  item's padding where their ink reaches past it (Microsoft YaHei UI,
+  Chinese Windows' menu font, by a pixel, #1028). The items
   keep their strings, which mnemonics, screen readers and the tests read.
   A menu with owner-drawn items loses Windows 11's frame, its window square
   under its class's drop shadow (`CS_DROPSHADOW`) along two sides: while
@@ -1582,7 +1602,15 @@ as in Tauri:
   state) and when the window closes; it is saved when a window closes
   and when the app quits, if it changed, and kept for the next save when
   saving fails. A saved window that would not show on any
-  display keeps its size and is centered. `WindowOptions.Maximized` starts
+  display keeps its size and is centered. On Windows, where a window's
+  position in DIPs changes with the displays' scales (`dipSpace`), and
+  earlier versions' could not tell displays of different scales apart,
+  the state also keeps the window's
+  rectangle in pixels (`platform.WindowStateWindow`), and the backend
+  creates the restored window at it, on its display
+  (`platform.WindowStateBackend`, `WindowOptions.StateBounds`); a state
+  without pixels is restored in DIPs where every display has the same
+  scale, and centered elsewhere. `WindowOptions.Maximized` starts
   a window maximized: `zoom:` on macOS, `gtk_window_maximize` before
   mapping on Linux, `SW_SHOWMAXIMIZED` on the first show on Windows, where
   `Maximize` on a hidden window also waits for it to be shown.
@@ -1872,9 +1900,10 @@ backend, which:
 - performs edit roles natively (first responder on macOS,
   `webkit_web_view_execute_editing_command` on Linux; on Windows a page
   keeps their keys, which WebView2 performs, and the menu items run
-  `document.execCommand` through DevTools, paste typing the clipboard's
-  text), or sends them to a window showing native UI as a
-  `SurfaceCommand`, and reports everything
+  `document.execCommand` through DevTools, except Paste, which runs
+  Chromium's paste command with the clipboard's formats, and Paste and
+  Match Style, which inserts text), or sends them to a window showing
+  native UI as a `SurfaceCommand`, and reports everything
   else through `WindowHandler.MenuItemClicked` for a window's menu, or
   `AppHandler.MenuItemClicked` for menus without one; the core toggles
   checkbox/radio state, performs window and view roles and calls `Click`
@@ -2297,6 +2326,10 @@ either.
   alone, as Enter choosing a candidate: on macOS `keyDown:` sends no
   `KeyPressed` while there is marked text, as GTK's input method filters
   such keys on Linux and IMM32 makes them `VK_PROCESSKEY` on Windows.
+  A composition an input method gives up, as with Escape, goes: the
+  Microsoft Japanese IME sends `WM_IME_COMPOSITION` with neither
+  `GCS_COMPSTR` nor `GCS_RESULTSTR` then, which empties the marked text
+  (`InputComposition.Cancel`) before `WM_IME_ENDCOMPOSITION` unmarks it.
   A composition the content does not take (`SurfaceEvent` returns false
   for `TextComposition`) macOS gives up (`discardMarkedText`, once
   `interpretKeyEvents:` returns), as the terminal leaves the dead key ´
@@ -3054,9 +3087,11 @@ either.
     edits and gives tokens per line; the default tokenizes lines from the
     state the line above ended in (`lexer.go`, `lexers.go`), keeping the
     states, and after an edit goes on below it only until a line starts
-    as it did before. Optional interfaces give a parser's structure to
-    Select Larger, folding, brackets and indentation, so that tree-sitter
-    can plug in as a `Language.Highlighter` without the editor changing.
+    as it did before. A patch's texts start each hunk in state 0, at
+    lines the buffer moves with its edits (`setRestarts`). Optional
+    interfaces give a parser's structure to Select Larger, folding,
+    brackets and indentation, so that tree-sitter can plug in as a
+    `Language.Highlighter` without the editor changing.
     Brackets are matched by scanning lines a batch at a time
     (`rope.Text.EachLine`), skipping strings and comments by their tokens,
     and only lines holding brackets are tokenized for it.
@@ -3380,8 +3415,8 @@ either.
   corners and show it scaled, keeping its layout, so that it shows as its
   hole does over a transparent window too. A
   press there goes to the page and comes to the content as `WebViewPress`,
-  which notes it for `PressedOutside` and takes the focus from the
-  content; the engine sets no cursor while the pointer is over a web view
+  which notes it for `PressedOutside` and moves the focus to the web
+  view's element, unshown; the engine sets no cursor while the pointer is over a web view
   (`cursorUnknown`), whose page sets it. Web views the frame does not build
   hide and keep their pages. Glyphs over a hole are not on an opaque
   background (`Painter.holes`), so that subpixel ones do not color the
@@ -3389,7 +3424,11 @@ either.
   it away (`OpHole`'s `Opacity`), so the page blends over it. The element
   is a Tab stop: focusing it gives the page the keyboard
   (`WebView.TabInto`, from its end going back), and Tab past the page's
-  ends comes back as `WebViewTabOut`, from which the focus moves on. The
+  ends comes back as `WebViewTabOut`, from which the focus moves on. A
+  key the page leaves unhandled comes as `WebViewKey`: the engine moves
+  the focus to the web view's element, if it was elsewhere, and takes the
+  key as from the keyboard (`webViewKey`), so that the shortcuts around
+  the element and the window's see it; Tab never comes. The
   access tree has a node for each page, inside its element
   (`AccessNode.WebView`), which the backends fill with the page's own
   accessibility, as SwiftUI's `WebView` is in place. Backends:
@@ -3417,7 +3456,15 @@ either.
     into `WebViewTabOut`. The page's node lists the WKWebView, whose
     `accessibilityParent` is that node; the clip view lists none. With
     `ScrollToContainer`, `MyGoWebView`'s `scrollWheel:` gives the event to
-    the surface's conversion (`scrollWheel`) instead of WebKit.
+    the surface's conversion (`scrollWheel`) instead of WebKit. WebKit
+    sends a key the page did not handle again, and the WKWebView on up
+    the responder chain: `MyGoClipView`'s `keyDown:` sends it to the
+    surface as `WebViewKey` (`unhandledKey`), Tab aside. An Escape (or
+    Cmd+.) comes as `cancelOperation:` first: WebKit sends a command its
+    web process does not know up the chain and resends the key only if
+    no responder took the command, and the `NSPanel` of a flyout takes
+    it, so `MyGoClipView` takes `cancelOperation:` itself and sends
+    `WebViewKey` with Escape (`unhandledCommand`).
   - Linux: the first web view puts the surface's area in a `GtkOverlay`,
     over a `GtkLayout` holding the WebKitWebViews (which, unlike a
     `GtkFixed`, asks for no size), as an overlay, which GTK realizes again
@@ -3438,14 +3485,19 @@ either.
     `scroll-event`, which runs before WebKit's class handler, converts the
     event as the area's does (`scrollEvent`, moved by the view's
     allocation), sends it to the content and stops the signal. A scaled
-    page's view is as large as it shows, and WebKit zooms it by the
-    scale over the page's own zoom (`pageScale`), so that it lays out
-    at the same width in CSS pixels. GTK runs each handler of `draw`
-    with a clip of its own, and GDK draws WebKit's frames with OpenGL
-    within a clip's rectangles alone: the view's handler of `draw` clips
-    to the page's corners on whole pixels and calls WebKit's class
-    handler itself (`GtkWidgetClass.draw`), and the region shaping the
-    area keeps the pixels the corners cut off.
+    page's view is as large as it shows, and WebKit zooms it by the scale
+    over the page's own zoom (`pageScale`), so that it lays out at the same
+    width in CSS pixels. GTK runs each handler of `draw` with a clip of its
+    own, and GDK draws WebKit's frames with OpenGL within a clip's
+    rectangles alone: the view's handler of `draw` clips to the page's
+    corners on whole pixels and calls WebKit's class handler itself
+    (`GtkWidgetClass.draw`), and the region shaping the area keeps the
+    pixels the corners cut off. WebKitGTK dispatches a key the page did not
+    handle again once its web process says so, and its class handler of
+    `key-press-event` then passes it on: a handler connected after it
+    (`cbWebViewKey`) gets those keys alone and sends them as `WebViewKey`,
+    but Tab, modifier keys on their own and the shortcuts of menu items with
+    a role, which go on to the menu (`cbMenuKey`).
   - Windows: WebView2 in visual hosting, a composition controller
     (`ICoreWebView2Environment3`) whose visual is in a DirectComposition
     target of the surface's window that is not topmost (a window has one
@@ -3473,7 +3525,18 @@ either.
     keeps the wheel over that web view (`WM_MOUSEWHEEL`, `WM_MOUSEHWHEEL`)
     for the surface, which scrolls the content as over its own elements;
     a touchpad's pinch, the wheel by less than a notch with Ctrl held,
-    still goes to the page, as pinches do on the other platforms. For UI
+    still goes to the page, as pinches do on the other platforms.
+    WebView2 tells of no key a page leaves unhandled: `keys.js`, built
+    from `packages/bridge/src/keys-world.ts`, runs in an isolated world of
+    each document of the web view, frames in its process included
+    (`Page.addScriptToEvaluateOnNewDocument` with a `worldName`), decides
+    after the page's handlers ran with the rules of `keys.ts`, and calls
+    a binding of that world alone (`Runtime.addBinding` with an
+    `executionContextName`, after `Runtime.enable`), which WebView2
+    raises as `Runtime.bindingCalled` (`GetDevToolsProtocolEventReceiver`);
+    `bindingCalled` sends `WebViewKey`. The page's scripts reach neither
+    the world nor the binding, bridge or not, and their events are not
+    trusted. For UI
     Automation the root also answers `IRawElementProviderHwndOverride`:
     for the window WebView2 shows a page with, it returns the page's node,
     which answers with WebView2's provider of the page
@@ -4045,7 +4108,14 @@ either.
     shows no stretched frames; the others present as soon as the GPU has
     them (`presentDrawable:`), sparing a pass of AppKit's display cycle
     and a commit of the transaction each: an animation at 120 Hz takes
-    about half the main thread's time it would. The main thread never
+    about half the main thread's time it would. A resize's frame that
+    AppKit asks for (`updateLayer`) after one presented with the
+    transaction, outside a live resize, draws at the display link's next
+    tick, as for a window resized from its view, or right after the frame
+    that took back the drawables given back when idle: drawn in AppKit's
+    display of the view, presented with the transaction too, it did not
+    show, and the window kept the last frame stretched to its new size
+    (#1044). The main thread never
     waits for the display: after each frame presented as soon as drawn, a
     goroutine on a thread of its own (`present.go`) takes the next frame's
     drawable, which `nextDrawable` holds back while the display holds the
