@@ -30,8 +30,9 @@ system draws SF Symbols at all.
   `Options{Natural: true}` draws every symbol at one scale instead, the
   size it has beside others of the same point size: a cross stays smaller
   than a wide rectangle, as SF Symbols balance them.
-- Results are cached by name, size, color and options. `Image` is safe to
-  call from any goroutine.
+- Results are cached by name, size, color and options, the least recently
+  used dropped past a limit, so an animated color or size doesn't grow
+  memory without end. `Image` is safe to call from any goroutine.
 
 Every other OS has no SF Symbols: `Image` returns false there, so keep an
 icon of your own to fall back on, and use `ui.Image` or `Painter.Image`

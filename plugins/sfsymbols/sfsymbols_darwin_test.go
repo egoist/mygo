@@ -116,3 +116,28 @@ func TestAvailable(t *testing.T) {
 		t.Fatal("gearshape not drawn though symbols are available")
 	}
 }
+
+// TestCacheBounded checks that a color animated over many frames keeps the
+// caches at their limits, and draws the symbol's shape once.
+func TestCacheBounded(t *testing.T) {
+	first, ok := Image("gearshape", 24, ui.RGB(0, 0, 0), Options{})
+	if !ok {
+		t.Fatal("gearshape drew nothing")
+	}
+	if again, _ := Image("gearshape", 24, ui.RGB(0, 0, 0), Options{}); again != first {
+		t.Error("the same symbol, size and color drew again")
+	}
+	for i := range tintLimit + 100 {
+		Image("gearshape", 24, ui.RGB(uint8(i), uint8(i>>8), 0), Options{})
+	}
+	mu.Lock()
+	n, s := tinted.len(), shapes.len()
+	_, drawn := shapes.get(shapeKey{name: "gearshape", px: 24})
+	mu.Unlock()
+	if n > tintLimit || s > shapeLimit {
+		t.Fatalf("%d tinted and %d shapes cached, past the limits %d and %d", n, s, tintLimit, shapeLimit)
+	}
+	if !drawn {
+		t.Error("gearshape's shape dropped while it was in use")
+	}
+}

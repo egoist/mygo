@@ -82,18 +82,31 @@ func loadCG() bool {
 // missing from an older macOS, and Image says so for it.
 func Available() bool { return loadCG() }
 
-// key names a drawn symbol: its name, its pixels square, its color and its
-// options.
-type key struct {
-	name       string
-	px         int
-	r, g, b, a uint8
-	natural    bool
+// shapeKey names a symbol's shape: its name, its pixels square and its
+// options. tintKey adds the color it is drawn in.
+type shapeKey struct {
+	name    string
+	px      int
+	natural bool
 }
 
+type tintKey struct {
+	shapeKey
+	r, g, b, a uint8
+}
+
+// The caches hold the shapes AppKit drew and the bitmaps tinted from them,
+// each up to a limit, past which the least recently used goes: an app
+// that animates a symbol's color or size does not grow without end.
+const (
+	shapeLimit = 256
+	tintLimit  = 512
+)
+
 var (
-	mu    sync.Mutex
-	cache = map[key]*ui.Bitmap{}
+	mu     sync.Mutex
+	shapes = newLRU[shapeKey, *image.RGBA](shapeLimit)
+	tinted = newLRU[tintKey, *ui.Bitmap](tintLimit)
 )
 
 // Image returns the SF Symbol named name (as "gearshape"), drawn px pixels
@@ -105,20 +118,24 @@ func Image(name string, px int, col ui.Color, o Options) (ui.ImageSource, bool) 
 		return nil, false
 	}
 	px = min(max(px, 8), 256)
-	k := key{name: name, px: px, r: col.R, g: col.G, b: col.B, a: col.A, natural: o.Natural}
+	sk := shapeKey{name: name, px: px, natural: o.Natural}
+	tk := tintKey{shapeKey: sk, r: col.R, g: col.G, b: col.B, a: col.A}
 	mu.Lock()
-	b, ok := cache[k]
+	b, ok := tinted.get(tk)
+	coverage, drawn := shapes.get(sk)
 	mu.Unlock()
 	if ok {
 		return b, true
 	}
-	coverage, ok := rasterize(name, px, o.Natural)
-	if !ok {
-		return nil, false
+	if !drawn {
+		if coverage, drawn = rasterize(name, px, o.Natural); !drawn {
+			return nil, false
+		}
 	}
 	b = ui.NewBitmap(tint(coverage, col))
 	mu.Lock()
-	cache[k] = b
+	shapes.put(sk, coverage)
+	tinted.put(tk, b)
 	mu.Unlock()
 	return b, true
 }
