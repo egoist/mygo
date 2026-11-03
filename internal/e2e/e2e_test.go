@@ -812,17 +812,21 @@ func TestGlass(t *testing.T) {
 func TestNativeGlassOverWebView(t *testing.T) {
 	var view *mygo.WebView
 	var clicks atomic.Int32
+	var show atomic.Bool
+	show.Store(true)
 	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300, Content: ui.View(func(c *ui.Context) {
 		c.Root().Background(ui.Transparent)
 		ui.Box(c).Fill().Children(func() {
 			if view != nil {
 				ui.WebView(c, view).Fill()
 			}
-			ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(60).Radius(18).Padding(0, 16).AlignItems(ui.Center).Material(glass.Glass{Native: true, Tint: ui.RGBA(255, 0, 0, 0.5)}).Children(func() {
-				if ui.Button(c, "On glass").Width(100).Clicked() {
-					clicks.Add(1)
-				}
-			})
+			if show.Load() {
+				ui.Row(c).Absolute().Top(0).Left(0).Right(0).Height(60).Radius(18).Padding(0, 16).AlignItems(ui.Center).Material(glass.Glass{Native: true, Tint: ui.RGBA(255, 0, 0, 0.5)}).Children(func() {
+					if ui.Button(c, "On glass").Width(100).Clicked() {
+						clicks.Add(1)
+					}
+				})
+			}
 		})
 	})})
 	v, err := w.NewWebView(mygo.WebViewOptions{})
@@ -830,7 +834,8 @@ func TestNativeGlassOverWebView(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.Update(func() { view = v })
-	v.Page().LoadHTML(`<body style="margin:0;background:#ff0000"></body>`, "")
+	v.Page().LoadHTML(`<body style="margin:0;height:3000px;background:#ff0000"><script>requestAnimationFrame(() => requestAnimationFrame(() => { window.ready = true }))</script></body>`, "")
+	waitForPage(t, v.Page(), "window.ready")
 	eventually(t, "the system's glass", func() bool { class, _, _, _ := nativeGlass(w); return class != "" })
 	class, frame, style, ok := nativeGlass(w)
 	if !ok || class != "NSGlassEffectView" {
@@ -870,6 +875,14 @@ func TestNativeGlassOverWebView(t *testing.T) {
 		click(w, 66, 30)
 	}
 	eventually(t, "the click on the glass", func() bool { return clicks.Load() == 1 })
+	// The page is under the glass, and the glass is under the content: the
+	// web view takes the pointer where the page shows.
+	if class := hitView(w, 200, 250); !strings.Contains(class, "WebView") {
+		t.Errorf("the view at the page is %q, not the web view", class)
+	}
+	// The glass of an element that goes away is removed, not only hidden.
+	w.Update(func() { show.Store(false) })
+	eventually(t, "the glass removed", func() bool { class, _, _, ok := nativeGlass(w); return !ok || class == "" })
 }
 
 // TestRoundedOpaqueWindow rounds a frameless window that is not

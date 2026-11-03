@@ -138,6 +138,24 @@ func TestClick(handle uintptr, x, y float64) { testClick(handle, x, y, false) }
 // handled the click when it returns (handlePosted).
 func TestAppClick(handle uintptr, x, y float64) { testClick(handle, x, y, true) }
 
+// TestHitView returns the class of the view a window hit-tests at (x, y)
+// of its content, in DIPs from its top left.
+func TestHitView(handle uintptr, x, y float64) (cls string) {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil {
+		return ""
+	}
+	withPool(func() {
+		content := send(w.win, "contentView")
+		b := msgRect(content, sel("bounds"))
+		hit := msgHitTest(content, sel("hitTest:"), NSPoint{X: x, Y: b.Size.Height - y})
+		if hit != 0 {
+			cls = goString(send(hit, "className"))
+		}
+	})
+	return cls
+}
+
 // TestAppPress is half of TestAppClick: the left mouse down, or the up,
 // which a user's click handles apart, a frame or more later.
 func TestAppPress(handle uintptr, x, y float64, down bool) {

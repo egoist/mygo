@@ -240,8 +240,16 @@ func (s *surface) destroy() {
 	release(s.view)
 }
 
+var (
+	nativeGlassOnce sync.Once
+	nativeGlassOK   bool
+)
+
 // NativeGlassSupported reports whether the system has Liquid Glass.
-func (s *surface) NativeGlassSupported() bool { return hasClass("NSGlassEffectView") }
+func (s *surface) NativeGlassSupported() bool {
+	nativeGlassOnce.Do(func() { nativeGlassOK = hasClass("NSGlassEffectView") })
+	return nativeGlassOK
+}
 
 // PlaceGlass shows the system's glass where the content shows it: under
 // the surface, above the web views, so that the content paints its
@@ -278,9 +286,11 @@ func (s *surface) PlaceGlass(places []platform.GlassPlacement) {
 			send(v, "setHidden:", 0)
 			shown = append(shown, v)
 		}
-		for _, v := range s.glass {
-			if !slices.Contains(shown, v) && !sendBool(v, "isHidden") {
-				send(v, "setHidden:", 1)
+		for id, v := range s.glass {
+			if !slices.Contains(shown, v) {
+				send(v, "removeFromSuperview")
+				release(v)
+				delete(s.glass, id)
 			}
 		}
 		s.glassShown = append(s.glassShown[:0], shown...)

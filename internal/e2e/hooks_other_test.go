@@ -192,3 +192,5 @@ func nativeGlass(*mygo.Window) (class string, frame [4]float64, style int, ok bo
 func nativeGlassTint(*mygo.Window) (red, green, blue, alpha float64) { return 0, 0, 0, 0 }
 
 func activateApp() {}
+
+func hitView(*mygo.Window, float64, float64) string { return "" }
