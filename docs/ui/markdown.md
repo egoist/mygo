@@ -312,6 +312,13 @@ GitHub's extensions, takes linear time on the inputs that are slow in
 other parsers, as cmark does, and depends on nothing outside the
 standard library.
 
+One rule is relaxed for Chinese, Japanese and Korean, which put no space
+around emphasis: next to a CJK character, full-width punctuation or a
+curly quote, `*` and `~~` open and close even where punctuation would
+stop them in CommonMark, so `**结论。**后文` is bold. `_` and a single `~`
+keep CommonMark's rule. No example of the spec has CJK text there, so
+all of them still pass.
+
 ## Performance
 
 Measured on an Apple M5 with `CGO_ENABLED=0 GOMAXPROCS=1`, on a 50 KB

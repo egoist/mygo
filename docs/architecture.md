@@ -1068,7 +1068,9 @@ on Linux), which awaits promises and ignores the page's Content Security
 Policy. The code is first wrapped as `return JSON.stringify({ok, v: await (code)})`;
 if that fails to compile the code is not an expression, and it is run again as
 a function body. A compile error means nothing executed, so code never runs
-twice. The result travels as a JSON string and is decoded in Go.
+twice. The result travels as a JSON string and is decoded in Go. A page whose
+window closed never answers, so a window closing fails the evals waiting for
+it, and an eval with the quit under way fails at once.
 
 ### Trust
 
@@ -1820,9 +1822,14 @@ as in Tauri:
   (Windows), and on Linux, whose AppIndicator tells no bounds, an
   undecorated utility toplevel in the middle of the work area, which a
   focusable one closes as it loses the keyboard. A press on the icon
-  does not dismiss its flyout (`tray.pressed` in `popoverShouldClose:`
-  and on resigning key, the cursor over `Shell_NotifyIconGetRect` on
-  Windows), so its click toggles it. A global monitor of mouse downs
+  does not dismiss its flyout (`tray.pressed` on resigning key, the
+  cursor over `Shell_NotifyIconGetRect` on Windows), so its click
+  toggles it, but a popover's: AppKit eats a click on a transient
+  popover's positioning view, the status item's button, whatever
+  `popoverShouldClose:` answers, so the button sends no action, and the
+  click closes the popover (AppKit asks on the release on macOS 26, on
+  the press elsewhere: one kept open there stayed open for good, #1050).
+  A global monitor of mouse downs
   closes macOS's focusable panels on clicks outside the app, which a
   panel taking the keyboard of an app that was not activated never
   hears as the key window changing. A window modal to a flyout
@@ -3318,7 +3325,12 @@ either.
   as they register with it (`Context.checks`), then applies a click to
   them all. A text input notes the modifiers of the Enter submitting it
   (`submitMods`), as the editor takes Shift+Enter: the find bar goes back
-  with it.
+  with it. A toast keeps the time it showed (`spent`) and since when it
+  runs (`at`): its time stops while the pointer rests on the toasts or
+  the keyboard focus is in them with the window's (`toastsPaused`), and
+  while the window is in the background (`toastsBackground`) unless it
+  runs there (`RunInBackground`), whose time over closes it on the next
+  frame, before the toasts build.
 - **Dates, times and colors** (`ui/date.go`, `ui/timeinput.go`,
   `ui/colorpicker.go`). `DateInput` and `Calendar` share one month's grid,
   whose day under the keys is its active descendant. A time input's
@@ -3410,16 +3422,22 @@ either.
   backend's `platform.WebView` and window methods from the host's, which
   drag regions use. `ui.WebView` places it: committing a frame notes where
   each web view's element shows (`noteWebView`: its content box on whole
-  pixels, clipped as its hits are), and painting it makes a hole
+  pixels, clipped as its hits are, with the hole's corners and, under a
+  transform that only moves and scales, the size the page lays out at,
+  `WebViewPlacement.Width` and `Height`, which `Frame` shows scaled; under
+  another transform, the bounds, upright), and painting it makes a hole
   (`OpHole`) through what the window painted, rounded as the border's
   inner edge and cut by the clips around it, so that what paints after
   the element paints over the page. The native web view is under the
   surface, which shows it through its transparent frames; what shows over
   it blends with it as over any pixels. After presenting a frame, the
   engine gives the surface each web view's frame and clip and the boxes
-  of the hits after its own within its clip (`Covers`): the pointer is the
-  page's where it shows and nothing painted over it takes the pointer
-  (`WebViewPlacement.At`), as a dialog's backdrop does over all of it. A
+  of the hits after its own within its clip, as they show (`Covers`): the
+  pointer is the page's where it shows, inside its corners (`Radii`), and
+  nothing painted over it takes the pointer (`WebViewPlacement.At`), as a
+  dialog's backdrop does over all of it. Backends cut the page to the
+  corners and show it scaled, keeping its layout, so that it shows as its
+  hole does over a transparent window too. A
   press there goes to the page and comes to the content as `WebViewPress`,
   which notes it for `PressedOutside` and moves the focus to the web
   view's element, unshown; the engine sets no cursor while the pointer is over a web view
@@ -3440,7 +3458,13 @@ either.
   accessibility, as SwiftUI's `WebView` is in place. Backends:
   - macOS: the WKWebView is in a flipped clip view (`MyGoClipView`, its
     layer masking to its bounds) placed at the clip, under the surface in
-    the content view, in paint order; the Metal layer is not opaque, and
+    the content view, in paint order, in a pane (another) at its frame,
+    whose bounds are the page's size: AppKit draws it scaled and finds the
+    pointer in it as in any view of scaled bounds, and the pane's layer is
+    cut to the corners (`cornerRadius`, continuous, and `maskedCorners`;
+    a `CAShapeLayer` mask for corners of different radii), in the layer's
+    units and orientation, which `convertPointToLayer:` tells, whatever
+    AppKit does to scale it. The Metal layer is not opaque, and
     frames drawn in memory have their alpha. The surface's `hitTest:`
     returns nil where a web view takes the pointer, so AppKit finds the
     page under it. A web view's tracking areas get the mouse's moves
@@ -3484,13 +3508,20 @@ either.
     surface's alone. With `ScrollToContainer`, a handler of the view's
     `scroll-event`, which runs before WebKit's class handler, converts the
     event as the area's does (`scrollEvent`, moved by the view's
-    allocation), sends it to the content and stops the signal. WebKitGTK
-    dispatches a key the page did not handle again once its web process
-    says so, and its class handler of `key-press-event` then passes it
-    on: a handler connected after it (`cbWebViewKey`) gets those keys
-    alone and sends them as `WebViewKey`, but Tab, modifier keys on their
-    own and the shortcuts of menu items with a role, which go on to the
-    menu (`cbMenuKey`).
+    allocation), sends it to the content and stops the signal. A scaled
+    page's view is as large as it shows, and WebKit zooms it by the scale
+    over the page's own zoom (`pageScale`), so that it lays out at the same
+    width in CSS pixels. GTK runs each handler of `draw` with a clip of its
+    own, and GDK draws WebKit's frames with OpenGL within a clip's
+    rectangles alone: the view's handler of `draw` clips to the page's
+    corners on whole pixels and calls WebKit's class handler itself
+    (`GtkWidgetClass.draw`), and the region shaping the area keeps the
+    pixels the corners cut off. WebKitGTK dispatches a key the page did not
+    handle again once its web process says so, and its class handler of
+    `key-press-event` then passes it on: a handler connected after it
+    (`cbWebViewKey`) gets those keys alone and sends them as `WebViewKey`,
+    but Tab, modifier keys on their own and the shortcuts of menu items with
+    a role, which go on to the menu (`cbMenuKey`).
   - Windows: WebView2 in visual hosting, a composition controller
     (`ICoreWebView2Environment3`) whose visual is in a DirectComposition
     target of the surface's window that is not topmost (a window has one
@@ -3502,7 +3533,11 @@ either.
     chain for composition, or shows frames drawn in memory through the
     compositor; GDI would draw under the web views. Each web view's
     visual is in one clipped to its clip, the page at its bounds in the
-    surface's pixels. The surface gets the mouse everywhere and sends it on
+    surface's pixels, cut to its corners by a rectangle clip
+    (`IDCompositionRectangleClip`, its setters taking floats through
+    purego) and, scaled, at the page's size, which the visual's transform
+    scales to its frame; the mouse goes to the page through the inverse.
+    The surface gets the mouse everywhere and sends it on
     (`SendMouseInput`) where a web view takes the pointer, or to the one a
     press went to until the buttons are let go (with the capture), with a
     leave as the pointer goes; it sets the cursor the page asks for
@@ -3780,7 +3815,8 @@ either.
   - *Decorations.* `System.Decorate` places underlines and strikethroughs
     as the platform does: Core Text's own geometry for AppKit, snapped in
     points, an underline as low and thick as the fonts under it want,
-    skipping the ink of descenders, a strikethrough through the middle of
+    skipping the ink of descenders (but a link's, on hover:
+    `SolidUnderline`), a strikethrough through the middle of
     the x-height, from the text's start to its width rounded up to a
     point; Direct2D's, an underline at the font's offset rounded to whole
     pixels from the snapped baseline, a strikethrough from the baseline as
@@ -4512,11 +4548,18 @@ renderer's (`gputest.Compare`).
   `darwin-arm64` and `darwin-amd64` are walked as pairs whose names must
   match: identical files and links ship once, an arm64 and an x86_64
   Mach-O file become a universal binary (`writeUniversal`) when copied,
-  anything else fails. Names starting with a dot are skipped; the entries
-  of these directories and listed paths are followed when they are links,
-  links inside them are copied as links, permissions are kept. Installed
-  paths must be unique ignoring case (listed resources never merge), and
-  top-level names must not replace the packaging's own files
+  anything else fails. Names starting with a dot are skipped, and so is
+  what `resourceFilter` excludes from `resources/` (but not from listed
+  paths): Go source files, which only builds read, and the paths there
+  that match `resourcesExclude` (`path.Match` segments, `**` for any
+  number of them), with what a matching directory holds; the merger's
+  listings and `resource.walk`, which copies and fingerprints, apply it,
+  while `mygo dev`'s watcher still sees those files, which a package may
+  embed. The entries of these directories and listed paths are followed
+  when they are links, links inside them are copied as links,
+  permissions are kept. Installed paths must be unique ignoring case
+  (listed resources never merge), and top-level names must not replace
+  the packaging's own files
   (`AppIcon.icns`, `Assets.car`, the executable, the `.desktop` entry). Code
   among them is signed before the app (`signNestedCode`), since
   `codesign --deep` only covers code directories and notarization rejects
@@ -4668,7 +4711,7 @@ Native library and shader generation commands are listed in [AGENTS.md](../AGENT
 |---|---|---|
 | core | `go test .` | lifecycle, quit, documents, IPC, channels, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
-| CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, the console's output (replayed as a terminal shows it), resources (platform directories, universal pairs, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
+| CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, the console's output (replayed as a terminal shows it), resources (platform directories, universal pairs, exclusions, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime, `mygo-runtime` and the plugins' packages (against a fake Go side on the real runtime, `plugins/fake-go.ts`) |
 | plugins | `go test ./plugins/...` | the fetch plugin against `httptest` servers, the WebSocket client against a test server (ordering, fragments, pings, closing handshakes); the terminal's binding of libghostty-vt (layouts, rendering, encoders, selections), its pseudo-terminals, and its view through `Tester` with real shells: typing, keys as programs ask, input methods, mouse reports, selecting and copying, pasting, scrollback, exits (the library is downloaded, or named by `MYGO_GHOSTTY_VT`; `-short` skips them); the automation plugin's protocol (requests, errors, elements as JSON, input events) against a fake app, and its socket (mode, stale and taken paths) |
 | native UI | `go test ./ui ./internal/text ./internal/scene ./internal/raster ./internal/svg ./internal/gpu/...` | the GPU renderers against the CPU renderer (Direct3D on Windows, Metal on macOS, OpenGL on Linux); views through `Tester`: input, focus, editing, lists, overlays, frames that fill the glyph atlas; text layout and caret geometry; atlas zones and repacking; the CPU renderer against its formulas; SVG parsing and drawing, with `FuzzParse`; `go test -run '^$' -bench . ./ui` times a frame |
@@ -5045,6 +5088,7 @@ which npm allows only for packages that exist: the first release uses an
 | global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
 | notifications | UserNotifications, packaged apps only; `Group` is the `threadIdentifier`; `Image` a `UNNotificationAttachment` of a temporary file named for its format, which the system moves into its store; optional `Sender` uses communication notifications with the signed capability; the delegate is attached at launch, for the click that launched the app | org.freedesktop.Notifications over D-Bus; `Image` is the `image-data` hint, decoded by GdkPixbuf and fit to 256 pixels; ignores `Group` and `Sender` | notification-area balloons (toasts); `Image` is the balloon's large icon (`hBalloonIcon`, `NIIF_LARGE_ICON`), decoded by WIC, twice `SM_CXICON`; ignores `Group` and `Sender` |
 | notification removal | `removeDeliveredNotificationsWithIdentifiers:`; `ClearNotifications` removes all, earlier runs' too | `CloseNotification` on the bus, for those of this run | hides the balloon, which goes away by itself anyway |
+| a web view scaled and rounded with native UI (`WebViewPlacement`) | the pane's bounds scale it, its layer's corners cut it | WebKitGTK zooms the page to its view's size, which `resize`s it at the same width; `draw` clipped to the corners on whole pixels | the visual's transform scales it, a rectangle clip cuts it |
 | WebViewAvailable (any goroutine, before `Run` too) | `WKWebView` is there, which macOS always has | WebKitGTK 4.1 (or 4.0), JavaScriptCore and libsoup load, as `webKit` loads them for a window showing a page | `internal/webview2` finds a runtime, or a `WebView2Loader.dll` next to the executable exports what `createEnvironment` calls; once an environment was made, whether that worked. A runtime whose files are there but whose browser is not passes, and fails later, making the web view |
 | secrets | Security.framework generic passwords in the login keychain (`SecItem*`), service and account as keytar | libsecret's `org.freedesktop.Secret.Generic` schema (attributes `service`, `account`), loaded on first use, libsecret 0.19 or later; no libsecret, no session bus (`g_bus_get_sync`) or no Secret Service on it (`G_DBUS_ERROR_SERVICE_UNKNOWN`, `NAME_HAS_NO_OWNER`, `NO_SERVER`) is `ErrUnsupported` | Credential Manager generic credentials (`CredWriteW`), target `service/account` |
 | vibrancy | all materials, behind pages and native UI; Liquid Glass (`NSGlassEffectView`) from macOS 26, the popover and HUD materials before; frameless windows cut to `CornerRadius`; `SetActiveAppearance` through AppKit's private `_setForceMainAppearance:` | ignored | Windows 11 22H2 Mica, Acrylic, Tabbed, behind pages and native UI, in windows created with a material, which have no menu bar; Liquid Glass as Acrylic; frameless windows given a `CornerRadius` rounded by DWM |
