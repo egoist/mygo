@@ -878,7 +878,7 @@ func (w *window) Show() {
 // its level, as a sheet is, which keeps it above the flyout. The flyout
 // takes no input while it shows (watchModalInput), and keeps open
 // (modalChild): it neither closes as it resigns key, nor on a click
-// outside the app, and its popover asks to stay.
+// outside the app, and its popover is held open (holdPopover).
 
 // modalToFlyout tells that w is a window modal to a flyout.
 func (w *window) modalToFlyout() bool {
@@ -901,6 +901,7 @@ func (w *window) showOverFlyout(key bool) {
 	w.b.watchModalInput()
 	w.applyLevel() // a popover's window is made as it shows
 	p := w.parent
+	p.holdPopover(true)
 	if key {
 		send(w.b.app, "activateIgnoringOtherApps:", 1)
 		send(w.win, "makeKeyAndOrderFront:", 0)
@@ -918,7 +919,11 @@ func (w *window) showOverFlyout(key bool) {
 func (w *window) leaveFlyout() {
 	p := w.parent
 	key := sendBool(w.win, "isKeyWindow")
-	if p.closed || p.win == 0 {
+	if p.closed {
+		return
+	}
+	p.holdPopover(false)
+	if p.win == 0 {
 		return
 	}
 	send(p.win, "removeChildWindow:", uintptr(w.win))

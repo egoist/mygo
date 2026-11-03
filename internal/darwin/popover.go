@@ -24,6 +24,22 @@ const (
 	popoverBehaviorTransient          = 1
 )
 
+// holdPopover keeps a transient popover open while a window is modal to
+// it (hold), as an application-defined one, and makes it transient again
+// after. Refusing AppKit's close instead left it open for good: AppKit
+// then no longer closed it on clicks elsewhere, and ate the clicks on
+// its tray icon (#1055, as #1050).
+func (w *window) holdPopover(hold bool) {
+	if w.popover == 0 || w.closed || !w.flyout.Focusable {
+		return
+	}
+	behavior := uintptr(popoverBehaviorTransient)
+	if hold {
+		behavior = popoverBehaviorApplicationDefined
+	}
+	send(w.popover, "setBehavior:", behavior)
+}
+
 func (w *window) createPopover(content NSRect) {
 	w.delegate = alloc("MyGoWindowDelegate")
 	w.createContent(content)
