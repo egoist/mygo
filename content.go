@@ -99,6 +99,7 @@ func (w *Window) attachContent() {
 			})
 		},
 	}
+	attachReload(w.conn)
 	w.content.AttachContent(w.conn)
 }
 

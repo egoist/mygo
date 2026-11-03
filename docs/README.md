@@ -77,6 +77,8 @@ that must start instantly.
 
 - [Getting started](getting-started.md): install the tools, then create,
   develop and build an app, with native UI or a web frontend.
+- [Reloading](reload.md): what `mygo dev -hot` keeps when it restarts the app,
+  and how an app hands its own state to the build that replaces it.
 
 ## Building the app
 
@@ -167,6 +169,8 @@ components, from buttons to tables.
 
 - [Configuration](configuration.md): `mygo.config.ts`, or `mygo.json`.
 - [The mygo CLI](cli.md): its commands and flags.
+- [Hot reload](hot-reload.md): how `mygo dev -hot` changes the running app as
+  you save, and what restarts it.
 - The Go API: `go doc -all github.com/egoist/mygo`, with the documentation
   of every type and method.
 - [Architecture](architecture.md): how MyGo works inside, for contributors,

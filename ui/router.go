@@ -423,6 +423,10 @@ func (r *Route) Match(pattern string) bool {
 			}
 			params = append(params, [2]string{rest, strings.Join(r.segments[min(i, len(r.segments)):], "/")})
 			r.params, r.rest = params, min(i, len(r.segments))
+			// The page holds a layout: its elements keep their state
+			// as the pages inside change, so name it after the parts
+			// of the path the layout takes, not the whole path.
+			r.namePage(r.offset + r.rest)
 			return true
 		}
 		if i >= len(r.segments) {
@@ -511,6 +515,7 @@ func (r *Route) coreView(c *context, fn func(r *Route)) *node {
 // going away too, which takes neither the pointer nor the keyboard.
 func (r *Router) coreView(c *context, fn func(r *Route)) *node {
 	r.rt = c.rt
+	c.rt.reloadRouter(r)
 	if browserHistory != nil {
 		browserHistory.claim(r)
 	}
@@ -696,6 +701,9 @@ func (r *Router) page(c *context, parent *Route, e *routeEntry, fn func(*Route),
 	pg := coreColumn(c).Key(r.pageAt(e, route.level)).Grow(1).MinWidth(0).MinHeight(0)
 	route.page = pg
 	route.pageEpoch = c.rt.epoch
+	// A page with no {name...} in its pattern shows the whole path: name
+	// it now, so that its elements are named before they are built.
+	route.namePage(len(segments))
 	pg.flags |= flagPage
 	if leaving {
 		pg.flags |= flagInert

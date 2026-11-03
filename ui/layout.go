@@ -142,6 +142,7 @@ func place(e *node, x, y float32) {
 		// keep the offset within it.
 		e.adoptScroll()
 		s := e.st
+		s.reloadTakeScroll(e.c.rt.frame)
 		mx, my := e.maxScroll()
 		if sx, sy := max(0, min(s.scrollX, mx)), max(0, min(s.scrollY, my)); sx != s.scrollX || sy != s.scrollY {
 			s.beginMove(e.c.rt.frame)

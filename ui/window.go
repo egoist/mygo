@@ -77,6 +77,7 @@ func (v *Content) AttachContent(conn *surface.Conn) {
 	h := &windowHost{conn: conn}
 	rt := newRuntime(v.view, h)
 	h.rt = rt
+	h.attachReload(conn)
 	conn.Event = h.event
 	conn.ThemeChanged = func() {
 		// The interface font is part of the appearance.

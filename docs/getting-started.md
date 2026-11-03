@@ -102,7 +102,9 @@ go tool mygo dev   # native UI
 `mygo dev` builds a development version of the app and starts it, then
 rebuilds and restarts it when you edit a `.go` file, the configuration, the
 icon or a resource. A build that fails to compile keeps the previous one
-running. Quit the app, or press Ctrl+C, to stop.
+running. Quit the app, or press Ctrl+C, to stop. With `mygo dev -hot`,
+[the running app takes changes to Go code](hot-reload.md) without restarting,
+and keeps its windows and everything it holds.
 
 With a web frontend, it also writes `src/mygo.ts` and starts the Vite dev
 server, from which the development app loads its pages: edit `src/main.ts`
@@ -217,7 +219,8 @@ The apps run where they are, but to ship them to users, sign them: see
     windows), `examples/frameless` (a custom title bar) and
     `examples/native` (menus, a tray icon, dialogs, notifications, a
     global shortcut, the clipboard and dark mode);
-  - with native UI: `examples/clipboard` (copying and dragging text, HTML,
+  - with native UI: `examples/reload-state` (what survives a restart of
+    `mygo dev -hot`), `examples/clipboard` (copying and dragging text, HTML,
     lazy JSON, and file lists), `examples/counter-native` (a counter with a test of its
     view), `examples/vibrancy` (a translucent sidebar under an inset title
     bar, its material picked in it), `examples/effort-slider` (a web

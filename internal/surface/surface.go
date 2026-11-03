@@ -75,6 +75,9 @@ type Conn struct {
 	// Ready tells that the content presented its first frame: the window
 	// is ready to show (Window.OnReadyToShow).
 	Ready func()
+	// ConnReload is what a restart of `mygo dev` needs of the content, which
+	// production builds leave out.
+	ConnReload
 	// PopupMenu shows m as a context menu at (x, y) in the surface, in
 	// DIPs, once the event being handled returns. chosen receives the ID of
 	// the item chosen, if one is.

@@ -55,6 +55,7 @@ func textInputBase(c *context, value *string, multiline bool) *node {
 		ed.setText(*value)
 		ed.compose = ""
 	}
+	st.reloadTakeCaret(ed)
 	ed.rebuild()
 	ed.ranges = ed.ranges[:0]
 	e.onValueInput(stringInput)

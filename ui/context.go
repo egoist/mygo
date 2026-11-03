@@ -137,6 +137,10 @@ func (c *context) reset(now time.Time, w, h float32) {
 	root := c.alloc()
 	root.c = c
 	root.id = 1
+	// The window's elements are named from the root's name, and an
+	// overlay's from its layer's: an element at the same place in an
+	// overlay is not the element the window has there.
+	root.reloadNameRoot()
 	root.kind = kindBox
 	root.width, root.height = px(w), px(h)
 	root.st = c.rt.stateFor(root.id)
@@ -209,6 +213,7 @@ func (c *context) overlayRoot() *node {
 		o := c.alloc()
 		o.c = c
 		o.id = overlayID
+		o.reloadNameRoot()
 		o.kind = kindBox
 		o.flags = flagAbsolute | flagPassThrough
 		o.dir = c.root.dir
@@ -235,16 +240,22 @@ func (c *context) newElement(k kind) *node {
 	e.kind = k
 	p := c.parent
 	e.id = mix(p.id, uint64(p.nchild)+uint64(k)<<56)
+	// The same name in the next build of the same view (reload.go).
+	c.rt.reloadNamePlace(e, p, uint64(p.nchild)+uint64(k)<<56)
 	e.dir = p.dir &^ dirSet
 	keyed := c.keySet
 	if c.keySet {
 		e.id = keyedID(p.id, c.nextKey)
+		c.rt.reloadNameKey(e, p, c.nextKey)
 		e.key = c.nextKey
 		c.keySet, c.nextKey = false, nil
 	}
 	p.add(e)
 	var built bool
 	e.st, built = c.rt.lookState(e.id)
+	// The element appears in this frame: name it, and give it back what the
+	// build before this one kept of it (reload.go).
+	c.rt.reloadBorn(e)
 	if keyed && built {
 		c.rt.duplicateKey(e.id, e.key)
 	}
@@ -266,12 +277,16 @@ func (c *context) rekey(e *node, k any) {
 	if id != e.id {
 		rt.unlook(e.st)
 	}
+	rt.reloadNameKey(e, e.parent, k)
 	st, built := rt.lookState(id)
 	if built && id != e.id {
 		// Another element of the pass has the key under the same parent.
 		rt.duplicateKey(id, k)
 	}
 	e.id, e.st, e.key = id, st, k
+	// The element appears in this frame: name it, and give it back what the
+	// build before this one kept of it (reload.go).
+	rt.reloadBorn(e)
 	if rt.insp.open {
 		rt.insp.noteKey(id, k)
 		if id == rt.insp.selected {
@@ -697,6 +712,9 @@ type state struct {
 	// track is the ScrollState of the last frame's element, which events
 	// that scroll it update (scrollTo).
 	track *ScrollState
+	// stateReload names the element across a reload of mygo dev, and holds
+	// what a reload keeps of it until the element is built again (reload.go).
+	stateReload
 	// wheel is the notches of a mouse wheel on their way through the
 	// content (wheelScroll).
 	wheel *wheelGlide

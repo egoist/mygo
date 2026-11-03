@@ -108,6 +108,13 @@ running one. Frontend changes are the dev server's to handle. Quitting the app, 
 Ctrl+C, ends mygo dev (press Ctrl+C again not to wait for the app to quit),
 and `App.Relaunch` restarts the app.
 
+With `-hot`, saving Go code [changes the running app in place](hot-reload.md),
+usually in about a tenth of a second: its windows, web pages and memory stay. A
+change that cannot be applied that way, such as to the fields of a struct,
+rebuilds and restarts it as above, and [hands what it can to the next
+build](reload.md): where the windows are, the page they show, scrolling and
+focus, and what the app says with `App.OnReload`.
+
 On a terminal, each step shows a spinner with what it does, such as the Go
 packages being compiled, then how long it took; what the dev server and the
 app print is labeled `web │` and `app │`, and a rebuild names the files that
@@ -133,6 +140,7 @@ compiles. `o` opens the page again.
 | Flag | |
 |---|---|
 | `-skip-dev-command` | does not run `devCommand`, e.g. when the dev server already runs |
+| `-hot` | changes the code of the running app on save, restarting it only when that cannot be done |
 | `-sign` | the identity that signs the development app on macOS (default: `-`, ad hoc) |
 | `-web` | develops the app in browsers |
 | `-port` | with `-web`, the port to serve the app at, or the next free one (default: 5174) |

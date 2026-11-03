@@ -168,6 +168,8 @@ type engine struct {
 	noLayoutCache   bool
 
 	states map[uint64]*state
+	// engineReload is what a reload of mygo dev keeps (reload.go).
+	engineReload
 	// free are states pruned, which new elements take: rows coming into
 	// a list's view take those of rows that went out of it.
 	free  []*state
