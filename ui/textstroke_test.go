@@ -42,8 +42,11 @@ func TestTextStroke(t *testing.T) {
 	}
 	for i, s := range strokes {
 		f := fills[i]
-		// Two DIPs outside the glyph, a pixel of padding beyond.
-		if s.W != f.W+6 || s.H != f.H+6 || s.X != f.X-3 || s.Y != f.Y-3 {
+		// Two DIPs outside the glyph, a pixel of padding beyond. Where the
+		// system antialiases the glyph by subpixels (ClearType), its box is
+		// a pixel wider each side than the coverage the stroke follows.
+		if s.X > f.X-2 || s.Y > f.Y-2 || s.X+s.W < f.X+f.W+2 || s.Y+s.H < f.Y+f.H+2 ||
+			s.X < f.X-3 || s.Y < f.Y-3 || s.X+s.W > f.X+f.W+3 || s.Y+s.H > f.Y+f.H+3 {
 			t.Errorf("stroke %d at %v,%v %v×%v, its glyph at %v,%v %v×%v", i, s.X, s.Y, s.W, s.H, f.X, f.Y, f.W, f.H)
 		}
 	}

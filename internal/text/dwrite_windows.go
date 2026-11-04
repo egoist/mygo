@@ -129,7 +129,8 @@ const (
 	// IDWriteFont1
 	font1IsMonospacedFont = 17
 	// IDWriteFontFace
-	faceGetMetrics = 8
+	faceGetMetrics      = 8
+	faceGetGlyphIndices = 11
 	// IDWriteFontFace2
 	face2IsColorFont                 = 30
 	face2GetRecommendedRenderingMode = 34
@@ -819,6 +820,7 @@ func (e *dwrite) shape(text []rune, style Style, spans []Span, width float32, rt
 	method[func(this, context, renderer uintptr, x, y float32) uintptr](layout, layoutDraw)(layout, 0, textRenderer(), 0, 0)
 	runs := slices.Clone(drawing)
 	drawMu.Unlock()
+	runs = tabRuns(layout, u16, runs)
 
 	lines := make([]shapedLine, len(metrics))
 	ends := make([]uint32, len(metrics)) // the code unit ending each line
@@ -861,6 +863,59 @@ func (e *dwrite) shape(text []rune, style Style, spans []Span, width float32, rt
 		objectRuns(layout, lines, ends, spans, units, index)
 	}
 	return lines
+}
+
+// tabRuns adds to the runs DirectWrite drew of a layout of text a run for
+// each tab it drew none of: it draws no glyph of a tab, whose advance only
+// shows in where the next run starts, so a line starting with tabs would
+// lose them and tabs would add nothing to a line's width. The run is the
+// space glyph of the nearest drawn run's font, as wide as hit testing
+// finds the tab.
+func tabRuns(layout uintptr, u16 []uint16, runs []dwRun) []dwRun {
+	if len(runs) == 0 || !slices.Contains(u16, '\t') {
+		return runs
+	}
+	drawn := make([]bool, len(u16))
+	for _, r := range runs {
+		for i := r.pos; i < r.pos+r.n && int(i) < len(drawn); i++ {
+			drawn[i] = true
+		}
+	}
+	n := len(runs)
+	for i, c := range u16 {
+		if c != '\t' || drawn[i] {
+			continue
+		}
+		near := &runs[0]
+		for k := range runs[:n] {
+			if d, best := distance(runs[k], uint32(i)), distance(*near, uint32(i)); d < best {
+				near = &runs[k]
+			}
+		}
+		space := uint32(' ')
+		var id uint16
+		call(near.face, faceGetGlyphIndices, uintptr(unsafe.Pointer(&space)), 1, uintptr(unsafe.Pointer(&id)))
+		if id == 0 {
+			continue
+		}
+		var x, y float32
+		var hit dwHitTestMetrics
+		call(layout, layoutHitTestTextPosition, uintptr(i), 0, uintptr(unsafe.Pointer(&x)), uintptr(unsafe.Pointer(&y)), uintptr(unsafe.Pointer(&hit)))
+		runs = append(runs, dwRun{face: near.face, size: near.size, rtl: hit.bidiLevel&1 != 0, pos: uint32(i), n: 1,
+			glyphs: []uint16{id}, advances: []float32{hit.width}, clusters: []uint16{0}})
+	}
+	return runs
+}
+
+// distance returns how many code units lie between a run and code unit i.
+func distance(r dwRun, i uint32) uint32 {
+	switch {
+	case i < r.pos:
+		return r.pos - i
+	case i >= r.pos+r.n:
+		return i - (r.pos + r.n) + 1
+	}
+	return 0
 }
 
 // typeset applies a style's letter spacing and OpenType features to a text
