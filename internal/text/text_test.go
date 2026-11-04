@@ -1085,8 +1085,16 @@ func TestUnderlineOffset(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		// An underline skipping ink skips the glyphs where its offset puts
 		// it: through the letters, it is cut.
-		if under := s.Decorate(l, 0, 0, n, 0, 0, 2, Underline, LineStyle{Offset: -3, HasOffset: true}); len(under) == 1 {
-			t.Errorf("an underline through Hello is whole: %+v", under)
+		ls := LineStyle{Offset: -3, HasOffset: true}
+		var cut, whole float32
+		for _, st := range s.Decorate(l, 0, 0, n, 0, 0, 2, Underline, ls) {
+			cut += st.X1 - st.X0
+		}
+		for _, st := range s.Decorate(l, 0, 0, n, 0, 0, 2, SolidUnderline, ls) {
+			whole += st.X1 - st.X0
+		}
+		if cut >= whole {
+			t.Errorf("an underline through Hello is %v wide, as wide as a solid one, %v", cut, whole)
 		}
 		// Below the descenders, an underline skipping ink is whole.
 		l = s.Layout(Params{Text: "gypsy", Style: Style{Size: 24}})
