@@ -792,6 +792,9 @@ func TestGlassTint(handle uintptr) (red, green, blue, alpha float64) {
 	return red, green, blue, alpha
 }
 
+// TestNativeGlassSupported reports whether the system has Liquid Glass.
+func TestNativeGlassSupported() bool { return hasClass("NSGlassEffectView") }
+
 // TestNativeGlass returns the first system's glass view of a window's
 // native content: its class, frame in its view's coordinates, and style.
 func TestNativeGlass(handle uintptr) (class string, frame [4]float64, style int, ok bool) {

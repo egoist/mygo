@@ -441,6 +441,8 @@ func glassTint(w *mygo.Window) (red, green, blue, alpha float64, ok bool) {
 	return red, green, blue, alpha, true
 }
 
+func nativeGlassSupported() bool { return darwin.TestNativeGlassSupported() }
+
 func nativeGlass(w *mygo.Window) (class string, frame [4]float64, style int, ok bool) {
 	mygo.RunOnMain(func() { class, frame, style, ok = darwin.TestNativeGlass(w.NativeHandle()) })
 	return class, frame, style, ok

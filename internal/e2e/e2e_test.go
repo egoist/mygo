@@ -810,6 +810,9 @@ func TestGlass(t *testing.T) {
 // web view: NSGlassEffectView sits under the content and above the web
 // view, with the toolbar's frame, where it samples the page.
 func TestNativeGlassOverWebView(t *testing.T) {
+	if !nativeGlassSupported() {
+		t.Skip("the system has no Liquid Glass")
+	}
 	var view *mygo.WebView
 	var clicks atomic.Int32
 	var show atomic.Bool
@@ -839,7 +842,7 @@ func TestNativeGlassOverWebView(t *testing.T) {
 	eventually(t, "the system's glass", func() bool { class, _, _, _ := nativeGlass(w); return class != "" })
 	class, frame, style, ok := nativeGlass(w)
 	if !ok || class != "NSGlassEffectView" {
-		t.Skipf("the system has no Liquid Glass: %q", class)
+		t.Fatalf("the system's glass is %q, not NSGlassEffectView", class)
 	}
 	if style != 0 {
 		t.Errorf("glass style is %d, not regular", style)
