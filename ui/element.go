@@ -419,6 +419,7 @@ type node struct {
 	// Input the element takes itself (HandleInput), and where the caret of
 	// the text it takes is (TextCaret).
 	inputFn    func(InputEvent) bool
+	observeFn  func(InputEvent) // the input in it (ObserveInput)
 	textClient TextInputClient
 	caret      Rect
 	takesText  bool
@@ -492,6 +493,9 @@ type node struct {
 	accFill func(n *platform.AccessNode)
 	// accStep is how far the keys move the value of a range.
 	accStep float64
+	// keyShortcuts are the keys that press or focus the element, as the
+	// platform writes them (KeyShortcuts).
+	keyShortcuts string
 
 	// Layout results, in DIPs relative to the window.
 	x, y, w, h float32
@@ -1617,7 +1621,8 @@ func (e *node) TextBackground(c Color) *node {
 func (e *node) Strikethrough() *node { e.ts.strike = true; e.ts.set |= setStrike; return e }
 
 // LetterSpacing adds v DIPs after every character of text, or tightens it
-// with a negative v, as for labels in capitals.
+// with a negative v, as for labels in capitals; 0 takes away that of the
+// text around it, as for a number within such a label.
 func (e *node) LetterSpacing(v float32) *node {
 	e.ts.spacing = v
 	e.ts.set |= setSpacing
