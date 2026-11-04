@@ -507,6 +507,9 @@ func TestGlyphsInVisualOrder(t *testing.T) {
 		{Text: "שלום abc עולם 123 مرحبا", NoWrap: true},
 		{Text: "hello שלום עולם, مرحبا بالعالم and the rest of it", Width: 120},
 		{Text: "שלום עולם, hello world and مرحبا بالعالم again", Width: 120},
+		// Broken at soft hyphens, which show a hyphen at the left.
+		{Text: "مرح\u00adبا بال\u00adعالم", Width: 30},
+		{Text: "ab مرح\u00adبا بال\u00adعالم", Width: 30},
 	} {
 		p.Style = Style{Size: 17}
 		l := s.Layout(p)
