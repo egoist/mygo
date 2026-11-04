@@ -308,6 +308,9 @@ func ownStyles(rt *engine, e *node) []inspDecl {
 	if e.opacitySet && e.opacity < 1 {
 		add("opacity", num(e.opacity))
 	}
+	if e.zIndex != 0 {
+		add("z-index", strconv.Itoa(int(e.zIndex)))
+	}
 	if e.flags&flagInvisible != 0 {
 		add("visibility", "hidden")
 	}
@@ -338,6 +341,9 @@ func ownStyles(rt *engine, e *node) []inspDecl {
 		}
 		if p&propColors != 0 {
 			what = append(what, "colors")
+		}
+		if p&propShadows != 0 {
+			what = append(what, "shadows")
 		}
 		add("transition", strings.Join(what, " ")+" "+strconv.Itoa(int(r.duration().Milliseconds()))+"ms")
 	}
@@ -476,6 +482,7 @@ func computed(e *node) []inspDecl {
 		o = e.opacity
 	}
 	add("opacity", num(o))
+	add("z-index", strconv.Itoa(int(e.zIndex)))
 	if e.scrolls() {
 		add("scroll-left", pxText(float32(e.st.scrollX)))
 		add("scroll-top", pxText(float32(e.st.scrollY)))
