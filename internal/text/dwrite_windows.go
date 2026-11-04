@@ -837,9 +837,15 @@ func (e *dwrite) shape(text []rune, style Style, spans []Span, width float32, rt
 		if li >= len(lines) || int(r.pos+r.n) > len(u16) {
 			continue
 		}
+		// A left-to-right run starts where its first glyph's code unit
+		// does: code units before it, as a tab, have no glyph in it.
+		at := r.pos
+		if !r.rtl {
+			at += r.firstGlyphUnit()
+		}
 		var x, y float32
 		var hit dwHitTestMetrics
-		call(layout, layoutHitTestTextPosition, uintptr(r.pos), 0, uintptr(unsafe.Pointer(&x)), uintptr(unsafe.Pointer(&y)), uintptr(unsafe.Pointer(&hit)))
+		call(layout, layoutHitTestTextPosition, uintptr(at), 0, uintptr(unsafe.Pointer(&x)), uintptr(unsafe.Pointer(&y)), uintptr(unsafe.Pointer(&hit)))
 		run, left := e.run(layout, u16, r, x, index)
 		// The runs of a line go from left to right, whatever order
 		// DirectWrite draws them in: a line is few runs, nearly in order,
@@ -866,19 +872,28 @@ func (e *dwrite) shape(text []rune, style Style, spans []Span, width float32, rt
 }
 
 // tabRuns adds to the runs DirectWrite drew of a layout of text a run for
-// each tab it drew none of: it draws no glyph of a tab, whose advance only
-// shows in where the next run starts, so a line starting with tabs would
-// lose them and tabs would add nothing to a line's width. The run is the
-// space glyph of the nearest drawn run's font, as wide as hit testing
-// finds the tab.
+// each tab it drew no glyph of: a run may cover a tab whose cluster has no
+// glyph, its advance only showing in where the run's glyphs start, so a
+// line starting with tabs would lose them and tabs would add nothing to a
+// line's width. The run is the space glyph of the nearest drawn run's
+// font, as wide as hit testing finds the tab.
 func tabRuns(layout uintptr, u16 []uint16, runs []dwRun) []dwRun {
 	if len(runs) == 0 || !slices.Contains(u16, '\t') {
 		return runs
 	}
+	// The code units starting a cluster with a glyph: a run may cover a
+	// tab whose cluster has none.
 	drawn := make([]bool, len(u16))
 	for _, r := range runs {
-		for i := r.pos; i < r.pos+r.n && int(i) < len(drawn); i++ {
-			drawn[i] = true
+		if r.clusters == nil {
+			for u := r.pos; u < r.pos+r.n && int(u) < len(drawn); u++ {
+				drawn[u] = true
+			}
+		}
+		for k, g := range r.clusters {
+			if u := int(r.pos) + k; int(g) < len(r.glyphs) && (k == 0 || r.clusters[k-1] != g) && u < len(drawn) {
+				drawn[u] = true
+			}
 		}
 	}
 	n := len(runs)
@@ -905,6 +920,17 @@ func tabRuns(layout uintptr, u16 []uint16, runs []dwRun) []dwRun {
 			glyphs: []uint16{id}, advances: []float32{hit.width}, clusters: []uint16{0}})
 	}
 	return runs
+}
+
+// firstGlyphUnit returns the code unit of the run, from its start, whose
+// cluster holds its first glyph.
+func (r *dwRun) firstGlyphUnit() uint32 {
+	for k, g := range r.clusters {
+		if g == 0 {
+			return uint32(k)
+		}
+	}
+	return 0
 }
 
 // distance returns how many code units lie between a run and code unit i.
