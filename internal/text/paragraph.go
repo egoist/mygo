@@ -244,7 +244,13 @@ func (h *hyphens) place(l shapedLine, text []rune, broken, rtl bool) shapedLine 
 				ri = i
 			}
 		}
-		l.runs[ri].glyphs = slices.Concat(l.runs[ri].glyphs, h.glyphsAt(c, x, rtl))
+		// At the end of the line, and of its glyphs in visual order: their
+		// start in a right-to-left one.
+		if rtl {
+			l.runs[ri].glyphs = slices.Concat(h.glyphsAt(c, x, rtl), l.runs[ri].glyphs)
+		} else {
+			l.runs[ri].glyphs = slices.Concat(l.runs[ri].glyphs, h.glyphsAt(c, x, rtl))
+		}
 	}
 	return l
 }
