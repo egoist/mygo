@@ -1282,8 +1282,11 @@ build` like mygo-runtime and released with the same version.
   - *Drawing.* The view sizes the grid in device pixels from the font
     (cells as wide as the widest ASCII glyph, as tall as the line) and
     rebuilds only the rows the render state marks dirty: runs of cells of
-    one font and color, shaped with `ui.Shape` (through an LRU of shaped
-    text, as output repeats) and placed in their cells, the glyphs of a
+    one font and color, laid out with `ui.AppendShapeAlone` when each of
+    their characters takes the glyph it takes alone, as letters and digits
+    do in most fonts, so a screen that changes every frame shapes nothing,
+    and otherwise shaped with `ui.Shape` (through an LRU of shaped text, as
+    output repeats), then placed in their cells, the glyphs of a
     cell centered there and shrunk when too wide, as emoji are; backgrounds
     and lines merge across cells. Box drawing, blocks and Powerline's
     separators are drawn, as in Ghostty, so that lines join across cells.

@@ -416,7 +416,15 @@ func (v *view) shapeRun(line *rowCache, text []rune, cols []int16, widths []int8
 	if len(text) == 0 {
 		return
 	}
-	shaped := v.shape(string(text), variant, 1)
+	// Text whose characters shape as they do alone, as letters and digits
+	// in most fonts, is laid out without the text engine: a screen that
+	// changes in every frame shapes nothing.
+	shaped, alone := ui.AppendShapeAlone(v.alone[:0], text, v.fonts[variant&3])
+	if alone {
+		v.alone = shaped
+	} else {
+		shaped = v.shape(string(text), variant, 1)
+	}
 	cw := float32(v.cellW) / v.scale
 	out := glyphRun{glyphs: make([]ui.Glyph, 0, len(shaped)), cols: make([]int16, 0, len(shaped)), c: fg}
 	// The glyphs of a cell, or of the cells a ligature spans, keep their

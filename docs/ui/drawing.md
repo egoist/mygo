@@ -229,6 +229,14 @@ macOS, as Ghostty's `font-thicken`, and `Font.Antialiased` a thinner one,
 without font smoothing, as browsers draw text styled
 `-webkit-font-smoothing: antialiased`.
 
+Text that changes in every frame, as a terminal's, can skip shaping:
+`ui.AppendShapeAlone` appends the glyphs `Shape` would give and returns
+true when each rune takes the glyph it takes alone, which the text engine
+tells once per font and features from the font's tables (no ligature,
+contextual form or kerning reaches it). Otherwise it returns false, and the
+text needs `Shape`. Each rune is shaped once and kept. Only the Pango
+engine on Linux implements it yet; on other platforms it returns false.
+
 ```go
 font := ui.Font{Family: "monospace", Size: 13}
 glyphs := ui.Shape("grid", font)

@@ -367,8 +367,12 @@ func loadPango() error {
 type pangoEngine struct {
 	shapeScratch
 	nativeFonts
-	fontMap uintptr
-	context uintptr
+	// aloneState is the *pangoAlone of alone, made on its first call. It
+	// is an interface so that apps which never lay out text alone do not
+	// link its types.
+	aloneState any
+	fontMap    uintptr
+	context    uintptr
 
 	descs map[Style]uintptr // font descriptions, by style
 	// fonts finds Fonts by their PangoFont, which they hold a reference
@@ -1356,7 +1360,23 @@ func (e *pangoEngine) forgetFonts() {
 	clear(e.scaled)
 	clear(e.fonts)
 	e.dropScratch()
+	if a, ok := e.aloneState.(aloneDropper); ok {
+		a.drop(0)
+	}
 }
 
-// releaseFonts releases the Pango fonts of the Fonts nothing refers to.
-func (e *pangoEngine) releaseFonts() { e.releaseDead(pangoLib.gObjectUnref) }
+// aloneDropper is what alone keeps for fonts: drop frees what it keeps
+// for a PangoFont, or for every font when it is 0.
+type aloneDropper interface{ drop(font uintptr) }
+
+// releaseFonts releases the Pango fonts of the Fonts nothing refers to,
+// and the sets of their glyphs that shaping may change: another font can
+// take a released one's address.
+func (e *pangoEngine) releaseFonts() {
+	e.releaseDead(func(native uintptr) {
+		if a, ok := e.aloneState.(aloneDropper); ok {
+			a.drop(native)
+		}
+		pangoLib.gObjectUnref(native)
+	})
+}

@@ -168,6 +168,8 @@ type view struct {
 	scrollbar vt.Scrollbar
 	lines     []rowCache
 	shaped    lru
+	// alone is room for the glyphs of a run laid out without shaping.
+	alone []ui.Glyph
 	// images are the placements of images that show, and bitmaps their
 	// images' (readImages).
 	images  []shownImage

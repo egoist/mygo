@@ -100,6 +100,24 @@ func Shape(s string, f Font) []Glyph {
 	return out
 }
 
+// AppendShapeAlone appends to dst the glyphs Shape gives text in font f
+// and returns true when the text engine need not shape it: each rune is
+// one f's own font has and that none of its features change, as letters
+// and digits in most fonts, and takes the glyph it takes alone. Otherwise
+// it returns dst and false, and the text needs Shape. Each rune is shaped
+// once, so a grid of text that changes in every frame, as a terminal's,
+// costs no shaping.
+func AppendShapeAlone(dst []Glyph, runes []rune, f Font) ([]Glyph, bool) {
+	n := len(dst)
+	ok := text.Shared().Alone(runes, f.style(), func(g text.Glyph) {
+		dst = append(dst, Glyph{Cluster: g.Cluster, Runes: g.Runes, X: g.X, Advance: g.Advance, font: g.Font, id: g.ID, thick: f.Thicken, flat: f.Antialiased})
+	})
+	if !ok {
+		return dst[:n], false
+	}
+	return dst, true
+}
+
 // Glyphs draws glyphs that Shape made, from x, on the baseline at y, in
 // color c.
 func (p *Painter) Glyphs(glyphs []Glyph, x, y float32, c Color) {

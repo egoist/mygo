@@ -373,6 +373,9 @@ type System struct {
 	lang string
 	// fonts caches the font of each style.
 	fonts map[Style]*Font
+	// alone is the *aloneCache of Alone, made on its first call. It is an
+	// interface so that apps which never call Alone do not link its types.
+	alone any
 
 	// Layouts are kept by recency within a memory budget, not by how
 	// many frames a scrolling window has drawn.
