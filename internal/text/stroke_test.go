@@ -1,7 +1,9 @@
 package text
 
 import (
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -144,7 +146,7 @@ func TestTabSize(t *testing.T) {
 		st.TabSize = c.size
 		l := s.Layout(Params{Text: c.text, Style: st})
 		if got := x(l, 0, c.at); math.Abs(float64(got-c.want*space)) > 0.5 {
-			t.Errorf("%q with tabs of %v: rune %d at %v, want %v (%v spaces)", c.text, c.size, c.at, got, c.want*space, c.want)
+			t.Errorf("%q with tabs of %v: rune %d at %v, want %v (%v spaces); glyphs %s", c.text, c.size, c.at, got, c.want*space, c.want, glyphList(l.Lines[0]))
 		}
 	}
 	// Each line counts from its start, after a newline and where it wraps.
@@ -152,7 +154,7 @@ func TestTabSize(t *testing.T) {
 	st.TabSize = 4
 	l := s.Layout(Params{Text: "abcdef\n\tb", Style: st})
 	if got := x(l, 1, 8); math.Abs(float64(got-4*space)) > 0.5 {
-		t.Errorf("after a newline: at %v, want %v", got, 4*space)
+		t.Errorf("after a newline: at %v, want %v; glyphs %s", got, 4*space, glyphList(l.Lines[1]))
 	}
 	l = s.Layout(Params{Text: "abcdefgh abcdefgh\tb", Style: st, Width: 14 * space})
 	if len(l.Lines) != 2 {
@@ -161,4 +163,13 @@ func TestTabSize(t *testing.T) {
 	if got := x(l, 1, 18); math.Abs(float64(got-12*space)) > 0.5 {
 		t.Errorf("on a wrapped line: at %v, want %v", got, 12*space)
 	}
+}
+
+// glyphList lists the clusters, places and advances of a line's glyphs.
+func glyphList(line Line) string {
+	var b strings.Builder
+	for _, g := range line.Glyphs {
+		fmt.Fprintf(&b, "[%d at %v, %v wide] ", g.Cluster, g.X, g.Advance)
+	}
+	return fmt.Sprintf("%sfrom %v", b.String(), line.X)
 }

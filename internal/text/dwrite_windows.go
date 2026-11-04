@@ -840,7 +840,7 @@ func (e *dwrite) shape(text []rune, style Style, spans []Span, width float32, rt
 		var x, y float32
 		var hit dwHitTestMetrics
 		call(layout, layoutHitTestTextPosition, uintptr(r.pos), 0, uintptr(unsafe.Pointer(&x)), uintptr(unsafe.Pointer(&y)), uintptr(unsafe.Pointer(&hit)))
-		run, left := e.run(r, x, index)
+		run, left := e.run(layout, u16, r, x, index)
 		// The runs of a line go from left to right, whatever order
 		// DirectWrite draws them in: a line is few runs, nearly in order,
 		// insertion sorted.
@@ -1006,11 +1006,14 @@ func (e *dwrite) typography(layout uintptr, list string, r uintptr) {
 	call(layout, layoutSetTypography, typography, r)
 }
 
-// run positions the glyphs of a run whose origin, on the right for a
-// right-to-left run, is at x, in visual order, and returns them with the
-// left of the run's advances. DirectWrite gives the glyphs of a run in
-// logical order, those of a right-to-left run from the right.
-func (e *dwrite) run(r dwRun, x float32, index []int) (shapedRun, float32) {
+// run positions the glyphs of a run of a layout of u16 whose origin, on
+// the right for a right-to-left run, is at x, in visual order, and returns
+// them with the left of the run's advances. DirectWrite gives the glyphs of
+// a run in logical order, those of a right-to-left run from the right. A
+// tab's glyph has no advance of its own, its stop moving the origin of
+// what follows, which a run's pen cannot see: its place and width are
+// those hit testing finds.
+func (e *dwrite) run(layout uintptr, u16 []uint16, r dwRun, x float32, index []int) (shapedRun, float32) {
 	f := e.fontOf(r.face, r.size)
 	out := shapedRun{font: f, start: index[r.pos], end: index[r.pos+r.n], glyphs: make([]Glyph, len(r.glyphs))}
 	// The code unit starting the cluster of each glyph.
@@ -1037,6 +1040,12 @@ func (e *dwrite) run(r dwRun, x float32, index []int) (shapedRun, float32) {
 			off = r.offsets[i]
 		}
 		g := Glyph{Font: f, ID: uint32(id), Advance: r.advances[i], Y: -off.ascenderOffset, Cluster: index[r.pos+first[i]], RTL: r.rtl}
+		if u := r.pos + first[i]; !r.rtl && int(u) < len(u16) && u16[u] == '\t' && (i == 0 || first[i-1] != first[i]) {
+			var tx, ty float32
+			var hit dwHitTestMetrics
+			call(layout, layoutHitTestTextPosition, uintptr(u), 0, uintptr(unsafe.Pointer(&tx)), uintptr(unsafe.Pointer(&ty)), uintptr(unsafe.Pointer(&hit)))
+			pen, g.Advance = hit.left, hit.width
+		}
 		if r.rtl {
 			pen -= g.Advance
 			g.X = pen - off.advanceOffset
