@@ -41,6 +41,16 @@ it is in (it takes the theme's, or `Color`), sit on the baseline of text
 beside it, or draw multicolor and hierarchical symbols in more than one
 color.
 
+## Names
+
+`Names()` returns the names of every SF Symbol the running macOS has, in
+the order the SF Symbols app shows them (thousands, localized variants
+such as `.ar` and `.ja` among them), for a symbol picker or a search. It
+reads the system's own catalog, so nothing of Apple's is in your app. The
+catalog is not public API: a macOS that moves it gives nil, while
+`Symbol` and `Image` still draw the symbols they name. Every other OS
+gives nil.
+
 ## Image
 
 For drawing with a `ui.Painter`, `Image(name, px, col, opts)` returns the symbol named `name` (as
@@ -68,4 +78,5 @@ icon of your own to fall back on, and use `ui.Image` or `Painter.Image`
 
 Apps that don't import the plugin don't pay for it.
 
-See `examples/sf-symbols`: `go run ./examples/sf-symbols`.
+See `examples/sf-symbols`, which shows every symbol with a search:
+`go run ./examples/sf-symbols`.

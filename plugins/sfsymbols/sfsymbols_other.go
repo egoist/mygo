@@ -14,3 +14,6 @@ func Image(name string, px int, col ui.Color, o Options) (ui.ImageSource, bool) 
 // Available reports whether this system draws SF Symbols at all. It does
 // not.
 func Available() bool { return false }
+
+// Names returns the names of the SF Symbols this system has. It has none.
+func Names() []string { return nil }

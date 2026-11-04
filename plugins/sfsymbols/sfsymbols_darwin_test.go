@@ -243,3 +243,31 @@ func TestSymbolDraws(t *testing.T) {
 		t.Error("square.fill painted no blue")
 	}
 }
+
+// TestNames checks that the system's catalog lists thousands of symbols,
+// these among them, and that they draw.
+func TestNames(t *testing.T) {
+	list := Names()
+	if len(list) < 1000 {
+		t.Fatalf("%d names, want thousands", len(list))
+	}
+	has := map[string]bool{}
+	for _, n := range list {
+		has[n] = true
+	}
+	for _, n := range []string{"gearshape", "xmark", "trash.fill", "rectangle.on.rectangle"} {
+		if !has[n] {
+			t.Errorf("%s not listed", n)
+		}
+	}
+	for _, n := range list[:50] {
+		if _, ok := Image(n, 16, ui.RGB(0, 0, 0), Options{}); !ok {
+			t.Errorf("listed %s does not draw", n)
+		}
+	}
+	var available []string
+	withPool(func() { available = readAvailable() })
+	if len(available) < len(list) {
+		t.Errorf("the availability list has %d names, fewer than the order's %d", len(available), len(list))
+	}
+}
