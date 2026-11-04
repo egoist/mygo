@@ -89,7 +89,7 @@ func (u *Updates) validate() error {
 			return fmt.Errorf("updates.url %q is not an https URL", u.URL)
 		}
 		if strings.ContainsAny(u.URL, "?#") {
-			return errors.New("updates.url must name a directory without a query or fragment")
+			return fmt.Errorf("updates.url %q has a query or fragment: it is the URL of a directory, to which the names of the update files are appended", u.URL)
 		}
 	}
 	if u.S3 != nil {
