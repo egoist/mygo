@@ -26,7 +26,7 @@ func TestCellWidthLiveGrid(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 640, 240)
 	baseW, baseH := term.v.cellW, term.v.cellH
 	baseCols, baseRows := term.Size()
-	for _, width := range []float32{1.03, 1.5, 1} {
+	for _, width := range []float32{1.03, 1.5, 0.8, 1} {
 		font.CellWidth = width
 		term.SetFont(font)
 		tt.Frame()
@@ -37,6 +37,9 @@ func TestCellWidthLiveGrid(t *testing.T) {
 		}
 		if width == 1.5 && (v.cellW <= baseW || cols >= baseCols) {
 			t.Fatalf("wider cells left width %d and %d columns, from %d and %d", v.cellW, cols, baseW, baseCols)
+		}
+		if width == 0.8 && (v.cellW >= baseW || cols <= baseCols) {
+			t.Fatalf("narrower cells left width %d and %d columns, from %d and %d", v.cellW, cols, baseW, baseCols)
 		}
 		if width == 1 && (v.cellW != baseW || cols != baseCols) {
 			t.Fatalf("reset left width %d and %d columns, want %d and %d", v.cellW, cols, baseW, baseCols)
@@ -98,8 +101,11 @@ func TestCellWidthKeepsFittedGlyphs(t *testing.T) {
 		t.Fatalf("width %g: no glyph in the first cell", width)
 		return 0
 	}
+	// Narrower cells leave it its size too, as they do every glyph.
 	fitted := advance(1)
-	if spaced := advance(1.5); spaced != fitted {
-		t.Errorf("a glyph too wide for its cell is %v wide in cells 1.5 times as wide, %v in the font's", spaced, fitted)
+	for _, width := range []float32{1.5, 0.8} {
+		if got := advance(width); got != fitted {
+			t.Errorf("a glyph too wide for its cell is %v wide in cells %g times as wide, %v in the font's", got, width, fitted)
+		}
 	}
 }
