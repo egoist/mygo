@@ -153,8 +153,10 @@ type engine struct {
 	nextMeasured int
 	paths        paths
 	// pathClips are the masks of the paths clips were cut to lately, by
-	// their shapes (clipMask).
+	// their shapes (clipMask), and of the layers of masks (Masks), and
+	// maskScene the scene the layers are drawn from.
 	pathClips map[uint64]*pathClip
+	maskScene *scene.Scene
 	svgs      svgs
 	flex      flexScratch
 	grid      gridScratch
@@ -195,8 +197,10 @@ type engine struct {
 	// liftHits gathers the hits of the elements flying as the frame
 	// commits, which go over the rest of their layer, as they paint
 	// (matches.paint); lifting tells that one is committing.
-	liftHits    []hit
-	lifting     bool
+	liftHits []hit
+	lifting  bool
+	// z is what ordering children by their z-index works in (ZIndex).
+	z           zScratch
 	focusOrder  []uint64
 	focusScopes []focusScope
 	modal       uint64
@@ -227,6 +231,12 @@ type engine struct {
 	groups     map[uint64]groupInfo
 	memberOf   map[uint64]uint64
 	groupLast  map[uint64]uint64
+	// focusFrom is the element that had the keyboard focus as the last
+	// pass ended, 0 for none or while the window did not have the keyboard
+	// (FocusLeft); leftRead tells that this pass read FocusLeft, which saw
+	// the focus on leftSaw.
+	focusFrom, leftSaw uint64
+	leftRead           bool
 	// openers are the elements that had the focus as overlays opened, by
 	// overlay; downs the elements the pointer went down on since the last
 	// pass (0 for none), for PressedOutside.
@@ -1020,6 +1030,7 @@ func (rt *engine) endPass() {
 	rt.unrouted = append(rt.unrouted, rt.delivered...)
 	rt.delivered = rt.delivered[:0]
 	rt.downs = rt.downs[:0]
+	rt.passFocus()
 	// The next pass may not ask again, as when the view cleared what asked.
 	for _, e := range rt.c.reveal {
 		if !slices.Contains(rt.revealIDs, e.id) {
@@ -1413,25 +1424,30 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	// Children in flow first, absolute ones above them: the paint order.
 	// Sticky ones are in the flow for the focus, and paint among the
 	// absolute ones, where their hits go.
-	var stuckBuf [4][2]int
-	stuck := stuckBuf[:0]
-	for ch := e.first; ch != nil; ch = ch.next {
-		if ch.flags&flagAbsolute == 0 {
-			from := len(rt.hits)
-			rt.commitElement(ch, clip, invisible)
-			if ch.sticky {
-				stuck = append(stuck, [2]int{from, len(rt.hits)})
+	// A child with a z-index moves its hits to where it paints.
+	if e.zOrder && e != e.c.overlay && zCommit != nil {
+		zCommit(rt, e, clip, invisible)
+	} else {
+		var stuckBuf [4][2]int
+		stuck := stuckBuf[:0]
+		for ch := e.first; ch != nil; ch = ch.next {
+			if ch.flags&flagAbsolute == 0 {
+				from := len(rt.hits)
+				rt.commitElement(ch, clip, invisible)
+				if ch.sticky {
+					stuck = append(stuck, [2]int{from, len(rt.hits)})
+				}
 			}
 		}
-	}
-	moved := 0
-	for ch := e.first; ch != nil; ch = ch.next {
-		switch {
-		case ch.flags&flagAbsolute != 0:
-			rt.commitElement(ch, clip, invisible)
-		case ch.sticky:
-			moved = rt.stickyHits(stuck[0], moved)
-			stuck = stuck[1:]
+		moved := 0
+		for ch := e.first; ch != nil; ch = ch.next {
+			switch {
+			case ch.flags&flagAbsolute != 0:
+				rt.commitElement(ch, clip, invisible)
+			case ch.sticky:
+				moved = rt.stickyHits(stuck[0], moved)
+				stuck = stuck[1:]
+			}
 		}
 	}
 	if lifting {

@@ -449,6 +449,9 @@ type node struct {
 	maximizeButton bool
 	fit            Fit
 	gray           bool
+	// objectPos is where ObjectPosition puts the picture in its box, from
+	// its middle: 0, 0 by default.
+	objectPos [2]float32
 	// ringOffset and ringColor are the offset and the color of the
 	// element's focus ring, where ringSet says it sets them.
 	ringOffset float32
@@ -602,6 +605,12 @@ type node struct {
 	attach  attachment
 	placed  attachment
 	flips   uint8
+	// zIndex orders the element's painting and its hits among its
+	// siblings (ZIndex); zOrder is set on an element with a child having
+	// one, which paints and commits its children in that order alone
+	// (zindex.go).
+	zIndex int32
+	zOrder bool
 	// serial is the order the pass made the element in: of overlays, the
 	// one made last shows on top.
 	serial int32
@@ -1830,6 +1839,9 @@ func (e *node) add(child *node) {
 	e.forgetIntrinsic()
 	child.parent = e
 	child.depth = e.depth + 1
+	if child.zIndex != 0 {
+		e.zOrder = true // set before it was added, as on a copy leaving (ghostOf)
+	}
 	if e.last == nil {
 		e.first = child
 	} else {
