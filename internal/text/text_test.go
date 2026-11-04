@@ -512,6 +512,10 @@ func TestGlyphsInVisualOrder(t *testing.T) {
 		l := s.Layout(p)
 		rtl := 0
 		for li, line := range l.Lines {
+			// The leftmost glyph of the cluster before: within one, as of
+			// an Arabic letter and its marks, Core Text may place a glyph
+			// left of the one before it.
+			var start, at float32
 			for i, g := range line.Glyphs {
 				if g.Cluster < 0 || g.Cluster >= len(l.Runes) {
 					continue
@@ -524,11 +528,17 @@ func TestGlyphsInVisualOrder(t *testing.T) {
 					rtl++
 				}
 				if i == 0 {
+					at = g.X
 					continue
 				}
 				prev := line.Glyphs[i-1]
-				if g.X < prev.X-0.01 {
-					t.Errorf("%q: line %d glyph %d (cluster %d) at %v, left of the one before it (cluster %d) at %v", p.Text, li, i, g.Cluster, g.X, prev.Cluster, prev.X)
+				if g.Cluster != prev.Cluster {
+					start, at = at, g.X
+					if g.X < start-0.01 {
+						t.Errorf("%q: line %d glyph %d (cluster %d) at %v, left of the cluster before it (%d) at %v", p.Text, li, i, g.Cluster, g.X, prev.Cluster, start)
+					}
+				} else {
+					at = min(at, g.X)
 				}
 				if g.RTL && prev.RTL && g.Cluster > prev.Cluster {
 					t.Errorf("%q: line %d right to left, cluster %d follows cluster %d", p.Text, li, g.Cluster, prev.Cluster)
