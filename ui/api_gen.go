@@ -352,6 +352,28 @@ func (_handle *Context) DisableAnimations() {
 	_ctx.DisableAnimations()
 }
 
+// FocusTakesText reports whether the element with the keyboard focus takes
+// text, typed or composed: a text input or text area, or an editor of
+// rich text or code, that is not read only, or an element that takes text
+// itself (HandleTextInput, TextCaret). It is the web's guard of
+// single-key shortcuts (isContentEditable, an input or a textarea, the
+// role textbox): a command palette's letters step aside while a field
+// takes them as text.
+//
+//	if !c.FocusTakesText() && c.Shortcut(0, ui.KeyK) {
+//		app.palette = true
+//	}
+//
+// It is false while the window does not have the keyboard, as the
+// window tells the system's input methods then.
+func (_handle *Context) FocusTakesText() bool {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return false
+	}
+	return _ctx.FocusTakesText()
+}
+
 // Instant reports whether this frame shows animated values at once
 // (DisableAnimations). Views read it to render a change settled in the same
 // frames where its animations are disabled.
@@ -3407,7 +3429,8 @@ func (_handle Element) Attach(at Anchor, self Anchor) Element {
 //
 // The element is target's popover: its elements follow target as Tab
 // moves, and a press on target is not outside it (PressedOutside). Build
-// target before it, in the same frame.
+// target before it, in the same frame. AttachedAnchors tells the side it
+// went to.
 func (_handle Element) AttachTo(target Element, at Anchor, self Anchor) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -3416,6 +3439,46 @@ func (_handle Element) AttachTo(target Element, at Anchor, self Anchor) Element 
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.AttachTo(target.nodeFor(_ctx.rt), at, self))
+}
+
+// AttachedAnchors returns the points of its target's box and of its own
+// that AttachTo put together as the layout placed the element: those
+// asked for, or, where it went to the other side of target or the other
+// way along it to stay in the window, those across or down from them, as
+// Floating UI's placement: AnchorTop and AnchorBottom for a panel asked
+// below its button, with AttachTo(button, ui.AnchorBottom, ui.AnchorTop),
+// that went above it. Start and end anchors stay start and end ones. The
+// view reads the last frame's, which are those asked for until the
+// element is laid out, as in the frame it first shows; Draw reads this
+// frame's. From that first frame, AttachedOrigin puts the element's
+// transform origin on its own point, and a Motion's Flip mirrors its
+// Enter and Exit, on the side the layout chose. An element not attached
+// to another returns its Attach anchors, or AnchorTopLeft twice without
+// them.
+func (_handle Element) AttachedAnchors() (Anchor, Anchor) {
+	_node := _handle.node()
+	if _node == nil {
+		return *new(Anchor), *new(Anchor)
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.AttachedAnchors()
+}
+
+// AttachedOrigin sets the transform origin on the element's own point
+// that AttachTo puts on its target, on whichever side of it the layout
+// puts the element (AttachedAnchors), from the frame it shows: a tooltip
+// or a menu scaling in, or out, grows from the edge nearest its trigger,
+// as Radix's popper transform origin. It replaces TransformOrigin on an
+// element attached to another.
+func (_handle Element) AttachedOrigin() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.AttachedOrigin())
 }
 
 // AutoFocus gives the element the keyboard focus in the frame it appears,
@@ -4656,6 +4719,33 @@ func (_handle Element) FocusGroup(o Orientation) Element {
 	return wrapElement(_node.FocusGroup(o))
 }
 
+// FocusLeft reports whether the keyboard focus left the element since the
+// last frame: it was on the element or inside it, and is now outside it,
+// or nowhere, as the window lost the keyboard. That is the web's focusout
+// whose relatedTarget the element does not contain. The overlays attached
+// to the element and to those inside it (AttachTo), as a combobox's list
+// or a button's popover, count as inside it, as does the element it is
+// attached to, as PressedOutside has them: a combobox closes as the focus
+// leaves its field, but not as it moves into its list.
+//
+//	field := ui.TextInput(c, &app.query)
+//	if field.FocusLeft() {
+//		app.open = false
+//	}
+//
+// Where the focus went is what the elements tell as they are built
+// (Focused, FocusWithin), and a Handle's FocusWithin before its control
+// is.
+func (_handle Element) FocusLeft() bool {
+	_node := _handle.node()
+	if _node == nil {
+		return false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.FocusLeft()
+}
+
 // FocusRing sets whether MyGo rings the element when it has the keyboard
 // focus from the keyboard, as it does by default. Widgets that ring a part
 // of themselves instead, as a check box its box, turn it off and draw
@@ -5499,6 +5589,41 @@ func (_handle Element) MaskRadialGradient(g RadialGradient) Element {
 	return wrapElement(_node.MaskRadialGradient(g))
 }
 
+// Masks masks the element and what is inside it by layers of masks, the
+// first on top, each composited with those after it as its Composite
+// says, as CSS's mask-image with mask-composite does: each point shows as
+// much as the result's alpha there, and nothing shows outside the box (or
+// the inset of ClipInset). It replaces MaskLinearGradient and the others,
+// which make one layer, and they replace it. A ring 1.5 DIPs wide, of a
+// gradient, its middle cut out by a layer over the content box:
+//
+//	black := ui.RGB(0, 0, 0)
+//	solid := ui.LinearGradient{From: black, To: black}
+//	ui.Box(c).Size(120, 40).Radius(20).Padding(1.5).Gradient(pink, violet, 90).Masks(
+//		ui.Mask{Image: solid, Box: ui.MaskContentBox, Composite: ui.MaskExclude},
+//		ui.Mask{Image: solid},
+//	)
+//
+// and a crescent, a disc less one beside it:
+//
+//	disc := func(x, y float32) ui.RadialGradient {
+//		return ui.RadialGradient{Center: ui.Point{X: x, Y: y}, Radius: 40,
+//			Stops: []ui.GradientStop{{black, 0.98}, {ui.Transparent, 1}}}
+//	}
+//	moon.Masks(ui.Mask{Image: disc(0.5, 0.5), Composite: ui.MaskSubtract}, ui.Mask{Image: disc(0.7, 0.35)})
+//
+// Layers that are not one gradient across the border box make a mask of
+// their alpha, drawn once for each size the element paints at.
+func (_handle Element) Masks(layers ...Mask) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Masks(layers...))
+}
+
 func (_handle Element) MaxHeight(v float32) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -5679,6 +5804,27 @@ func (_handle Element) NoWrap() Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.NoWrap())
+}
+
+// ObjectPosition places an Image's picture in its box where Fit leaves
+// room around it, or crops it, as CSS's object-position: x and y are
+// fractions of that room across and down, 0 by the left or top edge, 1 by
+// the right or bottom one, and 0.5, as by default, in the middle. An
+// avatar's face, near the top of its photo, stays in view with
+//
+//	ui.Image(c, photo).Size(40, 40).Fit(ui.Cover).ObjectPosition(0.5, 0.15)
+//
+// as object-position: 50% 15%; the edge keywords are 0 and 1, as
+// ObjectPosition(1, 0) for right top. Values beyond 0 and 1 move the
+// picture further, past the box's edges.
+func (_handle Element) ObjectPosition(x float32, y float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.ObjectPosition(x, y))
 }
 
 // OnPaste has fn see a paste into a text input, by Cmd+V, Ctrl+V or a
