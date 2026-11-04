@@ -27,6 +27,14 @@ type Options struct {
 	// router around the view, a link to #a-heading scrolls to that
 	// heading, and links of other schemes do nothing.
 	OnLink func(url string)
+	// LinkMenu, when set, builds the context menu of a link, given its
+	// destination, as a chat's Copy Path and Reveal in Finder for a link
+	// to a file. The link's menu replaces the one around the view, as its
+	// Selectable container's, since the innermost element with a context
+	// menu gets the click; m.EditItems adds the text's Copy and Select
+	// All to it. Links to #a-heading, footnote references and a link
+	// whose destination is still coming keep the menu around them.
+	LinkMenu func(m *ui.Menu, url string)
 	// Anchor scrolls to the heading of this slug, with or without its "#",
 	// when the document first shows, when another document replaces it,
 	// and when Anchor changes: a docs reader opens guide.md#install at
@@ -486,6 +494,9 @@ func (st *viewState) link(c *ui.Context, in *parser.Inline, children func()) {
 		l = ui.Link(c, "", dest)
 	default:
 		l = ui.Link(c, "", "")
+	}
+	if st.o.LinkMenu != nil && !in.Pending && dest != "" && !strings.HasPrefix(dest, "#") {
+		l.ContextMenu(func(m *ui.Menu) { st.o.LinkMenu(m, dest) })
 	}
 	l.TextColor(st.th.Link)
 	l.Children(children)

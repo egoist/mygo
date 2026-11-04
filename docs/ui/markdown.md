@@ -147,6 +147,27 @@ app.md.OnLink = func(url string) {
 }
 ```
 
+`LinkMenu` gives each link a [context menu](context-menu.md) of its own,
+given its destination, as a chat whose replies link files offers Copy
+Path and Reveal in Finder for the file right-clicked. The link's menu
+replaces the one around the view, as its `Selectable` container's, and
+`EditItems` puts the text's Copy and Select All back in it; links to
+`#a-heading`, footnote references and a link whose destination is still
+coming keep the menu around them:
+
+```go
+app.md.LinkMenu = func(m *ui.Menu, url string) {
+	if m.Item("Copy Path").Chosen() {
+		app.copyPath(url)
+	}
+	if m.Item("Reveal in Finder").Chosen() {
+		app.reveal(url)
+	}
+	m.Separator()
+	m.EditItems()
+}
+```
+
 Images show their description until `LoadImage` loads them, on a
 goroutine of their own; without it, they stay descriptions, as a view
 loads nothing from the network by itself. `FileImages(dir)` loads the
