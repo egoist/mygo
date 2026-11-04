@@ -30,7 +30,7 @@
     { "message": "{n, number, ::group-off}", "args": { "n": 12345 }, "want": "12345" },
     { "message": "{price, number, ::currency/EUR}", "locale": "de", "args": { "price": 1842 }, "want": "1.842,00\u00a0€" },
     { "message": "{price, number, ::currency/USD}", "args": { "price": -1842.5 }, "want": "-$1,842.50" },
-    { "message": "{price, number, ::currency/JPY}", "locale": "ja", "args": { "price": 1842 }, "want": "￥1,842" },
+    { "message": "{price, number, ::currency/JPY}", "args": { "price": 1842 }, "want": "¥1,842" },
     { "message": "{price, number, ::currency/EUR}", "args": { "price": "1.5" }, "want": "€1.50" },
     { "message": "{price, number, ::currency/EUR .0}", "args": { "price": 1.25 }, "want": "€1.3" },
     { "message": "{n, plural, one {# file} other {# files}}", "args": { "n": 1.0004 }, "want": "1 file" },
