@@ -21,12 +21,6 @@ type Options struct {
 	// Extensions is the syntax read beyond CommonMark: Default when zero.
 	Extensions parser.Extensions
 
-	// OnLink, when set, handles a click on a link, given its destination.
-	// Without it, links to http, https and mailto addresses open as a
-	// ui.Link opens them, a path without a scheme goes there in the
-	// router around the view, a link to #a-heading scrolls to that
-	// heading, and links of other schemes do nothing.
-	OnLink func(url string)
 	// LinkMenu, when set, builds the context menu of a link, given its
 	// destination, as a chat's Copy Path and Reveal in Finder for a link
 	// to a file. The link's menu replaces the one around the view, as its
@@ -35,6 +29,12 @@ type Options struct {
 	// All to it. Links to #a-heading, footnote references and a link
 	// whose destination is still coming keep the menu around them.
 	LinkMenu func(m *ui.Menu, url string)
+	// OnLink, when set, handles a click on a link, given its destination.
+	// Without it, links to http, https and mailto addresses open as a
+	// ui.Link opens them, a path without a scheme goes there in the
+	// router around the view, a link to #a-heading scrolls to that
+	// heading, and links of other schemes do nothing.
+	OnLink func(url string)
 	// Anchor scrolls to the heading of this slug, with or without its "#",
 	// when the document first shows, when another document replaces it,
 	// and when Anchor changes: a docs reader opens guide.md#install at

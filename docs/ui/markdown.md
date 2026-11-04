@@ -129,24 +129,6 @@ instead:
 app.md.OnLink = func(url string) { app.open(url) }
 ```
 
-`Anchor` opens a document at a heading, given its slug with or without
-the `#`: a docs reader that opens `guide.md#install` from a search hit,
-or that comes back where its user was. The view scrolls to it as the
-document shows, as another document replaces it and as `Anchor`
-changes; `AnchorVersion` asks for the same heading again. An `OnLink`
-that handles `#a-heading` links sets it:
-
-```go
-app.md.OnLink = func(url string) {
-	if strings.HasPrefix(url, "#") {
-		app.md.Anchor = url
-		app.md.AnchorVersion++
-		return
-	}
-	app.open(url)
-}
-```
-
 `LinkMenu` gives each link a [context menu](context-menu.md) of its own,
 given its destination, as a chat whose replies link files offers Copy
 Path and Reveal in Finder for the file right-clicked. The link's menu
@@ -165,6 +147,24 @@ app.md.LinkMenu = func(m *ui.Menu, url string) {
 	}
 	m.Separator()
 	m.EditItems()
+}
+```
+
+`Anchor` opens a document at a heading, given its slug with or without
+the `#`: a docs reader that opens `guide.md#install` from a search hit,
+or that comes back where its user was. The view scrolls to it as the
+document shows, as another document replaces it and as `Anchor`
+changes; `AnchorVersion` asks for the same heading again. An `OnLink`
+that handles `#a-heading` links sets it:
+
+```go
+app.md.OnLink = func(url string) {
+	if strings.HasPrefix(url, "#") {
+		app.md.Anchor = url
+		app.md.AnchorVersion++
+		return
+	}
+	app.open(url)
 }
 ```
 
