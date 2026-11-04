@@ -432,15 +432,34 @@ func (g *gallery) edgesPage(c *ui.Context) {
 }
 
 func (g *gallery) clarityPage(c *ui.Context) {
-	body(c, "Large panes let more of what is under them read through; small ones keep their material.", func() {
-		ui.Box(c).Height(320).Radius(16).Gradient(ui.Hex("#0f766e"), ui.Hex("#7c3aed"), 135).Children(func() {
-			ui.Row(c).Fill().Padding(24).Gap(12).Children(func() {
-				for _, k := range []float32{0, 0.5, 1} {
-					ui.Box(c).Grow(1).Radius(22).Material(glass.Glass{Clarity: k}).Children(func() {
-						ui.Textf(c, "Clarity %.1f", k).Bold().TextColor(ui.RGB(255, 255, 255))
+	body(c, "Clarity makes a pane as large as a sidebar clearer, so what is under it reads through. "+
+		"The three panes cover the same text and swatches: 0 is macOS's frosted material, 1 is nearly clear. "+
+		"Panes up to 100 DIPs, as buttons, keep their material whatever the clarity; it takes full effect from 200.", func() {
+		ui.Row(c).Height(340).Gap(12).AlignItems(ui.Stretch).Children(func() {
+			for _, k := range []struct {
+				value float32
+				about string
+			}{{0, "macOS's material, frosty"}, {0.5, "half the blur"}, {1, "nearly clear"}} {
+				// Each pane covers the same busy content, so their blurs
+				// compare.
+				ui.Box(c).Grow(1).Basis(0).Radius(16).Background(ui.Hex("#0b1020")).Clip().Children(func() {
+					ui.Column(c).Absolute().Fill().Padding(14).Gap(8).Children(func() {
+						for i := range 9 {
+							ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+								for j := range 3 {
+									a, b := cards[(i+j)%len(cards)][0], cards[(i+j)%len(cards)][1]
+									ui.Box(c).Size(24, 24).Radius(6).Gradient(a, b, 135)
+								}
+								ui.Textf(c, "Line %d under the glass", i+1).FontSize(13).Bold().TextColor(ui.RGB(255, 255, 255)).SingleLine()
+							})
+						}
 					})
-				}
-			})
+					ui.Column(c).Absolute().Top(28).Left(16).Right(16).Bottom(16).Radius(20).Padding(14).Gap(2).Material(glass.Glass{Clarity: k.value}).Children(func() {
+						ui.Textf(c, "Clarity %g", k.value).Bold().TextColor(ui.RGB(255, 255, 255))
+						ui.Text(c, k.about).FontSize(12).TextColor(ui.RGBA(255, 255, 255, 0.75))
+					})
+				})
+			}
 		})
 	})
 }
