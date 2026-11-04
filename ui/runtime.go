@@ -241,6 +241,9 @@ type engine struct {
 	regs      []shortcutReg
 	nextRegs  []shortcutReg
 	delivered []shortcutReg
+	// shortcutRepeat tells that the last key a shortcut took this frame
+	// came as the auto-repeat of a key held down (ShortcutRepeated).
+	shortcutRepeat bool
 
 	// trans are the transitions of the elements given one, by ID
 	// (transition.go): exitsBuilt tells that the last frame built elements
@@ -498,6 +501,10 @@ type engine struct {
 	// wheeling are the elements of the scroll containers that the notches
 	// of a mouse wheel scroll smoothly (glideWheels).
 	wheeling []uint64
+	// snapping are the elements of the scroll containers that snap that
+	// are on their way to rest, or wait for the user's scrolling to settle
+	// (glideSnaps).
+	snapping []uint64
 	// lastPress is the element of the press (id) and of the one before
 	// (prev), and how many of the backend's count of clicks were before
 	// the first on it.
@@ -544,11 +551,16 @@ type shortcutReg struct {
 	// retried marks a key delivered, or left unrouted, in the frame after
 	// the one it came to (settleKeys): it is not retried again.
 	retried bool
+	// repeat marks a key delivered that came as the auto-repeat of a key
+	// held down.
+	repeat bool
 }
 
 type keyEvent struct {
 	mods Modifiers
 	key  Key
+	// repeat marks the auto-repeat of a key held down.
+	repeat bool
 }
 
 func newRuntime(view func(*context), h host) *engine {
@@ -619,6 +631,7 @@ func (rt *engine) runFrame() {
 	rt.repaintRate, rt.repaintFull, rt.untracked = 0, false, false
 	rt.routeKeys()
 	rt.glideWheels(now)
+	rt.glideSnaps(now)
 	if rt.drag != nil {
 		// The source's element is this frame's, if it builds one.
 		rt.drag.elem = nil
@@ -1396,14 +1409,27 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		clip = intersect(clip, e.visualRect(s.selfClip))
 	}
 	// Children in flow first, absolute ones above them: the paint order.
+	// Sticky ones are in the flow for the focus, and paint among the
+	// absolute ones, where their hits go.
+	var stuckBuf [4][2]int
+	stuck := stuckBuf[:0]
 	for ch := e.first; ch != nil; ch = ch.next {
 		if ch.flags&flagAbsolute == 0 {
+			from := len(rt.hits)
 			rt.commitElement(ch, clip, invisible)
+			if ch.sticky {
+				stuck = append(stuck, [2]int{from, len(rt.hits)})
+			}
 		}
 	}
+	moved := 0
 	for ch := e.first; ch != nil; ch = ch.next {
-		if ch.flags&flagAbsolute != 0 {
+		switch {
+		case ch.flags&flagAbsolute != 0:
 			rt.commitElement(ch, clip, invisible)
+		case ch.sticky:
+			moved = rt.stickyHits(stuck[0], moved)
+			stuck = stuck[1:]
 		}
 	}
 	if lifting {

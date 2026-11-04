@@ -79,7 +79,8 @@ var lcStyles = [][]func(e *node){
 		func(e *node) { e.Balance() }},
 	{nil, func(e *node) { e.ColumnSpan(2) }, func(e *node) { e.ColumnStart(2) }, func(e *node) { e.RowStart(2).RowSpan(2) }},
 	{nil, func(e *node) { e.BorderWidth(3) }, func(e *node) { e.BorderWidth(1, 0, 6, 2) }},
-	{nil, func(e *node) { e.Top(5) }, func(e *node) { e.Left(-3) }, func(e *node) { e.End(4) }},
+	{nil, func(e *node) { e.Top(5) }, func(e *node) { e.Left(-3) }, func(e *node) { e.End(4) },
+		func(e *node) { e.Sticky().Top(5) }, func(e *node) { e.Sticky().Bottom(3).Start(2) }},
 	{nil, func(e *node) { e.Invisible() }, func(e *node) { e.Hidden(true) }},
 	{nil, func(e *node) {
 		e.Transition(ElementTransition{Position: true, Size: true, Duration: 100 * time.Millisecond})
@@ -455,7 +456,7 @@ func TestLayoutInputs(t *testing.T) {
 		"pose poseAnim poseSet poseM poseFade reposed ink noCull backface bg fill grad stripes borderC borderStyle radius " +
 		"shadows material effect effecting cache grads blur opacity opacitySet undimmed cursor paintFn objectFn styleFn paintAfterFn " +
 		"inputFn textClient caret takesText noIME copyData webView maximizeButton fit gray dismissed rotate label widget role " +
-		"checked expanded busy current vertical tip highlighted keepOpen accValue accRange hasRange accFill accStep barInset scrollBase hideScrollbars keepScrollbars barsFrom " +
+		"checked expanded busy current vertical tip highlighted keepOpen accValue accRange hasRange accFill accStep barInset scrollBase hideScrollbars keepScrollbars barsFrom snap snapAlign " +
 		"listRow rowIndex rowsOf focusGroup groupSelects segment activeDescendant nameFrom nameJoin focusTo " +
 		"setPos setSize choosesItems search description invalid followX sort level expandable " +
 		"chooseMany serial ignoreInput accessHidden themed lift ringOffset ringColor ringSet clipping"

@@ -288,6 +288,9 @@ type layoutStyle struct {
 	justifyItems           Align // of a grid
 	cell                   gridCell
 	justifySelf            Align
+	// sticky holds the element in its scroll container by its insets
+	// (Sticky), which then do not move it as relative positioning does.
+	sticky bool
 	// baselines is set on the row of a field in a form, which lines up
 	// the first lines of its label and control.
 	baselines bool
@@ -509,6 +512,12 @@ type node struct {
 	barsFrom       *node
 	rowIndex       int
 	rowsOf         *listFrame
+	// snap is how the element, a scroll container, snaps (ScrollSnap), and
+	// snapAlign how the element lines up with the container around it
+	// that does (SnapAlign): Start, Center or End plus one, horizontally
+	// in its low four bits and vertically in its high four, 0 for none.
+	snap      Snap
+	snapAlign uint8
 	// focusGroup makes the element a focus group (FocusGroup), whose
 	// arrows click the element they move to with groupSelects.
 	focusGroup   Orientation

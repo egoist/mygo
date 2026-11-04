@@ -106,6 +106,7 @@ func (e *node) adoptScroll() bool {
 	}
 	st.beginMove(e.c.rt.frame)
 	st.wheel = nil // the app takes over from the wheel
+	st.haltSnap()  // and from snapping
 	if t.X != float32(st.scrollX) {
 		st.scrollX = float64(t.X)
 	}
@@ -250,6 +251,13 @@ func reveal(e *node) {
 	}
 	frame := e.c.rt.frame
 	for ch, p := e, e.parent; p != nil; ch, p = p, p.parent {
+		if ch.stuck() {
+			// Where it sticks, which may be in view already.
+			fx, fy := flowOrigin(ch)
+			dx, dy := ch.stickyShift(fx, fy, laidOutOrigin)
+			x += dx
+			y += dy
+		}
 		if p.scrolls() && ch.flags&flagAbsolute == 0 {
 			p.adoptScroll()
 			st := p.st
@@ -271,6 +279,10 @@ func reveal(e *node) {
 			if sx != st.scrollX || sy != st.scrollY {
 				st.beginMove(frame)
 				st.wheel = nil // what comes into view takes over from the wheel
+				if st.snap != nil {
+					// It lines up the place of what comes into view.
+					st.snap.revealed(e)
+				}
 				if p.list != nil {
 					// A List places its rows anew from there, building
 					// those it lacked, which moves the row holding the box.

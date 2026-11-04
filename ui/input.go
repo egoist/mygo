@@ -97,7 +97,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.TextComposition:
 		taken = rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret}, ev))
 	case platform.SurfaceCommand:
-		rt.editEvent(editEvent{kind: editCommand, text: ev.Text})
+		rt.editEvent(editEvent{kind: editCommand, text: ev.Text, repeat: ev.Repeat})
 	case platform.SurfaceFocus:
 		rt.windowFocused = true
 		rt.blinkStart = rt.now()
@@ -457,8 +457,12 @@ func (rt *engine) pointerUp(button, clicks int) {
 	if button == rt.pressButton {
 		clicks = rt.pressClicks // the engine's, which may have started over
 	}
-	if rt.scrollDrag.st != nil {
+	if s := rt.scrollDrag.st; s != nil {
 		rt.scrollDrag.st = nil
+		if s.snap != nil {
+			// Let go, it rests at the nearest place.
+			s.snap.scrolled(rt, s, 0)
+		}
 		// The pointer may have left the bar, over what the hover missed.
 		rt.setHover(rt.hitChain(rt.pointerX, rt.pointerY))
 		rt.updateCursor()
@@ -590,6 +594,15 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool)
 		if sideways && s.rtl {
 			sx = -sx
 		}
+		if !precise {
+			// A notch goes to the next place of a container that snaps.
+			if moved, took := rt.snapNotch(s, sx, sy); took {
+				if moved {
+					return
+				}
+				continue
+			}
+		}
 		if glide {
 			if wheelMoves(s, sx, sy) {
 				rt.wheelScroll(s, sx, sy)
@@ -599,6 +612,11 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool)
 		}
 		s.wheel = nil
 		if scrollBy(s, sx, sy) {
+			if s.snap != nil {
+				// It rests at a place once the fingers, and the momentum
+				// of their fling, settle.
+				s.snap.scrolled(rt, s, snapSettle)
+			}
 			rt.requestFrame()
 			return
 		}
@@ -657,6 +675,7 @@ func scrollBy(s *state, dx, dy float32) bool {
 	if s.track != nil {
 		s.track.glide = nil // the user takes over from ScrollTo
 	}
+	s.haltSnap()
 	s.scrollTo(x, y)
 	return true
 }
@@ -703,6 +722,13 @@ func (rt *engine) scrollKey(mods Modifiers, key Key) bool {
 		if page != 0 {
 			// A page keeps a line of the last one in view.
 			dy = page * max(s.h-line, s.h/2)
+		}
+		if moved, took := rt.snapNotch(s, dx, dy); took {
+			// To the next place of a container that snaps.
+			if moved {
+				return true
+			}
+			continue
 		}
 		if scrollBy(s, dx, dy) {
 			rt.requestFrame()
@@ -775,7 +801,7 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 	if rt.inspectKey(mods, key) {
 		return true
 	}
-	k := keyEvent{mods, key}
+	k := keyEvent{mods, key, repeat}
 	if key == KeyEscape && mods == 0 && rt.dragCancel() {
 		return true
 	}
@@ -830,9 +856,13 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 		return false
 	}
 	if s := rt.states[rt.focused]; s != nil && s.flags&flagMenuButton != 0 && s.flags&flagDisabled == 0 && !rt.claimedBy(k, false) &&
-		(mods == 0 && (key == KeyEnter || key == KeySpace || key == KeyDown) || mods == Alt && key == KeyDown) {
+		(mods == 0 && (key == KeyEnter || key == KeySpace || key == KeyDown || key == KeyUp) || mods == Alt && key == KeyDown) {
 		rt.focusVisible = true
-		rt.openMenuButton(s, true)
+		if key == KeyUp {
+			rt.openMenuButtonOnLast(s)
+		} else {
+			rt.openMenuButton(s, true)
+		}
 		return false
 	}
 	if (key == KeyEnter || key == KeySpace) && mods == 0 {
@@ -947,12 +977,13 @@ func (rt *engine) moveFocus(back bool) {
 // Enter choosing the item the Down highlighted.
 func (rt *engine) routeKeys() {
 	rt.unrouted = rt.unrouted[:0]
+	rt.shortcutRepeat = false
 	if len(rt.keys) == 0 && len(rt.retried) == 0 {
 		return
 	}
 	chain := rt.focusChain()
 	route := func(k keyEvent, retried bool) bool {
-		r := shortcutReg{mods: k.mods, key: k.key, retried: retried}
+		r := shortcutReg{mods: k.mods, key: k.key, retried: retried, repeat: k.repeat}
 		if target, found := routeKey(rt.regs, chain, k); found {
 			if slices.ContainsFunc(rt.delivered, func(d shortcutReg) bool { return d.id == target }) {
 				return false
@@ -1025,10 +1056,10 @@ func (rt *engine) settleKeys() {
 	}
 	chain := rt.focusChain()
 	for _, r := range rt.unrouted {
-		k := keyEvent{r.mods, r.key}
+		k := keyEvent{r.mods, r.key, r.repeat}
 		if _, found := routeKey(rt.nextRegs, chain, k); found && !r.retried {
 			rt.retried = append(rt.retried, k) // runFrame asks for the frame
-		} else if !found && k == (keyEvent{0, KeyEscape}) {
+		} else if !found && k.mods == 0 && k.key == KeyEscape {
 			rt.host.escape()
 		}
 	}
@@ -1042,7 +1073,7 @@ func (rt *engine) shortcut(id uint64, mods Modifiers, key Key) bool {
 	for i, d := range rt.delivered {
 		if d.id == id && d.mods == mods && d.key == key {
 			rt.delivered = append(rt.delivered[:i], rt.delivered[i+1:]...)
-			rt.consumed = true
+			rt.consumed, rt.shortcutRepeat = true, d.repeat
 			return true
 		}
 	}
@@ -1107,8 +1138,8 @@ func (rt *engine) editEvent(ev editEvent) bool {
 
 // commandKeys are the keys of the Edit menu's commands.
 var commandKeys = map[string]keyEvent{
-	"copy": {Cmd, KeyC}, "cut": {Cmd, KeyX}, "paste": {Cmd, KeyV}, "selectAll": {Cmd, KeyA},
-	"undo": {Cmd, KeyZ}, "redo": {Cmd | Shift, KeyZ},
+	"copy": {mods: Cmd, key: KeyC}, "cut": {mods: Cmd, key: KeyX}, "paste": {mods: Cmd, key: KeyV}, "selectAll": {mods: Cmd, key: KeyA},
+	"undo": {mods: Cmd, key: KeyZ}, "redo": {mods: Cmd | Shift, key: KeyZ},
 }
 
 // commandKey has an edit command that the focus, or ed, doesn't take go to
@@ -1121,6 +1152,7 @@ func (rt *engine) commandKey(ev editEvent, ed *editor) bool {
 	if runtime.GOOS != "darwin" || ev.kind != editCommand || !ok || ed != nil && ed.wants(k) {
 		return false
 	}
+	k.repeat = ev.repeat
 	rt.keys = append(rt.keys, k)
 	rt.requestFrame()
 	return true
@@ -1678,6 +1710,7 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 		d := &rt.scrollDrag
 		w, h := float64(s.w), float64(s.h)
 		s.wheel = nil
+		s.haltSnap()
 		switch {
 		case g.vertical && g.vTrack.Contains(lx, ly):
 			switch {
@@ -1688,11 +1721,20 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 				}
 				d.contentW, d.contentH = s.contentW, s.contentH
 			case ly < g.v.Y:
-				s.scrollTo(s.scrollX, max(0, s.scrollY-h*0.9))
+				if _, took := rt.snapNotch(s, 0, float32(-h*0.9)); !took {
+					s.scrollTo(s.scrollX, max(0, s.scrollY-h*0.9))
+				}
 			default:
-				s.scrollTo(s.scrollX, min(s.contentH-h, s.scrollY+h*0.9))
+				if _, took := rt.snapNotch(s, 0, float32(h*0.9)); !took {
+					s.scrollTo(s.scrollX, min(s.contentH-h, s.scrollY+h*0.9))
+				}
 			}
 		case g.horizontal && g.hTrack.Contains(lx, ly):
+			// A page toward the end, as scrollBy takes it.
+			page := float32(w * 0.9)
+			if s.rtl {
+				page = -page
+			}
 			switch {
 			case lx >= g.h.X && lx < g.h.X+g.h.W:
 				d.st, d.start, d.from, d.horizontal = s, lx, s.scrollX, true
@@ -1702,9 +1744,13 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 				d.contentW, d.contentH = s.contentW, s.contentH
 			case (lx < g.h.X) != s.rtl:
 				// Toward the start.
-				s.scrollTo(max(0, s.scrollX-w*0.9), s.scrollY)
+				if _, took := rt.snapNotch(s, -page, 0); !took {
+					s.scrollTo(max(0, s.scrollX-w*0.9), s.scrollY)
+				}
 			default:
-				s.scrollTo(min(s.contentW-w, s.scrollX+w*0.9), s.scrollY)
+				if _, took := rt.snapNotch(s, page, 0); !took {
+					s.scrollTo(min(s.contentW-w, s.scrollX+w*0.9), s.scrollY)
+				}
 			}
 		default:
 			continue
