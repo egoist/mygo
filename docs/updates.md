@@ -49,7 +49,7 @@ request a check, within the API's 60 requests an hour for each address.
 
 For your own server or an
 [S3 bucket](#publishing-to-s3), set `url` instead, an HTTPS URL of a
-directory:
+directory without a query string or fragment:
 
 ```ts
 export default defineConfig({
