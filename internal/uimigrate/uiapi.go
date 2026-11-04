@@ -272,6 +272,7 @@ var elementChains = map[string]bool{
 	"Mixed":                true,
 	"Modal":                true,
 	"NoWrap":               true,
+	"ObserveInput":         true,
 	"OnChange":             true,
 	"OnClick":              true,
 	"OnPaste":              true,
