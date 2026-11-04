@@ -1053,12 +1053,14 @@ func TestUnderlineOffset(t *testing.T) {
 	s := newSystem()
 	l := s.Layout(Params{Text: "Hello", Style: Style{Size: 13}})
 	n := len(l.Lines[0].Glyphs)
+	// Solid underlines, which Core Text does not cut where they cross the
+	// ink of the glyphs at their offset: where they are is the same.
 	for _, scale := range []float32{1, 1.5, 2} {
 		for _, y := range []float32{0, 0.3} {
 			base := s.Baseline((y + l.Lines[0].Baseline) * scale)
-			plain := s.Decorate(l, 0, 0, n, 0, y, scale, Underline, LineStyle{})
+			plain := s.Decorate(l, 0, 0, n, 0, y, scale, SolidUnderline, LineStyle{})
 			for _, off := range []float32{0, 4, -3} {
-				under := s.Decorate(l, 0, 0, n, 0, y, scale, Underline, LineStyle{Offset: off, HasOffset: true})
+				under := s.Decorate(l, 0, 0, n, 0, y, scale, SolidUnderline, LineStyle{Offset: off, HasOffset: true})
 				if len(under) != len(plain) || len(under) == 0 {
 					t.Fatalf("scale %v, offset %v: %d strokes, %d without", scale, off, len(under), len(plain))
 				}
@@ -1068,7 +1070,7 @@ func TestUnderlineOffset(t *testing.T) {
 						t.Errorf("scale %v, y %v, offset %v: %+v, want top %v as thick as %+v", scale, y, off, st, want, plain[k])
 					}
 				}
-				thick := s.Decorate(l, 0, 0, n, 0, y, scale, Underline, LineStyle{Thick: 2, Offset: off, HasOffset: true})
+				thick := s.Decorate(l, 0, 0, n, 0, y, scale, SolidUnderline, LineStyle{Thick: 2, Offset: off, HasOffset: true})
 				if thick[0].Top != want || thick[0].Bottom != want+float32(math.Round(float64(2*scale))) {
 					t.Errorf("scale %v, offset %v, 2 thick: %+v, want top %v", scale, off, thick[0], want)
 				}
@@ -1081,6 +1083,11 @@ func TestUnderlineOffset(t *testing.T) {
 		}
 	}
 	if runtime.GOOS == "darwin" {
+		// An underline skipping ink skips the glyphs where its offset puts
+		// it: through the letters, it is cut.
+		if under := s.Decorate(l, 0, 0, n, 0, 0, 2, Underline, LineStyle{Offset: -3, HasOffset: true}); len(under) == 1 {
+			t.Errorf("an underline through Hello is whole: %+v", under)
+		}
 		// Below the descenders, an underline skipping ink is whole.
 		l = s.Layout(Params{Text: "gypsy", Style: Style{Size: 24}})
 		if n := len(s.Decorate(l, 0, 0, len(l.Lines[0].Glyphs), 0, 0, 2, Underline, LineStyle{Offset: 10, HasOffset: true})); n != 1 {

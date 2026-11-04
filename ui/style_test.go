@@ -489,21 +489,27 @@ func TestUnderlineOffset(t *testing.T) {
 		t.Fatal("no underline")
 	}
 	for _, off := range []float32{0, 3, 6, -2} {
+		// Above the baseline, an underline skipping ink (macOS) skips all of
+		// Hello; quotes have no ink there.
+		word := "Hello"
+		if off < 0 {
+			word = `""`
+		}
 		for _, v := range []struct {
 			name string
 			view func(c *context) *node
 		}{
 			{"text", func(c *context) *node {
-				return coreText(c, "Hello").Underline().DecorationColor(red).UnderlineOffset(off)
+				return coreText(c, word).Underline().DecorationColor(red).UnderlineOffset(off)
 			}},
 			{"inherited", func(c *context) *node {
 				var e *node
-				coreBox(c).UnderlineOffset(off).Children(func() { e = coreText(c, "Hello").Underline().DecorationColor(red) })
+				coreBox(c).UnderlineOffset(off).Children(func() { e = coreText(c, word).Underline().DecorationColor(red) })
 				return e
 			}},
 			{"inline", func(c *context) *node {
 				return coreText(c, "").Children(func() {
-					coreText(c, "Hello").Underline().DecorationColor(red).UnderlineOffset(off)
+					coreText(c, word).Underline().DecorationColor(red).UnderlineOffset(off)
 				})
 			}},
 		} {
