@@ -3041,6 +3041,28 @@ either.
   its parent's second pass, among the absolute children, and commit moves
   its hits there (`stickyHits`), while it commits in the flow, so that
   Tab and assistive technology keep its place among its siblings.
+- **Paint order** (`ui/zindex.go`). `ZIndex` sets `node.zIndex` and, on
+  the parent, `zOrder`, which `add` sets too for a child added with one
+  (a copy leaving); a parent without it paints and commits its children
+  as before, in two passes, with no sorting nor allocation. One with it
+  paints and commits them through `zPaint` and `zCommit`, which `ZIndex`
+  sets, so that an app never calling it links none of this. It paints
+  them in `paintOrder`: the two passes' order sorted stably by
+  z-index, so that equal values keep it, the copies leaving still first,
+  and, of the root, the overlay layer and what follows it last
+  (`zPinned`), so that overlays stay above the content and keep their
+  order (the overlay layer's own children are never sorted). Commit
+  (`commitByZ`) commits them in the usual order, which the focus order
+  and the labels follow, noting each child's hits and web views, and
+  then moves them, child by child, to the same order (sorting pointers to
+  the notes, whose code all slices of pointers share), the web views'
+  indexes into the hits with them, so that the pointer and what covers a
+  web view agree with the paint. The order is among siblings alone: a
+  child with a z-index moves with its subtree, inside its parent's clips,
+  and makes no stacking context that would mix it with its parent's
+  siblings. The engine's `zScratch` holds the buffers, as a stack for the
+  paint's nesting; the scene's order changing makes a `Cache` layer draw
+  again, as its `scene.Differ` sees.
 - **Right to left** (`ui/direction.go`). Each element has a direction
   (`node.dir`): built, it takes its parent's, and the root the window's,
   which `surface.Conn.RightToLeft` gives (package `mygo` from the app's
@@ -4665,8 +4687,14 @@ either.
   (`ui/headless.go`) with the CPU renderer, at its own time
   (`engine.clock`), which stands still until `Tester.Advance` moves it.
   Its host runs no timer; it notes their deadlines, and `Advance` runs
-  the frames due. The fake backend's surface lets the core's tests drive
-  content windows through `package mygo`.
+  the frames due. `Tester.Access` and `AccessByRole`
+  (`ui/tester_access.go`) build the last frame's accessibility tree on
+  demand, as `accessTree` does for a window, and give its nodes as
+  `AccessInfo`: the role an element was given (`node.role`), so that
+  roles sharing a node's role stay apart, or the one following the
+  node's in the order of `Role`; a role added to both needs nothing
+  there, a state a field. The fake backend's surface lets the core's
+  tests drive content windows through `package mygo`.
   `BenchmarkFrame` in `ui` measures a frame of a large window on the CPU,
   and `BenchmarkListScroll` the frames scrolling a list of a million rows;
   `BenchmarkDiff*` the frames of a window as godiff's, two lists of texts
@@ -4828,11 +4856,15 @@ renderer's (`gputest.Compare`).
   `darwin-arm64` and `darwin-amd64` are walked as pairs whose names must
   match: identical files and links ship once, an arm64 and an x86_64
   Mach-O file become a universal binary (`writeUniversal`) when copied,
-  anything else fails. Names starting with a dot are skipped, and so is
-  what `resourceFilter` excludes from `resources/` (but not from listed
-  paths): Go source files, which only builds read, and the paths there
-  that match `resourcesExclude` (`path.Match` segments, `**` for any
-  number of them), with what a matching directory holds; the merger's
+  anything else fails. A name starting with a dot is skipped when it is a
+  directory or a file manager's dropping (`.DS_Store`, `Thumbs.db`,
+  `desktop.ini`), and at the top level of `resources/` whatever it is; a
+  dotfile inside a resource directory ships (`junkName`, `hiddenName`),
+  since packages read such names. So is what `resourceFilter` excludes
+  from `resources/` (but not from listed paths): Go source files, which
+  only builds read, and the paths there that match `resourcesExclude`
+  (`path.Match` segments, `**` for any number of them), with what a
+  matching directory holds; the merger's
   listings and `resource.walk`, which copies and fingerprints, apply it,
   while `mygo dev`'s watcher still sees those files, which a package may
   embed. The entries of these directories and listed paths are followed
