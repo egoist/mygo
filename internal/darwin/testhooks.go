@@ -792,8 +792,16 @@ func TestGlassTint(handle uintptr) (red, green, blue, alpha float64) {
 	return red, green, blue, alpha
 }
 
-// TestNativeGlassSupported reports whether the system has Liquid Glass.
-func TestNativeGlassSupported() bool { return hasClass("NSGlassEffectView") }
+// TestNativeGlassSupported reports whether windows show the system's
+// glass: the system has Liquid Glass and does not reduce transparency, as
+// GitHub's macOS runners do.
+func TestNativeGlassSupported() (ok bool) {
+	if !hasClass("NSGlassEffectView") {
+		return false
+	}
+	withPool(func() { ok = !sendBool(workspace(), "accessibilityDisplayShouldReduceTransparency") })
+	return ok
+}
 
 // TestNativeGlass returns the first system's glass view of a window's
 // native content: its class, frame in its view's coordinates, and style.

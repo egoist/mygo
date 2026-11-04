@@ -811,7 +811,7 @@ func TestGlass(t *testing.T) {
 // view, with the toolbar's frame, where it samples the page.
 func TestNativeGlassOverWebView(t *testing.T) {
 	if !nativeGlassSupported() {
-		t.Skip("the system has no Liquid Glass")
+		t.Skip("the system has no Liquid Glass, or reduces transparency")
 	}
 	var view *mygo.WebView
 	var clicks atomic.Int32
