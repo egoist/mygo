@@ -118,7 +118,7 @@ func (ed *editor) String() string { return ed.buf.string() }
 
 // edit replaces the runes from a to z with s, and tells the area.
 func (ed *editor) edit(a, z int, s string) {
-	// An edit ends the drag of a presss: a pointer still down would take the
+	// An edit ends the drag of a press: a pointer still down would take the
 	// caret back to it, and the next key would land there or replace what it selects.
 	ed.dragging = false
 	first, old, after := ed.buf.replace(a, z, s)
