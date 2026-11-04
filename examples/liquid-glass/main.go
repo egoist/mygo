@@ -15,25 +15,79 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// The ids of the pages, which are the sidebar's selection.
 const (
-	pageOverview = iota
-	pageWindow
-	pageNative
-	pageMerged
-	pageInteractive
-	pageEdges
-	pageClarity
-	pageBlur
+	pageOverview    = "overview"
+	pageWindow      = "window"
+	pageNative      = "native"
+	pageMerged      = "merged"
+	pageInteractive = "interactive"
+	pageEdges       = "edges"
+	pageClarity     = "clarity"
+	pageBlur        = "blur"
+
+	titleBarHeight = 52 // the height of an inset title bar
+	sidebarWidth   = 220
 )
 
-var pages = []string{"Overview", "Window glass", "Over a page", "Merged panes", "Interactive", "Scroll edges", "Clarity", "Blur"}
+func icon(shapes string) *ui.SVG {
+	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">` + shapes + `</svg>`))
+}
+
+var (
+	overviewIcon    = icon(`<rect x="2" y="2" width="5" height="5" rx="1.3"/><rect x="9" y="2" width="5" height="5" rx="1.3"/><rect x="2" y="9" width="5" height="5" rx="1.3"/><rect x="9" y="9" width="5" height="5" rx="1.3"/>`)
+	windowIcon      = icon(`<rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M1.5 5.5h13"/>`)
+	nativeIcon      = icon(`<rect x="1.5" y="2.5" width="13" height="11" rx="2"/><rect x="3.5" y="4" width="9" height="3" rx="1.5"/>`)
+	mergedIcon      = icon(`<rect x="1.5" y="5" width="7" height="6" rx="3"/><rect x="7.5" y="5" width="7" height="6" rx="3"/>`)
+	interactiveIcon = icon(`<path d="M5 2.5v7.5l2-1.5 1.5 3.5 1.5-.7-1.5-3.3H11z"/>`)
+	clarityIcon     = icon(`<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11"/>`)
+	edgesIcon       = icon(`<rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M2 6h12"/>`)
+	blurIcon        = icon(`<path d="M8 1.8C8 1.8 3.5 6.5 3.5 9.5a4.5 4.5 0 0 0 9 0C12.5 6.5 8 1.8 8 1.8z"/>`)
+)
+
+// page is a page of the gallery, an item of the sidebar.
+type page struct {
+	id, label string
+	icon      *ui.SVG
+}
+
+var sidebarSections = []struct {
+	title string
+	pages []page
+}{
+	{"Window", []page{
+		{pageOverview, "Overview", overviewIcon},
+		{pageWindow, "Window glass", windowIcon},
+	}},
+	{"Glass", []page{
+		{pageNative, "Over a page", nativeIcon},
+		{pageMerged, "Merged panes", mergedIcon},
+		{pageInteractive, "Interactive", interactiveIcon},
+		{pageClarity, "Clarity", clarityIcon},
+	}},
+	{"Effects", []page{
+		{pageEdges, "Scroll edges", edgesIcon},
+		{pageBlur, "Blur", blurIcon},
+	}},
+}
+
+func pageLabel(id string) string {
+	for _, s := range sidebarSections {
+		for _, p := range s.pages {
+			if p.id == id {
+				return p.label
+			}
+		}
+	}
+	return "Overview"
+}
 
 type gallery struct {
 	win *mygo.Window
 	web *mygo.WebView
 
-	page            int
-	windowStyle     int // regular, clear, none
+	page            string
+	windowStyle     int // regular, clear, none (the sidebar material)
 	tint            string
 	material        mygo.Vibrancy
 	appliedMaterial mygo.Vibrancy
@@ -71,17 +125,21 @@ var sections = [][2]string{
 }
 
 func main() {
-	g := &gallery{windowStyle: 1, tint: swatches[4].css, merge: 24, clarity: 0.5}
+	g := &gallery{page: pageOverview, appliedMaterial: mygo.VibrancySidebar, windowStyle: 1, tint: swatches[4].css, merge: 24, clarity: 0.5}
 	mygo.App.WhenReady(func() {
 		g.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:        "Liquid Glass",
-			Width:        1100,
-			Height:       720,
-			Frameless:    true,
-			Transparent:  true,
-			CornerRadius: 20,
-			Hidden:       true,
-			Content:      ui.View(g.view),
+			Title:     "Liquid Glass",
+			Width:     1100,
+			Height:    720,
+			MinWidth:  760,
+			MinHeight: 500,
+			Hidden:    true,
+			// The traffic lights sit inset over the sidebar (macOS); elsewhere
+			// the window controls sit in the view's title bar.
+			TitleBarStyle:  mygo.TitleBarHiddenInset,
+			TitleBarHeight: titleBarHeight,
+			Vibrancy:       mygo.VibrancySidebar,
+			Content:        ui.View(g.view),
 		})
 		g.win.OnReadyToShow(func() {
 			if g.web != nil {
@@ -105,14 +163,31 @@ func main() {
 func (g *gallery) view(c *ui.Context) {
 	g.syncWindow()
 	t := c.Theme()
-	if g.page == pageWindow {
+	// The material shows wherever the view draws no background: the root and
+	// the sidebar draw none while the window has one.
+	vibrant := c.Vibrancy()
+	if vibrant {
 		c.Root().Background(ui.Transparent)
 	} else {
 		c.Root().Background(t.Background)
 	}
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
-		g.sidebar(c)
-		ui.Box(c).Grow(1).Children(func() {
+		side := ui.Column(c).Width(sidebarWidth).Shrink(0)
+		if !vibrant {
+			side.Background(t.Surface)
+		}
+		side.Children(func() { g.sidebar(c, vibrant) })
+		ui.Box(c).Width(1).Background(t.Border)
+		pane := ui.Column(c).Grow(1).MinWidth(0)
+		// The window's glass shows through the pane on its own page.
+		if !(g.page == pageWindow && vibrant) {
+			pane.Background(t.Background)
+		}
+		pane.Children(func() {
+			ui.Row(c).Height(titleBarHeight).Shrink(0).AlignItems(ui.Center).Padding(0, c.TitleBar().Right+20, 0, 20).DragWindow().Children(func() {
+				ui.Text(c, pageLabel(g.page)).FontSize(15).Bold().SingleLine()
+			})
+			ui.Divider(c)
 			switch g.page {
 			case pageWindow:
 				g.windowPage(c)
@@ -140,7 +215,7 @@ func (g *gallery) syncWindow() {
 	if g.win == nil {
 		return
 	}
-	want := mygo.VibrancyNone
+	want := mygo.VibrancySidebar
 	tint := ""
 	if g.page == pageWindow {
 		switch g.windowStyle {
@@ -161,49 +236,34 @@ func (g *gallery) syncWindow() {
 	}
 }
 
-func (g *gallery) sidebar(c *ui.Context) {
-	t := c.Theme()
-	bg := t.Surface
-	if g.page == pageWindow {
-		bg = t.Surface.Alpha(0.55)
-	}
-	ui.Column(c).Width(232).Background(bg).Padding(12).Gap(2).Children(func() {
-		top := ui.Row(c).Height(42).AlignItems(ui.Center).Gap(8).DragWindow()
-		top.Children(func() {
-			ui.Text(c, "Liquid Glass").Bold().FontSize(15)
-			ui.Box(c).Grow(1)
-			if ui.Button(c, "×").Width(26).Height(24).Clicked() {
-				g.win.Close()
-			}
-		})
-		ui.Text(c, "MYGO · GLASS PLUGIN").FontSize(10).TextColor(t.TextMuted)
-		ui.Box(c).Height(8)
-		for i, name := range pages {
-			row := ui.ButtonBase(c).Height(34).Padding(0, 10).Radius(8)
-			if g.page == i {
-				row = row.Background(t.Selection)
-			}
-			row.Children(func() {
-				ui.Text(c, name).FontSize(13)
+// sidebar is the pages, under the room the window controls take.
+func (g *gallery) sidebar(c *ui.Context, vibrant bool) {
+	ui.Box(c).Height(titleBarHeight).Shrink(0).DragWindow()
+	list := ui.Sidebar(c, &g.page, func() {
+		for _, s := range sidebarSections {
+			ui.SidebarSection(c, s.title, nil, func() {
+				for _, p := range s.pages {
+					ui.SidebarItem(c, p.id, p.icon, p.label)
+				}
 			})
-			if row.Clicked() {
-				g.page = i
-			}
 		}
-		ui.Box(c).Grow(1)
-		ui.Text(c, "macOS 26+ · shader elsewhere").FontSize(10).TextColor(t.TextMuted)
-	})
+	}).Grow(1).Label("Pages")
+	if vibrant {
+		list.Background(ui.Transparent)
+	}
 }
 
-func pageHead(c *ui.Context, title, body string) {
-	t := c.Theme()
-	ui.Text(c, title).FontSize(30).Bold()
-	ui.Text(c, body).TextColor(t.TextMuted)
+// body is the scrolling content of a page, under its description.
+func body(c *ui.Context, desc string, fn func()) {
+	ui.Scroll(c).Grow(1).Padding(20, 24).Gap(16).Children(func() {
+		ui.Text(c, desc).FontSize(13).TextColor(c.Theme().TextMuted)
+		fn()
+	})
 }
 
 func (g *gallery) overview(c *ui.Context) {
 	items := []struct {
-		page  int
+		page  string
 		title string
 		body  string
 	}{
@@ -214,14 +274,14 @@ func (g *gallery) overview(c *ui.Context) {
 		{pageEdges, "Scroll edges", "Content scrolling under a bar, fading or frost with macOS's edge."},
 		{pageClarity, "Clarity", "Large panes that let more of what is under them read through."},
 	}
-	ui.Scroll(c).Fill().Padding(28).Gap(16).Children(func() {
-		pageHead(c, "Liquid Glass", "What macOS 26 draws, from the window itself to a toolbar over a web page. Choose a page in the sidebar.")
-		ui.Row(c).Wrap().Gap(12).Children(func() {
+	body(c, "What macOS 26 draws, from the window itself to a toolbar over a web page. Choose a page in the sidebar. Needs macOS 26 or later; elsewhere a shader draws the same look.", func() {
+		ui.Row(c).Wrap().Gap(12).AlignItems(ui.Stretch).Children(func() {
 			for _, it := range items {
 				box := ui.Column(c).Width(226).Padding(16).Gap(6).Radius(16).Material(glass.Glass{})
 				box.Children(func() {
-					ui.Text(c, it.title).Bold()
+					ui.Text(c, it.title).Bold().FontSize(13)
 					ui.Text(c, it.body).FontSize(12).TextColor(c.Theme().TextMuted)
+					ui.Box(c).Grow(1)
 					if ui.Button(c, "Open").Clicked() {
 						g.page = it.page
 					}
@@ -232,8 +292,7 @@ func (g *gallery) overview(c *ui.Context) {
 }
 
 func (g *gallery) windowPage(c *ui.Context) {
-	ui.Scroll(c).Fill().Padding(28).Gap(16).Children(func() {
-		pageHead(c, "Window glass", "The material behind the window: switch it, then tint it. The sidebar and this page are transparent so the window's glass shows.")
+	body(c, "The material behind the window: switch it (None keeps the native sidebar material), then tint it. The sidebar and this page are transparent so the window's glass shows.", func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Segmented(c, &g.windowStyle, "Regular", "Clear", "None").Label("Material")
 		})
@@ -255,13 +314,13 @@ func (g *gallery) windowPage(c *ui.Context) {
 }
 
 func (g *gallery) nativePage(c *ui.Context) {
-	ui.Box(c).Fill().Children(func() {
+	ui.Box(c).Grow(1).Children(func() {
 		if g.web != nil {
 			ui.WebView(c, g.web).Fill()
 		} else {
-			ui.Text(c, "Opening the page…").Padding(28)
+			ui.Text(c, "Opening the page…").Padding(20, 24)
 		}
-		ui.Row(c).Absolute().Top(16).Left(16).Right(16).Height(52).Radius(26).Padding(0, 16).AlignItems(ui.Center).Material(glass.Glass{Native: true}).Children(func() {
+		ui.Row(c).Absolute().Top(12).Left(16).Right(16).Height(52).Radius(26).Padding(0, 16).AlignItems(ui.Center).Material(glass.Glass{Native: true}).Children(func() {
 			ui.Text(c, "Native glass over the page").Bold()
 			ui.Box(c).Grow(1)
 			ui.Text(c, "Scroll it").FontSize(12)
@@ -270,8 +329,7 @@ func (g *gallery) nativePage(c *ui.Context) {
 }
 
 func (g *gallery) mergedPage(c *ui.Context) {
-	ui.Scroll(c).Fill().Padding(28).Gap(16).Children(func() {
-		pageHead(c, "Merged panes", "Panes that nearly touch blend into one surface, as NSGlassEffectContainerView's do. Drag the slider.")
+	body(c, "Panes that nearly touch blend into one surface, as NSGlassEffectContainerView's do. Drag the slider.", func() {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "Merge").FontSize(12).TextColor(c.Theme().TextMuted)
 			ui.Slider(c, &g.merge, 0, 48).Width(360)
@@ -311,8 +369,7 @@ func (g *gallery) group(c *ui.Context, left, bottom float32) {
 }
 
 func (g *gallery) interactivePage(c *ui.Context) {
-	ui.Scroll(c).Fill().Padding(28).Gap(18).Children(func() {
-		pageHead(c, "Interactive glass", "Hover lights the rim; pressing grows the glass.")
+	body(c, "Hover lights the rim; pressing grows the glass.", func() {
 		ui.Row(c).Wrap().Gap(12).Children(func() {
 			for _, item := range []struct {
 				label string
@@ -343,8 +400,7 @@ func (g *gallery) interactivePage(c *ui.Context) {
 }
 
 func (g *gallery) edgesPage(c *ui.Context) {
-	ui.Scroll(c).Fill().Padding(28).Gap(16).Children(func() {
-		pageHead(c, "Scroll edges", "Content scrolling under a bar, faded or frosted by macOS's scroll edge effect.")
+	body(c, "Content scrolling under a bar, faded or frosted by macOS's scroll edge effect.", func() {
 		ui.Segmented(c, &g.edge, "Soft", "Hard", "Progressive blur").Label("Edge")
 		ui.Box(c).Height(400).Radius(16).Background(ui.Hex("#0b1020")).Clip().Children(func() {
 			ui.Scroll(c).Fill().Padding(84, 16, 16).Gap(10).Children(func() {
@@ -376,8 +432,7 @@ func (g *gallery) edgesPage(c *ui.Context) {
 }
 
 func (g *gallery) clarityPage(c *ui.Context) {
-	ui.Scroll(c).Fill().Padding(28).Gap(16).Children(func() {
-		pageHead(c, "Clarity", "Large panes let more of what is under them read through; small ones keep their material.")
+	body(c, "Large panes let more of what is under them read through; small ones keep their material.", func() {
 		ui.Box(c).Height(320).Radius(16).Gradient(ui.Hex("#0f766e"), ui.Hex("#7c3aed"), 135).Children(func() {
 			ui.Row(c).Fill().Padding(24).Gap(12).Children(func() {
 				for _, k := range []float32{0, 0.5, 1} {
@@ -391,8 +446,7 @@ func (g *gallery) clarityPage(c *ui.Context) {
 }
 
 func (g *gallery) blurPage(c *ui.Context) {
-	ui.Scroll(c).Fill().Padding(28).Gap(16).Children(func() {
-		pageHead(c, "Blur", "A backdrop blur, even or fading along a gradient, without the glass's rim.")
+	body(c, "A backdrop blur, even or fading along a gradient, without the glass's rim.", func() {
 		ui.Box(c).Height(360).Radius(16).Background(ui.Hex("#0b1020")).Clip().Children(func() {
 			ui.Scroll(c).Fill().Padding(84, 16, 16).Gap(10).Children(func() {
 				for i := range 14 {
@@ -418,7 +472,7 @@ func (g *gallery) blurPage(c *ui.Context) {
 func pageHTML() string {
 	var b strings.Builder
 	b.WriteString(`<html><body style="margin:0;background:#101014;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:white">`)
-	b.WriteString(`<main style="padding:104px 36px 80px">`)
+	b.WriteString(`<main style="padding:84px 36px 80px">`)
 	b.WriteString(`<h1 style="margin:0 0 8px;font-size:38px;line-height:1.1">A web page under Liquid Glass</h1>`)
 	b.WriteString(`<p style="margin:0 0 32px;font-size:17px;opacity:.7">Scroll: the page moves under the toolbar, which samples it.</p>`)
 	for i := range 12 {
