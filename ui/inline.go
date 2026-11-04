@@ -99,7 +99,7 @@ func (e *node) spanStyle() Span {
 		s.Strikethrough = t.strike
 	}
 	if t.set&setSpacing != 0 {
-		s.LetterSpacing = t.spacing
+		s.LetterSpacing, s.NoLetterSpacing = t.spacing, t.spacing == 0
 	}
 	if t.set&setFeatures != 0 {
 		s.Features = t.features
@@ -169,8 +169,8 @@ func over(s, base Span) Span {
 	if !s.strokeSet {
 		s.strokeWidth, s.strokeColor, s.strokeSet = base.strokeWidth, base.strokeColor, base.strokeSet
 	}
-	if s.LetterSpacing == 0 {
-		s.LetterSpacing = base.LetterSpacing
+	if _, ok := s.letterSpacing(); !ok {
+		s.LetterSpacing, s.NoLetterSpacing = base.LetterSpacing, base.NoLetterSpacing
 	}
 	if s.Features == "" {
 		s.Features = base.Features
