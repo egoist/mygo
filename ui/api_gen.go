@@ -1556,6 +1556,19 @@ func Link(c *Context, label string, url string) Element {
 // Local returns state of type T that element e keeps from frame to frame,
 // keyed by key among its states; init creates it the first time. Custom
 // widgets keep what they need with it, on the element they create.
+//
+// The element owns what init made. When a frame no longer builds it, a
+// value that is an io.Closer (T or *T has Close() error) is closed once,
+// on the main thread, after that frame, as the web aborts an
+// AbortController as an element is removed: a component cancels in Close
+// the work it started, as a streaming request, a ticker or a subscription:
+//
+//	s := ui.Local(e, "stream", func() *stream { return startStream(url) })
+//
+// An element leaving with an exit transition closes them once its exit
+// ended, and every element as its window closes. A nil value is not
+// closed, and Close's error is ignored. Keep a value the element must not
+// close, as one the app shares, in the app's state.
 func Local[T any](e Element, key any, init func() T) *T {
 	_node := e.node()
 	if _node == nil {
@@ -5663,6 +5676,22 @@ func (_handle Element) MaxHeightPercent(p float32) Element {
 	return wrapElement(_node.MaxHeightPercent(p))
 }
 
+// MaxLength keeps the user from making a text input's value longer than n,
+// counted as HTML's maxlength counts it, in UTF-16 code units, a newline
+// as one: text typed, pasted or committed by an input method is cut to
+// what fits at the caret, and replacing a selection takes what fits in its
+// place. A value the app sets is not cut. n <= 0 means no limit.
+// Like ReadOnly, it holds for the input that comes until the next frame.
+func (_handle Element) MaxLength(n int) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.MaxLength(n))
+}
+
 // MaxLines shows at most n lines of the element's text, ending it with an
 // ellipsis.
 func (_handle Element) MaxLines(n int) Element {
@@ -5811,6 +5840,19 @@ func (_handle Element) Modal() Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.Modal())
+}
+
+// NoShadow takes off the outer and inner shadows added so far, as CSS's
+// box-shadow: none, so that the Shadow and InsetShadow calls after it
+// start afresh.
+func (_handle Element) NoShadow() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.NoShadow())
 }
 
 // NoWrap keeps each line of the element's text whole, breaking it only at

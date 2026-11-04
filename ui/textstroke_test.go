@@ -84,6 +84,24 @@ func TestInlineStroke(t *testing.T) {
 	}
 }
 
+// TestInlineStrokeHidden strokes none of the text of an inline element
+// hidden or faded out, whether the stroke is its own or its paragraph's.
+func TestInlineStrokeHidden(t *testing.T) {
+	black, blue, green := RGB(0, 0, 0), RGB(0, 0, 255), RGB(0, 255, 0)
+	tt := coreNewTester(func(c *context) {
+		coreRichText(c).TextColor(black).TextStroke(2, blue).Children(func() {
+			coreText(c, "ab")
+			coreText(c, "cd").Invisible()
+			coreText(c, "ef").TextStroke(2, green).Opacity(0)
+		})
+	}, 300, 100)
+	blues, fills, _ := strokesAndFills(tt, blue, black)
+	greens, _, _ := strokesAndFills(tt, green, black)
+	if len(blues) != 2 || len(greens) != 0 || len(fills) != 2 {
+		t.Errorf("%d blue strokes, %d green, %d fills; want 2, 0, 2", len(blues), len(greens), len(fills))
+	}
+}
+
 func TestTabSize(t *testing.T) {
 	var inherited, own float32
 	tt := coreNewTester(func(c *context) {

@@ -2614,7 +2614,16 @@ either.
   sees the element still pressed where the pointer let go, and released
   in the pass after. An element's identity hashes its
   parent's with its position or `Key`, so focus, scroll offsets, editors and
-  animations survive rebuilding. `Context` is stable for the window; `Element` values expire between build
+  animations survive rebuilding. `prune` drops the states the frame did
+  not build (but those of pages Routers keep) and recycles them; a state
+  with `Local` values that are `io.Closer`s (`state.closes`, which
+  `Local` fills as it makes one, so that other states cost nothing) hands
+  them to `engine.dropped`, which `endFrame` closes on the main thread
+  once the frame ended, last made first. Those of an element whose copy,
+  or an ancestor's, leaves with an `Exit` wait in `engine.exits` until
+  the transition's record is gone or no longer holds that copy (the
+  exit ended, or the element came back), and the engine's `close` closes
+  every state's as the window closes. `Context` is stable for the window; `Element` values expire between build
   passes and validate their owner, slot and generation before accessing storage. `ListState` resolves
   its focus owner only for the current context, frame and pass, exposing
   focus and shortcuts without retaining an element in app state. Scroll
@@ -2656,7 +2665,8 @@ either.
   more to hash than to compare, and one laid out at another width asks
   for it from the last (`text.System.LayoutFrom`). A grid measures the
   widths of only the items its columns read (`contributes`): none for Fr
-  columns with room known, as CSS's minmax(0, 1fr). Transforms and scroll
+  columns with room known, as CSS's minmax(0, 1fr), unless they are
+  `MinContent`; a minimum (`Track.Min`) measures nothing. Transforms and scroll
   offsets of other containers apply after layout and change nothing
   there. Elements that lay
   out by more than they are built with are never reused, nor anything
@@ -4262,7 +4272,10 @@ either.
   styles as spans over its own when it lays out. At commit, each gets the
   boxes of its runes in the paragraph's layout (`Selection`), one hit
   each, so the pointer, the focus order, tooltips and menus work as for
-  any element; they paint only their focus ring, and assistive
+  any element; they paint only their focus ring (their `Opacity`,
+  `Invisible` and dimming fade the colors of their spans, `Span.faded`,
+  and a color faded to nothing stays the span's own, `colorSet`, so the
+  paragraph skips their glyphs but keeps their advance), and assistive
   technology sees those that are more than text, such as links, as nodes
   inside the paragraph's.
   Fontconfig knows no desktop's interface font, so on Linux `system-ui`
