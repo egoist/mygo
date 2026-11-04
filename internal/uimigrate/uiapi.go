@@ -131,6 +131,7 @@ var elementChains = map[string]bool{
 	"AspectRatio":          true,
 	"Attach":               true,
 	"AttachTo":             true,
+	"AttachedOrigin":       true,
 	"AutoFocus":            true,
 	"BackfaceHidden":       true,
 	"Background":           true,
