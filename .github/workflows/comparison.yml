@@ -1,11 +1,10 @@
 name: Comparison
 
-# Measures the same apps written with MyGo, GPUI and egui (benchmarks/README.md)
-# on every release, or when started by hand. The results go to the benchmarks
-# branch, which the website's /benchmarks page reads.
+# Checks that the apps written with MyGo, GPUI and egui (benchmarks/README.md)
+# still build and run, on changes to them or when started by hand. The website
+# shows benchmarks/results.json, from a real Mac: this runner's virtual GPU
+# and display would not compare with it, so its results stay an artifact.
 on:
-  push:
-    tags: ["v*"]
   pull_request:
     paths:
       - benchmarks/**
@@ -47,40 +46,3 @@ jobs:
         with:
           name: comparison
           path: ${{ runner.temp }}/comparison.json
-
-  publish:
-    name: Publish
-    needs: measure
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        with:
-          name: comparison
-          path: ${{ runner.temp }}/results
-      - name: Commit the results to the benchmarks branch
-        run: |
-          data="$RUNNER_TEMP/data"
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # bench.yml's runs may push meanwhile: try again on theirs.
-          for attempt in 1 2 3 4 5; do
-            git worktree remove --force "$data" 2>/dev/null || true
-            git fetch --depth 1 origin benchmarks
-            git worktree add --detach "$data" FETCH_HEAD
-            mkdir -p "$data/comparison"
-            cp "$RUNNER_TEMP/results/comparison.json" "$data/comparison/latest.json"
-            git -C "$data" add -A
-            # The website's builds skip the branch too, as bench.yml's commits
-            # ask.
-            git -C "$data" commit -q -m "Comparison of ${GITHUB_SHA:0:7} [skip ci]"
-            if git -C "$data" push origin HEAD:refs/heads/benchmarks; then
-              exit 0
-            fi
-            sleep $((attempt * 5))
-          done
-          exit 1

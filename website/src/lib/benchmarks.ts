@@ -1,6 +1,8 @@
+import measured from "../../../benchmarks/results.json"
+
 import { site } from "@/lib/site"
 
-/** comparison/latest.json of the benchmarks branch, which benchmarks/run writes. */
+/** benchmarks/results.json, which benchmarks/run writes. */
 export interface Results {
   date: string
   commit: string
@@ -18,12 +20,9 @@ export interface Series {
   high: number
 }
 
-/** Where the page reads the results: the browser fetches them, as the workflow pushes them after the site is built. */
-export const dataUrl: string =
-  import.meta.env.VITE_COMPARISON_URL || "https://raw.githubusercontent.com/egoist/mygo/benchmarks/comparison/latest.json"
+export const results: Results = measured
 
 export const sourceUrl = `${site.repo}/tree/main/benchmarks`
-export const workflowUrl = `${site.repo}/actions/workflows/comparison.yml`
 
 /** Always in this order, each with its own color wherever it shows. */
 export const frameworks = [
@@ -75,7 +74,7 @@ export const scenes: Scene[] = [
   {
     id: "document",
     title: "Resizing a document",
-    text: "40 paragraphs, 20,000 characters, wrapped again to a width that changes every frame.",
+    text: "40 paragraphs, about 20,000 characters, wrapped again to a width that changes every frame.",
     measures: framePacing,
   },
 ]

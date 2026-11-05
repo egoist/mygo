@@ -5355,12 +5355,12 @@ the containers have no display that refreshes.
 
 `benchmarks/` holds the same small apps written with MyGo's native UI, GPUI
 and egui, and `go run ./benchmarks/run`, which measures them from outside the
-process: see `benchmarks/README.md`. `.github/workflows/comparison.yml` runs
-it on every release on a macOS runner and publishes
-`comparison/latest.json` on the `benchmarks` branch, which the website's
-[/benchmarks](https://mygo.egoist.dev/benchmarks) page reads. An app of a
-scene does what the others do, each the usual way of its framework: a
-scene changes in all of them, or in none.
+process: see `benchmarks/README.md`. It runs by hand on a real Mac, and
+`benchmarks/results.json`, which it writes, is what the website's
+[/benchmarks](https://mygo.egoist.dev/benchmarks) page shows.
+`.github/workflows/comparison.yml` only checks that the apps build and run.
+An app of a scene does what the others do, each the usual way of its
+framework: a scene changes in all of them, or in none.
 
 ### Binary size
 

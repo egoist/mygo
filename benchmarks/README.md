@@ -3,14 +3,15 @@
 The same small apps written with MyGo's native UI, [GPUI](https://www.gpui.rs)
 and [egui](https://github.com/emilk/egui) (through eframe, with its default
 wgpu renderer), each through the usual way of its framework. The website's
-[/benchmarks](https://mygo.egoist.dev/benchmarks) page shows the results.
+[/benchmarks](https://mygo.egoist.dev/benchmarks) page shows `results.json`.
 
 ```sh
-go run ./benchmarks/run -out results.json   # opens windows for about 15 minutes
+go run ./benchmarks/run -out benchmarks/results.json   # opens windows for about 15 minutes
 ```
 
-`.github/workflows/comparison.yml` runs it on every release on GitHub's macOS
-runners, and publishes `comparison/latest.json` on the `benchmarks` branch.
+Run it on a Mac with a real display and GPU, and commit the file.
+`.github/workflows/comparison.yml` only checks that the apps still build and
+run: GitHub's runners are virtual machines, whose results would not compare.
 
 ## Scenes
 
@@ -22,7 +23,7 @@ the same generator (`words`, `cell_value`), in windows of the same size.
 | `counter`  | 360×260 | A number and three buttons, then nothing: startup, memory and CPU at rest.                     |
 | `list`     | 800×600 | A virtualized list of 100,000 rows of three texts, scrolling 8 DIPs a frame, as a log viewer.  |
 | `grid`     | 800×600 | 600 cells, each with its own background and a number changing every frame, as a dashboard.     |
-| `document` | 800×600 | 40 paragraphs (20,000 characters) wrapped to a width changing every frame, as a window resized. |
+| `document` | 800×600 | 40 paragraphs (about 20,000 characters) wrapped to a width changing every frame, as a window resized. |
 
 ## What is measured
 
