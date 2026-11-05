@@ -63,6 +63,8 @@ const (
 	ctFontColorGlyphsTrait     = 1 << 13
 	ctFontOrientationDefault   = 0
 	ctRunStatusRightToLeft     = 1 << 0
+	ctTabStopsSpec             = 4
+	ctDefaultTabIntervalSpec   = 5
 	ctBaseWritingDirectionSpec = 13
 
 	cgImageAlphaOnly             = 7
@@ -390,15 +392,21 @@ func bindDirect(cf, text uintptr, addr func(lib uintptr, name string) uintptr) {
 
 type coreText struct {
 	shapeScratch
+	nativeFonts
 	styles [2]uintptr // paragraph styles: left-to-right, right-to-left
 	srgb   uintptr
 	smooth bool // the user leaves font smoothing on
-	// bands caches where glyphs' outlines cross underlines (inkInBand).
+	// bands caches where glyphs' outlines cross underlines (inkInBand),
+	// by Font: a CTFont's address may be another's once it is released.
 	bands map[bandKey][2]float32
+	// tabStyles are paragraph styles with tab stops every so many points
+	// (Style.TabSize), owned.
+	tabStyles map[tabStyleKey]uintptr
 
 	primary map[Style]uintptr // the CTFont of each style
 	fonts   map[uint][]*Font  // by CFHash of their CTFont
-	// native finds Fonts by their CTFont, which they retain.
+	// native finds Fonts by their CTFont, which they retain until they
+	// are unreachable (nativeFonts).
 	native map[uintptr]*Font
 	// oblique maps an upright Font to its synthetic italic variant. Both
 	// are retained by fonts, and have distinct glyph/outline cache keys.
@@ -415,7 +423,6 @@ type coreText struct {
 	// seg and breaks find where lines may break (lineBreaks).
 	seg    segmenter.Segmenter
 	breaks []bool
-	color  map[uintptr]bool
 
 	// Buffers shape reuses: the text in UTF-16 with the rune of each code
 	// unit, the attributes of the string, the code unit of each rune, and
@@ -457,7 +464,7 @@ func newCoreText() (*coreText, error) {
 		native:     map[uintptr]*Font{},
 		oblique:    map[*Font]*Font{},
 		attrs:      map[attrsKey]uintptr{},
-		color:      map[uintptr]bool{},
+		tabStyles:  map[tabStyleKey]uintptr{},
 		registered: map[string][]registeredFace{},
 		bands:      map[bandKey][2]float32{},
 		italic:     cfString("MyGoItalic"),
@@ -897,16 +904,19 @@ func (e *coreText) fontOf(font uintptr) *Font {
 		}
 	}
 	ct.retain(font)
+	color := ct.fontGetSymbolicTraits(font)&ctFontColorGlyphsTrait != 0
 	f := &Font{
 		Size:    float32(ct.fontGetSize(font)),
 		Ascent:  float32(ct.fontGetAscent(font)),
 		Descent: float32(ct.fontGetDescent(font)),
 		LineGap: float32(ct.fontGetLeading(font)),
 		native:  font,
-		shaded:  e.smooth && !e.isColor(font),
+		shaded:  e.smooth && !color,
 		// Smoothing thickens glyphs, whatever the user's setting.
-		thickens: !e.isColor(font),
+		thickens: !color,
+		color:    color,
 	}
+	e.own(f)
 	e.fonts[h] = append(e.fonts[h], f)
 	e.native[font] = f
 	return f
@@ -925,6 +935,10 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 	paragraph := e.styles[0]
 	if rtl {
 		paragraph = e.styles[1]
+	}
+	tabbed := style.tabStop > 0
+	if tabbed {
+		paragraph = e.tabStyle(rtl, style.tabStop)
 	}
 	lang := style.Lang
 	if ct.languageName == 0 {
@@ -956,7 +970,7 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 	}
 	e.keys, e.values = keys, values
 	switch {
-	case len(keys) > base:
+	case len(keys) > base || tabbed:
 		attrs = cfDictionary(keys, values)
 		defer ct.release(attrs)
 	case !cached:
@@ -1009,6 +1023,44 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 		start += count
 	}
 	return lines
+}
+
+type tabStyleKey struct {
+	rtl      bool
+	interval float32
+}
+
+// tabStyle returns the paragraph style of a direction with tab stops
+// every interval points from the start of each line, and none before.
+func (e *coreText) tabStyle(rtl bool, interval float32) uintptr {
+	key := tabStyleKey{rtl, interval}
+	if p, ok := e.tabStyles[key]; ok {
+		return p
+	}
+	if len(e.tabStyles) >= 64 {
+		for _, p := range e.tabStyles {
+			ct.release(p)
+		}
+		clear(e.tabStyles)
+	}
+	var dir int8 // kCTWritingDirectionLeftToRight
+	if rtl {
+		dir = 1
+	}
+	stops := ct.arrayCreate(0, nil, 0, ct.arrayCallbacks)
+	defer ct.release(stops)
+	every := float64(interval) // a CGFloat
+	settings := [3]ctParagraphStyleSetting{
+		{spec: ctBaseWritingDirectionSpec, size: 1, value: unsafe.Pointer(&dir)},
+		{spec: ctTabStopsSpec, size: unsafe.Sizeof(stops), value: unsafe.Pointer(&stops)},
+		{spec: ctDefaultTabIntervalSpec, size: unsafe.Sizeof(every), value: unsafe.Pointer(&every)},
+	}
+	p := ct.paragraphStyleCreate(&settings[0], len(settings))
+	runtime.KeepAlive(&dir)
+	runtime.KeepAlive(&stops)
+	runtime.KeepAlive(&every)
+	e.tabStyles[key] = p
+	return p
 }
 
 // line reads the runs of a line of a text that italic says is italic, or
@@ -1079,15 +1131,6 @@ func penAdvances(runs []shapedRun) {
 	}
 }
 
-func (e *coreText) isColor(font uintptr) bool {
-	c, ok := e.color[font]
-	if !ok {
-		c = ct.fontGetSymbolicTraits(font)&ctFontColorGlyphsTrait != 0
-		e.color[font] = c
-	}
-	return c
-}
-
 // positions follows Core Graphics' subpixel quantization, which AppKit
 // leaves on: glyphs go to the position left of their pen, among fewer the
 // larger they are, at most five a pixel and one from 34 pixels an em.
@@ -1133,7 +1176,7 @@ func (e *coreText) glyph(f *Font, id uint32, scale, dx float32, shade Shade, _ b
 	if w > 2048 || h > 2048 {
 		return bitmap{}
 	}
-	color := e.isColor(font)
+	color := f.color
 	var pix []byte
 	var ctx uintptr
 	if color {
@@ -1212,9 +1255,13 @@ func (e *coreText) decorate(r decoRange) []Stroke {
 			p, t := ctUnderline(f)
 			center, thick = max(center, p), max(thick, t)
 		})
+		if r.hasOffset {
+			// Where the offset puts it, which the ink it skips is at.
+			center = r.offset + thick/2
+		}
 	}
 	pieces := [][2]float32{{x0, x1}}
-	if r.d == Underline {
+	if r.d == Underline && !r.solid {
 		var cuts [][2]float32
 		for k := i; k < j; k++ {
 			g := gs[k]
@@ -1310,7 +1357,7 @@ func snapLine(p, t float64) float64 {
 }
 
 type bandKey struct {
-	font   uintptr
+	font   *Font
 	glyph  uint32
 	lo, hi float32
 }
@@ -1318,7 +1365,7 @@ type bandKey struct {
 // inkInBand returns how far left and right of its origin the outline of a
 // glyph reaches between lo and hi points above the baseline.
 func (e *coreText) inkInBand(f *Font, id uint32, lo, hi float32) (a, b float32, ok bool) {
-	key := bandKey{f.native, id, lo, hi}
+	key := bandKey{f, id, lo, hi}
 	if v, seen := e.bands[key]; seen {
 		return v[0], v[1], v[0] <= v[1]
 	}
@@ -1545,16 +1592,16 @@ func (e *coreText) fontCount() int {
 	return n
 }
 
-// forgetFonts lets go of the CTFonts of the Fonts made so far, and of
-// what is known of them; the fonts of styles stay.
+// forgetFonts lets go of the Fonts made so far, and of what is known of
+// them; the fonts of styles stay. Their CTFonts go with them, once
+// nothing refers to them (releaseFonts).
 func (e *coreText) forgetFonts() {
-	for _, fs := range e.fonts {
-		for _, f := range fs {
-			ct.release(f.native)
-		}
-	}
 	clear(e.fonts)
 	clear(e.native)
 	clear(e.oblique)
-	clear(e.color)
+	clear(e.bands)
+	e.dropScratch()
 }
+
+// releaseFonts releases the CTFonts of the Fonts nothing refers to.
+func (e *coreText) releaseFonts() { e.releaseDead(ct.release) }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -41,6 +42,11 @@ type Config struct {
 	// installed app (default: the copyright notice without its "©" and
 	// years, as "Example Inc." of "Copyright © 2026 Example Inc.").
 	Publisher string `json:"publisher"`
+	// License is the SPDX license expression of the app, such as "MIT" or
+	// "Apache-2.0 WITH LLVM-exception", which the PKGBUILD of Arch Linux
+	// records. It defaults to the license of package.json, for apps whose
+	// frontend declares one (default: package.json's license).
+	License string `json:"license"`
 	// Icon is a square PNG, ideally 1024x1024 (default:
 	// resources/icon.png when it exists). Beside it, the same name with
 	// -dev, as icon-dev.png, is the development app's, when it exists.
@@ -81,6 +87,14 @@ type Config struct {
 	// directories named after a platform, such as resources/linux-amd64,
 	// hold the files of one platform.
 	Resources []string `json:"resources"`
+	// ResourcesExclude leaves files of the project's resources directory
+	// out of the apps: patterns of their paths there, with slashes, whose
+	// segments match as path.Match matches them, but **, which matches any
+	// number of directories, as in "**/*.psd". A directory that matches is
+	// left out with what it holds. Go source files are always left out:
+	// builds read them, such as a package that embeds the files beside it,
+	// and apps never do. Listed Resources ship whole.
+	ResourcesExclude []string `json:"resourcesExclude"`
 
 	// URLSchemes are the custom URL schemes (deep links) of the app, e.g.
 	// "myapp" for myapp://…, whose URLs reach mygo.App.OnOpenURL. macOS
@@ -303,12 +317,22 @@ func (c *Config) validate() error {
 	if c.Slug != "" && !slugRe.MatchString(c.Slug) {
 		return fmt.Errorf("slug %q is not a slug (lower-case letters and digits, with single hyphens between them)", c.Slug)
 	}
-	if cmd := c.Linux.Command; cmd != "" && !commandRe.MatchString(cmd) {
-		return fmt.Errorf("linux.command %q is not a command name (a letter or digit, then letters, digits, ., _, + or -)", cmd)
+	for i, cmd := range c.Linux.Command {
+		if !commandRe.MatchString(cmd) {
+			return fmt.Errorf("linux.command %q is not a command name (a letter or digit, then letters, digits, ., _, + or -)", cmd)
+		}
+		if slices.Contains(c.Linux.Command[:i], cmd) {
+			return fmt.Errorf("linux.command names %q twice", cmd)
+		}
 	}
 	if c.Updates != nil {
 		if err := c.Updates.validate(); err != nil {
 			return err
+		}
+	}
+	for _, p := range c.ResourcesExclude {
+		if !validPattern(p) {
+			return fmt.Errorf("resourcesExclude: %q is not a pattern of paths in the resources directory (path.Match patterns or **, between single slashes)", p)
 		}
 	}
 	for _, scheme := range c.URLSchemes {

@@ -21,6 +21,13 @@ Elements are found by their text, or by their `Label` for those without,
 as an icon button: `tt.Click("Close")`, `tt.Find("Volume")`,
 `tt.Focused("Name")`.
 
+`Click`, `ClickWith` and `RightClick` check the first matching element
+before sending input. They return an error if it has no visible area or
+the center of that area would reach another control or nothing. They do
+not scroll it into view or search for another uncovered point. `Find`
+still returns a matching clipped box, which may have zero width or height;
+`ClickAt` sends input at the given coordinates without a named target.
+
 Two elements given the same `Key` under one parent share one state, so
 that a click or the focus meant for one goes to the other: a tester
 panics where the second key was given, as apps only log it.
@@ -28,10 +35,13 @@ panics where the second key was given, as apps only log it.
 ## What a tester does
 
 - **Pointer.** `tt.Click`, `tt.ClickAt`, `tt.ClickWith(ui.Shift, "Row 3")`,
-  `tt.Press`, `tt.Move` and `tt.Release`, `tt.Scroll`, which scrolls at
+  `tt.Press`, `tt.Move` and `tt.Release`, `tt.PressButton` and
+  `tt.ReleaseButton` for another button, as `tt.PressButton(1, x, y)` for
+  a right-button drag, `tt.Scroll`, which scrolls at
   once as a touchpad does, and `tt.Wheel`, a notch of a mouse wheel, which
   glides there as the clock advances (`tt.Advance`).
-- **Keyboard.** `tt.Key(ui.Cmd, ui.KeyS)` presses a key, `tt.TypeKey` a key
+- **Keyboard.** `tt.Key(ui.Cmd, ui.KeyS)` presses a key, `tt.KeyRepeat` presses
+  it again as its auto-repeat does while it is held, `tt.TypeKey` a key
   with the text it types, and `tt.Type` types text into the focused
   element. `tt.Compose` shows the composition of an input method,
   `tt.Command` performs an edit command of the menus, such as `"copy"`, and
@@ -44,11 +54,17 @@ panics where the second key was given, as apps only log it.
   `tt.SetPreferences` and `tt.SetDirection` (lay it out
   [right to left](right-to-left.md)) change the window and the desktop's
   settings;
-  `tt.SetFocused` takes the keyboard from the window and gives it back.
+  `tt.SetFocused` takes the keyboard from the window and gives it back,
+  and `tt.SetWindowActive` draws it as inactive and active again, as
+  another window taking the user's input does
+  ([inactive windows](windows.md#active-and-inactive-windows)).
 - **What it shows.** `tt.Texts`, `tt.HasText`, `tt.Find` (the box of a
   text), `tt.Focused`, `tt.Cursor`, `tt.Clipboard`, `tt.OpenedURLs` and
   `tt.Announcements`, what the view asked screen readers to read out;
   `tt.FailOpenURL` makes the links it opens fail, as those no app opens.
+- **What assistive technology sees.** `tt.Access` and `tt.AccessByRole`
+  read an element's role, name, value and states
+  ([below](#what-assistive-technology-sees)).
 - **Frames.** `tt.Frame` draws a frame, for what changed outside the view,
   and `tt.Image()` is the last frame, for snapshots; `ui.Render` draws a
   view once at a given scale. Inputs and `tt.Frame` run the frames the
@@ -77,6 +93,39 @@ panics where the second key was given, as apps only log it.
   	t.Error("the panel keeps asking for frames")
   }
   ```
+
+## What assistive technology sees
+
+`tt.AccessByRole(role, name)` returns what screen readers get of the
+first element of the last frame with that role and accessible name (any
+name for `""`), as Testing Library's `getByRole(role, { name })` and
+Playwright's find it, and `tt.Access(name)` the first with that name
+whatever its role. The `ui.AccessInfo` they return has the role, the
+name, the value and the description, and the states, as
+[accessibility](accessibility.md#states) lists them: `Checked` and
+`Mixed` (`aria-checked`, `aria-pressed`), `Selected` (`aria-selected`,
+the tab, tree item or row chosen), `Expanded`, `Busy`, `Current`,
+`Disabled`, `Invalid`, `Focused` (the element or option the focus is
+on, `ActiveDescendant` included), `Level`, `PosInSet` and `SetSize`,
+`Min`, `Max` and `Now` of a range, and its `Bounds`. So a test checks
+that a state reaches assistive technology, not only that the view set
+it:
+
+```go
+tt := ui.NewTester(app.view, 320, 240)
+reply, ok := tt.AccessByRole(ui.RoleStatus, "Reply")
+if !ok || !reply.Busy {
+	t.Errorf("Reply while streaming: %+v, found %v", reply, ok)
+}
+if docs, _ := tt.AccessByRole(ui.RoleLink, "Docs"); docs.Current != ui.CurrentPage {
+	t.Errorf("Docs is not the current page: %+v", docs)
+}
+```
+
+The role is the one the element was given, by its widget or `Role`, or
+the one found from what it does: a text, a button, a group. The tree is
+built as screen readers would get it, whether or not one reads the
+window, and reading it changes nothing: it builds no frame.
 
 ## Testing the built app
 

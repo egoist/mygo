@@ -491,7 +491,8 @@ var (
 	gtkRecentManagerHasItem                           func(manager ptr, uri *byte) bool
 	webkitJavascriptResultGetJSValue                  func(r ptr) ptr
 	webkitNavigationPolicyDecisionGetNavigationAction func(d ptr) ptr
-	webkitNavigationPolicyDecisionGetFrameName        func(d ptr) ptr
+	webkitNavigationActionGetTargetFrameInfo          func(a ptr) ptr  // 2.56+
+	webkitFrameInfoIsMainFrame                        func(f ptr) bool // 2.56+
 	webkitNavigationActionGetRequest                  func(a ptr) ptr
 	webkitNavigationActionGetNavigationType           func(a ptr) int32
 	webkitNavigationActionIsUserGesture               func(a ptr) bool
@@ -523,13 +524,13 @@ var (
 	cairoSurfaceWriteToPNGStream func(surface ptr, write ptr, closure ptr) int32
 	cairoSurfaceDestroy          func(s ptr)
 
-	appIndicatorNew              func(id, icon *byte, category int32) ptr
-	appIndicatorSetStatus        func(ind ptr, status int32)
-	appIndicatorSetMenu          func(ind, menu ptr)
-	appIndicatorSetIconFull      func(ind ptr, icon, desc *byte)
-	appIndicatorSetIconThemePath func(ind ptr, path *byte)
-	appIndicatorSetTitle         func(ind ptr, title *byte)
-	appIndicatorSetLabel         func(ind ptr, label, guide *byte)
+	appIndicatorNew            func(id, icon *byte, category int32) ptr
+	appIndicatorSetStatus      func(ind ptr, status int32)
+	appIndicatorSetMenu        func(ind, menu ptr)
+	appIndicatorSetIconFull    func(ind ptr, icon, desc *byte)
+	appIndicatorSetTitle       func(ind ptr, title *byte)
+	appIndicatorSetLabel       func(ind ptr, label, guide *byte)
+	appIndicatorSetTooltipFull func(ind ptr, icon, title, body *byte)
 )
 
 var webkitVersion string
@@ -849,9 +850,9 @@ func load() error {
 		bind(libIndicator, &appIndicatorSetStatus, "app_indicator_set_status")
 		bind(libIndicator, &appIndicatorSetMenu, "app_indicator_set_menu")
 		bind(libIndicator, &appIndicatorSetIconFull, "app_indicator_set_icon_full")
-		bind(libIndicator, &appIndicatorSetIconThemePath, "app_indicator_set_icon_theme_path")
 		bind(libIndicator, &appIndicatorSetTitle, "app_indicator_set_title")
 		bind(libIndicator, &appIndicatorSetLabel, "app_indicator_set_label")
+		bind(libIndicator, &appIndicatorSetTooltipFull, "app_indicator_set_tooltip_full")
 	}
 	return nil
 }
@@ -987,7 +988,8 @@ func loadWebKit() error {
 	mustBind(w, &webkitPermissionRequestDeny, "webkit_permission_request_deny")
 	mustBind(w, &webkitJavascriptResultGetJSValue, "webkit_javascript_result_get_js_value")
 	mustBind(w, &webkitNavigationPolicyDecisionGetNavigationAction, "webkit_navigation_policy_decision_get_navigation_action")
-	bind(w, &webkitNavigationPolicyDecisionGetFrameName, "webkit_navigation_policy_decision_get_frame_name")
+	bind(w, &webkitNavigationActionGetTargetFrameInfo, "webkit_navigation_action_get_target_frame_info")
+	bind(w, &webkitFrameInfoIsMainFrame, "webkit_frame_info_is_main_frame")
 	mustBind(w, &webkitNavigationActionGetRequest, "webkit_navigation_action_get_request")
 	mustBind(w, &webkitNavigationActionGetNavigationType, "webkit_navigation_action_get_navigation_type")
 	mustBind(w, &webkitNavigationActionIsUserGesture, "webkit_navigation_action_is_user_gesture")
@@ -1020,4 +1022,10 @@ func loadWebKit() error {
 // connect connects a signal handler with the given user data.
 func connect(instance ptr, signal string, handler ptr, data ptr) uint64 {
 	return gSignalConnectData(instance, cs(signal), handler, data, 0, 0)
+}
+
+// connectAfter connects a signal handler that runs after the class's
+// (G_CONNECT_AFTER).
+func connectAfter(instance ptr, signal string, handler ptr, data ptr) uint64 {
+	return gSignalConnectData(instance, cs(signal), handler, data, 0, 1)
 }

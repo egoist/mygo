@@ -37,6 +37,7 @@ func newEngine() engine {
 
 const (
 	pangoScale       = 1024
+	pangoTabLeft     = 0
 	pangoGlyphEmpty  = 0x0FFFFFFF
 	pangoGlyphUnknow = 0x10000000
 
@@ -158,6 +159,10 @@ var pangoLib struct {
 	layoutSetWidth            func(layout uintptr, width int32)
 	layoutSetWrap             func(layout uintptr, wrap int32)
 	layoutSetAutoDir          func(layout uintptr, auto int32)
+	layoutSetTabs             func(layout, tabs uintptr)
+	tabArrayNew               func(size, pixels int32) uintptr
+	tabArraySetTab            func(tabs uintptr, index, align, location int32)
+	tabArrayFree              func(tabs uintptr)
 	layoutGetLineCount        func(layout uintptr) int32
 	layoutGetLineReadonly     func(layout uintptr, line int32) *pangoLayoutLine
 	layoutSetAttributes       func(layout, attrs uintptr)
@@ -198,6 +203,7 @@ var pangoLib struct {
 	cairoSetScaledFont        func(cr, font uintptr)
 	cairoSetSourceRGBA        func(cr uintptr, r, g, b, a float64)
 	cairoShowGlyphs           func(cr uintptr, glyphs *cairoGlyph, n int32)
+	cairoVersion              func() int32
 	fcConfigGetCurrent        func() uintptr
 	fcConfigAppFontAddFile    func(config uintptr, file string) int32
 	fcConfigGetFonts          func(config uintptr, set int32) *fcFontSet
@@ -290,6 +296,10 @@ func loadPango() error {
 	bind(pango, &l.layoutSetWidth, "pango_layout_set_width")
 	bind(pango, &l.layoutSetWrap, "pango_layout_set_wrap")
 	bind(pango, &l.layoutSetAutoDir, "pango_layout_set_auto_dir")
+	bind(pango, &l.layoutSetTabs, "pango_layout_set_tabs")
+	bind(pango, &l.tabArrayNew, "pango_tab_array_new")
+	bind(pango, &l.tabArraySetTab, "pango_tab_array_set_tab")
+	bind(pango, &l.tabArrayFree, "pango_tab_array_free")
 	bind(pango, &l.layoutGetLineCount, "pango_layout_get_line_count")
 	bind(pango, &l.layoutGetLineReadonly, "pango_layout_get_line_readonly")
 	bind(pango, &l.layoutSetAttributes, "pango_layout_set_attributes")
@@ -328,6 +338,7 @@ func loadPango() error {
 	bind(cairo, &l.cairoSetScaledFont, "cairo_set_scaled_font")
 	bind(cairo, &l.cairoSetSourceRGBA, "cairo_set_source_rgba")
 	bind(cairo, &l.cairoShowGlyphs, "cairo_show_glyphs")
+	bind(cairo, &l.cairoVersion, "cairo_version")
 	if len(missing) > 0 {
 		return fmt.Errorf("Pango or cairo lacks %s", strings.Join(missing, ", "))
 	}
@@ -364,11 +375,14 @@ func loadPango() error {
 
 type pangoEngine struct {
 	shapeScratch
+	nativeFonts
 	fontMap uintptr
 	context uintptr
 
-	descs  map[Style]uintptr // font descriptions, by style
-	fonts  map[uintptr]*Font // by PangoFont
+	descs map[Style]uintptr // font descriptions, by style
+	// fonts finds Fonts by their PangoFont, which they hold a reference
+	// to until they are unreachable (nativeFonts).
+	fonts  map[uintptr]*Font
 	scaled map[scaledKey]uintptr
 
 	registered map[string]bool // files of registered fonts
@@ -458,11 +472,34 @@ func newPango() (*pangoEngine, error) {
 		return nil, errors.New("pango_cairo_font_map_new failed")
 	}
 	e.context = l.fontMapCreateContext(e.fontMap)
+	pinLCDFilter()
 	// Until the app has the desktop's settings, GDK's defaults on X11
 	// without a settings daemon: grayscale antialiasing, medium hinting.
 	e.antialias, e.hintStyle = cairoAntialiasGray, cairoHintStyleMedium
 	e.applyOptions()
 	return e, nil
+}
+
+// lcdFilterRule gives fonts whose fontconfig settings name no LCD filter
+// FreeType's (FIR5), which cairo 1.17 and later use for those by default.
+// A filter fontconfig names is kept: a test of every value of an element
+// holds where the element is missing, and no filter is above 3.
+const lcdFilterRule = `<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><match target="font">` +
+	`<test qual="all" name="lcdfilter" compare="more"><int>3</int></test>` +
+	`<edit name="lcdfilter" mode="assign"><const>lcddefault</const></edit></match></fontconfig>`
+
+// pinLCDFilter has subpixel glyphs drawn with FreeType's LCD filter on
+// cairo before 1.17 (as on Ubuntu 18.04) where fontconfig names none
+// (#1025). Font options there have no public setter for the filter, and
+// their default is FreeType's legacy filter, which leaves thin strokes
+// pale with colored fringes; cairo takes the filter of a font's pattern
+// over that default.
+func pinLCDFilter() {
+	l := &pangoLib
+	if l.cairoVersion() >= 11700 || l.fcConfigGetCurrent == nil || l.fcConfigParseFromMemory == nil {
+		return
+	}
+	l.fcConfigParseFromMemory(l.fcConfigGetCurrent(), lcdFilterRule, int32(gTrue))
 }
 
 // pangoFamily returns the family list of a style for Pango, where
@@ -617,6 +654,7 @@ func (e *pangoEngine) fontOf(font uintptr) *Font {
 	l := &pangoLib
 	l.gObjectRef(font)
 	f := &Font{native: font}
+	e.own(f)
 	if d := l.fontDescribeAbsolute(font); d != 0 {
 		f.Size = float32(l.descGetSize(d)) / pangoScale
 		l.descFree(d)
@@ -661,6 +699,13 @@ func (e *pangoEngine) shape(text []rune, style Style, spans []Span, width float3
 		l.layoutSetAttributes(layout, attrs)
 		l.attrListUnref(attrs)
 	}
+	if style.tabStop > 0 {
+		// One stop, which Pango repeats at multiples of its position.
+		tabs := l.tabArrayNew(1, int32(gFalse))
+		l.tabArraySetTab(tabs, 0, pangoTabLeft, int32(min(math.Round(float64(style.tabStop)*pangoScale), math.MaxInt32)))
+		l.layoutSetTabs(layout, tabs)
+		l.tabArrayFree(tabs)
+	}
 	if width > 0 {
 		// Round up to whole Pango units: truncating can make the box a
 		// thousandth of a dip narrower than the text measured within it.
@@ -702,9 +747,13 @@ func (e *pangoEngine) shape(text []rune, style Style, spans []Span, width float3
 				for j, g := range infos {
 					cluster := at(item.offset + clusters[j])
 					// Pango empties the space ending a wrapped line; the
-					// other engines keep it, as editors need.
+					// other engines keep it, as editors need. A tab, which
+					// fonts have no glyph of, keeps the advance to its
+					// stop.
 					if g.glyph == pangoGlyphEmpty && cluster < len(text) && unicode.IsSpace(text[cluster]) {
-						g.glyph, g.width = e.space(item.font, text[cluster])
+						if id, w := e.space(item.font, text[cluster]); id != pangoGlyphEmpty {
+							g.glyph, g.width = id, w
+						}
 					}
 					sr.glyphs[j] = Glyph{
 						Font: f, ID: g.glyph,
@@ -776,13 +825,13 @@ func (e *pangoEngine) attributes(style Style, spans []Span, text []rune) uintptr
 		}
 		return l.attrFontFeaturesNew(b.String())
 	}
-	spacing := func(v float32) uintptr {
-		if v == 0 {
+	spacing := func(v float32, set bool) uintptr {
+		if v == 0 && !set {
 			return 0
 		}
 		return l.attrLetterSpacingNew(int32(math.Round(float64(v) * pangoScale)))
 	}
-	add(spacing(style.LetterSpacing), 0, 0)
+	add(spacing(style.LetterSpacing, false), 0, 0)
 	add(features(style.Features), 0, 0)
 	if style.Lang != "" {
 		add(l.attrLanguageNew(e.language(style.Lang)), 0, 0)
@@ -818,7 +867,7 @@ func (e *pangoEngine) attributes(style Style, spans []Span, text []rune) uintptr
 		if sp.Italic {
 			add(l.attrStyleNew(pangoStyleItalic), b0, b1)
 		}
-		add(spacing(sp.LetterSpacing), b0, b1)
+		add(spacing(sp.LetterSpacing, sp.SpacingSet), b0, b1)
 		add(features(sp.Features), b0, b1)
 		if sp.ObjectWidth > 0 {
 			// Each rune an inline object: a shape of its size standing on
@@ -1317,16 +1366,17 @@ func xmlEscape(s string) string {
 
 func (e *pangoEngine) fontCount() int { return len(e.fonts) }
 
-// forgetFonts lets go of the Pango and cairo fonts of the Fonts made so
-// far.
+// forgetFonts lets go of the Fonts made so far, and of their cairo
+// fonts, which a Font drawing on makes anew. Their Pango fonts go with
+// them, once nothing refers to them (releaseFonts).
 func (e *pangoEngine) forgetFonts() {
-	l := &pangoLib
 	for _, sf := range e.scaled {
-		l.cairoScaledFontDestroy(sf)
+		pangoLib.cairoScaledFontDestroy(sf)
 	}
 	clear(e.scaled)
-	for _, f := range e.fonts {
-		l.gObjectUnref(f.native)
-	}
 	clear(e.fonts)
+	e.dropScratch()
 }
+
+// releaseFonts releases the Pango fonts of the Fonts nothing refers to.
+func (e *pangoEngine) releaseFonts() { e.releaseDead(pangoLib.gObjectUnref) }

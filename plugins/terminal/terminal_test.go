@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image/png"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -234,10 +235,10 @@ func TestScrollback(t *testing.T) {
 	}
 }
 
-// TestScrollbarDrag: the scroll bar shows as the viewport moves, and over
-// its strip, where the pointer is the arrow rather than the I-beam, and
-// fades out a while after. It drags the scrollback along: by the thumb, or
-// from where the track is pressed.
+// TestScrollbarDrag: the scroll bar shows while the pointer is over the
+// terminal, as the code editor's does, and goes as it leaves; over its
+// strip the pointer is the arrow rather than the I-beam. It drags the
+// scrollback along: by the thumb, or from where the track is pressed.
 func TestScrollbarDrag(t *testing.T) {
 	loadLib(t)
 	term, err := New(Options{Conn: newPipe()})
@@ -265,10 +266,13 @@ func TestScrollbarDrag(t *testing.T) {
 		return img.RGBAAt(395*s, y*s) != img.RGBAAt(380*s, y*s)
 	}
 	bottom := offset()
+	if shows(188) {
+		t.Error("the bar shows, the pointer away")
+	}
 	tt.Move(100, 100)
 	tt.Frame()
-	if shows(188) {
-		t.Error("the bar shows at the bottom, the pointer elsewhere")
+	if !shows(188) {
+		t.Error("the bar doesn't show with the pointer over the terminal")
 	}
 	// Over the strip, at the bottom: the bar, and the arrow.
 	tt.Move(395, 100)
@@ -302,22 +306,20 @@ func TestScrollbarDrag(t *testing.T) {
 	if c := tt.Cursor(); c != ui.CursorText {
 		t.Errorf("over the text, the pointer is %v, want the I-beam", c)
 	}
-	// It stays a while, and fades out though the viewport is up.
-	tt.Advance(500 * time.Millisecond)
-	tt.Frame()
 	if !shows(12) {
-		t.Error("the bar went at once")
+		t.Error("the bar went with the pointer still over the terminal")
 	}
-	tt.Advance(2 * time.Second)
+	// The pointer away, it goes though the viewport is up, and comes back
+	// with it.
+	tt.Move(100, -50)
 	tt.Frame()
 	if shows(12) {
-		t.Error("the bar didn't fade out")
+		t.Error("the bar stayed with the pointer away")
 	}
-	// A wheel shows it again.
 	tt.Wheel(100, 100, 0, 40)
 	tt.Frame()
 	if !shows(15) {
-		t.Error("scrolling didn't show the bar")
+		t.Error("the bar didn't show with the pointer back")
 	}
 	// A press low on the track brings the thumb there.
 	tt.Press(395, 190)
@@ -1311,6 +1313,11 @@ func TestFont(t *testing.T) {
 	if w2, h2, _ := render(Font{LineHeight: 1.5}); w2 != w || h2 < h*3/2-1 || h2 > h*3/2+1 {
 		t.Errorf("rows 1.5 times as high are %dx%d, from %dx%d", w2, h2, w, h)
 	}
+	if w2, h2, spaced := render(Font{CellWidth: 1.5}); w2 < w*3/2-1 || w2 > w*3/2+1 || h2 != h {
+		t.Errorf("columns 1.5 times as wide are %dx%d, from %dx%d", w2, h2, w, h)
+	} else if spaced < ink*95/100 || spaced > ink*105/100 {
+		t.Errorf("spacing changed glyph ink from %d to %d", ink, spaced)
+	}
 	if _, _, bold := render(Font{Weight: 700}); bold < ink*11/10 {
 		t.Errorf("weight 700 has ink %d, 400 %d", bold, ink)
 	}
@@ -1324,11 +1331,75 @@ func TestFont(t *testing.T) {
 		t.Errorf("features are %q", got)
 	}
 	k := (&Font{Weight: 300, Features: []string{"-calt"}}).key(1)
-	if f := k.variant(1); f.Weight != 700 || f.Features != "calt=0" {
+	features := "calt=0"
+	if runtime.GOOS == "darwin" {
+		features = "kern=0,calt=0"
+	}
+	if f := k.variant(1); f.Weight != 700 || f.Features != features {
 		t.Errorf("the bold of weight 300 is %+v", f)
+	}
+	// Kerning is off unless the features name it, on macOS.
+	for in, want := range map[string]string{"": "kern=0", "calt=0": "kern=0,calt=0", "kern": "kern", "kern=1": "kern=1", " kern =0": " kern =0"} {
+		if got := unkerned(in); got != want {
+			t.Errorf("unkerned(%q) = %q, want %q", in, got, want)
+		}
 	}
 	if f := (&Font{Weight: 800}).key(1).variant(3); f.Weight != 900 || !f.Italic {
 		t.Errorf("the bold italic of weight 800 is %+v", f)
+	}
+}
+
+// TestCJKPunctuationKeepsItsPlace checks that a wide character sits at
+// the same place in its cells wherever it is in a run. Core Text shrank
+// the CJK punctuation of the system's monospaced font that ends a run, as
+// a 。 being typed does, to half its width, and the first of two in a
+// row: centered in its two cells, it jumped when text followed. Each
+// character is checked against itself, so that it holds whatever fonts
+// the system falls back to.
+func TestCJKPunctuationKeepsItsPlace(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Core Text's kerning")
+	}
+	loadLib(t)
+	type place struct{ off, adv float32 }
+	for _, size := range []float32{12, 13} {
+		seen := map[rune]place{}
+		for _, in := range []string{"清理。", "清理。地方", "清理。\x1b[31m地方", "清理。。地", "日本語。", "日本語。地"} {
+			term, err := New(Options{Conn: newPipe(), Font: Font{Size: size}, NoBlink: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 120)
+			term.Feed([]byte(in))
+			tt.Frame()
+			term.mu.Lock()
+			v := term.v
+			cw := float32(v.cellW) / v.scale
+			var got []place
+			line := v.lines[0]
+			for _, r := range line.runs {
+				for i, g := range r.glyphs {
+					if slices.Contains(line.wide, r.cols[i]) {
+						got = append(got, place{g.X - float32(r.cols[i])*cw, g.Advance})
+					}
+				}
+			}
+			term.mu.Unlock()
+			term.Close()
+			chars := []rune(strings.ReplaceAll(in, "\x1b[31m", ""))
+			if len(got) != len(chars) {
+				t.Errorf("size %v, %q: %d wide glyphs, want %d", size, in, len(got), len(chars))
+				continue
+			}
+			for i, r := range chars {
+				p, ok := seen[r]
+				if !ok {
+					seen[r] = got[i]
+				} else if math.Abs(float64(got[i].off-p.off)) > 0.01 || math.Abs(float64(got[i].adv-p.adv)) > 0.01 {
+					t.Errorf("size %v, %q: %c %d at offset %v, advance %v, elsewhere %v, %v", size, in, r, i, got[i].off, got[i].adv, p.off, p.adv)
+				}
+			}
+		}
 	}
 }
 
@@ -1406,6 +1477,66 @@ func TestKeyWithoutText(t *testing.T) {
 	tt.Key(0, ui.KeyB)
 	if got := conn.take(term); got != "b" {
 		t.Errorf("sent %q", got)
+	}
+}
+
+// TestOptionAsAltDropsText: with Options.OptionAsAlt on macOS, Option
+// and a letter go as Alt (Esc and the letter), and what macOS still types
+// for the key, or composes for a dead key as ´ for Option-E, is dropped
+// (#1000). The composition is refused, which has macOS give it up rather
+// than compose the next key with it. The key's release goes as any key's.
+func TestOptionAsAltDropsText(t *testing.T) {
+	loadLib(t)
+	defer func(was string) { goos = was }(goos)
+	goos = "darwin"
+	conn := newPipe()
+	term, err := New(Options{Conn: conn, OptionAsAlt: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	v := term.v
+	// press presses key with mods as macOS does, its text coming from
+	// interpretKeyEvents: typed as text, or composed for a dead key until
+	// the next key, which macOS then composes with it unless the
+	// composition was refused.
+	composing := false
+	press := func(mods ui.Modifiers, key ui.Key, text string, dead bool) {
+		t.Helper()
+		if composing {
+			// Composed with the dead key: no key, the composition's end,
+			// then both characters.
+			composing = false
+			v.input(ui.InputEvent{Kind: ui.InputCompose})
+			v.input(ui.InputEvent{Kind: ui.InputText, Text: "´" + text})
+		} else {
+			v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: mods, Key: key})
+			if dead {
+				composing = v.input(ui.InputEvent{Kind: ui.InputCompose, Text: text, Caret: 1})
+			} else {
+				v.input(ui.InputEvent{Kind: ui.InputText, Text: text})
+			}
+		}
+		v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: mods, Key: key})
+	}
+	press(ui.Alt, ui.KeyE, "´", true)
+	press(0, ui.KeyX, "x", false)
+	if got, want := conn.take(term), "\x1bex"; got != want {
+		t.Errorf("Option-E and x sent %q, want %q", got, want)
+	}
+	// Option-X types ≈ on a US layout, as text.
+	press(ui.Alt, ui.KeyX, "≈", false)
+	if got, want := conn.take(term), "\x1bx"; got != want {
+		t.Errorf("Option-X sent %q, want %q", got, want)
+	}
+	// Programs that ask for the Kitty keyboard protocol's releases get
+	// them.
+	term.Feed([]byte("\x1b[>11u"))
+	press(ui.Alt, ui.KeyE, "´", true)
+	if got, want := conn.take(term), "\x1b[101;3u\x1b[101;3:3u"; got != want {
+		t.Errorf("Option-E with the Kitty keyboard protocol sent %q, want %q", got, want)
 	}
 }
 
@@ -1868,6 +1999,58 @@ func TestWheelNotchScrollsThreeRows(t *testing.T) {
 	}
 	if !slices.Equal(seen, []int{3, 3, -3}) {
 		t.Errorf("notches scrolled %v rows, want [3 3 -3]", seen)
+	}
+}
+
+// TestScrollMultiplier: Options.ScrollMultiplier's Discrete is the rows a
+// notch scrolls, its Precision scales a touchpad's distance, and
+// SetScrollMultiplier changes them in a running terminal, as Ghostty's
+// mouse-scroll-multiplier.
+func TestScrollMultiplier(t *testing.T) {
+	loadLib(t)
+	var seen []int
+	term, err := New(Options{Conn: newPipe(), ScrollMultiplier: ScrollMultiplier{Discrete: 1}, OnScroll: func(rows int) bool {
+		seen = append(seen, rows)
+		return true
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	ch := float32(term.v.cellH) / term.v.scale
+	term.v.scroll(ui.InputEvent{Kind: ui.InputScroll, DY: hostNotch()})
+	term.v.scroll(ui.InputEvent{Kind: ui.InputScroll, DY: -hostNotch()})
+	term.SetScrollMultiplier(ScrollMultiplier{Precision: 0.5, Discrete: 6})
+	term.v.scroll(ui.InputEvent{Kind: ui.InputScroll, DY: hostNotch()})
+	term.v.scroll(ui.InputEvent{Kind: ui.InputScroll, DY: 4 * ch, Precise: true})
+	if !slices.Equal(seen, []int{1, -1, 6, 2}) {
+		t.Errorf("scrolled %v rows, want [1 -1 6 2]", seen)
+	}
+}
+
+// TestScrollMultiplierRows: a fraction of a notch's rows carries over, and
+// zero is the default.
+func TestScrollMultiplierRows(t *testing.T) {
+	for _, c := range []struct {
+		m       ScrollMultiplier
+		dy      float32
+		precise bool
+		goos    string
+		want    float32
+	}{
+		{ScrollMultiplier{}, 40, false, "darwin", 3},
+		{ScrollMultiplier{}, 20, true, "darwin", 1},
+		{ScrollMultiplier{Discrete: 1.5}, 40, false, "darwin", 1.5},
+		{ScrollMultiplier{Discrete: 1}, 50, false, "linux", 1},
+		{ScrollMultiplier{Discrete: 6}, 165, false, "windows", 10}, // a notch at 5 lines, doubled
+		{ScrollMultiplier{Precision: 0.5}, 40, true, "darwin", 1},
+		{ScrollMultiplier{Precision: 2}, 40, false, "darwin", 3}, // a wheel's alone
+	} {
+		if got := c.m.rows(c.dy, 20, c.precise, c.goos); got != c.want {
+			t.Errorf("%+v.rows(%v, precise %v, %q) = %v, want %v", c.m, c.dy, c.precise, c.goos, got, c.want)
+		}
 	}
 }
 

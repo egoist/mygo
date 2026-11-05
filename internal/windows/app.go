@@ -89,10 +89,11 @@ type Backend struct {
 	// without a caption (topedge.go), and their windows.
 	topEdges     map[uintptr]*window
 	captionFonts map[int]captionFont
-	// menuFonts are the fonts of the menu items MyGo draws by DPI, and
-	// menuBrushes the brushes of menus' backgrounds by color
-	// (menudraw.go).
+	// menuFonts are the fonts of the menu items MyGo draws by DPI,
+	// menuExtra how much Windows widens them by DPI, and menuBrushes the
+	// brushes of menus' backgrounds by color (menudraw.go).
 	menuFonts   map[int]menuFonts
+	menuExtra   map[int]int32
 	menuBrushes map[uint32]uintptr
 	// menuHook hooks the main thread while menus show.
 	menuHook uintptr
@@ -451,6 +452,10 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 	case wmTimer:
 		if wp == timerCompose {
 			b.recompose()
+			return 0, true
+		}
+		if wp == timerCookieView && checkCookieViews != nil {
+			checkCookieViews(b)
 			return 0, true
 		}
 	case wmAppDeviceRemoved:

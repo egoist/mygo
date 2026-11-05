@@ -74,6 +74,11 @@ export interface Config {
    * the copyright notice without its "©" and years).
    */
   publisher?: string;
+  /**
+   * The SPDX license expression of the app, such as `MIT`, which the PKGBUILD
+   * of Arch Linux records (default: `license` in `package.json`).
+   */
+  license?: string;
   /** A square PNG, ideally 1024×1024 (default: `resources/icon.png` when it exists). */
   icon?: string;
   /** The Go package of the app, relative to the project (default: `.`). */
@@ -109,6 +114,14 @@ export interface Config {
    * `resources/linux-amd64`, hold the files of one platform.
    */
   resources?: string[];
+  /**
+   * Files of the project's resources directory left out of the apps:
+   * patterns of their paths there, with slashes, where `*` matches within a
+   * name and `**` any number of directories, as in `design/**`. A directory
+   * that matches is left out with what it holds. Go source files are always
+   * left out; listed `resources` ship whole.
+   */
+  resourcesExclude?: string[];
   /** The URL schemes the app opens, such as `myapp` for `myapp://…`, which reach `App.OnOpenURL`. */
   urlSchemes?: string[];
   /** The types of files the app opens, which reach `App.OnOpenFile`. */
@@ -274,24 +287,26 @@ export interface WindowsConfig {
 
 /** Linux packaging. */
 export interface LinuxConfig {
-  /** `Name <email>`, the maintainer of the Debian package (default: `author` in package.json, else the app's name). */
+  /** `Name <email>`, the maintainer of the Debian package and of the PKGBUILD (default: `author` in package.json, else the app's name). */
   maintainer?: string;
   /** A short description, for the desktop entry and the package. */
   comment?: string;
   /** The categories of the desktop entry (default: `["Utility"]`). */
   categories?: string[];
-  /** Debian packages the app needs besides GTK and WebKitGTK. */
+  /** Debian packages the app needs besides GTK and WebKitGTK; the PKGBUILD depends on the Arch Linux packages of those MyGo knows. */
   depends?: string[];
   /**
    * `false` for an app that shows no web page, in a window or a `ui.WebView`,
-   * as an app of native UI: its Debian package depends on GTK alone, and
+   * as an app of native UI: its Debian package and PKGBUILD depend on GTK alone, and
    * install.sh and `mygo doctor` do not ask for WebKitGTK (default: `true`).
    */
   webview?: boolean;
   /**
-   * A command that runs the app, such as `my-app`: a link in `/usr/bin` from
-   * the Debian package, and in `~/.local/bin` from install.sh (default: none;
-   * the app opens from the applications menu).
+   * A command that runs the app, such as `my-app`, or a list of names, such
+   * as `["my-app", "ma"]`, which adds a short one: a link in `/usr/bin` from
+   * the Debian package and the PKGBUILD, and in `~/.local/bin` from install.sh, for each,
+   * which says to run the app by the first it links (default: none; the app
+   * opens from the applications menu).
    */
-  command?: string;
+  command?: string | string[];
 }

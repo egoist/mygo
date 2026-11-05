@@ -32,7 +32,23 @@ ui.Box(c).Transform(pose).TransformOrigin(0, 0)
 ```
 
 The zero `Transform` is identity. Setting `Transform` replaces the element's
-previous transform; the convenience methods append to it. Set transforms
+previous transform, `TranslatePercent`'s too; the convenience methods
+append to it.
+
+`TranslatePercent(x, y)` moves an element by percents of its own width and
+height, as CSS's `translate(-50%, -50%)`: of its border box as the frame
+lays it out, so that it is in place from its first frame, without waiting
+for its `Bounds`, and follows its size in the frame it changes. It acts
+after the element's other transforms, wherever it is called among them,
+as CSS's `translate` property does, and before its pose; calls add up. A
+callout centered above the point it points at, whatever its size:
+
+```go
+ui.Box(c).Absolute().Left(at.X).Top(at.Y - 8).TranslatePercent(-50, -100).Children(callout)
+```
+
+A transition's `Motion` and a `Pose` move by percents of the element's
+size too (`XPercent`, `YPercent`). Set transforms
 in the view, before the frame is laid out. `Rotate` on an icon keeps its
 existing behavior of rotating the SVG artwork around its center. To rotate
 an icon's whole border box, use `Transform(ui.Rotation(degrees))`.
@@ -117,8 +133,12 @@ geometry on the GPU. Fills, borders, shadows, images, text, and effects keep
 local coordinates; backdrop reads map back into window coordinates. Metal
 preserves wide-gamut colors under transforms.
 
-Nested rounded or transformed clips use retained coverage masks. Moving
-content under a stationary clip reuses that mask without CPU pixel work.
+Nested rounded or transformed clips use retained coverage masks once
+content inside them is scaled, rotated, skewed or in perspective. Content
+that a transform only moves, such as a label translated by a fraction of a
+pixel, needs no mask: its clips are cut as for content that isn't
+transformed. Moving content under a stationary clip reuses that mask
+without CPU pixel work.
 Hard clips sharing their content's coordinates, including transformed text
 inputs, are evaluated directly in the fragment shader and reuse their
 ancestor's mask. Changing a complex clip recomputes its coverage; resizing

@@ -87,7 +87,12 @@ const (
 	// being its right or bottom edge; nothing outside Src shows.
 	OpImage
 	// OpPushClip clips the following ops to Rect with Radii, intersected
-	// with the clip in effect, until the matching OpPopClip.
+	// with the clip in effect, until the matching OpPopClip. Unless
+	// PaintSolid, the alpha of its Paint, a gradient of Color and Color2
+	// or of Stops as an OpFill's, masks what it clips too, as CSS's
+	// mask-image does; so does, with Image, the alpha of Image's Src
+	// drawn over Rect, as OpImage draws it: a coverage mask, as a path's
+	// (ClipShape.Masks).
 	OpPushClip
 	// OpPopClip restores the clip in effect before the matching OpPushClip.
 	OpPopClip
@@ -200,6 +205,12 @@ const (
 	// CSS's conic-gradient() is; PaintConicOklab mixes them in Oklab.
 	PaintConic
 	PaintConicOklab
+	// PaintRadial is a radial gradient of the op's Stops from (Gradient[0],
+	// Gradient[1]) at 0 to a circle of radius Gradient[2] around it at 1,
+	// mixed in sRGB, as CSS's radial-gradient() is; PaintRadialOklab mixes
+	// them in Oklab.
+	PaintRadial
+	PaintRadialOklab
 )
 
 // Stop is a color of a gradient with stops (Op.Stops), at a place along
@@ -216,7 +227,7 @@ type Stop struct {
 const MaxStops = 32
 
 // HasStops reports whether paint takes its colors from the op's Stops.
-func (p Paint) HasStops() bool { return p >= PaintLinearStops && p <= PaintConicOklab }
+func (p Paint) HasStops() bool { return p >= PaintLinearStops && p <= PaintRadialOklab }
 
 // Uniform returns the widths of a border as wide on every side.
 func Uniform(w float32) [4]float32 { return [4]float32{w, w, w, w} }

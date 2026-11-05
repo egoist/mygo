@@ -63,8 +63,9 @@ type headless struct {
 	// atOnce has requestFrame stand for a surface whose frames come at
 	// once rather than at the display's next refresh (framesAtOnce).
 	atOnce bool
-	// material tells that the window shows one (SetVibrancy).
-	material bool
+	// material tells that the window shows one (SetVibrancy), and
+	// inactive that it is not drawn as active (SetWindowActive).
+	material, inactive bool
 	// reading runs once as the clipboard is next read, as GTK's nested
 	// event loop may draw a frame then.
 	reading func()
@@ -173,6 +174,7 @@ func (h *headless) locale() string                    { return h.lang }
 func (h *headless) region() i18n.Region               { return h.reg }
 func (h *headless) titleBar() TitleBar                { return h.bar }
 func (h *headless) vibrancy() bool                    { return h.material }
+func (h *headless) active() bool                      { return !h.inactive }
 func (h *headless) invalidate() {
 	h.invalidated.Store(true)
 	h.requested.Store(true)
@@ -204,6 +206,8 @@ func (h *headless) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
 func (h *headless) placeWebViews(views []placedWebView) {
 	h.webViews = append(h.webViews[:0], views...)
 }
+func (h *headless) nativeGlass() bool                              { return false }
+func (h *headless) placeGlass([]platform.GlassPlacement)           {}
 func (h *headless) tabIntoWebView(v NativeWebView, back bool)      { h.tabbedInto, h.tabbedBack = v, back }
 func (h *headless) platformWebView(NativeWebView) platform.WebView { return nil }
 func (h *headless) image() *image.RGBA {
@@ -402,6 +406,17 @@ func (t *Tester) SetVibrancy(shows bool) {
 	t.Frame()
 }
 
+// SetWindowActive draws the window as active, the window the user's
+// input goes to, or not, as when the user switches to another window or
+// app: Context.WindowActive returns it. It leaves the keyboard focus to
+// SetFocused, as a window's flyout taking the keyboard leaves the window
+// active.
+func (t *Tester) SetWindowActive(active bool) {
+	t.h.inactive = !active
+	t.rt.activeChanged()
+	t.settle()
+}
+
 // SetDark switches between the light and the dark appearance.
 func (t *Tester) SetDark(dark bool) {
 	t.h.dark = dark
@@ -413,7 +428,7 @@ func (t *Tester) SetDark(dark bool) {
 // the user does in the system's settings.
 func (t *Tester) SetPreferences(p Preferences) {
 	t.h.prefs = platform.Preferences{Accent: platform.Color{R: p.Accent.R, G: p.Accent.G, B: p.Accent.B, A: p.Accent.A}, ReduceMotion: p.ReduceMotion,
-		HighContrast: p.HighContrast, TextScale: float64(p.TextScale)}
+		ReduceTransparency: p.ReduceTransparency, HighContrast: p.HighContrast, TextScale: float64(p.TextScale)}
 	t.rt.themeChanged()
 	t.settle()
 }
@@ -487,28 +502,102 @@ func (t *Tester) HasText(s string) bool {
 	return false
 }
 
-// targetCenter returns the center of the element showing text or labeled s,
-// or an error when no element matches or its center lies outside the window.
-// Find walks the element tree without checking geometry, so it can return an
-// element the window never shows; clicking it would land on nothing while
-// reporting success.
-func (t *Tester) targetCenter(s string) (float32, float32, error) {
-	r, ok := t.Find(s)
-	if !ok {
+// targetCenter checks the named element before sending any input. Labels
+// include clipped boxes, and a visible box may be covered by another control.
+func (t *Tester) targetCenter(s string, button int) (float32, float32, error) {
+	var n *labelNode
+	for i := range t.rt.labels {
+		if t.rt.labels[i].text == s {
+			n = &t.rt.labels[i]
+			break
+		}
+	}
+	if n == nil {
 		return 0, 0, fmt.Errorf("ui: no element shows %q", s)
 	}
-	x, y := r.X+r.W/2, r.Y+r.H/2
+	r, z := n.r, t.rt.zoomFactor()
+	cx, cy := r.X+r.W/2, r.Y+r.H/2
+	x, y := cx*z, cy*z
 	if x < 0 || y < 0 || x >= t.h.w || y >= t.h.h {
 		return 0, 0, fmt.Errorf("ui: %q is at (%v, %v), outside the window", s, x, y)
+	}
+	if r.W <= 0 || r.H <= 0 {
+		return 0, 0, fmt.Errorf("ui: %q has no visible area", s)
+	}
+	var named []uint64
+	for st := t.rt.states[n.id]; st != nil; st = t.rt.states[st.parent] {
+		named = append(named, st.id)
+		if st.parent == 0 {
+			break
+		}
+	}
+	// Native pages take the pointer before UI hit testing, even inside
+	// IgnoreInput: the system gives the press to their view.
+	if page := t.WebViewAt(x, y); page != nil {
+		for _, id := range named {
+			if t.rt.states[id].webView == page {
+				return x, y, nil
+			}
+		}
+		return 0, 0, fmt.Errorf("ui: %q is covered by a web view", s)
+	}
+	hit := t.rt.hitChain(cx, cy)
+	if button == 0 {
+		for _, id := range hit {
+			st := t.rt.states[id]
+			if st == nil || st.flags&(flagScrollX|flagScrollY) == 0 || !st.barsShown || st.hideScrollbars {
+				continue
+			}
+			lx, ly := st.local(cx, cy)
+			lx, ly = lx+st.x, ly+st.y
+			g := scrollBars(Rect{st.x, st.y, st.w, st.h}, st.barInset, float32(st.contentW), float32(st.contentH),
+				float32(st.scrollX), float32(st.scrollY), st.flags, st.barWidth, st.rtl)
+			if g.vertical && g.vTrack.Contains(lx, ly) || g.horizontal && g.hTrack.Contains(lx, ly) {
+				return 0, 0, fmt.Errorf("ui: %q is covered by a scroll bar", s)
+			}
+		}
+	}
+	// A button's label is often a text child. Noninteractive siblings
+	// inside it may take the hit too; both must still reach that button.
+	flags := interactive
+	if button == 1 {
+		flags |= flagContextMenu
+	}
+	receiver := func(chain []uint64) *state {
+		for _, id := range chain {
+			if st := t.rt.states[id]; st != nil &&
+				(st.flags&flags != 0 || st.input != nil || st.webView != nil) {
+				return st
+			}
+		}
+		return nil
+	}
+	want := receiver(named)
+	// A field's label can name its outer container, which delegates focus
+	// to an input nested inside. Clicking that input is the same target.
+	matches := slices.Contains(hit, n.id)
+	if want != nil {
+		matches = receiver(hit) == want && t.rt.handler(hit) == t.rt.handler(named) &&
+			(button != 1 || t.rt.menuTarget(hit) == t.rt.menuTarget(named))
+		for i := range t.rt.c.used {
+			e := t.rt.nodeAt(uint32(i))
+			if e.id == want.id && e.focusTo != nil && receiver(hit) == e.focusTo.st && slices.Contains(hit, n.id) {
+				matches = true
+				break
+			}
+		}
+	}
+	if !matches || len(named) == 0 || t.rt.states[n.id].ignoreInput {
+		return 0, 0, fmt.Errorf("ui: %q is not the input target at (%v, %v)", s, x, y)
 	}
 	return x, y, nil
 }
 
 // Click clicks the center of the element showing text or labeled s. It
-// returns an error when no element shows s, or when the element's center
-// is outside the window, where the click would land on nothing.
+// returns an error without sending input when no element shows s, it has
+// no visible area, or its center would reach another control or nothing.
 func (t *Tester) Click(s string) error {
-	x, y, err := t.targetCenter(s)
+	x, y, err := t.targetCenter(s, 0)
 	if err != nil {
 		return err
 	}
@@ -520,9 +609,10 @@ func (t *Tester) Click(s string) error {
 func (t *Tester) ClickAt(x, y float32) { t.ClickAtWith(0, x, y) }
 
 // ClickWith clicks the center of the element showing text or labeled s
-// holding the modifier keys mods, as a Shift-click.
+// holding the modifier keys mods, as a Shift-click. It checks the target
+// before sending input, as Click does.
 func (t *Tester) ClickWith(mods Modifiers, s string) error {
-	x, y, err := t.targetCenter(s)
+	x, y, err := t.targetCenter(s, 0)
 	if err != nil {
 		return err
 	}
@@ -542,10 +632,10 @@ func (t *Tester) ClickAtWith(mods Modifiers, x, y float32) {
 }
 
 // RightClick clicks the center of the element showing text or labeled s
-// with the secondary button. Like Click, it returns an error when no
-// element shows s or its center is outside the window.
+// with the secondary button. It checks the target before sending input,
+// as Click does.
 func (t *Tester) RightClick(s string) error {
-	x, y, err := t.targetCenter(s)
+	x, y, err := t.targetCenter(s, 1)
 	if err != nil {
 		return err
 	}
@@ -624,16 +714,24 @@ func (t *Tester) ChooseMenuItem(path ...string) error {
 func (t *Tester) CloseMenu() { t.h.menu, t.h.chosen = nil, nil }
 
 // Press presses (x, y) without releasing; Release releases it.
-func (t *Tester) Press(x, y float32) {
-	if t.webViewPress(x, y, 0, 0) {
-		return
-	}
-	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y)})
-}
+func (t *Tester) Press(x, y float32) { t.PressButton(0, x, y) }
 
 // Release releases the pointer at (x, y).
-func (t *Tester) Release(x, y float32) {
-	t.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: float64(x), Y: float64(y)})
+func (t *Tester) Release(x, y float32) { t.ReleaseButton(0, x, y) }
+
+// PressButton presses (x, y) with the pointer's button, 0 the primary, 1
+// the secondary and 2 the middle, without releasing, as a right-button
+// drag begins; ReleaseButton releases it.
+func (t *Tester) PressButton(button int, x, y float32) {
+	if t.webViewPress(x, y, button, 0) {
+		return
+	}
+	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y), Button: button})
+}
+
+// ReleaseButton releases the pointer's button at (x, y).
+func (t *Tester) ReleaseButton(button int, x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: float64(x), Y: float64(y), Button: button})
 }
 
 // WebViewAt returns the web view (WebView) that takes the pointer at
@@ -641,8 +739,7 @@ func (t *Tester) Release(x, y float32) {
 // painted nothing over it that takes the pointer; nil for none.
 func (t *Tester) WebViewAt(x, y float32) NativeWebView {
 	for _, v := range slices.Backward(t.h.webViews) {
-		p := platform.WebViewPlacement{Clip: v.clip, Covers: v.covers}
-		if p.At(float64(x), float64(y)) {
+		if p := v.placement(nil); p.At(float64(x), float64(y)) {
 			return v.v
 		}
 	}
@@ -709,6 +806,12 @@ func (t *Tester) Key(mods Modifiers, key Key) {
 // until KeyUp.
 func (t *Tester) KeyDown(key Key) {
 	t.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(key)})
+}
+
+// KeyRepeat presses a key with modifiers as its auto-repeat does while
+// it is held down (InputEvent.Repeat, Context.ShortcutRepeated).
+func (t *Tester) KeyRepeat(mods Modifiers, key Key) {
+	t.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(key), Mods: platform.Modifiers(mods), Repeat: true})
 }
 
 // KeyUp releases a key KeyDown held.

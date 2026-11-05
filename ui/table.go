@@ -239,9 +239,9 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				switch {
 				case !on && !at, box.FocusWithin():
 				case on && at:
-					box.Background(t.Accent).TextColor(t.AccentText).DrawOver(cursorBorder(table, t.AccentText))
+					box.Background(c.accent(t)).TextColor(t.AccentText).DrawOver(cursorBorder(table, t.AccentText))
 				case on:
-					box.Background(t.Accent).TextColor(t.AccentText)
+					box.Background(c.accent(t)).TextColor(t.AccentText)
 				case at:
 					box.DrawOver(cursorBorder(table, t.Accent))
 				}
@@ -265,7 +265,9 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 		head.Children(func() {
 			heads := cells(RoleColumnHeader, func(j int) {
 				col := &columns[j]
-				coreText(c, col.Title).SingleLine().FontWeight(600).TextColor(t.TextMuted)
+				// The header is named by its title, which needs no node
+				// of its own beside it.
+				coreText(c, col.Title).SingleLine().FontWeight(600).TextColor(t.TextMuted).Role(RoleNone)
 				if at, descending := s.sortPlace(col); at >= 0 {
 					place := 0
 					if s.SortBy != nil && len(*s.SortBy) > 1 {
@@ -288,6 +290,8 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 		list.widget = "List"
 		list.flags |= flagScrollX
 		list.rowMinW = least
+		// The table's Scrollbars and KeepScrollbars are its rows'.
+		list.barsFrom = table
 		head.followX = list
 		buildList(c, list, table, s, n, func(i int) {
 			row := coreRow(c).MinHeight(tableRow).AlignItems(Stretch)
@@ -320,7 +324,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	}
 	table.DrawOver(func(p *Painter, r Rect) {
 		if table.FocusVisible() {
-			p.FocusRing(r, [4]float32{})
+			p.focusRingOf(table, r, [4]float32{})
 		}
 	})
 	return table
@@ -633,8 +637,8 @@ func (e *node) Selected(on bool) *node {
 		e.checked = 1
 		return e
 	}
-	t := e.c.theme
+	t := e.theme()
 	e.checked = 2
-	e.Background(t.Accent).TextColor(t.AccentText)
+	e.Background(e.c.accent(t)).TextColor(t.AccentText)
 	return e
 }

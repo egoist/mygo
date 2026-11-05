@@ -100,6 +100,10 @@ type Backend struct {
 	DockMenu *platform.Menu
 	// Active is what App.IsActive answers; SetActive changes it.
 	Active bool
+	// FramesOnShow makes a window draw the frame its content asked for as
+	// it shows, as AppKit may display a window it orders in. Main thread
+	// only.
+	FramesOnShow bool
 	// ForegroundAllowed counts AllowForeground calls.
 	ForegroundAllowed int
 	// ActivationToken is the token of WithActivationToken while its
@@ -139,9 +143,18 @@ type Backend struct {
 	// NotificationError, when set, is what showing a notification fails
 	// with.
 	NotificationError error
+	// OnNotification, when set, handles delivery on the main thread, allowing
+	// tests to model an authorization answer that arrives asynchronously.
+	OnNotification func(*platform.Notification, func(error))
 	// NoWebView makes WebViewAvailable report no system webview, as a
 	// machine without one does.
 	NoWebView bool
+	// StyleSheet is the sheet SetStyleSheet loaded last, as GTK styles the
+	// widgets it draws with it. StyleSheetError, when set, is what loading
+	// one fails with, as a sheet that does not parse, which keeps the one
+	// before. Main thread only.
+	StyleSheet      string
+	StyleSheetError error
 	// notifications are the notifications shown and not yet removed, by
 	// id.
 	notifications map[string]*platform.Notification
@@ -432,6 +445,10 @@ func (b *Backend) NotificationsSupported() bool { return true }
 func (b *Backend) WebViewAvailable() bool { return !b.NoWebView }
 
 func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
+	if b.OnNotification != nil {
+		b.OnNotification(n, done)
+		return
+	}
 	b.mu.Lock()
 	if err := b.NotificationError; err != nil {
 		b.mu.Unlock()
@@ -689,30 +706,40 @@ func (w *Window) Show() {
 	w.visible = true
 	w.focused = w.focused || w.Opts.Flyout == nil || w.Opts.Flyout.Focusable
 	w.mu.Unlock()
+	w.framesOnShow()
 }
-func (w *Window) ShowInactive()              { w.mu.Lock(); w.visible = true; w.mu.Unlock() }
-func (w *Window) Hide()                      { w.mu.Lock(); w.visible = false; w.mu.Unlock() }
-func (w *Window) IsVisible() bool            { w.mu.Lock(); defer w.mu.Unlock(); return w.visible }
-func (w *Window) Focus()                     { w.H.Focused() }
-func (w *Window) Blur()                      { w.H.Blurred() }
-func (w *Window) IsFocused() bool            { w.mu.Lock(); defer w.mu.Unlock(); return w.focused }
-func (w *Window) Minimize()                  { w.mu.Lock(); w.minimized = true; w.mu.Unlock(); w.H.Minimized() }
-func (w *Window) IsMinimized() bool          { w.mu.Lock(); defer w.mu.Unlock(); return w.minimized }
-func (w *Window) Maximize()                  { w.mu.Lock(); w.maximized = true; w.mu.Unlock(); w.H.Maximized() }
-func (w *Window) Unmaximize()                { w.mu.Lock(); w.maximized = false; w.mu.Unlock(); w.H.Unmaximized() }
-func (w *Window) IsMaximized() bool          { w.mu.Lock(); defer w.mu.Unlock(); return w.maximized }
-func (w *Window) Restore()                   { w.mu.Lock(); w.minimized = false; w.mu.Unlock(); w.H.Restored() }
-func (w *Window) SetFullScreen(v bool)       { w.mu.Lock(); w.full = v; w.mu.Unlock() }
-func (w *Window) IsFullScreen() bool         { w.mu.Lock(); defer w.mu.Unlock(); return w.full }
-func (w *Window) Center()                    {}
-func (w *Window) SetOpacity(float64)         {}
-func (w *Window) Opacity() float64           { return 1 }
-func (w *Window) SetHasShadow(bool)          {}
-func (w *Window) HasShadow() bool            { return true }
-func (w *Window) SetIgnoreMouseEvents(bool)  {}
-func (w *Window) SetContentProtection(bool)  {}
-func (w *Window) SetVibrancy(string)         {}
-func (w *Window) SetActiveAppearance(v bool) { w.mu.Lock(); w.active = v; w.mu.Unlock() }
+func (w *Window) ShowInactive() { w.mu.Lock(); w.visible = true; w.mu.Unlock(); w.framesOnShow() }
+
+// framesOnShow draws the frame the content asked for with FramesOnShow.
+func (w *Window) framesOnShow() {
+	if w.b.FramesOnShow && w.surface != nil {
+		w.surface.Frame()
+	}
+}
+
+func (w *Window) Hide()                           { w.mu.Lock(); w.visible = false; w.mu.Unlock() }
+func (w *Window) IsVisible() bool                 { w.mu.Lock(); defer w.mu.Unlock(); return w.visible }
+func (w *Window) Focus()                          { w.H.Focused() }
+func (w *Window) Blur()                           { w.H.Blurred() }
+func (w *Window) IsFocused() bool                 { w.mu.Lock(); defer w.mu.Unlock(); return w.focused }
+func (w *Window) Minimize()                       { w.mu.Lock(); w.minimized = true; w.mu.Unlock(); w.H.Minimized() }
+func (w *Window) IsMinimized() bool               { w.mu.Lock(); defer w.mu.Unlock(); return w.minimized }
+func (w *Window) Maximize()                       { w.mu.Lock(); w.maximized = true; w.mu.Unlock(); w.H.Maximized() }
+func (w *Window) Unmaximize()                     { w.mu.Lock(); w.maximized = false; w.mu.Unlock(); w.H.Unmaximized() }
+func (w *Window) IsMaximized() bool               { w.mu.Lock(); defer w.mu.Unlock(); return w.maximized }
+func (w *Window) Restore()                        { w.mu.Lock(); w.minimized = false; w.mu.Unlock(); w.H.Restored() }
+func (w *Window) SetFullScreen(v bool)            { w.mu.Lock(); w.full = v; w.mu.Unlock() }
+func (w *Window) IsFullScreen() bool              { w.mu.Lock(); defer w.mu.Unlock(); return w.full }
+func (w *Window) Center()                         {}
+func (w *Window) SetOpacity(float64)              {}
+func (w *Window) Opacity() float64                { return 1 }
+func (w *Window) SetHasShadow(bool)               {}
+func (w *Window) HasShadow() bool                 { return true }
+func (w *Window) SetIgnoreMouseEvents(bool)       {}
+func (w *Window) SetContentProtection(bool)       {}
+func (w *Window) SetVibrancy(string)              {}
+func (w *Window) SetVibrancyTint(*platform.Color) {}
+func (w *Window) SetActiveAppearance(v bool)      { w.mu.Lock(); w.active = v; w.mu.Unlock() }
 
 func (w *Window) SetWindowButtonsTheme(string) {}
 
@@ -1162,6 +1189,11 @@ func (shell) FileIcon(path string, size int) ([]byte, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, err
 	}
+	return shell{}.TypeIcon("", size)
+}
+
+// TypeIcon returns a transparent PNG of the size asked for.
+func (shell) TypeIcon(ext string, size int) ([]byte, error) {
 	var buf bytes.Buffer
 	err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, size, size)))
 	return buf.Bytes(), err
@@ -1229,6 +1261,16 @@ func (screen) Displays() []platform.Display {
 	}}
 }
 func (screen) CursorPoint() platform.Point { return platform.Point{X: 10, Y: 20} }
+
+// SetStyleSheet loads css in place of the sheet before, as Linux's GTK
+// does (platform.StyleBackend).
+func (b *Backend) SetStyleSheet(css string) error {
+	if b.StyleSheetError != nil {
+		return b.StyleSheetError
+	}
+	b.StyleSheet = css
+	return nil
+}
 
 type theme struct{ b *Backend }
 

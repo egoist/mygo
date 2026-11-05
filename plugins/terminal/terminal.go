@@ -85,6 +85,12 @@ type Options struct {
 	// to a UTF-8 locale when no locale is set, as when the app starts from
 	// the Finder.
 	Env []string
+	// ShellIntegration marks a local zsh's prompt so resizing can clear its
+	// old layout before zsh redraws it, including right and multiline prompts.
+	// User startup files are sourced normally and are never modified. Other
+	// local shells are unchanged. With Conn, the source must supply OSC 133
+	// prompt markers and redraw its prompt on resize.
+	ShellIntegration bool
 	// Conn connects the terminal to something other than a program, such
 	// as a remote shell: what the terminal reads from it shows, and what
 	// is typed is written to it. Command, Dir and Env are then ignored. A
@@ -128,6 +134,9 @@ type Options struct {
 	// Scrollback is about how many bytes of output the terminal keeps above
 	// the screen: 10 MB when zero, none when negative.
 	Scrollback int
+	// ScrollMultiplier scales how far the wheel and the touchpad scroll, as
+	// Ghostty's mouse-scroll-multiplier. SetScrollMultiplier changes it.
+	ScrollMultiplier ScrollMultiplier
 	// OptionAsAlt makes Option on macOS the Alt key of programs (Meta),
 	// rather than the key that types accented letters and symbols.
 	OptionAsAlt bool
@@ -347,6 +356,34 @@ const (
 	CursorUnderline
 )
 
+// ScrollMultiplier scales scrolling (Options.ScrollMultiplier), as
+// Ghostty's mouse-scroll-multiplier = precision:…,discrete:….
+type ScrollMultiplier struct {
+	// Precision scales a touchpad's scrolling, and other scrolling by
+	// distance: 1 when zero.
+	Precision float32
+	// Discrete is how many rows a notch of a mouse wheel scrolls: 3 when
+	// zero. On Windows, which sends notches as lines of its "lines to
+	// scroll" setting, it scales those as 3 would be the setting's.
+	Discrete float32
+}
+
+// rows turns the DIPs a scroll event moved into the rows it scrolls, with
+// cells ch DIPs high, on goos.
+func (m ScrollMultiplier) rows(dy, ch float32, precise bool, goos string) float32 {
+	if precise {
+		if m.Precision > 0 {
+			dy *= m.Precision
+		}
+		return dy / ch
+	}
+	rows := wheelRows(dy, goos)
+	if m.Discrete > 0 {
+		rows *= m.Discrete / 3
+	}
+	return rows
+}
+
 // CopyOnSelect is where a selection is copied as it ends
 // (Options.CopyOnSelect).
 type CopyOnSelect int
@@ -478,6 +515,11 @@ type Terminal struct {
 	events  events
 	closed  bool
 	clipOut []string // what programs copied, for the view to write
+	// prompt is guarded by mu too; shellDir is immutable after New and removed
+	// once the program exits, including a terminal closed before it starts.
+	prompt   promptTracker
+	shellDir string
+
 	// clipForward are reads of the clipboard for a Mirror to pass on, with
 	// ClipboardForward: whether each is of the primary selection. The
 	// first Mirror to frame takes them, as one terminal answers a read.
@@ -622,6 +664,9 @@ func New(opts Options) (*Terminal, error) {
 	if opts.Conn != nil {
 		t.src = opts.Conn
 		t.quoting = quotingFor(runtime.GOOS, "")
+		if opts.ShellIntegration {
+			t.term.Write([]byte(promptRedraw))
+		}
 		t.run()
 		return t, nil
 	}
@@ -637,6 +682,18 @@ func New(opts Options) (*Terminal, error) {
 		dir, _ = os.UserHomeDir()
 	}
 	t.launch = &pty.Options{Path: path, Args: args, Dir: dir, Env: environment(opts.Env)}
+	if opts.ShellIntegration && filepath.Base(path) == "zsh" {
+		t.launch.Env, t.shellDir, err = zshEnvironment(t.launch.Env)
+		if err != nil {
+			t.rs.Free()
+			t.term.Free()
+			return nil, err
+		}
+		t.term.Write([]byte(promptRedraw))
+	} else {
+		// Other shells may not redraw their prompts: theirs stay.
+		t.opts.ShellIntegration = false
+	}
 	if runtime.GOOS == "windows" {
 		// ConPTY keeps a screen of its own, which a resize pulling rows
 		// back from the scrollback would disagree with.
@@ -781,6 +838,9 @@ func (t *Terminal) write(p []byte) {
 	var ev events
 	var title string
 	if t.term != nil {
+		if t.opts.ShellIntegration {
+			t.prompt.feed(p)
+		}
 		t.term.Write(p)
 		ev, t.events = t.events, events{}
 		if ev.title {
@@ -837,6 +897,9 @@ func (t *Terminal) ended() {
 // finish closes Done and calls OnExit, once.
 func (t *Terminal) finish() {
 	t.doneOnce.Do(func() {
+		if t.shellDir != "" {
+			os.RemoveAll(t.shellDir)
+		}
 		close(t.done)
 		t.in.close()
 		if t.opts.OnExit != nil {
@@ -916,6 +979,14 @@ func (t *Terminal) zoom(z Zoom) {
 func (t *Terminal) SetCopyOnSelect(c CopyOnSelect) {
 	t.mu.Lock()
 	t.opts.CopyOnSelect = c
+	t.mu.Unlock()
+}
+
+// SetScrollMultiplier changes how far the wheel and the touchpad scroll,
+// as Options.ScrollMultiplier.
+func (t *Terminal) SetScrollMultiplier(m ScrollMultiplier) {
+	t.mu.Lock()
+	t.opts.ScrollMultiplier = m
 	t.mu.Unlock()
 }
 
@@ -1212,6 +1283,18 @@ func (t *Terminal) resize(s gridSize) {
 	}
 	if s == t.size {
 		return
+	}
+	// zsh redraws its prompt on SIGWINCH. Clear it at the old width first:
+	// reflowing right-prompt padding would otherwise create extra prompt rows
+	// that zsh's cursor movements cannot erase. Command output still reflows.
+	// Ghostty clears it on a resize, which to the same size does nothing:
+	// the rows change first, or grow by one when they stay.
+	if t.opts.ShellIntegration && t.prompt.atPrompt && !t.term.AltScreen() && s.cols != t.size.cols {
+		rows := s.rows
+		if rows == t.size.rows {
+			rows++
+		}
+		t.term.Resize(t.size.cols, rows, s.cellW, s.cellH)
 	}
 	t.size = s
 	t.term.Resize(s.cols, s.rows, s.cellW, s.cellH)

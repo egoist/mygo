@@ -129,6 +129,66 @@ instead:
 app.md.OnLink = func(url string) { app.open(url) }
 ```
 
+`LinkMenu` gives each link a [context menu](context-menu.md) of its own,
+given its destination, as a chat whose replies link files offers Copy
+Path and Reveal in Finder for the file right-clicked. The link's menu
+replaces the one around the view, as its `Selectable` container's, and
+`EditItems` puts the text's Copy and Select All back in it; links to
+`#a-heading`, footnote references and a link whose destination is still
+coming keep the menu around them:
+
+```go
+app.md.LinkMenu = func(m *ui.Menu, url string) {
+	if m.Item("Copy Path").Chosen() {
+		app.copyPath(url)
+	}
+	if m.Item("Reveal in Finder").Chosen() {
+		app.reveal(url)
+	}
+	m.Separator()
+	m.EditItems()
+}
+```
+
+`Anchor` opens a document at a heading, given its slug with or without
+the `#`: a docs reader that opens `guide.md#install` from a search hit,
+or that comes back where its user was. The view scrolls to it as the
+document shows, as another document replaces it and as `Anchor`
+changes; `AnchorVersion` asks for the same heading again. An `OnLink`
+that handles `#a-heading` links sets it:
+
+```go
+app.md.OnLink = func(url string) {
+	if strings.HasPrefix(url, "#") {
+		app.md.Anchor = url
+		app.md.AnchorVersion++
+		return
+	}
+	app.open(url)
+}
+```
+
+`LinkIcon` puts an icon at the start of a link's text, from its
+destination and the size of the text around it: a box as `InlineMath`
+makes, which clicks as the link and stays on the line of its first
+word. It copies as nothing, as text, HTML and Markdown. When it returns
+false, the link has none; a link still streaming in has none yet. Links
+take their color from `Theme.Link`:
+
+```go
+app.md.LinkIcon = func(dest string, size float32) (markdown.InlineObject, bool) {
+	if !strings.HasPrefix(dest, "http") {
+		return markdown.InlineObject{}, false
+	}
+	return markdown.InlineObject{
+		Width: size * 1.2, Height: size * 0.86, Depth: size * 0.14,
+		Draw: func(p *ui.Painter, r ui.Rect) {
+			p.Icon(globe, ui.Rect{X: r.X, Y: r.Y, W: size, H: size}, app.md.Theme.Link)
+		},
+	}, true
+}
+```
+
 Images show their description until `LoadImage` loads them, on a
 goroutine of their own; without it, they stay descriptions, as a view
 loads nothing from the network by itself. `FileImages(dir)` loads the
@@ -231,7 +291,9 @@ weight, color, spacing and rule; list indentation; block quotes' bar and
 text; code blocks' background, border, corners, padding and token colors
 (an `editor.Theme`); tables' lines, header, stripes, padding and widest
 column; marked text; and check boxes. Lengths are in ems, times the font
-size, so that a theme scales with it.
+size, so that a theme scales with it. `LinkWeight` is the least weight of
+links' text, for links that read as links where color alone doesn't, in a
+gray print theme or to a colorblind reader.
 
 `Block` replaces how any block shows: it is asked first for each block,
 and builds it when it returns true, from the document's blocks and
@@ -291,6 +353,13 @@ It passes all 652 examples of the CommonMark 0.31.2 spec and those of
 GitHub's extensions, takes linear time on the inputs that are slow in
 other parsers, as cmark does, and depends on nothing outside the
 standard library.
+
+One rule is relaxed for Chinese, Japanese and Korean, which put no space
+around emphasis: next to a CJK character, full-width punctuation or a
+curly quote, `*` and `~~` open and close even where punctuation would
+stop them in CommonMark, so `**结论。**后文` is bold. `_` and a single `~`
+keep CommonMark's rule. No example of the spec has CJK text there, so
+all of them still pass.
 
 ## Performance
 

@@ -26,7 +26,7 @@ type Content interface {
 
 // attachContent connects the window's Content to its surface. Main thread
 // only.
-func (w *Window) attachContent() {
+func (w *Window) attachContent(content Content) {
 	s := w.native.Surface()
 	if s == nil {
 		panic("mygo: the backend " + backend().Name() + " created no surface for the window's Content")
@@ -61,6 +61,7 @@ func (w *Window) attachContent() {
 			}
 			return w.native.TitleBar()
 		},
+		Active: func() bool { return w.active },
 		OpenURL: func(url string, done func(error)) {
 			// The system may take a while, as Windows' shell does: not
 			// in the frame.
@@ -98,7 +99,10 @@ func (w *Window) attachContent() {
 			})
 		},
 	}
-	w.content.AttachContent(w.conn)
+	if f := w.fit; f != nil && f.native != nil && w.flyout != nil {
+		f.native(w, w.conn)
+	}
+	content.AttachContent(w.conn)
 }
 
 // contentMenu returns the items of a context menu of the Content, whose
@@ -131,7 +135,7 @@ func contentMenu(m *platform.Menu, chosen func(int)) []*MenuItem {
 // page runs fn with the native window, unless the window shows Content
 // and so has no page.
 func (w *Window) page(fn func(n platform.Window)) {
-	if w.content != nil {
+	if w.content {
 		return
 	}
 	w.do(fn)
@@ -139,7 +143,7 @@ func (w *Window) page(fn func(n platform.Window)) {
 
 // pageGet is page for functions returning a value.
 func pageGet[T any](w *Window, fn func(n platform.Window) T) T {
-	if w.content != nil {
+	if w.content {
 		var zero T
 		return zero
 	}
@@ -150,7 +154,7 @@ func pageGet[T any](w *Window, fn func(n platform.Window) T) T {
 // its user interface shows. It is safe from any goroutine; calls made
 // before the next frame make one frame. It does nothing for a web page.
 func (w *Window) Invalidate() {
-	if w.content == nil || !w.invalidating.CompareAndSwap(false, true) {
+	if !w.content || !w.invalidating.CompareAndSwap(false, true) {
 		return
 	}
 	postMain(func() {
@@ -168,7 +172,18 @@ func (w *Window) Invalidate() {
 //		win.Update(func() { app.items = items })
 //	}()
 //
-// It returns without waiting for fn.
+// It returns without waiting for fn. The Content builds again after every
+// call, whether fn changed the state or not. A goroutine that polls data
+// that rarely changes, as a counter or a status, compares it on the main
+// thread with RunOnMain, which redraws nothing, and calls Invalidate when
+// it changed:
+//
+//	mygo.RunOnMain(func() {
+//		if n != app.connections {
+//			app.connections = n
+//			win.Invalidate()
+//		}
+//	})
 func (w *Window) Update(fn func()) {
 	postMain(func() {
 		fn()
@@ -215,9 +230,15 @@ func (w *Window) captureContent() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// SurfaceEvent passes the surface's events to the Content. Files the
-// Content does not take go to OnFileDrop, when it has listeners.
+// SurfaceEvent passes the surface's events to the Content, noting while it
+// draws a frame (framing). Files the Content does not take go to
+// OnFileDrop, when it has listeners.
 func (h *windowHandler) SurfaceEvent(ev platform.SurfaceEvent) bool {
+	if ev.Kind == platform.SurfaceFrame {
+		framing := h.w.framing
+		h.w.framing = true
+		defer func() { h.w.framing = framing }()
+	}
 	resolveDataDrag(ev.Drag)
 	c := h.w.conn
 	if c == nil || c.Event == nil {

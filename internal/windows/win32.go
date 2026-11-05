@@ -171,6 +171,7 @@ var (
 	procInvalidateRectW               = user32.NewProc("InvalidateRect")
 	procUpdateLayeredWindow           = user32.NewProc("UpdateLayeredWindow")
 	procGetDC                         = user32.NewProc("GetDC")
+	procGetDCEx                       = user32.NewProc("GetDCEx")
 	procReleaseDC                     = user32.NewProc("ReleaseDC")
 	procDrawTextW                     = user32.NewProc("DrawTextW")
 	procTrackMouseEvent               = user32.NewProc("TrackMouseEvent")
@@ -209,6 +210,8 @@ var (
 	procShellNotifyIconGetRect      = shell32.NewProc("Shell_NotifyIconGetRect")
 	procSHCreateItemFromParsingName = shell32.NewProc("SHCreateItemFromParsingName")
 	procSHAddToRecentDocs           = shell32.NewProc("SHAddToRecentDocs")
+	procSHSimpleIDListFromPath      = shell32.NewProc("SHSimpleIDListFromPath")
+	procSHCreateItemFromIDList      = shell32.NewProc("SHCreateItemFromIDList")
 
 	// shlwapi
 	procSHCreateMemStream = shlwapi.NewProc("SHCreateMemStream")

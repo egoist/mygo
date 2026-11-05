@@ -119,6 +119,9 @@ type gallery struct {
 	// The meeting's day and time, and the tint of its text.
 	meeting time.Time
 	tint    ui.Color
+	// A task's due date, chosen in a calendar that pops over its chip.
+	due     time.Time
+	dueOpen bool
 	// The indicators' values: the rating, the battery, the quality and
 	// the range of prices.
 	stars               int
@@ -312,6 +315,7 @@ var (
 	starIcon    = icon(`<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>`)
 	checkIcon   = icon(`<path d="M20 6 9 17l-5-5"/>`)
 	chevronIcon = icon(`<path d="m6 9 6 6 6-6"/>`)
+	dotsIcon    = icon(`<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>`)
 	loaderIcon  = icon(`<path d="M21 12a9 9 0 1 1-6.2-8.6"/>`)
 	// A picture in its own colors: gradients, a clip path, and a dot in
 	// currentColor.
@@ -772,6 +776,19 @@ func (g *gallery) controls(c *ui.Context) {
 				ui.Form(c, func() {
 					ui.Field(c, "Time", func() { ui.TimeInput(c, &g.meeting).Label("Meeting") })
 					ui.Field(c, "Tint", func() { ui.ColorWell(c, &g.tint) })
+					ui.Field(c, "Due", func() {
+						chip := ui.Button(c, g.due.Format("Jan 2"))
+						if chip.Clicked() {
+							g.dueOpen = !g.dueOpen
+						}
+						// Browse pages through the months without choosing,
+						// so the popover closes only on a day picked.
+						ui.Popover(c, chip, &g.dueOpen, func() {
+							if ui.Calendar(c, &g.due).Browse().Changed() {
+								g.dueOpen = false
+							}
+						})
+					})
 				})
 				ui.Text(c, g.meeting.Format("Monday, January 2 at 15:04")).TextColor(g.tint)
 			})
@@ -1245,6 +1262,8 @@ func (g *gallery) styling(c *ui.Context) {
 			bar("sRGB").Gradient(blue, yellow, 90)
 			bar("Oklab").LinearGradient(ui.LinearGradient{From: blue, To: yellow, Angle: 90, Oklab: true})
 			bar("Stops at 40% and 60%").LinearGradient(ui.LinearGradient{From: blue, To: yellow, Angle: 90, Start: 0.4, End: 0.6})
+			bar("Radial, from the right").RadialGradient(ui.RadialGradient{Center: ui.Point{X: 0.9, Y: 0.5}, Oklab: true,
+				Stops: []ui.GradientStop{{Color: yellow, At: 0}, {Color: blue, At: 1}}})
 			ui.Row(c).Height(30).Radius(6).Background(t.Surface).Stripes(t.Border, 4, 6, 45).Center().Children(func() {
 				ui.Text(c, "Stripes: unavailable").FontSize(12).TextColor(t.TextMuted)
 			})
@@ -1256,6 +1275,7 @@ func (g *gallery) styling(c *ui.Context) {
 			ui.RichText(c, ui.Span{Text: "Search results "}, ui.Span{Text: "stand out", Background: ui.RGBA(250, 204, 21, 0.45)},
 				ui.Span{Text: " with a background."})
 			ui.Text(c, "Underlines of their own color and thickness").Underline().DecorationColor(t.Accent).DecorationThickness(2)
+			ui.Text(c, "An underline dropped below the descenders: typography").Underline().UnderlineOffset(5)
 			ui.Text(c, "A highlight behind every line").TextBackground(t.Selection)
 			ui.Text(c, strings.Repeat("A line cut with an ellipsis of its own. ", 3)).SingleLine().Ellipsis(" →")
 		})
@@ -1404,6 +1424,16 @@ func (g *gallery) glassPage(c *ui.Context) {
 		ui.Segmented(c, &g.glassStyle, "Regular", "Clear").Label("Glass")
 		ui.Segmented(c, &g.glassEdge, "Glass bar", "Soft edge", "Hard edge", "Progressive blur").Label("Under the toolbar")
 	})
+	// Panes that nearly touch merge into one surface, as AppKit's
+	// NSGlassEffectContainerView's do.
+	ui.Text(c, "Panes that nearly touch merge into one surface.").TextColor(t.TextMuted)
+	group := glass.NewGroup(c)
+	group.Radius = 22
+	group.Gap(6).Children(func() {
+		for _, label := range []string{"Cut", "Copy", "Paste"} {
+			group.Pane(ui.Box(c).Size(76, 44).Center().Children(func() { ui.Text(c, label) }))
+		}
+	})
 	style := glass.Regular
 	if g.glassStyle == 1 {
 		style = glass.Clear
@@ -1498,11 +1528,29 @@ var itemMotion = ui.ElementTransition{
 var flingStyles = []ui.Animation{ui.Smooth, ui.Snappy, ui.Bouncy}
 
 // tileMatch is the identity a tile of the Motion page shares with its
-// detail view.
-type tileMatch struct{ i int }
+// detail view, and tileTitle the identity its title shares with the
+// view's heading.
+type (
+	tileMatch struct{ i int }
+	tileTitle struct{ i int }
+)
 
-// tileMotion moves the tiles into their detail view and back.
-var tileMotion = ui.ElementTransition{Animation: &ui.Animation{Spring: ui.SpringOptions{Duration: 450 * time.Millisecond, Bounce: 0.12}}}
+// tileSpring moves the tiles into their detail view and back: tileFlight
+// flies what the views share, and tileMorph the characters of their
+// titles, while tileFade fades the rest in and out.
+var (
+	tileSpring = ui.Animation{Spring: ui.SpringOptions{Duration: 450 * time.Millisecond, Bounce: 0.12}}
+	tileFlight = ui.ElementTransition{Animation: &tileSpring, Fly: true}
+	tileFade   = ui.ElementTransition{Animation: &tileSpring, Enter: &ui.Motion{}, Exit: &ui.Motion{}}
+	tileMorph  = ui.ContentTransition{Morph: true, Animation: &tileSpring}
+)
+
+// tileNames are the titles of the tiles, and tileHeadings those of their
+// detail views.
+var (
+	tileNames    = []string{"Ocean", "Forest", "Desert"}
+	tileHeadings = []string{"Ocean at dusk", "Forest in the rain", "Desert at noon"}
+)
 
 func (g *gallery) motion(c *ui.Context) {
 	t := c.Theme()
@@ -1574,15 +1622,27 @@ func (g *gallery) motion(c *ui.Context) {
 				})
 			})
 		})
-		card(c, "Shared elements", func() {
-			ui.Text(c, "A tile opens into its detail view from where it was, and goes back to its place.").FontSize(12).TextColor(t.TextMuted)
-			ui.Box(c).Key("tile-stage").Height(190).Radius(10).Border(1, t.Border).Clip().Padding(12).Children(func() {
+		card(c, "Magic Move", func() {
+			ui.Text(c, "A tile flies into its detail view from where it was, its title morphing into the heading, as the rest fades.").FontSize(12).TextColor(t.TextMuted)
+			ui.Box(c).Key("tile-stage").Height(190).Radius(10).Border(1, t.Border).Clip().Children(func() {
+				// What the views share flies (Match, Fly), the titles
+				// morphing, as the rest fades.
+				shared := func(i int) (tile, title ui.ElementTransition) {
+					tile, title = tileFlight, tileFlight
+					tile.Match, title.Match = tileMatch{i}, tileTitle{i}
+					return tile, title
+				}
 				if g.tileOpen == 0 {
-					ui.Row(c).Gap(12).Children(func() {
+					ui.Row(c.Key("tiles")).Absolute().Fill().Padding(12).Gap(12).Transition(tileFade).Children(func() {
 						for i, col := range motionColors[:3] {
-							tr := tileMotion
-							tr.Match = tileMatch{i}
-							if ui.Box(c.Key(i)).Size(64, 64).Radius(12).Background(col).Cursor(ui.CursorPointer).Transition(tr).Clicked() {
+							tile, title := shared(i)
+							box := ui.Column(c.Key(i)).Size(80, 80).Padding(8).Justify(ui.End).Radius(12).Background(col).
+								Cursor(ui.CursorPointer).Transition(tile)
+							box.Children(func() {
+								ui.Text(c, tileNames[i]).FontSize(12).Bold().TextColor(ui.RGB(255, 255, 255)).
+									Transition(title).ContentTransition(tileMorph)
+							})
+							if box.Clicked() {
 								g.tileOpen = i + 1
 							}
 						}
@@ -1590,12 +1650,11 @@ func (g *gallery) motion(c *ui.Context) {
 					return
 				}
 				i := g.tileOpen - 1
-				ui.Column(c).Gap(10).Children(func() {
-					tr := tileMotion
-					tr.Match = tileMatch{i}
-					ui.Box(c.Key("hero")).Size(240, 120).Radius(16).Background(motionColors[i]).Transition(tr)
+				tile, title := shared(i)
+				ui.Column(c.Key("detail")).Absolute().Fill().Padding(12).Gap(10).Transition(tileFade).Children(func() {
+					ui.Box(c.Key("hero")).Height(110).Radius(16).Background(motionColors[i]).Transition(tile)
 					ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, fmt.Sprintf("Tile %d", i+1)).Bold().Grow(1)
+						ui.Text(c, tileHeadings[i]).FontSize(18).Bold().Grow(1).Transition(title).ContentTransition(tileMorph)
 						if ui.Button(c, "Back").Clicked() {
 							g.tileOpen = 0
 						}
@@ -1798,9 +1857,8 @@ func (g *gallery) overlays(c *ui.Context) {
 				}
 			})
 			// A menu drawn in the window, with the theme's look, rather than
-			// the system's.
-			card := ui.Row(c).Padding(6, 12).Radius(t.Radius).Border(1, t.Border).Focusable().Label("Card")
-			card.PopoverMenu(func(m *ui.Menu) {
+			// the system's: on a right-click, and below the card's ⋯ button.
+			cardMenu := func(m *ui.Menu) {
 				if m.Item("Duplicate").Shortcut(ui.Cmd, ui.KeyD).Chosen() {
 					g.cardDid = "Duplicated"
 				}
@@ -1818,13 +1876,20 @@ func (g *gallery) overlays(c *ui.Context) {
 				if m.Item("Delete").Disabled(g.cardPinned).Chosen() {
 					g.cardDid = "Deleted"
 				}
-			})
+			}
+			card := ui.Row(c).Gap(4).AlignItems(ui.Center).Padding(2, 2, 2, 12).Radius(t.Radius).Border(1, t.Border).Focusable().Label("Card")
+			card.PopoverMenu(cardMenu)
 			card.Children(func() {
 				label := "Right-click me"
 				if g.cardDid != "" {
 					label = g.cardDid
 				}
 				ui.Text(c, label)
+				more := ui.ButtonBase(c).Label("More").Padding(4).Radius(t.Radius).Children(func() { ui.Icon(c, dotsIcon) })
+				if more.Hovered() {
+					more.Background(t.SurfaceHover)
+				}
+				more.PopoverMenuButton(cardMenu)
 			})
 			ui.Button(c, "Hover me").Tooltip("Tooltips show after the pointer rests a moment.")
 			if ui.Button(c, "Alert").Clicked() {
@@ -1856,7 +1921,7 @@ func (g *gallery) overlays(c *ui.Context) {
 }
 
 func main() {
-	g := &gallery{router: ui.NewRouter("/overview"), items: []motionItem{{1, "Item 1"}, {2, "Item 2"}, {3, "Item 3"}}, nextItem: 3, size: "Medium", fruit: "Apple", cardZoom: "Medium", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), tint: ui.Hex("#2563eb"), lens: [2]float32{110, 190}, glassEdge: 1, notes: 12, notifyMail: true, pathDepth: 4, chart: newCharts()}
+	g := &gallery{router: ui.NewRouter("/overview"), items: []motionItem{{1, "Item 1"}, {2, "Item 2"}, {3, "Item 3"}}, nextItem: 3, size: "Medium", fruit: "Apple", cardZoom: "Medium", plan: "Pro", volume: 35, picked: -1, starred: map[int]bool{}, split: 160, copies: 1, tree: map[string]bool{"ui": true}, birthday: time.Date(1815, 12, 10, 0, 0, 0, 0, time.UTC), now: time.Now(), font: "Helvetica", tags: []string{"go", "native"}, sections: [3]bool{true}, sectionsOpen: [2]bool{true, true}, stars: 4, battery: 35, quality: 75, priceLow: 100, priceHigh: 350, meeting: time.Date(2026, 10, 15, 9, 30, 0, 0, time.Local), due: time.Date(2026, 10, 29, 0, 0, 0, 0, time.Local), tint: ui.Hex("#2563eb"), lens: [2]float32{110, 190}, glassEdge: 1, notes: 12, notifyMail: true, pathDepth: 4, chart: newCharts()}
 	// The languages of the Languages page's menu.
 	mygo.App.SetLanguages(galleryLanguages...)
 	mygo.App.WhenReady(func() {

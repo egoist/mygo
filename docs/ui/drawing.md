@@ -2,8 +2,9 @@
 
 `Draw` paints on an element after its background, and `DrawOver` after its
 children, with a `*ui.Painter` in DIPs of the window: rectangles with
-`Fill`, `FillGradient`, `Stroke` and `StrokeDashed`, `Shadow`, `Line`,
-`Image`, `Clip`, paths of lines and curves with `FillPath` and
+`Fill`, `FillGradient`, `FillConicGradient` and `FillRadialGradient`,
+`Stroke` and `StrokeDashed`, `Shadow`, `Line` (horizontal or vertical),
+`Image`, `Clip` and `ClipPath`, paths of lines and curves with `FillPath` and
 `StrokePath`, or in a gradient with `FillPathGradient` and
 `StrokePathGradient`, and text with `Text`, or `RichText` in spans of any
 style, which `MeasureText` measures first, to center or align it:
@@ -42,7 +43,8 @@ Draw functions only paint: MyGo may call them more than once a frame.
 `Painter.Icon` and `Painter.Image` draw SVGs and bitmaps,
 `Painter.ImageRegion` parts of bitmaps (see [Parts of
 bitmaps](#parts-of-bitmaps)), and
-`Painter.FocusRing` the ring of the keyboard focus, for widgets that draw
+`Painter.FocusRing` the ring of the keyboard focus, as the theme draws it
+(see [the focus ring](styling.md#the-focus-ring)), for widgets that draw
 their own.
 
 `Path.Trim(from, to)` keeps the part of a path's length from `from` to
@@ -75,6 +77,57 @@ box.Draw(func(p *ui.Painter, r ui.Rect) {
 	p.StrokePath(edge.Cap(ui.ButtCap).Dash(0, 6, 4), 1.5, c.Theme().TextMuted)
 })
 ```
+
+## Paths from SVG data
+
+`ui.ParsePath(d)` reads the path data of an SVG `<path d="…">` (all of
+its commands, absolute and relative, arcs too) into a `*ui.Path`, so an
+icon's outline copied from an SVG can be filled, stroked, trimmed or
+clipped to like any path. It returns an error that gives the offset of
+the first thing it can't read; `ui.MustParsePath` panics instead, for
+data written into the program:
+
+```go
+var heart = ui.MustParsePath("M12 21 L10.6 19.7 C5.4 15 2 11.9 2 8.1 C2 5 4.4 2.6 7.5 2.6 " +
+	"C9.2 2.6 10.9 3.4 12 4.7 C13.1 3.4 14.8 2.6 16.5 2.6 C19.6 2.6 22 5 22 8.1 " +
+	"C22 11.9 18.6 15 13.4 19.7 Z")
+
+box.Draw(func(p *ui.Painter, r ui.Rect) {
+	p.Transform(ui.Scaling(r.W/24, r.H/24).Then(ui.Translation(r.X, r.Y)), 0, 0, func() {
+		p.StrokePath(heart.Trim(0, drawn), 1.5, c.Theme().Accent)
+	})
+})
+```
+
+The path is in the data's own units; a transform scales it to the box.
+
+## Clipping to a path
+
+`Painter.Clip(r, radius, fn)` clips what `fn` draws to a rounded
+rectangle. `Painter.ClipPath(path, fn)` clips it to the inside of any
+path (non-zero winding), with smooth edges, as SVG's and CSS's
+`clip-path`: a chart drawn into a polygon, or a picture cut to a star.
+
+```go
+star := ui.MustParsePath("M50 0 L61 35 L98 35 L68 57 L79 91 L50 70 L21 91 L32 57 L2 35 L39 35 Z")
+ui.Box(c).Size(100, 100).Draw(func(p *ui.Painter, r ui.Rect) {
+	p.Transform(ui.Translation(r.X, r.Y), 0, 0, func() {
+		p.ClipPath(star, func() {
+			p.FillGradient(ui.Rect{W: 100, H: 100}, ui.LinearGradient{From: gold, To: orange, Angle: 135}, 0)
+		})
+	})
+})
+```
+
+Path clips nest with each other and with `Clip`, and turn with a
+transform. The clip is a mask of the path's coverage that every
+renderer samples, made once for each shape and size it is drawn at and
+kept while frames draw it, so a still path costs nothing to clip to
+again. A moving or changing one makes a new mask every frame, sized to
+the path in device pixels (at most 8192 each way).
+
+To clip an element and its children rather than a drawing, see
+`ClipInset` and the gradient masks in [styling](styling.md).
 
 ## Parts of bitmaps
 
@@ -163,7 +216,10 @@ moving through a zoomed view glides.
 Text that a widget lays out itself, as in the cells of a grid, is shaped
 once with `ui.Shape`, which returns glyphs placed along a line by the
 system's text engine, with ligatures, kerning and fallback fonts, and the
-runes each comes from. Move their `X` and draw them with `Painter.Glyphs`;
+runes each comes from. The glyphs come in visual order on every platform,
+from the left: through Hebrew or Arabic their `Cluster` descends, and
+`RTL` marks them, so find a range of runes' glyphs by `Cluster` and
+`Runes`. Move their `X` and draw them with `Painter.Glyphs`;
 `Font.Metrics` returns the font's ascent, descent and line gap, and
 `Painter.Scale` the device pixels of a DIP, to line things up with the
 display's pixels. `Shape` caches nothing, unlike the text of elements: keep

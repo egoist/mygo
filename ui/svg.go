@@ -56,6 +56,55 @@ func MustParseSVG(data []byte) *SVG {
 	return s
 }
 
+// ParsePath makes a path of SVG path data, as the d attribute of an SVG
+// path element holds it, in its units as DIPs: an icon's outline to fill
+// with a gradient, stroke, draw in with Trim or dash with Dash, as any
+// path a Painter draws.
+//
+//	check := ui.MustParsePath("M4 12l5 5L20 6")
+//	p.Transform(ui.Scaling(2, 2), r.X, r.Y, func() {
+//		p.StrokePath(check.Trim(0, drawn), 2, c.Theme().Accent)
+//	})
+//
+// Its arcs and quadratic curves become cubic curves. Path data in error
+// makes the path up to the error, as SVG draws it, which ParsePath returns
+// with the error.
+func ParsePath(d string) (*Path, error) {
+	ops, pts, err := svg.ParsePath(d)
+	p := &Path{}
+	pt := func(i int) (float32, float32) { return float32(pts[i][0]), float32(pts[i][1]) }
+	k := 0
+	for _, op := range ops {
+		switch op {
+		case svg.PathMove:
+			p.MoveTo(pt(k))
+			k++
+		case svg.PathLine:
+			p.LineTo(pt(k))
+			k++
+		case svg.PathCubic:
+			c1x, c1y := pt(k)
+			c2x, c2y := pt(k + 1)
+			x, y := pt(k + 2)
+			p.CubeTo(c1x, c1y, c2x, c2y, x, y)
+			k += 3
+		case svg.PathClose:
+			p.Close()
+		}
+	}
+	return p, err
+}
+
+// MustParsePath is ParsePath for path data that is part of the program:
+// it panics when the data is in error.
+func MustParsePath(d string) *Path {
+	p, err := ParsePath(d)
+	if err != nil {
+		panic("ui: " + err.Error())
+	}
+	return p
+}
+
 // Size returns the size the SVG says it has, its width and height or
 // those of its viewBox, which Image shows as DIPs.
 func (s *SVG) Size() (w, h float32) { return s.w, s.h }
@@ -240,8 +289,9 @@ func (rt *engine) rasterizeIcon() (int, int, []byte) {
 }
 
 // drawSVG paints an SVG in its own colors, with current for currentColor,
-// scaled into box as fit says, clipped to radius and in gray if gray.
-func (p *Painter) drawSVG(s *SVG, box Rect, fit Fit, radius [4]float32, current Color, gray bool) {
+// scaled into box as fit says and placed pos from the middle of the room
+// around it (ObjectPosition), clipped to radius and in gray if gray.
+func (p *Painter) drawSVG(s *SVG, box Rect, fit Fit, pos [2]float32, radius [4]float32, current Color, gray bool) {
 	if s == nil || s.w <= 0 || s.h <= 0 || !p.visible(box, 0) {
 		return
 	}
@@ -256,9 +306,7 @@ func (p *Painter) drawSVG(s *SVG, box Rect, fit Fit, radius [4]float32, current 
 		case ScaleDown:
 			scale = min(box.W/s.w, box.H/s.h, 1)
 		}
-		dst.W, dst.H = s.w*scale, s.h*scale
-		dst.X += (box.W - dst.W) / 2
-		dst.Y += (box.H - dst.H) / 2
+		dst = placeIn(box, s.w*scale, s.h*scale, pos)
 	}
 	d := p.snap(dst)
 	w, h := int(d.W), int(d.H)
@@ -272,9 +320,13 @@ func (p *Painter) drawSVG(s *SVG, box Rect, fit Fit, radius [4]float32, current 
 	// sRGB color.
 	img := p.rt.picture(pictureKey{s: s, w: w, h: h, color: current.SRGB(), stretch: fit == FillBox})
 	op := scene.Op{Kind: scene.OpImage, Rect: d, Radii: p.radii(radius), Continuous: continuousCorners, Image: img, Src: scene.Rect{W: float32(w), H: float32(h)}, Opacity: p.opacity, Grayscale: gray}
-	if fit == Cover || fit == NaturalSize {
-		// Only what falls in the box shows.
+	if fit != FillBox {
+		// Only what falls in the box shows: of Cover and NaturalSize, or
+		// placed past its edges (ObjectPosition).
 		b := p.snap(box).Intersect(d)
+		if b.W <= 0 || b.H <= 0 {
+			return
+		}
 		op.Rect, op.Src = b, scene.Rect{X: b.X - d.X, Y: b.Y - d.Y, W: b.W, H: b.H}
 	}
 	p.add(op)

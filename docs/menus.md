@@ -56,9 +56,13 @@ shortcut, which `Label` and `Accelerator` override:
   `RoleDelete`, `RoleSelectAll`, and on macOS `RolePasteAndMatchStyle`.
   Their keys go to the content first, as in a browser: in a page on
   Windows, WebView2 cuts, copies and pastes with the page's own events and
-  every format of the clipboard, while choosing Paste from the menu types
-  the clipboard's text, as pages may not read the clipboard (as does an
-  edit role given a key the page has no use for, as Copy on Ctrl+Shift+C);
+  every format of the clipboard. Choosing Paste from the menu restores
+  focus to the page and runs Chromium's paste command through DevTools,
+  with the same paste event and formats. The page also sees `keydown` and
+  `keyup` for an `Unidentified` key without modifiers, so its Ctrl+V
+  handlers are not invoked. Paste and Match Style still inserts plain
+  text. An edit role given a key the page has no use for, as Copy on
+  Ctrl+Shift+C, still runs its command;
 - formatting: `RoleBold`, `RoleItalic`, `RoleUnderline`,
   `RoleStrikethrough`, `RoleAlignLeft`, `RoleAlignCenter` and
   `RoleAlignRight`, which format the selection of a [rich text
@@ -84,6 +88,17 @@ shortcut, which `Label` and `Accelerator` override:
 
 Items with the roles of macOS are left out on other platforms, so one
 template serves every platform.
+
+The items of the editing roles, in menu bars and popups alike, are enabled
+only while the focus can act on them, as in other apps: in
+[native UI](ui/README.md), Cut and Copy with text selected, Undo with
+something to undo, Paste in a text input, all of them for an element that
+takes its input (`HandleInput`), and on macOS a role whose key a
+[shortcut](ui/input.md) of the focus or the window takes.
+On macOS the menus holding them ask the focus: a page's web view enables
+them, and the Speech items, as WebKit does, and native UI, which does not
+speak, disables the Speech items. On Linux and Windows a page's items keep
+the state the app gave them. An item the app disables stays disabled.
 
 ### Changing items
 

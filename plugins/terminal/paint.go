@@ -93,7 +93,8 @@ func (v *view) layout(r ui.Rect, scale float32) {
 		for _, g := range ui.Shape(asciiPrintable, v.fonts[0]) {
 			adv = max(adv, g.Advance)
 		}
-		v.cellW = max(int(math.Ceil(float64(adv*scale-0.05))), 1)
+		v.fitW = max(int(math.Ceil(float64(adv*scale-0.05))), 1)
+		v.cellW = max(int(math.Ceil(float64(adv*fk.cellWidth*scale-0.05))), 1)
 		v.cellH = max(int(math.Ceil(float64((m.Ascent+m.Descent+m.LineGap)*fk.lineHeight*scale-0.05))), 1)
 		v.baseline = int(math.Round(float64((float32(v.cellH)-(m.Ascent+m.Descent)*scale)/2 + m.Ascent*scale)))
 		v.shaped.clear()
@@ -241,15 +242,21 @@ func contrasted(fg, bg ui.Color, ratio float32) ui.Color {
 // luminance returns the relative luminance of an sRGB color, from 0 for
 // black to 1 for white.
 func luminance(c ui.Color) float32 {
-	lin := func(v uint8) float64 {
+	return float32(0.2126*linear[c.R] + 0.7152*linear[c.G] + 0.0722*linear[c.B])
+}
+
+// linear holds each sRGB component value in linear light, from 0 to 1.
+var linear = func() (t [256]float64) {
+	for v := range t {
 		f := float64(v) / 255
 		if f <= 0.04045 {
-			return f / 12.92
+			t[v] = f / 12.92
+		} else {
+			t[v] = math.Pow((f+0.055)/1.055, 2.4)
 		}
-		return math.Pow((f+0.055)/1.055, 2.4)
 	}
-	return float32(0.2126*lin(c.R) + 0.7152*lin(c.G) + 0.0722*lin(c.B))
-}
+	return t
+}()
 
 // contrast returns the contrast ratio of two luminances, from 1 to 21.
 func contrast(a, b float32) float32 {
@@ -417,12 +424,14 @@ func (v *view) shapeRun(line *rowCache, text []rune, cols []int16, widths []int8
 		return
 	}
 	shaped := v.shape(string(text), variant, 1)
-	cw := float32(v.cellW) / v.scale
+	cw, fw := float32(v.cellW)/v.scale, float32(v.fitW)/v.scale
 	out := glyphRun{glyphs: make([]ui.Glyph, 0, len(shaped)), cols: make([]int16, 0, len(shaped)), c: fg}
 	// The glyphs of a cell, or of the cells a ligature spans, keep their
 	// places relative to each other and are centered in the cells, as the
 	// glyphs of fallback fonts, wider or narrower than a cell, are. Those
-	// too wide, as emoji are, shrink to fit, as in Ghostty.
+	// too wide, as emoji are, shrink to fit, as in Ghostty: to cells at the
+	// font's own advance, so that Font.CellWidth spaces glyphs without
+	// resizing them.
 	for i := 0; i < len(shaped); {
 		first := max(0, min(shaped[i].Cluster, len(cols)-1))
 		col := cols[first]
@@ -443,8 +452,9 @@ func (v *view) shapeRun(line *rowCache, text []rune, cols []int16, widths []int8
 			span += int(widths[k])
 		}
 		room := float32(max(span, 1)) * cw
+		fit := float32(max(span, 1)) * fw
 		group := shaped[i : j+1]
-		if f := room / (x1 - x0); f < 0.95 && x1 > x0 {
+		if f := fit / (x1 - x0); f < 0.95 && x1 > x0 {
 			// Too wide: the same text, smaller.
 			small := v.shape(string(text[first:last+1]), variant, max(f, 0.5))
 			if len(small) > 0 {
@@ -814,60 +824,21 @@ func (v *view) drawPreedit(p *ui.Painter, ox, oy, cw, ch, base float32) {
 	p.Fill(ui.Rect{X: x, Y: y + ch - 1/v.scale, W: w, H: 1 / v.scale}, fg, 0)
 }
 
-// How long the scroll bar stays after the viewport last moved, or the
-// pointer left it, and how long it then takes to fade out.
-const (
-	barLinger = time.Second
-	barFade   = 300 * time.Millisecond
-)
-
-// drawScrollbar shows where the viewport is in the scrollback, as macOS's
-// overlay scroll bars do: as the viewport moves, and while the pointer is
-// over the bar's strip or drags it, when it widens; a while after, it
-// fades out.
+// drawScrollbar shows where the viewport is in the scrollback, as a
+// scroll container's bar does (ui.Scrollbar), while the pointer is over
+// the terminal or drags the thumb; in the terminal's text color, as its
+// colors are its own.
 func (v *view) drawScrollbar(p *ui.Painter, r ui.Rect) {
-	sb := v.scrollbar
-	now := p.Now()
-	if back := int64(sb.Total) - int64(sb.Len) - int64(sb.Offset); back != v.barBack {
-		v.barBack, v.barSeen = back, now
-	}
-	lit := v.barHeld || v.barHover
-	if v.barLit && !lit {
-		v.barSeen = now
-	}
-	v.barLit = lit
-	if sb.Total <= sb.Len {
+	if !v.inView && !v.barHeld {
 		return
 	}
-	a := float32(1)
-	if !lit {
-		switch d := now.Sub(v.barSeen); {
-		case d < barLinger:
-			p.After(barLinger - d)
-		case d < barLinger+barFade:
-			a = 1 - float32(d-barLinger)/float32(barFade)
-			p.AnimationFrame()
-		default:
-			return
-		}
-	}
-	fg := color(v.colors.Foreground)
-	y, h := thumb(sb, r.H)
-	w, inset, c := float32(4), float32(3), fg.Alpha(0.35*a)
-	if lit {
-		w, inset = 8, 2
-		if v.barHeld {
-			c = fg.Alpha(0.5)
-		}
-	}
-	p.Fill(ui.Rect{X: r.X + r.W - inset - w, Y: r.Y + y + 2, W: w, H: h - 4}, c, w/2)
+	p.Scrollbar(bar(v.scrollbar, r), ui.ScrollbarState{Dragging: v.barHeld, Color: color(v.colors.Foreground)})
 }
 
-// thumb returns the top of the scroll bar's thumb in a track h DIPs high,
-// and its height; the scrollback is longer than the viewport.
-func thumb(sb vt.Scrollbar, h float32) (y, th float32) {
-	th = max(h*float32(sb.Len)/float32(sb.Total), 24)
-	return (h - th) * float32(sb.Offset) / float32(sb.Total-sb.Len), th
+// bar returns the scroll bar of the scrollback sb, along the right edge of
+// box.
+func bar(sb vt.Scrollbar, box ui.Rect) ui.Scrollbar {
+	return ui.Scrollbar{Box: box, View: float32(sb.Len), Content: float32(sb.Total), Offset: float32(sb.Offset)}
 }
 
 // lru caches shaped text.
