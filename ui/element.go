@@ -438,6 +438,7 @@ type node struct {
 	caret      Rect
 	takesText  bool
 	noIME      bool // InputMethod(false)
+	rawKeys    bool // RawKeys
 	copyData   func(parts []SelectedText) transfer.Data
 
 	// Content.

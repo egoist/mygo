@@ -1,6 +1,10 @@
 package ui
 
-import time "time"
+import (
+	"time"
+
+	"github.com/egoist/mygo/internal/platform"
+)
 
 // InputKind is the kind of an InputEvent.
 type InputKind uint8
@@ -67,8 +71,14 @@ type InputEvent struct {
 	// layout types: the S key is KeyS on a Cyrillic layout too, where Key
 	// is KeyUnknown. KeyUnknown where the platform does not report it.
 	PhysicalKey Key
-	Mods        Modifiers
-	Repeat      bool
+	// Code is the key by its position on any keyboard, with the sides of
+	// the modifiers told apart, as CodeShiftLeft; CodeUnknown where the
+	// platform does not report it, as for a mouse's side buttons, whose
+	// keys are KeyBack and KeyForward. RawKeys brings the keys that only it
+	// can name.
+	Code   KeyCode
+	Mods   Modifiers
+	Repeat bool
 	// Text of InputText, InputCompose and InputCommand, and Caret the
 	// rune of an InputCompose's caret.
 	Text  string
@@ -116,6 +126,30 @@ type InputEvent struct {
 // instead (Clicked, Shortcut, Dragged).
 func (e *node) HandleInput(fn func(ev InputEvent) bool) *node {
 	e.inputFn = fn
+	return e
+}
+
+// RawKeys has the element's HandleInput get every key the system tells the
+// window of, by position (InputEvent.Code), not only those it gets without:
+// modifiers pressed and released on their own, a lone tap of Super among
+// them, which side they were on, Caps Lock, Num Lock, Scroll Lock, Print
+// Screen and Pause, and any key whose press the layout types no Key for, as
+// the 102nd key beside the left Shift or a key held with AltGr. They come as
+// InputKeyDown and InputKeyUp with Key KeyUnknown, and PhysicalKey where the
+// key has one; Mods includes the modifier a press brings and leaves out the
+// one a release takes. What fn leaves goes on to the system as it would
+// without fn, and what it takes goes no further, as Alt, which opens the
+// menu bar on Windows and Linux. It is for what stands in for a keyboard,
+// such as a virtual machine's screen or a remote desktop; without it fn
+// sees the keys as before, and shortcuts keep working either way.
+//
+// Keys the desktop takes for itself never come, as Super where it opens a
+// launcher. Keys let go of after the window lost the keyboard have no
+// InputKeyUp, as with other keys, so an element holding keys lets go of them
+// as it loses the focus (Focused). ObserveInput does not see the keys only
+// RawKeys brings.
+func (e *node) RawKeys() *node {
+	e.rawKeys = true
 	return e
 }
 
@@ -168,6 +202,20 @@ func (e *node) TextCaret(r Rect) *node {
 func (e *node) InputMethod(on bool) *node {
 	e.noIME = !on
 	return e
+}
+
+// rawKey gives a key only RawKeys brings to the element with the focus, if
+// it asked for them, and reports whether it took the key.
+func (rt *engine) rawKey(ev platform.SurfaceEvent) bool {
+	h := rt.focusHandler()
+	if h == nil || !h.rawKeys {
+		return false
+	}
+	kind := InputKeyDown
+	if ev.Kind == platform.RawKeyReleased {
+		kind = InputKeyUp
+	}
+	return rt.deliver(h, InputEvent{Kind: kind, Key: Key(ev.Key), PhysicalKey: Key(ev.PhysicalKey), Code: KeyCode(ev.Code), Mods: Modifiers(ev.Mods), Repeat: ev.Repeat})
 }
 
 // handler returns the state of the innermost element of chain that

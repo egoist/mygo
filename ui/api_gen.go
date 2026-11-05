@@ -6467,6 +6467,35 @@ func (_handle Element) Range(lo float64, hi float64, value float64) Element {
 	return wrapElement(_node.Range(lo, hi, value))
 }
 
+// RawKeys has the element's HandleInput get every key the system tells the
+// window of, by position (InputEvent.Code), not only those it gets without:
+// modifiers pressed and released on their own, a lone tap of Super among
+// them, which side they were on, Caps Lock, Num Lock, Scroll Lock, Print
+// Screen and Pause, and any key whose press the layout types no Key for, as
+// the 102nd key beside the left Shift or a key held with AltGr. They come as
+// InputKeyDown and InputKeyUp with Key KeyUnknown, and PhysicalKey where the
+// key has one; Mods includes the modifier a press brings and leaves out the
+// one a release takes. What fn leaves goes on to the system as it would
+// without fn, and what it takes goes no further, as Alt, which opens the
+// menu bar on Windows and Linux. It is for what stands in for a keyboard,
+// such as a virtual machine's screen or a remote desktop; without it fn
+// sees the keys as before, and shortcuts keep working either way.
+//
+// Keys the desktop takes for itself never come, as Super where it opens a
+// launcher. Keys let go of after the window lost the keyboard have no
+// InputKeyUp, as with other keys, so an element holding keys lets go of them
+// as it loses the focus (Focused). ObserveInput does not see the keys only
+// RawKeys brings.
+func (_handle Element) RawKeys() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.RawKeys())
+}
+
 // ReadOnly makes a text input show its text without letting the user
 // change it: the text can still be selected and copied, from the keyboard
 // too, as it takes the focus, without a caret; assistive technology reads

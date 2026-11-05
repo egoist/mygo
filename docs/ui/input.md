@@ -525,6 +525,60 @@ if ui.Button(c, "Copy").Clicked() {
 }
 ```
 
+### Every key of the keyboard
+
+`InputEvent.Code` is the key by its position on any keyboard, a `ui.KeyCode`:
+it tells the sides of the modifiers (`ui.CodeShiftLeft`, `ui.CodeAltRight`,
+`ui.CodeSuperLeft`) and names the keys `ui.Key` has no name for, as
+`ui.CodeNumpad5` or `ui.CodeIntlBackslash`, the 102nd key beside the left
+Shift. Its values are USB HID usage IDs of the keyboard page and its names
+those of `KeyboardEvent.code`, with Super for Meta, so one table turns them
+into a guest's scancodes.
+
+By default `HandleInput` gets `Code` on the keys it always got. An element
+that stands in for a keyboard, as a virtual machine's screen or a remote
+desktop, asks for the rest with `RawKeys`: modifiers pressed and released
+on their own, a lone tap of Super among them, Caps Lock, Num Lock, Scroll
+Lock, Print Screen and Pause, and the keys whose press the layout types no
+`Key` for, as a key held with AltGr or `Shift+1` on a US layout. They come
+as `ui.InputKeyDown` and `ui.InputKeyUp` with `Key` being `ui.KeyUnknown`.
+
+```go
+screen := ui.Box(c).Grow(1).Focusable().AutoFocus().RawKeys().Bind(&app.screen)
+screen.HandleInput(func(ev ui.InputEvent) bool {
+	switch ev.Kind {
+	case ui.InputKeyDown:
+		return app.guest.press(ev.Code)
+	case ui.InputKeyUp:
+		return app.guest.release(ev.Code)
+	}
+	return false
+})
+if !app.screen.Focused(c) {
+	app.guest.releaseAll() // what is let go of elsewhere never comes up here
+}
+```
+
+What the function takes goes no further, as Alt, which otherwise opens the
+menu bar on Windows and Linux; what it leaves goes on as it would without
+it, and shortcuts keep working. `Tester.CodeDown` and `Tester.CodeUp` press
+and let go of such keys in tests.
+
+What a system tells has limits:
+
+- Keys the desktop takes for itself never come, as Super where a launcher
+  opens with it, or combinations a window manager binds.
+- On macOS Caps Lock comes as a press and a release together as its lock
+  changes, not as the key moves. Fn has no code.
+- On Windows Print Screen comes as a press and a release together as the key
+  is let go of; AltGr comes as `ui.CodeAltRight` alone, without the left
+  Control Windows makes up for it, though `Mods` still holds Ctrl and Alt;
+  and with both Shifts held the first release comes with the second. The
+  Windows key's release still opens the Start menu.
+- In browsers the page gets what the browser leaves it: `Code` is the
+  event's `code`.
+- `WebView`s take the keys while they have the focus.
+
 ## Input inside a region
 
 `ObserveInput` has a container see the input that comes to the elements

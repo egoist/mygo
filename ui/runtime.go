@@ -1378,7 +1378,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	s.cursor, s.tip = e.cursor, e.tip
 	s.webView = e.webView
 	s.role, s.focusHighlights = e.role, e.focusHighlights
-	s.input, s.caret, s.takesText, s.noIME = e.inputFn, e.caret, e.takesText, e.noIME
+	s.input, s.caret, s.takesText, s.noIME, s.rawKeys = e.inputFn, e.caret, e.takesText, e.noIME, e.rawKeys
 	if s.observe = e.observeFn; s.observe != nil {
 		rt.observers++
 	}

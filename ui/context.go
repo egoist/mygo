@@ -864,6 +864,7 @@ type state struct {
 	caret       Rect
 	takesText   bool
 	noIME       bool
+	rawKeys     bool // RawKeys
 	// copyData is what a Selectable container's selection copies as
 	// (CopyData).
 	copyData func(parts []SelectedText) transfer.Data

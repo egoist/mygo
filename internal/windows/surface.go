@@ -147,6 +147,9 @@ type surface struct {
 	// menuRan tells that the key down ran a menu item (menuShortcut): its
 	// character goes nowhere.
 	menuRan bool
+	// shiftsDown are the Shift keys the content got pressed (rawKey): 1 the
+	// left, 2 the right.
+	shiftsDown uint8
 	// held are the keys the content got pressed and not yet released,
 	// whose releases a menu's loop or an input method may take (liftKeys).
 	held platform.HeldKeys
@@ -864,6 +867,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceFocus})
 		return 0, true
 	case wmKillFocus:
+		s.shiftsDown = 0
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
 		return 0, true
 	case wmKeyDown, wmSysKeyDown:
@@ -876,28 +880,42 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		if s.menuShortcut(wp, false) {
 			return 0, true
 		}
-		if k, physical, ok := keyAndPosition(wp, lp, false, modifiers); ok {
-			s.keyTaken = s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, PhysicalKey: physical, Mods: modifiers, Repeat: lp&(1<<30) != 0})
+		rawTaken := false
+		k, physical, ok := keyAndPosition(wp, lp, false, modifiers)
+		if ok {
+			s.keyTaken = s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, PhysicalKey: physical, Code: keyCode(wp, lp), Mods: modifiers, Repeat: lp&(1<<30) != 0})
+		} else {
+			rawTaken = s.rawKey(platform.RawKeyPressed, wp, lp, physical, modifiers)
+			s.keyTaken = rawTaken
 		}
 		if !s.keyTaken && s.menuShortcut(wp, true) {
 			return 0, true
 		}
-		// Alt+F4, Alt+Space and F10 keep working.
-		return 0, m == wmKeyDown
+		// Alt+F4, Alt+Space and F10 keep working, and Alt the menu bar, unless
+		// the content took it as a key of its own.
+		return 0, m == wmKeyDown || rawTaken
 	case wmKeyUp, wmSysKeyUp:
 		modifiers := mods()
 		if modifierKey(wp) {
 			s.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: modifiers})
 		}
-		if k, physical, ok := keyAndPosition(wp, lp, true, modifiers); ok {
-			s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k, PhysicalKey: physical, Mods: modifiers})
+		rawTaken := false
+		k, physical, ok := keyAndPosition(wp, lp, true, modifiers)
+		if ok {
+			s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k, PhysicalKey: physical, Code: keyCode(wp, lp), Mods: modifiers})
 		} else if wp == vkProcessKey && lp&(1<<24) == 0 {
 			// The input method took the release of a key the content got
 			// pressed, as it began composing while the key was held: the
 			// key goes up all the same, by its position.
 			s.held.Lift(platform.KeyUnknown, platform.KeyForScancode(uint16(lp>>16&0xFF)), modifiers, s.send)
+		} else {
+			if wp == vkSnapshot {
+				// Windows keeps Print Screen's press for its own hotkey.
+				s.rawKey(platform.RawKeyPressed, wp, lp&^(1<<30), physical, modifiers)
+			}
+			rawTaken = s.rawKey(platform.RawKeyReleased, wp, lp, physical, modifiers)
 		}
-		return 0, m == wmKeyUp
+		return 0, m == wmKeyUp || rawTaken
 	case wmSysChar:
 		if s.menuRan {
 			return 0, true
@@ -1015,6 +1033,62 @@ func wheelLines() int {
 		}
 	}
 	return surfaceWheelLines
+}
+
+// keyCode returns the key by position of a WM_KEYDOWN or WM_KEYUP, from its
+// scancode: CodeUnknown for what an input method (VK_PROCESSKEY) or injected
+// Unicode text (VK_PACKET) keeps from the application, and for a key the
+// system made with no scancode.
+func keyCode(vk, lp uintptr) platform.KeyCode {
+	if vk == vkProcessKey || vk == vkPacket {
+		return platform.CodeUnknown
+	}
+	return platform.KeyCodeForXT(uint8(lp>>16&0xFF), lp&(1<<24) != 0)
+}
+
+// rawKey sends a key shortcuts have no name for, which keyAndPosition leaves
+// out, by its position, and reports whether the content took it. kind is
+// RawKeyPressed or RawKeyReleased.
+func (s *surface) rawKey(kind platform.SurfaceEventKind, wp, lp uintptr, physical platform.Key, modifiers platform.Modifiers) bool {
+	code := keyCode(wp, lp)
+	if code == platform.CodeUnknown || altGrControl(wp, lp) {
+		return false
+	}
+	if code == platform.CodeShiftLeft || code == platform.CodeShiftRight {
+		bit := uint8(1)
+		other := platform.CodeShiftRight
+		if code == platform.CodeShiftRight {
+			bit, other = 2, platform.CodeShiftLeft
+		}
+		if kind == platform.RawKeyPressed {
+			s.shiftsDown |= bit
+		} else {
+			// With both held Windows tells of no release until the last
+			// one's: they go up together.
+			s.shiftsDown &^= bit
+			if s.shiftsDown != 0 {
+				s.shiftsDown = 0
+				s.send(platform.SurfaceEvent{Kind: kind, Code: other, Mods: modifiers})
+			}
+		}
+	}
+	return s.send(platform.SurfaceEvent{Kind: kind, PhysicalKey: physical, Code: code, Mods: modifiers, Repeat: kind == platform.RawKeyPressed && lp&(1<<30) != 0})
+}
+
+// altGrControl reports whether a key message is the left Control that
+// Windows makes up before the right Alt of AltGr, whose message follows with
+// the same time: AltGr is one key.
+func altGrControl(vk, lp uintptr) bool {
+	if vk != vkControl || lp&(1<<24) != 0 {
+		return false
+	}
+	var next msg
+	r, _, _ := procPeekMessageW.Call(uintptr(unsafe.Pointer(&next)), 0, wmKeyDown, wmSysKeyUp, pmNoRemove)
+	if r == 0 || next.WParam != vkMenu || next.LParam&(1<<24) == 0 {
+		return false
+	}
+	at, _, _ := procGetMessageTime.Call()
+	return next.Time == uint32(at)
 }
 
 // keyAndPosition returns the key of a WM_KEYDOWN or WM_KEYUP by virtual
