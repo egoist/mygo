@@ -682,8 +682,10 @@ features GTK 4 lacks become X11-only code beside it.
   `#FFFFFF19` in the dark, a color of its own rather than the accent) and
   takes the shadow off the class, for DWM's around the window. It also
   subclasses them: on Windows 11 22H2 with transparency effects on, no
-  contrast theme, energy saver off and outside remote sessions
-  (`glassConditions`), a window that says (`MN_GETHMENU`, before it shows
+  contrast theme, energy saver off, outside remote sessions and with a
+  GPU (`glassConditions`: DWM draws no material when the first DXGI
+  adapter is Microsoft's Basic Render Driver or a software one, unless
+  its `ForceEffectMode` policy is 2), a window that says (`MN_GETHMENU`, before it shows
   or paints) that it shows a menu MyGo draws gets Acrylic
   (`DWMSBT_TRANSIENTWINDOW`, in the appearance through
   `DWMWA_USE_IMMERSIVE_DARK_MODE`) with the frame extended over all of

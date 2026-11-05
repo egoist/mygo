@@ -55,11 +55,31 @@ func TestMenuGlassConditions(t *testing.T) {
 		"transparency effects off": func(c *glassConditions) { c.transparency = false },
 		"energy saver":             func(c *glassConditions) { c.energySaver = true },
 		"a remote session":         func(c *glassConditions) { c.remote = true },
+		"no GPU":                   func(c *glassConditions) { c.software = true },
 	} {
 		c := on
 		off(&c)
 		if c.glass() {
 			t.Errorf("with %s: the material, want WinUI's solid background", name)
+		}
+	}
+}
+
+// DWM composes without a GPU on Microsoft's adapters, the Basic Render
+// Driver of a virtual machine, and on software ones, and with any other.
+func TestSoftwareAdapter(t *testing.T) {
+	for _, c := range []struct {
+		vendor, flags uint32
+		want          bool
+	}{
+		{0x1414, 0, true}, // the Basic Render Driver
+		{0x10de, 2, true}, // DXGI_ADAPTER_FLAG_SOFTWARE
+		{0x10de, 0, false},
+		{0x8086, 0, false},
+		{0x1ab8, 0, false}, // Parallels' 3D driver
+	} {
+		if got := softwareAdapter(c.vendor, c.flags); got != c.want {
+			t.Errorf("vendor %#x, flags %d: software %v, want %v", c.vendor, c.flags, got, c.want)
 		}
 	}
 }

@@ -834,8 +834,8 @@ func blend(a, b uint32, t float64) uint32 {
 // It also subclasses them, to put the material of WinUI's menus, Acrylic
 // (DWMSBT_TRANSIENTWINDOW), behind those of the menus MyGo draws, once
 // they say which menu they show (dressMenu), on Windows 11 22H2 and later
-// with transparency effects on, no contrast theme, energy saver off and
-// outside remote sessions (menuGlass). The frame extended over the whole
+// with transparency effects on, no contrast theme, energy saver off,
+// outside remote sessions and with a GPU (menuGlass). The frame extended over the whole
 // window, DWM shows the material where the window's pixels are
 // transparent: the menu's background, its frame, and what the items leave
 // so (paintItem). Neither the items nor the frame are transparent: they
@@ -917,22 +917,25 @@ type glassConditions struct {
 	transparency bool // transparency effects are on
 	energySaver  bool // energy saver (battery saver) is on
 	remote       bool // the session is a remote one
+	software     bool // DWM composes without a GPU, as in a virtual machine
 }
 
 // glass reports whether menus show the material under the conditions:
 // only where DWM surely draws it. Energy saver turns transparency effects
-// off, which their setting doesn't say, and a remote session may have
-// none; there, as wherever it isn't sure, a menu has WinUI's solid
-// background rather than DWM's fallback for the material, a flat grey.
+// off, which their setting doesn't say, a remote session may have none,
+// and DWM draws none without a GPU (dwmSoftware); there, as wherever it
+// isn't sure, a menu has WinUI's solid background rather than DWM's
+// fallback for the material, a flat grey.
 func (c glassConditions) glass() bool {
-	return c.fluent && c.backdrops && !c.contrast && c.transparency && !c.energySaver && !c.remote
+	return c.fluent && c.backdrops && !c.contrast && c.transparency && !c.energySaver && !c.remote && !c.software
 }
 
 // menuGlass reports whether the menus MyGo draws show the material behind
 // them, as WinUI's do: from Windows 11 22H2, when transparency effects
 // are on (Personalization > Colors), and neither a contrast theme nor
-// energy saver is, outside remote sessions (glassConditions). Windows
-// 11's first release and Windows 10 have no material for them.
+// energy saver is, outside remote sessions and with a GPU
+// (glassConditions). Windows 11's first release and Windows 10 have no
+// material for them.
 func menuGlass() bool {
 	c := glassConditions{fluent: fluentMenus(), backdrops: systemBackdrops()}
 	if !c.fluent || !c.backdrops {
@@ -944,7 +947,64 @@ func menuGlass() bool {
 	c.energySaver = energySaverOn()
 	r, _, _ := procGetSystemMetrics.Call(smRemoteSession)
 	c.remote = r != 0
+	c.software = dwmSoftware()
 	return c.glass()
+}
+
+// dwmSoftware reports whether DWM composes without a GPU, and so draws no
+// material, only the flat grey it falls back to: when the display's
+// adapter is Microsoft's, the Basic Render Driver of a virtual machine
+// without a 3D driver or of a computer without its display driver, or a
+// software one. DWM's ForceEffectMode policy of 2 makes it draw the
+// material anyway. It is read once: the adapter changes with a driver.
+var dwmSoftware = sync.OnceValue(func() bool {
+	if v, ok := regDWORD(hkeyLocalMachine, `SOFTWARE\Microsoft\Windows\Dwm`, "ForceEffectMode"); ok && v == 2 {
+		return false
+	}
+	vendor, flags, ok := primaryAdapter()
+	return ok && softwareAdapter(vendor, flags)
+})
+
+// softwareAdapter reports whether the DXGI adapter of vendor with flags
+// renders on the CPU: one of Microsoft's (the Basic Render Driver), or
+// one DXGI says is software.
+func softwareAdapter(vendor, flags uint32) bool {
+	const microsoft, flagSoftware = 0x1414, 2 // DXGI_ADAPTER_FLAG_SOFTWARE
+	return vendor == microsoft || flags&flagSoftware != 0
+}
+
+// dxgiAdapterDesc1 is DXGI_ADAPTER_DESC1.
+type dxgiAdapterDesc1 struct {
+	description                                [128]uint16
+	vendor, device, subSys, revision           uint32
+	dedicatedVideo, dedicatedSystem, sharedMem uintptr
+	luid                                       [2]uint32
+	flags                                      uint32
+}
+
+// primaryAdapter returns the vendor ID and flags of the first DXGI
+// adapter, the one with the primary display, which DWM composes it with,
+// and ok false when DXGI cannot say.
+func primaryAdapter() (vendor, flags uint32, ok bool) {
+	if procCreateDXGIFactory1.Find() != nil {
+		return 0, 0, false
+	}
+	var factory uintptr
+	if hr, _, _ := procCreateDXGIFactory1.Call(uintptr(unsafe.Pointer(&iidIDXGIFactory1)), uintptr(unsafe.Pointer(&factory))); int32(uint32(hr)) < 0 || factory == 0 {
+		return 0, 0, false
+	}
+	defer release(factory)
+	const enumAdapters1, getDesc1 = 12, 10 // IDXGIFactory1, IDXGIAdapter1
+	var adapter uintptr
+	if hr := comCall(factory, enumAdapters1, 0, uintptr(unsafe.Pointer(&adapter))); int32(uint32(hr)) < 0 || adapter == 0 {
+		return 0, 0, false
+	}
+	defer release(adapter)
+	var desc dxgiAdapterDesc1
+	if hr := comCall(adapter, getDesc1, uintptr(unsafe.Pointer(&desc))); int32(uint32(hr)) < 0 {
+		return 0, 0, false
+	}
+	return desc.vendor, desc.flags, true
 }
 
 // energySaverOn reports whether energy saver (battery saver) is on.
