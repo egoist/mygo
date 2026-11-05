@@ -5,7 +5,10 @@ package text
 import (
 	"bytes"
 	"math"
+	"math/rand/v2"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -471,4 +474,85 @@ func TestCoreTextNumbersLeftOut(t *testing.T) {
 	if e.shapeNumber(text, style, nil, 0, false) != nil {
 		t.Error("a font that disagreed still has numbers put together")
 	}
+}
+
+// Latin text wrapped from one line is what Core Text wraps, for any text made
+// of what wrapping takes, at any width, in a font's first checks and beyond.
+func TestCoreTextWrapFuzz(t *testing.T) {
+	iterations := 400
+	if n, err := strconv.Atoi(os.Getenv("MYGO_WRAP_FUZZ")); err == nil {
+		iterations = n
+	}
+	words := []string{"a", "I", "to", "the", "window", "layout", "AVATAR", "Type", "fi", "ffl", "office", "don't", "well-known", "e.g.", "U.S.A.", "1,234.56", "3.14", "$5", "50%", "a/b", "http://example.com/path?q=1&r=2", "(paren)", "[box]", "{curly}", "\"quoted\"", "'single'", "end.", "yes,", "stop;", "wait:", "what?", "no!", "x+y", "a=b", "#tag", "@me", "under_score", "<tag>", "~", "*star*", "pipe|", "back\\slash", "café", "Über", "señor", "naïve", "Ærø", "garçon", "verylongwordthatdoesnotfitalineandhastobrokenbycoretext", "--", "-", "...", "A-1", "1-2", "T.", "V,", "Y.", "L'", "f)", "ß"}
+	seps := []string{" ", " ", " ", " ", "  ", "   ", "", "-", "/"}
+	styles := []Style{{Size: 13}, {Size: 14, Weight: 700}, {Size: 13, Italic: true}, {Size: 15, Family: "Georgia"}, {Size: 12, Family: "Helvetica Neue"}, {Size: 13, Family: "Menlo"}, {Size: 16, Family: "Times New Roman"}}
+	rng := rand.New(rand.NewPCG(1, 2))
+	s := newSystem()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e := s.engine().(*coreText)
+	wrapped, leftOut := 0, 0
+	defer func() { t.Logf("%d wrappings compared, %d left to Core Text", wrapped, leftOut) }()
+	for it := range iterations {
+		var b strings.Builder
+		for range 1 + rng.IntN(80) {
+			b.WriteString(words[rng.IntN(len(words))])
+			b.WriteString(seps[rng.IntN(len(seps))])
+		}
+		text := []rune(b.String())
+		style := styles[it%len(styles)]
+		e.resetScratch()
+		font := e.ctFont(style)
+		e.u16, e.index = appendUTF16(e.u16[:0], e.index[:0], text)
+		typesetter := e.newTypesetter(font, e.u16, text, style, nil, false, "")
+		kept := &keptTypesetter{typesetter: typesetter, font: font}
+		for _, width := range []float32{float32(20 + rng.IntN(100)), float32(100 + rng.IntN(400)), float32(300+rng.IntN(500)) + rng.Float32()} {
+			e.resetScratch()
+			// Every wrapping checked by the test, not only some.
+			f := e.wrapFonts[font]
+			if f != nil {
+				f.checked = wrapCheckedFirst
+				f.lines = 1
+			}
+			got := e.wrapKept(kept, text, style, width)
+			if got == nil {
+				// What does not shape as a glyph for each rune stays with
+				// Core Text.
+				leftOut++
+				continue
+			}
+			wrapped++
+			e.u16, e.index = appendUTF16(e.u16[:0], e.index[:0], text)
+			want := e.typesetLines(typesetter, len(e.u16), width, nil, e.index, style.Italic)
+			if !sameLines(got, want) {
+				report(t, text, style, width, got, want)
+				return
+			}
+		}
+		ct.release(typesetter)
+	}
+}
+
+// report tells the first line where wrapped text differs from Core Text's.
+func report(t *testing.T, text []rune, style Style, width float32, got, want []shapedLine) {
+	t.Helper()
+	for i := range min(len(got), len(want)) {
+		if got[i].start != want[i].start || got[i].end != want[i].end {
+			t.Fatalf("in %+v at %v, line %d is %q, Core Text's %q", style, width, i, string(text[got[i].start:got[i].end]), string(text[want[i].start:want[i].end]))
+		}
+		if !sameLines(got[i:i+1], want[i:i+1]) {
+			x, y := got[i].runs, want[i].runs
+			t.Errorf("in %+v at %v, line %d %q has %d runs, Core Text's %d", style, width, i, string(text[got[i].start:got[i].end]), len(x), len(y))
+			if len(x) == 1 && len(y) == 1 {
+				for k := range min(len(x[0].glyphs), len(y[0].glyphs)) {
+					g, h := x[0].glyphs[k], y[0].glyphs[k]
+					if g.ID != h.ID || g.X != h.X || g.Advance != h.Advance {
+						t.Errorf("  glyph %d (%q): id %d/%d x %v/%v advance %v/%v", k, string(text[g.Cluster]), g.ID, h.ID, g.X, h.X, g.Advance, h.Advance)
+					}
+				}
+			}
+			t.FailNow()
+		}
+	}
+	t.Fatalf("in %+v at %v, %d lines, Core Text's %d", style, width, len(got), len(want))
 }
