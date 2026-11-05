@@ -172,19 +172,21 @@ type editor struct {
 	shown [2]int // the first and last lines the last frame showed
 	// shownY is the part of the content the last frame painted showed,
 	// and pad the height of the view it showed in, for an editor as high
-	// as its content, painted at paintedAt; builtY is the part the last
-	// build built the blocks of (buildRange).
-	shownY     [2]float64
-	pad        float64
-	paintedAt  time.Time
-	builtY     [2]float64
-	focused    bool // the editor and its window have the keyboard
-	blinkStart time.Time
-	services   ui.Services
-	chord      *Binding
-	pointer    ui.Point
-	pointerIn  bool
-	hoverLine  int
+	// as its content; builtY is the part the last build built the blocks
+	// of (buildRange). builds counts its builds, and paintedBuild is the
+	// build its last paint followed.
+	shownY       [2]float64
+	pad          float64
+	builtY       [2]float64
+	builds       int
+	paintedBuild int
+	focused      bool // the editor and its window have the keyboard
+	blinkStart   time.Time
+	services     ui.Services
+	chord        *Binding
+	pointer      ui.Point
+	pointerIn    bool
+	hoverLine    int
 	// region is the part of the editor under the pointer, which its
 	// cursor and the scroll bars' highlight show.
 	region     region

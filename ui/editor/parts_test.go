@@ -381,6 +381,8 @@ func TestDiffFitContentBuildsSeparatorsInView(t *testing.T) {
 		tt.Frame()
 		tt.Frame()
 		built = 0
+		// After a pause, as the first frame of a scroll.
+		tt.Advance(time.Second)
 		tt.Scroll(400, 300, 0, 200)
 		tt.Frame()
 		if built == 0 || built > 100 {

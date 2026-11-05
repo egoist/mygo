@@ -37,8 +37,9 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 	ed.syncGitDiff()
 	ed.frameNow = c.Now()
 	if o.fitContent {
-		ed.builtY[0], ed.builtY[1] = ed.buildRange()
+		ed.builtY[0], ed.builtY[1] = ed.fitRange()
 	}
+	ed.builds++
 	// Code reads left to right in a right-to-left interface too, as in
 	// editors: its gutter on the left, its lines from the left.
 	e := ui.Box(c).Direction(ui.LeftToRight).Focusable().FocusRing(false).Clip()
