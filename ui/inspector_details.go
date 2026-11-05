@@ -319,6 +319,8 @@ func ownStyles(rt *engine, e *node) []inspDecl {
 	}
 	if e.flags&flagPassThrough != 0 || e.ignoreInput {
 		add("pointer-events", "none")
+	} else if e.hitFn != nil {
+		add("pointer-events", "visiblePainted")
 	}
 	if e.cursor != 0 {
 		add("cursor", cursorText(e.cursor-1))
@@ -568,6 +570,15 @@ func properties(rt *engine, e *node) []inspSection {
 	}
 	if e.autoComplete != AutoCompleteNone {
 		acc.rows = append(acc.rows, inspDecl{name: "autocomplete", value: platform.AccessAutoComplete(e.autoComplete).String()})
+	}
+	if e.roleDescription != "" {
+		acc.rows = append(acc.rows, inspDecl{name: "roledescription", value: strconv.Quote(e.roleDescription)})
+	}
+	if e.hasPopup != PopupNone {
+		acc.rows = append(acc.rows, inspDecl{name: "haspopup", value: platform.AccessPopup(e.hasPopup).String()})
+	}
+	if len(e.controls) > 0 {
+		acc.rows = append(acc.rows, inspDecl{name: "controls", value: strconv.Itoa(len(e.controls)) + " elements"})
 	}
 	return []inspSection{el, state, acc}
 }

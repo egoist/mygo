@@ -672,6 +672,9 @@ type state struct {
 	// not choose again.
 	rowPressed, pressChose bool
 
+	// hitFn is where in its box the element takes the pointer (HitTest).
+	hitFn func(x, y float32, r Rect) bool
+
 	world scene.Affine
 	clips bool
 	// lifted tells that it was an element flying with a Match, which
@@ -724,8 +727,12 @@ type state struct {
 	tip               bool
 	tipDelay, tipWarm time.Duration
 	// effectLayer is what the element and its children render into for
-	// its Effect, kept from frame to frame.
+	// its Effect, its blur, its Cache or its opacity as a group
+	// (paintGroup), kept from frame to frame. grouped tells that, faded
+	// with what is inside it, what it painted last overlapped, so that it
+	// paints into the layer at once rather than flat first (checkFlat).
 	effectLayer *Canvas
+	grouped     bool
 	// webView is the web view the element shows (WebView).
 	webView NativeWebView
 
