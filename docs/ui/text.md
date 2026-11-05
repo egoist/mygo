@@ -207,7 +207,8 @@ func init() {
 Then `Font("Inter")` uses it, or set it for every element in the theme's
 `Font`. The fonts registered under a family make it up, apart from other
 fonts of their own family: on the desktop its weight and style are matched
-among them, and the font's own family name still finds all of them. So two
+among them, whichever was registered first. A font's own family name still
+finds it, unless the app registers other fonts under that name. So two
 faces that declare the same weight, as a font's Light and Semilight, are
 told apart by registering one under a family of its own.
 

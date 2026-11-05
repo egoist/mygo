@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -388,6 +389,13 @@ type pangoEngine struct {
 	// lowercased name.
 	names     []string
 	appFamily map[string]string
+	// files are the own families of each file of the app's fonts; given
+	// the families the app gave each file, their own when it gave none;
+	// ownOf the own families of each face that a family the app gives
+	// other files is taken from (takeFamilies).
+	files map[string][]string
+	given map[string][]string
+	ownOf map[uintptr][]string
 	// uiFamily is the desktop's interface font, which system-ui stands for
 	// before fontconfig's default.
 	uiFamily string
@@ -459,6 +467,9 @@ func newPango() (*pangoEngine, error) {
 		scaled:      map[scaledKey]uintptr{},
 		registered:  map[string]bool{},
 		appFamily:   map[string]string{},
+		files:       map[string][]string{},
+		given:       map[string][]string{},
+		ownOf:       map[uintptr][]string{},
 		languages:   map[string]uintptr{},
 		hanFamilies: map[[2]string]string{},
 	}
@@ -1282,18 +1293,26 @@ func (e *pangoEngine) register(data []byte, family string) error {
 		}
 		e.registered[path] = true
 	}
-	names := fontFamilies(config, path)
+	names, ok := e.files[path]
+	if !ok {
+		names = fontFamilies(config, path)
+		e.files[path] = names
+	}
 	if family != "" {
 		if len(names) == 0 {
 			return errors.New("mygo: cannot add font: no family name")
 		}
-		if !strings.EqualFold(names[0], family) && !addFamily(config, path, family) {
+		if !strings.EqualFold(names[0], family) && !addFamily(config, path, family) ||
+			!e.giveFamilies(config, path, []string{family}) {
 			return errors.New("mygo: cannot add font under another family name")
 		}
 		// Listed under the name the app gave it, which is the one it uses.
 		e.appFamily[strings.ToLower(family)] = names[0]
 		e.names = append(e.names, family)
 	} else {
+		if !e.giveFamilies(config, path, names) {
+			return errors.New("mygo: cannot add font")
+		}
 		for _, name := range names {
 			e.appFamily[strings.ToLower(name)] = name
 			e.names = append(e.names, name)
@@ -1350,6 +1369,76 @@ func addFamily(config uintptr, path, family string) bool {
 		}
 	}
 	return len(faces) > 0
+}
+
+// giveFamilies notes families the app gives a file of its fonts, and takes
+// them from the own families of the files it gave others (takeFamilies).
+func (e *pangoEngine) giveFamilies(config uintptr, path string, families []string) bool {
+	for _, f := range families {
+		if !slices.ContainsFunc(e.given[path], func(g string) bool { return strings.EqualFold(g, f) }) {
+			e.given[path] = append(e.given[path], f)
+		}
+	}
+	return e.takeFamilies(config)
+}
+
+// takeFamilies leaves a family the app gives to the files it gave it: the
+// faces of other files, of their own family, are no longer found under it,
+// but under the families the app gave them, so the faces of a family
+// that declare the same weight, as Selawik's Light and Semilight, are
+// told apart whichever the app registers first (#1224).
+func (e *pangoEngine) takeFamilies(config uintptr) bool {
+	l := &pangoLib
+	set := l.fcConfigGetFonts(config, fcSetApplication)
+	if set == nil || set.nfont <= 0 || l.fcPatternDel == nil {
+		return false
+	}
+	taken := map[string]bool{}
+	for _, families := range e.given {
+		for _, f := range families {
+			taken[strings.ToLower(f)] = true
+		}
+	}
+	for _, p := range unsafe.Slice(set.fonts, set.nfont) {
+		var file, given *byte
+		if l.fcPatternGetString(p, "file", 0, &file) != fcResultMatch ||
+			l.fcPatternGetString(p, givenFamily, 0, &given) == fcResultMatch {
+			continue
+		}
+		gave := e.given[cString(file)]
+		if len(gave) == 0 {
+			continue
+		}
+		own, edited := e.ownOf[p]
+		if !edited {
+			for n := int32(0); ; n++ {
+				var family *byte
+				if l.fcPatternGetString(p, "family", n, &family) != fcResultMatch {
+					break
+				}
+				own = append(own, cString(family))
+			}
+		}
+		keep := slices.DeleteFunc(slices.Clone(own), func(f string) bool {
+			return taken[strings.ToLower(f)] && !slices.ContainsFunc(gave, func(g string) bool { return strings.EqualFold(g, f) })
+		})
+		if len(keep) == len(own) && !edited {
+			continue
+		}
+		e.ownOf[p] = own
+		if len(keep) == 0 {
+			// Found under a family the app gave it, as its faces are.
+			keep = gave[:1]
+		}
+		l.fcPatternDel(p, "family")
+		l.fcPatternDel(p, "familylang")
+		for _, f := range keep {
+			if l.fcPatternAddString(p, "family", f) == 0 || l.fcPatternAddString(p, "familylang", "en") == 0 {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // fontFamilies returns the own families of the app's fonts from a file.

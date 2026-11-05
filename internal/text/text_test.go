@@ -14,6 +14,8 @@ import (
 	"github.com/egoist/mygo/internal/wait"
 	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/gofont/goitalic"
+	"golang.org/x/image/font/gofont/gomedium"
+	"golang.org/x/image/font/gofont/gomediumitalic"
 	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
 )
@@ -644,7 +646,7 @@ func TestRegisterFont(t *testing.T) {
 // registered under families the app gives, as two that declare the same
 // weight need: each family the app gives holds only the files registered
 // under it, matched by weight and style among them, and the font's own
-// family holds them all (#1224).
+// family, which the app gives none, holds them all (#1224).
 func TestRegisterFontUnderGivenFamilies(t *testing.T) {
 	s := newSystem()
 	for _, f := range []struct {
@@ -684,6 +686,31 @@ func TestRegisterFontUnderGivenFamilies(t *testing.T) {
 	// Regular is Go's face at 400, but not one of this family's.
 	if got := width("MyGo Test Given Other", 400, false); got != italic && got != bold {
 		t.Errorf("MyGo Test Given Other at 400: width %v, not one of its faces (regular %v, italic %v, bold %v)", got, regular, italic, bold)
+	}
+}
+
+// TestRegisterFontUnderOwnFamily gives a font's own family name to some
+// of its faces, after another face of the family was registered under a
+// family of its own: the own name then holds only the faces registered
+// under it, whichever came first, as Selawik's Light and Semilight need
+// (#1224).
+func TestRegisterFontUnderOwnFamily(t *testing.T) {
+	s := newSystem()
+	if err := s.RegisterFont(gomediumitalic.TTF, "MyGo Test Given Medium Italic"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RegisterFont(gomedium.TTF, "Go Medium"); err != nil {
+		t.Fatal(err)
+	}
+	width := func(family string, italic bool) float32 {
+		return s.Layout(Params{Text: "The quick brown fox jumps over the lazy dog 0123456789", Style: Style{Size: 40, Family: family, Weight: 500, Italic: italic}}).Width
+	}
+	upright, italic := width("Go Medium", false), width("MyGo Test Given Medium Italic", true)
+	if upright == italic {
+		t.Fatalf("Go Medium's faces are alike: %v", upright)
+	}
+	if got := width("Go Medium", true); got == italic {
+		t.Errorf("Go Medium, italic: width %v, the face registered under another family (upright %v)", got, upright)
 	}
 }
 

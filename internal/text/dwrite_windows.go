@@ -393,18 +393,26 @@ type dwrite struct {
 	clearLevel   float32
 	aliased      bool
 
-	// The fonts the app registers: their files, their faces under the
-	// families the app gave them, a collection of both, the family name
+	// The fonts the app registers, a collection of them, the family name
 	// of each name they are registered under, and the names they are
 	// listed under: the one the app gave, or their own.
 	loader  uintptr
-	files   []uintptr
-	given   []givenFace
+	app     []appFont
 	custom  uintptr
 	aliases map[string]string
 	names   []string
 
 	scratch []byte
+}
+
+// appFont is a font file the app registers: its own families, the
+// families the app gave it, its own when it gave none, and its faces under
+// the one it gave, when that is not its own.
+type appFont struct {
+	file  uintptr
+	names []string
+	gave  []string
+	given []givenFace
 }
 
 // givenFace is a face of the app's fonts under a family the app gave it,
@@ -1430,7 +1438,7 @@ func (e *dwrite) register(data []byte, family string) error {
 	if hr := call(e.loader, loaderCreateInMemoryFontFileReference, e.factory, uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)), 0, uintptr(unsafe.Pointer(&file))); failed(hr) {
 		return fmt.Errorf("mygo: cannot add font (HRESULT %#08x)", uint32(hr))
 	}
-	set, err := e.newFontSet([]uintptr{file}, nil)
+	set, err := e.fileSet(file)
 	if err != nil {
 		release(file)
 		return err
@@ -1445,33 +1453,35 @@ func (e *dwrite) register(data []byte, family string) error {
 		release(file)
 		return errors.New("mygo: cannot add font: not a font DirectWrite reads")
 	}
-	// A family the app gives, unless it is the font's own, holds only the
-	// files registered under it, as on macOS: their faces again, under it
-	// rather than their own family (#1224).
+	// A family the app gives holds only the files registered under it, as
+	// on macOS: their faces again, under it rather than their own family,
+	// unless it is their own (#1224).
+	font := appFont{file: file, names: names, gave: names}
 	alias := names[0]
-	var given []givenFace
+	if family != "" {
+		font.gave = []string{family}
+	}
 	if family != "" && !strings.EqualFold(family, names[0]) {
 		alias = family
 		if a, ok := e.aliases[strings.ToLower(family)]; ok {
 			alias = a
 		}
-		if given = givenFaces(set, alias); len(given) == 0 {
+		if font.given = givenFaces(set, alias); len(font.given) == 0 {
 			release(set)
 			release(file)
 			return errors.New("mygo: cannot add font under another family name")
 		}
 	}
 	release(set)
-	coll, err := e.newCollection(append(e.files, file), append(e.given, given...))
+	coll, err := e.newCollection(append(e.app, font))
 	if err != nil {
-		for _, f := range given {
+		for _, f := range font.given {
 			release(f.ref)
 		}
 		release(file)
 		return err
 	}
-	e.files = append(e.files, file)
-	e.given = append(e.given, given...)
+	e.app = append(e.app, font)
 	release(e.custom)
 	e.custom = coll
 	for _, name := range names {
@@ -1498,10 +1508,9 @@ func (e *dwrite) register(data []byte, family string) error {
 	return nil
 }
 
-// newCollection returns a font collection of font files, and of faces
-// under the families the app gave them.
-func (e *dwrite) newCollection(files []uintptr, given []givenFace) (uintptr, error) {
-	set, err := e.newFontSet(files, given)
+// newCollection returns a font collection of the app's fonts.
+func (e *dwrite) newCollection(fonts []appFont) (uintptr, error) {
+	set, err := e.newFontSet(fonts)
 	if err != nil {
 		return 0, err
 	}
@@ -1509,28 +1518,86 @@ func (e *dwrite) newCollection(files []uintptr, given []givenFace) (uintptr, err
 	return e.collectionOf(set)
 }
 
-// newFontSet returns a font set of font files, and of faces under the
-// families the app gave them.
-func (e *dwrite) newFontSet(files []uintptr, given []givenFace) (uintptr, error) {
+// fileSet returns a font set of the faces of a font file.
+func (e *dwrite) fileSet(file uintptr) (uintptr, error) {
 	var builder, set uintptr
 	if hr := call(e.factory5, factory5CreateFontSetBuilder, uintptr(unsafe.Pointer(&builder))); failed(hr) {
 		return 0, fmt.Errorf("mygo: cannot add font (HRESULT %#08x)", uint32(hr))
 	}
 	defer release(builder)
-	for _, f := range files {
-		if hr := call(builder, builderAddFontFile, f); failed(hr) {
-			return 0, fmt.Errorf("mygo: cannot add font (HRESULT %#08x)", uint32(hr))
+	if hr := call(builder, builderAddFontFile, file); failed(hr) {
+		return 0, fmt.Errorf("mygo: cannot add font (HRESULT %#08x)", uint32(hr))
+	}
+	if hr := call(builder, builderCreateFontSet, uintptr(unsafe.Pointer(&set))); failed(hr) {
+		return 0, fmt.Errorf("mygo: cannot add font (HRESULT %#08x)", uint32(hr))
+	}
+	return set, nil
+}
+
+// newFontSet returns a font set of the app's fonts: each under its own
+// families, but for those the app gives other fonts, and again under the
+// family the app gave it. So a family the app gives holds only the files
+// it gave it, and the faces of a family that declare the same weight, as
+// Selawik's Light and Semilight, are told apart whichever the app
+// registers first (#1224).
+func (e *dwrite) newFontSet(fonts []appFont) (uintptr, error) {
+	taken := map[string]bool{}
+	for _, f := range fonts {
+		for _, name := range f.gave {
+			taken[strings.ToLower(name)] = true
 		}
 	}
-	for _, f := range given {
-		props := make([]dwFontProperty, len(f.props))
-		for i, p := range f.props {
-			props[i] = dwFontProperty{p.id, &utf16z(p.value)[0], &utf16z(p.locale)[0]}
+	var builder, set uintptr
+	if hr := call(e.factory5, factory5CreateFontSetBuilder, uintptr(unsafe.Pointer(&builder))); failed(hr) {
+		return 0, fmt.Errorf("mygo: cannot add font (HRESULT %#08x)", uint32(hr))
+	}
+	defer release(builder)
+	var own []givenFace // faces under the own families a font keeps
+	defer func() {
+		for _, f := range own {
+			release(f.ref)
 		}
-		hr := call(builder, builderAddFontFaceReference, f.ref, uintptr(unsafe.Pointer(&props[0])), uintptr(len(props)))
-		runtime.KeepAlive(props)
-		if failed(hr) {
-			return 0, fmt.Errorf("mygo: cannot add font under another family name (HRESULT %#08x)", uint32(hr))
+	}()
+	add := func(given []givenFace) error {
+		for _, f := range given {
+			props := make([]dwFontProperty, len(f.props))
+			for i, p := range f.props {
+				props[i] = dwFontProperty{p.id, &utf16z(p.value)[0], &utf16z(p.locale)[0]}
+			}
+			hr := call(builder, builderAddFontFaceReference, f.ref, uintptr(unsafe.Pointer(&props[0])), uintptr(len(props)))
+			runtime.KeepAlive(props)
+			if failed(hr) {
+				return fmt.Errorf("mygo: cannot add font under another family name (HRESULT %#08x)", uint32(hr))
+			}
+		}
+		return nil
+	}
+	for _, f := range fonts {
+		gave := func(name string) bool {
+			return slices.ContainsFunc(f.gave, func(g string) bool { return strings.EqualFold(g, name) })
+		}
+		keep := slices.DeleteFunc(slices.Clone(f.names), func(name string) bool { return taken[strings.ToLower(name)] && !gave(name) })
+		if len(keep) == len(f.names) {
+			if hr := call(builder, builderAddFontFile, f.file); failed(hr) {
+				return 0, fmt.Errorf("mygo: cannot add font (HRESULT %#08x)", uint32(hr))
+			}
+		} else if len(keep) > 0 {
+			one, err := e.fileSet(f.file)
+			if err != nil {
+				return 0, err
+			}
+			for _, name := range keep {
+				faces := givenFaces(one, name)
+				own = append(own, faces...)
+				if err := add(faces); err != nil {
+					release(one)
+					return 0, err
+				}
+			}
+			release(one)
+		}
+		if err := add(f.given); err != nil {
+			return 0, err
 		}
 	}
 	if hr := call(builder, builderCreateFontSet, uintptr(unsafe.Pointer(&set))); failed(hr) {
