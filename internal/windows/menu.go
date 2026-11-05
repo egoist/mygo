@@ -531,6 +531,10 @@ func (b *Backend) trackPopup(menu, owner uintptr, pt point, flags uintptr, exclu
 	// Windows creates the menu's window before WM_ENTERMENULOOP.
 	b.hookMenus(true)
 	defer b.hookMenus(false)
+	// The windows the loop creates meanwhile are a popup's, which stays
+	// open on Alt (menuProc).
+	b.popups++
+	defer func() { b.popups-- }()
 	var params *tpmParams
 	if exclude != nil {
 		params = &tpmParams{Exclude: *exclude}
