@@ -61,8 +61,16 @@ func TestKeysByPositionGTK(t *testing.T) {
 		mu.Lock()
 		got = nil
 		mu.Unlock()
-		if !fake(func() bool { return linux.TestHoldKey(c.keysym, true) && linux.TestHoldKey(c.keysym, false) }) {
+		tap := func() bool {
+			return fake(func() bool { return linux.TestHoldKey(c.keysym, true) && linux.TestHoldKey(c.keysym, false) })
+		}
+		if !tap() {
 			t.Skip("key automation not available")
+		}
+		if c.keysym == "Caps_Lock" || c.keysym == "Scroll_Lock" {
+			// The X server outlives the test: a lock left on changes the keys
+			// of the tests after this one, as Caps Lock turns l into L.
+			t.Cleanup(func() { tap() })
 		}
 		eventually(t, c.keysym+" down and up", func() bool {
 			mu.Lock()
