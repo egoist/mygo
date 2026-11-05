@@ -360,6 +360,11 @@ type engine struct {
 	// drawn as active (windowActive), so that a change of it draws a
 	// frame.
 	activeRead bool
+	// keysHeld are the keys held in the window (Context.KeyDown); keysRead
+	// tells that the last frame read them, so that a change of them draws
+	// a frame.
+	keysHeld []heldKey
+	keysRead bool
 	// withinRead tells that the frame read FocusWithin, which follows the
 	// parents its last layout committed: the focus moving as it builds, to
 	// an element it builds for the first time or after the read, draws
@@ -443,8 +448,8 @@ type engine struct {
 	// late is set when lists built elements while laying out.
 	late bool
 	// revealIDs are the elements to scroll into view once the frame is
-	// laid out.
-	revealIDs []uint64
+	// laid out, and how.
+	revealIDs []revealAsk
 	wakeMu    sync.Mutex
 	wakeAt    time.Time
 	cursor    Cursor
@@ -630,7 +635,7 @@ func (rt *engine) runFrame() {
 
 	rt.frame++
 	rt.input = false
-	rt.focusRead, rt.activeRead, rt.withinRead = false, false, false
+	rt.focusRead, rt.activeRead, rt.withinRead, rt.keysRead = false, false, false, false
 	rt.stats.begin(rt)
 	now := rt.frameTime()
 	rt.zoomChanged = false
@@ -1041,10 +1046,8 @@ func (rt *engine) endPass() {
 	rt.downs = rt.downs[:0]
 	rt.passFocus()
 	// The next pass may not ask again, as when the view cleared what asked.
-	for _, e := range rt.c.reveal {
-		if !slices.Contains(rt.revealIDs, e.id) {
-			rt.revealIDs = append(rt.revealIDs, e.id)
-		}
+	for _, r := range rt.c.reveal {
+		rt.askReveal(r.e.id, r.o)
 	}
 }
 
@@ -1238,6 +1241,26 @@ func (rt *engine) close() {
 	// Last, with the engine closed: a Close that asks for a frame, or reads
 	// the window, finds it closed rather than half so.
 	rt.closeLocals()
+	rt.dropFrame()
+}
+
+// dropFrame lets go of what the closed window showed: the view, and all
+// it reaches, the elements of the last frame, their states and the scene
+// painted from them, with the bitmaps they drew. Whatever may still hold
+// the engine of a closed window (the window, a renderer, a plugin)
+// keeps none of it (#1281). The engine draws no frame once closed.
+func (rt *engine) dropFrame() {
+	rt.view = func(*context) {}
+	rt.scene = scene.Scene{}
+	rt.maskScene = nil
+	clear(rt.pathClips)
+	c := &rt.c
+	c.parent, c.root, c.overlay = nil, nil, nil
+	c.chunks, c.spare = nil, nil
+	c.used, c.dirty, c.spareDirty = 0, 0, 0
+	clear(rt.states)
+	rt.free = nil
+	rt.hits, rt.liftHits = nil, nil
 }
 
 // endFrame ends a frame, and closes the engine when its window closed

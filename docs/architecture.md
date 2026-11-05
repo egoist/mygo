@@ -2361,7 +2361,11 @@ The public API keeps one stable `*Context` per window. Child builders share
 it and temporarily change its parent. `Element` is a 16-byte checked value:
 a direct owner record, arena slot and 32-bit generation. The owner detaches
 from the engine on close and retires before generation wrap. Old elements
-cannot alias recycled nodes. Development builds and `Tester` diagnose stale
+cannot alias recycled nodes. A closed window keeps nothing of what it
+showed (#1281): `mygo.Window` keeps only that it shows Content, handing the
+Content to its surface as it attaches, and the closed engine drops its view,
+the last frame's elements, states and scene, and the host its last scene,
+renderers and placements, in case anything still holds them. Development builds and `Tester` diagnose stale
 use; production methods return empty results or ignore it. `Handle` stores
 persistent control identity separately for each window. Focus queries read
 identity without depending on construction order; focus requests wait for a
@@ -2661,11 +2665,13 @@ either.
   focus and shortcuts without retaining an element in app state. Scroll
   offsets move in the layout too
   (`ui/scroll.go`): elements that asked to `ScrollIntoView`, and the focus,
-  come into view before the boxes are placed, and placing keeps each offset
-  within its content; a `ScrollState` mirrors an offset both ways, and a
-  frame that moved one builds another for what read the old one. A
-  container that snaps (`ScrollSnap`, `ui/snap.go`) finds the places its
-  elements mark as it is placed, from their boxes relative to it, and
+  come into view before the boxes are placed, lined up as its options say
+  (or glide there as a wheel's notches do, by what they went each frame,
+  `glideScroll`), and placing keeps each offset within its content; a
+  `ScrollState` mirrors an offset both ways, and a frame that moved one
+  builds another for what read the old one. A container that snaps
+  (`ScrollSnap`, `ui/snap.go`) finds the places its elements mark as it
+  is placed, from their boxes relative to it, and
   keeps the offset at the one it rests at; a notch or a key heads for the
   next place at once, a touchpad's scrolling once it has been still for a
   moment (not every platform tells when the fingers lift or a fling's
@@ -5587,6 +5593,7 @@ which npm allows only for packages that exist: the first release uses an
 | custom scheme origin | `<scheme>://<host>` | `<scheme>://<host>` | `http://<scheme>.localhost`, or `http://<host>.<scheme>.localhost` for another host (the page's `location`) |
 | `LoadHTML` documents | a reload loads the base URL (`about:blank` without one), so the core cancels it (`Navigation.Reload`) and loads the HTML again; not in the history | as macOS | as macOS, but in the history: going back to one with a base URL loads that URL |
 | window.open | keeps the opener | independent window | keeps the opener: the new window's web view, set up, becomes the popup (`put_NewWindow`, under a deferral) |
+| keys held (`Context.KeyDown`) | `keyDown:` and `keyUp:`; a local monitor of key ups hands the surface those let go of while Command is held, which `sendEvent:` keeps from the key window; resigning first responder or key window lets go of all | key presses and releases, and a release the input method filters (`HeldKeys.Lift`): IBus and Fcitx hand back those they leave, which `HeldKeys` keeps from the content | `WM_KEYUP` and `WM_SYSKEYUP`; a `VK_PROCESSKEY` release lets go of the key at its scancode; `WM_ENTERMENULOOP` lets go of all (`HeldKeys.LiftAll`), whose releases the menu's loop takes; `WM_KILLFOCUS` all |
 | native UI surface | layer-backed NSView, frames from `CADisplayLink` (a timer at the display's rate before macOS 14), input methods through NSTextInputClient | GtkGLArea (GtkDrawingArea without a GPU), GtkIMMulticontext | `MyGoSurface` child window, IMM32 |
 | native UI data drags | NSDraggingSession, NSPasteboardItemDataProvider, NSDraggingDestination | GTK drag contexts, MIME selections, text/uri-list | OLE IDataObject, IDropSource, IDropTarget, Shell drag images |
 | native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |

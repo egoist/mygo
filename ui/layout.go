@@ -2,7 +2,6 @@ package ui
 
 import (
 	"math"
-	"slices"
 
 	"github.com/egoist/mygo/internal/text"
 )
@@ -74,10 +73,8 @@ func layoutTree(root *node, w, h float32) {
 	rt.beginLayout(root)
 	layoutBox(root, w, h)
 	// Lists build rows as they lay out, which may ask to come into view.
-	for _, e := range root.c.reveal {
-		if !slices.Contains(rt.revealIDs, e.id) {
-			rt.revealIDs = append(rt.revealIDs, e.id)
-		}
+	for _, r := range root.c.reveal {
+		rt.askReveal(r.e.id, r.o)
 	}
 	if len(rt.revealIDs) > 0 {
 		revealAll(root, rt.revealIDs)
@@ -212,7 +209,7 @@ func (e *node) textParams(width float32) text.Params {
 	if ts.fixedLine && ts.lineHeight > 0 {
 		style.LineHeight = ts.lineHeight / style.FontSize()
 	}
-	p := text.Params{Text: e.text, Width: width, MaxLines: e.maxLines, Style: style, Spans: e.textSpans(), NoWrap: e.noWrap, Balance: e.balance, Ellipsis: e.ellipsis, RTL: e.rtl()}
+	p := text.Params{Text: e.text, Width: width, MaxLines: e.maxLines, Style: style, Spans: e.textSpans(), NoWrap: e.noWrap, Balance: e.balance, KeepSpaces: e.keepSpaces, Ellipsis: e.ellipsis, RTL: e.rtl()}
 	switch {
 	case ts.align == Center:
 		p.Align = text.Center
@@ -290,6 +287,9 @@ func (e *node) resolvedText() textStyle {
 		}
 		if take&setSelection != 0 {
 			out.selection = t.selection
+		}
+		if take&setCaret != 0 {
+			out.caret = t.caret
 		}
 		if take&setStroke != 0 {
 			out.strokeWidth, out.strokeColor = t.strokeWidth, t.strokeColor

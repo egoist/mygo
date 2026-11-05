@@ -421,6 +421,15 @@ func prepareItem(it *MenuItem, parent *Menu) *MenuItem {
 // given to any number of items (MenuItem.Icon, SetIcon).
 type MenuIcon struct{ p *platform.MenuIcon }
 
+// PlatformMenuIcon returns what the icon shows, for the items of package
+// ui's menus (ui.MenuItem.Icon), nil for a nil icon.
+func (m *MenuIcon) PlatformMenuIcon() *platform.MenuIcon {
+	if m == nil {
+		return nil
+	}
+	return m.p
+}
+
 // NewMenuIcon makes an icon for menu items of a PNG image, which it copies.
 // The image is shown in its own colors, as a flag; with template, it is a
 // black and transparent image shown in the color of the menu's text, white
@@ -627,7 +636,7 @@ func performRole(role MenuRole, win *Window) {
 			return
 		}
 	case RoleReload, RoleForceReload, RoleResetZoom, RoleZoomIn, RoleZoomOut:
-		if win.content != nil {
+		if win.content {
 			return
 		}
 	}
@@ -668,7 +677,7 @@ func performRole(role MenuRole, win *Window) {
 			RoleUndo: "undo", RoleRedo: "redo", RoleCut: "cut", RoleCopy: "copy", RolePaste: "paste",
 			RoleDelete: "delete", RoleSelectAll: "selectAll", RolePasteAndMatchStyle: "pasteAndMatchStyle",
 		}[role]
-		if win.content != nil {
+		if win.content {
 			win.contentCommand(cmd)
 			return
 		}
@@ -677,7 +686,7 @@ func performRole(role MenuRole, win *Window) {
 		}
 		n.Eval("document.execCommand(" + `"` + cmd + `"` + ")")
 	case RoleBold, RoleItalic, RoleUnderline, RoleStrikethrough, RoleAlignLeft, RoleAlignCenter, RoleAlignRight:
-		if win.content != nil {
+		if win.content {
 			win.contentCommand(string(role))
 			return
 		}

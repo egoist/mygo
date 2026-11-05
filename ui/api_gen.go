@@ -385,6 +385,43 @@ func (_handle *Context) Instant() bool {
 	return _ctx.Instant()
 }
 
+// KeyDown reports whether key is held down in the window, whichever
+// element has the focus and whether or not one took the key, without
+// taking it from them: a cheat sheet of shortcuts lights the keys held
+// while its search field has the focus. A frame that reads it is drawn
+// again as the keys held change. Keys count as shortcuts take them (a
+// chord of a key the layout types no US key for, as S on a Cyrillic
+// layout, by its position); the modifier keys are Modifiers'. A key whose
+// press ran a menu item's shortcut went to the menu, not the window. The
+// window lets go of every key as it loses the keyboard, whose releases go
+// elsewhere.
+func (_handle *Context) KeyDown(key Key) bool {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return false
+	}
+	return _ctx.KeyDown(key)
+}
+
+// KeysDown returns the keys held down in the window, as KeyDown tells
+// them, in the order they were pressed; nil while none is. A cheat sheet
+// fades the rows of shortcuts that use none of them:
+//
+//	held := c.KeysDown()
+//	for _, s := range app.shortcuts {
+//		row := shortcutRow(c, s)
+//		if len(held) > 0 && !s.usesAny(held) {
+//			row.Opacity(0.4)
+//		}
+//	}
+func (_handle *Context) KeysDown() []Key {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return nil
+	}
+	return _ctx.KeysDown()
+}
+
 // Locale returns the language the app shows (mygo.App.Locale), a BCP 47
 // tag such as "en" or "zh-Hans", for what the view says in it. Text is in
 // it unless an element says otherwise (Element.Lang). A frame follows its
@@ -3804,6 +3841,19 @@ func (_handle Element) Cache() Element {
 	return wrapElement(_node.Cache())
 }
 
+// CaretColor sets the color of the insertion caret of the text inputs in
+// the element, as CSS's caret-color does, a field's own text color for
+// one; the theme's accent is the color elsewhere.
+func (_handle Element) CaretColor(c Color) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.CaretColor(c))
+}
+
 // CaretWidth sets this input's painted caret width in DIPs for this build.
 // It defaults to one DIP. Positive widths are rounded to device pixels,
 // at least one pixel wide; zero and negative widths hide the caret. It does
@@ -6245,6 +6295,21 @@ func (_handle Element) PopoverMenuButton(build func(m *Menu)) Element {
 	return wrapElement(_node.PopoverMenuButton(build))
 }
 
+// PreserveSpaces keeps the spaces the element's text ends its lines with,
+// and a text of only spaces, with their advance, as CSS's white-space:
+// break-spaces does: a gap made of spaces between two texts in a row, or
+// the padding a monospaced column is aligned with. Without it spaces
+// ending a line take no room, as with white-space: normal.
+func (_handle Element) PreserveSpaces() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PreserveSpaces())
+}
+
 // Pressed reports whether the element is being pressed with the pointer's
 // primary button, unless it is disabled. A press of another button, as a
 // right-click's, is no press here, as CSS's :active and drags on the web
@@ -6569,14 +6634,22 @@ func (_handle Element) Scale(x float32, y float32) Element {
 // comes into view with it. Call it in the frame it should come into view,
 // as when it is added or chosen: in every frame, it would keep the user
 // from scrolling it away.
-func (_handle Element) ScrollIntoView() Element {
+//
+// Its options line the element up elsewhere in the containers, or glide
+// there, as the web's scrollIntoView options do: the current match of a
+// search, centered smoothly.
+//
+//	if app.matchMoved {
+//		hit.ScrollIntoView(ui.ScrollIntoViewOptions{Block: ui.ScrollCenter, Animation: &ui.Smooth})
+//	}
+func (_handle Element) ScrollIntoView(options ...ScrollIntoViewOptions) Element {
 	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return wrapElement(_node.ScrollIntoView())
+	return wrapElement(_node.ScrollIntoView(options...))
 }
 
 // ScrollSnap makes the scroll container (Scroll, ScrollHorizontal,

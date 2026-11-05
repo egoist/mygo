@@ -290,15 +290,15 @@ func (e *node) accessRole() (platform.AccessRole, bool) {
 }
 
 // leafRole reports whether elements of a role take the text inside them
-// as their name, rather than showing it as elements of its own. A column
-// or row header shows what is inside it too, as ARIA's columnheader and
-// rowheader, whose children are not presentational: a sort button in it
-// is reached.
+// as their name, rather than showing it as elements of its own. Column
+// and row headers and headings show what is inside them too, as their
+// children are not presentational in ARIA: buttons in them, as a header's
+// sort button, can be reached.
 func leafRole(r platform.AccessRole) bool {
 	switch r {
 	case platform.RoleGroup, platform.RoleList, platform.RoleScroll, platform.RoleDialog, platform.RoleAlertDialog, platform.RolePopup, platform.RoleStatus,
 		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleColumnHeader, platform.RoleRowHeader, platform.RoleTree,
-		platform.RoleListItem, platform.RoleToolbar, platform.RoleRadioGroup, platform.RoleMenu, platform.RoleMenuBar, platform.RoleNavigation,
+		platform.RoleListItem, platform.RoleToolbar, platform.RoleRadioGroup, platform.RoleMenu, platform.RoleMenuBar, platform.RoleHeading, platform.RoleNavigation,
 		platform.RoleRegion, platform.RoleLog, platform.RoleTimer, platform.RoleAlert, platform.RoleSearch,
 		platform.RoleArticle:
 		return false
@@ -536,12 +536,11 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	if e.chooseMany {
 		n.States |= platform.AccessMultiselectable
 	}
-	// Rows and items of lists, column and row headers and statuses are
-	// named by their content, as leaves are, but show what is inside them
-	// too, as a toast's button or a header's sort button (ARIA's
-	// columnheader and rowheader are not children-presentational).
+	// Rows and items of lists, column and row headers, headings and
+	// statuses are named by their content, as leaves are, but show what is
+	// inside them too, as a toast's button or a header's sort button.
 	if n.Label == "" && (leafRole(n.Role) || n.Role == platform.RoleListItem || n.Role == platform.RoleRow || n.Role == platform.RoleColumnHeader ||
-		n.Role == platform.RoleRowHeader || n.Role == platform.RoleStatus) {
+		n.Role == platform.RoleRowHeader || n.Role == platform.RoleHeading || n.Role == platform.RoleStatus) {
 		n.Label = e.innerText()
 	}
 	if n.Label == "" && e.kind == kindText {
