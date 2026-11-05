@@ -319,6 +319,8 @@ func ownStyles(rt *engine, e *node) []inspDecl {
 	}
 	if e.flags&flagPassThrough != 0 || e.ignoreInput {
 		add("pointer-events", "none")
+	} else if e.hitFn != nil {
+		add("pointer-events", "visiblePainted")
 	}
 	if e.cursor != 0 {
 		add("cursor", cursorText(e.cursor-1))
@@ -668,6 +670,22 @@ func cursorText(c Cursor) string {
 		return "grabbing"
 	case CursorNone:
 		return "none"
+	case CursorProgress:
+		return "progress"
+	case CursorWait:
+		return "wait"
+	case CursorHelp:
+		return "help"
+	case CursorCell:
+		return "cell"
+	case CursorZoomIn:
+		return "zoom-in"
+	case CursorZoomOut:
+		return "zoom-out"
+	case CursorAllScroll:
+		return "all-scroll"
+	case CursorNoDrop:
+		return "no-drop"
 	}
 	return "default"
 }

@@ -506,6 +506,7 @@ func (_handle *Context) Preferences() Preferences {
 // ReadClipboard returns the text on the clipboard, and WriteClipboard
 // puts text there, for widgets that copy and paste themselves. Call them
 // on the main thread: in the view, or in an input handler.
+// WriteClipboardThen tells whether the text got there.
 func (_handle *Context) ReadClipboard() string {
 	_ctx := _handle.build()
 	if _ctx == nil {
@@ -739,6 +740,27 @@ func (_handle *Context) WriteClipboard(s string) {
 		return
 	}
 	_ctx.WriteClipboard(s)
+}
+
+// WriteClipboardThen puts text on the clipboard as WriteClipboard does,
+// and done, unless nil, gets what came of it a moment later, before a
+// frame builds anew with what it changed, as navigator.clipboard's
+// writeText resolves or rejects: an error when the text did not get
+// there, as when another app holds the clipboard, or a browser refuses
+// a write the user did not act for (a press or a key, a moment before).
+// A copy button shows "Copied" or "Failed" with it:
+//
+//	if ui.Button(c, "Copy").Clicked() {
+//		c.WriteClipboardThen(link, func(err error) {
+//			app.copied, app.copyFailed = err == nil, err != nil
+//		})
+//	}
+func (_handle *Context) WriteClipboardThen(s string, done func(err error)) {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return
+	}
+	_ctx.WriteClipboardThen(s, done)
 }
 
 // Zoom returns the zoom SetZoom set, 1 for none.
@@ -5135,6 +5157,34 @@ func (_handle Element) Highlighted() bool {
 	return _node.Highlighted()
 }
 
+// HitTest sets where in its box the element takes the pointer: where fn
+// reports true for the pointer at (x, y), in the coordinates Draw paints
+// in, r being its box as Draw gets it. Elsewhere the pointer reaches what
+// is under it, as with PassThrough, so that a pie's segment, a map's
+// region or a ring takes a press, the hover and the cursor only where it
+// paints, as SVG's pointer-events: visiblePainted. The elements inside it
+// take the pointer as they would; fn runs as the pointer moves and
+// presses, on the window's thread, and only tests:
+//
+//	ring := func(r ui.Rect) *ui.Path {
+//		var p ui.Path
+//		cx, cy := r.X+r.W/2, r.Y+r.H/2
+//		return p.Circle(cx, cy, r.W/2).Circle(cx, cy, r.W/2-12).FillRule(ui.EvenOdd)
+//	}
+//	ui.Box(c).Size(120, 120).
+//		Draw(func(p *ui.Painter, r ui.Rect) { p.FillPath(ring(r), accent) }).
+//		HitTest(func(x, y float32, r ui.Rect) bool { return ring(r).Contains(x, y) }).
+//		OnClick(func() { … })
+func (_handle Element) HitTest(fn func(x float32, y float32, r Rect) bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.HitTest(fn))
+}
+
 // Hovered reports whether the pointer is over the element. While the
 // pointer presses an element, the elements it was over as the press began,
 // as those around the element pressed, stay hovered as long as it is over
@@ -5444,6 +5494,29 @@ func (_handle Element) Label(s string) Element {
 	return wrapElement(_node.Label(s))
 }
 
+// LabelledBy has label, a text the view draws as the element's caption,
+// name the element for assistive technology, in place of its Label or the
+// text inside it, as ARIA's aria-labelledby does, and gives a click on
+// label to the element, as HTML's <label for> does: the click focuses it,
+// as a text input, or in a group of controls, as a RadioGroup, the one
+// chosen, else the first, and clicks a check box, a switch or a radio
+// button, as a Field's label does. Call it once both are built, before or
+// after the element:
+//
+//	label := ui.Text(c, "Card number").TextColor(t.TextMuted)
+//	ui.TextInput(c, &app.card).LabelledBy(label)
+//
+// A label that is no text names the element by its Label.
+func (_handle Element) LabelledBy(label Element) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.LabelledBy(label.nodeFor(_ctx.rt)))
+}
+
 // Lang sets the language of the element's text, and of the text of the
 // elements inside it, as a BCP 47 tag, as HTML's lang attribute does: the
 // system's text stack draws the glyphs of that language, as the Han
@@ -5667,9 +5740,9 @@ func (_handle Element) MaskConicGradient(g ConicGradient) Element {
 //	fade := []ui.GradientStop{{ui.Transparent, 0}, {black, 0.1}, {black, 0.9}, {ui.Transparent, 1}}
 //	list.MaskLinearGradient(ui.LinearGradient{Angle: 180, Stops: fade})
 //
-// Each thing drawn is masked on its own, as Opacity fades each, rather
-// than the element drawn into a layer first: where the mask lets a part
-// through, a row's background shows what is under it too.
+// Each thing drawn is masked on its own, rather than the element drawn
+// into a layer first, as Opacity fades a group: where the mask lets a
+// part through, a row's background shows what is under it too.
 func (_handle Element) MaskLinearGradient(g LinearGradient) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -6054,7 +6127,16 @@ func (_handle Element) OnTextKey(fn func(k TextKey) bool) Element {
 	return wrapElement(_node.OnTextKey(fn))
 }
 
-// Opacity makes the element and its children translucent.
+// Opacity makes the element and its children translucent as one group,
+// as CSS's opacity does: what they paint is composited first and then
+// faded, so that children overlapping one another, or the element's
+// background under them, never show through each other. Where nothing
+// they paint overlaps, they paint faded each on its own, which looks the
+// same and costs nothing more; otherwise they render into a layer of the
+// GPU first, in which text is smoothed in grayscale, as in Cache's. A web
+// view or a material reading its backdrop inside the element shows
+// through no layer: there each thing fades on its own. Disabled's dimming
+// fades each thing on its own too.
 func (_handle Element) Opacity(o float32) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -6362,6 +6444,23 @@ func (_handle Element) PressedOutside() bool {
 	_ctx := _node.c
 	_ = _ctx
 	return _node.PressedOutside()
+}
+
+// PressedPointer returns the device pressing the element and how hard it
+// presses, from 0 to 1, as of the press's last move, while the press
+// lasts, as PressedButton; ok is false while nothing presses it, or it is
+// disabled. As InputEvent.Pressure, a device that tells no pressure, as a
+// mouse, presses 0.5. A signature pad widens its stroke with a pen's
+// pressure, and goes by the pointer's speed for a mouse. Elements asking
+// for it get a frame whenever the pointer moves or the pressure changes.
+func (_handle Element) PressedPointer() (PointerType, float32, bool) {
+	_node := _handle.node()
+	if _node == nil {
+		return *new(PointerType), 0, false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.PressedPointer()
 }
 
 // Pretty keeps the last line of each paragraph of the element's text from
