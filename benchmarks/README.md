@@ -50,6 +50,9 @@ And from the app, which says these on standard output:
   frames**, which show the frames that missed the display's refresh.
 
 Each scene runs 5 times, the frameworks taking turns, and the results are
-medians. The first 120 frames of a run are not measured. **Binary size** is
+medians. CPU per frame has moved by as much as a third between full runs of
+the same build, more than the range of one run shows, for reasons not found:
+compare runs before reading much into a small gap. The first 120 frames of a
+run are not measured. **Binary size** is
 that of a release build: for MyGo as `mygo build` compiles it, and for the
 others with fat LTO, one codegen unit and symbols stripped.

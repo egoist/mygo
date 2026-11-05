@@ -65,6 +65,7 @@ function Benchmarks() {
           <li>Frame rate stops at the display&apos;s refresh rate: an app below it missed frames. Time between frames is taken as each frame starts, not as it reaches the screen.</li>
           <li>CPU time leaves out what the GPU does: two apps taking the same CPU may not cost the same to draw.</li>
           <li>The Mac was in ordinary use during the runs. The frameworks took turns, so that this weighs on them alike.</li>
+          <li>CPU per frame has moved by as much as a third between full runs of the same build, more than the range of one run shows: read small gaps as ties.</li>
           <li>MyGo&apos;s list measures its rows, which may differ in height, where GPUI&apos;s uniform list and egui&apos;s rows take one height for all.</li>
           <li>MyGo and GPUI draw text with the system&apos;s font and egui with its own. GPUI&apos;s crate comes without widgets, so its buttons are styled elements, and without scroll bars.</li>
         </ul>
