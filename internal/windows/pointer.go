@@ -76,25 +76,51 @@ var (
 
 // pointerPressure returns how hard the pen or the finger of WM_POINTER's
 // pointer id presses, from 0 to 1, or 0 where it does not tell, as a
-// mouse's.
-func pointerPressure(id uint32) float64 {
+// mouse's, with its device and where it is on the screen, in pixels. ok is
+// false where Windows tells none of it.
+func pointerPressure(id uint32) (pressure float64, kind platform.PointerKind, at point, ok bool) {
 	if !has(procGetPointerType) {
-		return 0
+		return 0, 0, point{}, false
 	}
 	if r, _, _ := procGetPointerType.Call(uintptr(id), uintptr(unsafe.Pointer(&pointerType))); r == 0 {
-		return 0
+		return 0, 0, point{}, false
 	}
 	switch pointerType {
 	case ptPen:
-		if r, _, _ := procGetPointerPenInfo.Call(uintptr(id), uintptr(unsafe.Pointer(&penInfo))); r != 0 && penInfo.Mask&penMaskPressure != 0 {
-			return float64(penInfo.Pressure) / 1024
+		if r, _, _ := procGetPointerPenInfo.Call(uintptr(id), uintptr(unsafe.Pointer(&penInfo))); r != 0 {
+			if penInfo.Mask&penMaskPressure != 0 {
+				pressure = float64(penInfo.Pressure) / 1024
+			}
+			return pressure, platform.PointerPen, penInfo.Info.Pixel, true
 		}
 	case ptTouch:
-		if r, _, _ := procGetPointerTouchInfo.Call(uintptr(id), uintptr(unsafe.Pointer(&touchInfo))); r != 0 && touchInfo.Mask&touchMaskPressure != 0 {
-			return float64(touchInfo.Pressure) / 1024
+		if r, _, _ := procGetPointerTouchInfo.Call(uintptr(id), uintptr(unsafe.Pointer(&touchInfo))); r != 0 {
+			if touchInfo.Mask&touchMaskPressure != 0 {
+				pressure = float64(touchInfo.Pressure) / 1024
+			}
+			return pressure, platform.PointerTouch, touchInfo.Info.Pixel, true
 		}
 	}
-	return 0
+	return 0, 0, point{}, false
+}
+
+// pointerMessage notes the pressure of a WM_POINTER message, which the
+// mouse messages Windows makes of it carry (mouseDevice). A pen pressing
+// harder or softer where it stands makes no mouse message: the surface
+// moves the pointer where it is, with the new pressure, as Pointer Events
+// fire pointermove.
+func (s *surface) pointerMessage(m uint32, wp uintptr) {
+	pressure, kind, at, ok := pointerPressure(uint32(loword(wp)))
+	if !ok {
+		s.pressure = 0
+		return
+	}
+	if m == wmPointerUpdate && s.buttons != 0 && at == s.pointerAt && pressure != s.pressure {
+		pt := at
+		procScreenToClient.Call(s.hwnd, uintptr(unsafe.Pointer(&pt)))
+		s.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: s.toDIP(pt.X), Y: s.toDIP(pt.Y), Mods: mods(), Pointer: kind, Pressure: pressure})
+	}
+	s.pressure, s.pointerAt = pressure, at
 }
 
 // mouseDevice returns the device of the mouse message being handled, as

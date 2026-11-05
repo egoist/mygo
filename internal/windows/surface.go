@@ -137,6 +137,10 @@ type surface struct {
 	caret    platform.RectF
 	input    platform.TextInputState
 
+	// pointerAt is where on the screen the last WM_POINTER message's
+	// pointer was, in pixels (pointerMessage).
+	pointerAt point
+
 	// keyTaken tells that the content took the key down, whose
 	// WM_SYSCHAR then opens no menu.
 	keyTaken bool
@@ -723,7 +727,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		return 0, true
 	case wmPointerDown, wmPointerUpdate, wmPointerUp:
 		// A pen or a finger, whose mouse messages DefWindowProc makes.
-		s.pressure = pointerPressure(uint32(loword(wp)))
+		s.pointerMessage(m, wp)
 		return 0, false
 	case wmMouseMove:
 		if !s.tracking {
