@@ -4150,7 +4150,10 @@ either.
   `languageShapes` leaves the attribute out where it changes nothing. A
   number, new in each frame on a dashboard, is put together from the glyphs
   and kerning of its characters, measured once for each font and checked
-  against Core Text from time to time (`numbers_darwin.go`). Every engine gives a line's glyphs in visual order,
+  against Core Text from time to time (`numbers_darwin.go`). Latin text
+  kept across widths is shaped into one line that its lines take their glyphs
+  from, breaking at the spaces before plain words and asking Core Text for
+  every other break, checked in the same way (`wrap_darwin.go`). Every engine gives a line's glyphs in visual order,
   from the left, through right-to-left runs too (DirectWrite's runs, whose
   glyphs come in logical order, are reversed), so that what walks them,
   and `ui.Shape`'s callers, rely on one order. The package assembles their
