@@ -1016,8 +1016,7 @@ func (b *Backend) subclassMenu(hwnd uintptr) {
 // it shows; where MyGo draws the menu, it paints its border in the
 // menu's background, transparent where the material is behind it, rather
 // than as Windows does, and keeps its frame active for DWM to draw the
-// material. Alt alone doesn't leave the menu, as it doesn't leave Windows
-// 11's own.
+// material.
 func menuProc(hwnd, m, wp, lp uintptr) uintptr {
 	b := theBackend
 	mw := b.menuWindows[hwnd]
@@ -1062,22 +1061,6 @@ func menuProc(hwnd, m, wp, lp uintptr) uintptr {
 			paintMenuBorder(hwnd, wp, mw)
 		}
 		return r
-	case wmKeyDown, wmKeyUp, wmSysKeyDown, wmSysKeyUp:
-		// Alt alone, on which Win32's menus leave, as they leave on
-		// Escape: the menus of Windows 11 itself, WinUI's flyouts, stay
-		// open, Alt only moving the keyboard to a window's own controls,
-		// and so do the menus MyGo draws. Alt comes as a system key
-		// alone, WM_SYSKEYDOWN, and as a plain one while Control is held,
-		// which Windows takes for AltGr. Alt and a letter, and the rest
-		// of the keyboard, go on to Windows.
-		if wp == vkMenu {
-			return 0
-		}
-	case wmSysChar:
-		// Alt alone's character, which is none.
-		if wp == 0 {
-			return 0
-		}
 	case wmNCDestroy:
 		procSetWindowLongPtrW.Call(hwnd, gwlpWndProc, mw.proc)
 		delete(b.menuWindows, hwnd)
