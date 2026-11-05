@@ -424,7 +424,9 @@ type coreText struct {
 	// typesetters are those of text wrapped lately (shape), owned, and frame
 	// counts the frames.
 	typesetters map[typesetterKey]*keptTypesetter
-	frame       uint64
+	// numbers holds what fonts shape numbers into (shapeNumber).
+	numbers map[numberKey]*numberFont
+	frame   uint64
 	// seg and breaks find where lines may break (lineBreaks).
 	seg    segmenter.Segmenter
 	breaks []bool
@@ -475,6 +477,7 @@ func newCoreText() (*coreText, error) {
 		oblique:     map[*Font]*Font{},
 		attrs:       map[attrsKey]uintptr{},
 		typesetters: map[typesetterKey]*keptTypesetter{},
+		numbers:     map[numberKey]*numberFont{},
 		tabStyles:   map[tabStyleKey]uintptr{},
 		registered:  map[string][]registeredFace{},
 		gaveFaces:   map[string][]registeredFace{},
@@ -936,6 +939,14 @@ func (e *coreText) fontOf(font uintptr) *Font {
 }
 
 func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, rtl, wholeWords bool) []shapedLine {
+	if lines := e.shapeNumber(text, style, spans, width, rtl); lines != nil {
+		return lines
+	}
+	return e.shapeText(text, style, spans, width, rtl, wholeWords)
+}
+
+// shapeText has Core Text shape text.
+func (e *coreText) shapeText(text []rune, style Style, spans []Span, width float32, rtl, wholeWords bool) []shapedLine {
 	font := e.ctFont(style)
 	if font == 0 || len(text) == 0 {
 		return nil
@@ -1676,6 +1687,7 @@ func (e *coreText) forgetPrimary() {
 	}
 	clear(e.attrs)
 	e.releaseShaping()
+	clear(e.numbers)
 }
 
 func (e *coreText) fontCount() int {
@@ -1694,6 +1706,7 @@ func (e *coreText) forgetFonts() {
 	clear(e.native)
 	clear(e.oblique)
 	clear(e.bands)
+	clear(e.numbers)
 	e.dropScratch()
 }
 
