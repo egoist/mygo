@@ -15,7 +15,12 @@ const (
 	// Repeat marks the auto-repeat of a key held down. A key that types
 	// text comes before the text, an InputText event, on macOS and
 	// Windows; on Linux, only the text comes while the element takes text
-	// (TextCaret) with input methods on (InputMethod).
+	// (TextCaret) with input methods on (InputMethod). Every key the system
+	// tells the window of comes: a modifier on its own, a lone tap of Super
+	// among them, the lock keys, and a key whose press the layout types no
+	// Key for come with Key KeyUnknown, named by Code alone, and Mods holds
+	// the modifier a press brings and not the one a release takes. Taking
+	// one keeps it from the system, as Alt from the menu bar.
 	InputKeyDown InputKind = iota + 1
 	InputKeyUp
 	// InputText is text typed, or committed by an input method.
@@ -74,8 +79,8 @@ type InputEvent struct {
 	// Code is the key by its position on any keyboard, with the sides of
 	// the modifiers told apart, as CodeShiftLeft; CodeUnknown where the
 	// platform does not report it, as for a mouse's side buttons, whose
-	// keys are KeyBack and KeyForward. RawKeys brings the keys that only it
-	// can name.
+	// keys are KeyBack and KeyForward. It alone names a key whose Key is
+	// KeyUnknown, as a modifier on its own or Caps Lock.
 	Code   KeyCode
 	Mods   Modifiers
 	Repeat bool
@@ -126,30 +131,6 @@ type InputEvent struct {
 // instead (Clicked, Shortcut, Dragged).
 func (e *node) HandleInput(fn func(ev InputEvent) bool) *node {
 	e.inputFn = fn
-	return e
-}
-
-// RawKeys has the element's HandleInput get every key the system tells the
-// window of, by position (InputEvent.Code), not only those it gets without:
-// modifiers pressed and released on their own, a lone tap of Super among
-// them, which side they were on, Caps Lock, Num Lock, Scroll Lock, Print
-// Screen and Pause, and any key whose press the layout types no Key for, as
-// the 102nd key beside the left Shift or a key held with AltGr. They come as
-// InputKeyDown and InputKeyUp with Key KeyUnknown, and PhysicalKey where the
-// key has one; Mods includes the modifier a press brings and leaves out the
-// one a release takes. What fn leaves goes on to the system as it would
-// without fn, and what it takes goes no further, as Alt, which opens the
-// menu bar on Windows and Linux. It is for what stands in for a keyboard,
-// such as a virtual machine's screen or a remote desktop; without it fn
-// sees the keys as before, and shortcuts keep working either way.
-//
-// Keys the desktop takes for itself never come, as Super where it opens a
-// launcher. Keys let go of after the window lost the keyboard have no
-// InputKeyUp, as with other keys, so an element holding keys lets go of them
-// as it loses the focus (Focused). ObserveInput does not see the keys only
-// RawKeys brings.
-func (e *node) RawKeys() *node {
-	e.rawKeys = true
 	return e
 }
 
@@ -204,18 +185,17 @@ func (e *node) InputMethod(on bool) *node {
 	return e
 }
 
-// rawKey gives a key only RawKeys brings to the element with the focus, if
-// it asked for them, and reports whether it took the key.
+// rawKey gives a key no shortcut can name to the elements around the focus
+// that observe their input and to the element with the focus, and reports
+// whether that one took it. It goes nowhere else in the window.
 func (rt *engine) rawKey(ev platform.SurfaceEvent) bool {
-	h := rt.focusHandler()
-	if h == nil || !h.rawKeys {
-		return false
-	}
 	kind := InputKeyDown
 	if ev.Kind == platform.RawKeyReleased {
 		kind = InputKeyUp
 	}
-	return rt.deliver(h, InputEvent{Kind: kind, Key: Key(ev.Key), PhysicalKey: Key(ev.PhysicalKey), Code: KeyCode(ev.Code), Mods: Modifiers(ev.Mods), Repeat: ev.Repeat})
+	input := InputEvent{Kind: kind, Key: Key(ev.Key), PhysicalKey: Key(ev.PhysicalKey), Code: KeyCode(ev.Code), Mods: Modifiers(ev.Mods), Repeat: ev.Repeat}
+	rt.observeFocus(input)
+	return rt.deliver(rt.focusHandler(), input)
 }
 
 // handler returns the state of the innermost element of chain that

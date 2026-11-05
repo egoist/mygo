@@ -882,9 +882,9 @@ func (t *Tester) KeyAt(mods Modifiers, physical Key) {
 	t.send(platform.SurfaceEvent{Kind: platform.KeyReleased, PhysicalKey: platform.Key(physical), Mods: platform.Modifiers(mods)})
 }
 
-// CodeDown presses a key by position as the system tells of those only
-// RawKeys brings, as a modifier on its own or Caps Lock: mods are the
-// modifiers held with it, its own among them.
+// CodeDown presses a key that only its position names, as a modifier on its
+// own or Caps Lock (InputEvent.Code): mods are the modifiers held with it,
+// its own among them.
 func (t *Tester) CodeDown(mods Modifiers, code KeyCode) {
 	t.send(platform.SurfaceEvent{Kind: platform.RawKeyPressed, Code: platform.KeyCode(code), Mods: platform.Modifiers(mods)})
 }

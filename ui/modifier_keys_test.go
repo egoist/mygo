@@ -6,28 +6,25 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-// rawKeysTester builds an element with the focus that notes its keys,
-// asking for RawKeys when raw.
-func rawKeysTester(raw bool, take func(InputEvent) bool) (*Tester, *[]InputEvent) {
+// keysTester builds an element with the focus that notes its keys, taking
+// those take says.
+func keysTester(take func(InputEvent) bool) (*Tester, *[]InputEvent) {
 	var got []InputEvent
 	tt := coreNewTester(func(c *context) {
-		e := coreBox(c).Size(100, 100).Focusable().AutoFocus().HandleInput(func(ev InputEvent) bool {
+		coreBox(c).Size(100, 100).Focusable().AutoFocus().HandleInput(func(ev InputEvent) bool {
 			if ev.Kind != InputKeyDown && ev.Kind != InputKeyUp {
 				return false
 			}
 			got = append(got, ev)
 			return take != nil && take(ev)
 		})
-		if raw {
-			e.RawKeys()
-		}
 	}, 200, 200)
 	return tt, &got
 }
 
 // A tap of Super alone comes down and up, and tells its side.
-func TestRawKeysSuperTap(t *testing.T) {
-	tt, got := rawKeysTester(true, nil)
+func TestModifierKeySuperTap(t *testing.T) {
+	tt, got := keysTester(nil)
 	tt.CodeDown(Super, CodeSuperRight)
 	tt.CodeUp(0, CodeSuperRight)
 	want := []InputEvent{
@@ -47,8 +44,8 @@ func TestRawKeysSuperTap(t *testing.T) {
 
 // The left and right of a modifier are told apart, with the modifiers held
 // as they change.
-func TestRawKeysSides(t *testing.T) {
-	tt, got := rawKeysTester(true, nil)
+func TestModifierKeySides(t *testing.T) {
+	tt, got := keysTester(nil)
 	tt.CodeDown(Shift, CodeShiftLeft)
 	tt.CodeDown(Shift, CodeShiftRight)
 	tt.CodeUp(Shift, CodeShiftLeft)
@@ -70,9 +67,9 @@ func TestRawKeysSides(t *testing.T) {
 }
 
 // Keys of no Key reach the element: the lock keys, the keypad's, the 102nd.
-func TestRawKeysMissingKeys(t *testing.T) {
+func TestKeysOfNoName(t *testing.T) {
 	for _, code := range []KeyCode{CodeCapsLock, CodeNumLock, CodeScrollLock, CodePrintScreen, CodePause, CodeIntlBackslash, CodeNumpad5, CodeNumpadAdd, CodeAltRight} {
-		tt, got := rawKeysTester(true, nil)
+		tt, got := keysTester(nil)
 		tt.CodeDown(0, code)
 		tt.CodeUp(0, code)
 		if len(*got) != 2 || (*got)[0].Code != code || (*got)[0].Kind != InputKeyDown || (*got)[1].Code != code || (*got)[1].Kind != InputKeyUp {
@@ -81,79 +78,82 @@ func TestRawKeysMissingKeys(t *testing.T) {
 	}
 }
 
-// Without RawKeys an element sees what it saw before, and the window takes
-// nothing from the system: what goes to Alt's menu bar still does.
-func TestRawKeysOptIn(t *testing.T) {
-	tt, got := rawKeysTester(false, func(InputEvent) bool { return true })
-	if tt.rt.event(platform.SurfaceEvent{Kind: platform.RawKeyPressed, Code: platform.CodeAltLeft, Mods: platform.ModAlt}) {
-		t.Error("the key went to the content")
-	}
-	tt.CodeUp(0, CodeAltLeft)
-	if len(*got) != 0 {
-		t.Errorf("an element that did not ask got %+v", *got)
-	}
-	// The modifiers held still change, as ModifiersChanged tells them.
-	var mods Modifiers
-	tt = coreNewTester(func(c *context) { mods = c.Modifiers() }, 200, 200)
-	tt.CodeDown(Ctrl, CodeControlLeft)
-	tt.Frame()
-	if mods != Ctrl {
-		t.Errorf("modifiers %v, want Ctrl", mods)
-	}
-}
-
-// Taking a raw key tells the backend, which keeps it from the system;
-// leaving it does not.
-func TestRawKeysTaken(t *testing.T) {
-	tt, _ := rawKeysTester(true, func(ev InputEvent) bool { return ev.Code == CodeAltLeft })
+// Taking one tells the backend, which keeps it from the system; leaving it
+// goes on as before, and the modifiers held change either way.
+func TestModifierKeyTaken(t *testing.T) {
+	tt, _ := keysTester(func(ev InputEvent) bool { return ev.Code == CodeAltLeft })
 	if !tt.rt.event(platform.SurfaceEvent{Kind: platform.RawKeyPressed, Code: platform.CodeAltLeft, Mods: platform.ModAlt}) {
 		t.Error("Alt taken, not told")
 	}
 	if tt.rt.event(platform.SurfaceEvent{Kind: platform.RawKeyPressed, Code: platform.CodeShiftLeft, Mods: platform.ModShift}) {
 		t.Error("Shift left, told taken")
 	}
+	var mods Modifiers
+	tt = coreNewTester(func(c *context) { mods = c.Modifiers() }, 200, 200)
+	if tt.rt.event(platform.SurfaceEvent{Kind: platform.RawKeyPressed, Code: platform.CodeControlLeft, Mods: platform.ModCtrl}) {
+		t.Error("no element, told taken")
+	}
+	tt.Frame()
+	if mods != Ctrl {
+		t.Errorf("modifiers %v, want Ctrl", mods)
+	}
 }
 
-// Only the element with the focus gets them.
-func TestRawKeysFocus(t *testing.T) {
-	var got []InputEvent
+// Only the element with the focus gets them, and those around it observing.
+func TestModifierKeyFocus(t *testing.T) {
+	var handled, observed, outside []InputEvent
 	tt := coreNewTester(func(c *context) {
-		coreBox(c).Size(50, 50).RawKeys().HandleInput(func(ev InputEvent) bool {
-			got = append(got, ev)
+		coreBox(c).Size(50, 50).HandleInput(func(ev InputEvent) bool {
+			outside = append(outside, ev)
 			return false
 		})
-		coreButton(c, "Other").AutoFocus()
+		coreBox(c).ObserveInput(func(ev InputEvent) {
+			if ev.Kind == InputKeyDown {
+				observed = append(observed, ev)
+			}
+		}).Children(func() {
+			coreBox(c).Size(50, 50).Focusable().AutoFocus().HandleInput(func(ev InputEvent) bool {
+				if ev.Kind == InputKeyDown {
+					handled = append(handled, ev)
+				}
+				return false
+			})
+		})
 	}, 200, 200)
 	tt.CodeDown(Shift, CodeShiftLeft)
-	if len(got) != 0 {
-		t.Errorf("an element without the focus got %+v", got)
+	if len(handled) != 1 || handled[0].Code != CodeShiftLeft {
+		t.Errorf("the focus got %+v", handled)
+	}
+	if len(observed) != 1 || observed[0].Code != CodeShiftLeft {
+		t.Errorf("around the focus: %+v", observed)
+	}
+	if len(outside) != 0 {
+		t.Errorf("an element without the focus got %+v", outside)
 	}
 }
 
-// Keys of a name carry their position too, for anything that takes them by
-// it, and those without RawKeys do as well.
+// Keys of a name carry their position too.
 func TestInputEventCode(t *testing.T) {
-	for _, raw := range []bool{false, true} {
-		tt, got := rawKeysTester(raw, nil)
-		tt.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.KeyEnter, Code: platform.CodeNumpadEnter})
-		tt.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: platform.KeyEnter, Code: platform.CodeNumpadEnter})
-		if len(*got) != 2 {
-			t.Fatalf("raw %v: %+v", raw, *got)
-		}
-		for _, ev := range *got {
-			if ev.Key != KeyEnter || ev.Code != CodeNumpadEnter {
-				t.Errorf("raw %v: %+v", raw, ev)
-			}
+	tt, got := keysTester(nil)
+	tt.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.KeyEnter, Code: platform.CodeNumpadEnter})
+	tt.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: platform.KeyEnter, Code: platform.CodeNumpadEnter})
+	if len(*got) != 2 {
+		t.Fatalf("%+v", *got)
+	}
+	for _, ev := range *got {
+		if ev.Key != KeyEnter || ev.Code != CodeNumpadEnter {
+			t.Errorf("%+v", ev)
 		}
 	}
 }
 
-// Shortcuts keep working on an element asking for raw keys, with the
-// modifiers those bring.
-func TestRawKeysKeepShortcuts(t *testing.T) {
+// Modifier keys leave the window's handling alone: a shortcut still runs
+// with the modifier its key brings, and a focused text input's text stays.
+func TestModifierKeysKeepShortcuts(t *testing.T) {
 	saved := 0
+	text := "ab"
 	tt := coreNewTester(func(c *context) {
-		coreBox(c).Size(100, 100).Focusable().AutoFocus().RawKeys().HandleInput(func(InputEvent) bool { return false })
+		coreTextInput(c, &text).AutoFocus()
 		if c.Shortcut(Ctrl, KeyS) {
 			saved++
 		}
@@ -161,9 +161,14 @@ func TestRawKeysKeepShortcuts(t *testing.T) {
 	tt.CodeDown(Ctrl, CodeControlLeft)
 	tt.Key(Ctrl, KeyS)
 	tt.CodeUp(0, CodeControlLeft)
+	tt.CodeDown(Shift, CodeShiftLeft)
+	tt.CodeUp(0, CodeShiftLeft)
 	tt.Frame()
 	if saved != 1 {
 		t.Errorf("the shortcut ran %d times", saved)
+	}
+	if text != "ab" {
+		t.Errorf("the text is %q", text)
 	}
 }
 

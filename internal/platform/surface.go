@@ -288,8 +288,7 @@ const (
 	// RawKeyPressed and RawKeyReleased report a key by its position, Code,
 	// that KeyPressed and KeyReleased leave out: a modifier, a lock key, or
 	// one the layout types no Key for. PhysicalKey is set where it can be,
-	// Key never is. Only an element that asks for them gets them
-	// (ui's RawKeys); the content reports whether it took the press or the
+	// Key never is. The content reports whether it took the press or the
 	// release, which then goes no further in the system, as Alt opening
 	// the window's menu bar.
 	RawKeyPressed

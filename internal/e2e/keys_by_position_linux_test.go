@@ -11,9 +11,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// TestRawKeysGTK presses keys through XTEST, as a keyboard does, and sees
-// them reach an element asking for RawKeys by position, down and up.
-func TestRawKeysGTK(t *testing.T) {
+// TestKeysByPositionGTK presses keys through XTEST, as a keyboard does, and sees
+// them reach an element by position, down and up, with no name for them.
+func TestKeysByPositionGTK(t *testing.T) {
 	type seen struct {
 		kind ui.InputKind
 		code ui.KeyCode
@@ -23,7 +23,7 @@ func TestRawKeysGTK(t *testing.T) {
 	var got []seen
 	frames := make(chan struct{}, 1)
 	view := func(c *ui.Context) {
-		ui.Box(c).Grow(1).Focusable().AutoFocus().RawKeys().HandleInput(func(ev ui.InputEvent) bool {
+		ui.Box(c).Grow(1).Focusable().AutoFocus().HandleInput(func(ev ui.InputEvent) bool {
 			if ev.Kind == ui.InputKeyDown || ev.Kind == ui.InputKeyUp {
 				mu.Lock()
 				got = append(got, seen{ev.Kind, ev.Code, ev.Mods})
@@ -37,7 +37,7 @@ func TestRawKeysGTK(t *testing.T) {
 		default:
 		}
 	}
-	w := newWindow(t, mygo.WindowOptions{Title: "Raw keys", Width: 300, Height: 200, Content: ui.View(view)})
+	w := newWindow(t, mygo.WindowOptions{Title: "Keys by position", Width: 300, Height: 200, Content: ui.View(view)})
 	<-frames
 	if !click(w, 150, 100) {
 		t.Skip("pointer automation not available")

@@ -538,17 +538,18 @@ Shift. Its values are USB HID usage IDs of the keyboard page and its names
 those of `KeyboardEvent.code`, with Super for Meta, so one table turns them
 into a guest's scancodes.
 
-By default `HandleInput` gets `Code` on the keys it always got. An element
-that stands in for a keyboard, as a virtual machine's screen or a remote
-desktop, asks for the rest with `RawKeys`: modifiers pressed and released
-on their own, a lone tap of Super among them, Caps Lock, Num Lock, Scroll
-Lock, Print Screen and Pause, and the keys whose press the layout types no
-`Key` for, as a key held with AltGr or `Shift+1` on a US layout. They come
-as `ui.InputKeyDown` and `ui.InputKeyUp` with `Key` being `ui.KeyUnknown`.
+`HandleInput` and `ObserveInput` get every key the system tells the window
+of, as a web page's listeners do. That includes modifiers pressed and released
+on their own, a lone tap of Super among them, Caps Lock, Num Lock, Scroll Lock,
+Print Screen and Pause, and the keys whose press the layout types no `Key` for,
+as a key held with AltGr. Those come as `ui.InputKeyDown` and `ui.InputKeyUp`
+with `Key` being `ui.KeyUnknown`, and only `Code` names them. `Mods` includes
+the modifier a press brings and leaves out the one a release takes. A handler
+that picks its keys with a `switch` never notices them; one that reacts to any
+key should check that `Key` is not `ui.KeyUnknown`.
 
 ```go
-screen := ui.Box(c).Grow(1).Focusable().AutoFocus().RawKeys().Bind(&app.screen)
-screen.HandleInput(func(ev ui.InputEvent) bool {
+ui.Box(c).Grow(1).Focusable().AutoFocus().Bind(&app.screen).HandleInput(func(ev ui.InputEvent) bool {
 	switch ev.Kind {
 	case ui.InputKeyDown:
 		return app.guest.press(ev.Code)
@@ -563,8 +564,8 @@ if !app.screen.Focused(c) {
 ```
 
 What the function takes goes no further, as Alt, which otherwise opens the
-menu bar on Windows and Linux; what it leaves goes on as it would without
-it, and shortcuts keep working. `Tester.CodeDown` and `Tester.CodeUp` press
+menu bar on Windows and Linux, so return false for keys you don't use;
+shortcuts keep working either way. `Tester.CodeDown` and `Tester.CodeUp` press
 and let go of such keys in tests.
 
 What a system tells has limits:
