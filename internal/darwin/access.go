@@ -649,6 +649,10 @@ func registerAccessClass() {
 				names = send(names, "arrayByAddingObject:", uintptr(nsString("AXMenuItemMarkChar")))
 			}
 			names = send(names, "arrayByAddingObject:", uintptr(nsString("AXElementBusy")))
+			// Whether it can be used: the older API does not list or answer
+			// AXEnabled for what setAccessibilityEnabled: set, and VoiceOver
+			// would read every disabled control as available.
+			names = send(names, "arrayByAddingObject:", uintptr(nsString("AXEnabled")))
 			if el.node.Current != platform.CurrentNone {
 				names = send(names, "arrayByAddingObject:", uintptr(nsString("AXARIACurrent")))
 			}
@@ -685,6 +689,8 @@ func registerAccessClass() {
 					}
 				case "AXElementBusy":
 					return nsBool(el.node.States&platform.AccessBusy != 0)
+				case "AXEnabled":
+					return nsBool(el.node.States&platform.AccessDisabled == 0)
 				case "AXARIACurrent":
 					if c := el.node.Current; c != platform.CurrentNone {
 						return nsString(c.String())
