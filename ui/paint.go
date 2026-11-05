@@ -839,19 +839,36 @@ func (p *Painter) popClip() {
 // background, underline or strikethrough of ts, and the colors, backgrounds
 // and lines of the spans of sp, if any.
 func (p *Painter) textLayout(l *text.Layout, x, y float32, color Color, ts textStyle, sp *spanPaint) {
+	if l != nil && l.Vertical() && paintVertical != nil {
+		// The spans by value, as a call through a variable would move a
+		// pointer to the caller's to the heap.
+		var spans spanPaint
+		if sp != nil {
+			spans = *sp
+		}
+		paintVertical(p, l, x, y, color, ts, spans)
+		return
+	}
 	p.textBackgrounds(l, x, y, ts, sp)
-	// Content transitions also paint the old layout; only the current text
-	// carries its selection, in the same position, clip and opacity as its glyphs.
+	p.textSelection(l, x, y, ts)
+	p.textForeground(l, x, y, color, ts, sp)
+}
+
+// textSelection paints the selection of the text being painted, if it
+// is selectable, over its backgrounds and under its glyphs. Content
+// transitions also paint the old layout; only the current text carries
+// its selection, in the same position, clip and opacity as its glyphs.
+func (p *Painter) textSelection(l *text.Layout, x, y float32, ts textStyle) {
 	if e := p.inline; e != nil && e.tl == l {
 		if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 && p.rt.textSelectionVisible(e.st) {
 			if a, b := ed.selection(); a != b {
 				for _, r := range l.Selection(a, b) {
+					r = l.PhysicalRect(r)
 					p.Fill(Rect{x + r.X, y + r.Y, r.W, r.H}, ts.selectionColor(p.Theme()), 0)
 				}
 			}
 		}
 	}
-	p.textForeground(l, x, y, color, ts, sp)
 }
 
 // paintObjects is textObjects once DrawObjects is called, so that apps
@@ -881,7 +898,8 @@ func (p *Painter) textObjects(l *text.Layout, x, y float32, fn func(p *Painter, 
 				spans = text.DecodeSpans(l.Params.Spans)
 			}
 			h, d := objectMetrics(spans, g.Cluster)
-			r := Rect{x + g.X, y + line.Baseline - h, g.Advance, h + d}
+			b := l.PhysicalRect(text.Rect{X: g.X, Y: line.Baseline - h, W: g.Advance, H: h + d})
+			r := Rect{x + b.X, y + b.Y, b.W, b.H}
 			p.transform = saved.Mul(p.inlineTransform(g.Cluster))
 			if p.visible(r, 0) {
 				fn(p, g.Cluster, r)
@@ -936,7 +954,7 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 	}
 	start := int32(len(p.s.Glyphs))
 	var run *glyphRun
-	if sys.JoinsGlyphs() && !moves {
+	if sys.JoinsGlyphs() && !moves && !l.Vertical() {
 		// The engine's, whose buffers each text reuses.
 		run = &p.rt.glyphRun
 		run.ids, run.pens, run.glyphs = run.ids[:0], run.pens[:0], run.glyphs[:0]
@@ -948,7 +966,10 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 		}
 		baseline := sys.Baseline((y + line.Baseline) * s)
 		for _, g := range line.Glyphs {
-			pen := (x + g.X) * s
+			pen, by := (x+g.X)*s, baseline
+			if g.Upright {
+				pen, by = p.uprightOrigin(g, x, y)
+			}
 			if g.Object || clips && (pen > (p.clip.X+p.clip.W)*s || pen+(g.Advance+g.Size)*s < p.clip.X*s) {
 				continue
 			}
@@ -968,10 +989,13 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 			}
 			glyphColor = glyphColor.Alpha(p.opacity)
 			sg := scene.Glyph{
-				X: ix + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
+				X: ix + gi.Left, Y: by + gi.Top, W: float32(gi.W), H: float32(gi.H),
 				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
 				Transform: p.inlineTransform(g.Cluster).Pixels(s),
 				Color:     glyphColor.scene(), Wide: p.glyphWide(glyphColor), Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
+			}
+			if g.Upright {
+				sg.Transform = sg.Transform.Mul(standUp(ix, by))
 			}
 			if run != nil {
 				run.add(p, g, gi, pen, sg, glyphShade, baseline)
@@ -1029,7 +1053,10 @@ func (p *Painter) textStrokes(l *text.Layout, x, y float32, color Color, ts text
 		}
 		baseline := sys.Baseline((y + line.Baseline) * s)
 		for _, g := range line.Glyphs {
-			pen := (x + g.X) * s
+			pen, by := (x+g.X)*s, baseline
+			if g.Upright {
+				pen, by = p.uprightOrigin(g, x, y)
+			}
 			width, stroke := ts.strokeWidth, ts.strokeColor
 			if g.Object || clips && (pen > (p.clip.X+p.clip.W+width)*s || pen+(g.Advance+g.Size+width)*s < p.clip.X*s) {
 				continue
@@ -1050,12 +1077,17 @@ func (p *Painter) textStrokes(l *text.Layout, x, y float32, color Color, ts text
 				continue
 			}
 			stroke = stroke.Alpha(p.opacity)
-			p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{
-				X: float32(math.Floor(float64(pen))) + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
+			ix := float32(math.Floor(float64(pen)))
+			sg := scene.Glyph{
+				X: ix + gi.Left, Y: by + gi.Top, W: float32(gi.W), H: float32(gi.H),
 				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
 				Transform: p.inlineTransform(g.Cluster).Pixels(s),
 				Color:     stroke.scene(), Wide: p.glyphWide(stroke),
-			})
+			}
+			if g.Upright {
+				sg.Transform = sg.Transform.Mul(standUp(ix, by))
+			}
+			p.s.Glyphs = append(p.s.Glyphs, sg)
 		}
 	}
 	if end := int32(len(p.s.Glyphs)); end > start {

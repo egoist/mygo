@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 )
@@ -238,5 +239,27 @@ func TestLCDFilterRule(t *testing.T) {
 	rule(set(`<edit name="lcdfilter" mode="assign"><const>lcddefault</const></edit>`))
 	if !bytes.Equal(draw(), unnamed) {
 		t.Error("cairo's default filter is not FreeType's")
+	}
+}
+
+// TestPangoVerticalForms checks that the characters standing up in a
+// column take the font's vertical forms (the vert feature), as the
+// prolonged sound mark, which draws down the column, and the ideographic
+// comma, which sits at the top right of its cell; and that every one
+// takes an em down the column, whatever Pango rounds its advance to.
+func TestPangoVerticalForms(t *testing.T) {
+	s := newSystem()
+	s.UseVertical()
+	const family = "IPAGothic"
+	if f := s.font(Style{Family: family}); f == nil || !slices.ContainsFunc(s.FontFamilies(), func(f FontFamily) bool { return f.Name == family }) {
+		t.Skip("no " + family)
+	}
+	style := Style{Family: family, Size: 32}
+	across := s.Layout(Params{Text: "ー、", Style: style}).Lines[0].Glyphs
+	down := s.Layout(Params{Text: "ー、", Style: style, Mode: VerticalRL}).Lines[0].Glyphs
+	for i := range down {
+		if down[i].ID == across[i].ID || !down[i].Upright || down[i].Advance != 32 {
+			t.Errorf("glyph %d: %+v in a column, %+v across", i, down[i], across[i])
+		}
 	}
 }

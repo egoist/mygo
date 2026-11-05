@@ -47,6 +47,9 @@ type Style struct {
 	// tabStop is the distance between tab stops in DIPs that TabSize
 	// makes, which the System sets for engines as it shapes.
 	tabStop float32
+	// orient is the orientation of the characters of vertical text, which
+	// the System sets as it lays out (Params.Mode), 0 across.
+	orient Orientation
 }
 
 func (s Style) weight() int {
@@ -127,6 +130,12 @@ type Params struct {
 	// Spans styles runs of the text apart from Style, as EncodeSpans
 	// writes them.
 	Spans string
+	// Mode sets the lines in columns, VerticalRL or VerticalLR, once
+	// System.UseVertical was called: Width is then the columns' height,
+	// and the layout's coordinates are logical (Layout.Vertical).
+	Mode WritingMode
+	// Orientation stands the characters of vertical text, Mixed when 0.
+	Orientation Orientation
 }
 
 // Span styles the runes of a text before End, after those of the spans
@@ -162,6 +171,9 @@ type Span struct {
 	// box-decoration-break: clone: the glyphs move in, and the line, which
 	// breaks to fit it, is that much wider.
 	PaddingX float32
+	// Orientation stands the span's characters in vertical text as
+	// Params.Orientation does; 0 keeps the text's.
+	Orientation Orientation
 }
 
 // style returns the style of the span's runes in a text of style base.
@@ -219,7 +231,13 @@ func EncodeSpans(spans []Span) string {
 		if sp.PaddingX != 0 {
 			flags |= 8
 		}
+		if sp.Orientation != 0 {
+			flags |= 16
+		}
 		b = append(b, flags)
+		if sp.Orientation != 0 {
+			b = append(b, byte(sp.Orientation))
+		}
 		if sp.BaselineShift != 0 {
 			b = binary.LittleEndian.AppendUint32(b, math.Float32bits(sp.BaselineShift))
 		}
@@ -284,6 +302,10 @@ func DecodeSpans(s string) []Span {
 		}
 		sp.Italic = flags&1 != 0
 		sp.SpacingSet = flags&4 != 0
+		if flags&16 != 0 && len(b) > 0 {
+			sp.Orientation = Orientation(b[0])
+			b = b[1:]
+		}
 		if flags&2 != 0 {
 			sp.BaselineShift = f32()
 		}
@@ -338,6 +360,8 @@ type Layout struct {
 	boundaries    []int // retained whole-grapheme offsets for visual navigation
 	// Truncated reports that MaxLines cut the text.
 	Truncated bool
+	// vertical sets the lines in columns (Vertical).
+	vertical bool
 }
 
 // Line is a line of a Layout.
@@ -385,6 +409,11 @@ type Glyph struct {
 	// Object marks the box of an inline object (Span.ObjectWidth), which
 	// draws no glyph: what shows there is the caller's.
 	Object bool
+	// Upright marks a glyph of a vertical layout that stands up rather
+	// than turning with its line: X is the top of its cell, an em of
+	// Advance down the column, and Y, across it, its horizontal origin;
+	// it is drawn unturned, its baseline VerticalOrigin below X.
+	Upright bool
 }
 
 // System lays out text and rasterizes glyphs with the system's own text
@@ -463,6 +492,9 @@ type System struct {
 	// tabs is tabStop once UseTabSize was called, so that apps that never
 	// set a tab size do not link it.
 	tabs func(s *System, style Style) float32
+	// vert lays out vertical text once UseVertical was called, so that
+	// apps that never set text in columns do not link it.
+	vert *verticalFuncs
 }
 
 type markKey struct {
@@ -1112,6 +1144,10 @@ func (s *System) layout(p Params) *cached {
 	if p.Style.TabSize > 0 && s.tabs != nil && strings.ContainsRune(p.Text, '\t') {
 		p.Style.tabStop = s.tabs(s, p.Style)
 	}
+	if p.Mode != Horizontal && s.vert != nil {
+		l.vertical = true
+		p.Style.orient = cmp.Or(p.Orientation, Mixed)
+	}
 	l.Lines = c.line[:0]
 	y := float32(0)
 	for start := 0; start <= len(runes); {
@@ -1436,6 +1472,12 @@ func line(p Params, text []rune, sl shapedLine, offset int, rtl bool, m lineMetr
 	line.Height = max(m.lineHeight, line.Ascent+line.Descent)
 	line.Y = *y
 	line.Baseline = *y + (line.Height-line.Ascent-line.Descent)/2 + line.Ascent
+	if p.Style.orient != 0 {
+		// A column's glyphs center on its middle (verticalShape).
+		line.Baseline = *y + line.Height/2
+		line.Ascent = (line.Ascent + line.Descent) / 2
+		line.Descent = line.Ascent
+	}
 	for i := range line.Glyphs {
 		line.Glyphs[i].X -= x0
 		line.Glyphs[i].Y += line.Baseline
@@ -1474,7 +1516,6 @@ var ellipsis = []rune{'…'}
 // with an ellipsis: as many of its graphemes as fit width with it (all of
 // them for 0).
 func (s *System) ellipsize(text []rune, spans []Span, start int, p Params, width float32, rtl bool) shapedLine {
-	e := s.engine()
 	rest := text[start:]
 	restSpans := spansIn(spans, start, len(text))
 	mark := ellipsis
@@ -1486,7 +1527,7 @@ func (s *System) ellipsize(text []rune, spans []Span, start int, p Params, width
 		key := markKey{style: p.Style, mark: p.Ellipsis, rtl: rtl}
 		ellipsis, ok := s.marks[key]
 		if !ok {
-			for _, l := range e.shape(mark, p.Style, nil, 0, rtl, false) {
+			for _, l := range s.shape(mark, p.Style, nil, 0, rtl, false) {
 				ellipsis = max(ellipsis, advance(l))
 			}
 			if len(s.marks) >= 256 {
@@ -1498,7 +1539,7 @@ func (s *System) ellipsize(text []rune, spans []Span, start int, p Params, width
 		s.advances = slices.Grow(s.advances[:0], len(rest))[:len(rest)]
 		advances := s.advances
 		clear(advances)
-		for _, l := range e.shape(rest, p.Style, restSpans, 0, rtl, false) {
+		for _, l := range s.shape(rest, p.Style, restSpans, 0, rtl, false) {
 			for _, run := range l.runs {
 				for _, g := range run.glyphs {
 					if g.Cluster >= 0 && g.Cluster < len(rest) {
@@ -1545,7 +1586,7 @@ func (s *System) ellipsize(text []rune, spans []Span, start int, p Params, width
 	if n := len(tSpans); n > 0 && tSpans[n-1].End == cut {
 		tSpans[n-1].End += len(mark)
 	}
-	for _, l := range e.shape(t, p.Style, tSpans, 0, rtl, false) {
+	for _, l := range s.shape(t, p.Style, tSpans, 0, rtl, false) {
 		for _, run := range l.runs {
 			run.start, run.end = start+min(run.start, cut), start+min(run.end, cut)
 			for i := range run.glyphs {

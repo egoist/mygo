@@ -4181,6 +4181,30 @@ either.
     repeats, and the canvas engine's own lines, which otherwise measure a
     tab as the canvas does, as a space. The first `TabSize` links it
     (`System.UseTabSize`), as `Justify` does `UseJustify`.
+  - *Vertical text.* `Params.Mode` sets lines in columns
+    (`VerticalRL`, `VerticalLR`), laid out once in Go over every engine's
+    horizontal shaping rather than in each engine's vertical mode: a
+    vertical layout is a layout across in logical coordinates, x down
+    its columns and y across them, so that wrapping, alignment,
+    justification, truncation, carets and selection work unchanged, and
+    `Layout.PhysicalRect`, `Logical` and `Across` map it to where it
+    shows, a quarter turn clockwise (each column mirrored in itself for
+    `VerticalLR`). Each character's orientation comes from UAX #50
+    (`orientation_table.go`, from Unicode's VerticalOrientation.txt by
+    `go generate ./internal/text`) and `Orientation`; the engine shapes
+    the paragraph across, the upright runs with the font's `vert`
+    feature (the canvas engine, which has no features, takes Unicode's
+    vertical presentation forms), and each upright cluster then takes a
+    cell an em down the column (`Glyph.Upright`), centered across it by
+    its advance, its baseline at the ideographic em box's top
+    (`Glyph.VerticalOrigin`), while sideways glyphs keep their advances
+    with their em box centered on the column's middle. The lines break
+    in Go at Unicode's line breaking opportunities (the segmenter's) by
+    those advances down the column, and each is shaped again.
+    Package ui paints each column with its transform, a quarter turn,
+    and turns each upright glyph back with its own (`scene.Glyph`'s);
+    decorations are the text system's own down the column. The first
+    `WritingMode` links it (`System.UseVertical`).
   Paths drawn with
   `Painter` are masks in the coverage atlas, rasterized by `internal/vec`,
   cached by their shape relative to the pixel grid in quarters of a pixel,

@@ -23,13 +23,12 @@ const softHyphen = '\u00AD'
 // broken anew: a paragraph without either is shaped once. hy is nil for a
 // text without soft hyphens.
 func (s *System) breakLines(text []rune, style Style, spans []Span, width, indent float32, rtl, wholeWords bool, hy *hyphens) []shapedLine {
-	e := s.engine()
 	if width <= 0 {
-		return e.shape(text, style, spans, 0, rtl, wholeWords)
+		return s.shape(text, style, spans, 0, rtl, wholeWords)
 	}
 	pads := padded(spans)
 	if indent <= 0 && hy == nil && !pads {
-		return e.shape(text, style, spans, width, rtl, wholeWords)
+		return s.shape(text, style, spans, width, rtl, wholeWords)
 	}
 	var out []shapedLine
 	for pos := 0; pos < len(text); {
@@ -37,7 +36,7 @@ func (s *System) breakLines(text []rune, style Style, spans []Span, width, inden
 		if first {
 			limit = max(width-indent, 1)
 		}
-		lines := e.shape(text[pos:], style, spansIn(spans, pos, len(text)), limit, rtl, wholeWords)
+		lines := s.shape(text[pos:], style, spansIn(spans, pos, len(text)), limit, rtl, wholeWords)
 		if len(lines) == 0 {
 			break
 		}
@@ -48,7 +47,7 @@ func (s *System) breakLines(text []rune, style Style, spans []Span, width, inden
 		offsetLines(lines, pos)
 		for _, l := range lines {
 			if c := softBreak(l, text); c >= 0 && hy != nil && hy.lineWidth(l, text, c) > limit+1e-3 {
-				narrow := e.shape(text[l.start:l.end], style, spansIn(spans, l.start, l.end), max(limit-hy.width(c), 1), rtl, wholeWords)
+				narrow := s.shape(text[l.start:l.end], style, spansIn(spans, l.start, l.end), max(limit-hy.width(c), 1), rtl, wholeWords)
 				if len(narrow) > 0 && narrow[0].end != l.end && hy.opportunity(text, l.start+narrow[0].end) {
 					offsetLines(narrow[:1], l.start)
 					out = append(out, narrow[0])
@@ -59,7 +58,7 @@ func (s *System) breakLines(text []rune, style Style, spans []Span, width, inden
 			}
 			if pads {
 				if w, pad := paddedWidth(l, text, spans); w+pad > limit+1e-3 {
-					narrow := e.shape(text[l.start:l.end], style, spansIn(spans, l.start, l.end), max(limit-pad, 1), rtl, wholeWords)
+					narrow := s.shape(text[l.start:l.end], style, spansIn(spans, l.start, l.end), max(limit-pad, 1), rtl, wholeWords)
 					if len(narrow) > 0 && narrow[0].end > 0 && narrow[0].end != l.end-l.start {
 						offsetLines(narrow[:1], l.start)
 						out = append(out, narrow[0])

@@ -249,6 +249,10 @@ func complexScript(r rune) bool {
 		unicode.Myanmar, unicode.Khmer, unicode.Javanese, unicode.Balinese)
 }
 
+// noFeatures tells that canvases apply no OpenType features: vertical
+// text takes vertical presentation forms instead (featureless).
+func (e *canvasEngine) noFeatures() {}
+
 func (e *canvasEngine) shape(text []rune, style Style, spans []Span, width float32, rtl, wholeWords bool) []shapedLine {
 	if len(text) == 0 {
 		return nil

@@ -68,6 +68,10 @@ type Span struct {
 	// chemical formulas. The line makes room for it, and its underline
 	// and strikethrough go with it.
 	BaselineShift float32
+	// Orientation stands the span's characters in vertical text, as
+	// Element.TextOrientation does: TextUpright stands up a run of Latin
+	// in a column of Han. Zero takes the text's.
+	Orientation TextOrientation
 
 	// solid draws Underline through descenders, as a link's hover.
 	solid bool
@@ -231,7 +235,8 @@ func (sc *spanCache) update(spans []Span) {
 // layout.
 func spanStyle(s Span, end int) text.Span {
 	return text.Span{End: end, Family: s.Font, Size: s.Size, Weight: s.Weight, Italic: s.Italic, LetterSpacing: s.LetterSpacing, SpacingSet: s.NoLetterSpacing, Features: s.Features, Lang: s.Lang,
-		ObjectWidth: s.ObjectWidth, ObjectHeight: s.ObjectHeight, ObjectDescent: s.ObjectDescent, BaselineShift: s.BaselineShift, PaddingX: s.PaddingX}
+		ObjectWidth: s.ObjectWidth, ObjectHeight: s.ObjectHeight, ObjectDescent: s.ObjectDescent, BaselineShift: s.BaselineShift, PaddingX: s.PaddingX,
+		Orientation: text.Orientation(s.Orientation)}
 }
 
 // encodeSpans encodes the styles of spans for a layout.

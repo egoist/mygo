@@ -177,6 +177,10 @@ func (ed *editor) key(c *context, st *state, k editEvent) {
 	word := (!mac && m == Ctrl) || (mac && m == Alt)
 	b := &ed.buf
 	a, z := ed.selection()
+	if l := ed.layout; l != nil && ed.area == nil && l.Vertical() {
+		// Down a column is along its line, and across it to the next.
+		k.key = columnKey(k.key, l.Params.Mode == text.VerticalLR)
+	}
 	switch k.key {
 	case KeyLeft, KeyRight:
 		left := k.key == KeyLeft

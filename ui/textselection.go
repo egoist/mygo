@@ -3,6 +3,8 @@ package ui
 import (
 	"runtime"
 	"strings"
+
+	"github.com/egoist/mygo/internal/text"
 )
 
 // textPoint identifies a rune of a paragraph by its stable element ID.
@@ -209,7 +211,8 @@ func (rt *engine) textSelectionAt(scope uint64, x, y float32) textPoint {
 			continue
 		}
 		for _, line := range s.editor.layout.Lines {
-			r := intersect(transformRect(s.world, Rect{s.x + s.editor.originX + line.X, s.y + s.editor.originY + line.Y, line.Width, line.Height}), Rect{s.vx, s.vy, s.vw, s.vh})
+			b := s.editor.layout.PhysicalRect(text.Rect{X: line.X, Y: line.Y, W: line.Width, H: line.Height})
+			r := intersect(transformRect(s.world, Rect{s.x + s.editor.originX + b.X, s.y + s.editor.originY + b.Y, b.W, b.H}), Rect{s.vx, s.vy, s.vw, s.vh})
 			if r.W <= 0 || r.H <= 0 {
 				continue
 			}
@@ -229,9 +232,11 @@ func textHit(s *state, x, y float32) textPoint {
 	ed := s.editor
 	lx, ly := s.local(x, y)
 	at := ed.hit(lx, ly)
-	if ly < ed.originY {
+	// Before the first line, or past the last: down the columns of a
+	// vertical text, right of the first or left of the last.
+	if _, y := ed.layout.Logical(lx-ed.originX, ly-ed.originY); y < 0 {
 		at = 0
-	} else if ly >= ed.originY+ed.layout.Height {
+	} else if y >= ed.layout.Height {
 		at = ed.buf.n
 	}
 	return textPoint{s.id, at}
@@ -468,13 +473,19 @@ func (rt *engine) textSelectionKey(s *state, k keyEvent) bool {
 		t.caret, t.hasDesired = textPoint{s.id, at}, false
 		return true
 	}
-	if k.key == KeyUp || k.key == KeyDown {
+	key := k.key // as the arrows move in the text's lines
+	if ed.layout != nil && ed.layout.Vertical() {
+		// Down a column is along its line, and across it to the next;
+		// the editor turns the keys it takes itself.
+		key = columnKey(key, ed.layout.Params.Mode == text.VerticalLR)
+	}
+	if key == KeyUp || key == KeyDown {
 		x, y, h := ed.layout.Caret(at)
 		if !t.hasDesired {
 			t.desiredX, t.hasDesired = s.x+ed.originX+x, true
 		}
 		direction := 1
-		if k.key == KeyUp {
+		if key == KeyUp {
 			direction = -1
 		}
 		y += h/2 + float32(direction)*h
@@ -498,9 +509,9 @@ func (rt *engine) textSelectionKey(s *state, k keyEvent) bool {
 		return true
 	}
 	t.hasDesired = false
-	if (k.key == KeyLeft && at == 0 || k.key == KeyRight && at == ed.buf.n) && !(runtime.GOOS == "darwin" && mods == Cmd) {
+	if (key == KeyLeft && at == 0 || key == KeyRight && at == ed.buf.n) && !(runtime.GOOS == "darwin" && mods == Cmd) {
 		direction := 1
-		if k.key == KeyLeft {
+		if key == KeyLeft {
 			direction = -1
 		}
 		if next := rt.neighboringText(t.caret, direction); next != nil {

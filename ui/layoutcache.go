@@ -63,7 +63,7 @@ const layoutFlags = flagScrollX | flagScrollY | flagClipX | flagClipY | flagAbso
 
 // textLayoutSet are the text styles that lay text out (textParams) and
 // size icons, which elements inherit.
-const textLayoutSet = setFamily | setSize | setWeight | setItalic | setLineHeight | setAlign | setSpacing | setFeatures | setLang | setTabSize
+const textLayoutSet = setFamily | setSize | setWeight | setItalic | setLineHeight | setAlign | setSpacing | setFeatures | setLang | setTabSize | setMode | setOrientation
 
 // layoutRecord is what an element's state keeps of its last layout.
 type layoutRecord struct {
@@ -219,6 +219,8 @@ type textLayout struct {
 	weight                    int
 	italic, fixedLine         bool
 	align                     Align
+	mode                      WritingMode
+	orient                    TextOrientation
 }
 
 // same reports whether t lays text out as l says.
@@ -239,7 +241,9 @@ func (l *textLayout) same(t *textStyle) bool {
 		(set&setSpacing == 0 || l.spacing == t.spacing) &&
 		(set&setFeatures == 0 || l.features == t.features) &&
 		(set&setLang == 0 || l.lang == t.lang) &&
-		(set&setTabSize == 0 || l.tabSize == t.tabSize)
+		(set&setTabSize == 0 || l.tabSize == t.tabSize) &&
+		(set&setMode == 0 || l.mode == t.mode) &&
+		(set&setOrientation == 0 || l.orient == t.orient)
 }
 
 // layoutOfText returns what of t lays text out.
@@ -278,6 +282,12 @@ func layoutOfText(t *textStyle) textLayout {
 	}
 	if set&setTabSize != 0 {
 		l.tabSize = t.tabSize
+	}
+	if set&setMode != 0 {
+		l.mode = t.mode
+	}
+	if set&setOrientation != 0 {
+		l.orient = t.orient
 	}
 	return l
 }
@@ -384,6 +394,13 @@ func (t *heldText) emptied() *heldText {
 // textWidths measures the max-content and min-content widths of e's text.
 func (e *node) textWidths() [2]float32 {
 	p := e.textParams(0)
+	if p.Mode != text.Horizontal {
+		// As wide as its columns, wrapped at its height, MaxLines of them
+		// at most.
+		p.Width = e.column(-1)
+		h := textSystem().Layout(p).Height
+		return [2]float32{h, h}
+	}
 	p.MaxLines = 0
 	t := e.heldText()
 	if t != nil && t.leafOK && t.leafSingle == e.single && sameParams(&t.leafKey, &p) {
@@ -408,8 +425,16 @@ func (e *node) textWidths() [2]float32 {
 }
 
 // textLayout returns the layout of e's text at a content width.
-func (e *node) textLayout(width float32) *text.Layout {
+func (e *node) textLayout(width float32) *text.Layout { return e.textLayoutAt(width, -1) }
+
+// textLayoutAt returns the layout of e's text at a content width, its
+// columns, if vertical, wrapping at its content height ch, or at its
+// height as measured for -1 (column).
+func (e *node) textLayoutAt(width, ch float32) *text.Layout {
 	p := e.textParams(width)
+	if p.Mode != text.Horizontal {
+		p.Width = e.column(ch)
+	}
 	t := e.heldText()
 	if t == nil {
 		return textSystem().Layout(p)

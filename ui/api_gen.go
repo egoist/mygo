@@ -7176,6 +7176,21 @@ func (_handle Element) TextColor(c Color) Element {
 	return wrapElement(_node.TextColor(c))
 }
 
+// TextOrientation sets how the characters of the element's vertical text,
+// and of the texts inside it, stand (WritingMode), as CSS's
+// text-orientation: TextMixed, the default, stands up Han, kana and
+// Hangul and turns Latin a quarter clockwise; TextUpright stands up
+// everything; TextSideways turns everything.
+func (_handle Element) TextOrientation(o TextOrientation) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TextOrientation(o))
+}
+
 // TextRanges styles runs of a text input's text, in the frames that call
 // it. Ranges may overlap and nest, as the attributes of an attributed
 // string do: where they do, each of Color and Weight is that of the last
@@ -7569,6 +7584,29 @@ func (_handle Element) WrapReverse() Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.WrapReverse())
+}
+
+// WritingMode sets the element's text, and the texts inside it, in
+// columns, as CSS's writing-mode: VerticalRL sets each line down a
+// column, the columns stacked from the right, as books in Chinese and
+// Japanese are set, and VerticalLR stacks them from the left. A vertical
+// text wraps its columns at its own Height, or MaxHeight, and without
+// either sets each paragraph in one column; it is as wide as its columns.
+// TextAlign, MaxLines, Ellipsis, Justify, LineHeight, the spans of a
+// RichText, selection and the elements inside a text follow the
+// columns: Start is the top of a column, a line is a column, and its
+// height is the room across it. Boxes still lay out as they do: a Row
+// of vertical texts reads from the right only with RightToLeft or a
+// reversed order. HorizontalTB, the default, sets lines across. Text
+// inputs keep their lines across.
+func (_handle Element) WritingMode(m WritingMode) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.WritingMode(m))
 }
 
 // ZIndex orders the element's painting among its siblings, as CSS's

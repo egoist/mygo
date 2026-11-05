@@ -149,7 +149,7 @@ func (ed *editor) hitPosition(x, y float32) text.CaretPosition {
 	if ed.layout == nil {
 		return text.CaretPosition{}
 	}
-	p := ed.layout.PositionAt(x-ed.originX+ed.scrollX, y-ed.originY)
+	p := ed.layout.PositionAt(ed.layout.Logical(x-ed.originX+ed.scrollX, y-ed.originY))
 	p.Index = ed.textIndex(p.Index)
 	return p
 }

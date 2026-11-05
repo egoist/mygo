@@ -239,6 +239,10 @@ type textStyle struct {
 	strokeColor Color
 	// tabSize puts tab stops every tabSize spaces (TabSize).
 	tabSize float32
+	// mode sets the lines in columns (WritingMode), and orient stands
+	// their characters (TextOrientation).
+	mode   WritingMode
+	orient TextOrientation
 }
 
 const (
@@ -262,9 +266,11 @@ const (
 	setCaret
 	setStroke
 	setTabSize
+	setMode
+	setOrientation
 
 	// setAll has every bit of textStyle.set.
-	setAll = setTabSize<<1 - 1
+	setAll = setOrientation<<1 - 1
 )
 
 // layoutStyle is what lays an element out, of what the view sets on it:

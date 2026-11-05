@@ -147,6 +147,9 @@ func (e *node) spanStyle() (Span, float32) {
 	if t.set&setLang != 0 {
 		s.Lang = t.lang
 	}
+	if t.set&setOrientation != 0 {
+		s.Orientation = t.orient
+	}
 	if t.set&setDecoColor != 0 {
 		s.DecorationColor, s.decoColorSet = t.decoColor, t.decoColor.A == 0
 	}
@@ -252,6 +255,9 @@ func over(s, base Span) Span {
 	if s.Lang == "" {
 		s.Lang = base.Lang
 	}
+	if s.Orientation == 0 {
+		s.Orientation = base.Orientation
+	}
 	s.Italic = s.Italic || base.Italic
 	s.Underline = s.Underline || base.Underline
 	s.WavyUnderline = s.WavyUnderline || base.WavyUnderline
@@ -274,6 +280,7 @@ func placeInline(para, e *node, offset int) {
 			rt := para.c.rt
 			rt.inlineRects = para.tl.AppendSelection(rt.inlineRects[:0], a, b, false)
 			for i, r := range rt.inlineRects {
+				r = para.tl.PhysicalRect(r)
 				f := Rect{ox + r.X, oy + r.Y, r.W, r.H}
 				ch.frags = append(ch.frags, f)
 				if i == 0 {

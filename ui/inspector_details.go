@@ -441,6 +441,12 @@ func textStyles(ts *textStyle, set uint32) []inspDecl {
 	if set&setTabSize != 0 {
 		add("tab-size", num(ts.tabSize))
 	}
+	if set&setMode != 0 {
+		add("writing-mode", ts.mode.css())
+	}
+	if set&setOrientation != 0 {
+		add("text-orientation", ts.orient.css())
+	}
 	return ds
 }
 

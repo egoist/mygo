@@ -78,6 +78,9 @@ func (s *System) Decorate(l *Layout, li, i, j int, x, y, scale float32, d Decora
 	if i >= j {
 		return nil
 	}
+	if l.vertical && s.vert != nil {
+		return s.vert.strokes(l, li, i, j, x, y, scale, d, ls)
+	}
 	style := l.Params.Style
 	var shift float32
 	if l.Params.Spans != "" {

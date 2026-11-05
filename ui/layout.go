@@ -210,6 +210,10 @@ func (e *node) textParams(width float32) text.Params {
 		style.LineHeight = ts.lineHeight / style.FontSize()
 	}
 	p := text.Params{Text: e.text, Width: width, MaxLines: e.maxLines, Style: style, Spans: e.textSpans(), NoWrap: e.noWrap, Balance: e.balance, KeepSpaces: e.keepSpaces, Ellipsis: e.ellipsis, RTL: e.rtl()}
+	if ts.mode != HorizontalTB && e.kind == kindText {
+		// A text input's lines stay across.
+		p.Mode, p.Orientation = text.WritingMode(ts.mode), text.Orientation(ts.orient)
+	}
 	switch {
 	case ts.align == Center:
 		p.Align = text.Center
@@ -296,6 +300,12 @@ func (e *node) resolvedText() textStyle {
 		}
 		if take&setTabSize != 0 {
 			out.tabSize = t.tabSize
+		}
+		if take&setMode != 0 {
+			out.mode = t.mode
+		}
+		if take&setOrientation != 0 {
+			out.orient = t.orient
 		}
 		out.set |= take
 	}
@@ -514,7 +524,11 @@ func naturalHeight(e *node, w, cbH float32) float32 {
 func contentHeight(e *node, cw float32) float32 {
 	switch e.kind {
 	case kindText:
-		return e.textLayout(max(cw, 1)).Height
+		l := e.textLayout(max(cw, 1))
+		if l.Vertical() {
+			return l.Width // its columns' length
+		}
+		return l.Height
 	case kindImage, kindIcon:
 		if w, h := e.intrinsicSize(); w > 0 {
 			return cw * h / w
@@ -578,7 +592,7 @@ func computeBox(e *node, w, h float32) {
 	case kindText:
 		// Lists may build paragraphs while laying out, after the view's pass.
 		e.prepareSelectable()
-		e.tl = e.textLayout(max(cw, 1))
+		e.tl = e.textLayoutAt(max(cw, 1), ch)
 		if ed := e.st.editor; ed != nil && e.flags&flagSelectable != 0 {
 			// Selectable text hit-tests and selects in what it shows.
 			ed.layout = e.tl
@@ -1457,6 +1471,7 @@ func laidOutBox(e *node) Rect {
 	}
 	var box Rect
 	for i, r := range para.tl.Selection(start, end) {
+		r = para.tl.PhysicalRect(r)
 		if f := (Rect{x + r.X, y + r.Y, r.W, r.H}); i == 0 {
 			box = f
 		} else {

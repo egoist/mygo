@@ -251,6 +251,54 @@ ui.Text(c, "").Children(func() {
 })
 ```
 
+## Vertical text
+
+`WritingMode(ui.VerticalRL)` sets a text in columns, as CSS's
+`writing-mode: vertical-rl`: each line runs down a column and the columns
+stack from the right, as Chinese and Japanese are set in books and on
+reading apps' pages; `ui.VerticalLR` stacks them from the left. Like the
+other text styles, it is inherited by the texts inside the element that
+sets it. A vertical text wraps its columns at its own `Height` (or
+`MaxHeight`) and is as wide as its columns; without either, each
+paragraph is one column as long as it takes:
+
+```go
+ui.Text(c, chapter).
+	Font("Noto Serif CJK JP").FontSize(20).LineHeight(1.8).
+	WritingMode(ui.VerticalRL).Height(640).Selectable()
+```
+
+`TextOrientation` stands the characters, as CSS's `text-orientation`:
+`ui.TextMixed`, the default, stands up Han, kana, Hangul and the other
+characters Unicode sets upright in vertical text (UAX #50), each in a
+cell an em long down the column, and turns Latin and digits a quarter
+clockwise; `ui.TextUpright` stands up every character, and
+`ui.TextSideways` turns every one. A `Span`'s `Orientation` sets it for a
+run, as a word of Latin standing up in a column of Han. Upright
+punctuation takes the font's vertical forms (its `vert` feature): the
+ideographic comma and full stop sit at the top right of their cells,
+brackets and the prolonged sound mark turn down the column. In browsers,
+whose canvas applies no OpenType features, it takes Unicode's vertical
+presentation forms instead, and what has none turns sideways.
+
+`TextAlign`, `MaxLines`, `Ellipsis`, `Justify`, `Balance`, `LineHeight`,
+the spans of a `RichText` and the elements inside a text follow the
+columns: `Start` is the top of a column, a line of `MaxLines` is a
+column, and `LineHeight` is the room across one. An underline runs down
+the left of a column, a strikethrough down its middle. Selection, its
+highlight, the arrows (up and down along a column, left and right to the
+next column or the one before) and the boxes of the elements inside a
+text that assistive technology reads go down the columns too.
+`ShapeRichTextWith` sets a `TextLayout` in columns with `TextShape`'s
+`WritingMode`, and its rectangles, points and `Size` are where it shows.
+
+Text inputs keep their lines across, and boxes lay out as they do across:
+a `Row` of vertical texts reads from the left unless it is laid out right
+to left. Upright characters take a cell of an em with the ideographic em
+box's vertical origin, as most CJK fonts set them, rather than each
+font's own vertical metrics, and `text-combine-upright` (two digits in
+one cell) is not supported yet.
+
 ## Fonts
 
 Text is laid out and drawn by the system's own text engine (DirectWrite on

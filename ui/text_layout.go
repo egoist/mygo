@@ -46,14 +46,21 @@ func (t *TextLayout) CaretAt(p TextCaretPosition) Rect {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	x, y, h := t.l.CaretAt(t.position(p))
-	return Rect{x, y, 1, h}
+	return t.physical(text.Rect{X: x, Y: y, W: 1, H: h})
+}
+
+// physical returns where a rectangle of the layout shows: across a
+// column of a vertical layout.
+func (t *TextLayout) physical(r text.Rect) Rect {
+	r = t.l.PhysicalRect(r)
+	return Rect{r.X, r.Y, r.W, r.H}
 }
 
 // PositionAt retains affinity while hit-testing whole graphemes.
 func (t *TextLayout) PositionAt(point Point) TextCaretPosition {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	p := t.l.PositionAt(point.X, point.Y)
+	p := t.l.PositionAt(t.l.Logical(point.X, point.Y))
 	return TextCaretPosition{Index: t.units[p.Index], Affinity: p.Affinity}
 }
 
@@ -126,6 +133,13 @@ type TextShape struct {
 	// the narrowest width that keeps them as many as Width wraps, as
 	// Text's Balance does.
 	Balance bool
+	// WritingMode sets the lines in columns, as Element.WritingMode does:
+	// Width is then the height the columns wrap at, a line is a column,
+	// and the layout's rectangles, points and Size are where it shows.
+	WritingMode WritingMode
+	// Orientation stands the characters of vertical text, as
+	// Element.TextOrientation does.
+	Orientation TextOrientation
 }
 
 // ShapeRichTextWith shapes spans as ShapeRichText does, laid out as shape
@@ -147,6 +161,10 @@ func shapeTextAligned(s string, font Font, shape TextShape, spans []Span) *TextL
 		Justify: shape.Justify, Indent: shape.Indent, NoBreakWords: shape.NoBreakWords, Balance: shape.Balance}
 	if shape.Justify {
 		text.Shared().UseJustify()
+	}
+	if shape.WritingMode != HorizontalTB {
+		linkVertical()
+		params.Mode, params.Orientation = text.WritingMode(shape.WritingMode), text.Orientation(shape.Orientation)
 	}
 	switch {
 	case shape.Align == Center:
@@ -195,7 +213,7 @@ func (t *TextLayout) Objects() []TextObject {
 				spans = text.DecodeSpans(t.l.Params.Spans)
 			}
 			h, d := objectMetrics(spans, g.Cluster)
-			out = append(out, TextObject{Index: t.units[g.Cluster], Rect: Rect{X: g.X, Y: line.Baseline - h, W: g.Advance, H: h + d}})
+			out = append(out, TextObject{Index: t.units[g.Cluster], Rect: t.physical(text.Rect{X: g.X, Y: line.Baseline - h, W: g.Advance, H: h + d})})
 		}
 	}
 	return out
@@ -214,7 +232,9 @@ func objectMetrics(spans []text.Span, i int) (h, d float32) {
 }
 
 // TextLine is a line of a TextLayout, in DIPs from the layout's top-left
-// corner and in UTF-16 offsets, as its other methods take them.
+// corner and in UTF-16 offsets, as its other methods take them. A line of
+// a vertical layout is a column: Rect is where it shows, Baseline the x
+// of its middle, and Ascent and Descent how far it reaches either side.
 type TextLine struct {
 	// Rect is the line's box: X includes the alignment and the indent,
 	// and W the whitespace ending the line, which the layout keeps.
@@ -237,9 +257,13 @@ func (t *TextLayout) Lines() []TextLine {
 	defer t.mu.Unlock()
 	out := make([]TextLine, len(t.l.Lines))
 	for i, line := range t.l.Lines {
+		baseline := line.Baseline
+		if t.l.Vertical() {
+			baseline = t.l.Across(i) - baseline
+		}
 		out[i] = TextLine{
-			Rect:     Rect{line.X, line.Y, line.Width, line.Height},
-			Baseline: line.Baseline, Ascent: line.Ascent, Descent: line.Descent,
+			Rect:     t.physical(text.Rect{X: line.X, Y: line.Y, W: line.Width, H: line.Height}),
+			Baseline: baseline, Ascent: line.Ascent, Descent: line.Descent,
 			Start: t.units[line.Start], End: t.units[line.End],
 			RTL: line.RTL,
 		}
@@ -251,7 +275,7 @@ func (t *TextLayout) Lines() []TextLine {
 func (t *TextLayout) Size() (float32, float32) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.l.Width, t.l.Height
+	return t.l.Size()
 }
 
 func (t *TextLayout) runeAt(index int, forward bool) int {
@@ -275,7 +299,7 @@ func (t *TextLayout) Caret(index int) Rect {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	x, y, h := t.l.Caret(t.runeAt(index, false))
-	return Rect{x, y, 1, h}
+	return t.physical(text.Rect{X: x, Y: y, W: 1, H: h})
 }
 
 // PreviousBoundary and NextBoundary find neighboring whole-grapheme offsets
@@ -309,7 +333,7 @@ func (t *TextLayout) SelectionRects(ranges ...TextInputRange) []Rect {
 	for _, r := range ranges {
 		r = platformTextRange(r)
 		for _, b := range t.l.SelectionVisual(t.runeAt(r.Start, false), t.runeAt(r.End, true), false) {
-			out = append(out, Rect{b.X, b.Y, b.W, b.H})
+			out = append(out, t.physical(b))
 		}
 	}
 	return out
