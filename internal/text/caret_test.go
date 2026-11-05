@@ -380,3 +380,28 @@ func visualStopsFullScan(l *Layout, li int) []caretStop {
 	})
 	return stops
 }
+
+func TestVisualCaretStopsCoverGraphemes(t *testing.T) {
+	s := newSystem()
+	for _, value := range []string{"", "ab  ", "é😀x", "office fi ﬃ", "abc אבג def", "one\ntwo", strings.Repeat("a", 1000)} {
+		for _, width := range []float32{0, 50} {
+			l := s.Shape(Params{Text: value, Style: Style{Size: 14}, Width: width})
+			var boundaries Boundaries
+			boundaries.Reset(l.Runes)
+			offsets := boundaries.GraphemeOffsets()
+			for li, line := range l.Lines {
+				stops := l.visualStops(li)
+				for _, stop := range stops {
+					if _, ok := slices.BinarySearch(offsets, stop.position.Index); !ok {
+						t.Fatalf("%q: caret splits a grapheme at %d", value, stop.position.Index)
+					}
+				}
+				for _, at := range offsets {
+					if at >= line.Start && at <= line.End && !slices.ContainsFunc(stops, func(s caretStop) bool { return s.position.Index == at }) {
+						t.Fatalf("%q: missing caret at %d", value, at)
+					}
+				}
+			}
+		}
+	}
+}

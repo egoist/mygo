@@ -131,6 +131,8 @@ type windowHost struct {
 	last     *scene.Scene
 	// lastFrame is when the last frame was presented.
 	lastFrame time.Time
+	// textLayouts is the shared text system's work at the last frame.
+	textLayouts uint64
 	// framing tells that the surface asked for the frame being drawn, and
 	// frameAsked that the content asked the surface for a frame that has
 	// not come yet.
@@ -477,6 +479,7 @@ func (h *windowHost) present(s *scene.Scene) {
 	}
 	now := time.Now()
 	h.lastFrame = now
+	h.textLayouts = text.Shared().LayoutsMade()
 	h.armIdle(frameIdle)
 	h.useWide(s, now)
 	defer h.ready()
@@ -545,6 +548,7 @@ func (h *windowHost) idle() {
 		return
 	}
 	h.soft.Release()
+	text.Shared().ReleaseScratch(h.textLayouts)
 	if s, ok := h.conn.Surface.(platform.IdleSurface); ok {
 		s.Idle()
 	}
@@ -714,6 +718,7 @@ func (h *windowHost) detach() {
 		h.idleTimer.Stop()
 	}
 	h.rt.close()
+	text.Shared().ReleaseScratch(h.textLayouts)
 	h.soft.Release()
 	if h.gpu != nil {
 		h.gpu.Release()
