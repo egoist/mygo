@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"log"
 	"os"
 	"slices"
@@ -34,6 +35,8 @@ func coreView(view func(c *context)) *Content { return &Content{view: view} }
 
 // RegisterFont adds a TrueType or OpenType font, or collection, that text
 // can use with Font(family). An empty family keeps the font's own name.
+// The fonts registered under a family make it up, apart from other fonts
+// of their own family.
 func RegisterFont(data []byte, family string) error {
 	return text.Shared().RegisterFont(data, family)
 }
@@ -823,6 +826,23 @@ func (h *windowHost) writeClipboard(s string) {
 		h.conn.Clipboard.WriteText(s)
 	}
 }
+
+func (h *windowHost) writeClipboardThen(s string, done func(error)) {
+	c := h.conn.Clipboard
+	if later, ok := c.(platform.LaterClipboard); ok {
+		later.WriteTextThen(s, done)
+		return
+	}
+	err := errNoClipboard
+	if c != nil {
+		err = c.WriteData(transfer.TextData(s), nil)
+	}
+	h.post(func() { done(err) })
+}
+
+// errNoClipboard is what writing the clipboard of a window without one
+// comes to.
+var errNoClipboard = errors.New("ui: the window has no clipboard")
 
 func (h *windowHost) readClipboardData(formats []transfer.Format) transfer.Data {
 	if h.conn.Clipboard == nil {

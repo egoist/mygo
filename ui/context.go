@@ -526,8 +526,34 @@ func (c *context) After(d time.Duration) { c.rt.scheduleAt(c.now.Add(d)) }
 // ReadClipboard returns the text on the clipboard, and WriteClipboard
 // puts text there, for widgets that copy and paste themselves. Call them
 // on the main thread: in the view, or in an input handler.
+// WriteClipboardThen tells whether the text got there.
 func (c *context) ReadClipboard() string   { return c.rt.host.readClipboard() }
 func (c *context) WriteClipboard(s string) { c.rt.host.writeClipboard(s) }
+
+// WriteClipboardThen puts text on the clipboard as WriteClipboard does,
+// and done, unless nil, gets what came of it a moment later, before a
+// frame builds anew with what it changed, as navigator.clipboard's
+// writeText resolves or rejects: an error when the text did not get
+// there, as when another app holds the clipboard, or a browser refuses
+// a write the user did not act for (a press or a key, a moment before).
+// A copy button shows "Copied" or "Failed" with it:
+//
+//	if ui.Button(c, "Copy").Clicked() {
+//		c.WriteClipboardThen(link, func(err error) {
+//			app.copied, app.copyFailed = err == nil, err != nil
+//		})
+//	}
+func (c *context) WriteClipboardThen(s string, done func(err error)) {
+	rt := c.rt
+	if done == nil {
+		rt.host.writeClipboard(s)
+		return
+	}
+	rt.host.writeClipboardThen(s, func(err error) {
+		done(err)
+		rt.requestFrame()
+	})
+}
 
 // Announce asks screen readers to read text out once, after what they
 // are reading, for news the keyboard focus does not bring, as a search
@@ -646,6 +672,9 @@ type state struct {
 	// not choose again.
 	rowPressed, pressChose bool
 
+	// hitFn is where in its box the element takes the pointer (HitTest).
+	hitFn func(x, y float32, r Rect) bool
+
 	world scene.Affine
 	clips bool
 	// lifted tells that it was an element flying with a Match, which
@@ -698,8 +727,12 @@ type state struct {
 	tip               bool
 	tipDelay, tipWarm time.Duration
 	// effectLayer is what the element and its children render into for
-	// its Effect, kept from frame to frame.
+	// its Effect, its blur, its Cache or its opacity as a group
+	// (paintGroup), kept from frame to frame. grouped tells that, faded
+	// with what is inside it, what it painted last overlapped, so that it
+	// paints into the layer at once rather than flat first (checkFlat).
 	effectLayer *Canvas
+	grouped     bool
 	// webView is the web view the element shows (WebView).
 	webView NativeWebView
 
@@ -721,6 +754,10 @@ type state struct {
 	// pressButton is the button pressing the element: 0 the primary, 1
 	// the secondary, 2 the middle (pressedPrimary).
 	pressButton int
+	// pressPointer and pressPressure are the device pressing the element
+	// and its pressure as of the press's last move (PressedPointer).
+	pressPointer  PointerType
+	pressPressure float32
 	// drag follows the press's moves; released tells that it ended since
 	// the last frame, going at releaseVX and releaseVY in the element's
 	// axes, releaseWX and releaseWY in the window's.

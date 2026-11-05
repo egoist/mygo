@@ -19,7 +19,9 @@ ui.TextInput(c, &app.query).Placeholder("Search").Label("Search")
 ui.Box(c).Size(24, 24).Draw(drawIcon).Label("Unread messages")
 ```
 
-A [field](form.md) names its control with its label.
+A [field](form.md) names its control with its label, and `LabelledBy`
+names a control by a text the view draws as its caption, a click on which
+goes to the control ([labels of your own](form.md#labels-of-your-own)).
 
 ## Roles
 
@@ -114,6 +116,10 @@ your own tells it with these, as ARIA's states do on the web:
 | `ActiveDescendant(e)` | the option that has the focus while the element keeps it, as the one the arrows are on in a menu or a list |
 | `Busy(on)` | that the element's content is about to change, as a region loading: screen readers wait for it before reading it |
 | `Current(kind)` | that the element is the current one of the items around it: `ui.CurrentPage` (the page the user is on), `CurrentStep`, `CurrentLocation`, `CurrentDate`, `CurrentTime` or `CurrentItem` |
+| `RoleDescription(s)` | what to call its role, in place of the role's own name, as "carousel" for a group of slides and "slide" for each |
+| `Controls(e)` | that it controls the content or presence of `e`, as a disclosure button the region it opens; once for each |
+| `HasPopup(kind)` | the kind of popup it opens: `ui.PopupMenu`, `PopupListBox`, `PopupTree`, `PopupGrid` or `PopupDialog` |
+| `Sort(dir)` | the order a table's rows are sorted in by the column whose header it is: `ui.SortAscending`, `SortDescending`, `SortOther` or `SortNone` |
 
 ```go
 all := ui.CheckboxBase(c, &app.all).Label("Select all")
@@ -153,12 +159,64 @@ ATK's busy state and UI Automation's `AriaProperties` (`busy=true`);
 `Current` is AppKit's `AXARIACurrent`, ATK's `current` attribute with the
 active state, and `AriaProperties` (`current=page`).
 
+A cell of a grid says whether it is chosen with `Checked`, as ARIA's
+`aria-selected` on a `gridcell`, without painting it, as a calendar's
+days or the cells of a spreadsheet of your own; `Selected` paints it in
+the accent color too. Cells (`RoleCell`, `RoleColumnHeader`,
+`RoleRowHeader`) that call neither are not chosen among others, and a
+table (`RoleTable`) holding cells that do chooses them. A carousel, a
+disclosure and a button opening a list box, built on the others:
+
+```go
+ui.Column(c).Role(ui.RoleGroup).Label("Highlights").RoleDescription("carousel").Children(func() {
+	for i, s := range slides {
+		ui.Column(c).Role(ui.RoleGroup).Label(fmt.Sprintf("%d of %d", i+1, len(slides))).
+			RoleDescription("slide").AccessHidden(i != app.slide).Children(s)
+	}
+})
+
+toggle := ui.Button(c, "Details").Expanded(app.open)
+if app.open {
+	toggle.Controls(ui.Column(c).Role(ui.RoleRegion).Label("Details").Children(details))
+}
+
+ui.ButtonBase(c).Role(ui.RolePopUpButton).Label("Fruit").Value(app.fruit).
+	HasPopup(ui.PopupListBox).Expanded(app.picking)
+
+day := ui.Box(c).Role(ui.RoleCell).Label(d.Format("January 2")).Checked(d.Equal(app.picked))
+```
+
+They reach each platform as WAI-ARIA's Core Accessibility API Mappings
+say. `RoleDescription` is AppKit's `AXRoleDescription`, ATK's
+`roledescription` attribute and UI Automation's `LocalizedControlType`.
+`Controls` is AppKit's `AXLinkedUIElements`, ATK's `controller-for`
+relation (and `controlled-by` on what it controls) and UI Automation's
+`ControllerFor`, which screen readers offer to move to (VoiceOver's
+VO-J). `HasPopup` is AppKit's `AXPopupValue` with the `AXShowMenu`
+action, which presses the element, ATK's `has-popup` state and
+`haspopup` attribute, and UI Automation's ExpandCollapse pattern (with
+`Expanded`) and `AriaProperties` (`haspopup=listbox`). `Sort` is
+AppKit's `AXSortDirection` (unknown for another order) on a header that
+is a sort button (`AXSortButton`), as NSTableHeaderView's are, ATK's
+`sort` attribute, and UI Automation's `ItemStatus` and `AriaProperties`
+(`sort=other`), as [`Table`](table.md)'s headers say from
+`ListState.Sort`. A chosen cell is AppKit's `AXSelected` with its
+table's `AXSelectedCells`, and its row in the table's `AXSelectedRows`,
+as NSTableView tells its choice; as VoiceOver reads neither the state of
+a cell nor its change, the cell says "selected" after its name, in the
+app's language, and a cell chosen away from the focus is read out. It is
+ATK's selectable and selected states, and UI Automation's SelectionItem,
+in the table's Selection.
+
 A [test](testing.md#what-assistive-technology-sees) reads them as
 assistive technology gets them, with `Tester.AccessByRole`:
 
 ```go
 if a, _ := tt.AccessByRole(ui.RoleGroup, "Messages"); !a.Busy {
 	t.Error("Messages is not busy while loading")
+}
+if day, _ := tt.AccessByRole(ui.RoleCell, "November 2"); !day.Selected {
+	t.Error("the day picked is not selected")
 }
 ```
 
@@ -309,5 +367,80 @@ if ui.Button(c, "Search").Clicked() {
 
 MyGo describes frames only once assistive technology asked, so apps pay
 nothing for it otherwise.
+
+## Landmarks, live regions and rules
+
+These roles are ARIA's of the same names, which reach each platform as
+WAI-ARIA's Core Accessibility API Mappings say:
+
+| Role | What it is | macOS | Linux (ATK) | Windows (UI Automation) |
+|---|---|---|---|---|
+| `ui.RoleRegion` | a landmark with a `Label`, as an activity feed or a panel; without one, a group | `AXGroup`, `AXLandmarkRegion` | landmark, `xml-roles:region` | Group, the custom landmark type "region" |
+| `ui.RoleSearch` | a landmark holding what searches the app or a document, as the search field and its button at the top of a window | `AXGroup`, `AXLandmarkSearch` | landmark, `xml-roles:search` | Group, the search landmark type |
+| `ui.RoleArticle` | a self-contained piece of content, as a post of a feed or a comment of a thread, named by its `Label`; no landmark | `AXGroup`, `AXDocumentArticle` | article | Group "article" |
+| `ui.RoleLog` | a live region of messages added in order, as a chat's transcript | `AXGroup`, `AXApplicationLog` | log | Group "log", `LiveSetting` polite |
+| `ui.RoleTimer` | a count of time, as a countdown, read only when the user goes to it | `AXGroup`, `AXApplicationTimer` | timer | Group "timer" |
+| `ui.RoleAlert` | a live region of important news, as a field's error, read at once | `AXGroup`, `AXApplicationAlert` | notification | Group "alert", `LiveSetting` assertive |
+| `ui.RoleSeparator` | a rule between groups of content or controls, running up and down when taller than wide | `AXSplitter` | separator, vertical or horizontal | Separator, with `Orientation` |
+| `ui.RoleRowHeader` | the cell naming its row of a table, named by its content, whose buttons and other elements stay reachable, as a cell's | `AXCell` | row header | HeaderItem "row header" |
+
+Live regions say how they are read (`AXARIALive`, ATK's `live` and
+`container-live` attributes, `LiveSetting`), and MyGo reads them out as
+the web does: once a log has shown, what is added to it is announced,
+after what screen readers are reading, as `c.Announce` does; an alert's
+text is read out at once, interrupting, as it appears and whenever it
+changes (VoiceOver's announcements of high priority, ATK's `notification`
+signal, assertive, where ATK has it (2.50), else an announcement, and an
+assertive live region on Windows). What they show as assistive
+technology comes, or as a log first shows, is not read out, and a timer
+reads nothing by itself:
+
+```go
+ui.Column(c).Role(ui.RoleLog).Label("Messages").Children(func() {
+	for _, m := range app.messages {
+		ui.Row(c).Key(m.ID).Gap(4).Children(func() {
+			ui.Text(c, m.From+":").Bold()
+			ui.Text(c, m.Text)
+		})
+	}
+})
+if app.nameErr != "" {
+	ui.Text(c, app.nameErr).TextColor(t.Danger).Role(ui.RoleAlert)
+}
+ui.Row(c).Role(ui.RoleToolbar).Label("Format").Children(func() {
+	boldAndItalic(c)
+	ui.Divider(c).Role(ui.RoleSeparator)
+	alignment(c)
+})
+```
+
+A log reads out the elements it gained, those of each row together; an
+alert, its text. Keyed rows (`Key`) keep what a log showed apart from
+what it gained when rows come before others.
+
+Screen readers list landmarks and jump to them, so a search field and its
+button at the top of a window go in a search landmark, as HTML's
+`<search>`:
+
+```go
+ui.Row(c).Role(ui.RoleSearch).Label("Search mail").Gap(6).Children(func() {
+	ui.SearchField(c, &app.query).Label("Search mail").Grow(1)
+	if ui.Button(c, "Search").Clicked() {
+		app.search()
+	}
+})
+```
+
+Each post of a feed, or comment of a thread, is an article, as HTML's
+`<article>`, which screen readers step through one by one:
+
+```go
+for _, p := range app.posts {
+	ui.Column(c).Key(p.ID).Role(ui.RoleArticle).Label(p.Title).Gap(4).Children(func() {
+		ui.Text(c, p.Title).Bold().Role(ui.RoleHeading).Level(3)
+		ui.Text(c, p.Body)
+	})
+}
+```
 
 Each component's page says what assistive technology sees of it.

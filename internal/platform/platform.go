@@ -1038,6 +1038,7 @@ type MenuItem struct {
 	ID          int
 	Type        MenuItemType
 	Label       string
+	Subtitle    string
 	Role        string
 	Accelerator string
 	Enabled     bool
@@ -1058,10 +1059,12 @@ type MenuItem struct {
 	Name   string
 }
 
-// FileFilter restricts the files shown in file dialogs.
+// FileFilter restricts the files shown in file dialogs: those of its
+// Extensions, and of its MIMETypes, which may be "kind/*".
 type FileFilter struct {
 	Name       string
 	Extensions []string
+	MIMETypes  []string
 }
 
 // OpenDialogOptions configures an open panel.
@@ -1143,6 +1146,14 @@ type Clipboard interface {
 	WriteImage(png []byte) error
 	Clear()
 	AvailableFormats() []string
+}
+
+// LaterClipboard is a clipboard whose writes finish later, as a
+// browser's, whose clipboard answers with a promise: WriteTextThen puts
+// text there as WriteText does, and gives done what came of it, on the
+// main thread. Desktops' clipboards answer at once (WriteData).
+type LaterClipboard interface {
+	WriteTextThen(text string, done func(error))
 }
 
 // Shell integrates with the desktop environment.

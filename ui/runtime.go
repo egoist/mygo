@@ -41,6 +41,9 @@ type host interface {
 	updateAccessibility(tree *platform.AccessTree)
 	readClipboard() string
 	writeClipboard(string)
+	// writeClipboardThen puts text on the clipboard as writeClipboard
+	// does, and done gets what came of it on the main thread, later.
+	writeClipboardThen(text string, done func(error))
 	// readClipboardData reads the representations of formats on the
 	// clipboard, all for nil; writeClipboardData puts data there;
 	// clipboardFormats lists them.
@@ -302,7 +305,15 @@ type engine struct {
 
 	pointerX, pointerY float32
 	pointerIn          bool
-	hover              []uint64
+	// pointerType and pressure are the device of the last pointer event
+	// and how hard it pressed (InputEvent.Pressure), buttons the buttons
+	// down as the events tell, and pressureMoved that the last move
+	// changed the pressure alone, which moves as the pointer moving does.
+	pointerType   PointerType
+	pressure      float32
+	buttons       uint8
+	pressureMoved bool
+	hover         []uint64
 	// chain is a buffer for the elements under the pointer.
 	chain       []uint64
 	pressed     *state
@@ -405,8 +416,11 @@ type engine struct {
 	held       bool
 	shown      time.Time
 	input      bool
-	painted    [3]float32
-	gen        uint64
+	// hiddenAsked tells that a view asked whether the window shows
+	// (WindowHidden), which builds it again as that changes.
+	hiddenAsked bool
+	painted     [3]float32
+	gen         uint64
 	// repaintRate is the most frames a second the drawings that move ask
 	// for with Painter.AnimationFrameRate, repaintFull whether one asked
 	// for the display's with Painter.AnimationFrame. paceEvery is how many
@@ -476,6 +490,8 @@ type engine struct {
 	// announcements are the texts for assistive technology to read out
 	// (Context.Announce).
 	announcements []string
+	// live is what the live regions of the last frame's tree held.
+	live liveState
 	// stats measures frames for MYGO_FRAME_STATS, nil when it is unset.
 	stats *frameStats
 	// dropOver is the element files are dragged over; access is true once
@@ -799,7 +815,9 @@ func (rt *engine) runFrame() {
 	rt.updateTextInput()
 	rt.updateCursor()
 	if rt.access {
-		rt.host.updateAccessibility(rt.windowAccess(rt.accessTree()))
+		t := rt.accessTree()
+		rt.liveRegions(t, true)
+		rt.host.updateAccessibility(rt.windowAccess(t))
 	}
 	if h, ok := rt.host.(*headless); ok {
 		// For tests, whether assistive technology reads the window or not.
@@ -1331,6 +1349,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		s.clipRect, s.clipRadii = e.clipRect()
 	}
 	s.selfClip, s.selfRadius, s.selfClips = e.selfClip()
+	s.hitFn = e.hitFn
 	if len(rt.liftHits) > 0 && (e == e.c.overlay || e.parent != nil && e.parent == e.c.overlay) {
 		// The elements flying in the layer before, the window's content
 		// or an overlay, go over it, under this one.
@@ -1427,8 +1446,8 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		rt.hits = append(rt.hits, hit{s, Rect{e.x, e.y, e.w, e.h}, e.flags})
 	}
 	label := e.label
-	if f := e.nameFrom; label == "" && f != nil {
-		label = f.nameOf() // an input, named by its field
+	if f := e.nameFrom; f != nil && (label == "" || e.labelledBy && f.nameOf() != "") {
+		label = f.nameOf() // an input, named by its field or its label
 	}
 	if (label != "" || e.kind == kindText) && !invisible {
 		if label == "" {
