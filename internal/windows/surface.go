@@ -128,6 +128,8 @@ type surface struct {
 	now      bool
 	tracking bool
 	buttons  int
+	// pressure is the last WM_POINTER message's (mouseDevice).
+	pressure float64
 	clicks   platform.ClickCounter
 	cursor   platform.Cursor
 	high     uint16 // a high surrogate of WM_CHAR waiting for its pair
@@ -135,12 +137,19 @@ type surface struct {
 	caret    platform.RectF
 	input    platform.TextInputState
 
+	// pointerAt is where on the screen the last WM_POINTER message's
+	// pointer was, in pixels (pointerMessage).
+	pointerAt point
+
 	// keyTaken tells that the content took the key down, whose
 	// WM_SYSCHAR then opens no menu.
 	keyTaken bool
 	// menuRan tells that the key down ran a menu item (menuShortcut): its
 	// character goes nowhere.
 	menuRan bool
+	// held are the keys the content got pressed and not yet released,
+	// whose releases a menu's loop or an input method may take (liftKeys).
+	held platform.HeldKeys
 
 	reconvert  *[2]int // the runes a reconversion replaces
 	dropTarget uintptr // IDropTarget
@@ -530,10 +539,16 @@ func cursorHandle(c platform.Cursor) uintptr {
 		platform.CursorResizeN: 32645, platform.CursorResizeS: 32645, platform.CursorResizeE: 32644,
 		platform.CursorResizeW: 32644, platform.CursorResizeColumn: 32644, platform.CursorResizeRow: 32645,
 		platform.CursorVerticalText: 32513,
+		platform.CursorProgress:     32650, platform.CursorWait: 32514, platform.CursorHelp: 32651, // IDC_APPSTARTING, IDC_WAIT, IDC_HELP
+		platform.CursorAllScroll: 32646, platform.CursorNoDrop: 32648, // IDC_SIZEALL, IDC_NO
 	}
 	if c == platform.CursorNone {
 		surfaceCursors[c] = 0 // SetCursor(NULL) hides it
 		return 0
+	}
+	if h := drawnCursor(c); h != 0 {
+		surfaceCursors[c] = h
+		return h
 	}
 	id, ok := ids[c]
 	if !ok {
@@ -597,11 +612,20 @@ func (s *surface) send(ev platform.SurfaceEvent) bool {
 	if ev.Kind == platform.PointerDown || ev.Kind == platform.SurfaceBlur {
 		s.clientComposition.Reset()
 	}
+	if !s.held.Track(ev) {
+		return false
+	}
 	if s.w.closed {
 		return false
 	}
 	return s.w.h.SurfaceEvent(ev)
 }
+
+// liftKeys lets go of the keys held, as a menu's loop takes the keyboard,
+// and their releases with it: Alt and a letter opening a menu of the bar,
+// Alt and Space the window's menu, F10 or Alt the bar. The window keeps
+// the focus meanwhile, so no WM_KILLFOCUS lets go of them.
+func (s *surface) liftKeys() { s.held.LiftAll(mods(), s.send) }
 
 // modifierKey is whether the virtual key vk is Shift, Ctrl, Alt or a Windows key.
 func modifierKey(vk uintptr) bool {
@@ -656,7 +680,8 @@ func (s *surface) pointer(kind platform.SurfaceEventKind, lp uintptr, button int
 		w, h := systemMetric(smCxDoubleClk, s.hwnd), systemMetric(smCyDoubleClk, s.hwnd)
 		clicks = s.clicks.Press(button, float64(x), float64(y), uint32(at), platform.DoubleClick{Time: time.Duration(ms) * time.Millisecond, DX: float64(w) / 2, DY: float64(h) / 2})
 	}
-	s.send(platform.SurfaceEvent{Kind: kind, X: s.toDIP(int32(x)), Y: s.toDIP(int32(y)), Button: button, Clicks: clicks, Mods: mods()})
+	pointer, pressure := s.mouseDevice()
+	s.send(platform.SurfaceEvent{Kind: kind, X: s.toDIP(int32(x)), Y: s.toDIP(int32(y)), Button: button, Clicks: clicks, Mods: mods(), Pointer: pointer, Pressure: pressure})
 }
 
 func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool) {
@@ -712,6 +737,10 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		// resized.
 		s.drawNow()
 		return 0, true
+	case wmPointerDown, wmPointerUpdate, wmPointerUp:
+		// A pen or a finger, whose mouse messages DefWindowProc makes.
+		s.pointerMessage(m, wp)
+		return 0, false
 	case wmMouseMove:
 		if !s.tracking {
 			tme := trackMouseEvent{Flags: tmeLeaveFlag, Track: hwnd}
@@ -862,6 +891,11 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		}
 		if k, physical, ok := keyAndPosition(wp, lp, true, modifiers); ok {
 			s.send(platform.SurfaceEvent{Kind: platform.KeyReleased, Key: k, PhysicalKey: physical, Mods: modifiers})
+		} else if wp == vkProcessKey && lp&(1<<24) == 0 {
+			// The input method took the release of a key the content got
+			// pressed, as it began composing while the key was held: the
+			// key goes up all the same, by its position.
+			s.held.Lift(platform.KeyUnknown, platform.KeyForScancode(uint16(lp>>16&0xFF)), modifiers, s.send)
 		}
 		return 0, m == wmKeyUp
 	case wmSysChar:

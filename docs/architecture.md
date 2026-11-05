@@ -813,7 +813,9 @@ gained one field, `SurfaceNative.Canvas`.
   one (`isPrimary`), as a second finger, are left out, as no second finger
   presses on the desktops; a button going down or up while another is
   held, which comes as a `pointermove` with its `button`, is a
-  `PointerDown` or `PointerUp` as on the desktops (`chord`). `wheel` events scroll, lines and pages
+  `PointerDown` or `PointerUp` as on the desktops (`chord`); their
+  `pointerType` and `pressure` are the device and the pressure
+  (`device`). `wheel` events scroll, lines and pages
   turned into DIPs, notches of 120 not `Precise`. The textarea, out of
   sight at the caret (`SetTextInput`), has the keyboard: `keydown` and
   `keyup` are keys, by what they type (`key`) and else by where they are
@@ -2082,6 +2084,14 @@ object or user data. Native reads copy bytes so application data outlives
 native handles. See [Clipboard and drag data](data-transfer.md) for API and
 format mappings.
 
+Native UI's `Context.WriteClipboardThen` writes its text with `WriteData`
+and posts the error to the main thread for the next frame. A browser's
+clipboard answers later: the web backend's is a `platform.LaterClipboard`,
+whose `WriteTextThen` keeps the text for the page's own pastes and
+answers once `navigator.clipboard.writeText` settles (it rejects without
+transient user activation, and outside secure contexts there is no
+`navigator.clipboard` to write).
+
 ## Audio (`audio`)
 
 Package `audio` is independent of windows and the main thread: it neither
@@ -2545,7 +2555,39 @@ either.
   `xml-roles:navigation`, and UI Automation's Group with the navigation
   LandmarkType and AriaRole. Native UI in browsers has no accessibility
   tree yet (`UpdateAccessibility` is empty in `internal/web`), so there
-  is no ARIA to map them to. Menus drawn in the window are AppKit's `AXMenu`,
+  is no ARIA to map them to. The other landmarks, live regions and rules
+  map as WAI-ARIA's Core Accessibility API Mappings do: `RoleRegion` is
+  one only with a name (a group without), `AXLandmarkRegion`, ATK's
+  landmark with `xml-roles:region`, and UIA's custom LandmarkType;
+  `RoleSearch` is `AXGroup` with `AXLandmarkSearch`, ATK's landmark
+  with `xml-roles:search`, and UIA's Group with the search LandmarkType;
+  `RoleArticle`, no landmark, is `AXGroup` with `AXDocumentArticle`,
+  ATK's article, and UIA's Group named "article";
+  `RoleLog`, `RoleTimer` and `RoleAlert` are `AXGroup` with
+  `AXApplicationLog`, `AXApplicationTimer` and `AXApplicationAlert`,
+  ATK's log, timer and notification, and UIA's Group named "log",
+  "timer" and "alert"; `RoleSeparator` is `AXSplitter`, ATK's separator
+  and UIA's Separator, vertical when taller than wide (`AccessVertical`,
+  with `AXOrientation`, ATK's vertical state and UIA's Orientation);
+  `RoleRowHeader` is `AXCell`, ATK's row header and UIA's HeaderItem,
+  named by its content but keeping what is inside it, as a cell does
+  (ARIA's rowheader is not children-presentational).
+  Live regions (`AccessRole.Live`) say how they are read: `AXARIALive`,
+  `AXARIAAtomic` and `AXARIARelevant`, answered as `AXInvalid` is; ATK's
+  `live`, `atomic` and `relevant` attributes, with their `container-`
+  forms on what is inside them; UIA's LiveSetting. Screen readers read
+  the platforms' live regions in web content alone (WebKit's and
+  Chromium's `AXLiveRegionChanged`, Orca's web scripts), so the engine
+  reads them out itself (`ui/access_live.go`): it compares each frame's
+  tree with the last, announces what a log that showed gained, joined
+  for each log, and puts the text an alert shows that no alert showed
+  in the last tree into `AccessTree.Alerts`, which interrupt:
+  `AXAnnouncementRequested` with a high priority, ATK's `notification`
+  signal with `ATK_LIVE_ASSERTIVE` (ATK 2.50, else an announcement), and
+  an assertive live region beside the announcements' on Windows. Alerts
+  are told apart by their text, as an element's ID shifts when others
+  appear before it; the tree assistive technology first gets, and a log
+  first showing, read nothing out. Menus drawn in the window are AppKit's `AXMenu`,
   `AXMenuBar` and `AXMenuItem`, whose choice shows as
   `AXMenuItemMarkChar` (answered through `accessibilityAttributeValue:`,
   as `AXInvalid` is), ATK's menu, menu bar, menu item, check menu item and
@@ -2594,7 +2636,18 @@ either.
   rows is `AccessMultiselectable` (ATK's `multiselectable`, UIA's
   `CanSelectMultiple`, rows then raising `ElementAddedToSelection` and
   `ElementRemovedFromSelection` unless chosen alone), and its focus is on
-  the row last chosen.
+  the row last chosen. `RoleListBox` and `RoleOption`, a list box of an
+  app's own (ARIA's `listbox` and `option`), are `RoleList` and
+  `RoleListItem` with `AccessSelectable`, as a `ComboboxBase`'s popup and
+  its options (`choosesItems`, `flagChoosable`) and a `SelectBase`'s
+  are, so the bridges show them as the lists above, selected with
+  `Checked`; unlike `flagChoosable`'s rows, they take the focus only
+  when `Focusable`. A `SelectBase`'s options are selected while
+  highlighted, the trigger's `ActiveDescendant` the one highlighted, as a
+  native select's popup: assistive technology focusing one
+  (`focusHighlights`) notes it on its state (`focusAsked`), which the
+  select highlights as it builds it, rather than clicking it, which
+  would choose it.
 - **The connection.** `content.go` attaches the content to its window
   through `internal/surface.Conn`, which carries the surface and, as
   functions, what the content needs of the app (the clipboard, dragging
@@ -2845,7 +2898,9 @@ either.
   (`pressedPrimary`), a right or middle press only clicking or opening a
   menu. Keyframe sequences keep one sequence per
   key with an explicit replay token. All ask for frames only while moving,
-  and end at their targets under reduced motion. Poses (`ui/pose.go`,
+  and end at their targets under reduced motion, but for those whose
+  `NonMotion` (of `Animation`, `KeyframeOptions`, `TimelineOptions`) says
+  they move nothing, which play on. Poses (`ui/pose.go`,
   `AnimatePose`) are channels sampled as frames commit, into a transform
   after the element's own (`poseM`) and a fade; frames that only paint
   (`repaintFrame`) move the posed elements of the last frame built on
@@ -3041,7 +3096,14 @@ either.
   release comes as the window loses the focus or once a frame builds the
   element no more (not built again, or built over by an element without
   `HandleInput`, as when the press moved it into a split), so that the
-  next press starts anew. Its
+  next press starts anew. The pointer's events carry their device and
+  pressure (`SurfaceEvent.Pointer` and `Pressure`), which the engine
+  keeps with the buttons they leave down (`engine.pointerDevice`): a
+  device that tells no pressure presses 0.5 while a button is down and 0
+  otherwise, as Pointer Events have it, a move that changes the
+  pressure alone is a move, and the element pressed keeps the device and
+  pressure of its press's last move for `PressedPointer`
+  (`state.pressPointer`). Its
   `TextCaret` turns on the input method at that caret, with no text around
   it; `InputMethod(false)` (`TextInputState.NoInputMethod`) keeps text on
   but input methods off, as winit's `set_ime_allowed(false)`: macOS skips
@@ -4070,7 +4132,11 @@ either.
   2D context (`canvas_js.go`, see [Browsers](#browsers-internalweb)). They find the fonts, fall
   back to other fonts for what one lacks, shape, run the bidirectional
   algorithm and break lines; font files stay memory mapped and shared with
-  every other process. Every engine gives a line's glyphs in visual order,
+  every other process. A text wrapped again at another width, as in a window
+  being resized, keeps its `CTTypesetter` while frames use it, and gives it up
+  8 frames after the last, or as windows go idle. Core Text opens a break
+  iterator for each line of text with a language attribute, so
+  `languageShapes` leaves the attribute out where it changes nothing. Every engine gives a line's glyphs in visual order,
   from the left, through right-to-left runs too (DirectWrite's runs, whose
   glyphs come in logical order, are reversed), so that what walks them,
   and `ui.Shape`'s callers, rely on one order. The package assembles their
@@ -5500,6 +5566,7 @@ which npm allows only for packages that exist: the first release uses an
 | watching files | FSEvents, one stream per tree, no descriptor per file | inotify, per directory | `ReadDirectoryChangesW`, one for a recursive tree, and the parent to see the directory renamed |
 | menu bar | application menu bar, default menu installed | per-window GTK menu bar, none by default | per-window Win32 menu bar, none by default |
 | menu item icons | `NSMenuItem` image, 16 pt, template images tinted | a `GtkBox` of a `GtkImage` (a cairo surface at the widget's scale) and the label; none on the bar's own items; tray menus' items get `icon-data` over DBusMenu (`dbusmenu_gtk_parse_get_cached_item`) | Windows 11: drawn by MyGo in a column after the checks' (premultiplied BGRA, `internal/menuicon`); Windows 10: `hbmpItem`, a 32-bit premultiplied DIB section freed with its menu; none on the bar's own items |
+| menu item subtitles | `NSMenuItem` `subtitle` from macOS 14; before, after the title (`Label — Subtitle`) | after the label | after the label, with its ampersands escaped |
 | auto-hide menu bar | ignored | the bar widget hides; `can-activate-accel` keeps its shortcuts; Alt alone or F10 show it and open its first menu until it deactivates | the menu is attached only for the `SC_KEYMENU` menu loop that Alt alone or F10 start; shortcuts come from the webview |
 | tray | NSStatusItem, click events (a Control-click a right-click) | AppIndicator: a menu, and activation (a double click) for an icon with an `OnClick` listener | notification area icon, click events |
 | global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
@@ -5517,6 +5584,8 @@ which npm allows only for packages that exist: the first release uses an
 | web views' language | from the app's `AppleLanguages`, next launch | `webkit_web_context_set_preferred_languages`, live | the environment's `Language`, as it is created |
 | `Theme.SetSource` | `NSApp`'s appearance (Aqua, DarkAqua, or none) | `gtk-application-prefer-dark-theme`; light also puts a theme named for its dark variant (Yaru-dark) in place of its light one (Yaru), which GTK and WebKitGTK otherwise take for dark, and the other sources reset the theme. Without a source, or with system, the setting follows the settings portal's `color-scheme` (GNOME's and KDE's dark style, which GTK 3 does not read) from `Init` on: dark where the portal prefers dark, else the desktop's own GTK settings | the title bars, menus and native UI, and pages through the DevTools protocol's emulated `prefers-color-scheme` |
 | `Theme.SetGTKCSS` | nothing | a `GtkCssProvider` for the default screen at `GTK_STYLE_PROVIDER_PRIORITY_USER`, replaced by the next sheet that parses | nothing |
+| pointer device and pressure of native UI (`InputEvent.Pointer`, `Pressure`) | a mouse event's `subtype`: a tablet's pen (`NSEventSubtypeTabletPoint`, with `pressure`, or `TabletProximity`) or a touch; `tabletPoint:` events, a pen pressing harder or softer between moves, are moves where the pointer is | the event's source device (`gdk_event_get_source_device`): a pen or eraser, or a touchscreen, its pressure axis (`gdk_event_get_axis`); the area's own touches are fingers | `WM_POINTER` messages, left to `DefWindowProc` to make mouse messages of, give the pressure (`GetPointerPenInfo`, `GetPointerTouchInfo`); the mouse messages' `GetMessageExtraInfo` (`MI_WP_SIGNATURE`) tells a pen's or a finger's |
+| cursors of native UI without a system cursor | `CursorWait`, `CursorHelp`, `CursorZoomIn`, `CursorZoomOut`, `CursorAllScroll` and `CursorCell` from AppKit's private class methods (`_waitCursor`, `_helpCursor`, …, looked up with `respondsToSelector:`), `CursorProgress` its `busyButClickableCursor`, else the nearest public cursor or the arrow | the CSS names from the cursor theme, then GDK's X cursors, then the nearest (`cursorFallbacks`) | `CursorZoomIn`, `CursorZoomOut` and `CursorCell` drawn (`CreateCursor`, `cursorMasks`), the others `IDC_APPSTARTING`, `IDC_WAIT`, `IDC_HELP`, `IDC_SIZEALL`, `IDC_NO` |
 | traffic lights, Dock | yes | ignored | ignored |
 | hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window, through DirectComposition over a material, light or dark per window (`SetWindowButtonsTheme`); snap layouts; a top edge that resizes |
 | progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |
@@ -5570,6 +5639,7 @@ which npm allows only for packages that exist: the first release uses an
 | custom scheme origin | `<scheme>://<host>` | `<scheme>://<host>` | `http://<scheme>.localhost`, or `http://<host>.<scheme>.localhost` for another host (the page's `location`) |
 | `LoadHTML` documents | a reload loads the base URL (`about:blank` without one), so the core cancels it (`Navigation.Reload`) and loads the HTML again; not in the history | as macOS | as macOS, but in the history: going back to one with a base URL loads that URL |
 | window.open | keeps the opener | independent window | keeps the opener: the new window's web view, set up, becomes the popup (`put_NewWindow`, under a deferral) |
+| keys held (`Context.KeyDown`) | `keyDown:` and `keyUp:`; a local monitor of key ups hands the surface those let go of while Command is held, which `sendEvent:` keeps from the key window; resigning first responder or key window lets go of all | key presses and releases, and a release the input method filters (`HeldKeys.Lift`): IBus and Fcitx hand back those they leave, which `HeldKeys` keeps from the content | `WM_KEYUP` and `WM_SYSKEYUP`; a `VK_PROCESSKEY` release lets go of the key at its scancode; `WM_ENTERMENULOOP` lets go of all (`HeldKeys.LiftAll`), whose releases the menu's loop takes; `WM_KILLFOCUS` all |
 | native UI surface | layer-backed NSView, frames from `CADisplayLink` (a timer at the display's rate before macOS 14), input methods through NSTextInputClient | GtkGLArea (GtkDrawingArea without a GPU), GtkIMMulticontext | `MyGoSurface` child window, IMM32 |
 | native UI data drags | NSDraggingSession, NSPasteboardItemDataProvider, NSDraggingDestination | GTK drag contexts, MIME selections, text/uri-list | OLE IDataObject, IDropSource, IDropTarget, Shell drag images |
 | native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |

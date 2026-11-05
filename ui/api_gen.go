@@ -385,6 +385,43 @@ func (_handle *Context) Instant() bool {
 	return _ctx.Instant()
 }
 
+// KeyDown reports whether key is held down in the window, whichever
+// element has the focus and whether or not one took the key, without
+// taking it from them: a cheat sheet of shortcuts lights the keys held
+// while its search field has the focus. A frame that reads it is drawn
+// again as the keys held change. Keys count as shortcuts take them (a
+// chord of a key the layout types no US key for, as S on a Cyrillic
+// layout, by its position); the modifier keys are Modifiers'. A key whose
+// press ran a menu item's shortcut went to the menu, not the window. The
+// window lets go of every key as it loses the keyboard, whose releases go
+// elsewhere.
+func (_handle *Context) KeyDown(key Key) bool {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return false
+	}
+	return _ctx.KeyDown(key)
+}
+
+// KeysDown returns the keys held down in the window, as KeyDown tells
+// them, in the order they were pressed; nil while none is. A cheat sheet
+// fades the rows of shortcuts that use none of them:
+//
+//	held := c.KeysDown()
+//	for _, s := range app.shortcuts {
+//		row := shortcutRow(c, s)
+//		if len(held) > 0 && !s.usesAny(held) {
+//			row.Opacity(0.4)
+//		}
+//	}
+func (_handle *Context) KeysDown() []Key {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return nil
+	}
+	return _ctx.KeysDown()
+}
+
 // Locale returns the language the app shows (mygo.App.Locale), a BCP 47
 // tag such as "en" or "zh-Hans", for what the view says in it. Text is in
 // it unless an element says otherwise (Element.Lang). A frame follows its
@@ -469,6 +506,7 @@ func (_handle *Context) Preferences() Preferences {
 // ReadClipboard returns the text on the clipboard, and WriteClipboard
 // puts text there, for widgets that copy and paste themselves. Call them
 // on the main thread: in the view, or in an input handler.
+// WriteClipboardThen tells whether the text got there.
 func (_handle *Context) ReadClipboard() string {
 	_ctx := _handle.build()
 	if _ctx == nil {
@@ -702,6 +740,27 @@ func (_handle *Context) WriteClipboard(s string) {
 		return
 	}
 	_ctx.WriteClipboard(s)
+}
+
+// WriteClipboardThen puts text on the clipboard as WriteClipboard does,
+// and done, unless nil, gets what came of it a moment later, before a
+// frame builds anew with what it changed, as navigator.clipboard's
+// writeText resolves or rejects: an error when the text did not get
+// there, as when another app holds the clipboard, or a browser refuses
+// a write the user did not act for (a press or a key, a moment before).
+// A copy button shows "Copied" or "Failed" with it:
+//
+//	if ui.Button(c, "Copy").Clicked() {
+//		c.WriteClipboardThen(link, func(err error) {
+//			app.copied, app.copyFailed = err == nil, err != nil
+//		})
+//	}
+func (_handle *Context) WriteClipboardThen(s string, done func(err error)) {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return
+	}
+	_ctx.WriteClipboardThen(s, done)
 }
 
 // Zoom returns the zoom SetZoom set, 1 for none.
@@ -3397,7 +3456,9 @@ func (_handle Element) AnimatePose(p Pose, a Animation) Element {
 // on the way, or a new kind of Animation, takes over from where the value
 // is: a spring keeps its velocity, even that of a curve. When the desktop
 // asks for less motion (Preferences.ReduceMotion), the value goes to its
-// target at once.
+// target at once, unless a's NonMotion says it moves nothing, as a fade:
+//
+//	op := e.AnimateTo("fade", target, ui.Animation{Duration: 200 * time.Millisecond, NonMotion: true})
 func (_handle Element) AnimateTo(key any, target float32, a Animation) float32 {
 	_node := _handle.node()
 	if _node == nil {
@@ -3888,8 +3949,9 @@ func (_handle Element) Changed() bool {
 }
 
 // Checked tells assistive technology whether the element, as a check box,
-// switch, radio button, toggle button or menu item of your own, is on.
-// Bases set it from their value.
+// switch, radio button, toggle button or menu item of your own, is on, or
+// whether an option (RoleOption) is selected. Bases set it from their
+// value.
 func (_handle Element) Checked(on bool) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -5413,7 +5475,8 @@ func (_handle Element) KeyShortcuts(mods Modifiers, key Key) Element {
 // on the first call, with the first frame's value. Keep the element and
 // key stable, and change Run when changing the sequence. Only active
 // playback asks for animation frames. Reduced motion completes playback at
-// its final value, including when the preference changes mid-sequence.
+// its final value, including when the preference changes mid-sequence,
+// unless the options' NonMotion says the sequence moves nothing.
 func (_handle Element) Keyframes(key any, frames []Keyframe, options ...KeyframeOptions) float32 {
 	_node := _handle.node()
 	if _node == nil {
@@ -6356,6 +6419,23 @@ func (_handle Element) PressedOutside() bool {
 	return _node.PressedOutside()
 }
 
+// PressedPointer returns the device pressing the element and how hard it
+// presses, from 0 to 1, as of the press's last move, while the press
+// lasts, as PressedButton; ok is false while nothing presses it, or it is
+// disabled. As InputEvent.Pressure, a device that tells no pressure, as a
+// mouse, presses 0.5. A signature pad widens its stroke with a pen's
+// pressure, and goes by the pointer's speed for a mouse. Elements asking
+// for it get a frame whenever the pointer moves or the pressure changes.
+func (_handle Element) PressedPointer() (PointerType, float32, bool) {
+	_node := _handle.node()
+	if _node == nil {
+		return *new(PointerType), 0, false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.PressedPointer()
+}
+
 // RadialGradient fills the element with a radial gradient, its colors
 // spreading out from a point (CSS's radial-gradient()), as a glow:
 //
@@ -7090,6 +7170,23 @@ func (_handle Element) TabSize(n float32) Element {
 	return wrapElement(_node.TabSize(n))
 }
 
+// TabStop makes the element focusable, and sets whether Tab and Shift+Tab
+// stop at it, as they do at a Focusable element. One that is no tab stop
+// is HTML's tabindex="-1": it takes the focus from a click, from Focus and
+// AutoFocus, and from assistive technology, while Tab passes over it, on
+// to what is inside it and after it: a container that takes the focus to
+// hold its keys, as a card or a dialog's panel, without coming before its
+// own controls.
+func (_handle Element) TabStop(stop bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TabStop(stop))
+}
+
 // TextAlign aligns the lines of text: Start, Center or End.
 func (_handle Element) TextAlign(a Align) Element {
 	_node := _handle.node()
@@ -7215,10 +7312,11 @@ func (_handle Element) TextStroke(width float32, c Color) Element {
 // valid while the view builds this frame.
 //
 // While the desktop asks for less motion (Preferences.ReduceMotion), a
-// timeline that would play is at once where it would come to rest, but
-// Seek, Progress and Paused still put and hold its playhead, as a drag
-// still moves a Draggable element. DisableAnimations does not change a
-// timeline, which plays on its own, as Keyframes do: jump it with Seek.
+// timeline that would play is at once where it would come to rest, unless
+// o's NonMotion says it moves nothing, but Seek, Progress and Paused still
+// put and hold its playhead, as a drag still moves a Draggable element.
+// DisableAnimations does not change a timeline, which plays on its own,
+// as Keyframes do: jump it with Seek.
 func (_handle Element) Timeline(key any, o TimelineOptions) *Timeline {
 	_node := _handle.node()
 	if _node == nil {
@@ -7629,7 +7727,10 @@ func (_handle SelectParts[T]) Highlight(value T) {
 // the pointer or the arrows are on it, and chooses value and closes the
 // popup when clicked. Disabled leaves it out of the keys' way and of the
 // pointer's. The option the highlight moves to scrolls into view, once,
-// so that the wheel scrolls on past it.
+// so that the wheel scrolls on past it. Assistive technology reads it as
+// an option of a list box (RoleOption), selected while it is
+// highlighted, as a native select's; focusing it highlights it, and
+// pressing it chooses it.
 func (_handle SelectParts[T]) Item(value T) Element {
 	_parts := _handle.resolve()
 	if _parts == nil {

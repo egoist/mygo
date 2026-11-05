@@ -41,6 +41,9 @@ type host interface {
 	updateAccessibility(tree *platform.AccessTree)
 	readClipboard() string
 	writeClipboard(string)
+	// writeClipboardThen puts text on the clipboard as writeClipboard
+	// does, and done gets what came of it on the main thread, later.
+	writeClipboardThen(text string, done func(error))
 	// readClipboardData reads the representations of formats on the
 	// clipboard, all for nil; writeClipboardData puts data there;
 	// clipboardFormats lists them.
@@ -302,7 +305,15 @@ type engine struct {
 
 	pointerX, pointerY float32
 	pointerIn          bool
-	hover              []uint64
+	// pointerType and pressure are the device of the last pointer event
+	// and how hard it pressed (InputEvent.Pressure), buttons the buttons
+	// down as the events tell, and pressureMoved that the last move
+	// changed the pressure alone, which moves as the pointer moving does.
+	pointerType   PointerType
+	pressure      float32
+	buttons       uint8
+	pressureMoved bool
+	hover         []uint64
 	// chain is a buffer for the elements under the pointer.
 	chain       []uint64
 	pressed     *state
@@ -360,6 +371,11 @@ type engine struct {
 	// drawn as active (windowActive), so that a change of it draws a
 	// frame.
 	activeRead bool
+	// keysHeld are the keys held in the window (Context.KeyDown); keysRead
+	// tells that the last frame read them, so that a change of them draws
+	// a frame.
+	keysHeld []heldKey
+	keysRead bool
 	// withinRead tells that the frame read FocusWithin, which follows the
 	// parents its last layout committed: the focus moving as it builds, to
 	// an element it builds for the first time or after the read, draws
@@ -471,6 +487,8 @@ type engine struct {
 	// announcements are the texts for assistive technology to read out
 	// (Context.Announce).
 	announcements []string
+	// live is what the live regions of the last frame's tree held.
+	live liveState
 	// stats measures frames for MYGO_FRAME_STATS, nil when it is unset.
 	stats *frameStats
 	// dropOver is the element files are dragged over; access is true once
@@ -628,7 +646,7 @@ func (rt *engine) runFrame() {
 
 	rt.frame++
 	rt.input = false
-	rt.focusRead, rt.activeRead, rt.withinRead = false, false, false
+	rt.focusRead, rt.activeRead, rt.withinRead, rt.keysRead = false, false, false, false
 	rt.stats.begin(rt)
 	now := rt.frameTime()
 	rt.zoomChanged = false
@@ -794,7 +812,9 @@ func (rt *engine) runFrame() {
 	rt.updateTextInput()
 	rt.updateCursor()
 	if rt.access {
-		rt.host.updateAccessibility(rt.windowAccess(rt.accessTree()))
+		t := rt.accessTree()
+		rt.liveRegions(t, true)
+		rt.host.updateAccessibility(rt.windowAccess(t))
 	}
 	if h, ok := rt.host.(*headless); ok {
 		// For tests, whether assistive technology reads the window or not.
@@ -1358,7 +1378,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	s.accessDisabled = e.accessDisabled || e.parent != nil && e.parent.st.accessDisabled
 	s.cursor, s.tip = e.cursor, e.tip
 	s.webView = e.webView
-	s.role = e.role
+	s.role, s.focusHighlights = e.role, e.focusHighlights
 	s.input, s.caret, s.takesText, s.noIME = e.inputFn, e.caret, e.takesText, e.noIME
 	if s.observe = e.observeFn; s.observe != nil {
 		rt.observers++

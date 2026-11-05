@@ -77,6 +77,41 @@ on a touchscreen; a second finger presses nothing, in browsers too
 (`isPrimary`). [`HandleInput`](#every-key-as-it-comes) hears every
 button go down and up, with `InputEvent.Button`.
 
+`PressedPointer` tells what presses the element, and how hard, as
+Pointer Events' `pointerType` and `pressure`: `PointerMouse` (a mouse or
+a touchpad), `PointerPen` (a pen on a tablet or a screen) or
+`PointerTouch` (a finger on a touchscreen), and a pressure from 0 to 1
+as of the press's last move. A device that tells no pressure, as a
+mouse, presses 0.5 while a button is down. `HandleInput` gets the same
+on every `InputPointerDown`, `InputPointerMove` and `InputPointerUp`
+(`InputEvent.Pointer` and `Pressure`), every move as it comes rather
+than once a frame, and a pen pressing harder or softer where it stands
+comes as a move too. A signature pad widens its stroke with a pen's
+pressure, and goes by the pointer's speed for a mouse:
+
+```go
+ui.Box(c).Grow(1).Draw(app.paint).HandleInput(func(ev ui.InputEvent) bool {
+	switch {
+	case ev.Kind == ui.InputPointerDown, ev.Kind == ui.InputPointerMove && ev.Button == 0:
+		width := app.widthBySpeed(ev.X, ev.Y, ev.Time) // a mouse's, or a finger's
+		if ev.Pointer == ui.PointerPen {
+			width = 1 + 5*ev.Pressure
+		}
+		app.stroke = append(app.stroke, stroke{ev.X, ev.Y, width})
+		return true
+	}
+	return ev.Kind == ui.InputPointerUp
+})
+```
+
+The systems tell the device of each press and move: AppKit's tablet
+events on macOS (a mouse event's subtype and `pressure`, and
+`tabletPoint:` between moves), the `WM_POINTER` messages of pens and
+fingers on Windows, which Windows turns into the mouse messages it
+marks as theirs, GDK's source device and pressure axis on Linux, and
+`PointerEvent` in browsers. A `Tester` presses as a pen or a finger
+after `UsePointer(ui.PointerPen, 0.6)`.
+
 While the pointer presses an element, the elements it was over as the
 press began, as the row around a button, stay `Hovered` as long as it is
 over them, as in CSS, and the others hover no more: dragging over other
@@ -116,6 +151,25 @@ field of a dialog, and `Focus` keeps it there while you call it; `Focused`,
 button, and Space toggles a focused check box, switch, toggle or radio
 button. A focused link, or an element with `Role(ui.RoleLink)`, takes Enter
 alone, as in a web page: Space scrolls the container around it.
+
+`TabStop(false)` makes an element focusable but out of Tab's order, as
+HTML's `tabindex="-1"`: it takes the focus from a click, from `Focus` and
+`AutoFocus`, and from assistive technology, while Tab and Shift+Tab pass
+over it, on to the controls inside it and after it. A card or a panel
+takes the focus so to hold its keys without coming before its own
+buttons; `TabStop(true)` puts it back in the order. In a [focus
+group](#focus-groups), Tab enters at a member it stops at, while the
+arrows still reach the others.
+
+```go
+card := ui.Column(c).Padding(12).TabStop(false).Children(func() {
+	ui.Text(c, item.Title)
+	ui.Button(c, "Open") // Tab goes here, past the card
+})
+if card.Shortcut(0, ui.KeyDelete) {
+	app.remove(item)
+}
+```
 
 `FocusLeft` reports that the focus left an element since the last frame:
 it was on the element or inside it, and is now outside it, or nowhere, as
@@ -309,6 +363,38 @@ func shortcutHint(c *ui.Context, key ui.Key, label string, run func()) {
 }
 ```
 
+## Keys held
+
+`c.KeyDown(ui.KeyK)` reports whether a key is held down in the window, and
+`c.KeysDown()` lists the keys held, in the order they went down, whichever
+element has the focus and whether or not it took them: they only watch,
+so the focused field still types. A view that reads them draws again as
+they change. A cheat sheet of shortcuts lights the key caps held while its
+search field has the focus, and fades the rows that use none of them:
+
+```go
+ui.SearchField(c, &app.query).Label("Search shortcuts").AutoFocus()
+held, mods := c.KeysDown(), c.Modifiers()
+for _, s := range app.shortcuts {
+	row := shortcutRow(c, s, held, mods) // lights the caps held
+	if (len(held) > 0 || mods != 0) && !s.uses(held, mods) {
+		row.Opacity(0.4)
+	}
+}
+```
+
+Keys count as shortcuts take them, so Cmd+ы on a Russian layout holds
+`ui.KeyS`; the modifier keys are `c.Modifiers()`'s. A key whose press runs
+a menu item's shortcut goes to the menu, not the window. The window lets
+go of every key as it loses the keyboard to another window or app, where
+their releases go, and of each key whose release the system keeps from
+it: on macOS, and in a Mac's browsers, one let go of while Command is
+held; on Windows, one held as a menu opens, as with Alt and a letter or
+Alt and Space, whose release the menu takes; and one whose release an
+input method takes, as it begins composing while the key is held. A
+`Tester` holds keys with `KeyDown` and `KeyUp`, and `SetFocused(false)`
+lets go of them.
+
 ## Input methods
 
 Text inputs take text composed with input methods, which see the text
@@ -401,7 +487,12 @@ except in browsers, which cannot. `c.ReadClipboard`,
 `c.WriteClipboard` and `c.OpenURL` copy, paste and open links for them;
 `c.OpenURLThen` opens a link too, and its function gets what came of it a
 moment later, as the system opens it, with an error when no app could,
-and the view builds a frame anew. `Services.ReadClipboardData` and
+and the view builds a frame anew. `c.WriteClipboardThen` copies text the
+same way, as `navigator.clipboard.writeText` resolves or rejects: its
+function gets an error when the text did not get there, as when
+another app holds the clipboard, or a browser refuses a write the user
+did not act for, so that a copy button can show "Copied" or "Failed"
+(a `Tester` refuses them after `FailClipboard`). `Services.ReadClipboardData` and
 `WriteClipboardData` read and write several formats at once, as a rich
 text editor copies its own, HTML and plain text, and
 `ClipboardFormats` lists the clipboard's without reading them, as a
@@ -426,6 +517,12 @@ c.OpenURLThen(url, func(err error) {
 		c.Toast("No app opens " + url)
 	}
 })
+
+if ui.Button(c, "Copy").Clicked() {
+	c.WriteClipboardThen(link, func(err error) {
+		app.copied, app.copyFailed = err == nil, err != nil
+	})
+}
 ```
 
 ## Input inside a region
