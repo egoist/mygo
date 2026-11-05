@@ -2,7 +2,6 @@ package ui
 
 import (
 	"math"
-	"slices"
 
 	"github.com/egoist/mygo/internal/text"
 )
@@ -74,10 +73,8 @@ func layoutTree(root *node, w, h float32) {
 	rt.beginLayout(root)
 	layoutBox(root, w, h)
 	// Lists build rows as they lay out, which may ask to come into view.
-	for _, e := range root.c.reveal {
-		if !slices.Contains(rt.revealIDs, e.id) {
-			rt.revealIDs = append(rt.revealIDs, e.id)
-		}
+	for _, r := range root.c.reveal {
+		rt.askReveal(r.e.id, r.o)
 	}
 	if len(rt.revealIDs) > 0 {
 		revealAll(root, rt.revealIDs)
@@ -207,12 +204,12 @@ func (e *node) textParams(width float32) text.Params {
 	ts := e.resolvedText()
 	style := text.Style{
 		Family: ts.family, Size: ts.size, Weight: ts.weight, Italic: ts.italic, LineHeight: ts.lineHeight,
-		LetterSpacing: ts.spacing, Features: ts.features, Lang: ts.lang,
+		LetterSpacing: ts.spacing, Features: ts.features, Lang: ts.lang, TabSize: ts.tabSize,
 	}
 	if ts.fixedLine && ts.lineHeight > 0 {
 		style.LineHeight = ts.lineHeight / style.FontSize()
 	}
-	p := text.Params{Text: e.text, Width: width, MaxLines: e.maxLines, Style: style, Spans: e.textSpans(), NoWrap: e.noWrap, Balance: e.balance, Ellipsis: e.ellipsis, RTL: e.rtl()}
+	p := text.Params{Text: e.text, Width: width, MaxLines: e.maxLines, Style: style, Spans: e.textSpans(), NoWrap: e.noWrap, Balance: e.balance, KeepSpaces: e.keepSpaces, Ellipsis: e.ellipsis, RTL: e.rtl()}
 	switch {
 	case ts.align == Center:
 		p.Align = text.Center
@@ -290,6 +287,15 @@ func (e *node) resolvedText() textStyle {
 		}
 		if take&setSelection != 0 {
 			out.selection = t.selection
+		}
+		if take&setCaret != 0 {
+			out.caret = t.caret
+		}
+		if take&setStroke != 0 {
+			out.strokeWidth, out.strokeColor = t.strokeWidth, t.strokeColor
+		}
+		if take&setTabSize != 0 {
+			out.tabSize = t.tabSize
 		}
 		out.set |= take
 	}
@@ -1311,10 +1317,31 @@ func reattach(ov *node) {
 
 // attachedAt returns where c, w×h and a child of e whose padding box is
 // pw×ph, goes relative to e, attached to t, the box of its target.
+// It notes the anchors it puts together (AttachedAnchors), and puts the
+// transform origin on the element's (AttachedOrigin).
 func attachedAt(c, e *node, t Rect, pw, ph, w, h float32) (x, y float32) {
 	ax, ay, sx, sy := c.attachFractions()
-	x = alongTarget(t.X, t.W, ax, sx, w, c.m(3)-c.m(1), c.c.w)
-	y = alongTarget(t.Y, t.H, ay, sy, h, c.m(0)-c.m(2), c.c.h)
+	x, fx := alongTarget(t.X, t.W, ax, sx, w, c.m(3)-c.m(1), c.c.w)
+	y, fy := alongTarget(t.Y, t.H, ay, sy, h, c.m(0)-c.m(2), c.c.h)
+	c.placed, c.flips = c.attach.flipped(fx, fy), 0
+	if fx {
+		c.flips |= flipAcross
+	}
+	if fy {
+		c.flips |= flipDown
+	}
+	if c.hasState() {
+		c.st.placed, c.st.asked = c.placed, c.attach
+	}
+	if c.originAttached {
+		if fx {
+			sx = 1 - sx
+		}
+		if fy {
+			sy = 1 - sy
+		}
+		c.originX, c.originY, c.originSet = sx, sy, true
+	}
 	dx, dy := c.relative(pw, ph)
 	ox, oy := laidOutOrigin(e)
 	return x + dx - ox, y + dy - oy
@@ -1352,23 +1379,23 @@ func beside(at, self float32) bool { return at == 1 && self == 0 || at == 0 && s
 // alongTarget returns where an element size long goes along an axis of the
 // window, limit long, with its point at fraction self on target's point at
 // fraction at, moved by off: on the other side of target, or the other way
-// along it, where that overflows the window less, then moved into the
-// window along target.
-func alongTarget(t0, tsize, at, self, size, off, limit float32) float32 {
+// along it, where that overflows the window less (flipped), then moved
+// into the window along target.
+func alongTarget(t0, tsize, at, self, size, off, limit float32) (p float32, flipped bool) {
 	pos := func(at, self, off float32) float32 { return t0 + at*tsize - self*size + off }
 	over := func(p float32) float32 {
 		return max(0, windowMargin-p) + max(0, p+size-(limit-windowMargin))
 	}
-	p := pos(at, self, off)
+	p = pos(at, self, off)
 	if over(p) > 0 {
 		if q := pos(1-at, 1-self, -off); over(q) < over(p) {
-			p = q
+			p, flipped = q, true
 		}
 	}
 	if !beside(at, self) && over(p) > 0 {
 		p = max(windowMargin, min(p, limit-windowMargin-size))
 	}
-	return p
+	return p, flipped
 }
 
 // laidOutOrigin returns where place will put the box of an element laid
