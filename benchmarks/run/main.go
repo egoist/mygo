@@ -118,6 +118,19 @@ func main() {
 		res.Frameworks[f] = &App{Size: uint64(info.Size()), Scenes: map[string]map[string]Series{}}
 	}
 
+	// The system checks a program the first time it starts, and its pages are
+	// not in memory yet: one launch of each, not measured.
+	for _, f := range frameworks {
+		p, err := start(paths[f], "counter")
+		if err != nil {
+			log.Fatal(err)
+		}
+		if _, err := p.wait("ready"); err != nil {
+			log.Fatalf("%s: %v", f, err)
+		}
+		p.stop()
+	}
+
 	samples := map[string]map[string]map[string][]float64{}
 	add := func(f, scene string, m map[string]float64) {
 		if samples[f] == nil {

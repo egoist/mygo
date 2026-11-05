@@ -54,7 +54,7 @@ impl eframe::App for List {
             self.y += 8.0;
         }
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
+            .frame(egui::Frame::central_panel(root.style()).inner_margin(0.0))
             .show(root, |ui| {
                 egui::ScrollArea::vertical()
                     .auto_shrink(false)

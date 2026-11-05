@@ -21,6 +21,10 @@ type recorder struct {
 	seen           int
 	last, started  time.Time
 	intervals      []time.Duration
+	// at is the time of the frame being built, which its build passes share,
+	// and more whether the run wants another frame.
+	at   time.Time
+	more bool
 }
 
 func newRecorder() *recorder {
@@ -32,6 +36,21 @@ func env(name string, fallback int) int {
 		return n
 	}
 	return fallback
+}
+
+// frame is called by every build pass, and reports whether this pass starts a
+// frame the scene should advance for: a frame can have several passes.
+func (r *recorder) frame(c *ui.Context) bool {
+	now := c.Now()
+	started := !now.Equal(r.at)
+	if started {
+		r.at = now
+		r.more = r.tick()
+	}
+	if r.more {
+		c.AnimationFrame()
+	}
+	return started && r.more
 }
 
 // tick counts a frame, and reports whether the run wants another.
@@ -84,14 +103,19 @@ func cellValue(cell, frame int) float64 {
 type counter struct {
 	n      int
 	frames int
+	at     time.Time
 }
 
 func (s *counter) view(c *ui.Context) {
-	s.frames++
+	if now := c.Now(); !now.Equal(s.at) {
+		s.at = now
+		s.frames++
+		if s.frames == 2 {
+			fmt.Println("ready")
+		}
+	}
 	if s.frames == 1 {
-		c.Invalidate()
-	} else if s.frames == 2 {
-		fmt.Println("ready")
+		c.AnimationFrame()
 	}
 	ui.Column(c).Fill().Center().Gap(16).Children(func() {
 		ui.Textf(c, "%d", s.n).FontSize(56).Bold()
@@ -117,8 +141,7 @@ type list struct {
 }
 
 func (s *list) view(c *ui.Context) {
-	if s.rec.tick() {
-		c.Invalidate()
+	if s.rec.frame(c) {
 		s.scroll.Y += 8
 	}
 	muted := c.Theme().TextMuted
@@ -140,8 +163,7 @@ type grid struct {
 }
 
 func (s *grid) view(c *ui.Context) {
-	if s.rec.tick() {
-		c.Invalidate()
+	if s.rec.frame(c) {
 		s.frame++
 	}
 	ui.Column(c).Fill().Children(func() {
@@ -177,8 +199,7 @@ type document struct {
 }
 
 func (s *document) view(c *ui.Context) {
-	if s.rec.tick() {
-		c.Invalidate()
+	if s.rec.frame(c) {
 		s.frame++
 	}
 	width := float32(math.Round(600 + 150*math.Sin(float64(s.frame)/30)))
@@ -216,7 +237,7 @@ func main() {
 		log.Fatalf("no scene %q", scene)
 	}
 	mygo.App.WhenReady(func() {
-		mygo.NewWindow(mygo.WindowOptions{Title: "Benchmark", Width: width, Height: height, Content: content})
+		mygo.NewWindow(mygo.WindowOptions{Title: "Benchmark", Width: width, Height: height, UseContentSize: true, Content: content})
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

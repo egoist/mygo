@@ -6,7 +6,7 @@ mod common;
 
 use common::{Recorder, cell_color, cell_value, document_width, words};
 use gpui::{
-    App, Application, Bounds, Context, Rgba, SharedString, UniformListScrollHandle, Window,
+    App, Application, Bounds, Context, Rgba, SharedString, TitlebarOptions, UniformListScrollHandle, Window,
     WindowBounds, WindowOptions, div, point, prelude::*, px, rgb, size, uniform_list,
 };
 
@@ -96,6 +96,7 @@ impl Render for List {
                             .map(|i| {
                                 div()
                                     .id(i)
+                                    .w_full()
                                     .h(px(40.0))
                                     .px_3()
                                     .gap_3()
@@ -210,6 +211,10 @@ fn main() {
         let (w, h) = if scene == "counter" { (360.0, 260.0) } else { (800.0, 600.0) };
         let options = WindowOptions {
             focus: true,
+            titlebar: Some(TitlebarOptions {
+                title: Some("Benchmark".into()),
+                ..Default::default()
+            }),
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(w), px(h)), cx))),
             ..Default::default()
         };
