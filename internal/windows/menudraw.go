@@ -898,12 +898,15 @@ type cwpStruct struct {
 // procedure it replaced, the menu it showed last, whether the material is
 // behind it, and the brush its border is painted with, 0 for Windows' own
 // border, or, with the material, the veil it is painted with as its items
-// are.
+// are. popup tells that it shows a popup menu MyGo showed, whose loop
+// created it, rather than one of a menu bar's dropdowns or Windows'
+// window menu.
 type menuWindow struct {
 	proc, menu uintptr
 	glass      bool
 	border     uintptr
 	veil       tint
+	popup      bool
 }
 
 // glassConditions are what decide whether menus show the material.
@@ -1008,7 +1011,7 @@ func (b *Backend) subclassMenu(hwnd uintptr) {
 	if b.menuWindows == nil {
 		b.menuWindows = map[uintptr]*menuWindow{}
 	}
-	b.menuWindows[hwnd] = &menuWindow{proc: old}
+	b.menuWindows[hwnd] = &menuWindow{proc: old, popup: b.popups > 0}
 }
 
 // menuProc is the window procedure of the menus' windows subclassMenu
@@ -1016,7 +1019,9 @@ func (b *Backend) subclassMenu(hwnd uintptr) {
 // it shows; where MyGo draws the menu, it paints its border in the
 // menu's background, transparent where the material is behind it, rather
 // than as Windows does, and keeps its frame active for DWM to draw the
-// material.
+// material. The popups MyGo shows stay open on Alt, as WinUI's flyouts do,
+// while a menu bar's dropdowns and Windows' window menu keep Win32's
+// behavior and leave.
 func menuProc(hwnd, m, wp, lp uintptr) uintptr {
 	b := theBackend
 	mw := b.menuWindows[hwnd]
@@ -1061,6 +1066,25 @@ func menuProc(hwnd, m, wp, lp uintptr) uintptr {
 			paintMenuBorder(hwnd, wp, mw)
 		}
 		return r
+	case wmKeyDown, wmKeyUp, wmSysKeyDown, wmSysKeyUp:
+		// Alt alone, on which Win32's menus leave, as they leave on
+		// Escape: a popup MyGo shows stays open, as the menus of Windows
+		// 11 itself, WinUI's flyouts, do, Alt only moving the keyboard to
+		// a window's own controls there, and the keyboard still reaching
+		// the menu afterwards to choose an item. Alt comes as a system
+		// key alone, WM_SYSKEYDOWN, and as a plain one while Control is
+		// held, which Windows takes for AltGr. Alt and a letter, and the
+		// rest of the keyboard, go on to Windows, and a menu bar's
+		// dropdown, and Windows' window menu, leave on Alt as Win32 has
+		// them.
+		if wp == vkMenu && mw.popup {
+			return 0
+		}
+	case wmSysChar:
+		// Alt alone's character, which is none.
+		if wp == 0 && mw.popup {
+			return 0
+		}
 	case wmNCDestroy:
 		procSetWindowLongPtrW.Call(hwnd, gwlpWndProc, mw.proc)
 		delete(b.menuWindows, hwnd)
