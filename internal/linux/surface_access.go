@@ -335,6 +335,7 @@ func loadAccessNames() {
 		platform.RoleHeading: {"heading", "label"},
 		// A landmark, whose xml-roles attribute says which, as Chromium's.
 		platform.RoleNavigation: {"landmark", "panel"}, platform.RoleRegion: {"landmark", "panel"},
+		platform.RoleSearch: {"landmark", "panel"}, platform.RoleArticle: {"article", "panel"},
 		// Live regions, which their object attributes say how to read.
 		platform.RoleLog: {"log", "panel"}, platform.RoleTimer: {"timer", "panel"},
 		platform.RoleAlert:     {"notification", "alert"},
@@ -360,8 +361,8 @@ func loadAccessNames() {
 // xmlRoles are the ARIA roles of nodes whose ATK role does not say all,
 // as the landmarks' and live regions', in their xml-roles attribute.
 var xmlRoles = map[platform.AccessRole]string{
-	platform.RoleNavigation: "navigation", platform.RoleRegion: "region", platform.RoleLog: "log", platform.RoleTimer: "timer",
-	platform.RoleAlert: "alert", platform.RoleStatus: "status",
+	platform.RoleNavigation: "navigation", platform.RoleRegion: "region", platform.RoleSearch: "search", platform.RoleLog: "log",
+	platform.RoleTimer: "timer", platform.RoleAlert: "alert", platform.RoleStatus: "status",
 }
 
 // accessTree is what assistive technology sees of a surface.
@@ -1019,6 +1020,11 @@ func initAccessCallbacks() {
 		}
 		if an.n.Placeholder != "" {
 			add("placeholder-text", an.n.Placeholder)
+		}
+		// The keys that press or focus it (aria-keyshortcuts), as
+		// Chromium says.
+		if an.n.KeyShortcuts != "" {
+			add("keyshortcuts", an.n.KeyShortcuts)
 		}
 		if an.n.PosInSet > 0 {
 			add("posinset", strconv.Itoa(an.n.PosInSet))

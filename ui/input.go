@@ -33,6 +33,16 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		// A press is of no element until countPress finds it one.
 		rt.lastPress.prev, rt.lastPress.id = rt.lastPress.id, 0
 	}
+	switch ev.Kind {
+	case platform.PointerMove, platform.PointerUp:
+		rt.pointerDevice(ev)
+	case platform.PointerDown:
+		// It presses once it came where it presses (pointerDevice).
+		rt.pointerType = PointerType(ev.Pointer)
+	case platform.SurfaceBlur:
+		// Buttons let go of elsewhere never come back up here.
+		rt.buttons, rt.pressure = 0, 0
+	}
 	if rt.insp.pointer(rt, ev, x, y) {
 		return true
 	}
@@ -57,6 +67,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.pointerMove(x, y)
 	case platform.PointerDown:
 		rt.pointerMove(x, y)
+		rt.pointerDevice(ev)
 		rt.pointerDown(x, y, ev.Button, Modifiers(ev.Mods), ev.Clicks)
 	case platform.PointerUp:
 		rt.pointerMove(x, y)
@@ -79,6 +90,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.zoom(float32(ev.Scale), Modifiers(ev.Mods))
 	case platform.KeyPressed:
 		rt.modsChanged(Modifiers(ev.Mods))
+		rt.holdKey(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey))
 		taken = rt.keyDownPhysical(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey), ev.Repeat)
 	case platform.ModifiersChanged:
 		rt.modsChanged(Modifiers(ev.Mods))
@@ -89,6 +101,8 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 			key = physical
 		}
 		delete(rt.byPosition, physical)
+		rt.releaseKey(key, physical)
+		rt.observeFocus(InputEvent{Kind: InputKeyUp, Key: key, PhysicalKey: physical, Mods: Modifiers(ev.Mods)})
 		if h := rt.focusHandler(); h != nil {
 			rt.deliver(h, InputEvent{Kind: InputKeyUp, Key: key, PhysicalKey: physical, Mods: Modifiers(ev.Mods)})
 		}
@@ -108,6 +122,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		// Keys let go of elsewhere never come back up here.
 		rt.modsChanged(0)
 		clear(rt.byPosition)
+		rt.releaseKeys()
 		if p := rt.pressed; p != nil {
 			x, y := p.local(rt.pointerX, rt.pointerY)
 			rt.endPress(p.input, x, y)
@@ -257,7 +272,9 @@ func (rt *engine) pointerMove(x, y float32) {
 		}
 		rt.dragMove(x, y)
 	}
-	moved := x != rt.pointerX || y != rt.pointerY
+	// A pen pressing harder or softer where it stands moves too.
+	moved := x != rt.pointerX || y != rt.pointerY || rt.pressureMoved
+	rt.pressureMoved = false
 	rt.pointerX, rt.pointerY, rt.pointerIn = x, y, true
 	if rt.selection.dragging && rt.pressed != nil {
 		rt.moveTextSelection(x, y)
@@ -295,6 +312,33 @@ func (rt *engine) pointerMove(x, y float32) {
 	}
 }
 
+// pointerDevice keeps the device of a pointer event, the buttons it
+// leaves down and how hard it presses, as Pointer Events have it: a
+// device that tells no pressure, as a mouse, presses 0.5 while a button
+// is down, and none presses while no button is.
+func (rt *engine) pointerDevice(ev platform.SurfaceEvent) {
+	if b := ev.Button; b >= 0 && b < 8 {
+		switch ev.Kind {
+		case platform.PointerDown:
+			rt.buttons |= 1 << b
+		case platform.PointerUp:
+			rt.buttons &^= 1 << b
+		}
+	}
+	p := float32(min(max(ev.Pressure, 0), 1))
+	switch {
+	case rt.buttons == 0:
+		p = 0
+	case p == 0:
+		p = 0.5
+	}
+	rt.pressureMoved = ev.Kind == platform.PointerMove && p != rt.pressure
+	rt.pointerType, rt.pressure = PointerType(ev.Pointer), p
+	if s := rt.pressed; s != nil && ev.Kind == platform.PointerMove {
+		s.pressPointer, s.pressPressure = rt.pointerType, p
+	}
+}
+
 // pointer returns where the pointer is in the window as the element sees
 // it: where it let go of the element while the release waits
 // (releaseLater), else where it is.
@@ -310,6 +354,7 @@ const interactive = flagClickable | flagFocusable | flagEditable | flagSelectabl
 func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks int) {
 	rt.downing++
 	defer rt.endDown()
+	rt.observePointer(InputEvent{Kind: InputPointerDown, Button: button, Mods: mods, Clicks: max(clicks, 1)})
 	chain := rt.hitChain(x, y)
 	rt.setHover(chain)
 	rt.pressDragger = 0
@@ -356,6 +401,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 		// It takes the moves and the release.
 		rt.pressed, rt.pressButton, rt.pressClicks = h, button, clicks
 		h.pressed, h.pressButton = true, button
+		h.pressPointer, h.pressPressure = rt.pointerType, rt.pressure
 		h.pressPending = true
 		h.pressX, h.pressY = h.local(x, y)
 		h.drag.reset(rt.now(), x, y)
@@ -385,6 +431,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 	rt.pressed, rt.pressButton, rt.pressClicks = target, button, clicks
 	rt.pressDragger = pressDragger(rt, chain, target)
 	target.pressed, target.pressButton, target.pressMods = true, button, mods
+	target.pressPointer, target.pressPressure = rt.pointerType, rt.pressure
 	target.pressPending = true
 	target.pressX, target.pressY = target.local(x, y)
 	target.drag.reset(rt.now(), x, y)
@@ -412,7 +459,7 @@ func (rt *engine) endPress(input func(InputEvent) bool, x, y float32) {
 	rt.pressed = nil
 	rt.requestFrame()
 	if input != nil {
-		input(InputEvent{Kind: InputPointerUp, X: x, Y: y, Button: rt.pressButton, Mods: rt.mods, Clicks: rt.pressClicks, Time: rt.now()})
+		input(InputEvent{Kind: InputPointerUp, X: x, Y: y, Button: rt.pressButton, Mods: rt.mods, Clicks: rt.pressClicks, Pointer: rt.pointerType, Time: rt.now()})
 	}
 }
 
@@ -454,6 +501,7 @@ func (rt *engine) pointerUp(button, clicks int) {
 		rt.ups = append(rt.ups, [2]int{button, clicks})
 		return
 	}
+	rt.observePointer(InputEvent{Kind: InputPointerUp, Button: button, Mods: rt.mods, Clicks: max(clicks, 1)})
 	if button == rt.pressButton {
 		clicks = rt.pressClicks // the engine's, which may have started over
 	}
@@ -740,8 +788,10 @@ func (rt *engine) scrollKey(mods Modifiers, key Key) bool {
 
 // focusChain returns the focused element and its ancestors, innermost
 // first.
-func (rt *engine) focusChain() []uint64 {
-	var chain []uint64
+func (rt *engine) focusChain() []uint64 { return rt.appendFocusChain(nil) }
+
+// appendFocusChain appends focusChain() to chain.
+func (rt *engine) appendFocusChain(chain []uint64) []uint64 {
 	for s := rt.states[rt.focused]; s != nil; s = rt.states[s.parent] {
 		chain = append(chain, s.id)
 		if s.parent == 0 {
@@ -801,6 +851,7 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 	if rt.inspectKey(mods, key) {
 		return true
 	}
+	rt.observeFocus(InputEvent{Kind: InputKeyDown, Key: key, PhysicalKey: physical, Mods: mods, Repeat: repeat})
 	k := keyEvent{mods, key, repeat}
 	if key == KeyEscape && mods == 0 && rt.dragCancel() {
 		return true
@@ -866,12 +917,14 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, repeat bool
 		return false
 	}
 	if (key == KeyEnter || key == KeySpace) && mods == 0 {
-		// A focused button or link takes them before the window's
-		// shortcuts, such as a dialog's default button; a toggle takes
-		// Space before them, and Enter after.
+		// A focused button takes them before the window's shortcuts,
+		// such as a dialog's default button; a toggle takes Space before
+		// them, and Enter after. A link takes Enter alone, as in a web
+		// page: Space scrolls as it does elsewhere.
 		s := rt.states[rt.focused]
 		window := s != nil && key == KeyEnter && s.flags&flagToggle != 0
-		if s != nil && !rt.claimedBy(k, window) && s.flags&flagClickable != 0 && s.flags&flagDisabled == 0 {
+		if s != nil && !rt.claimedBy(k, window) && s.flags&flagClickable != 0 && s.flags&flagDisabled == 0 &&
+			(key == KeyEnter || s.role != RoleLink) {
 			s.click(0)
 			rt.focusVisible = true
 			rt.requestFrame()
@@ -1083,6 +1136,15 @@ func (rt *engine) shortcut(id uint64, mods Modifiers, key Key) bool {
 // editEvent delivers text, a composition or an edit command to the focus,
 // and reports whether an element took it.
 func (rt *engine) editEvent(ev editEvent) bool {
+	if rt.observers > 0 {
+		kind := InputText
+		if ev.kind == editCompose {
+			kind = InputCompose
+		} else if ev.kind == editCommand {
+			kind = InputCommand
+		}
+		rt.observeFocus(InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret})
+	}
 	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocus() && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
 		if ev.kind == editInsert || ev.kind == editCompose {
 			var r *TextInputRange
@@ -1414,6 +1476,25 @@ func (e *node) PressedButton() (button int, ok bool) {
 		return 0, false
 	}
 	return s.pressButton, true
+}
+
+// PressedPointer returns the device pressing the element and how hard it
+// presses, from 0 to 1, as of the press's last move, while the press
+// lasts, as PressedButton; ok is false while nothing presses it, or it is
+// disabled. As InputEvent.Pressure, a device that tells no pressure, as a
+// mouse, presses 0.5. A signature pad widens its stroke with a pen's
+// pressure, and goes by the pointer's speed for a mouse. Elements asking
+// for it get a frame whenever the pointer moves or the pressure changes.
+func (e *node) PressedPointer() (pointer PointerType, pressure float32, ok bool) {
+	if !e.hasState() {
+		return 0, 0, false
+	}
+	e.flags |= flagClickable | flagTrackPointer
+	s := e.st
+	if !s.pressed || e.disabled() {
+		return 0, 0, false
+	}
+	return s.pressPointer, s.pressPressure, true
 }
 
 // pressedPrimary reports whether the pointer's primary button presses s:
@@ -1807,3 +1888,98 @@ func (rt *engine) modsChanged(mods Modifiers) {
 // or modifier event said: a view showing each row's shortcut while Cmd is
 // held reads it, and draws again as it changes.
 func (c *context) Modifiers() Modifiers { return c.rt.mods }
+
+// heldKey is a key held in the window: the key as shortcuts take it, and
+// its position, KeyUnknown where the platform tells none.
+type heldKey struct{ key, physical Key }
+
+// heldIndex returns the index in keysHeld of the key at physical, or of
+// key where either position is unknown, or -1.
+func (rt *engine) heldIndex(key, physical Key) int {
+	for i, h := range rt.keysHeld {
+		if h.physical != KeyUnknown && physical != KeyUnknown {
+			if h.physical == physical {
+				return i
+			}
+		} else if h.key == key {
+			return i
+		}
+	}
+	return -1
+}
+
+// holdKey notes a key pressed, whichever element has the focus or takes
+// it, as shortcuts take it: by position for a chord of a key the layout
+// types no US key for (keyDownPhysical).
+func (rt *engine) holdKey(mods Modifiers, key, physical Key) {
+	if platform.KeyByPosition(platform.Key(key), platform.Key(physical), platform.Modifiers(mods)) {
+		key = physical
+	}
+	if key == KeyUnknown || rt.heldIndex(key, physical) >= 0 {
+		return // a key no shortcut names, or held already: a repeat
+	}
+	rt.keysHeld = append(rt.keysHeld, heldKey{key, physical})
+	rt.keysChanged()
+}
+
+// releaseKey notes a key let go of.
+func (rt *engine) releaseKey(key, physical Key) {
+	if i := rt.heldIndex(key, physical); i >= 0 {
+		rt.keysHeld = slices.Delete(rt.keysHeld, i, i+1)
+		rt.keysChanged()
+	}
+}
+
+// releaseKeys lets go of every key held, as the window loses the
+// keyboard: their releases go to the window that has it.
+func (rt *engine) releaseKeys() {
+	if len(rt.keysHeld) > 0 {
+		rt.keysHeld = rt.keysHeld[:0]
+		rt.keysChanged()
+	}
+}
+
+// keysChanged draws a frame after the keys held changed, when the last
+// frame read them.
+func (rt *engine) keysChanged() {
+	if rt.keysRead {
+		rt.requestFrame()
+	}
+}
+
+// KeyDown reports whether key is held down in the window, whichever
+// element has the focus and whether or not one took the key, without
+// taking it from them: a cheat sheet of shortcuts lights the keys held
+// while its search field has the focus. A frame that reads it is drawn
+// again as the keys held change. Keys count as shortcuts take them (a
+// chord of a key the layout types no US key for, as S on a Cyrillic
+// layout, by its position); the modifier keys are Modifiers'. A key whose
+// press ran a menu item's shortcut went to the menu, not the window. The
+// window lets go of every key as it loses the keyboard, whose releases go
+// elsewhere.
+func (c *context) KeyDown(key Key) bool {
+	c.rt.keysRead = true
+	return key != KeyUnknown && c.rt.heldIndex(key, KeyUnknown) >= 0
+}
+
+// KeysDown returns the keys held down in the window, as KeyDown tells
+// them, in the order they were pressed; nil while none is. A cheat sheet
+// fades the rows of shortcuts that use none of them:
+//
+//	held := c.KeysDown()
+//	for _, s := range app.shortcuts {
+//		row := shortcutRow(c, s)
+//		if len(held) > 0 && !s.usesAny(held) {
+//			row.Opacity(0.4)
+//		}
+//	}
+func (c *context) KeysDown() []Key {
+	c.rt.keysRead = true
+	var keys []Key
+	for _, h := range c.rt.keysHeld {
+		if !slices.Contains(keys, h.key) {
+			keys = append(keys, h.key)
+		}
+	}
+	return keys
+}

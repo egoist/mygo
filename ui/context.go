@@ -52,7 +52,7 @@ type context struct {
 	row     *rowBuild
 	sidebar *sidebarBuild
 	// reveal lists the elements to scroll into view (ScrollIntoView).
-	reveal []*node
+	reveal []nodeReveal
 	// router is the Router whose page is being built, for Links; routers
 	// counts the Routers built, the first of which takes the window's
 	// keys for going back and forward. inert is set while a page going
@@ -526,8 +526,34 @@ func (c *context) After(d time.Duration) { c.rt.scheduleAt(c.now.Add(d)) }
 // ReadClipboard returns the text on the clipboard, and WriteClipboard
 // puts text there, for widgets that copy and paste themselves. Call them
 // on the main thread: in the view, or in an input handler.
+// WriteClipboardThen tells whether the text got there.
 func (c *context) ReadClipboard() string   { return c.rt.host.readClipboard() }
 func (c *context) WriteClipboard(s string) { c.rt.host.writeClipboard(s) }
+
+// WriteClipboardThen puts text on the clipboard as WriteClipboard does,
+// and done, unless nil, gets what came of it a moment later, before a
+// frame builds anew with what it changed, as navigator.clipboard's
+// writeText resolves or rejects: an error when the text did not get
+// there, as when another app holds the clipboard, or a browser refuses
+// a write the user did not act for (a press or a key, a moment before).
+// A copy button shows "Copied" or "Failed" with it:
+//
+//	if ui.Button(c, "Copy").Clicked() {
+//		c.WriteClipboardThen(link, func(err error) {
+//			app.copied, app.copyFailed = err == nil, err != nil
+//		})
+//	}
+func (c *context) WriteClipboardThen(s string, done func(err error)) {
+	rt := c.rt
+	if done == nil {
+		rt.host.writeClipboard(s)
+		return
+	}
+	rt.host.writeClipboardThen(s, func(err error) {
+		done(err)
+		rt.requestFrame()
+	})
+}
 
 // Announce asks screen readers to read text out once, after what they
 // are reading, for news the keyboard focus does not bring, as a search
@@ -595,20 +621,43 @@ func (c *context) ShortcutRepeated() bool { return c.rt.shortcutRepeat }
 // Local returns state of type T that element e keeps from frame to frame,
 // keyed by key among its states; init creates it the first time. Custom
 // widgets keep what they need with it, on the element they create.
+//
+// The element owns what init made. When a frame no longer builds it, a
+// value that is an io.Closer (T or *T has Close() error) is closed once,
+// on the main thread, after that frame, as the web aborts an
+// AbortController as an element is removed: a component cancels in Close
+// the work it started, as a streaming request, a ticker or a subscription:
+//
+//	s := ui.Local(e, "stream", func() *stream { return startStream(url) })
+//
+// An element leaving with an exit transition closes them once its exit
+// ended, and every element as its window closes. A nil value is not
+// closed, and Close's error is ignored. Keep a value the element must not
+// close, as one the app shares, in the app's state.
 func coreLocal[T any](e *node, key any, init func() T) *T {
-	st := e.st
+	v, made := keepLocal(e.st, key, init)
+	if made {
+		closeWithState(e.st, v)
+	}
+	return v
+}
+
+// keepLocal is Local without the element owning what init made, for
+// values of the app the toolkit keeps a copy of (a select's value shown),
+// which it must not close. made tells that init made it.
+func keepLocal[T any](st *state, key any, init func() T) (v *T, made bool) {
 	if st.locals == nil {
 		st.locals = map[any]any{}
 	}
 	if v, ok := st.locals[key]; ok {
 		if p, ok := v.(*T); ok {
-			return p
+			return p, false
 		}
 	}
-	v := new(T)
+	v = new(T)
 	*v = init()
 	st.locals[key] = v
-	return v
+	return v, true
 }
 
 // state is what the runtime keeps about an element from frame to frame.
@@ -629,6 +678,9 @@ type state struct {
 	// takes the pointer where it paints: over the rest of its layer, out
 	// of its ancestors' clips (matches.lifted).
 	lifted bool
+	// invisible tells that the element showed nothing in the last frame,
+	// wherever it was: invisible, inert or hidden (InViewMargin).
+	invisible bool
 	// rtl tells that the element was laid out right to left: a scroll
 	// container's horizontal offset counts from the right, and its
 	// vertical scroll bar is on the left.
@@ -695,6 +747,10 @@ type state struct {
 	// pressButton is the button pressing the element: 0 the primary, 1
 	// the secondary, 2 the middle (pressedPrimary).
 	pressButton int
+	// pressPointer and pressPressure are the device pressing the element
+	// and its pressure as of the press's last move (PressedPointer).
+	pressPointer  PointerType
+	pressPressure float32
 	// drag follows the press's moves; released tells that it ended since
 	// the last frame, going at releaseVX and releaseVY in the element's
 	// axes, releaseWX and releaseWY in the window's.
@@ -756,8 +812,11 @@ type state struct {
 	// input, as Shift going back in a find bar.
 	submitMods Modifiers
 	// expand is what assistive technology asked of an item of a tree: 1
-	// to open it, -1 to close it.
-	expand int8
+	// to open it, -1 to close it. focusAsked is set as it focuses an
+	// option of a select (focusHighlights, of the last frame), which
+	// the select highlights as it builds it.
+	expand                      int8
+	focusHighlights, focusAsked bool
 	// role is the element's Role in the last frame.
 	role Role
 	// holding is set while a stepper's arrow is held, since holdStart, and
@@ -799,6 +858,7 @@ type state struct {
 	// input, caret and takesText are those of the last frame's element
 	// (HandleInput, TextCaret).
 	input       func(InputEvent) bool
+	observe     func(InputEvent) // ObserveInput
 	textClient  TextInputClient
 	textAdapter *textInputAdapter
 	caret       Rect
@@ -815,6 +875,9 @@ type state struct {
 	// trec is what the element's Transition keeps, by the engine's
 	// transitions, when it has one.
 	trec *transition
+	// closes closes the values of locals that are io.Closers (Local), in
+	// the order they were made; nil when none can be.
+	closes []func() error
 }
 
 type shortcut struct {
@@ -867,6 +930,9 @@ func (rt *engine) unlook(s *state) {
 		return
 	}
 	delete(rt.states, s.id)
+	// Locals made on the element's place before Key gave it another
+	// identity are the element's no more.
+	rt.dropped = append(rt.dropped, s.closes...)
 	*s = state{text: s.text.emptied()}
 	if len(rt.free) < maxFree {
 		rt.free = append(rt.free, s)

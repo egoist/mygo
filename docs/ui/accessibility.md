@@ -52,6 +52,53 @@ ui.Text(c, "Appearance").Bold().Role(ui.RoleHeading).Level(2)
 ui.Row(c).Role(ui.RoleNavigation).Label("Sections").Children(sectionLinks)
 ```
 
+A table of your own builds its rows with `ui.RoleRow`, its cells with
+`ui.RoleCell` and the headers of its columns with `ui.RoleColumnHeader`.
+A header is named by the text inside it, and keeps the elements inside it
+in the tree, as ARIA's `columnheader` does: a sort button and a column's
+menu button in it are reached and pressed as any other button.
+
+```go
+ui.Row(c).Role(ui.RoleColumnHeader).Children(func() { // named "Sort Options"
+	if ui.Button(c, "Sort").Clicked() {
+		app.sortBy("name")
+	}
+	ui.Button(c, "Options")
+})
+```
+
+`ui.RoleListBox` is a list of options to choose from, and `ui.RoleOption`
+one of its options, selected with `Checked`, as ARIA's `listbox`, `option`
+and `aria-selected`: a list box on Windows (UI Automation's List, with
+`Selection` and `SelectionItem`), on Linux (ATK's list box, with
+`AtkSelection`) and on macOS (a table whose rows are selected, as
+AppKit's lists are), as the
+popups of [`SelectBase`](select.md#without-a-look) and
+[`ComboboxBase`](combobox.md) are. Suggestions shown at a text area's
+caret, as for mentions, are one, the text area keeping the focus and
+pointing at the option highlighted with `ActiveDescendant`:
+
+```go
+area := ui.TextArea(c, &app.draft)
+if len(app.matches) > 0 {
+	ui.Column(c).Role(ui.RoleListBox).Label("People").Children(func() {
+		for i, p := range app.matches {
+			opt := ui.Row(c).Padding(4, 8).Role(ui.RoleOption).Checked(i == app.hi)
+			if opt.Clicked() {
+				app.mention(p)
+			}
+			opt.Children(func() { ui.Text(c, p.Name) })
+			if i == app.hi {
+				area.ActiveDescendant(opt)
+			}
+		}
+	})
+}
+```
+
+Pressing an option, as assistive technology choosing it does, clicks it;
+it takes the focus only if it is `Focusable`.
+
 ## States
 
 The bases tell assistive technology what their widgets show. A widget of
@@ -59,7 +106,7 @@ your own tells it with these, as ARIA's states do on the web:
 
 | Method | What it tells |
 |---|---|
-| `Checked(on)`, `Mixed()` | whether a check box, switch, radio button, toggle or menu item is on, or partly on |
+| `Checked(on)`, `Mixed()` | whether a check box, switch, radio button, toggle or menu item is on, or partly on, or whether an option is selected |
 | `Expanded(open)` | whether what the element opens shows, as a popup or a section |
 | `Value(s)` | its value, as the choice a button opening a popup shows |
 | `Range(lo, hi, value)`, `Step(step)` | the range and value of a slider, progress bar, meter or stepper, and how far the keys move it |
@@ -182,6 +229,36 @@ from its `ui.CheckState`, and checks it as it is pressed.
 message read with it; a [field](form.md) gives its control the texts below
 it.
 
+## Keyboard shortcuts
+
+`KeyShortcuts(mods, key)` tells screen readers a key that presses or
+focuses the element, as ARIA's `aria-keyshortcuts`: a toolbar button
+whose command the window's shortcut runs, or the button opening a command
+palette, is read with its key after its name. It only tells the key,
+which the view handles itself, as with
+[`c.Shortcut`](input.md#shortcuts); call it once for each key that does:
+
+```go
+if c.Shortcut(ui.Cmd, ui.KeyK) {
+	app.palette = true
+}
+ui.Toolbar(c, func() {
+	if ui.Button(c, "Search").KeyShortcuts(ui.Cmd, ui.KeyK).Clicked() {
+		app.palette = true
+	}
+	ui.Button(c, "Redo").KeyShortcuts(ui.Cmd|ui.Shift, ui.KeyZ).KeyShortcuts(ui.Cmd, ui.KeyY)
+})
+```
+
+The keys are written as the platform's menus write them, separated by
+spaces: `⌘K` and `⇧⌘Z ⌘Y` on macOS, in AppKit's `AXKeyShortcutsValue` as
+WebKit gives it; `Ctrl+K` and `Ctrl+Shift+Z Ctrl+Y` on Linux, in ATK's
+`keyshortcuts` object attribute, and on Windows, in UI Automation's
+`AcceleratorKey`, where Super is `Win`. A
+[test](testing.md#what-assistive-technology-sees) reads them in the
+`KeyShortcuts` of `Tester.AccessByRole`'s answer, and the
+[automation plugin](../plugins/automation.md) in a node's `keyShortcuts`.
+
 ## Formats of text
 
 The [rich text editor](rich-text-editor.md) tells screen readers the formats
@@ -297,11 +374,13 @@ WAI-ARIA's Core Accessibility API Mappings say:
 | Role | What it is | macOS | Linux (ATK) | Windows (UI Automation) |
 |---|---|---|---|---|
 | `ui.RoleRegion` | a landmark with a `Label`, as an activity feed or a panel; without one, a group | `AXGroup`, `AXLandmarkRegion` | landmark, `xml-roles:region` | Group, the custom landmark type "region" |
+| `ui.RoleSearch` | a landmark holding what searches the app or a document, as the search field and its button at the top of a window | `AXGroup`, `AXLandmarkSearch` | landmark, `xml-roles:search` | Group, the search landmark type |
+| `ui.RoleArticle` | a self-contained piece of content, as a post of a feed or a comment of a thread, named by its `Label`; no landmark | `AXGroup`, `AXDocumentArticle` | article | Group "article" |
 | `ui.RoleLog` | a live region of messages added in order, as a chat's transcript | `AXGroup`, `AXApplicationLog` | log | Group "log", `LiveSetting` polite |
 | `ui.RoleTimer` | a count of time, as a countdown, read only when the user goes to it | `AXGroup`, `AXApplicationTimer` | timer | Group "timer" |
 | `ui.RoleAlert` | a live region of important news, as a field's error, read at once | `AXGroup`, `AXApplicationAlert` | notification | Group "alert", `LiveSetting` assertive |
 | `ui.RoleSeparator` | a rule between groups of content or controls, running up and down when taller than wide | `AXSplitter` | separator, vertical or horizontal | Separator, with `Orientation` |
-| `ui.RoleRowHeader` | the cell naming its row of a table, named by its content | `AXCell` | row header | HeaderItem "row header" |
+| `ui.RoleRowHeader` | the cell naming its row of a table, named by its content, whose buttons and other elements stay reachable, as a cell's | `AXCell` | row header | HeaderItem "row header" |
 
 Live regions say how they are read (`AXARIALive`, ATK's `live` and
 `container-live` attributes, `LiveSetting`), and MyGo reads them out as
@@ -336,5 +415,30 @@ ui.Row(c).Role(ui.RoleToolbar).Label("Format").Children(func() {
 A log reads out the elements it gained, those of each row together; an
 alert, its text. Keyed rows (`Key`) keep what a log showed apart from
 what it gained when rows come before others.
+
+Screen readers list landmarks and jump to them, so a search field and its
+button at the top of a window go in a search landmark, as HTML's
+`<search>`:
+
+```go
+ui.Row(c).Role(ui.RoleSearch).Label("Search mail").Gap(6).Children(func() {
+	ui.SearchField(c, &app.query).Label("Search mail").Grow(1)
+	if ui.Button(c, "Search").Clicked() {
+		app.search()
+	}
+})
+```
+
+Each post of a feed, or comment of a thread, is an article, as HTML's
+`<article>`, which screen readers step through one by one:
+
+```go
+for _, p := range app.posts {
+	ui.Column(c).Key(p.ID).Role(ui.RoleArticle).Label(p.Title).Gap(4).Children(func() {
+		ui.Text(c, p.Title).Bold().Role(ui.RoleHeading).Level(3)
+		ui.Text(c, p.Body)
+	})
+}
+```
 
 Each component's page says what assistive technology sees of it.

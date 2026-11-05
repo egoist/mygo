@@ -143,6 +143,9 @@ var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleHeading:    {"AXHeading", ""},
 	platform.RoleNavigation: {"AXGroup", "AXLandmarkNavigation"},
 	platform.RoleRegion:     {"AXGroup", "AXLandmarkRegion"},
+	platform.RoleSearch:     {"AXGroup", "AXLandmarkSearch"},
+	// An article, as WebKit's.
+	platform.RoleArticle: {"AXGroup", "AXDocumentArticle"},
 	// Live regions, as WebKit's, and a rule, as WebKit's separator.
 	platform.RoleLog:       {"AXGroup", "AXApplicationLog"},
 	platform.RoleTimer:     {"AXGroup", "AXApplicationTimer"},
@@ -860,6 +863,11 @@ func registerAccessClass() {
 			if valueText(el.node) {
 				names = send(names, "arrayByAddingObject:", uintptr(nsString("AXValueDescription")))
 			}
+			// The keys that press or focus it, as WebKit's elements say
+			// aria-keyshortcuts.
+			if el.node.KeyShortcuts != "" {
+				names = send(names, "arrayByAddingObject:", uintptr(nsString("AXKeyShortcutsValue")))
+			}
 			return names
 		}),
 		method("accessibilityAttributeValue:", func(self id, cmd objc.SEL, attr id) id {
@@ -964,6 +972,10 @@ func registerAccessClass() {
 				case "AXValueDescription":
 					if valueText(el.node) {
 						return nsString(el.node.Value)
+					}
+				case "AXKeyShortcutsValue":
+					if el.node.KeyShortcuts != "" {
+						return nsString(el.node.KeyShortcuts)
 					}
 				}
 			}

@@ -28,6 +28,8 @@ const (
 	RoleGroup
 	RoleText
 	RoleButton
+	// RoleLink is a link: focused, it takes Enter but not Space, which
+	// scrolls, as in a web page.
 	RoleLink
 	RoleCheckBox
 	RoleRadio
@@ -111,11 +113,28 @@ const (
 	// RoleRowHeader is the cell naming its row of a table, as
 	// RoleColumnHeader names a column.
 	RoleRowHeader
+	// RoleSearch is a landmark holding what searches the app or a
+	// document, as the search field and its button at the top of a
+	// window: screen readers list it among the window's landmarks, and
+	// jump to it.
+	RoleSearch
+	// RoleArticle is a self-contained piece of content, as a post of a
+	// feed or a comment of a thread, named by its Label: screen readers
+	// step from one article to the next, as HTML's article.
+	RoleArticle
 	// RoleNavigation is a landmark holding links that move around the
 	// app or a document, as a breadcrumb trail (Breadcrumbs) or a
 	// navigation bar: screen readers list it among the window's
 	// landmarks, and jump to it.
 	RoleNavigation
+	// RoleListBox is a list of options to choose from, as ARIA's listbox,
+	// and RoleOption one of its options, selected with Checked, as ARIA's
+	// aria-selected: what a list of your own offers, such as suggestions
+	// at a text area's caret whose highlighted one the text area points
+	// at with ActiveDescendant. The popups of SelectBase and ComboboxBase
+	// are list boxes.
+	RoleListBox
+	RoleOption
 )
 
 // Role sets what the element is to assistive technology, for an element
@@ -130,8 +149,9 @@ func (e *node) Role(r Role) *node {
 // on the web.
 
 // Checked tells assistive technology whether the element, as a check box,
-// switch, radio button, toggle button or menu item of your own, is on.
-// Bases set it from their value.
+// switch, radio button, toggle button or menu item of your own, is on, or
+// whether an option (RoleOption) is selected. Bases set it from their
+// value.
 func (e *node) Checked(on bool) *node {
 	e.checked = 1 + int8(b2f(on))
 	return e
@@ -213,6 +233,31 @@ func (e *node) Range(lo, hi, value float64) *node {
 // highest, or how deep an item of a tree is, from 1 at the top.
 func (e *node) Level(n int) *node {
 	e.level = max(n, 0)
+	return e
+}
+
+// KeyShortcuts tells assistive technology a key, with exactly the
+// modifiers mods, that presses or focuses the element, as ARIA's
+// aria-keyshortcuts: the window's shortcut that runs a toolbar button's
+// command, or opens a command palette, which screen readers read with the
+// element's name. It is written as the platform's menus write it ("⌘K"
+// for Cmd+K on macOS, "Ctrl+K" elsewhere). It only tells the key: handle
+// it with Shortcut on the context, or OnWindowShortcut. Call it once for
+// each key that does.
+func (e *node) KeyShortcuts(mods Modifiers, key Key) *node {
+	s := shortcutText(accelerator(mods, key))
+	if s == "" {
+		return e
+	}
+	for k := range strings.FieldsSeq(e.keyShortcuts) {
+		if k == s {
+			return e
+		}
+	}
+	if e.keyShortcuts != "" {
+		s = e.keyShortcuts + " " + s
+	}
+	e.keyShortcuts = s
 	return e
 }
 
@@ -306,6 +351,10 @@ func (e *node) accessRole() (platform.AccessRole, bool) {
 	case RoleNone:
 		return 0, false
 	case RoleAuto:
+	case RoleListBox:
+		return platform.RoleList, true // choosing its items (accessDetails)
+	case RoleOption:
+		return platform.RoleListItem, true
 	default:
 		return platform.AccessRole(e.role - RoleGroup), true
 	}
@@ -335,13 +384,17 @@ func cellRole(r platform.AccessRole) bool {
 }
 
 // leafRole reports whether elements of a role take the text inside them
-// as their name, rather than showing it as elements of its own.
+// as their name, rather than showing it as elements of its own. Column
+// and row headers and headings show what is inside them too, as their
+// children are not presentational in ARIA: buttons in them, as a header's
+// sort button, can be reached.
 func leafRole(r platform.AccessRole) bool {
 	switch r {
 	case platform.RoleGroup, platform.RoleList, platform.RoleScroll, platform.RoleDialog, platform.RoleAlertDialog, platform.RolePopup, platform.RoleStatus,
-		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleTree, platform.RoleListItem,
-		platform.RoleToolbar, platform.RoleRadioGroup, platform.RoleMenu, platform.RoleMenuBar, platform.RoleNavigation,
-		platform.RoleRegion, platform.RoleLog, platform.RoleTimer, platform.RoleAlert:
+		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleColumnHeader, platform.RoleRowHeader, platform.RoleTree,
+		platform.RoleListItem, platform.RoleToolbar, platform.RoleRadioGroup, platform.RoleMenu, platform.RoleMenuBar, platform.RoleHeading, platform.RoleNavigation,
+		platform.RoleRegion, platform.RoleLog, platform.RoleTimer, platform.RoleAlert, platform.RoleSearch,
+		platform.RoleArticle:
 		return false
 	}
 	return true
@@ -359,7 +412,7 @@ func (e *node) innerText() string {
 		return ""
 	}
 	if e.kind == kindText {
-		return e.text // its text holds that of the elements inside it
+		return e.accessText() // its text holds that of the elements inside it
 	}
 	var t innerTexts
 	for ch := e.first; ch != nil; ch = ch.next {
@@ -387,7 +440,7 @@ func (t *innerTexts) walk(e *node) {
 		return
 	}
 	if e.kind == kindText {
-		t.add(e.text)
+		t.add(e.accessText())
 		return // its text holds that of the elements inside it
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
@@ -592,15 +645,17 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	if e.setSize > 0 {
 		n.PosInSet, n.SetSize = e.setPos, e.setSize
 	}
-	if e.choosesItems {
+	if e.choosesItems || e.role == RoleListBox {
 		n.States |= platform.AccessSelectable
 	}
 	if e.chooseMany {
 		n.States |= platform.AccessMultiselectable
 	}
-	// Rows and items of lists, and statuses, are named by their content,
-	// as leaves are, but show what is inside them too, as a toast's button.
-	if n.Label == "" && (leafRole(n.Role) || n.Role == platform.RoleListItem || n.Role == platform.RoleRow || n.Role == platform.RoleStatus) {
+	// Rows and items of lists, column and row headers, headings and
+	// statuses are named by their content, as leaves are, but show what is
+	// inside them too, as a toast's button or a header's sort button.
+	if n.Label == "" && (leafRole(n.Role) || n.Role == platform.RoleListItem || n.Role == platform.RoleRow || n.Role == platform.RoleColumnHeader ||
+		n.Role == platform.RoleRowHeader || n.Role == platform.RoleHeading || n.Role == platform.RoleStatus) {
 		n.Label = e.innerText()
 	}
 	if n.Label == "" && e.kind == kindText {
@@ -634,6 +689,7 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	n.Current = platform.AccessCurrent(e.current)
 	n.Level = e.level
 	n.Value = e.accValue
+	n.KeyShortcuts = e.keyShortcuts
 	if e.hasRange {
 		n.Min, n.Max, n.Now, n.Step = e.accRange[0], e.accRange[1], e.accRange[2], e.accStep
 	}
@@ -651,7 +707,7 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 			n.States |= platform.AccessMultiselectable
 		}
 	}
-	if e.flags&flagChoosable != 0 {
+	if e.flags&flagChoosable != 0 || e.role == RoleOption {
 		n.States |= platform.AccessSelectable
 	}
 	// What a scroll container built out of view, as the rows of a list
@@ -665,8 +721,9 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	// What ignores input takes no focus, which moving a slider with its
 	// keys needs, but is pressed as any other.
 	keys := !e.st.ignoreInput
-	if e.flags&(flagFocusable|flagEditable|flagChoosable) != 0 && keys {
-		// Focusing a row a list chooses chooses it.
+	if (e.flags&(flagFocusable|flagEditable|flagChoosable) != 0 || e.focusHighlights) && keys {
+		// Focusing a row a list chooses chooses it, and an option of a
+		// select highlights it.
 		n.States |= platform.AccessFocusable
 		n.Actions |= platform.ActionFocus
 	}
@@ -745,6 +802,12 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 	case platform.AccessFocus:
 		if s.ignoreInput {
 			return
+		}
+		if s.focusHighlights {
+			// An option of a select: the select highlights it as it
+			// builds it, and Enter or a press chooses it.
+			s.focusAsked = true
+			break
 		}
 		if s.flags&flagChoosable != 0 {
 			// A row of a list choosing rows: its list takes the focus for

@@ -44,6 +44,9 @@ A `MenuItem` has:
   items toggle `Checked` before `Click` runs;
 - `Disabled`, `Hidden` and `ToolTip`;
 - `Icon`, an image shown beside the label (see [icons](#icons));
+- `Subtitle`, a second, smaller line under the label. macOS 14 and browsers
+  show it so; earlier macOS, Windows and Linux show it after the label, as
+  `Label — Subtitle`;
 - `ID`, to find the item with `Menu.ItemByID`;
 - `Role`, a built-in behavior with its label and accelerator.
 
@@ -104,7 +107,7 @@ the state the app gave them. An item the app disables stays disabled.
 
 Change items of a menu in use with their methods, so that the native menu
 follows: `SetLabel`, `SetEnabled`, `SetVisible`, `SetChecked`,
-`SetAccelerator` and `SetIcon`:
+`SetAccelerator`, `SetSubtitle` and `SetIcon`:
 
 ```go
 item := menu.ItemByID("sidebar")
@@ -156,6 +159,9 @@ however often their menus open or are made again, the icons of the same
 image included, and frees what it made of it once neither the app nor a
 menu holds the icon; the bitmaps of Windows 10's menus go with their
 menus. Apps that make no icon don't link the code that draws them.
+
+The context menus of native UI take the same icons, with
+[`Icon`](ui/context-menu.md#items) on their items.
 
 - **macOS** shows the icon (an `NSImage`) after the column of checks, on
   every menu, the menu bar's own items included, which show it in the

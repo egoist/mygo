@@ -109,6 +109,7 @@ const (
 	uiaControlTypeProperty      = 30003
 	uiaLocalizedControlProperty = 30004
 	uiaNameProperty             = 30005
+	uiaAcceleratorKeyProperty   = 30006
 	uiaHasKeyboardFocusProperty = 30008
 	uiaIsFocusableProperty      = 30009
 	uiaIsEnabledProperty        = 30010
@@ -178,7 +179,8 @@ var uiaControlTypes = map[platform.AccessRole]int32{
 	platform.RoleMenu: 50009, platform.RoleMenuBar: 50010, platform.RoleMenuItem: 50011, platform.RoleMenuItemCheckBox: 50011,
 	platform.RoleMenuItemRadio: 50011, platform.RoleHeading: 50020, platform.RoleNavigation: 50026,
 	platform.RoleRegion: 50026, platform.RoleLog: 50026, platform.RoleTimer: 50026, platform.RoleAlert: 50026,
-	platform.RoleSeparator: 50038, platform.RoleRowHeader: 50035,
+	platform.RoleSeparator: 50038, platform.RoleRowHeader: 50035, platform.RoleSearch: 50026,
+	platform.RoleArticle: 50026,
 }
 
 // ariaRoles are the ARIA roles of nodes whose control type does not say
@@ -187,7 +189,7 @@ var uiaControlTypes = map[platform.AccessRole]int32{
 var ariaRoles = map[platform.AccessRole]string{
 	platform.RoleNavigation: "navigation", platform.RoleRegion: "region", platform.RoleLog: "log",
 	platform.RoleTimer: "timer", platform.RoleAlert: "alert", platform.RoleSeparator: "separator",
-	platform.RoleRowHeader: "rowheader",
+	platform.RoleRowHeader: "rowheader", platform.RoleSearch: "search", platform.RoleArticle: "article",
 }
 
 // variant is VARIANT, with the value of the types used here.
@@ -987,17 +989,24 @@ func initUIA() {
 	)
 
 	selected := func(e *uiaElement) bool { return e.n.States&platform.AccessChecked != 0 }
-	selectItem := cb(func(this uintptr) uintptr { // Select, AddToSelection
+	selectItem := func(this uintptr, add bool) uintptr {
 		e, hr := live(this)
-		if e == nil || selected(e) {
+		if e == nil {
 			return hr
 		}
+		// What is selected is left as it is, but for Select on an
+		// option of a list box, as a select's popup, whose selected
+		// option is the one highlighted: Select chooses it, as a press
+		// does, as Enter would.
+		if selected(e) && (add || e.n.Role != platform.RoleListItem || e.n.Actions&platform.ActionFocus == 0) {
+			return sOK
+		}
 		return e.act(platform.AccessPress, "")
-	})
+	}
 	uiaVtbls[ifaceSelectionItem] = vtbl(
-		selectItem,
-		selectItem,
-		cb(func(this uintptr) uintptr { return uiaInvalidOperation }), // RemoveFromSelection
+		cb(func(this uintptr) uintptr { return selectItem(this, false) }), // Select
+		cb(func(this uintptr) uintptr { return selectItem(this, true) }),  // AddToSelection
+		cb(func(this uintptr) uintptr { return uiaInvalidOperation }),     // RemoveFromSelection
 		cb(func(this, p uintptr) uintptr { // get_IsSelected
 			setBool(p, selected(uiaOf(this)))
 			return sOK
@@ -1167,7 +1176,7 @@ func (e *uiaElement) property(id int, v *variant) {
 			str("popup")
 		case platform.RoleHeading:
 			str("heading")
-		case platform.RoleRegion, platform.RoleLog, platform.RoleTimer, platform.RoleAlert:
+		case platform.RoleRegion, platform.RoleLog, platform.RoleTimer, platform.RoleAlert, platform.RoleArticle:
 			str(ariaRoles[n.Role])
 		case platform.RoleRowHeader:
 			str("row header")
@@ -1190,6 +1199,10 @@ func (e *uiaElement) property(id int, v *variant) {
 		}
 	case uiaFullDescriptionProperty:
 		str(n.Description)
+	case uiaAcceleratorKeyProperty:
+		// The keys that press or focus it (aria-keyshortcuts), as
+		// Chromium's.
+		str(n.KeyShortcuts)
 	case uiaItemStatusProperty:
 		// The order of the column a table is sorted by, as Chromium says.
 		switch {
@@ -1265,7 +1278,9 @@ func (e *uiaElement) property(id int, v *variant) {
 	case uiaLandmarkTypeProperty:
 		switch n.Role {
 		case platform.RoleNavigation:
-			*v = variant{VT: vtI4, Val: 80004} // UIA_NavigationLandmarkTypeId
+			*v = variant{VT: vtI4, Val: 80003} // UIA_NavigationLandmarkTypeId
+		case platform.RoleSearch:
+			*v = variant{VT: vtI4, Val: 80004} // UIA_SearchLandmarkTypeId
 		case platform.RoleRegion:
 			*v = variant{VT: vtI4, Val: 80000} // UIA_CustomLandmarkTypeId
 		}

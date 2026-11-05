@@ -49,6 +49,10 @@ type AccessNode struct {
 	// text read after it: a field's description and its error, or a
 	// tooltip.
 	Description string
+	// KeyShortcuts are the keys that press or focus the element, as
+	// ARIA's aria-keyshortcuts, written as the platform's menus write
+	// them ("⌘K" on macOS, "Ctrl+K" elsewhere), separated by spaces.
+	KeyShortcuts string
 	// Level is how deep an item of a tree is, or the rank of a heading,
 	// from 1; 0 for other nodes.
 	Level int
@@ -188,6 +192,12 @@ const (
 	// RoleRowHeader is the cell of a table's row naming the row, as
 	// RoleColumnHeader names a column.
 	RoleRowHeader
+	// RoleSearch is a landmark holding what searches the app or a
+	// document, as a search field and its button: ARIA's search.
+	RoleSearch
+	// RoleArticle is a self-contained piece of content, as a post of a
+	// feed or a comment of a thread: ARIA's article, no landmark.
+	RoleArticle
 	// RoleNavigation is a landmark holding links that move around the app
 	// or a document, as a breadcrumb trail or a navigation bar: ARIA's
 	// navigation.

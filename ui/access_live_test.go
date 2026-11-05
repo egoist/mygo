@@ -7,9 +7,11 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-// TestRegionSeparatorRowHeader checks the roles of a landmark, a rule and
-// a row's header: a region is one only with a name, a rule taller than
-// wide runs up and down, and a row header is named by its content.
+// TestRegionSeparatorRowHeader checks the roles of landmarks, a rule and
+// a row's header: a region is one only with a name, a search landmark
+// holds its field and button, an article holds its post, named or not, a
+// rule taller than wide runs up and down, and a row header is named by
+// its content.
 func TestRegionSeparatorRowHeader(t *testing.T) {
 	tt := coreNewTester(func(c *context) {
 		coreColumn(c).AlignItems(Start).Children(func() {
@@ -18,6 +20,16 @@ func TestRegionSeparatorRowHeader(t *testing.T) {
 			})
 			coreColumn(c).Role(RoleRegion).Children(func() {
 				coreText(c, "Unnamed")
+			})
+			coreRow(c).Role(RoleSearch).Label("Site search").Children(func() {
+				coreText(c, "Query").Role(RoleTextField)
+				coreText(c, "Go").Role(RoleButton)
+			})
+			coreColumn(c).Role(RoleArticle).Label("Post by Ann").Children(func() {
+				coreText(c, "Shipped the beta")
+			})
+			coreColumn(c).Role(RoleArticle).Children(func() {
+				coreText(c, "An unnamed post")
 			})
 			coreRow(c).Role(RoleToolbar).Label("Format").Height(20).Children(func() {
 				coreText(c, "Bold")
@@ -38,6 +50,21 @@ func TestRegionSeparatorRowHeader(t *testing.T) {
 	activity := accessNode(t, tree, platform.RoleRegion, "Activity")
 	if text := accessNode(t, tree, platform.RoleText, "Ann joined"); text.Parent < 0 || tree.Nodes[text.Parent].ID != activity.ID {
 		t.Errorf("the text is not in the region")
+	}
+	search := accessNode(t, tree, platform.RoleSearch, "Site search")
+	for _, name := range []string{"Query", "Go"} {
+		for _, n := range tree.Nodes {
+			if n.Label == name && (n.Parent < 0 || tree.Nodes[n.Parent].ID != search.ID) {
+				t.Errorf("%s is not in the search landmark", name)
+			}
+		}
+	}
+	post := accessNode(t, tree, platform.RoleArticle, "Post by Ann")
+	if text := accessNode(t, tree, platform.RoleText, "Shipped the beta"); text.Parent < 0 || tree.Nodes[text.Parent].ID != post.ID {
+		t.Errorf("the post's text is not in the article")
+	}
+	if text := accessNode(t, tree, platform.RoleText, "An unnamed post"); text.Parent < 0 || tree.Nodes[text.Parent].Role != platform.RoleArticle {
+		t.Errorf("an article without a name is not one")
 	}
 	for _, n := range tree.Nodes {
 		if n.Role == platform.RoleRegion && n.Label != "Activity" {
@@ -131,6 +158,42 @@ func TestLiveRegions(t *testing.T) {
 	messages = append(messages, "Bye")
 	tt.Frame()
 	check("the log again", nil, nil)
+}
+
+// TestRowHeaderKeepsChildren checks that a row header shows what is
+// inside it, as a cell does (ARIA's rowheader is not
+// children-presentational): a button in it stays reachable, while the
+// header is still named by its content.
+func TestRowHeaderKeepsChildren(t *testing.T) {
+	pressed := 0
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Role(RoleTable).Label("Prices").Children(func() {
+			coreRow(c).Role(RoleRow).Children(func() {
+				coreRow(c).Role(RoleRowHeader).Gap(4).Children(func() {
+					coreText(c, "Apples")
+					if coreButton(c, "Pin").Clicked() {
+						pressed++
+					}
+				})
+				coreText(c, "3").Role(RoleCell)
+			})
+		})
+	}, 400, 300)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	tree := tt.h.access
+	header := accessNode(t, tree, platform.RoleRowHeader, "Apples Pin")
+	pin := accessNode(t, tree, platform.RoleButton, "Pin")
+	if pin.Parent < 0 || tree.Nodes[pin.Parent].ID != header.ID {
+		t.Errorf("the button is not in the row header")
+	}
+	if pin.Actions&platform.ActionPress == 0 {
+		t.Errorf("the button can't be pressed: %+v", pin)
+	}
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: pin.ID, Action: platform.AccessPress})
+	tt.Frame()
+	if pressed != 1 {
+		t.Errorf("pressed %d times through assistive technology, want 1", pressed)
+	}
 }
 
 // TestTableRowHeaders checks that the cells of a Table's RowHeader column

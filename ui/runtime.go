@@ -41,6 +41,9 @@ type host interface {
 	updateAccessibility(tree *platform.AccessTree)
 	readClipboard() string
 	writeClipboard(string)
+	// writeClipboardThen puts text on the clipboard as writeClipboard
+	// does, and done gets what came of it on the main thread, later.
+	writeClipboardThen(text string, done func(error))
 	// readClipboardData reads the representations of formats on the
 	// clipboard, all for nil; writeClipboardData puts data there;
 	// clipboardFormats lists them.
@@ -197,8 +200,10 @@ type engine struct {
 	// liftHits gathers the hits of the elements flying as the frame
 	// commits, which go over the rest of their layer, as they paint
 	// (matches.paint); lifting tells that one is committing.
-	liftHits    []hit
-	lifting     bool
+	liftHits []hit
+	lifting  bool
+	// z is what ordering children by their z-index works in (ZIndex).
+	z           zScratch
 	focusOrder  []uint64
 	focusScopes []focusScope
 	modal       uint64
@@ -246,6 +251,11 @@ type engine struct {
 	// shortcutRepeat tells that the last key a shortcut took this frame
 	// came as the auto-repeat of a key held down (ShortcutRepeated).
 	shortcutRepeat bool
+	// observers counts the elements the last commit found observing the
+	// input in them (ObserveInput), and observeBuf is the chain observe
+	// walks, kept between events.
+	observers  int
+	observeBuf []uint64
 
 	// trans are the transitions of the elements given one, by ID
 	// (transition.go): exitsBuilt tells that the last frame built elements
@@ -295,7 +305,15 @@ type engine struct {
 
 	pointerX, pointerY float32
 	pointerIn          bool
-	hover              []uint64
+	// pointerType and pressure are the device of the last pointer event
+	// and how hard it pressed (InputEvent.Pressure), buttons the buttons
+	// down as the events tell, and pressureMoved that the last move
+	// changed the pressure alone, which moves as the pointer moving does.
+	pointerType   PointerType
+	pressure      float32
+	buttons       uint8
+	pressureMoved bool
+	hover         []uint64
 	// chain is a buffer for the elements under the pointer.
 	chain       []uint64
 	pressed     *state
@@ -353,6 +371,11 @@ type engine struct {
 	// drawn as active (windowActive), so that a change of it draws a
 	// frame.
 	activeRead bool
+	// keysHeld are the keys held in the window (Context.KeyDown); keysRead
+	// tells that the last frame read them, so that a change of them draws
+	// a frame.
+	keysHeld []heldKey
+	keysRead bool
 	// withinRead tells that the frame read FocusWithin, which follows the
 	// parents its last layout committed: the focus moving as it builds, to
 	// an element it builds for the first time or after the read, draws
@@ -436,8 +459,8 @@ type engine struct {
 	// late is set when lists built elements while laying out.
 	late bool
 	// revealIDs are the elements to scroll into view once the frame is
-	// laid out.
-	revealIDs []uint64
+	// laid out, and how.
+	revealIDs []revealAsk
 	wakeMu    sync.Mutex
 	wakeAt    time.Time
 	cursor    Cursor
@@ -509,6 +532,11 @@ type engine struct {
 	// are on their way to rest, or wait for the user's scrolling to settle
 	// (glideSnaps).
 	snapping []uint64
+	// dropped closes the Locals of the states the frame dropped, after it
+	// (closeDropped), and exits holds those of states whose elements'
+	// copies are leaving with exit transitions, until they are gone.
+	dropped []func() error
+	exits   []exitCloses
 	// lastPress is the element of the press (id) and of the one before
 	// (prev), and how many of the backend's count of clicks were before
 	// the first on it.
@@ -618,7 +646,7 @@ func (rt *engine) runFrame() {
 
 	rt.frame++
 	rt.input = false
-	rt.focusRead, rt.activeRead, rt.withinRead = false, false, false
+	rt.focusRead, rt.activeRead, rt.withinRead, rt.keysRead = false, false, false, false
 	rt.stats.begin(rt)
 	now := rt.frameTime()
 	rt.zoomChanged = false
@@ -1029,10 +1057,8 @@ func (rt *engine) endPass() {
 	rt.downs = rt.downs[:0]
 	rt.passFocus()
 	// The next pass may not ask again, as when the view cleared what asked.
-	for _, e := range rt.c.reveal {
-		if !slices.Contains(rt.revealIDs, e.id) {
-			rt.revealIDs = append(rt.revealIDs, e.id)
-		}
+	for _, r := range rt.c.reveal {
+		rt.askReveal(r.e.id, r.o)
 	}
 }
 
@@ -1086,11 +1112,17 @@ func (rt *engine) prune() {
 		}
 	}
 	rt.pressLost = nil
+	if len(rt.exits) > 0 {
+		rt.exitsEnded()
+	}
 	for id, s := range rt.states {
 		if s.seen != rt.frame || s.pass != rt.pass {
 			if !rt.keptAlive(s) {
 				if s.textAdapter != nil {
 					s.textAdapter.release()
+				}
+				if s.closes != nil {
+					rt.dropCloses(s)
 				}
 				delete(rt.states, id)
 				if rt.scrollDrag.st == s {
@@ -1217,6 +1249,29 @@ func (rt *engine) close() {
 	}
 	rt.host.afterTimer(time.Time{})
 	rt.host.repaintTimer(time.Time{})
+	// Last, with the engine closed: a Close that asks for a frame, or reads
+	// the window, finds it closed rather than half so.
+	rt.closeLocals()
+	rt.dropFrame()
+}
+
+// dropFrame lets go of what the closed window showed: the view, and all
+// it reaches, the elements of the last frame, their states and the scene
+// painted from them, with the bitmaps they drew. Whatever may still hold
+// the engine of a closed window (the window, a renderer, a plugin)
+// keeps none of it (#1281). The engine draws no frame once closed.
+func (rt *engine) dropFrame() {
+	rt.view = func(*context) {}
+	rt.scene = scene.Scene{}
+	rt.maskScene = nil
+	clear(rt.pathClips)
+	c := &rt.c
+	c.parent, c.root, c.overlay = nil, nil, nil
+	c.chunks, c.spare = nil, nil
+	c.used, c.dirty, c.spareDirty = 0, 0, 0
+	clear(rt.states)
+	rt.free = nil
+	rt.hits, rt.liftHits = nil, nil
 }
 
 // endFrame ends a frame, and closes the engine when its window closed
@@ -1224,7 +1279,9 @@ func (rt *engine) close() {
 func (rt *engine) endFrame() {
 	rt.inFrame = false
 	if rt.closing {
-		rt.close()
+		rt.close() // which closes the Locals the frame dropped too
+	} else if len(rt.dropped) > 0 {
+		rt.closeDropped()
 	}
 }
 
@@ -1241,6 +1298,7 @@ func (rt *engine) commit(root *node, w, h float32) {
 	rt.maxButton = Rect{}
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
 	rt.modal, rt.modalLayer, rt.commitScope, rt.commitPage = 0, 0, focusScope{}, 0
+	rt.observers = 0
 	if rt.groups == nil {
 		rt.groups = map[uint64]groupInfo{}
 	}
@@ -1319,8 +1377,11 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	s.accessHidden = e.accessHidden || e.flags&flagInert != 0 || e.parent != nil && e.parent.st.accessHidden
 	s.cursor, s.tip = e.cursor, e.tip
 	s.webView = e.webView
-	s.role = e.role
+	s.role, s.focusHighlights = e.role, e.focusHighlights
 	s.input, s.caret, s.takesText, s.noIME = e.inputFn, e.caret, e.takesText, e.noIME
+	if s.observe = e.observeFn; s.observe != nil {
+		rt.observers++
+	}
 	s.copyData = e.copyData
 	if s.textClient != e.textClient {
 		if s.textAdapter != nil {
@@ -1349,6 +1410,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	// the focus, and has no text to find; so does what is inert, which
 	// shows, and what is Hidden, which has no box.
 	invisible := e.flags&(flagInvisible|flagInert) != 0 || hidden || e.hidden || e.backface && e.transform.facesAway()
+	s.invisible = invisible
 	if invisible {
 		s.vw, s.vh = 0, 0
 	}
@@ -1417,25 +1479,30 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	// Children in flow first, absolute ones above them: the paint order.
 	// Sticky ones are in the flow for the focus, and paint among the
 	// absolute ones, where their hits go.
-	var stuckBuf [4][2]int
-	stuck := stuckBuf[:0]
-	for ch := e.first; ch != nil; ch = ch.next {
-		if ch.flags&flagAbsolute == 0 {
-			from := len(rt.hits)
-			rt.commitElement(ch, clip, invisible)
-			if ch.sticky {
-				stuck = append(stuck, [2]int{from, len(rt.hits)})
+	// A child with a z-index moves its hits to where it paints.
+	if e.zOrder && e != e.c.overlay && zCommit != nil {
+		zCommit(rt, e, clip, invisible)
+	} else {
+		var stuckBuf [4][2]int
+		stuck := stuckBuf[:0]
+		for ch := e.first; ch != nil; ch = ch.next {
+			if ch.flags&flagAbsolute == 0 {
+				from := len(rt.hits)
+				rt.commitElement(ch, clip, invisible)
+				if ch.sticky {
+					stuck = append(stuck, [2]int{from, len(rt.hits)})
+				}
 			}
 		}
-	}
-	moved := 0
-	for ch := e.first; ch != nil; ch = ch.next {
-		switch {
-		case ch.flags&flagAbsolute != 0:
-			rt.commitElement(ch, clip, invisible)
-		case ch.sticky:
-			moved = rt.stickyHits(stuck[0], moved)
-			stuck = stuck[1:]
+		moved := 0
+		for ch := e.first; ch != nil; ch = ch.next {
+			switch {
+			case ch.flags&flagAbsolute != 0:
+				rt.commitElement(ch, clip, invisible)
+			case ch.sticky:
+				moved = rt.stickyHits(stuck[0], moved)
+				stuck = stuck[1:]
+			}
 		}
 	}
 	if lifting {

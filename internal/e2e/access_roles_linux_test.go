@@ -38,6 +38,7 @@ func TestAccessLiveRegionAttributes(t *testing.T) {
 		attrs map[string]string
 	}{
 		{"Activity", map[string]string{"xml-roles": "region"}},
+		{"Site search", map[string]string{"xml-roles": "search"}},
 		{"Messages", map[string]string{"xml-roles": "log", "live": "polite", "container-live": "polite", "container-live-role": "log", "atomic": "false"}},
 		{"Hi", map[string]string{"container-live": "polite", "container-live-role": "log", "container-relevant": "additions text"}},
 		{"Time left", map[string]string{"xml-roles": "timer"}},
