@@ -330,6 +330,7 @@ type Mode uint16
 // Modes.
 const (
 	ModeCursorKeys     Mode = 1
+	ModeOrigin         Mode = 6
 	ModeCursorVisible  Mode = 25
 	ModeFocusEvent     Mode = 1004
 	ModeAltScroll      Mode = 1007
@@ -494,8 +495,25 @@ func (t *Terminal) Row(y int) (prompt RowPrompt, wrap bool) {
 	if !found {
 		return NoPrompt, false
 	}
+	return rowOf(&ref)
+}
+
+// ScreenRowPrompt returns how row y of the screen belongs to a shell's prompt,
+// and whether it soft-wraps into the next: the screen's own rows, whatever
+// the viewport shows.
+func (t *Terminal) ScreenRowPrompt(y int) (prompt RowPrompt, wrap bool) {
+	ref := GridRef{size: unsafe.Sizeof(GridRef{})}
+	if terminalGridRef(t.h, point{tag: 0, y: uint32(max(y, 0))}, &ref) != 0 {
+		return NoPrompt, false
+	}
+	return rowOf(&ref)
+}
+
+// rowOf returns how the row of ref belongs to a shell's prompt, and whether
+// it soft-wraps into the next.
+func rowOf(ref *GridRef) (prompt RowPrompt, wrap bool) {
 	var row uint64
-	if !ok(call(fnGridRefRow, uintptr(unsafe.Pointer(&ref)), uintptr(unsafe.Pointer(&row)))) {
+	if !ok(call(fnGridRefRow, uintptr(unsafe.Pointer(ref)), uintptr(unsafe.Pointer(&row)))) {
 		return NoPrompt, false
 	}
 	if !ok(call(fnRowData, uintptr(row), rowDataSemanticPrompt, uintptr(unsafe.Pointer(&prompt)))) {

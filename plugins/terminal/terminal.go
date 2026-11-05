@@ -273,6 +273,13 @@ type Options struct {
 	// whose history lives at the other end, as a remote multiplexer
 	// streaming only its screen.
 	OnScroll func(rows int) bool
+	// OnNearTop is called on the main thread, as a frame builds, when the
+	// view, scrolled into the scrollback, comes within a screen of its
+	// top, and again at each row it moves to there. A Conn whose history lives at the other end,
+	// as a server that sent only the last rows, can then fetch older rows
+	// and add them with PrependHistory, which moves the view out of reach
+	// of the top again. It must not block.
+	OnNearTop func()
 	// OnZoom sees a zoom, on the main thread: the wheel with Control held
 	// (Command on macOS), before OnScroll and a program that takes the
 	// mouse, or a key bound to a font size action. It reports whether it
@@ -524,6 +531,13 @@ type Terminal struct {
 	// ClipboardForward: whether each is of the primary selection. The
 	// first Mirror to frame takes them, as one terminal answers a read.
 	clipForward []bool
+	// prep is what changed the emulator while PrependHistory builds the
+	// one that replaces it, to change that one alike; pmu has one
+	// PrependHistory build at a time. rebuilt tells the next paint that
+	// the emulator was replaced, whose rows it draws again.
+	prep    *prepending
+	pmu     sync.Mutex
+	rebuilt bool
 	// mirrors are the terminal's Mirrors, each of which passes on what
 	// programs copy.
 	mirrors []*Mirror
@@ -602,58 +616,9 @@ func New(opts Options) (*Terminal, error) {
 	t.binds = keybinds(&opts)
 	t.size = gridSize{80, 24, 8, 16}
 	var err error
-	t.term, err = vt.NewTerminal(80, 24, vt.Effects{
-		WritePTY: func(p []byte) {
-			if !t.replying {
-				t.in.push(append([]byte(nil), p...))
-				return
-			}
-			t.replying = false
-			t.sendReply(p)
-		},
-		Bell:         func() { t.events.bells++ },
-		TitleChanged: func() { t.events.title = true },
-		RenderHold:   t.renderHold,
-		Clipboard: func(text string, primary bool) bool {
-			if primary || t.opts.NoClipboardWrite {
-				return false
-			}
-			t.clipOut = queue(t.clipOut, text)
-			for _, m := range t.mirrors {
-				m.clipOut = queue(m.clipOut, text)
-			}
-			t.redraw()
-			return true
-		},
-		ClipboardRead: t.clipboardRead,
-		Size:          func() (int, int, int, int) { return t.size.cols, t.size.rows, t.size.cellW, t.size.cellH },
-		Dark:          func() bool { return t.curTheme == nil || t.curTheme.dark() },
-		Notify: func(title, body string) {
-			t.events.notify = append(t.events.notify, [2]string{title, body})
-		},
-	})
-	if err != nil {
+	if t.term, err = t.newVT(80, 24, nil); err != nil {
 		return nil, err
 	}
-	t.term.SetTerminfoName("xterm-256color")
-	switch {
-	case opts.ImageLimit == 0:
-		t.term.SetImageLimit(320 << 20)
-	case opts.ImageLimit > 0:
-		t.term.SetImageLimit(uint64(opts.ImageLimit))
-	}
-	// Grapheme clusters take the cells of their width, as in Ghostty:
-	// emoji with modifiers and joined emoji take two.
-	t.term.SetModeDefault(vt.ModeGraphemes, true)
-	switch {
-	case opts.Scrollback < 0:
-		t.term.SetScrollback(0)
-	case opts.Scrollback > 0:
-		t.term.SetScrollback(opts.Scrollback)
-	default:
-		t.term.SetScrollback(10 << 20)
-	}
-	t.term.SetDefaultCursor(vtCursor(opts.Cursor), !opts.NoBlink)
 	if t.rs, err = vt.NewRenderState(); err != nil {
 		t.term.Free()
 		return nil, err
@@ -694,11 +659,6 @@ func New(opts Options) (*Terminal, error) {
 		// Other shells may not redraw their prompts: theirs stay.
 		t.opts.ShellIntegration = false
 	}
-	if runtime.GOOS == "windows" {
-		// ConPTY keeps a screen of its own, which a resize pulling rows
-		// back from the scrollback would disagree with.
-		t.term.SetResizePullBack(false)
-	}
 	// The program starts once a view knows the size of the screen, so
 	// that it draws its first screen at that size; a terminal no view
 	// shows starts after half a second, at 80×24.
@@ -712,6 +672,117 @@ func New(opts Options) (*Terminal, error) {
 	})
 	t.mu.Unlock()
 	return t, nil
+}
+
+// quietVT is what an emulator PrependHistory builds answers with while it
+// is not the terminal's yet: the size and the colors of when it began.
+// Until it is, the emulator asks nothing of the terminal, which the one
+// that shows did already: it writes no replies, rings no bell and leaves
+// t.events, the clipboard and the render hold alone.
+type quietVT struct {
+	on   bool
+	size gridSize
+	dark bool
+}
+
+// newVT makes an emulator with the terminal's settings and effects, of cols
+// by rows cells; with quiet, one that asks nothing of the terminal while
+// quiet.on (see quietVT). Without quiet, t.mu is held or the terminal is
+// new; with it, quiet.on is set before the first write.
+func (t *Terminal) newVT(cols, rows int, quiet *quietVT) (*vt.Terminal, error) {
+	q := func() bool { return quiet != nil && quiet.on }
+	term, err := vt.NewTerminal(cols, rows, vt.Effects{
+		WritePTY: func(p []byte) {
+			if q() {
+				return
+			}
+			if !t.replying {
+				t.in.push(append([]byte(nil), p...))
+				return
+			}
+			t.replying = false
+			t.sendReply(p)
+		},
+		Bell: func() {
+			if !q() {
+				t.events.bells++
+			}
+		},
+		TitleChanged: func() {
+			if !q() {
+				t.events.title = true
+			}
+		},
+		RenderHold: func(held bool) {
+			if !q() {
+				t.renderHold(held)
+			}
+		},
+		Clipboard: func(text string, primary bool) bool {
+			if q() || primary || t.opts.NoClipboardWrite {
+				return false
+			}
+			t.clipOut = queue(t.clipOut, text)
+			for _, m := range t.mirrors {
+				m.clipOut = queue(m.clipOut, text)
+			}
+			t.redraw()
+			return true
+		},
+		ClipboardRead: func(req vt.ClipboardRead) (vt.ClipboardReply, vt.ClipboardAnswer) {
+			if q() {
+				return vt.ClipboardReply{}, vt.ClipboardRefused
+			}
+			return t.clipboardRead(req)
+		},
+		Size: func() (int, int, int, int) {
+			s := t.size
+			if q() {
+				s = quiet.size
+			}
+			return s.cols, s.rows, s.cellW, s.cellH
+		},
+		Dark: func() bool {
+			if q() {
+				return quiet.dark
+			}
+			return t.curTheme == nil || t.curTheme.dark()
+		},
+		Notify: func(title, body string) {
+			if !q() {
+				t.events.notify = append(t.events.notify, [2]string{title, body})
+			}
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	opts := &t.opts
+	term.SetTerminfoName("xterm-256color")
+	switch {
+	case opts.ImageLimit == 0:
+		term.SetImageLimit(320 << 20)
+	case opts.ImageLimit > 0:
+		term.SetImageLimit(uint64(opts.ImageLimit))
+	}
+	// Grapheme clusters take the cells of their width, as in Ghostty:
+	// emoji with modifiers and joined emoji take two.
+	term.SetModeDefault(vt.ModeGraphemes, true)
+	switch {
+	case opts.Scrollback < 0:
+		term.SetScrollback(0)
+	case opts.Scrollback > 0:
+		term.SetScrollback(opts.Scrollback)
+	default:
+		term.SetScrollback(10 << 20)
+	}
+	term.SetDefaultCursor(vtCursor(opts.Cursor), !opts.NoBlink)
+	if runtime.GOOS == "windows" && opts.Conn == nil {
+		// ConPTY keeps a screen of its own, which a resize pulling rows
+		// back from the scrollback would disagree with.
+		term.SetResizePullBack(false)
+	}
+	return term, nil
 }
 
 // run reads the output and writes the input of the program, or Conn.
@@ -841,7 +912,7 @@ func (t *Terminal) write(p []byte) {
 		if t.opts.ShellIntegration {
 			t.prompt.feed(p)
 		}
-		t.term.Write(p)
+		t.vtWrite(p)
 		ev, t.events = t.events, events{}
 		if ev.title {
 			title = t.term.Title()
@@ -888,7 +959,7 @@ func (t *Terminal) ended() {
 		if x, _ := t.term.Cursor(); x > 0 {
 			msg = "\r\n" + msg
 		}
-		t.term.Write([]byte("\x1b[0;2m" + msg + "\x1b[0m"))
+		t.vtWrite([]byte("\x1b[0;2m" + msg + "\x1b[0m"))
 	}
 	t.mu.Unlock()
 	t.finish()
@@ -1124,7 +1195,7 @@ func (t *Terminal) ClearScreen() bool {
 	}
 	// Under the lock, so that no output comes between the cursor read and
 	// the rows deleted.
-	t.term.Write([]byte(seq))
+	t.vtWrite([]byte(seq))
 	proc := t.proc
 	t.mu.Unlock()
 	if proc != nil {
@@ -1294,10 +1365,10 @@ func (t *Terminal) resize(s gridSize) {
 		if rows == t.size.rows {
 			rows++
 		}
-		t.term.Resize(t.size.cols, rows, s.cellW, s.cellH)
+		t.vtResize(t.size.cols, rows, s.cellW, s.cellH)
 	}
 	t.size = s
-	t.term.Resize(s.cols, s.rows, s.cellW, s.cellH)
+	t.vtResize(s.cols, s.rows, s.cellW, s.cellH)
 	switch src := t.src.(type) {
 	case *pty.PTY:
 		src.Resize(s.cols, s.rows, s.cols*s.cellW, s.rows*s.cellH)
@@ -1321,7 +1392,7 @@ func (t *Terminal) viewResize(s gridSize) {
 	}
 	if s.cellW != t.size.cellW || s.cellH != t.size.cellH {
 		t.size.cellW, t.size.cellH = s.cellW, s.cellH
-		t.term.Resize(t.size.cols, t.size.rows, s.cellW, s.cellH)
+		t.vtResize(t.size.cols, t.size.rows, s.cellW, s.cellH)
 	}
 	// New metrics are asked for too: the other end needs the cells' size
 	// in pixels.

@@ -355,6 +355,11 @@ term, err := terminal.New(terminal.Options{
   wheel is three rows, or on Windows as many as its "lines to scroll"
   setting asks (3 unless changed), as in Windows Terminal; a touchpad
   scrolls by the distance it moves.
+- `OnNearTop` is called on the main thread, as a frame builds, when the
+  view, scrolled into the scrollback, comes within a screen of its top,
+  and again at each row it moves to there. A `Conn` whose server sent only
+  its last rows fetches older ones then and adds them with
+  `PrependHistory` (see "A server's terminal, shown elsewhere"). It must not block.
 - `OnZoom` sees a zoom on the main thread: the wheel with Control held
   (Command on macOS), which zooms before `OnScroll` and a program that
   takes the mouse see it, or a key bound to a font size action. Its
@@ -672,6 +677,31 @@ rows, without the cursor and the modes, for a terminal that takes a session
 over after its program ended, as after the server restarted: fed to it, the
 cursor is left under what it shows, for the next program to start below it
 rather than over it. A full-screen program's screen has none.
+
+A window sent only the last rows of a long session, to attach fast, adds
+older rows above its scrollback as the user scrolls up to them:
+`OnNearTop` asks for them, and `PrependHistory` adds them, rows as
+`History` returns them, and returns how many rows the scrollback grew by.
+What the view shows stays where it is, and so do the screen, the cursor,
+the modes, the title, the working directory (OSC 7), the colors programs
+set (OSC 4, 10, 11, 12) and the marks of the shell's prompt on the screen
+(OSC 133). The terminal is built again around the rows, which costs as
+much as writing its scrollback again: it is built while output and frames
+go on, which wait only for its snapshot and for the swap. Images programs
+placed go, a selection ends, and a search starts over. While a full-screen
+program's screen shows, it returns `terminal.ErrFullScreen` and adds
+nothing: ask again once the program ends.
+
+```go
+OnNearTop: func() {
+	go func() {
+		rows := stream.Older() // however the app asks its server
+		if _, err := term.PrependHistory(rows); err != nil {
+			return // a full-screen program shows: ask again later
+		}
+	}()
+},
+```
 
 ## The library
 

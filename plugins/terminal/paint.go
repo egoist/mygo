@@ -131,6 +131,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	// A synchronized update shows when it ends, or after a second.
 	if t.held && time.Since(t.heldSince) > time.Second {
 		t.term.SetMode(vt.ModeSyncOutput, false)
+		t.logPrepend([]byte("\x1b[?2026l"), nil)
 		t.held = false
 	}
 	held := t.held
@@ -140,6 +141,8 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	v.scrollbar = t.term.Scrollbar()
 	contrast := t.opts.MinimumContrast
 	tc, tr := t.term.Size()
+	rebuilt := t.rebuilt
+	t.rebuilt = false
 	v.matches, v.matchBuf = t.viewportMatches(v.matches, v.matchBuf, tc, tr)
 	if !held {
 		v.readImages(t.term)
@@ -150,7 +153,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		rs.EndUpdate()
 	}
 	colors := rs.Colors()
-	full := rs.Dirty() == vt.Full || colors != v.colors || contrast != v.contrast
+	full := rebuilt || rs.Dirty() == vt.Full || colors != v.colors || contrast != v.contrast
 	v.colors, v.contrast, v.cursor = colors, contrast, rs.Cursor()
 	cols, rows := rs.Size()
 	if len(v.lines) != rows {
