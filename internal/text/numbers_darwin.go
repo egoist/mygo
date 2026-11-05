@@ -46,9 +46,8 @@ type numberKey struct {
 	italic bool
 }
 
-// numberGlyph is what is known of a character alone, or of the first of a pair,
-// whose advance has the kerning in it. usable tells that it is one glyph
-// standing on the pen, or for a pair two.
+// numberGlyph is what is known of a character alone. usable tells that it is
+// one glyph standing on the pen.
 type numberGlyph struct {
 	font    *Font
 	id      uint32
@@ -57,10 +56,19 @@ type numberGlyph struct {
 	usable  bool
 }
 
+// numberPair is what is known of the first of two characters side by side,
+// whose advance has their kerning in it. usable tells that they are their two
+// glyphs alone.
+type numberPair struct {
+	advance float32
+	known   bool
+	usable  bool
+}
+
 // numberFont is what a font shapes numbers into, measured as they come.
 type numberFont struct {
 	glyphs [numberCount]numberGlyph
-	pairs  [numberCount][numberCount]numberGlyph
+	pairs  [numberCount][numberCount]numberPair
 	// lines is how many numbers were put together, checked how many of them
 	// Core Text agreed with, and disagreed that it did not with one.
 	lines, checked uint64
@@ -163,7 +171,7 @@ func (e *coreText) numberGlyph(f *numberFont, a uint8, style Style) *numberGlyph
 // numberPair returns the measure of the first of two characters side by side,
 // whose glyphs must be theirs alone with the second placed by the first's
 // advance.
-func (e *coreText) numberPair(f *numberFont, a, b uint8, style Style) *numberGlyph {
+func (e *coreText) numberPair(f *numberFont, a, b uint8, style Style) *numberPair {
 	p := &f.pairs[a][b]
 	if p.known {
 		return p
@@ -181,7 +189,7 @@ func (e *coreText) numberPair(f *numberFont, a, b uint8, style Style) *numberGly
 	x, y := run.glyphs[0], run.glyphs[1]
 	if x.ID == first.id && y.ID == second.id && x.Font == first.font && y.Font == second.font && x.X == 0 && x.Y == 0 && y.Y == 0 &&
 		x.Cluster == 0 && y.Cluster == 1 && math.Abs(float64(y.X-x.Advance)) <= numberTolerance {
-		*p = numberGlyph{font: x.Font, id: x.ID, advance: x.Advance, known: true, usable: true}
+		*p = numberPair{advance: x.Advance, known: true, usable: true}
 	}
 	return p
 }
