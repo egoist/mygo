@@ -81,7 +81,7 @@ func TestKeyCodeOfMessage(t *testing.T) {
 		{vkMenu, 0x38<<16 | extended, platform.CodeAltRight},
 		{vkLWin, 0x5B<<16 | extended, platform.CodeSuperLeft},
 		{0x14, 0x3A << 16, platform.CodeCapsLock},
-		{vkSnapshot, 0x37<<16 | extended, platform.CodePrintScreen},
+		{0x2C, 0x37<<16 | extended, platform.CodePrintScreen},
 		{0x90, 0x45<<16 | extended, platform.CodeNumLock},
 		{0x13, 0x45 << 16, platform.CodePause},
 		{0xE2, 0x56 << 16, platform.CodeIntlBackslash},

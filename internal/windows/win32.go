@@ -414,7 +414,6 @@ const (
 	vkRWin    = 0x5C
 
 	vkProcessKey = 0xE5
-	vkSnapshot   = 0x2C
 	vkPacket     = 0xE7
 
 	cfUnicodeText = 13

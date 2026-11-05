@@ -574,11 +574,11 @@ What a system tells has limits:
   opens with it, or combinations a window manager binds.
 - On macOS Caps Lock comes as a press and a release together as its lock
   changes, not as the key moves. Fn has no code.
-- On Windows Print Screen comes as a press and a release together as the key
-  is let go of; AltGr comes as `ui.CodeAltRight` alone, without the left
-  Control Windows makes up for it, though `Mods` still holds Ctrl and Alt;
-  and with both Shifts held the first release comes with the second. The
-  Windows key's release still opens the Start menu.
+- On Windows AltGr comes as `ui.CodeControlLeft` then `ui.CodeAltRight`, as
+  Windows makes up the left Control, and `Mods` holds Ctrl and Alt. Print
+  Screen comes only as a release, as Windows keeps its press. With both Shifts
+  held, only the last one's release comes. The Windows key's release still
+  opens the Start menu.
 - In browsers the page gets what the browser leaves it: `Code` is the
   event's `code`.
 - `WebView`s take the keys while they have the focus.
