@@ -81,7 +81,7 @@ export const scenes: Scene[] = [
 
 /** The counter's, where the app starts and then does nothing. */
 export const startMeasures: Measure[] = [
-  { id: "startupMs", title: "Startup", text: "From starting the process to its first frame being drawn.", format: "ms" },
+  { id: "startupMs", title: "Startup", text: "From starting the process until its first frame is drawn and its window is on screen.", format: "ms" },
   { id: "idleMemory", title: "Memory at rest", text: "The physical footprint of the process 5 seconds after its first frame.", format: "bytes" },
   { id: "idleCpuMsPerSec", title: "CPU at rest", text: "The share of a core the process takes over the next 5 seconds, drawing nothing.", format: "percent", scale: 0.1 },
 ]

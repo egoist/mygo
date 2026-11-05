@@ -100,23 +100,9 @@ func cellValue(cell, frame int) float64 {
 }
 
 // counter: the smallest app, for starting and idling.
-type counter struct {
-	n      int
-	frames int
-	at     time.Time
-}
+type counter struct{ n int }
 
 func (s *counter) view(c *ui.Context) {
-	if now := c.Now(); !now.Equal(s.at) {
-		s.at = now
-		s.frames++
-		if s.frames == 2 {
-			fmt.Println("ready")
-		}
-	}
-	if s.frames == 1 {
-		c.AnimationFrame()
-	}
 	ui.Column(c).Fill().Center().Gap(16).Children(func() {
 		ui.Textf(c, "%d", s.n).FontSize(56).Bold()
 		ui.Row(c).Gap(8).Children(func() {
@@ -237,7 +223,9 @@ func main() {
 		log.Fatalf("no scene %q", scene)
 	}
 	mygo.App.WhenReady(func() {
-		mygo.NewWindow(mygo.WindowOptions{Title: "Benchmark", Width: width, Height: height, UseContentSize: true, Content: content})
+		w := mygo.NewWindow(mygo.WindowOptions{Title: "Benchmark", Width: width, Height: height, UseContentSize: true, Content: content})
+		// Called once the first frame is drawn. Windows show from here too.
+		w.OnReadyToShow(func() { fmt.Println("ready") })
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

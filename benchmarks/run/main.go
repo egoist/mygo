@@ -228,7 +228,10 @@ type process struct {
 }
 
 func start(path, scene string, env ...string) (*process, error) {
-	cmd := exec.Command(path, scene)
+	// A Mac with AppKit's debug menu turned on (the default _NS_4445425547,
+	// "DEBUG") spends some 70 ms building it in each app that sets a main menu,
+	// which the apps' users would not.
+	cmd := exec.Command(path, scene, "-_NS_4445425547", "NO")
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stderr = os.Stderr
 	stdout, err := cmd.StdoutPipe()
@@ -273,8 +276,9 @@ func (p *process) stop() {
 	p.cmd.Wait()
 }
 
-// runCounter starts the counter, and measures how long it took to draw its
-// first frame, and its memory and CPU once idle.
+// runCounter starts the counter, and measures how long until its first frame
+// is drawn and its window is on screen, whichever comes last, and its memory
+// and CPU once idle.
 func runCounter(path string, idle time.Duration) (map[string]float64, error) {
 	began := time.Now()
 	p, err := start(path, "counter")
@@ -282,10 +286,27 @@ func runCounter(path string, idle time.Duration) (map[string]float64, error) {
 		return nil, err
 	}
 	defer p.stop()
+	shown := make(chan time.Duration, 1)
+	go func() {
+		// Its guard only ends the wait of an app that never shows a window.
+		for time.Since(began) < time.Minute {
+			if windowOnScreen(p.cmd.Process.Pid) {
+				shown <- time.Since(began)
+				return
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		shown <- 0
+	}()
 	if _, err := p.wait("ready"); err != nil {
 		return nil, err
 	}
-	startup := time.Since(began)
+	drawn := time.Since(began)
+	onScreen := <-shown
+	if onScreen == 0 {
+		return nil, errors.New("no window came on screen")
+	}
+	startup := max(drawn, onScreen)
 	time.Sleep(idle)
 	before, err := usageOf(p.cmd.Process.Pid)
 	if err != nil {

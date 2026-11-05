@@ -17,12 +17,60 @@ var (
 	cpuScale float64
 )
 
+var (
+	cgWindowListCopyWindowInfo func(option, relativeTo uint32) uintptr
+	cfArrayGetCount            func(array uintptr) int
+	cfArrayGetValueAtIndex     func(array uintptr, i int) uintptr
+	cfDictionaryGetValue       func(dict, key uintptr) uintptr
+	cfNumberGetValue           func(number uintptr, kind int, value *int32) bool
+	cfRelease                  func(obj uintptr)
+	kCGWindowOwnerPID          uintptr
+)
+
 func init() {
 	lib, err := purego.Dlopen("/usr/lib/libSystem.B.dylib", purego.RTLD_NOW|purego.RTLD_GLOBAL)
 	if err != nil {
 		panic(err)
 	}
 	purego.RegisterLibFunc(&procPidRusage, lib, "proc_pid_rusage")
+	cf, err := purego.Dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+	if err != nil {
+		panic(err)
+	}
+	purego.RegisterLibFunc(&cfArrayGetCount, cf, "CFArrayGetCount")
+	purego.RegisterLibFunc(&cfArrayGetValueAtIndex, cf, "CFArrayGetValueAtIndex")
+	purego.RegisterLibFunc(&cfDictionaryGetValue, cf, "CFDictionaryGetValue")
+	purego.RegisterLibFunc(&cfNumberGetValue, cf, "CFNumberGetValue")
+	purego.RegisterLibFunc(&cfRelease, cf, "CFRelease")
+	cg, err := purego.Dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+	if err != nil {
+		panic(err)
+	}
+	purego.RegisterLibFunc(&cgWindowListCopyWindowInfo, cg, "CGWindowListCopyWindowInfo")
+	key, err := purego.Dlsym(cg, "kCGWindowOwnerPID")
+	if err != nil {
+		panic(err)
+	}
+	kCGWindowOwnerPID = **(**uintptr)(unsafe.Pointer(&key))
+}
+
+// windowOnScreen reports whether a window of pid is on screen, as the window
+// server tells.
+func windowOnScreen(pid int) bool {
+	const onScreenOnly, cfNumberSInt32Type = 1, 3
+	list := cgWindowListCopyWindowInfo(onScreenOnly, 0)
+	if list == 0 {
+		return false
+	}
+	defer cfRelease(list)
+	for i := range cfArrayGetCount(list) {
+		var owner int32
+		number := cfDictionaryGetValue(cfArrayGetValueAtIndex(list, i), kCGWindowOwnerPID)
+		if number != 0 && cfNumberGetValue(number, cfNumberSInt32Type, &owner) && int(owner) == pid {
+			return true
+		}
+	}
+	return false
 }
 
 // usage is what a process has used up to now.

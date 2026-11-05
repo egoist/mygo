@@ -12,3 +12,5 @@ type usage struct {
 
 // usageOf is macOS's only, for now: the comparison runs on macOS.
 func usageOf(int) (usage, error) { return usage{}, errors.New("the comparison runs on macOS") }
+
+func windowOnScreen(int) bool { return false }

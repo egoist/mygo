@@ -6,9 +6,11 @@ mod common;
 
 use common::{Recorder, cell_color, cell_value, document_width, words};
 use gpui::{
-    App, Application, Bounds, Context, Rgba, SharedString, TitlebarOptions, UniformListScrollHandle, Window,
-    WindowBounds, WindowOptions, div, point, prelude::*, px, rgb, size, uniform_list,
+    App, Application, Bounds, Context, Menu, MenuItem, Rgba, SharedString, TitlebarOptions, UniformListScrollHandle, Window,
+    WindowBounds, WindowOptions, actions, div, point, prelude::*, px, rgb, size, uniform_list,
 };
+
+actions!(benchmark, [Quit]);
 
 fn color(c: (u8, u8, u8)) -> Rgba {
     rgb((c.0 as u32) << 16 | (c.1 as u32) << 8 | c.2 as u32)
@@ -218,6 +220,17 @@ fn main() {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(w), px(h)), cx))),
             ..Default::default()
         };
+        // A menu, as the other frameworks give an app by default.
+        cx.set_menus(vec![
+            Menu {
+                name: "Benchmark".into(),
+                items: vec![MenuItem::action("Quit", Quit)],
+            },
+            Menu {
+                name: "Window".into(),
+                items: vec![],
+            },
+        ]);
         match scene.as_str() {
             "counter" => {
                 cx.open_window(options, |_, cx| cx.new(|_| Counter { n: 0, frames: 0 })).unwrap();

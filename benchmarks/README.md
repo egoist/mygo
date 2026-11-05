@@ -25,6 +25,11 @@ the same generator (`words`, `cell_value`), in windows of the same size.
 | `grid`     | 800×600 | 600 cells, each with its own background and a number changing every frame, as a dashboard.     |
 | `document` | 800×600 | 40 paragraphs (about 20,000 characters) wrapped to a width changing every frame, as a window resized. |
 
+Every app has a main menu, as an app of each framework would: GPUI, the one
+that sets none by itself, is given one. The runner turns off AppKit's debug
+menu for each app, which a Mac with `_NS_4445425547` set builds in each app that
+sets a menu, taking some 70 ms.
+
 ## What is measured
 
 From outside the app, with `proc_pid_rusage`, so that the whole process counts,
@@ -38,8 +43,9 @@ the threads of the framework and the graphics driver included:
 
 And from the app, which says these on standard output:
 
-- **Startup**, from starting the process to its second frame beginning, which
-  means that the first was drawn.
+- **Startup**, from starting the process until its first frame is drawn, as
+  soon as each framework can tell, and its window is on screen, as the window
+  server tells, whichever comes last. eframe and GPUI tell at their next frame.
 - **Frame rate** and the **median and 99th percentile of the time between
   frames**, which show the frames that missed the display's refresh.
 
