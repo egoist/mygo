@@ -69,8 +69,7 @@ func goCalls(name, value string) []string {
 		l      length
 		method string
 	}{
-		"width": {e.width, "Width"}, "height": {e.height, "Height"}, "min-width": {e.minW, "MinWidth"}, "min-height": {e.minH, "MinHeight"},
-		"max-width": {e.maxW, "MaxWidth"}, "max-height": {e.maxH, "MaxHeight"}, "flex-basis": {e.basis, "Basis"},
+		"width": {e.width, "Width"}, "height": {e.height, "Height"}, "flex-basis": {e.basis, "Basis"},
 		"top": {e.inset[0], "Top"}, "right": {e.inset[1], "Right"}, "bottom": {e.inset[2], "Bottom"}, "left": {e.inset[3], "Left"},
 	}
 	if l, ok := lengths[name]; ok {
@@ -81,6 +80,20 @@ func goCalls(name, value string) []string {
 			return []string{call(l.method+"Percent", goNum(l.l.v))}
 		}
 		return nil // auto, as without a call
+	}
+	bounds := map[string]struct {
+		b      bound
+		method string
+	}{"min-width": {e.minW, "MinWidth"}, "min-height": {e.minH, "MinHeight"}, "max-width": {e.maxW, "MaxWidth"}, "max-height": {e.maxH, "MaxHeight"}}
+	if b, ok := bounds[name]; ok {
+		var calls []string // none for auto, as without a call
+		if b.b.set&boundPct != 0 {
+			calls = append(calls, call(b.method+"Percent", goNum(b.b.pct)))
+		}
+		if b.b.set&boundPx != 0 {
+			calls = append(calls, call(b.method, goNum(b.b.px)))
+		}
+		return calls
 	}
 	lower := strings.ToLower(strings.TrimSpace(value))
 	switch name {
@@ -162,6 +175,9 @@ func goCalls(name, value string) []string {
 	case "background", "background-color":
 		return []string{call("Background", goColor(e.bg))}
 	case "box-shadow":
+		if len(e.shadows) == 0 {
+			return []string{call("NoShadow")}
+		}
 		var calls []string
 		for _, sh := range e.shadows {
 			method := "Shadow"
@@ -220,8 +236,12 @@ func goCalls(name, value string) []string {
 		return []string{call("FontFeatures", strconv.Quote(e.ts.features))}
 	case "selection-color":
 		return []string{call("SelectionColor", goColor(e.ts.selection))}
+	case "caret-color":
+		return []string{call("CaretColor", goColor(e.ts.caret))}
 	case "line-clamp":
 		return []string{call("MaxLines", strconv.Itoa(e.maxLines))}
+	case "z-index":
+		return []string{call("ZIndex", strconv.Itoa(int(e.zIndex)))}
 	case "white-space":
 		if lower == "nowrap" {
 			return []string{call("NoWrap")}

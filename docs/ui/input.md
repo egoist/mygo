@@ -113,8 +113,49 @@ move it between them, with a focus ring when it moves by keyboard.
 `AutoFocus` gives an element the focus when it appears, such as the first
 field of a dialog, and `Focus` keeps it there while you call it; `Focused`,
 `FocusVisible` and `FocusWithin` report it. Enter and Space press a focused
-button or link, and Space toggles a focused check box, switch, toggle or
-radio button.
+button, and Space toggles a focused check box, switch, toggle or radio
+button. A focused link, or an element with `Role(ui.RoleLink)`, takes Enter
+alone, as in a web page: Space scrolls the container around it.
+
+`FocusLeft` reports that the focus left an element since the last frame:
+it was on the element or inside it, and is now outside it, or nowhere, as
+the window lost the keyboard. That is the web's `focusout` whose
+`relatedTarget` the element does not contain. The overlays attached to the
+element and to those inside it (`AttachTo`), as a combobox's list or a
+button's popover, are inside it, as for `PressedOutside`, so a popup field
+closes as the focus leaves it but not as it moves into its own list:
+
+```go
+var field ui.Element
+combo := ui.Column(c).Children(func() {
+	field = ui.TextInput(c, &app.query)
+})
+if combo.FocusLeft() {
+	app.open = false
+}
+if app.open {
+	ui.Overlay(c, func() {
+		ui.Column(c).AttachTo(field, ui.AnchorBottomLeft, ui.AnchorTopLeft).Children(app.options)
+	})
+}
+```
+
+Where the focus went is what the elements report as they are built
+(`Focused`, `FocusWithin`), and a [handle](#persistent-focus)'s
+`FocusWithin(c)` before its control is built.
+
+`c.FocusTakesText()` reports whether the focus takes text, typed or
+composed: a text input or text area, or an editor of rich text or code,
+that is not read only, or an element that takes text itself
+(`HandleTextInput`, `TextCaret`). It is the web's guard of single-key
+shortcuts (`isContentEditable`, an `input` or a `textarea`): a command
+palette's letters step aside while a field types them.
+
+```go
+if !c.FocusTakesText() && c.Shortcut(0, ui.KeyK) {
+	app.palette = true
+}
+```
 
 ## Persistent focus
 
@@ -184,7 +225,7 @@ ui.Row(c).Gap(4).FocusGroup(ui.Horizontal).Children(func() {
 `c.Shortcut(ui.Cmd, ui.KeyS)` reports a key pressed with exactly those
 modifiers anywhere in the window, and `Element.Shortcut` only while the
 element or one inside it has the focus, which comes first. A focused button
-or link keeps Enter and Space, and a toggle Space, so
+keeps Enter and Space, a link Enter, and a toggle Space, so
 `c.Shortcut(0, ui.KeyEnter)` presses a dialog's default button wherever
 else the focus is.
 
@@ -193,6 +234,31 @@ if c.Shortcut(ui.Cmd, ui.KeyS) {
 	app.save()
 }
 ```
+
+A button doing what a shortcut does tells screen readers its key with
+[`KeyShortcuts`](accessibility.md#keyboard-shortcuts), as
+`ui.Button(c, "Save").KeyShortcuts(ui.Cmd, ui.KeyS)`.
+
+A key held down repeats, and each repeat comes as a press again, so an
+action that steps runs while the key is held. `c.ShortcutRepeated()` tells
+whether the key that the last shortcut to report one took came as such a
+repeat, as the web's `KeyboardEvent.repeat`, whichever shortcut that was
+(the window's, an element's, a list's or an overlay's), and an
+`OnShortcut` action can ask it as it runs. A toggle takes the press alone:
+
+```go
+if c.Shortcut(0, ui.KeyUp) {
+	app.count++ // and again while Up is held
+}
+if c.Shortcut(0, ui.KeyT) && !c.ShortcutRepeated() {
+	app.panel = !app.panel // once a press
+}
+```
+
+A repeat the action leaves is still taken: it goes to no other shortcut.
+GTK flags no repeat, so on Linux a press of a key held already, with no
+release between, is one, as X11 (with detectable auto-repeat, which GDK
+turns on) and Wayland send them.
 
 `ui.Cmd` is Command on macOS and Ctrl elsewhere. `ui.KeyBack` and
 `ui.KeyForward` are the back and forward buttons of a mouse and the keys of
@@ -230,6 +296,18 @@ enabled control for that handle. Hidden controls take no command.
 `c.OnShortcut` declares an action in the current parent scope; the root
 Context handles keys left by the focused control and active overlays.
 Use `Element.OnShortcut` for an action inside an element's focus subtree.
+`c.OnWindowShortcut` declares the window's action wherever `c` is, as
+`c.Shortcut` reports it: a component built deep in the view, as a hint
+that shows its key and runs it, hears it while the focus is anywhere else,
+or nowhere. Built inside a dialog, it runs while the dialog shows; built
+behind one, it waits.
+
+```go
+func shortcutHint(c *ui.Context, key ui.Key, label string, run func()) {
+	c.OnWindowShortcut(ui.Cmd, key, run)
+	ui.Text(c, label) // "⌘K"
+}
+```
 
 ## Keys held
 
@@ -381,6 +459,40 @@ c.OpenURLThen(url, func(err error) {
 	}
 })
 ```
+
+## Input inside a region
+
+`ObserveInput` has a container see the input that comes to the elements
+inside it, as an ancestor listening to the `keydown` events that bubble up
+to it, without taking it: the keys pressed and released (with `Repeat`),
+the text typed and composed and the menus' edit commands while the focus
+is the container or inside it, and the pointer pressed and released over
+it. A demo that stops playing at the first key pressed in it, or a panel
+that closes its hint once one of its fields is typed in, use it:
+
+```go
+panel := ui.Column(c).Gap(8).ObserveInput(func(ev ui.InputEvent) {
+	if ev.Kind == ui.InputKeyDown || ev.Kind == ui.InputText {
+		app.hint = false
+	}
+})
+panel.Children(func() {
+	if app.hint {
+		ui.Text(c, "Type a name and an email")
+	}
+	ui.TextInput(c, &app.name).Label("Name")
+	ui.TextInput(c, &app.email).Label("Email")
+})
+```
+
+The function runs before the focused element gets the input, as UI Events'
+capture phase, the outermost container first, and a frame follows. The
+input then goes on as it would: to the focused element's `HandleInput`,
+the text input, the shortcuts and Tab, so the function sees the keys a
+`Shortcut` takes too. It does not see the keys the system or the menus
+take before the window does (an edit command comes instead), nor the input
+of popovers, menus and dialogs the container opens, which are not inside
+it. A key that moved the focus, as Tab, comes up where the focus went.
 
 ## See also
 

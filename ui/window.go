@@ -161,6 +161,8 @@ type windowHost struct {
 	// the web views.
 	placed []platform.WebViewPlacement
 	views  []NativeWebView
+	// glassPlaced is where the surface shows the system's glass.
+	glassPlaced []platform.GlassPlacement
 	// waiting tells that a frame paced by the display waits for waitingOn,
 	// the GPU renderer or refresh, to be able to draw it (displayWaiter);
 	// wake and displayReady draw it then, at the time the display asked
@@ -309,6 +311,9 @@ var newGPU = newGPURenderer
 // event handles an event of the surface, noting when it asks for a frame:
 // only then may renderers draw (OpenGL's context is current only then).
 func (h *windowHost) event(ev platform.SurfaceEvent) bool {
+	if h.detached {
+		return false // the window closed: it draws nothing more
+	}
 	if ev.Kind == platform.SurfaceRenew {
 		// The next frame makes the renderer again, for the surface's new
 		// native objects.
@@ -440,6 +445,9 @@ func (h *windowHost) size() (float32, float32, float32) {
 }
 
 func (h *windowHost) present(s *scene.Scene) {
+	if h.detached {
+		return // closed while the frame was built: nothing shows it
+	}
 	h.last, h.path = s, ""
 	defer h.recheck()
 	if s.Width <= 0 || s.Height <= 0 {
@@ -711,6 +719,9 @@ func (h *windowHost) detach() {
 		h.gpu.Release()
 		h.gpu = nil
 	}
+	// The last frame, and the bitmaps it drew, go with the window (#1281).
+	h.last = nil
+	h.placed, h.views, h.glassPlaced = nil, nil, nil
 }
 
 func (h *windowHost) requestFrame() {
@@ -914,6 +925,35 @@ func (h *windowHost) openURL(u string, done func(error)) {
 	if h.conn.OpenURL != nil {
 		h.conn.OpenURL(u, done)
 	}
+}
+
+// nativeGlass reports whether the surface draws the system's glass.
+func (h *windowHost) nativeGlass() bool {
+	s, ok := h.conn.Surface.(platform.GlassSurface)
+	return ok && s.NativeGlassSupported()
+}
+
+// placeGlass gives the surface where the frame shows the system's glass,
+// unless it is where the last frame showed it.
+func (h *windowHost) placeGlass(places []platform.GlassPlacement) {
+	s, ok := h.conn.Surface.(platform.GlassSurface)
+	if !ok {
+		return
+	}
+	if slices.EqualFunc(places, h.glassPlaced, sameGlassPlacement) {
+		return
+	}
+	h.glassPlaced = append(h.glassPlaced[:0], places...)
+	s.PlaceGlass(places)
+}
+
+// sameGlassPlacement reports whether a and b place the same glass.
+func sameGlassPlacement(a, b platform.GlassPlacement) bool {
+	if a.ID != b.ID || a.Frame != b.Frame || a.Clip != b.Clip || a.Radii != b.Radii ||
+		a.CornerRadius != b.CornerRadius || a.Style != b.Style || (a.Tint == nil) != (b.Tint == nil) {
+		return false
+	}
+	return a.Tint == nil || *a.Tint == *b.Tint
 }
 
 // placeWebViews gives the surface where the frame shows the window's web
