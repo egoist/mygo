@@ -1216,7 +1216,9 @@ func (e *uiaElement) property(id int, v *variant) {
 
 // ariaProperties returns the ARIA states of a node that UI Automation has
 // no property of, as Chromium gives them in AriaProperties: busy=true for
-// content about to change, and current=page for the current item.
+// content about to change, and current=page for the current item; and
+// autocomplete=list for a field whose suggestions show in a popup, which
+// Chromium gives IAccessible2 alone, as an object attribute.
 func ariaProperties(n platform.AccessNode) string {
 	var props []string
 	if n.States&platform.AccessBusy != 0 {
@@ -1224,6 +1226,9 @@ func ariaProperties(n platform.AccessNode) string {
 	}
 	if c := n.Current; c != platform.CurrentNone {
 		props = append(props, "current="+c.String())
+	}
+	if a := n.AutoComplete; a != platform.AutoCompleteNone {
+		props = append(props, "autocomplete="+a.String())
 	}
 	return strings.Join(props, ";")
 }

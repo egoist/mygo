@@ -105,7 +105,7 @@ name, the value and the description, and the states, as
 [accessibility](accessibility.md#states) lists them: `Checked` and
 `Mixed` (`aria-checked`, `aria-pressed`), `Selected` (`aria-selected`,
 the tab, tree item or row chosen), `Expanded`, `Busy`, `Current`,
-`Disabled`, `Invalid`, `Focused` (the element or option the focus is
+`AutoComplete` (`aria-autocomplete`), `Disabled`, `Invalid`, `Focused` (the element or option the focus is
 on, `ActiveDescendant` included), `Level`, `PosInSet` and `SetSize`,
 `Min`, `Max` and `Now` of a range, and its `Bounds`. So a test checks
 that a state reaches assistive technology, not only that the view set

@@ -397,7 +397,7 @@ func treeJSON(window int, t *platform.AccessTree, keys map[uint64]any) treeResul
 			States:  names(uint64(n.States), stateNames[:]),
 			Actions: names(uint64(n.Actions), actionNames[:]),
 			Level:   n.Level, PosInSet: n.PosInSet, SetSize: n.SetSize,
-			Current: n.Current.String(), WebView: n.WebView != nil,
+			Current: n.Current.String(), AutoComplete: n.AutoComplete.String(), WebView: n.WebView != nil,
 		}
 		if n.Parent >= 0 && n.Parent < len(t.Nodes) {
 			j.Parent = nodeID(t.Nodes[n.Parent].ID)
@@ -457,6 +457,10 @@ type nodeJSON struct {
 	// Current is the item the element is the current one of, as ARIA's
 	// aria-current: true, page, step, location, date or time.
 	Current string `json:"current,omitempty"`
+	// AutoComplete is what the suggestions of a text field or a combo
+	// box complete as the user types, as ARIA's aria-autocomplete:
+	// inline, list or both.
+	AutoComplete string `json:"autoComplete,omitempty"`
 	// WebView marks the node of a web view's page, whose elements the
 	// tree leaves out.
 	WebView bool `json:"webView,omitempty"`
