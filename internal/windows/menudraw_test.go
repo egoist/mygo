@@ -3,6 +3,7 @@
 package windows
 
 import (
+	"math"
 	"testing"
 	"unsafe"
 )
@@ -95,6 +96,127 @@ func TestFluentPalette(t *testing.T) {
 	}
 }
 
+// Items over the material wear WinUI's Acrylic tint over it, at the opacity
+// of its luminosity layer: over any material, a menu is its fallback color
+// but for the seventh of the material that shows through, which keeps it as
+// light as the shell's flyouts over a dark desktop.
+func TestMenuVeil(t *testing.T) {
+	screen, _, _ := procGetDC.Call(0)
+	defer procReleaseDC.Call(0, screen)
+	for _, dark := range []bool{false, true} {
+		p := fluentPalette(dark)
+		img := newBitmap(screen, 8, 8)
+		if img == nil {
+			t.Fatal("no bitmap")
+		}
+		paintItem(img.dc, rect{0, 0, 8, 8}, itemFill{plate: p.wash.color, alpha: p.wash.alpha, glass: true, veil: p.veil}, nil, 0, func(*bitmap, rect) {})
+		procGdiFlush.Call()
+		px := img.px[0]
+		img.free()
+		alpha := float64(px>>24&0xFF) / 255
+		want := float64(dibColor(p.back) & 0xFF) // gray, as the fallbacks are
+		show := (1 - alpha) * 255                // as far as the material moves it
+		if math.Abs(alpha-acrylicLuminosity) > 0.02 {
+			t.Errorf("dark %v: an item is %v opaque, want the tint's %v", dark, alpha, acrylicLuminosity)
+		}
+		for _, bg := range []uint32{0x000000, 0xFFFFFF} {
+			got := float64(px&0xFF) + (1-alpha)*float64(bg&0xFF)
+			if math.Abs(got-want) > show+1 {
+				t.Errorf("dark %v: an item over %#06x is %v, want %v but for %v", dark, bg, got, want, show)
+			}
+		}
+	}
+}
+
+// The text of an item with the material behind it is drawn over the veil's
+// own color, opaque, as the menus of Windows itself draw theirs: its pixels
+// are the ones the same text has over the card, not thinned by grayscale
+// antialiasing, and the item's background still shows the material through.
+func TestMenuItemText(t *testing.T) {
+	dpi := dpiOf(0)
+	b := &Backend{themeSource: "light"}
+	p := b.menuPalette()
+	f := b.menuFace(dpi)
+	const label = "按键设置 Open 打开"
+	screen, _, _ := procGetDC.Call(0)
+	defer procReleaseDC.Call(0, screen)
+	w := textWidth(screen, f.text, label) + toPx(2*(menuInset+menuPadding), dpi)
+	h := toPx(menuItemHeight, dpi)
+	draw := func(img *bitmap, r rect) {
+		old, _, _ := procSelectObject.Call(img.dc, f.text)
+		defer procSelectObject.Call(img.dc, old)
+		procSetBkMode.Call(img.dc, 1) // TRANSPARENT
+		procSetTextColor.Call(img.dc, uintptr(p.text))
+		at := rect{toPx(menuInset+menuPadding, dpi), 0, r.Right, h}
+		procDrawTextW.Call(img.dc, uintptr(unsafe.Pointer(u16(label))), ^uintptr(0), uintptr(unsafe.Pointer(&at)), dtSingleLine|dtVCenter|dtNoClip)
+	}
+	// The text over the card, opaque, which the item's should be.
+	card := dibColor(p.veil.color) | 0xFF000000
+	plain := newBitmap(screen, w, h)
+	if plain == nil {
+		t.Fatal("no bitmap")
+	}
+	defer plain.free()
+	for i := range plain.px {
+		plain.px[i] = card
+	}
+	draw(plain, rect{0, 0, w, h})
+	procGdiFlush.Call()
+
+	item := newBitmap(screen, w, h)
+	if item == nil {
+		t.Fatal("no bitmap")
+	}
+	defer item.free()
+	paintItem(item.dc, rect{0, 0, w, h}, itemFill{plate: p.wash.color, alpha: p.wash.alpha, glass: true, veil: p.veil}, nil, 0, draw)
+	procGdiFlush.Call()
+
+	ink, wrong := 0, 0
+	for i, px := range item.px {
+		if want := plain.px[i]; want&0xFFFFFF != card&0xFFFFFF {
+			ink++
+			if px>>24 != 0xFF || px&0xFFFFFF != want&0xFFFFFF {
+				wrong++
+			}
+			continue
+		}
+		if px>>24 == 0xFF {
+			wrong++
+		}
+	}
+	if ink == 0 {
+		t.Fatal("the label left no ink")
+	}
+	if wrong > 0 {
+		t.Errorf("%d pixels of the item are not the text over the card, opaque, over the material", wrong)
+	}
+}
+
+// The frame of a menu with the material behind it is the veil over it, as
+// its items are: premultiplied pixels, the color of the card rather than
+// the material's, for DWM's one outline around the window to be the menu's
+// only border.
+func TestMenuFrame(t *testing.T) {
+	screen, _, _ := procGetDC.Call(0)
+	defer procReleaseDC.Call(0, screen)
+	img := newBitmap(screen, 4, 4)
+	if img == nil {
+		t.Fatal("no bitmap")
+	}
+	defer img.free()
+	p := fluentPalette(false)
+	fillTint(img.dc, &rect{0, 0, 4, 4}, p.veil)
+	procGdiFlush.Call()
+	px := img.px[5]
+	// 0.85 of the fallback #F9F9F9, premultiplied.
+	if got, want := px>>24, uint32(217); got != want {
+		t.Errorf("the frame is %#x opaque, want %#x", got, want)
+	}
+	if got, want := px&0xFF, uint32(212); got != want {
+		t.Errorf("the frame is %#x, want %#x", got, want)
+	}
+}
+
 // Items over the material are the premultiplied pixels that show as they
 // were drawn over black and over white: WinUI's translucent highlights
 // as translucent, text as opaque as it covers, and nothing as nothing.
@@ -139,7 +261,7 @@ func TestMenuLabelInk(t *testing.T) {
 	}
 	glyphs := createFont(-toPx(menuGlyphSize, dpi), "Segoe UI")
 	defer procDeleteObject.Call(glyphs)
-	b := &Backend{themeSource: "light", menuFonts: map[menuFontKey]menuFonts{{dpi: dpi}: {text: text, glyphs: glyphs}}}
+	b := &Backend{themeSource: "light", menuFonts: map[int]menuFonts{dpi: {text: text, glyphs: glyphs}}}
 	p := b.menuPalette()
 	back := dibColor(p.back)
 	screen, _, _ := procGetDC.Call(0)
@@ -189,4 +311,67 @@ func inkLast(img *bitmap, w int32, back uint32) int32 {
 		}
 	}
 	return last
+}
+
+// The shortcuts of items are WinUI's Caption, in its own font: the menu
+// font's Latin letters are larger at the same size — Microsoft YaHei UI's,
+// the menu font of Chinese Windows, by a sixth of their ink height, which
+// made the shell's shortcuts look bigger than its own.
+func TestMenuAccelFace(t *testing.T) {
+	dpi := dpiOf(0)
+	b := &Backend{themeSource: "light"}
+	f := b.menuFace(dpi)
+	if !fontFace(f.accel, "Segoe UI Variable Small") {
+		t.Skip("Segoe UI Variable Small is not installed")
+	}
+	var ncm nonClientMetrics
+	ncm.Size = uint32(unsafe.Sizeof(ncm))
+	procSystemParametersInfoForDpi.Call(spiGetNonClientMetrics, uintptr(ncm.Size), uintptr(unsafe.Pointer(&ncm)), 0, uintptr(dpi))
+	lf := ncm.MenuFont
+	lf.Height = int32(math.Round(float64(lf.Height) * menuAccelSize / 12))
+	menuFont, _, _ := procCreateFontIndirectW.Call(uintptr(unsafe.Pointer(&lf)))
+	defer procDeleteObject.Call(menuFont)
+	if fontFace(menuFont, "Segoe UI") {
+		t.Skip("the menu font is Segoe UI, whose Latin letters aren't larger")
+	}
+	const shortcut = "Ctrl+B"
+	accelW, accelH := inkBox(t, f.accel, shortcut, dpi)
+	menuW, menuH := inkBox(t, menuFont, shortcut, dpi)
+	if accelH >= menuH || accelW >= menuW {
+		t.Errorf("a shortcut's ink is %dx%d, want smaller than the menu font's %dx%d", accelW, accelH, menuW, menuH)
+	}
+}
+
+// inkBox returns the width and the height of the ink of text in a font,
+// which is what makes it look as big as it does.
+func inkBox(t *testing.T, font uintptr, text string, dpi int) (width, height int32) {
+	t.Helper()
+	screen, _, _ := procGetDC.Call(0)
+	defer procReleaseDC.Call(0, screen)
+	w, h := textWidth(screen, font, text)+40, toPx(menuItemHeight, dpi)
+	img := newBitmap(screen, w, h)
+	if img == nil {
+		t.Fatal("no bitmap")
+	}
+	defer img.free()
+	for i := range img.px {
+		img.px[i] = 0x00FFFFFF
+	}
+	old, _, _ := procSelectObject.Call(img.dc, font)
+	procSetBkMode.Call(img.dc, 1) // TRANSPARENT
+	procSetTextColor.Call(img.dc, 0x000000)
+	at := rect{20, 0, w, h}
+	procDrawTextW.Call(img.dc, uintptr(unsafe.Pointer(u16(text))), ^uintptr(0), uintptr(unsafe.Pointer(&at)), dtSingleLine|dtVCenter|dtNoClip)
+	procGdiFlush.Call()
+	procSelectObject.Call(img.dc, old)
+	top, bottom, left, right := int32(1<<30), int32(-1), int32(1<<30), int32(-1)
+	for y := int32(0); y < h; y++ {
+		for x := int32(0); x < w; x++ {
+			if img.px[y*w+x]&0xFFFFFF != 0xFFFFFF {
+				top, bottom = min(top, y), max(bottom, y)
+				left, right = min(left, x), max(right, x)
+			}
+		}
+	}
+	return right - left + 1, bottom - top + 1
 }
