@@ -1,0 +1,86 @@
+name: Comparison
+
+# Measures the same apps written with MyGo, GPUI and egui (benchmarks/README.md)
+# on every release, or when started by hand. The results go to the benchmarks
+# branch, which the website's /benchmarks page reads.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - benchmarks/**
+      - .github/workflows/comparison.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: macOS
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          echo "rustc=$(rustc --version)" >> "$GITHUB_OUTPUT"
+        id: rust
+      # GPUI's build compiles its Metal shaders.
+      - name: Install the Metal toolchain
+        run: xcrun -f metal || xcodebuild -downloadComponent MetalToolchain
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            benchmarks/egui/target
+            benchmarks/gpui/target
+          key: comparison-${{ steps.rust.outputs.rustc }}-${{ hashFiles('benchmarks/*/Cargo.lock', 'benchmarks/*/Cargo.toml') }}
+      - name: Run the comparison
+        run: go run ./benchmarks/run -out "$RUNNER_TEMP/comparison.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: comparison
+          path: ${{ runner.temp }}/comparison.json
+
+  publish:
+    name: Publish
+    needs: measure
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: comparison
+          path: ${{ runner.temp }}/results
+      - name: Commit the results to the benchmarks branch
+        run: |
+          data="$RUNNER_TEMP/data"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # bench.yml's runs may push meanwhile: try again on theirs.
+          for attempt in 1 2 3 4 5; do
+            git worktree remove --force "$data" 2>/dev/null || true
+            git fetch --depth 1 origin benchmarks
+            git worktree add --detach "$data" FETCH_HEAD
+            mkdir -p "$data/comparison"
+            cp "$RUNNER_TEMP/results/comparison.json" "$data/comparison/latest.json"
+            git -C "$data" add -A
+            # The website's builds skip the branch too, as bench.yml's commits
+            # ask.
+            git -C "$data" commit -q -m "Comparison of ${GITHUB_SHA:0:7} [skip ci]"
+            if git -C "$data" push origin HEAD:refs/heads/benchmarks; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          exit 1
