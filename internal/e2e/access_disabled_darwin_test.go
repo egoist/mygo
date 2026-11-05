@@ -5,6 +5,7 @@ package e2e
 import (
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -31,10 +32,16 @@ func TestAccessDisabled(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "Unavailable", Width: 400, Height: 200, Content: ui.View(view)})
 	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
 	for _, label := range []string{"Delete project", "Close"} {
-		eventually(t, label+"'s AXEnabled", func() bool {
-			v, _, _, ok := axAttribute(w, label, "AXEnabled")
-			return ok && v == "0"
-		})
+		var v string
+		var named, ok bool
+		for end := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+			if v, _, named, ok = axAttribute(w, label, "AXEnabled"); ok && v == "0" {
+				break
+			}
+			if time.Now().After(end) {
+				t.Fatalf("%s: AXEnabled %q (listed %v, found %v), want 0", label, v, named, ok)
+			}
+		}
 	}
 	if accessPerform(w, "Close", "focus", "") {
 		t.Error("assistive technology focused the disabled button")
