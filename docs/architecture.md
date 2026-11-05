@@ -813,7 +813,9 @@ gained one field, `SurfaceNative.Canvas`.
   one (`isPrimary`), as a second finger, are left out, as no second finger
   presses on the desktops; a button going down or up while another is
   held, which comes as a `pointermove` with its `button`, is a
-  `PointerDown` or `PointerUp` as on the desktops (`chord`). `wheel` events scroll, lines and pages
+  `PointerDown` or `PointerUp` as on the desktops (`chord`); their
+  `pointerType` and `pressure` are the device and the pressure
+  (`device`). `wheel` events scroll, lines and pages
   turned into DIPs, notches of 120 not `Precise`. The textarea, out of
   sight at the caret (`SetTextInput`), has the keyboard: `keydown` and
   `keyup` are keys, by what they type (`key`) and else by where they are
@@ -2082,6 +2084,14 @@ object or user data. Native reads copy bytes so application data outlives
 native handles. See [Clipboard and drag data](data-transfer.md) for API and
 format mappings.
 
+Native UI's `Context.WriteClipboardThen` writes its text with `WriteData`
+and posts the error to the main thread for the next frame. A browser's
+clipboard answers later: the web backend's is a `platform.LaterClipboard`,
+whose `WriteTextThen` keeps the text for the page's own pastes and
+answers once `navigator.clipboard.writeText` settles (it rejects without
+transient user activation, and outside secure contexts there is no
+`navigator.clipboard` to write).
+
 ## Audio (`audio`)
 
 Package `audio` is independent of windows and the main thread: it neither
@@ -2094,6 +2104,23 @@ stereo with a Catmull-Rom spline at their rate times their speed, and ramp
 their gains (a 2×2 matrix of volume and pan) over 5 ms on every change,
 pause and resume. Looping happens in the source, so a loop has no gap; the
 voice counts frames past it modulo the length for `Position`.
+
+A player that preserves pitch (`SetPreservesPitch`) gets a stretcher
+(`audio/stretch.go`) between its source and its resampler, which then
+resamples at the rate alone. It is WSOLA: hops of about 16 ms, each a
+Hann crossfade from the natural continuation of the last segment into a
+new one, which the speed puts a hop times the speed further on and a
+search within about 10 ms moves to where the waveforms match best
+(normalized cross-correlation in mono, every frame of about 16 kHz, then
+each frame around the best; the natural continuation itself when in reach,
+so at 1× it passes the source through). Its buffers are allocated once,
+the first time; it reads ahead what a step needs, skipping what fast speeds
+leave out, reads silence past the source's end and fades out once the
+speed puts the next segment there, and tags each
+frame it gives with the source frame the speed puts it at, which the voice
+keeps beside its four frames of history for `Position`. Turned off, it
+passes the source through from the natural continuation, and a voice keeps
+it, so that voices that never preserved pitch pay one nil check.
 
 `Position` is where a voice is heard, not mixed. The mixer counts the
 frames it mixed and, of the latest, those the device holds: as many as it
@@ -2344,7 +2371,11 @@ The public API keeps one stable `*Context` per window. Child builders share
 it and temporarily change its parent. `Element` is a 16-byte checked value:
 a direct owner record, arena slot and 32-bit generation. The owner detaches
 from the engine on close and retires before generation wrap. Old elements
-cannot alias recycled nodes. Development builds and `Tester` diagnose stale
+cannot alias recycled nodes. A closed window keeps nothing of what it
+showed (#1281): `mygo.Window` keeps only that it shows Content, handing the
+Content to its surface as it attaches, and the closed engine drops its view,
+the last frame's elements, states and scene, and the host its last scene,
+renderers and placements, in case anything still holds them. Development builds and `Tester` diagnose stale
 use; production methods return empty results or ignore it. `Handle` stores
 persistent control identity separately for each window. Focus queries read
 identity without depending on construction order; focus requests wait for a
@@ -2515,7 +2546,39 @@ either.
   `xml-roles:navigation`, and UI Automation's Group with the navigation
   LandmarkType and AriaRole. Native UI in browsers has no accessibility
   tree yet (`UpdateAccessibility` is empty in `internal/web`), so there
-  is no ARIA to map them to. Menus drawn in the window are AppKit's `AXMenu`,
+  is no ARIA to map them to. The other landmarks, live regions and rules
+  map as WAI-ARIA's Core Accessibility API Mappings do: `RoleRegion` is
+  one only with a name (a group without), `AXLandmarkRegion`, ATK's
+  landmark with `xml-roles:region`, and UIA's custom LandmarkType;
+  `RoleSearch` is `AXGroup` with `AXLandmarkSearch`, ATK's landmark
+  with `xml-roles:search`, and UIA's Group with the search LandmarkType;
+  `RoleArticle`, no landmark, is `AXGroup` with `AXDocumentArticle`,
+  ATK's article, and UIA's Group named "article";
+  `RoleLog`, `RoleTimer` and `RoleAlert` are `AXGroup` with
+  `AXApplicationLog`, `AXApplicationTimer` and `AXApplicationAlert`,
+  ATK's log, timer and notification, and UIA's Group named "log",
+  "timer" and "alert"; `RoleSeparator` is `AXSplitter`, ATK's separator
+  and UIA's Separator, vertical when taller than wide (`AccessVertical`,
+  with `AXOrientation`, ATK's vertical state and UIA's Orientation);
+  `RoleRowHeader` is `AXCell`, ATK's row header and UIA's HeaderItem,
+  named by its content but keeping what is inside it, as a cell does
+  (ARIA's rowheader is not children-presentational).
+  Live regions (`AccessRole.Live`) say how they are read: `AXARIALive`,
+  `AXARIAAtomic` and `AXARIARelevant`, answered as `AXInvalid` is; ATK's
+  `live`, `atomic` and `relevant` attributes, with their `container-`
+  forms on what is inside them; UIA's LiveSetting. Screen readers read
+  the platforms' live regions in web content alone (WebKit's and
+  Chromium's `AXLiveRegionChanged`, Orca's web scripts), so the engine
+  reads them out itself (`ui/access_live.go`): it compares each frame's
+  tree with the last, announces what a log that showed gained, joined
+  for each log, and puts the text an alert shows that no alert showed
+  in the last tree into `AccessTree.Alerts`, which interrupt:
+  `AXAnnouncementRequested` with a high priority, ATK's `notification`
+  signal with `ATK_LIVE_ASSERTIVE` (ATK 2.50, else an announcement), and
+  an assertive live region beside the announcements' on Windows. Alerts
+  are told apart by their text, as an element's ID shifts when others
+  appear before it; the tree assistive technology first gets, and a log
+  first showing, read nothing out. Menus drawn in the window are AppKit's `AXMenu`,
   `AXMenuBar` and `AXMenuItem`, whose choice shows as
   `AXMenuItemMarkChar` (answered through `accessibilityAttributeValue:`,
   as `AXInvalid` is), ATK's menu, menu bar, menu item, check menu item and
@@ -2535,6 +2598,13 @@ either.
   `isAccessibilitySelectorAllowed:` says, so elements answer the older
   `accessibilityIsAttributeSettable:` themselves, as AppKit would but for
   that value: `NSAccessibilityElement` has no implementation to call.
+  The keys that press or focus an element (`KeyShortcuts`, ARIA's
+  aria-keyshortcuts) are formatted as `ui` writes a menu's shortcuts
+  (`shortcutText`) as the view builds, so that an app not giving any
+  links no formatting, and reach the backends as one string
+  (`AccessNode.KeyShortcuts`): WebKit's `AXKeyShortcutsValue`, answered
+  through `accessibilityAttributeValue:`, ATK's `keyshortcuts` object
+  attribute and UI Automation's `AcceleratorKey`, as Chromium's.
   The rows of a `List` (list items) and a `Table` (rows) are named by
   their content and say which of all the rows they are (`PosInSet`,
   `SetSize`, the list giving its total), as only those in view are built;
@@ -2557,7 +2627,18 @@ either.
   rows is `AccessMultiselectable` (ATK's `multiselectable`, UIA's
   `CanSelectMultiple`, rows then raising `ElementAddedToSelection` and
   `ElementRemovedFromSelection` unless chosen alone), and its focus is on
-  the row last chosen.
+  the row last chosen. `RoleListBox` and `RoleOption`, a list box of an
+  app's own (ARIA's `listbox` and `option`), are `RoleList` and
+  `RoleListItem` with `AccessSelectable`, as a `ComboboxBase`'s popup and
+  its options (`choosesItems`, `flagChoosable`) and a `SelectBase`'s
+  are, so the bridges show them as the lists above, selected with
+  `Checked`; unlike `flagChoosable`'s rows, they take the focus only
+  when `Focusable`. A `SelectBase`'s options are selected while
+  highlighted, the trigger's `ActiveDescendant` the one highlighted, as a
+  native select's popup: assistive technology focusing one
+  (`focusHighlights`) notes it on its state (`focusAsked`), which the
+  select highlights as it builds it, rather than clicking it, which
+  would choose it.
 - **The connection.** `content.go` attaches the content to its window
   through `internal/surface.Conn`, which carries the surface and, as
   functions, what the content needs of the app (the clipboard, dragging
@@ -2590,17 +2671,28 @@ either.
   sees the element still pressed where the pointer let go, and released
   in the pass after. An element's identity hashes its
   parent's with its position or `Key`, so focus, scroll offsets, editors and
-  animations survive rebuilding. `Context` is stable for the window; `Element` values expire between build
+  animations survive rebuilding. `prune` drops the states the frame did
+  not build (but those of pages Routers keep) and recycles them; a state
+  with `Local` values that are `io.Closer`s (`state.closes`, which
+  `Local` fills as it makes one, so that other states cost nothing) hands
+  them to `engine.dropped`, which `endFrame` closes on the main thread
+  once the frame ended, last made first. Those of an element whose copy,
+  or an ancestor's, leaves with an `Exit` wait in `engine.exits` until
+  the transition's record is gone or no longer holds that copy (the
+  exit ended, or the element came back), and the engine's `close` closes
+  every state's as the window closes. `Context` is stable for the window; `Element` values expire between build
   passes and validate their owner, slot and generation before accessing storage. `ListState` resolves
   its focus owner only for the current context, frame and pass, exposing
   focus and shortcuts without retaining an element in app state. Scroll
   offsets move in the layout too
   (`ui/scroll.go`): elements that asked to `ScrollIntoView`, and the focus,
-  come into view before the boxes are placed, and placing keeps each offset
-  within its content; a `ScrollState` mirrors an offset both ways, and a
-  frame that moved one builds another for what read the old one. A
-  container that snaps (`ScrollSnap`, `ui/snap.go`) finds the places its
-  elements mark as it is placed, from their boxes relative to it, and
+  come into view before the boxes are placed, lined up as its options say
+  (or glide there as a wheel's notches do, by what they went each frame,
+  `glideScroll`), and placing keeps each offset within its content; a
+  `ScrollState` mirrors an offset both ways, and a frame that moved one
+  builds another for what read the old one. A container that snaps
+  (`ScrollSnap`, `ui/snap.go`) finds the places its elements mark as it
+  is placed, from their boxes relative to it, and
   keeps the offset at the one it rests at; a notch or a key heads for the
   next place at once, a touchpad's scrolling once it has been still for a
   moment (not every platform tells when the fingers lift or a fling's
@@ -2632,7 +2724,8 @@ either.
   more to hash than to compare, and one laid out at another width asks
   for it from the last (`text.System.LayoutFrom`). A grid measures the
   widths of only the items its columns read (`contributes`): none for Fr
-  columns with room known, as CSS's minmax(0, 1fr). Transforms and scroll
+  columns with room known, as CSS's minmax(0, 1fr), unless they are
+  `MinContent`; a minimum (`Track.Min`) measures nothing. Transforms and scroll
   offsets of other containers apply after layout and change nothing
   there. Elements that lay
   out by more than they are built with are never reused, nor anything
@@ -2796,7 +2889,9 @@ either.
   (`pressedPrimary`), a right or middle press only clicking or opening a
   menu. Keyframe sequences keep one sequence per
   key with an explicit replay token. All ask for frames only while moving,
-  and end at their targets under reduced motion. Poses (`ui/pose.go`,
+  and end at their targets under reduced motion, but for those whose
+  `NonMotion` (of `Animation`, `KeyframeOptions`, `TimelineOptions`) says
+  they move nothing, which play on. Poses (`ui/pose.go`,
   `AnimatePose`) are channels sampled as frames commit, into a transform
   after the element's own (`poseM`) and a fade; frames that only paint
   (`repaintFrame`) move the posed elements of the last frame built on
@@ -2889,7 +2984,7 @@ either.
   its `Enter` only in a parent the frame before had; the overlay layer,
   built only while it holds something, counts as the root there. One no longer built,
   whose parent still is, goes with its `Exit` as an inert copy, laid out
-  and painted under its siblings without taking room; the frames after
+  and painted under its siblings of its z-index without taking room; the frames after
   one in the overlay layer, or its copy, build the layer, empty but for
   the copies, which lets the pointer and the focus through
   (`engine.overlayExits`). Frames that built
@@ -2992,7 +3087,14 @@ either.
   release comes as the window loses the focus or once a frame builds the
   element no more (not built again, or built over by an element without
   `HandleInput`, as when the press moved it into a split), so that the
-  next press starts anew. Its
+  next press starts anew. The pointer's events carry their device and
+  pressure (`SurfaceEvent.Pointer` and `Pressure`), which the engine
+  keeps with the buttons they leave down (`engine.pointerDevice`): a
+  device that tells no pressure presses 0.5 while a button is down and 0
+  otherwise, as Pointer Events have it, a move that changes the
+  pressure alone is a move, and the element pressed keeps the device and
+  pressure of its press's last move for `PressedPointer`
+  (`state.pressPointer`). Its
   `TextCaret` turns on the input method at that caret, with no text around
   it; `InputMethod(false)` (`TextInputState.NoInputMethod`) keeps text on
   but input methods off, as winit's `set_ime_allowed(false)`: macOS skips
@@ -3003,6 +3105,13 @@ either.
   input method gives up on macOS. `ui.Shape` lays out text without the
   cache of layouts, for widgets that keep their glyphs, and
   `Painter.Glyphs` draws them where they placed them.
+  `ObserveInput` has an element see, without taking it, what comes to
+  the focus while the focus is it or inside it (keys up and down, text,
+  compositions, edit commands), and the presses and releases over it:
+  `observeFocus` and `observePointer` (`ui/handler.go`) walk the focus or
+  hit chain, outermost first, before anything handles the event, and do
+  nothing while the last commit found no element observing
+  (`engine.observers`).
   A text input's `OnTextKey` gets the keys that type no text as they
   come too, after `HandleInput`, but first applies the input queued for
   the editor (`widgetTextInput.prepare`, as the platform's queries do),
@@ -3048,7 +3157,8 @@ either.
   paints and commits them through `zPaint` and `zCommit`, which `ZIndex`
   sets, so that an app never calling it links none of this. It paints
   them in `paintOrder`: the two passes' order sorted stably by
-  z-index, so that equal values keep it, the copies leaving still first,
+  z-index, so that equal values keep it, the copies leaving, which keep
+  the z-index their elements had, first among those of theirs,
   and, of the root, the overlay layer and what follows it last
   (`zPinned`), so that overlays stay above the content and keep their
   order (the overlay layer's own children are never sorted). Commit
@@ -4013,7 +4123,11 @@ either.
   2D context (`canvas_js.go`, see [Browsers](#browsers-internalweb)). They find the fonts, fall
   back to other fonts for what one lacks, shape, run the bidirectional
   algorithm and break lines; font files stay memory mapped and shared with
-  every other process. Every engine gives a line's glyphs in visual order,
+  every other process. A text wrapped again at another width, as in a window
+  being resized, keeps its `CTTypesetter` while frames use it, and gives it up
+  8 frames after the last, or as windows go idle. Core Text opens a break
+  iterator for each line of text with a language attribute, so
+  `languageShapes` leaves the attribute out where it changes nothing. Every engine gives a line's glyphs in visual order,
   from the left, through right-to-left runs too (DirectWrite's runs, whose
   glyphs come in logical order, are reversed), so that what walks them,
   and `ui.Shape`'s callers, rely on one order. The package assembles their
@@ -4098,6 +4212,24 @@ either.
     a pixel. There, on Linux, package ui has the text system join them
     (`System.GlyphRun`): their coverage added and clamped, cached as one
     bitmap.
+  - *Strokes.* `TextStroke` draws each glyph's stroke as a mask of its
+    own (`System.StrokeGlyph`), made in Go from the glyph's coverage for
+    every engine: the coverage dilated by half the width less the
+    coverage eroded by it, each edge pixel's coverage placing the edge
+    within it, so the stroke is centered on the outline, round at its
+    corners and as smooth as the glyph; color glyphs stroke their alpha.
+    Cached with the glyphs, under a key with the width, and drawn by
+    every renderer as any mask glyph, all of a text's before its glyphs
+    (`paint-order: stroke fill`). `TextStroke` links it, so that apps that
+    stroke no text do not.
+  - *Tabs.* `Style.TabSize` sets tab stops every that many spaces of the
+    style's font, letter spacing included, from the start of each line,
+    which each engine takes natively: Core Text's paragraph style (no
+    tab stops but a `DefaultTabInterval`), DirectWrite's
+    `SetIncrementalTabStop`, a Pango tab array of one stop, which it
+    repeats, and the canvas engine's own lines, which otherwise measure a
+    tab as the canvas does, as a space. The first `TabSize` links it
+    (`System.UseTabSize`), as `Justify` does `UseJustify`.
   Paths drawn with
   `Painter` are masks in the coverage atlas, rasterized by `internal/vec`,
   cached by their shape relative to the pixel grid in quarters of a pixel,
@@ -4155,7 +4287,10 @@ either.
   ranges of runes (`text.Span`): DirectWrite's setters over a range, the
   fonts of a Core Text attributed string's ranges, Pango's attributes
   between byte indices. `Params.Spans` holds them encoded as a string, so
-  `Params` stays a key of the layout cache. Laying out reuses what shaping
+  `Params` stays a key of the layout cache. A span's letter spacing of 0
+  is the text's unless `SpacingSet` (ui's `Span.NoLetterSpacing`, or an
+  inline element's `LetterSpacing(0)`) makes it its own, which each engine
+  sets over the span's range as any other. Laying out reuses what shaping
   throws away: engines take the glyphs, runs and lines `shape` returns from
   a scratch each layout resets (`shapeScratch`), as the layout copies them
   into its lines, which share one allocation; Core Text keeps its buffers,
@@ -4193,8 +4328,14 @@ either.
   Only Pango leaves room for it as it breaks, so a line whose hyphen does
   not fit is broken again, narrower by the hyphen, where Unicode's line
   breaking allows (else the hyphen overflows, as a long word does), and
-  the rest anew (`breakLines`). A paragraph without an indent or a soft
-  hyphen is shaped once.
+  the rest anew (`breakLines`). The padding of a span (`Span.PaddingX`),
+  which engines know nothing of, is the shared layout's too: `padLine`
+  moves the glyphs of each line's piece of the span in, and those after
+  it on, by the padding at both ends of each piece, as CSS's
+  `box-decoration-break: clone`, and widens the line; a line that does
+  not fit with the padding of its pieces is broken again, narrower by it,
+  and the rest anew, and an ellipsis leaves room for it. A paragraph
+  without an indent, a soft hyphen or a padded span is shaped once.
   `Params.Balance` (`Element.Balance`) breaks a paragraph that wraps at
   narrower widths, bisecting to a quarter of a DIP, for the narrowest
   that keeps its count of lines (`System.balance`). The layout cache
@@ -4204,7 +4345,10 @@ either.
   styles as spans over its own when it lays out. At commit, each gets the
   boxes of its runes in the paragraph's layout (`Selection`), one hit
   each, so the pointer, the focus order, tooltips and menus work as for
-  any element; they paint only their focus ring, and assistive
+  any element; they paint only their focus ring (their `Opacity`,
+  `Invisible` and dimming fade the colors of their spans, `Span.faded`,
+  and a color faded to nothing stays the span's own, `colorSet`, so the
+  paragraph skips their glyphs but keeps their advance), and assistive
   technology sees those that are more than text, such as links, as nodes
   inside the paragraph's.
   Fontconfig knows no desktop's interface font, so on Linux `system-ui`
@@ -4645,6 +4789,24 @@ either.
   `SurfaceRenew`, so that the first in its `render` signal makes the GPU
   renderer, which the hidden one could not.
 
+  GTK's frame clock waits, after each frame, the refresh interval of that
+  frame's timings, and 1/60 s while none has one. GDK fills it in only
+  from the compositor: on Wayland in the frame callback of a paint it
+  commits itself, which it never asks for when it composites the window
+  with OpenGL (`eglSwapBuffers` commits, with a swap interval of 0), and
+  on X11 from a compositor sending `_NET_WM_FRAME_TIMINGS`. A GtkGLArea
+  drew 60 frames a second on a 165 Hz display under Niri (#1219). The
+  surface writes the interval of the monitor showing the window
+  (`gdk_monitor_get_refresh_rate`, asked again each frame, so it follows
+  the window to another monitor) into the timings of each frame it draws
+  (`paceFrameClock`), unless they have one. `GdkFrameTimings` is private,
+  and GTK 3.24.24 moved its `refresh_interval`: the offset is the one
+  `gdk_frame_timings_get_refresh_interval` reads the write back from. A
+  monitor of unknown rate, as Xvfb's, keeps 60 Hz, and a compositor's
+  interval arriving later replaces the surface's. The clock still runs
+  only while frames are asked for. On Wayland these frames follow a timer
+  at the display's rate, not its refreshes.
+
   On Windows, `RequestFrame` invalidates the surface's window, whose
   `WM_PAINT` comes as soon as the message queue is empty, and frames drawn
   in memory show at once, through GDI or DirectComposition: nothing held
@@ -4856,11 +5018,15 @@ renderer's (`gputest.Compare`).
   `darwin-arm64` and `darwin-amd64` are walked as pairs whose names must
   match: identical files and links ship once, an arm64 and an x86_64
   Mach-O file become a universal binary (`writeUniversal`) when copied,
-  anything else fails. Names starting with a dot are skipped, and so is
-  what `resourceFilter` excludes from `resources/` (but not from listed
-  paths): Go source files, which only builds read, and the paths there
-  that match `resourcesExclude` (`path.Match` segments, `**` for any
-  number of them), with what a matching directory holds; the merger's
+  anything else fails. A name starting with a dot is skipped when it is a
+  directory or a file manager's dropping (`.DS_Store`, `Thumbs.db`,
+  `desktop.ini`), and at the top level of `resources/` whatever it is; a
+  dotfile inside a resource directory ships (`junkName`, `hiddenName`),
+  since packages read such names. So is what `resourceFilter` excludes
+  from `resources/` (but not from listed paths): Go source files, which
+  only builds read, and the paths there that match `resourcesExclude`
+  (`path.Match` segments, `**` for any number of them), with what a
+  matching directory holds; the merger's
   listings and `resource.walk`, which copies and fingerprints, apply it,
   while `mygo dev`'s watcher still sees those files, which a package may
   embed. The entries of these directories and listed paths are followed
@@ -5391,6 +5557,7 @@ which npm allows only for packages that exist: the first release uses an
 | watching files | FSEvents, one stream per tree, no descriptor per file | inotify, per directory | `ReadDirectoryChangesW`, one for a recursive tree, and the parent to see the directory renamed |
 | menu bar | application menu bar, default menu installed | per-window GTK menu bar, none by default | per-window Win32 menu bar, none by default |
 | menu item icons | `NSMenuItem` image, 16 pt, template images tinted | a `GtkBox` of a `GtkImage` (a cairo surface at the widget's scale) and the label; none on the bar's own items; tray menus' items get `icon-data` over DBusMenu (`dbusmenu_gtk_parse_get_cached_item`) | Windows 11: drawn by MyGo in a column after the checks' (premultiplied BGRA, `internal/menuicon`); Windows 10: `hbmpItem`, a 32-bit premultiplied DIB section freed with its menu; none on the bar's own items |
+| menu item subtitles | `NSMenuItem` `subtitle` from macOS 14; before, after the title (`Label — Subtitle`) | after the label | after the label, with its ampersands escaped |
 | auto-hide menu bar | ignored | the bar widget hides; `can-activate-accel` keeps its shortcuts; Alt alone or F10 show it and open its first menu until it deactivates | the menu is attached only for the `SC_KEYMENU` menu loop that Alt alone or F10 start; shortcuts come from the webview |
 | tray | NSStatusItem, click events (a Control-click a right-click) | AppIndicator: a menu, and activation (a double click) for an icon with an `OnClick` listener | notification area icon, click events |
 | global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
@@ -5408,6 +5575,8 @@ which npm allows only for packages that exist: the first release uses an
 | web views' language | from the app's `AppleLanguages`, next launch | `webkit_web_context_set_preferred_languages`, live | the environment's `Language`, as it is created |
 | `Theme.SetSource` | `NSApp`'s appearance (Aqua, DarkAqua, or none) | `gtk-application-prefer-dark-theme`; light also puts a theme named for its dark variant (Yaru-dark) in place of its light one (Yaru), which GTK and WebKitGTK otherwise take for dark, and the other sources reset the theme. Without a source, or with system, the setting follows the settings portal's `color-scheme` (GNOME's and KDE's dark style, which GTK 3 does not read) from `Init` on: dark where the portal prefers dark, else the desktop's own GTK settings | the title bars, menus and native UI, and pages through the DevTools protocol's emulated `prefers-color-scheme` |
 | `Theme.SetGTKCSS` | nothing | a `GtkCssProvider` for the default screen at `GTK_STYLE_PROVIDER_PRIORITY_USER`, replaced by the next sheet that parses | nothing |
+| pointer device and pressure of native UI (`InputEvent.Pointer`, `Pressure`) | a mouse event's `subtype`: a tablet's pen (`NSEventSubtypeTabletPoint`, with `pressure`, or `TabletProximity`) or a touch; `tabletPoint:` events, a pen pressing harder or softer between moves, are moves where the pointer is | the event's source device (`gdk_event_get_source_device`): a pen or eraser, or a touchscreen, its pressure axis (`gdk_event_get_axis`); the area's own touches are fingers | `WM_POINTER` messages, left to `DefWindowProc` to make mouse messages of, give the pressure (`GetPointerPenInfo`, `GetPointerTouchInfo`); the mouse messages' `GetMessageExtraInfo` (`MI_WP_SIGNATURE`) tells a pen's or a finger's |
+| cursors of native UI without a system cursor | `CursorWait`, `CursorHelp`, `CursorZoomIn`, `CursorZoomOut`, `CursorAllScroll` and `CursorCell` from AppKit's private class methods (`_waitCursor`, `_helpCursor`, …, looked up with `respondsToSelector:`), `CursorProgress` its `busyButClickableCursor`, else the nearest public cursor or the arrow | the CSS names from the cursor theme, then GDK's X cursors, then the nearest (`cursorFallbacks`) | `CursorZoomIn`, `CursorZoomOut` and `CursorCell` drawn (`CreateCursor`, `cursorMasks`), the others `IDC_APPSTARTING`, `IDC_WAIT`, `IDC_HELP`, `IDC_SIZEALL`, `IDC_NO` |
 | traffic lights, Dock | yes | ignored | ignored |
 | hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window, through DirectComposition over a material, light or dark per window (`SetWindowButtonsTheme`); snap layouts; a top edge that resizes |
 | progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |
@@ -5461,6 +5630,7 @@ which npm allows only for packages that exist: the first release uses an
 | custom scheme origin | `<scheme>://<host>` | `<scheme>://<host>` | `http://<scheme>.localhost`, or `http://<host>.<scheme>.localhost` for another host (the page's `location`) |
 | `LoadHTML` documents | a reload loads the base URL (`about:blank` without one), so the core cancels it (`Navigation.Reload`) and loads the HTML again; not in the history | as macOS | as macOS, but in the history: going back to one with a base URL loads that URL |
 | window.open | keeps the opener | independent window | keeps the opener: the new window's web view, set up, becomes the popup (`put_NewWindow`, under a deferral) |
+| keys held (`Context.KeyDown`) | `keyDown:` and `keyUp:`; a local monitor of key ups hands the surface those let go of while Command is held, which `sendEvent:` keeps from the key window; resigning first responder or key window lets go of all | key presses and releases, and a release the input method filters (`HeldKeys.Lift`): IBus and Fcitx hand back those they leave, which `HeldKeys` keeps from the content | `WM_KEYUP` and `WM_SYSKEYUP`; a `VK_PROCESSKEY` release lets go of the key at its scancode; `WM_ENTERMENULOOP` lets go of all (`HeldKeys.LiftAll`), whose releases the menu's loop takes; `WM_KILLFOCUS` all |
 | native UI surface | layer-backed NSView, frames from `CADisplayLink` (a timer at the display's rate before macOS 14), input methods through NSTextInputClient | GtkGLArea (GtkDrawingArea without a GPU), GtkIMMulticontext | `MyGoSurface` child window, IMM32 |
 | native UI data drags | NSDraggingSession, NSPasteboardItemDataProvider, NSDraggingDestination | GTK drag contexts, MIME selections, text/uri-list | OLE IDataObject, IDropSource, IDropTarget, Shell drag images |
 | native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |

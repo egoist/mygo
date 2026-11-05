@@ -336,8 +336,13 @@ func ownStyles(rt *engine, e *node) []inspDecl {
 		if p&propPosition != 0 {
 			what = append(what, "position")
 		}
-		if p&propSize != 0 {
+		switch p & propSize {
+		case propSize:
 			what = append(what, "size")
+		case propWidth:
+			what = append(what, "width")
+		case propHeight:
+			what = append(what, "height")
 		}
 		if p&propColors != 0 {
 			what = append(what, "colors")
@@ -426,6 +431,15 @@ func textStyles(ts *textStyle, set uint32) []inspDecl {
 	}
 	if set&setSelection != 0 {
 		ds = append(ds, inspDecl{name: "selection-color", value: colorText(ts.selection), color: ts.selection, swatch: true})
+	}
+	if set&setCaret != 0 {
+		ds = append(ds, inspDecl{name: "caret-color", value: colorText(ts.caret), color: ts.caret, swatch: true})
+	}
+	if set&setStroke != 0 {
+		ds = append(ds, inspDecl{name: "-webkit-text-stroke", value: pxText(ts.strokeWidth) + " " + colorText(ts.strokeColor), color: ts.strokeColor, swatch: true})
+	}
+	if set&setTabSize != 0 {
+		add("tab-size", num(ts.tabSize))
 	}
 	return ds
 }
@@ -543,6 +557,9 @@ func properties(rt *engine, e *node) []inspSection {
 	if e.description != "" {
 		acc.rows = append(acc.rows, inspDecl{name: "description", value: strconv.Quote(e.description)})
 	}
+	if e.keyShortcuts != "" {
+		acc.rows = append(acc.rows, inspDecl{name: "keyshortcuts", value: strconv.Quote(e.keyShortcuts)})
+	}
 	if e.busy {
 		acc.rows = append(acc.rows, inspDecl{name: "busy", value: "true"})
 	}
@@ -647,6 +664,22 @@ func cursorText(c Cursor) string {
 		return "grabbing"
 	case CursorNone:
 		return "none"
+	case CursorProgress:
+		return "progress"
+	case CursorWait:
+		return "wait"
+	case CursorHelp:
+		return "help"
+	case CursorCell:
+		return "cell"
+	case CursorZoomIn:
+		return "zoom-in"
+	case CursorZoomOut:
+		return "zoom-out"
+	case CursorAllScroll:
+		return "all-scroll"
+	case CursorNoDrop:
+		return "no-drop"
 	}
 	return "default"
 }

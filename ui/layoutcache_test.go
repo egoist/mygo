@@ -455,9 +455,10 @@ func TestLayoutInputs(t *testing.T) {
 	other := "epoch key valueInput id depth track transform translatePct world content contentSet " +
 		"pose poseAnim poseSet poseM poseFade reposed ink noCull backface bg fill grad stripes borderC borderStyle radius " +
 		"shadows material effect effecting cache grads blur opacity opacitySet undimmed cursor paintFn objectFn styleFn paintAfterFn " +
-		"inputFn textClient caret takesText noIME copyData webView maximizeButton fit gray objectPos dismissed rotate label widget role " +
-		"checked expanded busy current vertical tip highlighted keepOpen accValue accRange hasRange accFill accStep barInset scrollBase hideScrollbars keepScrollbars barsFrom snap snapAlign " +
+		"inputFn observeFn textClient caret takesText noIME copyData webView maximizeButton fit gray objectPos dismissed rotate label widget role " +
+		"checked expanded busy current vertical tip highlighted focusHighlights keepOpen accValue accRange hasRange accFill accStep barInset scrollBase hideScrollbars keepScrollbars barsFrom snap snapAlign " +
 		"listRow rowIndex rowsOf focusGroup groupSelects segment activeDescendant nameFrom nameJoin focusTo " +
+		"keyShortcuts " +
 		"setPos setSize choosesItems search description invalid followX sort level expandable " +
 		"chooseMany serial ignoreInput accessHidden themed lift ringOffset ringColor ringSet clipping zIndex zOrder"
 	known := map[string]bool{}
@@ -586,7 +587,8 @@ func TestHeldText(t *testing.T) {
 
 // A grid measures the widths of its items only where its columns read
 // them: those spanning a FitContent column, and those spanning an Fr
-// column where the grid's width is not known, as CSS's minmax(0, 1fr).
+// column where the grid's width is not known, as CSS's minmax(0, 1fr), or
+// a MinContent Fr column.
 func TestGridMeasures(t *testing.T) {
 	var fit bool
 	tt := coreNewTester(func(c *context) {
@@ -618,5 +620,14 @@ func TestGridMeasures(t *testing.T) {
 	tt.Frame()
 	if !measured("first") || measured("second") {
 		t.Errorf("FitContent and Fr columns: measured the first %v, the second %v", measured("first"), measured("second"))
+	}
+	tt = coreNewTester(func(c *context) {
+		coreGrid(c).Width(300).ColumnTracks(Fr(1).Min(40), Fr(1).MinContent()).Children(func() {
+			keep("floor", coreText(c, "floor"))
+			keep("content", coreText(c, "content"))
+		})
+	}, 400, 300)
+	if measured("floor") || !measured("content") {
+		t.Errorf("Fr columns with a minimum and with MinContent: measured the first %v, the second %v", measured("floor"), measured("content"))
 	}
 }

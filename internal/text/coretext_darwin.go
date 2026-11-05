@@ -64,6 +64,8 @@ const (
 	ctFontColorGlyphsTrait     = 1 << 13
 	ctFontOrientationDefault   = 0
 	ctRunStatusRightToLeft     = 1 << 0
+	ctTabStopsSpec             = 4
+	ctDefaultTabIntervalSpec   = 5
 	ctBaseWritingDirectionSpec = 13
 
 	cgImageAlphaOnly             = 7
@@ -398,6 +400,9 @@ type coreText struct {
 	// bands caches where glyphs' outlines cross underlines (inkInBand),
 	// by Font: a CTFont's address may be another's once it is released.
 	bands map[bandKey][2]float32
+	// tabStyles are paragraph styles with tab stops every so many points
+	// (Style.TabSize), owned.
+	tabStyles map[tabStyleKey]uintptr
 
 	primary map[Style]uintptr // the CTFont of each style
 	fonts   map[uint][]*Font  // by CFHash of their CTFont
@@ -416,6 +421,10 @@ type coreText struct {
 	// attrs are the attributes of strings in a font of primary, in each
 	// direction, without tracking or kerning, owned.
 	attrs map[attrsKey]uintptr
+	// typesetters are those of text wrapped lately (shape), owned, and frame
+	// counts the frames.
+	typesetters map[typesetterKey]*keptTypesetter
+	frame       uint64
 	// seg and breaks find where lines may break (lineBreaks).
 	seg    segmenter.Segmenter
 	breaks []bool
@@ -460,16 +469,18 @@ func newCoreText() (*coreText, error) {
 		return nil, err
 	}
 	e := &coreText{
-		primary:    map[Style]uintptr{},
-		fonts:      map[uint][]*Font{},
-		native:     map[uintptr]*Font{},
-		oblique:    map[*Font]*Font{},
-		attrs:      map[attrsKey]uintptr{},
-		registered: map[string][]registeredFace{},
-		gaveFaces:  map[string][]registeredFace{},
-		ownFaces:   map[string][]registeredFace{},
-		bands:      map[bandKey][2]float32{},
-		italic:     cfString("MyGoItalic"),
+		primary:     map[Style]uintptr{},
+		fonts:       map[uint][]*Font{},
+		native:      map[uintptr]*Font{},
+		oblique:     map[*Font]*Font{},
+		attrs:       map[attrsKey]uintptr{},
+		typesetters: map[typesetterKey]*keptTypesetter{},
+		tabStyles:   map[tabStyleKey]uintptr{},
+		registered:  map[string][]registeredFace{},
+		gaveFaces:   map[string][]registeredFace{},
+		ownFaces:    map[string][]registeredFace{},
+		bands:       map[bandKey][2]float32{},
+		italic:      cfString("MyGoItalic"),
 	}
 	for i, dir := range [2]int8{0, 1} { // kCTWritingDirectionLeftToRight, RightToLeft
 		d := dir
@@ -932,62 +943,36 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 	e.u16, e.index = appendUTF16(e.u16[:0], e.index[:0], text)
 	u16, index := e.u16, e.index
 	n := len(u16)
-	str := ct.stringWithCharacters(0, &u16[0], n)
-	defer ct.release(str)
-	paragraph := e.styles[0]
-	if rtl {
-		paragraph = e.styles[1]
-	}
 	lang := style.Lang
-	if ct.languageName == 0 {
+	if ct.languageName == 0 || !languageShapes(text, lang) {
 		lang = ""
 	}
-	key := attrsKey{font, rtl, lang}
-	attrs, cached := e.attrs[key]
-	keys, values := append(e.keys[:0], ct.fontAttributeName, ct.paragraphStyleName), append(e.values[:0], font, paragraph)
-	base := 2
-	if lang != "" {
-		// The language picks the glyphs of a font that has several, as
-		// Han characters in Chinese and Japanese, and the fonts Core Text
-		// falls back to.
-		tag := cfString(lang)
-		defer ct.release(tag)
-		keys, values = append(keys, ct.languageName), append(values, tag)
-		base++
+	// A typesetter holds the shaping of its text, whatever the width, so a
+	// text wrapped again at another width needs only new line breaks.
+	// Keeping it is for text wrapping: a line that does not wrap has one
+	// layout, and the text of a list or a dashboard comes and goes.
+	keep := width > 0 && len(spans) == 0 && style.tabStop <= 0
+	var key typesetterKey
+	var typesetter uintptr
+	if keep {
+		key = typesetterKey{font, rtl, lang, style.LetterSpacing, noKerning(style.Features), string(text)}
+		if t, ok := e.typesetters[key]; ok {
+			t.used = e.frame
+			typesetter = t.typesetter
+		}
 	}
-	if style.LetterSpacing != 0 && ct.trackingName != 0 {
-		// Tracking, in points as DIPs, keeps the font's kerning.
-		tracking := cfFloat(float64(style.LetterSpacing))
-		defer ct.release(tracking)
-		keys, values = append(keys, ct.trackingName), append(values, tracking)
-	}
-	if noKerning(style.Features) && ct.kernName != 0 {
-		zero := cfFloat(0)
-		defer ct.release(zero)
-		keys, values = append(keys, ct.kernName), append(values, zero)
-	}
-	e.keys, e.values = keys, values
-	switch {
-	case len(keys) > base:
-		attrs = cfDictionary(keys, values)
-		defer ct.release(attrs)
-	case !cached:
-		// The font of a style lives in primary, with its attributes.
-		attrs = cfDictionary(keys, values)
-		e.attrs[key] = attrs
-	}
-	attributed := ct.attributedString(0, str, attrs)
-	defer ct.release(attributed)
-	if len(spans) > 0 {
-		styled := e.styleSpans(attributed, style, spans, text)
-		defer ct.release(styled)
-		attributed = styled
-	}
-	typesetter := ct.typesetterCreate(attributed)
 	if typesetter == 0 {
-		return nil
+		typesetter = e.newTypesetter(font, u16, text, style, spans, rtl, lang)
+		if typesetter == 0 {
+			return nil
+		}
+		if keep {
+			// The font's address is in the key: held, no other font takes it.
+			e.typesetters[key] = &keptTypesetter{typesetter: typesetter, font: ct.retain(font), used: e.frame}
+		} else {
+			defer ct.release(typesetter)
+		}
 	}
-	defer ct.release(typesetter)
 	var breaks []bool
 	if wholeWords && width > 0 {
 		e.breaks = lineBreaks(&e.seg, e.breaks, text)
@@ -1021,6 +1006,147 @@ func (e *coreText) shape(text []rune, style Style, spans []Span, width float32, 
 		start += count
 	}
 	return lines
+}
+
+// newTypesetter shapes a text, without its line breaks, into a typesetter the
+// caller owns, or 0.
+func (e *coreText) newTypesetter(font uintptr, u16 []uint16, text []rune, style Style, spans []Span, rtl bool, lang string) uintptr {
+	str := ct.stringWithCharacters(0, &u16[0], len(u16))
+	defer ct.release(str)
+	paragraph := e.styles[0]
+	if rtl {
+		paragraph = e.styles[1]
+	}
+	tabbed := style.tabStop > 0
+	if tabbed {
+		paragraph = e.tabStyle(rtl, style.tabStop)
+	}
+	key := attrsKey{font, rtl, lang}
+	attrs, cached := e.attrs[key]
+	keys, values := append(e.keys[:0], ct.fontAttributeName, ct.paragraphStyleName), append(e.values[:0], font, paragraph)
+	base := 2
+	if lang != "" {
+		// The language picks the glyphs of a font that has several, as
+		// Han characters in Chinese and Japanese, and the fonts Core Text
+		// falls back to.
+		tag := cfString(lang)
+		defer ct.release(tag)
+		keys, values = append(keys, ct.languageName), append(values, tag)
+		base++
+	}
+	if style.LetterSpacing != 0 && ct.trackingName != 0 {
+		// Tracking, in points as DIPs, keeps the font's kerning.
+		tracking := cfFloat(float64(style.LetterSpacing))
+		defer ct.release(tracking)
+		keys, values = append(keys, ct.trackingName), append(values, tracking)
+	}
+	if noKerning(style.Features) && ct.kernName != 0 {
+		zero := cfFloat(0)
+		defer ct.release(zero)
+		keys, values = append(keys, ct.kernName), append(values, zero)
+	}
+	e.keys, e.values = keys, values
+	switch {
+	case len(keys) > base || tabbed:
+		attrs = cfDictionary(keys, values)
+		defer ct.release(attrs)
+	case !cached:
+		// The font of a style lives in primary, with its attributes.
+		attrs = cfDictionary(keys, values)
+		e.attrs[key] = attrs
+	}
+	attributed := ct.attributedString(0, str, attrs)
+	defer ct.release(attributed)
+	if len(spans) > 0 {
+		styled := e.styleSpans(attributed, style, spans, text)
+		defer ct.release(styled)
+		attributed = styled
+	}
+	return ct.typesetterCreate(attributed)
+}
+
+// typesetterKey is all that makes a typesetter of a text in a font, but for
+// its spans and tab stops, which typesetters kept do not have.
+type typesetterKey struct {
+	font    uintptr
+	rtl     bool
+	lang    string
+	spacing float32
+	noKern  bool
+	text    string
+}
+
+// keptTypesetter is a typesetter kept across frames, with the font it holds
+// on to, owned, and the frame that last used it.
+type keptTypesetter struct {
+	typesetter, font uintptr
+	used             uint64
+}
+
+// keptTypesetterFrames is how many frames a typesetter stays unused:
+// windows take turns, so a text wrapping again in each frame of its window
+// may wait for the others'.
+const keptTypesetterFrames = 8
+
+// endFrame lets go of the typesetters of text that stopped wrapping again.
+func (e *coreText) endFrame() {
+	e.frame++
+	for k, t := range e.typesetters {
+		if e.frame-t.used > keptTypesetterFrames {
+			e.dropTypesetter(k, t)
+		}
+	}
+}
+
+// releaseShaping lets go of all typesetters kept, as windows go idle.
+func (e *coreText) releaseShaping() {
+	for k, t := range e.typesetters {
+		e.dropTypesetter(k, t)
+	}
+}
+
+func (e *coreText) dropTypesetter(k typesetterKey, t *keptTypesetter) {
+	ct.release(t.typesetter)
+	ct.release(t.font)
+	delete(e.typesetters, k)
+}
+
+type tabStyleKey struct {
+	rtl      bool
+	interval float32
+}
+
+// tabStyle returns the paragraph style of a direction with tab stops
+// every interval points from the start of each line, and none before.
+func (e *coreText) tabStyle(rtl bool, interval float32) uintptr {
+	key := tabStyleKey{rtl, interval}
+	if p, ok := e.tabStyles[key]; ok {
+		return p
+	}
+	if len(e.tabStyles) >= 64 {
+		for _, p := range e.tabStyles {
+			ct.release(p)
+		}
+		clear(e.tabStyles)
+	}
+	var dir int8 // kCTWritingDirectionLeftToRight
+	if rtl {
+		dir = 1
+	}
+	stops := ct.arrayCreate(0, nil, 0, ct.arrayCallbacks)
+	defer ct.release(stops)
+	every := float64(interval) // a CGFloat
+	settings := [3]ctParagraphStyleSetting{
+		{spec: ctBaseWritingDirectionSpec, size: 1, value: unsafe.Pointer(&dir)},
+		{spec: ctTabStopsSpec, size: unsafe.Sizeof(stops), value: unsafe.Pointer(&stops)},
+		{spec: ctDefaultTabIntervalSpec, size: unsafe.Sizeof(every), value: unsafe.Pointer(&every)},
+	}
+	p := ct.paragraphStyleCreate(&settings[0], len(settings))
+	runtime.KeepAlive(&dir)
+	runtime.KeepAlive(&stops)
+	runtime.KeepAlive(&every)
+	e.tabStyles[key] = p
+	return p
 }
 
 // line reads the runs of a line of a text that italic says is italic, or
@@ -1549,6 +1675,7 @@ func (e *coreText) forgetPrimary() {
 		ct.release(a)
 	}
 	clear(e.attrs)
+	e.releaseShaping()
 }
 
 func (e *coreText) fontCount() int {

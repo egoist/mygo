@@ -94,6 +94,9 @@ out, and so is `focusable`, which every control is. `webview` marks a web
 view inside native UI: its page has no elements here. `announced` lines
 are what the app announced to screen readers. Labels and values longer
 than 120 characters are cut, ending in `…" (N more)`.
+`keyshortcuts=` (after `key=`) is the keys the app says press or focus
+the element, as screen readers read them (`aria-keyshortcuts`): `"⌘K"`
+on macOS, `"Ctrl+K"` elsewhere, several separated by spaces.
 
 - `-i` (`--interactive`) keeps controls and elements with actions:
   buttons, fields, check boxes, links, list items you can press, and so
@@ -114,7 +117,8 @@ Roles are `group`, `text`, `heading`, `button`, `link`, `checkBox`,
 `tree`, `treeItem`, `tabList`, `tab`, `scroll`, `dialog`, `alertDialog`,
 `popup`, `tooltip`, `splitter`, `status`, `toolbar`, `radioGroup`,
 `disclosure`, `colorWell`, `menu`, `menuBar`, `menuItem`,
-`menuItemCheckBox`, `menuItemRadio` and `navigation`. States are `disabled`, `checked`,
+`menuItemCheckBox`, `menuItemRadio`, `region`, `log`, `timer`, `alert`,
+`separator`, `rowHeader`, `search`, `article` and `navigation`. States are `disabled`, `checked`,
 `mixed`, `selected`, `expanded`, `expandable`, `multiline`, `password`,
 `readOnly`, `selectable`, `multiselectable`, `offscreen`, `segment`,
 `search`, `invalid`, `sortAscending`, `sortDescending`, `vertical` and

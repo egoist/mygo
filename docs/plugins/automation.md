@@ -127,7 +127,9 @@ text fields, in runes), `level`, `posInSet`, `setSize` and `current`
 (what it is the current one of, as ARIA's `aria-current`: `true`,
 `page`, `step`, `location`, `date` or `time`) that it has.
 IDs are strings of digits: they are 64-bit, which JavaScript's numbers
-would round.
+would round. `keyShortcuts` is the keys that press or focus the element,
+as ARIA's `aria-keyshortcuts`, written as the platform's menus write
+them (`⌘K` on macOS, `Ctrl+K` elsewhere) and separated by spaces.
 
 `key` is the element's `Key`, given with `Element.Key` or, for widgets
 that take theirs before they are made, `Context.Key`: a string, a
@@ -151,7 +153,8 @@ a column that lays others out has no node, keyed or not. Roles are
 `listItem`, `menuButton`, `toolbar`, `radioGroup`, `toggleButton`,
 `comboBox`, `disclosure`, `meter`, `stepper`, `colorWell`,
 `alertDialog`, `menu`, `menuBar`, `menuItem`, `menuItemCheckBox`,
-`menuItemRadio`, `heading` and `navigation`. States are `focusable`, `disabled`,
+`menuItemRadio`, `heading`, `region`, `log`, `timer`, `alert`,
+`separator`, `rowHeader`, `search`, `article` and `navigation`. States are `focusable`, `disabled`,
 `checked`, `mixed`, `selected`, `expanded`, `multiline`, `password`,
 `readOnly`, `selectable`, `offscreen`, `multiselectable`, `segment`,
 `search`, `invalid`, `sortAscending`, `sortDescending`, `expandable`,

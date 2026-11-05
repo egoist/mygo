@@ -31,7 +31,10 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
   	InsetShadow(0, 0, 1, 0, ui.RGBA(255, 255, 255, 0.2))
   ```
 
-  A [transition](transitions.md#what-moves) fades shadows as they change.
+  `NoShadow()` takes off the shadows added so far, as `box-shadow: none`,
+  to flatten a card a helper returned with one; shadows added after it
+  start afresh. A [transition](transitions.md#what-moves) fades shadows
+  as they change.
 - **Gradients and stripes.** `Gradient(from, to, angle)` fills the box with
   a linear gradient; `LinearGradient` also places its colors along the line
   (`Start`, `End`) and mixes them in Oklab, which keeps their lightness,
@@ -180,7 +183,16 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
   resize cursors (both ways, toward one side as `CursorResizeE`, and of
   columns and rows), `CursorCopy` and `CursorAlias` for drops,
   `CursorContextMenu`, `CursorVerticalText`, `CursorNotAllowed`,
-  `CursorCrosshair`, and `CursorNone`, which hides it. An element's
+  `CursorCrosshair`, `CursorNone`, which hides it, CSS's `progress` and
+  `wait` (`CursorProgress` over a control that is busy but still takes
+  input, as one with `aria-busy`, and `CursorWait` while nothing can be
+  done), `CursorHelp`, `CursorCell`, `CursorZoomIn` and `CursorZoomOut`,
+  `CursorAllScroll` and `CursorNoDrop`. Windows has no cursors for
+  zooming and cells, which MyGo draws, as browsers bring their own;
+  macOS has `CursorWait`, `CursorHelp`, the zoom cursors and
+  `CursorAllScroll` among AppKit's private cursors, as WebKit uses them,
+  and shows the nearest public one where a version lacks them (the
+  crosshair for `CursorCell`). An element's
   cursor shows over its children too, except over those that take clicks
   (a button, or anything with `Clicked` or `OnClick`): those show their
   own, the default arrow unless they set one, so the buttons of a field

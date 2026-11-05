@@ -3,6 +3,7 @@ package ui
 import (
 	"math"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
@@ -180,7 +181,7 @@ const (
 	// state while the page is in the history, shown or not.
 	flagPage
 	// flagFocusTarget marks an element the focus goes to but Tab does not
-	// stop at, as a Router's page.
+	// stop at, as a Router's page, or an element of TabStop(false).
 	flagFocusTarget
 	// flagDividers marks an element drawing lines between its children,
 	// listed in Context.dividers.
@@ -229,6 +230,15 @@ type textStyle struct {
 	background Color
 	// selection is the highlight of selected text, the theme's when unset.
 	selection Color
+	// caret is the color of the insertion caret, the theme's accent when
+	// unset.
+	caret Color
+	// strokeWidth and strokeColor stroke the outlines of the glyphs
+	// under their fill (TextStroke).
+	strokeWidth float32
+	strokeColor Color
+	// tabSize puts tab stops every tabSize spaces (TabSize).
+	tabSize float32
 }
 
 const (
@@ -249,9 +259,12 @@ const (
 	setSelection
 	setLang
 	setDecoOffset
+	setCaret
+	setStroke
+	setTabSize
 
 	// setAll has every bit of textStyle.set.
-	setAll = setDecoOffset<<1 - 1
+	setAll = setTabSize<<1 - 1
 )
 
 // layoutStyle is what lays an element out, of what the view sets on it:
@@ -295,11 +308,12 @@ type layoutStyle struct {
 	// the first lines of its label and control.
 	baselines bool
 
-	maxLines int
-	single   bool
-	noWrap   bool
-	balance  bool
-	ellipsis string
+	maxLines   int
+	single     bool
+	noWrap     bool
+	balance    bool
+	keepSpaces bool
+	ellipsis   string
 }
 
 // Element is a node of a frame's user interface. The functions that create
@@ -419,6 +433,7 @@ type node struct {
 	// Input the element takes itself (HandleInput), and where the caret of
 	// the text it takes is (TextCaret).
 	inputFn    func(InputEvent) bool
+	observeFn  func(InputEvent) // the input in it (ObserveInput)
 	textClient TextInputClient
 	caret      Rect
 	takesText  bool
@@ -481,17 +496,23 @@ type node struct {
 	tip bool
 	// highlighted is set on the option of a select the pointer or the
 	// arrows are on, and keepOpen on an item of a menu that leaves the
-	// menu open as it is chosen (KeepOpen).
-	highlighted bool
-	keepOpen    bool
-	accValue    string
-	accRange    [3]float64
-	hasRange    bool
+	// menu open as it is chosen (KeepOpen). focusHighlights marks an
+	// option of a select, which assistive technology focusing highlights,
+	// as the arrows do, rather than choosing it.
+	highlighted     bool
+	focusHighlights bool
+	keepOpen        bool
+	accValue        string
+	accRange        [3]float64
+	hasRange        bool
 	// accFill describes the element to assistive technology further, as
 	// a code editor its text and selection.
 	accFill func(n *platform.AccessNode)
 	// accStep is how far the keys move the value of a range.
 	accStep float64
+	// keyShortcuts are the keys that press or focus the element, as the
+	// platform writes them (KeyShortcuts).
+	keyShortcuts string
 
 	// Layout results, in DIPs relative to the window.
 	x, y, w, h float32
@@ -1489,6 +1510,11 @@ func (e *node) InsetShadow(x, y, blur, spread float32, c Color) *node {
 	return e
 }
 
+// NoShadow takes off the outer and inner shadows added so far, as CSS's
+// box-shadow: none, so that the Shadow and InsetShadow calls after it
+// start afresh.
+func (e *node) NoShadow() *node { e.shadows = e.shadows[:0]; return e }
+
 // Opacity makes the element and its children translucent.
 func (e *node) Opacity(o float32) *node {
 	e.opacity, e.opacitySet = max(0, min(o, 1)), true
@@ -1535,6 +1561,23 @@ func (ts *textStyle) selectionColor(t *Theme) Color {
 		return ts.selection
 	}
 	return t.Selection
+}
+
+// CaretColor sets the color of the insertion caret of the text inputs in
+// the element, as CSS's caret-color does, a field's own text color for
+// one; the theme's accent is the color elsewhere.
+func (e *node) CaretColor(c Color) *node {
+	e.ts.caret = c
+	e.ts.set |= setCaret
+	return e
+}
+
+// caretColor is the color of the style's insertion caret.
+func (ts *textStyle) caretColor(t *Theme) Color {
+	if ts.set&setCaret != 0 {
+		return ts.caret
+	}
+	return t.Accent
 }
 
 // LineHeight sets the height of lines of text as a multiple of the font
@@ -1613,11 +1656,47 @@ func (e *node) TextBackground(c Color) *node {
 	return e
 }
 
+// TextStroke strokes the outlines of the glyphs of text width DIPs wide
+// in c, under their fill, as CSS's -webkit-text-stroke with paint-order:
+// stroke fill: the half of the stroke outside the glyphs shows around
+// them, a halo of c, as a chart's labels over its bars take one of the
+// background's color to stand out. A text's strokes all go under all
+// its glyphs, so that one glyph's stroke never covers its neighbor; the
+// stroke goes around the edge of the pixels of color glyphs, as emoji.
+// Underlines and strikethroughs are not stroked. A width of 0 strokes
+// nothing, where the elements around it stroke their text.
+func (e *node) TextStroke(width float32, c Color) *node {
+	linkStrokes()
+	e.ts.strokeWidth, e.ts.strokeColor = max(width, 0), c
+	e.ts.set |= setStroke
+	return e
+}
+
+// TabSize puts the tab stops of the element's text every n spaces of its
+// font from the start of each line, as CSS's tab-size: a tab advances
+// to the next of them, as a code block indents with tabs of 2 or 4
+// columns. A space is as wide as the font's, letter spacing included.
+// Without it, or with n at 0, tabs advance as the system's text stack
+// sets them, which differs between systems.
+func (e *node) TabSize(n float32) *node {
+	if n > 0 {
+		linkTabs.Do(text.Shared().UseTabSize)
+	}
+	e.ts.tabSize = max(n, 0)
+	e.ts.set |= setTabSize
+	return e
+}
+
+// linkTabs lets the text system set tab stops once an element sets a tab
+// size, so that apps that never do not link it.
+var linkTabs sync.Once
+
 // Strikethrough strikes text through.
 func (e *node) Strikethrough() *node { e.ts.strike = true; e.ts.set |= setStrike; return e }
 
 // LetterSpacing adds v DIPs after every character of text, or tightens it
-// with a negative v, as for labels in capitals.
+// with a negative v, as for labels in capitals; 0 takes away that of the
+// text around it, as for a number within such a label.
 func (e *node) LetterSpacing(v float32) *node {
 	e.ts.spacing = v
 	e.ts.set |= setSpacing
@@ -1678,6 +1757,13 @@ func (e *node) NoWrap() *node { e.noWrap = true; return e }
 // layout, as the text system keeps it.
 func (e *node) Balance() *node { e.balance = true; return e }
 
+// PreserveSpaces keeps the spaces the element's text ends its lines with,
+// and a text of only spaces, with their advance, as CSS's white-space:
+// break-spaces does: a gap made of spaces between two texts in a row, or
+// the padding a monospaced column is aligned with. Without it spaces
+// ending a line take no room, as with white-space: normal.
+func (e *node) PreserveSpaces() *node { e.keepSpaces = true; return e }
+
 // Ellipsis sets what ends text that MaxLines or SingleLine cuts, "…" by
 // default.
 func (e *node) Ellipsis(s string) *node { e.ellipsis = s; return e }
@@ -1731,6 +1817,23 @@ func (e *node) hasState() bool {
 
 // Focusable lets the element take the keyboard focus, by a click or Tab.
 func (e *node) Focusable() *node { e.flags |= flagFocusable; return e }
+
+// TabStop makes the element focusable, and sets whether Tab and Shift+Tab
+// stop at it, as they do at a Focusable element. One that is no tab stop
+// is HTML's tabindex="-1": it takes the focus from a click, from Focus and
+// AutoFocus, and from assistive technology, while Tab passes over it, on
+// to what is inside it and after it: a container that takes the focus to
+// hold its keys, as a card or a dialog's panel, without coming before its
+// own controls.
+func (e *node) TabStop(stop bool) *node {
+	e.flags |= flagFocusable
+	if stop {
+		e.flags &^= flagFocusTarget
+	} else {
+		e.flags |= flagFocusTarget
+	}
+	return e
+}
 
 // DragWindow makes the element a handle that moves the window, such as the
 // title bar of a frameless window. A double click on it maximizes the

@@ -609,10 +609,30 @@ func roleName(r Role) string {
 		return "MenuItemCheckbox"
 	case RoleMenuItemRadio:
 		return "MenuItemRadio"
+	case RoleRegion:
+		return "Region"
+	case RoleLog:
+		return "Log"
+	case RoleTimer:
+		return "Timer"
+	case RoleAlert:
+		return "Alert"
+	case RoleSeparator:
+		return "Separator"
+	case RoleRowHeader:
+		return "RowHeader"
+	case RoleSearch:
+		return "Search"
+	case RoleArticle:
+		return "Article"
 	case RoleHeading:
 		return "Heading"
 	case RoleNavigation:
 		return "Navigation"
+	case RoleListBox:
+		return "ListBox"
+	case RoleOption:
+		return "Option"
 	}
 	return ""
 }
@@ -623,6 +643,12 @@ func accessibleRole(e *node) (string, bool) {
 	r, ok := e.accessRole()
 	if !ok {
 		return "none", false
+	}
+	switch e.role {
+	case RoleListBox:
+		return "listbox", true
+	case RoleOption:
+		return "option", true
 	}
 	switch role := Role(r) + RoleGroup; role {
 	case RoleGroup:

@@ -30,6 +30,27 @@ descenders, as `underline-offset-4` does on the web:
 ui.Link(c, "Read the docs", url).Underline().DecorationThickness(1).UnderlineOffset(4)
 ```
 
+`TextStroke(width, color)` strokes the outlines of the glyphs under their
+fill, as CSS's `-webkit-text-stroke` with `paint-order: stroke fill`: half
+the stroke shows around each glyph, a halo that keeps a label readable
+over whatever is behind it. All the strokes of a text paint under all its
+glyphs, so a stroke never covers the glyph beside it; the text of an
+inline element strokes with its own. A chart's labels over its bars,
+outlined in the background's color:
+
+```go
+ui.Text(c, "42%").TextColor(t.Text).TextStroke(3, t.Background)
+```
+
+`TabSize(n)` puts tab stops every `n` spaces of the font from the start of
+each line, as CSS's `tab-size`, so a code block's tabs indent 2 or 4
+columns; without it, tabs stop where the system's text stack puts them,
+which differs between systems:
+
+```go
+ui.Text(c, source).Font("monospace").TabSize(4)
+```
+
 Text in Arabic, Hebrew and the other scripts written so reads right to
 left, mixed with text reading left to right as Unicode's bidirectional
 algorithm says: a paragraph reads in the direction of its first strongly
@@ -95,6 +116,9 @@ one that shows on it. A right-click on selectable text shows Copy and
 Select All; a `ContextMenu` on the text or its `Selectable` container
 replaces that menu, and `Menu.EditItems` puts Copy and Select All in it.
 
+The caret of a text input is the theme's `Accent`; `CaretColor` sets another
+for an input and the inputs inside an element, as CSS's `caret-color` does.
+
 ## Rich text
 
 `ui.RichText` mixes styles in one paragraph: each `ui.Span` sets what it
@@ -123,6 +147,35 @@ ui.RichText(c,
 	ui.Span{Text: "? "},
 	ui.Span{Text: "match", Background: ui.RGBA(250, 204, 21, 0.4)},
 )
+```
+
+`PaddingX` and `PaddingY` pad a span's background, which then hugs its
+glyphs too, as CSS pads an inline box: a key cap or a mention chip within
+a sentence. As on the web, `PaddingX` takes room in the line, moving the
+span's glyphs in and the words after it on, and lines break to fit it;
+`PaddingY` only paints, over the lines above and below, which keep their
+height. A span that wraps pads its piece of each line at both ends, with
+its own corners, as `box-decoration-break: clone` does:
+
+```go
+ui.RichText(c,
+	ui.Span{Text: "Press "},
+	ui.Span{Text: "Ctrl K", Background: t.Surface, Radius: 4, PaddingX: 6, PaddingY: 2},
+	ui.Span{Text: " to search"},
+)
+```
+
+A span's `LetterSpacing` left zero takes the text's; `NoLetterSpacing`
+makes the zero its own, as CSS's `letter-spacing: 0` on an inline box,
+for a number or code that keeps its normal spacing within tracked
+capitals. An element within a sentence does the same with
+`LetterSpacing(0)`:
+
+```go
+ui.RichText(c,
+	ui.Span{Text: "BUILD "},
+	ui.Span{Text: "4.2.1", NoLetterSpacing: true},
+).LetterSpacing(2)
 ```
 
 A span with an `ObjectWidth` makes its object replacement characters
@@ -183,6 +236,20 @@ ui.RichText(c).Children(func() {
 Only text elements (`Text`, `Link`, `RichText`) go inside a text; their
 sizes, padding, borders and corners do not apply, and a `Background`
 highlights their text.
+
+`Opacity` fades an element's words within the sentence, with the colors
+of the elements inside it, a transparent `TextColor` paints none of them,
+and `Invisible` hides them as CSS's `visibility: hidden` does: their room
+in the line stays, so a word streamed into a reply can fade in, or a
+placeholder hide, without moving the text around it:
+
+```go
+ui.Text(c, "").Children(func() {
+	for i, word := range reply.words {
+		ui.Text(c, word).Opacity(reply.fadeIn(i)) // 0 to 1 as each arrives
+	}
+})
+```
 
 ## Fonts
 

@@ -385,6 +385,43 @@ func (_handle *Context) Instant() bool {
 	return _ctx.Instant()
 }
 
+// KeyDown reports whether key is held down in the window, whichever
+// element has the focus and whether or not one took the key, without
+// taking it from them: a cheat sheet of shortcuts lights the keys held
+// while its search field has the focus. A frame that reads it is drawn
+// again as the keys held change. Keys count as shortcuts take them (a
+// chord of a key the layout types no US key for, as S on a Cyrillic
+// layout, by its position); the modifier keys are Modifiers'. A key whose
+// press ran a menu item's shortcut went to the menu, not the window. The
+// window lets go of every key as it loses the keyboard, whose releases go
+// elsewhere.
+func (_handle *Context) KeyDown(key Key) bool {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return false
+	}
+	return _ctx.KeyDown(key)
+}
+
+// KeysDown returns the keys held down in the window, as KeyDown tells
+// them, in the order they were pressed; nil while none is. A cheat sheet
+// fades the rows of shortcuts that use none of them:
+//
+//	held := c.KeysDown()
+//	for _, s := range app.shortcuts {
+//		row := shortcutRow(c, s)
+//		if len(held) > 0 && !s.usesAny(held) {
+//			row.Opacity(0.4)
+//		}
+//	}
+func (_handle *Context) KeysDown() []Key {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return nil
+	}
+	return _ctx.KeysDown()
+}
+
 // Locale returns the language the app shows (mygo.App.Locale), a BCP 47
 // tag such as "en" or "zh-Hans", for what the view says in it. Text is in
 // it unless an element says otherwise (Element.Lang). A frame follows its
@@ -469,6 +506,7 @@ func (_handle *Context) Preferences() Preferences {
 // ReadClipboard returns the text on the clipboard, and WriteClipboard
 // puts text there, for widgets that copy and paste themselves. Call them
 // on the main thread: in the view, or in an input handler.
+// WriteClipboardThen tells whether the text got there.
 func (_handle *Context) ReadClipboard() string {
 	_ctx := _handle.build()
 	if _ctx == nil {
@@ -702,6 +740,27 @@ func (_handle *Context) WriteClipboard(s string) {
 		return
 	}
 	_ctx.WriteClipboard(s)
+}
+
+// WriteClipboardThen puts text on the clipboard as WriteClipboard does,
+// and done, unless nil, gets what came of it a moment later, before a
+// frame builds anew with what it changed, as navigator.clipboard's
+// writeText resolves or rejects: an error when the text did not get
+// there, as when another app holds the clipboard, or a browser refuses
+// a write the user did not act for (a press or a key, a moment before).
+// A copy button shows "Copied" or "Failed" with it:
+//
+//	if ui.Button(c, "Copy").Clicked() {
+//		c.WriteClipboardThen(link, func(err error) {
+//			app.copied, app.copyFailed = err == nil, err != nil
+//		})
+//	}
+func (_handle *Context) WriteClipboardThen(s string, done func(err error)) {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return
+	}
+	_ctx.WriteClipboardThen(s, done)
 }
 
 // Zoom returns the zoom SetZoom set, 1 for none.
@@ -1556,6 +1615,19 @@ func Link(c *Context, label string, url string) Element {
 // Local returns state of type T that element e keeps from frame to frame,
 // keyed by key among its states; init creates it the first time. Custom
 // widgets keep what they need with it, on the element they create.
+//
+// The element owns what init made. When a frame no longer builds it, a
+// value that is an io.Closer (T or *T has Close() error) is closed once,
+// on the main thread, after that frame, as the web aborts an
+// AbortController as an element is removed: a component cancels in Close
+// the work it started, as a streaming request, a ticker or a subscription:
+//
+//	s := ui.Local(e, "stream", func() *stream { return startStream(url) })
+//
+// An element leaving with an exit transition closes them once its exit
+// ended, and every element as its window closes. A nil value is not
+// closed, and Close's error is ignored. Keep a value the element must not
+// close, as one the app shares, in the app's state.
 func Local[T any](e Element, key any, init func() T) *T {
 	_node := e.node()
 	if _node == nil {
@@ -3352,7 +3424,9 @@ func (_handle Element) AnimatePose(p Pose, a Animation) Element {
 // on the way, or a new kind of Animation, takes over from where the value
 // is: a spring keeps its velocity, even that of a curve. When the desktop
 // asks for less motion (Preferences.ReduceMotion), the value goes to its
-// target at once.
+// target at once, unless a's NonMotion says it moves nothing, as a fade:
+//
+//	op := e.AnimateTo("fade", target, ui.Animation{Duration: 200 * time.Millisecond, NonMotion: true})
 func (_handle Element) AnimateTo(key any, target float32, a Animation) float32 {
 	_node := _handle.node()
 	if _node == nil {
@@ -3791,6 +3865,19 @@ func (_handle Element) Cache() Element {
 	return wrapElement(_node.Cache())
 }
 
+// CaretColor sets the color of the insertion caret of the text inputs in
+// the element, as CSS's caret-color does, a field's own text color for
+// one; the theme's accent is the color elsewhere.
+func (_handle Element) CaretColor(c Color) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.CaretColor(c))
+}
+
 // CaretWidth sets this input's painted caret width in DIPs for this build.
 // It defaults to one DIP. Positive widths are rounded to device pixels,
 // at least one pixel wide; zero and negative widths hide the caret. It does
@@ -3830,8 +3917,9 @@ func (_handle Element) Changed() bool {
 }
 
 // Checked tells assistive technology whether the element, as a check box,
-// switch, radio button, toggle button or menu item of your own, is on.
-// Bases set it from their value.
+// switch, radio button, toggle button or menu item of your own, is on, or
+// whether an option (RoleOption) is selected. Bases set it from their
+// value.
 func (_handle Element) Checked(on bool) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -5150,6 +5238,24 @@ func (_handle Element) InView() bool {
 	return _node.InView()
 }
 
+// InViewMargin reports whether some of the element showed in the frame
+// before, as InView does, with the window and the scroll containers
+// around it grown by margin, in DIPs, CSS style as Padding: all sides,
+// vertical and horizontal, or top, right, bottom and left. As
+// IntersectionObserver's rootMargin and scrollMargin, a margin of 200
+// has the element in view once it is within 200 DIPs of showing, to load
+// what it shows before it scrolls in, and a negative one only once it is
+// that far inside; other clips around it clip it as they do.
+func (_handle Element) InViewMargin(margin ...float32) bool {
+	_node := _handle.node()
+	if _node == nil {
+		return false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.InViewMargin(margin...)
+}
+
 // InputMethod sets whether the system's input methods compose text for the
 // element while it has the keyboard focus, as they do by default for one
 // that takes text (HandleTextInput, TextCaret). Turned off, keys type the
@@ -5314,11 +5420,30 @@ func (_handle Element) KeepScrollbars(keep bool) Element {
 	return wrapElement(_node.KeepScrollbars(keep))
 }
 
+// KeyShortcuts tells assistive technology a key, with exactly the
+// modifiers mods, that presses or focuses the element, as ARIA's
+// aria-keyshortcuts: the window's shortcut that runs a toolbar button's
+// command, or opens a command palette, which screen readers read with the
+// element's name. It is written as the platform's menus write it ("⌘K"
+// for Cmd+K on macOS, "Ctrl+K" elsewhere). It only tells the key: handle
+// it with Shortcut on the context, or OnWindowShortcut. Call it once for
+// each key that does.
+func (_handle Element) KeyShortcuts(mods Modifiers, key Key) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.KeyShortcuts(mods, key))
+}
+
 // Keyframes plays a sequence, holding its last value when done. It starts
 // on the first call, with the first frame's value. Keep the element and
 // key stable, and change Run when changing the sequence. Only active
 // playback asks for animation frames. Reduced motion completes playback at
-// its final value, including when the preference changes mid-sequence.
+// its final value, including when the preference changes mid-sequence,
+// unless the options' NonMotion says the sequence moves nothing.
 func (_handle Element) Keyframes(key any, frames []Keyframe, options ...KeyframeOptions) float32 {
 	_node := _handle.node()
 	if _node == nil {
@@ -5395,7 +5520,8 @@ func (_handle Element) LeftPercent(p float32) Element {
 }
 
 // LetterSpacing adds v DIPs after every character of text, or tightens it
-// with a negative v, as for labels in capitals.
+// with a negative v, as for labels in capitals; 0 takes away that of the
+// text around it, as for a number within such a label.
 func (_handle Element) LetterSpacing(v float32) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -5644,6 +5770,22 @@ func (_handle Element) MaxHeightPercent(p float32) Element {
 	return wrapElement(_node.MaxHeightPercent(p))
 }
 
+// MaxLength keeps the user from making a text input's value longer than n,
+// counted as HTML's maxlength counts it, in UTF-16 code units, a newline
+// as one: text typed, pasted or committed by an input method is cut to
+// what fits at the caret, and replacing a selection takes what fits in its
+// place. A value the app sets is not cut. n <= 0 means no limit.
+// Like ReadOnly, it holds for the input that comes until the next frame.
+func (_handle Element) MaxLength(n int) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.MaxLength(n))
+}
+
 // MaxLines shows at most n lines of the element's text, ending it with an
 // ellipsis.
 func (_handle Element) MaxLines(n int) Element {
@@ -5794,6 +5936,19 @@ func (_handle Element) Modal() Element {
 	return wrapElement(_node.Modal())
 }
 
+// NoShadow takes off the outer and inner shadows added so far, as CSS's
+// box-shadow: none, so that the Shadow and InsetShadow calls after it
+// start afresh.
+func (_handle Element) NoShadow() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.NoShadow())
+}
+
 // NoWrap keeps each line of the element's text whole, breaking it only at
 // newlines, even where it overflows the element.
 func (_handle Element) NoWrap() Element {
@@ -5825,6 +5980,40 @@ func (_handle Element) ObjectPosition(x float32, y float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.ObjectPosition(x, y))
+}
+
+// ObserveInput has fn see the input that comes to the element or to an
+// element inside it, without taking it, as an ancestor listening to the
+// keydown events that bubble up to it from the focus: keys pressed and
+// released (with Repeat), text typed and composed, and the edit commands
+// of the menus while the element or one of its descendants has the
+// keyboard focus, and the pointer pressed and released over it. fn runs on
+// the main thread before the element the input goes to gets it (the
+// capture phase of UI Events), the outermost of the elements observing
+// first, with X and Y relative to its own box; the input then goes on as
+// it would without fn, to HandleInput, the text inputs, shortcuts, Tab and
+// the rest, which may move the focus. A frame follows the input fn sees.
+//
+// fn sees what HandleInput would see at the focus, whatever takes it,
+// keys a Shortcut takes and Tab among them, but not the keys the system or
+// the menus take before the window gets them (an edit command of the menus
+// comes instead, InputCommand), the keys a web view takes while it has the
+// focus, nor the input of the popovers, menus and dialogs the element
+// opens, which are not inside it. A key that moved the focus, as Tab,
+// comes up where the focus went, as with UI Events. A disabled element
+// observes nothing.
+//
+// It is for a region that reacts to any input in it, such as a demo that
+// stops playing at the first key pressed in it, or a panel that closes a
+// hint as soon as one of its fields is typed in.
+func (_handle Element) ObserveInput(fn func(ev InputEvent)) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.ObserveInput(fn))
 }
 
 // OnPaste has fn see a paste into a text input, by Cmd+V, Ctrl+V or a
@@ -6132,6 +6321,21 @@ func (_handle Element) PopoverMenuButton(build func(m *Menu)) Element {
 	return wrapElement(_node.PopoverMenuButton(build))
 }
 
+// PreserveSpaces keeps the spaces the element's text ends its lines with,
+// and a text of only spaces, with their advance, as CSS's white-space:
+// break-spaces does: a gap made of spaces between two texts in a row, or
+// the padding a monospaced column is aligned with. Without it spaces
+// ending a line take no room, as with white-space: normal.
+func (_handle Element) PreserveSpaces() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PreserveSpaces())
+}
+
 // Pressed reports whether the element is being pressed with the pointer's
 // primary button, unless it is disabled. A press of another button, as a
 // right-click's, is no press here, as CSS's :active and drags on the web
@@ -6180,6 +6384,23 @@ func (_handle Element) PressedOutside() bool {
 	_ctx := _node.c
 	_ = _ctx
 	return _node.PressedOutside()
+}
+
+// PressedPointer returns the device pressing the element and how hard it
+// presses, from 0 to 1, as of the press's last move, while the press
+// lasts, as PressedButton; ok is false while nothing presses it, or it is
+// disabled. As InputEvent.Pressure, a device that tells no pressure, as a
+// mouse, presses 0.5. A signature pad widens its stroke with a pen's
+// pressure, and goes by the pointer's speed for a mouse. Elements asking
+// for it get a frame whenever the pointer moves or the pressure changes.
+func (_handle Element) PressedPointer() (PointerType, float32, bool) {
+	_node := _handle.node()
+	if _node == nil {
+		return *new(PointerType), 0, false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.PressedPointer()
 }
 
 // RadialGradient fills the element with a radial gradient, its colors
@@ -6456,14 +6677,22 @@ func (_handle Element) Scale(x float32, y float32) Element {
 // comes into view with it. Call it in the frame it should come into view,
 // as when it is added or chosen: in every frame, it would keep the user
 // from scrolling it away.
-func (_handle Element) ScrollIntoView() Element {
+//
+// Its options line the element up elsewhere in the containers, or glide
+// there, as the web's scrollIntoView options do: the current match of a
+// search, centered smoothly.
+//
+//	if app.matchMoved {
+//		hit.ScrollIntoView(ui.ScrollIntoViewOptions{Block: ui.ScrollCenter, Animation: &ui.Smooth})
+//	}
+func (_handle Element) ScrollIntoView(options ...ScrollIntoViewOptions) Element {
 	_node := _handle.node()
 	if _node == nil {
 		return Element{}
 	}
 	_ctx := _node.c
 	_ = _ctx
-	return wrapElement(_node.ScrollIntoView())
+	return wrapElement(_node.ScrollIntoView(options...))
 }
 
 // ScrollSnap makes the scroll container (Scroll, ScrollHorizontal,
@@ -6892,6 +7121,39 @@ func (_handle Element) Submitted() bool {
 	return _node.Submitted()
 }
 
+// TabSize puts the tab stops of the element's text every n spaces of its
+// font from the start of each line, as CSS's tab-size: a tab advances
+// to the next of them, as a code block indents with tabs of 2 or 4
+// columns. A space is as wide as the font's, letter spacing included.
+// Without it, or with n at 0, tabs advance as the system's text stack
+// sets them, which differs between systems.
+func (_handle Element) TabSize(n float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TabSize(n))
+}
+
+// TabStop makes the element focusable, and sets whether Tab and Shift+Tab
+// stop at it, as they do at a Focusable element. One that is no tab stop
+// is HTML's tabindex="-1": it takes the focus from a click, from Focus and
+// AutoFocus, and from assistive technology, while Tab passes over it, on
+// to what is inside it and after it: a container that takes the focus to
+// hold its keys, as a card or a dialog's panel, without coming before its
+// own controls.
+func (_handle Element) TabStop(stop bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TabStop(stop))
+}
+
 // TextAlign aligns the lines of text: Start, Center or End.
 func (_handle Element) TextAlign(a Align) Element {
 	_node := _handle.node()
@@ -6983,6 +7245,25 @@ func (_handle Element) TextSelection() (int, int) {
 	return _node.TextSelection()
 }
 
+// TextStroke strokes the outlines of the glyphs of text width DIPs wide
+// in c, under their fill, as CSS's -webkit-text-stroke with paint-order:
+// stroke fill: the half of the stroke outside the glyphs shows around
+// them, a halo of c, as a chart's labels over its bars take one of the
+// background's color to stand out. A text's strokes all go under all
+// its glyphs, so that one glyph's stroke never covers its neighbor; the
+// stroke goes around the edge of the pixels of color glyphs, as emoji.
+// Underlines and strikethroughs are not stroked. A width of 0 strokes
+// nothing, where the elements around it stroke their text.
+func (_handle Element) TextStroke(width float32, c Color) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TextStroke(width, c))
+}
+
 // Timeline returns the timeline the element keeps under key, playing it
 // as o says. Every tween added to it shares one playhead, and returns the
 // value it shows in this frame.
@@ -6998,10 +7279,11 @@ func (_handle Element) TextSelection() (int, int) {
 // valid while the view builds this frame.
 //
 // While the desktop asks for less motion (Preferences.ReduceMotion), a
-// timeline that would play is at once where it would come to rest, but
-// Seek, Progress and Paused still put and hold its playhead, as a drag
-// still moves a Draggable element. DisableAnimations does not change a
-// timeline, which plays on its own, as Keyframes do: jump it with Seek.
+// timeline that would play is at once where it would come to rest, unless
+// o's NonMotion says it moves nothing, but Seek, Progress and Paused still
+// put and hold its playhead, as a drag still moves a Draggable element.
+// DisableAnimations does not change a timeline, which plays on its own,
+// as Keyframes do: jump it with Seek.
 func (_handle Element) Timeline(key any, o TimelineOptions) *Timeline {
 	_node := _handle.node()
 	if _node == nil {
@@ -7335,7 +7617,9 @@ func (_handle Element) WrapReverse() Element {
 // without one: those in the flow in the order they were built, then the
 // absolute and sticky ones in theirs. The default is 0; a negative value
 // paints the element under its siblings, still above its parent's
-// background.
+// background. The copy of an element leaving with its Exit
+// (ElementTransition) keeps the z-index the element had, under its
+// siblings of the same one: a dialog fading out stays above the page.
 //
 // It moves the element with all that is inside it, as one, among its
 // siblings alone: it does not reach past its parent, which still clips it
@@ -7410,7 +7694,10 @@ func (_handle SelectParts[T]) Highlight(value T) {
 // the pointer or the arrows are on it, and chooses value and closes the
 // popup when clicked. Disabled leaves it out of the keys' way and of the
 // pointer's. The option the highlight moves to scrolls into view, once,
-// so that the wheel scrolls on past it.
+// so that the wheel scrolls on past it. Assistive technology reads it as
+// an option of a list box (RoleOption), selected while it is
+// highlighted, as a native select's; focusing it highlights it, and
+// pressing it chooses it.
 func (_handle SelectParts[T]) Item(value T) Element {
 	_parts := _handle.resolve()
 	if _parts == nil {
