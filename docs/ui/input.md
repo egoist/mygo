@@ -117,6 +117,25 @@ button, and Space toggles a focused check box, switch, toggle or radio
 button. A focused link, or an element with `Role(ui.RoleLink)`, takes Enter
 alone, as in a web page: Space scrolls the container around it.
 
+`TabStop(false)` makes an element focusable but out of Tab's order, as
+HTML's `tabindex="-1"`: it takes the focus from a click, from `Focus` and
+`AutoFocus`, and from assistive technology, while Tab and Shift+Tab pass
+over it, on to the controls inside it and after it. A card or a panel
+takes the focus so to hold its keys without coming before its own
+buttons; `TabStop(true)` puts it back in the order. In a [focus
+group](#focus-groups), Tab enters at a member it stops at, while the
+arrows still reach the others.
+
+```go
+card := ui.Column(c).Padding(12).TabStop(false).Children(func() {
+	ui.Text(c, item.Title)
+	ui.Button(c, "Open") // Tab goes here, past the card
+})
+if card.Shortcut(0, ui.KeyDelete) {
+	app.remove(item)
+}
+```
+
 `FocusLeft` reports that the focus left an element since the last frame:
 it was on the element or inside it, and is now outside it, or nowhere, as
 the window lost the keyboard. That is the web's `focusout` whose
@@ -308,6 +327,38 @@ func shortcutHint(c *ui.Context, key ui.Key, label string, run func()) {
 	ui.Text(c, label) // "⌘K"
 }
 ```
+
+## Keys held
+
+`c.KeyDown(ui.KeyK)` reports whether a key is held down in the window, and
+`c.KeysDown()` lists the keys held, in the order they went down, whichever
+element has the focus and whether or not it took them: they only watch,
+so the focused field still types. A view that reads them draws again as
+they change. A cheat sheet of shortcuts lights the key caps held while its
+search field has the focus, and fades the rows that use none of them:
+
+```go
+ui.SearchField(c, &app.query).Label("Search shortcuts").AutoFocus()
+held, mods := c.KeysDown(), c.Modifiers()
+for _, s := range app.shortcuts {
+	row := shortcutRow(c, s, held, mods) // lights the caps held
+	if (len(held) > 0 || mods != 0) && !s.uses(held, mods) {
+		row.Opacity(0.4)
+	}
+}
+```
+
+Keys count as shortcuts take them, so Cmd+ы on a Russian layout holds
+`ui.KeyS`; the modifier keys are `c.Modifiers()`'s. A key whose press runs
+a menu item's shortcut goes to the menu, not the window. The window lets
+go of every key as it loses the keyboard to another window or app, where
+their releases go, and of each key whose release the system keeps from
+it: on macOS, and in a Mac's browsers, one let go of while Command is
+held; on Windows, one held as a menu opens, as with Alt and a letter or
+Alt and Space, whose release the menu takes; and one whose release an
+input method takes, as it begins composing while the key is held. A
+`Tester` holds keys with `KeyDown` and `KeyUp`, and `SetFocused(false)`
+lets go of them.
 
 ## Input methods
 
