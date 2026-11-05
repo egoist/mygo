@@ -269,7 +269,7 @@ func styleKnown(name string) bool {
 		"aspect-ratio", "flex-grow", "flex-shrink", "flex-basis", "padding", "margin", "border", "border-width", "border-color", "border-style",
 		"border-radius", "filter", "background", "background-color", "box-shadow", "opacity", "visibility", "display",
 		"color", "font-family", "font-size", "font-weight", "font-style", "line-height", "letter-spacing", "text-align",
-		"text-decoration", "font-feature-settings", "selection-color", "line-clamp", "white-space":
+		"text-decoration", "font-feature-settings", "selection-color", "caret-color", "line-clamp", "white-space", "z-index":
 		return true
 	}
 	return false
@@ -551,9 +551,25 @@ func setStyle(e *node, name, value string) bool {
 			e.ts.set |= setSelection
 		}
 		return ok
+	case "caret-color":
+		c, ok := parseCSSColor(value)
+		if ok {
+			e.ts.caret = c
+			e.ts.set |= setCaret
+		}
+		return ok
 	case "line-clamp":
 		if n, err := strconv.Atoi(lower); err == nil && n >= 0 {
 			e.maxLines = n
+			return true
+		}
+	case "z-index":
+		if lower == "auto" {
+			e.ZIndex(0)
+			return true
+		}
+		if n, err := strconv.Atoi(lower); err == nil {
+			e.ZIndex(n)
 			return true
 		}
 	case "white-space":
@@ -679,8 +695,12 @@ func unsetStyle(e *node, name string) {
 		e.ts.set &^= setFeatures
 	case "selection-color":
 		e.ts.set &^= setSelection
+	case "caret-color":
+		e.ts.set &^= setCaret
 	case "line-clamp":
 		e.maxLines = 0
+	case "z-index":
+		e.zIndex = 0
 	case "white-space":
 		e.noWrap = false
 		if e.single {
@@ -715,6 +735,8 @@ func textStyleBit(name string) uint32 {
 		return setFeatures
 	case "selection-color":
 		return setSelection
+	case "caret-color":
+		return setCaret
 	case "background-color":
 		return setBackground
 	}

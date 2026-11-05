@@ -2095,6 +2095,23 @@ their gains (a 2×2 matrix of volume and pan) over 5 ms on every change,
 pause and resume. Looping happens in the source, so a loop has no gap; the
 voice counts frames past it modulo the length for `Position`.
 
+A player that preserves pitch (`SetPreservesPitch`) gets a stretcher
+(`audio/stretch.go`) between its source and its resampler, which then
+resamples at the rate alone. It is WSOLA: hops of about 16 ms, each a
+Hann crossfade from the natural continuation of the last segment into a
+new one, which the speed puts a hop times the speed further on and a
+search within about 10 ms moves to where the waveforms match best
+(normalized cross-correlation in mono, every frame of about 16 kHz, then
+each frame around the best; the natural continuation itself when in reach,
+so at 1× it passes the source through). Its buffers are allocated once,
+the first time; it reads ahead what a step needs, skipping what fast speeds
+leave out, reads silence past the source's end and fades out once the
+speed puts the next segment there, and tags each
+frame it gives with the source frame the speed puts it at, which the voice
+keeps beside its four frames of history for `Position`. Turned off, it
+passes the source through from the natural continuation, and a voice keeps
+it, so that voices that never preserved pitch pay one nil check.
+
 `Position` is where a voice is heard, not mixed. The mixer counts the
 frames it mixed and, of the latest, those the device holds: as many as it
 was written, up to its latency, from when it opened (`setHeld`). Each
@@ -2344,7 +2361,11 @@ The public API keeps one stable `*Context` per window. Child builders share
 it and temporarily change its parent. `Element` is a 16-byte checked value:
 a direct owner record, arena slot and 32-bit generation. The owner detaches
 from the engine on close and retires before generation wrap. Old elements
-cannot alias recycled nodes. Development builds and `Tester` diagnose stale
+cannot alias recycled nodes. A closed window keeps nothing of what it
+showed (#1281): `mygo.Window` keeps only that it shows Content, handing the
+Content to its surface as it attaches, and the closed engine drops its view,
+the last frame's elements, states and scene, and the host its last scene,
+renderers and placements, in case anything still holds them. Development builds and `Tester` diagnose stale
 use; production methods return empty results or ignore it. `Handle` stores
 persistent control identity separately for each window. Focus queries read
 identity without depending on construction order; focus requests wait for a
@@ -2535,6 +2556,13 @@ either.
   `isAccessibilitySelectorAllowed:` says, so elements answer the older
   `accessibilityIsAttributeSettable:` themselves, as AppKit would but for
   that value: `NSAccessibilityElement` has no implementation to call.
+  The keys that press or focus an element (`KeyShortcuts`, ARIA's
+  aria-keyshortcuts) are formatted as `ui` writes a menu's shortcuts
+  (`shortcutText`) as the view builds, so that an app not giving any
+  links no formatting, and reach the backends as one string
+  (`AccessNode.KeyShortcuts`): WebKit's `AXKeyShortcutsValue`, answered
+  through `accessibilityAttributeValue:`, ATK's `keyshortcuts` object
+  attribute and UI Automation's `AcceleratorKey`, as Chromium's.
   The rows of a `List` (list items) and a `Table` (rows) are named by
   their content and say which of all the rows they are (`PosInSet`,
   `SetSize`, the list giving its total), as only those in view are built;
@@ -2601,17 +2629,28 @@ either.
   sees the element still pressed where the pointer let go, and released
   in the pass after. An element's identity hashes its
   parent's with its position or `Key`, so focus, scroll offsets, editors and
-  animations survive rebuilding. `Context` is stable for the window; `Element` values expire between build
+  animations survive rebuilding. `prune` drops the states the frame did
+  not build (but those of pages Routers keep) and recycles them; a state
+  with `Local` values that are `io.Closer`s (`state.closes`, which
+  `Local` fills as it makes one, so that other states cost nothing) hands
+  them to `engine.dropped`, which `endFrame` closes on the main thread
+  once the frame ended, last made first. Those of an element whose copy,
+  or an ancestor's, leaves with an `Exit` wait in `engine.exits` until
+  the transition's record is gone or no longer holds that copy (the
+  exit ended, or the element came back), and the engine's `close` closes
+  every state's as the window closes. `Context` is stable for the window; `Element` values expire between build
   passes and validate their owner, slot and generation before accessing storage. `ListState` resolves
   its focus owner only for the current context, frame and pass, exposing
   focus and shortcuts without retaining an element in app state. Scroll
   offsets move in the layout too
   (`ui/scroll.go`): elements that asked to `ScrollIntoView`, and the focus,
-  come into view before the boxes are placed, and placing keeps each offset
-  within its content; a `ScrollState` mirrors an offset both ways, and a
-  frame that moved one builds another for what read the old one. A
-  container that snaps (`ScrollSnap`, `ui/snap.go`) finds the places its
-  elements mark as it is placed, from their boxes relative to it, and
+  come into view before the boxes are placed, lined up as its options say
+  (or glide there as a wheel's notches do, by what they went each frame,
+  `glideScroll`), and placing keeps each offset within its content; a
+  `ScrollState` mirrors an offset both ways, and a frame that moved one
+  builds another for what read the old one. A container that snaps
+  (`ScrollSnap`, `ui/snap.go`) finds the places its elements mark as it
+  is placed, from their boxes relative to it, and
   keeps the offset at the one it rests at; a notch or a key heads for the
   next place at once, a touchpad's scrolling once it has been still for a
   moment (not every platform tells when the fingers lift or a fling's
@@ -2643,7 +2682,8 @@ either.
   more to hash than to compare, and one laid out at another width asks
   for it from the last (`text.System.LayoutFrom`). A grid measures the
   widths of only the items its columns read (`contributes`): none for Fr
-  columns with room known, as CSS's minmax(0, 1fr). Transforms and scroll
+  columns with room known, as CSS's minmax(0, 1fr), unless they are
+  `MinContent`; a minimum (`Track.Min`) measures nothing. Transforms and scroll
   offsets of other containers apply after layout and change nothing
   there. Elements that lay
   out by more than they are built with are never reused, nor anything
@@ -2900,7 +2940,7 @@ either.
   its `Enter` only in a parent the frame before had; the overlay layer,
   built only while it holds something, counts as the root there. One no longer built,
   whose parent still is, goes with its `Exit` as an inert copy, laid out
-  and painted under its siblings without taking room; the frames after
+  and painted under its siblings of its z-index without taking room; the frames after
   one in the overlay layer, or its copy, build the layer, empty but for
   the copies, which lets the pointer and the focus through
   (`engine.overlayExits`). Frames that built
@@ -3014,6 +3054,13 @@ either.
   input method gives up on macOS. `ui.Shape` lays out text without the
   cache of layouts, for widgets that keep their glyphs, and
   `Painter.Glyphs` draws them where they placed them.
+  `ObserveInput` has an element see, without taking it, what comes to
+  the focus while the focus is it or inside it (keys up and down, text,
+  compositions, edit commands), and the presses and releases over it:
+  `observeFocus` and `observePointer` (`ui/handler.go`) walk the focus or
+  hit chain, outermost first, before anything handles the event, and do
+  nothing while the last commit found no element observing
+  (`engine.observers`).
   A text input's `OnTextKey` gets the keys that type no text as they
   come too, after `HandleInput`, but first applies the input queued for
   the editor (`widgetTextInput.prepare`, as the platform's queries do),
@@ -3052,6 +3099,29 @@ either.
   its parent's second pass, among the absolute children, and commit moves
   its hits there (`stickyHits`), while it commits in the flow, so that
   Tab and assistive technology keep its place among its siblings.
+- **Paint order** (`ui/zindex.go`). `ZIndex` sets `node.zIndex` and, on
+  the parent, `zOrder`, which `add` sets too for a child added with one
+  (a copy leaving); a parent without it paints and commits its children
+  as before, in two passes, with no sorting nor allocation. One with it
+  paints and commits them through `zPaint` and `zCommit`, which `ZIndex`
+  sets, so that an app never calling it links none of this. It paints
+  them in `paintOrder`: the two passes' order sorted stably by
+  z-index, so that equal values keep it, the copies leaving, which keep
+  the z-index their elements had, first among those of theirs,
+  and, of the root, the overlay layer and what follows it last
+  (`zPinned`), so that overlays stay above the content and keep their
+  order (the overlay layer's own children are never sorted). Commit
+  (`commitByZ`) commits them in the usual order, which the focus order
+  and the labels follow, noting each child's hits and web views, and
+  then moves them, child by child, to the same order (sorting pointers to
+  the notes, whose code all slices of pointers share), the web views'
+  indexes into the hits with them, so that the pointer and what covers a
+  web view agree with the paint. The order is among siblings alone: a
+  child with a z-index moves with its subtree, inside its parent's clips,
+  and makes no stacking context that would mix it with its parent's
+  siblings. The engine's `zScratch` holds the buffers, as a stack for the
+  paint's nesting; the scene's order changing makes a `Cache` layer draw
+  again, as its `scene.Differ` sees.
 - **Right to left** (`ui/direction.go`). Each element has a direction
   (`node.dir`): built, it takes its parent's, and the root the window's,
   which `surface.Conn.RightToLeft` gives (package `mygo` from the app's
@@ -4087,6 +4157,24 @@ either.
     a pixel. There, on Linux, package ui has the text system join them
     (`System.GlyphRun`): their coverage added and clamped, cached as one
     bitmap.
+  - *Strokes.* `TextStroke` draws each glyph's stroke as a mask of its
+    own (`System.StrokeGlyph`), made in Go from the glyph's coverage for
+    every engine: the coverage dilated by half the width less the
+    coverage eroded by it, each edge pixel's coverage placing the edge
+    within it, so the stroke is centered on the outline, round at its
+    corners and as smooth as the glyph; color glyphs stroke their alpha.
+    Cached with the glyphs, under a key with the width, and drawn by
+    every renderer as any mask glyph, all of a text's before its glyphs
+    (`paint-order: stroke fill`). `TextStroke` links it, so that apps that
+    stroke no text do not.
+  - *Tabs.* `Style.TabSize` sets tab stops every that many spaces of the
+    style's font, letter spacing included, from the start of each line,
+    which each engine takes natively: Core Text's paragraph style (no
+    tab stops but a `DefaultTabInterval`), DirectWrite's
+    `SetIncrementalTabStop`, a Pango tab array of one stop, which it
+    repeats, and the canvas engine's own lines, which otherwise measure a
+    tab as the canvas does, as a space. The first `TabSize` links it
+    (`System.UseTabSize`), as `Justify` does `UseJustify`.
   Paths drawn with
   `Painter` are masks in the coverage atlas, rasterized by `internal/vec`,
   cached by their shape relative to the pixel grid in quarters of a pixel,
@@ -4144,7 +4232,10 @@ either.
   ranges of runes (`text.Span`): DirectWrite's setters over a range, the
   fonts of a Core Text attributed string's ranges, Pango's attributes
   between byte indices. `Params.Spans` holds them encoded as a string, so
-  `Params` stays a key of the layout cache. Laying out reuses what shaping
+  `Params` stays a key of the layout cache. A span's letter spacing of 0
+  is the text's unless `SpacingSet` (ui's `Span.NoLetterSpacing`, or an
+  inline element's `LetterSpacing(0)`) makes it its own, which each engine
+  sets over the span's range as any other. Laying out reuses what shaping
   throws away: engines take the glyphs, runs and lines `shape` returns from
   a scratch each layout resets (`shapeScratch`), as the layout copies them
   into its lines, which share one allocation; Core Text keeps its buffers,
@@ -4182,8 +4273,14 @@ either.
   Only Pango leaves room for it as it breaks, so a line whose hyphen does
   not fit is broken again, narrower by the hyphen, where Unicode's line
   breaking allows (else the hyphen overflows, as a long word does), and
-  the rest anew (`breakLines`). A paragraph without an indent or a soft
-  hyphen is shaped once.
+  the rest anew (`breakLines`). The padding of a span (`Span.PaddingX`),
+  which engines know nothing of, is the shared layout's too: `padLine`
+  moves the glyphs of each line's piece of the span in, and those after
+  it on, by the padding at both ends of each piece, as CSS's
+  `box-decoration-break: clone`, and widens the line; a line that does
+  not fit with the padding of its pieces is broken again, narrower by it,
+  and the rest anew, and an ellipsis leaves room for it. A paragraph
+  without an indent, a soft hyphen or a padded span is shaped once.
   `Params.Balance` (`Element.Balance`) breaks a paragraph that wraps at
   narrower widths, bisecting to a quarter of a DIP, for the narrowest
   that keeps its count of lines (`System.balance`). The layout cache
@@ -4193,7 +4290,10 @@ either.
   styles as spans over its own when it lays out. At commit, each gets the
   boxes of its runes in the paragraph's layout (`Selection`), one hit
   each, so the pointer, the focus order, tooltips and menus work as for
-  any element; they paint only their focus ring, and assistive
+  any element; they paint only their focus ring (their `Opacity`,
+  `Invisible` and dimming fade the colors of their spans, `Span.faded`,
+  and a color faded to nothing stays the span's own, `colorSet`, so the
+  paragraph skips their glyphs but keeps their advance), and assistive
   technology sees those that are more than text, such as links, as nodes
   inside the paragraph's.
   Fontconfig knows no desktop's interface font, so on Linux `system-ui`
@@ -4634,6 +4734,24 @@ either.
   `SurfaceRenew`, so that the first in its `render` signal makes the GPU
   renderer, which the hidden one could not.
 
+  GTK's frame clock waits, after each frame, the refresh interval of that
+  frame's timings, and 1/60 s while none has one. GDK fills it in only
+  from the compositor: on Wayland in the frame callback of a paint it
+  commits itself, which it never asks for when it composites the window
+  with OpenGL (`eglSwapBuffers` commits, with a swap interval of 0), and
+  on X11 from a compositor sending `_NET_WM_FRAME_TIMINGS`. A GtkGLArea
+  drew 60 frames a second on a 165 Hz display under Niri (#1219). The
+  surface writes the interval of the monitor showing the window
+  (`gdk_monitor_get_refresh_rate`, asked again each frame, so it follows
+  the window to another monitor) into the timings of each frame it draws
+  (`paceFrameClock`), unless they have one. `GdkFrameTimings` is private,
+  and GTK 3.24.24 moved its `refresh_interval`: the offset is the one
+  `gdk_frame_timings_get_refresh_interval` reads the write back from. A
+  monitor of unknown rate, as Xvfb's, keeps 60 Hz, and a compositor's
+  interval arriving later replaces the surface's. The clock still runs
+  only while frames are asked for. On Wayland these frames follow a timer
+  at the display's rate, not its refreshes.
+
   On Windows, `RequestFrame` invalidates the surface's window, whose
   `WM_PAINT` comes as soon as the message queue is empty, and frames drawn
   in memory show at once, through GDI or DirectComposition: nothing held
@@ -4845,11 +4963,15 @@ renderer's (`gputest.Compare`).
   `darwin-arm64` and `darwin-amd64` are walked as pairs whose names must
   match: identical files and links ship once, an arm64 and an x86_64
   Mach-O file become a universal binary (`writeUniversal`) when copied,
-  anything else fails. Names starting with a dot are skipped, and so is
-  what `resourceFilter` excludes from `resources/` (but not from listed
-  paths): Go source files, which only builds read, and the paths there
-  that match `resourcesExclude` (`path.Match` segments, `**` for any
-  number of them), with what a matching directory holds; the merger's
+  anything else fails. A name starting with a dot is skipped when it is a
+  directory or a file manager's dropping (`.DS_Store`, `Thumbs.db`,
+  `desktop.ini`), and at the top level of `resources/` whatever it is; a
+  dotfile inside a resource directory ships (`junkName`, `hiddenName`),
+  since packages read such names. So is what `resourceFilter` excludes
+  from `resources/` (but not from listed paths): Go source files, which
+  only builds read, and the paths there that match `resourcesExclude`
+  (`path.Match` segments, `**` for any number of them), with what a
+  matching directory holds; the merger's
   listings and `resource.walk`, which copies and fingerprints, apply it,
   while `mygo dev`'s watcher still sees those files, which a package may
   embed. The entries of these directories and listed paths are followed

@@ -52,6 +52,21 @@ ui.Text(c, "Appearance").Bold().Role(ui.RoleHeading).Level(2)
 ui.Row(c).Role(ui.RoleNavigation).Label("Sections").Children(sectionLinks)
 ```
 
+A table of your own builds its rows with `ui.RoleRow`, its cells with
+`ui.RoleCell` and the headers of its columns with `ui.RoleColumnHeader`.
+A header is named by the text inside it, and keeps the elements inside it
+in the tree, as ARIA's `columnheader` does: a sort button and a column's
+menu button in it are reached and pressed as any other button.
+
+```go
+ui.Row(c).Role(ui.RoleColumnHeader).Children(func() { // named "Sort Options"
+	if ui.Button(c, "Sort").Clicked() {
+		app.sortBy("name")
+	}
+	ui.Button(c, "Options")
+})
+```
+
 `ui.RoleListBox` is a list of options to choose from, and `ui.RoleOption`
 one of its options, selected with `Checked`, as ARIA's `listbox`, `option`
 and `aria-selected`: a list box on Windows (UI Automation's List, with
@@ -157,6 +172,36 @@ from its `ui.CheckState`, and checks it as it is pressed.
 [tooltip](tooltip.md) does, and `Error` marks a value as invalid, for a
 message read with it; a [field](form.md) gives its control the texts below
 it.
+
+## Keyboard shortcuts
+
+`KeyShortcuts(mods, key)` tells screen readers a key that presses or
+focuses the element, as ARIA's `aria-keyshortcuts`: a toolbar button
+whose command the window's shortcut runs, or the button opening a command
+palette, is read with its key after its name. It only tells the key,
+which the view handles itself, as with
+[`c.Shortcut`](input.md#shortcuts); call it once for each key that does:
+
+```go
+if c.Shortcut(ui.Cmd, ui.KeyK) {
+	app.palette = true
+}
+ui.Toolbar(c, func() {
+	if ui.Button(c, "Search").KeyShortcuts(ui.Cmd, ui.KeyK).Clicked() {
+		app.palette = true
+	}
+	ui.Button(c, "Redo").KeyShortcuts(ui.Cmd|ui.Shift, ui.KeyZ).KeyShortcuts(ui.Cmd, ui.KeyY)
+})
+```
+
+The keys are written as the platform's menus write them, separated by
+spaces: `⌘K` and `⇧⌘Z ⌘Y` on macOS, in AppKit's `AXKeyShortcutsValue` as
+WebKit gives it; `Ctrl+K` and `Ctrl+Shift+Z Ctrl+Y` on Linux, in ATK's
+`keyshortcuts` object attribute, and on Windows, in UI Automation's
+`AcceleratorKey`, where Super is `Win`. A
+[test](testing.md#what-assistive-technology-sees) reads them in the
+`KeyShortcuts` of `Tester.AccessByRole`'s answer, and the
+[automation plugin](../plugins/automation.md) in a node's `keyShortcuts`.
 
 ## Formats of text
 
