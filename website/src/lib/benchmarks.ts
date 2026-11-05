@@ -28,6 +28,7 @@ export const sourceUrl = `${site.repo}/tree/main/benchmarks`
 export const frameworks = [
   { id: "mygo", label: "MyGo", url: site.repo, color: "var(--bench-mygo)" },
   { id: "gpui", label: "GPUI", url: "https://www.gpui.rs", color: "var(--bench-gpui)" },
+  { id: "gpui-fast", label: "GPUI Fast", url: "https://github.com/longbridge/gpui-fast", color: "var(--bench-gpui-fast)" },
   { id: "egui", label: "egui", url: "https://github.com/emilk/egui", color: "var(--bench-egui)" },
 ] as const
 

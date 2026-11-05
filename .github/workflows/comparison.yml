@@ -1,6 +1,6 @@
 name: Comparison
 
-# Checks that the apps written with MyGo, GPUI and egui (benchmarks/README.md)
+# Checks that the apps written with MyGo, GPUI, GPUI Fast and egui (benchmarks/README.md)
 # still build and run, on changes to them or when started by hand. The website
 # shows benchmarks/results.json, from a real Mac: this runner's virtual GPU
 # and display would not compare with it, so its results stay an artifact.
@@ -39,6 +39,7 @@ jobs:
             ~/.cargo/registry
             benchmarks/egui/target
             benchmarks/gpui/target
+            benchmarks/gpui-fast/target
           key: comparison-${{ steps.rust.outputs.rustc }}-${{ hashFiles('benchmarks/*/Cargo.lock', 'benchmarks/*/Cargo.toml') }}
       - name: Run the comparison
         run: go run ./benchmarks/run -out "$RUNNER_TEMP/comparison.json"

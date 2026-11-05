@@ -4,7 +4,7 @@ import * as React from "react"
 import { formatValue, frameworks, results, scenes, sourceUrl, startMeasures, type Format, type Measure, type Series } from "@/lib/benchmarks"
 
 const title = "Benchmarks · MyGo"
-const description = "MyGo's native UI, GPUI and egui on the same apps: startup, memory, scrolling a long list, a live dashboard and wrapping text, measured on the same machine."
+const description = "MyGo's native UI, GPUI, GPUI Fast and egui on the same apps: startup, memory, scrolling a long list, a live dashboard and wrapping text, measured on the same machine."
 const link = "font-medium underline decoration-gopher/45 underline-offset-[5px] hover:decoration-gopher"
 
 export const Route = createFileRoute("/benchmarks")({
@@ -24,9 +24,9 @@ function Benchmarks() {
     <main className="flex-1">
       <section className="border-b px-4 pt-16 pb-12 sm:px-10 md:pt-20">
         <p className="label">Benchmarks</p>
-        <h1 className="mt-5 text-3xl leading-[1.1] font-semibold tracking-[-0.035em] sm:text-4xl">The same apps, in three frameworks.</h1>
+        <h1 className="mt-5 text-3xl leading-[1.1] font-semibold tracking-[-0.035em] sm:text-4xl">The same apps, in four frameworks.</h1>
         <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
-          The same small apps written with MyGo&apos;s native UI, GPUI and egui, each the usual way of its framework, showing the same text in windows of the same size, and
+          The same small apps written with MyGo&apos;s native UI, GPUI, GPUI Fast and egui, each the usual way of its framework, showing the same text in windows of the same size, and
           measured on the same Mac.
         </p>
         <p className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
@@ -66,8 +66,9 @@ function Benchmarks() {
           <li>CPU time leaves out what the GPU does: two apps taking the same CPU may not cost the same to draw.</li>
           <li>The Mac was in ordinary use during the runs. The frameworks took turns, so that this weighs on them alike.</li>
           <li>CPU per frame has moved by as much as a third between full runs of the same build, more than the range of one run shows: read small gaps as ties.</li>
-          <li>MyGo&apos;s list measures its rows, which may differ in height, where GPUI&apos;s uniform list and egui&apos;s rows take one height for all.</li>
-          <li>MyGo and GPUI draw text with the system&apos;s font and egui with its own. GPUI&apos;s crate comes without widgets, so its buttons are styled elements, and without scroll bars.</li>
+          <li>MyGo&apos;s list measures its rows, which may differ in height, where the uniform lists of GPUI and GPUI Fast and egui&apos;s rows take one height for all.</li>
+          <li>GPUI Fast is a fork of GPUI that keeps what did not change between frames. Its list scrolls from outside the view, as a wheel does, so that its cached rows apply; the other scenes change every frame.</li>
+          <li>MyGo, GPUI and GPUI Fast draw text with the system&apos;s font and egui with its own. The crates of GPUI and GPUI Fast come without widgets, so their buttons are styled elements, and without scroll bars.</li>
         </ul>
         <Setup />
       </section>
@@ -147,7 +148,7 @@ function Bars({
         {frameworks.map((f) => {
           const s = values.find((v) => v.id === f.id)?.series
           return (
-            <li key={f.id} tabIndex={s ? 0 : undefined} className="group relative grid grid-cols-[3rem_1fr_5rem] items-center gap-2 rounded-sm py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <li key={f.id} tabIndex={s ? 0 : undefined} className="group relative grid grid-cols-[4.5rem_1fr_5rem] items-center gap-2 rounded-sm py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <span className="text-[13px] text-muted-foreground">{f.label}</span>
               <span className="h-2.5 min-w-0">
                 {s && <span className="block h-full rounded-r-[4px]" style={{ width: top > 0 ? `max(${(s.median / top) * 100}%, 2px)` : "2px", background: f.color }} />}
@@ -172,7 +173,7 @@ function Setup() {
     ["Measured", new Date(results.date).toLocaleDateString("en", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })],
     ["Machine", `${m.cpu}, ${m.cpus} CPUs, ${Math.round(m.memory / 2 ** 30)} GB of memory, ${m.display}`],
     ["System", m.os],
-    ["Frameworks", `MyGo ${v.mygo}, GPUI ${v.gpui}, egui ${v.egui}`],
+    ["Frameworks", `MyGo ${v.mygo}, GPUI ${v.gpui}, GPUI Fast ${v["gpui-fast"]}, egui ${v.egui}`],
     ["Compilers", `Go ${v.go}, Rust ${v.rustc}`],
     ["Runs", `${results.runs} of each scene, ${results.frames} frames each, frameworks taking turns`],
   ]

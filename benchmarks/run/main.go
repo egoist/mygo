@@ -25,7 +25,7 @@ import (
 
 // frameworks are measured in this order within each round, so that a machine
 // slowing down over a run weighs on them alike.
-var frameworks = []string{"mygo", "gpui", "egui"}
+var frameworks = []string{"mygo", "gpui", "gpui-fast", "egui"}
 
 // scenes that draw every frame, as opposed to the counter.
 var animated = []string{"list", "grid", "document"}
@@ -392,7 +392,7 @@ func versions(root string) map[string]string {
 			v["mygo"] = string(m[1])
 		}
 	}
-	for f, crate := range map[string]string{"gpui": "gpui", "egui": "eframe"} {
+	for f, crate := range map[string]string{"gpui": "gpui", "gpui-fast": "gpui-fast", "egui": "eframe"} {
 		b, err := os.ReadFile(filepath.Join(root, "benchmarks", f, "Cargo.lock"))
 		if err != nil {
 			log.Fatal(err)

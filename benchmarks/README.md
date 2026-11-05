@@ -1,8 +1,10 @@
-# Comparison with GPUI and egui
+# Comparison with GPUI, GPUI Fast and egui
 
-The same small apps written with MyGo's native UI, [GPUI](https://www.gpui.rs)
-and [egui](https://github.com/emilk/egui) (through eframe, with its default
-wgpu renderer), each through the usual way of its framework. The website's
+The same small apps written with MyGo's native UI, [GPUI](https://www.gpui.rs),
+[GPUI Fast](https://github.com/longbridge/gpui-fast) and
+[egui](https://github.com/emilk/egui) (through eframe, with its default wgpu
+renderer), each through the usual way of its framework. GPUI Fast's list
+scrolls from outside its view, as a wheel does, for its cached rows to apply. The website's
 [/benchmarks](https://mygo.egoist.dev/benchmarks) page shows `results.json`.
 
 ```sh
@@ -25,8 +27,8 @@ the same generator (`words`, `cell_value`), in windows of the same size.
 | `grid`     | 800×600 | 600 cells, each with its own background and a number changing every frame, as a dashboard.     |
 | `document` | 800×600 | 40 paragraphs (about 20,000 characters) wrapped to a width changing every frame, as a window resized. |
 
-Every app has a main menu, as an app of each framework would: GPUI, the one
-that sets none by itself, is given one. The runner turns off AppKit's debug
+Every app has a main menu, as an app of each framework would: GPUI and GPUI
+Fast, which set none by themselves, are given one. The runner turns off AppKit's debug
 menu for each app, which a Mac with `_NS_4445425547` set builds in each app that
 sets a menu, taking some 70 ms.
 
@@ -45,7 +47,8 @@ And from the app, which says these on standard output:
 
 - **Startup**, from starting the process until its first frame is drawn, as
   soon as each framework can tell, and its window is on screen, as the window
-  server tells, whichever comes last. eframe and GPUI tell at their next frame.
+  server tells, whichever comes last. eframe, GPUI and GPUI Fast tell at their
+  next frame.
 - **Frame rate** and the **median and 99th percentile of the time between
   frames**, which show the frames that missed the display's refresh.
 

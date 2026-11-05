@@ -66,6 +66,7 @@
   /* The frameworks /benchmarks compares. */
   --bench-mygo: #00abd7;
   --bench-gpui: #e78b30;
+  --bench-gpui-fast: #6d5bd0;
   --bench-egui: #b84a8c;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -91,6 +92,7 @@
 .dark {
   --bench-mygo: #1391b8;
   --bench-gpui: #c8751d;
+  --bench-gpui-fast: #7d62c9;
   --bench-egui: #c8588f;
   --gopher: oklch(0.76 0.12 222);
   --gopher-ink: oklch(0.8 0.11 222);
