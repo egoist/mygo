@@ -416,8 +416,11 @@ type engine struct {
 	held       bool
 	shown      time.Time
 	input      bool
-	painted    [3]float32
-	gen        uint64
+	// hiddenAsked tells that a view asked whether the window shows
+	// (WindowHidden), which builds it again as that changes.
+	hiddenAsked bool
+	painted     [3]float32
+	gen         uint64
 	// repaintRate is the most frames a second the drawings that move ask
 	// for with Painter.AnimationFrameRate, repaintFull whether one asked
 	// for the display's with Painter.AnimationFrame. paceEvery is how many
@@ -1346,6 +1349,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		s.clipRect, s.clipRadii = e.clipRect()
 	}
 	s.selfClip, s.selfRadius, s.selfClips = e.selfClip()
+	s.hitFn = e.hitFn
 	if len(rt.liftHits) > 0 && (e == e.c.overlay || e.parent != nil && e.parent == e.c.overlay) {
 		// The elements flying in the layer before, the window's content
 		// or an overlay, go over it, under this one.
@@ -1443,8 +1447,8 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		rt.hits = append(rt.hits, hit{s, Rect{e.x, e.y, e.w, e.h}, e.flags})
 	}
 	label := e.label
-	if f := e.nameFrom; label == "" && f != nil {
-		label = f.nameOf() // an input, named by its field
+	if f := e.nameFrom; f != nil && (label == "" || e.labelledBy && f.nameOf() != "") {
+		label = f.nameOf() // an input, named by its field or its label
 	}
 	if (label != "" || e.kind == kindText) && !invisible {
 		if label == "" {

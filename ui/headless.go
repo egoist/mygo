@@ -442,6 +442,22 @@ func (t *Tester) SetWindowActive(active bool) {
 	t.settle()
 }
 
+// SetWindowHidden hides all of the window from sight, as minimizing it
+// or covering it with other windows does, or shows it again:
+// Context.WindowHidden returns it, and what moves waits while it is
+// hidden.
+func (t *Tester) SetWindowHidden(hidden bool) {
+	if t.h.hidden == hidden {
+		return
+	}
+	t.h.hidden = hidden
+	kind := platform.SurfaceShown
+	if hidden {
+		kind = platform.SurfaceHidden
+	}
+	t.send(platform.SurfaceEvent{Kind: kind})
+}
+
 // SetDark switches between the light and the dark appearance.
 func (t *Tester) SetDark(dark bool) {
 	t.h.dark = dark
@@ -864,6 +880,19 @@ func (t *Tester) KeyUp(key Key) {
 func (t *Tester) KeyAt(mods Modifiers, physical Key) {
 	t.send(platform.SurfaceEvent{Kind: platform.KeyPressed, PhysicalKey: platform.Key(physical), Mods: platform.Modifiers(mods)})
 	t.send(platform.SurfaceEvent{Kind: platform.KeyReleased, PhysicalKey: platform.Key(physical), Mods: platform.Modifiers(mods)})
+}
+
+// CodeDown presses a key that only its position names, as a modifier on its
+// own or Caps Lock (InputEvent.Code): mods are the modifiers held with it,
+// its own among them.
+func (t *Tester) CodeDown(mods Modifiers, code KeyCode) {
+	t.send(platform.SurfaceEvent{Kind: platform.RawKeyPressed, Code: platform.KeyCode(code), Mods: platform.Modifiers(mods)})
+}
+
+// CodeUp lets go of a key CodeDown pressed: mods are the modifiers still
+// held.
+func (t *Tester) CodeUp(mods Modifiers, code KeyCode) {
+	t.send(platform.SurfaceEvent{Kind: platform.RawKeyReleased, Code: platform.KeyCode(code), Mods: platform.Modifiers(mods)})
 }
 
 // TypeKey presses a key that types text, as a keyboard does: the key goes

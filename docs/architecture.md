@@ -767,7 +767,7 @@ gained one field, `SurfaceNative.Canvas`.
   set before each frame to the frame's size, `ceil(width × scale)` as
   package ui computes it. `RequestFrame` asks `requestAnimationFrame`;
   `Occluded` is `document.hidden`, where browsers give no frames, and
-  `visibilitychange` brings `SurfaceShown`.
+  `visibilitychange` brings `SurfaceShown`, or `SurfaceHidden`.
 - **Drawing.** The canvas's WebGL 2 context (`gl.NewContext`: premultiplied
   alpha, no depth, stencil or antialiasing) is current while a frame is
   handled, as a GtkGLArea's is in its render signal, and
@@ -2550,7 +2550,26 @@ either.
   kinds) is WebKit's `AXARIACurrent`, ATK's `current` attribute with the
   active state, as Chromium's, and `current=page` in AriaProperties. Both
   bring a generic element into the tree as a group, as ARIA's global
-  states do. `RoleNavigation`, a landmark (`Breadcrumbs`), is
+  states do. `RoleDescription` (`AccessNode.RoleDescription`,
+  aria-roledescription) is AppKit's `accessibilityRoleDescription`,
+  which elements override, ATK's `roledescription` attribute and UIA's
+  LocalizedControlType; `Controls` (`AccessNode.Controls`, the IDs of
+  the elements, aria-controls) is `AXLinkedUIElements`, ATK's
+  `controller-for` relation and `controlled-by` back, from the nodes'
+  `ref_relation_set`, and UIA's ControllerFor; `HasPopup`
+  (`AccessNode.HasPopup`, aria-haspopup) is `AXPopupValue`, answered as
+  `AXInvalid` is, with `AXShowMenu` pressing the element, ATK's
+  has-popup state and `haspopup` attribute, and UIA's ExpandCollapse
+  with `haspopup=` in AriaProperties; `Sort` sets a header's
+  `AccessSortAscending`, `AccessSortDescending` or `AccessSortOther`
+  (ATK's `sort:other`, UIA's ItemStatus and `sort=` in AriaProperties,
+  AppKit's unknown direction). A cell (`RoleCell` or a header) that
+  `Checked` or `Selected` marks is `AccessSelectable`, chosen while
+  `AccessChecked`, as ARIA's gridcells with aria-selected, and the
+  table around it `AccessSelectable` too: `AXSelected` and the table's
+  `AXSelectedCells` (with `AXSelectedCellsChanged`), ATK's selectable
+  and selected states rather than checked, UIA's SelectionItem in the
+  table's Selection. `RoleNavigation`, a landmark (`Breadcrumbs`), is
   `AXGroup` with the subrole `AXLandmarkNavigation`, ATK's landmark with
   `xml-roles:navigation`, and UI Automation's Group with the navigation
   LandmarkType and AriaRole. Native UI in browsers has no accessibility
@@ -2791,7 +2810,8 @@ either.
   While nothing of the window shows (`platform.OccludableSurface`: a macOS
   window hidden, minimized or covered by other windows, whose display link
   still ticks, at the display's rate for half a minute, then at about 40
-  Hz), what moves asks for no frame, and a frame asked for by a change of
+  Hz; a minimized window on Linux, as GDK's `window-state-event` tells
+  on X11, and on Windows, as `WM_SIZE` does), what moves asks for no frame, and a frame asked for by a change of
   the state waits (`holdFrame`; both `held`), as browsers draw nothing for
   windows out of sight and as Apple asks of Mac apps: the view function,
   `Draw` and the work `After` drives wait until some of the window shows.
@@ -2811,7 +2831,11 @@ either.
   as assistive technology turns on, and for `CapturePage`, which builds
   the frame waiting; and none waits before the window's first frame
   reached its surface (`windowHost.occluded`), which a window made hidden
-  waits for to become ready to show.
+  waits for to become ready to show. `Context.WindowHidden` reads
+  `occluded`; once a view asked (`hiddenAsked`), `SurfaceHidden`, which
+  the surfaces send as none of the window shows any more, builds one
+  frame out of sight, as input does, for the view to stop its work, and
+  `SurfaceShown` one whether a frame was held or not.
   The window gaining or losing the keyboard focus draws a frame only when
   the last frame read it (`windowFocus`, as a focus ring, a caret, a
   selection's color or a focused text input's IME state do): a window
@@ -2877,8 +2901,8 @@ either.
   textures, as transformed or rounded clips do (`raster.ClipMask`), and
   never evaluate them in the shaders, so no shader changed for them. The
   CPU renderer multiplies the clip's coverage by the mask
-  (`raster.clipMasking`). Each op under a mask is masked on its own, as
-  `Opacity` fades each, rather than through a group layer. A clip moved
+  (`raster.clipMasking`). Each op under a mask is masked on its own,
+  rather than through a group layer as `Opacity` fades (below). A clip moved
   by a translation moves its gradient with it (`scene.MovedClipOp`), and
   damage compares the version of its image.
 - **Motion** (`ui/motion.go`): every animated value of an element
@@ -4074,9 +4098,29 @@ either.
   it (`keptLayer.area`: each one's box and shadows grown by 4, in its
   space, clipped by those that clip). Its code is reached only through
   the interface `Cache` stores (`layerKeeper`), so apps that never call
-  it do not link it. `ui/shader` gives an
-  effect's entry point (`ColorEffect`, `DistortionEffect`, `LayerEffect`)
-  a `Fragment` that calls it, and the bridge reads the content as image 3
+  it, nor fade a group (below), do not link it. `Opacity` below 1 (a transition's fade and a pose's
+  `Fade` too) fades an element with children as one group, as CSS's
+  group opacity (`ui/group.go`): the subtree renders into the same
+  transient canvas, the area `keptLayer.area` gives within the clip,
+  drawn as one image at the opacity (`paintGroup`), so every renderer
+  draws it as it draws an effect's, and kept as `Cache` keeps its layer
+  while what it holds is the same (`keptLayer.draw`). A layer costs a
+  render pass, so a group paints flat first, its opacity multiplied into
+  each op as before, and `checkFlat` looks at the ops it painted
+  (`overlapping`: their bounds within the clips pairwise, at most 32 of
+  them, so that what culling skips counts for nothing): when two
+  overlap, it renders the layer, takes the flat ops back (`takeBack`:
+  the scene's slices, its canvases and the parts drawn,
+  `engine.drawn`) and paints the layer in their place. The state's
+  `grouped` then has the next frames go to the layer at once, back to
+  flat when it no longer overlaps, so the frames before change what a
+  group costs, never what shows. Holes (web views) and effects reading
+  their backdrop keep a group flat, as no layer shows what is behind
+  it. The code is linked by `Opacity`, `Transition` and `AnimatePose`
+  (`linkGroups`). A blurred or kept element fades its canvas at its
+  opacity rather than each op in it, and paints nothing faded out.
+  `ui/shader` gives an effect's entry point (`ColorEffect`,
+  `DistortionEffect`, `LayerEffect`) a `Fragment` that calls it, and the bridge reads the content as image 3
   (`LayerImage`) from where the box's corner lies in it
   (`__layerInset`). A shader reading its backdrop (`backdropAt`,
   `backdropSample`) is an effect with `Backdrop`: `Painter.EffectBackdrop`
@@ -4136,7 +4180,13 @@ either.
   being resized, keeps its `CTTypesetter` while frames use it, and gives it up
   8 frames after the last, or as windows go idle. Core Text opens a break
   iterator for each line of text with a language attribute, so
-  `languageShapes` leaves the attribute out where it changes nothing. Every engine gives a line's glyphs in visual order,
+  `languageShapes` leaves the attribute out where it changes nothing. A
+  number, new in each frame on a dashboard, is put together from the glyphs
+  and kerning of its characters, measured once for each font and checked
+  against Core Text from time to time (`numbers_darwin.go`). Latin text
+  kept across widths is shaped into one line that its lines take their glyphs
+  from, breaking at the spaces before plain words and asking Core Text for
+  every other break, checked in the same way (`wrap_darwin.go`). Every engine gives a line's glyphs in visual order,
   from the left, through right-to-left runs too (DirectWrite's runs, whose
   glyphs come in logical order, are reversed), so that what walks them,
   and `ui.Shape`'s callers, rely on one order. The package assembles their
@@ -4247,9 +4297,11 @@ either.
   4095 pixels a side, draws as tiles of it (`pathTiles`), each a mask of
   the whole path clipped to the tile: only the tiles that show and that
   its edges reach, and, inside a fill, tiles covered whole, which share
-  one mask. So does a path larger than a tile (511 pixels a side) when
-  the atlas has lately had no room for a path's mask
-  (`pathCrowdedPaints`): such a mask takes a shelf of the atlas of its
+  one mask: those its edges wind around by its rule (`Path.FillRule`),
+  which also picks the mask's (`vec.Rasterizer.MaskEvenOdd` for
+  `EvenOdd`) and keys it, as it keys a path's clip. A path larger than
+  a tile (511 pixels a side) draws as tiles too when the atlas has
+  lately had no room for a path's mask (`pathCrowdedPaints`): such a mask takes a shelf of the atlas of its
   own, mostly empty for a long thin stroke, and a few of them, as wires
   redrawn every frame, leave no room for the frame's other paths, which
   would not show. A path whose mask finds no room draws as tiles at once,
@@ -4259,7 +4311,10 @@ either.
   (`System.Unkeep`), which it would keep as the frame drew them, and
   which would leave the tiles no room. On the
   pixel grid tiles show the pixels of one mask; under a transform off
-  it, a faint line where they meet. A stroke's mask is the outline of
+  it, a faint line where they meet. `Path.Contains` counts the winding
+  of the path flattened at four times its scale; an element's `HitTest`,
+  kept in its state, is one more test of `engine.contains`, after its
+  box and its own clip. A stroke's mask is the outline of
   its center line, each edge drawn once (`strokeInto`): one side,
   turning at corners and ends as the path's joins and caps say
   (`Path.Join`, `Path.Cap`), and back along the other. Its dashes (`Path.Dash`) are cut from the center line as the mask
@@ -5264,6 +5319,17 @@ a longer timeout only makes that rarer. So:
 - Checks that nothing happens (`select` on `time.After` with nothing to
   fail) may wait a short while: a slow machine can only make them miss
   a bug, never fail right code.
+
+### What tests leave behind
+
+The GUI tests of a package share a process, and on Linux an X server,
+which can outlive the process when one is reused between runs. A test
+that leaves something in them can fail another much later, or in every
+other run as a lock key flips, which looks like a race in a test that did
+nothing wrong. `newWindow` checks after each test that used it (`watchLeftBehind`), and fails
+that test by name if it left a window open or, on an X server, a key held
+or Caps Lock or Num Lock changed, then puts them back so that the tests
+after it are not affected. A test that changes them undoes it in a cleanup.
 
 ### Benchmarks
 

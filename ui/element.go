@@ -426,6 +426,9 @@ type node struct {
 	undimmed   bool // kept at its opacity while disabled (DimDisabled)
 	cursor     Cursor
 	paintFn    func(p *Painter, r Rect)
+	// hitFn tells where in its box the element takes the pointer
+	// (HitTest).
+	hitFn func(x, y float32, r Rect) bool
 	// objectFn draws the inline objects of a text (DrawObjects).
 	objectFn func(p *Painter, at int, r Rect)
 	// styleFn sets the colors and opacity the element paints with, as it
@@ -574,8 +577,9 @@ type node struct {
 	activeDescendant *node
 	nameFrom         *node
 	// nameJoin makes the element's name nameFrom's followed by its Label,
-	// as a range slider's knobs.
-	nameJoin bool
+	// as a range slider's knobs; labelledBy makes it nameFrom's in place
+	// of its Label (LabelledBy).
+	nameJoin, labelledBy bool
 	// focusTo is the element taking the focus that Focus and AutoFocus
 	// give this one, and whose focus Focused reports: the input of the box
 	// around it (field).
@@ -595,7 +599,7 @@ type node struct {
 	// as a table's; followX is the scroll container whose horizontal
 	// offset the element's content follows, as a table's header follows
 	// its rows; sort is the order a table's column header shows: 1
-	// ascending, 2 descending.
+	// ascending, 2 descending, 3 another (SortDirection).
 	rowMinW float32
 	followX *node
 	sort    int8
@@ -609,7 +613,13 @@ type node struct {
 	// how many columns its items took.
 	chooseMany bool
 	gridFit    *gridFit
-	tl         *text.Layout
+	// roleDescription names the element's role to assistive technology
+	// (RoleDescription), controls are the elements it controls
+	// (Controls), and hasPopup the kind of popup it opens (HasPopup).
+	roleDescription string
+	controls        []*node
+	hasPopup        Popup
+	tl              *text.Layout
 	measured
 	// lay says what the layout cache may do with the element
 	// (layOwner, layReuse), and laid when layoutBox last laid it out, in
@@ -1543,8 +1553,18 @@ func (e *node) InsetShadow(x, y, blur, spread float32, c Color) *node {
 // start afresh.
 func (e *node) NoShadow() *node { e.shadows = e.shadows[:0]; return e }
 
-// Opacity makes the element and its children translucent.
+// Opacity makes the element and its children translucent as one group,
+// as CSS's opacity does: what they paint is composited first and then
+// faded, so that children overlapping one another, or the element's
+// background under them, never show through each other. Where nothing
+// they paint overlaps, they paint faded each on its own, which looks the
+// same and costs nothing more; otherwise they render into a layer of the
+// GPU first, in which text is smoothed in grayscale, as in Cache's. A web
+// view or a material reading its backdrop inside the element shows
+// through no layer: there each thing fades on its own. Disabled's dimming
+// fades each thing on its own too.
 func (e *node) Opacity(o float32) *node {
+	linkGroups()
 	e.opacity, e.opacitySet = max(0, min(o, 1)), true
 	return e
 }
@@ -1884,6 +1904,26 @@ func (e *node) MaximizeButton() *node {
 
 // PassThrough lets the pointer reach what is under the element.
 func (e *node) PassThrough() *node { e.flags |= flagPassThrough; return e }
+
+// HitTest sets where in its box the element takes the pointer: where fn
+// reports true for the pointer at (x, y), in the coordinates Draw paints
+// in, r being its box as Draw gets it. Elsewhere the pointer reaches what
+// is under it, as with PassThrough, so that a pie's segment, a map's
+// region or a ring takes a press, the hover and the cursor only where it
+// paints, as SVG's pointer-events: visiblePainted. The elements inside it
+// take the pointer as they would; fn runs as the pointer moves and
+// presses, on the window's thread, and only tests:
+//
+//	ring := func(r ui.Rect) *ui.Path {
+//		var p ui.Path
+//		cx, cy := r.X+r.W/2, r.Y+r.H/2
+//		return p.Circle(cx, cy, r.W/2).Circle(cx, cy, r.W/2-12).FillRule(ui.EvenOdd)
+//	}
+//	ui.Box(c).Size(120, 120).
+//		Draw(func(p *ui.Painter, r ui.Rect) { p.FillPath(ring(r), accent) }).
+//		HitTest(func(x, y float32, r ui.Rect) bool { return ring(r).Contains(x, y) }).
+//		OnClick(func() { … })
+func (e *node) HitTest(fn func(x, y float32, r Rect) bool) *node { e.hitFn = fn; return e }
 
 // FocusRing sets whether MyGo rings the element when it has the keyboard
 // focus from the keyboard, as it does by default. Widgets that ring a part
