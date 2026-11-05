@@ -92,7 +92,7 @@ type Backend struct {
 	// menuFonts are the fonts of the menu items MyGo draws by DPI,
 	// menuExtra how much Windows widens them by DPI, and menuBrushes the
 	// brushes of menus' backgrounds by color (menudraw.go).
-	menuFonts   map[menuFontKey]menuFonts
+	menuFonts   map[int]menuFonts
 	menuExtra   map[int]int32
 	menuBrushes map[uint32]uintptr
 	// menuHook hooks the main thread while menus show, and menuGlass is
