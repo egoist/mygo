@@ -170,11 +170,13 @@ func (w *htmlWriter) block(i int) {
 		w.b.WriteString("</table>\n")
 	case FootnoteDefinition:
 		// Listed at the end, in the order of their references.
+	case Frontmatter:
+		// Metadata for the caller: no HTML renderer shows it.
 	}
 }
 
-// Lines returns the content of a code, HTML or math block, each line
-// ending with a newline.
+// Lines returns the content of a code, HTML, math or front matter block,
+// each line ending with a newline.
 func (d *Document) Lines(i int) string {
 	segs := d.segsOf(&d.blocks[i])
 	n := 0

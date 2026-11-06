@@ -105,6 +105,10 @@ func isASCIILetter(c byte) bool { return c|0x20 >= 'a' && c|0x20 <= 'z' }
 // parseTail parses the source again from the restart point.
 func (d *Document) parseTail() {
 	at, off := d.restartAt, d.restart
+	if at > 1 && d.frontmatterArrived() {
+		at, off = 1, 0
+		d.restart, d.restartAt = off, at
+	}
 	removed := d.truncate(at, off)
 	d.parseShown(nil)
 	d.refsChanged(removed, at, off)
@@ -161,6 +165,14 @@ func (d *Document) edit(from, to int, text string) {
 	if prev > 0 {
 		at, off = d.restartOf(prev)
 	}
+	d.src = old[:from] + text + old[to:]
+	if from < d.fmScanned {
+		// The lines before the edit's are still those searched.
+		d.fmScanned = lineStartOf(old, from)
+	}
+	if at > 1 && d.frontmatterArrived() {
+		at, off = 1, 0
+	}
 	tail := append([]Block(nil), d.blocks[at:]...)
 	oldSegs := append([]seg(nil), d.segs...)
 	oldDefs := append([]definition(nil), d.defs...)
@@ -170,7 +182,6 @@ func (d *Document) edit(from, to int, text string) {
 	}
 	oldRestart, oldRestartAt, oldTail, oldCut := d.restart, d.restartAt, d.tail, d.cut
 	removed := d.truncate(at, off)
-	d.src = old[:from] + text + old[to:]
 	d.restart, d.restartAt = off, at
 	editEnd := from + len(text)
 	j, met := 0, -1
@@ -435,6 +446,19 @@ func (d *Document) parse(off, end int, resync func(line int) bool) bool {
 	d.tail = -1
 	d.restart, d.restartAt = off, len(d.blocks)
 	src := p.src
+	if off == 0 && d.ext&ExtFrontmatter != 0 {
+		if fm, ok := d.frontmatter(src); ok {
+			d.addFrontmatter(src, fm)
+			off = fm.next
+			if fm.complete {
+				d.restart, d.restartAt = off, len(d.blocks)
+			} else {
+				// More text may continue the closing fence's line: parse it
+				// again from the top.
+				d.restart, d.restartAt = 0, 1
+			}
+		}
+	}
 	pos := off
 	// The next \n and \r, found once each, so that lines ending in one
 	// of them alone take linear time.

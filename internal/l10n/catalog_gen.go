@@ -1992,6 +1992,22 @@ func (msgs Messages) Copied() string {
 	return Catalog.Format(msgs.locale, "copied", nil)
 }
 
+// FrontMatter says "Front matter"
+// in the language the app shows.
+//
+// Names the collapsible block of a view of Markdown that holds a document's
+// front matter, the metadata at its start.
+func FrontMatter() string { return In(i18n.Locale()).FrontMatter() }
+
+// FrontMatter says "Front matter"
+// in the language of msgs.
+//
+// Names the collapsible block of a view of Markdown that holds a document's
+// front matter, the metadata at its start.
+func (msgs Messages) FrontMatter() string {
+	return Catalog.Format(msgs.locale, "frontMatter", nil)
+}
+
 // CopyAsMarkdown says "Copy as Markdown"
 // in the language the app shows.
 //
