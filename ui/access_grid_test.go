@@ -61,6 +61,44 @@ func TestAccessGrid(t *testing.T) {
 	}
 }
 
+// A hand-built data grid's cells covering several columns or rows tell
+// assistive technology so (aria-colspan, aria-rowspan), whether their
+// row lays them out in a grid or not; a span to the last column counts
+// the row's grid's columns, and other elements spanning say nothing.
+func TestAccessGridSpans(t *testing.T) {
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Role(ui.RoleGrid).Label("Budget").Children(func() {
+			ui.Row(c).Role(ui.RoleRow).Children(func() {
+				ui.Box(c).Role(ui.RoleRowHeader).Label("Design").RowSpan(2)
+				accessCell(c, "First half").ColumnSpan(2)
+				accessCell(c, "9").ColumnSpan(1)
+			})
+			ui.Grid(c).Role(ui.RoleRow).Columns(4).Children(func() {
+				accessCell(c, "Q3").ColumnStart(2)
+				accessCell(c, "Second half").ColumnSpan(-1)
+				ui.Box(c).Label("Note").ColumnSpan(2)
+			})
+		})
+	}, 400, 400)
+
+	for _, c := range []struct {
+		role       ui.Role
+		name       string
+		rows, cols int
+	}{
+		{ui.RoleRowHeader, "Design", 2, 0},
+		{ui.RoleCell, "First half", 0, 2},
+		{ui.RoleCell, "9", 0, 0},
+		{ui.RoleCell, "Q3", 0, 0},
+		{ui.RoleCell, "Second half", 0, 4},
+		{ui.RoleGroup, "Note", 0, 0},
+	} {
+		if a := accessOf(t, tt, c.role, c.name); a.RowSpan != c.rows || a.ColumnSpan != c.cols {
+			t.Errorf("%s spans %d rows and %d columns, want %d and %d", c.name, a.RowSpan, a.ColumnSpan, c.rows, c.cols)
+		}
+	}
+}
+
 // A List shown as a grid has rows, which say which of all they are, and
 // chooses several as its Selection does; a tree grid holds its cells, and
 // one that chooses one row at a time is not multiselectable.

@@ -4220,7 +4220,8 @@ func (_handle Element) ColumnCount(n int) Element {
 // ColumnIndex tells assistive technology the place of a cell or a column
 // header among all the columns of its table, grid or tree grid, from 1
 // (aria-colindex): for one that builds only the columns in view, or
-// leaves some out. Cells without one follow the one before them.
+// leaves some out. Cells without one follow the one before them, after
+// the columns it covers (ColumnSpan).
 func (_handle Element) ColumnIndex(i int) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -4233,7 +4234,10 @@ func (_handle Element) ColumnIndex(i int) Element {
 
 // ColumnSpan makes the element span n columns of its grid, or, for a
 // negative n, every column from its start to the grid's last, as a header
-// across a grid does.
+// across a grid does. A cell of a table or a grid (RoleCell,
+// RoleColumnHeader, RoleRowHeader) tells assistive technology it covers
+// them, as ARIA's aria-colspan, whether or not its row lays it out in a
+// grid: screen readers read a cell covering two columns as one.
 func (_handle Element) ColumnSpan(n int) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -6972,7 +6976,10 @@ func (_handle Element) RowIndex(i int) Element {
 }
 
 // RowSpan makes the element span n rows of its grid, or, for a negative n,
-// every row from its start to the last the grid sets.
+// every row from its start to the last the grid sets. A cell of a table
+// or a grid tells assistive technology it covers them, as ARIA's
+// aria-rowspan: the cells of the rows below it then say their columns
+// with ColumnIndex where they follow it.
 func (_handle Element) RowSpan(n int) Element {
 	_node := _handle.node()
 	if _node == nil {

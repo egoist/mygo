@@ -336,7 +336,8 @@ func (e *node) RowIndex(i int) *node {
 // ColumnIndex tells assistive technology the place of a cell or a column
 // header among all the columns of its table, grid or tree grid, from 1
 // (aria-colindex): for one that builds only the columns in view, or
-// leaves some out. Cells without one follow the one before them.
+// leaves some out. Cells without one follow the one before them, after
+// the columns it covers (ColumnSpan).
 func (e *node) ColumnIndex(i int) *node {
 	e.accGrid[3] = int32(max(i, 0))
 	return e
@@ -810,6 +811,11 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	n.Value = e.accValue
 	n.KeyShortcuts = e.keyShortcuts
 	n.RowCount, n.ColCount, n.RowIndex, n.ColIndex = int(e.accGrid[0]), int(e.accGrid[1]), int(e.accGrid[2]), int(e.accGrid[3])
+	if cellRole(n.Role) {
+		// A cell covering several columns or rows of its table, as its
+		// grid lays it out (aria-colspan, aria-rowspan).
+		n.ColSpan, n.RowSpan = e.cellSpan()
+	}
 	if e.hasRange {
 		n.Min, n.Max, n.Now, n.Step = e.accRange[0], e.accRange[1], e.accRange[2], e.accStep
 	}

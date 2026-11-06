@@ -290,10 +290,10 @@ func TestUIAGrid(t *testing.T) {
 	if hr := comCall(g.ptr(ifaceGrid), 3, 10001, 0, uintptr(unsafe.Pointer(&item))); hr != eInvalidArg {
 		t.Errorf("GetItem past the last row: %#x", hr)
 	}
-	if heads := ids(g.columnHeaders(-1)); !slices.Equal(heads, []uint64{3, 4, 5}) {
+	if heads := ids(g.columnHeaders(-1, 0)); !slices.Equal(heads, []uint64{3, 4, 5}) {
 		t.Errorf("the column headers %v", heads)
 	}
-	if heads := ids(g.columnHeaders(2)); !slices.Equal(heads, []uint64{5}) {
+	if heads := ids(g.columnHeaders(2, 1)); !slices.Equal(heads, []uint64{5}) {
 		t.Errorf("C4121's column header %v", heads)
 	}
 	if chosen := ids(g.chosen()); !slices.Equal(chosen, []uint64{6}) {
@@ -319,6 +319,72 @@ func TestUIAGrid(t *testing.T) {
 	}
 	if e := table.cellAt(41, 0); e == nil || e.n.ID != 15 {
 		t.Errorf("the cell at row 41, column 0: %v", e)
+	}
+}
+
+// A cell covering two columns, and a row header covering two rows, give
+// their spans in GridItem, and the cells after them their columns: the
+// grid finds a spanning cell at each place it covers, and its headers
+// are those of its columns and rows.
+func TestUIAGridSpans(t *testing.T) {
+	tree := newTestTree(t, false)
+	tree.update(&platform.AccessTree{Nodes: []platform.AccessNode{
+		{ID: 1, Parent: -1, Role: platform.RoleGrid, Label: "Budget"},
+		{ID: 2, Parent: 0, Role: platform.RoleRow},
+		{ID: 3, Parent: 1, Role: platform.RoleColumnHeader, Label: "Team"},
+		{ID: 4, Parent: 1, Role: platform.RoleColumnHeader, Label: "Q1"},
+		{ID: 5, Parent: 1, Role: platform.RoleColumnHeader, Label: "Q2"},
+		{ID: 6, Parent: 1, Role: platform.RoleColumnHeader, Label: "Total"},
+		{ID: 7, Parent: 0, Role: platform.RoleRow},
+		{ID: 8, Parent: 6, Role: platform.RoleRowHeader, Label: "Design", RowSpan: 2},
+		{ID: 9, Parent: 6, Role: platform.RoleCell, Label: "First half", ColSpan: 2},
+		{ID: 10, Parent: 6, Role: platform.RoleCell, Label: "9"},
+		{ID: 11, Parent: 0, Role: platform.RoleRow},
+		{ID: 12, Parent: 10, Role: platform.RoleCell, Label: "4", ColIndex: 2},
+		{ID: 13, Parent: 10, Role: platform.RoleCell, Label: "5"},
+	}})
+	g, half, design := tree.nodes[1], tree.nodes[9], tree.nodes[8]
+	get := func(e *uiaElement, iface, method int) int32 {
+		var n int32
+		if hr := comCall(e.ptr(iface), method, uintptr(unsafe.Pointer(&n))); hr != sOK {
+			t.Errorf("method %d of interface %d: %#x", method, iface, hr)
+		}
+		return n
+	}
+	// Row, Column, RowSpan and ColumnSpan, after IUnknown's methods.
+	for _, c := range []struct {
+		e    *uiaElement
+		want [4]int32
+	}{
+		{half, [4]int32{1, 1, 1, 2}},
+		{design, [4]int32{1, 0, 2, 1}},
+		{tree.nodes[10], [4]int32{1, 3, 1, 1}},
+		{tree.nodes[13], [4]int32{2, 2, 1, 1}},
+	} {
+		got := [4]int32{get(c.e, ifaceGridItem, 3), get(c.e, ifaceGridItem, 4), get(c.e, ifaceGridItem, 5), get(c.e, ifaceGridItem, 6)}
+		if got != c.want {
+			t.Errorf("%q: row, column and spans %v, want %v", c.e.n.Label, got, c.want)
+		}
+	}
+	if cols := g.colCount(); cols != 4 {
+		t.Errorf("the grid has %d columns", cols)
+	}
+	for _, at := range [][2]int{{1, 1}, {1, 2}} {
+		if e := g.cellAt(at[0], at[1]); e != half {
+			t.Errorf("the cell at %v: %v", at, e)
+		}
+	}
+	if e := g.cellAt(2, 0); e != design {
+		t.Errorf("the cell at row 2, column 0: %v", e)
+	}
+	if heads := ids(g.columnHeaders(1, 2)); !slices.Equal(heads, []uint64{4, 5}) {
+		t.Errorf("the first half's column headers %v", heads)
+	}
+	if heads := ids(g.rowHeaders(2, 1)); !slices.Equal(heads, []uint64{8}) {
+		t.Errorf("the second row's row headers %v", heads)
+	}
+	if heads := ids(g.rowHeaders(-1, 0)); !slices.Equal(heads, []uint64{8}) {
+		t.Errorf("the grid's row headers %v", heads)
 	}
 }
 

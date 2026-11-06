@@ -126,7 +126,9 @@ A node has its `id`, the `parent`'s ID unless it is at the top, its
 text fields, in runes), `level`, `posInSet`, `setSize`, `rowCount`,
 `colCount`, `rowIndex` and `colIndex` (the size of a table or a grid,
 and the place of a row or a cell in it from 1, as the app gave them:
-ARIA's `aria-rowcount` and the like), `current`
+ARIA's `aria-rowcount` and the like), `rowSpan` and `colSpan` (how many
+rows and columns a cell covers, when more than one: `aria-rowspan` and
+`aria-colspan`), `current`
 (what it is the current one of, as ARIA's `aria-current`: `true`,
 `page`, `step`, `location`, `date` or `time`), `autoComplete` (what
 a text field's or a combo box's suggestions complete, as ARIA's

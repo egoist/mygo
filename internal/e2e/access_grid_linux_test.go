@@ -16,8 +16,9 @@ import (
 // rows built only where it shows: a table whose xml-roles is grid, with
 // its size in the rowcount and colcount attributes, choosing several rows
 // (multiselectable, AtkSelection), whose rows and cells say their places
-// (rowindex, colindex); a List shown as a grid, whose rows are table rows;
-// and a tree grid, a tree table.
+// (rowindex, colindex), a cell covering two columns its span (colspan);
+// a List shown as a grid, whose rows are table rows; and a tree grid, a
+// tree table.
 func TestAccessGrid(t *testing.T) {
 	var frames atomic.Int32
 	cell := func(c *ui.Context, name string) ui.Element {
@@ -40,6 +41,10 @@ func TestAccessGrid(t *testing.T) {
 						cell(c, fmt.Sprintf("C%d", r)).ColumnIndex(3)
 					})
 				}
+				ui.Row(c).Role(ui.RoleRow).RowIndex(10001).Children(func() {
+					cell(c, "Total").ColumnSpan(2)
+					cell(c, "Sum")
+				})
 			})
 			ui.List(c, &files, 500, func(i int) {
 				ui.Row(c).Children(func() { cell(c, fmt.Sprintf("File %d", i)) })
@@ -84,6 +89,12 @@ func TestAccessGrid(t *testing.T) {
 	}
 	if c, ok := find("A4121"); !ok || c.Attributes["colindex"] != "" {
 		t.Errorf("A4121 has a column index of its own: %+v", c)
+	}
+	if c, _ := find("Total"); c.Role != "table cell" || c.Attributes["colspan"] != "2" || c.Attributes["rowspan"] != "" || c.Attributes["rowindex"] != "10001" {
+		t.Errorf("a cell covering two columns: %+v", c)
+	}
+	if c, ok := find("Sum"); !ok || c.Attributes["colspan"] != "" {
+		t.Errorf("a cell covering one column: %+v", c)
 	}
 	if h, _ := find("B"); h.Role != "column header" && h.Role != "table column header" || h.Attributes["rowindex"] != "1" {
 		t.Errorf("the header B: %+v", h)

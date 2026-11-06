@@ -88,6 +88,10 @@ type AccessInfo struct {
 	// (aria-rowindex, aria-colindex), as the app gave them; 0 when not
 	// given.
 	RowCount, ColumnCount, RowIndex, ColumnIndex int
+	// RowSpan and ColumnSpan are how many rows and columns a cell covers
+	// (aria-rowspan, aria-colspan), as its RowSpan and ColumnSpan set
+	// them; 0 for one.
+	RowSpan, ColumnSpan int
 	// Min, Max and Now are the range and the value of a slider, progress
 	// bar, meter or stepper (aria-valuemin, -valuemax and -valuenow), Now
 	// below Min for progress of unknown length; Step is how far the keys
@@ -225,6 +229,8 @@ func accessInfoOf(r Role, n *platform.AccessNode, focus uint64) AccessInfo {
 		ColumnCount:     n.ColCount,
 		RowIndex:        n.RowIndex,
 		ColumnIndex:     n.ColIndex,
+		RowSpan:         n.RowSpan,
+		ColumnSpan:      n.ColSpan,
 		Min:             n.Min,
 		Max:             n.Max,
 		Now:             n.Now,

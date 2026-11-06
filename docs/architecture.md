@@ -2744,7 +2744,14 @@ either.
   patterns of tables and their cells (`uia_grid.go`), which count from 0
   as the app gave them, else as rows say which of all they are after the
   header rows above them, else by what is built, found as a client asks;
-  their `RowHeader`s are the `Table` pattern's row headers.
+  their `RowHeader`s are the `Table` pattern's row headers. A cell's
+  `ColumnSpan` and `RowSpan` (`node.cellSpan`, from the layout's
+  `gridCell`, whether or not its row is a grid) are `AccessNode.ColSpan`
+  and `RowSpan` (aria-colspan, aria-rowspan): the lengths of its
+  `AXColumnIndexRange` and `AXRowIndexRange` (`placeCells`, which puts
+  the next cell after the columns it covers), ATK's `colspan` and
+  `rowspan` attributes, and `GridItem`'s `ColumnSpan` and `RowSpan`,
+  `Grid.GetItem` finding the cell at each place it covers.
 - **The connection.** `content.go` attaches the content to its window
   through `internal/surface.Conn`, which carries the surface and, as
   functions, what the content needs of the app (the clipboard, dragging

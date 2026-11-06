@@ -45,9 +45,9 @@ type accessElement struct {
 	linked      []id
 	// cellRow says a row is chosen as it holds a chosen cell, and at
 	// where a cell is in its table, its row and column from 1, 0 where
-	// unknown.
+	// unknown, and how many rows and columns it covers.
 	cellRow bool
-	at      [2]int
+	at      [4]int
 	// headers are the column headers of a table, and header that of a
 	// cell's column (AXColumnHeaderUIElements).
 	headers []uint64
@@ -200,29 +200,44 @@ func cell(r platform.AccessRole) bool {
 
 // placeCells tells the cells of a table's row where they are, the row
 // from 1 or 0 for its header, as NSTableView's cells say
-// (AXRowIndexRange, AXColumnIndexRange), and the header of their column
-// among headers, and reports whether one of them is chosen.
+// (AXRowIndexRange, AXColumnIndexRange), the ranges as long as the rows
+// and columns they cover (aria-rowspan, aria-colspan), and the header of
+// their column among headers, and reports whether one of them is chosen.
+// A cell is in the column the app gave it (aria-colindex), else in the
+// one after those the cell before it covers.
 func (s *surface) placeCells(row *accessElement, index int, headers []uint64) (chosen bool) {
-	col := 0
+	col := 1
 	for _, cid := range row.children {
 		c := s.elements[cid]
 		if c == nil || !cell(c.node.Role) {
 			continue
 		}
-		col++
-		c.header = 0
-		if col <= len(headers) && c.node.Role != platform.RoleColumnHeader {
-			c.header = headers[col-1]
+		if c.node.ColIndex > 0 {
+			col = c.node.ColIndex
 		}
-		if at := [2]int{index, col}; c.at != at {
-			if index > 0 && c.at[0] != index {
-				send(c.obj, "setAccessibilityRowIndexRange:", uintptr(index-1), 1)
+		r := index
+		if c.node.RowIndex > 0 && index > 0 {
+			r = c.node.RowIndex
+		}
+		c.header = 0
+		if c.node.Role != platform.RoleColumnHeader {
+			for _, h := range headers {
+				if hc := s.elements[h]; hc != nil && hc.at[1] > 0 && hc.at[1] <= col && col < hc.at[1]+hc.at[3] {
+					c.header = h
+					break
+				}
 			}
-			if c.at[1] != col {
-				send(c.obj, "setAccessibilityColumnIndexRange:", uintptr(col-1), 1)
+		}
+		if at := [4]int{r, col, max(c.node.RowSpan, 1), max(c.node.ColSpan, 1)}; c.at != at {
+			if r > 0 && (c.at[0] != r || c.at[2] != at[2]) {
+				send(c.obj, "setAccessibilityRowIndexRange:", uintptr(r-1), uintptr(at[2]))
+			}
+			if c.at[1] != col || c.at[3] != at[3] {
+				send(c.obj, "setAccessibilityColumnIndexRange:", uintptr(col-1), uintptr(at[3]))
 			}
 			c.at = at
 		}
+		col += c.at[3]
 		chosen = chosen || chooses(c.node) && c.node.States&platform.AccessChecked != 0
 	}
 	return chosen
@@ -993,12 +1008,12 @@ func registerAccessClass() {
 						return nsBool(true)
 					}
 				case "AXRowIndexRange", "AXColumnIndexRange":
-					i := el.at[0]
+					i, n := el.at[0], el.at[2]
 					if stringOf(attr) == "AXColumnIndexRange" {
-						i = el.at[1]
+						i, n = el.at[1], el.at[3]
 					}
 					if cell(el.node.Role) && i > 0 {
-						return send(class("NSValue"), "valueWithRange:", uintptr(i-1), 1)
+						return send(class("NSValue"), "valueWithRange:", uintptr(i-1), uintptr(n))
 					}
 				case "AXSelectedCells", "AXSelectedRows", "AXColumnHeaderUIElements":
 					var ids []uint64

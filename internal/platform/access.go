@@ -75,6 +75,11 @@ type AccessNode struct {
 	// table's SetSize then tell its place, and the rows and cells built
 	// the rest.
 	RowCount, ColCount, RowIndex, ColIndex int
+	// RowSpan and ColSpan are how many rows and columns of its table a
+	// cell covers, as ARIA's aria-rowspan and aria-colspan: 0 for one.
+	// The cell after one spanning columns in its row is in the column
+	// after those it covers.
+	RowSpan, ColSpan int
 	// Actions are the actions the element takes in AccessAction events.
 	Actions AccessActions
 	// RoleDescription is what screen readers read for the element's role

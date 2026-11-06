@@ -339,7 +339,13 @@ readers how many it has, `RowCount` and `ColumnCount` (ARIA's
 which of all it is, `RowIndex` from 1 (`aria-rowindex`); a cell of a
 column not built, or after one left out, says its column with
 `ColumnIndex` (`aria-colindex`), and the cells after it follow it.
-Screen readers then read "row 4,121 of 10,000". `Multiselectable(true)`
+Screen readers then read "row 4,121 of 10,000". A cell covering several
+columns or rows, as a total under two columns, says so with
+`ColumnSpan` and `RowSpan` (`aria-colspan`, `aria-rowspan`), which also
+lay it out across them where its row is a [Grid](grid.md): the cell after
+it in its row is in the column after those it covers, and the cells of
+the rows below one spanning rows say their columns with `ColumnIndex`
+where they follow it. `Multiselectable(true)`
 says that the user chooses several rows (`aria-multiselectable`), and
 each row says whether it is chosen with `Selected`, or `Checked`, which
 does not paint it:
@@ -375,6 +381,17 @@ ui.List(c, &app.rows, len(app.data), func(i int) {
 }).Role(ui.RoleGrid).Label("Sheet").ColumnCount(len(cols))
 ```
 
+A cell across two columns of a hand-built data grid, whose rows lay out
+their cells in the grid's columns:
+
+```go
+ui.Grid(c).Role(ui.RoleRow).ColumnTracks(ui.Fixed(120), ui.Fr(1), ui.Fr(1), ui.Fr(1)).Children(func() {
+	ui.Box(c).Role(ui.RoleRowHeader).Children(func() { ui.Text(c, "Design") })
+	ui.Box(c).Role(ui.RoleCell).ColumnSpan(2).Children(func() { ui.Text(c, "First half: 9") })
+	ui.Box(c).Role(ui.RoleCell).Children(func() { ui.Text(c, "Total: 14") }) // the fourth column
+})
+```
+
 A [Table](table.md)'s rows say which of all they are themselves, and so
 does a list's: the counts and indexes are for grids and tables of your
 own. A grid is AppKit's `AXTable`, its rows and cells telling the counts
@@ -385,7 +402,11 @@ ATK's table (a tree grid's tree table) with the `xml-roles` attribute
 `colindex` attributes, as Chromium gives them; and UI Automation's
 DataGrid, whose `Grid` and `Table` patterns, and its cells' `GridItem`
 and `TableItem`, say where each cell is among all, from 0, and which
-column and row headers name it, as tables' do. Cells say whether they
+column and row headers name it, as tables' do. A cell's spans are the
+lengths of its `AXColumnIndexRange` and `AXRowIndexRange` on macOS, its
+`colspan` and `rowspan` attributes on Linux, and `GridItem`'s
+`ColumnSpan` and `RowSpan` on Windows, where the grid finds the cell at
+each place it covers. Cells say whether they
 are chosen with [`Checked`](#states) too, the grid holding their
 choice, as a table's do. A grid choosing several rows is
 `multiselectable` on Linux and `CanSelectMultiple` on Windows, its rows

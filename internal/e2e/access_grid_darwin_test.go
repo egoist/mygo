@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -17,7 +18,9 @@ import (
 // AXARIAColumnCount, and AXRowCount, whose rows say which of all they are
 // (AXIndex) and, with its cells, their places in AXARIARowIndex and
 // AXARIAColumnIndex, as WebKit's grids do; a cell without a column of its
-// own names no AXARIAColumnIndex.
+// own names no AXARIAColumnIndex, and one covering two columns says so in
+// the length of its AXColumnIndexRange (aria-colspan), the cell after it
+// in the column after those.
 func TestAccessGrid(t *testing.T) {
 	var frames atomic.Int32
 	cell := func(c *ui.Context, name string) ui.Element {
@@ -33,6 +36,10 @@ func TestAccessGrid(t *testing.T) {
 						cell(c, fmt.Sprintf("C%d", r)).ColumnIndex(3)
 					})
 				}
+				ui.Row(c).Role(ui.RoleRow).RowIndex(10001).Children(func() {
+					cell(c, "Total").ColumnSpan(2)
+					cell(c, "Sum")
+				})
 			})
 			ui.Column(c).Role(ui.RoleTreeGrid).Label("Outline").Children(func() {
 				ui.Row(c).Role(ui.RoleRow).Level(1).Children(func() { cell(c, "src") })
@@ -81,5 +88,16 @@ func TestAccessGrid(t *testing.T) {
 	}
 	if v, _, named, ok := axAttribute(w, "A4121", "AXARIAColumnIndex"); !ok || named {
 		t.Errorf("A4121's AXARIAColumnIndex %q, named %v, found %v", v, named, ok)
+	}
+	// The ranges, which read as descriptions holding want.
+	for _, c := range []struct{ label, attr, want string }{
+		{"Total", "AXColumnIndexRange", "{0, 2}"},
+		{"Total", "AXRowIndexRange", "{10000, 1}"},
+		{"Sum", "AXColumnIndexRange", "{2, 1}"},
+	} {
+		eventually(t, c.label+"'s "+c.attr, func() bool {
+			v, _, named, ok := axAttribute(w, c.label, c.attr)
+			return ok && named && strings.Contains(v, c.want)
+		})
 	}
 }

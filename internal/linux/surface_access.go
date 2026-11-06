@@ -401,13 +401,16 @@ func chooses(n platform.AccessNode) bool {
 }
 
 // gridNames are the object attributes of gridAttributes' values, as
-// Chromium names them.
-var gridNames = [...]string{"rowcount", "colcount", "rowindex", "colindex"}
+// Chromium names them, and those of a cell's spans, as Gecko and Orca
+// name them.
+var gridNames = [...]string{"rowcount", "colcount", "rowindex", "colindex", "rowspan", "colspan"}
 
-// gridAttributes returns the size of a table or a grid, and the place of
-// a row or a cell in it, as the app gave them: 0 for those not given. A
-// cell's row index is its row's unless it has one of its own.
-func (an *accessNode) gridAttributes() (v [4]int) {
+// gridAttributes returns the size of a table or a grid, the place of a
+// row or a cell in it, as the app gave them, and the rows and columns a
+// cell covers when more than one (aria-rowspan, aria-colspan): 0 for
+// those not given. A cell's row index is its row's unless it has one of
+// its own.
+func (an *accessNode) gridAttributes() (v [6]int) {
 	n := &an.n
 	switch {
 	case n.Role.Tabular():
@@ -415,7 +418,7 @@ func (an *accessNode) gridAttributes() (v [4]int) {
 	case n.Role == platform.RoleRow:
 		v[2] = n.RowIndex
 	case cellRole(n.Role):
-		v[2], v[3] = n.RowIndex, n.ColIndex
+		v[2], v[3], v[4], v[5] = n.RowIndex, n.ColIndex, n.RowSpan, n.ColSpan
 		if p := an.parent; v[2] == 0 && p != nil && p.n.Role == platform.RoleRow {
 			v[2] = p.n.RowIndex
 		}
@@ -1039,7 +1042,8 @@ func initAccessCallbacks() {
 	// the node is the current one of (aria-current), what a field's
 	// suggestions complete (aria-autocomplete), the size of a grid and
 	// the place of its rows and cells as the app gave them (aria-rowcount
-	// and the like), and the ARIA role of a landmark, a live region or a
+	// and the like), the rows and columns a cell covers (aria-rowspan,
+	// aria-colspan), and the ARIA role of a landmark, a live region or a
 	// grid.
 	attributes := purego.NewCallback(func(obj ptr) ptr {
 		an := node(obj)

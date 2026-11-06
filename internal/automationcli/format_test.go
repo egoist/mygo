@@ -41,6 +41,7 @@ func TestLine(t *testing.T) {
 		{node{ID: "10", Role: "grid", Label: "Sheet", RowCount: 10001, ColCount: 5, States: []string{"multiselectable"}}, true, `[grid] "Sheet" multiselectable rowcount=10001 colcount=5 bounds=0,0,0x0 id=10`},
 		{node{ID: "11", Role: "row", RowIndex: 4122}, true, `[row] rowindex=4122 bounds=0,0,0x0 id=11`},
 		{node{ID: "11", Role: "row", RowIndex: 4122}, false, `[row]`},
+		{node{ID: "12", Role: "cell", Label: "Total", ColSpan: 2}, true, `[cell] "Total" colspan=2 bounds=0,0,0x0 id=12`},
 	} {
 		if got := line(&c.n, "3", c.full); got != c.want {
 			t.Errorf("line(%+v, full %v)\n got %s\nwant %s", c.n, c.full, got, c.want)

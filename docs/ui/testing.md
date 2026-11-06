@@ -126,7 +126,8 @@ option the focus is on, `ActiveDescendant` included), `Controls` (the
 names of the elements it controls, which `Access` finds), `Level`,
 `PosInSet` and `SetSize`, `Multiselectable`, `RowCount`,
 `ColumnCount`, `RowIndex` and `ColumnIndex` (of a
-[grid](accessibility.md#grids)), `Min`, `Max` and `Now` of a range, and
+[grid](accessibility.md#grids)), `RowSpan` and `ColumnSpan` (of its
+cells), `Min`, `Max` and `Now` of a range, and
 its `Bounds`. So a test checks
 that a state reaches assistive technology, not only that the view set
 it:

@@ -398,6 +398,7 @@ func treeJSON(window int, t *platform.AccessTree, keys map[uint64]any) treeResul
 			Actions: names(uint64(n.Actions), actionNames[:]),
 			Level:   n.Level, PosInSet: n.PosInSet, SetSize: n.SetSize,
 			RowCount: n.RowCount, ColCount: n.ColCount, RowIndex: n.RowIndex, ColIndex: n.ColIndex,
+			RowSpan: n.RowSpan, ColSpan: n.ColSpan,
 			Current: n.Current.String(), AutoComplete: n.AutoComplete.String(), WebView: n.WebView != nil,
 			RoleDescription: n.RoleDescription, HasPopup: n.HasPopup.String(),
 		}
@@ -467,6 +468,10 @@ type nodeJSON struct {
 	ColCount int `json:"colCount,omitempty"`
 	RowIndex int `json:"rowIndex,omitempty"`
 	ColIndex int `json:"colIndex,omitempty"`
+	// RowSpan and ColSpan are how many rows and columns a cell covers,
+	// when more than one (aria-rowspan, aria-colspan).
+	RowSpan int `json:"rowSpan,omitempty"`
+	ColSpan int `json:"colSpan,omitempty"`
 	// Current is the item the element is the current one of, as ARIA's
 	// aria-current: true, page, step, location, date or time.
 	Current string `json:"current,omitempty"`

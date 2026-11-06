@@ -135,6 +135,8 @@ type node struct {
 	ColCount    int             `json:"colCount,omitempty"`
 	RowIndex    int             `json:"rowIndex,omitempty"`
 	ColIndex    int             `json:"colIndex,omitempty"`
+	RowSpan     int             `json:"rowSpan,omitempty"`
+	ColSpan     int             `json:"colSpan,omitempty"`
 	Current     string          `json:"current,omitempty"`
 	Complete    string          `json:"autoComplete,omitempty"`
 	WebView     bool            `json:"webView,omitempty"`
