@@ -172,7 +172,7 @@ func mixTransform(a, b Transform, k float32) Transform {
 		return b
 	case k <= 0:
 		return a
-	case a.d3 != nil || b.d3 != nil || a.m.G != 0 || a.m.H != 0 || b.m.G != 0 || b.m.H != 0:
+	case a.is3D || b.is3D || a.m.G != 0 || a.m.H != 0 || b.m.G != 0 || b.m.H != 0:
 		da, okA := decompose3(a.mat4())
 		db, okB := decompose3(b.mat4())
 		if !okA || !okB {

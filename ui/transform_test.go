@@ -696,3 +696,18 @@ func TestTurningCardFarFromTheOriginShowsAndHits(t *testing.T) {
 		}
 	}
 }
+
+// TestTransform3DAllocatesNothing: a game builds a projected transform every
+// frame, and a frame's transforms must not add to what the collector sees.
+func TestTransform3DAllocatesNothing(t *testing.T) {
+	var sink Transform
+	n := testing.AllocsPerRun(1000, func() {
+		sink = Translation3D(1, 2, 3).Then(RotationY(30)).Then(Perspective(800))
+	})
+	if n != 0 {
+		t.Errorf("a 3D transform allocates %v times", n)
+	}
+	if !sink.set() {
+		t.Error("a 3D transform is not set")
+	}
+}

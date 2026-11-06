@@ -17,8 +17,9 @@ import (
 // transform makes of it into its parent's plane, as CSS's flat
 // transform-style.
 type Transform struct {
-	m  scene.Affine
-	d3 *mat4 // a transform in 3D, which m is not
+	m    scene.Affine
+	d3   mat4 // a transform in 3D, which m is not
+	is3D bool // d3 is the transform
 }
 
 // mat4 is a transform in 3D, by rows, of (x, y, z, 1).
@@ -28,8 +29,8 @@ func identity4() mat4 { return mat4{0: 1, 5: 1, 10: 1, 15: 1} }
 
 // mat4 returns t in 3D.
 func (t Transform) mat4() mat4 {
-	if t.d3 != nil {
-		return *t.d3
+	if t.is3D {
+		return t.d3
 	}
 	m := identity4()
 	if a := t.m; a.Set {
@@ -44,13 +45,13 @@ func (t Transform) mat4() mat4 {
 }
 
 // set reports whether t is not identity.
-func (t Transform) set() bool { return t.m.Set || t.d3 != nil }
+func (t Transform) set() bool { return t.m.Set || t.is3D }
 
 // flat returns what t makes of its plane, z = 0, seen from the front.
 // Elements and Painter.Transform flatten their transforms around their
 // own origins and move them where they act in 2D (scene.Affine.Mul).
 func (t Transform) flat() scene.Affine {
-	if t.d3 == nil {
+	if !t.is3D {
 		return t.m
 	}
 	m := t.d3
@@ -84,7 +85,7 @@ func (t Transform) flat() scene.Affine {
 }
 
 // in3D returns m as a Transform.
-func in3D(m mat4) Transform { return Transform{d3: &m} }
+func in3D(m mat4) Transform { return Transform{d3: m, is3D: true} }
 
 // Translation moves content by x and y DIPs.
 func Translation(x, y float32) Transform {
@@ -179,7 +180,7 @@ func Perspective(distance float32) Transform {
 
 // Then applies t first, then next.
 func (t Transform) Then(next Transform) Transform {
-	if t.d3 == nil && next.d3 == nil {
+	if !t.is3D && !next.is3D {
 		m := next.m.Mul(t.m)
 		finiteTransform(m.A, m.B, m.C, m.D, m.X, m.Y, m.G, m.H)
 		return Transform{m: m}
@@ -298,7 +299,7 @@ func (e *node) BackfaceHidden() *node { e.backface = true; return e }
 // sees it from, as Chromium's IsBackFaceVisible has it: the item at the
 // side of a carousel turns its back as it passes the viewer's line.
 func (t Transform) facesAway() bool {
-	if t.d3 == nil {
+	if !t.is3D {
 		return false
 	}
 	var m [16]float64
