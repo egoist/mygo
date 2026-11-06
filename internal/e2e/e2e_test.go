@@ -4255,13 +4255,24 @@ func TestContentWindowDrawnEditMenu(t *testing.T) {
 	}
 	w := newWindow(t, mygo.WindowOptions{Title: "Drawn editing menu", Width: 400, Height: 300, Content: ui.View(view)})
 	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	// focusIs asks for a frame each time it looks, so that the view reads
+	// the focus as it is, not as it was when the window last drew.
+	focusIs := func(input bool) func() bool {
+		return func() bool {
+			w.Invalidate()
+			return inInput.Load() == input
+		}
+	}
 	// A click first gives the window the keyboard, with no window manager.
 	if _, ok := popupMenus(); !ok || !click(w, 120, 36) {
 		t.Skip("context menu automation not available on this platform")
 	}
-	eventually(t, "the input's focus", inInput.Load)
+	eventually(t, "the input's focus", focusIs(true))
 	rightClick(w, 120, 36)
-	eventually(t, "the menu's focus", func() bool { return !inInput.Load() })
+	if !wait.Poll(focusIs(false)) {
+		menus, _ := popupMenus()
+		t.Fatalf("the menu never took the focus: %d frames, the system's menus %q", frames.Load(), menus)
+	}
 	if menus, _ := popupMenus(); len(menus) != 0 {
 		t.Fatalf("the system shows a menu: %q", menus)
 	}
@@ -4271,7 +4282,7 @@ func TestContentWindowDrawnEditMenu(t *testing.T) {
 		t.Skip("key automation not available on this platform")
 	}
 	pressKeys("Return")
-	eventually(t, "the focus back in the input", inInput.Load)
+	eventually(t, "the focus back in the input", focusIs(true))
 	pressKeys("x")
 	eventually(t, "the text replaced", func() bool { return text.Load() == "x" })
 }
