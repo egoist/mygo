@@ -946,6 +946,12 @@ func registerAccessClass() {
 			if el.node.RoleDescription != "" {
 				more = append(more, "AXRoleDescription")
 			}
+			// What describes it (Description, DescribedBy, ErrorMessage),
+			// which the older API neither lists nor answers for what
+			// setAccessibilityHelp: set, as it does AXEnabled.
+			if el.node.Description != "" {
+				more = append(more, "AXHelp")
+			}
 			for _, name := range more {
 				if a := nsString(name); !sendBool(names, "containsObject:", uintptr(a)) {
 					names = send(names, "arrayByAddingObject:", uintptr(a))
@@ -1013,6 +1019,14 @@ func registerAccessClass() {
 					return nsBool(el.node.States&platform.AccessBusy != 0)
 				case "AXEnabled":
 					return nsBool(el.node.States&platform.AccessDisabled == 0)
+				// What describes it, as the newer API's accessibilityHelp:
+				// its error first while invalid, then its description, a
+				// line each.
+				case "AXHelp":
+					if el.node.Description != "" {
+						return nsString(el.node.Description)
+					}
+					return 0
 				// The role and subrole the newer API was given, so that
 				// both APIs agree: AppKit's answer here missed a header
 				// made a sort button, and a grid's table.

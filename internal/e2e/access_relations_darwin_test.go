@@ -38,7 +38,7 @@ func TestAccessDescribedByErrorMessageSearch(t *testing.T) {
 	} {
 		eventually(t, "the field's "+c.attr, func() bool {
 			v, _, named, ok := axAttribute(w, "Find", c.attr)
-			return ok && (named || c.attr == "AXSubrole" || c.attr == "AXHelp") && strings.Contains(v, c.want)
+			return ok && (named || c.attr == "AXSubrole") && strings.Contains(v, c.want)
 		})
 	}
 	bad.Store(false)
