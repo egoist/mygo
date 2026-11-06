@@ -212,6 +212,24 @@ leaving the keyboard focus to `SetFocused`. The window's material follows
 the system (macOS fades it in a window other than a panel or a flyout,
 Windows its Mica); `examples/vibrancy` shows both together.
 
+## Hidden windows
+
+`c.WindowHidden()` reports whether nothing of the window shows on
+screen, as the web's `document.hidden`: a view showing a clock, a price
+or a playback position stops its work while it is hidden, and refreshes
+as it shows again. The frame that asks builds once more as the window
+hides, though no frame draws while it is hidden, and again as it shows:
+
+```go
+app.ticker.SetPaused(c.WindowHidden()) // a ticker of your own
+```
+
+Frames for what moves, animations and drawings that move, wait anyway
+while it is hidden. macOS tells it as the window is minimized, hidden,
+on another space or covered by other windows; browsers as the tab or
+the window is out of sight; Linux (on X11) and Windows as it is
+minimized. `Tester.SetWindowHidden` hides and shows it in tests.
+
 ## Closing
 
 A view can close its own window, from a button's click or its callback.
@@ -219,6 +237,8 @@ The window goes at once, by `Destroy` or by a `Close` no `OnClose`
 listener prevents, and the rest of the view builds as it would, with a
 `Context` that still has the theme and the window's size. The frame ends
 there: nothing more is laid out or painted, and no other callback runs.
+The closed window keeps nothing of what it showed, the view and what it
+reaches included, though the app keeps the `*mygo.Window`.
 Open the window that takes over first, since an app [quits](../app.md)
 when its last window closes:
 

@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -90,6 +91,37 @@ const (
 	// RoleHeading is the title of a section, named by its text, its rank
 	// set with Level.
 	RoleHeading
+	// RoleRegion is a landmark with a Label, as an activity feed or a
+	// panel: screen readers list it among the window's landmarks, and
+	// jump to it. Without a Label it is a group, as ARIA's region.
+	RoleRegion
+	// RoleLog is a live region of messages added in order, as a chat's
+	// transcript: screen readers read out what is added to it, once it has
+	// shown, after what they are reading.
+	RoleLog
+	// RoleTimer counts time, as a countdown, whose changes screen readers
+	// read only when the user goes to it.
+	RoleTimer
+	// RoleAlert is a live region of important news, as a field's error:
+	// screen readers read its content out at once, interrupting what they
+	// are reading, as it appears and whenever it changes.
+	RoleAlert
+	// RoleSeparator divides groups of content or controls, as a rule
+	// between a toolbar's groups of buttons (a Divider): screen readers
+	// read it as running up and down when it is taller than wide.
+	RoleSeparator
+	// RoleRowHeader is the cell naming its row of a table, as
+	// RoleColumnHeader names a column.
+	RoleRowHeader
+	// RoleSearch is a landmark holding what searches the app or a
+	// document, as the search field and its button at the top of a
+	// window: screen readers list it among the window's landmarks, and
+	// jump to it.
+	RoleSearch
+	// RoleArticle is a self-contained piece of content, as a post of a
+	// feed or a comment of a thread, named by its Label: screen readers
+	// step from one article to the next, as HTML's article.
+	RoleArticle
 	// RoleNavigation is a landmark holding links that move around the
 	// app or a document, as a breadcrumb trail (Breadcrumbs) or a
 	// navigation bar: screen readers list it among the window's
@@ -98,11 +130,19 @@ const (
 	// RoleGrid is a table whose cells take the focus and the arrow keys,
 	// as a spreadsheet's, where RoleTable is one to read; RoleTreeGrid is
 	// a grid whose rows open and close as a tree's items do (Expanded,
-	// Level). Their rows, cells and column headers are RoleRow, RoleCell
-	// and RoleColumnHeader, as a table's, and the rows of a List shown as
-	// one are its rows.
+	// Level). Their rows, cells and headers are RoleRow, RoleCell,
+	// RoleColumnHeader and RoleRowHeader, as a table's, and the rows of a
+	// List shown as one are its rows.
 	RoleGrid
 	RoleTreeGrid
+	// RoleListBox is a list of options to choose from, as ARIA's listbox,
+	// and RoleOption one of its options, selected with Checked, as ARIA's
+	// aria-selected: what a list of your own offers, such as suggestions
+	// at a text area's caret whose highlighted one the text area points
+	// at with ActiveDescendant. The popups of SelectBase and ComboboxBase
+	// are list boxes.
+	RoleListBox
+	RoleOption
 )
 
 // tabular reports whether elements of a role hold rows of cells: tables,
@@ -121,8 +161,9 @@ func (e *node) Role(r Role) *node {
 // on the web.
 
 // Checked tells assistive technology whether the element, as a check box,
-// switch, radio button, toggle button or menu item of your own, is on.
-// Bases set it from their value.
+// switch, radio button, toggle button or menu item of your own, is on, or
+// whether an option (RoleOption) is selected. Bases set it from their
+// value.
 func (e *node) Checked(on bool) *node {
 	e.checked = 1 + int8(b2f(on))
 	return e
@@ -181,6 +222,39 @@ const (
 // page"). CurrentNone takes it back.
 func (e *node) Current(kind Current) *node {
 	e.current = kind
+	return e
+}
+
+// AutoComplete is what the suggestions of a text input complete as the
+// user types (Element.AutoComplete), as ARIA's aria-autocomplete says.
+type AutoComplete uint8
+
+const (
+	// AutoCompleteNone suggests nothing as the user types: the popup of
+	// a combobox, if any, shows the same options whatever is typed.
+	AutoCompleteNone AutoComplete = iota
+	// AutoCompleteInline completes the text in place: the rest of the
+	// value the input guesses is inserted after the caret, selected.
+	AutoCompleteInline
+	// AutoCompleteList shows a popup of the values that complete what
+	// was typed, as the options of a Combobox or an Autocomplete.
+	AutoCompleteList
+	// AutoCompleteBoth shows the popup, and completes the text in place
+	// with the option the arrows are on.
+	AutoCompleteBoth
+)
+
+// AutoComplete tells assistive technology what the suggestions of a
+// text input or a combobox of your own complete as the user types, as
+// ARIA's aria-autocomplete: AutoCompleteList for a popup of the values
+// matching what was typed, which screen readers announce with the field
+// so that the user knows to look there, AutoCompleteInline for the text
+// completed in place. It only tells it: the view shows the suggestions
+// itself, as in ComboboxBase's popup. Combobox, Autocomplete, and a
+// TokenField with suggestions, tell AutoCompleteList themselves;
+// AutoCompleteNone takes it back.
+func (e *node) AutoComplete(kind AutoComplete) *node {
+	e.autoComplete = kind
 	return e
 }
 
@@ -291,6 +365,80 @@ func (e *node) ActiveDescendant(d *node) *node {
 	return e
 }
 
+// RoleDescription tells assistive technology what to call the element's
+// role, in place of its own, as ARIA's aria-roledescription: "carousel"
+// for a group of slides, and "slide" for each. Screen readers read it
+// where they would read the role, so give it in the user's language, and
+// keep the role, which says how to use the element. "" reads the role.
+func (e *node) RoleDescription(s string) *node {
+	e.roleDescription = s
+	return e
+}
+
+// Controls tells assistive technology that the element controls the
+// content or the presence of target, as ARIA's aria-controls: the
+// region a disclosure button opens, or the list a filter's input
+// narrows. Screen readers offer to move to it. Call it once target is
+// built, once for each element it controls.
+func (e *node) Controls(target *node) *node {
+	if target != nil && !slices.Contains(e.controls, target) {
+		e.controls = append(e.controls, target)
+	}
+	return e
+}
+
+// Popup is the kind of popup an element opens (Element.HasPopup), as
+// ARIA's aria-haspopup says.
+type Popup uint8
+
+const (
+	// PopupNone opens no popup.
+	PopupNone Popup = iota
+	// PopupMenu opens a menu, aria-haspopup="menu" (or "true").
+	PopupMenu
+	// PopupListBox opens a list of options, as a select's.
+	PopupListBox
+	// PopupTree opens a tree, PopupGrid a grid, as a date picker's
+	// calendar, and PopupDialog a dialog.
+	PopupTree
+	PopupGrid
+	PopupDialog
+)
+
+// HasPopup tells assistive technology the kind of popup the element
+// opens, as a button opening a list of options (PopupListBox) or a menu
+// (PopupMenu), which Expanded says shows: screen readers read it with the
+// element ("pop-up button", "menu button") and offer to open it.
+// PopupNone takes it back.
+func (e *node) HasPopup(kind Popup) *node {
+	e.hasPopup = kind
+	return e
+}
+
+// SortDirection is the order a table's rows are sorted in by a column
+// (Element.Sort), as ARIA's aria-sort says.
+type SortDirection uint8
+
+const (
+	// SortNone is not sorted by the column.
+	SortNone SortDirection = iota
+	// SortAscending and SortDescending sort the rows up or down the
+	// column's values.
+	SortAscending
+	SortDescending
+	// SortOther sorts them in an order of another kind.
+	SortOther
+)
+
+// Sort tells assistive technology the order a table's rows are sorted in
+// by the column whose header the element is (RoleColumnHeader), as ARIA's
+// aria-sort: for a sortable table of your own, whose headers show it.
+// Table's headers tell it from ListState.Sort and SortBy.
+func (e *node) Sort(dir SortDirection) *node {
+	e.sort = int8(dir)
+	return e
+}
+
 // accessRole returns the element's role, and false for elements assistive
 // technology does not see.
 func (e *node) accessRole() (platform.AccessRole, bool) {
@@ -303,6 +451,10 @@ func (e *node) accessRole() (platform.AccessRole, bool) {
 		if e.listRow && e.parent != nil && tabular(e.parent.role) {
 			return platform.RoleRow, true
 		}
+		return platform.RoleListItem, true
+	case RoleListBox:
+		return platform.RoleList, true // choosing its items (accessDetails)
+	case RoleOption:
 		return platform.RoleListItem, true
 	default:
 		return platform.AccessRole(e.role - RoleGroup), true
@@ -326,16 +478,24 @@ func (e *node) accessRole() (platform.AccessRole, bool) {
 	return 0, false
 }
 
+// cellRole reports whether nodes of a role are cells of a table, headers
+// included, which Checked chooses (aria-selected).
+func cellRole(r platform.AccessRole) bool {
+	return r == platform.RoleCell || r == platform.RoleColumnHeader || r == platform.RoleRowHeader
+}
+
 // leafRole reports whether elements of a role take the text inside them
-// as their name, rather than showing it as elements of its own. A column
-// header shows what is inside it too, as ARIA's columnheader, whose
-// children are not presentational: a sort button in it is reached.
+// as their name, rather than showing it as elements of its own. Column
+// and row headers and headings show what is inside them too, as their
+// children are not presentational in ARIA: buttons in them, as a header's
+// sort button, can be reached.
 func leafRole(r platform.AccessRole) bool {
 	switch r {
 	case platform.RoleGroup, platform.RoleList, platform.RoleScroll, platform.RoleDialog, platform.RoleAlertDialog, platform.RolePopup, platform.RoleStatus,
-		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleColumnHeader, platform.RoleTree, platform.RoleListItem,
-		platform.RoleToolbar, platform.RoleRadioGroup, platform.RoleMenu, platform.RoleMenuBar, platform.RoleNavigation,
-		platform.RoleGrid, platform.RoleTreeGrid:
+		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleColumnHeader, platform.RoleRowHeader, platform.RoleTree,
+		platform.RoleListItem, platform.RoleToolbar, platform.RoleRadioGroup, platform.RoleMenu, platform.RoleMenuBar, platform.RoleHeading, platform.RoleNavigation,
+		platform.RoleRegion, platform.RoleLog, platform.RoleTimer, platform.RoleAlert, platform.RoleSearch,
+		platform.RoleArticle, platform.RoleGrid, platform.RoleTreeGrid:
 		return false
 	}
 	return true
@@ -424,6 +584,21 @@ func (rt *engine) accessTree() *platform.AccessTree {
 		}
 	default:
 		rt.accessElement(t, root, -1, false, &focused)
+	}
+	// A table or a grid whose cells say whether they are chosen chooses them, as
+	// ARIA's grid holds its gridcells' selection.
+	for i := range t.Nodes {
+		if n := &t.Nodes[i]; cellRole(n.Role) && n.States&platform.AccessSelectable != 0 {
+			if t.Selected == "" {
+				t.Selected = l10n.In(rt.lang).Selected()
+			}
+			for p := n.Parent; p >= 0; p = t.Nodes[p].Parent {
+				if t.Nodes[p].Role.Tabular() {
+					t.Nodes[p].States |= platform.AccessSelectable
+					break
+				}
+			}
+		}
 	}
 	if rt.windowFocus() && rt.focused != 0 {
 		focus := rt.focused
@@ -548,13 +723,14 @@ const pageNodeID = 0x9e3779b97f4a7c15
 // accessDetails fills in the name, value, states and actions of a node.
 func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	disabled := e.IsDisabled()
-	if disabled {
+	if disabled || e.st.accessDisabled {
 		n.States |= platform.AccessDisabled
 	}
 	if e.segment {
 		n.States |= platform.AccessSegment
 	}
-	if e.vertical {
+	if e.vertical || n.Role == platform.RoleSeparator && e.h > e.w {
+		// A slider going up, or a rule running up and down.
 		n.States |= platform.AccessVertical
 	}
 	if e.search {
@@ -568,11 +744,17 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 		n.States |= platform.AccessSortAscending
 	case 2:
 		n.States |= platform.AccessSortDescending
+	case 3:
+		n.States |= platform.AccessSortOther
 	}
 	n.Description = e.description
+	n.RoleDescription, n.HasPopup = e.roleDescription, platform.AccessPopup(e.hasPopup)
+	for _, c := range e.controls {
+		n.Controls = append(n.Controls, c.id)
+	}
 	if f := e.nameFrom; f != nil {
 		switch {
-		case n.Label == "":
+		case n.Label == "" || e.labelledBy && f.nameOf() != "":
 			n.Label = f.nameOf()
 		case e.nameJoin && f.nameOf() != "":
 			n.Label = f.nameOf() + " " + n.Label
@@ -581,23 +763,37 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	if e.setSize > 0 {
 		n.PosInSet, n.SetSize = e.setPos, e.setSize
 	}
-	if e.choosesItems {
+	if e.choosesItems || e.role == RoleListBox {
 		n.States |= platform.AccessSelectable
 	}
 	if e.chooseMany {
 		n.States |= platform.AccessMultiselectable
 	}
-	// Rows and items of lists, column headers and statuses are named by
-	// their content, as leaves are, but show what is inside them too, as a
-	// toast's button.
-	if n.Label == "" && (leafRole(n.Role) || n.Role == platform.RoleListItem || n.Role == platform.RoleRow || n.Role == platform.RoleColumnHeader || n.Role == platform.RoleStatus) {
+	// Rows and items of lists, column and row headers, headings and
+	// statuses are named by their content, as leaves are, but show what is
+	// inside them too, as a toast's button or a header's sort button.
+	if n.Label == "" && (leafRole(n.Role) || n.Role == platform.RoleListItem || n.Role == platform.RoleRow || n.Role == platform.RoleColumnHeader ||
+		n.Role == platform.RoleRowHeader || n.Role == platform.RoleHeading || n.Role == platform.RoleStatus) {
 		n.Label = e.innerText()
+	}
+	if n.Label == "" && e.kind == kindText {
+		// A text of another role, as an alert or a cell, whose text has no
+		// node of its own.
+		n.Label = e.text
+	}
+	if n.Role == platform.RoleRegion && n.Label == "" {
+		n.Role = platform.RoleGroup // only a region with a name is a landmark
 	}
 	switch e.checked {
 	case 2:
 		n.States |= platform.AccessChecked
 	case 3:
 		n.States |= platform.AccessMixed
+	}
+	if e.checked != 0 && cellRole(n.Role) {
+		// A cell telling whether it is chosen, as ARIA's gridcells with
+		// aria-selected: chosen or not, it is chosen among others.
+		n.States |= platform.AccessSelectable
 	}
 	if e.expanded {
 		n.States |= platform.AccessExpanded
@@ -609,6 +805,7 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 		n.States |= platform.AccessBusy
 	}
 	n.Current = platform.AccessCurrent(e.current)
+	n.AutoComplete = platform.AccessAutoComplete(e.autoComplete)
 	n.Level = e.level
 	n.Value = e.accValue
 	n.KeyShortcuts = e.keyShortcuts
@@ -630,7 +827,7 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 			n.States |= platform.AccessMultiselectable
 		}
 	}
-	if e.flags&flagChoosable != 0 {
+	if e.flags&flagChoosable != 0 || e.role == RoleOption {
 		n.States |= platform.AccessSelectable
 	}
 	// What a scroll container built out of view, as the rows of a list
@@ -644,8 +841,9 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	// What ignores input takes no focus, which moving a slider with its
 	// keys needs, but is pressed as any other.
 	keys := !e.st.ignoreInput
-	if e.flags&(flagFocusable|flagEditable|flagChoosable) != 0 && keys {
-		// Focusing a row a list chooses chooses it.
+	if (e.flags&(flagFocusable|flagEditable|flagChoosable) != 0 || e.focusHighlights) && keys {
+		// Focusing a row a list chooses chooses it, and an option of a
+		// select highlights it.
 		n.States |= platform.AccessFocusable
 		n.Actions |= platform.ActionFocus
 	}
@@ -683,6 +881,11 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	if e.accFill != nil {
 		e.accFill(n)
 	}
+	// What is unavailable (AccessDisabled) is reached, read and focused,
+	// but not operated, as ARIA's aria-disabled.
+	if e.st.accessDisabled {
+		n.Actions &= platform.ActionFocus | platform.ActionScrollIntoView
+	}
 }
 
 // accessibilityOn starts describing frames for assistive technology,
@@ -697,7 +900,9 @@ func (rt *engine) accessibilityOn() {
 			rt.requestFrame()
 		}
 	}
-	rt.host.updateAccessibility(rt.windowAccess(rt.accessTree()))
+	t := rt.accessTree()
+	rt.liveRegions(t, false) // what live regions show was there before
+	rt.host.updateAccessibility(rt.windowAccess(t))
 }
 
 // accessAction performs an action of assistive technology on an element
@@ -707,6 +912,15 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 	// What is hidden from it, as a page leaving, takes none of its actions.
 	if s == nil || s.flags&flagDisabled != 0 || s.accessHidden {
 		return
+	}
+	// What is unavailable takes the focus, is scrolled to and has its text
+	// selected, but is neither pressed nor edited.
+	if s.accessDisabled {
+		switch ev.Action {
+		case platform.AccessFocus, platform.AccessScrollIntoView, platform.AccessSelectText:
+		default:
+			return
+		}
 	}
 	switch ev.Action {
 	case platform.AccessPress:
@@ -722,6 +936,12 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 	case platform.AccessFocus:
 		if s.ignoreInput {
 			return
+		}
+		if s.focusHighlights {
+			// An option of a select: the select highlights it as it
+			// builds it, and Enter or a press chooses it.
+			s.focusAsked = true
+			break
 		}
 		if s.flags&flagChoosable != 0 {
 			// A row of a list choosing rows: its list takes the focus for

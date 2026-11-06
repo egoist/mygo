@@ -1,6 +1,10 @@
 package ui
 
-import time "time"
+import (
+	"time"
+
+	"github.com/egoist/mygo/internal/platform"
+)
 
 // InputKind is the kind of an InputEvent.
 type InputKind uint8
@@ -11,7 +15,12 @@ const (
 	// Repeat marks the auto-repeat of a key held down. A key that types
 	// text comes before the text, an InputText event, on macOS and
 	// Windows; on Linux, only the text comes while the element takes text
-	// (TextCaret) with input methods on (InputMethod).
+	// (TextCaret) with input methods on (InputMethod). Every key the system
+	// tells the window of comes: a modifier on its own, a lone tap of Super
+	// among them, the lock keys, and a key whose press the layout types no
+	// Key for come with Key KeyUnknown, named by Code alone, and Mods holds
+	// the modifier a press brings and not the one a release takes. Taking
+	// one keeps it from the system, as Alt from the menu bar.
 	InputKeyDown InputKind = iota + 1
 	InputKeyUp
 	// InputText is text typed, or committed by an input method.
@@ -67,8 +76,14 @@ type InputEvent struct {
 	// layout types: the S key is KeyS on a Cyrillic layout too, where Key
 	// is KeyUnknown. KeyUnknown where the platform does not report it.
 	PhysicalKey Key
-	Mods        Modifiers
-	Repeat      bool
+	// Code is the key by its position on any keyboard, with the sides of
+	// the modifiers told apart, as CodeShiftLeft; CodeUnknown where the
+	// platform does not report it, as for a mouse's side buttons, whose
+	// keys are KeyBack and KeyForward. It alone names a key whose Key is
+	// KeyUnknown, as a modifier on its own or Caps Lock.
+	Code   KeyCode
+	Mods   Modifiers
+	Repeat bool
 	// Text of InputText, InputCompose and InputCommand, and Caret the
 	// rune of an InputCompose's caret.
 	Text  string
@@ -79,6 +94,14 @@ type InputEvent struct {
 	// middle.
 	Button int
 	Clicks int
+	// Pointer is the device of InputPointerDown, InputPointerUp and
+	// InputPointerMove, and Pressure how hard it presses, from 0 to 1, as
+	// Pointer Events' pointerType and pressure: a pen's or a finger's
+	// where the system tells it, else, as for a mouse, 0.5 while a button
+	// is down and 0 while none is. A pen's pressure changing where it
+	// stands comes as an InputPointerMove too.
+	Pointer  PointerType
+	Pressure float32
 	// DX and DY are what InputScroll scrolls by, in local axes; positive DY moves the view
 	// down the content.
 	DX, DY   float32
@@ -162,6 +185,19 @@ func (e *node) InputMethod(on bool) *node {
 	return e
 }
 
+// rawKey gives a key no shortcut can name to the elements around the focus
+// that observe their input and to the element with the focus, and reports
+// whether that one took it. It goes nowhere else in the window.
+func (rt *engine) rawKey(ev platform.SurfaceEvent) bool {
+	kind := InputKeyDown
+	if ev.Kind == platform.RawKeyReleased {
+		kind = InputKeyUp
+	}
+	input := InputEvent{Kind: kind, Key: Key(ev.Key), PhysicalKey: Key(ev.PhysicalKey), Code: KeyCode(ev.Code), Mods: Modifiers(ev.Mods), Repeat: ev.Repeat}
+	rt.observeFocus(input)
+	return rt.deliver(rt.focusHandler(), input)
+}
+
 // handler returns the state of the innermost element of chain that
 // handles its input.
 func (rt *engine) handler(chain []uint64) *state {
@@ -181,6 +217,10 @@ func (rt *engine) deliver(s *state, ev InputEvent) bool {
 	}
 	ev.X, ev.Y = s.local(rt.pointerX, rt.pointerY)
 	ev.Time = rt.now()
+	switch ev.Kind {
+	case InputPointerDown, InputPointerUp, InputPointerMove:
+		ev.Pointer, ev.Pressure = rt.pointerType, rt.pressure
+	}
 	if ev.Kind == InputScroll {
 		ev.DX, ev.DY = s.vector(rt.pointerX, rt.pointerY, ev.DX, ev.DY)
 	}

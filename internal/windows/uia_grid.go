@@ -9,7 +9,7 @@ import (
 )
 
 // Tables, grids and tree grids have UI Automation's Grid and Table
-// patterns, and their cells and column headers GridItem and TableItem,
+// patterns, and their cells and headers GridItem and TableItem,
 // as Chromium gives them: Narrator reads a cell's place, "row 4,121 of
 // 10,000", from them. Places are counted from 0 among all the rows and
 // columns, built or not: as the app gave them (aria-rowindex and the
@@ -18,9 +18,9 @@ import (
 // cells built. They are found as a client asks, so frames pay nothing.
 
 // cellOf reports whether nodes of a role are cells of a table, its
-// column headers included.
+// column and row headers included.
 func cellOf(r platform.AccessRole) bool {
-	return r == platform.RoleCell || r == platform.RoleColumnHeader
+	return r == platform.RoleCell || r == platform.RoleColumnHeader || r == platform.RoleRowHeader
 }
 
 // grid returns the table, grid or tree grid around the element.
@@ -194,6 +194,24 @@ func (e *uiaElement) columnHeaders(col int) []*uiaElement {
 	return heads
 }
 
+// rowHeaders returns the row headers of a grid, those of row row alone
+// when it is not negative.
+func (e *uiaElement) rowHeaders(row int) []*uiaElement {
+	var heads []*uiaElement
+	rows, _ := e.rows()
+	for _, r := range rows {
+		if row >= 0 && r.at != row {
+			continue
+		}
+		for _, c := range r.e.cells() {
+			if c.e.n.Role == platform.RoleRowHeader {
+				heads = append(heads, c.e)
+			}
+		}
+	}
+	return heads
+}
+
 // gridVtbls makes the vtables of the Grid, GridItem, Table and TableItem
 // patterns, with vtbl adding IUnknown's methods and live finding the
 // element of an interface still in the tree.
@@ -252,15 +270,20 @@ func gridVtbls(vtbl func(...uintptr) []uintptr, live func(this uintptr) (*uiaEle
 			return sOK
 		})
 	}
-	// Row headers are none: tables have no role for them yet.
-	none := headers(func(*uiaElement) []*uiaElement { return nil })
 	uiaVtbls[ifaceTable] = vtbl(
-		none, // GetRowHeaders
+		headers(func(e *uiaElement) []*uiaElement { return e.rowHeaders(-1) }),
 		headers(func(e *uiaElement) []*uiaElement { return e.columnHeaders(-1) }),
 		count(func(*uiaElement) int { return 0 }), // RowOrColumnMajor_RowMajor
 	)
 	uiaVtbls[ifaceTableItem] = vtbl(
-		none, // GetRowHeaderItems
+		headers(func(e *uiaElement) []*uiaElement { // GetRowHeaderItems
+			g := e.grid()
+			if g == nil || e.n.Role == platform.RoleRowHeader {
+				return nil
+			}
+			row, _ := e.place()
+			return g.rowHeaders(row)
+		}),
 		headers(func(e *uiaElement) []*uiaElement { // GetColumnHeaderItems
 			g := e.grid()
 			if g == nil || e.n.Role == platform.RoleColumnHeader {

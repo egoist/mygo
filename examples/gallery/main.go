@@ -37,6 +37,9 @@ type gallery struct {
 	// rtl lays the gallery out right to left, as an app in Arabic or
 	// Hebrew is (MYGO_DIRECTION=rtl does it for the whole window).
 	rtl bool
+	// drawnMenus draws every menu of the window in it, with the theme's
+	// look: context menus, menu buttons', tables' and text inputs'.
+	drawnMenus bool
 	// language is the language chosen on the Languages page, "" for the
 	// system's.
 	language string
@@ -418,6 +421,11 @@ func (g *gallery) view(c *ui.Context) {
 		g.zoom = 0
 	}
 	c.SetZoom(zooms[zoomOne+g.zoom])
+	if g.drawnMenus {
+		c.SetMenuPresentation(ui.PopoverMenus)
+	} else {
+		c.SetMenuPresentation(ui.SystemMenus)
+	}
 }
 
 // zooms are the zooms Ctrl+= and Ctrl+- step through, as browsers'.
@@ -443,6 +451,7 @@ func (g *gallery) toolbar(c *ui.Context) {
 			g.router.Push(pagePath(page))
 		}
 		ui.Spacer(c)
+		ui.Toggle(c, &g.drawnMenus, "Drawn menus").Tooltip("Draw every menu in the window, with the theme's look, rather than the system's")
 		ui.Toggle(c, &g.rtl, "Right to left").Tooltip("Lay the gallery out right to left")
 	}).Label("Navigation").Padding(8, 24, 0)
 }
@@ -857,9 +866,9 @@ func (g *gallery) controls(c *ui.Context) {
 			})
 		}, func() {
 			ui.Column(c).Fill().Padding(10).Children(func() {
-				ui.Text(c, "Drag the divider, or focus it and press the arrows.").TextColor(t.TextMuted)
+				ui.Text(c, "Drag the divider, double-click it to reset, or focus it and press the arrows.").TextColor(t.TextMuted)
 			})
-		}).Height(140).Border(1, t.Border).Radius(t.Radius).Clip()
+		}).SplitReset(160).Height(140).Border(1, t.Border).Radius(t.Radius).Clip()
 	})
 	card(c, "Built on bases", func() {
 		ui.Text(c, "Bases are the widgets without their look: the pointer, the keys, the focus and accessibility, styled here anew.").TextColor(t.TextMuted)

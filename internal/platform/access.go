@@ -11,6 +11,15 @@ type AccessTree struct {
 	// after what it is reading, as the title of a page shown or a toast:
 	// news the focus does not bring.
 	Announcements []string
+	// Alerts are texts to read out at once, interrupting what is being
+	// read: what an alert (RoleAlert) shows as it appears or changes, as
+	// ARIA's assertive live regions.
+	Alerts []string
+	// Selected is the word for a chosen cell of a grid in the window's
+	// language ("selected"), given while a cell says whether it is
+	// chosen, for a bridge whose screen reader reads no chosen state of
+	// cells to say with its name.
+	Selected string
 }
 
 // AccessNode is an element of an AccessTree.
@@ -50,6 +59,9 @@ type AccessNode struct {
 	// Current says which item the element is the current one of, as the
 	// page the user is on.
 	Current AccessCurrent
+	// AutoComplete says what the suggestions of a text field or a combo
+	// box complete as the user types, as ARIA's aria-autocomplete.
+	AutoComplete AccessAutoComplete
 	// PosInSet is the place of an item in its set, from 1, and SetSize
 	// the size of the set, 0 when not given: a list's rows say which of
 	// all they are, whether or not the others are built, and the list how
@@ -65,6 +77,17 @@ type AccessNode struct {
 	RowCount, ColCount, RowIndex, ColIndex int
 	// Actions are the actions the element takes in AccessAction events.
 	Actions AccessActions
+	// RoleDescription is what screen readers read for the element's role
+	// in place of its own, as "carousel" for a group or "slide" for a tab
+	// panel: ARIA's aria-roledescription. "" reads the role.
+	RoleDescription string
+	// Controls are the IDs of the nodes whose content or presence the
+	// element controls, as the region a disclosure button opens: ARIA's
+	// aria-controls.
+	Controls []uint64
+	// HasPopup is the kind of popup the element opens, as ARIA's
+	// aria-haspopup.
+	HasPopup AccessPopup
 	// WebView is the web view whose page the node stands for, if any
 	// (Surface.NewWebView): assistive technology finds the page's elements
 	// inside it, and it has no children of its own.
@@ -162,6 +185,30 @@ const (
 	// RoleHeading is the title of a section, Level its rank: 1 for the
 	// highest.
 	RoleHeading
+	// RoleRegion is a landmark with a name, as a panel screen readers list
+	// among the window's landmarks: ARIA's region.
+	RoleRegion
+	// RoleLog, RoleTimer and RoleAlert are ARIA's live regions of those
+	// roles: content added to a log is read out as it is added
+	// (AccessTree.Announcements), a timer's changes only when the user
+	// goes to it, and an alert's content at once, as it appears or
+	// changes (AccessTree.Alerts).
+	RoleLog
+	RoleTimer
+	RoleAlert
+	// RoleSeparator divides groups of content or controls, as a rule
+	// between a toolbar's groups of buttons, AccessVertical when it runs
+	// up and down.
+	RoleSeparator
+	// RoleRowHeader is the cell of a table's row naming the row, as
+	// RoleColumnHeader names a column.
+	RoleRowHeader
+	// RoleSearch is a landmark holding what searches the app or a
+	// document, as a search field and its button: ARIA's search.
+	RoleSearch
+	// RoleArticle is a self-contained piece of content, as a post of a
+	// feed or a comment of a thread: ARIA's article, no landmark.
+	RoleArticle
 	// RoleNavigation is a landmark holding links that move around the app
 	// or a document, as a breadcrumb trail or a navigation bar: ARIA's
 	// navigation.
@@ -184,6 +231,23 @@ func (r AccessRole) Tabular() bool {
 // Max and Now).
 func (r AccessRole) Ranged() bool {
 	return r == RoleSlider || r == RoleProgress || r == RoleMeter || r == RoleStepper
+}
+
+// Live returns how content changing in a live region of a role is read,
+// as ARIA's aria-live, "polite" or "assertive", and whether the region is
+// read whole (aria-atomic): "" for roles that are no live region.
+// Statuses and logs are read after what is being read, an alert at once;
+// a timer is read only when the user goes to it.
+func (r AccessRole) Live() (live string, atomic bool) {
+	switch r {
+	case RoleStatus:
+		return "polite", true
+	case RoleLog:
+		return "polite", false
+	case RoleAlert:
+		return "assertive", true
+	}
+	return "", false
 }
 
 // AccessStates are the states of an element of an AccessTree.
@@ -229,7 +293,44 @@ const (
 	// as a region loading, which assistive technology waits for before
 	// reading it: ARIA's aria-busy.
 	AccessBusy
+	// AccessSortOther is set on the header of the column a table's rows
+	// are sorted by in an order neither ascending nor descending.
+	AccessSortOther
 )
+
+// AccessPopup is the kind of popup an element opens, as ARIA's
+// aria-haspopup says.
+type AccessPopup uint8
+
+const (
+	// PopupNone opens no popup.
+	PopupNone AccessPopup = iota
+	// PopupMenu opens a menu, aria-haspopup="menu" (or "true").
+	PopupMenu
+	// PopupListBox opens a list of options, PopupTree a tree, PopupGrid
+	// a grid, as a calendar's, and PopupDialog a dialog.
+	PopupListBox
+	PopupTree
+	PopupGrid
+	PopupDialog
+)
+
+// String returns the value of aria-haspopup that p is, "" for PopupNone.
+func (p AccessPopup) String() string {
+	switch p {
+	case PopupMenu:
+		return "menu"
+	case PopupListBox:
+		return "listbox"
+	case PopupTree:
+		return "tree"
+	case PopupGrid:
+		return "grid"
+	case PopupDialog:
+		return "dialog"
+	}
+	return ""
+}
 
 // AccessCurrent is the item an element is the current one of among those
 // around it, as ARIA's aria-current says.
@@ -268,6 +369,37 @@ func (c AccessCurrent) String() string {
 		return "date"
 	case CurrentTime:
 		return "time"
+	}
+	return ""
+}
+
+// AccessAutoComplete is what the suggestions of a text field complete as
+// the user types, as ARIA's aria-autocomplete says.
+type AccessAutoComplete uint8
+
+const (
+	// AutoCompleteNone suggests nothing as the user types.
+	AutoCompleteNone AccessAutoComplete = iota
+	// AutoCompleteInline completes the text in place, the rest of the
+	// value inserted after the caret and selected.
+	AutoCompleteInline
+	// AutoCompleteList shows a popup of the values that complete it.
+	AutoCompleteList
+	// AutoCompleteBoth shows the popup and completes the text in place
+	// with the option the arrows are on.
+	AutoCompleteBoth
+)
+
+// String returns the value of aria-autocomplete that a is, "" for
+// AutoCompleteNone.
+func (a AccessAutoComplete) String() string {
+	switch a {
+	case AutoCompleteInline:
+		return "inline"
+	case AutoCompleteList:
+		return "list"
+	case AutoCompleteBoth:
+		return "both"
 	}
 	return ""
 }
