@@ -42,6 +42,23 @@ func findText(tt *Tester, s string) (Rect, bool) {
 	return r, ok
 }
 
+// textFontSize returns the font size set on the element showing text s,
+// 0 when it sets none.
+func textFontSize(tt *Tester, s string) float32 {
+	var size float32
+	var walk func(e *node)
+	walk = func(e *node) {
+		for ; e != nil; e = e.next {
+			if e.kind == kindText && e.text == s && e.ts.set&setSize != 0 {
+				size = e.ts.size
+			}
+			walk(e.first)
+		}
+	}
+	walk(tt.rt.c.root)
+	return size
+}
+
 // textCount returns how many elements show text s, or are labeled s.
 func textCount(tt *Tester, s string) int {
 	n := 0
@@ -152,10 +169,15 @@ func TestPopoverMenuSubtitleAndTrailing(t *testing.T) {
 	if !ok1 || !ok2 {
 		t.Fatalf("no label or subtitle: %q", tt.Texts())
 	}
-	if sub.Y < label.Y+label.H-1 || sub.X != label.X || sub.H >= label.H {
-		t.Errorf("the subtitle at %+v is not a smaller line under the label at %+v", sub, label)
+	if sub.Y < label.Y+label.H-1 || sub.X != label.X {
+		t.Errorf("the subtitle at %+v is not a line under the label at %+v", sub, label)
 	}
+	// Smaller by its font size: the line boxes of two sizes can round to
+	// the same height, as with some fonts.
 	th := LightTheme()
+	if size := textFontSize(tt, "Last run: 3 minutes ago"); !(size > 0 && size < th.FontSize) {
+		t.Errorf("the subtitle in a font of size %v, not smaller than the label's %v", size, th.FontSize)
+	}
 	if c := textColor(t, tt, "Last run: 3 minutes ago"); !sameRGB(c, th.TextMuted) {
 		t.Errorf("the subtitle in %v, not TextMuted", c)
 	}
