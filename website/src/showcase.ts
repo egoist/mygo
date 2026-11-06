@@ -267,4 +267,36 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/teebots.png",
   },
+  {
+    name: "Mami",
+    description:
+      "Voice input and selection translation for Windows and macOS, with configurable speech recognition and language model providers.",
+    url: "https://github.com/margbug01/mami",
+    author: "margbug01",
+    mode: "native",
+  },
+  {
+    name: "MySpotify",
+    description:
+      "An unofficial Spotify player with a native MyGo interface, full-track playback for free accounts and synchronized lyrics.",
+    url: "https://github.com/margbug01/MySpotify",
+    author: "margbug01",
+    mode: "native",
+  },
+  {
+    name: "ShoesGUI",
+    description:
+      "A native Windows and macOS graphical client for the shoes proxy core.",
+    url: "https://github.com/margbug01/ShoesGUI",
+    author: "margbug01",
+    mode: "native",
+  },
+  {
+    name: "Candle",
+    description:
+      "A native Windows and macOS Binance charting app with technical indicators, drawing tools and risk/reward tools.",
+    url: "https://github.com/margbug01/Candle",
+    author: "margbug01",
+    mode: "native",
+  },
 ]
