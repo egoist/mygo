@@ -197,7 +197,14 @@ func TestWheelReverseAtEnd(t *testing.T) {
 	for range 10 {
 		tt.Wheel(100, 100, 0, 100)
 	}
-	tt.Advance(50 * time.Millisecond)
+	// Advance frame by frame until the content reaches the end, rather than
+	// relying on a fixed time that may land it a hair short: arm64 fuses
+	// float multiply-add into FMA, so the notches have not run out at 50 ms
+	// and the content is still on its way (e.g. at 770). Reaching the end
+	// is what matters, not how long it took.
+	for i := 0; s.Y < 800 && i < 100; i++ {
+		tt.Advance(16 * time.Millisecond)
+	}
 	if s.Y != 800 {
 		t.Fatalf("setup: at the end %v, want 800", s.Y)
 	}
