@@ -28,7 +28,10 @@ func (p *PTY) start(o Options) error {
 		return fmt.Errorf("pty: opening %s: %w", slaveName, err)
 	}
 	defer slave.Close() // the child has its own copies
-	if err := setSize(master, o.Cols, o.Rows, o.Width, o.Height); err != nil {
+	// The size is set on the slave, which the child gets as its terminal,
+	// rather than on the master, which macOS reports ENOTTY for once it is
+	// blocking.
+	if err := setSize(slave, o.Cols, o.Rows, o.Width, o.Height); err != nil {
 		master.Close()
 		return err
 	}
