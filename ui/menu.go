@@ -224,6 +224,8 @@ func (m *Menu) Submenu(label string, build func(m *Menu)) *MenuItem {
 }
 
 // Disabled shows the item grayed out when d is true: it cannot be chosen.
+// A menu drawn in the window (PopoverMenu, PopoverMenuButton) still shows
+// its Tooltip, which can say why.
 func (it *MenuItem) Disabled(d bool) *MenuItem {
 	it.disabled = d
 	if it.p != nil {

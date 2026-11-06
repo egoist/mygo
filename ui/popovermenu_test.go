@@ -193,6 +193,7 @@ func TestPopoverMenuFlipsAtTheWindowsEdges(t *testing.T) {
 }
 
 func TestPopoverMenuKeyboard(t *testing.T) {
+	reachUnavailable(t, false) // skipping Delete, as macOS's and Linux's menus do
 	a := &menuApp{}
 	tt := coreNewTester(a.view, 400, 400)
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
@@ -290,6 +291,7 @@ func TestPopoverMenuKeyboard(t *testing.T) {
 }
 
 func TestPopoverMenuRightToLeftKeys(t *testing.T) {
+	reachUnavailable(t, false) // skipping Delete, as macOS's and Linux's menus do
 	a := &menuApp{}
 	tt := coreNewTester(a.view, 400, 400)
 	tt.SetDirection(RightToLeft)
@@ -403,6 +405,7 @@ func TestPopoverMenuCloses(t *testing.T) {
 }
 
 func TestPopoverMenuAccessibility(t *testing.T) {
+	reachUnavailable(t, false) // skipping Delete, as macOS's and Linux's menus do
 	a := &menuApp{sort: "Date", pinned: true}
 	tt := coreNewTester(a.view, 400, 400)
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
@@ -413,7 +416,7 @@ func TestPopoverMenuAccessibility(t *testing.T) {
 		t.Errorf("focus on %q, not the menu, which the pointer opened", f.Label)
 	}
 	open := accessNode(t, tree, platform.RoleMenuItem, "Open")
-	if open.Label != "Open" || open.Description == "" || open.PosInSet != 1 || open.SetSize != 5 {
+	if open.Label != "Open" || open.KeyShortcuts == "" || open.PosInSet != 1 || open.SetSize != 5 {
 		t.Errorf("Open: %+v", open)
 	}
 	if n := tree.Nodes[open.Parent]; n.ID != menu.ID {
@@ -705,6 +708,7 @@ func TestPopoverMenuButtonFlipsAtTheWindowsEdges(t *testing.T) {
 }
 
 func TestPopoverMenuButtonKeyboard(t *testing.T) {
+	reachUnavailable(t, false) // skipping Delete, as macOS's and Linux's menus do
 	a := &buttonMenuApp{}
 	tt := coreNewTester(a.view, 400, 400)
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})

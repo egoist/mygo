@@ -74,7 +74,8 @@ func tooltipBase(c *context, anchor *node, fn func(tip *node)) (*node, bool) {
 	// A press or a click on the anchor, by the pointer, the keys or
 	// assistive technology, hides its tip, as Base UI's closeOnClick: a
 	// menu button's menu opens as the pointer goes down, without a click.
-	if anchor.st.clicks > 0 || slices.ContainsFunc(rt.downs, func(id uint64) bool { return rt.pressedWithin(id, anchor) }) {
+	// An unavailable one keeps it (keepsTip).
+	if !anchor.st.keepsTip() && (anchor.st.clicks > 0 || slices.ContainsFunc(rt.downs, func(id uint64) bool { return rt.pressedWithin(id, anchor) })) {
 		rt.tips.dismissed = anchor.id
 	}
 	if c.inert || rt.showTooltip(c) != anchor.id || rt.tips.dismissed == anchor.id {
@@ -147,9 +148,19 @@ func (rt *engine) showTooltip(c *context) uint64 {
 	if hover != t.hover {
 		t.hover, t.hoverSince = hover, now
 	}
+	// The element with the keyboard focus, or the one it gives it to (as
+	// a menu's highlighted item, an ActiveDescendant), whose tip shows as a
+	// focused element's does.
 	var focus uint64
-	if rt.focusVisible && rt.windowFocus() && tipped(rt.focused) {
-		focus = rt.focused
+	if rt.focusVisible && rt.windowFocus() {
+		if f := rt.states[rt.focused]; f != nil {
+			switch {
+			case tipped(f.activeDescendant):
+				focus = f.activeDescendant
+			case tipped(rt.focused):
+				focus = rt.focused
+			}
+		}
 	}
 	if focus != t.focus {
 		t.focus, t.focusSince = focus, now
@@ -157,7 +168,7 @@ func (rt *engine) showTooltip(c *context) uint64 {
 	if t.dismissed != hover && t.dismissed != focus {
 		t.dismissed = 0
 	}
-	if rt.pressed != nil && hover != 0 {
+	if rt.pressed != nil && hover != 0 && !rt.states[hover].keepsTip() {
 		t.dismissed = hover
 	}
 	if hover == t.dismissed {
@@ -180,4 +191,11 @@ func (rt *engine) showTooltip(c *context) uint64 {
 		t.shown = hover
 	}
 	return t.shown
+}
+
+// keepsTip reports whether a press or a click leaves the element's tip: one
+// AccessDisabled, whose press does nothing and whose tip says why, but not
+// one opening a menu, whose press still opens it.
+func (s *state) keepsTip() bool {
+	return s.accessDisabled && s.flags&(flagMenuButton|flagContextMenu) == 0
 }

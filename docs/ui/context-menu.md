@@ -44,7 +44,7 @@ notes it, for the change once the loop is done (see
 - `Disabled(d)` grays it out: it cannot be chosen.
 - `Tooltip(s)` shows `s` as the pointer rests on it, to say what it does.
   The system's menus show it on macOS and Linux, and `PopoverMenu` on
-  every platform.
+  every platform, also as the keys rest on it.
 - `Icon(icon)` shows an image beside its label, made once with
   [`mygo.NewMenuIcon`](../menus.md#icons). The system's menus show it as
   they show the icons of `mygo.MenuItem`, browsers show none, and
@@ -120,7 +120,10 @@ the element that had it, and has the keys of the system's menus:
 
 - Up and Down move among the items, past separators and those disabled,
   and round; Home and End go to the first and the last, and typing the
-  first letters of an item goes to it.
+  first letters of an item goes to it. On Windows they move onto
+  disabled items too, as its menus do. A disabled item shows its
+  `Tooltip` as the pointer rests on it, which can say why, but choosing
+  it does nothing.
 - Right opens the submenu of the item, and Left closes it, the other way
   round [right to left](right-to-left.md); the pointer opens it as it
   moves onto the item.
