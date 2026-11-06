@@ -172,3 +172,38 @@ func TestWheelRevealTakesOver(t *testing.T) {
 		t.Errorf("the first box brought into view on the way: at %v", offset())
 	}
 }
+
+// TestWheelReverseAtEnd reproduces a wheel gliding to the end of the
+// content, and the user turning it the other way while the notches are
+// still on their way: the remaining travel must not absorb the turn, or
+// the wheel seems to not respond until the old notches run out.
+func TestWheelReverseAtEnd(t *testing.T) {
+	var s ScrollState
+	tt := coreNewTester(func(c *context) {
+		coreScroll(c).Fill().TrackScroll(&s).Children(func() {
+			coreBox(c).Height(1000).Shrink(0)
+		})
+	}, 200, 200)
+	tt.Move(100, 100)
+	// The notches of a fast wheel add up on their way.
+	for range 10 {
+		tt.Wheel(100, 100, 0, 100)
+	}
+	tt.Advance(50 * time.Millisecond)
+	if s.Y <= 0 || s.Y >= 800 {
+		t.Fatalf("setup: gliding at %v, want between 0 and 800", s.Y)
+	}
+	// Keep scrolling to the end, then turn the wheel the other way at once.
+	for range 10 {
+		tt.Wheel(100, 100, 0, 100)
+	}
+	tt.Advance(50 * time.Millisecond)
+	if s.Y != 800 {
+		t.Fatalf("setup: at the end %v, want 800", s.Y)
+	}
+	tt.Wheel(100, 100, 0, -100)
+	tt.Advance(50 * time.Millisecond)
+	if s.Y >= 800 {
+		t.Fatalf("the wheel did not turn back at the end: still at %v, want < 800", s.Y)
+	}
+}
