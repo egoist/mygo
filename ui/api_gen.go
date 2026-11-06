@@ -4205,9 +4205,39 @@ func (_handle Element) Column() Element {
 	return wrapElement(_node.Column())
 }
 
+// ColumnCount tells assistive technology how many columns a table, grid
+// or tree grid of your own has, built or not (aria-colcount).
+func (_handle Element) ColumnCount(n int) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.ColumnCount(n))
+}
+
+// ColumnIndex tells assistive technology the place of a cell or a column
+// header among all the columns of its table, grid or tree grid, from 1
+// (aria-colindex): for one that builds only the columns in view, or
+// leaves some out. Cells without one follow the one before them, after
+// the columns it covers (ColumnSpan).
+func (_handle Element) ColumnIndex(i int) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.ColumnIndex(i))
+}
+
 // ColumnSpan makes the element span n columns of its grid, or, for a
 // negative n, every column from its start to the grid's last, as a header
-// across a grid does.
+// across a grid does. A cell of a table or a grid (RoleCell,
+// RoleColumnHeader, RoleRowHeader) tells assistive technology it covers
+// them, as ARIA's aria-colspan, whether or not its row lays it out in a
+// grid: screen readers read a cell covering two columns as one.
 func (_handle Element) ColumnSpan(n int) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -4625,7 +4655,8 @@ func (_handle Element) DragDataFrom(data func() transfer.Data, options ...transf
 // primary button, and moving, let go since the last frame, with how fast
 // it moved then, as DragVelocity: a spring taking over
 // (SpringOptions.Velocity) keeps the fling going. A click, which does not
-// move, ends no drag, nor does a drag with another button.
+// move, ends no drag, nor does a drag with another button, nor a press
+// the system canceled (PressCanceled).
 func (_handle Element) DragEnded() (float32, float32, bool) {
 	_node := _handle.node()
 	if _node == nil {
@@ -4706,8 +4737,10 @@ func (_handle Element) DragWindow() Element {
 // building the view, as AnimatePose moves it. Dragging reports that the
 // pointer drags it, once the pointer moved a few DIPs, Transitioning that
 // it moves, and DragOffset where it shows. A press dragging it is no
-// click; a press catches it as it moves. While the desktop asks for less
-// motion (Preferences.ReduceMotion), it goes to rest at once.
+// click; a press catches it as it moves. A press the system cancels
+// (PressCanceled) throws nothing, and the element goes back to where the
+// press took it. While the desktop asks for less motion
+// (Preferences.ReduceMotion), it goes to rest at once.
 //
 //	sheet.Draggable(&app.sheet, ui.DraggableOptions{
 //		Axis:   ui.Vertical,
@@ -6254,6 +6287,22 @@ func (_handle Element) Modal() Element {
 	return wrapElement(_node.Modal())
 }
 
+// Multiselectable tells assistive technology whether the user chooses
+// several of the items of the element, a list, grid, tree or tree grid
+// of your own, as ARIA's aria-multiselectable: screen readers offer to
+// choose more than one. Its rows or items say which are chosen with
+// Checked, or Selected, which shows it too. Lists, tables and grid views
+// with a Selection tell it themselves.
+func (_handle Element) Multiselectable(on bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Multiselectable(on))
+}
+
 // NoShadow takes off the outer and inner shadows added so far, as CSS's
 // box-shadow: none, so that the Shadow and InsetShadow calls after it
 // start afresh.
@@ -6687,6 +6736,34 @@ func (_handle Element) PreserveSpaces() Element {
 	return wrapElement(_node.PreserveSpaces())
 }
 
+// PressCanceled reports whether the press of the element ended since the
+// last frame without the pointer letting go, as Pointer Events'
+// pointercancel: the system took it (a browser turning a touch into the
+// page's scrolling, the window losing the mouse capture or the pointer's
+// grab, a menu taking the release), or the window lost the keyboard. Such
+// a press clicks nothing (Clicked) and ends no drag (DragEnded), and
+// Pressed turns false: undo what the press began, as a preview a drag
+// showed, rather than commit it.
+//
+//	dx, _, held := handle.Dragged()
+//	switch {
+//	case held:
+//		app.preview += dx
+//	case handle.PressCanceled():
+//		app.preview = 0
+//	case app.preview != 0:
+//		app.width, app.preview = app.width+app.preview, 0
+//	}
+func (_handle Element) PressCanceled() bool {
+	_node := _handle.node()
+	if _node == nil {
+		return false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return _node.PressCanceled()
+}
+
 // Pressed reports whether the element is being pressed with the pointer's
 // primary button, unless it is disabled. A press of another button, as a
 // right-click's, is no press here, as CSS's :active and drags on the web
@@ -6970,6 +7047,22 @@ func (_handle Element) Row() Element {
 	return wrapElement(_node.Row())
 }
 
+// RowCount tells assistive technology how many rows a table, grid or tree
+// grid of your own has, built or not, header rows included, as ARIA's
+// aria-rowcount: one that builds only the rows in view says how many it
+// has, which screen readers read with the rows' RowIndex, as "row 4,121
+// of 10,000". The rows of a List and a Table say which of all they are
+// themselves.
+func (_handle Element) RowCount(n int) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.RowCount(n))
+}
+
 // RowDoubleClicked reports, while a row of a List or a Table builds, that
 // the row was double-clicked since the last frame with the pointer over the
 // element: a cell sees its row's double click this way and leaves the click
@@ -6991,8 +7084,25 @@ func (_handle Element) RowDoubleClicked() bool {
 	return _node.RowDoubleClicked()
 }
 
+// RowIndex tells assistive technology the place of a row, or of a cell,
+// among all the rows of its table, grid or tree grid, from 1 for the
+// first, header rows included, as ARIA's aria-rowindex: for one that
+// builds only the rows in view, with its RowCount. A cell takes its row's.
+func (_handle Element) RowIndex(i int) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.RowIndex(i))
+}
+
 // RowSpan makes the element span n rows of its grid, or, for a negative n,
-// every row from its start to the last the grid sets.
+// every row from its start to the last the grid sets. A cell of a table
+// or a grid tells assistive technology it covers them, as ARIA's
+// aria-rowspan: the cells of the rows below it then say their columns
+// with ColumnIndex where they follow it.
 func (_handle Element) RowSpan(n int) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -7926,6 +8036,21 @@ func (_handle Element) TranslatePercent(x float32, y float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.TranslatePercent(x, y))
+}
+
+// TranslateZ moves the element z DIPs toward the viewer after its
+// existing transform, as TranslationZ: follow it with Perspective to see
+// it nearer or farther. A card lifting toward the viewer as it turns over:
+//
+//	card.RotateY(turn).TranslateZ(lift).Perspective(800)
+func (_handle Element) TranslateZ(z float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TranslateZ(z))
 }
 
 // Underline underlines text.

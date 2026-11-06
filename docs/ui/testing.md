@@ -37,7 +37,8 @@ panics where the second key was given, as apps only log it.
 - **Pointer.** `tt.Click`, `tt.ClickAt`, `tt.ClickWith(ui.Shift, "Row 3")`,
   `tt.Press`, `tt.Move` and `tt.Release`, `tt.PressButton` and
   `tt.ReleaseButton` for another button, as `tt.PressButton(1, x, y)` for
-  a right-button drag, `tt.Scroll`, which scrolls at
+  a right-button drag, `tt.CancelPress`, which ends the press as the
+  system cancels one, with no click, `tt.Scroll`, which scrolls at
   once as a touchpad does, and `tt.Wheel`, a notch of a mouse wheel, which
   glides there as the clock advances (`tt.Advance`).
   `tt.UsePointer(ui.PointerPen, 0.6)` has the presses and moves after it
@@ -126,8 +127,11 @@ option the focus is on, `ActiveDescendant` included), `Controls` (the
 names of the elements it controls, which `Access` finds), `DescribedBy`
 and `ErrorMessage` (the names of the elements describing it and holding
 its error), `Vertical` and `Horizontal` (`aria-orientation`), `Level`,
-`PosInSet` and `SetSize`, `Min`, `Max` and `Now` of a range, and its
-`Bounds`. So a test checks
+`PosInSet` and `SetSize`, `Multiselectable`, `RowCount`,
+`ColumnCount`, `RowIndex` and `ColumnIndex` (of a
+[grid](accessibility.md#grids)), `RowSpan` and `ColumnSpan` (of its
+cells), `Min`, `Max` and `Now` of a range, and its `Bounds`. So a test
+checks
 that a state reaches assistive technology, not only that the view set
 it:
 

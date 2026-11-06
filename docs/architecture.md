@@ -856,7 +856,8 @@ gained one field, `SurfaceNative.Canvas`.
   held, which comes as a `pointermove` with its `button`, is a
   `PointerDown` or `PointerUp` as on the desktops (`chord`); their
   `pointerType` and `pressure` are the device and the pressure
-  (`device`). `wheel` events scroll, lines and pages
+  (`device`). `pointercancel`, the browser taking the pointer, as a touch
+  it scrolls the page with, is a `PointerCancel`, not a release. `wheel` events scroll, lines and pages
   turned into DIPs, notches of 120 not `Precise`. The textarea, out of
   sight at the caret (`SetTextInput`), has the keyboard: `keydown` and
   `keyup` are keys, by what they type (`key`) and else by where they are
@@ -2753,7 +2754,29 @@ either.
   native select's popup: assistive technology focusing one
   (`focusHighlights`) notes it on its state (`focusAsked`), which the
   select highlights as it builds it, rather than clicking it, which
-  would choose it.
+  would choose it. Grids and tree grids (`RoleGrid`, `RoleTreeGrid`)
+  are tables to the backends (`AccessRole.Tabular`), whose rows a `List`
+  shown as one makes rows rather than list items; a row of an app's own
+  saying whether it is chosen (`Checked`, `Selected`) is
+  `AccessSelectable`, as is the table or grid holding it, which holds
+  its cells' choice too. The counts and indexes an app gives a grid built only where it shows (`RowCount`,
+  `ColCount`, `RowIndex`, `ColIndex`, ARIA's aria-rowcount and the like)
+  go to WebKit's `AXARIARowCount` and the like, and the rows' `AXIndex`
+  and the table's `AXRowCount` where `PosInSet` and `SetSize` say
+  nothing; to ATK's `rowcount`, `colcount`, `rowindex` and `colindex`
+  attributes beside `xml-roles` `grid` or `treegrid`, as Chromium's; and
+  to UI Automation's `Grid`, `GridItem`, `Table` and `TableItem`
+  patterns of tables and their cells (`uia_grid.go`), which count from 0
+  as the app gave them, else as rows say which of all they are after the
+  header rows above them, else by what is built, found as a client asks;
+  their `RowHeader`s are the `Table` pattern's row headers. A cell's
+  `ColumnSpan` and `RowSpan` (`node.cellSpan`, from the layout's
+  `gridCell`, whether or not its row is a grid) are `AccessNode.ColSpan`
+  and `RowSpan` (aria-colspan, aria-rowspan): the lengths of its
+  `AXColumnIndexRange` and `AXRowIndexRange` (`placeCells`, which puts
+  the next cell after the columns it covers), ATK's `colspan` and
+  `rowspan` attributes, and `GridItem`'s `ColumnSpan` and `RowSpan`,
+  `Grid.GetItem` finding the cell at each place it covers.
 - **The connection.** `content.go` attaches the content to its window
   through `internal/surface.Conn`, which carries the surface and, as
   functions, what the content needs of the app (the clipboard, dragging
@@ -2955,7 +2978,12 @@ either.
   into its parent's plane as CSS's flat transform-style does, composes
   with its ancestors after layout as a projective map
   (`scene.Affine`, with G and H in perspective); boxes keep their original
-  layout space. `TranslatePercent` stays apart from the transform
+  layout space. A `scene.Affine`'s divisor is 1 at its origin, so a 3D
+  transform that puts the origin at or behind the viewer (`TranslationZ`
+  as far as `Perspective`'s distance) flattens to a singular map, which
+  shows nothing; `BackfaceHidden` tests the normal through the whole 4×4
+  inverse, perspective included (`facesAway`, as Chromium's
+  `IsBackFaceVisible`). `TranslatePercent` stays apart from the transform
   (`translatePct`): `transformAt` resolves it from the box as laid out,
   after the transform and before the pose, as a pose's percents
   (`showPose`) and a `Motion`'s (`tbox.moved`) are. Painting stores the composed transform on scene
@@ -3207,7 +3235,23 @@ either.
   release comes as the window loses the focus or once a frame builds the
   element no more (not built again, or built over by an element without
   `HandleInput`, as when the press moved it into a split), so that the
-  next press starts anew. The pointer's events carry their device and
+  next press starts anew. Those releases, and a press the system takes
+  (`platform.PointerCancel`: a browser's `pointercancel`, a pen's or a
+  finger's `WM_POINTERUP` with `POINTER_MESSAGE_FLAG_CANCELED`, or
+  `WM_CAPTURECHANGED` while a button is down, on Windows, which
+  `WM_CANCELMODE` brings too, GDK's `GDK_GRAB_BROKEN` of the pointer on
+  Linux, a context menu's loop that takes the release on macOS), are
+  `InputEvent.Canceled`: the handler still gets its release, so that
+  what holds a press lets go, but the engine commits nothing of it
+  (`pointerUp`'s `canceled`): no click or right-click, no drop (the
+  value's drag is given up, as with Escape), no `DragEnded`, no context
+  menu waiting for the release, and `PressCanceled` reports it, which
+  sends `Draggable` back to where the press took it. A cancel coming
+  while nothing is pressed does nothing, so a backend sends it whenever
+  it loses a press, but not as a data drag of its own takes the pointer
+  (OLE's loop, `gtk_drag_begin`), whose end ends the press. The Linux
+  touchscreen's `GDK_TOUCH_CANCEL` taps nothing (`touch.go`), as its
+  taps press only once the finger lifts. The pointer's events carry their device and
   pressure (`SurfaceEvent.Pointer` and `Pressure`), which the engine
   keeps with the buttons they leave down (`engine.pointerDevice`): a
   device that tells no pressure presses 0.5 while a button is down and 0
@@ -5802,6 +5846,7 @@ which npm allows only for packages that exist: the first release uses an
 | web views' language | from the app's `AppleLanguages`, next launch | `webkit_web_context_set_preferred_languages`, live | the environment's `Language`, as it is created |
 | `Theme.SetSource` | `NSApp`'s appearance (Aqua, DarkAqua, or none) | `gtk-application-prefer-dark-theme`; light also puts a theme named for its dark variant (Yaru-dark) in place of its light one (Yaru), which GTK and WebKitGTK otherwise take for dark, and the other sources reset the theme. Without a source, or with system, the setting follows the settings portal's `color-scheme` (GNOME's and KDE's dark style, which GTK 3 does not read) from `Init` on: dark where the portal prefers dark, else the desktop's own GTK settings | the title bars, menus and native UI, and pages through the DevTools protocol's emulated `prefers-color-scheme` |
 | `Theme.SetGTKCSS` | nothing | a `GtkCssProvider` for the default screen at `GTK_STYLE_PROVIDER_PRIORITY_USER`, replaced by the next sheet that parses | nothing |
+| a press the system cancels in native UI (`InputEvent.Canceled`, `PressCanceled`) | a context menu shown while a button is down, whose loop takes the release | `GDK_GRAB_BROKEN` of the pointer, as a menu or another window takes the grab; a touch's `GDK_TOUCH_CANCEL` taps nothing | `WM_CAPTURECHANGED` (and so `WM_CANCELMODE`) while a button is down; `WM_POINTERUP` with `POINTER_MESSAGE_FLAG_CANCELED` |
 | pointer device and pressure of native UI (`InputEvent.Pointer`, `Pressure`) | a mouse event's `subtype`: a tablet's pen (`NSEventSubtypeTabletPoint`, with `pressure`, or `TabletProximity`) or a touch; `tabletPoint:` events, a pen pressing harder or softer between moves, are moves where the pointer is | the event's source device (`gdk_event_get_source_device`): a pen or eraser, or a touchscreen, its pressure axis (`gdk_event_get_axis`); the area's own touches are fingers | `WM_POINTER` messages, left to `DefWindowProc` to make mouse messages of, give the pressure (`GetPointerPenInfo`, `GetPointerTouchInfo`); the mouse messages' `GetMessageExtraInfo` (`MI_WP_SIGNATURE`) tells a pen's or a finger's |
 | cursors of native UI without a system cursor | `CursorWait`, `CursorHelp`, `CursorZoomIn`, `CursorZoomOut`, `CursorAllScroll` and `CursorCell` from AppKit's private class methods (`_waitCursor`, `_helpCursor`, …, looked up with `respondsToSelector:`), `CursorProgress` its `busyButClickableCursor`, else the nearest public cursor or the arrow | the CSS names from the cursor theme, then GDK's X cursors, then the nearest (`cursorFallbacks`) | `CursorZoomIn`, `CursorZoomOut` and `CursorCell` drawn (`CreateCursor`, `cursorMasks`), the others `IDC_APPSTARTING`, `IDC_WAIT`, `IDC_HELP`, `IDC_SIZEALL`, `IDC_NO` |
 | traffic lights, Dock | yes | ignored | ignored |
