@@ -551,9 +551,11 @@ func (e *node) Selectable() *node {
 }
 
 // SelectedText is the part of a paragraph that the selection of a
-// Selectable container holds.
+// Selectable container holds, or the text of a row of a List inside it
+// that the list did not build, as ListState.Text gives it.
 type SelectedText struct {
-	// ID is the paragraph's element's (Element.ID).
+	// ID is the paragraph's element's (Element.ID), 0 for a row not
+	// built, which the selection holds whole.
 	ID uint64
 	// Text is the paragraph's text, and Start and End the runes of it the
 	// selection holds.
@@ -562,9 +564,9 @@ type SelectedText struct {
 }
 
 // SelectedTexts returns the parts of the paragraphs that the selection of
-// a Selectable container holds, in the order they were built, or none,
-// as of the last frame: to copy them otherwise, as a context menu's item
-// does.
+// a Selectable container holds, in the order they were built, the rows
+// of lists in their order, or none, as of the last frame: to copy them
+// otherwise, as a context menu's item does.
 func (e *node) SelectedTexts() []SelectedText {
 	return e.c.rt.selectedTexts(e.id)
 }
