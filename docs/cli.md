@@ -195,6 +195,87 @@ errors, such as messages that do not parse or arguments a translation adds,
 and their warnings, such as missing translations, and exits with status 1
 when there are errors.
 
+## mygo native
+
+The commands of [native libraries](native-libraries.md), built from Swift,
+Rust or Zig sources and bound from Go, and of
+[native modules](native-modules.md): Go interfaces implemented in a
+platform's own language. `[module dir]` defaults to the current directory.
+
+### mygo native build
+
+```
+mygo native build [flags] [dir]
+```
+
+Builds the [native libraries](native-libraries.md) that the packages in
+`dir` name in their `mygo-plugin.json`, and the implementations of the
+[native modules](native-modules.md) in `dir`, from their sources, with
+cargo, zig or swift, for every platform, writes the files to publish into
+`.mygo/native/release` of the module, named after their SHA-256, and
+their names, URLs and SHA-256 into `mygo-plugin.json`. Swift libraries
+build on a Mac, universal, as a `.tar.gz` with the frameworks they bring
+(`darwin-universal`). Platforms that do not build here (Rust's and Swift's
+macOS libraries off a Mac) are listed at the end and left as they were. Flags go before the directory. `mygo dev` and `mygo build` build the libraries
+of the app's own packages themselves; this publishes those of a package
+for the apps of others, which then need neither Rust nor Zig.
+
+| Flag | |
+|---|---|
+| `-target` | the platforms, `GOOS-GOARCH` separated by commas, `all` (the default) or `host`, which builds this machine's library for `go run` and `go test` and leaves `mygo-plugin.json` alone |
+| `-release` | the URL of the directory the files are published in, as `https://github.com/<owner>/<repo>/releases/download/<tag>` (default: the library's `release`, else with `-upload` the release `native-libraries` of the repository of the git checkout) |
+| `-out` | the directory of the files to publish |
+| `-upload` | uploads the files to the GitHub release of `-release` with the GitHub CLI, creating it if needed |
+| `-force` | builds the platforms whose published files were built from the sources as they are too, which it otherwise skips |
+
+### mygo native new
+
+```
+mygo native new [-platform <platforms>] <module name>
+```
+
+Makes a module in `modules/<module name>`, or at the path given instead of
+a name: the Go package with the interface, its generated Go, an
+`AGENTS.md`, and a directory per platform. `-platform` takes the
+directories' names, separated by commas: `apple` (the default), a Swift
+package for Apple's platforms, or `none` for the Go side alone.
+
+### mygo native add
+
+```
+mygo native add <platform> [module dir]
+```
+
+Adds a platform's directory to an existing module, with a factory for
+every entry point and methods that say they are unsupported, so the
+module builds at once.
+
+### mygo native check
+
+```
+mygo native check [module dir]
+```
+
+Generates the module, builds the implementation of the platform it runs
+on and vets the Go package. It lists every problem as `file:line: message`,
+with what to change, and exits with status 1 when there are problems.
+
+### mygo native call
+
+```
+mygo native call [-timeout <duration>] [module dir] <Interface>.<Method> [<arguments>]
+```
+
+Makes the implementation of an entry point, calls one method with
+`<arguments>`, a JSON object of its parameters by their Go names, and
+prints the result as JSON, a line per value of a stream. It makes the
+method's context, which `-timeout` limits, and prints the calls of
+callbacks.
+
+`mygo generate` generates every native module of the app, and `mygo dev`
+and `mygo build` build them; see
+[build, run and test](native-modules.md#build-run-and-test).
+
 ## mygo keygen
 
 ```
@@ -234,6 +315,7 @@ Prints the version of the CLI.
 | `MYGO_WINDOWS_CERTIFICATE_PASSWORD` | the password of `windows.certificate`, for `mygo build` |
 | `MYGO_CLI_BINARY` | a build of the CLI for the `mygo-cli` package to run |
 | `MYGO_ENV` | `production` makes an app behave like a production build, e.g. without the web inspector |
+| `MYGO_NATIVE_<NAME>` | the file of the [native library](native-libraries.md#where-libraries-are-found) `<name>` (in upper case, with `_` for other characters than letters and digits) that package `ffi` loads, over the others |
 | `MYGO_LOCALE` | the language the app runs in, over the one it keeps, which `mygo dev -lang` sets |
 
 For an app with dependencies that need cgo:

@@ -129,6 +129,27 @@ jobs:
       # about six minutes and, on a slow one beside the other packages,
       # past go test's ten: the same tests, more time.
       - run: go test -timeout ${{ runner.os == 'macOS' && '20m' || '10m' }} ./...
+      # A Rust crate that the CLI builds and package ffi binds, with the
+      # cargo of the runners' images, which go test ./... skips unbuilt.
+      - name: Test a native library built from its sources
+        env:
+          MYGO_NATIVE_TESTS: 1
+        run: |
+          go run ./cmd/mygo native build -target host examples/rust-native
+          go test -count=1 ./examples/rust-native/...
+      # A native module's Swift, built with the runners' own (Xcode's, and
+      # the Swift of Ubuntu's image): every kind of value both ways, which
+      # go test ./... skips unbuilt. On macOS, the examples too, whose
+      # Swift uses Apple's frameworks.
+      - name: Test a native module built from its Swift
+        if: runner.os != 'Windows'
+        run: |
+          go run ./cmd/mygo native build -target host native/internal/roundtrip/uses  # and roundtrip, which it uses
+          go test -count=1 ./native/internal/roundtrip/...
+      - name: Build the example's native modules
+        if: runner.os == 'macOS'
+        working-directory: examples/native-module
+        run: for m in language motion places; do go run ../../cmd/mygo native check modules/$m; done
       - name: Test without the inspector, as production builds
         if: runner.os == 'Linux'
         run: go test -tags mygo_noinspector ./ui .
