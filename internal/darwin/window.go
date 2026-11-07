@@ -253,6 +253,10 @@ func (w *window) create() {
 		behavior = collectionCanJoinAllSpaces | collectionFullScreenAuxiliary | collectionIgnoresCycle | collectionTransient
 		// A panel stays as the app is deactivated: the app hides it.
 		send(w.win, "setHidesOnDeactivate:", 0)
+		// NSPanel becomes key only when a view needs it (the default). A
+		// hidden page has no first responder yet: Show would order the
+		// panel front without the keyboard while another app is active.
+		send(w.win, "setBecomesKeyOnlyIfNeeded:", 0)
 	} else if w.modalToFlyout() {
 		// Where its flyout is, over another app in full screen too.
 		behavior = collectionFullScreenAuxiliary | collectionTransient
@@ -888,9 +892,11 @@ func (w *window) Show() {
 		return
 	}
 	w.showAboveParent(true)
-	if !w.opts.Panel {
-		send(w.b.app, "activateIgnoringOtherApps:", 1)
+	if w.opts.Panel {
+		w.takeKeyWithoutActivating()
+		return
 	}
+	send(w.b.app, "activateIgnoringOtherApps:", 1)
 }
 
 // A window modal to a flyout (modalToFlyout) is no sheet of it, which
@@ -1184,6 +1190,22 @@ func (w *window) IsVisible() bool {
 	return sendBool(w.win, "isVisible")
 }
 
+// takeKeyWithoutActivating makes a panel the key window without activating
+// the app. Show and Focus already ordered it front; NSApp may still be
+// resigning active (Finder can be frontmost first, see TestGlass), which
+// would take the key back. The next turn takes it again if that happens.
+func (w *window) takeKeyWithoutActivating() {
+	if !sendBool(w.win, "isKeyWindow") {
+		send(w.win, "makeKeyWindow")
+	}
+	w.b.post(func() {
+		if w.closed || !sendBool(w.win, "isVisible") || sendBool(w.win, "isKeyWindow") {
+			return
+		}
+		send(w.win, "makeKeyWindow")
+	})
+}
+
 func (w *window) Focus() {
 	if w.host != nil {
 		if !w.closed {
@@ -1197,9 +1219,11 @@ func (w *window) Focus() {
 	}
 	w.hiddenWithParent = false
 	send(w.win, "makeKeyAndOrderFront:", 0)
-	if !w.opts.Panel {
-		send(w.b.app, "activateIgnoringOtherApps:", 1)
+	if w.opts.Panel {
+		w.takeKeyWithoutActivating()
+		return
 	}
+	send(w.b.app, "activateIgnoringOtherApps:", 1)
 }
 
 func (w *window) Blur() { send(w.win, "orderBack:", 0) }
