@@ -335,6 +335,29 @@ purego gives three primitives, used everywhere:
 - The main thread is the one that called `gtk_init_check`; `IsMainThread`
   compares `gettid`. `Step` is `g_main_context_iteration(NULL, TRUE)` and
   `Wake` is `g_main_context_wakeup`.
+- The default main context polls through `glibPoll` (`poll.go`), a
+  `GPollFunc` in Go set with `g_main_context_set_poll_func`. GTK's loop
+  runs inside one purego call, so the runtime sees the main thread as an M
+  in a syscall that holds a P: every callback into Go would take that P
+  back and wake sysmon, which then polls for some 10 ms (40 to 60 wakeups
+  of an idle app per callback). Before a wait of 10 ms or more, or one
+  without a timeout, `glibPoll` hands the P off with
+  `runtime.entersyscallblock`, calls `ppoll(2)` as a raw syscall, and takes
+  a P again with `runtime.exitsyscall`. Both are reached through
+  `//go:linkname`; the runtime keeps them open to linknames for gVisor, so
+  `-checklinkname` allows them. `blockingPPoll`, between them, is
+  `//go:nosplit` and does not allocate. A poll with a zero timeout keeps
+  the P. GLib reads `errno`, which a raw syscall does not set, so `EINTR`
+  returns 0 (GLib polls again) and any other error -1. GLib gives a poll
+  function its timeout in whole milliseconds, rounded up, where its own
+  poll waits to the nanosecond with `ppoll`; frames at 165 Hz came that
+  much late and a tenth of them were lost. So a wait shorter than 10 ms,
+  the next frame's while the app animates, gives the context back GLib's
+  own poll (`usePoll(false)`), and a one-shot `g_timeout_add` of 250 ms
+  sets `glibPoll` again: an idle app polls through Go, an animating one
+  through GLib. That one short wait is an ordinary `syscall.Syscall6`,
+  which keeps the P: a handoff on every iteration of the loop would start
+  an M each time.
 - `Bounds` are those of the frame a reparenting X11 window manager puts
   around the window (`gdk_window_get_frame_extents`): GTK positions the
   frame (NORTH_WEST gravity) and sizes the window inside it, without the
