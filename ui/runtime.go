@@ -615,6 +615,9 @@ func newRuntime(view func(*context), h host) *engine {
 func (rt *engine) defaultTheme() *Theme {
 	if !rt.darkKnown {
 		rt.dark, rt.darkKnown = rt.host.isDark(), true
+		if inspectorBuilt {
+			rt.dark = inspectorDark(rt, rt.dark)
+		}
 		rt.themeOK = false
 	}
 	if !rt.prefsKnown {

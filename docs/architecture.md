@@ -3220,6 +3220,10 @@ either.
   with the layout cache off while a badge is on for it to run.
   Laying a grid out again after `place` would move its baseline items, which
   are in window coordinates by then.
+  Paint flashing (`inspector_rendering.go`) diffs the scene with a
+  `scene.Differ` of its own, before the inspector paints over it, as what
+  frames change; the dark toggle overrides `rt.dark` in `defaultTheme`,
+  behind `inspectorBuilt`.
   `main.go:42` opens in the developer's editor (`inspector_editor.go`):
   `MYGO_EDITOR`, `VISUAL` or `EDITOR` names the command, started in a session
   of its own so that it outlasts `mygo dev` restarting the app, and failures

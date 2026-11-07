@@ -127,6 +127,26 @@ content until you click it again or the inspector closes:
 The layout cache is off while a badge is on, so the Performance tab's layout
 times aren't those of the app.
 
+## Rendering
+
+Two icons in the toolbar change what the window shows, until they're clicked
+again or the inspector closes:
+
+- **Paint flashing** (the bolt) flashes in green what each frame changes, to find what redraws when
+  nothing should, such as an animation out of sight or a value that keeps being
+  set. It shows what a GPU renderer would redraw, which is more than the changed
+  element when something behind it changed too. A change in the panel itself
+  doesn't count.
+- **Dark appearance** (the moon) shows the window in the other appearance: the themes MyGo gives, and
+  so the elements built with them, follow it. A theme your app sets stays as it
+  is, and so do the window's title bar and the system's own controls.
+
+The tooltip over a text or an icon gives its **Contrast** against what is behind
+it, as [WCAG](https://www.w3.org/TR/WCAG21/#contrast-minimum) reckons it: one
+check for AA, two for AAA, and `⊘` for neither. Large text asks for less. It adds
+up the backgrounds around the element, so it leaves out what overlaps it from
+elsewhere in the tree, and doesn't show over a gradient or an image.
+
 ## Opening the source
 
 The link beside the element in the Styles tab, such as `main.go:42`, opens that

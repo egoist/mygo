@@ -40,7 +40,7 @@ func inspPaletteFor(dark bool) inspPalette {
 }
 
 // inspIcons are the inspector's icons, parsed once a window opens it.
-var inspIcons = sync.OnceValue(func() (icons struct{ pick, close, warn, arrow, plus, check *SVG }) {
+var inspIcons = sync.OnceValue(func() (icons struct{ pick, close, warn, arrow, plus, check, flash, moon *SVG }) {
 	stroked := func(shapes string) *SVG {
 		return MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` + shapes + `</svg>`))
 	}
@@ -48,6 +48,8 @@ var inspIcons = sync.OnceValue(func() (icons struct{ pick, close, warn, arrow, p
 	icons.close = stroked(`<path d="M18 6 6 18M6 6l12 12"/>`)
 	icons.plus = stroked(`<path d="M12 5v14M5 12h14"/>`)
 	icons.check = stroked(`<path d="m5 12 5 5 9-10"/>`)
+	icons.flash = stroked(`<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>`)
+	icons.moon = stroked(`<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>`)
 	icons.warn = stroked(`<path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3z"/><path d="M12 9v4M12 17h.01"/>`)
 	icons.arrow = MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M3 1.5 7.5 5 3 8.5z" fill="currentColor"/></svg>`))
 	return icons
@@ -143,6 +145,21 @@ func (in *inspector) toolbar(c *context, rt *engine) {
 			}
 		}
 		coreSpacer(c)
+		// Icons, as words would squeeze the tabs at the panel's width.
+		toggle := func(icon *SVG, on bool, label string) *node {
+			b := in.iconButton(c, icon, on, label).Role(RoleToggleButton)
+			b.checked = 1
+			if on {
+				b.checked = 2
+			}
+			return b
+		}
+		if toggle(icons.flash, in.flashing, "Paint flashing").Clicked() {
+			in.togglePaintFlashing()
+		}
+		if toggle(icons.moon, rt.dark, "Dark appearance").Clicked() {
+			in.toggleDark(rt)
+		}
 		// Lays the window out right to left, or back, to try it without
 		// translations, as GTK's inspector can.
 		rtl := rt.direction()
