@@ -438,6 +438,13 @@ func makeLanguages() {
 		TabSize:   2,
 		Tokenizer: &markdownLexer{},
 	}
+	typst := &Language{
+		Name: "Typst", Extensions: []string{".typ"}, LineComment: "//", BlockComment: [2]string{"/*", "*/"},
+		Imports:  regexp.MustCompile(`^#import\b`),
+		Brackets: cBrackets, AutoClose: cAutoClose("\""), WordChars: "-", TabSize: 2,
+		Tokenizer: &typstLexer{words: words(TokenKeyword, "let set show if else for in while break continue return import include as context not and or",
+			TokenConstant, "none auto true false")},
+	}
 	diffLang := &Language{
 		Name: "Diff", Extensions: []string{".diff", ".patch", ".rej"}, TabSize: 4,
 		Tokenizer: TokenizerFunc(tokenizeDiff),
@@ -492,5 +499,5 @@ func makeLanguages() {
 	// HTML's tokenizer highlights the scripts and styles inside it.
 	html.Tokenizer = &markupLexer{html: true, script: javascript.Tokenizer, style: css.Tokenizer}
 	languageList = []*Language{goLang, javascript, typescript, json, python, rust, c, cpp, java, kotlin, scala, swift, dart, csharp,
-		shell, yaml, toml, sql, rLang, ruby, lua, php, css, html, xml, markdown, diffLang, dockerfile, makefile, protobuf, graphql, zig}
+		shell, yaml, toml, sql, rLang, ruby, lua, php, css, html, xml, markdown, typst, diffLang, dockerfile, makefile, protobuf, graphql, zig}
 }
