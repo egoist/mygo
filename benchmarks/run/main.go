@@ -25,7 +25,7 @@ import (
 
 // frameworks are measured in this order within each round, so that a machine
 // slowing down over a run weighs on them alike.
-var frameworks = []string{"mygo", "gpui", "gpui-fast", "egui"}
+var frameworks = []string{"mygo", "gpui", "gpui-fast", "egui", "rune"}
 
 // scenes that draw every frame, as opposed to the counter.
 var animated = []string{"list", "grid", "document"}
@@ -392,16 +392,20 @@ func versions(root string) map[string]string {
 			v["mygo"] = string(m[1])
 		}
 	}
-	for f, crate := range map[string]string{"gpui": "gpui", "gpui-fast": "gpui-fast", "egui": "eframe"} {
+	for f, crate := range map[string]string{"gpui": "gpui", "gpui-fast": "gpui-fast", "egui": "eframe", "rune": "rune"} {
 		b, err := os.ReadFile(filepath.Join(root, "benchmarks", f, "Cargo.lock"))
 		if err != nil {
 			log.Fatal(err)
 		}
-		m := regexp.MustCompile(`name = "` + crate + `"\nversion = "([^"]+)"`).FindSubmatch(b)
+		m := regexp.MustCompile(`name = "` + crate + `"\nversion = "([^"]+)"(?:\nsource = "git\+[^"#]*#([0-9a-f]{7}))?`).FindSubmatch(b)
 		if m == nil {
 			log.Fatalf("no %s in %s's Cargo.lock", crate, f)
 		}
 		v[f] = string(m[1])
+		// Rune isn't released: its version stays 0.0.1, and the commit says which it is.
+		if len(m[2]) > 0 {
+			v[f] += "+" + string(m[2])
+		}
 	}
 	return v
 }

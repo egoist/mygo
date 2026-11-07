@@ -5733,7 +5733,7 @@ the containers have no display that refreshes.
 ### Comparison with other frameworks
 
 `benchmarks/` holds the same small apps written with MyGo's native UI, GPUI,
-GPUI Fast and egui, and `go run ./benchmarks/run`, which measures them from outside the
+GPUI Fast, egui and Rune, and `go run ./benchmarks/run`, which measures them from outside the
 process: see `benchmarks/README.md`. It runs by hand on a real Mac, and
 `benchmarks/results.json`, which it writes, is what the website's
 [/benchmarks](https://mygo.egoist.dev/benchmarks) page shows.
