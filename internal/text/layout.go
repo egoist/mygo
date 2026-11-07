@@ -346,6 +346,8 @@ type Layout struct {
 	boundaries    []int // retained whole-grapheme offsets for visual navigation
 	// Truncated reports that MaxLines cut the text.
 	Truncated bool
+	// gen is the system's Generation it was laid out in.
+	gen uint64
 }
 
 // Line is a line of a Layout.
@@ -427,6 +429,17 @@ type System struct {
 
 	glyphs map[glyphKey]*atlasEntry
 	places map[placeKey]placement
+	// lastPlace is the placement place found last, for the glyphs of a run,
+	// which share it; placed tells that it holds one.
+	lastPlace placeKey
+	lastPl    placement
+	placed    bool
+	// reuse is the layout of the same text the layout being made follows,
+	// whose lines it may copy (reusedLine), or nil.
+	reuse *Layout
+	// runes are the runes of the text the layout being made follows, which
+	// it shares, or nil.
+	runes []rune
 	// runs holds joined glyphs (GlyphRun).
 	runs  map[runKey]*atlasEntry
 	masks map[uint64]*atlasEntry
@@ -587,6 +600,7 @@ func (s *System) SetFontRendering(antialias, hinting, subpixels string) {
 		clear(s.marks)
 		clear(s.glyphs)
 		clear(s.places)
+		s.placed = false
 		clear(s.runs)
 	}
 }
@@ -781,6 +795,7 @@ func (s *System) EndFrame() {
 		clear(s.fonts)
 		clear(s.glyphs)
 		clear(s.places)
+		s.placed = false
 		clear(s.runs)
 		f.forgetFonts()
 		return
@@ -816,6 +831,7 @@ func (s *System) Layout(p Params) *Layout { return s.LayoutFrom(nil, p) }
 func (s *System) LayoutFrom(l *Layout, p Params) *Layout {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	from := l
 	if c, ok := s.layouts[p]; ok {
 		s.useLayout(c)
 		return &c.layout
@@ -842,7 +858,14 @@ func (s *System) LayoutFrom(l *Layout, p Params) *Layout {
 		p.Style.Family = strings.Clone(p.Style.Family)
 		p.Style.Features = strings.Clone(p.Style.Features)
 		p.Style.Lang = strings.Clone(p.Style.Lang)
+		if from != nil && from.Params.Text == p.Text {
+			s.runes = from.Runes
+			if from.gen == s.gen && reusable(from, p) {
+				s.reuse = from
+			}
+		}
 		c = s.layout(p)
+		s.reuse, s.runes = nil, nil
 		c.bytes = layoutBytes(c)
 	}
 	// A large paragraph is kept only where it fits next to the layouts
@@ -1120,9 +1143,12 @@ func (s *System) layout(p Params) *cached {
 	s.made++
 	s.engine().resetScratch()
 	m := metricsOf(s.font(p.Style), p.Style)
-	runes := []rune(p.Text)
+	runes := s.runes
+	if runes == nil {
+		runes = []rune(p.Text)
+	}
 	spans := DecodeSpans(p.Spans)
-	c := &cached{layout: Layout{Params: p, Runes: runes}}
+	c := &cached{layout: Layout{Params: p, Runes: runes, gen: s.gen}}
 	l := &c.layout
 	// The layout keeps its parameters as they came; the engine shapes in
 	// the system's language where they name none.
@@ -1298,7 +1324,9 @@ func (s *System) paragraph(out []Line, p Params, spans []Span, runes []rune, sta
 			shaped[k] = hy.place(shaped[k], text, broken && softBreak(shaped[k], text) >= 0, rtl)
 		}
 	}
-	// The glyphs of the lines share one allocation.
+	// The glyphs of the lines share one allocation. A line the layout this
+	// one follows has as it is, as most are when a box is resized, is copied
+	// from it rather than made again (reusedLine).
 	n := 0
 	for _, sl := range shaped {
 		n += glyphCount(sl)
@@ -1309,8 +1337,26 @@ func (s *System) paragraph(out []Line, p Params, spans []Span, runes []rune, sta
 	}
 	first := len(out)
 	pads := padded(spans)
-	for _, sl := range shaped {
+	reuse := s.reuse != nil && hy == nil && !pads && !truncated && !rtl
+	for i, sl := range shaped {
 		k := glyphCount(sl)
+		if reuse {
+			// Its end as the loop after the lines sets it.
+			end := end
+			if i+1 < len(shaped) {
+				end = start + max(sl.end, shaped[i+1].start)
+			}
+			if prev := s.reusedLine(first+i, start+sl.start, end); prev != nil && prev.Y == *y && len(prev.Glyphs) <= k {
+				line := *prev
+				line.Glyphs = append(room[:0:k], prev.Glyphs...)
+				// Its carets and stops are found anew, as realign has them.
+				line.carets, line.stops, line.upstream = nil, nil, nil
+				out = append(out, line)
+				*y += line.Height
+				room = room[k:]
+				continue
+			}
+		}
 		out = append(out, line(p, text, sl, start, rtl, m, y, room[:0:k], &s.starts, spans))
 		if pads {
 			padLine(&out[len(out)-1], spans, start)
@@ -1691,4 +1737,29 @@ func isRTL(para []rune, neutral bool) bool {
 		}
 	}
 	return neutral
+}
+
+// reusable reports whether a layout of p may copy the lines of from, a layout
+// of the same text at another width laid out with the same fonts, that it has
+// as they are: lines whose alignment moves none of them, and that nothing but
+// their breaks changes.
+func reusable(from *Layout, p Params) bool {
+	if from == nil || from.Truncated || unwrappedParams(from.Params) != unwrappedParams(p) {
+		return false
+	}
+	q := from.Params
+	return !p.Justify && !q.Justify && p.MaxLines == 0 && p.Indent <= 0 && (p.Align == Start || p.Align == Left)
+}
+
+// reusedLine returns line i of the layout being made follows, if it holds the
+// runes from start to end and its alignment moved it nowhere, or nil.
+func (s *System) reusedLine(i, start, end int) *Line {
+	if i >= len(s.reuse.Lines) {
+		return nil
+	}
+	l := &s.reuse.Lines[i]
+	if l.Start != start || l.End != end || l.X != 0 || l.RTL {
+		return nil
+	}
+	return l
 }

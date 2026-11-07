@@ -496,9 +496,16 @@ func (p *Painter) inlineTransforms() bool {
 }
 
 func (p *Painter) inlineTransform(runeIndex int) scene.Affine {
+	// Most text has no inline children: the check inlines into the loops
+	// over glyphs.
 	if p.inline == nil {
 		return scene.Affine{}
 	}
+	return p.inlineTransformOf(runeIndex)
+}
+
+// inlineTransformOf is inlineTransform for text with inline children.
+func (p *Painter) inlineTransformOf(runeIndex int) scene.Affine {
 	var find func(e *node, offset int) *node
 	find = func(e *node, offset int) *node {
 		for ch := e.first; ch != nil; ch = ch.next {

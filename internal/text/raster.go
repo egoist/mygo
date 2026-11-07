@@ -344,11 +344,15 @@ func (s *System) Origin(f *Font, scale, x float32, opaque bool) float32 {
 // the pixel x is in.
 func (s *System) place(f *Font, scale float32, subpixel bool, x float32) (q, n int, carry float32) {
 	pk := placeKey{f, uint32(scale*256 + 0.5), subpixel}
-	pl, ok := s.places[pk]
-	if !ok {
-		pl.n, pl.round = s.engine().positions(f, scale, subpixel)
-		pl.n = max(pl.n, 1)
-		s.places[pk] = pl
+	pl := s.lastPl
+	if !s.placed || pk != s.lastPlace {
+		var ok bool
+		if pl, ok = s.places[pk]; !ok {
+			pl.n, pl.round = s.engine().positions(f, scale, subpixel)
+			pl.n = max(pl.n, 1)
+			s.places[pk] = pl
+		}
+		s.lastPlace, s.lastPl, s.placed = pk, pl, true
 	}
 	frac := float64(x) - math.Floor(float64(x))
 	if pl.round {

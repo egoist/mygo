@@ -117,3 +117,32 @@ func BenchmarkLayoutNumbers(b *testing.B) {
 		s.EndFrame()
 	}
 }
+
+// BenchmarkLayoutResizeFrom wraps the paragraphs of BenchmarkLayoutResize
+// to another width in each frame from their last layouts, as a box being
+// resized lays its text out.
+func BenchmarkLayoutResizeFrom(b *testing.B) {
+	s := newSystem()
+	words := strings.Fields("window button layout render scroll update shadow cursor memory thread signal bitmap stroke column editor kernel")
+	var paragraphs []string
+	for i := range 40 {
+		var p strings.Builder
+		for j := range 70 {
+			p.WriteString(words[(i*7+j*j*3+j)%len(words)])
+			p.WriteByte(' ')
+		}
+		paragraphs = append(paragraphs, p.String())
+	}
+	last := make([]*Layout, len(paragraphs))
+	width := float32(450)
+	b.ReportAllocs()
+	for b.Loop() {
+		if width++; width > 750 {
+			width = 450
+		}
+		for i, p := range paragraphs {
+			last[i] = s.LayoutFrom(last[i], Params{Text: p, Width: width, Style: Style{Size: 13, Lang: "en"}})
+		}
+		s.EndFrame()
+	}
+}
