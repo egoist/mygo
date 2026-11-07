@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -297,6 +298,13 @@ func (c *Config) validate() error {
 			if !extRe.MatchString(ext) {
 				return fmt.Errorf("fileAssociations[%d]: %q is not a file name extension (without the dot)", i, ext)
 			}
+		}
+		if fa.MimeType != "" {
+			mediaType, params, err := mime.ParseMediaType(fa.MimeType)
+			if err != nil || !strings.Contains(mediaType, "/") || len(params) != 0 || strings.ContainsAny(fa.MimeType, ";\r\n") {
+				return fmt.Errorf("fileAssociations[%d].mimeType %q is not a MIME type (type/subtype, as text/markdown, without parameters)", i, fa.MimeType)
+			}
+			c.FileAssociations[i].MimeType = mediaType
 		}
 		if fa.Role != "" && fa.Role != "Editor" && fa.Role != "Viewer" {
 			return fmt.Errorf("fileAssociations[%d].role is Editor or Viewer", i)
