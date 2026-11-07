@@ -786,6 +786,11 @@ func (p *painter) at(px, py float32) [4]float32 {
 		return p.stopsAt(t)
 	case scene.PaintRadial, scene.PaintRadialOklab:
 		dx, dy := px-p.g[0], py-p.g[1]
+		if p.g[3] > 0 {
+			// An ellipse: the distance in its radii.
+			dx, dy = dx/max(p.g[2], 0.0001), dy/max(p.g[3], 0.0001)
+			return p.stopsAt(float32(math.Sqrt(float64(dx*dx + dy*dy))))
+		}
 		return p.stopsAt(float32(math.Sqrt(float64(dx*dx+dy*dy))) / max(p.g[2], 0.0001))
 	}
 	g := p.g

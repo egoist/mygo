@@ -6935,10 +6935,12 @@ func (_handle Element) Pretty() Element {
 }
 
 // RadialGradient fills the element with a radial gradient, its colors
-// spreading out from a point (CSS's radial-gradient()), as a glow:
+// spreading out from a point (CSS's radial-gradient()), as a glow, in
+// circles, or with Ellipse in ellipses of the box's proportions, as CSS
+// draws one with no shape given:
 //
 //	ui.Box(c).Size(160, 100).Radius(16).RadialGradient(ui.RadialGradient{
-//		Stops: []ui.GradientStop{{ui.RGBA(99, 102, 241, 0.6), 0}, {ui.Transparent, 1}},
+//		Ellipse: true, Stops: []ui.GradientStop{{ui.RGBA(99, 102, 241, 0.6), 0}, {ui.Transparent, 1}},
 //	})
 func (_handle Element) RadialGradient(g RadialGradient) Element {
 	_node := _handle.node()

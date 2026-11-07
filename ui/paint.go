@@ -712,19 +712,60 @@ func (p *Painter) radial(op *scene.Op, g RadialGradient) {
 	}
 	r := op.Rect
 	cx, cy := r.X+r.W*c.X, r.Y+r.H*c.Y
-	radius := g.Radius * p.scale
-	if radius <= 0 {
-		// The farthest corner, as CSS's farthest-corner.
-		dx, dy := max(abs32(cx-r.X), abs32(r.X+r.W-cx)), max(abs32(cy-r.Y), abs32(r.Y+r.H-cy))
-		radius = float32(math.Sqrt(float64(dx*dx + dy*dy)))
-	}
+	rx, ry := radialShape(g, r, cx, cy, p.scale)
 	op.Paint = scene.PaintRadial
 	if g.Oklab {
 		op.Paint = scene.PaintRadialOklab
 	}
-	// At least half a pixel, as in an empty box: its stops a hard edge.
-	op.Gradient = [4]float32{cx, cy, max(radius, 0.5), 0}
+	op.Gradient = [4]float32{cx, cy, rx, ry}
 	op.Stops = p.stops(g.Stops)
+}
+
+// radialShape returns the radii of g's ending shape around (cx, cy) in r,
+// in pixels at scale: across, and down for an ellipse, else 0 (a circle,
+// scene.PaintRadial). Each is at least half a pixel, as in an empty box:
+// its stops a hard edge.
+func radialShape(g RadialGradient, r scene.Rect, cx, cy, scale float32) (rx, ry float32) {
+	if g.Radius > 0 {
+		if g.RadiusY > 0 {
+			return max(g.Radius*scale, 0.5), max(g.RadiusY*scale, 0.5)
+		}
+		return max(g.Radius*scale, 0.5), 0
+	}
+	// The distances to the sides, across and down: the nearer ones for the
+	// closest side and corner, the farther ones for the farthest.
+	left, right, top, bottom := abs32(cx-r.X), abs32(r.X+r.W-cx), abs32(cy-r.Y), abs32(r.Y+r.H-cy)
+	dx, dy := max(left, right), max(top, bottom)
+	if g.Extent == RadialClosestSide || g.Extent == RadialClosestCorner {
+		dx, dy = min(left, right), min(top, bottom)
+	}
+	corner := g.Extent != RadialClosestSide && g.Extent != RadialFarthestSide
+	if !g.Ellipse {
+		switch {
+		case corner:
+			rx = float32(math.Sqrt(float64(dx*dx + dy*dy)))
+		case g.Extent == RadialClosestSide:
+			rx = min(dx, dy)
+		default:
+			rx = max(dx, dy)
+		}
+		return max(rx, 0.5), 0
+	}
+	if corner {
+		// The ellipse of the sides' proportions through the corner (dx, dy).
+		dx, dy = dx*math.Sqrt2, dy*math.Sqrt2
+	}
+	// An ellipse of no width (or height) is, as CSS draws it, one of the
+	// least width by the most height: its stops side by side across.
+	switch {
+	case dx <= 0 && dy <= 0:
+		return 0.5, 0
+	case dx <= 0:
+		return 0.5, 1e6
+	case dy <= 0:
+		return 1e6, 0.5
+	}
+	return max(dx, 0.5), max(dy, 0.5)
 }
 
 // stops adds a gradient's stops to the scene, at most scene.MaxStops of

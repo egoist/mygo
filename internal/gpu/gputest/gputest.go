@@ -255,6 +255,12 @@ func Scene() *scene.Scene {
 		Gradient: [4]float32{213, 714, 26.3, 0}, Stops: stops(scene.Stop{Color: yellow, At: 0}, scene.Stop{Color: red, At: 0.5}, scene.Stop{Color: blue, At: 0.5}, scene.Stop{Color: green, At: 1})})
 	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 256.5, Y: 704.25, W: 56, H: 32}, Radii: r4(16), Paint: scene.PaintRadialOklab,
 		Gradient: [4]float32{284.5, 720.25, 30, 0}, Stops: stops(scene.Stop{Color: scene.Color{R: 255, G: 255, B: 255, A: 255}, At: 0.1}, scene.Stop{Color: scene.Color{R: 37, G: 99, B: 235, A: 140}, At: 0.6}, scene.Stop{Color: scene.Color{}, At: 1})})
+	// Radial in ellipses (Gradient[3]), wide with a hard stop, and in
+	// Oklab, tall.
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 10, Y: 700, W: 36, H: 36}, Radii: r4(6), Paint: scene.PaintRadial,
+		Gradient: [4]float32{28, 718, 25.5, 9}, Stops: stops(scene.Stop{Color: yellow, At: 0}, scene.Stop{Color: red, At: 0.5}, scene.Stop{Color: blue, At: 0.5}, scene.Stop{Color: green, At: 1})})
+	add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 50.5, Y: 700.25, W: 16, H: 36}, Paint: scene.PaintRadialOklab,
+		Gradient: [4]float32{58.5, 712.25, 11.3, 33.9}, Stops: stops(scene.Stop{Color: scene.Color{R: 255, G: 255, B: 255, A: 255}, At: 0}, scene.Stop{Color: scene.Color{R: 37, G: 99, B: 235, A: 140}, At: 1})})
 	start = int32(len(s.Glyphs))
 	for i := range 3 {
 		s.Glyphs = append(s.Glyphs, scene.Glyph{X: float32(10 + i*18), Y: 676, W: 16, H: 16, U: uint16(dx), V: uint16(dy), UW: 16, VH: 16, Color: ink})

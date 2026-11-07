@@ -207,8 +207,10 @@ const (
 	PaintConicOklab
 	// PaintRadial is a radial gradient of the op's Stops from (Gradient[0],
 	// Gradient[1]) at 0 to a circle of radius Gradient[2] around it at 1,
-	// mixed in sRGB, as CSS's radial-gradient() is; PaintRadialOklab mixes
-	// them in Oklab.
+	// or, when Gradient[3] is positive, to an ellipse of radii Gradient[2]
+	// across and Gradient[3] down (where hypot(dx/rx, dy/ry) is 1), mixed
+	// in sRGB, as CSS's radial-gradient() is; PaintRadialOklab mixes them
+	// in Oklab.
 	PaintRadial
 	PaintRadialOklab
 )

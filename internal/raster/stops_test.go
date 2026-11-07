@@ -104,6 +104,39 @@ func TestRadial(t *testing.T) {
 	}
 }
 
+// A radial gradient with a second radius (Gradient[3]) spreads in
+// ellipses, Gradient[2] across and Gradient[3] down: its stops at
+// hypot(dx/rx, dy/ry).
+func TestRadialEllipse(t *testing.T) {
+	s := &scene.Scene{Width: 200, Height: 50}
+	s.Stops = []scene.Stop{{Color: red, At: 0}, {Color: blue, At: 1}}
+	s.Ops = []scene.Op{{Kind: scene.OpFill, Rect: scene.Rect{W: 200, H: 50}, Paint: scene.PaintRadial,
+		Gradient: [4]float32{100.5, 25.5, 80, 20}, Stops: [2]int32{0, 2}}}
+	img := NewImage(200, 50)
+	Render(img, s)
+	for _, c := range []struct {
+		x, y int
+		want [4]byte
+	}{
+		{100, 25, [4]byte{255, 0, 0, 255}},   // the center
+		{140, 25, [4]byte{128, 0, 127, 255}}, // halfway out across, 40 pixels
+		{100, 15, [4]byte{128, 0, 127, 255}}, // and down, 10: an ellipse
+		{124, 33, [4]byte{128, 0, 127, 255}}, // (24, 8) out: 0.3 across, 0.4 down
+		{185, 25, [4]byte{0, 0, 255, 255}},   // past it across
+		{120, 2, [4]byte{0, 0, 255, 255}},    // and down
+	} {
+		if got := at(img, c.x, c.y); !nearRGBA(got, c.want, 6) {
+			t.Errorf("(%d, %d) = %v, want %v", c.x, c.y, got, c.want)
+		}
+	}
+	// With no second radius, a circle, as before.
+	s.Ops[0].Gradient[3] = 0
+	Render(img, s)
+	if got := at(img, 100, 2); !nearRGBA(got, [4]byte{182, 0, 73, 255}, 4) {
+		t.Errorf("a circle's edge above the center %v, want the circle's mix", got)
+	}
+}
+
 // A linear gradient with stops shows its first color before its first
 // stop and its last after its last, and mixes in sRGB, or in Oklab, whose
 // middle between red and blue is lighter.

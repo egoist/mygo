@@ -425,6 +425,9 @@ vec4 paint(vec2 p, float mode, vec4 rect, vec4 c1, vec4 c2, vec4 g) {
 			vec2 d = p - g.xy;
 			t = (atan(d.x, -d.y) - g.z) * 0.15915494309189535;
 			t -= floor(t);
+		} else if (g.w > 0.0) {
+			// An ellipse: the distance in its radii.
+			t = length((p - g.xy) / max(g.zw, vec2(0.0001)));
 		} else {
 			t = length(p - g.xy) / max(g.z, 0.0001);
 		}

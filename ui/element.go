@@ -786,25 +786,74 @@ type ConicGradient struct {
 
 // RadialGradient blends colors outwards from a point, as CSS's
 // radial-gradient() does (SwiftUI's RadialGradient, Flutter's
-// RadialGradient): its stops at their places from its center, at 0, to a
-// circle of its radius, at 1.
+// RadialGradient): its stops at their places from its center, at 0, to
+// its ending shape, a circle or an ellipse, at 1. The gradient shows its
+// first color at the center and its last past the shape.
 //
 //	e.RadialGradient(ui.RadialGradient{Stops: []ui.GradientStop{{white, 0}, {ui.Transparent, 1}}})
+//
+// The zero shape is a circle reaching the corner of the box farthest from
+// the center. CSS's default, with no shape or size, is an ellipse in the
+// box's proportions reaching that corner, which Ellipse makes:
+//
+//	// radial-gradient(rgb(99 102 241 / 0.6), transparent)
+//	e.RadialGradient(ui.RadialGradient{Ellipse: true, Stops: glow})
+//	// radial-gradient(circle closest-side at 30% 40%, …)
+//	e.RadialGradient(ui.RadialGradient{Center: ui.Point{X: 0.3, Y: 0.4}, Extent: ui.RadialClosestSide, Stops: glow})
+//	// radial-gradient(120px 40px, …)
+//	e.RadialGradient(ui.RadialGradient{Radius: 120, RadiusY: 40, Stops: glow})
 type RadialGradient struct {
 	Stops []GradientStop
 	// Center is the point the colors spread from, in fractions of the
 	// box's width and height from its top left corner; the zero Point is
 	// its middle, as ConicGradient's is.
 	Center Point
-	// Radius is how far the gradient reaches from its center, in DIPs; 0
-	// reaches the corner of the box farthest from the center, as CSS's
-	// farthest-corner default does. The gradient shows its first color
-	// before the center and its last past the radius.
+	// Radius, unless 0, is the radius of the ending shape, a circle, in
+	// DIPs, as CSS's radial-gradient(<length>). 0 sizes the shape against
+	// the box, as Extent and Ellipse say.
 	Radius float32
+	// RadiusY, with Radius, makes the ending shape an ellipse, Radius
+	// across and RadiusY down, in DIPs, as CSS's radial-gradient(<length>
+	// <length>). Without Radius it is ignored.
+	RadiusY float32
+	// Extent sizes the ending shape against the box when Radius is 0, as
+	// CSS's extent keywords do: the zero RadialFarthestCorner reaches the
+	// corner of the box farthest from the center.
+	Extent RadialExtent
+	// Ellipse makes the shape Extent sizes an ellipse rather than a
+	// circle, as CSS's ellipse: its radii in proportion to the distances
+	// from the center to the box's sides across and down, which keeps the
+	// falloff even along the edges of a wide or tall box. With Radius it
+	// is ignored (RadiusY makes an ellipse of lengths).
+	Ellipse bool
 	// Oklab mixes the colors in the Oklab color space, as LinearGradient's
 	// does.
 	Oklab bool
 }
+
+// RadialExtent sizes a RadialGradient's ending shape against its box, as
+// the extent keywords of CSS's radial-gradient(). An ellipse (Ellipse)
+// reaching a side takes the sides across and down apart, and one reaching
+// a corner has the proportions of the one reaching those sides, scaled to
+// pass through the corner.
+type RadialExtent uint8
+
+const (
+	// RadialFarthestCorner reaches the corner of the box farthest from
+	// the center, as CSS's farthest-corner, its default.
+	RadialFarthestCorner RadialExtent = iota
+	// RadialClosestSide reaches the side of the box nearest the center, as
+	// CSS's closest-side; an ellipse, the nearer side across and the
+	// nearer side down.
+	RadialClosestSide
+	// RadialFarthestSide reaches the side of the box farthest from the
+	// center, as CSS's farthest-side; an ellipse, the farther side across
+	// and the farther side down.
+	RadialFarthestSide
+	// RadialClosestCorner reaches the corner of the box nearest the
+	// center, as CSS's closest-corner.
+	RadialClosestCorner
+)
 
 // gradients is a conic or radial fill and a border's gradient, linear or
 // conic.
@@ -1464,10 +1513,12 @@ func (e *node) ConicGradient(g ConicGradient) *node {
 }
 
 // RadialGradient fills the element with a radial gradient, its colors
-// spreading out from a point (CSS's radial-gradient()), as a glow:
+// spreading out from a point (CSS's radial-gradient()), as a glow, in
+// circles, or with Ellipse in ellipses of the box's proportions, as CSS
+// draws one with no shape given:
 //
 //	ui.Box(c).Size(160, 100).Radius(16).RadialGradient(ui.RadialGradient{
-//		Stops: []ui.GradientStop{{ui.RGBA(99, 102, 241, 0.6), 0}, {ui.Transparent, 1}},
+//		Ellipse: true, Stops: []ui.GradientStop{{ui.RGBA(99, 102, 241, 0.6), 0}, {ui.Transparent, 1}},
 //	})
 func (e *node) RadialGradient(g RadialGradient) *node {
 	e.gradients().radial, e.fill = g, fillRadial

@@ -4,6 +4,8 @@ import (
 	"image"
 	"math"
 	"testing"
+
+	"github.com/egoist/mygo/internal/scene"
 )
 
 var (
@@ -101,6 +103,130 @@ func TestRadialGradient(t *testing.T) {
 	}
 	if got := rgba(img, 190, 100); !nearRGBA8(got, [4]uint8{0, 0, 255, 255}, 6) {
 		t.Errorf("past the radius at scale 2 %v, want blue", got)
+	}
+}
+
+// A radial gradient's ending shape is an ellipse with Ellipse or RadiusY,
+// and its extent keywords size it against the box, as CSS's
+// radial-gradient(): the zero value stays the circle reaching the
+// farthest corner (#1443).
+func TestRadialGradientShape(t *testing.T) {
+	stops := []GradientStop{{gRed, 0}, {gBlue, 1}}
+	// The issue's 200×50 box: CSS's default, an ellipse reaching the
+	// farthest corner, is as far out at the middle of the top edge as at
+	// the middle of the right one, about 1/√2.
+	tt := NewTester(func(ctx *Context) {
+		Box(ctx).Size(200, 50).RadialGradient(RadialGradient{Ellipse: true, Stops: stops})
+	}, 200, 50)
+	top, right := rgba(tt.Image(), 100, 0), rgba(tt.Image(), 199, 25)
+	if !nearRGBA8(top, right, 4) || !nearRGBA8(top, [4]uint8{75, 0, 180, 255}, 4) {
+		t.Errorf("an ellipse: the top edge %v and the right edge %v, want both about [75 0 180 255]", top, right)
+	}
+	// The zero value is the circle it was: the top edge 0.24 out, the
+	// right 0.97.
+	tt = NewTester(func(ctx *Context) {
+		Box(ctx).Size(200, 50).RadialGradient(RadialGradient{Stops: stops})
+	}, 200, 50)
+	top, right = rgba(tt.Image(), 100, 0), rgba(tt.Image(), 199, 25)
+	if !nearRGBA8(top, [4]uint8{194, 0, 61, 255}, 3) || !nearRGBA8(right, [4]uint8{9, 0, 246, 255}, 3) {
+		t.Errorf("the zero value: the top edge %v and the right edge %v, want the circle's [194 0 61 255] and [9 0 246 255]", top, right)
+	}
+
+	// In a 200×100 box from (50, 40): the sides 50 and 150 across, 40 and
+	// 60 down.
+	center := Point{0.25, 0.4}
+	sq2 := float32(math.Sqrt2)
+	for _, c := range []struct {
+		g      RadialGradient
+		rx, ry float32
+	}{
+		{RadialGradient{}, 161.55, 161.55}, // √(150²+60²)
+		{RadialGradient{Extent: RadialFarthestCorner}, 161.55, 161.55},
+		{RadialGradient{Extent: RadialClosestSide}, 40, 40},
+		{RadialGradient{Extent: RadialFarthestSide}, 150, 150},
+		{RadialGradient{Extent: RadialClosestCorner}, 64.03, 64.03}, // √(50²+40²)
+		{RadialGradient{Ellipse: true}, 150 * sq2, 60 * sq2},
+		{RadialGradient{Ellipse: true, Extent: RadialClosestSide}, 50, 40},
+		{RadialGradient{Ellipse: true, Extent: RadialFarthestSide}, 150, 60},
+		{RadialGradient{Ellipse: true, Extent: RadialClosestCorner}, 50 * sq2, 40 * sq2},
+		{RadialGradient{Radius: 60, RadiusY: 20}, 60, 20},
+		{RadialGradient{Radius: 60, RadiusY: 20, Ellipse: true, Extent: RadialClosestSide}, 60, 20},
+		{RadialGradient{Radius: 30, Ellipse: true}, 30, 30}, // Radius alone: a circle
+		{RadialGradient{RadiusY: 30}, 161.55, 161.55},       // RadiusY alone: ignored
+	} {
+		g := c.g
+		g.Stops, g.Center = stops, center
+		tt := NewTester(func(ctx *Context) {
+			Box(ctx).Size(200, 100).RadialGradient(g)
+		}, 200, 100)
+		img := tt.Image()
+		for _, p := range [][2]int{{50, 40}, {70, 40}, {50, 55}, {80, 30}, {10, 10}, {120, 40}, {50, 90}, {190, 95}, {150, 70}} {
+			dx, dy := (float32(p[0])+0.5-50)/c.rx, (float32(p[1])+0.5-40)/c.ry
+			k := min(float32(math.Sqrt(float64(dx*dx+dy*dy))), 1)
+			want := [4]uint8{uint8(255*(1-k) + 0.5), 0, uint8(255*k + 0.5), 255}
+			if got := rgba(img, p[0], p[1]); !nearRGBA8(got, want, 3) {
+				t.Errorf("%+v at %v = %v, want %v (%.3f out)", c.g, p, got, want, k)
+			}
+		}
+	}
+
+	// Two radii are in DIPs: twice as many pixels at twice the scale.
+	img := Render(func(ctx *Context) {
+		Box(ctx).Size(100, 100).RadialGradient(RadialGradient{Stops: stops, Radius: 40, RadiusY: 20})
+	}, 100, 100, 2)
+	mid := [4]uint8{128, 0, 127, 255}
+	if got := rgba(img, 140, 100); !nearRGBA8(got, mid, 6) {
+		t.Errorf("halfway out across at scale 2 %v, want %v", got, mid)
+	}
+	if got := rgba(img, 100, 120); !nearRGBA8(got, mid, 6) {
+		t.Errorf("halfway out down at scale 2 %v, want %v", got, mid)
+	}
+
+	// A mask spreads in the same ellipses.
+	tt = NewTester(func(ctx *Context) {
+		Box(ctx).Size(200, 50).Background(gRed).MaskRadialGradient(RadialGradient{Ellipse: true, Extent: RadialClosestSide,
+			Stops: []GradientStop{{RGB(0, 0, 0), 0.5}, {Transparent, 0.5}}})
+	}, 200, 50)
+	img = tt.Image()
+	if got := rgba(img, 148, 25); got != [4]uint8{255, 0, 0, 255} {
+		t.Errorf("inside the masking ellipse, 48 across, %v, want red", got)
+	}
+	if got := rgba(img, 152, 25); got != [4]uint8{255, 255, 255, 255} {
+		t.Errorf("outside the masking ellipse, 52 across, %v, want the background", got)
+	}
+	if got := rgba(img, 100, 14); got != [4]uint8{255, 0, 0, 255} {
+		t.Errorf("inside the masking ellipse, 11 down, %v, want red", got)
+	}
+	if got := rgba(img, 100, 10); got != [4]uint8{255, 255, 255, 255} {
+		t.Errorf("outside the masking ellipse, 15 up, %v, want the background", got)
+	}
+}
+
+// The shape of a radial gradient whose center is on the box's edge: an
+// ellipse of no width is, as CSS draws it, as thin as can be and as tall.
+func TestRadialShapeDegenerate(t *testing.T) {
+	r := scene.Rect{W: 200, H: 100}
+	for _, c := range []struct {
+		g            RadialGradient
+		cx, cy       float32
+		wantX, wantY float32
+	}{
+		{RadialGradient{}, 100, 50, 111.80, 0},                                       // a circle: no second radius
+		{RadialGradient{Radius: 10}, 100, 50, 20, 0},                                 // at scale 2
+		{RadialGradient{Radius: 10, RadiusY: 0.1}, 100, 50, 20, 0.5},                 // half a pixel at least
+		{RadialGradient{Ellipse: true, Extent: RadialClosestSide}, 0, 50, 0.5, 1e6},  // no width
+		{RadialGradient{Ellipse: true, Extent: RadialClosestSide}, 100, 0, 1e6, 0.5}, // no height
+		{RadialGradient{Ellipse: true, Extent: RadialClosestCorner}, 0, 0, 0.5, 0},   // neither: a circle's dot
+		{RadialGradient{Extent: RadialClosestSide}, 0, 50, 0.5, 0},
+	} {
+		scale := float32(1)
+		if c.g.Radius > 0 {
+			scale = 2
+		}
+		rx, ry := radialShape(c.g, r, c.cx, c.cy, scale)
+		if math.Abs(float64(rx-c.wantX)) > 0.01 || math.Abs(float64(ry-c.wantY)) > 0.01 {
+			t.Errorf("%+v from (%v, %v): radii %v, %v, want %v, %v", c.g, c.cx, c.cy, rx, ry, c.wantX, c.wantY)
+		}
 	}
 }
 

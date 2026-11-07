@@ -43,11 +43,10 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
   its stops around a point instead, as CSS's `conic-gradient()` (SwiftUI's
   `AngularGradient`): from `Angle`, in degrees clockwise from upwards,
   around `Center`, the middle unless set. `RadialGradient` spreads them
-  out from `Center` in circles, as CSS's `radial-gradient()` (SwiftUI's
-  and Flutter's `RadialGradient`): from 0 there to 1 at `Radius` DIPs
-  away, or at the farthest corner of the box without one, as CSS's
-  `farthest-corner`, its first color before the center and its last past
-  the radius, for glows, spotlights and vignettes:
+  out from `Center`, as CSS's `radial-gradient()` (SwiftUI's and
+  Flutter's `RadialGradient`): from 0 there to 1 at its ending shape, its
+  first color at the center and its last past the shape, for glows,
+  spotlights and vignettes:
 
   ```go
   ui.Box(c).Size(240, 140).Radius(16).RadialGradient(ui.RadialGradient{
@@ -55,6 +54,26 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
   	Stops:  []ui.GradientStop{{ui.Hex("#a5b4fc"), 0}, {ui.Hex("#312e81"), 1}},
   })
   ```
+
+  The shape is a circle of `Radius` DIPs, or an ellipse `Radius` across
+  and `RadiusY` down. Without `Radius`, `Extent` sizes it against the box,
+  as CSS's extent keywords: `RadialFarthestCorner` (the zero value, and
+  CSS's default), `RadialClosestSide`, `RadialFarthestSide` and
+  `RadialClosestCorner`; and `Ellipse` makes that shape an ellipse in
+  proportion to the distances to the box's sides, as CSS's `ellipse`. The
+  zero shape is a circle reaching the farthest corner, but CSS's default,
+  with no shape or size, is an ellipse: `Ellipse: true` draws it, which
+  keeps the falloff even along the edges of a wide banner or card, as a
+  scale transform could not without stretching what the element paints.
+
+  | CSS | `ui.RadialGradient` |
+  | --- | --- |
+  | `radial-gradient(…)`, `ellipse farthest-corner` | `Ellipse: true` |
+  | `circle`, `circle farthest-corner` | the zero value |
+  | `circle closest-side at 30% 40%` | `Extent: ui.RadialClosestSide, Center: ui.Point{X: 0.3, Y: 0.4}` |
+  | `ellipse farthest-side` | `Ellipse: true, Extent: ui.RadialFarthestSide` |
+  | `40px` | `Radius: 40` |
+  | `120px 40px` | `Radius: 120, RadiusY: 40` |
 
   `BorderLinearGradient` and `BorderConicGradient` paint the border with
   one in place of its color, as SwiftUI's `strokeBorder` with a gradient:

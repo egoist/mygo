@@ -561,6 +561,9 @@ float4 paint(float2 p, float mode, float4 rect, float4 c1, float4 c2, float4 g, 
 			float2 d = p - g.xy;
 			t = (atan2(d.x, -d.y) - g.z) * 0.15915494309189535f;
 			t -= floor(t);
+		} else if (g.w > 0.0f) {
+			// An ellipse: the distance in its radii.
+			t = length((p - g.xy) / max(g.zw, float2(0.0001f)));
 		} else {
 			t = length(p - g.xy) / max(g.z, 0.0001f);
 		}
