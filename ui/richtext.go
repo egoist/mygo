@@ -71,6 +71,20 @@ type Span struct {
 	// Shadow is the shadow the span's text casts (NewTextShadow), as
 	// Element.TextShadow casts one: zero casts that of the text around it.
 	Shadow TextShadow
+	// Blur blurs the span by sigma DIPs, the standard deviation of a
+	// Gaussian, as CSS's filter: blur() does an inline box: its glyphs,
+	// in their colors, its Background, its lines and its shadow, while
+	// the text around it stays sharp, as a spoiler until it is revealed
+	// or a redacted value:
+	//
+	//	ui.Span{Text: "forty-two", Blur: 4}
+	//
+	// Only what shows changes: the span takes the same room, and hit
+	// tests, selects, copies and reads to assistive technology as it does
+	// sharp. Each glyph blurs on its own, as a TextShadow does, and a
+	// wavy underline blurs as a straight one. An inline element's Blur
+	// blurs its text so.
+	Blur float32
 
 	// solid draws Underline through descenders, as a link's hover.
 	solid bool
@@ -160,6 +174,7 @@ func (s *Span) letterSpacing() (float32, bool) {
 // Only text elements go inside a text, and their sizes, padding, borders
 // and corners do not apply; a background highlights their text.
 func coreRichText(c *context, spans ...Span) *node {
+	linkSpanBlur()
 	e := c.newElement(kindText)
 	e.text = e.st.spanCache().join(spans)
 	e.spans = spans
@@ -196,6 +211,8 @@ type spanCache struct {
 	styles []text.Span
 	key    string
 	paints bool
+	// blur is the largest Blur of the spans.
+	blur float32
 	// inline holds the spans of a paragraph with elements inside it, its
 	// own and theirs, made again each frame (inlineSpans).
 	inline []Span
@@ -237,12 +254,14 @@ func (sc *spanCache) update(spans []Span) {
 	same := len(spans) == len(sc.styles) && sc.key != ""
 	end := 0
 	paints := false
+	blur := float32(0)
 	for i, s := range spans {
 		end += utf8.RuneCountInString(s.Text)
 		paints = paints || s.Color.A > 0 || s.colorSet || s.Underline || s.WavyUnderline || s.DottedUnderline || s.Strikethrough || s.Background.A > 0 || s.strokeSet || s.shadowSet || s.Shadow.color.A > 0
+		blur = max(blur, s.Blur)
 		same = same && sc.styles[i] == spanStyle(s, end)
 	}
-	sc.paints = paints
+	sc.paints, sc.blur = paints || blur > 0, blur
 	if same {
 		return
 	}
@@ -314,6 +333,12 @@ type measuredSpans struct {
 //	w, _ := p.MeasureText(0, label)
 //	p.RichText(r.X+(r.W-w)/2, r.Y, 0, label)
 func (p *Painter) RichText(x, y, width float32, spans ...Span) (w, h float32) {
+	linkSpanBlur()
+	return p.richText(x, y, width, spans)
+}
+
+// richText is RichText, for the toolkit's own spans, which never blur.
+func (p *Painter) richText(x, y, width float32, spans []Span) (w, h float32) {
 	t := p.Theme()
 	l := p.rt.text.Layout(p.rt.richParams(t, width, spans))
 	p.textLayout(l, x, y, t.Text, textStyle{size: t.FontSize}, newSpanPaint(spans))
@@ -336,10 +361,11 @@ func (c *context) MeasureText(width float32, spans ...Span) (w, h float32) {
 }
 
 // spanPaint paints the colors and lines of a rich text's spans: styles
-// hold the runes ending each span.
+// hold the runes ending each span, and blur is the largest Blur of them.
 type spanPaint struct {
 	spans  []Span
 	styles []text.Span
+	blur   float32
 }
 
 func newSpanPaint(spans []Span) *spanPaint {
@@ -348,7 +374,7 @@ func newSpanPaint(spans []Span) *spanPaint {
 	if !sc.paints {
 		return nil
 	}
-	return &spanPaint{spans: spans, styles: sc.styles}
+	return &spanPaint{spans: spans, styles: sc.styles, blur: sc.blur}
 }
 
 // paintSpans returns how to paint the spans of the element's text, which
@@ -366,7 +392,7 @@ func (e *node) paintSpans(sp *spanPaint) *spanPaint {
 	if !sc.paints {
 		return nil
 	}
-	*sp = spanPaint{spans: e.spans, styles: sc.styles}
+	*sp = spanPaint{spans: e.spans, styles: sc.styles, blur: sc.blur}
 	return sp
 }
 
@@ -413,6 +439,23 @@ func (sp *spanPaint) shadow(i int, sh TextShadow) TextShadow {
 		}
 	}
 	return sh
+}
+
+// blurOf returns the Blur of span i, 0 for none.
+func (sp *spanPaint) blurOf(i int) float32 {
+	if i >= 0 {
+		return max(sp.spans[i].Blur, 0)
+	}
+	return 0
+}
+
+// reach returns how far beyond its glyphs a span's blur shows, in DIPs:
+// three sigmas of the largest.
+func (sp *spanPaint) reach() float32 {
+	if sp == nil {
+		return 0
+	}
+	return 3 * sp.blur
 }
 
 // shadows reports whether a span casts a shadow.
@@ -470,10 +513,10 @@ func (sp *spanPaint) backgrounds(p *Painter, line *text.Line, x, y float32) {
 			}
 			py := max(s.PaddingY, 0)
 			base := line.Baseline - s.BaselineShift
-			p.Fill(Rect{x + x0 - px, y + base - size*0.98 - py, x1 - x0 + 2*px, size*1.32 + 2*py}, s.Background, s.Radius)
+			p.fillBlurred(Rect{x + x0 - px, y + base - size*0.98 - py, x1 - x0 + 2*px, size*1.32 + 2*py}, s.Background, s.Radius, s.Blur)
 			return
 		}
-		p.Fill(Rect{x + x0, y + line.Y, x1 - x0, line.Height}, sp.spans[k].Background, 0)
+		p.fillBlurred(Rect{x + x0, y + line.Y, x1 - x0, line.Height}, sp.spans[k].Background, 0, sp.spans[k].Blur)
 	})
 }
 
@@ -487,7 +530,7 @@ func (sp *spanPaint) lines(p *Painter, l *text.Layout, li int, x, y float32, col
 		}
 		span := &sp.spans[k]
 		d := decoration{underline: span.Underline || span.WavyUnderline || span.DottedUnderline, wavy: span.WavyUnderline, dotted: span.DottedUnderline, strike: span.Strikethrough, solid: span.solid, color: base.color, thick: base.thick,
-			offset: base.offset, hasOffset: base.hasOffset}
+			offset: base.offset, hasOffset: base.hasOffset, blur: sp.blurOf(k)}
 		if !d.underline && !d.strike {
 			return
 		}

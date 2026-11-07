@@ -3798,7 +3798,8 @@ func (_handle Element) BasisPercent(p float32) Element {
 // spreads that far around, transparent beyond, on the GPU. It renders
 // into a bitmap first, as Effect does, about 3 sigma larger each way, and
 // an element with an Effect draws through it instead. Hit testing, focus
-// and accessibility do not change: only what shows.
+// and accessibility do not change: only what shows. An element within a
+// text blurs its words as a Span's Blur does, the text around them sharp.
 func (_handle Element) Blur(sigma float32) Element {
 	_node := _handle.node()
 	if _node == nil {

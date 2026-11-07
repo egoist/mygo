@@ -86,6 +86,7 @@ func ShapeText(s string, font Font, width float32) *TextLayout { return shapeTex
 // ShapeRichText shapes the existing display-only Span styles into retained
 // geometry, so an application-owned rich editor can render its own runs.
 func ShapeRichText(spans []Span, font Font, width float32) *TextLayout {
+	linkSpanBlur()
 	var b strings.Builder
 	for _, sp := range spans {
 		b.WriteString(sp.Text)
@@ -134,6 +135,7 @@ type TextShape struct {
 // ShapeRichTextWith shapes spans as ShapeRichText does, laid out as shape
 // says: a rich text editor aligns its paragraphs.
 func ShapeRichTextWith(spans []Span, font Font, shape TextShape) *TextLayout {
+	linkSpanBlur()
 	var b strings.Builder
 	for _, sp := range spans {
 		b.WriteString(sp.Text)

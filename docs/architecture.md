@@ -4528,6 +4528,26 @@ either.
     `Element.TextShadow` and a `Span`'s `Shadow` take, links it: a
     `TextShadow` has no fields to set otherwise, so a shadow that paints
     is one that linked it.
+  - *Blurred spans.* `Span.Blur` (and `Blur` on an inline element, which
+    becomes its spans') draws each of the span's glyphs as a glyph of
+    its own blurred in Go (`System.BlurGlyph`): `blurBitmap`'s Gaussian,
+    of the span's sigma, over the glyph's coverage, or over the four
+    premultiplied channels of a color glyph, which stays one, never
+    subpixel. Cached with the glyphs under the shadow's key and `blur`,
+    and drawn by every renderer as any glyph, in the glyph's place,
+    never joined to its neighbors. The span's background and lines paint
+    as shadows nothing casts (`OpShadow` with an empty `Cast`), blurred
+    by a radius of twice the sigma, a wavy underline as a straight one;
+    its shadow blurs by both sigmas, as variances add, and its stroke is
+    `BlurStrokeGlyph`'s. The layout, hit testing, selection and
+    accessibility do not change: only what shows, as `Element.Blur`. No
+    layer renders the span, so each glyph blurs on its own, as text's
+    shadows do, rather than the run as one, which differs only where
+    blurred glyphs overlap. What makes spans (`RichText`,
+    `Painter.RichText`, `ShapeRichText`) and `Element.Blur` link it
+    (`linkSpanBlur`), so that apps that make neither do not link the
+    blur of glyphs; the toolkit's own spans paint through
+    `Painter.richText`, which does not.
   - *Tabs.* `Style.TabSize` sets tab stops every that many spaces of the
     style's font, letter spacing included, from the start of each line,
     which each engine takes natively: Core Text's paragraph style (no

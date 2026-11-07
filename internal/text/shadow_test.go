@@ -36,3 +36,31 @@ func TestBlurBitmap(t *testing.T) {
 		t.Errorf("a color glyph's shadow is %v", s.pix)
 	}
 }
+
+// TestBlurredColors blurs a color glyph in its colors, premultiplied and
+// as wide as its shadow, and a mask glyph as its shadow.
+func TestBlurredColors(t *testing.T) {
+	emoji := bitmap{left: 1, top: -3, w: 3, h: 3, color: true, pix: make([]byte, 36)}
+	for i := 0; i < len(emoji.pix); i += 4 {
+		copy(emoji.pix[i:], []byte{200, 10, 0, 255})
+	}
+	soft := blurred(emoji, 1.5, true)
+	shadow := blurBitmap(emoji, 1.5)
+	if !soft.color || soft.w != shadow.w || soft.h != shadow.h || soft.left != shadow.left || soft.top != shadow.top || len(soft.pix) != 4*soft.w*soft.h {
+		t.Fatalf("blurred %dx%d at (%d, %d), color %v; its shadow %dx%d at (%d, %d)", soft.w, soft.h, soft.left, soft.top, soft.color, shadow.w, shadow.h, shadow.left, shadow.top)
+	}
+	for i := 0; i < len(soft.pix); i += 4 {
+		r, g, b, a := soft.pix[i], soft.pix[i+1], soft.pix[i+2], soft.pix[i+3]
+		if r > a || g > a || b > a || a != shadow.pix[i/4] {
+			t.Fatalf("pixel %d is %v, its shadow %d", i/4, soft.pix[i:i+4], shadow.pix[i/4])
+		}
+		if a > 32 && (r < 4*g || b != 0) {
+			t.Fatalf("pixel %d is no longer red: %v", i/4, soft.pix[i:i+4])
+		}
+	}
+	mask := bitmap{w: 2, h: 2, pix: []byte{255, 255, 255, 255}}
+	m, s := blurred(mask, 2, true), blurBitmap(mask, 2)
+	if m.color || string(m.pix) != string(s.pix) {
+		t.Error("a mask glyph blurs otherwise than its shadow")
+	}
+}

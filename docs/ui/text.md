@@ -144,7 +144,7 @@ for an input and the inputs inside an element, as CSS's `caret-color` does.
 
 `ui.RichText` mixes styles in one paragraph: each `ui.Span` sets what it
 changes (font, size, weight, italics, color, underlines, strikethrough,
-their color, thickness and offset, a background, letter spacing, features) over
+their color, thickness and offset, a background, letter spacing, features, a blur) over
 the style of the text, and the spans wrap together. A `Radius` rounds a
 span's background, which then hugs its glyphs rather than filling the
 line, as code within text shows:
@@ -225,6 +225,28 @@ ui.RichText(c,
 	ui.Span{Text: "2", Size: 10, BaselineShift: -3},
 	ui.Span{Text: "O boils at 100 °C"},
 	ui.Span{Text: "1", Size: 10, BaselineShift: 6},
+)
+```
+
+A span's `Blur` blurs it by that many DIPs, the standard deviation of a
+Gaussian, as CSS's `filter: blur()` on an inline box: its glyphs, in
+their colors, its background, its lines and its shadow, while the words
+around it stay sharp, as a spoiler until it is revealed, a redacted value
+or a word in motion. Only what shows changes: the span takes the same
+room, and hit tests, selects, copies and reads to assistive technology as
+it does sharp. Each glyph blurs on its own, as a text's shadow does, and a
+wavy underline blurs as a straight one. `Blur` on an element within a
+sentence blurs its words the same way; a `Blur` of 0 blurs nothing.
+
+```go
+blur := float32(4) // a spoiler, until the reader reveals it
+if app.revealed {
+	blur = 0
+}
+ui.RichText(c,
+	ui.Span{Text: "The answer is "},
+	ui.Span{Text: "forty-two", Blur: blur},
+	ui.Span{Text: "."},
 )
 ```
 

@@ -73,9 +73,12 @@ type glyphKey struct {
 	// stroke is the width of a stroke of the glyph's outline in 1/16
 	// pixels (StrokeGlyph), 0 for the glyph itself; shadow is 1 + the
 	// standard deviation of the blur of its shadow in 1/16 pixels
-	// (ShadowGlyph), 0 for none.
+	// (ShadowGlyph), 0 for none. blur keeps a color glyph's colors in
+	// its blur, where text is blurred rather than casts a shadow
+	// (BlurGlyph), with stroke its stroke's (BlurStrokeGlyph).
 	stroke uint16
 	shadow uint16
+	blur   bool
 }
 
 // placement is how the system's text stack places glyphs of a font at a
@@ -257,7 +260,7 @@ func (s *System) makeRoom(color bool, want int, size image.Point, grow bool) {
 // opaque backgrounds may be subpixel ones, when the system's settings
 // (TextParams) ask for subpixel antialiasing.
 func (s *System) Glyph(f *Font, id uint32, scale, x float32, shade Shade, opaque bool) GlyphImage {
-	return s.glyph(f, id, scale, x, shade, opaque, 0, 0, nil)
+	return s.glyph(f, id, scale, x, shade, opaque, 0, 0, false, nil)
 }
 
 // StrokeGlyph returns the coverage mask of a stroke width device pixels
@@ -268,7 +271,7 @@ func (s *System) Glyph(f *Font, id uint32, scale, x float32, shade Shade, opaque
 // fill) shows the half outside the glyph.
 func (s *System) StrokeGlyph(f *Font, id uint32, scale, x float32, shade Shade, opaque bool, width float32) GlyphImage {
 	w := min(max(width*16+0.5, 1), 128*16) // at most 128 pixels
-	return s.glyph(f, id, scale, x, shade, opaque, uint16(w), 0, (*System).rasterizeStroke)
+	return s.glyph(f, id, scale, x, shade, opaque, uint16(w), 0, false, (*System).rasterizeStroke)
 }
 
 // ShadowGlyph returns the coverage mask of the glyph Glyph returns for the
@@ -277,15 +280,37 @@ func (s *System) StrokeGlyph(f *Font, id uint32, scale, x float32, shade Shade, 
 // color glyphs too, of their pixels' alpha, which a text's shadow (CSS's
 // text-shadow) paints in its color.
 func (s *System) ShadowGlyph(f *Font, id uint32, scale, x float32, shade Shade, opaque bool, sigma float32) GlyphImage {
-	b := min(max(sigma*16+0.5, 0), 64*16) // at most 64 pixels
-	return s.glyph(f, id, scale, x, shade, opaque, 0, 1+uint16(b), (*System).rasterizeShadow)
+	return s.glyph(f, id, scale, x, shade, opaque, 0, blurKey(sigma), false, (*System).rasterizeShadow)
 }
 
+// BlurGlyph returns the glyph Glyph returns for the same arguments, but
+// never subpixel, blurred by a Gaussian of standard deviation sigma device
+// pixels, placed as that glyph is, wider by the blur: a mask glyph, or a
+// color glyph in its colors, blurred where it shows, as CSS's filter:
+// blur() on an inline box blurs its text (a span's Blur).
+func (s *System) BlurGlyph(f *Font, id uint32, scale, x float32, shade Shade, sigma float32) GlyphImage {
+	return s.glyph(f, id, scale, x, shade, false, 0, blurKey(sigma), true, (*System).rasterizeBlur)
+}
+
+// BlurStrokeGlyph returns the mask StrokeGlyph returns for the same
+// arguments, but never on an opaque background, blurred by sigma device
+// pixels as BlurGlyph blurs the glyph: the stroke of blurred text.
+func (s *System) BlurStrokeGlyph(f *Font, id uint32, scale, x float32, shade Shade, width, sigma float32) GlyphImage {
+	w := min(max(width*16+0.5, 1), 128*16)
+	return s.glyph(f, id, scale, x, shade, false, uint16(w), blurKey(sigma), true, (*System).rasterizeBlurStroke)
+}
+
+// blurKey is 1 + a blur of sigma pixels in 1/16 pixels, at most 64
+// pixels, for a glyphKey.
+func blurKey(sigma float32) uint16 { return 1 + uint16(min(max(sigma*16+0.5, 0), 64*16)) }
+
 // glyph returns the glyph of Glyph, or with stroke the mask of a stroke
-// stroke/16 pixels wide along it, or with shadow the mask of it blurred
-// by (shadow-1)/16 pixels, which derive rasterizes (StrokeGlyph,
-// ShadowGlyph): apps that stroke and shadow no text do not link it.
-func (s *System) glyph(f *Font, id uint32, scale, x float32, shade Shade, opaque bool, stroke, shadow uint16, derive func(s *System, f *Font, id uint32, scale, dx float32, shade Shade, amount float32) GlyphImage) GlyphImage {
+// stroke/16 pixels wide along it, or with shadow the mask of it, or of
+// its stroke, blurred by (shadow-1)/16 pixels, in its colors with blur,
+// which derive rasterizes (StrokeGlyph, ShadowGlyph, BlurGlyph,
+// BlurStrokeGlyph): apps that stroke, shadow and blur no text do not
+// link it.
+func (s *System) glyph(f *Font, id uint32, scale, x float32, shade Shade, opaque bool, stroke, shadow uint16, blur bool, derive func(s *System, f *Font, id uint32, scale, dx float32, shade Shade, stroke, sigma float32) GlyphImage) GlyphImage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if f == nil {
@@ -294,7 +319,7 @@ func (s *System) glyph(f *Font, id uint32, scale, x float32, shade Shade, opaque
 	shade = f.shadeFor(shade)
 	subpixel := opaque && s.subpixel
 	q, n, carry := s.place(f, scale, subpixel, x)
-	key := glyphKey{font: f, id: id, scale: uint32(scale*256 + 0.5), subX: uint8(q), shade: shade, subpixel: subpixel, stroke: stroke, shadow: shadow}
+	key := glyphKey{font: f, id: id, scale: uint32(scale*256 + 0.5), subX: uint8(q), shade: shade, subpixel: subpixel, stroke: stroke, shadow: shadow, blur: blur}
 	e, ok := s.glyphs[key]
 	if !ok {
 		if _, out := s.outGlyphs[key]; out {
@@ -303,10 +328,8 @@ func (s *System) glyph(f *Font, id uint32, scale, x float32, shade Shade, opaque
 		failed := s.failed
 		var g GlyphImage
 		switch {
-		case stroke > 0:
-			g = derive(s, f, id, scale, float32(q)/float32(n), key.shade, float32(stroke)/16)
-		case shadow > 0:
-			g = derive(s, f, id, scale, float32(q)/float32(n), key.shade, float32(shadow-1)/16)
+		case stroke > 0 || shadow > 0:
+			g = derive(s, f, id, scale, float32(q)/float32(n), key.shade, float32(stroke)/16, float32(max(shadow, 1)-1)/16)
 		default:
 			g = s.rasterize(f, id, scale, float32(q)/float32(n), key.shade, key.subpixel)
 		}
@@ -389,40 +412,68 @@ func (s *System) rasterize(f *Font, id uint32, scale, dx float32, shade Shade, s
 
 // rasterizeStroke puts the mask of a stroke width pixels wide along the
 // outline of a glyph into the mask atlas (StrokeGlyph).
-func (s *System) rasterizeStroke(f *Font, id uint32, scale, dx float32, shade Shade, width float32) GlyphImage {
-	b := s.engine().glyph(f, id, scale, dx, shade, false)
-	if b.w <= 0 || b.h <= 0 || b.w > 2048 || b.h > 2048 {
-		return GlyphImage{}
-	}
-	b = strokeBitmap(b, width/2)
-	if b.w > 2048 || b.h > 2048 {
-		return GlyphImage{}
-	}
-	x, y, ok := s.alloc(false, b.w, b.h)
+func (s *System) rasterizeStroke(f *Font, id uint32, scale, dx float32, shade Shade, width, _ float32) GlyphImage {
+	b, ok := s.engineGlyph(f, id, scale, dx, shade)
 	if !ok {
 		return GlyphImage{}
 	}
-	s.MaskAtlas.Put(x, y, b.w, b.h, b.pix, b.w)
-	return GlyphImage{OK: true, X: uint16(x), Y: uint16(y), W: uint16(b.w), H: uint16(b.h), Left: float32(b.left), Top: float32(b.top)}
+	return s.putDerived(strokeBitmap(b, width/2))
 }
 
 // rasterizeShadow puts the mask of a glyph blurred by sigma pixels into
 // the mask atlas (ShadowGlyph).
-func (s *System) rasterizeShadow(f *Font, id uint32, scale, dx float32, shade Shade, sigma float32) GlyphImage {
-	b := s.engine().glyph(f, id, scale, dx, shade, false)
-	if b.w <= 0 || b.h <= 0 || b.w > 2048 || b.h > 2048 {
-		return GlyphImage{}
-	}
-	b = blurBitmap(b, sigma)
-	if b.w > 2048 || b.h > 2048 {
-		return GlyphImage{}
-	}
-	x, y, ok := s.alloc(false, b.w, b.h)
+func (s *System) rasterizeShadow(f *Font, id uint32, scale, dx float32, shade Shade, _, sigma float32) GlyphImage {
+	b, ok := s.engineGlyph(f, id, scale, dx, shade)
 	if !ok {
 		return GlyphImage{}
 	}
-	s.MaskAtlas.Put(x, y, b.w, b.h, b.pix, b.w)
-	return GlyphImage{OK: true, X: uint16(x), Y: uint16(y), W: uint16(b.w), H: uint16(b.h), Left: float32(b.left), Top: float32(b.top)}
+	return s.putDerived(blurBitmap(b, sigma))
+}
+
+// rasterizeBlur puts a glyph blurred by sigma pixels into its atlas, a
+// color glyph in its colors (BlurGlyph).
+func (s *System) rasterizeBlur(f *Font, id uint32, scale, dx float32, shade Shade, _, sigma float32) GlyphImage {
+	b, ok := s.engineGlyph(f, id, scale, dx, shade)
+	if !ok {
+		return GlyphImage{}
+	}
+	return s.putDerived(blurred(b, sigma, true))
+}
+
+// rasterizeBlurStroke puts the mask of the stroke of a glyph, width
+// pixels wide, blurred by sigma pixels into the mask atlas
+// (BlurStrokeGlyph).
+func (s *System) rasterizeBlurStroke(f *Font, id uint32, scale, dx float32, shade Shade, width, sigma float32) GlyphImage {
+	b, ok := s.engineGlyph(f, id, scale, dx, shade)
+	if !ok {
+		return GlyphImage{}
+	}
+	return s.putDerived(blurBitmap(strokeBitmap(b, width/2), sigma))
+}
+
+// engineGlyph returns the bitmap the engine draws of a glyph, never
+// subpixel, for a mask made from it, if it has one to make it from.
+func (s *System) engineGlyph(f *Font, id uint32, scale, dx float32, shade Shade) (bitmap, bool) {
+	b := s.engine().glyph(f, id, scale, dx, shade, false)
+	return b, b.w > 0 && b.h > 0 && b.w <= 2048 && b.h <= 2048
+}
+
+// putDerived puts a bitmap made from a glyph into its atlas: a mask, or
+// one of color.
+func (s *System) putDerived(b bitmap) GlyphImage {
+	if b.w > 2048 || b.h > 2048 {
+		return GlyphImage{}
+	}
+	x, y, ok := s.alloc(b.color, b.w, b.h)
+	if !ok {
+		return GlyphImage{}
+	}
+	if b.color {
+		s.ColorAtlas.Put(x, y, b.w, b.h, b.pix, 4*b.w)
+	} else {
+		s.MaskAtlas.Put(x, y, b.w, b.h, b.pix, b.w)
+	}
+	return GlyphImage{OK: true, Colored: b.color, X: uint16(x), Y: uint16(y), W: uint16(b.w), H: uint16(b.h), Left: float32(b.left), Top: float32(b.top)}
 }
 
 // TextParams returns how renderers correct the coverage of glyphs, as

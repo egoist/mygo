@@ -1498,8 +1498,13 @@ func (e *node) BorderConicGradient(g ConicGradient) *node {
 // spreads that far around, transparent beyond, on the GPU. It renders
 // into a bitmap first, as Effect does, about 3 sigma larger each way, and
 // an element with an Effect draws through it instead. Hit testing, focus
-// and accessibility do not change: only what shows.
-func (e *node) Blur(sigma float32) *node { e.blur = max(sigma, 0); return e }
+// and accessibility do not change: only what shows. An element within a
+// text blurs its words as a Span's Blur does, the text around them sharp.
+func (e *node) Blur(sigma float32) *node {
+	linkSpanBlur()
+	e.blur = max(sigma, 0)
+	return e
+}
 
 // Stripes draws stripes of c over the background, width DIPs wide with
 // gap DIPs between them, running at angle degrees clockwise from upwards:

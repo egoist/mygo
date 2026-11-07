@@ -943,6 +943,8 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 	// Inline transforms do not change while the text paints; look for them once.
 	moves := p.inlineTransforms()
 	clips := !p.transform.Set && !moves
+	// How far beyond their glyphs blurred spans show (Span.Blur).
+	reach := sp.reach()
 	if paintShadows != nil && (ts.shadow.color.A > 0 || sp != nil && sp.shadows()) {
 		var spans spanPaint
 		if sp != nil {
@@ -968,26 +970,38 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 	}
 	for li := range l.Lines {
 		line := &l.Lines[li]
-		if clips && (y+line.Y > p.clip.Y+p.clip.H || y+line.Y+line.Height < p.clip.Y) {
+		if clips && (y+line.Y-reach > p.clip.Y+p.clip.H || y+line.Y+line.Height+reach < p.clip.Y) {
 			continue
 		}
 		baseline := sys.Baseline((y + line.Baseline) * s)
 		for _, g := range line.Glyphs {
 			pen := (x + g.X) * s
-			if g.Object || clips && (pen > (p.clip.X+p.clip.W)*s || pen+(g.Advance+g.Size)*s < p.clip.X*s) {
+			if g.Object || clips && (pen > (p.clip.X+p.clip.W+reach)*s || pen+(g.Advance+g.Size+reach)*s < p.clip.X*s) {
 				continue
 			}
 			ix := float32(math.Floor(float64(pen)))
 			glyphColor, glyphShade := color, shade
+			var blur float32
 			if sp != nil {
-				if glyphColor = sp.color(sp.at(g.Cluster), color); glyphColor != color {
+				k := sp.at(g.Cluster)
+				if glyphColor = sp.color(k, color); glyphColor != color {
 					if glyphColor.A == 0 {
 						continue // faded out, or hidden: its advance stays
 					}
 					glyphShade = text.ShadeOf(glyphColor.R, glyphColor.G, glyphColor.B)
 				}
+				blur = sp.blurOf(k)
 			}
-			gi := sys.Glyph(g.Font, g.ID, s, pen, glyphShade, p.opaque && !moves)
+			var gi text.GlyphImage
+			if blur > 0 && blurGlyph != nil {
+				// Blurred on its own, never joined (Span.Blur).
+				if run != nil {
+					run.flush(p, baseline)
+				}
+				gi = blurGlyph(sys, g.Font, g.ID, s, pen, glyphShade, blur*s)
+			} else {
+				gi = sys.Glyph(g.Font, g.ID, s, pen, glyphShade, p.opaque && !moves)
+			}
 			if !gi.OK {
 				continue
 			}
@@ -998,7 +1012,7 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 				Transform: p.inlineTransform(g.Cluster).Pixels(s),
 				Color:     glyphColor.scene(), Wide: p.glyphWide(glyphColor), Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
 			}
-			if run != nil {
+			if run != nil && (blur == 0 || blurGlyph == nil) {
 				run.add(p, g, gi, pen, sg, glyphShade, baseline)
 				continue
 			}
@@ -1019,17 +1033,31 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 	}
 }
 
+// blurGlyph is the text system's BlurGlyph once text may have spans that
+// blur (Span.Blur): RichText, Painter.RichText, ShapeRichText and Blur
+// link it, so that apps that make neither spans nor blurs do not. Until
+// then a span paints sharp.
+var blurGlyph func(s *text.System, f *text.Font, id uint32, scale, x float32, shade text.Shade, sigma float32) text.GlyphImage
+
+func linkSpanBlur() {
+	if blurGlyph == nil {
+		blurGlyph = (*text.System).BlurGlyph
+	}
+}
+
 // paintStrokes is textStrokes, and strokeGlyph the text system's
 // StrokeGlyph, once TextStroke is called, so that apps that never stroke
 // text do not link them.
 var (
 	paintStrokes func(p *Painter, l *text.Layout, x, y float32, color Color, ts textStyle, sp spanPaint, moves, clips bool)
 	strokeGlyph  func(s *text.System, f *text.Font, id uint32, scale, x float32, shade text.Shade, opaque bool, width float32) text.GlyphImage
+	// blurStrokeGlyph is BlurStrokeGlyph, the stroke of a blurred span.
+	blurStrokeGlyph func(s *text.System, f *text.Font, id uint32, scale, x float32, shade text.Shade, width, sigma float32) text.GlyphImage
 )
 
 func linkStrokes() {
 	if paintStrokes == nil {
-		paintStrokes, strokeGlyph = (*Painter).textStrokes, (*text.System).StrokeGlyph
+		paintStrokes, strokeGlyph, blurStrokeGlyph = (*Painter).textStrokes, (*text.System).StrokeGlyph, (*text.System).BlurStrokeGlyph
 	}
 }
 
@@ -1053,24 +1081,32 @@ func (p *Painter) textStrokes(l *text.Layout, x, y float32, color Color, ts text
 			continue
 		}
 		baseline := sys.Baseline((y + line.Baseline) * s)
+		reach := sp.reach()
 		for _, g := range line.Glyphs {
 			pen := (x + g.X) * s
 			width, stroke := ts.strokeWidth, ts.strokeColor
-			if g.Object || clips && (pen > (p.clip.X+p.clip.W+width)*s || pen+(g.Advance+g.Size+width)*s < p.clip.X*s) {
+			if g.Object || clips && (pen > (p.clip.X+p.clip.W+width+reach)*s || pen+(g.Advance+g.Size+width+reach)*s < p.clip.X*s) {
 				continue
 			}
 			glyphShade := shade
+			var blur float32
 			if sp != nil {
 				k := sp.at(g.Cluster)
 				if c := sp.color(k, color); c != color {
 					glyphShade = text.ShadeOf(c.R, c.G, c.B)
 				}
 				width, stroke = sp.stroke(k, width, stroke)
+				blur = sp.blurOf(k)
 			}
 			if width <= 0 || stroke.A == 0 {
 				continue
 			}
-			gi := strokeGlyph(sys, g.Font, g.ID, s, pen, glyphShade, p.opaque && !moves, width*s)
+			var gi text.GlyphImage
+			if blur > 0 {
+				gi = blurStrokeGlyph(sys, g.Font, g.ID, s, pen, glyphShade, width*s, blur*s)
+			} else {
+				gi = strokeGlyph(sys, g.Font, g.ID, s, pen, glyphShade, p.opaque && !moves, width*s)
+			}
 			if !gi.OK {
 				continue
 			}
@@ -1124,6 +1160,7 @@ func (p *Painter) textShadows(l *text.Layout, x, y float32, color Color, ts text
 			}
 			sh := ts.shadow
 			glyphShade := shade
+			var blur float32
 			if sp != nil {
 				k := sp.at(g.Cluster)
 				c := sp.color(k, color)
@@ -1134,9 +1171,15 @@ func (p *Painter) textShadows(l *text.Layout, x, y float32, color Color, ts text
 					glyphShade = text.ShadeOf(c.R, c.G, c.B)
 				}
 				sh = sp.shadow(k, sh)
+				blur = sp.blurOf(k)
 			}
 			if sh.color.A == 0 {
 				continue
+			}
+			if blur > 0 {
+				// The span's blur blurs its shadow too: blurs add as their
+				// variances do, the shadow's sigma half its blur.
+				sh.blur = 2 * float32(math.Sqrt(float64(sh.blur*sh.blur/4+blur*blur)))
 			}
 			// The blur reaches three sigmas, of half the blur each.
 			reach := sh.blur * 1.5
@@ -1223,6 +1266,9 @@ type decoration struct {
 	thick     float32
 	offset    float32
 	hasOffset bool
+	// blur blurs the lines by that many DIPs (Span.Blur): a wavy
+	// underline as a straight one.
+	blur float32
 }
 
 // lineStyle returns how text's engine draws the lines of d.
@@ -1270,12 +1316,22 @@ func (p *Painter) decorationRun(l *text.Layout, li, i, j int, x, y float32, d de
 			if st.X1 <= st.X0 || st.Bottom <= st.Top {
 				continue
 			}
+			if d.blur > 0 && !(k == text.Underline && d.dotted) {
+				r := scene.Rect{X: st.X0, Y: st.Top, W: st.X1 - st.X0, H: st.Bottom - st.Top}
+				if k == text.Underline && d.wavy {
+					// Where the wave goes, as thick (wave).
+					r.H = max(r.H, 1)
+					r.Y = (st.Top+st.Bottom)/2 + r.H*0.75 - r.H/2
+				}
+				p.blurredRect(r, 0, c, d.blur)
+				continue
+			}
 			if k == text.Underline && d.wavy {
 				p.wave(st.X0, st.X1, (st.Top+st.Bottom)/2, max(st.Bottom-st.Top, 1), c)
 				continue
 			}
 			if k == text.Underline && d.dotted {
-				p.dots(st.X0, st.X1, st.Bottom, st.Bottom-st.Top, c)
+				p.dots(st.X0, st.X1, st.Bottom, st.Bottom-st.Top, c, d.blur)
 				continue
 			}
 			p.add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: st.X0, Y: st.Top, W: st.X1 - st.X0, H: st.Bottom - st.Top}, Color: c.scene(), Wide: p.wide(c, Color{}, Color{}), Opacity: p.opacity})
@@ -1304,11 +1360,34 @@ func (p *Painter) wave(x0, x1, y, thick float32, c Color) {
 // dots fills square dots as thick as the underline's stroke, which ends
 // at bottom in device pixels, every three DIPs or two dots' widths apart
 // when they are thicker, as links mark hover.
-func (p *Painter) dots(x0, x1, bottom, thick float32, c Color) {
+func (p *Painter) dots(x0, x1, bottom, thick float32, c Color, blur float32) {
 	size := max(float32(math.Round(float64(thick))), 1)
 	for x := x0; x < x1; x += max(3*p.scale, 2*size) {
-		p.add(scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: x, Y: bottom - size, W: size, H: size}, Color: c.scene(), Wide: p.wide(c, Color{}, Color{}), Opacity: p.opacity})
+		r := scene.Rect{X: x, Y: bottom - size, W: size, H: size}
+		if blur > 0 {
+			p.blurredRect(r, 0, c, blur)
+			continue
+		}
+		p.add(scene.Op{Kind: scene.OpFill, Rect: r, Color: c.scene(), Wide: p.wide(c, Color{}, Color{}), Opacity: p.opacity})
 	}
+}
+
+// blurredRect fills r, in device pixels, rounded by radius, with c
+// blurred by a Gaussian of standard deviation blur DIPs: the shadow of a
+// box that nothing casts, whose blur radius is twice that.
+func (p *Painter) blurredRect(r scene.Rect, radius float32, c Color, blur float32) {
+	p.add(scene.Op{Kind: scene.OpShadow, Rect: r, Radii: [4]float32{radius, radius, radius, radius}, Continuous: continuousCorners, Color: c.scene(),
+		Wide: p.wide(c, Color{}, Color{}), Blur: 2 * blur * p.scale, Opacity: p.opacity})
+}
+
+// fillBlurred fills r as Fill does, but blurred by a Gaussian of standard
+// deviation blur DIPs when blur is above 0 (Span.Blur).
+func (p *Painter) fillBlurred(r Rect, c Color, radius, blur float32) {
+	if blur <= 0 {
+		p.Fill(r, c, radius)
+		return
+	}
+	p.blurredRect(p.snap(r), radius*p.scale, c, blur)
 }
 
 // contentBox returns the element's box inside its padding and border.
