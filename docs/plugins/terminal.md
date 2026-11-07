@@ -564,6 +564,12 @@ The terminal's methods are safe from any goroutine:
   in the view, as `OpenLink` takes it, whether it is a file path, and the
   rectangle of its cells relative to the view: read it after `View` to
   show a preview of the link over the view.
+- `Viewport` tells what the terminal shows of its rows, which count from
+  the top of the scrollback, and `ScrollToRow` and `ScrollToBottom` move
+  it. `RowText` reads a row it shows and `CursorRow` finds the cursor's.
+  `RowMetrics` gives a row's height and the first row's distance from the
+  view's top, once a view drew it: with them, an app can draw over rows it
+  knows, or move between them, such as a shell's prompts.
 - `SetFont` and `SetTheme` change the font and the colors; `SetFont` also
   sets the size a zoom resets to, and drops the zoom.
 - `Resize` sets the size of a terminal no view shows, and `Snapshot`
