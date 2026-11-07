@@ -1,3 +1,5 @@
+//go:build windows && (amd64 || arm64)
+
 package text
 
 // DirectWrite's numbers, put together from their characters (numbers.go).
