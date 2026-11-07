@@ -8007,9 +8007,9 @@ func (_handle Element) Selected(on bool) Element {
 }
 
 // SelectedTexts returns the parts of the paragraphs that the selection of
-// a Selectable container holds, in the order they were built, or none,
-// as of the last frame: to copy them otherwise, as a context menu's item
-// does.
+// a Selectable container holds, in the order they were built, the rows
+// of lists in their order, or none, as of the last frame: to copy them
+// otherwise, as a context menu's item does.
 func (_handle Element) SelectedTexts() []SelectedText {
 	_node := _handle.node()
 	if _node == nil {

@@ -262,6 +262,58 @@ func TestPartsScrollExpires(t *testing.T) {
 	}
 }
 
+// A selection across the parts of a reply in a List keeps its ends as
+// the list scrolls them away, and copies the parts the list does not
+// build from Text: Select All copies the reply as the parts built
+// together copy it.
+func TestPartsSelectionInList(t *testing.T) {
+	src := longReply(t)
+	var p Parts
+	var list ui.ListState
+	list.Key = func(i int) any { return p.Key(i) }
+	list.Text = func(i int) string { return p.Text(i) }
+	n := 0
+	tt := ui.NewTester(func(c *ui.Context) {
+		n = p.Update(c, src, nil, false)
+		ui.Column(c).Selectable().Fill().Children(func() {
+			ui.List(c, &list, n, func(i int) { p.View(c, i) }).Grow(1)
+		})
+	}, 800, 600)
+	var texts []string
+	for i := range n {
+		texts = append(texts, p.Text(i))
+	}
+	whole := strings.Join(texts, "\n")
+
+	r, _ := tt.Find("Building a fast user service")
+	tt.ClickAt(r.X+2, r.Y+r.H/2)
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Key(ui.Cmd, ui.KeyC)
+	if got := tt.Clipboard(); got != whole {
+		t.Fatalf("Select All copied otherwise than the parts' text:\n%s", firstDifference(got, whole))
+	}
+
+	// From the title to the end of the footnote, the reply's last text, by
+	// a Shift-click once the list scrolled there.
+	tt.ClickAt(r.X+2, r.Y+r.H/2)
+	list.ScrollToEnd()
+	tt.Frame()
+	if err := tt.ClickWith(ui.Shift, "Where it comes from."); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(ui.Cmd, ui.KeyC)
+	got := tt.Clipboard()
+	if got != whole {
+		t.Errorf("the selection from the first part to the last copied otherwise:\n%s", firstDifference(got, whole))
+	}
+	list.ScrollTo(0, ui.Start)
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeyC)
+	if tt.Clipboard() != got {
+		t.Error("scrolled back to the start, the selection copies otherwise")
+	}
+}
+
 // Text gives what the view shows of an image not loaded without a
 // description, and of an empty code block.
 func TestPartsTextPlaceholders(t *testing.T) {

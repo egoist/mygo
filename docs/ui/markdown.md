@@ -161,6 +161,10 @@ app.list.Key = func(i int) any {
 	r := app.rows[i]
 	return [2]any{r.m.ID, r.m.parts.Key(r.part)}
 }
+app.list.Text = func(i int) string {
+	r := app.rows[i]
+	return r.m.parts.Text(r.part)
+}
 app.list.FollowEnd = true
 ui.Column(c).Selectable().Grow(1).Children(func() {
 	ui.List(c, &app.list, len(app.rows), func(i int) {
@@ -192,7 +196,10 @@ if k, ok := m.parts.Scroll(); ok {
 ```
 
 The text of parts is selected with a `Selectable` container around the
-list, as with `ShareSelection`.
+list, as with `ShareSelection`, across parts and messages: the list keeps
+the parts holding the selection's ends built while they are out of view,
+and `Text`, given to the list's `Text`, gives the text of the parts it
+does not build to copying, as the parts copy it when they are built.
 
 ## Selecting and copying
 
@@ -209,7 +216,9 @@ streams in.
 
 `ShareSelection` leaves the selection to a `Selectable` container around
 the view, as one across a chat's messages; the container copies the text
-of its paragraphs, joined with newlines. The parts of a reply in
+of its paragraphs, joined with newlines. In a list, the selection stays
+as its ends scroll out of view, and copies the messages the list did not
+build from `ListState.Text`. The parts of a reply in
 [parts](#long-replies) always share it.
 
 ## Links and images

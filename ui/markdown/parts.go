@@ -28,7 +28,9 @@ const partSize = 1024
 // in.
 //
 // The text of parts is selectable with that of a Selectable container
-// around the list, as Options.ShareSelection has it, whatever it says.
+// around the list, as Options.ShareSelection has it, whatever it says:
+// the list keeps the parts holding the selection's ends built, and its
+// ListState.Text, given Text, copies the parts it does not build.
 //
 //	n := m.parts.Update(c, m.text, &app.md, !m.done)
 //	ui.List(c, &m.list, n, func(i int) { m.parts.View(c, i) })
@@ -192,7 +194,8 @@ func (p *Parts) partOf(i int) (int, bool) {
 // when the part is built: a line for each paragraph, heading and table
 // cell, the lines of code blocks, and images as their descriptions.
 // Blocks that Options builds otherwise give their source: the code of a
-// code block, the TeX of math, the HTML of HTML.
+// code block, the TeX of math, the HTML of HTML. Give it to the list's
+// ListState.Text, which copies the parts the list does not build.
 func (p *Parts) Text(i int) string {
 	st, pt := p.st, p.parts[i]
 	w := textWriter{st: st, locale: p.locale}
