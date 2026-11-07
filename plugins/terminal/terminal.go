@@ -37,6 +37,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/egoist/mygo/plugins/terminal/internal/pty"
@@ -826,6 +827,14 @@ func (t *Terminal) read() {
 			t.write(buf[:n])
 		}
 		if err != nil {
+			// A read that would block is not the program's end: a pty
+			// master opened without a blocking mode returns this until
+			// the program writes, and treating it as the end hangs the
+			// shell up before it prints its prompt.
+			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
+				time.Sleep(time.Millisecond)
+				continue
+			}
 			break
 		}
 	}
