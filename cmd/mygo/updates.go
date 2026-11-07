@@ -40,7 +40,7 @@ type Updates struct {
 	GitHub    string `json:"github"`
 	TagPrefix string `json:"tagPrefix"`
 	// URL is where the update files are served from instead, e.g.
-	// "https://downloads.example.com/my-app".
+	// "https://downloads.example.com/my-app", without a query or fragment.
 	URL string `json:"url"`
 	// S3 is the bucket that serves URL, which `mygo build -upload` uploads
 	// to.
@@ -86,6 +86,9 @@ func (u *Updates) validate() error {
 		p, err := url.Parse(u.URL)
 		if err != nil || p.Scheme != "https" || p.Host == "" {
 			return fmt.Errorf("updates.url %q is not an https URL", u.URL)
+		}
+		if strings.ContainsAny(u.URL, "?#") {
+			return fmt.Errorf("updates.url %q has a query or fragment: it is the URL of a directory, to which the names of the update files are appended", u.URL)
 		}
 	}
 	if u.S3 != nil {
