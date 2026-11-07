@@ -7,6 +7,10 @@ package mygo
 // the others: it returns true.
 func (a *Application) RequestSingleInstanceLock() bool { return true }
 
+// RequestSingleInstanceLockFor is RequestSingleInstanceLock with a key:
+// it returns true in browsers too.
+func (a *Application) RequestSingleInstanceLockFor(key string) bool { return true }
+
 // OnSecondInstance is called in the first instance when another instance
 // was started, which browsers never tell.
 func (a *Application) OnSecondInstance(fn func(args []string, workingDir string)) (off func()) {

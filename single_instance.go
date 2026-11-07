@@ -46,8 +46,26 @@ type secondInstanceMessage struct {
 //	}
 //
 // The lock is identified by the application name and, in a packaged app,
-// its identifier, and released on quit.
+// its identifier, and released on quit. Use RequestSingleInstanceLockFor
+// to run several instances apart, for example one per data directory.
 func (a *Application) RequestSingleInstanceLock() bool {
+	return a.RequestSingleInstanceLockFor("")
+}
+
+// RequestSingleInstanceLockFor is RequestSingleInstanceLock with a key that
+// is part of the lock's identity: instances share a lock, and hand over to
+// the first one, only when they pass the same key. An app that keeps a
+// separate state per directory passes the directory, so that a copy with
+// another directory runs next to the installed app:
+//
+//	if !mygo.App.RequestSingleInstanceLockFor(dataDir) {
+//		return
+//	}
+//
+// The empty key is the lock of RequestSingleInstanceLock. As with it, the
+// first call of the process decides: later calls return true while the
+// process holds the lock, whatever their key.
+func (a *Application) RequestSingleInstanceLockFor(key string) bool {
 	if os.Getenv("MYGO_GENERATE") != "" {
 		return true // Run will only write the TypeScript client.
 	}
@@ -56,7 +74,7 @@ func (a *Application) RequestSingleInstanceLock() bool {
 	if singleInstance.locked {
 		return true
 	}
-	path := singleInstanceSocket(singleInstanceKey(a.Name()))
+	path := singleInstanceSocket(singleInstanceKey(a.Name(), key))
 	wd, _ := os.Getwd()
 	// Read before GTK starts in this process: it takes the token from the
 	// environment.
@@ -164,9 +182,13 @@ func releaseSingleInstanceLock() {
 // singleInstanceKey identifies the lock of the app named name. The
 // identifier keeps the development app of mygo dev ("<identifier>.dev")
 // apart from the installed app when both call SetName with the same name.
-func singleInstanceKey(name string) string {
+// A non-empty app key, from RequestSingleInstanceLockFor, is appended.
+func singleInstanceKey(name, key string) string {
 	if info, ok := packageInfo(); ok && info.Identifier != "" {
-		return info.Identifier + "\n" + name
+		name = info.Identifier + "\n" + name
+	}
+	if key != "" {
+		name += "\x00" + key
 	}
 	return name
 }
