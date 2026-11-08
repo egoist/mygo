@@ -12,9 +12,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo/internal/nativelib"
 )
@@ -210,6 +213,7 @@ func buildZig(root, src string, lib nativelib.Library, goos, goarch, minMacOS st
 	if err := os.RemoveAll(prefix); err != nil {
 		return "", err
 	}
+	zigCacheTmp()
 	args := []string{"build", "-Dtarget=" + triple, "--prefix", prefix, "--cache-dir", filepath.Join(root, ".mygo", "native", "zig-cache")}
 	// ReleaseFast, unless the arguments pick another mode.
 	if !slices.ContainsFunc(lib.Build.Args, func(a string) bool { return strings.HasPrefix(a, "-Doptimize") }) {
@@ -247,6 +251,27 @@ func buildZig(root, src string, lib nativelib.Library, goos, goarch, minMacOS st
 	}
 	return "", fmt.Errorf("zig build installed several libraries and none is %s: %s", want, strings.Join(found, ", "))
 }
+
+// zigCacheTmp makes the tmp directory in Zig's global cache. Zig 0.16
+// unpacks a .zip dependency through a file it creates there without
+// making the directory first, so on a fresh cache, as on a new CI runner,
+// the fetch fails with "failed to create temporary zip file: FileNotFound".
+// Errors are left for zig build to report.
+var zigCacheTmp = sync.OnceFunc(func() {
+	out, err := exec.Command("zig", "env").Output()
+	if err != nil {
+		return
+	}
+	m := regexp.MustCompile(`\.global_cache_dir = ("(?:[^"\\]|\\.)*")`).FindSubmatch(out)
+	if m == nil {
+		return
+	}
+	dir, err := strconv.Unquote(string(m[1]))
+	if err != nil || dir == "" {
+		return
+	}
+	_ = os.MkdirAll(filepath.Join(dir, "tmp"), 0o755)
+})
 
 // replaceFile copies src, following links, to dst through a temporary file,
 // as dst may be loaded by a running program.
