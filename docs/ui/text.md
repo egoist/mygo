@@ -113,8 +113,9 @@ A drag can cross paragraphs in either direction. Shift-click and Shift
 with the arrows extend it, and dragging near a scroll container's edge
 scrolls it. Cmd+C (Ctrl+C on Linux and Windows), the Edit menu's Copy,
 and the context menu copy the selected text, joined with newlines in the
-order the paragraphs were built. Select All selects the whole container,
-including built paragraphs outside its viewport. Inline text and links
+order the paragraphs were built, the rows of a list in their order. Select
+All selects the whole container, including built paragraphs outside its
+viewport. Inline text and links
 inside a paragraph are copied as part of that paragraph.
 
 `CopyData` on the container sets what Copy writes from the parts of the
@@ -128,8 +129,26 @@ text inputs keep their own interaction; their labels do not join the
 container's selection. Use `Unselectable` on a text or a container to
 exclude its subtree; inline elements follow their paragraph's selection.
 Changing the selected text or removing an endpoint clears the shared
-selection. A virtualized list only includes the paragraphs it has built,
-so use a regular scroll container when selecting an entire document.
+selection.
+
+A [list](list.md) inside the container keeps the rows holding the
+selection's ends built while they are out of view, so the selection
+stays as it scrolls, and shows again on the rows between them as they
+come back. The rows it does not build copy as `ListState.Text` gives
+their text: those between the ends, and every row after Select All.
+Without it, the selection holds the rows built alone. Copy asks it as
+it copies, between frames, for the rows of the last frame, and gives
+those rows to `CopyData` with an `ID` of 0; `SelectedTexts`, which the
+app asks as it builds, perhaps after changing its rows, holds the rows
+built alone. A list choosing rows (`Selected` or `Selection`) does not
+join the selection: its rows are controls, which own their text.
+
+```go
+app.list.Text = func(i int) string { return app.messages[i].Text }
+ui.List(c, &app.list, len(app.messages), func(i int) {
+	ui.Text(c, app.messages[i].Text)
+}).Selectable().Grow(1)
+```
 
 The highlight is the theme's `Selection`; `SelectionColor` sets another
 for an element and the text inside it, as text on a colored bubble needs

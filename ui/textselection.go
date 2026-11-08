@@ -22,6 +22,27 @@ type textSelection struct {
 	dragging      bool
 	desiredX      float32
 	hasDesired    bool
+	// all is Select All in a container holding lists, until the user
+	// moves the selection: its ends go to the container's first and last
+	// paragraphs as the lists build their first and last rows, and it
+	// holds the rows of lists before and after them.
+	all bool
+}
+
+// textRow is the paragraphs from to to of engine.texts, in row row of the
+// list of state list.
+type textRow struct {
+	from, to int
+	list     *ListState
+	row      int
+}
+
+// textList is a list inside the Selectable container scope, whose rows
+// hold the paragraphs from to to of engine.texts, none when from == to.
+type textList struct {
+	from, to int
+	list     *ListState
+	scope    uint64
 }
 
 // prepareSelectable waits until inline children have finished their text,
@@ -43,15 +64,7 @@ func (e *node) prepareSelectable() {
 	}
 	scope := uint64(0)
 	if e.flags&(flagClickable|flagFocusable|flagUnselectable) == 0 && e.inputFn == nil {
-		for p := e.parent; p != nil; p = p.parent {
-			if p.kind == kindBox && p.flags&flagSelectable != 0 {
-				scope = p.id
-				break
-			}
-			if p.flags&(flagClickable|flagFocusable|flagEditable|flagUnselectable) != 0 || p.inputFn != nil {
-				break // a control owns its text
-			}
-		}
+		scope = selectableScope(e.parent)
 	}
 	if old := e.st.textScope; old != 0 && old != scope {
 		if e.c.rt.selection.scope == old && e.c.rt.textSelectionIncludes(e.id) {
@@ -94,13 +107,32 @@ func (e *node) prepareSelectable() {
 	}
 }
 
+// selectableScope returns the Selectable container, p or around it, whose
+// selection the text inside p joins, or 0.
+func selectableScope(p *node) uint64 {
+	for ; p != nil; p = p.parent {
+		if p.kind == kindBox && p.flags&flagSelectable != 0 {
+			return p.id
+		}
+		if p.flags&(flagClickable|flagFocusable|flagEditable|flagUnselectable) != 0 || p.inputFn != nil {
+			return 0 // a control owns its text
+		}
+	}
+	return 0
+}
+
 // collectSelectable follows build order, independently of painting order
-// (absolute children paint last). Inline children are already in their
-// paragraph's text, and must not be copied a second time.
+// (absolute children paint last), but for the rows of lists, which follow
+// their order. Inline children are already in their paragraph's text, and
+// must not be copied a second time.
 func (rt *engine) collectSelectable(e *node, hidden bool) {
 	hidden = hidden || e.flags&(flagInvisible|flagInert) != 0 || e.hidden || e.ignoreInput
 	if !hidden && e.kind == kindText && !e.isInline() && e.st.flags&flagDisabled == 0 && e.flags&flagSelectable != 0 {
 		rt.texts = append(rt.texts, e.st)
+	}
+	if e.list != nil && rt.listTexts != nil {
+		rt.listTexts(rt, e, hidden)
+		return
 	}
 	for ch := e.first; ch != nil; ch = ch.next {
 		rt.collectSelectable(ch, hidden)
@@ -165,6 +197,19 @@ func (rt *engine) syncTextSelection() {
 	if rt.selection.scope == 0 {
 		return
 	}
+	if t := &rt.selection; t.all {
+		// The ends of Select All follow the first and last paragraphs,
+		// as the lists build their first and last rows.
+		found := false
+		for _, s := range rt.texts {
+			if s.textScope == t.scope {
+				if !found {
+					t.anchor, found = textPoint{s.id, 0}, true
+				}
+				t.caret = textPoint{s.id, s.editor.buf.n}
+			}
+		}
+	}
 	if rt.textPointIndex(rt.selection.anchor) < 0 || rt.textPointIndex(rt.selection.caret) < 0 {
 		// An endpoint was removed, hidden, disabled, or moved to another
 		// container. Never let a recycled state inherit the selection.
@@ -174,22 +219,38 @@ func (rt *engine) syncTextSelection() {
 	if rt.selection.dragging && rt.pressed != nil {
 		rt.moveTextSelection(rt.pointerX, rt.pointerY)
 	}
-	a, b, _ := rt.textSelectionBounds()
-	first, last := rt.textPointIndex(a), rt.textPointIndex(b)
+	first, last, a, b, _ := rt.selectedRange()
 	for i := first; i <= last; i++ {
 		s := rt.texts[i]
 		if s.textScope != rt.selection.scope {
 			continue
 		}
-		from, to := 0, s.editor.buf.n
-		if i == first {
-			from = min(a.at, to)
-		}
-		if i == last {
-			to = min(b.at, to)
-		}
-		s.editor.anchor, s.editor.caret = from, to
+		s.editor.anchor, s.editor.caret = selectedRunes(s, i, first, last, a, b)
 	}
+}
+
+// selectedRange returns the paragraphs of rt.texts the selection runs
+// over, from first to last, and its ends; Select All in a container
+// holding lists is selected whatever its ends.
+func (rt *engine) selectedRange() (first, last int, a, b textPoint, selected bool) {
+	a, b, selected = rt.textSelectionBounds()
+	if a.id == 0 {
+		return 0, -1, a, b, false
+	}
+	return rt.textPointIndex(a), rt.textPointIndex(b), a, b, selected || rt.selection.all
+}
+
+// selectedRunes returns the runes of paragraph s, of rt.texts[i], that a
+// selection from a, in first, to b, in last, holds.
+func selectedRunes(s *state, i, first, last int, a, b textPoint) (from, to int) {
+	from, to = 0, s.editor.buf.n
+	if i == first {
+		from = min(a.at, to)
+	}
+	if i == last {
+		to = min(b.at, to)
+	}
+	return from, to
 }
 
 // textSelectionAt finds the nearest visible paragraph in scope. Gaps,
@@ -301,7 +362,7 @@ func (rt *engine) pressTextSelection(s *state, x, y float32, mods Modifiers, cli
 	if t.scope != scope || mods&Shift == 0 || rt.textPointIndex(t.anchor) < 0 {
 		*t = textSelection{scope: scope, anchor: p, caret: p}
 	}
-	t.caret, t.unit, t.dragging, t.hasDesired = p, min(clicks, 3), true, false
+	t.caret, t.unit, t.dragging, t.hasDesired, t.all = p, min(clicks, 3), true, false, false
 	if t.unit > 1 {
 		a, b := textUnit(rt.states[p.id], p.at, t.unit)
 		t.anchor, t.caret = textPoint{p.id, a}, textPoint{p.id, b}
@@ -359,64 +420,77 @@ func (rt *engine) textSelectionCommand(s *state, name string) bool {
 		}
 		if first != nil {
 			rt.selection = textSelection{scope: s.textScope, anchor: textPoint{first.id, 0}, caret: textPoint{last.id, last.editor.buf.n}}
+			rt.selection.all = rt.holdsList(s.textScope)
 		}
 	case "copy":
-		a, b, selected := rt.textSelectionBounds()
-		if !selected || rt.selection.scope != s.textScope {
-			break
-		}
-		if sc := rt.states[s.textScope]; sc != nil && sc.copyData != nil {
-			rt.host.writeClipboardData(sc.copyData(rt.selectedTexts(s.textScope)))
-			break
-		}
-		var out strings.Builder
-		first, last := rt.textPointIndex(a), rt.textPointIndex(b)
-		wrote := false
-		for i := first; i <= last; i++ {
-			p := rt.texts[i]
-			if p.textScope != s.textScope {
-				continue
-			}
-			from, to := 0, p.editor.buf.n
-			if i == first {
-				from = min(a.at, to)
-			}
-			if i == last {
-				to = min(b.at, to)
-			}
-			if wrote {
-				out.WriteByte('\n')
-			}
-			out.WriteString(p.editor.buf.slice(from, to))
-			wrote = true
-		}
-		rt.host.writeClipboard(out.String())
+		rt.copySelection(s.textScope)
 	}
 	return true // other editing commands cannot change selectable text
 }
 
+// holdsList reports whether the Selectable container scope held a list in
+// the last frame.
+func (rt *engine) holdsList(scope uint64) bool {
+	for _, l := range rt.textLists {
+		if l.scope == scope {
+			return true
+		}
+	}
+	return false
+}
+
+// copySelection puts the selection of container scope on the clipboard.
+func (rt *engine) copySelection(scope uint64) {
+	if _, _, _, _, selected := rt.selectedRange(); !selected || rt.selection.scope != scope {
+		return
+	}
+	if sc := rt.states[scope]; sc != nil && sc.copyData != nil {
+		rt.host.writeClipboardData(sc.copyData(rt.selectedTexts(scope, true)))
+		return
+	}
+	var out strings.Builder
+	for k, p := range rt.selectedTexts(scope, true) {
+		if k > 0 {
+			out.WriteByte('\n')
+		}
+		if t := rt.states[p.ID]; p.ID != 0 && t != nil && t.editor != nil {
+			out.WriteString(t.editor.buf.slice(p.Start, p.End))
+		} else {
+			out.WriteString(p.Text)
+		}
+	}
+	rt.host.writeClipboard(out.String())
+}
+
 // selectedTexts returns the parts of paragraphs the selection of
-// container scope holds.
-func (rt *engine) selectedTexts(scope uint64) []SelectedText {
-	a, b, selected := rt.textSelectionBounds()
+// container scope holds and, with unbuilt, the text of rows lists did not
+// build between them: only as the selection is copied, between frames,
+// when the rows of the last frame are still the app's.
+func (rt *engine) selectedTexts(scope uint64, unbuilt bool) []SelectedText {
+	first, last, a, b, selected := rt.selectedRange()
 	if !selected || rt.selection.scope != scope {
 		return nil
 	}
 	var parts []SelectedText
-	first, last := rt.textPointIndex(a), rt.textPointIndex(b)
+	unbuilt = unbuilt && rt.rowsBetween != nil
+	prev := -1
+	if unbuilt && rt.selection.all {
+		prev = -2 // the rows of lists before the first paragraph
+	}
 	for i := first; i <= last; i++ {
 		p := rt.texts[i]
 		if p.textScope != scope || p.editor == nil {
 			continue
 		}
-		from, to := 0, p.editor.buf.n
-		if i == first {
-			from = min(a.at, to)
+		if unbuilt && prev != -1 {
+			parts = rt.rowsBetween(rt, prev, i, parts)
 		}
-		if i == last {
-			to = min(b.at, to)
-		}
+		from, to := selectedRunes(p, i, first, last, a, b)
 		parts = append(parts, SelectedText{ID: p.id, Text: p.editor.source, Start: from, End: to})
+		prev = i
+	}
+	if unbuilt && rt.selection.all {
+		parts = rt.rowsBetween(rt, prev, -2, parts)
 	}
 	return parts
 }
@@ -449,6 +523,7 @@ func (rt *engine) textSelectionKey(s *state, k keyEvent) bool {
 		p := textPoint{s.id, s.editor.caret}
 		*t = textSelection{scope: s.textScope, anchor: p, caret: p}
 	}
+	t.all = false
 	s = rt.states[t.caret.id]
 	ed, at := s.editor, t.caret.at
 	mods := k.mods &^ Shift

@@ -4421,7 +4421,8 @@ func (_handle Element) Controls(target Element) Element {
 
 // CopyData sets what Copy, its shortcut and the context menu's put on
 // the clipboard for the selection of a Selectable container: fn gets its
-// parts, as SelectedTexts returns them, and returns the data, as a
+// parts, as SelectedTexts returns them with the rows of lists their
+// ListState.Text gives (ID 0), and returns the data, as a
 // document copies its paragraphs with blank lines between them as text
 // (transfer.TextData), and as HTML too to keep their formatting.
 func (_handle Element) CopyData(fn func(parts []SelectedText) transfer.Data) Element {
@@ -7429,9 +7430,11 @@ func (_handle Element) Selected(on bool) Element {
 }
 
 // SelectedTexts returns the parts of the paragraphs that the selection of
-// a Selectable container holds, in the order they were built, or none,
-// as of the last frame: to copy them otherwise, as a context menu's item
-// does.
+// a Selectable container holds, in the order they were built, the rows
+// of lists in their order, or none, as of the last frame: to copy them
+// otherwise, as a context menu's item does. Of a List inside it, they
+// are the rows the list built: the rows it did not build, which
+// ListState.Text gives, go to Copy and CopyData alone.
 func (_handle Element) SelectedTexts() []SelectedText {
 	_node := _handle.node()
 	if _node == nil {

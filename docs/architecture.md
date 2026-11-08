@@ -3886,6 +3886,13 @@ either.
   only grew at its end keeps the selection, as a reply streaming in. A
   container's `CopyData` makes what Copy writes from the parts
   `SelectedTexts` returns: each paragraph's ID, text and runes selected.
+  A `List` inside a container collects its rows' paragraphs in row
+  order and keeps the rows holding the ends built out of view; Copy,
+  which a browser's copy event needs done before it returns, runs at
+  once and adds the rows not built from `ListState.Text`, by the last
+  frame's indices, which only hold between frames, so `SelectedTexts`,
+  asked as the app builds, leaves them out. This code is reached through
+  functions the first `List` registers (`listTexts`, `rowsBetween`).
 - **Tables** (`ui/table.go`, `ui/editable.go`). A table's rows are a
   `List`'s that scrolls both ways: the list lays its rows out at least as
   wide as the columns ask (`rowMinW`), and the header, outside the list,

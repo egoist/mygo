@@ -228,6 +228,35 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 	}
 	root := ui.Column(c)
 	st := *ui.Local(root, stateKey{}, newState)
+	revealing := st.update(c, src, o, streaming)
+	st.style(root)
+	if !o.ShareSelection {
+		root.Selectable()
+		root.CopyData(st.copyData)
+		root.ContextMenu(func(m *ui.Menu) {
+			m.EditItems()
+			if m.Item(l10n.In(c.Locale()).CopyAsMarkdown()).Chosen() {
+				c.Services().WriteClipboardData(markdownData(st.copyMarkdown(root.SelectedTexts())))
+			}
+		})
+		if root.FocusWithin() && root.Shortcut(ui.Cmd|ui.Shift, ui.KeyC) {
+			c.Services().WriteClipboardData(markdownData(st.copyMarkdown(root.SelectedTexts())))
+		}
+	}
+	st.elems = st.elems[:0]
+	root.Children(func() {
+		st.blocks(c, 0, false, spanStyle{})
+		st.footnotes(c)
+	})
+	if revealing || st.reveal.fading() {
+		c.AnimationFrame()
+	}
+	return root
+}
+
+// update parses src, as much of it as shows this frame, for the frame's
+// theme and options, and reports whether text is still to reveal.
+func (st *viewState) update(c *ui.Context, src string, o *Options, streaming bool) bool {
 	st.o = o
 	ext := o.Extensions
 	if ext == 0 {
@@ -239,7 +268,6 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 		st.paras = st.paras[:0]
 	}
 	st.theme(c)
-	th := &st.th
 
 	shown, revealing := st.reveal.step(c, src, streaming, o.Reveal)
 	st.doc.SetStreaming(streaming || revealing)
@@ -255,34 +283,18 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 	}
 	st.anchor, st.anchorVersion = o.Anchor, o.AnchorVersion
 	st.fade = st.reveal.fader(c, o.Reveal)
+	st.numberNotes()
+	return revealing
+}
 
+// style gives the root of a view, or of a part, the theme's font and
+// color of text.
+func (st *viewState) style(root ui.Element) {
+	th := &st.th
 	root.FontSize(th.FontSize).LineHeight(th.LineHeight).TextColor(th.Text)
 	if th.Font != "" {
 		root.Font(th.Font)
 	}
-	if !o.ShareSelection {
-		root.Selectable()
-		root.CopyData(st.copyData)
-		root.ContextMenu(func(m *ui.Menu) {
-			m.EditItems()
-			if m.Item(l10n.In(c.Locale()).CopyAsMarkdown()).Chosen() {
-				c.Services().WriteClipboardData(markdownData(st.copyMarkdown(root.SelectedTexts())))
-			}
-		})
-		if root.FocusWithin() && root.Shortcut(ui.Cmd|ui.Shift, ui.KeyC) {
-			c.Services().WriteClipboardData(markdownData(st.copyMarkdown(root.SelectedTexts())))
-		}
-	}
-	st.elems = st.elems[:0]
-	st.numberNotes()
-	root.Children(func() {
-		st.blocks(c, 0, false, spanStyle{})
-		st.footnotes(c)
-	})
-	if revealing || st.reveal.fading() {
-		c.AnimationFrame()
-	}
-	return root
 }
 
 var defaultOptions Options
@@ -319,14 +331,22 @@ func (st *viewState) note(id uint64, block, line int) {
 // blocks builds the children of block parent, spaced; tight tells the
 // items of a tight list.
 func (st *viewState) blocks(c *ui.Context, parent int, tight bool, base spanStyle) {
+	st.blockRange(c, parent+1, st.doc.Block(parent).Next, -1, tight, base)
+}
+
+// blockRange builds the siblings from block from to block to, spaced as
+// they follow block prev, the sibling shown before them, -1 for none.
+func (st *viewState) blockRange(c *ui.Context, from, to, prev int, tight bool, base spanStyle) {
 	d := st.doc
 	th := &st.th
-	first := true
+	first := prev < 0
 	prevHeading := 0
-	for j := parent + 1; j < d.Block(parent).Next; j = d.Block(j).Next {
+	if !first && d.Block(prev).Kind == parser.Heading {
+		prevHeading = d.Block(prev).Level
+	}
+	for j := from; j < to; j = d.Block(j).Next {
 		b := d.Block(j)
-		if b.Kind == parser.FootnoteDefinition || b.Kind == parser.Paragraph && d.LineCount(j) == 0 {
-			// Footnotes show at the end, and an alert's marker not at all.
+		if !st.shows(j) {
 			continue
 		}
 		top := float32(0)
@@ -357,6 +377,13 @@ func (st *viewState) blocks(c *ui.Context, parent int, tight bool, base spanStyl
 		}
 		first = false
 	}
+}
+
+// shows reports whether block i shows where it is: footnotes show at the
+// end, and an alert's marker not at all.
+func (st *viewState) shows(i int) bool {
+	b := st.doc.Block(i)
+	return b.Kind != parser.FootnoteDefinition && !(b.Kind == parser.Paragraph && st.doc.LineCount(i) == 0)
 }
 
 // block builds block i.
@@ -487,6 +514,12 @@ func (st *viewState) para(i int, base spanStyle) *para {
 		return &pc.p
 	}
 	pc.start, pc.end, pc.kind, pc.rev, pc.base, pc.ok = b.Start, b.End, b.Kind, b.Revision(), base, true
+	st.buildPara(&pc.p, i, base)
+	return &pc.p
+}
+
+// buildPara builds into p the paragraph of block i in style base.
+func (st *viewState) buildPara(p *para, i int, base spanStyle) {
 	sb := &st.sb
 	sb.block = i
 	sb.fade = st.fade
@@ -494,8 +527,7 @@ func (st *viewState) para(i int, base spanStyle) *para {
 	sb.math = st.o.InlineMath
 	sb.linkIcon = st.o.LinkIcon
 	sb.resolve = st.o.Resolve
-	sb.build(&pc.p, base)
-	return &pc.p
+	sb.build(p, base)
 }
 
 // sameResolved reports whether the mentions and references of block i

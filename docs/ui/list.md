@@ -81,6 +81,14 @@ behaves and to move it:
 - `Label` returns the text of a row: typing its first letters while the
   list has the focus chooses it, as in Finder or Explorer, and assistive
   technology reads it as the row's name.
+- `Text` returns the text of a row as a `Selectable` container around the
+  list copies it, its paragraphs a line each: a selection of text across
+  rows the list did not build copies theirs from it, those between its
+  ends and, after Select All, every row. The list keeps the rows holding
+  the selection's ends built while they are out of view, as it keeps the
+  row holding the focus (see [selecting text](text.md)). Copy asks it
+  between frames, for the rows of the last frame: answer from the rows
+  as the view built them.
 
 Give each list a `ListState` of its own, and set its fields before
 building the list.

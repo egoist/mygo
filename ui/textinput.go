@@ -357,9 +357,11 @@ func (e *node) Selectable() *node {
 }
 
 // SelectedText is the part of a paragraph that the selection of a
-// Selectable container holds.
+// Selectable container holds, or, for CopyData, the text of a row of a
+// List inside it that the list did not build, as ListState.Text gives it.
 type SelectedText struct {
-	// ID is the paragraph's element's (Element.ID).
+	// ID is the paragraph's element's (Element.ID), 0 for a row not
+	// built, which the selection holds whole.
 	ID uint64
 	// Text is the paragraph's text, and Start and End the runes of it the
 	// selection holds.
@@ -368,16 +370,19 @@ type SelectedText struct {
 }
 
 // SelectedTexts returns the parts of the paragraphs that the selection of
-// a Selectable container holds, in the order they were built, or none,
-// as of the last frame: to copy them otherwise, as a context menu's item
-// does.
+// a Selectable container holds, in the order they were built, the rows
+// of lists in their order, or none, as of the last frame: to copy them
+// otherwise, as a context menu's item does. Of a List inside it, they
+// are the rows the list built: the rows it did not build, which
+// ListState.Text gives, go to Copy and CopyData alone.
 func (e *node) SelectedTexts() []SelectedText {
-	return e.c.rt.selectedTexts(e.id)
+	return e.c.rt.selectedTexts(e.id, false)
 }
 
 // CopyData sets what Copy, its shortcut and the context menu's put on
 // the clipboard for the selection of a Selectable container: fn gets its
-// parts, as SelectedTexts returns them, and returns the data, as a
+// parts, as SelectedTexts returns them with the rows of lists their
+// ListState.Text gives (ID 0), and returns the data, as a
 // document copies its paragraphs with blank lines between them as text
 // (transfer.TextData), and as HTML too to keep their formatting.
 func (e *node) CopyData(fn func(parts []SelectedText) transfer.Data) *node {

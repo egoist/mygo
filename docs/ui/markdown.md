@@ -129,6 +129,92 @@ ui.List(c, &app.list, len(app.messages), func(i int) {
 The [chat example](../../examples/markdown-chat) streams canned replies
 in this way.
 
+### Long replies
+
+A list builds the rows in view, and a reply is one row: once any of it
+shows, it is built whole. `Parts` shows a reply in parts, each a row of
+the list, so that a long one builds only the parts in view. Keep one with
+each message; `Update` reads the reply for the frame, as `View` does, or
+`Stream` while it streams, and returns how many parts it has, which `View`
+builds and `Key` names:
+
+```go
+type message struct {
+	ID    string
+	Text  string
+	Done  bool
+	parts markdown.Parts
+}
+
+type row struct {
+	m    *message
+	part int
+}
+
+type rowKey struct {
+	id   string
+	part int
+}
+
+app.rows = app.rows[:0]
+for _, m := range app.messages {
+	for k := range m.parts.Update(c, m.Text, &app.md, !m.Done) {
+		app.rows = append(app.rows, row{m, k})
+	}
+}
+app.list.Key = func(i int) any {
+	r := app.rows[i]
+	return rowKey{r.m.ID, r.m.parts.Key(r.part)}
+}
+app.list.Text = func(i int) string {
+	r := app.rows[i]
+	return r.m.parts.Text(r.part)
+}
+app.list.FollowEnd = true
+ui.Column(c).Selectable().Grow(1).Children(func() {
+	ui.List(c, &app.list, len(app.rows), func(i int) {
+		r := app.rows[i]
+		r.m.parts.View(c, r.part)
+	}).Grow(1).Justify(ui.End)
+})
+```
+
+A part is whole blocks: it starts at a heading written with `#`, or at
+the first block once it has about a kilobyte of source. Text appended
+parses only the last block again, so the parts before keep their keys as
+a reply streams in, and the list keeps them where they are. The reply is
+parsed once: link references, footnotes, which come last in a part of
+their own (`Key` -1), and the anchors of headings are the whole reply's.
+Without a gap between them, the parts are spaced as the blocks of a
+`View`, so give the space between messages to the rows that start and
+end one, as their padding. `Revealed` tells that the reply shows all of
+its text, as the function `Revealed` does for a view.
+
+`Update` runs for every message, every frame, and goes through the
+top-level blocks of its reply, so a frame takes longer as the chat
+grows: in a window of 800 by 1000 on an Apple M3 Pro, a frame of a chat
+of replies of about 5 KB took 0.25 ms with 10 of them, 0.29 ms with 100
+and 1.1 ms with 1,000 (`BenchmarkPartsHistory`). The list asks `Key` for
+every row it builds, and for the rows it looks for, every frame: a key
+in an interface allocates, once for a struct of comparable fields as
+`rowKey`, three times for a `[2]any` of a string and a number.
+
+A link to a heading or a footnote of a part the list does not build
+cannot scroll the list there by itself: `Scroll` returns the part it asks
+for, once, and the view scrolls to the heading as the list builds it:
+
+```go
+if k, ok := m.parts.Scroll(); ok {
+	app.list.ScrollTo(app.firstRowOf(m)+k, ui.Start)
+}
+```
+
+The text of parts is selected with a `Selectable` container around the
+list, as with `ShareSelection`, across parts and messages: the list keeps
+the parts holding the selection's ends built while they are out of view,
+and `Text`, given to the list's `Text`, gives the text of the parts it
+does not build to copying, as the parts copy it when they are built.
+
 ## Selecting and copying
 
 A view's text is one selection across its blocks, as in a browser. Copy
@@ -143,7 +229,11 @@ document when nothing is selected. Text keeps its selection as a reply
 streams in.
 
 `ShareSelection` leaves the selection to a `Selectable` container around
-the view, as one across a chat's messages.
+the view, as one across a chat's messages; the container copies the text
+of its paragraphs, joined with newlines. In a list, the selection stays
+as its ends scroll out of view, and copies the messages the list did not
+build from `ListState.Text`. The parts of a reply in
+[parts](#long-replies) always share it.
 
 ## Links and images
 
@@ -403,8 +493,16 @@ reply of headings, nested lists, code, a table and links:
 | A frame with a token of 16 bytes appended | 0.8 ms | 36 KB, 350 allocations |
 
 Frames build every block's elements, as views do, while the parse, the
-spans of paragraphs and their text layouts are kept: a document much
-longer than a chat's reply is best shown a section at a time.
+spans of paragraphs and their text layouts are kept. A long document,
+or a long reply, is best shown [in parts](#long-replies), in a list,
+which builds the parts in view: in the same runs on an Apple M3 Pro, a
+frame of the reply in parts in a window of 800 by 1000 took 0.27 ms and
+27 allocations, against 1.7 ms and 354 for the reply shown whole
+(`BenchmarkPartsSteady` and `BenchmarkViewSteady`). Its first 25 KB in a
+window of 800 by 900 kept 7.5 MB of Go heap in parts, against 10.5 MB
+whole (`BenchmarkLongReplyRetainedHeap`, as `retained-B`): a list builds the rows of its first
+frame from an estimate of their height, 31 of the 44 parts here,
+and keeps the memory of what it built.
 
 <!-- repository-only:start -->
 
@@ -412,6 +510,7 @@ longer than a chat's reply is best shown a section at a time.
 
 ```sh
 CGO_ENABLED=0 GOMAXPROCS=1 go test ./ui/markdown -run '^$' -bench . -benchmem
+go test ./ui/markdown -run '^$' -bench LongReplyRetainedHeap
 go test ./ui/markdown -run 'TestCommonMark|TestGFM|TestAppend|TestEdits|TestPathological' -v
 ```
 

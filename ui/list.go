@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // A List builds only the rows in view, and keeps its place by a row, its
@@ -98,6 +99,15 @@ type ListState struct {
 	// row's text while the list has the keyboard focus chooses it, and
 	// assistive technology reads it as the row's name.
 	Label func(row int) string
+	// Text returns the text of row i, its paragraphs a line each, as a
+	// Selectable container around the list copies it when it is built: a
+	// selection across rows the list did not build copies theirs from it,
+	// those between the selection's ends and, after Select All, every row.
+	// Without it, a selection holds the rows built alone. Copy and
+	// CopyData ask it between frames, for the rows of the frame laid out
+	// last: answer from the rows as the view built them, and SelectedTexts
+	// never asks it. Return "" for a row without text.
+	Text func(row int) string
 	// Header, when set, reports whether row i heads a section: the header
 	// of the section at the top of the list stays there while the rows of
 	// its section scroll under it, until the next header pushes it away.
@@ -256,6 +266,14 @@ type ListState struct {
 	// row holding the focus.
 	rows  map[uint64]listRowID
 	frame listFrame
+	// collected is where collectRows puts the rows in order. textScope is
+	// the Selectable container around the list, if any, and while its
+	// text is selected, shownN and shownBuilt are the rows of the last
+	// frame and those it built, for copying it.
+	collected  []*node
+	shownN     int
+	shownBuilt []int
+	textScope  uint64
 	// editables reports rows holding an EditableText in the last frame,
 	// and editablesNow in this one; editKey is the row whose text the keys
 	// asked to edit, while editAsked.
@@ -513,6 +531,7 @@ func buildList(c *context, e, owner *node, s *ListState, n int, row func(i int),
 	}
 	if rt.listMenu == nil {
 		rt.listMenu, rt.listDrag = (*engine).chooseRowAt, (*engine).scrollDragSelect
+		rt.listTexts, rt.rowsBetween = collectRows, rowsBetween
 	}
 	if (s.DragSelect || s.CellSelect && flat) && (s.Reorder != nil || s.DragRows != nil) {
 		panic("ui: a list cannot both DragSelect (or CellSelect) and Reorder (or DragRows)")
@@ -544,14 +563,49 @@ func buildList(c *context, e, owner *node, s *ListState, n int, row func(i int),
 		if ok && (focus < first || focus >= last) {
 			f.build(focus)
 		}
+		drag, header := -1, -1
 		// So does the row a drag choosing rows began on, which holds the
 		// press as the list scrolls it away.
 		if d := &s.dragSel; d.on && d.from < n && (d.from < first || d.from >= last) && (!ok || d.from != focus) {
 			f.build(d.from)
+			drag = d.from
 		}
 		if s.Header != nil && n > 0 {
 			if h := s.headerAbove(a, n); h >= 0 && (h < first || h >= last) && (!ok || h != focus) {
 				f.build(h)
+				header = h
+			}
+		}
+		// So do the rows holding the ends of the selection of text of a
+		// Selectable container around the list, which keeps it while they
+		// are out of view, and after Select All its first and last rows,
+		// where its ends go.
+		if sel := &rt.selection; sel.scope != 0 {
+			var keep [6]int
+			m := 0
+			if i, held := s.rowHolding(e, n, sel.anchor.id); held {
+				keep[m] = i
+				m++
+			}
+			if i, held := s.rowHolding(e, n, sel.caret.id); held {
+				// The rows around the caret too, where the keys move it.
+				keep[m] = i
+				m++
+				for _, j := range [2]int{i - 1, i + 1} {
+					if j >= 0 && j < n {
+						keep[m] = j
+						m++
+					}
+				}
+			}
+			if sel.all && s.textScope == sel.scope && n > 0 {
+				keep[m], keep[m+1] = 0, n-1
+				m += 2
+			}
+			for k, i := range keep[:m] {
+				if (i < first || i >= last) && (!ok || i != focus) && i != drag && i != header && !slices.Contains(keep[:k], i) {
+					f.build(i)
+				}
 			}
 		}
 	})
@@ -1331,11 +1385,17 @@ func (f *listFrame) typed(text string) int {
 // focusedRow returns the row holding the keyboard focus in the last
 // frame, where it is now.
 func (s *ListState) focusedRow(e *node, n int) (int, bool) {
+	return s.rowHolding(e, n, e.c.rt.focused)
+}
+
+// rowHolding returns the row holding element id in the last frame, where
+// it is now.
+func (s *ListState) rowHolding(e *node, n int, id uint64) (int, bool) {
 	rt := e.c.rt
-	if rt.focused == 0 || len(s.rows) == 0 {
+	if id == 0 || len(s.rows) == 0 {
 		return 0, false
 	}
-	for st := rt.states[rt.focused]; st != nil && st.id != e.id && st.parent != 0; st = rt.states[st.parent] {
+	for st := rt.states[id]; st != nil && st.id != e.id && st.parent != 0; st = rt.states[st.parent] {
 		if st.parent != e.id {
 			continue
 		}
@@ -2000,4 +2060,159 @@ func (hs *listHeights) clear() {
 	clear(hs.blocks)
 	hs.ids, hs.blocks = hs.ids[:0], hs.blocks[:0]
 	hs.dirty = true
+}
+
+// collectRows collects the selectable paragraphs of the rows of list e in
+// the order of the rows, which it builds out of order: the rows it keeps
+// out of view, and those it builds as it lays out, come after the others.
+func collectRows(rt *engine, e *node, hidden bool) {
+	s := e.list.s
+	s.textScope = 0
+	if !hidden {
+		s.textScope = selectableAround(e)
+	}
+	from := len(rt.texts)
+	collectInOrder(rt, e, hidden)
+	if s.textScope != 0 {
+		rt.textLists = append(rt.textLists, textList{from, len(rt.texts), s, s.textScope})
+	}
+}
+
+// collectInOrder collects the selectable paragraphs of list e's rows, in
+// the order of the rows.
+func collectInOrder(rt *engine, e *node, hidden bool) {
+	s := e.list.s
+	if s.textScope != 0 && s.textScope == rt.selection.scope {
+		s.shownN, s.shownBuilt = e.list.n, s.shownBuilt[:0]
+		for _, r := range e.list.rows {
+			s.shownBuilt = append(s.shownBuilt, r.i)
+		}
+		slices.Sort(s.shownBuilt)
+	}
+	prev, sorted := -1, true
+	for ch := e.first; ch != nil && sorted; ch = ch.next {
+		if ch.listRow {
+			sorted = ch.rowIndex > prev
+			prev = ch.rowIndex
+		}
+	}
+	if sorted {
+		for ch := e.first; ch != nil; ch = ch.next {
+			collectRow(rt, e, ch, hidden)
+		}
+		return
+	}
+	rows := s.collected[:0]
+	for ch := e.first; ch != nil; ch = ch.next {
+		if ch.listRow {
+			rows = append(rows, ch)
+		} else {
+			rt.collectSelectable(ch, hidden)
+		}
+	}
+	slices.SortFunc(rows, func(a, b *node) int { return a.rowIndex - b.rowIndex })
+	for _, r := range rows {
+		collectRow(rt, e, r, hidden)
+	}
+	clear(rows) // the elements go with the frame
+	s.collected = rows[:0]
+}
+
+// collectRow collects the selectable paragraphs of ch, a child of list e,
+// noting the row they are in when the list is in a Selectable container.
+func collectRow(rt *engine, e, ch *node, hidden bool) {
+	from := len(rt.texts)
+	rt.collectSelectable(ch, hidden)
+	if s := e.list.s; ch.listRow && s.textScope != 0 && len(rt.texts) > from {
+		rt.textRows = append(rt.textRows, textRow{from, len(rt.texts), s, ch.rowIndex})
+	}
+}
+
+// selectableAround returns the Selectable container whose selection the
+// text of list e's rows joins, as prepareSelectable finds it, or 0: none
+// for a list choosing rows, whose rows are controls owning their text.
+func selectableAround(e *node) uint64 {
+	if e.list.s.cursor() != nil {
+		return 0
+	}
+	return selectableScope(e)
+}
+
+// rowTexts adds to parts the text ListState.Text gives of the rows from
+// to to of the list of s, to its end for -1, that it did not build in the
+// last frame, each whole.
+func rowTexts(s *ListState, from, to int, parts []SelectedText) []SelectedText {
+	if s.Text == nil {
+		return parts
+	}
+	if to < 0 || to > s.shownN {
+		to = s.shownN
+	}
+	for i := max(from, 0); i < to; i++ {
+		if _, built := slices.BinarySearch(s.shownBuilt, i); built {
+			continue
+		}
+		if t := s.Text(i); t != "" {
+			parts = append(parts, SelectedText{Text: t, End: utf8.RuneCountInString(t)})
+		}
+	}
+	return parts
+}
+
+// rowsBetween adds to parts the text of the rows that lists did not build
+// between paragraphs i and j of rt.texts, as ListState.Text gives it:
+// those between their rows in a list holding both, after i's to its end
+// in a list holding i alone, all of those of a list in between holding
+// no paragraph, and from its start to j's in one holding j alone. -2 for
+// i is before the first paragraph, and for j after the last.
+func rowsBetween(rt *engine, i, j int, parts []SelectedText) []SelectedText {
+	// Rows of the lists in the container selected, not those of lists
+	// around a container inside a row.
+	in := func(k int, r textRow) bool { return r.from <= k && k < r.to && r.list.textScope == rt.selection.scope }
+	for _, r := range rt.textRows {
+		if !in(i, r) {
+			continue
+		}
+		end := -1 // the end of the list, which j is not in
+		for _, s := range rt.textRows {
+			if s.list == r.list && in(j, s) {
+				end = s.row
+				break
+			}
+		}
+		if end != r.row {
+			parts = rowTexts(r.list, r.row+1, end, parts)
+		}
+	}
+	after, before := i, j // where paragraphs i and j are, of the first and the last
+	if i < 0 {
+		after = -1
+	}
+	if j < 0 {
+		before = len(rt.texts)
+	}
+	for _, l := range rt.textLists {
+		if l.from == l.to && l.scope == rt.selection.scope && after < l.from && l.from <= before {
+			parts = rowTexts(l.list, 0, -1, parts)
+		}
+	}
+	// The lists holding j, outermost first: the rows of a list register
+	// after those of the lists inside them.
+	for k := len(rt.textRows) - 1; k >= 0; k-- {
+		s := rt.textRows[k]
+		if !in(j, s) {
+			continue
+		}
+		held := false
+		for _, r := range rt.textRows {
+			if r.list == s.list && in(i, r) {
+				held = true
+				break
+			}
+		}
+		if !held {
+			parts = rowTexts(s.list, 0, s.row, parts)
+		}
+	}
+	return parts
 }
