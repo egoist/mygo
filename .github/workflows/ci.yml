@@ -230,6 +230,14 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
+      - name: Diagnose the SQLite module's Zig build (temporary)
+        shell: bash
+        working-directory: plugins/sqlite/internal/sqlitecore/zig
+        run: |
+          zig version
+          mkdir -p "$ZIG_GLOBAL_CACHE_DIR/tmp"
+          zig build --fetch && echo "fetch ok" || echo "fetch failed: $?"
+          zig build -Doptimize=ReleaseFast --summary all && echo "build ok" || echo "build failed: $?"
       - name: Build the SQLite plugin's native module
         run: go run ./cmd/mygo native build -target host plugins/sqlite/internal/sqlitecore
       - run: go test ./...
