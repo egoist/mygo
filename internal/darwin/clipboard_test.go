@@ -106,23 +106,32 @@ func TestClipboardConcealedItem(t *testing.T) {
 	})
 }
 
+// testPasteboardCalls records what prepareMacClipboard sent to a
+// MyGoTestPasteboard, a class registered once for every run of the test.
+var testPasteboardCalls []string
+
 func TestClipboardConcealedWritesForCurrentHostOnly(t *testing.T) {
 	load()
-	var calls []string
-	classDef("MyGoTestPasteboard", "NSObject", nil, []objc.MethodDef{
-		method("clearContents", func(self id, _ objc.SEL) int { calls = append(calls, "clearContents"); return 0 }),
-		method("prepareForNewContentsWithOptions:", func(self id, _ objc.SEL, options uint) int {
-			calls = append(calls, fmt.Sprintf("prepareForNewContentsWithOptions:%d", options))
-			return 0
-		}),
-	})
+	if objc.GetClass("MyGoTestPasteboard") == 0 {
+		classDef("MyGoTestPasteboard", "NSObject", nil, []objc.MethodDef{
+			method("clearContents", func(self id, _ objc.SEL) int {
+				testPasteboardCalls = append(testPasteboardCalls, "clearContents")
+				return 0
+			}),
+			method("prepareForNewContentsWithOptions:", func(self id, _ objc.SEL, options uint) int {
+				testPasteboardCalls = append(testPasteboardCalls, fmt.Sprintf("prepareForNewContentsWithOptions:%d", options))
+				return 0
+			}),
+		})
+	}
+	testPasteboardCalls = nil
 	withPool(func() {
 		board := autorelease(send(send(class("MyGoTestPasteboard"), "alloc"), "init"))
 		prepareMacClipboard(board, false)
 		prepareMacClipboard(board, true)
 	})
 	// 1 is NSPasteboardContentsCurrentHostOnly.
-	if want := []string{"clearContents", "prepareForNewContentsWithOptions:1"}; !slices.Equal(calls, want) {
-		t.Fatalf("pasteboard calls %q, want %q", calls, want)
+	if want := []string{"clearContents", "prepareForNewContentsWithOptions:1"}; !slices.Equal(testPasteboardCalls, want) {
+		t.Fatalf("pasteboard calls %q, want %q", testPasteboardCalls, want)
 	}
 }
