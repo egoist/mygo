@@ -370,7 +370,7 @@
   @apply pointer-events-none absolute top-2.5 right-3 text-xs font-medium text-muted-foreground transition-opacity select-none;
 
   .code-block:hover &,
-  .code-block:focus-within & {
+  .code-block:has(.copy-button:focus-visible) & {
     @apply opacity-0;
   }
 }
