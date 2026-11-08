@@ -336,11 +336,11 @@ func (rt *engine) hoverScrolled() {
 		break
 	}
 	old := rt.hover
-	if slices.Equal(chain, old) {
+	if !rt.setHover(chain) {
 		rt.chain = chain[:0]
 		return
 	}
-	rt.hover, rt.chain = chain, old[:0]
+	rt.chain = old[:0]
 }
 
 func (rt *engine) pointerMove(x, y float32) {
