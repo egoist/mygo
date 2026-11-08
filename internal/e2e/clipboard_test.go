@@ -191,11 +191,14 @@ func TestUnifiedClipboardNativeRoundTrip(t *testing.T) {
 	}
 }
 
-// A concealed write carries the platform's mark for clipboard managers next
-// to its content, after Flush too, and an ordinary write none.
 func TestUnifiedClipboardConcealed(t *testing.T) {
 	preserveClipboard(t)
 	mark := map[string]string{"darwin": "org.nspasteboard.ConcealedType", "linux": "x-kde-passwordManagerHint", "windows": "ExcludeClipboardContentFromMonitorProcessing"}[runtime.GOOS]
+	formats := []transfer.Format{transfer.Text}
+	if runtime.GOOS == "linux" {
+		// Klipper and CopyQ compare the hint's value.
+		formats = append(formats, transfer.Format(mark))
+	}
 	if err := mygo.Clipboard.Write(transfer.TextData("hunter2"), mygo.ClipboardOptions{Concealed: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -205,9 +208,12 @@ func TestUnifiedClipboardConcealed(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		r := readClipboardPeer(t, transfer.Text)
+		r := readClipboardPeer(t, formats...)
 		if r.Text != "hunter2" || !slices.Contains(r.Native, mark) {
 			t.Fatalf("flushed %t: text %q, native formats %q lack %q", flushed, r.Text, r.Native, mark)
+		}
+		if runtime.GOOS == "linux" && string(r.Values[transfer.Format(mark)]) != "secret" {
+			t.Fatalf("flushed %t: hint %q", flushed, r.Values[transfer.Format(mark)])
 		}
 	}
 	if err := mygo.Clipboard.Write(transfer.TextData("plain")); err != nil {

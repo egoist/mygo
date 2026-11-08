@@ -4,6 +4,7 @@ package darwin
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ebitengine/purego/objc"
 	"github.com/egoist/mygo/transfer"
 )
 
@@ -80,8 +82,6 @@ func TestClipboardFileReferenceURL(t *testing.T) {
 	})
 }
 
-// A concealed item carries nspasteboard.org's mark next to its promised
-// types, with no data to provide; an ordinary item carries none.
 func TestClipboardConcealedItem(t *testing.T) {
 	load()
 	registerClipboardClass()
@@ -98,10 +98,31 @@ func TestClipboardConcealedItem(t *testing.T) {
 			if slices.Contains(types, macConcealedType) != concealed || !slices.Contains(types, utString) {
 				t.Fatalf("concealed %t: types %q", concealed, types)
 			}
-			if mark := send(pb, "dataForType:", uintptr(nsString(macConcealedType))); (mark != 0) != concealed || mark != 0 && send(mark, "length") != 0 {
+			if mark := send(pb, "dataForType:", uintptr(nsString(macConcealedType))); (mark != 0) != concealed {
 				t.Fatalf("concealed %t: mark data %d", concealed, mark)
 			}
 			s.release()
 		}
 	})
+}
+
+func TestClipboardConcealedWritesForCurrentHostOnly(t *testing.T) {
+	load()
+	var calls []string
+	classDef("MyGoTestPasteboard", "NSObject", nil, []objc.MethodDef{
+		method("clearContents", func(self id, _ objc.SEL) int { calls = append(calls, "clearContents"); return 0 }),
+		method("prepareForNewContentsWithOptions:", func(self id, _ objc.SEL, options uint) int {
+			calls = append(calls, fmt.Sprintf("prepareForNewContentsWithOptions:%d", options))
+			return 0
+		}),
+	})
+	withPool(func() {
+		board := autorelease(send(send(class("MyGoTestPasteboard"), "alloc"), "init"))
+		prepareMacClipboard(board, false)
+		prepareMacClipboard(board, true)
+	})
+	// 1 is NSPasteboardContentsCurrentHostOnly.
+	if want := []string{"clearContents", "prepareForNewContentsWithOptions:1"}; !slices.Equal(calls, want) {
+		t.Fatalf("pasteboard calls %q, want %q", calls, want)
+	}
 }

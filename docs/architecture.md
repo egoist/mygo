@@ -2138,8 +2138,8 @@ token is rejected by clipboard writes.
 
 `clipboard.go` owns validation, main-thread dispatch, provider reentry guards,
 and deferred, exactly-once release hooks. `platform.Clipboard` accepts a
-snapshot, concealed or not, returns materialized reads, discovers formats
-without rendering, and flushes/closes native ownership. A concealed write
+snapshot, returns materialized reads, discovers formats without rendering,
+and flushes/closes native ownership. A concealed write
 (`ClipboardOptions.Concealed`) carries each platform's mark for clipboard
 managers next to its data, on write and on flush, and macOS writes it for
 the current host only. Clipboard providers belong to the app,

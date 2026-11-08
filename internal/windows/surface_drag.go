@@ -381,7 +381,7 @@ func setTransferProviders(d *dragDataObject, data transfer.Data, session string)
 	if session != "" {
 		add(uint16(registerClipboardFormat(string(platform.DragSessionFormat))), func() ([]byte, error) { return []byte(session), nil })
 	}
-	if d.clipboard && d.concealed {
+	if d.concealed {
 		add(uint16(registerClipboardFormat(winConcealedFormat)), func() ([]byte, error) { return []byte{1, 0, 0, 0}, nil })
 	}
 }

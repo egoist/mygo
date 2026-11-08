@@ -8,7 +8,8 @@ import (
 	"github.com/egoist/mygo/transfer"
 )
 
-// ClipboardOptions configures the lifetime of a clipboard write.
+// ClipboardOptions configures a clipboard write: the lifetime of its
+// providers, and whether its content is confidential.
 type ClipboardOptions struct {
 	// OnRelease runs once on the main thread after native providers are no
 	// longer needed: replacement, Clear, Flush, or application shutdown.
@@ -17,16 +18,17 @@ type ClipboardOptions struct {
 	// a new clipboard. It does not run when Write fails. Closing a window
 	// does not release the application-owned clipboard.
 	OnRelease func()
-	// Concealed marks the content as confidential, such as a password:
-	// clipboard histories and managers that honor the platforms' marks
-	// leave it out, and it stays on this machine, off Universal Clipboard
-	// and Windows' cloud clipboard. macOS adds nspasteboard.org's
-	// org.nspasteboard.ConcealedType to every item and writes for the
-	// current host only; Windows adds
-	// ExcludeClipboardContentFromMonitorProcessing; Linux offers KDE's
-	// x-kde-passwordManagerHint, which Klipper and other clipboard managers
-	// read. Browsers have no such mark. Flush keeps the marks. The content
-	// stays on the clipboard until the app replaces or clears it.
+	// Concealed marks the content as confidential, such as a password, for
+	// the clipboard managers that read the platform's mark; what they do
+	// with it, such as leaving it out of their histories, is theirs. macOS
+	// adds nspasteboard.org's org.nspasteboard.ConcealedType to every item
+	// and writes for the current host only, which keeps the content off
+	// Universal Clipboard; Windows adds
+	// ExcludeClipboardContentFromMonitorProcessing, which keeps it out of
+	// the clipboard history and off the user's other devices; Linux offers
+	// KDE's x-kde-passwordManagerHint. Browsers have no such mark. Flush
+	// keeps the marks. The content stays on the clipboard until the app
+	// replaces or clears it.
 	Concealed bool
 }
 

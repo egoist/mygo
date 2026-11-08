@@ -28,9 +28,9 @@ type macClipboardSource struct {
 	released  func()
 }
 
-// macConcealedType is nspasteboard.org's mark of confidential content, which
-// clipboard managers leave out of their histories. It goes on every item,
-// with no data, next to the content.
+// macConcealedType is nspasteboard.org's mark of confidential content, for
+// the clipboard managers that read it. It goes on every item, with no data,
+// next to the content.
 const macConcealedType = "org.nspasteboard.ConcealedType"
 
 // prepareMacClipboard takes the pasteboard for new contents, as clearContents
