@@ -43,6 +43,10 @@ type EditorOptions struct {
 	// quotations. What it leaves zero, and all of it when nil, takes the
 	// window theme's DefaultTheme.
 	Theme *Theme
+	// Menu builds the context menu in place of the editor's own, as
+	// Element.ContextMenu's function does: an app with a menu of its own
+	// opens it there, and adds nothing to show none of the system's.
+	Menu func(m *ui.Menu)
 }
 
 // Editor creates an editor of doc's attributed text, as NSTextView edits
@@ -241,7 +245,11 @@ func build(c *ui.Context, doc *Document, options []EditorOptions, styled bool) u
 	e.HandleInput(v.input)
 	e.Cursor(v.cursor)
 	e.Draw(v.paint)
-	e.ContextMenu(v.menu)
+	if v.opts.Menu != nil {
+		e.ContextMenu(v.opts.Menu)
+	} else {
+		e.ContextMenu(v.menu)
+	}
 	if styled {
 		e.FocusRing(false)
 	}
