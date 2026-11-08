@@ -18,7 +18,7 @@ const Engine = struct {
     }
 
     pub fn open(_: *Engine, arena: Allocator, path: []const u8, read_only: bool, busy_millis: i64) mygo.Error!mygo.Conn {
-        const name = try arena.dupeZ(u8, path);
+        const name = try arena.dupeSentinel(u8, path, 0);
         const flags: c_int = if (read_only) open_readonly | open_fullmutex else open_readwrite | open_create | open_fullmutex;
         var db: ?*Db = null;
         const rc = sqlite3_open_v2(name, &db, flags, null);
