@@ -151,6 +151,11 @@ type row struct {
 	part int
 }
 
+type rowKey struct {
+	id   string
+	part int
+}
+
 app.rows = app.rows[:0]
 for _, m := range app.messages {
 	for k := range m.parts.Update(c, m.Text, &app.md, !m.Done) {
@@ -159,7 +164,7 @@ for _, m := range app.messages {
 }
 app.list.Key = func(i int) any {
 	r := app.rows[i]
-	return [2]any{r.m.ID, r.m.parts.Key(r.part)}
+	return rowKey{r.m.ID, r.m.parts.Key(r.part)}
 }
 app.list.Text = func(i int) string {
 	r := app.rows[i]
@@ -184,6 +189,15 @@ Without a gap between them, the parts are spaced as the blocks of a
 `View`, so give the space between messages to the rows that start and
 end one, as their padding. `Revealed` tells that the reply shows all of
 its text, as the function `Revealed` does for a view.
+
+`Update` runs for every message, every frame, and goes through the
+top-level blocks of its reply, so a frame takes longer as the chat
+grows: in a window of 800 by 1000 on an Apple M3 Pro, a frame of a chat
+of replies of about 5 KB took 0.25 ms with 10 of them, 0.29 ms with 100
+and 1.1 ms with 1,000 (`BenchmarkPartsHistory`). The list asks `Key` for
+every row it builds, and for the rows it looks for, every frame: a key
+in an interface allocates, once for a struct of comparable fields as
+`rowKey`, three times for a `[2]any` of a string and a number.
 
 A link to a heading or a footnote of a part the list does not build
 cannot scroll the list there by itself: `Scroll` returns the part it asks
@@ -586,7 +600,7 @@ frame of the reply in parts in a window of 800 by 1000 took 0.27 ms and
 27 allocations, against 1.7 ms and 354 for the reply shown whole
 (`BenchmarkPartsSteady` and `BenchmarkViewSteady`). Its first 25 KB in a
 window of 800 by 900 kept 7.5 MB of Go heap in parts, against 10.5 MB
-whole (`TestLongReplyRetainedHeap`): a list builds the rows of its first
+whole (`BenchmarkLongReplyRetainedHeap`, as `retained-B`): a list builds the rows of its first
 frame from an estimate of their height, 31 of the 44 parts here,
 and keeps the memory of what it built.
 
@@ -596,7 +610,7 @@ and keeps the memory of what it built.
 
 ```sh
 CGO_ENABLED=0 GOMAXPROCS=1 go test ./ui/markdown -run '^$' -bench . -benchmem
-go test ./ui/markdown -run TestLongReplyRetainedHeap -v
+go test ./ui/markdown -run '^$' -bench LongReplyRetainedHeap
 go test ./ui/markdown -run 'TestCommonMark|TestGFM|TestAppend|TestEdits|TestPathological' -v
 ```
 

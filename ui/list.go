@@ -118,10 +118,10 @@ type ListState struct {
 	// Selectable container around the list copies it when it is built: a
 	// selection across rows the list did not build copies theirs from it,
 	// those between the selection's ends and, after Select All, every row.
-	// Without it, a selection holds the rows built alone. Copying asks it
-	// as the frame after the copy is laid out, and SelectedTexts for the
-	// rows of the frame laid out last: answer from the rows as the view
-	// built them. Return "" for a row without text.
+	// Without it, a selection holds the rows built alone. Copy and
+	// CopyData ask it between frames, for the rows of the frame laid out
+	// last: answer from the rows as the view built them, and SelectedTexts
+	// never asks it. Return "" for a row without text.
 	Text func(row int) string
 	// Header, when set, reports whether row i heads a section: the header
 	// of the section at the top of the list stays there while the rows of
@@ -2366,17 +2366,13 @@ func collectRow(rt *engine, e, ch *node, hidden bool) {
 }
 
 // selectableAround returns the Selectable container whose selection the
-// text of list e's rows joins, as prepareSelectable finds it, or 0.
+// text of list e's rows joins, as prepareSelectable finds it, or 0: none
+// for a list choosing rows, whose rows are controls owning their text.
 func selectableAround(e *node) uint64 {
-	for p := e; p != nil; p = p.parent {
-		if p.kind == kindBox && p.flags&flagSelectable != 0 {
-			return p.id
-		}
-		if p != e && (p.flags&(flagClickable|flagFocusable|flagEditable|flagUnselectable) != 0 || p.inputFn != nil) {
-			return 0 // a control owns its text
-		}
+	if e.list.s.cursor() != nil {
+		return 0
 	}
-	return 0
+	return selectableScope(e)
 }
 
 // rowTexts adds to parts the text ListState.Text gives of the rows from

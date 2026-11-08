@@ -314,6 +314,36 @@ func TestPartsSelectionInList(t *testing.T) {
 	}
 }
 
+// A reply regenerated shorter while its text is selected: SelectedTexts,
+// asked as the app builds with the reply's new parts, does not ask for
+// parts by the last frame's rows, and Key and Text of a part the reply
+// no longer has are -2 and "".
+func TestPartsRegenerated(t *testing.T) {
+	src := longReply(t)
+	var p Parts
+	var list ui.ListState
+	list.Key = func(i int) any { return p.Key(i) }
+	list.Text = func(i int) string { return p.Text(i) }
+	n := 0
+	tt := ui.NewTester(func(c *ui.Context) {
+		n = p.Update(c, src, nil, false)
+		col := ui.Column(c).Selectable().Fill()
+		col.SelectedTexts()
+		col.Children(func() {
+			ui.List(c, &list, n, func(i int) { p.View(c, i) }).Grow(1)
+		})
+	}, 800, 600)
+	r, _ := tt.Find("Building a fast user service")
+	tt.ClickAt(r.X+2, r.Y+r.H/2)
+	tt.Key(ui.Cmd, ui.KeyA)
+	was := n
+	src = "# Regenerated\n\nShorter.\n"
+	tt.Frame()
+	if n != 1 || p.Key(was-1) != -2 || p.Text(was-1) != "" || p.Key(-1) != -2 {
+		t.Errorf("%d parts; Key and Text of part %d, gone: %d, %q", n, was-1, p.Key(was-1), p.Text(was-1))
+	}
+}
+
 // Text gives what the view shows of an image not loaded without a
 // description, and of an empty code block.
 func TestPartsTextPlaceholders(t *testing.T) {

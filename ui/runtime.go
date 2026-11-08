@@ -417,9 +417,6 @@ type engine struct {
 	// lists a selection of text reaches, set as the first list builds too.
 	listTexts   func(rt *engine, e *node, hidden bool)
 	rowsBetween func(rt *engine, i, j int, parts []SelectedText) []SelectedText
-	// copyAsked is the selection a Copy asked for, of a container holding
-	// lists, which the frame copies once they have built their rows.
-	copyAsked textSelection
 	// pressDragger is the element around the one pressed that drags a
 	// value, which takes the press as it moves (dragMove), or 0.
 	pressDragger uint64
@@ -978,9 +975,6 @@ func (rt *engine) runFrame() {
 	rt.textLists = rt.textLists[:0]
 	rt.collectSelectable(root, false)
 	rt.syncTextSelection()
-	if rt.copyAsked.scope != 0 {
-		rt.copyAskedSelection()
-	}
 	rt.stats.lap(phaseLayout)
 	rt.insp.lap(1)
 	if rt.insp.open {
@@ -1662,7 +1656,6 @@ func (rt *engine) dropFrame() {
 		checkBuilt(rt, builtDropped)
 	}
 	rt.textRows, rt.textLists = nil, nil
-	rt.copyAsked = textSelection{}
 }
 
 // endFrame ends a frame, and closes the engine when its window closed
