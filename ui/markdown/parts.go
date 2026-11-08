@@ -130,8 +130,15 @@ func atxHeading(d *parser.Document, b *parser.Block) bool {
 
 // Key returns the identity of part i: the offset in the source of its
 // first block, which text appended to the source does not change, or -1
-// for the footnotes, which come last. Key a list's rows by it.
-func (p *Parts) Key(i int) int { return p.parts[i].key }
+// for the footnotes, which come last. Key a list's rows by it. A part the
+// document no longer has, as one asked for by the rows of a frame before
+// the reply changed, is -2.
+func (p *Parts) Key(i int) int {
+	if i < 0 || i >= len(p.parts) {
+		return -2
+	}
+	return p.parts[i].key
+}
 
 // View builds part i, as View, or Stream, builds those blocks of the
 // document.
@@ -195,8 +202,12 @@ func (p *Parts) partOf(i int) (int, bool) {
 // cell, the lines of code blocks, and images as their descriptions.
 // Blocks that Options builds otherwise give their source: the code of a
 // code block, the TeX of math, the HTML of HTML. Give it to the list's
-// ListState.Text, which copies the parts the list does not build.
+// ListState.Text, which copies the parts the list does not build. A part
+// the document no longer has is "".
 func (p *Parts) Text(i int) string {
+	if i < 0 || i >= len(p.parts) {
+		return ""
+	}
 	st, pt := p.st, p.parts[i]
 	w := textWriter{st: st, locale: p.locale}
 	if pt.from < 0 {

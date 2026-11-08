@@ -92,7 +92,9 @@ behaves and to move it:
   rows the list did not build copies theirs from it, those between its
   ends and, after Select All, every row. The list keeps the rows holding
   the selection's ends built while they are out of view, as it keeps the
-  row holding the focus (see [selecting text](text.md)).
+  row holding the focus (see [selecting text](text.md)). Copy asks it
+  between frames, for the rows of the last frame: answer from the rows
+  as the view built them.
 
 Give each list a `ListState` of its own, and set its fields before
 building the list.

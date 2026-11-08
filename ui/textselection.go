@@ -65,15 +65,7 @@ func (e *node) prepareSelectable() {
 	}
 	scope := uint64(0)
 	if e.flags&(flagClickable|flagFocusable|flagUnselectable) == 0 && e.inputFn == nil {
-		for p := e.parent; p != nil; p = p.parent {
-			if p.kind == kindBox && p.flags&flagSelectable != 0 {
-				scope = p.id
-				break
-			}
-			if p.flags&(flagClickable|flagFocusable|flagEditable|flagUnselectable) != 0 || p.inputFn != nil {
-				break // a control owns its text
-			}
-		}
+		scope = selectableScope(e.parent)
 	}
 	if old := e.st.textScope; old != 0 && old != scope {
 		if e.c.rt.selection.scope == old && e.c.rt.textSelectionIncludes(e.id) {
@@ -114,6 +106,20 @@ func (e *node) prepareSelectable() {
 	if e.c.rt.focused == e.id || len(ed.queue) > 0 {
 		ed.process(e.c, e)
 	}
+}
+
+// selectableScope returns the Selectable container, p or around it, whose
+// selection the text inside p joins, or 0.
+func selectableScope(p *node) uint64 {
+	for ; p != nil; p = p.parent {
+		if p.kind == kindBox && p.flags&flagSelectable != 0 {
+			return p.id
+		}
+		if p.flags&(flagClickable|flagFocusable|flagEditable|flagUnselectable) != 0 || p.inputFn != nil {
+			return 0 // a control owns its text
+		}
+	}
+	return 0
 }
 
 // collectSelectable follows build order, independently of painting order
@@ -418,13 +424,6 @@ func (rt *engine) textSelectionCommand(s *state, name string) bool {
 			rt.selection.all = rt.holdsList(s.textScope)
 		}
 	case "copy":
-		if rt.holdsList(s.textScope) {
-			// The rows of a list copy as the app has them when the list
-			// builds them, in the next frame.
-			rt.copyAsked = rt.selection
-			rt.requestFrame()
-			return true
-		}
 		rt.copySelection(s.textScope)
 	}
 	return true // other editing commands cannot change selectable text
@@ -441,33 +440,17 @@ func (rt *engine) holdsList(scope uint64) bool {
 	return false
 }
 
-// copyAskedSelection copies the selection a Copy asked for, once the
-// frame's lists have built their rows: the selection as it was then, or
-// Select All as its ends are now.
-func (rt *engine) copyAskedSelection() {
-	asked := rt.copyAsked
-	rt.copyAsked = textSelection{}
-	if asked.all && rt.selection.all && asked.scope == rt.selection.scope {
-		rt.copySelection(asked.scope)
-		return
-	}
-	now := rt.selection
-	rt.selection = asked
-	rt.copySelection(asked.scope)
-	rt.selection = now
-}
-
 // copySelection puts the selection of container scope on the clipboard.
 func (rt *engine) copySelection(scope uint64) {
 	if _, _, _, _, selected := rt.selectedRange(); !selected || rt.selection.scope != scope {
 		return
 	}
 	if sc := rt.states[scope]; sc != nil && sc.copyData != nil {
-		rt.host.writeClipboardData(sc.copyData(rt.selectedTexts(scope)))
+		rt.host.writeClipboardData(sc.copyData(rt.selectedTexts(scope, true)))
 		return
 	}
 	var out strings.Builder
-	for k, p := range rt.selectedTexts(scope) {
+	for k, p := range rt.selectedTexts(scope, true) {
 		if k > 0 {
 			out.WriteByte('\n')
 		}
@@ -481,16 +464,18 @@ func (rt *engine) copySelection(scope uint64) {
 }
 
 // selectedTexts returns the parts of paragraphs the selection of
-// container scope holds, and the text of rows lists did not build between
-// them.
-func (rt *engine) selectedTexts(scope uint64) []SelectedText {
+// container scope holds and, with unbuilt, the text of rows lists did not
+// build between them: only as the selection is copied, between frames,
+// when the rows of the last frame are still the app's.
+func (rt *engine) selectedTexts(scope uint64, unbuilt bool) []SelectedText {
 	first, last, a, b, selected := rt.selectedRange()
 	if !selected || rt.selection.scope != scope {
 		return nil
 	}
 	var parts []SelectedText
+	unbuilt = unbuilt && rt.rowsBetween != nil
 	prev := -1
-	if rt.selection.all {
+	if unbuilt && rt.selection.all {
 		prev = -2 // the rows of lists before the first paragraph
 	}
 	for i := first; i <= last; i++ {
@@ -498,14 +483,14 @@ func (rt *engine) selectedTexts(scope uint64) []SelectedText {
 		if p.textScope != scope || p.editor == nil {
 			continue
 		}
-		if prev != -1 && rt.rowsBetween != nil {
+		if unbuilt && prev != -1 {
 			parts = rt.rowsBetween(rt, prev, i, parts)
 		}
 		from, to := selectedRunes(p, i, first, last, a, b)
 		parts = append(parts, SelectedText{ID: p.id, Text: p.editor.source, Start: from, End: to})
 		prev = i
 	}
-	if rt.selection.all && rt.rowsBetween != nil {
+	if unbuilt && rt.selection.all {
 		parts = rt.rowsBetween(rt, prev, -2, parts)
 	}
 	return parts

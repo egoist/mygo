@@ -136,7 +136,12 @@ selection's ends built while they are out of view, so the selection
 stays as it scrolls, and shows again on the rows between them as they
 come back. The rows it does not build copy as `ListState.Text` gives
 their text: those between the ends, and every row after Select All.
-Without it, the selection holds the rows built alone.
+Without it, the selection holds the rows built alone. Copy asks it as
+it copies, between frames, for the rows of the last frame, and gives
+those rows to `CopyData` with an `ID` of 0; `SelectedTexts`, which the
+app asks as it builds, perhaps after changing its rows, holds the rows
+built alone. A list choosing rows (`Selected` or `Selection`) does not
+join the selection: its rows are controls, which own their text.
 
 ```go
 app.list.Text = func(i int) string { return app.messages[i].Text }

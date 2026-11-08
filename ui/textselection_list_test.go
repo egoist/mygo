@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/egoist/mygo/internal/platform"
 )
 
 // listOfMessages is a Selectable List of 200 one-line messages, as a chat
@@ -97,9 +99,14 @@ func TestSelectableListCopiesRowsNotBuilt(t *testing.T) {
 	if got := copied(tt); got != want {
 		t.Fatalf("copied %d lines, want %d:\n%s", strings.Count(got, "\n")+1, strings.Count(want, "\n")+1, got)
 	}
-	parts := tt.rt.selectedTexts(tt.rt.selection.scope)
+	parts := tt.rt.selectedTexts(tt.rt.selection.scope, true)
 	if len(parts) != 151 || parts[0].ID == 0 || parts[1].ID != 0 || parts[1].Text != (*rows)[3] || parts[1].End != len((*rows)[3]) || parts[150].ID == 0 {
-		t.Errorf("SelectedTexts: %d parts, the first %+v, %+v", len(parts), parts[0], parts[1])
+		t.Errorf("CopyData's parts: %d, the first %+v, %+v", len(parts), parts[0], parts[1])
+	}
+	// SelectedTexts, which the app asks as it builds, has the rows built.
+	built := tt.rt.selectedTexts(tt.rt.selection.scope, false)
+	if len(built) < 2 || len(built) >= 151 || built[0].Text != (*rows)[2] || built[len(built)-1].Text != (*rows)[152] || slices.ContainsFunc(built, func(p SelectedText) bool { return p.ID == 0 }) {
+		t.Errorf("SelectedTexts: %+v", built)
 	}
 
 	// Select All from a click in view, which leaves the rows above out.
@@ -181,51 +188,79 @@ func TestSelectableListSelectAllEnds(t *testing.T) {
 	}
 }
 
-// Copy takes the rows as the app has them when the list builds them: rows
-// gone since the last frame are not asked for.
-func TestSelectableListCopyAfterRowsGo(t *testing.T) {
+// Copy puts the selection on the clipboard as it is asked for, as a
+// browser's copy event needs, with the rows of the last frame: Select All
+// and Copy with no frame between them copy every row.
+func TestSelectableListCopiesAtOnce(t *testing.T) {
 	var list ListState
 	tt, rows := listOfMessages(&list)
 	list.Text = func(i int) string { return (*rows)[i] }
-	tt.ClickAt(selectableAt(t, tt, (*rows)[0], 0))
-	tt.Key(Cmd, KeyA)
-	tt.Frame()
-	*rows = (*rows)[:100] // no frame between this and the copy
-	if got, want := copied(tt), strings.Join(*rows, "\n"); got != want {
-		t.Errorf("copied %d lines, want 100", strings.Count(got, "\n")+1)
+	tt.ClickAt(selectableAt(t, tt, (*rows)[1], 2))
+	tt.SetClipboard("nothing")
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "selectAll"})
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "copy"})
+	if got, want := tt.Clipboard(), strings.Join(*rows, "\n"); got != want {
+		t.Errorf("copied %d lines at once, want 200", strings.Count(got, "\n")+1)
 	}
 }
 
-// SelectedTexts asked as the view builds, after other elements came
-// before the list, still has the rows the list did not build.
-func TestSelectableListSelectedTextsWhileBuilding(t *testing.T) {
+// Rows the app rebuilds as the view builds, as a reply regenerated with
+// fewer parts, are not asked for by the last frame's indices:
+// SelectedTexts has the paragraphs built, and Copy after the frame the
+// rows the app has then.
+func TestSelectableListRowsRebuilt(t *testing.T) {
 	var list ListState
 	rows := make([]string, 200)
 	for i := range rows {
 		rows[i] = fmt.Sprintf("Message %03d", i)
 	}
 	list.Key = func(i int) any { return rows[i] }
-	list.Text = func(i int) string { return rows[i] }
-	extra := false
+	list.Text = func(i int) string { return rows[i] } // out of range for rows gone
+	fewer := false
 	var parts []SelectedText
 	tt := coreNewTester(func(c *context) {
+		if fewer {
+			rows = rows[:50]
+		}
 		col := coreColumn(c).Selectable().Size(300, 200)
+		parts = col.SelectedTexts() // as a context menu's item asks
 		col.Children(func() {
-			if extra {
-				coreBox(c).Size(10, 10)
-			}
-			c.nextKey, c.keySet = "list", true // the same list, after the box
 			coreList(c, &list, len(rows), func(i int) { coreText(c, rows[i]).Padding(4) }).Grow(1)
 		})
-		parts = col.SelectedTexts()
 	}, 400, 300)
 	tt.ClickAt(selectableAt(t, tt, rows[0], 0))
 	tt.Key(Cmd, KeyA)
+	fewer = true
 	tt.Frame()
-	extra = true
-	tt.Frame()
-	if len(parts) != 200 {
-		t.Errorf("SelectedTexts as the view builds has %d parts, want 200", len(parts))
+	if len(parts) == 0 || len(parts) >= 50 || slices.ContainsFunc(parts, func(p SelectedText) bool { return p.ID == 0 }) {
+		t.Errorf("SelectedTexts as the rows are rebuilt has %d parts, want those built", len(parts))
+	}
+	if got, want := copied(tt), strings.Join(rows, "\n"); got != want {
+		t.Errorf("copied %d lines, want 50", strings.Count(got, "\n")+1)
+	}
+}
+
+// A list choosing rows inside a Selectable container is a control owning
+// its rows' text: it does not join the selection, nor is Text asked.
+func TestSelectableChoosableList(t *testing.T) {
+	var list ListState
+	selected := -1
+	list.Selected = &selected
+	list.Text = func(i int) string {
+		t.Errorf("Text asked for row %d of a list choosing rows", i)
+		return ""
+	}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Selectable().Size(300, 250).Children(func() {
+			coreText(c, "Before")
+			coreList(c, &list, 200, func(i int) { coreText(c, fmt.Sprintf("Row %03d", i)) }).Grow(1)
+			coreText(c, "After")
+		})
+	}, 400, 300)
+	tt.ClickAt(selectableAt(t, tt, "Before", 2))
+	tt.Key(Cmd, KeyA)
+	if got := copied(tt); got != "Before\nAfter" {
+		t.Errorf("Select All copied %q, want %q", got, "Before\nAfter")
 	}
 }
 
@@ -303,20 +338,5 @@ func TestSelectableListKeysOutOfView(t *testing.T) {
 	tt.Key(Shift, KeyLeft)
 	if got := copied(tt); got != "2\n" {
 		t.Errorf("Shift-Left twice from the start of a row out of view copied %q, want %q", got, "2\n")
-	}
-}
-
-// A Copy of a selection reaching into a list copies it as it was asked
-// for, though it changes before the frame that copies it.
-func TestSelectableListCopyAsAsked(t *testing.T) {
-	var list ListState
-	tt, rows := listOfMessages(&list)
-	selectBetween(t, tt, (*rows)[2], 4, (*rows)[3], 4)
-	tt.SetClipboard("nothing")
-	tt.rt.textSelectionCommand(tt.rt.states[tt.rt.focused], "copy")
-	tt.rt.selection.caret = tt.rt.selection.anchor // the selection changes before the frame
-	tt.Frame()
-	if got := tt.Clipboard(); got != "age 002\nMess" {
-		t.Errorf("copied %q, want the selection asked for", got)
 	}
 }
