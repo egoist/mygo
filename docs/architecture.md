@@ -5468,7 +5468,7 @@ make it work:
   (`moduleTargets`, `moduleLibrary`), so `mygo native build` publishes its
   Rust and Zig builds as any library's, by `GOOS-GOARCH`, and its Swift as
   a universal release build packed as `.tar.gz` with its frameworks, named after its
-  SHA-256, uploaded with `gh` to the release `native-libraries` of the
+  SHA-256, uploaded with `gh` to the module's release `native-<name>` of the
   checkout's repository unless `-release` or the library names another
   (`uploadNatives`, which never replaces a file: a name there already is
   the same bytes), recorded under `darwin-universal` of the module's

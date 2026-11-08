@@ -89,12 +89,12 @@ func runNativeBuild(args []string) error {
 		for i := range p.manifest.Libraries {
 			if l := &p.manifest.Libraries[i]; l.Build != nil || p.isModule(*l) {
 				if *upload && *release == "" && l.Release == "" {
-					// The repository's one release of native libraries.
+					// The library's own release in the repository.
 					repo, err := gitHubRepo(p.dir)
 					if err != nil {
 						return fmt.Errorf("-upload: %s has no release: %w", l.Name, err)
 					}
-					l.Release = "https://github.com/" + repo + "/releases/download/" + defaultReleaseTag
+					l.Release = "https://github.com/" + repo + "/releases/download/" + defaultReleaseTag(l.Name)
 				}
 				libs = append(libs, l)
 			}
@@ -361,10 +361,12 @@ func moduleTargets(dir string, targets []string, lang string, host bool) map[str
 }
 
 // defaultReleaseTag is the release that mygo native build -upload uploads
-// to without -release or a library's release: one for every library of
-// the repository, so that publishing makes no release, nor tag, per
-// change.
-const defaultReleaseTag = "native-libraries"
+// library name to without -release or a library's release: one per
+// library, as native-sqlitecore, which every build of it goes to, so
+// that publishing makes no release, nor tag, per change.
+func defaultReleaseTag(name string) string {
+	return "native-" + strings.ToLower(name)
+}
 
 // publishSwift builds the Swift library l of package p, universal, when
 // targets include macOS and its published build is not of its sources (or
@@ -534,7 +536,7 @@ func uploadNatives(release string, files []string) error {
 	}
 	if exec.Command(gh, "release", "view", tag, "--repo", repo).Run() != nil {
 		t := con.start("Creating the release " + tag + " of " + repo)
-		out, err := exec.Command(gh, "release", "create", tag, "--repo", repo, "--title", tag, "--notes", "Native libraries built by mygo native build.", "--latest=false").CombinedOutput()
+		out, err := exec.Command(gh, "release", "create", tag, "--repo", repo, "--title", tag, "--notes", "Builds of a native module, published by mygo native build -upload.", "--latest=false").CombinedOutput()
 		if t.end(err, "Created the release "+tag+" of "+repo) != nil {
 			return fmt.Errorf("gh release create: %v\n%s", err, out)
 		}

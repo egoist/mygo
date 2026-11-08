@@ -1055,10 +1055,10 @@ of the library and the frameworks it brings. Commit `mygo-plugin.json`:
 every machine then downloads those builds instead of compiling them, while
 they match the sources.
 
-It uploads with the [GitHub CLI](https://cli.github.com) to the release
-`native-libraries` of the repository of the module's git checkout, which
-it creates once, not as the latest release, or to the `-release` URL;
-every library's builds go there. Each file is named after its SHA-256 and
+It uploads with the [GitHub CLI](https://cli.github.com) to the module's
+own release, `native-<name>` (`native-adder`), of the repository of the
+module's git checkout, which it creates once, not as the latest release,
+or to the `-release` URL; every build of the module goes there. Each file is named after its SHA-256 and
 never replaced, so the builds that older commits record stay
 downloadable. Without `-upload`, it writes the files into
 `.mygo/native/release` of the Go module, for you to publish under
@@ -1371,11 +1371,11 @@ this:
     {
       "name": "adder",
       "build": { "cargo": "./rust", "args": ["--features", "simd"], "macOS": "13.0" },
-      "release": "https://github.com/me/adder/releases/download/native-libraries",
+      "release": "https://github.com/me/adder/releases/download/native-adder",
       "files": {
         "linux-amd64": {
           "name": "libadder.so",
-          "url": "https://github.com/me/adder/releases/download/native-libraries/adder-linux-amd64-1a2b3c4d5e6f.so",
+          "url": "https://github.com/me/adder/releases/download/native-adder/adder-linux-amd64-1a2b3c4d5e6f.so",
           "sha256": "1a2b3c4d5e6f…",
           "sourceHash": "9f8e7d6c5b4a…"
         }

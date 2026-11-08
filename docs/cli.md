@@ -241,7 +241,7 @@ without the languages' tools.
 |---|---|
 | `-target` | the platforms, `GOOS-GOARCH` separated by commas, `all` (the default) or `host`, which builds this machine's library for `go run` and `go test` and leaves `mygo-plugin.json` alone |
 | `-lang` | builds modules in this language (`swift`, `rust` or `zig`) where they are implemented in it, rather than in each platform's: with `-target host`, to test each implementation |
-| `-release` | the URL of the directory the files are published in, as `https://github.com/<owner>/<repo>/releases/download/<tag>` (default: the library's `release`, else with `-upload` the release `native-libraries` of the repository of the git checkout) |
+| `-release` | the URL of the directory the files are published in, as `https://github.com/<owner>/<repo>/releases/download/<tag>` (default: the library's `release`, else with `-upload` the library's release `native-<name>` of the repository of the git checkout) |
 | `-out` | the directory of the files to publish |
 | `-upload` | uploads the files to the GitHub release of `-release` with the GitHub CLI, creating it if needed |
 | `-force` | builds the platforms whose published files were built from the sources as they are too, which it otherwise skips |

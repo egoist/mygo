@@ -241,16 +241,16 @@ func TestUploadNatives(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	release := "https://github.com/me/app/releases/download/" + defaultReleaseTag
+	release := "https://github.com/me/app/releases/download/" + defaultReleaseTag("Adder")
 	if err := uploadNatives(release, []string{a, b}); err != nil {
 		t.Fatal(err)
 	}
 	got := log()
-	if len(got) != 4 || got[0] != "release view native-libraries --repo me/app" ||
-		!strings.HasPrefix(got[1], "release create native-libraries --repo me/app --title native-libraries --notes ") ||
+	if len(got) != 4 || got[0] != "release view native-adder --repo me/app" ||
+		!strings.HasPrefix(got[1], "release create native-adder --repo me/app --title native-adder --notes ") ||
 		!strings.HasSuffix(got[1], " --latest=false") ||
-		!strings.HasPrefix(got[2], "release view native-libraries --repo me/app --json assets") ||
-		got[3] != "release upload native-libraries --repo me/app "+b+" "+a {
+		!strings.HasPrefix(got[2], "release view native-adder --repo me/app --json assets") ||
+		got[3] != "release upload native-adder --repo me/app "+b+" "+a {
 		t.Fatalf("gh ran:\n%s", strings.Join(got, "\n"))
 	}
 
