@@ -17,6 +17,17 @@ type ClipboardOptions struct {
 	// a new clipboard. It does not run when Write fails. Closing a window
 	// does not release the application-owned clipboard.
 	OnRelease func()
+	// Concealed marks the content as confidential, such as a password:
+	// clipboard histories and managers that honor the platforms' marks
+	// leave it out, and it stays on this machine, off Universal Clipboard
+	// and Windows' cloud clipboard. macOS adds nspasteboard.org's
+	// org.nspasteboard.ConcealedType to every item and writes for the
+	// current host only; Windows adds
+	// ExcludeClipboardContentFromMonitorProcessing; Linux offers KDE's
+	// x-kde-passwordManagerHint, which Klipper and other clipboard managers
+	// read. Browsers have no such mark. Flush keeps the marks. The content
+	// stays on the clipboard until the app replaces or clears it.
+	Concealed bool
 }
 
 // ErrClipboardReentrant means a provider tried to access the clipboard.
@@ -149,7 +160,7 @@ func (ClipboardModule) Write(data transfer.Data, options ...ClipboardOptions) er
 			}
 			items = append(items, transfer.NewItem(reps...))
 		}
-		err := backend().Clipboard().WriteData(transfer.New(items...), l.release)
+		err := backend().Clipboard().WriteData(transfer.New(items...), opts.Concealed, l.release)
 		if err != nil {
 			l.onRelease = nil
 			return err

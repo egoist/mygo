@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -75,6 +76,32 @@ func TestClipboardFileReferenceURL(t *testing.T) {
 			if err != nil || len(files) != 1 || files[0] != want {
 				t.Fatalf("%s: files %q, %v; want %q", f, files, err, want)
 			}
+		}
+	})
+}
+
+// A concealed item carries nspasteboard.org's mark next to its promised
+// types, with no data to provide; an ordinary item carries none.
+func TestClipboardConcealedItem(t *testing.T) {
+	load()
+	registerClipboardClass()
+	withPool(func() {
+		for _, concealed := range []bool{false, true} {
+			s := &macClipboardSource{items: map[id]transfer.Item{}, concealed: concealed}
+			s.obj = send(send(class("MyGoClipboardProvider"), "alloc"), "init")
+			macClipboardProviders[s.obj] = s
+			pb := s.pasteboardItem(transfer.NewItem(transfer.Bytes(transfer.Text, []byte("hunter2"))))
+			var types []string
+			for _, typ := range arrayItems(send(pb, "types")) {
+				types = append(types, goString(typ))
+			}
+			if slices.Contains(types, macConcealedType) != concealed || !slices.Contains(types, utString) {
+				t.Fatalf("concealed %t: types %q", concealed, types)
+			}
+			if mark := send(pb, "dataForType:", uintptr(nsString(macConcealedType))); (mark != 0) != concealed || mark != 0 && send(mark, "length") != 0 {
+				t.Fatalf("concealed %t: mark data %d", concealed, mark)
+			}
+			s.release()
 		}
 	})
 }

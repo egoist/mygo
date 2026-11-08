@@ -82,3 +82,26 @@ func TestClipboardReadDataSkipsUnreadable(t *testing.T) {
 		t.Fatal("reading the unreadable representation by name succeeded")
 	}
 }
+
+// A concealed clipboard object offers ExcludeClipboardContentFromMonitorProcessing
+// next to the content, which keeps Windows' clipboard history and cloud
+// clipboard off every format; drags and ordinary writes offer none.
+func TestClipboardConcealedFormat(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	dropOnce.Do(initDropTarget)
+	mark := uint16(registerClipboardFormat(winConcealedFormat))
+	data := transfer.TextData("hunter2")
+	for _, c := range []struct{ clipboard, concealed, marked bool }{{false, false, false}, {false, true, false}, {true, false, false}, {true, true, true}} {
+		object := newTransferData(data, "", c.clipboard, c.concealed)
+		if got := slices.Contains(dragObjects[object].formats, mark); got != c.marked {
+			t.Fatalf("clipboard %t, concealed %t: marked %t", c.clipboard, c.concealed, got)
+		}
+		if c.marked {
+			if b, err := oleDataBytes(object, mark); err != nil || len(b) != 4 {
+				t.Fatalf("mark data %v: %v", b, err)
+			}
+		}
+		release(object)
+	}
+}
