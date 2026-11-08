@@ -223,7 +223,34 @@ type nestedView struct {
 // building maps a window's context to the view whose blocks are being
 // built in it, for the views within it that share its selection to note
 // themselves in it.
-var building sync.Map // *ui.Context → *viewState
+// A plain map under a lock rather than a sync.Map, whose stores
+// allocate, so a steady frame stays free of allocations.
+var building struct {
+	sync.Mutex
+	m map[*ui.Context]*viewState
+}
+
+// outerView returns the view whose blocks are being built in c.
+func outerView(c *ui.Context) *viewState {
+	building.Lock()
+	defer building.Unlock()
+	return building.m[c]
+}
+
+// setBuilding notes st as the view whose blocks are being built in c,
+// or that none is when st is nil.
+func setBuilding(c *ui.Context, st *viewState) {
+	building.Lock()
+	defer building.Unlock()
+	if st == nil {
+		delete(building.m, c)
+		return
+	}
+	if building.m == nil {
+		building.m = map[*ui.Context]*viewState{}
+	}
+	building.m[c] = st
+}
 
 type paraCache struct {
 	start, end int
@@ -281,8 +308,7 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 		root.Font(th.Font)
 	}
 	if o.ShareSelection {
-		if outer, ok := building.Load(c); ok {
-			outer := outer.(*viewState)
+		if outer := outerView(c); outer != nil {
 			outer.nested = append(outer.nested, nestedView{st, outer.cur})
 		}
 	} else {
@@ -303,14 +329,9 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 	st.nested, st.cur = st.nested[:0], 0
 	st.numberNotes()
 	root.Children(func() {
-		prev, had := building.Swap(c, st)
-		defer func() {
-			if had {
-				building.Store(c, prev)
-			} else {
-				building.Delete(c)
-			}
-		}()
+		prev := outerView(c)
+		setBuilding(c, st)
+		defer setBuilding(c, prev)
 		st.blocks(c, 0, false, spanStyle{})
 		st.footnotes(c)
 	})
