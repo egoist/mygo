@@ -120,11 +120,13 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   mygo-runtime's version. The updater plugin is Go only; its `native`
   package draws the update window in native UI. The terminal plugin is Go
   only too, for native UI, with libghostty-vt loaded through purego. Its
-  `native/` (a Zig package pinning Ghostty's commit) and SQLite's are
-  native libraries like any: `mygo-plugin.json` names their published
-  builds (release assets `libghostty-vt-<commit>`, `sqlite-<version>-<n>`),
-  each with the hash of its sources, and `go generate` publishes new ones
-  (`mygo native build`, with Zig 0.16.0). The glass
+  `native/` (a Zig package pinning Ghostty's commit) is a native library
+  like any: `mygo-plugin.json` names its published builds (release assets
+  `libghostty-vt-<commit>`), each with the hash of its sources, and
+  `go generate` publishes new ones (`mygo native build`, with Zig 0.16.0).
+  The SQLite plugin's SQLite is a native module in Zig,
+  `plugins/sqlite/internal/sqlitecore`, which `mygo native build -target
+  host` builds for its tests and `-upload` publishes. The glass
   plugin is Go only too, an effect of the renderers (`scene.Effect`): its
   shader in Metal, HLSL and GLSL with a CPU twin that must draw the same
   pixels, compiled ahead of time by `go generate` on macOS and Windows.

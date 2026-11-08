@@ -1188,8 +1188,8 @@ that already exists or one a Zig package builds from C sources, bind them
 with package `ffi`: the CLI builds the library from its sources, puts it
 into the app and publishes it as it does a module's. The
 [`rust-native` example](../examples/rust-native) is a window of native UI
-that calls a Rust crate so, and the [SQLite](plugins/sqlite.md) and
-[terminal](plugins/terminal.md) plugins bind C libraries that Zig builds.
+that calls a Rust crate so, and the [terminal](plugins/terminal.md)
+plugin binds libghostty-vt, a C library that Zig builds.
 
 Put the library's sources next to the Go package that binds it, as a Rust
 `cdylib` crate, a Zig package whose `build.zig` installs a dynamic library,

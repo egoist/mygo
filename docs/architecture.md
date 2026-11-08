@@ -1303,17 +1303,22 @@ build` like mygo-runtime and released with the same version.
   in another language than the window. The page reports the width its
   buttons need too, as translations can be long.
 
-- **sqlite** compiles SQLite's C amalgamation, which `native/build.zig.zon`
-  pins by its hash, with Zig 0.16 (a native library with `build`, see the
-  CLI's resources) and loads it through purego. A C shim passes doubles as bits on every ABI,
-  binds a per-operation atomic cancellation token to progress and busy
-  handlers, and authorizes SQL without Go callbacks. Connections serialize
-  operations; transactions hold one connection through BEGIN IMMEDIATE,
-  COMMIT or rollback. The page client preserves int64 and BLOB values with
-  tagged cells and confines database files to the Go-configured directory.
+- **sqlite** runs SQLite in a native module, `internal/sqlitecore`,
+  whose Zig compiles SQLite's C amalgamation, which `zig/build.zig.zon`
+  pins by its hash, with SQLite's symbols hidden in the library (WebKit
+  loads the system SQLite globally on Linux). The module's `Engine` opens
+  a `Conn`, which runs one statement a call, prepared with the rest of the
+  SQL compiled first so that extra SQL never runs, and returns its rows in
+  one reply. An authorizer denies transaction control, ATTACH and VACUUM
+  INTO outside the calls that allow it. Package sqlite's connections
+  serialize operations and validate values in Go; canceling an operation,
+  or closing the connection, calls `Conn.Interrupt` (`sqlite3_interrupt`,
+  which the busy handler checks too) and waits for it before the next one.
+  Transactions hold one connection through BEGIN IMMEDIATE, COMMIT or
+  rollback. The page client preserves int64 and BLOB values with tagged
+  cells and confines database files to the Go-configured directory.
   Connections belong to their page and close on navigation or app quit.
-  `mygo-plugin.json` names the six published builds, which the CLI
-  bundles like libghostty-vt. Go and native UI apps can also open connections directly.
+  Go and native UI apps can also open connections directly.
 - **watch** gives pages `mygo.WatchFiles` watches of the directories and
   files the app names, by their names (`Roots`, or `Resolve` for those
   granted while it runs). `Watch` streams a part per batch through a

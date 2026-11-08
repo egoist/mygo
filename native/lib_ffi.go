@@ -122,7 +122,7 @@ func (m *Module) open() (*library, error) {
 			return nil, err
 		}
 	}
-	fl := ffi.New(m.Name, nil).From(m.Dir)
+	fl := ffi.New(m.Name, m.published()).From(m.Dir)
 	if err := m.checkFresh(fl); err != nil {
 		return nil, err
 	}
@@ -145,6 +145,38 @@ func (m *Module) open() (*library, error) {
 
 // LibraryName is the file of a module's implementation on this system.
 func LibraryName(module string) string { return nativelib.FileName(module, runtime.GOOS) }
+
+// published returns the manifest of a module that a dependency of the
+// program declares, in the module cache, where the files it publishes are
+// built from the sources there: go run and go test then download its
+// library, as the CLI does. A module of the program's own is built from its
+// sources instead, which may have changed since they were published.
+func (m *Module) published() []byte {
+	if m.Dir == "" || mygo.App.IsPackaged() || !inModuleCache(m.Dir) {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(m.Dir, nativelib.ManifestFile))
+	if err != nil {
+		return nil
+	}
+	if man, err := nativelib.Parse(data); err != nil {
+		return nil
+	} else if _, ok := man.Lookup(m.Name); !ok {
+		return nil
+	}
+	return data
+}
+
+// inModuleCache reports whether dir is in Go's module cache, whose
+// directories are named module@version.
+func inModuleCache(dir string) bool {
+	for _, e := range strings.Split(filepath.ToSlash(dir), "/") {
+		if i := strings.LastIndex(e, "@v"); i > 0 && i+2 < len(e) && e[i+2] >= '0' && e[i+2] <= '9' {
+			return true
+		}
+	}
+	return false
+}
 
 // checkFresh refuses a build of the implementation that mygo dev or
 // mygo native build -target host made for go test and go run, in the module's .mygo/native, once the

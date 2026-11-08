@@ -126,6 +126,14 @@ jobs:
             ${{ runner.os == 'Windows' && '~/AppData/Local' || runner.os == 'macOS' && '~/Library/Caches' || '~/.cache' }}/mygo/natives
             ${{ runner.os == 'Windows' && '~/AppData/Local' || runner.os == 'macOS' && '~/Library/Caches' || '~/.cache' }}/mygo/nsis-*
           key: ${{ steps.downloads.outputs.cache-primary-key }}
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      # The SQLite plugin's native module, from its Zig and the SQLite its
+      # build.zig.zon pins, which the plugin's tests and the end-to-end
+      # tests load: built here, so that they test these sources.
+      - name: Build the SQLite plugin's native module
+        run: go run ./cmd/mygo native build -target host plugins/sqlite/internal/sqlitecore
       # cmd/mygo builds and packages apps, which takes the macOS runners
       # about six minutes and, on a slow one beside the other packages,
       # past go test's ten: the same tests, more time.
@@ -147,9 +155,6 @@ jobs:
         run: |
           go run ./cmd/mygo native build -target host -lang swift native/internal/roundtrip/uses  # and roundtrip, which it uses
           go test -count=1 ./native/internal/roundtrip/...
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
       - name: Test a native module built from its Rust, and from its Zig
         shell: bash
         run: |
@@ -222,6 +227,11 @@ jobs:
             ${{ runner.os == 'Windows' && '~/AppData/Local' || runner.os == 'macOS' && '~/Library/Caches' || '~/.cache' }}/mygo/natives
             ${{ runner.os == 'Windows' && '~/AppData/Local' || runner.os == 'macOS' && '~/Library/Caches' || '~/.cache' }}/mygo/nsis-*
           key: ${{ steps.downloads.outputs.cache-primary-key }}
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Build the SQLite plugin's native module
+        run: go run ./cmd/mygo native build -target host plugins/sqlite/internal/sqlitecore
       - run: go test ./...
       - name: Test without the inspector, as production builds
         if: runner.os == 'Linux'
