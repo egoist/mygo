@@ -1077,8 +1077,10 @@ the modules it uses.
 change, a machine with the tools builds them, with a warning, and one
 without stops and says to publish them again.
 
-Platforms that fail to build are listed at the end, and left as they were
-in `mygo-plugin.json`, so each can be built where it is easiest:
+A build that fails stops the command, and nothing is published. Platforms
+that build only on another system, as Swift and Rust libraries for macOS
+off a Mac, are skipped, listed at the end, and left as they were in
+`mygo-plugin.json`, so each can be built where it is easiest:
 
 - **Swift** builds on a Mac.
 - **Zig** cross-compiles to every platform, macOS included.

@@ -114,14 +114,15 @@ func runNativeBuild(args []string) error {
 	uploads := map[string][]string{} // the files of each release
 	changed := map[string]bool{}     // the packages whose manifest to write
 	// publish builds library l of package p for targets, and publishes it
-	// under release r; it returns an error with host only, and otherwise
-	// lists what did not build in failed.
+	// under release r. It stops at the first build that fails, but lists
+	// in failed, without host, the platforms that build only on another
+	// system, such as Swift's off a Mac.
 	publish := func(p nativePackage, l *nativelib.Library, targets []string, r string) error {
 		if l.Build.IsSwift() {
 			a, err := publishSwift(p, l, targets, host, *force, *out, r)
 			switch {
-			case err != nil && host:
-				return err
+			case err != nil && (host || !buildsElsewhere(err)):
+				return fmt.Errorf("%s: %w", l.Name, err)
 			case err != nil:
 				failed = append(failed, fmt.Sprintf("%s: %v", l.Name, err))
 			case a != "":
@@ -164,7 +165,7 @@ func runNativeBuild(args []string) error {
 				}
 			}
 			if err != nil {
-				if host {
+				if host || !buildsElsewhere(err) {
 					return err
 				}
 				failed = append(failed, fmt.Sprintf("%s for %s: %v", l.Name, t, err))
@@ -376,10 +377,9 @@ func publishSwift(p nativePackage, l *nativelib.Library, targets []string, host,
 	if !host && !slices.ContainsFunc(targets, func(t string) bool { return strings.HasPrefix(t, "darwin-") }) {
 		return "", nil
 	}
-	errMac := errors.New("Swift libraries build on a Mac, with Xcode or its Command Line Tools")
 	m := p.module
 	if host && runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		return "", errMac // Linux builds one for go test and go run
+		return "", errSwiftMacOnly // Linux builds one for go test and go run
 	}
 	if host {
 		if m != nil {
@@ -398,7 +398,7 @@ func publishSwift(p nativePackage, l *nativelib.Library, targets []string, host,
 		return "", nil
 	}
 	if runtime.GOOS != "darwin" {
-		return "", errMac
+		return "", errSwiftMacOnly
 	}
 	var b nativeBuild
 	if m != nil {
@@ -556,4 +556,14 @@ func uploadNatives(release string, files []string) error {
 		return fmt.Errorf("gh release upload: %v\n%s", err, out)
 	}
 	return nil
+}
+
+// errSwiftMacOnly is the error of a Swift library built off a Mac.
+var errSwiftMacOnly = errors.New("Swift libraries build on a Mac, with Xcode or its Command Line Tools")
+
+// buildsElsewhere reports whether err is that of a library that builds only
+// on another system, which a build for every platform leaves for that
+// system rather than stop at.
+func buildsElsewhere(err error) bool {
+	return errors.Is(err, errSwiftMacOnly) || errors.Is(err, errMacOSOnly)
 }
