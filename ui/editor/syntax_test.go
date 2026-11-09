@@ -228,6 +228,32 @@ func TestLanguageFor(t *testing.T) {
 
 // LanguageNamed finds a language by its name, an extension or an alias,
 // ignoring case, and each has a tokenizer.
+func TestLanguageForText(t *testing.T) {
+	for _, c := range []struct{ name, text, want string }{
+		{"bin/rails", "#!/usr/bin/env ruby\nrequire \"x\"\n", "Ruby"},
+		{"bin/dev", "#!/usr/bin/env bash\n", "Shell"},
+		{"setup", "#!/bin/sh -e\n", "Shell"},
+		{"tool", "#!/usr/bin/python3.12\n", "Python"},
+		{"run", "#!/usr/bin/env -S deno run --allow-read\n", "TypeScript"},
+		{"run", "#!/usr/bin/env -i PATH=/bin node", "JavaScript"},
+		{"x.rb", "#!/bin/bash\n", "Ruby"}, // the name decides first
+		{"README", "#!/bin/bash\n", "Markdown"},
+		{"notes", "#!/usr/bin/env perl\n", ""},
+		{"notes", "#!\n", ""},
+		{"notes", "#!/usr/bin/env\n", ""},
+		{"notes", "echo #!/bin/sh\n", ""},
+		{"notes", "", ""},
+	} {
+		got := ""
+		if l := LanguageForText(c.name, c.text); l != nil {
+			got = l.Name
+		}
+		if got != c.want {
+			t.Errorf("LanguageForText(%q, %q) = %q, want %q", c.name, c.text, got, c.want)
+		}
+	}
+}
+
 func TestLanguageNamed(t *testing.T) {
 	for want, names := range map[string][]string{
 		"Go":      {"go", "Go", "golang"},
