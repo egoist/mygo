@@ -58,14 +58,20 @@ func TestRenderersShareTheDevice(t *testing.T) {
 	if r1.vs != r2.vs || r1.ps != r2.ps || r1.layout != r2.layout || r1.blend != r2.blend || r1.samp != r2.samp || r1.classes != r2.classes {
 		t.Error("the renderers do not share the shaders and states of their device")
 	}
-	if r1.swapChain == r2.swapChain || r1.cbuf == r2.cbuf || r1.passCB == r2.passCB {
-		t.Error("the renderers share what their frames change")
+	if r1.cbuf == r2.cbuf || r1.passCB == r2.passCB {
+		t.Error("the renderers share the buffers their frames change")
 	}
 	for frame := range 2 {
 		drawAndCompare(t, "d3d11 shared, first window", r1, s1)
 		drawAndCompare(t, "d3d11 shared, second window", r2, s2)
-		if frame == 0 && r1.swapChain == 0 {
-			t.Fatal("no swap chain")
+		if frame == 0 {
+			// The swap chains are made with the first frame.
+			if r1.swapChain == 0 || r2.swapChain == 0 {
+				t.Fatal("no swap chain")
+			}
+			if r1.swapChain == r2.swapChain {
+				t.Error("the renderers share a swap chain")
+			}
 		}
 	}
 
