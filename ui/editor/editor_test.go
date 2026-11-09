@@ -842,17 +842,44 @@ func TestCodeEditorWrapKinsoku(t *testing.T) {
 		t.Fatal("not wrapped")
 	}
 	n := utf8.RuneCountInString(l.disp[:l.rows[0].to]) // Han characters a row holds
-	for _, c := range []struct{ text, next string }{
-		{strings.Repeat("城", n) + "，城城城", "城，"},
-		{strings.Repeat("城", n) + "。」城城", "城。」"},
-		{strings.Repeat("城", n-1) + "「城城城", "「城"},
-		{strings.Repeat("城", n) + ",城城城", "城,"},
+	// Punctuation is narrower than a Han character in some fonts (as
+	// Windows' fallback for 「), so it is put a few places around the
+	// first break: at one of them a row would otherwise end before the
+	// closing punctuation, or after the opening one.
+	for _, c := range []struct {
+		punct string
+		// moved tells that the break was moved for the punctuation, from
+		// what the second row starts with.
+		moved func(second string) bool
+	}{
+		{"，", func(s string) bool { return strings.HasPrefix(s, "城，") }},
+		{"。」", func(s string) bool { return strings.HasPrefix(s, "城。」") }},
+		{"「", func(s string) bool { return strings.HasPrefix(s, "「城") }},
+		{",", func(s string) bool { return strings.HasPrefix(s, "城,") }},
 	} {
-		ct.st.Buffer = NewBuffer(c.text)
-		ct.tt.Frame()
-		l := v.line(0)
-		if len(l.rows) < 2 || !strings.HasPrefix(l.disp[l.rows[1].from:], c.next) {
-			t.Errorf("%q: rows %+v, want the second to start with %q", c.text, l.rows, c.next)
+		seen := false
+		for k := n - 3; k <= n+1; k++ {
+			src := strings.Repeat("城", k) + c.punct + "城城城"
+			ct.st.Buffer = NewBuffer(src)
+			ct.tt.Frame()
+			l := v.line(0)
+			if len(l.rows) < 2 {
+				continue
+			}
+			for ri, r := range l.rows {
+				row := l.disp[r.from:r.to]
+				first, _ := utf8.DecodeRuneInString(row)
+				last, _ := utf8.DecodeLastRuneInString(row)
+				if ri > 0 && (closing(first) || first == ',') || ri < len(l.rows)-1 && opening(last) {
+					t.Errorf("%q: row %d is %q", src, ri, row)
+				}
+			}
+			if c.moved(l.disp[l.rows[1].from:]) {
+				seen = true
+			}
+		}
+		if !seen {
+			t.Errorf("%q: no break was moved for it", c.punct)
 		}
 	}
 	const prose = "这是一段用于测试软换行的中文文本，每一行都含有若干标点符号。逗号、顿号和句号在中文排版中占一个全角字宽；分号与冒号：同样如此。“引号”与（括号）、《书名号》和【方括号】也不例外！"
