@@ -163,6 +163,7 @@ export default fetch;
 
 /** Native clones copy internal response data, not the properties we add. */
 function withMetadata(res: Response, url: string, redirected: boolean, status: number): Response {
+  // Capture the native method before installing the wrapper to avoid recursion.
   const clone = res.clone;
   const own = (name: string, value: unknown) => Object.defineProperty(res, name, { value, enumerable: true });
   own("url", url);
