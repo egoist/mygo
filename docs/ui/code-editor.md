@@ -232,8 +232,8 @@ its name or else the `#!` line its text opens with, as
 them. The editor knows Go, JavaScript,
 TypeScript, JSON, Python, Rust, C, C++, Java, Kotlin, Scala, Swift, Dart,
 C#, shell scripts, YAML, TOML, SQL, R, Ruby, Lua, PHP, CSS, HTML, XML,
-Markdown, diffs, Dockerfiles, Makefiles, Protocol Buffers, GraphQL, Zig
-and Nix.
+Markdown, diffs, Dockerfiles, Makefiles, Protocol Buffers, GraphQL, Zig,
+Nix and HCL (Terraform).
 A `Language` says how to highlight, comment, match brackets and indent its
 text, and with `Imports`, a pattern of a line that imports (`^import\b` for
 Go), which lines fold as a run: build one for another language, or copy
