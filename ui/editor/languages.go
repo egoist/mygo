@@ -379,7 +379,7 @@ func makeLanguages() {
 			identChars: ".", calls: true, operators: "+-*/^=&|!<>~?:$@\\"},
 	}
 	ruby := &Language{
-		Name: "Ruby", Extensions: []string{".rb", ".rake", ".gemspec"}, Filenames: []string{"Gemfile", "Rakefile", "Podfile", "Fastfile"}, LineComment: "#",
+		Name: "Ruby", Extensions: []string{".rb", ".rake", ".gemspec", ".rbs"}, Filenames: []string{"Gemfile", "Rakefile", "Podfile", "Fastfile"}, LineComment: "#",
 		Imports:  regexp.MustCompile(`^require(_relative)?\b`),
 		Brackets: cBrackets, AutoClose: cAutoClose("\"", "'"), TabSize: 2,
 		IncreaseIndent: regexp.MustCompile(`^\s*(class|module|def|if|unless|else|elsif|while|until|for|begin|rescue|ensure|case|when)\b|\bdo(\s*\|.*\|)?\s*$|[\[({]\s*$`),
