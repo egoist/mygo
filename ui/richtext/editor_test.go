@@ -734,3 +734,45 @@ func TestRichTextOnKey(t *testing.T) {
 		t.Fatalf("what OnKey did was undone: caret %d, %q", c, doc.Text().String())
 	}
 }
+
+// Spans is given each paragraph's spans to draw them otherwise, its text the same; the layouts it made are kept until
+// SpansVersion changes.
+func TestRichTextSpans(t *testing.T) {
+	doc := NewDocument(NewText("plain\ncolored"))
+	calls, ver, red := 0, 0, false
+	draw := func(c *ui.Context) {
+		opts := EditorOptions{SpansVersion: ver}
+		if red {
+			opts.Spans = func(_ int, st ParagraphStyle, spans []ui.Span) []ui.Span {
+				calls++
+				for i := range spans {
+					spans[i].Color = ui.RGB(220, 0, 0)
+					spans[i].LetterSpacing = 2
+				}
+				return spans
+			}
+		}
+		Editor(c, doc, opts).Fill()
+	}
+	tt := ui.NewTester(draw, 500, 300)
+	tt.Frame()
+	plain := bytes.Clone(tt.Image().Pix)
+	red = true
+	tt.Frame()
+	if calls == 0 || bytes.Equal(tt.Image().Pix, plain) {
+		t.Fatalf("the spans were not drawn otherwise: %d calls", calls)
+	}
+	was := calls
+	tt.Frame()
+	if calls != was {
+		t.Fatalf("laid out again with nothing changed: %d calls", calls-was)
+	}
+	ver++
+	tt.Frame()
+	if calls == was {
+		t.Fatal("not laid out again when the version changed")
+	}
+	if doc.Text().String() != "plain\ncolored" {
+		t.Fatal("the text changed")
+	}
+}
