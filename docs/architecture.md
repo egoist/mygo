@@ -3932,6 +3932,13 @@ either.
   absolute offsets. Paragraph layout and height caches remain with the
   widget; newline-count changes update those indexes. Full text is produced
   for explicit export/value queries, never as a binding update per edit.
+- **Command palette** (`ui/command`) uses public ui controls: a modal
+  dialog, text input and a scroll container of fixed-height option rows.
+  `ScrollState` drives visible-row construction directly, preserving one
+  accessible option per result. Search caches comparable command snapshots
+  and stable fuzzy rankings; choices return IDs once, leaving actions and
+  shortcuts with the app. Unicode simple folding, localization and focus
+  scopes reuse the existing engine contracts.
 - **Charts** (`ui/chart`) use ui's public API alone: scales return
   fractions, the plot places marks in percentages, and paths turn those
   into DIPs while drawing. Log and SymLog (`nonlinear.go`) add only

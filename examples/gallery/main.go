@@ -24,12 +24,15 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/command"
 	"github.com/egoist/mygo/ui/richtext"
 )
 
 type gallery struct {
-	win *mygo.Window
-	md  markdownDemo
+	palette  command.State
+	commands []command.Item
+	win      *mygo.Window
+	md       markdownDemo
 	// router shows the pages: "/overview", "/list", and a row of the list,
 	// "/list/42".
 	router *ui.Router
@@ -404,6 +407,7 @@ func (g *gallery) view(c *ui.Context) {
 			})
 		})
 	})
+	g.commandPalette(c)
 	// Ctrl+1…9 (Cmd on macOS) switch to the first nine pages.
 	for i, p := range pages[:min(len(pages), 9)] {
 		if c.Shortcut(ui.Cmd, ui.Key1+ui.Key(i)) {
@@ -451,6 +455,9 @@ func (g *gallery) toolbar(c *ui.Context) {
 			g.router.Push(pagePath(page))
 		}
 		ui.Spacer(c)
+		if ui.Button(c, "Go to page…").Clicked() {
+			g.palette.Open = true
+		}
 		ui.Toggle(c, &g.drawnMenus, "Drawn menus").Tooltip("Draw every menu in the window, with the theme's look, rather than the system's")
 		ui.Toggle(c, &g.rtl, "Right to left").Tooltip("Lay the gallery out right to left")
 	}).Label("Navigation").Padding(8, 24, 0)
