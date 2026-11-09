@@ -776,3 +776,20 @@ func TestRichTextSpans(t *testing.T) {
 		t.Fatal("the text changed")
 	}
 }
+
+// Menu builds the editor's context menu in place of its own: a right click shows the app's items, not the editor's.
+func TestRichTextMenu(t *testing.T) {
+	doc := NewDocument(NewText("some text"))
+	tt := ui.NewTester(func(c *ui.Context) {
+		Editor(c, doc, EditorOptions{Menu: func(m *ui.Menu) { m.Item("Ask the app") }}).Fill()
+	}, 500, 300)
+	tt.RightClickAt(40, 20)
+	if got := tt.Menu(); len(got) != 1 || got[0] != "Ask the app" {
+		t.Fatalf("the menu: %q", got)
+	}
+	plain := ui.NewTester(func(c *ui.Context) { Editor(c, NewDocument(NewText("some text"))).Fill() }, 500, 300)
+	plain.RightClickAt(40, 20)
+	if got := plain.Menu(); len(got) > 0 && got[0] == "Ask the app" {
+		t.Fatalf("without Menu, the app's item: %q", got)
+	}
+}
