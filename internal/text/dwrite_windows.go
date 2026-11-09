@@ -134,8 +134,9 @@ const (
 	// IDWriteFont1
 	font1IsMonospacedFont = 17
 	// IDWriteFontFace
-	faceGetMetrics      = 8
-	faceGetGlyphIndices = 11
+	faceGetMetrics            = 8
+	faceGetDesignGlyphMetrics = 10
+	faceGetGlyphIndices       = 11
 	// IDWriteFontFace2
 	face2IsColorFont                 = 30
 	face2GetRecommendedRenderingMode = 34
@@ -295,6 +296,13 @@ type (
 		underlineThickness                uint16
 		strikethroughPosition             int16
 		strikethroughThickness            uint16
+	}
+	dwGlyphMetrics struct {
+		leftSideBearing                    int32
+		advanceWidth                       uint32
+		rightSideBearing, topSideBearing   int32
+		advanceHeight                      uint32
+		bottomSideBearing, verticalOriginY int32
 	}
 	dwRect         struct{ left, top, right, bottom int32 }
 	dwFontProperty struct {
@@ -1336,7 +1344,7 @@ func (e *dwrite) run(layout uintptr, u16 []uint16, r dwRun, x float32, index []i
 		if r.offsets != nil {
 			off = r.offsets[i]
 		}
-		gf, gid := f, uint32(id)
+		gf, gid, gw := f, uint32(id), float32(0)
 		if f.color && len(r.clusters) > 0 {
 			k := first[i]
 			end := k + 1
@@ -1345,7 +1353,7 @@ func (e *dwrite) run(layout uintptr, u16 []uint16, r dwRun, x float32, index []i
 			}
 			if c := u16[r.pos+k : r.pos+end]; !emojiCluster(c) {
 				alone := (i == 0 || first[i-1] != k) && (i+1 == len(first) || first[i+1] != k)
-				gf, gid = e.textGlyph(r, c, gid, alone)
+				gf, gid, gw = e.textGlyph(r, c, gid, alone)
 			}
 		}
 		g := Glyph{Font: gf, ID: gid, Advance: r.advances[i], Y: -off.ascenderOffset, Cluster: index[r.pos+first[i]], RTL: r.rtl}
@@ -1361,6 +1369,11 @@ func (e *dwrite) run(layout uintptr, u16 []uint16, r dwRun, x float32, index []i
 		} else {
 			g.X = pen + off.advanceOffset
 			pen += g.Advance
+		}
+		if gw > 0 && gw < g.Advance {
+			// A text glyph narrower than the emoji's cell it takes:
+			// in the middle of it.
+			g.X += (g.Advance - gw) / 2
 		}
 		out.glyphs[i] = g
 	}
@@ -1620,8 +1633,9 @@ func emojiCluster(u16 []uint16) bool {
 // it is the cluster's only glyph: Segoe UI Symbol's glyph of the cluster's
 // character, as Windows has that monochrome font for most symbols Segoe UI
 // Emoji draws in color, else id's outline in monochrome. The glyph keeps
-// the advance the run laid it out with.
-func (e *dwrite) textGlyph(r dwRun, c []uint16, id uint32, alone bool) (*Font, uint32) {
+// the advance the run laid it out with; w is Segoe UI Symbol's own
+// advance, which the run centers the glyph in, or 0.
+func (e *dwrite) textGlyph(r dwRun, c []uint16, id uint32, alone bool) (f *Font, glyph uint32, w float32) {
 	if alone && e.hasSystem("Segoe UI Symbol") {
 		ch := uint32(c[0])
 		if utf16.IsSurrogate(rune(ch)) && len(c) > 1 {
@@ -1631,11 +1645,17 @@ func (e *dwrite) textGlyph(r dwRun, c []uint16, id uint32, alone bool) (*Font, u
 		if f := e.font(Style{Family: "Segoe UI Symbol", Size: r.size}); f != nil {
 			call(f.native, faceGetGlyphIndices, uintptr(unsafe.Pointer(&ch)), 1, uintptr(unsafe.Pointer(&sid)))
 			if sid != 0 {
-				return f, uint32(sid)
+				var gm dwGlyphMetrics
+				var fm dwFontMetrics
+				call(f.native, faceGetMetrics, uintptr(unsafe.Pointer(&fm)))
+				if !failed(call(f.native, faceGetDesignGlyphMetrics, uintptr(unsafe.Pointer(&sid)), 1, uintptr(unsafe.Pointer(&gm)), 0)) {
+					w = float32(gm.advanceWidth) * r.size / float32(max(fm.designUnitsPerEm, 1))
+				}
+				return f, uint32(sid), w
 			}
 		}
 	}
-	return e.fontOf(r.face, r.size, true), id
+	return e.fontOf(r.face, r.size, true), id, 0
 }
 
 // isColor reports whether a font face has color glyphs.
