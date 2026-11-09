@@ -18,7 +18,6 @@ type hoverControls struct {
 	tab, segment        int
 	rating              int
 	open, node          bool
-	color               ui.Color
 	list, table         ui.ListState
 	page                string
 }
