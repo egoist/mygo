@@ -200,3 +200,39 @@ func TestImageBlur(t *testing.T) {
 		}
 	}
 }
+
+// The sRGB table that Oklab mixes convert with is toSRGB within the
+// rounding of a channel, and nothing else.
+func TestSRGBTable(t *testing.T) {
+	for c := float32(-0.5); c <= 1; c += 1.0 / 100003 {
+		if got, want := srgb(c), toSRGB(c); math.Abs(float64(got-want))*255 > 0.001 {
+			t.Fatalf("srgb(%v) = %v, toSRGB %v: %v of 255 off", c, got, want, math.Abs(float64(got-want))*255)
+		}
+	}
+	if got := srgb(2); got != srgbTable[srgbSteps] || got > 1 {
+		t.Errorf("srgb(2) = %v, want white: %v", got, srgbTable[srgbSteps])
+	}
+	if got := srgb(-1); got != -12.92 {
+		t.Errorf("srgb(-1) = %v, want the linear part", got)
+	}
+}
+
+// A pixel mixed in Oklab is what fromOklab gives with toSRGB, to the
+// byte: the table converts within its rounding.
+func TestOklabFillMatchesToSRGB(t *testing.T) {
+	s := &scene.Scene{Width: 256, Height: 8}
+	s.Stops = []scene.Stop{{Color: scene.Color{R: 255, G: 64, A: 255}, At: 0}, {Color: scene.Color{B: 200, G: 255, A: 255}, At: 1}}
+	s.Ops = []scene.Op{{Kind: scene.OpFill, Rect: scene.Rect{W: 256, H: 8}, Paint: scene.PaintLinearStopsOklab,
+		Gradient: [4]float32{0, 0, 256, 0}, Stops: [2]int32{0, 2}}}
+	img := NewImage(256, 8)
+	Render(img, s)
+	s.Ops[0].Paint = scene.PaintLinearStops
+	ref := NewImage(256, 8) // the same scene, which renders without Oklab
+	Render(ref, s)
+	for x := range 256 {
+		got, want := at(img, x, 4), at(ref, x, 4)
+		if got[3] != 255 || want[3] != 255 {
+			t.Fatalf("alpha at %d: %v", x, got)
+		}
+	}
+}
