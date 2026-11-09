@@ -168,6 +168,7 @@ func TestMain(m *testing.M) {
 	})
 	usePlugins(mux)
 	useBench(mux)
+	useSchemeStreams(mux)
 	if err := mygo.Protocol.Handle("app", mux); err != nil {
 		panic(err)
 	}
@@ -1305,6 +1306,28 @@ func TestDockedDevTools(t *testing.T) {
 	if place := dockedDevToolsPlace(w); place != "content" {
 		t.Errorf("docked inspector place = %q, want %q", place, "content")
 	}
+}
+
+// A minimized window is still visible, as Show and Hide set it, on every
+// platform (#1542): AppKit's isVisible is false for a window in the Dock.
+func TestMinimizedWindowIsVisible(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("Xvfb has no window manager to minimize windows")
+	}
+	w := newWindow(t, mygo.WindowOptions{Width: 400, Height: 300})
+	w.Minimize()
+	eventually(t, "the window minimized", w.IsMinimized)
+	if !w.IsVisible() {
+		t.Error("a minimized window is not visible")
+	}
+	w.Hide()
+	if w.IsVisible() {
+		t.Error("Hide left a minimized window visible")
+	}
+	w.Show()
+	eventually(t, "the window shown again", w.IsVisible)
+	w.Restore()
+	eventually(t, "the window restored", func() bool { return !w.IsMinimized() && w.IsVisible() })
 }
 
 func TestWindowGeometryAndState(t *testing.T) {

@@ -6,7 +6,9 @@ import (
 	"slices"
 	"sync"
 	"time"
+	"weak"
 
+	"github.com/egoist/mygo/internal/imagesrc"
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/text"
 )
@@ -60,6 +62,8 @@ type opaqueBox struct {
 const continuousCorners = runtime.GOOS == "darwin"
 
 func (rt *engine) paint(root *node, w, h, scale float32) {
+	rt.painting = true
+	defer func() { rt.painting = false }()
 	rt.paints++
 	rt.drawn = rt.drawn[:0]
 	s := &rt.scene
@@ -260,7 +264,16 @@ func (p *Painter) element(e *node) {
 	}
 	defer func() { p.transform, p.inline, p.theme = savedTransform, savedInline, savedTheme }()
 
+	// Whether its look follows its hover, as this painting tells
+	// (Hovered): an element not painted keeps what its last did.
+	e.st.hoverLook = false
 	if e.styleFn != nil {
+		if b := &e.built; !e.styled {
+			e.styled = true
+			*b = builtStyle{e.bg, e.borderC, e.ts.color, e.opacity, e.opacitySet}
+		} else {
+			e.bg, e.borderC, e.ts.color, e.opacity, e.opacitySet = b.bg, b.border, b.text, b.opacity, b.opacitySet
+		}
 		e.styleFn(e)
 	}
 	if r := e.st.trec; r != nil && r.built == p.rt.frame && r.elem == e {
@@ -1321,11 +1334,33 @@ func (p *Painter) image(e *node) {
 		p.drawSVG(s, e.contentBox(), e.fit, e.objectPos, e.radius, e.resolvedText().color, e.gray)
 		return
 	}
+	if e.texture != nil {
+		p.drawTexture(e, e.texture)
+		return
+	}
 	img := e.image
 	if img == nil || img.w == 0 || img.h == 0 {
 		return
 	}
 	p.drawBitmap(img, e.contentBox(), e.fit, e.objectPos, e.radius, e.gray)
+}
+
+// drawTexture draws the frame a native module presented last into a
+// texture; the next it presents asks the window for a frame.
+func (p *Painter) drawTexture(e *node, t imagesrc.Frames) {
+	rt := e.c.rt
+	owner := weak.Make(rt)
+	img := t.Frame(owner, func() { Services{owner: owner}.Invalidate() })
+	if img == nil || img.W == 0 || img.H == 0 {
+		return
+	}
+	iw, ih := float32(img.W), float32(img.H)
+	dst, frac := fitIn(e.contentBox(), iw, ih, e.fit, e.objectPos)
+	if dst.W <= 0 || dst.H <= 0 {
+		return
+	}
+	src := scene.Rect{X: frac.X * iw, Y: frac.Y * ih, W: frac.W * iw, H: frac.H * ih}
+	p.add(scene.Op{Kind: scene.OpImage, Rect: p.snap(dst), Radii: p.radii(e.radius), Continuous: continuousCorners, Image: img, Src: src, Opacity: p.opacity, Grayscale: e.gray})
 }
 
 // fitIn returns where a picture w×h DIPs goes in box as fit says, placed
@@ -1393,6 +1428,10 @@ func (p *Painter) scrollbars(e *node) {
 	// (scrollbarPress). Kept, they show as on hover, the same thumb on no
 	// track, so that the pointer coming over changes nothing.
 	hide, keep := e.scrollbars()
+	if !hide && !keep {
+		// The bars show on hover (hoverNeeds).
+		st.hoverLook = true
+	}
 	st.barsShown = !hide && (keep || hovered || dragging)
 	if !st.barsShown {
 		return

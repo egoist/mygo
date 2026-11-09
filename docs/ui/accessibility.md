@@ -131,6 +131,8 @@ your own tells it with these, as ARIA's states do on the web:
 | `Orientation(o)` | which way a slider, separator, splitter, toolbar, tab list or menu of your own runs: `ui.Vertical` or `ui.Horizontal` ([below](#orientation)) |
 | `DescribedBy(e)`, `Invalid(on)`, `ErrorMessage(e)` | the element `e` whose text describes it, that its value is not valid, and the element holding its error ([below](#descriptions-and-errors)) |
 | `Multiselectable(on)` | that the user chooses several of the items of a list, grid, tree or tree grid of your own |
+| `ReadOnly(on)` | that an element of your own shows a value the user cannot change, as `aria-readonly`: a text box, combo box, check box, switch, slider, stepper, radio group, list box, grid or tree grid, and the cells and headers of a grid or tree grid (not of a table); assistive technology then neither sets nor steps its value. It is `AXValue` not settable on macOS, ATK's `read-only` state and UI Automation's `IsReadOnly` |
+| `Multiline(on)` | that a text box of your own (`RoleTextField`) takes several lines, as `aria-multiline` |
 | `RowCount(n)`, `ColumnCount(n)` | how many rows and columns a table or grid has, built or not |
 | `RowIndex(i)`, `ColumnIndex(i)` | which of all the rows a row or a cell is in, and which of all the columns a cell is in, from 1 |
 
@@ -683,6 +685,11 @@ WAI-ARIA's Core Accessibility API Mappings say:
 | `ui.RoleRowHeader` | the cell naming its row of a table, named by its content, whose buttons and other elements stay reachable, as a cell's | `AXCell` | row header | HeaderItem "row header" |
 | `ui.RoleDeletion` | content removed from a document, as a diff's removed lines or an old price struck out, as HTML's `<del>`; its text is inside it | `AXGroup`, `AXDeleteStyleGroup` | content deletion, `xml-roles:deletion` | Text "deletion" |
 | `ui.RoleInsertion` | content added to a document, as a diff's added lines, as HTML's `<ins>` | `AXGroup`, `AXInsertStyleGroup` | content insertion, `xml-roles:insertion` | Text "insertion" |
+| `ui.RoleMain` | the main content of a window, apart from its bars and sidebars, as HTML's `<main>`; a window has one | `AXGroup`, `AXLandmarkMain` | landmark, `xml-roles:main` | Group, the main landmark type |
+| `ui.RoleBanner` | the top bar of a window, with the app's name or the window's title, as a page's `<header>`; a window has at most one | `AXGroup`, `AXLandmarkBanner` | landmark, `xml-roles:banner` | Group, the custom landmark type "banner" |
+| `ui.RoleContentInfo` | the footer or status area, with information about the content, as a page's `<footer>`; a window has at most one | `AXGroup`, `AXLandmarkContentInfo` | landmark, `xml-roles:contentinfo` | Group, the custom landmark type "content information" |
+| `ui.RoleComplementary` | content that completes the main content and stands on its own, as a sidebar or an inspector, as HTML's `<aside>`; name each with `Label` when there are several | `AXGroup`, `AXLandmarkComplementary` | landmark, `xml-roles:complementary` | Group, the custom landmark type "complementary" |
+| `ui.RoleTabPanel` | the content of a tab, named after its tab with `Label` and pointed to by the tab's `Controls`, as ARIA's Tabs pattern; no landmark | `AXGroup`, role description "tab panel" | scroll pane, `xml-roles:tabpanel` | Pane "tab panel" |
 
 Live regions say how they are read (`AXARIALive`, ATK's `live` and
 `container-live` attributes, `LiveSetting`), and MyGo reads them out as

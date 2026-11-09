@@ -100,8 +100,11 @@ const (
 	blendOneMinusSrc1A     = 18
 	filterLinear           = 1
 	statusError            = 5
-	layerWidthSizable      = 1 << 1
-	layerHeightSizable     = 1 << 4
+	// commandBufferErrorTimeout is MTLCommandBufferErrorTimeout, the code
+	// of a frame the watchdog killed because the GPU never finished it.
+	commandBufferErrorTimeout = 2
+	layerWidthSizable         = 1 << 1
+	layerHeightSizable        = 1 << 4
 )
 
 var (
@@ -351,6 +354,9 @@ type texture struct {
 	w, h      int
 	gen, ver  uint64
 	lastFrame uint64
+	// gpu marks an image's texture that its GPUSource gave, which shows
+	// memory of its own (an IOSurface): never one to upload pixels into.
+	gpu bool
 }
 
 // drawState is what drawing scenes into a target keeps from frame to
@@ -472,7 +478,10 @@ type Renderer struct {
 	inflight    [ringSize]id
 	slot, inUse int
 	err         error
-	checked     bool
+	// timeout tells that err is a frame the GPU did not finish in time:
+	// the device is still there, but it cannot draw now.
+	timeout bool
+	checked bool
 
 	// lastRender is when the last frame drew; trimTimer trims the
 	// drawables once none has for a while, armed until it fires, and
@@ -983,12 +992,19 @@ func (r *Renderer) imageTexture(img *scene.Image) uintptr {
 		}
 		return 0
 	}
+	if img.GPU != nil {
+		if tex := r.gpuTexture(img); tex != 0 {
+			return tex
+		}
+		// None for Metal: its pixels, as any image's.
+	}
 	if s := img.Surface; s != nil && (s.Native != 0 || s.Format == scene.SurfaceNV12 && s.Planes[1].Pix != nil) {
 		return r.surfaceTexture(img, s)
 	}
 	t := r.images[img.ID()]
-	if t != nil && (t.chroma != 0 || t.cv != [2]uintptr{}) {
-		// It showed a frame of video, and no longer does.
+	if t != nil && (t.gpu || t.chroma != 0 || t.cv != [2]uintptr{}) {
+		// The texture its GPUSource gave before, or a frame of video it
+		// showed and no longer does: pixels go to one of their own.
 		r.dropTexture(t)
 		delete(r.images, img.ID())
 		t = nil
@@ -1027,6 +1043,30 @@ func (r *Renderer) imageTexture(img *scene.Image) uintptr {
 	return t.tex
 }
 
+// gpuTexture returns the texture its GPUSource gives of an image that
+// something draws on the GPU (native.Texture), made again as the image's
+// version changes, or 0 when it gives none.
+func (r *Renderer) gpuTexture(img *scene.Image) uintptr {
+	t := r.images[img.ID()]
+	if t != nil && t.gpu && t.ver == img.Version() && t.w == img.W && t.h == img.H {
+		t.lastFrame = r.frame
+		return t.tex
+	}
+	tex := id(img.GPU.GPUTexture(scene.Metal, uintptr(r.device)))
+	if tex == 0 {
+		return 0
+	}
+	if t == nil {
+		t = &texture{}
+		r.images[img.ID()] = t
+	} else {
+		// The previous frame's, or a texture of its pixels.
+		release(&t.tex)
+	}
+	t.tex, t.w, t.h, t.ver, t.lastFrame, t.gpu = tex, img.W, img.H, img.Version(), r.frame, true
+	return t.tex
+}
+
 // ringSize bounds frames in flight. Each slot owns the main target's and
 // every canvas's instance buffer, so CPU encoding can overlap GPU drawing.
 // A slot is reused only after its previous frame completes; in-place atlas
@@ -1044,7 +1084,11 @@ func (r *Renderer) waitSlot(slot int) {
 	}
 	send(cb, "waitUntilCompleted")
 	if int(send(cb, "status")) == statusError && r.err == nil {
-		r.err = fmt.Errorf("metal: a frame failed: %s", describe(send(cb, "error")))
+		e := send(cb, "error")
+		r.err = fmt.Errorf("metal: a frame failed: %s", describe(e))
+		// A frame the watchdog killed leaves the device wedged rather than
+		// gone: another one submitted now waits the same timeout through.
+		r.timeout = e != 0 && int(send(e, "code")) == commandBufferErrorTimeout
 	}
 	release(&r.inflight[slot])
 	r.releaseHeld(slot)
@@ -1630,6 +1674,12 @@ func or(a, b id) id {
 	}
 	return b
 }
+
+// TimedOut reports whether the frame that failed did so because the GPU did
+// not finish it in time, rather than the device going away: the driver is
+// wedged, so a frame submitted now would wait the timeout through again,
+// while the device may draw again a moment later.
+func (r *Renderer) TimedOut() bool { return r.timeout }
 
 // Render draws s into the layer and presents it.
 func (r *Renderer) Render(s *scene.Scene) (err error) {

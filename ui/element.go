@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/egoist/mygo/internal/imagesrc"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/text"
@@ -193,6 +194,14 @@ const (
 	flagClip = flagClipX | flagClipY
 )
 
+// builtStyle is what a styleFn may change of an element: its colors and
+// opacity.
+type builtStyle struct {
+	bg, border, text Color
+	opacity          float32
+	opacitySet       bool
+}
+
 type shadow struct {
 	x, y, blur, spread float32
 	color              Color
@@ -318,6 +327,7 @@ type layoutStyle struct {
 	pretty     bool
 	keepSpaces bool
 	ellipsis   string
+	middle     bool
 }
 
 // Element is a node of a frame's user interface. The functions that create
@@ -443,6 +453,17 @@ type node struct {
 	// can skip it.
 	styleFn      func(e *node)
 	paintAfterFn func(p *Painter, r Rect)
+	// faces are the backgrounds a button's styleFn (styleButtonFace)
+	// picks from as it paints: as built, hovered and pressed. They are
+	// the element's, not captured by a closure, so that building a button
+	// allocates nothing.
+	faces [3]Color
+	// built is what styleFn may change of the element as it paints, as the
+	// view built it, kept as it first paints (styled): painting it again,
+	// as a frame only painting does for a hover (lookDue), starts from
+	// it rather than from what the last painting changed.
+	built  builtStyle
+	styled bool
 
 	// Input the element takes itself (HandleInput), and where the caret of
 	// the text it takes is (TextCaret).
@@ -471,7 +492,8 @@ type node struct {
 	// in place of the window's (Themed).
 	themed  *Theme
 	image   *Bitmap
-	svg     *SVG // of an Icon, or an Image in its own colors
+	texture imagesrc.Frames // of an Image showing a native.Texture
+	svg     *SVG            // of an Icon, or an Image in its own colors
 	webView NativeWebView
 	// maximizeButton marks the window's maximize button (MaximizeButton).
 	maximizeButton bool
@@ -1895,6 +1917,21 @@ func (e *node) PreserveSpaces() *node { e.keepSpaces = true; return e }
 // Ellipsis sets what ends text that MaxLines or SingleLine cuts, "…" by
 // default.
 func (e *node) Ellipsis(s string) *node { e.ellipsis = s; return e }
+
+// TruncateMiddle puts the ellipsis of text that SingleLine or MaxLines
+// cuts in the middle of its last line rather than at its end, so that it
+// keeps both its start and its end, about as wide each, in the room
+// layout gives it: a list of files shows "src/components/…/picker.go",
+// whose folder and file's name both show.
+func (e *node) TruncateMiddle() *node {
+	linkTruncateMiddle.Do(text.Shared().UseTruncateMiddle)
+	e.middle = true
+	return e
+}
+
+// linkTruncateMiddle lets the text system cut text in its middle once an
+// element asks for it, so that apps that never do not link it.
+var linkTruncateMiddle sync.Once
 
 // Label names the element for assistive technology and for finding it in
 // tests, when its text does not.

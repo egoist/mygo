@@ -125,6 +125,76 @@ func TestJSONLongLine(t *testing.T) {
 	}
 }
 
+// countingTokenizer is t, counting the lines and bytes it tokenizes and
+// the longest line.
+type countingTokenizer struct {
+	t                  Tokenizer
+	lines, bytes, most int
+}
+
+func (c *countingTokenizer) Tokenize(line string, state uint64, dst []Token) ([]Token, uint64) {
+	c.lines++
+	c.bytes += len(line)
+	c.most = max(c.most, len(line))
+	return c.t.Tokenize(line, state, dst)
+}
+
+// Highlight reads the clock after long lines, not only every 64 lines: a
+// pass of a minified file's lines, short enough to color, stops near its
+// budget rather than megabytes later. A negative budget is spent at the
+// first look at the clock.
+func TestHighlightLooksAtTheClockAfterLongLines(t *testing.T) {
+	line := strings.Repeat("abc(def, 12); ", 640) // 8,960 bytes
+	text := strings.Repeat(line+"\n", 200)
+	c := &countingTokenizer{t: LanguageNamed("js").Tokenizer}
+	h := NewTokenHighlighter(c, NewBuffer(text).Snapshot())
+	if h.Highlight(199, -1) {
+		t.Fatal("a pass with no budget highlighted every line")
+	}
+	if want := highlightCheckBytes/len(line) + 1; c.lines > want {
+		t.Errorf("a pass with no budget tokenized %d lines of %d bytes, want at most %d", c.lines, len(line), want)
+	}
+	// Each pass still tokenizes a line, so the passes finish, and they
+	// color as one pass does.
+	for passes := 1; !h.Highlight(199, -1); passes++ {
+		if passes > 200 {
+			t.Fatal("passes with no budget never finish")
+		}
+	}
+	one := NewTokenHighlighter(LanguageNamed("js").Tokenizer, NewBuffer(text).Snapshot())
+	if !one.Highlight(199, time.Hour) {
+		t.Fatal("one pass didn't finish")
+	}
+	for _, i := range []int{0, 1, 63, 64, 199} {
+		want, _ := one.Tokens(i, line, nil)
+		got, ok := h.Tokens(i, line, nil)
+		if !ok || fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("line %d: %v (final %v), want %v", i, got, ok, want)
+		}
+	}
+}
+
+// A line too long to color isn't tokenized to highlight the lines after
+// it either: they start as it did, here in a comment.
+func TestHighlightSkipsLinesTooLongToColor(t *testing.T) {
+	long := strings.Repeat("x", maxTokenize+1)
+	lines := []string{"/* a comment", long, "still */ x"}
+	c := &countingTokenizer{t: LanguageNamed("js").Tokenizer}
+	h := NewTokenHighlighter(c, NewBuffer(strings.Join(lines, "\n")).Snapshot())
+	if !h.Highlight(2, time.Hour) {
+		t.Fatal("not highlighted")
+	}
+	if c.most > maxTokenize {
+		t.Errorf("tokenized a line of %d bytes, longer than %d", c.most, maxTokenize)
+	}
+	if got := lexLines(TokenizerFunc(func(line string, state uint64, dst []Token) ([]Token, uint64) {
+		dst, _ = h.Tokens(2, line, dst)
+		return dst, 0
+	}), lines[2]); !strings.HasPrefix(got, "comment(still */)") {
+		t.Errorf("the line after: %s, want it to start in the comment", got)
+	}
+}
+
 // A string with interpolations is one the lexer's stack can hold: its
 // index in five bits.
 func TestInterpolatedStringsFit(t *testing.T) {
@@ -143,7 +213,8 @@ func TestInterpolatedStringsFit(t *testing.T) {
 
 func TestLanguageFor(t *testing.T) {
 	for name, want := range map[string]string{"main.go": "Go", "a/b/Makefile": "Makefile", "x.TSX": "TypeScript", "Dockerfile": "Dockerfile", "x.unknown": "",
-		"main.dart": "Dart", "schema.graphql": "GraphQL", "q.gql": "GraphQL", "plot.r": "R", "plot.R": "R", "Main.scala": "Scala", "build.sc": "Scala", "flake.nix": "Nix"} {
+		"main.dart": "Dart", "schema.graphql": "GraphQL", "q.gql": "GraphQL", "plot.r": "R", "plot.R": "R", "Main.scala": "Scala", "build.sc": "Scala", "flake.nix": "Nix",
+		"user.rbs": "Ruby"} {
 		l := LanguageFor(name)
 		got := ""
 		if l != nil {
@@ -157,6 +228,32 @@ func TestLanguageFor(t *testing.T) {
 
 // LanguageNamed finds a language by its name, an extension or an alias,
 // ignoring case, and each has a tokenizer.
+func TestLanguageForText(t *testing.T) {
+	for _, c := range []struct{ name, text, want string }{
+		{"bin/rails", "#!/usr/bin/env ruby\nrequire \"x\"\n", "Ruby"},
+		{"bin/dev", "#!/usr/bin/env bash\n", "Shell"},
+		{"setup", "#!/bin/sh -e\n", "Shell"},
+		{"tool", "#!/usr/bin/python3.12\n", "Python"},
+		{"run", "#!/usr/bin/env -S deno run --allow-read\n", "TypeScript"},
+		{"run", "#!/usr/bin/env -i PATH=/bin node", "JavaScript"},
+		{"x.rb", "#!/bin/bash\n", "Ruby"}, // the name decides first
+		{"README", "#!/bin/bash\n", "Markdown"},
+		{"notes", "#!/usr/bin/env perl\n", ""},
+		{"notes", "#!\n", ""},
+		{"notes", "#!/usr/bin/env\n", ""},
+		{"notes", "echo #!/bin/sh\n", ""},
+		{"notes", "", ""},
+	} {
+		got := ""
+		if l := LanguageForText(c.name, c.text); l != nil {
+			got = l.Name
+		}
+		if got != c.want {
+			t.Errorf("LanguageForText(%q, %q) = %q, want %q", c.name, c.text, got, c.want)
+		}
+	}
+}
+
 func TestLanguageNamed(t *testing.T) {
 	for want, names := range map[string][]string{
 		"Go":      {"go", "Go", "golang"},

@@ -156,6 +156,25 @@ quits, on the main thread. Windows open with their options when there are
 no states or loading them fails; a save that fails is tried again the next
 time.
 
+In a quit, the states are saved after the `OnBeforeQuit` listeners have
+run, as each window closes, and once more after the event loop has
+stopped, right before the `OnQuit` listeners run. A "Reset settings"
+action that removed `window-state.json`, or the states from its own store,
+would see them written again. `App.ClearWindowStates()` forgets them for
+good instead: it saves no states, an empty map for a `WindowStateStore`,
+and the windows save theirs no more until the app exits. The windows open
+keep their bounds, and those created afterwards, as at the next launch,
+get their options. It can be called at any time, from a quit listener
+too:
+
+```go
+mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
+	if resetRequested {
+		_ = mygo.App.ClearWindowStates()
+	}
+})
+```
+
 ### Bring a page back
 
 A window's position comes back with its `StateKey`; its page comes back
@@ -214,6 +233,12 @@ win.SetFullScreen(true) // ToggleFullScreen, IsFullScreen
 win.Hide()              // Show, ShowInactive (without focusing), IsVisible
 win.Focus()             // Blur, IsFocused
 ```
+
+`IsVisible` tells whether `Show` showed the window and `Hide` did not hide
+it since: a minimized window is still visible, on every platform, as is one
+covered by others or on another desktop. `IsMinimized` tells that it is
+minimized, and in a window of native UI,
+[`Context.WindowHidden`](ui/windows.md#hidden-windows) whether any of it shows on screen.
 
 Sizes and positions are in the window's DIPs, whatever the zoom of its
 page (`Page.SetZoomFactor`) or of its [native UI](ui/windows.md#zoom):
@@ -385,7 +410,9 @@ neither a border nor rounded corners there).
 
 On macOS, `Popover` gives it the look of the system's popovers instead: it
 shows in an `NSPopover`, which draws its material, rounded corners and an
-arrow pointing at the middle of the anchor, and animates. AppKit places it
+arrow pointing at the middle of the anchor, and animates. The material and
+arrow follow the application's theme, including changes while open; a tray's
+menu-bar contrast appearance does not override them. AppKit places it
 on the side `Placement` names, or the opposite one; the rest of the
 placement, and `Gap`, do not apply. As AppKit's popovers do, it has the
 keyboard while it shows, and with `Focusable` it closes as the user clicks

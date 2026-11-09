@@ -61,6 +61,12 @@ func TestMain(m *testing.M) {
 	if os.Getenv("MYGO_TEST_STUCK_QUIT") == "1" {
 		stuckQuit()
 	}
+	if dir := os.Getenv("MYGO_TEST_CLEAR_WINDOW_STATES"); dir != "" {
+		clearWindowStatesOnQuit(dir)
+	}
+	if mode := os.Getenv("MYGO_TEST_END_SESSION"); mode != "" {
+		endSession(mode)
+	}
 	if os.Getenv("MYGO_TEST_EVAL_AFTER_QUIT") == "1" {
 		evalAfterQuit()
 	}
@@ -183,6 +189,28 @@ func TestWindowDefaults(t *testing.T) {
 	}
 	if WindowByID(w.ID()) != w {
 		t.Error("WindowByID")
+	}
+}
+
+// TestMinimizedWindowIsVisible holds IsVisible to what Show and Hide set,
+// as every backend reports it (#1542): a minimized window is still shown,
+// Show does not show it again, and Hide hides it.
+func TestMinimizedWindowIsVisible(t *testing.T) {
+	w, _ := testWindow(t, WindowOptions{})
+	var shows, hides atomic.Int32
+	w.OnShow(func() { shows.Add(1) })
+	w.OnHide(func() { hides.Add(1) })
+	w.Minimize()
+	if !w.IsMinimized() || !w.IsVisible() {
+		t.Fatalf("minimized: IsMinimized %v, IsVisible %v", w.IsMinimized(), w.IsVisible())
+	}
+	w.ShowInactive()
+	if shows.Load() != 0 {
+		t.Errorf("ShowInactive on a minimized window fired OnShow %d times", shows.Load())
+	}
+	w.Hide()
+	if w.IsVisible() || hides.Load() != 1 {
+		t.Errorf("Hide on a minimized window: IsVisible %v, OnHide %d times", w.IsVisible(), hides.Load())
 	}
 }
 
@@ -2230,6 +2258,78 @@ func TestQuitWhileLoopRuns(t *testing.T) {
 	if got := string(out); !strings.Contains(got, "asked again: 2\n") || !strings.Contains(got, "quit\n") {
 		t.Errorf("output:\n%s", got)
 	}
+}
+
+// TestEndSession: when the OS ends the session, the quit listeners and the
+// windows' OnClose run before OnQuit, synchronously and in a quit's
+// order, and what they prevent is ignored; after a quit that ran them,
+// they do not run again.
+func TestEndSession(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for mode, want := range map[string]string{
+		"fresh": "before true\nclose\nwill true\nquit\nended\n",
+		// The quit ran the sequence; its loop had not stopped yet.
+		"quit": "before false\nclose\nwill false\nquit\nended\n",
+	} {
+		cmd := exec.Command(exe, "-test.run=^$")
+		cmd.Env = append(os.Environ(), "MYGO_TEST_END_SESSION="+mode)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", mode, err, out)
+		}
+		if string(out) != want {
+			t.Errorf("%s: output:\n%s\nwant:\n%s", mode, out, want)
+		}
+	}
+}
+
+// endSession is a helper process for TestEndSession: the OS ends the
+// session while the app runs ("fresh"), when every listener tries to
+// cancel, or after a quit ran its sequence and the loop has yet to stop
+// ("quit").
+func endSession(mode string) {
+	fb.IgnoresQuit = true
+	stopGrace = 0
+	App.OnWindowAllClosed(func() { fmt.Println("all closed") })
+	App.OnBeforeQuit(func(e *QuitEvent) {
+		fmt.Println("before", e.SessionEnding)
+		if mode == "fresh" {
+			e.PreventDefault()
+		}
+	})
+	App.OnWillQuit(func(e *QuitEvent) {
+		fmt.Println("will", e.SessionEnding)
+		if mode == "fresh" {
+			e.PreventDefault()
+		}
+	})
+	App.OnQuit(func() { fmt.Println("quit") })
+	App.WhenReady(func() {
+		w := NewWindow(WindowOptions{})
+		w.OnClose(func(e *CloseEvent) {
+			fmt.Println("close")
+			if mode == "fresh" {
+				e.PreventDefault()
+			}
+		})
+		if mode == "quit" {
+			App.Quit() // its loop does not stop (IgnoresQuit)
+		}
+		postMain(func() {
+			fb.EndSession()
+			if !w.IsDestroyed() {
+				fmt.Println("the window is open")
+			}
+			fmt.Println("ended")
+			os.Exit(0)
+		})
+	})
+	App.Run()
+	fmt.Println("the loop stopped")
+	os.Exit(1)
 }
 
 // stuckQuit is a helper process for TestQuitWhileLoopRuns: its event

@@ -158,6 +158,11 @@ is. `MenuKeepsSelection` turns this off: the menu opens on the row clicked,
 whose builder knows its row, and the choice stays. A list with `Selected`
 alone never chooses on a right-click.
 
+The menu key and Shift+F10 open the context menu of the row chosen, below
+the row, while the list has the focus: the outermost element with a
+`ContextMenu` in the row, or the list's own when no row is chosen or the
+row has none.
+
 ```go
 app.files.Selection = &app.chosen
 app.files.MenuKeepsSelection = true // the menu acts on the row clicked alone
@@ -195,6 +200,26 @@ ui.List(c, &app.list, len(app.files), func(i int) {
 	name := ui.Text(c, app.files[i].Name).Padding(6, 12)
 	if name.RowDoubleClicked() {
 		app.rename(i)
+	}
+})
+```
+
+`RowClicked` reports a single click the same way, for rows that act on one,
+as a file list opening a file or a sidebar its page, with no button inside
+the row taking the click: the row takes it, so its `Label` names what takes
+the click, for typing its first letters, screen readers and `Tester.Click`
+alike. It reports each click of the primary button without modifiers, on the
+row already chosen too, where `Changed` reports nothing new. The keys moving
+the choice report none, nor does a Shift- or Cmd-click extending it. A double
+click reports its first click with `RowClicked` and its second with
+`RowDoubleClicked`, as the systems' lists do. Assistive technology pressing
+the row reports it to the first element of the row asking, and in a list
+that does not choose its rows, asking makes the row take the click.
+
+```go
+ui.List(c, &app.sidebar, len(app.pages), func(i int) {
+	if ui.Text(c, app.pages[i].Title).Padding(6, 12).FillWidth().RowClicked() {
+		app.show(i)
 	}
 })
 ```
