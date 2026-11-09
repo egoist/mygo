@@ -499,8 +499,10 @@ fn retain(o: Obj) Error!u64 {
 }
 
 fn object(h: u64) Error!*Obj {
-    if (h == 0) return error.Closed;
-    return @ptrFromInt(h);
+    // A handle is a pointer, which a 32-bit target holds in 32 bits.
+    const p = std.math.cast(usize, h) orelse return error.Closed;
+    if (p == 0) return error.Closed;
+    return @ptrFromInt(p);
 }
 
 /// A table of what Go refers to by an id, as calls by their call.

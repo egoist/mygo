@@ -23,9 +23,15 @@ pub fn build(b: *std.Build) void {
     module.addCMacro("SQLITE_OMIT_LOAD_EXTENSION", "1");
     module.addCMacro("SQLITE_OMIT_DEPRECATED", "1");
     module.addCMacro("SQLITE_OMIT_SHARED_CACHE", "1");
+    // Android's C library holds pthread, which has no library of its own
+    // there; its math lives in libm, as on other systems.
     if (target.result.os.tag != .windows) {
         module.linkSystemLibrary("m", .{});
-        module.linkSystemLibrary("pthread", .{});
+        if (!target.result.abi.isAndroid()) module.linkSystemLibrary("pthread", .{});
     }
-    b.installArtifact(b.addLibrary(.{ .name = "Sqlitecore", .linkage = .dynamic, .root_module = module }));
+    // iOS gets an archive, which the CLI links into the framework's dynamic
+    // library with the SDK's clang: the dynamic libraries Zig's own linker
+    // makes for iOS fail the device's code signature check.
+    const linkage: std.builtin.LinkMode = if (target.result.os.tag == .ios) .static else .dynamic;
+    b.installArtifact(b.addLibrary(.{ .name = "Sqlitecore", .linkage = linkage, .root_module = module }));
 }

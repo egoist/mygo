@@ -226,6 +226,10 @@ func setShaderSource(s uint32, src string) {
 func shaderLog(s uint32) string  { return infoLog(s, glGetShaderiv, glGetShaderInfoLog) }
 func programLog(p uint32) string { return infoLog(p, glGetProgramiv, glGetProgramInfoLog) }
 
+// uploadElement is for browsers' video elements, which Android has none
+// of: video plays in a view of its own, not a texture here.
+func uploadElement(uintptr) bool { return false }
+
 func infoLog(obj uint32, get func(uint32, uint32, *int32), read func(uint32, int32, *int32, *byte)) string {
 	var n int32
 	get(obj, glInfoLogLength, &n)

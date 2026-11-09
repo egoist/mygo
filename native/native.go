@@ -116,8 +116,14 @@ type Module struct {
 func (m *Module) supported() bool {
 	for _, l := range m.Langs {
 		switch l {
-		case "rust", "zig":
+		case "zig":
 			return true
+		case "rust":
+			// Phones build Zig implementations only (see mobile_modules in
+			// the CLI).
+			if runtime.GOOS != "android" && runtime.GOOS != "ios" {
+				return true
+			}
 		case "swift":
 			if runtime.GOOS == "darwin" || runtime.GOOS == "linux" && !mygo.App.IsPackaged() {
 				return true

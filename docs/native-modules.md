@@ -27,7 +27,7 @@ language, built with that language's tools:
 |---|---|---|
 | `swift/` | Swift, as a Swift package | macOS (and Linux under `go test`, with Foundation alone) |
 | `rust/` | Rust, as a crate | macOS, Linux, Windows |
-| `zig/` | Zig, as a package | macOS, Linux, Windows |
+| `zig/` | Zig, as a package | macOS, Linux, Windows, iOS, Android |
 
 A module may have several: each platform gets one, Swift on macOS where
 there is one, and otherwise Rust, then Zig. So a module can use Apple's
@@ -951,7 +951,8 @@ and `mygo build` signs them all with the app's identity.
 
 `rust/Cargo.toml` is the crate's, whose `[dependencies]` take crates as
 any crate's do; keep its `crate-type = ["cdylib"]`. `zig/build.zig` builds
-the library from `src/mygo.zig`, and `build.zig.zon` fetches Zig packages,
+the library from `src/mygo.zig`, dynamic, and an archive on iOS
+([phones](#build-run-and-test)), and `build.zig.zon` fetches Zig packages,
 or a C library's sources for `build.zig` to compile, as the
 [SQLite plugin](plugins/sqlite.md) does.
 
@@ -998,6 +999,16 @@ frameworks it brings, before it signs and notarizes the app
 each architecture, among the app's resources. cargo and Zig keep their
 files in `.mygo/native` of the Go module, not in the module's directories:
 keep `.mygo/` in your `.gitignore`, as the projects `mygo init` makes do.
+
+Phones build the Zig implementation from its sources with the platform's
+own headers and libraries, the iOS SDK or the NDK: `mygo build -platform
+ios` puts it in the bundle's Frameworks, signed with the app, and
+`-platform android` in the APK's libraries, where `mygo.NativeLibrary`
+loads it as on desktops. On iOS a module builds as a static library,
+which `mygo build` links with the SDK's clang into the framework's dynamic
+library, as Xcode links one: the dynamic libraries Zig's own linker makes
+for iOS fail the device's code signature check. A module whose only
+implementation is Swift or Rust is `errors.ErrUnsupported` on phones.
 
 `go test` and `go run` run the implementation of the platform they run on
 once `mygo dev`, or `mygo native build -target host`, has built it;

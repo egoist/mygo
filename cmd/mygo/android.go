@@ -179,7 +179,10 @@ func (t *androidToolchain) buildGo(ctx context.Context, c, dc *Config, tk *task,
 	if err != nil {
 		return err
 	}
-	return plugins.copyAndroidNatives(ctx, t, tk, c, abi, jniLibs)
+	if err := plugins.copyAndroidNatives(ctx, t, tk, c, abi, jniLibs); err != nil {
+		return err
+	}
+	return c.copyAndroidModuleNatives(ctx, t, tk, abi, a.goarch, opts.work, jniLibs)
 }
 
 // clang is the NDK's compiler for abi.

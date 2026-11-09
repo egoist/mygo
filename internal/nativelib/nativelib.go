@@ -296,7 +296,7 @@ func validName(name string) bool {
 func FileName(name, goos string) string {
 	base := strings.TrimPrefix(name, "lib")
 	switch goos {
-	case "darwin":
+	case "darwin", "ios":
 		return "lib" + base + ".dylib"
 	case "windows":
 		return base + ".dll"
@@ -316,7 +316,7 @@ func (l Library) FileName(goos, goarch string) string {
 // Ext returns the extension of dynamic libraries on goos.
 func Ext(goos string) string {
 	switch goos {
-	case "darwin":
+	case "darwin", "ios":
 		return ".dylib"
 	case "windows":
 		return ".dll"

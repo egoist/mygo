@@ -206,15 +206,23 @@ func buildZig(root, src string, lib nativelib.Library, goos, goarch, minMacOS st
 	if err != nil {
 		return "", err
 	}
+	return buildZigTarget(root, src, lib, triple, goos+"-"+goarch, nativelib.Ext(goos), lib.FileName(goos, goarch))
+}
+
+// buildZigTarget runs zig build in src for library lib, targeting triple,
+// and returns the library it installed: key names the build among the
+// library's, want the file, and extra are further arguments of zig build.
+func buildZigTarget(root, src string, lib nativelib.Library, triple, key, ext, want string, extra ...string) (string, error) {
 	if _, err := exec.LookPath("zig"); err != nil {
 		return "", errors.New("zig is not installed: get it from https://ziglang.org/download")
 	}
-	prefix := filepath.Join(root, ".mygo", "native", "zig", lib.Name, goos+"-"+goarch)
+	prefix := filepath.Join(root, ".mygo", "native", "zig", lib.Name, key)
 	if err := os.RemoveAll(prefix); err != nil {
 		return "", err
 	}
 	zigCacheTmp()
 	args := []string{"build", "-Dtarget=" + triple, "--prefix", prefix, "--cache-dir", filepath.Join(root, ".mygo", "native", "zig-cache")}
+	args = append(args, extra...)
 	// ReleaseFast, unless the arguments pick another mode.
 	if !slices.ContainsFunc(lib.Build.Args, func(a string) bool { return strings.HasPrefix(a, "-Doptimize") }) {
 		args = append(args, "-Doptimize=ReleaseFast")
@@ -228,7 +236,6 @@ func buildZig(root, src string, lib nativelib.Library, goos, goarch, minMacOS st
 		return "", fmt.Errorf("zig build: %v\n%s", err, tail(out.String(), 40))
 	}
 	// Windows libraries go into bin, beside their import libraries in lib.
-	ext, want := nativelib.Ext(goos), lib.FileName(goos, goarch)
 	var found []string
 	for _, sub := range []string{"lib", "bin"} {
 		entries, _ := os.ReadDir(filepath.Join(prefix, sub))
@@ -247,7 +254,7 @@ func buildZig(root, src string, lib nativelib.Library, goos, goarch, minMacOS st
 		return found[0], nil
 	}
 	if len(found) == 0 {
-		return "", fmt.Errorf("zig build installed no %s library: add b.installArtifact(b.addLibrary(.{.linkage = .dynamic, ...})) to build.zig", ext)
+		return "", fmt.Errorf("zig build installed no %s library: install one from build.zig with b.installArtifact(b.addLibrary(.{...}))", ext)
 	}
 	return "", fmt.Errorf("zig build installed several libraries and none is %s: %s", want, strings.Join(found, ", "))
 }

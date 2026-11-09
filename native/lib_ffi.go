@@ -27,10 +27,12 @@ import (
 var lastModule atomic.Uint64
 
 // library is the loaded implementation of a module: a native library,
-// found and loaded as package ffi finds and loads any (see ffi.Library.Path).
+// found and loaded as package ffi finds and loads any (see ffi.Library.Path),
+// or a phone's, loaded by the path mygo.NativeLibrary names.
 type library struct {
-	lib  *ffi.Library
-	syms sync.Map // name → uintptr
+	lib    *ffi.Library
+	handle uintptr  // a phone's library, open
+	syms   sync.Map // name → uintptr
 }
 
 var libc struct {
@@ -122,14 +124,27 @@ func (m *Module) open() (*library, error) {
 			return nil, err
 		}
 	}
-	fl := ffi.New(m.Name, m.published()).From(m.Dir)
-	if err := m.checkFresh(fl); err != nil {
-		return nil, err
+	lib := &library{}
+	if path := mygo.NativeLibrary(m.Name); path != "" {
+		// A phone's app carries the implementation itself, built with the
+		// app: a framework of the bundle on iOS, a library of the APK on
+		// Android, which dlopen opens by its path. There is no file for
+		// package ffi to find, nor one to check against the sources.
+		h, err := openNative(path)
+		if err != nil {
+			return nil, fmt.Errorf("native: %s: %w", path, err)
+		}
+		lib.handle = h
+	} else {
+		fl := ffi.New(m.Name, m.published()).From(m.Dir)
+		if err := m.checkFresh(fl); err != nil {
+			return nil, err
+		}
+		if err := fl.Load(); err != nil {
+			return nil, fmt.Errorf("native: %w", err)
+		}
+		lib.lib = fl
 	}
-	if err := fl.Load(); err != nil {
-		return nil, fmt.Errorf("native: %w", err)
-	}
-	lib := &library{lib: fl}
 	init, err := lib.sym(m, "init")
 	if err != nil {
 		return nil, err
@@ -143,8 +158,14 @@ func (m *Module) open() (*library, error) {
 	return lib, nil
 }
 
-// LibraryName is the file of a module's implementation on this system.
-func LibraryName(module string) string { return nativelib.FileName(module, runtime.GOOS) }
+// LibraryName is the file of a module's implementation on this system,
+// which a phone's app carries in its bundle (see mygo.NativeLibrary).
+func LibraryName(module string) string {
+	if path := mygo.NativeLibrary(module); path != "" {
+		return path
+	}
+	return nativelib.FileName(module, runtime.GOOS)
+}
 
 // published returns the manifest of a module that a dependency of the
 // program declares, in the module cache, where the files it publishes are
@@ -237,7 +258,13 @@ func (l *library) sym(m *Module, name string) (uintptr, error) {
 		return p.(uintptr), nil
 	}
 	full := "mygo_" + m.Symbol + "_" + name
-	p, err := l.lib.Symbol(full)
+	var p uintptr
+	var err error
+	if l.handle != 0 {
+		p, err = nativeSymbol(l.handle, full)
+	} else {
+		p, err = l.lib.Symbol(full)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("native: %s has no %s: rebuild it: run mygo dev, or mygo native build -target host %s", LibraryName(m.Name), full, m.Dir)
 	}

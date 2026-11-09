@@ -220,33 +220,40 @@ func (ps mobilePlugins) embedFrameworks(ctx context.Context, t *iosToolchain, tk
 		if err != nil {
 			return err
 		}
-		dir := filepath.Join(bundle, "Frameworks", n.Name+".framework")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-		data, err := os.ReadFile(lib)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(dir, n.Name), data, 0o755); err != nil {
-			return err
-		}
-		info := map[string]any{
-			"CFBundleIdentifier":            c.Identifier + "." + n.Name,
-			"CFBundleExecutable":            n.Name,
-			"CFBundleName":                  n.Name,
-			"CFBundlePackageType":           "FMWK",
-			"CFBundleShortVersionString":    c.Version,
-			"CFBundleVersion":               c.Version,
-			"CFBundleInfoDictionaryVersion": "6.0",
-			"MinimumOSVersion":              t.minimumVersion,
-			"CFBundleSupportedPlatforms":    []any{map[bool]string{true: "iPhoneSimulator", false: "iPhoneOS"}[t.simulator]},
-		}
-		if err := os.WriteFile(filepath.Join(dir, "Info.plist"), plistBytes(info), 0o644); err != nil {
+		if err := writeFramework(bundle, n.Name, c, t, lib); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// writeFramework puts lib, the library of name, in the bundle's
+// Frameworks, with its Info.plist, as iOS takes code besides the app's
+// executable.
+func writeFramework(bundle, name string, c *Config, t *iosToolchain, lib string) error {
+	dir := filepath.Join(bundle, "Frameworks", name+".framework")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(lib)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), data, 0o755); err != nil {
+		return err
+	}
+	info := map[string]any{
+		"CFBundleIdentifier":            c.Identifier + "." + name,
+		"CFBundleExecutable":            name,
+		"CFBundleName":                  name,
+		"CFBundlePackageType":           "FMWK",
+		"CFBundleShortVersionString":    c.Version,
+		"CFBundleVersion":               c.Version,
+		"CFBundleInfoDictionaryVersion": "6.0",
+		"MinimumOSVersion":              t.minimumVersion,
+		"CFBundleSupportedPlatforms":    []any{map[bool]string{true: "iPhoneSimulator", false: "iPhoneOS"}[t.simulator]},
+	}
+	return os.WriteFile(filepath.Join(dir, "Info.plist"), plistBytes(info), 0o644)
 }
 
 // signForSimulator signs the bundle for a simulator, with no identity. Entitlements
@@ -273,14 +280,16 @@ func (ps mobilePlugins) simulatorEntitlements(work string) ([]string, error) {
 	return []string{"-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__entitlements", "-Xlinker", path}, nil
 }
 
-// signFrameworks signs what embedFrameworks put in the bundle.
+// signFrameworks signs what embedFrameworks and embedModuleFrameworks put
+// in the bundle: signing the app takes those inside it as they are.
 func signFrameworks(bundle, identity string) error {
 	dirs, err := filepath.Glob(filepath.Join(bundle, "Frameworks", "*.framework"))
 	if err != nil {
 		return err
 	}
 	for _, dir := range dirs {
-		if err := runQuiet("codesign", "--force", "--sign", identity, dir); err != nil {
+		args := []string{"--force", "--sign", identity, "--generate-entitlement-der", "--timestamp=none"}
+		if err := runQuiet("codesign", append(args, dir)...); err != nil {
 			return err
 		}
 	}

@@ -7,6 +7,14 @@
 const std = @import("std");
 const impl = @import("sqlitecore.zig");
 
+/// Phones' SDKs name no dyld function that std.debug's Mach-O self info
+/// calls when a panic prints its stack trace: libraries built for them
+/// link against Apple's public stubs alone. A module has no symbols of its
+/// own to trace there, so it leaves self info out.
+pub const debug = if (@import("builtin").target.os.tag == .ios) struct {
+    pub const SelfInfo = void;
+} else struct {};
+
 pub const Allocator = std.mem.Allocator;
 
 /// Engine opens connections.
@@ -927,8 +935,10 @@ fn retain(o: Obj) Error!u64 {
 }
 
 fn object(h: u64) Error!*Obj {
-    if (h == 0) return error.Closed;
-    return @ptrFromInt(h);
+    // A handle is a pointer, which a 32-bit target holds in 32 bits.
+    const p = std.math.cast(usize, h) orelse return error.Closed;
+    if (p == 0) return error.Closed;
+    return @ptrFromInt(p);
 }
 
 /// A table of what Go refers to by an id, as calls by their call.

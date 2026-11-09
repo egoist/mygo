@@ -24,7 +24,17 @@ func GenerateZig(m *Module) ([]byte, error) {
 	var b bytes.Buffer
 	g := &zigGen{m: m, b: &b, w: newWire(m)}
 	g.p("%s// %s\n//\n// The declarations of package %s, which the implementation in %s.zig\n// implements, and the functions Go calls. See docs/native-modules.md.\n\n", goHeader, SourceLine(m.Hash), m.Package, m.Package)
-	g.p("const std = @import(\"std\");\nconst impl = @import(%q);\n\npub const Allocator = std.mem.Allocator;\n", m.Package+".zig")
+	g.p("const std = @import(\"std\");\nconst impl = @import(%q);\n\n", m.Package+".zig")
+	g.p(`/// Phones' SDKs name no dyld function that std.debug's Mach-O self info
+/// calls when a panic prints its stack trace: libraries built for them
+/// link against Apple's public stubs alone. A module has no symbols of its
+/// own to trace there, so it leaves self info out.
+pub const debug = if (@import("builtin").target.os.tag == .ios) struct {
+    pub const SelfInfo = void;
+} else struct {};
+
+`)
+	g.p("pub const Allocator = std.mem.Allocator;\n")
 	for _, it := range m.Interfaces {
 		if it.ByGo {
 			g.goIface(it)

@@ -68,9 +68,9 @@ func (c *Config) nativesOf(pkgs []nativePackage, goos, goarch string) ([]source,
 				// Swift libraries go into Frameworks (prepareNative), and
 				// a module no language implements here is unsupported.
 				// Libraries a plugin compiles itself for phones are the
-				// phone build's (mobile_natives), and native modules do not
-				// load on phones: package native has no implementation
-				// there, so the app gets errors.ErrUnsupported.
+				// phone build's (mobile_natives), and native modules are
+				// too (mobile_modules): phones carry them in the app, not
+				// among its resources.
 				continue
 			}
 			seen[l.Name] = true

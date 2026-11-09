@@ -157,6 +157,9 @@ func (t *iosToolchain) buildApp(ctx context.Context, c, dc *Config, tk *task, op
 	if err := plugins.embedFrameworks(ctx, t, tk, dc, bundle); err != nil {
 		return "", err
 	}
+	if err := dc.embedModuleFrameworks(ctx, t, tk, work, bundle); err != nil {
+		return "", err
+	}
 
 	tk.set("bundling")
 	res, err := dc.appResources("ios", "arm64")
