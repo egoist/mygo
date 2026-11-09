@@ -5,7 +5,7 @@ import (
 )
 
 // Lexers for languages the general lexer does not fit: JSON's keys,
-// TOML's tables, CSS, markup with the scripts and styles inside it,
+// TOML's tables, HCL's heredocs, CSS, markup with the scripts and styles inside it,
 // Markdown with the code of its fenced blocks, and diffs.
 
 // relabel gives the tokens of line covering start to end kind k,
@@ -108,6 +108,61 @@ func (t *tomlLexer) Tokenize(line string, state uint64, tokens []Token) ([]Token
 		}
 	}
 	return append(tokens[:n0], toks...), next
+}
+
+// hclLexer adds HCL's heredocs, <<EOT or <<-EOT ending a line, to the
+// general lexer. While in one, its state is the mode hclHeredoc (bits
+// 0-7), which the general lexer never uses, and a hash of the word that
+// ends it (bits 8-39).
+type hclLexer struct{ lexer }
+
+const hclHeredoc = 0xfe
+
+func (h *hclLexer) Tokenize(line string, state uint64, tokens []Token) ([]Token, uint64) {
+	if state&0xff == hclHeredoc {
+		out := lexOut{toks: tokens}
+		out.add(len(line), TokenString)
+		if hclHash(strings.TrimSpace(line)) == state>>8 {
+			return out.toks, 0
+		}
+		return out.toks, state
+	}
+	n0 := len(tokens)
+	tokens, next := h.lexer.Tokenize(line, state, tokens)
+	// A block word before a dot, as in data.x.id or module.m.out, names
+	// a value the way var.x and local.x do.
+	for i := n0; i < len(tokens); i++ {
+		if t := &tokens[i]; t.Kind == TokenKeyword && t.End < len(line) && line[t.End] == '.' {
+			t.Kind = TokenVariable
+		}
+	}
+	if next != 0 {
+		return tokens, next
+	}
+	body := strings.TrimRight(line, " \t\r")
+	j := len(body)
+	for j > 0 && isIdentByte(body[j-1]) {
+		j--
+	}
+	word := body[j:]
+	k := j
+	if k > 0 && body[k-1] == '-' {
+		k--
+	}
+	if word == "" || !identStart(word, "") || k < 2 || body[k-2:k] != "<<" || kindAt(tokens[n0:], k-2) != TokenOperator {
+		return tokens, next
+	}
+	toks := relabel(tokens[n0:], k-2, len(body), TokenString)
+	return append(tokens[:n0], toks...), hclHeredoc | hclHash(word)<<8
+}
+
+// hclHash hashes a heredoc's word into 32 bits, FNV-1a.
+func hclHash(s string) uint64 {
+	h := uint32(2166136261)
+	for i := 0; i < len(s); i++ {
+		h = (h ^ uint32(s[i])) * 16777619
+	}
+	return uint64(h)
 }
 
 // cssLexer lexes CSS, SCSS and Less: selectors, at-rules, properties and
