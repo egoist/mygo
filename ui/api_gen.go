@@ -2569,7 +2569,9 @@ func SwitchBase(c *Context, on *bool) Element {
 // the rows of its section scroll under it.
 //
 // The user resizes columns by dragging the edges of their headers, and
-// moves them by dragging the headers, which s.Columns keeps; columns wider
+// moves them by dragging the headers, which s.Columns keeps; Changed
+// reports the new layout once the user lets go, or once a double click
+// fits a column to its cells, for the app to save. Columns wider
 // than the table scroll sideways, the header with them. With s.Sort, a
 // click on the header of a Sortable column sorts the rows by it; with
 // s.SortBy, a Cmd-click or a Shift-click sorts by it after the others;
@@ -4399,7 +4401,8 @@ func (_handle Element) ContentTransition(t ContentTransition) Element {
 // items. The system shows it where the element is clicked with the
 // secondary button, or Control-clicked on macOS, and, while the element or
 // one inside it has the focus, below it when the menu key or Shift+F10 is
-// pressed. build runs when the menu opens, and again in the frame after an
+// pressed; in a list, while the list has the focus and the element's row
+// is chosen. build runs when the menu opens, and again in the frame after an
 // item was chosen, where the item's Chosen reports it:
 //
 //	row.ContextMenu(func(m *ui.Menu) {
@@ -8235,6 +8238,21 @@ func (_handle Element) TranslateZ(z float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.TranslateZ(z))
+}
+
+// TruncateMiddle puts the ellipsis of text that SingleLine or MaxLines
+// cuts in the middle of its last line rather than at its end, so that it
+// keeps both its start and its end, about as wide each, in the room
+// layout gives it: a list of files shows "src/components/…/picker.go",
+// whose folder and file's name both show.
+func (_handle Element) TruncateMiddle() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.TruncateMiddle())
 }
 
 // Underline underlines text.
