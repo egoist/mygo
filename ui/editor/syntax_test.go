@@ -331,7 +331,7 @@ func TestLanguageCommentsAndBrackets(t *testing.T) {
 	for name, want := range map[string][3]string{
 		"dart": {"//", "/*", "*/"}, "scala": {"//", "/*", "*/"}, "graphql": {"#", "", ""}, "r": {"#", "", ""},
 		"jinja": {"", "{#", "#}"},
-		"hcl": {"#", "/*", "*/"},
+		"hcl":   {"#", "/*", "*/"},
 	} {
 		l := LanguageNamed(name)
 		if got := [3]string{l.LineComment, l.BlockComment[0], l.BlockComment[1]}; got != want {
