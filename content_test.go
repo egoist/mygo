@@ -630,10 +630,11 @@ func (st *shotState) view(c *ui.Context) {
 }
 
 // TestBackgroundShowsWindowsInactive checks an app `mygo dev
-// -background` launched: the windows NewWindow shows, of native UI or
-// pages, show without the focus, which would bring the app to the front,
-// until a window of the app takes the focus, as the user clicks it; then
-// as before.
+// -background` launched: its windows, of native UI or pages, those
+// NewWindow shows and one made Hidden that the app shows itself, show
+// without the focus, which would bring the app to the front, until a
+// window of the app takes the focus, as the user clicks it; then as
+// before.
 func TestBackgroundShowsWindowsInactive(t *testing.T) {
 	last := func() *fake.Window { wins := fb.Windows(); return wins[len(wins)-1] }
 	show := func(content bool, title string) *fake.Window {
@@ -653,7 +654,14 @@ func TestBackgroundShowsWindowsInactive(t *testing.T) {
 	for _, content := range []bool{true, false} {
 		onMain(func() { backgroundShow = true })
 		first, second := show(content, "First"), show(content, "Second")
-		for _, fw := range []*fake.Window{first, second} {
+		var shown *fake.Window
+		onMain(func() {
+			w := NewWindow(WindowOptions{Title: "Shown", Hidden: true})
+			t.Cleanup(w.Destroy)
+			shown = last()
+			w.Show()
+		})
+		for _, fw := range []*fake.Window{first, second, shown} {
 			if !fw.IsVisible() || fw.IsFocused() {
 				t.Errorf("content %v: %s visible %v, focused %v; want shown without the focus", content, fw.Opts.Title, fw.IsVisible(), fw.IsFocused())
 			}

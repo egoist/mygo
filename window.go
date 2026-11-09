@@ -688,7 +688,7 @@ func newWindow(opts WindowOptions, bg, tint *background, native uintptr, flyout 
 		w.showLater = true
 		postMain(w.settleShow)
 	default:
-		w.showNew()
+		w.Show()
 	}
 	return w
 }
@@ -878,7 +878,7 @@ func get[T any](w *Window, fn func(n platform.Window) T) T {
 // thread only.
 func (w *Window) settleShow() {
 	if w.showLater && !w.framing {
-		w.showNew()
+		w.show()
 	}
 }
 
@@ -945,6 +945,10 @@ func (w *Window) destroy() {
 func (w *Window) Show() { onMain(w.show) }
 
 func (w *Window) show() {
+	if backgroundShow {
+		w.showInactive()
+		return
+	}
 	w.showLater = false
 	if w.native == nil {
 		return
@@ -984,22 +988,12 @@ func (w *Window) showInactive() {
 }
 
 // backgroundShow tells that an app `mygo dev -background` launched
-// (devBackground) has not come to the front yet: the windows NewWindow
-// shows show without the focus, as Show would bring the app there, until
-// one of its windows takes the focus, as the user clicks it, or the app
-// becomes the active one. Main thread only.
+// (devBackground) has not come to the front yet: its windows show without
+// the focus, those NewWindow shows and those the app shows itself, as one
+// made Hidden until OnReadyToShow, since Show would bring the app there,
+// until one of its windows takes the focus, as the user clicks it, or the
+// app becomes the active one. Main thread only.
 var backgroundShow = devBackground
-
-// showNew shows a window NewWindow made, as Show does, or as ShowInactive
-// does while the app keeps in the background (backgroundShow). Main thread
-// only.
-func (w *Window) showNew() {
-	if backgroundShow {
-		w.showInactive()
-		return
-	}
-	w.show()
-}
 
 // fitShow sizes a hidden flyout of native UI that takes its content's
 // size to that content before it shows (fitContent.show). Main thread
