@@ -72,6 +72,19 @@ func TestTokenizers(t *testing.T) {
 			"type(.a)kw(:hover)punct(,)type(#b)punct({)prop(color)punct(:)const(red)punct(;)prop(margin)punct(:)num(-4px)punct(;)punct(})"},
 		{"html", []string{`<div class="x">a &amp; b<script>let y = 1</script>`},
 			`punct(<)tag(div)attr(class)op(=)str("x")punct(>)text(a)esc(&amp;)text(b)punct(<)tag(script)punct(>)kw(let)var(y)op(=)num(1)punct(</)tag(script)punct(>)`},
+		// HCL's blocks, attributes, interpolations, comments and heredocs.
+		{"hcl", []string{`resource "aws_s3_bucket" "b" {`, `  count = var.n > 0 ? 1 : 0 # c`, `  tags = { Name = "x-${var.env}" } // d`,
+			`  policy = <<-EOT`, `    {"a": "${b}"}`, `  EOT`, `  type = list(string) /* e */`, `}`},
+			`kw(resource)str("aws_s3_bucket")str("b")punct({) / prop(count)op(=)var(var)punct(.)prop(n)op(>)num(0)op(?)num(1)op(:)num(0)comment(# c) / ` +
+				`prop(tags)op(=)punct({)prop(Name)op(=)str("x-)esc(${)var(var)punct(.)prop(env)esc(})str(")punct(})comment(// d) / ` +
+				`prop(policy)op(=)str(<<-EOT) / str({"a": "${b}"}) / str(EOT) / prop(type)op(=)type(list)punct(()type(string)punct())comment(/* e */) / punct(})`},
+		// A block word before a dot names a value, like var.
+		{"hcl", []string{`data "z" "a" {`, `  id = data.z.a.id`, `  x = module.m.out`, `}`},
+			`kw(data)str("z")str("a")punct({) / prop(id)op(=)var(data)punct(.)prop(z)punct(.)prop(a)punct(.)prop(id) / ` +
+				`prop(x)op(=)var(module)punct(.)prop(m)punct(.)prop(out) / punct(})`},
+		// A heredoc's opener in a string or comment opens none.
+		{"hcl", []string{`a = "<<EOT"`, `b = 1 # <<EOT`, `c = 2`},
+			`prop(a)op(=)str("<<EOT") / prop(b)op(=)num(1)comment(# <<EOT) / prop(c)op(=)num(2)`},
 		{"markdown", []string{"# Title", "Some *em* and **strong** `code` [link](url)", "```go", "func x() {}", "```"},
 			"heading(# Title) / text(Some)em(*em*)text(and)strong(**strong**)code(`code`)link([link])str((url)) / punct(```)type(go) / kw(func)fn(x)punct(())punct({}) / punct(```)"},
 		{"diff", []string{"@@ -1,2 +1,2 @@ func x", "-a", "+b", " c"},
@@ -214,7 +227,7 @@ func TestInterpolatedStringsFit(t *testing.T) {
 func TestLanguageFor(t *testing.T) {
 	for name, want := range map[string]string{"main.go": "Go", "a/b/Makefile": "Makefile", "x.TSX": "TypeScript", "Dockerfile": "Dockerfile", "x.unknown": "",
 		"main.dart": "Dart", "schema.graphql": "GraphQL", "q.gql": "GraphQL", "plot.r": "R", "plot.R": "R", "Main.scala": "Scala", "build.sc": "Scala", "flake.nix": "Nix",
-		"user.rbs": "Ruby"} {
+		"user.rbs": "Ruby", "main.tf": "HCL", "prod.tfvars": "HCL", "config.hcl": "HCL"} {
 		l := LanguageFor(name)
 		got := ""
 		if l != nil {
@@ -261,6 +274,7 @@ func TestLanguageNamed(t *testing.T) {
 		"GraphQL": {"graphql", "GraphQL", "gql"},
 		"R":       {"r", "R", " r "},
 		"Scala":   {"scala", "Scala", "sc"},
+		"HCL":     {"hcl", "terraform", "tf", "tfvars"},
 	} {
 		for _, name := range names {
 			l := LanguageNamed(name)
@@ -282,6 +296,7 @@ func TestLanguageNamed(t *testing.T) {
 func TestLanguageCommentsAndBrackets(t *testing.T) {
 	for name, want := range map[string][3]string{
 		"dart": {"//", "/*", "*/"}, "scala": {"//", "/*", "*/"}, "graphql": {"#", "", ""}, "r": {"#", "", ""},
+		"hcl": {"#", "/*", "*/"},
 	} {
 		l := LanguageNamed(name)
 		if got := [3]string{l.LineComment, l.BlockComment[0], l.BlockComment[1]}; got != want {
