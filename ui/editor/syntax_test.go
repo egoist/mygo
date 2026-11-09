@@ -370,6 +370,30 @@ func TestSyntaxIncremental(t *testing.T) {
 	}
 }
 
+func BenchmarkTokenizeHTML(b *testing.B) {
+	benchmarkTokenize(b, "html", "<div class=\"card\" id='x' data-a=\"{b}\">\n\t<a href=\"/p?q=1&amp;r\">Hi &lt;there&gt;</a> <!-- note -->\n"+
+		"\t<script>if (a > 1) { run(`x${y}`) }</script>\n\t<style>.a { color: red; }</style>\n</div>\n")
+}
+
+func BenchmarkTokenizeSvelte(b *testing.B) {
+	benchmarkTokenize(b, "svelte", "<div class=\"card {cls}\" on:click={() => open(id)}>\n\t{#each items as item (item.id)}\n"+
+		"\t\t<a href=\"/p/{item.id}\">{item.name} &amp; {count + 1}</a>\n\t{/each}\n</div>\n")
+}
+
+func benchmarkTokenize(b *testing.B, lang, chunk string) {
+	src := strings.Repeat(chunk, 200)
+	lines := strings.Split(src, "\n")
+	tok := LanguageNamed(lang).Tokenizer
+	var toks []Token
+	b.SetBytes(int64(len(src)))
+	for range b.N {
+		var state uint64
+		for _, l := range lines {
+			toks, state = tok.Tokenize(l, state, toks[:0])
+		}
+	}
+}
+
 func BenchmarkTokenizeGo(b *testing.B) {
 	src := strings.Repeat("func (s *server) handle(w http.ResponseWriter, r *http.Request) error {\n\tif err := s.check(r.Context(), \"x\\n\", 0x1f); err != nil { // why\n\t\treturn fmt.Errorf(`bad: %w`, err)\n\t}\n\treturn nil\n}\n", 200)
 	lines := strings.Split(src, "\n")
