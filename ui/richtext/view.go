@@ -47,6 +47,11 @@ type EditorOptions struct {
 	// Element.ContextMenu's function does: an app with a menu of its own
 	// opens it there, and adds nothing to show none of the system's.
 	Menu func(m *ui.Menu)
+	// OnKey is asked about a key pressed in the editor before the editor
+	// acts on it, as an app's popup over the text (a list of completions)
+	// takes the arrows, Enter and Escape: true takes the key, and the
+	// editor does nothing with it.
+	OnKey func(key ui.Key, mods ui.Modifiers) bool
 }
 
 // Editor creates an editor of doc's attributed text, as NSTextView edits
