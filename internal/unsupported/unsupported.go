@@ -129,10 +129,10 @@ type Clipboard struct{}
 func (Clipboard) ReadData([]transfer.Format) (transfer.Data, error) {
 	return transfer.Data{}, errUnsupported
 }
-func (Clipboard) WriteData(transfer.Data, func()) error { return errUnsupported }
-func (Clipboard) Formats() []transfer.Format            { return nil }
-func (Clipboard) Flush() error                          { return errUnsupported }
-func (Clipboard) Close()                                {}
+func (Clipboard) WriteData(transfer.Data, bool, func()) error { return errUnsupported }
+func (Clipboard) Formats() []transfer.Format                  { return nil }
+func (Clipboard) Flush() error                                { return errUnsupported }
+func (Clipboard) Close()                                      {}
 
 func (Clipboard) ReadText() string           { return "" }
 func (Clipboard) WriteText(string)           {}
@@ -150,6 +150,7 @@ func (Shell) OpenExternal(string) error            { return errUnsupported }
 func (Shell) OpenPath(string) error                { return errUnsupported }
 func (Shell) ShowItemInFolder(string)              {}
 func (Shell) TrashItem(string) error               { return errUnsupported }
+func (Shell) PreviewItem(string) error             { return errUnsupported }
 func (Shell) Beep()                                {}
 func (Shell) FileIcon(string, int) ([]byte, error) { return nil, errUnsupported }
 func (Shell) TypeIcon(string, int) ([]byte, error) { return nil, errUnsupported }
@@ -179,6 +180,7 @@ type Power struct{}
 
 func (Power) Watch()                        {}
 func (Power) KeepAwake(bool, string) func() { return func() {} }
+func (Power) KeepRunning(string) func()     { return func() {} }
 func (Power) OnBattery() bool               { return false }
 func (Power) IdleTime() time.Duration       { return 0 }
 

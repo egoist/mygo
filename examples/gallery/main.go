@@ -39,6 +39,9 @@ type gallery struct {
 	// rtl lays the gallery out right to left, as an app in Arabic or
 	// Hebrew is (MYGO_DIRECTION=rtl does it for the whole window).
 	rtl bool
+	// drawnMenus draws every menu of the window in it, with the theme's
+	// look: context menus, menu buttons', tables' and text inputs'.
+	drawnMenus bool
 	// language is the language chosen on the Languages page, "" for the
 	// system's.
 	language string
@@ -370,6 +373,11 @@ func (g *gallery) view(c *ui.Context) {
 		g.zoom = 0
 	}
 	c.SetZoom(zooms[zoomOne+g.zoom])
+	if g.drawnMenus {
+		c.SetMenuPresentation(ui.PopoverMenus)
+	} else {
+		c.SetMenuPresentation(ui.SystemMenus)
+	}
 }
 
 func (g *gallery) wideView(c *ui.Context) {
@@ -528,6 +536,7 @@ func (g *gallery) toolbar(c *ui.Context) {
 			g.router.Push(pagePath(page))
 		}
 		ui.Spacer(c)
+		ui.Toggle(c, &g.drawnMenus, "Drawn menus").Tooltip("Draw every menu in the window, with the theme's look, rather than the system's")
 		ui.Toggle(c, &g.rtl, "Right to left").Tooltip("Lay the gallery out right to left")
 	}).Label("Navigation").Padding(8, 24, 0)
 }
@@ -942,9 +951,9 @@ func (g *gallery) controls(c *ui.Context) {
 			})
 		}, func() {
 			ui.Column(c).Fill().Padding(10).Children(func() {
-				ui.Text(c, "Drag the divider, or focus it and press the arrows.").TextColor(t.TextMuted)
+				ui.Text(c, "Drag the divider, double-click it to reset, or focus it and press the arrows.").TextColor(t.TextMuted)
 			})
-		}).Height(140).Border(1, t.Border).Radius(t.Radius).Clip()
+		}).SplitReset(160).Height(140).Border(1, t.Border).Radius(t.Radius).Clip()
 	})
 	card(c, "Built on bases", func() {
 		ui.Text(c, "Bases are the widgets without their look: the pointer, the keys, the focus and accessibility, styled here anew.").TextColor(t.TextMuted)
@@ -1360,6 +1369,7 @@ func (g *gallery) styling(c *ui.Context) {
 			ui.RichText(c, ui.Span{Text: "Search results "}, ui.Span{Text: "stand out", Background: ui.RGBA(250, 204, 21, 0.45)},
 				ui.Span{Text: " with a background."})
 			ui.Text(c, "Underlines of their own color and thickness").Underline().DecorationColor(t.Accent).DecorationThickness(2)
+			ui.Text(c, "An underline dropped below the descenders: typography").Underline().UnderlineOffset(5)
 			ui.Text(c, "A highlight behind every line").TextBackground(t.Selection)
 			ui.Text(c, strings.Repeat("A line cut with an ellipsis of its own. ", 3)).SingleLine().Ellipsis(" →")
 		})
@@ -1507,6 +1517,16 @@ func (g *gallery) glassPage(c *ui.Context) {
 	ui.Row(c).Gap(16).AlignItems(ui.Center).Wrap().Children(func() {
 		ui.Segmented(c, &g.glassStyle, "Regular", "Clear").Label("Glass")
 		ui.Segmented(c, &g.glassEdge, "Glass bar", "Soft edge", "Hard edge", "Progressive blur").Label("Under the toolbar")
+	})
+	// Panes that nearly touch merge into one surface, as AppKit's
+	// NSGlassEffectContainerView's do.
+	ui.Text(c, "Panes that nearly touch merge into one surface.").TextColor(t.TextMuted)
+	group := glass.NewGroup(c)
+	group.Radius = 22
+	group.Gap(6).Children(func() {
+		for _, label := range []string{"Cut", "Copy", "Paste"} {
+			group.Pane(ui.Box(c).Size(76, 44).Center().Children(func() { ui.Text(c, label) }))
+		}
 	})
 	style := glass.Regular
 	if g.glassStyle == 1 {
@@ -1740,22 +1760,24 @@ func (g *gallery) motion(c *ui.Context) {
 
 	ui.Grid(c).Columns(2).Gap(16).Children(func() {
 		card(c, "Cards that turn over", func() {
-			ui.Text(c, "Turned in 3D and seen in perspective, each face hides while it is turned away.").FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, "Turned in 3D and seen in perspective, each face hides while it is turned away, and the card lifts toward you as it turns.").FontSize(12).TextColor(t.TextMuted)
 			stage := ui.Box(c).Key("flip-stage").Height(150).Center()
 			turn := float32(0)
 			if g.cardFlipped {
 				turn = 180
 			}
 			turn = stage.AnimateTo("turn", turn, ui.Animation{Spring: ui.SpringOptions{Duration: 600 * time.Millisecond, Bounce: 0.15}})
+			// Nearer the viewer halfway over, as a card picked up to turn.
+			lift := 60 * float32(math.Abs(math.Sin(float64(turn)*math.Pi/180)))
 			stage.Children(func() {
 				ui.Box(c).Key("flip-card").Size(200, 120).Children(func() {
 					front := ui.Column(c).Key("front").Absolute().Fill().Center().Gap(4).Radius(14).Background(t.Surface).Border(1, t.Border).Shadow(0, 4, 16, 0, ui.RGBA(0, 0, 0, 0.12))
-					front.RotateY(turn).Perspective(800).BackfaceHidden().Children(func() {
+					front.RotateY(turn).TranslateZ(lift).Perspective(800).BackfaceHidden().Children(func() {
 						ui.Text(c, "Front").Bold()
 						ui.Text(c, "Click to turn over").FontSize(12).TextColor(t.TextMuted)
 					})
 					back := ui.Column(c).Key("back").Absolute().Fill().Center().Radius(14).Background(t.Accent)
-					back.RotateY(turn + 180).Perspective(800).BackfaceHidden().Children(func() {
+					back.RotateY(turn + 180).TranslateZ(lift).Perspective(800).BackfaceHidden().Children(func() {
 						ui.Text(c, "Back").Bold().TextColor(t.AccentText)
 					})
 					if front.Clicked() || back.Clicked() {

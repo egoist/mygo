@@ -187,4 +187,146 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/quaver-astra.webp",
   },
+  {
+    name: "Meiro",
+    description:
+      "YouTube Music, without the bloat. A native Material 3 Expressive player that takes about 100 MB, with no ads, synced lyrics, Last.fm scrobbling and colours that match each song.",
+    url: "https://meiro.elianiva.com",
+    author: "elianiva",
+    mode: "native",
+    image: "/showcase/meiro.jpg",
+  },
+  {
+    name: "Repo Hopper",
+    description:
+      "Spotlight for your Git repositories. A global shortcut opens a search over every local repo, most recently changed first, and opens the chosen one in your editor, terminal or Finder.",
+    url: "https://github.com/pteich/repo-hopper",
+    author: "pteich",
+    mode: "native",
+    image: "/showcase/repo-hopper.jpg",
+  },
+  {
+    name: "Universal S3 UI",
+    description:
+      "A lightweight storage browser for S3-compatible services, SFTP and FTP/FTPS. One connection manager with credentials in the system keychain, drag-and-drop uploads, temporary share links, and sync between any two connections.",
+    url: "https://github.com/pteich/us3ui",
+    author: "pteich",
+    mode: "native",
+    image: "/showcase/us3ui.jpg",
+  },
+  {
+    name: "RcloneDrive",
+    description:
+      "An open-source tool that mounts cloud storage as local disks, a RaiDrive alternative. A single Go binary with pure native UI and no frontend toolchain, an embedded rclone engine with 70+ backends, mounted on Windows through WinFsp that installs silently, plus a system tray, launch at login and automatic updates from GitHub Releases.",
+    url: "https://github.com/younland/RcloneDrive",
+    author: "younland",
+    mode: "native",
+    image: "/showcase/rclonedrive.jpg",
+  },
+  {
+    name: "ApiGo",
+    description:
+      "An API debugging tool in the shape of Hoppscotch, written in Go with MyGo native UI. Collections organize requests, REST and WebSocket traffic both send and render responses by type, and OpenAPI / Swagger documents import directly.",
+    url: "https://github.com/younland/apigo",
+    author: "younland",
+    mode: "native",
+    image: "/showcase/apigo.jpg",
+  },
+  {
+    name: "Silverwing",
+    description:
+      "A task-oriented desktop workspace that keeps multiple repositories, branches, reference materials and review context together for each development task. Create tasks from Meegle requirements and prepare workspaces and task branches with Git worktrees, organize several repos in one task with built-in Git review, and carry AGENTS.md context into Codex, Cursor or an IDE. Windows x64 and macOS Apple silicon.",
+    url: "https://github.com/javatoai/silverwing",
+    author: "javatoai",
+    mode: "native",
+  },
+  {
+    name: "Nodra",
+    description:
+      "A responsive state management library for Go desktop apps, built around a concurrency-safe, versioned Store[T]: serialized concurrent updates that roll back on error, undo/redo with nested groups, codecs and storage layered for persistence and encryption, latest-wins async actions, and a read-only DevTools — with MyGo integration that redraws a window only when a subscribed value changes.",
+    url: "https://nodra.yldm.ai",
+    author: "houko",
+    mode: "native",
+    image: "/showcase/nodra.jpg",
+  },
+  {
+    name: "NanoDoll",
+    description:
+      "A minimal desktop container built for web AI. Turn web AIs into standalone desktop apps: multi-pane tiling, browser login import, prompt library, and nearby file manager.",
+    url: "https://moonvy.com/apps/nano-doll/",
+    author: "yArna",
+    mode: "native",
+    image: "/showcase/nanodoll-cover.png",
+  },
+  {
+    name: "Teebots",
+    description:
+      "A free desktop app for a small team of AI bots on your own Mac, Windows or Linux machine. Each bot uses your API key and model; chats, memory and files stay on the device.",
+    url: "https://teebots.ai",
+    author: "希嘉嘉",
+    mode: "native",
+    image: "/showcase/teebots.png",
+  },
+  {
+    name: "映刻 Screenpin",
+    description:
+      "A Windows screenshot and screen recording utility that stays in the system tray. Global shortcuts capture a region, pin images above other windows, stitch scrolling screenshots, or record a region and trim the result before exporting.",
+    url: "https://github.com/wiptgdxv/screenpin",
+    author: "wiptgdxv",
+    mode: "native",
+    image: "/showcase/screenpin.png",
+  },
+  {
+    name: "Sotto",
+    description:
+      "A lightweight, unobtrusive desktop translator built for Windows users and developers.",
+    url: "https://github.com/doyuli/sotto",
+    author: "doyuli",
+    mode: "web",
+    image: "/showcase/sotto.png",
+  },
+  {
+    name: "TanGit",
+    description:
+      "An open-source Git desktop client built on Lazygit. Stage individual diff lines, browse history and branch graphs, resolve conflicts, and work across repositories on macOS, Windows and Linux with keyboard-driven native UI.",
+    url: "https://github.com/FleetingEcho/TanGit",
+    author: "FleetingEcho",
+    mode: "native",
+    image: "/showcase/tangit.jpg",
+  },
+  {
+    name: "CurlGo",
+    description:
+      "An open-source, local-first API client for macOS and Windows, drawn with MyGo's native UI. Paste a curl command or import Postman v2.1 and Bruno collections, send HTTP, SSE and WebSocket requests, keep environments, global headers and a persistent cookie jar in one local workspace, and check responses with assertions and variable extraction; a CLI and agent skill run the same requests headlessly.",
+    url: "https://github.com/echoVic/curlgo",
+    author: "echoVic",
+    mode: "native",
+    image: "/showcase/curlgo.jpg",
+  },
+  {
+    name: "GoRequest",
+    description:
+      "An open-source, local-first API client and documentation workspace with native UI. Debug HTTP and WebSocket requests, keep YAML requests and Markdown docs together in Git, import from cURL, Postman and OpenAPI, and run automated tests and local mocks.",
+    url: "https://github.com/Flyinsky2004/GoRequest",
+    author: "Flyinsky2004",
+    mode: "native",
+    image: "/showcase/gorequest.jpg",
+  },
+  {
+    name: "Ferry",
+    description:
+      "A per-process proxy router for Windows, built on ProxyBridge, with ordered rules, SOCKS5 and HTTP proxy nodes, and live connections and logs.",
+    url: "https://github.com/ayuayue/ferry",
+    author: "ayuayue",
+    mode: "web",
+  },
+  {
+    name: "MyVNC",
+    description:
+      "A VNC and Microsoft Remote Desktop viewer for Windows and macOS, rebuilt from TigerVNC. Connecting to a Mac uses its built-in Screen Sharing, so the Mac installs nothing, with a high-performance mode streaming HEVC or H.264 at the source frame rate and file transfer both ways.",
+    url: "https://github.com/si-mods/MyVNC",
+    author: "si-mods",
+    mode: "native",
+    image: "/showcase/myvnc.jpg",
+  },
 ]

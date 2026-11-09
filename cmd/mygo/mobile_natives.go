@@ -16,6 +16,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/egoist/mygo/internal/nativelib"
 )
 
 // nativeName is what a plugin's C library may be named, which paths are made of.
@@ -156,7 +158,7 @@ func (n *pluginNative) compile(ctx context.Context, p *mobilePlugin, t nativeTar
 // extract puts the archive's files in dir, and returns them.
 func (n *pluginNative) extract(dir string) ([]string, error) {
 	a := n.Archive
-	archive, err := fetchNative(nativeFile{Name: path.Base(a.URL), URL: a.URL, SHA256: a.SHA256})
+	archive, err := fetchNative(nativelib.File{Name: path.Base(a.URL), URL: a.URL, SHA256: a.SHA256})
 	if err != nil {
 		return nil, err
 	}

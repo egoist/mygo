@@ -396,6 +396,8 @@ func (w *window) UserAgent() string {
 }
 
 func (w *window) ProcessID() int       { return 0 }
+func (w *window) GPUProcessID() int    { return 0 }
+func (w *window) SetVibrancyTint(*platform.Color) {}
 func (w *window) IsAudible() bool      { return false }
 func (w *window) SetAudioMuted(m bool) { w.muted = m }
 func (w *window) IsAudioMuted() bool   { return false }

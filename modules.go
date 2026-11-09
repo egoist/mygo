@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image/color"
 	"image/png"
+	"log"
 	"math"
 	"path/filepath"
 	"runtime"
@@ -60,6 +61,20 @@ func (ShellModule) TrashItem(path string) error {
 		return err
 	}
 	return onMainValue(func() error { return backend().Shell().TrashItem(abs) })
+}
+
+// PreviewItem shows the item at path in the Quick Look panel, the preview
+// Finder opens with the space bar. A relative path is relative to the
+// working directory.
+//
+// It is supported on macOS only; all other platforms return ErrUnsupported.
+func (ShellModule) PreviewItem(path string) error {
+	needsApp("Shell.PreviewItem")
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	return onMainValue(func() error { return backend().Shell().PreviewItem(abs) })
 }
 
 // FileIcon returns the icon the file manager shows for a file, a folder or
@@ -526,6 +541,95 @@ func (t *ThemeModule) apply() {
 	if s != "" {
 		backend().Theme().SetSource(string(s))
 	}
+}
+
+// SetGTKCSS styles the widgets GTK draws for the app on Linux with css, a
+// GTK 3 style sheet: the decorations GTK draws around windows, the title
+// buttons of hidden title bars (TitleBarStyle), menus and dialogs, for a
+// frame that matches the rest of the desktop, as GTK 4's flat header bars
+// and round title buttons. Pages and native UI, which MyGo draws, never
+// see it. GTK takes the sheet at the user's priority
+// (GTK_STYLE_PROVIDER_PRIORITY_USER), above the theme's rules and MyGo's
+// own. A later call replaces the sheet, and "" removes it. A sheet that
+// does not parse returns GTK's error, and the sheet set before stays. On
+// other platforms it does nothing and returns nil.
+//
+// It is safe from any goroutine, and may be called before App.Run: other
+// goroutines wait for Run to load the sheet, and the main goroutine keeps
+// it for Run, which logs a parse error, as no call is left to return it.
+func (t *ThemeModule) SetGTKCSS(css string) error {
+	if _, ok := backend().(platform.StyleBackend); !ok {
+		return nil
+	}
+	if isMainThread() && !App.initialized {
+		pendingGTKCSS = func() {
+			if err := setGTKCSS(css); err != nil {
+				log.Print(err)
+			}
+		}
+		return nil
+	}
+	return onMainValue(func() error { return setGTKCSS(css) })
+}
+
+// pendingGTKCSS loads the sheet main gave Theme.SetGTKCSS last before Run,
+// which calls it once it has initialized the backend; nil without one.
+// Main thread only.
+var pendingGTKCSS func()
+
+// setGTKCSS loads a sheet of Theme.SetGTKCSS. Main thread only.
+func setGTKCSS(css string) error {
+	if err := backend().(platform.StyleBackend).SetStyleSheet(css); err != nil {
+		return fmt.Errorf("mygo: Theme.SetGTKCSS: %w", err)
+	}
+	return nil
+}
+
+// WindowButtons are the window controls the desktop puts in title bars, at
+// their start and at their end: "minimize", "maximize" and "close", in the
+// desktop's order. An app that hides the system's (HideWindowButtons) and
+// draws its own can draw these, where the desktop wants them.
+type WindowButtons struct {
+	Start, End []string
+}
+
+// Has reports that the desktop puts button, "minimize", "maximize" or
+// "close", in title bars.
+func (b WindowButtons) Has(button string) bool {
+	return slices.Contains(b.Start, button) || slices.Contains(b.End, button)
+}
+
+// Empty reports that the desktop puts no buttons in title bars.
+func (b WindowButtons) Empty() bool { return len(b.Start) == 0 && len(b.End) == 0 }
+
+// WindowButtons returns the window controls the desktop's title bars have.
+// On macOS they are close, minimize and maximize at the start; on Windows
+// minimize, maximize and close at the end. On Linux the desktop's button
+// layout (gtk-decoration-layout) decides, as it does for the buttons of a
+// hidden title bar (TitleBarStyle): none under a Wayland compositor that
+// decorates windows itself, as tiling ones such as Hyprland and Sway,
+// which draw no buttons, and none where the user emptied the layout, as
+// users of tiling window managers on X11 do. OnUpdated tells when it
+// changes. It is safe from any goroutine; like the other calls that need
+// the running app, it panics on the main goroutine before App.Run.
+func (t *ThemeModule) WindowButtons() WindowButtons {
+	needsApp("Theme.WindowButtons")
+	if wb, ok := backend().(platform.WindowButtonsBackend); ok {
+		return onMainValue(func() WindowButtons {
+			start, end := wb.WindowButtons()
+			return WindowButtons{Start: start, End: end}
+		})
+	}
+	return defaultWindowButtons(runtime.GOOS)
+}
+
+// defaultWindowButtons are the title bars' buttons of a desktop whose
+// backend does not tell them.
+func defaultWindowButtons(goos string) WindowButtons {
+	if goos == "darwin" {
+		return WindowButtons{Start: []string{"close", "minimize", "maximize"}}
+	}
+	return WindowButtons{End: []string{"minimize", "maximize", "close"}}
 }
 
 // OnUpdated is called when the effective appearance, or the desktop's

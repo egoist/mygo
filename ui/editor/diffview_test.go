@@ -1107,6 +1107,52 @@ func TestDiffSplitMinimum(t *testing.T) {
 	}
 }
 
+// A hunk's header in a split diff keeps to the old side, cut at the line
+// between the sides wherever that is dragged, though its bar spans both;
+// a unified diff shows it whole.
+func TestDiffSplitHeaderKeepsToOldSide(t *testing.T) {
+	const header = "@@ -21,6 +21,7 @@ import jakarta.servlet.AsyncContext;"
+	files, err := ParsePatch("--- a/x\n+++ b/x\n" + header + "\n a\n b\n c\n+d\n e\n f\n g\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// headerBox returns the box of the header's text, not that of the
+	// separator labeled with it.
+	headerBox := func(tt *ui.Tester) ui.Rect {
+		t.Helper()
+		a, ok := tt.AccessByRole(ui.RoleText, header)
+		if !ok {
+			t.Fatalf("no %q in %q", header, tt.Texts())
+		}
+		return a.Bounds
+	}
+	d := &DiffState{}
+	d.SetPatch(files[0])
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 901, 400)
+	tt.Frame()
+	tt.Press(450.5, 200)
+	tt.Move(0, 200)
+	tt.Release(0, 200)
+	tt.Frame()
+	old, _, _ := sideWidths(d)
+	if old > 200 {
+		t.Fatalf("dragged to the left edge, the old side is %v wide", old)
+	}
+	if r := headerBox(tt); r.X+r.W > old {
+		t.Fatalf("the header's text spans %v to %v, past the old side's right edge at %v", r.X, r.X+r.W, old)
+	}
+
+	// Unified, nothing cuts it: it is as wide as in a view twice as wide.
+	d.Layout = DiffUnified
+	tt.Frame()
+	whole := headerBox(tt)
+	tt.SetSize(1801, 400)
+	tt.Frame()
+	if r := headerBox(tt); whole.W != r.W || whole.W <= old {
+		t.Fatalf("unified, the header's text is %v wide, %v in a wider view", whole.W, r.W)
+	}
+}
+
 // Sides of different widths keep scrolling together and their lines
 // aligned, wrapped too, each wrapping at its own width.
 func TestDiffSplitAligned(t *testing.T) {
@@ -1165,5 +1211,142 @@ func TestDiffSplitAligned(t *testing.T) {
 				t.Fatalf("over the old side, scrolled sideways to %v of %v, the new side to %v of %v", old.scrollX, m, nw.scrollX, nw.maxScrollX())
 			}
 		}
+	}
+}
+
+// A diff whose state is reset between frames, as an app does while it
+// reads the next file's texts, can get a pointer move before the next
+// frame lays its editors out. The move must not panic.
+func TestDiffViewPointerMoveAfterReset(t *testing.T) {
+	st := &DiffState{Old: NewBuffer("a\nb\n"), New: NewBuffer("a\nc\n")}
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, st).Fill() }, 600, 300)
+	tt.Frame()
+	ed := &st.eds[1]
+	x, y := ed.r.X+ed.r.W/2, ed.r.Y+ed.r.H/2
+	tt.Move(x, y)
+	*st = DiffState{}
+	tt.Move(x+1, y+1)
+}
+
+// An empty side of a diff, as of a file added or deleted, has no lines,
+// as git shows it: the line its editor keeps is not numbered, selected
+// by its number or commented on.
+func TestDiffViewEmptySide(t *testing.T) {
+	added, _ := ParsePatch("diff --git a/x.go b/x.go\nnew file mode 100644\n--- /dev/null\n+++ b/x.go\n@@ -0,0 +1,2 @@\n+a\n+b\n")
+	for _, c := range []struct {
+		name  string
+		st    *DiffState
+		empty DiffSide
+	}{
+		{"added", &DiffState{New: NewBuffer("a\nb\n")}, DiffOld},
+		{"deleted", &DiffState{Old: NewBuffer("a\nb\n")}, DiffNew},
+		{"deleted unified", &DiffState{Old: NewBuffer("a\nb\n"), Layout: DiffUnified}, DiffNew},
+		{"emptied", &DiffState{Old: NewBuffer("a\nb\n"), New: NewBuffer("")}, DiffNew},
+		{"added patch", func() *DiffState { d := &DiffState{}; d.SetPatch(added[0]); return d }(), DiffOld},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := c.st
+			var selected, commented []DiffLineRange
+			d.LineSelection = true
+			d.OnLineSelection = func(r DiffLineRange) { selected = append(selected, r) }
+			d.OnGutterButton = func(r DiffLineRange) { commented = append(commented, r) }
+			d.RenderGutterButton = func(c *ui.Context, btn ui.Element, line DiffLineRange) { btn.Label("Comment") }
+			tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 600, 300)
+			tt.Frame()
+			// inked reports whether the gutter of line 0 of a side shows
+			// anything but its background.
+			inked := func(side DiffSide) bool {
+				ed := &d.eds[side]
+				lh := ed.view.lineHeight
+				y := ed.r.Y + float32(ed.view.heights.geometry(0).rows-ed.scrollY)
+				img := tt.Image()
+				s := float32(img.Bounds().Dx()) / 600
+				first := img.RGBAAt(int((ed.r.X+1)*s), int((y+1)*s))
+				for py := int((y + 1) * s); py < int((y+lh-1)*s); py++ {
+					for px := int((ed.r.X + 1) * s); px < int((ed.r.X+ed.gutterW-1)*s); px++ {
+						if img.RGBAAt(px, py) != first {
+							return true
+						}
+					}
+				}
+				return false
+			}
+			if inked(c.empty) {
+				t.Fatal("the empty side's line is numbered")
+			}
+			if d.Layout == DiffSplit && !inked(1-c.empty) {
+				t.Fatal("the other side's first line is not numbered")
+			}
+			// Its gutter selects nothing and offers no button.
+			ed := &d.eds[c.empty]
+			y := ed.r.Y + float32(ed.view.heights.geometry(0).rows-ed.scrollY) + ed.view.lineHeight/2
+			tt.Move(ed.r.X+ed.gutterW/2, y)
+			tt.Frame()
+			if tt.HasText("Comment") {
+				t.Fatal("the empty side's line has a gutter button")
+			}
+			tt.ClickAt(ed.r.X+ed.gutterW-8, y)
+			if _, ok := d.SelectedLines(); ok || len(selected) > 0 || len(commented) > 0 {
+				t.Fatalf("selected %+v, commented %+v on the empty side", selected, commented)
+			}
+		})
+	}
+}
+
+// A unified view lays out the deleted lines it shows of a long run, as of
+// a file deleted, not those above them, and gives their highlighter the
+// frames it asks for.
+func TestDiffViewDeletedRunInView(t *testing.T) {
+	var lines []string
+	for i := range 5000 {
+		lines = append(lines, "fn line"+strconv.Itoa(i))
+	}
+	var hl *parserHighlighter
+	lang := &Language{Name: "Parsed", Highlighter: func(text Snapshot, invalidate func()) Highlighter {
+		hl = &parserHighlighter{text: text, invalidate: invalidate, pending: 10}
+		return hl
+	}}
+	d := &DiffState{Old: NewBuffer(strings.Join(lines, "\n")), New: NewBuffer(""), Layout: DiffUnified}
+	d.Old.SetLanguage(lang)
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 600, 300)
+	tt.Frame()
+	d.SetScrollY(math.MaxFloat64)
+	tt.Frame()
+	if n := len(d.oldView.lines.m); n > 100 {
+		t.Fatalf("%d deleted lines laid out to show the last few", n)
+	}
+	if hl == nil || hl.pending > 0 {
+		t.Fatal("the deleted lines' highlighter got no frames to finish in")
+	}
+	if l := d.oldView.line(len(lines) - 1); !l.exact || len(l.toks) == 0 || l.toks[0].Kind != TokenKeyword {
+		t.Fatalf("the last deleted line's tokens: %+v, final %v", l.toks, l.exact)
+	}
+}
+
+// A unified view forgets the deleted lines it laid out, and the rows it
+// shaped, once frames stop showing them, as an editor does its own: a
+// diff scrolled through keeps no more of them than of a screen or two.
+func TestDiffViewForgetsDeletedLines(t *testing.T) {
+	var old, nw []string
+	for i := range 6000 {
+		line := "line " + strconv.Itoa(i)
+		old = append(old, line)
+		if i%3 != 0 {
+			nw = append(nw, line)
+		}
+	}
+	d := &DiffState{Old: NewBuffer(strings.Join(old, "\n")), New: NewBuffer(strings.Join(nw, "\n")), Layout: DiffUnified, ExpandUnchanged: true}
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 600, 300)
+	tt.Frame()
+	for y := 0.0; y < d.eds[1].view.heights.total(); y += 250 {
+		d.SetScrollY(y)
+		tt.Frame()
+	}
+	ov := &d.oldView
+	if n := len(ov.lines.m); n > 600 {
+		t.Errorf("%d of 2,000 deleted lines still laid out", n)
+	}
+	if n := len(ov.shaped.cur) + len(ov.shaped.prev); n > 600 {
+		t.Errorf("%d shaped rows of 2,000 deleted lines still kept", n)
 	}
 }

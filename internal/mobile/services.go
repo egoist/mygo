@@ -173,7 +173,7 @@ func (c clipboard) ReadData(formats []transfer.Format) (transfer.Data, error) {
 	return transfer.New(transfer.NewItem(reps...)), nil
 }
 
-func (c clipboard) WriteData(d transfer.Data, _ func()) error {
+func (c clipboard) WriteData(d transfer.Data, _ bool, _ func()) error {
 	wrote := false
 	if b, err := d.Read(transfer.PNG); err == nil {
 		c.WriteImage(b)

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/egoist/mygo/internal/imagesrc"
 )
 
 // Box creates a container that lays its children out in a column.
@@ -204,7 +206,10 @@ func coreLink(c *context, label, url string) *node {
 			}
 		}
 		if e.Hovered() {
+			// Whole, through descenders: a link's URL is mostly slashes
+			// and letters below the baseline, which skipping ink cuts up.
 			e.Underline()
+			e.ts.solid = true
 		}
 	})
 	return e
@@ -219,32 +224,33 @@ func checkPath(r Rect) *Path {
 func coreCheckbox(c *context, checked *bool, label string) *node {
 	t := c.theme
 	row := coreCheckboxBase(c, checked).Gap(t.Space(2)).FocusRing(false)
-	on := *checked
+	checkboxFace(c, row, 1+int8(b2f(*checked)), label)
+	return row
+}
+
+// CheckboxState creates a check box that can be mixed, with a label: a
+// click, or Space while it has the focus, checks it, or unchecks it when
+// it is checked, setting *state, and Changed reports a click. It shows a
+// dash while mixed, and assistive technology sees it mixed. CheckboxGroup
+// is one over the check boxes it holds.
+func coreCheckboxState(c *context, state *CheckState, label string) *node {
+	t := c.theme
+	row := coreCheckboxStateBase(c, state).Gap(t.Space(2)).FocusRing(false)
+	checkboxFace(c, row, checkedOf(*state), label)
+	return row
+}
+
+// checkboxFace builds the box of check box row, off (1), on (2) or mixed
+// (3), and its label.
+func checkboxFace(c *context, row *node, state int8, label string) {
+	t := c.theme
 	row.Children(func() {
 		box := coreBox(c).Size(t.Space(4), t.Space(4)).Radius(t.Space(1)).Shrink(0)
-		if on {
-			box.Background(c.accent(t))
-		} else {
-			box.Background(t.Background).Border(1, t.Border.Mix(t.Text, 0.25))
-		}
-		box.DrawOver(func(p *Painter, r Rect) {
-			if on {
-				p.StrokePath(checkPath(r), t.Space(0.5), t.AccentText)
-			}
-			if row.FocusVisible() {
-				p.FocusRing(r, box.radius)
-			}
-		})
-		box.styleFn = func(box *node) {
-			if !on && row.Hovered() {
-				box.borderC = t.Accent
-			}
-		}
+		paintCheckbox(c, row, box, state)
 		if label != "" {
 			coreText(c, label)
 		}
 	})
-	return row
 }
 
 // Radio creates a radio button that selects value into *selected, with a
@@ -266,7 +272,7 @@ func coreRadio[T comparable](c *context, selected *T, value T, label string) *no
 				p.Fill(Rect{r.X + (r.W-d)/2, r.Y + (r.H-d)/2, d, d}, t.AccentText, d/2)
 			}
 			if row.FocusVisible() {
-				p.FocusRing(r, dot.radius)
+				p.focusRingOf(row, r, dot.radius)
 			}
 		})
 		dot.styleFn = func(dot *node) {
@@ -340,7 +346,7 @@ func slider(c *context, value *float64, lo, hi, step float64) *node {
 	if rtl {
 		frac = 1 - frac
 	}
-	held := s.Animate("held", b2f(s.st.pressed), 150*time.Millisecond)
+	held := s.Animate("held", b2f(s.st.pressedPrimary()), 150*time.Millisecond)
 	fill := c.accent(t)
 	s.Draw(func(p *Painter, r Rect) {
 		// As thick as Progress; above the ticks.
@@ -470,14 +476,18 @@ func paintKnob(p *Painter, t *Theme, k Rect, held float32, focus bool) {
 // Progress creates a progress bar filled to value between 0 and 1; a
 // negative value shows activity of unknown length. It fills from its
 // start: the right right to left (Direction). Reverse fills it from the
-// other side.
+// other side. It fills in the accent color, or the color TextColor gives
+// it, as a quota bar in a product's own color, over a track in the
+// theme's Border color, or the one Background gives it.
+//
+//	ui.Progress(c, app.used/app.quota).TextColor(brand).Label("Storage")
 func coreProgress(c *context, value float64) *node {
 	t := c.theme
 	rad := t.Space(0.75)
-	e := coreBox(c).Height(t.Space(1.5)).Radius(rad).Background(t.Border).Clip()
+	e := coreBox(c).Height(t.Space(1.5)).Radius(rad).Background(t.Border).TextColor(c.accent(t)).Clip()
 	e.role, e.hasRange, e.accRange = RoleProgress, true, [3]float64{0, 1, value}
-	fill := c.accent(t)
 	e.Draw(func(p *Painter, r Rect) {
+		fill := e.ts.color
 		fromRight := e.reverse != e.rtl()
 		if value >= 0 {
 			w := r.W * float32(math.Min(value, 1))
@@ -526,19 +536,29 @@ func coreScrollBoth(c *context) *node {
 	return e
 }
 
-// ImageSource is what Image shows: a *Bitmap, or an *SVG in its own
-// colors.
+// ImageSource is what Image shows: a *Bitmap, an *SVG in its own
+// colors, or a *native.Texture, which a native module draws into on the
+// GPU.
 type ImageSource interface {
-	imageSize() (w, h float32)
+	imagesrc.Source
 }
 
+// imageMark makes the types embedding it ImageSources.
+type imageMark = imagesrc.Mark
+
 // ImageSize returns the size Image shows src at by default, in DIPs: a
-// bitmap's pixels, or the size an SVG says it has. It is 0×0 for nil.
+// bitmap's pixels, the size an SVG says it has, or a texture's pixels as
+// its last frame has them. It is 0×0 for nil.
 func ImageSize(src ImageSource) (w, h float32) {
-	if src == nil {
-		return 0, 0
+	switch s := src.(type) {
+	case *Bitmap:
+		return s.imageSize()
+	case *SVG:
+		return s.imageSize()
+	case imagesrc.Frames:
+		return s.Size()
 	}
-	return src.imageSize()
+	return 0, 0
 }
 
 // DecodeImage decodes a picture whose format is not known up front, as
@@ -565,11 +585,11 @@ func coreImage(c *context, src ImageSource) *node {
 		e.image = s
 	case *SVG:
 		e.svg = s
+	case imagesrc.Frames:
+		e.texture = s
 	}
-	if src != nil {
-		if w, h := src.imageSize(); h > 0 {
-			e.aspect = w / h
-		}
+	if w, h := ImageSize(src); h > 0 {
+		e.aspect = w / h
 	}
 	return e
 }
@@ -579,8 +599,11 @@ func coreImage(c *context, src ImageSource) *node {
 func (e *node) intrinsicSize() (w, h float32) {
 	switch e.kind {
 	case kindImage:
-		if e.image != nil {
+		switch {
+		case e.image != nil:
 			return e.image.imageSize()
+		case e.texture != nil:
+			return e.texture.Size()
 		}
 		return e.svg.imageSize()
 	case kindIcon:
@@ -595,6 +618,23 @@ func (e *node) intrinsicSize() (w, h float32) {
 
 // Fit sets how an Image fills its box.
 func (e *node) Fit(f Fit) *node { e.fit = f; return e }
+
+// ObjectPosition places an Image's picture in its box where Fit leaves
+// room around it, or crops it, as CSS's object-position: x and y are
+// fractions of that room across and down, 0 by the left or top edge, 1 by
+// the right or bottom one, and 0.5, as by default, in the middle. An
+// avatar's face, near the top of its photo, stays in view with
+//
+//	ui.Image(c, photo).Size(40, 40).Fit(ui.Cover).ObjectPosition(0.5, 0.15)
+//
+// as object-position: 50% 15%; the edge keywords are 0 and 1, as
+// ObjectPosition(1, 0) for right top. Values beyond 0 and 1 move the
+// picture further, past the box's edges.
+func (e *node) ObjectPosition(x, y float32) *node {
+	finiteTransform(x, y)
+	e.objectPos = [2]float32{x - 0.5, y - 0.5}
+	return e
+}
 
 // Overlay builds fn's elements above the rest of the window. Place them
 // with Absolute, Left and Top, in DIPs relative to the window, or beside
@@ -736,8 +776,11 @@ func coreMenuButton(c *context, label string, build func(m *Menu)) *node {
 //			}
 //		}
 //	})
-func corePopoverMenuButton(c *context, label string, build func(m *Menu)) *node {
-	return menuButton(c, label).PopoverMenuButton(build)
+//
+// Its options place the menu and open it from the app, as
+// Element.PopoverMenuButton's do.
+func corePopoverMenuButton(c *context, label string, build func(m *Menu), options ...PopoverMenuButtonOptions) *node {
+	return menuButton(c, label).PopoverMenuButton(build, options...)
 }
 
 // menuButton creates the button of a MenuButton, showing label and an

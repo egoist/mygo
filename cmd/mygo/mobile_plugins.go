@@ -115,23 +115,6 @@ func (c *Config) mobilePlugins(goos string) (mobilePlugins, error) {
 	return out, nil
 }
 
-// packageDirs lists the directories of the packages the app imports.
-func (c *Config) packageDirs(goos, goarch string) ([]string, error) {
-	var out, stderr bytes.Buffer
-	cmd := goCommand(c.root, listEnv(goos, goarch), "list", "-e", "-deps", "-f", "{{.Dir}}", c.Main)
-	cmd.Stdout, cmd.Stderr = &out, &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("go list: %v\n%s", err, strings.TrimSpace(stderr.String()))
-	}
-	var dirs []string
-	for line := range strings.Lines(out.String()) {
-		if d := strings.TrimSpace(line); d != "" {
-			dirs = append(dirs, d)
-		}
-	}
-	return dirs, nil
-}
-
 // listEnv is the environment that go list sees the packages of goos with:
 // phones link with cgo, without which it stops at the main package.
 func listEnv(goos, goarch string) []string {

@@ -4,6 +4,7 @@ package text
 
 import (
 	"math"
+	"slices"
 	"unicode"
 
 	"github.com/go-text/typesetting/bidi"
@@ -183,6 +184,21 @@ func (e *clusterEngine) shape(text []rune, style Style, spans []Span, width floa
 		l := it.Line()
 		breaks = append(breaks, l.Offset+len(l.Text))
 	}
+	if width > 0 && keepsAnyWords(style.Lang, spans) {
+		// Korean breaks between words (keepWordsWhole).
+		at := make([]bool, len(text)+1)
+		for _, b := range breaks {
+			at[b] = true
+		}
+		if keepWordsWhole(at, text, style.Lang, spans) {
+			breaks = breaks[:0]
+			for i, ok := range at {
+				if ok {
+					breaks = append(breaks, i)
+				}
+			}
+		}
+	}
 	var bounds []int
 	for it := e.seg.GraphemeIterator(); it.Next(); {
 		g := it.Grapheme()
@@ -238,10 +254,26 @@ func (e *clusterEngine) shape(text []rune, style Style, spans []Span, width floa
 		}
 	}
 
+	// Tabs advance to the next of the stops of the style, from the start
+	// of their line, where it sets them; the canvas measures them as
+	// spaces otherwise.
+	tabbed := style.tabStop > 0 && slices.Contains(text, '\t')
+	tabs := func(cs []cluster, x float32) {
+		for k := range cs {
+			if c := &cs[k]; c.end-c.start == 1 && text[c.start] == '\t' {
+				c.advance = tabAdvance(x, style.tabStop)
+			}
+			x += cs[k].advance
+		}
+	}
+
 	// Lines: whole pieces between breaks that fit, or clusters of those
 	// longer than a line unless wholeWords.
 	var lines [][2]int // clusters [i, j)
 	if width <= 0 {
+		if tabbed {
+			tabs(clusters, 0)
+		}
 		lines = append(lines, [2]int{0, len(clusters)})
 	} else {
 		lineStart, lineW := 0, float32(0)
@@ -252,16 +284,25 @@ func (e *clusterEngine) shape(text []rune, style Style, spans []Span, width floa
 				cj++
 			}
 			// The piece's width, less the whitespace ending it.
-			var w, trail float32
-			for k := ci; k < cj; k++ {
-				w += clusters[k].advance
+			measure := func() (w, trail float32) {
+				if tabbed {
+					tabs(clusters[ci:cj], lineW)
+				}
+				for k := ci; k < cj; k++ {
+					w += clusters[k].advance
+				}
+				for k := cj - 1; k >= ci && isSpace(text, clusters[k]); k-- {
+					trail += clusters[k].advance
+				}
+				return w, trail
 			}
-			for k := cj - 1; k >= ci && isSpace(text, clusters[k]); k-- {
-				trail += clusters[k].advance
-			}
+			w, trail := measure()
 			if lineW+w-trail > width+1e-3 && ci > lineStart {
 				lines = append(lines, [2]int{lineStart, ci})
 				lineStart, lineW = ci, 0
+				if tabbed {
+					w, trail = measure()
+				}
 			}
 			if w-trail > width+1e-3 && !wholeWords {
 				// Break the piece within itself.
@@ -307,8 +348,15 @@ func (e *clusterEngine) shape(text []rune, style Style, spans []Span, width floa
 	return out
 }
 
+// tabAdvance returns the advance of a tab x DIPs from the start of its
+// line to the next stop of those every stop DIPs.
+func tabAdvance(x, stop float32) float32 {
+	next := (float32(math.Floor(float64(x/stop+1e-4))) + 1) * stop
+	return next - x
+}
+
 func isSpace(text []rune, c cluster) bool {
-	return c.end-c.start == 1 && unicode.IsSpace(text[c.start])
+	return c.end-c.start == 1 && hangs(text[c.start])
 }
 
 // measureWord appends the clusters of a word of runes [bounds[0],

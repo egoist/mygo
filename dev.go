@@ -43,6 +43,15 @@ func takeDevMarker() {
 	}
 }
 
+// devRelaunchFile is the file in which `mygo dev` looks for the arguments
+// of the build that App.Relaunch has it start again, MYGO_DEV_RELAUNCH,
+// which the core takes out of its environment as MYGO_DEV.
+var devRelaunchFile = func() string {
+	f := os.Getenv("MYGO_DEV_RELAUNCH")
+	os.Unsetenv("MYGO_DEV_RELAUNCH")
+	return f
+}()
+
 // launchedByDev reports whether `mygo dev` launched the app.
 func launchedByDev() bool {
 	takeDevMarker()

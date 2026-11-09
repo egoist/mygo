@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"time"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/accelerator"
@@ -76,6 +77,10 @@ type tray struct {
 	balloon uintptr
 	// dark is the taskbar's appearance, as last told.
 	dark bool
+	// shownAt is when the tray's balloon last went out, which a temporary
+	// tray's icon is reclaimed some time after, as a toast that parks in
+	// the notification center never tells the icon it is done.
+	shownAt time.Time
 	// image is the PNG the icon shows, and template whether it is black
 	// and transparent, which the icon shows white on a dark taskbar as
 	// macOS tints a template image.
@@ -242,13 +247,94 @@ func (t *tray) PopUpMenu(m *platform.Menu) {
 	}
 	id := t.b.menus.newOwner()
 	defer t.b.menus.drop(id)
-	var pt point
-	procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+	pt, flags, exclude, ok := t.menuPlacement()
+	if !ok {
+		procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		flags, exclude = 0, nil
+	}
 	menu := t.b.buildMenu(m, false, id, nil, monitorDPI(monitorAt(int(pt.X), int(pt.Y))))
 	defer procDestroyMenu.Call(menu)
-	if cmd := t.b.trackPopup(menu, t.b.appHwnd, pt, 0); cmd != 0 {
+	if cmd := t.b.trackPopup(menu, t.b.appHwnd, pt, flags, exclude); cmd != 0 {
 		t.b.menuCommand(cmd, nil)
 	}
+}
+
+// trayMenuGap is how far from the taskbar, in DIPs, Windows 11 opens the
+// menus of the notification area that it and input methods show (WinUI's
+// MenuFlyout): centered on their icons, rather than at the pointer as
+// Win32 menus open.
+const trayMenuGap = 12
+
+// appBarData is APPBARDATA.
+type appBarData struct {
+	Size            uint32
+	Wnd             uintptr
+	CallbackMessage uint32
+	Edge            uint32
+	Rect            rect
+	LParam          uintptr
+}
+
+// tpmParams is TPMPARAMS.
+type tpmParams struct {
+	Size    uint32
+	Exclude rect
+}
+
+const (
+	abmGetTaskbarPos = 5
+	// The edges of a taskbar (ABE_*) besides the bottom, Windows 11's.
+	abeLeft  = 0
+	abeTop   = 1
+	abeRight = 2
+)
+
+var procSHAppBarMessage = shell32.NewProc("SHAppBarMessage")
+
+// menuPlacement returns where the icon's menu opens on Windows 11, as
+// trayMenuAt places it from the icon on the taskbar, or false for the
+// pointer: on Windows 10, whose own menus open there, and for an icon
+// that is not on the taskbar, in its overflow or nowhere.
+func (t *tray) menuPlacement() (pt point, flags uintptr, exclude *rect, ok bool) {
+	if !fluentMenus() {
+		return pt, 0, nil, false
+	}
+	icon, shows := t.rect()
+	if !shows {
+		return pt, 0, nil, false
+	}
+	bar := appBarData{}
+	bar.Size = uint32(unsafe.Sizeof(bar))
+	if r, _, _ := procSHAppBarMessage.Call(abmGetTaskbarPos, uintptr(unsafe.Pointer(&bar))); r == 0 || !overlaps(icon, bar.Rect) {
+		return pt, 0, nil, false
+	}
+	dpi := monitorDPI(monitorAt(int(icon.Left+icon.Right)/2, int(icon.Top+icon.Bottom)/2))
+	pt, flags, ex := trayMenuAt(icon, bar.Rect, bar.Edge, toPx(trayMenuGap, dpi))
+	return pt, flags, &ex, true
+}
+
+// trayMenuAt returns where a menu opens for an icon on a taskbar along an
+// edge of its monitor (ABE_*), as Windows 11 opens its own: centered on
+// the icon along the taskbar, gap pixels away from it. It returns the
+// point, the flags of TrackPopupMenuEx that align the menu to it, and the
+// rectangle the menu keeps out of, the taskbar and the gap, which keeps
+// it on the side of the point it opens to.
+func trayMenuAt(icon, bar rect, edge uint32, gap int32) (point, uintptr, rect) {
+	x, y := (icon.Left+icon.Right)/2, (icon.Top+icon.Bottom)/2
+	switch edge {
+	case abeTop:
+		return point{x, bar.Bottom + gap}, tpmCenterAlign | tpmVertical, rect{bar.Left, bar.Top, bar.Right, bar.Bottom + gap}
+	case abeLeft:
+		return point{bar.Right + gap, y}, tpmVCenterAlign, rect{bar.Left, bar.Top, bar.Right + gap, bar.Bottom}
+	case abeRight:
+		return point{bar.Left - gap, y}, tpmRightAlign | tpmVCenterAlign, rect{bar.Left - gap, bar.Top, bar.Right, bar.Bottom}
+	}
+	return point{x, bar.Top - gap}, tpmCenterAlign | tpmBottomAlign | tpmVertical, rect{bar.Left, bar.Top - gap, bar.Right, bar.Bottom}
+}
+
+// overlaps reports whether two rectangles share pixels.
+func overlaps(a, b rect) bool {
+	return a.Left < b.Right && b.Left < a.Right && a.Top < b.Bottom && b.Top < a.Bottom
 }
 
 func (t *tray) Bounds() platform.Rect {
@@ -256,8 +342,7 @@ func (t *tray) Bounds() platform.Rect {
 	if !ok {
 		return platform.Rect{}
 	}
-	dpi := monitorDPI(monitorAt(int(r.Left), int(r.Top)))
-	return platform.Rect{X: toDIP(r.Left, dpi), Y: toDIP(r.Top, dpi), Width: toDIP(r.Right-r.Left, dpi), Height: toDIP(r.Bottom-r.Top, dpi)}
+	return screenSpace().rectToDIP(pixelRect(r))
 }
 
 // rect returns where the icon is on the screen, in physical pixels.
@@ -407,7 +492,35 @@ func (b *Backend) showNotification(n *platform.Notification) error {
 		b.finishNotification(t)
 		return fmt.Errorf("mygo: cannot show the notification")
 	}
+	t.shownAt = time.Now()
+	if t.temporary {
+		// Windows 10 and later show the balloon as a toast, which tells the
+		// icon's callback ninBalloonTimeout when it leaves the screen. A
+		// toast that parks in the notification center, whence some are
+		// never dismissed, tells nothing, so the icon, which only the
+		// balloon wanted, is reclaimed on a timer instead.
+		time.AfterFunc(notificationLinger, func() {
+			b.post(b.reclaimNotifications)
+		})
+	}
 	return nil
+}
+
+// notificationLinger is how long a temporary icon stays after its toast
+// has gone out, which it does within the toast duration the user sets,
+// at most five minutes, before Windows tells the icon through
+// ninBalloonTimeout, if it ever does.
+const notificationLinger = 6 * time.Minute
+
+// reclaimNotifications destroys the temporary icons of notifications that
+// have long left the screen, whether the toast said so or not.
+func (b *Backend) reclaimNotifications() {
+	now := time.Now()
+	for _, t := range b.trays {
+		if t.temporary && !t.shownAt.IsZero() && now.Sub(t.shownAt) >= notificationLinger {
+			b.finishNotification(t)
+		}
+	}
 }
 
 func (b *Backend) RemoveNotification(id string) {
