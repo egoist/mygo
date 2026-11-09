@@ -468,7 +468,7 @@ func makeLanguages() {
 		Tokenizer: &cssLexer{},
 	}
 	html := &Language{
-		Name: "HTML", Extensions: []string{".html", ".htm", ".xhtml", ".vue", ".svelte"}, BlockComment: [2]string{"<!--", "-->"},
+		Name: "HTML", Extensions: []string{".html", ".htm", ".xhtml", ".vue"}, BlockComment: [2]string{"<!--", "-->"},
 		Brackets:  []BracketPair{{Open: "<", Close: ">"}, {Open: "(", Close: ")"}, {Open: "[", Close: "]"}, {Open: "{", Close: "}"}},
 		AutoClose: cAutoClose("\"", "'"), WordChars: "-", TabSize: 2,
 		IncreaseIndent: regexp.MustCompile(`<(\w[\w-]*)(\s[^>]*)?>[^<]*$|[\[({]\s*$`),
@@ -554,6 +554,13 @@ func makeLanguages() {
 	}
 	// HTML's tokenizer highlights the scripts and styles inside it.
 	html.Tokenizer = &markupLexer{html: true, script: javascript.Tokenizer, style: css.Tokenizer}
+	svelte := &Language{
+		Name: "Svelte", Extensions: []string{".svelte"}, BlockComment: html.BlockComment,
+		Brackets: html.Brackets, AutoClose: html.AutoClose, WordChars: "-", TabSize: 2,
+		IncreaseIndent: regexp.MustCompile(`<(\w[\w-]*)(\s[^>]*)?>[^<]*$|\{[#:][^}]*\}\s*$|[\[({]\s*$`),
+		DecreaseIndent: regexp.MustCompile(`^\s*(</|\{[/:])`),
+		Tokenizer:      &markupLexer{html: true, script: javascript.Tokenizer, style: css.Tokenizer, braces: true, ts: typescript.Tokenizer},
+	}
 	languageList = []*Language{goLang, javascript, typescript, json, python, rust, c, cpp, java, kotlin, scala, swift, dart, csharp,
-		shell, yaml, toml, sql, rLang, ruby, lua, php, css, html, xml, markdown, diffLang, dockerfile, makefile, protobuf, graphql, zig, nix}
+		shell, yaml, toml, sql, rLang, ruby, lua, php, css, html, svelte, xml, markdown, diffLang, dockerfile, makefile, protobuf, graphql, zig, nix}
 }
