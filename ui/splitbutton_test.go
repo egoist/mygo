@@ -386,7 +386,17 @@ func TestPrimarySplitButtonLook(t *testing.T) {
 	look := func() (prime, button, arrow, line color.RGBA) {
 		p, b, a := at(t, tt, "prime"), at(t, tt, "run"), at(t, tt, "run arrow")
 		mid := b.Y + b.H/2
-		return pixel(tt, p.X+4, mid), pixel(tt, b.X+4, mid), pixel(tt, a.X+3, mid), pixel(tt, b.X+b.W, mid)
+		prime = pixel(tt, p.X+4, mid)
+		// The line is a pixel wide between the segments, at a whole pixel
+		// or between two, as the label's width rounds.
+		line = prime
+		for x := b.X + b.W - 1; x <= a.X+1; x++ {
+			if px := pixel(tt, x, mid); px != prime {
+				line = px
+				break
+			}
+		}
+		return prime, pixel(tt, b.X+4, mid), pixel(tt, a.X+3, mid), line
 	}
 	prime, button, arrow, line := look()
 	if button != prime || arrow != prime || line == prime {
