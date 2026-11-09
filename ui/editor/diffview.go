@@ -56,6 +56,8 @@ type DiffState struct {
 	// bars stay with the pointer away, or are taken away with their room.
 	KeepScrollbars bool
 	NoScrollbars   bool
+	// Scrollbar is State's: how the sides' scroll bars look.
+	Scrollbar ui.ScrollbarStyle
 	// Font, LineHeight, TabSize and Theme are those of State.
 	Font       ui.Font
 	LineHeight float32
@@ -549,7 +551,7 @@ func (d *DiffState) sideOptions(old bool) options {
 		readOnly: old || !d.Editable, font: d.Font, lineHeight: d.LineHeight, tabSize: d.TabSize,
 		wrap: d.Wrap, lineNumbers: LineNumbersOn, whitespace: WhitespaceNone, autoClose: true,
 		theme: d.Theme, bindings: d.Bindings, fitContent: d.FitContent, minDigits: digits,
-		keepScrollbars: d.KeepScrollbars, hideScrollbars: d.NoScrollbars,
+		keepScrollbars: d.KeepScrollbars, hideScrollbars: d.NoScrollbars, scrollbar: d.Scrollbar,
 		renderFindBar: d.RenderFindBar, renderGoToLine: d.RenderGoToLine,
 	}
 	if d.NoLineNumbers {

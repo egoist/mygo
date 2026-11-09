@@ -2,6 +2,29 @@ package ui
 
 import "testing"
 
+// A style's zero fields follow the theme: the thumb's color and width,
+// a bar six DIPs wider than the thumb, half its width as the corner, and
+// 24 DIPs as the shortest thumb. A thumb wider than its bar is cut to it.
+func TestScrollbarStyleResolve(t *testing.T) {
+	th := *DarkTheme()
+	th.Scrollbar, th.ScrollbarWidth = RGB(10, 20, 30), 8
+	s := ScrollbarStyle{}.Resolve(&th)
+	if s.Width != 14 || s.ThumbWidth != 8 || s.Radius != 4 || s.MinLength != 24 {
+		t.Errorf("the defaults are %+v, want a 14 DIP bar with an 8 DIP thumb, radius 4, at least 24 long", s)
+	}
+	if s.Thumb != th.Scrollbar || s.Hover != th.Scrollbar || s.Active != th.Scrollbar || s.Track != Transparent {
+		t.Errorf("the default colors are %+v, want the theme's thumb and no track", s)
+	}
+	track, hover := RGB(1, 2, 3), RGB(4, 5, 6)
+	s = ScrollbarStyle{Width: 8, ThumbWidth: 20, Radius: 1, MinLength: 5, Track: track, Hover: hover}.Resolve(&th)
+	if s.ThumbWidth != 8 {
+		t.Errorf("a thumb %v wide in an 8 DIP bar stays %v wide", 20, s.ThumbWidth)
+	}
+	if s.Radius != 1 || s.MinLength != 5 || s.Track != track || s.Hover != hover || s.Active != th.Scrollbar {
+		t.Errorf("the style is %+v, want its own radius, length, track and hover, and the theme's active", s)
+	}
+}
+
 // A Scrollbar paints the thumb a scroll container shows for the same
 // view, content and offset, pixel for pixel, dragged or not; and OffsetAt
 // undoes Thumb.

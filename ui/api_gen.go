@@ -7459,6 +7459,30 @@ func (_handle Element) ScrollbarInsets(v ...float32) Element {
 	return wrapElement(_node.ScrollbarInsets(v...))
 }
 
+// ScrollbarStyle styles this scroll container's scroll bars, as a theme's
+// ScrollbarStyle does every scroll bar: their track and thumb colors, the
+// widths of their bars and thumbs, their corners and shortest thumb. Its
+// zero fields follow the theme's, so leaving it out draws as the theme
+// does; it applies to Scroll, ScrollHorizontal, ScrollBoth, List and Table,
+// and is not inherited.
+//
+//	// As VS Code's editor: a 10 DIP thumb in a 14 DIP bar.
+//	ui.Scroll(c).ScrollbarStyle(ui.ScrollbarStyle{
+//		Width: 14, ThumbWidth: 10,
+//		Thumb: ui.RGBA(121, 121, 121, 0.4),
+//		Hover: ui.RGBA(100, 100, 100, 0.7),
+//		Active: ui.RGBA(191, 191, 191, 0.4),
+//	})
+func (_handle Element) ScrollbarStyle(s ScrollbarStyle) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.ScrollbarStyle(s))
+}
+
 // Scrollbars controls the overlay indicators and their pointer hit targets on
 // this scroll container. They show on hover by default. With false, scrolling
 // by wheel, TrackScroll, keyboard focus and accessibility remains available.

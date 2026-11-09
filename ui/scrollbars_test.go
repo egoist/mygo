@@ -7,6 +7,81 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
+// testScrollbarStyle is the default scroll bar style, a 6 DIP thumb in a
+// 12 DIP bar, for the tests that lay out bars without a tester's theme.
+func testScrollbarStyle() ScrollbarStyle { return ScrollbarStyle{ThumbWidth: 6}.Resolve(nil) }
+
+// A theme's ScrollbarStyle paints a scroll container's track and thumb,
+// with the thumb's hover and drag colors, and a container's own style
+// wins over the theme's.
+func TestScrollbarStylePaints(t *testing.T) {
+	track, thumb, hover, active := RGB(10, 20, 30), RGB(200, 10, 20), RGB(30, 200, 40), RGB(40, 50, 220)
+	var st *state
+	tt := coreNewTester(func(c *context) {
+		th := *c.Theme()
+		th.ScrollbarStyle = ScrollbarStyle{
+			Width: 20, ThumbWidth: 8, MinLength: 40,
+			Track: track, Thumb: thumb, Hover: hover, Active: active,
+		}
+		c.SetTheme(&th)
+		sc := coreScroll(c).Size(100, 100)
+		st = sc.st
+		sc.Children(func() { coreBox(c).Size(100, 1000) })
+	}, 140, 140)
+	defer tt.rt.close()
+	tt.Move(50, 50)
+	tt.Frame()
+	if style := st.scrollbarStyle(); style.Width != 20 || style.ThumbWidth != 8 || style.MinLength != 40 {
+		t.Fatalf("the bar is %+v, want a 20 DIP track with an 8 DIP thumb at least 40 long", style)
+	}
+	pixel := func(x, y float32) Color {
+		img := tt.Image()
+		s := float32(img.Bounds().Dx()) / 140
+		c := img.RGBAAt(int(x*s), int(y*s))
+		return Color{R: c.R, G: c.G, B: c.B, A: c.A}
+	}
+	// The 20 DIP track is at x 80 to 100; the 8 DIP thumb is centered in
+	// it, x 86 to 94, from y 2 to 42.
+	if got := pixel(82, 70); got != track {
+		t.Errorf("the track at (82, 70) is %v, want %v", got, track)
+	}
+	if got := pixel(90, 20); got != thumb {
+		t.Errorf("the thumb at (90, 20) is %v, want %v", got, thumb)
+	}
+	// Over the track, the thumb takes its hover color.
+	tt.Move(90, 70)
+	tt.Frame()
+	if got := pixel(90, 20); got != hover {
+		t.Errorf("the hovered thumb is %v, want %v", got, hover)
+	}
+	// Dragged, its active color.
+	tt.Press(90, 20)
+	tt.Frame()
+	if got := pixel(90, 20); got != active {
+		t.Errorf("the dragged thumb is %v, want %v", got, active)
+	}
+	tt.Release(90, 20)
+	// A container's own style wins over the theme's.
+	blue := RGB(0, 0, 255)
+	tt2 := coreNewTester(func(c *context) {
+		th := *c.Theme()
+		th.ScrollbarStyle = ScrollbarStyle{Thumb: thumb}
+		c.SetTheme(&th)
+		sc := coreScroll(c).Size(100, 100).ScrollbarStyle(ScrollbarStyle{Thumb: blue})
+		st = sc.st
+		sc.Children(func() { coreBox(c).Size(100, 1000) })
+	}, 140, 140)
+	defer tt2.rt.close()
+	tt2.Move(50, 50)
+	tt2.Frame()
+	img := tt2.Image()
+	s := float32(img.Bounds().Dx()) / 140
+	c := img.RGBAAt(int(94*s), int(20*s))
+	if got := (Color{R: c.R, G: c.G, B: c.B, A: c.A}); got != blue {
+		t.Errorf("a container's thumb is %v, want its own %v", got, blue)
+	}
+}
+
 func TestScrollbarsHiddenPreservesScrollingAndContentInput(t *testing.T) {
 	for _, scale := range []float32{1, 2} {
 		for _, horizontal := range []bool{false, true} {
@@ -34,7 +109,7 @@ func TestScrollbarsHiddenPreservesScrollingAndContentInput(t *testing.T) {
 					}
 					track.X, track.Y = 50, 60
 					tt.Frame()
-					g := scrollBars(Rect{st.x, st.y, st.w, st.h}, st.barInset, float32(st.contentW), float32(st.contentH), float32(st.scrollX), float32(st.scrollY), st.flags, tt.rt.c.theme.scrollbarWidth(), st.rtl)
+					g := scrollBars(Rect{st.x, st.y, st.w, st.h}, st.barInset, float32(st.contentW), float32(st.contentH), float32(st.scrollX), float32(st.scrollY), st.flags, ScrollbarStyle{}.Resolve(tt.rt.c.theme), st.rtl)
 					trackRect := g.vTrack
 					if horizontal {
 						trackRect = g.hTrack
@@ -82,7 +157,7 @@ func TestScrollbarsHiddenCancelsActiveDragWithoutContentClick(t *testing.T) {
 	defer tt.rt.close()
 	tt.Scroll(50, 50, 30, 40)
 	tt.Move(50, 50)
-	g := scrollBars(Rect{0, 0, 100, 100}, st.barInset, 400, 400, float32(st.scrollX), float32(st.scrollY), st.flags, tt.rt.c.theme.scrollbarWidth(), false)
+	g := scrollBars(Rect{0, 0, 100, 100}, st.barInset, 400, 400, float32(st.scrollX), float32(st.scrollY), st.flags, ScrollbarStyle{}.Resolve(tt.rt.c.theme), false)
 	x, y := g.h.X+g.h.W/2, g.h.Y+g.h.H/2
 	tt.Press(x, y)
 	if tt.rt.scrollDrag.st != st {
@@ -260,7 +335,7 @@ func TestScrollbarsFinalFluentValueKeepsVisibleThumbDrag(t *testing.T) {
 	}, 140, 140)
 	defer tt.rt.close()
 	tt.Move(50, 50)
-	g := scrollBars(Rect{0, 0, 100, 100}, st.barInset, 400, 400, 0, 0, st.flags, tt.rt.c.theme.scrollbarWidth(), false)
+	g := scrollBars(Rect{0, 0, 100, 100}, st.barInset, 400, 400, 0, 0, st.flags, ScrollbarStyle{}.Resolve(tt.rt.c.theme), false)
 	x, y := g.h.X+g.h.W/2, g.h.Y+g.h.H/2
 	tt.Press(x, y)
 	tt.Frame()
@@ -321,7 +396,7 @@ func TestKeepScrollbars(t *testing.T) {
 				}
 			}
 			// A kept thumb is dragged as a hovered one is.
-			g := scrollBars(Rect{0, 0, 100, 100}, st.barInset, 400, 400, 0, 0, st.flags, tt.rt.c.theme.scrollbarWidth(), false)
+			g := scrollBars(Rect{0, 0, 100, 100}, st.barInset, 400, 400, 0, 0, st.flags, ScrollbarStyle{}.Resolve(tt.rt.c.theme), false)
 			tt.Move(120, 120)
 			tt.Frame()
 			x, y := g.v.X+g.v.W/2, g.v.Y+g.v.H/2

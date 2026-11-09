@@ -77,7 +77,8 @@ no line and offers no button.
   files of a review in a scroll view.
 - `KeepScrollbars` and `NoScrollbars` are those of the code editor: the
   scroll bar stays with the pointer away, so that a diff filling the
-  window shows how far down it is, or goes, with its room.
+  window shows how far down it is, or goes, with its room. `Scrollbar` is
+  the code editor's too, styling the sides' bars.
 - `Font`, `LineHeight`, `TabSize` and `Theme` are those of the code
   editor. Changes are tinted with the theme's `Added`, `Deleted` and
   `Modified` colors, mixed with the background in a perceptual color
