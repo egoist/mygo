@@ -220,6 +220,7 @@ func TestScrollback(t *testing.T) {
 	}
 	bottom := offset()
 	tt.Wheel(100, 100, 0, -hostNotch()) // a notch of a mouse wheel up
+	tt.Advance(notchGlide)              // which glides there
 	if got := offset(); got != bottom-3 {
 		t.Errorf("after scrolling a notch up, offset = %d, want %d", got, bottom-3)
 	}

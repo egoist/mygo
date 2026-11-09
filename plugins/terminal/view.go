@@ -230,10 +230,28 @@ type view struct {
 	// released, as opening is.
 	copying    string
 	rightClick RightClickAction
-	scrolled   float32 // scrolling not yet a whole row
-	zoomed     float32 // wheel with the zoom modifier not yet a notch
-	scrollZoom bool    // a touchpad scroll gesture zooms, from how it began
-	ticking    bool    // an autoscroll tick is due
+	scrolled   float32 // scrolling not yet a whole row, for OnScroll
+	// smooth moves the scrollback on the frame clock, and pull is how far
+	// it pulls the content down past the viewport's top row, in DIPs,
+	// under a row (smooth.go). above is that row, from rsAbove, a render
+	// state of the viewport a row up, while aboveOK.
+	smooth smoothScroll
+	pull   float32
+	// pullBottom is whether the pull was left with the viewport at the
+	// bottom: it stays as output comes, and goes once the viewport jumps
+	// to the bottom from a pull above it.
+	pullBottom bool
+	rsAbove    *vt.RenderState
+	above      rowCache
+	aboveOK    bool
+	// rowsBuilt and paints count the rows buildRow made and the
+	// paints, for tests.
+	rowsBuilt, paints int
+	zoomed            float32 // wheel with the zoom modifier not yet a notch
+	scrollZoom        bool    // a touchpad scroll gesture zooms, from how it began
+	ticking           bool    // an autoscroll tick is due
+	// reduceMotion is the desktop's: a wheel's notches move at once.
+	reduceMotion bool
 
 	// reads are the program's reads of the clipboard waiting to be
 	// answered; clipPrompt is the one the terminal's own prompt asks
@@ -273,6 +291,7 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 		}
 	}
 	v.lang = c.Locale()
+	v.reduceMotion = c.Preferences().ReduceMotion
 	dark := c.Theme().Dark
 	focused := e.Focused()
 	t.mu.Lock()
@@ -538,6 +557,12 @@ func (v *view) release() {
 		v.gesture.Free(nil)
 		v.gesture = nil
 	}
+	if v.rsAbove != nil {
+		v.rsAbove.Free()
+		v.rsAbove = nil
+	}
+	v.aboveOK = false
+	v.settleScroll()
 }
 
 // caret returns where input methods compose: the cursor's cell.
@@ -766,6 +791,7 @@ func (v *view) scrollBack(a Action) bool {
 	}
 	_, rows := t.term.Size()
 	page := max(rows-1, 1)
+	v.settleScroll()
 	switch a {
 	case ActionScrollPageUp:
 		t.term.ScrollBy(-page)
@@ -794,6 +820,7 @@ func (v *view) clearScreen() bool {
 	}
 	t.term.SetSelection(nil)
 	t.term.ScrollToBottom()
+	v.settleScroll()
 	t.mu.Unlock()
 	if on := t.opts.OnClear; on != nil && on(ClearScreen) {
 		v.services.Invalidate()
@@ -914,6 +941,7 @@ func (v *view) encodeKey(k vt.KeyEvent, press bool) bool {
 	t.in.push(append([]byte(nil), b...))
 	if press {
 		t.term.ScrollToBottom()
+		v.settleScroll()
 		t.term.SetSelection(nil)
 	}
 	return true
@@ -925,6 +953,7 @@ func (v *view) sendText(text string) {
 	t.mu.Lock()
 	if t.term != nil {
 		t.term.ScrollToBottom()
+		v.settleScroll()
 		t.term.SetSelection(nil)
 	}
 	t.mu.Unlock()
@@ -1038,7 +1067,7 @@ func (v *view) cellAt(x, y float32) (col, row int) {
 		return 0, 0
 	}
 	col = int(math.Floor(float64((x*v.scale - float32(v.ox)) / float32(v.cellW))))
-	row = int(math.Floor(float64((y*v.scale - float32(v.oy)) / float32(v.cellH))))
+	row = int(math.Floor(float64((y*v.scale - float32(v.oy) - v.pull*v.scale) / float32(v.cellH))))
 	return max(0, min(col, v.cols-1)), max(0, min(row, v.rows-1))
 }
 
@@ -1049,6 +1078,12 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 	v.pointer = [2]float32{ev.X, ev.Y}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if ev.Kind == ui.InputPointerDown && (v.pull != 0 || v.smooth.moving()) {
+		// A press stops the scrollback on the rows it shows, once the press
+		// is mapped to the cell drawn under it (cellAt counts the pull):
+		// what it selects, or drags, goes on at whole rows.
+		defer v.settleScroll()
+	}
 	if t.term == nil || v.cellW == 0 {
 		return false
 	}
@@ -1245,6 +1280,7 @@ func (v *view) scrollbarEvent(ev ui.InputEvent) bool {
 // dragScrollbar scrolls the scrollback so that the thumb's top is barGrab
 // above y; t.mu is held.
 func (v *view) dragScrollbar(y float32) {
+	v.settleScroll()
 	term := v.t.term
 	sb := term.Scrollbar()
 	if sb.Total <= sb.Len {
@@ -1428,14 +1464,28 @@ func (v *view) scroll(ev ui.InputEvent) bool {
 	t.mu.Lock()
 	m := t.opts.ScrollMultiplier
 	t.mu.Unlock()
-	v.scrolled += m.rows(ev.DY, ch, ev.Precise, runtime.GOOS) * ch
-	rows := int(v.scrolled / ch)
-	v.scrolled -= float32(rows) * ch
-	if rows == 0 {
+	if ev.DX == 0 && ev.DY == 0 {
+		// The fingers lifted from a touchpad (GTK's stop event): nothing
+		// scrolls, and a notch's glide goes on as it was.
 		return true
 	}
-	// OnScroll runs unlocked: it may call the terminal's methods, as Feed.
-	if on := t.opts.OnScroll; on != nil && v.wheelScrollsBack(ev.Mods) && on(rows) {
+	d := m.rows(ev.DY, ch, ev.Precise, runtime.GOOS) * ch
+	v.scrolled += d
+	rows := int(v.scrolled / ch)
+	v.scrolled -= float32(rows) * ch
+	back := v.wheelScrollsBack(ev.Mods)
+	if back {
+		// The scrollback moves by pixels on the frame clock (smooth.go);
+		// OnScroll still sees the whole rows it moves.
+		if on := t.opts.OnScroll; on != nil && rows != 0 && on(rows) {
+			return true
+		}
+		t.mu.Lock()
+		v.smoothInput(v.services, ev, d, v.reduceMotion)
+		t.mu.Unlock()
+		return true
+	}
+	if rows == 0 {
 		return true
 	}
 	t.mu.Lock()
