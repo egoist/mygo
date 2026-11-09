@@ -196,7 +196,8 @@ type AppHandler interface {
 	// proceed.
 	QuitRequested() bool
 	// Terminating is called right before the process is terminated by the
-	// OS (logout/shutdown); Run will not return.
+	// OS (logout/shutdown); Run will not return. The core runs the quit
+	// listeners then, unless a quit ran them, and finishes the app.
 	Terminating()
 	// Activated is called when the application is re-activated, e.g. by
 	// clicking its Dock icon.
@@ -581,6 +582,8 @@ type Window interface {
 	Show()
 	ShowInactive()
 	Hide()
+	// IsVisible reports whether Show showed the window and Hide did not
+	// hide it since: a minimized window is visible (#1542).
 	IsVisible() bool
 	Focus()
 	Blur()

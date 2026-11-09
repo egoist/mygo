@@ -1805,6 +1805,13 @@ as in Tauri:
   `App.Run` returns → `OnQuit`. It is used for `App.Quit`, Cmd+Q, quit
   Apple Events, and SIGINT/SIGTERM alike (`signal_unix.go`; a second signal
   exits immediately).
+  When the OS ends the session instead (`AppHandler.Terminating`:
+  `WM_ENDSESSION` on Windows, `applicationWillTerminate:` on macOS), the
+  loop does not stop first: `Application.endSession` calls the same
+  listeners, with `QuitEvent.SessionEnding` set and what they prevent
+  ignored, then `finish`; it skips them when a quit's sequence ran or is
+  running (`quitting`, `stopping`). Linux has no such path: the session's
+  end arrives as SIGTERM.
 - Taskbar state on Windows (`taskbar.go`) lives on the window and is
   applied when Explorer sends `TaskbarButtonCreated` (first show, Explorer
   restarts), so progress and a hidden button set before showing stick.
@@ -1858,9 +1865,16 @@ as in Tauri:
   `keyAELaunchedAsLogInItem` in the launch Apple Event instead.
 - `Relaunch` runs the quit sequence, then (after `OnQuit`, which releases
   the single instance lock) starts the executable again with the same
-  arguments and working directory. A development build exits with code 75
-  instead, and `mygo dev` starts the same build again, also when that
-  happens before it was ready.
+  arguments, or those passed to `Relaunch` in their place
+  (`relaunchArguments`), and the working directory it started in: on macOS
+  through `open -n <bundle> --args …`, or, with an update staged, through
+  the update's helper, which reads `open`'s arguments from the
+  `relaunch` file of its work directory (a `set --` line of the shell,
+  quoted), written only then. A development build exits with code 75
+  instead, after writing `Relaunch`'s arguments, each ended with a NUL
+  byte, in the file that `MYGO_DEV_RELAUNCH` names
+  (`.mygo/dev/relaunch-args`), and `mygo dev` starts the same build again
+  with them, also when that happens before it was ready.
 - Updates (`updater.go`, `internal/update`, `cmd/mygo/updates.go`), in pure
   Go on every platform. `mygo keygen` creates an Ed25519 key pair; with
   `updates` in the configuration (the public key, and a GitHub repository or a base
@@ -3843,7 +3857,9 @@ either.
     state the line above ended in (`lexer.go`, `lexers.go`), keeping the
     states, and after an edit goes on below it only until a line starts
     as it did before. A patch's texts start each hunk in state 0, at
-    lines the buffer moves with its edits (`setRestarts`). Optional
+    lines the buffer moves with its edits (`setRestarts`) and its
+    snapshots carry (`Snapshot.Restarts`), for a `Language.Highlighter`
+    to start them as well. Optional
     interfaces give a parser's structure to Select Larger, folding,
     brackets and indentation, so that tree-sitter can plug in as a
     `Language.Highlighter` without the editor changing.
@@ -5625,7 +5641,8 @@ make it work:
   directory and renamed into place, so the running build keeps its files.
   - Builds run with `MYGO_DEV=1`, which the core takes out of its
     environment (`dev.go`): `App.Relaunch` then exits with code 75, which
-    has `mygo dev` start the same build again. Production builds ignore it.
+    has `mygo dev` start the same build again, with the arguments
+    `Relaunch` wrote in the file of `MYGO_DEV_RELAUNCH`. Production builds ignore it.
     A build counts as started once its process is: one that crashes on
     start is reported as it exits.
   - *Reload.* A change (polling every 250 ms, debounced) rebuilds;
