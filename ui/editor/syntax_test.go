@@ -85,6 +85,13 @@ func TestTokenizers(t *testing.T) {
 		{"jinja", []string{`ExecStart={{ script | default('/bin/x') }}`, `{%- for r in rules if r.port > 0 +%}`, `{# a`, `b #}x{{ none }}`},
 			`text(ExecStart=)meta({{)var(script)op(|)fn(default)punct(()str('/bin/x')punct())meta(}}) / ` +
 				`meta({%-)kw(for)var(r)kw(in)var(rules)kw(if)var(r)punct(.)prop(port)op(>)num(0)meta(+%}) / comment({# a) / comment(b #})text(x)meta({{)const(none)meta(}})`},
+		// Svelte's expressions in text, tags and values, its blocks, and a
+		// TypeScript script.
+		{"svelte", []string{`<p class="a {b}" {c}>{#if x > 1}{y}{/if}</p>`},
+			`punct(<)tag(p)attr(class)op(=)str("a)punct({)var(b)punct(})str(")punct({)var(c)punct(}>{)kw(#if)var(x)op(>)num(1)punct(}{)var(y)punct(}{)kw(/if)punct(}</)tag(p)punct(>)`},
+		{"svelte", []string{`{fn({a: 1,`, `b})}<i>`, `<script lang="ts">let x: number</script>`},
+			`punct({)fn(fn)punct(({)var(a)op(:)num(1)punct(,) / var(b)punct(})}<)tag(i)punct(>) / ` +
+				`punct(<)tag(script)attr(lang)op(=)str("ts")punct(>)kw(let)var(x)op(:)type(number)punct(</)tag(script)punct(>)`},
 		{"markdown", []string{"# Title", "Some *em* and **strong** `code` [link](url)", "```go", "func x() {}", "```"},
 			"heading(# Title) / text(Some)em(*em*)text(and)strong(**strong**)code(`code`)link([link])str((url)) / punct(```)type(go) / kw(func)fn(x)punct(())punct({}) / punct(```)"},
 		{"diff", []string{"@@ -1,2 +1,2 @@ func x", "-a", "+b", " c"},
@@ -224,10 +231,21 @@ func TestInterpolatedStringsFit(t *testing.T) {
 	}
 }
 
+// A line whose expressions all close leaves the state of plain text.
+func TestSvelteClosedExpressionsLeaveNoState(t *testing.T) {
+	tok := LanguageNamed("svelte").Tokenizer
+	for _, line := range []string{`<p class="a {b}">`, `<p class='a {b}'>`, `<p {c}>`, `{x}`, `<p>{#if a}{b}{/if}</p>`} {
+		if _, state := tok.Tokenize(line, 0, nil); state != 0 {
+			t.Errorf("%q leaves state %#x", line, state)
+		}
+	}
+}
+
 func TestLanguageFor(t *testing.T) {
 	for name, want := range map[string]string{"main.go": "Go", "a/b/Makefile": "Makefile", "x.TSX": "TypeScript", "Dockerfile": "Dockerfile", "x.unknown": "",
 		"main.dart": "Dart", "schema.graphql": "GraphQL", "q.gql": "GraphQL", "plot.r": "R", "plot.R": "R", "Main.scala": "Scala", "build.sc": "Scala", "flake.nix": "Nix",
-		"user.rbs": "Ruby", "show.html.erb": "ERB", "model.rb.tt": "ERB", "nginx.conf.j2": "Jinja", "page.jinja2": "Jinja"} {
+		"user.rbs": "Ruby", "show.html.erb": "ERB", "model.rb.tt": "ERB", "nginx.conf.j2": "Jinja", "page.jinja2": "Jinja",
+		"App.svelte": "Svelte", "x.vue": "HTML"} {
 		l := LanguageFor(name)
 		got := ""
 		if l != nil {
