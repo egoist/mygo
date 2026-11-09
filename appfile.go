@@ -2,6 +2,7 @@ package mygo
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -25,12 +26,26 @@ func rename(from, to string) error {
 	return retryInUse(func() error { return os.Rename(from, to) })
 }
 
+// replace puts the file from in place of the app's file to, retrying while
+// Windows reports it in use. On Windows it replaces with POSIX semantics
+// (replaceFile), which readAppFile's reads, sharing deletion, don't hold
+// up: the app reading its file no longer keeps it from being replaced.
+func replace(from, to string) error {
+	return retryInUse(func() error { return replaceFile(from, to) })
+}
+
 // readAppFile reads a file of the app, retrying while Windows reports it
 // in use, or reports it missing while it is being replaced: Windows can
 // fail to open the name for a moment while a rename replaces the file.
 func readAppFile(path string) (data []byte, err error) {
 	read := func() error {
-		data, err = os.ReadFile(path)
+		// Shared, so that replace goes through while the file is read.
+		f, err := openShared(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		data, err = io.ReadAll(f)
 		return err
 	}
 	for i := 1; ; i++ {
@@ -70,6 +85,10 @@ func retryInUse(f func() error) error {
 			!errors.Is(err, syscall.Errno(32)) && !errors.Is(err, syscall.Errno(5)) {
 			return err
 		}
-		time.Sleep(time.Duration(i) * 100 * time.Millisecond)
+		inUseWait(i)
 	}
 }
+
+// inUseWait waits before the ith retry of what Windows reported in use;
+// tests replace it.
+var inUseWait = func(i int) { time.Sleep(time.Duration(i) * 100 * time.Millisecond) }

@@ -107,7 +107,7 @@ func (f stateFile) SaveWindowStates(states map[string]WindowState) error {
 	if err := os.WriteFile(path+".tmp", data, 0o644); err != nil {
 		return err
 	}
-	return rename(path+".tmp", path)
+	return replace(path+".tmp", path)
 }
 
 // restoreWindowState applies the state saved under key to p, if the
