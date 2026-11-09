@@ -72,6 +72,14 @@ func TestTokenizers(t *testing.T) {
 			"type(.a)kw(:hover)punct(,)type(#b)punct({)prop(color)punct(:)const(red)punct(;)prop(margin)punct(:)num(-4px)punct(;)punct(})"},
 		{"html", []string{`<div class="x">a &amp; b<script>let y = 1</script>`},
 			`punct(<)tag(div)attr(class)op(=)str("x")punct(>)text(a)esc(&amp;)text(b)punct(<)tag(script)punct(>)kw(let)var(y)op(=)num(1)punct(</)tag(script)punct(>)`},
+		// ERB's Ruby in tags, in attribute values and across lines, its
+		// comments, and the HTML around them.
+		{"erb", []string{`<p class="<%= cls %>"><% if x -%>`, `<%# a`, `b %><%= link_to "a",`, `  root_path %></p>`},
+			`punct(<)tag(p)attr(class)op(=)str(")meta(<%=)var(cls)meta(%>)str(")punct(>)meta(<%)kw(if)var(x)meta(-%>) / comment(<%# a) / ` +
+				`comment(b %>)meta(<%=)var(link_to)str("a")punct(,) / var(root_path)meta(%>)punct(</)tag(p)punct(>)`},
+		// ERB's <%% is a literal <%, opening no tag.
+		{"erb", []string{`<p><%% x %></p><%= y %>`},
+			`punct(<)tag(p)punct(>)text(<%% x %>)punct(</)tag(p)punct(>)meta(<%=)var(y)meta(%>)`},
 		{"markdown", []string{"# Title", "Some *em* and **strong** `code` [link](url)", "```go", "func x() {}", "```"},
 			"heading(# Title) / text(Some)em(*em*)text(and)strong(**strong**)code(`code`)link([link])str((url)) / punct(```)type(go) / kw(func)fn(x)punct(())punct({}) / punct(```)"},
 		{"diff", []string{"@@ -1,2 +1,2 @@ func x", "-a", "+b", " c"},
@@ -214,7 +222,7 @@ func TestInterpolatedStringsFit(t *testing.T) {
 func TestLanguageFor(t *testing.T) {
 	for name, want := range map[string]string{"main.go": "Go", "a/b/Makefile": "Makefile", "x.TSX": "TypeScript", "Dockerfile": "Dockerfile", "x.unknown": "",
 		"main.dart": "Dart", "schema.graphql": "GraphQL", "q.gql": "GraphQL", "plot.r": "R", "plot.R": "R", "Main.scala": "Scala", "build.sc": "Scala", "flake.nix": "Nix",
-		"user.rbs": "Ruby"} {
+		"user.rbs": "Ruby", "show.html.erb": "ERB", "model.rb.tt": "ERB"} {
 		l := LanguageFor(name)
 		got := ""
 		if l != nil {
@@ -261,6 +269,7 @@ func TestLanguageNamed(t *testing.T) {
 		"GraphQL": {"graphql", "GraphQL", "gql"},
 		"R":       {"r", "R", " r "},
 		"Scala":   {"scala", "Scala", "sc"},
+		"ERB":     {"erb", "ERB", "eruby"},
 	} {
 		for _, name := range names {
 			l := LanguageNamed(name)
