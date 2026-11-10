@@ -610,3 +610,19 @@ func hides(spans []lineSpan, line int) bool {
 	}
 	return false
 }
+
+// An editable diff shows the empty line after the final newline, where
+// typing adds a line, from the frame Editable is set on.
+func TestEditableDiffShowsTheLineAfterTheFinalNewline(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\n"), New: NewBuffer("a\nc\n")}
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+	tt.Frame()
+	if !hides(d.sides[1].hidden(), 2) {
+		t.Fatal("a read-only diff shows the line after the final newline")
+	}
+	d.Editable = true
+	tt.Frame()
+	if hides(d.sides[1].hidden(), 2) {
+		t.Fatal("an editable diff hides the line after the final newline")
+	}
+}

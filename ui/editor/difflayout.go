@@ -10,19 +10,20 @@ import (
 
 // diffPrepared is what the blocks and hidden lines were made of.
 type diffPrepared struct {
-	version uint64
-	expandV int
-	layout  DiffLayout
-	context int
-	anns    uint64 // the annotations' sides, lines and heights, hashed
-	wrapsA  uint64
-	wrapsB  uint64
-	lh      float32
-	wrap    bool
-	expAll  bool
-	inline  DiffInline
-	nOld    int
-	nNew    int
+	version  uint64
+	expandV  int
+	layout   DiffLayout
+	context  int
+	anns     uint64 // the annotations' sides, lines and heights, hashed
+	wrapsA   uint64
+	wrapsB   uint64
+	lh       float32
+	wrap     bool
+	expAll   bool
+	inline   DiffInline
+	nOld     int
+	nNew     int
+	editable bool // which shows the line after a final newline (shownLines)
 }
 
 // diffGap is a run of unchanged lines between hunks, from the old line
@@ -50,7 +51,7 @@ func (d *DiffState) prepare() {
 	viewB := &edB.view
 	key := diffPrepared{version: d.model.version, expandV: d.expandV, layout: d.Layout, context: d.context(), anns: annotationsKey(d.Annotations),
 		wrapsA: viewA.heights.wraps.version, wrapsB: viewB.heights.wraps.version, lh: viewB.lineHeight, wrap: d.Wrap,
-		expAll: d.ExpandUnchanged, inline: d.Inline, nOld: viewA.text.LineCount(), nNew: viewB.text.LineCount()}
+		expAll: d.ExpandUnchanged, inline: d.Inline, nOld: viewA.text.LineCount(), nNew: viewB.text.LineCount(), editable: d.Editable}
 	if d.prepared == key {
 		return
 	}
