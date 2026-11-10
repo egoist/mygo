@@ -650,3 +650,101 @@ func TestDiffShowsLinesDeletedAtTheEnd(t *testing.T) {
 		}
 	}
 }
+
+// A diff that is not editable compares lines with their line feeds, as
+// git diff does: a last line gaining or losing its newline is changed,
+// and the empty line an editor starts after a final newline is no line
+// of the text. An editable diff shows that line, as typing there adds a
+// line, so a newline added at the end adds it.
+func TestReadOnlyDiffComparesTheFinalNewline(t *testing.T) {
+	cases := []struct {
+		old, new string
+		want     []DiffHunk
+	}{
+		{"a\nb", "a\nb\n", []DiffHunk{{1, 2, 1, 2}}},
+		{"a\nb\n", "a\nb", []DiffHunk{{1, 2, 1, 2}}},
+		{"a\nb", "a\nc\n", []DiffHunk{{1, 2, 1, 2}}},
+		{"a\nb\n", "a\nc", []DiffHunk{{1, 2, 1, 2}}},
+		{"a\nb", "a\nc", []DiffHunk{{1, 2, 1, 2}}},
+		{"a\nb\n", "a\nb\n\n", []DiffHunk{{2, 2, 2, 3}}},
+		{"a\nb\nc\n", "a\n", []DiffHunk{{1, 3, 1, 1}}},
+		{"", "\n", []DiffHunk{{0, 0, 0, 1}}},
+		{"", "a", []DiffHunk{{0, 0, 0, 1}}},
+		{"a", "a", nil},
+		{"a\n", "a\n", nil},
+	}
+	for _, c := range cases {
+		for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
+			d := &DiffState{Old: NewBuffer(c.old), New: NewBuffer(c.new), Layout: layout}
+			tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+			tt.Frame()
+			if hs := d.Hunks(); !slices.Equal(hs, c.want) {
+				t.Errorf("%q to %q: hunks %+v, want %+v", c.old, c.new, hs, c.want)
+			}
+			// The empty line after a final newline never shows.
+			if n := d.New.LineCount(); n > 1 && strings.HasSuffix(c.new, "\n") && !hides(d.sides[1].hidden(), n-1) {
+				t.Errorf("%v: %q to %q shows the line after the new text's final newline", layout, c.old, c.new)
+			}
+		}
+	}
+	d := &DiffState{Old: NewBuffer("a\nb"), New: NewBuffer("a\nb\n"), Editable: true}
+	if hs := d.Hunks(); !slices.Equal(hs, []DiffHunk{{2, 2, 2, 3}}) {
+		t.Errorf("editable: hunks %+v, want the line after the newline added", hs)
+	}
+}
+
+// it, in a diff that is not editable.
+func TestReadOnlyDiffRevertsTheFinalNewline(t *testing.T) {
+	cases := []struct {
+		old, new string
+	}{
+		{"a\nb", "a\nb\n"},
+		{"a\nb\n", "a\nb"},
+		{"a\nb", "a\nc\n"},
+		{"a\nb\n", "a\nc"},
+		{"a\nb\nc\n", "a\n"},
+		{"a\n", "a\nb"},
+	}
+	for _, c := range cases {
+		d := &DiffState{Old: NewBuffer(c.old), New: NewBuffer(c.new)}
+		d.Revert(0)
+		if got := d.New.String(); got != c.old {
+			t.Errorf("%q to %q: reverted to %q", c.old, c.new, got)
+		}
+		d = &DiffState{Old: NewBuffer(c.old), New: NewBuffer(c.new)}
+		d.Accept(0)
+		if got := d.Old.String(); got != c.new {
+			t.Errorf("%q to %q: kept as %q", c.old, c.new, got)
+		}
+	}
+}
+
+// Edits of a diff that is not editable, made by the app, compare again
+// only the lines around them, with their line feeds: what a whole
+// comparison of the texts finds.
+func TestReadOnlyDiffEditsCompareTheFinalNewline(t *testing.T) {
+	body := strings.Repeat("same\n", 10)
+	cases := []struct {
+		name, old, new string
+		edit           func(n int) Edit
+	}{
+		{"newline added", body + "end", body + "end", func(n int) Edit { return Edit{Start: n, End: n, Text: "\n"} }},
+		{"newline deleted", body + "end\n", body + "end\n", func(n int) Edit { return Edit{Start: n - 1, End: n} }},
+		{"line added after the last", body + "end", body + "end", func(n int) Edit { return Edit{Start: n, End: n, Text: "\nend"} }},
+		{"last line typed after the newline", body + "end\n", body + "end\n", func(n int) Edit { return Edit{Start: n, End: n, Text: "more"} }},
+		{"blank line opened before the last", body + "\nend", body + "\nend", func(n int) Edit { return Edit{Start: n - 4, End: n - 4, Text: "\n"} }},
+		{"last line repeated after the newline", body + "end", body + "end\n", func(n int) Edit { return Edit{Start: n, End: n, Text: "end"} }},
+		{"first line edited, the newline changed at the end", "first\n" + body + "end\n", "first\n" + body + "end", func(int) Edit { return Edit{Start: 0, End: 5, Text: "First"} }},
+		{"first line edited, the newline added at the end", "first\n" + body + "end", "first\n" + body + "end\n", func(int) Edit { return Edit{Start: 0, End: 5, Text: "First"} }},
+	}
+	for _, c := range cases {
+		d := &DiffState{Old: NewBuffer(c.old), New: NewBuffer(c.new)}
+		d.Hunks()
+		d.New.Edit(c.edit(d.New.Len()))
+		got := d.Hunks()
+		want := (&DiffState{Old: NewBuffer(c.old), New: NewBuffer(d.New.String())}).Hunks()
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: hunks %+v, a whole comparison's %+v", c.name, got, want)
+		}
+	}
+}

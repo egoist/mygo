@@ -350,9 +350,9 @@ func (d *DiffState) SetPatch(p FilePatch) {
 	pt.old, pt.new = NewBuffer(old.String()), NewBuffer(nw.String())
 	pt.old.setRestarts(pt.oldStarts)
 	pt.new.setRestarts(pt.newStarts)
+	d.Editable = false
 	d.showPatch(p, pt.old, pt.new, hunks)
 	d.partial = pt
-	d.Editable = false
 }
 
 // SetPatchFiles shows a file's patch with the files it was made from: Old
@@ -392,7 +392,7 @@ func (d *DiffState) showPatch(p FilePatch, old, new *Buffer, hunks []diff.Hunk) 
 	d.partial = nil
 	d.prepared = diffPrepared{}
 	m := &d.model
-	m.set(d.Old, d.New)
+	m.set(d.Old, d.New, !d.Editable)
 	m.oldText, m.oldVer = d.Old.snapshot()
 	m.newText, m.newVer = d.New.snapshot()
 	m.hunks, m.words = hunks, nil

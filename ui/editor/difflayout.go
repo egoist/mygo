@@ -68,7 +68,7 @@ func (d *DiffState) prepare() {
 		key.wrapsA, key.wrapsB = viewA.heights.wraps.version, viewB.heights.wraps.version
 	}
 	d.prepared = key
-	nA, nB := d.shownLines(viewA.text, true), d.shownLines(viewB.text, false)
+	nA, nB := d.shownLines(viewA.text), d.shownLines(viewB.text)
 	gaps := d.gaps(nA, nB)
 	d.gapList = gaps
 	lh := viewB.lineHeight
@@ -350,22 +350,12 @@ func (v *view) wrapLineNow(i int) {
 // shownLines returns how many lines of a side's text the diff shows. A
 // diff that cannot be edited ends at the text's final newline, as git
 // diff does, leaving out the empty line the editor starts after it,
-// unless a change of the side holds that line. An editable one shows it,
-// as there is where typing adds a line.
-func (d *DiffState) shownLines(text rope.Text, old bool) int {
+// which its lines, compared with their line feeds, do not count. An
+// editable one shows it, as there is where typing adds a line.
+func (d *DiffState) shownLines(text rope.Text) int {
 	n := text.LineCount()
 	if d.Editable || n < 2 || text.LineStart(n-1) != text.Len() {
 		return n
-	}
-	if k := len(d.model.hunks) - 1; k >= 0 {
-		h := d.model.hunks[k]
-		lo, hi := h.B0, h.B1
-		if old {
-			lo, hi = h.A0, h.A1
-		}
-		if lo <= n-1 && n-1 < hi {
-			return n
-		}
 	}
 	return n - 1
 }

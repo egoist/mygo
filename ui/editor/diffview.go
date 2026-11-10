@@ -232,7 +232,7 @@ func (d *DiffState) ensure() {
 		d.partial = nil
 		d.prepared = diffPrepared{}
 	}
-	d.model.set(d.Old, d.New)
+	d.model.set(d.Old, d.New, !d.Editable)
 	d.model.update()
 	// The lines revealed move with edits of the old text, as Keep makes,
 	// and go with it.
