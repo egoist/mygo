@@ -137,6 +137,7 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 		bind(libGDK, &b.waylandSurface, "gdk_wayland_window_get_wl_surface")
 	}
 	initCallbacks()
+	installPoll()
 	return nil
 }
 
