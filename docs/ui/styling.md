@@ -252,8 +252,10 @@ its colors in your own elements so they follow too. To change it, set a
 copy:
 
 ```go
-t := *c.Theme() // the default, which follows the system
-t.Accent, t.Radius = ui.Hex("#7c3aed"), 8
+// The default, which follows the system, in an accent of the app's,
+// with its hover, pressed, selection and focus shades.
+t := *c.Theme().WithAccent(ui.Hex("#7c3aed"))
+t.Radius = 8
 t.Spacing = 3 // compact
 // A square bar, as VS Code's editor.
 t.ScrollbarStyle = ui.ScrollbarStyle{
@@ -404,3 +406,20 @@ theme follows and a frame follows the changes of:
   there, the touch screen being the primary one in tablet mode; browsers
   answer the media queries. macOS's, and those not known, are a mouse's:
   fine, and hovering.
+
+A theme of your own (`SetTheme`) does not follow them: it is yours. To
+keep the desktop's accent in it, as an app that lets the user pick light
+or dark over the system's appearance does, take it with `WithAccent`,
+which returns a copy of the theme with the accent's shades for its
+appearance, as the default theme takes them:
+
+```go
+t := ui.DarkTheme().WithAccent(c.Preferences().Accent)
+c.SetTheme(t)
+```
+
+`AccentHover`, `AccentPressed`, `Selection` and `Focus` become shades of
+the accent, lighter in the dark, and `AccentText` white, or near black on
+an accent as light as yellow. An accent with an `A` of 0, as where the
+desktop has none, keeps the theme's own. A brand color of your own takes
+the same shades: `t.WithAccent(ui.Hex("#7c3aed"))`.
