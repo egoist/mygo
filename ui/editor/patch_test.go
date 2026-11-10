@@ -537,3 +537,30 @@ func TestSetPatchFilesEdit(t *testing.T) {
 		t.Fatalf("hunks %+v", hs)
 	}
 }
+
+// A side of no lines starts after the line its header names: an added or
+// deleted file, and the hunks of git diff -U0.
+func TestSetPatchFilesEmptySides(t *testing.T) {
+	cases := []struct {
+		name, patch, old, new string
+		want                  []DiffHunk
+	}{
+		{"added", "--- /dev/null\n+++ b/x.txt\n@@ -0,0 +1,2 @@\n+a\n+b\n", "", "a\nb\n", []DiffHunk{{0, 0, 0, 2}}},
+		{"deleted", "--- a/x.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-a\n-b\n", "a\nb\n", "", []DiffHunk{{0, 2, 0, 0}}},
+		{"-U0", "--- a/x.txt\n+++ b/x.txt\n@@ -2 +1,0 @@\n-b\n@@ -3,0 +3 @@\n+d\n", "a\nb\nc\n", "a\nc\nd\n", []DiffHunk{{1, 2, 1, 1}, {3, 3, 2, 3}}},
+	}
+	for _, c := range cases {
+		files, err := ParsePatch(c.patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d := &DiffState{}
+		if err := d.SetPatchFiles(files[0], c.old, c.new); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400).Frame()
+		if hs := d.Hunks(); !slices.Equal(hs, c.want) {
+			t.Errorf("%s: hunks %+v, want %+v", c.name, hs, c.want)
+		}
+	}
+}
