@@ -307,12 +307,9 @@ func (d *DiffState) SetPatch(p FilePatch) {
 	var old, nw strings.Builder
 	pt := &diffPartial{}
 	oldLine, newLine := 0, 0
-	// The changes are the patch's runs of - and + lines, as it says them,
-	// not what comparing the texts would find.
 	var hunks []diff.Hunk
-	run := -1
 	for _, h := range p.Hunks {
-		run = -1
+		hunks = patchRuns(hunks, h, oldLine, newLine)
 		pt.oldStarts = append(pt.oldStarts, oldLine)
 		pt.newStarts = append(pt.newStarts, newLine)
 		pt.oldFile = append(pt.oldFile, max(0, h.OldStart-1))
@@ -325,20 +322,6 @@ func (d *DiffState) SetPatch(p FilePatch) {
 		for _, l := range h.Lines {
 			if l == "" || l[0] == '\\' {
 				continue
-			}
-			switch {
-			case l[0] != '-' && l[0] != '+':
-				run = -1
-			case run < 0:
-				hunks = append(hunks, diff.Hunk{A0: oldLine, A1: oldLine, B0: newLine, B1: newLine})
-				run = len(hunks) - 1
-			}
-			if run >= 0 {
-				if l[0] == '-' {
-					hunks[run].A1++
-				} else {
-					hunks[run].B1++
-				}
 			}
 			text := strings.TrimSuffix(l[1:], "\r")
 			if l[0] != '+' {
@@ -378,6 +361,39 @@ func (d *DiffState) SetPatch(p FilePatch) {
 	m.newText, m.newVer = d.New.snapshot()
 	m.hunks, m.words = hunks, nil
 	m.version++
+}
+
+// patchRuns appends to hunks the changes of h: its runs of - and + lines,
+// as the patch says them, not what comparing the texts would find. The
+// hunk's first lines are lines oldLine and newLine of the texts.
+func patchRuns(hunks []diff.Hunk, h PatchHunk, oldLine, newLine int) []diff.Hunk {
+	run := -1
+	for _, l := range h.Lines {
+		if l == "" || l[0] == '\\' {
+			continue
+		}
+		switch {
+		case l[0] != '-' && l[0] != '+':
+			run = -1
+		case run < 0:
+			hunks = append(hunks, diff.Hunk{A0: oldLine, A1: oldLine, B0: newLine, B1: newLine})
+			run = len(hunks) - 1
+		}
+		if l[0] != '+' {
+			oldLine++
+		}
+		if l[0] != '-' {
+			newLine++
+		}
+		if run >= 0 {
+			if l[0] == '-' {
+				hunks[run].A1++
+			} else {
+				hunks[run].B1++
+			}
+		}
+	}
+	return hunks
 }
 
 // fileLine maps a line of a side's text to the file's.
