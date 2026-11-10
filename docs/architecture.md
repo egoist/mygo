@@ -3151,7 +3151,8 @@ either.
   minute, then at about 40 Hz, but not while it is hidden or minimized,
   where `RequestFrame` draws the frame from the backend's queue
   (`drawSoon`) instead; a minimized window on Linux, as GDK's `window-state-event` tells
-  on X11, and on Windows, as `WM_SIZE` does), what moves asks for no frame, and a frame asked for by a change of
+  on X11, and on Windows, as `WM_SIZE` does, where no `WM_PAINT` comes
+  and `RequestFrame` draws the frame from the queue as well), what moves asks for no frame, and a frame asked for by a change of
   the state waits (`holdFrame`; both `held`), as browsers draw nothing for
   windows out of sight and as Apple asks of Mac apps: the view function,
   `Draw` and the work `After` drives wait until some of the window shows.
