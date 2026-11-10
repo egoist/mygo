@@ -355,6 +355,28 @@ func (d *DiffState) SetPatch(p FilePatch) {
 	d.Editable = false
 }
 
+// SetPatchFiles shows a file's patch with the files it was made from: Old
+// and New become old and new, and the patch's runs of - and + lines are
+// the changes, as git diff found them, not what comparing the texts would
+// find. Unchanged lines between them collapse and expand as in any diff,
+// and the lines are numbered as in the files. It returns an error, and
+// changes nothing, when the patch is binary or does not make new from old.
+func (d *DiffState) SetPatchFiles(p FilePatch, old, new string) error {
+	got, err := p.Apply(old)
+	if err != nil {
+		return err
+	}
+	if got != new {
+		return errors.New("ui: the patch does not make the new file from the old")
+	}
+	var hunks []diff.Hunk
+	for _, h := range p.Hunks {
+		hunks = patchRuns(hunks, h, hunkLine(h.OldStart, h.OldLines), hunkLine(h.NewStart, h.NewLines))
+	}
+	d.showPatch(p, NewBuffer(old), NewBuffer(new), hunks)
+	return nil
+}
+
 // showPatch shows old and new, highlighted in the language of p's file,
 // with hunks as their changes.
 func (d *DiffState) showPatch(p FilePatch, old, new *Buffer, hunks []diff.Hunk) {
