@@ -489,3 +489,27 @@ func TestSetPatchFilesCollapses(t *testing.T) {
 		t.Fatalf("hunks %+v", hs)
 	}
 }
+
+// A patch that does not make the new file from the old, or a binary one,
+// returns an error and leaves the diff as it was.
+func TestSetPatchFilesMismatch(t *testing.T) {
+	old, new, p := linesPatch(10, 4)
+	d := &DiffState{Old: NewBuffer("a\n"), New: NewBuffer("b\n")}
+	cases := []struct {
+		name     string
+		p        FilePatch
+		old, new string
+	}{
+		{"another old file", p, "something else\n", new},
+		{"another new file", p, old, new + "more\n"},
+		{"binary", FilePatch{NewName: "x.png", Binary: true}, old, new},
+	}
+	for _, c := range cases {
+		if err := d.SetPatchFiles(c.p, c.old, c.new); err == nil {
+			t.Errorf("%s: no error", c.name)
+		}
+		if d.Old.String() != "a\n" || d.New.String() != "b\n" || len(d.Hunks()) != 1 {
+			t.Fatalf("%s: the diff changed to %q, %q", c.name, d.Old.String(), d.New.String())
+		}
+	}
+}
