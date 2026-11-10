@@ -30,6 +30,38 @@ func TestThemeFollowsTheAccent(t *testing.T) {
 	}
 }
 
+// WithAccent gives a theme of the app's the shades the default theme
+// takes from the desktop's accent, in its own appearance.
+func TestThemeWithAccent(t *testing.T) {
+	pink := Color{R: 219, G: 39, B: 119, A: 255}
+	for _, dark := range []bool{false, true} {
+		var followed *Theme
+		tt := coreNewTester(func(c *context) { followed = c.Theme() }, 200, 100)
+		tt.SetDark(dark)
+		tt.SetPreferences(Preferences{Accent: pink})
+		base := LightTheme()
+		if dark {
+			base = DarkTheme()
+		}
+		got := base.WithAccent(pink)
+		if got.Accent != followed.Accent || got.AccentHover != followed.AccentHover ||
+			got.AccentPressed != followed.AccentPressed || got.AccentText != followed.AccentText ||
+			got.Selection != followed.Selection || got.Focus != followed.Focus {
+			t.Errorf("dark %v: WithAccent %+v, the followed theme %+v", dark, got, followed)
+		}
+		if base.Accent == pink {
+			t.Errorf("dark %v: WithAccent changed the theme it was called on", dark)
+		}
+	}
+	// A translucent accent is made opaque; none keeps the theme's.
+	if a := LightTheme().WithAccent(Color{R: 219, G: 39, B: 119, A: 128}).Accent; a != pink {
+		t.Errorf("translucent: %v", a)
+	}
+	if a := DarkTheme().WithAccent(Color{}); *a != *DarkTheme() {
+		t.Errorf("no accent: %+v", a)
+	}
+}
+
 func TestThemeFollowsContrastAndTextSize(t *testing.T) {
 	var theme *Theme
 	var prefs Preferences

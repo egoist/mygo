@@ -90,25 +90,47 @@ func (rt *engine) preferences() Preferences {
 	return rt.prefs
 }
 
+// WithAccent returns a copy of the theme in the accent a, as the default
+// theme takes the desktop's: AccentHover, AccentPressed, Selection and
+// Focus are shades of a for the theme's appearance, lighter in the dark,
+// and AccentText is white, or near black on an accent as light as
+// yellow. a is made opaque; with an A of 0 the copy keeps the theme's
+// accent, as where the desktop has none. A theme of the app's can take
+// the desktop's accent this way:
+//
+//	c.SetTheme(ui.DarkTheme().WithAccent(c.Preferences().Accent))
+func (t *Theme) WithAccent(a Color) *Theme {
+	u := *t
+	if a.A > 0 {
+		u.setAccent(a)
+	}
+	return &u
+}
+
+// setAccent sets the accent a and its shades.
+func (t *Theme) setAccent(a Color) {
+	a.A = 255
+	black, white := Color{A: 255}, Color{R: 255, G: 255, B: 255, A: 255}
+	t.Accent = a
+	if t.Dark {
+		t.AccentHover, t.AccentPressed = a.Mix(white, 0.2), a.Mix(black, 0.15)
+		t.Selection, t.Focus = a.Alpha(0.4), a.Mix(white, 0.2).Alpha(0.6)
+	} else {
+		t.AccentHover, t.AccentPressed = a.Mix(black, 0.12), a.Mix(black, 0.25)
+		t.Selection, t.Focus = a.Alpha(0.25), a.Alpha(0.55)
+	}
+	// Text on the accent is black where white would not stand out, as on
+	// yellow.
+	t.AccentText = white
+	if l := a.gray().R; l > 165 {
+		t.AccentText = Color{R: 24, G: 24, B: 27, A: 255}
+	}
+}
+
 // follow makes the theme follow the desktop's settings.
 func (t *Theme) follow(p Preferences) {
-	if a := p.Accent; a.A > 0 {
-		a.A = 255
-		black, white := Color{A: 255}, Color{R: 255, G: 255, B: 255, A: 255}
-		t.Accent = a
-		if t.Dark {
-			t.AccentHover, t.AccentPressed = a.Mix(white, 0.2), a.Mix(black, 0.15)
-			t.Selection, t.Focus = a.Alpha(0.4), a.Mix(white, 0.2).Alpha(0.6)
-		} else {
-			t.AccentHover, t.AccentPressed = a.Mix(black, 0.12), a.Mix(black, 0.25)
-			t.Selection, t.Focus = a.Alpha(0.25), a.Alpha(0.55)
-		}
-		// Text on the accent is black where white would not stand out, as
-		// on yellow.
-		t.AccentText = white
-		if l := a.gray().R; l > 165 {
-			t.AccentText = Color{R: 24, G: 24, B: 27, A: 255}
-		}
+	if p.Accent.A > 0 {
+		t.setAccent(p.Accent)
 	}
 	if p.HighContrast {
 		t.Border = t.Border.Mix(t.Text, 0.45)
