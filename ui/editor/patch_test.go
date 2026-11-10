@@ -626,3 +626,27 @@ func TestEditableDiffShowsTheLineAfterTheFinalNewline(t *testing.T) {
 		t.Fatal("an editable diff hides the line after the final newline")
 	}
 }
+
+// Lines deleted at the end of a file show, though the line after the new
+// file's final newline, which they go before, does not.
+func TestDiffShowsLinesDeletedAtTheEnd(t *testing.T) {
+	for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
+		d := &DiffState{Old: NewBuffer("a\nlast\n"), New: NewBuffer("a\n"), Layout: layout}
+		tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+		tt.Frame()
+		tt.Frame()
+		if !hides(d.sides[1].hidden(), 1) {
+			t.Fatalf("%v: the line after the new file's final newline shows", layout)
+		}
+		// Two lines high: "a", and "last" deleted, or its filler.
+		eds := d.eds[:]
+		if layout == DiffUnified {
+			eds = eds[1:]
+		}
+		for _, ed := range eds {
+			if got, want := ed.view.heights.total(), 2*float64(ed.view.lineHeight); got != want {
+				t.Fatalf("%v: a side %v high, want %v", layout, got, want)
+			}
+		}
+	}
+}
