@@ -408,18 +408,26 @@ theme follows and a frame follows the changes of:
   fine, and hovering.
 
 A theme of your own (`SetTheme`) does not follow them: it is yours. To
-keep the desktop's accent in it, as an app that lets the user pick light
-or dark over the system's appearance does, take it with `WithAccent`,
-which returns a copy of the theme with the accent's shades for its
-appearance, as the default theme takes them:
+have it follow them as the default theme does, as an app that lets the
+user pick light or dark over the system's appearance would, take them
+with `WithPreferences`, which returns a copy of the theme in the desktop's
+accent, with its contrast and text size:
 
 ```go
-t := ui.DarkTheme().WithAccent(c.Preferences().Accent)
-c.SetTheme(t)
+t := ui.DarkTheme()
+t.Background = ui.Hex("#18181b")
+c.SetTheme(t.WithPreferences(c.Preferences()))
 ```
 
-`AccentHover`, `AccentPressed`, `Selection` and `Focus` become shades of
-the accent, lighter in the dark, and `AccentText` white, or near black on
-an accent as light as yellow. An accent with an `A` of 0, as where the
-desktop has none, keeps the theme's own. A brand color of your own takes
-the same shades: `t.WithAccent(ui.Hex("#7c3aed"))`.
+It works on the colors and the size the theme has, so call it once, after
+setting your own colors: called again on its result, it would make text
+larger again. `WithAccent` takes an accent alone, the desktop's or one of
+your own, with the shades the default theme gives it: `AccentHover`,
+`AccentPressed`, `Selection` and `Focus` become shades of the accent,
+lighter in the dark, and `AccentText` white, or near black on an accent as
+light as yellow. An accent with an `A` of 0, as where the desktop has
+none, keeps the theme's own:
+
+```go
+t := ui.LightTheme().WithAccent(ui.Hex("#7c3aed")) // a brand color
+```
