@@ -419,9 +419,11 @@ t.Background = ui.Hex("#18181b")
 c.SetTheme(t.WithPreferences(c.Preferences()))
 ```
 
-It works on the colors and the size the theme has, so call it once, after
-setting your own colors: called again on its result, it would make text
-larger again. `WithAccent` takes an accent alone, the desktop's or one of
+A theme that already follows them, as `c.Theme()` and what
+`WithPreferences` returns do, follows the settings given in their place:
+what following changed goes back first, so text is not made larger twice
+and a setting the user turned off goes, while colors you set since stay.
+`WithAccent` takes an accent alone, the desktop's or one of
 your own, with the shades the default theme gives it: `AccentHover`,
 `AccentPressed`, `Selection` and `Focus` become shades of the accent,
 lighter in the dark, and `AccentText` white, or near black on an accent as
