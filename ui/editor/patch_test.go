@@ -491,8 +491,8 @@ func TestSetPatchFilesCollapses(t *testing.T) {
 }
 
 // A file's lines end at its final newline, as git diff shows them: the
-// empty line the editor starts after it does not count among the lines
-// that collapse.
+// empty line the editor starts after it neither counts among the lines
+// that collapse nor shows once they expand.
 func TestSetPatchFilesEndsAtTheFinalNewline(t *testing.T) {
 	old, new, p := linesPatch(100, 20, 60)
 	for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
@@ -511,6 +511,17 @@ func TestSetPatchFilesEndsAtTheFinalNewline(t *testing.T) {
 		// Lines 64 to 99 collapse after the change at 60.
 		if s := seps[61]; s == nil || s.Lines != 36 {
 			t.Fatalf("%v: last separator %+v, want 36 lines", layout, s)
+		}
+		seps[61].ExpandAll()
+		tt.Frame()
+		if !hides(d.sides[1].hidden(), 100) {
+			t.Fatalf("%v: the new file's empty line after its final newline shows", layout)
+		}
+		if layout == DiffSplit && !hides(d.sides[0].hidden(), 100) {
+			t.Fatalf("the old file's empty line after its final newline shows")
+		}
+		if hides(d.sides[1].hidden(), 99) {
+			t.Fatalf("%v: the file's last line is hidden", layout)
 		}
 	}
 }
@@ -588,4 +599,14 @@ func TestSetPatchFilesEmptySides(t *testing.T) {
 			t.Errorf("%s: hunks %+v, want %+v", c.name, hs, c.want)
 		}
 	}
+}
+
+// hides reports whether spans hide line.
+func hides(spans []lineSpan, line int) bool {
+	for _, s := range spans {
+		if s.from <= line && line <= s.to {
+			return true
+		}
+	}
+	return false
 }

@@ -103,6 +103,8 @@ func (d *DiffState) prepare() {
 			}
 		}
 	}
+	hideA = hideEnd(hideA, nA, viewA.text.LineCount())
+	hideB = hideEnd(hideB, nB, viewB.text.LineCount())
 	// A patch's hunks under their headers: above their first line, or,
 	// for a hunk with no lines left on a side, below its last line, after
 	// what the hunk before puts there (late).
@@ -365,6 +367,19 @@ func (d *DiffState) shownLines(text rope.Text, old bool) int {
 		}
 	}
 	return n - 1
+}
+
+// hideEnd hides the lines of a side from shown to its last, total - 1,
+// joining the hidden lines that end right before them.
+func hideEnd(hide []lineSpan, shown, total int) []lineSpan {
+	if shown >= total {
+		return hide
+	}
+	if k := len(hide) - 1; k >= 0 && hide[k].to == shown-1 {
+		hide[k].to = total - 1
+		return hide
+	}
+	return append(hide, lineSpan{shown, total - 1})
 }
 
 // gaps returns the runs of unchanged lines and which of them collapse.
