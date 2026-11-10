@@ -13,10 +13,11 @@ import (
 
 // TestWindowHiddenBuildsAsItHides checks the promise of
 // Context.WindowHidden: a view that asks builds once as its window hides,
-// out of sight, and again as it shows. On macOS a minimized or hidden
-// window's display link stops, so a frame waiting for it would never come.
-// Linux and Windows tell only that a window is minimized, and Xvfb has no
-// window manager to minimize one.
+// out of sight, and again as it shows. A frame waiting for the display
+// would never come: a minimized or hidden window's display link stops on
+// macOS, and Windows sends a minimized window no WM_PAINT. Linux and
+// Windows tell only that a window is minimized, and Xvfb has no window
+// manager to minimize one.
 func TestWindowHiddenBuildsAsItHides(t *testing.T) {
 	type state struct {
 		name string
