@@ -88,9 +88,47 @@ func TestThemeWithPreferences(t *testing.T) {
 		}
 	}
 	// The usual settings leave the theme as it is.
-	if got := DarkTheme().WithPreferences(Preferences{TextScale: 1}); *got != *DarkTheme() {
+	if got := DarkTheme().WithPreferences(Preferences{TextScale: 1}); !sameTheme(got, DarkTheme()) {
 		t.Errorf("usual settings: %+v", got)
 	}
+}
+
+// A theme that follows the desktop follows it again from what it was:
+// the same settings twice change nothing, settings turned off go back,
+// and what the app set in between stays.
+func TestThemeWithPreferencesAgain(t *testing.T) {
+	p := Preferences{Accent: Color{R: 219, G: 39, B: 119, A: 255}, HighContrast: true, TextScale: 1.5}
+	usual := Preferences{TextScale: 1}
+	for _, base := range []*Theme{LightTheme(), DarkTheme()} {
+		once := base.WithPreferences(p)
+		if twice := once.WithPreferences(p); !sameTheme(twice, once) {
+			t.Errorf("dark %v: twice %+v, once %+v", base.Dark, twice, once)
+		}
+		// Every field following changes goes back.
+		if off := once.WithPreferences(usual); !sameTheme(off, base) {
+			t.Errorf("dark %v: turned off %+v, not %+v", base.Dark, off, base)
+		}
+		edited := *once
+		edited.Background, edited.Border = Hex("#18181b"), Hex("#3f3f46")
+		again := edited.WithPreferences(p)
+		if again.Background != edited.Background || again.Border != Hex("#3f3f46").Mix(again.Text, 0.45) || again.FontSize != once.FontSize {
+			t.Errorf("dark %v: edited then followed %+v", base.Dark, again)
+		}
+	}
+	// The default theme, which follows the desktop, follows it again.
+	var followed *Theme
+	tt := coreNewTester(func(c *context) { followed = c.Theme() }, 200, 100)
+	tt.SetPreferences(p)
+	if got := followed.WithPreferences(p); !sameTheme(got, followed) {
+		t.Errorf("the default theme followed again: %+v, not %+v", got, followed)
+	}
+}
+
+// sameTheme reports whether a and b look the same, whatever they followed.
+func sameTheme(a, b *Theme) bool {
+	x, y := *a, *b
+	x.followed, y.followed = nil, nil
+	return x == y
 }
 
 func TestThemeFollowsContrastAndTextSize(t *testing.T) {

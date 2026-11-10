@@ -130,17 +130,49 @@ func (t *Theme) setAccent(a Color) {
 // WithPreferences returns a copy of the theme that follows the desktop's
 // settings p as the default theme does: in p's accent (WithAccent), with
 // borders and secondary text stronger and the focus ring opaque under
-// HighContrast, and FontSize TextScale times larger. It works on the
-// colors and size the theme has, so call it once, on a theme of the
-// app's, after its own colors:
+// HighContrast, and FontSize TextScale times larger. A theme that already
+// follows them, as the default theme (Context.Theme) and those
+// WithPreferences returns do, follows p in their place: what they changed
+// goes back first, and what was set since stays.
 //
-//	t := ui.DarkTheme()
+//	t := *c.Theme()
 //	t.Background = ui.Hex("#18181b")
 //	c.SetTheme(t.WithPreferences(c.Preferences()))
 func (t *Theme) WithPreferences(p Preferences) *Theme {
 	u := *t
+	if f := u.followed; f != nil {
+		u.unfollow(f)
+		u.followed = nil
+	}
+	from := u
 	u.follow(p)
+	u.followed = &followedTheme{from: from, to: u}
 	return &u
+}
+
+// unfollow puts back what following f changed, keeping what was set
+// since. It covers each field follow changes.
+func (t *Theme) unfollow(f *followedTheme) {
+	back := func(c *Color, from, to Color) {
+		if *c == to {
+			*c = from
+		}
+	}
+	back(&t.Accent, f.from.Accent, f.to.Accent)
+	back(&t.AccentHover, f.from.AccentHover, f.to.AccentHover)
+	back(&t.AccentPressed, f.from.AccentPressed, f.to.AccentPressed)
+	back(&t.AccentText, f.from.AccentText, f.to.AccentText)
+	back(&t.Selection, f.from.Selection, f.to.Selection)
+	back(&t.Focus, f.from.Focus, f.to.Focus)
+	back(&t.Border, f.from.Border, f.to.Border)
+	back(&t.TextMuted, f.from.TextMuted, f.to.TextMuted)
+	back(&t.Scrollbar, f.from.Scrollbar, f.to.Scrollbar)
+	if t.ScrollbarStyle == f.to.ScrollbarStyle {
+		t.ScrollbarStyle = f.from.ScrollbarStyle
+	}
+	if t.FontSize == f.to.FontSize {
+		t.FontSize = f.from.FontSize
+	}
 }
 
 // follow makes the theme follow the desktop's settings.
