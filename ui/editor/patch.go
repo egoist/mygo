@@ -347,9 +347,18 @@ func (d *DiffState) SetPatch(p FilePatch) {
 			}
 		}
 	}
-	d.Old, d.New = NewBuffer(old.String()), NewBuffer(nw.String())
-	d.Old.setRestarts(pt.oldStarts)
-	d.New.setRestarts(pt.newStarts)
+	pt.old, pt.new = NewBuffer(old.String()), NewBuffer(nw.String())
+	pt.old.setRestarts(pt.oldStarts)
+	pt.new.setRestarts(pt.newStarts)
+	d.showPatch(p, pt.old, pt.new, hunks)
+	d.partial = pt
+	d.Editable = false
+}
+
+// showPatch shows old and new, highlighted in the language of p's file,
+// with hunks as their changes.
+func (d *DiffState) showPatch(p FilePatch, old, new *Buffer, hunks []diff.Hunk) {
+	d.Old, d.New = old, new
 	name := p.NewName
 	if name == "" {
 		name = p.OldName
@@ -358,9 +367,7 @@ func (d *DiffState) SetPatch(p FilePatch) {
 		d.Old.SetLanguage(l)
 		d.New.SetLanguage(l)
 	}
-	pt.old, pt.new = d.Old, d.New
-	d.partial = pt
-	d.Editable = false
+	d.partial = nil
 	d.prepared = diffPrepared{}
 	m := &d.model
 	m.set(d.Old, d.New)
