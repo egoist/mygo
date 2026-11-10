@@ -1,7 +1,9 @@
 package editor
 
 import (
+	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -422,5 +424,68 @@ func TestSetPatchFilesHunks(t *testing.T) {
 	}
 	if d.Old.String() != "x\ny\nx\nz\n" || d.New.String() != "x\nz\n" {
 		t.Fatalf("texts %q, %q", d.Old.String(), d.New.String())
+	}
+}
+
+// linesPatch returns lines, "line 0" to "line n-1", as a file's text, and
+// the patch changing each of at to "changed", with three lines of context.
+func linesPatch(n int, at ...int) (old, new string, p FilePatch) {
+	a := make([]string, n)
+	for i := range a {
+		a[i] = "line " + strconv.Itoa(i)
+	}
+	b := slices.Clone(a)
+	var s strings.Builder
+	s.WriteString("--- a/x.txt\n+++ b/x.txt\n")
+	for _, i := range at {
+		b[i] = "changed"
+		lo, hi := max(0, i-3), min(n, i+4)
+		fmt.Fprintf(&s, "@@ -%d,%d +%d,%d @@\n", lo+1, hi-lo, lo+1, hi-lo)
+		for k := lo; k < hi; k++ {
+			if k == i {
+				s.WriteString("-" + a[k] + "\n+changed\n")
+			} else {
+				s.WriteString(" " + a[k] + "\n")
+			}
+		}
+	}
+	files, _ := ParsePatch(s.String())
+	return strings.Join(a, "\n") + "\n", strings.Join(b, "\n") + "\n", files[0]
+}
+
+// With the files, the unchanged lines around a patch's changes collapse
+// into separators, as in any diff, and expand to the files' lines.
+func TestSetPatchFilesCollapses(t *testing.T) {
+	old, new, p := linesPatch(100, 20, 60)
+	d := &DiffState{}
+	if err := d.SetPatchFiles(p, old, new); err != nil {
+		t.Fatal(err)
+	}
+	seps := map[int]*DiffSeparator{} // by the old line the gap starts at
+	d.RenderSeparator = func(c *ui.Context, sep ui.Element, s *DiffSeparator) {
+		seps[s.a] = s
+		DefaultSeparator(c, sep, s)
+	}
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 2000)
+	tt.Frame()
+	tt.Frame()
+	for _, start := range []int{0, 21, 61} {
+		if s, ok := seps[start]; !ok || s.Header != "" {
+			t.Fatalf("no separator of the gap at %d: %v", start, seps)
+		}
+	}
+	if top, mid := d.LineTop(DiffNew, 5), d.LineTop(DiffNew, 10); top != mid {
+		t.Fatalf("lines 5 and 10 at %v and %v, collapsed into one separator", top, mid)
+	}
+	seps[21].ExpandAll()
+	tt.Frame()
+	if top, next := d.LineTop(DiffNew, 40), d.LineTop(DiffNew, 41); next <= top {
+		t.Fatalf("expanded lines 40 and 41 at %v and %v", top, next)
+	}
+	if n := d.sides[1].number(40); n != 41 {
+		t.Fatalf("line 40 of the new file numbered %d", n)
+	}
+	if hs := d.Hunks(); !slices.Equal(hs, []DiffHunk{{20, 21, 20, 21}, {60, 61, 60, 61}}) {
+		t.Fatalf("hunks %+v", hs)
 	}
 }
