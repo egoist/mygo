@@ -4,6 +4,8 @@ import (
 	"math"
 	"slices"
 	"sort"
+
+	"github.com/egoist/mygo/internal/rope"
 )
 
 // diffPrepared is what the blocks and hidden lines were made of.
@@ -65,7 +67,8 @@ func (d *DiffState) prepare() {
 		key.wrapsA, key.wrapsB = viewA.heights.wraps.version, viewB.heights.wraps.version
 	}
 	d.prepared = key
-	gaps := d.gaps(viewA.text.LineCount(), viewB.text.LineCount())
+	nA, nB := d.shownLines(viewA.text, true), d.shownLines(viewB.text, false)
+	gaps := d.gaps(nA, nB)
 	d.gapList = gaps
 	lh := viewB.lineHeight
 	var hideA, hideB []lineSpan
@@ -91,7 +94,7 @@ func (d *DiffState) prepare() {
 		for _, side := range []struct {
 			blks, late *[]block
 			from, n    int
-		}{{&blkA, &lateA, g.hideA, viewA.text.LineCount()}, {&blkB, &lateB, g.hideB, viewB.text.LineCount()}} {
+		}{{&blkA, &lateA, g.hideA, nA}, {&blkB, &lateB, g.hideB, nB}} {
 			b := sep(gi, side.from, side.n)
 			if b.below {
 				*side.late = append(*side.late, b)
@@ -339,6 +342,29 @@ func (v *view) wrapLineNow(i int) {
 		l.faces = v.facesOf(l, nil)
 	}
 	w.set(i, len(v.wrapBreaks(l.disp, l.faces, false))+1)
+}
+
+// shownLines returns how many lines of a side's text the diff shows. A
+// diff that cannot be edited ends at the text's final newline, as git
+// diff does, leaving out the empty line the editor starts after it,
+// unless a change of the side holds that line. An editable one shows it,
+// as there is where typing adds a line.
+func (d *DiffState) shownLines(text rope.Text, old bool) int {
+	n := text.LineCount()
+	if d.Editable || n < 2 || text.LineStart(n-1) != text.Len() {
+		return n
+	}
+	if k := len(d.model.hunks) - 1; k >= 0 {
+		h := d.model.hunks[k]
+		lo, hi := h.B0, h.B1
+		if old {
+			lo, hi = h.A0, h.A1
+		}
+		if lo <= n-1 && n-1 < hi {
+			return n
+		}
+	}
+	return n - 1
 }
 
 // gaps returns the runs of unchanged lines and which of them collapse.

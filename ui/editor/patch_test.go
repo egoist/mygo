@@ -490,6 +490,31 @@ func TestSetPatchFilesCollapses(t *testing.T) {
 	}
 }
 
+// A file's lines end at its final newline, as git diff shows them: the
+// empty line the editor starts after it does not count among the lines
+// that collapse.
+func TestSetPatchFilesEndsAtTheFinalNewline(t *testing.T) {
+	old, new, p := linesPatch(100, 20, 60)
+	for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
+		d := &DiffState{Layout: layout}
+		if err := d.SetPatchFiles(p, old, new); err != nil {
+			t.Fatal(err)
+		}
+		seps := map[int]*DiffSeparator{}
+		d.RenderSeparator = func(c *ui.Context, sep ui.Element, s *DiffSeparator) {
+			seps[s.a] = s
+			DefaultSeparator(c, sep, s)
+		}
+		tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 2000)
+		tt.Frame()
+		tt.Frame()
+		// Lines 64 to 99 collapse after the change at 60.
+		if s := seps[61]; s == nil || s.Lines != 36 {
+			t.Fatalf("%v: last separator %+v, want 36 lines", layout, s)
+		}
+	}
+}
+
 // A patch that does not make the new file from the old, or a binary one,
 // returns an error and leaves the diff as it was.
 func TestSetPatchFilesMismatch(t *testing.T) {
