@@ -400,3 +400,27 @@ func TestPatchRestartsOnSnapshot(t *testing.T) {
 		t.Errorf("a plain buffer's restarts are %v", got)
 	}
 }
+
+// With the files, a patch's changes are its runs of - and + lines, in the
+// files' lines, though comparing the texts would align them otherwise: git
+// deleted the first "x" here, not the second.
+func TestSetPatchFilesHunks(t *testing.T) {
+	files, _ := ParsePatch(`--- a/x.txt
++++ b/x.txt
+@@ -1,4 +1,2 @@
+-x
+-y
+ x
+ z
+`)
+	d := &DiffState{}
+	if err := d.SetPatchFiles(files[0], "x\ny\nx\nz\n", "x\nz\n"); err != nil {
+		t.Fatal(err)
+	}
+	if hs := d.Hunks(); !slices.Equal(hs, []DiffHunk{{0, 2, 0, 0}}) {
+		t.Fatalf("hunks %+v, want the patch's", hs)
+	}
+	if d.Old.String() != "x\ny\nx\nz\n" || d.New.String() != "x\nz\n" {
+		t.Fatalf("texts %q, %q", d.Old.String(), d.New.String())
+	}
+}
