@@ -42,6 +42,7 @@ const diffSeparatorHeight = 32
 // when what they come of changed.
 func (d *DiffState) prepare() {
 	d.model.update()
+	d.markEnds()
 	unified := d.Layout == DiffUnified
 	edA, edB := &d.eds[0], &d.eds[1]
 	viewA := &edA.view
@@ -358,6 +359,47 @@ func (d *DiffState) shownLines(text rope.Text) int {
 		return n
 	}
 	return n - 1
+}
+
+// markEnds marks the last line of each side whose text does not end
+// with a newline, after its text and muted, as git diff's "\ No newline
+// at end of file" does, where the diff is not editable.
+func (d *DiffState) markEnds() {
+	d.eds[0].view.markEnd(d.noNewlineAtEnd(d.eds[0].view.text, true), d.endMark)
+	d.oldView.markEnd(d.noNewlineAtEnd(d.oldView.text, true), d.endMark)
+	d.eds[1].view.markEnd(d.noNewlineAtEnd(d.eds[1].view.text, false), d.endMark)
+}
+
+// noNewlineAtEnd reports whether the text of a side ends without a
+// newline, which a diff that is not editable marks: a patch's own texts
+// by its "\ No newline at end of file" lines, as they end without one
+// either way. An empty text has no line to mark.
+func (d *DiffState) noNewlineAtEnd(text rope.Text, old bool) bool {
+	switch {
+	case d.Editable || text.Len() == 0:
+		return false
+	case d.partial != nil && old:
+		return d.partial.oldNoEOL
+	case d.partial != nil:
+		return d.partial.newNoEOL
+	}
+	return text.LineStart(text.LineCount()-1) != text.Len()
+}
+
+// markEnd shows mark at the end of the text, or takes it away.
+func (v *view) markEnd(on bool, mark string) {
+	i := slices.IndexFunc(v.inlays, func(in inlay) bool { return in.kind == inlayNoNewline })
+	if i >= 0 && on && v.inlays[i].at == v.text.Len() && v.inlays[i].text == mark || i < 0 && !on {
+		return
+	}
+	if i >= 0 {
+		v.inlays = slices.Delete(v.inlays, i, i+1)
+	}
+	if on {
+		v.inlays = append(v.inlays, inlay{at: v.text.Len(), text: mark, kind: inlayNoNewline})
+		sortInlays(v.inlays)
+	}
+	v.lines.m = nil
 }
 
 // hideEnd hides the lines of a side from shown to its last, total - 1,

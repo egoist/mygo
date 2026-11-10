@@ -693,6 +693,85 @@ func TestReadOnlyDiffComparesTheFinalNewline(t *testing.T) {
 	}
 }
 
+// endMark returns where a view marks its last line as having no final
+// newline, and the mark, or -1.
+func endMark(v *view) (int, string) {
+	for _, in := range v.inlays {
+		if strings.Contains(in.text, "No newline at end of file") {
+			return in.at, in.text
+		}
+	}
+	return -1, ""
+}
+
+// A diff that is not editable marks the last line of a side without a
+// final newline, as git diff does, in either layout, whether or not the
+// line changed; an editable one, or an empty text, has no mark.
+func TestReadOnlyDiffMarksNoNewlineAtEnd(t *testing.T) {
+	cases := []struct {
+		old, new         string
+		editable         bool
+		oldMark, newMark int // the offsets marked, or -1
+	}{
+		{"a\nb", "a\nb\n", false, 3, -1},
+		{"a\nb\n", "a\nc", false, -1, 3},
+		{"a\nb", "a\nc", false, 3, 3},
+		{"a\nb\n", "a\nc\n", false, -1, -1},
+		{"", "a", false, -1, 1},
+		{"a\nb", "a\nb\n", true, -1, -1},
+	}
+	for _, c := range cases {
+		for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
+			d := &DiffState{Old: NewBuffer(c.old), New: NewBuffer(c.new), Layout: layout, Editable: c.editable}
+			tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+			tt.Frame()
+			tt.Frame()
+			old := &d.eds[0].view
+			if layout == DiffUnified {
+				old = &d.oldView
+			}
+			if at, _ := endMark(old); at != c.oldMark {
+				t.Errorf("%v: %q to %q (editable %v): old text marked at %d, want %d", layout, c.old, c.new, c.editable, at, c.oldMark)
+			}
+			if at, _ := endMark(&d.eds[1].view); at != c.newMark {
+				t.Errorf("%v: %q to %q (editable %v): new text marked at %d, want %d", layout, c.old, c.new, c.editable, at, c.newMark)
+			}
+		}
+	}
+}
+
+// A patch's own texts end without a newline: its "\ No newline at end of
+// file" lines say which side's last line is marked.
+func TestSetPatchMarksNoNewlineAtEnd(t *testing.T) {
+	cases := []struct {
+		patch            string
+		oldMark, newMark bool
+	}{
+		{"--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+b\n", true, false},
+		{"--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n\\ No newline at end of file\n", false, true},
+		{"--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n-a\n+c\n b\n\\ No newline at end of file\n", true, true},
+		{"--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n", false, false},
+	}
+	for _, c := range cases {
+		files, err := ParsePatch(c.patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d := &DiffState{}
+		d.SetPatch(files[0])
+		tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+		tt.Frame()
+		tt.Frame()
+		if at, _ := endMark(&d.eds[0].view); (at == d.Old.Len()) != c.oldMark || at >= 0 && at != d.Old.Len() {
+			t.Errorf("%q: old text marked at %d of %d, want marked %v", c.patch, at, d.Old.Len(), c.oldMark)
+		}
+		if at, _ := endMark(&d.eds[1].view); (at == d.New.Len()) != c.newMark || at >= 0 && at != d.New.Len() {
+			t.Errorf("%q: new text marked at %d of %d, want marked %v", c.patch, at, d.New.Len(), c.newMark)
+		}
+	}
+}
+
+// Revert and Keep of a change of the final newline put it back or keep
 // it, in a diff that is not editable.
 func TestReadOnlyDiffRevertsTheFinalNewline(t *testing.T) {
 	cases := []struct {

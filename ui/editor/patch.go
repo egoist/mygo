@@ -301,6 +301,10 @@ type diffPartial struct {
 	oldFile, newFile     []int // and of the files, from 0
 	headers              []string
 	old, new             *Buffer // the texts made of the hunks' lines
+	// oldNoEOL and newNoEOL tell that a file ends without a newline, as
+	// the patch's "\ No newline at end of file" lines say: the texts end
+	// without one either way.
+	oldNoEOL, newNoEOL bool
 }
 
 // SetPatch shows a file's patch without the files: its hunks' lines,
@@ -326,10 +330,18 @@ func (d *DiffState) SetPatch(p FilePatch) {
 			header += " " + h.Section
 		}
 		pt.headers = append(pt.headers, header)
+		prev := byte(0)
 		for _, l := range h.Lines {
-			if l == "" || l[0] == '\\' {
+			if l != "" && l[0] == '\\' {
+				// Of the line before: an old one, a new one, or both.
+				pt.oldNoEOL = pt.oldNoEOL || prev == '-' || prev == ' '
+				pt.newNoEOL = pt.newNoEOL || prev == '+' || prev == ' '
 				continue
 			}
+			if l == "" {
+				continue
+			}
+			prev = l[0]
 			text := strings.TrimSuffix(l[1:], "\r")
 			if l[0] != '+' {
 				if oldLine > 0 {
