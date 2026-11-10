@@ -513,3 +513,27 @@ func TestSetPatchFilesMismatch(t *testing.T) {
 		}
 	}
 }
+
+// Editing the new file compares again only the lines around the edit: the
+// patch's changes elsewhere stay as git found them.
+func TestSetPatchFilesEdit(t *testing.T) {
+	tail := strings.Repeat("same\n", 40)
+	files, _ := ParsePatch(`--- a/x.txt
++++ b/x.txt
+@@ -1,5 +1,3 @@
+-x
+-y
+ x
+ z
+ same
+`)
+	d := &DiffState{}
+	if err := d.SetPatchFiles(files[0], "x\ny\nx\nz\n"+tail, "x\nz\n"+tail); err != nil {
+		t.Fatal(err)
+	}
+	end := d.New.Len()
+	d.New.Edit(Edit{Start: end, End: end, Text: "added\n"})
+	if hs := d.Hunks(); !slices.Equal(hs, []DiffHunk{{0, 2, 0, 0}, {44, 44, 42, 43}}) {
+		t.Fatalf("hunks %+v", hs)
+	}
+}
