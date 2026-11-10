@@ -521,6 +521,12 @@ type Terminal struct {
 	events  events
 	closed  bool
 	clipOut []string // what programs copied, for the view to write
+
+	win32Input   bool
+	inputState   uint8
+	inputParam   int
+	inputPrivate bool
+	inputWin32   bool
 	// prompt is guarded by mu too; shellDir is immutable after New and removed
 	// once the program exits, including a terminal closed before it starts.
 	prompt   promptTracker
@@ -847,6 +853,7 @@ func (t *Terminal) write(p []byte) {
 		if t.opts.ShellIntegration {
 			t.prompt.feed(p)
 		}
+		t.trackInputMode(p)
 		t.term.Write(p)
 		ev, t.events = t.events, events{}
 		if ev.title {
@@ -856,6 +863,65 @@ func (t *Terminal) write(p []byte) {
 	t.mu.Unlock()
 	t.fire(ev, title)
 	t.redraw()
+}
+
+func (t *Terminal) trackInputMode(p []byte) {
+	for _, b := range p {
+		switch t.inputState {
+		case 0:
+			if b == 0x1b {
+				t.inputState = 1
+			}
+		case 1:
+			t.inputState = 0
+			switch b {
+			case 0x1b:
+				t.inputState = 1
+			case '[':
+				t.inputState = 2
+				t.inputParam, t.inputPrivate, t.inputWin32 = 0, false, false
+			case 'P', 'X', '^', '_':
+				t.inputState = 3
+			case ']':
+				t.inputState = 5
+			case 'c':
+				t.win32Input = false
+			}
+		case 2:
+			switch {
+			case b == 0x1b:
+				t.inputState = 1
+			case b == 0x18 || b == 0x1a:
+				t.inputState = 0
+			case b == '?':
+				t.inputPrivate = t.inputParam == 0 && !t.inputWin32
+			case b >= '0' && b <= '9':
+				t.inputParam = min(t.inputParam*10+int(b-'0'), 10000)
+			case b == ';':
+				t.inputWin32 = t.inputWin32 || t.inputParam == 9001
+				t.inputParam = 0
+			case b >= 0x40 && b <= 0x7e:
+				if t.inputPrivate && (t.inputWin32 || t.inputParam == 9001) && (b == 'h' || b == 'l') {
+					t.win32Input = b == 'h'
+				}
+				t.inputState = 0
+			case b >= 0x20:
+				t.inputPrivate = false
+			}
+		case 3, 5:
+			if b == 0x18 || b == 0x1a || t.inputState == 5 && b == 0x07 {
+				t.inputState = 0
+			} else if b == 0x1b {
+				t.inputState++
+			}
+		case 4, 6:
+			if b == '\\' || b == 0x18 || b == 0x1a || t.inputState == 6 && b == 0x07 {
+				t.inputState = 0
+			} else if b != 0x1b {
+				t.inputState--
+			}
+		}
+	}
 }
 
 func (t *Terminal) fire(ev events, title string) {

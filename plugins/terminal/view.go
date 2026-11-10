@@ -903,14 +903,19 @@ func (v *view) encodeKey(k vt.KeyEvent, press bool) bool {
 	if t.term == nil {
 		return false
 	}
-	if v.keys == nil {
-		var err error
-		if v.keys, err = vt.NewKeyEncoder(); err != nil {
-			return false
+	var b []byte
+	if t.win32Input {
+		b = encodeWin32Key(k)
+	} else {
+		if v.keys == nil {
+			var err error
+			if v.keys, err = vt.NewKeyEncoder(); err != nil {
+				return false
+			}
 		}
+		v.keys.Sync(t.term, t.opts.OptionAsAlt)
+		b = v.keys.Encode(k)
 	}
-	v.keys.Sync(t.term, t.opts.OptionAsAlt)
-	b := v.keys.Encode(k)
 	if len(b) == 0 {
 		b = controlKey(k)
 	}
