@@ -221,6 +221,16 @@ func hunkRange(s string) (int, int, error) {
 	return a, n, nil
 }
 
+// hunkLine returns the line, from 0, a hunk's side starts at, from its
+// start and count in the header: a side of no lines names the line before
+// where it is.
+func hunkLine(start, lines int) int {
+	if lines == 0 {
+		return start
+	}
+	return start - 1
+}
+
 // Apply applies the patch to the old file's text and returns the new
 // file's, checking that the lines of both and those deleted are there.
 func (p FilePatch) Apply(old string) (string, error) {
@@ -243,10 +253,7 @@ func (p FilePatch) Apply(old string) (string, error) {
 	// hunk reaching the end says.
 	newEOL, touchedEnd := eol, false
 	for _, h := range p.Hunks {
-		start := h.OldStart - 1
-		if h.OldLines == 0 {
-			start = h.OldStart
-		}
+		start := hunkLine(h.OldStart, h.OldLines)
 		if start < at || start > len(lines) {
 			return "", fmt.Errorf("ui: hunk at line %d out of place", h.OldStart)
 		}
