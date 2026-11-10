@@ -127,6 +127,22 @@ func (t *Theme) setAccent(a Color) {
 	}
 }
 
+// WithPreferences returns a copy of the theme that follows the desktop's
+// settings p as the default theme does: in p's accent (WithAccent), with
+// borders and secondary text stronger and the focus ring opaque under
+// HighContrast, and FontSize TextScale times larger. It works on the
+// colors and size the theme has, so call it once, on a theme of the
+// app's, after its own colors:
+//
+//	t := ui.DarkTheme()
+//	t.Background = ui.Hex("#18181b")
+//	c.SetTheme(t.WithPreferences(c.Preferences()))
+func (t *Theme) WithPreferences(p Preferences) *Theme {
+	u := *t
+	u.follow(p)
+	return &u
+}
+
 // follow makes the theme follow the desktop's settings.
 func (t *Theme) follow(p Preferences) {
 	if p.Accent.A > 0 {

@@ -62,6 +62,37 @@ func TestThemeWithAccent(t *testing.T) {
 	}
 }
 
+// WithPreferences makes a theme of the app's follow the desktop as the
+// default theme does.
+func TestThemeWithPreferences(t *testing.T) {
+	p := Preferences{Accent: Color{R: 219, G: 39, B: 119, A: 255}, HighContrast: true, TextScale: 1.5}
+	for _, dark := range []bool{false, true} {
+		var followed *Theme
+		tt := coreNewTester(func(c *context) { followed = c.Theme() }, 200, 100)
+		tt.SetDark(dark)
+		tt.SetPreferences(p)
+		base := LightTheme()
+		if dark {
+			base = DarkTheme()
+		}
+		before := *base
+		got := base.WithPreferences(p)
+		if got.Accent != followed.Accent || got.AccentHover != followed.AccentHover ||
+			got.Focus != followed.Focus || got.Border != followed.Border ||
+			got.TextMuted != followed.TextMuted || got.FontSize != followed.FontSize ||
+			got.ScrollbarStyle != followed.ScrollbarStyle {
+			t.Errorf("dark %v: WithPreferences %+v, the followed theme %+v", dark, got, followed)
+		}
+		if *base != before {
+			t.Errorf("dark %v: WithPreferences changed the theme it was called on", dark)
+		}
+	}
+	// The usual settings leave the theme as it is.
+	if got := DarkTheme().WithPreferences(Preferences{TextScale: 1}); *got != *DarkTheme() {
+		t.Errorf("usual settings: %+v", got)
+	}
+}
+
 func TestThemeFollowsContrastAndTextSize(t *testing.T) {
 	var theme *Theme
 	var prefs Preferences
