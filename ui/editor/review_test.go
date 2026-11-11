@@ -276,6 +276,21 @@ func TestReviewLineCommands(t *testing.T) {
 	ct = newEditorTest(t, "", "one\ntw|o\nthree")
 	ct.run(DeleteLine)
 	ct.want("one\nth|ree")
+	// A whole line moved down to the last ends with the text.
+	ct = newEditorTest(t, "", "[one\n]two")
+	ct.run(MoveLinesDown)
+	ct.want("two\n[one]")
+	// A caret stays at its place, at the start of the character that
+	// came there.
+	ct = newEditorTest(t, "", "語\n|a")
+	ct.run(SortLines)
+	ct.want("a\n|語")
+	ct = newEditorTest(t, "", "é|\n")
+	ct.run(ReverseLines)
+	ct.want("\n|é")
+	ct = newEditorTest(t, "", "\n\n|é ")
+	ct.run(UniqueLines)
+	ct.want("\n|é ")
 }
 
 // Tab goes to the next tab stop past hard tabs, and indents the line of
