@@ -9,6 +9,10 @@ import (
 // LightTheme or DarkTheme and set it with Context.SetTheme.
 type Theme struct {
 	Dark bool
+	// DisableAutoDimming keeps disabled elements at full opacity. Applications
+	// opting in must provide their own disabled colors; input, focus and
+	// accessibility still use the element's disabled state.
+	DisableAutoDimming bool
 	// Background fills the window.
 	Background Color
 	// Surface is the face of buttons, inputs and other controls;
