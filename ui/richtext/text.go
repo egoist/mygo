@@ -414,8 +414,14 @@ func (t Text) Paragraphs() iter.Seq2[int, Paragraph] {
 	return func(yield func(int, Paragraph) bool) {
 		start := 0
 		tx := rope.TextOf(t.text)
-		seqEach(t.seq(), 0, func(i int, p *richPara) bool {
-			line := tx.Line(i)
+		// Each line starts after the newline of the one before: the walk
+		// carries the byte it starts at on, rather than finding each line
+		// in the tree, which reads its chunk from the start every time.
+		lineAt := 0
+		seqEach(t.seq(), 0, func(_ int, p *richPara) bool {
+			lineEnd := rope.ByteAfterRunes(t.text, lineAt, p.n)
+			line := tx.Slice(lineAt, lineEnd)
+			lineAt = lineEnd + 1
 			par := Paragraph{Style: p.style}
 			off := 0
 			for _, r := range p.runs {
@@ -452,25 +458,30 @@ func (t Text) Runs(start, end int) iter.Seq2[int, Run] {
 		tx := rope.TextOf(t.text)
 		pa := t.paraAt(start)
 		at := t.paraStart(pa)
-		off := rope.ByteOfRune(t.text, at)
+		// The byte rune at starts at: found in the tree for the first run,
+		// then carried on from one run to the next, each run's end read on
+		// from its start.
+		off := -1
 		seqEach(t.seq(), pa, func(_ int, p *richPara) bool {
 			for _, r := range p.runs {
-				a, z := max(at, start), min(at+r.n, end, n)
-				if a < z {
-					ba := off
-					if a > at {
-						ba = rope.ByteOfRune(t.text, a)
-					}
-					bz := rope.ByteOfRune(t.text, z)
-					if !yield(a, Run{Text: tx.Slice(ba, bz), Attributes: r.a}) {
-						return false
-					}
+				if at+r.n <= start {
+					at += r.n
+					continue
 				}
+				a, z := max(at, start), min(at+r.n, end, n)
+				if off < 0 {
+					off = rope.ByteOfRune(t.text, a)
+				}
+				bz := rope.ByteAfterRunes(t.text, off, z-a)
+				if !yield(a, Run{Text: tx.Slice(off, bz), Attributes: r.a}) {
+					return false
+				}
+				// A run cut short by end or the end of the text is the last.
+				off = bz
 				at += r.n
 				if at >= end {
 					return false
 				}
-				off = rope.ByteOfRune(t.text, min(at, n))
 			}
 			return true
 		})
