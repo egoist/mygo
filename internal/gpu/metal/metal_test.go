@@ -86,6 +86,50 @@ func TestOlderGPUsDrawWithTheGeneralPipeline(t *testing.T) {
 	}
 }
 
+// TestCoresBlend keeps legacy cores blended, float16 cores blended on every
+// device, and modern BGRA8 cores unblended. Holes and specialized cache keys
+// must retain their own blend modes.
+func TestCoresBlend(t *testing.T) {
+	for _, modern := range []bool{false, true} {
+		for _, format := range []uint{pixelFormatBGRA8Unorm, pixelFormatRGBA16Float} {
+			r := &Renderer{canSpecialize: modern}
+			f := &formatState{format: format, pipeline: 1, opaquePipe: 2, holePipe: 3}
+			wantCore := f.opaquePipe
+			if !modern || format == pixelFormatRGBA16Float {
+				wantCore = f.pipeline
+			}
+			for _, tc := range []struct {
+				mode blendMode
+				want id
+			}{{blendOver, f.pipeline}, {blendNone, wantCore}, {blendHole, f.holePipe}} {
+				if got := r.pipeFor(f, 1<<gpu.ClassGeneral, false, tc.mode); got != tc.want {
+					t.Errorf("modern=%v format=%d mode=%d: pipeline %d, want %d", modern, format, tc.mode, got, tc.want)
+				}
+			}
+			// Seed both keys: selecting the wrong mode must not silently fall
+			// back to the general pipeline and hide a cache-key regression.
+			if modern {
+				cl := uint32(1 << gpu.ClassPlain)
+				r.pipes.ready = map[pipeKey]id{
+					{format, cl, false, blendOver}: 4,
+					{format, cl, false, blendNone}: 5,
+					{format, cl, false, blendHole}: 6,
+				}
+				want := id(5)
+				if format == pixelFormatRGBA16Float {
+					want = 4
+				}
+				if got := r.pipeFor(f, cl, false, blendNone); got != want {
+					t.Errorf("format=%d: specialized core pipeline %d, want %d", format, got, want)
+				}
+				if got := r.pipeFor(f, cl, false, blendHole); got != 6 {
+					t.Errorf("format=%d: specialized hole pipeline %d, want 6", format, got)
+				}
+			}
+		}
+	}
+}
+
 func init() {
 	// Tests compare the specialized pipelines with the general ones, so frames
 	// make the pipelines they need first (TestFramesNeverWaitForACompile

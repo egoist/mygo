@@ -216,7 +216,7 @@ func (r *Renderer) buildPipeline(k pipeKey) {
 // made, by the worker or by another renderer of the device, it is the general one,
 // which draws the same pixels.
 func (r *Renderer) pipeFor(f *formatState, cl uint32, continuous bool, mode blendMode) id {
-	if mode == blendNone && f.format == pixelFormatRGBA16Float {
+	if mode == blendNone && r.coresBlend(f.format) {
 		mode = blendOver // see makePipelines
 	}
 	general := f.pipeline
