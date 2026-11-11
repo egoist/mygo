@@ -50,8 +50,14 @@ func (s *memSource) setLoop(loop bool, start, end int64) {
 }
 func (s *memSource) close() {}
 
+const (
+	decodeFrames = 2048 // frames decoded at a time
+	refillParts  = 4    // refill once this fraction of the ring is free
+)
+
 // A stream decodes ahead of a voice on a goroutine of its own, into a ring
-// the voice reads without waiting.
+// the voice reads without waiting. Once filled, the ring is refilled when
+// at least a quarter is free.
 type stream struct {
 	d        Decoder
 	channels int // of d
@@ -76,23 +82,26 @@ func newStream(d Decoder) *stream {
 	ch := max(d.Channels(), 1)
 	s := &stream{d: d, channels: ch, keep: min(ch, 2), seekTo: -1}
 	s.cond.L = &s.mu
-	// About a second ahead.
-	frames := max(d.SampleRate(), 4096)
+	// About a second ahead, with room for a decode in each quarter.
+	frames := max(d.SampleRate(), refillParts*decodeFrames)
 	s.ring = make([]float32, frames*s.keep)
 	go s.decode()
 	return s
 }
 
 func (s *stream) decode() {
-	buf := make([]float32, 2048*s.channels)
+	buf := make([]float32, decodeFrames*s.channels)
 	var kept []float32
 	if s.keep != s.channels {
-		kept = make([]float32, 2048*s.keep)
+		kept = make([]float32, decodeFrames*s.keep)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Only the decoder owns this target. Ring occupancy remains the sole
+	// shared state; seek, loop changes and close still wake it directly.
+	refill := decodeFrames * s.keep
 	for {
-		for !s.closed && s.seekTo < 0 && !s.wrap && (s.atEOF && !s.loop || len(s.ring)-s.n < 2048*s.keep) {
+		for !s.closed && s.seekTo < 0 && !s.wrap && (s.atEOF && !s.loop || len(s.ring)-s.n < refill) {
 			s.cond.Wait()
 		}
 		if s.closed {
@@ -120,6 +129,7 @@ func (s *stream) decode() {
 			}
 			continue
 		}
+		refill = decodeFrames * s.keep
 		gen := s.gen
 		s.mu.Unlock()
 		n, err := s.d.Read(buf)
@@ -150,6 +160,12 @@ func (s *stream) decode() {
 			s.n += c
 			samples = samples[c:]
 		}
+		if len(s.ring)-s.n < decodeFrames*s.keep {
+			// A quarter holds at least one decode, so free is below the
+			// waterline whenever we raise the target. A reader must cross
+			// that waterline to satisfy this wait, and will signal then.
+			refill = len(s.ring) / refillParts
+		}
 		if err != nil || n == 0 {
 			// The end, or an error, which ends the stream as well.
 			s.atEOF = true
@@ -173,7 +189,10 @@ func (s *stream) read(dst []float32) (int, bool) {
 		s.r = (s.r + c) % len(s.ring)
 		s.n -= c
 	}
-	if got > 0 {
+	// Wake only on crossing the refill waterline, not on every mix.
+	free := len(s.ring) - s.n
+	waterline := len(s.ring) / refillParts
+	if free-got < waterline && free >= waterline {
 		s.cond.Signal()
 	}
 	ended := got < len(dst)/s.keep*s.keep && s.n == 0 && s.atEOF && !s.loop && s.seekTo < 0

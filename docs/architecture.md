@@ -2280,7 +2280,11 @@ stream, playing silence for one that is late. Voices resample to 48 kHz
 stereo at their rate times their speed, and ramp their gains (a 2×2 matrix
 of volume and pan) over 5 ms on every change, pause and resume. Looping
 happens in the source, so a loop has no gap; the voice counts frames past
-it modulo the length for `Position`.
+it modulo the length for `Position`. Once a stream's ring has filled, its
+decoder waits until a quarter is free before refilling; reads signal only
+when they cross that waterline. The refill target is local to the decoder,
+not another shared ring-state flag. Seek, loop changes and close still
+signal it directly.
 
 Up to one source frame an output frame, a voice interpolates with a
 Catmull-Rom spline. Faster (a sound above 48 kHz, or one sped up), a spline
@@ -2337,15 +2341,27 @@ when that changes. Each platform gives one `openDevice`, which takes it:
 
 - macOS: an Audio Queue of buffers of 512 frames, as many as hold that (4
   or 24), started once all hold audio; its callback, created once, hands
-  buffers back over a channel. A theme change can keep every thread of an
-  app waiting for up to 0.2 s, which 4 buffers do not ride out.
+  buffers back over a channel, preserving each returned buffer's identity
+  without assuming callback order. Waiting parks the output goroutine in
+  Go and reuses one timeout timer per device, avoiding per-buffer timer
+  allocations. The C-to-Go callback and its scheduling overhead are
+  unchanged; this does not promise fewer system context switches. A theme
+  change can keep every thread of an app waiting for up to 0.2 s, which 4
+  buffers do not ride out.
 - Linux: `pa_simple_write` of PulseAudio's simple API (`libpulse-simple`,
   which PipeWire serves too) with that as its target, else ALSA's
-  `snd_pcm_writei` on `default`, both through purego.
+  `snd_pcm_writei` on `default`. Both write through `purego.SyscallN` with
+  fixed per-device argument arrays, bypassing the allocating reflection
+  wrappers. PulseAudio's error code lives in the device, and sample buffers
+  escape to the heap and are kept alive through each native call. Setup,
+  teardown and ALSA recovery still use typed purego wrappers and may allocate.
 - Windows: WASAPI in shared mode, event driven, with a buffer of that,
   `AUTOCONVERTPCM` and the default-quality resampler; it compares the
   default endpoint's ID every 500 ms and fails the write when it changed,
-  which reopens the device.
+  which reopens the device. The output goroutine locks its thread before
+  opening any device, so COM initialization and all writes stay on that
+  thread. The per-buffer COM calls use `syscall.SyscallN` directly to keep
+  their out-parameters on the stack; endpoint polling still allocates.
 - Browsers: an AudioWorklet from a Blob URL that queues chunks of 1024
   frames (three, or twelve) and posts a request whenever it used one; the
   output waits for a request before mixing the next, and asks more or

@@ -90,6 +90,7 @@ type aqDevice struct {
 	buffers int
 	queued  int // buffers enqueued before the queue started
 	started bool
+	timeout *time.Timer // reused by write; only the output goroutine uses it
 }
 
 func openDevice(ahead time.Duration) (device, int, error) {
@@ -119,6 +120,8 @@ func openDevice(ahead time.Duration) (device, int, error) {
 		}
 		d.free <- b
 	}
+	d.timeout = time.NewTimer(time.Second)
+	d.timeout.Stop()
 	aqCurrent.Store(d)
 	return d, aqFrames, nil
 }
@@ -127,9 +130,15 @@ func (d *aqDevice) write(samples []float32) error {
 	var b *audioQueueBuffer
 	select {
 	case b = <-d.free:
-	case <-time.After(time.Second):
-		// The queue stopped taking buffers, as when its device went.
-		return fmt.Errorf("audio: the audio queue stopped")
+	default:
+		d.timeout.Reset(time.Second)
+		select {
+		case b = <-d.free:
+			d.timeout.Stop()
+		case <-d.timeout.C:
+			// The queue stopped taking buffers, as when its device went.
+			return fmt.Errorf("audio: the audio queue stopped")
+		}
 	}
 	copy(unsafe.Slice((*float32)(b.audioData), len(samples)), samples)
 	b.audioDataByteSize = uint32(len(samples) * 4)
@@ -150,6 +159,9 @@ func (d *aqDevice) write(samples []float32) error {
 }
 
 func (d *aqDevice) close() {
+	if d.timeout != nil {
+		d.timeout.Stop()
+	}
 	aqCurrent.CompareAndSwap(d, nil)
 	audioQueueStop(d.q, true)
 	audioQueueDispose(d.q, true)

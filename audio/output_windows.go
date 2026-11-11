@@ -33,7 +33,6 @@ var (
 	procCoCreateInstance      = ole32.NewProc("CoCreateInstance")
 	procCoTaskMemFree         = ole32.NewProc("CoTaskMemFree")
 	procCreateEventW          = kernel32.NewProc("CreateEventW")
-	procWaitForSingleObject   = kernel32.NewProc("WaitForSingleObject")
 	procCloseHandle           = kernel32.NewProc("CloseHandle")
 	comInitialized            bool
 	errDefaultDeviceChanged   = errors.New("audio: the default output changed")
@@ -70,13 +69,18 @@ const (
 	windowsFrames                 = sampleRate / 100 // per write: 10 ms
 )
 
+// method returns the address of method i of the COM interface obj.
+func method(obj uintptr, i int) uintptr {
+	vtbl := *(*uintptr)(native(obj))
+	return *(*uintptr)(unsafe.Add(native(vtbl), i*int(unsafe.Sizeof(uintptr(0)))))
+}
+
 // comCall calls method i of the COM interface obj. Pointers converted to
 // uintptr in the call stay valid until it returns (go:uintptrescapes).
 //
 //go:uintptrescapes
 func comCall(obj uintptr, i int, args ...uintptr) uintptr {
-	vtbl := *(*uintptr)(native(obj))
-	fn := *(*uintptr)(unsafe.Add(native(vtbl), i*int(unsafe.Sizeof(uintptr(0)))))
+	fn := method(obj, i)
 	var a [16]uintptr
 	a[0] = obj
 	n := copy(a[1:], args)
@@ -210,7 +214,8 @@ func (d *wasapiDevice) write(samples []float32) error {
 	deadline := time.Now().Add(time.Second)
 	for {
 		var padding uint32
-		if hr := comCall(d.client, 6, uintptr(unsafe.Pointer(&padding))); failed(hr) {
+		// Direct syscalls keep out parameters on the stack, unlike comCall.
+		if hr, _, _ := syscall.SyscallN(method(d.client, 6), d.client, uintptr(unsafe.Pointer(&padding))); failed(hr) {
 			return hresult("IAudioClient.GetCurrentPadding", hr)
 		}
 		if padding <= d.frames && d.frames-padding >= n {
@@ -219,14 +224,14 @@ func (d *wasapiDevice) write(samples []float32) error {
 		if time.Now().After(deadline) {
 			return errAudioClientUnresponded
 		}
-		procWaitForSingleObject.Call(d.event, 100)
+		syscall.WaitForSingleObject(syscall.Handle(d.event), 100)
 	}
 	var p unsafe.Pointer
-	if hr := comCall(d.render, 3, uintptr(n), uintptr(unsafe.Pointer(&p))); failed(hr) {
+	if hr, _, _ := syscall.SyscallN(method(d.render, 3), d.render, uintptr(n), uintptr(unsafe.Pointer(&p))); failed(hr) {
 		return hresult("IAudioRenderClient.GetBuffer", hr)
 	}
 	copy(unsafe.Slice((*float32)(p), len(samples)), samples)
-	if hr := comCall(d.render, 4, uintptr(n), 0); failed(hr) {
+	if hr, _, _ := syscall.SyscallN(method(d.render, 4), d.render, uintptr(n), 0); failed(hr) {
 		return hresult("IAudioRenderClient.ReleaseBuffer", hr)
 	}
 	// The default output changing (headphones plugged in, a choice in

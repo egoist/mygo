@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 	"unsafe"
@@ -25,7 +26,7 @@ var (
 	pulseErr  error
 
 	paSimpleNew   func(server, name *byte, dir int32, dev, stream *byte, spec *paSampleSpec, chmap, attr unsafe.Pointer, err *int32) uintptr
-	paSimpleWrite func(s uintptr, data unsafe.Pointer, bytes uintptr, err *int32) int32
+	paSimpleWrite uintptr // int pa_simple_write(pa_simple *, const void *, size_t, int *)
 	paSimpleFree  func(s uintptr)
 	paStrerror    func(err int32) string
 
@@ -34,7 +35,7 @@ var (
 
 	sndPcmOpen      func(pcm *uintptr, name *byte, stream int32, mode int32) int32
 	sndPcmSetParams func(pcm uintptr, format, access int32, channels, rate uint32, softResample int32, latency uint32) int32
-	sndPcmWritei    func(pcm uintptr, buf unsafe.Pointer, frames uintptr) int
+	sndPcmWritei    uintptr // snd_pcm_sframes_t snd_pcm_writei(snd_pcm_t *, const void *, snd_pcm_uframes_t)
 	sndPcmRecover   func(pcm uintptr, err int32, silent int32) int32
 	sndPcmClose     func(pcm uintptr) int32
 	sndStrerror     func(err int32) string
@@ -83,7 +84,15 @@ func openDevice(ahead time.Duration) (device, int, error) {
 	return nil, 0, errors.Join(perr, aerr)
 }
 
-type pulseDevice struct{ s uintptr }
+// Typed purego wrappers use reflection and allocate; keep them for setup,
+// teardown and recovery only. Writes reuse their escaping SyscallN argument
+// arrays instead of allocating a variadic array for every buffer.
+type pulseDevice struct {
+	s    uintptr
+	code int32
+	args [4]uintptr
+	data *float32
+}
 
 func openPulse(ahead time.Duration) (device, error) {
 	pulseLoad.Do(func() {
@@ -93,7 +102,10 @@ func openPulse(ahead time.Duration) (device, error) {
 			return
 		}
 		purego.RegisterLibFunc(&paSimpleNew, lib, "pa_simple_new")
-		purego.RegisterLibFunc(&paSimpleWrite, lib, "pa_simple_write")
+		paSimpleWrite, pulseErr = purego.Dlsym(lib, "pa_simple_write")
+		if pulseErr != nil {
+			return
+		}
 		purego.RegisterLibFunc(&paSimpleFree, lib, "pa_simple_free")
 		purego.RegisterLibFunc(&paStrerror, lib, "pa_strerror")
 	})
@@ -116,20 +128,31 @@ func openPulse(ahead time.Duration) (device, error) {
 	if s == 0 {
 		return nil, fmt.Errorf("audio: PulseAudio: %s", paStrerror(code))
 	}
-	return &pulseDevice{s}, nil
+	return &pulseDevice{s: s}, nil
 }
 
 func (d *pulseDevice) write(samples []float32) error {
-	var code int32
-	if paSimpleWrite(d.s, unsafe.Pointer(&samples[0]), uintptr(len(samples)*4), &code) < 0 {
-		return fmt.Errorf("audio: PulseAudio: %s", paStrerror(code))
+	// Storing the pointer in the device forces the backing array onto the
+	// heap: uintptrs in args alone would not keep a movable Go stack safe.
+	// PulseAudio borrows both samples and code only until the call returns.
+	d.data = &samples[0]
+	d.args = [4]uintptr{d.s, uintptr(unsafe.Pointer(d.data)), uintptr(len(samples) * 4), uintptr(unsafe.Pointer(&d.code))}
+	r, _, _ := purego.SyscallN(paSimpleWrite, d.args[:]...)
+	runtime.KeepAlive(samples)
+	d.data = nil
+	if int32(r) < 0 {
+		return fmt.Errorf("audio: PulseAudio: %s", paStrerror(d.code))
 	}
 	return nil
 }
 
 func (d *pulseDevice) close() { paSimpleFree(d.s) }
 
-type alsaDevice struct{ pcm uintptr }
+type alsaDevice struct {
+	pcm  uintptr
+	args [3]uintptr
+	data *float32
+}
 
 func openALSA(ahead time.Duration) (device, error) {
 	alsaLoad.Do(func() {
@@ -140,7 +163,10 @@ func openALSA(ahead time.Duration) (device, error) {
 		}
 		purego.RegisterLibFunc(&sndPcmOpen, lib, "snd_pcm_open")
 		purego.RegisterLibFunc(&sndPcmSetParams, lib, "snd_pcm_set_params")
-		purego.RegisterLibFunc(&sndPcmWritei, lib, "snd_pcm_writei")
+		sndPcmWritei, alsaErr = purego.Dlsym(lib, "snd_pcm_writei")
+		if alsaErr != nil {
+			return
+		}
 		purego.RegisterLibFunc(&sndPcmRecover, lib, "snd_pcm_recover")
 		purego.RegisterLibFunc(&sndPcmClose, lib, "snd_pcm_close")
 		purego.RegisterLibFunc(&sndStrerror, lib, "snd_strerror")
@@ -156,12 +182,20 @@ func openALSA(ahead time.Duration) (device, error) {
 		sndPcmClose(pcm)
 		return nil, fmt.Errorf("audio: ALSA: %s", sndStrerror(e))
 	}
-	return &alsaDevice{pcm}, nil
+	return &alsaDevice{pcm: pcm}, nil
 }
 
 func (d *alsaDevice) write(samples []float32) error {
 	for len(samples) > 0 {
-		n := sndPcmWritei(d.pcm, unsafe.Pointer(&samples[0]), uintptr(len(samples)/channels))
+		// As for PulseAudio, force the buffer to escape before converting its
+		// address to uintptr. Keep this slice alive through each call, before
+		// shortening it or returning a recovery error; ALSA does not retain it.
+		d.data = &samples[0]
+		d.args = [3]uintptr{d.pcm, uintptr(unsafe.Pointer(d.data)), uintptr(len(samples) / channels)}
+		r, _, _ := purego.SyscallN(sndPcmWritei, d.args[:]...)
+		runtime.KeepAlive(samples)
+		d.data = nil
+		n := int(r) // snd_pcm_sframes_t is a signed C long on amd64 and arm64.
 		if n < 0 {
 			// An underrun or a suspend, recovered from by preparing the
 			// device again.
