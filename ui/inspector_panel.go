@@ -306,6 +306,8 @@ func (in *inspector) tree(c *context, rt *engine) {
 		if n.leaving {
 			row.Opacity(0.5)
 		}
+		id := n.id
+		row.ContextMenu(func(m *Menu) { in.rowMenu(c, m, id) })
 		row.Children(func() { in.treeRow(c, r, n) })
 	}).Grow(1).MinHeight(0).PaddingY(2).FocusRing(false).Label("Elements")
 	in.listID = list.id
@@ -314,6 +316,10 @@ func (in *inspector) tree(c *context, rt *engine) {
 			in.choose(in.nodes[in.rows[in.row].node].id)
 		}
 	})
+	// Cmd+C (Ctrl+C) copies the element chosen, as Chrome does.
+	if list.Shortcut(Cmd, KeyC) && in.selected != 0 {
+		in.copyElement(c, in.selected)
+	}
 	// Left closes the node chosen, else goes to the node around it; Right
 	// opens it, else goes into it.
 	left, right := list.Shortcut(0, KeyLeft), list.Shortcut(0, KeyRight)

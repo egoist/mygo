@@ -25,6 +25,16 @@ mygo.NewWindow(mygo.WindowOptions{
 - 单击一行会选中它的元素；方向键移动选择，Left 和 Right 关闭或打开所选元素，或转到它的父元素并进入其中。树下方显示通往它的面包屑路径，也可以选择路径上的元素。
 - 先点工具栏的选择器，再单击内容，即可选中指针下的元素：这次单击会交给检查器，而不会交给元素。按 Escape 停止选择。
 - `Cmd+F`（`Ctrl+F`）按标签、文本、label 或 key 查找元素。
+- 右键单击一行，即可复制检查器显示的该元素内容，便于粘贴到 issue、聊天或编辑器中：**Copy element** 把它及其中的所有元素复制为标记，所有元素都展开，文本完整保留；**Copy styles**、**Copy computed** 和 **Copy properties** 把树下方的标签页复制为文本，样式和计算值以 CSS 规则呈现。在树中按 `Cmd+C`（`Ctrl+C`）复制所选元素，与 Copy element 相同：
+
+  ```html
+  <Row key="header">
+    <Button>
+      <Text>Toggle sidebar</Text>
+    </Button>
+    <Text>Inbox</Text>
+  </Row>
+  ```
 
 树下方，所选元素有三个标签页：
 
