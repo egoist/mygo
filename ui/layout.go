@@ -383,6 +383,10 @@ func contentWidth(e *node, maxContent bool) float32 {
 // of those around it, whose content it is, as what layout changes in it
 // changes them: the rows a List builds, the labels a Form aligns.
 func (e *node) forgetIntrinsic() {
+	// What of its children changed, so what a measuring pass kept for the
+	// commit pass is not what that pass would build now. The change is
+	// counted, and every hold kept before it is stale.
+	e.c.rt.flex.changes++
 	for p := e; p != nil && p.intrOK != 0; p = p.parent {
 		p.intrOK = 0
 		p.keepMeasured()
@@ -679,6 +683,103 @@ type flexLine struct {
 type flexScratch struct {
 	items []flexItem
 	lines []flexLine
+	// holds are what measuring passes resolved (saveHold), which the
+	// commit passes at those sizes use instead of building them again
+	// (takeHold): holdItems and holdLines hold what the entries point
+	// into, so that keeping them costs one copy and no allocation once
+	// the pools have grown to a frame's largest tree. dropHolds forgets
+	// them at the start of a layout, for their elements' sake.
+	holds         []flexHold
+	holdItems     []flexItem
+	holdLines     []flexLine
+	holdSaved     int
+	holdUsed      int
+	holdRefreshed int
+	// changes counts what changed in the tree: a hold keeps the count of
+	// when it was measured, and is stale once the count is past it.
+	changes uint64
+}
+
+// flexHold is what one measuring pass of one element resolved: its items
+// and lines, where they sit in the pools, and the size it resolved them
+// for. A commit pass at that size takes them instead of building them
+// again; the element's hold says which entry is its.
+type flexHold struct {
+	e              *node
+	items, lines   int32 // where they start in holdItems, holdLines
+	nitems, nlines int32
+	cw, ch         float32
+	row            bool
+	baselines      bool
+	changes        uint64 // what changed in the tree when it was measured
+}
+
+// dropHolds forgets the holds of the last layout: their elements are gone,
+// or are being built anew.
+func (f *flexScratch) dropHolds() {
+	clear(f.holdItems)
+	clear(f.holdLines)
+	f.holds, f.holdItems, f.holdLines = f.holds[:0], f.holdItems[:0], f.holdLines[:0]
+}
+
+// saveHold keeps what this measuring pass resolved of the in-flow
+// children, for the commit pass at the same size: one copy into capacity
+// kept from the last frame. It replaces what an earlier measuring pass of
+// the same element kept, so that a frame measures its elements as many
+// times as it did before without growing the pools.
+func (e *node) saveHold(cw, ch float32, row, baselines bool, items []flexItem, lines []flexLine) {
+	f := &e.c.rt.flex
+	i := int(e.hold) - 1
+	if i < 0 || i >= len(f.holds) || f.holds[i].e != e {
+		f.holds = append(f.holds, flexHold{e: e})
+		i, e.hold = len(f.holds)-1, int32(len(f.holds))
+	}
+	h := &f.holds[i]
+	h.cw, h.ch, h.row, h.baselines = cw, ch, row, baselines
+	h.changes = f.changes
+	h.items, h.nitems = keepHold(&f.holdItems, items, h.items, h.nitems)
+	h.lines, h.nlines = keepHold(&f.holdLines, lines, h.lines, h.nlines)
+	f.holdSaved++
+}
+
+// keepHold copies v into pool, at start where an entry of ours as large as
+// it already sits, or after what the pool holds; it returns where it went
+// and how many. Slices of the pool another pass holds stay valid: a copy
+// that grows the pool leaves them where they were.
+func keepHold[T any](pool *[]T, v []T, start, n int32) (int32, int32) {
+	if int(n) >= len(v) && int(start)+len(v) <= len(*pool) {
+		// In its own space again, as the next frame's will be.
+		copy((*pool)[start:start+int32(len(v))], v)
+		return start, int32(len(v))
+	}
+	was := len(*pool)
+	*pool = append(*pool, v...)
+	return int32(was), int32(len(v))
+}
+
+// takeHold returns what the measuring pass of this element resolved for
+// the size it is being committed at, and false when it has none: another
+// size, another pass, what changed in the tree since, or what it kept is
+// gone. A row's items and lines depend on the width alone, so a row
+// committed at another height takes what its measuring pass kept at the
+// width and crosses it again; a column's main axis is its height, which
+// must be the height measured.
+func (e *node) takeHold(cw, ch float32, row bool) (items []flexItem, lines []flexLine, baselines, sameCh, ok bool) {
+	f := &e.c.rt.flex
+	i := int(e.hold) - 1
+	if i < 0 || i >= len(f.holds) {
+		return nil, nil, false, false, false
+	}
+	h := &f.holds[i]
+	if h.e != e || h.row != row || h.cw != cw || !row && h.ch != ch || h.changes != f.changes {
+		return nil, nil, false, false, false
+	}
+	it, ln := h.items, h.lines
+	if it+h.nitems > int32(len(f.holdItems)) || ln+h.nlines > int32(len(f.holdLines)) {
+		return nil, nil, false, false, false // the pool was dropped under us
+	}
+	f.holdUsed++
+	return f.holdItems[it : it+h.nitems], f.holdLines[ln : ln+h.nlines], h.baselines, h.ch == ch, true
 }
 
 // The margins of an item on the sides of its container's main and cross
@@ -694,6 +795,11 @@ func b2i(b bool) int {
 	}
 	return 0
 }
+
+// noHold turns off keeping what a measuring pass resolved, so that a test
+// can lay a tree out with it and without it in one process
+// (TestHoldKeepsLayout).
+var noHold bool
 
 // flexLayout lays out the in-flow children in a content box cw×ch (inf
 // when unknown) and returns the size they take. With commit it gives them
@@ -719,141 +825,183 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 		clear(scratch.items[firstItem:])
 		scratch.items, scratch.lines = scratch.items[:firstItem], scratch.lines[:firstLine]
 	}()
-	for c := e.first; c != nil; c = c.next {
-		if c.flags&flagAbsolute != 0 || c.hidden {
-			continue
+	var items []flexItem
+	var lines []flexLine
+	taken, sameCh := false, false
+	if commit && e.hold != 0 && !noHold { // nothing to take for most: one compare
+		var bl bool
+		if items, lines, bl, sameCh, taken = e.takeHold(cw, ch, row); taken {
+			baselines = baselines || bl
 		}
-		it := flexItem{e: c}
-		stretch := stretches(c, align, row)
-		var own float32 // the size along the main axis the element gives itself
-		var owns bool
-		if row {
-			it.marginMain, it.marginCr = c.marginX(), c.marginY()
-			own, owns = c.width.resolve(base(cw))
-			// Across the row it is as high as it says, or as the row where
-			// it stretches to its one line, which measuring it first would
-			// not change; the others are as high as their width, known
-			// once the line's flexible lengths are, makes them.
+	}
+	if !taken {
+		for c := e.first; c != nil; c = c.next {
+			if c.flags&flagAbsolute != 0 || c.hidden {
+				continue
+			}
+			it := flexItem{e: c}
+			stretch := stretches(c, align, row)
+			var own float32 // the size along the main axis the element gives itself
+			var owns bool
+			if row {
+				it.marginMain, it.marginCr = c.marginX(), c.marginY()
+				own, owns = c.width.resolve(base(cw))
+				// Across the row it is as high as it says, or as the row where
+				// it stretches to its one line, which measuring it first would
+				// not change; the others are as high as their width, known
+				// once the line's flexible lengths are, makes them.
+				v, ok := c.height.resolve(base(ch))
+				it.stretch = stretch && !ok && c.aspect == 0
+				if ok {
+					it.cross, it.crossKnown = c.clampH(v, ch), true
+				} else if it.stretch && finite(ch) && !e.wrap {
+					it.cross, it.crossKnown = c.clampH(ch-it.marginCr, ch), true
+				}
+			} else {
+				it.marginMain, it.marginCr = c.marginY(), c.marginX()
+				own, owns = c.height.resolve(base(ch))
+				// Across the column it is as wide as it says, as the column
+				// where it stretches to it, or as its content. In a column
+				// that wraps it fits its content, and stretches only to its
+				// line, as wide as the widest there.
+				v, ok := c.width.resolve(base(cw))
+				it.stretch = stretch && !ok
+				if ok {
+					it.cross = c.clampW(v, cw)
+				} else if it.stretch && finite(cw) && !e.wrap {
+					it.cross = c.clampW(cw-it.marginCr, cw)
+				} else {
+					it.cross = fitWidth(c, cw-it.marginCr, cw)
+				}
+				it.crossKnown = true
+			}
+			// The flex base size.
+			if v, ok := c.basis.resolve(base(mainSize)); ok {
+				it.base = v
+			} else if owns {
+				it.base = own
+			} else if row {
+				it.base = contentWidth(c, true)
+			} else {
+				it.base = naturalHeight(c, it.cross, ch)
+			}
+			// The automatic minimum is the content's, unless it scrolls or
+			// clips that way. Measuring the content cannot see the main size
+			// this container has, so a maximum that is a percentage of it does
+			// not bind there: clamp the minimum by the maximum here, where the
+			// main size the maximum resolved against is known. A minimum the
+			// element asked for itself still wins over the maximum.
+			it.minMain, it.maxMain = 0, inf
+			if row {
+				if v, ok := c.maxW.upper(base(cw)); ok {
+					it.maxMain = v
+				}
+				if v, ok := c.minW.lower(base(cw)); ok {
+					it.minMain = v
+				} else if !c.scrolls() && c.flags&flagClipX == 0 {
+					it.minMain = min(intrinsic(c, false), it.maxMain)
+					if owns {
+						it.minMain = min(it.minMain, own)
+					}
+				}
+			} else {
+				if v, ok := c.maxH.upper(base(ch)); ok {
+					it.maxMain = v
+				}
+				if v, ok := c.minH.lower(base(ch)); ok {
+					it.minMain = v
+				} else if !c.scrolls() && c.flags&flagClipY == 0 && c.grow == 0 {
+					it.minMain = min(heightAt(c, it.cross, inf), it.maxMain)
+					if owns {
+						it.minMain = min(it.minMain, own)
+					}
+				}
+			}
+			pad := c.padY()
+			if row {
+				pad = c.padX()
+			}
+			// No size along it goes below the padding and border, as in CSS.
+			it.pad, it.base = pad, max(it.base, pad)
+			it.minMain, it.maxMain = max(it.minMain, pad), max(it.maxMain, pad)
+			it.hyp = max(it.minMain, min(it.base, it.maxMain))
+			baselines = baselines || c.self == Baseline
+			// After the child's measures, which lay out containers in it.
+			scratch.items = append(scratch.items, it)
+		}
+		items = scratch.items[firstItem:]
+
+		// Break into lines.
+		if len(items) > 0 {
+			cur := flexLine{}
+			for i := range items {
+				outer := items[i].hyp + items[i].marginMain
+				if e.wrap && finite(mainSize) && i > cur.start && cur.main+gap+outer > mainSize {
+					cur.end = i
+					scratch.lines = append(scratch.lines, cur)
+					cur = flexLine{start: i}
+				}
+				if i > cur.start {
+					cur.main += gap
+				}
+				cur.main += outer
+				items[i].line = int32(len(scratch.lines) - firstLine)
+			}
+			cur.end = len(items)
+			scratch.lines = append(scratch.lines, cur)
+		}
+		lines = scratch.lines[firstLine:]
+
+		// Resolve the flexible lengths of each line.
+		for li := range lines {
+			ln := &lines[li]
+			its := items[ln.start:ln.end]
+			for i := range its {
+				its[i].main = its[i].hyp
+			}
+			if !finite(mainSize) {
+				continue
+			}
+			gaps := gap * float32(len(its)-1)
+			resolveFlexible(its, mainSize-gaps, ln.main-gaps < mainSize-gaps)
+			ln.main = gaps
+			for _, it := range its {
+				ln.main += it.main + it.marginMain
+			}
+		}
+
+	}
+	if taken && row && !sameCh {
+		e.c.rt.flex.holdRefreshed++
+		// What the measuring pass knew of the children's cross sizes was
+		// known at the height it measured; a row committed at another
+		// height knows it again, before the cross sizes are taken. A
+		// column is only taken at the height it was measured at.
+		for i := range items {
+			it := &items[i]
+			c := it.e
+			stretch := stretches(c, align, row)
 			v, ok := c.height.resolve(base(ch))
 			it.stretch = stretch && !ok && c.aspect == 0
-			if ok {
+			switch {
+			case ok:
 				it.cross, it.crossKnown = c.clampH(v, ch), true
-			} else if it.stretch && finite(ch) && !e.wrap {
+			case it.stretch && finite(ch) && !e.wrap:
 				it.cross, it.crossKnown = c.clampH(ch-it.marginCr, ch), true
 			}
-		} else {
-			it.marginMain, it.marginCr = c.marginY(), c.marginX()
-			own, owns = c.height.resolve(base(ch))
-			// Across the column it is as wide as it says, as the column
-			// where it stretches to it, or as its content. In a column
-			// that wraps it fits its content, and stretches only to its
-			// line, as wide as the widest there.
-			v, ok := c.width.resolve(base(cw))
-			it.stretch = stretch && !ok
-			if ok {
-				it.cross = c.clampW(v, cw)
-			} else if it.stretch && finite(cw) && !e.wrap {
-				it.cross = c.clampW(cw-it.marginCr, cw)
-			} else {
-				it.cross = fitWidth(c, cw-it.marginCr, cw)
-			}
-			it.crossKnown = true
-		}
-		// The flex base size.
-		if v, ok := c.basis.resolve(base(mainSize)); ok {
-			it.base = v
-		} else if owns {
-			it.base = own
-		} else if row {
-			it.base = contentWidth(c, true)
-		} else {
-			it.base = naturalHeight(c, it.cross, ch)
-		}
-		// The automatic minimum is the content's, unless it scrolls or
-		// clips that way. Measuring the content cannot see the main size
-		// this container has, so a maximum that is a percentage of it does
-		// not bind there: clamp the minimum by the maximum here, where the
-		// main size the maximum resolved against is known. A minimum the
-		// element asked for itself still wins over the maximum.
-		it.minMain, it.maxMain = 0, inf
-		if row {
-			if v, ok := c.maxW.upper(base(cw)); ok {
-				it.maxMain = v
-			}
-			if v, ok := c.minW.lower(base(cw)); ok {
-				it.minMain = v
-			} else if !c.scrolls() && c.flags&flagClipX == 0 {
-				it.minMain = min(intrinsic(c, false), it.maxMain)
-				if owns {
-					it.minMain = min(it.minMain, own)
-				}
-			}
-		} else {
-			if v, ok := c.maxH.upper(base(ch)); ok {
-				it.maxMain = v
-			}
-			if v, ok := c.minH.lower(base(ch)); ok {
-				it.minMain = v
-			} else if !c.scrolls() && c.flags&flagClipY == 0 && c.grow == 0 {
-				it.minMain = min(heightAt(c, it.cross, inf), it.maxMain)
-				if owns {
-					it.minMain = min(it.minMain, own)
-				}
-			}
-		}
-		pad := c.padY()
-		if row {
-			pad = c.padX()
-		}
-		// No size along it goes below the padding and border, as in CSS.
-		it.pad, it.base = pad, max(it.base, pad)
-		it.minMain, it.maxMain = max(it.minMain, pad), max(it.maxMain, pad)
-		it.hyp = max(it.minMain, min(it.base, it.maxMain))
-		baselines = baselines || c.self == Baseline
-		// After the child's measures, which lay out containers in it.
-		scratch.items = append(scratch.items, it)
-	}
-	items := scratch.items[firstItem:]
-
-	// Break into lines.
-	if len(items) > 0 {
-		cur := flexLine{}
-		for i := range items {
-			outer := items[i].hyp + items[i].marginMain
-			if e.wrap && finite(mainSize) && i > cur.start && cur.main+gap+outer > mainSize {
-				cur.end = i
-				scratch.lines = append(scratch.lines, cur)
-				cur = flexLine{start: i}
-			}
-			if i > cur.start {
-				cur.main += gap
-			}
-			cur.main += outer
-			items[i].line = int32(len(scratch.lines) - firstLine)
-		}
-		cur.end = len(items)
-		scratch.lines = append(scratch.lines, cur)
-	}
-	lines := scratch.lines[firstLine:]
-
-	// Resolve the flexible lengths of each line.
-	for li := range lines {
-		ln := &lines[li]
-		its := items[ln.start:ln.end]
-		for i := range its {
-			its[i].main = its[i].hyp
-		}
-		if !finite(mainSize) {
-			continue
-		}
-		gaps := gap * float32(len(its)-1)
-		resolveFlexible(its, mainSize-gaps, ln.main-gaps < mainSize-gaps)
-		ln.main = gaps
-		for _, it := range its {
-			ln.main += it.main + it.marginMain
 		}
 	}
-
+	if !commit && !noHold {
+		// What is worth keeping: a row's children depend on the width
+		// alone, so its commit pass takes them at another height; a
+		// column's depend on the height, which the commit pass has and
+		// the measuring pass did not, unless it scrolls in Y, which
+		// leaves its height unknown. A container that scrolls in X has
+		// no width to take them at.
+		if e.flags&flagScrollX == 0 && (row || e.flags&flagScrollY != 0) {
+			e.saveHold(cw, ch, row, baselines, items, lines)
+		}
+	}
 	// Cross sizes: natural ones first, then stretched ones fill the line.
 	for li := range lines {
 		ln := &lines[li]

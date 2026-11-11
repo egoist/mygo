@@ -23,6 +23,8 @@ var derivedFields = map[string]bool{
 	"lay": true, "laid": true, "placed": true, "flips": true, "frags": true,
 	"poseM": true, "poseFade": true, "reposed": true,
 	"parent": true, "first": true, "last": true, "next": true, "nchild": true,
+	// What a measuring pass kept for the commit pass, as "measured" is.
+	"hold": true,
 }
 
 // builtField is a field the check compares: its bytes, and a slice's

@@ -102,6 +102,7 @@ type layoutRecord struct {
 // one (sameLayout).
 func (rt *engine) beginLayout(root *node) {
 	rt.layouts++
+	rt.flex.dropHolds() // the last layout's elements are being built anew
 	// The text system let go of the layouts and fonts it had, or the
 	// cache is off: lay everything out anew.
 	changed := rt.noLayoutCache || !rt.layGenOK || rt.layGen != rt.gen
