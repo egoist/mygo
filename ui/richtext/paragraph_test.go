@@ -325,13 +325,19 @@ func TestVisibleParagraphs(t *testing.T) {
 	if last := (*boxes)[len(*boxes)-1]; last.Index != 199 {
 		t.Fatalf("revealing the end, the last paragraph in view is %d", last.Index)
 	}
-	// An edit above moves the paragraphs down.
+	// An edit above, in the editor that has the keyboard, keeps the
+	// caret's line where it is: the paragraphs from the edit's down to the
+	// caret's stay, and those above them move up.
 	first := (*boxes)[1]
 	doc.Edit(func(e *Edit) { e.ReplaceString(first.Start, first.Start, "New\n", Attributes{}) })
 	tt.Frame()
 	check("edited")
-	if (*boxes)[1].Start != first.Start || (*boxes)[2].Start != first.Start+4 {
-		t.Fatalf("after a paragraph inserted at %d, boxes %v", first.Start, (*boxes)[:3])
+	moved := slices.IndexFunc(*boxes, func(b ParagraphBox) bool { return b.Start == first.Start+4 })
+	if moved < 0 || math.Abs(float64((*boxes)[moved].Top-first.Top)) > 0.01 {
+		t.Fatalf("after a paragraph inserted at %d at %v, boxes %v", first.Start, first.Top, (*boxes)[:3])
+	}
+	if moved > 0 && (*boxes)[moved-1].Start != first.Start {
+		t.Fatalf("after a paragraph inserted at %d, the box above the paragraph it moved is %+v", first.Start, (*boxes)[moved-1])
 	}
 	// Another width wraps the paragraphs otherwise: the frame that paints
 	// them builds another, for the view to follow.
