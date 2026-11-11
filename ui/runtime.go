@@ -1354,6 +1354,16 @@ func (rt *engine) requestFrame() {
 func (rt *engine) askBuild() {
 	rt.buildNext()
 	rt.buildAsked = true
+	// The surface may have been told of a lower rate for drawings that
+	// move slowly (pace): what asked for this frame, as the pointer
+	// moving onto an item of a menu, would wait for its next refresh,
+	// a tenth of a second at 8 frames a second. The frame comes at the
+	// display's rate, and those drawings tell their rate again as they
+	// paint.
+	if rt.paceRate != 0 {
+		rt.paceRate = 0
+		rt.host.setFrameRate(0)
+	}
 	rt.host.requestFrame()
 }
 
