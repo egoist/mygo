@@ -257,6 +257,12 @@ func (a *area) documentPositionAt(ed *editor, x float32, y float64) text.CaretPo
 }
 
 func (a *area) hitPosition(ed *editor, x float32, y float64, virtual bool) text.CaretPosition {
+	if a.version != ed.buf.version {
+		// The app replaced the text since the layout, and a drag that
+		// goes on looks for the pointer in the new one before it is
+		// laid out: the heights are still the old paragraphs'.
+		a.sync(&ed.buf, a.params)
+	}
 	n := len(ed.buf.paras)
 	y = max(y, 0)
 	p := a.hs.at(y)
@@ -386,7 +392,7 @@ func (a *area) forget(b *buffer) {
 func (a *area) paint(e *node, p *Painter, ox, oy float32) {
 	ed := e.st.editor
 	b := &ed.buf
-	t := e.c.theme
+	t := p.Theme()
 	ts := e.resolvedText()
 	focused := e.Focused()
 	last := len(b.paras) - 1
@@ -420,11 +426,12 @@ func (a *area) paint(e *node, p *Painter, ox, oy float32) {
 		rt := e.c.rt
 		phase := e.c.now.Sub(rt.blinkStart)
 		const blink = 530 * time.Millisecond
-		if (phase/blink)%2 == 0 {
+		if (phase/blink)%2 == 0 && ed.caretWidth > 0 {
 			x, y, h := a.caretAt(ed, ed.caret, ed.composeCaret)
-			p.add(scene.Op{Kind: scene.OpFill, Rect: p.snap(Rect{ox + x, oy + float32(y-a.scroll), 0, h}), Color: t.Accent.scene(), Wide: p.wide(t.Accent, Color{}, Color{}), Opacity: p.opacity})
+			caret := ts.caretColor(t)
+			p.add(scene.Op{Kind: scene.OpFill, Rect: p.snap(Rect{ox + x, oy + float32(y-a.scroll), 0, h}), Color: caret.scene(), Wide: p.wide(caret, Color{}, Color{}), Opacity: p.opacity})
 			op := &p.s.Ops[len(p.s.Ops)-1]
-			op.Rect.W = max(round(p.scale), 1)
+			op.Rect.W = max(round(ed.caretWidth*p.scale), 1)
 		}
 		if phase < 30*time.Second {
 			e.c.After(blink - phase%blink)

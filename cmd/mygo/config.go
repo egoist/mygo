@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -41,6 +42,12 @@ type Config struct {
 	// installed app (default: the copyright notice without its "©" and
 	// years, as "Example Inc." of "Copyright © 2026 Example Inc.").
 	Publisher string `json:"publisher"`
+	// License is the SPDX license expression of the app, such as "MIT" or
+	// "Apache-2.0 WITH LLVM-exception", which the RPM package and the
+	// PKGBUILD of Arch Linux record. It defaults to the license of
+	// package.json, for apps whose frontend declares one (default:
+	// package.json's license).
+	License string `json:"license"`
 	// Icon is a square PNG, ideally 1024x1024 (default:
 	// resources/icon.png when it exists). Beside it, the same name with
 	// -dev, as icon-dev.png, is the development app's, when it exists.
@@ -81,6 +88,14 @@ type Config struct {
 	// directories named after a platform, such as resources/linux-amd64,
 	// hold the files of one platform.
 	Resources []string `json:"resources"`
+	// ResourcesExclude leaves files of the project's resources directory
+	// out of the apps: patterns of their paths there, with slashes, whose
+	// segments match as path.Match matches them, but **, which matches any
+	// number of directories, as in "**/*.psd". A directory that matches is
+	// left out with what it holds. Go source files are always left out:
+	// builds read them, such as a package that embeds the files beside it,
+	// and apps never do. Listed Resources ship whole.
+	ResourcesExclude []string `json:"resourcesExclude"`
 
 	// URLSchemes are the custom URL schemes (deep links) of the app, e.g.
 	// "myapp" for myapp://…, whose URLs reach mygo.App.OnOpenURL. macOS
@@ -102,6 +117,13 @@ type Config struct {
 
 	root string
 	file string // the configuration file, "" without one
+	// native is what the app's native modules add to its bundle, once
+	// prepareNative built them.
+	native *nativeApp
+	// deps caches the directories of the packages the app is built from,
+	// by target, for one build: listing them once serves both the native
+	// libraries (natives) and the native modules (appNativeModules).
+	deps map[string][]string
 	// langs are the languages the app ships, which languages reads once.
 	langs     []appLanguage
 	langsErr  error
@@ -295,15 +317,35 @@ func (c *Config) validate() error {
 	if strings.ContainsFunc(c.Windows.DisplayName, unicode.IsControl) {
 		return fmt.Errorf("windows.displayName %q cannot hold control characters, such as line breaks", c.Windows.DisplayName)
 	}
+	if n := c.Windows.InstallDirName; n != "" {
+		if err := checkFolderName(n); err != nil {
+			return fmt.Errorf("windows.installDirName %q is the name of the app's folder, which %w", n, err)
+		}
+	}
 	if c.Slug != "" && !slugRe.MatchString(c.Slug) {
 		return fmt.Errorf("slug %q is not a slug (lower-case letters and digits, with single hyphens between them)", c.Slug)
 	}
-	if cmd := c.Linux.Command; cmd != "" && !commandRe.MatchString(cmd) {
-		return fmt.Errorf("linux.command %q is not a command name (a letter or digit, then letters, digits, ., _, + or -)", cmd)
+	for i, cmd := range c.Linux.Command {
+		if !commandRe.MatchString(cmd) {
+			return fmt.Errorf("linux.command %q is not a command name (a letter or digit, then letters, digits, ., _, + or -)", cmd)
+		}
+		if slices.Contains(c.Linux.Command[:i], cmd) {
+			return fmt.Errorf("linux.command names %q twice", cmd)
+		}
+	}
+	for _, f := range c.Linux.Formats {
+		if !slices.Contains(linuxFormats, f) {
+			return fmt.Errorf("linux.formats %q is not a Linux package format, which are %s", f, strings.Join(linuxFormats, ", "))
+		}
 	}
 	if c.Updates != nil {
 		if err := c.Updates.validate(); err != nil {
 			return err
+		}
+	}
+	for _, p := range c.ResourcesExclude {
+		if !validPattern(p) {
+			return fmt.Errorf("resourcesExclude: %q is not a pattern of paths in the resources directory (path.Match patterns or **, between single slashes)", p)
 		}
 	}
 	for _, scheme := range c.URLSchemes {
@@ -483,6 +525,38 @@ func (c *Config) shortcutName() string {
 		return name
 	}
 	return c.executableName()
+}
+
+// installDirName returns the name of the app's install folder on Windows:
+// windows.installDirName, or else Name made a file name.
+func (c *Config) installDirName() string {
+	if n := strings.TrimSpace(c.Windows.InstallDirName); n != "" {
+		return n
+	}
+	return fsName(c.Name)
+}
+
+// reservedFileName matches the names Windows keeps for devices, which no
+// file or folder can have, with an extension or without.
+var reservedFileName = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$`)
+
+// checkFolderName reports why name, trimmed, cannot name a folder on
+// Windows: it is empty, "." or "..", holds a path separator or another
+// character file names cannot hold, ends with a dot, which Windows drops,
+// or is the name of a device.
+func checkFolderName(name string) error {
+	name = strings.TrimSpace(name)
+	switch {
+	case name == "":
+		return errors.New("is empty")
+	case strings.ContainsFunc(name, func(r rune) bool { return unicode.IsControl(r) || strings.ContainsRune(`/\:*?"<>|`, r) }):
+		return errors.New(`cannot hold control characters, path separators or :*?"<>|`)
+	case strings.HasSuffix(name, "."):
+		return errors.New("cannot be . or .., or end with a dot")
+	case reservedFileName.MatchString(name):
+		return errors.New("is the name of a device on Windows")
+	}
+	return nil
 }
 
 // slug returns Slug, or else Name as slugify makes it.

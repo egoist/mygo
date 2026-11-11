@@ -1,10 +1,12 @@
 // Entry point of the script MyGo injects at document start into every page.
 // The Go side wraps the bundle in a function that defines __MYGO_CONFIG__.
+import { contextTarget } from "./context-menu";
 import { find, stopFind } from "./find";
 import { type FitLimits, fitContent } from "./fit-content";
 import { createRuntime } from "./runtime";
 import { watchThemeColor } from "./theme-color";
 import type { BridgeConfig, ThemePreferences } from "./types";
+import { markWindowActive } from "./window-active";
 
 declare const __MYGO_CONFIG__: BridgeConfig;
 
@@ -41,6 +43,7 @@ let rootStyle: HTMLStyleElement | null = null;
       "--mygo-titlebar-height": `${tb.height}px`,
       "--mygo-titlebar-inset-left": `${tb.left}px`,
       "--mygo-titlebar-inset-right": `${tb.right}px`,
+      "--mygo-titlebar-controls-bottom": `${tb.bottom}px`,
     }),
   );
 
@@ -53,6 +56,11 @@ let rootStyle: HTMLStyleElement | null = null;
       "--mygo-text-scale": String(p.textScale),
     }),
   );
+
+  // A window that is not the one the user's input goes to marks its pages,
+  // for CSS to draw them as native apps draw such windows:
+  // `:root[data-mygo-window-inactive] .sidebar { … }`.
+  runtime.on<boolean>("mygo:window-active", (active) => markWindowActive(document.documentElement, active));
 
   const notify = (t: "dom-ready" | "drag" | "dblclick" | "escape") => {
     try {
@@ -152,6 +160,24 @@ let rootStyle: HTMLStyleElement | null = null;
     });
   });
 
+  // What a context menu opens on (Page.OnContextMenu), told as the event
+  // starts, ahead of the page's own handlers: Go hears it before the web
+  // view asks about its menu, which a handler that cancels the event
+  // keeps from opening. The element is the innermost, inside shadow roots.
+  w.addEventListener(
+    "contextmenu",
+    (e: MouseEvent) => {
+      const el = e.composedPath()[0];
+      const target = contextTarget(el instanceof Element ? el : null, getSelection()?.toString() ?? "");
+      try {
+        post(JSON.stringify({ t: "context-menu", x: e.clientX, y: e.clientY, ...target }));
+      } catch {
+        // The page is being torn down.
+      }
+    },
+    true,
+  );
+
   // Frameless windows: `--app-region: drag` (or `-webkit-app-region: drag`
   // where the engine supports it) turns an element into a window handle.
   w.addEventListener(
@@ -171,6 +197,7 @@ interface TitleBar {
   height: number;
   left: number;
   right: number;
+  bottom: number;
 }
 
 /** Sets MyGo's CSS variables of :root, keeping the ones already set. A null

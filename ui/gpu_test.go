@@ -2,9 +2,12 @@ package ui
 
 import (
 	"errors"
+	"image"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
+	"weak"
 
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
@@ -109,6 +112,54 @@ func TestGPUComesBack(t *testing.T) {
 	frame()
 	if len(made) != 3 || made[2].frames != 1 || s.pixels != 3 || !h.retryAt.IsZero() {
 		t.Fatalf("once back: %d renderers, %d frames in memory", len(made), s.pixels)
+	}
+}
+
+// timingOutGPU is a GPU renderer whose frames the GPU does not finish in
+// time: the device is not gone, it is wedged.
+type timingOutGPU struct{ testGPU }
+
+func (g *timingOutGPU) TimedOut() bool { return g.fail }
+
+func TestFrameTimeoutDrawsInMemory(t *testing.T) {
+	var made []*timingOutGPU
+	h, s, frame := gpuHost(t, func() (gpuRenderer, error) {
+		g := &timingOutGPU{}
+		made = append(made, g)
+		return g, nil
+	})
+	frame()
+	if len(made) != 1 || made[0].frames != 1 || s.pixels != 0 {
+		t.Fatalf("first frame: %d renderers, %d frames in memory", len(made), s.pixels)
+	}
+
+	// The GPU does not finish the frame in time. It draws in memory, and
+	// no other renderer is made in the same frame: a frame submitted to a
+	// wedged driver waits the timeout through again.
+	made[0].fail = true
+	frame()
+	if made[0].released != 1 || len(made) != 1 {
+		t.Fatalf("after a timeout: released %d, %d renderers", made[0].released, len(made))
+	}
+	if s.pixels != 1 {
+		t.Fatalf("after a timeout: %d frames in memory, want 1", s.pixels)
+	}
+	if h.backoff != time.Second || h.retryAt.IsZero() {
+		t.Fatalf("after a timeout: wait %v, retry at %v", h.backoff, h.retryAt)
+	}
+
+	// Frames before the wait is over draw in memory, and the GPU is left
+	// alone.
+	frame()
+	if len(made) != 1 || s.pixels != 2 {
+		t.Fatalf("during the wait: %d renderers, %d frames in memory", len(made), s.pixels)
+	}
+
+	// Once the wait is over, a frame tries the GPU again.
+	h.retryAt = time.Now()
+	frame()
+	if len(made) != 2 || made[1].frames != 1 || s.pixels != 2 {
+		t.Fatalf("once the wait is over: %d renderers, %d frames in memory", len(made), s.pixels)
 	}
 }
 
@@ -493,5 +544,122 @@ func TestFramesInMemoryWaitForTheRefresh(t *testing.T) {
 	paced()
 	if ps.pixels != 3 || h.waiting {
 		t.Fatalf("paced by the display: %d frames, waiting %v", ps.pixels, h.waiting)
+	}
+}
+
+// backgroundSurface is a test surface that records the backgrounds it is
+// told (platform.BackgroundSurface).
+type backgroundSurface struct {
+	testSurface
+	told []platform.Color
+}
+
+func (s *backgroundSurface) SetBackground(c platform.Color) { s.told = append(s.told, c) }
+
+var _ platform.BackgroundSurface = (*backgroundSurface)(nil)
+
+// bgGPU is a GPU renderer that records the background of the last scene.
+type bgGPU struct {
+	testGPU
+	bg scene.Color
+}
+
+func (g *bgGPU) Render(s *scene.Scene) error {
+	g.bg = s.Background
+	return g.testGPU.Render(s)
+}
+
+// TestWindowBackground checks that the surface and the GPU renderer learn
+// the theme's background, which a window shows where it grew before the
+// frame of its new size (#222): once per change, and none for a
+// transparent root.
+func TestWindowBackground(t *testing.T) {
+	g := &bgGPU{}
+	h, _, frame := gpuHost(t, func() (gpuRenderer, error) { return g, nil })
+	s := &backgroundSurface{}
+	h.conn.Surface = s
+	theme, transparent := LightTheme(), false
+	h.rt = newRuntime(func(c *context) {
+		c.SetTheme(theme)
+		if transparent {
+			c.Root().Background(Transparent)
+		}
+		coreText(c, "Hello")
+	}, h)
+	light, dark := LightTheme().Background.scene(), DarkTheme().Background.scene()
+	step := func(what string, want scene.Color, told []platform.Color) {
+		t.Helper()
+		h.rt.requestFrame()
+		frame()
+		if g.bg != want || !slices.Equal(s.told, told) {
+			t.Fatalf("%s: the renderer drew on %v, the surface was told %v; want %v and %v", what, g.bg, s.told, want, told)
+		}
+	}
+	step("light", light, []platform.Color{platform.Color(light)})
+	step("light again", light, []platform.Color{platform.Color(light)})
+	theme = DarkTheme()
+	step("dark", dark, []platform.Color{platform.Color(light), platform.Color(dark)})
+	transparent = true
+	step("transparent", scene.Color{}, []platform.Color{platform.Color(light), platform.Color(dark), {}})
+}
+
+// sceneGPU is a GPU renderer that keeps the last scene it drew, as
+// renderers that draw only what changed keep it to compare with the next.
+type sceneGPU struct {
+	testGPU
+	last *scene.Scene
+}
+
+func (g *sceneGPU) Render(s *scene.Scene) error {
+	g.last = s
+	return g.testGPU.Render(s)
+}
+
+// TestClosedWindowKeepsNoFrame checks issue #1281: a closed window's host
+// lets go of its view, the elements and the scene of its last frame, and
+// the bitmaps they drew, in case something still holds the host (a
+// plugin, a renderer, the platform's objects of the window): only the
+// app's references keep them.
+func TestClosedWindowKeepsNoFrame(t *testing.T) {
+	var gpu *sceneGPU
+	h, _, frame := gpuHost(t, func() (gpuRenderer, error) {
+		gpu = &sceneGPU{}
+		return gpu, nil
+	})
+	src := image.NewRGBA(image.Rect(0, 0, 256, 256))
+	pix := weak.Make(&src.Pix[0]) // the bitmap's own, as NewBitmap takes them
+	bm := NewBitmap(src)
+	bitmap := weak.Make(bm)
+	h.rt.view = bitmapView(bm)
+	src, bm = nil, nil // the view alone holds it
+	frame()
+	if gpu == nil || gpu.frames != 1 {
+		t.Fatal("no frame drawn on the GPU")
+	}
+	h.detach()
+	if gpu.released != 1 {
+		t.Errorf("the renderer was released %d times", gpu.released)
+	}
+	for range 3 {
+		runtime.GC()
+	}
+	if bitmap.Value() != nil || pix.Value() != nil {
+		t.Errorf("the closed window's host keeps the bitmap %v, its pixels %v", bitmap.Value() != nil, pix.Value() != nil)
+	}
+	// A frame the surface asks for after it closed draws nothing.
+	frame()
+	if gpu.frames != 1 || h.last != nil {
+		t.Errorf("a closed window drew %d frames", gpu.frames)
+	}
+	runtime.KeepAlive(h)
+}
+
+// bitmapView returns a view that shows bm as an image and draws it.
+func bitmapView(bm *Bitmap) func(c *context) {
+	return func(c *context) {
+		coreImage(c, bm).Size(100, 100)
+		coreBox(c).Size(100, 100).Draw(func(p *Painter, r Rect) {
+			p.ImageRegion(bm, Rect{}, r, ImageOptions{})
+		})
 	}
 }

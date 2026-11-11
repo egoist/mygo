@@ -6,7 +6,7 @@ Package `ui/editor` is a code editor and a [diff viewer](diff-viewer.md)
 for native UI, designed after Zed's: syntax highlighting, several carets
 and selections, soft wraps, folding, finding and replacing, completions,
 hovers, diagnostics and inlay hints from the app or a language server,
-and the commands and keys of code editors. It lays out and paints only the
+ranges shown as something else, and the commands and keys of code editors. It lays out and paints only the
 lines in view, so a file of a million lines scrolls and edits as one of
 ten.
 
@@ -60,14 +60,35 @@ both from 0: `Pos` and `Offset` convert between them, and `Line`, `Slice`
 and `String` read the text. `Set` replaces the text as an edit, which undo
 takes back, and `Reset` as a new document, without history.
 
+`EditRemote` applies edits made elsewhere, as another device's or the
+result of a merge, outside the history. Undo and redo go on taking back and
+making again the buffer's own steps, on the text with those edits:
+
+```go
+buf.Edit(editor.Edit{Start: 0, End: 0, Text: "// Mine.\n"})
+buf.EditRemote(editor.Edit{Start: end, End: end, Text: "// Theirs.\n"})
+buf.Undo() // takes back "// Mine.", and "// Theirs." stays
+```
+
+A step that overlaps a remote edit can no longer be taken back or made
+again alone: it leaves the history, the text staying as it is, and the
+steps around it stay. Inserting at the edge of a step's text does not overlap it, nor does
+replacing the text next to it. So pass the ranges that changed, from a diff
+of the two texts, rather than the whole text, which overlaps every step.
+Carets, selections, folds, diagnostics and inlays move through a remote edit
+as through any, and `Modified` still compares with the saved text: call
+`MarkSaved` when the new text is what is on disk. A remote edit moves every
+step of the history, around a millisecond for a full one of 10,000 steps,
+whatever the size of the text.
+
 Lines end in `\n`, as in Zed: a text with `\r\n` line endings is kept with
 `\n` ones, and `LineEnding` says which it had, which `WriteTo` writes, so
 that a file saves as it was; `SetLineEnding` changes it.
 
 The text is a persistent tree of chunks, as Zed's rope: an edit copies a
 few kilobytes and a path of the tree, whatever the size of the document,
-and each version shares the rest with the one before. Undo keeps versions
-rather than copies, and a `Snapshot` is a version that stays as it is
+and each version shares the rest with the one before. Undo keeps the edits
+that take each step back, and a `Snapshot` is a version that stays as it is
 while the buffer changes, which other goroutines read without locks.
 Buffers' methods are safe from any goroutine; change them with
 `Window.Update` so the window shows the change.
@@ -130,10 +151,17 @@ the find bar on a query and `FindMatches` counts its matches; `Fold`,
 imports, as an editor can on opening a file; `Focused` reports whether the editor has
 the keyboard focus, and `VisibleLines` the first and last lines the last
 frame showed, as a half page of Vim's moves by. `ScrollY` and
-`SetScrollY` read and set how far the lines are scrolled, in DIPs, and
-`LineTop` where a line starts, below the first: editors side by side
-scroll together with them, and an app draws what joins their lines, as
-the bands between the panes of a merge.
+`SetScrollY` read and set how far the lines are scrolled, in DIPs,
+`ViewportHeight` how high the part of them in view is, and `LineTop`
+where a line starts, below the first, `LineTop` of the count of lines
+being the height of them all: editors side by side scroll together with
+them, an app draws what joins their lines, as the bands between the
+panes of a merge, and a minimap beside the editor shows where its view
+is. The scroll bars' thumbs show while the pointer is over the editor, or
+drags one, as a scroll container's do, or all the time with
+`KeepScrollbars`; the marks of changes, matches and diagnostics on the
+vertical one show all the time. `NoScrollbars` takes the bars and their
+marks away, and gives their room to the text.
 
 `OnInput` sees each input event before the editor does: keys, the text
 typed, edit commands and the pointer. Returning true takes the event, and
@@ -170,7 +198,9 @@ app.code.OnInput = func(ev ui.InputEvent) bool {
 ## Options
 
 - `SoftWrap` wraps lines at the editor's width, or at `WrapColumn` columns
-  when narrower; wrapped rows keep the line's indentation.
+  when narrower; wrapped rows keep the line's indentation. CJK text wraps
+  between any two characters, but closing punctuation such as `，` and `。`
+  starts no row, and opening punctuation such as `（` and `「` ends none.
 - `LineNumbers` shows the gutter's numbers, absolute, relative to the
   caret's line, or not at all; `GutterMarks` put dots of a color by lines,
   as breakpoints, and `OnGutterClick` reports clicks on numbers.
@@ -196,6 +226,24 @@ app.code.OnInput = func(ev ui.InputEvent) bool {
 - `ReadOnly` lets the text be selected and copied, not edited.
 - `FitContent` makes the editor as high as its lines, rather than
   scrolling them, to show code in a scroll view or a list.
+- `KeepScrollbars` keeps the scroll bars' thumbs showing with the pointer
+  away, as a scroll container's `KeepScrollbars`; `NoScrollbars` takes
+  the bars away, with their room, the wheel and the keys still
+  scrolling.
+- `Scrollbar` styles the scroll bars, as a theme's `ScrollbarStyle`: their
+  track and thumb colors, widths, corners and shortest thumb. Its zero
+  fields follow the theme's; its `TrackWidth` is 10 DIPs when 0, unless the
+  theme's style sets one, as the editor's bar has always been. As VS
+  Code's editor:
+
+  ```go
+  st.Scrollbar = ui.ScrollbarStyle{
+      TrackWidth: 14, ThumbWidth: 14, Square: true, Flush: true, MinLength: 20,
+      Thumb: ui.RGBA(121, 121, 121, 0.4),
+      Hover: ui.RGBA(100, 100, 100, 0.7),
+      Active: ui.RGBA(191, 191, 191, 0.4),
+  }
+  ```
 - `Font` and `LineHeight` set the text: the system's monospaced font of
   13 DIPs, 1.5 times as high, by default.
 - `NoAutoClose`, `NoFolding`, `NoActiveLine` and `NoScrollPastEnd` turn
@@ -213,11 +261,18 @@ app.code.OnInput = func(ev ui.InputEvent) bool {
 
 ## Languages and highlighting
 
-`LanguageFor` finds a file's language by its name, and `LanguageNamed` by
-its own; `Languages` lists them. The editor knows Go, JavaScript,
+`LanguageFor` finds a file's language by its name, `LanguageForText` by
+its name or else the `#!` line its text opens with, as
+`#!/usr/bin/env ruby`, and `LanguageNamed` by its own; `Languages` lists
+them. The editor knows Go, JavaScript,
 TypeScript, JSON, Python, Rust, C, C++, Java, Kotlin, Scala, Swift, Dart,
-C#, shell scripts, YAML, TOML, SQL, R, Ruby, Lua, PHP, CSS, HTML, XML,
-Markdown, diffs, Dockerfiles, Makefiles, Protocol Buffers, GraphQL and Zig.
+C#, shell scripts, YAML, TOML, SQL, R, Ruby, Lua, PHP, CSS, HTML, ERB,
+Svelte, XML, Markdown, diffs, Dockerfiles, Makefiles, Protocol Buffers,
+GraphQL, Zig, Nix, Jinja templates and HCL (Terraform).
+A template's text is in the language its name gives before the template's
+extension: `LanguageFor` highlights `compose.yaml.j2` as Jinja in YAML,
+`config.json.erb` as ERB in JSON, and `notice.text.erb` as ERB in plain
+text. Without such a name, ERB's text is HTML and Jinja's plain text.
 A `Language` says how to highlight, comment, match brackets and indent its
 text, and with `Imports`, a pattern of a line that imports (`^import\b` for
 Go), which lines fold as a run: build one for another language, or copy
@@ -255,7 +310,10 @@ A language can instead bring a highlighter of its own, as one of a parser
 such as tree-sitter: `Language.Highlighter` makes the `Highlighter` of each
 buffer of the language, and the editor uses it in place of the tokenizer.
 The tokenizer itself is one (`NewTokenHighlighter`), so a highlighter
-plugs in without the editor changing.
+plugs in without the editor changing. The text of a patch's side
+(`DiffState.SetPatch`) is its hunks' lines one after another: the
+tokenizer starts each hunk in state 0, while a highlighter of its own
+sees one text, and highlights it as it sees fit.
 
 ```go
 type Highlighter interface {
@@ -320,9 +378,12 @@ app.code.SetDiagnostics(buf.Version(), app.lsp.Diagnostics())
   pressed. `ShowCompletions` lists them below the caret, filtered and
   ranked as typing goes on by the word typed, with their kinds, details
   and documentation; Enter or Tab inserts the one chosen.
-- `OnHover` asks what to show as the pointer rests on the text, or for
-  Cmd+K Cmd+I at the caret. `ShowHover` shows text in a popover over the
-  range, or what a function builds there. The pointer can go into the
+- `OnHover` asks what to show as the pointer rests on the text
+  (`HoverDelay`, 600 ms by default), or for Cmd+K Cmd+I at the caret.
+  `NoPointerHover` turns hovers from the resting pointer off, diagnostics'
+  too, as VS Code's `editor.hover.enabled`; the keys still show one.
+  `ShowHover` shows text in a popover over the range, or what a function
+  builds there. The pointer can go into the
   hover, which stays while it is there, to select and copy its text; the
   hover goes a moment after the pointer leaves the text and the hover,
   and Escape closes it.
@@ -334,6 +395,117 @@ app.code.SetDiagnostics(buf.Version(), app.lsp.Diagnostics())
   the types of variables; `SetSuggestion` shows text after the caret as a
   suggestion, which Tab accepts, as an AI's.
 - `OnDefinition` is called for Cmd+click and F12 on a word.
+
+## Replacing ranges
+
+`SetReplacements` shows ranges of the text as something else, as Zed's
+folds show their placeholders: `Text`, the element `Content` builds, or
+nothing. The text stays the buffer's: it saves, copies, finds and undoes
+as it is, and assistive technology reads it. A Markdown editor's live
+preview hides the marks and draws check boxes, but on the lines with a
+caret, whose source shows to edit:
+
+```go
+var rs []editor.Replacement
+for _, m := range marks(buf) { // the app's parser
+	if !onCaretLine(m) {
+		rs = append(rs, editor.Replacement{Start: m.Start, End: m.End})
+	}
+}
+rs = append(rs, editor.Replacement{
+	Start: box.Start, End: box.End, Label: "Not done", Interactive: true,
+	Content: func(c *ui.Context, e ui.Element, r editor.Replacement) {
+		e.Children(func() {
+			if ui.ButtonBase(c).Fill().KeepFocus().Clicked() {
+				buf.Edit(editor.Edit{Start: r.End - 2, End: r.End - 1, Text: "x"})
+			}
+		})
+	},
+})
+app.code.SetReplacements(rs)
+editor.View(c, app.code).Grow(1).FillWidth()
+```
+
+Replacements move with edits, as inlays do, leaving out what is typed at
+their edges, and go when their text does. Set them again as the text or
+the selections change: laying out again only the lines whose replacements
+changed, this is cheap in every frame.
+
+- **Carets** step over what a replacement shows as over one character,
+  and deleting next to it deletes all of it. A range showing nothing
+  within a line is as if it were not there: no key press is spent on it,
+  and Backspace takes the character before it, not the hidden text.
+- **`Text`** shows in the editor's font, in `Color`, else in the color of
+  the text it replaces.
+- **`Content`** is given the element the editor places, `Width` DIPs wide
+  (a square as high as a row when 0) and as high as a row, as parts are
+  (see [Bars and popups](#bars-and-popups)). The width is the app's to
+  say, so that soft wraps count it in lines not laid out yet. A press on
+  it goes to the text, unless `Interactive`; `Label` names it for
+  assistive technology.
+- **Ranges across lines** show on the line they start on: the lines they
+  cover from their start through their newline take no rows, as folded
+  ones, but the first when it shows something; the line they end in shows
+  what follows them on a row of its own.
+
+Empty ranges, and ranges overlapping one before them, are left out.
+`Replacements` returns them as the edits moved them. Only the lines in
+view are laid out and only their elements built, so a long text may have
+as many as it needs.
+
+The [code editor example](../../examples/code-editor) has a live preview
+of its README.md.
+
+## Code snippets
+
+A completion's `Insert` is always plain text, even with
+`Kind: editor.CompletionSnippet` (which chooses an icon). To insert a
+code template with editable placeholders, parse one and set `Snippet`:
+
+```go
+snippet, err := editor.ParseSnippet("for ${1:index}, ${2:value} := range ${3:items} {\n\t$0\n}")
+if err != nil {
+    // Offer a plain-text completion instead when a server uses
+    // snippet syntax the editor does not support.
+    return err
+}
+code.ShowCompletions(start, []editor.Completion{{
+    Label: "forrange", Kind: editor.CompletionSnippet, Snippet: snippet,
+}})
+// Or insert at every current selection, outside the completion list:
+code.InsertSnippet(snippet)
+```
+
+Parse templates once; a `Snippet` is immutable and can be shared by
+editors. `Text()` returns its initial text. The parser supports `$1`,
+`${1}`, `${1:default}`, escaped dollars, braces and backslashes, and `$0`
+as the final stop (the end when omitted). Tab visits positive numbers in
+numeric order, with 0 last; Shift+Tab goes back, stopping at the first
+field. Repeated numbers share their default, including forward references,
+and edit together through the editor's normal multiple selections.
+Coincident empty stops of the same number coalesce as carets do.
+Scrolling and input methods follow the first occurrence at the original
+primary insertion site.
+
+A completion list takes Tab before the snippet's navigation, so a field
+can itself be completed. Escape ends the session after closing any open
+completion list or other editor overlay. Moving outside the active
+fields, editing the buffer externally, undo/redo or changing buffers
+ends the session too. Each field's typing is a separate undo group;
+undoing the insertion restores the old text and selections. Redo restores
+the text and selections without restarting snippet navigation. Input
+methods compose and commit at mirrored fields as at ordinary carets.
+A new snippet replaces the previous session.
+
+This is the tab-stop subset of TextMate/LSP syntax: nested placeholders,
+variables, choices, transformations, conflicting defaults for one number,
+and invalid UTF-8 return errors. Text keeps the template's indentation;
+CRLF is normalized to LF. `InsertSnippet` leaves a read-only editor
+unchanged. State methods, including snippet insertion, run on the UI
+thread as the rest of editor interaction does.
+
+Run `go run ./examples/code-editor`, type `funcdef` or `forrange` in a Go
+file, then press Tab to try it.
 
 ## Styling
 
@@ -410,7 +582,8 @@ app.code.RenderHover = func(c *ui.Context, panel ui.Element, h *editor.HoverCard
 ## Accessibility
 
 Assistive technology sees a multi-line text field, named by `Label`, with
-the text of the buffer and the newest selection, which it moves; the
+the text of the buffer, replaced ranges among it, and the newest selection,
+which it moves; the elements of replacements are named by their `Label`; the
 completions are a list, and the find bar a toolbar that tells the count
 of matches. The editor's menu, its find and go to line bars and their
 names are in the window's language

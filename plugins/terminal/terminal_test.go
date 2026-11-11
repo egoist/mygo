@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image/png"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -234,10 +235,10 @@ func TestScrollback(t *testing.T) {
 	}
 }
 
-// TestScrollbarDrag: the scroll bar shows as the viewport moves, and over
-// its strip, where the pointer is the arrow rather than the I-beam, and
-// fades out a while after. It drags the scrollback along: by the thumb, or
-// from where the track is pressed.
+// TestScrollbarDrag: the scroll bar shows while the pointer is over the
+// terminal, as the code editor's does, and goes as it leaves; over its
+// strip the pointer is the arrow rather than the I-beam. It drags the
+// scrollback along: by the thumb, or from where the track is pressed.
 func TestScrollbarDrag(t *testing.T) {
 	loadLib(t)
 	term, err := New(Options{Conn: newPipe()})
@@ -265,10 +266,13 @@ func TestScrollbarDrag(t *testing.T) {
 		return img.RGBAAt(395*s, y*s) != img.RGBAAt(380*s, y*s)
 	}
 	bottom := offset()
+	if shows(188) {
+		t.Error("the bar shows, the pointer away")
+	}
 	tt.Move(100, 100)
 	tt.Frame()
-	if shows(188) {
-		t.Error("the bar shows at the bottom, the pointer elsewhere")
+	if !shows(188) {
+		t.Error("the bar doesn't show with the pointer over the terminal")
 	}
 	// Over the strip, at the bottom: the bar, and the arrow.
 	tt.Move(395, 100)
@@ -302,22 +306,20 @@ func TestScrollbarDrag(t *testing.T) {
 	if c := tt.Cursor(); c != ui.CursorText {
 		t.Errorf("over the text, the pointer is %v, want the I-beam", c)
 	}
-	// It stays a while, and fades out though the viewport is up.
-	tt.Advance(500 * time.Millisecond)
-	tt.Frame()
 	if !shows(12) {
-		t.Error("the bar went at once")
+		t.Error("the bar went with the pointer still over the terminal")
 	}
-	tt.Advance(2 * time.Second)
+	// The pointer away, it goes though the viewport is up, and comes back
+	// with it.
+	tt.Move(100, -50)
 	tt.Frame()
 	if shows(12) {
-		t.Error("the bar didn't fade out")
+		t.Error("the bar stayed with the pointer away")
 	}
-	// A wheel shows it again.
 	tt.Wheel(100, 100, 0, 40)
 	tt.Frame()
 	if !shows(15) {
-		t.Error("scrolling didn't show the bar")
+		t.Error("the bar didn't show with the pointer back")
 	}
 	// A press low on the track brings the thumb there.
 	tt.Press(395, 190)
@@ -636,6 +638,11 @@ func TestKeys(t *testing.T) {
 	key(0, ui.KeyA, "a", "a")
 	key(ui.Shift, ui.KeyA, "A", "A")
 	key(ui.Ctrl, ui.KeyC, "", "\x03")
+	// The Control keys fixterms makes CSI u of send their C0 controls,
+	// as in xterm, for shells and editors.
+	key(ui.Ctrl, ui.KeyI, "", "\t")
+	key(ui.Ctrl, ui.KeyM, "", "\r")
+	key(ui.Ctrl, ui.KeyBracketLeft, "", "\x1b")
 	key(0, ui.KeyEnter, "", "\r")
 	key(0, ui.KeyBackspace, "", "\x7f")
 	key(0, ui.KeyUp, "", "\x1b[A")
@@ -653,6 +660,8 @@ func TestKeys(t *testing.T) {
 	term.Feed([]byte("\x1b[>1u"))
 	key(0, ui.KeyEscape, "", "\x1b[27u")
 	key(ui.Ctrl, ui.KeyC, "", "\x1b[99;5u")
+	key(ui.Ctrl, ui.KeyI, "", "\x1b[105;5u")
+	key(ui.Ctrl, ui.KeyBracketLeft, "", "\x1b[91;5u")
 	// Programs in cursor key mode get application keys.
 	term.Feed([]byte("\x1b[<u\x1b[?1h"))
 	key(0, ui.KeyUp, "", "\x1bOA")
@@ -718,6 +727,32 @@ func TestMouse(t *testing.T) {
 	// Focus reports.
 	term.Feed([]byte("\x1b[?1004h"))
 	tt.Frame()
+}
+
+// TestKilledJobModes: a job killed with the mouse's reports on leaves them
+// on, which the terminal turns off as the shell takes it back; the
+// program the terminal runs keeps those it sets.
+func TestKilledJobModes(t *testing.T) {
+	loadLib(t)
+	tracking := func(term *Terminal) bool {
+		term.mu.Lock()
+		defer term.mu.Unlock()
+		return term.term.MouseTracking()
+	}
+	term := shell(t, Options{Command: []string{"/bin/sh", "-i"}})
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 300, 200)
+	waitFor(t, tt, "the prompt", func() bool { return strings.Contains(term.Text(), "$") })
+	term.Send([]byte("sh -c 'printf \"\\033[?1000h\\033[?1006h\"; read x; kill -9 $$'\r"))
+	waitFor(t, tt, "the mouse's reports", func() bool { return tracking(term) })
+	term.Send([]byte("\r"))
+	waitFor(t, tt, "the mouse's reports to end", func() bool { return !tracking(term) })
+
+	own := shell(t, Options{Command: []string{"/bin/sh", "-c", "printf '\\033[?1000h'; echo done; sleep 30"}})
+	tt = ui.NewTester(func(c *ui.Context) { View(c, own).Fill() }, 300, 200)
+	waitFor(t, tt, "done", func() bool { return strings.Contains(own.Text(), "done") })
+	if !tracking(own) {
+		t.Error("the terminal's program lost the mouse's reports")
+	}
 }
 
 func TestExit(t *testing.T) {
@@ -1311,6 +1346,11 @@ func TestFont(t *testing.T) {
 	if w2, h2, _ := render(Font{LineHeight: 1.5}); w2 != w || h2 < h*3/2-1 || h2 > h*3/2+1 {
 		t.Errorf("rows 1.5 times as high are %dx%d, from %dx%d", w2, h2, w, h)
 	}
+	if w2, h2, spaced := render(Font{CellWidth: 1.5}); w2 < w*3/2-1 || w2 > w*3/2+1 || h2 != h {
+		t.Errorf("columns 1.5 times as wide are %dx%d, from %dx%d", w2, h2, w, h)
+	} else if spaced < ink*95/100 || spaced > ink*105/100 {
+		t.Errorf("spacing changed glyph ink from %d to %d", ink, spaced)
+	}
 	if _, _, bold := render(Font{Weight: 700}); bold < ink*11/10 {
 		t.Errorf("weight 700 has ink %d, 400 %d", bold, ink)
 	}
@@ -1324,11 +1364,75 @@ func TestFont(t *testing.T) {
 		t.Errorf("features are %q", got)
 	}
 	k := (&Font{Weight: 300, Features: []string{"-calt"}}).key(1)
-	if f := k.variant(1); f.Weight != 700 || f.Features != "calt=0" {
+	features := "calt=0"
+	if runtime.GOOS == "darwin" {
+		features = "kern=0,calt=0"
+	}
+	if f := k.variant(1); f.Weight != 700 || f.Features != features {
 		t.Errorf("the bold of weight 300 is %+v", f)
+	}
+	// Kerning is off unless the features name it, on macOS.
+	for in, want := range map[string]string{"": "kern=0", "calt=0": "kern=0,calt=0", "kern": "kern", "kern=1": "kern=1", " kern =0": " kern =0"} {
+		if got := unkerned(in); got != want {
+			t.Errorf("unkerned(%q) = %q, want %q", in, got, want)
+		}
 	}
 	if f := (&Font{Weight: 800}).key(1).variant(3); f.Weight != 900 || !f.Italic {
 		t.Errorf("the bold italic of weight 800 is %+v", f)
+	}
+}
+
+// TestCJKPunctuationKeepsItsPlace checks that a wide character sits at
+// the same place in its cells wherever it is in a run. Core Text shrank
+// the CJK punctuation of the system's monospaced font that ends a run, as
+// a 。 being typed does, to half its width, and the first of two in a
+// row: centered in its two cells, it jumped when text followed. Each
+// character is checked against itself, so that it holds whatever fonts
+// the system falls back to.
+func TestCJKPunctuationKeepsItsPlace(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Core Text's kerning")
+	}
+	loadLib(t)
+	type place struct{ off, adv float32 }
+	for _, size := range []float32{12, 13} {
+		seen := map[rune]place{}
+		for _, in := range []string{"清理。", "清理。地方", "清理。\x1b[31m地方", "清理。。地", "日本語。", "日本語。地"} {
+			term, err := New(Options{Conn: newPipe(), Font: Font{Size: size}, NoBlink: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 120)
+			term.Feed([]byte(in))
+			tt.Frame()
+			term.mu.Lock()
+			v := term.v
+			cw := float32(v.cellW) / v.scale
+			var got []place
+			line := v.lines[0]
+			for _, r := range line.runs {
+				for i, g := range r.glyphs {
+					if slices.Contains(line.wide, r.cols[i]) {
+						got = append(got, place{g.X - float32(r.cols[i])*cw, g.Advance})
+					}
+				}
+			}
+			term.mu.Unlock()
+			term.Close()
+			chars := []rune(strings.ReplaceAll(in, "\x1b[31m", ""))
+			if len(got) != len(chars) {
+				t.Errorf("size %v, %q: %d wide glyphs, want %d", size, in, len(got), len(chars))
+				continue
+			}
+			for i, r := range chars {
+				p, ok := seen[r]
+				if !ok {
+					seen[r] = got[i]
+				} else if math.Abs(float64(got[i].off-p.off)) > 0.01 || math.Abs(float64(got[i].adv-p.adv)) > 0.01 {
+					t.Errorf("size %v, %q: %c %d at offset %v, advance %v, elsewhere %v, %v", size, in, r, i, got[i].off, got[i].adv, p.off, p.adv)
+				}
+			}
+		}
 	}
 }
 
@@ -1406,6 +1510,125 @@ func TestKeyWithoutText(t *testing.T) {
 	tt.Key(0, ui.KeyB)
 	if got := conn.take(term); got != "b" {
 		t.Errorf("sent %q", got)
+	}
+}
+
+// TestOptionAsAltDropsText: with Options.OptionAsAlt on macOS, Option
+// and a letter go as Alt (Esc and the letter), and what macOS still types
+// for the key, or composes for a dead key as ´ for Option-E, is dropped
+// (#1000). The composition is refused, which has macOS give it up rather
+// than compose the next key with it. The key's release goes as any key's.
+func TestOptionAsAltDropsText(t *testing.T) {
+	loadLib(t)
+	defer func(was string) { goos = was }(goos)
+	goos = "darwin"
+	conn := newPipe()
+	term, err := New(Options{Conn: conn, OptionAsAlt: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	v := term.v
+	// press presses key with mods as macOS does, its text coming from
+	// interpretKeyEvents: typed as text, or composed for a dead key until
+	// the next key, which macOS then composes with it unless the
+	// composition was refused.
+	composing := false
+	press := func(mods ui.Modifiers, key ui.Key, text string, dead bool) {
+		t.Helper()
+		if composing {
+			// Composed with the dead key: no key, the composition's end,
+			// then both characters.
+			composing = false
+			v.input(ui.InputEvent{Kind: ui.InputCompose})
+			v.input(ui.InputEvent{Kind: ui.InputText, Text: "´" + text})
+		} else {
+			v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: mods, Key: key})
+			if dead {
+				composing = v.input(ui.InputEvent{Kind: ui.InputCompose, Text: text, Caret: 1})
+			} else {
+				v.input(ui.InputEvent{Kind: ui.InputText, Text: text})
+			}
+		}
+		v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: mods, Key: key})
+	}
+	press(ui.Alt, ui.KeyE, "´", true)
+	press(0, ui.KeyX, "x", false)
+	if got, want := conn.take(term), "\x1bex"; got != want {
+		t.Errorf("Option-E and x sent %q, want %q", got, want)
+	}
+	// Option-X types ≈ on a US layout, as text.
+	press(ui.Alt, ui.KeyX, "≈", false)
+	if got, want := conn.take(term), "\x1bx"; got != want {
+		t.Errorf("Option-X sent %q, want %q", got, want)
+	}
+	// Programs that ask for the Kitty keyboard protocol's releases get
+	// them.
+	term.Feed([]byte("\x1b[>11u"))
+	press(ui.Alt, ui.KeyE, "´", true)
+	if got, want := conn.take(term), "\x1b[101;3u\x1b[101;3:3u"; got != want {
+		t.Errorf("Option-E with the Kitty keyboard protocol sent %q, want %q", got, want)
+	}
+}
+
+// TestAltGrTypesText: on Windows, where AltGr is Control and Alt, the
+// characters AltGr types on a German layout go as text, not as Control
+// sequences of them (#1203). Control, Alt and a key that types nothing
+// still go as the key with both.
+func TestAltGrTypesText(t *testing.T) {
+	loadLib(t)
+	defer func(was string) { goos = was }(goos)
+	goos = "windows"
+	conn := newPipe()
+	term, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	v := term.v
+	// press presses key with mods as Windows does, the text it types, if
+	// any, coming as WM_CHAR between the key's press and its release.
+	press := func(mods ui.Modifiers, key ui.Key, text string) {
+		t.Helper()
+		v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: mods, Key: key})
+		if text != "" {
+			v.input(ui.InputEvent{Kind: ui.InputText, Text: text})
+		}
+		v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: mods, Key: key})
+	}
+	altGr := ui.Ctrl | ui.Alt
+	for _, c := range []struct {
+		name string
+		key  ui.Key
+		text string
+	}{
+		{"AltGr+Q", ui.KeyQ, "@"},
+		{"AltGr+E", ui.KeyE, "€"},
+		{"AltGr+7", ui.Key7, "{"},
+		{"AltGr+ß", ui.KeyMinus, `\`},
+	} {
+		press(altGr, c.key, c.text)
+		if got := conn.take(term); got != c.text {
+			t.Errorf("%s sent %q, want %q", c.name, got, c.text)
+		}
+	}
+	press(altGr, ui.KeyA, "")
+	if got, want := conn.take(term), "\x1b\x01"; got != want {
+		t.Errorf("Control, Alt and A sent %q, want %q", got, want)
+	}
+	// The Kitty keyboard protocol's disambiguation.
+	term.Feed([]byte("\x1b[>1u"))
+	press(altGr, ui.KeyQ, "@")
+	if got, want := conn.take(term), "@"; got != want {
+		t.Errorf("AltGr+Q with the Kitty keyboard protocol sent %q, want %q", got, want)
+	}
+	press(altGr, ui.KeyA, "")
+	if got, want := conn.take(term), "\x1b[97;7u"; got != want {
+		t.Errorf("Control, Alt and A with the Kitty keyboard protocol sent %q, want %q", got, want)
 	}
 }
 
@@ -1598,6 +1821,33 @@ func TestOnPasteTakesAPaste(t *testing.T) {
 // TestOnKeyTakesAKey: Options.OnKey sees a key press before the terminal
 // encodes it, in order with the keys after it; a true result sends
 // nothing, not even the text the key types.
+// A modifier on its own is no key to the terminal: nothing goes to the shell
+// or to OnKey, and Alt is left to the menu bar.
+func TestModifierKeyAlone(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	var seen []ui.Key
+	term, err := New(Options{Conn: conn, OnKey: func(mods ui.Modifiers, key ui.Key) bool {
+		seen = append(seen, key)
+		return true
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	tt.CodeDown(ui.Shift, ui.CodeShiftLeft)
+	tt.CodeUp(0, ui.CodeShiftLeft)
+	tt.Frame()
+	if len(seen) != 0 {
+		t.Errorf("OnKey saw %v", seen)
+	}
+	if got := conn.take(term); got != "" {
+		t.Errorf("the shell got %q", got)
+	}
+}
+
 func TestOnKeyTakesAKey(t *testing.T) {
 	loadLib(t)
 	conn := newPipe()
@@ -1868,6 +2118,58 @@ func TestWheelNotchScrollsThreeRows(t *testing.T) {
 	}
 	if !slices.Equal(seen, []int{3, 3, -3}) {
 		t.Errorf("notches scrolled %v rows, want [3 3 -3]", seen)
+	}
+}
+
+// TestScrollMultiplier: Options.ScrollMultiplier's Discrete is the rows a
+// notch scrolls, its Precision scales a touchpad's distance, and
+// SetScrollMultiplier changes them in a running terminal, as Ghostty's
+// mouse-scroll-multiplier.
+func TestScrollMultiplier(t *testing.T) {
+	loadLib(t)
+	var seen []int
+	term, err := New(Options{Conn: newPipe(), ScrollMultiplier: ScrollMultiplier{Discrete: 1}, OnScroll: func(rows int) bool {
+		seen = append(seen, rows)
+		return true
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	ch := float32(term.v.cellH) / term.v.scale
+	term.v.scroll(ui.InputEvent{Kind: ui.InputScroll, DY: hostNotch()})
+	term.v.scroll(ui.InputEvent{Kind: ui.InputScroll, DY: -hostNotch()})
+	term.SetScrollMultiplier(ScrollMultiplier{Precision: 0.5, Discrete: 6})
+	term.v.scroll(ui.InputEvent{Kind: ui.InputScroll, DY: hostNotch()})
+	term.v.scroll(ui.InputEvent{Kind: ui.InputScroll, DY: 4 * ch, Precise: true})
+	if !slices.Equal(seen, []int{1, -1, 6, 2}) {
+		t.Errorf("scrolled %v rows, want [1 -1 6 2]", seen)
+	}
+}
+
+// TestScrollMultiplierRows: a fraction of a notch's rows carries over, and
+// zero is the default.
+func TestScrollMultiplierRows(t *testing.T) {
+	for _, c := range []struct {
+		m       ScrollMultiplier
+		dy      float32
+		precise bool
+		goos    string
+		want    float32
+	}{
+		{ScrollMultiplier{}, 40, false, "darwin", 3},
+		{ScrollMultiplier{}, 20, true, "darwin", 1},
+		{ScrollMultiplier{Discrete: 1.5}, 40, false, "darwin", 1.5},
+		{ScrollMultiplier{Discrete: 1}, 50, false, "linux", 1},
+		{ScrollMultiplier{Discrete: 6}, 165, false, "windows", 10}, // a notch at 5 lines, doubled
+		{ScrollMultiplier{Precision: 0.5}, 40, true, "darwin", 1},
+		{ScrollMultiplier{Precision: 2}, 40, false, "darwin", 3}, // a wheel's alone
+	} {
+		if got := c.m.rows(c.dy, 20, c.precise, c.goos); got != c.want {
+			t.Errorf("%+v.rows(%v, precise %v, %q) = %v, want %v", c.m, c.dy, c.precise, c.goos, got, c.want)
+		}
 	}
 }
 
@@ -2818,5 +3120,38 @@ func TestDropFiles(t *testing.T) {
 	tt.Frame()
 	if got, want := conn.take(term), "\x1b[200~"+want[1]+"\x1b[201~"; got != want {
 		t.Errorf("dropping in bracketed paste pasted %q, want %q", got, want)
+	}
+}
+
+// OnDrop sees dropped files first, and a drop it takes pastes nothing, as
+// when an app uploads the files to the remote machine a program runs on.
+func TestOnDrop(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	var got []string
+	take := true
+	term, err := New(Options{Conn: conn, OnDrop: func(paths []string) bool {
+		got = append(got, paths...)
+		return take
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	tt.Frame()
+	tt.DropFiles(100, 100, "/tmp/shot.png")
+	tt.Frame()
+	if len(got) != 1 || got[0] != "/tmp/shot.png" {
+		t.Errorf("OnDrop saw %q", got)
+	}
+	if s := conn.take(term); s != "" {
+		t.Errorf("a drop OnDrop took pasted %q", s)
+	}
+	take = false
+	tt.DropFiles(100, 100, "/tmp/b.txt")
+	tt.Frame()
+	if s := conn.take(term); !strings.Contains(s, "b.txt") {
+		t.Errorf("a drop OnDrop left pasted %q", s)
 	}
 }

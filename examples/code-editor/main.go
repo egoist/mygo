@@ -5,6 +5,10 @@
 // unified, which edits the same buffer.
 //
 //	go run ./examples/code-editor
+//
+// In a Go file, complete funcdef or forrange with Tab to insert a snippet;
+// Tab and Shift+Tab visit its fields, and Escape ends snippet editing. In
+// README.md, Preview hides Markdown's marks off the caret's line.
 package main
 
 import (
@@ -36,12 +40,13 @@ type app struct {
 	layout   int // the diff's: 0 split, 1 unified
 	inline   string
 	wrap     bool
+	preview  bool // Markdown's live preview
 }
 
 func newFile(name, text string) *file {
 	f := &file{name: name, original: editor.NewBuffer(text)}
 	buf := editor.NewBuffer(text)
-	lang := editor.LanguageFor(name)
+	lang := editor.LanguageForText(name, text)
 	buf.SetLanguage(lang)
 	f.original.SetLanguage(lang)
 	f.editor = &editor.State{Buffer: buf, DiffBase: f.original, WrapGuides: []int{100}}
@@ -83,6 +88,10 @@ func (a *app) view(c *ui.Context) {
 					ui.Select(c, &a.inline, []string{"Words", "Characters", "Off"})
 				}
 				ui.Box(c).Grow(1)
+				if a.page == 0 && isMarkdown(f) {
+					ui.Text(c, "Preview").TextColor(t.TextMuted)
+					ui.Switch(c, &a.preview).Label("Live preview")
+				}
 				ui.Text(c, "Wrap").TextColor(t.TextMuted)
 				ui.Switch(c, &a.wrap).Label("Soft wrap")
 			})
@@ -110,6 +119,11 @@ func (a *app) editorPage(c *ui.Context, f *file) {
 		st.ShowHover(start, end, fmt.Sprintf("%s: %d occurrence%s in %s", word, n, map[bool]string{true: "", false: "s"}[n == 1], f.name), nil)
 	}
 	st.SetDiagnostics(st.Buffer.Version(), todos(st.Buffer))
+	if a.preview && isMarkdown(f) {
+		st.SetReplacements(livePreview(st))
+	} else {
+		st.SetReplacements(nil)
+	}
 	editor.View(c, st).Grow(1).FillWidth().AutoFocus()
 	// The status bar.
 	pos := st.CursorPos()
@@ -129,6 +143,11 @@ func (a *app) editorPage(c *ui.Context, f *file) {
 		ui.Box(c).Grow(1)
 		ui.Text(c, fmt.Sprintf("%d lines · %s", st.Buffer.LineCount(), lang)).FontSize(12).TextColor(t.TextMuted)
 	})
+}
+
+func isMarkdown(f *file) bool {
+	l := f.editor.Buffer.Language()
+	return l != nil && l.Name == "Markdown"
 }
 
 func (a *app) diffPage(c *ui.Context, f *file) {
@@ -172,8 +191,25 @@ func wordsOf(b *editor.Buffer, prefix string) []editor.Completion {
 			}
 		}
 	}
+	if l := b.Language(); l != nil && l.Name == "Go" {
+		out = append(out, goSnippets...)
+	}
 	slices.SortFunc(out, func(x, y editor.Completion) int { return strings.Compare(x.Label, y.Label) })
 	return out
+}
+
+// Templates are parsed once and shared by completions, not per frame.
+var goSnippets = []editor.Completion{
+	exampleSnippet("funcdef", "func ${1:name}(${2:args}) ${3:error} {\n\t$0\n}"),
+	exampleSnippet("forrange", "for ${1:index}, ${2:value} := range ${3:items} {\n\t$0\n}"),
+}
+
+func exampleSnippet(label, source string) editor.Completion {
+	s, err := editor.ParseSnippet(source)
+	if err != nil {
+		panic(err)
+	}
+	return editor.Completion{Label: label, Kind: editor.CompletionSnippet, Detail: "snippet · Tab visits fields", Snippet: s}
 }
 
 func wordAt(b *editor.Buffer, off int) (string, int, int) {

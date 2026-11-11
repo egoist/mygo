@@ -67,3 +67,51 @@ func TestDeferredFrames(t *testing.T) {
 		t.Fatal("refreshes passing while the content waits: not deferred")
 	}
 }
+
+// TestDrawSoon checks that a frame asked for after a pause draws from the
+// backend's queue, outside AppKit's display of views (#883), once however
+// often it is asked for meanwhile, and not at all when another drew
+// first, as a resize's does when AppKit displays the view, unless it was
+// asked for again after that one.
+func TestDrawSoon(t *testing.T) {
+	h := &frameHandler{}
+	b := &Backend{bySurface: map[id]*surface{}}
+	s := &surface{w: &window{b: b, h: h}, view: 1}
+	b.bySurface[s.view] = s
+	s.drawSoon()
+	s.drawSoon()
+	if len(h.paced) != 0 {
+		t.Fatal("drew at once")
+	}
+	drainMainQueue()
+	if len(h.paced) != 1 || h.paced[0] {
+		t.Fatalf("frames drawn from the queue: %v, want one not paced", h.paced)
+	}
+
+	s.drawSoon()
+	s.frameNow(false)
+	drainMainQueue()
+	if len(h.paced) != 2 {
+		t.Fatalf("drew %d frames, want the one drawn meanwhile alone", len(h.paced)-1)
+	}
+
+	// One asked for after the frame drawn meanwhile, as once the window
+	// whose first frame AppKit drew while the window was out of sight
+	// shows (SurfaceShown), still draws: dropped with the first, what
+	// moves would stop for good.
+	s.drawSoon()
+	s.frameNow(false)
+	s.drawSoon()
+	drainMainQueue()
+	if len(h.paced) != 4 || s.soon {
+		t.Fatalf("asked for after the frame drawn meanwhile: drew %d frames from the queue, want 1", len(h.paced)-3)
+	}
+
+	// A window closed meanwhile draws none.
+	s.drawSoon()
+	s.w.closed = true
+	drainMainQueue()
+	if len(h.paced) != 4 || s.soon {
+		t.Fatalf("a closed window drew %d frames (soon %v)", len(h.paced)-4, s.soon)
+	}
+}

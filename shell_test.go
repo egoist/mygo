@@ -31,6 +31,19 @@ func TestFileIcon(t *testing.T) {
 	}
 }
 
+func TestTypeIcon(t *testing.T) {
+	data, err := Shell.TypeIcon(".pdf", 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img, err := png.Decode(bytes.NewReader(data)); err != nil || img.Bounds().Dx() != 24 {
+		t.Errorf("TypeIcon: %v, %v", img, err)
+	}
+	if _, err := Shell.TypeIcon("pdf", 0); err == nil {
+		t.Error("TypeIcon of size 0 did not fail")
+	}
+}
+
 func TestTrashItemRelativePath(t *testing.T) {
 	t.Chdir(t.TempDir())
 	defer func() { fake.Trashed = nil }()
@@ -40,6 +53,20 @@ func TestTrashItemRelativePath(t *testing.T) {
 	wd, _ := os.Getwd()
 	if want := []string{filepath.Join(wd, "notes", "old.txt")}; !slices.Equal(fake.Trashed, want) {
 		t.Errorf("TrashItem passed %q, want %q", fake.Trashed, want)
+	}
+}
+
+// TestPreviewItemRelativePath checks that a relative path reaches the
+// backend absolute, as the preview needs a file URL.
+func TestPreviewItemRelativePath(t *testing.T) {
+	t.Chdir(t.TempDir())
+	defer func() { fake.Previewed = nil }()
+	if err := Shell.PreviewItem(filepath.Join("notes", "old.txt")); err != nil {
+		t.Fatal(err)
+	}
+	wd, _ := os.Getwd()
+	if want := []string{filepath.Join(wd, "notes", "old.txt")}; !slices.Equal(fake.Previewed, want) {
+		t.Errorf("PreviewItem passed %q, want %q", fake.Previewed, want)
 	}
 }
 
@@ -66,5 +93,19 @@ func TestInstalledApps(t *testing.T) {
 	}
 	if err := Shell.LaunchApp(InstalledApp{Name: "nothing"}); err == nil {
 		t.Error("LaunchApp of an app without a path did not fail")
+	}
+}
+
+func TestDefaultApp(t *testing.T) {
+	defer func() { fake.DefaultAppURLs = nil }()
+	app, err := Shell.DefaultApp("https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Path == "" {
+		t.Error("DefaultApp returned an app without a path")
+	}
+	if want := []string{"https://example.com"}; !slices.Equal(fake.DefaultAppURLs, want) {
+		t.Errorf("DefaultApp passed %q, want %q", fake.DefaultAppURLs, want)
 	}
 }

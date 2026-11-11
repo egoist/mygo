@@ -44,6 +44,9 @@ A `MenuItem` has:
   items toggle `Checked` before `Click` runs;
 - `Disabled`, `Hidden` and `ToolTip`;
 - `Icon`, an image shown beside the label (see [icons](#icons));
+- `Subtitle`, a second, smaller line under the label. macOS 14 and browsers
+  show it so; earlier macOS, Windows and Linux show it after the label, as
+  `Label — Subtitle`;
 - `ID`, to find the item with `Menu.ItemByID`;
 - `Role`, a built-in behavior with its label and accelerator.
 
@@ -56,9 +59,13 @@ shortcut, which `Label` and `Accelerator` override:
   `RoleDelete`, `RoleSelectAll`, and on macOS `RolePasteAndMatchStyle`.
   Their keys go to the content first, as in a browser: in a page on
   Windows, WebView2 cuts, copies and pastes with the page's own events and
-  every format of the clipboard, while choosing Paste from the menu types
-  the clipboard's text, as pages may not read the clipboard (as does an
-  edit role given a key the page has no use for, as Copy on Ctrl+Shift+C);
+  every format of the clipboard. Choosing Paste from the menu restores
+  focus to the page and runs Chromium's paste command through DevTools,
+  with the same paste event and formats. The page also sees `keydown` and
+  `keyup` for an `Unidentified` key without modifiers, so its Ctrl+V
+  handlers are not invoked. Paste and Match Style still inserts plain
+  text. An edit role given a key the page has no use for, as Copy on
+  Ctrl+Shift+C, still runs its command;
 - formatting: `RoleBold`, `RoleItalic`, `RoleUnderline`,
   `RoleStrikethrough`, `RoleAlignLeft`, `RoleAlignCenter` and
   `RoleAlignRight`, which format the selection of a [rich text
@@ -85,11 +92,22 @@ shortcut, which `Label` and `Accelerator` override:
 Items with the roles of macOS are left out on other platforms, so one
 template serves every platform.
 
+The items of the editing roles, in menu bars and popups alike, are enabled
+only while the focus can act on them, as in other apps: in
+[native UI](ui/README.md), Cut and Copy with text selected, Undo with
+something to undo, Paste in a text input, all of them for an element that
+takes its input (`HandleInput`), and on macOS a role whose key a
+[shortcut](ui/input.md) of the focus or the window takes.
+On macOS the menus holding them ask the focus: a page's web view enables
+them, and the Speech items, as WebKit does, and native UI, which does not
+speak, disables the Speech items. On Linux and Windows a page's items keep
+the state the app gave them. An item the app disables stays disabled.
+
 ### Changing items
 
 Change items of a menu in use with their methods, so that the native menu
 follows: `SetLabel`, `SetEnabled`, `SetVisible`, `SetChecked`,
-`SetAccelerator` and `SetIcon`:
+`SetAccelerator`, `SetSubtitle` and `SetIcon`:
 
 ```go
 item := menu.ItemByID("sidebar")
@@ -136,11 +154,35 @@ image take the color of the menu's text, as macOS tints its template
 images: white in a dark menu and on the highlight. Linux shows template
 icons as they are.
 
+`NewMenuIconSVG` makes an icon of an SVG instead, the `*ui.SVG` that
+`ui.ParseSVG` parses, so that an app shows the icons it draws with
+`ui.Icon` in its menus too. It draws the SVG once, with native UI's
+renderer (`ui.SVG`'s `Image`), to an image of 64 pixels on its longer
+side, which stays sharp up to 400% scaling, and returns an error for a nil
+SVG or one without a size. As a template, only its shapes count, whatever
+their colors, as for `ui.Icon`:
+
+```go
+//go:embed icons/trash.svg
+var trashSVG []byte
+
+var trash = ui.MustParseSVG(trashSVG) // ui.Icon(c, trash) in the window
+
+trashIcon, err := mygo.NewMenuIconSVG(trash, true)
+```
+
+In the menus native UI draws, an item's
+[`IconColor`](ui/context-menu.md#items) gives its template icon a color
+of its own.
+
 MyGo decodes and scales each image once, however many items show it and
 however often their menus open or are made again, the icons of the same
 image included, and frees what it made of it once neither the app nor a
 menu holds the icon; the bitmaps of Windows 10's menus go with their
 menus. Apps that make no icon don't link the code that draws them.
+
+The context menus of native UI take the same icons, with
+[`Icon`](ui/context-menu.md#items) on their items.
 
 - **macOS** shows the icon (an `NSImage`) after the column of checks, on
   every menu, the menu bar's own items included, which show it in the
@@ -177,7 +219,12 @@ removes the menu.
 On Windows, menu bars and menus follow the appearance, light or dark, as
 the title bar does (see [dark mode](frontend.md#dark-mode)). On Windows 11
 they look like the system's own menus, as File Explorer's: roomier items,
-highlights with rounded corners, and shortcuts in a fainter color.
+highlights with rounded corners, shortcuts smaller and in a fainter
+color, the rounder corners of the system's flyouts and, from Windows 11
+22H2, Acrylic behind popup menus, as WinUI's menus have, unless
+transparency effects are off, energy saver or a contrast theme is on, or
+the session is a remote one, when they have the solid background WinUI's
+menus fall back to, with one faint outline.
 
 A window with `AutoHideMenuBar` keeps its menu bar out of sight, and the
 room for the page. Alt pressed alone, or F10, shows the bar with the
@@ -230,6 +277,74 @@ Without a handler of their own, pages show the webview's standard context
 menu, with Copy and Paste on text and Inspect Element in development
 builds. Windows showing [native UI](ui/context-menu.md) give elements context
 menus with `ContextMenu`, built like the rest of their interface.
+
+### The webview's menu
+
+`Page.OnContextMenu` changes that standard menu as it is about to open,
+as Electron's `context-menu` event does. The event tells what was
+right-clicked (`LinkURL`, `LinkText`, `ImageURL`, `MediaURL`,
+`SelectionText`, `Editable`, `FrameURL`), and its `Menu` holds the
+webview's own items. Hide, rename, disable or remove them, and add items
+of the app's, which work as in any other menu:
+
+```go
+page.OnContextMenu(func(e *mygo.ContextMenuEvent) {
+	e.Menu.Remove(mygo.ContextMenuReload, mygo.ContextMenuInspect)
+	if e.LinkURL != "" {
+		e.Menu.Append(mygo.Separator(), &mygo.MenuItem{
+			Label: "Open in Browser",
+			Click: func(*mygo.MenuItem, *mygo.Window) { go mygo.Shell.OpenExternal(e.LinkURL) },
+		})
+	}
+})
+```
+
+`e.PreventDefault()` shows no menu, and setting `e.Menu` to a menu of the
+app's shows that one instead. The webview's items keep doing what the
+webview does, wherever they are moved, unless the app gives one a `Click`,
+which then runs in its place. A page whose own `contextmenu` handler calls
+`preventDefault` opens no menu, and the listeners are not called.
+
+The webview's items have the same IDs on every platform that has them:
+
+| ID | item |
+|---|---|
+| `ContextMenuBack`, `ContextMenuForward`, `ContextMenuReload`, `ContextMenuStop` | the page's navigation |
+| `ContextMenuInspect` | Inspect Element, in builds with DevTools |
+| `ContextMenuUndo`, `ContextMenuRedo`, `ContextMenuCut`, `ContextMenuCopy`, `ContextMenuPaste`, `ContextMenuPasteAndMatchStyle`, `ContextMenuDelete`, `ContextMenuSelectAll` | editing |
+| `ContextMenuSpellingGuess` | each word suggested for a misspelled one |
+| `ContextMenuOpenLink`, `ContextMenuOpenLinkInNewWindow`, `ContextMenuDownloadLink`, `ContextMenuCopyLink` | links |
+| `ContextMenuOpenImageInNewWindow`, `ContextMenuDownloadImage`, `ContextMenuCopyImage`, `ContextMenuCopyImageURL` | images |
+| `ContextMenuOpenMediaInNewWindow`, `ContextMenuDownloadMedia`, `ContextMenuCopyMediaURL`, `ContextMenuMediaControls`, `ContextMenuMediaLoop`, `ContextMenuMediaFullScreen`, `ContextMenuPictureInPicture` | video and audio |
+| `ContextMenuOpenFrameInNewWindow`, `ContextMenuLookUp`, `ContextMenuSearchWeb`, `ContextMenuShare`, `ContextMenuEmoji`, `ContextMenuPrint` | the rest |
+
+The other items keep the platform's own name as their ID: WebKit's
+identifier on macOS (`WKMenuItemIdentifierTranslate`), the stock action's
+nick on Linux (`unicode`), WebView2's name on Windows (`createQrCode`).
+Separators, and items the platform names nothing, have none.
+
+What each platform does:
+
+- **macOS** changes WebKit's menu in place as it opens, so Look Up,
+  Translate, Services and the spelling suggestions keep working. WebKit
+  tells nothing of what was clicked: MyGo's runtime reports it from the
+  page's `contextmenu` event, in the page's own document, so a click in a
+  frame tells nothing and `FrameURL` stays empty.
+- **Linux** changes WebKitGTK's menu in place. WebKitGTK tells the link,
+  the image, the media and whether the element is editable, and the page
+  the selection. The app's items show no shortcut or icon, radio items show
+  as check boxes, and only items of WebKitGTK's stock actions can be
+  renamed. `FrameURL` stays empty.
+- **Windows** gets everything from WebView2 (1.0.1185 and later; older
+  runtimes never call the listeners). A menu the app changed is drawn by
+  MyGo, like its other popup menus, with WebView2's items doing what they
+  do; a menu left as it was is WebView2's own. WebView2 gives the spelling
+  suggestions no words, so a menu MyGo draws leaves them out, and it
+  leaves out the URL of a `data:` image, which the page's `contextmenu`
+  event then tells.
+
+A menu the app changed shows no separator first, last or after another,
+as removing the items between two leaves.
 
 ## The Dock menu
 
@@ -327,7 +442,10 @@ draw()
 
 `Tray.PopUpMenu` opens the menu set with `SetMenu` programmatically. On
 macOS, AppKit places it below the status item and highlights its button
-while the menu is open. To show a menu only on right-click while keeping
+while the menu is open. On Windows 11 it opens as the system's tray menus
+do, centered on the icon a little above the taskbar (or beside it, where
+the taskbar is on another edge); on Windows 10, and for an icon in the
+taskbar's overflow, at the pointer. To show a menu only on right-click while keeping
 primary clicks available, set the menu in `OnRightClick`, call
 `PopUpMenu`, then clear it with `SetMenu(nil)` when the call returns.
 
@@ -356,7 +474,12 @@ On Linux tray icons use AppIndicator, which needs
 listener answers activation (with a release of the library that has the
 `activate` signal; older ones report no clicks), which GNOME's AppIndicator extension sends on
 a double click and which opens the menu on a single one after the double
-click time. `NewTray` returns an error without the library.
+click time. `NewTray` returns an error without the library. Template tray
+icons are white while the desktop prefers dark, with their alpha kept,
+and redraw when the settings portal's color scheme changes. `Tray.Dark`
+reads that desktop preference, independent of `Theme.SetSource`; without
+a portal it returns false. AppIndicator cannot report the panel's own
+theme, which can differ from the desktop's.
 
 Apps that live in the menu bar usually drop their Dock icon on macOS:
 

@@ -106,6 +106,21 @@ falling back to `index.html` like the frontend. Handling the `mygo` scheme
 replaces the frontend with your handler. Pages of custom schemes are the
 app's own: they may call Go methods, see [trust](#trust).
 
+On Windows, WebView2 takes a response once its handler returned, or
+once it wrote 1 MB: the rest then streams, the handler's writes waiting
+while WebView2 is behind. WebView2 reads the responses of custom schemes
+one at a time, and seems to give the page none of a response before it
+read all of it. A handler that keeps a response open, as server-sent
+events or long polling do, reaches the page only once it returns, and
+past its first megabyte holds back the app's other responses meanwhile:
+send such updates with [events](bindings.md#events) instead. For the same
+reason a `<video>` or `<audio>` that asks for the rest of a file
+(`Range: bytes=X-`) gets at most 4 MB: its handler sees the range
+narrowed to `bytes=X-(X+4 MB-1)`, answers with that part (206), as
+`mygo.FileServer` and `http.ServeFile` do, and the element asks for what
+follows as it plays. A request's context is canceled once WebView2 lets
+go of its response, so that the handler stops writing.
+
 Audio and video are the exception: WebKitGTK's media player does not play
 from a custom scheme, so on Linux a `<video>` or `<audio>` of one fails with
 `MEDIA_ERR_SRC_NOT_SUPPORTED` (`error.code` 4), whatever the handler
@@ -266,6 +281,7 @@ await currentWindow.toggleMaximize();
 | `onFileDrop(listener)` | files dropped on the window, with their paths |
 | `preferences()` | the accent color and the accessibility settings of the desktop; throws outside MyGo |
 | `onPreferences(listener)` | the changes of `preferences()` |
+| `windowActive()`, `onWindowActive(listener)` | whether the page's window is drawn as active, the one the user's input goes to, and its changes, see [inactive windows](#inactive-windows) |
 | `locale()`, `direction()`, `onLocaleChange(listener)` | the language the app shows (`App.Locale`), such as `"zh-Hans"`, its direction, `"ltr"` or `"rtl"`, and its changes; the page has them from document start, as `mygo.locale` and `mygo.dir` |
 
 `mygo-runtime/i18n` formats messages of ICU MessageFormat, as package
@@ -349,7 +365,8 @@ the window:
   outer pixels of the page resize the window, as a frameless one's. The
   window's menu bar hides, as with `AutoHideMenuBar`: Alt and F10 show it
   above the page while its menus are open, and its shortcuts work all
-  along.
+  along. `Theme.SetGTKCSS` restyles the buttons, as GTK 4's round ones,
+  for example ([GTK's style](windows.md#gtks-style-on-linux)).
 
 ```go
 mygo.NewWindow(mygo.WindowOptions{
@@ -366,6 +383,7 @@ CSS variables on `:root`:
 |---|---|
 | `--mygo-titlebar-height` | the height of the title bar |
 | `--mygo-titlebar-inset-left`, `--mygo-titlebar-inset-right` | the room the controls take from the left and from the right edge |
+| `--mygo-titlebar-controls-bottom` | where the controls end, from the top edge: the bottom of the traffic lights on macOS, the title bar's height on Linux and Windows |
 
 They are `0px` in full screen, where the controls hide (on macOS they come
 back with the menu bar). The page's title bar keeps clear of the controls
@@ -377,6 +395,15 @@ and, marked with `--app-region: drag`, moves the window:
   height: var(--mygo-titlebar-height, 40px);
   padding-left: var(--mygo-titlebar-inset-left, 0px);
   padding-right: var(--mygo-titlebar-inset-right, 0px);
+}
+```
+
+A sidebar that runs to the top of the window, with the traffic lights over
+it, starts its items below them:
+
+```css
+.sidebar {
+  padding-top: calc(var(--mygo-titlebar-controls-bottom, 0px) + 8px);
 }
 ```
 
@@ -481,6 +508,36 @@ that tells them at document start is replaced when they change.
 `mygo.Theme.Preferences()` reads them on the Go side, see
 [native](native.md#accent-color-and-accessibility).
 
+## Inactive windows
+
+Native apps draw the window the user's input goes to apart from the
+others: macOS fades an inactive window's sidebar and the accent of its
+selections to gray, Windows draws its Mica as a solid fill, GTK styles it
+`:backdrop`. A page knows which its window is from `<html>`, which has
+the `data-mygo-window-inactive` attribute while the window is not active:
+
+```css
+.sidebar .selected {
+  background: var(--accent);
+  color: white;
+}
+:root[data-mygo-window-inactive] .sidebar .selected {
+  background: #0000001a;
+  color: inherit;
+}
+```
+
+A window is active while it, or one of its flyouts, has the keyboard: a
+flyout of the window leaves it active, where DOM focus would leave the
+page. Panels, flyouts without a
+parent and windows `SetActiveAppearance` keeps active always are. A page
+starts active and is told otherwise as its DOM is ready; `windowActive()`
+of `mygo-runtime` reads the state and `onWindowActive` tells its changes.
+The material behind a transparent page follows on its own (macOS's in
+windows other than panels and flyouts, Windows's Mica). See
+[native UI](ui/windows.md#active-and-inactive-windows) for windows that
+show it.
+
 ## Pages that size their window
 
 The page of a flyout or a window with `FitContent` sizes it, without a
@@ -537,12 +594,25 @@ app's window on the app: see [Windows](windows.md#pages).
 `PageOptions.PreloadScript` runs JavaScript in every page of the window
 before the page's own scripts, once `window.mygo` exists.
 
+It runs in the top frame only. `PreloadAllFrames` runs it in the page's
+iframes too, of every origin, as each starts, which a browser needs to see
+what a player embedded from another site loads. `window.mygo` isn't in
+iframes: to tell the page what an iframe found, post it to `window.top`.
+
 ## The web inspector
 
 Development builds have the web inspector: right-click a page and choose
 Inspect Element (Inspect on Windows), or call `win.Page().OpenDevTools()`.
 Production builds do not, unless built with `mygo build -debug` or a window's
 page sets `DevTools: mygo.DevToolsEnabled` in `WindowOptions.Page`.
+
+On Windows, an app takes `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and
+`WEBVIEW2_USER_DATA_FOLDER` as other WebView2 apps do. With
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`,
+another process can drive its pages over the DevTools protocol, as a test
+runner, Playwright's `connectOverCDP` or an agent does. This works in every
+build, as with Microsoft's loader: whoever starts the app sets its
+environment.
 
 On Windows, WebView2's own keys come with the inspector: F5 and Ctrl+R reload
 the page (a reload [`OnWillNavigate`](windows.md#pages) is not asked about),

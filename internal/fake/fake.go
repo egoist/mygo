@@ -37,6 +37,7 @@ type Backend struct {
 	Quits       int
 
 	mu               sync.Mutex
+	noSession        bool // SetNoSessionState
 	windows          []*Window
 	trayIDs          []string
 	trays            []*tray
@@ -47,6 +48,9 @@ type Backend struct {
 	hotkeys          map[int]string
 	clipboard        transfer.Data
 	clipboardRelease func()
+	// ClipboardConcealed is whether the last write marked its content
+	// confidential.
+	ClipboardConcealed bool
 	// ClipboardError injects a failed write while preserving existing ownership.
 	ClipboardError error
 	// ClipboardDuringFlush simulates a toolkit pumping a nested event loop
@@ -68,9 +72,10 @@ type Backend struct {
 	UILanguages   []string
 	UIRightToLeft bool
 	// Watching reports whether power events were asked for, Awake counts the
-	// KeepAwake calls not released yet.
+	// KeepAwake calls not released yet, and Running the KeepRunning calls.
 	Watching bool
 	Awake    int
+	Running  int
 	// Playing is what NowPlaying.Set showed last, nil once removed, and
 	// NowPlayingSets counts the calls.
 	Playing        *platform.NowPlayingInfo
@@ -99,15 +104,22 @@ type Backend struct {
 	DockMenu *platform.Menu
 	// Active is what App.IsActive answers; SetActive changes it.
 	Active bool
+	// FramesOnShow makes a window draw the frame its content asked for as
+	// it shows, as AppKit may display a window it orders in. Main thread
+	// only.
+	FramesOnShow bool
 	// ForegroundAllowed counts AllowForeground calls.
 	ForegroundAllowed int
 	// ActivationToken is the token of WithActivationToken while its
 	// function runs.
 	ActivationToken string
-	// Cleared counts ClearBrowsingData calls.
+	// Cleared counts ClearBrowsingData calls for the default store.
 	Cleared int
-	// cookies holds the cookies of the pages, by name, domain and path.
+	// cookies holds the cookies of the default store's pages, by name,
+	// domain and path.
 	cookies map[platform.CookieKey]platform.Cookie
+	// DataStores are the stores NewDataStore made, in order.
+	DataStores []*DataStore
 	// contentLists are the content rule lists compiled, by identifier;
 	// ContentRuleCompiles counts the compiles.
 	contentLists        map[string]*ContentRuleList
@@ -135,9 +147,21 @@ type Backend struct {
 	// NotificationError, when set, is what showing a notification fails
 	// with.
 	NotificationError error
+	// OnNotification, when set, handles delivery on the main thread, allowing
+	// tests to model an authorization answer that arrives asynchronously.
+	OnNotification func(*platform.Notification, func(error))
 	// NoWebView makes WebViewAvailable report no system webview, as a
 	// machine without one does.
 	NoWebView bool
+	// StyleSheet is the sheet SetStyleSheet loaded last, as GTK styles the
+	// widgets it draws with it. StyleSheetError, when set, is what loading
+	// one fails with, as a sheet that does not parse, which keeps the one
+	// before. Main thread only.
+	StyleSheet      string
+	StyleSheetError error
+	// StartButtons and EndButtons are the desktop's window buttons that
+	// WindowButtons reports, as Linux's button layout gives them.
+	StartButtons, EndButtons []string
 	// notifications are the notifications shown and not yet removed, by
 	// id.
 	notifications map[string]*platform.Notification
@@ -233,6 +257,17 @@ func (b *Backend) QuitRequested() bool {
 	return false
 }
 
+// EndSession simulates the OS ending the session (WM_ENDSESSION,
+// applicationWillTerminate:): the app is told it terminates, and its event
+// loop does not stop first.
+func (b *Backend) EndSession() { b.h.Terminating() }
+
+// SetNoSessionState makes the pages keep no session state, as
+// WebView2's: SessionState returns nil and RestoreSessionState fails.
+func (b *Backend) SetNoSessionState(v bool) { b.mu.Lock(); b.noSession = v; b.mu.Unlock() }
+
+func (b *Backend) noSessionState() bool { b.mu.Lock(); defer b.mu.Unlock(); return b.noSession }
+
 // Windows returns the windows created so far.
 func (b *Backend) Windows() []*Window {
 	b.mu.Lock()
@@ -247,7 +282,8 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	if !o.Frameless && (o.TitleBarStyle == "hidden" || o.TitleBarStyle == "hiddenInset") && !o.HideWindowButtons {
 		// Three buttons 46 wide at the top right, as on Windows.
-		w.TitleBarRoom = platform.TitleBar{Height: cmp.Or(o.TitleBarHeight, 32), Right: 138}
+		h := cmp.Or(o.TitleBarHeight, 32)
+		w.TitleBarRoom = platform.TitleBar{Height: h, Right: 138, Bottom: h}
 	}
 	if o.Flyout != nil {
 		w.place(*o.Flyout, platform.Size{Width: o.Width, Height: o.Height})
@@ -422,6 +458,10 @@ func (b *Backend) NotificationsSupported() bool { return true }
 func (b *Backend) WebViewAvailable() bool { return !b.NoWebView }
 
 func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
+	if b.OnNotification != nil {
+		b.OnNotification(n, done)
+		return
+	}
 	b.mu.Lock()
 	if err := b.NotificationError; err != nil {
 		b.mu.Unlock()
@@ -502,8 +542,14 @@ type Window struct {
 	closed    bool
 	devtools  bool
 	pid       int  // SetProcessID
+	gpuPID    int  // SetGPUProcessID
 	audible   bool // SetAudible
 	muted     bool // SetAudioMuted
+	// capture is the page's capture of each kind (SetCapture).
+	capture [platform.CaptureDisplay + 1]platform.CaptureState
+	pip     bool // TogglePictureInPicture
+	// Restored is the last state RestoreSessionState put back.
+	Restored []byte
 	// Dropped is what DroppedFiles returns, once.
 	Dropped []string
 	// PDF holds the options of the last PrintToPDF.
@@ -535,6 +581,9 @@ type Window struct {
 	// MaximizeButton is where the content last said it shows the maximize
 	// button.
 	MaximizeButton platform.RectF
+	// InputRegion is what SetInputRegion set last: nil for all of the
+	// window.
+	InputRegion []platform.Rect
 	// AsyncFunction answers CallAsyncFunction.
 	AsyncFunction func(body string) (string, error)
 	// AsyncCallback, when set, receives CallAsyncFunction calls to answer
@@ -674,32 +723,44 @@ func (w *Window) Show() {
 	w.visible = true
 	w.focused = w.focused || w.Opts.Flyout == nil || w.Opts.Flyout.Focusable
 	w.mu.Unlock()
+	w.framesOnShow()
 }
-func (w *Window) ShowInactive()              { w.mu.Lock(); w.visible = true; w.mu.Unlock() }
-func (w *Window) Hide()                      { w.mu.Lock(); w.visible = false; w.mu.Unlock() }
-func (w *Window) IsVisible() bool            { w.mu.Lock(); defer w.mu.Unlock(); return w.visible }
-func (w *Window) Focus()                     { w.H.Focused() }
-func (w *Window) Blur()                      { w.H.Blurred() }
-func (w *Window) IsFocused() bool            { w.mu.Lock(); defer w.mu.Unlock(); return w.focused }
-func (w *Window) Minimize()                  { w.mu.Lock(); w.minimized = true; w.mu.Unlock(); w.H.Minimized() }
-func (w *Window) IsMinimized() bool          { w.mu.Lock(); defer w.mu.Unlock(); return w.minimized }
-func (w *Window) Maximize()                  { w.mu.Lock(); w.maximized = true; w.mu.Unlock(); w.H.Maximized() }
-func (w *Window) Unmaximize()                { w.mu.Lock(); w.maximized = false; w.mu.Unlock(); w.H.Unmaximized() }
-func (w *Window) IsMaximized() bool          { w.mu.Lock(); defer w.mu.Unlock(); return w.maximized }
-func (w *Window) Restore()                   { w.mu.Lock(); w.minimized = false; w.mu.Unlock(); w.H.Restored() }
-func (w *Window) SetFullScreen(v bool)       { w.mu.Lock(); w.full = v; w.mu.Unlock() }
-func (w *Window) IsFullScreen() bool         { w.mu.Lock(); defer w.mu.Unlock(); return w.full }
-func (w *Window) Center()                    {}
-func (w *Window) SetOpacity(float64)         {}
-func (w *Window) Opacity() float64           { return 1 }
-func (w *Window) SetHasShadow(bool)          {}
-func (w *Window) HasShadow() bool            { return true }
-func (w *Window) SetIgnoreMouseEvents(bool)  {}
-func (w *Window) SetContentProtection(bool)  {}
-func (w *Window) SetVibrancy(string)         {}
-func (w *Window) SetActiveAppearance(v bool) { w.mu.Lock(); w.active = v; w.mu.Unlock() }
+func (w *Window) ShowInactive() { w.mu.Lock(); w.visible = true; w.mu.Unlock(); w.framesOnShow() }
+
+// framesOnShow draws the frame the content asked for with FramesOnShow.
+func (w *Window) framesOnShow() {
+	if w.b.FramesOnShow && w.surface != nil {
+		w.surface.Frame()
+	}
+}
+
+func (w *Window) Hide()                           { w.mu.Lock(); w.visible = false; w.mu.Unlock() }
+func (w *Window) IsVisible() bool                 { w.mu.Lock(); defer w.mu.Unlock(); return w.visible }
+func (w *Window) Focus()                          { w.H.Focused() }
+func (w *Window) Blur()                           { w.H.Blurred() }
+func (w *Window) IsFocused() bool                 { w.mu.Lock(); defer w.mu.Unlock(); return w.focused }
+func (w *Window) Minimize()                       { w.mu.Lock(); w.minimized = true; w.mu.Unlock(); w.H.Minimized() }
+func (w *Window) IsMinimized() bool               { w.mu.Lock(); defer w.mu.Unlock(); return w.minimized }
+func (w *Window) Maximize()                       { w.mu.Lock(); w.maximized = true; w.mu.Unlock(); w.H.Maximized() }
+func (w *Window) Unmaximize()                     { w.mu.Lock(); w.maximized = false; w.mu.Unlock(); w.H.Unmaximized() }
+func (w *Window) IsMaximized() bool               { w.mu.Lock(); defer w.mu.Unlock(); return w.maximized }
+func (w *Window) Restore()                        { w.mu.Lock(); w.minimized = false; w.mu.Unlock(); w.H.Restored() }
+func (w *Window) SetFullScreen(v bool)            { w.mu.Lock(); w.full = v; w.mu.Unlock() }
+func (w *Window) IsFullScreen() bool              { w.mu.Lock(); defer w.mu.Unlock(); return w.full }
+func (w *Window) Center()                         {}
+func (w *Window) SetOpacity(float64)              {}
+func (w *Window) Opacity() float64                { return 1 }
+func (w *Window) SetHasShadow(bool)               {}
+func (w *Window) HasShadow() bool                 { return true }
+func (w *Window) SetIgnoreMouseEvents(bool)       {}
+func (w *Window) SetContentProtection(bool)       {}
+func (w *Window) SetVibrancy(string)              {}
+func (w *Window) SetVibrancyTint(*platform.Color) {}
+func (w *Window) SetActiveAppearance(v bool)      { w.mu.Lock(); w.active = v; w.mu.Unlock() }
 
 func (w *Window) SetWindowButtonsTheme(string) {}
+
+func (w *Window) SetInputRegion(r []platform.Rect) { w.mu.Lock(); w.InputRegion = r; w.mu.Unlock() }
 
 // ActiveAppearance reports what SetActiveAppearance set last.
 func (w *Window) ActiveAppearance() bool             { w.mu.Lock(); defer w.mu.Unlock(); return w.active }
@@ -722,6 +783,7 @@ func (w *Window) Zoom() float64                      { w.mu.Lock(); defer w.mu.U
 func (w *Window) SetUserAgent(string)                {}
 func (w *Window) UserAgent() string                  { return "fake" }
 func (w *Window) ProcessID() int                     { w.mu.Lock(); defer w.mu.Unlock(); return w.pid }
+func (w *Window) GPUProcessID() int                  { w.mu.Lock(); defer w.mu.Unlock(); return w.gpuPID }
 func (w *Window) IsAudible() bool                    { w.mu.Lock(); defer w.mu.Unlock(); return w.audible }
 func (w *Window) SetAudioMuted(v bool)               { w.mu.Lock(); w.muted = v; w.mu.Unlock() }
 func (w *Window) IsAudioMuted() bool                 { w.mu.Lock(); defer w.mu.Unlock(); return w.muted }
@@ -731,9 +793,55 @@ func (w *Window) IsDevToolsOpened() bool             { w.mu.Lock(); defer w.mu.U
 func (w *Window) CapturePage(cb func([]byte, error)) { cb([]byte("png"), nil) }
 func (w *Window) Print()                             {}
 
+// TogglePictureInPicture moves the page's video into picture in picture
+// or back, as a page with a video it can move.
+func (w *Window) TogglePictureInPicture() { w.mu.Lock(); w.pip = !w.pip; w.mu.Unlock() }
+
+func (w *Window) PictureInPictureActive(cb func(bool)) {
+	w.mu.Lock()
+	pip := w.pip
+	w.mu.Unlock()
+	cb(pip)
+}
+
+// fakeSession begins the session states of the fake engine, which
+// SessionState makes of the page's URL.
+const fakeSession = "fake session of "
+
+// SessionState returns "fake session of " and the page's URL, as an
+// engine returns its back/forward list, or nil while the backend keeps no
+// session state (Backend.SetNoSessionState), as WebView2.
+func (w *Window) SessionState() []byte {
+	if w.b.noSessionState() {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return []byte(fakeSession + w.url)
+}
+
+// RestoreSessionState puts back a state SessionState made, which goes to
+// its URL, and records it in Restored; it can't while the backend keeps
+// no session state, nor read other states.
+func (w *Window) RestoreSessionState(state []byte) bool {
+	url, ok := bytes.CutPrefix(state, []byte(fakeSession))
+	if !ok || w.b.noSessionState() {
+		return false
+	}
+	w.mu.Lock()
+	w.Restored = state
+	w.url = string(url)
+	w.mu.Unlock()
+	return true
+}
+
 // SetProcessID sets the process ID the page reports, as a backend whose
 // web view runs in a process of that ID; 0, the default, is none known.
 func (w *Window) SetProcessID(pid int) { w.mu.Lock(); w.pid = pid; w.mu.Unlock() }
+
+// SetGPUProcessID sets the GPU process ID the page reports
+// (GPUProcessID); 0, the default, is none known.
+func (w *Window) SetGPUProcessID(pid int) { w.mu.Lock(); w.gpuPID = pid; w.mu.Unlock() }
 
 // SetAudible sets whether the page plays sound (IsAudible) and reports it
 // to the handler (AudibleChanged), as a backend does whenever the page
@@ -744,6 +852,32 @@ func (w *Window) SetAudible(v bool) {
 	w.audible = v
 	w.mu.Unlock()
 	w.H.AudibleChanged(v)
+}
+
+// SetCapture sets the page's capture of kind (CaptureState) and reports
+// it to the handler (CaptureStateChanged), as a backend does whenever the
+// page starts, mutes or stops capturing; it reports it even when it did
+// not change. Call it on the main thread, where backends report it.
+func (w *Window) SetCapture(kind platform.CaptureKind, state platform.CaptureState) {
+	w.mu.Lock()
+	w.capture[kind] = state
+	w.mu.Unlock()
+	w.H.CaptureStateChanged(kind, state)
+}
+
+func (w *Window) CaptureState(kind platform.CaptureKind) platform.CaptureState {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.capture[kind]
+}
+
+// SetCaptureState mutes, unmutes or stops the page's capture of kind, as
+// a page takes it, and reports it to the handler; it does nothing while
+// the page captures no such device.
+func (w *Window) SetCaptureState(kind platform.CaptureKind, state platform.CaptureState) {
+	if w.CaptureState(kind) != platform.CaptureNone {
+		w.SetCapture(kind, state)
+	}
 }
 
 // addHTML records a document LoadHTML loads.
@@ -919,14 +1053,6 @@ func (app) OpenedAtLogin() bool { return false }
 
 func (a app) SetDockMenu(m *platform.Menu) { a.b.mu.Lock(); a.b.DockMenu = m; a.b.mu.Unlock() }
 
-func (a app) ClearBrowsingData(done func(error)) {
-	a.b.mu.Lock()
-	a.b.Cleared++
-	clear(a.b.cookies)
-	a.b.mu.Unlock()
-	done(nil)
-}
-
 func (a app) IsURLSchemeRegistered(scheme, id, name string) bool {
 	a.b.mu.Lock()
 	defer a.b.mu.Unlock()
@@ -983,16 +1109,16 @@ func (d dialogs) ShowMessageBox(_ platform.Window, o *platform.MessageBoxOptions
 type clipboard struct{ b *Backend }
 
 func (c clipboard) ReadText() string   { b, _ := c.b.clipboard.Read(transfer.Text); return string(b) }
-func (c clipboard) WriteText(s string) { _ = c.WriteData(transfer.TextData(s), nil) }
+func (c clipboard) WriteText(s string) { _ = c.WriteData(transfer.TextData(s), false, nil) }
 func (c clipboard) ReadHTML() string   { b, _ := c.b.clipboard.Read(transfer.HTML); return string(b) }
 func (c clipboard) WriteHTML(s string) {
-	_ = c.WriteData(transfer.New(transfer.NewItem(transfer.Bytes(transfer.HTML, []byte(s)))), nil)
+	_ = c.WriteData(transfer.New(transfer.NewItem(transfer.Bytes(transfer.HTML, []byte(s)))), false, nil)
 }
 func (c clipboard) ReadImage() []byte { b, _ := c.b.clipboard.Read(transfer.PNG); return b }
 func (c clipboard) WriteImage(b []byte) error {
-	return c.WriteData(transfer.New(transfer.NewItem(transfer.Bytes(transfer.PNG, b))), nil)
+	return c.WriteData(transfer.New(transfer.NewItem(transfer.Bytes(transfer.PNG, b))), false, nil)
 }
-func (c clipboard) Clear() { _ = c.WriteData(transfer.Data{}, nil) }
+func (c clipboard) Clear() { _ = c.WriteData(transfer.Data{}, false, nil) }
 func (c clipboard) AvailableFormats() []string {
 	var out []string
 	for _, f := range c.Formats() {
@@ -1010,12 +1136,12 @@ func (c clipboard) ReadData(formats []transfer.Format) (transfer.Data, error) {
 	}
 	return c.b.clipboard.Materialize(formats)
 }
-func (c clipboard) WriteData(d transfer.Data, released func()) error {
+func (c clipboard) WriteData(d transfer.Data, concealed bool, released func()) error {
 	if c.b.ClipboardError != nil {
 		return c.b.ClipboardError
 	}
 	previous := c.b.clipboardRelease
-	c.b.clipboard, c.b.clipboardRelease = d, released
+	c.b.clipboard, c.b.ClipboardConcealed, c.b.clipboardRelease = d, concealed, released
 	if previous != nil {
 		previous()
 	}
@@ -1073,6 +1199,14 @@ func (shell) TrashItem(path string) error {
 	return nil
 }
 
+// Previewed are the paths PreviewItem was given.
+var Previewed []string
+
+func (shell) PreviewItem(path string) error {
+	Previewed = append(Previewed, path)
+	return nil
+}
+
 // Opened are the paths OpenApplication was given.
 var Opened []string
 
@@ -1081,12 +1215,25 @@ func (shell) OpenApplication(path string) error {
 	return nil
 }
 
+// DefaultAppURLs are the URLs DefaultApp was asked about, in order.
+var DefaultAppURLs []string
+
+func (shell) DefaultApp(url string) (platform.Application, error) {
+	DefaultAppURLs = append(DefaultAppURLs, url)
+	return platform.Application{Name: "Default", ID: "app.default", Path: "/Applications/Default.app"}, nil
+}
+
 // FileIcon returns a transparent PNG of the size asked for, or the error of
 // a path that does not exist.
 func (shell) FileIcon(path string, size int) ([]byte, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, err
 	}
+	return shell{}.TypeIcon("", size)
+}
+
+// TypeIcon returns a transparent PNG of the size asked for.
+func (shell) TypeIcon(ext string, size int) ([]byte, error) {
 	var buf bytes.Buffer
 	err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, size, size)))
 	return buf.Bytes(), err
@@ -1100,6 +1247,12 @@ func (p power) KeepAwake(display bool, reason string) func() {
 	p.b.Awake++
 	p.b.mu.Unlock()
 	return func() { p.b.mu.Lock(); p.b.Awake--; p.b.mu.Unlock() }
+}
+func (p power) KeepRunning(reason string) func() {
+	p.b.mu.Lock()
+	p.b.Running++
+	p.b.mu.Unlock()
+	return func() { p.b.mu.Lock(); p.b.Running--; p.b.mu.Unlock() }
 }
 func (power) OnBattery() bool         { return false }
 func (power) IdleTime() time.Duration { return 42 * time.Second }
@@ -1154,6 +1307,20 @@ func (screen) Displays() []platform.Display {
 	}}
 }
 func (screen) CursorPoint() platform.Point { return platform.Point{X: 10, Y: 20} }
+
+// WindowButtons returns StartButtons and EndButtons, as Linux's desktop
+// layout gives them (platform.WindowButtonsBackend).
+func (b *Backend) WindowButtons() (start, end []string) { return b.StartButtons, b.EndButtons }
+
+// SetStyleSheet loads css in place of the sheet before, as Linux's GTK
+// does (platform.StyleBackend).
+func (b *Backend) SetStyleSheet(css string) error {
+	if b.StyleSheetError != nil {
+		return b.StyleSheetError
+	}
+	b.StyleSheet = css
+	return nil
+}
 
 type theme struct{ b *Backend }
 
