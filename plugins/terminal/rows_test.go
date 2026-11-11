@@ -120,6 +120,17 @@ func TestTakenRowsDrawAsMade(t *testing.T) {
 		term.Feed([]byte(s))
 		check(fmt.Sprintf("rewrote %q", s))
 	}
+	// A row rewritten to show what the row below it, which stays as it
+	// is, shows: it takes that row's last frame, and the row below keeps
+	// its own.
+	term.Feed([]byte("\x1b[3;1Hfirst\x1b[K\x1b[4;1Hsecond\x1b[K\x1b[10;1H"))
+	check("wrote two rows")
+	term.Feed([]byte("\x1b[10;1Hx\x1b[10;1H"))
+	tt.Frame()
+	term.Feed([]byte("\x1b[3;1Hthird\x1b[K\x1b[10;1H"))
+	tt.Frame() // the frame before, whose rows the next one's slots hold
+	term.Feed([]byte("\x1b[3;1Hsecond\x1b[K\x1b[10;1H"))
+	check("copied the row below")
 	// Rows that show the same, many times over, then one of them not.
 	term.Feed([]byte("\x1b[30;1H\r\nsame\r\nsame\r\nsame\r\n"))
 	check("repeated a row")

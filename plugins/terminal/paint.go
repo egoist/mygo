@@ -204,7 +204,10 @@ func (v *view) updateRows(rs *vt.RenderState, prev []rowCache, all bool, cols, r
 	y := 0
 	for rs.Rows(); y < rows && rs.NextRow(); y++ {
 		line := &next[y]
-		if !all && prev[y].ok && !rs.RowDirty() {
+		// A row the render state left as it was keeps its place, unless a
+		// row above showing the same took it: that row's slot then holds
+		// one from an older frame.
+		if !all && prev[y].ok && !v.taken[y] && !rs.RowDirty() {
 			take(line, y)
 			continue
 		}
