@@ -106,7 +106,8 @@ func (ed *editor) replaceEach(kind editKind, selectInserted bool, fn func(i int,
 	edits := make([]Edit, len(ed.sels))
 	texts := make([]string, len(ed.sels))
 	for i, s := range ed.sels {
-		texts[i] = fn(i, s)
+		// As the buffer takes it, for the caret to go after what went in.
+		texts[i] = lf(fn(i, s))
 		edits[i] = Edit{Start: s.start(), End: s.end(), Text: texts[i]}
 	}
 	sels := slices.Clone(ed.sels)

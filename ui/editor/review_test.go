@@ -596,6 +596,33 @@ func TestReviewCRLF(t *testing.T) {
 	ct.want("two\no|ne\ntwo\nthree")
 }
 
+// Text typed, put in by an input method or taken from a suggestion with
+// \r\n line endings goes in with \n, as a paste's, the caret after it: a
+// byte further for each line, it could be inside a character.
+func TestReviewCRLFTyped(t *testing.T) {
+	ct := newEditorTest(t, "", "a|語b|語")
+	ct.tt.Type("x\r\ny\r\n")
+	ct.want("ax\ny\n|語bx\ny\n|語")
+	ct = newEditorTest(t, "", "ab|語")
+	ct.st.ed.ReplaceText(&ui.TextInputRange{Start: 0, End: 1}, "x\r\ny")
+	ct.tt.Frame()
+	ct.want("x\ny|b語")
+	ct = newEditorTest(t, "", "ab|語")
+	ct.st.SetSuggestion(2, "x\r\ny")
+	ct.tt.Frame()
+	ct.key(0, ui.KeyTab)
+	ct.want("abx\ny|語")
+	// Replacing a match goes on from the end of what went in, to the
+	// match after it.
+	ct = newEditorTest(t, "", "[a]aa")
+	f := &ct.st.ed.find
+	f.query, f.replace, f.stale = "a", "\r\n", true
+	ct.tt.Frame()
+	f.replaceOne(&ct.st.ed)
+	ct.tt.Frame()
+	ct.want("\n[a]a")
+}
+
 // Set replaces the whole text at once, edits from other goroutines
 // before or after it.
 func TestReviewSetAtomic(t *testing.T) {

@@ -688,6 +688,7 @@ func (ed *editor) replaceText(r *ui.TextInputRange, s string) {
 	}
 	ts := ed.targets(r)
 	ed.markedActive, ed.marked = false, nil
+	s = lf(s)
 	ed.replaceRanges(ts, s, editCompose, -1, -1)
 	if b := ed.buf(); b != nil {
 		b.endGroup()
