@@ -514,6 +514,42 @@ func TestWAV(t *testing.T) {
 	}
 }
 
+// A header can say any length: ReadSound reserves no more than a start
+// for it, and keeps what the decoder had.
+func TestSoundOfAWrongLength(t *testing.T) {
+	t.Run("a WAV cut short", func(t *testing.T) {
+		b := wav(1, 8, 1, []byte{128, 192, 64, 0})
+		binary.LittleEndian.PutUint32(b[len(b)-8:], 0xfffffffe) // the data chunk's size
+		s, err := DecodeSound(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(s.samples) != 4 {
+			t.Errorf("decoded %d samples, want 4", len(s.samples))
+		}
+		if cap(s.samples) > reserveFrames {
+			t.Errorf("reserved %d samples for 4", cap(s.samples))
+		}
+	})
+	t.Run("a decoder of any length", func(t *testing.T) {
+		s, err := ReadSound(wrongLength{&genDecoder{ch: 2, length: 8}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(s.samples) != 16 {
+			t.Errorf("decoded %d samples, want 16", len(s.samples))
+		}
+		if cap(s.samples) > 2*reserveFrames {
+			t.Errorf("reserved %d samples for 16", cap(s.samples))
+		}
+	})
+}
+
+// wrongLength says its decoder is longer than any sound.
+type wrongLength struct{ *genDecoder }
+
+func (wrongLength) Len() int64 { return math.MaxInt64 }
+
 func TestWAVSeek(t *testing.T) {
 	data := make([]byte, 0, 200)
 	for i := range 100 {
