@@ -494,7 +494,8 @@ func (ed *editor) convertCase(cmd Command) bool {
 			sels[i].anchor, sels[i].head = a, z
 		}
 	}
-	ed.sels = sels
+	// Carets in one word, or in a word with a selection, convert it once.
+	ed.sels = mergeSels(sels)
 	return ed.replaceEach(editOther, true, func(_ int, s sel) string {
 		return convertCase(r.Slice(s.start(), s.end()), cmd)
 	})

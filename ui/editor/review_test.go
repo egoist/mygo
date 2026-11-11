@@ -278,6 +278,20 @@ func TestReviewLineCommands(t *testing.T) {
 	ct.want("one\nth|ree")
 }
 
+// Carets in one word, or in a word with a selection, convert its case
+// once, as one selection.
+func TestReviewCaseOverlap(t *testing.T) {
+	ct := newEditorTest(t, "", "ab|cd|ef")
+	ct.run(Uppercase)
+	ct.want("[ABCDEF]")
+	ct = newEditorTest(t, "", "[ab]cd| ef")
+	ct.run(Uppercase)
+	ct.want("[ABCD] ef")
+	ct = newEditorTest(t, "", "| | ")
+	ct.run(SnakeCase)
+	ct.want("|")
+}
+
 // Tab goes to the next tab stop past hard tabs, and indents the line of
 // a selection, as Zed's.
 func TestReviewTab(t *testing.T) {
