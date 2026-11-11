@@ -669,12 +669,10 @@ func (r *Renderer) makePipelines(f *formatState) (err error) {
 	if f.holePipe, err = r.newPipeline(lib, "ps", f.format, blendHole); err != nil {
 		return err
 	}
-	if f.format == pixelFormatRGBA16Float {
-		// Opaque cores are exactly 1 in coverage only to within the rasterizer's
-		// interpolation of the fragment's position, whose noise (a unit in the
-		// last place of a half, in the columns where the position crosses a
-		// power of two) blending hides in the destination's alpha but a plain
-		// write keeps: float16 targets blend them, byte for byte as whole fills.
+	if r.coresBlend(f.format) {
+		// The cores draw with the pipeline the frame already uses (see
+		// coresBlend); what they lose is the tile-based win of writing
+		// without blending.
 		f.opaquePipe = send(f.pipeline, "retain")
 	} else if f.opaquePipe, err = r.newPipeline(lib, "ps", f.format, blendNone); err != nil {
 		return err
@@ -736,6 +734,19 @@ const (
 	blendHole                  // takes the coverage of holes away
 	blendNone                  // none: writes the colors, for opaque cores
 )
+
+// coresBlend reports whether the cores of opaque fills draw with the blended
+// pipeline in targets of format. Float16 targets blend them: a core is exactly
+// 1 in coverage only to within the rasterizer's interpolation of the
+// fragment's position, and blending hides that noise in the destination's
+// alpha where a plain write keeps it. GPUs outside Metal's Mac2 family blend
+// them too: one, an Intel Iris (Haswell) whose driver OpenCore Legacy Patcher
+// backported, hung in the unblended pipeline (#1566) — a 320×740 opaque fill
+// never completed, while the same fill blended drew every time. What those
+// GPUs lose is the tile-based win of writing without blending.
+func (r *Renderer) coresBlend(format uint) bool {
+	return format == pixelFormatRGBA16Float || !r.canSpecialize
+}
 
 // newPipeline returns a pipeline drawing instances with the vertex
 // function vs and the fragment function fs of lib, blending premultiplied
