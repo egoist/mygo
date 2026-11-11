@@ -1,0 +1,17 @@
+[package]
+name = "bench-rune"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# Rune isn't on crates.io: its README pins a revision of its dev branch, which is never rewritten.
+rune = { git = "https://github.com/anomalyco/rune", rev = "4ca683561a100e16b1ce32f3576f4ade61bd2924" }
+
+# The smallest and fastest build Cargo makes.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true

@@ -30,6 +30,7 @@ export const frameworks = [
   { id: "gpui", label: "GPUI", url: "https://www.gpui.rs", color: "var(--bench-gpui)" },
   { id: "gpui-fast", label: "GPUI Fast", url: "https://github.com/longbridge/gpui-fast", color: "var(--bench-gpui-fast)" },
   { id: "egui", label: "egui", url: "https://github.com/emilk/egui", color: "var(--bench-egui)" },
+  { id: "rune", label: "Rune", url: "https://github.com/anomalyco/rune", color: "var(--bench-rune)" },
 ] as const
 
 export type Format = "ms" | "bytes" | "fps" | "percent"
