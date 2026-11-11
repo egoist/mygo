@@ -666,6 +666,26 @@ type GlobalShortcutModule struct {
 	byKey   map[string]int
 	byID    map[int]func()
 	keyByID map[int]string
+	onKeys  map[int]func(string)
+	keys    map[int]string // what onKeys last heard
+}
+
+// GlobalShortcutOptions describes a shortcut to GlobalShortcut.RegisterWith.
+type GlobalShortcutOptions struct {
+	// Description says what the shortcut does, such as "Stop all". Desktops
+	// that bind shortcuts for apps, as on Wayland, show it where they ask
+	// the user to confirm the shortcut and in their settings; empty, they
+	// show the accelerator there.
+	Description string
+	// OnKeys is called on the main thread with the keys the desktop bound
+	// to the shortcut, written as the desktop writes them ("Ctrl+Alt+."),
+	// and with "" when it bound none: on Wayland the user may decline a
+	// shortcut, which then does nothing, or pick other keys for it. It is
+	// called once the desktop answered, and again when the keys change.
+	// Where the app takes the keys itself (macOS, Windows, X11) it is not
+	// called: the shortcut has its accelerator's keys once Register
+	// returned without an error.
+	OnKeys func(keys string)
 }
 
 // GlobalShortcut registers keyboard shortcuts that work while the app is in
@@ -686,6 +706,12 @@ var GlobalShortcut = &GlobalShortcutModule{}
 // while the desktop binds it, and a second Register of the same
 // accelerator fails.
 func (g *GlobalShortcutModule) Register(acc string, fn func()) error {
+	return g.RegisterWith(acc, GlobalShortcutOptions{}, fn)
+}
+
+// RegisterWith is Register for a shortcut the desktop may show to the
+// user, or bind to other keys than the accelerator's.
+func (g *GlobalShortcutModule) RegisterWith(acc string, opts GlobalShortcutOptions, fn func()) error {
 	needsApp("GlobalShortcut.Register")
 	a, err := accelerator.Parse(acc, runtime.GOOS)
 	if err != nil {
@@ -695,6 +721,7 @@ func (g *GlobalShortcutModule) Register(acc string, fn func()) error {
 	g.mu.Lock()
 	if g.byKey == nil {
 		g.byKey, g.byID, g.keyByID = map[string]int{}, map[int]func(){}, map[int]string{}
+		g.onKeys, g.keys = map[int]func(string){}, map[int]string{}
 	}
 	if _, ok := g.byKey[key]; ok {
 		g.mu.Unlock()
@@ -703,12 +730,18 @@ func (g *GlobalShortcutModule) Register(acc string, fn func()) error {
 	g.next++
 	id := g.next
 	g.byKey[key] = id
+	if opts.OnKeys != nil {
+		// Before the desktop hears of the shortcut: its answer may come
+		// while this call is on its way back.
+		g.onKeys[id] = opts.OnKeys
+	}
 	g.mu.Unlock()
-	if err := onMainValue(func() error { return backend().RegisterHotkey(id, acc) }); err != nil {
+	if err := onMainValue(func() error { return backend().RegisterHotkey(id, acc, opts.Description) }); err != nil {
 		g.mu.Lock()
 		if g.byKey[key] == id {
 			delete(g.byKey, key)
 		}
+		g.forgetKeys(id)
 		g.mu.Unlock()
 		return err
 	}
@@ -716,6 +749,7 @@ func (g *GlobalShortcutModule) Register(acc string, fn func()) error {
 	if g.byKey[key] != id {
 		// Unregistered, or registered again, while the desktop bound it:
 		// give the desktop back the shortcut this call made.
+		g.forgetKeys(id)
 		g.mu.Unlock()
 		onMain(func() { backend().UnregisterHotkey(id) })
 		return errors.New("mygo: shortcut " + key + " was unregistered while it was being registered")
@@ -749,6 +783,7 @@ func (g *GlobalShortcutModule) Unregister(acc string) {
 		delete(g.byKey, a.String())
 		delete(g.byID, id)
 		delete(g.keyByID, id)
+		g.forgetKeys(id)
 	}
 	g.mu.Unlock()
 	if ok {
@@ -764,6 +799,7 @@ func (g *GlobalShortcutModule) UnregisterAll() {
 		ids = append(ids, id)
 	}
 	g.byKey, g.byID, g.keyByID = map[string]int{}, map[int]func(){}, map[int]string{}
+	g.onKeys, g.keys = map[int]func(string){}, map[int]string{}
 	g.mu.Unlock()
 	onMain(func() {
 		for _, id := range ids {
@@ -778,6 +814,29 @@ func (g *GlobalShortcutModule) pressed(id int) {
 	g.mu.Unlock()
 	if fn != nil {
 		fn()
+	}
+}
+
+// forgetKeys drops what a shortcut that is gone heard of its keys. The
+// caller holds g.mu.
+func (g *GlobalShortcutModule) forgetKeys(id int) {
+	delete(g.onKeys, id)
+	delete(g.keys, id)
+}
+
+// bound tells a shortcut the keys the desktop has for it, when it has not
+// heard of them yet: desktops answer for every shortcut whenever one of
+// the app's shortcuts changes.
+func (g *GlobalShortcutModule) bound(id int, keys string) {
+	g.mu.Lock()
+	fn := g.onKeys[id]
+	last, heard := g.keys[id]
+	if fn != nil {
+		g.keys[id] = keys
+	}
+	g.mu.Unlock()
+	if fn != nil && (!heard || last != keys) {
+		fn(keys)
 	}
 }
 

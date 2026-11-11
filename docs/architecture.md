@@ -503,7 +503,12 @@ by `mygo build` with `mygo_noinspector`) leave out its downloader and
   KDE Plasma 5 binds the shortcuts listed in `CreateSession`'s options, as
   the portal's drafts had it: portals before 1.17 pass them on, later ones
   drop them and Plasma 5 then binds nothing; MyGo logs the shortcuts the
-  desktop bound no keys to. The activation token of an `Activated` signal
+  desktop bound no keys to. The desktop shows each shortcut's description
+  (`GlobalShortcutOptions.Description`, else the accelerator) where it asks
+  and in its settings, and the keys it answers with, in `BindShortcuts`'s
+  response and in later `ShortcutsChanged` signals, go to the shortcut's
+  `OnKeys` (`HotkeyBound`): none when the user declined it, which KDE
+  remembers without asking again. The activation token of an `Activated` signal
   becomes the display's startup notification id while the callback runs,
   so the window it shows or focuses may take the focus.
 

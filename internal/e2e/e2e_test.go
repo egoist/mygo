@@ -2583,9 +2583,23 @@ func TestGlobalShortcutPortal(t *testing.T) {
 		}
 		t.Fatalf("%s was not reported", acc)
 	}
-	register("Ctrl+Shift+K")
+	// The desktop tells the keys it bound to a shortcut that asks.
+	keys := make(chan string, 8)
+	opts := mygo.GlobalShortcutOptions{Description: "Test the portal", OnKeys: func(k string) { keys <- k }}
+	if err := mygo.GlobalShortcut.RegisterWith("Ctrl+Shift+K", opts, func() { pressed <- "Ctrl+Shift+K" }); err != nil {
+		t.Fatal(err)
+	}
 	defer mygo.GlobalShortcut.UnregisterAll()
 	expect("Ctrl+Shift+K", "Control_L", "Shift_L", "k")
+	select {
+	case k := <-keys:
+		if k == "" {
+			t.Error("the desktop bound Ctrl+Shift+K and told no keys for it")
+		}
+		t.Logf("the desktop bound Ctrl+Shift+K to %q", k)
+	case <-time.After(wait.Guard):
+		t.Error("the keys the desktop bound were not told")
+	}
 	register("Alt+Shift+J")
 	expect("Alt+Shift+J", "Alt_L", "Shift_L", "j")
 	expect("Ctrl+Shift+K", "Control_L", "Shift_L", "k")

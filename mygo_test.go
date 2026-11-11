@@ -2475,6 +2475,49 @@ func TestGlobalShortcut(t *testing.T) {
 	}
 }
 
+// TestGlobalShortcutKeys: a desktop that binds shortcuts for apps hears
+// what a shortcut does, and the shortcut hears the keys it got, once for
+// each change, until it is unregistered.
+func TestGlobalShortcutKeys(t *testing.T) {
+	defer GlobalShortcut.UnregisterAll()
+	const acc = "CmdOrCtrl+Alt+."
+	var got []string
+	opts := GlobalShortcutOptions{Description: "Stop all", OnKeys: func(keys string) { got = append(got, keys) }}
+	if err := GlobalShortcut.RegisterWith(acc, opts, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	if err := GlobalShortcut.Register("CmdOrCtrl+Alt+,", func() {}); err != nil {
+		t.Fatal(err)
+	}
+	onMain(func() {
+		if d := fb.HotkeyDescription(acc); d != "Stop all" {
+			t.Errorf("the desktop heard the description %q", d)
+		}
+		if d := fb.HotkeyDescription("CmdOrCtrl+Alt+,"); d != "" {
+			t.Errorf("a shortcut without a description got %q", d)
+		}
+		fb.BindHotkey("CmdOrCtrl+Alt+,", "Ctrl+Alt+,") // nobody listens
+		fb.BindHotkey(acc, "")                         // the user declined it
+		fb.BindHotkey(acc, "")                         // the desktop answers again as other shortcuts change
+		fb.BindHotkey(acc, "Meta+S")                   // the user picked keys in the desktop's settings
+		fb.BindHotkey(acc, "Meta+S")
+		fb.BindHotkey(acc, "")
+	})
+	if want := []string{"", "Meta+S", ""}; !slices.Equal(got, want) {
+		t.Errorf("the shortcut heard the keys %q, want %q", got, want)
+	}
+	// A shortcut registered again starts over: it hears keys it heard before.
+	got = nil
+	GlobalShortcut.Unregister(acc)
+	if err := GlobalShortcut.RegisterWith(acc, opts, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	onMain(func() { fb.BindHotkey(acc, "") })
+	if want := []string{""}; !slices.Equal(got, want) {
+		t.Errorf("registered again, the shortcut heard the keys %q, want %q", got, want)
+	}
+}
+
 // TestGlobalShortcutRegisterRace: calls that register the same
 // accelerator at once bind it once, and Unregister leaves nothing of the
 // shortcut behind.

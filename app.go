@@ -778,3 +778,4 @@ func (appHandler) HotkeyPressed(id int)          { GlobalShortcut.pressed(id) }
 func (appHandler) NotificationClicked(id string) { notificationClicked(id) }
 
 func (appHandler) NetworkChanged(s platform.NetworkStatus) { Network.changed(networkStatus(s)) }
+func (appHandler) HotkeyBound(id int, keys string)         { GlobalShortcut.bound(id, keys) }
