@@ -4150,7 +4150,9 @@ either.
     It lays out a paragraph at a time with `ShapeRichTextWith`, keeping
     each layout for the runs, style and composition it was made of, and
     places them by heights in two Fenwick trees from an anchor paragraph,
-    as a text area does. Every edit goes through the document, as a step
+    as a text area does: the first in view, or the caret's while the editor
+    is focused and scrolled, which keeps the line being typed still as
+    what is above it grows. Every edit goes through the document, as a step
     of undo or part of the action's; typing joins typing's step.
     Attachments are inline objects of the text system; a first line's
     indent is the layout's (`TextShape.Indent`), on the side the

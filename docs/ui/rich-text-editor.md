@@ -350,6 +350,50 @@ editor scrolls or its width changes, builds another, so the popup follows
 the caret. `ok` is false until an editor showed the document, and while the
 caret is scrolled out of view, where the popup hides.
 
+## Scrolling
+
+The editor scrolls itself: with the wheel, its scroll bar, a selection
+dragged to its edges, and to keep the caret in view. `Document.ScrollBy`
+and `Document.ScrollToParagraph` scroll the editor that showed the
+document last, as far as its text goes, and ask for a frame to paint it:
+
+| Method | Does |
+|---|---|
+| `ScrollBy(dy)` | scrolls by `dy` DIPs, down when positive, and reports whether it moved |
+| `ScrollToParagraph(i, align)` | lines paragraph `i` up with the editor's top, middle or bottom (`ui.ScrollStart`, `ui.ScrollCenter`, `ui.ScrollEnd`), or scrolls as little as shows it (`ui.ScrollNearest`), as an element's `ScrollIntoView` does |
+
+An app that drags something of its own over the text, as a block by a
+handle beside it, scrolls the editor while the pointer is near its top or
+bottom edge, as the editor does while the user drags a selection there:
+
+```go
+// y is the pointer's height in the editor's element, h the element's.
+if app.dragging {
+	switch y, h := app.dragY, app.editorH; {
+	case y < 24:
+		app.doc.ScrollBy(y - 24)
+		c.After(16 * time.Millisecond)
+	case y > h-24:
+		app.doc.ScrollBy(y - (h - 24))
+		c.After(16 * time.Millisecond)
+	}
+}
+```
+
+Both lay out what is in view as they scroll, so that `VisibleParagraphs`
+and `CaretRect` read after them give where the paragraphs and the caret
+went, and both do nothing until an editor showed the document.
+
+The editor keeps its place by the first paragraph in view: what grows
+above it, as a paragraph laid out for the first time, moves nothing on
+screen, and what grows below its top moves what is below. While the
+editor has the keyboard focus and is scrolled down its text, it keeps its
+place by the caret's paragraph instead, when that is in view, as browsers
+prefer the focused editable element (CSS Scroll Anchoring's priority
+candidates): what grows between the top of the view and the caret, as the
+room `EditorOptions.Space` leaves or an edit, moves the text above it up,
+and the line being typed stays. An editor scrolled to its top stays there.
+
 ## Typing at the edges of formats
 
 Text typed takes the attributes of the character before the caret. At the
