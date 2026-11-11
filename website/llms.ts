@@ -25,6 +25,8 @@ export async function docsAssets(repoDir: string): Promise<Map<string, string>> 
   const books = { docs: [] as string[], ui: [] as string[] }
   const full: string[] = [`# ${site.name} documentation`, site.description]
   for (const tree of trees(repoDir)) {
+    // A tree not translated yet, as in a checkout of the English docs alone.
+    if (!(await fs.stat(tree.dir).catch(() => null))) continue
     await markdownAssets(repoDir, tree.dir, tree.basePath, tree.index, assets, books, full)
   }
   assets.set("/llms.txt", [
