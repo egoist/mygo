@@ -482,7 +482,20 @@ func (ed *editor) paintLine(p *ui.Painter, r ui.Rect, f *frame, line int, g line
 				ds.paintSign(p, ed, style.sign, r.X+ed.textX-v.charWidth*1.5, y, style.number)
 			}
 		}
-		v.paintRow(p, l, row, ox, y, &f.colors, nil)
+		// The word Cmd+click goes from, as a link.
+		var link func(int, ui.Color) ui.Color
+		if a, z := ed.link[0], ed.link[1]; z > a && a >= l.start && z <= l.start+len(l.text) {
+			da, dz := l.toDisp(a-l.start, false), l.toDisp(z-l.start, false)
+			c := ct.TokenColor(TokenLink)
+			link = func(d int, cc ui.Color) ui.Color {
+				if d >= da && d < dz {
+					return c
+				}
+				return cc
+			}
+			ed.ruleRange(p, f, l, row, ox, y, da, dz, c)
+		}
+		v.paintRow(p, l, row, ox, y, &f.colors, link)
 		ed.paintWhitespace(p, f, l, row, ox, y)
 		ed.paintMarked(p, f, l, row, ox, y)
 		// Diagnostics under the text.

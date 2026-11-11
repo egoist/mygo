@@ -259,6 +259,39 @@ func (ed *editor) pointerDown(ev ui.InputEvent) bool {
 	return true
 }
 
+// textAt returns the offset of the text at a point of the element, or -1
+// past the end of a line, below the last, or off the text.
+func (ed *editor) textAt(x, y float32) int {
+	if ed.regionAt(x, y) != regionText {
+		return -1
+	}
+	cx, cy := ed.toContent(x, y)
+	off := ed.offsetAt(cx, cy)
+	if cr, ok := ed.caretRect(off); !ok || float64(cy) > float64(cr.Y+cr.H) ||
+		off == ed.view.text.LineEnd(ed.view.text.LineOf(off)) && cx > cr.X+ed.view.charWidth/2 {
+		return -1
+	}
+	return off
+}
+
+// linkAt returns the word under the pointer that a click with mods would
+// go to the definition of, as the editor's link holds it.
+func (ed *editor) linkAt(mods ui.Modifiers) [2]int {
+	if mods != ui.Cmd || ed.o.onDefinition == nil || !ed.pointerIn || ed.gesture.active || ed.scrollbar.active {
+		return [2]int{}
+	}
+	off := ed.textAt(ed.pointer.X, ed.pointer.Y)
+	if off < 0 {
+		return [2]int{}
+	}
+	extra := ed.wordChars()
+	a, z := wordAt(ed.view.text, off, extra)
+	if z <= a || classOf(firstRune(ed.view.text.Slice(a, z)), extra) != classWord {
+		return [2]int{}
+	}
+	return [2]int{a, z}
+}
+
 // extendGesture extends the selection being dragged to off.
 func (ed *editor) extendGesture(off int) {
 	g := &ed.gesture
@@ -360,18 +393,18 @@ func (ed *editor) pointerMove(ev ui.InputEvent) bool {
 		ed.hoverLine = line
 		changed = true
 	}
+	if l := ed.linkAt(ev.Mods); l != ed.link {
+		ed.link = l
+		changed = true
+	}
 	h := &ed.hover
-	off := -1
-	if ed.regionAt(ev.X, ev.Y) == regionText {
-		cx, cy := ed.toContent(ev.X, ev.Y)
-		off = ed.offsetAt(cx, cy)
-		// Past the end of a line, or below the last, is over no text.
-		// Trailing inlays are the exception: their caret deliberately stays
-		// before them, but their rendered text is still a hover target.
-		if cr, ok := ed.caretRect(off); (!ok || float64(cy) > float64(cr.Y+cr.H) ||
-			off == ed.view.text.LineEnd(ed.view.text.LineOf(off)) && cx > cr.X+ed.view.charWidth/2) &&
-			!ed.overTrailingInlay(cx, float64(cy)) {
-			off = -1
+	off := ed.textAt(ev.X, ev.Y)
+	// Trailing inlays are the exception: their caret deliberately stays
+	// before them, but their rendered text is still a hover target. Not a
+	// link's, which would underline the line's last word.
+	if off < 0 && ed.regionAt(ev.X, ev.Y) == regionText {
+		if cx, cy := ed.toContent(ev.X, ev.Y); ed.overTrailingInlay(cx, float64(cy)) {
+			off = ed.offsetAt(cx, cy)
 		}
 	}
 	if off < 0 {

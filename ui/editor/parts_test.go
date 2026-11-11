@@ -503,3 +503,34 @@ func TestCodeEditorNoPointerHover(t *testing.T) {
 		t.Fatalf("ShowHover asked %d times", asked)
 	}
 }
+
+// TestCodeEditorDefinitionLink checks that, with Cmd held over a word of
+// an editor that goes to definitions, the word shows as a link under a
+// pointing hand, and that letting go of Cmd takes it away.
+func TestCodeEditorDefinitionLink(t *testing.T) {
+	st := &State{Buffer: NewBuffer("first line\nsecond line\n")}
+	tt := ui.NewTester(func(c *ui.Context) { View(c, st).Fill() }, 600, 300)
+	tt.Frame()
+	tt.Move(st.ed.textX+st.ed.view.charWidth*2, 5)
+	tt.HoldModifiers(ui.Cmd)
+	tt.Frame()
+	if st.ed.link != ([2]int{}) || tt.Cursor() == ui.CursorPointer {
+		t.Fatalf("a link %v with no OnDefinition", st.ed.link)
+	}
+	st.OnDefinition = func(int) {}
+	tt.Frame()
+	if st.ed.link != [2]int{0, 5} || tt.Cursor() != ui.CursorPointer {
+		t.Fatalf("link %v, cursor %v over \"first\" with Cmd held", st.ed.link, tt.Cursor())
+	}
+	// The tester's moves bring no modifiers, as a move with Cmd let go.
+	tt.Move(st.ed.textX+st.ed.view.charWidth*8, 5)
+	tt.HoldModifiers(ui.Cmd)
+	if st.ed.link != [2]int{6, 10} {
+		t.Fatalf("link %v over \"line\"", st.ed.link)
+	}
+	tt.HoldModifiers(0)
+	tt.Frame()
+	if st.ed.link != ([2]int{}) || tt.Cursor() != ui.CursorText {
+		t.Fatalf("link %v, cursor %v after Cmd was let go", st.ed.link, tt.Cursor())
+	}
+}
