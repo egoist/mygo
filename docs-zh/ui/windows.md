@@ -165,3 +165,12 @@ if ui.Button(c, "Done").Clicked() {
 ## 没有 webview
 
 所有窗口都显示原生 UI 的应用不需要 webview：在 Linux 上只需要 GTK 3，不需要 WebKitGTK；在 Windows 上则不需要 WebView2 Runtime。
+
+在 Windows 上，它的可执行文件里仍有加载 WebView2 的代码，以及这些代码的字符串：`WebView2Loader.dll`、`msedgewebview2.exe`、`CreateCoreWebView2EnvironmentWithOptions`、`WEBVIEW2_USER_DATA_FOLDER`。对于没有签名的可执行文件，杀毒软件的启发式检测可能把它们当作可疑信号。构建标签 `mygo_nowebview` 让 Windows 后端不含 WebView2，可执行文件也随之小约 500 KB：
+
+```sh
+GOFLAGS=-tags=mygo_nowebview go tool mygo build -platform windows/amd64
+GOOS=windows go build -tags mygo_nowebview .
+```
+
+`mygo build` 会把 `GOFLAGS` 的标签加到它自己的标签里。带这个标签构建的应用只能显示原生 UI：显示网页的窗口（没有 `Content` 的窗口）会让 `NewWindow` panic，`Window.NewWebView` 返回错误，`WebViewAvailable` 返回 false，cookie 调用会失败。其他平台忽略这个标签。

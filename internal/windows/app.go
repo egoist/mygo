@@ -5,9 +5,7 @@ package windows
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -138,7 +136,7 @@ func New() *Backend {
 	}
 }
 
-func (b *Backend) Name() string { return "windows/webview2" }
+func (b *Backend) Name() string { return backendName }
 
 func (b *Backend) IsMainThread() bool { return currentThreadID() == mainThreadID }
 
@@ -166,66 +164,6 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	return nil
 }
 
-// startEnvironment starts creating the WebView2 environment, the first time
-// a window that shows a web page is created, and returns why it cannot,
-// such as a missing WebView2 Runtime. Windows that show native UI need
-// none: an app whose windows all do runs without the runtime. o are the
-// options of the page that needs it, nil for none.
-//
-// The environment's browser runs with unthrottledArguments when that first
-// page asked not to be throttled, and with autoplayArguments when it asked
-// to play without a user gesture: the arguments are the browser's, which
-// all the app's pages share, and a page that asks once it runs is too
-// late, which the log tells.
-func (b *Backend) startEnvironment(o *platform.WindowOptions) error {
-	unthrottled := o != nil && o.NoBackgroundThrottling
-	autoplay := o != nil && o.Autoplay
-	if b.envStarted {
-		if unthrottled && !b.envUnthrottled && !b.envWarned {
-			b.envWarned = true
-			log.Print("mygo: ThrottlingOff of a page shown after the first one: WebView2's browser already runs without the arguments that keep hidden pages running; give the option to the first window or web view that shows a page")
-		}
-		if autoplay && !b.envAutoplay && !b.envAutoplayWarned {
-			b.envAutoplayWarned = true
-			log.Print("mygo: AutoplayAllow of a page shown after the first one: WebView2's browser already runs without the argument that lets pages play sound without a user gesture; give the option to the first window or web view that shows a page")
-		}
-		return nil
-	}
-	dir := os.Getenv("LOCALAPPDATA")
-	if dir == "" {
-		dir = os.TempDir()
-	}
-	userData := filepath.Join(dir, sanitize(b.name), "WebView2")
-	_ = os.MkdirAll(userData, 0o755)
-	language := ""
-	if len(b.languages) > 0 {
-		language = b.languages[0]
-	}
-	// What the first page asked for counts from now, so that a page shown
-	// while the environment is being made isn't told it is too late.
-	b.envUnthrottled, b.envAutoplay = unthrottled, autoplay
-	err := createEnvironment(userData, language, browserArguments(unthrottled, autoplay), func(env uintptr, withArgs bool, err error) {
-		b.env, b.envErr = env, err
-		if err != nil || !withArgs {
-			b.envUnthrottled, b.envAutoplay = false, false
-		}
-		if err != nil {
-			log.Print(err)
-			b.envResult.Store(2)
-		} else {
-			b.envResult.Store(1)
-		}
-		waiters := b.envWaiters
-		b.envWaiters = nil
-		for _, fn := range waiters {
-			fn()
-		}
-	})
-	// A runtime installed later is found by the next window.
-	b.envStarted = err == nil
-	return err
-}
-
 // whenEnvironment runs fn once the WebView2 environment, which
 // startEnvironment started, exists (or failed).
 func (b *Backend) whenEnvironment(fn func()) {
@@ -234,20 +172,6 @@ func (b *Backend) whenEnvironment(fn func()) {
 		return
 	}
 	b.envWaiters = append(b.envWaiters, fn)
-}
-
-func sanitize(name string) string {
-	out := []rune{}
-	for _, r := range name {
-		if r < ' ' || r == '<' || r == '>' || r == ':' || r == '"' || r == '/' || r == '\\' || r == '|' || r == '?' || r == '*' {
-			r = '_'
-		}
-		out = append(out, r)
-	}
-	if len(out) == 0 {
-		return "MyGo"
-	}
-	return string(out)
 }
 
 func (b *Backend) Run() error {

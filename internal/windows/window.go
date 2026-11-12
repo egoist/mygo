@@ -266,7 +266,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	}
 	w.skipTaskbar = o.SkipTaskbar // applied once the taskbar button exists
 	w.layoutControls()
-	if !o.Surface {
+	if webViewBuilt && !o.Surface {
 		b.whenEnvironment(w.createWebView)
 	}
 	return w, nil
@@ -537,7 +537,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			return 0, false
 		}
 		procKillTimer.Call(w.hwnd, timerWebView)
-		w.createWebView()
+		if webViewBuilt {
+			w.createWebView()
+		}
 		return 0, true
 	case wmSize:
 		if !w.reframing { // SetFullScreen lays the window out once it is done

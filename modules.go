@@ -1114,7 +1114,8 @@ func NotificationsSupported() bool {
 // Linux by loading WebKitGTK. A runtime that is there but broken still
 // reports true; the window then reports calls that need its page as
 // failed. Once a window showing a page started the runtime, it reports
-// whether that worked.
+// whether that worked. A Windows app built with the tag mygo_nowebview,
+// which leaves WebView2 out, reports false.
 func WebViewAvailable() bool { return backend().WebViewAvailable() }
 
 // NewNotification creates a notification; call Show to display it.

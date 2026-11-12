@@ -213,6 +213,7 @@ mygo keygen [flags]
 |---|---|
 | `CGO_ENABLED` | 未设置或为空时默认为 `0`；对于需要 cgo 的应用依赖，设为 `1`，包括在 `mygo dev`、`mygo build` 和 `mygo generate` 中 |
 | `MYGO_LDFLAGS` | `mygo build` 的构建所用的额外 `-ldflags`，加在它自己使用的 `-ldflags` 之后，例如 `-X example.com/app/internal/crash.DSN=…` 或 `-buildid=`；按引号外的空格拆分，和 `go build -ldflags` 的拆分方式一样 |
+| `GOFLAGS` | Go 的参数；`mygo build` 会把其中 `-tags=…` 的标签加到它自己的标签里，例如用 `-tags=mygo_nowebview` 构建[不含 WebView2](ui/windows.md#没有-webview) 的 Windows 应用 |
 | `MYGO_INSPECTOR` | `1` 让 `mygo build` 的生产构建保留[原生 UI 的检查器](ui/inspector.md)，默认的生产构建不含它 |
 | `MYGO_UPDATER_PRIVATE_KEY` | 用于为更新签名的私钥，供 `mygo build` 使用 |
 | `MYGO_WINDOWS_CERTIFICATE_PASSWORD` | `windows.certificate` 的密码，供 `mygo build` 使用 |

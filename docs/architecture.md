@@ -616,6 +616,22 @@ features GTK 4 lacks become X11-only code beside it.
   User data lives in `%LOCALAPPDATA%\<name>\WebView2`. The direct path applies
   `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and `WEBVIEW2_USER_DATA_FOLDER` as
   the loader does; it does not read the channel variables or policy keys.
+- **Without WebView2 (`mygo_nowebview`).** What creates the environment
+  (`startEnvironment`, `createEnvironment`, the loader and the runtime's
+  lookup, `WebViewAvailable`) is in `webview2_env.go`, the only file
+  that imports `internal/webview2`. The tag `mygo_nowebview` builds
+  `webview2_env_off.go` instead: `startEnvironment` returns
+  `errBuiltWithoutWebView`, so `NewWindow` of a page fails (and
+  `mygo.NewWindow` panics with it), as do `NewWebView` and the cookie
+  calls, and `WebViewAvailable` is false. Every call of `createWebView`
+  is behind the constant `webViewBuilt`, false there, so the compiler
+  drops it, and the linker the code that creates and drives web views
+  (some 500 KB of `examples/counter-native`) and the strings antivirus
+  heuristics flag (`WebView2Loader.dll`, `msedgewebview2.exe`,
+  `CreateCoreWebView2EnvironmentWithOptions`, `WEBVIEW2_USER_DATA_FOLDER`).
+  A new path to a web view goes behind `webViewBuilt` too. For native-UI-only
+  apps, which pass it in `GOFLAGS` (`mygo build` adds those tags to its
+  own); CI vets the backend with it.
 - **Custom schemes** load from `http://<scheme>.localhost/`, and their
   other hosts from `http://<host>.<scheme>.localhost/` (`internal/schemehost`:
   hosts of DNS labels, lower-cased, without a port), which WebView2

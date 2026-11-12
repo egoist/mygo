@@ -109,6 +109,14 @@ jobs:
             # Production builds leave the inspector of native UI out.
             GOOS=$os go vet -tags mygo_noinspector ./...
           done
+          # Native-UI-only Windows apps can leave WebView2 out, with the
+          # strings antivirus heuristics flag.
+          GOOS=windows go vet -tags mygo_nowebview ./...
+          GOOS=windows go build -tags mygo_nowebview -o "$RUNNER_TEMP/nowebview.exe" ./examples/counter-native
+          if grep -qaE 'WebView2Loader\.dll|msedgewebview2\.exe|CreateCoreWebView2EnvironmentWithOptions|WEBVIEW2_USER_DATA_FOLDER|internal/webview2' "$RUNNER_TEMP/nowebview.exe"; then
+            echo "a mygo_nowebview build still links WebView2" >&2
+            exit 1
+          fi
           GOOS=freebsd go build ./...
           # 32-bit Windows and Linux have no backend, but compile.
           GOOS=windows GOARCH=386 go build ./...

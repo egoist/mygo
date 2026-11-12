@@ -285,3 +285,21 @@ if ui.Button(c, "Done").Clicked() {
 
 An app whose windows all show native UI needs no webview: on Linux it needs
 GTK 3 alone, not WebKitGTK, and on Windows no WebView2 Runtime.
+
+On Windows its executable still has the code that would load WebView2,
+and that code's strings: `WebView2Loader.dll`, `msedgewebview2.exe`,
+`CreateCoreWebView2EnvironmentWithOptions`, `WEBVIEW2_USER_DATA_FOLDER`.
+For an unsigned executable, antivirus heuristics may take those for a
+signal. The build tag `mygo_nowebview` leaves WebView2 out of the Windows
+backend, and some 500 KB with it:
+
+```sh
+GOFLAGS=-tags=mygo_nowebview go tool mygo build -platform windows/amd64
+GOOS=windows go build -tags mygo_nowebview .
+```
+
+`mygo build` adds the tags of `GOFLAGS` to its own. Built with the tag, the
+app shows native UI only: `NewWindow` panics for a window that shows a page
+(one without `Content`), `Window.NewWebView` returns an error,
+`WebViewAvailable` reports false, and cookie calls fail. Other platforms
+ignore the tag.
