@@ -158,6 +158,15 @@ func (s *System) Full() bool {
 	return s.full[0] || s.full[1]
 }
 
+// MaskFull reports whether the coverage atlas left out a glyph or mask,
+// as distinct from the color atlas. A painter can then release large
+// path masks in favor of tiles before making room for the final retry.
+func (s *System) MaskFull() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.full[0]
+}
+
 // MakeRoom makes room in the atlases that filled up: it keeps what the
 // frame being painted drew, growing the atlas when that and what the frame
 // still needs take much of it, or when room made for the frame before did
@@ -471,10 +480,13 @@ func (s *System) leftOut(color bool, w, h int) {
 // Mask returns a coverage mask cached under key in the mask atlas,
 // drawing it when it is not: draw returns its size and one byte per pixel.
 // Icons and other vector shapes use it.
+// If the dimensions cannot fit the current atlas, draw may return nil
+// pixels: the miss records that size for MakeRoom without rasterizing it.
 //
 // A mask a frame draws for the first time may be one frame of an
 // animation, never drawn again: it lasts for that frame only, in the
-// atlas's transient room, and is cached once a later frame draws it too.
+// atlas's transient room. Later frames try to cache it in lasting room,
+// falling back to transient room when that is full.
 func (s *System) Mask(key uint64, draw func() (w, h int, pix []byte)) GlyphImage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -491,18 +503,34 @@ func (s *System) Mask(key uint64, draw func() (w, h int, pix []byte)) GlyphImage
 	}
 	last, seen := s.recent[key]
 	lasting := seen && last != s.frame
+	// Remember repeated requests through recovery paints, even when they
+	// fail or can only use transient room. A later attempt may find space
+	// in a lasting shelf that has since been compacted.
+	seenAt := s.frame
+	if lasting {
+		seenAt--
+	}
 	w, h, pix := draw()
 	if w <= 0 || h <= 0 {
 		return GlyphImage{}
 	}
 	var x, y int
 	var ok bool
-	if lasting {
-		x, y, ok = s.MaskAtlas.Alloc(w, h)
-	} else {
-		x, y, ok = s.MaskAtlas.AllocTransient(w, h)
+	if pix != nil {
+		if lasting {
+			x, y, ok = s.MaskAtlas.Alloc(w, h)
+			if !ok {
+				x, y, ok = s.MaskAtlas.AllocTransient(w, h)
+				if ok {
+					lasting = false
+				}
+			}
+		} else {
+			x, y, ok = s.MaskAtlas.AllocTransient(w, h)
+		}
 	}
 	if !ok {
+		s.recent[key] = seenAt
 		s.leftOut(false, w, h)
 		if s.outMasks == nil {
 			s.outMasks = map[uint64]struct{}{}
@@ -517,7 +545,7 @@ func (s *System) Mask(key uint64, draw func() (w, h int, pix []byte)) GlyphImage
 		s.masks[key] = &atlasEntry{g, s.frame}
 	} else {
 		s.transient[key] = g
-		s.recent[key] = s.frame
+		s.recent[key] = seenAt
 		s.transientUses++
 	}
 	return g
@@ -533,6 +561,9 @@ func (s *System) Unkeep(keys []uint64) {
 	for _, k := range keys {
 		if e, ok := s.masks[k]; ok && e.used == s.frame {
 			e.used = s.frame - 1
+			// If a recovery paint needs it again, it is still a repeated
+			// request and may share the room left in lasting shelves.
+			s.recent[k] = s.frame - 1
 		}
 	}
 }

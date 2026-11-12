@@ -715,6 +715,8 @@ func (rt *engine) runFrame() {
 	rt.c.titleBar = rt.titleBar()
 	rt.c.vibrancy = rt.host.vibrancy()
 	rt.text.BeginFrame()
+	rt.paths.large = rt.paths.large[:0]
+	rt.paths.switching = false
 	rt.gen = rt.text.Generation()
 	rt.painted = [3]float32{w, h, scale}
 	rt.animating, rt.repainting, rt.repaintAt = false, false, time.Time{}
@@ -874,7 +876,7 @@ func (rt *engine) runFrame() {
 	for try := 0; try < 2 && rt.text.Full(); try++ {
 		// The glyph atlas filled up and left some out: make room, keeping
 		// what the frame draws, and paint it again.
-		rt.text.MakeRoom()
+		rt.makeRoom(try == 1)
 		rt.paint(root, w, h, scale)
 	}
 	if checkBuilt != nil {
@@ -1109,6 +1111,8 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	start := time.Now()
 	rt.c.now = rt.frameTime()
 	rt.text.BeginFrame()
+	rt.paths.large = rt.paths.large[:0]
+	rt.paths.switching = false
 	rt.repainting, rt.repaintAt = false, time.Time{}
 	// What the last frame painted outside Draw callbacks that asked to be
 	// painted again, as a content transition, moves only painted whole.
@@ -1123,7 +1127,7 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 		rt.paint(root, w, h, scale)
 	}
 	for try := 0; try < 2 && rt.text.Full(); try++ {
-		rt.text.MakeRoom()
+		rt.makeRoom(try == 1)
 		rt.paint(root, w, h, scale)
 	}
 	if checkBuilt != nil {
@@ -1136,6 +1140,23 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	rt.text.EndFrame()
 	rt.next()
 	rt.stats.end(rt)
+}
+
+// makeRoom prepares a recovery paint. On the last try, a still-full
+// coverage atlas needs the whole paths to draw as tiles: the allocation
+// that failed may be a tile, icon or glyph, not another whole path mask.
+func (rt *engine) makeRoom(last bool) {
+	ps := &rt.paths
+	switching := ps.switching || ps.crowded < rt.paints
+	if last && switching && len(ps.large) > 0 && rt.text.MaskFull() {
+		ps.switching = true
+		ps.crowded = rt.paints + pathCrowdedPaints
+		// Cached tiles can strand room in lasting shelves that new tiles
+		// cannot use. Release them when switching from whole masks, but
+		// keep their compacted layout once paths already draw as tiles.
+		rt.text.Unkeep(ps.large)
+	}
+	rt.text.MakeRoom()
 }
 
 // endPass forgets the input the pass handled.

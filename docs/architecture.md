@@ -4979,9 +4979,21 @@ either.
   would not show. A path whose mask finds no room draws as tiles at once,
   and the runtime's repaint (`System.MakeRoom`) draws the frame's large
   paths as tiles, which pack eight to a row of the largest atlas: the
-  room made lets go of the masks of those the paint drew before
+  room made lets go of the masks of those the frame's paints drew before
   (`System.Unkeep`), which it would keep as the frame drew them, and
-  which would leave the tiles no room. On the
+  which would leave the tiles no room. A mask wider or taller than the
+  current atlas (including its padding pixel) does not start that lasting
+  tiled mode: the atlas can grow to its dimensions, and other paths keep
+  trying whole masks so their dimensions guide that growth too, without
+  rasterizing bitmaps whose dimensions cannot fit yet. If the
+  coverage atlas is still full before the last recovery paint, the runtime
+  releases large paths' masks and switches to tiles: a tile, icon or glyph
+  may have found no room, without a whole path mask failing. Cached tiles
+  go too when switching to tiled mode, so their lasting shelves leave room
+  for transient tiles. Already-tiled frames keep that cache for compaction;
+  repeated mask requests can use lasting shelves even if their first
+  allocation failed or their cached mask was released, falling back to
+  transient shelves when only those have room. On the
   pixel grid tiles show the pixels of one mask; under a transform off
   it, a faint line where they meet. `Path.Contains` counts the winding
   of the path flattened at four times its scale; an element's `HitTest`,

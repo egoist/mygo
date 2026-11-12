@@ -496,11 +496,14 @@ type paths struct {
 	// paths larger than a tile whose masks the atlas would hold: it
 	// could not hold a path's mask lately (pathCrowdedPaints).
 	crowded uint64
-	// large holds the keys of the masks of paths larger than a tile that
-	// paint largePaint drew, which its repaint draws as tiles if the
-	// atlas fills.
-	large      []uint64
-	largePaint uint64
+	// large holds the keys of whole masks and tiles of large paths drawn
+	// this frame, including earlier recovery paints. Both must go when
+	// crowded: lasting and transient shelves pack separately.
+	large []uint64
+	// switching records a transition to crowded mode in this frame.
+	// Already-tiled frames keep their cached tiles so MakeRoom can pack
+	// them together instead of allocating them again in drawing order.
+	switching bool
 }
 
 // pathJob is the mask drawPath asks the text system for, which draws it
@@ -648,9 +651,6 @@ func (p *Painter) drawPathPaint(f *flatPath, width float32, c Color, g *LinearGr
 	sum, large := hs.Sum64(), w > pathTile || h > pathTile
 	tiled := w > pathMaskMax || h > pathMaskMax || large && p.rt.paths.crowded >= p.rt.paints
 	ps := &p.rt.paths
-	if ps.largePaint != p.rt.paints {
-		ps.large, ps.largePaint = ps.large[:0], p.rt.paints
-	}
 	if !tiled {
 		if p.pathMask(sum, f, hw, x0, y0, w, h, false, tint) {
 			if large {
@@ -664,14 +664,26 @@ func (p *Painter) drawPathPaint(f *flatPath, width float32, c Color, g *LinearGr
 			// those this paint drew before go as room is made: kept, as
 			// the frame drew them, they could leave the tiles no room,
 			// and the frame would show none of them.
-			ps.crowded = p.rt.paints + pathCrowdedPaints
-			p.rt.text.Unkeep(ps.large)
+			// A mask wider or taller than the current atlas only needs
+			// growth, which MakeRoom accounts for. Do not make that a
+			// lasting crowding decision: keep trying whole masks so their
+			// dimensions guide growth too. Include Alloc's padding pixel.
+			a := p.rt.text.MaskAtlas
+			if w < a.W && h < a.H {
+				ps.switching = ps.switching || ps.crowded < p.rt.paints
+				ps.crowded = p.rt.paints + pathCrowdedPaints
+				if ps.switching {
+					p.rt.text.Unkeep(ps.large)
+				}
+			}
 			tiled = large
 		}
 	}
 	if tiled && !p.pathTiles(sum, f, hw, x0, y0, w, h, tint) && w <= pathMaskMax && h <= pathMaskMax {
 		// Too many tiles of it show to hold, which one mask may not be.
-		p.pathMask(sum, f, hw, x0, y0, w, h, false, tint)
+		if p.pathMask(sum, f, hw, x0, y0, w, h, false, tint) {
+			ps.large = append(ps.large, sum)
+		}
 	}
 	if int32(len(p.s.Glyphs)) == start {
 		return
@@ -823,7 +835,10 @@ func (p *Painter) pathTiles(key uint64, f *flatPath, hw, x0, y0 float32, w, h in
 		for c := c0; c < c1; c++ {
 			tx, tw := c*t, min(t, w-c*t)
 			if reached[(r-r0)*cols+c-c0] {
-				p.pathMask(tileKey(key, tx, ty, tw, th), f, hw, x0+float32(tx), y0+float32(ty), tw, th, false, tint)
+				mask := tileKey(key, tx, ty, tw, th)
+				if p.pathMask(mask, f, hw, x0+float32(tx), y0+float32(ty), tw, th, false, tint) {
+					p.rt.paths.large = append(p.rt.paths.large, mask)
+				}
 				continue
 			}
 			winding, x := 0, float32(tx)+0.5
@@ -835,7 +850,10 @@ func (p *Painter) pathTiles(key uint64, f *flatPath, hw, x0, y0 float32, w, h in
 			if f.inside(winding) {
 				// A mask covered whole, which tiles of its size share: the
 				// key of no path, at no place.
-				p.pathMask(tileKey(0, -1, -1, tw, th), f, 0, x0+float32(tx), y0+float32(ty), tw, th, true, tint)
+				mask := tileKey(0, -1, -1, tw, th)
+				if p.pathMask(mask, f, 0, x0+float32(tx), y0+float32(ty), tw, th, true, tint) {
+					p.rt.paths.large = append(p.rt.paths.large, mask)
+				}
 			}
 		}
 	}
@@ -862,6 +880,12 @@ func tileKey(key uint64, x, y, w, h int) uint64 {
 // reuses: the text system copies it into its atlas.
 func (rt *engine) rasterizePath() (int, int, []byte) {
 	j := &rt.paths.job
+	// Mask holds the text system's lock while calling us. An allocation
+	// this wide or tall cannot fit, including its padding pixel: report
+	// the dimensions for growth without rasterizing a bitmap it discards.
+	if a := rt.text.MaskAtlas; j.w >= a.W || j.h >= a.H {
+		return j.w, j.h, nil
+	}
 	z := &rt.paths.raster
 	n := j.w * j.h
 	if cap(rt.paths.pix) < n {

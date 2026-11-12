@@ -440,8 +440,8 @@ type System struct {
 	runs  map[runKey]*atlasEntry
 	masks map[uint64]*atlasEntry
 	// transient holds the masks drawn for the frame being painted alone,
-	// recent the frame each of them was last drawn in, and transientUses
-	// counts the times Mask returned one of them (TransientUses).
+	// recent a frame each was requested in (failed requests too), and
+	// transientUses counts the times Mask returned one of them (TransientUses).
 	transient     map[uint64]GlyphImage
 	recent        map[uint64]uint64
 	transientUses uint64

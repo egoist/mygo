@@ -166,13 +166,6 @@ func TestPathsTheAtlasHoldsDrawFromOneMask(t *testing.T) {
 			})
 		}, 1600, 100)
 		tt.SetScale(2)
-		// The Tester's atlas starts small: with no crowded window, the
-		// band's mask is tried and left out every frame, which grows the
-		// atlas a step a frame until it holds it.
-		for i := 0; i < 16 && len(tt.rt.scene.Glyphs) != 1; i++ {
-			tt.rt.paths.crowded = 0
-			tt.Frame()
-		}
 		if n := len(tt.rt.scene.Glyphs); n != 1 {
 			t.Errorf("transformed %v, the path draws %d masks", moved, n)
 		}
@@ -271,16 +264,8 @@ func TestCrowdedPathsDrawAsTilesForAWhile(t *testing.T) {
 		r.Render(s)
 		return r.Image.RGBA()
 	}
-	// The Tester's atlas starts small: with no crowded window, the long
-	// wire's mask is tried and left out every frame, which grows the
-	// atlas a step a frame until it holds it, so that whole draws from
-	// one.
-	for i := 0; i < 16; i++ {
-		tt.rt.paths.crowded = 0
-		tt.Frame()
-		if long, _ := masks(); long == 1 {
-			break
-		}
+	if long, short := masks(); long != 1 || short != 1 {
+		t.Fatalf("before crowding, the long wire draws from %d masks, the short one from %d", long, short)
 	}
 	whole := pixels()
 	tt.rt.paths.crowded = tt.rt.paints + pathCrowdedPaints
