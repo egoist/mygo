@@ -97,14 +97,12 @@ func (m *mdReader) block(i int, st ParagraphStyle, depth int) {
 		// A row a paragraph, its cells apart by tabs, as many as the
 		// header has: GitHub's tables pad short rows and drop what's past.
 		cols := columnsOf(b.Align)
-		first := true
 		for row := range m.d.Children(i) {
 			rs := st
 			rs.Heading, rs.Row, rs.Columns = 0, BodyRow, cols
-			if first {
+			if m.d.Block(row).Header {
 				rs.Row = HeaderRow
 			}
-			first = false
 			p := Paragraph{Style: rs}
 			k := 0
 			for cell := range m.d.Children(row) {
