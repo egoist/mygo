@@ -365,4 +365,13 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/openbee.jpg",
   },
+  {
+    name: "Glide",
+    description:
+      "A lightweight native desktop word translation tool that supports macOS and Windows.",
+    url: "https://github.com/anghunk/glide",
+    author: "anghunk",
+    mode: "native",
+    image: "/showcase/glide.png",
+  },
 ]
