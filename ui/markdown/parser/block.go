@@ -159,7 +159,11 @@ func (d *Document) edit(from, to int, text string) {
 		if int(d.blocks[j].parse.firstLine) > from {
 			break
 		}
-		prev, k = k, j
+		// A table made of a paragraph's last line goes with the paragraph.
+		if d.blocks[j].parse.joined == 0 {
+			prev = k
+		}
+		k = j
 	}
 	at, off := 1, 0
 	if prev > 0 {
