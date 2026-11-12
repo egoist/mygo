@@ -227,6 +227,7 @@ type editor struct {
 	complete completions
 	snippet  *snippetSession
 	hover    hover
+	popup    popup
 	diags    []Diagnostic
 	gitDiff  *gitDiff
 	brackets bracketCache
