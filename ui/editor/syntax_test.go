@@ -433,6 +433,30 @@ func TestLanguageCommentsAndBrackets(t *testing.T) {
 	}
 }
 
+// Emphasis cannot pair with a delimiter outside its content block.
+func TestTypstSpanContentBoundary(t *testing.T) {
+	for _, c := range []struct {
+		name, line, want string
+	}{
+		{"strong", "#f[*a] b*", "meta(#)fn(f)punct([)text(*a)punct(])text(b*)"},
+		{"emphasis", "#f[_a] b_", "meta(#)fn(f)punct([)text(_a)punct(])text(b_)"},
+		{"nested boundary", "#f[#g[*a] b*]", "meta(#)fn(f)punct([)meta(#)fn(g)punct([)text(*a)punct(])text(b*)punct(])"},
+		{"paired", "#f[*a* _b_] after", "meta(#)fn(f)punct([)strong(*a*)em(_b_)punct(])text(after)"},
+		{"escaped bracket", `#f[*a\] b*]`, `meta(#)fn(f)punct([)strong(*a)esc(\])strong(b*)punct(])`},
+		{"nested brackets", "#f[*a [b] c*]", "meta(#)fn(f)punct([)strong(*a)punct([)strong(b)punct(])strong(c*)punct(])"},
+		{"raw bracket", "#f[*a `]` b*]", "meta(#)fn(f)punct([)strong(*a)code(`]`)strong(b*)punct(])"},
+		{"string bracket", `#f[*a #g("]") b*]`, `meta(#)fn(f)punct([)strong(*a)meta(#)fn(g)punct(()str("]")punct())strong(b*)punct(])`},
+		{"comment bracket", "#f[*a /* ] */ b*]", "meta(#)fn(f)punct([)strong(*a)comment(/* ] */)strong(b*)punct(])"},
+		{"top level bracket", "*a] b*", "strong(*a] b*)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := lexLines(LanguageNamed("typst").Tokenizer, c.line); got != c.want {
+				t.Errorf("%q:\n got %s\nwant %s", c.line, got, c.want)
+			}
+		})
+	}
+}
+
 // Typst's tokens cover the line they are of, at the boundaries of its
 // characters, however its markup, code and math nest in each other, and its
 // state fits the 40 bits Markdown keeps for the code of its blocks.

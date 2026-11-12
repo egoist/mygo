@@ -77,11 +77,13 @@ type typstLine struct {
 	// that closes it, or -1.
 	spanEnd  int
 	spanKind TokenKind
+	// A span's lookahead follows the lexer without emitting tokens.
+	lookahead bool
 }
 
 // add ends a token of kind k at end, unless it has no width.
 func (l *typstLine) add(end int, k TokenKind) {
-	if end > 0 {
+	if end > 0 && !l.lookahead {
 		l.out.add(end, k)
 	}
 }
@@ -97,20 +99,7 @@ func (lx *typstLexer) Tokenize(line string, state uint64, tokens []Token) ([]Tok
 			// Every step moves on, or ends an embedded expression.
 			break
 		}
-		switch {
-		case l.raw != 0:
-			i = l.rawBody(i, l.raw)
-		case l.comment > 0:
-			i = l.inComment(i)
-		case l.str:
-			i = l.stringBody(i)
-		case l.embed != typstNone || l.inCode():
-			i = l.code(i)
-		case l.ctx() == typstMath:
-			i = l.math(i)
-		default:
-			i = l.markup(i)
-		}
+		i = l.next(i)
 	}
 	l.add(n, TokenText)
 	// An embedded expression ends with the line, unless a bracket holds
@@ -119,6 +108,24 @@ func (lx *typstLexer) Tokenize(line string, state uint64, tokens []Token) ([]Tok
 		l.embed = typstNone
 	}
 	return l.out.toks, l.pack()
+}
+
+// next lexes the next token, or ends an embedded expression at i.
+func (l *typstLine) next(i int) int {
+	switch {
+	case l.raw != 0:
+		return l.rawBody(i, l.raw)
+	case l.comment > 0:
+		return l.inComment(i)
+	case l.str:
+		return l.stringBody(i)
+	case l.embed != typstNone || l.inCode():
+		return l.code(i)
+	case l.ctx() == typstMath:
+		return l.math(i)
+	default:
+		return l.markup(i)
+	}
 }
 
 // ctx returns the kind of the innermost bracket open: content outside any.
@@ -426,24 +433,31 @@ func (l *typstLine) rawStart(i int) int {
 	return l.rawBody(j, run)
 }
 
-// span lexes the text between the * or _ at i and the next one as strong or
-// emphasized, and reports whether there is one.
+// span finds a closing * or _ in the same content block. Lookahead uses
+// the lexer so brackets and delimiters in code, raw text and comments
+// cannot close the block or the span.
 func (l *typstLine) span(i int) bool {
 	line, n := l.line, len(l.line)
 	c := line[i]
-	for j := i + 1; j < n; j++ {
-		switch {
-		case line[j] == '\\':
-			j++
-		case line[j] == c && !typstInWord(line, j):
-			l.spanEnd = j
-			l.spanKind = TokenStrong
-			if c == '_' {
-				l.spanKind = TokenEmphasis
+	// An end past the line keeps lookahead from starting another span.
+	probe := typstLine{typstState: l.typstState, lx: l.lx, line: line,
+		markerAt: -1, spanEnd: n, lookahead: true}
+	for j := i + 1; j < n; {
+		if probe.raw == 0 && probe.comment == 0 && !probe.str && probe.embed == typstNone && probe.ctx() == typstContent && probe.depth == l.depth {
+			if line[j] == ']' && probe.depth > 0 {
+				return false
 			}
-			l.add(i+1, l.spanKind)
-			return true
+			if line[j] == c && !typstInWord(line, j) {
+				l.spanEnd = j
+				l.spanKind = TokenStrong
+				if c == '_' {
+					l.spanKind = TokenEmphasis
+				}
+				l.add(i+1, l.spanKind)
+				return true
+			}
 		}
+		j = probe.next(j)
 	}
 	return false
 }
