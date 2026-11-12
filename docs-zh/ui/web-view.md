@@ -54,7 +54,7 @@ if app.tab == "docs" {
 
 ## 它的盒子
 
-web 视图没有固有尺寸。元素在容器的交叉轴上拉伸（`AlignSelf(Stretch)`），主轴上的空间则由 `Grow` 或指定尺寸决定。页面显示在元素的内容盒内，即边框和内边距之内；周围照常绘制边框、内边距区域和元素背景，圆角取边框内缘由 `Radius` 决定的形状。页面也会裁剪到这些圆角，即使下方没有绘制内容（例如透明窗口），页面也不会超出圆角，只有圆角以内的指针事件才会传给页面。周围的滚动容器和裁剪区域会像处理其他元素一样裁剪页面，滚出视口的 web 视图会隐藏。`Opacity` 让页面随元素一起淡入淡出，例如 `Router` 的页面淡入：页面与元素下方绘制的内容混合。如果下方没有绘制内容（例如透明窗口），页面就无法淡入淡出，因为 MyGo 无法直接设置系统 webview 的不透明度。
+web 视图没有固有尺寸。元素在容器的交叉轴上拉伸（`AlignSelf(Stretch)`），主轴上的空间则由 `Grow` 或指定尺寸决定，也可以用 [`FitContent`](#与页面一样高) 让它与页面一样高。页面显示在元素的内容盒内，即边框和内边距之内；周围照常绘制边框、内边距区域和元素背景，圆角取边框内缘由 `Radius` 决定的形状。页面也会裁剪到这些圆角，即使下方没有绘制内容（例如透明窗口），页面也不会超出圆角，只有圆角以内的指针事件才会传给页面。周围的滚动容器和裁剪区域会像处理其他元素一样裁剪页面，滚出视口的 web 视图会隐藏。`Opacity` 让页面随元素一起淡入淡出，例如 `Router` 的页面淡入：页面与元素下方绘制的内容混合。如果下方没有绘制内容（例如透明窗口），页面就无法淡入淡出，因为 MyGo 无法直接设置系统 webview 的不透明度。
 
 ```go
 ui.WebView(c, app.preview).Height(320).Radius(12).Border(1, t.Border)
@@ -143,7 +143,7 @@ article, _ := win.NewWebView(mygo.WebViewOptions{URL: "/article", ScrollToContai
 // In the view:
 ui.Scroll(c).Fill().Children(func() {
 	header(c)
-	ui.WebView(c, article).Height(app.articleHeight) // the page's height, which it tells the app
+	ui.WebView(c, article).FitContent() // as tall as its page
 	comments(c)
 })
 ```
@@ -154,6 +154,50 @@ ui.Scroll(c).Fill().Children(func() {
 - **Windows**：窗口保留 web 视图上的滚轮消息，而不转发给 WebView2。触摸板的捏合被 Windows 作为按住 Ctrl 的滚轮发送，仍然会缩放页面。
 - **Linux**：web 视图的滚动事件会在 WebKitGTK 看到它们之前发送给原生 UI。
 - **浏览器**（`GOOS=js`）没有 web 视图，所以该选项在那里不起作用。
+
+### 与页面一样高
+
+`FitContent` 让 web 视图的元素在元素自身的宽度下与页面内容一样高，并跟随内容变化：页面加载时、图片和字体到达时、页面脚本改动内容时，以及元素宽度改变时（例如窗口变窄导致文本重新换行）。邮件应用在一个滚动容器里显示一组邮件，每封邮件都是别人的 HTML，放在不受信任的页面中，夹在原生的邮件头之间：
+
+```go
+type message struct {
+	from string
+	view *mygo.WebView
+}
+
+func (app *mail) open(m *message, html string) {
+	m.view, _ = app.win.NewWebView(mygo.WebViewOptions{
+		ScrollToContainer: true,
+		Page:              mygo.PageOptions{Untrusted: true},
+	})
+	m.view.Page().LoadHTML(html, "")
+}
+
+// In the view:
+ui.Scroll(c).Fill().AlignItems(ui.Stretch).Children(func() {
+	for _, m := range app.thread {
+		ui.Text(c, m.from).Padding(8, 16)
+		ui.WebView(c, m.view).FitContent().Padding(0, 16)
+	}
+})
+```
+
+页面不需要做任何事，也无法阻止它：MyGo 用自己的脚本在页面的隔离脚本环境中测量页面。该脚本能看到页面的文档和布局，但看不到页面脚本的任何对象，并通过只属于该环境的通道告诉 MyGo。页面脚本既无法访问该脚本，也无法冒充它报告尺寸，所以不受信任的页面、或用 `LoadHTML` 加载的 HTML，不需要桥接也能决定 web 视图的高度，同时仍然无法调用 Go。高度是页面内容的高度，以页面缩放下的 DIP 计：元素的内容盒取这个高度，边框和内边距在其外，并受 `MinHeight` 和 `MaxHeight` 限制；超过 `MaxHeight` 时页面自行滚动。
+
+这个高度是内容的高度，而不是 web 视图的：放得下的内容与它的 `html` 元素一样高，比 web 视图高的内容则与它的滚动范围一样高，所以把 web 视图布局到测得的高度后，再次测量结果相同，不会再变化。`html` 与视口一样高的页面（例如 `html, body { height: 100% }` 或 `min-height: 100vh`）测得的是 web 视图的高度：溢出的内容仍会让它变高，但它不会变矮。在一种尺寸下测得一个高度、在另一种尺寸下测得另一个高度的内容（例如 web 视图比内容矮时，滚动条让文本变窄），会保持较高的那个，而不会来回变化。
+
+页面报告高度之前，元素使用给定的 `Height`；没有的话就是 1 DIP，让页面显示出来并按其宽度布局。从未显示过的 web 视图没有可用于布局的宽度，隐藏的 web 视图则保持原有高度。`WebView.OnContentSizeChanged` 会收到同样的尺寸（连同内容宽度），供自行使用这些尺寸的视图使用，`WebView.ContentSize` 返回最近一次的尺寸：
+
+```go
+m.view.OnContentSizeChanged(func(width, height float64) {
+	log.Printf("%s's message is %v DIPs tall", m.from, height)
+})
+```
+
+- **macOS**：使用独立的 `WKContentWorld`（macOS 11 及以上），并在该环境中添加脚本消息处理器。
+- **Linux**：使用 WebKitGTK 的独立脚本环境（2.22 及以上），并在该环境中注册脚本消息处理器。
+- **Windows**：使用 WebView2 开发者工具协议的隔离环境，并使用只属于该环境的绑定，与[页面留下的按键](#页面留下的按键)相同。
+- 无法测量的平台（macOS 11 以前、WebKitGTK 2.22 以前）上，元素保持其 `Height`，`OnContentSizeChanged` 不会被调用。**浏览器**（`GOOS=js`）没有 web 视图。
 
 ## 它的页面
 

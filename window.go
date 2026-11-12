@@ -322,6 +322,10 @@ type Window struct {
 	// fit sizes a window that takes its page's size (FitContent), nil
 	// for others. Main thread only.
 	fit *fitContent
+	// viewFit is what the page of a web view whose size follows its
+	// content keeps (webview_fit.go), nil until it measures it. Main
+	// thread only.
+	viewFit *viewFit
 	// host is the window a web view is in, for the page of a web view
 	// (webView); webViews are the pages of a window's web views, guarded
 	// by the lock of windows.
@@ -2163,6 +2167,12 @@ func (h *windowHandler) TitleBarChanged() {
 }
 
 func (h *windowHandler) Message(msg string) { h.w.handleMessage(msg) }
+
+func (h *windowHandler) ContentSize(msg string) {
+	if f := h.w.viewFit; f != nil {
+		f.tell(msg)
+	}
+}
 
 func (h *windowHandler) WillNavigate(nav platform.Navigation) bool {
 	if doc := h.w.html; nav.IsMainFrame && nav.Reload && doc != nil && doc.shown {

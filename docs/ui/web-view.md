@@ -83,7 +83,8 @@ if app.tab == "docs" {
 
 A web view has no size of its own. The element stretches across its
 container (`AlignSelf(Stretch)`) and takes the room along it with `Grow`,
-or a size. The page shows in the element's content box: inside its border
+or a size, or is as tall as its page with
+[`FitContent`](#as-tall-as-its-page). The page shows in the element's content box: inside its border
 and padding, which paint around it with the element's background, rounded
 as its `Radius` makes the border's inner edge. The page itself is cut to
 those corners, so none of it shows outside them, even with nothing painted
@@ -251,7 +252,7 @@ article, _ := win.NewWebView(mygo.WebViewOptions{URL: "/article", ScrollToContai
 // In the view:
 ui.Scroll(c).Fill().Children(func() {
 	header(c)
-	ui.WebView(c, article).Height(app.articleHeight) // the page's height, which it tells the app
+	ui.WebView(c, article).FitContent() // as tall as its page ([below](#as-tall-as-its-page))
 	comments(c)
 })
 ```
@@ -269,6 +270,84 @@ editor.
   WebKitGTK sees them.
 - **Browsers** (`GOOS=js`) have no web views, so the option does nothing
   there.
+
+### As tall as its page
+
+`FitContent` makes the web view's element as tall as its page's content at
+the element's width, and follows it: as the page loads, as its images and
+fonts come, as its scripts change it, and as the element gets another
+width, a narrower window wrapping its text. A mail app shows a thread of
+messages, each someone else's HTML in an untrusted page, between native
+headers, in one scroll container:
+
+```go
+type message struct {
+	from string
+	view *mygo.WebView
+}
+
+func (app *mail) open(m *message, html string) {
+	m.view, _ = app.win.NewWebView(mygo.WebViewOptions{
+		ScrollToContainer: true,
+		Page:              mygo.PageOptions{Untrusted: true},
+	})
+	m.view.Page().LoadHTML(html, "")
+}
+
+// In the view:
+ui.Scroll(c).Fill().AlignItems(ui.Stretch).Children(func() {
+	for _, m := range app.thread {
+		ui.Text(c, m.from).Padding(8, 16)
+		ui.WebView(c, m.view).FitContent().Padding(0, 16)
+	}
+})
+```
+
+The page needs to do nothing, and can't stop it: MyGo measures it with a
+script of its own in an isolated world of the page, which sees the page's
+document and layout but none of its scripts, and tells MyGo through a
+channel of that world alone. The page's scripts can neither reach the
+script nor tell a size in its place, so an untrusted page, or HTML loaded
+with `LoadHTML`, sizes its web view without the bridge, and without being
+able to call Go. The height is the page's content's, in DIPs at the page's
+zoom: the element's content box takes it, its border and padding around
+it, within its `MinHeight` and `MaxHeight`; past `MaxHeight` the page
+scrolls itself.
+
+The height is the content's, not the web view's: content that fits is as
+tall as its `html` element, and content taller than the web view as tall
+as it scrolls, so laying the web view out at the height it measured
+measures the same again and changes nothing. A page whose `html` is as
+tall as its viewport, as with `html, body { height: 100% }` or a
+`min-height: 100vh`, measures the web view's height: content overflowing
+it still makes it grow, but it does not shrink. Content that measures one
+height at one size and another at the other, as text a scrollbar narrows
+while the web view is shorter than it, keeps the taller instead of going
+back and forth.
+
+Until the page has told its height, the element has the `Height` it was
+given, or 1 DIP without one, so that the page shows and lays out at its
+width; a web view that never showed has no width to lay out at, and a
+hidden one keeps the height it had. `WebView.OnContentSizeChanged` hears
+the same sizes, with the content's width, for a view that uses them
+itself, and `WebView.ContentSize` returns the last:
+
+```go
+m.view.OnContentSizeChanged(func(width, height float64) {
+	log.Printf("%s's message is %v DIPs tall", m.from, height)
+})
+```
+
+- **macOS**: a `WKContentWorld` of its own (macOS 11 and later), with a
+  script message handler added in that world.
+- **Linux**: a script world of WebKitGTK (2.22 and later), with a script
+  message handler registered in that world.
+- **Windows**: an isolated world of WebView2's DevTools protocol, with a
+  binding of that world, as for the [keys the page
+  leaves](#keys-the-page-leaves).
+- Where the platform can't measure (macOS before 11, WebKitGTK before
+  2.22) the element keeps its `Height`, and `OnContentSizeChanged` is
+  never called. **Browsers** (`GOOS=js`) have no web views.
 
 ## Its page
 

@@ -256,6 +256,9 @@ type engine struct {
 	webPlaces []webPlace
 	webOut    []placedWebView
 	webShown  bool
+	// fitWebViews are the elements of web views as tall as their page's
+	// content (FitContent) that this pass built.
+	fitWebViews []*node
 	// platformViews stand for the views of the platform the window shows
 	// (NativeView): a few, which a slice finds them among.
 	platformViews []*platformView
@@ -766,6 +769,8 @@ func (rt *engine) runFrame() {
 			rt.painted = [3]float32{w, h, scale}
 		}
 		rt.nextRegs = rt.nextRegs[:0]
+		clear(rt.fitWebViews)
+		rt.fitWebViews = rt.fitWebViews[:0]
 		clear(rt.kept)
 		rt.c.reset(now, appW, h)
 		rt.view(&rt.c)
@@ -835,6 +840,9 @@ func (rt *engine) runFrame() {
 	}
 	rt.stats.lap(phaseBuild)
 	rt.insp.lap(0)
+	if len(rt.fitWebViews) > 0 && fitHeights != nil {
+		fitHeights(rt)
+	}
 	layoutTree(root, appW, h)
 	rt.measureFit(root)
 	if checkBuilt != nil {

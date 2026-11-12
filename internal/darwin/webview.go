@@ -408,6 +408,10 @@ func (w *window) closeWebView() {
 		if w.opts.PictureInPicture {
 			send(w.ucc, "removeScriptMessageHandlerForName:", uintptr(nsString(pipHandler)))
 		}
+		if w.fitScript != "" {
+			// The content controller keeps the delegate it gave messages.
+			send(w.ucc, "removeAllScriptMessageHandlers")
+		}
 		send(w.ucc, "removeAllUserScripts")
 		send(w.web, "stopLoading")
 		send(w.web, "setNavigationDelegate:", 0)

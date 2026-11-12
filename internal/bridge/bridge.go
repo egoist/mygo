@@ -1,7 +1,7 @@
 // Package bridge embeds the renderer runtime that MyGo injects into pages.
 //
-// bridge.js is built from ../../packages/bridge by `bun run build` and
-// committed, so building a MyGo application never requires Bun.
+// bridge.js and fit.js are built from ../../packages/bridge by `bun run
+// build` and committed, so building a MyGo application never requires Bun.
 package bridge
 
 import (
@@ -13,6 +13,15 @@ import (
 
 //go:embed bridge.js
 var source string
+
+// FitScript measures the content of a web view's page whose size follows it
+// (platform.WebView.MeasureContent), in an isolated world of its own: it
+// posts the size to platform.FitHandler. Built from
+// ../../packages/bridge/src/fit-world.ts; only apps that measure a page link
+// it.
+//
+//go:embed fit.js
+var FitScript string
 
 // Config is passed to the bridge as __MYGO_CONFIG__.
 type Config struct {

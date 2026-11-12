@@ -1,13 +1,15 @@
 // Bundles the runtime MyGo injects into every page into
-// internal/bridge/bridge.js, which the Go package embeds, and the script
+// internal/bridge/bridge.js, which the Go package embeds, the script
 // WebView2's web views in native UI run in an isolated world into
-// internal/windows/keys.js. The output is committed, so Go users never
+// internal/windows/keys.js, and the one that measures the page of a web view
+// fitting its content, in an isolated world too, into internal/bridge/fit.js. The output is committed, so Go users never
 // need Bun.
 import { join } from "node:path";
 
 const outputs: [entry: string, out: string][] = [
   ["src/bridge.ts", "../../internal/bridge/bridge.js"],
   ["src/keys-world.ts", "../../internal/windows/keys.js"],
+  ["src/fit-world.ts", "../../internal/bridge/fit.js"],
 ];
 for (const [entry, file] of outputs) {
   const out = join(import.meta.dir, file);

@@ -59,6 +59,7 @@ framework safely. Read it before changing anything under `internal/`.
 ├── page.go             Page: the web page a window shows, its loading, Eval and events
 ├── content.go          Content: windows showing native UI instead of a page
 ├── webview.go          WebView: web pages in windows of native UI, under it
+├── webview_fit.go      a web view as tall as its page's content, measured in an isolated world
 ├── ipc.go              Bind/BindAs, method calls, Event[T], CallerWindow
 ├── plugin.go           Plugin and Use: services bound as "plugin:<name>"
 ├── channel.go          Channel[T]: values streamed to a call's page
@@ -119,7 +120,8 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── inputlatency/   measures how long input takes to reach the screen in native UI (macOS)
 │   └── e2e/            GUI tests and benchmarks against the real backend (MYGO_E2E=1)
 ├── packages/           Bun workspace (with the examples' frontends):
-│   ├── bridge/         the runtime injected into pages (→ internal/bridge/bridge.js)
+│   ├── bridge/         the runtime injected into pages (→ internal/bridge/bridge.js), and the
+│                       scripts of isolated worlds (→ internal/windows/keys.js, internal/bridge/fit.js)
 │   ├── runtime/        mygo-runtime, the npm package apps and generated clients import
 │   └── cli/            mygo-cli, the npm package of the CLI, and in npm/ its
 │                       per-platform binary packages
@@ -1241,7 +1243,7 @@ without running any Go code.
 
 `PageOptions.Untrusted` (`Window.untrusted`, fixed when the window or web
 view is made) makes `isTrusted` false whatever the URL, for a plugin's UI
-served from a custom scheme. The core then drops the page's messages above
+served from a custom scheme, or someone else's HTML in a web view. The core then drops the page's messages above
 `maxUntrustedMessage` before stripping the secret, rejects its calls on
 the main thread instead of a goroutine each, ignores its drag regions,
 leaves it out of `Broadcast` and of `Emit` to the window its web view is
@@ -1251,7 +1253,11 @@ and main-frame navigations the page starts to another origin than its
 committed page's (`Window.origin`). `serveScheme` puts the asking page in
 the request's context, under the keys of `CallerWindow` and `CallerPage`,
 so a scheme's handler knows which page sent a request: that's the channel
-of untrusted pages to the app.
+of untrusted pages to the app. A web view's page that measures its content
+(`FitContent`) tells its size from an isolated world of MyGo's
+(`MeasureContent`), through a handler or a binding of that world that the
+page's scripts can't reach: the size is all that comes, and it only
+sizes the element.
 
 The message handler is reachable from every frame, while trust is decided
 by the main frame's URL, so an iframe of another origin must not be able to
@@ -4474,7 +4480,44 @@ either.
   key the page leaves unhandled comes as `WebViewKey`: the engine moves
   the focus to the web view's element, if it was elsewhere, and takes the
   key as from the keyboard (`webViewKey`), so that the shortcuts around
-  the element and the window's see it; Tab never comes. The
+  the element and the window's see it; Tab never comes. An element with
+  `FitContent` is as tall as its page's content (`webview_fit.go`): the
+  pass notes it (`fitWebViews`), and before layout `fitWebViewHeights`
+  asks its web view (`surface.FitWebView`, `SurfaceFitHeight`) for the
+  height its page last told and sets the element's `height`, journaled,
+  around it with its border and padding; 1 DIP until the page told one,
+  so that the page shows and lays out at its width, and nothing where
+  the platform can't measure. The first ask, or
+  `WebView.OnContentSizeChanged`, has the backend run `bridge.FitScript`
+  (`fit.js`, built from `packages/bridge/src/fit-world.ts`) in an
+  isolated world of the page's top frame, in its current document and
+  those it loads (`platform.WebView.MeasureContent`): a `WKContentWorld`
+  with a script message handler added in it (macOS 11+), a script world
+  of WebKitGTK with a handler registered in it
+  (`webkit_user_script_new_for_world`,
+  `webkit_user_content_manager_register_script_message_handler_in_world`,
+  2.22+), and on Windows `Page.addScriptToEvaluateOnNewDocument` with a
+  `worldName` and a binding of that world (`Runtime.addBinding`), as
+  `keys.js` has, plus `Page.createIsolatedWorld` and `Runtime.evaluate`
+  for the document already there. The script measures the root's border
+  box, or how far the content scrolls where it overflows the viewport
+  (`viewSize`), so that the height does not follow the viewport's, from a
+  `ResizeObserver` on the root and the body, a `MutationObserver`, loads,
+  fonts and `resize`, and posts `{w, h, sh, vw, vh, r}` when it changed,
+  `r` marking a measure right after the viewport's height alone changed.
+  The backends deliver it as `WindowHandler.ContentSize`, from that
+  handler of that world in the main frame only; what the bridge posts
+  never reaches it, so the page's scripts, untrusted or not, can neither
+  tell a size nor change how it is measured. The core turns it into DIPs
+  at the page's zoom (`fitContent.fit`), drops a size it has, holds one
+  marked `r` that is the size before the last one at the taller of the
+  two (content a scrollbar narrows at one height and not at the other),
+  as `measureFit` holds a flyout's, tells the listeners and has the host
+  build again. The core's side hangs off `viewFit`, made as the page
+  starts measuring (its `tell` takes `ContentSize`), and ui's off
+  `fitHeights`, which `FitContent` sets, so that apps that measure no
+  page link none of it, but for what an app with `Bind` keeps of every
+  exported method. The
   access tree has a node for each page, inside its element
   (`AccessNode.WebView`), which the backends fill with the page's own
   accessibility, as SwiftUI's `WebView` is in place. Backends:
@@ -6642,6 +6685,7 @@ which npm allows only for packages that exist: the first release uses an
 | Cookies | the session's `WKWebsiteDataStore`'s `WKHTTPCookieStore`, URLs matched in Go (`platform.CookieMatchesURL`), `Set` through `NSHTTPCookie`'s parser with a stand-in name and value; `Clear` with `removeDataOfTypes:` | the session's web context's `WebKitCookieManager` (2.42+; `get_cookies` for a URL), kept in `cookies.sqlite` of the user data directory, or of a persistent session's directory (`set_persistent_storage`, as WebKitGTK keeps them in memory otherwise); libsoup 3 or 2.4 to match WebKitGTK 4.1 or 4.0; `Clear` with `webkit_website_data_manager_clear` | `ICoreWebView2CookieManager` (`ICoreWebView2_2`) of a web view of the session's profile showing a page, a window's or one in native UI, or while there is none of a hidden web view of the profile in the app window, closed once one shows a page, once an ephemeral session's store closes, or once no call needed it for 5 s and closing it loses no cookie (a `GetCookies` finds no session cookie, nor any of an InPrivate profile, which go with WebView2's processes); a window's first navigation waits for the calls under way; `ClearBrowsingData` goes the same way; changes are polled with `GetCookies` until they show, failing after 2 s; `GetCookies(uri)`, `DeleteAllCookies`; `put_Expires` called with `comCallFloat` |
 | content rules | the default `WKContentRuleListStore`, which keeps compiled lists under an identifier of the id and a hash of the rules (looked up first, the id's others removed), on each window's `WKUserContentController`; the store's reason for a failure is in `NSHelpAnchorErrorKey` | a `WebKitUserContentFilterStore` in `content-rules` of the user data directory (2.24+), on each window's `WebKitUserContentManager` | matched in Go (`internal/contentrules`, indexed by the domains of `url-filter`s and four bytes of their literals) from `WebResourceRequested` with a `*` filter, blocked pages answered with an empty 403 and other blocked requests with a redirect to `data:`, which Chromium fails as a network error; WebSocket handshakes never reach it; `css-display-none` rules as a style sheet a document-creation script adopts, kept when the page sets `adoptedStyleSheets`; parsed on a goroutine, nothing kept |
 | `FitContent` | the bridge, as elsewhere; WebKit's private `_setSizeToContentAutoSizeMaximumSize:` is not used; native UI measures itself (`ui/fit.go`) | the bridge; native UI measures itself | the bridge; native UI measures itself |
+| a web view's `FitContent` | `fit.js` in a `WKContentWorld` of its own and a handler added in it (macOS 11+); none before | `fit.js` in a script world and a handler registered in it (2.22+); none before | `fit.js` in an isolated world of the DevTools protocol and a binding of it, as `keys.js` |
 | `Page.ThemeColor` | the bridge, as elsewhere; WKWebView's `themeColor` (macOS 12+) is not used | the bridge | the bridge |
 | `Page.ProcessID` | the web content process, `-[WKWebView _webProcessIdentifier]` (private, looked up with `respondsToSelector:`) | 0: WebKitGTK has no API for it | the browser process the app's web views share, `ICoreWebView2::get_BrowserProcessId` |
 | `Page.GPUProcessID` | WebKit's GPU process, which plays the page's sound, `-[WKWebView _gpuProcessIdentifier]` (private, looked up with `respondsToSelector:`); 0 until WebKit starts it | 0: WebKitGTK has no API for it | the GPU process of the environment, the `COREWEBVIEW2_PROCESS_KIND_GPU` entry of `ICoreWebView2Environment8`'s `GetProcessInfos`, queried for each call; 0 on runtimes without it |

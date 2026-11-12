@@ -5155,6 +5155,39 @@ func (_handle Element) Fit(f Fit) Element {
 	return wrapElement(_node.Fit(f))
 }
 
+// FitContent makes the element of a WebView as tall as its page's content
+// at the element's width, and follows the content as it changes: as the
+// page loads, as its images and fonts come, as its scripts change it, and
+// as the element gets another width. A document in a native reader shows
+// whole, the native container scrolling it, as a message of a mail thread
+// with ScrollToContainer:
+//
+//	ui.Scroll(c).Fill().AlignItems(ui.Stretch).Children(func() {
+//		for _, m := range app.thread {
+//			header(c, m)
+//			ui.WebView(c, m.view).FitContent() // an untrusted page, with ScrollToContainer
+//		}
+//	})
+//
+// The page measures its content as mygo.WebView.OnContentSizeChanged
+// tells, without the page's cooperation (an untrusted page, HTML loaded
+// with LoadHTML): the element's content box takes its height, its border
+// and padding around it, within MinHeight and MaxHeight, over a Height the
+// element has, which is its height until the page told one. With no
+// Height, the element is 1 DIP tall until then, so that the web view shows
+// and its page lays out at its width. Where the platform can't measure a
+// page (macOS before 11, WebKitGTK before 2.22, browsers, which have no web
+// views), the element keeps its Height. It does nothing to other elements.
+func (_handle Element) FitContent() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.FitContent())
+}
+
 // FixedLineHeight sets the height of lines of text in DIPs, whatever the
 // font size, as for rows of text that line up with a grid.
 func (_handle Element) FixedLineHeight(v float32) Element {
