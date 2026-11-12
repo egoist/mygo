@@ -826,11 +826,13 @@ func within(path, dir string) bool {
 // directories, and notarization rejects unsigned code anywhere. Code is
 // signed from the inside out: Mach-O files, then the bundles holding them
 // (apps, frameworks, plug-ins), whose signatures seal what they contain. A
-// real identity signs all of it. Ad hoc signing only signs what has no
-// valid signature, so that copies keep their own: Mach-O files without
-// one, which Apple silicon does not run, bundles that are not sealed, and
-// the bundles around what it signed. Code keeps the entitlements it is
-// signed with, unless macos.helperEntitlements gives it others.
+// real identity signs all of it in a production build. Ad hoc signing, and
+// a development build whatever its identity, only sign what has no valid
+// signature (keepsSignatures), so that copies keep their own: Mach-O files
+// without one, which Apple silicon does not run, bundles that are not
+// sealed, and the bundles around what it signed. Code keeps the
+// entitlements it is signed with, unless macos.helperEntitlements gives it
+// others.
 func signNestedCode(c *Config, app, identity string, production bool) error {
 	dir := filepath.Join(app, "Contents", "Resources")
 	type nested struct {
@@ -888,7 +890,7 @@ func signNestedCode(c *Config, app, identity string, production bool) error {
 	var signed []nested
 	for _, n := range list {
 		ent := entitlements[n.name]
-		if identity == "-" && ent == "" {
+		if keepsSignatures(identity, production) && ent == "" {
 			switch {
 			case !n.bundle && n.signed:
 				continue
@@ -905,6 +907,19 @@ func signNestedCode(c *Config, app, identity string, production bool) error {
 		signed = append(signed, n)
 	}
 	return nil
+}
+
+// keepsSignatures reports whether signing the code among the resources
+// leaves what is validly signed as it is. Ad hoc signing does. So does a
+// development build, signed as Xcode signs Debug builds: macOS 27 lets a
+// program signed by an Apple Development certificate see less than the same
+// program signed ad hoc or by its vendor (a copy of mihomo so re-signed no
+// longer sees other processes' sockets in net.inet.tcp.pcblist_n, whatever
+// its identifier), and a development build has no hardened runtime, so the
+// app loads libraries of any signature. A production build signs all of it,
+// as notarization wants one team and the hardened runtime everywhere.
+func keepsSignatures(identity string, production bool) bool {
+	return identity == "-" || !production
 }
 
 // nestedCodesignArgs returns the codesign arguments, before the path, that

@@ -6025,11 +6025,14 @@ make it work:
   `codesign --deep` only covers code directories and notarization rejects
   unsigned code: Mach-O files, then the bundles holding them, deepest
   first, as a bundle's signature seals what it holds (and signing its main
-  executable signs the whole bundle). A real identity signs all of it,
-  keeping the entitlements of each (`--preserve-metadata`) unless
-  `macos.helperEntitlements` names others; ad hoc signing only signs code
-  without an `LC_CODE_SIGNATURE`, and the bundles around it, so vendors'
-  signatures stay. Windows builds sign the PE images among the resources
+  executable signs the whole bundle). A real identity signs all of it in
+  a production build, keeping the entitlements of each
+  (`--preserve-metadata`) unless `macos.helperEntitlements` names others;
+  ad hoc signing, and a development build under any identity, only sign
+  code without an `LC_CODE_SIGNATURE`, and the bundles around it, so
+  vendors' signatures stay (`keepsSignatures`: macOS 27 shows a program
+  signed by an Apple Development certificate less than the same program
+  signed ad hoc or by its vendor, such as other processes' sockets). Windows builds sign the PE images among the resources
   that have no certificate table, with the app's certificate or command.
   The packages of the app may name native libraries in a
   `mygo-plugin.json` (`natives.go`, the format in `internal/nativelib`),

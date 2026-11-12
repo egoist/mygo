@@ -527,6 +527,23 @@ func TestNestedCodesignArgs(t *testing.T) {
 	}
 }
 
+func TestKeepsSignatures(t *testing.T) {
+	for _, tc := range []struct {
+		identity   string
+		production bool
+		want       bool
+	}{
+		{"-", true, true},
+		{"-", false, true},
+		{"Apple Development: X", false, true}, // mygo dev
+		{"Developer ID Application: X", true, false},
+	} {
+		if got := keepsSignatures(tc.identity, tc.production); got != tc.want {
+			t.Errorf("keepsSignatures(%q, %v) = %v", tc.identity, tc.production, got)
+		}
+	}
+}
+
 // TestBuildResources builds an app for each platform and finds its
 // resources, and only those of its platform, where the app looks for them,
 // then builds again without one.
