@@ -199,6 +199,19 @@ type ListState struct {
 	// does not open. A context menu of what a cell holds takes the
 	// right-click over it instead.
 	CellMenu func(m *Menu, row, col int)
+	// EndReached, when set, is called once a frame is laid out in which the
+	// user's scrolling (the wheel, a touchpad, the scroll bar, the keys, a
+	// drag) brought the rows in view within NearEnd rows of the end, with
+	// the last row in view: load more rows there, off the UI thread, and the
+	// frames after show them. It is called as the rows in view come near the
+	// end, not again while they stay there, and again once they left it or
+	// the rows changed in number, as when a page loaded. ScrollTo,
+	// ScrollIntoView and ScrollToEnd, the list showing first, being resized
+	// or rows coming and going do not call it, nor do rows sorted again.
+	EndReached func(last int)
+	// NearEnd is how many rows before the last count as near the end for
+	// EndReached: 0 for the last row alone.
+	NearEnd int
 
 	// The place: the first row in view, and how far the list is scrolled
 	// past its top: the row's top is that far above where the content
@@ -231,6 +244,13 @@ type ListState struct {
 	// ScrollIntoView, ScrollToEnd): a mouse wheel's notches on their way
 	// stop there (glideWheels).
 	scrolled bool
+	// userAt is the frame in which the user last scrolled the list.
+	// nearEnd tells that the rows in view are near the end and EndReached
+	// was called for them, with endRows rows; endAt is the frame it was
+	// queued in (reachEnd).
+	userAt, endAt uint64
+	nearEnd       bool
+	endRows       int
 
 	// width, gap and padTop are those the rows were placed with: the width
 	// of the rows, the gap between them, and where the first starts below
@@ -293,12 +313,13 @@ type ListState struct {
 
 // listRequest is where the app or the user asked the list to go: to row
 // at align, as little as shows it (near), to its end, or to offset y
-// (with row, when hint is set, the row to place from there).
+// (with row, when hint is set, the row to place from there). user tells
+// that the user asked, by the scroll bar or the keys (EndReached).
 type listRequest struct {
-	set, end, near, offset, hint bool
-	row                          int
-	align                        Align
-	y                            float64
+	set, end, near, offset, hint, user bool
+	row                                int
+	align                              Align
+	y                                  float64
 }
 
 type listRowID struct {
@@ -346,6 +367,13 @@ func (s *ListState) ScrollToEnd() {
 	s.scrolled = true
 }
 
+// reveal scrolls as little as shows row, as ScrollIntoView does, for the
+// user: the keys moving the choice, or assistive technology moving there.
+func (s *ListState) reveal(row int) {
+	s.ScrollIntoView(row)
+	s.req.user = true
+}
+
 // Choose chooses row, as setting *Selected does, -1 for none, and tells
 // the list that the app chose it: with a Key, the list otherwise takes
 // *Selected left at the row it chose last for its item staying chosen,
@@ -371,9 +399,10 @@ func (s *ListState) Choose(row int) {
 func (s *ListState) HoldPlace() { s.following = false }
 
 // Visible returns the first and the last row the list showed in the last
-// frame, last below first when it showed none: a list nearing the end of
-// what was loaded, say, loads more. A frame that changes them builds
-// another, for what read them.
+// frame, last below first when it showed none. A frame that changes them
+// builds another, for what read them. To load more as the user nears the
+// end of what was loaded, use EndReached, which the list calls after
+// layout, rather than reading Visible as the view builds.
 func (s *ListState) Visible() (first, last int) {
 	s.read = true
 	if !s.laidOut {
@@ -646,19 +675,21 @@ func (s *ListState) sync(e *node, n int) {
 		st.list = s
 	case st.scrollY != s.wroteY && !s.req.set && s.follows() && s.followLag.value > 0.5 && st.scrollY > s.wroteY:
 		// Scrolled toward the end it glides to: it goes on following.
+		s.userAt = rt.frame
 	case st.scrollY != s.wroteY && !s.req.set:
 		// Scrolled by the wheel, the keys, the scroll bar or the app: a
 		// step moves the rows by as much, from the place; a jump goes
 		// where the heights known put the offset, or to the end.
+		s.userAt = rt.frame
 		top := max(0, st.contentH-float64(st.h))
 		y := max(0, min(st.scrollY, top))
 		switch d := y - s.wroteY; {
 		case top > 0 && y >= top-0.5:
-			s.req = listRequest{set: true, end: true}
+			s.req = listRequest{set: true, end: true, user: true}
 		case d >= -2*float64(st.h) && d <= 2*float64(st.h):
 			s.inset += d
 		default:
-			s.req = listRequest{set: true, offset: true, y: y}
+			s.req = listRequest{set: true, offset: true, y: y, user: true}
 		}
 		s.following = top > 0 && y >= top-0.5
 	}
@@ -1103,7 +1134,7 @@ func (f *listFrame) lead(i int, pivot bool) {
 	if pivot {
 		s.pivot, s.span = i, 0
 	}
-	s.ScrollIntoView(i)
+	s.reveal(i)
 }
 
 // ExtendTo chooses the rows from the one Shift extends from to row, as a
@@ -1116,6 +1147,7 @@ func (s *ListState) ExtendTo(row int) {
 		return
 	}
 	f.extend(row, false)
+	s.req.user = false // the app's
 }
 
 // chooseRowAt notes a right-click on the row of a list with Selection
@@ -1326,7 +1358,7 @@ func (f *listFrame) navigate() {
 	switch {
 	case edit && in && !f.isHeader(*sel):
 		s.editKey, s.editAsked = f.key(*sel), true
-		s.ScrollIntoView(*sel)
+		s.reveal(*sel)
 	case enter && in:
 		o.st.markSubmitted()
 	}
@@ -1351,7 +1383,7 @@ func (f *listFrame) navigate() {
 	case how == 0:
 	case to < 0 && in:
 		// Nowhere further: the choice shows again, if it scrolled away.
-		s.ScrollIntoView(*sel)
+		s.reveal(*sel)
 	case to < 0:
 	case how == move:
 		f.choose(to)
@@ -1459,6 +1491,14 @@ func (e *node) layoutList(w, h float32) {
 	top, bottom := float64(e.border[0]), H-float64(e.border[2])
 	s.gap, s.padTop, s.border = gap, padTop, top
 	st.list = s
+	if s.req.set {
+		// The app asking the list to go somewhere takes the place of the
+		// user's scrolling in this frame, for EndReached.
+		s.userAt = 0
+		if s.req.user {
+			s.userAt = rt.frame
+		}
+	}
 	if n == 0 {
 		_, uh := boxLayout(e, cw, inf, true)
 		e.contentW, e.contentH = float64(cw+e.padX()), float64(max(uh, max(h-e.padY(), 0))+e.padY())
@@ -1777,7 +1817,7 @@ func (e *node) relayoutList(ch *node, y float64) {
 		e.st.scrollTo(e.st.scrollX, y)
 		return
 	}
-	req := listRequest{set: true, offset: true, y: y}
+	req := listRequest{set: true, offset: true, y: y, user: f.s.userAt == e.c.rt.frame}
 	for _, r := range f.rows {
 		if r.e == ch {
 			req.row, req.hint = r.i, true
@@ -1796,6 +1836,7 @@ func (s *ListState) remember(e *node, first, last int, atEnd bool, scroll float6
 	}
 	s.laidOut, s.wroteY, s.req, s.read = true, scroll, listRequest{}, false
 	s.first, s.last, s.atEnd = first, last, atEnd
+	s.reachEnd(e.c.rt, first, last, n)
 	s.following = atEnd
 	s.anchor, s.anchorKey = max(0, first), nil
 	if n == 0 {
@@ -1821,6 +1862,45 @@ func (s *ListState) remember(e *node, first, last int, atEnd bool, scroll float6
 	for _, r := range f.rows {
 		s.rows[r.e.id] = listRowID{r.i, r.key}
 	}
+}
+
+// reachEnd queues the list's EndReached for the end of the frame when
+// the user's scrolling brought the rows in view, first to last of n, near
+// the end: as they come there, and again once they left it or the rows
+// changed in number. Each layout of a frame checks, and the frame calls
+// it once, if the last left the rows near the end (callListEnds).
+func (s *ListState) reachEnd(rt *engine, first, last, n int) {
+	switch {
+	case s.EndReached == nil || last < first || last < n-1-max(s.NearEnd, 0):
+		s.nearEnd = false
+	case s.nearEnd && s.endRows == n || s.userAt != rt.frame:
+		// Called for these rows already, or brought near by the app, a
+		// resize or rows coming: the user scrolling there calls it.
+	default:
+		s.nearEnd, s.endRows = true, n
+		if s.endAt != rt.frame {
+			s.endAt = rt.frame
+			rt.listEnds = append(rt.listEnds, s)
+			rt.reachListEnds = (*engine).callListEnds
+		}
+	}
+}
+
+// callListEnds calls the EndReached of the lists queued in the frame laid
+// out whose rows in view are still near their end, and asks for a frame
+// built anew for what they changed.
+func (rt *engine) callListEnds() {
+	for _, s := range rt.listEnds {
+		if rt.closing {
+			break
+		}
+		if s.nearEnd && s.endAt == rt.frame && s.EndReached != nil {
+			rt.animating = true
+			s.EndReached(s.last)
+		}
+	}
+	clear(rt.listEnds)
+	rt.listEnds = rt.listEnds[:0]
 }
 
 // pinHeader moves the header of the section of row first, the first in

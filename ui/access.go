@@ -1220,7 +1220,7 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 		for row := s; row != nil; row = rt.states[row.parent] {
 			if l := rt.states[row.parent]; l != nil && l.list != nil {
 				if r, ok := l.list.rows[row.id]; ok {
-					l.list.ScrollIntoView(r.row)
+					l.list.reveal(r.row)
 				}
 			}
 			if row.parent == 0 {

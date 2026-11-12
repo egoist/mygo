@@ -161,7 +161,7 @@ ui.List(c, &app.chats, len(app.items)).Grow(1).Rows(func(row ui.ListRow) {
 
 ## 滚动
 
-`ScrollTo(row, align)` 把一行显示在列表的 `ui.Start`、`ui.Center` 或 `ui.End` 处，`ScrollIntoView(row)` 以最少的滚动显示它，`ScrollToEnd` 则滚到末尾，包括尚未构建的行：列表会在布局这一帧时滚动到行测量后所在的位置。`Visible` 返回视口中的第一行和最后一行，`AtEnd` 说明末尾是否显示，用于在列表接近已加载内容的末尾时加载更多。
+`ScrollTo(row, align)` 把一行显示在列表的 `ui.Start`、`ui.Center` 或 `ui.End` 处，`ScrollIntoView(row)` 以最少的滚动显示它，`ScrollToEnd` 则滚到末尾，包括尚未构建的行：列表会在布局这一帧时滚动到行测量后所在的位置。`Visible` 返回上一帧视口中的第一行和最后一行，`AtEnd` 说明上一帧末尾是否显示，用于视图要显示的内容，比如一个跳到最新消息的按钮。
 
 一个聊天：
 
@@ -179,6 +179,26 @@ ui.List(c, &app.chat, len(app.messages), func(i int) {
 	message(c, app.messages[i])
 }).Grow(1).Justify(ui.End)
 ```
+
+## 加载更多
+
+从数据库或网络分页加载长集合的列表，在用户接近已加载内容的末尾时，应在 `EndReached` 中加载下一页，而不是在构建时读取 `Visible`：当某一帧布局完成、且用户的滚动（滚轮、触控板、滚动条、按键、拖动）让视口中的行进入距末尾 `NearEnd` 行以内（0 表示只有最后一行）时，列表会调用它，并传入视口中的最后一行。在回调中开始加载，并在 UI 线程之外进行：这一帧会继续使用已有的行，加载到的行会在之后的帧中显示。
+
+```go
+app.list.Key = func(i int) any { return app.chats[i].ID }
+app.list.NearEnd = 20
+app.list.EndReached = func(last int) {
+	if app.more && !app.loading {
+		app.loading = true
+		go app.loadPage(len(app.chats)) // appends the page on the UI thread
+	}
+}
+ui.List(c, &app.list, len(app.chats), func(i int) {
+	chatRow(c, app.chats[i])
+}).Grow(1)
+```
+
+它在视口中的行接近末尾时调用一次，而不是在行停留在那里时每帧都调用；只有在行离开末尾附近之后，或行数发生变化（例如加入了一页）之后，才会再次调用。只有用户的滚动会触发它：`ScrollTo`、`ScrollIntoView` 和 `ScrollToEnd`（比如通知打开了很靠下的一条消息）、列表首次显示、改变大小或以另一个高度重新构建，以及行重新排序都不会触发。第一页没有填满列表时，列表无法滚动，因此第一页应比列表更高。
 
 ## 重新排序
 

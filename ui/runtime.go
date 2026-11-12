@@ -390,6 +390,10 @@ type engine struct {
 	listDrag    func(rt *engine)
 	cellClick   func(f *listFrame, x, y float32, mods Modifiers)
 	cellInBlock func(f *listFrame, x, y float32) bool
+	// listEnds are the lists whose EndReached the frame calls once laid
+	// out, through reachListEnds, set as the first is queued.
+	listEnds      []*ListState
+	reachListEnds func(rt *engine)
 	// pressDragger is the element around the one pressed that drags a
 	// value, which takes the press as it moves (dragMove), or 0.
 	pressDragger uint64
@@ -909,6 +913,11 @@ func (rt *engine) runFrame() {
 		h.announced = append(h.announced, rt.announcements...)
 	}
 	rt.announcements = rt.announcements[:0]
+	if len(rt.listEnds) > 0 {
+		// After the frame, as its layout found them: what they load shows
+		// in the frames after.
+		rt.reachListEnds(rt)
+	}
 	rt.next()
 	if rt.viewMoved {
 		// What a view read of whether an element is in view (watchView)

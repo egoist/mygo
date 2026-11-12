@@ -3858,6 +3858,14 @@ either.
   scroll bar's thumb keeps the content's size of when it was grabbed until
   it is let go, as rows measured meanwhile change it, and a frame that
   moved a list whose `Visible` or `AtEnd` the view read builds another.
+  `EndReached` is called after the frame is laid out (`callListEnds`,
+  before `next`, which builds another frame for what it changed): each
+  layout checks whether the rows in view are within `NearEnd` of the end
+  and whether the user scrolled the list in this frame (`userAt`, set
+  where `sync` finds an offset the list did not write, and by requests
+  the keys and assistive technology make; a request of the app's clears
+  it), and queues the list on the engine once as the rows come near,
+  again only once they left or the rows changed in number.
   Rows built as a list lays out handle their input as the view's do,
   which `layoutTree` then forgets, asking for a frame if they changed
   anything, and lays out what they put in the overlay. Rows a `ScrollTo`
