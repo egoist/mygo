@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -334,5 +335,62 @@ func TestPopoverMenuButtonPanel(t *testing.T) {
 	tt.Click("Actions")
 	if len(panels) != 0 {
 		t.Errorf("Panel ran %d times once taken away", len(panels))
+	}
+}
+
+func TestPopoverMenuButtonItem(t *testing.T) {
+	var styled bool
+	// items are the labels of the rows the build styled.
+	var items []string
+	o := PopoverMenuButtonOptions{Item: func(item Element) {
+		n := item.node()
+		items = append(items, n.label)
+		n.Padding(1, 8)
+	}}
+	tt := coreNewTester(func(c *context) {
+		var opts []PopoverMenuButtonOptions
+		if styled {
+			opts = append(opts, o)
+		}
+		coreColumn(c).Padding(20).Children(func() {
+			corePopoverMenuButton(c, "Actions", func(m *Menu) {
+				m.Item("Open")
+				m.Submenu("More", func(m *Menu) { m.Item("Elsewhere") })
+			}, opts...)
+		})
+	}, 400, 400)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+
+	// Without Item, the rows keep the theme's look.
+	tt.Click("Actions")
+	if len(items) != 0 {
+		t.Fatalf("Item ran %d times with no Item set", len(items))
+	}
+	plain, ok := tt.Find("Open")
+	if !ok {
+		t.Fatal("no menu")
+	}
+	tt.Key(0, KeyEscape)
+
+	styled = true
+	tt.Click("Actions")
+	if !slices.Contains(items, "Open") || !slices.Contains(items, "More") {
+		t.Fatalf("Item styled %q, want every row of the menu", items)
+	}
+	slim, _ := tt.Find("Open")
+	if slim.H >= plain.H {
+		t.Errorf("row %v high with Item's padding, %v with the theme's", slim.H, plain.H)
+	}
+
+	// A submenu's rows are styled so too.
+	items = items[:0]
+	tt.Key(0, KeyDown)
+	tt.Key(0, KeyDown)
+	tt.Key(0, KeyRight)
+	if !tt.HasText("Elsewhere") {
+		t.Fatalf("the submenu did not open: texts %q", tt.Texts())
+	}
+	if !slices.Contains(items, "Elsewhere") {
+		t.Errorf("Item styled %q, not the submenu's row", items)
 	}
 }
