@@ -4993,7 +4993,9 @@ either.
   for transient tiles. Already-tiled frames keep that cache for compaction;
   repeated mask requests can use lasting shelves even if their first
   allocation failed or their cached mask was released, falling back to
-  transient shelves when only those have room. On the
+  transient shelves when only those have room after `MakeRoom` has run
+  that frame. The first lasting miss still requests recovery, so stale
+  masks cannot keep a repeated mask transient indefinitely. On the
   pixel grid tiles show the pixels of one mask; under a transform off
   it, a faint line where they meet. `Path.Contains` counts the winding
   of the path flattened at four times its scale; an element's `HitTest`,

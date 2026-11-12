@@ -514,6 +514,53 @@ func TestMaskCanDeferRasterizationUntilRoom(t *testing.T) {
 	}
 }
 
+// Stale masks can fill a lasting shelf while an animation leaves a slot
+// in a transient one. A repeated mask must still request recovery before
+// using that slot, so it gets cached instead of rasterized every frame.
+func TestRepeatedMaskReclaimsStaleLastingRoom(t *testing.T) {
+	s := newSystem()
+	ignored, calls := 0, 0
+	for range 2 {
+		s.BeginFrame()
+		for key := uint64(1); key <= 2; key++ {
+			if !s.Mask(key, square(127, byte(key), &ignored)).OK {
+				t.Fatal("the masks did not fit while warming the lasting shelf")
+			}
+		}
+		s.EndFrame()
+	}
+	draw := square(127, 123, &calls)
+	s.BeginFrame()
+	if !s.Mask(3, draw).OK {
+		t.Fatal("the new mask did not fit in transient room")
+	}
+	s.EndFrame()
+	s.BeginFrame()
+	if !s.Mask(4, square(127, 4, &ignored)).OK {
+		t.Fatal("the animation did not fit in transient room")
+	}
+	if s.Mask(3, draw).OK || !s.MaskFull() {
+		t.Fatal("the repeated mask used transient room instead of requesting recovery")
+	}
+	s.MakeRoom()
+	if !s.Mask(4, square(127, 4, &ignored)).OK {
+		t.Fatal("the animation did not fit after recovery")
+	}
+	uses := s.TransientUses()
+	if g := s.Mask(3, draw); !g.OK || s.maskPixel(g) != 123 || s.Full() || s.TransientUses() != uses {
+		t.Fatalf("the repeated mask was not cached after recovery: %+v", g)
+	}
+	s.EndFrame()
+	for range 3 {
+		s.BeginFrame()
+		before := calls
+		if g := s.Mask(3, draw); !g.OK || s.maskPixel(g) != 123 || calls != before || s.TransientUses() != uses {
+			t.Fatalf("the stable mask was rasterized again or remained transient: %+v", g)
+		}
+		s.EndFrame()
+	}
+}
+
 func TestRepeatedMissingMaskUsesLastingRoom(t *testing.T) {
 	s := newSystem()
 	draw := func(w int) func() (int, int, []byte) {
@@ -545,15 +592,19 @@ func TestRepeatedMissingMaskUsesLastingRoom(t *testing.T) {
 
 // A repeated miss prefers lasting storage, but cannot start a lasting
 // shelf when transient shelves occupy every row. It must still use an
-// empty slot in those shelves and forget that bitmap at the next frame.
+// empty slot after recovery and forget that bitmap at the next frame.
 func TestRepeatedMissingMaskUsesTransientRoom(t *testing.T) {
 	s := newSystem()
+	// At the size limit, recovery must reuse the four slots rather than
+	// grow room for another lasting shelf.
+	s.MaskAtlas = scene.NewAtlas(1, scene.MaxAtlasSize, scene.MaxAtlasSize)
+	const size = scene.MaxAtlasSize/2 - 1
+	pix := make([]byte, size*size)
 	calls := 0
 	draw := func() (int, int, []byte) {
 		calls++
-		pix := make([]byte, 127*127)
 		pix[0] = byte(calls)
-		return 127, 127, pix
+		return size, size, pix
 	}
 	s.BeginFrame()
 	for key := uint64(1); key <= 4; key++ {
@@ -571,11 +622,17 @@ func TestRepeatedMissingMaskUsesTransientRoom(t *testing.T) {
 			t.Fatal("the new transient masks did not fit")
 		}
 	}
+	if s.Mask(5, draw).OK || !s.MaskFull() {
+		t.Fatal("the repeated request did not ask for recovery before falling back")
+	}
+	s.MakeRoom()
+	for key := uint64(6); key <= 8; key++ {
+		if !s.Mask(key, draw).OK {
+			t.Fatal("the transient masks did not fit after recovery")
+		}
+	}
 	if g := s.Mask(5, draw); !g.OK || s.maskPixel(g) != byte(calls) || s.Full() {
 		t.Fatalf("the repeated request did not use spare transient room: %+v", g)
-	}
-	if a := s.MaskAtlas; a.W != 256 || a.H != 256 {
-		t.Fatalf("the atlas grew instead of sharing a transient shelf: %dx%d", a.W, a.H)
 	}
 	s.EndFrame()
 	s.BeginFrame()

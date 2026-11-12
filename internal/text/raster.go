@@ -486,7 +486,8 @@ func (s *System) leftOut(color bool, w, h int) {
 // A mask a frame draws for the first time may be one frame of an
 // animation, never drawn again: it lasts for that frame only, in the
 // atlas's transient room. Later frames try to cache it in lasting room,
-// falling back to transient room when that is full.
+// requesting MakeRoom when that is full. A recovery paint can fall back
+// to transient room if lasting room is still full.
 func (s *System) Mask(key uint64, draw func() (w, h int, pix []byte)) GlyphImage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -519,7 +520,9 @@ func (s *System) Mask(key uint64, draw func() (w, h int, pix []byte)) GlyphImage
 	if pix != nil {
 		if lasting {
 			x, y, ok = s.MaskAtlas.Alloc(w, h)
-			if !ok {
+			// Let the first miss reclaim stale lasting masks. Otherwise
+			// a repeated mask can stay transient and be drawn anew forever.
+			if !ok && s.rooms > 0 {
 				x, y, ok = s.MaskAtlas.AllocTransient(w, h)
 				if ok {
 					lasting = false
