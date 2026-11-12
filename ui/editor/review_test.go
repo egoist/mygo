@@ -490,6 +490,41 @@ func TestReviewCompletionCarets(t *testing.T) {
 	}
 }
 
+// Completions close when the caret goes elsewhere than by typing: the
+// one accepted then went in where the word was typed, not at the caret,
+// in place of the text from there to it.
+func TestReviewCompletionCaretMoved(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		move func(ct *editorTest)
+		want string
+	}{
+		{"a caret added below", func(ct *editorTest) { ct.run(AddCursorBelow) }, "one\nfo\n|\nth\n|ree\n"},
+		{"a caret added above", func(ct *editorTest) { ct.run(AddCursorAbove) }, "on\n|e\nfo\n|\nthree\n"},
+		{"the selection undone", func(ct *editorTest) { ct.run(UndoSelection) }, "\n|one\nfo\nthree\n"},
+		{"the app's selection, after", func(ct *editorTest) { ct.st.Select(13, 13) }, "one\nfo\nthree\n\n|"},
+		{"the app's selection, before", func(ct *editorTest) { ct.st.Select(1, 1) }, "o\n|ne\nfo\nthree\n"},
+		{"typing and deleting", func(ct *editorTest) { ct.typ("o"); ct.key(0, ui.KeyBackspace) }, "one\nfooBar|\nthree\n"},
+	} {
+		ct := newEditorTest(t, "", "|one\nfo\nthree\n")
+		ct.st.OnCompletion = func(r CompletionRequest) {
+			ct.st.ShowCompletions(r.Offset-len(r.Prefix), []Completion{{Label: "fooBar"}})
+		}
+		ct.st.Select(6, 6)
+		ct.tt.Frame()
+		ct.run(ShowCompletions)
+		if !ct.st.ed.complete.open() {
+			t.Fatalf("%s: no completions", c.name)
+		}
+		c.move(ct)
+		ct.tt.Frame()
+		ct.key(0, ui.KeyEnter)
+		if got := ct.show(); got != c.want {
+			t.Errorf("%s: Enter gives %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // A regular expression's replacement expands its groups as found in the
 // text, \B and all.
 func TestReviewRegexReplace(t *testing.T) {

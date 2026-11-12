@@ -137,7 +137,7 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 		}
 		var caretAnchor, hoverAnchor ui.Element
 		var hasCaret, hasHover bool
-		if ed.complete.open() {
+		if ed.completing() {
 			caretAnchor, hasCaret = anchor("code caret", ed.complete.at)
 		}
 		if h.shown {
