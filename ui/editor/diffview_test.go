@@ -208,6 +208,50 @@ func TestDiffViewerAlign(t *testing.T) {
 	}
 }
 
+// An annotation of a collapsed line goes with it, on both sides of a
+// split view: the other side leaves it no room, and the lines after it
+// stay in line.
+func TestDiffViewerAnnotationCollapsed(t *testing.T) {
+	var lines []string
+	for i := range 40 {
+		lines = append(lines, "line "+strconv.Itoa(i))
+	}
+	old := strings.Join(lines, "\n") + "\n"
+	lines[30] = "changed"
+	nw := strings.Join(lines, "\n") + "\n"
+	for _, side := range []DiffSide{DiffOld, DiffNew} {
+		// Lines 5 and 39 are collapsed, above the change and below it.
+		for _, line := range []int{5, 39} {
+			d := &DiffState{Old: NewBuffer(old), New: NewBuffer(nw),
+				Annotations:      []DiffAnnotation{{Side: side, Line: line, Height: 40}},
+				RenderAnnotation: func(c *ui.Context, a DiffAnnotation) { ui.Text(c, "note") }}
+			tt := ui.NewTester(func(c *ui.Context) {
+				DiffView(c, d).Fill()
+			}, 600, 1000)
+			tt.Frame()
+			if tt.HasText("note") {
+				t.Fatalf("side %d, line %d: the annotation of a collapsed line shows", side, line)
+			}
+			ha, hb := &d.eds[0].view.heights, &d.eds[1].view.heights
+			if ha.total() != hb.total() {
+				t.Errorf("side %d, line %d: heights %v and %v", side, line, ha.total(), hb.total())
+			}
+			if ga, gb := ha.geometry(30).rows, hb.geometry(30).rows; ga != gb {
+				t.Errorf("side %d, line %d: the changed line at %v and %v", side, line, ga, gb)
+			}
+			// Expanded, it shows, with its room on the other side.
+			d.ExpandAll()
+			tt.Frame()
+			if !tt.HasText("note") {
+				t.Fatalf("side %d, line %d: no annotation once expanded", side, line)
+			}
+			if ha.total() != hb.total() {
+				t.Errorf("side %d, line %d: expanded heights %v and %v", side, line, ha.total(), hb.total())
+			}
+		}
+	}
+}
+
 func TestDiffViewerLineSelection(t *testing.T) {
 	var got DiffLineRange
 	d := &DiffState{Old: NewBuffer("a\nb\nc\n"), New: NewBuffer("a\nx\nc\n"), Layout: DiffUnified, ExpandUnchanged: true,
