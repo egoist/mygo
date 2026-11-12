@@ -355,10 +355,11 @@ func (v *view) lockedSync() (change, bool) {
 	d := v.doc
 	var c change
 	moved := false
+	var steps []change
 	if d.version != v.version {
-		c, moved = d.since(v.version)
+		c, steps, moved = d.since(v.version)
 		if moved && v.version != 0 && len(v.paras) == v.shown.ParagraphCount() {
-			v.replaced(c, d.text)
+			v.replaced(c, steps, d.text)
 		} else {
 			if v.anchorText {
 				v.setScroll(v.scroll)
@@ -372,8 +373,14 @@ func (v *view) lockedSync() (change, bool) {
 		v.shown, v.version = d.text, d.version
 		n := v.shown.Len()
 		if moved {
-			v.selAnchor = mapPosition(v.selAnchor, c.start, c.oldEnd-c.start, c.newEnd-c.start, v.selAnchor > v.caret)
-			v.caret = mapPosition(v.caret, c.start, c.oldEnd-c.start, c.newEnd-c.start, v.caret > v.selAnchor)
+			// Through each change in turn, as the document moved its own
+			// selection: a paragraph moved past the caret leaves it where
+			// it was in its text.
+			upperAnchor, upperCaret := v.selAnchor > v.caret, v.caret > v.selAnchor
+			for _, s := range steps {
+				v.selAnchor = mapPosition(v.selAnchor, s.start, s.oldEnd-s.start, s.newEnd-s.start, upperAnchor)
+				v.caret = mapPosition(v.caret, s.start, s.oldEnd-s.start, s.newEnd-s.start, upperCaret)
+			}
 		}
 		v.selAnchor, v.caret = min(v.selAnchor, n), min(v.caret, n)
 	}
@@ -389,11 +396,12 @@ func (v *view) lockedSync() (change, bool) {
 	return c, moved
 }
 
-// replaced takes a change of the text: the paragraphs from the one holding
-// c.start to the one holding c.oldEnd of the text shown give way to those
-// of now, without layouts.
-func (v *view) replaced(c change, now Text) {
-	pa, pz := v.shown.paraAt(c.start), v.shown.paraAt(c.oldEnd)
+// replaced takes a change of the text, made of steps: the paragraphs from
+// the one holding c.start to the one holding c.oldEnd of the text shown
+// give way to those of now, without layouts.
+func (v *view) replaced(c change, steps []change, now Text) {
+	was := v.shown
+	pa, pz := was.paraAt(c.start), was.paraAt(c.oldEnd)
 	npz := now.paraAt(c.newEnd)
 	stay := v.scroll - v.hs.top(pa)
 	for _, p := range v.paras[pa : pz+1] {
@@ -419,14 +427,76 @@ func (v *view) replaced(c change, now Text) {
 	switch {
 	case v.anchor > pz:
 		v.anchor += npz - pz
-	case v.anchor > pa && v.anchorText:
-		// The caret's paragraph, joined to one above or replaced with it:
-		// the view stays.
-		v.anchor, v.anchorOff, v.anchorText = pa, stay, false
-	case v.anchor > pa:
-		v.anchor, v.anchorOff = pa, 0
+	case v.anchor < pa:
+	default:
+		at := was.paraStart(v.anchor)
+		if v.anchor == pa && c.start > at {
+			break // within the anchor's paragraph
+		}
+		// The change reaches the anchor's start. When it's made of
+		// several replacements, as a paragraph moved from above the
+		// anchor to below it in one edit, or undoing that, and the view
+		// isn't at the top of the text, follow the anchor's start through
+		// them: a paragraph that starts there still keeps the view. One
+		// replacement goes as it always has.
+		p, ok := 0, false
+		if len(steps) > 1 && v.scroll > 0 {
+			p, ok = follow(at, steps, now, !v.anchorText)
+		}
+		switch {
+		case ok:
+			v.anchor = p
+		case v.anchor == pa:
+		case v.anchorText:
+			// The caret's paragraph, joined to one above or replaced
+			// with it: the view stays.
+			v.anchor, v.anchorOff, v.anchorText = pa, stay, false
+		default:
+			v.anchor, v.anchorOff = pa, 0
+		}
 	}
 	v.numbersOf = Text{}
+}
+
+// follow returns the paragraph of now that starts where the one starting
+// at rune at did, following the changes in turn, and whether there is one:
+// no change took that start away or joined it to the paragraph before.
+// When a change deletes from that start on, it's the paragraph that
+// starts there now.
+// With above set, what is inserted right where it starts goes above it, as
+// scroll anchoring keeps the first node in view below what is added before
+// it (the paragraph an undo puts back above the view), unless that leaves
+// its start inside a paragraph (text typed at its start). Otherwise what
+// is inserted there goes in it, as at the caret's paragraph, whose line
+// moves down at a Return at its start.
+func follow(at int, changes []change, now Text, above bool) (int, bool) {
+	for _, before := range [...]bool{above, false} {
+		if p, ok := shiftStart(at, changes, before); ok && p <= now.Len() {
+			if i := now.paraAt(p); now.paraStart(i) == p {
+				return i, true
+			}
+		}
+		if !above {
+			break
+		}
+	}
+	return 0, false
+}
+
+// shiftStart returns where the start of a paragraph at goes through the
+// changes, and false when one takes it away. What is inserted right at it
+// goes before it when before is set, and after it otherwise.
+func shiftStart(at int, changes []change, before bool) (int, bool) {
+	for _, c := range changes {
+		switch {
+		case c.start < at && c.oldEnd <= at, before && c.start == at && c.oldEnd == at:
+			at += c.newEnd - c.oldEnd
+		case c.start >= at:
+		default:
+			return 0, false
+		}
+	}
+	return at, true
 }
 
 // resetHeights sums the heights of the paragraphs laid out.

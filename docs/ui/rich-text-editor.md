@@ -398,6 +398,16 @@ prefer the focused editable element (CSS Scroll Anchoring's priority
 candidates): what grows between the top of the view and the caret, as the
 room `EditorOptions.Space` leaves or an edit, moves the text above it up,
 and the line being typed stays. An editor scrolled to its top stays there.
+An edit of several replacements keeps the place the same way, following
+them one by one: a paragraph moved from above the view into it in one
+`Document.Edit` leaves the paragraphs in view that did not move where they
+were, and so do undoing and redoing the move. What such an edit puts right
+where the first paragraph in view starts goes above the view, as browsers'
+scroll anchoring keeps the first node in view below what is added before
+it, so undoing a move puts the view back; an edit of one replacement shows
+it at the top of the view, as ever. Undo and redo follow a step's
+replacements up to 16 of them; a longer step, as typing a while, is one
+region, and the view goes where it did before.
 
 ## Typing at the edges of formats
 

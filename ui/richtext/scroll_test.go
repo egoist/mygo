@@ -3,6 +3,8 @@ package richtext
 import (
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -306,5 +308,245 @@ func TestScrollAnchorAtTop(t *testing.T) {
 	}
 	if first := boxes[0]; first.Index != 0 || first.Top != 0 {
 		t.Fatalf("at the top, the first box is %+v", first)
+	}
+}
+
+// An edit that moves a paragraph across the top of the view in one step
+// of undo, as a block editor's drag by a handle does, keeps the view: the
+// paragraphs in view that did not move stay where they were, and the one
+// moved goes where it was put. The editor follows the edit's replacements
+// one by one, as undo and redo do, rather than one region from the first
+// to the last, which held the first paragraph in view and sent the view to
+// the region's start (#1723). With the keyboard, the caret's line stays.
+func TestAMoveAcrossTheTopOfTheViewKeepsIt(t *testing.T) {
+	for _, focus := range []bool{false, true} {
+		for _, kind := range []string{"into the view", "into the view from just above it", "out to above it"} {
+			into := kind != "out to above it"
+			name := kind
+			if focus {
+				name += ", focused"
+			}
+			t.Run(name, func(t *testing.T) {
+				doc := longDoc(200)
+				tt, boxes, _, _ := anchorTester(t, doc, focus)
+				doc.ScrollBy(13) // the first paragraph in view partly out
+				tt.Frame()
+				before := placed(doc, *boxes)
+				caret := caretRect(t, doc)
+
+				// Into the view: paragraph 10, or the one right above the
+				// view, goes before the one next to last in view, below the
+				// caret's. Out of it: the second in view goes before
+				// paragraph 10.
+				from, to := 10, (*boxes)[len(*boxes)-2].Index
+				switch kind {
+				case "into the view from just above it":
+					from = (*boxes)[0].Index - 1
+				case "out to above it":
+					from, to = (*boxes)[1].Index, 10
+				}
+				moving := paraName(from)
+				text := doc.Text()
+				fs, fe := text.paraStart(from), text.paraStart(from+1)
+				moved := text.Slice(fs, fe)
+				ts := text.paraStart(to)
+				doc.Edit(func(e *Edit) {
+					e.Replace(fs, fe, Text{})
+					if ts > fs {
+						ts -= fe - fs
+					}
+					e.Replace(ts, ts, moved)
+				})
+				tt.Frame()
+				after := placed(doc, *boxes)
+
+				switch {
+				case focus:
+					if got := caretRect(t, doc); got != caret {
+						t.Fatalf("the move took the caret from %v to %v", caret, got)
+					}
+				case into:
+					// What's above where it went stays, and it goes where
+					// the paragraph it went before was.
+					for p, top := range before {
+						if num(p) < to && !near(after[p], top) {
+							t.Errorf("the move took %s, above it, from %v to %v", p, top, after[p])
+						}
+					}
+					if !near(after[moving], before[paraName(to)]) {
+						t.Errorf("%s landed at %v; %s, which it went before, was at %v", moving, after[moving], paraName(to), before[paraName(to)])
+					}
+				default:
+					// What's above where it was stays, and what was below
+					// it moves up into its place.
+					for p, top := range before {
+						if num(p) < from && !near(after[p], top) {
+							t.Errorf("the move took %s, above it, from %v to %v", p, top, after[p])
+						}
+					}
+					if _, ok := after[moving]; ok {
+						t.Errorf("%s is still in view", moving)
+					}
+					if !near(after[paraName(from+1)], before[moving]) {
+						t.Errorf("%s went to %v, not up to %v where %s was", paraName(from+1), after[paraName(from+1)], before[moving], moving)
+					}
+				}
+
+				// Undo puts the view back as it was, and redo as the move
+				// left it.
+				doc.Undo()
+				tt.Frame()
+				samePlaces(t, "undone", before, placed(doc, *boxes))
+				doc.Redo()
+				tt.Frame()
+				samePlaces(t, "redone", after, placed(doc, *boxes))
+			})
+		}
+	}
+}
+
+// placed returns where the paragraphs in view are, by their names
+// ("Paragraph 12").
+func placed(doc *Document, boxes []ParagraphBox) map[string]float32 {
+	text := doc.Text()
+	out := map[string]float32{}
+	for _, b := range boxes {
+		s := text.Slice(b.Start, text.paraStart(b.Index+1)).String()
+		out[strings.SplitN(s, ",", 2)[0]] = b.Top
+	}
+	return out
+}
+
+// paraName returns the name of longDoc's paragraph i, and num the number
+// in a name.
+func paraName(i int) string { return fmt.Sprintf("Paragraph %d", i) }
+
+func num(name string) int {
+	n, _ := strconv.Atoi(strings.TrimPrefix(name, "Paragraph "))
+	return n
+}
+
+// samePlaces fails unless the same paragraphs are in view, at the same
+// places.
+func samePlaces(t *testing.T, what string, want, got map[string]float32) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s: %d paragraphs in view, want %d: %v, want %v", what, len(got), len(want), got, want)
+	}
+	for p, top := range want {
+		if g, ok := got[p]; !ok || !near(g, top) {
+			t.Fatalf("%s: %s is at %v (in view: %v), want %v", what, p, g, ok, top)
+		}
+	}
+}
+
+// An edit of one replacement that puts a paragraph right where the first
+// paragraph in view starts shows it at the top of the view, as it always
+// has. One of several, as a paragraph moved there from above, puts it
+// above the view: what's in view stays, as undoing such a move needs. At
+// the start of the caret's paragraph, a Return moves the line being typed
+// down.
+func TestWhatIsPutAtTheStartOfTheAnchor(t *testing.T) {
+	t.Run("one replacement", func(t *testing.T) {
+		doc := longDoc(200)
+		tt, boxes, _, _ := anchorTester(t, doc, false)
+		doc.ScrollBy(13)
+		tt.Frame()
+		first := (*boxes)[0]
+		before := placed(doc, *boxes)
+		doc.Edit(func(e *Edit) {
+			e.ReplaceString(first.Start, first.Start, "Inserted, long enough to wrap in a window this narrow, and then some more.\n", Attributes{})
+		})
+		tt.Frame()
+		after := placed(doc, *boxes)
+		if top, ok := after["Inserted"]; !ok || !near(top, first.Top) {
+			t.Errorf("the paragraph put there is at %v (in view: %v), want %v, where %s was", top, ok, first.Top, paraName(first.Index))
+		}
+		if p := paraName(first.Index); after[p] <= before[p] {
+			t.Errorf("%s stayed at %v", p, after[p])
+		}
+	})
+	t.Run("several replacements", func(t *testing.T) {
+		doc := longDoc(200)
+		tt, boxes, _, _ := anchorTester(t, doc, false)
+		doc.ScrollBy(13)
+		tt.Frame()
+		before := placed(doc, *boxes)
+		text := doc.Text()
+		fs, fe := text.paraStart(10), text.paraStart(11)
+		moved := text.Slice(fs, fe)
+		at := (*boxes)[0].Start
+		doc.Edit(func(e *Edit) {
+			e.Replace(fs, fe, Text{})
+			e.Replace(at-(fe-fs), at-(fe-fs), moved)
+		})
+		tt.Frame()
+		samePlaces(t, "a paragraph moved to its start", before, placed(doc, *boxes))
+	})
+	t.Run("the caret's paragraph", func(t *testing.T) {
+		doc := longDoc(200)
+		tt, boxes, _, _ := anchorTester(t, doc, true)
+		first := (*boxes)[0]
+		caret := caretRect(t, doc)
+		tt.Key(0, ui.KeyEnter)
+		if got := caretRect(t, doc); got.Y <= caret.Y {
+			t.Fatalf("a Return at the start of the caret's line left it at %v from %v", got.Y, caret.Y)
+		}
+		if got := (*boxes)[0]; got != first {
+			t.Fatalf("a Return moved the first paragraph in view from %+v to %+v", first, got)
+		}
+	})
+}
+
+// A step of undo keeps up to maxUndoParts replacements, and its undo
+// follows them, as the move's: the view comes back. Undoing a longer one
+// tells the editor of one region, from its first replacement to its last,
+// as every undo did before: the view goes to the region's start, then to
+// the caret the undo puts back.
+func TestALongStepUndoesAsARegion(t *testing.T) {
+	for _, parts := range []int{maxUndoParts, maxUndoParts + 1} {
+		t.Run(fmt.Sprint(parts, " replacements"), func(t *testing.T) {
+			doc := longDoc(200)
+			tt, boxes, _, _ := anchorTester(t, doc, false)
+			doc.ScrollBy(13)
+			tt.Frame()
+			before := placed(doc, *boxes)
+			text := doc.Text()
+			fs, fe := text.paraStart(10), text.paraStart(11)
+			moved := text.Slice(fs, fe)
+			to := text.paraStart((*boxes)[len(*boxes)-2].Index)
+			s5 := text.paraStart(5)
+			doc.Edit(func(e *Edit) {
+				// A letter of paragraph 5 replaced by itself, then the
+				// move's two replacements.
+				for range parts - 2 {
+					e.ReplaceString(s5, s5+1, "P", Attributes{})
+				}
+				e.Replace(fs, fe, Text{})
+				e.Replace(to-(fe-fs), to-(fe-fs), moved)
+			})
+			tt.Frame()
+			if got := placed(doc, *boxes)[paraName(50)]; !near(got, before[paraName(50)]) {
+				t.Fatalf("the edit, followed one by one, moved Paragraph 50 from %v to %v", before[paraName(50)], got)
+			}
+			doc.Undo()
+			tt.Frame()
+			if doc.Text().String() != text.String() {
+				t.Fatal("undo didn't bring the text back")
+			}
+			back := placed(doc, *boxes)
+			came := len(back) == len(before)
+			for p, top := range before {
+				if g, ok := back[p]; !ok || !near(g, top) {
+					came = false
+				}
+			}
+			if want := parts <= maxUndoParts; came != want {
+				t.Errorf("undone, the view came back: %v, want %v (%d replacements, %d kept)", came, want, parts, maxUndoParts)
+			}
+			if _, ok := doc.CaretRect(); !ok {
+				t.Error("the caret undo put back is out of view")
+			}
+		})
 	}
 }
