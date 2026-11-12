@@ -55,6 +55,11 @@ type Backend struct {
 	grabs        map[int]grab    // global shortcuts on X11
 	portal       portalShortcuts // global shortcuts elsewhere
 	themeHooks   bool
+
+	// signalable is set once Init has bound GLib and made the callbacks.
+	// A Signal before then, from a goroutine posting while the app starts,
+	// leaves the queue to the Signal Init sends as it is set.
+	signalable atomic.Bool
 	// onX11 reports an X11 display, where windows have positions, and
 	// wmName names its window manager.
 	onX11  bool
@@ -149,6 +154,9 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 		bind(libGDK, &b.waylandSurface, "gdk_wayland_window_get_wl_surface")
 	}
 	initCallbacks()
+	// Something may have posted while GLib was loading: dispatch it.
+	b.signalable.Store(true)
+	b.Signal()
 	return nil
 }
 
@@ -196,7 +204,10 @@ func (b *Backend) runDialog(d ptr, native bool) int32 {
 }
 
 func (b *Backend) Signal() {
-	if gIdleAddFull == nil || !b.signaled.CompareAndSwap(false, true) {
+	// Before Init is done, GLib may be bound and dispatchCallback still
+	// unmade: g_idle_add_full rejects a nil function, and signaled would
+	// stay set with nothing to clear it, so that no post ran again.
+	if !b.signalable.Load() || !b.signaled.CompareAndSwap(false, true) {
 		return
 	}
 	gIdleAddFull(0, dispatchCallback, 0, 0)
