@@ -4501,7 +4501,14 @@ either.
   `keys.js` has, plus `Page.createIsolatedWorld` and `Runtime.evaluate`
   for the document already there. The script measures the root's border
   box, or how far the content scrolls where it overflows the viewport
-  (`viewSize`), so that the height does not follow the viewport's, from a
+  (`viewSize`), so that the height does not follow the viewport's, at the
+  viewport's whole width: it measures again with a style sheet of its
+  world hiding the root's scrollbars, adopted for that measure alone
+  (`wholeViewSize`), since where scrollbars take room (WebView2, macOS
+  set to always show them) a web view grown to the height of content
+  that overflowed it drops its scrollbar and the engines keep the
+  narrower layout, a page narrower than its web view for good. It measures
+  from a
   `ResizeObserver` on the root and the body, a `MutationObserver`, loads,
   fonts and `resize`, and posts `{w, h, sh, vw, vh, r}` when it changed,
   `r` marking a measure right after the viewport's height alone changed.
@@ -4511,7 +4518,7 @@ either.
   tell a size nor change how it is measured. The core turns it into DIPs
   at the page's zoom (`fitContent.fit`), drops a size it has, holds one
   marked `r` that is the size before the last one at the taller of the
-  two (content a scrollbar narrows at one height and not at the other),
+  two (content measuring one size at one height and another at the other),
   as `measureFit` holds a flyout's, tells the listeners and has the host
   build again. The core's side hangs off `viewFit`, made as the page
   starts measuring (its `tell` takes `ContentSize`), and ui's off

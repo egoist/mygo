@@ -172,6 +172,32 @@ export function viewSize(m: ViewMetrics): ViewSize | null {
   };
 }
 
+/** Returns the size of the content of a page at its viewport's whole width,
+ * from its metrics as it shows and, measured with the root's scrollbars
+ * hidden, as it lays out without them (null where they could not be hidden).
+ *
+ * Where scrollbars take room (classic scrollbars: Windows, macOS set to
+ * always show them), content laid out while it overflowed is narrower, and
+ * taller for it; a web view grown to that height drops the scrollbar, and
+ * the engines keep the narrower layout rather than lay out again and bring
+ * it back: the page stays narrower than its web view, with an empty band
+ * where the scrollbar was. Measured at the whole width, the content is as
+ * tall as it is without the scrollbar, which a web view of that height
+ * does not show. The room of a horizontal scrollbar is the one the page
+ * shows, since the hidden one takes none. Where hiding them didn't give
+ * the root the whole width, the content is measured as it shows. */
+export function wholeViewSize(shown: ViewMetrics, whole: ViewMetrics | null): ViewSize | null {
+  if (!whole || whole.clientWidth < whole.innerWidth || whole.innerWidth !== shown.innerWidth) return viewSize(shown);
+  const size = viewSize(whole);
+  if (!size) return null;
+  const sh = whole.scrollWidth > whole.clientWidth ? Math.max(shown.innerHeight - shown.clientHeight, 0) : 0;
+  return { ...size, sh };
+}
+
+/** The style sheet that hides the root's scrollbars while the page measures
+ * its content at its viewport's whole width (wholeViewSize). */
+export const hideRootScrollbars = ":root{scrollbar-width:none!important}:root::-webkit-scrollbar{display:none!important}";
+
 /** What a web view's page posts to Go: its content's size, and r, 1 when it
  * was measured right after the viewport's height alone changed, which Go
  * resized it to (it holds a size that would go back and forth). */

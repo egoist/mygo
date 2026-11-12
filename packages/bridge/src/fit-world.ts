@@ -9,7 +9,7 @@
 // tells Go the content's size through a script message handler (WebKit) or a
 // binding (WebView2) that only that world has: the page's scripts can't tell
 // a size, with the bridge or without it (untrusted pages).
-import { type ViewMetrics, viewReporter, viewSize } from "./fit-content";
+import { hideRootScrollbars, type ViewMetrics, viewReporter, wholeViewSize } from "./fit-content";
 
 // The handler's or the binding's name, as the backends name it
 // (platform.FitHandler).
@@ -49,9 +49,37 @@ const HANDLER = "mygoContentSize";
       scrollHeight: viewport.scrollHeight,
     };
   };
+  // The content is measured at the viewport's whole width too, with the
+  // root's scrollbars hidden by a style sheet of this world's, adopted for
+  // the measure alone: the page's scripts can't run in between, and adopting
+  // a sheet makes no mutation they could observe (wholeViewSize).
+  let sheet: CSSStyleSheet | null | undefined;
+  const wholeMetrics = (): ViewMetrics | null => {
+    if (sheet === undefined) {
+      try {
+        sheet = new CSSStyleSheet();
+        sheet.replaceSync(hideRootScrollbars);
+      } catch {
+        sheet = null; // no constructable style sheets
+      }
+    }
+    if (!sheet) return null;
+    let adopted: CSSStyleSheet[];
+    try {
+      adopted = [...document.adoptedStyleSheets];
+      document.adoptedStyleSheets = [...adopted, sheet];
+    } catch {
+      return null;
+    }
+    try {
+      return metrics();
+    } finally {
+      document.adoptedStyleSheets = adopted;
+    }
+  };
   const measure = () => {
     const m = metrics();
-    if (m) post(viewSize(m));
+    if (m) post(wholeViewSize(m, wholeMetrics()));
   };
 
   // Changes that may change the content's size without resizing the root

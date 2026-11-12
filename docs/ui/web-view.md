@@ -320,10 +320,13 @@ as it scrolls, so laying the web view out at the height it measured
 measures the same again and changes nothing. A page whose `html` is as
 tall as its viewport, as with `html, body { height: 100% }` or a
 `min-height: 100vh`, measures the web view's height: content overflowing
-it still makes it grow, but it does not shrink. Content that measures one
-height at one size and another at the other, as text a scrollbar narrows
-while the web view is shorter than it, keeps the taller instead of going
-back and forth.
+it still makes it grow, but it does not shrink. The content is measured
+at the web view's whole width, as without a scrollbar, so that where
+scrollbars take room (Windows, macOS set to always show them) text that
+wrapped narrower while it overflowed lays out at the full width again once
+the web view is as tall as it. Content that still measures one height at
+one size and another at the other keeps the taller instead of going back
+and forth.
 
 Until the page has told its height, the element has the `Height` it was
 given, or 1 DIP without one, so that the page shows and lays out at its

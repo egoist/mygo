@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type ContentSize, fitRule, sizeReporter, type ViewMetrics, type ViewReport, viewReporter, viewSize } from "./fit-content";
+import { type ContentSize, fitRule, sizeReporter, type ViewMetrics, type ViewReport, viewReporter, viewSize, wholeViewSize } from "./fit-content";
 
 const none = { minWidth: 0, minHeight: 0, maxWidth: 0, maxHeight: 0 };
 
@@ -94,6 +94,36 @@ describe("viewSize", () => {
     const wide = { scrollWidth: 500, clientHeight: 185 };
     expect(viewSize(metrics(200, 200, 200, wide))).toEqual({ w: 500, h: 200, sh: 15, vw: 300, vh: 200 });
     expect(viewSize(metrics(200, 200, 200, { clientHeight: 185 }))?.sh).toBe(0);
+  });
+});
+
+describe("wholeViewSize", () => {
+  // A page 300 wide whose content is as tall as half its width, a classic
+  // scrollbar 21 wide.
+  test("measures the content at the viewport's whole width", () => {
+    // Overflowing a web view 120 tall: narrower with the scrollbar, and taller.
+    const shown = metrics(120, 120, 139.5, { clientWidth: 279, rootWidth: 279, scrollWidth: 279 });
+    const whole = metrics(120, 120, 150);
+    expect(wholeViewSize(shown, whole)).toEqual({ w: 300, h: 150, sh: 0, vw: 300, vh: 120 });
+    // Grown to the narrower height, the scrollbar gone, the layout kept
+    // narrower: the whole width's height, which the web view shows without
+    // one.
+    const kept = metrics(140, 139.5, 139.5, { rootWidth: 279 });
+    expect(wholeViewSize(kept, metrics(140, 140, 150))?.h).toBe(150);
+    // At that height, the same again.
+    expect(wholeViewSize(metrics(150, 150, 150), metrics(150, 150, 150))?.h).toBe(150);
+  });
+
+  test("measures the content as it shows where the scrollbars stayed", () => {
+    const shown = metrics(120, 120, 139.5, { clientWidth: 279, rootWidth: 279, scrollWidth: 279 });
+    expect(wholeViewSize(shown, null)?.h).toBe(139.5);
+    expect(wholeViewSize(shown, shown)?.h).toBe(139.5);
+  });
+
+  test("counts the room of the horizontal scrollbar the page shows", () => {
+    const wide = { scrollWidth: 500, clientHeight: 185 };
+    expect(wholeViewSize(metrics(200, 200, 200, wide), metrics(200, 200, 200, { scrollWidth: 500 }))?.sh).toBe(15);
+    expect(wholeViewSize(metrics(200, 200, 200, { clientHeight: 185 }), metrics(200, 200, 200))?.sh).toBe(0);
   });
 });
 
