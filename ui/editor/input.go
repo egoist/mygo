@@ -214,7 +214,7 @@ func (ed *editor) pointerDown(ev ui.InputEvent) bool {
 		ed.gesture.colStart = ui.Point{X: cx, Y: float32(cy)}
 		ed.columnSelect(cx, cy)
 		return true
-	case mods == ui.Cmd && ed.o.onDefinition != nil && ev.Clicks == 1:
+	case ed.clickGoesToDefinition(mods) && ev.Clicks == 1:
 		ed.gesture.active = false
 		ed.setSels([]sel{ed.newSel(off, off)}, revealNone)
 		ed.o.onDefinition(off)
@@ -274,10 +274,16 @@ func (ed *editor) textAt(x, y float32) int {
 	return off
 }
 
+// clickGoesToDefinition reports whether a click with mods goes to the
+// definition of the word under it, which the press and the link both ask.
+func (ed *editor) clickGoesToDefinition(mods ui.Modifiers) bool {
+	return mods == ui.Cmd && ed.o.onDefinition != nil && !ed.o.noDefinitionClick
+}
+
 // linkAt returns the word under the pointer that a click with mods would
 // go to the definition of, as the editor's link holds it.
 func (ed *editor) linkAt(mods ui.Modifiers) [2]int {
-	if mods != ui.Cmd || ed.o.onDefinition == nil || !ed.pointerIn || ed.gesture.active || ed.scrollbar.active {
+	if !ed.clickGoesToDefinition(mods) || ed.o.noDefinitionLink || !ed.pointerIn || ed.gesture.active || ed.scrollbar.active {
 		return [2]int{}
 	}
 	off := ed.textAt(ed.pointer.X, ed.pointer.Y)

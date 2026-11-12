@@ -80,6 +80,9 @@ type options struct {
 	// NoPointerHover.
 	hoverDelay     time.Duration
 	noPointerHover bool
+	// noDefinitionClick and noDefinitionLink are State's
+	// NoDefinitionClick and NoDefinitionLink.
+	noDefinitionClick, noDefinitionLink bool
 }
 
 // sharedScroll is the vertical scroll several editors share.

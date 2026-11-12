@@ -394,7 +394,11 @@ app.code.SetDiagnostics(buf.Version(), app.lsp.Diagnostics())
 - `SetInlays` shows inlay hints, text in the lines that is not theirs, as
   the types of variables; `SetSuggestion` shows text after the caret as a
   suggestion, which Tab accepts, as an AI's.
-- `OnDefinition` is called for Cmd+click and F12 on a word.
+- `OnDefinition` is called for Cmd+click and F12 on a word. With Cmd
+  held, the word under the pointer shows as a link.
+  `NoDefinitionClick` leaves Cmd+click to the editor's other clicks, link
+  and all, and F12 and the context menu still go to the definition;
+  `NoDefinitionLink` keeps Cmd+click but shows no link.
 
 ## Replacing ranges
 

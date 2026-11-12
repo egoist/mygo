@@ -107,6 +107,13 @@ type State struct {
 	// OnDefinition is called for Cmd+click (Ctrl+click elsewhere) and F12
 	// on a word, as to go to its definition.
 	OnDefinition func(offset int)
+	// NoDefinitionClick leaves Cmd+click to the editor's other clicks,
+	// with no link under it: F12 and the context menu still go to the
+	// definition.
+	NoDefinitionClick bool
+	// NoDefinitionLink shows no link under the pointer with Cmd held,
+	// though Cmd+click still goes to the definition.
+	NoDefinitionLink bool
 	// OnGutterClick is called for a click on a line's number, as to set a
 	// breakpoint.
 	OnGutterClick func(line int)
@@ -239,6 +246,7 @@ func (st *State) options() options {
 		placeholder: st.Placeholder, label: st.Label, theme: st.Theme, bindings: st.Bindings, gutterMarks: st.GutterMarks,
 		backgrounds: st.LineBackgrounds, textBgs: st.TextBackgrounds, diffBase: st.DiffBase, onCompletion: st.OnCompletion, onHover: st.OnHover, onDefinition: st.OnDefinition,
 		hoverDelay: st.HoverDelay, noPointerHover: st.NoPointerHover,
+		noDefinitionClick: st.NoDefinitionClick, noDefinitionLink: st.NoDefinitionLink,
 		onGutterClick: st.OnGutterClick, contextMenu: st.ContextMenu, onInput: st.OnInput, noInputMethod: st.NoInputMethod, minDigits: 3,
 		renderFindBar: st.RenderFindBar, renderGoToLine: st.RenderGoToLine,
 		renderCompletions: st.RenderCompletions, renderHover: st.RenderHover,
