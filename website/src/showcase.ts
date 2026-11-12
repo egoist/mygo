@@ -368,7 +368,7 @@ export const showcase: ShowcaseApp[] = [
   {
     name: "Paperly",
     description:
-      "A native Markdown editor with block-level live preview — the block under the caret shows its source while everything else stays rendered. File tree, full-text search, per-item list editing, and .md file associations on macOS and Windows, in one Go binary.",
+      "A native Markdown editor drawn with MyGo's native UI: the block under the caret shows its source while everything else stays rendered. File tree, full-text search, per-item list editing, and .md file associations on macOS and Windows, in one Go binary.",
     url: "https://github.com/jiangwanying/paperly",
     author: "jiangwanying",
     mode: "native",
