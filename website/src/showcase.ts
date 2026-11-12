@@ -436,4 +436,13 @@ export const showcase: ShowcaseApp[] = [
     author: "MaLuns",
     mode: "native",
   },
+  {
+    name: "goFinder",
+    description:
+      "A keyboard-and-mouse file manager for macOS that brings Yazi's three columns and single-key actions to a native window. Filter as you type, even by pinyin initials, preview with Quick Look, split the window into two panes, and open an AI agent in the current folder.",
+    url: "https://github.com/aoyamashou/goFinder",
+    author: "aoyamashou",
+    mode: "native",
+    image: "/showcase/gofinder.jpg",
+  },
 ]
