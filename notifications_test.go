@@ -260,3 +260,21 @@ func TestAppNotificationClick(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// TestNotificationsInOrder: the fake backend lists notifications in the
+// order they were shown, one replaced by another of its ID last, as apptest
+// reports them.
+func TestNotificationsInOrder(t *testing.T) {
+	ClearNotifications()
+	t.Cleanup(ClearNotifications)
+	for _, id := range []string{"a", "b", "c", "a"} {
+		showNotification(t, NotificationOptions{ID: id})
+	}
+	var ids []string
+	for _, n := range fb.Notifications() {
+		ids = append(ids, n.ID)
+	}
+	if want := []string{"b", "c", "a"}; !slices.Equal(ids, want) {
+		t.Errorf("notifications %q, want %q", ids, want)
+	}
+}

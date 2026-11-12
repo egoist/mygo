@@ -99,7 +99,7 @@ What every app has, whether its windows show native UI or web pages.
   forms, MyGo's own strings, and pseudo locales to test layouts.
 - [Desktop APIs](native.md): dialogs, notifications, the clipboard, the
   shell, displays, dark mode, power, the network status, secrets, watching
-  files and global shortcuts.
+  files and global shortcuts, and testing the app's calls of them.
 - [Native modules](native-modules.md) (experimental): Go interfaces implemented in
   Swift, Rust or Zig, without cgo, for macOS's frameworks and views, Rust
   crates and Zig and C libraries, which the CLI builds, puts into apps and

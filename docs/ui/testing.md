@@ -190,6 +190,14 @@ the one found from what it does: a text, a button, a group. The tree is
 built as screen readers would get it, whether or not one reads the
 window, and reading it changes nothing: it builds no frame.
 
+## Testing the app's wiring
+
+A tester runs a view, not what the app asks of the desktop around it: the
+dialogs, notifications, badge and windows of the code that wires the app
+up. Package `apptest` runs that code in the app's own tests, on a fake
+desktop, answering its dialogs and recording the rest ([Desktop
+APIs](../native.md#testing)).
+
 ## Testing the built app
 
 A tester runs a view inside `go test`. To test the app as built, with its
