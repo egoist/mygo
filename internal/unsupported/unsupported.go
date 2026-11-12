@@ -44,7 +44,7 @@ func (*Backend) Network() platform.Network                                  { re
 func (*Backend) NowPlaying() platform.NowPlaying                            { return nowPlaying{} }
 func (*Backend) Secrets() platform.Secrets                                  { return secrets{} }
 func (*Backend) NewTray(platform.TrayHandler) (platform.Tray, error)        { return nil, errUnsupported }
-func (*Backend) RegisterHotkey(int, string) error                           { return errUnsupported }
+func (*Backend) RegisterHotkey(int, string, string) error                   { return errUnsupported }
 func (*Backend) UnregisterHotkey(int)                                       {}
 func (*Backend) NotificationsSupported() bool                               { return false }
 func (*Backend) WebViewAvailable() bool                                     { return false }

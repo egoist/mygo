@@ -276,6 +276,35 @@ func TestReviewLineCommands(t *testing.T) {
 	ct = newEditorTest(t, "", "one\ntw|o\nthree")
 	ct.run(DeleteLine)
 	ct.want("one\nth|ree")
+	// A whole line moved down to the last ends with the text.
+	ct = newEditorTest(t, "", "[one\n]two")
+	ct.run(MoveLinesDown)
+	ct.want("two\n[one]")
+	// A caret stays at its place, at the start of the character that
+	// came there.
+	ct = newEditorTest(t, "", "語\n|a")
+	ct.run(SortLines)
+	ct.want("a\n|語")
+	ct = newEditorTest(t, "", "é|\n")
+	ct.run(ReverseLines)
+	ct.want("\n|é")
+	ct = newEditorTest(t, "", "\n\n|é ")
+	ct.run(UniqueLines)
+	ct.want("\n|é ")
+}
+
+// Carets in one word, or in a word with a selection, convert its case
+// once, as one selection.
+func TestReviewCaseOverlap(t *testing.T) {
+	ct := newEditorTest(t, "", "ab|cd|ef")
+	ct.run(Uppercase)
+	ct.want("[ABCDEF]")
+	ct = newEditorTest(t, "", "[ab]cd| ef")
+	ct.run(Uppercase)
+	ct.want("[ABCD] ef")
+	ct = newEditorTest(t, "", "| | ")
+	ct.run(SnakeCase)
+	ct.want("|")
 }
 
 // Tab goes to the next tab stop past hard tabs, and indents the line of
@@ -594,6 +623,33 @@ func TestReviewCRLF(t *testing.T) {
 	ct.st.Select(1, 1)
 	ct.key(ui.Cmd, ui.KeyV)
 	ct.want("two\no|ne\ntwo\nthree")
+}
+
+// Text typed, put in by an input method or taken from a suggestion with
+// \r\n line endings goes in with \n, as a paste's, the caret after it: a
+// byte further for each line, it could be inside a character.
+func TestReviewCRLFTyped(t *testing.T) {
+	ct := newEditorTest(t, "", "a|語b|語")
+	ct.tt.Type("x\r\ny\r\n")
+	ct.want("ax\ny\n|語bx\ny\n|語")
+	ct = newEditorTest(t, "", "ab|語")
+	ct.st.ed.ReplaceText(&ui.TextInputRange{Start: 0, End: 1}, "x\r\ny")
+	ct.tt.Frame()
+	ct.want("x\ny|b語")
+	ct = newEditorTest(t, "", "ab|語")
+	ct.st.SetSuggestion(2, "x\r\ny")
+	ct.tt.Frame()
+	ct.key(0, ui.KeyTab)
+	ct.want("abx\ny|語")
+	// Replacing a match goes on from the end of what went in, to the
+	// match after it.
+	ct = newEditorTest(t, "", "[a]aa")
+	f := &ct.st.ed.find
+	f.query, f.replace, f.stale = "a", "\r\n", true
+	ct.tt.Frame()
+	f.replaceOne(&ct.st.ed)
+	ct.tt.Frame()
+	ct.want("\n[a]a")
 }
 
 // Set replaces the whole text at once, edits from other goroutines

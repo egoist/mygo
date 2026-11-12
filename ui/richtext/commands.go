@@ -314,6 +314,7 @@ func (d *Document) ToggleChecked(i int) {
 // InsertText replaces the selection with s, in the typing attributes, as
 // typing does but as a step of undo of its own.
 func (d *Document) InsertText(s string) {
+	s = normalizeNewlines(s)
 	d.lock()
 	defer d.mu.Unlock()
 	a, z := d.span()

@@ -760,3 +760,24 @@ needs the app installed, since it identifies apps by their desktop entry.
 The shortcut works shortly after `Register` returns. Windows the function
 shows or focuses take the focus with the key press's activation token where
 the desktop provides one, as GNOME does.
+
+Such a desktop shows the app's shortcuts to the user, where it asks to
+confirm them and in its settings, and the user may decline one, which then
+does nothing, or give it other keys. `RegisterWith` tells the desktop what
+the shortcut does, and tells the app the keys the shortcut got:
+
+```go
+err := mygo.GlobalShortcut.RegisterWith("CmdOrCtrl+Alt+.", mygo.GlobalShortcutOptions{
+	Description: "Stop all",
+	OnKeys: func(keys string) {
+		// "Ctrl+Alt+.", other keys the user picked, or "" for none.
+		stopKeys = keys
+	},
+}, stopAll)
+```
+
+Without a description the desktop shows the accelerator in its place.
+`OnKeys` runs on the main thread once the desktop answered and again when
+the user changes the keys; it gets them as the desktop writes them, so show
+them as they are. Where the app takes the keys itself (macOS, Windows, X11)
+it is not called, and the shortcut has its accelerator's keys.

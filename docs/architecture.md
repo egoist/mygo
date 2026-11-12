@@ -503,7 +503,12 @@ by `mygo build` with `mygo_noinspector`) leave out its downloader and
   KDE Plasma 5 binds the shortcuts listed in `CreateSession`'s options, as
   the portal's drafts had it: portals before 1.17 pass them on, later ones
   drop them and Plasma 5 then binds nothing; MyGo logs the shortcuts the
-  desktop bound no keys to. The activation token of an `Activated` signal
+  desktop bound no keys to. The desktop shows each shortcut's description
+  (`GlobalShortcutOptions.Description`, else the accelerator) where it asks
+  and in its settings, and the keys it answers with, in `BindShortcuts`'s
+  response and in later `ShortcutsChanged` signals, go to the shortcut's
+  `OnKeys` (`HotkeyBound`): none when the user declined it, which KDE
+  remembers without asking again. The activation token of an `Activated` signal
   becomes the display's startup notification id while the callback runs,
   so the window it shows or focuses may take the focus.
 
@@ -4958,6 +4963,23 @@ either.
   `ui.Icon` keeps the coverage of that drawing for each size, which the
   GPU tints like a glyph, and `ui.Image` the colored pixels, as images
   whose textures it updates in place when only the text color changes.
+  The cascade substitutes custom properties (`var()`) and evaluates
+  `prefers-color-scheme` media queries; a document that has them is
+  compiled twice, light and dark, and `ui.Image` draws the one the
+  theme's `Dark` picks (`SVG.WithDark` fixes it). Text elements compile
+  to runs of one style and position that `svg.Doc.Draw` lays out through
+  an `svg.Fonts` it is given: ui's shapes each run with the text system
+  (`System.Shape`) and rasterizes its glyphs on the CPU, at the size they
+  show at, without the atlas (`System.GlyphBitmap`), into a coverage mask
+  the renderer paints as any shape's, in document order; text under a
+  rotation or a skew is sampled from upright glyphs. Markers compile to
+  nodes at the vertices of their path. What the cascade and the compiler
+  leave out, they report (`svg.Doc.Unsupported`, `SVG.Unsupported`).
+  Text, markers and style sheets are linked only into apps that call
+  `svg.Parse` (through `ui.ParseSVG`): ui's own icons, which every app
+  with native UI parses, go through `svg.ParseBasic` (`parseIcon`),
+  which reads presentation and style attributes alone, and a `Doc`
+  carries the functions that compile and draw its text and markers.
   An atlas logs the rectangles that change, so renderers upload only those.
   DirectWrite methods taking floats are called through purego, which sets
   the floating point registers that `syscall` leaves alone on ARM64.

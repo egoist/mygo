@@ -428,6 +428,39 @@ func TestRichTextComposeDropped(t *testing.T) {
 	}
 }
 
+// TestRichTextReplaceCRLF checks that what an input method puts in with
+// \r\n line endings goes in with \n, as typed and pasted text does: a
+// composition committed, a range replaced, and a composition left as it
+// is.
+func TestRichTextReplaceCRLF(t *testing.T) {
+	doc := NewDocument(Text{})
+	tt, _ := richTester(t, doc)
+	typeRunes(tt, "ab")
+	tt.Compose("x", 1)
+	tt.Type("c\r\nd")
+	if got := doc.Text().String(); got != "abc\nd" {
+		t.Fatalf("committed %q", got)
+	}
+	v := doc.shownIn.Value()
+	v.ReplaceText(&ui.TextInputRange{Start: 0, End: 1}, "e\r\nf")
+	tt.Frame()
+	if got := doc.Text().String(); got != "e\nfbc\nd" {
+		t.Fatalf("replaced %q", got)
+	}
+	if _, caret := doc.Selection(); caret != 3 {
+		t.Fatalf("caret at %d, want 3", caret)
+	}
+	tt.Compose("g\r\nh", 4)
+	v.UnmarkText()
+	tt.Frame()
+	if got := doc.Text().String(); got != "e\nfg\nhbc\nd" {
+		t.Fatalf("left as it is %q", got)
+	}
+	if n := doc.Text().ParagraphCount(); n != 4 {
+		t.Fatalf("%d paragraphs, want 4", n)
+	}
+}
+
 // TestRichTextEnterAtCheckedTask checks that Enter at the start of a
 // checked task keeps it checked, with an empty item above, as Notes.
 func TestRichTextEnterAtCheckedTask(t *testing.T) {

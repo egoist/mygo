@@ -674,6 +674,11 @@ type node struct {
 	popupSet        bool
 	tl              *text.Layout
 	measured
+
+	// hold is the element's entry in the engine's holds (0 for none):
+	// what a measuring pass resolved for its in-flow children, which a
+	// commit pass at the same size uses instead of building them again.
+	hold int32
 	// lay says what the layout cache may do with the element
 	// (layOwner, layReuse), and laid when layoutBox last laid it out, in
 	// engine.laySeq.

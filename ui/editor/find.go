@@ -311,7 +311,7 @@ func (f *finder) replaceOne(ed *editor) {
 	text := f.textForReplacing(ed)
 	for i, m := range f.matches {
 		if m.start == p.start() && m.end == p.end() {
-			with := f.replacement(text, i)
+			with := lf(f.replacement(text, i))
 			ed.apply([]Edit{{Start: m.start, End: m.end, Text: with}}, editOther, func(move func(int, bias) int) []sel {
 				at := move(m.start, biasLeft) + len(with)
 				return []sel{ed.newSel(at, at)}

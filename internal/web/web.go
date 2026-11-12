@@ -212,7 +212,7 @@ func (b *Backend) Screen() platform.Screen                           { return sc
 func (b *Backend) Theme() platform.Theme                             { return theme{b} }
 func (b *Backend) Power() platform.Power                             { return power{} }
 func (*Backend) NewTray(platform.TrayHandler) (platform.Tray, error) { return nil, errUnsupported }
-func (*Backend) RegisterHotkey(int, string) error                    { return errUnsupported }
+func (*Backend) RegisterHotkey(int, string, string) error            { return errUnsupported }
 func (*Backend) UnregisterHotkey(int)                                {}
 func (*Backend) NotificationsSupported() bool                        { return false }
 func (*Backend) WebViewAvailable() bool                              { return false }

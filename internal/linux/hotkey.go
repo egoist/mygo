@@ -102,13 +102,13 @@ func hotkeyFilter(xevent, event, data ptr) int32 {
 	return filterContinue
 }
 
-func (b *Backend) RegisterHotkey(id int, acc string) error {
+func (b *Backend) RegisterHotkey(id int, acc, description string) error {
 	a, err := accelerator.Parse(acc, "linux")
 	if err != nil {
 		return err
 	}
 	if portalShortcutsOnly || !loadX11() {
-		return b.bindShortcut(id, a)
+		return b.bindShortcut(id, a, description)
 	}
 	display := gdkDisplayGetDefault()
 	dpy := x11.xdisplay(display)

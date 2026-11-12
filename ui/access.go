@@ -650,10 +650,13 @@ func leafRole(r platform.AccessRole) bool {
 // of its texts, as a name from content takes a descendant's aria-label on
 // the web: a row reads "Branch main (checked out)" rather than the "✓
 // main" drawn for it; one hidden from assistive technology
-// (AccessHidden) gives nothing. Assistive technology names elements by it
-// every frame, so a single text is returned as it is, without a copy.
+// (AccessHidden) gives nothing, nor does one that is inert, as a copy of
+// an element leaving with an Exit transition or a page a Router is
+// leaving, which the accessibility tree leaves out too. Assistive
+// technology names elements by it every frame, so a single text is
+// returned as it is, without a copy.
 func (e *node) innerText() string {
-	if e.flags&flagInvisible != 0 || e.hidden {
+	if e.flags&(flagInvisible|flagInert) != 0 || e.hidden {
 		return ""
 	}
 	if e.kind == kindText {
@@ -677,7 +680,7 @@ type innerTexts struct {
 }
 
 func (t *innerTexts) walk(e *node) {
-	if e.flags&flagInvisible != 0 || e.hidden || e.accessHidden {
+	if e.flags&(flagInvisible|flagInert) != 0 || e.hidden || e.accessHidden {
 		return
 	}
 	if e.label != "" {

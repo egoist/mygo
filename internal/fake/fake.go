@@ -46,6 +46,7 @@ type Backend struct {
 	popups           []Popup
 	updates          []*platform.MenuItem
 	hotkeys          map[int]string
+	hotkeyNames      map[int]string
 	clipboard        transfer.Data
 	clipboardRelease func()
 	// ClipboardConcealed is whether the last write marked its content
@@ -421,9 +422,13 @@ func (b *Backend) TrayIDs() []string {
 	return append([]string(nil), b.trayIDs...)
 }
 
-func (b *Backend) RegisterHotkey(id int, acc string) error {
+func (b *Backend) RegisterHotkey(id int, acc, description string) error {
 	b.mu.Lock()
 	b.hotkeys[id] = acc
+	if b.hotkeyNames == nil {
+		b.hotkeyNames = map[int]string{}
+	}
+	b.hotkeyNames[id] = description
 	b.mu.Unlock()
 	return nil
 }
@@ -431,20 +436,41 @@ func (b *Backend) RegisterHotkey(id int, acc string) error {
 func (b *Backend) UnregisterHotkey(id int) {
 	b.mu.Lock()
 	delete(b.hotkeys, id)
+	delete(b.hotkeyNames, id)
 	b.mu.Unlock()
+}
+
+// hotkey returns the id of a registered global shortcut, -1 without one.
+func (b *Backend) hotkey(acc string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id, a := range b.hotkeys {
+		if a == acc {
+			return id
+		}
+	}
+	return -1
+}
+
+// HotkeyDescription returns what a global shortcut was said to do.
+func (b *Backend) HotkeyDescription(acc string) string {
+	id := b.hotkey(acc)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.hotkeyNames[id]
+}
+
+// BindHotkey simulates a desktop that binds global shortcuts for apps
+// telling the keys it has for one, "" for none.
+func (b *Backend) BindHotkey(acc, keys string) {
+	if id := b.hotkey(acc); id >= 0 {
+		b.h.HotkeyBound(id, keys)
+	}
 }
 
 // PressHotkey simulates a global shortcut.
 func (b *Backend) PressHotkey(acc string) {
-	b.mu.Lock()
-	var hid = -1
-	for id, a := range b.hotkeys {
-		if a == acc {
-			hid = id
-		}
-	}
-	b.mu.Unlock()
-	if hid >= 0 {
+	if hid := b.hotkey(acc); hid >= 0 {
 		b.h.HotkeyPressed(hid)
 	}
 }

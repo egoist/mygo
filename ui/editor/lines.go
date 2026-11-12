@@ -105,13 +105,16 @@ func (ed *editor) moveLines(dir int) bool {
 	}
 	sels := slices.Clone(ed.sels)
 	folds := slices.Clone(ed.folds)
+	// The text is as long after: a selection through the newline of lines
+	// that become the last ends with them.
+	end := r.Len()
 	ok := ed.apply(edits, editOther, func(move func(int, bias) int) []sel {
 		for i := range sels {
 			s := &sels[i]
 			for _, sh := range shifts {
 				if s.start() >= sh.from && s.end() <= sh.to+1 {
-					s.anchor += sh.by
-					s.head += sh.by
+					s.anchor = min(s.anchor+sh.by, end)
+					s.head = min(s.head+sh.by, end)
 					break
 				}
 			}
@@ -464,7 +467,15 @@ func (ed *editor) manipulateLines(cmd Command) bool {
 		for i := range sels {
 			s := &sels[i]
 			if s.empty() {
-				s.collapse(min(s.head, t.Len()))
+				// At the start of the character that came there.
+				at := min(s.head, t.Len())
+				line := t.LineOf(at)
+				a := t.LineStart(line)
+				text := t.Slice(a, t.LineEnd(line))
+				for at > a && at-a < len(text) && !utf8.RuneStart(text[at-a]) {
+					at--
+				}
+				s.collapse(at)
 				continue
 			}
 			for _, e := range edits {
@@ -494,7 +505,8 @@ func (ed *editor) convertCase(cmd Command) bool {
 			sels[i].anchor, sels[i].head = a, z
 		}
 	}
-	ed.sels = sels
+	// Carets in one word, or in a word with a selection, convert it once.
+	ed.sels = mergeSels(sels)
 	return ed.replaceEach(editOther, true, func(_ int, s sel) string {
 		return convertCase(r.Slice(s.start(), s.end()), cmd)
 	})

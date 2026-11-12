@@ -174,7 +174,7 @@ func (v *view) joinStep() {
 // attributes, as part of the step its start made.
 func (v *view) commitCompose() {
 	if v.compose != "" {
-		s := v.compose
+		s := normalizeNewlines(v.compose)
 		v.compose = ""
 		v.joinStep()
 		v.replace(v.caret, v.caret, s)

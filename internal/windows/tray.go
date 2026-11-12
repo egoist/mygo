@@ -549,7 +549,7 @@ func (b *Backend) finishNotification(t *tray) {
 
 // Global shortcuts.
 
-func (b *Backend) RegisterHotkey(id int, acc string) error {
+func (b *Backend) RegisterHotkey(id int, acc, _ string) error {
 	a, err := accelerator.Parse(acc, "windows")
 	if err != nil {
 		return err
