@@ -303,7 +303,10 @@ term, err := terminal.New(terminal.Options{
   before `win`, and `close(ready)` once `NewWindow` set `win`). `Done` is
   closed once the program exited, and `ExitCode` returns its code (-1 for
   a program that could not start); the terminal then shows "[Process
-  exited]".
+  exited]" ("[Disconnected]" with `Conn`).
+- `NoExitMessage` leaves that line out, for an app that tells of the end
+  in its own way, or closes the view: `OnExit`, `Done` and `ExitCode` are
+  the same either way.
 - `OpenLink` takes the links Command+click opens, on the main thread,
   and with it file paths printed as text too (`/abs/path`, `~/notes.md`,
   `./a.go`, `src/app.go:12:3`, `main.go:250`, `app.ts(12,3)`,
