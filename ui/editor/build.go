@@ -152,12 +152,9 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 		ed.buildReplacements(c)
 		if ds, ok := ed.o.decor.(*diffSide); ok {
 			ds.buildBlocks(c, ed)
-		}
-		if ed.find.open {
-			ed.buildFindBar(c)
-		}
-		if ed.goTo.open {
-			ed.buildGoToLine(c)
+		} else {
+			// A diff's viewer builds a side's bars over its separators.
+			ed.buildBars(c)
 		}
 		if hasCaret {
 			ed.buildCompletions(c, caretAnchor)
@@ -187,6 +184,15 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 	}
 	ed.needsBuild = false
 	return e
+}
+
+func (ed *editor) buildBars(c *ui.Context) {
+	if ed.find.open {
+		ed.buildFindBar(c)
+	}
+	if ed.goTo.open {
+		ed.buildGoToLine(c)
+	}
 }
 
 // accessibility describes the editor to assistive technology, while it

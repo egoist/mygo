@@ -94,6 +94,38 @@ func TestCodeEditorParts(t *testing.T) {
 	}
 }
 
+// A diff's find bar takes clicks over the separator under it, which still
+// takes them beside the bar, in both layouts.
+func TestDiffFindBarOverSeparators(t *testing.T) {
+	lines := make([]string, 60)
+	for i := range lines {
+		lines[i] = "name " + strconv.Itoa(i)
+	}
+	old := strings.Join(lines, "\n")
+	lines[30] = "changed"
+	nw := strings.Join(lines, "\n")
+	for _, layout := range []DiffLayout{DiffUnified, DiffSplit} {
+		d := &DiffState{Old: NewBuffer(old), New: NewBuffer(nw), Layout: layout}
+		tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 900, 300)
+		tt.Frame()
+		tt.Frame()
+		d.Find("name")
+		tt.Frame()
+		if err := tt.Click("Match case"); err != nil {
+			t.Fatal(err)
+		}
+		if !d.eds[1].find.caseSens {
+			t.Errorf("layout %v: a click on Match case did not reach the find bar", layout)
+		}
+		if err := tt.Click("Expand 27 unmodified lines"); err != nil {
+			t.Fatal(err)
+		}
+		if tt.HasText("Expand 27 unmodified lines") {
+			t.Errorf("layout %v: the separator under the bars' box did not expand", layout)
+		}
+	}
+}
+
 // TestCodeDiffParts builds the separators, the actions on changes and
 // the gutter's button with the app's render functions, and checks the
 // default separators expand from their buttons.

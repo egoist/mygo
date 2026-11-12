@@ -4146,7 +4146,9 @@ either.
     state and actions (`FindBar`, `DiffSeparator`, ...), whose values
     the editor reads back after the build, as a query typed. Separators
     are built by the diff view across both sides, over the room their
-    blocks leave.
+    blocks leave, and the sides' find and go to line bars after them, in
+    a box over each side that lets the pointer through, so that the
+    separators do not cover them.
 - **Markdown** (`ui/markdown`), on ui's public API as `ui/editor` is, whose
   tokenizers highlight its code. The parser, `ui/markdown/parser`,
   imports nothing of ui, so that `ui/richtext` reads Markdown without the
