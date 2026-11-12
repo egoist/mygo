@@ -19,7 +19,7 @@ func TestThemeResolve(t *testing.T) {
 	if th.Headings[0].Color != red || th.Marker != red || th.Code != red {
 		t.Errorf("heading %v and marker %v don't follow the text %v", th.Headings[0].Color, th.Marker, red)
 	}
-	if th.CodeSize != 0.8 || th.Indent != def.Indent || th.Link != def.Link || th.QuoteText != def.Muted || th.TableHeaderWeight != 600 {
+	if th.CodeSize != 0.8 || th.Indent != def.Indent || th.Link != def.Link || th.QuoteText != def.Muted || th.TableHeaderWeight != 700 {
 		t.Errorf("resolved %+v", th)
 	}
 	if got := resolve(nil, def); got != *def {

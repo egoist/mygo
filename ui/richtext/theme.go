@@ -33,7 +33,7 @@ type Theme struct {
 	CodeBlockRadius     float32
 	CodeBlockPadding    [2]float32
 
-	// TableHeaderWeight is the weight of a table's header: 600.
+	// TableHeaderWeight is the weight of a table's header: 700.
 	TableHeaderWeight int
 
 	// Headings are the styles of headings of levels 1 to 6.
@@ -106,7 +106,7 @@ func defaultTheme(t *ui.Theme) Theme {
 		CodeBlockBackground: t.Text.Alpha(0.07),
 		CodeBlockRadius:     0.3,
 		CodeBlockPadding:    [2]float32{0.7, 0.5},
-		TableHeaderWeight:   600,
+		TableHeaderWeight:   700,
 		Indent:              1.7,
 		Marker:              t.Text,
 		Checkbox:            t.Accent,

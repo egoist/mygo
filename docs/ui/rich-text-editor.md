@@ -101,10 +101,10 @@ each other are one block; a table starts with a header row, or with body
 rows when the app made none. Each row's `Columns` holds the table's
 alignments, a letter a column (`l`, `c`, `r`, or `-` for none), as a
 Markdown table's delimiter row; the first row's are the table's. A cell
-holds one paragraph of text, as GFM's tables do. A header row shows at the
-theme's `TableHeaderWeight` (600, as `ui.Table`'s header) without its text
-being bold. A table copied as HTML is its rows as paragraphs, the header's
-bold, as before rows.
+holds one paragraph of text, as GFM's tables do. A header row shows bold,
+at the theme's `TableHeaderWeight` (700), without its text being bold. A
+table copied as HTML is its rows as paragraphs, the header's bold, as
+before rows.
 
 A paragraph's `ID` is the app's name for it, as the key of what the app keeps
 about it, such as notes or a timeline. The editor does not show it, and it
