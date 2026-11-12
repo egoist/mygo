@@ -438,3 +438,37 @@ func TestDragSourceGone(t *testing.T) {
 		t.Errorf("the copy stays after the drop: %v", c)
 	}
 }
+
+// An element taking the value built under a pointer that stands still, as
+// in a view that just showed, is the one the value is over, and takes it.
+func TestDragTargetBuiltUnderPointer(t *testing.T) {
+	var dropped []string
+	var over, shown bool
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Gap(20).Padding(20).Children(func() {
+			coreBox(c).Size(100, 40).Label("Source").Drag("hello")
+			if shown {
+				target := coreBox(c).Size(200, 100).Label("Target")
+				if v, ok := coreDrop[string](target); ok {
+					dropped = append(dropped, v)
+				}
+				_, over = coreDragOver[string](target)
+			}
+		})
+	}, 400, 400)
+	src, _ := tt.Find("Source")
+	x, y := src.X+20, src.Y+src.H+60
+	tt.Press(src.X+10, src.Y+10)
+	tt.Move(src.X+30, src.Y+30)
+	tt.Move(x, y)
+	shown = true
+	tt.Frame()
+	tt.Frame()
+	if !over {
+		t.Fatal("the target built under the pointer does not see the value")
+	}
+	tt.Release(x, y)
+	if !slices.Equal(dropped, []string{"hello"}) {
+		t.Fatalf("dropped %q", dropped)
+	}
+}

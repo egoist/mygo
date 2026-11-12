@@ -920,6 +920,7 @@ func (rt *engine) runFrame() {
 	// than what it was over as the press began, in the frame this asks
 	// for.
 	rt.rehover(true)
+	rt.retarget()
 	rt.armTimer()
 	rt.showMenu()
 	rt.c.finish()
