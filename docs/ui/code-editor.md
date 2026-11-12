@@ -121,7 +121,12 @@ The editor edits as Zed does, with the commands bound to the same keys
   level.
 - **Finding.** Cmd+F opens the find bar, with case, whole words, regular
   expressions and finding in the selection; Cmd+Alt+F replaces. Cmd+G goes
-  to the next match, and Ctrl+G to a line.
+  to the next match, and Ctrl+G to a line. The bar is no wider than the
+  editor: in a narrow one it leaves out the count of matches, then the
+  options and the buttons that go through the matches or replace them,
+  keeping the fields, the button that shows or hides the replacement and
+  the close button. Its field turns red for a regular expression that is
+  not one.
 - **The pointer.** A double click selects a word, a triple click a line,
   and dragging extends by them; dragging near the edges scrolls; Cmd+click
   goes to a definition.
@@ -572,7 +577,9 @@ list below the caret, a card above the text hovered), which keeps the
 presses from the text under it and the keyboard where the part needs it
 (in the editor while the completions show, in the hover as its text is
 selected), and a handle to what the part shows and does. Style the element and build its
-content; its position can change too. The editor's own looks are
+content; its position can change too. The find bar comes with margins
+that keep it inside the editor, so `bar.Right(0)` leaves it the theme's
+`Space(4)` from the right edge; `bar.Margin(0)` takes them off. The editor's own looks are
 `DefaultFindBar`, `DefaultGoToLine`, `DefaultCompletions` and
 `DefaultHover`, which a render function can call and then restyle.
 
@@ -624,7 +631,8 @@ Assistive technology sees a multi-line text field, named by `Label`, with
 the text of the buffer, replaced ranges among it, and the newest selection,
 which it moves; the elements of replacements are named by their `Label`; the
 completions are a list, and the find bar a toolbar that tells the count
-of matches. The editor's menu, its find and go to line bars and their
+of matches, except in a narrow editor, where its query field still tells
+an invalid regular expression. The editor's menu, its find and go to line bars and their
 names are in the window's language
 ([MyGo's own strings](../i18n.md#mygos-own-strings)). Input methods compose in the editor as in other text fields,
 with their candidate window at the caret.

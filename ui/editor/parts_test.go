@@ -94,6 +94,55 @@ func TestCodeEditorParts(t *testing.T) {
 	}
 }
 
+// The default find bar stays within an editor beside a sidebar as the
+// window narrows, while replacing, leaving out the count of matches, then
+// all but the fields and the ⇄ and close buttons, as the editor passes
+// widths; replacing still turns off in the narrowest.
+func TestCodeEditorFindBarFitsNarrowEditor(t *testing.T) {
+	st := &State{Buffer: NewBuffer("cat dog cat\ncat\n")}
+	var b ui.Rect
+	st.RenderFindBar = func(c *ui.Context, bar ui.Element, f *FindBar) {
+		// A frame's bounds are the last frame's.
+		b = bar.Bounds()
+		DefaultFindBar(c, bar, f)
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+			ui.Box(c).Width(200)
+			View(c, st).Grow(1)
+		})
+	}, 900, 400)
+	tt.Frame()
+	st.Find("cat")
+	st.ed.find.replacing = true
+	tt.Frame()
+	for _, tc := range []struct {
+		w                 int
+		count, toggles, x bool
+	}{
+		{900, true, true, true},
+		{680, false, true, true},
+		{500, false, false, true},
+		{330, false, false, true},
+	} {
+		// With only the frames the resize asks for.
+		tt.SetSize(tc.w, 400)
+		if got := [3]bool{tt.HasText("1 of 3"), tt.HasText("Match case") && tt.HasText("Next match") && tt.HasText("Replace All"), tt.HasText("⇄") && tt.HasText("Close")}; got != [3]bool{tc.count, tc.toggles, tc.x} {
+			t.Errorf("width %d: count, toggles and buttons, replace and close shown %v, want %v: %q", tc.w, got, [3]bool{tc.count, tc.toggles, tc.x}, tt.Texts())
+		}
+		tt.Frame()
+		if b.W <= 0 || b.X < 200 || b.X+b.W > float32(tc.w) {
+			t.Errorf("width %d: the find bar spans %v to %v, outside the editor's 200 to %d", tc.w, b.X, b.X+b.W, tc.w)
+		}
+	}
+	if err := tt.Click("⇄"); err != nil {
+		t.Fatal(err)
+	}
+	if st.ed.find.replacing {
+		t.Error("replacing stayed on after ⇄ in the narrowest bar")
+	}
+}
+
 // A diff's find bar takes clicks over the separator under it, which still
 // takes them beside the bar, in both layouts.
 func TestDiffFindBarOverSeparators(t *testing.T) {

@@ -38,6 +38,7 @@ type finder struct {
 	lower    string // the text lowered, for searching without case
 	lowerVer uint64
 	scrollTo bool
+	builtW   float32 // the editor's width the bar was built for
 }
 
 // maxMatches bounds the matches a search finds.

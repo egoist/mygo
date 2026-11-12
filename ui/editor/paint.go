@@ -93,6 +93,9 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 		ed.builtViewH = ed.viewH
 		ed.services.Invalidate()
 	}
+	if ed.find.open && findBarSize(ed.laidW) != findBarSize(ed.find.builtW) {
+		ed.services.Invalidate()
+	}
 	more := false
 	if !v.measureWraps(ed.anchorLine, 4*time.Millisecond) {
 		more = true
