@@ -62,8 +62,8 @@ func TestParseMarkdown(t *testing.T) {
 		{"a  \nb", TextOf(para(ParagraphStyle{}, Run{Text: "a"}), para(ParagraphStyle{}, Run{Text: "b"}))},
 		{"1. a\\\n   b", TextOf(para(ParagraphStyle{List: Numbers}, Run{Text: "a"}), para(ParagraphStyle{Indent: 1}, Run{Text: "b"}))},
 		{"| a | b |\n|---|---|\n| 1 | **2** |", TextOf(
-			para(ParagraphStyle{}, Run{Text: "a\tb", Attributes: bold}),
-			para(ParagraphStyle{}, Run{Text: "1\t"}, Run{Text: "2", Attributes: bold}),
+			para(ParagraphStyle{Row: HeaderRow, Columns: "--"}, Run{Text: "a\tb"}),
+			para(ParagraphStyle{Row: BodyRow, Columns: "--"}, Run{Text: "1\t"}, Run{Text: "2", Attributes: bold}),
 		)},
 		{"x <u>under *it*</u> <b>b</b>", TextOf(para(ParagraphStyle{}, Run{Text: "x "}, Run{Text: "under ", Attributes: Attributes{Underline: true}},
 			Run{Text: "it", Attributes: Attributes{Underline: true, Italic: true}}, Run{Text: " "}, Run{Text: "b", Attributes: bold}))},

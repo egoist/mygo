@@ -578,7 +578,7 @@ func (v *view) insets(st ParagraphStyle) (left, right float32) {
 // which Theme.FirstLineIndent and ParagraphSpacing set apart: not a
 // heading, an item of a list or code.
 func body(st ParagraphStyle) bool {
-	return st.Heading == 0 && st.List == NoList && !st.CodeBlock
+	return st.Heading == 0 && st.List == NoList && !st.CodeBlock && st.Row == NoRow
 }
 
 // firstLine returns how far the first line of paragraph p goes in: a body
@@ -662,6 +662,9 @@ func (look *look) span(text string, a Attributes, st ParagraphStyle) ui.Span {
 	}
 	if (a.Code || st.CodeBlock) && s.Color.A == 0 && look.Code != look.Text {
 		s.Color = look.Code
+	}
+	if st.Row == HeaderRow && s.Weight == 0 {
+		s.Weight = look.TableHeaderWeight
 	}
 	if st.Heading > 0 && s.Color.A == 0 {
 		if c := look.heading(st.Heading).Color; c != look.Text {

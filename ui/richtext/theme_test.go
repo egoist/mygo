@@ -19,7 +19,7 @@ func TestThemeResolve(t *testing.T) {
 	if th.Headings[0].Color != red || th.Marker != red || th.Code != red {
 		t.Errorf("heading %v and marker %v don't follow the text %v", th.Headings[0].Color, th.Marker, red)
 	}
-	if th.CodeSize != 0.8 || th.Indent != def.Indent || th.Link != def.Link || th.QuoteText != def.Muted {
+	if th.CodeSize != 0.8 || th.Indent != def.Indent || th.Link != def.Link || th.QuoteText != def.Muted || th.TableHeaderWeight != 600 {
 		t.Errorf("resolved %+v", th)
 	}
 	if got := resolve(nil, def); got != *def {
@@ -32,7 +32,7 @@ func TestThemeResolve(t *testing.T) {
 func TestThemeLook(t *testing.T) {
 	link, code, heading := ui.RGB(124, 58, 237), ui.RGB(0, 120, 0), ui.RGB(0, 0, 200)
 	th := &Theme{Link: link, CodeBackground: code, Code: code, CodeFont: "Menlo", CodeSize: 0.8, Indent: 2,
-		CodeBlockPadding: [2]float32{1, 2}, Headings: [6]HeadingStyle{{Size: 3, Weight: 800, Color: heading, Top: 1, Bottom: 0.5}}}
+		CodeBlockPadding: [2]float32{1, 2}, TableHeaderWeight: 650, Headings: [6]HeadingStyle{{Size: 3, Weight: 800, Color: heading, Top: 1, Bottom: 0.5}}}
 	v := &view{opts: EditorOptions{Theme: th, Font: ui.Font{Size: 10}}}
 	v.setLook(ui.LightTheme(), false)
 	look := &v.look
@@ -47,6 +47,12 @@ func TestThemeLook(t *testing.T) {
 	}
 	if s := look.span("x", Attributes{}, ParagraphStyle{Heading: 1}); s.Color != heading {
 		t.Errorf("heading color %v", s.Color)
+	}
+	if s := look.span("x", Attributes{}, ParagraphStyle{Row: HeaderRow}); s.Weight != 650 {
+		t.Errorf("a table's header weighs %v, not the theme's 650", s.Weight)
+	}
+	if s := look.span("x", Attributes{Weight: 300}, ParagraphStyle{Row: HeaderRow}); s.Weight != 300 {
+		t.Errorf("a header's light text weighs %v", s.Weight)
 	}
 	if f := v.paraFont(ParagraphStyle{Heading: 1}); f.Size != 30 || f.Weight != 800 {
 		t.Errorf("heading font %+v", f)

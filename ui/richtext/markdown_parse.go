@@ -11,8 +11,8 @@ import (
 // lists and task lists, quotations, blocks of code, bold, italic,
 // strikethrough, code, links, images, and the HTML tags of these marks
 // and of underlines, <u>. A list item's paragraphs after its first are
-// indented under it; a table's rows are paragraphs of their cells apart
-// by tabs, the header's bold. Math, which the editor does not show, stays
+// indented under it; a table's rows are rows (ParagraphStyle.Row), their
+// cells apart by tabs. Math, which the editor does not show, stays
 // as written: \[ is an escaped bracket, as everywhere but in math.
 func ParseMarkdown(s string) Text {
 	d := parser.New(parser.GFM | parser.ExtFootnotes)
@@ -94,20 +94,35 @@ func (m *mdReader) block(i int, st ParagraphStyle, depth int) {
 			m.item(it, ist, depth+1)
 		}
 	case parser.Table:
+		// A row a paragraph, its cells apart by tabs, as many as the
+		// header has: GitHub's tables pad short rows and drop what's past.
+		cols := columnsOf(b.Align)
+		first := true
 		for row := range m.d.Children(i) {
-			p := Paragraph{Style: st}
-			var a Attributes
-			if m.d.Block(row).Header {
-				a.Weight = 700
+			rs := st
+			rs.Heading, rs.Row, rs.Columns = 0, BodyRow, cols
+			if first {
+				rs.Row = HeaderRow
 			}
-			first := true
+			first = false
+			p := Paragraph{Style: rs}
+			k := 0
 			for cell := range m.d.Children(row) {
-				if !first {
-					p.Runs = addMDRun(p.Runs, Run{Text: "\t", Attributes: a})
+				if k >= len(cols) {
+					break
 				}
-				first = false
-				for _, r := range m.runs(m.d.Inlines(cell), a) {
+				if k > 0 {
+					p.Runs = addMDRun(p.Runs, Run{Text: string(CellSeparator)})
+				}
+				k++
+				for _, r := range m.runs(m.d.Inlines(cell), Attributes{}) {
+					r.Text = cellText(r.Text)
 					p.Runs = addMDRun(p.Runs, r)
+				}
+			}
+			for ; k < len(cols); k++ {
+				if k > 0 {
+					p.Runs = addMDRun(p.Runs, Run{Text: string(CellSeparator)})
 				}
 			}
 			m.paras = append(m.paras, p)
