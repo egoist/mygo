@@ -52,9 +52,12 @@ func TestListEndReachedWheel(t *testing.T) {
 	if _, last := l.list.Visible(); len(l.reached) != 0 || last >= 89 {
 		t.Fatalf("rows to %d in view: called with %v", last, l.reached)
 	}
+	// It is called with the last row in view in the frame the rows came
+	// near the end; the glide may go a fraction of a row further after
+	// (as on arm64, whose fused multiply-adds round the glide otherwise).
 	wheel(tt, 1, 100)
-	if _, last := l.list.Visible(); len(l.reached) != 1 || last < 89 || l.reached[0] != last {
-		t.Fatalf("rows to %d in view, near the end: called with %v, want once with the last", last, l.reached)
+	if _, last := l.list.Visible(); len(l.reached) != 1 || last < 89 || l.reached[0] < 89 || l.reached[0] > last {
+		t.Fatalf("rows to %d in view, near the end: called with %v, want once with a row from 89 to it", last, l.reached)
 	}
 	// Further on to the end, and frames while the rows stay there, call it
 	// no more.
