@@ -119,6 +119,24 @@ func TestSeek(t *testing.T) {
 	wait.Until(t, "the start, played again", func() bool { tt.Frame(); return near(shows(), red) })
 }
 
+// TestOpenNonASCIIPath checks that Open plays a file whose folder and name
+// are not ASCII, which Media Foundation could not find by its file: URL
+// (#1752).
+func TestOpenNonASCIIPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "中文")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "測試 é.mp4")
+	if err := os.WriteFile(path, rgbMP4, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, _, _ := played(t, func() (*ui.VideoPlayer, error) { return Open(path) })
+	if w, h := p.Size(); w != 64 || h != 48 {
+		t.Fatalf("size %d×%d, want 64×48", w, h)
+	}
+}
+
 func colorName(c color.RGBA) string {
 	switch c {
 	case red:
