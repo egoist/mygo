@@ -348,31 +348,51 @@ type layoutStyle struct {
 // Common input queries return false or zero for nil or cleared elements;
 // this does not make references to reused storage safe.
 type node struct {
-	epoch      uint64
-	key        any
-	valueInput func(*node)
-	c          *context
-	id         uint64
-	flags      uint32
+	// What the layout reads and writes of an element, in the lines it
+	// touches: a tree of a hundred thousand elements is walked again and
+	// again a frame, and each of them is read in as few lines as it can
+	// be.
+	c     *context
+	flags uint32
 	// special tells that the element lays out by more than what it is
 	// built with: a list, a toolbar, a form or a table's columns. The
 	// layout looks for those on every element it lays out, and this tells
-	// it that there are none to look for. It is a byte of the padding
-	// after the flags, which hold a bit for everything else.
+	// it that there are none to look for.
 	special bool
-	parent  *node
-	first      *node
-	last       *node
-	next       *node
+	// lay says what the layout cache may do with the element
+	// (layOwner, layReuse), and laid when layoutBox last laid it out, in
+	// engine.laySeq.
+	lay  uint8
+	laid uint64
+	// hold is the element's entry in the engine's holds (0 for none):
+	// what a measuring pass resolved for its in-flow children, which a
+	// commit pass at the same size uses instead of building them again.
+	hold int32
+
+	parent *node
+	first  *node
+	last   *node
+	next   *node
+	st     *state
+
+	// layoutStyle holds what lays the element out.
+	layoutStyle
+
+	// Layout results, in DIPs relative to the window.
+	x, y, w, h float32
+	// measured is what was measured of the element: its max-content and
+	// min-content widths, and its heights at widths.
+	measured
+
+	epoch      uint64
+	key        any
+	valueInput func(*node)
+	id         uint64
 	nchild     int
 	depth      int
-	st         *state
 	// track is the ScrollState of a scroll container (TrackScroll).
 	track *ScrollState
-
-	// layoutStyle holds what lays the element out, and cols and rows
-	// the tracks of a grid.
-	layoutStyle
+	// cols and rows are the tracks of a grid.
 	cols, rows []Track
 
 	// Visual geometry, composed after layout.
@@ -565,8 +585,6 @@ type node struct {
 	accGrid [4]int32
 	accSet  [2]int32
 
-	// Layout results, in DIPs relative to the window.
-	x, y, w, h float32
 	// contentW and contentH are the size of a scroll container's content.
 	contentW, contentH float64
 	// barInset moves a scroll container's scroll bars in from its edges
@@ -678,17 +696,6 @@ type node struct {
 	hasPopup        Popup
 	popupSet        bool
 	tl              *text.Layout
-	measured
-
-	// hold is the element's entry in the engine's holds (0 for none):
-	// what a measuring pass resolved for its in-flow children, which a
-	// commit pass at the same size uses instead of building them again.
-	hold int32
-	// lay says what the layout cache may do with the element
-	// (layOwner, layReuse), and laid when layoutBox last laid it out, in
-	// engine.laySeq.
-	lay  uint8
-	laid uint64
 	// leaving marks a copy of an element gone, which its exit transition
 	// animates (1 if it was in its parent's flow, 2 if absolute), and
 	// ghosts an element holding such copies; lift one flying with a
