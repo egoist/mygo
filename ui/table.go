@@ -367,6 +367,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	})
 	if id := drag.fit; id != "" {
 		table.colFit = &tableFit{id: id, cells: fitting, layout: layout, drag: drag, rt: c.rt}
+		table.special = true // it fits its columns as it lays out
 	}
 	table.DrawOver(func(p *Painter, r Rect) {
 		if table.FocusVisible() {

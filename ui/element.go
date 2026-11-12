@@ -354,7 +354,13 @@ type node struct {
 	c          *context
 	id         uint64
 	flags      uint32
-	parent     *node
+	// special tells that the element lays out by more than what it is
+	// built with: a list, a toolbar, a form or a table's columns. The
+	// layout looks for those on every element it lays out, and this tells
+	// it that there are none to look for. It is a byte of the padding
+	// after the flags, which hold a bit for everything else.
+	special bool
+	parent  *node
 	first      *node
 	last       *node
 	next       *node

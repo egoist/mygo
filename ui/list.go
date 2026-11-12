@@ -551,6 +551,7 @@ func buildList(c *context, e, owner *node, s *ListState, n int, row func(i int),
 		s.editables, s.editablesNow = s.editablesNow, false
 	}
 	e.list, owner.rowsOf = f, f
+	e.special = true // it lays the list out itself
 	wrapElement(owner).Bind(&s.Handle)
 	s.sync(e, n)
 	f.pickForMenu()

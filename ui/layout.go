@@ -344,11 +344,13 @@ func (e *node) leafWidths() (maxW, minW float32) {
 // intrinsic returns the element's max-content or min-content width, its
 // border box.
 func intrinsic(e *node, maxContent bool) float32 {
-	if e.form != nil {
-		e.form.alignLabels()
-	}
-	if e.colFit != nil {
-		e.colFit.apply()
+	if e.special {
+		if e.form != nil {
+			e.form.alignLabels()
+		}
+		if e.colFit != nil {
+			e.colFit.apply()
+		}
 	}
 	if v, ok := e.width.resolve(-1); ok {
 		return e.clampW(v, inf)
@@ -360,11 +362,13 @@ func intrinsic(e *node, maxContent bool) float32 {
 // element's content and padding, before its minimum and maximum widths:
 // its flex base size in a row.
 func contentWidth(e *node, maxContent bool) float32 {
-	if e.form != nil {
-		e.form.alignLabels()
-	}
-	if e.colFit != nil {
-		e.colFit.apply()
+	if e.special {
+		if e.form != nil {
+			e.form.alignLabels()
+		}
+		if e.colFit != nil {
+			e.colFit.apply()
+		}
 	}
 	// Measured once a frame: each container measures its children, and
 	// measuring them again for every container around them would take
@@ -547,11 +551,13 @@ func contentHeight(e *node, cw float32) float32 {
 	case kindInput:
 		return e.inputHeight(cw)
 	}
-	if f := e.list; f != nil && f.n > 0 {
-		// A List is as high as all its rows, as far as the heights known
-		// tell, whichever it built.
-		s := f.s
-		return float32(s.heights.top(f.n, float64(max(e.gapY, 0))) - float64(max(e.gapY, 0)))
+	if e.special {
+		if f := e.list; f != nil && f.n > 0 {
+			// A List is as high as all its rows, as far as the heights known
+			// tell, whichever it built.
+			s := f.s
+			return float32(s.heights.top(f.n, float64(max(e.gapY, 0))) - float64(max(e.gapY, 0)))
+		}
 	}
 	if e.first == nil {
 		return 0
@@ -562,11 +568,13 @@ func contentHeight(e *node, cw float32) float32 {
 
 // boxLayout lays out the children of a box, with flexbox or as a grid.
 func boxLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
-	if e.form != nil {
-		e.form.alignLabels()
-	}
-	if e.colFit != nil {
-		e.colFit.apply()
+	if e.special {
+		if e.form != nil {
+			e.form.alignLabels()
+		}
+		if e.colFit != nil {
+			e.colFit.apply()
+		}
 	}
 	if e.grid {
 		return gridLayout(e, cw, ch, commit)
@@ -615,16 +623,18 @@ func computeBox(e *node, w, h float32) {
 	case kindImage, kindIcon:
 		return
 	}
-	if e.list != nil {
-		e.layoutList(w, h)
-		return
+	if e.special {
+		if e.list != nil {
+			e.layoutList(w, h)
+			return
+		}
 	}
 	if e.first == nil && !e.scrolls() {
 		// A box with nothing in it, most of a tree: its parent gave it
 		// its size, and laying out no children would change nothing.
 		return
 	}
-	if e.overflow != nil {
+	if e.special && e.overflow != nil {
 		e.layoutToolbar(cw)
 	}
 	lw, lh := cw, ch
