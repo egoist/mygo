@@ -428,4 +428,12 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/framely.png",
   },
+  {
+    name: "MyGO Wallhaven",
+    description:
+      "An open-source Wallhaven wallpaper client built with Go and MyGO's native UI. Browse recommendations, search and filter wallpapers by resolution, aspect ratio and color, preview full-size images, save local favorites, manage resumable downloads, and set your desktop wallpaper.",
+    url: "https://github.com/MaLuns/wallhaven",
+    author: "MaLuns",
+    mode: "native",
+  },
 ]
