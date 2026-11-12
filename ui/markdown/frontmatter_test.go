@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"fmt"
 	"image"
 	"slices"
 	"strings"
@@ -21,36 +22,82 @@ const (
 )
 
 func fmOptions(hide bool) *Options {
-	return &Options{Extensions: parser.Default | parser.ExtFrontmatter, HideFrontmatter: hide}
+	o := &Options{HideFrontmatter: hide}
+	o.EnableFrontmatter()
+	return o
 }
 
-// shows reports whether some text shown contains s.
-func shows(tt *ui.Tester, s string) bool {
+// fmShows reports whether some text shown contains s.
+func fmShows(tt *ui.Tester, s string) bool {
 	return slices.ContainsFunc(tt.Texts(), func(t string) bool { return strings.Contains(t, s) })
+}
+
+func TestEnableFrontmatter(t *testing.T) {
+	for _, ext := range []parser.Extensions{0, parser.ExtMath, parser.Default} {
+		o := &Options{Extensions: ext}
+		o.EnableFrontmatter()
+		want := ext | parser.ExtFrontmatter
+		if ext == 0 {
+			want |= parser.Default
+		}
+		if o.Extensions != want || o.frontmatter == nil {
+			t.Fatalf("extensions %v: got %v, want %v with a renderer", ext, o.Extensions, want)
+		}
+		o.EnableFrontmatter()
+		if o.Extensions != want {
+			t.Fatal("enabling twice changed the extensions")
+		}
+	}
+}
+
+func TestFrontmatterParserOnlyView(t *testing.T) {
+	o := &Options{Extensions: parser.Default | parser.ExtFrontmatter}
+	var st *viewState
+	tt := ui.NewTester(func(c *ui.Context) {
+		el := View(c, fmDoc, o)
+		st = *ui.Local(el, stateKey{}, newState)
+	}, 600, 400)
+	if st.doc.Block(1).Kind != parser.Frontmatter || st.doc.Lines(1) != fmMeta {
+		t.Fatal("metadata was not parsed")
+	}
+	if fmShows(tt, "Front matter") || fmShows(tt, "Secret") || !fmShows(tt, "Some body text.") {
+		t.Errorf("parser-only view shows %q", tt.Texts())
+	}
+	o.Block = func(c *ui.Context, d *parser.Document, i int) bool {
+		if d.Block(i).Kind != parser.Frontmatter {
+			return false
+		}
+		ui.Text(c, "Custom metadata")
+		return true
+	}
+	tt.Frame()
+	if !fmShows(tt, "Custom metadata") {
+		t.Fatal("parser-only view ignored Block")
+	}
 }
 
 func TestViewFrontmatterCollapsed(t *testing.T) {
 	o := fmOptions(false)
 	tt := ui.NewTester(func(c *ui.Context) { View(c, fmDoc, o) }, 600, 800)
 	for _, s := range []string{"Front matter", "Title", "Some body text."} {
-		if !shows(tt, s) {
+		if !fmShows(tt, s) {
 			t.Errorf("no %q in %q", s, tt.Texts())
 		}
 	}
 	for _, s := range []string{"Secret", "tags", "---", "Copy", "yaml"} {
-		if shows(tt, s) {
+		if fmShows(tt, s) {
 			t.Errorf("shows %q in %q", s, tt.Texts())
 		}
 	}
 	// The header opens and closes it.
 	toggleFrontmatter(t, tt)
 	tt.Advance(time.Second) // it opens in a moment
-	if !shows(tt, "title: Secret") || !shows(tt, "tags: [a, b]") {
+	if !fmShows(tt, "title: Secret") || !fmShows(tt, "tags: [a, b]") {
 		t.Errorf("no metadata once opened, in %q", tt.Texts())
 	}
 	toggleFrontmatter(t, tt)
 	tt.Advance(time.Second)
-	if shows(tt, "Secret") {
+	if fmShows(tt, "Secret") {
 		t.Errorf("shows the metadata once closed, in %q", tt.Texts())
 	}
 }
@@ -60,7 +107,7 @@ func TestViewFrontmatterHidden(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { View(c, fmDoc, o) }, 600, 800)
 	body := ui.NewTester(func(c *ui.Context) { View(c, fmBody, o) }, 600, 800)
 	for _, s := range []string{"Secret", "Front matter", "yaml", "---"} {
-		if shows(tt, s) {
+		if fmShows(tt, s) {
 			t.Errorf("shows %q in %q", s, tt.Texts())
 		}
 	}
@@ -78,7 +125,7 @@ func TestViewFrontmatterHidden(t *testing.T) {
 func TestViewFrontmatterOff(t *testing.T) {
 	// Without the extension, it reads as CommonMark does.
 	tt := ui.NewTester(func(c *ui.Context) { View(c, fmDoc, nil) }, 600, 800)
-	if !shows(tt, "title: Secret") || shows(tt, "Front matter") {
+	if !fmShows(tt, "title: Secret") || fmShows(tt, "Front matter") {
 		t.Errorf("shows %q", tt.Texts())
 	}
 }
@@ -86,12 +133,12 @@ func TestViewFrontmatterOff(t *testing.T) {
 func TestViewFrontmatterTOML(t *testing.T) {
 	src := "+++\ntitle = \"x\"\n+++\ntext\n"
 	tt := ui.NewTester(func(c *ui.Context) { View(c, src, fmOptions(false)) }, 600, 800)
-	if !shows(tt, "Front matter") || shows(tt, "toml") || shows(tt, `title = "x"`) {
+	if !fmShows(tt, "Front matter") || fmShows(tt, "toml") || fmShows(tt, `title = "x"`) {
 		t.Errorf("shows %q", tt.Texts())
 	}
 	toggleFrontmatter(t, tt)
 	tt.Advance(time.Second)
-	if !shows(tt, `title = "x"`) {
+	if !fmShows(tt, `title = "x"`) {
 		t.Errorf("no metadata once opened, in %q", tt.Texts())
 	}
 }
@@ -109,10 +156,10 @@ func TestViewFrontmatterBlock(t *testing.T) {
 		return true
 	}
 	tt := ui.NewTester(func(c *ui.Context) { View(c, fmDoc, o) }, 600, 800)
-	if !shows(tt, "meta: title: Secret; tags: [a, b]") || !shows(tt, "Title") || !shows(tt, "Some body text.") {
+	if !fmShows(tt, "meta: title: Secret; tags: [a, b]") || !fmShows(tt, "Title") || !fmShows(tt, "Some body text.") {
 		t.Errorf("shows %q", tt.Texts())
 	}
-	if shows(tt, "Front matter") {
+	if fmShows(tt, "Front matter") {
 		t.Errorf("the default block shows too, in %q", tt.Texts())
 	}
 	if len(formats) == 0 || formats[0] != "yaml" || lines[0] != fmMeta {
@@ -123,13 +170,13 @@ func TestViewFrontmatterBlock(t *testing.T) {
 	// and no room where it is hidden.
 	o.Block = func(*ui.Context, *parser.Document, int) bool { return false }
 	tt = ui.NewTester(func(c *ui.Context) { View(c, fmDoc, o) }, 600, 800)
-	if !shows(tt, "Front matter") {
+	if !fmShows(tt, "Front matter") {
 		t.Errorf("shows %q", tt.Texts())
 	}
 	o.HideFrontmatter = true
 	tt = ui.NewTester(func(c *ui.Context) { View(c, fmDoc, o) }, 600, 800)
 	body := ui.NewTester(func(c *ui.Context) { View(c, fmBody, o) }, 600, 800)
-	if shows(tt, "Front matter") || shows(tt, "Secret") {
+	if fmShows(tt, "Front matter") || fmShows(tt, "Secret") {
 		t.Errorf("shows %q", tt.Texts())
 	}
 	a, _ := tt.Find("Title")
@@ -161,10 +208,10 @@ func TestStreamFrontmatter(t *testing.T) {
 		tt.Frame()
 		// Once the closing fence has come, the metadata shows as such, not
 		// as a thematic break and a heading.
-		if i >= closed && !shows(tt, "Front matter") {
+		if i >= closed && !fmShows(tt, "Front matter") {
 			t.Fatalf("after %q: shows %q", text, tt.Texts())
 		}
-		if i < closed && shows(tt, "Front matter") {
+		if i < closed && fmShows(tt, "Front matter") {
 			t.Fatalf("after %q: shows front matter before its closing fence, %q", text, tt.Texts())
 		}
 	}
@@ -276,6 +323,68 @@ func TestViewFrontmatterCopyLiteral(t *testing.T) {
 		if pasted := richtext.ParseHTML(html).String(); pasted != meta {
 			t.Errorf("%q: pastes as %q, from HTML %q", meta, pasted, html)
 		}
+	}
+}
+
+// Metadata selected in a shared child belongs to that child's document,
+// even when only the child enables front matter.
+func TestSharedFrontmatterCopy(t *testing.T) {
+	for _, tc := range []struct {
+		depth         int
+		fence, format string
+	}{{1, "---", "yaml"}, {2, "---", "yaml"}, {1, "+++", "toml"}, {2, "+++", "toml"}} {
+		depth := tc.depth
+		t.Run(fmt.Sprintf("%s/%d", tc.format, depth), func(t *testing.T) {
+			const meta = "# a note\nname: \"<b> & *text*\""
+			var outer *viewState
+			var inner *viewState
+			var build func(*ui.Context, int) ui.Element
+			build = func(c *ui.Context, level int) ui.Element {
+				if level == depth {
+					o := fmOptions(false)
+					o.ShareSelection = true
+					el := View(c, tc.fence+"\n"+meta+"\n"+tc.fence+"\nChild body", o)
+					inner = *ui.Local(el, stateKey{}, newState)
+					return el
+				}
+				o := &Options{ShareSelection: level > 0}
+				o.Block = func(c *ui.Context, d *parser.Document, i int) bool {
+					if d.Block(i).Kind != parser.Quote {
+						return false
+					}
+					build(c, level+1)
+					return true
+				}
+				return View(c, "Intro\n\n> child\n\nOutro", o)
+			}
+			tt := ui.NewTester(func(c *ui.Context) {
+				outer = *ui.Local(build(c, 0), stateKey{}, newState)
+			}, 600, 600)
+			toggleFrontmatter(t, tt)
+			tt.Advance(time.Second)
+			r, ok := tt.Find(meta)
+			if !ok {
+				t.Fatal("no child metadata")
+			}
+			selectLines(tt, r, 2, 0, 2)
+			tt.Command("copy")
+			text, html, md := copied(t, tt)
+			if text != meta || md != meta || richtext.ParseHTML(html).String() != meta || !strings.Contains(html, `<code class="language-`+tc.format+`">`) {
+				t.Errorf("metadata copied as text %q, Markdown %q, HTML %q", text, md, html)
+			}
+			parts := []ui.SelectedText{
+				rvPart(inner, rvElemOf(t, inner, 1), meta, 0, utf8.RuneCountInString(meta)),
+				rvPart(outer, rvElemOf(t, outer, 4), "Outro", 0, 5),
+			}
+			if got := outer.copyMarkdown(parts); got != meta+"\n\nOutro" {
+				t.Errorf("mixed selection: %q", got)
+			}
+			data := outer.copyData(parts)
+			htmlBytes, err := data.Items()[0].Read(transfer.HTML)
+			if err != nil || !strings.Contains(string(htmlBytes), "<p>Outro</p>") {
+				t.Errorf("mixed HTML: %s (%v)", htmlBytes, err)
+			}
+		})
 	}
 }
 

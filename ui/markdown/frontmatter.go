@@ -5,7 +5,23 @@ import (
 
 	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown/parser"
 )
+
+// EnableFrontmatter reads YAML or TOML front matter and shows it as a
+// collapsed block of highlighted code. It preserves Extensions, using
+// parser.Default when they are zero, and respects HideFrontmatter and Block.
+// Call it when setting up the options, before building a view.
+//
+// Setting parser.ExtFrontmatter alone reads the metadata but leaves its
+// default view hidden. Only callers of EnableFrontmatter link this UI.
+func (o *Options) EnableFrontmatter() {
+	if o.Extensions == 0 {
+		o.Extensions = parser.Default
+	}
+	o.Extensions |= parser.ExtFrontmatter
+	o.frontmatter = (*viewState).frontmatter
+}
 
 // frontmatter builds the block of front matter i: a box as a code block's,
 // whose header opens and closes the metadata below it.

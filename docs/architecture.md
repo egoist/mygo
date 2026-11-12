@@ -4182,8 +4182,13 @@ either.
   source offsets, to copy text with block separators, Markdown, and the
   HTML of that Markdown parsed again, which `ui/richtext` pastes with its
   formatting, as it reads Markdown with the same parser
-  (`ParseMarkdown`). Links open in the system only when `ui.SafeToOpen`
-  allows them, in both. Tasks' check boxes are boxes of `RoleCheckBox`,
+  (`ParseMarkdown`). Front matter's collapsible view is reached through
+  a callback set by `Options.EnableFrontmatter`, never directly from
+  the default block renderer: setting `parser.ExtFrontmatter` alone reads
+  metadata without linking that UI. Copying metadata alone resolves its
+  owning view through nested `ShareSelection` views and escapes it as
+  code in the clipboard's HTML. Links open in the system only when
+  `ui.SafeToOpen` allows them, in both. Tasks' check boxes are boxes of `RoleCheckBox`,
   read-only, or, with `Options.OnTask`, focusable and named by the plain
   text of their item's first paragraph, kept by block while its start,
   end and revision stay, so that a steady frame makes no name. The line

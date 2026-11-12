@@ -120,10 +120,13 @@ type Options struct {
 	// Block, when set, is asked first for each block, and builds it in
 	// its place when it returns true.
 	Block func(c *ui.Context, d *parser.Document, i int) bool
-	// HideFrontmatter leaves out the front matter that Extensions read
-	// when they include parser.ExtFrontmatter, which shows as a collapsed
-	// block of code otherwise.
+	// HideFrontmatter hides the block enabled by EnableFrontmatter.
+	// Options.Block can still build it when hidden.
 	HideFrontmatter bool
+
+	// frontmatter is set only by EnableFrontmatter, so views that don't
+	// use it don't link the collapsible block.
+	frontmatter func(*viewState, *ui.Context, int) ui.Element
 
 	// Reveal is how Stream shows text as it comes: DefaultReveal when nil.
 	Reveal *Reveal
@@ -419,7 +422,7 @@ func (st *viewState) blocks(c *ui.Context, parent int, tight bool, base spanStyl
 			// Footnotes show at the end, and an alert's marker not at all.
 			continue
 		}
-		if b.Kind == parser.Frontmatter && st.o.HideFrontmatter && st.o.Block == nil {
+		if b.Kind == parser.Frontmatter && (st.o.HideFrontmatter || st.o.frontmatter == nil) && st.o.Block == nil {
 			continue
 		}
 		top := float32(0)
@@ -460,8 +463,6 @@ func (st *viewState) blocks(c *ui.Context, parent int, tight bool, base spanStyl
 func (st *viewState) block(c *ui.Context, i int, tight bool, base spanStyle) (ui.Element, bool) {
 	d := st.doc
 	o := st.o
-	th := &st.th
-	b := d.Block(i)
 	defer func(prev int) { st.cur = prev }(st.cur)
 	st.cur = i
 	if o.Block != nil {
@@ -471,7 +472,7 @@ func (st *viewState) block(c *ui.Context, i int, tight bool, base spanStyle) (ui
 		if done {
 			return box, true
 		}
-		if d.Block(i).Kind == parser.Frontmatter && o.HideFrontmatter {
+		if d.Block(i).Kind == parser.Frontmatter && (o.HideFrontmatter || o.frontmatter == nil) {
 			return box, false
 		}
 		return box.Children(func() { st.defaultBlock(c, i, tight, base) }), true
@@ -512,7 +513,7 @@ func (st *viewState) defaultBlock(c *ui.Context, i int, tight bool, base spanSty
 		st.note(el.ID(), i, 0)
 		return el
 	case parser.Frontmatter:
-		return st.frontmatter(c, i)
+		return st.o.frontmatter(st, c, i)
 	case parser.MathBlock:
 		tex := strings.TrimRight(d.Lines(i), "\n")
 		if st.o.Math != nil {

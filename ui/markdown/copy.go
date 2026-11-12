@@ -85,10 +85,10 @@ func (st *viewState) copyData(parts []ui.SelectedText) transfer.Data {
 	md := st.copyMarkdown(parts)
 	text := st.copyText(parts)
 	var body string
-	if fm := st.inFrontmatter(parts); fm > 0 {
+	if owner, fm := st.inFrontmatter(parts); owner != nil {
 		// Metadata is not Markdown, which would read a comment as a
 		// heading and a dash as a list item: its lines are code.
-		body = `<pre><code class="language-` + html.EscapeString(st.doc.Block(fm).Info()) + `">` + html.EscapeString(text) + "\n</code></pre>\n"
+		body = `<pre><code class="language-` + html.EscapeString(owner.doc.Block(fm).Info()) + `">` + html.EscapeString(text) + "\n</code></pre>\n"
 	} else {
 		// A selection is not a document: lines of it that look like the
 		// fences of front matter, as code of YAML selected in part, are
@@ -104,18 +104,28 @@ func (st *viewState) copyData(parts []ui.SelectedText) transfer.Data {
 	))
 }
 
-// inFrontmatter returns the block of front matter that all the selected
-// parts are in, or 0.
-func (st *viewState) inFrontmatter(parts []ui.SelectedText) int {
+// inFrontmatter returns the view and block of front matter that all the
+// selected parts are in, including views sharing this one's selection.
+func (st *viewState) inFrontmatter(parts []ui.SelectedText) (*viewState, int) {
+	var view *viewState
 	fm := 0
 	for _, p := range parts {
-		inf, ok := st.elem(p.ID)
-		if !ok || st.doc.Block(inf.block).Kind != parser.Frontmatter {
-			return 0
+		owner := st
+		inf, ok := owner.elem(p.ID)
+		for !ok {
+			next, _, found := owner.owner(p.ID)
+			if !found {
+				return nil, 0
+			}
+			owner = next
+			inf, ok = owner.elem(p.ID)
 		}
-		fm = inf.block
+		if owner.doc.Block(inf.block).Kind != parser.Frontmatter || view != nil && (view != owner || fm != inf.block) {
+			return nil, 0
+		}
+		view, fm = owner, inf.block
 	}
-	return fm
+	return view, fm
 }
 
 // markdownData returns Markdown as Copy as Markdown puts it on the

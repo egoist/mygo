@@ -371,7 +371,7 @@ between `+++` lines, is read with the `ExtFrontmatter` extension, which
 another further down is not front matter.
 
 ```go
-app.md.Extensions = parser.Default | parser.ExtFrontmatter
+app.md.EnableFrontmatter()
 ```
 
 The fences stand alone on the document's first line and on a later one,
@@ -381,8 +381,13 @@ front matter, and the lines read as CommonMark does.
 A view shows it as a collapsible block of code, closed at first, its
 metadata highlighted as YAML or TOML: nothing reads it as either, so
 lists, nested maps and values on several lines show as written.
-`HideFrontmatter` shows nothing of it. `Block` builds it as you like
-instead, from the block's `Info`, `yaml` or `toml`, and `Lines`, the
+`EnableFrontmatter` enables the extension and its collapsible view when
+setting up the options, preserving other extensions (or using `Default`
+when none are set). Setting `Options.Extensions` to include
+`parser.ExtFrontmatter` alone reads the metadata but leaves its default
+view hidden; apps that only parse or hide metadata do not link the
+collapsible UI. `HideFrontmatter` hides an enabled view. `Block` builds it
+as you like instead, from the block's `Info`, `yaml` or `toml`, and `Lines`, the
 metadata between the fences. To read it, parse the source once, as it is
 loaded, not in `Block`, which runs every frame:
 
