@@ -841,8 +841,16 @@ type state struct {
 	barStyle *ScrollbarStyle
 	// barsShown reports whether the last frame painted the element's
 	// scroll bars: they show only while it is hovered or a bar is
-	// dragged, unless it keeps them (KeepScrollbars).
+	// dragged, unless it keeps them (KeepScrollbars), or as its style's
+	// Show says.
 	barsShown bool
+	// barAt is when the element last scrolled from barX and barY, the
+	// offset its bars were last painted at, or the pointer was last over
+	// a bar, for bars shown while it scrolls (ScrollbarsWhileScrolling);
+	// barKnown that they were painted before.
+	barAt      time.Time
+	barX, barY float64
+	barKnown   bool
 	// barFlags contains the enabled scroll axes and, if any, the keep bit.
 	barFlags uint32
 	// track is the ScrollState of the last frame's element, which events

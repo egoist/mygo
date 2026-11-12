@@ -248,6 +248,23 @@ is over the bar, and `Active` while it is dragged; zero `Thumb` takes the
 theme's `Scrollbar`, and zero `Hover` and `Active` take `Thumb`. A kept
 bar (`KeepScrollbars`) shows its `Hover` color, as it looks on hover.
 
+`Show` is when the bars show. `ui.ScrollbarsOnHover`, the default, shows
+them while the pointer is over the container. `ui.ScrollbarsWhileScrolling`
+shows them as macOS's overlay scroll bars do: while the container scrolls,
+by any means, and for a moment after, then fading out, and while the
+pointer is over a bar or drags its thumb; the pointer elsewhere over the
+container shows none. A view as big as its window, as a document, then
+doesn't keep a bar on screen all the while the pointer is in it. Hidden,
+a bar takes no press. The rich text editor, the code editor and the
+terminal show theirs the same way, and a view that paints its own
+(`ui.Scrollbar`) times them with a `ui.ScrollbarFade`:
+
+```go
+t := *c.Theme()
+t.ScrollbarStyle.Show = ui.ScrollbarsWhileScrolling
+c.SetTheme(&t)
+```
+
 A container's own style wins over the theme's:
 
 ```go

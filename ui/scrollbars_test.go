@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/internal/platform"
 )
@@ -531,5 +532,69 @@ func TestScrollbarInCachedLayer(t *testing.T) {
 				t.Fatalf("scrollbar track at (254,90) = %v, want %v", got, want)
 			}
 		})
+	}
+}
+
+// Shown while it scrolls (ScrollbarsWhileScrolling), a container's bars
+// stay hidden with the pointer over it, show as it scrolls and a moment
+// after, then fade out and take no press; the pointer over a bar shows it
+// again, and a drag of its thumb holds it.
+func TestScrollbarsWhileScrolling(t *testing.T) {
+	var st *state
+	tt := coreNewTester(func(c *context) {
+		th := *c.Theme()
+		th.ScrollbarStyle = ScrollbarStyle{Show: ScrollbarsWhileScrolling}
+		c.SetTheme(&th)
+		sc := coreScroll(c).Size(100, 100)
+		st = sc.st
+		sc.Children(func() { coreBox(c).Size(100, 1000) })
+	}, 140, 140)
+	defer tt.rt.close()
+	tt.Move(50, 50)
+	tt.Frame()
+	if st.barsShown {
+		t.Fatal("the bar shows with the pointer over the container, before it scrolled")
+	}
+	tt.Scroll(50, 50, 0, 100)
+	tt.Frame()
+	if !st.barsShown || st.scrollY == 0 {
+		t.Fatalf("the bar doesn't show as the container scrolls (scrolled to %v)", st.scrollY)
+	}
+	tt.Advance(scrollbarHold + scrollbarFadeOut/2)
+	tt.Frame()
+	if !st.barsShown {
+		t.Fatal("the bar went before it faded out")
+	}
+	tt.Advance(scrollbarFadeOut)
+	tt.Frame()
+	if st.barsShown {
+		t.Fatal("the bar stayed once the container stopped scrolling")
+	}
+	// Hidden, it takes no press: the content under it does.
+	g := scrollBars(Rect{0, 0, 100, 100}, st.barInset, 100, 1000, 0, float32(st.scrollY), st.flags, ScrollbarStyle{}.Resolve(tt.rt.c.theme), false)
+	x, y := g.v.X+g.v.W/2, g.v.Y+g.v.H/2
+	if tt.rt.scrollbarPress(tt.rt.hover, x, y) {
+		t.Fatal("a hidden bar took a press")
+	}
+	// The pointer over the bar shows it, and a drag of its thumb scrolls.
+	tt.Move(x, y)
+	tt.Frame()
+	if !st.barsShown {
+		t.Fatal("the bar doesn't show with the pointer over it")
+	}
+	from := st.scrollY
+	tt.Press(x, y)
+	tt.Move(x, y+20)
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	if !st.barsShown || st.scrollY <= from {
+		t.Fatalf("the dragged bar went, or didn't scroll (%v from %v)", st.scrollY, from)
+	}
+	tt.Release(x, y+20)
+	tt.Move(50, 50)
+	tt.Advance(scrollbarHold + scrollbarFadeOut)
+	tt.Frame()
+	if st.barsShown {
+		t.Fatal("the bar stayed once the pointer left it")
 	}
 }

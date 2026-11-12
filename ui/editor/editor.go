@@ -204,8 +204,11 @@ type editor struct {
 	// link is the word under the pointer that Cmd+click would go to the
 	// definition of, which shows as a link while Cmd is held; none when
 	// its ends are equal.
-	link       [2]int
-	scrollbar  scrollbarDrag
+	link      [2]int
+	scrollbar scrollbarDrag
+	// barFade times the scroll bars shown while the editor scrolls, as
+	// their style's Show says.
+	barFade    ui.ScrollbarFade
 	frameNow   time.Time
 	needsBuild bool
 	// stale tells that an edit found the buffer edited since the editor
