@@ -237,3 +237,7 @@ The apps run where they are, but to ship them to users, sign them: see
     `examples/gallery` (a tour of the
     toolkit: layout, widgets, text editing, a list of ten thousand rows,
     drawing and overlays).
+- A complete community app: [Framely](../examples/framely/README.md), a
+  screenshot, annotation and image pinning tool with native UI. Its source
+  shows tray and shortcut integration, a region picker, independent image
+  windows and clipboard image writes.

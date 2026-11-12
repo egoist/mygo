@@ -365,4 +365,13 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/openbee.jpg",
   },
+  {
+    name: "Framely · 取景",
+    description:
+      "An open-source screenshot and image pinning tool for Windows, Linux and macOS, drawn with MyGo's native UI. Annotate captures, record a region, recognize text offline and translate it; Windows and Linux also support scrolling screenshots.",
+    url: "https://github.com/wildalley/framely",
+    author: "wildalley",
+    mode: "native",
+    image: "/showcase/framely.png",
+  },
 ]
