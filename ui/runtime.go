@@ -715,9 +715,14 @@ func (rt *engine) runFrame() {
 	rt.routeKeys()
 	rt.glideWheels(now)
 	rt.glideSnaps(now)
-	if rt.drag != nil {
+	if d := rt.drag; d != nil {
+		// A copy of the source as it first showed, for the frames that
+		// build it no more.
+		if d.elem != nil && d.ghost == nil && !d.native {
+			d.ghost = dragGhost(d.elem)
+		}
 		// The source's element is this frame's, if it builds one.
-		rt.drag.elem = nil
+		d.elem = nil
 	}
 	rt.dragScroll()
 	rt.scrollTextSelection()
@@ -1200,6 +1205,10 @@ func (rt *engine) prune() {
 		if rt.pressLost != nil {
 			input, gone, x, y = rt.pressLost, true, rt.pressLostX, rt.pressLostY
 		}
+		if gone && rt.pressLost == nil && rt.draggingFrom(p.id) {
+			// It drags a value on: see below.
+			gone = false
+		}
 		if gone {
 			rt.endPress(input, x, y)
 			// A frame built anew for the press ended and what the handler
@@ -1217,6 +1226,12 @@ func (rt *engine) prune() {
 			break
 		}
 		if s.seen != rt.frame || s.pass != rt.pass {
+			if rt.draggingFrom(id) {
+				// The source of a value dragged within the window, as one
+				// in a view that went away: the press goes on dragging
+				// it, until it is let go of, to drop it.
+				continue
+			}
 			if !rt.keptAlive(s) {
 				if s.textAdapter != nil {
 					s.textAdapter.release()
