@@ -177,8 +177,12 @@ func (v *videoEngine) advance(c *context, p *VideoPlayer) {
 			}
 		}
 	}
-	if d := v.e.Interval(); d > 0 && v.playing() && !v.held && v.state != media.Loading {
-		c.After(time.Duration(float64(d) / p.rate))
+	// Interval only once loaded: an engine may learn the video's rate as
+	// it loads, which AVFoundation would wait for on the main thread.
+	if v.playing() && !v.held && v.state != media.Loading {
+		if d := v.e.Interval(); d > 0 {
+			c.After(time.Duration(float64(d) / p.rate))
+		}
 	}
 }
 

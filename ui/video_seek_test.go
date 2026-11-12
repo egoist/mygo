@@ -343,6 +343,8 @@ type fakeEngine struct {
 	wake    func()
 	plays   int
 	seeks   []time.Duration
+	// intervals counts the calls of Interval.
+	intervals int
 	// readyOnFrame makes the engine ready by its first picture, in
 	// Frame, without a wake, as AVFoundation's does.
 	readyOnFrame bool
@@ -381,7 +383,7 @@ func (e *fakeEngine) Frame(t time.Time) (media.Picture, bool, bool) {
 	return pic, changed, true
 }
 
-func (e *fakeEngine) Interval() time.Duration     { return 100 * time.Millisecond }
+func (e *fakeEngine) Interval() time.Duration     { e.intervals++; return 100 * time.Millisecond }
 func (e *fakeEngine) State() (media.State, error) { return e.state, nil }
 func (e *fakeEngine) Size() (int, int)            { return 4, 4 }
 func (e *fakeEngine) Duration() time.Duration {
@@ -420,6 +422,12 @@ func TestEngineVideo(t *testing.T) {
 	tt, shows := videoTester(p, &visible)
 	if e.plays != 1 || p.Ready() {
 		t.Fatalf("shown, loading: %d plays, ready %v", e.plays, p.Ready())
+	}
+	// AVFoundation would load the asset's tracks for it, on the main
+	// thread (#1743).
+	tt.Frame()
+	if e.intervals != 0 {
+		t.Fatalf("Interval asked %d times while loading", e.intervals)
 	}
 	e.setState(media.Ready)
 	builds := tt.rt.frame

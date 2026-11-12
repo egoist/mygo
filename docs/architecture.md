@@ -3321,7 +3321,11 @@ either.
   window asks for the next picture with `After` at the engine's interval,
   or an engine that knows when one comes (GStreamer's appsink, the
   element's `requestVideoFrameCallback`) wakes it (`Engine.SetWake`),
-  as it does for a change of state. A muted video holds its engine paused
+  as it does for a change of state. The interval is asked for only once
+  the video loaded: AVFoundation's reads the nominal frame rate on the
+  engine's goroutine once the item is ready to play, as reading an
+  `AVURLAsset`'s tracks before then loads them, over the network, on the
+  thread that asks (#1743). A muted video holds its engine paused
   while out of sight, under less motion, and once a frame that built the
   view did not show it (`engine.sweepVideos`); one with sound plays on.
   On Windows, arm64's doubles go through two thunks of machine code, as

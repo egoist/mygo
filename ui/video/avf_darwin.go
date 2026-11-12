@@ -248,10 +248,12 @@ type avEngine struct {
 
 	// buf is the CVPixelBuffer that Frame last returned, retained, and
 	// surface the surface showing it.
-	buf      uintptr
-	surface  *scene.Surface
-	w, h     int
-	interval time.Duration
+	buf     uintptr
+	surface *scene.Surface
+	w, h    int
+	// interval is Interval's, which the watching goroutine reads once
+	// the item is ready to play: 0 until it has.
+	interval atomic.Int64
 
 	mu    sync.Mutex
 	wake  func()
@@ -337,6 +339,10 @@ func (e *avEngine) watch() {
 		changed := e.state != before || e.err != beforeErr
 		wake := e.wake
 		e.mu.Unlock()
+		if e.interval.Load() == 0 && msgInt(e.item, sel("status")) == avStatusReadyToPlay {
+			// Out of mu: State, on the main thread, never waits for it.
+			e.interval.Store(int64(e.frameInterval()))
+		}
 		poolPop(pool)
 		if changed && wake != nil {
 			wake()
@@ -476,21 +482,30 @@ func pixelBufferRGBA(s *scene.Surface, dst []byte, w, h int) []byte {
 	return planes.RGBA(dst, w, h)
 }
 
-func (e *avEngine) Interval() time.Duration {
-	if e.interval == 0 {
-		e.interval = time.Second / 60
-		pop := pooled()
-		tracks := send(send(e.item, "asset"), "tracksWithMediaType:", avMediaTypeVideo)
-		if tracks != 0 && msgInt(tracks, sel("count")) > 0 {
-			if fps := msgFloat32(send(tracks, "firstObject"), sel("nominalFrameRate")); fps > 1 {
-				// Asked for twice as often, so that a frame shows at the
-				// refresh after it came due, not up to one later.
-				e.interval = time.Duration(float64(time.Second) / float64(fps) / 2)
-			}
+// frameInterval is half the time a picture shows at the video's
+// nominal rate, or 1/60 s for none. It reads the asset's tracks, which
+// for an AVURLAsset loads them, over the network for a URL, until the
+// item is ready to play: only the watching goroutine calls it, once the
+// item is.
+func (e *avEngine) frameInterval() time.Duration {
+	tracks := send(send(e.item, "asset"), "tracksWithMediaType:", avMediaTypeVideo)
+	if tracks != 0 && msgInt(tracks, sel("count")) > 0 {
+		if fps := msgFloat32(send(tracks, "firstObject"), sel("nominalFrameRate")); fps > 1 {
+			// Asked for twice as often, so that a frame shows at the
+			// refresh after it came due, not up to one later.
+			return time.Duration(float64(time.Second) / float64(fps) / 2)
 		}
-		pop()
 	}
-	return e.interval
+	return time.Second / 60
+}
+
+// Interval is 1/60 s until the watching goroutine read the video's rate,
+// never touching the asset's tracks on the main thread (#1743).
+func (e *avEngine) Interval() time.Duration {
+	if d := e.interval.Load(); d > 0 {
+		return time.Duration(d)
+	}
+	return time.Second / 60
 }
 
 func (e *avEngine) State() (media.State, error) {
