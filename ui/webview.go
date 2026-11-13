@@ -164,16 +164,24 @@ func (rt *engine) pruneViews() {
 // DIPs; hit is the index of its element's own hit, inert that it shows
 // but takes no pointer.
 type webPlace struct {
-	v     NativeWebView
+	v NativeWebView
+	// e is the element showing v, whose place this is: a frame showing one
+	// web view twice, as by an exit transition, notes a place for each.
+	e     *node
 	frame Rect
 	clip  Rect
 	size  [2]float32
 	radii [4]float32
 	hit   int
 	inert bool
-	// opacity is how opaque the page shows: fading where nothing opaque
-	// is painted under it, which the painter tells once it has painted.
-	// The host fades the page itself by it, where the platform can.
+	// opacity is how opaque the page shows, which the host fades the page
+	// itself by where the platform can: the element's own opacity where
+	// nothing is painted under it, whose hole has nothing to blend the
+	// page over then, and 1 where something is, which the hole's partial
+	// erase blends the page with already. The painter tells once it has
+	// painted the hole; one the frame never painted keeps what it was
+	// noted with, the page showing whole unless the content faded the
+	// element out.
 	opacity float32
 }
 
@@ -211,7 +219,11 @@ func (rt *engine) noteWebView(e *node, clip Rect, invisible bool) {
 	if b.W <= 0 || b.H <= 0 || v.W <= 0 || v.H <= 0 {
 		return
 	}
-	wp := webPlace{v: e.webView, frame: b, clip: v, size: [2]float32{page.W, page.H}, hit: len(rt.hits), inert: invisible}
+	wp := webPlace{v: e.webView, e: e, frame: b, clip: v, size: [2]float32{page.W, page.H}, hit: len(rt.hits), inert: invisible, opacity: 1}
+	if rt.commitFade <= 0.001 {
+		// Nothing of the element paints, so nothing of its page shows.
+		wp.opacity = 0
+	}
 	if upright {
 		wp.radii = holeRadii(e, s)
 		for i := range wp.radii {
@@ -230,7 +242,7 @@ type placedWebView struct {
 	size   [2]float64
 	radii  [4]float64
 	covers []platform.RectF
-	// opacity is how opaque the page shows: fading where nothing opaque
+	// opacity is how opaque the page shows: the element's own where nothing
 	// is painted under it, for the host to fade the page itself by.
 	opacity float32
 }
@@ -444,19 +456,21 @@ func (p *Painter) hole(e *node) {
 	r := p.snap(b)
 	// Translucent, the page blends over what was painted under it.
 	p.add(scene.Op{Kind: scene.OpHole, Rect: r, Radii: radii, Continuous: continuousCorners, Opacity: p.opacity})
-	// Where an opaque background was painted under it, that partial erase
-	// blends the page with the background already. Where none is — over a
-	// window nothing opaque is painted in — the erase has nothing to blend
-	// over: the page itself must fade, over what is behind the window.
-	// Every place of the view is told, so that one a frame shows twice, as
-	// by an exit transition, carries the fade of the place painted last.
-	fade := p.opacity
-	if p.covered(intersect(b, p.clip)) {
-		fade = 1
-	}
-	for i := range p.rt.webPlaces {
-		if p.rt.webPlaces[i].v == e.webView {
-			p.rt.webPlaces[i].opacity = fade
+	// Where anything was painted under it, that partial erase blends the
+	// page with what was painted already. Where none is — over a window
+	// nothing is painted in — the erase has nothing to blend over: the
+	// page itself must fade, over what is behind the window. A copy of the
+	// element, as the one a drag paints under the pointer, tells nothing
+	// of it: the page stays where the element is.
+	if !p.copying {
+		fade := p.opacity
+		if p.blends(intersect(b, p.clip)) {
+			fade = 1
+		}
+		for i := range p.rt.webPlaces {
+			if wp := &p.rt.webPlaces[i]; wp.e == e {
+				wp.opacity = fade
+			}
 		}
 	}
 	if c := intersect(transformRect(p.transform, b), p.clip); c.W > 0 && c.H > 0 {
