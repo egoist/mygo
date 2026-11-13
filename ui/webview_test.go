@@ -116,7 +116,7 @@ func TestWebViewHole(t *testing.T) {
 }
 
 // A translucent web view blends over what is painted under it: its hole
-// takes the opacity away from the pixels under it. Over nothing opaque —
+// takes the opacity away from the pixels under it. Over nothing painted —
 // a window whose background shows through — the placement instead tells
 // the host to fade the page itself, over what is behind the window.
 func TestWebViewOpacity(t *testing.T) {
@@ -145,7 +145,20 @@ func TestWebViewOpacity(t *testing.T) {
 		})
 	}, 200, 140)
 	if places := clear.rt.webPlaces; len(places) != 1 || places[0].opacity != 0.5 {
-		t.Errorf("placed %d web views at %v: want one at 0.5 over nothing opaque", len(places), places)
+		t.Errorf("placed %d web views at %v: want one at 0.5 over nothing painted", len(places), places)
+	}
+	// Over a panel painted through, as a flyout's fading over a live parent
+	// window, the hole blends the page with the panel as it is with an
+	// opaque one: fading the page too would fade it twice, and leave the
+	// white of the panel hazing through.
+	through := coreNewTester(func(c *context) {
+		c.Root().Background(Transparent)
+		coreBox(c).Fill().Background(RGBA(255, 255, 255, 128)).Padding(20).Opacity(0.5).Children(func() {
+			coreWebView(c, page).Grow(1)
+		})
+	}, 200, 140)
+	if places := through.rt.webPlaces; len(places) != 1 || places[0].opacity != 1 {
+		t.Errorf("placed %d web views at %v: want one at 1 over the panel painted under it", len(places), places)
 	}
 	// One the content faded out nothing of shows: its place carries an
 	// opacity of none, for the host to fade the page away by.
@@ -157,6 +170,21 @@ func TestWebViewOpacity(t *testing.T) {
 	}, 200, 140)
 	if places := none.rt.webPlaces; len(places) != 1 || places[0].opacity != 0 {
 		t.Errorf("placed %d web views at %v: want one faded out", len(places), places)
+	}
+	// The copy a drag paints under the pointer tells nothing of how the
+	// page shows: the page stays where the element is, at the fade of the
+	// place painted for it, not the copy's.
+	drag := coreNewTester(func(c *context) {
+		c.Root().Background(Transparent)
+		coreBox(c).Size(200, 140).Padding(20).Opacity(0.5).Drag("v").Children(func() {
+			coreWebView(c, page).Grow(1)
+		})
+	}, 200, 140)
+	drag.Press(10, 10)
+	drag.Move(80, 90)
+	drag.Frame()
+	if places := drag.rt.webPlaces; len(places) != 1 || places[0].opacity != 0.5 {
+		t.Errorf("placed %d web views at %v while dragging: want one at 0.5, the copy's fade apart", len(places), places)
 	}
 }
 
