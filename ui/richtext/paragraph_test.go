@@ -680,3 +680,38 @@ func TestCaretRect(t *testing.T) {
 		t.Fatalf("%d frames for one", builds-n)
 	}
 }
+
+// The room Space leaves above a block of code is outside the block: its
+// background starts below it, and fills the block from there.
+func TestCodeBlockSpaceOutside(t *testing.T) {
+	doc := NewDocument(TextOf(
+		para("Before"),
+		Paragraph{Style: ParagraphStyle{CodeBlock: true}, Runs: []Run{{Text: "code"}}},
+		para("After"),
+	))
+	red := ui.RGB(255, 0, 0)
+	boxes := new([]ParagraphBox)
+	tt := openTester(t, func(c *ui.Context) {
+		*boxes = doc.VisibleParagraphs()
+		EditorBase(c, doc, EditorOptions{Font: ui.Font{Size: 10}, Theme: &Theme{CodeBlockBackground: red},
+			Space: func(p int) float32 { return map[int]float32{1: 40}[p] }}).Fill()
+	}, 300, 200)
+	tt.Frame()
+	if len(*boxes) != 3 {
+		t.Fatalf("%d paragraphs in view, want 3", len(*boxes))
+	}
+	code := (*boxes)[1]
+	img := tt.Image()
+	s := float32(img.Bounds().Dx()) / 300
+	isRed := func(y float32) bool {
+		c := img.RGBAAt(int(250*s), int(y*s))
+		return c.R > 200 && c.G < 60 && c.B < 60
+	}
+	// The block's padding above its line is 0.5 em: 5 DIPs.
+	if room := code.Top - 5 - 20; isRed(room) {
+		t.Errorf("the room above the block, at %v, has the block's background", room)
+	}
+	if line := code.Top + code.Height/2; !isRed(line) {
+		t.Errorf("the block's line, at %v, has no background", line)
+	}
+}

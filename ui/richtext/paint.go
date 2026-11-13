@@ -94,9 +94,15 @@ func (v *view) paintBlock(p *ui.Painter, i int, st ParagraphStyle, x, top, heigh
 		// One block for the paragraphs of code next to each other, rounded
 		// at its ends.
 		radius := look.size * look.CodeBlockRadius
-		box := ui.Rect{X: x + indent, Y: top, W: width - indent, H: height}
 		first := i == 0 || !v.para(i-1).style.CodeBlock
 		last := i+1 >= len(v.paras) || !v.para(i+1).style.CodeBlock
+		if first && v.opts.Space != nil {
+			// The room an app leaves above the block, as a place opened
+			// for an item dragged, is outside it.
+			room := max(0, v.opts.Space(i))
+			top, height = top+room, height-room
+		}
+		box := ui.Rect{X: x + indent, Y: top, W: width - indent, H: height}
 		fill := box
 		if !first {
 			fill.Y, fill.H = fill.Y-2*radius, fill.H+2*radius
