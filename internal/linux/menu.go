@@ -571,7 +571,16 @@ func (b *Backend) NewTray(h platform.TrayHandler) (platform.Tray, error) {
 	t := &tray{b: b, h: h, id: b.nextTray, dark: desktopDark()}
 	name := fmt.Sprintf("mygo-%d-%d", os.Getpid(), t.id)
 	t.ind = appIndicatorNew(cs(name), cs("application-x-executable"), 0) // APPLICATION_STATUS
-	appIndicatorSetStatus(t.ind, 1)                                      // ACTIVE
+	// app_indicator_new returns NULL once the shell that hosts the icon is
+	// gone, which is exactly what a shell restart leaves behind. Every later
+	// call would hand that NULL to libayatana, whose fallback icon fails the
+	// GTK_IS_STATUS_ICON assertion and dereferences it: SIGSEGV inside cgo,
+	// which Go cannot turn into a panic. Report it here, at the call that
+	// caused it, instead of at the next tooltip update.
+	if t.ind == 0 {
+		return nil, fmt.Errorf("mygo: app_indicator_new returned no indicator: %w", platform.ErrUnsupported)
+	}
+	appIndicatorSetStatus(t.ind, 1) // ACTIVE
 	// AppIndicator only shows up once it has a menu.
 	t.SetMenu(&platform.Menu{})
 	b.trays[t.id] = t
@@ -681,6 +690,11 @@ func (t *tray) SetTitle(title string) { appIndicatorSetLabel(t.ind, cs(title), c
 // text it read when the icon appeared. Setting the tooltip as well announces
 // NewToolTip, so both stay in step.
 func (t *tray) SetToolTip(tip string) {
+	// A tray with no handle is inert rather than fatal: this is the call
+	// that died of SIGSEGV at addr=0x0 inside libayatana.
+	if t.ind == 0 {
+		return
+	}
 	if appIndicatorSetTitle != nil {
 		appIndicatorSetTitle(t.ind, cs(tip))
 	}
@@ -690,6 +704,9 @@ func (t *tray) SetToolTip(tip string) {
 }
 
 func (t *tray) SetMenu(m *platform.Menu) {
+	if t.ind == 0 {
+		return
+	}
 	dropOwner(t.owner)
 	t.owner = newOwner()
 	menu := gtkMenuNew()
