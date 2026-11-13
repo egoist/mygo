@@ -29,15 +29,15 @@ func TestDenseShortTargetDrawsAsOne(t *testing.T) {
 	old := runtime.GOMAXPROCS(4)
 	defer runtime.GOMAXPROCS(old)
 	s := shortScene(4096, true)
-	var r Renderer
-	defer r.Release()
 	for _, area := range []image.Rectangle{image.Rect(0, 0, s.Width, s.Height), image.Rect(19, 11, 997, 99)} {
+		var r Renderer
+		defer r.Release()
 		got, want := NewImage(s.Width, s.Height), NewImage(s.Width, s.Height)
 		bounds := r.opBounds(s)
 		r.d.draw(got, s, area, bounds)
 		// Browser builds keep GOMAXPROCS at one, even after a request for
 		// four. They still check the same pixels through the serial path.
-		if runtime.GOMAXPROCS(0) > 1 && len(r.d.rs) <= 1 {
+		if runtime.GOMAXPROCS(0) > 1 && (len(r.d.rs) <= 1 || r.d.bands.parts <= 1) {
 			t.Fatal("dense short target used only one renderer")
 		}
 		var one renderer
@@ -98,6 +98,9 @@ func TestDenseTallTargetBoundsBandCount(t *testing.T) {
 	var r Renderer
 	defer r.Release()
 	r.Render(s)
+	if runtime.GOMAXPROCS(0) > 1 && (len(r.d.rs) <= 1 || r.d.bands.parts <= 1) {
+		t.Fatal("dense tall target did not split its work")
+	}
 	if r.d.bands.parts > 2*runtime.GOMAXPROCS(0) {
 		t.Fatalf("tall target traversed its scene in %d bands", r.d.bands.parts)
 	}
@@ -106,6 +109,39 @@ func TestDenseTallTargetBoundsBandCount(t *testing.T) {
 			if got := pixel(&r.Image, x, y); got != [4]byte{7, 0, 0, 255} {
 				t.Fatalf("pixel (%d, %d) = %v", x, y, got)
 			}
+		}
+	}
+}
+
+func TestDenseMixedTargetDrawsAsOne(t *testing.T) {
+	old := runtime.GOMAXPROCS(4)
+	defer runtime.GOMAXPROCS(old)
+	s := shortScene(4096, true)
+	m := newSceneMaker(42)
+	s.MaskAtlas = m.atlas
+	k := m.masks[0]
+	s.Glyphs = []scene.Glyph{{X: 354.25, Y: 22.5, W: float32(k[2]), H: float32(k[3]), U: k[0], V: k[1], UW: k[2], VH: k[3], Color: scene.Color{R: 220, G: 90, A: 170}}}
+	s.Ops = append(s.Ops,
+		scene.Op{Kind: scene.OpImage, Rect: scene.Rect{X: 20.25, Y: 4.5, W: 120, H: 94}, Image: m.img, Src: scene.Rect{W: 8, H: 8}},
+		scene.Op{Kind: scene.OpShadow, Rect: scene.Rect{X: 160.25, Y: 10.5, W: 64, H: 70}, Radii: scene.Uniform(6), Color: scene.Color{A: 120}, Blur: 6},
+		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 250.5, Y: 3.25, W: 70, H: 94}, Paint: scene.PaintLinear, Color: scene.Color{R: 210, A: 180}, Color2: scene.Color{B: 230, A: 90}, Gradient: [4]float32{250, 3, 320, 97}},
+		scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{X: 350.25, Y: 3.5, W: 100, H: 96}, Image: m.img, Src: scene.Rect{W: 8, H: 8}},
+		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{X: 350, W: 100, H: 105}, Color: scene.Color{G: 180, A: 160}},
+		scene.Op{Kind: scene.OpGlyphs, Start: 0, End: 1},
+		scene.Op{Kind: scene.OpPopClip})
+	for _, area := range []image.Rectangle{image.Rect(0, 0, s.Width, s.Height), image.Rect(19, 11, 997, 99)} {
+		var r Renderer
+		defer r.Release()
+		got, want := NewImage(s.Width, s.Height), NewImage(s.Width, s.Height)
+		bounds := r.opBounds(s)
+		r.d.draw(got, s, area, bounds)
+		if runtime.GOMAXPROCS(0) > 1 && (len(r.d.rs) <= 1 || r.d.bands.parts <= 1) {
+			t.Fatal("mixed target did not split its work")
+		}
+		var one renderer
+		one.render(want, s, area, bounds, 0, len(s.Ops), nil, nil)
+		if !bytes.Equal(got.Pix, want.Pix) {
+			t.Fatalf("drawing mixed operations in %v changed pixels", area)
 		}
 	}
 }

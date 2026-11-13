@@ -198,7 +198,7 @@ func (d *drawer) drawOps(dst *Image, s *scene.Scene, area image.Rectangle, bound
 		// the area-based split. Fewer than four fills cannot cover it four times.
 		nextRows := max(effectRows, (area.Dy()+2*workers-1)/(2*workers))
 		nextBands := (area.Dy() + nextRows - 1) / nextRows
-		work := fillWork(s, area, from, to, nextRows, min(workers, nextBands), max(4*pixels, workArea*workers))
+		work := fillWork(s, area, to, nextRows, min(workers, nextBands), max(4*pixels, workArea*workers))
 		if work >= 4*pixels && work >= 2*workArea {
 			// Bound the new scene traversals for a formerly serial target.
 			rows, bands = nextRows, nextBands
@@ -231,14 +231,13 @@ func (d *drawer) drawOps(dst *Image, s *scene.Scene, area image.Rectangle, bound
 // under a one-pixel clip, must not count as nine pixels of overdraw. Track the
 // tight clip rectangles instead. Complex transforms and very deep clip stacks
 // conservatively keep the existing area-based schedule, with no scratch allocs.
-func fillWork(s *scene.Scene, area image.Rectangle, from, to, rows, workers, limit int) int {
+func fillWork(s *scene.Scene, area image.Rectangle, to, rows, workers, limit int) int {
 	var stack [32]image.Rectangle
 	clip, depth, work := area, 0, 0
 	pixels := func(rc scene.Rect) image.Rectangle {
 		return image.Rect(int(math.Floor(float64(rc.X))), int(math.Floor(float64(rc.Y))),
 			int(math.Ceil(float64(rc.X+rc.W))), int(math.Ceil(float64(rc.Y+rc.H))))
 	}
-	// Clips before from still apply to the operations after an effect.
 	for i := 0; i < to && work < limit; i++ {
 		op := &s.Ops[i]
 		switch op.Kind {
@@ -259,7 +258,7 @@ func fillWork(s *scene.Scene, area image.Rectangle, from, to, rows, workers, lim
 				clip = stack[depth]
 			}
 		case scene.OpFill:
-			if i < from || op.Transform.Set || op.Rect.Empty() || op.Paint != scene.PaintSolid || op.Color.A == 0 {
+			if op.Transform.Set || op.Rect.Empty() || op.Paint != scene.PaintSolid || op.Color.A == 0 {
 				continue
 			}
 			r := pixels(op.Rect).Intersect(clip)
