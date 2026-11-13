@@ -23,7 +23,13 @@ import (
 // the system shows frames torn and the swap chain is the window's; and
 // that frames following each other never wait for the display, whether
 // they present or change nothing. The default, paced, keeps the object and
-// no tearing.
+// no tearing. A frame of a new size begins a resize, whose frames present
+// paced (uncapped.go): it waits for DWM within Render, and the frame after
+// waits for nothing, unless Present, with DXGI_PRESENT_DO_NOT_WAIT, refused
+// it for a refresh, as WARP on a CI runner does in 1 run of 300 to 1 of 50
+// (DXGI_ERROR_WAS_STILL_DRAWING 2 to 13 times over 17 to 30 ms, the refresh
+// 15.6 ms): the frame then waits to present (holdFrame), and the frame
+// after waits for it.
 func TestUncappedSwapChain(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -45,8 +51,8 @@ func TestUncappedSwapChain(t *testing.T) {
 			if err != nil {
 				t.Skip("no Direct3D 11:", err)
 			}
-			var posted []func()
-			r.SetPost(func(fn func()) { posted = append(posted, fn) })
+			posted := make(chan func(), 16)
+			r.SetPost(func(fn func()) { posted <- fn })
 			bg := scene.Color{R: 24, G: 24, B: 27, A: 255}
 			if err := r.Render(&scene.Scene{Width: 200, Height: 150, Background: bg}); err != nil {
 				r.Release()
@@ -87,8 +93,10 @@ func TestUncappedSwapChain(t *testing.T) {
 					r.Release()
 					t.Fatal(err)
 				}
-				if r.pending || r.refreshing || len(posted) != 0 {
-					t.Errorf("composed %v, uncapped, frame %d: pending %v, awaiting a refresh %v, %d posted", composed, i, r.pending, r.refreshing, len(posted))
+				if held := r.refreshing && i == 2 && r.unpresented && r.refused > 0; r.pending || r.refreshing && !held || len(posted) != 0 {
+					t.Errorf("composed %v, uncapped, frame %d: pending %v, awaiting a refresh %v, %d posted (%s)", composed, i, r.pending, r.refreshing, len(posted), r.FrameInfo())
+				} else if held {
+					presentsHeld(t, r, posted)
 				}
 			}
 			if d := desc(r); d.Flags != uint32(r.swapChainFlags()) || d.BufferCount < uncappedBuffers {
@@ -96,6 +104,22 @@ func TestUncappedSwapChain(t *testing.T) {
 			}
 			r.Release()
 		}
+	}
+}
+
+// presentsHeld waits for the frame Present refused (holdFrame) to present,
+// the frame after waiting for it, and checks that it did.
+func presentsHeld(t *testing.T, r *Renderer, posted chan func()) {
+	t.Helper()
+	woke := false
+	if r.Ready(func() { woke = true }) {
+		t.Fatalf("composed %v: the frame after one waiting to present drew at once (%s)", r.composed, r.FrameInfo())
+	}
+	for !woke {
+		wait.For(t, "the composition a frame waits for", posted)()
+	}
+	if r.unpresented || r.aside != "" || r.failed != nil || !r.Ready(func() { t.Error("woken: a frame waited") }) {
+		t.Errorf("composed %v: once the frame after a held one could draw: unpresented %v, aside %q, failed %v; want presented", r.composed, r.unpresented, r.aside, r.failed)
 	}
 }
 
