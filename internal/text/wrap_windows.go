@@ -22,7 +22,35 @@ type wholeKey struct {
 type keptWhole struct {
 	text  []rune
 	whole *shapedWhole
+	// words are the text's, which its lines break between.
+	words []wholeWord
 	used  uint64
+}
+
+// wholeWord is a word of a kept text, its runes from start to end, and the
+// spaces after it to next. plain tells that it is a plainWord.
+type wholeWord struct {
+	start, end, next int
+	plain            bool
+}
+
+// wordsOf returns the words of a text, the first empty when it starts with
+// spaces.
+func wordsOf(text []rune) []wholeWord {
+	var words []wholeWord
+	for i, n := 0, len(text); i < n; {
+		w := wholeWord{start: i}
+		for i < n && text[i] != ' ' {
+			i++
+		}
+		w.end = i
+		for i < n && text[i] == ' ' {
+			i++
+		}
+		w.next, w.plain = i, plainWord(text[w.start:w.end])
+		words = append(words, w)
+	}
+	return words
 }
 
 // keptWholeFrames is how many frames a text stays kept unused: windows take
@@ -55,6 +83,9 @@ func (e *dwrite) wrapWhole(text []rune, style Style, width float32) []shapedLine
 	// Texts of one hash are rare: one takes the other's place.
 	if kept == nil || !slices.Equal(kept.text, text) {
 		kept = &keptWhole{text: slices.Clone(text), whole: e.shapeWhole(text, style)}
+		if kept.whole != nil {
+			kept.words = wordsOf(text)
+		}
 		e.wholes[key] = kept
 	}
 	kept.used = e.frame
@@ -67,27 +98,26 @@ func (e *dwrite) wrapWhole(text []rune, style Style, width float32) []shapedLine
 	limit := float64(width) + 1e-3
 	var lines []shapedLine
 	mark := len(e.shapeScratch.lines)
-	for start := 0; start < n; {
-		end, pen, plain := start, w.pens[start], true
+	words := kept.words
+	for k, start := 0, 0; start < n; {
+		// The words that fit, with the spaces after them, which take no
+		// room, and the first that does not.
+		pen, plain := w.pens[start], true
 		last := rune(0) // the last character of the last word that fits
-		for i := start; i < n; {
-			// A word and the spaces after it, which take no room.
-			word := i
-			for i < n && text[i] != ' ' {
-				i++
-			}
-			fits := w.pens[i]-pen <= limit
-			plain = plainWord(text[word:i])
-			if !fits {
+		first := k
+		for ; k < len(words); k++ {
+			word := &words[k]
+			plain = word.plain
+			if w.pens[word.end]-pen > limit {
 				break
 			}
-			if i > word {
-				last = text[i-1]
+			if word.end > word.start {
+				last = text[word.end-1]
 			}
-			for i < n && text[i] == ' ' {
-				i++
-			}
-			end = i
+		}
+		end := start
+		if k > first {
+			end = words[k-1].next
 		}
 		if end == start || end < n && (!plain || !breaksAcross(last, text[end])) {
 			// The first word does not fit, the next may break inside, or
