@@ -421,6 +421,10 @@ type System struct {
 	familiesGen uint64
 	// lang is the language of texts whose style names none (SetLanguage).
 	lang string
+	// apart is a System New made, which takes the app's fonts
+	// (RegisterAppFont) itself: appFonts of them so far.
+	apart    bool
+	appFonts int
 	// fonts caches the font of each style.
 	fonts map[Style]*Font
 
@@ -534,7 +538,57 @@ func Shared() *System { return shared() }
 // that draw at the same time, as Testers do in parallel tests, neither
 // race over nor invalidate each other's atlases. An app's windows share
 // Shared.
-func New() *System { return newSystem() }
+func New() *System {
+	s := newSystem()
+	s.apart = true
+	return s
+}
+
+// appFonts are the fonts the app registered for all its text
+// (RegisterAppFont), which each System New makes takes in turn.
+var appFonts struct {
+	mu    sync.Mutex
+	fonts []appFontData
+}
+
+type appFontData struct {
+	data   []byte
+	family string
+}
+
+// RegisterAppFont registers a font in Shared, as its RegisterFont does,
+// and in every System New makes: before it lays out text, or at its next
+// layout when it was made before. A Tester's window, which shapes in a
+// System of its own, then draws the app's fonts as its windows do.
+func RegisterAppFont(data []byte, family string) error {
+	if err := Shared().RegisterFont(data, family); err != nil {
+		return err
+	}
+	appFonts.mu.Lock()
+	appFonts.fonts = append(appFonts.fonts, appFontData{data, family})
+	appFonts.mu.Unlock()
+	return nil
+}
+
+// takeAppFonts registers in a System New made the app's fonts registered
+// since it last looked (RegisterAppFont). s.mu is held.
+func (s *System) takeAppFonts() {
+	if !s.apart {
+		return
+	}
+	appFonts.mu.Lock()
+	fonts := appFonts.fonts[s.appFonts:]
+	s.appFonts = len(appFonts.fonts)
+	appFonts.mu.Unlock()
+	if len(fonts) == 0 {
+		return
+	}
+	for _, f := range fonts {
+		// Shared's engine read it already.
+		_ = s.engine().register(f.data, f.family)
+	}
+	s.fontsChanged()
+}
 
 // engine starts the system's text engine on first use.
 func (s *System) engine() engine {
@@ -698,6 +752,13 @@ func (s *System) RegisterFont(data []byte, family string) error {
 	if err := s.engine().register(data, family); err != nil {
 		return err
 	}
+	s.fontsChanged()
+	return nil
+}
+
+// fontsChanged forgets what the fonts registered so far made. s.mu is
+// held.
+func (s *System) fontsChanged() {
 	// The system's families may hold the app's under their own names.
 	s.families, s.listed = nil, false
 	s.familiesGen++
@@ -705,7 +766,6 @@ func (s *System) RegisterFont(data []byte, family string) error {
 	clear(s.fonts)
 	s.clearLayouts()
 	clear(s.marks)
-	return nil
 }
 
 // A FontFamily is a font family text can use.
@@ -724,6 +784,7 @@ type FontFamily struct {
 // system's are listed once, outside the lock, and kept until RegisterFont.
 func (s *System) FontFamilies() []FontFamily {
 	s.mu.Lock()
+	s.takeAppFonts()
 	app := s.engine().appFamilies()
 	system, listed, gen := s.families, s.listed, s.familiesGen
 	var list func() []FontFamily
@@ -844,6 +905,7 @@ func (s *System) Layout(p Params) *Layout { return s.LayoutFrom(nil, p) }
 func (s *System) LayoutFrom(l *Layout, p Params) *Layout {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.takeAppFonts()
 	if c, ok := s.layouts[p]; ok {
 		s.useLayout(c)
 		return &c.layout
@@ -1100,6 +1162,7 @@ func (s *System) Generation() uint64 {
 func (s *System) Shape(p Params) *Layout {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.takeAppFonts()
 	return &s.layout(p).layout
 }
 
@@ -1107,6 +1170,7 @@ func (s *System) Shape(p Params) *Layout {
 func (s *System) Metrics(style Style) (ascent, descent, lineHeight float32) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.takeAppFonts()
 	m := metricsOf(s.font(style), style)
 	return m.ascent, m.descent, m.lineHeight
 }

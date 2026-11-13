@@ -1018,6 +1018,34 @@ func TestRegisterFont(t *testing.T) {
 	}
 }
 
+// An app's fonts (RegisterAppFont) reach Shared and every System New
+// makes, as a Tester's window has: one made before them takes them at its
+// next layout, one made after before its first. Go Mono is monospaced, so
+// "iiiiiiii" is as wide as "mmmmmmmm" only in it.
+func TestRegisterAppFontReachesSystemsNewMakes(t *testing.T) {
+	const family = "MyGo Test App Mono"
+	monospaced := func(s *System) bool {
+		width := func(text string) float32 {
+			return s.Layout(Params{Text: text, Style: Style{Size: 20, Family: family}}).Lines[0].Width
+		}
+		i, m := width("iiiiiiii"), width("mmmmmmmm")
+		return i > m-0.5 && i < m+0.5
+	}
+	before := New()
+	if monospaced(before) {
+		t.Fatal("text uses the app's font before it is registered")
+	}
+	if err := RegisterAppFont(gomono.TTF, family); err != nil {
+		t.Fatal(err)
+	}
+	after := New()
+	for name, s := range map[string]*System{"Shared": Shared(), "made before": before, "made after": after} {
+		if !monospaced(s) {
+			t.Errorf("%s: text does not use the app's font", name)
+		}
+	}
+}
+
 // TestRegisterFontUnderGivenFamilies tells apart faces of one family
 // registered under families the app gives, as two that declare the same
 // weight need: each family the app gives holds only the files registered
