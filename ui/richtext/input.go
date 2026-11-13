@@ -152,14 +152,17 @@ func (v *view) grapheme(i, dir int) int {
 }
 
 // visual returns the caret one grapheme left (dir < 0) or right on screen,
-// across bidi runs, and to the next paragraph at the edge of one.
+// across bidi runs, and to the next paragraph at the edge of one. An
+// offset can have two places, the edge of a span's PaddingX (outside the
+// span and in it) or a line wrapped within a word (the end of one line and
+// the start of the next), and a step between them is a move.
 func (v *view) visual(dir int) (int, ui.TextAffinity) {
 	p := v.shown.paraAt(v.caret)
 	pv := v.paraLayout(p)
 	l := min(v.local(p, v.caret), len(pv.units)-1)
 	pos := ui.TextCaretPosition{Index: pv.units[l], Affinity: v.affinity}
 	next := pv.layout.MoveCaret(pos, dir)
-	if next.Index == pos.Index {
+	if next == pos {
 		if dir < 0 {
 			return max(v.shown.paraStart(p)-1, 0), ui.TextDownstream
 		}

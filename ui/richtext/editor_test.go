@@ -637,6 +637,72 @@ func TestRichTextLinkCanceledPress(t *testing.T) {
 
 // TestRichTextCJKWords deletes and moves by words in Chinese and
 // Japanese: a character at a time, as they have no spaces (#668).
+// Left and Right go through an offset with two caret places, the edge of
+// a span padded with PaddingX (code within text here) or a line wrapped
+// within a word, in two steps, and leave the paragraph only past its start
+// or end.
+func TestRichTextArrowsThroughTwoPlaces(t *testing.T) {
+	doc := NewDocument(TextOf(
+		Paragraph{Runs: []Run{{Text: "one"}}},
+		Paragraph{Runs: []Run{{Text: "say "}, {Text: "ok", Attributes: Attributes{Code: true}}, {Text: " now"}}},
+		Paragraph{Runs: []Run{{Text: strings.Repeat("会议", 40)}}},
+		Paragraph{Runs: []Run{{Text: "three"}}},
+	))
+	tt := ui.NewTester(func(c *ui.Context) {
+		Editor(c, doc, EditorOptions{Spans: func(_ int, _ ParagraphStyle, spans []ui.Span) []ui.Span {
+			for i := range spans {
+				if spans[i].Background.A != 0 {
+					spans[i].PaddingX = 4
+				}
+			}
+			return spans
+		}}).Fill()
+	}, 300, 400)
+	tt.Press(150, 380)
+	tt.Release(150, 380)
+	walk := func(from int, key ui.Key, n int) []int {
+		doc.SetSelection(from, from)
+		tt.Frame()
+		var at []int
+		for range n {
+			tt.Key(0, key)
+			_, c := doc.Selection()
+			at = append(at, c)
+		}
+		return at
+	}
+	// "say " is 4..8, "ok" 8..10, " now" 10..14.
+	if got, want := walk(4, ui.KeyRight, 13), []int{5, 6, 7, 8, 8, 9, 10, 10, 11, 12, 13, 14, 15}; !slices.Equal(got, want) {
+		t.Fatalf("Right through the code: %v, want %v", got, want)
+	}
+	if got, want := walk(14, ui.KeyLeft, 13), []int{13, 12, 11, 10, 10, 9, 8, 8, 7, 6, 5, 4, 3}; !slices.Equal(got, want) {
+		t.Fatalf("Left through the code: %v, want %v", got, want)
+	}
+	// The wrapped paragraph is 15..95: each offset in turn, a wrap's twice.
+	for _, key := range []ui.Key{ui.KeyRight, ui.KeyLeft} {
+		from, dir, past := 15, 1, 96
+		if key == ui.KeyLeft {
+			from, dir, past = 95, -1, 14
+		}
+		at := walk(from, key, 120)
+		last, twice := from, 0
+		for _, c := range at {
+			if c == past {
+				break
+			}
+			if c == last {
+				twice++
+			} else if c != last+dir {
+				t.Fatalf("%v through the wrapped paragraph went from %d to %d: %v", key, last, c, at)
+			}
+			last = c
+		}
+		if last != from+dir*80 || twice == 0 {
+			t.Fatalf("%v through the wrapped paragraph: %v", key, at)
+		}
+	}
+}
+
 func TestRichTextCJKWords(t *testing.T) {
 	word := ui.Ctrl
 	if runtime.GOOS == "darwin" {
