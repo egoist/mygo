@@ -66,6 +66,7 @@ const (
 	moveFocusPrevious = 2
 
 	dcompVisualSetTransform     = 8  // IDCompositionVisual: the overload taking a D2D_MATRIX_3X2_F
+	dcompVisualSetOpacity       = 11 // the overload taking a float, after the one taking an animation
 	dcompVisualSetClipObject    = 13 // the overload taking an IDCompositionClip
 	dcompVisualSetClip          = 14 // the overload taking a D2D_RECT_F
 	dcompVisualAddVisual        = 16
@@ -369,6 +370,9 @@ func (w *window) placeEmbedded() {
 	fx, fy := px(f.X), px(f.Y)
 	clipVisual(w.clipVis, px(c.X+c.W)-cx, px(c.Y+c.H)-cy)
 	translate(w.clipVis, cx, cy)
+	// The placement's opacity fades the page itself, over what is behind
+	// the window too, as a flyout over a parent left live.
+	comCallFloat32(w.clipVis, dcompVisualSetOpacity, float32(w.placement.Opacity))
 	// The page lays out at its size, which its visual shows scaled to its
 	// frame, if a transform of the content scales it.
 	width, height := px(f.X+f.W)-fx, px(f.Y+f.H)-fy
