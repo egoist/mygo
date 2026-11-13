@@ -17,8 +17,10 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	ox, oy := r.X+v.padX, r.Y+v.padY
 	look := &v.look
 	if v.shown.Len() == 0 && v.compose == "" && v.opts.Placeholder != "" {
-		pl := ui.ShapeRichTextWith([]ui.Span{{Text: v.opts.Placeholder}}, v.paraFont(v.para(0).style), ui.TextShape{Width: w})
-		p.TextLayout(pl, ox, oy, look.Muted)
+		// where the text would start: past a list's marker, a task's box or a quote's bar, not under them
+		px, py := v.origin(0)
+		pl := ui.ShapeRichTextWith([]ui.Span{{Text: v.opts.Placeholder}}, v.paraFont(v.para(0).style), ui.TextShape{Width: max(w-px, 1)})
+		p.TextLayout(pl, ox+px, oy+float32(py-v.scroll), look.Muted)
 	}
 	a, z := v.selection()
 	focused := v.focused
