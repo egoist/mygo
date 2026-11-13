@@ -135,10 +135,10 @@ func (s *surface) PlaceWebViews(views []platform.WebViewPlacement) {
 			v.roundPane(p.Radii, pw, ph)
 			// The placement's opacity fades the page itself, over what is
 			// behind the window too, as a flyout over a parent left live.
-			// A layer's opacity is a 32-bit float, which a double's low
-			// half reads as none at all: its alpha, which AppKit owns, is
-			// the one that takes a CGFloat.
-			msgSetFloat(send(v.clip, "layer"), sel("setAlphaValue:"), p.Opacity)
+			// The layer's own opacity is a 32-bit float, which a double's
+			// low half reads as none at all: the view's alpha takes a
+			// CGFloat, and fades what is inside it, the page with it.
+			msgSetFloat(v.clip, sel("setAlphaValue:"), p.Opacity)
 			if sendBool(v.clip, "isHidden") {
 				send(v.clip, "setHidden:", 0)
 			}
