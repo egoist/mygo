@@ -2,6 +2,7 @@ package richtext
 
 import (
 	"slices"
+	"strings"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -197,6 +198,11 @@ type view struct {
 	read, readCaret bool
 	readBoxes       []ParagraphBox
 	readCaretRect   ui.Rect
+	// natural keeps the rows' cells' widths on one line, by paragraph, and
+	// tables the tables' columns: a change of the text drops those of the
+	// tables it touched (replaced).
+	natural map[uint64]naturalCells
+	tables  []tableSpan
 }
 
 type editMode uint8
@@ -211,7 +217,7 @@ const (
 // runs, style and composition it was made of, the UTF-16 offset of each of
 // its runes, and its height with the room around it, 0 until laid out.
 type paraView struct {
-	layout *ui.TextLayout
+	layout paraText
 	units  []int
 	// marker is the list marker painted beside the paragraph, laid out.
 	marker       string
@@ -228,6 +234,8 @@ type paraView struct {
 	// indent is how far its first line goes in (Theme.FirstLineIndent),
 	// as its layout indents it (ui.TextShape.Indent).
 	indent float32
+	// widths are a row's columns as it was laid out in them.
+	widths []float32
 }
 
 // look is how the text of an editor looks: its font and the theme's
@@ -366,6 +374,7 @@ func (v *view) lockedSync() (change, bool) {
 			}
 			v.shown = d.text
 			v.paras = make([]paraView, d.text.ParagraphCount())
+			v.tables = v.tables[:0]
 			v.laid = 0
 			v.resetHeights()
 			moved = false
@@ -424,6 +433,7 @@ func (v *view) replaced(c change, steps []change, now Text) {
 		v.resetHeights()
 	}
 	v.shown = now
+	v.tablesChanged(pa, pz, npz)
 	switch {
 	case v.anchor > pz:
 		v.anchor += npz - pz
@@ -615,6 +625,14 @@ func (v *view) space(p int, st ParagraphStyle) (above, below float32) {
 			above = look.size * h.Size * h.Top
 		}
 		below = look.size * h.Bottom
+	case st.Row != NoRow:
+		// Rows touch: room only around the table.
+		if p > 0 && !sameTable(v.para(p-1).style, st) {
+			above = look.size * look.TableSpacing
+		}
+		if p+1 < len(v.paras) && !sameTable(st, v.para(p+1).style) {
+			below = look.size * look.TableSpacing
+		}
 	case st.CodeBlock:
 		if p == 0 || !v.para(p-1).style.CodeBlock {
 			above = look.size * look.CodeBlockPadding[1]
@@ -704,7 +722,13 @@ func (v *view) paraLayout(p int) *paraView {
 		first = unsafe.SliceData(para.runs)
 	}
 	indent := v.firstLine(p, para.style)
-	if pv.layout != nil && pv.id == para.id && pv.runs == first && pv.nruns == len(para.runs) && pv.style == para.style && pv.compose == compose && pv.at == at && pv.indent == indent {
+	var widths []float32
+	if para.style.Row != NoRow {
+		// Its table's columns, which its other rows' cells widen too.
+		left, right := v.insets(para.style)
+		widths = v.tableWidths(p, max(v.width-left-right, 1))
+	}
+	if pv.layout != nil && pv.id == para.id && pv.runs == first && pv.nruns == len(para.runs) && pv.style == para.style && pv.compose == compose && pv.at == at && pv.indent == indent && slices.Equal(pv.widths, widths) {
 		// The space around it follows its neighbours, which may have
 		// changed without it: a code block's last line, the first heading,
 		// a body paragraph after one that became a heading.
@@ -718,6 +742,7 @@ func (v *view) paraLayout(p int) *paraView {
 	composed := compose
 	left, right := v.insets(para.style)
 	v.look.width = max(v.width-left-right, 1)
+	padX, _ := v.look.cellPadding()
 	line := v.lineOf(p)
 	var spans []ui.Span
 	var typing Attributes
@@ -734,6 +759,11 @@ func (v *view) paraLayout(p int) *paraView {
 			end += size
 		}
 		if end > off {
+			if widths != nil {
+				// What a cell holds fits its column, as the rest fits the page.
+				k := min(strings.Count(line[:off], string(CellSeparator)), len(widths)-1)
+				v.look.width = max(widths[k]-2*padX, 1)
+			}
 			spans = append(spans, v.look.span(line[off:end], a, para.style))
 		}
 		off = end
@@ -761,8 +791,13 @@ func (v *view) paraLayout(p int) *paraView {
 	}
 	// The indent is on the side the paragraph starts at, the right of one
 	// reading right to left.
-	shape := ui.TextShape{Width: v.look.width, Align: para.style.Align, Indent: indent}
-	l := ui.ShapeRichTextWith(spans, v.paraFont(para.style), shape)
+	var l paraText
+	if para.style.Row != NoRow {
+		l = v.layRow(spans, para.style, v.paraFont(para.style), widths)
+	} else {
+		shape := ui.TextShape{Width: v.look.width, Align: para.style.Align, Indent: indent}
+		l = plainText{ui.ShapeRichTextWith(spans, v.paraFont(para.style), shape)}
+	}
 	units := pv.units[:0]
 	units = append(units, 0)
 	for _, s := range spans {
@@ -782,7 +817,7 @@ func (v *view) paraLayout(p int) *paraView {
 		v.hs.add(p, float64(h), -1)
 	}
 	*pv = paraView{layout: l, units: units, id: para.id, runs: first, nruns: len(para.runs), style: para.style,
-		compose: composed, at: at, h: h, space: above + below, indent: indent}
+		compose: composed, at: at, h: h, space: above + below, indent: indent, widths: widths}
 	return pv
 }
 
@@ -882,8 +917,14 @@ func (v *view) lineEdges(i int) (int, int) {
 	pv := v.paraLayout(p)
 	r := pv.layout.CaretAt(ui.TextCaretPosition{Index: pv.units[min(v.local(p, i), len(pv.units)-1)], Affinity: v.affinity})
 	mid := r.Y + r.H/2
-	a := pv.layout.PositionAt(ui.Point{X: -1e6, Y: mid})
-	z := pv.layout.PositionAt(ui.Point{X: 1e6, Y: mid})
+	lo, hi := float32(-1e6), float32(1e6)
+	if t, ok := pv.layout.(*rowText); ok {
+		// The line's edges in its cell, not the row's.
+		k := t.cellAtUnit(pv.units[min(v.local(p, i), len(pv.units)-1)])
+		lo, hi = t.edges[min(k, len(t.edges)-1)]+1, t.edges[min(k+1, len(t.edges)-1)]-1
+	}
+	a := pv.layout.PositionAt(ui.Point{X: lo, Y: mid})
+	z := pv.layout.PositionAt(ui.Point{X: hi, Y: mid})
 	s, e := v.global(p, pv.runeOfUnit(a.Index)), v.global(p, pv.runeOfUnit(z.Index))
 	if s > e {
 		s, e = e, s
@@ -939,6 +980,7 @@ func (v *view) layout(w, h float32) {
 		for i := range v.paras {
 			v.paras[i] = paraView{}
 		}
+		v.tables = v.tables[:0]
 		v.laid = 0
 		v.width = w
 		v.resetHeights()

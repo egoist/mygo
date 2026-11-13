@@ -268,7 +268,8 @@ code, within text and in blocks, and the corners and room of blocks of
 code; each level of heading's size, weight, color and room above and
 below; the first-line indent of body paragraphs and the room between
 them; the indentation of lists, the colors of their markers and check
-boxes; the bar and text of quotations; and the padding of `Editor`,
+boxes; the bar and text of quotations; a table's grid, header, cells'
+padding and room around it; and the padding of `Editor`,
 which replaces the window theme's. What it leaves zero takes the
 value of `DefaultTheme` for the window's theme, so that a theme sets only
 what it changes, and follows the window into dark mode:
@@ -435,6 +436,45 @@ rules, measured on macOS 27, and those of ProseMirror, Lexical and Quill:
 - After the text before the caret is deleted, typing gets its attributes
   until the caret moves: delete a bold word and type, and the text is bold.
 - After Enter, typing keeps the attributes typed before it.
+
+## Tables
+
+A table's cells are laid out side by side, each at its column's width and
+wrapping there, and a row is as tall as its tallest cell. Columns take
+their widths from what they hold, as a browser lays out a table: each as
+wide as its widest cell on one line, so a table that fits is as wide as
+its cells and typing widens only the column typed in; when that is wider
+than the editor, the columns narrower than an equal share keep their width
+and the others share the rest. The cells measured are those of a table's
+first 100 rows, so a long table lays out as fast as a short one and its
+columns stay as it scrolls; the rows after them wrap at those widths. The
+widths are worked out again only when an edit changes the table. The
+theme sets the rest of
+its look: `TableBorder` draws the grid (the window theme's `Border` by
+default), `TableHeaderBackground` fills the header (as blocks of code are
+filled, by default) and `TableHeaderWeight` weighs its text (600),
+`TableCellPadding` is the room around a cell's text (0.6 em across, 0.4 em
+down), and `TableSpacing` the room above and below the table (0.6 em). The
+rows touch.
+
+- Tab and Shift-Tab go to the end of the next cell and of the one before,
+  across rows. Tab in the last cell adds a row.
+- Enter adds a row below. On an empty last row it leaves the table, as on
+  an empty item of a list; on a header alone, empty, the table goes.
+- Backspace at a cell's start and Delete at its end do nothing, so cells
+  never merge. A selection across cells clears their text and keeps the
+  cells. A selection that holds a whole table, from its first row's start
+  to its last row's end, takes the table away with it, as select all and
+  Delete, Cut or typing do. What is typed or pasted in a cell is its
+  text: its paragraphs the cell's lines, its tabs spaces, its formats
+  kept.
+- Backspace and Delete take away an empty paragraph next to a table and
+  leave the table as it was.
+- ↑ and ↓ go to the row above or below when they leave a cell's lines.
+
+A table copied is the editor's own format, which pastes it back as a table,
+and plain text with its cells apart by tabs, which spreadsheets paste as
+cells.
 
 ## Attachments
 

@@ -414,6 +414,8 @@ func (v *view) key(key ui.Key, mods ui.Modifiers) bool {
 		switch {
 		case m != 0:
 			return false
+		case st.Row != NoRow:
+			return v.tableTab(shift)
 		case st.List != NoList:
 			if shift {
 				return v.run("outdent")

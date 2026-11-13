@@ -19,8 +19,21 @@ func TestThemeResolve(t *testing.T) {
 	if th.Headings[0].Color != red || th.Marker != red || th.Code != red {
 		t.Errorf("heading %v and marker %v don't follow the text %v", th.Headings[0].Color, th.Marker, red)
 	}
-	if th.CodeSize != 0.8 || th.Indent != def.Indent || th.Link != def.Link || th.QuoteText != def.Muted || th.TableHeaderWeight != 700 {
+	if th.CodeSize != 0.8 || th.Indent != def.Indent || th.Link != def.Link || th.QuoteText != def.Muted || th.TableHeaderWeight != 700 ||
+		th.TableSpacing != 0.6 || th.TableCellPadding != [2]float32{0.6, 0.4} || th.TableBorder != def.TableBorder {
 		t.Errorf("resolved %+v", th)
+	}
+	// The header's fill follows the theme's blocks of code, unless it has
+	// its own.
+	green := ui.RGB(0, 120, 0)
+	if th := resolve(&Theme{CodeBlockBackground: green}, def); th.TableHeaderBackground != green {
+		t.Errorf("a table's header %v doesn't follow the code blocks' %v", th.TableHeaderBackground, green)
+	}
+	if th := resolve(&Theme{CodeBlockBackground: green, TableHeaderBackground: red}, def); th.TableHeaderBackground != red {
+		t.Errorf("a table's header %v, not its own %v", th.TableHeaderBackground, red)
+	}
+	if def.TableHeaderBackground != def.CodeBlockBackground || def.TableBorder != ui.LightTheme().Border {
+		t.Errorf("the default table %v %v", def.TableHeaderBackground, def.TableBorder)
 	}
 	if got := resolve(nil, def); got != *def {
 		t.Errorf("nil theme %+v", got)

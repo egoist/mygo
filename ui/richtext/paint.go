@@ -42,6 +42,9 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		px, py := v.origin(i)
 		x, y := ox+px, oy+float32(py-v.scroll)
 		v.paintBlock(p, i, st, ox, top, pv.h, w)
+		if t, ok := pv.layout.(*rowText); ok {
+			v.paintRow(p, i, st, t, x, y)
+		}
 		pe := ps + v.para(i).n
 		if a != z && a <= pe && z >= ps && (focused || v.opts.ReadOnly) {
 			from, to := v.local(i, max(a, ps)), v.local(i, min(z, pe))
@@ -55,7 +58,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 				p.Fill(ui.Rect{X: x + c.X, Y: y + c.Y, W: look.size * 0.35, H: c.H}, color, 0)
 			}
 		}
-		p.TextLayout(pv.layout, x, y, look.Text)
+		pv.layout.Draw(p, x, y, look.Text)
 		v.paintAttachments(p, i, pv, x, y)
 		v.paintMarker(p, i, st, pv, x, y)
 		if compose == i {
