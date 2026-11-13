@@ -31,6 +31,14 @@ func initSystemCallbacks() {
 	cbThemeChanged = purego.NewCallback(func(a, b, data ptr) { theBackend.h.ThemeChanged() })
 	cbMonitorsChanged = purego.NewCallback(func(display, monitor, data ptr) { theBackend.h.DisplaysChanged() })
 	cbPortalSignal = purego.NewCallback(portalSignal)
+	// The tray watches the shell that draws its icon, so an app does not
+	// have to. The signal callback has the generic signature every D-Bus
+	// subscription gets; it reads the parameters itself.
+	watcher.handler = purego.NewCallback(func(conn, sender, path, iface, signal, params, data ptr) {
+		if goStr(signal) == "NameOwnerChanged" {
+			watcherSignal(params)
+		}
+	})
 	cbPowerSignal = purego.NewCallback(func(conn, sender, path, iface, signal, params, data ptr) {
 		child := gVariantGetChildValue(params, 0)
 		on := gVariantGetBoolean(child)

@@ -560,6 +560,16 @@ type tray struct {
 	dark     bool
 	image    []byte
 	template bool
+	// title is the text next to the icon, and tooltip its hover text. They
+	// are kept so a tray whose watcher went away can apply them again when
+	// it comes back, without the app having to repeat them.
+	title   string
+	tooltip string
+	// wanted is the menu snapshot last given to SetMenu, kept for the same
+	// reason as the title: applying it means building a GTK menu, so it
+	// waits for the watcher.
+	wanted  *platform.Menu
+	pending bool
 }
 
 func (b *Backend) NewTray(h platform.TrayHandler) (platform.Tray, error) {
@@ -571,12 +581,8 @@ func (b *Backend) NewTray(h platform.TrayHandler) (platform.Tray, error) {
 	t := &tray{b: b, h: h, id: b.nextTray, dark: desktopDark()}
 	name := fmt.Sprintf("mygo-%d-%d", os.Getpid(), t.id)
 	t.ind = appIndicatorNew(cs(name), cs("application-x-executable"), 0) // APPLICATION_STATUS
-	// app_indicator_new returns NULL once the shell that hosts the icon is
-	// gone, which is exactly what a shell restart leaves behind. Every later
-	// call would hand that NULL to libayatana, whose fallback icon fails the
-	// GTK_IS_STATUS_ICON assertion and dereferences it: SIGSEGV inside cgo,
-	// which Go cannot turn into a panic. Report it here, at the call that
-	// caused it, instead of at the next tooltip update.
+	// A NULL indicator is worth reporting where it happened: libayatana
+	// gives no other sign, and every later call would take it as a handle.
 	if t.ind == 0 {
 		return nil, fmt.Errorf("mygo: app_indicator_new returned no indicator: %w", platform.ErrUnsupported)
 	}
@@ -611,8 +617,11 @@ func (t *tray) SetImage(data []byte, template bool) error {
 	if err := os.WriteFile(file, img, 0o644); err != nil {
 		return err
 	}
-	appIndicatorSetIconFull(t.ind, cs(file), cs(""))
 	t.image, t.template = data, template
+	if t.deferred() {
+		return nil
+	}
+	appIndicatorSetIconFull(t.ind, cs(file), cs(""))
 	return nil
 }
 
@@ -682,7 +691,13 @@ func whiten(data []byte) ([]byte, error) {
 // panels place indicators themselves.
 func (t *tray) SetID(string) {}
 
-func (t *tray) SetTitle(title string) { appIndicatorSetLabel(t.ind, cs(title), cs(title)) }
+func (t *tray) SetTitle(title string) {
+	t.title = title
+	if t.deferred() {
+		return
+	}
+	appIndicatorSetLabel(t.ind, cs(title), cs(title))
+}
 
 // SetToolTip sets the hover text. The title is what panels show when they
 // fall back to it, and setting it announces NewTitle alone: a host that
@@ -690,11 +705,16 @@ func (t *tray) SetTitle(title string) { appIndicatorSetLabel(t.ind, cs(title), c
 // text it read when the icon appeared. Setting the tooltip as well announces
 // NewToolTip, so both stay in step.
 func (t *tray) SetToolTip(tip string) {
-	// A tray with no handle is inert rather than fatal: this is the call
-	// that died of SIGSEGV at addr=0x0 inside libayatana.
-	if t.ind == 0 {
+	t.tooltip = tip
+	if t.deferred() {
 		return
 	}
+	t.applyToolTip(tip)
+}
+
+// applyToolTip hands the text to libayatana. It is separate from SetToolTip
+// so a resumed tray can apply the text it kept without the app repeating it.
+func (t *tray) applyToolTip(tip string) {
 	if appIndicatorSetTitle != nil {
 		appIndicatorSetTitle(t.ind, cs(tip))
 	}
@@ -704,9 +724,14 @@ func (t *tray) SetToolTip(tip string) {
 }
 
 func (t *tray) SetMenu(m *platform.Menu) {
-	if t.ind == 0 {
+	t.wanted = m
+	if t.deferred() {
 		return
 	}
+	t.applyMenu(m)
+}
+
+func (t *tray) applyMenu(m *platform.Menu) {
 	dropOwner(t.owner)
 	t.owner = newOwner()
 	menu := gtkMenuNew()
