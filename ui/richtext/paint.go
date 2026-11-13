@@ -21,6 +21,9 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	} else {
 		v.clipped = false
 	}
+	// The elements of the blocks were laid out at their heights: the
+	// paragraphs below them move as they are high.
+	v.measureBlocks()
 	v.layout(w, h)
 	// Text scrolled partly out of the box is cut at its edges, not painted
 	// over what is around it or over the editor's border and corners:
@@ -37,6 +40,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		p.Scrollbar(bar, ui.ScrollbarState{Hovered: v.inView, Dragging: v.thumb})
 	}
 	v.moved()
+	v.blocksMoved()
 }
 
 // paintText paints the text of the box r, w wide inside its padding: the
@@ -296,6 +300,10 @@ func romanNumber(n int) string {
 // layout, at (x, y), keeps for them: an image, the app's drawing, or a
 // box with the attachment's name.
 func (v *view) paintAttachments(p *ui.Painter, i int, pv *paraView, x, y float32) {
+	if v.blockAt(i) != nil {
+		// A block shows its element, not a picture of it.
+		return
+	}
 	objects := pv.layout.Objects()
 	if len(objects) == 0 {
 		return
