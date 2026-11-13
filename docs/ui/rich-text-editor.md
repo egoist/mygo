@@ -452,7 +452,7 @@ widths are worked out again only when an edit changes the table. The
 theme sets the rest of
 its look: `TableBorder` draws the grid (the window theme's `Border` by
 default), `TableHeaderBackground` fills the header (as blocks of code are
-filled, by default) and `TableHeaderWeight` weighs its text (600),
+filled, by default) and `TableHeaderWeight` weighs its text (700),
 `TableCellPadding` is the room around a cell's text (0.6 em across, 0.4 em
 down), and `TableSpacing` the room above and below the table (0.6 em). The
 rows touch.
