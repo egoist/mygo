@@ -435,8 +435,30 @@ func (t *Tester) send(ev platform.SurfaceEvent) {
 		// Counted as a backend counts.
 		ev.Clicks = t.clicks.Press(ev.Button, ev.X, ev.Y, uint32(t.now.UnixMilli()), platform.DefaultDoubleClick)
 	}
+	if ev.Kind == platform.KeyPressed && t.composingKey(ev.Mods) {
+		// The input method's, as a platform's filter keeps it.
+		t.settle()
+		return
+	}
 	t.rt.event(ev)
 	t.settle()
+}
+
+// composingKey reports whether a key pressed with mods goes to the input
+// method rather than to the content, as the focused client of text input
+// composes: the Tester's stand-in for the filter of each platform's input
+// method (macOS's keyDown: withholding the key while there is marked
+// text, GTK's input method filter, IMM32's VK_PROCESSKEY, a browser's
+// isComposing), so that Compose then Key shows what users get. As on
+// macOS, chords with Ctrl or Super go to the content, and the composition
+// stays as it is.
+func (t *Tester) composingKey(mods platform.Modifiers) bool {
+	ime := t.h.ime
+	if !ime.Active || ime.NoInputMethod || ime.Client == nil || mods&(platform.ModCtrl|platform.ModSuper) != 0 {
+		return false
+	}
+	_, marked := ime.Client.MarkedRange()
+	return marked
 }
 
 // SetSize resizes the window.
@@ -1029,7 +1051,8 @@ func (t *Tester) SetFocused(focused bool) {
 // Compose shows text as an input method's composition, with its caret at
 // rune caret, as while typing in Chinese or Japanese; an empty text ends
 // it. Type commits the text. Keys pressed meanwhile without Ctrl or Super
-// are the input method's and do nothing, as on the desktop. Nothing is
+// go to the input method, as each platform's filter of input methods has
+// them, and the composition stays. Nothing is
 // composed while the focused element turned input methods off
 // (InputMethod), as on the desktop.
 func (t *Tester) Compose(text string, caret int) {

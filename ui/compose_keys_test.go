@@ -3,9 +3,9 @@ package ui
 import "testing"
 
 // Keys typed while an input method composes in the focus are its own, as
-// Enter choosing a candidate: the engine holds them back, whatever the
-// platform passed on, so a text input submits nothing until the
-// composition is committed (#1815).
+// Enter choosing a candidate: a Tester keeps them from the content, as
+// each platform's filter of input methods does, so a text input submits
+// nothing until the composition is committed (#1815).
 func TestComposingEnterSubmitsNothing(t *testing.T) {
 	var value string
 	submits, composing := 0, false
