@@ -20,7 +20,7 @@ import (
 func proseTester(t *testing.T, doc *Document, th *Theme, h int) (*ui.Tester, *[]ParagraphBox) {
 	t.Helper()
 	boxes := new([]ParagraphBox)
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := openTester(t, func(c *ui.Context) {
 		*boxes = doc.VisibleParagraphs()
 		EditorBase(c, doc, EditorOptions{Font: ui.Font{Size: 10}, Theme: th}).Fill()
 	}, 300, h)

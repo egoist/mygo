@@ -911,7 +911,7 @@ func TestRichTextRightClickMovesCaret(t *testing.T) {
 func TestRichTextSpace(t *testing.T) {
 	doc := NewDocument(NewText("one\ntwo\nthree"))
 	var room float32
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := openTester(t, func(c *ui.Context) {
 		Editor(c, doc, EditorOptions{Space: func(p int) float32 {
 			if p == 1 {
 				return room
