@@ -413,6 +413,9 @@ type Window struct {
 	// closedEarly holds the channels the current page closed before
 	// their calls made them, with the page's token.
 	closedEarly map[int64]string
+	// cancels are the calls of the current page that it may cancel, by
+	// the page's id for them, with the page's token.
+	cancels map[int64]pageCancel
 
 	outMu    sync.Mutex
 	outbox   []message
@@ -1873,10 +1876,51 @@ func (w *Window) resetPage() {
 	w.pageCtx, w.pageCancel = ctx, cancel
 	w.channels = nil // they close with the previous page's context
 	w.closedEarly = nil
+	w.cancels = nil
 	w.mu.Unlock()
 	if prev != nil {
 		prev()
 	}
+}
+
+// pageCancel is a call of a page that the page may cancel.
+type pageCancel struct {
+	token  string
+	cancel context.CancelFunc
+}
+
+// addCancel remembers the cancel of a call of the current page, so that
+// the page may cancel it with a signal.
+func (w *Window) addCancel(id int64, token string, cancel context.CancelFunc) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.cancels == nil {
+		w.cancels = map[int64]pageCancel{}
+	}
+	w.cancels[id] = pageCancel{token: token, cancel: cancel}
+}
+
+// removeCancel forgets the cancel of a call that is over.
+func (w *Window) removeCancel(id int64, token string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if c, ok := w.cancels[id]; ok && c.token == token {
+		delete(w.cancels, id)
+	}
+}
+
+// cancelCall cancels the call of the page with the id, if the page may
+// cancel it: the method's context is canceled, and its reply is of no
+// use to the page, which gave it up.
+func (w *Window) cancelCall(id int64, token string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	c, ok := w.cancels[id]
+	if !ok || c.token != token {
+		return
+	}
+	delete(w.cancels, id)
+	c.cancel()
 }
 
 // pageContext returns the context of the current page. It is canceled when
