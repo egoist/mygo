@@ -132,7 +132,7 @@ type window struct {
 	// the keyboard is in the menu bar.
 	autoHideMenu, revealed bool
 	inMenu                 bool    // in a menu loop, of the bar or a popup
-	menusHaveKeyboard      bool    // the bar's menu loop took the keyboard from the page (barKeyboard)
+	menusHaveKeyboard      bool    // the bar's menu loop took the keyboard from the page (takeKeyboardForMenus)
 	menuKey                menuKey // the letter that opened popupMenuBar
 
 	programmatic bool
