@@ -560,6 +560,12 @@ type tray struct {
 	dark     bool
 	image    []byte
 	template bool
+	// title, tip and spec are the title, tooltip and menu the app set
+	// last, and pending tells that some waited for the watcher
+	// (trayhost.go).
+	title, tip string
+	spec       *platform.Menu
+	pending    bool
 }
 
 func (b *Backend) NewTray(h platform.TrayHandler) (platform.Tray, error) {
@@ -567,11 +573,15 @@ func (b *Backend) NewTray(h platform.TrayHandler) (platform.Tray, error) {
 		return nil, fmt.Errorf("mygo: tray icons need libayatana-appindicator3: %w", platform.ErrUnsupported)
 	}
 	traysAppearanceChanged = b.traysAppearance
+	watchTrayWatcher()
 	b.nextTray++
 	t := &tray{b: b, h: h, id: b.nextTray, dark: desktopDark()}
 	name := fmt.Sprintf("mygo-%d-%d", os.Getpid(), t.id)
 	t.ind = appIndicatorNew(cs(name), cs("application-x-executable"), 0) // APPLICATION_STATUS
-	appIndicatorSetStatus(t.ind, 1)                                      // ACTIVE
+	if t.ind == 0 {
+		return nil, fmt.Errorf("mygo: libayatana-appindicator3 made no tray icon: %w", platform.ErrUnsupported)
+	}
+	appIndicatorSetStatus(t.ind, 1) // ACTIVE
 	// AppIndicator only shows up once it has a menu.
 	t.SetMenu(&platform.Menu{})
 	b.trays[t.id] = t
@@ -579,6 +589,10 @@ func (b *Backend) NewTray(h platform.TrayHandler) (platform.Tray, error) {
 }
 
 func (t *tray) SetImage(data []byte, template bool) error {
+	if t.held() {
+		t.image, t.template = data, template
+		return nil
+	}
 	img := data
 	if template && t.dark {
 		var err error
@@ -673,7 +687,12 @@ func whiten(data []byte) ([]byte, error) {
 // panels place indicators themselves.
 func (t *tray) SetID(string) {}
 
-func (t *tray) SetTitle(title string) { appIndicatorSetLabel(t.ind, cs(title), cs(title)) }
+func (t *tray) SetTitle(title string) {
+	t.title = title
+	if !t.held() {
+		appIndicatorSetLabel(t.ind, cs(title), cs(title))
+	}
+}
 
 // SetToolTip sets the hover text. The title is what panels show when they
 // fall back to it, and setting it announces NewTitle alone: a host that
@@ -681,6 +700,9 @@ func (t *tray) SetTitle(title string) { appIndicatorSetLabel(t.ind, cs(title), c
 // text it read when the icon appeared. Setting the tooltip as well announces
 // NewToolTip, so both stay in step.
 func (t *tray) SetToolTip(tip string) {
+	if t.tip = tip; t.held() {
+		return
+	}
 	if appIndicatorSetTitle != nil {
 		appIndicatorSetTitle(t.ind, cs(tip))
 	}
@@ -690,6 +712,9 @@ func (t *tray) SetToolTip(tip string) {
 }
 
 func (t *tray) SetMenu(m *platform.Menu) {
+	if t.spec = m; t.held() {
+		return
+	}
 	dropOwner(t.owner)
 	t.owner = newOwner()
 	menu := gtkMenuNew()
@@ -736,15 +761,7 @@ func (t *tray) SetActivatable(on bool) {
 // "activate" signal, which older libayatana-appindicator3 releases lack:
 // their icons answer no activation, whatever the app listens to. It is
 // asked once an indicator exists, which registers the type.
-var trayActivates = sync.OnceValue(func() bool {
-	var lookup func(name *byte, typ uintptr) uint32
-	var typeFromName func(name *byte) uintptr
-	if !bind(libGObject, &lookup, "g_signal_lookup") || !bind(libGObject, &typeFromName, "g_type_from_name") {
-		return false
-	}
-	typ := typeFromName(cs("AppIndicator"))
-	return typ != 0 && lookup(cs("activate"), typ) != 0
-})
+var trayActivates = sync.OnceValue(func() bool { return indicatorSignal("activate") != 0 })
 
 func (t *tray) Destroy() {
 	if t.ind == 0 {
@@ -753,7 +770,7 @@ func (t *tray) Destroy() {
 	t.SetActivatable(false)
 	appIndicatorSetStatus(t.ind, 0) // PASSIVE
 	gObjectUnref(t.ind)
-	t.ind = 0
+	t.ind, t.pending = 0, false
 	dropOwner(t.owner)
 	delete(t.b.trays, t.id)
 	if t.iconDir != "" {
