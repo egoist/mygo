@@ -1375,16 +1375,62 @@ func registerAccessClass() {
 			}
 			return attributedAccessString(&el.node, r)
 		}),
-		method("accessibilityLineForIndex:", func(self id, _ objc.SEL, i int) int { return 0 }),
+		// Lines of the text, which VoiceOver reads by: a line ends after
+		// its line feed, as the Windows and Linux bridges take lines.
+		method("accessibilityLineForIndex:", func(self id, _ objc.SEL, i int) int {
+			if el := b().accessElementOf(self); el != nil {
+				return platform.LineOfUnit(el.node.Value, i)
+			}
+			return 0
+		}),
 		method("accessibilityRangeForLine:", func(self id, _ objc.SEL, line int) nsRange {
 			if el := b().accessElementOf(self); el != nil {
-				return nsRange{Length: uint(units([]rune(el.node.Value)))}
+				if start, n, ok := platform.LineUnits(el.node.Value, line); ok {
+					return nsRange{Location: uint(start), Length: uint(n)}
+				}
 			}
-			return nsRange{}
+			return nsRange{Location: nsNotFound}
 		}),
+		// The line the caret is on, which VoiceOver reads as it moves,
+		// and the text in view, found as asked rather than every frame,
+		// as they take a walk through the text.
+		method("accessibilityInsertionPointLineNumber", func(self id, _ objc.SEL) int {
+			el := b().accessElementOf(self)
+			if el == nil {
+				return 0
+			}
+			line, i := 0, 0
+			for _, r := range el.node.Value {
+				if i >= el.node.SelStart {
+					break
+				}
+				if r == '\n' {
+					line++
+				}
+				i++
+			}
+			return line
+		}),
+		method("accessibilityVisibleCharacterRange", func(self id, _ objc.SEL) nsRange {
+			el := b().accessElementOf(self)
+			if el == nil {
+				return nsRange{}
+			}
+			n := &el.node
+			if len(n.LineBoxes) == 0 {
+				return nsRange{Length: uint(units([]rune(n.Value)))}
+			}
+			first, _, _ := platform.LineUnits(n.Value, n.LineBoxes[0].Line)
+			start, count, _ := platform.LineUnits(n.Value, n.LineBoxes[len(n.LineBoxes)-1].Line)
+			return nsRange{Location: uint(first), Length: uint(max(start+count-first, 0))}
+		}),
+		// Where a range shows, which VoiceOver's cursor outlines: the
+		// lines it is on, as the content laid them out, else the element.
 		method("accessibilityFrameForRange:", func(self id, _ objc.SEL, r nsRange) NSRect {
 			if el := b().accessElementOf(self); el != nil {
-				return el.s.screenRect(el.node.Bounds)
+				lo := int(min(r.Location, uint(1<<31)))
+				n := int(min(r.Length, uint(1<<31)))
+				return el.s.screenRect(platform.RangeBounds(&el.node, lo, n))
 			}
 			return NSRect{}
 		}),

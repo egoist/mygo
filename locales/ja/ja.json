@@ -50,6 +50,8 @@
   "expandAll": "すべて展開",
   "expand": "{what}を展開",
   "unmodifiedLines": "{n, plural, other {変更されていない # 行}}",
+  "unmodifiedLineNumbers": "{from, number, ::group-off} 行目から {to, number, ::group-off} 行目",
+  "unmodifiedLineNumbersOldNew": "古いテキストの {oldFrom, number, ::group-off} 行目から {oldTo, number, ::group-off} 行目、新しいテキストの {newFrom, number, ::group-off} 行目から {newTo, number, ::group-off} 行目",
   "noNewlineAtEnd": "ファイル末尾に改行がありません",
   "revert": "元に戻す",
   "keep": "保持",
