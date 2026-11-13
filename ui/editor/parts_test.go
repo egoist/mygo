@@ -459,6 +459,7 @@ func TestDiffFitContentBuildsSeparatorsInView(t *testing.T) {
 		tt := ui.NewTester(func(c *ui.Context) {
 			ui.Scroll(c).Fill().Children(func() { DiffView(c, d).FillWidth() })
 		}, 800, 600)
+		waitCompared(t, tt, d)
 		tt.Frame()
 		tt.Frame()
 		built = 0
@@ -496,6 +497,7 @@ func TestDiffFitContentBuildsSeparatorsScrolledTo(t *testing.T) {
 		tt := ui.NewTester(func(c *ui.Context) {
 			ui.Scroll(c).Fill().Children(func() { DiffView(c, d).FillWidth() })
 		}, 800, 600)
+		waitCompared(t, tt, d)
 		tt.Frame()
 		tt.Frame()
 		// No frame but those the scroll asks for, as in a window.
