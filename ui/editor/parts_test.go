@@ -526,11 +526,17 @@ func TestDiffFitContentMeasuresLinesShown(t *testing.T) {
 	lines[10000] = "changed"
 	nw := strings.Join(lines, "\n")
 	d := &DiffState{Old: NewBuffer(old), New: NewBuffer(nw), Wrap: true, FitContent: true}
+	// Compared before a window shows them, so that the first frame folds:
+	// while a comparison off the main thread runs, every line shows.
+	d.Hunks()
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Scroll(c).Fill().Children(func() { DiffView(c, d).FillWidth() })
 	}, 800, 600)
 	tt.Frame()
 	tt.Frame()
+	if d.Comparing() {
+		t.Fatal("compared again off the main thread")
+	}
 	v := &d.eds[1].view
 	if known := v.heights.wraps.known; known == 0 || known > 1000 {
 		t.Errorf("%d of the %d lines' wraps measured, those shown being a few", known, v.text.LineCount())
