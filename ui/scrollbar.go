@@ -1,19 +1,21 @@
 package ui
 
+import "time"
+
 // Scrollbar is the scroll bar of a view that scrolls itself rather than
 // through a scroll container, as a code editor or a terminal does, laid
 // out and painted as a scroll container's are, so that every bar of an app
 // looks alike and follows the theme (Theme.Scrollbar, ScrollbarWidth and
 // ScrollbarStyle).
 //
-// The view paints the bar with Painter.Scrollbar while it shows it: a
-// scroll container's show while the pointer is over the container or
-// drags a thumb, and maps a drag of the thumb to an offset with Thumb and
-// OffsetAt.
+// The view paints the bar with Painter.Scrollbar while it shows it, as
+// its style's Show says (ScrollbarFade), and maps a drag of the thumb to
+// an offset with Thumb and OffsetAt.
 //
 //	bar := ui.Scrollbar{Box: r, View: viewH, Content: contentH, Offset: scrollY}
-//	if hovered || dragging {
-//		p.Scrollbar(bar, ui.ScrollbarState{Hovered: hovered, Dragging: dragging})
+//	show := bar.Style.Resolve(p.Theme()).Show
+//	if bar.Fade = v.fade.Fade(p, show, ui.Point{Y: scrollY}, hovered, overBar, dragging); bar.Fade < 1 {
+//		p.Scrollbar(bar, ui.ScrollbarState{Hovered: overBar, Dragging: dragging})
 //	}
 type Scrollbar struct {
 	// Box is the view the bar runs along, at its right edge, or its
@@ -33,6 +35,101 @@ type Scrollbar struct {
 	// to the style it resolves, so that Thumb and OffsetAt lay out the
 	// same thumb Painter.Scrollbar paints.
 	Style ScrollbarStyle
+	// Fade is how far the bar has faded out, from 0, shown, to 1, gone,
+	// as ScrollbarFade tells for a bar shown while its view scrolls.
+	Fade float32
+}
+
+// ScrollbarShow is when scroll bars show, as ScrollbarStyle.Show says.
+type ScrollbarShow uint8
+
+const (
+	// ScrollbarsAuto, the zero value, shows them as the theme's style
+	// says, and in the theme's own style as ScrollbarsOnHover does.
+	ScrollbarsAuto ScrollbarShow = iota
+	// ScrollbarsOnHover shows a view's bars while the pointer is over
+	// the view or drags a thumb.
+	ScrollbarsOnHover
+	// ScrollbarsWhileScrolling shows them as macOS's overlay scroll bars
+	// do: while the view scrolls, by any means, and a moment after,
+	// then fading out; and while the pointer is over a bar or drags its
+	// thumb. The pointer elsewhere over the view shows none, so a view
+	// as big as its window doesn't keep a bar on screen all the while
+	// the pointer is in it.
+	ScrollbarsWhileScrolling
+)
+
+// A bar shown while its view scrolls stays scrollbarHold after the view
+// last scrolled, or the pointer left the bar or let go of its thumb, then
+// fades out over scrollbarFadeOut, as macOS's overlay scroll bars do.
+const (
+	scrollbarHold    = 800 * time.Millisecond
+	scrollbarFadeOut = 200 * time.Millisecond
+)
+
+// barFade returns how far a bar shown while its view scrolls has faded
+// out at now, the view having last scrolled (or the pointer left the bar
+// or let go of its thumb) at at, and asks p for the frame that changes it
+// next.
+func barFade(p *Painter, now, at time.Time) float32 {
+	since := now.Sub(at)
+	switch {
+	case at.IsZero() || since >= scrollbarHold+scrollbarFadeOut:
+		return 1
+	case since < scrollbarHold:
+		p.After(scrollbarHold - since)
+		return 0
+	}
+	p.AnimationFrame()
+	return float32(since-scrollbarHold) / float32(scrollbarFadeOut)
+}
+
+// ScrollbarFade times the bars of a view that paints its own (Scrollbar)
+// as their style's Show says, as a scroll container's are: keep one per
+// view, from frame to frame, and ask it each frame the view paints.
+type ScrollbarFade struct {
+	// x and y are the offset the view last painted at, known once it
+	// has; held is set while the pointer is on a bar or drags its thumb.
+	x, y        float64
+	at          time.Time
+	known, held bool
+}
+
+// Fade returns how far the view's bars have faded out in the frame p
+// paints, from 0, shown, to 1, gone, for bars shown as show says: offset
+// is how far the view is scrolled, on each axis it scrolls; hovered is
+// whether the pointer is over the view, over whether it is over a bar, and
+// dragging whether a thumb is being dragged. It asks p for the frames its
+// fading needs. A view paints a bar, with Fade set to it, unless it is 1.
+func (f *ScrollbarFade) Fade(p *Painter, show ScrollbarShow, offset Point, hovered, over, dragging bool) float32 {
+	if show != ScrollbarsWhileScrolling {
+		f.known, f.held = false, false
+		if hovered || dragging {
+			return 0
+		}
+		return 1
+	}
+	return f.fade(p, float64(offset.X), float64(offset.Y), over || dragging)
+}
+
+// fade is Fade for bars shown while their view scrolls, the view scrolled
+// to x and y, and held while the pointer is on a bar or drags its thumb.
+func (f *ScrollbarFade) fade(p *Painter, x, y float64, held bool) float32 {
+	now := p.Now()
+	switch {
+	case held:
+		// Shown, with no frame to ask for: the hold starts as the pointer
+		// leaves the bar or lets go of the thumb, which paints it again.
+	case f.held, f.known && (x != f.x || y != f.y):
+		// It left the bar, or the view scrolled from where it last painted
+		// (not the offset it first paints at, which it hasn't scrolled to).
+		f.at = now
+	}
+	f.x, f.y, f.known, f.held = x, y, true, held
+	if held {
+		return 0
+	}
+	return barFade(p, now, f.at)
 }
 
 // ScrollbarStyle is how scroll bars look: the widths of their bars and
@@ -78,6 +175,12 @@ type ScrollbarStyle struct {
 	// bar, and Active while it is dragged. Zero Thumb takes the theme's
 	// Scrollbar; zero Hover and Active take Thumb.
 	Thumb, Hover, Active Color
+	// Show is when the bars show: ScrollbarsOnHover while the pointer is
+	// over the view, or ScrollbarsWhileScrolling, as macOS's overlay
+	// scroll bars. Zero, ScrollbarsAuto, takes the theme's, and in the
+	// theme's own style shows them on hover. KeepScrollbars shows a
+	// container's all the while.
+	Show ScrollbarShow
 }
 
 // Resolve returns s with its zero fields filled from t, as Painter.Scrollbar
@@ -121,6 +224,9 @@ func (s ScrollbarStyle) Resolve(t *Theme) ScrollbarStyle {
 	if s.Active != (Color{}) {
 		base.Active = s.Active
 	}
+	if s.Show != ScrollbarsAuto {
+		base.Show = s.Show
+	}
 	thumbWidth := base.ThumbWidth
 	if thumbWidth <= 0 {
 		thumbWidth = t.scrollbarWidth()
@@ -153,9 +259,13 @@ func (s ScrollbarStyle) Resolve(t *Theme) ScrollbarStyle {
 	if active == (Color{}) {
 		active = thumb
 	}
+	show := base.Show
+	if show == ScrollbarsAuto {
+		show = ScrollbarsOnHover
+	}
 	return ScrollbarStyle{
 		TrackWidth: width, ThumbWidth: thumbWidth, Radius: radius, Square: base.Square, Flush: base.Flush,
-		MinLength: minLength, Track: base.Track, Thumb: thumb, Hover: hover, Active: active,
+		MinLength: minLength, Track: base.Track, Thumb: thumb, Hover: hover, Active: active, Show: show,
 	}
 }
 
@@ -250,8 +360,8 @@ func (p *Painter) ScrollbarTrack(s Scrollbar) {
 		return
 	}
 	style := s.Style.Resolve(p.Theme())
-	if style.Track.A > 0 {
-		p.Fill(s.trackRect(style), style.Track, 0)
+	if style.Track.A > 0 && s.Fade < 1 {
+		p.Fill(s.trackRect(style), style.Track.Alpha(1-s.Fade), 0)
 	}
 }
 
@@ -274,9 +384,12 @@ func (p *Painter) ScrollbarThumb(s Scrollbar, st ScrollbarState) {
 	case st.Hovered:
 		c = style.Hover
 	}
+	if s.Fade >= 1 {
+		return
+	}
 	// A thumb with no room to grow changes color only while dragged, as
 	// VS Code's.
-	p.scrollThumbFill(s.thumbRect(style), s.Horizontal, st.Dragging && style.ThumbWidth+2 <= style.TrackWidth, c, style.Radius)
+	p.scrollThumbFill(s.thumbRect(style), s.Horizontal, st.Dragging && style.ThumbWidth+2 <= style.TrackWidth, c.Alpha(1-s.Fade), style.Radius)
 }
 
 // scrollThumbFill paints a thumb at bar, widened toward the view while

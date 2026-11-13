@@ -900,10 +900,17 @@ func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 	ct := ed.theme
 	vertical, horizontal := ed.scrollbars()
 	// The thumbs and the carets' marks show while the pointer is over the
-	// editor, or drags a thumb, as a scroll container's do, or always
-	// when kept (KeepScrollbars), looking the same; the marks of changes,
-	// matches and diagnostics always.
-	shown := ed.pointerIn || ed.scrollbar.active || ed.o.keepScrollbars
+	// editor, or drags a thumb, as a scroll container's do, or as their
+	// style's Show says, or always when kept (KeepScrollbars), looking the
+	// same; the marks of changes, matches and diagnostics always.
+	fade := float32(0)
+	if !ed.o.keepScrollbars {
+		vbar, hbar := ed.bar(false), ed.bar(true)
+		over := ed.pointerIn && (ed.region == regionVScroll || ed.region == regionHScroll)
+		fade = ed.barFade.Fade(p, vbar.Style.Resolve(p.Theme()).Show, ui.Point{X: hbar.Offset, Y: vbar.Offset},
+			ed.pointerIn, over, ed.scrollbar.active)
+	}
+	shown := fade < 1
 	if vertical {
 		width := ed.barWidth()
 		x := r.X + r.W - width
@@ -975,16 +982,19 @@ func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 		// Carets.
 		if len(ed.sels) <= 100 {
 			for _, s := range ed.sels {
-				mark(h.top(v.text.LineOf(s.head)), 2, 0, width, ct.Text.Alpha(0.5))
+				mark(h.top(v.text.LineOf(s.head)), 2, 0, width, ct.Text.Alpha(0.5*(1-fade)))
 			}
 		}
+		bar.Fade = fade
 		p.ScrollbarThumb(bar, ui.ScrollbarState{
 			Hovered:  ed.pointerIn && ed.region == regionVScroll,
 			Dragging: ed.scrollbar.active && !ed.scrollbar.horizontal,
 		})
 	}
 	if horizontal && shown {
-		p.Scrollbar(ed.barIn(r, true), ui.ScrollbarState{
+		hbar := ed.barIn(r, true)
+		hbar.Fade = fade
+		p.Scrollbar(hbar, ui.ScrollbarState{
 			Hovered:  ed.pointerIn && ed.region == regionHScroll,
 			Dragging: ed.scrollbar.active && ed.scrollbar.horizontal,
 		})

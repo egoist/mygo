@@ -74,13 +74,21 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 			p.Fill(ui.Rect{X: ox + cx, Y: oy + float32(cy-v.scroll), W: max(1/scale, 1), H: ch}, look.Caret, 0)
 		}
 	}
-	// The scroll bar while the pointer is over the editor or drags its
-	// thumb, as a scroll container's.
-	if !v.opts.NoScrollbar && (v.inView || v.thumb) {
+	// The scroll bar as a scroll container's: while the pointer is over
+	// the editor or drags its thumb, or as the theme's style shows it.
+	if !v.opts.NoScrollbar {
 		v.barStyle = ui.ScrollbarStyle{}.Resolve(p.Theme())
 		bar := v.bar()
 		bar.Box.X, bar.Box.Y = r.X, r.Y
-		p.Scrollbar(bar, ui.ScrollbarState{Hovered: v.inView, Dragging: v.thumb})
+		// Shown as the editor scrolls, the bar takes its hover color only
+		// with the pointer on it, as a scroll container's.
+		hovered := v.inView
+		if v.barStyle.Show == ui.ScrollbarsWhileScrolling {
+			hovered = v.overBar
+		}
+		if bar.Fade = v.barFade.Fade(p, v.barStyle.Show, ui.Point{Y: bar.Offset}, v.inView, v.overBar, v.thumb); bar.Fade < 1 {
+			p.Scrollbar(bar, ui.ScrollbarState{Hovered: hovered, Dragging: v.thumb})
+		}
 	}
 	v.moved()
 }

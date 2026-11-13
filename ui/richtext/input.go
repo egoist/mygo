@@ -604,17 +604,18 @@ func (v *view) move(ev ui.InputEvent) bool {
 	}
 	x, y := v.contentPoint(ev.X, ev.Y)
 	if !v.dragging {
+		over := v.overScrollbar(ev.X)
 		cursor := ui.CursorText
-		if _, box := v.taskBox(x, y); box || v.overScrollbar(ev.X) {
+		if _, box := v.taskBox(x, y); box || over {
 			cursor = ui.CursorDefault
 		} else if v.linkAt(x, y) != "" {
 			cursor = ui.CursorPointer
 		}
-		if cursor != v.cursor {
-			v.cursor = cursor
-			return true
-		}
-		return false
+		// Coming onto the bar, or off it, colors it, or shows it
+		// (ScrollbarsWhileScrolling).
+		changed := cursor != v.cursor || over != v.overBar
+		v.cursor, v.overBar = cursor, over
+		return changed
 	}
 	// Near the edges, a drag scrolls.
 	if ev.Y < v.padY {

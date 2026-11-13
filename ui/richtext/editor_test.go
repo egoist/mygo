@@ -1069,3 +1069,61 @@ func TestTallEditorInScroll(t *testing.T) {
 		t.Fatalf("scrolled down the text, the view shows no text (%d marked pixels)", ink)
 	}
 }
+
+// Shown while it scrolls (ScrollbarsWhileScrolling), the scroll bar's
+// thumb stays hidden with the pointer over the editor, shows as it
+// scrolls and a moment after, then fades out; the pointer over the bar
+// shows it again.
+func TestScrollbarWhileScrolling(t *testing.T) {
+	doc := NewDocument(NewText(strings.Repeat("line\n", 200)))
+	tt := ui.NewTester(func(c *ui.Context) {
+		th := *c.Theme()
+		th.ScrollbarStyle.Show = ui.ScrollbarsWhileScrolling
+		c.SetTheme(&th)
+		Editor(c, doc).Fill()
+	}, 500, 400)
+	thumb := func() bool {
+		img := tt.Image()
+		s := img.Bounds().Dx() / 500
+		for y := 10 * s; y < 390*s; y++ {
+			if img.RGBAAt(494*s, y) != img.RGBAAt(480*s, y) {
+				return true
+			}
+		}
+		return false
+	}
+	// Opening, it scrolls to the caret at the end, which shows the thumb
+	// a moment.
+	tt.Move(250, 200)
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	if thumb() {
+		t.Fatal("the thumb shows with the pointer over the editor, the editor still")
+	}
+	tt.Scroll(250, 200, 0, -300)
+	tt.Frame()
+	if !thumb() {
+		t.Fatal("the thumb doesn't show as the editor scrolls")
+	}
+	tt.Advance(time.Second / 2)
+	tt.Frame()
+	if !thumb() {
+		t.Fatal("the thumb went at once after the editor scrolled")
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if thumb() {
+		t.Fatal("the thumb stayed once the editor stopped scrolling")
+	}
+	tt.Move(495, 200)
+	tt.Frame()
+	if !thumb() {
+		t.Fatal("the thumb doesn't show with the pointer over the bar")
+	}
+	tt.Move(250, 200)
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	if thumb() {
+		t.Fatal("the thumb stayed once the pointer left the bar")
+	}
+}

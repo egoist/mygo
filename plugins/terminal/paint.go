@@ -1004,15 +1004,14 @@ func (v *view) drawPreedit(p *ui.Painter, ox, oy, cw, ch, base float32) {
 
 // drawScrollbar shows where the viewport is in the scrollback, as a
 // scroll container's bar does (ui.Scrollbar), while the pointer is over
-// the terminal or drags the thumb; in the terminal's text color, as its
-// colors are its own.
+// the terminal or drags the thumb, or as its style's Show says; in the
+// terminal's text color, as its colors are its own.
 func (v *view) drawScrollbar(p *ui.Painter, r ui.Rect) {
-	if !v.inView && !v.barHeld {
-		return
-	}
 	b := bar(v.scrollbar, r)
 	b.Style = v.barStyle
-	p.Scrollbar(b, ui.ScrollbarState{Hovered: v.barHover, Dragging: v.barHeld, Color: color(v.colors.Foreground)})
+	if b.Fade = v.barFade.Fade(p, v.barStyle.Show, ui.Point{Y: b.Offset}, v.inView, v.barHover, v.barHeld); b.Fade < 1 {
+		p.Scrollbar(b, ui.ScrollbarState{Hovered: v.barHover, Dragging: v.barHeld, Color: color(v.colors.Foreground)})
+	}
 }
 
 // bar returns the scroll bar of the scrollback sb, along the right edge of

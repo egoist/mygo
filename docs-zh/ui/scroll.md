@@ -136,11 +136,21 @@ c.SetTheme(&t)
 
 `TrackWidth` 是滚动条轨道和命中区域的宽度，以 DIP 计，0 表示 `ThumbWidth` 加 6；`ThumbWidth` 是滑块的宽度，0 表示主题的 `ScrollbarWidth`；`Radius` 让滑块圆角化，0 表示宽度的一半；`Square` 让角保持方形，和 VS Code 的滚动条一样；`Flush` 让滑块与轨道两端之间不留间隙，和 VS Code 的一样，否则留出 2 DIP；`MinLength` 是滑块的最小长度，0 表示 24 DIP。`Track` 填充滑块背后的滚动条，零值不绘制任何内容。`Thumb` 给静止时的滑块着色，`Hover` 在指针位于滚动条上时着色，`Active` 在它被拖动时着色；零值 `Thumb` 采用主题的 `Scrollbar`，零值 `Hover` 和 `Active` 采用 `Thumb`。常驻的滚动条（`KeepScrollbars`）显示它的 `Hover` 颜色，和悬停时一样。
 
+`Show` 决定滚动条何时显示。零值 `ui.ScrollbarsAuto` 沿用主题的 `Show`，在主题自己的样式里等同于 `ui.ScrollbarsOnHover`，即指针位于容器上时显示。`ui.ScrollbarsWhileScrolling` 和 macOS 的浮动滚动条一样：容器滚动时（无论以何种方式）显示，停下后片刻淡出；指针位于滚动条上或拖动滑块时也会显示；指针在容器其他位置时不显示。这样，和窗口一样大的视图（例如文档）就不会在指针停留其中时一直显示滚动条。隐藏的滚动条不接受点按。富文本编辑器、代码编辑器和终端的滚动条也按同样的方式显示；自行绘制滚动条的视图（`ui.Scrollbar`）可用 `ui.ScrollbarFade` 计时：
+
+```go
+t := *c.Theme()
+t.ScrollbarStyle.Show = ui.ScrollbarsWhileScrolling
+c.SetTheme(&t)
+```
+
 容器自己的样式优先于主题的：
 
 ```go
 ui.Scroll(c).ScrollbarStyle(ui.ScrollbarStyle{TrackWidth: 14, ThumbWidth: 14, Square: true, Flush: true}).Children(func() { /* ... */ })
 ```
+
+`Show` 也一样：主题是 `ui.ScrollbarsWhileScrolling` 时，容器设 `ui.ScrollbarsOnHover`，滚动条就在悬停时显示；主题是悬停时显示时，容器设 `ui.ScrollbarsWhileScrolling`，滚动条就在滚动时显示。
 
 `ScrollbarInsets` 以类似 CSS `Padding` 的方式设置滚动条距容器边缘的距离：垂直滚动条的上、下端分别避开顶部和底部指定距离，整体距右边缘指定距离；水平滚动条的左、右端分别避开左右指定距离，整体距底边指定距离。这样就能避开覆盖在滚动内容上方的工具栏等元素，与 AppKit 和 UIKit 的做法相同：
 
@@ -166,12 +176,13 @@ ui.ScrollBoth(c).Fill().ScrollbarAxes(true, false).Children(func() { /* ... */ }
 ui.List(c, &app.rows, len(app.lines), app.line).Fill().KeepScrollbars(true)
 ```
 
-自行滚动而不经过容器的元素，例如代码编辑器和终端，用 `ui.Scrollbar` 绘制滚动条，让它们的外观与容器一致，并跟随主题：`Painter.Scrollbar` 绘制轨道和滑块，`Thumb` 和 `OffsetAt` 把对滑块的拖动映射为偏移。在滚动条上绘制标记的视图先绘制 `ScrollbarTrack`，再绘制标记，然后绘制 `ScrollbarThumb`。像容器那样显示：指针位于元素上或正在拖动滑块时显示，或者在应用让滚动条常驻时一直显示，如同代码编辑器的 `KeepScrollbars`：
+自行滚动而不经过容器的元素，例如代码编辑器和终端，用 `ui.Scrollbar` 绘制滚动条，让它们的外观与容器一致，并跟随主题：`Painter.Scrollbar` 绘制轨道和滑块，`Thumb` 和 `OffsetAt` 把对滑块的拖动映射为偏移。在滚动条上绘制标记的视图先绘制 `ScrollbarTrack`，再绘制标记，然后绘制 `ScrollbarThumb`。它像容器的滚动条一样按样式的 `Show` 显示；应用让滚动条常驻时（如代码编辑器的 `KeepScrollbars`）则一直显示。用一个跨帧保留的 `ui.ScrollbarFade` 计时：它的 `Fade` 接收偏移、指针是否在元素上、是否在滚动条上、滑块是否正被拖动，返回滚动条淡出的程度，并请求淡出需要的帧：
 
 ```go
 bar := ui.Scrollbar{Box: r, View: r.H, Content: contentH, Offset: scrollY}
-if hovered || dragging {
-	p.Scrollbar(bar, ui.ScrollbarState{Hovered: hovered, Dragging: dragging})
+show := bar.Style.Resolve(p.Theme()).Show
+if bar.Fade = v.fade.Fade(p, show, ui.Point{Y: scrollY}, hovered, overBar, dragging); bar.Fade < 1 {
+	p.Scrollbar(bar, ui.ScrollbarState{Hovered: overBar, Dragging: dragging})
 }
 ```
 

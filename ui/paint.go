@@ -1438,15 +1438,11 @@ func (p *Painter) scrollbars(e *node) {
 	// (scrollbarPress). Kept, they show as on hover, so that the pointer
 	// coming over changes nothing.
 	hide, keep := st.barFlags == 0, st.barFlags&keepBarsVisible != 0
-	if !hide && !keep {
+	scrolling := st.bars != nil && st.bars.style.Show == ScrollbarsWhileScrolling
+	if !hide && !keep && !scrolling {
 		// The bars show on hover (hoverNeeds).
 		st.hoverLook = true
 	}
-	st.barsShown = !hide && (keep || hovered || dragging)
-	if !st.barsShown {
-		return
-	}
-	style := st.barStyle
 	w, h := st.contentW, st.contentH
 	x, y := st.scrollX, st.scrollY
 	if dragging {
@@ -1458,14 +1454,6 @@ func (p *Painter) scrollbars(e *node) {
 		y = rescale(y, e.contentH-float64(e.h), h-float64(e.h))
 	}
 	g := st.scrollbarGeometry(e.x, e.y, w, h, x, y)
-	if style.Track.A > 0 {
-		if g.vertical {
-			p.Fill(g.vTrack, style.Track, 0)
-		}
-		if g.horizontal {
-			p.Fill(g.hTrack, style.Track, 0)
-		}
-	}
 	// Hover colors the bar the pointer is over, and both while kept, as
 	// they show as on hover.
 	var overV, overH bool
@@ -1474,6 +1462,25 @@ func (p *Painter) scrollbars(e *node) {
 		lx, ly = lx+e.x, ly+e.y
 		overV = g.vertical && g.vTrack.Contains(lx, ly)
 		overH = g.horizontal && g.hTrack.Contains(lx, ly)
+	}
+	// Shown while it scrolls, the bars stay a moment after it last moved,
+	// or the pointer left them, then fade out (ScrollbarFade).
+	fade := float32(0)
+	if scrolling && !hide && !keep {
+		fade = st.bars.fade.fade(p, st.scrollX, st.scrollY, overV || overH || dragging)
+	}
+	st.barsShown = !hide && (keep || dragging || (scrolling && fade < 1) || (!scrolling && hovered))
+	if !st.barsShown {
+		return
+	}
+	style := &st.bars.style
+	if style.Track.A > 0 {
+		if g.vertical {
+			p.Fill(g.vTrack, style.Track.Alpha(1-fade), 0)
+		}
+		if g.horizontal {
+			p.Fill(g.hTrack, style.Track.Alpha(1-fade), 0)
+		}
 	}
 	vertical, horizontal := style.Thumb, style.Thumb
 	switch {
@@ -1490,10 +1497,10 @@ func (p *Painter) scrollbars(e *node) {
 	}
 	grow := style.ThumbWidth+2 <= style.TrackWidth
 	if g.vertical {
-		p.scrollThumbFill(g.v, false, grow && dragging && !rt.scrollDrag.horizontal, vertical, style.Radius)
+		p.scrollThumbFill(g.v, false, grow && dragging && !rt.scrollDrag.horizontal, vertical.Alpha(1-fade), style.Radius)
 	}
 	if g.horizontal {
-		p.scrollThumbFill(g.h, true, grow && dragging && rt.scrollDrag.horizontal, horizontal, style.Radius)
+		p.scrollThumbFill(g.h, true, grow && dragging && rt.scrollDrag.horizontal, horizontal.Alpha(1-fade), style.Radius)
 	}
 }
 

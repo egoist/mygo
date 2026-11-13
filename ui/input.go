@@ -947,7 +947,7 @@ const keepBarsVisible = 1
 // scrollbarGeometry lays out both axes before filtering their visibility,
 // so hiding a bar leaves the other track and the shared corner in place.
 func (s *state) scrollbarGeometry(left, top float32, w, h, x, y float64) scrollGeometry {
-	g := scrollBars(Rect{left, top, s.w, s.h}, s.barInset, float32(w), float32(h), float32(x), float32(y), s.flags, *s.barStyle, s.rtl)
+	g := scrollBars(Rect{left, top, s.w, s.h}, s.barInset, float32(w), float32(h), float32(x), float32(y), s.flags, s.bars.style, s.rtl)
 	g.vertical = g.vertical && s.barFlags&flagScrollY != 0
 	g.horizontal = g.horizontal && s.barFlags&flagScrollX != 0
 	return g

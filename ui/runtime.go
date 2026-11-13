@@ -587,6 +587,10 @@ type engine struct {
 	labels     []labelNode
 	tips       tooltips
 	scrollDrag scrollDrag
+	// barUnder is the scroll container whose bar the pointer is over, 0
+	// for none: its coming onto a bar, or off, paints the bar again, as it
+	// colors it, or shows it (ScrollbarsWhileScrolling).
+	barUnder uint64
 	// wheeling are the elements of the scroll containers that the notches
 	// of a mouse wheel scroll smoothly (glideWheels).
 	wheeling []uint64
@@ -1667,16 +1671,16 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		if barFlags != 0 && source.keepScrollbars {
 			barFlags |= keepBarsVisible
 		}
-		if s.barStyle == nil {
+		if s.bars == nil {
 			// Allocated once: a scroll container resolves its style every
 			// frame, and a steady frame allocates nothing.
-			s.barStyle = new(ScrollbarStyle)
+			s.bars = new(barState)
 		}
 		style := ScrollbarStyle{}
 		if source.barStyle != nil {
 			style = *source.barStyle
 		}
-		*s.barStyle = style.Resolve(e.theme())
+		s.bars.style = style.Resolve(e.theme())
 	}
 	if d := &rt.scrollDrag; d.st == s {
 		axis := flagScrollY
@@ -1846,12 +1850,20 @@ func (rt *engine) updateCursor() {
 		rt.cursor = cursorUnknown
 		return
 	}
+	under := uint64(0)
+	if i := slices.IndexFunc(rt.hover, rt.overScrollbar); i >= 0 {
+		under = rt.hover[i]
+	}
+	if under != rt.barUnder {
+		rt.barUnder = under
+		rt.askLook()
+	}
 	c := CursorDefault
 	switch {
 	case rt.scrollDrag.st != nil:
 	case rt.pressed != nil && rt.pressed.cursor != 0:
 		c = rt.pressed.cursor - 1
-	case slices.ContainsFunc(rt.hover, rt.overScrollbar):
+	case under != 0:
 		// The bar takes presses before what is under it (scrollbarPress).
 	default:
 		for _, id := range rt.hover {

@@ -218,6 +218,9 @@ type view struct {
 	// paint.
 	barStyle ui.ScrollbarStyle
 	barGrab  float32
+	// barFade times the scroll bar shown while the terminal scrolls, as
+	// its style's Show says.
+	barFade ui.ScrollbarFade
 	// hover is the link Command is held over, which a click opens and
 	// which shows underlined, hoverLink what it opens and hoverPath
 	// whether that is a file path (HoveredLink); linkPress: the primary

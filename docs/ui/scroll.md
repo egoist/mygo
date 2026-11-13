@@ -248,11 +248,34 @@ is over the bar, and `Active` while it is dragged; zero `Thumb` takes the
 theme's `Scrollbar`, and zero `Hover` and `Active` take `Thumb`. A kept
 bar (`KeepScrollbars`) shows its `Hover` color, as it looks on hover.
 
+`Show` is when the bars show. `ui.ScrollbarsAuto`, the zero value, takes
+the theme's, and in the theme's own style is `ui.ScrollbarsOnHover`, which
+shows them while the pointer is over the container. `ui.ScrollbarsWhileScrolling`
+shows them as macOS's overlay scroll bars do: while the container scrolls,
+by any means, and for a moment after, then fading out, and while the
+pointer is over a bar or drags its thumb; the pointer elsewhere over the
+container shows none. A view as big as its window, as a document, then
+doesn't keep a bar on screen all the while the pointer is in it. Hidden,
+a bar takes no press. The rich text editor, the code editor and the
+terminal show theirs the same way, and a view that paints its own
+(`ui.Scrollbar`) times them with a `ui.ScrollbarFade`:
+
+```go
+t := *c.Theme()
+t.ScrollbarStyle.Show = ui.ScrollbarsWhileScrolling
+c.SetTheme(&t)
+```
+
 A container's own style wins over the theme's:
 
 ```go
 ui.Scroll(c).ScrollbarStyle(ui.ScrollbarStyle{TrackWidth: 14, ThumbWidth: 14, Square: true, Flush: true}).Children(func() { /* ... */ })
 ```
+
+So does its `Show`: `ui.ScrollbarsOnHover` shows a container's bars on
+hover under a theme with `ui.ScrollbarsWhileScrolling`, and
+`ui.ScrollbarsWhileScrolling` shows them while it scrolls under a theme
+that shows them on hover.
 
 `ScrollbarInsets` moves the bars in from the container's edges, CSS style
 as `Padding`: the vertical bar runs from the top inset to the bottom one,
@@ -306,14 +329,19 @@ code editor and the terminal do, draws its bars with `ui.Scrollbar`, so
 that they look as the containers' do and follow the theme: `Painter.Scrollbar`
 paints the track and thumb, and `Thumb` and `OffsetAt` map a drag of it to
 an offset. A view that draws marks on its bar paints `ScrollbarTrack`,
-then the marks, then `ScrollbarThumb`. Show it as a container does, while
-the pointer is over the element or drags the thumb, or always where the
-app keeps the bars, as the code editor's `KeepScrollbars` does:
+then the marks, then `ScrollbarThumb`. Show it as a container does, as
+its style's `Show` says, or always where the app keeps the bars, as the
+code editor's `KeepScrollbars` does. A `ui.ScrollbarFade`, kept from frame
+to frame, times it: given the offset, whether the pointer is over the
+element, whether it is over the bar and whether the thumb is dragged, it
+returns how far the bar has faded out, and asks for the frames that fade
+it:
 
 ```go
 bar := ui.Scrollbar{Box: r, View: r.H, Content: contentH, Offset: scrollY}
-if hovered || dragging {
-	p.Scrollbar(bar, ui.ScrollbarState{Hovered: hovered, Dragging: dragging})
+show := bar.Style.Resolve(p.Theme()).Show
+if bar.Fade = v.fade.Fade(p, show, ui.Point{Y: scrollY}, hovered, overBar, dragging); bar.Fade < 1 {
+	p.Scrollbar(bar, ui.ScrollbarState{Hovered: overBar, Dragging: dragging})
 }
 ```
 

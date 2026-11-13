@@ -174,7 +174,11 @@ type view struct {
 	cursor    ui.Cursor
 	thumb     bool
 	inView    bool // the pointer is over the editor, which shows the scroll bar
+	overBar   bool // the pointer is over the scroll bar, as of its last move
 	thumbGrab float32
+	// barFade times the scroll bar shown while the editor scrolls, as its
+	// style's Show says.
+	barFade ui.ScrollbarFade
 	// barStyle is how the scroll bar looks, the theme's as of the last
 	// paint.
 	barStyle   ui.ScrollbarStyle
@@ -271,6 +275,7 @@ func build(c *ui.Context, doc *Document, options []EditorOptions, styled bool) u
 	v.setLook(t, styled)
 	v.sync()
 	v.inView = e.Hovered()
+	v.overBar = v.overBar && v.inView
 	focused := e.Focused()
 	if focused != v.focused {
 		v.focused = focused
