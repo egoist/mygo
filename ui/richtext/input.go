@@ -182,6 +182,24 @@ func (v *view) vertical(lines int, extend bool) {
 		v.moveTo(v.shown.Len(), ui.TextDownstream, extend)
 	default:
 		i, a := v.positionAt(v.desiredX, target)
+		if _, ny, _ := v.caretAt(i, 0, a); ny == y {
+			// Still on the caret's line: the room to the next line
+			// that way, a heading's margin or Space, is over half a
+			// line. Past it, to the last line of the paragraph before
+			// or the first of the one after; at the text's start or
+			// end, there.
+			p := v.shown.paraAt(v.caret)
+			switch {
+			case lines < 0 && p > 0:
+				i, a = v.positionAt(v.desiredX, v.hs.top(p)-1)
+			case lines < 0:
+				i, a = 0, ui.TextDownstream
+			case p+1 < len(v.paras):
+				i, a = v.positionAt(v.desiredX, v.hs.top(p+1)+1)
+			default:
+				i, a = v.shown.Len(), ui.TextDownstream
+			}
+		}
 		v.moveTo(i, a, extend)
 	}
 	v.hasDesired = true

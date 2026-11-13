@@ -550,6 +550,42 @@ func TestRichTextParagraphKeys(t *testing.T) {
 	}
 }
 
+// Up and Down go to the line above and below however much room there is
+// between them, a heading's margin or Space, though it is over half a
+// line: the caret never stays where it was.
+func TestRichTextVerticalPastRoom(t *testing.T) {
+	doc := NewDocument(NewText("one\ntwo\nthree"))
+	theme := &Theme{Headings: [6]HeadingStyle{{Size: 1.5, Top: 2}}}
+	tt := ui.NewTester(func(c *ui.Context) {
+		Editor(c, doc, EditorOptions{Theme: theme, Space: func(p int) float32 {
+			if p == 1 {
+				return 40
+			}
+			return 0
+		}}).Fill()
+	}, 500, 400)
+	tt.Press(250, 380)
+	tt.Release(250, 380)
+	doc.SetSelection(5, 5) // in "two"
+	tt.Frame()
+	for _, step := range []struct {
+		key  ui.Key
+		para int
+	}{{ui.KeyUp, 0}, {ui.KeyDown, 1}, {ui.KeyDown, 2}, {ui.KeyUp, 1}} {
+		tt.Key(0, step.key)
+		if _, c := doc.Selection(); doc.Text().paraAt(c) != step.para {
+			t.Fatalf("past Space: %v to %d, want paragraph %d", step.key, c, step.para)
+		}
+	}
+	doc.SetSelection(9, 9) // in "three"
+	doc.SetHeading(1)
+	tt.Frame()
+	tt.Key(0, ui.KeyUp)
+	if _, c := doc.Selection(); doc.Text().paraAt(c) != 1 {
+		t.Fatalf("up from a heading with a wide margin to %d, want paragraph 1", c)
+	}
+}
+
 // TestRichTextLinkOpensSafely clicks links: only those ui.SafeToOpen
 // allows open, as "calc" would run a program on Windows.
 func TestRichTextLinkOpensSafely(t *testing.T) {
