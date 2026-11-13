@@ -841,6 +841,15 @@ func (rt *engine) runFrame() {
 	}
 	rt.stats.lap(phaseBuild)
 	rt.insp.lap(0)
+	// A view may resize its native host while building. Submit pixels for
+	// the current surface, not the dimensions sampled before the view ran.
+	// Rebuild next frame too, for views which depend on Context.Size.
+	if nw, nh, ns := rt.size(); nw != w || nh != h || ns != scale {
+		w, h, scale = nw, nh, ns
+		appW = rt.insp.contentWidth(w)
+		rt.painted = [3]float32{w, h, scale}
+		rt.askBuild()
+	}
 	layoutTree(root, appW, h)
 	rt.measureFit(root)
 	if checkBuilt != nil {
