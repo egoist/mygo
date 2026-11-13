@@ -715,3 +715,61 @@ func TestCodeBlockSpaceOutside(t *testing.T) {
 		t.Errorf("the block's line, at %v, has no background", line)
 	}
 }
+
+// A quotation that starts with a heading is as far from the paragraph
+// before it as from the paragraph after it: the heading's room beyond the
+// spacing between body paragraphs is inside the quotation's bar.
+func TestQuotationHeadingRoomInside(t *testing.T) {
+	doc := NewDocument(TextOf(
+		para("Before"),
+		Paragraph{Style: ParagraphStyle{Quote: true, Heading: 1}, Runs: []Run{{Text: "Title"}}},
+		Paragraph{Style: ParagraphStyle{Quote: true}, Runs: []Run{{Text: "Quoted"}}},
+		para("After"),
+	))
+	red := ui.RGB(255, 0, 0)
+	boxes := new([]ParagraphBox)
+	tt := openTester(t, func(c *ui.Context) {
+		*boxes = doc.VisibleParagraphs()
+		// The spacing is 5 DIPs; the heading's room, 0.6 of its 18, is 10.8.
+		EditorBase(c, doc, EditorOptions{Font: ui.Font{Size: 10},
+			Theme: &Theme{QuoteBar: red, QuoteBarWidth: 4, ParagraphSpacing: 0.5}}).Fill()
+	}, 300, 200)
+	tt.Frame()
+	if len(*boxes) != 4 {
+		t.Fatalf("%d paragraphs in view, want 4", len(*boxes))
+	}
+	before, quoted, after := (*boxes)[0], (*boxes)[2], (*boxes)[3]
+	img := tt.Image()
+	s := float32(img.Bounds().Dx()) / 300
+	isRed := func(x, y int) bool {
+		c := img.RGBAAt(x, y)
+		return c.R > 200 && c.G < 60 && c.B < 60
+	}
+	// The bar's middle, on the quoted line.
+	row := int((quoted.Top + quoted.Height/2) * s)
+	first, last := -1, -1
+	for x := 0; x < img.Bounds().Dx()/2; x++ {
+		if isRed(x, row) {
+			if first < 0 {
+				first = x
+			}
+			last = x
+		}
+	}
+	if first < 0 {
+		t.Fatal("no bar beside the quoted line")
+	}
+	x := (first + last) / 2
+	top, bottom := row, row
+	for top > 0 && isRed(x, top-1) {
+		top--
+	}
+	for bottom+1 < img.Bounds().Dy() && isRed(x, bottom+1) {
+		bottom++
+	}
+	above := float32(top)/s - (before.Top + before.Height)
+	below := after.Top - float32(bottom+1)/s
+	if d := above - below; d > 1 || d < -1 {
+		t.Errorf("the bar is %v DIPs under the paragraph before and %v over the paragraph after, want them equal", above, below)
+	}
+}

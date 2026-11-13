@@ -115,8 +115,21 @@ func (v *view) paintBlock(p *ui.Painter, i int, st ParagraphStyle, x, top, heigh
 	if st.Quote {
 		if i == 0 || !v.para(i-1).style.Quote {
 			// The spacing above the first paragraph of a quotation is
-			// outside it.
+			// outside it. A heading that starts one keeps outside only
+			// Space's room and the spacing a body paragraph would take
+			// there, the rest of its room inside, so that the room
+			// above the quotation matches the spacing below it.
 			above, _ := v.space(i, st)
+			if st.Heading > 0 {
+				var room, gap float32
+				if v.opts.Space != nil {
+					room = max(0, v.opts.Space(i))
+				}
+				if look.ParagraphSpacing > 0 && i > 0 && body(v.para(i-1).style) {
+					gap = look.size * look.ParagraphSpacing
+				}
+				above = room + min(above-room, gap)
+			}
 			top, height = top+above, height-above
 		}
 		w := look.QuoteBarWidth
