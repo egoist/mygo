@@ -445,4 +445,13 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/gofinder.jpg",
   },
+  {
+    name: "划词翻译",
+    description:
+      "A desktop translator for macOS and Windows. Select text and hold the right mouse button to translate it with a configured LLM, see the result in a popup and reuse locally cached translations.",
+    url: "https://github.com/wojiukankan/translate",
+    author: "wojiukankan",
+    mode: "native",
+    image: "/showcase/hua-ci-fan-yi.png",
+  },
 ]
