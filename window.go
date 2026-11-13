@@ -416,6 +416,9 @@ type Window struct {
 	// cancels are the calls of the current page that it may cancel, by
 	// the page's id for them, with the page's token.
 	cancels map[int64]pageCancel
+	// canceledEarly holds the calls the current page canceled before
+	// their calls made them, with the page's token.
+	canceledEarly map[int64]string
 
 	outMu    sync.Mutex
 	outbox   []message
@@ -1877,6 +1880,7 @@ func (w *Window) resetPage() {
 	w.channels = nil // they close with the previous page's context
 	w.closedEarly = nil
 	w.cancels = nil
+	w.canceledEarly = nil
 	w.mu.Unlock()
 	if prev != nil {
 		prev()
@@ -1889,8 +1893,14 @@ type pageCancel struct {
 	cancel context.CancelFunc
 }
 
+// maxCanceledEarly bounds the calls a page may cancel before their calls
+// made them.
+const maxCanceledEarly = 1024
+
 // addCancel remembers the cancel of a call of the current page, so that
-// the page may cancel it with a signal.
+// the page may cancel it with a signal. A cancel that came before the
+// call was made, as of a page aborting what it just started, cancels it
+// here and now.
 func (w *Window) addCancel(id int64, token string, cancel context.CancelFunc) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -1898,6 +1908,10 @@ func (w *Window) addCancel(id int64, token string, cancel context.CancelFunc) {
 		w.cancels = map[int64]pageCancel{}
 	}
 	w.cancels[id] = pageCancel{token: token, cancel: cancel}
+	if tok, ok := w.canceledEarly[id]; ok && tok == token {
+		delete(w.canceledEarly, id)
+		cancel()
+	}
 }
 
 // removeCancel forgets the cancel of a call that is over.
@@ -1911,13 +1925,25 @@ func (w *Window) removeCancel(id int64, token string) {
 
 // cancelCall cancels the call of the page with the id, if the page may
 // cancel it: the method's context is canceled, and its reply is of no
-// use to the page, which gave it up.
+// use to the page, which gave it up. Calls make their cancels on
+// goroutines of their own, so the page may cancel one before its call
+// made it, e.g. by aborting a request right after starting it: the call
+// is then canceled as soon as it makes it.
 func (w *Window) cancelCall(id int64, token string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	c, ok := w.cancels[id]
-	if !ok || c.token != token {
+	if !ok {
+		if len(w.canceledEarly) < maxCanceledEarly {
+			if w.canceledEarly == nil {
+				w.canceledEarly = map[int64]string{}
+			}
+			w.canceledEarly[id] = token
+		}
 		return
+	}
+	if c.token != token {
+		return // another page's call
 	}
 	delete(w.cancels, id)
 	c.cancel()
