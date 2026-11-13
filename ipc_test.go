@@ -39,6 +39,22 @@ func TestCancelCall(t *testing.T) {
 	}
 }
 
+// A page may cancel a call before its goroutine made it, as it aborts
+// what it just started: the call is canceled as soon as it makes it,
+// rather than running to its end under a context nobody holds.
+func TestCancelCallBeforeItStarts(t *testing.T) {
+	svc := &cancelService{started: make(chan struct{}), done: make(chan error, 1)}
+	BindAs("cancelEarly", svc)
+	w := &Window{}
+	// The cancel is handled on the main thread, the call on a goroutine of
+	// its own: the page that aborts at once gets here first.
+	w.cancelCall(1, "tok")
+	go handleCall(w, context.Background(), `{"id":1,"k":"tok","m":"cancelEarly.Wait","a":[],"cancel":true}`, true)
+	if err := wait.For(t, "the call to be canceled", svc.done); !errors.Is(err, context.Canceled) {
+		t.Errorf("the call ended with %v, want it canceled", err)
+	}
+}
+
 // Only the page that made a call may cancel it.
 func TestCancelCallOfAnotherPage(t *testing.T) {
 	w := &Window{}
