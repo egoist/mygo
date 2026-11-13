@@ -156,6 +156,23 @@ func (e lineEnds) made(line, endLine, k int, own string) string {
 	return b.String()
 }
 
+// fixCR returns ends with no line ending \r, of the breaks from to to of
+// text, followed by an empty line ending in \n: written, the two make
+// \r\n, which reads back as one line break, losing the empty line. An
+// edit can leave them so, as deleting the text of a line after a line
+// ending in \r. The empty line's break becomes \r\n instead, a single
+// ending changed, which reads back as it is (\r\r\n is two breaks) and
+// makes no new such pair, as giving it \r would with another empty line
+// after it.
+func fixCR(text rope.Text, ends lineEnds, from, to int) lineEnds {
+	for j := max(from, 0); j <= to && j+1 < ends.codes.Len(); j++ {
+		if ends.at(j) == endCR && ends.at(j+1) == endLF && text.LineStart(j+1) == text.LineEnd(j+1) {
+			ends = ends.replace(j+1, j+2, string(endCRLF))
+		}
+	}
+	return ends
+}
+
 // dominant returns the ending most lines have, the first line's on a tie
 // with it, and \n for a text of one line.
 func (e lineEnds) dominant() string {

@@ -88,7 +88,10 @@ all. An edit changes only the endings of the lines it breaks or joins: a
 line broken in two, as with Enter, ends both halves as it ended, deleting
 a line break keeps the one after it, and line breaks pasted take the
 endings of those they replace, then the ending of the line they go in,
-whatever the clipboard had. Undo and redo put endings back with the text.
+whatever the clipboard had; moving lines up or down moves their endings
+with them. A line ending in `\r` followed by an empty line ending in `\n`
+would be written `\r\n`, which reads back as one line break, so the empty
+line's break becomes `\r\n`. Undo and redo put endings back with the text.
 `LineEnding` says which ending most lines have, and `SetLineEnding`
 converts every line to one.
 

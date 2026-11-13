@@ -14,6 +14,13 @@ import (
 // moving offsets through the edits; nil moves them as the text around
 // them moves.
 func (ed *editor) apply(edits []Edit, kind editKind, after func(move func(int, bias) int) []sel) bool {
+	return ed.applyEnds(edits, nil, kind, after)
+}
+
+// applyEnds is apply, with ends, when not nil, giving the line ending
+// codes of the edits' breaks (as Buffer.replace takes them) from the
+// buffer's line endings, as moving lines carries theirs.
+func (ed *editor) applyEnds(edits []Edit, ends func(lineEnds) []string, kind editKind, after func(move func(int, bias) int) []sel) bool {
 	b := ed.buf()
 	if b == nil || ed.o.readOnly || len(edits) == 0 {
 		return false
@@ -32,7 +39,11 @@ func (ed *editor) apply(edits []Edit, kind editKind, after func(move func(int, b
 	if ed.snippet != nil && !ed.snippet.accepts(edits) {
 		ed.snippet = nil
 	}
-	changes := b.edit(edits, kind, ed, before)
+	var codes []string
+	if ends != nil {
+		codes = ends(b.ends)
+	}
+	changes := b.editEnds(edits, codes, kind, ed, before)
 	made, madeText := b.version, b.text
 	b.mu.Unlock()
 	if changes == nil {

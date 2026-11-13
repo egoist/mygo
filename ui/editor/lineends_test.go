@@ -36,6 +36,17 @@ func checkEnds(t *testing.T, b *Buffer) {
 	}
 }
 
+// checkReads checks that what b writes reads back as b's text: the same
+// lines, written the same.
+func checkReads(t *testing.T, b *Buffer) {
+	t.Helper()
+	w := written(t, b)
+	r := NewBuffer(w)
+	if r.LineCount() != b.LineCount() || r.String() != b.String() || written(t, r) != w {
+		t.Fatalf("%q, %d lines, writes %q, which reads as %q, %d lines", b.String(), b.LineCount(), w, r.String(), r.LineCount())
+	}
+}
+
 // A text opened and saved is written as it was read, whatever its line
 // endings, and a lone \r breaks a line.
 func TestLineEndsRoundTrip(t *testing.T) {
@@ -223,6 +234,7 @@ func TestLineEndsUndoRandom(t *testing.T) {
 				states = append(states, before)
 			}
 			checkEnds(t, b)
+			checkReads(t, b)
 		}
 		last := written(t, b)
 		for i := len(states) - 1; i >= 0; i-- {
@@ -233,6 +245,7 @@ func TestLineEndsUndoRandom(t *testing.T) {
 				t.Fatalf("round %d: undo to %q, want %q", round, got, states[i])
 			}
 			checkEnds(t, b)
+			checkReads(t, b)
 		}
 		if b.CanUndo() || b.Modified() || written(t, b) != orig {
 			t.Fatalf("round %d: undone to %q, want %q", round, written(t, b), orig)
@@ -251,9 +264,87 @@ func TestLineEndsUndoRandom(t *testing.T) {
 		}
 		for b.Undo() {
 			checkEnds(t, b)
+			checkReads(t, b)
 		}
 		if got, want := written(t, b), w[:len(w)-len(last)]+orig; got != want {
 			t.Fatalf("round %d: undone past a remote edit to %q, want %q", round, got, want)
 		}
+	}
+}
+
+// A line ending in \r followed by an empty line ending in \n would be
+// written \r\n, one line break: the empty line's break becomes \r\n,
+// and undo puts it back.
+func TestLineEndsCRBeforeEmptyLine(t *testing.T) {
+	b := NewBuffer("a\rb\nc")
+	b.Edit(Edit{Start: 2, End: 3}) // b
+	if got := written(t, b); got != "a\r\r\nc" || b.LineCount() != 3 {
+		t.Fatalf("written %q, %d lines", got, b.LineCount())
+	}
+	checkReads(t, b)
+	b.Undo()
+	if got := written(t, b); got != "a\rb\nc" || b.Modified() {
+		t.Fatalf("after undo %q, modified %v", got, b.Modified())
+	}
+	b.Redo()
+	if got := written(t, b); got != "a\r\r\nc" {
+		t.Fatalf("after redo %q", got)
+	}
+	// Enter at the start of a line ending in \n, after one ending in \r.
+	b = NewBuffer("a\rb\n")
+	b.Edit(Edit{Start: 2, End: 2, Text: "\n"})
+	if got := written(t, b); got != "a\r\r\nb\n" {
+		t.Fatalf("written %q", got)
+	}
+	checkReads(t, b)
+	b.Undo()
+	if got := written(t, b); got != "a\rb\n" || b.Modified() {
+		t.Fatalf("after undo %q, modified %v", got, b.Modified())
+	}
+	// Empty lines in a row: only the first changes.
+	b = NewBuffer("a\rb\n\n\nc")
+	b.Edit(Edit{Start: 2, End: 3})
+	if got := written(t, b); got != "a\r\r\n\n\nc" {
+		t.Fatalf("written %q", got)
+	}
+	checkReads(t, b)
+}
+
+// Moving lines up and down moves their endings with them.
+func TestLineEndsMoveLines(t *testing.T) {
+	ct := newEditorTest(t, "", "")
+	b := NewBuffer("a\r\nb\nc\rd")
+	ct.st.Buffer = b
+	ct.tt.Frame()
+	// One at a time, checking each.
+	move := func(start, end int, cmd Command, want string) {
+		t.Helper()
+		ct.st.Select(start, end)
+		ct.tt.Frame()
+		ct.run(cmd)
+		if got := written(t, b); got != want {
+			t.Fatalf("%v: written %q, want %q", cmd, got, want)
+		}
+		checkEnds(t, b)
+		checkReads(t, b)
+	}
+	move(0, 0, MoveLinesDown, "b\na\r\nc\rd")
+	move(2, 2, MoveLinesDown, "b\nc\ra\r\nd")
+	// The last line has no ending: d takes the one of the line it passes.
+	move(4, 4, MoveLinesDown, "b\nc\rd\r\na")
+	// Two lines, b and c, down past d.
+	move(0, 3, MoveLinesDown, "d\r\nb\nc\ra")
+	move(2, 2, MoveLinesUp, "b\nd\r\nc\ra")
+	for range 5 {
+		ct.run(Undo)
+	}
+	if got := written(t, b); got != "a\r\nb\nc\rd" || b.Modified() {
+		t.Fatalf("after undo %q, modified %v", got, b.Modified())
+	}
+	for range 5 {
+		ct.run(Redo)
+	}
+	if got := written(t, b); got != "b\nd\r\nc\ra" {
+		t.Fatalf("after redo %q", got)
 	}
 }

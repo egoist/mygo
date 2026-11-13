@@ -410,13 +410,13 @@ func (b *Buffer) applyStep(edits [][]Edit, ends [][]string) ([][]Edit, [][]strin
 		if i < len(ends) {
 			codes = ends[i]
 		}
-		text, newEnds, changes := b.replace(edits[i], codes)
+		text, newEnds, changes, kept := b.replace(edits[i], codes)
 		if changes == nil {
 			continue
 		}
 		b.text, b.ends = text, newEnds
 		b.record(changes)
-		e, c := inverse(before, beforeEnds, changes)
+		e, c := inverse(before, beforeEnds, changes, kept)
 		back, backEnds = append(back, e), append(backEnds, c)
 	}
 	return back, backEnds
@@ -424,14 +424,18 @@ func (b *Buffer) applyStep(edits [][]Edit, ends [][]string) ([][]Edit, [][]strin
 
 // inverse returns the edits taking changes back, of the text they made
 // of before, and the line ending codes of their breaks, of ends, before's
-// line endings.
-func inverse(before rope.Text, ends lineEnds, changes []change) ([]Edit, []string) {
+// line endings, as replace takes them: each followed by the code kept
+// says the break after the change had, when it changed it.
+func inverse(before rope.Text, ends lineEnds, changes []change, kept []byte) ([]Edit, []string) {
 	out := make([]Edit, len(changes))
 	codes := make([]string, len(changes))
 	for i, c := range changes {
 		out[i] = Edit{Start: c.newStart, End: c.newEnd, Text: before.Slice(c.oldStart, c.oldEnd)}
 		if c.oldEndLine > c.oldLine {
 			codes[i] = ends.codes.Slice(c.oldLine, c.oldEndLine)
+		}
+		if kept != nil && kept[i] != 0 {
+			codes[i] += string(kept[i])
 		}
 	}
 	return out, codes
@@ -455,7 +459,7 @@ func inverse(before rope.Text, ends lineEnds, changes []change) ([]Edit, []strin
 func (b *Buffer) EditRemote(edits ...Edit) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	text, ends, changes := b.replace(edits, nil)
+	text, ends, changes, _ := b.replace(edits, nil)
 	if changes == nil {
 		return
 	}
@@ -481,15 +485,21 @@ func (b *Buffer) EditRemote(edits ...Edit) {
 // edit applies edits as a transaction, or into the open one; b.mu is
 // held. It returns the changes, nil when nothing changed.
 func (b *Buffer) edit(edits []Edit, kind editKind, owner, selBefore any) []change {
+	return b.editEnds(edits, nil, kind, owner, selBefore)
+}
+
+// editEnds is edit, with the line ending codes of the edits' breaks as
+// replace takes them, nil for those lineEnds.made gives.
+func (b *Buffer) editEnds(edits []Edit, codes []string, kind editKind, owner, selBefore any) []change {
 	before, beforeEnds := b.text, b.ends
-	text, ends, changes := b.replace(edits, nil)
+	text, ends, changes, kept := b.replace(edits, codes)
 	if changes == nil {
 		return nil
 	}
 	b.text, b.ends = text, ends
 	b.record(changes)
 	b.redo = nil
-	back, backEnds := inverse(before, beforeEnds, changes)
+	back, backEnds := inverse(before, beforeEnds, changes, kept)
 	now := time.Now()
 	switch tx := b.openTx; {
 	case tx != nil:
@@ -517,11 +527,16 @@ func (b *Buffer) edit(edits []Edit, kind editKind, owner, selBefore any) []chang
 // and their changes, nil when they change nothing, recording nothing;
 // b.mu is held. The edits are as Edit takes them. codes, when not nil,
 // are the line ending codes of each edit's line breaks, as undo and redo
-// put back; without them the breaks end as lineEnds.made says, whatever
-// their text has, \r\n, \r or \n.
-func (b *Buffer) replace(edits []Edit, codes []string) (rope.Text, lineEnds, []change) {
+// put back, and maybe one more, the code of the break after the edit's
+// text, which ends its last line; without them the breaks end as
+// lineEnds.made says, whatever their text has, \r\n, \r or \n.
+//
+// kept, nil when none, is for each change the code the break after it had
+// when the edits changed it (fixCR, or codes' one more), else 0: what
+// inverse puts back.
+func (b *Buffer) replace(edits []Edit, codes []string) (_ rope.Text, _ lineEnds, _ []change, kept []byte) {
 	if len(edits) == 0 {
-		return b.text, b.ends, nil
+		return b.text, b.ends, nil, nil
 	}
 	if !slices.IsSortedFunc(edits, func(x, y Edit) int { return x.Start - y.Start }) {
 		// Undo's edits, which come with codes, are in order.
@@ -543,6 +558,7 @@ func (b *Buffer) replace(edits []Edit, codes []string) (rope.Text, lineEnds, []c
 	before, beforeEnds := b.text, b.ends
 	text, ends := before, beforeEnds
 	changes := make([]change, 0, len(edits))
+	var after []byte // codes' one more of each change, 0 for none
 	delta, lineDelta, last := 0, 0, 0
 	for i, e := range edits {
 		start := max(last, min(e.Start, before.Len()))
@@ -567,8 +583,8 @@ func (b *Buffer) replace(edits []Edit, codes []string) (rope.Text, lineEnds, []c
 		// line stays as it is.
 		if m, k := c.oldEndLine-c.oldLine, c.newEndLine-c.newLine; m > 0 || k > 0 {
 			var add string
-			if codes != nil && i < len(codes) && len(codes[i]) == k {
-				add = codes[i]
+			if codes != nil && i < len(codes) && (len(codes[i]) == k || len(codes[i]) == k+1) {
+				add = codes[i][:k]
 			} else {
 				var o string
 				if own != nil {
@@ -578,14 +594,44 @@ func (b *Buffer) replace(edits []Edit, codes []string) (rope.Text, lineEnds, []c
 			}
 			ends = ends.replace(c.newLine, c.newLine+m, add)
 		}
+		var more byte
+		if codes != nil && i < len(codes) && len(codes[i]) == c.newEndLine-c.newLine+1 {
+			more = codes[i][len(codes[i])-1]
+		}
+		after = append(after, more)
 		delta += len(e.Text) - (end - start)
 		lineDelta += (c.newEndLine - c.newLine) - (c.oldEndLine - c.oldLine)
 		changes = append(changes, c)
 	}
 	if len(changes) == 0 {
-		return before, beforeEnds, nil
+		return before, beforeEnds, nil, nil
 	}
-	return text, ends, changes
+	// The break after a change is its own when the next change starts on
+	// a line after it: the last change on a line has it.
+	owns := func(i int) bool {
+		c := changes[i]
+		return (i+1 == len(changes) || changes[i+1].oldLine > c.oldEndLine) &&
+			c.oldEndLine < beforeEnds.codes.Len() && c.newEndLine < ends.codes.Len()
+	}
+	for i, c := range changes {
+		if after[i] != 0 && owns(i) && ends.at(c.newEndLine) != after[i] {
+			ends = ends.replace(c.newEndLine, c.newEndLine+1, string(after[i]))
+		}
+	}
+	for _, c := range changes {
+		ends = fixCR(text, ends, c.newLine-1, c.newEndLine)
+	}
+	for i, c := range changes {
+		if owns(i) {
+			if was := beforeEnds.at(c.oldEndLine); ends.at(c.newEndLine) != was {
+				if kept == nil {
+					kept = make([]byte, len(changes))
+				}
+				kept[i] = was
+			}
+		}
+	}
+	return text, ends, changes, kept
 }
 
 // endGroup ends the group of typing, so that the next edit makes a step
