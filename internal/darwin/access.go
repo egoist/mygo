@@ -550,13 +550,39 @@ func (s *surface) accessRequested() {
 }
 
 func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
-	if tree == nil || s.w.closed {
+	if tree == nil || s.w.closed || s.accessDead {
 		return
 	}
+	// AppKit may synchronously reenter through an accessibility notification.
+	// Finish one tree before applying the newest nested update: a nested
+	// prune must not remove elements the outer transaction still uses.
+	if s.updating {
+		s.accessPending = tree
+		return
+	}
+	defer func() { s.accessPending = nil }()
+	for tree != nil && !s.w.closed && !s.accessDead {
+		s.accessPending = nil
+		s.updateAccessibility(tree)
+		tree = s.accessPending
+	}
+}
+
+func (s *surface) updateAccessibility(tree *platform.AccessTree) {
 	loadAccess()
 	withPool(func() {
+		// Closing a window during a native callback releases its surface.
+		// Keep the receivers alive until this transaction unwinds.
+		view, win := retain(s.view), retain(s.w.win)
+		defer release(view)
+		defer release(win)
 		s.updating = true
-		defer func() { s.updating = false }()
+		defer func() {
+			s.updating = false
+			if s.accessDead {
+				s.destroyAccess()
+			}
+		}()
 		if s.elements == nil {
 			s.elements = map[uint64]*accessElement{}
 		}
@@ -593,6 +619,9 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 				}
 			}
 			objs[i] = el.obj
+		}
+		if s.w.closed || s.accessDead {
+			return
 		}
 		children := make([][]uint64, len(tree.Nodes))
 		childObjs := make([][]id, len(tree.Nodes))
@@ -631,6 +660,9 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 				send(el.obj, "setAccessibilityChildren:", uintptr(nsArray(kids...)))
 				changed = true
 			}
+		}
+		if s.w.closed || s.accessDead {
+			return
 		}
 		for _, v := range s.w.webViews {
 			if !grafted[v] {
@@ -760,6 +792,9 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 				send(el.obj, "setAccessibilitySelectedCells:", uintptr(nsArray(cells...)))
 			}
 		}
+		if s.w.closed || s.accessDead {
+			return
+		}
 		release(s.topLevel)
 		s.topLevel = retain(nsArray(top...))
 		live := make(map[uint64]bool, len(tree.Nodes))
@@ -775,10 +810,13 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 				changed = true
 			}
 		}
+		if s.w.closed || s.accessDead {
+			return
+		}
 		// What the elements control (aria-controls), among those left.
 		for _, n := range tree.Nodes {
 			el := s.elements[n.ID]
-			if len(n.Controls) == 0 && el.linked == nil {
+			if el == nil || len(n.Controls) == 0 && el.linked == nil {
 				continue
 			}
 			var linked []id
@@ -791,6 +829,9 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 				el.linked = linked
 				send(el.obj, "setAccessibilityLinkedUIElements:", uintptr(nsArray(linked...)))
 			}
+		}
+		if s.w.closed || s.accessDead {
+			return
 		}
 		if changed {
 			postNote(s.view, "AXLayoutChanged")
@@ -823,19 +864,26 @@ func (s *surface) UpdateAccessibility(tree *platform.AccessTree) {
 	})
 }
 
-// destroyAccess releases the elements of a surface.
+// destroyAccess retires a surface before notifying AppKit. A notification may
+// reenter this method or UpdateAccessibility, so detach ownership first and
+// defer releasing elements that an active update can still be using.
 func (s *surface) destroyAccess() {
+	s.accessDead = true
+	s.accessPending = nil
+	if s.updating {
+		return
+	}
+	elements, top := s.elements, s.topLevel
+	s.elements, s.topLevel, s.access = nil, 0, platform.AccessTree{}
 	for _, v := range s.w.webViews {
 		v.accessParent = 0
 	}
-	for nid, el := range s.elements {
-		postNote(el.obj, "AXUIElementDestroyed")
+	for _, el := range elements {
 		delete(s.w.b.byAccess, el.obj)
+		postNote(el.obj, "AXUIElementDestroyed")
 		release(el.obj)
-		delete(s.elements, nid)
 	}
-	release(s.topLevel)
-	s.topLevel = 0
+	release(top)
 }
 
 // accessAt returns the innermost element at a point of the view.
