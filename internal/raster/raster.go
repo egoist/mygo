@@ -62,6 +62,8 @@ type clip struct {
 	// the spans clipSolid found for the rows of the area, lo and hi a row
 	// (noSpan until found), or -1.
 	spans int
+	// solidX is the fixed fully covered x range of a rectangular clip.
+	solidX [2]int
 }
 
 const noSpan = math.MinInt32
@@ -309,6 +311,9 @@ func (r *renderer) render(dst *Image, s *scene.Scene, area image.Rectangle, boun
 			if c.masked = cs.Masks(); c.masked {
 				c.mask = newClipMasking(&cs)
 			}
+			if !c.round && !c.transform.Set && !c.masked {
+				c.solidX = [2]int{int(math.Ceil(float64(c.r.X))), int(math.Floor(float64(c.r.X + c.r.W)))}
+			}
 			if c.continuous && !c.transform.Set {
 				// Continuous corners take long to find the spans of, which
 				// every operation within the clip needs.
@@ -408,7 +413,11 @@ func (r *renderer) clipSolid(y int) (lo, hi int) {
 			return lo, lo
 		}
 		var l, h int
-		if k := c.spans + 2*(y-r.area.Min.Y); c.spans >= 0 && y >= r.area.Min.Y && y < r.area.Max.Y {
+		if !c.round {
+			if float32(y) >= c.r.Y && float32(y+1) <= c.r.Y+c.r.H {
+				l, h = c.solidX[0], c.solidX[1]
+			}
+		} else if k := c.spans + 2*(y-r.area.Min.Y); c.spans >= 0 && y >= r.area.Min.Y && y < r.area.Max.Y {
 			if r.spanBuf[k] == noSpan {
 				l, h = solidSpan(&c.shape, float32(y), float32(y+1))
 				r.spanBuf[k], r.spanBuf[k+1] = int32(l), int32(h)
@@ -562,6 +571,9 @@ func solidSpan(s *shape, y0, y1 float32) (lo, hi int) {
 	rc := s.r
 	if y0 < rc.Y || y1 > rc.Y+rc.H {
 		return 0, 0
+	}
+	if !hasRadii(s.radii) {
+		return int(math.Ceil(float64(rc.X))), int(math.Floor(float64(rc.X + rc.W)))
 	}
 	// The corners narrow the row the most at its edge nearer to theirs.
 	top, bottom := y0-rc.Y, rc.Y+rc.H-y1
