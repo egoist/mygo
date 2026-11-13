@@ -824,12 +824,12 @@ type WebViewPlacement struct {
 	// takes the pointer, inside them.
 	Radii [4]float64
 	// Opacity is how opaque the page shows, 0 to 1. Where the content
-	// painted an opaque background under the element, the frames' own hole
-	// blends the page with it, and this is 1. Where none is, as in a
-	// transparent window, this is the element's opacity, and the platform
-	// fades the page itself by it, over what is behind the window, as over
-	// a parent window a flyout leaves live. A platform that cannot fades
-	// nothing (the page then shows whole).
+	// painted a background under the element, opaque or through, the
+	// frames' own hole blends the page with it, and this is 1. Where none
+	// is, as in a transparent window, this is the element's opacity, and
+	// the platform fades the page itself by it, over what is behind the
+	// window, as over a parent window a flyout leaves live. A platform
+	// that cannot fades nothing (the page then shows whole).
 	Opacity float64
 	// Covers are the boxes, within Clip, of what the content painted over
 	// the web view that takes the pointer: there the pointer is the
