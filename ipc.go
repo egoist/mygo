@@ -386,7 +386,8 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 		ID int64      `json:"id"`
 		K  string     `json:"k"`
 		M  string     `json:"m"`
-		A  []rawValue `json:"a"` // shares raw
+		A  []rawValue `json:"a"`      // shares raw
+		C  bool       `json:"cancel"` // the page may cancel the call
 	}
 	if err := json.Unmarshal(stringBytes(raw), &m); err != nil {
 		log.Printf("mygo: malformed call from window %d: %v", w.id, err)
@@ -401,6 +402,17 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 	} else if mi := lookupMethod(m.M); mi == nil {
 		err = notBound(m.M)
 	} else {
+		if m.C {
+			// The page may cancel the call with a signal: the method gets
+			// a context of its own, which the page cancels.
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithCancel(ctx)
+			w.addCancel(m.ID, m.K, cancel)
+			defer func() {
+				w.removeCancel(m.ID, m.K)
+				cancel()
+			}()
+		}
 		result, err = mi.call(w, ctx, m.K, m.A)
 	}
 	w.enqueue(encodeReply(m.ID, m.K, result, err), false)
