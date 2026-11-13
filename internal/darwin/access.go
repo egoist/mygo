@@ -93,6 +93,26 @@ func announce(app id, text string, alert bool) {
 	purego.SyscallN(postAccessInfo, uintptr(app), uintptr(nsString("AXAnnouncementRequested")), uintptr(info))
 }
 
+// postSelectionChange tells VoiceOver that the selection of the text
+// field obj moved, and how (AXSelectedTextChanged with WebKit's keys):
+// without them VoiceOver reads the line the caret went to only once it
+// polls the field, a second or so later.
+func postSelectionChange(obj id, c platform.TextSelectionChange) {
+	if obj == 0 {
+		return
+	}
+	info := send(class("NSMutableDictionary"), "dictionary")
+	for _, kv := range []struct {
+		key   string
+		value int
+	}{{"AXTextStateChangeType", c.Type}, {"AXTextSelectionDirection", c.Direction}, {"AXTextSelectionGranularity", c.Granularity}} {
+		send(info, "setObject:forKey:", uintptr(nsNumberInt(kv.value)), uintptr(nsString(kv.key)))
+	}
+	send(info, "setObject:forKey:", uintptr(nsBool(false)), uintptr(nsString("AXTextSelectionChangedFocus")))
+	send(info, "setObject:forKey:", uintptr(obj), uintptr(nsString("AXTextChangeElement")))
+	purego.SyscallN(postAccessInfo, uintptr(obj), uintptr(nsString("AXSelectedTextChanged")), uintptr(info))
+}
+
 // accessRoles are the roles and subroles of node roles.
 var accessRoles = map[platform.AccessRole][2]string{
 	platform.RoleGroup:        {"AXGroup", ""},
@@ -589,6 +609,12 @@ func (s *surface) updateAccessibility(tree *platform.AccessTree) {
 		changed := false
 		objs := make([]id, len(tree.Nodes))
 		var valueChanged, busyChanged []id
+		// Text fields whose selection alone moved, and how.
+		type moved struct {
+			obj id
+			c   platform.TextSelectionChange
+		}
+		var selMoved []moved
 		fresh := map[uint64]bool{}
 		for i, n := range tree.Nodes {
 			// VoiceOver reads no chosen state of a cell (AXSelected), nor
@@ -611,6 +637,10 @@ func (s *surface) updateAccessibility(tree *platform.AccessTree) {
 				changed = true
 			} else {
 				wasBusy := el.node.States & platform.AccessBusy
+				o := &el.node
+				if textual(n.Role) && textual(o.Role) && n.Value == o.Value && (n.SelStart != o.SelStart || n.SelEnd != o.SelEnd) {
+					selMoved = append(selMoved, moved{el.obj, platform.SelectionChange(n.Value, o.SelStart, o.SelEnd, n.SelStart, n.SelEnd)})
+				}
 				if el.apply(n, false) {
 					valueChanged = append(valueChanged, el.obj)
 				}
@@ -838,6 +868,9 @@ func (s *surface) updateAccessibility(tree *platform.AccessTree) {
 		}
 		for _, obj := range valueChanged {
 			postNote(obj, "AXValueChanged")
+		}
+		for _, m := range selMoved {
+			postSelectionChange(m.obj, m.c)
 		}
 		for _, el := range selectionChanged {
 			postNote(el.obj, "AXSelectedRowsChanged")

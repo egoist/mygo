@@ -55,8 +55,8 @@ func LineUnits(value string, line int) (start, n int, ok bool) {
 
 // RangeBounds returns where UTF-16 units from u, count of them, of n's
 // Value show: the union of the boxes of the lines they are on
-// (LineBoxes), or the node's Bounds where it gives none of them, as for
-// lines out of view.
+// (LineBoxes), a run of lines collapsed sharing one, or the node's Bounds
+// where it gives none of them, as for lines out of view.
 func RangeBounds(n *AccessNode, u, count int) RectF {
 	if len(n.LineBoxes) == 0 {
 		return n.Bounds
@@ -67,7 +67,7 @@ func RangeBounds(n *AccessNode, u, count int) RectF {
 		last = LineOfUnit(n.Value, u+count-1)
 	}
 	boxes := n.LineBoxes
-	i := sort.Search(len(boxes), func(i int) bool { return boxes[i].Line >= first })
+	i := sort.Search(len(boxes), func(i int) bool { return boxes[i].Line+max(boxes[i].Count, 1)-1 >= first })
 	var out RectF
 	found := false
 	for ; i < len(boxes) && boxes[i].Line <= last; i++ {
@@ -84,4 +84,101 @@ func RangeBounds(n *AccessNode, u, count int) RectF {
 		return n.Bounds
 	}
 	return out
+}
+
+// TextSelectionChange is how the selection of a text field moved, as
+// WebKit tells VoiceOver in the userInfo of AXSelectedTextChanged
+// (AXTextStateChangeType, AXTextSelectionDirection and
+// AXTextSelectionGranularity), which it reads out by: the new line for a
+// move by line, the character passed for a move by character.
+type TextSelectionChange struct {
+	Type, Direction, Granularity int
+}
+
+// The values of WebKit's AXTextStateChangeType, AXTextSelectionDirection
+// and AXTextSelectionGranularity.
+const (
+	TextChangeMove   = 2 // AXTextStateChangeTypeSelectionMove
+	TextChangeExtend = 3 // AXTextStateChangeTypeSelectionExtend
+
+	TextDirectionUnknown       = 0
+	TextDirectionBeginning     = 1
+	TextDirectionEnd           = 2
+	TextDirectionPrevious      = 3
+	TextDirectionNext          = 4
+	TextDirectionDiscontiguous = 5
+
+	TextGranularityUnknown   = 0
+	TextGranularityCharacter = 1
+	TextGranularityWord      = 2
+	TextGranularityLine      = 3
+	TextGranularityDocument  = 7
+)
+
+// SelectionChange returns how the selection of value moved from the runes
+// oldStart to oldEnd to those from start to end, as the keys move it: by
+// a character, a word or a line, to the beginning or the end of a line or
+// of the text, or elsewhere (discontiguous), judged from where its moving
+// end went. A selection that holds runes extends, an empty one moves.
+func SelectionChange(value string, oldStart, oldEnd, start, end int) TextSelectionChange {
+	c := TextSelectionChange{Type: TextChangeMove}
+	if end > start {
+		c.Type = TextChangeExtend
+	}
+	// The end that moved: the caret of an empty selection, else the one
+	// that is not the anchor.
+	from, to := oldEnd, end
+	if start != oldStart && (end == oldEnd || start == end) {
+		from, to = oldStart, start
+	}
+	if from == to {
+		c.Direction = TextDirectionDiscontiguous
+		return c
+	}
+	// The lines of both places, and where the new one's starts and ends.
+	runes := []rune(value)
+	from, to = max(0, min(from, len(runes))), max(0, min(to, len(runes)))
+	lines := func(rs []rune) int {
+		n := 0
+		for _, r := range rs {
+			if r == '\n' {
+				n++
+			}
+		}
+		return n
+	}
+	lineFrom, lineTo := lines(runes[:from]), lines(runes[:to])
+	startTo, endTo := to, to
+	for startTo > 0 && runes[startTo-1] != '\n' {
+		startTo--
+	}
+	for endTo < len(runes) && runes[endTo] != '\n' {
+		endTo++
+	}
+	next := to > from
+	dir := func(forward bool) int {
+		if forward {
+			return TextDirectionNext
+		}
+		return TextDirectionPrevious
+	}
+	switch d := lineTo - lineFrom; {
+	case d == 1 || d == -1:
+		c.Direction, c.Granularity = dir(next), TextGranularityLine
+	case d != 0 && to == 0:
+		c.Direction, c.Granularity = TextDirectionBeginning, TextGranularityDocument
+	case d != 0 && to == len(runes):
+		c.Direction, c.Granularity = TextDirectionEnd, TextGranularityDocument
+	case d != 0:
+		c.Direction = TextDirectionDiscontiguous
+	case to-from == 1 || from-to == 1:
+		c.Direction, c.Granularity = dir(next), TextGranularityCharacter
+	case to == startTo:
+		c.Direction, c.Granularity = TextDirectionBeginning, TextGranularityLine
+	case to == endTo:
+		c.Direction, c.Granularity = TextDirectionEnd, TextGranularityLine
+	default:
+		c.Direction, c.Granularity = dir(next), TextGranularityWord
+	}
+	return c
 }

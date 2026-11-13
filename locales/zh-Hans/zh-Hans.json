@@ -57,6 +57,7 @@
   "keep": "保留",
   "hunkAction": "{action}更改",
   "line": "第 {n, number, ::group-off} 行",
+  "oldLine": "旧文本第 {n, number, ::group-off} 行",
   "newText": "新文本",
   "oldText": "旧文本",
   "invalid": "无效",

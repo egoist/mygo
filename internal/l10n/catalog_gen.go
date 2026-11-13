@@ -878,6 +878,22 @@ func (msgs Messages) Line(n int) string {
 	return Catalog.Format(msgs.locale, "line", map[string]any{"n": n})
 }
 
+// OldLine says "Old line {n, number, ::group-off}"
+// in the language the app shows.
+//
+// A deleted line a unified diff viewer shows among the new text's, as
+// assistive technology reads its number, which is the old text's.
+func OldLine(n int) string { return In(i18n.Locale()).OldLine(n) }
+
+// OldLine says "Old line {n, number, ::group-off}"
+// in the language of msgs.
+//
+// A deleted line a unified diff viewer shows among the new text's, as
+// assistive technology reads its number, which is the old text's.
+func (msgs Messages) OldLine(n int) string {
+	return Catalog.Format(msgs.locale, "oldLine", map[string]any{"n": n})
+}
+
 // NewText says "New text"
 // in the language the app shows.
 //

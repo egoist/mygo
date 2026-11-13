@@ -122,6 +122,10 @@ type AccessLineBox struct {
 	// Line is the line's index in Value, from 0: how many line feeds come
 	// before it.
 	Line int
+	// Count is how many lines from Line the box holds, 0 for one: a run
+	// of lines collapsed under one row, as the unchanged lines a diff's
+	// separator stands for, or those of a fold.
+	Count int
 	// Bounds is its box, all of its rows when it wraps, in DIPs relative
 	// to the surface, as the node's Bounds.
 	Bounds RectF

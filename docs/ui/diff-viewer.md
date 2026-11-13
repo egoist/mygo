@@ -305,9 +305,9 @@ value is the old side's width, which the arrows move. Inside each side,
 every line in view is an element of its own, in the order they show,
 named by its text and described by its number ("Line 12"): a line added
 is an insertion, one deleted a deletion (the old side's changed lines,
-and the deleted lines a unified view shows between the new text's), and
-an unchanged one a text, so that screen readers read each line as what it
-is. A separator is a group named by how many lines it collapses and
+and the deleted lines a unified view shows between the new text's, whose
+numbers are the old text's, "Old line 12"), and an unchanged one a text,
+so that screen readers read each line as what it is. A separator is a group named by how many lines it collapses and
 described by which ("Lines 30 to 41", or the old and the new numbers
 where they differ), with buttons expanding them up, down or all; Revert
 and Keep are buttons, "Revert change" and "Keep change". These names, and

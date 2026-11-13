@@ -2778,7 +2778,14 @@ either.
   `LineUnits` count them for AppKit's `accessibilityLineForIndex:`,
   `accessibilityRangeForLine:` and `accessibilityFrameForRange:` (with
   `AXInsertionPointLineNumber` and `AXVisibleCharacterRange`), as the
-  Windows and Linux bridges take lines from `Value`.
+  Windows and Linux bridges take lines from `Value`; a run of lines
+  collapsed has one box (`AccessLineBox.Count`), its diff separator's or
+  its fold's line. A selection moving with the text unchanged posts
+  `AXSelectedTextChanged` with WebKit's `AXTextStateChangeType`,
+  `AXTextSelectionDirection` and `AXTextSelectionGranularity`
+  (`platform.SelectionChange` judges them from the old and new
+  selection), by which VoiceOver reads the line the caret went to at
+  once rather than when it next polls the field.
   An element ignoring input (`IgnoreInput`: a field of the node, as
   the flags are all taken, and of its state, which the elements inside
   it inherit at commit) adds no hits nor stop of Tab and drops the focus,
@@ -4167,8 +4174,8 @@ either.
     the boxes of its lines in view, and a side of a diff a node for each
     of them, in the order they show (`accessLines`): an insertion, a
     deletion (the unified view's deleted lines too, which are blocks, not
-    the side's text) or a text, named by its text and described by its
-    number, from the lines the last frame painted, so that its cost is
+    the side's text, described by their old numbers, "Old line 12") or a
+    text, named by its text and described by its number, from the lines the last frame painted, so that its cost is
     the view's; a separator is described by the numbers of the lines it
     collapses.
   - *Parts* (`parts.go`, `diffparts.go`). The bars and popups around the

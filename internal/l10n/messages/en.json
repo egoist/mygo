@@ -56,6 +56,7 @@
   "keep": "Keep",
   "hunkAction": "{action} change",
   "line": "Line {n, number, ::group-off}",
+  "oldLine": "Old line {n, number, ::group-off}",
   "newText": "New text",
   "oldText": "Old text",
   "invalid": "Invalid",

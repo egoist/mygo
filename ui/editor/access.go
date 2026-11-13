@@ -40,7 +40,10 @@ func (ed *editor) accessBox(top, height, y0, y1 float64) (platform.RectF, bool) 
 
 // lineBoxes returns the boxes of the lines in view from first to last,
 // numbered from first, as the lines of a Value starting at first: a new
-// slice, which the tree keeps.
+// slice, which the tree keeps. A run of lines collapsed has one box: the
+// separator of a diff standing for it, or the line a fold hides it under,
+// so that a range in it shows where it is folded rather than as the
+// whole editor.
 func (ed *editor) lineBoxes(first, last int) []platform.AccessLineBox {
 	y0, y1, ok := ed.accessView()
 	if !ok {
@@ -48,14 +51,57 @@ func (ed *editor) lineBoxes(first, last int) []platform.AccessLineBox {
 	}
 	h := &ed.view.heights
 	var out []platform.AccessLineBox
-	for line := max(first, ed.shown[0]); line <= min(last, ed.shown[1], h.n-1); line++ {
+	// add adds the box of lines from to to, those of Value alone.
+	add := func(from, to int, b platform.RectF) {
+		from, to = max(from, first), min(to, last)
+		if from > to {
+			return
+		}
+		if k := len(out) - 1; k >= 0 && out[k].Line+max(out[k].Count, 1) > from-first {
+			return // already in a box
+		}
+		bx := platform.AccessLineBox{Line: from - first, Bounds: b}
+		if to > from {
+			bx.Count = to - from + 1
+		}
+		out = append(out, bx)
+	}
+	// separators adds the boxes of the separators among blks, whose top
+	// is at top: the lines each collapses.
+	separators := func(blks []block, top float64) {
+		for i := range blks {
+			if b := &blks[i]; b.kind == blockSeparator && b.to > b.from {
+				if box, ok := ed.accessBox(top, float64(b.height), y0, y1); ok {
+					add(b.from, b.to-1, box)
+				}
+			}
+			top += float64(blks[i].height)
+		}
+	}
+	var folded *lineSpan // lines hidden with no separator yet
+	var prev platform.RectF
+	for line := ed.shown[0]; line <= min(ed.shown[1], h.n-1); {
 		g := h.geometry(line)
 		if g.hidden {
+			sp := h.hiddenSpan(line)
+			folded = &sp
+			line = sp.to + 1
 			continue
 		}
-		if b, ok := ed.accessBox(g.rows, g.below-g.rows, y0, y1); ok {
-			out = append(out, platform.AccessLineBox{Line: line - first, Bounds: b})
+		above, below := h.blocksOf(line)
+		separators(above, g.top)
+		if folded != nil && prev.H > 0 {
+			// Hidden under the line before them, as by a fold.
+			add(folded.from, folded.to, prev)
 		}
+		folded = nil
+		prev = platform.RectF{}
+		if box, ok := ed.accessBox(g.rows, g.below-g.rows, y0, y1); ok {
+			add(line, line, box)
+			prev = box
+		}
+		separators(below, g.below)
+		line++
 	}
 	return out
 }
@@ -90,6 +136,11 @@ func (ed *editor) accessLines(parent *platform.AccessNode, add func(platform.Acc
 	own := !s.empty()
 	for line := ed.shown[0]; line <= min(ed.shown[1], h.n-1); line++ {
 		g := h.geometry(line)
+		if g.hidden {
+			// Collapsed: the separator over them is an element of its own.
+			line = h.hiddenSpan(line).to
+			continue
+		}
 		above, below := h.blocksOf(line)
 		blocks(above, g.top)
 		if own && !g.hidden {
@@ -112,7 +163,9 @@ func (ed *editor) accessLines(parent *platform.AccessNode, add func(platform.Acc
 }
 
 // accessDeleted adds the nodes of the deleted lines of block b, whose top
-// is at top in the content, that show between y0 and y1: those from the
+// is at top in the content, that show between y0 and y1, described by
+// their old numbers ("Old line 12"), as the new line after one may have
+// the same number: those from the
 // first whose top is in view, found by halves, as a run as long as a file
 // deleted is not walked from its first line.
 func (ed *editor) accessDeleted(s *diffSide, b *block, top, y0, y1 float64, parent uint64, add func(platform.AccessNode)) {
@@ -134,7 +187,7 @@ func (ed *editor) accessDeleted(s *diffSide, b *block, top, y0, y1 float64, pare
 		}
 		add(platform.AccessNode{
 			ID: lineNodeID(parent, true, line), Role: platform.RoleDeletion, Bounds: box,
-			Label: d.oldView.text.Line(line), Description: ed.texts.Line(n),
+			Label: d.oldView.text.Line(line), Description: ed.texts.OldLine(n),
 		})
 	}
 }

@@ -57,6 +57,7 @@
   "keep": "保持",
   "hunkAction": "変更を{action}",
   "line": "{n, number, ::group-off} 行目",
+  "oldLine": "古いテキストの {n, number, ::group-off} 行目",
   "newText": "新しいテキスト",
   "oldText": "古いテキスト",
   "invalid": "無効",

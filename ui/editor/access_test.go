@@ -50,7 +50,7 @@ func sideLines(tt *ui.Tester, side string) ([]accessLine, []ui.Rect) {
 		}
 		switch a.Role {
 		case ui.RoleText, ui.RoleInsertion, ui.RoleDeletion:
-			if strings.HasPrefix(a.Description, "Line ") {
+			if strings.HasPrefix(a.Description, "Line ") || strings.HasPrefix(a.Description, "Old line ") {
 				lines = append(lines, accessLine{a.Role, a.Name, a.Description})
 				boxes = append(boxes, a.Bounds)
 				continue
@@ -128,8 +128,8 @@ func TestDiffAccessSplitLines(t *testing.T) {
 }
 
 // A unified diff reads its deleted lines, which are not the new text's,
-// as deletions with their old numbers, before the lines added in their
-// place.
+// as deletions with their old numbers, told apart from the new ones ("Old
+// line 21" before "Line 21"), before the lines added in their place.
 func TestDiffAccessUnifiedLines(t *testing.T) {
 	old, nw := accessDiff()
 	d := &DiffState{Old: NewBuffer(old), New: NewBuffer(nw), Layout: DiffUnified}
@@ -137,9 +137,9 @@ func TestDiffAccessUnifiedLines(t *testing.T) {
 	tt.Frame()
 	lines, _ := sideLines(tt, "New text")
 	for _, want := range [][]accessLine{
-		{{ui.RoleText, "line 19", "Line 20"}, {ui.RoleDeletion, "line 20", "Line 21"}, {ui.RoleInsertion, "changed 20", "Line 21"}, {ui.RoleText, "line 21", "Line 22"}},
+		{{ui.RoleText, "line 19", "Line 20"}, {ui.RoleDeletion, "line 20", "Old line 21"}, {ui.RoleInsertion, "changed 20", "Line 21"}, {ui.RoleText, "line 21", "Line 22"}},
 		{{ui.RoleText, "line 30", "Line 31"}, {ui.RoleInsertion, "added after 30", "Line 32"}},
-		{{ui.RoleText, "line 39", "Line 41"}, {ui.RoleDeletion, "line 40", "Line 41"}, {ui.RoleText, "line 41", "Line 42"}},
+		{{ui.RoleText, "line 39", "Line 41"}, {ui.RoleDeletion, "line 40", "Old line 41"}, {ui.RoleText, "line 41", "Line 42"}},
 	} {
 		if !hasLines(lines, want) {
 			t.Errorf("the diff reads %v, want %v among them", lines, want)
@@ -183,7 +183,7 @@ func TestDiffAccessPatchNumbers(t *testing.T) {
 		lines, _ := sideLines(tt, "New text")
 		want := []accessLine{{ui.RoleText, "a", "Line 21"}, {ui.RoleInsertion, "B", "Line 22"}, {ui.RoleText, "c", "Line 23"}}
 		if layout == DiffUnified {
-			want = []accessLine{{ui.RoleText, "a", "Line 21"}, {ui.RoleDeletion, "b", "Line 22"}, {ui.RoleInsertion, "B", "Line 22"}, {ui.RoleText, "c", "Line 23"}}
+			want = []accessLine{{ui.RoleText, "a", "Line 21"}, {ui.RoleDeletion, "b", "Old line 22"}, {ui.RoleInsertion, "B", "Line 22"}, {ui.RoleText, "c", "Line 23"}}
 		}
 		if !hasLines(lines, want) {
 			t.Errorf("layout %d reads %v, want %v", layout, lines, want)
@@ -271,5 +271,82 @@ func TestEditorLineBoxes(t *testing.T) {
 	}
 	if got := platform.RangeBounds(&n, 0, 1); got != n.Bounds {
 		t.Errorf("line 0, out of view, is at %v, want the editor's bounds", got)
+	}
+}
+
+// The text fields of a diff's sides tell where their lines in view are,
+// so that a range of a line shows where the line does, the box its node
+// has, and a range of lines collapsed where their separator is, rather
+// than as the whole side (#1814).
+func TestDiffLineBoxes(t *testing.T) {
+	old, nw := accessDiff()
+	for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
+		d := &DiffState{Old: NewBuffer(old), New: NewBuffer(nw), Layout: layout}
+		tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 900, 600)
+		tt.Frame()
+		sides := []struct {
+			name, line, text string
+			ed               *editor
+		}{{"New text", "Line 21", "changed 20", &d.eds[1]}}
+		if layout == DiffSplit {
+			sides = append(sides, struct {
+				name, line, text string
+				ed               *editor
+			}{"Old text", "Line 21", "line 20", &d.eds[0]})
+		}
+		sep, ok := tt.AccessByRole(ui.RoleGroup, "17 unmodified lines")
+		if !ok {
+			t.Fatal("no separator of lines 1 to 17")
+		}
+		for _, side := range sides {
+			field, _ := tt.Access(side.name)
+			n := platform.AccessNode{Bounds: platform.RectF{X: float64(field.Bounds.X), Y: float64(field.Bounds.Y), W: float64(field.Bounds.W), H: float64(field.Bounds.H)}}
+			side.ed.accessibility(&n)
+			if len(n.LineBoxes) == 0 || len(n.LineBoxes) > 40 {
+				t.Fatalf("layout %d, %s: %d line boxes", layout, side.name, len(n.LineBoxes))
+			}
+			// Line 21 (index 20), a change, where its node is.
+			lines, boxes := sideLines(tt, side.name)
+			var want ui.Rect
+			for i, l := range lines {
+				if l.text == side.text && l.line == side.line {
+					want = boxes[i]
+				}
+			}
+			start, count, _ := platform.LineUnits(n.Value, 20)
+			got := platform.RangeBounds(&n, start, count)
+			if want.H == 0 || float32(got.Y) != want.Y || float32(got.H) != want.H || float32(got.X) != want.X {
+				t.Errorf("layout %d, %s: line 21 is at %v, its node at %v", layout, side.name, got, want)
+			}
+			// Line 6, collapsed, where the separator is.
+			start, count, _ = platform.LineUnits(n.Value, 5)
+			got = platform.RangeBounds(&n, start, count)
+			if float32(got.Y) != sep.Bounds.Y || float32(got.H) != sep.Bounds.H {
+				t.Errorf("layout %d, %s: line 6, collapsed, is at %v, its separator at %v", layout, side.name, got, sep.Bounds)
+			}
+			if got == n.Bounds {
+				t.Errorf("layout %d, %s: line 6 is the whole side", layout, side.name)
+			}
+		}
+	}
+}
+
+// The lines a fold hides show where the line holding them is.
+func TestEditorLineBoxesFolded(t *testing.T) {
+	ct := newEditorTest(t, "go", "func a() {\n\tb()\n\tc()\n}\nd\n")
+	st := ct.st
+	st.Fold(0)
+	ct.tt.Frame()
+	if got := st.Folded(); len(got) != 1 {
+		t.Fatalf("folded %v", got)
+	}
+	var n platform.AccessNode
+	n.Bounds = platform.RectF{W: 600, H: 400}
+	st.ed.accessibility(&n)
+	first, _, _ := platform.LineUnits(n.Value, 0)
+	inside, _, _ := platform.LineUnits(n.Value, 2)
+	head, folded := platform.RangeBounds(&n, first, 1), platform.RangeBounds(&n, inside, 1)
+	if head == n.Bounds || folded != head {
+		t.Errorf("c(), folded, is at %v, the line folding it at %v (%+v)", folded, head, n.LineBoxes)
 	}
 }

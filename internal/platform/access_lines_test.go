@@ -76,3 +76,61 @@ func TestAccessRangeBounds(t *testing.T) {
 		t.Errorf("a field without line boxes gives %v for a range, want its bounds", got)
 	}
 }
+
+// A run of lines collapsed under one box is found by any of its lines.
+func TestAccessRangeBoundsCollapsed(t *testing.T) {
+	n := AccessNode{
+		Value:  "a\nb\nc\nd\ne",
+		Bounds: RectF{0, 0, 100, 400},
+		LineBoxes: []AccessLineBox{
+			{Line: 0, Bounds: RectF{10, 0, 80, 20}},
+			{Line: 1, Count: 3, Bounds: RectF{0, 20, 100, 32}}, // b to d, under a separator
+			{Line: 4, Bounds: RectF{10, 52, 80, 20}},
+		},
+	}
+	for _, c := range []struct {
+		u, n int
+		want RectF
+	}{
+		{2, 1, RectF{0, 20, 100, 32}}, // b
+		{6, 1, RectF{0, 20, 100, 32}}, // d
+		{8, 1, RectF{10, 52, 80, 20}}, // e
+		{0, 3, RectF{0, 0, 100, 52}},  // a and b
+	} {
+		if got := RangeBounds(&n, c.u, c.n); got != c.want {
+			t.Errorf("RangeBounds(%d, %d) = %v, want %v", c.u, c.n, got, c.want)
+		}
+	}
+}
+
+// A selection moving as the keys move it says how, as VoiceOver reads it:
+// a line for Up and Down, a character for Left and Right.
+func TestSelectionChange(t *testing.T) {
+	const value = "one two\nthree\nfour\nfive" // lines at 0, 8, 14 and 19
+	for _, c := range []struct {
+		name                  string
+		oldStart, oldEnd      int
+		start, end            int
+		typ, dir, granularity int
+	}{
+		{"down", 2, 2, 10, 10, TextChangeMove, TextDirectionNext, TextGranularityLine},
+		{"up", 10, 10, 2, 2, TextChangeMove, TextDirectionPrevious, TextGranularityLine},
+		{"down to an empty end", 15, 15, 19, 19, TextChangeMove, TextDirectionNext, TextGranularityLine},
+		{"right", 2, 2, 3, 3, TextChangeMove, TextDirectionNext, TextGranularityCharacter},
+		{"left over a line feed", 8, 8, 7, 7, TextChangeMove, TextDirectionPrevious, TextGranularityLine},
+		{"a word", 0, 0, 3, 3, TextChangeMove, TextDirectionNext, TextGranularityWord},
+		{"home", 12, 12, 8, 8, TextChangeMove, TextDirectionBeginning, TextGranularityLine},
+		{"end", 9, 9, 13, 13, TextChangeMove, TextDirectionEnd, TextGranularityLine},
+		{"the beginning", 16, 16, 0, 0, TextChangeMove, TextDirectionBeginning, TextGranularityDocument},
+		{"the end", 2, 2, 23, 23, TextChangeMove, TextDirectionEnd, TextGranularityDocument},
+		{"a click", 2, 2, 16, 16, TextChangeMove, TextDirectionDiscontiguous, TextGranularityUnknown},
+		{"shift down", 2, 2, 2, 10, TextChangeExtend, TextDirectionNext, TextGranularityLine},
+		{"shift left", 5, 5, 4, 5, TextChangeExtend, TextDirectionPrevious, TextGranularityCharacter},
+		{"shift right, back", 4, 5, 5, 5, TextChangeMove, TextDirectionNext, TextGranularityCharacter},
+	} {
+		got := SelectionChange(value, c.oldStart, c.oldEnd, c.start, c.end)
+		if want := (TextSelectionChange{c.typ, c.dir, c.granularity}); got != want {
+			t.Errorf("%s: %+v, want %+v", c.name, got, want)
+		}
+	}
+}

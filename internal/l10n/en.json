@@ -275,6 +275,15 @@
       }
     }
   },
+  "oldLine": "Old line {n, number, ::group-off}",
+  "@oldLine": {
+    "description": "A deleted line a unified diff viewer shows among the new text's, as assistive technology reads its number, which is the old text's.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "newText": "New text",
   "@newText": {
     "description": "Names the side of a diff viewer with the text as it is."
