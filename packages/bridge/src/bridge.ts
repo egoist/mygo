@@ -1,6 +1,7 @@
 // Entry point of the script MyGo injects at document start into every page.
 // The Go side wraps the bundle in a function that defines __MYGO_CONFIG__.
 import { contextTarget } from "./context-menu";
+import { captureConsole } from "./console";
 import { find, stopFind } from "./find";
 import { type FitLimits, fitContent } from "./fit-content";
 import { createRuntime } from "./runtime";
@@ -79,6 +80,18 @@ let rootStyle: HTMLStyleElement | null = null;
       // The page is being torn down.
     }
   });
+  // What the page logs and fails to catch (Page.OnConsoleMessage): the
+  // configuration tells at document start that Go listens, and
+  // mygo:console-capture tells the current page when that changed.
+  const consoleSend = (m: string) => {
+    try {
+      post(m);
+    } catch {
+      // The page is being torn down.
+    }
+  };
+  runtime.on<boolean>("mygo:console-capture", (on) => captureConsole(!!on, consoleSend));
+  if (__MYGO_CONFIG__.console) captureConsole(true, consoleSend);
   // A window that takes its content's size (FitContent): told before
   // dom-ready too, so that a window that shows once its DOM is ready shows
   // at its size.

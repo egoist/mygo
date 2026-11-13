@@ -830,6 +830,7 @@ Page events, on `win.Page()`:
 | `OnDidFailLoad(func(err *mygo.LoadError))` | the page failed to load |
 | `OnPageTitleUpdated(func(e *mygo.TitleEvent))` | the page's `<title>` changed; preventing the event keeps the window title as it is |
 | `OnThemeColorChanged(func(c color.NRGBA, ok bool))` | the page's [theme color](#the-theme-color) changed; `ok` is false when it has none any more |
+| `OnConsoleMessage(func(m *mygo.ConsoleMessage))` | the page logged to its console or failed to catch an error, see [what the page logs](#what-the-page-logs) |
 | `OnRenderProcessGone(func(reason string))` | the web content process crashed or was killed; `Reload` recovers |
 | `OnAudibleChanged(func(audible bool))` | the page started or stopped [making sound](#sound) |
 | `OnCaptureStateChanged(func(kind mygo.CaptureKind, s mygo.CaptureState))` | the page started or stopped [capturing](#camera-and-microphone) the camera, the microphone or the display, or the capture was muted or unmuted |
@@ -916,6 +917,39 @@ pages of the same color fires nothing.
 MyGo's runtime in the page watches the metas, the same way on every
 platform, in pages of any origin, trusted or not. A page the runtime does
 not run in, as an image or a PDF the web view shows, has no theme color.
+
+### What the page logs
+
+`OnConsoleMessage` hears what the page logs to its console, and the errors
+it fails to catch: uncaught errors and unhandled promise rejections. What
+the page logs shows in the web inspector only, which a self-test, CI or an
+agent driving a production build has not; a listener has it all, whatever
+the page's origin:
+
+```go
+win.Page().OnConsoleMessage(func(m *mygo.ConsoleMessage) {
+	log.Printf("[%s] %s (%s:%d)", m.Level, m.Text, m.URL, m.Line)
+})
+```
+
+- `m.Level` is `mygo.ConsoleDebug`, `ConsoleLog`, `ConsoleInfo`,
+  `ConsoleWarn` or `ConsoleError`, the console method's level; an error the
+  page failed to catch is `ConsoleError`, whose `Text` has the stack when
+  the page's engine has one.
+- `m.Text` is the message as the inspector would show it: the arguments
+  formatted the way the page's console formats them, cut at 2000
+  characters, so a page logging large values in a loop cannot flood the
+  app.
+- `m.URL` and `m.Line` are the script the message came from — where an
+  error was thrown, or the line that logged — when the page's engine names
+  it in the stack, `""` and 0 when it does not.
+
+Listening is opt-in, so pages nobody listens to pay nothing: the first
+listener makes the page's world wrap the console and listen for errors,
+the same way on every platform, and the last listener to go unwraps it.
+The page's own console is unchanged, its messages still show in the
+inspector, and messages of the page's main frame are heard, of the pages
+the window shows and of a [web view's](ui/web-view.md) alike.
 
 ### Sound
 

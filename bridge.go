@@ -30,6 +30,30 @@ func (w *Window) bridgeScript() string {
 		Locale:   App.Locale(),
 		Dir:      appDir(),
 		Fit:      w.fitLimits(),
+		Console:  w.onConsoleMessage.len() > 0,
+	})
+}
+
+// consoleCaptureChanged makes the window's pages send what they log when
+// the first listener arrived (OnConsoleMessage), and stops them when the
+// last one went: the pages the window loads next through the bridge's
+// configuration, which the backend replaces, and the current page through
+// the event. Safe from any goroutine.
+func (w *Window) consoleCaptureChanged() {
+	onMain(func() {
+		if w.content || w.native == nil {
+			return
+		}
+		on := w.onConsoleMessage.len() > 0
+		if on == w.consoleCapture {
+			return
+		}
+		w.consoleCapture = on
+		w.userScripts = w.pageScripts()
+		w.native.SetUserScripts(w.userScripts)
+		if msg, err := encodeEvent(bridge.ConsoleCaptureEvent, on); err == nil {
+			w.enqueue(msg, true)
+		}
 	})
 }
 
@@ -317,6 +341,11 @@ func (w *Window) handleMessage(msg string) {
 		M  string `json:"m"`
 		S  string `json:"s"`
 		E  bool   `json:"e"`
+		// console: the level, the text, and the script it came from, whose
+		// line N tells.
+		LV string `json:"lv"`
+		TX string `json:"tx"`
+		CU string `json:"u"`
 	}
 	if err := json.Unmarshal(stringBytes(msg), &m); err != nil {
 		return
@@ -341,6 +370,15 @@ func (w *Window) handleMessage(msg string) {
 	case "theme-color":
 		c, err := parseColor(m.V)
 		w.setThemeColor(c, m.V != "" && err == nil)
+	case "console":
+		// What the page logged or failed to catch, as the wrapped console
+		// of a listened page tells it (OnConsoleMessage). The text is cut
+		// by the bridge, so an untrusted page's record stays under
+		// maxUntrustedMessage too.
+		msg := &ConsoleMessage{Level: ConsoleLevel(m.LV), Text: m.TX, URL: m.CU, Line: int(m.N)}
+		for _, fn := range w.onConsoleMessage.snapshot() {
+			fn(msg)
+		}
 	case "content-size":
 		w.fitContentSize(contentSize{m.W, m.H, m.SW, m.SH})
 	case "drag":

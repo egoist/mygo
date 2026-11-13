@@ -29,6 +29,10 @@ type Config struct {
 	// Fit is the limits of a window that takes the size of its page's
 	// content (FitContent), nil for other windows.
 	Fit *FitContent `json:"fit,omitempty"`
+	// Console is whether Go listens to what the page logs
+	// (Page.OnConsoleMessage): the bridge wraps the console and tells of
+	// uncaught errors and unhandled rejections.
+	Console bool `json:"console,omitempty"`
 }
 
 // Script returns the bridge source configured for one window.
@@ -116,6 +120,12 @@ func TitleBarScript(tb platform.TitleBar, zoom float64) string {
 // not. Pages start active; a page that loads in an inactive window hears
 // it as its DOM is ready.
 const WindowActiveEvent = "mygo:window-active"
+
+// ConsoleCaptureEvent tells the page of a window whether to send what it
+// logs and fails to catch (Page.OnConsoleMessage). The bridge
+// configuration tells pages at document start; this tells the current
+// page when the first listener arrived or the last one went.
+const ConsoleCaptureEvent = "mygo:console-capture"
 
 // PreferencesEvent tells a page the accent color and the accessibility
 // settings of the desktop, as mygo.ThemePreferences encodes them. The

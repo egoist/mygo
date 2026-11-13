@@ -1021,6 +1021,17 @@ document start into the main frame. It installs:
   told one (no bridge, as an image). The same in every engine: WKWebView's
   `themeColor` (macOS 12+) would need KVO, and WebView2 and WebKitGTK have
   none.
+- What the page logs and fails to catch (`console.ts`,
+  `Page.OnConsoleMessage`): the console methods are wrapped and uncaught
+  errors and unhandled rejections listened for — none of the engines
+  tells all three to the embedder — posting `{t:"console", lv, tx, u, n}`
+  with the arguments formatted as the inspector shows them, cut at 2000
+  characters, and the caller's script from the stack (the wrapper's frame
+  skipped, whatever the bundler names it). Opt-in: the bridge
+  configuration says at document start that Go listens, and the
+  `mygo:console-capture` event tells the current page when the first
+  listener arrived or the last one went; the wrapper restores the console
+  and the listeners go.
 - Fitting a window to its content (`fit-content.ts`,
   `FlyoutOptions.FitContent`, `WindowOptions.FitContent`): the bridge
   configuration's `fit` (the limits, in the CSS pixels of the page's zoom,
@@ -1136,6 +1147,7 @@ Trust):
 | `{"t":"chan-close","c":N,"k":token}` | the page closed channel N |
 | `{"t":"dom-ready"}` | DOMContentLoaded fired |
 | `{"t":"theme-color","v":"#rrggbbaa"}` | the page's theme color changed; `""` for none |
+| `{"t":"console","lv":level,"tx":text,"u":url,"n":line}` | what the page logged at level, or an error it failed to catch, from the wrapped console of a listened page (`Page.OnConsoleMessage`); the text is cut at 2000 characters |
 | `{"t":"content-size","w":W,"h":H,"sw":SW,"sh":SH}` | the size of the content of a window that fits it, and the room of its scrollbars, in CSS pixels |
 | `{"t":"drag"}` / `{"t":"dblclick"}` | mousedown / double click on a drag region |
 | `{"t":"context-menu","x":X,"y":Y,"l":link,"lt":text,"i":image,"m":media,"s":selection,"e":true}` | the page's `contextmenu` event, not cancelled, at X, Y in CSS pixels: what it opens on, empty parts left out (kept only while `OnContextMenu` has a listener) |

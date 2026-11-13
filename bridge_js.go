@@ -25,6 +25,8 @@ func (w *Window) sendTitleBar() {}
 
 func (w *Window) sendActive() {}
 
+func (w *Window) consoleCaptureChanged() {}
+
 func (w *Window) zoomChanged() {}
 
 func (w *Window) handleMessage(msg string) {}

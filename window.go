@@ -458,6 +458,12 @@ type Window struct {
 	themeColorPending   bool
 	onThemeColorChanged listeners[func(color.NRGBA, bool)]
 
+	// consoleCapture is whether the window's pages send what they log
+	// (OnConsoleMessage): the first listener asks for it and the last one
+	// to go stops it. Main thread only.
+	consoleCapture   bool
+	onConsoleMessage listeners[func(*ConsoleMessage)]
+
 	// audible is what the backend last told of the page's sound
 	// (AudibleChanged), so that listeners hear only changes. Main thread
 	// only.

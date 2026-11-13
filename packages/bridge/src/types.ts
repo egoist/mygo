@@ -26,6 +26,10 @@ export interface BridgeConfig {
   /** The limits of a window that takes its content's size (FitContent), in
    * CSS pixels; absent for other windows. */
   fit?: FitLimits;
+  /** Whether Go listens to what the page logs (Page.OnConsoleMessage):
+   * the bridge wraps the console and sends what it logs and fails to
+   * catch. */
+  console?: boolean;
 }
 
 /** Messages posted from the page to Go. */
@@ -37,6 +41,9 @@ export type Outgoing =
   | { t: "dom-ready" }
   /** The page's theme color changed: #rrggbbaa, or "" for none. */
   | { t: "theme-color"; v: string }
+  /** What the page logged at level lv, or an error it failed to catch:
+   * tx is the text, u the script it came from and n its line. */
+  | { t: "console"; lv: string; tx: string; u: string; n: number }
   /** The size of the content of a window that takes it (FitContent), in CSS
    * pixels, scrollbars included. */
   | { t: "content-size"; w: number; h: number; sw: number; sh: number }
