@@ -357,6 +357,71 @@ func TestCodeEditorScrollbarOnHover(t *testing.T) {
 	}
 }
 
+// TestCodeEditorScrollbarWhileScrolling checks that under a theme that
+// shows scroll bars while scrolling (ui.ScrollbarsWhileScrolling), the
+// code editor's bar stays hidden with the pointer over the text, shows as
+// the editor scrolls and a moment after, then goes, and shows with the
+// pointer on it, its hold starting as the pointer leaves.
+func TestCodeEditorScrollbarWhileScrolling(t *testing.T) {
+	st := &State{Buffer: NewBuffer(strings.Repeat("line\n", 200))}
+	tt := ui.NewTester(func(c *ui.Context) {
+		th := *c.Theme()
+		th.ScrollbarStyle.Show = ui.ScrollbarsWhileScrolling
+		c.SetTheme(&th)
+		View(c, st).Fill()
+	}, 600, 400)
+	// The bar's strip differs somewhere from the background beside it.
+	shown := func() bool {
+		img := tt.Image()
+		s := img.Bounds().Dx() / 600
+		x := (600 - scrollbarWidth/2) * s
+		for y := 0; y < 400*s; y++ {
+			if img.RGBAAt(x, y) != img.RGBAAt(x-scrollbarWidth*s, y) {
+				return true
+			}
+		}
+		return false
+	}
+	tt.Move(300, 200)
+	tt.Frame()
+	if shown() {
+		t.Fatal("the bar shows with the pointer over the text, before the editor scrolled")
+	}
+	tt.Scroll(300, 200, 0, 100)
+	tt.Frame()
+	if !shown() {
+		t.Fatal("the bar doesn't show as the editor scrolls")
+	}
+	tt.Advance(time.Second / 2)
+	tt.Frame()
+	if !shown() {
+		t.Fatal("the bar went right after the editor scrolled")
+	}
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	if shown() {
+		t.Fatal("the bar stayed once the editor stopped scrolling")
+	}
+	tt.Move(600-scrollbarWidth/2, 200)
+	tt.Frame()
+	if !shown() {
+		t.Fatal("the bar doesn't show with the pointer on it")
+	}
+	tt.Advance(time.Minute)
+	tt.Move(300, 200)
+	tt.Frame()
+	tt.Advance(time.Second / 2)
+	tt.Frame()
+	if !shown() {
+		t.Fatal("the bar went before its hold once the pointer left it")
+	}
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+	if shown() {
+		t.Fatal("the bar stayed once the pointer left it")
+	}
+}
+
 // TestCodeEditorKeepScrollbars checks that KeepScrollbars shows the
 // thumb with the pointer away, as it shows on hover, and that
 // NoScrollbars shows no bar, takes no press on it and leaves its room to

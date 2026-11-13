@@ -538,7 +538,8 @@ func TestScrollbarInCachedLayer(t *testing.T) {
 // Shown while it scrolls (ScrollbarsWhileScrolling), a container's bars
 // stay hidden with the pointer over it, show as it scrolls and a moment
 // after, then fade out and take no press; the pointer over a bar shows it
-// again, and a drag of its thumb holds it.
+// again, with no frames while it rests there, and a drag of its thumb
+// holds it.
 func TestScrollbarsWhileScrolling(t *testing.T) {
 	var st *state
 	tt := coreNewTester(func(c *context) {
@@ -582,6 +583,21 @@ func TestScrollbarsWhileScrolling(t *testing.T) {
 	if !st.barsShown {
 		t.Fatal("the bar doesn't show with the pointer over it")
 	}
+	// Resting on the bar, the pointer holds it with no frame to ask for,
+	// and the hold starts as it leaves.
+	tt.Advance(time.Minute)
+	if !st.barsShown || tt.FramePending() || !tt.h.repaintAt.IsZero() || tt.rt.repainting {
+		t.Fatalf("the pointer resting on the bar: shown %v, a frame asked for %v, a repaint at %v", st.barsShown, tt.FramePending(), tt.h.repaintAt)
+	}
+	tt.Move(50, 50)
+	tt.Frame()
+	tt.Advance(scrollbarHold - time.Millisecond)
+	tt.Frame()
+	if !st.barsShown {
+		t.Fatal("the bar went before its hold once the pointer left it")
+	}
+	tt.Move(x, y)
+	tt.Frame()
 	from := st.scrollY
 	tt.Press(x, y)
 	tt.Move(x, y+20)
@@ -596,5 +612,37 @@ func TestScrollbarsWhileScrolling(t *testing.T) {
 	tt.Frame()
 	if st.barsShown {
 		t.Fatal("the bar stayed once the pointer left it")
+	}
+}
+
+// A container's style sets when its bars show over the theme's, either
+// way, and its zero (ScrollbarsAuto) takes the theme's: with the pointer
+// over the container, before it scrolled, they show only on hover.
+func TestScrollbarStyleShowOverTheTheme(t *testing.T) {
+	for _, tc := range []struct {
+		theme, own ScrollbarShow
+		shown      bool
+	}{
+		{ScrollbarsWhileScrolling, ScrollbarsOnHover, true},
+		{ScrollbarsWhileScrolling, ScrollbarsAuto, false},
+		{ScrollbarsOnHover, ScrollbarsWhileScrolling, false},
+		{ScrollbarsAuto, ScrollbarsWhileScrolling, false},
+		{ScrollbarsAuto, ScrollbarsAuto, true},
+	} {
+		var st *state
+		tt := coreNewTester(func(c *context) {
+			th := *c.Theme()
+			th.ScrollbarStyle = ScrollbarStyle{Show: tc.theme}
+			c.SetTheme(&th)
+			sc := coreScroll(c).Size(100, 100).ScrollbarStyle(ScrollbarStyle{Show: tc.own})
+			st = sc.st
+			sc.Children(func() { coreBox(c).Size(100, 1000) })
+		}, 140, 140)
+		tt.Move(50, 50)
+		tt.Frame()
+		if st.barsShown != tc.shown {
+			t.Errorf("theme %v, container %v: shown %v with the pointer over it, want %v", tc.theme, tc.own, st.barsShown, tc.shown)
+		}
+		tt.rt.close()
 	}
 }

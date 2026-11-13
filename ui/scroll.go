@@ -249,11 +249,20 @@ func (e *node) followShift() float64 {
 	return e.st.scrollX
 }
 
+// barState is what a scroll container keeps of its bars from frame to
+// frame, behind a pointer so that other elements don't carry it: their
+// style, its ScrollbarStyle with the theme's zero fields filled in, and
+// their timing when shown while it scrolls (ScrollbarsWhileScrolling).
+type barState struct {
+	style ScrollbarStyle
+	fade  ScrollbarFade
+}
+
 // scrollbarStyle returns how the container's scroll bars look, as the
 // last frame resolved them.
 func (s *state) scrollbarStyle() ScrollbarStyle {
-	if s.barStyle != nil {
-		return *s.barStyle
+	if s.bars != nil {
+		return s.bars.style
 	}
 	return ScrollbarStyle{}
 }

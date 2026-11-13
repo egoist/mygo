@@ -1438,8 +1438,7 @@ func (p *Painter) scrollbars(e *node) {
 	// (scrollbarPress). Kept, they show as on hover, so that the pointer
 	// coming over changes nothing.
 	hide, keep := st.barFlags == 0, st.barFlags&keepBarsVisible != 0
-	style := st.barStyle
-	scrolling := style != nil && style.Show == ScrollbarsWhileScrolling
+	scrolling := st.bars != nil && st.bars.style.Show == ScrollbarsWhileScrolling
 	if !hide && !keep && !scrolling {
 		// The bars show on hover (hoverNeeds).
 		st.hoverLook = true
@@ -1465,21 +1464,16 @@ func (p *Painter) scrollbars(e *node) {
 		overH = g.horizontal && g.hTrack.Contains(lx, ly)
 	}
 	// Shown while it scrolls, the bars stay a moment after it last moved,
-	// or the pointer left them, then fade out (barFade). Not the offset it
-	// first paints at, which it hasn't scrolled to.
+	// or the pointer left them, then fade out (ScrollbarFade).
 	fade := float32(0)
 	if scrolling && !hide && !keep {
-		now := p.Now()
-		if st.barKnown && (st.scrollX != st.barX || st.scrollY != st.barY) || overV || overH || dragging {
-			st.barAt = now
-		}
-		st.barX, st.barY, st.barKnown = st.scrollX, st.scrollY, true
-		fade = barFade(p, now, st.barAt)
+		fade = st.bars.fade.fade(p, st.scrollX, st.scrollY, overV || overH || dragging)
 	}
 	st.barsShown = !hide && (keep || dragging || (scrolling && fade < 1) || (!scrolling && hovered))
 	if !st.barsShown {
 		return
 	}
+	style := &st.bars.style
 	if style.Track.A > 0 {
 		if g.vertical {
 			p.Fill(g.vTrack, style.Track.Alpha(1-fade), 0)

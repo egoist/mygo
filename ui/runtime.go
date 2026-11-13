@@ -1670,16 +1670,16 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		if barFlags != 0 && source.keepScrollbars {
 			barFlags |= keepBarsVisible
 		}
-		if s.barStyle == nil {
+		if s.bars == nil {
 			// Allocated once: a scroll container resolves its style every
 			// frame, and a steady frame allocates nothing.
-			s.barStyle = new(ScrollbarStyle)
+			s.bars = new(barState)
 		}
 		style := ScrollbarStyle{}
 		if source.barStyle != nil {
 			style = *source.barStyle
 		}
-		*s.barStyle = style.Resolve(e.theme())
+		s.bars.style = style.Resolve(e.theme())
 	}
 	if d := &rt.scrollDrag; d.st == s {
 		axis := flagScrollY
