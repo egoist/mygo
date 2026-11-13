@@ -82,20 +82,29 @@ func (s *System) breakLines(text []rune, style Style, spans []Span, width, inden
 // padded reports whether a span pads its pieces of lines (Span.PaddingX).
 func padded(spans []Span) bool {
 	for _, sp := range spans {
-		if sp.PaddingX > 0 {
+		if sp.PaddingX > 0 || sp.PaddingLeft > 0 {
 			return true
 		}
 	}
 	return false
 }
 
-// padOf returns the padding of span k at each end of its pieces of lines,
-// 0 past the spans.
-func padOf(spans []Span, k int) float32 {
+// padRight returns the padding of span k at the right end of its pieces
+// of lines, 0 past the spans.
+func padRight(spans []Span, k int) float32 {
 	if k < 0 || k >= len(spans) {
 		return 0
 	}
 	return max(spans[k].PaddingX, 0)
+}
+
+// padLeft returns the padding of span k at the left end of its pieces of
+// lines, PaddingLeft with PaddingX, 0 past the spans.
+func padLeft(spans []Span, k int) float32 {
+	if k < 0 || k >= len(spans) {
+		return 0
+	}
+	return max(spans[k].PaddingX, 0) + max(spans[k].PaddingLeft, 0)
 }
 
 // paddedWidth returns the width of the glyphs of a shaped line of a
@@ -117,12 +126,12 @@ func paddedWidth(l shapedLine, text []rune, spans []Span) (w, pad float32) {
 				continue // the ellipsis, with the glyphs before it
 			}
 			if j := spanIndex(spans, g.Cluster); j != k {
-				pad += padOf(spans, k) + padOf(spans, j)
+				pad += padRight(spans, k) + padLeft(spans, j)
 				k = j
 			}
 		}
 	}
-	return w, pad + padOf(spans, k)
+	return w, pad + padRight(spans, k)
 }
 
 // padLine moves the glyphs of a line, in visual order, apart by the
@@ -137,13 +146,13 @@ func padLine(line *Line, spans []Span, offset int) {
 		// The ellipsis goes with the glyphs before it.
 		if g.Runes > 0 {
 			if j := spanIndex(spans, g.Cluster-offset); j != k {
-				dx += padOf(spans, k) + padOf(spans, j)
+				dx += padRight(spans, k) + padLeft(spans, j)
 				k = j
 			}
 		}
 		g.X += dx
 	}
-	dx += padOf(spans, k)
+	dx += padRight(spans, k)
 	line.Width += dx
 	line.padding = dx
 }

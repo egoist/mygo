@@ -179,6 +179,10 @@ type Span struct {
 	// box-decoration-break: clone: the glyphs move in, and the line, which
 	// breaks to fit it, is that much wider.
 	PaddingX float32
+	// PaddingLeft widens the span that many DIPs more at the left end of
+	// each line's piece of it, past PaddingX, as CSS's padding-left: room
+	// for an icon drawn before the span, a link's site's.
+	PaddingLeft float32
 }
 
 // style returns the style of the span's runes in a text of style base.
@@ -236,12 +240,18 @@ func EncodeSpans(spans []Span) string {
 		if sp.PaddingX != 0 {
 			flags |= 8
 		}
+		if sp.PaddingLeft != 0 {
+			flags |= 16
+		}
 		b = append(b, flags)
 		if sp.BaselineShift != 0 {
 			b = binary.LittleEndian.AppendUint32(b, math.Float32bits(sp.BaselineShift))
 		}
 		if sp.PaddingX != 0 {
 			b = binary.LittleEndian.AppendUint32(b, math.Float32bits(sp.PaddingX))
+		}
+		if sp.PaddingLeft != 0 {
+			b = binary.LittleEndian.AppendUint32(b, math.Float32bits(sp.PaddingLeft))
 		}
 		b = binary.LittleEndian.AppendUint32(b, math.Float32bits(sp.LetterSpacing))
 		str(sp.Features)
@@ -306,6 +316,9 @@ func DecodeSpans(s string) []Span {
 		}
 		if flags&8 != 0 {
 			sp.PaddingX = f32()
+		}
+		if flags&16 != 0 {
+			sp.PaddingLeft = f32()
 		}
 		sp.LetterSpacing = f32()
 		sp.Features = str()
@@ -1706,10 +1719,10 @@ func (s *System) ellipsize(text []rune, spans []Span, start int, p Params, width
 			j := k
 			if pads {
 				if j = spanIndex(restSpans, cut); j != k {
-					gw += padOf(restSpans, k) + padOf(restSpans, j)
+					gw += padRight(restSpans, k) + padLeft(restSpans, j)
 				}
 			}
-			if w+gw+padOf(restSpans, j)+ellipsis > width {
+			if w+gw+padRight(restSpans, j)+ellipsis > width {
 				break
 			}
 			w += gw
@@ -1774,7 +1787,7 @@ func (s *System) ellipsizeMiddle(text []rune, spans []Span, start int, p Params,
 		if j == k {
 			return 0
 		}
-		return padOf(restSpans, j) + padOf(restSpans, k)
+		return padRight(restSpans, j) + padLeft(restSpans, k)
 	}
 	advance := func(i int) float32 {
 		w := float32(0)

@@ -1283,7 +1283,7 @@ func TestSpans(t *testing.T) {
 }
 
 func TestEncodeSpans(t *testing.T) {
-	spans := []Span{{End: 3, Family: "A, B", Size: 1.5, Weight: 600, Italic: true, LetterSpacing: -0.5, Features: "tnum", Lang: "ja"}, {End: 5, BaselineShift: -2.5}, {End: 7, SpacingSet: true, PaddingX: 3}, {End: 9}}
+	spans := []Span{{End: 3, Family: "A, B", Size: 1.5, Weight: 600, Italic: true, LetterSpacing: -0.5, Features: "tnum", Lang: "ja"}, {End: 5, BaselineShift: -2.5}, {End: 7, SpacingSet: true, PaddingX: 3}, {End: 8, PaddingLeft: 16}, {End: 9}}
 	if got := DecodeSpans(EncodeSpans(spans)); !slices.Equal(got, spans) {
 		t.Errorf("decoded %+v, want %+v", got, spans)
 	}
@@ -1319,6 +1319,35 @@ func TestSpanZeroLetterSpacing(t *testing.T) {
 	}
 	if w := width(0, Span{End: 6}, Span{End: 8, SpacingSet: true}); w != plain {
 		t.Errorf("no spacing over none is %v wide, not %v", w, plain)
+	}
+}
+
+// TestSpanPaddingLeft checks a span's padding at its left alone: its
+// glyphs move in by it, and the text after it by it too, not twice.
+func TestSpanPaddingLeft(t *testing.T) {
+	s := newSystem()
+	const text = "See Ctrl K now"
+	const pad = 16
+	lay := func(spans ...Span) *Layout {
+		return s.Layout(Params{Text: text, Style: Style{Size: 14}, Spans: EncodeSpans(spans)})
+	}
+	x := func(l *Layout, r int) float32 {
+		for _, g := range l.Lines[0].Glyphs {
+			if g.Cluster == r {
+				return g.X
+			}
+		}
+		t.Fatalf("no glyph of rune %d", r)
+		return 0
+	}
+	plain, padded := lay(), lay(Span{End: 4}, Span{End: 10, PaddingLeft: pad}, Span{End: 14})
+	if d := padded.Width - plain.Width; math.Abs(float64(d-pad)) > 0.01 {
+		t.Errorf("a span padded at its left widens the text by %v, not %v", d, pad)
+	}
+	for _, c := range []struct{ r, by int }{{3, 0}, {4, pad}, {9, pad}, {10, pad}, {13, pad}} {
+		if d := x(padded, c.r) - x(plain, c.r); math.Abs(float64(d-float32(c.by))) > 0.01 {
+			t.Errorf("rune %d moves %v, not %d", c.r, d, c.by)
+		}
 	}
 }
 
