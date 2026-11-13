@@ -81,9 +81,16 @@ as through any, and `Modified` still compares with the saved text: call
 step of the history, around a millisecond for a full one of 10,000 steps,
 whatever the size of the text.
 
-Lines end in `\n`, as in Zed: a text with `\r\n` line endings is kept with
-`\n` ones, and `LineEnding` says which it had, which `WriteTo` writes, so
-that a file saves as it was; `SetLineEnding` changes it.
+Lines end in `\n`, as in Zed: a text with `\r\n` or `\r` line endings is
+kept with `\n` ones, and the buffer remembers the ending of each line,
+which `WriteTo` writes, so that a file saves as it was, mixed endings and
+all. An edit changes only the endings of the lines it breaks or joins: a
+line broken in two, as with Enter, ends both halves as it ended, deleting
+a line break keeps the one after it, and line breaks pasted take the
+endings of those they replace, then the ending of the line they go in,
+whatever the clipboard had. Undo and redo put endings back with the text.
+`LineEnding` says which ending most lines have, and `SetLineEnding`
+converts every line to one.
 
 The text is a persistent tree of chunks, as Zed's rope: an edit copies a
 few kilobytes and a path of the tree, whatever the size of the document,
