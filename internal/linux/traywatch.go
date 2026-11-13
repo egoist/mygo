@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 // libayatana draws a status icon through the desktop shell: it registers the
@@ -30,15 +31,24 @@ var watcher struct {
 	// present is whether the watcher had an owner at the last look; the
 	// signal handler keeps it current.
 	present bool
-	// known is whether it was ever established, so the first lookup asks
-	// the bus and every later one trusts the signal.
+	// known is whether the current answer was ever established, so the
+	// first lookup asks the bus and every later one trusts the signal.
 	known bool
+	// seen is whether a watcher has ever owned the name. Calls are held only
+	// after one was seen and then lost: a session that never had a watcher,
+	// or a test without a bus, keeps them going. Its GtkStatusIcon fallback
+	// is the only icon such a session gets, and it has to keep updating.
+	seen bool
 	// subscribed is whether the NameOwnerChanged handler is installed.
 	subscribed bool
 	// handler is the callback the subscription was made with, kept so it
 	// outlives the call.
 	handler ptr
 }
+
+// resumePending is set by the signal and cleared by the main thread that
+// does the drawing.
+var resumePending atomic.Bool
 
 // deferred reports whether a tray call has to wait for the shell. The state
 // the app set is stored by the caller either way, so a resumed tray redraws
@@ -60,22 +70,25 @@ func (t *tray) deferred() bool {
 // watcher, or a test without a bus, behaves as it did before this file.
 func watcherGone() bool {
 	watcher.Lock()
-	present, known, subscribed := watcher.present, watcher.known, watcher.subscribed
+	cached := watcher.subscribed && watcher.known
 	watcher.Unlock()
-	if subscribed && known {
-		return !present
+	if cached {
+		watcher.Lock()
+		defer watcher.Unlock()
+		return watcher.seen && !watcher.present
 	}
 	present, ok := watcherHasOwner()
 	watcher.Lock()
 	if ok {
 		watcher.present = present
 		watcher.known = true
+		if present {
+			watcher.seen = true
+		}
 	}
-	gone := watcher.known && !watcher.present
+	gone := watcher.seen && !watcher.present
 	watcher.Unlock()
-	if !subscribed {
-		watchWatcher()
-	}
+	watchWatcher()
 	return gone
 }
 
@@ -128,6 +141,12 @@ func watchWatcher() {
 
 // watcherSignal handles NameOwnerChanged. The parameters carry the name, the
 // old owner and the new one; an empty new owner means the name was released.
+//
+// It only records the state. Drawing is left to the main thread: this runs on
+// the GLib dispatch thread that delivers the signal, and GTK is not safe to
+// call from there, nor is b.trays safe to walk: both belong to the main
+// thread. Backend.Signal wakes that thread, which resumes the trays on its
+// next turn.
 func watcherSignal(params ptr) {
 	if gVariantNChildren(params) < 3 {
 		return
@@ -142,7 +161,10 @@ func watcherSignal(params ptr) {
 	watcher.present, watcher.known = came, true
 	watcher.Unlock()
 	if came && known && !was {
-		resumeTrays()
+		resumePending.Store(true)
+		if b := theBackend; b != nil {
+			b.Signal()
+		}
 	}
 }
 
@@ -157,8 +179,12 @@ func variantString(params ptr, i int) string {
 	return goStr(gVariantGetString(child, &length))
 }
 
-// resumeTrays applies everything the trays kept while the shell was away.
+// resumeTrays applies everything the trays kept while the shell was away. It
+// runs on the main thread, driven by resumePending set from the signal.
 func resumeTrays() {
+	if !resumePending.CompareAndSwap(true, false) {
+		return
+	}
 	b := theBackend
 	if b == nil {
 		return
@@ -183,13 +209,13 @@ func (t *tray) resume() {
 			appIndicatorSetIconFull(t.ind, cs(file), cs(""))
 		}
 	}
-	if t.title != "" {
-		appIndicatorSetLabel(t.ind, cs(t.title), cs(t.title))
+	// Applied unconditionally: an app that cleared its label or tooltip while
+	// the shell was away must see it cleared, and libayatana takes "".
+	appIndicatorSetLabel(t.ind, cs(t.title), cs(t.title))
+	t.applyToolTip(t.tooltip)
+	if t.wanted != nil {
+		t.applyMenu(t.wanted)
 	}
-	if t.tooltip != "" {
-		t.applyToolTip(t.tooltip)
-	}
-	t.applyMenu(t.wanted)
 }
 
 // writeIcon writes the cached image under a new name, which makes the shell

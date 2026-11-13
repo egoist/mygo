@@ -247,6 +247,10 @@ func initCallbacks() {
 		})
 		dispatchCallback = purego.NewCallback(func(data ptr) int32 {
 			theBackend.signaled.Store(false)
+			// A watcher that came back owes the trays a redraw. This runs on
+			// the main thread, where GTK and b.trays belong; the signal
+			// handler only recorded that it is due.
+			resumeTrays()
 			theBackend.h.Dispatch()
 			return 0
 		})
