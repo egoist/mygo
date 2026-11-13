@@ -119,6 +119,9 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.zoom(float32(ev.Scale), Modifiers(ev.Mods))
 	case platform.KeyPressed:
 		rt.modsChanged(Modifiers(ev.Mods))
+		if rt.composingKey(Modifiers(ev.Mods)) {
+			break
+		}
 		rt.holdKey(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey))
 		taken = rt.keyDownPhysical(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey), KeyCode(ev.Code), ev.Repeat)
 	case platform.ModifiersChanged:
@@ -1077,6 +1080,29 @@ func (rt *engine) claimedBy(k keyEvent, window bool) bool {
 		}
 	}
 	return false
+}
+
+// composingKey reports whether a key pressed with mods is the input
+// method's, as it composes in the focus: Enter choosing a candidate,
+// Escape giving the composition up, an arrow moving in it. Such a key
+// reaches no element, shortcut or dialog, and the composition stays the
+// input method's, as macOS's keyDown: withholds it (and GTK's filter and
+// IMM32's VK_PROCESSKEY keep it on Linux and Windows), whatever a
+// platform passed on. A key an input method passes on once it committed,
+// as Korean ones do Enter, comes once nothing is marked, and acts. Chords
+// with Ctrl or Super, which input methods leave, go on as macOS sends them.
+// Only clients of the platform's text input (TextInput, TextArea,
+// HandleTextInput) tell what they mark.
+func (rt *engine) composingKey(mods Modifiers) bool {
+	if mods&(Ctrl|Super) != 0 {
+		return false
+	}
+	s := rt.states[rt.focused]
+	if s == nil || s.textAdapter == nil {
+		return false
+	}
+	_, marked := s.textAdapter.MarkedRange()
+	return marked
 }
 
 // keyDown handles a key pressed, and reports whether an element took it as

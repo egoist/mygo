@@ -2727,6 +2727,13 @@ either.
   alone, as Enter choosing a candidate: on macOS `keyDown:` sends no
   `KeyPressed` while there is marked text, as GTK's input method filters
   such keys on Linux and IMM32 makes them `VK_PROCESSKEY` on Windows.
+  The engine holds back too a `KeyPressed` without Ctrl or Super that
+  comes while the focus's text input client has marked text
+  (`composingKey` in `ui/input.go`), whatever the platform passed on, and
+  leaves the composition be, as macOS does: it reaches no handler,
+  shortcut or dialog, is not held (`Context.KeyDown`), and the content
+  does not take it. A key an input method passes on once it committed,
+  as Korean ones do Enter, comes once nothing is marked and acts.
   A composition an input method gives up, as with Escape, goes: the
   Microsoft Japanese IME sends `WM_IME_COMPOSITION` with neither
   `GCS_COMPSTR` nor `GCS_RESULTSTR` then, which empties the marked text

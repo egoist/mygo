@@ -566,6 +566,22 @@ func TestCodeEditorComposition(t *testing.T) {
 	ct.want("a|b\nc|d")
 }
 
+// Enter while an input method composes is its own, as choosing a
+// candidate: the editor breaks no line and leaves the composition to the
+// input method, which commits it (#1815).
+func TestCodeEditorComposingEnter(t *testing.T) {
+	ct := newEditorTest(t, "", "a|b")
+	ct.tt.Compose("に", 1)
+	ct.key(0, ui.KeyEnter)
+	ct.want("aに|b")
+	if _, marked := ct.st.ed.MarkedRange(); !marked {
+		t.Fatal("Enter ended the composition")
+	}
+	ct.tt.Type("に")
+	ct.key(0, ui.KeyEnter)
+	ct.want("aに\n|b")
+}
+
 func TestCodeEditorFind(t *testing.T) {
 	ct := newEditorTest(t, "", "|cat Cat cat dog")
 	ct.st.Find("cat")

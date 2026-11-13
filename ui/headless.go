@@ -1028,8 +1028,10 @@ func (t *Tester) SetFocused(focused bool) {
 
 // Compose shows text as an input method's composition, with its caret at
 // rune caret, as while typing in Chinese or Japanese; an empty text ends
-// it. Type commits the text. Nothing is composed while the focused element
-// turned input methods off (InputMethod), as on the desktop.
+// it. Type commits the text. Keys pressed meanwhile without Ctrl or Super
+// are the input method's and do nothing, as on the desktop. Nothing is
+// composed while the focused element turned input methods off
+// (InputMethod), as on the desktop.
 func (t *Tester) Compose(text string, caret int) {
 	if t.h.ime.Active && t.h.ime.NoInputMethod {
 		return
