@@ -390,12 +390,18 @@ func (v *view) key(key ui.Key, mods ui.Modifiers) bool {
 		if m != 0 {
 			return false
 		}
+		if v.focusBlock() {
+			// The element of the block takes the focus, as a card's does.
+			return true
+		}
 		v.enter()
 		return true
 	case ui.KeyTab:
 		switch {
 		case m != 0:
 			return false
+		case v.focusBlock():
+			return true
 		case st.List != NoList:
 			if shift {
 				return v.run("outdent")
@@ -408,6 +414,17 @@ func (v *view) key(key ui.Key, mods ui.Modifiers) bool {
 		return false
 	}
 	return false
+}
+
+// observe watches the input of the editor and of what is in it: the
+// Escape that brings the focus back from a block to the text. The key
+// reaches the element that has the focus alone, so the editor watches it
+// as it watches the focus.
+func (v *view) observe(ev ui.InputEvent) {
+	if ev.Kind != ui.InputKeyDown || ev.Key != ui.KeyEscape {
+		return
+	}
+	v.backToText()
 }
 
 // shortcut returns the command a key with mods runs: ⌘B, ⌘I, ⌘U, ⇧⌘X, ⌘E,
@@ -561,7 +578,9 @@ func (v *view) press(ev ui.InputEvent) bool {
 	if ev.Clicks == 1 && ev.Mods&ui.Shift == 0 {
 		v.pressLink = v.linkAt(x, y)
 	}
-	v.dragging = true
+	// A press on the element of a block takes no drag of the text: what is
+	// in the element takes the press, as a button does.
+	v.dragging = !v.pressBlock
 	v.hasDesired = false
 	v.dragUnit = min(max(ev.Clicks, 1), 3)
 	switch v.dragUnit {

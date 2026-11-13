@@ -10,7 +10,8 @@ and SwiftUI's `TextEditor` bound to an `AttributedString`. It supports:
 - **Links:** opened by a click, and set from the app or with ⌘K.
 - **Paragraphs:** headings, bulleted, numbered and task lists,
   quotations, blocks of code and alignment.
-- **Attachments:** images inside lines.
+- **Attachments:** images inside lines, and elements of the app's as blocks
+  of their own.
 - **Editing:** the shortcuts and the Format menu of word processors, and
   undo that brings formats back with the text.
 - **Exchange:** copy and paste in rich formats, input methods that compose
@@ -429,6 +430,44 @@ app.doc.InsertAttachment(&richtext.Attachment{Image: photo, Name: "Beach", Width
 Without an image or a `Draw` function, an attachment shows its `Name` in a
 box, as an image not loaded yet. HTML and Markdown write an attachment's
 `URL`.
+
+## Blocks
+
+An attachment with an `Element` is shown as an element of the app's, as a
+card or a chart: the paragraph it is alone in shows the element instead of
+a line of text, as wide as the text is and as high as the element is, and
+the text below it moves as it is high.
+
+```go
+card := &richtext.Attachment{
+	Name: "Poll",
+	Element: func(c *ui.Context, width float32) ui.Element {
+		return ui.Box(c).Fill().Children(func() {
+			ui.ButtonBase(c).Label("Vote")
+		})
+	},
+}
+app.doc.InsertAttachment(card)
+```
+
+The editor builds the element in the frames its paragraph is in view, and
+the element takes the focus when the caret is on the attachment and Return
+or Tab is pressed; the Escape brings the text back, with the caret on the
+attachment. The presses on the element go to what is in it, as they go to
+a button, and the wheel over it scrolls the text, and goes on to the
+containers around the editor where the text does not scroll.
+
+The app is asked about a key before the editor moves the focus into the
+element, so that it may take the Return itself.
+
+The paragraph is as high as the element was laid out at, from the frame
+after, and as high as the attachment's `Height` until it is laid out the
+first time. An attachment that is not alone in its paragraph is shown as
+an image or a drawing is, and its element is not built.
+
+An attachment with `KeepBuilt` has its element built whether its paragraph
+is in view or not: an element that fills in while the text is scrolled away
+keeps its state and its height, and the text keeps its place as it does.
 
 ## Copy and paste
 

@@ -197,6 +197,25 @@ type view struct {
 	read, readCaret bool
 	readBoxes       []ParagraphBox
 	readCaretRect   ui.Rect
+	// blocks are the attachments shown as elements of their own, by the
+	// paragraph's id, and built the elements of those in view.
+	blocks map[uint64]*block
+	built  []*block
+	// kept are the blocks to build whether they are in view or not, in the
+	// order of the paragraphs. They are found when the text changes.
+	kept []keptBlock
+	// blockFocus is the block whose element has the focus.
+	blockFocus *block
+	// pressBlock tells that the press comes from the element of a block,
+	// which takes no drag of the text.
+	pressBlock bool
+	// editor is the editor's own element, to give it the focus back.
+	editor ui.Handle
+	// c is the window's context, to read the boxes of the blocks' elements.
+	c *ui.Context
+	// border is the width of the editor's border, which the text's room
+	// is measured from.
+	border float32
 }
 
 type editMode uint8
@@ -268,8 +287,10 @@ func build(c *ui.Context, doc *Document, options []EditorOptions, styled bool) u
 		v.opts = options[0]
 	}
 	v.services = c.Services()
+	v.c = c
 	v.setLook(t, styled)
 	v.sync()
+	v.findKept()
 	v.inView = e.Hovered()
 	focused := e.Focused()
 	if focused != v.focused {
@@ -292,6 +313,8 @@ func build(c *ui.Context, doc *Document, options []EditorOptions, styled bool) u
 		e.HandleTextInput(v)
 	}
 	e.HandleInput(v.input)
+	// The Escape that brings the focus back from a block to the text.
+	e.ObserveInput(v.observe)
 	e.Cursor(v.cursor)
 	e.Draw(v.paint)
 	if v.opts.Menu != nil {
@@ -302,6 +325,18 @@ func build(c *ui.Context, doc *Document, options []EditorOptions, styled bool) u
 	if styled {
 		e.FocusRing(false)
 	}
+	// The blocks in view are built over the text, where their paragraphs
+	// are: the layout of the paragraphs is the one of the last frame, as
+	// the frame that paints it says where they are.
+	if v.width > 0 {
+		// The paint lays the paragraphs out again, with the width of the
+		// frame, and reveals the caret in it.
+		reveal := v.reveal
+		v.layout(v.width, v.viewH)
+		v.reveal = reveal
+	}
+	v.buildBlocks(c, e)
+	e.Bind(&v.editor)
 	if focused && !v.opts.ReadOnly {
 		// The caret blinks for half a minute after the last change.
 		const blink = 530 * time.Millisecond
@@ -336,8 +371,11 @@ func (v *view) setLook(t *ui.Theme, styled bool) {
 	}
 	if styled {
 		v.padX, v.padY = th.Padding[0], th.Padding[1]
+		// The editor's border, which the text's room is measured from.
+		v.border = 1
 	} else {
 		v.padX, v.padY = 0, 0
+		v.border = 0
 	}
 }
 
@@ -370,6 +408,9 @@ func (v *view) lockedSync() (change, bool) {
 			moved = false
 		}
 		v.shown, v.version = d.text, d.version
+		// The blocks to build out of view are found again: the paragraphs
+		// of the text are not the ones they were.
+		v.kept = nil
 		n := v.shown.Len()
 		if moved {
 			v.selAnchor = mapPosition(v.selAnchor, c.start, c.oldEnd-c.start, c.newEnd-c.start, v.selAnchor > v.caret)
@@ -635,7 +676,17 @@ func (v *view) paraLayout(p int) *paraView {
 		// The space around it follows its neighbours, which may have
 		// changed without it: a code block's last line, the first heading,
 		// a body paragraph after one that became a heading.
-		if above, below := v.space(p, para.style); above+below != pv.space {
+		above, below := v.space(p, para.style)
+		bh, isBlock := v.blockHeight(p)
+		switch {
+		case isBlock:
+			// The element of the block is as high as it was laid out at.
+			if h := above + below + bh; h != pv.h {
+				v.hs.add(p, float64(h-pv.h), 0)
+				pv.h = h
+			}
+			pv.space = above + below
+		case above+below != pv.space:
 			h := pv.h - pv.space + above + below
 			v.hs.add(p, float64(h-pv.h), 0)
 			pv.h, pv.space = h, above+below
@@ -686,6 +737,15 @@ func (v *view) paraLayout(p int) *paraView {
 	if v.opts.Spans != nil {
 		spans = v.opts.Spans(p, para.style, spans)
 	}
+	bh, isBlock := v.blockHeight(p)
+	if isBlock {
+		// The paragraph shows the element of the block: the line is as
+		// wide as the text and as high as the element is, as the caret
+		// in it is.
+		for i := range spans {
+			spans[i].ObjectWidth, spans[i].ObjectHeight = v.look.width, bh
+		}
+	}
 	// The indent is on the side the paragraph starts at, the right of one
 	// reading right to left.
 	shape := ui.TextShape{Width: v.look.width, Align: para.style.Align, Indent: indent}
@@ -700,6 +760,10 @@ func (v *view) paraLayout(p int) *paraView {
 	above, below := v.space(p, para.style)
 	_, lh := l.Size()
 	h := above + lh + below
+	if isBlock {
+		// The element of the block takes the place of the line.
+		h = above + below + bh
+	}
 	if pv.layout == nil {
 		v.laid++
 	}
