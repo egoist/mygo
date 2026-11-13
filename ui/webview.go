@@ -171,6 +171,10 @@ type webPlace struct {
 	radii [4]float32
 	hit   int
 	inert bool
+	// opacity is how opaque the page shows: fading where nothing opaque
+	// is painted under it, which the painter tells once it has painted.
+	// The host fades the page itself by it, where the platform can.
+	opacity float32
 }
 
 // noteWebView notes where the frame shows the web view of e, laid out
@@ -226,11 +230,14 @@ type placedWebView struct {
 	size   [2]float64
 	radii  [4]float64
 	covers []platform.RectF
+	// opacity is how opaque the page shows: fading where nothing opaque
+	// is painted under it, for the host to fade the page itself by.
+	opacity float32
 }
 
 // placement returns v as the platform takes it.
 func (v *placedWebView) placement(n platform.WebView) platform.WebViewPlacement {
-	return platform.WebViewPlacement{WebView: n, Frame: v.frame, Clip: v.clip, Width: v.size[0], Height: v.size[1], Radii: v.radii, Covers: v.covers}
+	return platform.WebViewPlacement{WebView: n, Frame: v.frame, Clip: v.clip, Width: v.size[0], Height: v.size[1], Radii: v.radii, Covers: v.covers, Opacity: float64(v.opacity)}
 }
 
 // scaling returns the scale of m, which only moves and scales, by
@@ -285,7 +292,7 @@ func (rt *engine) webViewPlacements() []placedWebView {
 			// The inert one went first: this one takes its place.
 			out = slices.DeleteFunc(out, func(o placedWebView) bool { return o.v == wp.v })
 		}
-		pv := placedWebView{v: wp.v, frame: rectF(wp.frame), clip: rectF(wp.clip), covers: wp.covers(rt.hits)}
+		pv := placedWebView{v: wp.v, frame: rectF(wp.frame), clip: rectF(wp.clip), covers: wp.covers(rt.hits), opacity: wp.opacity}
 		pv.size = [2]float64{float64(wp.size[0]), float64(wp.size[1])}
 		for i, r := range wp.radii {
 			pv.radii[i] = float64(r)
@@ -437,6 +444,21 @@ func (p *Painter) hole(e *node) {
 	r := p.snap(b)
 	// Translucent, the page blends over what was painted under it.
 	p.add(scene.Op{Kind: scene.OpHole, Rect: r, Radii: radii, Continuous: continuousCorners, Opacity: p.opacity})
+	// Where an opaque background was painted under it, that partial erase
+	// blends the page with the background already. Where none is — over a
+	// window nothing opaque is painted in — the erase has nothing to blend
+	// over: the page itself must fade, over what is behind the window.
+	// Every place of the view is told, so that one a frame shows twice, as
+	// by an exit transition, carries the fade of the place painted last.
+	fade := p.opacity
+	if p.covered(intersect(b, p.clip)) {
+		fade = 1
+	}
+	for i := range p.rt.webPlaces {
+		if p.rt.webPlaces[i].v == e.webView {
+			p.rt.webPlaces[i].opacity = fade
+		}
+	}
 	if c := intersect(transformRect(p.transform, b), p.clip); c.W > 0 && c.H > 0 {
 		p.holes = append(p.holes, c)
 	}
