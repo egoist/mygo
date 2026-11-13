@@ -204,10 +204,11 @@ type ListState struct {
 	// drag) brought the rows in view within NearEnd rows of the end, with
 	// the last row in view: load more rows there, off the UI thread, and the
 	// frames after show them. It is called as the rows in view come near the
-	// end, not again while they stay there, and again once they left it or
-	// the rows changed in number, as when a page loaded. ScrollTo,
-	// ScrollIntoView and ScrollToEnd, the list showing first, being resized
-	// or rows coming and going do not call it, nor do rows sorted again.
+	// end, not again while they stay there. Once they left it, or the rows
+	// changed in number, as when a page loaded, the user's next scroll near
+	// the end calls it again: rows coming and going do not call it by
+	// themselves, nor do ScrollTo, ScrollIntoView and ScrollToEnd, the list
+	// showing first, being resized or rows sorted again.
 	EndReached func(last int)
 	// NearEnd is how many rows before the last count as near the end for
 	// EndReached: 0 for the last row alone.
