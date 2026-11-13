@@ -189,7 +189,22 @@ func (d *drawer) drawOps(dst *Image, s *scene.Scene, area image.Rectangle, bound
 		rows = effectRows
 	}
 	bands := (area.Dy() + rows - 1) / rows
-	n := max(min(runtime.GOMAXPROCS(0), area.Dx()*area.Dy()/workArea, bands, maxWorkers), 1)
+	workers := min(runtime.GOMAXPROCS(0), maxWorkers)
+	pixels := area.Dx() * area.Dy()
+	n := max(min(workers, pixels/workArea, bands), 1)
+	if px == nil && n == 1 && workers > 1 && area.Dy() >= 2*effectRows && to-from >= 4 {
+		// Overlapping fills can paint a small target many times. Other
+		// operations, low-overdraw scenes and already-parallel targets keep
+		// the area-based split. Fewer than four fills cannot cover it four times.
+		nextRows := max(effectRows, (area.Dy()+2*workers-1)/(2*workers))
+		nextBands := (area.Dy() + nextRows - 1) / nextRows
+		work := fillWork(s, area, from, to, nextRows, min(workers, nextBands), max(4*pixels, workArea*workers))
+		if work >= 4*pixels && work >= 2*workArea {
+			// Bound the new scene traversals for a formerly serial target.
+			rows, bands = nextRows, nextBands
+			n = max(n, min(workers, work/workArea, bands))
+		}
+	}
 	for len(d.rs) < n {
 		d.rs = append(d.rs, renderer{})
 	}
@@ -206,6 +221,59 @@ func (d *drawer) drawOps(dst *Image, s *scene.Scene, area image.Rectangle, bound
 	}
 	d.bands.run(n, bands)
 	d.job = bandJob{}
+}
+
+// fillWork estimates pixels visited by visible, untransformed solid fills that
+// span enough bands to share work across workers, stopping at limit. Localized
+// overdraw must not multiply scene scans without sharing the paint work.
+// Borders with a transparent interior do not fill their box.
+// Damage bounds grow both paint and clips: a one-pixel fill, or a large fill
+// under a one-pixel clip, must not count as nine pixels of overdraw. Track the
+// tight clip rectangles instead. Complex transforms and very deep clip stacks
+// conservatively keep the existing area-based schedule, with no scratch allocs.
+func fillWork(s *scene.Scene, area image.Rectangle, from, to, rows, workers, limit int) int {
+	var stack [32]image.Rectangle
+	clip, depth, work := area, 0, 0
+	pixels := func(rc scene.Rect) image.Rectangle {
+		return image.Rect(int(math.Floor(float64(rc.X))), int(math.Floor(float64(rc.Y))),
+			int(math.Ceil(float64(rc.X+rc.W))), int(math.Ceil(float64(rc.Y+rc.H))))
+	}
+	// Clips before from still apply to the operations after an effect.
+	for i := 0; i < to && work < limit; i++ {
+		op := &s.Ops[i]
+		switch op.Kind {
+		case scene.OpPushClip:
+			if depth == len(stack) || op.Transform.Set {
+				return 0
+			}
+			stack[depth] = clip
+			depth++
+			if op.Rect.Empty() {
+				clip = image.Rectangle{}
+			} else {
+				clip = clip.Intersect(pixels(op.Rect))
+			}
+		case scene.OpPopClip:
+			if depth > 0 {
+				depth--
+				clip = stack[depth]
+			}
+		case scene.OpFill:
+			if i < from || op.Transform.Set || op.Rect.Empty() || op.Paint != scene.PaintSolid || op.Color.A == 0 {
+				continue
+			}
+			r := pixels(op.Rect).Intersect(clip)
+			if r.Empty() {
+				continue
+			}
+			first, last := (r.Min.Y-area.Min.Y)/rows, (r.Max.Y-1-area.Min.Y)/rows
+			if last-first+1 < workers {
+				continue
+			}
+			work += r.Dx() * r.Dy()
+		}
+	}
+	return work
 }
 
 // bandJob is what the bands of drawOps draw: operations from to to of s
