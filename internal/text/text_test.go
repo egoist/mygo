@@ -482,6 +482,35 @@ func TestMakeRoomForLongMasks(t *testing.T) {
 	}
 }
 
+// TestTryMaskAsksForNoRoom draws a mask too long for the initial atlas
+// with TryMask, which a caller that draws it another way uses: it misses
+// without leaving it out of the frame, which then needs no room made,
+// and finds it once room was made for it otherwise.
+func TestTryMaskAsksForNoRoom(t *testing.T) {
+	s := newSystem()
+	s.BeginFrame()
+	draw := func() (int, int, []byte) {
+		pix := make([]byte, 2000*3)
+		for i := range pix {
+			pix[i] = 123
+		}
+		return 2000, 3, pix
+	}
+	for range 2 {
+		if s.TryMask(1, draw).OK || s.Full() {
+			t.Fatal("the long mask fit the initial atlas, or asked for room")
+		}
+	}
+	if s.Mask(1, draw).OK || !s.Full() {
+		t.Fatal("Mask did not ask for room for the mask TryMask missed")
+	}
+	s.MakeRoom()
+	if g := s.TryMask(1, draw); !g.OK || s.maskPixel(g) != 123 || s.Full() {
+		t.Fatalf("the mask does not fit after making room: %+v", g)
+	}
+	s.EndFrame()
+}
+
 func TestMaskCanDeferRasterizationUntilRoom(t *testing.T) {
 	for _, size := range []image.Point{{X: 256, Y: 3}, {X: 3, Y: 256}} {
 		s := newSystem()
