@@ -44,10 +44,14 @@ func checkInvariants(t *testing.T, d *Document, ctx string) {
 }
 
 var zzExt = func() Extensions {
+	ext := Default &^ ExtTables
 	if os.Getenv("ZZTABLES") != "" {
-		return Default
+		ext = Default
 	}
-	return Default &^ ExtTables
+	if os.Getenv("ZZFRONTMATTER") != "" {
+		ext |= ExtFrontmatter
+	}
+	return ext
 }()
 
 func zzSeed() uint64 {
@@ -65,7 +69,7 @@ func zzKnown(src string) bool {
 var zzSeen bool
 
 // zzFuzzOnly skips the random differential tests and probes unless
-// ZZFUZZ is set (ZZSEED, ZZTABLES and ZZSTRUCT vary them).
+// ZZFUZZ is set (ZZSEED, ZZTABLES, ZZFRONTMATTER and ZZSTRUCT vary them).
 func zzFuzzOnly(t *testing.T) {
 	if os.Getenv("ZZFUZZ") == "" {
 		t.Skip("set ZZFUZZ=1")
@@ -80,7 +84,7 @@ func zzDump(d *Document) string {
 	for i := 1; i < d.Len(); i++ {
 		b := d.Block(i)
 		fmt.Fprintf(&sb, "%d %v p%d n%d [%d,%d) open=%v L%d %v%d%c t%v task%d f%v h%v %v %q\n", i, b.Kind, b.Parent, b.Next, b.Start, b.End, b.Open, b.Level, b.Ordered, b.Number, b.Marker, b.Tight, b.Task, b.Fenced, b.Header, b.Align, b.info)
-		if b.Kind == CodeBlock || b.Kind == MathBlock || b.Kind == HTMLBlock {
+		if b.Kind == CodeBlock || b.Kind == MathBlock || b.Kind == HTMLBlock || b.Kind == Frontmatter {
 			for k := 0; k < d.LineCount(i); k++ {
 				l, o := d.Line(i, k)
 				fmt.Fprintf(&sb, "   line %q @%d\n", l, o)
