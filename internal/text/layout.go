@@ -1390,6 +1390,14 @@ func (s *System) paragraph(out []Line, p Params, spans []Span, runes []rune, sta
 			shaped[k] = hy.place(shaped[k], text, broken && softBreak(shaped[k], text) >= 0, rtl)
 		}
 	}
+	// A paragraph ending with a line separator has an empty line after it:
+	// the break moves the pen to a line of its own, which an editor shows
+	// with the caret on it. Engines that already end the paragraph with an
+	// empty line report one that starts at the text's end.
+	if !truncated && (maxLines <= 0 || len(shaped) < maxLines) &&
+		len(text) > 0 && text[len(text)-1] == '\u2028' && shaped[len(shaped)-1].start < len(text) {
+		shaped = append(shaped, shapedLine{start: len(text), end: len(text)})
+	}
 	// The glyphs of the lines share one allocation.
 	n := 0
 	for _, sl := range shaped {

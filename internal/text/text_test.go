@@ -64,6 +64,44 @@ func TestLayoutNewlinesAndEmpty(t *testing.T) {
 	}
 }
 
+// TestLayoutTrailingLineSeparator verifies that a paragraph ending with
+// U+2028 lays out a trailing empty line matching trailing newline semantics,
+// with caret placement and hit-testing on that line.
+func TestLayoutTrailingLineSeparator(t *testing.T) {
+	s := Shared()
+	l := s.Layout(Params{Text: "alpha\u2028", Style: Style{Size: 14}})
+	if len(l.Lines) != 2 {
+		t.Fatalf("%d lines, want 2", len(l.Lines))
+	}
+	last := l.Lines[1]
+	if last.Start != len(l.Runes) || last.End != len(l.Runes) {
+		t.Errorf("empty line is %d:%d, want %d:%d", last.Start, last.End, len(l.Runes), len(l.Runes))
+	}
+	if last.Height <= 0 || last.Y < l.Lines[0].Height {
+		t.Errorf("empty line at y=%v height=%v", last.Y, last.Height)
+	}
+	if want := l.Lines[0].Height + last.Height; math.Abs(float64(l.Height-want)) > 0.5 {
+		t.Errorf("height %v, want %v", l.Height, want)
+	}
+	x, y, h := l.Caret(len(l.Runes))
+	if y != last.Y || h != last.Height {
+		t.Errorf("caret after the break at y=%v h=%v, want y=%v h=%v", y, h, last.Y, last.Height)
+	}
+	if got := l.IndexAt(x, last.Y+last.Height/2); got != len(l.Runes) {
+		t.Errorf("IndexAt on the empty line = %d, want %d", got, len(l.Runes))
+	}
+	// Wrapping reports the empty line itself: it is not added twice.
+	wide := s.Layout(Params{Text: "alpha\u2028", Style: Style{Size: 14}, Width: 1000})
+	if len(wide.Lines) != 2 || wide.Lines[1].Start != 6 || wide.Lines[1].End != 6 {
+		t.Errorf("trailing break with wrapping lines %+v", wide.Lines)
+	}
+	// A break inside the paragraph keeps two lines of text and adds none.
+	inner := s.Layout(Params{Text: "alpha\u2028beta", Style: Style{Size: 14}, Width: 1000})
+	if len(inner.Lines) != 2 || inner.Lines[1].Start != 6 || inner.Lines[1].End != 10 {
+		t.Errorf("inner break lines %+v", inner.Lines)
+	}
+}
+
 func TestCarets(t *testing.T) {
 	s := Shared()
 	l := s.Layout(Params{Text: "office files", Style: Style{Size: 20}})
