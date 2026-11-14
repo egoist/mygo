@@ -386,13 +386,15 @@ func TestBackdropEndsAtDrawn(t *testing.T) {
 
 // instancesSource draws a quad of those one draw draws (DrawInstances)
 // from its data: a color, rings as many as its fifth float around its
-// center, lighter the later it is drawn.
+// center, lighter the later it is drawn. The rings shade smoothly: a hard
+// edge would flip pixels where the GPU's floats round apart from the
+// CPU's.
 const instancesSource = `package main
 
 func Fragment(dst vec4, pos vec2) vec4 {
 	c := vec4(instanceData(0), instanceData(1), instanceData(2), instanceData(3))
 	d := length(pos - rectSize()/2) / length(rectSize()/2)
-	ring := 0.6 + 0.4*step(0.5, fract(d*instanceData(4)))
+	ring := 0.8 + 0.2*cos(6.2831853*d*instanceData(4))
 	k := float(instanceIndex()) / 10
 	return vec4(mix(c.rgb*ring, vec3(1), 0.3*k), 1) * c.a
 }
