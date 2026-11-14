@@ -4,7 +4,7 @@
 name: shadergen
 on:
   push:
-    branches: [claude/shadergen]
+    branches: [claude/shadergen-1862]
 permissions:
   contents: read
 jobs:
