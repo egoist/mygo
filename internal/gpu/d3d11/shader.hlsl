@@ -192,7 +192,10 @@ float contValue(float2 p, float4 rect, ContCorner c[4], out bool curved) {
 	float4 u = d.xzzx, v = d.yyww;
 	float value = max(max(-d.x, -d.y), max(-d.z, -d.w));
 	curved = false;
-	[unroll] for (int i = 0; i < 4; i++) {
+	// Loops, here and below, keep FXC from unrolling the curve into each of
+	// the shader's coverages: the shaders of continuous corners would take
+	// a megabyte.
+	[loop] for (int i = 0; i < 4; i++) {
 		if (c[i].r > 0 && u[i] < c[i].e && v[i] < c[i].e) {
 			value = max(value, contDist(c[i], u[i], v[i]));
 			curved = true;
@@ -225,9 +228,12 @@ float contCoverage(float2 p, float4 rect, float4 r) {
 		return d < 0 ? 1 : 0;
 	}
 	const float h = 1.0 / 16.0;
-	float dx = contValue(p + float2(h, 0), rect, c, ignored);
-	float dy = contValue(p + float2(0, h), rect, c, ignored);
-	return saturate(0.5 - d * h / max(abs(dx - d) + abs(dy - d), 1e-6));
+	// abs(dx - d) + abs(dy - d), the values h along x and along y.
+	float sum = 0;
+	[loop] for (int j = 0; j < 2; j++) {
+		sum += abs(contValue(p + (j == 0 ? float2(h, 0) : float2(0, h)), rect, c, ignored) - d);
+	}
+	return saturate(0.5 - d * h / max(sum, 1e-6));
 }
 
 // localValue is sdRoundRect, which radii make continuous where negative.
@@ -516,7 +522,7 @@ float contBoxShadow(float2 p, float4 rect, float sigma, ContCorner cc) {
 	float step = (end - start) / 4;
 	float y = start + step * 0.5;
 	float v = 0;
-	for (int k = 0; k < 4; k++) {
+	[loop] for (int k = 0; k < 4; k++) {
 		float row = h.y - abs(p.y - y);
 		float curved = row < cc.e ? h.x - contInset(cc, row) : h.x;
 		float2 integral = 0.5 + 0.5 * erf2((p.x + float2(-curved, curved)) * (sqrt(0.5) / sigma));
