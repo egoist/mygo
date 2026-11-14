@@ -142,6 +142,16 @@ func (s ParagraphStyle) normalized() ParagraphStyle {
 	if s.List != Tasks {
 		s.Checked = false
 	}
+	if s.Row > BodyRow {
+		s.Row = NoRow
+	}
+	if s.Row != NoRow {
+		// A row is a row, nothing else: a heading's or an item's style
+		// goes, as a cell can't be one.
+		s.Heading, s.List, s.Checked, s.CodeBlock = 0, NoList, false, false
+	} else {
+		s.Columns = ""
+	}
 	return s
 }
 
@@ -169,6 +179,16 @@ type ParagraphStyle struct {
 	// independent of Indent, which remains the nesting level of a list item.
 	QuoteDepth int  `json:"quoteDepth,omitempty"`
 	CodeBlock  bool `json:"codeBlock,omitempty"`
+	// Row makes the paragraph a row of a table, its cells apart by tabs
+	// (U+0009), a cell's lines by line separators (U+2028): a HeaderRow
+	// starts a table, and the BodyRows right after it are its rows, as
+	// paragraphs of code next to each other are one block. The header's
+	// text shows bold without being bold.
+	Row TableRow `json:"row,omitempty"`
+	// Columns aligns a row's table's columns, a letter each, as a
+	// Markdown table's delimiter row: 'l', 'c', 'r', or '-' for none. Its
+	// length is how many columns the table has. Every row holds it.
+	Columns string `json:"columns,omitempty"`
 	// ID is the app's name for the paragraph, the key of what it keeps
 	// about it, which the editor does not show. It stays with the
 	// paragraph's text as it is edited (see Text.Replace): a paragraph

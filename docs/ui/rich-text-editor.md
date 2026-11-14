@@ -93,6 +93,19 @@ Lists are flat, as in Quill and Automerge: a paragraph's `Indent` is its
 level, and items next to each other make a list, numbered at each level from
 1 (in letters and Roman numerals below the first).
 
+Tables are flat too: a row is a paragraph whose `Row` is `HeaderRow` or
+`BodyRow`, its cells apart by tabs and a cell's lines by line separators
+(U+2028). A row and the body rows right after it at the same depth of
+quotation and indentation are one table, as paragraphs of code next to
+each other are one block; a table starts with a header row, or with body
+rows when the app made none. Each row's `Columns` holds the table's
+alignments, a letter a column (`l`, `c`, `r`, or `-` for none), as a
+Markdown table's delimiter row; the first row's are the table's. A cell
+holds one paragraph of text, as GFM's tables do. A header row shows bold,
+at the theme's `TableHeaderWeight` (700), without its text being bold. A
+table copied as HTML is its rows as paragraphs, the header's bold, as
+before rows.
+
 A paragraph's `ID` is the app's name for it, as the key of what the app keeps
 about it, such as notes or a timeline. The editor does not show it, and it
 follows the paragraph's text through edits:
@@ -255,7 +268,8 @@ code, within text and in blocks, and the corners and room of blocks of
 code; each level of heading's size, weight, color and room above and
 below; the first-line indent of body paragraphs and the room between
 them; the indentation of lists, the colors of their markers and check
-boxes; the bar and text of quotations; and the padding of `Editor`,
+boxes; the bar and text of quotations; a table's grid, header, cells'
+padding and room around it; and the padding of `Editor`,
 which replaces the window theme's. What it leaves zero takes the
 value of `DefaultTheme` for the window's theme, so that a theme sets only
 what it changes, and follows the window into dark mode:
@@ -423,6 +437,45 @@ rules, measured on macOS 27, and those of ProseMirror, Lexical and Quill:
   until the caret moves: delete a bold word and type, and the text is bold.
 - After Enter, typing keeps the attributes typed before it.
 
+## Tables
+
+A table's cells are laid out side by side, each at its column's width and
+wrapping there, and a row is as tall as its tallest cell. Columns take
+their widths from what they hold, as a browser lays out a table: each as
+wide as its widest cell on one line, so a table that fits is as wide as
+its cells and typing widens only the column typed in; when that is wider
+than the editor, the columns narrower than an equal share keep their width
+and the others share the rest. The cells measured are those of a table's
+first 100 rows, so a long table lays out as fast as a short one and its
+columns stay as it scrolls; the rows after them wrap at those widths. The
+widths are worked out again only when an edit changes the table. The
+theme sets the rest of
+its look: `TableBorder` draws the grid (the window theme's `Border` by
+default), `TableHeaderBackground` fills the header (as blocks of code are
+filled, by default) and `TableHeaderWeight` weighs its text (700),
+`TableCellPadding` is the room around a cell's text (0.6 em across, 0.4 em
+down), and `TableSpacing` the room above and below the table (0.6 em). The
+rows touch.
+
+- Tab and Shift-Tab go to the end of the next cell and of the one before,
+  across rows. Tab in the last cell adds a row.
+- Enter adds a row below. On an empty last row it leaves the table, as on
+  an empty item of a list; on a header alone, empty, the table goes.
+- Backspace at a cell's start and Delete at its end do nothing, so cells
+  never merge. A selection across cells clears their text and keeps the
+  cells. A selection that holds a whole table, from its first row's start
+  to its last row's end, takes the table away with it, as select all and
+  Delete, Cut or typing do. What is typed or pasted in a cell is its
+  text: its paragraphs the cell's lines, its tabs spaces, its formats
+  kept.
+- Backspace and Delete take away an empty paragraph next to a table and
+  leave the table as it was.
+- ↑ and ↓ go to the row above or below when they leave a cell's lines.
+
+A table copied is the editor's own format, which pastes it back as a table,
+and plain text with its cells apart by tabs, which spreadsheets paste as
+cells.
+
 ## Attachments
 
 An attachment is an object replacement character (U+FFFC) whose
@@ -503,6 +556,11 @@ in `ui/richtext`).
 - underlines as `<u>`, and as `<strong>`, `<em>` and `<del>` the marks
   that Markdown's delimiters cannot open or close where they are, as bold
   "foo." right before "bar".
+- tables, as GFM's: the header, the delimiter row with the first row's
+  alignments, then the rows, each with as many cells as the widest, the
+  pipes in cells escaped and their line breaks as `<br>`, outside code
+  spans and marks. Rows with no header go under an empty one, as Markdown
+  has no table without.
 
 Alignment, fonts and colors have no Markdown and are left out.
 
@@ -510,5 +568,8 @@ Alignment, fonts and colors have no Markdown and are left out.
 CommonMark with GitHub's extensions and footnotes, with the parser of
 [Markdown views](markdown.md) (`ui/markdown/parser`). A list item's
 paragraphs after its first are indented under it, and a table's rows are
-paragraphs of their cells apart by tabs. Math stays as written, as the
-editor does not show it. What `Markdown` writes reads back the same.
+rows, with as many cells as its header, as GitHub shows them; a header's
+text reads as it's written, not bold, as it was when the rows were
+paragraphs, for it shows bold by the theme. Math stays as written, as the
+editor does not show it. What `Markdown` writes reads back the same, but
+for the empty header of rows that had none.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"image"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -117,7 +118,14 @@ func writeBlocks(b *strings.Builder, paras []Paragraph) {
 			if len(p.Runs) == 0 {
 				b.WriteString("<br>")
 			}
-			writeRuns(b, p.Runs)
+			runs := p.Runs
+			if st.Row == HeaderRow {
+				// A header row goes as bold text, as the editor read it
+				// before it had rows, so what's pasted elsewhere looks
+				// as it did.
+				runs = boldRuns(runs)
+			}
+			writeRuns(b, runs)
 			b.WriteString("</" + tag + ">")
 		}
 	}
@@ -632,4 +640,15 @@ func hasAttr(n *xhtml.Node, key string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// boldRuns returns runs bold where they have no weight of their own.
+func boldRuns(runs []Run) []Run {
+	out := slices.Clone(runs)
+	for k := range out {
+		if out[k].Attributes.Weight == 0 {
+			out[k].Attributes.Weight = 700
+		}
+	}
+	return out
 }

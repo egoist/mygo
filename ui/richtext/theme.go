@@ -33,6 +33,17 @@ type Theme struct {
 	CodeBlockRadius     float32
 	CodeBlockPadding    [2]float32
 
+	// TableHeaderWeight is the weight of a table's header: 700.
+	TableHeaderWeight int
+	// TableBorder draws a table's grid, the window theme's Border by
+	// default, and TableHeaderBackground fills its header, the
+	// CodeBlockBackground by default. TableCellPadding is the room around
+	// a cell's text, in ems: 0.6 across and 0.4 down. TableSpacing is the
+	// room above and below a table, in ems: 0.6; its rows touch.
+	TableBorder, TableHeaderBackground ui.Color
+	TableCellPadding                   [2]float32
+	TableSpacing                       float32
+
 	// Headings are the styles of headings of levels 1 to 6.
 	Headings [6]HeadingStyle
 
@@ -103,6 +114,10 @@ func defaultTheme(t *ui.Theme) Theme {
 		CodeBlockBackground: t.Text.Alpha(0.07),
 		CodeBlockRadius:     0.3,
 		CodeBlockPadding:    [2]float32{0.7, 0.5},
+		TableHeaderWeight:   700,
+		TableBorder:         t.Border,
+		TableCellPadding:    [2]float32{0.6, 0.4},
+		TableSpacing:        0.6,
 		Indent:              1.7,
 		Marker:              t.Text,
 		Checkbox:            t.Accent,
@@ -112,6 +127,7 @@ func defaultTheme(t *ui.Theme) Theme {
 		QuoteBarWidth:       3,
 		Padding:             [2]float32{t.Space(3), t.Space(2.5)},
 	}
+	th.TableHeaderBackground = th.CodeBlockBackground
 	for i, size := range headingSizes {
 		th.Headings[i] = HeadingStyle{Size: size, Weight: 700, Color: t.Text, Top: 0.6, Bottom: 0.25}
 	}
@@ -151,6 +167,14 @@ func resolve(th *Theme, def *Theme) Theme {
 	f(&out.CodeBlockRadius, def.CodeBlockRadius)
 	f(&out.CodeBlockPadding[0], def.CodeBlockPadding[0])
 	f(&out.CodeBlockPadding[1], def.CodeBlockPadding[1])
+	if out.TableHeaderWeight == 0 {
+		out.TableHeaderWeight = def.TableHeaderWeight
+	}
+	c(&out.TableBorder, def.TableBorder)
+	c(&out.TableHeaderBackground, out.CodeBlockBackground)
+	f(&out.TableCellPadding[0], def.TableCellPadding[0])
+	f(&out.TableCellPadding[1], def.TableCellPadding[1])
+	f(&out.TableSpacing, def.TableSpacing)
 	for i := range out.Headings {
 		h, d := &out.Headings[i], def.Headings[i]
 		f(&h.Size, d.Size)

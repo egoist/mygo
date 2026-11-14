@@ -57,7 +57,24 @@ func (v *view) replace(start, end int, s string) {
 	if d.typing != nil {
 		attrs = *d.typing
 	}
-	v.lockedEdit(func(e *Edit) { e.ReplaceString(start, end, s, attrs) })
+	if spans, ins, plain, ok := keepCells(d.text, start, end, s); ok {
+		// A table keeps its cells: what's between its tabs goes, they stay.
+		if len(spans) == 0 && ins == "" {
+			return // Backspace at a cell's start: nothing to take
+		}
+		s = ins
+		v.lockedEdit(func(e *Edit) {
+			for k := len(spans) - 1; k >= 0; k-- {
+				e.ReplaceString(spans[k][0], spans[k][1], "", attrs)
+			}
+			if plain {
+				unrow(e, start)
+			}
+			e.ReplaceString(start, start, s, attrs)
+		})
+	} else {
+		v.lockedEdit(func(e *Edit) { e.ReplaceString(start, end, s, attrs) })
+	}
 	caret := start + utf8.RuneCountInString(s)
 	v.selAnchor, v.caret = caret, caret
 	d.anchor, d.caret = caret, caret
@@ -216,6 +233,10 @@ func (v *view) enter() {
 	a, z := v.selection()
 	p := v.shown.paraAt(v.caret)
 	st := v.para(p).style
+	if st.Row != NoRow && a == z {
+		v.tableEnter()
+		return
+	}
 	ps := v.shown.paraStart(p)
 	pe := ps + v.para(p).n
 	if a == z && ps == pe {
