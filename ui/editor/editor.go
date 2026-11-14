@@ -470,7 +470,12 @@ func (ed *editor) setSels(sels []sel, reveal reveal) {
 }
 
 // primary returns the newest selection.
-func (ed *editor) primary() sel { return ed.sels[newest(ed.sels)] }
+func (ed *editor) primary() sel {
+	if len(ed.sels) == 0 {
+		return sel{goal: -1}
+	}
+	return ed.sels[newest(ed.sels)]
+}
 
 func (ed *editor) newSel(anchor, head int) sel {
 	ed.nextID++

@@ -1131,3 +1131,17 @@ func TestHeightsZeroValue(t *testing.T) {
 		t.Fatalf("lineAt of the zero heights = %d, want 0", got)
 	}
 }
+
+// primary returns a default selection with no goal when selections are
+// not initialized yet, instead of panicking on an empty slice.
+func TestEditorPrimaryEmptySels(t *testing.T) {
+	var ed editor
+	want := sel{goal: -1}
+	if got := ed.primary(); got != want {
+		t.Fatalf("zero editor.primary() = %+v, want %+v", got, want)
+	}
+	ed.sels = []sel{}
+	if got := ed.primary(); got != want {
+		t.Fatalf("empty sels editor.primary() = %+v, want %+v", got, want)
+	}
+}
