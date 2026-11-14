@@ -735,7 +735,9 @@ shell as [panels](#panels) are, where the compositor speaks the protocol
 installed: on the overlay layer, above full-screen windows too, out of the
 taskbar, where its bounds put it whatever the desktop's panels reserve,
 and taking the keyboard only when clicked, so that the app under it keeps
-it. Elsewhere, as on GNOME, which has no layer shell, it is a window as
+it. It stays above until it closes: `SetAlwaysOnTop(false)` cannot make a
+layer surface a window again, so an app that lets the user turn it off
+opens the window again without `AlwaysOnTop`. Elsewhere, as on GNOME, which has no layer shell, it is a window as
 others, which other windows may cover; under XWayland (`GDK_BACKEND=x11`)
 GNOME keeps it above, full-screen windows too.
 

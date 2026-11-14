@@ -441,7 +441,7 @@ pet.SetInputRegion([]mygo.Rectangle{character, {X: 10, Y: 10, Width: 220, Height
 
 在 macOS 和 Windows 上，按住鼠标键时窗口保持原样：从角色上开始的拖拽在那里结束，从背后内容上开始的拖拽也在那里结束，松开后决定下一次谁接收鼠标。
 
-在会忽略置顶的 Wayland 下，这样的窗口（无边框、`AlwaysOnTop` 且 `SkipTaskbar`，没有父窗口）在合成器支持 layer shell 协议（KDE Plasma、Sway、Hyprland、COSMIC……）且已安装 `libgtk-layer-shell.so.0` 时，会像[面板](#面板)一样使用该协议的绘制表面：显示在覆盖层，位于全屏窗口之上，不出现在任务栏中，按窗口的边界定位，不受桌面面板预留区域的影响；只有被点击时才接收键盘，因此它下面的应用保持键盘焦点。在其他桌面上（例如没有 layer shell 的 GNOME），它与普通窗口一样，可能被其他窗口遮住；在 XWayland 下（`GDK_BACKEND=x11`），GNOME 会让它保持在其他窗口之上，全屏窗口也不例外。
+在会忽略置顶的 Wayland 下，这样的窗口（无边框、`AlwaysOnTop` 且 `SkipTaskbar`，没有父窗口）在合成器支持 layer shell 协议（KDE Plasma、Sway、Hyprland、COSMIC……）且已安装 `libgtk-layer-shell.so.0` 时，会像[面板](#面板)一样使用该协议的绘制表面：显示在覆盖层，位于全屏窗口之上，不出现在任务栏中，按窗口的边界定位，不受桌面面板预留区域的影响；只有被点击时才接收键盘，因此它下面的应用保持键盘焦点。它会一直保持在上层直到关闭：`SetAlwaysOnTop(false)` 无法让 layer shell 表面变回普通窗口，因此允许用户关闭置顶的应用需要重新打开一个不带 `AlwaysOnTop` 的窗口。在其他桌面上（例如没有 layer shell 的 GNOME），它与普通窗口一样，可能被其他窗口遮住；在 XWayland 下（`GDK_BACKEND=x11`），GNOME 会让它保持在其他窗口之上，全屏窗口也不例外。
 
 ## 事件
 

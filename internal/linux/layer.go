@@ -3,6 +3,7 @@
 package linux
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -173,6 +174,68 @@ func (w *window) setLayerBounds(r platform.Rect) {
 func (w *window) sizeLayer(width, height int32) {
 	gtkWidgetSetSizeRequest(w.win, width, height)
 	gtkWindowResize(w.win, width, height)
+}
+
+// layerMove is a move of a layer surface by the pointer, or a resize from
+// one of its edges, which the compositor does for toplevels only.
+type layerMove struct {
+	edge  int32         // the GdkWindowEdge resized, or -1 to move
+	start platform.Rect // the bounds as the button pressed
+}
+
+// moveLayer moves or resizes a layer surface after the pointer while the
+// button stays down, and reports whether it still does. The pointer's
+// coordinates count from the surface, which moves under it: it has gone
+// as far as the surface moved, and as the pointer moved in it since the
+// press.
+func (w *window) moveLayer(event ptr) bool {
+	// GdkEventMotion: state 48, x_root 64, y_root 72.
+	if field[uint32](event, 48)&(1<<8) == 0 {
+		w.layerMove = nil
+		return false
+	}
+	m, now := w.layerMove, w.layerBounds()
+	dx := now.X - m.start.X + int(math.Round(field[float64](event, 64)-w.press.rootX))
+	dy := now.Y - m.start.Y + int(math.Round(field[float64](event, 72)-w.press.rootY))
+	r := m.start
+	if m.edge < 0 {
+		r.X, r.Y = r.X+dx, r.Y+dy
+	} else {
+		// GdkWindowEdge: NORTH_WEST 0, NORTH 1, NORTH_EAST 2, WEST 3,
+		// EAST 4, SOUTH_WEST 5, SOUTH 6, SOUTH_EAST 7.
+		e := m.edge
+		west, east := e == 0 || e == 3 || e == 5, e == 2 || e == 4 || e == 7
+		north, south := e <= 2, e >= 5
+		switch {
+		case west:
+			r.Width -= dx
+		case east:
+			r.Width += dx
+		}
+		switch {
+		case north:
+			r.Height -= dy
+		case south:
+			r.Height += dy
+		}
+		width, height := w.constrain(int32(r.Width), int32(r.Height))
+		r.Width, r.Height = int(width), int(height)
+		// The opposite edges stay where they were.
+		if west {
+			r.X = m.start.X + m.start.Width - r.Width
+		}
+		if north {
+			r.Y = m.start.Y + m.start.Height - r.Height
+		}
+	}
+	if r.X != now.X || r.Y != now.Y {
+		w.placeLayer(r.X, r.Y)
+		w.h.Moved() // Wayland tells no window where it is: the move does
+	}
+	if m.edge >= 0 && (r.Width != now.Width || r.Height != now.Height) {
+		w.sizeLayer(int32(r.Width), int32(r.Height))
+	}
+	return true
 }
 
 // layerBounds returns where a layer surface is: where it was put, or the
