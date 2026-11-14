@@ -106,6 +106,21 @@ falling back to `index.html` like the frontend. Handling the `mygo` scheme
 replaces the frontend with your handler. Pages of custom schemes are the
 app's own: they may call Go methods, see [trust](#trust).
 
+On Windows, WebView2 takes a response once its handler returned, or
+once it wrote 1 MB: the rest then streams, the handler's writes waiting
+while WebView2 is behind. WebView2 reads the responses of custom schemes
+one at a time, and seems to give the page none of a response before it
+read all of it. A handler that keeps a response open, as server-sent
+events or long polling do, reaches the page only once it returns, and
+past its first megabyte holds back the app's other responses meanwhile:
+send such updates with [events](bindings.md#events) instead. For the same
+reason a `<video>` or `<audio>` that asks for the rest of a file
+(`Range: bytes=X-`) gets at most 4 MB: its handler sees the range
+narrowed to `bytes=X-(X+4 MB-1)`, answers with that part (206), as
+`mygo.FileServer` and `http.ServeFile` do, and the element asks for what
+follows as it plays. A request's context is canceled once WebView2 lets
+go of its response, so that the handler stops writing.
+
 Audio and video are the exception: WebKitGTK's media player does not play
 from a custom scheme, so on Linux a `<video>` or `<audio>` of one fails with
 `MEDIA_ERR_SRC_NOT_SUPPORTED` (`error.code` 4), whatever the handler
@@ -350,7 +365,8 @@ the window:
   outer pixels of the page resize the window, as a frameless one's. The
   window's menu bar hides, as with `AutoHideMenuBar`: Alt and F10 show it
   above the page while its menus are open, and its shortcuts work all
-  along.
+  along. `Theme.SetGTKCSS` restyles the buttons, as GTK 4's round ones,
+  for example ([GTK's style](windows.md#gtks-style-on-linux)).
 
 ```go
 mygo.NewWindow(mygo.WindowOptions{
@@ -367,6 +383,7 @@ CSS variables on `:root`:
 |---|---|
 | `--mygo-titlebar-height` | the height of the title bar |
 | `--mygo-titlebar-inset-left`, `--mygo-titlebar-inset-right` | the room the controls take from the left and from the right edge |
+| `--mygo-titlebar-controls-bottom` | where the controls end, from the top edge: the bottom of the traffic lights on macOS, the title bar's height on Linux and Windows |
 
 They are `0px` in full screen, where the controls hide (on macOS they come
 back with the menu bar). The page's title bar keeps clear of the controls
@@ -378,6 +395,15 @@ and, marked with `--app-region: drag`, moves the window:
   height: var(--mygo-titlebar-height, 40px);
   padding-left: var(--mygo-titlebar-inset-left, 0px);
   padding-right: var(--mygo-titlebar-inset-right, 0px);
+}
+```
+
+A sidebar that runs to the top of the window, with the traffic lights over
+it, starts its items below them:
+
+```css
+.sidebar {
+  padding-top: calc(var(--mygo-titlebar-controls-bottom, 0px) + 8px);
 }
 ```
 

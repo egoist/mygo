@@ -173,7 +173,13 @@ func (c clipboard) ReadData(formats []transfer.Format) (transfer.Data, error) {
 	return transfer.New(transfer.NewItem(reps...)), nil
 }
 
-func (c clipboard) WriteData(d transfer.Data, _ func()) error {
+// WatchChanges is unsupported: neither system tells an app in the
+// background of the clipboard's changes.
+func (c clipboard) WatchChanges(func()) (func(), error) { return nil, platform.ErrUnsupported }
+
+// WriteData writes d. Phones keep no concealed flag the app can set
+// through these calls, so concealed is ignored.
+func (c clipboard) WriteData(d transfer.Data, _ bool, _ func()) error {
 	wrote := false
 	if b, err := d.Read(transfer.PNG); err == nil {
 		c.WriteImage(b)
@@ -214,6 +220,14 @@ func (s shell) OpenPath(path string) error {
 }
 
 func (s shell) ShowItemInFolder(path string) { s.b.call(&wire.ShareFile{Path: path}, nil) }
+
+// Phones have no trash, no Quick Look of the app's own and no default
+// apps the app can ask for.
+func (shell) TrashItemResult(string) (string, error) { return "", platform.ErrUnsupported }
+func (shell) PreviewItem(string) error               { return platform.ErrUnsupported }
+func (shell) DefaultApp(string) (platform.Application, error) {
+	return platform.Application{}, platform.ErrUnsupported
+}
 
 func (s shell) Beep() { s.b.call(&wire.Haptic{Kind: "warning"}, nil) }
 
@@ -258,6 +272,10 @@ type power struct {
 
 // KeepAwake keeps the screen on, as phones keep apps running while their
 // screens show them.
+// KeepRunning does nothing: the systems suspend an app in the
+// background as they choose (plugins/background schedules work).
+func (power) KeepRunning(string) func() { return func() {} }
+
 func (p power) KeepAwake(_ bool, _ string) func() {
 	p.b.call(&wire.KeepAwake{On: true}, nil)
 	return func() { p.b.call(&wire.KeepAwake{On: false}, nil) }

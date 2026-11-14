@@ -929,7 +929,7 @@ func (rt *engine) longPress(t *touchPan) {
 		// As the second press of two on it, whatever it was pressed before.
 		rt.lastPress.prev, rt.lastPress.base = s.id, 0
 		rt.pointerDown(x, y, 0, rt.mods, 2)
-		rt.pointerUp(0, 2)
+		rt.pointerUp(0, 2, false)
 		t.swallow = true
 		rt.touchText.id = s.id
 		rt.showEditMenu(s)
@@ -938,7 +938,7 @@ func (rt *engine) longPress(t *touchPan) {
 		rt.cancelPress()
 		t.swallow = true
 		rt.pointerDown(x, y, 1, rt.mods, 1)
-		rt.pointerUp(1, 1)
+		rt.pointerUp(1, 1, false)
 	}
 }
 

@@ -149,13 +149,13 @@ func lookOf(e *node) matchLook {
 }
 
 // mixLook returns the look k of the way from a to b.
-func mixLook(a, b matchLook, k float32) matchLook {
+func mixLook(a, b matchLook, k float32, lab bool) matchLook {
 	m := matchLook{opacity: max(0, min(lerp(a.opacity, b.opacity, k), 1)), text: b.text, turn: mixTransform(a.turn, b.turn, k)}
 	for i := range m.radius {
 		m.radius[i] = max(lerp(a.radius[i], b.radius[i], k), 0)
 	}
 	if a.text != b.text {
-		m.text = mixPremultiplied(a.text, b.text, max(0, min(k, 1)))
+		m.text = mixPremultiplied(a.text, b.text, max(0, min(k, 1)), lab)
 	}
 	return m
 }
@@ -443,6 +443,7 @@ func under(e *node, world, around scene.Affine) {
 	if world == around {
 		return
 	}
+	journalKeepNode(e)
 	inv, ok := around.Inverse()
 	if !ok {
 		return
@@ -480,6 +481,7 @@ func (*matches) scale(e *node, w, h float32) {
 	if e.originSet {
 		ox, oy = e.originX, e.originY
 	}
+	journalKeepNode(e)
 	e.transform = e.transform.Then(Transform{m: scene.Translation((kx-1)*ox*e.w, (ky-1)*oy*e.h).Mul(scene.Scaling(kx, ky))})
 }
 
@@ -606,7 +608,8 @@ func (m *matches) claim() {
 		if g.opacitySet {
 			alpha = g.opacity
 		}
-		g.leaving, g.flags = 2, g.flags|flagAbsolute
+		g.leaving = 2
+		g.markAbsolute()
 		// Painted out of the elements around it, it keeps the text style
 		// and the theme they gave it.
 		g.ts = e.resolvedText()
@@ -660,6 +663,7 @@ func (m *matches) move() {
 		switch {
 		case holder != nil && holder != e:
 			if u.t.Fly && !e.lift && inert(e) {
+				journalKeep(rt, &e.flags)
 				e.flags |= flagInvisible
 			}
 		case rec.takenAt != rt.frame:
@@ -929,6 +933,9 @@ func (m *matches) fly(f *flight, e *node, shown, box Rect, uses []transitionUse,
 	if src == nil && f.srcID != 0 {
 		src = m.builtWith(uses, f.srcID)
 	}
+	if src != nil {
+		journalKeepNode(src)
+	}
 	if src != nil && f.morph {
 		// Its characters move into this one's.
 		src.flags |= flagInvisible
@@ -967,7 +974,9 @@ func (m *matches) fly(f *flight, e *node, shown, box Rect, uses []transitionUse,
 	}
 	// Itself, from the other's look to its own: laid out first, as its
 	// look lays out nothing.
-	look := mixLook(f.lookFrom, f.lookTo, k)
+	lab := f.r.animation().Oklab
+	look := mixLook(f.lookFrom, f.lookTo, k, lab)
+	journalKeepNode(e)
 	e.transform = look.turn
 	if f.morph {
 		// Its text as laid out, which its characters move to, as they
@@ -978,7 +987,7 @@ func (m *matches) fly(f *flight, e *node, shown, box Rect, uses []transitionUse,
 				pr.toX, pr.toY, pr.toFrame = box.X-shown.X, box.Y-shown.Y, rt.frame
 			}
 			// Its characters go to its color as they move.
-			look.text = mixPremultiplied(cr.oldColor, f.lookTo.text, max(0, min(float32(cr.k.value), 1)))
+			look.text = mixPremultiplied(cr.oldColor, f.lookTo.text, max(0, min(float32(cr.k.value), 1)), lab)
 		}
 		// Its characters place themselves (morph): without the translation
 		// of the elements flying around it.
@@ -1035,6 +1044,7 @@ func (m *matches) flyOn(f *flight, id uint64, uses []transitionUse, now time.Tim
 	if x := rt.trans[f.copyIn]; e == nil || x == nil || x.ghost == nil || x.built == rt.frame || e.flags&flagInvisible != 0 {
 		return false // gone, or flying with another element of its Match
 	}
+	journalKeepNode(e)
 	r := f.r
 	box := Rect{e.x, e.y, e.w, e.h}
 	shown, moving := m.advance(f, box, now)
@@ -1059,7 +1069,8 @@ func (m *matches) flyOn(f *flight, id uint64, uses []transitionUse, now time.Tim
 		} else {
 			r.colorMoving = false
 		}
-		e.bg, e.borderC = mixPremultiplied(r.colorFrom[0], r.colorTarget[0], k), mixPremultiplied(r.colorFrom[1], r.colorTarget[1], k)
+		lab := r.animation().Oklab
+		e.bg, e.borderC = mixPremultiplied(r.colorFrom[0], r.colorTarget[0], k, lab), mixPremultiplied(r.colorFrom[1], r.colorTarget[1], k, lab)
 	}
 	fade := float32(1)
 	for a := e.parent; a != nil; a = a.parent {
@@ -1103,6 +1114,7 @@ func (m *matches) show(e *node, r Rect, scaled bool) {
 // rather than each glyph a pixel at a time, and is the text at rest once
 // there.
 func (m *matches) pin(e *node, rest Rect) Point {
+	journalKeepNode(e)
 	_, _, s := m.rt.size()
 	around := m.around(e)
 	x, rx := snapTo(e.x-around.X, rest.X, s)

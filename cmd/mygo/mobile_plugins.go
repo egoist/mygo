@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,23 +114,6 @@ func (c *Config) mobilePlugins(goos string) (mobilePlugins, error) {
 	return out, nil
 }
 
-// packageDirs lists the directories of the packages the app imports.
-func (c *Config) packageDirs(goos, goarch string) ([]string, error) {
-	var out, stderr bytes.Buffer
-	cmd := goCommand(c.root, listEnv(goos, goarch), "list", "-e", "-deps", "-f", "{{.Dir}}", c.Main)
-	cmd.Stdout, cmd.Stderr = &out, &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("go list: %v\n%s", err, strings.TrimSpace(stderr.String()))
-	}
-	var dirs []string
-	for line := range strings.Lines(out.String()) {
-		if d := strings.TrimSpace(line); d != "" {
-			dirs = append(dirs, d)
-		}
-	}
-	return dirs, nil
-}
-
 // listEnv is the environment that go list sees the packages of goos with:
 // phones link with cgo, without which it stops at the main package.
 func listEnv(goos, goarch string) []string {
@@ -210,22 +192,15 @@ func (ps mobilePlugins) writeKotlin(dir string) error {
 				return err
 			}
 			name := "Plugin_" + p.ID + "_" + filepath.Base(f)
-			if err := writeIfChanged(filepath.Join(dir, name), data); err != nil {
+			if _, err := writeIfChanged(filepath.Join(dir, name), data); err != nil {
 				return err
 			}
 		}
 		fmt.Fprintf(&reg, "    PluginHost.register(%q, %s())\n", p.ID, p.Android.Class)
 	}
 	reg.WriteString("}\n")
-	return writeIfChanged(filepath.Join(dir, "PluginRegistry.kt"), []byte(reg.String()))
-}
-
-// writeIfChanged leaves a file Gradle would rebuild alone if it stays as it is.
-func writeIfChanged(path string, data []byte) error {
-	if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, data) {
-		return nil
-	}
-	return os.WriteFile(path, data, 0o644)
+	_, err := writeIfChanged(filepath.Join(dir, "PluginRegistry.kt"), []byte(reg.String()))
+	return err
 }
 
 // entitlements are what the plugins need the app signed with.

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/egoist/mygo/internal/nativelib"
+
 	"archive/zip"
 	"context"
 	"crypto/sha256"
@@ -156,7 +158,7 @@ func (n *pluginNative) compile(ctx context.Context, p *mobilePlugin, t nativeTar
 // extract puts the archive's files in dir, and returns them.
 func (n *pluginNative) extract(dir string) ([]string, error) {
 	a := n.Archive
-	archive, err := fetchNative(nativeFile{Name: path.Base(a.URL), URL: a.URL, SHA256: a.SHA256})
+	archive, err := fetchNative(nativelib.File{Name: path.Base(a.URL), URL: a.URL, SHA256: a.SHA256})
 	if err != nil {
 		return nil, err
 	}
@@ -317,6 +319,16 @@ func (ps mobilePlugins) copyAndroidNatives(ctx context.Context, t *androidToolch
 		}
 	}
 	return nil
+}
+
+// builtForPhones reports whether, on goos, the package compiles the
+// library name itself (builtForPhones): only on phones.
+func (p nativePackage) builtForPhones(goos, name string) bool {
+	if goos != "ios" && goos != "android" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(p.dir, pluginFile))
+	return err == nil && builtForPhones(data, name)
 }
 
 // builtForPhones reports whether the file of a plugin compiles a library

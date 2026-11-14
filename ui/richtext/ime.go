@@ -108,6 +108,8 @@ func (v *view) ReplaceText(r *ui.TextInputRange, s string) {
 	if v.opts.ReadOnly {
 		return
 	}
+	// As typed text goes in.
+	s = normalizeNewlines(s)
 	switch {
 	case r == nil && v.compose != "":
 		v.compose = ""

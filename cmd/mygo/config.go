@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -43,6 +44,12 @@ type Config struct {
 	// installed app (default: the copyright notice without its "©" and
 	// years, as "Example Inc." of "Copyright © 2026 Example Inc.").
 	Publisher string `json:"publisher"`
+	// License is the SPDX license expression of the app, such as "MIT" or
+	// "Apache-2.0 WITH LLVM-exception", which the RPM package and the
+	// PKGBUILD of Arch Linux record. It defaults to the license of
+	// package.json, for apps whose frontend declares one (default:
+	// package.json's license).
+	License string `json:"license"`
 	// Icon is a square PNG, ideally 1024x1024 (default:
 	// resources/icon.png when it exists). Beside it, the same name with
 	// -dev, as icon-dev.png, is the development app's, when it exists.
@@ -83,6 +90,14 @@ type Config struct {
 	// directories named after a platform, such as resources/linux-amd64,
 	// hold the files of one platform.
 	Resources []string `json:"resources"`
+	// ResourcesExclude leaves files of the project's resources directory
+	// out of the apps: patterns of their paths there, with slashes, whose
+	// segments match as path.Match matches them, but **, which matches any
+	// number of directories, as in "**/*.psd". A directory that matches is
+	// left out with what it holds. Go source files are always left out:
+	// builds read them, such as a package that embeds the files beside it,
+	// and apps never do. Listed Resources ship whole.
+	ResourcesExclude []string `json:"resourcesExclude"`
 
 	// URLSchemes are the custom URL schemes (deep links) of the app, e.g.
 	// "myapp" for myapp://…, whose URLs reach mygo.App.OnOpenURL. macOS
@@ -106,6 +121,13 @@ type Config struct {
 
 	root string
 	file string // the configuration file, "" without one
+	// native is what the app's native modules add to its bundle, once
+	// prepareNative built them.
+	native *nativeApp
+	// deps caches the directories of the packages the app is built from,
+	// by target, for one build: listing them once serves both the native
+	// libraries (natives) and the native modules (appNativeModules).
+	deps map[string][]string
 	// langs are the languages the app ships, which languages reads once.
 	langs     []appLanguage
 	langsErr  error
@@ -375,6 +397,13 @@ func (c *Config) validate() error {
 				return fmt.Errorf("fileAssociations[%d]: %q is not a file name extension (without the dot)", i, ext)
 			}
 		}
+		if fa.MimeType != "" {
+			mediaType, params, err := mime.ParseMediaType(fa.MimeType)
+			if err != nil || !strings.Contains(mediaType, "/") || len(params) != 0 || strings.ContainsAny(fa.MimeType, ";\r\n") {
+				return fmt.Errorf("fileAssociations[%d].mimeType %q is not a MIME type (type/subtype, as text/markdown, without parameters)", i, fa.MimeType)
+			}
+			c.FileAssociations[i].MimeType = mediaType
+		}
 		if fa.Role != "" && fa.Role != "Editor" && fa.Role != "Viewer" {
 			return fmt.Errorf("fileAssociations[%d].role is Editor or Viewer", i)
 		}
@@ -409,9 +438,19 @@ func (c *Config) validate() error {
 			return fmt.Errorf("linux.command names %q twice", cmd)
 		}
 	}
+	for _, f := range c.Linux.Formats {
+		if !slices.Contains(linuxFormats, f) {
+			return fmt.Errorf("linux.formats %q is not a Linux package format, which are %s", f, strings.Join(linuxFormats, ", "))
+		}
+	}
 	if c.Updates != nil {
 		if err := c.Updates.validate(); err != nil {
 			return err
+		}
+	}
+	for _, p := range c.ResourcesExclude {
+		if !validPattern(p) {
+			return fmt.Errorf("resourcesExclude: %q is not a pattern of paths in the resources directory (path.Match patterns or **, between single slashes)", p)
 		}
 	}
 	for _, scheme := range c.URLSchemes {

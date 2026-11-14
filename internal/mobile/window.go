@@ -212,6 +212,8 @@ func (w *window) Opacity() float64                           { return 1 }
 func (w *window) SetHasShadow(bool)                          {}
 func (w *window) HasShadow() bool                            { return false }
 func (w *window) SetIgnoreMouseEvents(bool)                  {}
+func (w *window) IgnoresMouseEvents() bool                   { return false }
+func (w *window) SetVibrancyTint(*platform.Color)            {}
 func (w *window) SetContentProtection(bool)                  {}
 func (w *window) SetVibrancy(string)                         {}
 func (w *window) SetActiveAppearance(bool)                   {}
@@ -396,6 +398,7 @@ func (w *window) UserAgent() string {
 }
 
 func (w *window) ProcessID() int       { return 0 }
+func (w *window) GPUProcessID() int    { return 0 }
 func (w *window) IsAudible() bool      { return false }
 func (w *window) SetAudioMuted(m bool) { w.muted = m }
 func (w *window) IsAudioMuted() bool   { return false }

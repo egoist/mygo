@@ -122,6 +122,8 @@ var (
 	procGetForegroundWindow           = user32.NewProc("GetForegroundWindow")
 	procNotifyWinEvent                = user32.NewProc("NotifyWinEvent")
 	procSetFocus                      = user32.NewProc("SetFocus")
+	procGetFocus                      = user32.NewProc("GetFocus")
+	procGetWindowThreadProcessId      = user32.NewProc("GetWindowThreadProcessId")
 	procEnableWindow                  = user32.NewProc("EnableWindow")
 	procGetWindowPlacement            = user32.NewProc("GetWindowPlacement")
 	procSetWindowPlacement            = user32.NewProc("SetWindowPlacement")
@@ -215,6 +217,7 @@ var (
 
 	// shlwapi
 	procSHCreateMemStream = shlwapi.NewProc("SHCreateMemStream")
+	procAssocQueryStringW = shlwapi.NewProc("AssocQueryStringW")
 
 	// dwmapi
 	procDwmSetWindowAttribute        = dwmapi.NewProc("DwmSetWindowAttribute")
@@ -233,6 +236,7 @@ var (
 	procRegSetValueExW   = advapi32.NewProc("RegSetValueExW")
 	procRegDeleteValueW  = advapi32.NewProc("RegDeleteValueW")
 	procRegDeleteTreeW   = advapi32.NewProc("RegDeleteTreeW")
+	procRegEnumKeyExW    = advapi32.NewProc("RegEnumKeyExW")
 
 	// ntdll
 	procRtlGetVersion = ntdll.NewProc("RtlGetVersion")
@@ -389,11 +393,15 @@ const (
 	mfsChecked    = 0x0008
 	mfsDisabled   = 0x0003
 
-	tpmRightButton = 0x0002
-	tpmRightAlign  = 0x0008
-	tpmReturnCmd   = 0x0100
-	tpmLayoutRTL   = 0x8000
-	mncClose       = 1
+	tpmRightButton  = 0x0002
+	tpmCenterAlign  = 0x0004
+	tpmRightAlign   = 0x0008
+	tpmVCenterAlign = 0x0010
+	tpmBottomAlign  = 0x0020
+	tpmVertical     = 0x0040
+	tpmReturnCmd    = 0x0100
+	tpmLayoutRTL    = 0x8000
+	mncClose        = 1
 
 	monitorDefaultToNull    = 0
 	monitorDefaultToNearest = 2

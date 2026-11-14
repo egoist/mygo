@@ -89,6 +89,7 @@ func (a *app) Dispatch() {
 }
 func (a *app) QuitRequested() bool                               { return true }
 func (a *app) Terminating()                                      {}
+func (a *app) HotkeyBound(int, string)                           {}
 func (a *app) Activated(bool)                                    {}
 func (a *app) DidBecomeActive()                                  {}
 func (a *app) DidResignActive()                                  {}

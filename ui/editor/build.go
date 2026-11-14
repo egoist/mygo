@@ -28,6 +28,7 @@ func View(c *ui.Context, st *State) ui.Element {
 
 // build builds the element of an editor for a frame.
 func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
+	ed.view.sys = c.TextSystem()
 	ed.texts = l10n.In(c.Locale())
 	ed.init(buf, o, c.Theme())
 	ed.services = c.Services()
@@ -36,6 +37,10 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 	ed.sync()
 	ed.syncGitDiff()
 	ed.frameNow = c.Now()
+	if o.fitContent {
+		ed.builtY[0], ed.builtY[1] = ed.fitRange()
+	}
+	ed.builds++
 	// Code reads left to right in a right-to-left interface too, as in
 	// editors: its gutter on the left, its lines from the left.
 	e := ui.Box(c).Direction(ui.LeftToRight).Focusable().FocusRing(false).Clip()
@@ -72,8 +77,13 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 		}
 	}
 	e.HandleInput(ed.input)
-	switch ed.region {
-	case regionText:
+	// Cmd held or let go with the pointer still draws a frame, which
+	// shows the link or takes it away.
+	ed.link = ed.linkAt(c.Modifiers())
+	switch {
+	case ed.link[1] > ed.link[0]:
+		e.Cursor(ui.CursorPointer)
+	case ed.region == regionText:
 		e.Cursor(ui.CursorText)
 	default:
 		e.Cursor(ui.CursorDefault)
@@ -82,12 +92,12 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 	e.ContextMenu(ed.menu)
 	if o.fitContent {
 		// As high as the lines, at the width of the last frame.
-		w := ed.r.W
-		if w <= 0 {
-			w = 600
+		ed.layout(ed.fitWidth(), ed.viewH, max(1, ed.view.scale))
+		// A diff's side measures as its viewer fits it (DiffState.fit),
+		// once it knows the lines it folds away, which it leaves.
+		if _, diff := ed.o.decor.(*diffSide); !diff {
+			ed.view.measureWraps(0, time.Second)
 		}
-		ed.layout(w, ed.viewH, max(1, ed.view.scale))
-		ed.view.measureWraps(0, time.Second)
 		e.Height(float32(ed.view.heights.total()))
 		ed.scrollY = 0
 	} else if ed.r.W > 0 {
@@ -110,7 +120,11 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 		h.pending, h.restOff = false, -1
 	}
 	if h.pending && ed.pointerIn && !ed.gesture.active {
-		if wait := 600*time.Millisecond - c.Now().Sub(h.restAt); wait > 0 {
+		delay := ed.o.hoverDelay
+		if delay <= 0 {
+			delay = defaultHoverDelay
+		}
+		if wait := delay - c.Now().Sub(h.restAt); wait > 0 {
 			c.After(wait)
 		} else {
 			h.pending = false
@@ -129,20 +143,18 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 		}
 		var caretAnchor, hoverAnchor ui.Element
 		var hasCaret, hasHover bool
-		if ed.complete.open() {
+		if ed.completing() {
 			caretAnchor, hasCaret = anchor("code caret", ed.complete.at)
 		}
 		if h.shown {
 			hoverAnchor, hasHover = anchor("code hover anchor", h.start)
 		}
+		ed.buildReplacements(c)
 		if ds, ok := ed.o.decor.(*diffSide); ok {
 			ds.buildBlocks(c, ed)
-		}
-		if ed.find.open {
-			ed.buildFindBar(c)
-		}
-		if ed.goTo.open {
-			ed.buildGoToLine(c)
+		} else {
+			// A diff's viewer builds a side's bars over its separators.
+			ed.buildBars(c)
 		}
 		if hasCaret {
 			ed.buildCompletions(c, caretAnchor)
@@ -172,6 +184,15 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 	}
 	ed.needsBuild = false
 	return e
+}
+
+func (ed *editor) buildBars(c *ui.Context) {
+	if ed.find.open {
+		ed.buildFindBar(c)
+	}
+	if ed.goTo.open {
+		ed.buildGoToLine(c)
+	}
 }
 
 // accessibility describes the editor to assistive technology, while it

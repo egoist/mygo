@@ -3,6 +3,7 @@ package editor
 import (
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/ui"
@@ -15,7 +16,8 @@ import (
 type DiffState struct {
 	// Old and New are the texts compared; empty buffers are made when
 	// nil. New is the one edited when Editable, and can be the buffer of
-	// an editor's too: an edit in either shows in both.
+	// an editor's too: an edit in either shows in both. An empty text has
+	// no lines, as of a file added or deleted: its side numbers none.
 	Old, New *Buffer
 	// Layout shows the texts side by side, or one over the other.
 	Layout DiffLayout
@@ -28,7 +30,11 @@ type DiffState struct {
 	// wide enough for both, and the share is kept for when it is again.
 	SplitPercent float32
 	// Editable lets the new text be edited where it shows, with all an
-	// editor does; the diff follows as it is typed.
+	// editor does; the diff follows as it is typed. It also shows the empty
+	// line after each text's final newline, where typing adds a line,
+	// which a diff that is not editable leaves out, as git diff does: it
+	// compares lines with their line feeds, and marks a last line without
+	// one "No newline at end of file".
 	Editable bool
 	// Inline highlights what changed within changed lines.
 	Inline DiffInline
@@ -99,8 +105,12 @@ type DiffState struct {
 	eds     [2]editor // the old side's and the new side's
 	sides   [2]diffSide
 	oldView view // the old text, for its lines in a unified view
-	scroll  sharedScroll
-	split   diffSplit
+	// deletedTops are, for each hunk, the tops of its deleted lines in a
+	// unified view from the top of their block, and the block's bottom
+	// last, as prepare placed them.
+	deletedTops [][]float64
+	scroll      sharedScroll
+	split       diffSplit
 	// revealed are the unchanged lines expanded, in the old text, which
 	// edits of the new text leave where they are; revealedVer is the old
 	// text's version they are of.
@@ -121,6 +131,9 @@ type DiffState struct {
 	built   diffGeom
 	gapList []diffGap
 	partial *diffPartial
+	// endMark marks a last line without a final newline, in the
+	// window's language (markEnds).
+	endMark string
 }
 
 // DiffLayout is how a diff viewer lays out its two texts.
@@ -224,7 +237,7 @@ func (d *DiffState) ensure() {
 		d.partial = nil
 		d.prepared = diffPrepared{}
 	}
-	d.model.set(d.Old, d.New)
+	d.model.set(d.Old, d.New, !d.Editable)
 	d.model.update()
 	// The lines revealed move with edits of the old text, as Keep makes,
 	// and go with it.
@@ -438,14 +451,17 @@ func (d *DiffState) deletedTop(line int) float64 {
 		if at < 0 {
 			return 0
 		}
-		top, ok := blockTop(h, at, below, func(b *block) bool { return b.kind == blockDeleted && b.hunk == i })
-		if !ok {
+		// The line's top in the block by the tops prepare kept with it,
+		// which an edit since the last frame leaves as they were.
+		var blk block
+		top, ok := blockTop(h, at, below, func(b *block) bool {
+			blk = *b
+			return b.kind == blockDeleted && b.hunk == i
+		})
+		if !ok || line < blk.from || line >= blk.to {
 			return h.geometry(at).rows
 		}
-		for l := hk.A0; l < line; l++ {
-			top += float64(float32(d.oldView.heights.wraps.rows(l))*ed.view.lineHeight + d.annotationHeight(DiffOld, l))
-		}
-		return top
+		return top + d.deletedTops[blk.hunk][line-blk.from]
 	}
 	return h.total()
 }
@@ -556,6 +572,7 @@ func (d *DiffState) sideOptions(old bool) options {
 // DiffView builds the diff viewer.
 func DiffView(c *ui.Context, d *DiffState) ui.Element {
 	d.ensure()
+	d.endMark = "  " + l10n.In(c.Locale()).NoNewlineAtEnd()
 	// The new side's editor scrolls as it is built, as to a caret
 	// GoToHunk moved, where a split view's scrolls as it is drawn
 	// (rebuildIfMoved): either builds the view again, for what read
@@ -584,6 +601,7 @@ func DiffView(c *ui.Context, d *DiffState) ui.Element {
 		root.Draw(func(p *ui.Painter, r ui.Rect) {
 			ed := &d.eds[1]
 			ed.layout(r.W, r.H, p.Scale())
+			d.oldView.sys = ed.view.sys
 			d.oldView.setStyle(ed.view.font, ed.o.lineHeight, p.Scale(), ed.tabSize())
 			d.oldView.setWrap(ed.view.wrap, ed.view.wrapWidth)
 			d.prepare()
@@ -597,6 +615,7 @@ func DiffView(c *ui.Context, d *DiffState) ui.Element {
 				ed.FillWidth()
 			}
 			d.buildSeparators(c, ct)
+			d.buildBars(c, 1)
 		})
 		if d.FitContent {
 			d.fit()
@@ -674,12 +693,36 @@ func DiffView(c *ui.Context, d *DiffState) ui.Element {
 			sides[i].Grow(d.split.grow[i])
 		}
 		d.buildSeparators(c, ct)
+		d.buildBars(c, 0, 1)
 	})
 	if d.FitContent {
 		d.fit()
 		row.Height(float32(max(d.eds[0].view.heights.total(), d.eds[1].view.heights.total())))
 	}
 	return row
+}
+
+// buildBars builds the find and go to line bars of the sides, after the
+// separators, which would else cover them: each in a box over its side
+// that lets the pointer through to the text.
+func (d *DiffState) buildBars(c *ui.Context, sides ...int) {
+	w := d.split.widths(d.split.width)
+	for _, i := range sides {
+		ed := &d.eds[i]
+		if !ed.find.open && !ed.goTo.open {
+			continue
+		}
+		box := ui.Box(c).Key("diff bars " + strconv.Itoa(i)).Absolute().Top(0).Bottom(0).PassThrough()
+		switch {
+		case d.Layout == DiffUnified:
+			box.Left(0).Right(0)
+		case i == 0:
+			box.Left(0).Width(w[0])
+		default:
+			box.Right(0).Width(w[1])
+		}
+		box.Children(func() { ed.buildBars(c) })
+	}
 }
 
 // diffMinColumns is how many columns of text a side of a split view
@@ -817,17 +860,29 @@ func (d *DiffState) fit() {
 	if d.Layout == DiffUnified {
 		eds = d.eds[1:]
 		ed := &d.eds[1]
+		d.oldView.sys = ed.view.sys
 		d.oldView.setStyle(ed.view.font, ed.o.lineHeight, max(1, ed.view.scale), ed.tabSize())
 		d.oldView.setWrap(ed.view.wrap, ed.view.wrapWidth)
 	}
-	d.prepare()
-	for i := range eds {
-		ed := &eds[i]
-		w := ed.r.W
-		if w <= 0 {
-			w = 600
+	layout := func() {
+		d.prepare()
+		for i := range eds {
+			ed := &eds[i]
+			ed.layout(ed.fitWidth(), ed.viewH, max(1, ed.view.scale))
 		}
-		ed.layout(w, ed.viewH, max(1, ed.view.scale))
+	}
+	layout()
+	// The wraps of the lines shown, those folded away left, and the
+	// layout again for the rows they found.
+	measured := false
+	for i := range eds {
+		v := &eds[i].view
+		before := v.heights.wraps.version
+		v.measureWraps(0, time.Second)
+		measured = measured || v.heights.wraps.version != before
+	}
+	if measured {
+		layout()
 	}
 }
 

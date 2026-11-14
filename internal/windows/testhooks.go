@@ -81,6 +81,13 @@ func menuCommandAt(hwnd uintptr, path []string) (*window, uint16, error) {
 	return nil, 0, fmt.Errorf("mygo: no menu item")
 }
 
+// TestEditRole runs an edit role, including those the core leaves out of
+// Windows menus, such as pasteAndMatchStyle.
+func TestEditRole(hwnd uintptr, role string) bool {
+	w := theBackend.windows[hwnd]
+	return w != nil && editRole(w, role)
+}
+
 // TestMenuBarShown reports whether a window shows its menu bar.
 func TestMenuBarShown(hwnd uintptr) bool {
 	bar, _, _ := user32.NewProc("GetMenu").Call(hwnd)
@@ -96,6 +103,13 @@ func TestEnterMenuBar(hwnd uintptr) bool {
 	}
 	procSendMessageW.Call(hwnd, wmSysCommand, scKeyMenu, 0)
 	return true
+}
+
+// TestInMenuLoop reports whether a window runs a menu loop, of its bar or
+// a popup, which reads the keys typed from then on.
+func TestInMenuLoop(hwnd uintptr) bool {
+	w := theBackend.windows[hwnd]
+	return w != nil && w.inMenu
 }
 
 // TestForeground brings a window to the front, where the keyboard types,

@@ -61,37 +61,64 @@ func TestArchPkgname(t *testing.T) {
 }
 
 func TestArchDepends(t *testing.T) {
-	for _, tc := range []struct {
-		webview           *bool
-		depends           []string
-		want, wantUnknown []string
-	}{
-		{nil, nil, []string{"gtk3", "webkit2gtk-4.1"}, nil},
-		{new(false), nil, []string{"gtk3"}, nil},
-		{new(false), []string{"libnotify4", "libasound2t64 (>= 1.2)", "libfoo1 | libsecret-1-0:any", "libgtk-3-0", "libfoo2"}, []string{"gtk3", "libnotify", "alsa-lib", "libsecret"}, []string{"libfoo2"}},
-	} {
-		l := Linux{WebView: tc.webview, Depends: tc.depends}
-		got, unknown := l.archDepends()
-		if !slices.Equal(got, tc.want) || !slices.Equal(unknown, tc.wantUnknown) {
-			t.Errorf("Debian %q: depends %q, unknown %q; want %q, %q", l.debDepends(), got, unknown, tc.want, tc.wantUnknown)
+	t.Run("legacy", func(t *testing.T) {
+		for _, tc := range []struct {
+			webview           *bool
+			deb               []string
+			want, wantUnknown []string
+		}{
+			{nil, nil, []string{"gtk3", "webkit2gtk-4.1"}, nil},
+			{new(false), nil, []string{"gtk3"}, nil},
+			{new(false), []string{"libnotify4", "libasound2t64 (>= 1.2)", "libfoo1 | libsecret-1-0:any", "libgtk-3-0", "libfoo2"}, []string{"gtk3", "libnotify", "alsa-lib", "libsecret"}, []string{"libfoo2"}},
+		} {
+			l := Linux{WebView: tc.webview, Depends: linuxDepends{Deb: tc.deb, legacy: true}}
+			got, unknown := l.archDepends()
+			if !slices.Equal(got, tc.want) || !slices.Equal(unknown, tc.wantUnknown) {
+				t.Errorf("Debian %q: got %q, %q; want %q, %q", l.debDepends(), got, unknown, tc.want, tc.wantUnknown)
+			}
 		}
-	}
+	})
+
+	t.Run("object", func(t *testing.T) {
+		for _, tc := range []struct {
+			webview *bool
+			arch    []string
+			want    []string
+		}{
+			{nil, nil, []string{"gtk3", "webkit2gtk-4.1"}},
+			{new(false), nil, []string{"gtk3"}},
+			{nil, []string{"libnotify", "curl"}, []string{"gtk3", "webkit2gtk-4.1", "libnotify", "curl"}},
+			{new(false), []string{"custom-pkg"}, []string{"gtk3", "custom-pkg"}},
+		} {
+			l := Linux{WebView: tc.webview, Depends: linuxDepends{Arch: tc.arch, legacy: false}}
+			got, unknown := l.archDepends()
+			if !slices.Equal(got, tc.want) || len(unknown) != 0 {
+				t.Errorf("arch %v: got %q, unknown %q; want %q", tc.arch, got, unknown, tc.want)
+			}
+		}
+	})
 }
 
 func TestArchLicenseAndURL(t *testing.T) {
 	for _, tc := range []struct {
+		config       string
 		packageJSON  string
 		github       string
 		license, url string
 	}{
-		{"", "", "LicenseRef-custom", ""},
-		{`{"license": "MIT", "homepage": "https://example.com"}`, "me/app", "MIT", "https://example.com"},
-		{`{"license": "(MIT OR Apache-2.0)"}`, "me/app", "MIT OR Apache-2.0", "https://github.com/me/app"},
-		{`{"license": "UNLICENSED"}`, "", "LicenseRef-custom", ""},
-		{`{"license": "SEE LICENSE IN LICENSE.txt"}`, "", "LicenseRef-custom", ""},
-		{`{"license": {"type": "MIT"}}`, "", "LicenseRef-custom", ""},
+		{"", "", "", "LicenseRef-custom", ""},
+		{"", `{"license": "MIT", "homepage": "https://example.com"}`, "me/app", "MIT", "https://example.com"},
+		{"", `{"license": "(MIT OR Apache-2.0)"}`, "me/app", "MIT OR Apache-2.0", "https://github.com/me/app"},
+		{"", `{"license": "UNLICENSED"}`, "", "LicenseRef-custom", ""},
+		{"", `{"license": "SEE LICENSE IN LICENSE.txt"}`, "", "LicenseRef-custom", ""},
+		{"", `{"license": {"type": "MIT"}}`, "", "LicenseRef-custom", ""},
+		// mygo.json's license wins over the one of package.json, which a
+		// frontend may declare for npm rather than for the app.
+		{"MIT", "", "", "MIT", ""},
+		{"(MPL-2.0)", `{"license": "MIT"}`, "", "MPL-2.0", ""},
+		{"UNLICENSED", "", "", "LicenseRef-custom", ""},
 	} {
-		c := &Config{root: t.TempDir()}
+		c := &Config{root: t.TempDir(), License: tc.config}
 		if tc.packageJSON != "" {
 			if err := os.WriteFile(filepath.Join(c.root, "package.json"), []byte(tc.packageJSON), 0o644); err != nil {
 				t.Fatal(err)
@@ -100,8 +127,9 @@ func TestArchLicenseAndURL(t *testing.T) {
 		if tc.github != "" {
 			c.Updates = &Updates{GitHub: tc.github}
 		}
-		if license, url := archLicense(c), archURL(c); license != tc.license || url != tc.url {
-			t.Errorf("package.json %s, updates.github %q: license %q, url %q", tc.packageJSON, tc.github, license, url)
+		if license, url := c.linuxLicense(), archURL(c); license != tc.license || url != tc.url {
+			t.Errorf("mygo.json license %q, package.json %s, updates.github %q: license %q, url %q",
+				tc.config, tc.packageJSON, tc.github, license, url)
 		}
 	}
 }
@@ -134,7 +162,7 @@ func TestPKGBUILD(t *testing.T) {
 	}
 	c.Linux.Comment = "Take $notes `now` & 'then'"
 	c.Linux.Command = commandNames{"note-pad", "np"}
-	c.Linux.Depends = []string{"libnotify4"}
+	c.Linux.Depends.Arch = []string{"libnotify"}
 	c.Linux.Maintainer = "Jane Doe <jane@example.com>"
 
 	// The app as a build stages it.
@@ -159,6 +187,10 @@ func TestPKGBUILD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rpm, err := writeRpm(c, stage, "note-pad", "amd64", app)
+	if err != nil {
+		t.Fatal(err)
+	}
 	archives, err := writeArchive(c, stage, "linux-amd64", app)
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +210,7 @@ func TestPKGBUILD(t *testing.T) {
 
 	// The PKGBUILD is not published: it builds from the archive next to it,
 	// and every architecture has one of the same name.
-	if files, _, _ := uploads(append([]string{deb}, append(archives, written...)...)); slices.ContainsFunc(files, func(f string) bool { return !strings.HasSuffix(f, ".deb") && !strings.HasSuffix(f, ".tar.gz") }) {
+	if files, _, err := uploads(append([]string{deb, rpm}, append(archives, written...)...)); err != nil || !slices.Equal(files, append([]string{deb, rpm}, archives...)) {
 		t.Errorf("uploads %q", files)
 	}
 

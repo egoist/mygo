@@ -93,6 +93,7 @@ func deactivateApp() bool                                        { return false 
 func material(*mygo.Window) (string, int, float64, bool, bool)   { return "", 0, 0, false, false }
 func materialState(*mygo.Window) (int, bool)                     { return 0, false }
 func roundedBacking(*mygo.Window) (bool, float64, float64, bool) { return false, 0, 0, false }
+func windowBacking(*mygo.Window) (bool, float64, bool)           { return false, 0, false }
 func appActive() (bool, bool)                                    { return false, false }
 
 // WebKitGTK docks the inspector inside the web view.
@@ -333,6 +334,8 @@ func observe(*mygo.Window) (func(), bool) { return nil, false }
 // composition the test makes up does not show.
 func pressKey(*mygo.Window, uint16, string) bool { return false }
 
+func pressKeyComposing(*mygo.Window, uint16, string, string, string) bool { return false }
+
 // X routes a drag to the window under the pointer, which
 // dropFiles, dropping on the content's, skips.
 func dragFiles(*mygo.Window, float64, float64, []string) (bool, bool) { return false, false }
@@ -422,3 +425,27 @@ func dismissPageMenu() { mygo.RunOnMain(linux.TestDismissPageMenu) }
 
 // Only Windows' tests start a process that takes the foreground.
 func takeForeground(*mygo.Window) {}
+
+// pressLetter presses the key of an uppercase letter, with Ctrl held when
+// cmd is set, like a keyboard.
+func pressLetter(_ *mygo.Window, letter byte, cmd bool) bool {
+	key := string(rune(letter - 'A' + 'a'))
+	if cmd {
+		return pressKeys("Control_L", key)
+	}
+	return pressKeys(key)
+}
+
+func glassTint(*mygo.Window) (red, green, blue, alpha float64, ok bool) { return 0, 0, 0, 0, false }
+
+func nativeGlassSupported() bool { return false }
+
+func nativeGlass(*mygo.Window) (class string, frame [4]float64, style int, ok bool) {
+	return "", frame, 0, false
+}
+
+func nativeGlassTint(*mygo.Window) (red, green, blue, alpha float64) { return 0, 0, 0, 0 }
+
+func activateApp() {}
+
+func hitView(*mygo.Window, float64, float64) string { return "" }

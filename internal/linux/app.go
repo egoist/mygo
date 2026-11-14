@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -54,6 +55,11 @@ type Backend struct {
 	grabs        map[int]grab    // global shortcuts on X11
 	portal       portalShortcuts // global shortcuts elsewhere
 	themeHooks   bool
+
+	// signalable is set once Init has bound GLib and made the callbacks.
+	// A Signal before then, from a goroutine posting while the app starts,
+	// leaves the queue to the Signal Init sends as it is set.
+	signalable atomic.Bool
 	// onX11 reports an X11 display, where windows have positions, and
 	// wmName names its window manager.
 	onX11  bool
@@ -64,6 +70,9 @@ type Backend struct {
 	// announceCSD tells a Wayland compositor that a window decorates
 	// itself, so that it draws no title bar (gdk_wayland_window_announce_csd).
 	announceCSD func(window ptr)
+	// waylandSurface returns a GdkWindow's wl_surface on Wayland
+	// (gdk_wayland_window_get_wl_surface; see damageGLPaint).
+	waylandSurface func(window ptr) ptr
 
 	// What the launcher entry shows (Window.SetProgressBar, badges).
 	launcher struct {
@@ -109,14 +118,26 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	if err := load(); err != nil {
 		return err
 	}
-	if os.Getenv("WEBKIT_DISABLE_DMABUF_RENDERER") == "" {
-		// Avoid blank windows on setups where WebKitGTK's DMA-BUF renderer
-		// fails (NVIDIA, VMs, containers).
+	if disableDMABUF(opts.DMABUFRenderer, os.Getenv, "/") {
 		_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+	}
+	// The program is its executable, by whichever name started it, as a
+	// link in /usr/bin of another name (linux.command): GTK names the class
+	// of the windows and the app id after the program, which the desktop
+	// entry names too (StartupWMClass), and WebKitGTK the directories of
+	// the pages' data. An app that named the program itself before Run
+	// (g_set_prgname), as one does to give its windows the reverse-DNS ID
+	// of its desktop entry, keeps its name: GLib leaves the name unset until
+	// gtk_init_check takes argv[0], so a name here is the app's own.
+	if exe, err := os.Executable(); err == nil && gGetPrgname() == 0 {
+		gSetPrgname(cs(filepath.Base(exe)))
 	}
 	if !gtkInitCheck(0, 0) {
 		return errors.New("mygo: cannot open display (is DISPLAY or WAYLAND_DISPLAY set?)")
 	}
+	// Before any page loads, so that the first already has the desktop's
+	// prefers-color-scheme; Run then applies a source the app set.
+	followSystemScheme(gtkSettingsGetDefault())
 	var x11Type func() uintptr
 	b.onX11 = bind(libGDK, &x11Type, "gdk_x11_display_get_type") && gTypeCheckInstanceIsA(gdkDisplayGetDefault(), x11Type()) &&
 		bind(libGDK, &b.wmName, "gdk_x11_screen_get_window_manager_name")
@@ -130,8 +151,12 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 		bind(libGDK, &prefersSSD, "gdk_wayland_display_prefers_ssd") && prefersSSD(gdkDisplayGetDefault())
 	if onWayland {
 		bind(libGDK, &b.announceCSD, "gdk_wayland_window_announce_csd")
+		bind(libGDK, &b.waylandSurface, "gdk_wayland_window_get_wl_surface")
 	}
 	initCallbacks()
+	// Something may have posted while GLib was loading: dispatch it.
+	b.signalable.Store(true)
+	b.Signal()
 	return nil
 }
 
@@ -179,7 +204,10 @@ func (b *Backend) runDialog(d ptr, native bool) int32 {
 }
 
 func (b *Backend) Signal() {
-	if gIdleAddFull == nil || !b.signaled.CompareAndSwap(false, true) {
+	// Before Init is done, GLib may be bound and dispatchCallback still
+	// unmade: g_idle_add_full rejects a nil function, and signaled would
+	// stay set with nothing to clear it, so that no post ran again.
+	if !b.signalable.Load() || !b.signaled.CompareAndSwap(false, true) {
 		return
 	}
 	gIdleAddFull(0, dispatchCallback, 0, 0)

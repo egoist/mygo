@@ -44,7 +44,7 @@ func (*Backend) Network() platform.Network                                  { re
 func (*Backend) NowPlaying() platform.NowPlaying                            { return NowPlaying{} }
 func (*Backend) Secrets() platform.Secrets                                  { return Secrets{} }
 func (*Backend) NewTray(platform.TrayHandler) (platform.Tray, error)        { return nil, errUnsupported }
-func (*Backend) RegisterHotkey(int, string) error                           { return errUnsupported }
+func (*Backend) RegisterHotkey(int, string, string) error                   { return errUnsupported }
 func (*Backend) UnregisterHotkey(int)                                       {}
 func (*Backend) NotificationsSupported() bool                               { return false }
 func (*Backend) WebViewAvailable() bool                                     { return false }
@@ -126,13 +126,17 @@ func (Dialogs) ShowMessageBox(_ platform.Window, _ *platform.MessageBoxOptions, 
 // Clipboard does nothing, or reports that it cannot.
 type Clipboard struct{}
 
+func (Clipboard) WatchChanges(func()) (func(), error) {
+	return nil, platform.ErrUnsupported
+}
+
 func (Clipboard) ReadData([]transfer.Format) (transfer.Data, error) {
 	return transfer.Data{}, errUnsupported
 }
-func (Clipboard) WriteData(transfer.Data, func()) error { return errUnsupported }
-func (Clipboard) Formats() []transfer.Format            { return nil }
-func (Clipboard) Flush() error                          { return errUnsupported }
-func (Clipboard) Close()                                {}
+func (Clipboard) WriteData(transfer.Data, bool, func()) error { return errUnsupported }
+func (Clipboard) Formats() []transfer.Format                  { return nil }
+func (Clipboard) Flush() error                                { return errUnsupported }
+func (Clipboard) Close()                                      {}
 
 func (Clipboard) ReadText() string           { return "" }
 func (Clipboard) WriteText(string)           {}
@@ -146,14 +150,19 @@ func (Clipboard) AvailableFormats() []string { return nil }
 // Shell does nothing, or reports that it cannot.
 type Shell struct{}
 
-func (Shell) OpenExternal(string) error            { return errUnsupported }
-func (Shell) OpenPath(string) error                { return errUnsupported }
-func (Shell) ShowItemInFolder(string)              {}
-func (Shell) TrashItem(string) error               { return errUnsupported }
-func (Shell) Beep()                                {}
-func (Shell) FileIcon(string, int) ([]byte, error) { return nil, errUnsupported }
-func (Shell) TypeIcon(string, int) ([]byte, error) { return nil, errUnsupported }
-func (Shell) OpenApplication(string) error         { return errUnsupported }
+func (Shell) OpenExternal(string) error              { return errUnsupported }
+func (Shell) OpenPath(string) error                  { return errUnsupported }
+func (Shell) ShowItemInFolder(string)                {}
+func (Shell) TrashItem(string) error                 { return errUnsupported }
+func (Shell) TrashItemResult(string) (string, error) { return "", platform.ErrUnsupported }
+func (Shell) PreviewItem(string) error               { return errUnsupported }
+func (Shell) Beep()                                  {}
+func (Shell) FileIcon(string, int) ([]byte, error)   { return nil, errUnsupported }
+func (Shell) TypeIcon(string, int) ([]byte, error)   { return nil, errUnsupported }
+func (Shell) OpenApplication(string) error           { return errUnsupported }
+func (Shell) DefaultApp(string) (platform.Application, error) {
+	return platform.Application{}, errUnsupported
+}
 
 func (*Backend) Applications() ([]platform.Application, error) { return nil, errUnsupported }
 
@@ -179,6 +188,7 @@ type Power struct{}
 
 func (Power) Watch()                        {}
 func (Power) KeepAwake(bool, string) func() { return func() {} }
+func (Power) KeepRunning(string) func()     { return func() {} }
 func (Power) OnBattery() bool               { return false }
 func (Power) IdleTime() time.Duration       { return 0 }
 
