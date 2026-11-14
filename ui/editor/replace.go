@@ -137,6 +137,7 @@ func (v *view) forgetLines(a, b int) {
 	v.heights.wraps.forget(from, to)
 	v.wrapAt = min(v.wrapAt, from)
 	v.replHiddenOK = false
+	v.blocksStale = true
 }
 
 // replsChanged notes that the replacements changed or moved.
@@ -339,9 +340,11 @@ func (v *view) objectWidth(r *Replacement) float32 {
 	return v.lineHeight
 }
 
-// placed is where an element a replacement shows is, in the content.
+// placed is where an element is: a replacement's, starting at start, in
+// the content, or a block's, start its index in view.blocks, in the view.
 type placed struct {
 	start int
+	block bool
 	rect  ui.Rect
 }
 
@@ -369,21 +372,22 @@ func (ed *editor) placeReplacements(y0, y1 float64, dst []placed) []placed {
 		ri := l.rowOf(d, false)
 		x := v.xOf(l, &l.rows[ri], d)
 		y := ed.rowTop(line) + float64(ri)*float64(l.rowHeight)
-		dst = append(dst, placed{r.Start, ui.Rect{X: x, Y: float32(y), W: l.owner.objectWidth(r), H: l.rowHeight}})
+		dst = append(dst, placed{start: r.Start, rect: ui.Rect{X: x, Y: float32(y), W: l.owner.objectWidth(r), H: l.rowHeight}})
 	}
 	return dst
 }
 
-// buildReplacements builds the elements of the replacements in view, in
-// a box over the text that clips them to it.
-func (ed *editor) buildReplacements(c *ui.Context) {
+// buildElements builds the elements of the replacements and the blocks
+// in view, in a box over the text that clips them to it.
+func (ed *editor) buildElements(c *ui.Context) {
 	v := &ed.view
-	ed.placed = ed.placed[:0]
-	if v.contents == 0 || ed.r.W <= 0 && !ed.o.fitContent {
+	ed.placed, ed.built = ed.placed[:0], ed.built[:0]
+	if v.contents == 0 && len(v.blocks) == 0 || ed.r.W <= 0 && !ed.o.fitContent {
 		return
 	}
 	y0, y1 := ed.buildRange()
 	ed.placed = ed.placeReplacements(y0, y1, ed.placed)
+	ed.placed = ed.placeBlocks(y0, y1, ed.placed)
 	ed.placedScroll = [2]float64{ed.scrollY, float64(ed.scrollX)}
 	if len(ed.placed) == 0 {
 		return
@@ -395,6 +399,10 @@ func (ed *editor) buildReplacements(c *ui.Context) {
 	ui.Box(c).Key("code replacements").Absolute().Left(ed.gutterW).Top(0).
 		Width(max(0, ed.laidW-ed.gutterW)).Height(h).Clip().PassThrough().Children(func() {
 		for _, p := range ed.placed {
+			if p.block {
+				ed.buildBlock(c, p)
+				continue
+			}
 			r, ok := v.replacementAt(p.start)
 			if !ok {
 				continue
@@ -402,21 +410,27 @@ func (ed *editor) buildReplacements(c *ui.Context) {
 			e := ui.Box(c).Key("replacement "+strconv.Itoa(p.start)).Absolute().
 				Left(ed.textX-ed.gutterW+p.rect.X-ed.scrollX).Top(float32(float64(p.rect.Y)-ed.scrollY)).
 				Size(p.rect.W, p.rect.H)
-			if r.Label != "" {
-				// A picture of what the text says, or what holds the
-				// controls that act on it; Content can say otherwise.
-				role := ui.RoleImage
-				if r.Interactive {
-					role = ui.RoleGroup
-				}
-				e.Role(role).Label(r.Label)
-			}
-			if r.Interactive {
-				e.Cursor(ui.CursorDefault).KeepFocus().HandleInput(ed.wheelOnly)
-			}
+			ed.describeElement(e, r.Label, r.Interactive)
 			r.Content(c, e, r)
 		}
 	})
+}
+
+// describeElement gives an element of the app's over the text its role
+// and name, and keeps the presses on it from the text when interactive.
+func (ed *editor) describeElement(e ui.Element, label string, interactive bool) {
+	if label != "" {
+		// A picture of what the text says, or what holds the controls
+		// that act on it; Content can say otherwise.
+		role := ui.RoleImage
+		if interactive {
+			role = ui.RoleGroup
+		}
+		e.Role(role).Label(label)
+	}
+	if interactive {
+		e.Cursor(ui.CursorDefault).KeepFocus().HandleInput(ed.wheelOnly)
+	}
 }
 
 // replacementAt returns the replacement starting at off.
@@ -428,15 +442,17 @@ func (v *view) replacementAt(off int) (Replacement, bool) {
 	return Replacement{}, false
 }
 
-// replacementsMoved reports whether the elements of the replacements in
-// view are not where the last build placed them, as when a frame painted
-// without building scrolled, and builds them again.
+// replacementsMoved reports whether the elements of the replacements and
+// the blocks in view are not where the last build placed them, as when a
+// frame painted without building scrolled, or a block measured otherwise
+// than it was taken to be, and builds them again.
 func (ed *editor) replacementsMoved() bool {
-	if ed.view.contents == 0 && len(ed.placed) == 0 {
+	if ed.view.contents == 0 && len(ed.view.blocks) == 0 && len(ed.placed) == 0 {
 		return false
 	}
 	y0, y1 := ed.buildRange()
 	ed.placeScratch = ed.placeReplacements(y0, y1, ed.placeScratch[:0])
+	ed.placeScratch = ed.placeBlocks(y0, y1, ed.placeScratch)
 	moved := !slices.Equal(ed.placeScratch, ed.placed) ||
 		len(ed.placed) > 0 && ed.placedScroll != [2]float64{ed.scrollY, float64(ed.scrollX)}
 	return moved

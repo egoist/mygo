@@ -521,9 +521,29 @@ func (ed *editor) overFolds(off, to int) int {
 	if !h.isHidden(line) {
 		return to
 	}
+	// A block standing in for lines is a place to stop, at the start of
+	// its replacement, as what any replacement shows is.
+	if rep, ok := ed.standIn(line); ok {
+		if to > off && off >= rep.Start {
+			return rep.End
+		}
+		return rep.Start
+	}
 	for _, sp := range h.hidden {
 		if line < sp.from || line > sp.to {
 			continue
+		}
+		// A block standing in further on is the next place to stop.
+		ahead := lineSpan{line + 1, sp.to}
+		if to < off {
+			ahead = lineSpan{sp.from, line - 1}
+		}
+		if rep, ok := ed.standInWithin(ahead, to > off); ok {
+			return rep.Start
+		}
+		// Leaving one with nothing before it but hidden lines stays.
+		if to < off && sp.from == 0 && r.LineOf(off) <= sp.to {
+			return off
 		}
 		if (to > off || sp.from == 0) && sp.to+1 < r.LineCount() {
 			return r.LineStart(sp.to + 1)

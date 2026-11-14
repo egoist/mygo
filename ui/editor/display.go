@@ -23,7 +23,8 @@ type block struct {
 	height float32
 	kind   blockKind
 	// For deleted lines (blockDeleted), the lines of the other text it
-	// shows; for spacers and separators, what they stand for.
+	// shows; for spacers and separators, what they stand for; for an
+	// app's (blockApp), its id and its index in view.blocks.
 	from, to int
 	// id identifies an annotation; hunk the diff hunk it belongs to.
 	id   any
@@ -41,6 +42,7 @@ const (
 	blockSeparator
 	blockAnnotation
 	blockHeader
+	blockApp
 )
 
 // lineSpan is the lines from to to, inclusive.
@@ -343,6 +345,10 @@ func (h *heights) lineAt(y float64) int {
 		} else {
 			hi = m - 1
 		}
+	}
+	// A block standing in for hidden lines holds the height it takes.
+	if lo+1 < h.n && h.isHidden(lo) && h.top(lo+1) > y {
+		return lo
 	}
 	// A hidden line shares its top with the lines after it, up to the
 	// next shown.

@@ -65,6 +65,17 @@ type view struct {
 	replHidden              []lineSpan
 	replHiddenOK            bool
 	contents                int
+	// blocks are the app's elements between lines, sorted by where they
+	// go (State.SetBlocks), and blockScratch the slice the next are kept
+	// in; nextBlock is the last id given. rows are what they take in the
+	// heights, as of the line height rowsHeight and the folds rowsFolded,
+	// unless blocksStale.
+	blocks, blockScratch []appBlock
+	nextBlock            int
+	rows                 []block
+	rowsHeight           float32
+	rowsFolded           []lineSpan
+	blocksStale          bool
 
 	lines   lineCache
 	shaped  shapeCache
@@ -520,6 +531,8 @@ func (v *view) sync(moved func(cs []change)) bool {
 			v.inlays[i].at = mapOffset(v.inlays[i].at, cs, biasRight)
 		}
 		v.moveRepls(cs)
+		v.moveBlocks(cs)
+		v.settleBlocks()
 		v.moveLineStyles(cs)
 		v.settleLineStyles()
 		if moved != nil {
@@ -537,11 +550,13 @@ func (v *view) sync(moved func(cs []change)) bool {
 			v.inlays[i].at = mapOffset(v.inlays[i].at, cs, biasRight)
 		}
 		v.moveRepls(cs)
+		v.moveBlocks(cs)
 		v.moveLineStyles(cs)
 		if moved != nil {
 			moved(cs)
 		}
 	}
+	v.settleBlocks()
 	v.settleLineStyles()
 	v.heights.setLines(text.LineCount())
 	v.heights.dirty = true

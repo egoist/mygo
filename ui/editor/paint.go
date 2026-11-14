@@ -63,6 +63,8 @@ func (ed *editor) layout(w, h, scale float32) {
 	var blocks []block
 	if ds, ok := ed.o.decor.(*diffSide); ok {
 		blocks = ds.blocks()
+	} else {
+		blocks = ed.blockRows()
 	}
 	v.heights.setHidden(ed.hiddenLines())
 	v.heights.setBlocks(blocks)
@@ -86,6 +88,7 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 	v := &ed.view
 	ed.frameNow = p.Now()
 	ed.r = r
+	ed.measureBlocks()
 	ed.layout(r.W, r.H, p.Scale())
 	if ed.viewH != ed.builtViewH && !ed.o.fitContent {
 		// Resized: what read ViewportHeight as the view was built reads
@@ -159,6 +162,7 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 	text := ui.Rect{X: r.X + ed.gutterW, Y: r.Y, W: r.W - ed.gutterW, H: r.H}
 	p.Clip(text, 0, func() {
 		ed.paintLines(p, r, &f)
+		ed.paintStandIns(p, r, &f)
 	})
 	ed.paintGutter(p, r, &f)
 	ed.paintScrollbars(p, r, &f)
