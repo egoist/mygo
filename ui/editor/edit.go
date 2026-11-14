@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/internal/rope"
+	"github.com/egoist/mygo/internal/text"
 )
 
 // apply makes edits to the buffer as one step of undo, and gives the
@@ -510,7 +511,11 @@ func (ed *editor) backspace() bool {
 			edits = append(edits, Edit{Start: ed.overReplacements(head, a+to), End: head})
 			continue
 		}
-		start := ed.overReplacements(head, graphemeLeft(*r, head))
+		left := graphemeLeft(*r, head)
+		if c, size := r.RuneBefore(head); text.IsCombiningMark(c) {
+			left = head - size
+		}
+		start := ed.overReplacements(head, left)
 		end := head
 		// A pair of brackets just opened, its closer closed by the editor,
 		// goes together, as Zed's.

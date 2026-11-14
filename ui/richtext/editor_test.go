@@ -152,6 +152,26 @@ func TestRichTextCaretFormatIsNoStep(t *testing.T) {
 	}
 }
 
+// Backspace takes a combining mark, or sara am, alone, and an emoji
+// sequence whole.
+func TestRichTextBackspaceMarks(t *testing.T) {
+	for _, c := range []struct{ s, want string }{
+		{"aนี้", "aนี"},
+		{"ทำ", "ท"},
+		{"❤️", ""},
+	} {
+		doc := NewDocument(TextOf(Paragraph{Runs: []Run{{Text: c.s}}}))
+		tt, _ := richTester(t, doc)
+		n := doc.Text().Len()
+		doc.SetSelection(n, n)
+		tt.Frame()
+		tt.Key(0, ui.KeyBackspace)
+		if got := doc.Text().String(); got != c.want {
+			t.Errorf("backspace in %q leaves %q, want %q", c.s, got, c.want)
+		}
+	}
+}
+
 func TestRichTextUndoRestoresAttributes(t *testing.T) {
 	doc := NewDocument(TextOf(Paragraph{Runs: []Run{
 		{Text: "a "}, {Text: "bold", Attributes: Attributes{Weight: 700}}, {Text: " word"},

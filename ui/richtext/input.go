@@ -372,6 +372,8 @@ func (v *view) key(key ui.Key, mods ui.Modifiers) bool {
 			v.deleteRange(s, v.caret, false)
 		case word:
 			v.deleteRange(v.prevWord(v.caret), v.caret, false)
+		case v.caret > ps && text.IsCombiningMark(v.runeAt(v.caret-1)):
+			v.deleteRange(v.caret-1, v.caret, true)
 		case v.caret > 0:
 			v.deleteRange(v.grapheme(v.caret, -1), v.caret, true)
 		}
