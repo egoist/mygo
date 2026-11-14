@@ -2174,7 +2174,13 @@ as in Tauri:
   exclusively while it shows: compositors give none to an on-demand
   surface as it maps, and Sway takes it back from one that goes from
   exclusive to on demand. Neither Linux nor Windows shows the application
-  menu in a panel.
+  menu in a panel. A frameless window that is `AlwaysOnTop` and
+  `SkipTaskbar`, nobody's child (`overlayWindow`), is a surface of the
+  overlay layer too where it can be (`initOverlay`), since Wayland ignores
+  keep-above: its exclusive zone is -1, so that its margins count from the
+  output's edges whatever the desktop's panels reserve, and it asks for
+  the keyboard only on demand (not at all before gtk-layer-shell 0.6), as
+  it floats over the app the user types in.
 - `window.open()` and `target=_blank` go through `SetWindowOpenHandler`. By
   default http(s) URLs open in the default browser. Allowing one creates a
   window around the configuration or related view WebKit provides, with its

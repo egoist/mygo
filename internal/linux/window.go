@@ -84,6 +84,9 @@ type window struct {
 	// layerAt, or centered by the compositor without it.
 	layer   bool
 	layerAt *platform.Point
+	// overlay tells that the layer surface is an always-on-top window
+	// (initOverlay), which never takes the keyboard by itself.
+	overlay bool
 
 	closed       bool
 	programmatic bool
@@ -197,6 +200,8 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	gtkWindowSetTitle(w.win, cs(o.Title))
 	if o.Panel {
 		w.initLayer() // before anything realizes the window
+	} else if overlayWindow(o) {
+		w.initOverlay()
 	}
 	if o.Center {
 		gtkWindowSetPosition(w.win, 1) // GTK_WIN_POS_CENTER

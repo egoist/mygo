@@ -12,11 +12,12 @@ import (
 
 // gtk-layer-shell makes panels surfaces of the wlr-layer-shell protocol
 // on Wayland compositors that speak it (Sway, Hyprland, KDE Plasma,
-// COSMIC…), as launchers there do (Ulauncher, Walker, anyrun): above
+// COSMIC…), as launchers there do (Ulauncher, Walker, anyrun), and
+// overlays too (overlayWindow), as on-screen displays there are: above
 // other windows, full-screen ones too, on the output where they are put,
 // out of the taskbar. Wayland lets other windows do none of that. The
 // library is optional: without it, or where the compositor does not speak
-// the protocol (GNOME), a panel is a window as others.
+// the protocol (GNOME), a panel or an overlay is a window as others.
 var (
 	layerOnce      sync.Once
 	layerSupported bool
@@ -29,7 +30,8 @@ var (
 	gtkLayerSetMargin                func(w ptr, edge int32, margin int32)
 	gtkLayerSetMonitor               func(w ptr, monitor ptr)
 	gtkLayerSetKeyboardMode          func(w ptr, mode int32) // 0.6
-	gtkLayerSetKeyboardInteractivity func(w ptr, v bool)     // before 0.6
+	gtkLayerSetExclusiveZone         func(w ptr, zone int32)
+	gtkLayerSetKeyboardInteractivity func(w ptr, v bool) // before 0.6
 	gdkDisplayGetMonitorAtPoint      func(d ptr, x, y int32) ptr
 )
 
@@ -44,7 +46,7 @@ const (
 )
 
 // loadLayerShell loads gtk-layer-shell once, and reports whether panels
-// can be layer surfaces.
+// and overlays can be layer surfaces.
 func loadLayerShell() bool {
 	layerOnce.Do(func() {
 		lib, err := open("libgtk-layer-shell.so.0")
@@ -58,6 +60,7 @@ func loadLayerShell() bool {
 			bind(lib, &gtkLayerSetAnchor, "gtk_layer_set_anchor") &&
 			bind(lib, &gtkLayerSetMargin, "gtk_layer_set_margin") &&
 			bind(lib, &gtkLayerSetMonitor, "gtk_layer_set_monitor") &&
+			bind(lib, &gtkLayerSetExclusiveZone, "gtk_layer_set_exclusive_zone") &&
 			bind(libGDK, &gdkDisplayGetMonitorAtPoint, "gdk_display_get_monitor_at_point")
 		if !bind(lib, &gtkLayerSetKeyboardMode, "gtk_layer_set_keyboard_mode") {
 			ok = ok && bind(lib, &gtkLayerSetKeyboardInteractivity, "gtk_layer_set_keyboard_interactivity")
@@ -90,15 +93,44 @@ func (w *window) initLayer() bool {
 	return true
 }
 
+// overlayWindow tells whether a window is one that floats above what the
+// user watches, as subtitles, a desktop pet or a timer: always on top, out
+// of the taskbar, without a frame, and nobody's child. Under Wayland,
+// which ignores keep-above, initOverlay makes it a layer surface.
+func overlayWindow(o *platform.WindowOptions) bool {
+	return o.AlwaysOnTop && o.SkipTaskbar && o.Frameless && !o.Panel && o.Flyout == nil && o.Parent == nil
+}
+
+// initOverlay makes a new always-on-top window a layer surface where it can
+// be one, before GTK realizes it, and reports whether it did: on the
+// overlay layer, above full-screen windows too, where the window's bounds
+// put it on its output, whatever the desktop's panels reserve, and taking
+// the keyboard only when clicked.
+func (w *window) initOverlay() bool {
+	w.overlay = true
+	if !w.initLayer() {
+		w.overlay = false
+		return false
+	}
+	gtkLayerSetExclusiveZone(w.win, -1)
+	return true
+}
+
 // layerKeyboard asks for the keyboard of a layer surface as it shows,
 // or not, as ShowInactive shows it. Compositors give the keyboard to a
 // surface that asks for it alone (exclusive), not to one that would take
 // it on demand, which only a click on it gets, and Sway takes it back from
 // a surface that goes from one to the other: a panel keeps the keyboard
 // while it shows, as launchers do, which blurs it only as it hides.
-// Before gtk-layer-shell 0.6, a panel always asks for it.
+// Before gtk-layer-shell 0.6, a panel always asks for it. An overlay never
+// asks for it: it takes it on demand, or not at all before 0.6, so that the
+// app under it keeps the keyboard.
 func (w *window) layerKeyboard(take bool) {
 	switch {
+	case w.overlay && gtkLayerSetKeyboardMode == nil:
+		gtkLayerSetKeyboardInteractivity(w.win, false)
+	case w.overlay:
+		gtkLayerSetKeyboardMode(w.win, keyboardOnDemand)
 	case gtkLayerSetKeyboardMode == nil:
 		gtkLayerSetKeyboardInteractivity(w.win, true)
 	case take:
