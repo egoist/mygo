@@ -136,7 +136,9 @@ framework safely. Read it before changing anything under `internal/`.
 │                       command line client for agents
 │                       (automation/cmd/mygo-automation), and
 │                       permissionflow, the system's permissions and a
-│                       guide to System Settings, after PermissionFlow
+│                       guide to System Settings, after PermissionFlow,
+│                       and desktopcontrol, the desktop's displays,
+│                       windows, screenshots and input on macOS
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester;
 │                       ui/chart: charts without a look, on ui's public API;
 │                       ui/editor: the code editor and the diff viewer;
@@ -166,6 +168,7 @@ framework safely. Read it before changing anything under `internal/`.
 │                       looping behind a window's content, a trailer
 │                       with controls over it); permissionflow
 │                       (the permissions, asked for and guided to);
+│                       desktopcontrol (the windows, and a screenshot);
 │                       native-module (native modules in Swift, called from native UI);
 │                       rust-native (a Rust crate the CLI builds, called
 │                       through ffi)

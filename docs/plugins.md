@@ -39,6 +39,11 @@ JavaScript package whose functions call them. The app uses the Go half with
   keeps for the user to give, such as Accessibility, Screen Recording and
   the microphone: checked, asked for, and a guide to System Settings with
   the app to drag into its list, after PermissionFlow. It is all Go.
+- [DesktopControl](plugins/desktopcontrol.md): the local, logged-in
+  desktop on macOS: its displays and windows, JPEG screenshots of them,
+  input aimed at one display, process or window, and the static labels
+  and buttons of dialogs. It is all Go, opens no sockets, and leaves
+  consent and sessions to the app.
 
 ## Using plugins
 
