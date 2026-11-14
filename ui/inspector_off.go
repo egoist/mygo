@@ -30,6 +30,8 @@ func (in *inspector) holds(*engine, uint64) bool                                
 // inlines to nothing. It is not a method, which the type would keep.
 const inspectorBuilt = false
 
+func inspectorDark(*engine, bool) bool { return false }
+
 func noteGridTracks(*node, []float32, []float32, []float32, []float32, float32, float32, bool) {}
 
 func (in *inspector) isForced(uint64, uint8) bool                     { return false }

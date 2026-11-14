@@ -14,6 +14,7 @@ import (
 
 	"github.com/egoist/mygo/internal/gamut"
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // The inspector shows the elements of a window's frames in a panel docked
@@ -123,6 +124,14 @@ type inspector struct {
 	tracks                map[uint64]inspTracks
 	overlays              []inspOverlay
 	uncached, cacheWasOff bool
+	// flashing flashes what frames change (inspector_rendering.go),
+	// comparing them with differ, and flashes what shows of that.
+	// differKnown tells it has a frame to compare with. appearance is the
+	// toolbar's override of the system's, inspForceLight or inspForceDark.
+	flashing, differKnown bool
+	differ                *scene.Differ
+	flashes               []inspFlash
+	appearance            uint8
 	// Scroll offsets of the breadcrumbs, the sidebar and the issues.
 	crumbs       ScrollState
 	sideScroll   ScrollState
@@ -229,6 +238,11 @@ func (rt *engine) toggleInspector() {
 		in.edits, in.editing, in.sources, in.forced = nil, inspEditing{}, nil, nil
 		in.layoutOn, in.tracks, in.overlays = nil, nil, nil
 		in.keepLaidOut(rt, false)
+		in.flashing, in.differKnown, in.differ, in.flashes = false, false, nil, nil
+		if in.appearance != 0 {
+			in.appearance = 0
+			rt.themeChanged()
+		}
 	} else if in.keys == nil {
 		in.keys = map[uint64]any{}
 	}
