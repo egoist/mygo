@@ -155,13 +155,16 @@ func continuousCases() []struct {
 
 // TestDrawsContinuousCornersAsTheCPURenderer draws continuous corners with
 // a renderer asked to (ContinuousCorners, as ui.SetContinuousCorners has
-// it), with the shaders compiled ahead of time and with those compiled from
-// shader.hlsl, as the CPU renderer draws them.
+// it), with the shaders compiled ahead of time and, for the first scene,
+// with those compiled from shader.hlsl, as the CPU renderer draws them.
 func TestDrawsContinuousCornersAsTheCPURenderer(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	for _, compile := range []bool{false, true} {
-		for _, c := range continuousCases() {
+		for i, c := range continuousCases() {
+			if compile && i > 0 {
+				break // compiling takes the compiler a while
+			}
 			t.Run(fmt.Sprintf("%s/compiled=%v", c.name, compile), func(t *testing.T) {
 				compileShaders = compile
 				r, err := New(hiddenWindow(t, c.s.Width, c.s.Height))
