@@ -587,14 +587,16 @@ func TestStalledBodyShortTimeout(t *testing.T) {
 // A body that keeps arriving is not given up, however slowly it sends.
 func TestHTTPGetKeepsASlowBody(t *testing.T) {
 	defer func(d time.Duration) { httpStallTimeout = d }(httpStallTimeout)
-	httpStallTimeout = 100 * time.Millisecond
+	// Each byte comes well within the stall timeout, even on a loaded
+	// runner whose sleeps overrun, and all of them take longer than it.
+	httpStallTimeout = 400 * time.Millisecond
 
 	block := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for i := 0; i < 10; i++ {
 			io.WriteString(w, "x")
 			w.(http.Flusher).Flush()
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 		<-block
 	}))
