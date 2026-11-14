@@ -50,7 +50,7 @@ final class SQLiteConn: Conn {
         handlers.deallocate()
     }
 
-    private func open() throws -> OpaquePointer {
+    private func connection() throws -> OpaquePointer {
         guard let db else { throw NativeError.closed }
         return db
     }
@@ -69,7 +69,7 @@ final class SQLiteConn: Conn {
     }
 
     func control(sql: String) throws {
-        let db = try open()
+        let db = try connection()
         let stmt = try prepare(db, sql, control: true)
         defer { _ = sqlite3_finalize(stmt) }
         let rc = sqlite3_step(stmt)
@@ -77,7 +77,7 @@ final class SQLiteConn: Conn {
     }
 
     func run(sql: String, args: [Value], query: Bool) throws -> Outcome {
-        let db = try open()
+        let db = try connection()
         let stmt = try prepare(db, sql, control: false)
         defer { _ = sqlite3_finalize(stmt) }
         let count = Int(sqlite3_bind_parameter_count(stmt))
@@ -129,7 +129,12 @@ final class SQLiteConn: Conn {
                 var extra: OpaquePointer?
                 rc = sqlite3_prepare_v2(db, base + offset, Int32(n - offset), &extra, &tail)
                 if rc != SQLITE_OK || extra != nil {
-                    let err = rc != SQLITE_OK ? failure(db, rc) : NativeError.go("sqlite: expected exactly one statement")
+                    let err: any Error
+                    if rc != SQLITE_OK {
+                        err = failure(db, rc)
+                    } else {
+                        err = NativeError.go("sqlite: expected exactly one statement")
+                    }
                     if let extra { _ = sqlite3_finalize(extra) }
                     _ = sqlite3_finalize(first)
                     throw err
