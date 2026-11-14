@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"path"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 var tokenNames = [...]string{"text", "kw", "type", "fn", "var", "prop", "const", "num", "str", "esc", "re", "comment", "op", "punct",
@@ -134,6 +136,41 @@ func TestTokenizers(t *testing.T) {
 			`punct({)var(pkgs)op(?)fn(import)op(<)var(nixpkgs)op(>)punct({})punct(})op(:)kw(let)prop(s)op(=)str("a)esc(${)var(pkgs)punct(.)prop(hello-world)esc(}\n)str(")punct(;)comment(# c) / ` +
 				`kw(in)kw(rec)punct({)prop(x)op(=)str('' echo)esc(${)var(s)esc(}) / str('')punct(;)prop(y)op(=)var(s)op(//)punct({)prop(z)op(=)const(true)punct(;)punct(};)comment(/* d */)punct(}) / ` +
 				`prop(inputs)punct(.)prop(x)punct(.)str("y")punct(.)text($)punct({)var(s)punct(})op(=)var(a)punct(.)prop(b)op(==)var(c)punct(;)`},
+		{"typst", []string{"= Intro *bold* _it_ snake_case", "- item `raw` <lbl> @ref https://typst.app.", "/ Term: text"},
+			"heading(= Intro)strong(*bold*)em(_it_)heading(snake_case) / punct(-)text(item)code(`raw`)tag(<lbl>)link(@ref)link(https://typst.app)text(.) / punct(/)strong(Term)punct(:)text(text)"},
+		{"typst", []string{`#set text(size: 11pt, fill: rgb("#222"))`, `#let f(x, y: 1.5em) = {`, `  [*hi* #x]`, `}`, `#f(2)[body] after`},
+			`meta(#)kw(set)fn(text)punct(()prop(size)punct(:)num(11pt)punct(,)prop(fill)punct(:)fn(rgb)punct(()str("#222")punct())) / ` +
+				`meta(#)kw(let)fn(f)punct(()var(x)punct(,)prop(y)punct(:)num(1.5em)punct())op(=)punct({) / punct([)strong(*hi*)meta(#)var(x)punct(]) / punct(}) / ` +
+				`meta(#)fn(f)punct(()num(2)punct()[)text(body)punct(])text(after)`},
+		// An embedded expression ends where nothing goes on with it: after a
+		// set rule's arguments, and after the last block of an if.
+		{"typst", []string{"#if x > 1 [yes] else [no] after", "#set text(red) Hello"},
+			"meta(#)kw(if)var(x)op(>)num(1)punct([)text(yes)punct(])kw(else)punct([)text(no)punct(])text(after) / meta(#)kw(set)fn(text)punct(()var(red)punct())text(Hello)"},
+		{"typst", []string{`$ x^2 + alpha_1 = sum_(i=0)^n f(i) "s" #g(x) $ end`},
+			`punct($)var(x)op(^)num(2)op(+)const(alpha)op(_)num(1)op(=)const(sum)op(_)punct(()var(i)op(=)num(0)punct())op(^)var(n)fn(f)punct(()var(i)punct())str("s")meta(#)fn(g)punct(()var(x)punct())punct($)text(end)`},
+		{"typst", []string{"```rust", "fn main() {}", "``` x", "/* a /* b */ c", "d */ e", `#let s = "a`, `b\n" ok`},
+			"punct(```)type(rust) / code(fn main() {}) / punct(```)text(x) / comment(/* a /* b */ c) / comment(d */)text(e) / " +
+				`meta(#)kw(let)var(s)op(=)str("a) / str(b)esc(\n)str(")text(ok)`},
+		{"typst", []string{`\# \u{1F600} ~ --- ... //c`, `#let m = (..rest, k: v)`},
+			`esc(\#)esc(\u{1F600})esc(~)esc(---)esc(...)comment(//c) / meta(#)kw(let)var(m)op(=)punct(()op(..)var(rest)punct(,)prop(k)punct(:)var(v)punct())`},
+		// A * or _ between two characters of a word is text, but Chinese,
+		// Japanese and Korean have no such words.
+		{"typst", []string{"中*文*字 and a*b*c, 한*글*자, snake_case"},
+			"text(中)strong(*文*)text(字 and a*b*c, 한)strong(*글*)text(자, snake_case)"},
+		// The name of a reference or a label has letters, digits, marks, _ and -,
+		// and : and . inside it: not the punctuation of Chinese.
+		{"typst", []string{"见@fig:1。再见@intro，好 <标签>。 @a.b. @x:"},
+			"text(见)link(@fig:1)text(。再见)link(@intro)text(，好)tag(<标签>)text(。)link(@a.b)text(.)link(@x)text(:)"},
+		// Raw text goes on over lines until the backticks that match its
+		// opening ones, as many: none of what is in it is code, and two are
+		// raw text with nothing in it.
+		{"typst", []string{"`foo", "#bar[ x", "baz` after", "`a``b` c `` d"},
+			"code(`foo) / code(#bar[ x) / code(baz`)text(after) / code(`a``b`)text(c)code(``)text(d)"},
+		// A content block starts as a line of markup does, so a heading or a
+		// list's marker may be first in it, and the heading ends with the block.
+		{"typst", []string{"#box[= Title] after", "#box[- a] and #f[ + b] and text [= x]", "#box[", "= Title] after", "= Real #f[x] still heading", "plain"},
+			"meta(#)fn(box)punct([)heading(= Title)punct(])text(after) / meta(#)fn(box)punct([-)text(a)punct(])text(and)meta(#)fn(f)punct([)punct(+)text(b)punct(])text(and text [= x]) / " +
+				"meta(#)fn(box)punct([) / heading(= Title)punct(])text(after) / heading(= Real)meta(#)fn(f)punct([)heading(x)punct(])heading(still heading) / text(plain)"},
 	} {
 		l := LanguageNamed(c.lang)
 		if l == nil {
@@ -259,7 +296,7 @@ func TestLanguageFor(t *testing.T) {
 	for name, want := range map[string]string{"main.go": "Go", "a/b/Makefile": "Makefile", "x.TSX": "TypeScript", "Dockerfile": "Dockerfile", "x.unknown": "",
 		"main.dart": "Dart", "schema.graphql": "GraphQL", "q.gql": "GraphQL", "plot.r": "R", "plot.R": "R", "Main.scala": "Scala", "build.sc": "Scala", "flake.nix": "Nix",
 		"user.rbs": "Ruby", "show.html.erb": "ERB", "model.rb.tt": "ERB", "nginx.conf.j2": "Jinja", "page.jinja2": "Jinja",
-		"App.svelte": "Svelte", "x.vue": "HTML",
+		"App.svelte": "Svelte", "x.vue": "HTML", "paper.typ": "Typst",
 		"main.tf": "HCL", "prod.tfvars": "HCL", "config.hcl": "HCL"} {
 		l := LanguageFor(name)
 		got := ""
@@ -357,6 +394,7 @@ func TestLanguageNamed(t *testing.T) {
 		"ERB":     {"erb", "ERB", "eruby"},
 		"Jinja":   {"jinja", "Jinja", "jinja2", "j2"},
 		"HCL":     {"hcl", "terraform", "tf", "tfvars"},
+		"Typst":   {"typst", "Typst", "typ"},
 	} {
 		for _, name := range names {
 			l := LanguageNamed(name)
@@ -377,7 +415,7 @@ func TestLanguageNamed(t *testing.T) {
 // Each language's comments and brackets.
 func TestLanguageCommentsAndBrackets(t *testing.T) {
 	for name, want := range map[string][3]string{
-		"dart": {"//", "/*", "*/"}, "scala": {"//", "/*", "*/"}, "graphql": {"#", "", ""}, "r": {"#", "", ""},
+		"dart": {"//", "/*", "*/"}, "scala": {"//", "/*", "*/"}, "graphql": {"#", "", ""}, "r": {"#", "", ""}, "typst": {"//", "/*", "*/"},
 		"jinja": {"", "{#", "#}"},
 		"hcl":   {"#", "/*", "*/"},
 	} {
@@ -395,16 +433,115 @@ func TestLanguageCommentsAndBrackets(t *testing.T) {
 	}
 }
 
+// Emphasis cannot pair with a delimiter outside its content block.
+func TestTypstSpanContentBoundary(t *testing.T) {
+	for _, c := range []struct {
+		name, line, want string
+	}{
+		{"strong", "#f[*a] b*", "meta(#)fn(f)punct([)text(*a)punct(])text(b*)"},
+		{"emphasis", "#f[_a] b_", "meta(#)fn(f)punct([)text(_a)punct(])text(b_)"},
+		{"nested boundary", "#f[#g[*a] b*]", "meta(#)fn(f)punct([)meta(#)fn(g)punct([)text(*a)punct(])text(b*)punct(])"},
+		{"paired", "#f[*a* _b_] after", "meta(#)fn(f)punct([)strong(*a*)em(_b_)punct(])text(after)"},
+		{"escaped bracket", `#f[*a\] b*]`, `meta(#)fn(f)punct([)strong(*a)esc(\])strong(b*)punct(])`},
+		{"nested brackets", "#f[*a [b] c*]", "meta(#)fn(f)punct([)strong(*a)punct([)strong(b)punct(])strong(c*)punct(])"},
+		{"raw bracket", "#f[*a `]` b*]", "meta(#)fn(f)punct([)strong(*a)code(`]`)strong(b*)punct(])"},
+		{"string bracket", `#f[*a #g("]") b*]`, `meta(#)fn(f)punct([)strong(*a)meta(#)fn(g)punct(()str("]")punct())strong(b*)punct(])`},
+		{"comment bracket", "#f[*a /* ] */ b*]", "meta(#)fn(f)punct([)strong(*a)comment(/* ] */)strong(b*)punct(])"},
+		{"top level bracket", "*a] b*", "strong(*a] b*)"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := lexLines(LanguageNamed("typst").Tokenizer, c.line); got != c.want {
+				t.Errorf("%q:\n got %s\nwant %s", c.line, got, c.want)
+			}
+		})
+	}
+}
+
+// Typst's tokens cover the line they are of, at the boundaries of its
+// characters, however its markup, code and math nest in each other, and its
+// state fits the 40 bits Markdown keeps for the code of its blocks.
+func TestTypstState(t *testing.T) {
+	lx := LanguageNamed("typst").Tokenizer
+	r := rand.New(rand.NewPCG(3, 4))
+	pieces := []string{"#", "$", "`", "```", "*", "_", "[", "]", "(", ")", "{", "}", "\"", "\\", "/*", "*/", "//", "<", ">", "@", "=", "- ",
+		" ", "x", "let", "set", "if", "1.5em", ".", "..", ":", "http://a.b", "é", "你", "~", "--", "\t", "\\u{1F600}"}
+	for range 5000 {
+		var state uint64
+		for range 1 + r.IntN(10) {
+			var b strings.Builder
+			for range r.IntN(14) {
+				b.WriteString(pieces[r.IntN(len(pieces))])
+			}
+			line := b.String()
+			toks, next := lx.Tokenize(line, state, nil)
+			from := 0
+			for _, tk := range toks {
+				if tk.End <= from || tk.End > len(line) || tk.Kind >= tokenKinds || tk.End < len(line) && !utf8.RuneStart(line[tk.End]) {
+					t.Fatalf("token %+v after %d in %q, from state %x", tk, from, line, state)
+				}
+				from = tk.End
+			}
+			if from != len(line) {
+				t.Fatalf("tokens end at %d of %q, from state %x", from, line, state)
+			}
+			if next >= 1<<40 {
+				t.Fatalf("%q leaves state %x, from state %x", line, next, state)
+			}
+			again, nextAgain := lx.Tokenize(line, state, nil)
+			if !slices.Equal(toks, again) || next != nextAgain {
+				t.Fatalf("%q lexes in two ways from state %x", line, state)
+			}
+			state = next
+		}
+	}
+}
+
+// Once what lines open is closed, a line starts in the state the text
+// started in, so that tokenizing goes on from the top alike after an edit.
+func TestTypstBalanced(t *testing.T) {
+	lx := LanguageNamed("typst").Tokenizer
+	var state uint64
+	for _, line := range []string{"#let f(x) = {", "  let a = [", "    *b* #g(", "      1,", "    )", "  ]", `  "s`, `t"`, "  /* c", "  */", "}",
+		"$ x", "y $", "```", "z", "```", "`a", "b`", "#f[", "#g[", "]", "]", "text"} {
+		_, state = lx.Tokenize(line, state, nil)
+	}
+	if state != 0 {
+		t.Errorf("state %x after balanced lines, want 0", state)
+	}
+}
+
+// A long line lexes in one pass, whatever opens and does not close in it.
+func TestTypstLongLine(t *testing.T) {
+	lx := LanguageNamed("typst").Tokenizer
+	for _, unit := range []string{"*a ", "_a ", "#f(", "$ x ", "[ ", "`a ", "<a ", "@a ", "/* ", "\"a ", "#a.b", "h"} {
+		line := strings.Repeat(unit, 100000)
+		toks, _ := lx.Tokenize(line, 0, nil)
+		if len(toks) == 0 || toks[len(toks)-1].End != len(line) {
+			t.Errorf("%q repeated is not lexed to its end", unit)
+		}
+	}
+}
+
+// Markdown's code blocks name Typst, and keep what its brackets, comments
+// and strings carry from line to line.
+func TestTypstInMarkdown(t *testing.T) {
+	got := lexLines(LanguageNamed("markdown").Tokenizer, "```typst", "#let x = [", "*a*]", "```", "# Title")
+	want := "punct(```)type(typst) / meta(#)kw(let)var(x)op(=)punct([) / strong(*a*)punct(]) / punct(```) / heading(# Title)"
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
 // After any edits, the states the syntax keeps are those of tokenizing
 // the text from the top.
 func TestSyntaxIncremental(t *testing.T) {
 	r := rand.New(rand.NewPCG(7, 8))
-	pieces := []string{"x", "\n", "/*", "*/", "`", "\"", " ", "func", "{", "}", "// c\n", "${", "a\nb"}
+	pieces := []string{"x", "\n", "/*", "*/", "`", "\"", " ", "func", "{", "}", "// c\n", "${", "a\nb", "#", "[", "]", "$", "*", "_"}
 	b := NewBuffer(strings.Repeat("func f() {\n\tx := `a\nb` /* c */\n}\n", 20))
 	b.SetLanguage(LanguageNamed("go"))
 	for round := range 300 {
 		if round%3 == 0 {
-			b.SetLanguage(LanguageNamed([]string{"go", "javascript", "markdown"}[round/3%3]))
+			b.SetLanguage(LanguageNamed([]string{"go", "javascript", "markdown", "typst"}[round/3%4]))
 		}
 		text, _ := b.snapshot()
 		for range r.IntN(3) + 1 {
