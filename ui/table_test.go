@@ -3,6 +3,7 @@ package ui
 import (
 	"runtime"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -730,3 +731,260 @@ func TestTableRowHeight(t *testing.T) {
 		t.Errorf("texts %q", tt.Texts())
 	}
 }
+
+// wideTable shows a table of n rows and count columns of width wide, the
+// first of them frozen of those that frozen says, whose cell r2c5 is row 2's
+// in column 5, and counts the cells built, by column.
+func wideTable(s *ListState, count int, width float32, frozen int, built map[int]int) func(c *context) {
+	cols := make([]TableColumn, count)
+	for j := range cols {
+		cols[j] = TableColumn{Title: "H" + strconv.Itoa(j), Width: width, Frozen: j < frozen}
+	}
+	return func(c *context) {
+		coreColumn(c).Fill().Children(func() {
+			coreTable(c, s, cols, 20, func(row, col int) {
+				if built != nil {
+					built[col]++
+				}
+				coreText(c, "r"+strconv.Itoa(row)+"c"+strconv.Itoa(col)).SingleLine()
+			}).Grow(1)
+		})
+	}
+}
+
+// builtColumns returns the columns whose cells were built, in order.
+func builtColumns(built map[int]int) []int {
+	var cols []int
+	for j := range built {
+		cols = append(cols, j)
+	}
+	slices.Sort(cols)
+	return cols
+}
+
+func TestTableVirtualColumnsBuildsThoseInView(t *testing.T) {
+	for _, virtual := range []bool{false, true} {
+		built := map[int]int{}
+		s := ListState{VirtualColumns: virtual}
+		tt := coreNewTester(wideTable(&s, 100, 100, 0, built), 400, 300)
+		tt.Frame()
+		clear(built)
+		tt.Frame()
+		cols := builtColumns(built)
+		switch {
+		case !virtual && len(cols) != 100:
+			t.Errorf("off: built %d columns, want all", len(cols))
+		case virtual && (cols[0] != 0 || cols[len(cols)-1] > 8 || len(cols) < 4):
+			t.Errorf("on, at the start: built columns %v", cols)
+		}
+	}
+}
+
+// The columns in view are those built as the table scrolls, and the
+// headers and the cells stay as aligned as with every column built.
+func TestTableVirtualColumnsScrolls(t *testing.T) {
+	built := map[int]int{}
+	s := ListState{VirtualColumns: true}
+	tt := coreNewTester(wideTable(&s, 100, 100, 0, built), 400, 300)
+	tt.Frame()
+	refS := ListState{}
+	ref := coreNewTester(wideTable(&refS, 100, 100, 0, nil), 400, 300)
+	for _, dx := range []float32{3000, 300, -1000, 6000, 20000, -20000} {
+		tt.Scroll(200, 150, dx, 0)
+		ref.Scroll(200, 150, dx, 0)
+		tt.Frame()
+		ref.Frame()
+		if scrollXOf(&s) != scrollXOf(&refS) {
+			t.Fatalf("scrolled by %v: at %v, want %v", dx, scrollXOf(&s), scrollXOf(&refS))
+		}
+		x := int(scrollXOf(&s) / 100)
+		for _, j := range []int{x, x + 1, x + 2} {
+			name := "r2c" + strconv.Itoa(j)
+			got, ok := tt.Find(name)
+			want, wok := ref.Find(name)
+			if !ok || !wok || got != want {
+				t.Fatalf("scrolled by %v: %s at %v (%v), want %v (%v)", dx, name, got, ok, want, wok)
+			}
+			head := header(t, tt, "H"+strconv.Itoa(j))
+			if float64(got.X) != head.X+10 {
+				t.Errorf("scrolled by %v: %s at %v, its header at %v", dx, name, got.X, head.X)
+			}
+		}
+	}
+	// Not all of them: the columns far from view are not built.
+	clear(built)
+	tt.Scroll(200, 150, -1e6, 0)
+	tt.Frame()
+	if cols := builtColumns(built); len(cols) > 9 {
+		t.Errorf("at the start again: built %v", cols)
+	}
+}
+
+// A column sharing the room left cannot be placed before the table is
+// laid out: every column is built then, and with right to left text.
+func TestTableVirtualColumnsNeedsWidths(t *testing.T) {
+	built := map[int]int{}
+	s := ListState{VirtualColumns: true}
+	cols := []TableColumn{{Title: "A"}, {Title: "B", Width: 300}, {Title: "C", Width: 300}, {Title: "D", Width: 300}}
+	tt := coreNewTester(func(c *context) {
+		coreTable(c, &s, cols, 3, func(row, col int) {
+			built[col]++
+			coreText(c, "x").SingleLine()
+		}).Grow(1)
+	}, 400, 300)
+	tt.Frame()
+	tt.Frame()
+	if cols := builtColumns(built); len(cols) != 4 {
+		t.Errorf("with a flexible column: built %v", cols)
+	}
+}
+
+// The header cannot be dragged away from the columns not built: it is
+// built whole, so that moving a column and the accessibility tree see them
+// all.
+func TestTableVirtualColumnsBuildsAllHeaders(t *testing.T) {
+	s := ListState{VirtualColumns: true}
+	tt := coreNewTester(wideTable(&s, 100, 100, 0, nil), 400, 300)
+	tt.Frame()
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	for _, j := range []int{0, 50, 99} {
+		accessNode(t, tt.h.access, platform.RoleColumnHeader, "H"+strconv.Itoa(j))
+	}
+}
+
+// Frozen columns stay at the table's start as the others scroll under
+// them: their headers and their cells keep their places.
+func TestTableFrozenColumns(t *testing.T) {
+	for _, virtual := range []bool{false, true} {
+		s := ListState{VirtualColumns: virtual}
+		tt := coreNewTester(wideTable(&s, 40, 100, 2, nil), 500, 300)
+		tt.Frame()
+		h0, h1 := header(t, tt, "H0"), header(t, tt, "H1")
+		c0, _ := tt.Find("r3c0")
+		c1, _ := tt.Find("r3c1")
+		tt.Scroll(250, 150, 1050, 0)
+		tt.Frame()
+		if got := header(t, tt, "H0"); got != h0 {
+			t.Errorf("virtual %v: H0 moved from %v to %v", virtual, h0, got)
+		}
+		if got := header(t, tt, "H1"); got != h1 {
+			t.Errorf("virtual %v: H1 moved from %v to %v", virtual, h1, got)
+		}
+		if got, _ := tt.Find("r3c0"); got != c0 {
+			t.Errorf("virtual %v: r3c0 moved from %v to %v", virtual, c0, got)
+		}
+		if got, _ := tt.Find("r3c1"); got != c1 {
+			t.Errorf("virtual %v: r3c1 moved from %v to %v", virtual, c1, got)
+		}
+		if scrollXOf(&s) != 1050 {
+			t.Fatalf("virtual %v: scrolled to %v", virtual, scrollXOf(&s))
+		}
+		// The others went by as far as the table scrolled, header and cell.
+		head := header(t, tt, "H12")
+		if cell, ok := tt.Find("r3c12"); !ok || float64(cell.X) != head.X+10 || head.X != h0.X-1050+1200 {
+			t.Errorf("virtual %v: H12 at %v, r3c12 at %v (%v)", virtual, head.X, cell.X, ok)
+		}
+	}
+}
+
+// What the pinned columns cover cannot be clicked: the click lands in the
+// pinned column, where it shows, not in the one scrolled under it.
+func TestTableFrozenHitTest(t *testing.T) {
+	s := &ListState{CellSelect: true, VirtualColumns: true}
+	sel := &Selection[int]{}
+	s.Selection = sel
+	cols := []TableColumn{{Title: "#", RowHeader: true, Width: 40, Frozen: true}, {Title: "A", Width: 100, Frozen: true}}
+	for k := range 30 {
+		cols = append(cols, TableColumn{Title: string(rune('a'+k%26)) + strconv.Itoa(k), Width: 100})
+	}
+	tt := NewTester(func(c *Context) {
+		Table(c, s, cols, 10, func(row, col int) {
+			Textf(c, "r%dc%d", row, col)
+		}).Grow(1)
+	}, 500, 300)
+	tt.Frame()
+	tt.Scroll(250, 150, 430, 0)
+	tt.Frame()
+	// Column 5 (x 540 of the row) is at 540-430 = 110: under A (40-140).
+	x, y := rowCenter(t, tt, "r2c1")
+	tt.ClickAt(x+60, y) // by the right of A's text, where column 3 is under it
+	wantBlock(t, s, sel, "click over the pinned A", []int{2}, ColumnRange{Cursor: "A", Anchor: "A"}, []string{"A"})
+	// A column in view at the right (column 8, at 740-430) takes its click.
+	x, y = rowCenter(t, tt, "r2c8")
+	tt.ClickAt(x, y)
+	wantBlock(t, s, sel, "click on r2c8", []int{2}, ColumnRange{Cursor: "g6", Anchor: "g6"}, []string{"g6"})
+}
+
+// Keys move the cursor to a column not built, which scrolls into view past
+// the pinned ones.
+func TestTableFrozenRevealsCursor(t *testing.T) {
+	s := &ListState{CellSelect: true, VirtualColumns: true}
+	sel := &Selection[int]{}
+	s.Selection = sel
+	cols := []TableColumn{{Title: "A", Width: 100, Frozen: true}}
+	for k := range 40 {
+		cols = append(cols, TableColumn{Title: "C" + strconv.Itoa(k), Width: 100})
+	}
+	tt := NewTester(func(c *Context) {
+		Table(c, s, cols, 5, func(row, col int) {
+			Textf(c, "r%dc%d", row, col)
+		}).Grow(1)
+	}, 500, 300)
+	tt.Frame()
+	tt.Click("r0c0")
+	for range 20 {
+		tt.Key(0, KeyRight)
+		tt.Frame()
+	}
+	if s.Cells.Cursor != "C19" {
+		t.Fatalf("the cursor is in %q", s.Cells.Cursor)
+	}
+	cell, ok := tt.Find("r0c20")
+	pinned, _ := tt.Find("r0c0")
+	if !ok || cell.X < pinned.X+100 || cell.X > 500 {
+		t.Errorf("the cursor's cell at %v (%v), under the pinned one at %v or out of the view", cell.X, ok, pinned.X)
+	}
+}
+
+// Frozen columns do not move, as Fixed ones do not, and only a run of
+// them from the first is pinned.
+func TestTableFrozenArrangeAndGeometry(t *testing.T) {
+	cols := []TableColumn{{Title: "A", Width: 50, Frozen: true}, {Title: "B", Width: 60, Frozen: true}, {Title: "C", Width: 70}, {Title: "D", Width: 80, Frozen: true}, {Title: "E", Width: 90}}
+	layout := TableLayout{Order: []string{"E", "C", "A", "B", "D"}}
+	order := layout.arrange(cols)
+	if !slices.Equal(order, []int{0, 1, 3, 2, 4}) && !slices.Equal(order, []int{0, 1, 4, 3, 2}) {
+		t.Errorf("arrange: %v", order)
+	}
+	if order[0] != 0 || order[1] != 1 || order[3] != 3 {
+		t.Errorf("frozen columns moved: %v", order)
+	}
+	starts, n, w := tableGeometry(&layout, cols, order)
+	if n != 2 || w != 110 || len(starts) != 6 || starts[2] != 110 || starts[5] != 350 {
+		t.Errorf("geometry: starts %v, %d frozen, %v wide", starts, n, w)
+	}
+	// One sharing the room left cannot pin, nor can a column after it.
+	flex := []TableColumn{{Title: "A", Frozen: true}, {Title: "B", Width: 60, Frozen: true}}
+	if starts, n, _ := tableGeometry(&TableLayout{}, flex, []int{0, 1}); n != 0 || starts != nil {
+		t.Errorf("a frozen column sharing the room left: starts %v, %d frozen", starts, n)
+	}
+}
+
+// Tables that ask for neither are as they were: every column built, none
+// pinned.
+func TestTableWithoutVirtualOrFrozenIsUnchanged(t *testing.T) {
+	built := map[int]int{}
+	s := ListState{}
+	tt := coreNewTester(wideTable(&s, 30, 100, 0, built), 400, 300)
+	tt.Frame()
+	if n := len(builtColumns(built)); n != 30 {
+		t.Errorf("built %d of 30 columns", n)
+	}
+	tt.Scroll(200, 150, 500, 0)
+	tt.Frame()
+	if h := header(t, tt, "H0"); h.X > -400 {
+		t.Errorf("H0 at %v after scrolling 500: it should have scrolled away", h.X)
+	}
+}
+
+// scrollXOf returns how far the table s shows is scrolled sideways.
+func scrollXOf(s *ListState) float64 { return s.frame.e.st.scrollX }

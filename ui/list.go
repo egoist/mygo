@@ -188,6 +188,15 @@ type ListState struct {
 	// go, when the order or a width is new, and once a double click on
 	// an edge fits a column to its cells.
 	Columns TableLayout
+	// VirtualColumns makes a Table build, in each row, only the columns in
+	// view and a margin of half its width on both sides, as it builds only
+	// the rows in view: the others are blocks as wide as they are, so that
+	// the table scrolls as with all of them. It needs a Width for every
+	// column (or the user's), else, and with right to left text, the table
+	// builds them all. The headers are always built whole. The cell builder
+	// is not called for columns out of view, which sizing and
+	// assistive technology do not see either.
+	VirtualColumns bool
 	// RoundRows rounds the corners of a Table's chosen and hovered rows at
 	// the theme's Radius, as a List's are, rather than leaving them square
 	// from edge to edge.
@@ -339,6 +348,10 @@ type ListState struct {
 	// tableCols are the columns of the Table choosing cells (CellSelect)
 	// in the order shown, in this frame.
 	tableCols []tableCol
+	// frozenN is how many columns of the Table are pinned, frozenW wide
+	// together, as the last frame built it.
+	frozenN int
+	frozenW float32
 }
 
 // listRequest is where the app or the user asked the list to go: to row

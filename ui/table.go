@@ -3,6 +3,7 @@ package ui
 import (
 	"maps"
 	"slices"
+	"sort"
 	"strconv"
 )
 
@@ -31,7 +32,18 @@ type TableColumn struct {
 	// click on its header chooses every row. It does not sort, and is
 	// never Cells.Cursor.
 	RowHeader bool
+	// Frozen pins the column at the start of the table while the others
+	// scroll sideways under it. Only the columns from the first in a row
+	// are pinned, each with a Width (or one the user resized): a Frozen
+	// column after one that is not, or sharing the room left, scrolls as
+	// the others. A Frozen column stays where it is as a Fixed one does, but
+	// the user may still resize it. Give them room: the columns that
+	// scroll can only be seen in what the pinned ones leave.
+	Frozen bool
 }
+
+// stationary reports whether the user cannot move the column.
+func (col *TableColumn) stationary() bool { return col.Fixed || col.Frozen }
 
 // sortable reports whether a click on the column's header sorts by it: a
 // RowHeader column does not.
@@ -66,7 +78,7 @@ func (l *TableLayout) arrange(columns []TableColumn) []int {
 	order := make([]int, 0, len(columns))
 	var named []int
 	for _, id := range l.Order {
-		if j := slices.IndexFunc(columns, func(col TableColumn) bool { return col.id() == id }); j >= 0 && !columns[j].Fixed && !slices.Contains(named, j) {
+		if j := slices.IndexFunc(columns, func(col TableColumn) bool { return col.id() == id }); j >= 0 && !columns[j].stationary() && !slices.Contains(named, j) {
 			named = append(named, j)
 		}
 	}
@@ -74,12 +86,12 @@ func (l *TableLayout) arrange(columns []TableColumn) []int {
 	// in theirs.
 	movable := append([]int(nil), named...)
 	for j := range columns {
-		if !columns[j].Fixed && !slices.Contains(named, j) {
+		if !columns[j].stationary() && !slices.Contains(named, j) {
 			movable = append(movable, j)
 		}
 	}
 	for j := range columns {
-		if columns[j].Fixed {
+		if columns[j].stationary() {
 			order = append(order, j)
 		} else {
 			order = append(order, movable[0])
@@ -230,12 +242,63 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 			least += max(columns[j].MinWidth, flexMin)
 		}
 	}
+	// Where each column starts, in the row, and how many lead pinned
+	// (Frozen); known only when the columns have widths.
+	starts, frozenN, frozenW := tableGeometry(layout, columns, order)
+	s.frozenN, s.frozenW = frozenN, frozenW
 	// fitting are the cells of the column fitting its cells.
 	var fitting []*node
-	// cells builds a row's cells, with fill building the content of each.
-	cells := func(role Role, fill func(col int)) []*node {
+	var list *node
+	// window returns the columns a row builds, from lo to hi (not the
+	// pinned ones, which are always built), or false for all: the rows
+	// of columns that all have widths, with VirtualColumns, once the list
+	// has a width, in the scroll it has now (a row built as the list lays
+	// out sees the scroll of that frame).
+	window := func() (vlo, vhi int, ok bool) {
+		if !s.VirtualColumns || starts == nil || list == nil || list.st.w <= 0 || table.rtl() {
+			return 0, 0, false
+		}
+		x0 := float32(list.st.scrollX)
+		margin := list.st.w / 2
+		x0, x1 := x0-margin, x0+list.st.w+margin
+		n := len(order)
+		vlo = frozenN + sort.Search(n-frozenN, func(i int) bool { return starts[frozenN+i+1] > x0 })
+		vhi = frozenN + sort.Search(n-frozenN, func(i int) bool { return starts[frozenN+i] >= x1 })
+		return vlo, vhi, true
+	}
+	// cells builds a row's cells, with fill building the content of each;
+	// a row of the body, windowed, builds only the columns in view, and
+	// blocks as wide as the others stand for them.
+	cells := func(role Role, fill func(col int), windowed bool) []*node {
 		boxes := make([]*node, 0, len(order))
+		vlo, vhi, virt := 0, len(order), false
+		if windowed {
+			if l, h, ok := window(); ok {
+				vlo, vhi, virt = l, h, true
+			}
+		}
+		before, after := false, false
+		gap := func(from, to int, key string) {
+			if to > from {
+				coreBox(c).Key(key).Width(starts[to] - starts[from]).Shrink(0).Role(RoleNone)
+			}
+		}
 		for k, j := range order {
+			if virt {
+				// A block for the columns before those built, and one for
+				// those after, where the first of each comes.
+				if k == vlo && !before {
+					before = true
+					gap(frozenN, vlo, "\x00before")
+				}
+				if k == vhi && !after {
+					after = true
+					gap(vhi, len(order), "\x00after")
+				}
+				if k >= frozenN && (k < vlo || k >= vhi) {
+					continue
+				}
+			}
 			col := &columns[j]
 			// Keyed by its column, a cell keeps its state as the columns
 			// move: a header being dragged keeps the press.
@@ -251,6 +314,13 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				box.Width(w)
 			} else {
 				box.Grow(1).Shrink(1).MinWidth(max(col.MinWidth, flexMin))
+			}
+			if k < frozenN {
+				// Pinned at its place from the start, over the columns
+				// scrolling under it, which it hides with the color its row
+				// shows.
+				box.Sticky().Start(starts[k])
+				box.styleFn = frozenStyle(t)
 			}
 			switch col.Align {
 			case Center:
@@ -308,9 +378,11 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 			}
 			boxes = append(boxes, box)
 		}
+		if virt && !before {
+			gap(frozenN, vlo, "\x00before")
+		}
 		return boxes
 	}
-	var list *node
 	table.Children(func() {
 		// The header, which scrolls sideways with the rows.
 		head := coreRow(c).Height(tableRow).Shrink(0).AlignItems(Stretch).Role(RoleRow).Clip()
@@ -332,7 +404,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 					}
 					sortArrow(c, descending, place)
 				}
-			})
+			}, false)
 			for k, j := range order {
 				if cellSel {
 					s.tableCols[k].head = heads[k].id
@@ -375,7 +447,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				}
 			}
 			row.Children(func() {
-				cells(RoleCell, func(j int) { cell(i, j) })
+				cells(RoleCell, func(j int) { cell(i, j) }, true)
 			})
 		}, kind)
 	})
@@ -404,7 +476,11 @@ func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDra
 	sorts, choosesAll := s.sorts() && col.sortable(), col.RowHeader && s.choosesCells()
 	if sorts || choosesAll {
 		h.flags |= flagClickable | flagHover
+		pinned := h.styleFn
 		h.styleFn = func(h *node) {
+			if pinned != nil {
+				pinned(h)
+			}
 			if h.Hovered() {
 				h.bg = t.SurfaceHover
 			}
@@ -430,7 +506,7 @@ func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDra
 		h.Label(col.Title) // the title alone, not the place number beside it
 	}
 	// Moving the column, once the pointer went a few DIPs.
-	if dx, _, held := h.Dragged(); held && !col.Fixed {
+	if dx, _, held := h.Dragged(); held && !col.stationary() {
 		if drag.id != id {
 			*drag = tableDrag{id: id, from: s.Columns}
 		}
@@ -569,7 +645,7 @@ func moveColumn(c *context, s *ListState, drag *tableDrag, heads []*node, order 
 			to = at - 1
 		}
 	}
-	if to == at || columns[order[to]].Fixed {
+	if to == at || columns[order[to]].stationary() {
 		return
 	}
 	// Under the pointer still: the column's place moved by the other's
@@ -732,4 +808,49 @@ func (e *node) Selected(on bool) *node {
 	e.checked = 2
 	e.Background(e.c.accent(t)).TextColor(t.AccentText)
 	return e
+}
+
+// tableGeometry returns where each column of order starts in a row, with
+// one more for the row's end, or nil unless every column has a width; and
+// how many columns at the start are pinned (Frozen) and how wide they are
+// together.
+func tableGeometry(layout *TableLayout, columns []TableColumn, order []int) (starts []float32, frozenN int, frozenW float32) {
+	starts = make([]float32, 1, len(order)+1)
+	for _, j := range order {
+		w, ok := layout.width(&columns[j])
+		if !ok {
+			starts = nil
+			break
+		}
+		starts = append(starts, starts[len(starts)-1]+w)
+	}
+	// Only a run of Frozen columns with widths, from the first, is pinned;
+	// the order keeps them where they are.
+	for k, j := range order {
+		w, ok := layout.width(&columns[j])
+		if !columns[j].Frozen || !ok || k != frozenN {
+			break
+		}
+		frozenN++
+		frozenW += w
+	}
+	return starts, frozenN, frozenW
+}
+
+// frozenStyle is the styleFn of a pinned cell: it takes the background of
+// the nearest element around it that has one, or the theme's, for the cells
+// scrolling under it not to show through.
+func frozenStyle(t *Theme) func(*node) {
+	return func(e *node) {
+		if e.bg != Transparent {
+			return
+		}
+		for p := e.parent; p != nil; p = p.parent {
+			if p.bg != Transparent {
+				e.bg = p.bg
+				return
+			}
+		}
+		e.bg = t.Background
+	}
 }
