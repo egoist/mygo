@@ -43,3 +43,44 @@ func TestPopoverFlyoutsReuseNSPopovers(t *testing.T) {
 		t.Fatal("the second popover flyout does not show")
 	}
 }
+
+// TestPopoverFlyoutClosedAsItHides hides a popover flyout and closes it
+// while its popover's animation runs, then opens another at once. The
+// first popover still shows, and tells it closed only as the animation
+// ends: the second flyout shows in another one, and stays open after that.
+func TestPopoverFlyoutClosedAsItHides(t *testing.T) {
+	parent := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
+	eventually(t, "anchor window visible", parent.IsVisible)
+	open := func() *mygo.Window {
+		return mygo.NewFlyout(mygo.FlyoutOptions{Parent: parent, Anchor: mygo.Rectangle{X: 100, Y: 20, Width: 80, Height: 24}, Popover: true, Width: 220, Height: 120, Content: ui.View(func(c *ui.Context) { ui.Text(c, "Popover reuse test") })})
+	}
+	closing := func() (n int) {
+		mygo.RunOnMain(func() { _, n = darwin.TestSparePopovers() })
+		return n
+	}
+	first := open()
+	eventually(t, "the first popover shown", first.IsVisible)
+	var before uintptr
+	mygo.RunOnMain(func() {
+		before = darwin.TestPopover(first.NativeHandle())
+		first.Hide()
+		first.Close()
+	})
+	wasClosing := closing() > 0
+	second := open()
+	defer second.Destroy()
+	eventually(t, "the second popover's window adopted", func() bool { return second.NativeHandle() != 0 })
+	var after uintptr
+	mygo.RunOnMain(func() { after = darwin.TestPopover(second.NativeHandle()) })
+	if after == before {
+		t.Fatal("the second flyout shows in the first one's NSPopover, which is still closing")
+	}
+	if !wasClosing {
+		t.Skip("the first popover finished closing at once")
+	}
+	eventually(t, "the first popover closed", func() bool { return closing() == 0 })
+	mygo.RunOnMain(func() {}) // after what its close posted
+	if second.IsDestroyed() || !second.IsVisible() {
+		t.Fatal("the first popover's close closed the second flyout")
+	}
+}

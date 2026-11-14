@@ -194,15 +194,19 @@ func (w *window) closePopover() {
 
 func (w *window) cleanupPopover() {
 	w.forgetPopoverWindow()
-	send(w.popover, "setDelegate:", 0)
-	if sendBool(w.popover, "isShown") {
-		w.highlightTray(false)
-		send(w.popover, "setAnimates:", 0)
-		send(w.popover, "close")
-	}
-	send(w.popover, "setContentViewController:", 0)
-	w.b.givePopover(w.popover)
+	p := w.popover
 	w.popover = 0
+	// A popover that Hide closes with its animation still shows (isShown),
+	// and tells it closed (popoverDidClose:) only as the animation ends,
+	// which can be after the flyout is gone.
+	closing := w.popoverClosing || sendBool(p, "isShown")
+	w.b.givePopover(p, closing)
+	if sendBool(p, "isShown") {
+		w.highlightTray(false)
+		send(p, "setAnimates:", 0)
+		send(p, "close")
+	}
+	send(p, "setContentViewController:", 0)
 	release(w.popoverController)
 }
 
@@ -225,8 +229,30 @@ func (b *Backend) takePopover() id {
 // 280×230), so an app that shows a new popover flyout at each click of
 // its tray icon grew by that much at each. Reused, a popover keeps one
 // backdrop: the app holds as many as it showed at once.
-func (b *Backend) givePopover(p id) {
+//
+// A popover still closing becomes spare once it tells it closed, to
+// spareDelegate (spareClosed): shown by another flyout before that, it
+// showed nothing, and its late popoverDidClose: closed that flyout.
+func (b *Backend) givePopover(p id, closing bool) {
+	if b.spareDelegate == 0 {
+		b.spareDelegate = alloc("MyGoWindowDelegate") // in no window: windowFor is nil
+		b.closingPopovers = map[id]bool{}
+	}
+	send(p, "setDelegate:", uintptr(b.spareDelegate))
+	if closing {
+		b.closingPopovers[p] = true
+		return
+	}
 	b.sparePopovers = append(b.sparePopovers, p)
+}
+
+// spareClosed makes a popover a closed flyout gave back while it was
+// closing spare, as it tells it closed.
+func (b *Backend) spareClosed(p id) {
+	if b.closingPopovers[p] {
+		delete(b.closingPopovers, p)
+		b.sparePopovers = append(b.sparePopovers, p)
+	}
 }
 
 func popoverDelegateMethods() []objc.MethodDef {
@@ -245,6 +271,10 @@ func popoverDelegateMethods() []objc.MethodDef {
 			return true
 		}),
 		method("popoverDidClose:", func(self id, _ objc.SEL, n id) {
+			if self == b().spareDelegate {
+				b().spareClosed(send(n, "object"))
+				return
+			}
 			w := b().windowFor(self)
 			if w == nil {
 				return

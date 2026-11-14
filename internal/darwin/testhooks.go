@@ -645,6 +645,12 @@ func TestPopover(handle uintptr) uintptr {
 	return 0
 }
 
+// TestSparePopovers returns how many NSPopovers closed flyouts gave back
+// are spare, and how many of them are still closing (givePopover).
+func TestSparePopovers() (spare, closing int) {
+	return len(theBackend.sparePopovers), len(theBackend.closingPopovers)
+}
+
 // TestSetPopoverAnchorAppearance models a status item's contrast appearance,
 // which can differ from the application's own theme over desktop wallpaper.
 func TestSetPopoverAnchorAppearance(handle uintptr, dark bool) {
