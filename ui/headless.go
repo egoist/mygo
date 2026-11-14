@@ -580,6 +580,14 @@ func (t *Tester) Frame() { t.h.requested.Store(true); t.settle() }
 // time, as the clock stands still until then.
 func (t *Tester) FramePending() bool { return t.asked() }
 
+// SetRefreshRate has the Tester stand for a display that refreshes hz
+// times a second, as a ProMotion one's 120: Advance runs frames at its
+// refreshes, and Painter.AnimationFrameRate paces them to a whole number
+// of them, as a window does. Unless set, a Tester's frames come 60 times
+// a second, the display's rate unknown to the view, as in browsers, so
+// that each refresh paints.
+func (t *Tester) SetRefreshRate(hz float32) { t.h.hz = hz }
+
 // Image returns the last frame.
 func (t *Tester) Image() *image.RGBA { return t.h.image() }
 

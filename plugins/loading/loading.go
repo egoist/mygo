@@ -42,6 +42,12 @@ type Options struct {
 	// Paused stops the indicator where it is, and it goes on from there
 	// once false again, as CSS's paused animation-play-state.
 	Paused bool
+	// FPS is the most frames a second the indicator is painted at,
+	// DefaultFPS if 0. Each is a frame of the whole window, so an
+	// indicator at the display's rate, 120 a second on ProMotion, costs
+	// four times the CPU of one at 30, which looks as smooth at its size.
+	// A negative FPS paints it at each of the display's refreshes.
+	FPS float32
 	// Easing is how the indicators that turn (Arc, Atom, Clock, Comet,
 	// Dual, Orbit, Radar, Ring, Snake and Trace) turn: Linear by default.
 	Easing Easing
@@ -56,6 +62,10 @@ type Options struct {
 	// Origin is where Wave's bars grow from: WaveCenter by default.
 	Origin WaveOrigin
 }
+
+// DefaultFPS is the frames a second an indicator is painted at unless
+// Options.FPS says otherwise.
+const DefaultFPS = 30
 
 // Easing is how an indicator that turns moves through a turn.
 type Easing uint8
@@ -179,6 +189,10 @@ func show(c *ui.Context, s *spec, opts []Options) ui.Element {
 	if o.Duration > 0 {
 		cycle = o.Duration
 	}
+	fps := o.FPS
+	if fps == 0 {
+		fps = DefaultFPS
+	}
 	still := c.Preferences().ReduceMotion
 	// A progress indicator of unknown length, as ui.Spinner.
 	e := ui.Box(c).Size(size*s.aspect, size).Shrink(0).Role(ui.RoleProgress).Range(0, 1, -1)
@@ -198,7 +212,11 @@ func show(c *ui.Context, s *spec, opts []Options) ui.Element {
 			ran := k.held
 			if !k.paused {
 				ran = p.Now().Sub(k.start)
-				p.AnimationFrame()
+				if fps < 0 {
+					p.AnimationFrame()
+				} else {
+					p.AnimationFrameRate(fps)
+				}
 			}
 			d.cycles = float64(ran) / float64(cycle)
 		}

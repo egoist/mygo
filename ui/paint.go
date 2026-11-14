@@ -158,7 +158,15 @@ func (p *Painter) AnimationFrame() {
 // 120 Hz display's, 60 or 30 of a 60 Hz one's. The window draws at the
 // fastest anything in it asks for: at the display's while another drawing
 // asks for AnimationFrame or the view animates.
+//
+// While the window does not have the keyboard focus, as one behind
+// another the user works in, it asks for half as many, as Spinner's
+// steps: motion in the background need not be as smooth, and costs as
+// much a frame.
 func (p *Painter) AnimationFrameRate(fps float32) {
+	if !p.rt.windowFocused {
+		fps /= 2
+	}
 	p.rt.repainting = true
 	p.rt.repaintRate = max(p.rt.repaintRate, fps)
 	p.asks()
