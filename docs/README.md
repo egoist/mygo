@@ -169,6 +169,9 @@ components, from buttons to tables.
 - [PermissionFlow](plugins/permissionflow.md): the system's permissions,
   such as Accessibility and Screen Recording, checked and asked for, and a
   guide to System Settings with the app to drag into its list.
+- [DesktopControl](plugins/desktopcontrol.md): the local desktop's
+  displays and windows, screenshots of them, input aimed at one of them,
+  and the buttons of dialogs, on macOS.
 
 ## Reference
 
