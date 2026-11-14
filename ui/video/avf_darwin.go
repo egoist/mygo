@@ -329,7 +329,10 @@ func (e *avEngine) watch() {
 	defer runtime.UnlockOSThread()
 	tick := time.NewTicker(25 * time.Millisecond)
 	defer tick.Stop()
-	firstWoke := false
+	// When the window was last woken for a first picture, which it wakes
+	// for again while none was taken: a frame woken may build before the
+	// output has it at the frame's time, or while none of the window shows.
+	var wokeFirst time.Time
 	for {
 		select {
 		case <-e.quit:
@@ -349,12 +352,12 @@ func (e *avEngine) watch() {
 			// Out of mu: State, on the main thread, never waits for it.
 			e.interval.Store(int64(e.frameInterval()))
 		}
-		if ready && loading && !firstWoke {
+		if ready && loading && time.Since(wokeFirst) >= 250*time.Millisecond {
 			// The output has the first picture once it has one for now,
 			// which the frame woken, due a little later, takes.
 			at := msgItemTimeForHostTime(e.output, sel("itemTimeForHostTime:"), caCurrentMediaTime())
 			if msgHasNewBuffer(e.output, sel("hasNewPixelBufferForItemTime:"), at) {
-				firstWoke, changed = true, true
+				wokeFirst, changed = time.Now(), true
 			}
 		}
 		poolPop(pool)
