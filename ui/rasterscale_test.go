@@ -154,6 +154,14 @@ func TestScaledTextResidual(t *testing.T) {
 			coreText(c, "Turned and scaled").FontSize(14)
 		})
 	}, 400, 200, 1)
+	// Laid out at the size the transform shows it at. Glyph bitmaps are
+	// padded by a few pixels that do not scale (CoreText's), so compare
+	// with those rather than with k times the unscaled ones.
+	big := newScaleTester(func(c *context) {
+		coreBox(c).Absolute().Left(100).Top(60).Children(func() {
+			coreText(c, "Turned and scaled").FontSize(14 * k)
+		})
+	}, 400, 200, 1)
 	tallest := func(s *scene.Scene) float32 {
 		var h float32
 		for _, g := range s.Glyphs {
@@ -161,9 +169,9 @@ func TestScaledTextResidual(t *testing.T) {
 		}
 		return h
 	}
-	hs, h1 := tallest(&tt.rt.scene), tallest(&plain.rt.scene)
-	if hs < h1*k-2 || hs > h1*k+2 {
-		t.Errorf("glyphs %v pixels tall, %v unscaled: want them about %v times taller", hs, h1, k)
+	hs, h1, hk := tallest(&tt.rt.scene), tallest(&plain.rt.scene), tallest(&big.rt.scene)
+	if hs < hk-2 || hs > hk+2 {
+		t.Errorf("glyphs %v pixels tall, %v laid out at %v times the size (%v unscaled): want them as tall", hs, hk, k, h1)
 	}
 	ops := glyphOps(&tt.rt.scene)
 	if len(ops) != 1 {
