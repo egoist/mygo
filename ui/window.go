@@ -481,6 +481,11 @@ func (h *windowHost) present(s *scene.Scene) {
 		h.gpu = nil
 		h.makeGPU()
 	}
+	if gpuCorners != nil && h.gpu != nil {
+		// The app asked for continuous corners (SetContinuousCorners)
+		// since the renderer was made.
+		gpuCorners(h.gpu)
+	}
 	now := time.Now()
 	h.lastFrame = now
 	h.armIdle(frameIdle)
@@ -654,6 +659,9 @@ func (h *windowHost) makeGPU() {
 	}
 	h.gpu, h.gpuSince = r, time.Now()
 	h.wide = false // the renderer draws sRGB until told otherwise
+	if gpuCorners != nil {
+		gpuCorners(r) // the app asked for continuous corners
+	}
 	if p, ok := r.(interface{ SetPost(func(func())) }); ok && h.conn.Post != nil {
 		// Frames waiting for the display draw through the main thread.
 		p.SetPost(h.conn.Post)

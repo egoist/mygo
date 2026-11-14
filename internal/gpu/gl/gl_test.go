@@ -4,11 +4,13 @@ package gl
 
 import (
 	"bytes"
+	"fmt"
 	"runtime"
 	"testing"
 
 	"github.com/egoist/mygo/internal/gpu/gputest"
 	"github.com/egoist/mygo/internal/raster"
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // apis are the APIs the renderer draws with: OpenGL 3.3 and OpenGL ES 3.0.
@@ -182,6 +184,73 @@ func TestDrawsVideoAsTheCPURenderer(t *testing.T) {
 						}
 					}
 				}
+			}
+		})
+	}
+}
+
+// TestDrawsContinuousCornersAsTheCPURenderer draws continuous corners
+// (scene.Op.Continuous) with a renderer asked to (ContinuousCorners, as
+// ui.SetContinuousCorners has it): fills, borders, images, clips, blurred
+// and inner shadows, an effect, cards drawn as nine-patches and transformed
+// content, as the CPU renderer draws them; batches holding them draw with
+// the shader of continuous corners, and the others with the shader without.
+func TestDrawsContinuousCornersAsTheCPURenderer(t *testing.T) {
+	cases := []struct {
+		name string
+		s    *scene.Scene
+	}{
+		{"continuous", gputest.ContinuousScene()},
+		{"continuous-corner-clips", gputest.ContinuousCornerClipScene()},
+		{"cards", gputest.CardsScene(1400, 900)},
+		{"odd-cards", gputest.CardsScene(1001, 777)},
+		{"transformed", gputest.Continuously(gputest.TransformedScene())},
+		{"perspective", gputest.Continuously(gputest.PerspectiveScene())},
+		{"bordered-card", gputest.BorderedCardScene(true)},
+	}
+	for i, c := range gputest.ShadowCases() {
+		if c.Radius == 0 {
+			continue
+		}
+		c.Continuous = true
+		cases = append(cases, struct {
+			name string
+			s    *scene.Scene
+		}{fmt.Sprintf("shadow-%d", i), gputest.ShadowPanelScene(c)})
+	}
+	for _, c := range gputest.MaskedCases() {
+		if c.Name == "masked continuous" {
+			cases = append(cases, struct {
+				name string
+				s    *scene.Scene
+			}{"masked-continuous", c.Scene})
+		}
+	}
+	for _, api := range apis {
+		t.Run(api.name, func(t *testing.T) {
+			for _, c := range cases {
+				t.Run(c.name, func(t *testing.T) {
+					read := offscreen(t, api.es, c.s.Width, c.s.Height)
+					r, err := New()
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer r.Release()
+					r.ContinuousCorners()
+					// Twice: the second frame finds what the first made.
+					for range 2 {
+						if err := r.Render(c.s); err != nil {
+							t.Fatal(err)
+						}
+						gputest.Compare(t, "gl-continuous-"+c.name, read(), c.s.Width*4, c.s)
+					}
+					if r.contErr != nil {
+						t.Fatal(r.contErr)
+					}
+					if r.contProgram == 0 {
+						t.Fatal("no batch drew with the shader of continuous corners")
+					}
+				})
 			}
 		})
 	}

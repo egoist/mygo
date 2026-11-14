@@ -131,11 +131,23 @@ type Renderer struct {
 	program  uint32
 	vao, buf uint32
 	uSize    int32
-	mask     texture
-	color    texture
-	empty    uint32 // a texture to bind where there is none
-	images   map[uint64]*texture
-	frame    uint64
+	// continuous tells that the renderer draws continuous corners
+	// (ContinuousCorners), whose builders split them (splitCorners, which
+	// only that reaches): batches holding them draw with contProgram,
+	// the shader with CONTINUOUS defined, linked as first needed, whose
+	// uSize is contSize, and effects with it defined too. contErr is why
+	// it did not link, once it failed: those batches then draw with
+	// program.
+	continuous   bool
+	splitCorners func(*gpu.Builder)
+	contProgram  uint32
+	contSize     int32
+	contErr      error
+	mask         texture
+	color        texture
+	empty        uint32 // a texture to bind where there is none
+	images       map[uint64]*texture
+	frame        uint64
 	// canvases are the textures canvases are drawn into, and canvasTex
 	// the names of those textures.
 	canvases  map[uint64]*canvasTexture
@@ -206,6 +218,9 @@ func (r *Renderer) Invalidate() { r.held = false }
 type effectProgram struct {
 	program uint32
 	uSize   int32
+	// continuous tells that it draws continuous corners, CONTINUOUS
+	// defined: those of a renderer that does (ContinuousCorners).
+	continuous bool
 	// flipRows is the location of a shader's uShaderFlipRows, which tells
 	// it the canvases among its images, whose rows go up.
 	flipRows int32
@@ -261,33 +276,10 @@ func (r *Renderer) init() error {
 		header += "precision highp float;\nprecision highp int;\n"
 	}
 	r.header = header
-	vs, err := compile(glVertexShader, header+"#define VERTEX\n"+shaderSource)
-	if err != nil {
+	var err error
+	if r.program, r.uSize, err = r.linkShader(""); err != nil {
 		return err
 	}
-	defer glDeleteShader(vs)
-	fs, err := compile(glFragmentShader, header+"#define FRAGMENT\n"+shaderSource)
-	if err != nil {
-		return err
-	}
-	defer glDeleteShader(fs)
-	r.program = glCreateProgram()
-	glAttachShader(r.program, vs)
-	glAttachShader(r.program, fs)
-	glLinkProgram(r.program)
-	var ok int32
-	if glGetProgramiv(r.program, glLinkStatus, &ok); ok == 0 {
-		return fmt.Errorf("gl: cannot link the shader: %s", programLog(r.program))
-	}
-	glUseProgram(r.program)
-	r.uSize = glGetUniformLocation(r.program, "uSize")
-	glUniform1i(glGetUniformLocation(r.program, "uMask"), 0)
-	glUniform1i(glGetUniformLocation(r.program, "uColor"), 1)
-	glUniform1i(glGetUniformLocation(r.program, "uImage"), 2)
-	glUniform1i(glGetUniformLocation(r.program, "uClipMask"), 4)
-	glUniform1i(glGetUniformLocation(r.program, "uStops"), stopsUnit)
-	glUniform1i(glGetUniformLocation(r.program, "uChroma"), chromaUnit)
-	glUseProgram(0)
 	if r.down, err = passLink(header, "DOWN"); err != nil {
 		return err
 	}
@@ -316,19 +308,78 @@ func (r *Renderer) init() error {
 	return nil
 }
 
+// linkShader compiles and links the program of the shader, with defines
+// after its header, and returns it with the location of its uSize.
+func (r *Renderer) linkShader(defines string) (program uint32, uSize int32, err error) {
+	program, err = link(r.header+defines+"#define VERTEX\n"+shaderSource, r.header+defines+"#define FRAGMENT\n"+shaderSource)
+	if err != nil {
+		return 0, 0, err
+	}
+	glUseProgram(program)
+	uSize = glGetUniformLocation(program, "uSize")
+	glUniform1i(glGetUniformLocation(program, "uMask"), 0)
+	glUniform1i(glGetUniformLocation(program, "uColor"), 1)
+	glUniform1i(glGetUniformLocation(program, "uImage"), 2)
+	glUniform1i(glGetUniformLocation(program, "uClipMask"), 4)
+	glUniform1i(glGetUniformLocation(program, "uStops"), stopsUnit)
+	glUniform1i(glGetUniformLocation(program, "uChroma"), chromaUnit)
+	glUseProgram(0)
+	return program, uSize, nil
+}
+
+// ContinuousCorners has the renderer draw continuous corners (negative
+// radii, scene.Op.Continuous), as Core Animation draws them, for apps that
+// ask for them (ui.SetContinuousCorners): the batches holding them draw
+// with the shader compiled with their code, CONTINUOUS defined, and the
+// others without it, as the builder splits large shapes into their
+// corners and the rest (gpu.Builder.SplitCorners). It takes effect from
+// the next frame; it needs no current context.
+func (r *Renderer) ContinuousCorners() {
+	r.continuous, r.splitCorners = true, (*gpu.Builder).SplitCorners
+}
+
+// batchProgram returns the program batch bt of a frame drawn draws with,
+// and the location of its uSize: its effect's, 0 when that does not
+// compile, the one with continuous corners for a batch holding some, or
+// the shader's.
+func (r *Renderer) batchProgram(bt *gpu.Batch) (uint32, int32) {
+	if bt.Effect != nil {
+		p := r.effectProgram(bt.Effect)
+		return p.program, p.uSize
+	}
+	if bt.Continuous && r.continuous {
+		if r.contProgram == 0 && r.contErr == nil {
+			if r.contProgram, r.contSize, r.contErr = r.linkShader("#define CONTINUOUS\n"); r.contErr != nil {
+				r.contErr = fmt.Errorf("gl: the shader of continuous corners: %w", r.contErr)
+				fmt.Fprintln(os.Stderr, r.contErr)
+			}
+		}
+		if r.contProgram != 0 {
+			return r.contProgram, r.contSize
+		}
+	}
+	return r.program, r.uSize
+}
+
 // effectProgram returns the program of e, compiled the first time from its
 // GLSL, which drivers keep compiled; its program is 0 for an effect that
 // does not compile, which draws nothing.
 func (r *Renderer) effectProgram(e *scene.Effect) *effectProgram {
-	if p := r.effects[e]; p != nil {
+	if p := r.effects[e]; p != nil && p.continuous == r.continuous {
 		return p
+	} else if p != nil && p.program != 0 {
+		glDeleteProgram(p.program)
 	}
-	p := &effectProgram{}
+	p := &effectProgram{continuous: r.continuous}
 	if r.effects == nil {
 		r.effects = map[*scene.Effect]*effectProgram{}
 	}
 	r.effects[e] = p
-	p.program, p.err = link(r.header+"#define VERTEX\n"+shaderSource, r.header+EffectSource(e.GLSL))
+	header := r.header
+	if r.continuous {
+		header += "#define CONTINUOUS\n"
+	}
+	p.program, p.err = link(r.header+"#define VERTEX\n"+shaderSource, header+EffectSource(e.GLSL))
 	if p.err != nil {
 		p.err = fmt.Errorf("gl: the effect %s: %w", e.Name, p.err)
 		fmt.Fprintln(os.Stderr, p.err)
@@ -742,12 +793,9 @@ func (r *Renderer) drawFrame(s *scene.Scene) error {
 // batchKey returns what batch i of the frame built draws with: its
 // program and blending (gpu.Pipelines).
 func (r *Renderer) batchKey(i int) uint64 {
-	bt := &r.b.Batches[i]
-	program := r.program
-	if bt.Effect != nil {
-		program = r.effectProgram(bt.Effect).program
-	}
+	program, _ := r.batchProgram(&r.b.Batches[i])
 	key := uint64(program) << 1
+	bt := &r.b.Batches[i]
 	if bt.Hole {
 		key |= 1
 	}
@@ -835,6 +883,9 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder) error {
 // read, and returns the scene built.
 func (r *Renderer) buildScene(s *scene.Scene, b *gpu.Builder) (*scene.Scene, error) {
 	b.BlurredImage, b.Chroma = r.blurImage, r.chromaTexture
+	if r.splitCorners != nil {
+		r.splitCorners(b)
+	}
 	s = b.Build(s, r.imageTexture)
 	b.BlurredImage, b.Chroma = nil, nil
 	r.syncStops(b)
@@ -901,13 +952,9 @@ func (r *Renderer) drawBuilt(s *scene.Scene, b *gpu.Builder, part *gpu.Part) err
 		if bt.Count == 0 || !meets(sc, areas) {
 			continue
 		}
-		want := r.program
-		if bt.Effect != nil {
-			p := r.effectProgram(bt.Effect)
-			if p.program == 0 {
-				continue
-			}
-			want = p.program
+		want, uSize := r.batchProgram(&bt)
+		if want == 0 {
+			continue // an effect that does not compile
 		}
 		if bt.Backdrop != 0 {
 			// The effect shows what is drawn so far.
@@ -927,8 +974,8 @@ func (r *Renderer) drawBuilt(s *scene.Scene, b *gpu.Builder, part *gpu.Part) err
 		if want != program {
 			program = want
 			glUseProgram(program)
-			if bt.Effect != nil {
-				glUniform2f(r.effects[bt.Effect].uSize, float32(s.Width), float32(s.Height))
+			if program != r.program {
+				glUniform2f(uSize, float32(s.Width), float32(s.Height))
 			}
 		}
 		if bt.Image != 0 && bt.Image != bound {
@@ -1257,6 +1304,7 @@ func or(a, b uint32) uint32 {
 // forget drops the objects of a context that is gone.
 func (r *Renderer) forget() {
 	r.program, r.vao, r.buf, r.empty, r.ubo = 0, 0, 0, 0, 0
+	r.contProgram, r.contErr = 0, nil
 	r.down, r.blur, r.passVAO = passProgram{}, passProgram{}, 0
 	clear(r.effects)
 	r.grab, r.backdrop, r.backdropFB = texture{}, [2]texture{}, [2]uint32{}
@@ -1347,6 +1395,9 @@ func (r *Renderer) Release() {
 	}
 	if r.program != 0 {
 		glDeleteProgram(r.program)
+	}
+	if r.contProgram != 0 {
+		glDeleteProgram(r.contProgram)
 	}
 	r.forget()
 }

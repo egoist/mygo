@@ -3,6 +3,7 @@
 package d3d11
 
 import (
+	"bytes"
 	"runtime"
 	"testing"
 	"time"
@@ -54,11 +55,69 @@ func TestClassesDrawAsTheGeneralShader(t *testing.T) {
 		general := drawClasses(t, sc.s, func(r *Renderer) { r.b.NoClasses = true })
 		compareToGeneral(t, sc.name, drawClasses(t, sc.s, func(r *Renderer) {}), general)
 		compareToGeneral(t, sc.name+" joined", drawClasses(t, sc.s, func(r *Renderer) {
-			all := r.classPipeFor(classShaders[len(classShaders)-1].classes)
+			all := r.classPipeFor(classShaders[len(classShaders)-1].classes, false)
 			for c := gpu.ClassPlain; c < gpu.NumClasses; c++ {
 				r.classes[1<<c] = all
 			}
 		}), general)
+	}
+}
+
+// TestContinuousClassesDrawAsTheGeneralShader draws scenes with continuous
+// corners with a renderer drawing them (ContinuousCorners): with the
+// shaders of the classes of their batches, those holding continuous
+// corners with CONTINUOUS defined, and with the general shader, which has
+// it defined then too.
+func TestContinuousClassesDrawAsTheGeneralShader(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for _, sc := range []struct {
+		name string
+		s    *scene.Scene
+	}{{"continuous", gputest.ContinuousScene()}, {"cards", gputest.CardsScene(1001, 777)},
+		{"clips", gputest.ContinuousCornerClipScene()}, {"card", gputest.BorderedCardScene(true)}} {
+		general := drawClasses(t, sc.s, func(r *Renderer) { r.ContinuousCorners(); r.b.NoClasses = true })
+		compareToGeneral(t, sc.name, drawClasses(t, sc.s, func(r *Renderer) { r.ContinuousCorners() }), general)
+	}
+}
+
+// TestCornerSplitDrawsTheSamePixels draws scenes with continuous corners
+// with a renderer drawing them (ContinuousCorners), large shapes as
+// nine-patches whose pieces away from the corners draw with the shaders
+// without their code (gpu.Builder.SplitCorners), and as whole shapes
+// (NoCornerSplit), and requires the same bytes.
+func TestCornerSplitDrawsTheSamePixels(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	pieces := 0
+	for _, sc := range []struct {
+		name string
+		s    *scene.Scene
+	}{{"cards", gputest.CardsScene(1400, 900)}, {"odd cards", gputest.CardsScene(1001, 777)},
+		{"continuous", gputest.ContinuousScene()}, {"opaque", gputest.Continuously(gputest.OpaqueScene(900, 700))}} {
+		r, err := New(hiddenWindow(t, sc.s.Width, sc.s.Height))
+		if err != nil {
+			t.Skip("no Direct3D 11:", err)
+		}
+		r.ContinuousCorners()
+		if err := r.draw(sc.s); err != nil {
+			t.Fatal(err)
+		}
+		split, _ := r.readBack(t)
+		n := len(r.b.Instances)
+		r.b.NoCornerSplit = true
+		if err := r.draw(sc.s); err != nil {
+			t.Fatal(err)
+		}
+		whole, _ := r.readBack(t)
+		pieces += n - len(r.b.Instances)
+		r.Release()
+		if !bytes.Equal(split, whole) {
+			t.Errorf("%s: nine-patches and whole shapes differ", sc.name)
+		}
+	}
+	if pieces == 0 {
+		t.Error("nothing was drawn in pieces")
 	}
 }
 
@@ -94,6 +153,24 @@ func TestClassPipelines(t *testing.T) {
 	_, ps2, _ := r.pipeline(&gpu.Batch{Joined: 1<<gpu.ClassImage | 1<<gpu.ClassShadow})
 	if ps1 == r.ps || ps1 != ps2 || blend1 != r.blend {
 		t.Fatal("the set holding all classes does not draw what no other holds")
+	}
+	// Without continuous corners asked for, batches holding them draw as the
+	// others; with them, those and the general ones draw with shaders of
+	// their own.
+	_, plain, _ := r.pipeline(&gpu.Batch{Class: gpu.ClassPlain})
+	if _, ps, _ := r.pipeline(&gpu.Batch{Class: gpu.ClassPlain, Continuous: true}); ps != plain {
+		t.Fatal("a renderer not asked for continuous corners draws them with another shader")
+	}
+	r.ContinuousCorners()
+	if _, ps, _ := r.pipeline(&gpu.Batch{Class: gpu.ClassPlain}); ps != plain {
+		t.Fatal("a plain fill without continuous corners draws with another shader")
+	}
+	vs, cont, blend := r.pipeline(&gpu.Batch{Class: gpu.ClassPlain, Continuous: true})
+	if cont == plain || cont == r.ps || vs == r.vs || blend != r.overBlend {
+		t.Fatal("a plain fill with continuous corners does not draw with its class's shaders of them")
+	}
+	if _, ps, _ := r.pipeline(&gpu.Batch{}); ps == r.ps || ps != *r.contPS {
+		t.Fatal("the general class does not draw with the general shader of continuous corners")
 	}
 }
 

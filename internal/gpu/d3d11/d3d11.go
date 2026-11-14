@@ -369,9 +369,19 @@ type Renderer struct {
 	// compiles classes.hlsl, as shaders.go is older.
 	classes        *[1 << gpu.NumClasses]*classPipe
 	compileClasses bool
-	cbuf           uintptr
-	instBuf        uintptr
-	instCap        int
+	// cont, set by ContinuousCorners, returns the bytecode of the shaders
+	// drawing continuous corners, which the general batches and the
+	// batches holding them draw with: the device's contPS, and its
+	// contClasses, made as first drawn. splitCorners, set with it, has
+	// builders split them (gpu.Builder.SplitCorners). Only
+	// ContinuousCorners reaches either, and with it only apps asking.
+	cont         func() contCode
+	splitCorners func(*gpu.Builder)
+	contPS       *uintptr
+	contClasses  *[1 << gpu.NumClasses]*classPipe
+	cbuf         uintptr
+	instBuf      uintptr
+	instCap      int
 
 	mask, color texture
 	images      map[uint64]*texture
@@ -1211,6 +1221,9 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder, rtv uintptr) error 
 // read, for the render target r.drawing, and returns the scene built.
 func (r *Renderer) buildScene(s *scene.Scene, b *gpu.Builder) (*scene.Scene, error) {
 	b.BlurredImage, b.Chroma = r.blurImage, r.chromaView
+	if r.splitCorners != nil {
+		r.splitCorners(b)
+	}
 	s = b.Build(s, r.imageView)
 	b.BlurredImage, b.Chroma = nil, nil
 	if err := r.syncStops(b); err != nil {
@@ -1352,7 +1365,10 @@ type classPipe struct {
 
 // pipeline returns the shaders and the blending batch bt draws with: its
 // classes', the general shader's, or its effect's, whose pixel shader is 0 when
-// it does not compile.
+// it does not compile. A renderer drawing continuous corners
+// (ContinuousCorners) draws the batches holding them, and the general ones,
+// with shaders holding their code, as Metal's general function has every
+// path.
 func (r *Renderer) pipeline(bt *gpu.Batch) (vs, ps, blend uintptr) {
 	vs, ps, blend = r.vs, r.ps, r.blend
 	if bt.Hole {
@@ -1361,13 +1377,25 @@ func (r *Renderer) pipeline(bt *gpu.Batch) (vs, ps, blend uintptr) {
 	if bt.Effect != nil {
 		return vs, r.effectShader(bt.Effect), blend
 	}
+	if r.cont != nil {
+		if *r.contPS == 0 {
+			*r.contPS = r.makeContPS()
+		}
+		if *r.contPS != invalidShader {
+			ps = *r.contPS
+		}
+	}
 	cl := bt.Classes()
 	if cl&(1<<gpu.ClassGeneral) != 0 || cl >= 1<<gpu.NumClasses {
 		return vs, ps, blend
 	}
+	cont := r.cont != nil && bt.Continuous
 	p := r.classes[cl]
+	if cont {
+		p = r.contClasses[cl]
+	}
 	if p == nil {
-		p = r.classPipeFor(cl)
+		p = r.classPipeFor(cl, cont)
 	}
 	if p.ps == 0 {
 		return vs, ps, blend
@@ -1383,33 +1411,71 @@ func (r *Renderer) pipeline(bt *gpu.Batch) (vs, ps, blend uintptr) {
 
 // classPipeFor returns the shaders drawing the classes cl, the first of
 // classShaders that holds them, making them when no set of classes drew with
-// them yet.
-func (r *Renderer) classPipeFor(cl uint32) *classPipe {
+// them yet: with continuous corners when cont, whose pixel shader is the
+// one of contCode for that set.
+func (r *Renderer) classPipeFor(cl uint32, cont bool) *classPipe {
+	pipes := r.classes
+	if cont {
+		pipes = r.contClasses
+	}
 	for i := range classShaders {
 		s := &classShaders[i]
 		if cl&^s.classes != 0 {
 			continue
 		}
-		p := r.classes[s.classes]
+		p := pipes[s.classes]
 		if p == nil {
 			p = &classPipe{dual: s.classes&(1<<gpu.ClassSubpixel) != 0}
 			vs, ps, err := s.vs, s.ps, error(nil)
+			if cont {
+				ps = r.cont().classPS[i]
+			}
 			if r.compileClasses {
-				vs, ps, err = compileClass(s.classes)
+				vs, ps, err = compileClass(s.classes, cont)
 			}
 			if err == nil && (failed(call(r.device, devCreateVertexShader, uintptr(unsafe.Pointer(&vs[0])), uintptr(len(vs)), 0, uintptr(unsafe.Pointer(&p.vs)))) ||
 				failed(call(r.device, devCreatePixelShader, uintptr(unsafe.Pointer(&ps[0])), uintptr(len(ps)), 0, uintptr(unsafe.Pointer(&p.ps))))) {
 				free(&p.vs)
 				p.ps = 0
 			}
-			r.classes[s.classes] = p
+			pipes[s.classes] = p
 		}
-		r.classes[cl] = p
+		pipes[cl] = p
 		return p
 	}
 	p := &classPipe{}
-	r.classes[cl] = p
+	pipes[cl] = p
 	return p
+}
+
+// invalidShader is the contPS of a device whose general shader of
+// continuous corners could not be made: batches draw with the general one.
+const invalidShader = ^uintptr(0)
+
+// makeContPS makes the general pixel shader of continuous corners, from
+// contCode, or from shader.hlsl as for the other shaders when shaders.go
+// is older, or invalidShader.
+func (r *Renderer) makeContPS() uintptr {
+	code, err := r.cont().ps, error(nil)
+	if r.compileClasses {
+		code, err = compile(continuousDefine+shaderSource, "ps", "ps_4_0")
+	}
+	var ps uintptr
+	if err != nil || len(code) == 0 || failed(call(r.device, devCreatePixelShader, uintptr(unsafe.Pointer(&code[0])), uintptr(len(code)), 0, uintptr(unsafe.Pointer(&ps)))) {
+		return invalidShader
+	}
+	return ps
+}
+
+// ContinuousCorners has the renderer draw continuous corners (negative
+// radii, scene.Op.Continuous), as Core Animation draws them, for apps that
+// ask for them (ui.SetContinuousCorners): the batches holding them, and the
+// general ones, draw with the shaders compiled with their code, CONTINUOUS
+// defined, and the others without it, as the builder splits large shapes
+// into their corners and the rest (gpu.Builder.SplitCorners). Only apps
+// calling it link those shaders. It takes effect from the next frame.
+func (r *Renderer) ContinuousCorners() {
+	r.cont, r.splitCorners = continuousCode, (*gpu.Builder).SplitCorners
 }
 
 // bindShader binds what the shader of batch b reads: its uniforms, laid

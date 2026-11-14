@@ -48,10 +48,28 @@ func classDefines(cl uint32) string {
 	return s
 }
 
+// continuousDefine is what the shaders drawing continuous corners are
+// compiled with, before their source, as gen.go compiles them.
+const continuousDefine = "#define CONTINUOUS\n"
+
+// contCode is the bytecode of the shaders drawing continuous corners
+// (Renderer.ContinuousCorners), compiled ahead of time with CONTINUOUS
+// defined: the pixel shader of shader.hlsl, and that of classes.hlsl for
+// each set of classes of classShaders, in its order, whose vertex shaders
+// are theirs. Only renderers asked to draw them reach it (continuousCode),
+// so only the apps asking link it.
+type contCode struct {
+	ps      []byte
+	classPS [][]byte
+}
+
 // compileClass compiles the shaders of the classes cl from their sources, for
-// shaders.go older than them.
-func compileClass(cl uint32) (vs, ps []byte, err error) {
+// shaders.go older than them, with continuous corners when cont.
+func compileClass(cl uint32, cont bool) (vs, ps []byte, err error) {
 	src := classDefines(cl) + shaderSource + "\n" + classSource
+	if cont {
+		src = continuousDefine + src
+	}
 	if vs, err = compile(src, "classvs", "vs_4_0"); err != nil {
 		return nil, nil, err
 	}

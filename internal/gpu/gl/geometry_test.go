@@ -73,3 +73,58 @@ func TestGeometryOptimizationsPreservePixels(t *testing.T) {
 		})
 	}
 }
+
+// TestCornerSplitDrawsTheSamePixels draws scenes with continuous corners
+// with a renderer drawing them (ContinuousCorners), large shapes as
+// nine-patches whose pieces away from the corners draw with the shader
+// without their code (gpu.Builder.SplitCorners), and as whole shapes
+// (NoCornerSplit), and requires the same bytes.
+func TestCornerSplitDrawsTheSamePixels(t *testing.T) {
+	type fixture struct {
+		name string
+		s    *scene.Scene
+	}
+	cases := []fixture{{"cards", gputest.CardsScene(1400, 900)}, {"odd cards", gputest.CardsScene(1001, 777)},
+		{"continuous", gputest.ContinuousScene()}, {"continuous clips", gputest.ContinuousCornerClipScene()}}
+	for _, c := range gputest.CullCases() {
+		cases = append(cases, fixture{"cull/" + c.Name, gputest.Continuously(c.Scene)})
+	}
+	for _, c := range gputest.RingCases() {
+		cases = append(cases, fixture{"ring/" + c.Name, gputest.Continuously(c.Scene)})
+	}
+	for i, c := range gputest.ShadowCases() {
+		c.Continuous = true
+		cases = append(cases, fixture{fmt.Sprintf("shadow/%d", i), gputest.ShadowPanelScene(c)})
+	}
+	for _, api := range apis {
+		t.Run(api.name, func(t *testing.T) {
+			pieces := 0
+			for _, c := range cases {
+				t.Run(c.name, func(t *testing.T) {
+					read := offscreen(t, api.es, c.s.Width, c.s.Height)
+					r, err := New()
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer r.Release()
+					r.ContinuousCorners()
+					if err := r.Render(c.s); err != nil {
+						t.Fatal(err)
+					}
+					split, n := read(), len(r.b.Instances)
+					r.b.NoCornerSplit = true
+					if err := r.Render(c.s); err != nil {
+						t.Fatal(err)
+					}
+					pieces += n - len(r.b.Instances)
+					if got := read(); !bytes.Equal(got, split) {
+						t.Fatal("nine-patches and whole shapes differ")
+					}
+				})
+			}
+			if pieces == 0 {
+				t.Error("nothing was drawn in pieces")
+			}
+		})
+	}
+}

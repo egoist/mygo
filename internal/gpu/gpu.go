@@ -56,7 +56,8 @@ func GoBytes(name string, b []byte) string {
 type Instance struct {
 	// Rect is x, y, width, height; Radii the corners' radii (top-left,
 	// top-right, bottom-right, bottom-left), negative for continuous
-	// corners (scene.Corners), which only Metal's shader draws, or a
+	// corners (scene.Corners), which Metal's shader draws, and those of
+	// Direct3D and OpenGL for apps that ask (SplitCorners), or a
 	// glyph's gamma ratios
 	// (scene.TextParams); Inner those of a border's inner edge, or of the
 	// box casting a shadow, or a glyph's contrast and thin boost in Inner[0]
@@ -150,8 +151,11 @@ type Batch struct {
 	Opaque bool
 	// Class is the paths of the shader that the batch's instances need
 	// (see Class), and Continuous whether any of them has continuous
-	// corners, in its shape or in the clip the shader cuts; renderers that do
-	// not specialize their shader ignore them.
+	// corners, in its shape or in the clip the shader cuts, which renderers
+	// draw with a shader holding their code; renderers that do not
+	// specialize their shader ignore them. Without classes (Classes),
+	// only builders of renderers drawing continuous corners
+	// (SplitCorners) tell it.
 	Class      Class
 	Continuous bool
 	// Joined, for a batch of ClassGeneral that joined small batches of
@@ -196,12 +200,9 @@ func classOf(in *Instance) (Class, bool) {
 	if in.Transform0[3] > 0.5 {
 		return ClassGeneral, false
 	}
-	neg := func(r [4]float32) bool { return r[0] < 0 || r[1] < 0 || r[2] < 0 || r[3] < 0 }
-	// The shader cuts the clip itself unless a mask or the builder does.
-	continuous := in.Transform1[3] == 0 && neg(in.ClipRadii)
+	continuous := continuousIn(in)
 	switch in.Params[0] {
 	case 0:
-		continuous = continuous || neg(in.Radii) || neg(in.Inner)
 		// Plain fills take the shader's own path (see its kPlain), for which
 		// the opacity is 1: at another the compiler fuses the product of
 		// the specialized function differently, and a result at a rounding
@@ -211,17 +212,35 @@ func classOf(in *Instance) (Class, bool) {
 		}
 		return ClassFill, continuous
 	case 1:
-		return ClassShadow, continuous || neg(in.Radii) || neg(in.Inner)
+		return ClassShadow, continuous
 	case 2:
 		return ClassGlyph, continuous
-	case 3:
+	case 3, 4:
 		return ClassImage, continuous
-	case 4:
-		return ClassImage, continuous || neg(in.Radii)
 	case 5:
 		return ClassSubpixel, continuous
 	}
 	return ClassGeneral, false
+}
+
+// continuousIn reports whether an instance prepared for its clip has
+// continuous corners (negative radii) that the shader draws: in its shape,
+// a border's inner edge, the box casting a shadow or the hole of an inner
+// one, or the clip the shader cuts itself, unless a mask or the builder
+// does. A glyph's radii are its gamma ratios; an effect draws with its
+// own shader.
+func continuousIn(in *Instance) bool {
+	neg := func(r [4]float32) bool { return r[0] < 0 || r[1] < 0 || r[2] < 0 || r[3] < 0 }
+	clip := in.Transform1[3] == 0 && neg(in.ClipRadii)
+	switch in.Params[0] {
+	case 0, 1:
+		return clip || neg(in.Radii) || neg(in.Inner)
+	case 4:
+		return clip || neg(in.Radii)
+	case 2, 3, 5:
+		return clip
+	}
+	return false
 }
 
 // Builder builds the instances and batches of scenes, reusing its memory
@@ -1233,9 +1252,15 @@ func (b *Builder) addHole(op *scene.Op) {
 	b.Batches[len(b.Batches)-1].Count++
 }
 
-// classOf is classOf, or the general class under NoClasses.
+// classOf is classOf, or the general class under NoClasses. A renderer
+// that does not separate classes (OpenGL's) but draws continuous corners
+// (SplitCorners) still has their batches tell they hold some, transformed
+// too, which it draws with a shader holding their code.
 func (b *Builder) classOf(in *Instance) (Class, bool) {
-	if !b.Classes || b.NoClasses {
+	if !b.Classes {
+		return ClassGeneral, b.contClips && continuousIn(in)
+	}
+	if b.NoClasses {
 		return ClassGeneral, false
 	}
 	c, cont := classOf(in)
