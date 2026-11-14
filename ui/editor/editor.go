@@ -351,6 +351,9 @@ func (ed *editor) wordChars() string {
 // sync follows the buffer's edits: selections, folds, diagnostics and
 // the overlays move with the text.
 func (ed *editor) sync() {
+	if ed.view.buf == nil {
+		return
+	}
 	f := &ed.find
 	searched := !f.stale && f.version == ed.view.version
 	ed.view.sync(func(cs []change) {

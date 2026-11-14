@@ -1131,3 +1131,20 @@ func TestHeightsZeroValue(t *testing.T) {
 		t.Fatalf("lineAt of the zero heights = %d, want 0", got)
 	}
 }
+
+// sync returns early without panicking or mutating state when no buffer is bound.
+func TestEditorSyncWithoutBuffer(t *testing.T) {
+	var st State
+	st.ed.sync()
+
+	ed := editor{
+		sels: []sel{
+			{anchor: 1, head: 1, id: 1},
+			{anchor: 1, head: 1, id: 2},
+		},
+	}
+	ed.sync()
+	if len(ed.sels) != 2 {
+		t.Fatalf("sync without a buffer mutated selections: got %d, want 2", len(ed.sels))
+	}
+}
