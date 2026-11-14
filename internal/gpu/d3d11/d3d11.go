@@ -1377,17 +1377,9 @@ func (r *Renderer) pipeline(bt *gpu.Batch) (vs, ps, blend uintptr) {
 	if bt.Effect != nil {
 		return vs, r.effectShader(bt.Effect), blend
 	}
-	if r.cont != nil {
-		if *r.contPS == 0 {
-			*r.contPS = r.makeContPS()
-		}
-		if *r.contPS != invalidShader {
-			ps = *r.contPS
-		}
-	}
 	cl := bt.Classes()
 	if cl&(1<<gpu.ClassGeneral) != 0 || cl >= 1<<gpu.NumClasses {
-		return vs, ps, blend
+		return vs, r.generalPS(), blend
 	}
 	cont := r.cont != nil && bt.Continuous
 	p := r.classes[cl]
@@ -1398,7 +1390,7 @@ func (r *Renderer) pipeline(bt *gpu.Batch) (vs, ps, blend uintptr) {
 		p = r.classPipeFor(cl, cont)
 	}
 	if p.ps == 0 {
-		return vs, ps, blend
+		return vs, r.generalPS(), blend
 	}
 	if !p.dual {
 		blend = r.overBlend
@@ -1446,6 +1438,21 @@ func (r *Renderer) classPipeFor(cl uint32, cont bool) *classPipe {
 	p := &classPipe{}
 	pipes[cl] = p
 	return p
+}
+
+// generalPS returns the general pixel shader: with continuous corners for
+// a renderer drawing them, made as first drawn, unless that failed.
+func (r *Renderer) generalPS() uintptr {
+	if r.cont == nil {
+		return r.ps
+	}
+	if *r.contPS == 0 {
+		*r.contPS = r.makeContPS()
+	}
+	if *r.contPS == invalidShader {
+		return r.ps
+	}
+	return *r.contPS
 }
 
 // invalidShader is the contPS of a device whose general shader of
