@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
-	"runtime"
 	"sync"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -194,22 +191,4 @@ func (p *NativePlugin) On(name string, fn func(data []byte)) (off func()) {
 			}
 		}
 	}
-}
-
-// NativeLibrary returns what to give dlopen for the C library name that a
-// plugin compiles into a phone's app ("native" in the mobile block of its
-// mygo-plugin.json): a framework of the bundle on iOS, a library of the APK on
-// Android. It returns "" elsewhere, where apps carry libraries differently.
-func NativeLibrary(name string) string {
-	switch runtime.GOOS {
-	case "android":
-		return "lib" + name + ".so"
-	case "ios":
-		exe, err := os.Executable()
-		if err != nil {
-			return ""
-		}
-		return filepath.Join(filepath.Dir(exe), "Frameworks", name+".framework", name)
-	}
-	return ""
 }

@@ -398,8 +398,46 @@ if it imports it, with its usage descriptions and permissions added to the app:
 
 ## Writing a plugin
 
-A plugin with native code is a Go package beside its Swift and Kotlin, which its
-`mygo-plugin.json` names. `mygo build` finds it among the packages the app
+Native code for phones is best a [native module](native-modules.md): a Go
+interface, implemented in Swift on iOS and in Kotlin on Android, which Go
+calls as any Go value, with its types, errors, streams and callbacks, and
+which `mygo dev` and `mygo build` build with the app from its sources. The
+same module can be Swift on macOS, and Rust or Zig on other desktops:
+
+```sh
+mygo native new -lang swift,kotlin torch
+```
+
+```go
+//mygo:native
+//mygo:mainthread
+type Torch interface {
+	// Set lights the torch, or puts it out.
+	Set(on bool) error
+}
+```
+
+```kotlin
+fun makeTorch(): Torch = CameraTorch()
+
+private class CameraTorch : Torch {
+    private val camera = Native.context.getSystemService(CameraManager::class.java)
+
+    override fun set(on: Boolean) {
+        val id = camera.cameraIdList.firstOrNull { camera.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true }
+            ?: throw NativeUnsupportedException()
+        camera.setTorchMode(id, on)
+    }
+}
+```
+
+Its `Info.plist`, entitlements and Gradle dependencies join the app's
+([native modules](native-modules.md#phones)). The SQLite plugin is one:
+its module is Swift on iOS, Kotlin with C on Android, and Zig on desktops.
+
+A plugin can also bring Swift and Kotlin that Go calls with JSON, which is
+how the official plugins above are written: a Go
+package beside its Swift and Kotlin, which its `mygo-plugin.json` names. `mygo build` finds it among the packages the app
 imports, compiles its code into the host and registers it:
 
 ```json
@@ -466,25 +504,11 @@ Go as a `*mygo.NativeError`.
 
 ### C code
 
-A plugin's C compiles with the app, with the compiler phones need anyway, once
-per target (the user's cache keeps it). The sqlite plugin brings SQLite this way:
-
-```json
-{"mobile": {"id": "sqlite", "native": {
-  "name": "mygo-sqlite3",
-  "archive": {"url": "https://www.sqlite.org/...zip", "sha256": "...", "files": ["sqlite3.c", "sqlite3.h"]},
-  "sources": ["native/sqlite.c"],
-  "cflags": ["-DSQLITE_THREADSAFE=1"],
-  "ldflags": ["-lm"],
-  "abis": ["arm64-v8a", "x86_64"]
-}}}
-```
-
-iOS gets a framework inside the bundle, signed with the app, and Android a
-library of the APK. `mygo.NativeLibrary(name)` is what to give dlopen, through
-[purego](https://github.com/ebitengine/purego) as on desktops: a plugin needs
-no cgo. A package may name libraries for desktops too, under `libraries`; on
-phones a library it compiles takes their place.
+C reaches phones in a native module: its Kotlin builds C with CMake
+(`externalNativeBuild` in its `build.gradle.kts`), with the NDK and for the
+ABIs the app builds, and its Swift package takes C targets, or a library
+as a binary framework. The SQLite plugin's module does both with SQLite's
+amalgamation, pinned by its hash: `plugins/sqlite/internal/sqlitecore`.
 
 ### Native views
 

@@ -1,5 +1,5 @@
 // Package native runs native modules: Go interfaces implemented in Swift,
-// Rust or Zig (see docs/native-modules.md).
+// Kotlin, Rust or Zig (see docs/native-modules.md).
 //
 // Native modules are experimental: this package, the code MyGo generates
 // and the mygo native commands may change in breaking ways in any

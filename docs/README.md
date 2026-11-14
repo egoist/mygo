@@ -101,9 +101,10 @@ What every app has, whether its windows show native UI or web pages.
   shell, displays, dark mode, power, the network status, secrets, watching
   files and global shortcuts.
 - [Native modules](native-modules.md) (experimental): Go interfaces implemented in
-  Swift, Rust or Zig, without cgo, for macOS's frameworks and views, Rust
-  crates and Zig and C libraries, which the CLI builds, puts into apps and
-  publishes for the users of your Go packages.
+  Swift, Kotlin, Rust or Zig, without cgo, for the frameworks and views of
+  macOS, iOS and Android, Rust crates and Zig and C libraries, which the
+  CLI builds, puts into apps and publishes for the users of your Go
+  packages.
 - [Clipboard and drag data](data-transfer.md): multiple representations,
   file lists, custom formats, lazy providers, and clipboard persistence.
 - [Audio](audio.md): sound effects, streamed music and sound an app makes

@@ -436,7 +436,7 @@ dependencies {
 `
 
 const goTemplate = `// Package %[1]s is a native module: its interfaces are implemented in
-// Swift, Rust or Zig, in the directory of the language (see AGENTS.md).
+// Swift, Kotlin, Rust or Zig, in the directory of the language (see AGENTS.md).
 package %[1]s
 
 // Greeter greets.
@@ -464,20 +464,23 @@ let package = Package(
 `
 
 const agentsTemplate = "# Native module PKG\n\n" +
-	"PKG is a native module of MyGo: Go interfaces implemented in Swift, Rust or\n" +
-	"Zig. Read https://mygo.dev/docs/native-modules (docs/native-modules.md)\n" +
+	"PKG is a native module of MyGo: Go interfaces implemented in Swift, Kotlin,\n" +
+	"Rust or Zig. Read https://mygo.dev/docs/native-modules (docs/native-modules.md)\n" +
 	"before changing it.\n\n" +
 	"- `PKG.go` declares the interfaces, the types they use and the errors\n" +
 	"  (`native.NewError`): it is the contract. `//mygo:native` marks an entry point,\n" +
 	"  which gets a constructor, `NewT`.\n" +
 	"- `PKG_native.go` and each language's generated file\n" +
-	"  (`swift/Sources/MODULE/MODULE.mygo.swift`, `rust/src/mygo.rs`,\n" +
-	"  `zig/src/mygo.zig`) are generated: never edit them; `mygo dev`\n" +
+	"  (`swift/Sources/MODULE/MODULE.mygo.swift`, `kotlin/src/main/kotlin/.../MODULE.mygo.kt`,\n" +
+	"  `rust/src/mygo.rs`, `zig/src/mygo.zig`) are generated: never edit them; `mygo dev`\n" +
 	"  regenerates them when the interfaces change.\n" +
-	"- `swift/` is a Swift package, which macOS uses when it is there, for\n" +
-	"  Apple's frameworks: a factory `makeT()` per entry point and classes\n" +
-	"  conforming to the generated protocols. Add Swift packages and frameworks\n" +
-	"  in `swift/Package.swift`.\n" +
+	"- `swift/` is a Swift package, which macOS and iOS use when its\n" +
+	"  `Package.swift` names them, for Apple's frameworks: a factory `makeT()`\n" +
+	"  per entry point and classes conforming to the generated protocols. Add\n" +
+	"  Swift packages and frameworks in `swift/Package.swift`.\n" +
+	"- `kotlin/` is an Android library, which Android uses: a function\n" +
+	"  `makeT()` per entry point and classes implementing the generated\n" +
+	"  interfaces. Add dependencies in `kotlin/build.gradle.kts`.\n" +
 	"- `rust/` is a Rust crate and `zig/` a Zig package, for every platform: a\n" +
 	"  factory per entry point (`make_t` in Rust, `makeT` in Zig) and types\n" +
 	"  implementing the generated traits or declarations.\n\n" +

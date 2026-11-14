@@ -24,7 +24,7 @@ type Module struct {
 	// ImportPath is the package's import path, from its go.mod, which
 	// names its Kotlin package.
 	ImportPath string
-	Name    string // the Swift module: Language
+	Name       string // the Swift module: Language
 	// Files are the package's own Go files, without the generated one.
 	Files []string
 	// Hash identifies the declarations the generated files came from.

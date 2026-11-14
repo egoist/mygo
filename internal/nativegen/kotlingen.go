@@ -241,7 +241,7 @@ func (g *kotlinGen) kt(r ref) string {
 		for _, p := range t.Params {
 			ps = append(ps, g.kt(ref{p.Type, r.owner}))
 		}
-		res := "Unit"
+		res := "kotlin.Unit" // qualified: a type of the package may be named Unit
 		if t.Result != nil {
 			res = g.kt(ref{t.Result, r.owner})
 		}

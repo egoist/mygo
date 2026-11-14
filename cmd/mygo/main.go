@@ -30,8 +30,8 @@ Commands:
 	i18n check [dir]     check the app's catalogs of messages
 	dev                  run a development build with live reload
 	build                build production apps (a .app and a .dmg on macOS)
-	native <command>     make, check, call and build native modules in Swift, Rust
-	                     or Zig, experimental (mygo native help)
+	native <command>     make, check, call and build native modules in Swift,
+	                     Kotlin, Rust or Zig, experimental (mygo native help)
 	keygen               create the key pair that signs updates
 	devices              list the simulators, emulators and devices mygo dev -device takes
 	publish              upload a build to the App Store or Google Play

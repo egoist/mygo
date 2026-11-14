@@ -131,7 +131,12 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   without warnings. The Rust and Zig glue (`rustsupport.go`,
   `zigsupport.go`) is checked by the roundtrip module built in each
   language: `go run ./cmd/mygo native build -target host -lang <swift|rust|zig>
-  native/internal/roundtrip && go test ./native/internal/roundtrip`.
+  native/internal/roundtrip && go test ./native/internal/roundtrip`. On
+  phones the same checks (`native/internal/roundtrip/check`) run in the app
+  `native/internal/roundtrip/app`, with its Swift on the iOS simulator and
+  its Kotlin (the runtime in `internal/mobile/android/.../Native.kt`) on
+  Android's emulator, which CI's phone jobs launch and read the log of;
+  `TestKotlinUpToDate` checks the committed Kotlin.
 - Official plugins live in `plugins/<name>`: the Go package and its npm
   package (`@mygo-plugins/<name>`) side by side, released with
   mygo-runtime's version. The updater plugin is Go only; its `native`
@@ -141,9 +146,13 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   like any: `mygo-plugin.json` names its published builds (release assets
   `libghostty-vt-<commit>`), each with the hash of its sources, and
   `go generate` publishes new ones (`mygo native build`, with Zig 0.16.0).
-  The SQLite plugin's SQLite is a native module in Zig,
-  `plugins/sqlite/internal/sqlitecore`, which `mygo native build -target
-  host` builds for its tests and `-upload` publishes. The glass
+  The SQLite plugin's SQLite is a native module,
+  `plugins/sqlite/internal/sqlitecore`: Zig on desktops, which `mygo
+  native build -target host` builds for its tests and `-upload`
+  publishes, Swift on iOS (linking `CSQLite.xcframework`, which
+  `swift/build-xcframework.sh` builds on a Mac and the release
+  `native-sqlitecore` holds) and Kotlin with C (CMake) on Android, all
+  the same SQLite version and options. The glass
   plugin is Go only too, an effect of the renderers (`scene.Effect`): its
   shader in Metal, HLSL and GLSL with a CPU twin that must draw the same
   pixels, compiled ahead of time by `go generate` on macOS and Windows.

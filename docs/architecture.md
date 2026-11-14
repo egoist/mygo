@@ -111,7 +111,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── shaderir/       its IR; glsl/, hlsl/ and msl/ write it for the GPU renderers, interp/ runs it on the CPU
 │   ├── svg/            SVG parsing and drawing, for icons and images
 │   ├── tsgen/          TypeScript client generator
-│   ├── nativegen/      native modules: reads their Go interfaces, writes their Go, Swift, Rust and Zig
+│   ├── nativegen/      native modules: reads their Go interfaces, writes their Go, Swift, Kotlin, Rust and Zig
 │   ├── i18ngen/        checks catalogs of messages, writes their Go and TypeScript functions
 │   ├── i18nlink/       what package i18n gives MyGo's own catalog only: a catalog that links no dates
 │   ├── l10n/           MyGo's own strings: the catalog of the controls and menu roles
@@ -153,7 +153,7 @@ framework safely. Read it before changing anything under `internal/`.
 │                       mygo-plugin.json: finding, loading and binding them
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── netproxy/           the proxy of the system's settings, for Go's HTTP clients
-├── native/             the runtime of native modules: Go interfaces implemented in Swift, Rust or Zig
+├── native/             the runtime of native modules: Go interfaces implemented in Swift, Kotlin, Rust or Zig
 ├── audio/              sound: players, the mixer, the output of each platform, WAV;
 │                       audio/vorbis and audio/mp3 decode Ogg Vorbis and MP3,
 │                       audio/mp4 MP4 (fragmented too) with ALAC, audio/aac
@@ -1486,7 +1486,11 @@ build` like mygo-runtime and released with the same version.
 - **sqlite** runs SQLite in a native module, `internal/sqlitecore`,
   whose Zig compiles SQLite's C amalgamation, which `zig/build.zig.zon`
   pins by its hash, with SQLite's symbols hidden in the library (WebKit
-  loads the system SQLite globally on Linux). The module's `Engine` opens
+  loads the system SQLite globally on Linux). On iOS its Swift links the
+  same SQLite from a static XCFramework (`swift/build-xcframework.sh`,
+  published in the release `native-sqlitecore`), and on Android its
+  Kotlin calls it through a small JNI library that CMake builds with the
+  amalgamation (`kotlin/src/main/c`), each doing what the Zig does. The module's `Engine` opens
   a `Conn`, which runs one statement a call, prepared with the rest of the
   SQL compiled first so that extra SQL never runs, and returns its rows in
   one reply. An authorizer denies transaction control, ATTACH and VACUUM
@@ -5928,9 +5932,10 @@ renderer's (`gputest.Compare`).
 ## Native modules (`native`, `internal/nativegen`)
 
 A native module ([the guide](native-modules.md)) is a Go package whose
-interfaces Swift, Rust or Zig implement, each in a directory named after
-the language (`swift/`, `rust/`, `zig/`), all behind one C ABI. Three parts
-make it work:
+interfaces Swift, Kotlin, Rust or Zig implement, each in a directory named
+after the language (`swift/`, `kotlin/`, `rust/`, `zig/`), all behind one
+ABI: C functions, and on Android the same calls through JNI. Three parts
+make it work, and phones a fourth:
 
 - **`internal/nativegen`** reads the package with `go/ast` alone (no type
   checking, so it is fast and needs no dependency built): the interfaces
@@ -6098,6 +6103,30 @@ make it work:
   while the hash matches, in release builds and wherever Swift is missing,
   through the cache of native libraries (`fetchNative`), unpacked with no
   path or link that leads out of its directory (`untar`).
+- **Phones** (`cmd/mygo/mobile_modules.go`) build a module from its
+  sources with the app, never from published builds: `phoneModules`
+  regenerates (debug) or checks (release) the modules of the app whose
+  language there is Swift on iOS, when `Package.swift` names iOS
+  (`SwiftPlatformsOf`), or Kotlin on Android, those a module uses first.
+  iOS builds each Swift package with `xcodebuild -scheme <Module>` for the
+  device or the simulator, the products of the modules it uses on its
+  search paths, into `<Module>.framework` in the bundle's `Frameworks`,
+  signed with the app, which `ffi` finds there and `native` loads as on
+  macOS (`lib_ffi.go`, `lib_darwin.go`); the generated Swift builds against
+  UIKit, with `NativeView`/`NativeWindow` naming the platform's types.
+  Android adds each `kotlin/` as the Gradle library `:native-<package>`
+  (`androidModules`, the property `mygoNativeModules`, which the host's
+  `settings.gradle.kts` includes and its root `build.gradle.kts`
+  configures with the host's SDK levels, NDK, ABIs and `:mygo`). There
+  `native` calls `lib_android.go`'s backend instead of purego:
+  `internal/nativehost` carries the calls to `internal/mobile`, whose JNI
+  (`jni_android.c`) calls `dev.mygo.Native` (`Native.kt`), which finds the
+  module's generated `MygoModule` by its class (`Module.Kotlin`) and
+  calls its `invoke` with the same symbols and the same encoding, from
+  any Go thread, attached to the JVM. Kotlin answers asynchronous calls,
+  streams and calls into Go through `Native.send`, the one callback, and
+  `//mygo:mainthread` calls run on the UI thread through the transport
+  (`nativehost.OnUI`), as views do.
 
 ## CLI (`cmd/mygo`)
 

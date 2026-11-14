@@ -77,7 +77,7 @@ interface Echo {
     /**
      * Each calls f with each word and its index, and returns how many.
      */
-    fun each(words: List<String>, f: (String, Long) -> Unit): Long
+    fun each(words: List<String>, f: (String, Long) -> kotlin.Unit): Long
     /**
      * Ask asks f for the double of each number, and returns their sum.
      */
@@ -85,7 +85,7 @@ interface Echo {
     /**
      * Ticks calls f every interval until closed.
      */
-    fun ticks(interval: kotlin.time.Duration, f: (Long) -> Unit): AutoCloseable
+    fun ticks(interval: kotlin.time.Duration, f: (Long) -> kotlin.Unit): AutoCloseable
     /**
      * Use asks s for a score of each word, and returns their sum.
      */
@@ -111,7 +111,7 @@ interface Echo {
      * tests only build it.
      * It runs on the main thread.
      */
-    fun onMain(r: Record, f: (Inner) -> Unit): Texts
+    fun onMain(r: Record, f: (Inner) -> kotlin.Unit): Texts
 }
 
 /**
@@ -371,7 +371,7 @@ object MygoModule : NativeModule() {
             val _p0 = _read_slice_string(_a)
             val _p1 = _a.u64()
             val _g1 = goFunc(_p1)
-            val _f1: (String, Long) -> Unit = { q0, q1 ->
+            val _f1: (String, Long) -> kotlin.Unit = { q0, q1 ->
                 val _cw = NativeWriter()
                 _cw.string(q0)
                 _cw.i64(q1.toLong())
@@ -400,7 +400,7 @@ object MygoModule : NativeModule() {
             val _p0 = _a.duration()
             val _p1 = _a.u64()
             val _g1 = goFunc(_p1)
-            val _f1: (Long) -> Unit = { q0 ->
+            val _f1: (Long) -> kotlin.Unit = { q0 ->
                 val _cw = NativeWriter()
                 _cw.i64(q0.toLong())
                 _g1.notify(_cw)
@@ -455,7 +455,7 @@ object MygoModule : NativeModule() {
             val _p0 = _read_Record(_a)
             val _p1 = _a.u64()
             val _g1 = goFunc(_p1)
-            val _f1: (Inner) -> Unit = { q0 ->
+            val _f1: (Inner) -> kotlin.Unit = { q0 ->
                 val _cw = NativeWriter()
                 _write_Inner(_cw, q0)
                 _g1.notify(_cw)
