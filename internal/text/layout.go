@@ -1373,6 +1373,13 @@ func (s *System) paragraph(out []Line, p Params, spans []Span, runes []rune, sta
 	if len(shaped) == 0 {
 		shaped = []shapedLine{{end: len(text)}}
 	}
+	// A paragraph ending with a line separator has an empty line after it:
+	// the break moves the pen to a line of its own, which an editor shows
+	// with the caret on it. Engines that already end the paragraph with an
+	// empty line report one that starts at the text's end.
+	if len(text) > 0 && text[len(text)-1] == '\u2028' && shaped[len(shaped)-1].start < len(text) {
+		shaped = append(shaped, shapedLine{start: len(text), end: len(text)})
+	}
 	truncated := false
 	if maxLines > 0 && (len(shaped) > maxLines || len(shaped) == maxLines && continues) {
 		from, width := shaped[maxLines-1].start, p.Width
