@@ -20,6 +20,7 @@ type drawer struct {
 	// (blurImages).
 	blurred []*blurredImage
 	fold    scene.TranslationFolder
+	inst    instancer
 }
 
 // pixels returns what draws e on the CPU, made the first time, or nil for
