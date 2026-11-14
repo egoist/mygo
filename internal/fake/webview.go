@@ -16,6 +16,12 @@ type WebView struct {
 	Shown      bool
 	Focused    bool
 	TabbedBack bool
+
+	// Measures is the script MeasureContent was given, in calls;
+	// NoIsolatedWorlds makes it measure nothing, as on a platform without
+	// isolated worlds.
+	Measures         []string
+	NoIsolatedWorlds bool
 }
 
 func (s *Surface) NewWebView(o *platform.WindowOptions, h platform.WindowHandler) (platform.WebView, error) {
@@ -131,6 +137,18 @@ func (v *WebView) TabOut(back bool) {
 func (v *WebView) UnhandledKey(mods platform.Modifiers, key platform.Key) {
 	v.host.surface.Send(platform.SurfaceEvent{Kind: platform.WebViewKey, Key: key, Mods: mods, WebView: v})
 }
+
+func (v *WebView) MeasureContent(script string) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.Measures = append(v.Measures, script)
+	return !v.NoIsolatedWorlds
+}
+
+// TellContentSize posts msg from the isolated world of the script that
+// MeasureContent runs, as it measures the page: call it on the main
+// thread.
+func (v *WebView) TellContentSize(msg string) { v.H.ContentSize(msg) }
 
 // Close closes the web view; its handler hears no more of it.
 func (v *WebView) Close() {

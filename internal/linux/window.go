@@ -48,6 +48,10 @@ type window struct {
 	accel   ptr
 	owner   int
 	ownMenu bool
+
+	// fitScript is the WebKitUserScript measuring the page of a web view
+	// whose size follows its content (MeasureContent), a reference.
+	fitScript ptr
 	// autoHideMenu shows the menu bar only while its menus are open;
 	// altAlone is an Alt press no other key or click has joined.
 	autoHideMenu, altAlone bool
@@ -1216,6 +1220,9 @@ func (w *window) addUserScripts() {
 	if w.controls != nil {
 		// After the bridge, which it tells; top frame, document start.
 		add(w.titleBarScript(), 1, 0)
+	}
+	if w.fitScript != 0 {
+		webkitUserContentManagerAddScript(w.ucm, w.fitScript)
 	}
 }
 

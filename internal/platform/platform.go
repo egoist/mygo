@@ -806,7 +806,25 @@ type WebView interface {
 	// Backends close the web views of a window that closes before telling
 	// its WindowHandler.Closed, and Close does nothing then.
 	Close()
+	// MeasureContent has the page tell the size of its content from then
+	// on, for a web view whose size follows it: script, which the core
+	// gives, runs in the isolated world FitWorld of the page's top frame,
+	// in the document it shows and in those it loads, and posts the size
+	// to FitHandler, a script message handler (WebKit) or a binding
+	// (WebView2) of that world alone, which WindowHandler.ContentSize
+	// delivers. The page's own scripts reach neither the world nor the
+	// handler. It reports whether the page measures: false where the
+	// platform has no isolated worlds. Calls after the first do nothing.
+	MeasureContent(script string) bool
 }
+
+// FitWorld is the isolated world of the script measuring a web view's
+// page (WebView.MeasureContent), and FitHandler the handler it posts to,
+// as packages/bridge/src/fit-world.ts names it.
+const (
+	FitWorld   = "mygo-fit"
+	FitHandler = "mygoContentSize"
+)
 
 // WebViewPlacement is where the content of a surface shows a web view
 // (Surface.PlaceWebViews), in DIPs relative to the surface.
@@ -922,6 +940,9 @@ type WindowHandler interface {
 
 	// Message delivers a message posted by the renderer bridge.
 	Message(msg string)
+	// ContentSize delivers a message the script of WebView.MeasureContent
+	// posted from its isolated world: the size of the page's content.
+	ContentSize(msg string)
 	// WillNavigate is called before a navigation; returning false cancels it.
 	WillNavigate(nav Navigation) bool
 	NavigationStarted(url string)

@@ -59,6 +59,9 @@ type window struct {
 	web      id
 	delegate id
 	ucc      id
+	// fitScript is the script measuring the page of a web view whose size
+	// follows its content (MeasureContent), "" for none.
+	fitScript string
 	// effect is the material behind the content (Vibrancy): an
 	// NSVisualEffectView, or an NSGlassEffectView when glass is.
 	effect id
@@ -1709,6 +1712,9 @@ func (w *window) addUserScripts(zoom float64) {
 		// After the bridge, which it tells: the room of the traffic lights.
 		add(bridge.TitleBarScript(w.TitleBar(), zoom), 0, true)
 	}
+	if w.fitScript != "" && addFitScript != nil {
+		addFitScript(w)
+	}
 }
 
 // SetUserScripts replaces the user scripts: a content controller can only
@@ -2520,11 +2526,18 @@ func registerWindowClasses() {
 				if body == 0 || !sendBool(body, "isKindOfClass:", uintptr(class("NSString"))) {
 					return
 				}
-				if goString(send(msg, "name")) == pipHandler {
+				switch goString(send(msg, "name")) {
+				case pipHandler:
 					w.pipActive = goString(body) == "true"
-					return
+				case platform.FitHandler:
+					// The page's size, from the world measuring it
+					// (MeasureContent) alone.
+					if w.fitScript != "" && goString(send(send(msg, "world"), "name")) == platform.FitWorld {
+						w.h.ContentSize(goString(body))
+					}
+				default:
+					w.h.Message(goString(body))
 				}
-				w.h.Message(goString(body))
 			}),
 
 			// Key-value observing of the page title, its sound and

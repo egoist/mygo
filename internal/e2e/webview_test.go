@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -474,4 +475,85 @@ func TestContentWindowWebViewUnhandledKeysInFrame(t *testing.T) {
 		w.Invalidate()
 		return js.Load() == 1
 	})
+}
+
+// TestContentWindowWebViewFitContent shows an untrusted page, loaded with
+// LoadHTML, in a web view whose element fits its content, between native
+// elements in a scroll container: the web view gets as tall as the page's
+// content, follows it as it grows and shrinks, and as a narrower window
+// makes it taller, and the page's own scripts find neither the world that
+// measures it nor its handler.
+func TestContentWindowWebViewFitContent(t *testing.T) {
+	var view, late *mygo.WebView
+	w := newWindow(t, mygo.WindowOptions{Title: "Web view fit", Width: 400, Height: 300, Content: ui.View(func(c *ui.Context) {
+		ui.Scroll(c).Fill().Children(func() {
+			if late != nil {
+				ui.WebView(c, late).Height(60).FitContent()
+			}
+			ui.Text(c, "Header").Height(40)
+			if view != nil {
+				ui.WebView(c, view).FitContent()
+			}
+			ui.Text(c, "Footer").Height(40)
+		})
+	})})
+	v, err := w.NewWebView(mygo.WebViewOptions{ScrollToContainer: true, Page: mygo.PageOptions{Untrusted: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var told atomic.Value // [2]float64
+	v.OnContentSizeChanged(func(width, height float64) { told.Store([2]float64{width, height}) })
+	w.Update(func() { view = v })
+	v.Page().LoadHTML(`<!doctype html><body style="margin:0"><div id="d" style="height:500px;background:#fc0"></div></body>`, "")
+	eval := func(js string) float64 {
+		t.Helper()
+		n, err := mygo.EvalAs[float64](v.Page(), js)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	tall := func(what string, height float64) {
+		t.Helper()
+		eventually(t, what, func() bool {
+			s, _ := told.Load().([2]float64)
+			return eval("innerHeight") == height && s[1] == height
+		})
+	}
+	tall("the web view as tall as its page", 500)
+	if _, h, ok := v.ContentSize(); !ok || h != 500 {
+		t.Errorf("ContentSize: %v, %v", h, ok)
+	}
+	eval(`document.getElementById("d").style.height = "700px"; 0`)
+	tall("the web view following its page growing", 700)
+	eval(`document.getElementById("d").style.height = "120px"; 0`)
+	tall("the web view following its page shrinking", 120)
+
+	// Content as tall as half its width: a narrower window, a taller page.
+	eval(`document.getElementById("d").style.cssText = "aspect-ratio:2;background:#fc0"; 0`)
+	half := func() bool { return eval("innerHeight") == math.Ceil(eval("innerWidth")/2) }
+	eventually(t, "the web view as tall as half its width", half)
+	wide := eval("innerWidth")
+	w.SetSize(300, 300)
+	eventually(t, "the web view laid out narrower, and as tall as half its width", func() bool {
+		return eval("innerWidth") < wide && half()
+	})
+
+	// A page loaded before it fits measures the document it shows.
+	l, err := w.NewWebView(mygo.WebViewOptions{Page: mygo.PageOptions{Untrusted: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Page().LoadHTML(`<!doctype html><body style="margin:0"><div style="height:90px"></div></body>`, "")
+	waitForPage(t, l.Page(), `document.readyState === "complete"`)
+	w.Update(func() { late = l })
+	eventually(t, "a page loaded before it fits as tall as its content", func() bool {
+		h, _ := mygo.EvalAs[float64](l.Page(), "innerHeight")
+		return h == 90
+	})
+
+	// The page's scripts reach nothing of the world that measures it.
+	if reach := eval(`(typeof window.mygoContentSize !== "undefined") + (typeof window.__mygoFit !== "undefined") + (typeof window.webkit?.messageHandlers?.mygoContentSize !== "undefined")`); reach != 0 {
+		t.Errorf("the page reaches %v of the measuring world's names", reach)
+	}
 }
