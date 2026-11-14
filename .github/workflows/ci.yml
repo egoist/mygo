@@ -379,7 +379,7 @@ jobs:
       - uses: android-actions/setup-android@v4
         if: runner.os == 'Linux'
         with:
-          packages: platform-tools platforms;android-36 ndk;27.1.12297006
+          packages: platform-tools platforms;android-36 ndk;27.1.12297006 cmake;3.22.1
       - name: Build the app
         run: go run ./cmd/mygo build -platform ${{ matrix.platform }} examples/counter-native
 
@@ -410,7 +410,7 @@ jobs:
       - uses: android-actions/setup-android@v4
         if: runner.os == 'Linux'
         with:
-          packages: platform-tools platforms;android-36 ndk;27.1.12297006
+          packages: platform-tools platforms;android-36 ndk;27.1.12297006 cmake;3.22.1
       - name: Run on the iOS simulator
         if: runner.os == 'macOS'
         run: |

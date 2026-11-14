@@ -333,8 +333,12 @@ func More(t T) {
 		if _, err := e.OnMain(roundtrip.Record{}, nil); err == nil {
 			t.Fatal("OnMain ran off the main thread")
 		}
-	} else if got, err := e.OnMain(roundtrip.Record{Name: "main"}, nil); err != nil || got.S != "main" {
-		t.Fatalf("OnMain = %+v, %v", got, err)
+	} else {
+		var in roundtrip.Inner
+		got, err := e.OnMain(roundtrip.Record{Name: "main", Kind: roundtrip.KindA, Inner: roundtrip.Inner{X: 2}}, func(i roundtrip.Inner) { in = i })
+		if err != nil || got.S != "main" || in.X != 2 {
+			t.Fatalf("OnMain = %+v, %v; f got %+v", got, err, in)
+		}
 	}
 }
 

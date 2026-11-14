@@ -11,7 +11,7 @@ import (
 )
 
 // _module describes the module to the runtime.
-var _module = &_native.Module{Name: "Sqlitecore", Symbol: "sqlitecore", Langs: []string{"zig"}, SwiftOS: []string{}, MinMacOS: "", MinIOS: "", Kotlin: "", Dir: _dir(), Errors: []*_native.Error{}, Deps: []string{}}
+var _module = &_native.Module{Name: "Sqlitecore", Symbol: "sqlitecore", Langs: []string{"swift", "kotlin", "zig"}, SwiftOS: []string{"ios"}, MinMacOS: "", MinIOS: "16", Kotlin: "com.github.egoist.mygo.plugins.sqlite.internal.sqlitecore.MygoModule", Dir: _dir(), Errors: []*_native.Error{}, Deps: []string{}}
 
 // _dir returns the package's directory when the binary knows it, where
 // mygo dev builds the implementation for go test and go run.

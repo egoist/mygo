@@ -29,7 +29,8 @@ func (ps mobilePlugins) simulatorEntitlements(work string) ([]string, error) {
 	return []string{"-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__entitlements", "-Xlinker", path}, nil
 }
 
-// signFrameworks signs what embedFrameworks put in the bundle.
+// signFrameworks signs the frameworks of the bundle, which iosModules
+// built from the Swift of native modules.
 func signFrameworks(bundle, identity string) error {
 	dirs, err := filepath.Glob(filepath.Join(bundle, "Frameworks", "*.framework"))
 	if err != nil {

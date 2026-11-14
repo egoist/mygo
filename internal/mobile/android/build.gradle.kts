@@ -20,6 +20,18 @@ subprojects {
             compileSdk = 36
             defaultConfig {
                 minSdk = (providers.gradleProperty("mygoMinSdk").orNull ?: "26").toInt()
+                // C, which a module builds with externalNativeBuild, builds
+                // for the ABIs that Go does, with the NDK that builds Go.
+                providers.gradleProperty("mygoAbis").orNull?.let { ndk { abiFilters += it.split(',').filter { a -> a.isNotEmpty() } } }
+            }
+            providers.gradleProperty("mygoNdk").orNull?.let { dir ->
+                ndkPath = dir
+                ndkVersion = file("$dir/source.properties").readLines().firstNotNullOfOrNull {
+                    it.substringAfter("Pkg.Revision", "").trimStart(' ', '=').takeIf { v -> v.isNotEmpty() }
+                } ?: ndkVersion
+            }
+            externalNativeBuild {
+                cmake { buildStagingDirectory = rootProject.layout.buildDirectory.dir("native/$name/cxx").get().asFile }
             }
             compileOptions {
                 sourceCompatibility = JavaVersion.VERSION_17

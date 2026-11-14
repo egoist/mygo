@@ -44,7 +44,7 @@ var androidABIs = []struct{ abi, goarch, triple string }{
 
 // androidToolchain is the Android SDK, its NDK and the JDK Gradle runs on.
 type androidToolchain struct {
-	sdk, ndkBin, javaHome string
+	sdk, ndk, ndkBin, javaHome string
 }
 
 func newAndroidToolchain() (*androidToolchain, error) {
@@ -60,7 +60,7 @@ func newAndroidToolchain() (*androidToolchain, error) {
 	if len(hosts) == 0 {
 		return nil, fmt.Errorf("the NDK in %s has no clang", ndk)
 	}
-	t.ndkBin = hosts[0]
+	t.ndk, t.ndkBin = ndk, hosts[0]
 	t.javaHome = findJavaHome()
 	return t, nil
 }
@@ -480,6 +480,8 @@ func (t *androidToolchain) gradle(ctx context.Context, c, dc *Config, dir, work,
 	}
 	props := map[string]string{
 		"mygoNativeModules":      androidModules(mods),
+		"mygoNdk":                t.ndk,
+		"mygoAbis":               strings.Join(abisIn(jniLibs), ","),
 		"mygoApplicationId":      dc.Identifier,
 		"mygoAppName":            dc.Name,
 		"mygoVersionCode":        strconv.Itoa(dc.Android.versionCode(dc.Version)),
@@ -534,6 +536,19 @@ func (t *androidToolchain) gradle(ctx context.Context, c, dc *Config, dir, work,
 		return fmt.Errorf("gradle failed: %v\n%s", err, bytes.TrimSpace(out))
 	}
 	return nil
+}
+
+// abisIn returns the ABIs that Go was built for in jniLibs, which the
+// native modules' C builds for too.
+func abisIn(jniLibs string) []string {
+	var abis []string
+	entries, _ := os.ReadDir(jniLibs)
+	for _, e := range entries {
+		if e.IsDir() {
+			abis = append(abis, e.Name())
+		}
+	}
+	return abis
 }
 
 // buildAndroid builds the app for Android: an .apk and an .aab for Google

@@ -437,7 +437,8 @@ object Native {
     /** Tells Go something; its answer is the status and then the data, null when there is none. */
     @JvmStatic external fun send(kind: Long, id: Long, status: Long, data: ByteArray?): ByteArray?
 
-    @JvmStatic internal external fun buffer(p: Long, n: Long): ByteBuffer
+    /** The n bytes at p, which Go owns, as a direct buffer. Public, as JNI finds it by its name. */
+    @JvmStatic external fun buffer(p: Long, n: Long): ByteBuffer
 
     /** The view of a handle, for ui.NativeView. */
     internal fun view(h: Long): android.view.View? = objects[h] as? android.view.View

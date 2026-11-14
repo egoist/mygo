@@ -1,6 +1,6 @@
-// App runs the round trip's checks where go test does not reach: in an
-// app on a phone, whose module is its Swift on iOS and its Kotlin on
-// Android. It logs each check, then "roundtrip: PASS" or "roundtrip:
+// App runs the round trip's checks where go test does not reach, and the
+// SQLite plugin's: in an app on a phone, whose modules are their Swift on
+// iOS and their Kotlin on Android. It logs each check, then "roundtrip: PASS" or "roundtrip:
 // FAIL", which CI waits for in the system's log:
 //
 //	go run ./cmd/mygo build -platform android/arm64 native/internal/roundtrip/app
@@ -44,7 +44,11 @@ func main() {
 // reports whether one failed.
 func run() bool {
 	failed := false
-	for _, c := range check.All {
+	checks := append(check.All, struct {
+		Name string
+		Run  func(check.T)
+	}{"SQLite", checkSQLite})
+	for _, c := range checks {
 		t := &tester{name: c.Name}
 		done := make(chan struct{})
 		go func() {
