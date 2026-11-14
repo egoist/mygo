@@ -2929,6 +2929,26 @@ either.
   with UI Automation's events.
   What assistive technology does comes back as `AccessAction` events,
   which the engine performs as the pointer or the keyboard would.
+  An element may add nodes of its own inside its node
+  (`AccessChildren`, internal to the module as `Access` is), after its
+  node and before the elements inside it, as the lines of a diff, built
+  only with the tree: their IDs are no element's, so actions on them do
+  nothing, and `Tester` reads their roles from the node's
+  (`roleOfNode`). A text field says where its lines in view are
+  (`AccessNode.LineBoxes`, by their index in `Value`), from which
+  `platform.RangeBounds` finds where a range of UTF-16 units shows;
+  lines end after their line feeds, as `platform.LineOfUnit` and
+  `LineUnits` count them for AppKit's `accessibilityLineForIndex:`,
+  `accessibilityRangeForLine:` and `accessibilityFrameForRange:` (with
+  `AXInsertionPointLineNumber` and `AXVisibleCharacterRange`), as the
+  Windows and Linux bridges take lines from `Value`; a run of lines
+  collapsed has one box (`AccessLineBox.Count`), its diff separator's or
+  its fold's line. A selection moving with the text unchanged posts
+  `AXSelectedTextChanged` with WebKit's `AXTextStateChangeType`,
+  `AXTextSelectionDirection` and `AXTextSelectionGranularity`
+  (`platform.SelectionChange` judges them from the old and new
+  selection), by which VoiceOver reads the line the caret went to at
+  once rather than when it next polls the field.
   An element ignoring input (`IgnoreInput`: a field of the node, as
   the flags are all taken, and of its state, which the elements inside
   it inherit at commit) adds no hits nor stop of Tab and drops the focus,
@@ -4300,7 +4320,13 @@ either.
     lines are paired by similarity and their words diffed, words one
     character apart joined (Pierre's word-alt). An edit re-diffs only the
     region of the hunks it touched, extended to the unchanged lines
-    around. The split view is two editors sharing their scroll, their
+    around. Texts past 10,000 lines or 1 MB together, once a window
+    shows a buffer of them, are compared whole on a goroutine
+    (`diffModel.full`, `diffJob`), the build showing them with no hunks
+    until it is done and wakes the windows showing the buffers
+    (`Buffer.invalidate`); the next `update` takes the hunks if the old
+    text is still of the version compared, and moves them past the new
+    text's edits since as for any edit, or else compares anew. The split view is two editors sharing their scroll, their
     lines aligned by spacer blocks, unchanged lines too where the sides
     wrap at unlike widths; the unified view one editor of the new text,
     with blocks painting the deleted lines from a view of the old one.
@@ -4319,6 +4345,14 @@ either.
     an editor out at another height does (`builtViewH`), so that what
     read `ScrollY` or `ViewportHeight` before, as an app's minimap,
     follows.
+    To assistive technology (`ui/editor/access.go`), an editor gives
+    the boxes of its lines in view, and a side of a diff a node for each
+    of them, in the order they show (`accessLines`): an insertion, a
+    deletion (the unified view's deleted lines too, which are blocks, not
+    the side's text, described by their old numbers, "Old line 12") or a
+    text, named by its text and described by its number, from the lines the last frame painted, so that its cost is
+    the view's; a separator is described by the numbers of the lines it
+    collapses.
   - *Parts* (`parts.go`, `diffparts.go`). The bars and popups around the
     text (find, go to line, completions, hovers) and a diff's separators,
     actions on changes and gutter button are elements the editor places
@@ -4463,8 +4497,13 @@ either.
   a text; a click on the text of a row chosen before the click edits it
   once the double-click time has passed.
 - **Outlines** (`ui/outline.go`). An outline flattens the open part of
-  its tree into rows every frame (`OutlineState.flatten`), which a `List`
-  or a `Table` builds as they show, keyed by their items. Rows are tree
+  its tree into rows (`OutlineState.flatten`), which a `List` or a
+  `Table` builds as they show, keyed by their items: every frame, or,
+  with a `Generation`, which the app changes as `children` does, only
+  when it, `Open` or the roots change. `Open` changes are seen by the
+  stamp of a `Selection`, which each change of its keys takes from one
+  counter of all Selections (`selectionStamps`), so another Selection
+  put in its place has another stamp. Rows are tree
   items, with how deep they are (`AccessNode.Level`) and whether they
   have children (`AccessExpandable`), open or not: on macOS, the rows of
   an `AXOutline` with `AXDisclosureLevel` and `AXDisclosing`, which keeps
