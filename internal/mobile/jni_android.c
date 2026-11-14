@@ -1,7 +1,9 @@
 // The JNI side of the Android host: dev.mygo.MyGoNative's native methods
 // call into Go, and Go's calls reach dev.mygo.Host on the UI thread. Go
-// wakes the UI thread through a pipe its looper watches, so that no
-// thread of Go's ever attaches to the JVM.
+// wakes the UI thread through a pipe its looper watches, so that the
+// host's calls never attach a thread of Go's to the JVM. Native modules
+// do: Go calls their Kotlin (dev.mygo.Native) on the calling thread, as
+// it calls a Swift library's functions elsewhere.
 
 #define _GNU_SOURCE
 #include <jni.h>
@@ -19,6 +21,10 @@ static jclass host;
 static jmethodID host_call;
 static int wake[2] = {-1, -1};
 
+// dev.mygo.Native, the runtime of native modules' Kotlin.
+static jclass native;
+static jmethodID native_init, native_invoke, native_direct, native_op;
+
 JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	vm = v;
 	JNIEnv *env;
@@ -27,6 +33,22 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	if (c == NULL) return JNI_ERR;
 	host = (*env)->NewGlobalRef(env, c);
 	host_call = (*env)->GetStaticMethodID(env, host, "call", "([B)[B");
+	// Found here, with the app's class loader, which a thread of Go's that
+	// attaches later does not have.
+	jclass n = (*env)->FindClass(env, "dev/mygo/Native");
+	if (n == NULL) {
+		(*env)->ExceptionClear(env);
+	} else {
+		native = (*env)->NewGlobalRef(env, n);
+		native_init = (*env)->GetStaticMethodID(env, native, "init", "(Ljava/lang/String;Ljava/lang/String;J)Ljava/lang/String;");
+		native_invoke = (*env)->GetStaticMethodID(env, native, "invoke", "(Ljava/lang/String;Ljava/lang/String;J[BJ)[B");
+		native_direct = (*env)->GetStaticMethodID(env, native, "direct", "(Ljava/lang/String;Ljava/lang/String;J[J)J");
+		native_op = (*env)->GetStaticMethodID(env, native, "op", "(Ljava/lang/String;Ljava/lang/String;JJ[B)V");
+		if ((*env)->ExceptionCheck(env)) {
+			(*env)->ExceptionClear(env);
+			native = NULL;
+		}
+	}
 	return JNI_VERSION_1_6;
 }
 
@@ -121,3 +143,114 @@ JNIEXPORT jbyteArray JNICALL Java_dev_mygo_MyGoNative_event(JNIEnv *env, jclass 
 }
 
 JNIEXPORT void JNICALL Java_dev_mygo_MyGoNative_drain(JNIEnv *env, jclass c) { mygo_drain(); }
+
+// Native modules.
+
+// any_env is the JNIEnv of this thread, which joins the JVM the first
+// time: Go calls a module from any of its threads.
+static JNIEnv *any_env(void) {
+	JNIEnv *env = NULL;
+	if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK && (*vm)->AttachCurrentThreadAsDaemon(vm, &env, NULL) != JNI_OK) {
+		return NULL;
+	}
+	return env;
+}
+
+// failed reports, and clears, an exception the runtime let through.
+static int failed(JNIEnv *env) {
+	if (!(*env)->ExceptionCheck(env)) return 0;
+	(*env)->ExceptionDescribe(env);
+	(*env)->ExceptionClear(env);
+	return 1;
+}
+
+static jbyteArray bytes(JNIEnv *env, const uint8_t *b, size_t n) {
+	jbyteArray a = (*env)->NewByteArray(env, (jsize)n);
+	if (a != NULL && n > 0) (*env)->SetByteArrayRegion(env, a, 0, (jsize)n, (const jbyte *)b);
+	return a;
+}
+
+// mygo_native_init loads a module's Kotlin, by the class of its generated
+// object; it returns what went wrong, which the caller frees, or NULL.
+char *mygo_native_init(const char *name, const char *cls, uint64_t base) {
+	if (native == NULL) return strdup("the app's host has no dev.mygo.Native: build it with mygo build -platform android");
+	JNIEnv *env = any_env();
+	if (env == NULL) return strdup("the thread could not join the JVM");
+	(*env)->PushLocalFrame(env, 8);
+	jstring msg = (jstring)(*env)->CallStaticObjectMethod(env, native, native_init, (*env)->NewStringUTF(env, name), (*env)->NewStringUTF(env, cls), (jlong)base);
+	char *r = NULL;
+	if (failed(env)) {
+		r = strdup("dev.mygo.Native.init threw");
+	} else if (msg != NULL) {
+		const char *c = (*env)->GetStringUTFChars(env, msg, NULL);
+		r = strdup(c);
+		(*env)->ReleaseStringUTFChars(env, msg, c);
+	}
+	(*env)->PopLocalFrame(env, NULL);
+	return r;
+}
+
+// mygo_native_invoke calls a function of a module's Kotlin. Its answer,
+// which the caller frees, is the status and then the data; it returns 0
+// when the call threw past the runtime.
+int mygo_native_invoke(const char *name, const char *sym, uint64_t h, const uint8_t *args, size_t n, uint64_t call, uint8_t **reply, size_t *reply_len) {
+	*reply = NULL;
+	*reply_len = 0;
+	JNIEnv *env = any_env();
+	if (env == NULL || native == NULL) return 0;
+	(*env)->PushLocalFrame(env, 8);
+	jbyteArray r = (jbyteArray)(*env)->CallStaticObjectMethod(env, native, native_invoke, (*env)->NewStringUTF(env, name), (*env)->NewStringUTF(env, sym), (jlong)h, bytes(env, args, n), (jlong)call);
+	int ok = !failed(env);
+	if (ok && r != NULL) {
+		jsize k = (*env)->GetArrayLength(env, r);
+		*reply = malloc(k > 0 ? k : 1);
+		(*env)->GetByteArrayRegion(env, r, 0, k, (jbyte *)*reply);
+		*reply_len = k;
+	}
+	(*env)->PopLocalFrame(env, NULL);
+	return ok;
+}
+
+// mygo_native_direct calls a method of numbers.
+uint64_t mygo_native_direct(const char *name, const char *sym, uint64_t h, const uint64_t *args, size_t n) {
+	JNIEnv *env = any_env();
+	if (env == NULL || native == NULL) return 0;
+	(*env)->PushLocalFrame(env, 8);
+	jlongArray a = (*env)->NewLongArray(env, (jsize)n);
+	if (n > 0) (*env)->SetLongArrayRegion(env, a, 0, (jsize)n, (const jlong *)args);
+	jlong r = (*env)->CallStaticLongMethod(env, native, native_direct, (*env)->NewStringUTF(env, name), (*env)->NewStringUTF(env, sym), (jlong)h, a);
+	if (failed(env)) r = 0;
+	(*env)->PopLocalFrame(env, NULL);
+	return (uint64_t)r;
+}
+
+// mygo_native_op releases an object, cancels a call, asks a stream for its
+// next value, or resumes a continuation of Kotlin's.
+void mygo_native_op(const char *name, const char *op, uint64_t a, int64_t status, const uint8_t *data, size_t n) {
+	JNIEnv *env = any_env();
+	if (env == NULL || native == NULL) return;
+	(*env)->PushLocalFrame(env, 8);
+	(*env)->CallStaticVoidMethod(env, native, native_op, (*env)->NewStringUTF(env, name), (*env)->NewStringUTF(env, op), (jlong)a, (jlong)status, data != NULL ? bytes(env, data, n) : NULL);
+	failed(env);
+	(*env)->PopLocalFrame(env, NULL);
+}
+
+// What Kotlin tells Go: the callback every module shares. The answer of a
+// question is its status and then its data, null when there is none.
+JNIEXPORT jbyteArray JNICALL Java_dev_mygo_Native_send(JNIEnv *env, jclass c, jlong kind, jlong id, jlong status, jbyteArray data) {
+	jsize n = data != NULL ? (*env)->GetArrayLength(env, data) : 0;
+	jbyte *b = data != NULL ? (*env)->GetByteArrayElements(env, data, NULL) : NULL;
+	uint8_t *reply = NULL;
+	size_t reply_len = 0;
+	int answered = mygo_native_handle((uint64_t)kind, (uint64_t)id, (int64_t)status, (uint8_t *)b, (size_t)n, &reply, &reply_len);
+	if (b != NULL) (*env)->ReleaseByteArrayElements(env, data, b, JNI_ABORT);
+	if (!answered) return NULL;
+	jbyteArray r = bytes(env, reply, reply_len);
+	free(reply);
+	return r;
+}
+
+// The memory of a *native.Buffer, which Kotlin reads and writes.
+JNIEXPORT jobject JNICALL Java_dev_mygo_Native_buffer(JNIEnv *env, jclass c, jlong p, jlong n) {
+	return (*env)->NewDirectByteBuffer(env, (void *)(intptr_t)p, (jlong)n);
+}

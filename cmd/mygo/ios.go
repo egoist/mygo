@@ -75,6 +75,11 @@ func (t *iosToolchain) buildApp(ctx context.Context, c, dc *Config, tk *task, op
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		return "", err
 	}
+	// The native modules' generated Go, which the app's compiles with, is
+	// fresh.
+	if _, err := c.phoneModules("ios", opts.debug); err != nil {
+		return "", err
+	}
 	lib := filepath.Join(work, "libapp.a")
 	ldflags := "-s -w" + packageFlags(dc)
 	if !opts.debug {
@@ -154,7 +159,7 @@ func (t *iosToolchain) buildApp(ctx context.Context, c, dc *Config, tk *task, op
 		return "", fmt.Errorf("swiftc failed: %v\n%s", err, bytes.TrimSpace(out))
 	}
 
-	if err := plugins.embedFrameworks(ctx, t, tk, dc, bundle); err != nil {
+	if err := t.iosModules(ctx, c, tk, work, bundle, opts.debug); err != nil {
 		return "", err
 	}
 

@@ -175,11 +175,7 @@ func (t *androidToolchain) buildGo(ctx context.Context, c, dc *Config, tk *task,
 		return err
 	}
 	os.Remove(strings.TrimSuffix(out, ".so") + ".h")
-	plugins, err := c.mobilePlugins("android")
-	if err != nil {
-		return err
-	}
-	return plugins.copyAndroidNatives(ctx, t, tk, c, abi, jniLibs)
+	return nil
 }
 
 // clang is the NDK's compiler for abi.
@@ -477,7 +473,13 @@ func (t *androidToolchain) gradle(ctx context.Context, c, dc *Config, dir, work,
 	if err := copyResources(list, filepath.Join(assets, "resources")); err != nil {
 		return err
 	}
+	debug := slices.Contains(tasks, ":app:assembleDebug")
+	mods, err := c.phoneModules("android", debug)
+	if err != nil {
+		return err
+	}
 	props := map[string]string{
+		"mygoNativeModules":      androidModules(mods),
 		"mygoApplicationId":      dc.Identifier,
 		"mygoAppName":            dc.Name,
 		"mygoVersionCode":        strconv.Itoa(dc.Android.versionCode(dc.Version)),
@@ -559,6 +561,10 @@ func buildAndroid(c *Config, opts buildOptions, arch string) ([]string, error) {
 	os.RemoveAll(jniLibs)
 	tk := con.start("Building for Android")
 	err = func() error {
+		// Their generated Go, which the app's compiles with, is fresh.
+		if _, err := c.phoneModules("android", opts.debug); err != nil {
+			return err
+		}
 		for _, abi := range abis {
 			if err := t.buildGo(context.Background(), c, c, tk, opts, abi, jniLibs); err != nil {
 				return err
@@ -650,6 +656,9 @@ func (s *devSession) buildAndroidDev(ctx context.Context, c, dc *Config, t *task
 	}
 	jniLibs := filepath.Join(opts.work, "jniLibs")
 	os.RemoveAll(jniLibs)
+	if _, err := c.phoneModules("android", true); err != nil {
+		return "", err
+	}
 	if err := tc.buildGo(ctx, c, dc, t, opts, abi, jniLibs); err != nil {
 		return "", err
 	}
@@ -747,24 +756,14 @@ func androidHostKey(c, dc *Config, dir string) (string, error) {
 			return "", err
 		}
 	}
+	mods, err := c.phoneModules("android", true)
+	if err != nil {
+		return "", err
+	}
+	if err := hashModules(h, mods); err != nil {
+		return "", err
+	}
 	for _, p := range plugins {
-		if p.Native != nil {
-			// What it compiles is in the APK, not in what only Go changes.
-			spec, err := json.Marshal(p.Native)
-			if err != nil {
-				return "", err
-			}
-			h.Write(spec)
-			files, err := p.sourcesOf(p.Native.Sources)
-			if err != nil {
-				return "", err
-			}
-			for _, f := range files {
-				if err := hashIfExists(h, f); err != nil {
-					return "", err
-				}
-			}
-		}
 		if p.Android == nil {
 			continue
 		}

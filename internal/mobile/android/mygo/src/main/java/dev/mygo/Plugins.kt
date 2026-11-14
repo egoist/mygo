@@ -45,6 +45,8 @@ object PluginHost {
     }
 
     internal fun makeView(type: String, context: Context, id: Long, args: String): android.view.View? {
+        // A native module's view, which ui.NativeView shows: its handle.
+        if (type == "mygo.native") return Native.view(args.toLongOrNull() ?: 0)
         val a = (if (args.isEmpty()) null else runCatching { JSONTokener(args).nextValue() as? JSONObject }.getOrNull()) ?: JSONObject()
         return viewMakers[type]?.invoke(context, id, a)
     }

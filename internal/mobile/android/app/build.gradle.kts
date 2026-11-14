@@ -58,4 +58,8 @@ kotlin { jvmToolchain(17) }
 
 dependencies {
     implementation(project(":mygo"))
+    // The app's native modules' Kotlin (settings.gradle.kts).
+    providers.gradleProperty("mygoNativeModules").orNull?.split(',')?.filter { it.isNotEmpty() }?.forEach {
+        implementation(project(":" + it.substringBefore('|')))
+    }
 }

@@ -51,12 +51,12 @@ func TestModuleUsingAnother(t *testing.T) {
 		t.Fatalf("deps %v", m.Deps)
 	}
 	swift := string(GenerateSwift(m))
-	for _, want := range []string{"import Language\n", "a: any Language.Analyzer", "public protocol Map: NSView"} {
+	for _, want := range []string{"import Language\n", "a: any Language.Analyzer", "public protocol Map: NativeView"} {
 		if !strings.Contains(swift, want) {
 			t.Errorf("the Swift lacks %q", want)
 		}
 	}
-	src, err := GenerateGo(m, nil, "")
+	src, err := GenerateGo(m, nil, SwiftPlatforms{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestExampleUpToDate(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, _ := Load(example)
-	src, err := GenerateGo(m, ModuleLangs(m.Dir), MinMacOS(m.Dir))
+	src, err := GenerateGo(m, ModuleLangs(m.Dir), SwiftPlatformsOf(m.Dir))
 	if err != nil {
 		t.Fatal(err)
 	}

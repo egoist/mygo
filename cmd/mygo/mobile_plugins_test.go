@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -103,85 +101,5 @@ func TestSwiftStamp(t *testing.T) {
 	}
 	if swiftCompiled(dir, "arm64", obj) {
 		t.Error("a source changed")
-	}
-}
-
-// A plugin's C compiles once for a target, from the sources it names and the
-// archive's, into the place phones load it from.
-func TestPluginNative(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the fake compiler is a shell script")
-	}
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "native"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	src := filepath.Join(dir, "native", "a.c")
-	if err := os.WriteFile(src, []byte("int a;"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The compiler says it ran, and writes what -o names.
-	runs := filepath.Join(dir, "runs")
-	cc := filepath.Join(dir, "cc")
-	script := "#!/bin/sh\necho \"$@\" >> " + runs + "\nwhile [ $# -gt 1 ]; do [ \"$1\" = -o ] && echo built > \"$2\"; shift; done\n"
-	if err := os.WriteFile(cc, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	p := &mobilePlugin{ID: "a", dir: dir}
-	n := &pluginNative{Name: "mygo-a", Sources: []string{"native/*.c"}, Cflags: []string{"-DA=1"}}
-	target := nativeTarget{key: "t", compiler: []string{cc}, args: []string{"-shared"}, output: func(name string) string { return "lib" + name + ".so" }}
-	compile := func() string {
-		t.Helper()
-		out, err := n.compile(context.Background(), p, target)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return out
-	}
-	count := func() int {
-		data, err := os.ReadFile(runs)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return strings.Count(string(data), "\n")
-	}
-	first := compile()
-	if filepath.Base(first) != "libmygo-a.so" || !fileExists(first) {
-		t.Fatalf("built %s", first)
-	}
-	line, _ := os.ReadFile(runs)
-	for _, want := range []string{"-shared", "-DA=1", src, "-fPIC"} {
-		if !strings.Contains(string(line), want) {
-			t.Errorf("compiled with %s, without %s", line, want)
-		}
-	}
-	if compile(); count() != 1 {
-		t.Errorf("compiled %d times without a change", count())
-	}
-	// A change of its source, of its flags or of the target is another build.
-	if err := os.WriteFile(src, []byte("int b;"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if compile(); count() != 2 {
-		t.Errorf("a changed source compiled %d times", count())
-	}
-	target.key = "other"
-	if compile(); count() != 3 {
-		t.Errorf("another target compiled %d times", count())
-	}
-	// Patterns stay inside the package.
-	n.Sources = []string{"../x.c"}
-	if _, err := n.compile(context.Background(), p, target); err == nil {
-		t.Error("a source outside the package compiled")
-	}
-}
-
-// Desktops' downloads don't apply where the plugin compiles for phones.
-func TestBuiltForPhones(t *testing.T) {
-	data := []byte(`{"libraries": [{"name": "x"}, {"name": "y"}], "mobile": {"id": "a", "native": {"name": "x"}}}`)
-	if !builtForPhones(data, "x") || builtForPhones(data, "y") || builtForPhones([]byte(`{"libraries": []}`), "x") {
-		t.Error("builtForPhones")
 	}
 }

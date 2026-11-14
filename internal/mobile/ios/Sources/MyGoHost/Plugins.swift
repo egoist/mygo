@@ -56,6 +56,12 @@ public enum PluginHost {
     }
 
     static func makeView(_ type: String, id: Int, args: String) -> UIView? {
+        // A native module's view, which ui.NativeView shows: its handle, an
+        // object its Swift retained for Go.
+        if type == "mygo.native" {
+            guard let h = UInt(args), let p = UnsafeRawPointer(bitPattern: h) else { return nil }
+            return Unmanaged<AnyObject>.fromOpaque(p).takeUnretainedValue() as? UIView
+        }
         var a: [String: Any] = [:]
         if let d = args.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] { a = o }
         return viewMakers[type]?(id, a)
@@ -125,4 +131,14 @@ final class PluginViewWindow: HostWindow {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+}
+
+/// The windows of the app, for native modules' Swift, which finds this
+/// class by its name: a method taking a *mygo.Window gets its view
+/// controller.
+@objc(MyGoWindows) public final class MyGoWindows: NSObject {
+    @MainActor @objc public static func controller(_ id: NSNumber) -> UIViewController? {
+        guard let w = Host.shared.windows[id.intValue] else { return nil }
+        return Navigation.shared.controller(w)
+    }
 }

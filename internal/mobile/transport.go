@@ -36,7 +36,10 @@ type transport struct {
 }
 
 type request struct {
-	msg   []byte
+	msg []byte
+	// fn, when set, runs on the UI thread in place of a call of the host:
+	// a native module's main-thread method, or its view.
+	fn    func()
 	reply chan []byte // nil for a call not waited for
 }
 
@@ -59,6 +62,25 @@ func (t *transport) call(m message, reply interface{ Decode(*wire.Reader) }) {
 	if m.Wait() {
 		req.reply = make(chan []byte, 1)
 	}
+	b := t.send(req)
+	if b != nil && reply != nil {
+		reply.Decode(&wire.Reader{Buf: *b})
+	}
+}
+
+// run runs fn on the UI thread, in order with the calls, and when wait,
+// waits for it. Any thread but the UI thread when wait.
+func (t *transport) run(fn func(), wait bool) {
+	req := request{fn: fn}
+	if wait {
+		req.reply = make(chan []byte, 1)
+	}
+	t.send(req)
+}
+
+// send queues req for the UI thread and waits for its reply, if it has
+// one to wait for.
+func (t *transport) send(req request) *[]byte {
 	t.mu.Lock()
 	t.pending = append(t.pending, req)
 	post := false
@@ -75,12 +97,10 @@ func (t *transport) call(m message, reply interface{ Decode(*wire.Reader) }) {
 		t.h.post()
 	}
 	if req.reply == nil {
-		return
+		return nil
 	}
 	b := <-req.reply
-	if reply != nil {
-		reply.Decode(&wire.Reader{Buf: b})
-	}
+	return &b
 }
 
 // drain runs the calls sent so far. UI thread only.
@@ -97,7 +117,12 @@ func (t *transport) drain() {
 		r := t.pending[0]
 		t.pending = t.pending[1:]
 		t.mu.Unlock()
-		b := t.h.call(r.msg)
+		var b []byte
+		if r.fn != nil {
+			r.fn()
+		} else {
+			b = t.h.call(r.msg)
+		}
 		if r.reply != nil {
 			r.reply <- b
 		}

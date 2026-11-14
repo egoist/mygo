@@ -255,6 +255,17 @@ func (s *surface) NewPluginView(viewType string, args []byte, h platform.WindowH
 	return s.w.b.makeWindow(o, h, s.w, viewType, string(args))
 }
 
+// EmbedView shows a view of a native module's under the surface, as a
+// plugin's view is (platform.ViewSurface): the host finds it by its
+// handle, among the objects of the modules' Swift or Kotlin. It has no
+// page to tell of: its handler is its host's, which hears nothing from it.
+func (s *surface) EmbedView(view uintptr) (platform.WebView, error) {
+	return s.w.b.makeWindow(&platform.WindowOptions{}, s.w.h, s.w, nativeViewType, strconv.FormatUint(uint64(view), 10))
+}
+
+// nativeViewType is the type of plugin view of a native module's view.
+const nativeViewType = "mygo.native"
+
 // PlaceWebViews shows the views the surface holds where the content shows
 // them; the frames are transparent there, and the host routes fingers to them
 // but where the content painted over them.

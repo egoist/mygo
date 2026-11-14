@@ -63,10 +63,10 @@ func (c *Config) nativesOf(pkgs []nativePackage, goos, goarch string) ([]source,
 	for _, p := range pkgs {
 		for _, l := range p.manifest.Libraries {
 			l = p.library(l, goos, "")
-			if seen[l.Name] || l.Build.IsSwift() || p.isModule(l) && l.Build == nil || p.builtForPhones(goos, l.Name) {
+			if seen[l.Name] || l.Build.IsSwift() || p.isModule(l) && (l.Build == nil || goos == "ios" || goos == "android") {
 				// Swift libraries go into Frameworks (prepareNative), a
 				// module no language implements here is unsupported, and
-				// phones compile the C of a plugin's mobile.native.
+				// phones build their modules with the app (phoneModules).
 				continue
 			}
 			seen[l.Name] = true

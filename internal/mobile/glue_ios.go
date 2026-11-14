@@ -3,6 +3,7 @@
 package mobile
 
 /*
+#include <pthread.h>
 #include <stdlib.h>
 #include "ios/MyGo.h"
 
@@ -70,3 +71,7 @@ func mygo_drain() { drain() }
 
 //export mygo_free
 func mygo_free(p *C.uint8_t) { C.free(unsafe.Pointer(p)) }
+
+// onUIThread reports whether this is the UI thread, the process's main
+// thread on iOS.
+func onUIThread() bool { return C.pthread_main_np() != 0 }
