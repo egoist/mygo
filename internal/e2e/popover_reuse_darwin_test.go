@@ -34,6 +34,11 @@ func TestPopoverFlyoutsReuseNSPopovers(t *testing.T) {
 	first.OnClosed(func() { closed <- struct{}{} })
 	first.Close()
 	wait.For(t, "first flyout closed", closed)
+	eventually(t, "the first popover finished closing", func() bool {
+		var closing bool
+		mygo.RunOnMain(func() { closing = darwin.TestPopoverClosing(before) })
+		return !closing
+	})
 	second, after := open()
 	defer second.Destroy()
 	if after != before {
@@ -54,31 +59,36 @@ func TestPopoverFlyoutClosedAsItHides(t *testing.T) {
 	open := func() *mygo.Window {
 		return mygo.NewFlyout(mygo.FlyoutOptions{Parent: parent, Anchor: mygo.Rectangle{X: 100, Y: 20, Width: 80, Height: 24}, Popover: true, Width: 220, Height: 120, Content: ui.View(func(c *ui.Context) { ui.Text(c, "Popover reuse test") })})
 	}
-	closing := func() (n int) {
-		mygo.RunOnMain(func() { _, n = darwin.TestSparePopovers() })
-		return n
+	closing := func(popover uintptr) (closing bool) {
+		mygo.RunOnMain(func() { closing = darwin.TestPopoverClosing(popover) })
+		return closing
 	}
 	first := open()
 	eventually(t, "the first popover shown", first.IsVisible)
+	// On one turn of the main thread, which its popover's telling it
+	// closed cannot come in the middle of: the second flyout takes its
+	// NSPopover as NewFlyout makes it.
 	var before uintptr
+	var wasClosing bool
+	var second *mygo.Window
 	mygo.RunOnMain(func() {
 		before = darwin.TestPopover(first.NativeHandle())
 		first.Hide()
 		first.Close()
+		wasClosing = darwin.TestPopoverClosing(before)
+		second = open()
 	})
-	wasClosing := closing() > 0
-	second := open()
 	defer second.Destroy()
 	eventually(t, "the second popover's window adopted", func() bool { return second.NativeHandle() != 0 })
+	if !wasClosing {
+		t.Skip("the first popover finished closing at once, and is the second one's")
+	}
 	var after uintptr
 	mygo.RunOnMain(func() { after = darwin.TestPopover(second.NativeHandle()) })
 	if after == before {
 		t.Fatal("the second flyout shows in the first one's NSPopover, which is still closing")
 	}
-	if !wasClosing {
-		t.Skip("the first popover finished closing at once")
-	}
-	eventually(t, "the first popover closed", func() bool { return closing() == 0 })
+	eventually(t, "the first popover closed", func() bool { return !closing(before) })
 	mygo.RunOnMain(func() {}) // after what its close posted
 	if second.IsDestroyed() || !second.IsVisible() {
 		t.Fatal("the first popover's close closed the second flyout")
