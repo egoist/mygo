@@ -337,7 +337,8 @@ func absInt(v int) int {
 }
 
 // ContinuousScene returns a 320×70 scene with continuous corners, which
-// only the renderers of macOS draw (scene.Op.Continuous): a card with a
+// the renderers of macOS draw, and those of Direct3D and OpenGL when asked
+// to (scene.Op.Continuous): a card with a
 // border, its shadow and an inner one, a pill, a circle, which stays one,
 // sides too short for their corners' curves, one with an inner shadow
 // without blur, a corner reaching past the middle of its sides, a clip and

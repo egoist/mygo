@@ -3451,7 +3451,8 @@ either.
   hard edge can remove whole corners; overlapping antialiased edges,
   transformed clips and image/gradient masks retain their existing mask
   path, as do continuous corners on the renderers whose shaders don't
-  draw them (all but Metal's, `gpu.Builder.SplitCorners`). Backdrop
+  draw them (`gpu.Builder.SplitCorners`: all but Metal's, unless the app
+  asked for them, `ui.SetContinuousCorners`). Backdrop
   effects map local samples into the frame. With a GPU, every frame draws
   there, including resting changes to transformed content.
   Metal retains wide colors under transforms. See
@@ -4927,8 +4928,22 @@ either.
   radius and of the curve's extent, and keeps the rows' spans of a clip
   with continuous corners for the operations within it; a whole frame of
   `BenchmarkFrame` takes a fifth longer. Elsewhere corners are circular,
-  as Windows and GTK draw them, and only the CPU's renderer and Metal's
-  draw continuous ones.
+  as Windows and GTK draw them, unless the app asks for continuous ones
+  for its own look (`ui.SetContinuousCorners`, a package variable the
+  painter reads, which also turns macOS's off). Direct3D's and OpenGL's
+  shaders then draw them too, ported from Metal's with `CONTINUOUS`
+  defined (Direct3D's compiled ahead of time with the others, OpenGL's as
+  first needed), and only for those apps: `ui` asks each window's
+  renderer (`ContinuousCorners`, through a function only
+  `SetContinuousCorners` reaches, so that other apps link neither those
+  shaders nor the nine-patches), which then splits corners
+  (`gpu.Builder.SplitCorners`) and draws the batches holding them, with
+  Direct3D the general ones too, with those shaders, the others with the
+  shaders without them, as Metal's function constants specialize its
+  own. OpenGL, without classes, has the builder tell which batches hold
+  them (`Batch.Continuous`). Effects of Direct3D always have the code,
+  as Metal's do; OpenGL's have it for renderers drawing them. Web views'
+  own corners stay the system's.
 - **Text.** `internal/text` lays out text with the system's own text stack,
   behind a small `engine` interface: DirectWrite on Windows
   (`IDWriteTextLayout`, with an `IDWriteTextRenderer` implemented in Go
@@ -5289,7 +5304,7 @@ either.
   continuous corners they draw around one rectangle. These scissors never
   change a clip mask's sampling coordinates. Both transformations are shared by all GPU backends.
   Large fills, shadows and images with continuous corners (negative radii,
-  which only Metal gets) draw as nine-patches (`gpu/corners.go`): their
+  which only Metal gets, and the others for apps that ask) draw as nine-patches (`gpu/corners.go`): their
   corners' boxes as they are, and the cross between them as a twin with
   square corners, in batches whose pipeline lacks the curves' code. Away
   from the boxes the shader computes the same value either way: a fill's
@@ -5380,7 +5395,11 @@ either.
     the general shader's 3,627. A set of classes draws with the first of
     `classShaders` holding them, made as first drawn: each class, the sets that
     small batches join most, and all of them, which still costs less than the
-    general shader, which only transformed instances and effects need. The
+    general shader, which only transformed instances and effects need. Each
+    set, and the general shader, has a pixel shader drawing continuous
+    corners too (`CONTINUOUS` defined, `contCode`), for apps that ask for
+    them (`ContinuousCorners`): only those apps reach them, through
+    `continuousCode`, and link them. The
     renderers of a process share one Direct3D 11 device and its immediate
     context (`shared.go`), with the shaders, input layout and states, which
     never change: a device costs the driver tens of megabytes, which a

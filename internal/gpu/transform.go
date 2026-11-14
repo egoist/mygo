@@ -108,11 +108,12 @@ func (b *Builder) analyticClip() (clip, bool) {
 	area := scene.Rect{X: float32(sc.Left), Y: float32(sc.Top), W: float32(sc.Right - sc.Left), H: float32(sc.Bottom - sc.Top)}
 	for i := range b.stack {
 		c := &b.stack[i]
-		// Only Metal's shader evaluates continuous corners (SplitCorners):
-		// the other renderers, which never draw them in an app, keep the
-		// mask. On Metal, a pane against the side of a rounded frame, as a
-		// sidebar, cuts the frame's curves in the shader rather than with a
-		// mask of the whole frame (#1511).
+		// Only renderers whose shader evaluates continuous corners
+		// (SplitCorners: Metal's, and those of apps that ask for them) cut
+		// them in the shader: the others, which never draw them in an app,
+		// keep the mask. There, a pane against the side of a rounded
+		// frame, as a sidebar, cuts the frame's curves in the shader rather
+		// than with a mask of the whole frame (#1511).
 		if continuous(c.radii) && !b.contClips {
 			return clip{}, false
 		}

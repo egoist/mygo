@@ -39,9 +39,10 @@ const (
 
 // SplitCorners makes the builder draw large shapes with continuous corners
 // as nine-patches (see addCorners), for a renderer whose shader draws them
-// (Metal's), and cut clips with continuous corners in that shader where it
-// cuts circular ones (analyticClip). Only through it do apps link that
-// code, which the other renderers' apps never run.
+// (Metal's always, Direct3D's and OpenGL's for apps that ask, as
+// ui.SetContinuousCorners does), and cut clips with continuous corners in
+// that shader where it cuts circular ones (analyticClip). Only through it
+// do apps link that code, which the apps of other renderers never run.
 func (b *Builder) SplitCorners() { b.cutCorners, b.contClips = (*Builder).addCorners, true }
 
 // addCut appends in, a fill, a shadow or an image, within the current

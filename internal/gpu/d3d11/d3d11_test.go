@@ -3,6 +3,7 @@
 package d3d11
 
 import (
+	"fmt"
 	"runtime"
 	"slices"
 	"syscall"
@@ -108,6 +109,98 @@ func TestDrawsAsTheCPURenderer(t *testing.T) {
 			gputest.Compare(t, "d3d11-corner-clips", pix, stride, s)
 		}
 		r.Release()
+	}
+}
+
+// continuousCases are the scenes with continuous corners that renderers
+// drawing them (ContinuousCorners) must draw as the CPU renderer does:
+// fills, borders, images, clips, blurred and inner shadows, an effect,
+// cards drawn as nine-patches, and transformed content.
+func continuousCases() []struct {
+	name string
+	s    *scene.Scene
+} {
+	cases := []struct {
+		name string
+		s    *scene.Scene
+	}{
+		{"continuous", gputest.ContinuousScene()},
+		{"continuous-corner-clips", gputest.ContinuousCornerClipScene()},
+		{"cards", gputest.CardsScene(1400, 900)},
+		{"odd-cards", gputest.CardsScene(1001, 777)},
+		{"transformed", gputest.Continuously(gputest.TransformedScene())},
+		{"perspective", gputest.Continuously(gputest.PerspectiveScene())},
+		{"bordered-card", gputest.BorderedCardScene(true)},
+	}
+	for i, c := range gputest.ShadowCases() {
+		if c.Radius == 0 {
+			continue
+		}
+		c.Continuous = true
+		cases = append(cases, struct {
+			name string
+			s    *scene.Scene
+		}{fmt.Sprintf("shadow-%d", i), gputest.ShadowPanelScene(c)})
+	}
+	for _, c := range gputest.MaskedCases() {
+		if c.Name == "masked continuous" {
+			cases = append(cases, struct {
+				name string
+				s    *scene.Scene
+			}{"masked-continuous", c.Scene})
+		}
+	}
+	return cases
+}
+
+// drewContinuous reports whether r made a shader of continuous corners, the
+// general one or a class's, as it does when it first draws them.
+func drewContinuous(r *Renderer) bool {
+	if *r.contPS != 0 && *r.contPS != invalidShader {
+		return true
+	}
+	for _, p := range r.contClasses {
+		if p != nil && p.ps != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// TestDrawsContinuousCornersAsTheCPURenderer draws continuous corners with
+// a renderer asked to (ContinuousCorners, as ui.SetContinuousCorners has
+// it), with the shaders compiled ahead of time and, for the first scene,
+// with those compiled from shader.hlsl, as the CPU renderer draws them.
+func TestDrawsContinuousCornersAsTheCPURenderer(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	for _, compile := range []bool{false, true} {
+		for i, c := range continuousCases() {
+			if compile && i > 0 {
+				break // compiling takes the compiler a while
+			}
+			t.Run(fmt.Sprintf("%s/compiled=%v", c.name, compile), func(t *testing.T) {
+				compileShaders = compile
+				r, err := New(hiddenWindow(t, c.s.Width, c.s.Height))
+				compileShaders = false
+				if err != nil {
+					t.Skip("no Direct3D 11:", err)
+				}
+				defer r.Release()
+				r.ContinuousCorners()
+				// Twice: the second frame finds what the first made.
+				for range 2 {
+					if err := r.draw(c.s); err != nil {
+						t.Fatal(err)
+					}
+					pix, stride := r.readBack(t)
+					gputest.Compare(t, "d3d11-continuous-"+c.name, pix, stride, c.s)
+				}
+				if !drewContinuous(r) {
+					t.Fatal("no shader of continuous corners was made")
+				}
+			})
+		}
 	}
 }
 
@@ -399,6 +492,22 @@ func TestShaderBytecode(t *testing.T) {
 		if len(code) < 4 || string(code[:4]) != "DXBC" {
 			t.Errorf("%s: not DXBC", s.entry)
 		}
+	}
+	// The shaders of continuous corners, with every set of classes.
+	cont := continuousCode()
+	if len(cont.classPS) != len(classShaders) {
+		t.Fatalf("%d shaders of classes with continuous corners, %d without", len(cont.classPS), len(classShaders))
+	}
+	for i, code := range append([][]byte{cont.ps}, cont.classPS...) {
+		if len(code) < 4 || string(code[:4]) != "DXBC" {
+			t.Errorf("shader %d of continuous corners: not DXBC", i)
+		}
+	}
+	if _, err := compile(continuousDefine+shaderSource, "ps", "ps_4_0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := compileClass(classShaders[len(classShaders)-1].classes, true); err != nil {
+		t.Fatal(err)
 	}
 }
 

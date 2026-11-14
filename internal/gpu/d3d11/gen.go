@@ -1,8 +1,10 @@
 //go:build ignore
 
 // Gen compiles shader.hlsl and classes.hlsl to DXBC with the system's d3dcompiler_47.dll
-// and writes shaders.go, so that apps need no shader compiler. It runs on
-// Windows: go generate ./internal/gpu/d3d11
+// and writes shaders.go, so that apps need no shader compiler: their
+// shaders, and their pixel shaders with CONTINUOUS defined, which draw
+// continuous corners (contCode). It runs on Windows: go generate
+// ./internal/gpu/d3d11
 package main
 
 import (
@@ -98,6 +100,22 @@ func main() {
 		fmt.Fprintf(&b, "\t{%d, classVS%d, classPS%d},\n", cl, cl, cl)
 	}
 	b.WriteString("}\n\n")
+	b.Write(vars.Bytes())
+	// The pixel shaders drawing continuous corners, which only
+	// continuousCode reaches, and with it only the apps asking for them.
+	const cont = "#define CONTINUOUS\n"
+	b.WriteString("// continuousCode returns the shaders drawing continuous corners compiled ahead\n// of time (contCode).\nfunc continuousCode() contCode {\n\treturn contCode{contPixelShader, [][]byte{")
+	vars.Reset()
+	vars.WriteString(gpu.GoBytes("contPixelShader", compile([]byte(cont+string(src)), "ps", "ps_4_0")) + "\n")
+	for i, cl := range classSets {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "contClassPS%d", cl)
+		full := append([]byte(cont+classDefines(cl)+string(src)+"\n"), classes...)
+		fmt.Fprintf(&vars, "%s\n", gpu.GoBytes(fmt.Sprintf("contClassPS%d", cl), compile(full, "classps", "ps_4_0")))
+	}
+	b.WriteString("}}\n}\n\n")
 	b.Write(vars.Bytes())
 	out, err := format.Source(b.Bytes())
 	if err != nil {
