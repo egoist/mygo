@@ -129,11 +129,22 @@ components, from buttons to tables.
 - [Plugins](plugins.md): features that come in a Go package and an npm
   package, such as the official plugins, and writing your own.
 
+## Phones and tablets
+
+- [Phones and tablets](mobile/README.md): the same app on iOS and
+  Android, what you need, developing on a simulator, an emulator or a
+  device, and how apps behave on phones.
+- [Building and publishing for phones](mobile/building.md): signed `.ipa`,
+  `.apk` and `.aab` files, App Store Connect and Google Play, links, icons
+  and launch screens.
+- [Interfaces on phones](mobile/interface.md): the system's tabs and
+  stacks, fingers, the keyboard, the widgets of phones, and testing.
+- [Device APIs and plugins](mobile/plugins.md): haptics, sharing, the
+  battery, the official plugins for maps, the camera, location and more,
+  and writing your own in Swift and Kotlin.
+
 ## Shipping
 
-- [Phones and tablets](mobile.md): the same app on iOS and Android,
-  developed on a simulator, an emulator or a device, built for the App
-  Store and Google Play.
 - [Building and distributing](distribution.md): packaged apps for macOS,
   Windows and Linux, signing, installers and disk images.
 - [Auto-updates](updates.md): signed updates from GitHub releases, an S3

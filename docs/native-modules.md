@@ -1108,7 +1108,7 @@ must allow, such as App Groups, needs one that does
 Building a module needs its language's tools: for `swift/`, Xcode or its
 Command Line Tools, with Swift 6 (Xcode for iOS); for `kotlin/`, what
 Android apps need already, the Android SDK and Gradle's JDK
-([phones](mobile.md#what-you-need)), and CMake from the SDK Manager for
+([phones](mobile/README.md#what-you-need)), and CMake from the SDK Manager for
 modules with C; for `rust/`, cargo
 ([rustup](https://rustup.rs)); for `zig/`, [Zig](https://ziglang.org) 0.16.
 `mygo doctor` says which are installed.

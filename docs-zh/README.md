@@ -91,9 +91,15 @@ func main() {
 - [从前端调用 Go](bindings.md)：绑定的服务、通道、类型化的事件和生成的 TypeScript 客户端。
 - [插件](plugins.md)：以 Go 包和 npm 包形式提供的功能，例如官方插件，以及如何编写你自己的插件。
 
+## 手机和平板
+
+- [手机和平板](mobile/README.md)：同一个应用在 iOS 和 Android 上运行，需要什么，在模拟器或设备上开发，以及应用在手机上的行为。
+- [为手机构建和发布](mobile/building.md)：签名的 `.ipa`、`.apk` 和 `.aab` 文件，App Store Connect 和 Google Play，链接、图标和启动画面。
+- [手机上的界面](mobile/interface.md)：系统的标签页和栈、手指、键盘、手机的控件，以及测试。
+- [设备 API 和插件](mobile/plugins.md)：触感反馈、分享、电池，地图、相机、定位等官方插件，以及用 Swift 和 Kotlin 编写你自己的插件。
+
 ## 发布
 
-- [手机和平板](mobile.md)：同一个应用在 iOS 和 Android 上运行，在模拟器或设备上开发，为 App Store 和 Google Play 构建。
 - [构建与分发](distribution.md)：为 macOS、Windows 和 Linux 打包应用、签名、安装程序和磁盘映像。
 - [自动更新](updates.md)：来自 GitHub 发布版本、S3 存储桶、你自己的服务器或应用自己的更新服务的签名更新，增量更新，以及类似 Sparkle 的更新窗口。
 - [GitHub Actions](github-actions.md)：推送标签时，构建、签名并公证各平台应用，并连同更新一起发布的工作流。

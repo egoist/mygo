@@ -809,7 +809,7 @@ let package = Package(
 
 ## 构建、运行和测试
 
-构建模块需要其语言的工具：`swift/` 需要 Xcode 或其 Command Line Tools，以及 Swift 6（iOS 需要 Xcode）；`kotlin/` 需要 Android 应用本来就需要的 Android SDK 和 Gradle 所用的 JDK（[手机和平板](mobile.md#你需要什么)），带 C 的模块还需要 SDK Manager 中的 CMake；`rust/` 需要 cargo（[rustup](https://rustup.rs)）；`zig/` 需要 [Zig](https://ziglang.org) 0.16。`mygo doctor` 会告诉你装了哪些。
+构建模块需要其语言的工具：`swift/` 需要 Xcode 或其 Command Line Tools，以及 Swift 6（iOS 需要 Xcode）；`kotlin/` 需要 Android 应用本来就需要的 Android SDK 和 Gradle 所用的 JDK（[手机和平板](mobile/README.md#你需要什么)），带 C 的模块还需要 SDK Manager 中的 CMake；`rust/` 需要 cargo（[rustup](https://rustup.rs)）；`zig/` 需要 [Zig](https://ziglang.org) 0.16。`mygo doctor` 会告诉你装了哪些。
 
 接口变化后，`mygo dev` 会重新生成模块；实现文件变化后，会重新构建当前机器的实现并重启应用，窗口会在原位置重新打开。`mygo build` 则以发布模式为目标平台构建每个模块：Swift 生成兼容 arm64 和 x86_64 的通用二进制，连同依赖框架一起签名，再进行应用的签名和公证（[分发](distribution.md)）；Rust 和 Zig 生成各架构的库，放入应用资源。cargo 和 Zig 的构建文件位于 Go 模块的 `.mygo/native`，而不是原生模块目录；应将 `.mygo/` 加入 `.gitignore`，`mygo init` 创建的项目已这样配置。
 

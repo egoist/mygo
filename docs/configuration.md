@@ -183,7 +183,7 @@ See [Linux](distribution.md#linux).
 | `adaptiveIcon` | | the launcher's icon, in layers: `foreground`, a square PNG, and `background`, a color |
 | `splash` | the theme's | the color that shows as the app launches, as `#102030` |
 
-See [Phones and tablets](mobile.md).
+See [Building and publishing for phones](mobile/building.md).
 
 ## Computed configuration
 
