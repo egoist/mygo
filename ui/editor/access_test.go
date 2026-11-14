@@ -202,6 +202,10 @@ func TestDiffAccessLinesInView(t *testing.T) {
 	}
 	for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
 		d := &DiffState{Old: NewBuffer(sb.String()), New: NewBuffer(""), Layout: layout}
+		// Compared before a window shows them: a text this long is
+		// compared off the main thread there, and reads no line until
+		// that ends.
+		d.Hunks()
 		tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 900, 400)
 		tt.Frame()
 		count := func() (int, string) {
