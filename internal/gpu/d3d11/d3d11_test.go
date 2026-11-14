@@ -153,6 +153,20 @@ func continuousCases() []struct {
 	return cases
 }
 
+// drewContinuous reports whether r made a shader of continuous corners, the
+// general one or a class's, as it does when it first draws them.
+func drewContinuous(r *Renderer) bool {
+	if *r.contPS != 0 && *r.contPS != invalidShader {
+		return true
+	}
+	for _, p := range r.contClasses {
+		if p != nil && p.ps != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // TestDrawsContinuousCornersAsTheCPURenderer draws continuous corners with
 // a renderer asked to (ContinuousCorners, as ui.SetContinuousCorners has
 // it), with the shaders compiled ahead of time and, for the first scene,
@@ -182,8 +196,8 @@ func TestDrawsContinuousCornersAsTheCPURenderer(t *testing.T) {
 					pix, stride := r.readBack(t)
 					gputest.Compare(t, "d3d11-continuous-"+c.name, pix, stride, c.s)
 				}
-				if *r.contPS == 0 || *r.contPS == invalidShader {
-					t.Fatal("the general shader of continuous corners was not made")
+				if !drewContinuous(r) {
+					t.Fatal("no shader of continuous corners was made")
 				}
 			})
 		}
