@@ -5,7 +5,7 @@
 name: winvm
 on:
   push:
-    branches: [claude/project-thread-txkv0s]
+    branches: [claude/winvm-1846]
     paths: [".github/workflows/winvm.yml", ".github/winvm/**"]
 permissions:
   contents: read
