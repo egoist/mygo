@@ -120,8 +120,12 @@ func TestScaledTextIsAsSharpAsLaidOut(t *testing.T) {
 			}, 600, 260, scale)
 			got := sharpness(textArea(scaled.Image(), scale))
 			t.Logf("%s: sharpness %.3f of the card laid out at 1.6", name, got/ref)
-			if got < ref*0.95 || got > ref*1.05 {
-				t.Errorf("%s: sharpness %.0f, the card laid out at 1.6 %.0f: want them within 5%%", name, got, ref)
+			// At least as sharp. Transformed glyphs take grayscale
+			// coverage, and where the system smooths text laid out on an
+			// opaque background in subpixels (ClearType), the card laid
+			// out measures about 10% less sharp than the scaled one.
+			if got < ref*0.95 || got > ref*1.25 {
+				t.Errorf("%s: sharpness %.0f, the card laid out at 1.6 %.0f: want at least 95%% of it, and not over 125%%", name, got, ref)
 			}
 			for _, op := range glyphOps(&scaled.rt.scene) {
 				if op.Transform.Set {
