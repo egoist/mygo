@@ -1283,7 +1283,7 @@ func TestSpans(t *testing.T) {
 }
 
 func TestEncodeSpans(t *testing.T) {
-	spans := []Span{{End: 3, Family: "A, B", Size: 1.5, Weight: 600, Italic: true, LetterSpacing: -0.5, Features: "tnum", Lang: "ja"}, {End: 5, BaselineShift: -2.5}, {End: 7, SpacingSet: true, PaddingX: 3}, {End: 8, PaddingLeft: 16}, {End: 9}}
+	spans := []Span{{End: 3, Family: "A, B", Size: 1.5, Weight: 600, Italic: true, LetterSpacing: -0.5, Features: "tnum", Lang: "ja"}, {End: 5, BaselineShift: -2.5}, {End: 7, SpacingSet: true, PaddingX: 3}, {End: 8, PaddingStart: 16}, {End: 9}}
 	if got := DecodeSpans(EncodeSpans(spans)); !slices.Equal(got, spans) {
 		t.Errorf("decoded %+v, want %+v", got, spans)
 	}
@@ -1322,13 +1322,14 @@ func TestSpanZeroLetterSpacing(t *testing.T) {
 	}
 }
 
-// TestSpanPaddingLeft checks a span's padding at its left alone: its
-// glyphs move in by it, and the text after it by it too, not twice.
-func TestSpanPaddingLeft(t *testing.T) {
+// TestSpanPaddingStart checks a span's padding at its start alone: in
+// left-to-right text its glyphs move in by it, and the text after it by it
+// too, not twice; in right-to-left text the room is at the span's right,
+// which is where it starts.
+func TestSpanPaddingStart(t *testing.T) {
 	s := newSystem()
-	const text = "See Ctrl K now"
 	const pad = 16
-	lay := func(spans ...Span) *Layout {
+	lay := func(text string, spans ...Span) *Layout {
 		return s.Layout(Params{Text: text, Style: Style{Size: 14}, Spans: EncodeSpans(spans)})
 	}
 	x := func(l *Layout, r int) float32 {
@@ -1340,15 +1341,26 @@ func TestSpanPaddingLeft(t *testing.T) {
 		t.Fatalf("no glyph of rune %d", r)
 		return 0
 	}
-	plain, padded := lay(), lay(Span{End: 4}, Span{End: 10, PaddingLeft: pad}, Span{End: 14})
-	if d := padded.Width - plain.Width; math.Abs(float64(d-pad)) > 0.01 {
-		t.Errorf("a span padded at its left widens the text by %v, not %v", d, pad)
-	}
-	for _, c := range []struct{ r, by int }{{3, 0}, {4, pad}, {9, pad}, {10, pad}, {13, pad}} {
-		if d := x(padded, c.r) - x(plain, c.r); math.Abs(float64(d-float32(c.by))) > 0.01 {
-			t.Errorf("rune %d moves %v, not %d", c.r, d, c.by)
+	check := func(name, text string, spans []Span, moves [][2]int) {
+		t.Helper()
+		plain, padded := lay(text), lay(text, spans...)
+		if d := padded.Width - plain.Width; math.Abs(float64(d-pad)) > 0.01 {
+			t.Errorf("%s: a span padded at its start widens the text by %v, not %v", name, d, pad)
+		}
+		for _, c := range moves {
+			if d := x(padded, c[0]) - x(plain, c[0]); math.Abs(float64(d-float32(c[1]))) > 0.01 {
+				t.Errorf("%s: rune %d moves %v, not %d", name, c[0], d, c[1])
+			}
 		}
 	}
+	// "Ctrl K" padded: the room is at its left, before rune 4
+	check("left to right", "See Ctrl K now", []Span{{End: 4}, {End: 10, PaddingStart: pad}, {End: 14}},
+		[][2]int{{3, 0}, {4, pad}, {9, pad}, {10, pad}, {13, pad}})
+	// "עולם" (runes 5-8) padded, laid out right to left: the room is at its
+	// right, between it and the space and word before it, which are on its
+	// right and move; it and what follows it, on its left, stay
+	check("right to left", "שלום עולם זה", []Span{{End: 5}, {End: 9, PaddingStart: pad}, {End: 12}},
+		[][2]int{{11, 0}, {8, 0}, {5, 0}, {4, pad}, {0, pad}})
 }
 
 // TestSpanPadding checks the horizontal padding of spans: each line's

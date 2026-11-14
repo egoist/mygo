@@ -46,10 +46,11 @@ type Span struct {
 	// line's piece of a span that wraps gets both, and its corners, as
 	// with CSS's box-decoration-break: clone.
 	PaddingX, PaddingY float32
-	// PaddingLeft takes that much more room at the left of each line's
-	// piece of the span, past PaddingX, background or not: room for an
+	// PaddingStart takes that much more room at the start of each line's
+	// piece of the span, past PaddingX, background or not: its left in
+	// left-to-right text, its right in right-to-left text. Room for an
 	// icon an app draws before it, as a link's site's.
-	PaddingLeft   float32
+	PaddingStart  float32
 	LetterSpacing float32
 	// NoLetterSpacing makes a zero LetterSpacing the span's own, rather
 	// than the text's around it, as CSS's letter-spacing: 0 on an inline
@@ -267,7 +268,7 @@ func (sc *spanCache) update(spans []Span) {
 // layout.
 func spanStyle(s Span, end int) text.Span {
 	return text.Span{End: end, Family: s.Font, Size: s.Size, Weight: s.Weight, Italic: s.Italic, LetterSpacing: s.LetterSpacing, SpacingSet: s.NoLetterSpacing, Features: s.Features, Lang: s.Lang,
-		ObjectWidth: s.ObjectWidth, ObjectHeight: s.ObjectHeight, ObjectDescent: s.ObjectDescent, BaselineShift: s.BaselineShift, PaddingX: s.PaddingX, PaddingLeft: s.PaddingLeft}
+		ObjectWidth: s.ObjectWidth, ObjectHeight: s.ObjectHeight, ObjectDescent: s.ObjectDescent, BaselineShift: s.BaselineShift, PaddingX: s.PaddingX, PaddingStart: s.PaddingStart}
 }
 
 // encodeSpans encodes the styles of spans for a layout.
@@ -470,16 +471,21 @@ func (sp *spanPaint) backgrounds(p *Painter, line *text.Line, x, y float32) {
 		if k < 0 || sp.spans[k].Background.A == 0 {
 			return
 		}
-		if s := &sp.spans[k]; s.Radius > 0 || s.PaddingX > 0 || s.PaddingY > 0 || s.PaddingLeft > 0 {
+		if s := &sp.spans[k]; s.Radius > 0 || s.PaddingX > 0 || s.PaddingY > 0 || s.PaddingStart > 0 {
 			size := line.Glyphs[i].Size
 			px := min(size*0.22, s.Radius)
-			if s.PaddingX > 0 || s.PaddingY > 0 || s.PaddingLeft > 0 {
+			if s.PaddingX > 0 || s.PaddingY > 0 || s.PaddingStart > 0 {
 				px = max(s.PaddingX, 0) // the room the layout left
 			}
-			pl := px + max(s.PaddingLeft, 0)
+			pl, pr := px, px // the start's room on the side the piece's direction starts at
+			if line.Glyphs[i].RTL {
+				pr += max(s.PaddingStart, 0)
+			} else {
+				pl += max(s.PaddingStart, 0)
+			}
 			py := max(s.PaddingY, 0)
 			base := line.Baseline - s.BaselineShift
-			p.Fill(Rect{x + x0 - pl, y + base - size*0.98 - py, x1 - x0 + px + pl, size*1.32 + 2*py}, s.Background, s.Radius)
+			p.Fill(Rect{x + x0 - pl, y + base - size*0.98 - py, x1 - x0 + pl + pr, size*1.32 + 2*py}, s.Background, s.Radius)
 			return
 		}
 		p.Fill(Rect{x + x0, y + line.Y, x1 - x0, line.Height}, sp.spans[k].Background, 0)
