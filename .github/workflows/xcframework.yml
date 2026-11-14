@@ -1,0 +1,24 @@
+# Builds CSQLite.xcframework (build-xcframework.sh, as plugins/sqlite/
+# internal/sqlitecore/swift has it) on a Mac and uploads it to the release
+# native-sqlitecore, where the module's Package.swift downloads it.
+name: SQLite XCFramework
+on:
+  push:
+    branches: [claude/project-thread-nov73w]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: ./build-xcframework.sh out | tee checksum.txt
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mv out/CSQLite.xcframework.zip out/CSQLite-3.53.4.xcframework.zip
+          gh release upload native-sqlitecore out/CSQLite-3.53.4.xcframework.zip --repo ${{ github.repository }}
+          echo "checksum $(cat checksum.txt)"
+          shasum -a 256 out/CSQLite-3.53.4.xcframework.zip
