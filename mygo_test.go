@@ -25,6 +25,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/egoist/mygo/internal/appbackend"
 	"github.com/egoist/mygo/internal/fake"
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/tsgen"
@@ -42,7 +43,7 @@ func TestMain(m *testing.M) {
 		// Helper process for TestSingleInstance. Only an instance that
 		// hands over passes the foreground on (Windows).
 		helper := fake.New()
-		backendOnce.Do(func() { theBackend = helper })
+		appbackend.Once.Do(func() { appbackend.Backend = helper })
 		packageIdentifier = os.Getenv("MYGO_TEST_IDENTIFIER")
 		App.SetName("MyGoTest")
 		if App.RequestSingleInstanceLock() {
@@ -57,7 +58,7 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	fb = fake.New()
-	backendOnce.Do(func() { theBackend = fb })
+	appbackend.Once.Do(func() { appbackend.Backend = fb })
 	if os.Getenv("MYGO_TEST_STUCK_QUIT") == "1" {
 		stuckQuit()
 	}
@@ -2724,5 +2725,19 @@ func TestSingleInstance(t *testing.T) {
 		}
 	case <-time.After(wait.Guard):
 		t.Fatal("OnOpenURL not called for the forwarded URL")
+	}
+}
+
+// TestBadgeCount: the count reaches the backend as the Dock's badge, which
+// the fake keeps so that an app's tests can read it, and zero clears it.
+func TestBadgeCount(t *testing.T) {
+	t.Cleanup(func() { App.Dock.SetBadge("") })
+	App.SetBadgeCount(3)
+	if got := App.Dock.Badge(); got != "3" {
+		t.Errorf("badge %q after SetBadgeCount(3)", got)
+	}
+	App.SetBadgeCount(0)
+	if got := App.Dock.Badge(); got != "" {
+		t.Errorf("badge %q after SetBadgeCount(0)", got)
 	}
 }

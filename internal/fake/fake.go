@@ -151,6 +151,10 @@ type Backend struct {
 	OnOpenDialog func(opts *platform.OpenDialogOptions) []string
 	OnSaveDialog func(opts *platform.SaveDialogOptions) string
 	OnMessageBox func(opts *platform.MessageBoxOptions) platform.MessageBoxResult
+	// DialogParent is the window the dialog is attached to, nil for none,
+	// while OnOpenDialog, OnSaveDialog or OnMessageBox runs. Main
+	// thread only.
+	DialogParent platform.Window
 	// NotificationError, when set, is what showing a notification fails
 	// with.
 	NotificationError error
@@ -169,9 +173,12 @@ type Backend struct {
 	// StartButtons and EndButtons are the desktop's window buttons that
 	// WindowButtons reports, as Linux's button layout gives them.
 	StartButtons, EndButtons []string
-	// notifications are the notifications shown and not yet removed, by
-	// id.
-	notifications map[string]*platform.Notification
+	// notifications are the notifications shown and not yet removed, in
+	// the order they were shown, the last one with an ID replacing the
+	// one before.
+	notifications []*platform.Notification
+	// badge is the text SetBadge showed last.
+	badge string
 	// secretError, when set, is what every Secrets call fails with.
 	secretError error
 	// secrets holds the stored secrets by service and account.
@@ -500,12 +507,9 @@ func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 		done(err)
 		return
 	}
-	if b.notifications == nil {
-		b.notifications = map[string]*platform.Notification{}
-	}
 	// A copy, as a real backend keeps its own.
 	c := *n
-	b.notifications[n.ID] = &c
+	b.notifications = append(b.removeNotification(n.ID), &c)
 	b.mu.Unlock()
 	done(nil)
 }
@@ -513,13 +517,19 @@ func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 func (b *Backend) RemoveNotification(id string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	delete(b.notifications, id)
+	b.notifications = b.removeNotification(id)
+}
+
+// removeNotification returns the notifications without the one with id.
+// b.mu is held.
+func (b *Backend) removeNotification(id string) []*platform.Notification {
+	return slices.DeleteFunc(b.notifications, func(n *platform.Notification) bool { return n.ID == id })
 }
 
 func (b *Backend) RemoveAllNotifications() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	clear(b.notifications)
+	b.notifications = nil
 }
 
 // Delivered adds a notification the platform still shows from an earlier
@@ -528,22 +538,22 @@ func (b *Backend) Delivered(n *platform.Notification) {
 	b.ShowNotification(n, func(error) {})
 }
 
-// Notifications returns the notifications shown and not yet removed.
+// Notifications returns the notifications shown and not yet removed, in
+// the order they were shown.
 func (b *Backend) Notifications() []*platform.Notification {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	out := make([]*platform.Notification, 0, len(b.notifications))
-	for _, n := range b.notifications {
-		out = append(out, n)
-	}
-	return out
+	return slices.Clone(b.notifications)
 }
 
 // Notification returns the notification with an id, or nil.
 func (b *Backend) Notification(id string) *platform.Notification {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.notifications[id]
+	if i := slices.IndexFunc(b.notifications, func(n *platform.Notification) bool { return n.ID == id }); i >= 0 {
+		return b.notifications[i]
+	}
+	return nil
 }
 
 // ClickNotification reports a click on a notification, as the platform
@@ -1002,8 +1012,8 @@ func (app) Hide()                                     {}
 func (app) Unhide()                                   {}
 func (app) IsHidden() bool                            { return false }
 func (a app) IsActive() bool                          { return a.b.Active }
-func (app) SetBadge(string)                           {}
-func (app) Badge() string                             { return "" }
+func (a app) SetBadge(text string)                    { a.b.mu.Lock(); a.b.badge = text; a.b.mu.Unlock() }
+func (a app) Badge() string                           { a.b.mu.Lock(); defer a.b.mu.Unlock(); return a.b.badge }
 func (app) Bounce(bool) int                           { return 0 }
 func (app) CancelBounce(int)                          {}
 func (app) SetDockIcon([]byte) error                  { return nil }
@@ -1119,26 +1129,35 @@ func (a app) SetJumpList(list platform.JumpList) error {
 
 type dialogs struct{ b *Backend }
 
-func (d dialogs) ShowOpenDialog(_ platform.Window, o *platform.OpenDialogOptions, cb func([]string, error)) {
+func (d dialogs) ShowOpenDialog(parent platform.Window, o *platform.OpenDialogOptions, cb func([]string, error)) {
 	if f := d.b.OnOpenDialog; f != nil {
-		cb(f(o), nil)
+		cb(answer(d.b, parent, func() []string { return f(o) }), nil)
 		return
 	}
 	cb(d.b.OpenResult, nil)
 }
-func (d dialogs) ShowSaveDialog(_ platform.Window, o *platform.SaveDialogOptions, cb func(string, error)) {
+func (d dialogs) ShowSaveDialog(parent platform.Window, o *platform.SaveDialogOptions, cb func(string, error)) {
 	if f := d.b.OnSaveDialog; f != nil {
-		cb(f(o), nil)
+		cb(answer(d.b, parent, func() string { return f(o) }), nil)
 		return
 	}
 	cb(d.b.SaveResult, nil)
 }
-func (d dialogs) ShowMessageBox(_ platform.Window, o *platform.MessageBoxOptions, cb func(platform.MessageBoxResult, error)) {
+func (d dialogs) ShowMessageBox(parent platform.Window, o *platform.MessageBoxOptions, cb func(platform.MessageBoxResult, error)) {
 	if f := d.b.OnMessageBox; f != nil {
-		cb(f(o), nil)
+		cb(answer(d.b, parent, func() platform.MessageBoxResult { return f(o) }), nil)
 		return
 	}
 	cb(d.b.MessageResult, nil)
+}
+
+// answer returns what a dialog's handler answers, with DialogParent set
+// to the dialog's window while it runs.
+func answer[T any](b *Backend, parent platform.Window, f func() T) T {
+	prev := b.DialogParent
+	b.DialogParent = parent
+	defer func() { b.DialogParent = prev }()
+	return f()
 }
 
 type clipboard struct{ b *Backend }

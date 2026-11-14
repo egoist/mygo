@@ -782,3 +782,63 @@ Without a description the desktop shows the accelerator in its place.
 the user changes the keys; it gets them as the desktop writes them, so show
 them as they are. Where the app takes the keys itself (macOS, Windows, X11)
 it is not called, and the shortcut has its accelerator's keys.
+
+## Testing
+
+Package `apptest` runs an app's own tests on a fake desktop, so that the
+code wiring the app to the system is tested as it is: the functions that
+show dialogs and notifications, set the badge, open URLs and make windows.
+Nothing shows on the screen, and only tests import it, so a built app links
+none of it. `apptest.Run` in `TestMain` runs the tests inside the app, with
+`App.Run` on the main goroutine, as `main` runs the app:
+
+```go
+func TestMain(m *testing.M) {
+	os.Exit(apptest.Run(m))
+}
+```
+
+A test answers the dialogs the app will show, calls the app's own
+function, and reads what it asked of the desktop:
+
+```go
+func TestArchive(t *testing.T) {
+	apptest.Reset()
+	apptest.AnswerOpen([]string{"a.pdf"})                // the picker returns this
+	apptest.AnswerMessage(mygo.MessageResult{Button: 1}) // Delete
+	app.archiveSelected()                                // the app's real function
+
+	got := apptest.Dialogs() // the picker, then the question
+	if len(got) != 2 || got[1].Message.Parent != app.main {
+		t.Fatalf("dialogs = %+v", got)
+	}
+	if got := apptest.Badge(); got != "3" {
+		t.Errorf("badge = %q", got)
+	}
+}
+```
+
+- **Dialogs.** `AnswerOpen`, `AnswerSave` and `AnswerMessage` answer the
+  next dialog of their kind, one call per dialog, in order; a dialog
+  without an answer is canceled, a message dialog as Escape does, which
+  chooses its `CancelButton`. `Dialogs` returns those shown, each with the
+  options it showed (`Open`, `Save` or `Message`, with its `Parent`) and
+  whether an answer was given.
+- **Notifications.** `Notifications` returns those shown and not closed,
+  in order, with their IDs; `ClickNotification(id)` clicks one as the user
+  does and returns once the app's `OnClick` and `App.OnNotificationClick`
+  listeners ran, and an ID the app did not show is one of an earlier run.
+  `FailNotifications(mygo.ErrNotificationsDenied)` has them refused.
+- **The rest.** `Badge` is the text `App.SetBadgeCount` and
+  `App.Dock.SetBadge` put on the icon, `OpenedURLs` the URLs of
+  `Shell.OpenExternal`, `Trashed` the paths of `Shell.TrashItem`, which
+  stay where they are, and `Windows` the windows the app created, closed
+  ones too.
+
+The tests share the app, as they share a process: `Reset` forgets the
+dialogs, the answers left, the URLs, the trashed paths and the windows,
+so that a test reads only its own. The app's state stays: its windows, its
+notifications and its badge. The app keeps running when its last window
+closes, as one with an `App.OnWindowAllClosed` listener does; a test that
+quits it ends it for the tests after it. Views of native UI are tested
+with a [`Tester`](ui/testing.md).

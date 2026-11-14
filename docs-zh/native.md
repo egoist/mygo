@@ -471,3 +471,38 @@ err := mygo.GlobalShortcut.Register("CmdOrCtrl+Shift+Space", func() {
 函数在主线程上运行。快捷键使用[加速键](menus.md#快捷键)的语法；`Unregister`、`UnregisterAll` 和 `IsRegistered` 管理它们。快捷键已被占用时 `Register` 会失败：占用者可能是应用自己，也可能是另一个应用（如果系统会告知的话）。
 
 在 X11 下的 Linux 上，应用自己抓取按键。在 Wayland 下应用无法这样做，桌面会通过 XDG 桌面门户为应用绑定快捷键，KDE Plasma 6 和 GNOME 48 及更高版本提供该门户：桌面可能要求用户确认新快捷键，并允许他们改选其他按键；它需要应用已安装，因为它按桌面条目识别应用。快捷键在 `Register` 返回后不久生效。函数显示或聚焦的窗口，在桌面提供激活令牌时（GNOME 就是如此）会借助按键的激活令牌获得焦点。
+
+## 测试
+
+`apptest` 包在一个假的桌面上运行应用自己的测试，使把应用接到系统上的代码按原样得到测试：显示对话框和通知、设置角标、打开 URL 和创建窗口的那些函数。屏幕上什么也不显示，而且只有测试导入它，所以构建出的应用不链接它的任何部分。在 `TestMain` 中调用 `apptest.Run`，就会像 `main` 运行应用那样，在应用内部运行测试，`App.Run` 位于主 goroutine 上：
+
+```go
+func TestMain(m *testing.M) {
+	os.Exit(apptest.Run(m))
+}
+```
+
+测试先回答应用将要显示的对话框，再调用应用自己的函数，然后读取它向桌面请求了什么：
+
+```go
+func TestArchive(t *testing.T) {
+	apptest.Reset()
+	apptest.AnswerOpen([]string{"a.pdf"})                // the picker returns this
+	apptest.AnswerMessage(mygo.MessageResult{Button: 1}) // Delete
+	app.archiveSelected()                                // the app's real function
+
+	got := apptest.Dialogs() // the picker, then the question
+	if len(got) != 2 || got[1].Message.Parent != app.main {
+		t.Fatalf("dialogs = %+v", got)
+	}
+	if got := apptest.Badge(); got != "3" {
+		t.Errorf("badge = %q", got)
+	}
+}
+```
+
+- **对话框。** `AnswerOpen`、`AnswerSave` 和 `AnswerMessage` 回答下一个同类对话框，每个对话框调用一次，按顺序使用；没有回答的对话框会被取消，消息对话框则如同按下 Escape，选择它的 `CancelButton`。`Dialogs` 返回显示过的对话框，每个都带有它显示时的选项（`Open`、`Save` 或 `Message`，包括其 `Parent`），以及是否得到了回答。
+- **通知。** `Notifications` 按顺序返回已显示且未关闭的通知及其 ID；`ClickNotification(id)` 像用户一样单击其中一个，并在应用的 `OnClick` 和 `App.OnNotificationClick` 监听器运行后返回；应用没有显示过的 ID 视为之前某次运行留下的通知。`FailNotifications(mygo.ErrNotificationsDenied)` 让通知被拒绝。
+- **其余部分。** `Badge` 是 `App.SetBadgeCount` 和 `App.Dock.SetBadge` 显示在图标上的文本，`OpenedURLs` 是 `Shell.OpenExternal` 打开的 URL，`Trashed` 是 `Shell.TrashItem` 的路径（文件留在原处），`Windows` 是应用创建过的窗口，包括已关闭的。
+
+测试共用同一个应用，就像它们共用同一个进程：`Reset` 会忘掉对话框、剩下的回答、URL、移到废纸篓的路径和窗口，让每个测试只读到自己的部分。应用的状态保持不变：它的窗口、通知和角标。最后一个窗口关闭时应用会继续运行，如同注册了 `App.OnWindowAllClosed` 监听器的应用；退出应用的测试会让之后的测试无应用可用。原生 UI 的视图用 [`Tester`](ui/testing.md) 测试。

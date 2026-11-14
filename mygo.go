@@ -61,8 +61,8 @@ package mygo
 
 import (
 	"runtime"
-	"sync"
 
+	"github.com/egoist/mygo/internal/appbackend"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -75,13 +75,9 @@ func init() {
 	runtime.LockOSThread()
 }
 
-var (
-	backendOnce sync.Once
-	theBackend  platform.Backend
-)
-
-// backend returns the platform backend, creating it on first use.
+// backend returns the platform backend, creating it on first use, unless
+// package apptest made it the fake one before (appbackend).
 func backend() platform.Backend {
-	backendOnce.Do(func() { theBackend = newBackend() })
-	return theBackend
+	appbackend.Once.Do(func() { appbackend.Backend = newBackend() })
+	return appbackend.Backend
 }

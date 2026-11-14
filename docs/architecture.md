@@ -77,6 +77,7 @@ framework safely. Read it before changing anything under `internal/`.
 ├── single_instance.go  RequestSingleInstanceLock over a Unix socket
 ├── dev.go signal_*.go  IsDev, the `mygo dev` ready signal, quitting on SIGINT/SIGTERM
 ├── backend_*.go        picks the backend per GOOS
+├── apptest/            an app's own tests on internal/fake: Run for TestMain, dialogs answered, effects recorded
 ├── internal/
 │   ├── platform/       the contract every backend implements
 │   ├── darwin/         macOS: AppKit + WKWebView through the Objective-C runtime
@@ -87,6 +88,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── web/            browsers (js/wasm): native UI on canvases, through syscall/js
 │   ├── unsupported/    stub for other platforms
 │   ├── fake/           in-memory backend for unit tests
+│   ├── appbackend/     the backend the app runs on, which mygo makes, or apptest first
 │   ├── automationcli/  mygo-automation, the command line client of plugins/automation's socket
 │   ├── watchdriver/    the goroutine that runs a backend's file watcher
 │   ├── bridge/         embeds bridge.js, built from packages/bridge
@@ -6345,6 +6347,7 @@ Native library and shader generation commands are listed in [AGENTS.md](../AGENT
 | suite | command | covers |
 |---|---|---|
 | core | `go test .` | lifecycle, quit, documents, IPC, channels, events, Eval, protocol, frontend URLs and serving, menus, trust, single instance, dev ready signal (fake backend); `go test -run '^$' -bench .` measures the Go side of IPC and custom schemes |
+| app tests | `go test ./apptest` | `apptest`, which runs an app's own tests on the fake backend, through a tiny mail app: dialogs answered in order and canceled without an answer, with their windows; notifications in order, clicked; the badge; URLs opened; windows created; `Reset` |
 | generator | `go test ./internal/tsgen` | TS output, json/v2 rules, source lookup; type-checks the output with `tsc` when `bun install` was run |
 | CLI | `go test ./cmd/mygo` | config, Info.plist, icons, universal binaries, template, dev launch/ready/stop (the test binary plays the app), watcher and `go list` inputs, the console's output (replayed as a terminal shows it), resources (platform directories, universal pairs, exclusions, staging, conflicts, dev placement; builds for every OS), frontend embedding (compiles an app with the overlay), `.DS_Store` against a dmgbuild golden file, a real DMG (`hdiutil`); builds and tools are skipped with `-short` |
 | runtime | `bun run test` | the injected runtime, `mygo-runtime` and the plugins' packages (against a fake Go side on the real runtime, `plugins/fake-go.ts`) |
@@ -6366,6 +6369,18 @@ directories, which GLib does not see.
 evaluated scripts, so tests can assert on exactly what the page would
 receive. The unit tests run `App.Run` on the main goroutine from `TestMain`,
 like a real program.
+
+An app's own tests do the same through package `apptest`, which wraps
+`internal/fake` rather than exporting it, so that the fake stays free to
+change: its API speaks `mygo`'s types (`OpenDialogOptions`,
+`MessageResult`, `NotificationOptions`, `*Window`). `apptest.Run` makes
+the fake the backend through `internal/appbackend`, which holds the
+`sync.Once` and the variable that `backend()` reads: `mygo` calls nothing
+of `apptest`, so apps link what they linked before. It answers dialogs
+through the fake's `OnOpenDialog`, `OnSaveDialog` and `OnMessageBox`, and
+finds a dialog's `*Window` by the order in which the fake made native
+windows and `App.OnWindowCreated` reported them, as one function
+(`newWindow`) does both.
 
 Linux GUI tests run in a container, since no cgo means the test binary
 cross-compiles:
