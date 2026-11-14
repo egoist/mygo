@@ -334,10 +334,14 @@ func More(t T) {
 			t.Fatal("OnMain ran off the main thread")
 		}
 	} else {
-		var in roundtrip.Inner
-		got, err := e.OnMain(roundtrip.Record{Name: "main", Kind: roundtrip.KindA, Inner: roundtrip.Inner{X: 2}}, func(i roundtrip.Inner) { in = i })
-		if err != nil || got.S != "main" || in.X != 2 {
-			t.Fatalf("OnMain = %+v, %v; f got %+v", got, err, in)
+		// f, which returns nothing, runs later on Go's main thread.
+		in := make(chan roundtrip.Inner, 1)
+		got, err := e.OnMain(roundtrip.Record{Name: "main", Kind: roundtrip.KindA, Inner: roundtrip.Inner{X: 2}}, func(i roundtrip.Inner) { in <- i })
+		if err != nil || got.S != "main" {
+			t.Fatalf("OnMain = %+v, %v", got, err)
+		}
+		if i := <-in; i.X != 2 {
+			t.Fatalf("OnMain's f got %+v", i)
 		}
 	}
 }
