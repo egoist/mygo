@@ -13,6 +13,9 @@ import (
 func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	v.rect = r
 	w, h := max(r.W-2*v.padX, 1), max(r.H-2*v.padY, 1)
+	// The elements of the blocks were laid out at their heights: the
+	// paragraphs below them move as they are high.
+	v.measureBlocks()
 	v.layout(w, h)
 	ox, oy := r.X+v.padX, r.Y+v.padY
 	look := &v.look
@@ -83,6 +86,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		p.Scrollbar(bar, ui.ScrollbarState{Hovered: v.inView, Dragging: v.thumb})
 	}
 	v.moved()
+	v.blocksMoved()
 }
 
 // paintBlock paints what a paragraph of style st shows behind its text:
@@ -257,6 +261,10 @@ func romanNumber(n int) string {
 // layout, at (x, y), keeps for them: an image, the app's drawing, or a
 // box with the attachment's name.
 func (v *view) paintAttachments(p *ui.Painter, i int, pv *paraView, x, y float32) {
+	if v.blockAt(i) != nil {
+		// A block shows its element, not a picture of it.
+		return
+	}
 	objects := pv.layout.Objects()
 	if len(objects) == 0 {
 		return
