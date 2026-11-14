@@ -25,6 +25,8 @@ func compactTestRenderer(t *testing.T) *Renderer {
 	t.Cleanup(r.Release)
 	needSpecialized(t, r)
 	EnablePolyline()
+	// Compilation starts only when an eligible renderer builds a frame.
+	renderRaw(t, r, compactScene(1), false)
 	if polylineProgram == nil {
 		t.Fatal("no compact shader")
 	}

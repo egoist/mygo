@@ -11,13 +11,23 @@ import (
 )
 
 var polylineOnce sync.Once
+var polylineCompileOnce sync.Once
 var polylineProgram *shaderEntry
 
 // EnablePolyline registers the compact upload when StrokePolyline first draws
-// on the GPU. The existing shader worker owns the program for the device's
-// lifetime. Frames use the original upload until it is ready, without waiting.
+// on the GPU. Registration does not compile: the renderer must first check its
+// device, as older GPUs must not compile pipelines while drawing (#1566).
 func EnablePolyline() {
 	polylineOnce.Do(func() {
+		instanceUpload = uploadPolylines
+	})
+}
+
+// compilePolyline starts the program for an eligible renderer. Both renderers
+// and the existing shader cache use the system's default device. The cache
+// owns the program for that device's lifetime, independently of the renderer.
+func compilePolyline() {
+	polylineCompileOnce.Do(func() {
 		src := strings.NewReplacer(
 			"struct PSOut {", polylineLayout+"\nstruct PSOut {",
 			"uint iid [[instance_id]],", "uint iid [[instance_id]], uint base [[base_instance]],",
@@ -31,7 +41,6 @@ func EnablePolyline() {
 		shaders.mu.Lock()
 		polylineProgram = shaders.byKey[src]
 		shaders.mu.Unlock()
-		instanceUpload = uploadPolylines
 	})
 }
 
@@ -45,8 +54,16 @@ type polylineInstance struct {
 }
 
 func uploadPolylines(r *Renderer, d *drawState, dst []gpu.Instance) bool {
+	// Gate compilation as well as upload. An unsupported renderer must not
+	// consume the once: a later eligible renderer can still start the program.
+	if !r.canSpecialize || r.source != "" || r.cur.format != pixelFormatBGRA8Unorm || !d.b.Classes || d.b.NoClasses || d.b.GeneralClasses&(1<<gpu.ClassGeneral) != 0 {
+		return false
+	}
+	if polylineProgram == nil {
+		compilePolyline()
+	}
 	e := polylineProgram
-	if e == nil || r.device != shaders.device || !r.canSpecialize || r.source != "" || r.cur.format != pixelFormatBGRA8Unorm || !d.b.Classes || d.b.NoClasses || d.b.GeneralClasses&(1<<gpu.ClassGeneral) != 0 {
+	if e == nil || r.device != shaders.device {
 		return false
 	}
 	select {
