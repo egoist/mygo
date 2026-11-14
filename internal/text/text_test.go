@@ -102,6 +102,60 @@ func TestLayoutTrailingLineSeparator(t *testing.T) {
 	}
 }
 
+// TestLayoutTrailingLineSeparatorMaxLines verifies that MaxLines truncation
+// accounts for the trailing empty line after U+2028 just like a trailing \n.
+func TestLayoutTrailingLineSeparatorMaxLines(t *testing.T) {
+	s := Shared()
+	style := Style{Size: 14}
+	cases := []struct {
+		name      string
+		text      string
+		newline   string
+		maxLines  int
+		wantLines int
+		wantTrunc bool
+	}{
+		{
+			name:      "u2028_before_newline_max_2",
+			text:      "alpha\u2028\nbeta",
+			newline:   "alpha\n\nbeta",
+			maxLines:  2,
+			wantLines: 2,
+			wantTrunc: true,
+		},
+		{
+			name:      "trailing_u2028_max_1",
+			text:      "alpha\u2028",
+			newline:   "alpha\n",
+			maxLines:  1,
+			wantLines: 1,
+			wantTrunc: true,
+		},
+		{
+			name:      "trailing_u2028_max_2",
+			text:      "alpha\u2028",
+			newline:   "alpha\n",
+			maxLines:  2,
+			wantLines: 2,
+			wantTrunc: false,
+		},
+	}
+	for _, tc := range cases {
+		for _, width := range []float32{0, 1000} {
+			got := s.Layout(Params{Text: tc.text, Style: style, Width: width, MaxLines: tc.maxLines})
+			if len(got.Lines) != tc.wantLines || got.Truncated != tc.wantTrunc {
+				t.Errorf("%s (width=%v): got %d lines, truncated=%v; want %d lines, truncated=%v",
+					tc.name, width, len(got.Lines), got.Truncated, tc.wantLines, tc.wantTrunc)
+			}
+			nl := s.Layout(Params{Text: tc.newline, Style: style, Width: width, MaxLines: tc.maxLines})
+			if len(got.Lines) != len(nl.Lines) || got.Truncated != nl.Truncated {
+				t.Errorf("%s (width=%v): got (%d lines, truncated=%v) != newline (%d lines, truncated=%v)",
+					tc.name, width, len(got.Lines), got.Truncated, len(nl.Lines), nl.Truncated)
+			}
+		}
+	}
+}
+
 func TestCarets(t *testing.T) {
 	s := Shared()
 	l := s.Layout(Params{Text: "office files", Style: Style{Size: 20}})
