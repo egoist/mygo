@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"strings"
 	"unicode/utf8"
 
@@ -169,6 +170,8 @@ func (e *node) spanStyle() (Span, float32) {
 		// The background of an inline element is that of its text.
 		s.Background = e.bg
 	}
+	// Its blur blurs its text, as a span's does.
+	s.Blur = e.blur
 	// What dims the element dims its text, and what hides it keeps its
 	// room in the line but paints none of it, as CSS's visibility: hidden.
 	alpha := float32(1)
@@ -264,6 +267,10 @@ func over(s, base Span) Span {
 	}
 	if s.Lang == "" {
 		s.Lang = base.Lang
+	}
+	if base.Blur > 0 {
+		// Blurred inside a blur: blurs add as their variances do.
+		s.Blur = float32(math.Sqrt(float64(s.Blur*s.Blur + base.Blur*base.Blur)))
 	}
 	s.Italic = s.Italic || base.Italic
 	s.Underline = s.Underline || base.Underline

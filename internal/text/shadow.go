@@ -6,18 +6,36 @@ import "math"
 // deviation sigma pixels, as a mask reaching three of them past b on each
 // side: a glyph's shadow. Color glyphs blur their alpha, subpixel ones
 // their most covered channel; a sigma of 0 leaves the coverage sharp.
-func blurBitmap(b bitmap, sigma float32) bitmap {
+func blurBitmap(b bitmap, sigma float32) bitmap { return blurred(b, sigma, false) }
+
+// blurred returns b blurred as blurBitmap does, but for a color glyph
+// with colors, which blurs its four premultiplied channels into a color
+// bitmap: a glyph blurred where it shows (BlurGlyph).
+func blurred(b bitmap, sigma float32, colors bool) bitmap {
 	pad := 0
 	if sigma > 0 {
 		pad = int(math.Ceil(float64(3*sigma))) + 1
 	}
+	n := 1 // channels
+	if colors && b.color {
+		n = 4
+	}
 	w, h := b.w+2*pad, b.h+2*pad
-	cov := make([]float32, w*h)
+	planes := make([][]float32, n)
+	for c := range planes {
+		planes[c] = make([]float32, w*h)
+	}
 	for y := range b.h {
 		for x := range b.w {
 			i := y*b.w + x
+			at := (y+pad)*w + x + pad
 			var c byte
 			switch {
+			case n == 4:
+				for ch, plane := range planes {
+					plane[at] = float32(b.pix[4*i+ch]) / 255
+				}
+				continue
 			case b.color:
 				c = b.pix[4*i+3]
 			case b.subpixel:
@@ -26,7 +44,7 @@ func blurBitmap(b bitmap, sigma float32) bitmap {
 			default:
 				c = b.pix[i]
 			}
-			cov[(y+pad)*w+x+pad] = float32(c) / 255
+			planes[0][at] = float32(c) / 255
 		}
 	}
 	if pad > 0 {
@@ -55,12 +73,23 @@ func blurBitmap(b bitmap, sigma float32) bitmap {
 				}
 			}
 		}
-		blur(tmp, cov, w, 1, h, w) // rows
-		blur(cov, tmp, h, w, w, 1) // columns
+		for _, cov := range planes {
+			blur(tmp, cov, w, 1, h, w) // rows
+			blur(cov, tmp, h, w, w, 1) // columns
+		}
 	}
-	pix := make([]byte, w*h)
-	for i, c := range cov {
-		pix[i] = uint8(min(max(c, 0), 1)*255 + 0.5)
+	pix := make([]byte, n*w*h)
+	for c, cov := range planes {
+		for i, v := range cov {
+			pix[n*i+c] = uint8(min(max(v, 0), 1)*255 + 0.5)
+		}
 	}
-	return bitmap{left: b.left - pad, top: b.top - pad, w: w, h: h, pix: pix}
+	if n == 4 {
+		// Premultiplied still, which rounding could undo.
+		for i := 0; i < len(pix); i += 4 {
+			a := pix[i+3]
+			pix[i], pix[i+1], pix[i+2] = min(pix[i], a), min(pix[i+1], a), min(pix[i+2], a)
+		}
+	}
+	return bitmap{left: b.left - pad, top: b.top - pad, w: w, h: h, pix: pix, color: n == 4}
 }

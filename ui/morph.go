@@ -75,7 +75,7 @@ type morphPairs struct {
 // morphGlyph is a glyph a text morphs from, as it shows: the runes of its
 // cluster, for the first glyph of one, its font and glyph, of fontSize, as
 // large as size shows, with its pen and baseline at (x, y) in the window,
-// in its color, alpha opaque.
+// in its color, alpha opaque, blurred by blur DIPs (Span.Blur).
 type morphGlyph struct {
 	runes          []rune
 	font           *text.Font
@@ -84,6 +84,7 @@ type morphGlyph struct {
 	x, y           float32
 	color          Color
 	alpha          float32
+	blur           float32
 }
 
 // morphCluster is a cluster of a layout's glyphs: its runes, and the pen
@@ -125,10 +126,12 @@ func glyphsOf(l *text.Layout, x, y float32, color Color, sp *spanPaint, gs []mor
 				continue
 			}
 			c := color
+			var blur float32
 			if sp != nil {
-				c = sp.color(sp.at(g.Cluster), color)
+				k := sp.at(g.Cluster)
+				c, blur = sp.color(k, color), sp.blurOf(k)
 			}
-			mg := morphGlyph{font: g.Font, id: g.ID, fontSize: g.Size, size: g.Size, x: x + g.X, y: y + line.Baseline, color: c, alpha: 1}
+			mg := morphGlyph{font: g.Font, id: g.ID, fontSize: g.Size, size: g.Size, x: x + g.X, y: y + line.Baseline, color: c, alpha: 1, blur: blur}
 			// The glyphs of a cluster are next to each other, in visual
 			// order: clusters descend through right-to-left text.
 			if g.Runes > 0 && g.Cluster != seen && g.Cluster >= 0 && g.Cluster < len(l.Runes) {
@@ -284,15 +287,15 @@ func restMorph(r *contentRec, spans []Span) {
 // has from the others moving from them, going to their size, color and
 // opacity, the others fading in. Each shows its pen and baseline at (gx,
 // gy), size times as large, in c with the weight of shade, alpha opaque,
-// where text at rest has it at (rx, ry); runes are those of its cluster,
-// for the first glyph of one.
-func (pr *morphPairs) each(r *contentRec, bx, by, x, y, tx, ty float32, color Color, sp *spanPaint, k float32, show func(g text.Glyph, runes []rune, rx, ry, gx, gy, size float32, c Color, shade text.Shade, alpha float32)) {
+// where text at rest has it at (rx, ry), blurred by blur DIPs; runes are
+// those of its cluster, for the first glyph of one.
+func (pr *morphPairs) each(r *contentRec, bx, by, x, y, tx, ty float32, color Color, sp *spanPaint, k float32, show func(g text.Glyph, runes []rune, rx, ry, gx, gy, size float32, c Color, shade text.Shade, alpha, blur float32)) {
 	mx, my := bx-pr.boxX, by-pr.boxY
 	if fade := 1 - k; fade > 0 {
 		for i, a := range pr.from {
 			if !pr.taken[i] {
 				g := text.Glyph{Font: a.font, ID: a.id, Size: a.fontSize}
-				show(g, a.runes, a.x, a.y, a.x+mx, a.y+my, a.size/a.fontSize, a.color, text.ShadeOf(a.color.R, a.color.G, a.color.B), a.alpha*fade)
+				show(g, a.runes, a.x, a.y, a.x+mx, a.y+my, a.size/a.fontSize, a.color, text.ShadeOf(a.color.R, a.color.G, a.color.B), a.alpha*fade, a.blur)
 			}
 		}
 	}
@@ -304,8 +307,10 @@ func (pr *morphPairs) each(r *contentRec, bx, by, x, y, tx, ty float32, color Co
 				continue
 			}
 			color := color
+			var blur float32
 			if sp != nil {
-				color = sp.color(sp.at(g.Cluster), color)
+				k := sp.at(g.Cluster)
+				color, blur = sp.color(k, color), sp.blurOf(k)
 			}
 			shade := text.ShadeOf(color.R, color.G, color.B)
 			gx, gy := x+g.X, y+line.Baseline
@@ -316,7 +321,7 @@ func (pr *morphPairs) each(r *contentRec, bx, by, x, y, tx, ty float32, color Co
 				runes = cur.Runes[b.at : b.at+b.n]
 			}
 			if ci < 0 || pr.pairs[ci] < 0 {
-				show(g, runes, gx+tx, gy+ty, gx, gy, 1, color, shade, k)
+				show(g, runes, gx+tx, gy+ty, gx, gy, 1, color, shade, k, blur)
 				continue
 			}
 			a, b := pr.from[pr.pairs[ci]], pr.curC[ci]
@@ -327,11 +332,12 @@ func (pr *morphPairs) each(r *contentRec, bx, by, x, y, tx, ty float32, color Co
 			}
 			// The shade sets a glyph's weight: those that move change it
 			// once, halfway, rather than at each step of their color.
+			// So does its blur, which the atlas holds each of.
 			sh := shade
 			if k < 0.5 {
-				sh = text.ShadeOf(a.color.R, a.color.G, a.color.B)
+				sh, blur = text.ShadeOf(a.color.R, a.color.G, a.color.B), a.blur
 			}
-			show(g, runes, gx+tx, gy+ty, gx+dx*(1-k), gy+dy*(1-k), size, mixPremultiplied(a.color, color, k, pr.lab), sh, lerp(a.alpha, 1, k))
+			show(g, runes, gx+tx, gy+ty, gx+dx*(1-k), gy+dy*(1-k), size, mixPremultiplied(a.color, color, k, pr.lab), sh, lerp(a.alpha, 1, k), blur)
 		}
 	}
 }
@@ -381,7 +387,7 @@ func (p *Painter) morph(e *node, r *contentRec, x, y float32, ts textStyle, span
 	// shadows they cast paint under those (TextShadow).
 	var stroke float32
 	var shadow bool
-	show := func(g text.Glyph, _ []rune, rx, ry, gx, gy, size float32, c Color, shade text.Shade, alpha float32) {
+	show := func(g text.Glyph, _ []rune, rx, ry, gx, gy, size float32, c Color, shade text.Shade, alpha, blur float32) {
 		if alpha <= 0.001 || size <= 0 {
 			return
 		}
@@ -405,9 +411,15 @@ func (p *Painter) morph(e *node, r *contentRec, x, y float32, ts textStyle, span
 		var gi text.GlyphImage
 		switch {
 		case shadow:
-			gi, c = shadowGlyph(sys, g.Font, g.ID, s*q, at, shade, false, ts.shadow.blur/2*s*q), ts.shadow.color
+			// Blurred with its glyph, as blurs add (textShadows).
+			sigma := float32(math.Sqrt(float64(ts.shadow.blur*ts.shadow.blur/4 + blur*blur)))
+			gi, c = shadowGlyph(sys, g.Font, g.ID, s*q, at, shade, false, sigma*s*q), ts.shadow.color
+		case stroke > 0 && blur > 0:
+			gi, c = blurStrokeGlyph(sys, g.Font, g.ID, s*q, at, shade, stroke*s*q, blur*s*q), ts.strokeColor
 		case stroke > 0:
 			gi, c = strokeGlyph(sys, g.Font, g.ID, s*q, at, shade, p.opaque && q == 1, stroke*s*q), ts.strokeColor
+		case blur > 0 && blurGlyph != nil:
+			gi = blurGlyph(sys, g.Font, g.ID, s*q, at, shade, blur*s*q)
 		default:
 			gi = sys.Glyph(g.Font, g.ID, s*q, at, shade, p.opaque && q == 1)
 		}
@@ -489,9 +501,9 @@ func snapMorphFrom(src *contentRec, bx, by, x, y float32, color Color, dst *cont
 		sp = newSpanPaint(pr.spans)
 	}
 	var from []morphGlyph
-	pr.each(src, bx, by, x, y, 0, 0, color, sp, k, func(g text.Glyph, runes []rune, _, _, gx, gy, size float32, c Color, _ text.Shade, alpha float32) {
+	pr.each(src, bx, by, x, y, 0, 0, color, sp, k, func(g text.Glyph, runes []rune, _, _, gx, gy, size float32, c Color, _ text.Shade, alpha, blur float32) {
 		if alpha > 0.001 {
-			from = append(from, morphGlyph{runes: runes, font: g.Font, id: g.ID, fontSize: g.Size, size: g.Size * size, x: gx, y: gy, color: c, alpha: alpha})
+			from = append(from, morphGlyph{runes: runes, font: g.Font, id: g.ID, fontSize: g.Size, size: g.Size * size, x: gx, y: gy, color: c, alpha: alpha, blur: blur})
 		}
 	})
 	// In the order they show, along their lines, as layouts order glyphs.
