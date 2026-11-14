@@ -316,6 +316,10 @@ type engine struct {
 	// paints counts the frames painted, those painting the last frame's
 	// elements again included.
 	paints uint64
+	// paintFrames counts the frames that paint, built or painting the
+	// last frame's elements again, however many times each paints
+	// (scaleWatch).
+	paintFrames uint64
 	// posed are the elements of the last frame built with a pose
 	// (AnimatePose), parents first.
 	posed        []*node
@@ -719,6 +723,7 @@ func (rt *engine) runFrame() {
 	rt.c.titleBar = rt.titleBar()
 	rt.c.vibrancy = rt.host.vibrancy()
 	rt.text.BeginFrame()
+	rt.paintFrames++
 	rt.paths.large = rt.paths.large[:0]
 	rt.paths.switching = false
 	rt.gen = rt.text.Generation()
@@ -1121,6 +1126,7 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	start := time.Now()
 	rt.c.now = rt.frameTime()
 	rt.text.BeginFrame()
+	rt.paintFrames++
 	rt.paths.large = rt.paths.large[:0]
 	rt.paths.switching = false
 	rt.repainting, rt.repaintAt = false, time.Time{}

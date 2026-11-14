@@ -3456,6 +3456,27 @@ either.
   there, including resting changes to transformed content.
   Metal retains wide colors under transforms. See
   [Transforms](ui/transforms.md#rendering) for rendering details.
+  Text under a transform that scales it rasterizes at the scale it shows
+  at (`ui/rasterscale.go`, #1840), as Chromium rasterizes a layer at its
+  ideal contents scale: `transformScale` takes the transform's largest
+  stretch around the text (its derivative's largest singular value, at
+  the layout's center in perspective), and `glyphSpace` rasterizes the
+  glyphs at the window's scale times it, under the transform times
+  `Scaling(1/q)`; where the transform only scales by that and moves, the
+  glyphs are placed in the frame's pixels and their op has no transform,
+  as text laid out there (`glyphSpace.screen`). A transform that scales by
+  1 (within `scaleSlack` of a step) leaves text as it was, and so does no
+  transform: `glyphSpace` returns at once. The scale is exact while it
+  stays as in the frame before (`scaleWatch`, in the state of the element
+  painting, `Painter.owner`, counted by `engine.paintFrames`); while it
+  changes it is `scaleBucket`'s, the step of 2^(1/8) at or above it, and
+  the frame it changes in asks for one more, so that glyphs rasterize a
+  few times in an animation, not once a frame, and exactly at rest. A
+  layer kept by `Cache`, or a group's (`paintGroup`), renders the same way
+  (`layerScale`): at the window's scale times that, at most 4096 pixels
+  across, drawn `Scaling(1/q)` under the element's transform, and on
+  whole pixels at rest where that leaves only a translation (`layerOp`).
+  Effects' and blurs' layers stay at the window's scale.
 - **Masked clips** (`ui/mask.go`, `scene.ClipShapeOf`). A clip
   (`OpPushClip`) may carry a gradient paint, whose alpha masks it
   (`MaskLinearGradient` and the others, around the element's inset
@@ -4813,7 +4834,8 @@ either.
   place of the paint; `raster.maskedEffect` is the CPU twin. An
   element's effect (`Element.Effect`, a `ui.Effect`) renders the
   element's subtree into a canvas kept in its state, at the window's
-  scale, in the element's own space (`paintEffect`: positions shift, and
+  scale (a layer kept by `Cache` alone, or a group's, at the scale its
+  transform shows it at too: `layerScale`), in the element's own space (`paintEffect`: positions shift, and
   transforms in the subtree lose the element's own, `unworld`), then
   paints the effect with the element's transform. The canvas is made in
   steps of 64 pixels (`effectLayerStep`), the content in its top left
