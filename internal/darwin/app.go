@@ -39,6 +39,10 @@ type Backend struct {
 	hotkeys     map[int]uintptr
 	hkInstalled bool
 
+	// sparePopovers are the NSPopovers of closed popover flyouts, which
+	// the next ones show in (takePopover). Main thread only.
+	sparePopovers []id
+
 	notifyDelegate id
 	// notifyAnswered records that the user has answered whether the app
 	// may show notifications; notifyWaiting holds those shown meanwhile.

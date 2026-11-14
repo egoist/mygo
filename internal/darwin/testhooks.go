@@ -637,6 +637,14 @@ func TestPopoverAppearance(handle uintptr) (chrome, window, content string) {
 	return name(w.popover, "appearance"), name(w.win, "effectiveAppearance"), name(w.view, "effectiveAppearance")
 }
 
+// TestPopover returns the NSPopover a popover flyout shows in, 0 for none.
+func TestPopover(handle uintptr) uintptr {
+	if w := theBackend.byNSWindow[id(handle)]; w != nil {
+		return uintptr(w.popover)
+	}
+	return 0
+}
+
 // TestSetPopoverAnchorAppearance models a status item's contrast appearance,
 // which can differ from the application's own theme over desktop wallpaper.
 func TestSetPopoverAnchorAppearance(handle uintptr, dark bool) {

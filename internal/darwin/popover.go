@@ -68,7 +68,7 @@ func (w *window) createPopover(content NSRect) {
 	send(w.view, "setAutoresizingMask:", nsViewWidthHeightSizable)
 	w.popoverController = alloc("NSViewController")
 	send(w.popoverController, "setView:", uintptr(w.view))
-	w.popover = alloc("NSPopover")
+	w.popover = w.b.takePopover()
 	send(w.popover, "setContentViewController:", uintptr(w.popoverController))
 	msgSetSize(w.popover, sel("setContentSize:"), content.Size)
 	behavior := uintptr(popoverBehaviorApplicationDefined)
@@ -201,8 +201,32 @@ func (w *window) cleanupPopover() {
 		send(w.popover, "close")
 	}
 	send(w.popover, "setContentViewController:", 0)
-	release(w.popover)
+	w.b.givePopover(w.popover)
+	w.popover = 0
 	release(w.popoverController)
+}
+
+// takePopover returns an NSPopover for a flyout to show in: one a closed
+// flyout gave back (givePopover), or a new one.
+func (b *Backend) takePopover() id {
+	if n := len(b.sparePopovers); n > 0 {
+		p := b.sparePopovers[n-1]
+		b.sparePopovers = b.sparePopovers[:n-1]
+		send(p, "setAnimates:", 1) // closePopover turned it off
+		return p
+	}
+	return alloc("NSPopover")
+}
+
+// givePopover keeps the NSPopover of a closed flyout for the next one to
+// show in, instead of releasing it. On macOS 26 an NSPopover that has
+// shown leaves its material's backdrop behind once it is released, a
+// graphics surface a little larger than the popover (3.4 MB for one of
+// 280×230), so an app that shows a new popover flyout at each click of
+// its tray icon grew by that much at each. Reused, a popover keeps one
+// backdrop: the app holds as many as it showed at once.
+func (b *Backend) givePopover(p id) {
+	b.sparePopovers = append(b.sparePopovers, p)
 }
 
 func popoverDelegateMethods() []objc.MethodDef {
