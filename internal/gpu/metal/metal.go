@@ -1272,10 +1272,6 @@ func (r *Renderer) build(cb id, s *scene.Scene, d *drawState) (*scene.Scene, err
 		}
 		*instCap = capacity
 	}
-	if n := len(d.b.Instances); n > 0 {
-		dst := unsafe.Slice((*gpu.Instance)(ptr(send(*instBuf, "contents"))), n)
-		copy(dst, d.b.Instances)
-	}
 	if err := r.fitBackdrop(&d.b); err != nil {
 		return nil, err
 	}
@@ -1287,8 +1283,18 @@ func (r *Renderer) build(cb id, s *scene.Scene, d *drawState) (*scene.Scene, err
 		}
 		d.pipes = append(d.pipes, pipe)
 	}
+	if n := len(d.b.Instances); n > 0 {
+		dst := unsafe.Slice((*gpu.Instance)(ptr(send(*instBuf, "contents"))), n)
+		if instanceUpload == nil || !instanceUpload(r, d, dst) {
+			copy(dst, d.b.Instances)
+		}
+	}
 	return s, nil
 }
+
+// instanceUpload is registered by an opt-in drawing method on the main thread.
+// It may upload instances and select their matching batch pipelines.
+var instanceUpload func(*Renderer, *drawState, []gpu.Instance) bool
 
 // frameScissor returns sc within the frame of s: Metal requires scissor
 // rectangles within the target.

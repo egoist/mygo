@@ -52,6 +52,7 @@ func (p *Painter) StrokePolyline(points [][2]float32, width float32, c Color) {
 		return
 	}
 	hw := w / 2
+	enablePolyline()
 	wide := p.wide(c, Color{}, Color{})
 	for i := range f.polys() {
 		pts := f.poly(i)
