@@ -3964,8 +3964,9 @@ either.
   placed by key, with where it placed them and how far from there they
   showed (`moveRows`); a row whose index changed since, as rows came or
   went around it, shows where it showed, which a motion channel of its
-  own takes back to nothing, and rows new to the place move with their
-  nearest neighbor. Scrolling moves no index, and so no row; each
+  own takes back to nothing, rows new to the place move with their
+  nearest neighbor, and the rows past an edge that the glide uncovers are
+  built, moving with them. Scrolling moves no index, and so no row; each
   layout of a frame starts from the rows as the frame before left them. Rows are placed relative to the list, the offset
   they were placed at kept as `scrollBase` for placing and revealing. An
   offset the wheel, the keys, the scroll bar or the app changed moves the

@@ -19,6 +19,7 @@ type moveMark struct {
 // frame did not place moves with the nearest one it did, the one above
 // it unless it comes above all of them. A list gliding to its end with a
 // FollowAnimation glides with that instead. It returns the rows to place,
+// more than lo to hi where the rows gliding uncover the list's edges,
 // with where the first and the last are placed, and leaves how far from
 // its place each shows in s.lags, from the first.
 func (s *ListState) moveRows(e *node, n, lo, hi int, yLo, yHi, top, bottom float64, ht func(int) float64, ensure func(int) bool) (int, int, float64, float64) {
@@ -99,6 +100,28 @@ func (s *ListState) moveRows(e *node, n, lo, hi int, yLo, yHi, top, bottom float
 				s.moved[k].lag = s.moved[k-1].lag
 			}
 		}
+	}
+	// Rows gliding away from an edge uncover it: the rows past it come,
+	// moving with them.
+	for hi < n-1 {
+		m := s.moved[len(s.moved)-1]
+		if m.y+ht(hi)+gap+m.lag.value >= bottom || !ensure(hi+1) {
+			break
+		}
+		hi++
+		yHi = m.y + ht(hi-1) + gap
+		s.moved = append(s.moved, moveMark{key: s.Key(hi), i: hi, y: yHi, lag: m.lag})
+	}
+	for lo > 0 {
+		m := s.moved[0]
+		if m.y+m.lag.value <= top || !ensure(lo-1) {
+			break
+		}
+		lo--
+		yLo -= ht(lo) + gap
+		s.moved = append(s.moved, moveMark{})
+		copy(s.moved[1:], s.moved)
+		s.moved[0] = moveMark{key: s.Key(lo), i: lo, y: yLo, lag: m.lag}
 	}
 	for _, m := range s.moved {
 		if m.lag.moving || m.lag.pending {

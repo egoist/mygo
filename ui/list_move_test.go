@@ -53,6 +53,18 @@ func (m *moveList) step(d time.Duration) {
 	m.tt.Frame()
 }
 
+// covered reports whether the rows shown reach the list's top and its
+// bottom.
+func (m *moveList) covered() (top, bottom bool) {
+	lo, hi := float32(400), float32(0)
+	for i := range m.ids {
+		if r, ok := rowBox(m.tt, &m.s, i); ok {
+			lo, hi = min(lo, r.Y), max(hi, r.Y+r.H)
+		}
+	}
+	return lo <= 0, hi >= 400
+}
+
 // TestListMoveAnimation checks that the rows of a list with a
 // MoveAnimation glide from where they showed as rows above them go or
 // come, close the gap of rows that went and open that of rows that came,
@@ -70,6 +82,11 @@ func TestListMoveAnimation(t *testing.T) {
 	m.step(50 * time.Millisecond)
 	if y := m.at(3); !(y > 0 && y < 120) {
 		t.Errorf("on the way, item 3 shows at %v", y)
+	}
+	// The gap closes at the top, where the rows went; the bottom stays
+	// covered.
+	if _, bottom := m.covered(); !bottom {
+		t.Error("on the way, the rows leave a gap at the bottom")
 	}
 	m.step(time.Second)
 	if y := m.at(3); y != 0 {
@@ -96,6 +113,9 @@ func TestListMoveAnimation(t *testing.T) {
 	m.tt.Frame()
 	if a, b := m.at(3), m.at(200); a != 0 || b != -120 {
 		t.Fatalf("rows came above: item 3 at %v, item 200 at %v", a, b)
+	}
+	if top, bottom := m.covered(); !top || !bottom {
+		t.Errorf("rows came above: the rows reach the top %v, the bottom %v", top, bottom)
 	}
 	m.step(time.Second)
 	if a, b := m.at(3), m.at(200); a != 120 || b != 0 {
