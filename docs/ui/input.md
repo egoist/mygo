@@ -612,6 +612,14 @@ puts fingers down with `TouchDown(id, x, y)`, and moves, lifts and
 cancels them with `TouchMove`, `TouchUp` and `TouchCancel`; it sends the
 touches alone, not the taps and scrolls a backend makes of them.
 
+Windows keeps three- and four-finger swipes and taps for its own gestures
+(switching apps and desktops) unless the user turns them off under
+Settings, Bluetooth & devices, Touch: until then an app sees at most two
+fingers there. A finger that lands and lifts
+before a build, as a quick tap does, comes as `TouchBegan` in one build
+and `TouchEnded` in the next, so a view counting the fingers that land
+counts each.
+
 ## Every key, as it comes
 
 Widgets that take every key themselves, as the

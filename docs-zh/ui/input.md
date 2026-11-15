@@ -536,6 +536,12 @@ Windows（`WM_POINTER`）、Linux（GDK 的触摸序列）和浏览器（`pointe
 `TouchDown(id, x, y)` 放下手指，用 `TouchMove`、`TouchUp` 和 `TouchCancel`
 移动、抬起和取消它们；它只发送触摸，不发送后端由它们生成的点按和滚动。
 
+Windows 会把三指和四指的轻扫与点按留给它自己的手势（切换应用和桌面），除非
+用户在“设置 > 蓝牙和其他设备 > 触摸”中关闭它们：在此之前应用最多只能看到
+两根手指。在一次构建之前就落下又抬起的手指，比如快速
+点按，会在一次构建中以 `TouchBegan` 出现，在下一次构建中以 `TouchEnded`
+出现，因此统计落下手指数的视图会数到每一根。
+
 ## 每个键，随到随处理
 
 自己接收每个键的控件，如[终端](../plugins/terminal.md)，通过 `HandleInput`

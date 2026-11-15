@@ -82,12 +82,13 @@ func TestTouches(t *testing.T) {
 	if s := seen[len(seen)-1]; s.ID != 6 || s.Phase != TouchBegan || s.X != 90 || s.Y != 80 || s.StartX != 60 || s.StartY != 40 || s.Pressure != 0.25 {
 		t.Errorf("landed and moved: %+v", s)
 	}
-	// One landing and lifting between two builds comes as it ended.
+	// One landing and lifting between two builds comes as it began, and
+	// lifts in the build after.
 	tt.rt.event(platform.SurfaceEvent{Kind: platform.TouchDown, ID: 9, X: 60, Y: 60})
 	tt.rt.event(platform.SurfaceEvent{Kind: platform.TouchUp, ID: 9, X: 60, Y: 60})
-	tt.Frame()
+	tt.Frame() // which builds twice (TestTouchesTapBetweenBuilds)
 	if s := seen[len(seen)-1]; s.ID != 7 || s.Phase != TouchEnded {
-		t.Errorf("landed and lifted: %+v", s)
+		t.Errorf("landed and lifted, then built again: %+v", s)
 	}
 	// Unknown fingers, as those down before a view asked, do nothing.
 	tt.TouchMove(42, 10, 10)
@@ -172,5 +173,31 @@ func TestTouchesDisabled(t *testing.T) {
 	tt.Frame()
 	if seen != nil {
 		t.Errorf("disabled: %+v", seen)
+	}
+}
+
+// A finger landing and lifting before a build, as a quick tap, or as
+// Windows sends a two-finger tap once it decided it is no gesture of its
+// own, is seen to begin in one build and to end in the next.
+func TestTouchesTapBetweenBuilds(t *testing.T) {
+	var phases []TouchPhase
+	tt := NewTester(func(c *Context) {
+		for _, f := range Box(c).Size(200, 200).Touches() {
+			phases = append(phases, f.Phase)
+		}
+	}, 200, 200)
+	tt.Frame()
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.TouchDown, ID: 1, X: 50, Y: 50})
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.TouchDown, ID: 2, X: 90, Y: 50})
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.TouchUp, ID: 1, X: 50, Y: 50})
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.TouchCancel, ID: 2})
+	// The platform gives the ID to a finger landing before the build.
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.TouchDown, ID: 1, X: 120, Y: 50})
+	for range 3 {
+		tt.Frame()
+	}
+	want := []TouchPhase{TouchBegan, TouchBegan, TouchBegan, TouchEnded, TouchCanceled, TouchStationary}
+	if len(phases) < len(want) || !reflect.DeepEqual(phases[:len(want)], want) {
+		t.Errorf("phases %v, want %v", phases, want)
 	}
 }

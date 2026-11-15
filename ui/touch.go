@@ -37,7 +37,9 @@ const (
 	// TouchStationary is a finger that stayed where it was.
 	TouchStationary
 	// TouchEnded is a finger that lifted since the last build, at X, Y:
-	// the last build to see it.
+	// the last build to see it. A finger that lands and lifts before a
+	// build comes as TouchBegan in one build and TouchEnded in the next, so
+	// that a view counting the fingers that land sees each one.
 	TouchEnded
 	// TouchCanceled is a finger the system took since the last build, as
 	// for a gesture of its own at the screen's edge: no completed gesture,
@@ -102,7 +104,7 @@ type touchInput interface {
 	// the content's DIPs.
 	event(rt *engine, ev platform.SurfaceEvent)
 	// endPass forgets the fingers that lifted, which the pass saw.
-	endPass()
+	endPass(rt *engine)
 }
 
 // touchTracker is the touchInput Element.Touches sets.
@@ -121,6 +123,10 @@ type touchPoint struct {
 	from uint64
 	// chain are the elements under the finger as it landed.
 	chain []uint64
+	// lift is TouchEnded or TouchCanceled for a finger that lifted, or was
+	// taken, before a build saw it begin: it shows as TouchBegan to that
+	// build, and lifts in the next.
+	lift TouchPhase
 }
 
 func (t *touchTracker) event(rt *engine, ev platform.SurfaceEvent) {
@@ -129,7 +135,7 @@ func (t *touchTracker) event(rt *engine, ev platform.SurfaceEvent) {
 	if pressure == 0 {
 		pressure = 0.5
 	}
-	i := slices.IndexFunc(t.points, func(p touchPoint) bool { return p.from == ev.ID && p.Phase < TouchEnded })
+	i := slices.IndexFunc(t.points, func(p touchPoint) bool { return p.from == ev.ID && p.Phase < TouchEnded && p.lift == 0 })
 	switch ev.Kind {
 	case platform.TouchDown:
 		if i >= 0 {
@@ -158,9 +164,14 @@ func (t *touchTracker) event(rt *engine, ev platform.SurfaceEvent) {
 			return
 		}
 		p := &t.points[i]
-		p.Phase = TouchCanceled
+		phase := TouchCanceled
 		if ev.Kind == platform.TouchUp {
-			p.X, p.Y, p.Phase = x, y, TouchEnded
+			p.X, p.Y, phase = x, y, TouchEnded
+		}
+		if p.Phase == TouchBegan {
+			p.lift = phase // as it began first, for a build to see
+		} else {
+			p.Phase = phase
 		}
 	}
 	// Input, which the next frame builds even out of sight.
@@ -168,9 +179,17 @@ func (t *touchTracker) event(rt *engine, ev platform.SurfaceEvent) {
 	rt.requestFrame()
 }
 
-func (t *touchTracker) endPass() {
+func (t *touchTracker) endPass(rt *engine) {
 	t.points = slices.DeleteFunc(t.points, func(p touchPoint) bool { return p.Phase >= TouchEnded })
 	for i := range t.points {
-		t.points[i].Phase = TouchStationary
+		p := &t.points[i]
+		if p.lift != 0 {
+			// Seen to begin: it lifts in the next build.
+			p.Phase, p.lift = p.lift, 0
+			rt.input = true
+			rt.askBuild() // in a frame, where requestFrame asks none
+			continue
+		}
+		p.Phase = TouchStationary
 	}
 }

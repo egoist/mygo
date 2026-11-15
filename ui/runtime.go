@@ -1185,7 +1185,7 @@ func (rt *engine) makeRoom(last bool) {
 func (rt *engine) endPass() {
 	rt.forgetInput()
 	if rt.touchIn != nil {
-		rt.touchIn.endPass()
+		rt.touchIn.endPass(rt)
 	}
 	// Clicks the view gave its elements, which the next pass sees.
 	for _, id := range rt.clickLater {
