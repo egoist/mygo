@@ -758,7 +758,6 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		Schemes:                Protocol.schemes(),
 		Panel:                  o.Panel,
 		PictureInPicture:       po.PictureInPicture,
-
 		ConsumeActivationClick: o.ConsumeActivationClick,
 	}
 	if o.Panel {
