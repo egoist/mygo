@@ -454,4 +454,13 @@ export const showcase: ShowcaseApp[] = [
     mode: "native",
     image: "/showcase/hua-ci-fan-yi.png",
   },
+  {
+    name: "aria.fm",
+    description:
+      "A native Spotify client for Linux, Windows and macOS, written in Go with librespot for playback. Browse artists, albums and your library, start a radio from any track, search from a command palette, follow along with synced lyrics and pick from a dozen themes.",
+    url: "https://aria.fm",
+    author: "Cmdly",
+    mode: "native",
+    image: "/showcase/aria-fm.jpg",
+  },
 ]
