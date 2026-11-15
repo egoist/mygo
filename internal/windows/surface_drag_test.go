@@ -12,6 +12,7 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/transfer"
 )
 
@@ -62,6 +63,28 @@ type failHDropObject struct {
 	vtbl *[12]uintptr
 }
 
+type dragEventHandler struct {
+	platform.WindowHandler
+	over *platform.DataDragEvent
+	drop *platform.DataDragEvent
+}
+
+func (h *dragEventHandler) SurfaceEvent(ev platform.SurfaceEvent) bool {
+	switch ev.Kind {
+	case platform.DataDragOver:
+		h.over = ev.Drag
+		if slices.Contains(ev.Drag.Offer.Formats, transfer.FileList) {
+			ev.Drag.Formats = []transfer.Format{transfer.FileList}
+			ev.Drag.Operation = transfer.Copy
+			return true
+		}
+	case platform.DataDrop:
+		h.drop = ev.Drag
+		return true
+	}
+	return false
+}
+
 func TestOleOfferHoverFiles(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -84,6 +107,8 @@ func TestOleOfferHoverFiles(t *testing.T) {
 		t.Fatalf("newTestDataObject oleOffer: HasFiles=%v Files=%#v; want true, %#v", drag.HasFiles, drag.Offer.Files, paths)
 	}
 
+	// In-process drag objects (dragDataObject) leave Offer.Files nil during
+	// hover and never invoke a lazy FileList provider until drop.
 	fileData, err := transfer.FileData(p1, p2)
 	if err != nil {
 		t.Fatal(err)
@@ -91,8 +116,42 @@ func TestOleOfferHoverFiles(t *testing.T) {
 	fileObj := newTransferData(fileData, "", false, false)
 	defer release(fileObj)
 	fileDrag, _ := oleOffer(fileObj, dropEffectCopy, 0)
-	if !fileDrag.HasFiles || !slices.Equal(fileDrag.Offer.Files, paths) {
-		t.Fatalf("FileData oleOffer: HasFiles=%v Files=%#v; want true, %#v", fileDrag.HasFiles, fileDrag.Offer.Files, paths)
+	if !fileDrag.HasFiles || fileDrag.Offer.Files != nil {
+		t.Fatalf("in-process FileData oleOffer: HasFiles=%v Files=%#v; want true, nil", fileDrag.HasFiles, fileDrag.Offer.Files)
+	}
+
+	fileBytes, err := fileData.Read(transfer.FileList)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lazyCalls := 0
+	lazyData := transfer.New(transfer.NewItem(transfer.Lazy(transfer.FileList, func() ([]byte, error) {
+		lazyCalls++
+		return fileBytes, nil
+	})))
+	lazyObj := newDragData(platform.DragRequest{Data: lazyData.Snapshot(), Operations: transfer.Copy})
+	defer release(lazyObj)
+	h := &dragEventHandler{}
+	dt := &dropTarget{vtbl: &dropTargetVtbl, refs: 1, s: &surface{w: &window{h: h}}}
+	defer dt.leave()
+	dt.enter(lazyObj, dropEffectCopy, 0)
+	effect := uint32(dropEffectCopy)
+	dt.over(0, 0, uintptr(unsafe.Pointer(&effect)))
+	if lazyCalls != 0 {
+		t.Fatalf("in-process DragEnter/DragOver invoked lazy FileList provider %d times; want 0", lazyCalls)
+	}
+	if h.over == nil || !h.over.HasFiles || h.over.Offer.Files != nil || effect != dropEffectCopy {
+		t.Fatalf("in-process DragOver: HasFiles=%v Files=%#v effect=%d; want true, nil, %d", h.over != nil && h.over.HasFiles, h.over.Offer.Files, effect, dropEffectCopy)
+	}
+	dt.drop(lazyObj, 0, uintptr(unsafe.Pointer(&effect)))
+	if lazyCalls != 1 {
+		t.Fatalf("in-process Drop invoked lazy FileList provider %d times; want 1", lazyCalls)
+	}
+	if h.drop == nil || effect != dropEffectCopy {
+		t.Fatalf("in-process Drop: drop=%+v effect=%d; want non-nil, %d", h.drop, effect, dropEffectCopy)
+	}
+	if gotFiles, err := h.drop.Data.Files(); err != nil || !slices.Equal(gotFiles, paths) {
+		t.Fatalf("in-process Drop Files() = %#v, %v; want %#v", gotFiles, err, paths)
 	}
 
 	textObj := newTransferData(transfer.TextData("hello"), "", false, false)

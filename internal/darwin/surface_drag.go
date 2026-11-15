@@ -45,6 +45,9 @@ type macDataProvider struct {
 }
 
 func registerDataDragClasses() {
+	if objc.GetClass("MyGoDragSource") != 0 {
+		return
+	}
 	purego.RegisterFunc(&msgDraggingFrame, msgSendAddr)
 	purego.RegisterFunc(&msgDragKeyEvent, msgSendAddr)
 	classDef("MyGoDragSource", "NSObject", []string{"NSDraggingSource"}, []objc.MethodDef{
@@ -294,11 +297,14 @@ func (s *surface) nativeDataEvent(info id, kind platform.SurfaceEventKind) bool 
 	pb := send(info, "draggingPasteboard")
 	d := &platform.DataDragEvent{Offer: transfer.Offer{Operations: goOperations(uint(send(info, "draggingSourceOperationMask")))}}
 	d.Session = goString(send(pb, "stringForType:", uintptr(nsString(macType(platform.DragSessionFormat)))))
+	inProcess := d.Session != "" || len(macDragSources) > 0 || len(macDragProviders) > 0 ||
+		(sendBool(info, "respondsToSelector:", uintptr(sel("draggingSource"))) && send(info, "draggingSource") != 0)
 	items := arrayItems(send(pb, "pasteboardItems"))
 	for _, item := range items {
 		for _, t := range arrayItems(send(item, "types")) {
 			f := macFormat(goString(t))
 			if f == platform.DragSessionFormat {
+				inProcess = true
 				continue
 			}
 			if !slices.Contains(d.Offer.Formats, f) {
@@ -326,7 +332,7 @@ func (s *surface) nativeDataEvent(info id, kind platform.SurfaceEventKind) bool 
 	if kind == platform.DataDrop {
 		defer s.clearDragFiles()
 	}
-	if d.HasFiles {
+	if d.HasFiles && !inProcess {
 		d.Offer.Files = s.hoverFiles(pb, items)
 	}
 	if !s.send(platform.SurfaceEvent{Kind: platform.DataDragOver, X: x, Y: y, Drag: d}) {
@@ -390,6 +396,10 @@ func (s *surface) hoverFiles(pb id, items []id) []string {
 }
 
 func macPasteboardFiles(pb id, items []id) []string {
+	if len(macDragSources) > 0 || len(macDragProviders) > 0 {
+		return nil
+	}
+	sessionType := nsString(macType(platform.DragSessionFormat))
 	var paths []string
 	addPath := func(p string) {
 		if filepath.IsAbs(p) && !slices.Contains(paths, p) {
@@ -397,6 +407,9 @@ func macPasteboardFiles(pb id, items []id) []string {
 		}
 	}
 	for _, item := range items {
+		if send(item, "availableTypeFromArray:", uintptr(nsArray(sessionType))) != 0 {
+			return nil
+		}
 		available := send(item, "dataForType:", uintptr(nsString("public.file-url")))
 		if available == 0 {
 			continue

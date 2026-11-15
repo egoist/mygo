@@ -71,9 +71,10 @@ type Offer struct {
 	Formats    []Format
 	Operations Operation
 	Suggested  Operation
-	// Files lists the local file paths offered by a file drag when the
-	// platform exposes them during hover without reading file contents
-	// (macOS and Windows CF_HDROP). It is nil when no files are offered
+	// Files lists the local file paths offered by an external file drag
+	// when the platform exposes them during hover without reading file
+	// contents or invoking a data provider (macOS and Windows CF_HDROP).
+	// It is nil for drags from this process, when no files are offered,
 	// or when the platform withholds paths until drop (such as Linux/GTK,
 	// browsers, and promised or virtual files).
 	Files []string

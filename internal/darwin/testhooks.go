@@ -1298,12 +1298,26 @@ func TestInputClient(handle uintptr) (selected [2]int, document string) {
 }
 
 var (
-	testDragOnce sync.Once
-	testDragInfo id
-	testDragAt   NSPoint
-	testDragPB   id
-	testDragMask uint = 1
+	testDragOnce   sync.Once
+	testDragInfo   id
+	testDragAt     NSPoint
+	testDragPB     id
+	testDragMask   uint = 1
+	testDragSource id
 )
+
+func initTestDragInfo() {
+	testDragOnce.Do(func() {
+		classDef("MyGoTestDraggingInfo", "NSObject", nil, []objc.MethodDef{
+			method("draggingLocation", func(self id, _ objc.SEL) NSPoint { return testDragAt }),
+			method("draggingPasteboard", func(self id, _ objc.SEL) id { return testDragPB }),
+			method("draggingSourceOperationMask", func(self id, _ objc.SEL) uint { return testDragMask }),
+			method("draggingSource", func(self id, _ objc.SEL) id { return testDragSource }),
+		})
+		testDragInfo = send(send(class("MyGoTestDraggingInfo"), "alloc"), "init")
+		testDragPB = retain(send(class("NSPasteboard"), "pasteboardWithUniqueName"))
+	})
+}
 
 // TestDropFiles drags files over (x, y), in points from the top-left
 // corner of a window's content, and drops them there, as Finder would:
@@ -1317,18 +1331,11 @@ func TestDropFiles(handle uintptr, x, y float64, paths []string) (over, dropped 
 	if w == nil || w.surface == nil {
 		return false, false
 	}
-	testDragOnce.Do(func() {
-		classDef("MyGoTestDraggingInfo", "NSObject", nil, []objc.MethodDef{
-			method("draggingLocation", func(self id, _ objc.SEL) NSPoint { return testDragAt }),
-			method("draggingPasteboard", func(self id, _ objc.SEL) id { return testDragPB }),
-			method("draggingSourceOperationMask", func(self id, _ objc.SEL) uint { return testDragMask }),
-		})
-		testDragInfo = send(send(class("MyGoTestDraggingInfo"), "alloc"), "init")
-		testDragPB = retain(send(class("NSPasteboard"), "pasteboardWithUniqueName"))
-	})
+	initTestDragInfo()
 	withPool(func() {
 		content := msgRect(send(w.win, "contentView"), sel("frame"))
 		testDragMask = 1
+		testDragSource = 0
 		testDragAt = NSPoint{x, content.Size.Height - y}
 		send(testDragPB, "clearContents")
 		var urls []id
@@ -1362,10 +1369,12 @@ func TestDropData(handle uintptr, x, y float64, data transfer.Data, operations t
 	TestDropFiles(handle, -1, -1, nil)
 	withPool(func() {
 		testDragMask = macOperations(operations)
+		testDragSource = testDragInfo
 		content := msgRect(send(w.win, "contentView"), sel("frame"))
 		testDragAt = NSPoint{x, content.Size.Height - y}
 		src := &macDataSource{r: platform.DragRequest{Data: data.Snapshot()}}
 		defer func() {
+			testDragSource = 0
 			send(testDragPB, "clearContents")
 			for _, p := range src.providers {
 				delete(macDragProviders, p)

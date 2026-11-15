@@ -562,6 +562,7 @@ func oleOffer(data uintptr, allowed uint32, keys uintptr) (*platform.DataDragEve
 	} else if keys&4 != 0 {
 		d.Offer.Suggested = transfer.Move
 	}
+	inProcess := dragObjects[data] != nil
 	formats := map[transfer.Format]uint16{}
 	add := func(f uint16) {
 		canonical := oleFormat(f)
@@ -569,6 +570,7 @@ func oleOffer(data uintptr, allowed uint32, keys uintptr) (*platform.DataDragEve
 			return
 		}
 		if canonical == platform.DragSessionFormat {
+			inProcess = true
 			if b, err := oleDataBytes(data, f); err == nil {
 				d.Session = strings.TrimRight(string(b), "\x00")
 			}
@@ -609,7 +611,7 @@ func oleOffer(data uintptr, allowed uint32, keys uintptr) (*platform.DataDragEve
 			add(f)
 		}
 	}
-	if d.HasFiles {
+	if d.HasFiles && !inProcess {
 		if paths := droppedPaths(data); len(paths) > 0 {
 			d.Offer.Files = paths
 		}
