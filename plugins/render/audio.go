@@ -137,22 +137,26 @@ func (f Frame) Audio(s *Sound, o ...AudioOptions) {
 	if vol < 0 || math.IsNaN(vol) || math.IsInf(vol, 0) {
 		panic("render: Volume must be a finite number, 0 or more")
 	}
+	// The frame of the composition its frame 0 is: the sound played from
+	// one start is one voice, whose volume moves smoothly.
+	origin := f.at - f.Index
 	f.s.plays = append(f.s.plays, play{
 		sound: s,
-		at:    f.Seconds() + opt.Start.Seconds(),
-		// The frame of the composition its frame 0 is: the sound played
-		// from one start is one voice, whose volume moves smoothly.
-		origin: f.at - f.Index,
+		// When, in the composition, the sound is at 0: each sample's place
+		// in the sound follows from its own time, so that frames of rates
+		// whose samples do not divide evenly join without a jump.
+		zero:   float64(int64(origin)*f.s.den)/float64(f.s.num) - opt.Start.Seconds(),
+		origin: origin,
 		start:  opt.Start,
 		volume: vol,
 		loop:   opt.Loop,
 	})
 }
 
-// play is a sound a frame plays: from at seconds into it.
+// play is a sound a frame plays, at 0 zero seconds into the composition.
 type play struct {
 	sound  *Sound
-	at     float64
+	zero   float64
 	origin int
 	start  time.Duration
 	volume float64
@@ -202,7 +206,8 @@ func (m *mixer) frame(i int, plays []play) []float32 {
 			continue
 		}
 		m.next[v] = p.volume
-		p.sound.mix(out, p.at, n, from, p.volume, p.loop, p.start.Seconds())
+		at := float64(m.sampleAt(i))/sampleRate - p.zero
+		p.sound.mix(out, at, n, from, p.volume, p.loop, p.start.Seconds())
 	}
 	m.volumes, m.next = m.next, m.volumes
 	for j, x := range out {

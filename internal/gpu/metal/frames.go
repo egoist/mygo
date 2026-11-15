@@ -90,7 +90,9 @@ func (f *Frames) DrawSurface(s *scene.Scene, surface uintptr) (err error) {
 		}
 		f.surface = tex
 		f.r.cur = &f.r.formats[0]
-		err = f.commit(s, tex, false)
+		if err = f.commit(s, tex, false); err != nil {
+			release(&f.surface)
+		}
 	})
 	return err
 }
@@ -151,6 +153,7 @@ func (f *Frames) Read(dst []byte) error {
 func (f *Frames) Release() {
 	pool(func() {
 		f.wait()
+		release(&f.surface)
 		release(&f.tex)
 	})
 	f.r.Release()

@@ -71,6 +71,11 @@ func (d *compDecoder) Rewind() error {
 func (d *compDecoder) Seek(t time.Duration) (time.Duration, error) {
 	target := min(int(int64(t)*d.s.num/(d.s.den*int64(time.Second))), d.comp.Frames-1)
 	target = max(target, 0)
+	// Frames start at times rounded to the nanosecond: one starting at t
+	// is the frame at t.
+	if target+1 < d.comp.Frames && d.s.at(target+1) <= t {
+		target++
+	}
 	if target < d.next {
 		d.reset()
 	}

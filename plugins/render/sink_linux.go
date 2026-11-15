@@ -378,6 +378,11 @@ func (s *gstSink) frame(_ int, pix []byte) error {
 func (s *gstSink) close() error {
 	gstAppSrcEndOfStream(s.video)
 	err := busError(s.bus, gstClockNone)
+	if err != nil {
+		// The muxer takes no more: stopping the pipeline flushes the
+		// sound's appsrc, whose push may be blocked.
+		s.free()
+	}
 	s.sound.Wait()
 	if err == nil {
 		err = s.soundErr

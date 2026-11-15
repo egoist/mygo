@@ -666,3 +666,55 @@ func TestNV12(t *testing.T) {
 		}
 	}
 }
+
+// TestPlayerSeeksToFrameStarts seeks to the time a frame starts at, as
+// stepping frame by frame does, without ending the video.
+func TestPlayerSeeksToFrameStarts(t *testing.T) {
+	comp := boxes(32, 32, 90)
+	p, err := NewPlayer(comp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	tt := ui.NewTester(func(c *ui.Context) { ui.Video(c, p).Size(32, 32) }, 32, 32)
+	p.Pause()
+	s := newSession(comp)
+	defer s.rec.Close()
+	for _, i := range []int{1, 2, 45, 88} {
+		p.Seek(s.at(i))
+		tt.Frame()
+		if p.Ended() || p.Position() != s.at(i) {
+			t.Errorf("sought to frame %d's start: ended %v at %v", i, p.Ended(), p.Position())
+		}
+	}
+}
+
+// TestSoundAcrossFrames plays a sound without a jump where frames meet,
+// at a rate whose frames do not hold whole samples.
+func TestSoundAcrossFrames(t *testing.T) {
+	beep := tone(1000, sampleRate)
+	comp := Composition{Width: 16, Height: 16, FPS: 29.97, Frames: 20, View: func(c *ui.Context, f Frame) {
+		f.Sequence(c, 3, 0, func(f Frame) { f.Audio(beep) })
+	}}
+	track, err := soundtrack(context.Background(), comp, 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newMixer(30000, 1001)
+	start := m.sampleAt(3)
+	// From past the kernel's reach of the sound's onset.
+	for k := int(start) + reach; k < len(track)/2; k++ {
+		// The sound started at frame 3's time, between two samples.
+		at := float64(k)/sampleRate - 3*1001.0/30000
+		if at >= 1 {
+			break
+		}
+		want := 0.0
+		if at >= 0 {
+			want = 32767 * 0.5 * math.Sin(2*math.Pi*1000*at)
+		}
+		if d := math.Abs(float64(track[2*k]) - want); d > 60 {
+			t.Fatalf("sample %d: %d, want %.0f", k, track[2*k], want)
+		}
+	}
+}

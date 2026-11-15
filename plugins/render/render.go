@@ -96,8 +96,8 @@ func (c *Composition) validate() error {
 		return errors.New("render: a composition is at most 16384 pixels wide and high")
 	case c.Frames <= 0:
 		return errors.New("render: a composition needs Frames")
-	case c.FPS < 0 || math.IsNaN(c.FPS) || math.IsInf(c.FPS, 0) || c.FPS > 1000:
-		return errors.New("render: FPS must be between 0 and 1000")
+	case c.FPS != 0 && !(c.FPS >= 0.01 && c.FPS <= 1000):
+		return errors.New("render: FPS must be between 0.01 and 1000")
 	case c.Scale < 0:
 		return errors.New("render: Scale must not be negative")
 	case c.View == nil:
