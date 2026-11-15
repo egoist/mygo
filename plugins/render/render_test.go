@@ -783,7 +783,8 @@ func TestMotionBlurOfUI(t *testing.T) {
 		t.Errorf("a box moving with ui's animation shows no blur: %d pixels between", partial)
 	}
 	dir := t.TempDir()
-	comp.Width, comp.Height = 64, 32
+	// As large as Media Foundation's encoder takes.
+	comp.Width, comp.Height = 160, 96
 	err = Video(context.Background(), comp, filepath.Join(dir, "blur.mp4"), Options{})
 	if errors.Is(err, errors.ErrUnsupported) {
 		return

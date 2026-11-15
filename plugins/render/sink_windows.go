@@ -279,7 +279,7 @@ func (s *mfSink) open() error {
 		if uint32(hr) == mfCodecNotFound {
 			return fmt.Errorf("render: %w: Windows has no %v encoder (for HEVC, the HEVC Video Extensions): encode it with Options{Encoder: render.FFmpeg}", errors.ErrUnsupported, sp.codec)
 		}
-		return fmt.Errorf("render: Media Foundation cannot encode NV12 frames: %#x", uint32(hr))
+		return fmt.Errorf("render: Media Foundation's %v encoder takes no frames of %d×%d: %#x", sp.codec, sp.w, sp.h, uint32(hr))
 	}
 	if s.hasSound {
 		// The AAC encoder takes 96, 128, 160 or 192 kb/s.
