@@ -483,6 +483,12 @@ func TestVideo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if out := os.Getenv("MYGO_RENDER_OUT"); out != "" {
+		// For a look at what the system's encoder made.
+		if data, err := os.ReadFile(path); err == nil {
+			os.WriteFile(filepath.Join(out, "beep.mp4"), data, 0o644)
+		}
+	}
 	tracks := mp4Tracks(t, path)
 	if tracks["vide"] != 45 {
 		t.Errorf("%d video frames, want 45: %v", tracks["vide"], tracks)

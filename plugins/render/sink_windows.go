@@ -103,6 +103,9 @@ const (
 	bufferSetCurrentLength = 6
 )
 
+// mfCodecNotFound is MF_E_TOPO_CODEC_NOT_FOUND: no encoder of the format.
+const mfCodecNotFound = 0xc00d5212
+
 func failed(hr uintptr) bool { return int32(uint32(hr)) < 0 }
 
 func cptr(a uintptr) unsafe.Pointer { return *(*unsafe.Pointer)(unsafe.Pointer(&a)) }
@@ -253,6 +256,9 @@ func (s *mfSink) open() error {
 	}
 	defer free(&out)
 	if hr := call(s.writer, writerAddStream, out, uintptr(unsafe.Pointer(&s.video))); failed(hr) {
+		if uint32(hr) == mfCodecNotFound {
+			return fmt.Errorf("render: %w: Windows has no %v encoder: encode it with Options{Encoder: render.FFmpeg}", errors.ErrUnsupported, sp.codec)
+		}
 		return fmt.Errorf("render: Media Foundation has no %v encoder of %d×%d: %#x", sp.codec, sp.w, sp.h, uint32(hr))
 	}
 	in, err := mediaType(append(common,
@@ -264,6 +270,9 @@ func (s *mfSink) open() error {
 	}
 	defer free(&in)
 	if hr := call(s.writer, writerSetInputMediaType, uintptr(s.video), in, 0); failed(hr) {
+		if uint32(hr) == mfCodecNotFound {
+			return fmt.Errorf("render: %w: Windows has no %v encoder (for HEVC, the HEVC Video Extensions): encode it with Options{Encoder: render.FFmpeg}", errors.ErrUnsupported, sp.codec)
+		}
 		return fmt.Errorf("render: Media Foundation cannot encode RGB32 frames: %#x", uint32(hr))
 	}
 	if s.hasSound {
