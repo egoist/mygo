@@ -2,16 +2,20 @@
 // in a navigation controller (a stack, whose bar shows once a window is
 // pushed), the navigation controllers of a bar of tabs in a tab bar
 // controller, all children of the root view controller, the one shown
-// last in front.
+// last in front. A window's router may show its pages as screens of the
+// stack (SetStack), one view controller each past the window's: the window
+// moves into the one shown, and the others hold a snapshot of their page
+// as it last showed, as Hotwire Native does with its web view.
 
 import UIKit
 
-/// The view controller of a window, whose view the window is.
-final class WindowController: UIViewController {
+/// A screen of a stack, which holds the window while it shows, and else
+/// may hold a snapshot of what it showed.
+class ScreenController: UIViewController {
     let window: HostWindow
-    /// barAtRoot shows the navigation bar at the bottom of a stack, as a
-    /// tab's, with the window's title.
-    var barAtRoot = false
+    /// snapshot shows the page as it last showed, over the window, or in
+    /// place of it.
+    var snapshot: UIView?
 
     init(_ w: HostWindow) {
         window = w
@@ -20,18 +24,59 @@ final class WindowController: UIViewController {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override func loadView() { view = window }
+    override func loadView() {
+        let v = UIView(frame: window.frame)
+        v.backgroundColor = window.backgroundColor
+        view = v
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if window.superview === view { window.reportSize() }
+    }
+}
+
+/// The view controller of a window, whose view holds the window.
+final class WindowController: ScreenController {
+    /// barAtRoot shows the navigation bar at the bottom of a stack, as a
+    /// tab's, with the window's title.
+    var barAtRoot = false
+    /// routed is set while the window's router shows its pages as screens
+    /// of the stack, this the first: the bar shows its title.
+    var routed = false
+
+    override func loadView() {
+        super.loadView()
+        window.frame = view.bounds
+        window.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(window)
+    }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         guard let nav = navigationController else { return }
         let atRoot = nav.viewControllers.first === self
-        nav.setNavigationBarHidden(atRoot && !barAtRoot, animated: animated)
+        nav.setNavigationBarHidden(atRoot && !barAtRoot && !routed, animated: animated)
+    }
+}
+
+/// A page of a window's router past its first, a screen of its stack.
+final class RouteController: ScreenController {
+    let key: String
+
+    init(_ w: HostWindow, key: String, title: String) {
+        self.key = key
+        super.init(w)
+        self.title = title
+        // As pushed windows: the bar's small title.
+        navigationItem.largeTitleDisplayMode = .never
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        window.reportSize()
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 }
 
@@ -44,6 +89,11 @@ final class Navigation: NSObject, UINavigationControllerDelegate, UITabBarContro
     private var stacks: [ObjectIdentifier: [Int]] = [:]
     var tabs: [Int: UITabBarController] = [:]
     private var tabIDs: [ObjectIdentifier: Int] = [:]
+    /// The screens of each window's router past its first (SetStack).
+    private var routes: [Int: [RouteController]] = [:]
+    /// moves counts each window's moves from screen to screen, which a
+    /// reveal that comes late must not follow.
+    private var moves: [Int: Int] = [:]
     private var root: RootViewController { Host.shared.root }
 
     func controller(_ w: HostWindow) -> WindowController {
@@ -53,7 +103,11 @@ final class Navigation: NSObject, UINavigationControllerDelegate, UITabBarContro
         return c
     }
 
-    func forget(_ w: HostWindow) { controllers[w.id] = nil }
+    func forget(_ w: HostWindow) {
+        controllers[w.id] = nil
+        routes[w.id] = nil
+        moves[w.id] = nil
+    }
 
     private func stack(_ root: UIViewController) -> UINavigationController {
         let nav = UINavigationController(rootViewController: root)
@@ -126,8 +180,10 @@ final class Navigation: NSObject, UINavigationControllerDelegate, UITabBarContro
         c.title = title
         // Pushed windows take the bar's small title, as Settings' pages.
         c.navigationItem.largeTitleDisplayMode = .never
-        // Above the window it is pushed over, as it was pushed from it.
-        if let i = nav.viewControllers.firstIndex(of: p), i < nav.viewControllers.count - 1 {
+        // Above the window it is pushed over, as it was pushed from it: above
+        // the screens of its router.
+        let over: UIViewController = routes[parent.id]?.last ?? p
+        if let i = nav.viewControllers.firstIndex(of: over), i < nav.viewControllers.count - 1 {
             nav.setViewControllers(Array(nav.viewControllers[...i]), animated: false)
         }
         nav.pushViewController(c, animated: animated)
@@ -140,12 +196,121 @@ final class Navigation: NSObject, UINavigationControllerDelegate, UITabBarContro
     }
 
     func navigationController(_ nav: UINavigationController, didShow vc: UIViewController, animated: Bool) {
+        // Screens of routers the user took off, with the back button or a
+        // swipe: the window goes into the screen shown, and its router back.
+        for (id, rs) in routes {
+            guard !rs.isEmpty, controllers[id]?.navigationController === nav else { continue }
+            let left = Array(rs.prefix { nav.viewControllers.contains($0) })
+            if left.count == rs.count { continue }
+            routes[id] = left
+            let w = rs[0].window
+            let target: ScreenController = left.last ?? controller(w)
+            move(w, into: target, back: true)
+            CATransaction.flush()
+            Go.send(Event.stackPopped(id: id, depth: left.count + 1))
+        }
         let ids = nav.viewControllers.compactMap { ($0 as? WindowController)?.window.id }
         let key = ObjectIdentifier(nav)
         for id in stacks[key] ?? [] where !ids.contains(id) {
             Go.send(Event.popped(id: id))
         }
         stacks[key] = ids
+    }
+
+    // The screens of routers.
+
+    /// setStack shows the pages of w's router as screens of its stack: the
+    /// window's own first, then a RouteController each. The screens of the
+    /// keys it shows stay; a page deeper is pushed, one less deep popped
+    /// back to, and others replace theirs at once. No titles take them away.
+    func setStack(_ w: HostWindow, titles: [String], keys: [String]) {
+        let wc = controller(w)
+        guard let nav = wc.navigationController, let at = nav.viewControllers.firstIndex(of: wc) else { return }
+        let old = routes[w.id] ?? []
+        let base = Array(nav.viewControllers[...at])
+        if titles.isEmpty {
+            routes[w.id] = nil
+            wc.routed = false
+            wc.navigationItem.title = wc.title
+            uncover(wc)
+            move(w, into: wc)
+            w.isHidden = false
+            if !old.isEmpty { nav.setViewControllers(base, animated: false) }
+            if nav.topViewController === wc {
+                nav.setNavigationBarHidden(at == 0 && !wc.barAtRoot, animated: false)
+            }
+            return
+        }
+        if !wc.routed {
+            wc.routed = true
+            if nav.topViewController === wc { nav.setNavigationBarHidden(false, animated: false) }
+        }
+        wc.navigationItem.title = titles[0]
+        let want = Array(zip(titles.dropFirst(), keys.dropFirst()))
+        var common = 0
+        while common < old.count, common < want.count, old[common].key == want[common].1 {
+            old[common].title = want[common].0
+            common += 1
+        }
+        if common == old.count, common == want.count { return } // titles alone
+        let top: ScreenController = old.last ?? wc
+        let fresh = want[common...].map { RouteController(w, key: $0.1, title: $0.0) }
+        let now = Array(old[..<common]) + fresh
+        routes[w.id] = now
+        let target: ScreenController = now.last ?? wc
+        let animated = nav.view.window != nil && (common == old.count || common == want.count)
+        if animated {
+            // The page going out of sight stays in its screen, as it last
+            // showed: the surface shows the page coming next.
+            cover(top, w)
+        }
+        if !fresh.isEmpty { uncover(target) }
+        move(w, into: target, back: fresh.isEmpty)
+        nav.setViewControllers(base + now, animated: animated)
+        // On screen before Go presents the page coming: Metal's frames show
+        // as they come, not with UIKit's next commit.
+        CATransaction.flush()
+    }
+
+    /// stackShown shows the window over the snapshot of its screen, once Go
+    /// presented its page there: a frame later, as the frame presents.
+    func stackShown(_ w: HostWindow) {
+        let n = moves[w.id] ?? 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 30) { [weak self, weak w] in
+            guard let self, let w, (self.moves[w.id] ?? 0) == n,
+                  let vc = w.superview?.next as? ScreenController else { return }
+            self.uncover(vc)
+            w.isHidden = false
+        }
+    }
+
+    /// cover leaves in vc a snapshot of what the window shows, over it.
+    private func cover(_ vc: ScreenController, _ w: HostWindow) {
+        uncover(vc)
+        guard w.superview === vc.view, !w.isHidden, let s = w.snapshotView(afterScreenUpdates: false) else { return }
+        s.frame = w.frame
+        s.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        vc.view.addSubview(s)
+        vc.snapshot = s
+    }
+
+    private func uncover(_ vc: ScreenController) {
+        vc.snapshot?.removeFromSuperview()
+        vc.snapshot = nil
+    }
+
+    /// move puts the window in vc, under its snapshot. Going back to a screen
+    /// without one, it hides, as it shows another page: StackShown shows it.
+    private func move(_ w: HostWindow, into vc: ScreenController, back: Bool = false) {
+        guard w.superview !== vc.view else { return }
+        moves[w.id, default: 0] += 1
+        let from = w.superview
+        let page = vc.view!
+        if page.bounds.isEmpty, let from { page.frame = from.bounds }
+        w.frame = page.bounds
+        w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        page.insertSubview(w, at: 0)
+        w.isHidden = back && vc.snapshot == nil
     }
 
     // Tabs.

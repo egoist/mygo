@@ -176,6 +176,11 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
         guard let p = windows[c.parent], let w = windows[c.child] else { return }
         Navigation.shared.push(w, over: p, title: c.title, animated: c.animated)
     }
+    func setStack(_ c: SetStackCall) -> SetStackReply {
+        if let w = windows[c.id] { Navigation.shared.setStack(w, titles: c.titles, keys: c.keys) }
+        return SetStackReply()
+    }
+    func stackShown(_ c: StackShownCall) { windows[c.id].map { Navigation.shared.stackShown($0) } }
     func popWindow(_ c: PopWindowCall) {
         guard let w = windows[c.id] else { return }
         Navigation.shared.pop(w, animated: c.animated)

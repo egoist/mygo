@@ -611,6 +611,9 @@ type engine struct {
 	// and backSent what the surface was last told of taking back.
 	edgeBack *Router
 	backSent bool
+	// stack is what shows the pages of a Router as the system's stack of
+	// screens (router_stack.go).
+	stack routerStack
 	// swipeRouter is the Router a gesture is taking back, or giving up on.
 	swipeRouter *Router
 	flinging    fling
@@ -808,6 +811,7 @@ func (rt *engine) runFrame() {
 		}
 		rt.nextRegs = rt.nextRegs[:0]
 		clear(rt.kept)
+		rt.stack.router = nil // the pass's Router tells
 		rt.c.reset(now, appW, rt.insp.contentHeight(w, h))
 		rt.view(&rt.c)
 		if rt.closing {
@@ -930,7 +934,9 @@ func (rt *engine) runFrame() {
 	}
 	rt.stats.lap(phasePaint)
 	rt.insp.lap(2)
+	rt.syncStack()
 	rt.host.present(&rt.scene)
+	rt.stackShown()
 	rt.placeWebViews()
 	rt.placeNativeGlass()
 	// The window hit-tests its maximize button in its own DIPs.

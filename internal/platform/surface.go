@@ -211,6 +211,40 @@ type TouchSurface interface {
 	SetBackAvailable(on bool)
 }
 
+// StackSurface is a Surface whose window can show the pages of a Router as
+// the system's own stack of screens, as phones have: a navigation bar at
+// the top with the title of the page shown and a back button, and on iOS
+// the system's transitions and its swipe from the left edge
+// (ui.Router.SystemStack).
+type StackSurface interface {
+	// CanStack reports whether the window can show a stack: a window of
+	// its own scene, on an iPad, cannot.
+	CanStack() bool
+	// StackMoves reports whether the system moves the screens as they come
+	// and go, as iOS does, and follows a finger going back: the content
+	// then shows each page at once. Where it does not, as on Android, the
+	// content moves its pages itself, under the system's bar.
+	StackMoves() bool
+	// SetStack shows screens as the stack: the first page and those
+	// deeper, up to the one shown. The screens of the Keys the stack
+	// shows stay; it pushes the screens after them, or pops back to them,
+	// and replaces the others at once. It returns once the system took
+	// what the surface shows for the screen going out of sight, so that
+	// the frame presented next shows the page coming. No screens take the
+	// stack away.
+	SetStack(screens []StackScreen)
+	// StackShown tells that the content presented the page the stack shows
+	// last, after SetStack or SurfaceStackPopped.
+	StackShown()
+}
+
+// StackScreen is a screen of a StackSurface's stack: a page of a Router,
+// Key telling it apart from the other pages.
+type StackScreen struct {
+	Key   uint64
+	Title string
+}
+
 // PluginViewSurface is a Surface that holds native views of plugins' native
 // code, as it does web views: under it, where its frames leave holes. The
 // WebView of one has no page: only its place, its keyboard and Close do
@@ -504,6 +538,10 @@ const (
 	// SurfaceScrollToTop reports a tap on iOS's status bar, which sends what
 	// scrolls under it back to its top.
 	SurfaceScrollToTop
+	// SurfaceStackPopped reports that the user took screens off the stack
+	// of StackSurface.SetStack, with its back button or a swipe: To is how
+	// many screens stay.
+	SurfaceStackPopped
 	// WebViewKey reports Key with Mods, pressed in the page of WebView,
 	// which has the keyboard, and which the page left unhandled: it did
 	// not cancel it, type it into an editable element or compose with it,

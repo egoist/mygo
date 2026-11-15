@@ -336,6 +336,11 @@ object HostImpl : HostCalls {
         Navigation.push(w, p, c.title, c.animated)
         updateBack()
     }
+    override fun setStack(c: SetStackCall): SetStackReply {
+        windows[c.id]?.let { Navigation.setStack(it, c.titles) }
+        return SetStackReply()
+    }
+    override fun stackShown(c: StackShownCall) {}
     override fun popWindow(c: PopWindowCall) {
         windows[c.id]?.let { Navigation.pop(it, c.animated) }
         updateBack()

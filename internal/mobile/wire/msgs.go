@@ -27,66 +27,68 @@ const (
 	CallCloseTabs              = 21
 	CallPushWindow             = 22
 	CallPopWindow              = 23
-	CallLoadURL                = 24
-	CallLoadHTML               = 25
-	CallReload                 = 26
-	CallStopLoading            = 27
-	CallGoBack                 = 28
-	CallGoForward              = 29
-	CallEval                   = 30
-	CallCallAsync              = 31
-	CallSetZoom                = 32
-	CallSetUserAgent           = 33
-	CallSetUserScripts         = 34
-	CallCapturePage            = 35
-	CallUserAgent              = 36
-	CallSchemeRespond          = 37
-	CallSchemeData             = 38
-	CallSchemeFinish           = 39
-	CallSchemeFail             = 40
-	CallMessageBox             = 41
-	CallOpenFiles              = 42
-	CallShareFile              = 43
-	CallClipboardText          = 44
-	CallSetClipboardText       = 45
-	CallOpenURL                = 46
-	CallSecretGet              = 47
-	CallSecretSet              = 48
-	CallSecretDelete           = 49
-	CallNotify                 = 50
-	CallRemoveNotification     = 51
-	CallRemoveAllNotifications = 52
-	CallKeepAwake              = 53
-	CallNetworkStatus          = 54
-	CallWatchNetwork           = 55
-	CallBattery                = 56
-	CallSetSystemBars          = 57
-	CallSetOrientations        = 58
-	CallShare                  = 59
-	CallSaveFile               = 60
-	CallClipboardImage         = 61
-	CallSetClipboardImage      = 62
-	CallPopupMenu              = 63
-	CallSetBarItems            = 64
-	CallPluginCall             = 65
-	CallAudioOpen              = 66
-	CallAudioWrite             = 67
-	CallAudioClose             = 68
-	CallHaptic                 = 69
-	CallRequestFrame           = 70
-	CallSetTextInput           = 71
-	CallSetCursor              = 72
-	CallAccessibilityChanged   = 73
-	CallAnnounce               = 74
-	CallShowMenu               = 75
-	CallSetBackAvailable       = 76
-	CallShowMagnifier          = 77
-	CallHideMagnifier          = 78
-	CallTextMetrics            = 79
-	CallMeasureText            = 80
-	CallTextAdvances           = 81
-	CallDrawText               = 82
-	CallRegisterFont           = 83
+	CallSetStack               = 24
+	CallStackShown             = 25
+	CallLoadURL                = 26
+	CallLoadHTML               = 27
+	CallReload                 = 28
+	CallStopLoading            = 29
+	CallGoBack                 = 30
+	CallGoForward              = 31
+	CallEval                   = 32
+	CallCallAsync              = 33
+	CallSetZoom                = 34
+	CallSetUserAgent           = 35
+	CallSetUserScripts         = 36
+	CallCapturePage            = 37
+	CallUserAgent              = 38
+	CallSchemeRespond          = 39
+	CallSchemeData             = 40
+	CallSchemeFinish           = 41
+	CallSchemeFail             = 42
+	CallMessageBox             = 43
+	CallOpenFiles              = 44
+	CallShareFile              = 45
+	CallClipboardText          = 46
+	CallSetClipboardText       = 47
+	CallOpenURL                = 48
+	CallSecretGet              = 49
+	CallSecretSet              = 50
+	CallSecretDelete           = 51
+	CallNotify                 = 52
+	CallRemoveNotification     = 53
+	CallRemoveAllNotifications = 54
+	CallKeepAwake              = 55
+	CallNetworkStatus          = 56
+	CallWatchNetwork           = 57
+	CallBattery                = 58
+	CallSetSystemBars          = 59
+	CallSetOrientations        = 60
+	CallShare                  = 61
+	CallSaveFile               = 62
+	CallClipboardImage         = 63
+	CallSetClipboardImage      = 64
+	CallPopupMenu              = 65
+	CallSetBarItems            = 66
+	CallPluginCall             = 67
+	CallAudioOpen              = 68
+	CallAudioWrite             = 69
+	CallAudioClose             = 70
+	CallHaptic                 = 71
+	CallRequestFrame           = 72
+	CallSetTextInput           = 73
+	CallSetCursor              = 74
+	CallAccessibilityChanged   = 75
+	CallAnnounce               = 76
+	CallShowMenu               = 77
+	CallSetBackAvailable       = 78
+	CallShowMagnifier          = 79
+	CallHideMagnifier          = 80
+	CallTextMetrics            = 81
+	CallMeasureText            = 82
+	CallTextAdvances           = 83
+	CallDrawText               = 84
+	CallRegisterFont           = 85
 )
 
 // Numbers of events.
@@ -111,47 +113,48 @@ const (
 	EventMenuPicked          = 18
 	EventBarItemClicked      = 19
 	EventTabSelected         = 20
-	EventPopped              = 21
-	EventBackPressed         = 22
-	EventMessage             = 23
-	EventWillNavigate        = 24
-	EventNewWindow           = 25
-	EventPageState           = 26
-	EventNavigationStarted   = 27
-	EventNavigationCommitted = 28
-	EventLoadFinished        = 29
-	EventLoadFailed          = 30
-	EventClosedByPage        = 31
-	EventWindowFront         = 32
-	EventProcessGone         = 33
-	EventPermissionRequested = 34
-	EventSchemeRequest       = 35
-	EventSchemeCancel        = 36
-	EventAsyncResult         = 37
-	EventCaptured            = 38
-	EventMessageBoxResult    = 39
-	EventFilesResult         = 40
-	EventNotifyDone          = 41
-	EventNotificationClicked = 42
-	EventFrame               = 43
-	EventSurfaceChanged      = 44
-	EventSurfaceDestroyed    = 45
-	EventTouch               = 46
-	EventScroll              = 47
-	EventKey                 = 48
-	EventTextReplace         = 49
-	EventTextMark            = 50
-	EventTextUnmark          = 51
-	EventTextDelete          = 52
-	EventTextSelect          = 53
-	EventTextCommand         = 54
-	EventTextState           = 55
-	EventTextRange           = 56
-	EventTextBounds          = 57
-	EventTextIndexAt         = 58
-	EventTextInputEnded      = 59
-	EventAccessibilityTree   = 60
-	EventAccessibilityAction = 61
+	EventStackPopped         = 21
+	EventPopped              = 22
+	EventBackPressed         = 23
+	EventMessage             = 24
+	EventWillNavigate        = 25
+	EventNewWindow           = 26
+	EventPageState           = 27
+	EventNavigationStarted   = 28
+	EventNavigationCommitted = 29
+	EventLoadFinished        = 30
+	EventLoadFailed          = 31
+	EventClosedByPage        = 32
+	EventWindowFront         = 33
+	EventProcessGone         = 34
+	EventPermissionRequested = 35
+	EventSchemeRequest       = 36
+	EventSchemeCancel        = 37
+	EventAsyncResult         = 38
+	EventCaptured            = 39
+	EventMessageBoxResult    = 40
+	EventFilesResult         = 41
+	EventNotifyDone          = 42
+	EventNotificationClicked = 43
+	EventFrame               = 44
+	EventSurfaceChanged      = 45
+	EventSurfaceDestroyed    = 46
+	EventTouch               = 47
+	EventScroll              = 48
+	EventKey                 = 49
+	EventTextReplace         = 50
+	EventTextMark            = 51
+	EventTextUnmark          = 52
+	EventTextDelete          = 53
+	EventTextSelect          = 54
+	EventTextCommand         = 55
+	EventTextState           = 56
+	EventTextRange           = 57
+	EventTextBounds          = 58
+	EventTextIndexAt         = 59
+	EventTextInputEnded      = 60
+	EventAccessibilityTree   = 61
+	EventAccessibilityAction = 62
 )
 
 // AppInfo is the app's bundle and the system's settings, asked once at start.
@@ -583,6 +586,42 @@ func (m *PopWindow) Encode(w *Writer) {
 
 // Wait reports whether the caller waits for the host to run it.
 func (*PopWindow) Wait() bool { return false }
+
+// SetStack is a router's pages as the window's stack of screens, its first page and those deeper (Titles, told apart by Keys): the screens of the keys the stack shows stay, the others are pushed, popped or replaced; none take the stack away. Answered once the screen going out of sight holds what the surface shows, as the surface is about to show the page coming.
+type SetStack struct {
+	ID     int
+	Titles []string
+	Keys   []string
+}
+
+func (m *SetStack) Encode(w *Writer) {
+	w.Uvarint(CallSetStack)
+	w.Int(m.ID)
+	w.Strings(m.Titles)
+	w.Strings(m.Keys)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*SetStack) Wait() bool { return true }
+
+type SetStackReply struct {
+}
+
+func (m *SetStackReply) Decode(r *Reader) {
+}
+
+// StackShown is the surface shows the page of the stack's last screen, after SetStack or StackPopped.
+type StackShown struct {
+	ID int
+}
+
+func (m *StackShown) Encode(w *Writer) {
+	w.Uvarint(CallStackShown)
+	w.Int(m.ID)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*StackShown) Wait() bool { return false }
 
 type LoadURL struct {
 	ID  int
@@ -1914,6 +1953,17 @@ type TabSelectedEvent struct {
 func (m *TabSelectedEvent) Decode(r *Reader) {
 	m.ID = r.Int()
 	m.Index = r.Int()
+}
+
+// StackPoppedEvent is the user took screens off a window's stack (SetStack): Depth stay.
+type StackPoppedEvent struct {
+	ID    int
+	Depth int
+}
+
+func (m *StackPoppedEvent) Decode(r *Reader) {
+	m.ID = r.Int()
+	m.Depth = r.Int()
 }
 
 // PoppedEvent is the window left its stack: the back button, a swipe, Android's back, or PopWindow.

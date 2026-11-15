@@ -2,6 +2,10 @@
 // whose pages above the first have a toolbar with a back arrow and the
 // window's title, and bars of tabs (Material's bottom navigation), a
 // stack in each tab, all in the root view, the one shown last in front.
+// A window's router may show its pages as a stack of its own (SetStack):
+// the window's toolbar then shows the title of the page shown, with a back
+// arrow past the first, and the router moves the pages, as Android's apps
+// move theirs.
 
 package dev.mygo
 
@@ -19,7 +23,7 @@ import com.google.android.material.color.DynamicColors
 
 object Navigation {
     /** A window's page in a stack: its toolbar, when it has one, over it. */
-    class Page(val window: HostWindow, val toolbar: MaterialToolbar?, val view: LinearLayout)
+    class Page(val window: HostWindow, var toolbar: MaterialToolbar?, val view: LinearLayout)
 
     /** A stack of pages: the first is the window it shows, the others pushed over it. */
     class Stack(context: Context) : FrameLayout(context) {
@@ -68,19 +72,32 @@ object Navigation {
     fun material(context: Context): Context =
         DynamicColors.wrapContextIfAvailable(ContextThemeWrapper(context, com.google.android.material.R.style.Theme_Material3_DayNight_NoActionBar))
 
+    private fun toolbar(w: HostWindow, title: String): MaterialToolbar {
+        val t = MaterialToolbar(material(w.context))
+        t.title = title
+        t.setBackgroundColor(if (w.fill != 0) w.fill else HostImpl.themeColor(android.R.attr.colorBackground))
+        return t
+    }
+
+    /** back gives a toolbar the back arrow, which runs fn, or (null) takes it away. */
+    private fun back(t: MaterialToolbar, fn: (() -> Unit)?) {
+        if (fn == null) {
+            t.navigationIcon = null
+            t.setNavigationOnClickListener(null)
+            return
+        }
+        t.setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material)
+        t.setNavigationContentDescription(androidx.appcompat.R.string.abc_action_bar_up_description)
+        t.setNavigationOnClickListener { fn() }
+    }
+
     private fun page(w: HostWindow, title: String?, back: Boolean): Page {
         (w.view.parent as? ViewGroup)?.removeView(w.view)
         val v = LinearLayout(w.context).apply { orientation = LinearLayout.VERTICAL }
         var toolbar: MaterialToolbar? = null
         if (title != null) {
-            val t = MaterialToolbar(material(w.context))
-            t.title = title
-            if (back) {
-                t.setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material)
-                t.setNavigationContentDescription(androidx.appcompat.R.string.abc_action_bar_up_description)
-                t.setNavigationOnClickListener { pop(w, true) }
-            }
-            t.setBackgroundColor(if (w.fill != 0) w.fill else HostImpl.themeColor(android.R.attr.colorBackground))
+            val t = toolbar(w, title)
+            if (back) back(t) { pop(w, true) }
             v.addView(t, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             toolbar = t
         }
@@ -152,6 +169,7 @@ object Navigation {
     }
 
     fun forget(w: HostWindow) {
+        routed.remove(w.id)
         val s = stacks.remove(w.id) ?: return
         s.pages.removeAll { it.window === w }
     }
@@ -237,6 +255,59 @@ object Navigation {
             return false
         }
         return false
+    }
+
+    // The pages of routers.
+
+    /** A window's router showing its pages in its stack: how deep, the window's title, and whether the toolbar is the router's. */
+    private class Routed(var depth: Int, val title: String, val added: Boolean)
+    private val routed = HashMap<Long, Routed>()
+
+    /**
+     * setStack shows the pages of w's router as a stack: the toolbar shows the
+     * title of the page shown, with a back arrow past the first, which takes
+     * the router back. No titles take it away.
+     */
+    fun setStack(w: HostWindow, titles: List<String>) {
+        val s = stacks[w.id] ?: return
+        val i = s.pages.indexOfFirst { it.window === w }
+        if (i < 0) return
+        val p = s.pages[i]
+        val r = routed[w.id]
+        if (titles.isEmpty()) {
+            if (r == null) return
+            routed.remove(w.id)
+            val t = p.toolbar ?: return
+            if (r.added) {
+                p.view.removeView(t)
+                p.toolbar = null
+            } else {
+                t.title = r.title
+                back(t, if (i > 0) ({ pop(w, true) }) else null)
+            }
+            return
+        }
+        var t = p.toolbar
+        if (r == null) {
+            val added = t == null
+            if (t == null) {
+                t = toolbar(w, titles.last())
+                p.view.addView(t, 0, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                p.toolbar = t
+                insetsChanged()
+            }
+            routed[w.id] = Routed(titles.size, t.title?.toString() ?: "", added)
+        }
+        routed[w.id]?.depth = titles.size
+        t!!.title = titles.last()
+        when {
+            titles.size > 1 -> back(t) {
+                val d = routed[w.id]?.depth ?: 1
+                if (d > 1) Go.send(Event.stackPopped(w.id, (d - 1).toLong()))
+            }
+            i > 0 -> back(t) { pop(w, true) }
+            else -> back(t, null)
+        }
     }
 
     // Tabs.
@@ -327,6 +398,7 @@ object Navigation {
     }
 
     fun setTitle(w: HostWindow, title: String) {
+        if (w.id in routed) return // the router's page has the toolbar's title
         stacks[w.id]?.pages?.firstOrNull { it.window === w }?.toolbar?.title = title
     }
 

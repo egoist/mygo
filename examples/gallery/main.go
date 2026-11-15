@@ -351,6 +351,9 @@ func pageOf(path string) string {
 func (g *gallery) view(c *ui.Context) {
 	w, _ := c.Size()
 	g.compact = w < compactWidth
+	// On a phone, the system's stack shows the pages, under its own bar:
+	// in the compact view alone, where the pages fill the window.
+	g.router.SystemStack = g.compact
 	if g.compact {
 		g.compactView(c)
 	} else {
@@ -404,24 +407,15 @@ func (g *gallery) wideView(c *ui.Context) {
 const compactWidth = 640
 
 // compactView shows the pages as a phone's app does: the list of them at
-// "/", from which a page slides in, and back to it.
+// "/", from which a page slides in, and back to it. On phones the system's
+// navigation bar shows the title and the back button; elsewhere the
+// gallery draws its own.
 func (g *gallery) compactView(c *ui.Context) {
 	ui.Column(c).Fill().Children(func() {
 		path := g.router.Path()
-		ui.Row(c).Height(48).Padding(0, 8).Gap(4).AlignItems(ui.Center).Shrink(0).Children(func() {
-			if path != "/" {
-				if g.router.CanGoBack() {
-					ui.BackButton(c, g.router)
-				} else if ui.Button(c, "‹ Pages").Clicked() {
-					g.router.Push("/")
-				}
-			}
-			title := g.router.Title()
-			if path == "/" || title == "" {
-				title = "MyGo UI"
-			}
-			ui.Text(c, title).FontSize(17).Bold().Grow(1).SingleLine()
-		})
+		if !g.router.InSystemStack(c) {
+			g.compactBar(c, path)
+		}
 		g.router.View(c, func(r *ui.Route) {
 			if r.Match("/") {
 				r.Title("MyGo UI")
@@ -430,6 +424,25 @@ func (g *gallery) compactView(c *ui.Context) {
 			}
 			ui.Scroll(c).Grow(1).Padding(8, 16, 24).Gap(18).Children(func() { g.page(c, r) })
 		})
+	})
+}
+
+// compactBar is the compact view's bar where the system shows none: a back
+// button and the title of the page.
+func (g *gallery) compactBar(c *ui.Context, path string) {
+	ui.Row(c).Height(48).Padding(0, 8).Gap(4).AlignItems(ui.Center).Shrink(0).Children(func() {
+		if path != "/" {
+			if g.router.CanGoBack() {
+				ui.BackButton(c, g.router)
+			} else if ui.Button(c, "‹ Pages").Clicked() {
+				g.router.Push("/")
+			}
+		}
+		title := g.router.Title()
+		if path == "/" || title == "" {
+			title = "MyGo UI"
+		}
+		ui.Text(c, title).FontSize(17).Bold().Grow(1).SingleLine()
 	})
 }
 
@@ -552,7 +565,9 @@ func (g *gallery) listRow(c *ui.Context, r *ui.Route) {
 		return
 	}
 	r.Title(fmt.Sprintf("Row %d", n))
-	ui.Text(c, fmt.Sprintf("Row %d", n)).FontSize(26).Bold()
+	if !g.compact { // the compact view's bar shows it
+		ui.Text(c, fmt.Sprintf("Row %d", n)).FontSize(26).Bold()
+	}
 	card(c, "", func() {
 		for _, f := range []struct {
 			label string

@@ -21,7 +21,8 @@ const swipeThrow = 500
 
 // noteBack has the frame's first Router take gestures while it can go back.
 func (r *Router) noteBack(c *context) {
-	if r.CanGoBack() && r.Transition == TransitionAuto && !c.rt.preferences().ReduceMotion {
+	// The system's stack takes its own gesture.
+	if r.CanGoBack() && r.Transition == TransitionAuto && !c.rt.preferences().ReduceMotion && !r.stackMoves {
 		c.rt.edgeBack = r
 	}
 }

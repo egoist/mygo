@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"math"
+	"runtime"
 	"strconv"
 
 	"github.com/egoist/mygo/internal/mobile/wire"
@@ -231,6 +232,23 @@ func (s *surface) ShowEditMenu(x, y float64, actions []string) {
 func (s *surface) SetBackAvailable(on bool) {
 	s.w.b.call(&wire.SetBackAvailable{ID: s.w.id, On: on}, nil)
 }
+
+// CanStack: a window of its own scene, or one a surface holds, is in no stack.
+func (s *surface) CanStack() bool { return !s.w.opts.OwnScene && s.w.parent == nil }
+
+// StackMoves: UIKit's navigation controller moves its screens; Android's apps
+// move their pages themselves.
+func (s *surface) StackMoves() bool { return runtime.GOOS == "ios" }
+
+func (s *surface) SetStack(screens []platform.StackScreen) {
+	c := wire.SetStack{ID: s.w.id, Titles: make([]string, len(screens)), Keys: make([]string, len(screens))}
+	for i, sc := range screens {
+		c.Titles[i], c.Keys[i] = sc.Title, strconv.FormatUint(sc.Key, 10)
+	}
+	s.w.b.call(&c, &wire.SetStackReply{})
+}
+
+func (s *surface) StackShown() { s.w.b.call(&wire.StackShown{ID: s.w.id}, nil) }
 
 func (s *surface) ShowMagnifier(x, y float64) {
 	s.w.b.call(&wire.ShowMagnifier{ID: s.w.id, X: x, Y: y}, nil)
@@ -612,6 +630,12 @@ func (b *Backend) handleSurface(op uint64, r *wire.Reader, w *wire.Writer) bool 
 		e.Decode(r)
 		if s := sf(e.ID); s != nil {
 			s.send(platform.SurfaceEvent{Kind: platform.SurfaceBackGesture, Text: e.Phase, Scale: e.Progress})
+		}
+	case wire.EventStackPopped:
+		var e wire.StackPoppedEvent
+		e.Decode(r)
+		if s := sf(e.ID); s != nil {
+			s.send(platform.SurfaceEvent{Kind: platform.SurfaceStackPopped, To: e.Depth})
 		}
 	case wire.EventStatusBarTapped:
 		if w := b.front(); w != nil && w.s != nil {

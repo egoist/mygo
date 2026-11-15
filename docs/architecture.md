@@ -1030,7 +1030,19 @@ fake host. Desktop files of `darwin` and `linux` exclude `ios` and
   on its stack, a `UINavigationController` on iOS and a page with a
   `MaterialToolbar` on Android, and the user's back (the bar's button,
   iOS's edge swipe, Android's back) pops it, which the host reports
-  (`Popped`) and the core takes as a close. Each window's insets come
+  (`Popped`) and the core takes as a close. A `ui.Router` with
+  `SystemStack` shows its history as a window's stack
+  (`platform.StackSurface`, `ui/router_stack.go`): before the frame that
+  shows a new page presents, the core sends the stack (`SetStack`, waited
+  for). iOS gives each page past the first a `RouteController`, moves
+  the window's one surface into the screen shown, leaving a snapshot of
+  the page going (`snapshotView`) in the screen it leaves, and flushes
+  the transaction before answering, as Metal's frames show without
+  waiting for UIKit's commit. A screen the user pops (`StackPopped`)
+  takes the router back; the surface hides under the snapshot until the
+  core presented the page there (`StackShown`). The router shows each
+  page at once there, the system moving the screens; on Android the
+  toolbar alone follows the stack and the router slides the pages. Each window's insets come
   from where layout put it (Android: its position in the root, ignoring
   the translation of a page sliding in), so a window under a toolbar has
   no top inset and one above the tab bar no bottom one. iOS 26's bars

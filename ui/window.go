@@ -333,7 +333,7 @@ func (h *windowHost) event(ev platform.SurfaceEvent) bool {
 		h.requestFrame()
 		return false
 	}
-	if ev.Kind >= platform.SurfaceLowMemory && ev.Kind <= platform.SurfaceScrollToTop {
+	if ev.Kind >= platform.SurfaceLowMemory && ev.Kind <= platform.SurfaceStackPopped {
 		if ev.Kind == platform.SurfaceLowMemory {
 			// What the next frame makes again: the renderer's textures, its
 			// atlases and pipelines among them.
@@ -1074,6 +1074,11 @@ func (h *windowHost) tabIntoWebView(v NativeWebView, back bool) {
 
 func (h *windowHost) touchSurface() platform.TouchSurface {
 	s, _ := h.conn.Surface.(platform.TouchSurface)
+	return s
+}
+
+func (h *windowHost) stackSurface() platform.StackSurface {
+	s, _ := h.conn.Surface.(platform.StackSurface)
 	return s
 }
 

@@ -106,6 +106,17 @@ func (_handle *Route) View(c *Context, fn func(r *Route)) Element {
 	return wrapElement(_e)
 }
 
+// InSystemStack reports whether the system shows r's pages as its own
+// stack of screens (SystemStack), with its navigation bar: the view then
+// shows no bar of its own over them, nor a back button.
+func (_handle *Router) InSystemStack(c *Context) bool {
+	_ctx := c.build()
+	if _ctx == nil {
+		return false
+	}
+	return _handle.coreInSystemStack(_ctx)
+}
+
 // View builds the page shown with fn, in a column taking the room it is
 // given, and returns the column. As a page slides in, it builds the one
 // going away too, which takes neither the pointer nor the keyboard.

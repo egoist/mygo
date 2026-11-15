@@ -956,6 +956,8 @@ func (rt *engine) systemEvent(ev platform.SurfaceEvent) {
 		rt.backGesture(ev.Text, float32(ev.Scale))
 	case platform.SurfaceScrollToTop:
 		rt.scrollToTop()
+	case platform.SurfaceStackPopped:
+		rt.stackPopped(ev.To)
 	}
 }
 

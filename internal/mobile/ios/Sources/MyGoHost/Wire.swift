@@ -367,6 +367,32 @@ public struct PopWindowCall {
     }
 }
 
+public struct SetStackCall {
+    public var id: Int = 0
+    public var titles: [String] = []
+    public var keys: [String] = []
+    public init() {}
+    init(_ r: inout WireReader) {
+        id = r.int()
+        titles = r.strings()
+        keys = r.strings()
+    }
+}
+
+public struct SetStackReply {
+    public init() {}
+    func encode(_ w: inout WireWriter) {
+    }
+}
+
+public struct StackShownCall {
+    public var id: Int = 0
+    public init() {}
+    init(_ r: inout WireReader) {
+        id = r.int()
+    }
+}
+
 public struct LoadURLCall {
     public var id: Int = 0
     public var url: String = ""
@@ -1208,6 +1234,10 @@ public protocol HostCalls: AnyObject {
     /// shows Child over Parent in Parent's stack, under a bar with its Title and a back button
     func pushWindow(_ c: PushWindowCall)
     func popWindow(_ c: PopWindowCall)
+    /// a router's pages as the window's stack of screens, its first page and those deeper (Titles, told apart by Keys): the screens of the keys the stack shows stay, the others are pushed, popped or replaced; none take the stack away. Answered once the screen going out of sight holds what the surface shows, as the surface is about to show the page coming
+    func setStack(_ c: SetStackCall) -> SetStackReply
+    /// the surface shows the page of the stack's last screen, after SetStack or StackPopped
+    func stackShown(_ c: StackShownCall)
     func loadURL(_ c: LoadURLCall)
     func loadHTML(_ c: LoadHTMLCall)
     func reload(_ c: ReloadCall)
@@ -1377,183 +1407,189 @@ public func dispatchCall(_ h: HostCalls, _ buf: UnsafeRawBufferPointer) -> [UInt
         h.popWindow(PopWindowCall(&r))
         return nil
     case 24:
-        h.loadURL(LoadURLCall(&r))
-        return nil
+        h.setStack(SetStackCall(&r)).encode(&w)
+        return w.buf
     case 25:
-        h.loadHTML(LoadHTMLCall(&r))
+        h.stackShown(StackShownCall(&r))
         return nil
     case 26:
-        h.reload(ReloadCall(&r))
+        h.loadURL(LoadURLCall(&r))
         return nil
     case 27:
-        h.stopLoading(StopLoadingCall(&r))
+        h.loadHTML(LoadHTMLCall(&r))
         return nil
     case 28:
-        h.goBack(GoBackCall(&r))
+        h.reload(ReloadCall(&r))
         return nil
     case 29:
-        h.goForward(GoForwardCall(&r))
+        h.stopLoading(StopLoadingCall(&r))
         return nil
     case 30:
-        h.eval(EvalCall(&r))
+        h.goBack(GoBackCall(&r))
         return nil
     case 31:
-        h.callAsync(CallAsyncCall(&r))
+        h.goForward(GoForwardCall(&r))
         return nil
     case 32:
-        h.setZoom(SetZoomCall(&r))
+        h.eval(EvalCall(&r))
         return nil
     case 33:
-        h.setUserAgent(SetUserAgentCall(&r))
+        h.callAsync(CallAsyncCall(&r))
         return nil
     case 34:
-        h.setUserScripts(SetUserScriptsCall(&r))
+        h.setZoom(SetZoomCall(&r))
         return nil
     case 35:
-        h.capturePage(CapturePageCall(&r))
+        h.setUserAgent(SetUserAgentCall(&r))
         return nil
     case 36:
-        h.userAgent(UserAgentCall(&r)).encode(&w)
-        return w.buf
+        h.setUserScripts(SetUserScriptsCall(&r))
+        return nil
     case 37:
-        h.schemeRespond(SchemeRespondCall(&r))
+        h.capturePage(CapturePageCall(&r))
         return nil
     case 38:
-        h.schemeData(SchemeDataCall(&r))
-        return nil
+        h.userAgent(UserAgentCall(&r)).encode(&w)
+        return w.buf
     case 39:
-        h.schemeFinish(SchemeFinishCall(&r))
+        h.schemeRespond(SchemeRespondCall(&r))
         return nil
     case 40:
-        h.schemeFail(SchemeFailCall(&r))
+        h.schemeData(SchemeDataCall(&r))
         return nil
     case 41:
-        h.messageBox(MessageBoxCall(&r))
+        h.schemeFinish(SchemeFinishCall(&r))
         return nil
     case 42:
-        h.openFiles(OpenFilesCall(&r))
+        h.schemeFail(SchemeFailCall(&r))
         return nil
     case 43:
-        h.shareFile(ShareFileCall(&r))
+        h.messageBox(MessageBoxCall(&r))
         return nil
     case 44:
-        h.clipboardText().encode(&w)
-        return w.buf
+        h.openFiles(OpenFilesCall(&r))
+        return nil
     case 45:
-        h.setClipboardText(SetClipboardTextCall(&r))
+        h.shareFile(ShareFileCall(&r))
         return nil
     case 46:
-        h.openURL(OpenURLCall(&r)).encode(&w)
+        h.clipboardText().encode(&w)
         return w.buf
     case 47:
-        h.secretGet(SecretGetCall(&r)).encode(&w)
-        return w.buf
+        h.setClipboardText(SetClipboardTextCall(&r))
+        return nil
     case 48:
-        h.secretSet(SecretSetCall(&r)).encode(&w)
+        h.openURL(OpenURLCall(&r)).encode(&w)
         return w.buf
     case 49:
-        h.secretDelete(SecretDeleteCall(&r)).encode(&w)
+        h.secretGet(SecretGetCall(&r)).encode(&w)
         return w.buf
     case 50:
+        h.secretSet(SecretSetCall(&r)).encode(&w)
+        return w.buf
+    case 51:
+        h.secretDelete(SecretDeleteCall(&r)).encode(&w)
+        return w.buf
+    case 52:
         h.notify(NotifyCall(&r))
         return nil
-    case 51:
+    case 53:
         h.removeNotification(RemoveNotificationCall(&r))
         return nil
-    case 52:
+    case 54:
         h.removeAllNotifications()
         return nil
-    case 53:
+    case 55:
         h.keepAwake(KeepAwakeCall(&r))
         return nil
-    case 54:
+    case 56:
         h.networkStatus().encode(&w)
         return w.buf
-    case 55:
+    case 57:
         h.watchNetwork()
         return nil
-    case 56:
+    case 58:
         h.battery().encode(&w)
         return w.buf
-    case 57:
+    case 59:
         h.setSystemBars(SetSystemBarsCall(&r))
         return nil
-    case 58:
+    case 60:
         h.setOrientations(SetOrientationsCall(&r))
         return nil
-    case 59:
+    case 61:
         h.share(ShareCall(&r))
         return nil
-    case 60:
+    case 62:
         h.saveFile(SaveFileCall(&r))
         return nil
-    case 61:
+    case 63:
         h.clipboardImage().encode(&w)
         return w.buf
-    case 62:
+    case 64:
         h.setClipboardImage(SetClipboardImageCall(&r))
         return nil
-    case 63:
+    case 65:
         h.popupMenu(PopupMenuCall(&r))
         return nil
-    case 64:
+    case 66:
         h.setBarItems(SetBarItemsCall(&r))
         return nil
-    case 65:
+    case 67:
         h.pluginCall(PluginCallCall(&r))
         return nil
-    case 66:
+    case 68:
         h.audioOpen(AudioOpenCall(&r)).encode(&w)
         return w.buf
-    case 67:
+    case 69:
         h.audioWrite(AudioWriteCall(&r)).encode(&w)
         return w.buf
-    case 68:
+    case 70:
         h.audioClose().encode(&w)
         return w.buf
-    case 69:
+    case 71:
         h.haptic(HapticCall(&r))
         return nil
-    case 70:
+    case 72:
         h.requestFrame(RequestFrameCall(&r))
         return nil
-    case 71:
+    case 73:
         h.setTextInput(SetTextInputCall(&r))
         return nil
-    case 72:
+    case 74:
         h.setCursor(SetCursorCall(&r))
         return nil
-    case 73:
+    case 75:
         h.accessibilityChanged(AccessibilityChangedCall(&r))
         return nil
-    case 74:
+    case 76:
         h.announce(AnnounceCall(&r))
         return nil
-    case 75:
+    case 77:
         h.showMenu(ShowMenuCall(&r))
         return nil
-    case 76:
+    case 78:
         h.setBackAvailable(SetBackAvailableCall(&r))
         return nil
-    case 77:
+    case 79:
         h.showMagnifier(ShowMagnifierCall(&r))
         return nil
-    case 78:
+    case 80:
         h.hideMagnifier(HideMagnifierCall(&r))
         return nil
-    case 79:
+    case 81:
         h.textMetrics(TextMetricsCall(&r)).encode(&w)
         return w.buf
-    case 80:
+    case 82:
         h.measureText(MeasureTextCall(&r)).encode(&w)
         return w.buf
-    case 81:
+    case 83:
         h.textAdvances(TextAdvancesCall(&r)).encode(&w)
         return w.buf
-    case 82:
+    case 84:
         h.drawText(DrawTextCall(&r)).encode(&w)
         return w.buf
-    case 83:
+    case 85:
         h.registerFont(RegisterFontCall(&r)).encode(&w)
         return w.buf
     default:
@@ -1709,31 +1745,39 @@ public enum Event {
         w.int(index)
         return w.buf
     }
+    /// the user took screens off a window's stack (SetStack): Depth stay
+    public static func stackPopped(id: Int, depth: Int) -> [UInt8] {
+        var w = WireWriter()
+        w.uvarint(21)
+        w.int(id)
+        w.int(depth)
+        return w.buf
+    }
     /// the window left its stack: the back button, a swipe, Android's back, or PopWindow
     public static func popped(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(21)
+        w.uvarint(22)
         w.int(id)
         return w.buf
     }
     /// Android's back: whether the app took it
     public static func backPressed(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(22)
+        w.uvarint(23)
         w.int(id)
         return w.buf
     }
     /// a message the page's bridge posted
     public static func message(id: Int, text: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(23)
+        w.uvarint(24)
         w.int(id)
         w.string(text)
         return w.buf
     }
     public static func willNavigate(id: Int, url: String, mainFrame: Bool, userInitiated: Bool, unasked: Bool, reload: Bool) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(24)
+        w.uvarint(25)
         w.int(id)
         w.string(url)
         w.bool(mainFrame)
@@ -1745,7 +1789,7 @@ public enum Event {
     /// window.open or a link to _blank: whether the app opened it
     public static func newWindow(id: Int, url: String, userInitiated: Bool) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(25)
+        w.uvarint(26)
         w.int(id)
         w.string(url)
         w.bool(userInitiated)
@@ -1754,7 +1798,7 @@ public enum Event {
     /// what the page is at, after any change of it
     public static func pageState(id: Int, url: String, title: String, loading: Bool, canGoBack: Bool, canGoForward: Bool) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(26)
+        w.uvarint(27)
         w.int(id)
         w.string(url)
         w.string(title)
@@ -1765,27 +1809,27 @@ public enum Event {
     }
     public static func navigationStarted(id: Int, url: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(27)
+        w.uvarint(28)
         w.int(id)
         w.string(url)
         return w.buf
     }
     public static func navigationCommitted(id: Int, url: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(28)
+        w.uvarint(29)
         w.int(id)
         w.string(url)
         return w.buf
     }
     public static func loadFinished(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(29)
+        w.uvarint(30)
         w.int(id)
         return w.buf
     }
     public static func loadFailed(id: Int, url: String, code: Int, description: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(30)
+        w.uvarint(31)
         w.int(id)
         w.string(url)
         w.int(code)
@@ -1794,27 +1838,27 @@ public enum Event {
     }
     public static func closedByPage(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(31)
+        w.uvarint(32)
         w.int(id)
         return w.buf
     }
     /// the user went to a window of its own scene, or (0) to the app's first
     public static func windowFront(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(32)
+        w.uvarint(33)
         w.int(id)
         return w.buf
     }
     public static func processGone(id: Int, reason: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(33)
+        w.uvarint(34)
         w.int(id)
         w.string(reason)
         return w.buf
     }
     public static func permissionRequested(id: Int, kinds: [String], origin: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(34)
+        w.uvarint(35)
         w.int(id)
         w.strings(kinds)
         w.string(origin)
@@ -1823,7 +1867,7 @@ public enum Event {
     /// a request of one of the app's schemes (Header: names and values in turn)
     public static func schemeRequest(id: Int, req: Int, method: String, url: String, header: [String], body: [UInt8], hasBody: Bool) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(35)
+        w.uvarint(36)
         w.int(id)
         w.int(req)
         w.string(method)
@@ -1835,13 +1879,13 @@ public enum Event {
     }
     public static func schemeCancel(req: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(36)
+        w.uvarint(37)
         w.int(req)
         return w.buf
     }
     public static func asyncResult(req: Int, result: String, error: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(37)
+        w.uvarint(38)
         w.int(req)
         w.string(result)
         w.string(error)
@@ -1849,7 +1893,7 @@ public enum Event {
     }
     public static func captured(req: Int, png: [UInt8], error: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(38)
+        w.uvarint(39)
         w.int(req)
         w.bytes(png)
         w.string(error)
@@ -1857,14 +1901,14 @@ public enum Event {
     }
     public static func messageBoxResult(req: Int, response: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(39)
+        w.uvarint(40)
         w.int(req)
         w.int(response)
         return w.buf
     }
     public static func filesResult(req: Int, paths: [String], error: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(40)
+        w.uvarint(41)
         w.int(req)
         w.strings(paths)
         w.string(error)
@@ -1872,28 +1916,28 @@ public enum Event {
     }
     public static func notifyDone(req: Int, error: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(41)
+        w.uvarint(42)
         w.int(req)
         w.string(error)
         return w.buf
     }
     public static func notificationClicked(notificationID: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(42)
+        w.uvarint(43)
         w.string(notificationID)
         return w.buf
     }
     /// the display refreshes: draw a frame if one was asked for
     public static func frame(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(43)
+        w.uvarint(44)
         w.int(id)
         return w.buf
     }
     /// the native surface to draw on (a CAMetalLayer, an ANativeWindow), 0 when gone
     public static func surfaceChanged(id: Int, handle: Int, width: Double, height: Double, scale: Double, refresh: Double) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(44)
+        w.uvarint(45)
         w.int(id)
         w.int(handle)
         w.float(width)
@@ -1905,14 +1949,14 @@ public enum Event {
     /// the native surface goes: the host waits for Go to let go of it
     public static func surfaceDestroyed(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(45)
+        w.uvarint(46)
         w.int(id)
         return w.buf
     }
     /// a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse"
     public static func touch(id: Int, pointer: Int, phase: String, kind: String, x: Double, y: Double, pressure: Double, buttons: Int, time: Double) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(46)
+        w.uvarint(47)
         w.int(id)
         w.int(pointer)
         w.string(phase)
@@ -1927,7 +1971,7 @@ public enum Event {
     /// a mouse's or a trackpad's scrolling, in DIPs
     public static func scroll(id: Int, x: Double, y: Double, dx: Double, dy: Double, precise: Bool, phase: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(47)
+        w.uvarint(48)
         w.int(id)
         w.float(x)
         w.float(y)
@@ -1940,7 +1984,7 @@ public enum Event {
     /// a hardware keyboard's key: Down, its name (as ui names keys) and the text it types
     public static func key(id: Int, down: Bool, key: String, text: String, mods: Int, repeated: Bool) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(48)
+        w.uvarint(49)
         w.int(id)
         w.bool(down)
         w.string(key)
@@ -1952,7 +1996,7 @@ public enum Event {
     /// the keyboard put Text in Start to End of the document, or with no range in place of the marked text or the selection; answers TextStateReply
     public static func textReplace(id: Int, hasRange: Bool, start: Int, end: Int, text: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(49)
+        w.uvarint(50)
         w.int(id)
         w.bool(hasRange)
         w.int(start)
@@ -1963,7 +2007,7 @@ public enum Event {
     /// the input method composes Text over Start to End, or with no range over the marked text or the selection; SelStart and SelEnd are in Text; answers TextStateReply
     public static func textMark(id: Int, hasRange: Bool, start: Int, end: Int, text: String, selStart: Int, selEnd: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(50)
+        w.uvarint(51)
         w.int(id)
         w.bool(hasRange)
         w.int(start)
@@ -1976,14 +2020,14 @@ public enum Event {
     /// the marked text stays as text; answers TextStateReply
     public static func textUnmark(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(51)
+        w.uvarint(52)
         w.int(id)
         return w.buf
     }
     /// the keyboard deleted Before units before the selection and After after it; answers TextStateReply
     public static func textDelete(id: Int, before: Int, after: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(52)
+        w.uvarint(53)
         w.int(id)
         w.int(before)
         w.int(after)
@@ -1992,7 +2036,7 @@ public enum Event {
     /// the keyboard moved the selection; answers TextStateReply
     public static func textSelect(id: Int, start: Int, end: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(53)
+        w.uvarint(54)
         w.int(id)
         w.int(start)
         w.int(end)
@@ -2001,7 +2045,7 @@ public enum Event {
     /// an editing action of the keyboard or the edit menu: "newline", "tab", "deleteBackward", "deleteForward", "cut", "copy", "paste", "selectAll", "left", …; answers TextStateReply
     public static func textCommand(id: Int, command: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(54)
+        w.uvarint(55)
         w.int(id)
         w.string(command)
         return w.buf
@@ -2009,14 +2053,14 @@ public enum Event {
     /// the text around the selection, and the selection
     public static func textState(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(55)
+        w.uvarint(56)
         w.int(id)
         return w.buf
     }
     /// a part of the document outside the text the host has
     public static func textRange(id: Int, start: Int, end: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(56)
+        w.uvarint(57)
         w.int(id)
         w.int(start)
         w.int(end)
@@ -2025,7 +2069,7 @@ public enum Event {
     /// where the range is on screen: its first line's rectangle
     public static func textBounds(id: Int, start: Int, end: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(57)
+        w.uvarint(58)
         w.int(id)
         w.int(start)
         w.int(end)
@@ -2034,7 +2078,7 @@ public enum Event {
     /// the offset nearest a point of the window
     public static func textIndexAt(id: Int, x: Double, y: Double) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(58)
+        w.uvarint(59)
         w.int(id)
         w.float(x)
         w.float(y)
@@ -2043,21 +2087,21 @@ public enum Event {
     /// the keyboard went away
     public static func textInputEnded(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(59)
+        w.uvarint(60)
         w.int(id)
         return w.buf
     }
     /// the accessible elements, encoded as Nodes: for each, its ID, parent, role, label, value, hint, frame and actions
     public static func accessibilityTree(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(60)
+        w.uvarint(61)
         w.int(id)
         return w.buf
     }
     /// an assistive technology's action on an element: "press", "increment", "decrement", "focus", "scrollForward", …
     public static func accessibilityAction(id: Int, node: Int, action: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(61)
+        w.uvarint(62)
         w.int(id)
         w.int(node)
         w.string(action)

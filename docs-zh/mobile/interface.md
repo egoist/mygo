@@ -21,6 +21,34 @@ mygo.App.WhenReady(func() {
 
 标签页在 iOS 上指定一个 SF Symbol，在 Android 上（以及 iOS 上没有符号时）提供一张 PNG，按栏的颜色作为模板绘制。返回按钮、iOS 上从左边缘的轻扫和 Android 的返回会弹出推入的窗口，并关闭它；`Window.Pop` 也一样。在 iOS 上，栏浮在原生 UI 之上，列表在标签栏的玻璃下继续滚动；在 Android 上，栏使用窗口背景的颜色。在桌面上，这些窗口就是普通窗口：`Tabs.Select` 显示其中一个，推入的窗口也显示为一个窗口。`examples/tabs` 演示了两者，其中一个标签页是网页。
 
+`ui.Router` 也可以在一个窗口里把它的页面显示为系统的栈：设置 `SystemStack` 后，从第一页到当前页的历史就是栈，顶部是系统的导航栏，显示每页用 `Route.Title` 给出的标题和返回按钮。在 iOS 上由 UIKit 的导航控制器移动页面，并支持从左边缘轻扫返回；在 Android 上导航栏是 Material 的工具栏，带返回箭头，页面由路由器像 Android 应用那样滑动。`InSystemStack` 为真时不要再画自己的栏：
+
+```go
+func (app *notes) view(c *ui.Context) {
+	app.router.SystemStack = true // 在桌面和浏览器里没有任何变化
+	ui.Column(c).Fill().Children(func() {
+		if !app.router.InSystemStack(c) {
+			ui.Row(c).Children(func() {
+				ui.BackButton(c, app.router)
+				ui.Text(c, app.router.Title()).Bold()
+			})
+		}
+		app.router.View(c, func(r *ui.Route) {
+			switch {
+			case r.Match("/"):
+				r.Title("Notes")
+				app.list(c)
+			case r.Match("/notes/{id}"):
+				r.Title("Note")
+				app.note(c, r.Param("id"))
+			}
+		})
+	})
+}
+```
+
+路由器的 View 要占满窗口。在 iOS 上窗口只有一个绘制表面，它跟着当前页移动：下面的屏幕保留各自页面最后显示时的快照，手指返回时露出快照，回到该页后页面重新实时显示。`examples/gallery` 在手机上就是这样显示它的页面的。
+
 在 iPad 上，在 `mygo.json` 中设置 `"ios": {"multipleWindows": true}` 后，窗口可以成为系统自己的窗口，与应用的其他窗口并排：
 
 ```go

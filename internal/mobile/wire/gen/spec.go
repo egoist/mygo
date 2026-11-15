@@ -66,6 +66,9 @@ var calls = []msg{
 	{name: "PushWindow", doc: "shows Child over Parent in Parent's stack, under a bar with its Title and a back button",
 		args: []field{f("Parent", "int"), f("Child", "int"), f("Title", "string"), f("Animated", "bool")}},
 	{name: "PopWindow", args: []field{f("ID", "int"), f("Animated", "bool")}},
+	{name: "SetStack", doc: "a router's pages as the window's stack of screens, its first page and those deeper (Titles, told apart by Keys): the screens of the keys the stack shows stay, the others are pushed, popped or replaced; none take the stack away. Answered once the screen going out of sight holds what the surface shows, as the surface is about to show the page coming",
+		wait: true, args: []field{f("ID", "int"), f("Titles", "strings"), f("Keys", "strings")}},
+	{name: "StackShown", doc: "the surface shows the page of the stack's last screen, after SetStack or StackPopped", args: []field{f("ID", "int")}},
 
 	{name: "LoadURL", args: []field{f("ID", "int"), f("URL", "string")}},
 	{name: "LoadHTML", args: []field{f("ID", "int"), f("HTML", "string"), f("BaseURL", "string")}},
@@ -199,6 +202,7 @@ var events = []msg{
 	{name: "MenuPicked", args: []field{f("Req", "int"), f("Item", "int")}},
 	{name: "BarItemClicked", args: []field{f("ID", "int"), f("Index", "int")}},
 	{name: "TabSelected", doc: "the user chose tab Index", args: []field{f("ID", "int"), f("Index", "int")}},
+	{name: "StackPopped", doc: "the user took screens off a window's stack (SetStack): Depth stay", args: []field{f("ID", "int"), f("Depth", "int")}},
 	{name: "Popped", doc: "the window left its stack: the back button, a swipe, Android's back, or PopWindow", args: []field{f("ID", "int")}},
 	{name: "BackPressed", doc: "Android's back: whether the app took it", wait: true, args: []field{f("ID", "int")}, reply: []field{f("Handled", "bool")}},
 	{name: "Message", doc: "a message the page's bridge posted", args: []field{f("ID", "int"), f("Text", "string")}},

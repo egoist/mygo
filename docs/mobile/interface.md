@@ -32,6 +32,44 @@ Android the bars take the color of the window's background. On desktops
 the windows are windows: `Tabs.Select` shows one, and a pushed window
 shows as one. `examples/tabs` shows both, with a page in one of its tabs.
 
+A `ui.Router` can show its pages as the system's stack instead, in one
+window: with `SystemStack` set, the history up to the page shown is the
+stack, under the system's navigation bar with the title each page gives
+`Route.Title` and a back button. On iOS UIKit's navigation controller moves
+the pages, with its swipe from the left edge; on Android the bar is
+Material's toolbar, with its back arrow, and the router slides the pages as
+Android's apps do. Show no bar of your own while `InSystemStack` reports it:
+
+```go
+func (app *notes) view(c *ui.Context) {
+	app.router.SystemStack = true // on desktops and in browsers, nothing changes
+	ui.Column(c).Fill().Children(func() {
+		if !app.router.InSystemStack(c) {
+			ui.Row(c).Children(func() {
+				ui.BackButton(c, app.router)
+				ui.Text(c, app.router.Title()).Bold()
+			})
+		}
+		app.router.View(c, func(r *ui.Route) {
+			switch {
+			case r.Match("/"):
+				r.Title("Notes")
+				app.list(c)
+			case r.Match("/notes/{id}"):
+				r.Title("Note")
+				app.note(c, r.Param("id"))
+			}
+		})
+	})
+}
+```
+
+The router's View fills the window. On iOS the window keeps one surface,
+which goes with the page shown: the screens beneath hold a snapshot of
+their page as it last showed, which a finger going back uncovers, and
+the page shows live again once back. `examples/gallery` shows its
+pages so on phones.
+
 On iPad a window can be a window of the system's own, beside the app's others, with
 `"ios": {"multipleWindows": true}` in `mygo.json`:
 
