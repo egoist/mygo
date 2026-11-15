@@ -18,7 +18,7 @@ func TestConsumeActivationClick(t *testing.T) {
 	for _, kind := range []string{"page", "native", "embedded"} {
 		for _, enabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/%v", kind, enabled), func(t *testing.T) {
-				var clicks atomic.Int32
+				var clicks, pressesAtSecondClick atomic.Int32
 				var view *mygo.WebView
 				opts := mygo.WindowOptions{
 					Width: 300, Height: 200, X: 40, Y: 40,
@@ -27,9 +27,14 @@ func TestConsumeActivationClick(t *testing.T) {
 				if kind != "page" {
 					opts.Content = ui.View(func(c *ui.Context) {
 						if kind == "native" {
-							if ui.Box(c).Fill().Clicked() {
-								clicks.Add(1)
-							}
+							ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+								if ui.Box(c).Grow(1).Clicked() {
+									clicks.Add(1)
+								}
+								if ui.Box(c).Grow(1).Clicked() {
+									pressesAtSecondClick.Store(clicks.Add(1))
+								}
+							})
 						} else if view != nil {
 							ui.WebView(c, view).Fill()
 						}
@@ -46,7 +51,7 @@ func TestConsumeActivationClick(t *testing.T) {
 					page = v.Page()
 				}
 				if page != nil {
-					page.LoadHTML(`<body style="margin:0;height:100vh" onmousedown="window.presses++"><script>window.presses=0</script>`, "")
+					page.LoadHTML(`<body style="margin:0;height:100vh" onmousedown="window.presses++; if (event.clientX >= 150) window.pressesAtSecondClick = window.presses"><script>window.presses=0</script>`, "")
 					waitForPage(t, page, "window.presses === 0")
 				}
 				wantClass := "MyGoWebView"
@@ -66,18 +71,29 @@ func TestConsumeActivationClick(t *testing.T) {
 				eventually(t, "the other window focused", other.IsFocused)
 				appClick(w, 100, 100)
 				eventually(t, "the clicked window focused", w.IsFocused)
-				appClick(w, 100, 100)
+				// Use a different target for the second click. Its handler
+				// records the count after both presses have been handled,
+				// so a transient count of one cannot satisfy the assertion.
+				appClick(w, 200, 100)
 				want := int32(2)
 				if enabled {
 					want = 1
 				}
-				eventually(t, "the content's clicks", func() bool {
-					if page == nil {
-						return clicks.Load() == want
+				var got int32
+				if page == nil {
+					eventually(t, "the second native click handled", func() bool { return pressesAtSecondClick.Load() > 0 })
+					got = pressesAtSecondClick.Load()
+				} else {
+					waitForPage(t, page, "Number.isInteger(window.pressesAtSecondClick)")
+					n, err := mygo.EvalAs[int](page, "window.pressesAtSecondClick")
+					if err != nil {
+						t.Fatal(err)
 					}
-					n, err := mygo.EvalAs[int](page, "window.presses")
-					return err == nil && n == int(want)
-				})
+					got = int32(n)
+				}
+				if got != want {
+					t.Fatalf("presses after the second click = %d, want %d", got, want)
+				}
 			})
 		}
 	}
