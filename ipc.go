@@ -395,6 +395,24 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 	}
 	var result any
 	var err error
+	if m.C {
+		// The page may cancel the call with a signal: the method gets a
+		// context of its own, which the page cancels. The call is
+		// remembered before it is made, so that it is remembered as run
+		// however it ends: a cancel that comes after the reply left for
+		// the page finds the id of a call that ran, and is dropped.
+		var cancel context.CancelFunc
+		if ctx != nil {
+			ctx, cancel = context.WithCancel(ctx)
+			w.addCancel(m.ID, m.K, cancel)
+		}
+		defer func() {
+			w.removeCancel(m.ID, m.K)
+			if cancel != nil {
+				cancel()
+			}
+		}()
+	}
 	if w.untrusted {
 		err = errors.New("this page is untrusted (PageOptions.Untrusted) and may not call Go methods")
 	} else if !trusted {
@@ -402,17 +420,6 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 	} else if mi := lookupMethod(m.M); mi == nil {
 		err = notBound(m.M)
 	} else {
-		if m.C {
-			// The page may cancel the call with a signal: the method gets
-			// a context of its own, which the page cancels.
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithCancel(ctx)
-			w.addCancel(m.ID, m.K, cancel)
-			defer func() {
-				w.removeCancel(m.ID, m.K)
-				cancel()
-			}()
-		}
 		result, err = mi.call(w, ctx, m.K, m.A)
 	}
 	w.enqueue(encodeReply(m.ID, m.K, result, err), false)

@@ -81,3 +81,30 @@ func TestCancelCallOfAnotherPage(t *testing.T) {
 	w.removeCancel(3, "tok")
 	w.cancelCall(3, "tok")
 }
+
+// A page that aborts after the call is over but before the reply reaches
+// it: the cancel finds the id of a call that ran, and is dropped, rather
+// than waiting for the page to reload. A page that lives long would fill
+// the waits of canceledEarly, and its early cancels would be forgotten.
+func TestCancelCallOfACallThatRan(t *testing.T) {
+	w := &Window{}
+	// More cancels of calls that ran than canceledEarly holds.
+	for id := int64(1); id <= maxCanceledEarly+1; id++ {
+		w.addCancel(id, "tok", func() {})
+		w.removeCancel(id, "tok")
+		w.cancelCall(id, "tok")
+	}
+	if len(w.canceledEarly) != 0 {
+		t.Errorf("the window waits for %d cancels of calls that ran", len(w.canceledEarly))
+	}
+	// An early cancel still works: the call is canceled as it makes it.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w.cancelCall(maxCanceledEarly+2, "tok")
+	w.addCancel(maxCanceledEarly+2, "tok", cancel)
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("the call was not canceled")
+	}
+}
