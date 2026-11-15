@@ -946,26 +946,94 @@ func TestTableFrozenRevealsCursor(t *testing.T) {
 	}
 }
 
-// Frozen columns do not move, as Fixed ones do not, and only a run of
-// them from the first is pinned.
+// Frozen columns move like any other: the pinned run is the leading
+// Frozen columns of the order the layout gives, and only a run from the
+// first is pinned. Fixed ones stay where they are.
 func TestTableFrozenArrangeAndGeometry(t *testing.T) {
 	cols := []TableColumn{{Title: "A", Width: 50, Frozen: true}, {Title: "B", Width: 60, Frozen: true}, {Title: "C", Width: 70}, {Title: "D", Width: 80, Frozen: true}, {Title: "E", Width: 90}}
-	layout := TableLayout{Order: []string{"E", "C", "A", "B", "D"}}
+	layout := TableLayout{}
 	order := layout.arrange(cols)
-	if !slices.Equal(order, []int{0, 1, 3, 2, 4}) && !slices.Equal(order, []int{0, 1, 4, 3, 2}) {
+	if !slices.Equal(order, []int{0, 1, 2, 3, 4}) {
 		t.Errorf("arrange: %v", order)
-	}
-	if order[0] != 0 || order[1] != 1 || order[3] != 3 {
-		t.Errorf("frozen columns moved: %v", order)
 	}
 	starts, n, w := tableGeometry(&layout, cols, order)
 	if n != 2 || w != 110 || len(starts) != 6 || starts[2] != 110 || starts[5] != 350 {
 		t.Errorf("geometry: starts %v, %d frozen, %v wide", starts, n, w)
 	}
+	// Moved: D takes the first place, then B, A; C and E follow.
+	layout = TableLayout{Order: []string{"D", "B", "A", "E", "C"}}
+	order = layout.arrange(cols)
+	if !slices.Equal(order, []int{3, 1, 0, 4, 2}) {
+		t.Errorf("arrange after the move: %v", order)
+	}
+	starts, n, w = tableGeometry(&layout, cols, order)
+	if n != 3 || w != 190 || starts[3] != 190 {
+		t.Errorf("pinned run after the move: starts %v, %d frozen, %v wide", starts, n, w)
+	}
+	// An unfrozen column first pins nothing, and a Frozen one after it
+	// scrolls.
+	layout = TableLayout{Order: []string{"C", "A", "B", "D", "E"}}
+	order = layout.arrange(cols)
+	if _, n, w = tableGeometry(&layout, cols, order); n != 0 || w != 0 {
+		t.Errorf("an unfrozen first column: %d frozen, %v wide", n, w)
+	}
+	// A Fixed column stays where it is, Frozen or not.
+	fixed := []TableColumn{{Title: "A", Width: 50, Fixed: true, Frozen: true}, {Title: "B", Width: 60, Frozen: true}, {Title: "C", Width: 70}}
+	layout = TableLayout{Order: []string{"C", "B", "A"}}
+	if order = layout.arrange(fixed); !slices.Equal(order, []int{0, 2, 1}) {
+		t.Errorf("a fixed column moved: %v", order)
+	}
 	// One sharing the room left cannot pin, nor can a column after it.
 	flex := []TableColumn{{Title: "A", Frozen: true}, {Title: "B", Width: 60, Frozen: true}}
 	if starts, n, _ := tableGeometry(&TableLayout{}, flex, []int{0, 1}); n != 0 || starts != nil {
 		t.Errorf("a frozen column sharing the room left: starts %v, %d frozen", starts, n)
+	}
+}
+
+// A Frozen column is dragged to another place and resized like any other,
+// and the pinned run follows the order after the move.
+func TestTableFrozenMovesAndResizes(t *testing.T) {
+	s := ListState{}
+	cols := []TableColumn{{Title: "Name", Width: 100, Frozen: true}, {Title: "Kind", Width: 100, Frozen: true}, {Title: "Size", Width: 80}}
+	tt := coreNewTester(tableView(&s, cols, []string{"a.txt"}), 500, 300)
+	name := header(t, tt, "Name")
+	y := float32(name.Y + name.H/2)
+	// Name dragged past the middle of Kind.
+	x := float32(name.X + 20)
+	tt.Press(x, y)
+	for _, d := range []float32{5, 20, 50, 60} {
+		tt.Move(x+d, y)
+	}
+	tt.Release(x+60, y)
+	if got := s.Columns.Order; len(got) != 3 || got[0] != "Kind" || got[1] != "Name" || got[2] != "Size" {
+		t.Fatalf("the order after moving a frozen column: %q", got)
+	}
+	order := s.Columns.arrange(cols)
+	if _, n, w := tableGeometry(&s.Columns, cols, order); n != 2 || w != 200 {
+		t.Errorf("pinned run after the move: %d frozen, %v wide", n, w)
+	}
+	// Moved past the unfrozen Size, it leaves the pinned run.
+	name = header(t, tt, "Name")
+	x = float32(name.X + 20)
+	tt.Press(x, y)
+	for _, d := range []float32{5, 20, 50, 60} {
+		tt.Move(x+d, y)
+	}
+	tt.Release(x+60, y)
+	if got := s.Columns.Order; got[2] != "Name" {
+		t.Fatalf("the order after the second move: %q", got)
+	}
+	order = s.Columns.arrange(cols)
+	if _, n, w := tableGeometry(&s.Columns, cols, order); n != 1 || w != 100 {
+		t.Errorf("pinned run once Name left it: %d frozen, %v wide", n, w)
+	}
+	// Kind, still pinned, resizes from the edge of its header.
+	kind := header(t, tt, "Kind")
+	tt.Press(float32(kind.X+kind.W-1), y)
+	tt.Move(float32(kind.X+kind.W+20), y)
+	tt.Release(float32(kind.X+kind.W+40), y)
+	if w := header(t, tt, "Kind").W; w <= 100 {
+		t.Errorf("a frozen column stayed %v wide", w)
 	}
 }
 

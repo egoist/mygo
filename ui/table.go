@@ -24,7 +24,8 @@ type TableColumn struct {
 	// with ListState.Sort or SortBy.
 	Sortable bool
 	// Fixed keeps the column where it is and as wide as it is: the user
-	// neither moves nor resizes it.
+	// neither moves nor resizes it. It does not pin the column when the
+	// table scrolls sideways; that is Frozen.
 	Fixed bool
 	// RowHeader marks a column of row headers, as a spreadsheet's row
 	// numbers: in a table choosing cells (ListState.CellSelect), a click or
@@ -33,17 +34,20 @@ type TableColumn struct {
 	// never Cells.Cursor.
 	RowHeader bool
 	// Frozen pins the column at the start of the table while the others
-	// scroll sideways under it. Only the columns from the first in a row
+	// scroll sideways under it, and nothing else: unlike Fixed, the user
+	// still moves and resizes it. Only the columns from the first in a row
 	// are pinned, each with a Width (or one the user resized): a Frozen
 	// column after one that is not, or sharing the room left, scrolls as
-	// the others. A Frozen column stays where it is as a Fixed one does, but
-	// the user may still resize it. Give them room: the columns that
+	// the others. What is pinned follows the order of the columns, so
+	// moving a Frozen column pins the one that takes its place if that one
+	// is Frozen too, and not otherwise. Give them room: the columns that
 	// scroll can only be seen in what the pinned ones leave.
 	Frozen bool
 }
 
-// stationary reports whether the user cannot move the column.
-func (col *TableColumn) stationary() bool { return col.Fixed || col.Frozen }
+// stationary reports whether the user cannot move the column. Frozen has
+// no say: it is about scrolling only.
+func (col *TableColumn) stationary() bool { return col.Fixed }
 
 // sortable reports whether a click on the column's header sorts by it: a
 // RowHeader column does not.
@@ -824,8 +828,8 @@ func tableGeometry(layout *TableLayout, columns []TableColumn, order []int) (sta
 		}
 		starts = append(starts, starts[len(starts)-1]+w)
 	}
-	// Only a run of Frozen columns with widths, from the first, is pinned;
-	// the order keeps them where they are.
+	// Only a run of Frozen columns with widths, from the first of order, is
+	// pinned: the user's moves change which.
 	for k, j := range order {
 		w, ok := layout.width(&columns[j])
 		if !columns[j].Frozen || !ok || k != frozenN {
