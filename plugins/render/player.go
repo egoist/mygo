@@ -3,6 +3,7 @@ package render
 import (
 	"image"
 	"io"
+	"math"
 	"time"
 
 	"github.com/egoist/mygo/internal/raster"
@@ -80,4 +81,17 @@ func (d *compDecoder) Seek(t time.Duration) (time.Duration, error) {
 }
 
 // Duration returns the length of the composition.
-func (d *compDecoder) Duration() time.Duration { return d.s.at(d.comp.Frames) }
+func (d *compDecoder) Duration() time.Duration {
+	num, den := d.comp.rate()
+	return time.Duration(math.Round(float64(d.comp.Frames) * float64(den) * float64(time.Second) / float64(num)))
+}
+
+// Close drops the session and the frames' memory, as the player closes.
+func (d *compDecoder) Close() error {
+	if d.s != nil {
+		d.s.rec.Close()
+		d.s = nil
+	}
+	d.r.Release()
+	return nil
+}
