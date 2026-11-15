@@ -366,7 +366,10 @@ class HostWindow: UIView {
 
     /// Tells Go the window's size and what covers it, when they changed.
     func reportSize() {
-        let s = holder == nil ? safeAreaInsets : .zero
+        var s = holder == nil ? safeAreaInsets : .zero
+        // A large title, in the scroll view standing for the page's
+        // content, covers the page further down than the bars.
+        if holder == nil, let top = (superview?.next as? ScreenController)?.topInset { s.top = max(s.top, top) }
         let scale = window?.screen.scale ?? traitCollection.displayScale
         let size = [Double(bounds.width), Double(bounds.height), Double(scale), Double(s.top), Double(s.left),
                     Double(s.bottom), Double(s.right), Double(keyboardCover)]

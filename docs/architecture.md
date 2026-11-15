@@ -1042,7 +1042,14 @@ fake host. Desktop files of `darwin` and `linux` exclude `ios` and
   takes the router back; the surface hides under the snapshot until the
   core presented the page there (`StackShown`). The router shows each
   page at once there, the system moving the screens; on Android the
-  toolbar alone follows the stack and the router slides the pages. Each window's insets come
+  toolbar alone follows the stack and the router slides the pages. Each
+  screen of native UI on iOS holds an empty scroll view over the surface
+  (`ScreenController.titles`, clear, taking no touches), which UIKit takes
+  for the page's content (`setContentScrollView`): iOS 26 draws a large
+  title in it, and moves it with the page under the one a finger takes
+  back, beneath it, as for a table; without one, it shows the title at
+  once over that page. The surface's top inset is the scroll view's
+  (`adjustedContentInset`), which counts the large title. Each window's insets come
   from where layout put it (Android: its position in the root, ignoring
   the translation of a page sliding in), so a window under a toolbar has
   no top inset and one above the tab bar no bottom one. iOS 26's bars

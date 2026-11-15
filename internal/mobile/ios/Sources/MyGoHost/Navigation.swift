@@ -11,11 +11,14 @@ import UIKit
 
 /// A screen of a stack, which holds the window while it shows, and else
 /// may hold a snapshot of what it showed.
-class ScreenController: UIViewController {
+class ScreenController: UIViewController, UIScrollViewDelegate {
     let window: HostWindow
     /// snapshot shows the page as it last showed, over the window, or in
     /// place of it.
     var snapshot: UIView?
+    /// titles is the scroll view UIKit takes for the page's content, over
+    /// the window, in which iOS 26 shows a large title.
+    var titles: UIScrollView?
 
     init(_ w: HostWindow) {
         window = w
@@ -28,6 +31,40 @@ class ScreenController: UIViewController {
         let v = UIView(frame: window.frame)
         v.backgroundColor = window.backgroundColor
         view = v
+        if window is SurfaceWindow {
+            // Native UI's scrolls are its own: this one, empty, clear and
+            // over the window, which nothing scrolls, stands for them as the
+            // page's content (contentScrollView). iOS 26 shows a large title
+            // in it, at its top, and moves it with the page under the one a
+            // finger takes back, beneath it; without one, it shows the title
+            // at once, over that page.
+            let t = UIScrollView(frame: v.bounds)
+            t.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            t.isUserInteractionEnabled = false
+            // The status bar's tap goes to the one scroll view that takes it,
+            // the root's, which tells Go.
+            t.scrollsToTop = false
+            t.backgroundColor = .clear
+            t.delegate = self
+            v.addSubview(t)
+            setContentScrollView(t, for: .top)
+            titles = t
+        }
+    }
+
+    /// add puts a view of the page in it, under the large title.
+    func add(_ sub: UIView) {
+        if let t = titles { view.insertSubview(sub, belowSubview: t) } else { view.addSubview(sub) }
+    }
+
+    /// topInset is how far down the bars and a large title cover the page.
+    var topInset: CGFloat? {
+        guard let t = titles else { return nil }
+        return t.adjustedContentInset.top
+    }
+
+    func scrollViewDidChangeAdjustedContentInset(_ s: UIScrollView) {
+        if window.superview === view { window.reportSize() }
     }
 
     override func viewDidLayoutSubviews() {
@@ -49,7 +86,7 @@ final class WindowController: ScreenController {
         super.loadView()
         window.frame = view.bounds
         window.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(window)
+        view.insertSubview(window, at: 0)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -290,7 +327,7 @@ final class Navigation: NSObject, UINavigationControllerDelegate, UITabBarContro
         guard w.superview === vc.view, !w.isHidden, let s = w.snapshotView(afterScreenUpdates: false) else { return }
         s.frame = w.frame
         s.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        vc.view.addSubview(s)
+        vc.add(s)
         vc.snapshot = s
     }
 
