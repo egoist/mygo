@@ -205,3 +205,12 @@ and 60 frames a second, renders on an Apple M5 at 242 frames a second
 with Metal and the hardware encoder, using 1.7 ms of the CPU a frame,
 building included: 0.4 of a core. The CPU renderer makes the same video
 at 167 frames a second on all cores, 34 ms of the CPU a frame.
+
+What the GPU renderers draw on the CPU costs every frame of a video:
+the coverage of clips with a transform and of masks, which they keep
+until the clip or mask moves. A clip under a 3D perspective, as a window
+tilting in, covers the whole frame; a mask on an element that moves
+every frame, as a scrolling grid's, is made anew each frame. Round the
+corners of what is inside such a window rather than clip it, and put a
+mask on a parent that stands still, with what moves inside it: a promo
+of 34 seconds that did both went from 106 seconds of the CPU to 7.
