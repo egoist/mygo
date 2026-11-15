@@ -75,7 +75,7 @@ var (
 	mfMediaTypeAudio  = mfGUID(0x73647561) // 'auds'
 	mfVideoFormatH264 = mfGUID(0x34363248) // 'H264'
 	mfVideoFormatHEVC = mfGUID(0x43564548) // 'HEVC'
-	mfVideoFormatRGB  = mfGUID(22)         // D3DFMT_X8R8G8B8: RGB32
+	mfVideoFormatNV12 = mfGUID(0x3231564e) // 'NV12'
 	mfAudioFormatAAC  = mfGUID(0x1610)     // WAVE_FORMAT_MPEG_HEAAC
 	mfAudioFormatPCM  = mfGUID(1)
 )
@@ -261,10 +261,16 @@ func (s *mfSink) open() error {
 		}
 		return fmt.Errorf("render: Media Foundation has no %v encoder of %d×%d: %#x", sp.codec, sp.w, sp.h, uint32(hr))
 	}
+	// The frames come in NV12 of BT.709, converted in Go (bgraToNV12), as
+	// the encoder takes them: the sink writer's own conversion of RGB32
+	// takes BT.601's matrix.
 	in, err := mediaType(append(common,
-		attr{key: &mfMTSubtype, guid: &mfVideoFormatRGB},
-		// A positive stride: rows from the top.
-		attr{key: &mfMTDefaultStride, value: uint64(sp.w * 4)})...)
+		attr{key: &mfMTSubtype, guid: &mfVideoFormatNV12},
+		attr{key: &mfMTDefaultStride, value: uint64(sp.w)},
+		attr{key: &mfMTVideoPrimaries, value: bt709Primaries},
+		attr{key: &mfMTTransferFunction, value: bt709Transfer},
+		attr{key: &mfMTYUVMatrix, value: bt709Matrix},
+		attr{key: &mfMTNominalRange, value: range16to235})...)
 	if err != nil {
 		return err
 	}
@@ -273,7 +279,7 @@ func (s *mfSink) open() error {
 		if uint32(hr) == mfCodecNotFound {
 			return fmt.Errorf("render: %w: Windows has no %v encoder (for HEVC, the HEVC Video Extensions): encode it with Options{Encoder: render.FFmpeg}", errors.ErrUnsupported, sp.codec)
 		}
-		return fmt.Errorf("render: Media Foundation cannot encode RGB32 frames: %#x", uint32(hr))
+		return fmt.Errorf("render: Media Foundation cannot encode NV12 frames: %#x", uint32(hr))
 	}
 	if s.hasSound {
 		// The AAC encoder takes 96, 128, 160 or 192 kb/s.
@@ -314,8 +320,9 @@ func (s *mfSink) open() error {
 	return nil
 }
 
-// write gives stream a sample of data at time t for duration d, in 100 ns.
-func (s *mfSink) write(stream uint32, data unsafe.Pointer, size int, t, d int64) error {
+// write gives stream a sample of size bytes, which fill writes, at time t
+// for duration d, in 100 ns.
+func (s *mfSink) write(stream uint32, size int, fill func([]byte), t, d int64) error {
 	var buf, sample uintptr
 	if hr, _, _ := procMFCreateMemoryBuffer.Call(uintptr(size), uintptr(unsafe.Pointer(&buf))); failed(hr) {
 		return fmt.Errorf("render: Media Foundation: no buffer: %#x", uint32(hr))
@@ -325,7 +332,7 @@ func (s *mfSink) write(stream uint32, data unsafe.Pointer, size int, t, d int64)
 	if hr := call(buf, bufferLock, uintptr(unsafe.Pointer(&p)), 0, 0); failed(hr) {
 		return fmt.Errorf("render: Media Foundation: cannot lock a buffer: %#x", uint32(hr))
 	}
-	copy(unsafe.Slice((*byte)(cptr(p)), size), unsafe.Slice((*byte)(data), size))
+	fill(unsafe.Slice((*byte)(cptr(p)), size))
 	call(buf, bufferUnlock)
 	call(buf, bufferSetCurrentLength, uintptr(size))
 	if hr, _, _ := procMFCreateSample.Call(uintptr(unsafe.Pointer(&sample))); failed(hr) {
@@ -350,7 +357,12 @@ func (s *mfSink) soundTo(to int64) error {
 		n := min(to-s.samples, sampleRate/10)
 		pcm := track[2*s.samples : 2*(s.samples+n)]
 		t := s.samples * 10_000_000 / sampleRate
-		if err := s.write(s.audio, unsafe.Pointer(&pcm[0]), len(pcm)*2, t, n*10_000_000/sampleRate); err != nil {
+		fill := func(b []byte) {
+			for i, v := range pcm {
+				b[2*i], b[2*i+1] = byte(v), byte(uint16(v)>>8)
+			}
+		}
+		if err := s.write(s.audio, len(pcm)*2, fill, t, n*10_000_000/sampleRate); err != nil {
 			return err
 		}
 		s.samples += n
@@ -369,7 +381,7 @@ func (s *mfSink) frame(_ int, pix []byte) error {
 			return err
 		}
 	}
-	return s.write(s.video, unsafe.Pointer(&pix[0]), len(pix), t, next-t)
+	return s.write(s.video, sp.w*sp.h*3/2, func(b []byte) { bgraToNV12(b, pix, sp.w, sp.h) }, t, next-t)
 }
 
 func (s *mfSink) close() error {

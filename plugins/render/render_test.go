@@ -609,3 +609,60 @@ func TestFFmpeg(t *testing.T) {
 		t.Errorf("files left: %v", entries)
 	}
 }
+
+// TestPlayer shows a composition's frames in a window, as the video has
+// them, and seeks without drawing the frames before.
+func TestPlayer(t *testing.T) {
+	comp := Composition{Width: 40, Height: 40, FPS: 10, Frames: 30, View: func(c *ui.Context, f Frame) {
+		ui.Box(c).Fill().Background(InterpolateColor(float64(f.Index), []float64{0, 29}, []ui.Color{ui.RGB(255, 0, 0), ui.RGB(0, 0, 255)}))
+	}}
+	p, err := NewPlayer(comp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if p.Duration() != 3*time.Second {
+		t.Errorf("a duration of %v", p.Duration())
+	}
+	tt := ui.NewTester(func(c *ui.Context) { ui.Video(c, p).Size(40, 40) }, 40, 40)
+	p.Pause()
+	for _, c := range []struct {
+		at    time.Duration
+		frame int
+	}{{2050 * time.Millisecond, 20}, {500 * time.Millisecond, 5}, {time.Hour, 29}} {
+		p.Seek(c.at)
+		tt.Frame()
+		want := InterpolateColor(float64(c.frame), []float64{0, 29}, []ui.Color{ui.RGB(255, 0, 0), ui.RGB(0, 0, 255)})
+		got := tt.Image().RGBAAt(20, 20)
+		if d := max(absDiff(got.R, want.R), absDiff(got.B, want.B)); d > 2 {
+			t.Errorf("sought to %v: %v, want frame %d's %v", c.at, got, c.frame, want)
+		}
+	}
+}
+
+func absDiff(a, b uint8) int { return max(int(a)-int(b), int(b)-int(a)) }
+
+// TestNV12 converts colors as BT.709 in the limited range has them.
+func TestNV12(t *testing.T) {
+	for _, c := range []struct {
+		bgra      [4]byte
+		y, cb, cr byte
+	}{
+		{[4]byte{0, 0, 0, 255}, 16, 128, 128},
+		{[4]byte{255, 255, 255, 255}, 235, 128, 128},
+		{[4]byte{0, 0, 255, 255}, 63, 102, 240}, // red
+		{[4]byte{0, 255, 0, 255}, 173, 42, 26},  // green
+		{[4]byte{255, 0, 0, 255}, 32, 240, 118}, // blue
+		{[4]byte{0, 0, 0, 0}, 16, 128, 128},     // transparent: black
+	} {
+		src := make([]byte, 4*4*2)
+		for i := 0; i < len(src); i += 4 {
+			copy(src[i:], c.bgra[:])
+		}
+		dst := make([]byte, 4*2*3/2)
+		bgraToNV12(dst, src, 4, 2)
+		if dst[0] != c.y || dst[7] != c.y || dst[8] != c.cb || dst[9] != c.cr {
+			t.Errorf("%v: Y %d, Cb %d, Cr %d, want %d %d %d", c.bgra, dst[0], dst[8], dst[9], c.y, c.cb, c.cr)
+		}
+	}
+}
