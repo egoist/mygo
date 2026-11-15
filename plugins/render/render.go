@@ -71,6 +71,39 @@ type Composition struct {
 	Dark        bool
 	Preferences ui.Preferences
 	Locale      string
+
+	// MotionBlur blurs what moves, as a camera's shutter does, when its
+	// Samples are more than 1.
+	MotionBlur MotionBlur
+}
+
+// MotionBlur is a camera's motion blur, as Remotion's CameraMotionBlur
+// makes it: each frame is the mean of Samples frames built at times
+// spread over the time the shutter is open before it, which Shutter
+// gives in degrees of the frame's time, 180 (half of it) when zero, up to
+// 360. Each sample is built and drawn, so a frame costs Samples times
+// as much; 5 to 10 samples blur smoothly.
+//
+// The samples' times are fractions of a frame before it: what moves with
+// time blurs, the view's Interpolate, Spring, Exact and Seconds, and ui's
+// own animations, which follow the clock; what moves with the whole
+// Frame.Index does not.
+type MotionBlur struct {
+	Samples int
+	Shutter float64
+}
+
+// shutter returns the samples and the fraction of a frame they spread
+// over, 1 sample for none.
+func (m MotionBlur) shutter() (int, float64) {
+	if m.Samples <= 1 {
+		return 1, 0
+	}
+	angle := m.Shutter
+	if angle == 0 {
+		angle = 180
+	}
+	return m.Samples, angle / 360
 }
 
 // rate returns the frames a second as a fraction num/den.
@@ -102,6 +135,10 @@ func (c *Composition) validate() error {
 		return errors.New("render: Scale must not be negative")
 	case c.View == nil:
 		return errors.New("render: a composition needs a View")
+	case c.MotionBlur.Samples < 0 || c.MotionBlur.Samples > 64:
+		return errors.New("render: MotionBlur takes 0 to 64 Samples")
+	case c.MotionBlur.Shutter < 0 || c.MotionBlur.Shutter > 360 || math.IsNaN(c.MotionBlur.Shutter):
+		return errors.New("render: MotionBlur's Shutter is 0 to 360 degrees")
 	}
 	return nil
 }
@@ -267,6 +304,8 @@ type session struct {
 	// plays are the sounds the view played in the frame it built last.
 	plays []play
 	mix   *mixer
+	// acc sums the samples of motion blur.
+	acc accumulator
 }
 
 func newSession(comp Composition) *session {
@@ -301,9 +340,34 @@ func (s *session) at(i int) time.Duration {
 }
 
 // build builds frame i and returns its scene.
-func (s *session) build(i int) *scene.Scene {
-	s.frame = Frame{Index: i, Count: s.comp.Frames, FPS: float64(s.num) / float64(s.den), s: s, at: i}
-	return s.rec.Frame(s.at(i))
+func (s *session) build(i int) *scene.Scene { return s.buildAt(i, 0) }
+
+// buildAt builds frame i at sub frames from its time, as a sample of
+// motion blur does.
+func (s *session) buildAt(i int, sub float64) *scene.Scene {
+	s.frame = Frame{Index: i, Count: s.comp.Frames, FPS: float64(s.num) / float64(s.den), s: s, at: i, sub: sub}
+	at := s.at(i)
+	if sub != 0 {
+		at = time.Duration(math.Round((float64(i) + sub) * float64(s.den) * float64(time.Second) / float64(s.num)))
+	}
+	return s.rec.Frame(at)
+}
+
+// blurred draws frame i as the mean of its motion blur's samples, the
+// earliest first, and returns its pixels, valid until the next call.
+func (s *session) blurred(i int, d drawer) ([]byte, error) {
+	n, shutter := s.comp.MotionBlur.shutter()
+	for k := n - 1; k >= 0; k-- {
+		if err := d.submit(s.buildAt(i, -shutter*float64(k)/float64(n))); err != nil {
+			return nil, err
+		}
+		pix, err := d.pixels()
+		if err != nil {
+			return nil, err
+		}
+		s.acc.add(pix, k == n-1)
+	}
+	return s.acc.mean(n), nil
 }
 
 // run renders the frames o chooses of comp into the sink open returns.
@@ -337,6 +401,11 @@ func run(ctx context.Context, comp Composition, o Options, open func(*session, d
 		}
 	}()
 	scenes, _ := out.(sceneSink)
+	samples, _ := comp.MotionBlur.shutter()
+	if samples > 1 {
+		// The samples are averaged in memory.
+		scenes = nil
+	}
 	start := time.Now()
 	report := func(i int) {
 		if o.Progress != nil {
@@ -354,6 +423,17 @@ func run(ctx context.Context, comp Composition, o Options, open func(*session, d
 	for i := from; i < to; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if samples > 1 {
+			pix, err := s.blurred(i, d)
+			if err != nil {
+				return err
+			}
+			if err := out.frame(i, pix); err != nil {
+				return err
+			}
+			report(i)
+			continue
 		}
 		sc := s.build(i)
 		if scenes != nil {
@@ -379,9 +459,13 @@ func run(ctx context.Context, comp Composition, o Options, open func(*session, d
 		}
 		prev = i
 	}
-	if scenes != nil {
+	switch {
+	case samples > 1:
+		// Each frame was written as it was drawn.
+		return out.close()
+	case scenes != nil:
 		err = scenes.flush()
-	} else {
+	default:
 		err = writePixels(d, out, prev)
 	}
 	if err != nil {

@@ -6,7 +6,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/egoist/mygo/internal/raster"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -33,7 +32,7 @@ func NewPlayer(comp Composition) (*ui.VideoPlayer, error) {
 type compDecoder struct {
 	comp Composition
 	s    *session
-	r    raster.Renderer
+	r    cpuDrawer
 	img  *image.RGBA
 	// next is the frame Next draws, which the session builds next.
 	next int
@@ -52,11 +51,20 @@ func (d *compDecoder) Next() (ui.VideoFrame, error) {
 	if d.next >= d.comp.Frames {
 		return ui.VideoFrame{}, io.EOF
 	}
-	d.r.Render(d.s.build(d.next))
+	var pix []byte
+	if n, _ := d.comp.MotionBlur.shutter(); n > 1 {
+		var err error
+		if pix, err = d.s.blurred(d.next, &d.r); err != nil {
+			return ui.VideoFrame{}, err
+		}
+	} else {
+		d.r.submit(d.s.build(d.next))
+		pix, _ = d.r.pixels()
+	}
 	if d.img == nil {
 		d.img = image.NewRGBA(image.Rect(0, 0, d.comp.Width, d.comp.Height))
 	}
-	bgraToRGBA(d.img.Pix, d.r.Image.Pix)
+	bgraToRGBA(d.img.Pix, pix)
 	dur := d.s.at(d.next+1) - d.s.at(d.next)
 	d.next++
 	return ui.VideoFrame{Image: d.img, Duration: dur}, nil
@@ -97,6 +105,6 @@ func (d *compDecoder) Close() error {
 		d.s.rec.Close()
 		d.s = nil
 	}
-	d.r.Release()
+	d.r.release()
 	return nil
 }

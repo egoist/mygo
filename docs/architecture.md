@@ -5888,6 +5888,15 @@ BT.601's, so its frames are converted to NV12 of BT.709 in Go
 codec's list that encodes a test frame (`probe`): hardware encoders'
 elements exist without their hardware.
 
+Motion blur (`Composition.MotionBlur`) builds each frame `Samples` times
+at sub-frame times, before the frame's, earliest first, so the Recorder's
+clock still only goes forward (the earliest sample of a frame comes after
+the frame before, as the shutter is at most a frame), draws each, reads
+it back and sums it in 16 bits on all cores (`accumulator`); the
+zero-copy AVFoundation path is skipped then. `Frame.sub` carries the
+fraction to the view (`Exact`, `Seconds`, `Interpolate`, `Spring`);
+`soundtrack` builds whole frames.
+
 `NewPlayer` is a `ui.VideoSeeker`: a `ui.VideoPlayer` seeks it at once,
 and it builds the frames before the one it goes to without drawing
 them, from a new session when it goes back.

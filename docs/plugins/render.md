@@ -91,6 +91,24 @@ builds them again as it seeks. Load what the view shows, pictures,
 fonts, data, before rendering, and read the time from the frame, not
 from `time.Now`.
 
+## Motion blur
+
+`MotionBlur` blurs what moves, as a camera's shutter does, as Remotion's
+`CameraMotionBlur` does: each frame is the mean of `Samples` frames, built
+at times spread over the time the shutter is open before it, `Shutter`
+degrees of the frame's time (180, half of it, by default).
+
+```go
+comp.MotionBlur = render.MotionBlur{Samples: 6}
+```
+
+The samples' times fall between frames, where `f.Exact()` has the
+fraction: what moves with `Interpolate`, `Spring`, `Seconds` or `Exact`,
+and `ui`'s own animations, which follow the clock, blur; what moves with
+the whole `f.Index` does not. Each sample is built and drawn, so a frame
+costs `Samples` times as much; the samples are averaged in memory, on
+all cores.
+
 ## Sound
 
 `f.Audio(sound)` plays a sound during the frame, from where it is at

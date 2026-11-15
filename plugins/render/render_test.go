@@ -718,3 +718,80 @@ func TestSoundAcrossFrames(t *testing.T) {
 		}
 	}
 }
+
+// TestMotionBlur makes each frame the mean of samples over the shutter's
+// time: a box moving 4 pixels a frame covers, at frame 5 with 4 samples
+// over the whole frame, the pixels from 17 to 28, the more the later.
+func TestMotionBlur(t *testing.T) {
+	comp := Composition{
+		Width: 48, Height: 8, Frames: 10, Background: ui.RGB(255, 255, 255),
+		MotionBlur: MotionBlur{Samples: 4, Shutter: 360},
+		View: func(c *ui.Context, f Frame) {
+			ui.Box(c).Size(8, 8).Background(ui.RGB(0, 0, 0)).Translate(float32(4*f.Exact()), 0)
+			ui.Box(c).Absolute().Left(40).Top(0).Size(8, 8).Background(ui.RGB(255, 0, 0)) // still
+		},
+	}
+	for _, r := range []Renderer{CPU, GPU} {
+		img, err := Still(comp, 5, Options{Renderer: r})
+		if r == GPU && err != nil {
+			t.Log("no GPU:", err)
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Samples at frames 4.25, 4.5, 4.75 and 5: the box at 17, 18, 19, 20.
+		for x, covered := range map[int]int{16: 0, 17: 1, 18: 2, 19: 3, 20: 4, 24: 4, 25: 3, 26: 2, 27: 1, 28: 0} {
+			want := 255 - (255*covered+2)/4
+			if got := int(at(img, x, 4)[0]); absDiff(uint8(got), uint8(want)) > 2 {
+				t.Errorf("%v: x %d: %d, want %d (%d of 4 samples)", r, x, got, want, covered)
+			}
+		}
+		if p := at(img, 44, 4); p != [4]uint8{255, 0, 0, 255} {
+			t.Errorf("%v: what stands still blurs: %v", r, p)
+		}
+	}
+	comp.MotionBlur = MotionBlur{Samples: 100}
+	if _, err := Still(comp, 0, Options{}); err == nil {
+		t.Error("100 samples")
+	}
+}
+
+// TestMotionBlurOfUI blurs ui's own animations, which follow the clock,
+// and writes a video of it.
+func TestMotionBlurOfUI(t *testing.T) {
+	comp := Composition{
+		Width: 64, Height: 16, Frames: 12, MotionBlur: MotionBlur{Samples: 5},
+		View: func(c *ui.Context, f Frame) {
+			b := ui.Box(c).Size(16, 16).Background(ui.RGB(0, 0, 255))
+			x := b.AnimateWith("x", float32(min(f.Index, 1)*48), 300*time.Millisecond, ui.Linear)
+			b.Translate(x, 0)
+		},
+	}
+	img, err := Still(comp, 4, Options{Renderer: CPU})
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial := 0
+	for x := range 64 {
+		// Red: none in the box, all in the light background.
+		if r := at(img, x, 8)[0]; r > 10 && r < 235 {
+			partial++
+		}
+	}
+	if partial < 2 {
+		t.Errorf("a box moving with ui's animation shows no blur: %d pixels between", partial)
+	}
+	dir := t.TempDir()
+	comp.Width, comp.Height = 64, 32
+	err = Video(context.Background(), comp, filepath.Join(dir, "blur.mp4"), Options{})
+	if errors.Is(err, errors.ErrUnsupported) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tracks := mp4Tracks(t, filepath.Join(dir, "blur.mp4")); tracks["vide"] != 12 {
+		t.Errorf("a video with motion blur: %v", tracks)
+	}
+}

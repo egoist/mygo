@@ -47,6 +47,16 @@ View: func(c *ui.Context, f render.Frame) {
 
 视图每次构建同一帧时必须得到相同的结果：`Video` 在绘制之前会先把所有帧构建一遍来混音，预览在跳转时也会再次构建。渲染之前先加载视图显示的内容，图片、字体、数据；从帧读取时间，而不是用 `time.Now`。
 
+## 运动模糊
+
+`MotionBlur` 像相机快门一样模糊运动的内容，和 Remotion 的 `CameraMotionBlur` 相同：每一帧是 `Samples` 个帧的平均，它们构建在该帧之前快门打开的时间内，快门时长为帧时长的 `Shutter` 度（默认 180，即一半）。
+
+```go
+comp.MotionBlur = render.MotionBlur{Samples: 6}
+```
+
+采样的时间落在帧与帧之间，`f.Exact()` 给出带小数的帧位置：随 `Interpolate`、`Spring`、`Seconds` 或 `Exact` 运动的内容会被模糊，跟随时钟的 `ui` 自带动画也会；随整数 `f.Index` 运动的内容则不会。每个采样都要构建并绘制，所以一帧的开销是 `Samples` 倍；采样在内存中用所有核心求平均。
+
 ## 声音
 
 `f.Audio(sound)` 在这一帧播放一段声音，从它在合成（或播放它的序列）的这一帧所处的位置开始：在 `Sequence` 中播放的声音随序列一起开始。视图在每个听得到声音的帧里播放它，就像在每个看得到元素的帧里显示它：

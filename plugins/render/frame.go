@@ -27,16 +27,26 @@ type Frame struct {
 	// the index in the composition of this frame.
 	s  *session
 	at int
+	// sub is how far, in frames, the time the view builds is from Index's:
+	// before it, below 0, while motion blur samples the shutter's time.
+	sub float64
 }
+
+// Exact returns where the frame is, in frames: Index, or a fraction
+// before it while motion blur samples the time the shutter is open
+// before the frame (Composition.MotionBlur). What moves with Exact,
+// Seconds, Time, Interpolate and Spring blurs; what moves with Index,
+// a whole number, does not.
+func (f Frame) Exact() float64 { return float64(f.Index) + f.sub }
 
 // Time returns how long after the start of the composition, or sequence,
 // the frame shows.
 func (f Frame) Time() time.Duration {
-	return time.Duration(math.Round(float64(f.Index) * float64(time.Second) / f.fps()))
+	return time.Duration(math.Round(f.Exact() * float64(time.Second) / f.fps()))
 }
 
 // Seconds returns Time in seconds.
-func (f Frame) Seconds() float64 { return float64(f.Index) / f.fps() }
+func (f Frame) Seconds() float64 { return f.Exact() / f.fps() }
 
 // Progress returns how far into its Count frames the frame is: 0 for the
 // first, 1 for the last.
@@ -44,7 +54,7 @@ func (f Frame) Progress() float64 {
 	if f.Count <= 1 {
 		return 1
 	}
-	return min(max(float64(f.Index)/float64(f.Count-1), 0), 1)
+	return min(max(f.Exact()/float64(f.Count-1), 0), 1)
 }
 
 func (f Frame) fps() float64 {
@@ -79,6 +89,10 @@ func (f Frame) Loop(count int) Frame {
 	}
 	g := f
 	g.Index, g.Count = ((f.Index%count)+count)%count, count
+	if g.Index == 0 && f.sub < 0 && f.Index != 0 {
+		// A sample just before the loop starts again is at its end.
+		g.Index = count
+	}
 	return g
 }
 
@@ -107,7 +121,7 @@ func Layer(c *ui.Context) ui.Element {
 // Interpolate maps f.Index from the frames in to the values out, as the
 // package's Interpolate does.
 func (f Frame) Interpolate(in, out []float64, o ...Interpolation) float64 {
-	return Interpolate(float64(f.Index), in, out, o...)
+	return Interpolate(f.Exact(), in, out, o...)
 }
 
 // Spring returns where a spring of o going from 0 to 1, starting at the
@@ -126,7 +140,7 @@ func (f Frame) SpringIn(o ui.SpringOptions, frames int) float64 {
 		return 1
 	}
 	settle := o.SettleTime()
-	t := time.Duration(float64(settle) * float64(f.Index) / float64(frames))
+	t := time.Duration(float64(settle) * f.Exact() / float64(frames))
 	return o.Progress(t)
 }
 
