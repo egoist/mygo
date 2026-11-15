@@ -232,6 +232,7 @@ final class Navigation: NSObject, UINavigationControllerDelegate, UITabBarContro
             routes[w.id] = nil
             wc.routed = false
             wc.navigationItem.title = wc.title
+            wc.navigationItem.largeTitleDisplayMode = .automatic
             uncover(wc)
             move(w, into: wc)
             w.isHidden = false
@@ -243,6 +244,10 @@ final class Navigation: NSObject, UINavigationControllerDelegate, UITabBarContro
         }
         if !wc.routed {
             wc.routed = true
+            // The bar's small title on every page: a large title, which no
+            // scroll of native UI collapses, would show at once over the
+            // page a finger takes back, as iOS 26 shows it.
+            wc.navigationItem.largeTitleDisplayMode = .never
             if nav.topViewController === wc { nav.setNavigationBarHidden(false, animated: false) }
         }
         wc.navigationItem.title = titles[0]
