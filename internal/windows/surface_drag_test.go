@@ -63,6 +63,10 @@ type failHDropObject struct {
 }
 
 func TestOleOfferHoverFiles(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	dropOnce.Do(initDropTarget)
+
 	dir := t.TempDir()
 	p1 := filepath.Join(dir, "my photo #1 %20.png")
 	p2 := filepath.Join(dir, "note.txt")
