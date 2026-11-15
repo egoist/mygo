@@ -501,7 +501,10 @@ by `mygo build` with `mygo_noinspector`) leave out its downloader and
   `Response` signal on a request object; `portalRequest` routes it to a
   callback by the object's path.
 - On Wayland, where apps grab no keys, global shortcuts go through the
-  `GlobalShortcuts` portal (`hotkey_portal.go`). A session binds its
+  `GlobalShortcuts` portal (`hotkey_portal.go`), and under XWayland too
+  when the desktop offers it (`portalOnX11`): GNOME sends XWayland no key
+  presses meant for Wayland windows, so a grab there fires only while a
+  window of the app has the focus. A session binds its
   shortcuts once, so every change closes the session and creates one that
   binds them all; the ids are canonical accelerators and the session token
   is named after the app, so desktops keep the keys the user picked. The
@@ -517,7 +520,10 @@ by `mygo build` with `mygo_noinspector`) leave out its downloader and
   `OnKeys` (`HotkeyBound`): none when the user declined it, which KDE
   remembers without asking again. The activation token of an `Activated` signal
   becomes the display's startup notification id while the callback runs,
-  so the window it shows or focuses may take the focus.
+  so the window it shows or focuses may take the focus. Under XWayland
+  there is no Wayland display to give it to, and GNOME does not take the
+  token as an X11 window's startup id (`_NET_STARTUP_ID`): the window shows
+  without the focus.
 
 #### Why not GTK 4
 
@@ -2101,6 +2107,12 @@ as in Tauri:
   one no handler of the page cancelled (an `escape` message). `Flyout.Popover` shows one in an
   `NSPopover` (`internal/darwin/popover.go`), whose window AppKit makes
   as it shows, and whose transient behavior asks `popoverShouldClose:`.
+  A closed popover flyout's `NSPopover` waits for the next one to show
+  in (`takePopover`) instead of being released: on macOS 26 a released
+  popover that has shown leaves its material's backdrop behind, a
+  graphics surface a little larger than the popover. One still closing,
+  as Hide's animation runs, waits until it tells it closed
+  (`popoverDidClose:`, to `spareDelegate`).
   `Flyout.Tray` anchors one to a tray icon's `Bounds` instead, without a
   parent: the panel at `NSPopUpMenuWindowLevel` or an `NSPopover` shown
   from the status item's button (macOS), a topmost unowned popup
@@ -2168,7 +2180,20 @@ as in Tauri:
   exclusively while it shows: compositors give none to an on-demand
   surface as it maps, and Sway takes it back from one that goes from
   exclusive to on demand. Neither Linux nor Windows shows the application
-  menu in a panel.
+  menu in a panel. A frameless window that is `AlwaysOnTop` and
+  `SkipTaskbar`, nobody's child (`overlayWindow`), is a surface of the
+  overlay layer too where it can be (`initOverlay`), since Wayland ignores
+  keep-above: its exclusive zone is -1, so that its margins count from the
+  output's edges whatever the desktop's panels reserve, and it asks for
+  the keyboard only on demand (not at all before gtk-layer-shell 0.6), as
+  it floats over the app the user types in. The compositor moves and
+  resizes toplevels only, so a layer surface follows the pointer itself
+  (`moveLayer`), through its margins and size, as `StartDrag` or a press
+  on the page's edges starts, and reports each move (`Moved`), which
+  Wayland reports for no other window. GTK draws no shadow around it
+  (`useCSD`), whose edges would resize nothing. `SetContentBounds` sizes
+  it as `SetBounds` does, and `SetAlwaysOnTop(false)` leaves it above:
+  gtk-layer-shell turns no layer surface back into a window.
 - `window.open()` and `target=_blank` go through `SetWindowOpenHandler`. By
   default http(s) URLs open in the default browser. Allowing one creates a
   window around the configuration or related view WebKit provides, with its
@@ -5120,7 +5145,23 @@ either.
   allocation failed or their cached mask was released, falling back to
   transient shelves when only those have room after `MakeRoom` has run
   that frame. The first lasting miss still requests recovery, so stale
-  masks cannot keep a repeated mask transient indefinitely. On the
+  masks cannot keep a repeated mask transient indefinitely. What the
+  largest atlas still has no room for, as the links of a node editor
+  under a zoom that changes every frame, whose masks take many times
+  what it holds (#1841), spills (`pathSpill`): in the frame's last paint,
+  and, the atlas at its largest, in the paints after one that spilled
+  without asking for room (`System.TryMask`), a mask that misses is drawn
+  on the CPU (`raster.Layer`) into a layer of the frame, a bitmap that
+  the scene shows (`OpImage`) where the path would draw, with the paths
+  after it until the scene adds anything else, so that they keep their
+  order, through an atlas of the layer's own drawn into it whenever it
+  fills. Only a mask's cells that are not empty are drawn, and paths
+  drawn there whole take tiles of 128 pixels. A layer composites what
+  its paths would, within the rounding of its 8 bits, and ends with a
+  part painted again by itself (`paintPart`), whose layers its next paint
+  reuses. The first spill is logged once, and so is a path that still
+  cannot draw (`pathLost`: wider than `pathSpanMax`, or more than
+  `pathTilesMax` tiles of it showing). On the
   pixel grid tiles show the pixels of one mask; under a transform off
   it, a faint line where they meet. `Path.Contains` counts the winding
   of the path flattened at four times its scale; an element's `HitTest`,
@@ -6734,7 +6775,7 @@ which npm allows only for packages that exist: the first release uses an
 | menu item subtitles | `NSMenuItem` `subtitle` from macOS 14; before, after the title (`Label — Subtitle`) | after the label | after the label, with its ampersands escaped |
 | auto-hide menu bar | ignored | the bar widget hides; `can-activate-accel` keeps its shortcuts; Alt alone or F10 show it and open its first menu until it deactivates | the menu is attached only for the `SC_KEYMENU` menu loop that Alt alone or F10 start; shortcuts come from the webview |
 | tray | NSStatusItem, click events (a Control-click a right-click) | AppIndicator: a menu, and activation (a double click) for an icon with an `OnClick` listener | notification area icon, click events |
-| global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
+| global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland, and XWayland where the desktop offers it: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
 | notifications | UserNotifications, packaged apps only; `Group` is the `threadIdentifier`; `Image` a `UNNotificationAttachment` of a temporary file named for its format, which the system moves into its store; optional `Sender` uses communication notifications with the signed capability; the delegate is attached at launch, for the click that launched the app | org.freedesktop.Notifications over D-Bus; `Image` is the `image-data` hint, decoded by GdkPixbuf and fit to 256 pixels; ignores `Group` and `Sender` | notification-area balloons (toasts); `Image` is the balloon's large icon (`hBalloonIcon`, `NIIF_LARGE_ICON`), decoded by WIC, twice `SM_CXICON`; ignores `Group` and `Sender` |
 | notification removal | `removeDeliveredNotificationsWithIdentifiers:`; `ClearNotifications` removes all, earlier runs' too | `CloseNotification` on the bus, for those of this run | hides the balloon, which goes away by itself anyway |
 | a web view scaled and rounded with native UI (`WebViewPlacement`) | the pane's bounds scale it, its layer's corners cut it | WebKitGTK zooms the page to its view's size, which `resize`s it at the same width; `draw` clipped to the corners on whole pixels | the visual's transform scales it, a rectangle clip cuts it |

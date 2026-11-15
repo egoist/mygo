@@ -21,6 +21,8 @@ type drawer struct {
 	blurred []*blurredImage
 	fold    scene.TranslationFolder
 	inst    instancer
+	// over draws over what the image holds (Layer.Over).
+	over bool
 }
 
 // pixels returns what draws e on the CPU, made the first time, or nil for
