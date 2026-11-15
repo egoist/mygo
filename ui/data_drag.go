@@ -55,8 +55,8 @@ func coreDropData(e *node, options transfer.DropOptions) (transfer.Drop, bool) {
 }
 
 // DataDragOver makes e a native destination, as DropData does, and returns
-// the advertised formats and operations while a matching drag is over it.
-// Hover never invokes a data provider.
+// the advertised formats, operations, and available file paths while a
+// matching drag is over it. Hover never invokes a data provider.
 func coreDataDragOver(e *node, options transfer.DropOptions) (transfer.Offer, bool) {
 	e.st.dataTarget = &options
 	e.c.rt.noteTarget()
@@ -64,6 +64,7 @@ func coreDataDragOver(e *node, options transfer.DropOptions) (transfer.Offer, bo
 	if rt.dataOver == e.id && rt.incoming != nil {
 		offer := rt.incoming.Offer
 		offer.Formats = slices.Clone(offer.Formats)
+		offer.Files = slices.Clone(offer.Files)
 		return offer, true
 	}
 	return transfer.Offer{}, false
@@ -109,6 +110,7 @@ func (rt *engine) dataDragOver(x, y float32, d *platform.DataDragEvent) bool {
 	}
 	copy := *d
 	copy.Offer.Formats = slices.Clone(d.Offer.Formats)
+	copy.Offer.Files = slices.Clone(d.Offer.Files)
 	rt.incoming, rt.dataOver = &copy, over
 	rt.pointerX, rt.pointerY = x, y
 	rt.requestFrame()

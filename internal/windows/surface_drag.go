@@ -609,5 +609,10 @@ func oleOffer(data uintptr, allowed uint32, keys uintptr) (*platform.DataDragEve
 			add(f)
 		}
 	}
+	if d.HasFiles {
+		if paths := droppedPaths(data); len(paths) > 0 {
+			d.Offer.Files = paths
+		}
+	}
 	return d, formats
 }

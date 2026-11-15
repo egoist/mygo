@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"math"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -319,7 +320,14 @@ func (s *surface) nativeDataEvent(info id, kind platform.SurfaceEventKind) bool 
 	}
 	x, y := s.dragPoint(info)
 	if kind == platform.DataDragLeave {
+		s.clearDragFiles()
 		return s.send(platform.SurfaceEvent{Kind: kind, Drag: d})
+	}
+	if kind == platform.DataDrop {
+		defer s.clearDragFiles()
+	}
+	if d.HasFiles {
+		d.Offer.Files = s.hoverFiles(pb, items)
 	}
 	if !s.send(platform.SurfaceEvent{Kind: platform.DataDragOver, X: x, Y: y, Drag: d}) {
 		return false
@@ -363,4 +371,52 @@ func (s *surface) nativeDataOperation(info id) uint {
 		return 0
 	}
 	return macOperations(s.dragOperation)
+}
+
+func (s *surface) clearDragFiles() {
+	s.dragFilesPB = 0
+	s.dragFilesChange = 0
+	s.dragFiles = nil
+}
+
+func (s *surface) hoverFiles(pb id, items []id) []string {
+	change := sendInt(pb, "changeCount")
+	if s.dragFilesPB == pb && s.dragFilesChange == change {
+		return slices.Clone(s.dragFiles)
+	}
+	paths := macPasteboardFiles(pb, items)
+	s.dragFilesPB, s.dragFilesChange, s.dragFiles = pb, change, paths
+	return slices.Clone(paths)
+}
+
+func macPasteboardFiles(pb id, items []id) []string {
+	var paths []string
+	addPath := func(p string) {
+		if filepath.IsAbs(p) && !slices.Contains(paths, p) {
+			paths = append(paths, p)
+		}
+	}
+	for _, item := range items {
+		available := send(item, "dataForType:", uintptr(nsString("public.file-url")))
+		if available == 0 {
+			continue
+		}
+		b := filePathURLBytes(goBytes(available))
+		if files, err := transfer.New(transfer.NewItem(transfer.Bytes(transfer.FileList, b))).Files(); err == nil {
+			for _, p := range files {
+				addPath(p)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		if list := send(pb, "propertyListForType:", uintptr(nsString("NSFilenamesPboardType"))); list != 0 && sendBool(list, "isKindOfClass:", uintptr(class("NSArray"))) {
+			strClass := uintptr(class("NSString"))
+			for _, e := range arrayItems(list) {
+				if e != 0 && sendBool(e, "isKindOfClass:", strClass) {
+					addPath(goString(e))
+				}
+			}
+		}
+	}
+	return paths
 }

@@ -1320,8 +1320,8 @@ func ContextMenuBase(c *Context, target Element, open *bool) MenuParts {
 }
 
 // DataDragOver makes e a native destination, as DropData does, and returns
-// the advertised formats and operations while a matching drag is over it.
-// Hover never invokes a data provider.
+// the advertised formats, operations, and available file paths while a
+// matching drag is over it. Hover never invokes a data provider.
 func DataDragOver(e Element, options transfer.DropOptions) (transfer.Offer, bool) {
 	_node := e.node()
 	if _node == nil {
