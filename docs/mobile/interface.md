@@ -35,7 +35,7 @@ shows as one. `examples/tabs` shows both, with a page in one of its tabs.
 A `ui.Router` can show its pages as the system's stack instead, in one
 window: with `SystemStack` set, the history up to the page shown is the
 stack, under the system's navigation bar with the title each page gives
-`Route.Title`, small on every page, and a back button. On iOS UIKit's navigation controller moves
+`Route.Title` and a back button. On iOS UIKit's navigation controller moves
 the pages, with its swipe from the left edge; on Android the bar is
 Material's toolbar, with its back arrow, and the router slides the pages as
 Android's apps do. Show no bar of your own while `InSystemStack` reports it:
