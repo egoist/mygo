@@ -218,6 +218,7 @@ var elementChains = map[string]bool{
 	"FillHeight":           true,
 	"FillWidth":            true,
 	"Fit":                  true,
+	"FitContent":           true,
 	"FixedLineHeight":      true,
 	"Focus":                true,
 	"FocusBind":            true,

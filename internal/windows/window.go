@@ -41,6 +41,9 @@ type window struct {
 	scriptGen  int
 	closed     bool
 	destroying bool
+	// fitMeasuring tells that the page measures its content in a world of
+	// its own (MeasureContent).
+	fitMeasuring bool
 	// schemes are the custom scheme responses whose handlers run, which
 	// end when the page's webview closes (webview.go).
 	schemes map[*schemeResponse]struct{}

@@ -46,6 +46,64 @@ func coreWebView(c *context, v NativeWebView) *node {
 	return e
 }
 
+// FitContent makes the element of a WebView as tall as its page's content
+// at the element's width, and follows the content as it changes: as the
+// page loads, as its images and fonts come, as its scripts change it, and
+// as the element gets another width. A document in a native reader shows
+// whole, the native container scrolling it, as a message of a mail thread
+// with ScrollToContainer:
+//
+//	ui.Scroll(c).Fill().AlignItems(ui.Stretch).Children(func() {
+//		for _, m := range app.thread {
+//			header(c, m)
+//			ui.WebView(c, m.view).FitContent() // an untrusted page, with ScrollToContainer
+//		}
+//	})
+//
+// The page measures its content as mygo.WebView.OnContentSizeChanged
+// tells, without the page's cooperation (an untrusted page, HTML loaded
+// with LoadHTML): the element's content box takes its height, its border
+// and padding around it, within MinHeight and MaxHeight, over a Height the
+// element has, which is its height until the page told one. With no
+// Height, the element is 1 DIP tall until then, so that the web view shows
+// and its page lays out at its width. Where the platform can't measure a
+// page (macOS before 11, WebKitGTK before 2.22, browsers, which have no web
+// views), the element keeps its Height. It does nothing to other elements.
+func (e *node) FitContent() *node {
+	if e.webView != nil {
+		rt := e.c.rt
+		rt.fitWebViews = append(rt.fitWebViews, e)
+		fitHeights = (*engine).fitWebViewHeights
+	}
+	return e
+}
+
+// fitHeights is fitWebViewHeights once an element fit a web view, so that
+// apps that never do link none of it.
+var fitHeights func(rt *engine)
+
+// fitWebViewHeights makes the elements of web views as tall as their
+// page's content (FitContent), as the pages last told it, before the
+// frame lays them out.
+func (rt *engine) fitWebViewHeights() {
+	for _, e := range rt.fitWebViews {
+		v, ok := e.webView.(surface.FitWebView)
+		if !ok {
+			continue
+		}
+		h, measuring := v.SurfaceFitHeight()
+		switch {
+		case !measuring:
+		case h > 0:
+			journalKeep(rt, &e.height)
+			e.height = px(float32(h) + e.padY())
+		case e.height.u == unitAuto:
+			journalKeep(rt, &e.height)
+			e.height = px(1 + e.padY())
+		}
+	}
+}
+
 // NativeView shows a view of the platform, a value of a native module's
 // interface that embeds native.View (an NSView on macOS), in the element's
 // content box, as WebView shows a web view: it has no size of its own and

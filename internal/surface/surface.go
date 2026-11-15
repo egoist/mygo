@@ -133,3 +133,12 @@ type WebView interface {
 	// window of conn and not destroyed, else nil. Main thread only.
 	SurfaceWebView(conn *Conn) platform.WebView
 }
+
+// FitWebView is a WebView whose page measures its content, which package
+// ui makes its element as tall as (FitContent): *mygo.WebView.
+type FitWebView interface {
+	// SurfaceFitHeight returns the height of the page's content in DIPs,
+	// 0 until the page told it, and has the page measure it from then on;
+	// measuring is false where the platform can't. Main thread only.
+	SurfaceFitHeight() (height float64, measuring bool)
+}

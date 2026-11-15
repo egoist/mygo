@@ -116,3 +116,106 @@ export function fitContent(
     },
   };
 }
+
+// A web view in a window of native UI whose element is as tall as its page's
+// content (ui's FitContent, WebView.OnContentSizeChanged in Go) measures the
+// page at the web view's width, which the native UI sets, without the rule
+// above: fit-world.ts runs it in an isolated world of the page, which may be
+// untrusted and have no bridge.
+
+/** What a web view's page measures of its document: its viewport, its root
+ * element's border box, and its scrolling element's client and scroll sizes,
+ * in CSS pixels. */
+export interface ViewMetrics {
+  innerWidth: number;
+  innerHeight: number;
+  rootWidth: number;
+  rootHeight: number;
+  clientWidth: number;
+  clientHeight: number;
+  scrollWidth: number;
+  scrollHeight: number;
+}
+
+/** The size of a web view's page's content, in CSS pixels: its width and
+ * height, and the room of a horizontal scrollbar (sh), which counts only
+ * while the content is wider than the viewport; vw and vh are the viewport
+ * it was measured in. */
+export interface ViewSize {
+  w: number;
+  h: number;
+  sh: number;
+  vw: number;
+  vh: number;
+}
+
+/** Returns the size of the content of a page laid out in its viewport, or
+ * null while it has no width to lay out at (a web view not shown yet).
+ *
+ * Its height does not follow the viewport's: content taller than the
+ * viewport overflows it, and is as tall as it scrolls; content that fits is
+ * as tall as its root element, which is as tall as its content (height:
+ * auto), so that a web view as tall as it measures the same again, and one
+ * whose content shrank measures less. A root as tall as the viewport, as with
+ * html { height: 100% }, measures as tall as the viewport: the web view takes
+ * that height again, and keeps it. */
+export function viewSize(m: ViewMetrics): ViewSize | null {
+  if (!(m.innerWidth > 0)) return null;
+  const overflowsY = m.scrollHeight > m.clientHeight;
+  const overflowsX = m.scrollWidth > m.clientWidth;
+  return {
+    w: overflowsX ? Math.max(m.rootWidth, m.scrollWidth) : m.rootWidth,
+    h: overflowsY ? Math.max(m.rootHeight, m.scrollHeight) : m.rootHeight,
+    sh: overflowsX ? Math.max(m.innerHeight - m.clientHeight, 0) : 0,
+    vw: m.innerWidth,
+    vh: m.innerHeight,
+  };
+}
+
+/** Returns the size of the content of a page at its viewport's whole width,
+ * from its metrics as it shows and, measured with the root's scrollbars
+ * hidden, as it lays out without them (null where they could not be hidden).
+ *
+ * Where scrollbars take room (classic scrollbars: Windows, macOS set to
+ * always show them), content laid out while it overflowed is narrower, and
+ * taller for it; a web view grown to that height drops the scrollbar, and
+ * the engines keep the narrower layout rather than lay out again and bring
+ * it back: the page stays narrower than its web view, with an empty band
+ * where the scrollbar was. Measured at the whole width, the content is as
+ * tall as it is without the scrollbar, which a web view of that height
+ * does not show. The room of a horizontal scrollbar is the one the page
+ * shows, since the hidden one takes none. Where hiding them didn't give
+ * the root the whole width, the content is measured as it shows. */
+export function wholeViewSize(shown: ViewMetrics, whole: ViewMetrics | null): ViewSize | null {
+  if (!whole || whole.clientWidth < whole.innerWidth || whole.innerWidth !== shown.innerWidth) return viewSize(shown);
+  const size = viewSize(whole);
+  if (!size) return null;
+  const sh = whole.scrollWidth > whole.clientWidth ? Math.max(shown.innerHeight - shown.clientHeight, 0) : 0;
+  return { ...size, sh };
+}
+
+/** The style sheet that hides the root's scrollbars while the page measures
+ * its content at its viewport's whole width (wholeViewSize). */
+export const hideRootScrollbars = ":root{scrollbar-width:none!important}:root::-webkit-scrollbar{display:none!important}";
+
+/** What a web view's page posts to Go: its content's size, and r, 1 when it
+ * was measured right after the viewport's height alone changed, which Go
+ * resized it to (it holds a size that would go back and forth). */
+export type ViewReport = ViewSize & { r: 0 | 1 };
+
+/** Returns a function that takes measures of a page as they come and posts
+ * the content's size when it changed. */
+export function viewReporter(post: (r: ViewReport) => void) {
+  let last: ViewSize | null = null;
+  let vw = -1;
+  let vh = -1;
+  return (size: ViewSize | null) => {
+    if (!size) return;
+    const resized = vh >= 0 && size.vh !== vh && size.vw === vw;
+    vw = size.vw;
+    vh = size.vh;
+    if (last && last.w === size.w && last.h === size.h && last.sh === size.sh) return;
+    last = size;
+    post({ ...size, r: resized ? 1 : 0 });
+  };
+}

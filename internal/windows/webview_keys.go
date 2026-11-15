@@ -73,7 +73,8 @@ func (w *window) forwardUnhandledKeys() {
 
 // bindingCalled handles Runtime.bindingCalled: keys.js telling of a key
 // the page left unhandled, which the content takes as if the web view's
-// element had the focus.
+// element had the focus, or the script measuring the page telling its
+// content's size (MeasureContent).
 func (w *window) bindingCalled(_, args uintptr) {
 	var p uintptr
 	if failed(comCall(args, cdpEventArgsGetParameterObjectAsJSON, uintptr(unsafe.Pointer(&p)))) {
@@ -83,7 +84,18 @@ func (w *window) bindingCalled(_, args uintptr) {
 		Name    string `json:"name"`
 		Payload string `json:"payload"`
 	}
-	if json.Unmarshal([]byte(takeWstr(p)), &call) != nil || call.Name != keysBinding {
+	if json.Unmarshal([]byte(takeWstr(p)), &call) != nil {
+		return
+	}
+	switch call.Name {
+	case platform.FitHandler:
+		// The page's size, from the world measuring it (webview_fit.go).
+		if w.fitMeasuring {
+			w.h.ContentSize(call.Payload)
+		}
+		return
+	case keysBinding:
+	default:
 		return
 	}
 	var key struct {

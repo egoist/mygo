@@ -111,6 +111,8 @@ mediaURL := "http://" + ln.Addr().String() + "/" // <video src="{mediaURL}clip.m
 - `Broadcast` 不会到达它，对包含它的 Web 视图所在的窗口调用 `Emit`，也到不了它。用 `EmitPage` 向它发送。
 - 没有 `SetPermissionHandler`，它就没有权限；没有 `SetWindowOpenHandler`，它打不开窗口，也打不开浏览器；没有 `OnWillDownload` 监听器，它什么也下载不了；没有 `OnWillNavigate` 监听器，除了自身页面的源，它去不了任何其他源。
 
+它的 [Web 视图](ui/web-view.md#与页面一样高)仍然可以与内容一样高（`FitContent`）：MyGo 用页面隔离脚本环境中的脚本测量它，并通过只属于该环境的通道告诉 MyGo。页面脚本两者都访问不到，所以页面无法通过它报告尺寸，也无法传递任何其他东西。
+
 它仍能像任何页面一样读取自己的协议，它的请求会到达处理器，处理器用 `mygo.CallerPage(r.Context())` 判断是哪个页面在请求。插件的 UI 就是这样与应用通信，应用则用 `EmitPage` 作答：
 
 ```go
@@ -361,6 +363,8 @@ const off = onPreferences(apply);
 ## 调整自身窗口大小的页面
 
 浮出窗口或带 `FitContent` 的窗口，由页面决定其大小，不需要 `ResizeObserver` 或自己的绑定方法：MyGo 的运行时会在窗口限制范围内，按内容宽度布局 `html`，窗口会随根节点大小变化而调整（见[窗口](windows.md#让浮出窗口适应其内容)）。让 `html` 和 `body` 采用内容的大小：在它们上设置 `height: 100%` 或 `100vh` 会让窗口保持当前大小，而 `html` 上的 `width` 会取代内容自身的宽度。超过最大宽度的文本会换行，超过最大高度的内容会滚动。
+
+元素适应内容（`FitContent`）的 [Web 视图](ui/web-view.md#与页面一样高)同样由页面决定高度，按原生 UI 给它的宽度布局，不需要 MyGo 的运行时：MyGo 的脚本在页面的隔离脚本环境中测量它，所以不受信任的页面或用 `LoadHTML` 加载的 HTML 什么都不用做。`html` 上同样的 `height: 100%` 或 `100vh` 会让 Web 视图无法变矮。
 
 ## 链接与新窗口
 

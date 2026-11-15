@@ -198,6 +198,12 @@ app's decides.
   without `OnWillDownload` listeners, and goes to no other origin than
   its page's without `OnWillNavigate` listeners.
 
+Its [web view](ui/web-view.md#as-tall-as-its-page) can still be as tall as
+its content (`FitContent`): MyGo measures it with a script in an isolated
+world of the page, which tells MyGo through a channel of that world
+alone. The page's scripts reach neither, so the page can't tell a size,
+nor anything else, through it.
+
 It still reads its own scheme, as any page does, and its requests reach
 the handler, which tells which page asks with `mygo.CallerPage(r.Context())`.
 That's how a plugin's UI talks to the app, and `EmitPage` how the app
@@ -549,6 +555,13 @@ window takes the root's size as it changes (see
 keeps the window at the size it has, and a `width` on `html` replaces the
 content's. Text wider than the maximum wraps, and content taller than it
 scrolls.
+
+A [web view](ui/web-view.md#as-tall-as-its-page) whose element fits its
+content (`FitContent`) is sized by its page too, at the width the native
+UI gives it, without MyGo's runtime: a script of MyGo's in an isolated
+world of the page measures it, so an untrusted page or HTML loaded with
+`LoadHTML` needs nothing. The same `height: 100%` or `100vh` on `html`
+keeps the web view from shrinking.
 
 ## Links and new windows
 

@@ -470,3 +470,66 @@ func TestNativeViewGone(t *testing.T) {
 		t.Fatal("a closed view came back")
 	}
 }
+
+// fitWebView stands for a *mygo.WebView whose page measures its content
+// (FitContent).
+type fitWebView struct {
+	testWebView
+	height    float64
+	measuring bool
+	asked     int
+}
+
+func (v *fitWebView) SurfaceFitHeight() (float64, bool) {
+	v.asked++
+	return v.height, v.measuring
+}
+
+// FitContent makes the element of a web view as tall as its page's
+// content, inside its border and padding and within its bounds, over a
+// Height it has; until the page tells, it keeps that Height, or is 1 DIP
+// tall to lay the page out at its width; where the page can't measure, it
+// keeps its Height.
+func TestWebViewFitContent(t *testing.T) {
+	page := &fitWebView{testWebView: testWebView{"page"}, measuring: true}
+	fixed := &fitWebView{testWebView: testWebView{"fixed"}, measuring: true}
+	plain := &testWebView{"plain"}
+	tt := coreNewTester(func(c *context) {
+		coreScroll(c).Fill().Children(func() {
+			coreWebView(c, page).FitContent().Padding(4).Border(1, RGB(0, 0, 0))
+			coreWebView(c, fixed).Height(50).FitContent().MaxHeight(80)
+			coreWebView(c, plain).Height(30).FitContent()
+		})
+	}, 400, 300)
+	heights := func() (float64, float64, float64) {
+		t.Helper()
+		var out [3]float64
+		for i, v := range []NativeWebView{page, fixed, plain} {
+			p, ok := placed(tt, v)
+			if !ok {
+				t.Fatalf("web view %d does not show", i)
+			}
+			out[i] = p.frame.H
+		}
+		return out[0], out[1], out[2]
+	}
+	if p, f, n := heights(); p != 1 || f != 50 || n != 30 {
+		t.Errorf("before the pages told: %v, %v, %v; want 1, 50, 30", p, f, n)
+	}
+	if p, _ := placed(tt, page); p.frame.W != 390 {
+		t.Errorf("the page lays out %v wide, want 390 inside the border and padding", p.frame.W)
+	}
+	page.height, fixed.height = 120, 200
+	tt.Frame()
+	if p, f, _ := heights(); p != 120 || f != 80 {
+		t.Errorf("told: %v, %v; want 120 and 80, the maximum", p, f)
+	}
+	fixed.measuring, fixed.height = false, 0
+	tt.Frame()
+	if _, f, _ := heights(); f != 50 {
+		t.Errorf("can't measure: %v, want its Height, 50", f)
+	}
+	if page.asked == 0 || fixed.asked == 0 {
+		t.Error("FitContent did not ask the web views")
+	}
+}
