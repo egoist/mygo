@@ -117,6 +117,9 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
 
 ## Actions
 
+- [Command palette](command-palette.md): searchable app commands, keyboard
+  navigation and a virtualized results list (`ui/command`).
+
 - [Button](button.md): a push button, plain or in the accent color.
 - [Link](link.md): text that opens a URL, or a page of a router.
 - [Menu button](menu-button.md): a button opening a menu below it, the
