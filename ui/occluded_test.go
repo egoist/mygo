@@ -131,19 +131,22 @@ func TestCaptureAfterAtlasMoved(t *testing.T) {
 	_, _, want := b.capture()
 	builds := b.builds
 	// Another window drawing more glyphs than the atlas has room for, at
-	// a new size each frame, as one zooming in and out.
+	// new sizes each frame, as one zooming in and out. ASCII, which every
+	// font the tests may get has (a CI runner may have no CJK font).
 	size := float32(40)
 	a := newDrawingHost(t, func(p *Painter, r Rect) {
-		for i := range 400 {
-			p.Text(r.X, r.Y+40, string(rune('一'+i)), size, RGB(0, 0, 0))
+		for s := size; s < size+40; s += 4 {
+			for c := '!'; c <= '~'; c++ {
+				p.Text(r.X, r.Y+40, string(c), s, RGB(0, 0, 0))
+			}
 		}
 	})
-	for range 10 {
+	for range 20 {
 		a.frame()
 		if atlasGenerations(b.last) != b.rt.atlases {
 			break
 		}
-		size += 3
+		size += 40
 	}
 	if atlasGenerations(b.last) == b.rt.atlases {
 		t.Fatal("the other window never made room in the atlases")
