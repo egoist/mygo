@@ -521,7 +521,10 @@ func naturalHeight(e *node, w, cbH float32) float32 {
 	// cannot change that. A leaf of a row that wraps is measured here,
 	// then given the line's height, so this returns before the measures
 	// it would be kept in, whose second read would find the same value.
-	if e.kind == kindBox && e.first == nil && e.list == nil {
+	// A box that lays out by more than what it is built with (special) may
+	// be a list with rows of its own, which contentHeight measures; the
+	// flag says so without reading the list, which lies far away.
+	if e.kind == kindBox && e.first == nil && !e.special {
 		return e.padY()
 	}
 	for i := 0; i < e.nmeasure; i++ {
