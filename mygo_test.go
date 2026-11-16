@@ -38,18 +38,84 @@ var fb *fake.Backend
 // TestMain runs the application on the main goroutine with the fake
 // backend, like a real program, and the tests on another goroutine.
 func TestMain(m *testing.M) {
-	if os.Getenv("MYGO_TEST_SECOND_INSTANCE") == "1" {
-		// Helper process for TestSingleInstance. Only an instance that
-		// hands over passes the foreground on (Windows).
+	if mode := os.Getenv("MYGO_TEST_SECOND_INSTANCE"); mode != "" {
+		// Helper process for the single-instance tests. Only an instance
+		// that hands over passes the foreground on (Windows).
 		helper := fake.New()
 		backendOnce.Do(func() { theBackend = helper })
 		packageIdentifier = os.Getenv("MYGO_TEST_IDENTIFIER")
 		App.SetName("MyGoTest")
-		if App.RequestSingleInstanceLock() {
+		switch mode {
+		case "1": // what a second instance does
+			if App.RequestSingleInstanceLock() {
+				fmt.Println("locked")
+				releaseSingleInstanceLock()
+			} else {
+				fmt.Println("forwarded")
+			}
+		case "start": // like "1", but says that it asked first, and
+			// reports whether the first instance still lives
+			if s := os.Getenv("MYGO_TEST_WAIT"); s != "" {
+				if d, err := time.ParseDuration(s); err == nil {
+					singleInstanceWait = d
+				}
+			}
+			fmt.Println("starting")
+			if !App.RequestSingleInstanceLock() {
+				fmt.Println("forwarded")
+				break
+			}
+			fmt.Println("locked")
+			// The witness lock of the first instance is freed only with
+			// its process: still holding it is still living.
+			w, err := os.OpenFile(os.Getenv("MYGO_TEST_WITNESS"), os.O_RDWR|os.O_CREATE, 0o644)
+			if err != nil {
+				fmt.Println(err)
+				break
+			}
+			if err := lockFile(w); err == nil {
+				fmt.Println("witness-free")
+				w.Close()
+			} else if lockHeld(err) {
+				fmt.Println("witness-held")
+			} else {
+				fmt.Println(err)
+			}
+		case "run": // an instance whose quit released its listener, while
+			// the process goes on finishing what App.Run left
+			holdTestWitness()
+			if !App.RequestSingleInstanceLock() {
+				os.Exit(2)
+			}
 			fmt.Println("locked")
 			releaseSingleInstanceLock()
-		} else {
-			fmt.Println("forwarded")
+			fmt.Println("released")
+			waitTestGoFile()
+		case "hold": // an instance between taking the OS lock and listening
+			holdTestWitness()
+			f, err := os.OpenFile(singleInstanceLockPath(singleInstanceSocket(singleInstanceKey(App.Name()))), os.O_RDWR|os.O_CREATE, 0o644)
+			if err != nil {
+				os.Exit(3)
+			}
+			if err := lockFile(f); err != nil {
+				os.Exit(4)
+			}
+			testHeldLocks = append(testHeldLocks, f)
+			fmt.Println("locked")
+			waitTestGoFile()
+		case "probe": // asks whether the OS lock of another instance is held
+			f, err := os.OpenFile(singleInstanceLockPath(singleInstanceSocket(singleInstanceKey(App.Name()))), os.O_RDWR|os.O_CREATE, 0o644)
+			if err != nil {
+				fmt.Println(err)
+				break
+			}
+			if err := lockFile(f); err == nil {
+				fmt.Println("free")
+			} else if lockHeld(err) {
+				fmt.Println("held")
+			} else {
+				fmt.Println(err)
+			}
 		}
 		if helper.ForegroundAllowed > 0 {
 			fmt.Println("passed the foreground on")
@@ -84,6 +150,40 @@ func TestMain(m *testing.M) {
 	if err := App.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+// testHeldLocks keeps the lock files a helper process holds for as long
+// as it lives: Go closes an *os.File nothing refers to — and with it the
+// lock its fd holds, which the tests read as the process having ended.
+var testHeldLocks []*os.File
+
+// holdTestWitness takes the witness lock that the single-instance tests
+// read to tell whether this helper process still lives: the system frees
+// it only with the process, so it is never let go here.
+func holdTestWitness() {
+	if path := os.Getenv("MYGO_TEST_WITNESS"); path != "" {
+		if w, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644); err == nil && lockFile(w) == nil {
+			testHeldLocks = append(testHeldLocks, w)
+			return
+		}
+		os.Exit(6)
+	}
+}
+
+// waitTestGoFile blocks the helper process until the file that
+// MYGO_TEST_GO_FILE names appears, so a test decides when its instance
+// may go on.
+func waitTestGoFile() {
+	// The locks this helper holds must survive a collection: what the
+	// single-instance tests read as its end is the system freeing them
+	// with the process, not the runtime freeing them early.
+	runtime.GC()
+	runtime.GC()
+	goFile := os.Getenv("MYGO_TEST_GO_FILE")
+	if !wait.Poll(func() bool { _, err := os.Stat(goFile); return err == nil }) {
+		fmt.Println("the go file never appeared")
+		os.Exit(5)
 	}
 }
 

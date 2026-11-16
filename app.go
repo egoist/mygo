@@ -318,7 +318,10 @@ func (a *Application) finish() {
 		fire(&a.onQuit)
 		backendExiting()
 		if a.relaunch {
-			relaunchNow() // after OnQuit, which releases the single instance lock
+			// After OnQuit, which closes the single instance socket's
+			// listener; its lock outlives the process, so the new
+			// instance waits for this one to exit.
+			relaunchNow()
 		}
 		loop.shutdown()
 	})

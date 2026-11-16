@@ -74,7 +74,7 @@ framework safely. Read it before changing anything under `internal/`.
 ├── document*.go        NewDocuments: documents, their saving, recovery copies, watches, menus
 ├── loop.go             main-thread queue: postMain / onMain / await
 ├── events.go           listener lists and the Preventable event types
-├── single_instance.go  RequestSingleInstanceLock over a Unix socket
+├── single_instance.go  RequestSingleInstanceLock: a lock file the OS owns, a Unix socket to hand arguments over
 ├── dev.go signal_*.go  IsDev, the `mygo dev` ready signal, quitting on SIGINT/SIGTERM
 ├── backend_*.go        picks the backend per GOOS
 ├── internal/
@@ -1915,8 +1915,10 @@ as in Tauri:
   `--mygo-opened-at-login`, which the package removes from `os.Args` at
   init and `WasOpenedAtLogin` reports; macOS login items are recognized by
   `keyAELaunchedAsLogInItem` in the launch Apple Event instead.
-- `Relaunch` runs the quit sequence, then (after `OnQuit`, which releases
-  the single instance lock) starts the executable again with the same
+- `Relaunch` runs the quit sequence, then (after `OnQuit`, which closed the
+  single instance socket's listener; its lock file goes only with the
+  process, so the new instance waits for the old one to exit) starts the
+  executable again with the same
   arguments, or those passed to `Relaunch` in their place
   (`relaunchArguments`), and the working directory it started in: on macOS
   through `open -n <bundle> --args …`, or, with an update staged, through

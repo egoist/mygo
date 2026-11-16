@@ -3,6 +3,7 @@
 package mygo
 
 import (
+	"errors"
 	"os"
 	"syscall"
 	"unsafe"
@@ -48,4 +49,14 @@ func lockFile(f *os.File) error {
 		return err
 	}
 	return nil
+}
+
+// errnoLockViolation is ERROR_LOCK_VIOLATION of winerror.h, which
+// LockFileEx fails with while another process holds the lock.
+const errnoLockViolation = syscall.Errno(33)
+
+// lockHeld reports whether err is lockFile failing because another
+// process holds the lock.
+func lockHeld(err error) bool {
+	return errors.Is(err, errnoLockViolation)
 }

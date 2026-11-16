@@ -3,6 +3,7 @@
 package mygo
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
@@ -26,4 +27,10 @@ func fileWritable(path string) bool { return syscall.Access(path, 2 /* W_OK */) 
 // process holds it, until f is closed.
 func lockFile(f *os.File) error {
 	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+}
+
+// lockHeld reports whether err is lockFile failing because another
+// process holds the lock.
+func lockHeld(err error) bool {
+	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
 }
