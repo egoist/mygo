@@ -137,14 +137,21 @@ stays as it scrolls, and shows again on the rows between them as they
 come back. The rows it does not build copy as `ListState.Text` gives
 their text: those between the ends, and every row after Select All.
 Without it, the selection holds the rows built alone. Copy asks it as
-it copies, between frames, for the rows of the last frame, and gives
+it copies, between frames, for the rows of the last frame, which the
+app may have changed since: it can ask for a row the app no longer has,
+and `Text` answers `""` for that as for a row without text. Copy gives
 those rows to `CopyData` with an `ID` of 0; `SelectedTexts`, which the
 app asks as it builds, perhaps after changing its rows, holds the rows
 built alone. A list choosing rows (`Selected` or `Selection`) does not
 join the selection: its rows are controls, which own their text.
 
 ```go
-app.list.Text = func(i int) string { return app.messages[i].Text }
+app.list.Text = func(i int) string {
+	if i >= len(app.messages) {
+		return "" // Copy can ask for a row the app no longer has
+	}
+	return app.messages[i].Text
+}
 ui.List(c, &app.list, len(app.messages), func(i int) {
 	ui.Text(c, app.messages[i].Text)
 }).Selectable().Grow(1)

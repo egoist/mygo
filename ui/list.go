@@ -120,7 +120,9 @@ type ListState struct {
 	// Without it, a selection holds the rows built alone. Copy and
 	// CopyData ask it between frames, for the rows of the frame laid out
 	// last: answer from the rows as the view built them, and SelectedTexts
-	// never asks it. Return "" for a row without text.
+	// never asks it. The app may change its rows since that frame, so it
+	// can be asked for a row the app no longer has: return "" for that and
+	// for a row without text.
 	Text func(row int) string
 	// Header, when set, reports whether row i heads a section: the header
 	// of the section at the top of the list stays there while the rows of
