@@ -37,7 +37,7 @@ const (
 	ptPen   = 3
 
 	penMaskPressure      = 0x1
-	touchMaskContactArea = 0x2
+	touchMaskContactArea = 0x1
 	touchMaskPressure    = 0x4
 
 	// miWpSignature marks the extra information of mouse messages that
