@@ -37,9 +37,9 @@ func coreView(view func(c *context)) *Content { return &Content{view: view} }
 // RegisterFont adds a TrueType or OpenType font, or collection, that text
 // can use with Font(family). An empty family keeps the font's own name.
 // The fonts registered under a family make it up, apart from other fonts
-// of their own family.
+// of their own family. A Tester's window draws them too.
 func RegisterFont(data []byte, family string) error {
-	return text.Shared().RegisterFont(data, family)
+	return text.RegisterAppFont(data, family)
 }
 
 // A FontFamily is a font family text can use, as FontFamilies lists it.
@@ -1023,7 +1023,7 @@ func (h *windowHost) placeWebViews(views []placedWebView) {
 	}
 	if slices.EqualFunc(list, h.placed, func(a, b platform.WebViewPlacement) bool {
 		return a.WebView == b.WebView && a.Frame == b.Frame && a.Clip == b.Clip && a.Width == b.Width && a.Height == b.Height &&
-			a.Radii == b.Radii && slices.Equal(a.Covers, b.Covers)
+			a.Radii == b.Radii && a.Opacity == b.Opacity && slices.Equal(a.Covers, b.Covers)
 	}) {
 		return
 	}
