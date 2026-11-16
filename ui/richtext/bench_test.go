@@ -144,3 +144,45 @@ func BenchmarkRuns(b *testing.B) {
 		})
 	}
 }
+
+// tableText returns a table of n rows of three cells, or the same text as
+// plain paragraphs.
+func tableText(n int, table bool) Text {
+	head := ParagraphStyle{Row: HeaderRow, Columns: "r--"}
+	if !table {
+		head = ParagraphStyle{}
+	}
+	paras := []Paragraph{{Style: head, Runs: []Run{{Text: "Time\tTalk\tNotes"}}}}
+	for i := range n {
+		st := ParagraphStyle{Row: BodyRow, Columns: "r--"}
+		if !table {
+			st = ParagraphStyle{}
+		}
+		paras = append(paras, Paragraph{Style: st, Runs: []Run{{Text: fmt.Sprintf("%d:%02d\tTalk number %d\tNotes on the talk, long enough to wrap in its column of the table", 9+i/60%12, i%60, i)}}})
+	}
+	return TextOf(paras...)
+}
+
+// BenchmarkTypeInTable types a character in the middle of a table and
+// draws the frame that shows it, against the same text as paragraphs.
+func BenchmarkTypeInTable(b *testing.B) {
+	for _, n := range []int{20, 200, 2000} {
+		for _, table := range []bool{false, true} {
+			b.Run(fmt.Sprintf("rows=%d/table=%v", n, table), func(b *testing.B) {
+				doc := NewDocument(tableText(n, table))
+				tt := ui.NewTester(func(c *ui.Context) { Editor(c, doc).Fill() }, 1000, 800)
+				tt.Press(500, 400)
+				tt.Release(500, 400)
+				// A row its table's columns are measured from (measuredRows),
+				// as typing grows its cell without end.
+				mid := doc.Text().paraStart(min(n/2, 10)) + 3
+				doc.SetSelection(mid, mid)
+				tt.Frame()
+				b.ReportAllocs()
+				for b.Loop() {
+					tt.Type("x")
+				}
+			})
+		}
+	}
+}

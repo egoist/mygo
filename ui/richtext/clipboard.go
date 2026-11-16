@@ -250,7 +250,24 @@ func (v *view) paste(matchStyle bool) {
 	v.lockedSync()
 	a, z := v.selection() // as the sync moved it
 	v.lockedPublish()
-	v.lockedEdit(func(e *Edit) { e.Replace(a, z, t) })
+	if spans, _, plain, ok := keepCells(d.text, a, z, ""); ok {
+		// Into a table: the cells' text goes and the cells stay, and what's
+		// pasted in a row is the text of its cell.
+		if st := d.text.ParagraphStyleAt(a); st.Row != NoRow && !plain {
+			t = cellOf(t, st)
+		}
+		v.lockedEdit(func(e *Edit) {
+			for k := len(spans) - 1; k >= 0; k-- {
+				e.ReplaceString(spans[k][0], spans[k][1], "", Attributes{})
+			}
+			if plain {
+				unrow(e, a)
+			}
+			e.Replace(a, a, t)
+		})
+	} else {
+		v.lockedEdit(func(e *Edit) { e.Replace(a, z, t) })
+	}
 	caret := a + t.Len()
 	v.selAnchor, v.caret = caret, caret
 	d.anchor, d.caret = caret, caret

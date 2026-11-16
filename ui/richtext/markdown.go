@@ -40,6 +40,13 @@ func (t Text) Markdown() string {
 			quote = strings.Repeat("> ", st.quoteDepth())
 		}
 		switch {
+		case st.Row != NoRow:
+			end := tableEnd(paras, i)
+			// Under a list's item, as indented as its text.
+			writeMarkdownTable(&b, paras[i:end], quote+strings.Repeat("    ", st.Indent))
+			i = end - 1
+			prevList = false
+			continue
 		case st.CodeBlock:
 			fence := "```"
 			for k := i; k < len(paras) && paras[k].Style.CodeBlock; k++ {
