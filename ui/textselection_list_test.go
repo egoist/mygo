@@ -204,6 +204,28 @@ func TestSelectableListCopiesAtOnce(t *testing.T) {
 	}
 }
 
+// A selection made after the last frame copies the rows of that frame:
+// the click making it, Select All and Copy come in one batch, with no
+// frame between them.
+func TestSelectableListCopiesASelectionMadeAfterTheFrame(t *testing.T) {
+	var list ListState
+	tt, rows := listOfMessages(&list)
+	list.Text = func(i int) string { return (*rows)[i] }
+	x, y := selectableAt(t, tt, (*rows)[1], 2)
+	tt.SetClipboard("nothing")
+	for _, ev := range []platform.SurfaceEvent{
+		{Kind: platform.PointerDown, X: float64(x), Y: float64(y), Clicks: 1},
+		{Kind: platform.PointerUp, X: float64(x), Y: float64(y)},
+		{Kind: platform.SurfaceCommand, Text: "selectAll"},
+		{Kind: platform.SurfaceCommand, Text: "copy"},
+	} {
+		tt.rt.event(ev)
+	}
+	if got, want := tt.Clipboard(), strings.Join(*rows, "\n"); got != want {
+		t.Errorf("copied %d lines of one batch, want 200", strings.Count(got, "\n")+1)
+	}
+}
+
 // Rows the app rebuilds as the view builds, as a reply regenerated with
 // fewer parts, are not asked for by the last frame's indices:
 // SelectedTexts has the paragraphs built, and Copy after the frame the
