@@ -81,6 +81,32 @@ func TestLineEndsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLineEndingStatus(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want LineEndingStatus
+	}{
+		{"", LineEndingLF}, {"one line", LineEndingLF},
+		{"a\nb\n", LineEndingLF},
+		{"a\r\nb\r\n", LineEndingCRLF},
+		{"a\rb\r", LineEndingCR},
+		{"a\nb\r\n", LineEndingMixed},
+		{"a\nb\r", LineEndingMixed},
+		{"a\r\nb\r", LineEndingMixed},
+		{"a\nb\r\nc\r\n", LineEndingMixed},
+	} {
+		b := NewBuffer(tc.text)
+		if got := b.LineEndingStatus(); got != tc.want {
+			t.Errorf("NewBuffer(%q): status %v, want %v", tc.text, got, tc.want)
+		}
+	}
+	b := NewBuffer("a\nb\r\n")
+	b.SetLineEnding("\r")
+	if b.LineEndingStatus() != LineEndingCR {
+		t.Fatal("SetLineEnding did not update status")
+	}
+}
+
 // Editing a line changes no other line's ending.
 func TestLineEndsEditMixed(t *testing.T) {
 	b := NewBuffer("first line\nsecond line\r\nthird line\n")

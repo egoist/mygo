@@ -154,6 +154,16 @@ func (b *Buffer) LineEnding() string {
 	return b.ends.dominant()
 }
 
+// LineEndingStatus reports whether all line breaks use LF, CRLF, or CR,
+// or whether the buffer contains more than one kind. A buffer with no line
+// breaks has status LineEndingLF. It is O(1), using counts maintained by
+// the buffer while it edits.
+func (b *Buffer) LineEndingStatus() LineEndingStatus {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ends.status()
+}
+
 // SetLineEnding converts the ending of every line to ending, \r\n, \r
 // or \n, as an editor's command converting a file's line endings: lines
 // it breaks later end so too. It is not a step of undo, and undo and redo

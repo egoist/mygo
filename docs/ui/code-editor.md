@@ -93,7 +93,9 @@ with them. A line ending in `\r` followed by an empty line ending in `\n`
 would be written `\r\n`, which reads back as one line break, so the empty
 line's break becomes `\r\n`. Undo and redo put endings back with the text.
 `LineEnding` says which ending most lines have, and `SetLineEnding`
-converts every line to one.
+converts every line to one. `LineEndingStatus` reports whether all breaks
+are LF, CRLF, CR, or mixed, in O(1) time; use it for a status bar that must
+not label a mixed file as its dominant ending.
 
 The text is a persistent tree of chunks, as Zed's rope: an edit copies a
 few kilobytes and a path of the tree, whatever the size of the document,

@@ -45,6 +45,41 @@ type lineEnds struct {
 	crlf, cr int // how many codes are endCRLF and endCR; the rest are endLF
 }
 
+// LineEndingStatus describes the line endings in a buffer.
+type LineEndingStatus uint8
+
+const (
+	LineEndingLF LineEndingStatus = iota
+	LineEndingCRLF
+	LineEndingCR
+	LineEndingMixed
+)
+
+func (e lineEnds) status() LineEndingStatus {
+	count := e.codes.Len()
+	lf := count - e.crlf - e.cr
+	seen := 0
+	if lf > 0 {
+		seen++
+	}
+	if e.crlf > 0 {
+		seen++
+	}
+	if e.cr > 0 {
+		seen++
+	}
+	if seen > 1 {
+		return LineEndingMixed
+	}
+	if e.crlf > 0 {
+		return LineEndingCRLF
+	}
+	if e.cr > 0 {
+		return LineEndingCR
+	}
+	return LineEndingLF
+}
+
 // readEnds returns s with each line break, \r\n, a lone \r or \n, made
 // \n, and the codes of the breaks as s has them; codes is "" when s has
 // no \r, all its breaks being \n.
