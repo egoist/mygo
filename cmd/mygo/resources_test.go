@@ -1022,3 +1022,50 @@ func TestUniversalResources(t *testing.T) {
 		}
 	}
 }
+
+// TestPlaceBuildRunningResource places a development build again while a
+// program the app started from its resources runs, as a service the app
+// launches: Windows keeps that program, and the directory it runs from,
+// from being moved, which failed the rebuild before (#1905).
+func TestPlaceBuildRunningResource(t *testing.T) {
+	dir, src := t.TempDir(), t.TempDir()
+	exe := "svc"
+	if runtime.GOOS == "windows" {
+		exe += ".exe"
+	}
+	if err := os.MkdirAll(filepath.Join(src, "extra"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(os.Args[0], filepath.Join(src, "extra", exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFiles(t, src, map[string]string{"extra/data.txt": "v1"})
+	res := []resource{{name: "extra", src: filepath.Join(src, "extra")}}
+	place := func(app string) error {
+		stage := t.TempDir()
+		writeFiles(t, stage, map[string]string{"app": app})
+		return placeBuild(stage, dir, res)
+	}
+	if err := place("1"); err != nil {
+		t.Fatal(err)
+	}
+	svc := fakeChild(filepath.Join(dir, "extra", exe), "sleep")
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = svc.Process.Kill()
+		_ = svc.Wait()
+	}()
+	writeFiles(t, src, map[string]string{"extra/data.txt": "v2"})
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(filepath.Join(src, "extra", "data.txt"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	if err := place("2"); err != nil {
+		t.Fatalf("placing a build while a resource runs: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "extra", "data.txt")); err != nil || string(b) != "v2" {
+		t.Errorf("extra/data.txt = %q, %v; want v2", b, err)
+	}
+}
