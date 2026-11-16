@@ -118,8 +118,9 @@ func NewTextShadow(x, y, blur float32, c Color) TextShadow {
 // shadow returns the span's Shadow, and whether it sets one.
 func (s *Span) shadow() (TextShadow, bool) { return s.Shadow, s.shadowSet || s.Shadow.color.A > 0 }
 
-// color returns the span's Color, and whether it sets one.
-func (s *Span) color() (Color, bool) { return s.Color, s.colorSet || s.Color.A > 0 }
+// color returns the span's Color, and whether it sets one: any but the
+// zero Color, a color faded to nothing too, which draws nothing.
+func (s *Span) color() (Color, bool) { return s.Color, s.colorSet || s.Color != (Color{}) }
 
 // decorationColor returns the span's DecorationColor, and whether it sets
 // one.
@@ -248,7 +249,7 @@ func (sc *spanCache) update(spans []Span) {
 	paints := false
 	for i, s := range spans {
 		end += utf8.RuneCountInString(s.Text)
-		paints = paints || s.Color.A > 0 || s.colorSet || s.Underline || s.WavyUnderline || s.DottedUnderline || s.Strikethrough || s.Background.A > 0 || s.strokeSet || s.shadowSet || s.Shadow.color.A > 0
+		paints = paints || s.Color != (Color{}) || s.colorSet || s.Underline || s.WavyUnderline || s.DottedUnderline || s.Strikethrough || s.Background.A > 0 || s.strokeSet || s.shadowSet || s.Shadow.color.A > 0
 		same = same && sc.styles[i] == spanStyle(s, end)
 	}
 	sc.paints = paints
@@ -283,9 +284,21 @@ func encodeSpans(spans []Span) string {
 }
 
 // richParams returns how to lay out spans over the text style of theme t,
-// wrapping lines at width (none for 0).
+// wrapping lines at width (none for 0). Drawn with no element, the spans
+// have no style around them but the theme's, for what they leave unset:
+// spans that all set their size are laid out over that of the smallest,
+// so a line is as tall as its own text, not as the theme's, and a small
+// letter sits where its own size puts it, whatever the theme's font size.
 func (rt *engine) richParams(t *Theme, width float32, spans []Span) text.Params {
 	style := text.Style{Family: t.Font, Size: t.FontSize, Lang: rt.lang}
+	if base, ok := smallestSpan(spans); ok {
+		style.Size = base.Size
+		// Only when every span sets its font too: a span leaving it to the
+		// theme keeps the theme's.
+		if !slices.ContainsFunc(spans, func(s Span) bool { return s.Font == "" }) {
+			style.Family = base.Font
+		}
+	}
 	// Views measure the same spans frame after frame.
 	for i := range rt.measured {
 		m := &rt.measured[i]
@@ -306,6 +319,21 @@ func (rt *engine) richParams(t *Theme, width float32, spans []Span) text.Params 
 		m.spans = []Span{}
 	}
 	return p
+}
+
+// smallestSpan returns the span of the smallest size, when every span sets
+// its size.
+func smallestSpan(spans []Span) (Span, bool) {
+	var base Span
+	for i, s := range spans {
+		if s.Size <= 0 {
+			return Span{}, false
+		}
+		if i == 0 || s.Size < base.Size {
+			base = s
+		}
+	}
+	return base, len(spans) > 0
 }
 
 // measuredSpans are spans Painter.RichText or MeasureText laid out, and
@@ -396,7 +424,9 @@ func (sp *spanPaint) at(r int) int {
 	return lo
 }
 
-// color returns the color of span i, or c.
+// color returns the color of span i, or c for one leaving it zero: a
+// color faded to nothing is the span's own, drawing nothing, not the
+// text's around it.
 func (sp *spanPaint) color(i int, c Color) Color {
 	if i >= 0 {
 		if sc, ok := sp.spans[i].color(); ok {
