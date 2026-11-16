@@ -324,7 +324,7 @@ func externalShellTarget(target string) string {
 	path := target[len(prefix):]
 	// Some callers prepend file:// directly to a Windows path. Keep its
 	// literal percent signs and hashes intact.
-	if len(path) < 3 || path[1] != ':' || path[2] != '\\' {
+	if !hasDriveRoot(path) {
 		u, err := url.Parse(target)
 		if err != nil || u.User != nil || strings.ContainsAny(target, "?#") ||
 			(u.Host != "" && !strings.EqualFold(u.Host, "localhost")) {
@@ -332,10 +332,18 @@ func externalShellTarget(target string) string {
 		}
 		path = filepath.FromSlash(strings.TrimPrefix(u.Path, "/"))
 	}
-	if len(filepath.VolumeName(path)) == 2 && filepath.IsAbs(path) && !strings.ContainsRune(path, 0) {
+	if hasDriveRoot(path) && !strings.ContainsAny(path, "?\x00") {
 		return path
 	}
 	return target
+}
+
+func hasDriveRoot(path string) bool {
+	if len(path) < 3 || path[1] != ':' || path[2] != '\\' {
+		return false
+	}
+	drive := path[0]
+	return ('A' <= drive && drive <= 'Z') || ('a' <= drive && drive <= 'z')
 }
 
 func (shell) OpenPath(path string) error { return shellExecute("open", path, "") }
