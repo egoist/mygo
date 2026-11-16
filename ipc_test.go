@@ -108,3 +108,27 @@ func TestCancelCallOfACallThatRan(t *testing.T) {
 		t.Fatal("the call was not canceled")
 	}
 }
+
+// A page that navigates while a cancelable call runs: the call ends after
+// the new page's bookkeeping began, and must not write to it.
+func TestCancelCallPageReloaded(t *testing.T) {
+	svc := &cancelService{started: make(chan struct{}), done: make(chan error, 1)}
+	BindAs("cancelReload", svc)
+	w := &Window{}
+	w.resetPage() // the page loaded
+	go handleCall(w, w.pageContext(), `{"id":1,"k":"tok","m":"cancelReload.Wait","a":[],"cancel":true}`, true)
+	wait.For(t, "the call to start", svc.started)
+	// The page navigates away: the call ends with the page that made it,
+	// and the new page's bookkeeping holds nothing of it.
+	w.resetPage()
+	if err := wait.For(t, "the call to end with the page", svc.done); !errors.Is(err, context.Canceled) {
+		t.Errorf("the call ended with %v, want it canceled with the page", err)
+	}
+	// Ending after the reload, the call finds no cancel of its own to end,
+	// and a cancel of it finds nothing to cancel.
+	w.removeCancel(1, "tok")
+	w.cancelCall(1, "tok")
+	if len(w.cancels) != 0 {
+		t.Errorf("the new page holds %d cancels of the page that went away", len(w.cancels))
+	}
+}

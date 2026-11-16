@@ -1947,8 +1947,12 @@ func (w *Window) addCancel(id int64, token string, cancel context.CancelFunc) {
 func (w *Window) removeCancel(id int64, token string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if c, ok := w.cancels[id]; ok && c.token != token {
-		return // another page's call
+	c, ok := w.cancels[id]
+	if !ok || c.token != token {
+		// The page reloaded or navigated while the call ran, or gave the
+		// call up: the call is of no page's business now, and the id may
+		// be the one of a call of the page that loaded since.
+		return
 	}
 	delete(w.canceledEarly, id)
 	w.cancels[id] = pageCancel{token: token}

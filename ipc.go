@@ -399,8 +399,9 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 		// The page may cancel the call with a signal: the method gets a
 		// context of its own, which the page cancels. The call is
 		// remembered before it is made, so that it is remembered as run
-		// however it ends: a cancel that comes after the reply left for
-		// the page finds the id of a call that ran, and is dropped.
+		// when it ends, unless the page goes away while it runs: a cancel
+		// that comes after the reply left for the page finds the id of a
+		// call that ran, and is dropped.
 		var cancel context.CancelFunc
 		if ctx != nil {
 			ctx, cancel = context.WithCancel(ctx)
