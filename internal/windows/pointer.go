@@ -18,8 +18,9 @@ import (
 // scrolls, two pinch, a tap clicks and press and hold right-clicks, as on
 // Linux. A finger landing on a web view embedded in the content is left
 // to DefWindowProc, whose mouse messages the web view gets
-// (forwardMouse). Every finger is also sent on its own (sendFinger), for
-// the views that follow each.
+// (forwardMouse), as is one landing on a drag region of a title bar the
+// content draws, whose press moves the window. Every finger is also sent
+// on its own (sendFinger), for the views that follow each.
 var (
 	procGetMessageExtraInfo = user32.NewProc("GetMessageExtraInfo")
 	procGetPointerType      = user32.NewProc("GetPointerType")
@@ -178,8 +179,10 @@ func (s *surface) sendFinger(m uint32, wp uintptr, x, y, pressure float64) {
 // fingerMessage gives a finger's WM_POINTERDOWN, UPDATE or UP, at x, y in
 // DIPs, pressing with pressure at time t, to the surface's gesture, and
 // sends the finger and what the gesture makes of it. It reports whether
-// it took the message: a finger landing on an embedded web view it
-// leaves to DefWindowProc, whose mouse the web view gets.
+// it took the message: a finger landing on an embedded web view, or on a
+// drag region of the content (platform.DragRegionAt), it leaves to
+// DefWindowProc, whose mouse the web view gets, or which moves the window
+// as the mouse's press does there.
 func (s *surface) fingerMessage(m uint32, wp uintptr, x, y, pressure float64, t uint32) bool {
 	id := uintptr(loword(wp))
 	var evs []platform.SurfaceEvent
@@ -190,7 +193,7 @@ func (s *surface) fingerMessage(m uint32, wp uintptr, x, y, pressure float64, t 
 			// whatever ended unseen.
 			s.touch.Reset()
 		}
-		if s.layer != nil && !s.touch.Holds(id) && s.webViewAt(x, y) != nil {
+		if !s.touch.Holds(id) && s.leavesFinger(x, y) {
 			return false
 		}
 		evs = s.touch.Begin(id, x, y, t)
@@ -204,6 +207,18 @@ func (s *surface) fingerMessage(m uint32, wp uintptr, x, y, pressure float64, t 
 	s.sendFinger(m, wp, x, y, pressure)
 	s.sendTouch(evs, pressure, t)
 	return true
+}
+
+// leavesFinger reports whether a finger landing at x, y is left to
+// DefWindowProc's mouse: on an embedded web view, or on an element of a
+// title bar the content draws that moves the window, whose press
+// StartDrag makes the system's move, which a tap, pressing only as the
+// finger lifts, could not start.
+func (s *surface) leavesFinger(x, y float64) bool {
+	if s.layer != nil && s.webViewAt(x, y) != nil {
+		return true
+	}
+	return s.send(platform.SurfaceEvent{Kind: platform.DragRegionAt, X: x, Y: y})
 }
 
 // touchCaptureLost ends with no tap the finger of a
