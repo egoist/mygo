@@ -534,7 +534,7 @@ mygo.NewWindow(mygo.WindowOptions{
 |---|---|
 | `OnWillNavigate(func(e *mygo.NavigateEvent))` | 页面即将导航，例如点击链接之后；`e.PreventDefault()` 取消它。`e.UserInitiated` 表示导航是否由用户的手势开始——点击链接，或点击后由处理器设置 `location.href`——还是页面脚本自行发起。`LoadURL` 及其同类不会调用它，页面的 iframe 也不会，除了 Linux 上 WebKitGTK 2.56 之前的版本，那里无法告知导航来自哪个框架：在那里它也会为 iframe 的导航调用，但 `srcdoc` 的除外。 |
 | `OnDidNavigate(func(url string))` | 一次导航已提交 |
-| `OnDOMReady` | 页面的 DOM 已就绪（`DOMContentLoaded`） |
+| `OnDOMReady` | 页面的 DOM 已就绪（`DOMContentLoaded`），或者 Web 视图在后退或前进时按离开时的原样再次显示该页面 |
 | `OnDidFinishLoad` | 页面完成加载 |
 | `OnDidFailLoad(func(err *mygo.LoadError))` | 页面加载失败 |
 | `OnPageTitleUpdated(func(e *mygo.TitleEvent))` | 页面的 `<title>` 改变；阻止该事件会保持窗口标题不变 |

@@ -851,7 +851,7 @@ Page events, on `win.Page()`:
 |---|---|
 | `OnWillNavigate(func(e *mygo.NavigateEvent))` | the page is about to navigate, for example after a click on a link; `e.PreventDefault()` cancels it. `e.UserInitiated` says whether a user's gesture started it, a click on a link or a click whose handler sets `location.href`, or the page's script did on its own. Not called for `LoadURL` and its siblings, nor for the page's iframes, except on Linux before WebKitGTK 2.56, which tells no navigation's frame: there it is called for an iframe's too, but a `srcdoc` one's. |
 | `OnDidNavigate(func(url string))` | a navigation committed |
-| `OnDOMReady` | the page's DOM is ready (`DOMContentLoaded`) |
+| `OnDOMReady` | the page's DOM is ready (`DOMContentLoaded`), or the web view shows the page again as it was left, on Back or Forward |
 | `OnDidFinishLoad` | the page finished loading |
 | `OnDidFailLoad(func(err *mygo.LoadError))` | the page failed to load |
 | `OnPageTitleUpdated(func(e *mygo.TitleEvent))` | the page's `<title>` changed; preventing the event keeps the window title as it is |

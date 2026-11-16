@@ -1155,7 +1155,7 @@ Trust):
 | `{"t":"cancel","id":N,"k":token}` | the page gave the call up: its context is canceled |
 | `{"t":"chan-ack","c":N,"k":token,"n":S}` | the page took the values of channel N up to the S-th |
 | `{"t":"chan-close","c":N,"k":token}` | the page closed channel N |
-| `{"t":"dom-ready"}` | DOMContentLoaded fired |
+| `{"t":"dom-ready"}` | DOMContentLoaded fired, or the page shows again from the web view's cache of pages |
 | `{"t":"theme-color","v":"#rrggbbaa"}` | the page's theme color changed; `""` for none |
 | `{"t":"content-size","w":W,"h":H,"sw":SW,"sh":SH}` | the size of the content of a window that fits it, and the room of its scrollbars, in CSS pixels |
 | `{"t":"drag"}` / `{"t":"dblclick"}` | mousedown / double click on a drag region |
@@ -1224,7 +1224,12 @@ json/v2 defaults (nil slices encode as `[]`, case-sensitive names),
 once and enqueue per window. **Events are held until the page reports
 dom-ready** (bounded to 1024 per window) and the hold resets on every
 navigation, so events sent right after creating a window, or during a
-navigation, are delivered once listeners exist. Replies are never held:
+navigation, are delivered once listeners exist. A page the web view kept
+as it was left and shows again on Back or Forward (WebKit's back/forward
+cache) commits a navigation without running a script again: the bridge
+hears its `pageshow` event, and tells its theme color, its size and
+dom-ready again, after failing the calls the page had left unanswered,
+which Go canceled as it left. Replies are never held:
 module scripts may `await` a call at top level, and DOMContentLoaded waits for
 them.
 
