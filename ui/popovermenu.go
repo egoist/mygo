@@ -810,7 +810,7 @@ func (m *menuParts) finish(level int) {
 		}
 	}
 	if hi != nil {
-		panel.activeDescendant = hi
+		panel.activeDescendant = refTo(hi)
 		if lv.reveal {
 			hi.ScrollIntoView()
 		}

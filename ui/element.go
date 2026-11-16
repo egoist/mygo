@@ -649,14 +649,14 @@ type node struct {
 	// technology, and takes the keys for: the list, or its Table.
 	// popover is the anchor of the panel of a popover. barsFrom supplies
 	// the scroll bar settings, as a table does for the list of its rows.
-	popover        *node
+	popover        elementRef
 	list           *listFrame
 	listRow        bool
 	keepScrollbars bool
 	// hiddenScrollbars holds the axes hidden by ScrollbarAxes and the
 	// independent Scrollbars(false) override.
 	hiddenScrollbars uint32
-	barsFrom         *node
+	barsFrom         elementRef
 	rowIndex         int
 	rowsOf           *listFrame
 	// snap is how the element, a scroll container, snaps (ScrollSnap), and
@@ -672,7 +672,7 @@ type node struct {
 	// placeOn is a sibling, laid out in the parent's flow, whose box an
 	// absolute element's insets are measured from instead of the parent's.
 	// A split uses it to keep its handle on the divider.
-	placeOn *node
+	placeOn elementRef
 	// overflow is set on a toolbar, whose layout notes there the controls
 	// it had no room for, and takes them out of the flow, collapsed.
 	overflow  *[]toolbarItem
@@ -686,8 +686,8 @@ type node struct {
 	// field around an input; setPos and setSize say which option of how
 	// many it is; choosesItems marks a popup whose options are chosen, and
 	// search a search field.
-	activeDescendant *node
-	nameFrom         *node
+	activeDescendant elementRef
+	nameFrom         elementRef
 	// nameJoin makes the element's name nameFrom's followed by its Label,
 	// as a range slider's knobs; labelledBy makes it nameFrom's in place
 	// of its Label (LabelledBy).
@@ -695,7 +695,7 @@ type node struct {
 	// focusTo is the element taking the focus that Focus and AutoFocus
 	// give this one, and whose focus Focused reports: the input of the box
 	// around it (field).
-	focusTo         *node
+	focusTo         elementRef
 	setPos, setSize int
 	choosesItems    bool
 	search          bool
@@ -709,8 +709,8 @@ type node struct {
 	// readOnly and multiline are what a text box with no editor of
 	// MyGo's reports (ReadOnly, Multiline).
 	readOnly, multiline bool
-	describedBy         []*node
-	errorMessage        []*node
+	describedBy         []elementRef
+	errorMessage        []elementRef
 	// field is set on a Field, form on a Form, whose layout makes its
 	// labels as wide as the widest.
 	field *fieldParts
@@ -721,7 +721,7 @@ type node struct {
 	// its rows; sort is the order a table's column header shows: 1
 	// ascending, 2 descending, 3 another (SortDirection).
 	rowMinW float32
-	followX *node
+	followX elementRef
 	sort    int8
 	// colFit fits a column of a table to its cells as it lays out.
 	colFit *tableFit
@@ -740,7 +740,7 @@ type node struct {
 	// which popupSet marks the app as having said, over a menu button's
 	// PopupMenu.
 	roleDescription string
-	controls        []*node
+	controls        []elementRef
 	hasPopup        Popup
 	popupSet        bool
 	tl              *text.Layout
@@ -782,8 +782,9 @@ type node struct {
 	// each element of a chunk then begins on one, and a walk of a
 	// container's children reads a child's box and style in the same lines
 	// whichever child it is on, rather than in one more line of most of
-	// them.
-	_ [2]uint32
+	// them. A reference is sixteen bytes where a pointer was, so what grew
+	// here is padded out to the next line.
+	_ [4]uint32
 }
 
 // measure is the height of an element at a width (naturalHeight).
@@ -1416,7 +1417,7 @@ func (e *node) AttachTo(target *node, at, self Anchor) *node {
 	}
 	e.markAbsolute()
 	e.attach = attachment(1 + min(at, AnchorBottomEnd)*15 + min(self, AnchorBottomEnd))
-	e.popover = target
+	e.popover = refTo(target)
 	if e.dir&dirSet == 0 {
 		// Built in an Overlay, it reads as what it is attached to.
 		e.setDir(target.rtl(), false)

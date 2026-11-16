@@ -69,7 +69,7 @@ func coreTimeInput(c *context, tm *time.Time) *node {
 			}
 			seg := coreBox(c).Padding(0, t.Space(0.5)).Radius(t.Space(1)).Focusable().FocusRing(false).Role(RoleStepper)
 			seg.flags |= flagTypeSelect
-			seg.nameFrom, seg.nameJoin = f, true
+			seg.nameFrom, seg.nameJoin = refTo(f), true
 			var text string
 			switch k {
 			case 0:

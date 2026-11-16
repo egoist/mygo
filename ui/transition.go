@@ -1108,12 +1108,14 @@ func ghostOf(e *node) *node {
 		st.spans.update(g.spans)
 	}
 	g.st = &st
+	st.node = 0 // the copy is in no arena: no reference resolves to it
 	g.parent, g.first, g.last, g.next, g.nchild = nil, nil, nil, nil, 0
 	g.shadows, g.cols, g.rows, g.frags = slices.Clone(e.shadows), slices.Clone(e.cols), slices.Clone(e.rows), slices.Clone(e.frags)
-	g.track, g.popover, g.list, g.rowsOf, g.overflow = nil, nil, nil, nil, nil
-	g.activeDescendant, g.nameFrom, g.focusTo, g.field, g.form = nil, nil, nil, nil, nil
-	g.describedBy, g.errorMessage = nil, nil
-	g.followX, g.colFit, g.gridFit = nil, nil, nil
+	g.track, g.list, g.rowsOf, g.overflow = nil, nil, nil, nil
+	g.popover, g.barsFrom, g.placeOn = elementRef{}, elementRef{}, elementRef{}
+	g.activeDescendant, g.nameFrom, g.focusTo, g.field, g.form = elementRef{}, elementRef{}, elementRef{}, nil, nil
+	g.describedBy, g.errorMessage, g.controls = nil, nil, nil
+	g.followX, g.colFit, g.gridFit = elementRef{}, nil, nil
 	g.special = false // it lays out by none of those now
 	// It no longer flies (Fly), if it did: it goes as its parent's copy.
 	g.inputFn, g.observeFn, g.ghosts, g.lift = nil, nil, false, false

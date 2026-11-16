@@ -55,7 +55,7 @@ func (e *node) stickyShift(x, y float32, at func(*node) (float32, float32)) (dx,
 	px, py := at(p)
 	cx, cy := px+p.contentX(), py+p.contentY()
 	cw, ch := max(p.w-p.padX(), 0), max(p.h-p.padY(), 0)
-	if f := p.followX; f != nil {
+	if f := p.resolve(p.followX); f != nil {
 		cx -= float32(f.followShift())
 		for c := p.first; c != nil; c = c.next {
 			if c.flags&flagAbsolute == 0 && !c.hidden {
@@ -75,7 +75,7 @@ func (e *node) stickyShift(x, y float32, at func(*node) (float32, float32)) (dx,
 	var vx, vy *node
 	a := p
 	for ; vx == nil || vy == nil; a = a.parent {
-		if vx == nil && (a.flags&flagScrollX != 0 || a.followX != nil) {
+		if vx == nil && (a.flags&flagScrollX != 0 || a.followX.id != 0) {
 			vx = a
 		}
 		if vy == nil && a.flags&flagScrollY != 0 {

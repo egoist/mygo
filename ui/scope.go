@@ -31,7 +31,7 @@ func (rt *engine) enterScope(e *node) focusScope {
 			}
 		}
 	}
-	if a := e.popover; a != nil {
+	if a := e.resolve(e.popover); a != nil {
 		// A popover opened from a dialog is in the dialog.
 		rt.commitScope = focusScope{modal: a.st.scope, anchor: a.id}
 	}
@@ -168,8 +168,8 @@ func (c *context) insideModal() bool {
 		if p.id == m {
 			return true
 		}
-		if p.popover != nil {
-			p = p.popover // a popover is where its anchor is
+		if a := p.resolve(p.popover); a != nil {
+			p = a // a popover is where its anchor is
 			continue
 		}
 		p = p.parent
@@ -240,7 +240,7 @@ func (e *node) PressedInside() bool {
 // the element e is attached to, or in an overlay attached to one of them.
 func (rt *engine) pressedWithin(id uint64, e *node) bool {
 	var anchor uint64
-	if e.popover != nil {
+	if e.popover.id != 0 {
 		anchor = e.popover.id
 	}
 	s := rt.states[id]
