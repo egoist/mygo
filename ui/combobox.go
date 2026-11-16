@@ -192,7 +192,9 @@ func (p *comboboxParts) Popup(fn func(panel *node)) *node {
 	b := p.anchor.Bounds()
 	var panel *node
 	coreOverlay(c, func() {
-		panel = coreBox(c).MinWidth(b.W).Role(RoleList).AttachTo(p.anchor, AnchorBottomStart, AnchorTopStart)
+		// Keyed by the input: its identity is its own, not the place it
+		// shows in (toast.go).
+		panel = coreBox(c).Key(mix(p.anchor.id, optionsPanelKey)).MinWidth(b.W).Role(RoleList).AttachTo(p.anchor, AnchorBottomStart, AnchorTopStart)
 		// Pressing an option keeps the focus in the input.
 		panel.flags |= flagClickable | flagKeepFocus
 		panel.choosesItems = true
@@ -208,7 +210,7 @@ func (p *comboboxParts) Popup(fn func(panel *node)) *node {
 		item.setPos, item.setSize = i+1, n
 	}
 	if h := *p.highlight; h >= 0 && h < n {
-		p.Input.activeDescendant = p.items[h]
+		p.Input.activeDescendant = refTo(p.items[h])
 	}
 	if n > 0 {
 		*p.empty = false
@@ -317,8 +319,8 @@ func field(c *context, fn func() *node) (*node, *node) {
 	f.flags |= flagClickable | flagHover
 	var in *node
 	f.Children(func() { in = fn() })
-	in.nameFrom = f
-	f.focusTo = in
+	in.nameFrom = refTo(f)
+	f.focusTo = refTo(in)
 	f.styleFn = func(f *node) { inputBorder(t, f, in) }
 	if f.Clicked() {
 		in.focus(false)
@@ -661,7 +663,8 @@ type tokenQuery struct {
 //		app.typedAt = c.Now() // look up once typing pauses
 //	}
 func (e *node) Query(q *string) *node {
-	if q == nil || !e.hasState() || e.focusTo == nil {
+	in := e.resolve(e.focusTo)
+	if q == nil || !e.hasState() || in == nil {
 		return e
 	}
 	tq, ok := e.st.locals[tokenQueryKey{}].(*tokenQuery)
@@ -675,7 +678,6 @@ func (e *node) Query(q *string) *node {
 		// to show them as the app gives them.
 		e.c.rt.consumed = true
 	}
-	in := e.focusTo
 	// Suggestions come as the user types: the input is a combo box while
 	// there are none yet, rather than a text field turning into one as
 	// they come and go.

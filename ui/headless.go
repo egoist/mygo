@@ -763,9 +763,11 @@ func (t *Tester) targetLabelCenter(n *labelNode, button int) (float32, float32, 
 		}
 		for i := range t.rt.c.used {
 			e := t.rt.nodeAt(uint32(i))
-			if e.id == want.id && e.focusTo != nil && got == e.focusTo.st && slices.Contains(hit, n.id) {
-				matches = true
-				break
+			if e.id == want.id {
+				if f := e.resolve(e.focusTo); f != nil && got == f.st && slices.Contains(hit, n.id) {
+					matches = true
+					break
+				}
 			}
 		}
 	}

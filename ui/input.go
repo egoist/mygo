@@ -1953,8 +1953,10 @@ func (e *node) Focused() bool {
 	if e.hasState() && e.c.rt.insp.isForced(e.id, forceFocus|forceFocusVisible) {
 		return true
 	}
-	if e != nil && e.focusTo != nil {
-		return e.focusTo.Focused()
+	if e != nil {
+		if f := e.resolve(e.focusTo); f != nil {
+			return f.Focused()
+		}
 	}
 	return e.hasState() && e.c.rt.focused == e.id && e.c.rt.windowFocus()
 }
@@ -2029,9 +2031,11 @@ type FocusOptions struct {
 // control focuses it where the user scrolled it, as on the web, and so does
 // the focus a page or a transition gives back.
 func (e *node) focus(reveal bool) {
-	if e != nil && e.focusTo != nil {
-		e.focusTo.focus(reveal)
-		return
+	if e != nil {
+		if f := e.resolve(e.focusTo); f != nil {
+			f.focus(reveal)
+			return
+		}
 	}
 	if !e.hasState() {
 		return

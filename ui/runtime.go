@@ -208,8 +208,8 @@ type engine struct {
 	// journal keeps the built values of the fields written after the
 	// build (journal.go).
 	journal journal
-	// built are the states the pass being built looked up (lookState), in
-	// the order it did, and nbuilt how many of states it built: endPass
+	// built are the states the pass being built built a node for
+	// (buildState), in the order it did, and nbuilt how many of them: endPass
 	// forgets the input of those alone, and prune looks for states to
 	// forget only when the pass built fewer than there are, so that what
 	// a frame costs after its view built follows what it built, not
@@ -1758,10 +1758,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		s.refresh, s.longPress = nil, false
 	}
 	s.rtl = e.rtl()
-	s.anchor = 0
-	if e.popover != nil {
-		s.anchor = e.popover.id
-	}
+	s.anchor = e.popover.id
 	if e.parent != nil && e.parent.st.flags&flagDisabled != 0 {
 		// Disabled with the element around it, which may have been
 		// disabled after building it, as a Fieldset.
@@ -1771,10 +1768,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	s.handleDoubleClick = e.handleDoubleClick
 	s.accessHidden = e.accessHidden || e.flags&flagInert != 0 || e.parent != nil && e.parent.st.accessHidden
 	s.accessDisabled = e.accessDisabled || e.parent != nil && e.parent.st.accessDisabled
-	s.activeDescendant = 0
-	if d := e.activeDescendant; d != nil {
-		s.activeDescendant = d.id
-	}
+	s.activeDescendant = e.activeDescendant.id
 	s.cursor, s.tip = e.cursor, e.tip
 	s.webView = e.webView
 	s.role, s.focusHighlights = e.role, e.focusHighlights
@@ -1805,8 +1799,8 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		s.contentW, s.contentH = e.contentW, e.contentH
 		s.barInset = e.barInset
 		source := e
-		if e.barsFrom != nil {
-			source = e.barsFrom
+		if b := e.resolve(e.barsFrom); b != nil {
+			source = b
 		}
 		if source.hiddenScrollbars&hideAllScrollbars != 0 {
 			barFlags = 0
@@ -1882,7 +1876,7 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		rt.hits = append(rt.hits, hit{s, Rect{e.x, e.y, e.w, e.h}, e.flags})
 	}
 	label := e.label
-	if f := e.nameFrom; f != nil && (label == "" || e.labelledBy && f.nameOf() != "") {
+	if f := e.resolve(e.nameFrom); f != nil && (label == "" || e.labelledBy && f.nameOf() != "") {
 		label = f.nameOf() // an input, named by its field or its label
 	}
 	if (label != "" || e.kind == kindText) && !invisible {

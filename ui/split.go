@@ -546,7 +546,7 @@ func split(c *context, size *float32, first, second func(), vertical, inPercent 
 			// placeOn keeps the handle on the divider where this frame lays
 			// it out, also when a pane gives way.
 			handle := coreBox(c).Absolute()
-			handle.placeOn = div
+			handle.placeOn = refTo(div)
 			handle.flags |= flagDraggable | flagHover
 			if vertical {
 				handle.Left(0).Right(0).Top(-(grip - 1) / 2).Height(grip).Cursor(CursorResizeNS)
