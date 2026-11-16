@@ -6,26 +6,36 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
-	"errors"
 	"io"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
 var singleInstance struct {
 	sync.Mutex
+	// lock is the open lock file, whose lock the system keeps until the
+	// process exits, also when it crashes or is killed.
+	lock     *os.File
 	listener net.Listener
 	path     string
 	socket   os.FileInfo // identifies our socket file at path
-	locked   bool
 	handlers listeners[func([]string, string)]
 }
+
+// singleInstanceWait is how long a launch waits for an instance that holds
+// the lock but does not answer: one that is starting and not listening
+// yet, or one that has quit (as for Relaunch and updates) and is ending.
+var singleInstanceWait = 10 * time.Second
+
+// singleInstanceWaiting, when set, is called the first time a launch finds
+// the lock held and nobody answering (tests).
+var singleInstanceWaiting func()
 
 type secondInstanceMessage struct {
 	Args       []string `json:"args"`
@@ -46,14 +56,21 @@ type secondInstanceMessage struct {
 //	}
 //
 // The lock is identified by the application name and, in a packaged app,
-// its identifier, and released on quit.
+// its identifier. It is held until the process exits, so that the work an
+// app does after Run returns never overlaps with a new instance: from quit
+// on, the instance takes no more command lines, and a launch meanwhile
+// (Relaunch's, an update's, or the user's) waits a few seconds for it to
+// exit and runs then.
 func (a *Application) RequestSingleInstanceLock() bool {
 	if os.Getenv("MYGO_GENERATE") != "" {
 		return true // Run will only write the TypeScript client.
 	}
 	singleInstance.Lock()
 	defer singleInstance.Unlock()
-	if singleInstance.locked {
+	if singleInstance.lock != nil {
+		if singleInstance.listener == nil {
+			listenSecondInstances() // asked again after a quit
+		}
 		return true
 	}
 	path := singleInstanceSocket(singleInstanceKey(a.Name()))
@@ -65,52 +82,103 @@ func (a *Application) RequestSingleInstanceLock() bool {
 		token = os.Getenv("DESKTOP_STARTUP_ID")
 	}
 	msg, _ := json.Marshal(secondInstanceMessage{Args: os.Args[1:], WorkingDir: wd, ActivationToken: token})
-	for attempt := 0; attempt < 5; attempt++ {
-		if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
-			// Another instance owns the lock: hand over our arguments.
-			// On Windows the first instance, in the background, could not
-			// bring its windows to the front from OnSecondInstance: this
-			// launch, which the user just started, passes its right to
-			// the foreground on before it exits.
-			backend().App().AllowForeground()
-			_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
-			_, _ = conn.Write(msg)
-			if uc, ok := conn.(*net.UnixConn); ok {
-				_ = uc.CloseWrite()
-			}
-			_, _ = io.Copy(io.Discard, conn) // wait until it was read
-			conn.Close()
+	deadline := time.Now().Add(singleInstanceWait)
+	for delay := 5 * time.Millisecond; ; delay = min(2*delay, 100*time.Millisecond) {
+		// The system decides who holds the lock, before anyone touches
+		// the socket, which only carries command lines to the holder.
+		lock, err := openSingleInstanceLock(singleInstanceLockPath(path))
+		if err != nil {
+			// Locking is not possible here (e.g. read-only temp dir):
+			// behave as if this were the only instance.
+			return true
+		}
+		if lock != nil {
+			singleInstance.lock, singleInstance.path = lock, path
+			listenSecondInstances()
+			a.OnQuit(stopSecondInstances)
+			return true
+		}
+		if forwardToFirstInstance(path, msg) {
 			if launchedByDev() {
 				// mygo dev would only see the app exit.
 				log.Printf("mygo: %s is already running: handed the command line over to it (RequestSingleInstanceLock)", a.Name())
 			}
 			return false
 		}
-		// Nobody answers: remove a stale socket left by a crash and take
-		// over. If another instance wins the race, Listen fails and the next
-		// attempt connects to it.
-		_ = os.Remove(path)
-		ln, err := net.Listen("unix", path)
-		if err == nil {
-			// The socket file is removed on release, and only if it is
-			// still ours: an instance that found it stale may have
-			// replaced it.
-			ln.(*net.UnixListener).SetUnlinkOnClose(false)
-			singleInstance.socket, _ = os.Stat(path)
-			singleInstance.listener, singleInstance.path, singleInstance.locked = ln, path, true
-			go acceptSecondInstances(ln)
-			a.OnQuit(releaseSingleInstanceLock)
-			return true
+		if fn := singleInstanceWaiting; fn != nil {
+			singleInstanceWaiting = nil
+			fn()
 		}
-		// Windows reports WSAEADDRINUSE.
-		if !errors.Is(err, syscall.EADDRINUSE) && !errors.Is(err, syscall.Errno(10048)) {
-			// Locking is not possible here (e.g. read-only temp dir):
-			// behave as if this were the only instance.
-			return true
+		if time.Now().After(deadline) {
+			// Running beside it is what the lock is there to prevent.
+			log.Printf("mygo: %s is already running but does not take command lines: exiting (RequestSingleInstanceLock)", a.Name())
+			return false
 		}
-		time.Sleep(time.Duration(attempt+1) * 20 * time.Millisecond)
+		time.Sleep(delay)
 	}
+}
+
+// openSingleInstanceLock opens the lock file at path and takes its lock,
+// returning nil while another instance holds it. The file stays: removing
+// it would let two instances lock two files. Its handle is not inherited
+// (os.OpenFile opens with O_CLOEXEC, a handle Windows does not inherit),
+// so a process the app started cannot keep the lock after the app exits.
+func openSingleInstanceLock(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := lockFile(f); err != nil {
+		f.Close()
+		if lockBusy(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return f, nil
+}
+
+// forwardToFirstInstance hands msg to the instance listening at path,
+// reporting whether one took it.
+func forwardToFirstInstance(path string, msg []byte) bool {
+	conn, err := net.DialTimeout("unix", path, time.Second)
+	if err != nil {
+		return false
+	}
+	// On Windows the first instance, in the background, could not bring
+	// its windows to the front from OnSecondInstance: this launch, which
+	// the user just started, passes its right to the foreground on before
+	// it exits.
+	backend().App().AllowForeground()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	_, _ = conn.Write(msg)
+	if uc, ok := conn.(*net.UnixConn); ok {
+		_ = uc.CloseWrite()
+	}
+	_, _ = io.Copy(io.Discard, conn) // wait until it was read
+	conn.Close()
 	return true
+}
+
+// listenSecondInstances takes the command lines of later instances on the
+// socket. The lock is held, so a socket file there is a stale one, left
+// by an instance that crashed. singleInstance is locked.
+func listenSecondInstances() {
+	path := singleInstance.path
+	_ = os.Remove(path)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		// Later instances wait for this one to exit.
+		log.Printf("mygo: later instances cannot hand their command line over: %v (RequestSingleInstanceLock)", err)
+		return
+	}
+	// The socket file is removed on quit, and only if it is still ours:
+	// an instance of an older MyGo, which takes no lock, may have
+	// replaced it.
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	singleInstance.socket, _ = os.Stat(path)
+	singleInstance.listener = ln
+	go acceptSecondInstances(ln)
 }
 
 // OnSecondInstance is called in the first instance when another instance
@@ -149,7 +217,10 @@ func acceptSecondInstances(ln net.Listener) {
 	}
 }
 
-func releaseSingleInstanceLock() {
+// stopSecondInstances stops taking the command lines of later instances,
+// on quit, which would reach an instance that is ending. The lock stays
+// until the process exits: later instances wait for it.
+func stopSecondInstances() {
 	singleInstance.Lock()
 	defer singleInstance.Unlock()
 	if singleInstance.listener != nil {
@@ -157,7 +228,7 @@ func releaseSingleInstanceLock() {
 		if fi, err := os.Stat(singleInstance.path); err == nil && singleInstance.socket != nil && os.SameFile(fi, singleInstance.socket) {
 			_ = os.Remove(singleInstance.path)
 		}
-		singleInstance.listener, singleInstance.socket, singleInstance.locked = nil, nil, false
+		singleInstance.listener, singleInstance.socket = nil, nil
 	}
 }
 
@@ -182,4 +253,10 @@ func singleInstanceSocket(name string) string {
 		}
 	}
 	return filepath.Join("/tmp", file)
+}
+
+// singleInstanceLockPath returns the path of the lock file next to the
+// socket at socket.
+func singleInstanceLockPath(socket string) string {
+	return strings.TrimSuffix(socket, ".sock") + ".lock"
 }
