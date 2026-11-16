@@ -1186,7 +1186,11 @@ navigated away can never resolve a promise of the new page.
    main thread.
 2. `handleCall` decodes the envelope with `encoding/json/v2`, looks up the
    method, decodes each argument into the parameter type, calls it and
-   encodes the result. Panics are recovered, logged with a stack trace and
+   encodes the result. What the page sends is decoded with
+   `decodeOptions`: half of a surrogate pair, which a JavaScript string
+   may hold and JSON.stringify writes as an escape, becomes U+FFFD
+   instead of failing the envelope, which would leave the call without a
+   reply. Panics are recovered, logged with a stack trace and
    returned as errors. Large values are copied as little as possible: the
    arguments are raw values that share the message (`rawValue`), decoded
    from it in place, and the result is encoded into a part of the reply

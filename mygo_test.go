@@ -674,6 +674,28 @@ func TestCalls(t *testing.T) {
 	}
 }
 
+// Text cut in the middle of an emoji holds half of a surrogate pair, which
+// JSON.stringify writes as an escape that is no character. The call is
+// made with U+FFFD in its place, and answered.
+func TestCallLoneSurrogate(t *testing.T) {
+	bindForTest(t, "Half", &testService{})
+	_, fw := testWindow(t, WindowOptions{})
+	for i, tt := range []struct{ method, arg, want string }{
+		{"Half.Hello", `"x\ud83d"`, "hello x\ufffd"},
+		{"Half.Hello", `"\ude00x"`, "hello \ufffdx"},
+		{"Half.Echo", `{"name":"a\ud83d","tags":[]}`, "map[name:a\ufffd tags:[echoed]]"},
+	} {
+		id := 300 + i
+		page(fw, fmt.Sprintf(`{"t":"call","id":%d,"k":"tok","m":%q,"a":[%s]}`, id, tt.method, tt.arg))
+		m := received(t, fw, func(m map[string]any) bool {
+			return m["t"] == "reply" && m["id"] == float64(id)
+		})
+		if m["ok"] != true || fmt.Sprint(m["v"]) != tt.want {
+			t.Errorf("%s(%s) = %v (%v), want %q", tt.method, tt.arg, m["v"], m["e"], tt.want)
+		}
+	}
+}
+
 func TestUntrustedOriginsCannotCall(t *testing.T) {
 	bindForTest(t, "Trust", &testService{})
 	if err := Protocol.Handle("trusted", http.NotFoundHandler()); err != nil {
