@@ -35,8 +35,10 @@ func TestPageShownAgainFromCache(t *testing.T) {
 	wait.Until(t, "the DOM of the second page ready", func() bool { return ready.Load() == 2 })
 
 	p.GoBack()
-	waitFor(t, w, `location.pathname === "/" && window.shownAgain !== undefined`)
-	if mustEval(t, w, "window.shownAgain") != true {
+	// A page loaded again has neither the listener nor window.left: only
+	// the page kept hears pageshow.
+	waitFor(t, w, `location.pathname === "/" && document.readyState === "complete" && (window.shownAgain !== undefined || window.left === undefined)`)
+	if mustEval(t, w, "window.shownAgain === true") != true {
 		t.Skip("the engine loaded the page again instead of keeping it")
 	}
 	wait.Until(t, "the DOM of the page shown again ready", func() bool { return ready.Load() == 3 })
