@@ -137,8 +137,9 @@ func (s *surface) pointerMessage(m uint32, wp uintptr) {
 }
 
 // touchMessage sends a finger's WM_POINTER message, at at on the screen,
-// with the contact of touchInfo (pointerPressure read it), as a touch, for the views that follow each finger (platform.TouchDown):
-// its pointer ID stays with the finger until it lifts. The mouse messages
+// with the contact of the touchInfo pointerPressure read, as a touch, for
+// the views that follow each finger (platform.TouchDown): its pointer ID
+// stays with the finger until it lifts. The mouse messages
 // Windows makes of the first finger come as before.
 func (s *surface) touchMessage(m uint32, wp uintptr, at point, pressure float64) {
 	kind := platform.TouchMove
