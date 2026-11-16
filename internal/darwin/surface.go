@@ -188,8 +188,11 @@ type surface struct {
 	updating      bool
 	accessPending *platform.AccessTree
 	accessDead    bool
-	dataDrag      *macDataSource
-	dragOperation transfer.Operation
+	dataDrag        *macDataSource
+	dragOperation   transfer.Operation
+	dragFilesPB     id
+	dragFilesChange int
+	dragFiles       []string
 	// placed are where the content shows the window's web views, under
 	// it (webview.go).
 	placed []platform.WebViewPlacement

@@ -387,6 +387,9 @@ func droppedPaths(data uintptr) []string {
 		return nil
 	}
 	defer procReleaseStgMedium.Call(uintptr(unsafe.Pointer(&m)))
+	if m.Tymed != tymedHGlobal || m.Handle == 0 {
+		return nil
+	}
 	return droppedHDropPaths(m.Handle)
 }
 

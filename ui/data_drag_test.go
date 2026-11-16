@@ -304,3 +304,67 @@ func TestNativeDestinationRejectsMismatchDisabledAndFailedData(t *testing.T) {
 		t.Fatal("failed provider acknowledged a drop")
 	}
 }
+
+func TestDataDragOverReturnsAndClonesOfferFiles(t *testing.T) {
+	var offer transfer.Offer
+	var over bool
+	mutate := false
+	tt := coreNewTester(func(c *context) {
+		zone := coreBox(c).Size(100, 100)
+		offer, over = coreDataDragOver(zone, transfer.DropOptions{
+			Formats:    []transfer.Format{transfer.FileList},
+			Operations: transfer.Copy,
+		})
+		if mutate && len(offer.Files) > 0 {
+			offer.Files[0] = "mutated-by-widget"
+		}
+	}, 200, 200)
+
+	sourceFiles := []string{"/tmp/a.png", "/tmp/b.pdf"}
+	d := &platform.DataDragEvent{Offer: transfer.Offer{
+		Formats:    []transfer.Format{transfer.FileList},
+		Files:      sourceFiles,
+		Operations: transfer.Copy,
+	}}
+	// event copies d.Offer.Files via slices.Clone, so subsequent caller mutation
+	// does not affect the next frame.
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.DataDragOver, X: 10, Y: 10, Drag: d})
+	sourceFiles[0] = "mutated-by-caller"
+	mutate = true
+	tt.Frame()
+	if !over || d.Operation != transfer.Copy {
+		t.Fatalf("over=%v op=%v; want true, Copy", over, d.Operation)
+	}
+	want := []string{"/tmp/a.png", "/tmp/b.pdf"}
+	if !slices.Equal(d.Offer.Files, []string{"mutated-by-caller", "/tmp/b.pdf"}) {
+		t.Fatalf("driver Offer.Files mutated unexpectedly: %v", d.Offer.Files)
+	}
+
+	// Next frame without mutating must still observe the original cloned slice.
+	mutate = false
+	tt.Frame()
+	if !over || !slices.Equal(offer.Files, want) {
+		t.Fatalf("offer.Files=%v; want %v (widget mutation leaked)", offer.Files, want)
+	}
+
+	// Non-file drags leave Offer.Files nil.
+	textDrag := &platform.DataDragEvent{Offer: transfer.Offer{
+		Formats:    []transfer.Format{transfer.Text},
+		Operations: transfer.Copy,
+	}}
+	tt.send2(platform.SurfaceEvent{Kind: platform.DataDragOver, X: 10, Y: 10, Drag: textDrag})
+	if over || offer.Files != nil {
+		t.Fatalf("non-file drag: over=%v files=%v; want false, nil", over, offer.Files)
+	}
+
+	// Leaving clears incoming offer state.
+	tt.send2(platform.SurfaceEvent{Kind: platform.DataDragOver, X: 10, Y: 10, Drag: &platform.DataDragEvent{Offer: transfer.Offer{
+		Formats:    []transfer.Format{transfer.FileList},
+		Files:      []string{"/tmp/c.txt"},
+		Operations: transfer.Copy,
+	}}})
+	tt.send2(platform.SurfaceEvent{Kind: platform.DataDragLeave})
+	if over || offer.Files != nil || offer.Formats != nil {
+		t.Fatalf("after DataDragLeave: over=%v offer=%+v; want zero", over, offer)
+	}
+}

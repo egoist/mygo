@@ -102,7 +102,12 @@ if drop, ok := ui.DropData(zone, options); ok {
 
 The innermost matching enabled target receives the drop once, in the next
 frame. At least one advertised format must match, and the source and target
-must share an operation. Hover advertises formats without reading bytes.
+must share an operation. Hover advertises formats without reading bytes or
+invoking providers; `DataDragOver` returns an `Offer` whose `Files` lists
+local file paths for external drags on macOS and Windows (`CF_HDROP`)
+without reading file contents, and is `nil` for drags from this process and
+where paths are unavailable until drop (Linux/GTK, browsers, and promised
+or virtual files).
 Accepted representations are copied on drop; the resulting data is safe to
 keep and read from a goroutine after the native session ends.
 
