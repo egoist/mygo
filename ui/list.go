@@ -334,9 +334,9 @@ type ListState struct {
 	rows  map[uint64]listRowID
 	frame listFrame
 	// collected is where collectRows puts the rows in order. textScope is
-	// the Selectable container around the list, if any, and while its
-	// text is selected, shownN and shownBuilt are the rows of the last
-	// frame and those it built, for copying it.
+	// the Selectable container around the list, if any, and shownN and
+	// shownBuilt are the rows of the last frame and those it built, for
+	// copying its text.
 	collected  []*node
 	shownN     int
 	shownBuilt []int
@@ -2319,7 +2319,9 @@ func collectRows(rt *engine, e *node, hidden bool) {
 // the order of the rows.
 func collectInOrder(rt *engine, e *node, hidden bool) {
 	s := e.list.s
-	if s.textScope != 0 && s.textScope == rt.selection.scope {
+	// The rows of the frame are kept whatever selection there is: one made
+	// after it, with Copy before the next frame, copies against them.
+	if s.textScope != 0 {
 		s.shownN, s.shownBuilt = e.list.n, s.shownBuilt[:0]
 		for _, r := range e.list.rows {
 			s.shownBuilt = append(s.shownBuilt, r.i)
