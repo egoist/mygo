@@ -29,8 +29,9 @@ var singleInstance struct {
 }
 
 // singleInstanceWait is how long a launch waits for an instance that holds
-// the lock but does not answer: one that is starting and not listening
-// yet, or one that has quit (as for Relaunch and updates) and is ending.
+// the lock but does not answer (one that is starting and not listening
+// yet, or one that has quit, as for Relaunch and updates, and is ending)
+// before it logs that it waits. It waits on until the lock is free.
 var singleInstanceWait = 10 * time.Second
 
 // singleInstanceWaiting, when set, is called the first time a launch finds
@@ -59,8 +60,8 @@ type secondInstanceMessage struct {
 // its identifier. It is held until the process exits, so that the work an
 // app does after Run returns never overlaps with a new instance: from quit
 // on, the instance takes no more command lines, and a launch meanwhile
-// (Relaunch's, an update's, or the user's) waits a few seconds for it to
-// exit and runs then.
+// (Relaunch's, an update's, or the user's) waits for it to exit and runs
+// then.
 func (a *Application) RequestSingleInstanceLock() bool {
 	if os.Getenv("MYGO_GENERATE") != "" {
 		return true // Run will only write the TypeScript client.
@@ -82,8 +83,17 @@ func (a *Application) RequestSingleInstanceLock() bool {
 		token = os.Getenv("DESKTOP_STARTUP_ID")
 	}
 	msg, _ := json.Marshal(secondInstanceMessage{Args: os.Args[1:], WorkingDir: wd, ActivationToken: token})
-	deadline := time.Now().Add(singleInstanceWait)
+	start, said := time.Now(), false
 	for delay := 5 * time.Millisecond; ; delay = min(2*delay, 100*time.Millisecond) {
+		// An instance that answers takes the command line: one holding
+		// the lock, or one of an older MyGo, which takes none.
+		if forwardToFirstInstance(path, msg) {
+			if launchedByDev() {
+				// mygo dev would only see the app exit.
+				log.Printf("mygo: %s is already running: handed the command line over to it (RequestSingleInstanceLock)", a.Name())
+			}
+			return false
+		}
 		// The system decides who holds the lock, before anyone touches
 		// the socket, which only carries command lines to the holder.
 		lock, err := openSingleInstanceLock(singleInstanceLockPath(path))
@@ -98,21 +108,18 @@ func (a *Application) RequestSingleInstanceLock() bool {
 			a.OnQuit(stopSecondInstances)
 			return true
 		}
-		if forwardToFirstInstance(path, msg) {
-			if launchedByDev() {
-				// mygo dev would only see the app exit.
-				log.Printf("mygo: %s is already running: handed the command line over to it (RequestSingleInstanceLock)", a.Name())
-			}
-			return false
-		}
 		if fn := singleInstanceWaiting; fn != nil {
 			singleInstanceWaiting = nil
 			fn()
 		}
-		if time.Now().After(deadline) {
-			// Running beside it is what the lock is there to prevent.
-			log.Printf("mygo: %s is already running but does not take command lines: exiting (RequestSingleInstanceLock)", a.Name())
-			return false
+		// The holder does not answer: it is starting, or it quit and is
+		// ending, as for Relaunch and updates. The wait has no end: only
+		// the holder's exit frees the lock, a relaunch must land however
+		// long the shutdown takes, and running beside it is what the lock
+		// is there to prevent.
+		if !said && time.Since(start) > singleInstanceWait {
+			log.Printf("mygo: waiting for the other instance of %s to exit: it holds the single instance lock (RequestSingleInstanceLock)", a.Name())
+			said = true
 		}
 		time.Sleep(delay)
 	}

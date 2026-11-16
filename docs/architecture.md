@@ -1925,10 +1925,13 @@ as in Tauri:
   inherit), so a process the app started cannot keep it. The holder
   removes a stale socket and listens; the socket only carries the
   command lines of later instances (JSON), and closes on `OnQuit`. A
-  launch that finds the lock held hands its command line over; while
-  nobody answers (the holder is starting, or quit and is ending, as for
-  `Relaunch` and updates) it tries the lock and the socket again for up
-  to `singleInstanceWait` (10 s), then exits rather than run beside it.
+  launch first hands its command line to whoever answers the socket (the
+  holder, or an instance of an older MyGo, which takes no lock), then
+  tries the lock; while the lock is held and nobody answers (the holder
+  is starting, or quit and is ending, as for `Relaunch` and updates) it
+  tries both again until the lock is free, logging after
+  `singleInstanceWait` (10 s): a relaunch must land however long the
+  shutdown takes.
 - `Relaunch` runs the quit sequence, then (after `OnQuit`, which closes
   the single instance socket; the new instance waits for the lock, which
   this one holds until it exits) starts the executable again with the same
