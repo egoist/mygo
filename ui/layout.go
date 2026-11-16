@@ -692,7 +692,21 @@ type flexItem struct {
 	// lengths have resolved, byBase on those aligned by their
 	// baselines, and laidOut on those of a row, laid out to find theirs.
 	flags uint8
+	// auto are the item's automatic margins: the ones at the start and
+	// the end of its main axis, and the ones at the start and the end of
+	// its cross axis. The first walk reads them with the margins it
+	// reads the sizes of, and the passes after it read them here, in the
+	// item, and not the element again.
+	auto uint8
 }
+
+// The automatic margins of a flexItem, in bits.
+const (
+	autoMainStart uint8 = 1 << iota
+	autoMainEnd
+	autoCrossStart
+	autoCrossEnd
+)
 
 // The flags of a flexItem, in bits so that the item stays within a
 // cache line.
@@ -1386,23 +1400,13 @@ func resolveFlexible(its []flexItem, space float32, growing bool) {
 		if factor == 0 || (growing && it.base > it.hyp) || (!growing && it.base < it.hyp) {
 			it.main = it.hyp
 			it.flags |= flagFrozen
+			free -= it.main + it.marginMain
+			continue
 		}
+		free -= it.base + it.marginMain
+		sum += factor
 	}
 	for range its {
-		free := space
-		var sum float32
-		for _, it := range its {
-			if it.has(flagFrozen) {
-				free -= it.main + it.marginMain
-			} else {
-				free -= it.base + it.marginMain
-				if growing {
-					sum += it.grow
-				} else {
-					sum += it.shrink * it.inner()
-				}
-			}
-		}
 		if sum == 0 {
 			break
 		}
@@ -1432,6 +1436,20 @@ func resolveFlexible(its []flexItem, space float32, growing bool) {
 			it := &its[i]
 			if !it.has(flagFrozen) && (violation > 0 && it.violation > 0 || violation < 0 && it.violation < 0) {
 				it.flags |= flagFrozen
+			}
+		}
+		// What is left to grow or shrink, and the room left for it.
+		free, sum = space, 0
+		for _, it := range its {
+			if it.has(flagFrozen) {
+				free -= it.main + it.marginMain
+			} else {
+				free -= it.base + it.marginMain
+				if growing {
+					sum += it.grow
+				} else {
+					sum += it.shrink * it.inner()
+				}
 			}
 		}
 	}
