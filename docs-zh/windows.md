@@ -456,7 +456,7 @@ pet.SetInputRegion([]mygo.Rectangle{character, {X: 10, Y: 10, Width: 220, Height
 | `OnResize`, `OnMove` | 它被调整大小或移动 |
 | `OnMaximize`, `OnUnmaximize`, `OnMinimize`, `OnRestore` | 其状态改变 |
 | `OnEnterFullScreen`, `OnLeaveFullScreen` | 它进入或离开全屏 |
-| `OnReadyToShow` | 其第一个页面已准备好显示，或其原生 UI 绘制了第一帧 |
+| `OnReadyToShow` | 其第一个页面已准备好显示或加载失败（除非 `OnDidFailLoad` 的监听器加载了另一个页面，那么窗口会等待该页面），或其原生 UI 绘制了第一帧 |
 | `OnFileDrop` | 文件被拖放到其页面上，见[拖放的文件](frontend.md#拖放的文件)，或拖放到未接收它们的原生 UI 上，见[拖放的文件](ui/input.md#拖入的文件) |
 
 在关闭有未保存更改的窗口之前询问：

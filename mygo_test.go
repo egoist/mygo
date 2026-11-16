@@ -599,6 +599,34 @@ func TestReadyToShowFiresOnce(t *testing.T) {
 	}
 }
 
+// A window created hidden and shown from OnReadyToShow shows when its
+// first page fails to load, unless a listener of the failure loads
+// another page, which the window then waits for.
+func TestReadyToShowAfterFailedLoad(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{Hidden: true})
+	var n atomic.Int32
+	w.OnReadyToShow(func() { n.Add(1) })
+	fail := func() { onMain(func() { fw.H.LoadFailed("https://down.example/", -1004, "could not connect") }) }
+	fail()
+	if n.Load() != 1 {
+		t.Errorf("ready-to-show fired %d times after a failed load, want 1", n.Load())
+	}
+
+	w, fw = testWindow(t, WindowOptions{Hidden: true})
+	n.Store(0)
+	w.OnReadyToShow(func() { n.Add(1) })
+	off := w.Page().OnDidFailLoad(func(*LoadError) { w.Page().LoadHTML("<p>offline</p>", "") })
+	fail()
+	if n.Load() != 0 {
+		t.Errorf("ready-to-show fired %d times while the page of a listener loads, want 0", n.Load())
+	}
+	off()
+	fail()
+	if n.Load() != 1 {
+		t.Errorf("ready-to-show fired %d times after that page failed too, want 1", n.Load())
+	}
+}
+
 // Bound services.
 
 type testUser struct {
