@@ -57,11 +57,11 @@ func TestRemovedContentReleasesResources(t *testing.T) {
 	}
 }
 
-// A short-lived large view must not leave its entire element arena in a
+// A short-lived large view must not leave its entire node pool in a
 // small window. A few rows may leave and enter without fresh allocations,
 // also while an element with an exit transition keeps the frame before's
-// arena for its copy.
-func TestElementArenaFollowsViewSize(t *testing.T) {
+// nodes.
+func TestElementPoolFollowsViewSize(t *testing.T) {
 	for _, exits := range []bool{false, true} {
 		t.Run(map[bool]string{false: "plain", true: "exit"}[exits], func(t *testing.T) {
 			rows, leaving := 1000, exits
@@ -74,11 +74,11 @@ func TestElementArenaFollowsViewSize(t *testing.T) {
 					coreBox(c).Key(i).Height(1)
 				}
 			}, 100, 100)
-			large := len(tt.rt.c.chunks) + len(tt.rt.c.spare)
+			large := len(tt.rt.c.chunks)
 			rows = 1
 			tt.Frame()
 			tt.Frame()
-			if n := len(tt.rt.c.chunks) + len(tt.rt.c.spare); n > 4 || n >= large {
+			if n := len(tt.rt.c.chunks); n > 4 || n >= large {
 				t.Fatalf("the small view kept %d chunks of the large view's %d", n, large)
 			}
 			rows = 200
@@ -86,18 +86,11 @@ func TestElementArenaFollowsViewSize(t *testing.T) {
 			if n := testing.AllocsPerRun(20, tt.Frame); n > 2 {
 				t.Fatalf("the steady view allocates %.0f times per frame", n)
 			}
-			// Without exit transitions, the spare arena is not built into.
-			leaving = false
-			tt.Frame()
-			tt.Frame()
-			if n := len(tt.rt.c.spare); n > 1 {
-				t.Fatalf("the spare arena kept %d chunks without exit transitions", n)
-			}
 		})
 	}
 }
 
-func TestExitTransitionArenaReusesStorageDuringMotion(t *testing.T) {
+func TestExitTransitionPoolReusesStorageDuringMotion(t *testing.T) {
 	rows := 120
 	tr := ElementTransition{Exit: &Motion{}}
 	tt := NewTester(func(c *Context) {
@@ -105,8 +98,8 @@ func TestExitTransitionArenaReusesStorageDuringMotion(t *testing.T) {
 			Box(c).Key(i).Height(1).Transition(tr)
 		}
 	}, 200, 150)
-	// Warm both alternating arenas, then verify animation frames don't
-	// allocate a fresh copy of the view just to retain exit transitions.
+	// Warm the pool, then verify animation frames don't allocate a fresh
+	// copy of the view just to retain exit transitions.
 	tt.Frame()
 	tt.Frame()
 	if n := testing.AllocsPerRun(20, tt.Frame); n > 2 {
@@ -115,8 +108,8 @@ func TestExitTransitionArenaReusesStorageDuringMotion(t *testing.T) {
 	rows = 1
 	tt.Frame()
 	tt.Frame()
-	if len(tt.rt.c.chunks) > 2 || len(tt.rt.c.spare) > 2 {
-		t.Fatal("smaller view retained the large arenas")
+	if len(tt.rt.c.chunks) > 2 {
+		t.Fatal("smaller view retained the large pool")
 	}
 }
 

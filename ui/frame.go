@@ -70,28 +70,48 @@ type Element struct {
 }
 
 func wrapElement(n *node) Element {
-	if n == nil || n.c == nil || n.c.rt == nil || n.serial <= 0 {
+	if n == nil || n.c == nil || n.c.rt == nil || n.slot < 0 {
 		return Element{}
 	}
-	return Element{owner: n.c.rt.arena, slot: uint32(n.serial - 1), gen: uint32(n.epoch)}
+	// The generation is the pass the element was made in: the handle
+	// expires with the pass.
+	return Element{owner: n.c.rt.elemOwner, slot: uint32(n.slot), gen: uint32(n.epoch)}
 }
 
+// nodeAt returns the node the pool keeps in the place slot, which is the
+// node an element of that place is built in.
 func (rt *engine) nodeAt(slot uint32) *node {
-	if uint64(slot) >= uint64(rt.c.used) {
+	at := int(slot)
+	if at/chunkSize >= len(rt.c.chunks) {
 		return nil
 	}
-	return &rt.c.chunks[int(slot)/chunkSize][int(slot)%chunkSize]
+	return &rt.c.chunks[at/chunkSize][at%chunkSize]
 }
 
 func (e Element) lookup() *node {
-	if e.owner == nil || e.owner.rt == nil || e.gen != e.owner.generation {
+	if e.owner == nil || e.owner.rt == nil {
 		return nil
 	}
 	rt := e.owner.rt
 	if !rt.inFrame {
 		return nil
 	}
-	return rt.nodeAt(e.slot)
+	// The element is of an earlier pass.
+	if e.gen != e.owner.generation {
+		return nil
+	}
+	n := rt.nodeAt(e.slot)
+	// The node the handle names is the pool's node of that place, which
+	// the pool freed when the element that had it went.
+	if n == nil || n.slot != int32(e.slot) {
+		return nil
+	}
+	// The place holds a node of another pass: the element that had it
+	// went, and another took its place.
+	if n.epoch != rt.epoch {
+		return nil
+	}
+	return n
 }
 
 func (e Element) node() *node {
@@ -107,7 +127,7 @@ func (e Element) expired() {
 }
 
 func (e Element) nodeFor(rt *engine) *node {
-	if e.owner != rt.arena {
+	if e.owner != rt.elemOwner {
 		return nil
 	}
 	return e.node()
@@ -131,7 +151,11 @@ func (e Element) Children(fn func()) Element {
 // control, use Context.Key before construction instead.
 func (e Element) Key(key any) Element {
 	if n := e.node(); n != nil {
-		n.Key(key)
+		// The element takes the node its identity kept, which is not the
+		// one it was built in: the handle names the new one.
+		if m := n.Key(key); m != n {
+			return wrapElement(m)
+		}
 	}
 	return e
 }
