@@ -222,3 +222,85 @@ func mustRun(t *testing.T, dir string, name string, args ...string) string {
 	}
 	return ""
 }
+
+// TestGenerateBindings is the markup of a form: pointer bindings, enum
+// attributes, multi-value and bare attributes, text with a literal %
+// and expressions.
+func TestGenerateBindings(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"form.go": `package main
+
+type editor struct {
+	Name  string
+	Count int
+	Note  *string
+}
+
+func (s *editor) Clear() { s.Name = "" }
+`,
+		"form.view": `<view type="editor">
+<column padding="4,8" gap="4">
+	<text-input value="{Name}" on-changed={s.Clear()}></text-input>
+	<text>100% complete: {Name}</text>
+	<text text-align="center">{Count} done</text>
+	<text bold>{fmt.Sprintf("%s!", Name)}</text>
+</column>
+</view>
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&editor{}).View) }
+`})
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "form_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(src)
+	for _, want := range []string{
+		"&s.Name",                    // pointer binding
+		".Padding(4, 8)",             // multi-value
+		`fmt.Sprintf("100%% complete: %v", s.Name)`, // % escaped, %v for the expr
+		"ui.Center",                  // enum
+		".Bold()",                    // bare attribute
+		`fmt.Sprintf("%s!", s.Name)`, // a Go call with a package qualifier
+		"s.Clear()",                  // handler block
+	} {
+		if !strings.Contains(g, want) {
+			t.Errorf("generated misses %q:\n%s", want, g)
+		}
+	}
+}
+
+// TestGenerateUnsupportedShapes names what markup cannot build yet,
+// with the signature that keeps it out.
+func TestGenerateUnsupportedShapes(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+
+type app struct{}
+
+func (a *app) View2() {}
+`,
+		"app.view": `<view type="app">
+<form></form>
+</view>
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&app{}).View) }
+`})
+	_, err := Generate(dir)
+	if err == nil || !strings.Contains(err.Error(), "<form> cannot be built from markup yet") {
+		t.Fatalf("err: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "app_view.go")); statErr == nil {
+		t.Fatal("a broken view wrote its output")
+	}
+}

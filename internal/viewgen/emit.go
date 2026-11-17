@@ -193,6 +193,11 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 	}
 	call := "ui." + c.GoName + "(" + g.keyCall(n, keyAttr) + strings.Join(args, ", ") + ")"
 	var ls []line
+	if len(fluent) == 0 && len(n.Children) == 0 && len(events) == 0 {
+		// Nothing more is asked of it: the call alone, evaluated once.
+		ls = append(ls, line{dir: g.dir(n.Pos), code: tab + call})
+		return ls, nil
+	}
 	ls = append(ls, line{dir: g.dir(n.Pos), code: tab + name + " := " + call})
 	// Fluent calls, each at its attribute's place.
 	for _, f := range fluent {
@@ -421,12 +426,7 @@ func (g *gen) value(a *Attr, t types.Type, ptr bool, n *Node) (string, error) {
 		if err != nil {
 			return "", g.errf(a.Pos, "%v", err)
 		}
-		if !ptr {
-			return g.convert(expr, &Param{Type: t, Ptr: ptr, Required: true}, a)
-		}
-		// A pointer parameter: &T for an addressable T, T as it is when
-		// the expression already points.
-		return expr + ", /*ptr*/", nil
+		return g.convert(expr, &Param{Type: t, Ptr: ptr, Required: true}, a)
 	}
 	// A literal.
 	if len(a.Value) == 1 && !a.Value[0].IsExpr {
@@ -508,7 +508,7 @@ func (g *gen) bodyValue(n *Node) (string, error) {
 			if err != nil {
 				return "", g.errf(part.Pos, "%v", err)
 			}
-			f += "%%v"
+			f += "%v"
 			args = append(args, expr)
 			continue
 		}
@@ -520,46 +520,38 @@ func (g *gen) bodyValue(n *Node) (string, error) {
 	return "fmt.Sprintf(" + strconv.Quote(f) + ", " + strings.Join(args, ", ") + ")", nil
 }
 
-// literal converts a literal string to the type t.
+// literal converts a literal string to the type t: an enum's constant
+// by name, or the basic kinds.
 func (g *gen) literal(lit string, t types.Type, a *Attr) string {
-	switch u := t.Underlying().(type) {
-	case *types.Basic:
-		switch u.Kind() {
-		case types.String:
-			return strconv.Quote(lit)
-		case types.Bool:
-			if lit == "true" || lit == "false" {
-				return lit
-			}
-			g.errf(a.Pos, "%q is not true or false", lit)
-			return "false"
-		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
-			types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.UntypedInt:
-			if _, err := strconv.ParseInt(lit, 0, 64); err == nil {
-				return lit
-			}
-		case types.Float32, types.Float64, types.UntypedFloat:
-			if _, err := strconv.ParseFloat(lit, 64); err == nil {
-				return lit
-			}
-		}
-	case *types.Named:
+	if named, ok := t.(*types.Named); ok {
 		// An enum constant of the ui package: center -> ui.Center.
 		if name, ok := g.api.constantOf(lit, t); ok {
 			return "ui." + name
 		}
-		if b, ok := u.Underlying().(*types.Basic); ok {
-			switch b.Kind() {
-			case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
-				types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
-				if _, err := strconv.ParseInt(lit, 0, 64); err == nil {
-					return "(" + types.TypeString(t, nil) + ")(" + lit + ")"
-				}
-			case types.Float32, types.Float64:
-				if _, err := strconv.ParseFloat(lit, 64); err == nil {
-					return "(" + types.TypeString(t, nil) + ")(" + lit + ")"
-				}
-			}
+		_ = named
+		g.errf(a.Pos, "%q does not read as a %s", lit, types.TypeString(t, nil))
+		return "nil"
+	}
+	b, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		g.errf(a.Pos, "%q does not read as a %s", lit, types.TypeString(t, nil))
+		return "nil"
+	}
+	switch b.Kind() {
+	case types.String:
+		return strconv.Quote(lit)
+	case types.Bool:
+		if lit == "true" || lit == "false" {
+			return lit
+		}
+	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
+		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.UntypedInt:
+		if _, err := strconv.ParseInt(lit, 0, 64); err == nil {
+			return lit
+		}
+	case types.Float32, types.Float64, types.UntypedFloat:
+		if _, err := strconv.ParseFloat(lit, 64); err == nil {
+			return lit
 		}
 	}
 	g.errf(a.Pos, "%q does not read as a %s", lit, types.TypeString(t, nil))
