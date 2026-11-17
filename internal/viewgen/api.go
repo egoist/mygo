@@ -162,6 +162,13 @@ func LoadAPI(dir string) (*API, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read ui's export data: %w", err)
 	}
+	return describeAPI(pkg), nil
+}
+
+// describeAPI shares package identity with the application's type checker.
+// Named UI types in expressions and in parameter signatures must be the
+// same types, not separately imported copies with the same printed name.
+func describeAPI(pkg *types.Package) *API {
 	api := &API{Package: pkg.Path(), pkg: pkg, Constructors: map[string]*Constructor{}, Methods: map[string]*Method{}, consts: map[string]map[string]string{}}
 	scope := pkg.Scope()
 	ctx := scope.Lookup("Context").Type()
@@ -210,7 +217,7 @@ func LoadAPI(dir string) (*API, error) {
 			}
 		}
 	}
-	return api, nil
+	return api
 }
 
 // describeFunc catalogs fn as a constructor when its first parameter is

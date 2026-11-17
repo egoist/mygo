@@ -20,18 +20,17 @@ func formatNode(fset *token.FileSet, n ast.Node, sb *strings.Builder) {
 
 // gen emits one .view file's Go.
 type gen struct {
-	api      *API
-	view     *File
-	recvName string // s *T
-	recvType *types.Named
-	pkg      *types.Package
-	info     *types.Info
-	fs       *token.FileSet
-	imports  map[string]string
-	// importAliases maps the names the paired .go file imports under to
-	// their paths: a .view borrows them, as its expressions name their
-	// packages as the Go beside them does (#1457).
-	importAliases map[string]string
+	api               *API
+	view              *File
+	recvName          string // s *T
+	recvType          *types.Named
+	pkg               *types.Package
+	imports           map[string]string
+	binding           *binder
+	scope             *types.Scope
+	loaded            map[string]*types.Package
+	localNames        map[string]bool
+	receiver, context string
 	// forbidden are the names generated locals must not take: the
 	// package's own, the receiver's, and the imports' (#1457).
 	forbidden map[string]bool
@@ -52,7 +51,8 @@ type line struct {
 
 func (g *gen) emit() (string, error) {
 	var ls []line
-	ls = append(ls, line{code: "func (" + g.recvName + ") View(c *ui.Context) {"})
+	ui := g.useImport("github.com/egoist/mygo/ui", "ui")
+	ls = append(ls, line{code: "func (" + g.recvName + ") View(" + g.context + " *" + ui + ".Context) {"})
 	for _, root := range g.view.Roots {
 		el, err := g.element(root, 1)
 		if err != nil {
@@ -208,8 +208,7 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 		if format != "" && c.GoName == "Text" {
 			textf = format + "\x00" + fargs
 		} else if format != "" {
-			g.imports["fmt"] = ""
-			bodyArg = "fmt.Sprintf(" + strconv.Quote(format) + ", " + fargs + ")"
+			bodyArg = g.useImport("fmt", "fmt") + ".Sprintf(" + strconv.Quote(format) + ", " + fargs + ")"
 		} else {
 			bodyArg = lit
 		}
@@ -232,10 +231,14 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 			args = append(args, arg)
 		}
 	}
-	call := "ui." + c.GoName + "(" + g.keyCall(n, keyAttr) + strings.Join(args, ", ") + ")"
+	contextArg := g.keyCall(n, keyAttr)
+	call, err := g.constructorCall(c, contextArg, args, n.Pos)
+	if err != nil {
+		return nil, err
+	}
 	if textf != "" {
 		format, fargs, _ := strings.Cut(textf, "\x00")
-		call = "ui.Textf(" + g.keyCall(n, keyAttr) + strconv.Quote(format) + ", " + fargs + ")"
+		call = g.useImport("github.com/egoist/mygo/ui", "ui") + ".Textf(" + contextArg + strconv.Quote(format) + ", " + fargs + ")"
 	}
 	var ls []line
 	if len(fluent) == 0 && len(n.Children) == 0 && len(events) == 0 {
@@ -309,22 +312,22 @@ func (g *gen) dir(p Position) string {
 // are given before construction, never after (#1457).
 func (g *gen) keyCall(n *Node, keyAttr *Attr) string {
 	if keyAttr == nil {
-		return "c.Key(" + strconv.Quote(fmt.Sprintf("%s:%d:%d", g.view.Path, n.Pos.Line, n.Pos.Col)) + "), "
+		return g.context + ".Key(" + strconv.Quote(fmt.Sprintf("%s:%d:%d", g.view.Path, n.Pos.Line, n.Pos.Col)) + "), "
 	}
 	// An explicit key is the app's expression.
 	if len(keyAttr.Value) == 1 && keyAttr.Value[0].IsExpr {
 		expr, err := g.rewrite(keyAttr.Value[0])
 		if err != nil {
 			g.errf(keyAttr.Pos, "%v", err)
-			return "c.Key(nil), "
+			return g.context + ".Key(nil), "
 		}
-		return "c.Key(" + expr + "), "
+		return g.context + ".Key(" + expr + "), "
 	}
 	if len(keyAttr.Value) == 1 && !keyAttr.Value[0].IsExpr {
-		return "c.Key(" + strconv.Quote(keyAttr.Value[0].Lit) + "), "
+		return g.context + ".Key(" + strconv.Quote(keyAttr.Value[0].Lit) + "), "
 	}
 	g.errf(keyAttr.Pos, "a key is one value")
-	return "c.Key(nil), "
+	return g.context + ".Key(nil), "
 }
 
 // param finds the constructor parameter an attribute names.
@@ -453,31 +456,21 @@ func (g *gen) methodCall(f fluentUse, n *Node) (string, error) {
 // handler emits an event handler's body: a receiver method name, or Go
 // statements in braces.
 func (g *gen) handler(a *Attr) (string, error) {
-	b := newBinder(g.recvType, g.pkg.Scope())
+	b := g.binding
 	if len(a.Value) == 1 && !a.Value[0].IsExpr {
 		name := a.Value[0].Lit
 		if !validIdent(name) {
 			return "", g.errf(a.Pos, "on-... names a method of the receiver: %q is not a name", name)
 		}
-		if !b.members[name] {
-			return "", g.errf(a.Pos, "%s is not a method of %s", name, strings.TrimPrefix(g.recvName, "s *"))
+		if b.members[name] == nil {
+			return "", g.errf(a.Pos, "%s is not a method of %s", name, g.recvType.Obj().Name())
 		}
-		return "s." + name + "()", nil
+		return g.receiver + "." + name + "()", nil
 	}
 	if len(a.Value) == 1 && a.Value[0].IsExpr {
-		src, stmts, err := b.body(a.Value[0].Expr, a.Value[0].Pos, g.view.Path)
+		src, _, err := b.body(a.Value[0].Expr, a.Value[0].Pos, g.view.Path)
 		if err != nil {
 			return "", err
-		}
-		for _, stmt := range stmts {
-			ast.Inspect(stmt, func(n ast.Node) bool {
-				if sel, ok := n.(*ast.SelectorExpr); ok {
-					if id, ok := sel.X.(*ast.Ident); ok {
-						g.noteImport(id.Name)
-					}
-				}
-				return true
-			})
 		}
 		return src, nil
 	}
@@ -515,28 +508,39 @@ func (g *gen) value(a *Attr, t types.Type, ptr bool, n *Node) (string, error) {
 // rewrite binds one expression part to the generated method's names,
 // and notes the packages it names, so the generated file imports them.
 func (g *gen) rewrite(p TextPart) (string, error) {
-	b := newBinder(g.recvType, g.pkg.Scope())
-	src, tree, err := b.expr(p.Expr, p.Pos, g.view.Path)
+	src, _, err := g.binding.expr(p.Expr, p.Pos, g.view.Path)
 	if err != nil {
 		return "", err
 	}
-	ast.Inspect(tree, func(n ast.Node) bool {
-		if sel, ok := n.(*ast.SelectorExpr); ok {
-			if id, ok := sel.X.(*ast.Ident); ok {
-				g.noteImport(id.Name)
-			}
-		}
-		return true
-	})
 	return src, nil
 }
 
-// noteImport registers the import of the name a qualified expression
-// uses, with the alias the paired Go file imports it under.
-func (g *gen) noteImport(name string) {
-	if path, ok := g.importAliases[name]; ok {
-		g.imports[path] = name
+// useImport selects one name for a package. Both user references and
+// generated calls use this name, including when the app aliases ui/fmt.
+func (g *gen) useImport(path, preferred string) string {
+	if name, ok := g.imports[path]; ok {
+		return name
 	}
+	available := func(name string) bool {
+		if g.localNames[name] || g.pkg.Scope().Lookup(name) != nil {
+			return false
+		}
+		if obj := g.scope.Lookup(name); obj != nil {
+			p, ok := obj.(*types.PkgName)
+			return ok && p.Imported().Path() == path
+		}
+		return true
+	}
+	name := preferred
+	for i := 1; !available(name); i++ {
+		name = preferred + strconv.Itoa(i)
+	}
+	g.imports[path] = name
+	g.forbidden[name] = true
+	if g.scope.Lookup(name) == nil {
+		g.scope.Insert(types.NewPkgName(token.NoPos, g.pkg, name, g.loaded[path]))
+	}
+	return name
 }
 
 // convert adapts an expression to a parameter. A pointer parameter
@@ -548,67 +552,69 @@ func (g *gen) convert(expr string, p *Param, a *Attr) (string, error) {
 	if !p.Ptr {
 		return expr, nil
 	}
-	if strings.HasPrefix(expr, "&") {
-		return expr, nil
+	tv, err := g.binding.eval(expr)
+	if err != nil {
+		return "", g.errf(a.Pos, "%v", err)
 	}
-	chain, ok := strings.CutPrefix(expr, "s.")
-	if !ok {
-		return expr, nil
-	}
-	ft := g.fieldChainType(chain)
-	if ft == nil {
-		return expr, nil
-	}
-	if types.Identical(ft, p.Type) {
+	if types.AssignableTo(tv.Type, p.Type) {
 		return expr, nil
 	}
 	if ptr, ok := p.Type.(*types.Pointer); ok {
-		// A generic parameter's pointee is inferred at the call: the
-		// address of the field is what it takes.
-		if _, isTParam := ptr.Elem().(*types.TypeParam); isTParam || types.Identical(ft, ptr.Elem()) {
+		// Inference needs every argument; constructorCall checks the
+		// original call first, then addressable alternatives.
+		if _, generic := ptr.Elem().(*types.TypeParam); generic {
+			return expr, nil
+		}
+		if tv.Addressable() && types.AssignableTo(types.NewPointer(tv.Type), p.Type) {
 			return "&" + expr, nil
 		}
 	}
-	return expr, nil
+	return "", g.errf(a.Pos, "binding needs %s or an addressable value of its element type", types.TypeString(p.Type, nil))
 }
 
-// fieldChainType follows a chain of receiver fields to its type, nil
-// when a link is not a field of the one before it.
-func (g *gen) fieldChainType(chain string) types.Type {
-	parts := strings.Split(chain, ".")
-	var t types.Type = g.recvType
-	for _, part := range parts {
-		st, ok := t.Underlying().(*types.Struct)
-		if !ok {
-			return nil
-		}
-		next := types.Type(nil)
-		for i := 0; i < st.NumFields(); i++ {
-			if st.Field(i).Name() == part {
-				next = st.Field(i).Type()
-				break
-			}
-		}
-		if next == nil {
-			return nil
-		}
-		t = next
+func (g *gen) constructorCall(c *Constructor, contextArg string, args []string, pos Position) (string, error) {
+	makeCall := func() string {
+		return g.useImport("github.com/egoist/mygo/ui", "ui") + "." + c.GoName + "(" + contextArg + strings.Join(args, ", ") + ")"
 	}
-	return t
-}
-
-// fieldType is the receiver's field's type, nil for none.
-func (g *gen) fieldType(name string) types.Type {
-	st, ok := g.recvType.Underlying().(*types.Struct)
-	if !ok {
-		return nil
+	call := makeCall()
+	if len(c.TypeParams) == 0 {
+		return call, nil
 	}
-	for i := 0; i < st.NumFields(); i++ {
-		if st.Field(i).Name() == name {
-			return st.Field(i).Type()
+	_, original := g.binding.eval(call)
+	if original == nil {
+		return call, nil
+	}
+	var choices []int
+	for i, p := range c.Params {
+		if i >= len(args) || !p.Ptr {
+			continue
+		}
+		if tv, err := g.binding.eval(args[i]); err == nil && tv.Addressable() {
+			choices = append(choices, i)
 		}
 	}
-	return nil
+	var adapt func(int) bool
+	adapt = func(at int) bool {
+		if at == len(choices) {
+			_, err := g.binding.eval(makeCall())
+			return err == nil
+		}
+		if adapt(at + 1) {
+			return true
+		}
+		i := choices[at]
+		old := args[i]
+		args[i] = "&" + old
+		if adapt(at + 1) {
+			return true
+		}
+		args[i] = old
+		return false
+	}
+	if adapt(0) {
+		return makeCall(), nil
+	}
+	return "", g.errf(pos, "%v", original)
 }
 
 // bodyValue is the element's text as its constructor's string argument:
@@ -659,7 +665,7 @@ func (g *gen) literal(lit string, t types.Type, a *Attr) string {
 	if named, ok := t.(*types.Named); ok {
 		// An enum constant of the ui package: center -> ui.Center.
 		if name, ok := g.api.constantOf(lit, t); ok {
-			return "ui." + name
+			return g.useImport("github.com/egoist/mygo/ui", "ui") + "." + name
 		}
 		_ = named
 		g.errf(a.Pos, "%q does not read as a %s", lit, types.TypeString(t, nil))

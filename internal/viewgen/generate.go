@@ -105,7 +105,7 @@ func Generate(dir string) (written []string, err error) {
 
 	// Type-check the package with a stub View for every .view file, so
 	// that expressions bind against the receiver's real types.
-	importPaths := packageImports(files, []string{"github.com/egoist/mygo/ui"})
+	importPaths := packageImports(files, []string{"github.com/egoist/mygo/ui", "fmt"})
 	exports, err := listExports(dir, importPaths)
 	if err != nil {
 		return nil, err
@@ -127,9 +127,10 @@ func Generate(dir string) (written []string, err error) {
 		stubFiles = append(stubFiles, af)
 	}
 	info := &types.Info{
-		Defs:  map[*ast.Ident]types.Object{},
-		Uses:  map[*ast.Ident]types.Object{},
-		Types: map[ast.Expr]types.TypeAndValue{},
+		Defs:   map[*ast.Ident]types.Object{},
+		Uses:   map[*ast.Ident]types.Object{},
+		Types:  map[ast.Expr]types.TypeAndValue{},
+		Scopes: map[ast.Node]*types.Scope{},
 	}
 	// The stubs join the same file set as the sources, so that Defs and
 	// Uses cover both.
@@ -160,12 +161,21 @@ func Generate(dir string) (written []string, err error) {
 	}
 
 	// Bind and emit every view.
-	api, err := LoadAPI(dir)
+	uiPackage, err := imp.Import("github.com/egoist/mygo/ui")
 	if err != nil {
 		return nil, err
 	}
+	api := describeAPI(uiPackage)
+	loaded := map[string]*types.Package{}
+	for _, path := range importPaths {
+		p, err := imp.Import(path)
+		if err != nil {
+			return nil, err
+		}
+		loaded[path] = p
+	}
 	var outs []outFile
-	for _, v := range vs {
+	for vi, v := range vs {
 		aliases := map[string]string{}
 		pair := strings.TrimSuffix(v.file.Path, ".view") + ".go"
 		for _, af := range files {
@@ -175,7 +185,10 @@ func Generate(dir string) (written []string, err error) {
 			}
 			for _, imp := range af.Imports {
 				path, _ := strconv.Unquote(imp.Path.Value)
-				name := path[strings.LastIndex(path, "/")+1:]
+				if path == "C" {
+					continue
+				}
+				name := loaded[path].Name()
 				if imp.Name != nil {
 					name = imp.Name.Name
 				}
@@ -187,7 +200,10 @@ func Generate(dir string) (written []string, err error) {
 			for _, af := range files {
 				for _, imp := range af.Imports {
 					path, _ := strconv.Unquote(imp.Path.Value)
-					name := path[strings.LastIndex(path, "/")+1:]
+					if path == "C" {
+						continue
+					}
+					name := loaded[path].Name()
 					if imp.Name != nil {
 						name = imp.Name.Name
 					}
@@ -195,33 +211,56 @@ func Generate(dir string) (written []string, err error) {
 				}
 			}
 		}
+		localNames := declaredNames(v.file)
 		forbidden := map[string]bool{"c": true, "s": true}
 		for _, name := range checked.Scope().Names() {
 			forbidden[name] = true
 		}
-		if st, ok := receivers[v.recv].Underlying().(*types.Struct); ok {
-			for i := 0; i < st.NumFields(); i++ {
-				forbidden[st.Field(i).Name()] = true
-			}
-		}
-		for i := 0; i < receivers[v.recv].NumMethods(); i++ {
-			forbidden[receivers[v.recv].Method(i).Name()] = true
+		// Every member the binder binds: its own and those its embedded
+		// structs promote, so a parameter name cannot take one of theirs.
+		for name := range memberNames(receivers[v.recv], checked) {
+			forbidden[name] = true
 		}
 		for name := range aliases {
 			forbidden[name] = true
 		}
-		g := &gen{
-			api:           api,
-			view:          v.file,
-			recvName:      receiverDecl(v.recv),
-			recvType:      receivers[v.recv],
-			pkg:           checked,
-			info:          info,
-			fs:            fs,
-			imports:       map[string]string{"github.com/egoist/mygo/ui": ""},
-			importAliases: aliases,
-			forbidden:     forbidden,
+		for name := range localNames {
+			forbidden[name] = true
 		}
+		paramName := func(preferred string) string {
+			name := preferred
+			for i := 1; localNames[name] || name != preferred && forbidden[name]; i++ {
+				name = preferred + strconv.Itoa(i)
+			}
+			forbidden[name] = true
+			return name
+		}
+		receiver, context := paramName("s"), paramName("c")
+		fn := stubFiles[vi].Decls[1].(*ast.FuncDecl)
+		scope := info.Scopes[fn.Type]
+		g := &gen{
+			api:        api,
+			view:       v.file,
+			recvName:   receiver + " *" + v.recv,
+			recvType:   receivers[v.recv],
+			pkg:        checked,
+			imports:    map[string]string{},
+			forbidden:  forbidden,
+			localNames: localNames,
+			loaded:     loaded,
+			scope:      scope,
+			receiver:   receiver,
+			context:    context,
+		}
+		aliasPackages := map[string]*types.Package{}
+		for name, path := range aliases {
+			aliasPackages[name] = loaded[path]
+		}
+		binding, err := newBinder(receivers[v.recv], checked, fs, fn.Body.Lbrace+1, scope, aliasPackages, receiver, context, g.useImport)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", v.file.Path, err)
+		}
+		g.binding = binding
 		src, err := g.emit()
 		if err != nil {
 			return nil, err
