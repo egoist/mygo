@@ -242,6 +242,20 @@ app.md.LinkIcon = func(dest string, size float32) (markdown.InlineObject, bool) 
 }
 ```
 
+`LinkColor` colors a link's text by its destination, in place of
+`Theme.Link`, when it returns true: a chat that shows its citations as
+asides in a muted color, or a docs reader that tells links leaving the
+site from its own. It colors mentions, references and code links too,
+and the link keeps its underline on hover. It is asked as a paragraph
+builds, again when its text or the theme changes, so a link whose color
+should change otherwise waits for that:
+
+```go
+app.md.LinkColor = func(dest string) (ui.Color, bool) {
+	return ui.Hex("#6b7280"), app.isCitation(dest)
+}
+```
+
 Images show their description until `LoadImage` loads them, on a
 goroutine of their own; without it, they stay descriptions, as a view
 loads nothing from the network by itself. `FileImages(dir)` loads the

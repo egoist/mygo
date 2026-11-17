@@ -92,10 +92,23 @@ type spanBuilder struct {
 	math func(tex string, size float32) (InlineObject, bool)
 	// linkIcon makes the objects at the start of links (Options.LinkIcon).
 	linkIcon func(dest string, size float32) (InlineObject, bool)
+	// linkColor colors the text of links (Options.LinkColor).
+	linkColor func(dest string) (Color, bool)
 	// resolve makes mentions, references and code links (Options.Resolve
 	// and CodeLink), and resolvers says which of those are set.
 	resolve   func(in parser.Inline) (string, bool)
 	resolvers uint8
+}
+
+// linkTextColor is the color Options.LinkColor gives the text of a link
+// to dest, or none, the link's own.
+func (sb *spanBuilder) linkTextColor(dest string) Color {
+	if sb.linkColor != nil && dest != "" {
+		if c, ok := sb.linkColor(dest); ok {
+			return c
+		}
+	}
+	return Color{}
 }
 
 // build makes the paragraph of block i, of base style s.
@@ -304,7 +317,7 @@ func (sb *spanBuilder) inlines(from, to int, s spanStyle) {
 				continue
 			}
 			cs := sb.htmlStyle(s)
-			cs.inLink, cs.color = true, Color{}
+			cs.inLink, cs.color = true, sb.linkTextColor(dest)
 			if n.Kind == parser.Mention {
 				// As GitHub shows them.
 				cs.weight = sb.th.StrongWeight
@@ -334,6 +347,9 @@ func (sb *spanBuilder) inlines(from, to int, s spanStyle) {
 			}
 			// A link of its own that keeps the code's look.
 			cs.inLink = true
+			if c := sb.linkTextColor(dest); c.A > 0 {
+				cs.color = c
+			}
 			sb.add(n.Text, a, min(a+len(n.Text), z), z-a == len(n.Text), cs, k)
 			sb.cur.dest = dest
 		case parser.Emphasis:
@@ -358,7 +374,7 @@ func (sb *spanBuilder) inlines(from, to int, s spanStyle) {
 			}
 			cs := s
 			cs.inLink, cs.pendingLink = true, n.Pending
-			cs.color = Color{} // the link's
+			cs.color = sb.linkTextColor(n.Dest) // the link's
 			save := sb.linkIndex
 			sb.linkIndex = k
 			sb.addLinkIcon(n, cs, k)

@@ -42,6 +42,12 @@ type Options struct {
 	// the link has none; a link still being written has none yet. It is
 	// asked again whenever the paragraph changes: keep what it makes.
 	LinkIcon func(dest string, size float32) (InlineObject, bool)
+	// LinkColor, when set, colors the text of a link to dest, a
+	// mention's, a reference's and code's included, in place of
+	// Theme.Link when it returns true: a citation, or an aside, in a
+	// muted color. The link keeps its hover. It is asked again whenever
+	// the paragraph or the theme changes.
+	LinkColor func(dest string) (Color, bool)
 	// Anchor scrolls to the heading of this slug, with or without its "#",
 	// or to the block AnchorBlock finds for it, when the document first
 	// shows, when another document replaces it, and when Anchor changes:
@@ -579,6 +585,7 @@ func (st *viewState) para(i int, base spanStyle) *para {
 	sb.notes = st.noteNumber
 	sb.math = st.o.InlineMath
 	sb.linkIcon = st.o.LinkIcon
+	sb.linkColor = st.o.LinkColor
 	sb.resolve, sb.resolvers = nil, st.o.resolvers()
 	if sb.resolvers != 0 {
 		sb.resolve = st.o.resolveInline
@@ -724,7 +731,13 @@ func (st *viewState) link(c *ui.Context, in *parser.Inline, children func()) {
 	if st.o.LinkMenu != nil && !in.Pending && dest != "" && !strings.HasPrefix(dest, "#") {
 		l.ContextMenu(func(m *ui.Menu) { st.o.LinkMenu(m, dest) })
 	}
-	l.TextColor(st.th.Link)
+	col := st.th.Link
+	if st.o.LinkColor != nil && dest != "" {
+		if c, ok := st.o.LinkColor(dest); ok {
+			col = c
+		}
+	}
+	l.TextColor(col)
 	l.Children(children)
 	// What the tip says, which describes the link to assistive technology.
 	tip := in.Title
