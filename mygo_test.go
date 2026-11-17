@@ -1290,42 +1290,34 @@ func TestEvalWindowCloses(t *testing.T) {
 	}
 }
 
-// TestEvalPageLeft: a page left as it ran an eval may never answer, as
-// WebKit keeps it frozen in its back/forward cache until it shows again,
-// so a navigation fails the evals of the page it left, and only those.
-func TestEvalPageLeft(t *testing.T) {
+// TestEvalAnsweredByNextPage: an eval sent just before a navigation
+// commits may run in the page that comes next, as one sent right after
+// opening a window may run in the page it loads rather than the empty one
+// it starts with: the navigation leaves it be, and Eval returns the
+// answer of that page.
+func TestEvalAnsweredByNextPage(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{})
-	asked := make(chan struct{}, 1)
-	fw.AsyncFunction = func(string) (string, error) {
-		asked <- struct{}{}
-		return "", fake.ErrNoReply
+	replies := make(chan func(string, error), 1)
+	fw.AsyncCallback = func(body string, reply func(string, error)) { replies <- reply }
+	type res struct {
+		v   any
+		err error
 	}
-	done := make(chan error, 1)
+	done := make(chan res, 1)
 	go func() {
-		_, err := w.Page().Eval("1")
-		done <- err
+		v, err := w.Page().Eval("navigator.userAgent")
+		done <- res{v, err}
 	}()
-	<-asked
-	// Two pages commit before Eval returns: the second must not wait for
-	// it to take the error of the first.
-	onMain(func() {
-		fw.H.NavigationCommitted("app://localhost/next")
-		fw.H.NavigationCommitted("app://localhost/last")
-	})
+	reply := <-replies
+	onMain(func() { fw.H.NavigationCommitted("app://localhost/") })
+	onMain(func() { reply(`{"ok":true,"v":"Agent"}`, nil) })
 	select {
-	case err := <-done:
-		if !errors.Is(err, errPageLeft) {
-			t.Errorf("Eval = %v", err)
+	case r := <-done:
+		if r.v != "Agent" || r.err != nil {
+			t.Errorf("Eval = %v, %v", r.v, r.err)
 		}
 	case <-time.After(wait.Guard):
-		t.Fatal("Eval still waits for the page that was left")
-	}
-
-	// An eval of the page that came next is not failed by the navigation
-	// that brought it.
-	fw.AsyncFunction = func(string) (string, error) { return `{"ok":true,"v":2}`, nil }
-	if v, err := w.Page().Eval("2"); v != 2.0 || err != nil {
-		t.Errorf("Eval of the next page = %v, %v", v, err)
+		t.Fatal("Eval did not return the answer of the page that came next")
 	}
 }
 

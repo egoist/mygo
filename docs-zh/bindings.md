@@ -316,4 +316,4 @@ title, err := mygo.EvalAs[string](win.Page(), "document.title")
 count, err := mygo.EvalAs[int](win.Page(), "const items = document.querySelectorAll('li'); return items.length")
 ```
 
-语句会作为异步函数的函数体运行，所以 `return` 产生值。抛出异常的脚本会返回 `*mygo.EvalError`。页面在应答前导航走，`Eval` 会返回错误，和窗口关闭时一样：离开的页面可能永远不会应答，因为 WebKit 会把它冻结保存，直到“后退”再次显示它。
+语句会作为异步函数的函数体运行，所以 `return` 产生值。抛出异常的脚本会返回 `*mygo.EvalError`。

@@ -439,10 +439,6 @@ type Window struct {
 	held     []message
 	domReady bool
 
-	// pageLeft fails the evals the page has not answered as a navigation
-	// commits (Window.eval).
-	pageLeft listeners[func()]
-
 	onClose            listeners[func(*CloseEvent)]
 	onClosed           listeners[func()]
 	onFocus            listeners[func()]
@@ -1828,10 +1824,6 @@ func (w *Window) CapturePage() ([]byte, error) {
 
 var errDestroyed = errors.New("mygo: window has been destroyed")
 
-// errPageLeft is the error of an eval whose page navigated before it
-// answered.
-var errPageLeft = errors.New("mygo: the page was left before it answered")
-
 // errNoPage is returned by the page methods of windows showing Content.
 var errNoPage = errors.New("mygo: the window shows Content, not a web page")
 
@@ -1847,9 +1839,7 @@ var errNoPage = errors.New("mygo: the window shows Content, not a web page")
 //	n, err := win.Page().Eval("const items = document.querySelectorAll('li'); return items.length")
 //
 // Eval is not subject to the page's Content Security Policy. It returns an
-// error when the window closes, the app quits or the page navigates before
-// the page answers; code sent as the page navigates may have run in either
-// page.
+// error when the window closes or the app quits before the page answers.
 func (p *Page) Eval(code string) (any, error) {
 	return p.EvalContext(context.Background(), code)
 }
@@ -2380,7 +2370,6 @@ func (h *windowHandler) NavigationCommitted(url string) {
 	h.w.domReady = false
 	h.w.outMu.Unlock()
 	h.w.resetPage()
-	fire(&h.w.pageLeft)
 	h.w.contextTarget = nil
 	h.w.themeColorPending = true
 	fire1(&h.w.onDidNavigate, url)
