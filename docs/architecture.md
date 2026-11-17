@@ -5665,9 +5665,14 @@ either.
   alone). A canvas a view draws (`Canvas.Draw`), which it may do once,
   therefore gives its scene atlases of its own (`Scene.Own`), holding the
   bitmaps its glyphs show and no other, and renderers draw such a scene
-  with them, in textures made for that drawing. The layers of effects and
-  of `Cache` keep the window's atlases: every frame painted whole paints
-  their scenes again.
+  with them, in textures made for that drawing. A canvas painted again
+  keeps the atlases it has while its bitmaps fit them and take a quarter
+  of their height or more, so that one drawn every frame makes none in
+  most. The glyphs and paths left out as the canvas was painted, the
+  shared atlas having no room for them, stay left out; the paths that
+  spilled stay in their layer, which the canvas's scene shows
+  (`pathSpill.shown`). The layers of effects and of `Cache` keep the
+  window's atlases: every frame painted whole paints their scenes again.
   Near square corners, coverage is exact, the area of a pixel
   inside the box, so lines thinner than a pixel cover as much as they
   should, as text decorations need. A fill's border widths travel in its

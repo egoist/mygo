@@ -101,9 +101,77 @@ func TestOwnTooLarge(t *testing.T) {
 	if s.Own(&o) || s.MaskAtlas != mask || s.Glyphs[0].U != 3 || s.Glyphs[0].V != 1 {
 		t.Errorf("a bitmap wider than the largest atlas: owned, glyph at %d,%d", s.Glyphs[0].U, s.Glyphs[0].V)
 	}
-	// One beyond the atlas it names is left alone too.
-	s = &Scene{MaskAtlas: NewAtlas(1, 16, 16), Glyphs: []Glyph{{U: 10, V: 10, UW: 8, VH: 8}}}
-	if s.Own(&o) {
-		t.Error("a glyph beyond its atlas was copied")
+}
+
+// TestOwnStrayGlyph checks that a glyph beyond the atlas it names shows
+// nothing, while the others keep their bitmaps.
+func TestOwnStrayGlyph(t *testing.T) {
+	mask := NewAtlas(1, 16, 16)
+	mask.Put(2, 3, 4, 4, bytes.Repeat([]byte{7}, 16), 4)
+	s := &Scene{MaskAtlas: mask, Glyphs: []Glyph{{U: 10, V: 10, UW: 8, VH: 8}, {U: 2, V: 3, UW: 4, VH: 4}, {U: 1, V: 1, UW: 2, VH: 2, Colored: true}}}
+	var o Owned
+	if !s.Own(&o) || s.MaskAtlas != o.Mask {
+		t.Fatal("a glyph beyond its atlas kept the others from atlases of their own")
+	}
+	if g := s.Glyphs[0]; g.UW != 0 || g.VH != 0 {
+		t.Errorf("the glyph beyond its atlas shows %d×%d pixels", g.UW, g.VH)
+	}
+	if got := ownedBitmap(s, s.Glyphs[1]); !bytes.Equal(got, bytes.Repeat([]byte{7}, 16)) {
+		t.Error("the glyph within its atlas shows another bitmap")
+	}
+	if g := s.Glyphs[2]; g.UW != 0 || s.ColorAtlas != nil {
+		t.Error("a glyph of an atlas the scene has not shows pixels")
+	}
+}
+
+// TestOwnAgain checks that a scene painted again and again keeps its atlas
+// while its bitmaps fit it and take a quarter of it or more, and takes
+// another, with room to grow, when they do not.
+func TestOwnAgain(t *testing.T) {
+	mask := NewAtlas(1, 256, 256)
+	var all []Glyph
+	for i := range 40 {
+		x, y, ok := mask.Alloc(10, 10)
+		if !ok {
+			t.Fatal("no room")
+		}
+		mask.Put(x, y, 10, 10, bytes.Repeat([]byte{byte(i + 1)}, 100), 10)
+		all = append(all, Glyph{U: uint16(x), V: uint16(y), UW: 10, VH: 10})
+	}
+	s := &Scene{}
+	var o Owned
+	own := func(n int) *Atlas {
+		t.Helper()
+		s.MaskAtlas, s.Glyphs = mask, append(s.Glyphs[:0], all[:n]...)
+		if !s.Own(&o) {
+			t.Fatalf("%d bitmaps did not fit an atlas", n)
+		}
+		for i, g := range s.Glyphs {
+			if got := ownedBitmap(s, g); !bytes.Equal(got, bytes.Repeat([]byte{byte(i + 1)}, 100)) {
+				t.Fatalf("of %d bitmaps, glyph %d shows another", n, i)
+			}
+		}
+		return s.MaskAtlas
+	}
+	first := own(10)
+	if first.H&(first.H-1) == 0 {
+		t.Errorf("painted once, an atlas %d high: with room it may never use", first.H)
+	}
+	if a := own(8); a != first {
+		t.Error("fewer bitmaps, which fit the atlas, took another")
+	}
+	grown := own(40)
+	if grown == first || grown.H&(grown.H-1) != 0 {
+		t.Errorf("more bitmaps than fit: the same atlas %v, now %d×%d", grown == first, grown.W, grown.H)
+	}
+	if a := own(30); a != grown {
+		t.Error("fewer bitmaps, most of the atlas, took another")
+	}
+	gen := grown.Generation()
+	if a := own(30); a != grown || a.Generation() == gen {
+		t.Error("painted again, the atlas is not another generation of the same")
+	}
+	if a := own(2); a == grown || a.W*a.H >= grown.W*grown.H {
+		t.Errorf("two bitmaps keep an atlas of %d×%d", a.W, a.H)
 	}
 }

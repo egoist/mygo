@@ -819,15 +819,16 @@ func (r *Renderer) drawCanvas(c *scene.Image) error {
 			*a = frame[i]
 		}
 	}()
-	glActiveTexture(glTexture0)
 	if a := cs.MaskAtlas; a != nil && a != r.atlases[0] {
 		r.mask = texture{}
+		glActiveTexture(glTexture0)
 		if err := r.syncAtlas(&r.mask, a, glR8, glRed); err != nil {
 			return err
 		}
 	}
 	if a := cs.ColorAtlas; a != nil && a != r.atlases[1] {
 		r.color = texture{}
+		glActiveTexture(glTexture0)
 		if err := r.syncAtlas(&r.color, a, glRGBA8, glRGBA); err != nil {
 			return err
 		}
