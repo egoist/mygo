@@ -843,18 +843,33 @@ func tableGeometry(layout *TableLayout, columns []TableColumn, order []int) (sta
 
 // frozenStyle is the styleFn of a pinned cell: it takes the background of
 // the nearest element around it that has one, or the theme's, for the cells
-// scrolling under it not to show through.
+// scrolling under it not to show through. A background that is itself
+// translucent (a selected or hovered row) is composited over the ones
+// behind it, down to an opaque one: taken as it is, it would let the cells
+// under the pinned one show through.
 func frozenStyle(t *Theme) func(*node) {
 	return func(e *node) {
-		if e.bg != Transparent {
+		if e.bg != Transparent && e.bg.A == 255 {
 			return
 		}
-		for p := e.parent; p != nil; p = p.parent {
-			if p.bg != Transparent {
-				e.bg = p.bg
-				return
-			}
+		var layers []Color
+		if e.bg != Transparent {
+			layers = append(layers, e.bg)
 		}
-		e.bg = t.Background
+		base := t.Background
+		for p := e.parent; p != nil; p = p.parent {
+			if p.bg == Transparent {
+				continue
+			}
+			if p.bg.A == 255 {
+				base = p.bg
+				break
+			}
+			layers = append(layers, p.bg)
+		}
+		for i := len(layers) - 1; i >= 0; i-- {
+			base = layers[i].Over(base)
+		}
+		e.bg = base
 	}
 }
