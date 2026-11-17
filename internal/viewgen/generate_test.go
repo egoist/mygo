@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -514,5 +515,290 @@ func main() { _ = ui.View((&app{}).View) }
 	}
 	if strings.Contains(msg, "_view.go") {
 		t.Fatalf("error %q names the generated file", msg)
+	}
+}
+
+// TestHandlerBlockScopesExpire is the binder's scope rule (#1457): a
+// name declared inside a block binds inside it alone. A handler that
+// shadows the receiver's member in a block and touches the member after
+// must touch the member, not the shadow, not a package name.
+func TestHandlerBlockScopesExpire(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+
+var N int = 50
+
+type model struct{ N int }
+
+func (s *model) Bump() { s.N++; N++ }
+`,
+		"app.view": `<view type="model">
+<column>
+	<button on-clicked={if true { N := 1; _ = N }; N = 4; _ = N}>Go</button>
+</column>
+</view>
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&model{}).View) }
+`})
+	if _, err := Generate(dir); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The bare N outside the block is the receiver's member: the
+	// assignment inside the block bound only inside it.
+	if !strings.Contains(string(src), "s.N = 4") {
+		t.Fatalf("the block's binding leaked past its end:\n%s", src)
+	}
+	if bare := regexp.MustCompile(`(^|[^.\w])N = 4`).FindString(string(src)); bare != "" {
+		t.Fatalf("the assignment left the receiver's member (%q):\n%s", bare, src)
+	}
+}
+
+// TestGeneratedNamesShadowNothing: a package name the generated locals
+// could take must not be captured by them.
+func TestGeneratedNamesShadowNothing(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+
+var el1 = "package level"
+
+type app struct{ n int }
+
+func (s *app) Bump() { s.n++ }
+`,
+		"app.view": `<view type="app">
+<column>
+	<text>{el1}</text>
+	<button on-clicked="Bump">{n}</button>
+</column>
+</view>
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&app{}).View) }
+`})
+	if _, err := Generate(dir); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(src)
+	if strings.Contains(g, "el1 :=") {
+		t.Fatalf("a generated local took the package's name el1:\n%s", g)
+	}
+	if !strings.Contains(g, `Textf(c.Key("app.view:3:2"), "%v", el1)`) {
+		t.Fatalf("the text no longer reads the package's el1:\n%s", g)
+	}
+}
+
+// TestImportAliasKept: the paired file's import alias is the generated
+// file's too, in expressions and in handlers alike.
+func TestImportAliasKept(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+
+import f "fmt"
+
+type app struct{ n int }
+
+func (s *app) Label() string { return f.Sprint(s.n) }
+`,
+		"app.view": `<view type="app">
+<column>
+	<text on-clicked={f.Println(n)}>{f.Sprint(n)}</text>
+</column>
+</view>
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&app{}).View) }
+`})
+	if _, err := Generate(dir); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(src)
+	if !strings.Contains(g, `f "fmt"`) {
+		t.Fatalf("the import alias was dropped:\n%s", g)
+	}
+}
+
+// TestPointerBindingThroughFields: a selector of receiver fields binds
+// by address, and a generic constructor infers from it.
+func TestPointerBindingThroughFields(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+
+type profile struct{ Name string }
+
+type app struct {
+	Choice  string
+	Profile profile
+}
+
+func (s *app) Pick() {}
+`,
+		"app.view": `<view type="app">
+<column>
+	<text-input value="{Profile.Name}"></text-input>
+	<radio selected="{Choice}" value="one" label="One"></radio>
+</column>
+</view>
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&app{}).View) }
+`})
+	if _, err := Generate(dir); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(src)
+	if !strings.Contains(g, "&s.Profile.Name") {
+		t.Fatalf("no address of the field's field:\n%s", g)
+	}
+	if !strings.Contains(g, "&s.Choice") {
+		t.Fatalf("no address for the generic constructor:\n%s", g)
+	}
+}
+
+// TestUserFilesNamedViewParticipate: a user file whose name ends in
+// _view.go is theirs; the generator owns only what its marker says.
+func TestUserFilesNamedViewParticipate(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+
+type app struct{ n int }
+`,
+		"helper_view.go": `package main
+
+func Title() string { return "kept" }
+`,
+		"app.view": `<view type="app">
+<column>
+	<text>{Title()}</text>
+</column>
+</view>
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&app{}).View) }
+`})
+	if _, err := Generate(dir); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "Title()") {
+		t.Fatalf("the view's call of the user's file is missing:\n%s", src)
+	}
+}
+
+// TestStringAttributeKeepsItsCommas: a string parameter takes its value
+// whole.
+func TestStringAttributeKeepsItsCommas(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+
+type app struct{ n int }
+`,
+		"app.view": `<view type="app">
+<column>
+	<button label="hello, world">{n}</button>
+</column>
+</view>
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&app{}).View) }
+`})
+	if _, err := Generate(dir); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `"hello, world"`) {
+		t.Fatalf("the string's comma was taken as a separator:\n%s", src)
+	}
+}
+
+// TestNoWriteWhenAnyOutputConflicts: one output the generator may not
+// take keeps every output as it was.
+func TestNoWriteWhenAnyOutputConflicts(t *testing.T) {
+	base := map[string]string{
+		"a.go": `package main
+
+type appA struct{ n int }
+
+type appZ struct{ n int }
+`,
+		// A user's file in the output's place.
+		"z_view.go": "package main\n\n// the app's own, not the generator's\n",
+	}
+	dir := writeApp(t, merge(base, map[string]string{
+		"a.view": `<view type="appA"><text>{n}</text></view>`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&appA{}).View) }
+`,
+	}))
+	if _, err := Generate(dir); err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte(`package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() {
+	_ = ui.View((&appA{}).View)
+	_ = ui.View((&appZ{}).View)
+}
+`), 0o644)
+	before, err := os.ReadFile(filepath.Join(dir, "a_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "a.view"), []byte(`<view type="appA"><text>changed {n}</text></view>`), 0o644)
+	os.WriteFile(filepath.Join(dir, "z.view"), []byte(`<view type="appZ"><text>{n}</text></view>`), 0o644)
+	if _, err := Generate(dir); err == nil {
+		t.Fatal("the conflicting output was taken without error")
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "a_view.go"))
+	if err != nil || string(after) != string(before) {
+		t.Fatal("a_view.go was rewritten although another output conflicted")
+	}
+	if user, err := os.ReadFile(filepath.Join(dir, "z_view.go")); err != nil || !strings.Contains(string(user), "the app's own") {
+		t.Fatal("the user's file was taken")
 	}
 }

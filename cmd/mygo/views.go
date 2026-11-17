@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -24,8 +25,13 @@ func prepareViews(c *Config) (found bool, err error) {
 		return false, err
 	}
 	views, err := filepath.Glob(filepath.Join(dir, "*.view"))
-	if err != nil || len(views) == 0 {
+	if err != nil {
 		return false, err
+	}
+	if len(views) == 0 {
+		// No views: the generator's own outputs of views that went away
+		// still belong to it, and go with them (#1457).
+		return false, pruneViews(dir)
 	}
 	written, err := viewgen.Generate(dir)
 	if err != nil {
@@ -55,4 +61,37 @@ func mainPackageDir(c *Config) (string, error) {
 		return "", fmt.Errorf("no package at %s", c.Main)
 	}
 	return dir, nil
+}
+
+// pruneViews removes the generator's outputs whose .view files are no
+// more, by the marker naming each one's source. Anything else, whatever
+// its name, is left alone.
+func pruneViews(dir string) error {
+	outs, err := filepath.Glob(filepath.Join(dir, "*_view.go"))
+	if err != nil || len(outs) == 0 {
+		return err
+	}
+	for _, path := range outs {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		marker := generatedMarkerOf(string(src))
+		if marker == "" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// generatedMarkerOf reads the .view path a file was generated from, ""
+// for none.
+func generatedMarkerOf(src string) string {
+	return viewgen.GeneratedMarker(src)
 }

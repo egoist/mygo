@@ -48,12 +48,13 @@ func (b *binder) expr(src string, pos Position, viewPath string) (string, ast.Ex
 	return sb.String(), e, nil
 }
 
-// body rewrites a handler body: Go statements.
-func (b *binder) body(src string, pos Position, viewPath string) (string, error) {
+// body rewrites a handler body: Go statements, with their tree, for
+// the packages they name.
+func (b *binder) body(src string, pos Position, viewPath string) (string, []ast.Stmt, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "handler.go", "package p\nfunc _(){"+src+"\n}", 0)
 	if err != nil {
-		return "", Diagnostic{Pos: pos, Path: viewPath, Msg: fmt.Sprintf("not Go statements: %v", err)}
+		return "", nil, Diagnostic{Pos: pos, Path: viewPath, Msg: fmt.Sprintf("not Go statements: %v", err)}
 	}
 	fn := f.Decls[0].(*ast.FuncDecl)
 	r := &rewriter{binder: b, bound: map[string]bool{}}
@@ -65,14 +66,7 @@ func (b *binder) body(src string, pos Position, viewPath string) (string, error)
 		formatNode(fset, stmt, &sb)
 		sb.WriteString("\n")
 	}
-	out := sb.String()
-	out = strings.TrimSuffix(out, "\n")
-	if strings.Contains(out, "\n") {
-		// A block of statements keeps its own lines, indented one tab by
-		// the caller.
-		return out, nil
-	}
-	return out, nil
+	return strings.TrimSuffix(sb.String(), "\n"), fn.Body.List, nil
 }
 
 // rewriter walks one expression or statement tree, rewriting receiver
@@ -172,6 +166,38 @@ func (r *rewriter) visit(n ast.Node) bool {
 			}
 		}
 		return true
+	case *ast.BlockStmt:
+		// Names declared in a block bind in it alone: the statements
+		// after it see what they saw before (#1457).
+		inner := &rewriter{binder: r.binder, bound: r.copyBound()}
+		for _, stmt := range n.List {
+			ast.Inspect(stmt, inner.visit)
+		}
+		return false
+	case *ast.IfStmt:
+		inner := &rewriter{binder: r.binder, bound: r.copyBound()}
+		if n.Init != nil {
+			ast.Inspect(n.Init, inner.visit)
+		}
+		ast.Inspect(n.Cond, inner.visit)
+		ast.Inspect(n.Body, inner.visit)
+		if n.Else != nil {
+			ast.Inspect(n.Else, inner.visit)
+		}
+		return false
+	case *ast.ForStmt:
+		inner := &rewriter{binder: r.binder, bound: r.copyBound()}
+		if n.Init != nil {
+			ast.Inspect(n.Init, inner.visit)
+		}
+		if n.Cond != nil {
+			ast.Inspect(n.Cond, inner.visit)
+		}
+		if n.Post != nil {
+			ast.Inspect(n.Post, inner.visit)
+		}
+		ast.Inspect(n.Body, inner.visit)
+		return false
 	case *ast.Ident:
 		if n.Name == "_" || r.bound[n.Name] || !r.members[n.Name] {
 			return true

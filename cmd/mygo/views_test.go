@@ -136,3 +136,28 @@ func runGo(t *testing.T, dir string, args ...string) string {
 	}
 	return ""
 }
+
+// TestLastViewDeletedCleansItsOutput: with every .view gone, generate
+// takes the generator's own outputs with them, and a project with none
+// of it stays a fast no-op.
+func TestLastViewDeletedCleansItsOutput(t *testing.T) {
+	dir := viewProject(t, testCounterView)
+	if err := runGenerate([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "counter_view.go")); err != nil {
+		t.Fatal("no output written")
+	}
+	if err := os.Remove(filepath.Join(dir, "counter.view")); err != nil {
+		t.Fatal(err)
+	}
+	// The project has no frontend any more: the error says so, and the
+	// generator's output went with its source.
+	err := runGenerate([]string{dir})
+	if err == nil || !strings.Contains(err.Error(), "no frontend") {
+		t.Fatalf("second generate: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "counter_view.go")); err == nil {
+		t.Fatal("the deleted view's output stayed")
+	}
+}

@@ -32,6 +32,11 @@ client, named after the directory (src/locales.ts).`)
 			return err
 		}
 	}
+	// The accessors come first: the app's Go code calls them, its views
+	// included.
+	if err := generateI18n(c); err != nil {
+		return err
+	}
 	// The views of a native app are its frontend half: generating them
 	// is work enough on its own (#1457).
 	views, err := prepareViews(c)
@@ -43,10 +48,6 @@ client, named after the directory (src/locales.ts).`)
 			return nil
 		}
 		return fmt.Errorf("the project has no frontend to write a client for: set bindings in %s, pass -o, or add a .view file", c.configName())
-	}
-	// The accessors come first: the app's Go code calls them.
-	if err := generateI18n(c); err != nil {
-		return err
 	}
 	if c.I18n != nil {
 		if dirs := compiledDirs(c); dirs != nil {
