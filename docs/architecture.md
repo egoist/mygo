@@ -74,7 +74,7 @@ framework safely. Read it before changing anything under `internal/`.
 ├── document*.go        NewDocuments: documents, their saving, recovery copies, watches, menus
 ├── loop.go             main-thread queue: postMain / onMain / await
 ├── events.go           listener lists and the Preventable event types
-├── single_instance.go  RequestSingleInstanceLock over a Unix socket
+├── single_instance.go  RequestSingleInstanceLock: a lock file, command lines over a Unix socket
 ├── dev.go signal_*.go  IsDev, the `mygo dev` ready signal, quitting on SIGINT/SIGTERM
 ├── backend_*.go        picks the backend per GOOS
 ├── internal/
@@ -521,7 +521,10 @@ by `mygo build` with `mygo_noinspector`) leave out its downloader and
   and in its settings, and the keys it answers with, in `BindShortcuts`'s
   response and in later `ShortcutsChanged` signals, go to the shortcut's
   `OnKeys` (`HotkeyBound`): none when the user declined it, which KDE
-  remembers without asking again. The activation token of an `Activated` signal
+  remembers without asking again. Under X11 (XWayland) `BindShortcuts`
+  names the app's focused window, else its first shown one, as the parent
+  of the desktop's dialog (`x11:XID`), which GNOME otherwise opens behind
+  the windows in front; a Wayland window would need exporting first. The activation token of an `Activated` signal
   becomes the display's startup notification id while the callback runs,
   so the window it shows or focuses may take the focus. Under XWayland
   there is no Wayland display to give it to, and GNOME does not take the
@@ -651,7 +654,14 @@ features GTK 4 lacks become X11-only code beside it.
 - **Custom schemes** load from `http://<scheme>.localhost/`, and their
   other hosts from `http://<host>.<scheme>.localhost/` (`internal/schemehost`:
   hosts of DNS labels, lower-cased, without a port), which WebView2
-  lets the app answer through `WebResourceRequested`. Chromium treats
+  lets the app answer through `WebResourceRequested`. Its filters are
+  added with `ICoreWebView2_22`'s
+  `AddWebResourceRequestedFilterWithRequestSourceKinds` for documents
+  (iframes of every origin, and their dedicated workers), or, on runtimes
+  without it, `AddWebResourceRequestedFilter`, which reaches only the
+  main frame and its same-origin iframes. Service and shared workers are
+  left out: their requests reach every web view of the profile that
+  filters them. Chromium treats
   `*.localhost` as a secure origin, and unlike `https`, `http` blocks no
   mixed content, so pages reach `ws://` and `http://` URLs as with the
   custom schemes of the other backends. The backend maps URLs both ways, so
@@ -984,7 +994,8 @@ and committed, so building an app never needs Bun. The core wraps it with the
 window's configuration (`bridge.Script`) and every backend injects it at
 document start into the main frame. It installs:
 
-- `window.mygo`: `call(method, ...args)`, `on(event, fn)`, `once`, the
+- `window.mygo`: `call(method, ...args)`, `callWith(method, args, options)`,
+  `on(event, fn)`, `once`, the
   `window` controls (`minimize`, `toggleMaximize`, `close`, …), `platform`,
   `windowId`, `version`. Frozen, so pages cannot tamper with it.
 - `window.__mygo.receive(messages)`, used by Go to deliver messages.
@@ -1140,10 +1151,11 @@ Trust):
 
 | message | meaning |
 |---|---|
-| `{"t":"call","id":N,"k":token,"m":"Service.Method","a":[...]}` | call a bound method |
+| `{"t":"call","id":N,"k":token,"m":"Service.Method","a":[...]}` | call a bound method; `"cancel":true` says the page may cancel it |
+| `{"t":"cancel","id":N,"k":token}` | the page gave the call up: its context is canceled |
 | `{"t":"chan-ack","c":N,"k":token,"n":S}` | the page took the values of channel N up to the S-th |
 | `{"t":"chan-close","c":N,"k":token}` | the page closed channel N |
-| `{"t":"dom-ready"}` | DOMContentLoaded fired |
+| `{"t":"dom-ready"}` | DOMContentLoaded fired, or the page shows again from the web view's cache of pages |
 | `{"t":"theme-color","v":"#rrggbbaa"}` | the page's theme color changed; `""` for none |
 | `{"t":"content-size","w":W,"h":H,"sw":SW,"sh":SH}` | the size of the content of a window that fits it, and the room of its scrollbars, in CSS pixels |
 | `{"t":"drag"}` / `{"t":"dblclick"}` | mousedown / double click on a drag region |
@@ -1174,7 +1186,11 @@ navigated away can never resolve a promise of the new page.
    main thread.
 2. `handleCall` decodes the envelope with `encoding/json/v2`, looks up the
    method, decodes each argument into the parameter type, calls it and
-   encodes the result. Panics are recovered, logged with a stack trace and
+   encodes the result. What the page sends is decoded with
+   `decodeOptions`: half of a surrogate pair, which a JavaScript string
+   may hold and JSON.stringify writes as an escape, becomes U+FFFD
+   instead of failing the envelope, which would leave the call without a
+   reply. Panics are recovered, logged with a stack trace and
    returned as errors. Large values are copied as little as possible: the
    arguments are raw values that share the message (`rawValue`), decoded
    from it in place, and the result is encoded into a part of the reply
@@ -1184,7 +1200,10 @@ navigated away can never resolve a promise of the new page.
 
 Bound methods may take a `context.Context` first: it carries the calling
 window (`CallerWindow`) and is canceled when the page navigates or the window
-closes. `Bind` validates every parameter and result type up front
+closes. A call the page may cancel (`"cancel":true`) gets a context of its
+own, which the page cancels with `{"t":"cancel"}`: the window keeps the
+cancel of every such call by the page's id for it, with the page's token,
+so that only the page that made the call may cancel it. `Bind` validates every parameter and result type up front
 (`tsgen.Validate`), so unsupported types fail at startup, not at call time.
 
 `Bind` lists a service's methods with `reflect.Type.Method`, and a program
@@ -1205,7 +1224,12 @@ json/v2 defaults (nil slices encode as `[]`, case-sensitive names),
 once and enqueue per window. **Events are held until the page reports
 dom-ready** (bounded to 1024 per window) and the hold resets on every
 navigation, so events sent right after creating a window, or during a
-navigation, are delivered once listeners exist. Replies are never held:
+navigation, are delivered once listeners exist. A page the web view kept
+as it was left and shows again on Back or Forward (WebKit's back/forward
+cache) commits a navigation without running a script again: the bridge
+hears its `pageshow` event, and tells its theme color, its size and
+dom-ready again, after failing the calls the page had left unanswered,
+which Go canceled as it left. Replies are never held:
 module scripts may `await` a call at top level, and DOMContentLoaded waits for
 them.
 
@@ -1915,8 +1939,26 @@ as in Tauri:
   `--mygo-opened-at-login`, which the package removes from `os.Args` at
   init and `WasOpenedAtLogin` reports; macOS login items are recognized by
   `keyAELaunchedAsLogInItem` in the launch Apple Event instead.
-- `Relaunch` runs the quit sequence, then (after `OnQuit`, which releases
-  the single instance lock) starts the executable again with the same
+- `RequestSingleInstanceLock` (`single_instance.go`): the system decides
+  which instance runs, with a lock on a file next to the socket (`flock`
+  on Unix, `LockFileEx` on Windows, through `lockFile`), taken before the
+  socket is touched, so two launches at the same moment cannot both win.
+  The lock is held until the process exits and released by the system
+  then, also on a crash or a kill; the file is never removed, and its
+  handle is not inherited (`O_CLOEXEC`, a handle Windows does not
+  inherit), so a process the app started cannot keep it. The holder
+  removes a stale socket and listens; the socket only carries the
+  command lines of later instances (JSON), and closes on `OnQuit`. A
+  launch first hands its command line to whoever answers the socket (the
+  holder, or an instance of an older MyGo, which takes no lock), then
+  tries the lock; while the lock is held and nobody answers (the holder
+  is starting, or quit and is ending, as for `Relaunch` and updates) it
+  tries both again until the lock is free, logging after
+  `singleInstanceWait` (10 s): a relaunch must land however long the
+  shutdown takes.
+- `Relaunch` runs the quit sequence, then (after `OnQuit`, which closes
+  the single instance socket; the new instance waits for the lock, which
+  this one holds until it exits) starts the executable again with the same
   arguments, or those passed to `Relaunch` in their place
   (`relaunchArguments`), and the working directory it started in: on macOS
   through `open -n <bundle> --args …`, or, with an update staged, through
@@ -2022,7 +2064,8 @@ as in Tauri:
   the result. WebKit cannot turn what a custom scheme handler serves into a
   download, and WebView2 would fetch it over the network, so those are
   canceled and the core serves the URL again through the scheme's handler
-  into the file (`SchemeDownload`).
+  into the file (`SchemeDownload`). A handler that panics there fails the
+  download, as it gives a 500 to a request: the partial file is removed.
 - Permissions (`permissions.go`): the backends route camera, microphone,
   location and notification requests to `WindowHandler.PermissionRequested`;
   `SetPermissionHandler` decides them, and by default trusted pages (the
@@ -3793,7 +3836,11 @@ either.
   `WM_POINTERCAPTURECHANGED` canceling, Linux numbers GDK's touch
   sequences (`touchPoints` in `internal/linux/touch.go`), browsers send
   the Pointer Events of `pointerType` `touch` by `pointerId`, and macOS,
-  without touchscreens, sends none. The engine drops them until a view
+  without touchscreens, sends none. The size of a finger's contact
+  (`SurfaceEvent.Width`, `Height`, in DIPs) comes from Windows's
+  `POINTER_TOUCH_INFO.rcContact` (with `TOUCH_MASK_CONTACTAREA`) and the
+  Pointer Events' `width` and `height` (1 by 1, unknown, is 0); GDK has
+  none. The engine drops them until a view
   calls `Touches`, which sets `engine.touchIn` (`ui/touch.go`), so apps
   that ask for none link none of it: the tracker gives each finger an ID
   of its own, keeps the hit chain where it landed, asks for a frame as one
@@ -3976,7 +4023,14 @@ either.
   list notes where the top of its last row was placed; as rows grow or
   come, that row goes up, and the rows show as far below their place,
   which a motion channel takes back to nothing (`glideToEnd`), counted
-  as at the end. Rows are placed relative to the list, the offset
+  as at the end. With a `MoveAnimation`, a list notes the rows it
+  placed by key, with where it placed them and how far from there they
+  showed (`moveRows`); a row whose index changed since, as rows came or
+  went around it, shows where it showed, which a motion channel of its
+  own takes back to nothing, rows new to the place move with their
+  nearest neighbor, and the rows past an edge that the glide uncovers are
+  built, moving with them. Scrolling moves no index, and so no row; each
+  layout of a frame starts from the rows as the frame before left them. Rows are placed relative to the list, the offset
   they were placed at kept as `scrollBase` for placing and revealing. An
   offset the wheel, the keys, the scroll bar or the app changed moves the
   place by as much when it is a step (up to two views), so rows not
@@ -4774,7 +4828,16 @@ either.
   it (the submenus that `Submenu` registers, built after their menu's
   panel, as its siblings). A panel keeps the focus for its items, which
   the keys and the pointer highlight (`ActiveDescendant`), by their
-  element IDs; the keys are read once the panel's items are built, which
+  element IDs. The pointer moving onto an item of a panel with a submenu
+  open leaves the highlight while it heads for the submenu (`aiming`,
+  #1916): it moved since the last pass (`menuShown.last`; the panel
+  tracks the pointer, `flagTrackPointer`, so that each move builds) into
+  the triangle from where it was to the corners of the submenu panel's
+  edge facing it, in that panel's axes as last laid out. That holds for
+  `menuAimGrace` (300 ms) after the last such move (`menuShown.aim`), a
+  frame asked for then (`scheduleAt`) letting the item under a pointer
+  that rests take the highlight. Submenus still open at once as the
+  pointer moves onto their items, as macOS's do. The keys are read once the panel's items are built, which
   they move among, and Enter clicks the item highlighted for the next
   pass (`clickLater`), which reports it as `Clicked`; an item clicked
   closes the menu once its panel is built (`finish`), unless the view
@@ -5066,7 +5129,10 @@ either.
     aliased rendering, the nearest to the pen; GTK's whole pixels, as Pango rounds glyph
     positions. `System.Baseline` snaps baselines likewise: down to the
     next pixel on macOS (Core Graphics floors in its y-up space),
-    to the nearest on Windows, up on Linux.
+    to the nearest on Windows, up on Linux. A glyph off its line's
+    baseline (`Glyph.Y`), as a mark that shaping puts above or below its
+    base (OpenType's mark positioning) or a span's glyphs that
+    `BaselineShift` moves, sits on a baseline of its own, snapped alike.
   - *macOS.* Core Text draws with font smoothing, as AppKit does unless
     the user turned it off (`AppleFontSmoothing`, read through
     `NSUserDefaults` as AppKit does: Core Graphics' bitmap contexts ignore
@@ -5121,7 +5187,7 @@ either.
     blending it, which differs where antialiased edges of neighbors share
     a pixel. There, on Linux, package ui has the text system join them
     (`System.GlyphRun`): their coverage added and clamped, cached as one
-    bitmap.
+    bitmap, for glyphs on one baseline.
   - *Strokes.* `TextStroke` draws each glyph's stroke as a mask of its
     own (`System.StrokeGlyph`), made in Go from the glyph's coverage for
     every engine: the coverage dilated by half the width less the
@@ -6184,6 +6250,11 @@ make it work:
   bundle-only features (notifications, URL schemes) work and its data stays
   apart from the production app's. Builds are assembled in a staging
   directory and renamed into place, so the running build keeps its files.
+  Elsewhere the resources are synced beside the executable instead
+  (`placeBuild`, `syncResources`): only files whose permissions, size or
+  modification time changed are replaced, so a program the running app
+  started from them, which Windows keeps from being moved, does not stop
+  a rebuild unless it changed (#1905).
   - Builds run with `MYGO_DEV=1`, which the core takes out of its
     environment (`dev.go`): `App.Relaunch` then exits with code 75, which
     has `mygo dev` start the same build again, with the arguments
@@ -6943,7 +7014,7 @@ which npm allows only for packages that exist: the first release uses an
 | Dock menu | `applicationDockMenu:` | ignored | ignored |
 | PrintToPDF | `printOperationWithPrintInfo:` save job (`NSJobSavingURL`), fit to width; the core rewrites the radicals the text names to the ideographs the fonts draw (`pdf_text.go`) | `WebKitPrintOperation` to GTK's "Print to File" | DevTools `Page.printToPDF` |
 | power events | NSWorkspace sleep/wake, `com.apple.screenIsLocked` distributed notifications | logind `PrepareForSleep` (system bus), screen saver `ActiveChanged` (GNOME, freedesktop) | `WM_POWERBROADCAST`, `WM_WTSSESSION_CHANGE` |
-| Now Playing and media keys | `MPNowPlayingInfoCenter` (its `nowPlayingInfo` and `playbackState`; artwork as an `MPMediaItemArtwork` decoding the bytes it holds when asked) and the targets of `MPRemoteCommandCenter`'s commands, enabled as the info offers them; MediaPlayer.framework loads with the first `Set` | an MPRIS player (`org.mpris.MediaPlayer2` and `.Player` at `/org/mpris/MediaPlayer2`, exported with `g_dbus_connection_register_object`), whose bus name `org.mpris.MediaPlayer2.<app>.instance<pid>` is owned only while it shows something; `PropertiesChanged` on each change, `Seeked` when the position jumps; the artwork goes to a file in `$XDG_RUNTIME_DIR` for `mpris:artUrl` | the `SystemMediaTransportControls` of the application window (`ISystemMediaTransportControlsInterop::GetForWindow`), with agile event handlers, a `RandomAccessStreamReference` over a memory stream for the thumbnail, and the timeline properties for position and seeking |
+| Now Playing and media keys | `MPNowPlayingInfoCenter` (its `nowPlayingInfo` and `playbackState`; artwork as an `MPMediaItemArtwork` decoding the bytes it holds when asked) and the targets of `MPRemoteCommandCenter`'s commands, enabled as the info offers them; MediaPlayer.framework loads with the first `Set` | an MPRIS player (`org.mpris.MediaPlayer2` and `.Player` at `/org/mpris/MediaPlayer2`, exported with `g_dbus_connection_register_object`), whose bus name `org.mpris.MediaPlayer2.<app>.instance<pid>` is owned only while it shows something; `PropertiesChanged` on each change, `Seeked` when the position jumps; `xesam:artist` lists `Artists`; the artwork goes to a file in `$XDG_RUNTIME_DIR` for `mpris:artUrl`; `Raise` reaches the core as `platform.MediaRaise`, which shows and focuses the window that had the keyboard last | the `SystemMediaTransportControls` of the application window (`ISystemMediaTransportControlsInterop::GetForWindow`), with agile event handlers, a `RandomAccessStreamReference` over a memory stream for the thumbnail, and the timeline properties for position and seeking |
 | KeepAwake | `NSProcessInfo` activity (shows in `pmset -g assertions`) | XDG portal `Inhibit`, else `org.freedesktop.ScreenSaver.Inhibit` | `PowerCreateRequest` |
 | KeepRunning | `NSProcessInfo` activity `NSActivityUserInitiatedAllowingIdleSystemSleep`: no App Nap, idle sleep allowed (not in `pmset -g assertions`) | nothing: desktops don't slow apps out of sight | nothing yet (power throttling, EcoQoS, would be `SetProcessInformation`'s `ProcessPowerThrottling`) |
 | IsOnBattery, IdleTime | IOKit power sources, `CGEventSourceSecondsSinceLastEventType` | `/sys/class/power_supply`; Mutter idle monitor or `GetSessionIdleTime` | `GetSystemPowerStatus`, `GetLastInputInfo` |

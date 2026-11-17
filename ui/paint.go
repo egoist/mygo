@@ -50,13 +50,22 @@ type Painter struct {
 	// owner is the state of the element painting, which keeps the scales
 	// its text rasterized at (glyphSpace).
 	owner *state
+	// copying tells that what paints is a copy of an element, as the one a
+	// drag paints under the pointer (paintDrag): the page of a web view
+	// stays where the element is, so the copy's hole tells nothing of how
+	// opaque the page shows.
+	copying bool
 }
 
-// opaqueBox is the box of an element painting an opaque background, and
-// how many holes were painted before it, which it covers.
+// opaqueBox is the box of a background an element painted, and how many
+// holes were painted before it, which it covers. opaque tells that the
+// background was painted whole: what lies under it shows through nothing,
+// where one painted through, as at an element's own opacity, still has
+// something for a web view's hole to blend its page over.
 type opaqueBox struct {
-	r     Rect
-	holes int
+	r      Rect
+	holes  int
+	opaque bool
 }
 
 // continuousCorners curves rounded corners as Apple does, on macOS, where
@@ -91,7 +100,7 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	under := rt.under[:0]
 	if opaque {
 		// Under all the window paints, as what it drags.
-		under = append(under, opaqueBox{r: Rect{0, 0, w, h}})
+		under = append(under, opaqueBox{r: Rect{0, 0, w, h}, opaque: true})
 	}
 	rt.painter = Painter{rt: rt, s: s, scale: scale, opacity: 1, clip: Rect{0, 0, w, h}, opaque: opaque, under: under, holes: rt.holes[:0]}
 	p := &rt.painter
@@ -353,8 +362,11 @@ func (p *Painter) element(e *node) {
 	}
 	box := Rect{e.x, e.y, e.w, e.h}
 	savedOpaque, under := p.opaque, len(p.under)
-	if e.fill == fillColor && e.bg.A == 255 && p.opacity >= 1 {
-		p.under = append(p.under, opaqueBox{box, len(p.holes)})
+	if e.fill == fillColor && e.bg.A > 0 {
+		// Painted whole, it covers what lies under it; painted through, as
+		// at an element's own opacity, it still has something for a web
+		// view's hole to blend its page over.
+		p.under = append(p.under, opaqueBox{box, len(p.holes), e.bg.A == 255 && p.opacity >= 1})
 	}
 	// What the element paints lands on an opaque background when all of
 	// it that shows does.
@@ -513,10 +525,27 @@ func translates(m scene.Affine) bool {
 // covered reports whether an opaque background around the element painting
 // holds all of r, when r has an area.
 func (p *Painter) covered(r Rect) bool {
+	return p.holds(r, true)
+}
+
+// blends reports whether anything painted around the element painting holds
+// all of r, when r has an area, opaque or through: the hole a web view
+// punches then blends the page with what is painted there, and the page
+// needs no fade of its own.
+func (p *Painter) blends(r Rect) bool {
+	return p.holds(r, false)
+}
+
+// holds reports whether a background painted around the element painting
+// holds all of r, when r has an area; opaque asks for one painted whole.
+func (p *Painter) holds(r Rect, opaque bool) bool {
 	if r.W <= 0 || r.H <= 0 {
 		return true
 	}
 	for _, u := range slices.Backward(p.under) {
+		if opaque && !u.opaque {
+			continue
+		}
 		if b := u.r; r.X >= b.X && r.Y >= b.Y && r.X+r.W <= b.X+b.W && r.Y+r.H <= b.Y+b.H {
 			// Unless the web view of a hole painted since shows there.
 			for _, h := range p.holes[u.holes:] {
@@ -1028,20 +1057,21 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 				continue
 			}
 			glyphColor = glyphColor.Alpha(p.opacity)
+			gb := glyphBaseline(sys, &g, line, y, baseline, gs)
 			sg := scene.Glyph{
-				X: ix + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
+				X: ix + gi.Left, Y: gb + gi.Top, W: float32(gi.W), H: float32(gi.H),
 				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
 				Transform: gs.inlineTransform(p, g.Cluster, moves),
 				Color:     glyphColor.scene(), Wide: p.glyphWide(glyphColor), Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
 			}
 			if run != nil {
-				run.add(p, g, gi, pen, sg, glyphShade, baseline)
+				run.add(p, g, gi, pen, sg, glyphShade, gb)
 				continue
 			}
 			p.s.Glyphs = append(p.s.Glyphs, sg)
 		}
 		if run != nil {
-			run.flush(p, baseline)
+			run.flush(p)
 		}
 		if sp != nil {
 			sp.lines(p, l, li, x, y, color, deco)
@@ -1113,7 +1143,7 @@ func (p *Painter) textStrokes(l *text.Layout, x, y float32, color Color, ts text
 			}
 			stroke = stroke.Alpha(p.opacity)
 			p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{
-				X: float32(math.Floor(float64(pen))) + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
+				X: float32(math.Floor(float64(pen))) + gi.Left, Y: glyphBaseline(sys, &g, line, y, baseline, gs) + gi.Top, W: float32(gi.W), H: float32(gi.H),
 				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
 				Transform: gs.inlineTransform(p, g.Cluster, moves),
 				Color:     stroke.scene(), Wide: p.glyphWide(stroke),
@@ -1190,7 +1220,7 @@ func (p *Painter) textShadows(l *text.Layout, x, y float32, color Color, ts text
 			}
 			c := sh.color.Alpha(p.opacity)
 			p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{
-				X: float32(math.Floor(float64(pen))) + gi.Left, Y: sys.Baseline((y+line.Baseline+sh.y)*s+gs.dy) + gi.Top, W: float32(gi.W), H: float32(gi.H),
+				X: float32(math.Floor(float64(pen))) + gi.Left, Y: sys.Baseline((y+g.Y+sh.y)*s+gs.dy) + gi.Top, W: float32(gi.W), H: float32(gi.H),
 				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
 				Transform: gs.inlineTransform(p, g.Cluster, moves),
 				Color:     c.scene(), Wide: p.glyphWide(c),
@@ -1200,6 +1230,19 @@ func (p *Painter) textShadows(l *text.Layout, x, y float32, color Color, ts text
 	if end := int32(len(p.s.Glyphs)); end > start {
 		gs.add(p, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end})
 	}
+}
+
+// glyphBaseline returns the device row of the baseline that glyph g of
+// line, laid out from y, sits on: baseline, the line's as the text system
+// snaps it, or, for a glyph off it, its own, snapped likewise. Shaping
+// moves a mark above or below its base (OpenType's mark positioning, as
+// a fatha over a joined kaf and a kasra under a joined reh), and a span
+// its glyphs (text.Span.BaselineShift).
+func glyphBaseline(sys *text.System, g *text.Glyph, line *text.Line, y, baseline float32, gs glyphSpace) float32 {
+	if g.Y == line.Baseline {
+		return baseline
+	}
+	return sys.Baseline((y+g.Y)*gs.scale + gs.dy)
 }
 
 // glyphRun gathers glyphs of a line in one font and color whose
@@ -1214,25 +1257,29 @@ type glyphRun struct {
 	pens   []float32
 	glyphs []scene.Glyph
 	last   text.GlyphImage
+	// baseline is the device row its glyphs sit on, which they all share:
+	// GlyphRun joins glyphs on one baseline.
+	baseline float32
 }
 
-// add takes a glyph, its pen at pen and its scene glyph sg, into the run
-// if it shares pixels with the last, else starts a run with it.
+// add takes a glyph, its pen at pen and its scene glyph sg, sitting on
+// the baseline at device row baseline, into the run if it shares pixels
+// with the last on the same baseline, else starts a run with it.
 func (r *glyphRun) add(p *Painter, g text.Glyph, gi text.GlyphImage, pen float32, sg scene.Glyph, shade text.Shade, baseline float32) {
 	if n := len(r.glyphs); n > 0 {
 		prev := &r.glyphs[n-1]
-		if g.Font == r.font && sg.Color == prev.Color && sg.Wide == prev.Wide && !gi.Colored && p.rt.text.Shares(r.last, prev.X, prev.Y, gi, sg.X, sg.Y) {
+		if g.Font == r.font && baseline == r.baseline && sg.Color == prev.Color && sg.Wide == prev.Wide && !gi.Colored && p.rt.text.Shares(r.last, prev.X, prev.Y, gi, sg.X, sg.Y) {
 			r.ids, r.pens, r.glyphs, r.last = append(r.ids, g.ID), append(r.pens, pen), append(r.glyphs, sg), gi
 			return
 		}
-		r.flush(p, baseline)
+		r.flush(p)
 	}
-	r.font, r.shade, r.last = g.Font, shade, gi
+	r.font, r.shade, r.last, r.baseline = g.Font, shade, gi, baseline
 	r.ids, r.pens, r.glyphs = append(r.ids, g.ID), append(r.pens, pen), append(r.glyphs, sg)
 }
 
 // flush paints the run: one glyph as it is, more joined.
-func (r *glyphRun) flush(p *Painter, baseline float32) {
+func (r *glyphRun) flush(p *Painter) {
 	switch n := len(r.glyphs); {
 	case n == 1:
 		p.s.Glyphs = append(p.s.Glyphs, r.glyphs[0])
@@ -1243,7 +1290,7 @@ func (r *glyphRun) flush(p *Painter, baseline float32) {
 			break
 		}
 		sg := r.glyphs[0]
-		sg.X, sg.Y = float32(math.Floor(float64(r.pens[0])))+gi.Left, baseline+gi.Top
+		sg.X, sg.Y = float32(math.Floor(float64(r.pens[0])))+gi.Left, r.baseline+gi.Top
 		sg.W, sg.H, sg.U, sg.V, sg.UW, sg.VH = float32(gi.W), float32(gi.H), gi.X, gi.Y, gi.W, gi.H
 		sg.Subpixel, sg.Thin = gi.Subpixel, gi.Thin
 		p.s.Glyphs = append(p.s.Glyphs, sg)

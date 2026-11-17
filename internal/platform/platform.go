@@ -838,6 +838,14 @@ type WebViewPlacement struct {
 	// top-left clockwise, as the hole showing it has: the page shows, and
 	// takes the pointer, inside them.
 	Radii [4]float64
+	// Opacity is how opaque the page shows, 0 to 1. Where the content
+	// painted a background under the element, opaque or through, the
+	// frames' own hole blends the page with it, and this is 1. Where none
+	// is, as in a transparent window, this is the element's opacity, and
+	// the platform fades the page itself by it, over what is behind the
+	// window, as over a parent window a flyout leaves live. A platform
+	// that cannot fades nothing (the page then shows whole).
+	Opacity float64
 	// Covers are the boxes, within Clip, of what the content painted over
 	// the web view that takes the pointer: there the pointer is the
 	// surface's, elsewhere in Clip the web view's.
@@ -1096,22 +1104,34 @@ const (
 	BadgeAlignRight  BadgeAlignment = "right"
 )
 
+// BadgeShape is the background behind a badge.
+type BadgeShape string
+
+const (
+	BadgeShapeSquare  BadgeShape = "square"
+	BadgeShapeRounded BadgeShape = "rounded"
+	BadgeShapePill    BadgeShape = "pill"
+)
+
 // MenuItem is a snapshot of a menu item. ID identifies the public item the
 // native item was built from.
 type MenuItem struct {
-	ID          int
-	Type        MenuItemType
-	Label       string
-	Subtitle    string
-	Badge       string
-	BadgeAlign  BadgeAlignment
-	KeepOpen    bool
-	Role        string
-	Accelerator string
-	Enabled     bool
-	Visible     bool
-	Checked     bool
-	ToolTip     string
+	ID             int
+	Type           MenuItemType
+	Label          string
+	Subtitle       string
+	Badge          string
+	BadgeAlign     BadgeAlignment
+	BadgeShape     BadgeShape
+	BadgeColor     *Color
+	BadgeTextColor *Color
+	KeepOpen       bool
+	Role           string
+	Accelerator    string
+	Enabled        bool
+	Visible        bool
+	Checked        bool
+	ToolTip        string
 	// Icon is the image beside the label, nil for none.
 	Icon *MenuIcon
 	// IconColor, when set, is the color of a template Icon in the menus
@@ -1395,13 +1415,20 @@ const (
 	MediaNext
 	MediaPrevious
 	MediaSeek
+	// MediaRaise asks for the app's window in front, as MPRIS's Raise
+	// does. The core answers it whatever the info's Commands, which never
+	// hold it.
+	MediaRaise
 )
 
 // NowPlayingInfo is what the app plays, fully defaulted by the core.
 type NowPlayingInfo struct {
 	Title, Artist, Album string
-	Artwork              []byte // PNG or JPEG, or nil
-	Duration             time.Duration
+	// Artists are the track's artists, one each, for the systems that
+	// take a list (MPRIS); Artist is them joined with ", ".
+	Artists  []string
+	Artwork  []byte // PNG or JPEG, or nil
+	Duration time.Duration
 	// Position is where playback was when the core set the info; the
 	// system advances it at Rate while State is "playing".
 	Position time.Duration
