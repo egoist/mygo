@@ -243,7 +243,10 @@ func (rl *richLines) view(c *context) {
 		lines := len(rl.texts) / 2
 		for k := range rl.shown {
 			i := (rl.from + k) % lines
-			rl.scratch = append(rl.scratch[:0], Span{Text: rl.texts[2*i]}, Span{Text: rl.texts[2*i+1], Color: rl.color(i), Weight: 700})
+			// Both spans in the line's color, a primary one: the fringes of
+			// text in the theme's, which subpixel antialiasing tints, could
+			// pass for the other line color.
+			rl.scratch = append(rl.scratch[:0], Span{Text: rl.texts[2*i], Color: rl.color(i)}, Span{Text: rl.texts[2*i+1], Color: rl.color(i), Weight: 700})
 			p.RichText(0, float32(k)*richLineStep, 0, rl.scratch...)
 		}
 	})
