@@ -1,3 +1,5 @@
+//go:build !js
+
 package e2e
 
 import (
@@ -9,14 +11,14 @@ import (
 	"github.com/egoist/mygo/internal/wait"
 )
 
-var logAuditStopped = make(chan error, 1)
+var untilCanceledStopped = make(chan error, 1)
 
-func (Streams) Tail(ctx context.Context, lines *mygo.Channel[string]) error {
-	if err := lines.Send("service started"); err != nil {
+func (Streams) UntilCanceled(ctx context.Context, ch *mygo.Channel[int]) error {
+	if err := ch.Send(1); err != nil {
 		return err
 	}
 	<-ctx.Done()
-	logAuditStopped <- ctx.Err()
+	untilCanceledStopped <- ctx.Err()
 	return ctx.Err()
 }
 
@@ -27,50 +29,40 @@ func TestCancelStreamingCall(t *testing.T) {
 	}
 	waitFor(t, w, "window.run")
 	mustEval(t, w, `(() => {
-  const start = document.createElement('button');
-  start.textContent = 'Start logs';
-  start.disabled = true;
-  const stop = document.createElement('button');
-  stop.textContent = 'Stop logs';
-  const ac = new AbortController();
-  const lines = mygo.channel();
-  stop.onclick = () => ac.abort('stopped by user');
-  document.body.append(start, stop);
-  window.audit = { lines, start, stop, count: 0, error: null };
-  mygo.callWith('Streams.Tail', [lines], {signal: ac.signal})
-    .catch(error => audit.error = error);
-  void (async () => {
-    try { for await (const line of lines) audit.count++; }
-    finally { start.disabled = false; }
-  })();
-  return true;
- })()`)
-	waitFor(t, w, "audit.count > 0 || audit.error !== null")
-	if err := mustEval(t, w, "audit.error && String(audit.error)"); err != nil {
-		t.Fatalf("stream did not start: %v", err)
+		const controller = new AbortController();
+		const ch = mygo.channel();
+		const state = window.stream = { controller, ch, values: [], error: null, finished: false };
+		mygo.callWith("Streams.UntilCanceled", [ch], { signal: controller.signal })
+			.catch(error => state.error = error);
+		void (async () => {
+			for await (const value of ch) state.values.push(value);
+			state.finished = true;
+		})();
+		return true;
+	})()`)
+	waitFor(t, w, "stream.values.length > 0 || stream.error !== null")
+	if got := mustEval(t, w, "JSON.stringify({ values: stream.values, error: stream.error && String(stream.error) })"); got != `{"values":[1],"error":null}` {
+		t.Fatalf("before abort: %v", got)
 	}
-	mustEval(t, w, "(() => { audit.stop.click(); return true; })()")
-	if err := wait.For(t, "Go log stream to stop", logAuditStopped); !errors.Is(err, context.Canceled) {
-		t.Fatalf("Go stream ended with %v", err)
+
+	mustEval(t, w, `stream.controller.abort("stop")`)
+	if err := wait.For(t, "the Go stream to stop", untilCanceledStopped); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Go stream ended with %v, want context.Canceled", err)
 	}
-	got := mustEval(t, w, `(async () => {
-  await mygo.call('Greeter.Greet', 'barrier');
-  return JSON.stringify({error: audit.error, channelClosed: audit.lines.closed, canRestart: !audit.start.disabled});
- })()`)
-	const want = `{"error":"stopped by user","channelClosed":true,"canRestart":true}`
-	if got != want {
-		t.Fatalf("after stop: %s, want %s", got, want)
+	got := mustEval(t, w, "JSON.stringify({ error: stream.error, closed: stream.ch.closed, finished: stream.finished })")
+	if got != `{"error":"stop","closed":true,"finished":true}` {
+		t.Fatalf("after abort: %v", got)
 	}
+
 	got = mustEval(t, w, `(async () => {
-	  const lines = mygo.channel();
-	  const ac = new AbortController();
-	  const result = mygo.callWith("Streams.Count", [1, lines], { signal: ac.signal });
-	  const received = [];
-	  for await (const line of lines) received.push(line);
-	  await result;
-	  return JSON.stringify(received);
+		const ch = mygo.channel();
+		const call = mygo.callWith("Streams.Count", [1, ch], { signal: new AbortController().signal });
+		const values = [];
+		for await (const value of ch) values.push(value);
+		await call;
+		return JSON.stringify(values);
 	})()`)
 	if got != "[0]" {
-		t.Fatalf("restarted stream returned %v, want [0]", got)
+		t.Fatalf("next stream returned %v, want [0]", got)
 	}
 }
