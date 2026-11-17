@@ -216,8 +216,6 @@ func Generate(dir string) (written []string, err error) {
 		for _, name := range checked.Scope().Names() {
 			forbidden[name] = true
 		}
-		// Every member the binder binds: its own and those its embedded
-		// structs promote, so a parameter name cannot take one of theirs.
 		for name := range memberNames(receivers[v.recv], checked) {
 			forbidden[name] = true
 		}

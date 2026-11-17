@@ -10,22 +10,20 @@ import (
 	"strings"
 )
 
-// binder gives the type checker a view's namespace. Receiver members are
-// represented by local objects in the stub View's scope. Uses of those
-// objects are qualified after checking; Go itself resolves all declarations,
-// shadowing, composite literal keys and control-flow scopes.
+// binder resolves view names through Go's lexical scopes.
 type binder struct {
-	pkg          *types.Package
-	scope        *types.Scope
-	fs           *token.FileSet
-	pos          token.Pos
-	members      map[string]types.Object
-	replacements map[types.Object]string
-	useImport    func(string, string) string
+	pkg           *types.Package
+	scope         *types.Scope
+	fs            *token.FileSet
+	pos           token.Pos
+	members       map[string]types.Object
+	replacements  map[types.Object]string
+	fieldBindings map[types.Object]string
+	useImport     func(string, string) string
 }
 
 func newBinder(recv *types.Named, pkg *types.Package, fs *token.FileSet, pos token.Pos, scope *types.Scope, aliases map[string]*types.Package, receiver, context string, useImport func(string, string) string) (*binder, error) {
-	b := &binder{pkg: pkg, scope: scope, fs: fs, pos: pos, members: map[string]types.Object{}, replacements: map[types.Object]string{}, useImport: useImport}
+	b := &binder{pkg: pkg, scope: scope, fs: fs, pos: pos, members: map[string]types.Object{}, replacements: map[types.Object]string{}, fieldBindings: map[types.Object]string{}, useImport: useImport}
 	b.replacements[scope.Lookup("s")] = receiver
 	b.replacements[scope.Lookup("c")] = context
 	for name, obj := range memberNames(recv, pkg) {
@@ -36,6 +34,9 @@ func newBinder(recv *types.Named, pkg *types.Package, fs *token.FileSet, pos tok
 		proxy := types.NewVar(token.NoPos, pkg, name, obj.Type())
 		scope.Insert(proxy)
 		b.replacements[proxy] = receiver + "." + name
+		if _, field := obj.(*types.Var); field {
+			b.fieldBindings[proxy] = receiver + "." + name
+		}
 	}
 	for name, p := range aliases {
 		if name == "_" || name == "." || scope.Lookup(name) != nil {
@@ -43,13 +44,7 @@ func newBinder(recv *types.Named, pkg *types.Package, fs *token.FileSet, pos tok
 		}
 		scope.Insert(types.NewPkgName(token.NoPos, pkg, name, p))
 	}
-	// The emitted names can differ from the public expression names s/c
-	// when a user closure declares a local with one of those names. A
-	// name a member already took must not be picked: nothing may quietly
-	// fail to enter the scope.
-	// Scope.Insert returns the object that kept the name when it had
-	// one already, and nil when the new object entered: a name a member
-	// already took must not be picked, quietly failing to enter.
+	// Renamed parameters must also be available during expression checks.
 	if receiver != "s" {
 		if alt := scope.Insert(types.NewVar(token.NoPos, pkg, receiver, types.NewPointer(recv))); alt != nil {
 			return nil, fmt.Errorf("the receiver's name %s is a member's (%s)", receiver, alt.Name())
@@ -63,8 +58,7 @@ func newBinder(recv *types.Named, pkg *types.Package, fs *token.FileSet, pos tok
 	return b, nil
 }
 
-// memberNames are the receiver's members as the binder binds them: its
-// own fields and methods, and those its embedded structs promote.
+// memberNames includes direct and promoted fields and methods.
 func memberNames(recv *types.Named, pkg *types.Package) map[string]types.Object {
 	names := map[string]bool{}
 	var fields func(types.Type)
@@ -129,19 +123,23 @@ func (b *binder) rewrite(src string, pos Position, path string, body bool) (stri
 	if err != nil {
 		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: fmt.Sprintf("not Go %s: %v", kind, err)}
 	}
-	// unsafe.Offsetof asks for a selector by its form: a bare member
-	// name, which the checker reads as a plain variable, is written as
-	// the receiver's field in the source text itself, so that what is
-	// checked and what is emitted are one tree (#1457).
-	if qualified, changed := b.qualifyOffsetof(src, e); changed {
+	var info *types.Info
+	for {
+		info = &types.Info{Uses: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}, Scopes: map[ast.Node]*types.Scope{}}
+		checkErr := types.CheckExpr(b.fs, b.pkg, b.pos, e, info)
+		if checkErr == nil {
+			break
+		}
+		// Offsetof requires a selector before resolving its argument.
+		// Use the partial check's bindings to qualify fields and retry.
+		qualified, changed := b.qualifyOffsetof(src, e, info)
+		if !changed {
+			return "", nil, Diagnostic{Pos: pos, Path: path, Msg: checkErr.Error()}
+		}
 		src = qualified
 		if e, err = parser.ParseExprFrom(b.fs, "view-expression", src, 0); err != nil {
 			return "", nil, Diagnostic{Pos: pos, Path: path, Msg: fmt.Sprintf("not Go %s: %v", kind, err)}
 		}
-	}
-	info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
-	if err := types.CheckExpr(b.fs, b.pkg, b.pos, e, info); err != nil {
-		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: err.Error()}
 	}
 	type edit struct {
 		start, end int
@@ -171,8 +169,6 @@ func (b *binder) rewrite(src string, pos Position, path string, body bool) (stri
 	for _, edit := range edits {
 		src = src[:edit.start] + edit.text + src[edit.end:]
 	}
-	// Reparse rather than putting selectors into Ident.Name: the returned
-	// tree is ordinary Go AST, usable by later type checking as well.
 	e, err = parser.ParseExprFrom(b.fs, "bound-view-expression", src, 0)
 	if err != nil {
 		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: err.Error()}
@@ -182,14 +178,11 @@ func (b *binder) rewrite(src string, pos Position, path string, body bool) (stri
 	return out.String(), e, nil
 }
 
-// eval checks an already-bound expression in the same stub View scope.
 func (b *binder) eval(src string) (types.TypeAndValue, error) {
 	return types.Eval(b.fs, b.pkg, b.pos, src)
 }
 
-// declaredNames conservatively reserves identifiers declared in Go snippets
-// before choosing generated parameter and import names. It needs no scope
-// semantics: over-reserving a name merely chooses another generated name.
+// declaredNames reserves snippet declarations to avoid generated-name collisions.
 func declaredNames(f *File) map[string]bool {
 	names := map[string]bool{}
 	add := func(ids []*ast.Ident) {
@@ -253,52 +246,55 @@ func declaredNames(f *File) map[string]bool {
 	return names
 }
 
-// qualifyOffsetof rewrites the argument of each unsafe.Offsetof call
-// that is a bare name of a receiver member into the receiver's field of
-// it, in the expression's source text: the builtin asks for a selector
-// by its form, which a bare member name is not until it is qualified
-// (#1457). It reports the rewritten source and whether it changed.
-func (b *binder) qualifyOffsetof(src string, e ast.Expr) (string, bool) {
-	sName := "s"
-	if obj := b.scope.Lookup("s"); obj != nil {
-		sName = obj.Name()
-	}
+func (b *binder) qualifyOffsetof(src string, e ast.Expr, info *types.Info) (string, bool) {
 	file := b.fs.File(e.Pos())
 	if file == nil {
 		return src, false
 	}
-	// ParseExprFrom wraps the source in a file of its own: the offsets
-	// into src are the tree's, less the expression's own start.
-	base := file.Offset(e.Pos())
-	type span struct{ start, end int }
+	type span struct {
+		start, end int
+		text       string
+	}
 	var spans []span
 	ast.Inspect(e, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || len(call.Args) != 1 {
 			return true
 		}
-		fun, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || fun.Sel.Name != "Offsetof" {
+		var callee types.Object
+		switch fun := ast.Unparen(call.Fun).(type) {
+		case *ast.Ident:
+			callee = info.Uses[fun]
+		case *ast.SelectorExpr:
+			callee = info.Uses[fun.Sel]
+		}
+		if callee != types.Unsafe.Scope().Lookup("Offsetof") {
 			return true
 		}
-		if id, ok := fun.X.(*ast.Ident); !ok || id.Name != "unsafe" {
+		arg, ok := ast.Unparen(call.Args[0]).(*ast.Ident)
+		if !ok {
 			return true
 		}
-		arg, ok := call.Args[0].(*ast.Ident)
-		if !ok || b.members[arg.Name] == nil {
-			return true
+		scope := b.scope
+		for _, candidate := range info.Scopes {
+			if inner := candidate.Innermost(arg.Pos()); inner != nil {
+				scope = inner
+				break
+			}
 		}
-		spans = append(spans, span{file.Offset(arg.Pos()) - base, 0})
+		_, obj := scope.LookupParent(arg.Name, arg.Pos())
+		if replacement, field := b.fieldBindings[obj]; field {
+			spans = append(spans, span{file.Offset(arg.Pos()), file.Offset(arg.End()), replacement})
+		}
 		return true
 	})
 	if len(spans) == 0 {
 		return src, false
 	}
-	// The receiver's name goes before each member's: an insertion, from
-	// the end so the earlier offsets stay true.
-	for i := len(spans) - 1; i >= 0; i-- {
-		at := spans[i].start
-		src = src[:at] + sName + "." + src[at:]
+	// File offsets include leading comments.
+	sort.Slice(spans, func(i, j int) bool { return spans[i].start > spans[j].start })
+	for _, span := range spans {
+		src = src[:span.start] + span.text + src[span.end:]
 	}
 	return src, true
 }

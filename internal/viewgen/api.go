@@ -165,9 +165,7 @@ func LoadAPI(dir string) (*API, error) {
 	return describeAPI(pkg), nil
 }
 
-// describeAPI shares package identity with the application's type checker.
-// Named UI types in expressions and in parameter signatures must be the
-// same types, not separately imported copies with the same printed name.
+// Reuse the checked package to preserve named type identity.
 func describeAPI(pkg *types.Package) *API {
 	api := &API{Package: pkg.Path(), pkg: pkg, Constructors: map[string]*Constructor{}, Methods: map[string]*Method{}, consts: map[string]map[string]string{}}
 	scope := pkg.Scope()

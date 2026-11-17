@@ -515,8 +515,7 @@ func (g *gen) rewrite(p TextPart) (string, error) {
 	return src, nil
 }
 
-// useImport selects one name for a package. Both user references and
-// generated calls use this name, including when the app aliases ui/fmt.
+// useImport assigns one alias per package.
 func (g *gen) useImport(path, preferred string) string {
 	if name, ok := g.imports[path]; ok {
 		return name
@@ -543,11 +542,7 @@ func (g *gen) useImport(path, preferred string) string {
 	return name
 }
 
-// convert adapts an expression to a parameter. A pointer parameter
-// holds the address of a receiver field whose type is the pointee; an
-// expression that already has the parameter's own type stays as it is,
-// and what is neither fails the verify pass at the .view's position
-// (#1457: the pointer rule, not a blanket &).
+// convert preserves compatible pointers and addresses compatible values.
 func (g *gen) convert(expr string, p *Param, a *Attr) (string, error) {
 	if !p.Ptr {
 		return expr, nil
@@ -560,8 +555,7 @@ func (g *gen) convert(expr string, p *Param, a *Attr) (string, error) {
 		return expr, nil
 	}
 	if ptr, ok := p.Type.(*types.Pointer); ok {
-		// Inference needs every argument; constructorCall checks the
-		// original call first, then addressable alternatives.
+		// Defer generic inference to the complete constructor call.
 		if _, generic := ptr.Elem().(*types.TypeParam); generic {
 			return expr, nil
 		}
