@@ -139,7 +139,7 @@ running after `mygo dev` ends, as starting it again is slow.
   background fills the edges. Pages lay out inside the bars, and above the
   keyboard on Android.
 - **Touch** works as [Fingers](interface.md#fingers) describes;
-  `Tester.TouchDown`, `TouchMove` and `TouchUp` test views with a finger.
+  `Tester.FingerDown`, `FingerMove` and `FingerUp` test views with a finger.
 - **The keyboard** shows while an element of native UI takes text, with
   the system's suggestions and input methods (composition included), and
   a hardware keyboard's keys work as on the desktop ([Text](interface.md#text)).

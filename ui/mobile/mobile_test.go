@@ -30,29 +30,29 @@ func TestSheet(t *testing.T) {
 		t.Fatalf("opened: its content shows at %v", top)
 	}
 	// Up to the tall detent.
-	tt.TouchDown(200, 430)
+	tt.FingerDown(200, 430)
 	advance(tt, 16*time.Millisecond)
 	for y := float32(420); y >= 40; y -= 20 {
-		tt.TouchMove(200, y)
+		tt.FingerMove(200, y)
 		tt.Frame()
 		advance(tt, 16*time.Millisecond)
 	}
 	advance(tt, 200*time.Millisecond)
-	tt.TouchUp(200, 40)
+	tt.FingerUp(200, 40)
 	advance(tt, 2*time.Second)
 	if top > 40 {
 		t.Errorf("dragged up: its content shows at %v", top)
 	}
 	// Down and away.
-	tt.TouchDown(200, 60)
+	tt.FingerDown(200, 60)
 	advance(tt, 16*time.Millisecond)
 	for y := float32(80); y <= 790; y += 30 {
-		tt.TouchMove(200, y)
+		tt.FingerMove(200, y)
 		tt.Frame()
 		advance(tt, 16*time.Millisecond)
 	}
 	advance(tt, 200*time.Millisecond)
-	tt.TouchUp(200, 790)
+	tt.FingerUp(200, 790)
 	advance(tt, 2*time.Second)
 	if open {
 		t.Error("dragged away, it stays open")
@@ -67,8 +67,8 @@ func TestSheetDismiss(t *testing.T) {
 	}, 400, 800)
 	tt.Frame()
 	advance(tt, 2*time.Second)
-	tt.TouchDown(200, 100)
-	tt.TouchUp(200, 100)
+	tt.FingerDown(200, 100)
+	tt.FingerUp(200, 100)
 	tt.Frame()
 	if open {
 		t.Error("a tap outside left it open")
@@ -87,8 +87,8 @@ func TestSheetContent(t *testing.T) {
 	}, 400, 800)
 	tt.Frame()
 	advance(tt, 2*time.Second)
-	tt.TouchDown(200, 600)
-	tt.TouchUp(200, 600)
+	tt.FingerDown(200, 600)
+	tt.FingerUp(200, 600)
 	tt.Frame()
 	if clicks != 1 || !open {
 		t.Errorf("%d clicks, open %v", clicks, open)
@@ -108,15 +108,15 @@ func TestPageView(t *testing.T) {
 		t.Errorf("built far pages: %v", built)
 	}
 	swipe := func(from, to float32) {
-		tt.TouchDown(from, 200)
+		tt.FingerDown(from, 200)
 		advance(tt, 16*time.Millisecond)
 		n := 6
 		for i := 1; i <= n; i++ {
-			tt.TouchMove(from+(to-from)*float32(i)/float32(n), 200)
+			tt.FingerMove(from+(to-from)*float32(i)/float32(n), 200)
 			tt.Frame()
 			tt.Advance(16 * time.Millisecond)
 		}
-		tt.TouchUp(to, 200)
+		tt.FingerUp(to, 200)
 		advance(tt, 2*time.Second)
 	}
 	swipe(350, 100)
@@ -145,15 +145,15 @@ func TestWheel(t *testing.T) {
 	}, 200, 180)
 	tt.Frame()
 	tt.Frame()
-	tt.TouchDown(100, 90)
+	tt.FingerDown(100, 90)
 	advance(tt, 16*time.Millisecond)
 	for y := float32(80); y >= 10; y -= 10 {
-		tt.TouchMove(100, y)
+		tt.FingerMove(100, y)
 		tt.Frame()
 		advance(tt, 16*time.Millisecond)
 	}
 	advance(tt, 200*time.Millisecond)
-	tt.TouchUp(100, 10)
+	tt.FingerUp(100, 10)
 	advance(tt, 2*time.Second)
 	if v != 2 || changes != 1 {
 		t.Errorf("spun 80: item %d, %d changes", v, changes)
@@ -169,21 +169,21 @@ func TestSwipeRow(t *testing.T) {
 			func() { ui.Box(c).Height(60).Shrink(0).FillWidth() })
 	}, 300, 200)
 	tt.Frame()
-	tt.TouchDown(280, 30)
+	tt.FingerDown(280, 30)
 	advance(tt, 16*time.Millisecond)
 	for x := float32(270); x >= 170; x -= 20 {
-		tt.TouchMove(x, 30)
+		tt.FingerMove(x, 30)
 		tt.Frame()
 		tt.Advance(16 * time.Millisecond)
 	}
 	advance(tt, 200*time.Millisecond)
-	tt.TouchUp(170, 30)
+	tt.FingerUp(170, 30)
 	advance(tt, 2*time.Second)
 	if !s.open {
 		t.Fatalf("swiped: offset %+v", s.offset)
 	}
-	tt.TouchDown(260, 30)
-	tt.TouchUp(260, 30)
+	tt.FingerDown(260, 30)
+	tt.FingerUp(260, 30)
 	tt.Frame()
 	if !deleted {
 		t.Error("tapping the action did nothing")

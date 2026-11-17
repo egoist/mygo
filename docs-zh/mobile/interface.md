@@ -122,7 +122,7 @@ netimage.Image(c, user.AvatarURL, netimage.Options{MaxSide: 240}).Size(80, 80).R
 
 ## 测试
 
-单元测试用 `ui.Tester` 运行视图，推进它的时钟，并使用 `TouchDown`、`TouchMove`、`TouchUp` 和 `SetInsets`。包 `ui/golden` 把绘制结果与测试旁边的图片比较：
+单元测试用 `ui.Tester` 运行视图，推进它的时钟，并使用 `FingerDown`、`FingerMove`、`FingerUp` 和 `SetInsets`。包 `ui/golden` 把绘制结果与测试旁边的图片比较：
 
 ```go
 func TestCard(t *testing.T) {

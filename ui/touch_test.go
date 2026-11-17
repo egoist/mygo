@@ -20,30 +20,30 @@ func TestTouchPans(t *testing.T) {
 		})
 	}, 200, 200)
 	// A tap clicks.
-	tt.TouchDown(100, 150)
-	tt.TouchUp(100, 150)
+	tt.FingerDown(100, 150)
+	tt.FingerUp(100, 150)
 	tt.Frame()
 	if clicks != 1 || s.Y != 0 {
 		t.Fatalf("a tap: %d clicks, scrolled to %v", clicks, s.Y)
 	}
 	// Moving less than the slop is still a press.
 	tt.Advance(time.Second)
-	tt.TouchDown(100, 150)
-	tt.TouchMove(100, 146)
+	tt.FingerDown(100, 150)
+	tt.FingerMove(100, 146)
 	if s.Y != 0 {
 		t.Errorf("within the slop: scrolled to %v", s.Y)
 	}
 	// Past it, the finger drags the content, which follows it from there.
-	tt.TouchMove(100, 140)
+	tt.FingerMove(100, 140)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 100)
+	tt.FingerMove(100, 100)
 	if s.Y != 40 {
 		t.Errorf("dragged 40 up: scrolled to %v", s.Y)
 	}
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 60)
+	tt.FingerMove(100, 60)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchUp(100, 20)
+	tt.FingerUp(100, 20)
 	tt.Frame()
 	if clicks != 1 {
 		t.Errorf("a pan clicked: %d clicks", clicks)
@@ -65,14 +65,14 @@ func TestTouchPans(t *testing.T) {
 	s.Y = 0
 	tt.Frame()
 	tt.Advance(time.Second)
-	tt.TouchDown(100, 150)
+	tt.FingerDown(100, 150)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 100)
+	tt.FingerMove(100, 100)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchUp(100, 40)
+	tt.FingerUp(100, 40)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchDown(100, 100)
-	tt.TouchUp(100, 100)
+	tt.FingerDown(100, 100)
+	tt.FingerUp(100, 100)
 	stopped := s.Y
 	tt.Advance(time.Second)
 	if s.Y != stopped || clicks != 1 {
@@ -119,7 +119,7 @@ func TestTouchPressDelay(t *testing.T) {
 			pressed = b.Pressed()
 		})
 	}, 200, 200)
-	tt.TouchDown(100, 100)
+	tt.FingerDown(100, 100)
 	tt.Frame()
 	if pressed {
 		t.Error("pressed before the delay")
@@ -128,16 +128,16 @@ func TestTouchPressDelay(t *testing.T) {
 	if !pressed {
 		t.Error("not pressed after the delay")
 	}
-	tt.TouchUp(100, 100)
+	tt.FingerUp(100, 100)
 	tt.Advance(time.Second)
-	tt.TouchDown(100, 150)
+	tt.FingerDown(100, 150)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 120)
+	tt.FingerMove(100, 120)
 	tt.Advance(pressDelay * 2)
 	if pressed {
 		t.Error("a pan pressed")
 	}
-	tt.TouchUp(100, 100)
+	tt.FingerUp(100, 100)
 }
 
 // A finger keeps to the way it first went, and to the container that scrolls
@@ -152,24 +152,24 @@ func TestTouchLocksAxis(t *testing.T) {
 			coreBox(c).Height(1000).Shrink(0)
 		})
 	}, 200, 200)
-	tt.TouchDown(100, 50)
+	tt.FingerDown(100, 50)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(70, 52) // across
+	tt.FingerMove(70, 52) // across
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(40, 90) // then diagonally: it keeps going across
+	tt.FingerMove(40, 90) // then diagonally: it keeps going across
 	tt.Frame()
 	if inner.X != 30 || outer.Y != 0 {
 		t.Errorf("across: inner %v, outer %v", inner.X, outer.Y)
 	}
-	tt.TouchUp(40, 90)
+	tt.FingerUp(40, 90)
 	tt.Advance(5 * time.Second)
 	inner.X = 0
 	tt.Frame()
-	tt.TouchDown(100, 150)
+	tt.FingerDown(100, 150)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(102, 120) // down the list, from outside the inner one
+	tt.FingerMove(102, 120) // down the list, from outside the inner one
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(102, 100)
+	tt.FingerMove(102, 100)
 	tt.Frame()
 	if inner.X != 0 || outer.Y != 20 {
 		t.Errorf("down: inner %v, outer %v", inner.X, outer.Y)
@@ -190,11 +190,11 @@ func TestTouchOverscrolls(t *testing.T) {
 		})
 	}, 200, 200)
 	tt.Frame()
-	tt.TouchDown(100, 50)
+	tt.FingerDown(100, 50)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(100, 60)
+	tt.FingerMove(100, 60)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 110) // 50 past the top
+	tt.FingerMove(100, 110) // 50 past the top
 	tt.Frame()
 	tt.Frame()
 	if s.Y != 0 {
@@ -205,7 +205,7 @@ func TestTouchOverscrolls(t *testing.T) {
 	}
 	pulled := top
 	tt.Advance(200 * time.Millisecond) // a finger at rest throws nothing
-	tt.TouchUp(100, 110)
+	tt.FingerUp(100, 110)
 	tt.Advance(100 * time.Millisecond)
 	tt.Frame()
 	if top >= pulled {
@@ -220,16 +220,16 @@ func TestTouchOverscrolls(t *testing.T) {
 	}
 	// Without overscroll it stops at the end.
 	overscrollKind = overscrollNone
-	tt.TouchDown(100, 50)
+	tt.FingerDown(100, 50)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(100, 60)
-	tt.TouchMove(100, 110)
+	tt.FingerMove(100, 60)
+	tt.FingerMove(100, 110)
 	tt.Frame()
 	tt.Frame()
 	if top != 0 {
 		t.Errorf("without overscroll it shows at %v", top)
 	}
-	tt.TouchUp(100, 110)
+	tt.FingerUp(100, 110)
 }
 
 // A finger held still long-presses, which clicks nothing; moved first, it
@@ -246,7 +246,7 @@ func TestTouchLongPress(t *testing.T) {
 		}
 	}, 200, 200)
 	tt.Frame()
-	tt.TouchDown(50, 50)
+	tt.FingerDown(50, 50)
 	tt.Advance(400 * time.Millisecond)
 	if long != 0 {
 		t.Fatal("too soon")
@@ -256,16 +256,16 @@ func TestTouchLongPress(t *testing.T) {
 	if long != 1 {
 		t.Fatalf("long presses: %d", long)
 	}
-	tt.TouchUp(50, 50)
+	tt.FingerUp(50, 50)
 	tt.Frame()
 	if clicks != 0 {
 		t.Errorf("a long press clicked %d times", clicks)
 	}
 	// A tap clicks, and long-presses nothing.
 	tt.Advance(time.Second)
-	tt.TouchDown(50, 50)
+	tt.FingerDown(50, 50)
 	tt.Advance(50 * time.Millisecond)
-	tt.TouchUp(50, 50)
+	tt.FingerUp(50, 50)
 	tt.Advance(time.Second)
 	tt.Frame()
 	if long != 1 || clicks != 1 {
@@ -286,31 +286,31 @@ func TestTouchDraggableAxisInScroll(t *testing.T) {
 	}, 200, 200)
 	tt.Frame()
 	// Down: the list.
-	tt.TouchDown(100, 50)
+	tt.FingerDown(100, 50)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(101, 30)
+	tt.FingerMove(101, 30)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(101, 20)
+	tt.FingerMove(101, 20)
 	tt.Frame()
 	if off.X != 0 || s.Y != 10 {
 		t.Errorf("down: dragged %v, scrolled %v", off.X, s.Y)
 	}
-	tt.TouchUp(101, 20)
+	tt.FingerUp(101, 20)
 	tt.Advance(5 * time.Second)
 	s.Y = 0
 	tt.Frame()
 	// Across: the row.
-	tt.TouchDown(100, 50)
+	tt.FingerDown(100, 50)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(70, 51)
+	tt.FingerMove(70, 51)
 	tt.Frame()
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(40, 51)
+	tt.FingerMove(40, 51)
 	tt.Frame()
 	if off.X >= 0 || s.Y != 0 {
 		t.Errorf("across: dragged %v, scrolled %v", off.X, s.Y)
 	}
-	tt.TouchUp(40, 51)
+	tt.FingerUp(40, 51)
 }
 
 // Pulling a container past its top by enough refreshes it.
@@ -327,24 +327,24 @@ func TestPullToRefresh(t *testing.T) {
 		e.Children(func() { coreBox(c).Height(50).Shrink(0) })
 	}, 200, 200)
 	tt.Frame()
-	tt.TouchDown(100, 20)
+	tt.FingerDown(100, 20)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(100, 30)
+	tt.FingerMove(100, 30)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 60) // not far enough
-	tt.TouchUp(100, 60)
+	tt.FingerMove(100, 60) // not far enough
+	tt.FingerUp(100, 60)
 	for range 100 {
 		tt.Advance(16 * time.Millisecond)
 	}
 	if fired != 0 || r.Refreshing {
 		t.Fatalf("a short pull fired %d times", fired)
 	}
-	tt.TouchDown(100, 20)
+	tt.FingerDown(100, 20)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(100, 30)
+	tt.FingerMove(100, 30)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 190)
-	tt.TouchUp(100, 190)
+	tt.FingerMove(100, 190)
+	tt.FingerUp(100, 190)
 	tt.Frame()
 	if fired != 1 || !r.Refreshing {
 		t.Fatalf("a long pull: fired %d, refreshing %v", fired, r.Refreshing)
@@ -380,15 +380,15 @@ func TestTouchDraggableAroundClickable(t *testing.T) {
 		})
 	}, 200, 200)
 	tt.Frame()
-	tt.TouchDown(150, 50)
+	tt.FingerDown(150, 50)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(120, 50)
+	tt.FingerMove(120, 50)
 	tt.Frame()
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(80, 50)
+	tt.FingerMove(80, 50)
 	tt.Frame()
 	tt.Advance(200 * time.Millisecond)
-	tt.TouchUp(80, 50)
+	tt.FingerUp(80, 50)
 	tt.Frame()
 	if clicks != 0 || off.X >= -30 {
 		t.Errorf("%d clicks, dragged to %v", clicks, off.X)
@@ -406,9 +406,9 @@ func TestTouchTextHandles(t *testing.T) {
 	}, 300, 60)
 	tt.Frame()
 	tt.Frame()
-	tt.TouchDown(20, 30)
+	tt.FingerDown(20, 30)
 	tt.Advance(600 * time.Millisecond)
-	tt.TouchUp(20, 30)
+	tt.FingerUp(20, 30)
 	tt.Frame()
 	if got := in.st.editor.selectedText(); got != "hello" {
 		t.Fatalf("held: chose %q", got)
@@ -419,13 +419,13 @@ func TestTouchTextHandles(t *testing.T) {
 	}
 	// The end handle, dragged to the end of the text.
 	x, y := float32(end.X), float32(end.Y+end.H)
-	tt.TouchDown(x, y)
+	tt.FingerDown(x, y)
 	if tt.rt.touchText.held != handleEnd {
 		t.Fatalf("near the end handle, it holds %d", tt.rt.touchText.held)
 	}
-	tt.TouchMove(x+200, y)
+	tt.FingerMove(x+200, y)
 	tt.Frame()
-	tt.TouchUp(x+200, y)
+	tt.FingerUp(x+200, y)
 	tt.Frame()
 	if got := in.st.editor.selectedText(); got != "hello big world" {
 		t.Errorf("dragged to the end: chose %q", got)
@@ -459,13 +459,13 @@ func TestTouchLeavesNoHover(t *testing.T) {
 		coreScroll(c).Fill().Children(func() { coreBox(c).Height(1000).Shrink(0) })
 	}, 200, 200)
 	tt.Frame()
-	tt.TouchDown(100, 150)
+	tt.FingerDown(100, 150)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(100, 130)
+	tt.FingerMove(100, 130)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 100)
+	tt.FingerMove(100, 100)
 	tt.Advance(200 * time.Millisecond)
-	tt.TouchUp(100, 100)
+	tt.FingerUp(100, 100)
 	tt.Advance(5 * time.Second)
 	tt.Frame()
 	if len(tt.rt.hover) != 0 {
@@ -489,18 +489,18 @@ func TestTouchEdgeSwipeBack(t *testing.T) {
 	tt.Frame()
 	tt.Advance(time.Second)
 	// Short of half the way: it stays.
-	tt.TouchDown(10, 200)
+	tt.FingerDown(10, 200)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(30, 200)
+	tt.FingerMove(30, 200)
 	tt.Frame()
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 200)
+	tt.FingerMove(100, 200)
 	tt.Frame()
 	if !r.swiping || r.swipe <= 0 {
 		t.Fatalf("following: swiping %v, %v", r.swiping, r.swipe)
 	}
 	tt.Advance(200 * time.Millisecond)
-	tt.TouchUp(100, 200)
+	tt.FingerUp(100, 200)
 	for range 60 {
 		tt.Advance(16 * time.Millisecond)
 	}
@@ -508,15 +508,15 @@ func TestTouchEdgeSwipeBack(t *testing.T) {
 		t.Fatalf("given up: at %s, swipe %v, settling %v", r.Path(), r.swipe, r.settling)
 	}
 	// Past it: back.
-	tt.TouchDown(10, 200)
+	tt.FingerDown(10, 200)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(30, 200)
+	tt.FingerMove(30, 200)
 	tt.Frame()
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(300, 200)
+	tt.FingerMove(300, 200)
 	tt.Frame()
 	tt.Advance(200 * time.Millisecond)
-	tt.TouchUp(300, 200)
+	tt.FingerUp(300, 200)
 	tt.Frame()
 	if r.Path() != "/a" {
 		t.Errorf("past half the way: at %s", r.Path())
@@ -532,14 +532,14 @@ func TestTouchEdgeSwipeNowhere(t *testing.T) {
 		r.coreView(c, func(rt *Route) { coreBox(c).Fill() })
 	}, 400, 400)
 	tt.Frame()
-	tt.TouchDown(10, 200)
+	tt.FingerDown(10, 200)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(30, 200)
+	tt.FingerMove(30, 200)
 	tt.Frame()
 	if r.swiping {
 		t.Error("swiping with nowhere to go")
 	}
-	tt.TouchUp(30, 200)
+	tt.FingerUp(30, 200)
 }
 
 // A finger nearly on a small button takes it; one on nothing does nothing, and
@@ -554,15 +554,15 @@ func TestTouchReach(t *testing.T) {
 		})
 	}, 300, 300)
 	tt.Frame()
-	tt.TouchDown(95, 110)
-	tt.TouchUp(95, 110)
+	tt.FingerDown(95, 110)
+	tt.FingerUp(95, 110)
 	tt.Frame()
 	if clicks != 1 {
 		t.Errorf("nearly on it: %d clicks", clicks)
 	}
 	tt.Advance(time.Second)
-	tt.TouchDown(50, 50)
-	tt.TouchUp(50, 50)
+	tt.FingerDown(50, 50)
+	tt.FingerUp(50, 50)
 	tt.Frame()
 	if clicks != 1 {
 		t.Errorf("far from it: %d clicks", clicks)

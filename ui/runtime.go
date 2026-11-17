@@ -317,6 +317,10 @@ type engine struct {
 	// paints counts the frames painted, those painting the last frame's
 	// elements again included.
 	paints uint64
+	// paintFrames counts the frames that paint, built or painting the
+	// last frame's elements again, however many times each paints
+	// (scaleWatch).
+	paintFrames uint64
 	// posed are the elements of the last frame built with a pose
 	// (AnimatePose), parents first.
 	posed        []*node
@@ -356,7 +360,10 @@ type engine struct {
 	pressure      float32
 	buttons       uint8
 	pressureMoved bool
-	hover         []uint64
+	// touchIn follows the fingers on a touchscreen, nil until a view asks
+	// about them (Element.Touches).
+	touchIn fingerInput
+	hover   []uint64
 	// chain is a buffer for the elements under the pointer.
 	chain       []uint64
 	pressed     *state
@@ -559,6 +566,9 @@ type engine struct {
 	commitPage uint64
 	// commitHidden is set while commit is inside a Hidden element.
 	commitHidden bool
+	// commitFade is how opaque the elements being committed are, with what
+	// is inside them: what the painter fades them by as it paints them.
+	commitFade float32
 	// announcements are the texts for assistive technology to read out
 	// (Context.Announce).
 	announcements []string
@@ -754,8 +764,9 @@ func (rt *engine) runFrame() {
 	rt.c.titleBar = rt.titleBar()
 	rt.c.vibrancy = rt.host.vibrancy()
 	rt.text.BeginFrame()
+	rt.paintFrames++
 	rt.paths.large = rt.paths.large[:0]
-	rt.paths.switching = false
+	rt.paths.switching, rt.paths.spill.last = false, false
 	rt.gen = rt.text.Generation()
 	rt.painted = [3]float32{w, h, scale}
 	rt.animating, rt.repainting, rt.repaintAt = false, false, time.Time{}
@@ -1168,8 +1179,9 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	start := time.Now()
 	rt.c.now = rt.frameTime()
 	rt.text.BeginFrame()
+	rt.paintFrames++
 	rt.paths.large = rt.paths.large[:0]
-	rt.paths.switching = false
+	rt.paths.switching, rt.paths.spill.last = false, false
 	rt.repainting, rt.repaintAt = false, time.Time{}
 	// What the last frame painted outside Draw callbacks that asked to be
 	// painted again, as a content transition, moves only painted whole.
@@ -1213,12 +1225,18 @@ func (rt *engine) makeRoom(last bool) {
 		// keep their compacted layout once paths already draw as tiles.
 		rt.text.Unkeep(ps.large)
 	}
+	// What of the paths still finds no room in the last paint draws on
+	// the CPU (pathSpill).
+	ps.spill.last = last
 	rt.text.MakeRoom()
 }
 
 // endPass forgets the input the pass handled.
 func (rt *engine) endPass() {
 	rt.forgetInput()
+	if rt.touchIn != nil {
+		rt.touchIn.endPass(rt)
+	}
 	// Clicks the view gave its elements, which the next pass sees.
 	for _, id := range rt.clickLater {
 		if s := rt.states[id]; s != nil {
@@ -1587,7 +1605,7 @@ func (rt *engine) commit(root *node, w, h float32) {
 	rt.glassPlaces = rt.glassPlaces[:0]
 	rt.maxButton = Rect{}
 	rt.focusOrder, rt.focusScopes = rt.focusOrder[:0], rt.focusScopes[:0]
-	rt.modal, rt.modalLayer, rt.commitScope, rt.commitPage = 0, 0, focusScope{}, 0
+	rt.modal, rt.modalLayer, rt.commitScope, rt.commitPage, rt.commitFade = 0, 0, focusScope{}, 0, 1
 	rt.observers = 0
 	if rt.groups == nil {
 		rt.groups = map[uint64]groupInfo{}
@@ -1611,7 +1629,10 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	savedHidden := rt.commitHidden
 	rt.commitHidden = savedHidden || e.hidden
 	saved, savedPage := rt.enterScope(e), rt.commitPage
-	defer func() { rt.commitScope, rt.commitPage, rt.commitHidden = saved, savedPage, savedHidden }()
+	savedFade := rt.commitFade
+	defer func() {
+		rt.commitScope, rt.commitPage, rt.commitHidden, rt.commitFade = saved, savedPage, savedHidden, savedFade
+	}()
 	s := e.st
 	if s == rt.pressed && s.input != nil && e.inputFn == nil {
 		// Another element took the place of the one pressed (prune), in
@@ -1626,6 +1647,10 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	if e.poseSet {
 		rt.samplePose(e)
 	}
+	// What the element fades by, with what its pose's Fade leaves, as the
+	// painter takes it: a web view noted under it shows none of its page
+	// where nothing of the element paints.
+	rt.commitFade *= e.fade()
 	e.world = e.transformAt(e.x, e.y)
 	if e.parent != nil && e != e.c.overlay {
 		w := e.parent.world

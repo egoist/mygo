@@ -712,6 +712,10 @@ func (w *window) cleanup() {
 	if w.closed {
 		return
 	}
+	popover := w.popover != 0
+	if !popover {
+		w.orderOutClosing()
+	}
 	w.closeWebViews()
 	w.closed = true
 	if contextWindow == w {
@@ -731,15 +735,8 @@ func (w *window) cleanup() {
 	send(w.web, "stopLoading")
 	send(w.web, "setNavigationDelegate:", 0)
 	send(w.web, "setUIDelegate:", 0)
-	if w.popover != 0 {
+	if popover {
 		w.cleanupPopover()
-	} else {
-		send(w.win, "setDelegate:", 0)
-		if w.modalToFlyout() {
-			w.leaveFlyout()
-		} else if w.parent != nil && !w.parent.closed {
-			send(w.parent.win, "removeChildWindow:", uintptr(w.win))
-		}
 	}
 	delete(b.byDelegate, w.delegate)
 	delete(b.byWebView, w.web)
@@ -765,8 +762,30 @@ func (w *window) cleanup() {
 	release(w.view)
 	// AppKit is still closing the window; let the pool release it.
 	autorelease(w.delegate)
-	if w.popover == 0 {
+	if !popover {
 		autorelease(w.win)
+	}
+}
+
+// orderOutClosing orders out a window that closes, before cleanup takes
+// its content down: AppKit sends windowWillClose: before it orders the
+// window out, with the animation that fades it, which then faded a
+// window with nothing in it, and a light one flashed white (#1931).
+// Ordered out here, whether Close or the user closes it, the window
+// fades with its last frame, and AppKit's own ordering out finds nothing
+// left to do. The delegate goes first, so the window tells nothing of
+// losing the keyboard as it goes, as before; a window modal to a flyout
+// gives the keyboard back to it first, as Hide does. A window that does
+// not show, hidden or minimized, is left to AppKit.
+func (w *window) orderOutClosing() {
+	send(w.win, "setDelegate:", 0)
+	if w.modalToFlyout() {
+		w.leaveFlyout()
+	} else if w.parent != nil && !w.parent.closed {
+		send(w.parent.win, "removeChildWindow:", uintptr(w.win))
+	}
+	if sendBool(w.win, "isVisible") {
+		send(w.win, "orderOut:", 0)
 	}
 }
 
@@ -1231,6 +1250,24 @@ func (w *window) Blur() { send(w.win, "orderBack:", 0) }
 func (w *window) IsFocused() bool {
 	return sendBool(w.win, "isKeyWindow")
 }
+
+// CornerRadius is the radius of the window's corners: a rounded frameless
+// window's (roundContent), or the one the system draws a titled window
+// with. AppKit tells that one only through NSWindow's _cornerRadius, read
+// when the window answers it; it is 26 on macOS 26 with a toolbar, 16
+// without one, smaller before. A window in full screen has none.
+func (w *window) CornerRadius() float64 {
+	switch {
+	case w.host != nil || w.IsFullScreen():
+		return 0
+	case w.radius > 0:
+		return float64(w.radius)
+	case !w.hasStyle(styleTitled) || !respondsTo(w.win, "_cornerRadius"):
+		return 0
+	}
+	return max(msgFloat(w.win, sel("_cornerRadius")), 0)
+}
+
 func (w *window) Minimize()         { send(w.win, "miniaturize:", 0) }
 func (w *window) IsMinimized() bool { return sendBool(w.win, "isMiniaturized") }
 

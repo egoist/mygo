@@ -334,6 +334,7 @@ type layoutStyle struct {
 	keepSpaces bool
 	ellipsis   string
 	middle     bool
+	cutStart   bool
 }
 
 // Element is a node of a frame's user interface. The functions that create
@@ -362,8 +363,15 @@ type node struct {
 	// lay says what the layout cache may do with the element
 	// (layOwner, layReuse), and laid when layoutBox last laid it out, in
 	// engine.laySeq.
-	lay  uint8
-	laid uint64
+	lay uint8
+	// hidden takes it and the elements inside it out of the frame, as
+	// CSS's display: none does (Hidden): the layout gives it no room, and
+	// it paints, takes input and reads to assistive technology as an
+	// invisible element does, while what is inside it keeps its state.
+	// The layout reads it of every child it walks, next to the flags it
+	// reads there too, so that the walk reads one cache line.
+	hidden bool
+	laid   uint64
 	// hold is the element's entry in the engine's holds (0 for none):
 	// what a measuring pass resolved for its in-flow children, which a
 	// commit pass at the same size uses instead of building them again.
@@ -426,11 +434,6 @@ type node struct {
 	// backface hides it while its 3D transform turns its back to the
 	// viewer (BackfaceHidden).
 	backface bool
-	// hidden takes it and the elements inside it out of the frame, as
-	// CSS's display: none does (Hidden): the layout gives it no room, and
-	// it paints, takes input and reads to assistive technology as an
-	// invisible element does, while what is inside it keeps its state.
-	hidden bool
 	// ignoreInput lets the pointer and the keyboard pass it and the
 	// elements inside it by, which still show and read to assistive
 	// technology (IgnoreInput).
@@ -2002,10 +2005,23 @@ func (e *node) Ellipsis(s string) *node { e.ellipsis = s; return e }
 // cuts in the middle of its last line rather than at its end, so that it
 // keeps both its start and its end, about as wide each, in the room
 // layout gives it: a list of files shows "src/components/…/picker.go",
-// whose folder and file's name both show.
+// whose folder and file's name both show. TruncateStart, with it, cuts
+// the start instead.
 func (e *node) TruncateMiddle() *node {
 	e.c.rt.text.UseTruncateMiddle()
 	e.middle = true
+	return e
+}
+
+// TruncateStart puts the ellipsis of text that SingleLine or MaxLines
+// cuts at the start of its last line rather than at its end, so that it
+// keeps as much of its end as fits the room layout gives it: a list of
+// files shows "…/theme/picker.go", whose file's name and nearest folders
+// show where its start does not matter. With TruncateMiddle too, the
+// start is cut.
+func (e *node) TruncateStart() *node {
+	e.c.rt.text.UseTruncateStart()
+	e.cutStart = true
 	return e
 }
 

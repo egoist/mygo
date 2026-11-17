@@ -717,9 +717,13 @@ func (h *windowHost) retryLater() {
 
 // capture renders the last frame in memory: built now where none was yet,
 // or where one waits for the window to show (holdFrame, waitsOutOfSight),
-// so that a window out of sight shows what it shows now.
+// so that a window out of sight shows what it shows now; or where the
+// glyph atlases, which every window shares, moved or forgot the glyphs it
+// draws since it was painted, as another window making room in them does
+// (System.MakeRoom), as repaintParts tells: its text would show what took
+// their places (#1920). Within a frame, runFrame builds none.
 func (h *windowHost) capture() (int, int, []byte) {
-	if h.last == nil || h.rt.held || h.waitsOutOfSight() {
+	if h.last == nil || h.rt.held || h.waitsOutOfSight() || atlasGenerations(h.last) != h.rt.atlases {
 		h.rt.runFrame()
 	}
 	s := h.last
@@ -1050,7 +1054,7 @@ func (h *windowHost) placeWebViews(views []placedWebView) {
 	}
 	if slices.EqualFunc(list, h.placed, func(a, b platform.WebViewPlacement) bool {
 		return a.WebView == b.WebView && a.Frame == b.Frame && a.Clip == b.Clip && a.Width == b.Width && a.Height == b.Height &&
-			a.Radii == b.Radii && slices.Equal(a.Covers, b.Covers)
+			a.Radii == b.Radii && a.Opacity == b.Opacity && slices.Equal(a.Covers, b.Covers)
 	}) {
 		return
 	}

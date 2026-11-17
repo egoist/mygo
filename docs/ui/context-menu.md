@@ -140,7 +140,10 @@ the element that had it, and has the keys of the system's menus:
   first letters of an item goes to it.
 - Right opens the submenu of the item, and Left closes it, the other way
   round [right to left](right-to-left.md); the pointer opens it as it
-  moves onto the item.
+  moves onto the item. Heading for a submenu that shows, the pointer can
+  cross the items between, diagonally: while it moves toward the
+  submenu, the items it crosses take no highlight and the submenu stays
+  open, until it rests on one for 300 ms, as in the system's menus.
 - Enter and Space choose the item, as a click does; Escape closes the
   submenu on top, then the menu, and Tab closes the menu.
 - A press outside the menu closes it, and goes on to what is under the
@@ -160,6 +163,19 @@ test passes with either.
 button](menu-button.md#drawn-in-the-window) so, below the button, and takes
 the same function: a row's right-click and its ⋯ button can share one
 menu, drawn alike.
+
+`PopoverMenuOptions` style the menu as `PopoverMenuButtonOptions` style a
+menu button's: `Panel` the panel of the menu and of each submenu, after the
+theme's look, and `Item` the row of each item. A right-click menu then
+unfolds as the app's ⋯ menus do:
+
+```go
+text.PopoverMenu(app.messageMenu, ui.PopoverMenuOptions{
+	Panel: func(panel ui.Element) {
+		panel.Background(app.menuColor).Radius(12)
+	},
+})
+```
 
 ### Richer items
 

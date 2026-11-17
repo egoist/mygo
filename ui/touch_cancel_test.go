@@ -18,17 +18,17 @@ func TestTouchCancelThrowsNothing(t *testing.T) {
 		})
 	}, 200, 200)
 	tt.Frame()
-	tt.TouchDown(100, 150)
+	tt.FingerDown(100, 150)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(100, 140)
+	tt.FingerMove(100, 140)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 60)
+	tt.FingerMove(100, 60)
 	tt.Frame()
 	at := s.Y
 	if at <= 0 {
 		t.Fatalf("panning: at %v", at)
 	}
-	tt.TouchCancel()
+	tt.FingerCancel()
 	for range 30 {
 		tt.Advance(16 * time.Millisecond)
 	}
@@ -48,14 +48,14 @@ func TestTouchCancelStaysOnPage(t *testing.T) {
 	r.Push("/a/b")
 	tt.Frame()
 	tt.Advance(time.Second)
-	tt.TouchDown(10, 200)
+	tt.FingerDown(10, 200)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(30, 200)
+	tt.FingerMove(30, 200)
 	tt.Frame()
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(350, 200)
+	tt.FingerMove(350, 200)
 	tt.Frame()
-	tt.TouchCancel()
+	tt.FingerCancel()
 	for range 60 {
 		tt.Advance(16 * time.Millisecond)
 	}
@@ -80,14 +80,14 @@ func TestTouchCancelRefreshesNothing(t *testing.T) {
 		})
 	}, 200, 200)
 	tt.Frame()
-	tt.TouchDown(100, 10)
+	tt.FingerDown(100, 10)
 	tt.Advance(time.Millisecond)
 	for y := float32(30); y <= 190; y += 20 {
-		tt.TouchMove(100, y)
+		tt.FingerMove(100, y)
 		tt.Frame()
 		tt.Advance(16 * time.Millisecond)
 	}
-	tt.TouchCancel()
+	tt.FingerCancel()
 	for range 60 {
 		tt.Advance(16 * time.Millisecond)
 	}
@@ -132,22 +132,22 @@ func TestTapCatchingBounceLetsItGo(t *testing.T) {
 		})
 	}, 200, 200)
 	tt.Frame()
-	tt.TouchDown(100, 50)
+	tt.FingerDown(100, 50)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(100, 60)
+	tt.FingerMove(100, 60)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 150)
+	tt.FingerMove(100, 150)
 	tt.Frame()
 	tt.Advance(200 * time.Millisecond)
-	tt.TouchUp(100, 150)
+	tt.FingerUp(100, 150)
 	tt.Advance(32 * time.Millisecond)
 	tt.Frame()
 	if top <= 0 {
 		t.Fatalf("springing back: at %v", top)
 	}
-	tt.TouchDown(100, 100)
+	tt.FingerDown(100, 100)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchUp(100, 100)
+	tt.FingerUp(100, 100)
 	for range 200 {
 		tt.Advance(16 * time.Millisecond)
 	}
@@ -174,14 +174,14 @@ func TestPullToRefreshGoesWithIt(t *testing.T) {
 	tt.Frame()
 	pulls = false
 	tt.Frame()
-	tt.TouchDown(100, 20)
+	tt.FingerDown(100, 20)
 	tt.Advance(time.Millisecond)
 	for y := float32(40); y <= 190; y += 15 {
-		tt.TouchMove(100, y)
+		tt.FingerMove(100, y)
 		tt.Advance(16 * time.Millisecond)
 	}
 	tt.Advance(200 * time.Millisecond)
-	tt.TouchUp(100, 190)
+	tt.FingerUp(100, 190)
 	tt.Frame()
 	if r.Refreshing {
 		t.Error("a pull on what took its place refreshed it")
@@ -202,11 +202,11 @@ func TestTouchStretch(t *testing.T) {
 		})
 	}, 200, 200)
 	tt.Frame()
-	tt.TouchDown(100, 50)
+	tt.FingerDown(100, 50)
 	tt.Advance(time.Millisecond)
-	tt.TouchMove(100, 60)
+	tt.FingerMove(100, 60)
 	tt.Advance(16 * time.Millisecond)
-	tt.TouchMove(100, 150)
+	tt.FingerMove(100, 150)
 	tt.Frame()
 	if top != 0 {
 		t.Errorf("the layout moved: %v", top)
@@ -220,7 +220,7 @@ func TestTouchStretch(t *testing.T) {
 		t.Errorf("stretch %v around %v, %v of %v, %v", tr.set(), ox, oy, el.x, el.y)
 	}
 	tt.Advance(200 * time.Millisecond)
-	tt.TouchUp(100, 150)
+	tt.FingerUp(100, 150)
 	for range 200 {
 		tt.Advance(16 * time.Millisecond)
 	}

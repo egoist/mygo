@@ -944,30 +944,30 @@ func (t *Tester) webViewPress(x, y float32, button int, mods platform.Modifiers)
 	return true
 }
 
-// TouchDown puts a finger on a touch screen at (x, y); TouchMove moves it
-// and TouchUp lifts it: a press that moves pans what scrolls under it,
+// FingerDown puts a finger on a touch screen at (x, y); FingerMove moves it
+// and FingerUp lifts it: a press that moves pans what scrolls under it,
 // and lifted as it moves it flings it on, which advancing the clock
 // (Advance) shows.
-func (t *Tester) TouchDown(x, y float32) {
+func (t *Tester) FingerDown(x, y float32) {
 	enableTouch()
 	t.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: float64(x), Y: float64(y), Touch: true})
 	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y), Clicks: 1, Touch: true})
 }
 
-// TouchMove moves the finger on the screen to (x, y).
-func (t *Tester) TouchMove(x, y float32) {
+// FingerMove moves the finger on the screen to (x, y).
+func (t *Tester) FingerMove(x, y float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: float64(x), Y: float64(y), Touch: true})
 }
 
-// TouchUp lifts the finger at (x, y).
-func (t *Tester) TouchUp(x, y float32) {
+// FingerUp lifts the finger at (x, y).
+func (t *Tester) FingerUp(x, y float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: float64(x), Y: float64(y), Clicks: 1, Touch: true})
 	t.send(platform.SurfaceEvent{Kind: platform.PointerLeave, Touch: true})
 }
 
-// TouchCancel ends the finger as the system does when it takes it away: as a
+// FingerCancel ends the finger as the system does when it takes it away: as a
 // system gesture starts, or a call comes.
-func (t *Tester) TouchCancel() {
+func (t *Tester) FingerCancel() {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: -1e6, Y: -1e6, Touch: true, Canceled: true})
 	t.send(platform.SurfaceEvent{Kind: platform.PointerLeave, Touch: true})
 }
@@ -1017,6 +1017,33 @@ func (t *Tester) Wheel(x, y, dx, dy float32) {
 // does (InputZoom).
 func (t *Tester) Pinch(x, y, scale float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerZoom, X: float64(x), Y: float64(y), Scale: float64(scale)})
+}
+
+// TouchDown puts the finger id down at (x, y) on the touchscreen, which
+// TouchMove moves and TouchUp lifts, as a window's fingers come to the
+// views that follow them (Element.Touches). It sends only the touch: the
+// tap, scroll or pinch a backend makes of fingers comes from Press,
+// Scroll and Pinch. The window gives the finger an ID of its own
+// (Touch.ID); id may be used again once the finger lifts, as a
+// platform's are.
+func (t *Tester) TouchDown(id uint64, x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchDown, ID: id, X: float64(x), Y: float64(y)})
+}
+
+// TouchMove moves the finger id, down since TouchDown, to (x, y).
+func (t *Tester) TouchMove(id uint64, x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchMove, ID: id, X: float64(x), Y: float64(y)})
+}
+
+// TouchUp lifts the finger id at (x, y).
+func (t *Tester) TouchUp(id uint64, x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchUp, ID: id, X: float64(x), Y: float64(y)})
+}
+
+// TouchCancel has the system take the finger id, as for a gesture of its
+// own at the screen's edge (TouchCanceled).
+func (t *Tester) TouchCancel(id uint64) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchCancel, ID: id})
 }
 
 // HoldModifiers presses or lets go of modifier keys on their own, as holding

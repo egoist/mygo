@@ -56,6 +56,10 @@ type DiffState struct {
 	// FitContent makes the viewer as high as its lines, as a file of a
 	// list of them, rather than scrolling them itself.
 	FitContent bool
+	// ScrollPastEnd lets the lines scroll up until the last is at the top,
+	// as State's do unless NoScrollPastEnd, so that GoToHunk can bring a
+	// change near the end to the middle of the view too.
+	ScrollPastEnd bool
 	// KeepScrollbars and NoScrollbars are those of State: the scroll
 	// bars stay with the pointer away, or are taken away with their room.
 	KeepScrollbars bool
@@ -343,6 +347,13 @@ func (d *DiffState) GoToHunk(i int) {
 	ed.setSels([]sel{ed.newSel(off, off)}, revealCenter)
 }
 
+// Focus gives the keyboard to the editor of the active side when the
+// viewer is next built, so that its caret shows, as after GoToHunk from
+// a button.
+func (d *DiffState) Focus() {
+	d.editorOf(d.ActiveSide()).refocus = true
+}
+
 // ScrollY returns how far the diff's rows are scrolled up, in DIPs, as the
 // last frame laid them out, however they were scrolled: by the wheel, the
 // keys, the scroll bar, GoToHunk or SetScrollY. It is the new side's, which
@@ -565,6 +576,7 @@ func (d *DiffState) sideOptions(old bool) options {
 		readOnly: old || !d.Editable, font: d.Font, lineHeight: d.LineHeight, tabSize: d.TabSize,
 		wrap: d.Wrap, lineNumbers: LineNumbersOn, whitespace: WhitespaceNone, autoClose: true,
 		theme: d.Theme, bindings: d.Bindings, fitContent: d.FitContent, minDigits: digits,
+		scrollPastEnd:  d.ScrollPastEnd && !d.FitContent,
 		keepScrollbars: d.KeepScrollbars, hideScrollbars: d.NoScrollbars,
 		renderFindBar: d.RenderFindBar, renderGoToLine: d.RenderGoToLine,
 	}
@@ -824,7 +836,11 @@ func (d *DiffState) buildDivider(c *ui.Context, ct *Theme, div ui.Element) bool 
 	}
 	// The handle the pointer drags spans a few DIPs over either side,
 	// above them. The wheel over it scrolls the diff, as over the lines.
-	handle := ui.Box(c).Key("diff divider handle").Absolute().Top(0).Bottom(0).Width(grip).
+	// The line and its handle are above the separators, which span both
+	// sides, built after them: it crosses them, as a header's text keeps
+	// short of it, and is dragged from over them too.
+	div.ZIndex(1)
+	handle := ui.Box(c).Key("diff divider handle").Absolute().Top(0).Bottom(0).Width(grip).ZIndex(1).
 		Cursor(ui.CursorResizeEW).HandleInput(d.eds[1].wheelOnly)
 	// A press there focuses the line, as a press on it would; only a move
 	// moves it.

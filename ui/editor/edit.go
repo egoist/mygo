@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/internal/rope"
+	"github.com/egoist/mygo/internal/text"
 )
 
 // apply makes edits to the buffer as one step of undo, and gives the
@@ -298,13 +299,14 @@ func (ed *editor) autoPair(t string) bool {
 	// comment for quotes.
 	for _, s := range ed.sels {
 		next, _ := r.RuneAt(s.head)
-		if s.head < r.Len() && next != '\n' && !unicode.IsSpace(next) && !strings.ContainsRune(")]}>,;:", next) {
+		if s.head < r.Len() && next != '\n' && !unicode.IsSpace(next) && !strings.ContainsRune(")]}>,;:", next) && !isCJKAfterPunct(next) {
 			return false
 		}
 		if pair.Open == pair.Close {
-			// A quote after a word character starts nothing.
+			// A quote after a word character starts nothing, except after
+			// CJK characters.
 			prev, _ := r.RuneBefore(s.head)
-			if isWordRune(prev) {
+			if isWordRune(prev) && !isCJKQuoteRune(prev) {
 				return false
 			}
 		}
@@ -323,6 +325,27 @@ func (ed *editor) autoPair(t string) bool {
 	}
 	ed.afterTyping(t)
 	return true
+}
+
+// isCJKQuoteRune reports whether a word rune before a symmetric quote still
+// allows auto-pairing.
+func isCJKQuoteRune(r rune) bool {
+	return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
+}
+
+// isCJKAfterPunct reports whether r is a non-ASCII closing bracket or quote,
+// or a trailing CJK sentence/clause punctuation mark that permits auto-pairing
+// immediately before it.
+func isCJKAfterPunct(r rune) bool {
+	if r <= unicode.MaxASCII {
+		return false
+	}
+	if unicode.In(r, unicode.Pe, unicode.Pf) {
+		return true
+	}
+	return strings.ContainsRune("，。、；：？！…‥—–―·‧～〜〰．︰｡､･‼⁇⁈⁉", r) ||
+		r >= 0xfe10 && r <= 0xfe16 || r == 0xfe19 ||
+		r >= 0xfe50 && r <= 0xfe58
 }
 
 // tokenAt returns the kind of the token holding the byte before off, or
@@ -521,7 +544,11 @@ func (ed *editor) backspace() bool {
 			edits = append(edits, Edit{Start: ed.overReplacements(head, a+to), End: head})
 			continue
 		}
-		start := ed.overReplacements(head, graphemeLeft(*r, head))
+		left := graphemeLeft(*r, head)
+		if c, size := r.RuneBefore(head); text.IsCombiningMark(c) {
+			left = head - size
+		}
+		start := ed.overReplacements(head, left)
 		end := head
 		// A pair of brackets just opened, its closer closed by the editor,
 		// goes together, as Zed's.

@@ -284,6 +284,10 @@ func (w *window) Focus() {
 func (w *window) Blur()           {}
 func (w *window) IsFocused() bool { return w.focused }
 
+// CornerRadius is 0: the screen's corners are the system's, which it does
+// not tell.
+func (w *window) CornerRadius() float64 { return 0 }
+
 func (w *window) SetBackgroundColor(c platform.Color) {
 	w.bg = c
 	w.b.call(&wire.SetBackground{ID: w.id, Color: rgba(c)}, nil)

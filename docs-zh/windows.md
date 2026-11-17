@@ -53,7 +53,7 @@ mygo.NewWindow(mygo.WindowOptions{Title: "Inspector", Content: ui.View(app.view)
 | `Opacity` | 0 到 1 之间 |
 | `IgnoreMouseEvents` | 创建窗口时就让鼠标穿透到它背后的内容，如同之后调用 `SetIgnoreMouseEvents(true)`（见[点击穿透窗口](#点击穿透窗口)） |
 | `DisableResize`, `DisableMove`, `DisableMinimize`, `DisableMaximize`, `DisableClose`, `DisableFullScreen`, `DisableShadow` | 去掉相应能力。在 Wayland 下的 Linux 上，`DisableShadow` 让无边框窗口或隐藏式标题栏去掉 GTK 在它们周围绘制的阴影和边框 |
-| `AlwaysOnTop` | 让窗口保持在其他窗口之上 |
+| `AlwaysOnTop` | 让窗口保持在其他窗口之上；在 Wayland 下仅限不在任务栏中的无边框窗口，见[点击穿透窗口](#点击穿透窗口) |
 | `SkipTaskbar` | 让窗口不出现在任务栏中（Linux、Windows） |
 | `AutoHideMenuBar` | 只在键盘焦点进入菜单栏时（按 Alt 或 F10）显示菜单栏（Linux、Windows），见[菜单栏](menus.md#菜单栏) |
 | `Parent`, `Modal` | 子窗口，对其父窗口模态，也可以是[叠在浮出窗口上的对话框](#叠在浮出窗口上的对话框)；对于紧挨其某一部分放置的窗口，见[浮出窗口](#浮出窗口) |
@@ -441,6 +441,8 @@ pet.SetInputRegion([]mygo.Rectangle{character, {X: 10, Y: 10, Width: 220, Height
 
 在 macOS 和 Windows 上，按住鼠标键时窗口保持原样：从角色上开始的拖拽在那里结束，从背后内容上开始的拖拽也在那里结束，松开后决定下一次谁接收鼠标。
 
+在会忽略置顶的 Wayland 下，这样的窗口（无边框、`AlwaysOnTop` 且 `SkipTaskbar`，没有父窗口）在合成器支持 layer shell 协议（KDE Plasma、Sway、Hyprland、COSMIC……）且已安装 `libgtk-layer-shell.so.0` 时，会像[面板](#面板)一样使用该协议的绘制表面：显示在覆盖层，位于全屏窗口之上，不出现在任务栏中，按窗口的边界定位，不受桌面面板预留区域的影响；只有被点击时才接收键盘，因此它下面的应用保持键盘焦点。它会一直保持在上层直到关闭：`SetAlwaysOnTop(false)` 无法让 layer shell 表面变回普通窗口，因此允许用户关闭置顶的应用需要重新打开一个不带 `AlwaysOnTop` 的窗口。在其他桌面上（例如没有 layer shell 的 GNOME），它与普通窗口一样，可能被其他窗口遮住；在 XWayland 下（`GDK_BACKEND=x11`），GNOME 会让它保持在其他窗口之上，全屏窗口也不例外。
+
 ## 事件
 
 监听器在主线程上运行：保持简短，耗时工作另起 goroutine。每个 `On…` 方法返回一个移除监听器的函数。
@@ -454,7 +456,7 @@ pet.SetInputRegion([]mygo.Rectangle{character, {X: 10, Y: 10, Width: 220, Height
 | `OnResize`, `OnMove` | 它被调整大小或移动 |
 | `OnMaximize`, `OnUnmaximize`, `OnMinimize`, `OnRestore` | 其状态改变 |
 | `OnEnterFullScreen`, `OnLeaveFullScreen` | 它进入或离开全屏 |
-| `OnReadyToShow` | 其第一个页面已准备好显示，或其原生 UI 绘制了第一帧 |
+| `OnReadyToShow` | 其第一个页面已准备好显示或加载失败（除非 `OnDidFailLoad` 的监听器加载了另一个页面，那么窗口会等待该页面），或其原生 UI 绘制了第一帧 |
 | `OnFileDrop` | 文件被拖放到其页面上，见[拖放的文件](frontend.md#拖放的文件)，或拖放到未接收它们的原生 UI 上，见[拖放的文件](ui/input.md#拖入的文件) |
 
 在关闭有未保存更改的窗口之前询问：
@@ -532,7 +534,7 @@ mygo.NewWindow(mygo.WindowOptions{
 |---|---|
 | `OnWillNavigate(func(e *mygo.NavigateEvent))` | 页面即将导航，例如点击链接之后；`e.PreventDefault()` 取消它。`e.UserInitiated` 表示导航是否由用户的手势开始——点击链接，或点击后由处理器设置 `location.href`——还是页面脚本自行发起。`LoadURL` 及其同类不会调用它，页面的 iframe 也不会，除了 Linux 上 WebKitGTK 2.56 之前的版本，那里无法告知导航来自哪个框架：在那里它也会为 iframe 的导航调用，但 `srcdoc` 的除外。 |
 | `OnDidNavigate(func(url string))` | 一次导航已提交 |
-| `OnDOMReady` | 页面的 DOM 已就绪（`DOMContentLoaded`） |
+| `OnDOMReady` | 页面的 DOM 已就绪（`DOMContentLoaded`），或者 Web 视图在后退或前进时按离开时的原样再次显示该页面 |
 | `OnDidFinishLoad` | 页面完成加载 |
 | `OnDidFailLoad(func(err *mygo.LoadError))` | 页面加载失败 |
 | `OnPageTitleUpdated(func(e *mygo.TitleEvent))` | 页面的 `<title>` 改变；阻止该事件会保持窗口标题不变 |

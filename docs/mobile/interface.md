@@ -170,7 +170,7 @@ and browsers take it too.
 ## Testing
 
 Unit tests run views with a `ui.Tester`, whose clock they advance, with
-`TouchDown`, `TouchMove`, `TouchUp` and `SetInsets`. Package `ui/golden` compares
+`FingerDown`, `FingerMove`, `FingerUp` and `SetInsets`. Package `ui/golden` compares
 what it draws with images beside the tests:
 
 ```go
