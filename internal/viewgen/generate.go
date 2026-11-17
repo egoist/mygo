@@ -166,15 +166,45 @@ func Generate(dir string) (written []string, err error) {
 	}
 	var outs []outFile
 	for _, v := range vs {
+		aliases := map[string]string{}
+		pair := strings.TrimSuffix(v.file.Path, ".view") + ".go"
+		for _, af := range files {
+			base := filepath.Base(fs.Position(af.Package).Filename)
+			if base != pair {
+				continue
+			}
+			for _, imp := range af.Imports {
+				path, _ := strconv.Unquote(imp.Path.Value)
+				name := path[strings.LastIndex(path, "/")+1:]
+				if imp.Name != nil {
+					name = imp.Name.Name
+				}
+				aliases[name] = path
+			}
+		}
+		if len(aliases) == 0 {
+			// No paired file: any import of the package serves.
+			for _, af := range files {
+				for _, imp := range af.Imports {
+					path, _ := strconv.Unquote(imp.Path.Value)
+					name := path[strings.LastIndex(path, "/")+1:]
+					if imp.Name != nil {
+						name = imp.Name.Name
+					}
+					aliases[name] = path
+				}
+			}
+		}
 		g := &gen{
-			api:      api,
-			view:     v.file,
-			recvName: receiverDecl(v.recv),
-			recvType: receivers[v.recv],
-			pkg:      checked,
-			info:     info,
-			fs:       fs,
-			imports:  map[string]bool{"github.com/egoist/mygo/ui": true},
+			api:           api,
+			view:          v.file,
+			recvName:      receiverDecl(v.recv),
+			recvType:      receivers[v.recv],
+			pkg:           checked,
+			info:          info,
+			fs:            fs,
+			imports:       map[string]bool{"github.com/egoist/mygo/ui": true},
+			importAliases: aliases,
 		}
 		src, err := g.emit()
 		if err != nil {
@@ -328,7 +358,6 @@ func mapTypeErrors(fs *token.FileSet, err error, outs []outFile) error {
 	// .view sources already; others are the app's own.
 	return err
 }
-
 
 // receiverTypeName reads the type a receiver declaration names, as
 // (*T or T).

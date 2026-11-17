@@ -100,9 +100,9 @@ func main() {
 // one that the package type-checks with. Nothing builds the app first.
 func TestGenerateCleanBootstrap(t *testing.T) {
 	dir := writeApp(t, map[string]string{
-		"counter.go":  counterGo,
+		"counter.go":   counterGo,
 		"counter.view": counterView,
-		"main.go":     counterMain,
+		"main.go":      counterMain,
 	})
 	written, err := Generate(dir)
 	if err != nil {
@@ -160,9 +160,9 @@ func TestGenerateCleanBootstrap(t *testing.T) {
 // TestGenerateIdempotent does not rewrite what did not change.
 func TestGenerateIdempotent(t *testing.T) {
 	dir := writeApp(t, map[string]string{
-		"counter.go":  counterGo,
+		"counter.go":   counterGo,
 		"counter.view": counterView,
-		"main.go":     counterMain,
+		"main.go":      counterMain,
 	})
 	if _, err := Generate(dir); err != nil {
 		t.Fatal(err)
@@ -230,6 +230,8 @@ func TestGenerateBindings(t *testing.T) {
 	dir := writeApp(t, map[string]string{
 		"form.go": `package main
 
+import "fmt"
+
 type editor struct {
 	Name  string
 	Count int
@@ -237,6 +239,8 @@ type editor struct {
 }
 
 func (s *editor) Clear() { s.Name = "" }
+
+func (s *editor) Label() string { return fmt.Sprint(s.Count) }
 `,
 		"form.view": `<view type="editor">
 <column padding="4,8" gap="4">
@@ -262,9 +266,9 @@ func main() { _ = ui.View((&editor{}).View) }
 	}
 	g := string(src)
 	for _, want := range []string{
-		"&s.Name",                    // pointer binding
-		".Padding(4, 8)",             // multi-value
-		`fmt.Sprintf("100%% complete: %v", s.Name)`, // % escaped, %v for the expr
+		"&s.Name",        // pointer binding
+		".Padding(4, 8)", // multi-value
+		`ui.Textf(c.Key("form.view:4:2"), "100%% complete: %v", s.Name)`, // Textf: % escaped, %v for the expr
 		"ui.Center",                  // enum
 		".Bold()",                    // bare attribute
 		`fmt.Sprintf("%s!", s.Name)`, // a Go call with a package qualifier

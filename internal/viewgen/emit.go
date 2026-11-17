@@ -27,8 +27,12 @@ type gen struct {
 	info     *types.Info
 	fs       *token.FileSet
 	imports  map[string]bool
-	locals   int
-	diags    []Diagnostic
+	// importAliases maps the names the paired .go file imports under to
+	// their paths: a .view borrows them, as its expressions name their
+	// packages as the Go beside them does (#1457).
+	importAliases map[string]string
+	locals        int
+	diags         []Diagnostic
 }
 
 func (g *gen) errf(pos Position, format string, args ...any) error {
@@ -171,27 +175,49 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 	// The element's expression, evaluated once.
 	g.locals++
 	name := "el" + strconv.Itoa(g.locals)
+	// The body supplies the constructor's string parameter: a literal as
+	// it is, mixed text and expressions as a format. The ui's text
+	// constructor takes the format itself (Textf), sparing apps that
+	// format from linking fmt (#1457).
+	var bodyArg string
+	var textf string
+	if bodySupplies {
+		lit, format, fargs, err := g.bodyValue(n)
+		if err != nil {
+			return nil, err
+		}
+		if format != "" && c.GoName == "Text" {
+			textf = format + "\x00" + fargs
+		} else if format != "" {
+			g.imports["fmt"] = true
+			bodyArg = "fmt.Sprintf(" + strconv.Quote(format) + ", " + fargs + ")"
+		} else {
+			bodyArg = lit
+		}
+	}
 	var args []string
-	for _, p := range c.Params {
-		if p.Name == stringParam && bodySupplies {
-			arg, err := g.bodyValue(n)
+	if textf == "" {
+		for _, p := range c.Params {
+			if p.Name == stringParam && bodySupplies {
+				args = append(args, bodyArg)
+				continue
+			}
+			a := ctorArgs[p.Name]
+			if a == nil {
+				continue
+			}
+			arg, err := g.value(a, p.Type, p.Ptr, n)
 			if err != nil {
 				return nil, err
 			}
 			args = append(args, arg)
-			continue
 		}
-		a := ctorArgs[p.Name]
-		if a == nil {
-			continue
-		}
-		arg, err := g.value(a, p.Type, p.Ptr, n)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, arg)
 	}
 	call := "ui." + c.GoName + "(" + g.keyCall(n, keyAttr) + strings.Join(args, ", ") + ")"
+	if textf != "" {
+		format, fargs, _ := strings.Cut(textf, "\x00")
+		call = "ui.Textf(" + g.keyCall(n, keyAttr) + strconv.Quote(format) + ", " + fargs + ")"
+	}
 	var ls []line
 	if len(fluent) == 0 && len(n.Children) == 0 && len(events) == 0 {
 		// Nothing more is asked of it: the call alone, evaluated once.
@@ -447,10 +473,25 @@ func (g *gen) value(a *Attr, t types.Type, ptr bool, n *Node) (string, error) {
 	return "", g.errf(a.Pos, "a constructor argument is one value: write the parts as a Go expression")
 }
 
-// rewrite binds one expression part to the generated method's names.
+// rewrite binds one expression part to the generated method's names,
+// and notes the packages it names, so the generated file imports them.
 func (g *gen) rewrite(p TextPart) (string, error) {
 	b := newBinder(g.recvType, g.pkg.Scope())
-	return b.expr(p.Expr, p.Pos, g.view.Path)
+	src, tree, err := b.expr(p.Expr, p.Pos, g.view.Path)
+	if err != nil {
+		return "", err
+	}
+	ast.Inspect(tree, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok {
+			if id, ok := sel.X.(*ast.Ident); ok {
+				if path, ok := g.importAliases[id.Name]; ok {
+					g.imports[path] = true
+				}
+			}
+		}
+		return true
+	})
+	return src, nil
 }
 
 // convert adapts an expression to a parameter. A pointer parameter
@@ -493,31 +534,33 @@ func (g *gen) fieldType(name string) types.Type {
 }
 
 // bodyValue is the element's text as its constructor's string argument:
-// the literal as it is, mixed text and expressions as fmt.Sprintf, its
-// literal % escaped (#1457).
-func (g *gen) bodyValue(n *Node) (string, error) {
+// the literal as it is, mixed text and expressions as a format with its
+// arguments, its literal % escaped (#1457). For the ui's text
+// constructors the format and arguments go to Textf themselves; textf
+// tells them apart, saving apps that format from linking fmt.
+func (g *gen) bodyValue(n *Node) (literal string, textf string, args string, err error) {
 	if len(n.Text) == 1 && !n.Text[0].IsExpr {
-		return strconv.Quote(n.Text[0].Lit), nil
+		return strconv.Quote(n.Text[0].Lit), "", "", nil
 	}
-	g.imports["fmt"] = true
-	var args []string
+	var parts []string
 	var f string
 	for _, part := range n.Text {
 		if part.IsExpr {
-			expr, err := g.rewrite(part)
-			if err != nil {
-				return "", g.errf(part.Pos, "%v", err)
+			expr, e := g.rewrite(part)
+			if e != nil {
+				return "", "", "", g.errf(part.Pos, "%v", e)
 			}
 			f += "%v"
-			args = append(args, expr)
+			parts = append(parts, expr)
 			continue
 		}
 		f += strings.ReplaceAll(part.Lit, "%", "%%")
 	}
-	if len(args) == 0 {
-		return strconv.Quote(f), nil
+	if len(parts) == 0 {
+		return strconv.Quote(f), "", "", nil
 	}
-	return "fmt.Sprintf(" + strconv.Quote(f) + ", " + strings.Join(args, ", ") + ")", nil
+	args = strings.Join(parts, ", ")
+	return "", f, args, nil
 }
 
 // literal converts a literal string to the type t: an enum's constant

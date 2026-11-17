@@ -2,10 +2,7 @@
 
 package main
 
-import (
-	"fmt"
-	"github.com/egoist/mygo/ui"
-)
+import "github.com/egoist/mygo/ui"
 
 func (s *counter) View(c *ui.Context) {
 //line counter.view:2:1
@@ -18,7 +15,7 @@ func (s *counter) View(c *ui.Context) {
 	el1.Gap(16)
 	el1.Children(func() {
 //line counter.view:3:2
-		el2 := ui.Text(c.Key("counter.view:3:2"), fmt.Sprintf("%v", s.n))
+		el2 := ui.Textf(c.Key("counter.view:3:2"), "%v", s.n)
 //line counter.view:3:8
 		el2.FontSize(56)
 //line counter.view:3:23

@@ -20,7 +20,7 @@ func viewProject(t *testing.T, view string) string {
 	dir := t.TempDir()
 	files := map[string]string{
 		"mygo.json": `{"name": "counter", "identifier": "com.example.counter"}`,
-		"go.mod": "module counter\n\ngo 1.25\n\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => " + filepath.ToSlash(root) + "\n",
+		"go.mod":    "module counter\n\ngo 1.25\n\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => " + filepath.ToSlash(root) + "\n",
 		"counter.go": `package main
 
 type counter struct{ n int }
@@ -136,4 +136,3 @@ func runGo(t *testing.T, dir string, args ...string) string {
 	}
 	return ""
 }
-

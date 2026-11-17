@@ -40,17 +40,18 @@ func newBinder(recv *types.Named, scope *types.Scope) *binder {
 	return b
 }
 
-// expr rewrites one Go expression, returning its source.
-func (b *binder) expr(src string, pos Position, viewPath string) (string, error) {
+// expr rewrites one Go expression, returning its source and its tree,
+// for the packages it names.
+func (b *binder) expr(src string, pos Position, viewPath string) (string, ast.Expr, error) {
 	e, err := parser.ParseExpr(src)
 	if err != nil {
-		return "", Diagnostic{Pos: pos, Path: viewPath, Msg: fmt.Sprintf("not a Go expression: %v", err)}
+		return "", nil, Diagnostic{Pos: pos, Path: viewPath, Msg: fmt.Sprintf("not a Go expression: %v", err)}
 	}
 	r := &rewriter{binder: b, bound: map[string]bool{}}
 	ast.Inspect(e, r.visit)
 	var sb strings.Builder
 	formatNode(token.NewFileSet(), e, &sb)
-	return sb.String(), nil
+	return sb.String(), e, nil
 }
 
 // body rewrites a handler body: Go statements.
