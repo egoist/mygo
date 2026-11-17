@@ -291,7 +291,10 @@ default, as in notes. For prose, set them apart in either of two ways:
 
 A heading's lines take the text's line height, `Font.LineHeight`, times
 its size, unless its `LineHeight` sets another, in ems of its size: a type
-scale gives large headings tighter leading than the text.
+scale gives large headings tighter leading than the text. A line is never
+shorter than its font's ascent and descent, which differ from one
+platform's font to another's: Segoe UI's on Windows are 1.33 ems, so lines
+of 30 under a heading of 24 come out 31.9 there.
 
 ```go
 // Text of 15 on lines of 22, a first heading of 24 on lines of 30.

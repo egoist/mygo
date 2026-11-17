@@ -12,7 +12,10 @@ import (
 func about(a, b float32) bool { return math.Abs(float64(a-b)) < 0.6 }
 
 // A heading's LineHeight sets the height of its lines in ems of its size,
-// on each line it wraps to; without it a heading takes the text's.
+// on each line it wraps to; without it a heading takes the text's. The
+// multiples are above any platform's own spacing (Segoe UI's ascent and
+// descent are 1.33 ems), as a line is never shorter than its font's
+// ascent and descent.
 func TestHeadingLineHeight(t *testing.T) {
 	doc := NewDocument(TextOf(
 		Paragraph{Style: ParagraphStyle{Heading: 1}, Runs: []Run{{Text: "Title"}}},
@@ -21,28 +24,33 @@ func TestHeadingLineHeight(t *testing.T) {
 		Paragraph{Runs: []Run{{Text: "body"}}},
 	))
 	th := &Theme{Headings: [6]HeadingStyle{
-		{Size: 24.0 / 15, LineHeight: 30.0 / 24},
-		{Size: 19.0 / 15, LineHeight: 26.0 / 19},
+		{Size: 24.0 / 15, LineHeight: 1.5},
+		{Size: 20.0 / 15, LineHeight: 1.5},
 		{Size: 16.0 / 15},
 	}}
 	tt := ui.NewTester(func(c *ui.Context) {
-		EditorBase(c, doc, EditorOptions{Font: ui.Font{Size: 15, LineHeight: 22.0 / 15}, Theme: th}).Fill()
+		EditorBase(c, doc, EditorOptions{Font: ui.Font{Size: 15, LineHeight: 1.6}, Theme: th}).Fill()
 	}, 300, 400)
 	tt.Frame()
 	boxes := doc.VisibleParagraphs()
 	if len(boxes) != 4 {
 		t.Fatalf("paragraphs in view: %+v", boxes)
 	}
-	if h := boxes[0].Height; !about(h, 30) {
-		t.Errorf("a heading of 24 with lines of 30: %v high", h)
+	if h := boxes[0].Height; !about(h, 36) {
+		t.Errorf("a heading of 24 with lines of 36: %v high", h)
 	}
-	if h := boxes[1].Height; !about(h, 52) {
-		t.Errorf("a heading of 19 with lines of 26, on two lines: %v high", h)
+	// How many lines the second wraps to depends on the platform's font.
+	lines := len(doc.shownIn.Value().paras[1].layout.Lines())
+	if lines < 2 {
+		t.Errorf("the second heading is on %d lines, want it to wrap", lines)
 	}
-	if h := boxes[2].Height; !about(h, 16*22.0/15) {
-		t.Errorf("a heading without LineHeight takes the text's, %v: %v high", 16*22.0/15, h)
+	if h := boxes[1].Height; !about(h, float32(lines)*30) {
+		t.Errorf("a heading of 20 with lines of 30, on %d lines: %v high", lines, h)
 	}
-	if h := boxes[3].Height; !about(h, 22) {
+	if h := boxes[2].Height; !about(h, 16*1.6) {
+		t.Errorf("a heading without LineHeight takes the text's, %v: %v high", 16*1.6, h)
+	}
+	if h := boxes[3].Height; !about(h, 24) {
 		t.Errorf("body text %v high", h)
 	}
 }
