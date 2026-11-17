@@ -80,7 +80,7 @@ type File struct {
 	HasViewEl bool
 }
 
-type parser struct {
+type viewParser struct {
 	path string
 	src  []byte
 	off  int
@@ -93,7 +93,7 @@ type parser struct {
 // diagnostics it can and returns them with the file; on a fatal error
 // the file is nil.
 func Parse(path string, src []byte) (*File, []Diagnostic, error) {
-	p := &parser{path: path, src: src, line: 1, col: 1}
+	p := &viewParser{path: path, src: src, line: 1, col: 1}
 	f, err := p.parse()
 	if err != nil {
 		return nil, p.diag, err
@@ -101,20 +101,20 @@ func Parse(path string, src []byte) (*File, []Diagnostic, error) {
 	return f, p.diag, nil
 }
 
-func (p *parser) pos() Position { return Position{p.line, p.col} }
-func (p *parser) at(off int) Position {
+func (p *viewParser) pos() Position { return Position{p.line, p.col} }
+func (p *viewParser) at(off int) Position {
 	// Positions are tracked as we scan; this is only for parts already
 	// passed.
 	return p.pos()
 }
 
-func (p *parser) errf(pos Position, format string, args ...any) error {
+func (p *viewParser) errf(pos Position, format string, args ...any) error {
 	p.diag = append(p.diag, Diagnostic{Pos: pos, Path: p.path, Msg: fmt.Sprintf(format, args...)})
 	return p.diag[len(p.diag)-1]
 }
 
 // peek returns the byte at the offset, 0 past the end.
-func (p *parser) peek(off int) byte {
+func (p *viewParser) peek(off int) byte {
 	if i := p.off + off; i < len(p.src) {
 		return p.src[i]
 	}
@@ -122,7 +122,7 @@ func (p *parser) peek(off int) byte {
 }
 
 // next advances one byte, counting lines.
-func (p *parser) next() byte {
+func (p *viewParser) next() byte {
 	if p.off >= len(p.src) {
 		return 0
 	}
@@ -138,7 +138,7 @@ func (p *parser) next() byte {
 }
 
 // spaces advances over ASCII whitespace.
-func (p *parser) spaces() {
+func (p *viewParser) spaces() {
 	for {
 		switch p.peek(0) {
 		case ' ', '\t', '\r', '\n':
@@ -153,7 +153,7 @@ func isNameByte(b byte) bool {
 	return b == '-' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b >= 'A' && b <= 'Z' || b == '_'
 }
 
-func (p *parser) name() (string, Position) {
+func (p *viewParser) name() (string, Position) {
 	pos := p.pos()
 	start := p.off
 	for isNameByte(p.peek(0)) {
@@ -164,7 +164,7 @@ func (p *parser) name() (string, Position) {
 
 // parse parses the file's elements. The roots are the elements at the
 // top, or the children of the one <view> wrapper.
-func (p *parser) parse() (*File, error) {
+func (p *viewParser) parse() (*File, error) {
 	f := &File{Path: p.path}
 	var roots []*Node
 	for {
@@ -209,7 +209,7 @@ func (p *parser) parse() (*File, error) {
 }
 
 // comment skips <!-- ... -->.
-func (p *parser) comment() error {
+func (p *viewParser) comment() error {
 	pos := p.pos()
 	p.next() // <
 	for i := 0; i < 3; i++ {
@@ -230,7 +230,7 @@ func (p *parser) comment() error {
 }
 
 // element parses one element with its attributes, body and end tag.
-func (p *parser) element() (*Node, error) {
+func (p *viewParser) element() (*Node, error) {
 	pos := p.pos()
 	if p.next() != '<' {
 		return nil, p.errf(pos, "expected <")
@@ -344,7 +344,7 @@ func (p *parser) element() (*Node, error) {
 
 // attrValue reads an attribute's quoted value until the closing quote,
 // as literal text and {expr} parts.
-func (p *parser) attrValue(quote byte) ([]TextPart, error) {
+func (p *viewParser) attrValue(quote byte) ([]TextPart, error) {
 	var parts []TextPart
 	var lit strings.Builder
 	litPos := p.pos()
@@ -394,7 +394,7 @@ func (p *parser) attrValue(quote byte) ([]TextPart, error) {
 // braced reads one {Go expression}, scanning it as Go so that braces in
 // strings, runes, raw strings and comments, and nested braces of
 // composite literals, do not end it.
-func (p *parser) braced(pos Position) (TextPart, error) {
+func (p *viewParser) braced(pos Position) (TextPart, error) {
 	open := p.pos()
 	p.next() // {
 	start := p.off
@@ -474,7 +474,7 @@ func (p *parser) braced(pos Position) (TextPart, error) {
 // end tag or a comment. It folds runs of ASCII whitespace to one space
 // and trims the ends of the whole body, as HTML does; non-ASCII
 // whitespace is kept.
-func (p *parser) bodyText(tag string) ([]TextPart, error) {
+func (p *viewParser) bodyText(tag string) ([]TextPart, error) {
 	var parts []TextPart
 	var lit strings.Builder
 	litPos := p.pos()

@@ -21,6 +21,8 @@ type API struct {
 	Constructors map[string]*Constructor // by kebab tag
 	Methods      map[string]*Method      // by kebab name
 	Package      string                  // the ui package's import path
+	pkg          *types.Package          // the ui package, for its constants
+	consts       map[string]map[string]string
 }
 
 // Constructor is a package-level function of ui taking a *ui.Context
@@ -45,7 +47,7 @@ type Param struct {
 	// Ptr reports that the parameter is a pointer: *T for &T bindings.
 	Ptr bool
 	// Fn reports a func parameter (unsupported shapes carry these).
-	Fn bool
+	Fn       bool
 	Variadic bool
 	// Required: not a variadic tail.
 	Required bool
@@ -160,7 +162,7 @@ func LoadAPI(dir string) (*API, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read ui's export data: %w", err)
 	}
-	api := &API{Package: pkg.Path(), Constructors: map[string]*Constructor{}, Methods: map[string]*Method{}}
+	api := &API{Package: pkg.Path(), pkg: pkg, Constructors: map[string]*Constructor{}, Methods: map[string]*Method{}, consts: map[string]map[string]string{}}
 	scope := pkg.Scope()
 	ctx := scope.Lookup("Context").Type()
 	ct := types.NewPointer(ctx)
@@ -196,7 +198,7 @@ func LoadAPI(dir string) (*API, error) {
 					mm.Kind = MethodQuery
 				case sig.Results().Len() == 1 && isElement(sig.Results().At(0).Type()):
 					mm.Kind = MethodFluent
-					mm.Params = describeParams(sig)
+					mm.Params = describeParams(sig, 0)
 					if bad := firstBadParam(mm.Params); bad != "" {
 						mm.Unsupported = fmt.Sprintf("%s takes %s: write the value as a Go expression", m.Name(), bad)
 					}
@@ -227,7 +229,7 @@ func describeFunc(fn *types.Func, sig *types.Signature, ct types.Type, isElement
 			c.TypeParams = append(c.TypeParams, tparams.At(i).Obj().Name())
 		}
 	}
-	c.Params = describeParams(sig)
+	c.Params = describeParams(sig, 1)
 	var why []string
 	if sig.Results().Len() != 1 || !isElement(sig.Results().At(0).Type()) {
 		why = append(why, fmt.Sprintf("returns %s, not an Element", resultNames(sig)))
@@ -254,11 +256,12 @@ func resultNames(sig *types.Signature) string {
 	return strings.Join(names, ", ")
 }
 
-// describeParams lists a signature's parameters past the first.
-func describeParams(sig *types.Signature) []Param {
+// describeParams lists a signature's parameters, from skip on:
+// constructors skip their first, the *ui.Context.
+func describeParams(sig *types.Signature, skip int) []Param {
 	params := sig.Params()
 	out := make([]Param, 0, params.Len())
-	for i := 1; i < params.Len(); i++ {
+	for i := skip; i < params.Len(); i++ {
 		p := Param{Name: params.At(i).Name(), Type: params.At(i).Type()}
 		if sig.Variadic() && i == params.Len()-1 {
 			p.Variadic = true
@@ -288,43 +291,22 @@ func firstBadParam(params []Param) string {
 	return ""
 }
 
-// Constants of a type, for enum attributes: text-align="center" ->
-// ui.Center. Same-named constants of other packages are not candidates.
-func (api *API) constantsOf(dir string, t types.Type) (map[string]string, error) {
-	// Load the ui scope once more from the same export data; constants
-	// are few, and the walk is cheap.
-	_, export, err := listPackage(dir, api.Package)
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.Open(export)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	fs := token.NewFileSet()
-	imp := importer.ForCompiler(fs, "gc", func(path string) (io.ReadCloser, error) {
-		if path == api.Package {
-			return os.Open(export)
-		}
-		_, dep, err := listPackage(dir, path)
-		if err != nil {
-			return nil, err
-		}
-		return os.Open(dep)
-	})
-	pkg, err := imp.Import(api.Package)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]string{}
-	scope := pkg.Scope()
-	for _, name := range scope.Names() {
-		if c, ok := scope.Lookup(name).(*types.Const); ok && c.Exported() && types.Identical(c.Type(), t) {
-			out[strings.ToLower(name)] = name
-		}
-	}
-	return out, nil
-}
-
 var _ = filepath.Join
+
+// constantOf reads the enum constant named lit (any case) of the type t,
+// "" for none. The ui package's constants are read once, per type.
+func (api *API) constantOf(lit string, t types.Type) (string, bool) {
+	key := types.TypeString(t, nil)
+	if _, ok := api.consts[key]; !ok {
+		consts := map[string]string{}
+		scope := api.pkg.Scope()
+		for _, name := range scope.Names() {
+			if c, ok := scope.Lookup(name).(*types.Const); ok && c.Exported() && types.Identical(c.Type(), t) {
+				consts[strings.ToLower(name)] = name
+			}
+		}
+		api.consts[key] = consts
+	}
+	name, ok := api.consts[key][strings.ToLower(lit)]
+	return name, ok
+}

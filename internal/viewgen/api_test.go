@@ -76,10 +76,10 @@ func TestAPIConstructorParams(t *testing.T) {
 func TestAPIMethods(t *testing.T) {
 	api := loadTestAPI(t)
 	fluent := map[string]string{
-		"gap":       "Gap",
-		"font-size": "FontSize",
-		"label":     "Label",
-		"disabled":  "Disabled",
+		"gap":        "Gap",
+		"font-size":  "FontSize",
+		"label":      "Label",
+		"disabled":   "Disabled",
 		"text-color": "TextColor",
 	}
 	for tag, want := range fluent {
