@@ -415,6 +415,9 @@ type node struct {
 	// what a measuring pass resolved for its in-flow children, which a
 	// commit pass at the same size uses instead of building them again.
 	hold int32
+	// zIndex orders the element's painting and its hits among its
+	// siblings (ZIndex).
+	zIndex int32
 
 	// layoutStyle holds what lays the element out. What the layout reads of
 	// every child a container walks comes first in it — the text, the kind
@@ -762,11 +765,11 @@ type node struct {
 	// element from the window's edges (AttachEdgeMargin), in place of
 	// windowMargin.
 	edgeMargin float32
-	// zIndex orders the element's painting and its hits among its
-	// siblings (ZIndex); zOrder is set on an element with a child having
-	// one, which paints and commits its children in that order alone
-	// (zindex.go).
-	zIndex int32
+	// zOrder tells that a child of the element has a zIndex, which paints
+	// and commits its children in that order alone (zindex.go). It stays
+	// here, at the end, where it was: the padding after hidden went to
+	// insetSet, which the layout reads of every child it places, and a
+	// second byte there moves laid and the box into the line after.
 	zOrder bool
 	// pinned tells that the element's own transform is only the remainder
 	// a transition moving it carries to its resting pixels (snapTo), and
@@ -777,6 +780,9 @@ type node struct {
 	// serial is the order the pass made the element in: of overlays, the
 	// one made last shows on top.
 	serial int32
+	// slot is the node's place in the pool the window keeps, which frees
+	// it by.
+	slot int32
 	// The engine allocates elements from chunks of 32 (context.go), strided
 	// by the element's size, so that size is a whole number of cache lines:
 	// each element of a chunk then begins on one, and a walk of a
@@ -1000,8 +1006,7 @@ func (e *node) Key(k any) *node {
 	if e.widget != "" {
 		panic("ui: Key on a " + e.widget + ", whose state was initialized: use Context.Key before construction")
 	}
-	e.c.rekey(e, k)
-	return e
+	return e.c.rekey(e, k)
 }
 
 // Row lays the children out from left to right.
@@ -2146,7 +2151,7 @@ func (e *node) disabled() bool {
 }
 
 // hasState lets input queries treat nil and cleared elements as absent.
-// It cannot recognize an old pointer whose arena slot has been reused.
+// It cannot recognize an old pointer whose place in the pool has been reused.
 func (e *node) hasState() bool {
 	return e != nil && e.c != nil && e.c.rt != nil && e.st != nil && !e.c.rt.closed
 }

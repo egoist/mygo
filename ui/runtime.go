@@ -122,7 +122,7 @@ type engine struct {
 	epoch           uint64
 	parts           []any
 	public          *Context
-	arena           *elementOwner
+	elemOwner       *elementOwner
 	handleChecks    bool
 	afterInputs     []inputAction
 	afterBuild      []func() // run once the view is built (onBuilt)
@@ -309,14 +309,16 @@ type engine struct {
 	observeBuf []uint64
 
 	// trans are the transitions of the elements given one, by ID
-	// (transition.go): exitsBuilt tells that the last frame built elements
-	// with an Exit or flying with a Match, whose arena the next frame
-	// keeps to copy those that go, laidW and laidH are the size the last
-	// frame was laid out at, and byID maps a frame's elements, for the
-	// copies going. overlayExits tells that the last frame had elements
+	// (transition.go); overlayExits tells that the last frame had elements
 	// with an Exit in the overlay layer, or copies leaving it: the next
-	// builds the layer, though nothing else does, for them to leave in.
+	// builds the layer, though nothing else does, for them to leave in,
+	// and laidW and laidH are the size the last frame was laid out at.
 	trans map[uint64]*transition
+	// loose are the nodes of the elements that took a node of their own,
+	// another element of the pass having their key, and those of the
+	// elements that took the node their identity kept: they go back to
+	// the pool when the frame ends.
+	loose []*node
 	// matches moves the elements of a Transition's Match, once one has
 	// one (match.go).
 	matches matcher
@@ -335,7 +337,6 @@ type engine struct {
 	exitsBuilt   bool
 	overlayExits bool
 	laidW, laidH float32
-	byID         map[uint64]*node
 	// going are animateExits' copies going, in order, and holding the
 	// elements appearing that wait for them (AfterExits).
 	going   []exit
@@ -727,7 +728,7 @@ func newRuntime(view func(*context), h host) *engine {
 	}
 	rt.c.rt = rt
 	rt.owner = weak.Make(rt)
-	rt.arena = &elementOwner{rt: rt}
+	rt.elemOwner = &elementOwner{rt: rt}
 	rt.public = &Context{rt: rt, services: Services{owner: rt.owner}}
 	rt.handleChecks = developmentHandles
 	if statsOn {
@@ -818,15 +819,8 @@ func (rt *engine) runFrame() {
 	// hovers as the view builds.
 	rt.hoverScrolled()
 
-	if rt.exitsBuilt {
-		// The last frame's elements stay as they are while this one builds,
-		// for copies of those that go with an exit transition.
-		rt.c.chunks, rt.c.spare = rt.c.spare, rt.c.chunks
-		rt.c.dirty, rt.c.spareDirty = rt.c.spareDirty, rt.c.dirty
-		rt.c.used = rt.c.dirty
-	}
-
 	// The elements are built anew: their journal goes.
+
 	rt.journal.reset()
 	focused := rt.focused
 	// An event handled while building (a click, an edit) may change what
@@ -1036,7 +1030,6 @@ func (rt *engine) runFrame() {
 	rt.armTimer()
 	rt.showMenu()
 	rt.c.finish()
-	clear(rt.byID)
 	rt.stats.end(rt)
 }
 
@@ -1409,6 +1402,14 @@ func (rt *engine) prune() {
 				if rt.pressEnded == s {
 					rt.pressEnded = nil
 				}
+				// The node the element was built with goes back to the
+				// pool, unless something still keeps it (matches.go).
+				if n := s.node; n != nil {
+					s.node = nil
+					if !rt.keepsNode(n) {
+						rt.c.freeNode(n)
+					}
+				}
 				// Recycle the state itself, without keeping the editor,
 				// local resources or callbacks of the element that went.
 				*s = state{text: s.text.emptied()}
@@ -1475,6 +1476,24 @@ func (rt *engine) checkBuilt() {
 
 // maxFree is how many pruned states the engine keeps for new elements.
 const maxFree = 256
+
+// keepsNode reports whether something still keeps the node n, which the
+// state that held it has given up: the matcher, which noted the element
+// it was built for (match.go).
+func (rt *engine) keepsNode(n *node) bool {
+	return rt.matches != nil && rt.matches.keeps(n)
+}
+
+// holdsNode reports whether something outside the frame keeps the node n:
+// a transition, whose copy goes with its Exit, or the matcher, which
+// noted the element it was built for. Unlike keepsNode it takes no
+// ownership: what asks only wants to know whether to leave the node be.
+func (rt *engine) holdsNode(n *node) bool {
+	if r := rt.trans[n.id]; r != nil && (r.elem == n || r.ghost == n) {
+		return true
+	}
+	return rt.matchesHolds(n)
+}
 
 // keptAlive reports whether a state the frame did not build is in a page
 // that a Router keeps: one of its history, or inside one.
@@ -1592,7 +1611,7 @@ func (rt *engine) close() {
 	rt.afterBuild = nil
 	clear(rt.inputs)
 	rt.inputs = nil
-	rt.arena.rt = nil
+	rt.elemOwner.rt = nil
 	rt.public.rt = nil
 	clear(rt.actions)
 	rt.actions = nil
@@ -1627,11 +1646,31 @@ func (rt *engine) dropFrame() {
 	clear(rt.pathClips)
 	c := &rt.c
 	c.parent, c.root, c.overlay = nil, nil, nil
-	c.chunks, c.spare = nil, nil
+	c.chunks, c.chunkFree = nil, nil
 	c.splits = nil
-	c.used, c.dirty, c.spareDirty = 0, 0, 0
+	// What the transitions keep of the elements that went is the pool's
+	// no more: the copies going, and the nodes the matcher noted.
+	for _, r := range rt.trans {
+		r.ghost, r.elem = nil, nil
+	}
+	rt.trans = nil
+	if rt.matches != nil {
+		rt.matches.drop()
+	}
+	if d := rt.drag; d != nil {
+		d.ghost, d.elem = nil, nil
+	}
+	// The states keep the node of the element they were built for, and
+	// with it what the element held: its bitmaps and the like.
+	for _, s := range rt.states {
+		s.node = nil
+	}
+	for _, s := range rt.free {
+		s.node = nil
+	}
 	clear(rt.states)
 	rt.free = nil
+	rt.loose = nil
 	rt.hits, rt.liftHits = nil, nil
 	rt.tips.pending = nil
 	rt.journal = journal{}

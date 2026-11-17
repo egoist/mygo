@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/egoist/mygo/internal/platform"
 	"hash/maphash"
+	"math/bits"
 	"reflect"
 	"time"
 
@@ -20,11 +21,20 @@ type context struct {
 	rt     *engine
 	parent *node
 	root   *node
-	chunks [][]node
-	used   int
-	// dirty is how many elements in the arena have held references since
-	// finish last cleared the unused ones, including earlier build passes.
-	dirty int
+	// pool is the nodes the window keeps, in chunks: an element takes the
+	// node its state kept, or a free one, so that a node lives per identity
+	// and the frames build into the same nodes. chunkFree holds, for each
+	// chunk, the places in it that are free: a place is taken by the lowest
+	// free one, so that the nodes in use stay at the front of the pool, and
+	// the chunks at the end whose places are all free go, so that a view
+	// which shrank does not keep the room of the large one.
+	chunks    [][]node
+	chunkFree []uint32
+	// used is how many places of the pool are taken, by the nodes that
+	// live and by those a frame is building.
+	used int32
+	// serial is the order the pass made the elements in.
+	serial int32
 	// theme is the theme the widgets being built take: the window's, or
 	// that of the Themed whose children are building. window is the
 	// window's, which the root has (SetTheme).
@@ -61,11 +71,6 @@ type context struct {
 	router  *Router
 	routers int
 	inert   bool
-	// spare are the chunks of the frame before, which the engine keeps
-	// while elements of that frame may leave with an exit transition, to
-	// copy them (engine.exitsBuilt).
-	spare      [][]node
-	spareDirty int
 	// transitions are the elements given a Transition, in the order asked,
 	// and dividers those drawing lines between their children.
 	transitions []transitionUse
@@ -81,23 +86,105 @@ type context struct {
 
 const chunkSize = 32
 
-// alloc returns a zeroed element from the frame's arena.
-func (c *context) alloc() *node {
-	ci, ei := c.used/chunkSize, c.used%chunkSize
-	if ci == len(c.chunks) {
-		c.chunks = append(c.chunks, make([]node, chunkSize))
+// allFree is the bitmap of a chunk whose places are all free.
+const allFree = 1<<chunkSize - 1
+
+// take returns the node an element of this pass is built with, empty as
+// the pool's are: the node its state kept, if the state has one and no
+// other element of this pass took it, or one from the pool.
+func (c *context) take(st *state, built bool) *node {
+	var e *node
+	if !built && st.node != nil {
+		// The node the state kept: the element comes back to it, which
+		// holds what the element built before.
+		e, st.node = st.node, nil
+		c.clear(e)
+	} else {
+		// A node from the pool: it was cleared when it went back there.
+		e = c.pooled()
 	}
+	c.defaults(e)
+	e.epoch = uint64(c.rt.epoch)
+	c.serial++
+	e.serial = c.serial
+	return e
+}
+
+// pooled returns a node from the pool, growing it when none is free. It
+// takes the lowest free place, so that the nodes in use stay at the front
+// of the pool and the room behind them is the only room a view which
+// grew needs.
+func (c *context) pooled() *node {
+	for ci, free := range c.chunkFree {
+		if free == 0 {
+			continue
+		}
+		j := bits.TrailingZeros32(free)
+		c.chunkFree[ci] = free & (free - 1)
+		e := &c.chunks[ci][j]
+		e.slot = int32(ci*chunkSize + j)
+		c.used++
+		return e
+	}
+	ci := len(c.chunks)
+	c.chunks = append(c.chunks, make([]node, chunkSize))
+	c.chunkFree = append(c.chunkFree, allFree)
+	e := &c.chunks[ci][0]
+	c.chunkFree[ci] = allFree & (allFree - 1)
+	e.slot = int32(ci * chunkSize)
 	c.used++
-	e := &c.chunks[ci][ei]
+	return e
+}
+
+// clear empties a node, keeping the room its slices hold and its place
+// in the pool, which is the window's and not the element's.
+func (c *context) clear(e *node) {
 	shadows, cols, rows, frags := e.shadows[:0], e.cols[:0], e.rows[:0], e.frags[:0]
+	slot := e.slot
 	*e = node{}
 	e.shadows, e.cols, e.rows, e.frags = shadows, cols, rows, frags
-	e.serial = int32(c.used)
-	e.epoch = c.rt.epoch
+	e.slot = slot
+}
+
+// defaults gives a node the values an element is built with, before it
+// is styled.
+func (c *context) defaults(e *node) {
 	e.shrink = 1
 	e.justify, e.align, e.self, e.alignContent = alignAuto, alignAuto, alignAuto, alignAuto
 	e.justifyItems, e.justifySelf = alignAuto, alignAuto
-	return e
+}
+
+// freeNode gives a node back to the pool, empty: what it held goes, so
+// that the window keeps no element of the app's through it. A node no
+// chunk holds, as the copy a transition takes of one, is not the pool's
+// and is left alone.
+func (c *context) freeNode(e *node) {
+	if e == nil || e.slot < 0 {
+		return
+	}
+	at := e.slot
+	c.clear(e)
+	e.slot = -1
+	c.chunkFree[at/chunkSize] |= 1 << (at % chunkSize)
+	c.used--
+}
+
+// trim gives up the room of the chunks at the end of the pool whose
+// places are all free, when the pool holds much more room than the view
+// needs: a view which shrank does not keep the room of the large one. The
+// room stays while the view needs much of it, so that a steady view does
+// not take new room every frame.
+func (c *context) trim() {
+	for n := len(c.chunks); n > 1; n = len(c.chunks) {
+		if c.chunkFree[n-1] != allFree {
+			break
+		}
+		if int(c.used)*4 >= n*chunkSize {
+			break
+		}
+		clear(c.chunks[n-1])
+		c.chunks, c.chunkFree = c.chunks[:n-1], c.chunkFree[:n-1]
+	}
 }
 
 func (c *context) reset(now time.Time, w, h float32) {
@@ -108,10 +195,10 @@ func (c *context) reset(now time.Time, w, h float32) {
 	c.rt.epoch++
 	c.rt.beginInputs()
 	if uint32(c.rt.epoch) == 0 {
-		c.rt.arena.rt = nil
-		c.rt.arena = &elementOwner{rt: c.rt}
+		c.rt.elemOwner.rt = nil
+		c.rt.elemOwner = &elementOwner{rt: c.rt}
 	}
-	c.rt.arena.generation = uint32(c.rt.epoch)
+	c.rt.elemOwner.generation = uint32(c.rt.epoch)
 	c.keySet, c.nextKey = false, nil
 	clear(c.rt.parts)
 	c.rt.parts = c.rt.parts[:0]
@@ -126,8 +213,6 @@ func (c *context) reset(now time.Time, w, h float32) {
 	c.rt.built, c.rt.nbuilt = c.rt.built[:0], 0
 	clear(c.rt.actions)
 	c.rt.actions = c.rt.actions[:0]
-	c.dirty = max(c.dirty, c.used)
-	c.used = 0
 	c.now = now
 	c.w, c.h = w, h
 	c.theme = c.rt.defaultTheme()
@@ -147,12 +232,14 @@ func (c *context) reset(now time.Time, w, h float32) {
 	clear(c.childExits)
 	c.childExits = c.childExits[:0]
 	c.router, c.routers, c.inert = nil, 0, false
-	root := c.alloc()
+	c.serial = 0
+	st := c.rt.stateFor(rootID)
+	root := c.take(st, false)
 	root.c = c
-	root.id = 1
+	root.id = rootID
 	root.kind = kindBox
 	root.width, root.height = px(w), px(h)
-	root.st = c.rt.stateFor(root.id)
+	root.st = st
 	c.rt.buildState(root, false)
 	root.bg = c.theme.Background
 	root.ts = textStyle{set: setColor | setSize | setFamily, color: c.theme.Text, size: c.theme.FontSize, family: c.theme.Font}
@@ -168,53 +255,26 @@ func (c *context) reset(now time.Time, w, h float32) {
 	c.overlay = nil
 }
 
-// finish frees references to elements left out of the frame, including
-// those from an earlier pass. Exit transitions have copied what they
-// need from the spare arena by now. Keep one empty chunk for growth, so
-// that a few rows entering and leaving a list do not allocate every frame.
+// finish frees the nodes of the elements the frame left out, including
+// those from an earlier pass: their states go, and the nodes they kept go
+// back to the pool. What still keeps one — a transition's copy going with
+// its Exit, the matcher's record of an element it noted — keeps it.
 func (c *context) finish() {
-	c.chunks = trimArena(c.chunks, c.used, max(c.dirty, c.used))
-	// While this frame built an exit transition, the spare chunks are the
-	// arena the next frame builds into: keep as many as this frame used,
-	// only cleared.
-	keep := 0
-	if c.rt.exitsBuilt {
-		keep = c.used
+	for _, e := range c.rt.loose {
+		if !c.rt.holdsNode(e) {
+			c.freeNode(e)
+		}
 	}
-	c.spare = clearArena(c.spare, c.spareDirty, keep)
-	c.dirty, c.spareDirty = c.used, 0
-}
-
-// clearArena drops what the first dirty elements reference, and keeps the
-// storage of keep elements and one chunk more.
-func clearArena(chunks [][]node, dirty, keep int) [][]node {
-	n := min(len(chunks), (keep+chunkSize-1)/chunkSize+1)
-	for ci := 0; ci < n && ci*chunkSize < dirty; ci++ {
-		clear(chunks[ci][:min(chunkSize, dirty-ci*chunkSize)])
-	}
-	clear(chunks[n:])
-	return chunks[:n]
-}
-
-func trimArena(chunks [][]node, used, dirty int) [][]node {
-	n := (used + chunkSize - 1) / chunkSize
-	// Only elements used since the last cleanup can retain anything.
-	// Clear at most the two chunks kept; the rest give up their storage.
-	for i, end := used, min(dirty, (n+1)*chunkSize); i < end; {
-		ci, ei := i/chunkSize, i%chunkSize
-		to := min(chunkSize, end-ci*chunkSize)
-		clear(chunks[ci][ei:to])
-		i = ci*chunkSize + to
-	}
-	if n < len(chunks) {
-		clear(chunks[n+1:])
-		chunks = chunks[:n+1]
-	}
-	return chunks
+	clear(c.rt.loose)
+	c.rt.loose = c.rt.loose[:0]
+	c.trim()
 }
 
 // overlayID is the ID of the layer of overlays.
 var overlayID = mix(1, 0x6f7665726c6179)
+
+// rootID is the ID of the root, the element the window's content is in.
+const rootID = 1
 
 // What an opener opens over the window is keyed under its id, as a menu's
 // panels are (mix(trigger.id, level+1)) and its point (mix(trigger.id,
@@ -234,7 +294,8 @@ const (
 // builds into; the frame adds it to the root once the view returns.
 func (c *context) overlayRoot() *node {
 	if c.overlay == nil {
-		o := c.alloc()
+		st := c.rt.stateFor(overlayID)
+		o := c.take(st, false)
 		o.c = c
 		o.id = overlayID
 		o.kind = kindBox
@@ -243,7 +304,7 @@ func (c *context) overlayRoot() *node {
 		o.inset = [4]length{px(0), px(0), px(0), px(0)}
 		o.insetSet = true
 		o.depth = 1
-		o.st = c.rt.stateFor(o.id)
+		o.st = st
 		c.rt.buildState(o, false)
 		c.overlay = o
 	}
@@ -260,24 +321,28 @@ func (c *context) newElement(k kind) *node {
 		panic("ui: only text elements (Text, Link, RichText) go inside a text")
 	}
 
-	e := c.alloc()
-	e.c = c
-	e.kind = k
 	p := c.parent
-	e.id = mix(p.id, uint64(p.nchild)+uint64(k)<<56)
-	e.dir = p.dir &^ dirSet
+	id := mix(p.id, uint64(p.nchild)+uint64(k)<<56)
+	dir := p.dir &^ dirSet
 	keyed := c.keySet
+	var key any
 	if c.keySet {
-		e.id = keyedID(p.id, c.nextKey)
-		e.key = c.nextKey
+		id = keyedID(p.id, c.nextKey)
+		key = c.nextKey
 		c.keySet, c.nextKey = false, nil
 	}
-	p.add(e)
-	var built bool
-	e.st, built = c.rt.lookState(e.id)
+	st, built := c.rt.lookState(id)
 	if keyed && built {
-		c.rt.duplicateKey(e.id, e.key)
+		c.rt.duplicateKey(id, key)
 	}
+	e := c.take(st, built)
+	e.c = c
+	e.kind = k
+	e.id = id
+	e.dir = dir
+	e.key = key
+	e.st = st
+	p.add(e)
 	c.rt.buildState(e, built)
 	if c.rt.insp.open && e.id == c.rt.insp.selected {
 		c.rt.insp.noteSource()
@@ -287,7 +352,7 @@ func (c *context) newElement(k kind) *node {
 
 var keySeed = maphash.MakeSeed()
 
-func (c *context) rekey(e *node, k any) {
+func (c *context) rekey(e *node, k any) *node {
 	parent := uint64(0)
 	if e.parent != nil {
 		parent = e.parent.id
@@ -305,6 +370,14 @@ func (c *context) rekey(e *node, k any) {
 		// Another element of the pass has the key under the same parent.
 		rt.duplicateKey(id, k)
 	}
+	if !built && st.node != nil && st.node != e && !rt.holdsNode(st.node) {
+		// The identity kept a node from the frame before: the element is
+		// built in it, so that what the identity holds does not change
+		// from frame to frame. What still holds the node — a transition
+		// copying it as its Exit says — keeps it, and the element takes
+		// one of its own.
+		e = c.move(e, st.node)
+	}
 	e.id, e.st, e.key = id, st, k
 	rt.buildState(e, built)
 	if rt.insp.open {
@@ -313,6 +386,45 @@ func (c *context) rekey(e *node, k any) {
 			rt.insp.noteSource()
 		}
 	}
+	return e
+}
+
+// move puts the element e in the node its identity kept, so that what the
+// identity holds does not change from frame to frame. The nodes take each
+// other's content: the identity's node holds what the element built, and
+// the node the element was built in holds what the identity had, which
+// goes back to the pool with it, and the room it held.
+func (c *context) move(e, dst *node) *node {
+	dslot, eslot := dst.slot, e.slot
+	parent, id := e.parent, e.id
+	*dst, *e = *e, *dst
+	dst.slot, e.slot = dslot, eslot
+	// The children the element built are the identity's now.
+	for ch := dst.first; ch != nil; ch = ch.next {
+		ch.parent = dst
+	}
+	// The identity's node takes the element's place among its siblings.
+	if parent != nil {
+		if parent.first == e {
+			parent.first = dst
+		}
+		if parent.last == e {
+			parent.last = dst
+		}
+		for p := parent.first; p != nil; p = p.next {
+			if p.next == e {
+				p.next = dst
+				break
+			}
+		}
+	}
+	// The transition the element had before the Key follows it.
+	if r := c.rt.trans[id]; r != nil && r.elem == e {
+		r.elem = dst
+	}
+	// The node the element was built in goes back to the pool.
+	c.rt.loose = append(c.rt.loose, e)
+	return dst
 }
 
 // keyedID returns the ID of the child of parent keyed by k.
@@ -763,14 +875,11 @@ type state struct {
 	selfRadius float32
 	id         uint64
 	// seen and pass are the frame and pass whose node built it last
-	// (buildState): the state is alive while they are the engine's. node
-	// is that node's serial, which references to the element resolve to
-	// (elementRef), 0 while none of the pass stands for it: a number, so
-	// that the state keeps no node of the frame once it goes (#1281).
+	// (buildState): the state is alive while they are the engine's. The
+	// node it keeps is at the end, after what the hit test reads (#1281).
 	seen uint64
 	pass int    // the pass of the frame that built it last
 	born uint64 // the frame that first built the element: its incarnation
-	node uint32
 	// lookedSeen and lookedPass are seen and pass before the last build
 	// (buildState), 0 for a state it created.
 	lookedSeen uint64
@@ -1014,6 +1123,15 @@ type state struct {
 	// trec is what the element's Transition keeps, by the engine's
 	// transitions, when it has one.
 	trec *transition
+	// node is the node the element is built with, which references to the
+	// element resolve to (elementRef), nil while none stands for it: the
+	// state keeps the node, and gives it up when the element goes. index is
+	// the place the element had among its siblings when it was built last,
+	// which orders the copies going under a parent. They are last, after
+	// the fields a frame reads of every element it touches — its box, its
+	// transform, its parent — so that they grow no cache line those share.
+	node  *node
+	index int
 	// closes closes the values of locals that are io.Closers (Local), in
 	// the order they were made; nil when none can be.
 	closes []func() error
@@ -1051,10 +1169,10 @@ func (e *node) resolve(r elementRef) *node {
 	}
 	rt := e.c.rt
 	s := rt.states[r.id]
-	if s == nil || s.born != r.born || s.seen != rt.frame || s.pass != rt.pass || s.node == 0 {
+	if s == nil || s.born != r.born || s.seen != rt.frame || s.pass != rt.pass || s.node == nil {
 		return nil
 	}
-	return rt.nodeAt(s.node - 1)
+	return s.node
 }
 
 func (rt *engine) stateFor(id uint64) *state {
@@ -1102,10 +1220,28 @@ func (rt *engine) buildState(e *node, built bool) {
 	if !built {
 		rt.built = append(rt.built, s)
 		rt.nbuilt++
+		if s.node != nil && s.node != e {
+			// The state kept another node, of the element that had this
+			// identity before: a transition keeps it, to copy it as its
+			// Exit says if the element goes, and takes the element's own
+			// from now on; either way the one it had goes back to the pool.
+			if r := rt.trans[s.id]; r != nil && r.elem == s.node {
+				r.elem = e
+			}
+			rt.c.freeNode(s.node)
+		}
+		s.node = e
+	} else {
+		// Another element of this pass has the key: it took a node of its
+		// own, and the state keeps the one of the element that came first.
+		rt.loose = append(rt.loose, e)
 	}
 	s.lookedSeen, s.lookedPass = s.seen, s.pass
 	s.seen, s.pass = rt.frame, rt.pass
-	s.node = uint32(e.serial)
+	if e.parent != nil {
+		// The place it has among its siblings, as it was built.
+		s.index = e.parent.nchild - 1
+	}
 	s.hoverBuilt = false
 	// What the element drags and takes, as this pass asks.
 	s.dragValue, s.dragFn, s.accepts = nil, nil, nil
@@ -1128,7 +1264,7 @@ func (rt *engine) unlook(s *state) {
 		s.seen, s.pass = s.lookedSeen, s.lookedPass
 		// No node of this pass stands for the element the lookup took
 		// the place of, which references resolve to (elementRef).
-		s.node = 0
+		s.node = nil
 		return
 	}
 	rt.nbuilt--

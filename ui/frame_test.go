@@ -407,7 +407,7 @@ func TestAdvanceMovesInputTime(t *testing.T) {
 	}
 }
 
-func TestExpiredHandleDiagnosticsAndSlotReuse(t *testing.T) {
+func TestExpiredHandleDiagnosticsAndNodePerIdentity(t *testing.T) {
 	var old Element
 	first := true
 	var message any
@@ -419,7 +419,7 @@ func TestExpiredHandleDiagnosticsAndSlotReuse(t *testing.T) {
 			return
 		}
 		if old.slot != current.slot {
-			t.Fatal("regression must reuse the node slot")
+			t.Fatal("the element of an identity was built in another node")
 		}
 		func() { defer func() { message = recover() }(); old.Focus() }()
 	}, 100, 50)
