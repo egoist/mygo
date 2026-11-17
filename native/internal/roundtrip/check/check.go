@@ -266,7 +266,9 @@ func Ticks(t T) {
 	e := Echo(t)
 	var n atomic.Int64
 	c := e.Ticks(time.Millisecond, func(i int) { n.Store(int64(i)) })
-	deadline := time.Now().Add(5 * time.Second)
+	// f runs on Go's main thread, which an Android emulator keeps busy for
+	// seconds as the app draws its first frames.
+	deadline := time.Now().Add(30 * time.Second)
 	for n.Load() < 3 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
