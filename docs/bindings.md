@@ -439,4 +439,7 @@ count, err := mygo.EvalAs[int](win.Page(), "const items = document.querySelector
 ```
 
 Statements run as the body of an async function, so `return` produces the
-value. A script that throws returns an `*mygo.EvalError`.
+value. A script that throws returns an `*mygo.EvalError`. A page that
+navigates before it answers makes `Eval` return an error, as a window that
+closes does: the page left may never answer, as WebKit keeps it frozen
+until Back shows it again.

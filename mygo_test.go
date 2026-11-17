@@ -1290,6 +1290,45 @@ func TestEvalWindowCloses(t *testing.T) {
 	}
 }
 
+// TestEvalPageLeft: a page left as it ran an eval may never answer, as
+// WebKit keeps it frozen in its back/forward cache until it shows again,
+// so a navigation fails the evals of the page it left, and only those.
+func TestEvalPageLeft(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{})
+	asked := make(chan struct{}, 1)
+	fw.AsyncFunction = func(string) (string, error) {
+		asked <- struct{}{}
+		return "", fake.ErrNoReply
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := w.Page().Eval("1")
+		done <- err
+	}()
+	<-asked
+	// Two pages commit before Eval returns: the second must not wait for
+	// it to take the error of the first.
+	onMain(func() {
+		fw.H.NavigationCommitted("app://localhost/next")
+		fw.H.NavigationCommitted("app://localhost/last")
+	})
+	select {
+	case err := <-done:
+		if !errors.Is(err, errPageLeft) {
+			t.Errorf("Eval = %v", err)
+		}
+	case <-time.After(wait.Guard):
+		t.Fatal("Eval still waits for the page that was left")
+	}
+
+	// An eval of the page that came next is not failed by the navigation
+	// that brought it.
+	fw.AsyncFunction = func(string) (string, error) { return `{"ok":true,"v":2}`, nil }
+	if v, err := w.Page().Eval("2"); v != 2.0 || err != nil {
+		t.Errorf("Eval of the next page = %v, %v", v, err)
+	}
+}
+
 // TestEvalWebViewDestroyed is TestEvalWindowCloses for a web view's page.
 func TestEvalWebViewDestroyed(t *testing.T) {
 	show := true

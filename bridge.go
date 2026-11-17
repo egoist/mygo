@@ -174,9 +174,10 @@ func (w *Window) eval(ctx context.Context, code string) (jsontext.Value, error) 
 		raw string
 		err error
 	}
-	// The cancellation, the page and the window closing may all answer; the
-	// first one counts and the others must not block.
-	ch := make(chan result, 3)
+	// The cancellation, the page, the page navigating and the window
+	// closing may all answer; the first one counts and the others must not
+	// block.
+	ch := make(chan result, 4)
 	stop := context.AfterFunc(ctx, func() {
 		deliver(ch, result{err: ctx.Err()})
 		if evalCanceled != nil {
@@ -186,7 +187,7 @@ func (w *Window) eval(ctx context.Context, code string) (jsontext.Value, error) 
 	defer stop()
 
 	ran := false
-	var off func()
+	var off, offLeft func()
 	w.do(func(n platform.Window) {
 		ran = true
 		// A window opened with the quit under way: no one will close it, and
@@ -197,6 +198,12 @@ func (w *Window) eval(ctx context.Context, code string) (jsontext.Value, error) 
 		}
 		// The page of a closed window never answers.
 		off = w.onClosed.add(func() { deliver(ch, result{err: errDestroyed}) }, false)
+		// Nor does a page the web view keeps as it was left, in WebKit's
+		// back/forward cache, until it shows again: code that was running
+		// as the navigation committed waits with the page, frozen. Go is
+		// done with the page that the eval was sent to then, as it is with
+		// the page's calls, and the eval with it.
+		offLeft = w.pageLeft.add(func() { deliver(ch, result{err: errPageLeft}) }, true)
 		expr := strings.TrimRight(code, " \t\r\n;")
 		n.CallAsyncFunction(fmt.Sprintf(evalExpr, expr), func(res string, err error) {
 			if err == nil {
@@ -228,6 +235,7 @@ func (w *Window) eval(ctx context.Context, code string) (jsontext.Value, error) 
 	r := await(ch)
 	if off != nil {
 		off()
+		offLeft()
 	}
 	if r.err != nil {
 		return nil, r.err

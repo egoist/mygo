@@ -1264,7 +1264,12 @@ if that fails to compile the code is not an expression, and it is run again as
 a function body. A compile error means nothing executed, so code never runs
 twice. The result travels as a JSON string and is decoded in Go. A page whose
 window closed never answers, so a window closing fails the evals waiting for
-it, and an eval with the quit under way fails at once.
+it, and an eval with the quit under way fails at once. Neither does a page
+WebKit keeps in its back/forward cache, until it shows again: an eval that
+was running as the navigation away committed stays frozen with it. So a
+committed navigation fails the evals sent before it that are unanswered
+(`Window.pageLeft`), as it ends the left page's calls; one sent as the page
+navigates may have run in either page.
 
 ### Trust
 
