@@ -38,6 +38,32 @@ func TestCanvases(t *testing.T) {
 	}
 }
 
+// A canvas that keeps the bitmaps of its glyphs (scene.Scene.Own) draws
+// them from its own atlases, not from the frame's, which hold others, in
+// the frame that draws it and in one that only shows it.
+func TestOwnedCanvas(t *testing.T) {
+	for _, api := range apis {
+		t.Run(api.name, func(t *testing.T) {
+			s := gputest.OwnedCanvasScene()
+			read := offscreen(t, api.es, s.Width, s.Height)
+			r, err := New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Release()
+			for frame := range 2 {
+				if err := r.Render(s); err != nil {
+					t.Fatal(err)
+				}
+				gputest.Compare(t, "gl-owned-canvas", read(), s.Width*4, s)
+				if frame == 0 {
+					s.Canvases = nil
+				}
+			}
+		})
+	}
+}
+
 // A transient canvas's texture stays while frames draw it, and goes once
 // they stop, though the canvas is still about; another canvas's stays
 // until it is collected.

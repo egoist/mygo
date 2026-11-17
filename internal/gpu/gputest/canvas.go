@@ -1,6 +1,10 @@
 package gputest
 
-import "github.com/egoist/mygo/internal/scene"
+import (
+	"math"
+
+	"github.com/egoist/mygo/internal/scene"
+)
 
 // CanvasScene returns a 120×80 scene showing canvases (scene.NewCanvas): a
 // 16×12 one drawn with fills, a rounded one, an image and a canvas of its
@@ -42,6 +46,68 @@ func CanvasScene() *scene.Scene {
 		{Kind: scene.OpImage, Rect: scene.Rect{X: 72, Y: 4, W: 44, H: 33}, Image: c, Src: scene.Rect{X: 16, W: -16, H: 12}},
 		{Kind: scene.OpImage, Rect: scene.Rect{X: 74, Y: 42, W: 40, H: 34}, Image: soft, Src: scene.Rect{W: 40, H: 34}, Blur: 2.5},
 		{Kind: scene.OpImage, Rect: scene.Rect{X: 4, Y: 56, W: 40, H: 20}, Image: soft, Src: scene.Rect{X: 0, Y: 34, W: 40, H: -34}, Blur: 5},
+	}
+	return s
+}
+
+// OwnedCanvasScene returns a 96×32 scene showing a canvas that keeps the
+// bitmaps of its glyphs in atlases of its own (scene.Scene.Own): a disc of
+// the mask atlas and a glyph of the color atlas, painted with the frame's
+// atlases, which hold other bitmaps in their places since, as after a
+// frame made room in them. The frame draws those next to the canvas.
+func OwnedCanvasScene() *scene.Scene {
+	s := &scene.Scene{Width: 96, Height: 32, Clear: scene.Color{R: 246, G: 247, B: 249, A: 255}}
+	mask, color := scene.NewAtlas(1, 64, 64), scene.NewAtlas(4, 64, 32)
+	s.MaskAtlas, s.ColorAtlas = mask, color
+	disc, bars := make([]byte, 16*16), make([]byte, 16*16)
+	for y := range 16 {
+		for x := range 16 {
+			dx, dy := float64(x)-7.5, float64(y)-7.5
+			disc[y*16+x] = byte(255 * clamp(7.5-math.Sqrt(dx*dx+dy*dy)))
+			if x%4 < 2 {
+				bars[y*16+x] = 255
+			}
+		}
+	}
+	block := func(r, g, b byte) []byte {
+		pix := make([]byte, 10*10*4)
+		for i := 0; i < len(pix); i += 4 {
+			pix[i], pix[i+1], pix[i+2], pix[i+3] = r, g, b, 255
+		}
+		return pix
+	}
+	put := func(maskPix, colorPix []byte) (m, c [2]uint16) {
+		x, y, _ := mask.Alloc(16, 16)
+		mask.Put(x, y, 16, 16, maskPix, 16)
+		m = [2]uint16{uint16(x), uint16(y)}
+		x, y, _ = color.Alloc(10, 10)
+		color.Put(x, y, 10, 10, colorPix, 40)
+		return m, [2]uint16{uint16(x), uint16(y)}
+	}
+	ink := scene.Color{R: 20, G: 24, B: 32, A: 255}
+	glyphs := func(m, c [2]uint16, x float32) []scene.Glyph {
+		return []scene.Glyph{{X: x, Y: 4, W: 16, H: 16, U: m[0], V: m[1], UW: 16, VH: 16, Color: ink},
+			{X: x + 20, Y: 7, W: 10, H: 10, U: c[0], V: c[1], UW: 10, VH: 10, Color: scene.Color{A: 255}, Colored: true}}
+	}
+
+	c := scene.NewCanvas(40, 24)
+	cs := c.Scene
+	cs.MaskAtlas, cs.ColorAtlas = mask, color
+	m, k := put(disc, block(240, 160, 20))
+	cs.Glyphs = glyphs(m, k, 4)
+	cs.Ops = []scene.Op{{Kind: scene.OpFill, Rect: scene.Rect{W: 40, H: 24}, Color: scene.Color{R: 255, G: 255, B: 255, A: 255}},
+		{Kind: scene.OpGlyphs, Start: 0, End: 2}}
+	if !cs.Own(&scene.Owned{}) {
+		panic("gputest: the canvas's glyphs fit no atlas")
+	}
+	mask.Reset()
+	color.Reset()
+	m, k = put(bars, block(37, 99, 235))
+	s.Glyphs = glyphs(m, k, 52)
+	s.Canvases = []*scene.Image{c}
+	s.Ops = []scene.Op{
+		{Kind: scene.OpImage, Rect: scene.Rect{X: 4, Y: 4, W: 40, H: 24}, Image: c, Src: scene.Rect{W: 40, H: 24}},
+		{Kind: scene.OpGlyphs, Start: 0, End: 2},
 	}
 	return s
 }
