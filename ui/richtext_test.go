@@ -218,6 +218,11 @@ type richLines struct {
 	swap        bool
 }
 
+// richLineStep is how far apart richLines draws its lines, in DIPs: more
+// than a line of the default font is high on any system, so that no
+// line's glyphs reach into the next's band.
+const richLineStep = 32
+
 func newRichLines(n int) *richLines {
 	rl := &richLines{shown: n}
 	for i := range n {
@@ -239,7 +244,7 @@ func (rl *richLines) view(c *context) {
 		for k := range rl.shown {
 			i := (rl.from + k) % lines
 			rl.scratch = append(rl.scratch[:0], Span{Text: rl.texts[2*i]}, Span{Text: rl.texts[2*i+1], Color: rl.color(i), Weight: 700})
-			p.RichText(0, float32(k)*16, 0, rl.scratch...)
+			p.RichText(0, float32(k)*richLineStep, 0, rl.scratch...)
 		}
 	})
 }
@@ -250,14 +255,14 @@ func (rl *richLines) view(c *context) {
 func TestPainterRichTextKeepsSpans(t *testing.T) {
 	const lines = 40
 	rl := newRichLines(lines)
-	tt := coreNewTester(rl.view, 300, lines*16)
+	tt := coreNewTester(rl.view, 300, lines*richLineStep)
 	check := func(when string) {
 		t.Helper()
 		img := tt.Image()
 		for i := range lines {
 			want := rl.color(i)
 			found, wrong := false, false
-			for y := i * 16; y < (i+1)*16; y++ {
+			for y := i * richLineStep; y < (i+1)*richLineStep; y++ {
 				for x := range 300 {
 					c := img.RGBAAt(x, y)
 					red, blue := c.R > 200 && c.B < 80, c.B > 200 && c.R < 80
