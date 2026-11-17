@@ -1,1 +1,7 @@
 * text=auto eol=lf
+
+# Windows' command interpreter reads a batch file's lines as they are ended,
+# and a label it jumps to is one of them: the lines of Gradle's batch script
+# end with CRLF, in the repository and in every copy of it, a checkout's and
+# a module's alike.
+internal/mobile/android/gradlew.bat -text
