@@ -27,10 +27,10 @@ func (s *counter) View(c *ui.Context) {
 		el3.Children(func() {
 //line counter.view:5:3
 			el4 := ui.Button(c.Key("counter.view:5:3"), "−")
-//line counter.view:5:29
-			el4.Width(44)
 //line counter.view:5:11
 			el4.Label("Decrement")
+//line counter.view:5:29
+			el4.Width(44)
 //line counter.view:5:40
 			if el4.Clicked() {
 				s.Decrement()
@@ -45,10 +45,10 @@ func (s *counter) View(c *ui.Context) {
 			}
 //line counter.view:7:3
 			el6 := ui.PrimaryButton(c.Key("counter.view:7:3"), "+")
-//line counter.view:7:37
-			el6.Width(44)
 //line counter.view:7:19
 			el6.Label("Increment")
+//line counter.view:7:37
+			el6.Width(44)
 //line counter.view:7:48
 			if el6.Clicked() {
 				s.Increment()

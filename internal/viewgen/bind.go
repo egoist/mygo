@@ -18,12 +18,10 @@ import (
 type binder struct {
 	// members are the receiver's fields and methods, by name.
 	members map[string]bool
-	// pkgNames are the package's own top-level names.
-	pkgNames map[string]bool
 }
 
 func newBinder(recv *types.Named, scope *types.Scope) *binder {
-	b := &binder{members: map[string]bool{}, pkgNames: map[string]bool{}}
+	b := &binder{members: map[string]bool{}}
 	if st, ok := recv.Underlying().(*types.Struct); ok {
 		for i := 0; i < st.NumFields(); i++ {
 			b.members[st.Field(i).Name()] = true
@@ -32,11 +30,7 @@ func newBinder(recv *types.Named, scope *types.Scope) *binder {
 	for i := 0; i < recv.NumMethods(); i++ {
 		b.members[recv.Method(i).Name()] = true
 	}
-	if scope != nil {
-		for _, name := range scope.Names() {
-			b.pkgNames[name] = true
-		}
-	}
+	_ = scope
 	return b
 }
 
@@ -69,6 +63,7 @@ func (b *binder) body(src string, pos Position, viewPath string) (string, error)
 	var sb strings.Builder
 	for _, stmt := range fn.Body.List {
 		formatNode(fset, stmt, &sb)
+		sb.WriteString("\n")
 	}
 	out := sb.String()
 	out = strings.TrimSuffix(out, "\n")
@@ -88,6 +83,16 @@ type rewriter struct {
 	depth int
 }
 
+// copyBound copies the names bound around this point, for a scope that
+// nests in it.
+func (r *rewriter) copyBound() map[string]bool {
+	out := make(map[string]bool, len(r.bound))
+	for k, v := range r.bound {
+		out[k] = v
+	}
+	return out
+}
+
 // visit rewrites in place: an ident naming a receiver member and nothing
 // in an inner scope becomes a selector on s.
 func (r *rewriter) visit(n ast.Node) bool {
@@ -104,7 +109,9 @@ func (r *rewriter) visit(n ast.Node) bool {
 			return false
 		}
 	case *ast.FuncLit:
-		inner := &rewriter{binder: r.binder, bound: map[string]bool{}}
+		// The closure sees the locals of the statements around it, and
+		// adds its own.
+		inner := &rewriter{binder: r.binder, bound: r.copyBound()}
 		for _, p := range n.Type.Params.List {
 			for _, id := range p.Names {
 				inner.bound[id.Name] = true
@@ -133,10 +140,7 @@ func (r *rewriter) visit(n ast.Node) bool {
 		}
 		return false
 	case *ast.RangeStmt:
-		inner := &rewriter{binder: r.binder, bound: map[string]bool{}}
-		for _, id := range []*ast.Ident{} {
-			_ = id
-		}
+		inner := &rewriter{binder: r.binder, bound: r.copyBound()}
 		ast.Inspect(n.X, inner.visit)
 		if n.Key != nil {
 			if id, ok := n.Key.(*ast.Ident); ok && id.Name != "_" {
@@ -152,6 +156,22 @@ func (r *rewriter) visit(n ast.Node) bool {
 			ast.Inspect(stmt, inner.visit)
 		}
 		return false
+	case *ast.DeclStmt:
+		// A var declaration binds its names for the statements after it.
+		if gd, ok := n.Decl.(*ast.GenDecl); ok {
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for _, id := range vs.Names {
+					if id.Name != "_" {
+						r.bound[id.Name] = true
+					}
+				}
+			}
+		}
+		return true
 	case *ast.Ident:
 		if n.Name == "_" || r.bound[n.Name] || !r.members[n.Name] {
 			return true

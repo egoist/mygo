@@ -308,3 +308,211 @@ func main() { _ = ui.View((&app{}).View) }
 		t.Fatal("a broken view wrote its output")
 	}
 }
+
+// TestHandlerLocalsKeepTheirMeaning is the binder's worst class (#1457):
+// a local of a handler body, read inside a closure or a range body,
+// must stay the local, not become the receiver's member of that name.
+func TestHandlerLocalsKeepTheirMeaning(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+
+type picker struct {
+	Items []string
+	N     int
+}
+
+func (s *picker) Reload() {}
+`,
+		"app.view": `<view type="picker">
+<column>
+	<button on-clicked={Items := []string{"a"}; clearAll(func() { Items = nil }); var xs []int; xs = append(xs, len(Items)); for i, item := range Items { _ = i; _ = item }; s.N = len(xs)}>Pick</button>
+</column>
+</view>
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func clearAll(fn func()) { fn() }
+
+func main() { _ = ui.View((&picker{}).View) }
+`})
+	if _, err := Generate(dir); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(src)
+	// The closure writes the local, not the receiver's field.
+	if strings.Contains(g, "s.items = nil") || strings.Contains(g, "s.Items = nil") {
+		t.Fatalf("a local became the receiver's field inside a closure:\n%s", g)
+	}
+	if strings.Contains(g, "s.xs") {
+		t.Fatalf("a var local became the receiver's field:\n%s", g)
+	}
+	if !strings.Contains(g, "Items = nil") || !strings.Contains(g, "append(xs, len(Items))") {
+		t.Fatalf("the locals were lost:\n%s", g)
+	}
+}
+
+// TestTextInAContainerThatHoldsNone errors instead of dropping it.
+func TestTextInAContainerThatHoldsNone(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+
+type app struct{}
+
+func (a *app) Nothing() {}
+`,
+		"app.view": `<view type="app">
+<column>hello world</column>
+</view>
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&app{}).View) }
+`})
+	_, err := Generate(dir)
+	if err == nil || !strings.Contains(err.Error(), "text") {
+		t.Fatalf("dropped the text instead of erroring: %v", err)
+	}
+}
+
+// TestBadKeyAndBadLiteralError: an invalid key expression or literal
+// fails generation, never c.Key(nil).
+func TestBadKeyAndBadLiteralError(t *testing.T) {
+	for _, view := range []string{
+		`<view type="app"><column><text key={n++}>x</text></column></view>`,
+		`<view type="app"><column gap="abc"><text>x</text></column></view>`,
+	} {
+		dir := writeApp(t, map[string]string{
+			"app.go":   "package main\n\ntype app struct{ n int }\n",
+			"app.view": view,
+			"main.go":  "package main\n\nimport \"github.com/egoist/mygo/ui\"\n\nfunc main() { _ = ui.View((&app{}).View) }\n",
+		})
+		if _, err := Generate(dir); err == nil {
+			t.Errorf("%s: no error", view)
+		}
+	}
+}
+
+// TestRenamedViewPrunesItsOldOutput: a .view that went away takes its
+// generated file with it, or the package grows two View methods.
+func TestRenamedViewPrunesItsOldOutput(t *testing.T) {
+	base := map[string]string{
+		"app.go": `package main
+
+type app struct{ n int }
+
+func (s *app) Bump() { s.n++ }
+`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&app{}).View) }
+`,
+	}
+	dir := writeApp(t, merge(base, map[string]string{
+		"old.view": `<view type="app"><text>{n}</text></view>`,
+	}))
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "old_view.go")); err != nil {
+		t.Fatal("no output written")
+	}
+	// The view moves: the old output must go.
+	dir2 := writeApp(t, merge(base, map[string]string{
+		"new.view": `<view type="app"><text>{n}</text></view>`,
+	}))
+	_ = dir2
+	// Simulate the move in dir itself.
+	if err := os.Rename(filepath.Join(dir, "old.view"), filepath.Join(dir, "new.view")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "old_view.go")); err == nil {
+		t.Fatal("the renamed view's old output stayed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new_view.go")); err != nil {
+		t.Fatal("the renamed view wrote no output")
+	}
+}
+
+// TestTestFilesAndTagsStayOut: a test file of another package, or one
+// behind a build tag the host does not satisfy, is not a source.
+func TestTestFilesAndTagsStayOut(t *testing.T) {
+	base := map[string]string{
+		"app.go": `package main
+
+type app struct{ n int }
+`,
+		"app.view": `<view type="app"><text>{n}</text></view>`,
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&app{}).View) }
+`,
+		"app_windows_test.go": `//go:build windows
+
+package main_test
+`,
+		"broken_wip_test.go": `package main
+
+func TestWIP(t *T) {} // broken on purpose
+`,
+		"other.go": "//go:build plan9\n\npackage main\n\nfunc unused() {}\n",
+	}
+	dir := writeApp(t, base)
+	if _, err := Generate(dir); err != nil {
+		t.Fatalf("test files and tagged files broke generation: %v", err)
+	}
+}
+
+func merge(base, extra map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range extra {
+		out[k] = v
+	}
+	return out
+}
+
+// TestTypeErrorMapsToTheView: an expression the Go types reject fails
+// generation at the .view's place, not at the generated file's.
+func TestTypeErrorMapsToTheView(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+
+type app struct{ n int }
+`,
+		"app.view": "<view type=\"app\">\n<text>{n.Missing}</text>\n</view>\n",
+		"main.go": `package main
+
+import "github.com/egoist/mygo/ui"
+
+func main() { _ = ui.View((&app{}).View) }
+`,
+	})
+	_, err := Generate(dir)
+	if err == nil {
+		t.Fatal("no error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "app.view:2") {
+		t.Fatalf("error %q does not point at the .view", msg)
+	}
+	if strings.Contains(msg, "_view.go") {
+		t.Fatalf("error %q names the generated file", msg)
+	}
+}

@@ -102,12 +102,6 @@ func Parse(path string, src []byte) (*File, []Diagnostic, error) {
 }
 
 func (p *viewParser) pos() Position { return Position{p.line, p.col} }
-func (p *viewParser) at(off int) Position {
-	// Positions are tracked as we scan; this is only for parts already
-	// passed.
-	return p.pos()
-}
-
 func (p *viewParser) errf(pos Position, format string, args ...any) error {
 	p.diag = append(p.diag, Diagnostic{Pos: pos, Path: p.path, Msg: fmt.Sprintf(format, args...)})
 	return p.diag[len(p.diag)-1]
@@ -237,7 +231,7 @@ func (p *viewParser) element() (*Node, error) {
 	}
 	tag, _ := p.name()
 	if tag == "" {
-		return nil, p.errf(pos, "expected an element name after <")
+		return nil, p.errf(pos, "expected an element name after <; a < in text is written &lt;")
 	}
 	n := &Node{Tag: tag, Pos: pos}
 	// Attributes until > or />.
@@ -457,11 +451,23 @@ func (p *viewParser) braced(pos Position) (TextPart, error) {
 				}
 			}
 		case '/':
-			if p.peek(1) == '/' {
+			switch p.peek(1) {
+			case '/':
 				for p.off < len(p.src) && p.peek(0) != '\n' {
 					p.next()
 				}
-			} else {
+			case '*':
+				p.next()
+				p.next()
+				for p.off < len(p.src) {
+					if p.peek(0) == '*' && p.peek(1) == '/' {
+						p.next()
+						p.next()
+						break
+					}
+					p.next()
+				}
+			default:
 				p.next()
 			}
 		default:
@@ -576,16 +582,3 @@ func (n *Node) attr(name string) string {
 	}
 	return ""
 }
-
-// has reports whether the element has the attribute at all.
-func (n *Node) has(name string) bool {
-	for _, a := range n.Attrs {
-		if a.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-// space reports whether r is ASCII whitespace.
-func space(r rune) bool { return r == ' ' || r == '\t' || r == '\r' || r == '\n' }

@@ -30,7 +30,7 @@ func (s *counter) reference(c *ui.Context) {
 
 // run drives a view of one counter through a user's steps and reports
 // what showed.
-func run(view func(*ui.Context)) (steps []string, pixels []image.Image) {
+func run(view func(*counter, *ui.Context)) (steps []string, pixels []image.Image) {
 	s := &counter{}
 	tt := ui.NewTester(func(c *ui.Context) {
 		if c.Shortcut(0, ui.KeyUp) {
@@ -39,7 +39,7 @@ func run(view func(*ui.Context)) (steps []string, pixels []image.Image) {
 		if c.Shortcut(0, ui.KeyDown) {
 			s.n--
 		}
-		view(c)
+		view(s, c)
 	}, 360, 260)
 	snapshot := func(step string) {
 		tt.Frame()
@@ -47,10 +47,6 @@ func run(view func(*ui.Context)) (steps []string, pixels []image.Image) {
 		pixels = append(pixels, tt.Image())
 	}
 	snapshot("start")
-	for _, up := range []int{0, 2} { // click +, then − twice, Reset at 0
-		_ = up
-		break
-	}
 	tt.Click("+")
 	snapshot("up")
 	tt.Click("−")
@@ -82,8 +78,8 @@ func texts(tt *ui.Tester) string {
 // against the screen as it was: what shows, what the clicks and keys do,
 // and the pixels themselves.
 func TestGeneratedViewMatchesTheHandwrittenOne(t *testing.T) {
-	wantSteps, wantPixels := run((&counter{}).reference)
-	gotSteps, gotPixels := run((&counter{}).View)
+	wantSteps, wantPixels := run((*counter).reference)
+	gotSteps, gotPixels := run((*counter).View)
 	for i := range wantSteps {
 		if gotSteps[i] != wantSteps[i] {
 			t.Fatalf("step %d: generated %q, handwritten %q", i, gotSteps[i], wantSteps[i])

@@ -7,6 +7,7 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -64,7 +65,7 @@ func (g *gen) emit() (string, error) {
 	for path := range g.imports {
 		imports = append(imports, path)
 	}
-	sortStrings(imports)
+	sort.Strings(imports)
 	if len(imports) == 1 {
 		fmt.Fprintf(&sb, "package %s\n\nimport %q\n\n", pkg, imports[0])
 	} else if len(imports) > 1 {
@@ -86,6 +87,9 @@ func (g *gen) emit() (string, error) {
 		last++
 	}
 	_ = last
+	if len(g.diags) > 0 {
+		return "", g.diags[0]
+	}
 	src := sb.String()
 	out, err := gofmtSource(src)
 	if err != nil {
@@ -108,9 +112,15 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 	var ctorArgs map[string]*Attr
 	ctorArgs = map[string]*Attr{}
 	var fluent []fluentUse
+	defer func() {}()
 	var events []eventUse
 	var keyAttr *Attr
+	seen := map[string]bool{}
 	for _, a := range n.Attrs {
+		if seen[a.Name] {
+			return nil, g.errf(a.Pos, "%s is given twice", a.Name)
+		}
+		seen[a.Name] = true
 		switch {
 		case a.Name == "key":
 			keyAttr = a
@@ -159,6 +169,9 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 	}
 	if n.HasBodyText && n.HasElements {
 		return nil, g.errf(n.Pos, "<%s> holds both text and elements: wrap the text in its own element", n.Tag)
+	}
+	if n.HasBodyText && stringParam == "" {
+		return nil, g.errf(n.Pos, "<%s> holds no text: nothing of <%s> takes its body's words; a <text> shows them", n.Tag, n.Tag)
 	}
 	// Required constructor parameters must come from somewhere.
 	for _, p := range c.Params {
@@ -225,7 +238,11 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 		return ls, nil
 	}
 	ls = append(ls, line{dir: g.dir(n.Pos), code: tab + name + " := " + call})
-	// Fluent calls, each at its attribute's place.
+	// Fluent calls, each at its attribute's place, in the order the
+	// markup gives them.
+	sort.SliceStable(fluent, func(i, j int) bool {
+		return fluent[i].attr.Pos.Line < fluent[j].attr.Pos.Line || fluent[i].attr.Pos.Line == fluent[j].attr.Pos.Line && fluent[i].attr.Pos.Col < fluent[j].attr.Pos.Col
+	})
 	for _, f := range fluent {
 		call, err := g.methodCall(f, n)
 		if err != nil {
@@ -619,14 +636,6 @@ func validIdent(s string) bool {
 		}
 	}
 	return true
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
 }
 
 // gofmtSource formats generated Go.
