@@ -180,6 +180,7 @@ See [Linux](distribution.md#linux).
 | `keystore` | the debug key | the keystore of the upload key that signs release builds, its passwords from `MYGO_ANDROID_KEYSTORE_PASSWORD` and `MYGO_ANDROID_KEY_PASSWORD` |
 | `keyAlias` | | the alias of the upload key in the keystore |
 | `appLinks` | | the domains the app opens links of, as `example.com` |
+| `cleartextHosts` | | the hosts the app may reach over plain http, which Android refuses otherwise, as `localhost` |
 | `adaptiveIcon` | | the launcher's icon, in layers: `foreground`, a square PNG, and `background`, a color |
 | `splash` | the theme's | the color that shows as the app launches, as `#102030` |
 
