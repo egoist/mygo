@@ -29,7 +29,6 @@ import android.widget.FrameLayout
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
-import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.concurrent.CountDownLatch
@@ -120,10 +119,14 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
     }
 
     fun callAsync(req: Long, body: String) {
-        val js = "(function(){var r=$req;try{var F=Object.getPrototypeOf(async function(){}).constructor;" +
-            "new F(${JSONObject.quote(body)})().then(function(v){mygoAndroid.asyncResult(r,String(v),'')}," +
-            "function(e){mygoAndroid.asyncResult(r,'',String(e&&e.message||e))})}catch(e){mygoAndroid.asyncResult(r,'',String(e&&e.message||e))}})()"
-        web.evaluateJavascript(js, null)
+        // The body is compiled as part of the script evaluateJavascript runs, which the page's Content Security
+        // Policy does not govern; an AsyncFunction made from a string in the page is eval, which a policy without
+        // 'unsafe-eval' refuses. A script that does not compile runs nothing and answers null.
+        val js = "(function(){var r=$req;(async function(){\n$body\n})().then(function(v){mygoAndroid.asyncResult(r,String(v),'')}," +
+            "function(e){mygoAndroid.asyncResult(r,'',String(e&&e.message||e))});return 1})()"
+        web.evaluateJavascript(js) { v ->
+            if (v != "1") Go.send(Event.asyncResult(req, "", "SyntaxError: the script does not compile"))
+        }
     }
 
     fun capture(req: Long) {
