@@ -80,7 +80,7 @@ if app.added {
 }
 ```
 
-`ScrollIntoViewOptions` 和 Web 的 `scrollIntoView` 选项一样，可以把元素对齐到别处，或滑行过去。`Block` 控制纵向对齐，`Inline` 控制横向对齐：默认的 `ui.ScrollNearest` 以最小幅度滚动让它显示，`ui.ScrollStart`、`ui.ScrollCenter` 和 `ui.ScrollEnd` 把它的开头、中心或末尾与每个容器的对应位置对齐（在边框以内）；[从右向左](right-to-left.md)时，内联方向的开头在右侧。设置 `Animation` 时，周围的每个容器都会按动画的设定滑行过去，如同 Web 的 `behavior: "smooth"`，而不是立即滚动：用户滚动或应用操作都会停止它，桌面要求减少动效时则会立即滚动。搜索的当前匹配项，居中：
+`ScrollIntoViewOptions` 和 Web 的 `scrollIntoView` 选项一样，可以把元素对齐到别处，或滑行过去。`Block` 控制纵向对齐，`Inline` 控制横向对齐：默认的 `ui.ScrollNearest` 以最小幅度滚动让它显示，`ui.ScrollStart`、`ui.ScrollCenter` 和 `ui.ScrollEnd` 把它的开头、中心或末尾与每个容器的对应位置对齐（在边框以内）；[从右向左](right-to-left.md)时，内联方向的开头在右侧。设置 `Animation` 时，需要滚动的容器会按动画的设定滑行过去，如同 Web 的 `behavior: "smooth"`。用户滚动或应用操作都会停止它，桌面要求减少动效时则会立即滚动。搜索的当前匹配项，居中：
 
 ```go
 if app.matchMoved {
@@ -88,7 +88,15 @@ if app.matchMoved {
 }
 ```
 
-零值选项与不带选项的 `ScrollIntoView()` 相同。
+设置 `NearestContainer: true` 时，只滚动最内层的滚动容器，与 Web 的 `container: "nearest"` 一样。例如，搜索面板可以在局部显示匹配项，保留外层页面的位置。
+
+```go
+hit.ScrollIntoView(ui.ScrollIntoViewOptions{
+	Block: ui.ScrollCenter, NearestContainer: true,
+})
+```
+
+即使内容没有溢出，或匹配项已经在内层容器中可见，滚动范围仍限于该容器。外层容器仍可能裁剪匹配项。零值选项与不带选项的 `ScrollIntoView()` 相同，会考虑所有外层滚动容器。
 
 键盘焦点移动时会滚动到视图内。带有应用自己的 `TextInputClient` 的元素（[文本输入客户端](text-input-client.md)）会把插入符（位置由 `BoundsForRange` 给出）滚动到视图内，而不是滚动整个盒子：和行数一样高的代码编辑器在获得焦点时会显示正在编辑的那一行，而不是第一行。
 
