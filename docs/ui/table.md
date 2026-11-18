@@ -131,7 +131,8 @@ The user arranges the columns, as in Finder:
   moves and resizes it. Only the columns from the first in a row are pinned,
   each with a `Width` (or one the user gave it), and the pinned ones follow
   the order of the columns. Give them room: the columns that scroll can only
-  be seen in what they leave.
+  be seen in what they leave, so pinned columns as wide as the table, or wider,
+  leave nothing of the others to see. The table does not unpin them.
 
 `ListState.VirtualColumns` makes the table build, in each row, only the
 columns in view and half its width of them on both sides, as it builds only
