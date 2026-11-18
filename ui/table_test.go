@@ -1370,3 +1370,34 @@ func TestTableVirtualColumnsGapsKeepTheirKeys(t *testing.T) {
 		t.Errorf("the blocks' IDs changed as the table scrolled: %v, then %v", before, after)
 	}
 }
+
+// A column with no title or ID, a checkbox column say, is kept built while
+// it holds the keyboard as the others are.
+func TestTableVirtualColumnsKeepTheFocusedUntitledColumn(t *testing.T) {
+	s := ListState{VirtualColumns: true}
+	cols := make([]TableColumn, 60)
+	for j := range cols {
+		cols[j] = TableColumn{Title: "H" + strconv.Itoa(j), Width: 100}
+	}
+	cols[1] = TableColumn{Width: 100}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Children(func() {
+			coreTable(c, &s, cols, 5, func(row, col int) {
+				if row == 1 && col == 1 {
+					coreBox(c).Key("check").Focusable().Children(func() { coreText(c, "check") })
+					return
+				}
+				coreText(c, "r"+strconv.Itoa(row)+"c"+strconv.Itoa(col)).SingleLine()
+			}).Grow(1)
+		})
+	}, 400, 300)
+	tt.Frame()
+	tt.Click("check")
+	tt.Frame()
+	tt.Scroll(200, 150, 3000, 0)
+	tt.Frame()
+	tt.Frame()
+	if !tt.HasText("check") {
+		t.Fatal("the untitled column holding the focus, scrolled out of view, is gone")
+	}
+}

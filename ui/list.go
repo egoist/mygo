@@ -353,11 +353,13 @@ type ListState struct {
 	frozenN int
 	frozenW float32
 	// focusCol is the ID of the column whose cell held the keyboard in
-	// the last frame, and focusColNext of the one that does in this: a
-	// Table with VirtualColumns keeps it built, as a List keeps its
+	// the last frame, and focusColNext of the one that does in this, when
+	// focusColOn and focusColNextOn say there is one (an ID may be empty):
+	// a Table with VirtualColumns keeps it built, as a List keeps its
 	// focused row, so that the focus does not go as it scrolls out of
 	// view.
-	focusCol, focusColNext string
+	focusCol, focusColNext     string
+	focusColOn, focusColNextOn bool
 }
 
 // listRequest is where the app or the user asked the list to go: to row

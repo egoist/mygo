@@ -250,7 +250,8 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	// (Frozen); known only when the columns have widths.
 	starts, frozenN, frozenW := tableGeometry(layout, columns, order)
 	s.frozenN, s.frozenW = frozenN, frozenW
-	s.focusCol, s.focusColNext = s.focusColNext, ""
+	s.focusCol, s.focusColOn = s.focusColNext, s.focusColNextOn
+	s.focusColNext, s.focusColNextOn = "", false
 	// fitting are the cells of the column fitting its cells.
 	var fitting []*node
 	var list *node
@@ -282,7 +283,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 			kept[1] = s.colIndex(s.dragSel.fromCol)
 		}
 	}
-	if s.focusCol != "" {
+	if s.focusColOn {
 		kept[2] = slices.IndexFunc(order, func(j int) bool { return columns[j].id() == s.focusCol })
 	}
 	keep := func(k int) bool { return k >= 0 && (k == kept[0] || k == kept[1] || k == kept[2]) }
@@ -399,7 +400,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				}
 			}
 			if s.VirtualColumns && role == RoleCell && box.FocusWithin() {
-				s.focusColNext = col.id()
+				s.focusColNext, s.focusColNextOn = col.id(), true
 			}
 			if drag.fit != "" && drag.fit == col.id() {
 				fitting = append(fitting, box)
