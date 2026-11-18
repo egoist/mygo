@@ -59,8 +59,8 @@ func TestParseMarkdown(t *testing.T) {
 			para(ParagraphStyle{List: Tasks, Checked: true, Quote: true}, Run{Text: "done"}),
 			para(ParagraphStyle{List: Bullets, Indent: 1, Quote: true}, Run{Text: "nested"}),
 		)},
-		{"a  \nb", TextOf(para(ParagraphStyle{}, Run{Text: "a"}), para(ParagraphStyle{}, Run{Text: "b"}))},
-		{"1. a\\\n   b", TextOf(para(ParagraphStyle{List: Numbers}, Run{Text: "a"}), para(ParagraphStyle{Indent: 1}, Run{Text: "b"}))},
+		{"a  \nb", TextOf(para(ParagraphStyle{}, Run{Text: "a" + string(LineSeparator) + "b"}))},
+		{"1. a\\\n   b", TextOf(para(ParagraphStyle{List: Numbers}, Run{Text: "a" + string(LineSeparator) + "b"}))},
 		{"| a | b |\n|---|---|\n| 1 | **2** |", TextOf(
 			para(ParagraphStyle{}, Run{Text: "a\tb", Attributes: bold}),
 			para(ParagraphStyle{}, Run{Text: "1\t"}, Run{Text: "2", Attributes: bold}),

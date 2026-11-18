@@ -236,9 +236,14 @@ func (r *rtfReader) control(word string, num int, hasNum bool) {
 		r.listed = true
 	case "ilvl":
 		r.level = max(0, num)
-	case "par", "line", "sect", "page":
+	case "par", "sect", "page":
 		if !st.skip && !st.list && st.field != "inst" {
 			r.endParagraph(true)
+		}
+	case "line":
+		// A line break within the paragraph, not a new paragraph.
+		if !st.skip && !st.list && st.field != "inst" {
+			r.emit(string(LineSeparator))
 		}
 	case "pard":
 		st.para = ParagraphStyle{}

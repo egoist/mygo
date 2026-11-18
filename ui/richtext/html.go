@@ -244,7 +244,16 @@ func writeRun(b *strings.Builder, r Run) {
 	for _, t := range tags {
 		b.WriteString("<" + t + ">")
 	}
-	b.WriteString(html.EscapeString(r.Text))
+	if strings.ContainsRune(r.Text, LineSeparator) {
+		for k, part := range strings.Split(r.Text, string(LineSeparator)) {
+			if k > 0 {
+				b.WriteString("<br>")
+			}
+			b.WriteString(html.EscapeString(part))
+		}
+	} else {
+		b.WriteString(html.EscapeString(r.Text))
+	}
 	for k := len(tags) - 1; k >= 0; k-- {
 		b.WriteString("</" + tags[k] + ">")
 	}
@@ -388,6 +397,14 @@ func (b *htmlBuilder) begin() {
 	}
 }
 
+// lineBreak adds a line break within the paragraph being built, in
+// attributes a.
+func (b *htmlBuilder) lineBreak(a Attributes) {
+	b.begin()
+	b.cur.Runs = append(b.cur.Runs, Run{Text: string(LineSeparator), Attributes: a})
+	b.space = false
+}
+
 // text adds text in attributes a.
 func (b *htmlBuilder) text(s string, a Attributes) {
 	if b.pre > 0 {
@@ -451,8 +468,13 @@ func (b *htmlBuilder) node(n *xhtml.Node, a Attributes) {
 	case atom.Script, atom.Style, atom.Head, atom.Title, atom.Template, atom.Noscript:
 		return
 	case atom.Br:
-		b.begin()
-		b.flush()
+		if b.pre > 0 {
+			// A code block holds a paragraph per line.
+			b.begin()
+			b.flush()
+		} else {
+			b.lineBreak(a)
+		}
 		return
 	case atom.Img:
 		src, alt := attr(n, "src"), attr(n, "alt")

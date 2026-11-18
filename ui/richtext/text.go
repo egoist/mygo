@@ -23,8 +23,9 @@ import (
 // Offsets count runes, newlines included, as Element.TextSelection does.
 // Paragraphs end at newlines; the style of a paragraph and the attributes
 // of its newline belong to it, as in word processors, so that an empty
-// paragraph remembers the attributes typing gets there. Runs are kept as
-// long as they can be: neighbors with the same attributes are one run.
+// paragraph remembers the attributes typing gets there. A line break within
+// a paragraph is a LineSeparator. Runs are kept as long as they can be:
+// neighbors with the same attributes are one run.
 type Text struct {
 	text  *rope.Node
 	paras *seq[richPara]
@@ -116,6 +117,12 @@ func (a *Attachment) size() (w, h float32) {
 
 // ObjectReplacement is the character an Attachment takes in a text.
 const ObjectReplacement = '￼'
+
+// LineSeparator is the rune of a line break within a paragraph: a Markdown
+// hard line break, which one Paragraph holds. Layout breaks lines at it.
+// PlainText and the clipboard's JSON write it as "\n"; Markdown writes it
+// as "\\\n"; HTML writes it as <br>.
+const LineSeparator = '\u2028'
 
 // ListKind is what a paragraph is an item of.
 type ListKind uint8

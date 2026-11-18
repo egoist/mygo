@@ -114,7 +114,7 @@ func clipOf(t Text) clipText {
 		cp := clipParagraph{Style: p.Style}
 		for _, r := range p.Runs {
 			a := r.Attributes
-			cr := clipRun{Text: r.Text, Attributes: clipAttributes{
+			cr := clipRun{Text: lineBreaksAsNewlines(r.Text), Attributes: clipAttributes{
 				Font: a.Font, Size: a.Size, Weight: a.Weight, Italic: a.Italic, Underline: a.Underline,
 				Strikethrough: a.Strikethrough, Code: a.Code, Link: a.Link, Tag: a.Tag,
 			}}
@@ -168,7 +168,7 @@ func (c clipText) text() Text {
 			if at := cr.Attachment; at != nil {
 				a.Attachment = &Attachment{Name: at.Name, URL: at.URL, Width: side(at.Width), Height: side(at.Height)}
 			}
-			p.Runs = append(p.Runs, Run{Text: cr.Text, Attributes: a})
+			p.Runs = append(p.Runs, Run{Text: clipLineBreaks(cr.Text), Attributes: a})
 		}
 		paras = append(paras, p)
 	}
@@ -178,9 +178,24 @@ func (c clipText) text() Text {
 	return TextOf(paras...)
 }
 
-// PlainText returns t as plain text, its attachments left out.
+// clipLineBreaks turns the newlines in the text of a clipRun into the line
+// breaks within a paragraph, which its paragraph holds.
+func clipLineBreaks(s string) string {
+	if !strings.ContainsAny(s, "\r\n") {
+		return s
+	}
+	s = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(s)
+	return strings.ReplaceAll(s, "\n", string(LineSeparator))
+}
+
+func lineBreaksAsNewlines(s string) string {
+	return strings.ReplaceAll(s, string(LineSeparator), "\n")
+}
+
+// PlainText returns t as plain text, its attachments left out and intra-paragraph
+// line breaks written as newlines.
 func (t Text) PlainText() string {
-	return strings.ReplaceAll(t.String(), string(ObjectReplacement), "")
+	return lineBreaksAsNewlines(strings.ReplaceAll(t.String(), string(ObjectReplacement), ""))
 }
 
 // clipboardData returns t as the clipboard takes it: in the format of

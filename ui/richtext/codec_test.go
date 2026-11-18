@@ -90,8 +90,11 @@ func TestParseForeignHTML(t *testing.T) {
 	}
 	// Whitespace collapses; scripts and styles are left out.
 	got = ParseHTML("<style>p{}</style><p>  a \n  b  </p><script>x()</script><p>c<br>d</p>")
-	if s := got.String(); s != "a b\nc\nd" {
+	if s := got.String(); s != "a b\nc"+string(LineSeparator)+"d" {
 		t.Fatalf("text %q", s)
+	}
+	if s := got.PlainText(); s != "a b\nc\nd" {
+		t.Fatalf("plain text %q", s)
 	}
 }
 

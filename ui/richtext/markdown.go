@@ -280,7 +280,7 @@ func renderRuns(runs []Run, html map[delimKey]bool) (string, []delim) {
 			closeTo(0)
 			b.WriteString(pending)
 			pending = ""
-			b.WriteString("![" + escapeMarkdown(at.Name) + "](" + markdownURL(at.URL) + ")")
+			b.WriteString("![" + escapeMarkdown(at.Name, false) + "](" + markdownURL(at.URL) + ")")
 			first = false
 			continue
 		}
@@ -302,7 +302,8 @@ func renderRuns(runs []Run, html map[delimKey]bool) (string, []delim) {
 			lead = strings.NewReplacer(" ", "&#32;", "\t", "&#9;").Replace(pending + lead)
 			pending = ""
 		}
-		b.WriteString(pending + lead)
+		lineHead := first || strings.ContainsRune(pending+lead, LineSeparator)
+		b.WriteString(strings.ReplaceAll(pending+lead, string(LineSeparator), "\\\n"))
 		for _, m := range want[k:] {
 			key := delimKey{i, m.kind}
 			open = append(open, opened{m, key, b.Len()})
@@ -311,10 +312,7 @@ func renderRuns(runs []Run, html map[delimKey]bool) (string, []delim) {
 		if r.Attributes.Code {
 			b.WriteString(codeSpan(core))
 		} else {
-			s := escapeMarkdown(core)
-			if first {
-				s = escapeBlockStart(s)
-			}
+			s := escapeMarkdown(core, lineHead)
 			if strings.HasSuffix(s, "!") {
 				// Not an image with a link after it.
 				s = s[:len(s)-1] + "\\!"
@@ -325,7 +323,7 @@ func renderRuns(runs []Run, html map[delimKey]bool) (string, []delim) {
 		pending = trail
 	}
 	closeTo(0)
-	b.WriteString(pending)
+	b.WriteString(strings.ReplaceAll(pending, string(LineSeparator), "<br>"))
 	return b.String(), delims
 }
 
@@ -452,10 +450,37 @@ func codeSpan(s string) string {
 	return fence + s + fence
 }
 
-// escapeMarkdown escapes what Markdown would read as marks.
-func escapeMarkdown(s string) string {
+// escapeMarkdown escapes what Markdown would read as marks, and line
+// starts when lineStart is true or after a LineSeparator.
+func escapeMarkdown(s string, lineStart bool) string {
 	var b strings.Builder
+	atStart := lineStart
+	lineDigits := false
 	for i, r := range s {
+		if r == LineSeparator {
+			b.WriteString("\\\n")
+			atStart, lineDigits = true, false
+			continue
+		}
+		switch {
+		case atStart:
+			atStart = false
+			switch {
+			case r == '#', r == '>', r == '-', r == '+', r == '=':
+				b.WriteByte('\\')
+			case r >= '0' && r <= '9':
+				lineDigits = blockNumberStart(s[i:])
+			}
+		case lineDigits:
+			switch {
+			case r >= '0' && r <= '9':
+			case r == '.' || r == ')':
+				b.WriteByte('\\')
+				lineDigits = false
+			default:
+				lineDigits = false
+			}
+		}
 		switch r {
 		case '\\', '*', '_', '`', '[', ']', '<', '~':
 			b.WriteByte('\\')
@@ -470,21 +495,12 @@ func escapeMarkdown(s string) string {
 	return b.String()
 }
 
-// escapeBlockStart escapes the start of a body paragraph that Markdown
-// would read as a heading, a list, a quotation or a rule.
-func escapeBlockStart(s string) string {
-	switch {
-	case strings.HasPrefix(s, "#"), strings.HasPrefix(s, ">"), strings.HasPrefix(s, "-"), strings.HasPrefix(s, "+"), strings.HasPrefix(s, "="):
-		return "\\" + s
-	}
+func blockNumberStart(s string) bool {
 	i := 0
 	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
 		i++
 	}
-	if i > 0 && i < len(s) && (s[i] == '.' || s[i] == ')') {
-		return s[:i] + "\\" + s[i:]
-	}
-	return s
+	return i > 0 && i < len(s) && (s[i] == '.' || s[i] == ')')
 }
 
 // markdownURL returns a URL as the destination of a link.

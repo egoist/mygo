@@ -206,7 +206,7 @@ func (m *mdReader) inlines(out *[]Run, in []parser.Inline, from, to int, a Attri
 		case parser.SoftBreak:
 			add(" ", a)
 		case parser.LineBreak:
-			add("\n", a)
+			add(string(LineSeparator), a)
 		case parser.Code:
 			x.Code = true
 			add(n.Text, x)
@@ -250,7 +250,7 @@ func (m *mdReader) tag(s string, out *[]Run, a Attributes) {
 	which := -1
 	switch name {
 	case "br":
-		*out = append(*out, Run{Text: "\n", Attributes: a})
+		*out = addMDRun(*out, Run{Text: string(LineSeparator), Attributes: a})
 		return
 	case "u", "ins":
 		which = 0
