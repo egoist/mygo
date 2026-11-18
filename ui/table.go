@@ -913,7 +913,8 @@ func frozenStyle(t *Theme, first bool) func(*node) {
 		if e.bg != Transparent && e.bg.A == 255 {
 			return
 		}
-		var layers []Color
+		var buf [4]Color
+		layers := buf[:0]
 		if e.bg != Transparent {
 			layers = append(layers, e.bg)
 		}
