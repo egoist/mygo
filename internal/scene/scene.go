@@ -124,8 +124,10 @@ type Op struct {
 	// Apple draws them (Core Animation's continuous corner curve, SwiftUI's
 	// rounded rectangles): the curve starts further from the corner and
 	// bends gradually, instead of as a quarter circle. Corners that are
-	// round in both directions, as a circle's, stay circular. Only the
-	// renderers of macOS draw them, the CPU's and Metal's.
+	// round in both directions, as a circle's, stay circular. The CPU's
+	// renderer and Metal's draw them, and Direct3D's and OpenGL's when
+	// asked to (ContinuousCorners, which ui.SetContinuousCorners has
+	// them be).
 	Continuous bool
 
 	Color Color

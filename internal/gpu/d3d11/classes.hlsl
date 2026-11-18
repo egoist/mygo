@@ -1,7 +1,8 @@
 // The shaders of the classes of batches (gpu.Class), after shader.hlsl, whose
 // functions they share, with CLASSES defined, a bit (1 << gpu.Class) for each
 // class they draw, and PLAIN, FILL, SHADOW, GLYPH, SUBPIXEL and IMAGE, each 1 if
-// they draw it, as FXC's preprocessor cannot test the bits. A class's instances
+// they draw it, as FXC's preprocessor cannot test the bits, and CONTINUOUS for
+// the shaders of batches holding continuous corners. A class's instances
 // are not transformed, so these leave out the general shader's coordinates, and
 // pass on only what their paths read; flow control skips what a fragment needs
 // not, and only subpixel glyphs write a second color for dual-source blending:
@@ -148,9 +149,8 @@ ClassPS classps(ClassOut i) {
 			// An inner shadow: inside the box, what the hole, blurred, leaves.
 			float hole = 0;
 			[branch] if (i.widths.z > 0 && i.widths.w > 0) {
-				float corner = max(max(i.inner.x, i.inner.y), max(i.inner.z, i.inner.w));
 				[branch] if (sigma > 0) {
-					hole = boxShadow(p, i.widths, sigma, corner);
+					hole = blurredBox(p, i.widths, sigma, i.inner);
 				} else {
 					hole = rectCoverage(p, i.widths, i.inner);
 				}
@@ -164,9 +164,8 @@ ClassPS classps(ClassOut i) {
 			}
 			float s = 0;
 			[branch] if (outside > 0) {
-				float corner = max(max(i.radii.x, i.radii.y), max(i.radii.z, i.radii.w));
 				[branch] if (sigma > 0) {
-					s = boxShadow(p, i.rect, sigma, corner);
+					s = blurredBox(p, i.rect, sigma, i.radii);
 				} else {
 					s = rectCoverage(p, i.rect, i.radii);
 				}

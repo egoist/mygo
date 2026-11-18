@@ -273,10 +273,7 @@ trees, are multiples of it. It is 4 by default; 3 makes every widget
 compact, 5 roomy. `FontSize` sizes their text, `Radius` rounds their
 corners, and `Scrollbar` and `ScrollbarWidth` color and size scroll bar
 thumbs, which `ScrollbarStyle` styles further: tracks, hover and drag
-colors, widths, corners and the shortest thumb. On macOS,
-rounded corners, the widgets' and your elements', curve continuously as
-AppKit's and SwiftUI's do, and elsewhere as quarter circles, as Windows
-and GTK draw them. Size your own
+colors, widths, corners and the shortest thumb. Size your own
 elements with the theme too, and they follow it: `t.Space(3)` is three
 units of its spacing, and `t.Rem(2)` twice its font size, as CSS's rem.
 
@@ -304,6 +301,36 @@ in every window sets it to the accent:
 ```go
 t.InactiveAccent = t.Accent
 ```
+
+## Corners
+
+On macOS, rounded corners, the widgets' and your elements', curve
+continuously as AppKit's and SwiftUI's do, and elsewhere as quarter
+circles, as Windows and GTK draw them. A continuous corner leaves the
+straight edges gradually, about 1.53 radii from the corner, where a
+quarter circle meets them with a change of curvature that shows at larger
+radii. An app whose look is its own, the same on every platform, chooses
+for all its windows, before it opens them:
+
+```go
+func main() {
+	ui.SetContinuousCorners(true) // continuous on Windows and Linux too
+	mygo.NewWindow(mygo.WindowOptions{Title: "Chat", Content: ui.View(app.View)})
+	mygo.App.Run()
+}
+```
+
+`ui.SetContinuousCorners(false)` makes them quarter circles on macOS too.
+The choice covers every rounded thing MyGo draws: backgrounds and borders,
+clips, shadows (blurred and inset), images, materials, and the holes web
+views show through, with the same curve on the GPU (Metal, Direct3D 11,
+OpenGL and WebGL 2) as in memory and in a `Tester`. A web view's own
+corners are those its system draws, circular on Windows and Linux. There
+is one choice for the app, not one for each element. On Direct3D and
+OpenGL, as on Metal, only what lies near continuous corners draws with
+the shaders of the curve, large shapes drawing their middles as
+rectangles; apps that leave them off there draw as before, and on
+Windows link none of their shaders.
 
 ## The focus ring
 

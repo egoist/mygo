@@ -52,6 +52,11 @@ type sharedDevice struct {
 	passVS, downPS, blurPS                     uintptr
 	classes                                    [1 << gpu.NumClasses]*classPipe
 	compileClasses                             bool
+	// contPS and contClasses are the shaders drawing continuous corners
+	// (Renderer.ContinuousCorners), made as first drawn: contPS is 0
+	// before, and invalidShader where it could not be made.
+	contPS      uintptr
+	contClasses [1 << gpu.NumClasses]*classPipe
 }
 
 // devices holds the device new renderers share, nil before the first or
@@ -246,12 +251,18 @@ func (d *sharedDevice) free() {
 		call(d.ctx, ctxFlush)
 	}
 	for _, s := range classShaders {
-		if p := d.classes[s.classes]; p != nil {
-			free(&p.vs)
-			free(&p.ps)
+		for _, p := range []*classPipe{d.classes[s.classes], d.contClasses[s.classes]} {
+			if p != nil {
+				free(&p.vs)
+				free(&p.ps)
+			}
 		}
 	}
-	d.classes = [len(d.classes)]*classPipe{}
+	d.classes, d.contClasses = [len(d.classes)]*classPipe{}, [len(d.contClasses)]*classPipe{}
+	if d.contPS == invalidShader {
+		d.contPS = 0
+	}
+	free(&d.contPS)
 	for _, p := range []*uintptr{&d.samp, &d.raster, &d.overHoleBlend, &d.overBlend, &d.holeBlend, &d.blend, &d.layout,
 		&d.blurPS, &d.downPS, &d.passVS, &d.ps, &d.vs, &d.factory, &d.ctx1, &d.ctx, &d.device} {
 		free(p)
@@ -267,6 +278,7 @@ func (r *Renderer) useDevice(d *sharedDevice) {
 	r.raster, r.samp = d.raster, d.samp
 	r.passVS, r.downPS, r.blurPS = d.passVS, d.downPS, d.blurPS
 	r.classes, r.compileClasses = &d.classes, d.compileClasses
+	r.contPS, r.contClasses = &d.contPS, &d.contClasses
 }
 
 // dropDevice has r let go of its device, which it no longer draws on.
@@ -276,6 +288,6 @@ func (r *Renderer) dropDevice() {
 	}
 	d := r.dev
 	r.useDevice(&sharedDevice{})
-	r.dev, r.classes = nil, nil
+	r.dev, r.classes, r.contPS, r.contClasses = nil, nil, nil, nil
 	releaseDevice(d)
 }
