@@ -115,7 +115,6 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 	if c.Unsupported != "" {
 		return nil, g.errf(n.Pos, "<%s> cannot be built from markup yet: %s", n.Tag, c.Unsupported)
 	}
-	// Attributes by role, in source order.
 	var ctorArgs map[string]*Attr
 	ctorArgs = map[string]*Attr{}
 	var fluent []fluentUse
@@ -170,7 +169,6 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 		if !ok || m.Kind != MethodFluent {
 			return nil, g.errf(a.Pos, "%s supplies both the text and the %s parameter", a.Name, a.Name)
 		}
-		// The attribute reads as the fluent method it names.
 		fluent = append(fluent, fluentUse{attr: a, method: m})
 		delete(ctorArgs, a.Name)
 	}
@@ -180,7 +178,6 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 	if n.HasBodyText && stringParam == "" {
 		return nil, g.errf(n.Pos, "<%s> holds no text: nothing of <%s> takes its body's words; a <text> shows them", n.Tag, n.Tag)
 	}
-	// Required constructor parameters must come from somewhere.
 	for _, p := range c.Params {
 		if !p.Required {
 			continue
@@ -192,7 +189,6 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 			return nil, g.errf(n.Pos, "<%s> needs a %s: give it as an attribute%s", n.Tag, p.Name, bodyHint(stringParam))
 		}
 	}
-	// The element's expression, evaluated once.
 	name := g.local()
 	// The body supplies the constructor's string parameter: a literal as
 	// it is, mixed text and expressions as a format. The ui's text
@@ -242,13 +238,11 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 	}
 	var ls []line
 	if len(fluent) == 0 && len(n.Children) == 0 && len(events) == 0 {
-		// Nothing more is asked of it: the call alone, evaluated once.
+		// Nothing more is asked of it.
 		ls = append(ls, line{dir: g.dir(n.Pos), code: tab + call})
 		return ls, nil
 	}
 	ls = append(ls, line{dir: g.dir(n.Pos), code: tab + name + " := " + call})
-	// Fluent calls, each at its attribute's place, in the order the
-	// markup gives them.
 	sort.SliceStable(fluent, func(i, j int) bool {
 		return fluent[i].attr.Pos.Line < fluent[j].attr.Pos.Line || fluent[i].attr.Pos.Line == fluent[j].attr.Pos.Line && fluent[i].attr.Pos.Col < fluent[j].attr.Pos.Col
 	})
@@ -259,7 +253,6 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 		}
 		ls = append(ls, line{dir: g.dir(f.attr.Pos), code: tab + name + call})
 	}
-	// Children.
 	if len(n.Children) > 0 {
 		ls = append(ls, line{code: tab + name + ".Children(func() {"})
 		for _, ch := range n.Children {
@@ -271,7 +264,8 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 		}
 		ls = append(ls, line{code: tab + "})"})
 	}
-	// Events ask in attribute order, each in its own if.
+	// Each event asks in its own if, never an else: one may bring the
+	// next.
 	for _, e := range events {
 		body, err := g.handler(e.attr)
 		if err != nil {
@@ -314,7 +308,6 @@ func (g *gen) keyCall(n *Node, keyAttr *Attr) string {
 	if keyAttr == nil {
 		return g.context + ".Key(" + strconv.Quote(fmt.Sprintf("%s:%d:%d", g.view.Path, n.Pos.Line, n.Pos.Col)) + "), "
 	}
-	// An explicit key is the app's expression.
 	if len(keyAttr.Value) == 1 && keyAttr.Value[0].IsExpr {
 		expr, err := g.rewrite(keyAttr.Value[0])
 		if err != nil {
@@ -486,13 +479,10 @@ func (g *gen) value(a *Attr, t types.Type, ptr bool, n *Node) (string, error) {
 		}
 		return g.convert(expr, &Param{Type: t, Ptr: ptr, Required: true}, a)
 	}
-	// A literal.
 	if len(a.Value) == 1 && !a.Value[0].IsExpr {
 		lit := a.Value[0].Lit
 		if ptr {
-			// A literal for a pointer parameter: only the markup's own
-			// bindings take addresses; literals of pointer type are not
-			// written this way.
+			// Bindings take addresses, not literals.
 			return "", g.errf(a.Pos, "a pointer parameter needs a Go expression, as {%s: \"...\"}", "field")
 		}
 		if isStringType(t) {
@@ -500,8 +490,7 @@ func (g *gen) value(a *Attr, t types.Type, ptr bool, n *Node) (string, error) {
 		}
 		return g.literal(lit, t, a), nil
 	}
-	// Mixed literal and expression: one value that must itself be an
-	// expression; join as a format string is not a constructor argument.
+	// A constructor argument is one value, not a format.
 	return "", g.errf(a.Pos, "a constructor argument is one value: write the parts as a Go expression")
 }
 
