@@ -1401,3 +1401,30 @@ func TestTableVirtualColumnsKeepTheFocusedUntitledColumn(t *testing.T) {
 		t.Fatal("the untitled column holding the focus, scrolled out of view, is gone")
 	}
 }
+
+// The column a drag over the cells started in is kept built, for the drag
+// to go on from it as the table scrolls away.
+func TestTableVirtualColumnsKeepTheDragColumn(t *testing.T) {
+	tt, s, _ := cellTable(t, 8, 30, 100)
+	s.VirtualColumns = true
+	tt.Frame()
+	x, y := rowCenter(t, tt, "r1c2")
+	x2, _ := rowCenter(t, tt, "r1c3")
+	tt.Press(x, y)
+	tt.Move(x+3, y)
+	// The pointer moves the Cursor on, to the column under it.
+	tt.Move(x2+60, y)
+	tt.Frame()
+	if !s.dragSel.on || s.dragSel.fromCol == s.Cells.Cursor {
+		t.Fatalf("the drag is not on, or the Cursor did not leave its column: on %v, from %q, Cursor %q", s.dragSel.on, s.dragSel.fromCol, s.Cells.Cursor)
+	}
+	tt.Scroll(200, 150, 1500, 0)
+	tt.Frame()
+	tt.Frame()
+	if _, ok := tt.Find("r1c18"); !ok {
+		t.Fatalf("the table did not scroll: texts %q", tt.Texts())
+	}
+	if _, ok := tt.Find("r1c2"); !ok {
+		t.Fatalf("the column the drag started in (%q), scrolled out of view, is not built", s.dragSel.fromCol)
+	}
+}
