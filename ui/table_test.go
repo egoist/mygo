@@ -1189,3 +1189,40 @@ func TestTableVirtualColumnsKeepTheCursorColumn(t *testing.T) {
 		t.Fatalf("the cell of the Cursor %q, scrolled out of view, is not built", s.Cells.Cursor)
 	}
 }
+
+// A pinned header under the pointer is opaque with a theme whose hover
+// color is translucent, as it is without the pointer: the headers scrolling
+// under it would show through.
+func TestTableFrozenHeaderHoveredIsOpaque(t *testing.T) {
+	sort := SortOrder{}
+	s := ListState{Sort: &sort}
+	cols := []TableColumn{{Title: "A", Width: 100, Frozen: true, Sortable: true}, {Title: "B", Width: 400}}
+	// The node of the frame built last, whose look the paint settled.
+	var head *node
+	s.HeaderCell = func(e Element, j int) {
+		if j == 0 {
+			head = e.node()
+		}
+	}
+	th := *LightTheme()
+	th.SurfaceHover = RGBA(0, 0, 0, 0.1)
+	tt := coreNewTester(func(c *context) {
+		c.SetTheme(&th)
+		coreColumn(c).Fill().Children(func() {
+			coreTable(c, &s, cols, 3, func(row, col int) { coreText(c, "x") }).Grow(1)
+		})
+	}, 300, 200)
+	tt.Frame()
+	a := header(t, tt, "A")
+	tt.Move(float32(a.X+a.W/2), float32(a.Y+a.H/2))
+	tt.Frame()
+	tt.Frame()
+	if head == nil || head.styleFn == nil {
+		t.Fatal("no pinned header built")
+	}
+	// Painting restores what its style sets: run it as the paint does.
+	head.styleFn(head)
+	if !head.Hovered() || head.bg.A != 255 {
+		t.Errorf("the hovered pinned header's background %+v (hovered %v), want an opaque one", head.bg, head.Hovered())
+	}
+}

@@ -495,13 +495,15 @@ func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDra
 	sorts, choosesAll := s.sorts() && col.sortable(), col.RowHeader && s.choosesCells()
 	if sorts || choosesAll {
 		h.flags |= flagClickable | flagHover
+		// The hover first: a pinned header then composites it, if it is
+		// translucent, over what shows behind.
 		pinned := h.styleFn
 		h.styleFn = func(h *node) {
-			if pinned != nil {
-				pinned(h)
-			}
 			if h.Hovered() {
 				h.bg = t.SurfaceHover
+			}
+			if pinned != nil {
+				pinned(h)
 			}
 		}
 	}
