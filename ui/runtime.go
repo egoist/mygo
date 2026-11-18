@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"os"
 	"slices"
 	"sync"
 	"time"
@@ -701,19 +700,14 @@ type keyEvent struct {
 }
 
 func newRuntime(view func(*context), h host) *engine {
-	// A phone's host sets the environment after the package's variables
-	// took it.
-	if !frameStatsOn {
-		frameStatsThreshold, frameStatsOn = frameStatsSetting(os.Getenv("MYGO_FRAME_STATS"))
-	}
 	rt := &engine{view: view, host: h, text: h.textSystem(), states: map[uint64]*state{}, windowFocused: true}
 	rt.c.rt = rt
 	rt.owner = weak.Make(rt)
 	rt.arena = &elementOwner{rt: rt}
 	rt.public = &Context{rt: rt, services: Services{owner: rt.owner}}
 	rt.handleChecks = developmentHandles
-	if frameStatsOn {
-		rt.stats = newFrameStats(frameStatsThreshold)
+	if threshold, on := frameStatsOn(); on {
+		rt.stats = newFrameStats(threshold)
 	}
 	return rt
 }
