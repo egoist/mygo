@@ -1332,7 +1332,7 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 			case it.has(flagByBase):
 				crossOff = ln.baseline - it.baseline
 			default:
-				switch Align(it.align) {
+				switch it.align {
 				case Center:
 					crossOff = free / 2
 				case End:
