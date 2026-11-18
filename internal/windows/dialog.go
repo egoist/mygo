@@ -24,12 +24,19 @@ var (
 	clsidFileSaveDialog = guid("c0b4e2f3-ba21-4773-8dba-335ec946eb8b")
 	iidIFileSaveDialog  = guid("84bccd23-5fde-4cdb-aea4-af64b83d78ab")
 	iidIShellItem       = guid("43826d1e-e718-42ee-bc55-a1e261c37bfe")
+
+	iidIFileDialogEvents = guid("973510db-7d7f-452b-8975-74a85828d354")
+	iidIOleWindow        = guid("00000114-0000-0000-c000-000000000046")
+	clsidShellLibrary    = guid("d9b3211d-e57f-4426-aaef-30a806add397")
+	iidIShellLibrary     = guid("11a66efa-382e-451a-9234-1e0e12ef3085")
 )
 
 // IFileDialog (IModalWindow) and IFileOpenDialog vtable indices.
 const (
 	fdShow             = 3
 	fdSetFileTypes     = 4
+	fdAdvise           = 7
+	fdUnadvise         = 8
 	fdSetOptions       = 9
 	fdGetOptions       = 10
 	fdSetFolder        = 12
@@ -43,6 +50,12 @@ const (
 	siGetDisplayName = 5
 	siaGetCount      = 7
 	siaGetItemAt     = 8
+
+	oleWindowGetWindow     = 3 // IOleWindow::GetWindow
+	slLoadLibraryFromItem  = 3 // IShellLibrary::LoadLibraryFromItem
+	slGetDefaultSaveFolder = 9 // IShellLibrary::GetDefaultSaveFolder
+	stgmRead               = 0
+	dsftDetect             = 1
 
 	fosOverwritePrompt  = 0x2
 	fosPickFolders      = 0x20
@@ -70,14 +83,27 @@ func (d dialogs) ShowOpenDialog(parent platform.Window, o *platform.OpenDialogOp
 	}
 	defer release(dlg)
 	setupFileDialog(dlg, openDialogOptions(dialogOptions(dlg), o), o.Title, o.ButtonLabel, "", o.DefaultPath, o.Filters)
-	if failed(comCall(dlg, fdShow, ownerOf(parent))) {
+	unadvise := func() {}
+	if o.OpenDirectories {
+		unadvise = d.checkFolders(dlg)
+	}
+	hr := comCall(dlg, fdShow, ownerOf(parent))
+	unadvise()
+	if failed(hr) {
 		cb(nil, nil) // canceled
 		return
 	}
+	cb(fileSystemPaths(chosenPaths(dlg)), nil)
+}
+
+// chosenPaths returns the paths of the items chosen in an open dialog, ""
+// for those that have none, as This PC; a library, as Documents, has the
+// path of the folder it saves to. It works once the dialog closed and
+// during OnFileOk.
+func chosenPaths(dlg uintptr) []string {
 	var items uintptr
 	if failed(comCall(dlg, fodGetResults, uintptr(unsafe.Pointer(&items)))) || items == 0 {
-		cb(nil, nil)
-		return
+		return nil
 	}
 	defer release(items)
 	var n uint32
@@ -86,11 +112,128 @@ func (d dialogs) ShowOpenDialog(parent platform.Window, o *platform.OpenDialogOp
 	for i := uint32(0); i < n; i++ {
 		var item uintptr
 		if comCall(items, siaGetItemAt, uintptr(i), uintptr(unsafe.Pointer(&item))) == sOK {
-			paths = append(paths, itemPath(item))
+			p := itemPath(item)
+			if p == "" {
+				p = libraryFolder(item)
+			}
+			paths = append(paths, p)
 			release(item)
 		}
 	}
-	cb(fileSystemPaths(paths), nil)
+	return paths
+}
+
+// libraryFolder returns the path of the folder a library saves to, "" when
+// item is not a library or that folder has no path.
+func libraryFolder(item uintptr) string {
+	lib, err := coCreate(clsidShellLibrary, iidIShellLibrary)
+	if err != nil {
+		return ""
+	}
+	defer release(lib)
+	if failed(comCall(lib, slLoadLibraryFromItem, item, stgmRead)) {
+		return ""
+	}
+	var folder uintptr
+	if failed(comCall(lib, slGetDefaultSaveFolder, dsftDetect, uintptr(unsafe.Pointer(&iidIShellItem)), uintptr(unsafe.Pointer(&folder)))) || folder == 0 {
+		return ""
+	}
+	defer release(folder)
+	return itemPath(folder)
+}
+
+// refused reports whether a folder picker refuses the chosen paths
+// (chosenPaths): those of items that are not folders of the file system,
+// "", which it would close on without FOS_FORCEFILESYSTEM.
+func refused(paths []string) bool { return slices.Contains(paths, "") }
+
+// A folderCheck is the IFileDialogEvents of a folder picker. The picker
+// leaves out FOS_FORCEFILESYSTEM (openDialogOptions), with which Windows
+// refuses items that are not folders of the file system, as This PC, and
+// stays open: the check refuses them instead, in OnFileOk, and says why
+// in a message the picker owns. Its callbacks are created once, as for
+// drop targets, and it stays in folderChecks until its last release.
+// Main thread only.
+type folderCheck struct {
+	vtbl *[10]uintptr
+	refs int32
+	b    *Backend
+	dlg  uintptr // the IFileOpenDialog, which holds the check while advised
+}
+
+var (
+	folderCheckOnce sync.Once
+	folderCheckVtbl [10]uintptr
+	folderChecks    = map[uintptr]*folderCheck{}
+)
+
+func initFolderCheck() {
+	ok := syscall.NewCallback(func(this, a, b uintptr) uintptr { return sOK })
+	notImpl := syscall.NewCallback(func(this, a, b, c uintptr) uintptr { return eNotImpl })
+	folderCheckVtbl = [10]uintptr{
+		syscall.NewCallback(func(this, riid, out uintptr) uintptr {
+			if iid := *(*GUID)(native(riid)); iid != iidIUnknown && iid != iidIFileDialogEvents {
+				*(*uintptr)(native(out)) = 0
+				return eNoInterface
+			}
+			*(*uintptr)(native(out)) = this
+			folderChecks[this].refs++
+			return sOK
+		}),
+		syscall.NewCallback(func(this uintptr) uintptr {
+			c := folderChecks[this]
+			c.refs++
+			return uintptr(c.refs)
+		}),
+		syscall.NewCallback(func(this uintptr) uintptr {
+			c := folderChecks[this]
+			if c.refs--; c.refs == 0 {
+				delete(folderChecks, this)
+			}
+			return uintptr(c.refs)
+		}),
+		// OnFileOk(dialog)
+		syscall.NewCallback(func(this, dlg uintptr) uintptr { return folderChecks[this].fileOk(dlg) }),
+		ok,      // OnFolderChanging(dialog, folder)
+		ok,      // OnFolderChange(dialog)
+		ok,      // OnSelectionChange(dialog)
+		notImpl, // OnShareViolation(dialog, item, response): the default response
+		ok,      // OnTypeChange(dialog)
+		notImpl, // OnOverwrite(dialog, item, response): the default response
+	}
+}
+
+// checkFolders makes the folder picker dlg refuse items that are not
+// folders of the file system (folderCheck), and returns the function that
+// stops it, to call once Show returned.
+func (d dialogs) checkFolders(dlg uintptr) (unadvise func()) {
+	folderCheckOnce.Do(initFolderCheck)
+	c := &folderCheck{vtbl: &folderCheckVtbl, refs: 1, b: d.b, dlg: dlg}
+	p := uintptr(unsafe.Pointer(c))
+	folderChecks[p] = c
+	defer release(p) // the dialog holds its own reference while advised
+	var cookie uint32
+	if failed(comCall(dlg, fdAdvise, p, uintptr(unsafe.Pointer(&cookie)))) {
+		return func() {}
+	}
+	return func() { comCall(dlg, fdUnadvise, uintptr(cookie)) }
+}
+
+// fileOk answers OnFileOk: S_FALSE, which keeps the dialog open, when an
+// item chosen is not a folder of the file system, after saying so in a
+// message the dialog owns.
+func (c *folderCheck) fileOk(dlg uintptr) uintptr {
+	if !refused(chosenPaths(c.dlg)) {
+		return sOK
+	}
+	var owner uintptr
+	if w := queryInterface(dlg, &iidIOleWindow); w != 0 {
+		comCall(w, oleWindowGetWindow, uintptr(unsafe.Pointer(&owner)))
+		release(w)
+	}
+	tx := platform.CurrentTexts()
+	c.b.messageBox(owner, &platform.MessageBoxOptions{Type: "warning", Message: tx.NotAFolder, Buttons: []string{tx.OK}})
+	return sFalse
 }
 
 // openDialogOptions returns the options of an open dialog for o, from the
@@ -98,8 +241,9 @@ func (d dialogs) ShowOpenDialog(parent platform.Window, o *platform.OpenDialogOp
 // also when it is a default: with it, leaving a folder without
 // subfolders on a WSL share (\\wsl.localhost\...) freezes the dialog,
 // and the app's window with it, for 25 s or more (#2024). Without it the
-// user can choose an item that is not a folder of the file system, such
-// as This PC, which fileSystemPaths drops.
+// dialog would close on an item that is not a folder of the file system,
+// such as This PC: a folderCheck refuses those instead, and
+// fileSystemPaths drops any left.
 func openDialogOptions(current uint32, o *platform.OpenDialogOptions) uint32 {
 	opts := current | fosPathMustExist
 	if o.OpenDirectories {
@@ -117,8 +261,8 @@ func openDialogOptions(current uint32, o *platform.OpenDialogOptions) uint32 {
 }
 
 // fileSystemPaths keeps the chosen items' paths, leaving out the items
-// with none ("" from itemPath), and is nil when none remain, as when the
-// dialog is canceled.
+// with none ("" from chosenPaths), and is nil when none remain, as when
+// the dialog is canceled.
 func fileSystemPaths(paths []string) []string {
 	var out []string
 	for _, p := range paths {
