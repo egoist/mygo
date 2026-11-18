@@ -16,15 +16,31 @@ type binder struct {
 	scope        *types.Scope
 	fs           *token.FileSet
 	pos          token.Pos
+	recvTypeName string
+	recvObj      types.Object
+	ctxObj       types.Object
 	members      map[string]types.Object
 	replacements map[types.Object]string
 	useImport    func(string, string) string
 }
 
 func newBinder(recv *types.Named, pkg *types.Package, fs *token.FileSet, pos token.Pos, scope *types.Scope, aliases map[string]*types.Package, receiver, context string, useImport func(string, string) string) (*binder, error) {
-	b := &binder{pkg: pkg, scope: scope, fs: fs, pos: pos, members: map[string]types.Object{}, replacements: map[types.Object]string{}, useImport: useImport}
-	b.replacements[scope.Lookup("s")] = receiver
-	b.replacements[scope.Lookup("c")] = context
+	recvObj := scope.Lookup("s")
+	ctxObj := scope.Lookup("c")
+	b := &binder{
+		pkg:          pkg,
+		scope:        scope,
+		fs:           fs,
+		pos:          pos,
+		recvTypeName: recv.Obj().Name(),
+		recvObj:      recvObj,
+		ctxObj:       ctxObj,
+		members:      map[string]types.Object{},
+		replacements: map[types.Object]string{},
+		useImport:    useImport,
+	}
+	b.replacements[recvObj] = receiver
+	b.replacements[ctxObj] = context
 	for name, obj := range memberNames(recv, pkg) {
 		b.members[name] = obj
 		if name == "s" || name == "c" {
@@ -47,7 +63,7 @@ func newBinder(recv *types.Named, pkg *types.Package, fs *token.FileSet, pos tok
 		}
 	}
 	if context != "c" {
-		if alt := scope.Insert(types.NewVar(token.NoPos, pkg, context, scope.Lookup("c").Type())); alt != nil {
+		if alt := scope.Insert(types.NewVar(token.NoPos, pkg, context, ctxObj.Type())); alt != nil {
 			return nil, fmt.Errorf("the context's name %s is a member's (%s)", context, alt.Name())
 		}
 	}
@@ -60,8 +76,9 @@ func memberNames(recv *types.Named, pkg *types.Package) map[string]types.Object 
 	var fields func(types.Type)
 	seen := map[types.Type]bool{}
 	fields = func(t types.Type) {
+		t = types.Unalias(t)
 		if p, ok := t.(*types.Pointer); ok {
-			t = p.Elem()
+			t = types.Unalias(p.Elem())
 		}
 		if seen[t] {
 			return
@@ -96,18 +113,29 @@ func (b *binder) expr(src string, pos Position, path string) (string, ast.Expr, 
 	return b.rewrite(src, pos, path, false)
 }
 
-func (b *binder) body(src string, pos Position, path string) (string, []ast.Stmt, error) {
+func (b *binder) body(src string, pos Position, path string) (string, bool, error) {
 	_, e, err := b.rewrite("func(){"+src+"\n}", pos, path, true)
 	if err != nil {
-		return "", nil, err
+		return "", false, err
 	}
 	fn := e.(*ast.FuncLit)
+	wrap := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if _, nested := n.(*ast.FuncLit); nested {
+			return false
+		}
+		switch n.(type) {
+		case *ast.ReturnStmt, *ast.DeferStmt, *ast.LabeledStmt:
+			wrap = true
+		}
+		return !wrap
+	})
 	var out strings.Builder
 	for _, stmt := range fn.Body.List {
 		formatNode(b.fs, stmt, &out)
 		out.WriteByte('\n')
 	}
-	return strings.TrimSuffix(out.String(), "\n"), fn.Body.List, nil
+	return strings.TrimSuffix(out.String(), "\n"), wrap, nil
 }
 
 func (b *binder) rewrite(src string, pos Position, path string, body bool) (string, ast.Expr, error) {
@@ -117,11 +145,27 @@ func (b *binder) rewrite(src string, pos Position, path string, body bool) (stri
 		kind = "statements"
 	}
 	if err != nil {
-		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: fmt.Sprintf("not Go %s: %v", kind, err)}
+		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: fmt.Sprintf("not Go %s: %v", kind, stripExprFile(err.Error()))}
 	}
 	info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}, Scopes: map[ast.Node]*types.Scope{}}
 	if checkErr := types.CheckExpr(b.fs, b.pkg, b.pos, e, info); checkErr != nil {
-		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: checkErr.Error()}
+		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: stripExprFile(checkErr.Error())}
+	}
+	explicit := map[*ast.Ident]bool{}
+	if b.members["s"] != nil || b.members["c"] != nil {
+		ast.Inspect(e, func(n ast.Node) bool {
+			switch v := n.(type) {
+			case *ast.SelectorExpr:
+				if id, ok := v.X.(*ast.Ident); ok {
+					explicit[id] = true
+				}
+			case *ast.ParenExpr:
+				if id, ok := v.X.(*ast.Ident); ok {
+					explicit[id] = true
+				}
+			}
+			return true
+		})
 	}
 	type edit struct {
 		start, end int
@@ -136,6 +180,12 @@ func (b *binder) rewrite(src string, pos Position, path string, body bool) (stri
 	sort.Slice(ids, func(i, j int) bool { return ids[i].Pos() < ids[j].Pos() })
 	for _, id := range ids {
 		obj := info.Uses[id]
+		if obj == b.recvObj && b.members["s"] != nil && !explicit[id] {
+			return "", nil, Diagnostic{Pos: pos, Path: path, Msg: fmt.Sprintf("s is the view receiver (*%s), shadowing %s.s; write s.s for the member, or (s) for the receiver", b.recvTypeName, b.recvTypeName)}
+		}
+		if obj == b.ctxObj && b.members["c"] != nil && !explicit[id] {
+			return "", nil, Diagnostic{Pos: pos, Path: path, Msg: fmt.Sprintf("c is the view *ui.Context, shadowing %s.c; write s.c for the member, or (c) for the context", b.recvTypeName)}
+		}
 		replacement, ok := b.replacements[obj]
 		if !ok {
 			if p, yes := obj.(*types.PkgName); yes {
@@ -153,11 +203,25 @@ func (b *binder) rewrite(src string, pos Position, path string, body bool) (stri
 	}
 	e, err = parser.ParseExprFrom(b.fs, "bound-view-expression", src, 0)
 	if err != nil {
-		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: err.Error()}
+		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: stripExprFile(err.Error())}
 	}
 	var out strings.Builder
 	formatNode(b.fs, e, &out)
 	return out.String(), e, nil
+}
+
+// stripExprFile drops the synthetic "view-expression:line:col: " prefix
+// from parser and type-checker messages before attaching the .view
+// position.
+func stripExprFile(msg string) string {
+	for _, p := range []string{"view-expression:", "bound-view-expression:"} {
+		if strings.HasPrefix(msg, p) {
+			if _, rest, ok := strings.Cut(msg, ": "); ok {
+				return rest
+			}
+		}
+	}
+	return msg
 }
 
 func (b *binder) eval(src string) (types.TypeAndValue, error) {

@@ -21,7 +21,7 @@ import (
 // export data is read, nothing changes.
 func prepareViews(ctx context.Context, c *Config, env []string, flags ...string) (found bool, err error) {
 	// The common mains name a directory: look there before any tool
-	// runs, so builds without views pay for one Glob.
+	// runs, so builds without views pay for one ReadDir.
 	dir := ""
 	if c.Main == "." || strings.HasPrefix(c.Main, "./") || filepath.IsAbs(c.Main) {
 		dir = c.Main
@@ -39,8 +39,8 @@ func prepareViews(ctx context.Context, c *Config, env []string, flags ...string)
 		}
 		dir = d
 	}
-	views, err := filepath.Glob(filepath.Join(dir, "*.view"))
-	if err != nil || len(views) == 0 {
+	has, err := hasViewFiles(dir)
+	if err != nil || !has {
 		return false, err
 	}
 	written, err := viewgen.Generate(ctx, dir, env, flags...)
@@ -51,6 +51,22 @@ func prepareViews(ctx context.Context, c *Config, env []string, flags ...string)
 		con.note("info", "generated "+filepath.Base(w))
 	}
 	return true, nil
+}
+
+func hasViewFiles(dir string) (bool, error) {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".view") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // listMainDir is the directory of a main named as a module path, in the
@@ -68,10 +84,4 @@ func listMainDir(ctx context.Context, c *Config, env []string, flags []string) (
 		return "", fmt.Errorf("no package at %s", c.Main)
 	}
 	return dir, nil
-}
-
-// generatedMarkerOf reads the .view path a file was generated from, ""
-// for none.
-func generatedMarkerOf(src string) string {
-	return viewgen.GeneratedMarker(src)
 }

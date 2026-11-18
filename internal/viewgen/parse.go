@@ -34,11 +34,10 @@ func (d Diagnostic) Error() string {
 // TextPart is a stretch of an element's body or of an attribute value:
 // literal text, or a Go expression in braces.
 type TextPart struct {
-	Lit     string // literal text, entities decoded, whitespace as written
-	Expr    string // the Go expression inside the braces, spaces trimmed
-	IsExpr  bool
-	Pos     Position // of the text, or of the opening brace
-	QuoteCh byte     // attribute values: the quote the expression was written in, 0 in body text
+	Lit    string // literal text, entities decoded, whitespace as written
+	Expr   string // the Go expression inside the braces, spaces trimmed
+	IsExpr bool
+	Pos    Position // of the text, or of the opening brace
 }
 
 // Attr is one attribute of an element. Value holds its parts in source
@@ -186,6 +185,14 @@ func (p *viewParser) parse() (*File, error) {
 			if f.HasViewEl {
 				return nil, p.errf(el.Pos, "a second <view> element")
 			}
+			if len(roots) > 0 {
+				return nil, p.errf(el.Pos, "<view> wraps the whole file: move outer elements inside it")
+			}
+			for _, a := range el.Attrs {
+				if a.Name != "type" {
+					return nil, p.errf(a.Pos, "<view> takes only type, not %s", a.Name)
+				}
+			}
 			f.HasViewEl, f.Type = true, el.attr("type")
 			if el.HasBodyText {
 				return nil, p.errf(el.Pos, "<view> holds elements, not text")
@@ -195,6 +202,9 @@ func (p *viewParser) parse() (*File, error) {
 			}
 			roots = append(roots, el.Children...)
 			continue
+		}
+		if f.HasViewEl {
+			return nil, p.errf(el.Pos, "<view> wraps the whole file: move <%s> inside it", el.Tag)
 		}
 		roots = append(roots, el)
 	}
@@ -271,7 +281,7 @@ func (p *viewParser) element() (*Node, error) {
 				}
 				a.Value = parts
 			} else if q == '{' {
-				part, err := p.braced(pos)
+				part, err := p.braced()
 				if err != nil {
 					return nil, err
 				}
@@ -364,11 +374,10 @@ func (p *viewParser) attrValue(quote byte) ([]TextPart, error) {
 			return parts, nil
 		case b == '{':
 			flush()
-			part, err := p.braced(litPos)
+			part, err := p.braced()
 			if err != nil {
 				return nil, err
 			}
-			part.QuoteCh = quote
 			parts = append(parts, part)
 		case b == '<':
 			return nil, p.errf(p.pos(), "a < in an attribute value: write it as an expression, as {\"<\"}")
@@ -388,7 +397,7 @@ func (p *viewParser) attrValue(quote byte) ([]TextPart, error) {
 // braced reads one {Go expression}, scanning it as Go so that braces in
 // strings, runes, raw strings and comments, and nested braces of
 // composite literals, do not end it.
-func (p *viewParser) braced(pos Position) (TextPart, error) {
+func (p *viewParser) braced() (TextPart, error) {
 	open := p.pos()
 	p.next() // {
 	start := p.off
@@ -507,13 +516,19 @@ func (p *viewParser) bodyText(tag string) ([]TextPart, error) {
 		}
 		b := p.peek(0)
 		if b == '<' {
-			// A child element, the end tag or a comment ends the text.
+			if strings.HasPrefix(string(p.src[p.off:]), "<!--") {
+				if err := p.comment(); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			// A child element or the end tag ends the text.
 			flush(true)
 			return parts, nil
 		}
 		if b == '{' {
 			flush(false)
-			part, err := p.braced(litPos)
+			part, err := p.braced()
 			if err != nil {
 				return nil, err
 			}

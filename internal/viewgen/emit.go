@@ -1,6 +1,7 @@
 package viewgen
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -26,6 +27,7 @@ type gen struct {
 	recvType          *types.Named
 	pkg               *types.Package
 	imports           map[string]string
+	preferred         map[string]string
 	binding           *binder
 	scope             *types.Scope
 	loaded            map[string]*types.Package
@@ -41,6 +43,15 @@ type gen struct {
 func (g *gen) errf(pos Position, format string, args ...any) error {
 	g.diags = append(g.diags, Diagnostic{Pos: pos, Path: g.view.Path, Msg: fmt.Sprintf(format, args...)})
 	return g.diags[len(g.diags)-1]
+}
+
+func (g *gen) recordErr(pos Position, err error) error {
+	var d Diagnostic
+	if errors.As(err, &d) {
+		g.diags = append(g.diags, d)
+		return d
+	}
+	return g.errf(pos, "%v", err)
 }
 
 // emit renders the file's Go source, gofmt'd.
@@ -112,8 +123,7 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 	if c.Unsupported != "" {
 		return nil, g.errf(n.Pos, "<%s> cannot be built from markup yet: %s", n.Tag, c.Unsupported)
 	}
-	var ctorArgs map[string]*Attr
-	ctorArgs = map[string]*Attr{}
+	ctorArgs := map[string]*Attr{}
 	var fluent []fluentUse
 	var events []eventUse
 	var keyAttr *Attr
@@ -146,6 +156,10 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 			}
 			if m.Kind != MethodFluent {
 				g.errf(a.Pos, "%s is not an attribute: %s", a.Name, m.Unsupported)
+				continue
+			}
+			if m.Unsupported != "" {
+				g.errf(a.Pos, "attribute %s cannot be set from markup: %s", a.Name, m.Unsupported)
 				continue
 			}
 			fluent = append(fluent, fluentUse{attr: a, method: m})
@@ -216,7 +230,15 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 			if a == nil {
 				continue
 			}
-			arg, err := g.value(a, p.Type, p.Ptr, n)
+			if p.Variadic {
+				vargs, err := g.variadicArgs(a, p.Type)
+				if err != nil {
+					return nil, err
+				}
+				args = append(args, vargs...)
+				continue
+			}
+			arg, err := g.value(a, p.Type, p.Ptr)
 			if err != nil {
 				return nil, err
 			}
@@ -243,7 +265,7 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 		return fluent[i].attr.Pos.Line < fluent[j].attr.Pos.Line || fluent[i].attr.Pos.Line == fluent[j].attr.Pos.Line && fluent[i].attr.Pos.Col < fluent[j].attr.Pos.Col
 	})
 	for _, f := range fluent {
-		call, err := g.methodCall(f, n)
+		call, err := g.methodCall(f)
 		if err != nil {
 			return nil, err
 		}
@@ -265,17 +287,82 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 	// Each event asks in its own if, never an else: one may bring the
 	// next.
 	for _, e := range events {
-		body, err := g.handler(e.attr)
+		body, wrap, err := g.handler(e.attr)
 		if err != nil {
 			return nil, err
 		}
 		ls = append(ls, line{dir: g.dir(e.attr.Pos), code: tab + "if " + name + "." + e.method.GoName + "() {"})
-		for _, b := range strings.Split(body, "\n") {
-			ls = append(ls, line{dir: g.dir(e.attr.Pos), code: tab + "\t" + b})
+		inner := tab + "\t"
+		if wrap {
+			ls = append(ls, line{dir: g.dir(e.attr.Pos), code: inner + "func() {"})
+			inner += "\t"
+		}
+		for _, b := range splitGoLines(body) {
+			ls = append(ls, line{dir: g.dir(e.attr.Pos), code: inner + b})
+		}
+		if wrap {
+			ls = append(ls, line{dir: g.dir(e.attr.Pos), code: tab + "\t}()"})
 		}
 		ls = append(ls, line{dir: g.dir(e.attr.Pos), code: tab + "}"})
 	}
 	return ls, nil
+}
+
+// splitGoLines splits formatted Go statements on line breaks outside raw
+// string literals and block comments, so //line directives and indentation
+// are never injected inside a backtick string's bytes.
+func splitGoLines(src string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(src); {
+		switch src[i] {
+		case '\n':
+			lines = append(lines, src[start:i])
+			i++
+			start = i
+		case '`':
+			i++
+			for i < len(src) && src[i] != '`' {
+				i++
+			}
+			if i < len(src) {
+				i++
+			}
+		case '"', '\'':
+			q := src[i]
+			i++
+			for i < len(src) && src[i] != q && src[i] != '\n' {
+				if src[i] == '\\' && i+1 < len(src) {
+					i += 2
+					continue
+				}
+				i++
+			}
+			if i < len(src) && src[i] == q {
+				i++
+			}
+		case '/':
+			if i+1 < len(src) && src[i+1] == '/' {
+				for i < len(src) && src[i] != '\n' {
+					i++
+				}
+			} else if i+1 < len(src) && src[i+1] == '*' {
+				i += 2
+				for i+1 < len(src) && (src[i] != '*' || src[i+1] != '/') {
+					i++
+				}
+				if i+1 < len(src) {
+					i += 2
+				}
+			} else {
+				i++
+			}
+		default:
+			i++
+		}
+	}
+	lines = append(lines, src[start:])
+	return lines
 }
 
 type fluentUse struct {
@@ -309,7 +396,7 @@ func (g *gen) keyCall(n *Node, keyAttr *Attr) string {
 	if len(keyAttr.Value) == 1 && keyAttr.Value[0].IsExpr {
 		expr, err := g.rewrite(keyAttr.Value[0])
 		if err != nil {
-			g.errf(keyAttr.Pos, "%v", err)
+			g.recordErr(keyAttr.Pos, err)
 			return g.context + ".Key(nil), "
 		}
 		return g.context + ".Key(" + expr + "), "
@@ -352,12 +439,42 @@ func isStringType(t types.Type) bool {
 	return ok && b.Kind() == types.String
 }
 
+// variadicArgs emits one or more arguments filling a variadic parameter
+// of element type elem.
+func (g *gen) variadicArgs(a *Attr, elem types.Type) ([]string, error) {
+	if a.Bare {
+		return nil, nil
+	}
+	var args []string
+	for _, part := range a.Value {
+		if part.IsExpr {
+			expr, err := g.rewrite(part)
+			if err != nil {
+				return nil, g.recordErr(a.Pos, err)
+			}
+			args = append(args, expr)
+			continue
+		}
+		for _, item := range strings.Split(part.Lit, ",") {
+			item = strings.TrimSpace(item)
+			if item == "" {
+				continue
+			}
+			args = append(args, g.literal(item, elem, a))
+		}
+	}
+	if len(args) == 0 {
+		return nil, g.errf(a.Pos, "attribute %s needs a value", a.Name)
+	}
+	return args, nil
+}
+
 // methodCall emits one fluent call with its arguments.
-func (g *gen) methodCall(f fluentUse, n *Node) (string, error) {
+func (g *gen) methodCall(f fluentUse) (string, error) {
 	m := f.method
 	if f.attr.Bare {
 		switch {
-		case len(m.Params) == 0:
+		case len(m.Params) == 0, len(m.Params) == 1 && m.Params[0].Variadic:
 			return "." + m.GoName + "()", nil
 		case len(m.Params) == 1 && isBoolType(m.Params[0].Type):
 			return "." + m.GoName + "(true)", nil
@@ -368,57 +485,52 @@ func (g *gen) methodCall(f fluentUse, n *Node) (string, error) {
 	if len(m.Params) == 0 {
 		return "", g.errf(f.attr.Pos, "%s takes nothing: write it bare, %s", f.attr.Name, f.attr.Name)
 	}
-	if len(f.attr.Value) == 1 && f.attr.Value[0].IsExpr && !m.Params[0].Variadic && len(m.Params) == 1 {
-		expr, err := g.rewrite(f.attr.Value[0])
-		if err != nil {
-			return "", g.errf(f.attr.Pos, "%v", err)
-		}
-		arg, err := g.convert(expr, &m.Params[0], f.attr)
+	if len(m.Params) == 1 && !m.Params[0].Variadic {
+		arg, err := g.value(f.attr, m.Params[0].Type, m.Params[0].Ptr)
 		if err != nil {
 			return "", err
 		}
 		return "." + m.GoName + "(" + arg + ")", nil
 	}
 	if len(m.Params) == 1 && m.Params[0].Variadic {
-		// padding="4,8" fills the tail.
-		var args []string
-		for _, part := range f.attr.Value {
-			if part.IsExpr {
-				expr, err := g.rewrite(part)
-				if err != nil {
-					return "", g.errf(f.attr.Pos, "%v", err)
-				}
-				args = append(args, expr)
-				continue
-			}
-			for _, item := range strings.Split(part.Lit, ",") {
-				item = strings.TrimSpace(item)
-				if item == "" {
-					continue
-				}
-				args = append(args, g.literal(item, m.Params[0].Type, f.attr))
-			}
-		}
-		if len(args) == 0 {
-			return "", g.errf(f.attr.Pos, "attribute %s needs a value", f.attr.Name)
+		args, err := g.variadicArgs(f.attr, m.Params[0].Type)
+		if err != nil {
+			return "", err
 		}
 		return "." + m.GoName + "(" + strings.Join(args, ", ") + ")", nil
 	}
-	// A fixed parameter list: the attribute value is one value per
-	// parameter, comma-separated — except a string parameter, which
-	// takes its value whole, commas and all (#1457).
+	// Multiple parameters (fixed, or fixed with an optional variadic tail):
+	// values are comma-separated, except a trailing string parameter,
+	// which takes the rest whole, commas and all (#1457).
+	required := 0
+	for _, p := range m.Params {
+		if p.Required {
+			required++
+		}
+	}
+	variadic := m.Params[len(m.Params)-1].Variadic
+	paramAt := func(i int) *Param {
+		if i < len(m.Params) {
+			return &m.Params[i]
+		}
+		if variadic {
+			return &m.Params[len(m.Params)-1]
+		}
+		return nil
+	}
 	var args []string
 	pi := 0
-	for _, part := range f.attr.Value {
+	for idx, part := range f.attr.Value {
 		if part.IsExpr {
 			expr, err := g.rewrite(part)
 			if err != nil {
-				return "", g.errf(f.attr.Pos, "%v", err)
+				return "", g.recordErr(f.attr.Pos, err)
 			}
-			if pi >= len(m.Params) {
+			p := paramAt(pi)
+			if p == nil {
 				return "", g.errf(part.Pos, "more values than %s takes", f.attr.Name)
 			}
-			cv, err := g.convert(expr, &m.Params[pi], f.attr)
+			cv, err := g.convert(expr, p, f.attr)
 			if err != nil {
 				return "", err
 			}
@@ -426,59 +538,81 @@ func (g *gen) methodCall(f fluentUse, n *Node) (string, error) {
 			pi++
 			continue
 		}
-		if pi < len(m.Params) && isStringType(m.Params[pi].Type) {
-			args = append(args, g.literal(part.Lit, m.Params[pi].Type, f.attr))
-			pi++
-			continue
+		rest := part.Lit
+		if idx > 0 {
+			// A comma after an {expr} separates it from what follows.
+			trimmed := strings.TrimLeft(rest, " \t")
+			if strings.HasPrefix(trimmed, ",") {
+				rest = strings.TrimLeft(trimmed[1:], " \t")
+			}
 		}
-		for _, item := range strings.Split(part.Lit, ",") {
-			item = strings.TrimSpace(item)
+		for rest != "" {
+			p := paramAt(pi)
+			if p != nil && pi == len(m.Params)-1 && !p.Variadic && isStringType(p.Type) {
+				args = append(args, g.literal(rest, p.Type, f.attr))
+				pi++
+				break
+			}
+			head, tail, hasComma := strings.Cut(rest, ",")
+			if hasComma {
+				rest = strings.TrimLeft(tail, " \t")
+			} else {
+				rest = ""
+			}
+			item := strings.TrimSpace(head)
 			if item == "" {
 				continue
 			}
-			if pi >= len(m.Params) {
+			if p == nil {
 				return "", g.errf(part.Pos, "more values than %s takes", f.attr.Name)
 			}
-			args = append(args, g.literal(item, m.Params[pi].Type, f.attr))
+			args = append(args, g.literal(item, p.Type, f.attr))
 			pi++
 		}
 	}
-	if pi != len(m.Params) {
+	if !variadic && pi != len(m.Params) {
 		return "", g.errf(f.attr.Pos, "%s takes %d values, got %d", f.attr.Name, len(m.Params), pi)
+	}
+	if variadic && pi < required {
+		return "", g.errf(f.attr.Pos, "%s takes at least %d values, got %d", f.attr.Name, required, pi)
 	}
 	return "." + m.GoName + "(" + strings.Join(args, ", ") + ")", nil
 }
 
 // handler emits an event handler's body: a receiver method name, or Go
-// statements in braces.
-func (g *gen) handler(a *Attr) (string, error) {
+// statements in braces. wrap reports whether the body uses return, defer
+// or labels and needs a closure of its own.
+func (g *gen) handler(a *Attr) (string, bool, error) {
 	b := g.binding
 	if len(a.Value) == 1 && !a.Value[0].IsExpr {
 		name := a.Value[0].Lit
 		if !validIdent(name) {
-			return "", g.errf(a.Pos, "on-... names a method of the receiver: %q is not a name", name)
+			return "", false, g.errf(a.Pos, "on-... names a method of the receiver: %q is not a name", name)
 		}
 		if b.members[name] == nil {
-			return "", g.errf(a.Pos, "%s is not a method of %s", name, g.recvType.Obj().Name())
+			return "", false, g.errf(a.Pos, "%s is not a method of %s", name, g.recvType.Obj().Name())
 		}
-		return g.receiver + "." + name + "()", nil
+		return g.receiver + "." + name + "()", false, nil
 	}
 	if len(a.Value) == 1 && a.Value[0].IsExpr {
-		src, _, err := b.body(a.Value[0].Expr, a.Value[0].Pos, g.view.Path)
+		src, wrap, err := b.body(a.Value[0].Expr, a.Value[0].Pos, g.view.Path)
 		if err != nil {
-			return "", err
+			return "", false, g.recordErr(a.Value[0].Pos, err)
 		}
-		return src, nil
+		return src, wrap, nil
 	}
-	return "", g.errf(a.Pos, "an event takes one handler")
+	return "", false, g.errf(a.Pos, "an event takes one handler")
 }
 
-// value emits one constructor argument from its attribute.
-func (g *gen) value(a *Attr, t types.Type, ptr bool, n *Node) (string, error) {
+// value emits one single-argument attribute value.
+func (g *gen) value(a *Attr, t types.Type, ptr bool) (string, error) {
+	if a.Bare {
+		return "", g.errf(a.Pos, "attribute %s needs a value", a.Name)
+	}
 	if len(a.Value) == 1 && a.Value[0].IsExpr {
 		expr, err := g.rewrite(a.Value[0])
 		if err != nil {
-			return "", g.errf(a.Pos, "%v", err)
+			return "", g.recordErr(a.Pos, err)
 		}
 		return g.convert(expr, &Param{Type: t, Ptr: ptr, Required: true}, a)
 	}
@@ -493,8 +627,8 @@ func (g *gen) value(a *Attr, t types.Type, ptr bool, n *Node) (string, error) {
 		}
 		return g.literal(lit, t, a), nil
 	}
-	// A constructor argument is one value, not a format.
-	return "", g.errf(a.Pos, "a constructor argument is one value: write the parts as a Go expression")
+	// A single argument is one value, not a format.
+	return "", g.errf(a.Pos, "attribute %s takes one value: write the parts as a Go expression", a.Name)
 }
 
 // rewrite binds one expression part to the generated method's names,
@@ -522,7 +656,14 @@ func (g *gen) useImport(path, preferred string) string {
 		}
 		return true
 	}
-	name := preferred
+	base := preferred
+	if alias := g.preferred[path]; alias != "" {
+		base = alias
+	}
+	name := base
+	if !available(name) && base != preferred && available(preferred) {
+		name = preferred
+	}
 	for i := 1; !available(name); i++ {
 		name = preferred + strconv.Itoa(i)
 	}
@@ -609,8 +750,19 @@ func (g *gen) constructorCall(c *Constructor, contextArg string, args []string, 
 // constructors the format and arguments go to Textf themselves; textf
 // tells them apart, saving apps that format from linking fmt.
 func (g *gen) bodyValue(n *Node) (literal string, textf string, args string, err error) {
-	if len(n.Text) == 1 && !n.Text[0].IsExpr {
-		return strconv.Quote(n.Text[0].Lit), "", "", nil
+	hasExpr := false
+	for _, part := range n.Text {
+		if part.IsExpr {
+			hasExpr = true
+			break
+		}
+	}
+	if !hasExpr {
+		var lit strings.Builder
+		for _, part := range n.Text {
+			lit.WriteString(part.Lit)
+		}
+		return strconv.Quote(lit.String()), "", "", nil
 	}
 	var parts []string
 	var f string
@@ -618,16 +770,13 @@ func (g *gen) bodyValue(n *Node) (literal string, textf string, args string, err
 		if part.IsExpr {
 			expr, e := g.rewrite(part)
 			if e != nil {
-				return "", "", "", g.errf(part.Pos, "%v", e)
+				return "", "", "", g.recordErr(part.Pos, e)
 			}
 			f += "%v"
 			parts = append(parts, expr)
 			continue
 		}
 		f += strings.ReplaceAll(part.Lit, "%", "%%")
-	}
-	if len(parts) == 0 {
-		return strconv.Quote(f), "", "", nil
 	}
 	args = strings.Join(parts, ", ")
 	return "", f, args, nil
@@ -636,6 +785,7 @@ func (g *gen) bodyValue(n *Node) (literal string, textf string, args string, err
 // literal converts a literal string to the type t: an enum's constant
 // by name, or the basic kinds.
 func (g *gen) literal(lit string, t types.Type, a *Attr) string {
+	t = types.Unalias(t)
 	if _, ok := t.(*types.TypeParam); ok {
 		// A generic parameter infers its type from the call: the literal
 		// stands as it is written, a string quoted, a number plain.
@@ -667,9 +817,12 @@ func (g *gen) literal(lit string, t types.Type, a *Attr) string {
 		if lit == "true" || lit == "false" {
 			return lit
 		}
-	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
-		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.UntypedInt:
+	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64, types.UntypedInt:
 		if _, err := strconv.ParseInt(lit, 0, 64); err == nil {
+			return lit
+		}
+	case types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.Uintptr:
+		if _, err := strconv.ParseUint(lit, 0, 64); err == nil {
 			return lit
 		}
 	case types.Float32, types.Float64, types.UntypedFloat:
@@ -699,18 +852,7 @@ func isBoolType(t types.Type) bool {
 }
 
 func validIdent(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i, r := range s {
-		switch {
-		case r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z':
-		case r >= '0' && r <= '9' && i > 0:
-		default:
-			return false
-		}
-	}
-	return true
+	return token.IsIdentifier(s)
 }
 
 // gofmtSource formats generated Go.

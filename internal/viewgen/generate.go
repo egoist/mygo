@@ -20,45 +20,56 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Generate writes the *_view.go files for the .view files of one
-// package. dir is the package's directory; modDir its module root, for
-// paths relative to it. It returns the files written, or nothing when
-// the package has no .view files. Errors carry .view positions.
+// package. dir is the package's directory. It returns the files written,
+// or nothing when the package has no .view files. Errors carry .view
+// positions.
 //
 // The app's own code is not built first (#1457): the package is
 // type-checked with stub View methods in memory, the views are bound
 // against those types, and only output that type-checks is written.
 func Generate(ctx context.Context, dir string, env []string, flags ...string) (written []string, err error) {
-	views, err := filepath.Glob(filepath.Join(dir, "*.view"))
+	views, err := dirFilesWithSuffix(dir, ".view")
 	if err != nil || len(views) == 0 {
 		return nil, err
 	}
-	sort.Strings(views)
 	// The package's Go files as the build sees them: constrained by the
-	// host, without its tests, and without the *_view.go files the
-	// generator owns and never reads as input.
+	// target, without its tests, and without the *_view.go files the
+	// generator still owns and never reads as input.
 	sources, err := packageSources(ctx, dir, env, flags)
 	if err != nil {
 		return nil, err
 	}
 	fs := token.NewFileSet()
-	overlay := overlayOf(flags)
 	var files []*ast.File
-	for _, f := range sources {
-		src, err := os.ReadFile(f)
-		if err != nil {
-			if rep, ok := overlay[f]; ok {
-				src, err = os.ReadFile(rep)
-			}
-			if err != nil {
-				return nil, err
-			}
-		}
-		af, err := parser.ParseFile(fs, f, src, parser.ParseComments)
+	pkgDecls := map[string]bool{}
+	for _, sf := range sources {
+		af, err := parser.ParseFile(fs, sf.path, sf.src, parser.ParseComments)
 		if err != nil {
 			return nil, err
+		}
+		for _, d := range af.Decls {
+			switch d := d.(type) {
+			case *ast.FuncDecl:
+				if d.Recv == nil {
+					pkgDecls[d.Name.Name] = true
+				}
+			case *ast.GenDecl:
+				for _, sp := range d.Specs {
+					switch sp := sp.(type) {
+					case *ast.ValueSpec:
+						for _, id := range sp.Names {
+							pkgDecls[id.Name] = true
+						}
+					case *ast.TypeSpec:
+						pkgDecls[sp.Name.Name] = true
+					}
+				}
+			}
 		}
 		files = append(files, af)
 	}
@@ -104,16 +115,29 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 		recv := f.Type
 		if recv == "" {
 			base := strings.TrimSuffix(filepath.Base(path), ".view")
-			recv = strings.ToUpper(base[:1]) + base[1:]
+			r, w := utf8.DecodeRuneInString(base)
+			if r == utf8.RuneError && w <= 1 {
+				return nil, fmt.Errorf("%s: <view> needs a type naming its receiver", f.Path)
+			}
+			recv = string(unicode.ToUpper(r)) + base[w:]
+			if !token.IsIdentifier(recv) {
+				return nil, fmt.Errorf("%s: cannot derive a Go type name from %q; set type on <view>", f.Path, filepath.Base(path))
+			}
 		}
 		if other, ok := owner[recv]; ok {
 			return nil, fmt.Errorf("%s and %s both name %s", other, f.Path, recv)
 		}
 		owner[recv] = f.Path
+		ownerPath := strings.TrimSuffix(path, ".view") + "_view.go"
+		if old, err := os.ReadFile(ownerPath); err == nil {
+			if m := generatedMarker(string(old)); m != "" && !hashIntact(string(old)) {
+				return nil, fmt.Errorf("%s: %s was generated from %s and hand-edited since; remove it first", f.Path, filepath.Base(ownerPath), m)
+			}
+		}
 		if ownerFile, ok := viewOwners[recv]; ok {
 			return nil, fmt.Errorf("%s: %s already has a View method (%s)", f.Path, recv, ownerFile)
 		}
-		vs = append(vs, view{file: f, src: src, recv: recv, owner: strings.TrimSuffix(path, ".view") + "_view.go"})
+		vs = append(vs, view{file: f, src: src, recv: recv, owner: ownerPath})
 	}
 
 	// Type-check the package with a stub View for every .view file, so
@@ -130,9 +154,13 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 		}
 		return os.Open(file)
 	})
+	stubUI := "__mygo_ui"
+	for i := 1; pkgDecls[stubUI]; i++ {
+		stubUI = "__mygo_ui" + strconv.Itoa(i)
+	}
 	var stubs []*ast.File
 	for _, v := range vs {
-		stub := fmt.Sprintf("package %s\nimport %q\nfunc (%s) View(c *%s.Context) {}\n", pkgName, "github.com/egoist/mygo/ui", receiverDecl(v.recv), "ui")
+		stub := fmt.Sprintf("package %s\nimport %s %q\nfunc (%s) View(c *%s.Context) {}\n", pkgName, stubUI, "github.com/egoist/mygo/ui", receiverDecl(v.recv), stubUI)
 		af, err := parser.ParseFile(fs, v.owner+".stub", stub, 0)
 		if err != nil {
 			return nil, err
@@ -157,7 +185,7 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 		if obj == nil {
 			return nil, fmt.Errorf("%s: no type %s in the package", v.file.Path, v.recv)
 		}
-		named, ok := obj.Type().(*types.Named)
+		named, ok := types.Unalias(obj.Type()).(*types.Named)
 		if !ok {
 			return nil, fmt.Errorf("%s: %s is not a struct type", v.file.Path, v.recv)
 		}
@@ -183,39 +211,48 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 	var outs []outFile
 	for vi, v := range vs {
 		aliases := map[string]string{}
-		pair := strings.TrimSuffix(v.file.Path, ".view") + ".go"
-		for _, af := range files {
-			base := filepath.Base(fs.Position(af.Package).Filename)
-			if base != pair {
-				continue
-			}
-			for _, imp := range af.Imports {
-				path, _ := strconv.Unquote(imp.Path.Value)
+		preferred := map[string]string{}
+		collectImports := func(af *ast.File, overwrite bool) {
+			for _, impSpec := range af.Imports {
+				path, _ := strconv.Unquote(impSpec.Path.Value)
 				if path == "C" {
 					continue
 				}
 				name := loaded[path].Name()
-				if imp.Name != nil {
-					name = imp.Name.Name
+				if impSpec.Name != nil {
+					name = impSpec.Name.Name
 				}
-				aliases[name] = path
+				if name == "_" || name == "." {
+					continue
+				}
+				if overwrite {
+					aliases[name] = path
+					preferred[path] = name
+				} else {
+					if _, exists := aliases[name]; !exists {
+						aliases[name] = path
+					}
+					if _, exists := preferred[path]; !exists {
+						preferred[path] = name
+					}
+				}
 			}
 		}
-		if len(aliases) == 0 {
-			// No paired file: any import of the package serves.
-			for _, af := range files {
-				for _, imp := range af.Imports {
-					path, _ := strconv.Unquote(imp.Path.Value)
-					if path == "C" {
-						continue
-					}
-					name := loaded[path].Name()
-					if imp.Name != nil {
-						name = imp.Name.Name
-					}
-					aliases[name] = path
-				}
+		pair := strings.TrimSuffix(v.file.Path, ".view") + ".go"
+		// Package-wide imports serve as fallback; the paired file's
+		// aliases take precedence over them.
+		for _, af := range files {
+			if filepath.Base(fs.Position(af.Package).Filename) != pair {
+				collectImports(af, false)
 			}
+		}
+		for _, af := range files {
+			if filepath.Base(fs.Position(af.Package).Filename) == pair {
+				collectImports(af, true)
+			}
+		}
+		if _, hasUI := aliases["ui"]; !hasUI && checked.Scope().Lookup("ui") == nil {
+			aliases["ui"] = "github.com/egoist/mygo/ui"
 		}
 		localNames := declaredNames(v.file)
 		forbidden := map[string]bool{"c": true, "s": true}
@@ -231,10 +268,10 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 		for name := range localNames {
 			forbidden[name] = true
 		}
-		paramName := func(preferred string) string {
-			name := preferred
-			for i := 1; localNames[name] || name != preferred && forbidden[name]; i++ {
-				name = preferred + strconv.Itoa(i)
+		paramName := func(preferredName string) string {
+			name := preferredName
+			for i := 1; localNames[name] || name != preferredName && forbidden[name]; i++ {
+				name = preferredName + strconv.Itoa(i)
 			}
 			forbidden[name] = true
 			return name
@@ -249,6 +286,7 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 			recvType:   receivers[v.recv],
 			pkg:        checked,
 			imports:    map[string]string{},
+			preferred:  preferred,
 			forbidden:  forbidden,
 			localNames: localNames,
 			loaded:     loaded,
@@ -278,8 +316,8 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 	// does not reach the disk.
 	over := token.NewFileSet()
 	var checkFiles []*ast.File
-	for _, f := range sources {
-		af, err := parser.ParseFile(over, f, nil, 0)
+	for _, sf := range sources {
+		af, err := parser.ParseFile(over, sf.path, sf.src, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -304,21 +342,24 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 	write := make([]outFile, 0, len(outs))
 	for _, o := range outs {
 		old, readErr := os.ReadFile(o.path)
-		if readErr == nil && string(old) == o.src {
+		if readErr == nil && normalizeLF(string(old)) == o.src {
 			continue
 		}
-		if readErr == nil && generatedMarker(string(old)) == "" {
-			return nil, fmt.Errorf("%s exists and is not generated from %s; remove it first", o.path, o.view.Path)
+		if readErr == nil {
+			marker := generatedMarker(string(old))
+			switch {
+			case marker == "":
+				return nil, fmt.Errorf("%s exists and is not generated from %s; remove it first", o.path, o.view.Path)
+			case marker != o.view.Path:
+				return nil, fmt.Errorf("%s was generated from %s, not %s; remove it first", o.path, marker, o.view.Path)
+			case !hashIntact(string(old)):
+				return nil, fmt.Errorf("%s was generated from %s and hand-edited since; remove it first", o.path, o.view.Path)
+			}
 		}
 		write = append(write, o)
 	}
 	for _, o := range write {
-		tmp := o.path + ".tmp"
-		defer os.Remove(tmp) // no .tmp stays behind, whatever came of it
-		if err := os.WriteFile(tmp, []byte(o.src), 0o644); err != nil {
-			return nil, err
-		}
-		if err := os.Rename(tmp, o.path); err != nil {
+		if err := writeAtomic(dir, o.path, []byte(o.src)); err != nil {
 			return nil, err
 		}
 		written = append(written, o.path)
@@ -330,7 +371,7 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 	for _, v := range vs {
 		live[v.file.Path] = true
 	}
-	orphans, err := filepath.Glob(filepath.Join(dir, "*_view.go"))
+	orphans, err := dirFilesWithSuffix(dir, "_view.go")
 	if err != nil {
 		return written, err
 	}
@@ -363,42 +404,88 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 	return written, nil
 }
 
-// GeneratedMarker reads the .view path a *_view.go file was generated
-// from, "" for none.
-func GeneratedMarker(src string) string { return generatedMarker(src) }
+func writeAtomic(dir, dst string, data []byte) error {
+	f, err := os.CreateTemp(dir, ".viewgen-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dst)
+}
+
+func dirFilesWithSuffix(dir, suffix string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), suffix) {
+			out = append(out, filepath.Join(dir, e.Name()))
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func normalizeLF(s string) string {
+	if !strings.Contains(s, "\r\n") {
+		return s
+	}
+	return strings.ReplaceAll(s, "\r\n", "\n")
+}
 
 // stampHash adds the content's own hash to a generated file's header:
 // pruning removes an orphan output only while the file is still, byte
 // for byte, what the generator wrote (#1457).
 func stampHash(src string) string {
-	body := src[strings.Index(src, "\n")+1:]
+	src = normalizeLF(src)
+	i := strings.IndexByte(src, '\n')
+	body := src[i+1:]
 	sum := sha256.Sum256([]byte(body))
 	line := "// mygo-hash: " + hex.EncodeToString(sum[:8])
-	i := strings.Index(src, "\n")
-	return src[:i+1] + line + "\n" + src[i+1:]
+	return src[:i+1] + line + "\n" + body
 }
 
 // hashIntact reports whether a generated file still carries the hash of
-// its own content: a hand edit breaks it.
+// its own content: a hand edit breaks it, while CRLF checkout does not.
 func hashIntact(src string) bool {
-	lineAt := func(i int) string {
-		if j := strings.Index(src[i:], "\n"); j >= 0 {
-			return src[i : i+j]
-		}
-		return src[i:]
-	}
-	first := strings.Index(src, "\n") + 1
-	if !strings.HasPrefix(lineAt(first), "// mygo-hash: ") {
+	src = normalizeLF(src)
+	nl1 := strings.IndexByte(src, '\n')
+	if nl1 < 0 {
 		return false
 	}
-	claimed := strings.TrimPrefix(lineAt(first), "// mygo-hash: ")
-	body := src[strings.Index(src[first:], "\n")+first+1:]
+	rest := src[nl1+1:]
+	nl2 := strings.IndexByte(rest, '\n')
+	if nl2 < 0 {
+		return false
+	}
+	line := rest[:nl2]
+	if !strings.HasPrefix(line, "// mygo-hash: ") {
+		return false
+	}
+	claimed := strings.TrimPrefix(line, "// mygo-hash: ")
+	body := rest[nl2+1:]
 	sum := sha256.Sum256([]byte(body))
 	return claimed == hex.EncodeToString(sum[:8])
 }
 
 func generatedMarker(src string) string {
-	first := strings.SplitN(src, "\n", 2)[0]
+	first, _, _ := strings.Cut(normalizeLF(src), "\n")
 	// Code generated by mygo from counter.view. DO NOT EDIT.
 	if !strings.HasPrefix(first, "// Code generated by mygo from ") {
 		return ""
@@ -410,11 +497,16 @@ func generatedMarker(src string) string {
 	return ""
 }
 
-// packageSources lists the package's Go files as the host's build sees
-// them: its build constraints applied, its tests left out, and the
-// generator's own outputs never read as input. go list -e reads the
-// package without building it.
-func packageSources(ctx context.Context, dir string, env []string, flags []string) ([]string, error) {
+type sourceFile struct {
+	path string
+	src  []byte
+}
+
+// packageSources lists the package's Go files as the target build sees
+// them: its build constraints and -overlay applied, its tests left out,
+// and the generator's own untouched outputs never read as input. go list
+// -e reads the package without building it.
+func packageSources(ctx context.Context, dir string, env []string, flags []string) ([]sourceFile, error) {
 	args := append([]string{"list", "-e", "-json"}, flags...)
 	args = append(args, "--", ".")
 	cmd := exec.CommandContext(ctx, "go", args...)
@@ -433,57 +525,133 @@ func packageSources(ctx context.Context, dir string, env []string, flags []strin
 	if err := json.Unmarshal(out, &pkg); err != nil {
 		return nil, err
 	}
-	overlay := overlayOf(flags)
-	var sources []string
+	overlay := overlayOf(dir, flags)
+	var sources []sourceFile
 	for _, name := range append(pkg.GoFiles, pkg.CgoFiles...) {
 		path := filepath.Join(dir, name)
-		if generatedSource(path, overlay) {
-			sources = append(sources, path)
+		src, keep, err := readSource(path, overlay)
+		if err != nil {
+			return nil, err
+		}
+		if keep {
+			sources = append(sources, sourceFile{path: path, src: src})
 		}
 	}
 	return sources, nil
 }
 
-// overlayOf reads the -overlay mapping of the build's flags: files the
-// build provides in place of what the tree has (or lacks).
-func overlayOf(flags []string) map[string]string {
-	for i, f := range flags {
-		if f == "-overlay" && i+1 < len(flags) {
-			data, err := os.ReadFile(flags[i+1])
-			if err != nil {
-				return nil
-			}
-			var ov map[string]string
-			if json.Unmarshal(data, &ov) != nil {
-				return nil
-			}
-			return ov
+// overlayOf reads the -overlay Replace mapping of the build's flags:
+// files the build provides in place of what the tree has (or lacks).
+func overlayOf(dir string, flags []string) map[string]string {
+	ovFile := ""
+	for i := 0; i < len(flags); i++ {
+		f := flags[i]
+		switch {
+		case (f == "-overlay" || f == "--overlay") && i+1 < len(flags):
+			ovFile = flags[i+1]
+			i++
+		case strings.HasPrefix(f, "-overlay="):
+			ovFile = strings.TrimPrefix(f, "-overlay=")
+		case strings.HasPrefix(f, "--overlay="):
+			ovFile = strings.TrimPrefix(f, "--overlay=")
 		}
 	}
-	return nil
-}
-
-// generatedSource reports whether path is a source the generator reads:
-// a file on disk that is not its own earlier output, or one the build's
-// overlay provides in its place (#1457).
-func generatedSource(path string, overlay map[string]string) bool {
-	if _, ok := overlay[path]; ok {
-		return true
+	if ovFile == "" {
+		return nil
 	}
-	if _, err := os.Stat(path); err != nil {
-		return false
+	if !filepath.IsAbs(ovFile) {
+		if cand := filepath.Join(dir, ovFile); fileReadable(cand) {
+			ovFile = cand
+		}
 	}
-	return !generatedFile(path)
-}
-
-// generatedFile reports whether the file is the generator's output, by
-// the marker its first line carries.
-func generatedFile(path string) bool {
-	src, err := os.ReadFile(path)
+	data, err := os.ReadFile(ovFile)
 	if err != nil {
-		return false
+		return nil
 	}
-	return generatedMarker(string(src)) != ""
+	var doc struct {
+		Replace map[string]string
+	}
+	if err := json.Unmarshal(data, &doc); err != nil || len(doc.Replace) == 0 {
+		return nil
+	}
+	base := filepath.Dir(ovFile)
+	out := make(map[string]string, len(doc.Replace)*2)
+	for k, v := range doc.Replace {
+		if !filepath.IsAbs(k) {
+			k = filepath.Join(base, k)
+		}
+		k = filepath.Clean(k)
+		if v != "" && !filepath.IsAbs(v) {
+			v = filepath.Join(base, v)
+		}
+		out[k] = v
+		if realK := canonicalFilePath(k); realK != k {
+			out[realK] = v
+		}
+	}
+	return out
+}
+
+func fileReadable(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func canonicalFilePath(path string) string {
+	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Join(parent, filepath.Base(path))
+}
+
+func lookupOverlay(overlay map[string]string, path string) (string, bool) {
+	if len(overlay) == 0 {
+		return "", false
+	}
+	clean := filepath.Clean(path)
+	if rep, ok := overlay[clean]; ok {
+		return rep, true
+	}
+	if realPath := canonicalFilePath(clean); realPath != clean {
+		if rep, ok := overlay[realPath]; ok {
+			return rep, true
+		}
+	}
+	return "", false
+}
+
+// readSource reads path as the build sees it: through -overlay first,
+// else from disk, excluding untouched files the generator owns itself.
+func readSource(path string, overlay map[string]string) ([]byte, bool, error) {
+	if rep, ok := lookupOverlay(overlay, path); ok {
+		if rep == "" {
+			return nil, false, nil
+		}
+		src, err := os.ReadFile(rep)
+		if err != nil {
+			return nil, false, err
+		}
+		if ownedSource(string(src)) {
+			return nil, false, nil
+		}
+		return src, true, nil
+	}
+	src, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if ownedSource(string(src)) {
+		return nil, false, nil
+	}
+	return src, true, nil
+}
+
+func ownedSource(src string) bool {
+	return generatedMarker(src) != "" && hashIntact(src)
 }
 
 type outFile struct {
@@ -529,7 +697,7 @@ func listExports(ctx context.Context, dir string, env []string, flags []string, 
 	args = append(args, paths...)
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = environ(env)
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -583,10 +751,10 @@ func receiverTypeName(e ast.Expr) string {
 	return ""
 }
 
-// Owned reports whether the file at path is the generator's output, by
-// its marker: one whose rewriting must not count as a change to rebuild
-// for.
+// Owned reports whether the file at path is the generator's untouched
+// output, by its marker and content hash: one whose rewriting must not
+// count as a change to rebuild for, while a hand-edited orphan does.
 func Owned(path string) bool {
 	src, err := os.ReadFile(path)
-	return err == nil && generatedMarker(string(src)) != ""
+	return err == nil && ownedSource(string(src))
 }

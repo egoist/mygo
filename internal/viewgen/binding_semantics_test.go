@@ -2,7 +2,9 @@ package viewgen
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -145,5 +147,109 @@ func main(){_ = ui.View((&app{}).View)}
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestHandlerMultilineRawStringAndReturnDefer(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+var siblingBuilds, footerBuilds int
+func siblingText() string { siblingBuilds++; return "Sibling" }
+func footerText() string { footerBuilds++; return "Footer" }
+type app struct {
+	Busy  bool
+	Out   string
+	Order string
+}
+`,
+		"app.view": "<view type=\"app\">\n<column>\n\t<row>\n\t\t<button on-clicked={defer func(){ Order += \"d\" }(); Out = `line1\nline2`; Order += \"b\"; if Busy { return }; Order += \"x\"}>Go</button>\n\t\t<text>{siblingText()}</text>\n\t</row>\n\t<text>{footerText()}</text>\n</column>\n</view>\n",
+		"main.go": `package main
+import ("fmt"; "github.com/egoist/mygo/ui")
+func main() {
+	s := &app{Busy: true}
+	tt := ui.NewTester(s.View, 200, 100)
+	siblingBuilds, footerBuilds = 0, 0
+	if err := tt.Click("Go"); err != nil { panic(err) }
+	fmt.Printf("out=%q order=%s sib=%d foot=%d", s.Out, s.Order, siblingBuilds, footerBuilds)
+}
+`,
+	})
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("go", "run", ".")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run: %v %s", err, out)
+	}
+	want := `out="line1\nline2" order=bd sib=3 foot=3`
+	if string(out) != want {
+		t.Fatalf("got %s, want %s", out, want)
+	}
+}
+
+func TestAmbiguousReceiverOrContextMember(t *testing.T) {
+	// Bare {s} on a struct with field s is rejected at its .view position,
+	// while {s.s} and {(s)} disambiguate cleanly.
+	dir := writeApp(t, map[string]string{
+		"timer.go":   "package main\ntype timer struct{ s int }\n",
+		"timer.view": "<view type=\"timer\"><text>{s}</text></view>\n",
+		"main.go":    "package main\nimport \"github.com/egoist/mygo/ui\"\nfunc main(){ _ = ui.View((&timer{}).View) }\n",
+	})
+	if _, err := Generate(context.Background(), dir, nil); err == nil || !strings.Contains(err.Error(), "write s.s") {
+		t.Fatalf("bare {s} should report shadowing, got %v", err)
+	}
+
+	dir2 := writeApp(t, map[string]string{
+		"timer.go":   "package main\ntype timer struct{ s int; c string }\nfunc ptr(t *timer) int { return t.s }\n",
+		"timer.view": "<view type=\"timer\"><column><text>{s.s}</text><text>{s.c}</text><text>{ptr((s))}</text></column></view>\n",
+		"main.go":    "package main\nimport \"github.com/egoist/mygo/ui\"\nfunc main(){ _ = ui.View((&timer{}).View) }\n",
+	})
+	if _, err := Generate(context.Background(), dir2, nil); err != nil {
+		t.Fatalf("explicit s.s / s.c / (s) failed: %v", err)
+	}
+}
+
+func TestPackageUIDeclarationAndSiblingImportsAndAliases(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+import _ "embed"
+import u "github.com/egoist/mygo/ui"
+import f "fmt"
+var ui = "dark"
+type state struct{ name string }
+type app = state
+var _ = u.Center
+var _ = f.Sprint
+`,
+		"helpers.go": `package main
+import "strings"
+var _ = strings.ToUpper
+`,
+		"app.view": `<view type="app">
+<column>
+	<button>Mode: {ui}</button>
+	<text text-align={u.Center}>{strings.ToUpper(f.Sprint(name))}</text>
+</column>
+</view>
+`,
+		"main.go": `package main
+import u "github.com/egoist/mygo/ui"
+func main(){ _ = u.View((&app{}).View) }
+`,
+	})
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(src)
+	for _, want := range []string{`u "github.com/egoist/mygo/ui"`, `f "fmt"`, `*u.Context`} {
+		if !strings.Contains(g, want) {
+			t.Errorf("generated misses %q:\n%s", want, g)
+		}
 	}
 }

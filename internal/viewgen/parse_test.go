@@ -174,3 +174,25 @@ func TestParseNonASCII(t *testing.T) {
 		t.Fatalf("parts: %+v", parts)
 	}
 }
+
+func TestParseCommentsInsideBodyPreserveSpaces(t *testing.T) {
+	f, err := parseOne(t, `<text>100% <!-- note --> complete</text>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Roots[0].Text) != 1 || f.Roots[0].Text[0].Lit != "100% complete" {
+		t.Fatalf("parts: %+v", f.Roots[0].Text)
+	}
+}
+
+func TestParseViewWrapperValidation(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{`<view type="counter" extra="1"><text>x</text></view>`, "<view> takes only type"},
+		{`<text>before</text><view type="counter"><text>x</text></view>`, "<view> wraps the whole file"},
+		{`<view type="counter"><text>x</text></view><text>after</text>`, "<view> wraps the whole file"},
+	} {
+		if _, _, err := Parse("test.view", []byte(tc.src)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: got %v, want %q", tc.src, err, tc.want)
+		}
+	}
+}

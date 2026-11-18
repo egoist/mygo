@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/egoist/mygo/internal/wait"
 )
 
 // viewProject writes a native app with one .view file and no frontend:
@@ -106,7 +111,7 @@ func TestBuildGeneratesViewsFirst(t *testing.T) {
 		t.Skip("release build")
 	}
 	dir := viewProject(t, testCounterView)
-	err := runBuild([]string{dir})
+	err := runBuild([]string{"-skip-dmg", "-skip-installer", dir})
 	signing := err != nil && (strings.Contains(err.Error(), "codesign") || strings.Contains(err.Error(), "signing identity"))
 	if err != nil && !signing {
 		t.Fatalf("mygo build: %v", err)
@@ -146,5 +151,89 @@ func TestLastViewDeletedKeepsItsOutput(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "counter_view.go")); err != nil {
 		t.Fatal("the last view's output was taken with it")
+	}
+}
+
+// TestWatchViewsSkipsOwnedOutputsAndWatchesHandEdits checks that mygo
+// dev's watcher does not report untouched *_view.go outputs (even when
+// the package also embeds files in the same directory and refreshes its
+// inputs after a build), while reporting .view edits and hand-edited
+// *_view.go files.
+func TestWatchViewsSkipsOwnedOutputsAndWatchesHandEdits(t *testing.T) {
+	dir := viewProject(t, testCounterView)
+	if err := os.WriteFile(filepath.Join(dir, "asset.txt"), []byte("v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "embed.go"), []byte("package main\n\nimport _ \"embed\"\n\n//go:embed asset.txt\nvar asset string\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runGenerate([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := loadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := listBuildInputs(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &watcher{}
+	w.set(in)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	changes := w.watch(ctx, 20*time.Millisecond)
+
+	expectQuiet := func(what string) {
+		t.Helper()
+		select {
+		case got := <-changes:
+			t.Fatalf("%s: unexpected change reported: %v", what, got)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	expectQuiet("initial baseline with generated counter_view.go")
+
+	// Simulate devSession refreshing buildInputs after a build.
+	in2, err := listBuildInputs(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.set(in2)
+	expectQuiet("after refreshing buildInputs")
+
+	// Editing the .view file triggers one rebuild; regenerating its
+	// *_view.go during that build does not trigger a second one.
+	updatedView := strings.Replace(testCounterView, "Up", "More", 1)
+	if err := os.WriteFile(filepath.Join(dir, "counter.view"), []byte(updatedView), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := wait.For(t, ".view edit reported", changes)
+	if len(got) != 1 || filepath.Base(got[0]) != "counter.view" {
+		t.Fatalf("got changes %v, want counter.view", got)
+	}
+	if err := runGenerate([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	expectQuiet("regenerated counter_view.go stays ignored")
+
+	// Deleting counter.view and hand-editing counter_view.go transfers
+	// ownership to the author: edits to counter_view.go now report.
+	if err := os.Remove(filepath.Join(dir, "counter.view")); err != nil {
+		t.Fatal(err)
+	}
+	_ = wait.For(t, ".view removal reported", changes)
+
+	raw, err := os.ReadFile(filepath.Join(dir, "counter_view.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handEdited := strings.Replace(string(raw), `"More"`, `"HandEdited"`, 1)
+	if err := os.WriteFile(filepath.Join(dir, "counter_view.go"), []byte(handEdited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = wait.For(t, "hand-edited counter_view.go reported", changes)
+	if !slices.ContainsFunc(got, func(p string) bool { return filepath.Base(p) == "counter_view.go" }) {
+		t.Fatalf("hand-edited counter_view.go was not reported: %v", got)
 	}
 }

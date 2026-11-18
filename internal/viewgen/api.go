@@ -1,15 +1,8 @@
 package viewgen
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"go/importer"
-	"go/token"
 	"go/types"
-	"io"
-	"os"
-	"os/exec"
 	"strings"
 )
 
@@ -94,82 +87,6 @@ func Kebab(name string) string {
 	return b.String()
 }
 
-// listPackage runs go list for one package in dir, without building the
-// app itself: the package asked for is a dependency, as ui.
-func listPackage(ctx context.Context, dir string, env []string, flags []string, path string) (dir_ string, export string, err error) {
-	args := append([]string{"list", "-export", "-deps", "-json"}, flags...)
-	args = append(args, "--", path)
-	cmd := exec.CommandContext(ctx, "go", args...)
-	cmd.Dir = dir
-	cmd.Env = environ(env)
-	out, err := cmd.Output()
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return "", "", fmt.Errorf("go list %s: %s", path, ee.Stderr)
-		}
-		return "", "", err
-	}
-	type pkg struct {
-		ImportPath, Dir, Export string
-		DepOnly                 bool
-		Error                   *struct{ Err string }
-	}
-	found := ""
-	dec := json.NewDecoder(strings.NewReader(string(out)))
-	for {
-		var p pkg
-		e := dec.Decode(&p)
-		if e == io.EOF {
-			break
-		}
-		if e != nil {
-			return "", "", e
-		}
-		if p.Error != nil {
-			return "", "", fmt.Errorf("%s", p.Error.Err)
-		}
-		if p.ImportPath == path && !p.DepOnly {
-			found, dir_, export = path, p.Dir, p.Export
-		}
-	}
-	if found == "" {
-		return "", "", fmt.Errorf("go list found no package %s", path)
-	}
-	return dir_, export, nil
-}
-
-// loadAPI reads the ui package's public API from its export data, the
-// version the app in dir builds with: go.mod, workspace and replace
-// decide it, not the CLI's own build (#1457).
-func loadAPI(ctx context.Context, dir string, env []string, flags []string) (*API, error) {
-	_, export, err := listPackage(ctx, dir, env, flags, "github.com/egoist/mygo/ui")
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.Open(export)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	fs := token.NewFileSet()
-	imp := importer.ForCompiler(fs, "gc", func(path string) (io.ReadCloser, error) {
-		if path == "github.com/egoist/mygo/ui" {
-			return os.Open(export)
-		}
-		// The dependencies ui itself needs: listed apart.
-		_, dep, err := listPackage(ctx, dir, env, flags, path)
-		if err != nil {
-			return nil, err
-		}
-		return os.Open(dep)
-	})
-	pkg, err := imp.Import("github.com/egoist/mygo/ui")
-	if err != nil {
-		return nil, fmt.Errorf("read ui's export data: %w", err)
-	}
-	return describeAPI(pkg), nil
-}
-
 // Reuse the checked package to preserve named type identity.
 func describeAPI(pkg *types.Package) *API {
 	api := &API{Package: pkg.Path(), pkg: pkg, Constructors: map[string]*Constructor{}, Methods: map[string]*Method{}, consts: map[string]map[string]string{}}
@@ -178,7 +95,7 @@ func describeAPI(pkg *types.Package) *API {
 	ct := types.NewPointer(ctx)
 	// A name stands for the element when the call's result is exactly it.
 	isElement := func(t types.Type) bool {
-		n, ok := t.(*types.Named)
+		n, ok := types.Unalias(t).(*types.Named)
 		return ok && n.Obj().Pkg() == pkg && n.Obj().Name() == "Element"
 	}
 	for _, name := range scope.Names() {
@@ -210,7 +127,7 @@ func describeAPI(pkg *types.Package) *API {
 					mm.Kind = MethodFluent
 					mm.Params = describeParams(sig, 0)
 					if bad := firstBadParam(mm.Params); bad != "" {
-						mm.Unsupported = fmt.Sprintf("%s takes %s: write the value as a Go expression", m.Name(), bad)
+						mm.Unsupported = fmt.Sprintf("%s takes %s", m.Name(), bad)
 					}
 				default:
 					mm.Kind = MethodOther

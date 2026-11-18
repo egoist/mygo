@@ -2,6 +2,10 @@ package viewgen
 
 import (
 	"context"
+	"go/importer"
+	"go/token"
+	"io"
+	"os"
 	"testing"
 )
 
@@ -9,11 +13,18 @@ import (
 // binary's own dependency), from its export data.
 func loadTestAPI(t *testing.T) *API {
 	t.Helper()
-	api, err := loadAPI(context.Background(), "..", nil, nil)
+	exports, err := listExports(context.Background(), "..", nil, nil, []string{"github.com/egoist/mygo/ui"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return api
+	imp := importer.ForCompiler(token.NewFileSet(), "gc", func(path string) (io.ReadCloser, error) {
+		return os.Open(exports[path])
+	})
+	pkg, err := imp.Import("github.com/egoist/mygo/ui")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return describeAPI(pkg)
 }
 
 func TestAPITags(t *testing.T) {
