@@ -192,10 +192,10 @@ type ListState struct {
 	// view and a margin of half its width on both sides, as it builds only
 	// the rows in view: the others are blocks as wide as they are, so that
 	// the table scrolls as with all of them. It needs a Width for every
-	// column (or the user's), else, and with right to left text, the table
-	// builds them all. The headers are always built whole. The cell builder
-	// is not called for columns out of view, which sizing and
-	// assistive technology do not see either.
+	// column (or the user's), else the table builds them all. The headers
+	// are always built whole. The cell builder is not called for columns
+	// out of view, which sizing does not see either; assistive technology
+	// is told how many columns there are and the place of each cell.
 	VirtualColumns bool
 	// RoundRows rounds the corners of a Table's chosen and hovered rows at
 	// the theme's Radius, as a List's are, rather than leaving them square

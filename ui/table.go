@@ -260,7 +260,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	// has a width, in the scroll it has now (a row built as the list lays
 	// out sees the scroll of that frame).
 	window := func() (vlo, vhi int, ok bool) {
-		if !s.VirtualColumns || starts == nil || list == nil || list.st.w <= 0 || table.rtl() {
+		if !s.VirtualColumns || starts == nil || list == nil || list.st.w <= 0 {
 			return 0, 0, false
 		}
 		x0 := float32(list.st.scrollX)

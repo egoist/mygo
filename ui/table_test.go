@@ -1091,9 +1091,10 @@ func TestFrozenStyleIsOpaque(t *testing.T) {
 	}
 }
 
-// Right to left, the columns are laid out from the other edge, which the
-// window does not follow: the table builds them all, as with no Widths.
-func TestTableVirtualColumnsBuildsAllRightToLeft(t *testing.T) {
+// Right to left, the window follows the scroll as it does left to right:
+// the columns from the start, at the right, are built, and the others as it
+// scrolls, counted from the start.
+func TestTableVirtualColumnsRightToLeft(t *testing.T) {
 	built := map[int]int{}
 	s := ListState{VirtualColumns: true}
 	tt := coreNewTester(wideTable(&s, 100, 100, 0, built), 400, 300)
@@ -1101,8 +1102,58 @@ func TestTableVirtualColumnsBuildsAllRightToLeft(t *testing.T) {
 	tt.Frame()
 	clear(built)
 	tt.Frame()
-	if cols := builtColumns(built); len(cols) != 100 {
-		t.Errorf("right to left: built %d columns, want all 100", len(cols))
+	if cols := builtColumns(built); cols[0] != 0 || cols[len(cols)-1] > 8 || len(cols) < 4 {
+		t.Errorf("at the start: built columns %v", cols)
+	}
+	tt.Scroll(200, 150, -3000, 0) // right to left, the start is on the right
+
+	tt.Frame()
+	clear(built)
+	tt.Frame()
+	cols := builtColumns(built)
+	if cols[0] < 20 || cols[len(cols)-1] > 40 || len(cols) > 12 {
+		t.Errorf("scrolled to 3000: built columns %v", cols)
+	}
+	// One at that place shows.
+	if _, ok := tt.Find("r1c" + strconv.Itoa(cols[len(cols)/2])); !ok {
+		t.Errorf("a column in the window is not shown: texts %q", tt.Texts())
+	}
+}
+
+// Right to left, the pinned columns are at the right, and revealing a
+// column scrolls the table as little as shows it in what they leave.
+func TestCellSelectRevealsColumnsRightToLeftFrozen(t *testing.T) {
+	s := ListState{CellSelect: true, Selection: &Selection[int]{}}
+	cols := make([]TableColumn, 20)
+	for j := range cols {
+		cols[j] = TableColumn{Title: string(rune('A' + j)), Width: 100, Frozen: j < 2}
+	}
+	tt := NewTester(func(c *Context) {
+		Table(c, &s, cols, 5, func(row, col int) {
+			Textf(c, "r%dc%d", row, col)
+		}).Grow(1)
+	}, 500, 300)
+	tt.SetDirection(RightToLeft)
+	tt.Frame()
+	tt.Click("r1c0")
+	for range 12 {
+		tt.Key(0, KeyLeft)
+	}
+	h, list := tt.rt.states[s.tableCols[s.colIndex(s.Cells.Cursor)].head], s.frame.e.st
+	// What the pinned two leave, at the right, is 300 of the 500.
+	if s.Cells.Cursor != "M" || h.x < list.x || h.x+h.w > list.x+list.w-s.frozenW {
+		t.Fatalf("Left 12 times from A right to left: cursor %q, its header at %v..%v, the view %v..%v less %v pinned",
+			s.Cells.Cursor, h.x, h.x+h.w, list.x, list.x+list.w, s.frozenW)
+	}
+	// Back at the first column that scrolls, next to the pinned ones: it is
+	// not left under them.
+	for range 10 {
+		tt.Key(0, KeyRight)
+	}
+	h = tt.rt.states[s.tableCols[s.colIndex(s.Cells.Cursor)].head]
+	if s.Cells.Cursor != "C" || h.x < list.x || h.x+h.w > list.x+list.w-s.frozenW {
+		t.Fatalf("Right 10 times: cursor %q, its header at %v..%v, the view %v..%v less %v pinned",
+			s.Cells.Cursor, h.x, h.x+h.w, list.x, list.x+list.w, s.frozenW)
 	}
 }
 
