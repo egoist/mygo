@@ -118,12 +118,17 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
         web.loadDataWithBaseURL(base.ifEmpty { null }, html, "text/html", "utf-8", null)
     }
 
+    // The body is compiled as part of the script evaluateJavascript runs, which the page's Content Security
+    // Policy does not govern; an AsyncFunction made from a string in the page is eval, which a policy without
+    // 'unsafe-eval' refuses. Its function sits at the top level of the script: the code sees the page's globals
+    // and none of the names in here. A script that does not compile runs nothing and answers null. Once the body
+    // has started the script answers 1 whatever the page made of then and mygoAndroid, so that a compile error,
+    // after which Eval runs the code again as statements, is never reported for code that ran.
     fun callAsync(req: Long, body: String) {
-        // The body is compiled as part of the script evaluateJavascript runs, which the page's Content Security
-        // Policy does not govern; an AsyncFunction made from a string in the page is eval, which a policy without
-        // 'unsafe-eval' refuses. A script that does not compile runs nothing and answers null.
-        val js = "(function(){var r=$req;(async function(){\n$body\n})().then(function(v){mygoAndroid.asyncResult(r,String(v),'')}," +
-            "function(e){mygoAndroid.asyncResult(r,'',String(e&&e.message||e))});return 1})()"
+        val js = "(function(p,r){try{p.then(function(v){mygoAndroid.asyncResult(r,String(v),'')}," +
+            "function(e){mygoAndroid.asyncResult(r,'',String(e&&e.message||e))})}" +
+            "catch(e){try{mygoAndroid.asyncResult(r,'',String(e&&e.message||e))}catch(e){}}return 1})" +
+            "((async function(){\n$body\n})(),$req)"
         web.evaluateJavascript(js) { v ->
             if (v != "1") Go.send(Event.asyncResult(req, "", "SyntaxError: the script does not compile"))
         }
@@ -165,8 +170,12 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
         @JavascriptInterface
         fun postMessage(text: String) = Go.send(Event.message(w.id, text))
 
+        // Only the callback of evaluateJavascript, which the page cannot call, says that a script does not
+        // compile: an error the page reports never starts with SyntaxError, which has Eval run the code again.
         @JavascriptInterface
-        fun asyncResult(req: Long, result: String, error: String) = Go.send(Event.asyncResult(req, result, error))
+        fun asyncResult(req: Long, result: String, error: String) {
+            Go.send(Event.asyncResult(req, result, if (error.startsWith("SyntaxError")) "Uncaught $error" else error))
+        }
 
         /** The body of a request to the app's schemes, which Android does not give shouldInterceptRequest. */
         @JavascriptInterface
