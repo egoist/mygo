@@ -421,11 +421,9 @@ app.code.SetDiagnostics(buf.Version(), app.lsp.Diagnostics())
   closes it, and the keyboard goes back to the editor.
 - `Rect` returns where the caret at a byte offset shows, in DIPs from the
   top left of the editor's box as the last frame laid it out, and whether
-  its line shows (a line a fold hides does not); `ScrollX` and `TextX` are
-  how far the text is scrolled left and where it starts, right of the
-  gutter. An app draws what belongs to a range of the text from the `Rect`
-  of its first and last offsets, as a frame around it, in an element's
-  `DrawOver`.
+  its line shows (a line a fold hides does not). An app draws what belongs
+  to a range of the text from the `Rect` of its first and last offsets, as a
+  frame around it, in an element's `DrawOver`.
 
 ## Replacing ranges
 

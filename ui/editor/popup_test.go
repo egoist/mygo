@@ -67,3 +67,25 @@ func TestCodeEditorPopup(t *testing.T) {
 		t.Fatal("an edit did not close the popup")
 	}
 }
+
+// A fold that hides the line the popup opened at closes it, as there is
+// nothing to attach it to: it does not stay shown with nothing on screen.
+func TestCodeEditorPopupClosesWhenItsLineIsHidden(t *testing.T) {
+	ct := newEditorTest(t, "go", "func a() {\n\tx()\n}\nz|")
+	st := ct.st
+	build := func(c *ui.Context, panel ui.Element) {
+		panel.Children(func() { ui.Text(c, "usage") })
+	}
+	st.ShowPopup(len("func a() {\n"), build)
+	ct.tt.Frame()
+	ct.tt.Frame()
+	if !st.PopupShown() || !ct.tt.HasText("usage") {
+		t.Fatalf("popup not built: %q", ct.tt.Texts())
+	}
+	st.Fold(0)
+	ct.tt.Frame()
+	ct.tt.Frame()
+	if st.PopupShown() || ct.tt.HasText("usage") {
+		t.Fatalf("the popup of a hidden line: shown %v, texts %q", st.PopupShown(), ct.tt.Texts())
+	}
+}

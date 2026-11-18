@@ -360,14 +360,6 @@ func (st *State) LineTop(line int) float64 {
 	return st.ed.view.heights.top(line)
 }
 
-// ScrollX returns how far the text is scrolled left, in DIPs, and TextX
-// where the text starts in the editor, right of the gutter, as the last
-// frame laid it out: a point of Rect, less ScrollX plus TextX, is where it
-// shows in the editor's box.
-func (st *State) ScrollX() float32 { return st.ed.scrollX }
-
-func (st *State) TextX() float32 { return st.ed.textX }
-
 // Rect returns where the caret at byte offset off shows, in DIPs from the
 // top left of the editor's box, as the last frame laid it out, and whether
 // its line shows: a line a fold hides doesn't. It is as high as a row; the

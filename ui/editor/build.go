@@ -154,7 +154,11 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 			ed.closePopup()
 		}
 		if ed.popup.shown {
-			popupAnchor, hasPopup = anchor("code popup anchor", ed.popup.at)
+			// A fold can hide the line it opened at, where there is nothing
+			// to attach it to.
+			if popupAnchor, hasPopup = anchor("code popup anchor", ed.popup.at); !hasPopup {
+				ed.closePopup()
+			}
 		}
 		if ed.completing() {
 			caretAnchor, hasCaret = anchor("code caret", ed.complete.at)

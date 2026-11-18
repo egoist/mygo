@@ -12,8 +12,8 @@ func TestStateRect(t *testing.T) {
 	ct := newEditorTest(t, "", "ab\ncdef\ng\nh|")
 	st := ct.st
 	r0, ok := st.Rect(0)
-	if !ok || r0.X != st.TextX() || r0.Y != 0 {
-		t.Fatalf("Rect(0) = %v %v, want X %v Y 0", r0, ok, st.TextX())
+	if !ok || r0.X != st.ed.textX || r0.Y != 0 {
+		t.Fatalf("Rect(0) = %v %v, want X %v Y 0", r0, ok, st.ed.textX)
 	}
 	if r0.H != st.ed.view.lineHeight {
 		t.Fatalf("Rect height %v, want a row %v", r0.H, st.ed.view.lineHeight)
@@ -67,8 +67,5 @@ func TestStateRectScrolled(t *testing.T) {
 	}
 	if before.Y-after.Y != 2*st.ed.view.lineHeight {
 		t.Fatalf("scrolled two rows, Y moved %v", before.Y-after.Y)
-	}
-	if st.ScrollX() != 100 {
-		t.Fatalf("ScrollX = %v", st.ScrollX())
 	}
 }
