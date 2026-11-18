@@ -69,19 +69,7 @@ func (d dialogs) ShowOpenDialog(parent platform.Window, o *platform.OpenDialogOp
 		return
 	}
 	defer release(dlg)
-	opts := uint32(fosForceFileSystem | fosPathMustExist)
-	if o.OpenDirectories {
-		opts |= fosPickFolders
-	} else {
-		opts |= fosFileMustExist
-	}
-	if o.Multiple {
-		opts |= fosAllowMultiselect
-	}
-	if o.ShowHiddenFiles {
-		opts |= fosForceShowHidden
-	}
-	setupFileDialog(dlg, opts, o.Title, o.ButtonLabel, "", o.DefaultPath, o.Filters)
+	setupFileDialog(dlg, openDialogOptions(dialogOptions(dlg), o), o.Title, o.ButtonLabel, "", o.DefaultPath, o.Filters)
 	if failed(comCall(dlg, fdShow, ownerOf(parent))) {
 		cb(nil, nil) // canceled
 		return
@@ -98,13 +86,47 @@ func (d dialogs) ShowOpenDialog(parent platform.Window, o *platform.OpenDialogOp
 	for i := uint32(0); i < n; i++ {
 		var item uintptr
 		if comCall(items, siaGetItemAt, uintptr(i), uintptr(unsafe.Pointer(&item))) == sOK {
-			if p := itemPath(item); p != "" {
-				paths = append(paths, p)
-			}
+			paths = append(paths, itemPath(item))
 			release(item)
 		}
 	}
-	cb(paths, nil)
+	cb(fileSystemPaths(paths), nil)
+}
+
+// openDialogOptions returns the options of an open dialog for o, from the
+// dialog's own (current). A folder picker leaves out FOS_FORCEFILESYSTEM,
+// also when it is a default: with it, leaving a folder without
+// subfolders on a WSL share (\\wsl.localhost\...) freezes the dialog,
+// and the app's window with it, for 25 s or more (#2024). Without it the
+// user can choose an item that is not a folder of the file system, such
+// as This PC, which fileSystemPaths drops.
+func openDialogOptions(current uint32, o *platform.OpenDialogOptions) uint32 {
+	opts := current | fosPathMustExist
+	if o.OpenDirectories {
+		opts = opts&^fosForceFileSystem | fosPickFolders
+	} else {
+		opts |= fosForceFileSystem | fosFileMustExist
+	}
+	if o.Multiple {
+		opts |= fosAllowMultiselect
+	}
+	if o.ShowHiddenFiles {
+		opts |= fosForceShowHidden
+	}
+	return opts
+}
+
+// fileSystemPaths keeps the chosen items' paths, leaving out the items
+// with none ("" from itemPath), and is nil when none remain, as when the
+// dialog is canceled.
+func fileSystemPaths(paths []string) []string {
+	var out []string
+	for _, p := range paths {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (d dialogs) ShowSaveDialog(parent platform.Window, o *platform.SaveDialogOptions, cb func(string, error)) {
@@ -118,7 +140,7 @@ func (d dialogs) ShowSaveDialog(parent platform.Window, o *platform.SaveDialogOp
 	if o.ShowHiddenFiles {
 		opts |= fosForceShowHidden
 	}
-	setupFileDialog(dlg, opts, o.Title, o.ButtonLabel, o.NameFieldLabel, o.DefaultPath, o.Filters)
+	setupFileDialog(dlg, dialogOptions(dlg)|opts, o.Title, o.ButtonLabel, o.NameFieldLabel, o.DefaultPath, o.Filters)
 	if failed(comCall(dlg, fdShow, ownerOf(parent))) {
 		cb("", nil)
 		return
@@ -141,10 +163,17 @@ func createFileDialog(clsid, iid *GUID) uintptr {
 	return dlg
 }
 
+// dialogOptions returns the options a dialog has, its defaults until set.
+func dialogOptions(dlg uintptr) uint32 {
+	var opts uint32
+	comCall(dlg, fdGetOptions, uintptr(unsafe.Pointer(&opts)))
+	return opts
+}
+
+// setupFileDialog sets a dialog's options (all of them: start from
+// dialogOptions), its labels, folder and filters.
 func setupFileDialog(dlg uintptr, opts uint32, title, button, nameLabel, defaultPath string, filters []platform.FileFilter) {
-	var current uint32
-	comCall(dlg, fdGetOptions, uintptr(unsafe.Pointer(&current)))
-	comCall(dlg, fdSetOptions, uintptr(current|opts))
+	comCall(dlg, fdSetOptions, uintptr(opts))
 	if title != "" {
 		comCall(dlg, fdSetTitle, uintptr(unsafe.Pointer(u16(title))))
 	}
