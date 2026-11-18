@@ -7,7 +7,6 @@ import (
 	"runtime/metrics"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/egoist/mygo/internal/pacing"
@@ -21,24 +20,11 @@ import (
 // and the engine logs once a second how many frames came: the rate a scene
 // draws at, which the display's no longer hides.
 
-// frameStatsOn returns how long a frame takes before it is logged, from
+// frameStatsThreshold is how long a frame takes before it is logged, from
 // MYGO_FRAME_STATS: 1 (or true, on) logs those over 8 ms, another number
-// those over that many milliseconds, and all every frame; and whether it
-// is set. It reads the variable once, as the first runtime starts, after
-// a phone's host set the environment: runtimes start on any goroutine,
-// as Testers of parallel tests do, and only read it.
-func frameStatsOn() (time.Duration, bool) {
-	s := &frameStatsEnv
-	s.once.Do(func() { s.threshold, s.on = frameStatsSetting(os.Getenv("MYGO_FRAME_STATS")) })
-	return s.threshold, s.on
-}
-
-// frameStatsEnv holds the setting frameStatsOn read.
-var frameStatsEnv struct {
-	once      sync.Once
-	threshold time.Duration
-	on        bool
-}
+// those over that many milliseconds, and all every frame. frameStatsOn
+// tells whether it is set.
+var frameStatsThreshold, frameStatsOn = frameStatsSetting(os.Getenv("MYGO_FRAME_STATS"))
 
 // frameLog writes the log of a frame; tests replace it.
 var frameLog = log.Print
