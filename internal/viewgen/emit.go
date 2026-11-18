@@ -84,16 +84,13 @@ func (g *gen) emit() (string, error) {
 	} else {
 		fmt.Fprintf(&sb, "package %s\n\n", pkg)
 	}
-	var last int
 	for _, l := range ls {
 		if l.dir != "" {
 			sb.WriteString("//line " + l.dir + "\n")
 		}
 		sb.WriteString(l.code)
 		sb.WriteString("\n")
-		last++
 	}
-	_ = last
 	if len(g.diags) > 0 {
 		return "", g.diags[0]
 	}
@@ -134,7 +131,7 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 			query := strings.TrimPrefix(a.Name, "on-")
 			m, ok := g.api.Methods[query]
 			if !ok || m.Kind != MethodQuery {
-				g.errf(a.Pos, "unknown event on-%s: Element has no such query method", a.Name)
+				g.errf(a.Pos, "unknown event %s: Element has no such query method of that name", a.Name)
 				continue
 			}
 			events = append(events, eventUse{attr: a, method: m})
@@ -262,7 +259,9 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 			}
 			ls = append(ls, cls...)
 		}
-		ls = append(ls, line{code: tab + "})"})
+		// The close maps to the element itself, so a panic in it does
+		// not land on the last child.
+		ls = append(ls, line{dir: g.dir(n.Pos), code: tab + "})"})
 	}
 	// Each event asks in its own if, never an else: one may bring the
 	// next.
@@ -275,7 +274,7 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 		for _, b := range strings.Split(body, "\n") {
 			ls = append(ls, line{code: tab + "\t" + b})
 		}
-		ls = append(ls, line{code: tab + "}"})
+		ls = append(ls, line{dir: g.dir(e.attr.Pos), code: tab + "}"})
 	}
 	return ls, nil
 }
@@ -333,11 +332,16 @@ func (c *Constructor) param(name string) *Param {
 	return nil
 }
 
-// stringParam is the constructor's label-or-s parameter its text body
-// supplies.
+// stringParam is the constructor's parameter its text body supplies: the
+// label or s by name, else the first that takes a string.
 func (c *Constructor) stringParam() string {
 	for _, p := range c.Params {
 		if (p.Name == "label" || p.Name == "s") && isStringType(p.Type) {
+			return p.Name
+		}
+	}
+	for _, p := range c.Params {
+		if isStringType(p.Type) {
 			return p.Name
 		}
 	}

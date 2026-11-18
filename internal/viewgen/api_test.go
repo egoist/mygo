@@ -1,6 +1,7 @@
 package viewgen
 
 import (
+	"context"
 	"testing"
 )
 
@@ -8,7 +9,7 @@ import (
 // binary's own dependency), from its export data.
 func loadTestAPI(t *testing.T) *API {
 	t.Helper()
-	api, err := LoadAPI("..")
+	api, err := loadAPI(context.Background(), "..", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

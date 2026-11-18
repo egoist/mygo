@@ -1,6 +1,7 @@
 package viewgen
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"testing"
@@ -21,8 +22,6 @@ func TestHandlerGoScopesRuntime(t *testing.T) {
 		{"switch_init", `switch N := 1; N {case 1: _=N}; N++`, "field=4 global=50 out=0"},
 		{"receiver_shadow", `s:=7; Out=s; N++`, "field=4 global=50 out=7"},
 		{"context_shadow", `c:=7; Out=c; N++`, "field=4 global=50 out=7"},
-		{"offsetof_is_local_function", `N:=7; _=N; unsafe:=struct{Offsetof func(int)int}{func(v int)int{return v}}; Out=unsafe.Offsetof(N)`, "field=3 global=50 out=7"},
-		{"offsetof_local_during_retry", `N:=7; _=N; unsafe:=struct{Offsetof func(int)int}{func(v int)int{return v}}; Out=unsafe.Offsetof(N)+int(u.Offsetof(Out)-u.Offsetof(s.Out))`, "field=3 global=50 out=7"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := writeApp(t, map[string]string{
@@ -37,7 +36,7 @@ var N=50
 import("fmt";"github.com/egoist/mygo/ui")
 func main(){s:=&app{N:3};tt:=ui.NewTester(s.View,200,100);if err:=tt.Click("Go");err!=nil{panic(err)};fmt.Printf("field=%d global=%d out=%d",s.N,N,s.Out)}
 `})
-			if _, err := Generate(dir); err != nil {
+			if _, err := Generate(context.Background(), dir, nil); err != nil {
 				t.Fatal(err)
 			}
 			cmd := exec.Command("go", "run", ".")
@@ -53,44 +52,25 @@ func main(){s:=&app{N:3};tt:=ui.NewTester(s.View,200,100);if err:=tt.Click("Go")
 	}
 }
 
-func TestOffsetofBindings(t *testing.T) {
-	for _, tc := range []struct {
-		name, alias, expr string
-		invalid           bool
-	}{
-		{name: "field", alias: "unsafe", expr: `unsafe.Offsetof(N)`},
-		{name: "alias", alias: "u", expr: `u.Offsetof(N)`},
-		{name: "parenthesized", alias: "unsafe", expr: `unsafe.Offsetof((N))`},
-		{name: "leading_comment", alias: "unsafe", expr: `/* note */ unsafe.Offsetof(N)`},
-		{name: "multiple", alias: "unsafe", expr: `unsafe.Offsetof(N) + unsafe.Offsetof(Out)`},
-		{name: "initializer", alias: "unsafe", expr: `func() int { var N=int(unsafe.Offsetof(N)); return N }()`},
-		{name: "renamed_receiver", alias: "unsafe", expr: `func() int { s:=7; _=s; return int(unsafe.Offsetof(N)) }()`},
-		{name: "constant_context", alias: "unsafe", expr: `func() int { const offset=unsafe.Offsetof(N); var a [offset-1]byte; return len(a) }()`},
-		{name: "block_scope_ends", alias: "unsafe", expr: `func() uintptr { { N:=7; _=N }; return unsafe.Offsetof(N) }()`},
-		{name: "local_argument", alias: "unsafe", expr: `func() int { N:=7; _=N; return int(unsafe.Offsetof(N)) }()`, invalid: true},
-		{name: "named_result", alias: "unsafe", expr: `func()(N int) { return int(unsafe.Offsetof(N)) }()`, invalid: true},
-		{name: "switch_scope", alias: "unsafe", expr: `func() int { switch N:=7; N { case 7: return int(unsafe.Offsetof(N)) }; return 0 }()`, invalid: true},
-		{name: "select_scope", alias: "unsafe", expr: `func() int { ch:=make(chan int,1); select { case N:=<-ch: return int(unsafe.Offsetof(N)) }; return 0 }()`, invalid: true},
-		{name: "range_scope", alias: "unsafe", expr: `func() int { for _,N:=range []int{7} { return int(unsafe.Offsetof(N)) }; return 0 }()`, invalid: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := writeApp(t, map[string]string{
-				"app.go":   "package main\nimport " + tc.alias + " \"unsafe\"\nvar _=" + tc.alias + ".Sizeof(0)\ntype app struct{Padding byte;N,Out int}\n",
-				"app.view": `<view type="app"><text>{` + tc.expr + `}</text></view>`,
-				"main.go": `package main
+// TestOffsetofInvalidInMarkup pins the review's decision: the receiver's
+// members stand as plain variables while an expression checks, so a
+// builtin that asks for a selector by its form — unsafe.Offsetof of a
+// bare member — is rejected at its .view place, with no retry machinery.
+func TestOffsetofInvalidInMarkup(t *testing.T) {
+	dir := writeApp(t, map[string]string{
+		"app.go": `package main
+import "unsafe"
+var _=unsafe.Sizeof(0)
+type app struct{N int}
+`,
+		"app.view": `<view type="app"><text>{unsafe.Offsetof(N)}</text></view>`,
+		"main.go": `package main
 import "github.com/egoist/mygo/ui"
 func main(){_ = ui.View((&app{}).View)}
-`,
-			})
-			_, err := Generate(dir)
-			if tc.invalid {
-				if err == nil || !strings.Contains(err.Error(), "not a selector expression") || !strings.Contains(err.Error(), "app.view:") {
-					t.Fatalf("want a .view diagnostic rejecting a local Offsetof argument, got %v", err)
-				}
-			} else if err != nil {
-				t.Fatal(err)
-			}
-		})
+`})
+	_, err := Generate(context.Background(), dir, nil)
+	if err == nil || !strings.Contains(err.Error(), "not a selector expression") || !strings.Contains(err.Error(), "app.view:") {
+		t.Fatalf("want a .view diagnostic, got %v", err)
 	}
 }
 
@@ -108,12 +88,13 @@ import "github.com/egoist/mygo/ui"
 func main(){_ = ui.View((&app{}).View)}
 `,
 			})
-			if _, err := Generate(dir); err != nil {
+			if _, err := Generate(context.Background(), dir, nil); err != nil {
 				t.Fatal(err)
 			}
 		})
 	}
 }
+
 func TestPointerBindingsAddressability(t *testing.T) {
 	for _, tc := range []struct{ name, decl, view string }{
 		{"radio_existing_pointer", `Choice *int`, `<radio selected={Choice} value={1}>One</radio>`},
@@ -127,12 +108,13 @@ func TestPointerBindingsAddressability(t *testing.T) {
 import "github.com/egoist/mygo/ui"
 func main(){_ = ui.View((&app{}).View)}
 `})
-			if _, err := Generate(dir); err != nil {
+			if _, err := Generate(context.Background(), dir, nil); err != nil {
 				t.Fatal(err)
 			}
 		})
 	}
 }
+
 func TestImportAliasesWithGeneratedCalls(t *testing.T) {
 	for _, tc := range []struct{ name, src, view string }{
 		{"fmt_alias", `package main
@@ -159,7 +141,7 @@ type app struct{N int}
 import "github.com/egoist/mygo/ui"
 func main(){_ = ui.View((&app{}).View)}
 `})
-			if _, err := Generate(dir); err != nil {
+			if _, err := Generate(context.Background(), dir, nil); err != nil {
 				t.Fatal(err)
 			}
 		})

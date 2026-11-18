@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,21 +20,28 @@ import (
 //
 // A package with no .view files returns at once: nothing is parsed, no
 // export data is read, nothing changes.
-func prepareViews(c *Config) (found bool, err error) {
-	dir, err := mainPackageDir(c)
-	if err != nil {
-		return false, err
+func prepareViews(ctx context.Context, c *Config, env []string, flags ...string) (found bool, err error) {
+	// The common mains name a directory: look there before any tool
+	// runs, so builds without views pay for one Glob.
+	dir := ""
+	if c.Main == "." || strings.HasPrefix(c.Main, "./") || filepath.IsAbs(c.Main) {
+		dir = filepath.Join(c.root, c.Main)
+	} else if st, err := os.Stat(filepath.Join(c.root, c.Main)); err == nil && st.IsDir() {
+		dir = filepath.Join(c.root, c.Main)
+	} else {
+		// A module path: go list finds its directory. When it cannot,
+		// the compile says why; views are not the build's first problem.
+		d, err := listMainDir(ctx, c, env, flags)
+		if err != nil {
+			return false, nil
+		}
+		dir = d
 	}
 	views, err := filepath.Glob(filepath.Join(dir, "*.view"))
-	if err != nil {
+	if err != nil || len(views) == 0 {
 		return false, err
 	}
-	if len(views) == 0 {
-		// No views: the generator's own outputs of views that went away
-		// still belong to it, and go with them (#1457).
-		return false, pruneViews(dir)
-	}
-	written, err := viewgen.Generate(dir)
+	written, err := viewgen.Generate(ctx, dir, env, flags...)
 	if err != nil {
 		return true, fmt.Errorf("generate views: %w", err)
 	}
@@ -43,17 +51,16 @@ func prepareViews(c *Config) (found bool, err error) {
 	return true, nil
 }
 
-// mainPackageDir is the directory the main package's sources live in,
-// however Config.Main names it: a path from the module root, or a module
-// path, as the rest of the CLI resolves it with go list.
-func mainPackageDir(c *Config) (string, error) {
-	cmd := exec.Command("go", "list", "-e", "-f", "{{.Dir}}", "--", c.Main)
+// listMainDir is the directory of a main named as a module path, in the
+// build's own environment.
+func listMainDir(ctx context.Context, c *Config, env []string, flags []string) (string, error) {
+	args := append([]string{"list", "-e", "-f", "{{.Dir}}"}, flags...)
+	args = append(args, "--", c.Main)
+	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = c.root
+	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.Output()
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("go list %s: %s", c.Main, ee.Stderr)
-		}
 		return "", err
 	}
 	dir := strings.TrimSpace(string(out))
@@ -61,33 +68,6 @@ func mainPackageDir(c *Config) (string, error) {
 		return "", fmt.Errorf("no package at %s", c.Main)
 	}
 	return dir, nil
-}
-
-// pruneViews removes the generator's outputs whose .view files are no
-// more, by the marker naming each one's source. Anything else, whatever
-// its name, is left alone.
-func pruneViews(dir string) error {
-	outs, err := filepath.Glob(filepath.Join(dir, "*_view.go"))
-	if err != nil || len(outs) == 0 {
-		return err
-	}
-	for _, path := range outs {
-		src, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		marker := generatedMarkerOf(string(src))
-		if marker == "" {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
-			continue
-		}
-		if err := os.Remove(path); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // generatedMarkerOf reads the .view path a file was generated from, ""

@@ -106,20 +106,13 @@ func TestBuildGeneratesViewsFirst(t *testing.T) {
 		t.Skip("release build")
 	}
 	dir := viewProject(t, testCounterView)
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
+	err := runBuild([]string{dir})
+	signing := err != nil && (strings.Contains(err.Error(), "codesign") || strings.Contains(err.Error(), "signing identity"))
+	if err != nil && !signing {
+		t.Fatalf("mygo build: %v", err)
 	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chdir(wd) })
-	if err := runBuild([]string{}); err != nil {
-		// No code signing identity on a test machine is fine: the views
-		// must still have been written before the build reached it.
-		if !strings.Contains(err.Error(), "sign") && !strings.Contains(err.Error(), "certificate") {
-			t.Fatalf("mygo build: %v", err)
-		}
+	if signing {
+		t.Skipf("no signing identity: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "counter_view.go")); err != nil {
 		t.Fatal("the build did not generate the views first")
@@ -137,27 +130,21 @@ func runGo(t *testing.T, dir string, args ...string) string {
 	return ""
 }
 
-// TestLastViewDeletedCleansItsOutput: with every .view gone, generate
-// takes the generator's own outputs with them, and a project with none
-// of it stays a fast no-op.
-func TestLastViewDeletedCleansItsOutput(t *testing.T) {
+// TestLastViewDeletedKeepsItsOutput: with every .view gone the
+// generator owns nothing any more — a package that left the .view world
+// keeps every file, hand-edited or not.
+func TestLastViewDeletedKeepsItsOutput(t *testing.T) {
 	dir := viewProject(t, testCounterView)
 	if err := runGenerate([]string{dir}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "counter_view.go")); err != nil {
-		t.Fatal("no output written")
-	}
 	if err := os.Remove(filepath.Join(dir, "counter.view")); err != nil {
 		t.Fatal(err)
 	}
-	// The project has no frontend any more: the error says so, and the
-	// generator's output went with its source.
-	err := runGenerate([]string{dir})
-	if err == nil || !strings.Contains(err.Error(), "no frontend") {
+	if err := runGenerate([]string{dir}); err == nil || !strings.Contains(err.Error(), "no frontend") {
 		t.Fatalf("second generate: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "counter_view.go")); err == nil {
-		t.Fatal("the deleted view's output stayed")
+	if _, err := os.Stat(filepath.Join(dir, "counter_view.go")); err != nil {
+		t.Fatal("the last view's output was taken with it")
 	}
 }

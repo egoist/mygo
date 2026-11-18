@@ -34,6 +34,7 @@ func (s *counter) View(c *ui.Context) {
 //line counter.view:5:40
 			if el4.Clicked() {
 				s.Decrement()
+//line counter.view:5:40
 			}
 //line counter.view:6:3
 			el5 := ui.Button(c.Key("counter.view:6:3"), "Reset")
@@ -42,6 +43,7 @@ func (s *counter) View(c *ui.Context) {
 //line counter.view:6:29
 			if el5.Clicked() {
 				s.Reset()
+//line counter.view:6:29
 			}
 //line counter.view:7:3
 			el6 := ui.PrimaryButton(c.Key("counter.view:7:3"), "+")
@@ -52,7 +54,9 @@ func (s *counter) View(c *ui.Context) {
 //line counter.view:7:48
 			if el6.Clicked() {
 				s.Increment()
+//line counter.view:7:48
 			}
+//line counter.view:4:2
 		})
 //line counter.view:9:2
 		el7 := ui.Text(c.Key("counter.view:9:2"), "↑ and ↓ count too")
@@ -60,5 +64,6 @@ func (s *counter) View(c *ui.Context) {
 		el7.FontSize(12)
 //line counter.view:9:23
 		el7.TextColor(c.Theme().TextMuted)
+//line counter.view:2:1
 	})
 }

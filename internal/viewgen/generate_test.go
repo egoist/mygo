@@ -1,42 +1,70 @@
 package viewgen
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 )
 
 // writeApp makes a package of a .view file and the Go it pairs with, in
 // its own module that replaces mygo with the repo's, so Generate builds
 // against the ui the repo ships.
-func writeApp(t *testing.T, files map[string]string) string {
-	t.Helper()
-	dir := t.TempDir()
-	write := func(rel, content string) {
-		path := filepath.Join(dir, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
+// appModule is one tidied module every test app copies: one go mod
+// tidy, not one per test.
+var appModule = sync.OnceValue(func() string {
+	dir, err := os.MkdirTemp("", "viewgen-module-")
+	if err != nil {
+		panic(err)
 	}
 	root, err := filepath.Abs(filepath.FromSlash("../.."))
 	if err != nil {
+		panic(err)
+	}
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module app\n\ngo 1.25\n\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => "+filepath.ToSlash(root)+"\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "placeholder.go"), []byte("package main\n\nimport \"github.com/egoist/mygo/ui\"\n\nfunc main() { _ = ui.LightTheme }\n"), 0o644)
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = dir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		panic("go mod tidy: " + string(out))
+	}
+	return dir
+})
+
+func writeFiles(dir string, files map[string]string) {
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			panic(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			panic(err)
+		}
+	}
+}
+
+func writeApp(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if os.Getenv("VIEWGEN_KEEP") != "" {
+		var err error
+		dir, err = os.MkdirTemp("", "viewgen-keep-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log("app dir:", dir)
+	}
+	if err := os.CopyFS(dir, os.DirFS(appModule())); err != nil {
 		t.Fatal(err)
 	}
-	write("go.mod", "module app\n\ngo 1.25\n\nrequire github.com/egoist/mygo v0.0.0\n\nreplace github.com/egoist/mygo => "+filepath.ToSlash(root)+"\n")
-	for name, content := range files {
-		write(name, content)
-	}
-	cmd := exec.Command("go", "mod", "tidy")
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("go mod tidy: %s", out)
-	}
+	// The placeholder kept tidy's requirements honest; the app's own
+	// files replace it.
+	os.Remove(filepath.Join(dir, "placeholder.go"))
+	writeFiles(dir, files)
 	return dir
 }
 
@@ -105,7 +133,7 @@ func TestGenerateCleanBootstrap(t *testing.T) {
 		"counter.view": counterView,
 		"main.go":      counterMain,
 	})
-	written, err := Generate(dir)
+	written, err := Generate(context.Background(), dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,10 +193,10 @@ func TestGenerateIdempotent(t *testing.T) {
 		"counter.view": counterView,
 		"main.go":      counterMain,
 	})
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatal(err)
 	}
-	written, err := Generate(dir)
+	written, err := Generate(context.Background(), dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +221,7 @@ func TestGenerateErrorsPointAtTheView(t *testing.T) {
 `,
 		"main.go": counterMain,
 	})
-	_, err := Generate(dir)
+	_, err := Generate(context.Background(), dir, nil)
 	if err == nil {
 		t.Fatal("no error")
 	}
@@ -258,7 +286,7 @@ import "github.com/egoist/mygo/ui"
 
 func main() { _ = ui.View((&editor{}).View) }
 `})
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatal(err)
 	}
 	src, err := os.ReadFile(filepath.Join(dir, "form_view.go"))
@@ -301,7 +329,7 @@ import "github.com/egoist/mygo/ui"
 
 func main() { _ = ui.View((&app{}).View) }
 `})
-	_, err := Generate(dir)
+	_, err := Generate(context.Background(), dir, nil)
 	if err == nil || !strings.Contains(err.Error(), "<form> cannot be built from markup yet") {
 		t.Fatalf("err: %v", err)
 	}
@@ -338,7 +366,7 @@ func clearAll(fn func()) { fn() }
 
 func main() { _ = ui.View((&picker{}).View) }
 `})
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
@@ -377,7 +405,7 @@ import "github.com/egoist/mygo/ui"
 
 func main() { _ = ui.View((&app{}).View) }
 `})
-	_, err := Generate(dir)
+	_, err := Generate(context.Background(), dir, nil)
 	if err == nil || !strings.Contains(err.Error(), "text") {
 		t.Fatalf("dropped the text instead of erroring: %v", err)
 	}
@@ -395,7 +423,7 @@ func TestBadKeyAndBadLiteralError(t *testing.T) {
 			"app.view": view,
 			"main.go":  "package main\n\nimport \"github.com/egoist/mygo/ui\"\n\nfunc main() { _ = ui.View((&app{}).View) }\n",
 		})
-		if _, err := Generate(dir); err == nil {
+		if _, err := Generate(context.Background(), dir, nil); err == nil {
 			t.Errorf("%s: no error", view)
 		}
 	}
@@ -421,22 +449,17 @@ func main() { _ = ui.View((&app{}).View) }
 	dir := writeApp(t, merge(base, map[string]string{
 		"old.view": `<view type="app"><text>{n}</text></view>`,
 	}))
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "old_view.go")); err != nil {
 		t.Fatal("no output written")
 	}
-	// The view moves: the old output must go.
-	dir2 := writeApp(t, merge(base, map[string]string{
-		"new.view": `<view type="app"><text>{n}</text></view>`,
-	}))
-	_ = dir2
-	// Simulate the move in dir itself.
+	// The view moves: the old output goes with it, said aloud.
 	if err := os.Rename(filepath.Join(dir, "old.view"), filepath.Join(dir, "new.view")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "old_view.go")); err == nil {
@@ -473,7 +496,7 @@ func TestWIP(t *T) {} // broken on purpose
 		"other.go": "//go:build plan9\n\npackage main\n\nfunc unused() {}\n",
 	}
 	dir := writeApp(t, base)
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatalf("test files and tagged files broke generation: %v", err)
 	}
 }
@@ -505,7 +528,7 @@ import "github.com/egoist/mygo/ui"
 func main() { _ = ui.View((&app{}).View) }
 `,
 	})
-	_, err := Generate(dir)
+	_, err := Generate(context.Background(), dir, nil)
 	if err == nil {
 		t.Fatal("no error")
 	}
@@ -544,7 +567,7 @@ import "github.com/egoist/mygo/ui"
 
 func main() { _ = ui.View((&model{}).View) }
 `})
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
@@ -586,7 +609,7 @@ import "github.com/egoist/mygo/ui"
 
 func main() { _ = ui.View((&app{}).View) }
 `})
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
@@ -626,7 +649,7 @@ import "github.com/egoist/mygo/ui"
 
 func main() { _ = ui.View((&app{}).View) }
 `})
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
@@ -667,7 +690,7 @@ import "github.com/egoist/mygo/ui"
 
 func main() { _ = ui.View((&app{}).View) }
 `})
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
@@ -707,7 +730,7 @@ import "github.com/egoist/mygo/ui"
 
 func main() { _ = ui.View((&app{}).View) }
 `})
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
@@ -739,7 +762,7 @@ import "github.com/egoist/mygo/ui"
 
 func main() { _ = ui.View((&app{}).View) }
 `})
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	src, err := os.ReadFile(filepath.Join(dir, "app_view.go"))
@@ -773,7 +796,7 @@ import "github.com/egoist/mygo/ui"
 func main() { _ = ui.View((&appA{}).View) }
 `,
 	}))
-	if _, err := Generate(dir); err != nil {
+	if _, err := Generate(context.Background(), dir, nil); err != nil {
 		t.Fatalf("first generate: %v", err)
 	}
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte(`package main
@@ -791,7 +814,7 @@ func main() {
 	}
 	os.WriteFile(filepath.Join(dir, "a.view"), []byte(`<view type="appA"><text>changed {n}</text></view>`), 0o644)
 	os.WriteFile(filepath.Join(dir, "z.view"), []byte(`<view type="appZ"><text>{n}</text></view>`), 0o644)
-	if _, err := Generate(dir); err == nil {
+	if _, err := Generate(context.Background(), dir, nil); err == nil {
 		t.Fatal("the conflicting output was taken without error")
 	}
 	after, err := os.ReadFile(filepath.Join(dir, "a_view.go"))

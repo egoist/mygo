@@ -1,7 +1,9 @@
 package viewgen
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/importer"
@@ -26,7 +28,7 @@ import (
 // The app's own code is not built first (#1457): the package is
 // type-checked with stub View methods in memory, the views are bound
 // against those types, and only output that type-checks is written.
-func Generate(dir string) (written []string, err error) {
+func Generate(ctx context.Context, dir string, env []string, flags ...string) (written []string, err error) {
 	views, err := filepath.Glob(filepath.Join(dir, "*.view"))
 	if err != nil || len(views) == 0 {
 		return nil, err
@@ -35,7 +37,7 @@ func Generate(dir string) (written []string, err error) {
 	// The package's Go files as the build sees them: constrained by the
 	// host, without its tests, and without the *_view.go files the
 	// generator owns and never reads as input.
-	sources, err := packageSources(dir)
+	sources, err := packageSources(ctx, dir, env, flags)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +107,7 @@ func Generate(dir string) (written []string, err error) {
 	// Type-check the package with a stub View for every .view file, so
 	// that expressions bind against the receiver's real types.
 	importPaths := packageImports(files, []string{"github.com/egoist/mygo/ui", "fmt"})
-	exports, err := listExports(dir, importPaths)
+	exports, err := listExports(ctx, dir, env, flags, importPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -116,14 +118,14 @@ func Generate(dir string) (written []string, err error) {
 		}
 		return os.Open(file)
 	})
-	var stubFiles []*ast.File
+	var stubs []*ast.File
 	for _, v := range vs {
 		stub := fmt.Sprintf("package %s\nimport %q\nfunc (%s) View(c *%s.Context) {}\n", pkgName, "github.com/egoist/mygo/ui", receiverDecl(v.recv), "ui")
 		af, err := parser.ParseFile(fs, v.owner+".stub", stub, 0)
 		if err != nil {
 			return nil, err
 		}
-		stubFiles = append(stubFiles, af)
+		stubs = append(stubs, af)
 	}
 	info := &types.Info{
 		Defs:   map[*ast.Ident]types.Object{},
@@ -131,10 +133,7 @@ func Generate(dir string) (written []string, err error) {
 		Types:  map[ast.Expr]types.TypeAndValue{},
 		Scopes: map[ast.Node]*types.Scope{},
 	}
-	for _, af := range stubFiles {
-		_ = af
-	}
-	checked, checkErr := (&types.Config{Importer: imp, FakeImportC: true}).Check(pkgName, fs, append(files, stubFiles...), info)
+	checked, checkErr := (&types.Config{Importer: imp, FakeImportC: true}).Check(pkgName, fs, append(files, stubs...), info)
 	if checkErr != nil {
 		// An error in the app's Go: not the generator's to fix.
 		return nil, fmt.Errorf("the package's Go does not check: %w", checkErr)
@@ -229,7 +228,7 @@ func Generate(dir string) (written []string, err error) {
 			return name
 		}
 		receiver, context := paramName("s"), paramName("c")
-		fn := stubFiles[vi].Decls[1].(*ast.FuncDecl)
+		fn := stubs[vi].Decls[1].(*ast.FuncDecl)
 		scope := info.Scopes[fn.Type]
 		g := &gen{
 			api:        api,
@@ -281,9 +280,10 @@ func Generate(dir string) (written []string, err error) {
 		checkFiles = append(checkFiles, af)
 	}
 	vinfo := &types.Info{Types: map[ast.Expr]types.TypeAndValue{}, Defs: map[*ast.Ident]types.Object{}, Uses: map[*ast.Ident]types.Object{}}
-	_, err = (&types.Config{Importer: imp, FakeImportC: true, Error: func(error) {}}).Check(pkgName, over, checkFiles, vinfo)
+	var typeErrs []error
+	_, err = (&types.Config{Importer: imp, FakeImportC: true, Error: func(err error) { typeErrs = append(typeErrs, err) }}).Check(pkgName, over, checkFiles, vinfo)
 	if err != nil {
-		return nil, mapTypeErrors(over, err, outs)
+		return nil, errors.Join(typeErrs...)
 	}
 
 	// Every output's way must be clear before any is written: one the
@@ -301,6 +301,7 @@ func Generate(dir string) (written []string, err error) {
 	}
 	for _, o := range write {
 		tmp := o.path + ".tmp"
+		defer os.Remove(tmp) // no .tmp stays behind, whatever came of it
 		if err := os.WriteFile(tmp, []byte(o.src), 0o644); err != nil {
 			return nil, err
 		}
@@ -309,10 +310,9 @@ func Generate(dir string) (written []string, err error) {
 		}
 		written = append(written, o.path)
 	}
-	// Outputs whose .view went away belong to no one: the marker names
-	// the source each was generated from, and a source that is no more
-	// takes its output with it. A file the marker does not own is left
-	// alone, whatever it is named.
+	// Outputs whose .view went away go with it — but only in a build
+	// that still has views, and each removal said aloud: a package that
+	// left the .view world keeps every file, hand-edited or not.
 	live := map[string]bool{}
 	for _, v := range vs {
 		live[v.file.Path] = true
@@ -321,6 +321,7 @@ func Generate(dir string) (written []string, err error) {
 	if err != nil {
 		return written, err
 	}
+	removed := []string{}
 	for _, path := range orphans {
 		if slices.Contains(written, path) {
 			continue
@@ -336,6 +337,10 @@ func Generate(dir string) (written []string, err error) {
 		if err := os.Remove(path); err != nil {
 			return written, err
 		}
+		removed = append(removed, fmt.Sprintf("%s (%s gone)", filepath.Base(path), marker))
+	}
+	if len(removed) > 0 {
+		fmt.Fprintf(os.Stderr, "mygo: removed %s\n", strings.Join(removed, ", "))
 	}
 	return written, nil
 }
@@ -361,9 +366,12 @@ func generatedMarker(src string) string {
 // them: its build constraints applied, its tests left out, and the
 // generator's own outputs never read as input. go list -e reads the
 // package without building it.
-func packageSources(dir string) ([]string, error) {
-	cmd := exec.Command("go", "list", "-e", "-json", "--", ".")
+func packageSources(ctx context.Context, dir string, env []string, flags []string) ([]string, error) {
+	args := append([]string{"list", "-e", "-json"}, flags...)
+	args = append(args, "--", ".")
+	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -434,13 +442,16 @@ func packageImports(files []*ast.File, extra []string) []string {
 
 // listExports returns the export-data files of the import paths, built
 // without building the package itself.
-func listExports(dir string, paths []string) (map[string]string, error) {
+func listExports(ctx context.Context, dir string, env []string, flags []string, paths []string) (map[string]string, error) {
 	if len(paths) == 0 {
 		return map[string]string{}, nil
 	}
-	args := append([]string{"list", "-export", "-deps", "-json", "--"}, paths...)
-	cmd := exec.Command("go", args...)
+	args := append([]string{"list", "-export", "-deps", "-json"}, flags...)
+	args = append(args, "--")
+	args = append(args, paths...)
+	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -477,12 +488,6 @@ func joinDiags(diags []Diagnostic, err error) error {
 	if len(diags) > 0 {
 		return fmt.Errorf("%s", diags[0])
 	}
-	return err
-}
-
-func mapTypeErrors(fs *token.FileSet, err error, outs []outFile) error {
-	// Errors from the generated files carry //line positions of the
-	// .view sources already; others are the app's own.
 	return err
 }
 

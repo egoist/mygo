@@ -1,6 +1,7 @@
 package viewgen
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/importer"
@@ -9,7 +10,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -77,12 +77,14 @@ const (
 )
 
 // Kebab names a Go identifier as markup writes it: PrimaryButton ->
-// primary-button.
+// primary-button, ID -> id, HTMLPanel -> html-panel.
 func Kebab(name string) string {
 	var b strings.Builder
-	for i, r := range name {
+	runes := []rune(name)
+	for i, r := range runes {
 		if r >= 'A' && r <= 'Z' {
-			if i > 0 {
+			nextLower := i+1 < len(runes) && (runes[i+1] < 'A' || runes[i+1] > 'Z')
+			if i > 0 && (runes[i-1] < 'A' || runes[i-1] > 'Z' || nextLower) {
 				b.WriteByte('-')
 			}
 			r += 'a' - 'A'
@@ -94,9 +96,12 @@ func Kebab(name string) string {
 
 // listPackage runs go list for one package in dir, without building the
 // app itself: the package asked for is a dependency, as ui.
-func listPackage(dir, path string) (dir_ string, export string, err error) {
-	cmd := exec.Command("go", "list", "-export", "-deps", "-json", "--", path)
+func listPackage(ctx context.Context, dir string, env []string, flags []string, path string) (dir_ string, export string, err error) {
+	args := append([]string{"list", "-export", "-deps", "-json"}, flags...)
+	args = append(args, "--", path)
+	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -133,11 +138,11 @@ func listPackage(dir, path string) (dir_ string, export string, err error) {
 	return dir_, export, nil
 }
 
-// LoadAPI reads the ui package's public API from its export data, the
+// loadAPI reads the ui package's public API from its export data, the
 // version the app in dir builds with: go.mod, workspace and replace
 // decide it, not the CLI's own build (#1457).
-func LoadAPI(dir string) (*API, error) {
-	_, export, err := listPackage(dir, "github.com/egoist/mygo/ui")
+func loadAPI(ctx context.Context, dir string, env []string, flags []string) (*API, error) {
+	_, export, err := listPackage(ctx, dir, env, flags, "github.com/egoist/mygo/ui")
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +157,7 @@ func LoadAPI(dir string) (*API, error) {
 			return os.Open(export)
 		}
 		// The dependencies ui itself needs: listed apart.
-		_, dep, err := listPackage(dir, path)
+		_, dep, err := listPackage(ctx, dir, env, flags, path)
 		if err != nil {
 			return nil, err
 		}
@@ -296,8 +301,6 @@ func firstBadParam(params []Param) string {
 	return ""
 }
 
-var _ = filepath.Join
-
 // constantOf reads the enum constant named lit (any case) of the type t,
 // "" for none. The ui package's constants are read once, per type.
 func (api *API) constantOf(lit string, t types.Type) (string, bool) {
@@ -312,6 +315,12 @@ func (api *API) constantOf(lit string, t types.Type) (string, bool) {
 		}
 		api.consts[key] = consts
 	}
-	name, ok := api.consts[key][strings.ToLower(lit)]
-	return name, ok
+	// Markup writes the constant as it writes tags: space-between is
+	// SpaceBetween.
+	for _, name := range api.consts[key] {
+		if Kebab(name) == strings.ToLower(lit) {
+			return name, true
+		}
+	}
+	return "", false
 }

@@ -8,10 +8,11 @@ import (
 
 func runGenerate(args []string) error {
 	fs := newFlags("generate", "[-o file] [dir]", `Writes the typed TypeScript client for the services bound with mygo.Bind
-and the events declared with mygo.NewEvent. With i18n in mygo.json, it first
-checks the catalogs of the app's messages and writes their accessors: Go
-functions in the catalogs' directory, and a TypeScript module next to the
-client, named after the directory (src/locales.ts).`)
+and the events declared with mygo.NewEvent, and compiles the app's .view
+files to their *_view.go. With i18n in mygo.json, it first checks the
+catalogs of the app's messages and writes their accessors: Go functions in
+the catalogs' directory, and a TypeScript module next to the client, named
+after the directory (src/locales.ts).`)
 	out := fs.String("o", "", "output file (default: bindings from mygo.json)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -39,7 +40,7 @@ client, named after the directory (src/locales.ts).`)
 	}
 	// The views of a native app are its frontend half: generating them
 	// is work enough on its own (#1457).
-	views, err := prepareViews(c)
+	views, err := prepareViews(context.Background(), c, nil)
 	if err != nil {
 		return err
 	}

@@ -123,23 +123,9 @@ func (b *binder) rewrite(src string, pos Position, path string, body bool) (stri
 	if err != nil {
 		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: fmt.Sprintf("not Go %s: %v", kind, err)}
 	}
-	var info *types.Info
-	for {
-		info = &types.Info{Uses: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}, Scopes: map[ast.Node]*types.Scope{}}
-		checkErr := types.CheckExpr(b.fs, b.pkg, b.pos, e, info)
-		if checkErr == nil {
-			break
-		}
-		// Offsetof requires a selector before resolving its argument.
-		// Use the partial check's bindings to qualify fields and retry.
-		qualified, changed := b.qualifyOffsetof(src, e, info)
-		if !changed {
-			return "", nil, Diagnostic{Pos: pos, Path: path, Msg: checkErr.Error()}
-		}
-		src = qualified
-		if e, err = parser.ParseExprFrom(b.fs, "view-expression", src, 0); err != nil {
-			return "", nil, Diagnostic{Pos: pos, Path: path, Msg: fmt.Sprintf("not Go %s: %v", kind, err)}
-		}
+	info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}, Scopes: map[ast.Node]*types.Scope{}}
+	if checkErr := types.CheckExpr(b.fs, b.pkg, b.pos, e, info); checkErr != nil {
+		return "", nil, Diagnostic{Pos: pos, Path: path, Msg: checkErr.Error()}
 	}
 	type edit struct {
 		start, end int
@@ -244,57 +230,4 @@ func declaredNames(f *File) map[string]bool {
 		visit(root)
 	}
 	return names
-}
-
-func (b *binder) qualifyOffsetof(src string, e ast.Expr, info *types.Info) (string, bool) {
-	file := b.fs.File(e.Pos())
-	if file == nil {
-		return src, false
-	}
-	type span struct {
-		start, end int
-		text       string
-	}
-	var spans []span
-	ast.Inspect(e, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok || len(call.Args) != 1 {
-			return true
-		}
-		var callee types.Object
-		switch fun := ast.Unparen(call.Fun).(type) {
-		case *ast.Ident:
-			callee = info.Uses[fun]
-		case *ast.SelectorExpr:
-			callee = info.Uses[fun.Sel]
-		}
-		if callee != types.Unsafe.Scope().Lookup("Offsetof") {
-			return true
-		}
-		arg, ok := ast.Unparen(call.Args[0]).(*ast.Ident)
-		if !ok {
-			return true
-		}
-		scope := b.scope
-		for _, candidate := range info.Scopes {
-			if inner := candidate.Innermost(arg.Pos()); inner != nil {
-				scope = inner
-				break
-			}
-		}
-		_, obj := scope.LookupParent(arg.Name, arg.Pos())
-		if replacement, field := b.fieldBindings[obj]; field {
-			spans = append(spans, span{file.Offset(arg.Pos()), file.Offset(arg.End()), replacement})
-		}
-		return true
-	})
-	if len(spans) == 0 {
-		return src, false
-	}
-	// File offsets include leading comments.
-	sort.Slice(spans, func(i, j int) bool { return spans[i].start > spans[j].start })
-	for _, span := range spans {
-		src = src[:span.start] + span.text + src[span.end:]
-	}
-	return src, true
 }
