@@ -101,7 +101,7 @@ func listPackage(ctx context.Context, dir string, env []string, flags []string, 
 	args = append(args, "--", path)
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = environ(env)
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {

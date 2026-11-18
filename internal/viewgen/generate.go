@@ -2,6 +2,8 @@ package viewgen
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,9 +44,19 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 		return nil, err
 	}
 	fs := token.NewFileSet()
+	overlay := overlayOf(flags)
 	var files []*ast.File
 	for _, f := range sources {
-		af, err := parser.ParseFile(fs, f, nil, parser.ParseComments)
+		src, err := os.ReadFile(f)
+		if err != nil {
+			if rep, ok := overlay[f]; ok {
+				src, err = os.ReadFile(rep)
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
+		af, err := parser.ParseFile(fs, f, src, parser.ParseComments)
 		if err != nil {
 			return nil, err
 		}
@@ -257,6 +269,7 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 		if err != nil {
 			return nil, err
 		}
+		src = stampHash(src)
 		outs = append(outs, outFile{path: v.owner, src: src, view: v.file})
 	}
 
@@ -334,6 +347,11 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 		if marker == "" || live[marker] {
 			continue
 		}
+		if !hashIntact(string(src)) {
+			// Hand-edited after it was generated: its author's now.
+			fmt.Fprintf(os.Stderr, "mygo: %s was generated from %s and hand-edited since; leaving it\n", filepath.Base(path), marker)
+			continue
+		}
 		if err := os.Remove(path); err != nil {
 			return written, err
 		}
@@ -348,6 +366,36 @@ func Generate(ctx context.Context, dir string, env []string, flags ...string) (w
 // GeneratedMarker reads the .view path a *_view.go file was generated
 // from, "" for none.
 func GeneratedMarker(src string) string { return generatedMarker(src) }
+
+// stampHash adds the content's own hash to a generated file's header:
+// pruning removes an orphan output only while the file is still, byte
+// for byte, what the generator wrote (#1457).
+func stampHash(src string) string {
+	body := src[strings.Index(src, "\n")+1:]
+	sum := sha256.Sum256([]byte(body))
+	line := "// mygo-hash: " + hex.EncodeToString(sum[:8])
+	i := strings.Index(src, "\n")
+	return src[:i+1] + line + "\n" + src[i+1:]
+}
+
+// hashIntact reports whether a generated file still carries the hash of
+// its own content: a hand edit breaks it.
+func hashIntact(src string) bool {
+	lineAt := func(i int) string {
+		if j := strings.Index(src[i:], "\n"); j >= 0 {
+			return src[i : i+j]
+		}
+		return src[i:]
+	}
+	first := strings.Index(src, "\n") + 1
+	if !strings.HasPrefix(lineAt(first), "// mygo-hash: ") {
+		return false
+	}
+	claimed := strings.TrimPrefix(lineAt(first), "// mygo-hash: ")
+	body := src[strings.Index(src[first:], "\n")+first+1:]
+	sum := sha256.Sum256([]byte(body))
+	return claimed == hex.EncodeToString(sum[:8])
+}
 
 func generatedMarker(src string) string {
 	first := strings.SplitN(src, "\n", 2)[0]
@@ -371,7 +419,7 @@ func packageSources(ctx context.Context, dir string, env []string, flags []strin
 	args = append(args, "--", ".")
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = environ(env)
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -385,17 +433,47 @@ func packageSources(ctx context.Context, dir string, env []string, flags []strin
 	if err := json.Unmarshal(out, &pkg); err != nil {
 		return nil, err
 	}
+	overlay := overlayOf(flags)
 	var sources []string
 	for _, name := range append(pkg.GoFiles, pkg.CgoFiles...) {
 		path := filepath.Join(dir, name)
-		if generatedFile(path) {
-			// The generator's own output of an earlier run: never a
-			// source. A user's file of any name is (#1457).
-			continue
+		if generatedSource(path, overlay) {
+			sources = append(sources, path)
 		}
-		sources = append(sources, path)
 	}
 	return sources, nil
+}
+
+// overlayOf reads the -overlay mapping of the build's flags: files the
+// build provides in place of what the tree has (or lacks).
+func overlayOf(flags []string) map[string]string {
+	for i, f := range flags {
+		if f == "-overlay" && i+1 < len(flags) {
+			data, err := os.ReadFile(flags[i+1])
+			if err != nil {
+				return nil
+			}
+			var ov map[string]string
+			if json.Unmarshal(data, &ov) != nil {
+				return nil
+			}
+			return ov
+		}
+	}
+	return nil
+}
+
+// generatedSource reports whether path is a source the generator reads:
+// a file on disk that is not its own earlier output, or one the build's
+// overlay provides in its place (#1457).
+func generatedSource(path string, overlay map[string]string) bool {
+	if _, ok := overlay[path]; ok {
+		return true
+	}
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	return !generatedFile(path)
 }
 
 // generatedFile reports whether the file is the generator's output, by
@@ -503,4 +581,12 @@ func receiverTypeName(e ast.Expr) string {
 		return e.Name
 	}
 	return ""
+}
+
+// Owned reports whether the file at path is the generator's output, by
+// its marker: one whose rewriting must not count as a change to rebuild
+// for.
+func Owned(path string) bool {
+	src, err := os.ReadFile(path)
+	return err == nil && generatedMarker(string(src)) != ""
 }

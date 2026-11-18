@@ -115,7 +115,6 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 	var ctorArgs map[string]*Attr
 	ctorArgs = map[string]*Attr{}
 	var fluent []fluentUse
-	defer func() {}()
 	var events []eventUse
 	var keyAttr *Attr
 	seen := map[string]bool{}
@@ -272,7 +271,7 @@ func (g *gen) element(n *Node, depth int) ([]line, error) {
 		}
 		ls = append(ls, line{dir: g.dir(e.attr.Pos), code: tab + "if " + name + "." + e.method.GoName + "() {"})
 		for _, b := range strings.Split(body, "\n") {
-			ls = append(ls, line{code: tab + "\t" + b})
+			ls = append(ls, line{dir: g.dir(e.attr.Pos), code: tab + "\t" + b})
 		}
 		ls = append(ls, line{dir: g.dir(e.attr.Pos), code: tab + "}"})
 	}
@@ -637,8 +636,7 @@ func (g *gen) bodyValue(n *Node) (literal string, textf string, args string, err
 // literal converts a literal string to the type t: an enum's constant
 // by name, or the basic kinds.
 func (g *gen) literal(lit string, t types.Type, a *Attr) string {
-	if tp, ok := t.(*types.TypeParam); ok {
-		_ = tp
+	if _, ok := t.(*types.TypeParam); ok {
 		// A generic parameter infers its type from the call: the literal
 		// stands as it is written, a string quoted, a number plain.
 		if _, err := strconv.ParseFloat(lit, 64); err == nil {
@@ -649,12 +647,11 @@ func (g *gen) literal(lit string, t types.Type, a *Attr) string {
 		}
 		return strconv.Quote(lit)
 	}
-	if named, ok := t.(*types.Named); ok {
+	if _, ok := t.(*types.Named); ok {
 		// An enum constant of the ui package: center -> ui.Center.
 		if name, ok := g.api.constantOf(lit, t); ok {
 			return g.useImport("github.com/egoist/mygo/ui", "ui") + "." + name
 		}
-		_ = named
 		g.errf(a.Pos, "%q does not read as a %s", lit, types.TypeString(t, nil))
 		return "nil"
 	}

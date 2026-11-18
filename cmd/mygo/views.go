@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -25,7 +24,10 @@ func prepareViews(ctx context.Context, c *Config, env []string, flags ...string)
 	// runs, so builds without views pay for one Glob.
 	dir := ""
 	if c.Main == "." || strings.HasPrefix(c.Main, "./") || filepath.IsAbs(c.Main) {
-		dir = filepath.Join(c.root, c.Main)
+		dir = c.Main
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(c.root, dir)
+		}
 	} else if st, err := os.Stat(filepath.Join(c.root, c.Main)); err == nil && st.IsDir() {
 		dir = filepath.Join(c.root, c.Main)
 	} else {
@@ -56,9 +58,7 @@ func prepareViews(ctx context.Context, c *Config, env []string, flags ...string)
 func listMainDir(ctx context.Context, c *Config, env []string, flags []string) (string, error) {
 	args := append([]string{"list", "-e", "-f", "{{.Dir}}"}, flags...)
 	args = append(args, "--", c.Main)
-	cmd := exec.CommandContext(ctx, "go", args...)
-	cmd.Dir = c.root
-	cmd.Env = append(os.Environ(), env...)
+	cmd := goCommandContext(ctx, c.root, env, args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

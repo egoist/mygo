@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/egoist/mygo/internal/viewgen"
 	"io"
 	"io/fs"
 	"maps"
@@ -220,8 +221,22 @@ func snapshot(in *buildInputs) map[string]string {
 	}
 	for _, dir := range in.sourceDirs {
 		list(dir, func(name string) bool {
-			return !strings.HasSuffix(name, "_test.go") && (strings.HasSuffix(name, ".go") || strings.HasSuffix(name, ".s"))
+			switch {
+			case strings.HasSuffix(name, "_test.go"):
+				return false
+			case strings.HasSuffix(name, ".go"), strings.HasSuffix(name, ".s"), strings.HasSuffix(name, ".view"):
+				return true
+			}
+			return false
 		})
+		// What the build generates from the .view files it watches.
+		if views, err := filepath.Glob(filepath.Join(dir, "*_view.go")); err == nil {
+			for _, v := range views {
+				if viewgen.Owned(v) {
+					in.generated = append(in.generated, v)
+				}
+			}
+		}
 	}
 	for _, dir := range in.fileDirs {
 		// Builds write their Windows resources into the main package,

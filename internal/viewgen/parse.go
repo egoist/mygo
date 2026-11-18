@@ -513,10 +513,6 @@ func (p *viewParser) bodyText(tag string) ([]TextPart, error) {
 		}
 		if b == '{' {
 			flush(false)
-			if lit.Len() > 0 {
-				// flush did not run: the folding below would lose the
-				// parts order. (Unreachable: flush resets.)
-			}
 			part, err := p.braced(litPos)
 			if err != nil {
 				return nil, err

@@ -12,18 +12,17 @@ import (
 
 // binder resolves view names through Go's lexical scopes.
 type binder struct {
-	pkg           *types.Package
-	scope         *types.Scope
-	fs            *token.FileSet
-	pos           token.Pos
-	members       map[string]types.Object
-	replacements  map[types.Object]string
-	fieldBindings map[types.Object]string
-	useImport     func(string, string) string
+	pkg          *types.Package
+	scope        *types.Scope
+	fs           *token.FileSet
+	pos          token.Pos
+	members      map[string]types.Object
+	replacements map[types.Object]string
+	useImport    func(string, string) string
 }
 
 func newBinder(recv *types.Named, pkg *types.Package, fs *token.FileSet, pos token.Pos, scope *types.Scope, aliases map[string]*types.Package, receiver, context string, useImport func(string, string) string) (*binder, error) {
-	b := &binder{pkg: pkg, scope: scope, fs: fs, pos: pos, members: map[string]types.Object{}, replacements: map[types.Object]string{}, fieldBindings: map[types.Object]string{}, useImport: useImport}
+	b := &binder{pkg: pkg, scope: scope, fs: fs, pos: pos, members: map[string]types.Object{}, replacements: map[types.Object]string{}, useImport: useImport}
 	b.replacements[scope.Lookup("s")] = receiver
 	b.replacements[scope.Lookup("c")] = context
 	for name, obj := range memberNames(recv, pkg) {
@@ -34,9 +33,6 @@ func newBinder(recv *types.Named, pkg *types.Package, fs *token.FileSet, pos tok
 		proxy := types.NewVar(token.NoPos, pkg, name, obj.Type())
 		scope.Insert(proxy)
 		b.replacements[proxy] = receiver + "." + name
-		if _, field := obj.(*types.Var); field {
-			b.fieldBindings[proxy] = receiver + "." + name
-		}
 	}
 	for name, p := range aliases {
 		if name == "_" || name == "." || scope.Lookup(name) != nil {
