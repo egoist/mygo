@@ -1056,3 +1056,52 @@ func TestTableWithoutVirtualOrFrozenIsUnchanged(t *testing.T) {
 
 // scrollXOf returns how far the table s shows is scrolled sideways.
 func scrollXOf(s *ListState) float64 { return s.frame.e.st.scrollX }
+
+// A pinned cell takes the background of the nearest element around it
+// that has one, and one that is translucent, as a chosen or hovered row's,
+// is composited over the ones behind it, down to an opaque one: taken as
+// it is, it would let the cells scrolling under the pinned one show through.
+func TestFrozenStyleIsOpaque(t *testing.T) {
+	th := LightTheme()
+	page := RGB(250, 250, 250)
+	tint := RGBA(0, 0, 255, 0.2)
+	chain := func(cell Color, around ...Color) *node {
+		var parent *node
+		for i := len(around) - 1; i >= 0; i-- {
+			parent = &node{parent: parent, bg: around[i]}
+		}
+		return &node{parent: parent, bg: cell}
+	}
+	for _, tc := range []struct {
+		name string
+		e    *node
+		want Color
+	}{
+		{"an opaque row", chain(Transparent, page), page},
+		{"a translucent row over the page", chain(Transparent, tint, page), tint.Over(page)},
+		{"a translucent row, the page's none", chain(Transparent, tint), tint.Over(th.Background)},
+		{"nothing around it", chain(Transparent), th.Background},
+		{"a translucent cell in a translucent row", chain(tint, tint, page), tint.Over(tint.Over(page))},
+		{"a cell of its own", chain(RGB(1, 2, 3), page), RGB(1, 2, 3)},
+	} {
+		frozenStyle(th)(tc.e)
+		if tc.e.bg != tc.want || tc.e.bg.A != 255 {
+			t.Errorf("%s: pinned cell is %+v, want the opaque %+v", tc.name, tc.e.bg, tc.want)
+		}
+	}
+}
+
+// Right to left, the columns are laid out from the other edge, which the
+// window does not follow: the table builds them all, as with no Widths.
+func TestTableVirtualColumnsBuildsAllRightToLeft(t *testing.T) {
+	built := map[int]int{}
+	s := ListState{VirtualColumns: true}
+	tt := coreNewTester(wideTable(&s, 100, 100, 0, built), 400, 300)
+	tt.SetDirection(RightToLeft)
+	tt.Frame()
+	clear(built)
+	tt.Frame()
+	if cols := builtColumns(built); len(cols) != 100 {
+		t.Errorf("right to left: built %d columns, want all 100", len(cols))
+	}
+}

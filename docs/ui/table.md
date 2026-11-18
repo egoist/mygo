@@ -137,7 +137,7 @@ The user arranges the columns, as in Finder:
 columns in view and half its width of them on both sides, as it builds only
 the rows in view; the others are blocks as wide as they are, so that it
 scrolls as with all of them. It needs a `Width` for every column, else the
-table builds them all. The headers are built whole, and the cell builder is
+table builds them all, as it does right to left. The headers are built whole, and the cell builder is
 not called for a column out of view.
 
 `ListState.Columns` keeps the order and the widths, by the columns' `ID`s
