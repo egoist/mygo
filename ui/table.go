@@ -338,7 +338,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				// scrolling under it, which it hides with the color its row
 				// shows.
 				box.Sticky().Start(starts[k])
-				box.styleFn = frozenStyle(t)
+				box.styleFn = frozenStyle(t, k == 0)
 			}
 			switch col.Align {
 			case Center:
@@ -870,9 +870,19 @@ func tableGeometry(layout *TableLayout, columns []TableColumn, order []int) (sta
 // scrolling under it not to show through. A background that is itself
 // translucent (a selected or hovered row) is composited over the ones
 // behind it, down to an opaque one: taken as it is, it would let the cells
-// under the pinned one show through.
-func frozenStyle(t *Theme) func(*node) {
+// under the pinned one show through. The first of them, at the start of its
+// row, takes the row's corners there (RoundRows), which its own square
+// background would cover.
+func frozenStyle(t *Theme, first bool) func(*node) {
 	return func(e *node) {
+		if first && e.parent != nil {
+			r := e.parent.radius
+			if e.rtl() {
+				e.radius[1], e.radius[2] = r[1], r[2]
+			} else {
+				e.radius[0], e.radius[3] = r[0], r[3]
+			}
+		}
 		if e.bg != Transparent && e.bg.A == 255 {
 			return
 		}

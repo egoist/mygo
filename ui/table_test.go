@@ -1084,7 +1084,7 @@ func TestFrozenStyleIsOpaque(t *testing.T) {
 		{"a translucent cell in a translucent row", chain(tint, tint, page), tint.Over(tint.Over(page))},
 		{"a cell of its own", chain(RGB(1, 2, 3), page), RGB(1, 2, 3)},
 	} {
-		frozenStyle(th)(tc.e)
+		frozenStyle(th, false)(tc.e)
 		if tc.e.bg != tc.want || tc.e.bg.A != 255 {
 			t.Errorf("%s: pinned cell is %+v, want the opaque %+v", tc.name, tc.e.bg, tc.want)
 		}
@@ -1275,5 +1275,31 @@ func TestTableFrozenHeaderHoveredIsOpaque(t *testing.T) {
 	head.styleFn(head)
 	if !head.Hovered() || head.bg.A != 255 {
 		t.Errorf("the hovered pinned header's background %+v (hovered %v), want an opaque one", head.bg, head.Hovered())
+	}
+}
+
+// The first pinned cell of a row with rounded corners (RoundRows) takes the
+// corners at the row's start, which its square background would cover; the
+// others, and the cells of a header row, are as they were.
+func TestFrozenStyleTakesTheRowsStartCorners(t *testing.T) {
+	th := LightTheme()
+	for _, rtl := range []bool{false, true} {
+		row := &node{radius: [4]float32{6, 7, 8, 9}}
+		if rtl {
+			row.dir = dirRTL
+		}
+		first, second := &node{parent: row, dir: row.dir}, &node{parent: row, dir: row.dir}
+		frozenStyle(th, true)(first)
+		frozenStyle(th, false)(second)
+		want := [4]float32{6, 0, 0, 9}
+		if rtl {
+			want = [4]float32{0, 7, 8, 0}
+		}
+		if first.radius != want {
+			t.Errorf("rtl %v: the first pinned cell's corners %v, want %v", rtl, first.radius, want)
+		}
+		if second.radius != [4]float32{} {
+			t.Errorf("rtl %v: a later pinned cell's corners %v, want none", rtl, second.radius)
+		}
 	}
 }
