@@ -1105,3 +1105,27 @@ func TestTableVirtualColumnsBuildsAllRightToLeft(t *testing.T) {
 		t.Errorf("right to left: built %d columns, want all 100", len(cols))
 	}
 }
+
+// A pinned header follows the pointer as the others do, scrolled or not:
+// Left would replace the inset that holds it in place.
+func TestTableFrozenHeaderFollowsThePointer(t *testing.T) {
+	for _, scrolled := range []bool{false, true} {
+		s := ListState{}
+		cols := []TableColumn{{Title: "A", Width: 100, Frozen: true}, {Title: "B", Width: 100, Frozen: true}, {Title: "C", Width: 100}, {Title: "D", Width: 300}, {Title: "E", Width: 300}}
+		tt := coreNewTester(tableView(&s, cols, []string{"a.txt"}), 500, 300)
+		if scrolled {
+			tt.Scroll(300, 150, 150, 0)
+			tt.Frame()
+		}
+		b := header(t, tt, "B")
+		y, x := float32(b.Y+b.H/2), float32(b.X+20)
+		tt.Press(x, y)
+		for _, d := range []float32{5, 20, 40} {
+			tt.Move(x+d, y)
+		}
+		if got := header(t, tt, "B"); got.X != b.X+40 {
+			t.Errorf("scrolled %v: B at %v after a 40 DIP drag from %v, want %v", scrolled, got.X, b.X, b.X+40)
+		}
+		tt.Release(x+40, y)
+	}
+}

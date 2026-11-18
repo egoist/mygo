@@ -520,7 +520,14 @@ func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDra
 		}
 		if drag.moving {
 			moveColumn(c, s, drag, heads, order, columns)
-			h.Left(drag.dx).Background(t.SurfacePressed).Opacity(0.9)
+			// A pinned header is held by its sticky inset, which Left would
+			// replace: it follows the pointer by a transform instead.
+			if h.sticky {
+				h.Translate(drag.dx, 0)
+			} else {
+				h.Left(drag.dx)
+			}
+			h.Background(t.SurfacePressed).Opacity(0.9)
 		}
 	} else if drag.id == id && !held {
 		// Released: a click, unless it moved the column, which the
