@@ -152,6 +152,8 @@ ui.Scroll(c).ScrollbarStyle(ui.ScrollbarStyle{TrackWidth: 14, ThumbWidth: 14, Sq
 
 `Show` 也一样：主题是 `ui.ScrollbarsWhileScrolling` 时，容器设 `ui.ScrollbarsOnHover`，滚动条就在悬停时显示；主题是悬停时显示时，容器设 `ui.ScrollbarsWhileScrolling`，滚动条就在滚动时显示。
 
+无论 `Show` 如何设置，触摸屏上的手指显示的都是容器的滚动指示器：没有轨道的细滑块，内容停下片刻后淡出，不接受点按。
+
 `ScrollbarInsets` 以类似 CSS `Padding` 的方式设置滚动条距容器边缘的距离：垂直滚动条的上、下端分别避开顶部和底部指定距离，整体距右边缘指定距离；水平滚动条的左、右端分别避开左右指定距离，整体距底边指定距离。这样就能避开覆盖在滚动内容上方的工具栏等元素，与 AppKit 和 UIKit 的做法相同：
 
 ```go

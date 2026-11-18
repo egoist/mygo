@@ -36,6 +36,7 @@ type options struct {
 	wrapGuides    []int
 	indentGuides  bool
 	scrollPastEnd bool
+	scrollMargin  int
 	autoClose     bool
 	folding       bool
 	activeLine    bool
@@ -160,8 +161,11 @@ type editor struct {
 	markedActive     bool
 	autoclosed       []autoclose
 
-	scrollY    float64
-	scrollX    float32
+	scrollY float64
+	scrollX float32
+	// paintedW is how wide the content was as the last frame painted it
+	// (contentWidth).
+	paintedW   float32
 	anchorLine int
 	anchorOff  float64
 	reveal     reveal
@@ -445,6 +449,7 @@ func (ed *editor) resetForBuffer() {
 	ed.gesture.active = false
 	ed.brackets = bracketCache{}
 	ed.scrollY, ed.scrollX, ed.anchorLine, ed.anchorOff = 0, 0, 0, 0
+	ed.paintedW = 0
 }
 
 // setSels sets the selections, noting the old ones for Undo Selection.
@@ -694,7 +699,7 @@ func (ed *editor) doReveal() {
 	lh := float64(v.lineHeight)
 	top, bottom := float64(cr.Y), float64(cr.Y+cr.H)
 	h := float64(ed.viewH)
-	margin := min(3*lh, max(0, (h-lh)/2))
+	margin := min(float64(ed.o.scrollMargin)*lh, max(0, (h-lh)/2))
 	switch mode {
 	case revealCenter:
 		if top < ed.scrollY || bottom > ed.scrollY+h {

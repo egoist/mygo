@@ -179,7 +179,8 @@ type ScrollbarStyle struct {
 	// over the view, or ScrollbarsWhileScrolling, as macOS's overlay
 	// scroll bars. Zero, ScrollbarsAuto, takes the theme's, and in the
 	// theme's own style shows them on hover. KeepScrollbars shows a
-	// container's all the while.
+	// container's all the while. A finger moving a container's content
+	// shows its thin indicator instead, whatever Show says.
 	Show ScrollbarShow
 }
 

@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package darwin
 
@@ -21,7 +21,8 @@ type Backend struct {
 	mainLoop uintptr
 
 	// background is AppOptions.Background: the app does not come to the
-	// front as it finishes launching.
+	// front as it finishes launching, and while it is not the active app
+	// ShowInactive orders windows in behind the active app's.
 	background bool
 
 	// Lookup tables for Objective-C callbacks. Main thread only.

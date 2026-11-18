@@ -12,7 +12,7 @@ scroll it, and notches in a row add up, until the app scrolls the
 container (a `ScrollState`, a `ListState`'s `ScrollTo`, `ScrollIntoView`
 and `ScrollToEnd`, or `ScrollIntoView` of an element in it), which takes
 over; a touchpad follows the fingers, as a finger dragged on a
-touchscreen does on Linux, and while the desktop asks for less
+touchscreen does on Linux and Windows, and while the desktop asks for less
 motion, a notch scrolls at once.
 
 ```go
@@ -276,6 +276,10 @@ So does its `Show`: `ui.ScrollbarsOnHover` shows a container's bars on
 hover under a theme with `ui.ScrollbarsWhileScrolling`, and
 `ui.ScrollbarsWhileScrolling` shows them while it scrolls under a theme
 that shows them on hover.
+
+Whatever `Show` says, a finger on a touch screen shows a container's
+scroll indicator instead: a thin thumb on no track, which fades a moment
+after the content stops and takes no press.
 
 `ScrollbarInsets` moves the bars in from the container's edges, CSS style
 as `Padding`: the vertical bar runs from the top inset to the bottom one,

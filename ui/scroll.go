@@ -1,5 +1,7 @@
 package ui
 
+import "time"
+
 // ScrollState is how far a scroll container scrolls its content, kept in
 // the app's state with TrackScroll.
 type ScrollState struct {
@@ -251,11 +253,14 @@ func (e *node) followShift() float64 {
 
 // barState is what a scroll container keeps of its bars from frame to
 // frame, behind a pointer so that other elements don't carry it: their
-// style, its ScrollbarStyle with the theme's zero fields filled in, and
-// their timing when shown while it scrolls (ScrollbarsWhileScrolling).
+// style, its ScrollbarStyle with the theme's zero fields filled in; their
+// timing when shown while it scrolls (ScrollbarsWhileScrolling); and until
+// when a finger's indicator shows, a finger having moved the content
+// (touchIndicator).
 type barState struct {
 	style ScrollbarStyle
 	fade  ScrollbarFade
+	until time.Time
 }
 
 // scrollbarStyle returns how the container's scroll bars look, as the

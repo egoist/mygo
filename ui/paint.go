@@ -109,6 +109,9 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	p.cull = !rt.inkStale && !rt.noCull
 	p.element(root)
 	p.cull = false
+	if touchPaint != nil {
+		touchPaint(rt, p)
+	}
 	if rt.insp.open {
 		rt.insp.paintHighlight(rt, p, h)
 	}
@@ -496,6 +499,9 @@ func (p *Painter) element(e *node) {
 	}
 	if e.scrolls() && own {
 		p.scrollbars(e)
+		if refreshPainter != nil {
+			refreshPainter(p, e)
+		}
 	}
 	if own && borderOver {
 		p.border(e, box)
@@ -1057,20 +1063,21 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 				continue
 			}
 			glyphColor = glyphColor.Alpha(p.opacity)
+			gb := glyphBaseline(sys, &g, line, y, baseline, gs)
 			sg := scene.Glyph{
-				X: ix + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
+				X: ix + gi.Left, Y: gb + gi.Top, W: float32(gi.W), H: float32(gi.H),
 				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
 				Transform: gs.inlineTransform(p, g.Cluster, moves),
 				Color:     glyphColor.scene(), Wide: p.glyphWide(glyphColor), Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
 			}
 			if run != nil {
-				run.add(p, g, gi, pen, sg, glyphShade, baseline)
+				run.add(p, g, gi, pen, sg, glyphShade, gb)
 				continue
 			}
 			p.s.Glyphs = append(p.s.Glyphs, sg)
 		}
 		if run != nil {
-			run.flush(p, baseline)
+			run.flush(p)
 		}
 		if sp != nil {
 			sp.lines(p, l, li, x, y, color, deco)
@@ -1142,7 +1149,7 @@ func (p *Painter) textStrokes(l *text.Layout, x, y float32, color Color, ts text
 			}
 			stroke = stroke.Alpha(p.opacity)
 			p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{
-				X: float32(math.Floor(float64(pen))) + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
+				X: float32(math.Floor(float64(pen))) + gi.Left, Y: glyphBaseline(sys, &g, line, y, baseline, gs) + gi.Top, W: float32(gi.W), H: float32(gi.H),
 				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
 				Transform: gs.inlineTransform(p, g.Cluster, moves),
 				Color:     stroke.scene(), Wide: p.glyphWide(stroke),
@@ -1219,7 +1226,7 @@ func (p *Painter) textShadows(l *text.Layout, x, y float32, color Color, ts text
 			}
 			c := sh.color.Alpha(p.opacity)
 			p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{
-				X: float32(math.Floor(float64(pen))) + gi.Left, Y: sys.Baseline((y+line.Baseline+sh.y)*s+gs.dy) + gi.Top, W: float32(gi.W), H: float32(gi.H),
+				X: float32(math.Floor(float64(pen))) + gi.Left, Y: sys.Baseline((y+g.Y+sh.y)*s+gs.dy) + gi.Top, W: float32(gi.W), H: float32(gi.H),
 				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
 				Transform: gs.inlineTransform(p, g.Cluster, moves),
 				Color:     c.scene(), Wide: p.glyphWide(c),
@@ -1229,6 +1236,19 @@ func (p *Painter) textShadows(l *text.Layout, x, y float32, color Color, ts text
 	if end := int32(len(p.s.Glyphs)); end > start {
 		gs.add(p, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end})
 	}
+}
+
+// glyphBaseline returns the device row of the baseline that glyph g of
+// line, laid out from y, sits on: baseline, the line's as the text system
+// snaps it, or, for a glyph off it, its own, snapped likewise. Shaping
+// moves a mark above or below its base (OpenType's mark positioning, as
+// a fatha over a joined kaf and a kasra under a joined reh), and a span
+// its glyphs (text.Span.BaselineShift).
+func glyphBaseline(sys *text.System, g *text.Glyph, line *text.Line, y, baseline float32, gs glyphSpace) float32 {
+	if g.Y == line.Baseline {
+		return baseline
+	}
+	return sys.Baseline((y+g.Y)*gs.scale + gs.dy)
 }
 
 // glyphRun gathers glyphs of a line in one font and color whose
@@ -1243,25 +1263,29 @@ type glyphRun struct {
 	pens   []float32
 	glyphs []scene.Glyph
 	last   text.GlyphImage
+	// baseline is the device row its glyphs sit on, which they all share:
+	// GlyphRun joins glyphs on one baseline.
+	baseline float32
 }
 
-// add takes a glyph, its pen at pen and its scene glyph sg, into the run
-// if it shares pixels with the last, else starts a run with it.
+// add takes a glyph, its pen at pen and its scene glyph sg, sitting on
+// the baseline at device row baseline, into the run if it shares pixels
+// with the last on the same baseline, else starts a run with it.
 func (r *glyphRun) add(p *Painter, g text.Glyph, gi text.GlyphImage, pen float32, sg scene.Glyph, shade text.Shade, baseline float32) {
 	if n := len(r.glyphs); n > 0 {
 		prev := &r.glyphs[n-1]
-		if g.Font == r.font && sg.Color == prev.Color && sg.Wide == prev.Wide && !gi.Colored && p.rt.text.Shares(r.last, prev.X, prev.Y, gi, sg.X, sg.Y) {
+		if g.Font == r.font && baseline == r.baseline && sg.Color == prev.Color && sg.Wide == prev.Wide && !gi.Colored && p.rt.text.Shares(r.last, prev.X, prev.Y, gi, sg.X, sg.Y) {
 			r.ids, r.pens, r.glyphs, r.last = append(r.ids, g.ID), append(r.pens, pen), append(r.glyphs, sg), gi
 			return
 		}
-		r.flush(p, baseline)
+		r.flush(p)
 	}
-	r.font, r.shade, r.last = g.Font, shade, gi
+	r.font, r.shade, r.last, r.baseline = g.Font, shade, gi, baseline
 	r.ids, r.pens, r.glyphs = append(r.ids, g.ID), append(r.pens, pen), append(r.glyphs, sg)
 }
 
 // flush paints the run: one glyph as it is, more joined.
-func (r *glyphRun) flush(p *Painter, baseline float32) {
+func (r *glyphRun) flush(p *Painter) {
 	switch n := len(r.glyphs); {
 	case n == 1:
 		p.s.Glyphs = append(p.s.Glyphs, r.glyphs[0])
@@ -1272,7 +1296,7 @@ func (r *glyphRun) flush(p *Painter, baseline float32) {
 			break
 		}
 		sg := r.glyphs[0]
-		sg.X, sg.Y = float32(math.Floor(float64(r.pens[0])))+gi.Left, baseline+gi.Top
+		sg.X, sg.Y = float32(math.Floor(float64(r.pens[0])))+gi.Left, r.baseline+gi.Top
 		sg.W, sg.H, sg.U, sg.V, sg.UW, sg.VH = float32(gi.W), float32(gi.H), gi.X, gi.Y, gi.W, gi.H
 		sg.Subpixel, sg.Thin = gi.Subpixel, gi.Thin
 		p.s.Glyphs = append(p.s.Glyphs, sg)
@@ -1488,6 +1512,9 @@ func (p *Painter) scrollbars(e *node) {
 		// The bars show on hover (hoverNeeds).
 		st.hoverLook = true
 	}
+	// A finger is no pointer hovering, on it or after it, however it ended: only
+	// a mouse or a trackpad, as on a tablet, shows them by being over them.
+	hovered = hovered && !rt.lastPointerTouch
 	w, h := st.contentW, st.contentH
 	x, y := st.scrollX, st.scrollY
 	if dragging {
@@ -1512,13 +1539,32 @@ func (p *Painter) scrollbars(e *node) {
 	// or the pointer left them, then fade out (ScrollbarFade).
 	fade := float32(0)
 	if scrolling && !hide && !keep {
-		fade = st.bars.fade.fade(p, st.scrollX, st.scrollY, overV || overH || dragging)
+		if rt.lastPointerTouch {
+			// A finger's scrolling shows its indicator instead, which takes
+			// no press, and the bars take the offset it leaves as where they
+			// start from once a pointer is back.
+			st.bars.fade.known, st.bars.fade.held = false, false
+			fade = 1
+		} else {
+			fade = st.bars.fade.fade(p, st.scrollX, st.scrollY, overV || overH || dragging)
+		}
 	}
 	st.barsShown = !hide && (keep || dragging || (scrolling && fade < 1) || (!scrolling && hovered))
+	style := st.bars.style
 	if !st.barsShown {
-		return
+		// A finger shows a thin thumb on no track for a moment as it moves
+		// the content, and it fades: no press takes it.
+		if touchBars == nil {
+			return
+		}
+		shown := touchBars(st, rt)
+		if hide || shown <= 0 {
+			return
+		}
+		fade = 1 - shown
+		style.TrackWidth, style.ThumbWidth, style.Track = touchIndicatorWidth, touchIndicatorWidth, Color{}
+		g = st.scrollbarGeometryOf(style, e.x, e.y, w, h, x, y)
 	}
-	style := &st.bars.style
 	if style.Track.A > 0 {
 		if g.vertical {
 			p.Fill(g.vTrack, style.Track.Alpha(1-fade), 0)
