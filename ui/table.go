@@ -298,11 +298,18 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 			}
 		}
 		// A block as wide as a run of columns not built stands for it, where
-		// the run ends.
+		// the run ends. Keyed by its side of the window and its place among
+		// those of the side, it stays the same element as the window moves.
 		run := -1
+		var gaps [2]int
 		flush := func(to int) {
 			if run >= 0 {
-				coreBox(c).Key("\x00gap" + strconv.Itoa(run)).Width(starts[to] - starts[run]).Shrink(0).Role(RoleNone)
+				side := 0
+				if run >= vlo {
+					side = 1
+				}
+				coreBox(c).Key(gapKeys[side][gaps[side]]).Width(starts[to] - starts[run]).Shrink(0).Role(RoleNone)
+				gaps[side]++
 				run = -1
 			}
 		}
@@ -836,6 +843,14 @@ func (e *node) Selected(on bool) *node {
 	e.checked = 2
 	e.Background(e.c.accent(t)).TextColor(t.AccentText)
 	return e
+}
+
+// gapKeys are the keys of the blocks standing for the columns not built, by
+// the side of the window they are on and their place there: at most three
+// columns are kept built out of it, which split a side into four runs.
+var gapKeys = [2][4]string{
+	{"\x00gap0", "\x00gap1", "\x00gap2", "\x00gap3"},
+	{"\x00gap4", "\x00gap5", "\x00gap6", "\x00gap7"},
 }
 
 // tableGeometry returns where each column of order starts in a row, with

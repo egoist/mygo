@@ -4,6 +4,7 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -1322,5 +1323,50 @@ func TestTableReadsTheFocusOnlyForVirtualColumns(t *testing.T) {
 		if got := tt.rt.withinRead; got != virtual {
 			t.Errorf("VirtualColumns %v: the frame read FocusWithin %v, want %v", virtual, got, virtual)
 		}
+	}
+}
+
+// gapIDs returns the IDs of the blocks standing for the columns not built,
+// in the order of the tree.
+func gapIDs(root *node) []uint64 {
+	var ids []uint64
+	var walk func(n *node)
+	walk = func(n *node) {
+		if k, ok := n.key.(string); ok && strings.HasPrefix(k, "\x00gap") {
+			ids = append(ids, n.id)
+		}
+		for ch := n.first; ch != nil; ch = ch.next {
+			walk(ch)
+		}
+	}
+	walk(root)
+	return ids
+}
+
+// The block after the columns built stays the same element as the table
+// scrolls, as the one before: keyed by where the run it stands for ends it
+// would be another as the window moves, and lose its state.
+func TestTableVirtualColumnsGapsKeepTheirKeys(t *testing.T) {
+	s := ListState{VirtualColumns: true}
+	cols := make([]TableColumn, 60)
+	for j := range cols {
+		cols[j] = TableColumn{Title: "H" + strconv.Itoa(j), Width: 100}
+	}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Children(func() {
+			coreTable(c, &s, cols, 1, func(row, col int) { coreText(c, "r"+strconv.Itoa(col)).SingleLine() }).Grow(1)
+		})
+	}, 400, 300)
+	tt.Frame()
+	tt.Scroll(200, 150, 1500, 0)
+	tt.Frame()
+	tt.Frame()
+	before := gapIDs(tt.rt.c.root)
+	tt.Scroll(200, 150, 200, 0)
+	tt.Frame()
+	tt.Frame()
+	after := gapIDs(tt.rt.c.root)
+	if len(before) != 2 || !slices.Equal(before, after) {
+		t.Errorf("the blocks' IDs changed as the table scrolled: %v, then %v", before, after)
 	}
 }
