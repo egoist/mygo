@@ -260,16 +260,27 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	// of columns that all have widths, with VirtualColumns, once the list
 	// has a width, in the scroll it has now (a row built as the list lays
 	// out sees the scroll of that frame).
+	// The rows of a frame see the same scroll and width unless the list
+	// is laying out and moves them, so what was found for them is kept.
+	var win struct {
+		x, w   float32
+		lo, hi int
+		ok     bool
+	}
 	window := func() (vlo, vhi int, ok bool) {
 		if !s.VirtualColumns || starts == nil || list == nil || list.st.w <= 0 {
 			return 0, 0, false
 		}
-		x0 := float32(list.st.scrollX)
-		margin := list.st.w / 2
-		x0, x1 := x0-margin, x0+list.st.w+margin
+		x, w := float32(list.st.scrollX), list.st.w
+		if win.ok && win.x == x && win.w == w {
+			return win.lo, win.hi, true
+		}
+		margin := w / 2
+		x0, x1 := x-margin, x+w+margin
 		n := len(order)
 		vlo = frozenN + sort.Search(n-frozenN, func(i int) bool { return starts[frozenN+i+1] > x0 })
 		vhi = frozenN + sort.Search(n-frozenN, func(i int) bool { return starts[frozenN+i] >= x1 })
+		win.x, win.w, win.lo, win.hi, win.ok = x, w, vlo, vhi, true
 		return vlo, vhi, true
 	}
 	// kept are the columns a row builds out of the window, as a List keeps
