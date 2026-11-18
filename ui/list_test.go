@@ -1681,3 +1681,32 @@ func TestListRowPressedWithoutChoosing(t *testing.T) {
 		t.Errorf("released: row %d reports the press", pressed)
 	}
 }
+
+func TestListRowShown(t *testing.T) {
+	var s ListState
+	half := float32(0.5)
+	s.RowShown = func(i int) float32 {
+		if i == 1 {
+			return half
+		}
+		return 1
+	}
+	tt := coreNewTester(func(c *context) {
+		coreList(c, &s, 10, func(i int) {
+			coreBox(c).Height(20).Children(func() { coreTextf(c, "Row %d", i) })
+		}).Grow(1)
+	}, 300, 400)
+	r1, _ := rowBox(tt, &s, 1)
+	r2, _ := rowBox(tt, &s, 2)
+	if r1.H != 10 || r2.Y != r1.Y+10 {
+		t.Fatalf("row 1 half shown: row 1 %v, row 2 at %v", r1, r2.Y)
+	}
+	// Gone, it takes no room; the rows after it close up.
+	half = 0
+	tt.Frame()
+	r1, _ = rowBox(tt, &s, 1)
+	r2, _ = rowBox(tt, &s, 2)
+	if r1.H != 0 || r2.Y != r1.Y {
+		t.Fatalf("row 1 not shown: row 1 %v, row 2 at %v", r1, r2.Y)
+	}
+}

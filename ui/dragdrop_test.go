@@ -472,3 +472,56 @@ func TestDragTargetBuiltUnderPointer(t *testing.T) {
 		t.Fatalf("dropped %q", dropped)
 	}
 }
+
+func TestDropShift(t *testing.T) {
+	var shift Point
+	drops := 0
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Gap(20).Padding(20).Children(func() {
+			coreBox(c).Size(100, 40).Label("Source").Drag("hello")
+			target := coreBox(c).Size(200, 100).Label("Target")
+			if _, ok := coreDrop[string](target); ok {
+				drops++
+				shift, _ = coreDropShift(target)
+			}
+		})
+	}, 400, 400)
+	src, _ := tt.Find("Source")
+	target, _ := tt.Find("Target")
+	// Pressed 10 in from the source's corner, dropped 15 in from the
+	// target's: the copy moved as far as the pointer.
+	drag(tt, src.X+10, src.Y+10, target.X+15, target.Y+15)
+	if drops != 1 {
+		t.Fatalf("%d drops", drops)
+	}
+	if want := (Point{target.X + 5 - src.X, target.Y + 5 - src.Y}); shift != want {
+		t.Errorf("the copy moved %v, want %v", shift, want)
+	}
+}
+
+// An element takes values of several types, one Drop for each.
+func TestDropSeveralTypes(t *testing.T) {
+	var words []string
+	var numbers []int
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Gap(20).Padding(20).Children(func() {
+			coreBox(c).Size(100, 40).Label("Word").Drag("hello")
+			coreBox(c).Size(100, 40).Label("Number").Drag(7)
+			target := coreBox(c).Size(200, 100).Label("Target")
+			if v, ok := coreDrop[string](target); ok {
+				words = append(words, v)
+			}
+			if v, ok := coreDrop[int](target); ok {
+				numbers = append(numbers, v)
+			}
+		})
+	}, 400, 400)
+	word, _ := tt.Find("Word")
+	number, _ := tt.Find("Number")
+	target, _ := tt.Find("Target")
+	drag(tt, word.X+10, word.Y+10, target.X+20, target.Y+20)
+	drag(tt, number.X+10, number.Y+10, target.X+20, target.Y+20)
+	if !slices.Equal(words, []string{"hello"}) || !slices.Equal(numbers, []int{7}) {
+		t.Errorf("dropped words %q, numbers %v", words, numbers)
+	}
+}

@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/egoist/mygo/transfer"
 )
 
 // A List builds only the rows in view, and keeps its place by a row, its
@@ -129,6 +131,17 @@ type ListState struct {
 	// itself takes nothing and shows no place between the rows. Return nil
 	// for rows that do not drag. A list cannot both DragRows and Reorder.
 	DragRows func(rows []int) any
+	// DragRowsData, when set with DragRows, drags the rows natively too:
+	// out of the window, to other apps, as the data it returns for them
+	// (as files, transfer.FileData), copied (DragData's default); the
+	// value DragRows returns still going to the elements of this process
+	// taking it (Drop).
+	DragRowsData func(rows []int) transfer.Data
+	// RowShown, when set, returns how much of row i shows, 0 to 1: that
+	// part of the height it measures, its content clipped, so a row coming
+	// into the list or leaving it grows or shrinks in place, the rows
+	// after it moving along, as the app animates it.
+	RowShown func(row int) float32
 	// DragSelect, with Selection, chooses rows as the pointer drags over
 	// them from the row it pressed: those from that row to the one under
 	// the pointer, as a Shift-click on it would, and with Cmd (Ctrl on
@@ -885,10 +898,16 @@ func (f *listFrame) build(i int) *node {
 	}
 	if (s.Reorder != nil || s.DragRows != nil) && !f.isHeader(i) {
 		w.dragFrom(func() any { return f.dragValue(i) })
+		if s.DragRows != nil && s.DragRowsData != nil {
+			w.DragDataFrom(func() transfer.Data { return s.DragRowsData(f.dragged(i)) })
+		}
 		if w.Dragging() {
 			// Where the row was, as it moves with the pointer.
 			w.Opacity(0.4)
 		}
+	}
+	if f.shown(i) < 1 {
+		w.Clip()
 	}
 	saved := c.row
 	c.row = rb
@@ -912,6 +931,19 @@ func (f *listFrame) buildLate(i int) *node {
 }
 
 func (f *listFrame) isHeader(i int) bool { return f.s.Header != nil && f.s.Header(i) }
+
+// shown returns how much of row i shows (ListState.RowShown).
+func (f *listFrame) shown(i int) float32 {
+	if f.s.RowShown == nil {
+		return 1
+	}
+	return min(max(f.s.RowShown(i), 0), 1)
+}
+
+// heightOf measures row i, built as r, cw wide: as much of it as shows.
+func (f *listFrame) heightOf(i int, r *node, cw float32) float32 {
+	return heightAt(r, cw, inf) * f.shown(i)
+}
 
 // cursor returns where the keys move the choice from, or nil when the list
 // does not choose rows: *Selected, or the row last chosen in a list
@@ -1552,7 +1584,7 @@ func (e *node) layoutList(w, h float32) {
 	for k := range f.rows {
 		r := &f.rows[k]
 		f.at[r.i] = k
-		hs.set(r.i, heightAt(r.e, cw, inf))
+		hs.set(r.i, f.heightOf(r.i, r.e, cw))
 	}
 	// ensure builds and measures row i if the list lacks it.
 	ensure := func(i int) bool {
@@ -1564,7 +1596,7 @@ func (e *node) layoutList(w, h float32) {
 		}
 		r := f.buildLate(i)
 		f.at[i] = len(f.rows) - 1
-		hs.set(i, heightAt(r, cw, inf))
+		hs.set(i, f.heightOf(i, r, cw))
 		return true
 	}
 	ht := hs.height

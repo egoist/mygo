@@ -304,3 +304,73 @@ func TestNativeDestinationRejectsMismatchDisabledAndFailedData(t *testing.T) {
 		t.Fatal("failed provider acknowledged a drop")
 	}
 }
+
+// A list's rows with DragRowsData drag natively: their data goes out of
+// the window, to other apps, and the DragRows value to typed targets of
+// this process, as it does without it.
+func TestListDragRowsData(t *testing.T) {
+	names := []string{"a.txt", "b.txt"}
+	var s ListState
+	sel := -1
+	s.Selected = &sel
+	s.DragRows = func(rows []int) any { return []string{names[rows[0]]} }
+	s.DragRowsData = func(rows []int) transfer.Data { return transfer.TextData("/tmp/" + names[rows[0]]) }
+	var got any
+	source := coreNewTester(func(c *context) {
+		coreList(c, &s, len(names), func(i int) { coreText(c, names[i]).Padding(6) }).Fill()
+	}, 200, 200)
+	target := coreNewTester(func(c *context) {
+		e := coreBox(c).Size(100, 100)
+		if v, ok := coreDrop[[]string](e); ok {
+			got = v
+		}
+	}, 200, 200)
+	r, _ := source.Find("b.txt")
+	source.Press(r.X+5, r.Y+r.H/2)
+	source.Move(r.X+40, r.Y+r.H/2+30)
+	if source.h.dragOptions.Preview == nil {
+		t.Fatal("no native drag began")
+	}
+	text, _ := source.h.dragData.Read(transfer.Text)
+	if string(text) != "/tmp/b.txt" {
+		t.Errorf("the native data %q", text)
+	}
+	d := &platform.DataDragEvent{Offer: transfer.Offer{Formats: []transfer.Format{transfer.Text}, Operations: transfer.Copy}, Local: source.h.dragLocal}
+	target.send2(platform.SurfaceEvent{Kind: platform.DataDragOver, X: 5, Y: 5, Drag: d})
+	if !target.send2(platform.SurfaceEvent{Kind: platform.DataDrop, X: 5, Y: 5, Drag: d}) || !slices.Equal(got.([]string), []string{"b.txt"}) {
+		t.Fatalf("the value in this process: %v", got)
+	}
+	source.h.finishDataDrag(transfer.Result{Operation: d.Operation})
+}
+
+// A native drag a window began comes back over it as the system brings
+// it, in a Tester too: rows dragged natively drop on an element of the
+// same window taking their DragRows value.
+func TestNativeDragBackOverItsWindow(t *testing.T) {
+	names := []string{"a.txt", "b.txt"}
+	var s ListState
+	sel := -1
+	s.Selected = &sel
+	s.DragRows = func(rows []int) any { return []string{names[rows[0]]} }
+	s.DragRowsData = func(rows []int) transfer.Data { return transfer.TextData(names[rows[0]]) }
+	var got []string
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Children(func() {
+			coreList(c, &s, len(names), func(i int) { coreText(c, names[i]).Padding(6) }).Height(100)
+			target := coreBox(c).Height(80).Label("Target")
+			if v, ok := coreDrop[[]string](target); ok {
+				got = v
+			}
+		})
+	}, 200, 200)
+	r, _ := tt.Find("a.txt")
+	to, _ := tt.Find("Target")
+	tt.Press(r.X+5, r.Y+r.H/2)
+	tt.Move(r.X+20, r.Y+r.H/2+10)
+	tt.Move(to.X+20, to.Y+20)
+	tt.Release(to.X+20, to.Y+20)
+	tt.Frame()
+	if !slices.Equal(got, []string{"a.txt"}) || tt.h.dragging {
+		t.Errorf("dropped %q, still dragging %v", got, tt.h.dragging)
+	}
+}

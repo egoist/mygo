@@ -1896,6 +1896,16 @@ func (p *Painter) Clip(r Rect, radius float32, fn func()) {
 	p.clip = saved
 }
 
+// Opacity draws what fn draws as much faded as k, 0 to 1, besides what
+// fades it already: each thing fn draws, one over another, as an element
+// with Opacity does, as a copy of one dragged shows.
+func (p *Painter) Opacity(k float32, fn func()) {
+	saved := p.opacity
+	p.opacity *= min(max(k, 0), 1)
+	fn()
+	p.opacity = saved
+}
+
 // Transform transforms what fn draws by t around the point (ox, oy), which
 // t leaves where it is, after the painter's own transforms: it nests. A
 // view that pans and zooms, as a map or a diagram, draws its content

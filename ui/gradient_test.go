@@ -232,3 +232,23 @@ func TestPathConicGradient(t *testing.T) {
 		t.Errorf("above the middle %v, want red", got)
 	}
 }
+
+// Opacity fades what it draws, as much again inside another.
+func TestPainterOpacity(t *testing.T) {
+	tt := NewTester(func(ctx *Context) {
+		Box(ctx).Size(100, 100).Background(RGB(255, 255, 255)).Draw(func(p *Painter, r Rect) {
+			p.Opacity(0.5, func() {
+				p.Fill(Rect{0, 0, 50, 100}, RGB(255, 0, 0), 0)
+				p.Opacity(0.5, func() { p.Fill(Rect{50, 0, 50, 100}, RGB(255, 0, 0), 0) })
+			})
+		})
+	}, 100, 100)
+	for _, c := range []struct {
+		x    int
+		want [4]uint8
+	}{{25, [4]uint8{255, 128, 128, 255}}, {75, [4]uint8{255, 191, 191, 255}}} {
+		if got := rgba(tt.Image(), c.x, 50); !nearRGBA8(got, c.want, 8) {
+			t.Errorf("at %d: %v, want %v", c.x, got, c.want)
+		}
+	}
+}

@@ -480,7 +480,7 @@ func generate(out *bytes.Buffer, fs *token.FileSet, fn *ast.FuncDecl) {
 			constructor = true
 			fmt.Fprintf(out, "_ctx := %s.build(); if _ctx == nil { %s };\n", frameParam, zeroReturn(fs, fn.Type.Results))
 		} else if mentions(fn.Type, "node") {
-			if name == "Local" || name == "Drop" || name == "DragOver" || name == "DropData" || name == "DataDragOver" {
+			if name == "Local" || name == "Drop" || name == "DropShift" || name == "DragOver" || name == "DropData" || name == "DataDragOver" {
 				fmt.Fprintln(out, "_node := e.node(); if _node == nil {", zeroReturn(fs, fn.Type.Results), "}; _ctx := _node.c; _ = _ctx")
 			} else if r == "Route" && name == "Page" {
 				fmt.Fprintln(out, "_ctx := _handle.router.rtContext(); if _ctx == nil { return Element{} }")

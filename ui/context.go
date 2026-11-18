@@ -936,10 +936,13 @@ type state struct {
 	dropX, dropY float32
 	dragMissed   bool
 	missX, missY float32
-	dataSource   *dataSource
-	dataTarget   *transfer.DropOptions
-	dataDropped  *transfer.Drop
-	editor       *editor
+	// dropShift is how far the copy of the dragged element had moved from
+	// it as the value dropped (DropShift).
+	dropShift   Point
+	dataSource  *dataSource
+	dataTarget  *transfer.DropOptions
+	dataDropped *transfer.Drop
+	editor      *editor
 	// textScope is the Selectable container this paragraph belongs to.
 	textScope uint64
 	// spans keeps what a text made of its spans in the last frame.

@@ -1467,6 +1467,20 @@ func DropData(e Element, options transfer.DropOptions) (transfer.Drop, bool) {
 	return coreDropData(e.nodeFor(_ctx.rt), options)
 }
 
+// DropShift returns how far the copy of the element dragging the value
+// dropped on e since the last frame (Drop), which followed the pointer,
+// had moved from the element as it dropped: the element's bounds moved by
+// it are where the copy showed, for an animation to go on from there.
+func DropShift(e Element) (Point, bool) {
+	_node := e.node()
+	if _node == nil {
+		return *new(Point), false
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return coreDropShift(e.nodeFor(_ctx.rt))
+}
+
 // EditableText shows *value as a text that the user edits in place, as a
 // file's name in Finder: a double click on it, or Enter while it has the
 // focus, shows a text input of it, with the text before its extension
@@ -1477,7 +1491,8 @@ func DropData(e Element, options transfer.DropOptions) (transfer.Drop, bool) {
 // takes none: Enter on macOS, and F2, edit the text of the row chosen,
 // while a double click on the row is Submitted; a click on the text of a
 // row already chosen edits it, once a second click would no longer make a
-// double click.
+// double click. With ListState.Edit, those call it instead, the editing
+// the app's.
 //
 //	ui.Table(c, &app.files, cols, len(app.names), func(row, col int) {
 //		if ui.EditableText(c, &app.names[row]).Changed() {

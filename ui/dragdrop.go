@@ -99,8 +99,7 @@ func (e *node) Dragging() bool {
 //	}
 func coreDrop[T any](e *node) (T, bool) {
 	var zero T
-	e.flags |= flagValueDrop
-	e.st.accepts = func(v any) bool { _, ok := v.(T); return ok }
+	e.takes(func(v any) bool { _, ok := v.(T); return ok })
 	if v, ok := e.st.droppedValue.(T); ok && e.st.hasDropped {
 		e.c.rt.consumed = true
 		return v, true
@@ -113,8 +112,7 @@ func coreDrop[T any](e *node) (T, bool) {
 // take it.
 func coreDragOver[T any](e *node) (T, bool) {
 	var zero T
-	e.flags |= flagValueDrop
-	e.st.accepts = func(v any) bool { _, ok := v.(T); return ok }
+	e.takes(func(v any) bool { _, ok := v.(T); return ok })
 	if in := e.c.rt.incoming; in != nil && e.c.rt.dataOver == e.id {
 		v, ok := in.Local.(T)
 		return v, ok
@@ -125,6 +123,29 @@ func coreDragOver[T any](e *node) (T, bool) {
 	}
 	v, ok := d.value.(T)
 	return v, ok
+}
+
+// DropShift returns how far the copy of the element dragging the value
+// dropped on e since the last frame (Drop), which followed the pointer,
+// had moved from the element as it dropped: the element's bounds moved by
+// it are where the copy showed, for an animation to go on from there.
+func coreDropShift(e *node) (Point, bool) {
+	if !e.st.hasDropped {
+		return Point{}, false
+	}
+	return e.st.dropShift, true
+}
+
+// takes makes e take the values accepts takes, as well as those it took
+// already this pass: one element takes several types, as a folder takes
+// files and a favorite moved among others.
+func (e *node) takes(accepts func(any) bool) {
+	e.flags |= flagValueDrop
+	if prev := e.st.accepts; prev != nil {
+		e.st.accepts = func(v any) bool { return prev(v) || accepts(v) }
+		return
+	}
+	e.st.accepts = accepts
 }
 
 // valueTarget returns the innermost element at (x, y) taking value.
@@ -291,6 +312,12 @@ func (rt *engine) dragEnd() bool {
 		if t := rt.states[rt.valueTarget(rt.pointerX, rt.pointerY, d.value)]; t != nil {
 			t.droppedValue, t.hasDropped = d.value, true
 			t.dropX, t.dropY = rt.pointerX, rt.pointerY
+			t.dropShift = Point{}
+			if e := d.elem; e != nil && e.c != nil {
+				// As paintDrag moved the copy in the last frame.
+				px, py := e.world.Point(e.x+d.offX, e.y+d.offY)
+				t.dropShift = Point{rt.pointerX - px, rt.pointerY - py}
+			}
 		} else if s := rt.states[d.src]; s != nil {
 			s.dragMissed, s.missX, s.missY = true, rt.pointerX, rt.pointerY
 		}
