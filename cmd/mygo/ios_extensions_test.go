@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -109,7 +110,8 @@ func extensionBundle(t *testing.T) (dir, bundle string, exts []*iosExtension) {
 func TestEmbedExtensions(t *testing.T) {
 	_, bundle, exts := extensionBundle(t)
 	exe := filepath.Join(bundle, "PlugIns", "PacketTunnel.appex", "PacketTunnel")
-	if info, err := os.Stat(exe); err != nil || info.Mode().Perm()&0o100 == 0 {
+	// Windows keeps no executable bit, which only a Mac's build needs kept.
+	if info, err := os.Stat(exe); err != nil || runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0 {
 		t.Errorf("the extension's executable: %v, %v", info, err)
 	}
 	if _, err := os.Stat(filepath.Join(bundle, "PlugIns", "PacketTunnel.appex", "Frameworks", "Core.framework", "Core")); err != nil {
@@ -147,8 +149,8 @@ func TestSignWithExtensions(t *testing.T) {
 	want := []string{
 		"--force --sign CERT App.app/Frameworks/Module.framework",
 		"--force --sign CERT App.app/PlugIns/PacketTunnel.appex/Frameworks/Core.framework",
-		"--force --sign CERT --entitlements " + filepath.ToSlash(filepath.Join(work, "entitlements-PacketTunnel.plist")) + " --generate-entitlement-der App.app/PlugIns/PacketTunnel.appex",
-		"--force --sign CERT --entitlements " + filepath.ToSlash(filepath.Join(work, "entitlements.plist")) + " --generate-entitlement-der App.app",
+		"--force --sign CERT --entitlements " + filepath.Join(work, "entitlements-PacketTunnel.plist") + " --generate-entitlement-der App.app/PlugIns/PacketTunnel.appex",
+		"--force --sign CERT --entitlements " + filepath.Join(work, "entitlements.plist") + " --generate-entitlement-der App.app",
 		"--verify --deep --strict App.app",
 	}
 	if strings.Join(*calls, "\n") != strings.Join(want, "\n") {
