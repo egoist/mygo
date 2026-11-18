@@ -5395,10 +5395,12 @@ either.
     of sigma half the blur, as CSS has it, padded by three sigmas and
     capped at 64 pixels. Cached with the glyphs, under a key with the
     sigma, and drawn as a mask glyph at the offset, all of a text's
-    before its strokes and glyphs. `NewTextShadow`, which
-    `Element.TextShadow` and a `Span`'s `Shadow` take, links it: a
-    `TextShadow` has no fields to set otherwise, so a shadow that paints
-    is one that linked it.
+    before its strokes and glyphs. `Painter.GlyphShadow` draws those of
+    glyphs `Shape` made alone, once a shadow, in the shadow's color's
+    shade. `NewTextShadow`, which `Element.TextShadow`, a `Span`'s
+    `Shadow` and `Painter.GlyphShadow` take, links it: a `TextShadow` has
+    no fields to set otherwise, so a shadow that paints is one that
+    linked it.
   - *Tabs.* `Style.TabSize` sets tab stops every that many spaces of the
     style's font, letter spacing included, from the start of each line,
     which each engine takes natively: Core Text's paragraph style (no

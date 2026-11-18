@@ -173,6 +173,71 @@ func (p *Painter) Glyphs(glyphs []Glyph, x, y float32, c Color) {
 	}
 }
 
+// GlyphShadow paints the shadow sh (NewTextShadow) of glyphs that Shape
+// made, placed from x on the baseline at y as Glyphs places them, and
+// nothing of the glyphs: the shapes of the glyphs, as Glyphs draws them
+// in the shadow's color, offset and blurred as Element.TextShadow casts
+// them. Painted before Glyphs, it goes under them; called once for each
+// shadow, the last first, it paints a list of shadows as CSS's
+// text-shadow does. It paints the same with the glyphs drawn in a
+// transparent color, or not drawn at all.
+func (p *Painter) GlyphShadow(glyphs []Glyph, x, y float32, sh TextShadow) {
+	// A shadow that paints is one NewTextShadow made, which linked
+	// shadowGlyph.
+	if sh.color.A == 0 || len(glyphs) == 0 {
+		return
+	}
+	sys := p.rt.text
+	var gs glyphSpace
+	if p.transform.Set {
+		var w, size float32
+		for _, g := range glyphs {
+			w = max(w, g.X+g.Advance)
+			if g.font != nil {
+				size = max(size, g.font.Size)
+			}
+		}
+		gs = p.glyphSpaceAt(x+w/2, y, size, false)
+	} else {
+		gs = glyphSpace{scale: p.scale, q: 1}
+	}
+	s := gs.scale
+	shade := text.ShadeOf(sh.color.R, sh.color.G, sh.color.B)
+	c := sh.color.Alpha(p.opacity)
+	color, wide := c.scene(), p.glyphWide(c)
+	// The blur reaches three sigmas, of half the blur each.
+	reach := sh.blur * 1.5
+	left, right := (p.clip.X-reach)*s, (p.clip.X+p.clip.W+reach)*s
+	start := int32(len(p.s.Glyphs))
+	for _, g := range glyphs {
+		if g.font == nil {
+			continue
+		}
+		pen := (x+g.X+sh.x)*s + gs.dx
+		if !p.transform.Set && (pen > right || pen+(g.Advance+g.font.Size)*s < left) {
+			continue
+		}
+		shade := shade
+		if g.thick {
+			shade = text.Thick
+		} else if g.flat {
+			shade = text.Flat
+		}
+		gi := shadowGlyph(sys, g.font, g.id, s, pen, shade, p.opaque, sh.blur/2*s)
+		if !gi.OK {
+			continue
+		}
+		p.s.Glyphs = append(p.s.Glyphs, scene.Glyph{
+			X: float32(math.Floor(float64(pen))) + gi.Left, Y: sys.Baseline((y+g.y+sh.y)*s+gs.dy) + gi.Top, W: float32(gi.W), H: float32(gi.H),
+			U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
+			Color: color, Wide: wide,
+		})
+	}
+	if end := int32(len(p.s.Glyphs)); end > start {
+		gs.add(p, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end})
+	}
+}
+
 // TextLine paints the glyphs of the first line of l, a layout of this
 // module's text system that only its packages make, as package ui/editor
 // does, from x, on the baseline at y, each in the color color returns for
