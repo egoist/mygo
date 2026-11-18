@@ -669,9 +669,9 @@ func computeBox(e *node, w, h float32) {
 
 // A flexItem is what the first walk over the children resolved of one,
 // so that the passes after it read the item, which sits next to it in
-// the scratch, and not the element again. It fills 64 bytes, a cache
-// line: larger, the items of deep trees take longer to lay out than
-// the walks over their elements they save.
+// the scratch, and not the element again. It fills exactly 64 bytes, a
+// cache line: a field more and the items of deep trees take longer to
+// lay out than the walks over their elements they save.
 type flexItem struct {
 	e                    *node
 	base, hyp            float32
@@ -704,7 +704,7 @@ type flexItem struct {
 	// align is the item's own alignment across the line: the one it
 	// gives itself, or the line's. The placement reads it in the item,
 	// and not the element again.
-	align uint8
+	align Align
 }
 
 // The automatic margins of a flexItem, in bits.
@@ -952,8 +952,8 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 			it.marginMain, it.marginCr = mStart+mEnd, cStart+cEnd
 			// The alignment across the line, which the placement reads in
 			// the item, and not the element again.
-			it.align = uint8(selfAlign(c, align))
-			stretch := stretches(c, align, it.autoCross())
+			it.align = selfAlign(c, align)
+			stretch := stretches(c, it.align, it.autoCross())
 			// resolveFlexible reads the flexible lengths of every item of
 			// the line in every round: it reads the item, which it has in
 			// order, and not the element again.
@@ -1122,7 +1122,7 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 				continue
 			}
 			c := it.e
-			stretch := stretches(c, align, it.autoCross())
+			stretch := stretches(c, it.align, it.autoCross())
 			v, ok := c.height.resolve(base(ch))
 			it.flags &^= flagStretch
 			if stretch && !ok && c.aspect == 0 {
@@ -1168,7 +1168,7 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 		for i := ln.start; i < ln.end && baselines; i++ {
 			it := &items[i]
 			c := it.e
-			if !byBaselineItem(c, align, e, it.autoCross()) {
+			if !byBaselineItem(c, it.align, e, it.autoCross()) {
 				continue
 			}
 			switch {
@@ -1275,12 +1275,6 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 	if !finite(contentCross) {
 		contentCross = usedCross
 	}
-	if flipMain {
-		ms, me = me, ms
-	}
-	if flipCross {
-		cs, ce = ce, cs
-	}
 	// The automatic margins of the items, which the first walk read of
 	// them, told by the ends they are at now that the axis may be
 	// flipped.
@@ -1375,10 +1369,10 @@ func flexLayout(e *node, cw, ch float32, commit bool) (usedW, usedH float32) {
 }
 
 // stretches reports whether c stretches across the line of a row (or a
-// column), as aligning by align asks, which icons do not, as they keep
-// their size, nor elements with automatic margins across it.
-func stretches(c *node, align Align, autoCross bool) bool {
-	return selfAlign(c, align) == Stretch && c.kind != kindIcon && !autoCross
+// column), as the alignment self gives itself asks, which icons do not,
+// as they keep their size, nor elements with automatic margins across it.
+func stretches(c *node, self Align, autoCross bool) bool {
+	return self == Stretch && c.kind != kindIcon && !autoCross
 }
 
 // byBaseline reports whether c, a child of the row (or grid) e, lines up
@@ -1394,10 +1388,11 @@ func byBaseline(c *node, align Align, e *node) bool {
 }
 
 // byBaselineItem reports whether the element c of the item lines up its
-// baseline with its siblings', as the item's automatic margins across the
-// line say: the same as byBaseline, which reads them of the element.
-func byBaselineItem(c *node, align Align, e *node, autoCross bool) bool {
-	return selfAlign(c, align) == Baseline && !autoCross && !e.wrapReverse
+// baseline with its siblings', as the alignment the item gives itself
+// says: the same as byBaseline, which reads it of the element, and the
+// item's automatic margins across the line say.
+func byBaselineItem(c *node, self Align, e *node, autoCross bool) bool {
+	return self == Baseline && !autoCross && !e.wrapReverse
 }
 
 // boxBaseline returns how far below the top of an element laid out its
