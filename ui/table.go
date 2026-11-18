@@ -194,7 +194,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	t := c.theme
 	// The height of the header, and the least of the rows.
 	tableRow := t.Space(8)
-	table := coreColumn(c).Role(RoleTable).Focusable().Clip()
+	table := coreColumn(c).Role(RoleTable).Focusable().Clip().ColumnCount(len(columns))
 	table.widget = "Table"
 	if kind == treeTableList {
 		table.widget, table.role = "OutlineTable", RoleTree
@@ -325,6 +325,9 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 			if role == RoleCell && col.RowHeader {
 				box.Role(RoleRowHeader) // naming its row
 			}
+			// Its place among all the columns, for assistive technology to
+			// pair it with its header as the ones not built leave a gap.
+			box.ColumnIndex(k + 1)
 			if w, ok := layout.width(col); ok {
 				box.Width(w)
 			} else {
