@@ -1719,6 +1719,31 @@ func (p *Painter) Shadow(r Rect, radius, x, y, blur, spread float32, c Color) {
 	p.shadow(r, [4]float32{radius, radius, radius, radius}, shadow{x, y, blur, spread, c, false})
 }
 
+// ShadowRadii paints the box shadow of a rounded rectangle whose corners
+// have radii of their own, clockwise from the top left, as Shadow paints
+// one of a single radius.
+func (p *Painter) ShadowRadii(r Rect, radii [4]float32, x, y, blur, spread float32, c Color) {
+	p.shadow(r, radii, shadow{x, y, blur, spread, c, false})
+}
+
+// InsetShadow paints the inner shadow of a rounded rectangle as
+// Element.InsetShadow does inside an element's padding edge: only inside
+// r, around a hole offset by x and y and shrunk by spread DIPs, blurred
+// by blur, as CSS's box-shadow: inset. Over a background, it edges a
+// surface from the inside. Inside a border, pass the padding box: r less
+// the border's width, which Stroke and elements round to whole device
+// pixels (Painter.Scale).
+func (p *Painter) InsetShadow(r Rect, radius, x, y, blur, spread float32, c Color) {
+	p.insetShadow(r, [4]float32{radius, radius, radius, radius}, [4]float32{}, shadow{x, y, blur, spread, c, true})
+}
+
+// InsetShadowRadii paints the inner shadow of a rounded rectangle whose
+// corners have radii of their own, clockwise from the top left, as
+// InsetShadow paints one of a single radius.
+func (p *Painter) InsetShadowRadii(r Rect, radii [4]float32, x, y, blur, spread float32, c Color) {
+	p.insetShadow(r, radii, [4]float32{}, shadow{x, y, blur, spread, c, true})
+}
+
 // shadow paints the shadow sh of box, rounded by rad, outside box, as
 // CSS's box-shadow does.
 func (p *Painter) shadow(box Rect, rad [4]float32, sh shadow) {

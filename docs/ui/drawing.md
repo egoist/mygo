@@ -3,11 +3,13 @@
 `Draw` paints on an element after its background, and `DrawOver` after its
 children, with a `*ui.Painter` in DIPs of the window: rectangles with
 `Fill`, `FillGradient`, `FillConicGradient` and `FillRadialGradient`,
-`Stroke` and `StrokeDashed`, `Shadow`, `Line` (horizontal or vertical),
-`Image`, `Clip` and `ClipPath`, paths of lines and curves with `FillPath` and
-`StrokePath`, or in a gradient with `FillPathGradient` and
-`StrokePathGradient`, and text with `Text`, or `RichText` in spans of any
-style, which `MeasureText` measures first, to center or align it:
+`Stroke` and `StrokeDashed`, `Shadow` and `InsetShadow` (and `FillRadii`,
+`ShadowRadii` and `InsetShadowRadii` for corners of their own), `Line`
+(horizontal or vertical), `Image`, `Clip` and `ClipPath`, paths of lines
+and curves with `FillPath` and `StrokePath`, or in a gradient with
+`FillPathGradient` and `StrokePathGradient`, and text with `Text`, or
+`RichText` in spans of any style, which `MeasureText` measures first, to
+center or align it:
 
 ```go
 ui.Box(c).Height(120).Draw(func(p *ui.Painter, r ui.Rect) {
