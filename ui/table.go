@@ -250,6 +250,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	// (Frozen); known only when the columns have widths.
 	starts, frozenN, frozenW := tableGeometry(layout, columns, order)
 	s.frozenN, s.frozenW = frozenN, frozenW
+	s.focusCol, s.focusColNext = s.focusColNext, ""
 	// fitting are the cells of the column fitting its cells.
 	var fitting []*node
 	var list *node
@@ -270,6 +271,21 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 		vhi = frozenN + sort.Search(n-frozenN, func(i int) bool { return starts[frozenN+i] >= x1 })
 		return vlo, vhi, true
 	}
+	// kept are the columns a row builds out of the window, as a List keeps
+	// the rows it needs built: the cell of the Cursor, the one a drag of
+	// the choice started in, and the one holding the keyboard, which would
+	// lose it, or be skipped by Tab, were it to go.
+	kept := [3]int{-1, -1, -1}
+	if cellSel {
+		kept[0] = cur
+		if s.dragSel.on {
+			kept[1] = s.colIndex(s.dragSel.fromCol)
+		}
+	}
+	if s.focusCol != "" {
+		kept[2] = slices.IndexFunc(order, func(j int) bool { return columns[j].id() == s.focusCol })
+	}
+	keep := func(k int) bool { return k >= 0 && (k == kept[0] || k == kept[1] || k == kept[2]) }
 	// cells builds a row's cells, with fill building the content of each;
 	// a row of the body, windowed, builds only the columns in view, and
 	// blocks as wide as the others stand for them.
@@ -281,28 +297,23 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				vlo, vhi, virt = l, h, true
 			}
 		}
-		before, after := false, false
-		gap := func(from, to int, key string) {
-			if to > from {
-				coreBox(c).Key(key).Width(starts[to] - starts[from]).Shrink(0).Role(RoleNone)
+		// A block as wide as a run of columns not built stands for it, where
+		// the run ends.
+		run := -1
+		flush := func(to int) {
+			if run >= 0 {
+				coreBox(c).Key("\x00gap" + strconv.Itoa(run)).Width(starts[to] - starts[run]).Shrink(0).Role(RoleNone)
+				run = -1
 			}
 		}
 		for k, j := range order {
-			if virt {
-				// A block for the columns before those built, and one for
-				// those after, where the first of each comes.
-				if k == vlo && !before {
-					before = true
-					gap(frozenN, vlo, "\x00before")
+			if virt && k >= frozenN && (k < vlo || k >= vhi) && !keep(k) {
+				if run < 0 {
+					run = k
 				}
-				if k == vhi && !after {
-					after = true
-					gap(vhi, len(order), "\x00after")
-				}
-				if k >= frozenN && (k < vlo || k >= vhi) {
-					continue
-				}
+				continue
 			}
+			flush(k)
 			col := &columns[j]
 			// Keyed by its column, a cell keeps its state as the columns
 			// move: a header being dragged keeps the press.
@@ -377,14 +388,15 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 					box.DrawOver(cursorBorder(table, border))
 				}
 			}
+			if role == RoleCell && box.FocusWithin() {
+				s.focusColNext = col.id()
+			}
 			if drag.fit != "" && drag.fit == col.id() {
 				fitting = append(fitting, box)
 			}
 			boxes = append(boxes, box)
 		}
-		if virt && !before {
-			gap(frozenN, vlo, "\x00before")
-		}
+		flush(len(order))
 		return boxes
 	}
 	table.Children(func() {

@@ -1129,3 +1129,63 @@ func TestTableFrozenHeaderFollowsThePointer(t *testing.T) {
 		tt.Release(x+40, y)
 	}
 }
+
+// A List keeps the row holding the focus built as it scrolls out of view,
+// and VirtualColumns the column: a cell holding the keyboard keeps it. It
+// lets the column go once the keyboard is elsewhere.
+func TestTableVirtualColumnsKeepTheFocusedColumn(t *testing.T) {
+	built := map[int]int{}
+	s := ListState{VirtualColumns: true}
+	cols := make([]TableColumn, 60)
+	for j := range cols {
+		cols[j] = TableColumn{Title: "H" + strconv.Itoa(j), Width: 100}
+	}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Children(func() {
+			coreTable(c, &s, cols, 5, func(row, col int) {
+				built[col]++
+				if row == 1 && col == 1 {
+					coreBox(c).Key("editor").Focusable().Children(func() { coreText(c, "editor") })
+					return
+				}
+				coreText(c, "r"+strconv.Itoa(row)+"c"+strconv.Itoa(col)).SingleLine()
+			}).Grow(1)
+		})
+	}, 400, 300)
+	tt.Frame()
+	tt.Click("editor")
+	tt.Frame()
+	tt.Scroll(200, 150, 3000, 0)
+	tt.Frame()
+	clear(built)
+	tt.Frame()
+	if _, ok := built[1]; !ok || !tt.HasText("editor") {
+		t.Fatalf("the column holding the focus, scrolled out of view, is gone: built %v", builtColumns(built))
+	}
+	// The keyboard goes to a cell in view, and the column goes with it.
+	tt.Click("r1c30")
+	tt.Frame()
+	clear(built)
+	tt.Frame()
+	if _, ok := built[1]; ok {
+		t.Errorf("the column is kept built once the keyboard left it: built %v", builtColumns(built))
+	}
+}
+
+// The Cursor's column is kept too, for the keys to move from its cell.
+func TestTableVirtualColumnsKeepTheCursorColumn(t *testing.T) {
+	tt, s, _ := cellTable(t, 8, 30, 100)
+	s.VirtualColumns = true
+	tt.Frame()
+	tt.Click("r1c2")
+	tt.Frame()
+	tt.Scroll(200, 150, 1500, 0)
+	tt.Frame()
+	tt.Frame()
+	if _, ok := tt.Find("r1c18"); !ok {
+		t.Fatalf("the table did not scroll: texts %q", tt.Texts())
+	}
+	if _, ok := tt.Find("r1c2"); !ok {
+		t.Fatalf("the cell of the Cursor %q, scrolled out of view, is not built", s.Cells.Cursor)
+	}
+}
