@@ -1303,3 +1303,24 @@ func TestFrozenStyleTakesTheRowsStartCorners(t *testing.T) {
 		}
 	}
 }
+
+// A table without VirtualColumns does not read which cell holds the
+// keyboard: each read asks for another frame whenever the focus moves.
+func TestTableReadsTheFocusOnlyForVirtualColumns(t *testing.T) {
+	for _, virtual := range []bool{false, true} {
+		s := ListState{VirtualColumns: virtual}
+		cols := []TableColumn{{Title: "A", Width: 100}, {Title: "B", Width: 100}}
+		tt := coreNewTester(func(c *context) {
+			coreColumn(c).Fill().Children(func() {
+				coreTable(c, &s, cols, 3, func(row, col int) {
+					coreText(c, "r"+strconv.Itoa(row)+"c"+strconv.Itoa(col))
+				}).Grow(1)
+			})
+		}, 400, 300)
+		tt.Frame()
+		tt.Frame()
+		if got := tt.rt.withinRead; got != virtual {
+			t.Errorf("VirtualColumns %v: the frame read FocusWithin %v, want %v", virtual, got, virtual)
+		}
+	}
+}

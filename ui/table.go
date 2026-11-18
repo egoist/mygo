@@ -391,7 +391,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 					box.DrawOver(cursorBorder(table, border))
 				}
 			}
-			if role == RoleCell && box.FocusWithin() {
+			if s.VirtualColumns && role == RoleCell && box.FocusWithin() {
 				s.focusColNext = col.id()
 			}
 			if drag.fit != "" && drag.fit == col.id() {
