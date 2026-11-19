@@ -1750,7 +1750,9 @@ func Local[T any](e Element, key any, init func() T) *T {
 // Right opens a submenu and Left closes it, the other way round right to
 // left (Direction); Enter and Space choose an item, Escape closes the
 // submenu on top, and Tab and a press outside the menu close it. The
-// pointer highlights the item it moves onto, opening its submenu.
+// pointer highlights the item it moves onto, opening its submenu, but for
+// those it crosses heading for a submenu that shows, which stays open
+// until the pointer rests on one of them (menuAimGrace).
 // Assistive technology sees a menu button, expanded while its menu shows,
 // and a menu of items, check box items and radio items. PopoverMenuButton
 // draws its menu with these parts, in the theme's look.
@@ -6684,6 +6686,14 @@ func (_handle Element) NoShadow() Element {
 
 // NoWrap keeps each line of the element's text whole, breaking it only at
 // newlines, even where it overflows the element.
+//
+// On a TextArea (TextAreaBase, TextAreaBuffer), it keeps each line the
+// user types whole too, as a list of URLs or a code snippet holds one
+// item a line: a line wider than the area scrolls sideways, with the
+// wheel (Shift and the wheel with a mouse), the touchpad and a horizontal
+// scroll bar, and the caret stays in view as the user types, moves it or
+// drags a selection past a side. Without it, a text area wraps its lines
+// at its width. A TextInput keeps its line whole anyway.
 func (_handle Element) NoWrap() Element {
 	_node := _handle.node()
 	if _node == nil {
