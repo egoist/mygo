@@ -275,6 +275,24 @@ ui.Box(c).Height(20).Draw(func(p *ui.Painter, r ui.Rect) {
 })
 ```
 
+`Painter.GlyphShadow` paints the shadow of glyphs alone, made by
+`ui.NewTextShadow` as `Element.TextShadow` casts it: the shapes of the
+glyphs offset and blurred, in the shadow's color, whatever the color of
+the glyphs, drawn or not. Called once for each shadow, the last first,
+under `Glyphs`, it paints a list of shadows as CSS's `text-shadow` does:
+
+```go
+// text-shadow: 0 1px 2px black, 0 0 12px gold
+shadows := []ui.TextShadow{ui.NewTextShadow(0, 1, 2, ui.RGB(0, 0, 0)), ui.NewTextShadow(0, 0, 12, ui.RGB(255, 215, 0))}
+ui.Box(c).Height(40).Draw(func(p *ui.Painter, r ui.Rect) {
+	x, y := r.X, r.Y+font.Metrics().Ascent
+	for i := len(shadows) - 1; i >= 0; i-- {
+		p.GlyphShadow(glyphs, x, y, shadows[i])
+	}
+	p.Glyphs(glyphs, x, y, ui.RGB(255, 255, 255))
+})
+```
+
 ## Animation
 
 For motion, `Element.Animate` returns a value that eases to a target and

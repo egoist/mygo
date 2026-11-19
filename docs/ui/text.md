@@ -55,6 +55,10 @@ ui.Text(c, "Golden hour").TextColor(ui.RGB(255, 255, 255)).TextShadow(0, 1, 4, u
 ui.RichText(c, ui.Span{Text: "Sale", Shadow: ui.NewTextShadow(0, 2, 3, t.Accent)})
 ```
 
+A drawing casts several shadows of the glyphs it shapes with
+`Painter.GlyphShadow`, whatever their fill (see [Shaping
+text](drawing.md#shaping-text)).
+
 `TabSize(n)` puts tab stops every `n` spaces of the font from the start of
 each line, as CSS's `tab-size`, so a code block's tabs indent 2 or 4
 columns; without it, tabs stop where the system's text stack puts them,
