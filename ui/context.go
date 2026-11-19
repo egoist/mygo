@@ -863,9 +863,9 @@ type state struct {
 	scrollX, scrollY float64
 	// A finger past the content's ends: how far the content shows past
 	// them across and down (the sign says which end), how far the finger
-	// went, how fast it springs back, and until when its indicator shows.
+	// went, and how fast it springs back; bars has until when its
+	// indicator shows.
 	over, overRaw, overV [2]float32
-	barsUntil            time.Time
 	// refresh is the pull to refresh of the container (PullToRefresh).
 	refresh      *RefreshState
 	refreshFired bool
@@ -876,14 +876,14 @@ type state struct {
 	fingersFrame uint64
 	contentW     float64
 	contentH     float64
-	// barInset is the element's ScrollbarInsets, and barStyle how its
-	// scroll bars look, its ScrollbarStyle with the theme's zero fields
-	// filled in.
+	// barInset is the element's ScrollbarInsets, and bars how its scroll
+	// bars look and when they show (barState).
 	barInset [4]float32
-	barStyle *ScrollbarStyle
+	bars     *barState
 	// barsShown reports whether the last frame painted the element's
 	// scroll bars: they show only while it is hovered or a bar is
-	// dragged, unless it keeps them (KeepScrollbars).
+	// dragged, unless it keeps them (KeepScrollbars), or as its style's
+	// Show says.
 	barsShown bool
 	// barFlags contains the enabled scroll axes and, if any, the keep bit.
 	barFlags uint32

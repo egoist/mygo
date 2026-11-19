@@ -611,7 +611,7 @@ func (rt *engine) pan(target uint64, axes Orientation, x, y, dx, dy float32, mom
 		moved = true
 	}
 	if moved {
-		s.barsUntil = rt.now().Add(indicatorHold)
+		s.bars.until = rt.now().Add(indicatorHold)
 		rt.requestFrame()
 	}
 	return moved

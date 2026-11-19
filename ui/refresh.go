@@ -138,15 +138,16 @@ func stretchPainter(world scene.Affine, e *node) scene.Affine {
 // finger moved the content a moment ago, and keeps frames coming until it
 // fades.
 func (s *state) touchIndicator(rt *engine) float32 {
-	if s.barsUntil.IsZero() {
+	b := s.bars
+	if b.until.IsZero() {
 		return 0
 	}
-	left := s.barsUntil.Add(indicatorFade).Sub(rt.now())
+	left := b.until.Add(indicatorFade).Sub(rt.now())
 	if left <= 0 {
-		s.barsUntil = time.Time{}
+		b.until = time.Time{}
 		return 0
 	}
-	if until := s.barsUntil.Add(indicatorFade); until.After(rt.barsFadeAt) {
+	if until := b.until.Add(indicatorFade); until.After(rt.barsFadeAt) {
 		rt.barsFadeAt = until
 	}
 	rt.animating = true

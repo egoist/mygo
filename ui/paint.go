@@ -1507,28 +1507,14 @@ func (p *Painter) scrollbars(e *node) {
 	// (scrollbarPress). Kept, they show as on hover, so that the pointer
 	// coming over changes nothing.
 	hide, keep := st.barFlags == 0, st.barFlags&keepBarsVisible != 0
-	if !hide && !keep {
+	scrolling := st.bars != nil && st.bars.style.Show == ScrollbarsWhileScrolling
+	if !hide && !keep && !scrolling {
 		// The bars show on hover (hoverNeeds).
 		st.hoverLook = true
 	}
 	// A finger is no pointer hovering, on it or after it, however it ended: only
 	// a mouse or a trackpad, as on a tablet, shows them by being over them.
 	hovered = hovered && !rt.lastPointerTouch
-	st.barsShown = !hide && (keep || hovered || dragging)
-	style := *st.barStyle
-	fade := float32(1)
-	if !st.barsShown {
-		// A finger shows a thin thumb on no track for a moment as it moves
-		// the content, and it fades: no press takes it.
-		if touchBars == nil {
-			return
-		}
-		fade = touchBars(st, rt)
-		if hide || fade <= 0 {
-			return
-		}
-		style.TrackWidth, style.ThumbWidth, style.Track = touchIndicatorWidth, touchIndicatorWidth, Color{}
-	}
 	w, h := st.contentW, st.contentH
 	x, y := st.scrollX, st.scrollY
 	if dragging {
@@ -1539,17 +1525,7 @@ func (p *Painter) scrollbars(e *node) {
 		x = rescale(x, e.contentW-float64(e.w), w-float64(e.w))
 		y = rescale(y, e.contentH-float64(e.h), h-float64(e.h))
 	}
-	g := scrollBars(Rect{e.x, e.y, st.w, st.h}, st.barInset, float32(w), float32(h), float32(x), float32(y), st.flags, style, st.rtl)
-	g.vertical = g.vertical && st.barFlags&flagScrollY != 0
-	g.horizontal = g.horizontal && st.barFlags&flagScrollX != 0
-	if style.Track.A > 0 {
-		if g.vertical {
-			p.Fill(g.vTrack, style.Track, 0)
-		}
-		if g.horizontal {
-			p.Fill(g.hTrack, style.Track, 0)
-		}
-	}
+	g := st.scrollbarGeometry(e.x, e.y, w, h, x, y)
 	// Hover colors the bar the pointer is over, and both while kept, as
 	// they show as on hover.
 	var overV, overH bool
@@ -1558,6 +1534,44 @@ func (p *Painter) scrollbars(e *node) {
 		lx, ly = lx+e.x, ly+e.y
 		overV = g.vertical && g.vTrack.Contains(lx, ly)
 		overH = g.horizontal && g.hTrack.Contains(lx, ly)
+	}
+	// Shown while it scrolls, the bars stay a moment after it last moved,
+	// or the pointer left them, then fade out (ScrollbarFade).
+	fade := float32(0)
+	if scrolling && !hide && !keep {
+		if rt.lastPointerTouch {
+			// A finger's scrolling shows its indicator instead, which takes
+			// no press, and the bars take the offset it leaves as where they
+			// start from once a pointer is back.
+			st.bars.fade.known, st.bars.fade.held = false, false
+			fade = 1
+		} else {
+			fade = st.bars.fade.fade(p, st.scrollX, st.scrollY, overV || overH || dragging)
+		}
+	}
+	st.barsShown = !hide && (keep || dragging || (scrolling && fade < 1) || (!scrolling && hovered))
+	style := st.bars.style
+	if !st.barsShown {
+		// A finger shows a thin thumb on no track for a moment as it moves
+		// the content, and it fades: no press takes it.
+		if touchBars == nil {
+			return
+		}
+		shown := touchBars(st, rt)
+		if hide || shown <= 0 {
+			return
+		}
+		fade = 1 - shown
+		style.TrackWidth, style.ThumbWidth, style.Track = touchIndicatorWidth, touchIndicatorWidth, Color{}
+		g = st.scrollbarGeometryOf(style, e.x, e.y, w, h, x, y)
+	}
+	if style.Track.A > 0 {
+		if g.vertical {
+			p.Fill(g.vTrack, style.Track.Alpha(1-fade), 0)
+		}
+		if g.horizontal {
+			p.Fill(g.hTrack, style.Track.Alpha(1-fade), 0)
+		}
 	}
 	vertical, horizontal := style.Thumb, style.Thumb
 	switch {
@@ -1572,16 +1586,12 @@ func (p *Painter) scrollbars(e *node) {
 	case keep || overH:
 		horizontal = style.Hover
 	}
-	if fade < 1 {
-		vertical.A = uint8(float32(vertical.A) * fade)
-		horizontal.A = uint8(float32(horizontal.A) * fade)
-	}
 	grow := style.ThumbWidth+2 <= style.TrackWidth
 	if g.vertical {
-		p.scrollThumbFill(g.v, false, grow && dragging && !rt.scrollDrag.horizontal, vertical, style.Radius)
+		p.scrollThumbFill(g.v, false, grow && dragging && !rt.scrollDrag.horizontal, vertical.Alpha(1-fade), style.Radius)
 	}
 	if g.horizontal {
-		p.scrollThumbFill(g.h, true, grow && dragging && rt.scrollDrag.horizontal, horizontal, style.Radius)
+		p.scrollThumbFill(g.h, true, grow && dragging && rt.scrollDrag.horizontal, horizontal.Alpha(1-fade), style.Radius)
 	}
 }
 
