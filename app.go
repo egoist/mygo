@@ -322,11 +322,16 @@ func (a *Application) finish() {
 		saveWindowStates()
 		fire(&a.onQuit)
 		backendExiting()
+		// After OnQuit, which stops taking the command lines of later
+		// instances: the new one waits for this process to exit, which
+		// holds the single instance lock until then. An update that
+		// Install staged on macOS is installed then too, by a process
+		// that waits for this one to exit, and that opens the new version
+		// when the app relaunches.
 		if a.relaunch {
-			// After OnQuit, which stops taking the command lines of later
-			// instances: the new one waits for this process to exit, which
-			// holds the single instance lock until then.
 			relaunchNow()
+		} else {
+			installStagedUpdate(false, nil)
 		}
 		loop.shutdown()
 	})
