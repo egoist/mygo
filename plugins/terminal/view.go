@@ -1590,6 +1590,10 @@ func (v *view) scroll(ev ui.InputEvent) bool {
 				t.in.push(append([]byte(nil), out...))
 			}
 		}
+	case horizontal:
+		// The program let go of the mouse since: arrows and the scrollback
+		// are only vertical.
+		return false
 	case v.wheelArrows():
 		// Full-screen programs scroll with the arrows (mode 1007).
 		if v.keys == nil {
@@ -1606,8 +1610,6 @@ func (v *view) scroll(ev ui.InputEvent) bool {
 		for range abs(rows) {
 			t.in.push(append([]byte(nil), v.keys.Encode(vt.KeyEvent{Action: vt.KeyPress, Key: key})...))
 		}
-	case horizontal:
-		return false
 	default:
 		t.term.ScrollBy(rows)
 	}
