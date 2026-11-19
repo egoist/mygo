@@ -54,6 +54,12 @@ MYGO_UPDATER_PRIVATE_KEY="$(cat path/to/mygo-update.key)" go tool mygo build   #
 - 从之前的版本生成的[增量更新](#增量更新)，例如 `my-app-1.1.0-to-1.2.0-darwin-arm64.delta`，以及
 - `update-darwin-arm64.json`，清单：版本、发布说明、日期，以及归档和每个增量更新的 URL、大小与签名。
 
+每个文件有两个签名。`signature` 表明文件由你的密钥签名，`versionSignature` 表明文件是什么：这个应用（它的 `identifier`）在这个平台上的这个版本。应用两者都校验，所以能写入清单发布位置但没有你的密钥的人，无法给文件换一个名目：把旧归档标成更新的版本号、换成另一个平台的归档，或者换成你用同一把密钥签名的另一个应用的归档，都不会安装任何东西。macOS 上单一架构的应用也接受通用应用，因为它能在同样的机器上运行。
+
+它只校验这些。清单仍然可以指向你发布过的、比应用正在运行的版本更新的任何版本，包括预发布版本，也可以用旧清单顶替更新的清单；而安装尚不存在的应用的 [`install.sh`](distribution.md#安装脚本) 只校验 `signature`。
+
+只有构建应用的 `mygo build` 和它的 go.mod 中的 `github.com/egoist/mygo` 模块都能写入并读取 `versionSignature` 时，应用才会校验它；在此之前构建的应用只校验 `signature`，因为随它们发布的清单没有另一个签名。重新构建并发布应用，它的用户才会得到这项校验；此后，每个版本都要用那个 `mygo build` 或更新的版本发布，并保持应用的 `identifier` 不变：进行校验的应用会拒绝没有 `versionSignature` 的清单，以及为另一个标识符签名的清单，`Check` 或 `Install` 会返回说明这一点的错误。
+
 没有密钥时，`mygo build` 会构建应用，但不写更新文件；Linux 归档例外，因为 [`install.sh`](distribution.md#安装脚本) 要从它安装。`mygo build -upload` 需要密钥：它会在构建之前停下，因为已安装的应用无法更新到没有清单的发布版本。
 
 发布说明是 `CHANGELOG.md` 中该版本的章节（`updates.changelog` 可以指定另一个文件），位于 `## 1.2.0` 标题下，或如 [Keep a Changelog](https://keepachangelog.com) 那样的 `## [1.2.0] - 2026-09-19`。文件存在时，它必须包含该章节。
@@ -106,7 +112,7 @@ export default defineConfig({
 
 如果最新的 GitHub 发布版本没有正在构建的平台的清单，构建会按配置的标签前缀在更早的发布版本中查找该平台的清单，跳过草稿和预发布。这样，在各平台分别发布时，增量更新及其历史仍能保留。已安装的应用仍然检查配置的更新源。
 
-如果当前版本有对应的增量更新，应用会下载并校验签名，再以已安装文件为基础，在应用所在目录旁生成新版本。生成时逐个校验文件大小和 SHA-256，确保结果与发布版本完全一致，包括代码签名。任何一步失败（例如安装后的应用文件曾被修改），都会改为下载完整归档。
+如果当前版本有对应的增量更新，应用会下载并校验这些签名，再以已安装文件为基础，在应用所在目录旁生成新版本。生成时逐个校验文件大小和 SHA-256，确保结果与发布版本完全一致，包括代码签名。任何一步失败（例如安装后的应用文件曾被修改），都会改为下载完整归档。
 
 ## 更新窗口
 
@@ -195,7 +201,7 @@ func (s accountUpdates) Open(ctx context.Context, url string) (io.ReadCloser, er
 mygo.Updater.SetSource(accountUpdates{token: session.Token})
 ```
 
-此后，`Check` 从自定义数据源读取清单，`Install` 通过数据源的 `Open` 下载归档或增量更新。`prereleases` 是 `SetPrereleases` 设置的值，供支持 beta 通道的数据源使用。下载 URL 来自清单，因此服务端可以基于 `mygo build` 的清单生成自己的清单，并用自定义 ID 命名文件，只要文件大小和签名不变。`SetSource(nil)` 可恢复默认更新源。
+此后，`Check` 从自定义数据源读取清单，`Install` 通过数据源的 `Open` 下载归档或增量更新。`prereleases` 是 `SetPrereleases` 设置的值，供支持 beta 通道的数据源使用。下载 URL 来自清单，因此服务端可以基于 `mygo build` 的清单生成自己的清单，并用自定义 ID 命名文件，只要版本、文件大小和每个文件的两个签名（`signature` 和 `versionSignature`）不变。`SetSource(nil)` 可恢复默认更新源。
 
 ## 应用能在哪里更新
 

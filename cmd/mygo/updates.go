@@ -133,13 +133,17 @@ func (c *Config) updateFile(name string, latest bool) string {
 }
 
 // updateFlags are the -ldflags that point the build for target at its
-// manifest.
+// manifest, and tell it its target: an app that knows it installs only
+// what is signed as a version of it for that target (update.SignVersion,
+// with the identifier of packageFlags), as writeSigned signs what this
+// build publishes.
 func updateFlags(c *Config, target string) string {
 	if c.Updates == nil {
 		return ""
 	}
 	return " -X " + ldflagsQuote("github.com/egoist/mygo.packageUpdateFeed="+c.updateFeed(target)) +
-		" -X github.com/egoist/mygo.packageUpdateKey=" + c.Updates.PublicKey
+		" -X github.com/egoist/mygo.packageUpdateKey=" + c.Updates.PublicKey +
+		" -X github.com/egoist/mygo.packageUpdateTarget=" + target
 }
 
 // signingKey returns the private key that signs updates, or nil when none
@@ -219,7 +223,7 @@ func writeArchive(c *Config, stage, target string, entries []string) ([]string, 
 	}
 	name := c.slug() + "-" + c.Version + "-" + target + ".tar.gz"
 	archive := filepath.Join(stage, name)
-	size, sig, err := writeSigned(archive, key, func(w io.Writer) error {
+	size, sig, vsig, err := writeSigned(archive, key, c.Identifier, target, c.Version, func(w io.Writer) error {
 		return update.WriteArchive(w, stage, entries)
 	})
 	if err != nil {
@@ -229,12 +233,13 @@ func writeArchive(c *Config, stage, target string, entries []string) ([]string, 
 		return []string{archive}, nil
 	}
 	m := update.Manifest{
-		Version:   c.Version,
-		Notes:     notes,
-		Date:      time.Now().UTC().Format(time.RFC3339),
-		URL:       c.updateFile(name, false),
-		Size:      size,
-		Signature: sig,
+		Version:          c.Version,
+		Notes:            notes,
+		Date:             time.Now().UTC().Format(time.RFC3339),
+		URL:              c.updateFile(name, false),
+		Size:             size,
+		Signature:        sig,
+		VersionSignature: vsig,
 	}
 	files := []string{archive}
 	if n := c.Updates.deltas(); n > 0 {
@@ -252,12 +257,13 @@ func writeArchive(c *Config, stage, target string, entries []string) ([]string, 
 	return append(files, manifest), nil
 }
 
-// writeSigned writes a file with write and returns its size and signature,
+// writeSigned writes a file with write and returns its size, its signature
+// and its signature as version of app for target (update.SignVersion),
 // none without a key.
-func writeSigned(path string, key ed25519.PrivateKey, write func(io.Writer) error) (int64, string, error) {
+func writeSigned(path string, key ed25519.PrivateKey, app, target, version string, write func(io.Writer) error) (size int64, signature, versionSignature string, err error) {
 	f, err := os.Create(path)
 	if err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 	sum := sha256.New()
 	err = write(io.MultiWriter(f, sum))
@@ -265,16 +271,17 @@ func writeSigned(path string, key ed25519.PrivateKey, write func(io.Writer) erro
 		err = cerr
 	}
 	if err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 	info, err := os.Stat(path)
 	switch {
 	case err != nil:
-		return 0, "", err
+		return 0, "", "", err
 	case key == nil:
-		return info.Size(), "", nil
+		return info.Size(), "", "", nil
 	}
-	return info.Size(), update.Sign(key, sum.Sum(nil)), nil
+	digest := sum.Sum(nil)
+	return info.Size(), update.Sign(key, digest), update.SignVersion(key, app, target, version, digest), nil
 }
 
 // writeDeltas makes delta updates to the app of target in stage from the
@@ -325,7 +332,7 @@ func writeDeltas(c *Config, key ed25519.PrivateKey, stage, target string, entrie
 	for i, base := range bases {
 		name := c.slug() + "-" + base.Version + "-to-" + c.Version + "-" + target + ".delta"
 		path := filepath.Join(stage, name)
-		d, err := writeDelta(get, key, base, filepath.Join(work, strconv.Itoa(i)), path, c.Version, newDir, newEntries)
+		d, err := writeDelta(get, key, base, filepath.Join(work, strconv.Itoa(i)), path, c.Identifier, target, c.Version, newDir, newEntries)
 		switch {
 		case err != nil:
 			warnf("No delta update from %s for %s: %v", base.Version, target, err)
@@ -344,9 +351,9 @@ func writeDeltas(c *Config, key ed25519.PrivateKey, stage, target string, entrie
 }
 
 // writeDelta downloads the archive of base into work with get, checks that
-// it is signed with key, and writes the delta from it to the app of version
-// in newDir to path.
-func writeDelta(get archiveGetter, key ed25519.PrivateKey, base update.Archive, work, path, version, newDir string, newEntries []string) (update.Delta, error) {
+// it is signed with key, and writes the delta from it to the version of
+// app for target in newDir to path.
+func writeDelta(get archiveGetter, key ed25519.PrivateKey, base update.Archive, work, path, app, target, version, newDir string, newEntries []string) (update.Delta, error) {
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		return update.Delta{}, err
 	}
@@ -371,14 +378,14 @@ func writeDelta(get archiveGetter, key ed25519.PrivateKey, base update.Archive, 
 		}
 		oldDir = filepath.Join(oldDir, all[0].Name())
 	}
-	size, sig, err := writeSigned(path, key, func(w io.Writer) error {
+	size, sig, vsig, err := writeSigned(path, key, app, target, version, func(w io.Writer) error {
 		return update.WriteDelta(w, base.Version, version, oldDir, newDir, newEntries)
 	})
 	if err != nil {
 		os.Remove(path)
 		return update.Delta{}, err
 	}
-	return update.Delta{From: base.Version, Size: size, Signature: sig}, nil
+	return update.Delta{From: base.Version, Size: size, Signature: sig, VersionSignature: vsig}, nil
 }
 
 var errNotPublished = errors.New("not published")

@@ -30,6 +30,12 @@ import (
 	"github.com/egoist/mygo/internal/wait"
 )
 
+// updateApp and updateTarget are the app and the target that updateServer
+// signs its update for.
+const updateApp = "com.example.updated"
+
+var updateTarget = "testos-testarch"
+
 // updateServer serves a signed update whose app holds main with content,
 // and with deltaFrom, a delta of it from that version of installedApp.
 // requests counts the requests of each file.
@@ -64,7 +70,7 @@ func updateServer(t *testing.T, version, content, deltaFrom string) (srv *httpte
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(archive.Bytes())
-	m = update.Manifest{Version: version, Notes: "- Faster", Date: "2026-09-27T10:00:00Z", Size: int64(archive.Len()), Signature: update.Sign(priv, sum[:])}
+	m = update.Manifest{Version: version, Notes: "- Faster", Date: "2026-09-27T10:00:00Z", Size: int64(archive.Len()), Signature: update.Sign(priv, sum[:]), VersionSignature: update.SignVersion(priv, updateApp, updateTarget, version, sum[:])}
 	var mu sync.Mutex
 	counts := map[string]int{}
 	mux := http.NewServeMux()
@@ -87,7 +93,7 @@ func updateServer(t *testing.T, version, content, deltaFrom string) (srv *httpte
 			t.Fatal(err)
 		}
 		sum := sha256.Sum256(delta.Bytes())
-		m.Deltas = []update.Delta{{From: deltaFrom, URL: srv.URL + "/app.delta", Size: int64(delta.Len()), Signature: update.Sign(priv, sum[:])}}
+		m.Deltas = []update.Delta{{From: deltaFrom, URL: srv.URL + "/app.delta", Size: int64(delta.Len()), Signature: update.Sign(priv, sum[:]), VersionSignature: update.SignVersion(priv, updateApp, updateTarget, version, sum[:])}}
 		mux.HandleFunc("/app.delta", func(w http.ResponseWriter, r *http.Request) { w.Write(delta.Bytes()) })
 	}
 	mux.HandleFunc("/update.json", func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(m) })
@@ -273,6 +279,132 @@ func TestUpdaterDelta(t *testing.T) {
 	}
 }
 
+// Whoever writes the manifest, without the key, can name an older archive
+// of the app as a newer version: its signature is the one it was published
+// with. An app built with its target installs only what is signed as the
+// version the manifest says, of that app for that target; one built
+// without, by an earlier mygo build, takes what the key signed, as it did.
+func TestUpdaterVersionSignature(t *testing.T) {
+	ctx := context.Background()
+	srv, key, m, requests := updateServer(t, "1.2.0", "v2, a bigger version", "1.1.9")
+	src := &testSource{srv: srv, m: m}
+	install := func(m update.Manifest, current string) (string, error) {
+		t.Helper()
+		target, main := installedApp(t)
+		quit := runningApp(t)
+		err := installUpdate(ctx, httpGet, m, key, current, target, nil)
+		if err == nil {
+			quit()
+		}
+		b, _ := os.ReadFile(main)
+		return string(b), err
+	}
+	// The published 1.2.0, named as 9.0.0 to an app that runs 1.3.0.
+	rollback := m
+	rollback.Version, rollback.Deltas = "9.0.0", nil
+	unsigned := m
+	unsigned.VersionSignature, unsigned.Deltas = "", nil
+
+	if main, err := install(rollback, "1.3.0"); err != nil || main != "v2, a bigger version" {
+		t.Errorf("a build without its target: main = %q, %v", main, err)
+	}
+	if main, err := install(unsigned, "1.1.9"); err != nil || main != "v2, a bigger version" {
+		t.Errorf("a build without its target, a manifest of an earlier mygo build: main = %q, %v", main, err)
+	}
+
+	oldID := packageIdentifier
+	packageIdentifier, packageUpdateTarget = updateApp, updateTarget
+	defer func() { packageIdentifier, packageUpdateTarget = oldID, "" }()
+	if main, err := install(rollback, "1.3.0"); err == nil || !strings.Contains(err.Error(), "not signed as version 9.0.0") || main != "v1" {
+		t.Errorf("an older archive named as a newer version: main = %q, %v", main, err)
+	}
+	if main, err := install(unsigned, "1.1.9"); err == nil || main != "v1" {
+		t.Errorf("an archive not signed as a version: main = %q, %v", main, err)
+	}
+	src.m = unsigned
+	if up, err := checkUpdate(ctx, src, key, "1.1.9", false); err == nil || !strings.Contains(err.Error(), "does not sign 1.2.0") {
+		t.Errorf("a manifest that signs no version was offered: %+v, %v", up, err)
+	}
+	// Nothing newer is nothing to refuse.
+	if up, err := checkUpdate(ctx, src, key, "1.2.0", false); up != nil || err != nil {
+		t.Errorf("checkUpdate of an app up to date = %+v, %v", up, err)
+	}
+	// A signature of the digest alone is none of the version.
+	swapped := m
+	swapped.VersionSignature, swapped.Deltas = m.Signature, nil
+	if main, err := install(swapped, "1.1.9"); err == nil || main != "v1" {
+		t.Errorf("the archive's signature taken as its version's: main = %q, %v", main, err)
+	}
+
+	// The update as published installs, from its delta alone.
+	archives := requests("/app.tar.gz")
+	src.m = m
+	up, err := checkUpdate(ctx, src, key, "1.1.9", false)
+	if err != nil || up == nil {
+		t.Fatalf("checkUpdate = %+v, %v", up, err)
+	}
+	if main, err := install(up.manifest, up.current); err != nil || main != "v2, a bigger version" {
+		t.Errorf("the update as published: main = %q, %v", main, err)
+	}
+	if requests("/app.delta") != 1 || requests("/app.tar.gz") != archives {
+		t.Errorf("downloaded the delta %d times and the archive %d", requests("/app.delta"), requests("/app.tar.gz"))
+	}
+	// A delta not signed as the version is left for the archive.
+	bare := m
+	bare.Deltas = []update.Delta{m.Deltas[0]}
+	bare.Deltas[0].VersionSignature = ""
+	if main, err := install(bare, "1.1.9"); err != nil || main != "v2, a bigger version" {
+		t.Errorf("a delta that signs no version: main = %q, %v", main, err)
+	}
+	if requests("/app.delta") != 2 || requests("/app.tar.gz") != archives+1 {
+		t.Errorf("downloaded the delta %d times and the archive %d", requests("/app.delta"), requests("/app.tar.gz"))
+	}
+
+	// The same files are no update of a build for another target, nor of
+	// another app whose developer signs with the same key.
+	packageUpdateTarget = "testos-otherarch"
+	if main, err := install(m, "1.1.9"); err == nil || !strings.Contains(err.Error(), "for testos-otherarch") || main != "v1" {
+		t.Errorf("an update for another target: main = %q, %v", main, err)
+	}
+	packageIdentifier, packageUpdateTarget = "com.example.other", updateTarget
+	if main, err := install(m, "1.1.9"); err == nil || !strings.Contains(err.Error(), "of com.example.other") || main != "v1" {
+		t.Errorf("an update of another app: main = %q, %v", main, err)
+	}
+}
+
+// The universal app of macOS runs where the app of one architecture does,
+// so the app of one takes it as its update, as an app that stops building
+// that architecture publishes; the universal app takes no archive of one.
+func TestUpdaterUniversal(t *testing.T) {
+	ctx := context.Background()
+	oldID, oldTarget := packageIdentifier, updateTarget
+	defer func() { packageIdentifier, packageUpdateTarget, updateTarget = oldID, "", oldTarget }()
+	packageIdentifier = updateApp
+	for _, tt := range []struct {
+		signed, build string
+		ok            bool
+	}{
+		{"darwin-universal", "darwin-arm64", true},
+		{"darwin-universal", "darwin-amd64", true},
+		{"darwin-universal", "linux-arm64", false},
+		{"darwin-arm64", "darwin-universal", false},
+		{"darwin-arm64", "darwin-amd64", false},
+	} {
+		updateTarget = tt.signed
+		_, key, m, _ := updateServer(t, "1.2.0", "v2", "")
+		packageUpdateTarget = tt.build
+		target, main := installedApp(t)
+		quit := runningApp(t)
+		err := installUpdate(ctx, httpGet, m, key, "1.1.9", target, nil)
+		if err == nil {
+			quit()
+		}
+		if b, _ := os.ReadFile(main); (err == nil) != tt.ok || (string(b) == "v2") != tt.ok {
+			t.Errorf("an update for %s in a build for %s: main = %q, %v", tt.signed, tt.build, b, err)
+		}
+	}
+}
+
 // runningApp stands in for the app that installUpdate updates on macOS,
 // where the update waits for the app to exit: quit ends it and returns once
 // the update is in place.
@@ -287,7 +419,12 @@ func runningApp(t *testing.T) (quit func()) {
 	}
 	old := appPid
 	appPid = app.Process.Pid
-	t.Cleanup(func() { appPid = old })
+	t.Cleanup(func() {
+		appPid = old
+		// An update that was refused leaves the app running.
+		app.Process.Kill()
+		app.Wait()
+	})
 	return func() {
 		t.Helper()
 		app.Process.Kill()

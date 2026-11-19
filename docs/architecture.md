@@ -2192,16 +2192,23 @@ as in Tauri:
 - Updates (`updater.go`, `internal/update`, `cmd/mygo/updates.go`), in pure
   Go on every platform. `mygo keygen` creates an Ed25519 key pair; with
   `updates` in the configuration (the public key, and a GitHub repository or a base
-  URL) `mygo build` links the manifest URL of the target and the public key
-  into the app, and when the private key is available
+  URL) `mygo build` links the manifest URL of the target, the public key
+  and the target itself (`packageUpdateTarget`) into the app, and when the private key is available
   (`MYGO_UPDATER_PRIVATE_KEY` or `updates.privateKey`) archives the app as
   installed (the bundle, else everything next to the executable) into
   `<name>-<version>-<target>.tar.gz` (Linux builds always get it, for
-  `install.sh`), signs its SHA-256, and writes
+  `install.sh`), signs its SHA-256 (`signature`), and with it the app's
+  identifier, the target and the version (`versionSignature`,
+  `update.SignVersion`: a statement of a line each, the fields quoted,
+  longer than a digest, so that neither signature stands for the other),
+  and writes
   `update-<target>.json` with the `## <version>` section of CHANGELOG.md as
   notes. `Updater.Check` fetches the manifest (HTTPS only, loopback HTTP for
   tests) and compares versions semantically; `Update.Install` streams the
-  archive next to the app, verifies size and signature, unpacks it (files,
+  archive next to the app, verifies size and signature, and in a build
+  that knows its target that the archive is signed as the manifest's
+  version of the app for it (or for `darwin-universal`, in a build for
+  one architecture of macOS), unpacks it (files,
   directories and relative links only) and swaps it in: the bundle is
   renamed on macOS, the entries of the app directory on Linux and Windows,
   where the running executable is renamed away and removed at the next

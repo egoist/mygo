@@ -8,6 +8,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -480,7 +484,7 @@ func TestWriteDeltas(t *testing.T) {
 		t.Helper()
 		stage := t.TempDir()
 		entries := app(stage, "1.2.0")
-		c := &Config{root: t.TempDir(), Name: "App", Version: "1.2.0", Updates: &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), URL: srv.URL, Deltas: &deltas}}
+		c := &Config{root: t.TempDir(), Name: "App", Identifier: "com.example.app", Version: "1.2.0", Updates: &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), URL: srv.URL, Deltas: &deltas}}
 		mu.Lock()
 		requests = nil
 		mu.Unlock()
@@ -492,6 +496,25 @@ func TestWriteDeltas(t *testing.T) {
 		data, _ := os.ReadFile(written[len(written)-1])
 		if err := json.Unmarshal(data, &m); err != nil {
 			t.Fatal(err)
+		}
+		// The archive and each delta are signed as 1.2.0 of the app for
+		// the target.
+		signed := map[string]string{filepath.Base(m.URL): m.VersionSignature}
+		for _, d := range m.Deltas {
+			signed[filepath.Base(d.URL)] = d.VersionSignature
+		}
+		for name, sig := range signed {
+			b, err := os.ReadFile(filepath.Join(stage, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			sum := sha256.Sum256(b)
+			if err := update.VerifyVersion(pub, c.Identifier, "linux-amd64", "1.2.0", sum[:], sig); err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+			if update.VerifyVersion(pub, c.Identifier, "linux-arm64", "1.2.0", sum[:], sig) == nil || update.VerifyVersion(pub, c.Identifier, "linux-amd64", "1.3.0", sum[:], sig) == nil || update.VerifyVersion(pub, "com.example.other", "linux-amd64", "1.2.0", sum[:], sig) == nil {
+				t.Errorf("%s is signed as another version, for another target or of another app too", name)
+			}
 		}
 		// Each delta makes the new version of the old.
 		for _, d := range m.Deltas {
@@ -538,6 +561,43 @@ func TestWriteDeltas(t *testing.T) {
 	}
 	if m, requests := build(0); m.Deltas != nil || m.Previous != nil || requests != nil {
 		t.Errorf("no deltas: %+v, requested %v", m, requests)
+	}
+}
+
+// The linker sets the variables that -X names only where package mygo
+// declares them: a name it does not declare sets nothing and says nothing,
+// and an app without its target takes updates that sign no version.
+func TestUpdateFlags(t *testing.T) {
+	c := &Config{Updates: &Updates{PublicKey: "key", URL: "https://example.com/app"}}
+	flags := updateFlags(c, "darwin-universal")
+	if !strings.Contains(flags, " -X github.com/egoist/mygo.packageUpdateTarget=darwin-universal") {
+		t.Errorf("the flags tell the build no target: %s", flags)
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join("..", "..", "updater.go"), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	declared := map[string]bool{}
+	for _, d := range file.Decls {
+		if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.VAR {
+			for _, spec := range g.Specs {
+				for _, name := range spec.(*ast.ValueSpec).Names {
+					declared[name.Name] = true
+				}
+			}
+		}
+	}
+	names := regexp.MustCompile(`github\.com/egoist/mygo\.(\w+)=`).FindAllStringSubmatch(flags, -1)
+	if len(names) != 3 {
+		t.Errorf("the flags set %d variables, want 3: %s", len(names), flags)
+	}
+	for _, m := range names {
+		if !declared[m[1]] {
+			t.Errorf("-X sets %s, which updater.go does not declare", m[1])
+		}
+	}
+	if updateFlags(&Config{}, "darwin-arm64") != "" {
+		t.Error("an app without updates is built with their flags")
 	}
 }
 

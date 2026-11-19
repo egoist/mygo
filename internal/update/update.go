@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -32,6 +33,10 @@ type Manifest struct {
 	URL       string `json:"url"`
 	Size      int64  `json:"size"`
 	Signature string `json:"signature"`
+	// VersionSignature signs what the archive is, which Signature does
+	// not: the app, the target it was built for and its version, with its
+	// digest (SignVersion). Apps built to ask for it install no archive without.
+	VersionSignature string `json:"versionSignature,omitempty"`
 	// Deltas update earlier versions with smaller downloads (delta.go).
 	Deltas []Delta `json:"deltas,omitempty"`
 	// Previous are the archives of the versions before, newest first,
@@ -46,6 +51,9 @@ type Delta struct {
 	URL       string `json:"url"`
 	Size      int64  `json:"size"`
 	Signature string `json:"signature"`
+	// VersionSignature is the manifest's, of the delta: it signs the
+	// app, the target and the version the delta makes.
+	VersionSignature string `json:"versionSignature,omitempty"`
 }
 
 // Archive is the archive of an earlier version.
@@ -108,6 +116,34 @@ func Verify(key ed25519.PublicKey, digest []byte, signature string) error {
 		return errors.New("the update is not signed with the app's key")
 	}
 	return nil
+}
+
+// SignVersion signs that the file of the SHA-256 digest, an archive or a
+// delta, makes the version of the app of identifier app built for target,
+// such as darwin-arm64. Sign says who made a file, not what it is: with it
+// alone, whoever writes the manifest could give an old archive, with the
+// signature it was published with, the version of a new one, and apps
+// would install it as an update; or the archive of another app signed
+// with the same key, which `mygo keygen` makes one of for a developer.
+func SignVersion(key ed25519.PrivateKey, app, target, version string, digest []byte) string {
+	return base64.StdEncoding.EncodeToString(ed25519.Sign(key, versionStatement(app, target, version, digest)))
+}
+
+// VerifyVersion checks a signature of SignVersion.
+func VerifyVersion(key ed25519.PublicKey, app, target, version string, digest []byte, signature string) error {
+	sig, err := base64.StdEncoding.DecodeString(signature)
+	if signature == "" || err != nil || !ed25519.Verify(key, versionStatement(app, target, version, digest), sig) {
+		return fmt.Errorf("the update is not signed as version %s of %s for %s with the app's key", version, app, target)
+	}
+	return nil
+}
+
+// versionStatement is what SignVersion signs: a line for each of the app,
+// the target, the version and the digest, the first three quoted so that
+// none holds the end of its line, and none is read as part of another. It
+// is longer than a digest, so neither signature stands for the other.
+func versionStatement(app, target, version string, digest []byte) []byte {
+	return []byte("mygo-update\n" + strconv.Quote(app) + "\n" + strconv.Quote(target) + "\n" + strconv.Quote(version) + "\n" + hex.EncodeToString(digest) + "\n")
 }
 
 // Compare compares versions such as 1.2.3 and 1.3.0-beta.1 like semantic

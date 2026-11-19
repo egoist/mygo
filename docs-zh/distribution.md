@@ -417,7 +417,7 @@ makepkg -si
 
 ### 安装脚本
 
-每次 Linux 构建还会生成应用归档 `my-app-1.2.0-linux-amd64.tar.gz` 和 `install.sh`，无需 root 即可安装。脚本将应用安装到 `~/.local/my-app.app`，使其可以[自我更新](updates.md)，并安装桌面条目、图标，注册 URL 协议和文件类型。配置了 `linux.command` 时，还会在 `~/.local/bin` 中创建命令链接，但不会占用其他程序已有的命令名；安装后会提示用成功创建的第一个命令启动应用。配置了[更新](updates.md)时，脚本会下载当前机器对应更新清单中的最新版本，并在安装前像应用更新器一样，校验大小，再用 `updates.publicKey` 校验 Ed25519 签名，因此一行命令即可安装应用：
+每次 Linux 构建还会生成应用归档 `my-app-1.2.0-linux-amd64.tar.gz` 和 `install.sh`，无需 root 即可安装。脚本将应用安装到 `~/.local/my-app.app`，使其可以[自我更新](updates.md)，并安装桌面条目、图标，注册 URL 协议和文件类型。配置了 `linux.command` 时，还会在 `~/.local/bin` 中创建命令链接，但不会占用其他程序已有的命令名；安装后会提示用成功创建的第一个命令启动应用。配置了[更新](updates.md)时，脚本会下载当前机器对应更新清单中的最新版本，并在安装前像应用更新器一样，校验大小，再用 `updates.publicKey` 校验 Ed25519 签名（`signature`，而不是更新器还会校验的 `versionSignature`），因此一行命令即可安装应用：
 
 ```sh
 curl -fsSL https://github.com/me/my-app/releases/latest/download/install.sh | sh
@@ -450,7 +450,7 @@ curl -fsSL https://github.com/me/my-app/releases/latest/download/install.sh | sh
 irm https://github.com/me/my-app/releases/latest/download/install.ps1 | iex
 ```
 
-在 macOS 上，`install.sh` 会下载 Mac 架构的更新清单指定的归档，没有时用 `darwin-universal` 的（Apple silicon 的 `darwin-arm64`，通过 Rosetta 运行的 shell 也一样）。下载后，它像应用的更新器那样，对照 `updates.publicKey` 校验大小和 Ed25519 签名（macOS 没有处理 Ed25519 签名的工具，所以脚本用 `openssl` 和 `shasum` 做哈希，再用 JavaScript for Automation 完成曲线运算）。如果应用正在运行，脚本会先退出它，然后替换 `/Applications` 里的应用包；如果用户无法写入 `/Applications`，或者应用本来就在 `~/Applications` 里，则替换那里的应用包，最后打开应用。它从不请求 root，同名但包标识符不同的应用不会被碰。`curl` 不设置隔离标记，所以打开应用时不会出现 Gatekeeper 对下载应用的提示。
+在 macOS 上，`install.sh` 会下载 Mac 架构的更新清单指定的归档，没有时用 `darwin-universal` 的（Apple silicon 的 `darwin-arm64`，通过 Rosetta 运行的 shell 也一样）。下载后，它像应用的更新器那样，对照 `updates.publicKey` 校验大小和 Ed25519 签名（`signature`，而不是更新器还会校验的 `versionSignature`；macOS 没有处理 Ed25519 签名的工具，所以脚本用 `openssl` 和 `shasum` 做哈希，再用 JavaScript for Automation 完成曲线运算）。如果应用正在运行，脚本会先退出它，然后替换 `/Applications` 里的应用包；如果用户无法写入 `/Applications`，或者应用本来就在 `~/Applications` 里，则替换那里的应用包，最后打开应用。它从不请求 root，同名但包标识符不同的应用不会被碰。`curl` 不设置隔离标记，所以打开应用时不会出现 Gatekeeper 对下载应用的提示。
 `sh install.sh --uninstall` 移除应用并保留其设置和数据。
 
 `install.ps1` 在 Windows PowerShell 5.1 和 PowerShell 7 中运行。它下载适合 PC 架构（`amd64` 或 `arm64`）的最新版本安装程序，对照 `SHA256SUMS` 校验 SHA-256；如果应用正在运行，就先退出应用，在已安装版本的文件夹中静默运行安装程序（`/S`），然后打开应用。卸载时，仍和往常一样从“设置 > 应用”操作。
