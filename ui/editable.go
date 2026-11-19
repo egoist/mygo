@@ -12,11 +12,15 @@ type editState struct {
 	editing, fresh bool
 	draft          string
 	after          time.Time
+	at             Point // where the click that will edit it pressed
 }
 
-// renameDelay is how long after a click on the text of a chosen row
-// editing starts, unless a second click makes it a double click.
-const renameDelay = 500 * time.Millisecond
+// A click on the text of a chosen row edits it once a second click would
+// no longer make a double click: the system's double-click time after the
+// press (engine.pressAt, engine.doubleClick), not a fixed wait after the
+// release, so it starts as soon as it can be no double click. As in Double
+// Commander, a press held past that time is no such click, and the
+// pointer gone from the text by then edits nothing.
 
 // EditableText shows *value as a text that the user edits in place, as a
 // file's name in Finder: a double click on it, or Enter while it has the
@@ -28,7 +32,8 @@ const renameDelay = 500 * time.Millisecond
 // takes none: Enter on macOS, and F2, edit the text of the row chosen,
 // while a double click on the row is Submitted; a click on the text of a
 // row already chosen edits it, once a second click would no longer make a
-// double click.
+// double click. With ListState.Edit, those call it instead, the editing
+// the app's.
 //
 //	ui.Table(c, &app.files, cols, len(app.names), func(row, col int) {
 //		if ui.EditableText(c, &app.names[row]).Changed() {
@@ -41,7 +46,7 @@ func coreEditableText(c *context, value *string) *node {
 	box.widget = "EditableText"
 	st := coreLocal(box, "edit", func() editState { return editState{} })
 	row := c.row
-	start := false
+	start, clicked := false, false
 	if row != nil && row.f != nil {
 		s := row.f.s
 		s.editablesNow = true
@@ -52,11 +57,21 @@ func coreEditableText(c *context, value *string) *node {
 		switch {
 		case row.double || !row.f.chosen(row.i, row.key):
 			st.after = time.Time{}
-		case row.clicked && row.chosen && box.Hovered():
-			st.after = c.now.Add(renameDelay)
-			c.After(renameDelay)
+		case row.single && row.chosen && box.Hovered():
+			st.at = c.rt.pressPoint
+			st.after = c.rt.pressAt.Add(c.rt.doubleClick)
+			if st.after.Before(c.now) {
+				st.after = time.Time{} // held past it: no click to edit
+				break
+			}
+			c.After(st.after.Sub(c.now))
 		case !st.after.IsZero() && !c.now.Before(st.after):
-			st.after, start = time.Time{}, true
+			st.after = time.Time{}
+			start, clicked = box.Hovered(), box.Hovered()
+		case !st.after.IsZero():
+			// Still to come: a frame arms only the timers it asks for, and
+			// frames come between, as the pointer moves.
+			c.After(st.after.Sub(c.now))
 		}
 	} else {
 		box.Focusable()
@@ -65,7 +80,17 @@ func coreEditableText(c *context, value *string) *node {
 		}
 	}
 	if start && !st.editing {
-		st.editing, st.fresh, st.draft = true, true, *value
+		if row != nil && row.f != nil && row.f.s.Edit != nil {
+			// The list's app edits it: no input of the text's own.
+			e := ListEdit{Row: row.i, Clicked: clicked}
+			if clicked {
+				e.At = st.at // a key asks at no point
+			}
+			row.f.s.Edit(e)
+			start = false
+		} else {
+			st.editing, st.fresh, st.draft = true, true, *value
+		}
 		c.rt.consumed = true
 	}
 	if !st.editing {

@@ -3,6 +3,7 @@ package platform
 import (
 	"github.com/egoist/mygo/transfer"
 	"image"
+	"time"
 )
 
 // Surface is the drawing area of a window created with
@@ -609,6 +610,10 @@ type SurfaceEvent struct {
 	// Button is 0 for the primary button, 1 the secondary, 2 the middle.
 	Button int
 	Clicks int
+	// DoubleClickTime is, with a PointerDown, the system's double-click
+	// time as the press came: a press sooner after it makes a double
+	// click. 0 where the backend does not say, DefaultDoubleClick's.
+	DoubleClickTime time.Duration
 	// DX and DY are scroll distances in DIPs; Precise marks touchpads and
 	// other devices that scroll by pixels rather than by lines. Momentum
 	// marks scrolling that continues after the fingers leave a touchpad.

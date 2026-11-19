@@ -387,12 +387,14 @@ func TestEditableTextInTable(t *testing.T) {
 		t.Errorf("Escape left %q", names[1])
 	}
 	// A click on the name of the row chosen edits it, once a double click
-	// is out of the question; the focus leaving keeps what was typed.
+	// is out of the question; the focus leaving keeps what was typed. A
+	// click of its own: long after the last, not the next of a run.
+	tt.Advance(time.Second)
 	tt.Click("beach.jpeg")
 	if tt.HasText("beach.jpeg") != true {
 		t.Fatal("the click edited at once")
 	}
-	tt.Advance(renameDelay + 50*time.Millisecond)
+	tt.Advance(platform.DefaultDoubleClick.Time + 50*time.Millisecond)
 	tt.Type("sea")
 	tt.Click("notes.txt")
 	if names[1] != "sea.jpeg" || sel != 0 {
@@ -401,7 +403,7 @@ func TestEditableTextInTable(t *testing.T) {
 	// A double click opens, and does not edit.
 	tt.Click("notes.txt")
 	tt.Click("notes.txt")
-	tt.Advance(renameDelay + 50*time.Millisecond)
+	tt.Advance(platform.DefaultDoubleClick.Time + 50*time.Millisecond)
 	tt.Type("x")
 	if opened != 0 || names[0] != "notes.txt" {
 		t.Errorf("a double click: opened %d, the name %q", opened, names[0])
@@ -728,5 +730,204 @@ func TestTableRowHeight(t *testing.T) {
 	}
 	if !tt.HasText("b.txt") {
 		t.Errorf("texts %q", tt.Texts())
+	}
+}
+
+// With ListState.Edit, the gestures that edit a row's text call it with
+// the row, and the EditableText shows no input of its own, not for a
+// frame: the app edits the row its own way.
+func TestEditableTextListEdit(t *testing.T) {
+	names := []string{"notes.txt", "photo.jpeg"}
+	sel := -1
+	var edits []int
+	s := ListState{Selected: &sel, Edit: func(e ListEdit) { edits = append(edits, e.Row) }}
+	inputs := 0
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Padding(10).Children(func() {
+			coreList(c, &s, len(names), func(row int) {
+				coreEditableText(c, &names[row])
+			}).Grow(1)
+		})
+	}, 400, 300)
+	countInputs := func() {
+		for _, n := range tt.rt.states {
+			if n.editor != nil && n.seen == tt.rt.frame {
+				inputs++
+			}
+		}
+	}
+	tt.Click("photo.jpeg")
+	if runtime.GOOS == "darwin" {
+		tt.Key(0, KeyEnter)
+	} else {
+		tt.Key(0, KeyF2)
+	}
+	countInputs()
+	tt.Type("x")
+	if len(edits) != 1 || edits[0] != 1 || names[1] != "photo.jpeg" || inputs != 0 {
+		t.Fatalf("the key: edits %v, name %q, inputs %d", edits, names[1], inputs)
+	}
+	// A slow second click on the chosen row's text, long after the last.
+	tt.Advance(time.Second)
+	tt.Click("photo.jpeg")
+	tt.Advance(platform.DefaultDoubleClick.Time + 50*time.Millisecond)
+	countInputs()
+	if len(edits) != 2 || edits[1] != 1 || inputs != 0 {
+		t.Errorf("the slow click: edits %v, inputs %d", edits, inputs)
+	}
+}
+
+// A slow click on a chosen row's text edits it as soon as it can be no
+// double click: the system's double-click time after the press, not a
+// wait as long after the release.
+func TestEditableTextEditsAtTheDoubleClickTime(t *testing.T) {
+	names := []string{"notes.txt", "photo.jpeg"}
+	sel := -1
+	var edits []int
+	s := ListState{Selected: &sel, Edit: func(e ListEdit) { edits = append(edits, e.Row) }}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Padding(10).Children(func() {
+			coreList(c, &s, len(names), func(row int) {
+				coreEditableText(c, &names[row])
+			}).Grow(1)
+		})
+	}, 400, 300)
+	tt.Click("photo.jpeg")
+	tt.Advance(time.Second)
+	r, _ := tt.Find("photo.jpeg")
+	x, y := float32(r.X+10), float32(r.Y+r.H/2)
+	tt.Press(x, y)
+	tt.Advance(300 * time.Millisecond) // held a while
+	tt.Release(x, y)
+	tt.Advance(platform.DefaultDoubleClick.Time - 300*time.Millisecond + 20*time.Millisecond)
+	if len(edits) != 1 {
+		t.Errorf("past the double-click time since the press: edits %v", edits)
+	}
+}
+
+// ListState.Edit says whether a click asked, and where it pressed, for
+// the app's field to put its caret there; a key asks at no point.
+func TestListEditSaysWhereTheClickWas(t *testing.T) {
+	names := []string{"notes.txt", "photo.jpeg"}
+	sel := -1
+	var got []ListEdit
+	s := ListState{Selected: &sel, Edit: func(e ListEdit) { got = append(got, e) }}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Padding(10).Children(func() {
+			coreList(c, &s, len(names), func(row int) {
+				coreEditableText(c, &names[row])
+			}).Grow(1)
+		})
+	}, 400, 300)
+	tt.Click("photo.jpeg")
+	tt.Advance(time.Second)
+	r, _ := tt.Find("photo.jpeg")
+	x, y := float32(r.X+23), float32(r.Y+r.H/2)
+	tt.ClickAt(x, y)
+	tt.Advance(time.Second)
+	if len(got) != 1 || !got[0].Clicked || got[0].Row != 1 || got[0].At != (Point{x, y}) {
+		t.Fatalf("the click: %+v, want at %v", got, Point{x, y})
+	}
+	if runtime.GOOS == "darwin" {
+		tt.Key(0, KeyEnter)
+	} else {
+		tt.Key(0, KeyF2)
+	}
+	if len(got) != 2 || got[1].Clicked {
+		t.Errorf("the key: %+v", got)
+	}
+}
+
+// A fast double click on a row's text opens the row and edits nothing,
+// chosen before or not: the release of its second press is no click
+// asking to edit, as in Finder and Explorer.
+func TestEditableTextFastDoubleClickEditsNothing(t *testing.T) {
+	for _, chosenFirst := range []bool{true, false} {
+		names := []string{"notes.txt", "book.xlsx"}
+		sel := -1
+		var chosen Selection[string]
+		var edits []int
+		submits := 0
+		s := ListState{Selected: &sel, Selection: &chosen, Key: func(i int) any { return names[i] },
+			Edit: func(e ListEdit) { edits = append(edits, e.Row) }}
+		tt := coreNewTester(func(c *context) {
+			coreColumn(c).Fill().Padding(10).Children(func() {
+				l := coreList(c, &s, len(names), func(row int) {
+					coreEditableText(c, &names[row])
+				}).Grow(1)
+				if l.Submitted() {
+					submits++
+				}
+			})
+		}, 400, 300)
+		if chosenFirst {
+			tt.Click("book.xlsx")
+			tt.Advance(time.Second)
+		}
+		r, _ := tt.Find("book.xlsx")
+		x, y := float32(r.X+10), float32(r.Y+r.H/2)
+		tt.Press(x, y)
+		tt.Advance(60 * time.Millisecond)
+		tt.Release(x, y)
+		tt.Advance(80 * time.Millisecond)
+		tt.Press(x, y)
+		tt.Advance(60 * time.Millisecond)
+		tt.Release(x, y)
+		tt.Advance(2 * time.Second)
+		if submits != 1 || len(edits) != 0 {
+			t.Errorf("chosen first %v: opened %d times, edits %v", chosenFirst, submits, edits)
+		}
+	}
+}
+
+// As in Double Commander, a press on a chosen row's text held past the
+// double-click time edits nothing, nor does a click whose pointer left
+// the text before that time came.
+func TestEditableTextHeldOrLeftEditsNothing(t *testing.T) {
+	names := []string{"notes.txt", "photo.jpeg"}
+	sel := -1
+	var edits []int
+	s := ListState{Selected: &sel, Edit: func(e ListEdit) { edits = append(edits, e.Row) }}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Padding(10).Children(func() {
+			coreList(c, &s, len(names), func(row int) {
+				coreEditableText(c, &names[row])
+			}).Grow(1)
+		})
+	}, 400, 300)
+	tt.Click("photo.jpeg")
+	tt.Advance(time.Second)
+	r, _ := tt.Find("photo.jpeg")
+	x, y := float32(r.X+10), float32(r.Y+r.H/2)
+	tt.Press(x, y)
+	tt.Advance(platform.DefaultDoubleClick.Time + 100*time.Millisecond) // held
+	tt.Release(x, y)
+	tt.Advance(time.Second)
+	if len(edits) != 0 {
+		t.Errorf("a press held past the double-click time: edits %v", edits)
+	}
+	tt.ClickAt(x, y)
+	tt.Move(x, y+150) // away, below the rows
+	tt.Advance(time.Second)
+	if len(edits) != 0 {
+		t.Errorf("the pointer gone from the text: edits %v", edits)
+	}
+	tt.Move(x, y)
+	tt.ClickAt(x, y)
+	tt.Advance(time.Second)
+	if len(edits) != 1 {
+		t.Errorf("a slow click staying on the text: edits %v", edits)
+	}
+	// The pointer moving on the text as it waits, frames coming between:
+	// it edits on time all the same.
+	tt.Advance(time.Second)
+	tt.ClickAt(x, y)
+	for range 5 {
+		tt.Advance(40 * time.Millisecond)
+		tt.Move(x+1, y)
+	}
+	tt.Advance(platform.DefaultDoubleClick.Time)
+	if len(edits) != 2 {
+		t.Errorf("frames coming as it waited: edits %v", edits)
 	}
 }

@@ -747,7 +747,7 @@ func systemMetric(metric, hwnd uintptr) uintptr {
 
 func (s *surface) pointer(kind platform.SurfaceEventKind, lp uintptr, button int) {
 	x, y := int16(loword(lp)), int16(hiword(lp))
-	clicks := 0
+	clicks, dct := 0, time.Duration(0)
 	if kind == platform.PointerDown {
 		// A press carries no count: it follows the double-click time and
 		// the rectangle centered on the last press, in the window's pixels,
@@ -755,10 +755,11 @@ func (s *surface) pointer(kind platform.SurfaceEventKind, lp uintptr, button int
 		ms, _, _ := procGetDoubleClickTime.Call()
 		at, _, _ := procGetMessageTime.Call()
 		w, h := systemMetric(smCxDoubleClk, s.hwnd), systemMetric(smCyDoubleClk, s.hwnd)
-		clicks = s.clicks.Press(button, float64(x), float64(y), uint32(at), platform.DoubleClick{Time: time.Duration(ms) * time.Millisecond, DX: float64(w) / 2, DY: float64(h) / 2})
+		dct = time.Duration(ms) * time.Millisecond
+		clicks = s.clicks.Press(button, float64(x), float64(y), uint32(at), platform.DoubleClick{Time: dct, DX: float64(w) / 2, DY: float64(h) / 2})
 	}
 	pointer, pressure := s.mouseDevice()
-	s.send(platform.SurfaceEvent{Kind: kind, X: s.toDIP(int32(x)), Y: s.toDIP(int32(y)), Button: button, Clicks: clicks, Mods: mods(), Pointer: pointer, Pressure: pressure})
+	s.send(platform.SurfaceEvent{Kind: kind, X: s.toDIP(int32(x)), Y: s.toDIP(int32(y)), Button: button, Clicks: clicks, DoubleClickTime: dct, Mods: mods(), Pointer: pointer, Pressure: pressure})
 }
 
 func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool) {
