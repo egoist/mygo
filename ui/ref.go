@@ -12,6 +12,7 @@ type Ref = Handle
 type handleState struct {
 	bindings               []*refState
 	pending, pendingSelect bool
+	pendingFocus           FocusOptions
 }
 
 type refState struct {
@@ -19,7 +20,8 @@ type refState struct {
 	element           Element
 	id                uint64
 	requested, closed bool
-	selectAll         bool // select all of the text with the requested focus
+	selectAll         bool         // select all of the text with the requested focus
+	focus             FocusOptions // how the requested focus gives it, as Focus's options
 }
 
 func (r *Handle) init() *handleState {
@@ -48,8 +50,9 @@ func (r *Handle) binding(rt *engine, create bool) *refState {
 	if !create {
 		return nil
 	}
-	b := &refState{window: rt.public, requested: s.pending, selectAll: s.pendingSelect}
+	b := &refState{window: rt.public, requested: s.pending, selectAll: s.pendingSelect, focus: s.pendingFocus}
 	s.pending, s.pendingSelect = false, false
+	s.pendingFocus = FocusOptions{}
 	s.bindings = append(s.bindings, b)
 	rt.refs = append(rt.refs, b)
 	return b
@@ -58,15 +61,24 @@ func (r *Handle) binding(rt *engine, create bool) *refState {
 // Focus requests focus, waiting while the control is hidden. Supply a Context
 // to select a window. Without one, a handle must have at most one open window.
 // A request made before its first binding waits for that binding.
-func (r *Handle) Focus(window ...*Context) { r.focus("Focus", false, window) }
+func (r *Handle) Focus(window ...*Context) { r.focus("Focus", FocusOptions{}, false, window) }
+
+// FocusWith requests focus as Focus does, with Focus's options: with
+// PreventScroll the focus returns to a control when a dialog or a popover
+// over it closes, without scrolling the containers around it.
+func (r *Handle) FocusWith(options FocusOptions, window ...*Context) {
+	r.focus("FocusWith", options, false, window)
+}
 
 // SelectAll requests focus as Focus does, and selects all of the text of the
 // text input or area, as Tab into it does: a find box opened again selects
 // its query, and typing replaces it. It selects even when the control has
 // the focus already.
-func (r *Handle) SelectAll(window ...*Context) { r.focus("SelectAll", true, window) }
+func (r *Handle) SelectAll(window ...*Context) {
+	r.focus("SelectAll", FocusOptions{}, true, window)
+}
 
-func (r *Handle) focus(name string, selectAll bool, window []*Context) {
+func (r *Handle) focus(name string, o FocusOptions, selectAll bool, window []*Context) {
 	if r == nil {
 		return
 	}
@@ -90,12 +102,14 @@ func (r *Handle) focus(name string, selectAll bool, window []*Context) {
 		if b == nil {
 			s.pending = true
 			s.pendingSelect = s.pendingSelect || selectAll
+			s.pendingFocus.PreventScroll = s.pendingFocus.PreventScroll || o.PreventScroll
 			return
 		}
 	}
 	if b != nil && !b.closed {
 		b.requested = true
 		b.selectAll = b.selectAll || selectAll
+		b.focus.PreventScroll = b.focus.PreventScroll || o.PreventScroll
 		if rt := b.window.runtime(); rt != nil {
 			rt.requestFrame()
 		}
@@ -115,13 +129,14 @@ func (r *Handle) CancelFocus(window ...*Context) {
 	}
 	if len(window) == 1 {
 		if b := r.binding(window[0].runtime(), false); b != nil {
-			b.requested, b.selectAll = false, false
+			b.requested, b.selectAll, b.focus = false, false, FocusOptions{}
 		}
 		return
 	}
 	r.state.pending, r.state.pendingSelect = false, false
+	r.state.pendingFocus = FocusOptions{}
 	for _, b := range r.state.bindings {
-		b.requested, b.selectAll = false, false
+		b.requested, b.selectAll, b.focus = false, false, FocusOptions{}
 	}
 }
 
@@ -207,7 +222,7 @@ func (rt *engine) applyFocusRequests() {
 		b.id = n.id
 		b.requested = false
 		if rt.focused != b.id {
-			n.Focus()
+			n.Focus(b.focus)
 			rt.consumed = true
 		}
 		if b.selectAll {

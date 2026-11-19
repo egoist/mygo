@@ -3874,8 +3874,9 @@ func (_handle Element) AutoComplete(kind AutoComplete) Element {
 }
 
 // AutoFocus gives the element the keyboard focus in the frame it appears,
-// as the first field of a dialog.
-func (_handle Element) AutoFocus() Element {
+// as the first field of a dialog. Its options are Focus's: they keep the
+// scroll where the user left it.
+func (_handle Element) AutoFocus(options ...FocusOptions) Element {
 	_node := _handle.node()
 	if _node == nil {
 		return Element{}
@@ -3883,7 +3884,7 @@ func (_handle Element) AutoFocus() Element {
 	_ctx := _node.c
 	_ = _ctx
 	_node.markStateRead()
-	return wrapElement(_node.AutoFocus())
+	return wrapElement(_node.AutoFocus(options...))
 }
 
 // Autocorrect turns an on-screen keyboard's corrections and suggestions on

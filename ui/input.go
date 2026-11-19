@@ -1932,10 +1932,11 @@ func (e *node) focus(reveal bool) {
 }
 
 // AutoFocus gives the element the keyboard focus in the frame it appears,
-// as the first field of a dialog.
-func (e *node) AutoFocus() *node {
+// as the first field of a dialog. Its options are Focus's: they keep the
+// scroll where the user left it.
+func (e *node) AutoFocus(options ...FocusOptions) *node {
 	if e.hasState() && e.st.born == e.c.rt.frame {
-		e.Focus()
+		e.Focus(options...)
 	}
 	return e
 }

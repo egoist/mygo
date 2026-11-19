@@ -213,3 +213,87 @@ func TestFocusTwoOptionsPanic(t *testing.T) {
 		ui.Box(c).Focus(ui.FocusOptions{}, ui.FocusOptions{})
 	}, 100, 100)
 }
+
+// AutoFocus and a handle's FocusWith take FocusOptions too: a control that
+// takes the focus as it appears, or through a handle, keeps the scroll
+// where the user left it; without the options they scroll, as Focus does.
+func TestAutoFocusAndHandlePreventScroll(t *testing.T) {
+	for _, way := range []string{"AutoFocus", "Handle"} {
+		for _, prevent := range []bool{false, true} {
+			t.Run(way+fmt.Sprintf("/prevent=%v", prevent), func(t *testing.T) {
+				var s ui.ScrollState
+				var h ui.Handle
+				mounted := false
+				tt := ui.NewTester(func(c *ui.Context) {
+					ui.Scroll(c.Key("scroll")).Height(100).Width(200).TrackScroll(&s).Children(func() {
+						ui.Box(c.Key("space")).Height(300).Width(100).Shrink(0)
+						ui.Button(c.Key("t"), "Target").Bind(&h)
+						if mounted {
+							ui.Button(c.Key("m"), "Mounted").AutoFocus(ui.FocusOptions{PreventScroll: prevent})
+						}
+					})
+				}, 400, 300)
+				tt.Frame()
+				if s.Y != 0 || tt.Focused("Target") {
+					t.Fatalf("at the start: offset %v, Target focused %v", s.Y, tt.Focused("Target"))
+				}
+				if way == "AutoFocus" {
+					mounted = true
+				} else if prevent {
+					h.FocusWith(ui.FocusOptions{PreventScroll: true})
+				} else {
+					h.Focus()
+				}
+				tt.Frame()
+				tt.Frame()
+				label := "Mounted"
+				if way == "Handle" {
+					label = "Target"
+				}
+				if !tt.Focused(label) {
+					t.Error("the element did not get the focus")
+				}
+				if prevent && s.Y != 0 {
+					t.Errorf("PreventScroll scrolled to %v", s.Y)
+				}
+				if !prevent && s.Y <= 0 {
+					t.Errorf("the focus left the offset at %v, out of view", s.Y)
+				}
+			})
+		}
+	}
+}
+
+// A request FocusWith makes before the handle's first binding waits for it,
+// carrying its options: the control takes the focus without scrolling.
+func TestHandleFocusWithOptionsBeforeBinding(t *testing.T) {
+	var h ui.Handle
+	h.FocusWith(ui.FocusOptions{PreventScroll: true})
+	var s ui.ScrollState
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Scroll(c.Key("scroll")).Height(100).Width(200).TrackScroll(&s).Children(func() {
+			ui.Box(c.Key("space")).Height(300).Width(100).Shrink(0)
+			ui.Button(c.Key("t"), "Target").Bind(&h)
+		})
+	}, 400, 300)
+	tt.Frame()
+	if !tt.Focused("Target") {
+		t.Error("the element did not get the focus")
+	}
+	if s.Y != 0 {
+		t.Errorf("PreventScroll scrolled to %v", s.Y)
+	}
+}
+
+// AutoFocus takes at most one FocusOptions, as Focus does, whose check it
+// goes through.
+func TestAutoFocusTwoOptionsPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != "ui: Focus takes at most one FocusOptions" {
+			t.Errorf("recovered %v", r)
+		}
+	}()
+	ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).AutoFocus(ui.FocusOptions{}, ui.FocusOptions{})
+	}, 100, 100)
+}
