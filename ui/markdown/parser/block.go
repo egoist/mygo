@@ -84,6 +84,7 @@ type blockParser struct {
 	blank                    bool
 	partiallyConsumedTab     bool
 	thematicBreakKillPos     int
+	frontMatterEnd           int
 	current                  int
 	lastMatchedContainer     int
 	lineQuiet                bool
@@ -109,6 +110,19 @@ func isASCIILetter(c byte) bool { return c|0x20 >= 'a' && c|0x20 <= 'z' }
 // parseTail parses the source again from the restart point.
 func (d *Document) parseTail() {
 	at, off := d.restartAt, d.restart
+	if d.ext&ExtFrontMatter != 0 && !d.frontMatterDone {
+		end, next, done, scanned := frontMatterScan(d.src, d.frontMatterAt)
+		d.steps += scanned
+		d.frontMatterAt, d.frontMatterDone = next, done
+		if end != d.frontMatter && len(d.blocks) > 1 {
+			d.reset()
+			d.frontMatter, d.frontMatterAt, d.frontMatterDone = end, next, done
+			at, off = 1, 0
+		} else {
+			d.frontMatter = end
+		}
+		d.restart, d.restartAt = off, at
+	}
 	removed := d.truncate(at, off, true)
 	d.parseShown(nil)
 	d.refsChanged(removed, at, off)
@@ -153,6 +167,7 @@ func (d *Document) parseShown(resync func(line int) bool) bool {
 // from which the blocks parsed before are kept.
 func (d *Document) edit(from, to int, text string) {
 	old := d.src
+	oldFrontMatter := d.frontMatter
 	delta := len(text) - (to - from)
 	prev := 0
 	for j, k := 1, 0; j < len(d.blocks); j = d.blocks[j].Next {
@@ -169,6 +184,15 @@ func (d *Document) edit(from, to int, text string) {
 	if prev > 0 {
 		at, off = d.restartOf(prev)
 	}
+	nextSrc := old[:from] + text + old[to:]
+	nextFrontMatter, nextAt, nextDone := -1, 0, true
+	if d.ext&ExtFrontMatter != 0 {
+		nextFrontMatter, nextAt, nextDone = d.editFrontMatter(old, nextSrc, from, to, len(text), delta)
+	}
+	d.frontMatter, d.frontMatterAt, d.frontMatterDone = nextFrontMatter, nextAt, nextDone
+	if oldFrontMatter != nextFrontMatter && (oldFrontMatter < 0 || nextFrontMatter < 0 || oldFrontMatter+delta != nextFrontMatter) {
+		at, off = 1, 0
+	}
 	segBase := len(d.segs)
 	if at < len(d.blocks) {
 		segBase = int(d.blocks[at].segMark)
@@ -178,9 +202,15 @@ func (d *Document) edit(from, to int, text string) {
 	oldDefs := append([]definition(nil), d.defs...)
 	oldRestart, oldRestartAt, oldTail, oldCut := d.restart, d.restartAt, d.tail, d.cut
 	removed := d.truncate(at, off, false)
-	d.src = old[:from] + text + old[to:]
+	d.src = nextSrc
 	d.restart, d.restartAt = off, at
 	editEnd := from + len(text)
+	if nextFrontMatter > editEnd {
+		editEnd = nextFrontMatter + 4
+	}
+	if oldFrontMatter >= 0 && oldFrontMatter+delta+4 > editEnd {
+		editEnd = oldFrontMatter + delta + 4
+	}
 	j, met := 0, -1
 	resync := func(line int) bool {
 		if line < editEnd {
@@ -445,10 +475,134 @@ func (d *Document) heldTableRow(cut int) int {
 	return c
 }
 
+// editFrontMatter updates front matter tracking across an Edit without
+// rescanning unaffected text when the change lies past an already-settled
+// front matter or inside an already-scanned unclosed prefix.
+func (d *Document) editFrontMatter(old, nextSrc string, from, to, textLen, delta int) (fmEnd, nextAt int, done bool) {
+	// Longest opener ("---\r\n") and longest empty front matter ("---\r\n---\r\n"):
+	// edits starting strictly after them cannot alter line 0's opener or
+	// insert content before an immediate line-1 closer.
+	const (
+		maxFrontMatterOpener = len("---\r\n")
+		maxEmptyFrontMatter  = len("---\r\n---\r\n")
+	)
+	if d.frontMatter >= 0 {
+		closeEnd := lineEndFrom(old, d.frontMatter)
+		if from > closeEnd {
+			return d.frontMatter, d.frontMatter, d.frontMatterDone
+		}
+	} else if d.frontMatterDone && from > maxEmptyFrontMatter {
+		return -1, 0, true
+	} else if !d.frontMatterDone && from > maxFrontMatterOpener {
+		if from >= d.frontMatterAt {
+			fmEnd, nextAt, done, scanned := frontMatterScan(nextSrc, d.frontMatterAt)
+			d.steps += scanned
+			return fmEnd, nextAt, done
+		}
+		if to <= d.frontMatterAt && !frontMatterTouchedLines(nextSrc, from, from+textLen, &d.steps) {
+			return -1, d.frontMatterAt + delta, false
+		}
+	}
+	fmEnd, nextAt, done, scanned := frontMatterScan(nextSrc, 0)
+	d.steps += scanned
+	return fmEnd, nextAt, done
+}
+
+// frontMatterTouchedLines reports whether any line overlapping [from, to]
+// in src is a closing front matter delimiter ("---" or "...").
+func frontMatterTouchedLines(src string, from, to int, steps *int) bool {
+	at := lineStartOf(src, from)
+	limit := lineEndFrom(src, to)
+	*steps += limit - at
+	for at <= limit && at < len(src) {
+		end := lineEndFrom(src, at)
+		if line := src[at:end]; line == "---" || line == "..." {
+			return true
+		}
+		if end == len(src) {
+			break
+		}
+		at = end + 1
+		if src[end] == '\r' && at < len(src) && src[at] == '\n' {
+			at++
+		}
+	}
+	return false
+}
+
+// frontMatterScan scans src from byte offset from for the closing line of
+// YAML front matter, returning the closing line offset (or -1), the next
+// offset to resume from while unclosed, whether scanning is settled for
+// future appends, and the bytes scanned.
+func frontMatterScan(src string, from int) (fmEnd, nextAt int, done bool, scanned int) {
+	if len(src) == 0 {
+		return -1, 0, false, 0
+	}
+	if !strings.HasPrefix(src, "---") {
+		if len(src) < 3 && strings.HasPrefix("---", src) {
+			return -1, 0, false, len(src)
+		}
+		return -1, 0, true, min(len(src), 3)
+	}
+	if len(src) == 3 {
+		return -1, 0, false, 3
+	}
+	firstNext := 4
+	switch {
+	case src[3] == '\n':
+	case src[3] == '\r':
+		if len(src) == 4 {
+			return -1, 0, false, 4
+		}
+		if src[4] == '\n' {
+			firstNext = 5
+		}
+	default:
+		return -1, 0, true, 4
+	}
+	at := max(from, firstNext)
+	start := at
+	for at < len(src) {
+		end := at
+		for end < len(src) && src[end] != '\n' && src[end] != '\r' {
+			end++
+		}
+		line := src[at:end]
+		if end == len(src) {
+			if at > firstNext && (line == "---" || line == "...") {
+				return at, at, false, end - start
+			}
+			return -1, at, false, end - start
+		}
+		if line == "---" || line == "..." {
+			if at == firstNext {
+				return -1, 0, true, end - start
+			}
+			return at, at, true, end - start
+		}
+		if src[end] == '\r' && end+1 == len(src) {
+			return -1, at, false, end - start
+		}
+		at = end + 1
+		if src[end] == '\r' && at < len(src) && src[at] == '\n' {
+			at++
+		}
+	}
+	return -1, at, false, len(src) - start
+}
+
 // parse parses the source from off, a line's start, to end, with no
 // block open but the root, adding blocks after those there are.
 func (d *Document) parse(off, end int, resync func(line int) bool) bool {
-	p := &blockParser{d: d, src: d.src[:end], ext: d.ext, current: 0, resync: resync}
+	p := &blockParser{d: d, src: d.src[:end], ext: d.ext, current: 0, resync: resync, frontMatterEnd: -1}
+	if d.ext&ExtFrontMatter != 0 {
+		if off == 0 {
+			fmEnd, next, done, scanned := frontMatterScan(d.src, 0)
+			d.steps += scanned
+			d.frontMatter, d.frontMatterAt, d.frontMatterDone = fmEnd, next, done
+		}
+		p.frontMatterEnd = d.frontMatter
+	}
 	d.inp.reset()
 	d.tail = -1
 	d.restart, d.restartAt = off, len(d.blocks)
@@ -638,7 +792,7 @@ func canContain(parent, child Kind) bool {
 }
 
 func acceptsLines(k Kind) bool {
-	return k == Paragraph || k == Heading || k == CodeBlock || k == MathBlock
+	return k == Paragraph || k == Heading || k == FrontMatter || k == CodeBlock || k == MathBlock
 }
 
 // removeLast removes block i, the last, an empty paragraph.
@@ -1037,6 +1191,8 @@ func (p *blockParser) checkOpenBlocks(allMatched *bool) (int, bool) {
 			matched = !p.blank
 		case Table:
 			matched = !p.blank && rowHasCells(p.ln[p.firstNonspace:])
+		case FrontMatter:
+			matched = true
 		}
 		if !matched {
 			return b.Parent, true
@@ -1120,6 +1276,9 @@ func (p *blockParser) openNewBlocks(container *int, allMatched bool) {
 				p.advanceOffset(len(p.ln)-p.offset, false)
 			}
 
+		case !indented && p.frontMatterEnd > 0 && p.lineStart == 0:
+			*container = p.addChild(cont, FrontMatter, 0)
+
 		case !indented && !(contKind == Paragraph && !allMatched) && p.thematicBreakKillPos <= p.firstNonspace && func() bool { n = p.scanThematicBreak(p.firstNonspace); return n > 0 }():
 			*container = p.addChild(cont, ThematicBreak, p.lineStart+p.firstNonspace)
 			d.blocks[*container].End = p.lineStart + len(p.ln)
@@ -1165,7 +1324,7 @@ func (p *blockParser) openNewBlocks(container *int, allMatched bool) {
 func (p *blockParser) takesBlocks(i int) bool {
 	b := &p.d.blocks[i]
 	switch b.Kind {
-	case CodeBlock, HTMLBlock:
+	case CodeBlock, HTMLBlock, FrontMatter:
 		return false
 	case MathBlock:
 		return b.parse.mathDone
@@ -1453,7 +1612,7 @@ func (p *blockParser) addTextToContainer(container int) {
 		d.blocks[cb.parse.lastChild].parse.lastLineBlank = true
 	}
 	ck := cb.Kind
-	lastLineBlank := p.blank && ck != Quote && ck != Heading && ck != ThematicBreak &&
+	lastLineBlank := p.blank && ck != Quote && ck != Heading && ck != FrontMatter && ck != ThematicBreak &&
 		!(ck == CodeBlock && cb.Fenced) && ck != MathBlock &&
 		!(ck == Item && cb.parse.lastChild < 0 && int(cb.parse.startLine) == p.lineNum)
 	cb.parse.lastLineBlank = lastLineBlank
@@ -1496,6 +1655,11 @@ func (p *blockParser) addTextToContainer(container int) {
 	case cb.Kind == HTMLBlock:
 		p.addLine(container)
 		if htmlBlockEnds(int(cb.parse.htmlType), p.ln[p.firstNonspace:]) {
+			container = p.finalize(container)
+		}
+	case cb.Kind == FrontMatter:
+		p.addLine(container)
+		if p.lineStart == p.frontMatterEnd {
 			container = p.finalize(container)
 		}
 	case p.blank:

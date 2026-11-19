@@ -41,6 +41,9 @@ const (
 	// as #123, GH-123 and octocat/hello#123, in text outside code and
 	// links (Reference).
 	ExtReferences
+	// ExtFrontMatter is YAML front matter at the start of a document,
+	// between a --- line and a closing --- or ... line.
+	ExtFrontMatter
 
 	// GFM is GitHub Flavored Markdown, as its spec has it.
 	GFM = ExtTables | ExtTaskLists | ExtStrikethrough | ExtAutolinks
@@ -84,9 +87,11 @@ const (
 	FootnoteDefinition
 	// MathBlock is display math, whose lines are its TeX.
 	MathBlock
+	// FrontMatter is YAML front matter, whose lines are its source.
+	FrontMatter
 )
 
-var kindNames = [...]string{"root", "paragraph", "heading", "thematic break", "code block", "HTML block", "quote", "list", "item", "table", "table row", "table cell", "footnote definition", "math block"}
+var kindNames = [...]string{"root", "paragraph", "heading", "thematic break", "code block", "HTML block", "quote", "list", "item", "table", "table row", "table cell", "footnote definition", "math block", "front matter"}
 
 func (k Kind) String() string {
 	if int(k) < len(kindNames) {
@@ -282,6 +287,13 @@ type Document struct {
 	// first block parsed from there.
 	restart   int
 	restartAt int
+	// frontMatter is the offset of the closing line of front matter, or
+	// -1 when the source has none, as last parsed from the start.
+	// frontMatterAt and frontMatterDone track incremental scanning while
+	// front matter may still close on a later Append.
+	frontMatter     int
+	frontMatterAt   int
+	frontMatterDone bool
 	// streaming completes unclosed syntax at the end of the source (see
 	// SetStreaming), and tail is the block holding the end.
 	streaming bool
@@ -346,7 +358,7 @@ func Parse(src string) *Document {
 
 // New returns an empty document reading ext.
 func New(ext Extensions) *Document {
-	d := &Document{ext: ext, healedAt: -1}
+	d := &Document{ext: ext, healedAt: -1, frontMatter: -1}
 	d.inp.d = d
 	d.reset()
 	return d
@@ -361,6 +373,9 @@ func (d *Document) reset() {
 	d.defs = d.defs[:0]
 	d.notes = map[string]int{}
 	d.restart, d.restartAt = 0, 1
+	d.frontMatter = -1
+	d.frontMatterAt = 0
+	d.frontMatterDone = false
 }
 
 // Source returns the text of the document.
