@@ -145,6 +145,7 @@ func (a *Application) Run() error {
 		// No event loop: a staged update is installed once the process
 		// exits, and so is one that Install stages later.
 		installStaged(false, nil)
+		runReturned.Store(true)
 		return err
 	}
 	a.initialized = true
@@ -163,6 +164,7 @@ func (a *Application) Run() error {
 	b.Signal()
 	err := b.Run()
 	a.finish()
+	runReturned.Store(true)
 	return err
 }
 
@@ -359,9 +361,13 @@ func (a *Application) finish() {
 var stagedInstaller atomic.Pointer[func(relaunch bool, args []string) bool]
 
 // stagingClosed is set once the app looked for a staged update as it
-// quits: stageBundle, which sets stagedInstaller first, then installs the
-// update itself, as nothing else would (eventLoopRunning).
+// quits: stageBundle, which sets stagedInstaller first, then refuses to
+// stage one until Run returned, and then installs it itself.
 var stagingClosed atomic.Bool
+
+// runReturned is set once Run returned, after finish: stageBundle then
+// installs an update itself, as nothing else would.
+var runReturned atomic.Bool
 
 // installStaged calls stagedInstaller, if set. The app calls it as it
 // finishes, however it quits, and on a second signal, which exits at
