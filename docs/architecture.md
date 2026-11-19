@@ -2250,7 +2250,15 @@ as in Tauri:
   gone or there again, another instance) log and exit without opening
   anything; and an instance started by running `Contents/MacOS/<exe>`
   directly counts as another instance only once it registers with Launch
-  Services, as its app starts. On Linux and Windows the app directory holds
+  Services, as its app starts. Without `Run`, `inheritNoFiles` marks the
+  program's files close-on-exec as soon as `Install` completes, and the
+  program, which goes on, passes its later children only the files it
+  passes explicitly (`ExtraFiles`). After `Run` returned, once `finish`
+  took an update, every later `Install` is refused (`updateQuitting`
+  stays set), and the process `finish` started is released, not reaped
+  (`reapEarlySwap` is only for the processes that `stageBundle` starts):
+  if it gives up while the program runs, nothing resets, and it stays a
+  zombie until the program exits. On Linux and Windows the app directory holds
   `update.FileList` (`.mygo-files`), its top-level entries as installed, one
   per line: `mygo build` writes it into the app (so the archive, installer
   and packages have it), and `swapFiles` rewrites it in the update with the

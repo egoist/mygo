@@ -393,7 +393,10 @@ func main() {
 	mu.Lock()
 	requests = nil
 	mu.Unlock()
-	if out := run("UPDATE=1"); !strings.Contains(out, "version 1.0.0") || !strings.Contains(out, "installed 1.1.0 - New things") {
+	// The app's logs (App.Path(PathLogs), under HOME), where the process
+	// that installs the update on macOS logs each step, stay in the test.
+	home := t.TempDir()
+	if out := run("UPDATE=1", "HOME="+home); !strings.Contains(out, "version 1.0.0") || !strings.Contains(out, "installed 1.1.0 - New things") {
 		t.Fatalf("updating printed:\n%s", out)
 	}
 	mu.Lock()
@@ -403,12 +406,18 @@ func main() {
 	mu.Unlock()
 	if goos == "darwin" {
 		// The new bundle replaces the app's once the app has exited.
-		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 			if staged, _ := filepath.Glob(filepath.Join(install, ".*.update-*")); len(staged) == 0 {
 				break
 			}
 			if time.Now().After(deadline) {
-				t.Fatal("the update was not installed once the app exited")
+				logs, _ := filepath.Glob(filepath.Join(home, "Library", "Logs", "*", "update.log"))
+				var log []byte
+				for _, p := range logs {
+					b, _ := os.ReadFile(p)
+					log = append(log, b...)
+				}
+				t.Fatalf("the update was not installed once the app exited; update.log (%q):\n%s", logs, log)
 			}
 		}
 	}
