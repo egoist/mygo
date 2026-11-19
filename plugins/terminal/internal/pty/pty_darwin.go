@@ -39,16 +39,29 @@ func openMaster() (*os.File, string, error) {
 	return master, string(name[:n]), nil
 }
 
-// waitReadable waits until the master has output, for a read that came back
-// with EAGAIN because the os package could not make the descriptor one its
-// poller waits on.
+// waitReadable waits until the master has output or hangs up, for a read
+// that came back with EAGAIN because the os package could not make the
+// descriptor one its poller waits on. It returns errClosed after Close.
+//
+// It calls select itself: libc's select refuses descriptors from
+// FD_SETSIZE (1024) on, which an app with many files open reaches, and the
+// kernel takes sets of any size.
 func (p *PTY) waitReadable() error {
-	fd := int(p.master.Fd())
-	var r syscall.FdSet
-	r.Bits[fd/32] |= 1 << (uint(fd) % 32)
-	for {
-		if err := syscall.Select(fd+1, &r, nil, nil, nil); err != syscall.EINTR {
-			return err
+	return p.await(func(master, wake int) (bool, error) {
+		set := make([]uint32, max(master, wake)/32+1)
+		for {
+			// select rewrites the set, and leaves it undefined on EINTR.
+			clear(set)
+			set[master/32] |= 1 << (master % 32)
+			set[wake/32] |= 1 << (wake % 32)
+			_, _, errno := syscall.Syscall6(syscall.SYS_SELECT, uintptr(max(master, wake)+1), uintptr(unsafe.Pointer(&set[0])), 0, 0, 0, 0)
+			if errno == syscall.EINTR {
+				continue
+			}
+			if errno != 0 {
+				return false, errno
+			}
+			return set[wake/32]&(1<<(wake%32)) != 0, nil
 		}
-	}
+	})
 }

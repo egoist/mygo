@@ -28,16 +28,29 @@ func openMaster() (*os.File, string, error) {
 	return master, "/dev/pts/" + strconv.Itoa(int(n)), nil
 }
 
-// waitReadable waits until the master has output, for a read that came back
-// with EAGAIN because the os package could not make the descriptor one its
-// poller waits on.
+// waitReadable waits until the master has output or hangs up, for a read
+// that came back with EAGAIN because the os package could not make the
+// descriptor one its poller waits on. It returns errClosed after Close.
+//
+// It polls, which unlike select takes descriptors from FD_SETSIZE (1024)
+// on, which an app with many files open reaches.
 func (p *PTY) waitReadable() error {
-	fd := int(p.master.Fd())
-	var r syscall.FdSet
-	r.Bits[fd/64] |= 1 << (uint(fd) % 64)
-	for {
-		if _, err := syscall.Select(fd+1, &r, nil, nil, nil); err != syscall.EINTR {
-			return err
+	return p.await(func(master, wake int) (bool, error) {
+		type pollFd struct {
+			fd              int32
+			events, revents int16
 		}
-	}
+		const pollIn = 0x1
+		fds := [2]pollFd{{fd: int32(master), events: pollIn}, {fd: int32(wake), events: pollIn}}
+		for {
+			_, _, errno := syscall.Syscall6(syscall.SYS_PPOLL, uintptr(unsafe.Pointer(&fds[0])), uintptr(len(fds)), 0, 0, 0, 0)
+			if errno == syscall.EINTR {
+				continue
+			}
+			if errno != 0 {
+				return false, errno
+			}
+			return fds[1].revents != 0, nil
+		}
+	})
 }
