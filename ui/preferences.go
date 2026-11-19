@@ -9,7 +9,8 @@ type Preferences struct {
 	// takes; A is 0 where the desktop has none.
 	Accent Color
 	// ReduceMotion asks for less motion: macOS's Reduce Motion, Windows's
-	// animation effects and GNOME's animations turned off. Animate then
+	// animation effects, GNOME's animations turned off and KDE's Instant
+	// animation speed. Animate then
 	// goes to its target at once; Loop, which shows that something is
 	// going on, goes on.
 	ReduceMotion bool
