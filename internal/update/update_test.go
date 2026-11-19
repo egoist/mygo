@@ -122,3 +122,26 @@ func TestReleaseNotes(t *testing.T) {
 		}
 	}
 }
+
+// Every file of a release names its platform as users know it: the system
+// as macOS, Windows or Linux, the CPU as x86_64 or arm64.
+func TestPlatform(t *testing.T) {
+	for target, want := range map[string]string{
+		"darwin-arm64":     "macos-arm64",
+		"darwin-amd64":     "macos-x86_64",
+		"darwin-universal": "macos-universal",
+		"windows-amd64":    "windows-x86_64",
+		"windows-arm64":    "windows-arm64",
+		"linux-amd64":      "linux-x86_64",
+		"linux-arm64":      "linux-arm64",
+		"linux-riscv64":    "linux-riscv64",
+	} {
+		if got := Platform(target); got != want {
+			t.Errorf("Platform(%s) = %q, want %q", target, got, want)
+		}
+	}
+	// Installed apps have the name of their manifest built in.
+	if got := ManifestName("darwin-arm64"); got != "update-darwin-arm64.json" {
+		t.Errorf("ManifestName = %q", got)
+	}
+}

@@ -174,7 +174,7 @@ func TestInstallScript(t *testing.T) {
 	c.Updates = &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), URL: srv.URL, Deltas: &none}
 	c.Linux.Command = commandNames{"my-app", "ma"}
 	published := build(c, "1.1.0")
-	for _, name := range []string{"my-app-1.1.0-linux-amd64.tar.gz", "update-linux-amd64.json"} {
+	for _, name := range []string{"my-app-1.1.0-linux-x86_64.tar.gz", "update-linux-amd64.json"} {
 		b, err := os.ReadFile(filepath.Join(published, name))
 		if err != nil {
 			t.Fatal(err)
@@ -210,7 +210,7 @@ func TestInstallScript(t *testing.T) {
 	if _, err := writeInstallScript(c, withNotes); err != nil {
 		t.Fatal(err)
 	}
-	if out := run(filepath.Join(withNotes, "install.sh"), filepath.Join(local, "my-app-1.0.0-linux-amd64.tar.gz")); !strings.Contains(out, "Leaving "+notes+" alone: it is not My App's\n") ||
+	if out := run(filepath.Join(withNotes, "install.sh"), filepath.Join(local, "my-app-1.0.0-linux-x86_64.tar.gz")); !strings.Contains(out, "Leaving "+notes+" alone: it is not My App's\n") ||
 		!strings.HasSuffix(out, "open it from the applications menu, or run "+filepath.Join(binDir, "ma")+"\n") {
 		t.Errorf("install.sh printed:\n%s", out)
 	}
@@ -222,7 +222,7 @@ func TestInstallScript(t *testing.T) {
 	// the PATH, it says to run the command by its name.
 	path := os.Getenv("PATH")
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+path)
-	if out := run(alone, filepath.Join(local, "my-app-1.0.0-linux-amd64.tar.gz")); !strings.HasSuffix(out, "open it from the applications menu, or run my-app\n") {
+	if out := run(alone, filepath.Join(local, "my-app-1.0.0-linux-x86_64.tar.gz")); !strings.HasSuffix(out, "open it from the applications menu, or run my-app\n") {
 		t.Errorf("install.sh printed:\n%s", out)
 	}
 	t.Setenv("PATH", path)
@@ -241,7 +241,7 @@ func TestInstallScript(t *testing.T) {
 		{libs: libc + "\tlibgtk-3.so.0 (libc6,x86-64) => /lib/x86_64-linux-gnu/libgtk-3.so.0\n", warns: true},
 	} {
 		t.Setenv("LD_CACHE", cache.libs)
-		out := run(alone, filepath.Join(local, "my-app-1.0.0-linux-amd64.tar.gz"))
+		out := run(alone, filepath.Join(local, "my-app-1.0.0-linux-x86_64.tar.gz"))
 		if warns := strings.Contains(out, "My App needs WebKitGTK, which is not installed. Install it with:\n  "); warns != cache.warns {
 			t.Errorf("with the library cache\n%s\ninstall.sh printed:\n%s", cache.libs, out)
 		}
@@ -355,7 +355,7 @@ cat "$file"
 	}
 	release := filepath.Join(served, "desktop-v1.1.0")
 	os.MkdirAll(release, 0o755)
-	for _, name := range []string{"my-app-1.1.0-linux-amd64.tar.gz", "update-linux-amd64.json"} {
+	for _, name := range []string{"my-app-1.1.0-linux-x86_64.tar.gz", "update-linux-amd64.json"} {
 		b, err := os.ReadFile(filepath.Join(stage, name))
 		if err != nil {
 			t.Fatal(err)
@@ -422,7 +422,7 @@ func TestInstallScriptMacOS(t *testing.T) {
 		if _, err := writeArchive(c, stage, target, []string{"My App.app"}); err != nil {
 			t.Fatal(err)
 		}
-		for _, name := range []string{"my-app-" + version + "-" + target + ".tar.gz", "update-" + target + ".json"} {
+		for _, name := range []string{"my-app-" + version + "-" + update.Platform(target) + ".tar.gz", update.ManifestName(target)} {
 			b, err := os.ReadFile(filepath.Join(stage, name))
 			if err != nil {
 				t.Fatal(err)
@@ -503,7 +503,7 @@ func TestInstallScriptMacOS(t *testing.T) {
 
 	// An archive other than the one signed is refused, and the installed
 	// version stays.
-	archive := filepath.Join(served, "my-app-1.1.0-darwin-arm64.tar.gz")
+	archive := filepath.Join(served, "my-app-1.1.0-macos-arm64.tar.gz")
 	good, _ := os.ReadFile(archive)
 	bad := slices.Clone(good)
 	bad[len(bad)/2] ^= 1
@@ -873,7 +873,7 @@ func TestInstallScriptLinux(t *testing.T) {
 			if _, err := writeArchive(c, stage, target, []string{"my-app"}); err != nil {
 				t.Fatal(err)
 			}
-			for _, name := range []string{"my-app-" + version + "-" + target + ".tar.gz", "update-" + target + ".json"} {
+			for _, name := range []string{"my-app-" + version + "-" + update.Platform(target) + ".tar.gz", update.ManifestName(target)} {
 				b, err := os.ReadFile(filepath.Join(stage, name))
 				if err != nil {
 					t.Fatal(err)
@@ -888,7 +888,7 @@ func TestInstallScriptLinux(t *testing.T) {
 	// tamper changes the served archives of version.
 	tamper := func(version string, change func([]byte) []byte) {
 		for _, target := range []string{"linux-amd64", "linux-arm64"} {
-			path := filepath.Join(served, "my-app-"+version+"-"+target+".tar.gz")
+			path := filepath.Join(served, "my-app-"+version+"-"+update.Platform(target)+".tar.gz")
 			b, _ := os.ReadFile(path)
 			os.WriteFile(path, change(b), 0o644)
 		}

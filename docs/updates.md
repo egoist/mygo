@@ -73,13 +73,16 @@ MYGO_UPDATER_PRIVATE_KEY="$(cat path/to/mygo-update.key)" go tool mygo build   #
 
 Next to the installers of each platform it writes:
 
-- `my-app-1.2.0-darwin-arm64.tar.gz`, the app as installed, named after
-  the app's [`slug`](configuration.md#the-app),
+- `my-app-1.2.0-macos-arm64.tar.gz`, the app as installed, named after
+  the app's [`slug`](configuration.md#the-app) and its platform, as every
+  file of a release is: `macos`, `windows` or `linux`, then `arm64`,
+  `x86_64` or `universal`,
 - [delta updates](#delta-updates) from the versions before, such as
-  `my-app-1.1.0-to-1.2.0-darwin-arm64.delta`, and
+  `my-app-1.1.0-to-1.2.0-macos-arm64.delta`, and
 - `update-darwin-arm64.json`, the manifest: the version, its release
   notes, the date, and the URL, size and signature of the archive and of
-  each delta.
+  each delta. Its name keeps Go's names for the platform, because the
+  apps installed have it built in.
 
 Without a key, `mygo build` builds the apps and skips the update files,
 but for the Linux archives, which [`install.sh`](distribution.md#the-install-script)

@@ -44,9 +44,9 @@ when cross-compiling, set `CC` to a suitable cross compiler.
 
 | Platform | In `build/<os>-<arch>/` |
 |---|---|
-| macOS | `My App.app`, signed, and `my-app-0.1.0-arm64.dmg` (`my-app-0.1.0.dmg` for `darwin/universal`), with [updates](updates.md) also `install.sh` |
-| Windows | `My App.exe`, the files of the app, and the installer `my-app-setup-0.1.0-amd64.exe`, with [updates](updates.md) also [`install.ps1`](#install-scripts-for-macos-and-windows) |
-| Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-amd64.tar.gz` with [`install.sh`](#the-install-script), and the packages of [`linux.formats`](#linux), by default all three: the Debian package `my-app_0.1.0_amd64.deb`, the RPM package `my-app-0.1.0-1.x86_64.rpm`, and a [`PKGBUILD`](#arch-linux) with the icons it installs, `my-app-256x256.png` and `my-app-512x512.png` |
+| macOS | `My App.app`, signed, and `my-app-0.1.0-macos-arm64.dmg` (`my-app-0.1.0-macos-universal.dmg` for `darwin/universal`), with [updates](updates.md) also `install.sh` |
+| Windows | `My App.exe`, the files of the app, and the installer `my-app-0.1.0-windows-x86_64-setup.exe`, with [updates](updates.md) also [`install.ps1`](#install-scripts-for-macos-and-windows) |
+| Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-x86_64.tar.gz` with [`install.sh`](#the-install-script), and the packages of [`linux.formats`](#linux), by default all three: the Debian package `my-app-0.1.0-linux-x86_64.deb`, the RPM package `my-app-0.1.0-linux-x86_64.rpm`, and a [`PKGBUILD`](#arch-linux) with the icons it installs, `my-app-256x256.png` and `my-app-512x512.png` |
 
 Other flags: `-debug` keeps development features such as the inspector,
 `-skip-dmg`, `-skip-notarize` and `-skip-installer` (the Windows
@@ -427,9 +427,9 @@ window. A `.syso` file of your own in the main package replaces them.
 
 ### The installer
 
-`mygo build` also makes `my-app-setup-1.2.0-amd64.exe`, named after the
-app's [`slug`](configuration.md#the-app) and its architecture as the disk
-images are, so that the installers of two
+`mygo build` also makes `my-app-1.2.0-windows-x86_64-setup.exe`, named
+after the app's [`slug`](configuration.md#the-app) and its platform as
+every file of a release is, so that the installers of two
 targets, uploaded to one release, keep both. It installs the app for
 the current user in `%LOCALAPPDATA%\Programs\My App`, which needs no
 administrator rights and lets the app [update itself](updates.md), adds a
@@ -676,7 +676,7 @@ archive downloaded from the release to package the release.
 ### The install script
 
 Every Linux build also gets the app as an archive,
-`my-app-1.2.0-linux-amd64.tar.gz`, and `install.sh`, which installs it for
+`my-app-1.2.0-linux-x86_64.tar.gz`, and `install.sh`, which installs it for
 the user without root: the app in `~/.local/my-app.app`, where it can
 [update itself](updates.md), its desktop entry, icon, URL schemes and file
 types, and with `linux.command` its commands in `~/.local/bin`, each
@@ -706,7 +706,7 @@ next to the manifests. Next to the archive of its version, as in
 the one it is given:
 
 ```sh
-sh install.sh my-app-1.2.0-linux-amd64.tar.gz
+sh install.sh my-app-1.2.0-linux-x86_64.tar.gz
 sh install.sh --uninstall   # keeps the settings and data of the app
 ```
 

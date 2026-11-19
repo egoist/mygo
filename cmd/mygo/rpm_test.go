@@ -195,7 +195,7 @@ func TestRPMMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := filepath.Join(dir, "my-app-1.0.0-1."+tc.arch+".rpm"); written != want {
+		if want := filepath.Join(dir, fileName(c, "linux", tc.goarch, ".rpm")); written != want {
 			t.Errorf("arch %s: wrote %q, want %q", tc.goarch, written, want)
 		}
 		if rpm == "" {
@@ -289,7 +289,7 @@ func TestRPM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(stage, "note-pad-1.2.0~beta.1-1.x86_64.rpm"); written != want {
+	if want := filepath.Join(stage, "note-pad-1.2.0-beta.1-linux-x86_64.rpm"); written != want {
 		t.Errorf("wrote %q, want %q", written, want)
 	}
 	rpm, err := exec.LookPath("rpm")

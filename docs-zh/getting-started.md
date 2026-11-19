@@ -155,8 +155,8 @@ go tool mygo build   # native UI
 
 | 平台 | 输出 |
 |---|---|
-| macOS | `My App.app`，以及磁盘映像 `my-app-0.1.0-arm64.dmg` |
-| Windows | `My App.exe`，以及安装程序 `my-app-setup-0.1.0-amd64.exe` |
+| macOS | `My App.app`，以及磁盘映像 `my-app-0.1.0-macos-arm64.dmg` |
+| Windows | `My App.exe`，以及安装程序 `my-app-0.1.0-windows-x86_64-setup.exe` |
 | Linux | 可执行文件 `my-app`，连同它的桌面条目和图标，以及包含 `install.sh` 的归档（该脚本会为用户安装应用），还有 `.deb` 和 `.rpm` 包 |
 
 MyGo 不需要 cgo，所以任何机器都能为每个平台构建：

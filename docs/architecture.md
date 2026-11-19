@@ -2196,7 +2196,7 @@ as in Tauri:
   into the app, and when the private key is available
   (`MYGO_UPDATER_PRIVATE_KEY` or `updates.privateKey`) archives the app as
   installed (the bundle, else everything next to the executable) into
-  `<name>-<version>-<target>.tar.gz` (Linux builds always get it, for
+  `<name>-<version>-<platform>.tar.gz` (Linux builds always get it, for
   `install.sh`), signs its SHA-256, and writes
   `update-<target>.json` with the `## <version>` section of CHANGELOG.md as
   notes. `Updater.Check` fetches the manifest (HTTPS only, loopback HTTP for
@@ -6770,8 +6770,8 @@ make it work, and phones a fourth:
   directory is assembled in a staging directory that replaces it whole, so
   removed resources do not linger; development builds on Linux and Windows
   remove what the previous build placed and this one lacks.
-- Packages for the other platforms. Windows gets "<name> Setup
-  <version>.exe", made with NSIS (`nsis.go`): a per-user install in
+- Packages for the other platforms. Windows gets
+  "<slug>-<version>-windows-<arch>-setup.exe", made with NSIS (`nsis.go`): a per-user install in
   `%LOCALAPPDATA%\Programs\<name>` (`windows.installDirName` names the
   folder otherwise), where the updater can write and where the installers
   of later versions install too (`InstallDirRegKey` reads the uninstall
@@ -6860,8 +6860,7 @@ make it work, and phones a fourth:
   manifest, read with sed from the indented JSON `mygo build` writes.
   `--uninstall` removes only what points into its install, including the
   URL handler entry the app registers.
-- On a macOS host, macOS targets also get "<slug>-<version>-<arch>.dmg",
-  or "<slug>-<version>.dmg" for darwin/universal
+- On a macOS host, macOS targets also get "<slug>-<version>-macos-<arch>.dmg"
   (`dmg.go`): the CLI puts a copy of the app (`ditto --noclone`, since a
   clone of a sparse file takes fewer blocks than its copy on HFS+ will),
   the `/Applications` link, the volume icon and a `.DS_Store` written in

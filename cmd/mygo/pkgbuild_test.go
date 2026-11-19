@@ -229,7 +229,7 @@ func TestPKGBUILD(t *testing.T) {
 	want := []string{
 		"note-pad", "1.2.0beta.1", "1", "Take $notes `now` & 'then'", "https://example.com/note-pad",
 		"x86_64", "MIT", "gtk3 webkit2gtk-4.1 libnotify", "!strip !debug",
-		"note-pad-1.2.0-beta.1-linux-amd64.tar.gz note-pad-256x256.png note-pad-512x512.png",
+		"note-pad-1.2.0-beta.1-linux-x86_64.tar.gz note-pad-256x256.png note-pad-512x512.png",
 	}
 	if len(fields) != len(want)+1 || !slices.Equal(fields[:len(want)], want) {
 		t.Fatalf("PKGBUILD fields %q, want %q", fields, want)

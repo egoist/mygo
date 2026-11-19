@@ -48,7 +48,7 @@ func installPS1(c *Config) string {
 		"Name":       c.windowsName(),
 		"Exe":        c.executableName() + ".exe",
 		"Folder":     c.installDirName(),
-		"Setup":      installerPrefix(c),
+		"Slug":       c.slug(),
 		"Identifier": c.Identifier,
 		"Env":        envName(c.slug()),
 		"Releases":   "",
@@ -123,7 +123,7 @@ $ProgressPreference = 'SilentlyContinue'
 
 $appName = {{q .Name}}
 $exeName = {{q .Exe}}
-$setupPrefix = {{q .Setup}}
+$slug = {{q .Slug}}
 $identifier = {{q .Identifier}}
 $defaultFolder = Join-Path $env:LOCALAPPDATA ('Programs\' + {{q .Folder}})
 # Where the files of the latest version are: in the release of the newest
@@ -154,7 +154,7 @@ function Get-Arch {
 	}
 	switch ($arch) {
 		'ARM64' { return 'arm64' }
-		'AMD64' { return 'amd64' }
+		'AMD64' { return 'x86_64' }
 		default { throw "$appName is not made for $arch" }
 	}
 }
@@ -217,7 +217,7 @@ function Install-App {
 		Get-File ($base + 'SHA256SUMS') $sumsFile
 		$sum = $null
 		$name = $null
-		$pattern = '^([0-9a-fA-F]{64}) [ *](' + [regex]::Escape($setupPrefix) + '(\S+)-' + $arch + '\.exe)$'
+		$pattern = '^([0-9a-fA-F]{64}) [ *](' + [regex]::Escape($slug) + '-(\S+)-windows-' + $arch + '-setup\.exe)$'
 		foreach ($line in [IO.File]::ReadAllLines($sumsFile)) {
 			if ($line.TrimEnd() -match $pattern) {
 				$sum = $Matches[1]
