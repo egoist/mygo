@@ -56,13 +56,10 @@ bar := changes.Span(0, -100)     // a signed bar around that baseline
 
 ### 固定颜色阈值
 
-`chart.NewThreshold(100, 300)` 把有限数值分为三档：小于 100、从 100 到小于 300、300 及以上。延迟热图可用它表示服务目标。在不同筛选条件和时间窗口中复用同一个标度，每种颜色就始终代表同一个区间。阈值必须有限且严格递增，构造函数会复制阈值，并对无效配置返回错误。
+`chart.NewThreshold(100, 300)` 把有限数值分为三档：小于 100、从 100 到小于 300、300 及以上。延迟热图可用它表示服务目标。在不同筛选条件和时间窗口中复用同一个标度，每种颜色就始终代表同一个区间。`NewThreshold` 将传入的值复制到 `Threshold.Cutoffs`。调用方需保证阈值有限且严格递增。
 
 ```go
-latency, err := chart.NewThreshold(100, 300) // 毫秒
-if err != nil {
-	return err
-}
+latency := chart.NewThreshold(100, 300) // 毫秒
 palette := []ui.Color{ui.RGB(0, 128, 0), ui.RGB(255, 128, 0), ui.RGB(255, 0, 0)}
 columns := chart.NewLinear(0, float64(len(samples)))
 chart.Plot(c, chart.Axes{}, func(area ui.Element) {

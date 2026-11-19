@@ -110,15 +110,12 @@ latencies, and lets you change the symlog linear region.
 `chart.NewThreshold(100, 300)` classifies finite values into three
 buckets: below 100, from 100 up to 300, and 300 or above. Use the same
 scale across filters and time windows to keep the meaning of colors
-stable, as in a latency heat map with service targets. Cutoffs must be
-finite and strictly increasing. The constructor copies them and returns
-an error for invalid configuration.
+stable, as in a latency heat map with service targets. `NewThreshold`
+copies the supplied values into `Threshold.Cutoffs`. Keep the cutoffs
+finite and strictly increasing.
 
 ```go
-latency, err := chart.NewThreshold(100, 300) // milliseconds
-if err != nil {
-	return err
-}
+latency := chart.NewThreshold(100, 300) // milliseconds
 palette := []ui.Color{ui.RGB(0, 128, 0), ui.RGB(255, 128, 0), ui.RGB(255, 0, 0)}
 columns := chart.NewLinear(0, float64(len(samples)))
 chart.Plot(c, chart.Axes{}, func(area ui.Element) {

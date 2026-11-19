@@ -9,10 +9,7 @@ import (
 
 func TestThreshold(t *testing.T) {
 	cutoffs := []float64{-10, 0, 100}
-	s, err := NewThreshold(cutoffs...)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := NewThreshold(cutoffs...)
 	cutoffs[0] = -20 // changing the caller's slice cannot move a boundary
 	bounds := [][2]float64{{math.Inf(-1), -10}, {-10, 0}, {0, 100}, {100, math.Inf(1)}}
 	if s.Len() != len(bounds) {
@@ -48,27 +45,19 @@ func TestThreshold(t *testing.T) {
 	}
 }
 
-func TestThresholdEmptyAndInvalid(t *testing.T) {
+func TestThresholdEmpty(t *testing.T) {
 	var zero Threshold
 	if lo, hi, ok := zero.Bounds(0); zero.Len() != 1 || !ok || !math.IsInf(lo, -1) || !math.IsInf(hi, 1) {
 		t.Errorf("zero scale has %d buckets, Bounds(0) = (%g, %g, %v)", zero.Len(), lo, hi, ok)
 	}
-	empty, err := NewThreshold()
-	if i, ok := empty.Index(123); err != nil || !ok || i != 0 {
-		t.Errorf("empty cutoffs: Index(123) = (%d, %v), constructor error = %v", i, ok, err)
-	}
-	for _, cutoffs := range [][]float64{{2, 1}, {1, 1}, {math.NaN()}, {math.Inf(-1)}, {math.Inf(1)}} {
-		if _, err := NewThreshold(cutoffs...); err == nil {
-			t.Errorf("NewThreshold(%v) accepted invalid cutoffs", cutoffs)
-		}
+	empty := NewThreshold()
+	if i, ok := empty.Index(123); !ok || i != 0 {
+		t.Errorf("empty cutoffs: Index(123) = (%d, %v), want (0, true)", i, ok)
 	}
 }
 
 func TestThresholdHeatmap(t *testing.T) {
-	s, err := NewThreshold(100, 300)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := Threshold{Cutoffs: []float64{100, 300}}
 	palette := []ui.Color{ui.RGB(0, 128, 0), ui.RGB(255, 128, 0), ui.RGB(255, 0, 0)}
 	values := []float64{99, 100, 300, math.NaN()}
 	columns := NewBand("a", "b", "c", "d")
