@@ -219,7 +219,14 @@ func checkUpdate(ctx context.Context, src UpdateSource, key, current string, pre
 // leave the update for the next Install to remove), the app starts a
 // process that waits for it to exit, installs the update, opens the new
 // version after App.Relaunch, and logs each step to update.log in the
-// app's logs (App.Path(PathLogs), which SetPath changes).
+// app's logs (App.Path(PathLogs), which SetPath changes). A second SIGINT
+// or SIGTERM while the app quits installs the update but opens nothing,
+// even after App.Relaunch. The process opens nothing either when it
+// leaves the update: when the app runs on for five minutes, when the
+// app's bundle is gone or there again once moved aside, or when another
+// instance runs from it, which it sees only once that instance registers
+// with Launch Services (an executable run from Contents/MacOS in a
+// terminal does so only as its app starts).
 //
 // The app must be able to write where it is installed: a bundle in
 // /Applications of an administrator, or an app directory the user owns on
@@ -656,23 +663,25 @@ func openUpdateLog() (*os.File, error) {
 // for the next Install to remove. It then swaps the bundles at once: the
 // end of the session, whose SIGKILL nothing ignores, must not find it
 // between the two moves. It leaves the update when an instance of the app
-// runs from the target, as one opened while the app quit, which waited
-// for it to exit (RequestSingleInstanceLock): the update would remove its
+// runs from the target, as one opened while the app quit, which waited for
+// it to exit (RequestSingleInstanceLock): the update would remove its
 // bundle under it. The app that exited, which Launch Services may still
 // list, is no such instance. It leaves it too when the target is gone, or
 // is there again once moved aside, as the new bundle would be moved into
-// it then; and when the new bundle cannot be moved in, after putting the
-// old one back. It removes the work once the update is installed. When
-// the app relaunches, it then waits for Launch Services to forget the app
-// that exited, as open would otherwise only bring that forward, and opens
-// the app through Launch Services, as openBundle does, but without -n, as
-// the app has exited and the Dock gives the new version the app's tile;
-// only if that fails it tries again with -n, which it uses at once when
-// Launch Services still lists the app that exited. An open that succeeds
-// is not repeated, however slowly the app starts: that would start two.
-// An instance opened between the check and the swap still loses its
-// bundle: that window is milliseconds. Every step goes to its output, the
-// update log, with the time.
+// it then (checked again once moved, as a directory created in between
+// takes the new bundle in, which it then takes back out); and when the new
+// bundle cannot be moved in, after putting the old one back. It removes
+// the work once the update is installed. When the app relaunches, it then
+// waits for Launch Services to forget the app that exited, as open would
+// otherwise only bring that forward, and opens the app through Launch
+// Services, as openBundle does, but without -n, as the app has exited and
+// the Dock gives the new version the app's tile; only if that fails it
+// tries again with -n, which it uses at once when Launch Services still
+// lists the app that exited. An open that succeeds is not repeated,
+// however slowly the app starts: that would start two. An instance opened
+// between the check and the swap still loses its bundle: that window is
+// milliseconds. Every step goes to its output, the update log, with the
+// time.
 const installAfterExit = `PATH=/usr/bin:/bin:/usr/sbin:/sbin
 export PATH
 pid=$1 target=$2 new=$3 work=$4 open=$5 relaunch=$6 steps=$7 apps=$8 appsteps=$9
@@ -730,15 +739,25 @@ if ! mv "$target" "$work/old"; then
 elif [ -e "$target" ]; then
 	say "$target is there again: the update stays in $work, the old version in $work/old"
 	exit 1
-elif mv "$new" "$target"; then
+elif ! mv "$new" "$target"; then
+	if mv "$work/old" "$target"; then
+		say "cannot move the update into place: put the old version back, the update stays in $work"
+		status=1
+	else
+		say "cannot put the old version back: it is in $work/old"
+		exit 1
+	fi
+elif [ -e "$target/${new##*/}" ]; then
+	# There again after the check: mv moved the update into it.
+	if mv "$target/${new##*/}" "$new"; then
+		say "$target is there again: the update stays in $work, the old version in $work/old"
+	else
+		say "$target is there again, and the update moved into it: the old version is in $work/old"
+	fi
+	exit 1
+else
 	say "installed the update in $target"
 	rm -rf "$work"
-elif mv "$work/old" "$target"; then
-	say "cannot move the update into place: put the old version back, the update stays in $work"
-	status=1
-else
-	say "cannot put the old version back: it is in $work/old"
-	exit 1
 fi
 if [ -n "$relaunch" ]; then
 	i=0 again=

@@ -278,6 +278,11 @@ func checkForUpdates(ctx context.Context) {
   for five minutes after it began quitting, after which the process gives
   up. The update then stays next to the app, as a hidden copy of the new
   version (`.<Name>.app.update-…`), until the next `Install` removes it.
+  In those cases nothing is opened, even after `App.Relaunch`, and
+  neither after a second SIGINT or SIGTERM while the app quits, which
+  installs the update and exits. An instance started by running the
+  executable in `Contents/MacOS` from a terminal is seen as another
+  instance only once its app starts and registers with Launch Services.
   On Linux and Windows it replaces the files of the app's folder, and
   removes those that the running version installed and the new one no
   longer has, which `.mygo-files` in the folder lists. Files that no
