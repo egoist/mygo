@@ -237,7 +237,17 @@ func checkUpdate(ctx context.Context, src UpdateSource, key, current string, pre
 // If the program runs on for five minutes, the process gives up, and the
 // next Install removes the update and stages its own. That process logs
 // to the logs directory as it is when Install completes: set the app's
-// name and PathLogs before.
+// name and PathLogs before. Starting it marks every file of the program
+// above its standard streams close-on-exec, as the app does as it quits:
+// without Run, that happens as soon as Install completes, and the
+// program's later child processes inherit no file it did not pass them
+// explicitly (as exec.Cmd's ExtraFiles, which still work).
+//
+// Known limits of a program that goes on running after Run returned:
+// when the app took an update as it quit, every later Install fails; and
+// the process started then, which gives up after five minutes while the
+// program runs, is not waited for, so it stays a zombie until the program
+// exits, and later Installs still fail.
 //
 // The app must be able to write where it is installed: a bundle in
 // /Applications of an administrator, or an app directory the user owns on

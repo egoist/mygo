@@ -293,6 +293,15 @@ func checkForUpdates(ctx context.Context) {
   the process gives up, and the next `Install` removes the update and
   stages its own. That process logs to the logs directory as it is when
   `Install` completes, so set the app's name and `PathLogs` before.
+  Starting it marks every file of the program above its standard streams
+  close-on-exec, as the app does as it quits: without `Run` that happens
+  as soon as `Install` completes, and the program's later child processes
+  inherit no file it does not pass them explicitly (as
+  `exec.Cmd.ExtraFiles`, which still works). In a program that goes on
+  running after `Run` returned, once the app took an update as it quit,
+  every later `Install` fails; and the process started then, if it gives
+  up after five minutes while the program runs, stays a zombie until the
+  program exits.
   On Linux and Windows it replaces the files of the app's folder, and
   removes those that the running version installed and the new one no
   longer has, which `.mygo-files` in the folder lists. Files that no
