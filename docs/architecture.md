@@ -2181,16 +2181,25 @@ as in Tauri:
   launch. On macOS `Install` only stages the bundle (`stageBundle`,
   `pendingUpdate`, replacing an update staged before), and nothing runs
   until the app quits: `finish`, however the app quits (`Relaunch`,
-  `Quit`, a signal, `forceStop`, the session ending), starts after
+  `Quit`, SIGINT or SIGTERM, a second one of them, `forceStop`, the
+  session ending), starts after
   `OnQuit` one process of `/bin/sh` (`installStagedUpdate`, the script
   `installAfterExit`) in a session of its own (`Setsid`), which ignores
   SIGHUP, SIGTERM and SIGINT. Given the app's pid, the bundles, the work
   directory and `open`'s arguments as arguments, never in the script, it
-  waits for the app to exit (every 0.1 s, giving up after five minutes),
-  swaps the bundles (putting the old one back if the new one cannot move
-  in), removes the work directory, and opens the app when it relaunches,
-  without `-n` (the app has exited, and the Dock gives the new version
-  its tile), then with `-n` if that fails. Its output, each step with
+  waits for the app to exit (every 0.1 s, giving up after five minutes; a
+  zombie has exited), then for Launch Services to forget it (`lsappinfo
+  find pid=`, at most 10 s). It leaves the update if an instance of the
+  app runs from the target (`lsappinfo find bundlepath=`), one opened as
+  the app quit, which `RequestSingleInstanceLock` made wait for it to
+  exit, and whose bundle the swap would remove, or if the target is gone.
+  Otherwise it swaps the bundles (putting the old one back if the new one
+  cannot move in), removes the work directory, and opens the app when it
+  relaunches, without `-n` (the app has exited, and the Dock gives the
+  new version its tile), then with `-n` if that fails (not when the app
+  is only slow to start, which would start two); only with `-n` if Launch
+  Services still knew the app that exited, as `open` would only bring it
+  forward, and whose entry the checks for other instances then skip. Its output, each step with
   the time, goes to `update.log` in `PathLogs`, emptied past 256 KB. If it
   cannot start, `Relaunch` opens the old version (`openBundle`). Once
   `finish` took the staged update, an `Install` that completes is
