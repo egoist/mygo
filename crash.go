@@ -37,13 +37,15 @@ func logCrashes() {
 	if err != nil {
 		return
 	}
-	f, err := os.OpenFile(filepath.Join(dir, crashLogName), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	path := filepath.Join(dir, crashLogName)
+	// Before opening it to append, which on Windows can't truncate.
+	if fi, err := os.Stat(path); err == nil && fi.Size() > maxCrashLog {
+		_ = os.Truncate(path, 0)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
-	if fi, err := f.Stat(); err == nil && fi.Size() > maxCrashLog {
-		_ = f.Truncate(0)
-	}
 	_ = debug.SetCrashOutput(f, debug.CrashOptions{})
 }
