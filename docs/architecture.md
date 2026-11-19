@@ -2194,16 +2194,17 @@ as in Tauri:
   close-on-exec). A second SIGINT or SIGTERM, which exits at once, starts
   it from `quitOnSignals` if `finish` has not. Only the first call takes
   the update (`takeStagedUpdate`); a later one waits for that one to have
-  started the process (`swapStarted`, at most 2 s) and reports whether it
-  did, so that the second signal does not exit before, and `relaunchNow`
-  does not open the old version while the process may move it away; only
-  if the process could not start does `Relaunch` open the old version
-  (`openBundle`). Given the app's pid, the bundles, the work directory and
-  `open`'s arguments as arguments, never in the script, the process waits
-  for the app to exit (every 0.1 s, giving up after five minutes; a zombie
-  has exited), then swaps the bundles at once, so that the end of the
-  session, whose SIGKILL nothing ignores, has little time to find it
-  between the two `mv`s. It leaves the update if an instance of the app
+  started the process (`swapStarted`) and reports whether it did, or, past
+  2 s (`swapStartWait`), takes it as started and reports true, so that the
+  second signal does not exit before (unless the start takes longer), and
+  `relaunchNow` does not open the old version while the process may move it
+  away; only if the process could not start does `Relaunch` open the old
+  version (`openBundle`). Given the app's pid, the bundles, the work
+  directory and `open`'s arguments as arguments, never in the script, the
+  process waits for the app to exit (every 0.1 s, giving up after five
+  minutes; a zombie has exited), then swaps the bundles at once, so that the
+  end of the session, whose SIGKILL nothing ignores, has little time to find
+  it between the two `mv`s. It leaves the update if an instance of the app
   runs from the target (`lsappinfo find bundlepath=`, but for the entry of
   the app that exited, `lsappinfo find pid=`), one opened as the app quit,
   which `RequestSingleInstanceLock` made wait for it to exit, and whose

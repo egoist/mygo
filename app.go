@@ -346,7 +346,8 @@ func (a *Application) finish() {
 // Install staged on macOS once the app has exited, and that then opens
 // the new version when relaunch is set, with the arguments args; it
 // reports whether a process installs the update, started by this call or
-// an earlier one. stageBundle sets it, so that only apps that install
+// an earlier one, which counts as started once a later call waited 2 s for
+// it (installStagedUpdate). stageBundle sets it, so that only apps that install
 // updates link that process and its script.
 var stagedInstaller atomic.Pointer[func(relaunch bool, args []string) bool]
 

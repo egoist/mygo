@@ -341,7 +341,8 @@ func exitApp(app *exec.Cmd) {
 // the target while swapFake.running exists, and the app that exited, by
 // its pid and at the target, as many times as swapFake.registered says
 // (only asking by pid counts). opens returns the arguments of each
-// call. The state of staged updates is restored after the test.
+// call. The state of staged updates starts afresh, and is restored after
+// the test.
 func fakeSwap(t *testing.T, failOpen bool) (logPath string, opens func() [][]string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -379,16 +380,25 @@ esac
 	if err := os.WriteFile(apps, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	oldShell, oldOpen, oldSteps, oldApps, oldAppSteps, oldLog := swapShell, swapOpen, swapWaitSteps, swapApps, swapAppSteps, updateLogPath
+	oldShell, oldOpen, oldSteps, oldApps, oldAppSteps, oldLog, oldStartWait := swapShell, swapOpen, swapWaitSteps, swapApps, swapAppSteps, updateLogPath, swapStartWait
 	swapOpen, swapApps, swapAppSteps = open, apps, 5
 	updateLogPath = func() (string, error) { return logPath, nil }
+	// The state of staged updates starts afresh, whatever a test before
+	// left, and is put back after.
+	stageMu.Lock()
+	oldPending, oldQuitting, oldStarted, oldRunning := pendingUpdate, updateQuitting, swapStarted, swapRunning
+	pendingUpdate, updateQuitting, swapStarted, swapRunning = nil, false, make(chan struct{}), false
+	stageMu.Unlock()
+	oldClosed, oldInstaller := stagingClosed.Load(), stagedInstaller.Load()
+	stagingClosed.Store(false)
+	stagedInstaller.Store(nil)
 	t.Cleanup(func() {
-		swapShell, swapOpen, swapWaitSteps, swapApps, swapAppSteps, updateLogPath = oldShell, oldOpen, oldSteps, oldApps, oldAppSteps, oldLog
+		swapShell, swapOpen, swapWaitSteps, swapApps, swapAppSteps, updateLogPath, swapStartWait = oldShell, oldOpen, oldSteps, oldApps, oldAppSteps, oldLog, oldStartWait
 		stageMu.Lock()
-		pendingUpdate, updateQuitting = nil, false
-		swapStarted, swapRunning = make(chan struct{}), false
+		pendingUpdate, updateQuitting, swapStarted, swapRunning = oldPending, oldQuitting, oldStarted, oldRunning
 		stageMu.Unlock()
-		stagingClosed.Store(false)
+		stagingClosed.Store(oldClosed)
+		stagedInstaller.Store(oldInstaller)
 	})
 	return logPath, func() [][]string {
 		b, _ := os.ReadFile(record)
@@ -891,20 +901,38 @@ func TestInstallStagedUpdateOnce(t *testing.T) {
 		t.Skip("only macOS stages updates")
 	}
 	logPath, _ := fakeSwap(t, false)
+	// Never over in the test: the second call reports the first's start,
+	// not the end of its wait.
+	swapStartWait = time.Hour
 	app := fakeApp(t)
 	p := stagedApp(t)
 	stage(t, p)
-	// The first call stops in startSwap until released.
-	entered, release := make(chan struct{}), make(chan struct{})
+	// The first call stops in startSwap until released, and the second
+	// says when it waits for it.
+	entered, release, waiting := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	updateLogPath = func() (string, error) {
 		close(entered)
 		<-release
 		return logPath, nil
 	}
+	swapWaitHook = func() { close(waiting) }
+	defer func() { swapWaitHook = nil }()
 	first, second := make(chan bool), make(chan bool)
 	go func() { first <- installStagedUpdate(true, nil) }()
 	<-entered
 	go func() { second <- installStagedUpdate(false, nil) }()
+	select {
+	case <-waiting:
+	case ok := <-second:
+		t.Fatalf("the second call returned %v without waiting for the first", ok)
+	case <-time.After(wait.Guard):
+		t.Fatal("the second call does not wait for the first")
+	}
+	select {
+	case <-second:
+		t.Fatal("the second call returned before the first started the process")
+	default:
+	}
 	close(release)
 	if !<-first || !<-second {
 		t.Error("a call reports that no process installs the update")
