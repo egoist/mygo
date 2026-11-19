@@ -1750,7 +1750,9 @@ func Local[T any](e Element, key any, init func() T) *T {
 // Right opens a submenu and Left closes it, the other way round right to
 // left (Direction); Enter and Space choose an item, Escape closes the
 // submenu on top, and Tab and a press outside the menu close it. The
-// pointer highlights the item it moves onto, opening its submenu.
+// pointer highlights the item it moves onto, opening its submenu, but for
+// those it crosses heading for a submenu that shows, which stays open
+// until the pointer rests on one of them (menuAimGrace).
 // Assistive technology sees a menu button, expanded while its menu shows,
 // and a menu of items, check box items and radio items. PopoverMenuButton
 // draws its menu with these parts, in the theme's look.
@@ -3092,7 +3094,9 @@ func Toolbar(c *Context, fn func()) Element {
 // or presses it, as a menu or popover of anchor opens, and with Escape,
 // until the pointer comes back or the focus does; it does not show while
 // that menu or popover shows. Over elements inside one another, the
-// innermost one's tip shows; one shows at a time.
+// innermost one's tip shows; one shows at a time. A disabled anchor shows
+// its tip under the pointer too, to tell why it is disabled, as AppKit's
+// and GTK's do, while it takes no click and no focus.
 //
 // The tip goes above anchor, centered, or below it where there is no room
 // above; fn may place it elsewhere with AttachTo, as after it:
