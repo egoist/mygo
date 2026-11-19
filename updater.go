@@ -215,10 +215,11 @@ func checkUpdate(ctx context.Context, src UpdateSource, key, current string, pre
 // over. The running app is not affected: the new version runs after
 // App.Relaunch, or at the next launch. On macOS the update is only staged
 // next to the app until it quits: as it finishes, however it quits (but
-// with App.Exit or a crash, which leave the update for the next Install to
-// remove), the app starts a process that waits for it to exit, installs
-// the update, opens the new version after App.Relaunch, and logs each step
-// to update.log in the app's logs (PathLogs).
+// with App.Exit, a crash, or a signal other than SIGINT and SIGTERM, which
+// leave the update for the next Install to remove), the app starts a
+// process that waits for it to exit, installs the update, opens the new
+// version after App.Relaunch, and logs each step to update.log in the
+// app's logs (App.Path(PathLogs), which SetPath changes).
 //
 // The app must be able to write where it is installed: a bundle in
 // /Applications of an administrator, or an app directory the user owns on
@@ -397,8 +398,8 @@ type stagedUpdate struct {
 
 // The state of the updates that Install stages on macOS, which stageMu
 // guards: the staged update, the work directories of the Installs under
-// way, and whether the app began installing the staged update as it
-// finishes.
+// way, whether the app began installing the staged update as it
+// finishes, and whether it started the process that installs it.
 var (
 	stageMu sync.Mutex
 	// pendingUpdate is the update that Install staged on macOS. It replaces
@@ -415,6 +416,11 @@ var (
 	// and replacing the pending one would remove the bundle that the swap
 	// process is about to move into place.
 	updateQuitting bool
+	// swapStarted is closed once the call of installStagedUpdate that took
+	// pendingUpdate started the swap process, which swapRunning reports,
+	// or failed to.
+	swapStarted = make(chan struct{})
+	swapRunning bool
 )
 
 // appPid is the process whose exit a staged update waits for: the app's,
@@ -481,7 +487,8 @@ func removeStaleWork(target string) {
 // stageBundle leaves the bundle that dir holds to replace target once the
 // app has exited, in place of an update staged before, whose work it
 // removes. Nothing runs until then: the app starts the process that
-// installs it as it finishes (installStagedUpdate). Once it did, the
+// installs it as it finishes (installStagedUpdate, which it reaches
+// through stagedInstaller, set here). Once it looked for the update, the
 // update is refused, and Install removes it.
 func stageBundle(work, dir, target string) error {
 	entries, err := os.ReadDir(dir)
@@ -492,8 +499,13 @@ func stageBundle(work, dir, target string) error {
 		return errors.New("the update holds no app bundle")
 	}
 	p := &stagedUpdate{work: work, bundle: filepath.Join(dir, entries[0].Name()), target: target}
+	// Before checking stagingClosed, which the app sets before it reads
+	// stagedInstaller: either the app finds the installer, or the update
+	// is refused.
+	install := installStagedUpdate
+	stagedInstaller.CompareAndSwap(nil, &install)
 	stageMu.Lock()
-	if updateQuitting {
+	if updateQuitting || stagingClosed.Load() {
 		stageMu.Unlock()
 		return errors.New("the app is quitting")
 	}
@@ -509,43 +521,70 @@ func stageBundle(work, dir, target string) error {
 // takeStagedUpdate returns the update that Install staged, or nil, and
 // keeps Install from staging another (updateQuitting). Only its first
 // call returns it: a second signal can arrive as the app finishes, and
-// both would start a process that installs it.
-func takeStagedUpdate() *stagedUpdate {
+// both would start a process that installs it. Later calls report
+// whether an earlier one took an update instead, with started, which
+// that call closes once it started the process or failed to.
+func takeStagedUpdate() (p *stagedUpdate, taken bool, started chan struct{}) {
 	stageMu.Lock()
 	defer stageMu.Unlock()
 	if updateQuitting {
-		return nil
+		return nil, pendingUpdate != nil, swapStarted
 	}
 	updateQuitting = true
-	return pendingUpdate
+	return pendingUpdate, false, swapStarted
 }
 
 // installStagedUpdate starts the process that installs the update that
 // Install staged on macOS, once the app has exited, and that then opens
 // the new version when relaunch is set, with the arguments args. It
-// reports whether it started it. The app calls it as it finishes,
-// however it quits, right before it exits.
+// reports whether a process installs the update. Only its first call
+// starts one: a later call waits for that one to start it, at most
+// swapStartWait, and reports what it did, or true once the wait is over;
+// so a second signal does not exit before the process started, and
+// Relaunch does not open the old version, which the process is about to
+// move away. The app calls it as it finishes, however it quits, and on a
+// second signal (stagedInstaller).
 func installStagedUpdate(relaunch bool, args []string) bool {
-	p := takeStagedUpdate()
-	if p == nil || runtime.GOOS != "darwin" {
+	p, taken, started := takeStagedUpdate()
+	if taken {
+		select {
+		case <-started:
+		case <-time.After(swapStartWait):
+			return true
+		}
+		stageMu.Lock()
+		defer stageMu.Unlock()
+		return swapRunning
+	}
+	if p == nil {
 		return false
 	}
-	cmd, err := startSwap(p, relaunch, args)
-	if err != nil {
-		log.Printf("mygo: cannot start installing the update in %s: %v", p.work, err)
-		return false
+	ok := false
+	if runtime.GOOS == "darwin" {
+		if cmd, err := startSwap(p, relaunch, args); err != nil {
+			log.Printf("mygo: cannot start installing the update in %s: %v", p.work, err)
+		} else {
+			_ = cmd.Process.Release()
+			ok = true
+		}
 	}
-	_ = cmd.Process.Release()
-	return true
+	stageMu.Lock()
+	swapRunning = ok
+	close(started)
+	stageMu.Unlock()
+	return ok
 }
 
-// The swap process's settings, which tests replace: the open command it
-// opens the app with, how many tenths of a second it waits for the app to
-// exit (five minutes) before it gives up, the lsappinfo command it asks
-// Launch Services with, how many tenths of a second it waits for Launch
-// Services to forget the app, and then for the new version to run, and
-// the path of its log, which is called once the app finishes.
+// The swap process's settings, which tests replace: the shell that runs
+// it, the open command it opens the app with, how many tenths of a second
+// it waits for the app to exit (five minutes) before it gives up, the
+// lsappinfo command it asks Launch Services with, how many tenths of a
+// second it waits for Launch Services to forget the app, and then for the
+// new version to run, the path of its log, which is called once the app
+// finishes, and how long a second call of installStagedUpdate waits for
+// the first to start it.
 var (
+	swapShell     = "/bin/sh"
 	swapOpen      = "/usr/bin/open"
 	swapWaitSteps = 3000
 	swapApps      = "/usr/bin/lsappinfo"
@@ -554,6 +593,7 @@ var (
 		dir, err := App.Path(PathLogs)
 		return filepath.Join(dir, "update.log"), err
 	}
+	swapStartWait = 2 * time.Second
 )
 
 // maxUpdateLog is the size of the update log above which it starts over.
@@ -563,12 +603,14 @@ const maxUpdateLog = 256 << 10
 // app has exited (installAfterExit), with its output appended to the
 // update log. It runs in a session of its own and ignores the signals
 // that end the app's: whatever ends the app, the process must outlive it.
+// It inherits no file of the app but its log (inheritNoFiles).
 func startSwap(p *stagedUpdate, relaunch bool, args []string) (*exec.Cmd, error) {
 	flag := ""
 	if relaunch {
 		flag = "1"
 	}
-	cmd := exec.Command("/bin/sh", append([]string{"-c", installAfterExit, "mygo-update",
+	inheritNoFiles()
+	cmd := exec.Command(swapShell, append([]string{"-c", installAfterExit, "mygo-update",
 		strconv.Itoa(appPid), p.target, p.bundle, p.work, swapOpen, flag, strconv.Itoa(swapWaitSteps),
 		swapApps, strconv.Itoa(swapAppSteps)},
 		openArgs(p.target, args)...)...)
@@ -607,28 +649,33 @@ func openUpdateLog() (*os.File, error) {
 // app afterwards, else nothing; how many tenths of a second to wait for
 // the app; the lsappinfo command; how many tenths of a second to wait for
 // Launch Services; and the arguments of open, which are never part of the
-// script.
+// script. It runs the system's commands, whatever the app's PATH.
 //
 // It ignores the signals that end the app's processes, waits for the app
 // to exit (a zombie has), and gives up after that wait, leaving the update
-// for the next Install to remove. It then waits for Launch Services to
-// forget the app, as open would otherwise only bring forward the instance
-// that exited. It leaves the update too when an instance of the app runs
-// from the target, as one opened while the app quit, which waited for it
-// to exit (RequestSingleInstanceLock): the update would remove its bundle
-// under it. It swaps the bundles, putting the old one back if the new one
-// cannot be moved in, and removes the work unless the old bundle is still
-// in it. It opens the app through Launch Services, as openBundle does, but
-// without -n, as the app has exited and the Dock gives the new version
-// the app's tile; only if that fails it tries again with -n, which it
-// uses at once when Launch Services still knows the app that exited, as
-// open would only bring that forward. An open that succeeds is not
-// repeated, however slowly the app starts: that would start two. The
-// app that exited, while Launch Services still lists it, is no other
-// instance, nor the new version. An instance opened between the check
-// and the swap still loses its bundle: that window is milliseconds.
-// Every step goes to its output, the update log, with the time.
-const installAfterExit = `pid=$1 target=$2 new=$3 work=$4 open=$5 relaunch=$6 steps=$7 apps=$8 appsteps=$9
+// for the next Install to remove. It then swaps the bundles at once: the
+// end of the session, whose SIGKILL nothing ignores, must not find it
+// between the two moves. It leaves the update when an instance of the app
+// runs from the target, as one opened while the app quit, which waited
+// for it to exit (RequestSingleInstanceLock): the update would remove its
+// bundle under it. The app that exited, which Launch Services may still
+// list, is no such instance. It leaves it too when the target is gone, or
+// is there again once moved aside, as the new bundle would be moved into
+// it then; and when the new bundle cannot be moved in, after putting the
+// old one back. It removes the work once the update is installed. When
+// the app relaunches, it then waits for Launch Services to forget the app
+// that exited, as open would otherwise only bring that forward, and opens
+// the app through Launch Services, as openBundle does, but without -n, as
+// the app has exited and the Dock gives the new version the app's tile;
+// only if that fails it tries again with -n, which it uses at once when
+// Launch Services still lists the app that exited. An open that succeeds
+// is not repeated, however slowly the app starts: that would start two.
+// An instance opened between the check and the swap still loses its
+// bundle: that window is milliseconds. Every step goes to its output, the
+// update log, with the time.
+const installAfterExit = `PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
+pid=$1 target=$2 new=$3 work=$4 open=$5 relaunch=$6 steps=$7 apps=$8 appsteps=$9
 shift 9
 trap '' HUP TERM INT
 say() { printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "$*"; }
@@ -639,7 +686,6 @@ alive() {
 listed() { [ -n "$("$apps" find "pid=$pid" 2>/dev/null)" ]; }
 # others: whether an app other than the one that exited runs from target.
 others() { "$apps" find "bundlepath=$target" 2>/dev/null | grep -vxF "$gone" | grep -q .; }
-gone=
 launch() {
 	"$open" "$@" || {
 		say "open failed with status $?"
@@ -667,19 +713,8 @@ while alive; do
 	sleep 0.1
 done
 say "process $pid exited"
-i=0
-while listed && [ "$i" -lt "$appsteps" ]; do
-	i=$((i + 1))
-	sleep 0.1
-done
-again=
-if listed; then
-	gone=$("$apps" find "pid=$pid" 2>/dev/null)
-	say "Launch Services still lists process $pid"
-	again=1
-elif [ "$i" -gt 0 ]; then
-	say "Launch Services forgot process $pid"
-fi
+# The entry of the app that exited, while Launch Services lists it.
+gone=$("$apps" find "pid=$pid" 2>/dev/null)
 if others; then
 	say "another instance runs from $target: the update stays in $work"
 	exit 1
@@ -688,23 +723,41 @@ if [ ! -e "$target" ]; then
 	say "$target is gone: the update stays in $work"
 	exit 1
 fi
+status=0
 if ! mv "$target" "$work/old"; then
-	say "cannot move $target aside: the update is not installed"
+	say "cannot move $target aside: the update stays in $work"
+	status=1
+elif [ -e "$target" ]; then
+	say "$target is there again: the update stays in $work, the old version in $work/old"
+	exit 1
 elif mv "$new" "$target"; then
 	say "installed the update in $target"
+	rm -rf "$work"
 elif mv "$work/old" "$target"; then
-	say "cannot move the update into place: put the old version back"
+	say "cannot move the update into place: put the old version back, the update stays in $work"
+	status=1
 else
 	say "cannot put the old version back: it is in $work/old"
 	exit 1
 fi
-rm -rf "$work"
 if [ -n "$relaunch" ]; then
+	i=0 again=
+	while listed; do
+		if [ "$i" -ge "$appsteps" ]; then
+			say "Launch Services still lists process $pid"
+			again=1
+			break
+		fi
+		i=$((i + 1))
+		sleep 0.1
+	done
+	[ -n "$again" ] || [ "$i" -eq 0 ] || say "Launch Services forgot process $pid"
 	if [ -n "$again" ] || ! launch "$@"; then
 		say "opening with -n"
 		launch -n "$@" || say "cannot open $target"
 	fi
 fi
+[ "$status" -eq 0 ] || exit 1
 say done
 `
 
@@ -851,8 +904,12 @@ func relaunchNow() {
 		devRelaunch(App.relaunchArgs)
 	}
 	// With an update staged, the process that installs it opens the new
-	// version: opening one here too would start two instances.
-	if runtime.GOOS == "darwin" && (installStagedUpdate(true, args) || openBundle(args)) {
+	// version: opening one here too would start two instances. finish
+	// started it (installStaged reports what that call did), or a second
+	// signal did, which exits without opening anything: opening the old
+	// version then would run it from the bundle that the process moves
+	// away and removes.
+	if runtime.GOOS == "darwin" && (installStaged(true, args) || openBundle(args)) {
 		return
 	}
 	// The executable the app started from, which an update may have

@@ -66,6 +66,9 @@ func TestMain(m *testing.M) {
 	if mode := os.Getenv("MYGO_TEST_END_SESSION"); mode != "" {
 		endSession(mode)
 	}
+	if mode := os.Getenv("MYGO_TEST_UPDATE_QUIT"); mode != "" {
+		updateOnQuit(mode)
+	}
 	if os.Getenv("MYGO_TEST_EVAL_AFTER_QUIT") == "1" {
 		evalAfterQuit()
 	}

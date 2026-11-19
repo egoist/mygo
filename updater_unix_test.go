@@ -3,6 +3,10 @@
 package mygo
 
 import (
+	"os/exec"
+	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -39,5 +43,58 @@ func TestUpdateSwapSurvivesSignals(t *testing.T) {
 	}
 	if got := opens(); len(got) != 1 {
 		t.Errorf("opened the app %q", got)
+	}
+}
+
+// The process that installs the update inherits no file of the app, as
+// one that native code opened without close-on-exec.
+func TestUpdateSwapInheritsNoFiles(t *testing.T) {
+	fd, err := syscall.Open("/dev/null", syscall.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fd)
+	open := func() bool {
+		return exec.Command("/bin/sh", "-c", "[ -e /dev/fd/"+strconv.Itoa(fd)+" ]").Run() == nil
+	}
+	if !open() {
+		t.Skip("a child inherits no file without close-on-exec here")
+	}
+	inheritNoFiles()
+	if open() {
+		t.Error("a child inherits the file")
+	}
+}
+
+// The swap reads lsappinfo's output as it is: an app found by its bundle
+// is listed in the line that finding it by its pid prints, and a bundle
+// that runs nothing prints no line, and succeeds. Finder must run, as in a
+// desktop session.
+func TestLsappinfoContract(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("lsappinfo is macOS's")
+	}
+	out, err := exec.Command("/usr/bin/pgrep", "-x", "Finder").Output()
+	pid := strings.Fields(string(out))
+	if err != nil || len(pid) == 0 {
+		t.Skip("Finder does not run")
+	}
+	find := func(what string) string {
+		t.Helper()
+		out, err := exec.Command("/usr/bin/lsappinfo", "find", what).Output()
+		if err != nil {
+			t.Fatalf("lsappinfo find %s: %v", what, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	byBundle := find("bundlepath=/System/Library/CoreServices/Finder.app")
+	if byBundle == "" {
+		t.Fatal("Finder is not found by its bundle")
+	}
+	if byPid := find("pid=" + pid[0]); byPid == "" || !slices.Contains(strings.Split(byBundle, "\n"), byPid) {
+		t.Errorf("found by its pid %q, and by its bundle %q", byPid, byBundle)
+	}
+	if got := find("bundlepath=/nonexistent.app"); got != "" {
+		t.Errorf("a bundle that runs nothing: %q", got)
 	}
 }
