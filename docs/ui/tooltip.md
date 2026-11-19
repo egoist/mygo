@@ -27,6 +27,9 @@ The focus counts for the element an element gives it to, its
 `ActiveDescendant`, as a menu drawn in the window gives it to the item the
 keys highlight: that one's tip shows.
 
+Text that `MaxLines` or `SingleLine` cuts can show its full text as its
+tip only while it is cut, which `Truncated` reports ([Text](text.md)).
+
 The tip takes the theme's `Inverse` and `InverseText` colors, its text and
 background turned over unless the theme sets them (see
 [themes](styling.md#themes)).
