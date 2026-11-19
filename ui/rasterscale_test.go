@@ -452,3 +452,107 @@ func TestScaledInlineTransform(t *testing.T) {
 		t.Error("no glyph moved by the inline element's transform")
 	}
 }
+
+// TestScaleWatchResetsWhenUnscaled verifies that returning a scaled element
+// to an unscaled transform resets both text and layer scaleWatches back to 1,
+// so a later return to the old scale sees a change and uses the bucket + settle.
+func TestScaleWatchResetsWhenUnscaled(t *testing.T) {
+	k := float32(1.6)
+	var card, text *node
+	st := newScaleTester(func(c *context) {
+		card = coreBox(c).Absolute().Left(20).Top(20).Size(120, 48).
+			TransformOrigin(0, 0).Scale(k, k).Cache().Children(func() {
+			coreBox(c).Size(10, 10).Background(RGB(0, 0, 0))
+		})
+		text = coreText(c, "Scaled").Absolute().Left(20).Top(100).
+			TransformOrigin(0, 0).Scale(k, k).FontSize(14).TextColor(RGB(0, 0, 0))
+	}, 360, 160, 1)
+
+	// Settle at k = 1.6 (text & cached layer both settled at 1.6).
+	st.rt.requestFrame()
+	st.frame(0)
+	if text.st.scales == nil || text.st.scales.text.k != 1.6 {
+		t.Fatalf("settled at 1.6: text watch = %+v", text.st.scales)
+	}
+	if card.st.scales == nil || card.st.scales.layer.k != 1.6 {
+		t.Fatalf("settled at 1.6: layer watch = %+v", card.st.scales)
+	}
+
+	// Return to unscaled (1): both watches must note 1 rather than retaining 1.6.
+	k = 1
+	st.rt.requestFrame()
+	st.frame(0)
+	st.frame(0)
+	if text.st.scales.text.k != 1 || text.st.scales.text.last != 1 {
+		t.Fatalf("at rest k=1: text watch = %+v, want k=1 last=1", text.st.scales.text)
+	}
+	if card.st.scales.layer.k != 1 || card.st.scales.layer.last != 1 {
+		t.Fatalf("at rest k=1: layer watch = %+v, want k=1 last=1", card.st.scales.layer)
+	}
+
+	// Scaling back to 1.6 must see last=1 -> bucket (not stale last=1.6) and ask for a settle frame.
+	k = 1.6
+	st.rt.requestFrame()
+	more := st.frame(0)
+	if !more {
+		t.Fatal("re-entering scale 1.6 from 1 did not request a settle frame")
+	}
+	if text.st.scales.text.last != 1 || text.st.scales.text.k != 1.6 {
+		t.Errorf("first frame back at 1.6: text watch = %+v, want last=1 k=1.6", text.st.scales.text)
+	}
+	if card.st.scales.layer.last != 1 || card.st.scales.layer.k != 1.6 {
+		t.Errorf("first frame back at 1.6: layer watch = %+v, want last=1 k=1.6", card.st.scales.layer)
+	}
+	if st.frame(0) {
+		t.Error("second frame at rest 1.6 still requested a frame")
+	}
+}
+
+// TestGhostOfClonesScaleWatches verifies that an exiting ghost does not share
+// *scaleWatches with a live element reusing its state.
+func TestGhostOfClonesScaleWatches(t *testing.T) {
+	show := true
+	tr := ElementTransition{
+		Duration: 100 * time.Millisecond,
+		Ease:     Linear,
+		Exit:     &Motion{Scale: 0.5, Opacity: 1},
+	}
+	var card *node
+	st := newScaleTester(func(c *context) {
+		if show {
+			card = coreBox(c).Key("card").Absolute().Left(20).Top(20).Size(120, 48).
+				TransformOrigin(0, 0).Scale(1.6, 1.6).Cache().Transition(tr).Children(func() {
+				coreText(c, "Ghost").FontSize(14).TextColor(RGB(0, 0, 0))
+			})
+		}
+	}, 360, 140, 1)
+
+	liveScales := card.st.scales
+	if liveScales == nil || liveScales.layer.k != 1.6 {
+		t.Fatalf("initial card scales = %+v, want layer.k=1.6", liveScales)
+	}
+
+	// Trigger exit so ghostOf clones card while card's state stays in rt.states.
+	show = false
+	st.rt.requestFrame()
+	st.frame(0)
+	st.frame(32 * time.Millisecond)
+
+	var ghost *node
+	for _, r := range st.rt.trans {
+		if r.ghost != nil {
+			ghost = r.ghost
+			break
+		}
+	}
+	if ghost == nil {
+		t.Fatal("expected exiting ghost transition")
+	}
+	if ghost.st.scales == nil || ghost.st.scales == liveScales {
+		t.Fatalf("ghost shares *scaleWatches (%p) with live state (%p)", ghost.st.scales, liveScales)
+	}
+	if ghost.st.scales.layer.k == liveScales.layer.k {
+		t.Errorf("expected exiting ghost layer scale (%v) to advance independently of live state (%v)",
+			ghost.st.scales.layer.k, liveScales.layer.k)
+	}
+}
