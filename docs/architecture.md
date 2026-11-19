@@ -2132,7 +2132,8 @@ as in Tauri:
   every window (any `OnClose` can cancel) → `OnWillQuit` → stop the loop →
   `App.Run` returns → `OnQuit`. It is used for `App.Quit`, Cmd+Q, quit
   Apple Events, and SIGINT/SIGTERM alike (`signal_unix.go`; a second signal
-  exits immediately).
+  exits immediately, from `quitOnSignals`, once the process that installs
+  a staged update has started: see Updates below).
   When the OS ends the session instead (`AppHandler.Terminating`:
   `WM_ENDSESSION` on Windows, `applicationWillTerminate:` on macOS), the
   loop does not stop first: `Application.endSession` calls the same
@@ -2229,10 +2230,11 @@ as in Tauri:
   arguments, or those passed to `Relaunch` in their place
   (`relaunchArguments`), and the working directory it started in: on macOS
   through `open -n <bundle> --args …`, or, with an update staged, through
-  the process that installs it (below), which gets `open`'s arguments as
-  its own. A development build exits with code 75 instead, after writing
-  `Relaunch`'s arguments, each ended with a NUL byte, in the file that
-  `MYGO_DEV_RELAUNCH` names (`.mygo/dev/relaunch-args`), and `mygo dev` starts the same build again
+  the process that installs it (below), which `finish` starts before
+  `OnQuit` and which gets `open`'s arguments as its own. A development
+  build exits with code 75 instead, after writing `Relaunch`'s arguments,
+  each ended with a NUL byte, in the file that `MYGO_DEV_RELAUNCH` names
+  (`.mygo/dev/relaunch-args`), and `mygo dev` starts the same build again
   with them, also when that happens before it was ready.
 - Updates (`updater.go`, `internal/update`, `cmd/mygo/updates.go`), in pure
   Go on every platform. `mygo keygen` creates an Ed25519 key pair; with
@@ -2252,33 +2254,49 @@ as in Tauri:
   where the running executable is renamed away and removed at the next
   launch. On macOS `Install` only stages the bundle (`stageBundle`,
   `pendingUpdate`, replacing an update staged before), and nothing runs
-  until the app quits: `finish`, however the app quits (`Relaunch`,
-  `Quit`, SIGINT or SIGTERM, a second one of them, `forceStop`, the
-  session ending), starts after
-  `OnQuit` one process of `/bin/sh` (`installStagedUpdate`, the script
+  until the app quits. `stageBundle` sets `stagedInstaller`, the hook
+  through which the app reaches `installStagedUpdate`, so that apps that
+  never install an update link none of it. However the app quits
+  (`Relaunch`, `Quit`, SIGINT or SIGTERM, `forceStop`, the session
+  ending), `finish` first, before the `OnQuit` listeners, any of which may
+  panic or exit, starts one process of `/bin/sh` (the script
   `installAfterExit`) in a session of its own (`Setsid`), which ignores
-  SIGHUP, SIGTERM and SIGINT. Given the app's pid, the bundles, the work
-  directory and `open`'s arguments as arguments, never in the script, it
-  waits for the app to exit (every 0.1 s, giving up after five minutes; a
-  zombie has exited), then for Launch Services to forget it (`lsappinfo
-  find pid=`, at most 10 s). It leaves the update if an instance of the
-  app runs from the target (`lsappinfo find bundlepath=`), one opened as
-  the app quit, which `RequestSingleInstanceLock` made wait for it to
-  exit, and whose bundle the swap would remove, or if the target is gone.
-  Otherwise it swaps the bundles (putting the old one back if the new one
-  cannot move in), removes the work directory, and opens the app when it
-  relaunches, without `-n` (the app has exited, and the Dock gives the
-  new version its tile), then with `-n` if that fails (not when the app
-  is only slow to start, which would start two); only with `-n` if Launch
-  Services still knew the app that exited, as `open` would only bring it
-  forward, and whose entry the checks for other instances then skip. Its output, each step with
-  the time, goes to `update.log` in `PathLogs`, emptied past 256 KB. If it
-  cannot start, `Relaunch` opens the old version (`openBundle`). Once
-  `finish` took the staged update, an `Install` that completes is
-  discarded rather than staged (`updateQuitting`), and each `Install`
-  first removes the work directories next to the app that are neither the
-  staged update's nor one under way (`removeStaleWork`): a crash, or a
-  swap that gave up, leaves them. On Linux and Windows the app directory
+  SIGHUP, SIGTERM and SIGINT, runs with the system's `PATH`, and inherits
+  no file of the app but its log (`inheritNoFiles` marks the others
+  close-on-exec). A second SIGINT or SIGTERM, which exits at once, starts
+  it from `quitOnSignals` if `finish` has not. Only the first call takes
+  the update (`takeStagedUpdate`); a later one waits for that one to have
+  started the process (`swapStarted`, at most 2 s) and reports whether it
+  did, so that the second signal does not exit before, and `relaunchNow`
+  does not open the old version while the process may move it away; only
+  if the process could not start does `Relaunch` open the old version
+  (`openBundle`). Given the app's pid, the bundles, the work directory and
+  `open`'s arguments as arguments, never in the script, the process waits
+  for the app to exit (every 0.1 s, giving up after five minutes; a zombie
+  has exited), then swaps the bundles at once, so that the end of the
+  session, whose SIGKILL nothing ignores, has little time to find it
+  between the two `mv`s. It leaves the update if an instance of the app
+  runs from the target (`lsappinfo find bundlepath=`, but for the entry of
+  the app that exited, `lsappinfo find pid=`), one opened as the app quit,
+  which `RequestSingleInstanceLock` made wait for it to exit, and whose
+  bundle the swap would remove; if the target is gone, or is there again
+  once moved aside, as the new bundle would move into it; and if the new
+  bundle cannot move in, after putting the old one back. Otherwise it
+  removes the work directory. When the app relaunches, it then waits for
+  Launch Services to forget the app that exited (at most 10 s), and opens
+  the app without `-n` (the app has exited, and the Dock gives the new
+  version its tile), then with `-n` if that fails (not when the app is
+  only slow to start, which would start two); only with `-n` if Launch
+  Services still lists the app that exited, as `open` would only bring it
+  forward. Its output, each step with the time, goes to `update.log` in
+  `PathLogs` (which `SetPath` changes), emptied past 256 KB. Once the app
+  looked for the staged update as it quits, an `Install` that completes is
+  discarded rather than staged (`updateQuitting`, `stagingClosed`), and
+  each `Install` first removes the work directories next to the app that
+  are neither the staged update's nor one under way (`removeStaleWork`):
+  a crash, `App.Exit`, another signal, or a swap that left the update or
+  gave up, leaves them, with a hidden copy of the new version next to the
+  app until then. On Linux and Windows the app directory
   holds `update.FileList` (`.mygo-files`),
   its top-level entries as installed, one per line: `mygo build` writes it
   into the app (so the archive, installer and packages have it), and
