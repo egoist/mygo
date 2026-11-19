@@ -118,7 +118,7 @@ func init() {
 				ui.Icon(c, collectionsFileIcon(f.name)).Size(16, 16)
 				ui.Text(c, f.name).SingleLine().Grow(1)
 				muted := t.TextMuted
-				if chosen.Has(f.id) {
+				if chosen.Has(f.id) && state.Emphasized(c) {
 					muted = t.AccentText.Alpha(0.75)
 				}
 				ui.Text(c, collectionsSize(f.size)).FontSize(12).TextColor(muted)

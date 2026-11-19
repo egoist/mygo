@@ -51,7 +51,7 @@ head.ScrollWith(list)
 
 ## 选择行
 
-- `Selected` 启用行选择：单击，或在列表具有键盘焦点时按 Up、Down、Home 和 End（Linux 和 Windows 上还有 Page Up 和 Page Down），即可选中一行，以强调色显示；列表的 `Changed` 报告选择变化，`Submitted` 报告双击或 Enter。`-1` 表示未选中任何行。有 `Key` 时，添加、移除或排序行后，选择仍跟随原条目；条目离开列表时则变为 `-1`。列表会在本次构建中立即写入该值，因此在列表之后构建的内容（例如读取所选行的详情面板）必须处理 `-1`，将其视为未选择。没有 `Key` 时，选择仍停留在原索引。
+- `Selected` 启用行选择：单击，或在列表具有键盘焦点时按 Up、Down、Home 和 End（Linux 和 Windows 上还有 Page Up 和 Page Down），即可选中一行，列表有焦点时以强调色显示，否则显示为灰色（[见下文](#焦点)）；列表的 `Changed` 报告选择变化，`Submitted` 报告双击或 Enter。`-1` 表示未选中任何行。有 `Key` 时，添加、移除或排序行后，选择仍跟随原条目；条目离开列表时则变为 `-1`。列表会在本次构建中立即写入该值，因此在列表之后构建的内容（例如读取所选行的详情面板）必须处理 `-1`，将其视为未选择。没有 `Key` 时，选择仍停留在原索引。
 - `Selection` 让用户选择多行，保存在一个 `ui.Selection[K]` 中，有 `Key` 时按条目的键，没有时按索引：点击选择一行，Cmd 点击（Linux 和 Windows 上 Ctrl 点击）添加一行或把它移出选择，Shift 点击，或按住 Shift 配合方向键，会选择从最后选中的那一行到当前行的范围；Cmd+A 全选。在 Linux 和 Windows 上，Ctrl 加方向键只移动而不选择，Ctrl+Space 添加或移除当前行。同时设置的 `Selected` 是最后选择的那一行。
 
 一个表格和它下方所选行的编辑器：
@@ -238,12 +238,17 @@ if paths, ok := ui.Drop[[]string](row); ok {
 app.list.Handle.OnShortcut(c, ui.Cmd, ui.KeyK, app.openCurrentFile)
 ui.List(c.Key("files"), &app.list, len(app.files)).Grow(1).
     Rows(func(row ui.ListRow) {
-        text := ui.Text(row.Context, app.files[row.Index].Name).Padding(6, 12)
-        if row.Selected() && row.ListFocused() {
-            text.TextColor(c.Theme().Accent)
-        }
+        ui.Column(row.Context).Padding(6, 12).Children(func() {
+            ui.Text(row.Context, app.files[row.Index].Name)
+            dir := ui.Text(row.Context, app.files[row.Index].Dir).TextColor(c.Theme().TextMuted)
+            if row.Emphasized() {
+                dir.TextColor(c.Theme().AccentText)
+            }
+        })
     })
 ```
+
+只有当列表或其中的内容具有焦点，或者从列表打开的菜单或弹出面板具有焦点时（对话框会接管按键，列表随之变灰），选中的行才以强调色及其文字颜色显示；列表没有焦点时，选中的行使用主题的 `SurfacePressed`（一种灰色）并保留文字本身的颜色，这与 AppKit 的表格和[侧边栏](sidebar.md)一致。屏幕上有两个列表时，例如提交历史和所选提交的文件列表，键盘操作的那个列表会以强调色显示。设置了自定义颜色的文字跟随 `row.Emphasized()`，如上例所示，以便在强调色上清晰可见；表格的单元格、大纲的条目，以及以函数形式交给 `List` 的行，则结合各自是否选中，读取 `ListState.Emphasized(c)`。`KeepAccent` 让列表没有焦点时也保持强调色，适用于由其他控件接收按键的列表，例如启动器搜索框下方的结果列表。
 
 在 UI 线程上调用 `app.list.Handle.Focus()` 请求焦点，或用 `Focus(c)` 显式选择一个窗口。`Focused(c)` 报告焦点在列表上，`FocusWithin(c)` 则把它的后代也算在内。只有该句柄对应的控件存在且启用时，句柄的快捷键动作才会在构建之后运行。
 

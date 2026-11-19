@@ -134,11 +134,13 @@ func (s *ListState) inBlock(k int) bool {
 // choosing cells (CellSelect), its column is in the block, or it is a
 // RowHeader cell of a row chosen with every column. In a table that does
 // not choose cells, every cell of a chosen row is. It is false before the
-// list is first built. A cell builder can style what it holds with it:
+// list is first built. A cell builder can style what it holds with it,
+// and Emphasized, as the block shows in the accent only while the table
+// has the focus, or a menu or popover opened from it does (KeepAccent):
 //
 //	ui.Table(c, &app.grid, cols, len(app.rows), func(row, col int) {
 //		text := ui.Text(c, app.rows[row][col])
-//		if app.grid.CellSelected(row, col) {
+//		if app.grid.CellSelected(row, col) && app.grid.Emphasized(c) {
 //			text.TextColor(c.Theme().AccentText)
 //		}
 //	})

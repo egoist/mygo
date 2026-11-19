@@ -100,6 +100,7 @@ func (l *launcher) view(c *ui.Context) {
 		})
 		ui.Divider(c)
 		l.list.Selected = &l.chosen
+		l.list.KeepAccent = true // the search field takes the keys
 		l.list.Key = func(i int) any { return l.results[i].Path }
 		l.list.Label = func(i int) string { return l.results[i].Name }
 		list := ui.List(c, &l.list, len(l.results), func(i int) { l.row(c, i) }).Grow(1).Padding(6).Children(func() {

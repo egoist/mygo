@@ -37,7 +37,7 @@ if ui.Table(c, &app.files, cols, len(files), func(row, col int) {
 - **右键单击。** 在块外的单元格上右键，会先选中该单元格再打开上下文菜单；在块内右键，块保持不变。`MenuKeepsSelection` 会让块保持原样。
 - **行标题。** `RowHeader` 列就像电子表格的行号，用于选择整行：单击或拖动它的单元格会选中整行及所有列，单击它的表头则选择所有行。它不参与排序。
 
-选区内的单元格与选中行一样，使用强调色背景及配套的文字颜色；选中整行时，行标题也如此显示。表格有焦点时，键盘导航当前所在行中 `Cells.Cursor` 对应的单元格会显示边框。单元格内部有焦点时（例如正在编辑），则保持原有外观。选中的行不会整行着色。`SelectedColumns` 按显示顺序返回选区的列 ID；应用可用 `SelectColumns` 实现选择所有行和一段列的命令。`CellSelected(row, col)` 告诉单元格构建器当前单元格是否选中，以便自定义文字颜色适应强调色背景。用 `RowClicked` 读取所在行的单击，或用 `RowDoubleClicked` 读取双击，不会消费点击事件，行仍会处理该事件并更新选区。
+选区内的单元格与选中行一样，表格有焦点时使用强调色背景及配套的文字颜色，没有焦点时显示为灰色；选中整行时，行标题也如此显示。表格有焦点时，键盘导航当前所在行中 `Cells.Cursor` 对应的单元格会显示边框。单元格内部有焦点时（例如正在编辑），则保持原有外观。选中的行不会整行着色。`SelectedColumns` 按显示顺序返回选区的列 ID；应用可用 `SelectColumns` 实现选择所有行和一段列的命令。`CellSelected(row, col)` 告诉单元格构建器当前单元格是否选中，配合 `Emphasized(c)` 还能知道它是否以强调色显示，以便自定义文字颜色适应强调色背景；使用 `CellsStyle` 颜色的选区，以及内部有焦点的单元格，无论它返回什么都按各自的方式显示。`KeepAccent` 让表格没有焦点时也保持强调色。用 `RowClicked` 读取所在行的单击，或用 `RowDoubleClicked` 读取双击，不会消费点击事件，行仍会处理该事件并更新选区。
 
 `CellsStyle` 用自定义颜色而非强调色绘制块，就像电子表格的两级配色和条纹：`Cell` 填充块内的单元格，`CellText` 为其中文本着色，`Row` 填充选中行的其余部分，`Stripe` 填充隔行。颜色为零时不绘制。游标的边框在块内使用 `CellText`，在块外使用 `Cell`；这些颜色为零时，则使用强调色及其文字颜色。
 
@@ -60,7 +60,7 @@ ui.Table(c, &app.grid, cols, len(rows), func(row, col int) {
 	if text == "" {
 		text, color = "empty", c.Theme().TextMuted
 	}
-	if app.grid.CellSelected(row, col) {
+	if app.grid.CellSelected(row, col) && app.grid.Emphasized(c) {
 		color = c.Theme().AccentText // muted does not show on the accent
 	}
 	ui.Text(c, text).TextColor(color).SingleLine()

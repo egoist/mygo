@@ -280,8 +280,13 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				box.checked = 1 + int8(b2f(on))
 				style := s.CellsStyle
 				bg, fg := c.accent(t), t.AccentText
-				if style.Cell != Transparent {
+				switch {
+				case style.Cell != Transparent:
 					bg = style.Cell
+				case !c.row.f.emphasized():
+					// In gray with the text's own color without the
+					// focus, as a chosen row.
+					bg, fg = t.SurfacePressed, Transparent
 				}
 				if style.CellText != Transparent {
 					fg = style.CellText
@@ -289,10 +294,17 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				switch {
 				case !on && !at, box.FocusWithin():
 				case on && at:
-					// The border in the text's color, on the cell's own.
-					box.Background(bg).TextColor(fg).DrawOver(cursorBorder(table, fg))
+					// The border in the text's color, on the cell's own;
+					// it shows only while the table has the focus.
+					box.Background(bg).DrawOver(cursorBorder(table, fg))
+					if fg != Transparent {
+						box.TextColor(fg)
+					}
 				case on:
-					box.Background(bg).TextColor(fg)
+					box.Background(bg)
+					if fg != Transparent {
+						box.TextColor(fg)
+					}
 				case at:
 					// The border in the block's own color, the accent
 					// without one.

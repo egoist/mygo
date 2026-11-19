@@ -70,14 +70,19 @@ block: separate ranges of cells, as Excel's Cmd-drag adds, are not chosen.
   column, and a click on its header every row. It does not sort.
 
 The cells of the block show as a chosen row does, in the accent color with
-the accent's text color, as do the row headers of whole rows chosen, and the
+the accent's text color while the table has the focus and in gray
+otherwise, as do the row headers of whole rows chosen, and the
 cell at `Cells.Cursor` in the row the keys move from has a border while the
 table has the focus. A cell holding the focus, as an editor in it, shows as
 it is. Chosen rows are not tinted whole. `SelectedColumns` returns the
 block's column IDs in the order shown, and `SelectColumns` chooses every row
 and a range of columns, for the app's own commands. `CellSelected(row, col)`
-tells a cell builder whether its cell is chosen, for text of its own color
-to show on the accent. A cell that reads its
+tells a cell builder whether its cell is chosen, and with `Emphasized(c)`
+whether it shows in the accent, for text of its own color to show on it;
+a block in `CellsStyle`'s colors, and a cell holding the focus, show as
+they do whatever it says.
+`KeepAccent` keeps the accent while the table does not have the focus. A
+cell that reads its
 row's click with `RowClicked`, or its double click with `RowDoubleClicked`,
 leaves the click to the row, so the block follows it.
 
@@ -107,7 +112,7 @@ ui.Table(c, &app.grid, cols, len(rows), func(row, col int) {
 	if text == "" {
 		text, color = "empty", c.Theme().TextMuted
 	}
-	if app.grid.CellSelected(row, col) {
+	if app.grid.CellSelected(row, col) && app.grid.Emphasized(c) {
 		color = c.Theme().AccentText // muted does not show on the accent
 	}
 	ui.Text(c, text).TextColor(color).SingleLine()

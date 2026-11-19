@@ -78,11 +78,9 @@ func (rt *engine) buildInspector(c *context, appW, w, h float32) {
 	t.Text, t.TextMuted, t.FontSize = pal.text, pal.muted, 12
 	// Rows chosen span the tree, square, as Chrome's.
 	t.Radius = 0
-	// The tree's chosen row, in its colors, whether the tree has the focus.
-	t.Accent, t.AccentText = pal.unfocused, pal.text
-	if rt.focused == in.listID && in.listID != 0 {
-		t.Accent = pal.selected
-	}
+	// The tree's chosen row while it has the focus, in its colors, as the
+	// accent was across the panel while the tree had the focus.
+	t.Accent, t.AccentText = pal.selected, pal.text
 	saved, savedParent := c.theme, c.parent
 	c.theme, c.parent = t, c.root
 	defer func() { c.theme, c.parent = saved, savedParent }()
@@ -301,6 +299,12 @@ func (in *inspector) tree(c *context, rt *engine) {
 		return strings.TrimSpace(n.name + " " + clip(n.text, 40))
 	}
 	hovered := uint64(0)
+	// Without the focus, the tree's chosen row goes gray (SurfacePressed),
+	// which the panel's pressed buttons keep their own of.
+	tree := *c.theme
+	tree.SurfacePressed = in.pal.unfocused
+	saved := c.theme
+	c.theme = &tree
 	list := coreList(c, &in.list, len(in.rows), func(i int) {
 		r := in.rows[i]
 		n := &in.nodes[r.node]
@@ -315,6 +319,7 @@ func (in *inspector) tree(c *context, rt *engine) {
 		row.ContextMenu(func(m *Menu) { in.rowMenu(c, m, id) })
 		row.Children(func() { in.treeRow(c, r, n) })
 	}).Grow(1).MinHeight(0).PaddingY(2).FocusRing(false).Label("Elements")
+	c.theme = saved
 	in.listID = list.id
 	list.afterInput(func() {
 		if list.Changed() && in.row >= 0 && in.row < len(in.rows) {

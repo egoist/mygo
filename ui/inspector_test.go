@@ -252,6 +252,37 @@ func TestInspectorTree(t *testing.T) {
 	}
 }
 
+// TestInspectorTreeChosenRow checks the colors of the tree's chosen row,
+// Chrome's: its own while the tree has the focus, gray without it, and
+// that gray stays the tree's, not the pressed color of the panel's buttons.
+func TestInspectorTreeChosenRow(t *testing.T) {
+	tt, _ := inspected(func(c *context) {
+		coreColumn(c).Padding(20).Children(func() { coreText(c, "Inside") })
+	})
+	openInspector(tt)
+	if err := tt.Click("<Text>Inside</Text>"); err != nil {
+		t.Fatal(err)
+	}
+	pal := tt.rt.insp.pal
+	tt.Move(5, 5) // off the tree, whose hover would show over the row
+	at := func() Color {
+		// The find bar moves the tree down.
+		r, _ := tt.Find("<Text>Inside</Text>")
+		return pixel(tt.Image(), r.X+r.W+20, r.Y+r.H/2)
+	}
+	if c := at(); c != pal.selected {
+		t.Errorf("the tree with the focus: its chosen row %v, want %v", c, pal.selected)
+	}
+	tt.Key(Cmd, KeyF)
+	tt.Frame()
+	if c := at(); c != pal.unfocused {
+		t.Errorf("the tree without the focus: its chosen row %v, want %v", c, pal.unfocused)
+	}
+	if got := tt.rt.insp.theme.SurfacePressed; got == pal.unfocused {
+		t.Error("the panel's pressed color is the tree's gray")
+	}
+}
+
 func TestInspectorTabs(t *testing.T) {
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(os.Stderr)

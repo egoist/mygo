@@ -259,10 +259,11 @@ func (s *OutlineState[K]) prefix(c *context, i int, children func(K) []K, conten
 	}
 	a := s.arrow(c, i, item).Size(t.Space(4), t.Space(4))
 	if r.branch {
+		emphasized := c.row != nil && c.row.f.emphasized()
 		turn := a.Animate("open", 90*b2f(open), 150*time.Millisecond)
 		rtl := a.rtl()
 		a.Draw(func(p *Painter, rect Rect) {
-			p.StrokePath(disclosurePath(rect, turn, rtl), 1.5, arrowColor(t, item))
+			p.StrokePath(disclosurePath(rect, turn, rtl), 1.5, arrowColor(t, item, emphasized))
 		})
 	}
 	content()
@@ -367,9 +368,11 @@ var allMod = func() Modifiers {
 }()
 
 // arrowColor is the color of the arrow of an item of a tree: muted, or
-// the accent's text on the item chosen.
-func arrowColor(t *Theme, item *node) Color {
-	if item != nil && item.checked == 2 {
+// the accent's text on the item chosen in the accent (emphasized); a list
+// without the focus shows its chosen rows in gray, on which the muted
+// arrow shows.
+func arrowColor(t *Theme, item *node, emphasized bool) Color {
+	if item != nil && item.checked == 2 && emphasized {
 		return t.AccentText
 	}
 	return t.TextMuted

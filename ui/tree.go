@@ -326,7 +326,7 @@ func coreTreeItem(c *context, label string, open *bool, children func()) *node {
 				default:
 					path.MoveTo(r.X+r.W*3/8, r.Y+r.H/4).LineTo(r.X+r.W*5/8, r.Y+r.H/2).LineTo(r.X+r.W*3/8, r.Y+r.H*3/4)
 				}
-				p.StrokePath(&path, 1.5, arrowColor(t, item))
+				p.StrokePath(&path, 1.5, arrowColor(t, item, true))
 			})
 		}
 		coreText(c, label).SingleLine()

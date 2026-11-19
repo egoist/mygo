@@ -17,6 +17,8 @@ type Theme struct {
 	Background Color
 	// Surface is the face of buttons, inputs and other controls;
 	// SurfaceHover and SurfacePressed while hovered or pressed.
+	// SurfacePressed also fills the chosen rows of a list without the
+	// focus.
 	Surface        Color
 	SurfaceHover   Color
 	SurfacePressed Color

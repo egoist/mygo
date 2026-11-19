@@ -243,12 +243,21 @@ func (rt *engine) pressedWithin(id uint64, e *node) bool {
 	if e.popover != nil {
 		anchor = e.popover.id
 	}
+	return rt.leadsTo(id, e.id, anchor)
+}
+
+// leadsTo reports whether element id of the last frame is target, or
+// anchor when it is not 0, inside one of them, or in an overlay attached
+// to one of them or to an element inside: a popover is where its anchor
+// is, as a menu's panel by the element it opened from, and a submenu's by
+// its item.
+func (rt *engine) leadsTo(id, target, anchor uint64) bool {
 	s := rt.states[id]
 	for range 1000 { // against cycles of anchors
 		if s == nil {
 			return false
 		}
-		if s.id == e.id || anchor != 0 && s.id == anchor {
+		if s.id == target || anchor != 0 && s.id == anchor {
 			return true
 		}
 		next := s.parent
