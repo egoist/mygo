@@ -1187,9 +1187,10 @@ func (s *ListState) ExtendTo(row int) {
 	s.req.user = false // the app's
 }
 
-// chooseRowAt notes a right-click on the row of a list with Selection
-// in chain, the elements under the pointer, for the next frame's build to
-// choose it (pickForMenu), before it builds the row's menu. It runs
+// chooseRowAt gives the list of a row right-clicked in chain, the
+// elements under the pointer, the keyboard focus, and with Selection notes
+// the row for the next frame's build to choose it (pickForMenu), before
+// it builds the row's menu. It runs
 // between frames, where the app's rows may have changed since the last
 // one: its Key is called only once the build has their number.
 func (rt *engine) chooseRowAt(chain []uint64, x, y float32) {
@@ -1199,7 +1200,16 @@ func (rt *engine) chooseRowAt(chain []uint64, x, y float32) {
 			continue
 		}
 		b, ok := s.valueBinding.(*listRowInput)
-		if !ok || b.f.s.Selection == nil || b.f.s.MenuKeepsSelection {
+		if !ok {
+			return
+		}
+		// The list takes the keyboard focus, as Finder's and Explorer's
+		// do: the keys then act on the rows the menu acts on, as a key
+		// pasting what the menu cut.
+		if o := b.f.owner; o != nil && rt.focused != o.id {
+			rt.focused, rt.focusVisible, rt.blinkStart = o.id, false, rt.now()
+		}
+		if b.f.s.Selection == nil || b.f.s.MenuKeepsSelection {
 			return
 		}
 		p := &b.f.s.menuPick

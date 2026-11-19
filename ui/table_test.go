@@ -80,8 +80,9 @@ func TestTableResize(t *testing.T) {
 		t.Fatalf("dragged 30 DIPs wider: %v, the header %v", w, h)
 	}
 	// The column before it, sharing the room left, kept its width, for the
-	// edge to follow the pointer.
-	if w := s.Columns.Widths["Name"]; w != 300 {
+	// edge to follow the pointer: the table's, less the others' and the
+	// scroll bar's room after them.
+	if w := s.Columns.Widths["Name"]; w != 300-(ScrollbarStyle{}).Resolve(tt.rt.c.theme).TrackWidth {
 		t.Errorf("Name took %v", w)
 	}
 	edge += 30
@@ -728,5 +729,33 @@ func TestTableRowHeight(t *testing.T) {
 	}
 	if !tt.HasText("b.txt") {
 		t.Errorf("texts %q", tt.Texts())
+	}
+}
+
+// The last column's text stays clear of the rows' scroll bar, which lies
+// over them at their side, in the header and the rows alike.
+func TestTableLastColumnClearsTheScrollbar(t *testing.T) {
+	cols := []TableColumn{{Title: "Name"}, {Title: "Size", Width: 90, Align: End}}
+	var s ListState
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Children(func() {
+			coreTable(c, &s, cols, 200, func(row, col int) {
+				if col == 0 {
+					coreTextf(c, "file %d", row)
+				} else {
+					coreText(c, "974 MB")
+				}
+			}).Grow(1)
+		})
+	}, 400, 300)
+	room := ScrollbarStyle{}.Resolve(tt.rt.c.theme).TrackWidth
+	for _, label := range []string{"Size", "974 MB"} {
+		r, ok := tt.Find(label)
+		if !ok {
+			t.Fatalf("no %q", label)
+		}
+		if right := r.X + r.W; right > 400-room {
+			t.Errorf("%q ends at %v, under the scroll bar from %v", label, right, 400-room)
+		}
 	}
 }

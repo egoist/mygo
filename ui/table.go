@@ -313,7 +313,18 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	var list *node
 	table.Children(func() {
 		// The header, which scrolls sideways with the rows.
-		head := coreRow(c).Height(tableRow).Shrink(0).AlignItems(Stretch).Role(RoleRow).Clip()
+		// After the last column, the room of the rows' scroll bar, which
+		// lies over them at their side, there or not: the columns' text
+		// keeps clear of it, and the columns stay where they are as it
+		// comes and goes. The header leaves as much, lined up, and so does
+		// a header the app draws itself with the same TrackWidth.
+		// On the bar's side: the left, right to left.
+		room := ScrollbarStyle{}.Resolve(t).TrackWidth
+		roomPad := []float32{0, room, 0, 0}
+		if table.rtl() {
+			roomPad = []float32{0, 0, 0, room}
+		}
+		head := coreRow(c).Height(tableRow).Shrink(0).AlignItems(Stretch).Role(RoleRow).Clip().Padding(roomPad...)
 		if menu := s.HeaderMenu; menu != nil {
 			// The part of the header past the columns, as AppKit's
 			// clickedColumn -1.
@@ -346,12 +357,12 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 		list = coreScroll(c).Grow(1).Role(RoleNone)
 		list.widget = "List"
 		list.flags |= flagScrollX
-		list.rowMinW = least
+		list.rowMinW = least + room
 		// The table's Scrollbars and KeepScrollbars are its rows'.
 		list.barsFrom = table
 		head.followX = list
 		buildList(c, list, table, s, n, func(i int) {
-			row := coreRow(c).MinHeight(tableRow).AlignItems(Stretch)
+			row := coreRow(c).MinHeight(tableRow).AlignItems(Stretch).Padding(roomPad...)
 			if s.RowHeight > 0 {
 				row.MinHeight(0).Height(s.RowHeight)
 			}
