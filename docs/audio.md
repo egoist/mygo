@@ -227,6 +227,34 @@ Where no output opens, as on a machine with no audio device, players still
 play on time, unheard, and `audio.Err` says why. Every function and method
 is safe to call from any goroutine.
 
+### An output of your own
+
+An app with its own mixing engine — its own volume, equalizer, crossfades
+and playback position — pulls instead: `audio.NewOutput` returns an
+output whose `fill` is called on its thread for every period the device
+takes, with `dst` holding interleaved stereo float32 samples at 48 kHz.
+
+```go
+out := audio.NewOutput(func(dst []float32) {
+	mix(dst) // what the app mixed, at 48 kHz in stereo
+})
+out.Start()
+defer out.Close()
+
+out.Delay() // what fill's samples wait before they are heard
+```
+
+Nothing is decoded or mixed with other sounds, so a change is heard as
+soon as the device's buffer lets it, and `Delay` says how long that is,
+to time lyrics against. The buffer is `LatencyInteractive`'s 40 ms, or
+`OutputOptions{Buffer: ...}`'s. `Stop` closes the device and returns once
+fill runs no more; `Start` opens it again, `Close` for good. Where no
+output opens, fill still runs on time and `audio.Err` says why, as for
+players. A page may start audio only after the user interacted with it,
+and a phone serves its app one audio session, so an output of your own
+and players at once is not what those hosts hold yet: use one or the
+other.
+
 [examples/piano](../examples/piano) is a piano of synthesized keys that
 plays from the pointer and the keyboard, with a sustain pedal, dampers that
 fade its strings out, and a few tunes it plays by itself.
