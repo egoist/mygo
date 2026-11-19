@@ -60,3 +60,27 @@ func (e *node) RowClicked() bool {
 	row.singleTaken = true
 	return true
 }
+
+// RowPressed reports, while a row of a List or a Table builds, that the
+// row is being pressed with the pointer's primary button: a cell can show
+// it heard the press and leave the press to the row, which chooses, where
+// Pressed would take it. Dragged off the row, it is pressed no more.
+//
+//	ui.Table(c, &app.list, cols, len(app.rows), func(row, col int) {
+//		cell := ui.Box(c).FillWidth().Children(func() { ui.Text(c, app.rows[row][col]) })
+//		if cell.RowPressed() {
+//			cell.Opacity(0.8)
+//		}
+//	})
+func (e *node) RowPressed() bool {
+	if !e.hasState() {
+		return false
+	}
+	row := e.c.row
+	if row == nil || row.e == nil {
+		return false
+	}
+	s, rt := row.e.st, e.c.rt
+	x, y := s.pointer(rt)
+	return s.pressedPrimary() && rt.contains(s, Rect{s.x, s.y, s.w, s.h}, x, y)
+}

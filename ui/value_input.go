@@ -340,7 +340,12 @@ func listRowValueInput(n *node) {
 		switch {
 		case st.pressChose:
 		case st.rowPressed:
-			f.clickAt(b.i, st.drag.ox, st.drag.oy, n.ClickModifiers()) // where it pressed
+			mods := n.ClickModifiers()
+			if s := f.s; s.Selection != nil && mods&Shift == 0 &&
+				(s.Toggles || s.ToggleAt != nil && s.ToggleAt(b.i, st.drag.ox, st.drag.oy)) {
+				mods |= Cmd // as a Cmd-click: the row in or out of the choice
+			}
+			f.clickAt(b.i, st.drag.ox, st.drag.oy, mods) // where it pressed
 		default:
 			// The keyboard or assistive technology: the row, and no column.
 			f.click(b.i, n.ClickModifiers())

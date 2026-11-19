@@ -237,3 +237,47 @@ func TestRowClickedTableAndAccess(t *testing.T) {
 		t.Fatalf("pressed Line 1 from assistive technology: RowClicked %v, chose %d", hits, sel)
 	}
 }
+
+// RowPressed tells a cell its row is pressed, until the release or the
+// pointer leaves the row; the press still goes to the row, which chooses.
+func TestRowPressedTellsTheCells(t *testing.T) {
+	sel := -1
+	s := &ListState{Selected: &sel}
+	pressed := map[int]bool{}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Children(func() {
+			coreList(c, s, 100, func(row int) {
+				cell := coreRow(c).Height(28).Children(func() { coreTextf(c, "row %d", row) })
+				if cell.RowPressed() {
+					pressed[row] = true
+				} else {
+					delete(pressed, row)
+				}
+			}).Grow(1)
+		})
+	}, 400, 600)
+	r, ok := tt.Find("row 10")
+	if !ok {
+		t.Fatal("no row 10")
+	}
+	x, y := float32(r.X+5), float32(r.Y+r.H/2)
+	tt.Press(x, y)
+	if !pressed[10] || len(pressed) != 1 {
+		t.Errorf("pressed: %v", pressed)
+	}
+	tt.Move(x, y+100)
+	if pressed[10] {
+		t.Error("still pressed, off the row")
+	}
+	tt.Move(x, y)
+	if !pressed[10] {
+		t.Error("not pressed, back on the row")
+	}
+	tt.Release(x, y)
+	if pressed[10] {
+		t.Error("still pressed, released")
+	}
+	if sel != 10 {
+		t.Errorf("the press chose %d, not the row", sel)
+	}
+}

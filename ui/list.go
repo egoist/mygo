@@ -122,6 +122,13 @@ type ListState struct {
 	// number of rows for the end. Move them there: the list shows where
 	// they would go as they are dragged, and scrolls near its edges.
 	Reorder func(rows []int, to int)
+	// Toggles, with Selection, makes a click on a row choose it or take it
+	// out of the choice, as a Cmd-click (Ctrl-click on Linux and Windows)
+	// does, for a while of checking rows with no key held. Shift still
+	// extends. ToggleAt, when set, does so for a click at the window's
+	// point (x, y) on row it reports true for: one on the row's check box.
+	Toggles  bool
+	ToggleAt func(row int, x, y float32) bool
 	// DragRows, when set, lets the user drag rows out of the list, as
 	// Element.Drag drags a value: the rows chosen, when the row dragged is
 	// one, else that row, which the list passes in order, drag the value

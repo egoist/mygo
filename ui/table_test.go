@@ -730,3 +730,42 @@ func TestTableRowHeight(t *testing.T) {
 		t.Errorf("texts %q", tt.Texts())
 	}
 }
+
+// With Toggles a click checks a row in or out of the choice, no key held;
+// with ToggleAt only a click where it says (a check box) does.
+func TestListToggles(t *testing.T) {
+	items := []string{"a", "b", "c"}
+	sel := -1
+	var chosen Selection[string]
+	s := ListState{Selected: &sel, Selection: &chosen, Key: func(i int) any { return items[i] }}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Padding(10).Children(func() {
+			coreList(c, &s, len(items), func(row int) {
+				coreText(c, items[row]).Padding(6)
+			}).Grow(1)
+		})
+	}, 300, 300)
+	tt.Click("a")
+	s.Toggles = true
+	tt.Frame()
+	tt.Click("c")
+	tt.Click("b")
+	tt.Click("a")
+	if chosen.Has("a") || !chosen.Has("b") || !chosen.Has("c") {
+		t.Fatalf("toggled: %v", slices.Collect(chosen.All()))
+	}
+	// A check box on the row's left: there it toggles, past it a click
+	// chooses the row alone.
+	s.Toggles = false
+	s.ToggleAt = func(row int, x, y float32) bool { return x < 40 }
+	tt.Frame()
+	r, _ := tt.Find("a")
+	tt.ClickAt(float32(r.X)+5, float32(r.Y+r.H/2))
+	if !chosen.Has("a") || chosen.Len() != 3 {
+		t.Fatalf("on the box: %v", slices.Collect(chosen.All()))
+	}
+	tt.ClickAt(float32(r.X)+100, float32(r.Y+r.H/2))
+	if chosen.Len() != 1 || !chosen.Has("a") {
+		t.Errorf("past the box: %v", slices.Collect(chosen.All()))
+	}
+}

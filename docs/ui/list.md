@@ -339,6 +339,17 @@ Rows that are buttons, which open what they show as they are clicked,
 reorder too: a press on a row's button drags the row once the pointer
 moves, and clicks the button if it does not.
 
+## Checking rows
+
+`Toggles`, with `Selection`, makes a click on a row choose it or take it
+out of the choice, as a Cmd-click (Ctrl-click on Linux and Windows) does,
+for a while of checking rows with no key held. `ToggleAt` does so only for
+a click where it says, as on a check box the app draws at the row's left:
+
+```go
+app.files.ToggleAt = func(row int, x, y float32) bool { return x < app.boxRight }
+```
+
 ## Dragging rows out
 
 `DragRows` lets the user drag rows out of the list, to drop them elsewhere:
