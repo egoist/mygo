@@ -158,3 +158,74 @@ func TestBaselineInvisible(t *testing.T) {
 		}
 	}
 }
+
+// A labeled check box or radio in a row aligned by baselines reports the
+// label's baseline, and not the box's bottom: beside other text, the label
+// sits on the text's baseline, while the box keeps its place, centered in
+// the widget.
+func TestBaselineWidgetLabel(t *testing.T) {
+	checked := true
+	for name, build := range map[string]func(*context) *node{
+		"check box": func(c *context) *node { return coreCheckbox(c, &checked, "Viewed") },
+		"radio":     func(c *context) *node { return coreRadio(c, &checked, checked, "Viewed") },
+	} {
+		var m, widget, box, label *node
+		coreNewTester(func(c *context) {
+			coreRow(c).AlignItems(Baseline).Gap(6).Children(func() {
+				m = coreText(c, "M").FontSize(12)
+				widget = build(c).FontSize(12)
+			})
+		}, 300, 60)
+		for ch := widget.first; ch != nil; ch = ch.next {
+			if ch.kind == kindText {
+				label = ch
+			} else {
+				box = ch
+			}
+		}
+		if box == nil || label == nil {
+			t.Fatalf("the %s has no box or label", name)
+		}
+		mb := m.y + m.contentY() + m.tl.Lines[0].Baseline
+		lb := label.y + label.contentY() + label.tl.Lines[0].Baseline
+		if math.Abs(float64(mb-lb)) > 0.01 {
+			t.Errorf("the %s's label baseline is at %v, want the text's %v", name, lb, mb)
+		}
+		if d := (box.y - widget.y) - (widget.h-box.h)/2; math.Abs(float64(d)) > 0.05 {
+			t.Errorf("the box of the %s is at %v of a widget %v high, not centered", name, box.y-widget.y, widget.h)
+		}
+	}
+}
+
+// In a row not aligned by baselines, a labeled check box stands as it
+// always did: the label fills the widget from its top, as high as the
+// text beside it, and the box stays centered.
+func TestBaselineWidgetPlainRow(t *testing.T) {
+	checked := true
+	var m, widget, box, label *node
+	coreNewTester(func(c *context) {
+		coreRow(c).Gap(6).Children(func() {
+			m = coreText(c, "M").FontSize(12)
+			widget = coreCheckbox(c, &checked, "Viewed").FontSize(12)
+		})
+	}, 300, 60)
+	for ch := widget.first; ch != nil; ch = ch.next {
+		if ch.kind == kindText {
+			label = ch
+		} else {
+			box = ch
+		}
+	}
+	if box == nil || label == nil {
+		t.Fatalf("the check box has no box or label")
+	}
+	if label.y != widget.y || math.Abs(float64(label.h-widget.h)) > 0.05 {
+		t.Errorf("the label is at %v..%v, want the widget's top %v and height %v", label.y, label.y+label.h, widget.y, widget.h)
+	}
+	if d := (box.y - widget.y) - (widget.h-box.h)/2; math.Abs(float64(d)) > 0.05 {
+		t.Errorf("the box is at %v of a widget %v high, not centered", box.y-widget.y, widget.h)
+	}
+	if math.Abs(float64(label.y-m.y)) > 0.05 {
+		t.Errorf("the label is at %v, want the text's %v", label.y, m.y)
+	}
+}
