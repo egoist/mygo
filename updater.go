@@ -230,11 +230,14 @@ func checkUpdate(ctx context.Context, src UpdateSource, key, current string, pre
 //
 // A program whose App.Run is not running when Install completes (one that
 // never calls it, or calls it later, or whose Run returned) gets that
-// process at once, which installs the update once the program exits, if
-// it does within five minutes, and opens nothing; if the program then
-// calls Run, Run stops the process and the update is installed as the app
-// quits, as above. While that process waits, a later Install fails, as
-// one does once the app began quitting.
+// process at once, which installs the update once the program exits and
+// opens nothing; if the program then calls Run, Run stops the process and
+// the update is installed as the app quits, as above. While that process
+// waits, a later Install fails, as one does once the app began quitting.
+// If the program runs on for five minutes, the process gives up, and the
+// next Install removes the update and stages its own. That process logs
+// to the logs directory as it is when Install completes: set the app's
+// name and PathLogs before.
 //
 // The app must be able to write where it is installed: a bundle in
 // /Applications of an administrator, or an app directory the user owns on
@@ -440,9 +443,13 @@ var (
 	swapRunning bool
 	// swapEarly is set while stageBundle took pendingUpdate as App.Run was
 	// not running, and earlySwap is the process it started, which Run stops
-	// if it starts (reclaimStagedUpdate).
-	swapEarly bool
-	earlySwap *os.Process
+	// if it starts (reclaimStagedUpdate), and which reapEarlySwap waits for,
+	// closing earlyExited then. earlyQuitting is what updateQuitting was
+	// before, which it is again once the process exits while this one runs.
+	swapEarly     bool
+	earlySwap     *os.Process
+	earlyExited   chan struct{}
+	earlyQuitting bool
 )
 
 // appPid is the process whose exit a staged update waits for: the app's,
@@ -506,31 +513,30 @@ func removeStaleWork(target string) {
 	}
 }
 
-// eventLoopRunning reports whether the event loop runs, or is about to:
-// Run started, and the app has not looked for a staged update as it
-// finishes (stagingClosed). Without it, stageBundle starts the process
-// that installs the update at once, as nothing else would.
-func eventLoopRunning() bool {
+// runRunning reports whether App.Run runs: it started and has not
+// returned (runReturned). Without it, stageBundle starts the process that
+// installs the update at once, as nothing else would.
+func runRunning() bool {
 	App.mu.Lock()
 	running := App.running
 	App.mu.Unlock()
-	return running && !stagingClosed.Load()
+	return running && !runReturned.Load()
 }
 
 // stageBundle leaves the bundle that dir holds to replace target once the
 // app has exited, in place of an update staged before, whose work it
 // removes. Nothing runs until then: the app starts the process that
 // installs it as it finishes (installStagedUpdate, which it reaches
-// through stagedInstaller, set here). Once it took the update, or an
-// earlier call did without the event loop, the update is refused, and
-// Install removes it.
+// through stagedInstaller, set here). Once it looked for the update
+// (stagingClosed), until Run returns, or once a process installs an
+// update, the update is refused, and Install removes it.
 //
-// Without the event loop running (eventLoopRunning: Run has not started,
-// or the app looked for the update as it finished), no finish would start
-// the process: stageBundle takes the update and starts it at once, not to
-// relaunch the app, and fails if it cannot. If Run starts later, it takes
-// the update back (reclaimStagedUpdate, through stagedReclaimer, set
-// here).
+// Without Run running (runRunning: it has not started, or it returned), no
+// finish would start the process: stageBundle takes the update and starts
+// it at once, not to relaunch the app, and fails if it cannot. If Run
+// starts later, it takes the update back (reclaimStagedUpdate, through
+// stagedReclaimer, set here); if the process exits while this one runs,
+// having given up, the update is no longer staged (reapEarlySwap).
 func stageBundle(work, dir, target string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -543,7 +549,7 @@ func stageBundle(work, dir, target string) error {
 	// Before checking stagingClosed, which the app sets before it reads
 	// stagedInstaller, and App.running, which Run sets before it reads
 	// stagedReclaimer: either the app finds them, or this call sees that
-	// the event loop does not run.
+	// the app quits, or that Run does not run.
 	install, reclaim := installStagedUpdate, reclaimStagedUpdate
 	stagedInstaller.CompareAndSwap(nil, &install)
 	stagedReclaimer.CompareAndSwap(nil, &reclaim)
@@ -552,11 +558,18 @@ func stageBundle(work, dir, target string) error {
 		stageMu.Unlock()
 		return errors.New("another update is installed once the app exits")
 	}
+	running := runRunning()
+	// The app quits: it may be about to take the update it staged, to
+	// open it after Relaunch, or have taken none and open the old version.
+	if running && (updateQuitting || stagingClosed.Load()) {
+		stageMu.Unlock()
+		return errors.New("the app is quitting")
+	}
 	old, quitting := pendingUpdate, updateQuitting
 	pendingUpdate = p
-	now := !eventLoopRunning()
+	now := !running
 	if now {
-		updateQuitting, swapEarly = true, true
+		updateQuitting, swapEarly, earlyQuitting = true, true, quitting
 	}
 	started := swapStarted
 	stageMu.Unlock()
@@ -641,14 +654,33 @@ func startStaged(p *stagedUpdate, relaunch bool, args []string, started chan str
 	}
 	stageMu.Lock()
 	swapRunning = proc != nil
-	if early && swapEarly {
-		earlySwap = proc
+	if early && swapEarly && proc != nil {
+		earlySwap, earlyExited = proc, make(chan struct{})
+		go reapEarlySwap(proc, earlyExited)
 	} else if proc != nil {
 		_ = proc.Release()
 	}
 	close(started)
 	stageMu.Unlock()
 	return proc != nil
+}
+
+// reapEarlySwap waits for the process proc that stageBundle started
+// without Run, and closes exited then. If it exits while this process
+// runs, and Run did not stop it, it gave up waiting: its update stays in
+// its work, which the next Install removes, and is no longer staged, so
+// that the next Install stages its own.
+func reapEarlySwap(proc *os.Process, exited chan struct{}) {
+	_, _ = proc.Wait()
+	close(exited)
+	stageMu.Lock()
+	defer stageMu.Unlock()
+	if earlySwap != proc {
+		return
+	}
+	pendingUpdate, updateQuitting = nil, earlyQuitting
+	earlySwap, swapEarly, earlyExited = nil, false, nil
+	swapStarted, swapRunning = make(chan struct{}), false
 }
 
 // reclaimStagedUpdate stops the process that stageBundle started as
@@ -671,10 +703,12 @@ func reclaimStagedUpdate() {
 		return
 	}
 	if earlySwap != nil {
+		// reapEarlySwap closes earlyExited before it takes stageMu, and
+		// then leaves the state alone, as earlySwap is no longer its.
 		_ = earlySwap.Kill()
-		_, _ = earlySwap.Wait()
+		<-earlyExited
 	}
-	earlySwap, swapEarly, updateQuitting = nil, false, false
+	earlySwap, swapEarly, earlyExited, updateQuitting = nil, false, nil, false
 	swapStarted, swapRunning = make(chan struct{}), false
 }
 

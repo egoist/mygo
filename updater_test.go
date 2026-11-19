@@ -387,21 +387,23 @@ esac
 	// left, and is put back after.
 	stageMu.Lock()
 	oldPending, oldQuitting, oldStarted, oldRunning := pendingUpdate, updateQuitting, swapStarted, swapRunning
-	oldEarly, oldEarlySwap := swapEarly, earlySwap
+	oldEarly, oldEarlySwap, oldExited, oldEarlyQuitting := swapEarly, earlySwap, earlyExited, earlyQuitting
 	pendingUpdate, updateQuitting, swapStarted, swapRunning = nil, false, make(chan struct{}), false
-	swapEarly, earlySwap = false, nil
+	swapEarly, earlySwap, earlyExited, earlyQuitting = false, nil, nil, false
 	stageMu.Unlock()
-	oldClosed, oldInstaller, oldReclaimer := stagingClosed.Load(), stagedInstaller.Load(), stagedReclaimer.Load()
+	oldClosed, oldReturned, oldInstaller, oldReclaimer := stagingClosed.Load(), runReturned.Load(), stagedInstaller.Load(), stagedReclaimer.Load()
 	stagingClosed.Store(false)
+	runReturned.Store(false)
 	stagedInstaller.Store(nil)
 	stagedReclaimer.Store(nil)
 	t.Cleanup(func() {
 		swapShell, swapOpen, swapWaitSteps, swapApps, swapAppSteps, updateLogPath, swapStartWait = oldShell, oldOpen, oldSteps, oldApps, oldAppSteps, oldLog, oldStartWait
 		stageMu.Lock()
 		pendingUpdate, updateQuitting, swapStarted, swapRunning = oldPending, oldQuitting, oldStarted, oldRunning
-		swapEarly, earlySwap = oldEarly, oldEarlySwap
+		swapEarly, earlySwap, earlyExited, earlyQuitting = oldEarly, oldEarlySwap, oldExited, oldEarlyQuitting
 		stageMu.Unlock()
 		stagingClosed.Store(oldClosed)
+		runReturned.Store(oldReturned)
 		stagedInstaller.Store(oldInstaller)
 		stagedReclaimer.Store(oldReclaimer)
 	})
@@ -1300,11 +1302,12 @@ func TestUpdateWithoutEventLoop(t *testing.T) {
 				withoutRun(t)
 			} else {
 				// finish found no update, with the installer set by an
-				// earlier Install.
+				// earlier Install, and Run returned.
 				stagingClosed.Store(true)
 				if installStagedUpdate(false, nil) {
 					t.Fatal("a process installs no update")
 				}
+				runReturned.Store(true)
 			}
 			app := fakeApp(t)
 			p := stagedApp(t)
@@ -1332,6 +1335,90 @@ func TestUpdateWithoutEventLoop(t *testing.T) {
 				t.Errorf("%d processes install the update:\n%s", n, readLog(logPath))
 			}
 		})
+	}
+}
+
+// While the app quits, until Run returns, an Install that completes is
+// refused: finish may be about to take the update staged before, which it
+// opens after Relaunch, or have taken none.
+func TestUpdaterRefusedAsTheAppQuits(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	for _, when := range []string{"before the take", "after the take"} {
+		t.Run(when, func(t *testing.T) {
+			logPath, opens := fakeSwap(t, false)
+			app := fakeApp(t)
+			p := stagedApp(t)
+			if when == "before the take" {
+				stage(t, p)
+			}
+			// finish looked for the update (installStaged) but has not
+			// taken it yet, or took what was staged.
+			stagingClosed.Store(true)
+			if when == "after the take" && installStagedUpdate(false, nil) {
+				t.Fatal("a process installs no update")
+			}
+			q := stagedApp(t)
+			if err := stageBundle(q.work, filepath.Dir(q.bundle), q.target); err == nil || !strings.Contains(err.Error(), "quitting") {
+				t.Fatalf("an update staged as the app quits: %v", err)
+			}
+			stageMu.Lock()
+			early := swapEarly
+			stageMu.Unlock()
+			if early {
+				t.Fatal("an update staged as the app quits started its process")
+			}
+			if when == "after the take" {
+				return
+			}
+			if !installStagedUpdate(true, []string{"--updated"}) {
+				t.Fatal("no process installs the update")
+			}
+			exitApp(app)
+			wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+			if got := mainOf(p.target); got != "v2" {
+				t.Errorf("main = %q", got)
+			}
+			if got, want := opens(), [][]string{openArgs(p.target, []string{"--updated"})}; !slices.EqualFunc(got, want, slices.Equal) {
+				t.Errorf("opened the app with %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// Without the event loop, a process that gives up waiting for the program
+// to exit leaves its update unstaged: the next Install stages its own, and
+// starts its process.
+func TestUpdateWithoutEventLoopGivesUp(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	logPath, _ := fakeSwap(t, false)
+	withoutRun(t)
+	app := fakeApp(t)
+	steps := swapWaitSteps
+	swapWaitSteps = 0
+	p := stagedApp(t)
+	stage(t, p)
+	wait.Until(t, "the process to give up", func() bool {
+		stageMu.Lock()
+		defer stageMu.Unlock()
+		return pendingUpdate == nil && !updateQuitting && !swapEarly && earlySwap == nil
+	})
+	if log := readLog(logPath); !strings.Contains(log, "giving up, the update stays in "+p.work) {
+		t.Errorf("the log:\n%s", log)
+	}
+	swapWaitSteps = steps
+	q := stagedApp(t)
+	stage(t, q)
+	exitApp(app)
+	wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+	if got := mainOf(q.target); got != "v2" {
+		t.Errorf("main = %q", got)
+	}
+	if got := mainOf(p.target); got != "v1" {
+		t.Errorf("the update that gave up was installed: main = %q", got)
 	}
 }
 

@@ -2220,19 +2220,26 @@ as in Tauri:
   Launch Services still lists the app that exited, as `open` would only
   bring it forward. Its output, each step with the time, goes to
   `update.log` in `PathLogs` (which `SetPath` changes), emptied past 256 KB.
-  Without the event loop (`eventLoopRunning`: `Run` has not started, or
-  the app looked for the staged update as it finished, `stagingClosed`),
-  nothing would start the process: `stageBundle` takes the update and
-  starts it at once, without relaunching (`swapEarly`), and fails if it
-  cannot, as for a program that never calls `Run`. If `Run` starts later,
-  it kills that process, which only waits for the app, and stages the
-  update again (`reclaimStagedUpdate`, through `stagedReclaimer`, which
-  `stageBundle` sets). `stageBundle` sets both hooks before it reads
-  `App.running` and `stagingClosed` under `stageMu`, and the app sets those
-  before it reads the hooks, so either `stageBundle` sees the event loop or
-  the app sees the update. Once a process took the staged update
-  (`updateQuitting`), an `Install` that completes is discarded rather than
-  staged, and each `Install` first removes the work directories next to
+  Without `Run` running (`runRunning`: it has not started, or it returned,
+  `runReturned`, set after `finish`), nothing would start the process:
+  `stageBundle` takes the update and starts it at once, without
+  relaunching (`swapEarly`), and fails if it cannot, as for a program that
+  never calls `Run`. If `Run` starts later, it kills that process, which
+  only waits for the app, and stages the update again
+  (`reclaimStagedUpdate`, through `stagedReclaimer`, which `stageBundle`
+  sets). `reapEarlySwap` waits for the process; if it exits while the app
+  runs, having given up after five minutes, the update is no longer
+  staged, and the next `Install` removes its work and stages its own. The
+  process's log is `PathLogs` as it is when `Install` completes.
+  `stageBundle` sets both hooks before it reads `App.running` and
+  `stagingClosed` under `stageMu`, and the app sets those before it reads
+  the hooks, so either `stageBundle` sees the app or the app sees the
+  update. Once the app looked for the staged update as it quits
+  (`stagingClosed`), until `Run` returns, and once a process took the
+  staged update (`updateQuitting`), an `Install` that completes is
+  discarded rather than staged: `finish` may be about to take the update
+  staged before, to open it after `Relaunch`, or have taken none and open
+  the old version. Each `Install` first removes the work directories next to
   the app that are neither the staged update's nor one under way
   (`removeStaleWork`): a crash, `App.Exit`, another signal, or a swap that
   left the update or gave up, leaves them, with a hidden copy of the new
