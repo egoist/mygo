@@ -10,3 +10,7 @@ import (
 func dupOutput(w, old *os.File) error {
 	return syscall.Dup3(int(w.Fd()), int(old.Fd()), 0)
 }
+
+// keepCrashOutput does nothing on Android, where the runtime writes the
+// report of a crash to the system's log itself, tagged Go.
+func keepCrashOutput() {}
