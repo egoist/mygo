@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 
+	"golang.org/x/image/font/gofont/gomedium"
+	"golang.org/x/image/font/gofont/gomediumitalic"
 	"golang.org/x/image/font/gofont/gomonobolditalic"
 )
 
@@ -226,6 +228,61 @@ func TestPangoRegisterAddsFileOnce(t *testing.T) {
 		}
 		if !monospaced(s) {
 			t.Errorf("engine %d: text does not use the registered font", i+2)
+		}
+	}
+}
+
+// The faces of the app's fonts whose own family the app gives other files
+// (takeFamilies) are the process's, edited once: an engine registering the
+// same fonts after, as each Tester's does, leaves them as they are, rather
+// than edit them again while another engine may match fonts against them.
+func TestPangoRegisterLeavesEditedFacesAlone(t *testing.T) {
+	if _, err := newPango(); err != nil {
+		t.Skip(err)
+	}
+	l := &pangoLib
+	if l.fcConfigAppFontAddFile == nil || l.fcFontSetAdd == nil || l.fontMapConfigChanged == nil || l.fcPatternDel == nil {
+		t.Skip("no fontconfig or PangoFT2")
+	}
+	register := func(s *System) {
+		t.Helper()
+		// The italic face's own family, Go Medium, goes to the upright, as
+		// in TestRegisterFontUnderOwnFamily.
+		if err := s.RegisterFont(gomediumitalic.TTF, "MyGo Test Given Medium Italic"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RegisterFont(gomedium.TTF, "Go Medium"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	width := func(s *System, family string, italic bool) float32 {
+		return s.Layout(Params{Text: "The quick brown fox jumps over the lazy dog", Style: Style{Size: 40, Family: family, Weight: 500, Italic: italic}}).Width
+	}
+	first := newSystem()
+	register(first)
+	upright, italic := width(first, "Go Medium", false), width(first, "MyGo Test Given Medium Italic", true)
+	if upright == italic {
+		t.Fatalf("Go Medium's faces are alike: %v", upright)
+	}
+
+	del := l.fcPatternDel
+	t.Cleanup(func() { l.fcPatternDel = del })
+	var dels int
+	l.fcPatternDel = func(pattern uintptr, object string) int32 {
+		dels++
+		return del(pattern, object)
+	}
+	for i := range 3 {
+		s := newSystem()
+		register(s)
+		if dels != 0 {
+			t.Fatalf("engine %d edited the faces of the app's fonts again: %d deletions", i+2, dels)
+		}
+		if got := width(s, "Go Medium", true); got == italic {
+			t.Errorf("engine %d: Go Medium, italic: width %v, the face registered under another family", i+2, got)
+		}
+		if got := width(s, "MyGo Test Given Medium Italic", true); got != italic {
+			t.Errorf("engine %d: MyGo Test Given Medium Italic: width %v, want %v", i+2, got, italic)
 		}
 	}
 }

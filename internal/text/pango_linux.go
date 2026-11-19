@@ -410,9 +410,6 @@ type pangoEngine struct {
 	// lowercased name.
 	names     []string
 	appFamily map[string]string
-	// given are the families the app gave each file of its fonts, their
-	// own when it gave none.
-	given map[string][]string
 	// uiFamily is the desktop's interface font, which system-ui stands for
 	// before fontconfig's default.
 	uiFamily string
@@ -493,7 +490,6 @@ func newPango() (*pangoEngine, error) {
 		fonts:       map[uintptr]*Font{},
 		scaled:      map[scaledKey]uintptr{},
 		appFamily:   map[string]string{},
-		given:       map[string][]string{},
 		languages:   map[string]uintptr{},
 		hanFamilies: map[[2]string]string{},
 	}
@@ -1444,14 +1440,14 @@ func (e *pangoEngine) register(data []byte, family string) error {
 			return errors.New("mygo: cannot add font: no family name")
 		}
 		if !strings.EqualFold(names[0], family) && !addFamily(config, path, family) ||
-			!e.giveFamilies(config, path, []string{family}) {
+			!giveFamilies(config, path, []string{family}) {
 			return errors.New("mygo: cannot add font under another family name")
 		}
 		// Listed under the name the app gave it, which is the one it uses.
 		e.appFamily[strings.ToLower(family)] = names[0]
 		e.names = append(e.names, family)
 	} else {
-		if !e.giveFamilies(config, path, names) {
+		if !giveFamilies(config, path, names) {
 			return errors.New("mygo: cannot add font")
 		}
 		for _, name := range names {
@@ -1473,13 +1469,16 @@ func (e *pangoEngine) register(data []byte, family string) error {
 // current configuration belongs to the process, not to an engine, so an
 // engine (as each Tester has one) finds a file another added there rather
 // than adding it again, which grew the configuration with every engine
-// (#1944). files are the own families of each file added, ownOf the own
+// (#1944). files are the own families of each file added; given the
+// families the app gave each, their own when it gave none, by any engine,
+// as the faces they are found under are the process's; ownOf the own
 // families of each face that a family the app gives other files is taken
 // from (takeFamilies). mu is held while an engine reads or edits the
 // faces of the app's fonts.
 var fcAppFonts struct {
 	mu    sync.Mutex
 	files map[fcAppFile][]string
+	given map[fcAppFile][]string
 	ownOf map[uintptr][]string
 }
 
@@ -1503,6 +1502,7 @@ func addFontFile(config uintptr, path string) ([]string, error) {
 	names := fontFamilies(config, path)
 	if fcAppFonts.files == nil {
 		fcAppFonts.files = map[fcAppFile][]string{}
+		fcAppFonts.given = map[fcAppFile][]string{}
 		fcAppFonts.ownOf = map[uintptr][]string{}
 	}
 	fcAppFonts.files[key] = names
@@ -1554,28 +1554,38 @@ func addFamily(config uintptr, path, family string) bool {
 
 // giveFamilies notes families the app gives a file of its fonts, and takes
 // them from the own families of the files it gave others (takeFamilies).
-func (e *pangoEngine) giveFamilies(config uintptr, path string, families []string) bool {
+// An engine registering the app's fonts after another, as each Tester's
+// does, gives none the other did not, and edits no face: were the
+// families given an engine's, it would give the faces their own families
+// back until it registered the files that take them, as another engine
+// may be matching fonts against them. fcAppFonts.mu is held.
+func giveFamilies(config uintptr, path string, families []string) bool {
+	key := fcAppFile{config, path}
 	for _, f := range families {
-		if !slices.ContainsFunc(e.given[path], func(g string) bool { return strings.EqualFold(g, f) }) {
-			e.given[path] = append(e.given[path], f)
+		if !slices.ContainsFunc(fcAppFonts.given[key], func(g string) bool { return strings.EqualFold(g, f) }) {
+			fcAppFonts.given[key] = append(fcAppFonts.given[key], f)
 		}
 	}
-	return e.takeFamilies(config)
+	return takeFamilies(config)
 }
 
 // takeFamilies leaves a family the app gives to the files it gave it: the
 // faces of other files, of their own family, are no longer found under it,
 // but under the families the app gave them, so the faces of a family
 // that declare the same weight, as Selawik's Light and Semilight, are
-// told apart whichever the app registers first (#1224).
-func (e *pangoEngine) takeFamilies(config uintptr) bool {
+// told apart whichever the app registers first (#1224). fcAppFonts.mu is
+// held.
+func takeFamilies(config uintptr) bool {
 	l := &pangoLib
 	set := l.fcConfigGetFonts(config, fcSetApplication)
 	if set == nil || set.nfont <= 0 || l.fcPatternDel == nil {
 		return false
 	}
 	taken := map[string]bool{}
-	for _, families := range e.given {
+	for file, families := range fcAppFonts.given {
+		if file.config != config {
+			continue
+		}
 		for _, f := range families {
 			taken[strings.ToLower(f)] = true
 		}
@@ -1586,19 +1596,13 @@ func (e *pangoEngine) takeFamilies(config uintptr) bool {
 			l.fcPatternGetString(p, givenFamily, 0, &given) == fcResultMatch {
 			continue
 		}
-		gave := e.given[cString(file)]
+		gave := fcAppFonts.given[fcAppFile{config, cString(file)}]
 		if len(gave) == 0 {
 			continue
 		}
 		own, edited := fcAppFonts.ownOf[p]
 		if !edited {
-			for n := int32(0); ; n++ {
-				var family *byte
-				if l.fcPatternGetString(p, "family", n, &family) != fcResultMatch {
-					break
-				}
-				own = append(own, cString(family))
-			}
+			own = patternFamilies(p)
 		}
 		keep := slices.DeleteFunc(slices.Clone(own), func(f string) bool {
 			return taken[strings.ToLower(f)] && !slices.ContainsFunc(gave, func(g string) bool { return strings.EqualFold(g, f) })
@@ -1611,6 +1615,10 @@ func (e *pangoEngine) takeFamilies(config uintptr) bool {
 			// Found under a family the app gave it, as its faces are.
 			keep = gave[:1]
 		}
+		// Edited so before, by this engine or another.
+		if edited && slices.Equal(patternFamilies(p), keep) {
+			continue
+		}
 		l.fcPatternDel(p, "family")
 		l.fcPatternDel(p, "familylang")
 		for _, f := range keep {
@@ -1620,6 +1628,19 @@ func (e *pangoEngine) takeFamilies(config uintptr) bool {
 		}
 	}
 	return true
+}
+
+// patternFamilies returns the families a fontconfig pattern lists.
+func patternFamilies(p uintptr) []string {
+	l := &pangoLib
+	var families []string
+	for n := int32(0); ; n++ {
+		var family *byte
+		if l.fcPatternGetString(p, "family", n, &family) != fcResultMatch {
+			return families
+		}
+		families = append(families, cString(family))
+	}
 }
 
 // fontFamilies returns the own families of the app's fonts from a file.
