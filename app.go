@@ -129,6 +129,9 @@ func (a *Application) Run() error {
 	}
 	a.running = true
 	a.mu.Unlock()
+	// An update that Install staged before, whose process would install it
+	// as soon as the process exits, is installed as the app quits instead.
+	reclaimStaged()
 	go cleanUpdateLeftovers()
 
 	b := backend()
@@ -138,6 +141,9 @@ func (a *Application) Run() error {
 		DMABUFRenderer:   string(a.dmabuf),
 		Background:       devBackground,
 	}); err != nil {
+		// No event loop: a staged update is installed once the process
+		// exits, and so is one that Install stages later.
+		installStaged(false, nil)
 		return err
 	}
 	a.initialized = true
@@ -352,8 +358,8 @@ func (a *Application) finish() {
 var stagedInstaller atomic.Pointer[func(relaunch bool, args []string) bool]
 
 // stagingClosed is set once the app looked for a staged update as it
-// quits: stageBundle, which sets stagedInstaller first, then refuses to
-// stage one, which nothing would install.
+// quits: stageBundle, which sets stagedInstaller first, then installs the
+// update itself, as nothing else would (eventLoopRunning).
 var stagingClosed atomic.Bool
 
 // installStaged calls stagedInstaller, if set. The app calls it as it
@@ -365,6 +371,19 @@ func installStaged(relaunch bool, args []string) bool {
 		return (*install)(relaunch, args)
 	}
 	return false
+}
+
+// stagedReclaimer stops the process that Install started at once to
+// install the update it staged, as Run was not running, and stages the
+// update again (reclaimStagedUpdate). stageBundle sets it.
+var stagedReclaimer atomic.Pointer[func()]
+
+// reclaimStaged calls stagedReclaimer, if set. Run calls it as it starts,
+// once a.running is set.
+func reclaimStaged() {
+	if reclaim := stagedReclaimer.Load(); reclaim != nil {
+		(*reclaim)()
+	}
 }
 
 // backendExiting tells the backend that the process is about to exit,
