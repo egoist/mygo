@@ -283,6 +283,12 @@ func checkForUpdates(ctx context.Context) {
   installs the update and exits. An instance started by running the
   executable in `Contents/MacOS` from a terminal is seen as another
   instance only once its app starts and registers with Launch Services.
+  A program whose `App.Run` is not running when `Install` completes (it
+  never calls it, calls it later, or `Run` returned) gets that process at
+  once, which installs the update once the program exits, if it does
+  within five minutes, and opens nothing; a later `Install` fails
+  meanwhile. If the program then calls `Run`, `Run` stops the process,
+  and the update is installed as the app quits, as above.
   On Linux and Windows it replaces the files of the app's folder, and
   removes those that the running version installed and the new one no
   longer has, which `.mygo-files` in the folder lists. Files that no
