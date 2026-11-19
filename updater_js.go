@@ -67,3 +67,5 @@ func (up *Update) Install(ctx context.Context, progress func(downloaded, total i
 func relaunchNow() {}
 
 func cleanUpdateLeftovers() {}
+
+func installStagedUpdate(relaunch bool, args []string) bool { return false }

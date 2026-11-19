@@ -2157,12 +2157,10 @@ as in Tauri:
   arguments, or those passed to `Relaunch` in their place
   (`relaunchArguments`), and the working directory it started in: on macOS
   through `open -n <bundle> --args …`, or, with an update staged, through
-  the update's helper, which reads `open`'s arguments from the
-  `relaunch` file of its work directory (a `set --` line of the shell,
-  quoted), written only then. A development build exits with code 75
-  instead, after writing `Relaunch`'s arguments, each ended with a NUL
-  byte, in the file that `MYGO_DEV_RELAUNCH` names
-  (`.mygo/dev/relaunch-args`), and `mygo dev` starts the same build again
+  the process that installs it (below), which gets `open`'s arguments as
+  its own. A development build exits with code 75 instead, after writing
+  `Relaunch`'s arguments, each ended with a NUL byte, in the file that
+  `MYGO_DEV_RELAUNCH` names (`.mygo/dev/relaunch-args`), and `mygo dev` starts the same build again
   with them, also when that happens before it was ready.
 - Updates (`updater.go`, `internal/update`, `cmd/mygo/updates.go`), in pure
   Go on every platform. `mygo keygen` creates an Ed25519 key pair; with
@@ -2180,7 +2178,27 @@ as in Tauri:
   directories and relative links only) and swaps it in: the bundle is
   renamed on macOS, the entries of the app directory on Linux and Windows,
   where the running executable is renamed away and removed at the next
-  launch. There the app directory holds `update.FileList` (`.mygo-files`),
+  launch. On macOS `Install` only stages the bundle (`stageBundle`,
+  `pendingUpdate`, replacing an update staged before), and nothing runs
+  until the app quits: `finish`, however the app quits (`Relaunch`,
+  `Quit`, a signal, `forceStop`, the session ending), starts after
+  `OnQuit` one process of `/bin/sh` (`installStagedUpdate`, the script
+  `installAfterExit`) in a session of its own (`Setsid`), which ignores
+  SIGHUP, SIGTERM and SIGINT. Given the app's pid, the bundles, the work
+  directory and `open`'s arguments as arguments, never in the script, it
+  waits for the app to exit (every 0.1 s, giving up after five minutes),
+  swaps the bundles (putting the old one back if the new one cannot move
+  in), removes the work directory, and opens the app when it relaunches,
+  without `-n` (the app has exited, and the Dock gives the new version
+  its tile), then with `-n` if that fails. Its output, each step with
+  the time, goes to `update.log` in `PathLogs`, emptied past 256 KB. If it
+  cannot start, `Relaunch` opens the old version (`openBundle`). Once
+  `finish` took the staged update, an `Install` that completes is
+  discarded rather than staged (`updateQuitting`), and each `Install`
+  first removes the work directories next to the app that are neither the
+  staged update's nor one under way (`removeStaleWork`): a crash, or a
+  swap that gave up, leaves them. On Linux and Windows the app directory
+  holds `update.FileList` (`.mygo-files`),
   its top-level entries as installed, one per line: `mygo build` writes it
   into the app (so the archive, installer and packages have it), and
   `swapFiles` rewrites it in the update with the update's entries before

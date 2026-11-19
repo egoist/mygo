@@ -267,9 +267,16 @@ func checkForUpdates(ctx context.Context) {
   of the archive. The running app is not affected: the new version runs
   after `App.Relaunch`, or at the next launch. On macOS the new bundle
   replaces the app's once the app has exited, so that the Dock keeps the
-  app's tile. On Linux and Windows it replaces the files of the app's
-  folder, and removes those that the running version installed and the
-  new one no longer has, which `.mygo-files` in the folder lists. Files
+  app's tile: `Install` leaves it next to the app, and as the app quits,
+  through `App.Relaunch`, `App.Quit` or a signal, the app starts a
+  short-lived process that waits for it to exit, swaps the bundles, and
+  opens the new version after `App.Relaunch`. That process logs each step
+  to `update.log` in the app's logs directory (`~/Library/Logs/<Name>`).
+  An app that crashes or calls `App.Exit` keeps its version, and the next
+  `Install` removes the update it left. On Linux and Windows it replaces
+  the files of the app's folder, and removes those that the running
+  version installed and the new one no longer has, which `.mygo-files` in
+  the folder lists. Files
   that no version installed stay, such as the data a portable copy keeps
   next to it, and so does the executable the app runs from. An app built
   before MyGo wrote the list has none, so its first update removes
