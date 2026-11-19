@@ -1,8 +1,11 @@
 package main
 
 import (
+	"io/fs"
 	"strings"
 	"testing"
+
+	androidHost "github.com/egoist/mygo/internal/mobile/android"
 )
 
 func lineOf(t *testing.T, lines []doctorLine, name string) doctorLine {
@@ -128,5 +131,31 @@ func TestParseToolVersions(t *testing.T) {
 		if _, got := parseJavaVersion(out); got != major {
 			t.Errorf("%q: %d, want %d", out, got, major)
 		}
+	}
+}
+
+// The doctor accepts any JDK 17 or later, so the host builds Java 17
+// bytecode with whichever it is, and asks Gradle for no toolchain of
+// exactly 17, which a machine with only a newer JDK lacks.
+func TestAndroidHostBuildsWithDoctorsJDK(t *testing.T) {
+	err := fs.WalkDir(androidHost.Files, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !strings.HasSuffix(path, ".gradle.kts") {
+			return err
+		}
+		data, err := fs.ReadFile(androidHost.Files, path)
+		if err != nil {
+			return err
+		}
+		src := string(data)
+		if strings.Contains(src, "jvmToolchain") || strings.Contains(src, "toolchain {") {
+			t.Errorf("%s pins a Java toolchain", path)
+		}
+		if strings.Contains(src, "org.jetbrains.kotlin.android") && strings.Contains(src, "compileOptions") && !strings.Contains(src, "JvmTarget.JVM_17") {
+			t.Errorf("%s sets Java's target but not Kotlin's to 17", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

@@ -16,7 +16,8 @@ android {
     }
 }
 
-kotlin { jvmToolchain(17) }
+// Java 17 bytecode from any JDK 17 or later, as in app/build.gradle.kts.
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.16.0")

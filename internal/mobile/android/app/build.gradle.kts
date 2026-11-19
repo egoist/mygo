@@ -59,7 +59,10 @@ android {
     }
 }
 
-kotlin { jvmToolchain(17) }
+// Java 17 bytecode from the JDK Gradle runs on, any 17 or later (mygo
+// doctor's check): a toolchain of 17 would fail on a machine with only a
+// newer JDK, as Gradle has no resolver here to download one.
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 dependencies {
     implementation(project(":mygo"))
