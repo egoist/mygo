@@ -89,3 +89,24 @@ func TestCodeEditorPopupClosesWhenItsLineIsHidden(t *testing.T) {
 		t.Fatalf("the popup of a hidden line: shown %v, texts %q", st.PopupShown(), ct.tt.Texts())
 	}
 }
+
+// An offset past the text, or before it, as an app's stale one is after the
+// text shrank, is taken as the nearest end, as Rect does: the popup shows
+// there rather than being given to the layout as it is.
+func TestCodeEditorPopupClampsItsOffset(t *testing.T) {
+	for _, off := range []int{1000, -5} {
+		ct := newEditorTest(t, "", "|cat dog")
+		st := ct.st
+		st.ShowPopup(off, func(c *ui.Context, panel ui.Element) {
+			panel.Children(func() { ui.Text(c, "usage") })
+		})
+		ct.tt.Frame()
+		ct.tt.Frame()
+		if !st.PopupShown() || !ct.tt.HasText("usage") {
+			t.Errorf("offset %d: popup not built: shown %v, texts %q", off, st.PopupShown(), ct.tt.Texts())
+		}
+		if st.ed.popup.at < 0 || st.ed.popup.at > st.ed.view.text.Len() {
+			t.Errorf("offset %d: the popup is kept at %d, outside the text of %d bytes", off, st.ed.popup.at, st.ed.view.text.Len())
+		}
+	}
+}

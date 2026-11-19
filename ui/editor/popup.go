@@ -22,10 +22,12 @@ type popup struct {
 // panel. The panel takes the keyboard as it opens, for its own keys, as
 // the arrows moving through a list; Escape, a press outside it, an edit
 // or ClosePopup closes it, and gives the keyboard back to the editor.
-// Showing another replaces it.
+// Showing another replaces it. An offset outside the text is taken as its
+// nearest end, as Rect does.
 func (st *State) ShowPopup(offset int, build func(c *ui.Context, panel ui.Element)) {
 	st.ensure()
 	p := &st.ed.popup
+	offset = max(0, min(offset, st.ed.view.text.Len()))
 	p.shown, p.at, p.build, p.version = true, offset, build, st.ed.view.version
 }
 
