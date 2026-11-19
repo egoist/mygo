@@ -558,8 +558,8 @@ func contentHeight(e *node, cw float32) float32 {
 		if f := e.list; f != nil && f.n > 0 {
 			// A List is as high as all its rows, as far as the heights known
 			// tell, whichever it built.
-			s := f.s
-			return float32(s.heights.top(f.n, float64(max(e.gapY, 0))) - float64(max(e.gapY, 0)))
+			s, gap := f.s, float64(e.listGap())
+			return float32(s.heights.top(f.n, gap) - gap)
 		}
 	}
 	if e.first == nil {

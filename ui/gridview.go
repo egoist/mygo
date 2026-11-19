@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// GridState is the state of a GridView: how its items are told apart and
-// chosen, as a List's rows are, and the place of its rows.
+// GridState is the state of a GridView or a MasonryView: how its items
+// are told apart and chosen, as a List's rows are, and its place.
 type GridState struct {
 	Handle
 
@@ -43,24 +43,39 @@ type GridState struct {
 	cols, pivot int
 	started     bool
 	rt          *engine
+	// masonry places the items of a MasonryView, and scroll scrolls it to
+	// one: only MasonryView sets them, so that apps with none link none
+	// of its code.
+	masonry *masonry
+	scroll  func(item int, align Align, near bool)
 }
 
 // ScrollTo scrolls the grid to show item at align, as ListState.ScrollTo
 // does a row.
 func (s *GridState) ScrollTo(item int, align Align) {
+	if s.scroll != nil {
+		s.scroll(item, align, false)
+		return
+	}
 	s.rows.ScrollTo(item/max(s.cols, 1), align)
 }
 
 // ScrollIntoView scrolls the grid as little as shows item.
 func (s *GridState) ScrollIntoView(item int) {
+	if s.scroll != nil {
+		s.scroll(item, Start, true)
+		return
+	}
 	s.rows.ScrollIntoView(item / max(s.cols, 1))
 }
 
 // gridFit is how many columns a grid's items took, which its layout checks
 // against the width its rows have: items at least minW wide, gap apart.
+// m is a MasonryView's place of its items, which it checks instead.
 type gridFit struct {
 	cols      int
 	minW, gap float32
+	m         *masonry
 }
 
 // key returns the key of item i.
@@ -94,6 +109,8 @@ func coreGridView(c *context, s *GridState, n int, minWidth, height float32, ite
 		s = coreLocal(e, "grid", func() GridState { return GridState{} })
 	}
 	wrapElement(e).Bind(&s.Handle)
+	// A state a MasonryView showed before is a grid's again.
+	s.masonry, s.scroll, s.rows.guess = nil, nil, 0
 	n = max(n, 0)
 	gap := t.Space(2)
 	// The columns: those that fit the width the rows had in the last
@@ -111,21 +128,13 @@ func coreGridView(c *context, s *GridState, n int, minWidth, height float32, ite
 	}
 	s.cols, s.started = cols, true
 	rows := (n + cols - 1) / cols
-	if s.Selected != nil {
-		e.Focusable()
-		e.choosesItems = true
-		if s.Label != nil {
-			e.flags |= flagTypeSelect
-		}
-	}
-	e.setSize = n
-	e.chooseMany = s.Selection != nil
+	s.begin(e, n)
 	var cursor *node
 	buildList(c, e, e, &s.rows, rows, func(r int) {
 		row := coreRow(c).Gap(gap).PaddingY(gap / 2).AlignItems(Stretch).Role(RoleNone)
 		row.Children(func() {
 			for i := r * cols; i < min(n, (r+1)*cols); i++ {
-				if cell := s.cell(c, e, i, n, height, item); s.Selected != nil && i == *s.Selected {
+				if cell := s.cell(c, e, i, n, height, item, 0); s.Selected != nil && i == *s.Selected {
 					cursor = cell
 				}
 			}
@@ -135,17 +144,51 @@ func coreGridView(c *context, s *GridState, n int, minWidth, height float32, ite
 			}
 		})
 	}, gridList)
+	e.gridFit = &gridFit{cols: cols, minW: minWidth, gap: gap}
+	e.afterInput(func() { s.keys(e, n, s.step) })
+	s.finish(e, n, gap, cursor)
+	return e
+}
+
+// begin makes grid e, of n items, take the keyboard focus and tell
+// assistive technology that it chooses them, as its state says.
+func (s *GridState) begin(e *node, n int) {
+	if s.Selected != nil {
+		e.Focusable()
+		e.choosesItems = true
+		if s.Label != nil {
+			e.flags |= flagTypeSelect
+		}
+	}
+	e.setSize = n
+	e.chooseMany = s.Selection != nil
+}
+
+// finish ends grid e, of n items gap apart, once its list is built: cursor
+// is the cell of the item chosen, if built.
+func (s *GridState) finish(e *node, n int, gap float32, cursor *node) {
 	// The list's own state is the rows': the grid takes the keys and tells
 	// assistive technology about its items.
 	e.rowsOf = nil
-	e.gridFit = &gridFit{cols: cols, minW: minWidth, gap: gap}
 	e.special = true // it fits its columns as it lays out
-	e.afterInput(func() { s.keys(e, n) })
 	e.activeDescendant = cursor
 	s.reorder(e, n, gap)
 	s.cells, s.built = s.built, s.cells
 	clear(s.built)
-	return e
+}
+
+// step returns the item of n the arrows move to from item at, dx columns
+// and dy rows away, or -1 for none: the last item from the row above the
+// last, shorter.
+func (s *GridState) step(at, dx, dy, n int) int {
+	cols := max(s.cols, 1)
+	switch to := at + dx + dy*cols; {
+	case to >= 0 && to < n:
+		return to
+	case dy > 0 && at/cols < (n-1)/cols:
+		return n - 1
+	}
+	return -1
 }
 
 // itemDrag is items of a grid being dragged to another place in it
@@ -253,11 +296,18 @@ func (s *GridState) dropAt(x, y float32, n int) (to int, cell uint64, after bool
 // has id.
 func (s *GridState) cellState(id uint64) *state { return s.rt.states[id] }
 
-// cell builds item i of a grid, choosing it when clicked.
-func (s *GridState) cell(c *context, grid *node, i, n int, height float32, item func(i int)) *node {
+// cell builds item i of a grid, choosing it when clicked: keyed among the
+// grid's row's cells, or under the ID under when it is not 0.
+func (s *GridState) cell(c *context, grid *node, i, n int, height float32, item func(i int), under uint64) *node {
 	t := c.theme
+	cell := coreColumn(c)
+	if under != 0 {
+		c.rekeyIn(cell, under, s.key(i))
+	} else {
+		cell.Key(s.key(i))
+	}
 	// A border, clear unless chosen, keeps the content in place as it is.
-	cell := coreColumn(c).Key(s.key(i)).Grow(1).Basis(0).MinWidth(0).Height(height).Radius(t.Radius).Border(2, Color{}).Role(RoleListItem)
+	cell.Grow(1).Basis(0).MinWidth(0).Height(height).Radius(t.Radius).Border(2, Color{}).Role(RoleListItem)
 	cell.setPos, cell.setSize = i+1, n
 	if s.Label != nil {
 		cell.Label(s.Label(i))
@@ -371,20 +421,21 @@ func (s *GridState) extend(grid *node, i, n int) {
 }
 
 // keys moves the choice with the arrows in two dimensions, Home, End and
-// the first letters of an item, while the grid has the focus.
-func (s *GridState) keys(grid *node, n int) {
+// the first letters of an item, while the grid has the focus: step
+// returns the item the arrows move to from at, dx columns and dy rows
+// away, or -1 for none.
+func (s *GridState) keys(grid *node, n int, step func(at, dx, dy, n int) int) {
 	if s.Selected == nil || n == 0 {
 		return
 	}
-	cols := max(s.cols, 1)
 	at := *s.Selected
 	in := at >= 0 && at < n
 	// The items of a row go from the right right to left.
 	back, forth := grid.arrows()
-	moves := []struct {
-		key Key
-		d   int
-	}{{forth, 1}, {back, -1}, {KeyDown, cols}, {KeyUp, -cols}}
+	moves := [...]struct {
+		key    Key
+		dx, dy int
+	}{{forth, 1, 0}, {back, -1, 0}, {KeyDown, 0, 1}, {KeyUp, 0, -1}}
 	to, extend := -1, false
 	for _, m := range moves {
 		plain, shift := grid.Shortcut(0, m.key), s.Selection != nil && grid.Shortcut(Shift, m.key)
@@ -395,10 +446,10 @@ func (s *GridState) keys(grid *node, n int) {
 		switch {
 		case !in:
 			to = 0
-		case at+m.d >= 0 && at+m.d < n:
-			to = at + m.d
-		case m.d == cols && at/cols < (n-1)/cols:
-			to = n - 1 // the last row, shorter
+		default:
+			if j := step(at, m.dx, m.dy, n); j >= 0 {
+				to = j
+			}
 		}
 	}
 	if grid.Shortcut(0, KeyHome) {

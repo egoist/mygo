@@ -272,6 +272,13 @@ func (c *context) rekey(e *node, k any) {
 	if e.parent != nil {
 		parent = e.parent.id
 	}
+	c.rekeyIn(e, parent, k)
+}
+
+// rekeyIn keys e by k among the elements keyed under the ID parent, which
+// need not be its parent's: a MasonryView's items keep their state as
+// they move from one of its bands to another.
+func (c *context) rekeyIn(e *node, parent uint64, k any) {
 	id := keyedID(parent, k)
 	rt := c.rt
 	if e.stateRead {

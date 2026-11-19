@@ -270,6 +270,10 @@ type ListState struct {
 	wroteY  float64
 	req     listRequest
 	heights listHeights
+	// guess, when above 0, is the height of the rows before any is
+	// measured, rather than the theme's Space(8): a MasonryView's bands,
+	// all as high.
+	guess float64
 
 	// scrolled tells that the app asked the list to scroll (ScrollTo,
 	// ScrollIntoView, ScrollToEnd): a mouse wheel's notches on their way
@@ -655,6 +659,9 @@ func (s *ListState) sync(e *node, n int) {
 		s.header.row = -1
 	}
 	s.heights.def = float64(e.c.theme.Space(8))
+	if s.guess > 0 {
+		s.heights.def = s.guess
+	}
 	if s.Key != nil && n > 0 {
 		if k := s.anchorKey; k != nil {
 			if j, ok := s.find(k, s.anchor, n); ok && j != s.anchor {
@@ -731,6 +738,15 @@ func (s *ListState) sync(e *node, n int) {
 		s.following = top > 0 && y >= top-0.5
 	}
 	s.wroteY = st.scrollY
+}
+
+// listGap returns the space between the rows of list e: none between a
+// MasonryView's bands, which meet, the Gap spacing its items instead.
+func (e *node) listGap() float32 {
+	if g := e.gridFit; g != nil && g.m != nil {
+		return 0
+	}
+	return max(e.gapY, 0)
 }
 
 // follows reports whether the list follows its end: it shows it, and
@@ -1512,7 +1528,14 @@ func (e *node) layoutList(w, h float32) {
 		// scroll sideways.
 		cw = max(cw, e.rowMinW)
 	}
-	if g := e.gridFit; g != nil && max(1, int(math.Floor(float64((cw+g.gap)/(g.minW+g.gap))))) != g.cols {
+	if g := e.gridFit; g != nil && g.m != nil {
+		// A MasonryView placed its items for the width and the Gap of the
+		// last layout: the next frame places them for others.
+		if gy := max(e.gapY, 0); cw != g.m.width || gy != g.m.placedGap {
+			g.m.layoutGap = gy
+			e.c.rt.animating = true
+		}
+	} else if g != nil && max(1, int(math.Floor(float64((cw+g.gap)/(g.minW+g.gap))))) != g.cols {
 		// The items of a grid take other columns: the next frame builds
 		// them so.
 		e.c.rt.animating = true
@@ -1522,7 +1545,7 @@ func (e *node) layoutList(w, h float32) {
 		hs.clear()
 		s.width = cw
 	}
-	gap := float64(max(e.gapY, 0))
+	gap := float64(e.listGap())
 	padTop, padBottom := float64(e.contentY()), float64(e.pad[2]+e.border[2])
 	H := float64(h)
 	top, bottom := float64(e.border[0]), H-float64(e.border[2])
