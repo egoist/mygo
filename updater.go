@@ -32,10 +32,13 @@ import (
 // Set by `mygo build` with -ldflags -X when mygo.config.ts configures updates:
 // the manifest of this build's target, or with a tag prefix on GitHub its
 // feed in the newest tagged release (update.TaggedFeed), and the public key
-// updates must be signed with.
+// updates must be signed with; packageAppImage is set in Linux builds whose
+// releases have an AppImage (linux.formats), which an app running as one
+// updates itself from.
 var (
 	packageUpdateFeed string
 	packageUpdateKey  string
+	packageAppImage   string
 )
 
 // startExe is the executable the app started from. On Linux, os.Executable
@@ -148,7 +151,12 @@ func (u *UpdaterModule) Check(ctx context.Context) (*Update, error) {
 	if s := updateSource.Load(); s != nil {
 		src = *s
 	}
-	return checkUpdate(ctx, src, packageUpdateKey, App.Version(), prereleases.Load())
+	up, err := checkUpdate(ctx, src, packageUpdateKey, App.Version(), prereleases.Load())
+	if up != nil && appImage() != "" && up.manifest.AppImage == nil {
+		// Offered, it could not be installed.
+		return nil, fmt.Errorf("mygo: checking for updates: %s has no AppImage", up.Version)
+	}
+	return up, err
 }
 
 // SetPrereleases makes Check offer prereleases too, such as 1.3.0-beta.1,
@@ -218,6 +226,8 @@ func checkUpdate(ctx context.Context, src UpdateSource, key, current string, pre
 // The app must be able to write where it is installed: a bundle in
 // /Applications of an administrator, or an app directory the user owns on
 // Linux and Windows. Apps installed by a package manager are updated by it.
+// An app running as an AppImage replaces the AppImage file, at the same
+// path, with the new version's (linux.formats).
 func (up *Update) Install(ctx context.Context, progress func(downloaded, total int64)) error {
 	target, err := installTarget()
 	if err != nil {
@@ -226,6 +236,12 @@ func (up *Update) Install(ctx context.Context, progress func(downloaded, total i
 	get := httpGet
 	if up.source != nil {
 		get = up.source.Open
+	}
+	if appImage() != "" {
+		if err := installAppImage(ctx, get, up.manifest, up.key, target, progress); err != nil {
+			return fmt.Errorf("mygo: installing the update: %w", err)
+		}
+		return nil
 	}
 	if err := installUpdate(ctx, get, up.manifest, up.key, up.current, target, progress); err != nil {
 		return fmt.Errorf("mygo: installing the update: %w", err)
@@ -253,10 +269,110 @@ func installTarget() (string, error) {
 		}
 		return bundle, nil
 	}
-	if os.Getenv("APPIMAGE") != "" {
-		return "", errors.New("mygo: AppImages cannot update themselves")
+	if p := appImage(); p != "" {
+		// The directory of the executable is the image the runtime
+		// mounted, which cannot be written: the update replaces the
+		// AppImage, of releases that have one.
+		if packageAppImage == "" {
+			return "", errors.New("mygo: this app is not published as an AppImage, which could update itself")
+		}
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		return p, nil
 	}
 	return filepath.Dir(exe), nil
+}
+
+// appImage returns the AppImage the app runs from, which its runtime sets
+// APPIMAGE to, or "". The runtime sets it for every process the app
+// starts too, so it counts only when the app's executable is in APPDIR,
+// where the runtime mounted the AppImage: an app installed otherwise and
+// started by an AppImage, as a terminal, must not take that AppImage for
+// its own.
+func appImage() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	p, dir := os.Getenv("APPIMAGE"), os.Getenv("APPDIR")
+	if p == "" || dir == "" {
+		return ""
+	}
+	exe := startExe
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
+	if rel, err := filepath.Rel(dir, exe); err != nil || !filepath.IsLocal(rel) {
+		return ""
+	}
+	return p
+}
+
+// elfMachine is the ELF machine of the architectures AppImages are made
+// for, by GOARCH.
+var elfMachine = map[string]uint16{"amd64": 62, "arm64": 183}
+
+// checkAppImage checks that the file at path is an executable of this
+// machine's architecture: the manifest that names the AppImage is not
+// signed, and a file signed with the app's key that is not one, as the
+// archive, would leave nothing that runs in its place.
+func checkAppImage(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var h [20]byte
+	if _, err := io.ReadFull(f, h[:]); err != nil || string(h[:4]) != "\x7fELF" {
+		return errors.New("the AppImage is not an executable")
+	}
+	machine := uint16(h[18]) | uint16(h[19])<<8 // little-endian, as both are
+	if want, ok := elfMachine[runtime.GOARCH]; !ok || machine != want {
+		return fmt.Errorf("the AppImage is not for %s", runtime.GOARCH)
+	}
+	return nil
+}
+
+// installAppImage downloads the AppImage of m next to target, the
+// AppImage the app runs from, checks its size and signature, and renames it
+// onto target, which keeps its path for the shortcuts and menus that name
+// it. The running app goes on reading the file it started from, which the
+// runtime mounted, until it exits.
+func installAppImage(ctx context.Context, get update.Getter, m update.Manifest, key, target string, progress func(downloaded, total int64)) error {
+	img := m.AppImage
+	if img == nil {
+		return errors.New("the update has no AppImage")
+	}
+	if img.Size <= 0 || img.Size > update.MaxArchiveSize {
+		return fmt.Errorf("invalid size %d", img.Size)
+	}
+	pub, err := update.ParsePublicKey(key)
+	if err != nil {
+		return err
+	}
+	work, err := os.MkdirTemp(filepath.Dir(target), workPattern(target))
+	if err != nil {
+		return fmt.Errorf("cannot write next to the app: %w", err)
+	}
+	defer os.RemoveAll(work)
+	path := filepath.Join(work, filepath.Base(target))
+	if err := download(ctx, get, img.URL, img.Size, img.Signature, pub, path, progress); err != nil {
+		return err
+	}
+	if err := checkAppImage(path); err != nil {
+		return err
+	}
+	mode := fs.FileMode(0o755)
+	if info, err := os.Stat(target); err == nil {
+		mode = info.Mode().Perm() | 0o111
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return err
+	}
+	return os.Rename(path, target)
 }
 
 // installUpdate installs the version of m in place of target, the app of
@@ -613,8 +729,13 @@ func relaunchNow() {
 		return
 	}
 	// The executable the app started from, which an update may have
-	// replaced.
-	cmd := exec.Command(startExe, args...)
+	// replaced; of an AppImage, the AppImage, as the image it was mounted
+	// from goes once the app exits, and an update replaced the file.
+	exe := startExe
+	if p := appImage(); p != "" {
+		exe = p
+	}
+	cmd := exec.Command(exe, args...)
 	cmd.Dir = startDir
 	if runtime.GOOS != "windows" {
 		// GUI executables on Windows have no standard streams to pass on.
@@ -671,6 +792,20 @@ func cleanUpdateLeftovers() {
 		return
 	}
 	olds, _ := filepath.Glob(filepath.Join(filepath.Dir(startExe), ".*.old-*"))
+	// What an update of the AppImage left next to it when the app was
+	// stopped in the middle of it.
+	if p := appImage(); p != "" {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		// By prefix, not a pattern: the user names the AppImage.
+		entries, _ := os.ReadDir(filepath.Dir(p))
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), workPattern(p)) {
+				olds = append(olds, filepath.Join(filepath.Dir(p), e.Name()))
+			}
+		}
+	}
 	for _, p := range olds {
 		_ = os.RemoveAll(p)
 	}

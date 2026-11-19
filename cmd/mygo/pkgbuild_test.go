@@ -191,7 +191,7 @@ func TestPKGBUILD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	archives, err := writeArchive(c, stage, "linux-amd64", app)
+	archives, err := writeArchive(c, stage, "linux-amd64", app, "")
 	if err != nil {
 		t.Fatal(err)
 	}

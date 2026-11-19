@@ -32,6 +32,9 @@ type Manifest struct {
 	URL       string `json:"url"`
 	Size      int64  `json:"size"`
 	Signature string `json:"signature"`
+	// AppImage is the app as an AppImage, on Linux, which an app running
+	// as one replaces itself with, when the release has one.
+	AppImage *Image `json:"appImage,omitempty"`
 	// Deltas update earlier versions with smaller downloads (delta.go).
 	Deltas []Delta `json:"deltas,omitempty"`
 	// Previous are the archives of the versions before, newest first,
@@ -43,6 +46,15 @@ type Manifest struct {
 // archive.
 type Delta struct {
 	From      string `json:"from"`
+	URL       string `json:"url"`
+	Size      int64  `json:"size"`
+	Signature string `json:"signature"`
+}
+
+// Image is a file that replaces the app whole, as an AppImage does: its
+// URL, its size in bytes and the Ed25519 signature of its SHA-256 digest,
+// as the manifest's archive has them.
+type Image struct {
 	URL       string `json:"url"`
 	Size      int64  `json:"size"`
 	Signature string `json:"signature"`

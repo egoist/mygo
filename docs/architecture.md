@@ -2216,7 +2216,13 @@ as in Tauri:
   without a list stay, and so does the running executable. Deltas never
   make the list from the installed one, which the updater rewrote.
   `App.Relaunch` then starts the new version from the path the app
-  started from. Development builds are never updated. Delta updates work
+  started from. An app running as an AppImage (`APPIMAGE`, in a build
+  with `packageAppImage`) replaces the AppImage instead, whose mounted
+  image cannot be written: `installAppImage` downloads the manifest's
+  `appImage` next to it, checks its size and signature and renames it
+  onto the file, through a link the app was started by; `Check` offers no
+  release without one, and `Relaunch` starts the AppImage, not the
+  executable in the mount, which goes when the app exits. Development builds are never updated. Delta updates work
   as Sparkle's (`internal/update/delta.go`): `mygo build` fetches the
   published manifest of the target, downloads the archives of up to
   `updates.deltas` versions (that manifest's, and those it lists as
@@ -6834,8 +6840,18 @@ make it work, and phones a fourth:
   Debian dependencies through `archPackages` and `rpmPackages`, warning
   about those they lack, and `options` keeps the executable unstripped. Every
   value is quoted for the shell, and `-upload` leaves it out (`uploads`
-  takes only known kinds). `linux.formats` chooses which of the three
-  packages a build writes (`writeLinuxPackages`), all by default; the
+  takes only known kinds). With `appimage` in `linux.formats`, amd64 and
+  arm64 also get an AppImage (`appimage.go`): the static runtime of
+  AppImage/type2-runtime, downloaded into the cache and pinned by its
+  SHA-256 (`appImageRuntime`), followed by a SquashFS image written in
+  pure Go (`internal/squashfs`, zstd, without fragments; tests read it
+  back with `internal/squashfs/squashfstest`) of the app's directory, an
+  `AppRun` script that runs the executable by its path, so that its
+  WM_CLASS is the executable's, `.DirIcon` and the hicolor icons.
+  It is written before the archive, whose manifest names it signed
+  (`appImage`), and Linux builds of such apps get
+  `packageAppImage=1`. `linux.formats` chooses which packages a build
+  writes (`writeLinuxPackages`), all but the AppImage by default; the
   archive is always written. Packages hold the same files as
   the update archive; apps installed by a package manager do not update
   themselves (`Updater.Enabled` checks that the app can write where it is

@@ -46,7 +46,7 @@ when cross-compiling, set `CC` to a suitable cross compiler.
 |---|---|
 | macOS | `My App.app`, signed, and `my-app-0.1.0-arm64.dmg` (`my-app-0.1.0.dmg` for `darwin/universal`), with [updates](updates.md) also `install.sh` |
 | Windows | `My App.exe`, the files of the app, and the installer `my-app-setup-0.1.0-amd64.exe`, with [updates](updates.md) also [`install.ps1`](#install-scripts-for-macos-and-windows) |
-| Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-amd64.tar.gz` with [`install.sh`](#the-install-script), and the packages of [`linux.formats`](#linux), by default all three: the Debian package `my-app_0.1.0_amd64.deb`, the RPM package `my-app-0.1.0-1.x86_64.rpm`, and a [`PKGBUILD`](#arch-linux) with the icons it installs, `my-app-256x256.png` and `my-app-512x512.png` |
+| Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-amd64.tar.gz` with [`install.sh`](#the-install-script), and the packages of [`linux.formats`](#linux), by default all three: the Debian package `my-app_0.1.0_amd64.deb`, the RPM package `my-app-0.1.0-1.x86_64.rpm`, and a [`PKGBUILD`](#arch-linux) with the icons it installs, `my-app-256x256.png` and `my-app-512x512.png`; with `appimage` in `linux.formats`, also the [AppImage](#appimage) `my-app-0.1.0-linux-x86_64.AppImage` |
 
 Other flags: `-debug` keeps development features such as the inspector,
 `-skip-dmg`, `-skip-notarize` and `-skip-installer` (the Windows
@@ -611,8 +611,9 @@ command, `/usr/bin/my-app` from the packages and `~/.local/bin/my-app` from
 which adds a short name; without it, neither adds a command, which leaves
 the name to a command-line tool of the same name, such as the app's own.
 
-`formats` chooses the packages a build writes, of `deb`, `rpm` and
-`pkgbuild`, all three by default; a name it does not know is an error.
+`formats` chooses the packages a build writes, of `deb`, `rpm`,
+`pkgbuild` and `appimage`, all but the [AppImage](#appimage) by default;
+a name it does not know is an error.
 The archive with [`install.sh`](#the-install-script) is always written:
 `install.sh` installs and [updates](updates.md) the app from it, and the
 PKGBUILD packages it. `formats: ["deb"]` writes the Debian package and
@@ -640,6 +641,28 @@ that `install.sh` registered still runs, and a Debian or RPM package of the
 new slug is another package, installed next to the old one. Choose the
 slug before the first release, as `cloud-music` for `云音乐`, whose own
 would be `yun-yin-le`.
+
+### AppImage
+
+With `appimage` in [`linux.formats`](#linux), the amd64 and arm64 builds
+also get the app as an AppImage, `my-app-0.1.0-linux-x86_64.AppImage` or
+`my-app-0.1.0-linux-arm64.AppImage`: one executable file that runs on most
+distributions without being installed, from wherever the user keeps it.
+
+```ts
+export default defineConfig({
+  linux: { formats: ["deb", "rpm", "pkgbuild", "appimage"] },
+});
+```
+
+It holds the app's folder as the archive does, with its desktop entry and
+icon, after the runtime of
+[AppImage/type2-runtime](https://github.com/AppImage/type2-runtime), which
+mounts it with FUSE and runs the app from it. `mygo build` writes it in
+pure Go on any system, and downloads the runtime the first time, checked
+against its SHA-256, into the user's cache folder. With
+[updates](updates.md), the AppImage is signed and named in the manifest,
+and an app running as one updates itself by replacing the file.
 
 ### Arch Linux
 

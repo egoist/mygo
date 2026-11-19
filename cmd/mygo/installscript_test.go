@@ -83,7 +83,7 @@ func TestInstallScript(t *testing.T) {
 		for _, e := range entries {
 			names = append(names, e.Name())
 		}
-		if _, err := writeArchive(c, stage, "linux-amd64", names); err != nil {
+		if _, err := writeArchive(c, stage, "linux-amd64", names, ""); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := writeInstallScript(c, stage); err != nil {
@@ -346,7 +346,7 @@ cat "$file"
 	if err := os.WriteFile(filepath.Join(stage, "my-app"), []byte("#!/bin/sh\necho 1.1.0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := writeArchive(c, stage, "linux-amd64", []string{"my-app"}); err != nil {
+	if _, err := writeArchive(c, stage, "linux-amd64", []string{"my-app"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	script, err := writeInstallScript(c, t.TempDir())
@@ -419,7 +419,7 @@ func TestInstallScriptMacOS(t *testing.T) {
 			t.Fatal(err)
 		}
 		os.WriteFile(filepath.Join(app, "Contents", "Resources", "only-"+version), nil, 0o644)
-		if _, err := writeArchive(c, stage, target, []string{"My App.app"}); err != nil {
+		if _, err := writeArchive(c, stage, target, []string{"My App.app"}, ""); err != nil {
 			t.Fatal(err)
 		}
 		for _, name := range []string{"my-app-" + version + "-" + target + ".tar.gz", "update-" + target + ".json"} {
@@ -870,7 +870,7 @@ func TestInstallScriptLinux(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(stage, "my-app"), []byte("#!/bin/sh\necho "+version+"\n"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := writeArchive(c, stage, target, []string{"my-app"}); err != nil {
+			if _, err := writeArchive(c, stage, target, []string{"my-app"}, ""); err != nil {
 				t.Fatal(err)
 			}
 			for _, name := range []string{"my-app-" + version + "-" + target + ".tar.gz", "update-" + target + ".json"} {
