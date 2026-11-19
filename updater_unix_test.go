@@ -68,8 +68,8 @@ func TestUpdateSwapInheritsNoFiles(t *testing.T) {
 
 // The swap reads lsappinfo's output as it is: an app found by its bundle
 // is listed in the line that finding it by its pid prints, and a bundle
-// that runs nothing prints no line, and succeeds. Finder must run, as in a
-// desktop session.
+// that runs nothing prints no line, and succeeds. It needs a desktop
+// session, with Finder, and skips without one.
 func TestLsappinfoContract(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("lsappinfo is macOS's")
@@ -77,7 +77,7 @@ func TestLsappinfoContract(t *testing.T) {
 	out, err := exec.Command("/usr/bin/pgrep", "-x", "Finder").Output()
 	pid := strings.Fields(string(out))
 	if err != nil || len(pid) == 0 {
-		t.Skip("Finder does not run")
+		t.Skip("Finder does not run: no desktop session")
 	}
 	find := func(what string) string {
 		t.Helper()
@@ -87,12 +87,18 @@ func TestLsappinfoContract(t *testing.T) {
 		}
 		return strings.TrimSpace(string(out))
 	}
+	// Finder by its pid tells whether this process reaches the Launch
+	// Services of a desktop session, as an ssh session may not.
+	byPid, err := exec.Command("/usr/bin/lsappinfo", "find", "pid="+pid[0]).Output()
+	if err != nil || len(strings.TrimSpace(string(byPid))) == 0 {
+		t.Skipf("no Launch Services session here: lsappinfo finds no Finder (%v)", err)
+	}
 	byBundle := find("bundlepath=/System/Library/CoreServices/Finder.app")
 	if byBundle == "" {
 		t.Fatal("Finder is not found by its bundle")
 	}
-	if byPid := find("pid=" + pid[0]); byPid == "" || !slices.Contains(strings.Split(byBundle, "\n"), byPid) {
-		t.Errorf("found by its pid %q, and by its bundle %q", byPid, byBundle)
+	if line := strings.TrimSpace(string(byPid)); !slices.Contains(strings.Split(byBundle, "\n"), line) {
+		t.Errorf("found by its pid %q, and by its bundle %q", line, byBundle)
 	}
 	if got := find("bundlepath=/nonexistent.app"); got != "" {
 		t.Errorf("a bundle that runs nothing: %q", got)

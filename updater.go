@@ -546,14 +546,19 @@ func takeStagedUpdate() (p *stagedUpdate, taken bool, started chan struct{}) {
 // the new version when relaunch is set, with the arguments args. It
 // reports whether a process installs the update. Only its first call
 // starts one: a later call waits for that one to start it, at most
-// swapStartWait, and reports what it did, or true once the wait is over;
-// so a second signal does not exit before the process started, and
-// Relaunch does not open the old version, which the process is about to
-// move away. The app calls it as it finishes, however it quits, and on a
-// second signal (stagedInstaller).
+// swapStartWait (2 s), and reports what it did; once that wait is over it
+// takes the process as started and reports true, whether or not it ever
+// starts. So a second signal does not exit before the process started,
+// unless starting it takes longer than the wait, and Relaunch does not
+// open the old version, which the process is about to move away. The app
+// calls it as it finishes, however it quits, and on a second signal
+// (stagedInstaller).
 func installStagedUpdate(relaunch bool, args []string) bool {
 	p, taken, started := takeStagedUpdate()
 	if taken {
+		if swapWaitHook != nil {
+			swapWaitHook()
+		}
 		select {
 		case <-started:
 		case <-time.After(swapStartWait):
@@ -589,7 +594,7 @@ func installStagedUpdate(relaunch bool, args []string) bool {
 // second it waits for Launch Services to forget the app, and then for the
 // new version to run, the path of its log, which is called once the app
 // finishes, and how long a second call of installStagedUpdate waits for
-// the first to start it.
+// the first to start it, after which it takes it as started.
 var (
 	swapShell     = "/bin/sh"
 	swapOpen      = "/usr/bin/open"
@@ -602,6 +607,11 @@ var (
 	}
 	swapStartWait = 2 * time.Second
 )
+
+// swapWaitHook, when not nil, is called by a later call of
+// installStagedUpdate as it starts waiting for the first to start the
+// process: tests set it, to know that the call waits.
+var swapWaitHook func()
 
 // maxUpdateLog is the size of the update log above which it starts over.
 const maxUpdateLog = 256 << 10
