@@ -14,6 +14,13 @@ import (
 // landed and selected text as it moved: backends take the touches
 // instead and give them to a TouchGesture (GTK's touch events on Linux,
 // WM_POINTER's on Windows).
+//
+// With Pointer set, one finger is the mouse instead, as on a desktop
+// touchscreen: it presses where it lands, moves the pointer as it moves
+// and lets go where it lifts, so it drags a slider or a selection. A
+// second finger cancels the press, and two pinch and scroll as they do
+// otherwise. There is no long press then: the finger pressed as it
+// landed.
 const (
 	TouchSlop = 8   // DIPs
 	LongPress = 500 // milliseconds
@@ -23,6 +30,10 @@ const (
 // gives them, and turns them into surface events. Its zero value has no
 // finger down.
 type TouchGesture struct {
+	// Pointer makes one finger the mouse (WindowOptions.TouchPointer).
+	Pointer bool
+	// pressing tells that the only finger down presses, with Pointer.
+	pressing bool
 	// fingers are down, in the order they landed; the first two count.
 	fingers []touchFinger
 	// tap tells that the only finger down stayed within TouchSlop of
@@ -41,8 +52,16 @@ type touchFinger struct {
 }
 
 // Reset forgets the fingers down, as when the first finger of new
-// touches lands and those before ended unseen, as under a grab.
-func (g *TouchGesture) Reset() { g.fingers, g.tap = g.fingers[:0], false }
+// touches lands and those before ended unseen, as under a grab,
+// canceling the press of one.
+func (g *TouchGesture) Reset() []SurfaceEvent {
+	g.fingers, g.tap = g.fingers[:0], false
+	if !g.pressing {
+		return nil
+	}
+	g.pressing = false
+	return []SurfaceEvent{{Kind: PointerCancel}}
+}
 
 // Holds reports whether the finger id is down.
 func (g *TouchGesture) Holds(id uintptr) bool { return g.find(id) >= 0 }
@@ -53,11 +72,22 @@ func (g *TouchGesture) Begin(id uintptr, x, y float64, t uint32) []SurfaceEvent 
 		return nil
 	}
 	g.fingers = append(g.fingers, touchFinger{id, x, y})
+	g.anchor()
+	if g.Pointer {
+		switch {
+		case len(g.fingers) == 1:
+			g.pressing = true
+			return []SurfaceEvent{{Kind: PointerDown, X: x, Y: y}}
+		case g.pressing:
+			g.pressing = false
+			return []SurfaceEvent{{Kind: PointerCancel}}
+		}
+		return nil
+	}
 	g.tap = len(g.fingers) == 1
 	if g.tap {
 		g.startX, g.startY, g.start = x, y, t
 	}
-	g.anchor()
 	return nil
 }
 
@@ -66,6 +96,13 @@ func (g *TouchGesture) Move(id uintptr, x, y float64) []SurfaceEvent {
 	i := g.find(id)
 	if i < 0 {
 		return nil
+	}
+	if g.pressing {
+		if g.fingers[i].x == x && g.fingers[i].y == y {
+			return nil
+		}
+		g.fingers[i].x, g.fingers[i].y = x, y
+		return []SurfaceEvent{{Kind: PointerMove, X: x, Y: y}}
 	}
 	g.fingers[i].x, g.fingers[i].y = x, y
 	var out []SurfaceEvent
@@ -99,7 +136,14 @@ func (g *TouchGesture) End(id uintptr, x, y float64, t uint32, canceled bool) []
 		return nil
 	}
 	var out []SurfaceEvent
-	if !canceled {
+	switch {
+	case g.pressing && canceled:
+		g.pressing = false
+		out = append(out, SurfaceEvent{Kind: PointerCancel})
+	case g.pressing:
+		g.pressing = false
+		out = append(out, SurfaceEvent{Kind: PointerUp, X: x, Y: y})
+	case !canceled:
 		out = g.Move(id, x, y)
 	}
 	g.fingers = slices.Delete(g.fingers, i, i+1)

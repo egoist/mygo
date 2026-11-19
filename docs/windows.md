@@ -65,6 +65,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `AutoHideMenuBar` | shows the menu bar only while the keyboard is in it, from Alt or F10 (Linux, Windows), see [the menu bar](menus.md#the-menu-bar) |
 | `Parent`, `Modal` | a child window, modal to its parent, a [flyout](#a-dialog-over-a-flyout) too; for one placed next to a part of it, see [flyouts](#flyouts) |
 | `Panel` | the window of a launcher or a quick entry, floating above all apps, see [panels](#panels) |
+| `TouchPointer` | one finger on a touchscreen drives native UI as the mouse, pressing, dragging and releasing, instead of tapping and scrolling (Linux; also `MYGO_TOUCH_POINTER=1`) |
 | `Page` | the options of the window's [page](#pages): its preload script, trusted origins, web inspector, zoom, user agent and its suffix, swipes and pinches |
 
 ## Show windows without flashing

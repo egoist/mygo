@@ -10,12 +10,6 @@ import (
 // a finger dragging scrolls the content along with it, two pinch and
 // scroll (#797).
 func TestTouchGesture(t *testing.T) {
-	type touch struct {
-		kind byte // b begin, m move, e end, c cancel, r reset
-		seq  uintptr
-		x, y float64
-		ms   uint32
-	}
 	down := func(x, y float64, button int) SurfaceEvent {
 		return SurfaceEvent{Kind: PointerDown, X: x, Y: y, Button: button}
 	}
@@ -96,21 +90,104 @@ func TestTouchGesture(t *testing.T) {
 			{kind: 'r'}, {kind: 'b', seq: 2, x: 10, y: 20}, {kind: 'e', seq: 2, x: 10, y: 20},
 		}, []SurfaceEvent{down(10, 20, 0), up(10, 20, 0), leave}},
 	} {
-		var g TouchGesture
-		var got []SurfaceEvent
-		for _, tt := range tc.touches {
-			switch tt.kind {
-			case 'b':
-				got = append(got, g.Begin(tt.seq, tt.x, tt.y, tt.ms)...)
-			case 'm':
-				got = append(got, g.Move(tt.seq, tt.x, tt.y)...)
-			case 'e', 'c':
-				got = append(got, g.End(tt.seq, tt.x, tt.y, tt.ms, tt.kind == 'c')...)
-			case 'r':
-				g.Reset()
-			}
+		if got := playTouches(&TouchGesture{}, tc.touches); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s:\n got %+v\nwant %+v", tc.name, got, tc.want)
 		}
-		if !reflect.DeepEqual(got, tc.want) {
+	}
+}
+
+type touch struct {
+	kind byte // b begin, m move, e end, c cancel, r reset
+	seq  uintptr
+	x, y float64
+	ms   uint32
+}
+
+func playTouches(g *TouchGesture, touches []touch) []SurfaceEvent {
+	var got []SurfaceEvent
+	for _, tt := range touches {
+		switch tt.kind {
+		case 'b':
+			got = append(got, g.Begin(tt.seq, tt.x, tt.y, tt.ms)...)
+		case 'm':
+			got = append(got, g.Move(tt.seq, tt.x, tt.y)...)
+		case 'e', 'c':
+			got = append(got, g.End(tt.seq, tt.x, tt.y, tt.ms, tt.kind == 'c')...)
+		case 'r':
+			got = append(got, g.Reset()...)
+		}
+	}
+	return got
+}
+
+// TestTouchPointer checks the fingers of a touchscreen made the mouse
+// (WindowOptions.TouchPointer): one presses where it lands, moves and
+// lets go where it lifts, so it drags a slider; a second cancels the
+// press, and two pinch and scroll as without.
+func TestTouchPointer(t *testing.T) {
+	down := func(x, y float64) SurfaceEvent {
+		return SurfaceEvent{Kind: PointerDown, X: x, Y: y}
+	}
+	move := func(x, y float64) SurfaceEvent {
+		return SurfaceEvent{Kind: PointerMove, X: x, Y: y}
+	}
+	up := func(x, y float64) SurfaceEvent {
+		return SurfaceEvent{Kind: PointerUp, X: x, Y: y}
+	}
+	scroll := func(x, y, dx, dy float64) SurfaceEvent {
+		return SurfaceEvent{Kind: PointerScroll, X: x, Y: y, DX: dx, DY: dy, Precise: true}
+	}
+	zoom := func(x, y, scale float64) SurfaceEvent {
+		return SurfaceEvent{Kind: PointerZoom, X: x, Y: y, Scale: scale}
+	}
+	cancel := SurfaceEvent{Kind: PointerCancel}
+	leave := SurfaceEvent{Kind: PointerLeave}
+	for _, tc := range []struct {
+		name    string
+		touches []touch
+		want    []SurfaceEvent
+	}{
+		{"tap", []touch{{kind: 'b', seq: 1, x: 10, y: 20}, {kind: 'e', seq: 1, x: 10, y: 20, ms: 100}},
+			[]SurfaceEvent{down(10, 20), up(10, 20), leave}},
+		// Held, it presses all along: no right click.
+		{"long press", []touch{{kind: 'b', seq: 1, x: 10, y: 20}, {kind: 'e', seq: 1, x: 10, y: 20, ms: 2 * LongPress}},
+			[]SurfaceEvent{down(10, 20), up(10, 20), leave}},
+		// Within the slop too, the pointer follows the finger.
+		{"drag", []touch{
+			{kind: 'b', seq: 1, x: 100, y: 100}, {kind: 'm', seq: 1, x: 102, y: 100}, {kind: 'm', seq: 1, x: 102, y: 100},
+			{kind: 'm', seq: 1, x: 150, y: 104}, {kind: 'e', seq: 1, x: 160, y: 104, ms: 300},
+		}, []SurfaceEvent{down(100, 100), move(102, 100), move(150, 104), up(160, 104), leave}},
+		{"canceled drag", []touch{{kind: 'b', seq: 1, x: 10, y: 20}, {kind: 'm', seq: 1, x: 30, y: 20}, {kind: 'c', seq: 1, x: 30, y: 20}},
+			[]SurfaceEvent{down(10, 20), move(30, 20), cancel, leave}},
+		{"pinch", []touch{
+			{kind: 'b', seq: 1, x: 100, y: 100}, {kind: 'b', seq: 2, x: 200, y: 100},
+			{kind: 'm', seq: 2, x: 300, y: 100},
+			{kind: 'e', seq: 1, x: 100, y: 100}, {kind: 'e', seq: 2, x: 300, y: 100},
+		}, []SurfaceEvent{
+			down(100, 100), cancel,
+			scroll(150, 100, -50, 0), zoom(200, 100, 2),
+			leave,
+		}},
+		// The finger left after two scrolls, as it does without.
+		{"pinch, then one finger", []touch{
+			{kind: 'b', seq: 1, x: 100, y: 100}, {kind: 'b', seq: 2, x: 200, y: 100},
+			{kind: 'e', seq: 2, x: 200, y: 100},
+			{kind: 'm', seq: 1, x: 100, y: 101},
+			{kind: 'e', seq: 1, x: 100, y: 101},
+		}, []SurfaceEvent{down(100, 100), cancel, scroll(100, 100, 0, -1), leave}},
+		{"touches anew", []touch{
+			{kind: 'b', seq: 1, x: 10, y: 20}, {kind: 'r'}, {kind: 'b', seq: 2, x: 30, y: 40}, {kind: 'e', seq: 2, x: 30, y: 40},
+		}, []SurfaceEvent{down(10, 20), cancel, down(30, 40), up(30, 40), leave}},
+		{"unknown sequences", []touch{{kind: 'm', seq: 9, x: 1, y: 1}, {kind: 'e', seq: 9, x: 1, y: 1}}, nil},
+		{"drags in a row", []touch{
+			{kind: 'b', seq: 1, x: 10, y: 20}, {kind: 'm', seq: 1, x: 40, y: 20}, {kind: 'e', seq: 1, x: 40, y: 20},
+			{kind: 'b', seq: 2, x: 40, y: 20}, {kind: 'm', seq: 2, x: 10, y: 20}, {kind: 'e', seq: 2, x: 10, y: 20},
+		}, []SurfaceEvent{
+			down(10, 20), move(40, 20), up(40, 20), leave,
+			down(40, 20), move(10, 20), up(10, 20), leave,
+		}},
+	} {
+		if got := playTouches(&TouchGesture{Pointer: true}, tc.touches); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s:\n got %+v\nwant %+v", tc.name, got, tc.want)
 		}
 	}

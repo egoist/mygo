@@ -466,6 +466,9 @@ type WindowOptions struct {
 	// ones included, out of the taskbar and the app switcher, and on macOS
 	// takes the keyboard without activating the app.
 	Panel bool
+	// TouchPointer makes one finger on a touchscreen the mouse
+	// (mygo.WindowOptions.TouchPointer); Linux only.
+	TouchPointer bool
 
 	// UserScripts are injected into every page, in order.
 	UserScripts []UserScript

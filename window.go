@@ -206,6 +206,13 @@ type WindowOptions struct {
 	// activating the app, so the app the user was in stays active and gets
 	// the keyboard back when the panel hides.
 	Panel bool
+	// TouchPointer makes one finger on a touchscreen drive native UI as
+	// the mouse does, on Linux: it presses where it lands, moves the
+	// pointer as it moves and lets go where it lifts, so it drags a
+	// slider, rather than tapping and scrolling as a phone's does. Two
+	// fingers still pinch and scroll. Setting MYGO_TOUCH_POINTER=1 in the
+	// environment turns it on for every window. Other platforms ignore it.
+	TouchPointer bool
 
 	// Page configures the window's web page.
 	Page PageOptions
@@ -783,6 +790,7 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		PinchZoom:              po.PinchZoom,
 		Schemes:                Protocol.schemes(),
 		Panel:                  o.Panel,
+		TouchPointer:           o.TouchPointer,
 		PictureInPicture:       po.PictureInPicture,
 	}
 	if o.Panel {

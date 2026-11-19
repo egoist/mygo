@@ -58,6 +58,7 @@ mygo.NewWindow(mygo.WindowOptions{Title: "Inspector", Content: ui.View(app.view)
 | `AutoHideMenuBar` | 只在键盘焦点进入菜单栏时（按 Alt 或 F10）显示菜单栏（Linux、Windows），见[菜单栏](menus.md#菜单栏) |
 | `Parent`, `Modal` | 子窗口，对其父窗口模态，也可以是[叠在浮出窗口上的对话框](#叠在浮出窗口上的对话框)；对于紧挨其某一部分放置的窗口，见[浮出窗口](#浮出窗口) |
 | `Panel` | 启动器或快速输入的窗口，浮在所有应用之上，见[面板](#面板) |
+| `TouchPointer` | 触摸屏上单指像鼠标一样操作原生 UI（按下、拖动、松开），而不是点按和滚动（Linux；也可设 `MYGO_TOUCH_POINTER=1`） |
 | `Page` | 窗口的[页面](#页面)选项：其预加载脚本、受信任的来源、Web 检查器、缩放、用户代理及其后缀、滑动和捏合 |
 
 ## 无闪烁地显示窗口

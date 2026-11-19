@@ -121,3 +121,36 @@ func TestWriteClipboardThen(t *testing.T) {
 		t.Errorf("refused: %d calls, error %v, clipboard %q, texts %q", calls, outcome, tt.Clipboard(), tt.Texts())
 	}
 }
+
+// A finger made the mouse (mygo.WindowOptions.TouchPointer) drags a
+// slider as the mouse does: pressing it where it lands, with no hover
+// before, and following it until it lifts.
+func TestSliderTouchDrag(t *testing.T) {
+	value := 0.0
+	tt := NewTester(func(c *Context) {
+		Slider(c, &value, 0, 100).Width(200).Label("Volume")
+	}, 300, 100)
+	tt.Frame()
+	r, ok := tt.Find("Volume")
+	if !ok {
+		t.Fatal("no slider")
+	}
+	y := r.Y + r.H/2
+	tt.UsePointer(PointerTouch, 0)
+	tt.Press(r.X+r.W/2, y)
+	tt.Frame()
+	if value < 40 || value > 60 {
+		t.Errorf("pressed in the middle: value %v", value)
+	}
+	tt.Move(r.X+r.W, y)
+	tt.Frame()
+	if value != 100 {
+		t.Errorf("dragged to the end: value %v", value)
+	}
+	tt.Move(r.X, y)
+	tt.Release(r.X, y)
+	tt.Frame()
+	if value != 0 {
+		t.Errorf("dragged back and lifted at the start: value %v", value)
+	}
+}
