@@ -1528,6 +1528,11 @@ func (v *view) scroll(ev ui.InputEvent) bool {
 		}
 		return true
 	}
+	// A terminal only scrolls vertically; leave horizontal scrolling (such as a
+	// trackpad swipe) to handlers around the view.
+	if ev.DX != 0 && (ev.DY == 0 || (ev.Precise && math.Abs(float64(ev.DX)) > math.Abs(float64(ev.DY)))) {
+		return false
+	}
 	ch := float32(v.cellH) / v.scale
 	t.mu.Lock()
 	m := t.opts.ScrollMultiplier
