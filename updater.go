@@ -507,10 +507,15 @@ func stageBundle(work, dir, target string) error {
 }
 
 // takeStagedUpdate returns the update that Install staged, or nil, and
-// keeps Install from staging another (updateQuitting).
+// keeps Install from staging another (updateQuitting). Only its first
+// call returns it: a second signal can arrive as the app finishes, and
+// both would start a process that installs it.
 func takeStagedUpdate() *stagedUpdate {
 	stageMu.Lock()
 	defer stageMu.Unlock()
+	if updateQuitting {
+		return nil
+	}
 	updateQuitting = true
 	return pendingUpdate
 }
@@ -536,11 +541,15 @@ func installStagedUpdate(relaunch bool, args []string) bool {
 
 // The swap process's settings, which tests replace: the open command it
 // opens the app with, how many tenths of a second it waits for the app to
-// exit (five minutes) before it gives up, and the path of its log, which
-// is called once the app finishes.
+// exit (five minutes) before it gives up, the lsappinfo command it asks
+// Launch Services with, how many tenths of a second it waits for Launch
+// Services to forget the app, and then for the new version to run, and
+// the path of its log, which is called once the app finishes.
 var (
 	swapOpen      = "/usr/bin/open"
 	swapWaitSteps = 3000
+	swapApps      = "/usr/bin/lsappinfo"
+	swapAppSteps  = 100
 	updateLogPath = func() (string, error) {
 		dir, err := App.Path(PathLogs)
 		return filepath.Join(dir, "update.log"), err
@@ -560,7 +569,8 @@ func startSwap(p *stagedUpdate, relaunch bool, args []string) (*exec.Cmd, error)
 		flag = "1"
 	}
 	cmd := exec.Command("/bin/sh", append([]string{"-c", installAfterExit, "mygo-update",
-		strconv.Itoa(appPid), p.target, p.bundle, p.work, swapOpen, flag, strconv.Itoa(swapWaitSteps)},
+		strconv.Itoa(appPid), p.target, p.bundle, p.work, swapOpen, flag, strconv.Itoa(swapWaitSteps),
+		swapApps, strconv.Itoa(swapAppSteps)},
 		openArgs(p.target, args)...)...)
 	cmd.SysProcAttr = detachedProcess()
 	if f, err := openUpdateLog(); err != nil {
@@ -595,23 +605,60 @@ func openUpdateLog() (*os.File, error) {
 // once the app has exited. Its arguments are the pid of the app; the
 // target, bundle and work of the update; the open command; 1 to open the
 // app afterwards, else nothing; how many tenths of a second to wait for
-// the app; and the arguments of open, which are never part of the script.
+// the app; the lsappinfo command; how many tenths of a second to wait for
+// Launch Services; and the arguments of open, which are never part of the
+// script.
 //
 // It ignores the signals that end the app's processes, waits for the app
-// to exit, and gives up after that wait, leaving the update for the next
-// Install to remove. It swaps the bundles, putting the old one back if the
-// new one cannot be moved in, and removes the work unless the old bundle
-// is still in it. It opens the app through Launch Services, as openBundle
-// does, but without -n, as the app has exited and the Dock gives the new
-// version the app's tile; only if that fails it tries again with -n.
+// to exit (a zombie has), and gives up after that wait, leaving the update
+// for the next Install to remove. It then waits for Launch Services to
+// forget the app, as open would otherwise only bring forward the instance
+// that exited. It leaves the update too when an instance of the app runs
+// from the target, as one opened while the app quit, which waited for it
+// to exit (RequestSingleInstanceLock): the update would remove its bundle
+// under it. It swaps the bundles, putting the old one back if the new one
+// cannot be moved in, and removes the work unless the old bundle is still
+// in it. It opens the app through Launch Services, as openBundle does, but
+// without -n, as the app has exited and the Dock gives the new version
+// the app's tile; only if that fails it tries again with -n, which it
+// uses at once when Launch Services still knows the app that exited, as
+// open would only bring that forward. An open that succeeds is not
+// repeated, however slowly the app starts: that would start two. The
+// app that exited, while Launch Services still lists it, is no other
+// instance, nor the new version. An instance opened between the check
+// and the swap still loses its bundle: that window is milliseconds.
 // Every step goes to its output, the update log, with the time.
-const installAfterExit = `pid=$1 target=$2 new=$3 work=$4 open=$5 relaunch=$6 steps=$7
-shift 7
+const installAfterExit = `pid=$1 target=$2 new=$3 work=$4 open=$5 relaunch=$6 steps=$7 apps=$8 appsteps=$9
+shift 9
 trap '' HUP TERM INT
-say() { echo "$(date '+%Y-%m-%d %H:%M:%S') [$$] $*"; }
+say() { printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "$*"; }
+alive() {
+	kill -0 "$pid" 2>/dev/null || return 1
+	case $(ps -o stat= -p "$pid" 2>/dev/null) in Z*) return 1 ;; esac
+}
+listed() { [ -n "$("$apps" find "pid=$pid" 2>/dev/null)" ]; }
+# others: whether an app other than the one that exited runs from target.
+others() { "$apps" find "bundlepath=$target" 2>/dev/null | grep -vxF "$gone" | grep -q .; }
+gone=
+launch() {
+	"$open" "$@" || {
+		say "open failed with status $?"
+		return 1
+	}
+	i=0
+	until others; do
+		if [ "$i" -ge "$appsteps" ]; then
+			say "open succeeded, but no app runs from $target yet"
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 0.1
+	done
+	say "opened $target"
+}
 say "installing $new in $target once process $pid exits"
 i=0
-while kill -0 "$pid" 2>/dev/null; do
+while alive; do
 	if [ "$i" -ge "$steps" ]; then
 		say "process $pid still runs after $((steps / 10)) s: giving up, the update stays in $work"
 		exit 1
@@ -620,6 +667,27 @@ while kill -0 "$pid" 2>/dev/null; do
 	sleep 0.1
 done
 say "process $pid exited"
+i=0
+while listed && [ "$i" -lt "$appsteps" ]; do
+	i=$((i + 1))
+	sleep 0.1
+done
+again=
+if listed; then
+	gone=$("$apps" find "pid=$pid" 2>/dev/null)
+	say "Launch Services still lists process $pid"
+	again=1
+elif [ "$i" -gt 0 ]; then
+	say "Launch Services forgot process $pid"
+fi
+if others; then
+	say "another instance runs from $target: the update stays in $work"
+	exit 1
+fi
+if [ ! -e "$target" ]; then
+	say "$target is gone: the update stays in $work"
+	exit 1
+fi
 if ! mv "$target" "$work/old"; then
 	say "cannot move $target aside: the update is not installed"
 elif mv "$new" "$target"; then
@@ -632,11 +700,9 @@ else
 fi
 rm -rf "$work"
 if [ -n "$relaunch" ]; then
-	if "$open" "$@"; then
-		say "opened $1"
-	else
-		say "open failed with status $?: trying again with -n"
-		if "$open" -n "$@"; then say "opened $1"; else say "cannot open $1: status $?"; fi
+	if [ -n "$again" ] || ! launch "$@"; then
+		say "opening with -n"
+		launch -n "$@" || say "cannot open $target"
 	fi
 fi
 say done
@@ -832,7 +898,8 @@ func devRelaunchData(args []string) []byte {
 // when an app that the new instance started quits, as one a terminal's
 // shell ran, loginwindow takes the coalition's other processes for that
 // app's and ends them with SIGTERM.
-func openBundle(args []string) bool {
+// Tests replace it.
+var openBundle = func(args []string) bool {
 	bundle, err := installTarget()
 	if err != nil {
 		return false
