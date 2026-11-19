@@ -23,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -274,37 +275,212 @@ func TestUpdaterDelta(t *testing.T) {
 }
 
 // runningApp stands in for the app that installUpdate updates on macOS,
-// where the update waits for the app to exit: quit ends it and returns once
-// the update is in place.
+// where the update waits for the app to exit: quit starts the process
+// that installs the staged update, as the app does as it finishes, ends
+// the app and returns once the update is in place.
 func runningApp(t *testing.T) (quit func()) {
 	t.Helper()
 	if runtime.GOOS != "darwin" {
 		return func() {}
 	}
+	app := fakeApp(t)
+	fakeSwap(t, false)
+	return func() {
+		t.Helper()
+		stageMu.Lock()
+		p := pendingUpdate
+		pendingUpdate = nil
+		stageMu.Unlock()
+		if p == nil {
+			t.Fatal("no update staged")
+		}
+		swap, err := startSwap(p, false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exitApp(app)
+		if err := swap.Wait(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// fakeApp starts a process that stands in for the app, whose exit the
+// process that installs a staged update waits for (appPid), until
+// exitApp ends it.
+func fakeApp(t *testing.T) *exec.Cmd {
+	t.Helper()
 	app := exec.Command("/bin/sleep", "60")
 	if err := app.Start(); err != nil {
 		t.Fatal(err)
 	}
 	old := appPid
 	appPid = app.Process.Pid
-	t.Cleanup(func() { appPid = old })
-	return func() {
-		t.Helper()
+	t.Cleanup(func() {
+		appPid = old
+		exitApp(app)
+	})
+	return app
+}
+
+// exitApp ends the fake app and reaps it: until then its pid stays, and
+// the swap process takes it for running.
+func exitApp(app *exec.Cmd) {
+	if app.ProcessState == nil {
 		app.Process.Kill()
 		app.Wait()
-		p := pendingUpdate.Swap(nil)
-		if p == nil {
-			t.Fatal("no update staged")
+	}
+}
+
+// fakeSwap makes the process that installs a staged update log to a file
+// of the test, open the app with a fake open, and ask a fake lsappinfo
+// about it: tests never open apps. The fake open records its arguments
+// and fails, when failOpen is set, unless its first argument is -n; when
+// it succeeds an app runs from the target, unless swapFake.silent exists
+// and its first argument is not -n. The fake lsappinfo lists an app at
+// the target while swapFake.running exists, and the app that exited, by
+// its pid and at the target, as many times as swapFake.registered says
+// (only asking by pid counts). opens returns the arguments of each
+// call. The state of staged updates starts afresh, and is restored after
+// the test.
+func fakeSwap(t *testing.T, failOpen bool) (logPath string, opens func() [][]string) {
+	t.Helper()
+	dir := t.TempDir()
+	logPath = filepath.Join(dir, "Logs", "update.log")
+	record := filepath.Join(dir, "opens")
+	status := 0
+	if failOpen {
+		status = 1
+	}
+	swapFake = fakeSwapFiles{
+		running:    filepath.Join(dir, "running"),
+		silent:     filepath.Join(dir, "silent"),
+		registered: filepath.Join(dir, "registered"),
+	}
+	open := filepath.Join(dir, "open")
+	script := fmt.Sprintf("#!/bin/sh\n{ printf '%%s\\0' \"$@\"; printf '\\001'; } >> '%s'\n[ \"$1\" = -n ] || [ %[2]d = 0 ] || exit %[2]d\n"+
+		"[ \"$1\" != -n ] && [ -e '%s' ] || touch '%s'\n", record, status, swapFake.silent, swapFake.running)
+	if err := os.WriteFile(open, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	apps := filepath.Join(dir, "lsappinfo")
+	script = fmt.Sprintf(`#!/bin/sh
+case $2 in
+pid=*)
+	n=$(cat '%[1]s' 2>/dev/null || echo 0)
+	if [ "$n" -gt 0 ]; then
+		echo $((n - 1)) > '%[1]s'
+		echo 'ASN:0x0-0x1-"App":'
+	fi ;;
+bundlepath=*)
+	[ "$(cat '%[1]s' 2>/dev/null || echo 0)" -le 0 ] || echo 'ASN:0x0-0x1-"App":'
+	[ ! -e '%[2]s' ] || echo 'ASN:0x0-0x2-"App":' ;;
+esac
+`, swapFake.registered, swapFake.running)
+	if err := os.WriteFile(apps, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldShell, oldOpen, oldSteps, oldApps, oldAppSteps, oldLog, oldStartWait := swapShell, swapOpen, swapWaitSteps, swapApps, swapAppSteps, updateLogPath, swapStartWait
+	swapOpen, swapApps, swapAppSteps = open, apps, 5
+	updateLogPath = func() (string, error) { return logPath, nil }
+	// The state of staged updates starts afresh, whatever a test before
+	// left, and is put back after.
+	stageMu.Lock()
+	oldPending, oldQuitting, oldStarted, oldRunning := pendingUpdate, updateQuitting, swapStarted, swapRunning
+	oldEarly, oldEarlySwap, oldExited, oldEarlyQuitting := swapEarly, earlySwap, earlyExited, earlyQuitting
+	pendingUpdate, updateQuitting, swapStarted, swapRunning = nil, false, make(chan struct{}), false
+	swapEarly, earlySwap, earlyExited, earlyQuitting = false, nil, nil, false
+	stageMu.Unlock()
+	oldClosed, oldReturned, oldInstaller, oldReclaimer := stagingClosed.Load(), runReturned.Load(), stagedInstaller.Load(), stagedReclaimer.Load()
+	stagingClosed.Store(false)
+	runReturned.Store(false)
+	stagedInstaller.Store(nil)
+	stagedReclaimer.Store(nil)
+	t.Cleanup(func() {
+		swapShell, swapOpen, swapWaitSteps, swapApps, swapAppSteps, updateLogPath, swapStartWait = oldShell, oldOpen, oldSteps, oldApps, oldAppSteps, oldLog, oldStartWait
+		stageMu.Lock()
+		pendingUpdate, updateQuitting, swapStarted, swapRunning = oldPending, oldQuitting, oldStarted, oldRunning
+		swapEarly, earlySwap, earlyExited, earlyQuitting = oldEarly, oldEarlySwap, oldExited, oldEarlyQuitting
+		stageMu.Unlock()
+		stagingClosed.Store(oldClosed)
+		runReturned.Store(oldReturned)
+		stagedInstaller.Store(oldInstaller)
+		stagedReclaimer.Store(oldReclaimer)
+	})
+	return logPath, func() [][]string {
+		b, _ := os.ReadFile(record)
+		var calls [][]string
+		for _, call := range strings.Split(string(b), "\x01") {
+			if call != "" {
+				args := strings.Split(call, "\x00")
+				calls = append(calls, args[:len(args)-1])
+			}
 		}
-		if err := p.helper.Wait(); err != nil {
+		return calls
+	}
+}
+
+// fakeSwapFiles are the files that steer the fake open and lsappinfo of
+// fakeSwap.
+type fakeSwapFiles struct{ running, silent, registered string }
+
+// swapFake holds the files of the latest fakeSwap.
+var swapFake fakeSwapFiles
+
+// touch creates the empty file path.
+func touch(t *testing.T, path string) {
+	t.Helper()
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// stagedApp makes an installed app bundle, whose main is "v1", and the
+// update that stageBundle stages for it, whose main is "v2", next to it.
+func stagedApp(t *testing.T) *stagedUpdate {
+	t.Helper()
+	dir := t.TempDir()
+	p := &stagedUpdate{target: filepath.Join(dir, "My App.app"), work: filepath.Join(dir, ".My App.app.update-1")}
+	p.bundle = filepath.Join(p.work, "app", "My App.app")
+	for content, bundle := range map[string]string{"v1": p.target, "v2": p.bundle} {
+		if err := os.MkdirAll(bundle, 0o755); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(filepath.Join(bundle, "main"), []byte(content), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return p
+}
+
+// mainOf returns the content of the main file of the app bundle target.
+func mainOf(target string) string {
+	b, _ := os.ReadFile(filepath.Join(target, "main"))
+	return string(b)
+}
+
+// readLog returns what the update log at path holds.
+func readLog(path string) string {
+	b, _ := os.ReadFile(path)
+	return string(b)
+}
+
+// swapDone reports whether the update log at path says that a swap is
+// done: its last line.
+func swapDone(path string) bool { return strings.Contains(readLog(path), "] done\n") }
+
+// stage stages p as stageBundle does once Install has made the update.
+func stage(t *testing.T, p *stagedUpdate) {
+	t.Helper()
+	if err := stageBundle(p.work, filepath.Dir(p.bundle), p.target); err != nil {
+		t.Fatal(err)
 	}
 }
 
 // On macOS the bundle of the running app stays in place until the app has
 // exited: moving it away took the app's Dock tile with it, and the
-// relaunched version got a second tile.
+// relaunched version got a second tile. Nothing runs before the app
+// quits: the update is only staged.
 func TestUpdaterWaitsForTheAppToExit(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("only macOS waits for the app to exit")
@@ -320,9 +496,11 @@ func TestUpdaterWaitsForTheAppToExit(t *testing.T) {
 	if err := installUpdate(ctx, httpGet, up.manifest, key, up.current, target, nil); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(300 * time.Millisecond)
 	if b, _ := os.ReadFile(main); string(b) != "v1" {
 		t.Errorf("while the app runs main = %q", b)
+	}
+	if pendingUpdate == nil || pendingUpdate.target != target {
+		t.Fatalf("staged %+v", pendingUpdate)
 	}
 	quit()
 	if b, _ := os.ReadFile(main); string(b) != "v2" {
@@ -330,6 +508,1076 @@ func TestUpdaterWaitsForTheAppToExit(t *testing.T) {
 	}
 	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".*")); len(leftovers) > 0 {
 		t.Errorf("left behind: %q", leftovers)
+	}
+}
+
+// TestUpdateSwap runs the process that installs a staged update as the
+// app starts it when it relaunches: it waits for the app to exit, swaps
+// the bundles, removes its work, opens the new version with Relaunch's
+// arguments, quoted as they are, and logs each step.
+func TestUpdateSwap(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	logPath, opens := fakeSwap(t, false)
+	p := stagedApp(t)
+	app := fakeApp(t)
+	args := []string{"--reason", "it's an update", "a b", `$HOME "quoted" \ back; $(touch pwned)`, "line\nbreak", ""}
+	swap, err := startSwap(p, true, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait.Until(t, "the swap to wait for the app", func() bool { return strings.Contains(readLog(logPath), "once process") })
+	if got := mainOf(p.target); got != "v1" {
+		t.Errorf("while the app runs main = %q", got)
+	}
+	exitApp(app)
+	if err := swap.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if got := mainOf(p.target); got != "v2" {
+		t.Errorf("after the app exited main = %q", got)
+	}
+	if _, err := os.Stat(p.work); !os.IsNotExist(err) {
+		t.Error("the swap left its work")
+	}
+	if got, want := opens(), [][]string{openArgs(p.target, args)}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("opened the app with %q, want %q", got, want)
+	}
+	if _, err := os.Stat("pwned"); err == nil {
+		os.Remove("pwned")
+		t.Error("an argument ran as a command")
+	}
+	log := readLog(logPath)
+	for _, step := range []string{
+		"installing " + p.bundle + " in " + p.target + " once process " + strconv.Itoa(appPid) + " exits",
+		"process " + strconv.Itoa(appPid) + " exited",
+		"installed the update in " + p.target,
+		"opened " + p.target,
+		"] done\n",
+	} {
+		if !strings.Contains(log, step) {
+			t.Errorf("the log lacks %q:\n%s", step, log)
+		}
+	}
+	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
+		if _, err := time.Parse("2006-01-02 15:04:05", line[:min(len(line), 19)]); err != nil {
+			t.Errorf("a line of the log has no time: %q", line)
+		}
+	}
+}
+
+// An app that quits without relaunching gets the update, and is not
+// opened again.
+func TestUpdateSwapWithoutRelaunch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	_, opens := fakeSwap(t, false)
+	p := stagedApp(t)
+	app := fakeApp(t)
+	swap, err := startSwap(p, false, []string{"--ignored"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitApp(app)
+	if err := swap.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if got := mainOf(p.target); got != "v2" {
+		t.Errorf("after the app exited main = %q", got)
+	}
+	if got := opens(); len(got) != 0 {
+		t.Errorf("opened the app with %q", got)
+	}
+}
+
+// When open cannot open the app, which has exited, the swap tries again
+// with -n, and logs it.
+func TestUpdateSwapOpensAgain(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	logPath, opens := fakeSwap(t, true)
+	p := stagedApp(t)
+	app := fakeApp(t)
+	swap, err := startSwap(p, true, []string{"--x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitApp(app)
+	if err := swap.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{openArgs(p.target, []string{"--x"}), append([]string{"-n"}, openArgs(p.target, []string{"--x"})...)}
+	if got := opens(); !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("opened the app with %q, want %q", got, want)
+	}
+	if log := readLog(logPath); !strings.Contains(log, "open failed with status 1") || !strings.Contains(log, "opening with -n") || !strings.Contains(log, "opened "+p.target) {
+		t.Errorf("the log:\n%s", log)
+	}
+}
+
+// When open succeeds but no app runs from the target after the wait, the
+// app may only be slow to start: the swap logs it, and does not open a
+// second one with -n.
+func TestUpdateSwapOpenStartsNothing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	logPath, opens := fakeSwap(t, false)
+	touch(t, swapFake.silent)
+	p := stagedApp(t)
+	app := fakeApp(t)
+	swap, err := startSwap(p, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitApp(app)
+	if err := swap.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := opens(), [][]string{openArgs(p.target, nil)}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("opened the app with %q, want %q", got, want)
+	}
+	if log := readLog(logPath); !strings.Contains(log, "open succeeded, but no app runs from "+p.target+" yet") {
+		t.Errorf("the log:\n%s", log)
+	}
+}
+
+// The swap waits for Launch Services to forget the app that exited
+// before it opens the new version.
+func TestUpdateSwapWaitsForLaunchServices(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	logPath, opens := fakeSwap(t, false)
+	if err := os.WriteFile(swapFake.registered, []byte("3"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := stagedApp(t)
+	app := fakeApp(t)
+	swap, err := startSwap(p, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitApp(app)
+	if err := swap.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := opens(), [][]string{openArgs(p.target, nil)}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("opened the app with %q, want %q", got, want)
+	}
+	if log := readLog(logPath); !strings.Contains(log, "Launch Services forgot process "+strconv.Itoa(appPid)) {
+		t.Errorf("the log:\n%s", log)
+	}
+}
+
+// When Launch Services still knows the app that exited after the wait,
+// which follows the swap, open would only bring it forward: the swap
+// opens the new version with -n at once.
+func TestUpdateSwapLaunchServicesKeepsTheApp(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	logPath, opens := fakeSwap(t, false)
+	if err := os.WriteFile(swapFake.registered, []byte("100"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := stagedApp(t)
+	app := fakeApp(t)
+	swap, err := startSwap(p, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitApp(app)
+	if err := swap.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if got := mainOf(p.target); got != "v2" {
+		t.Errorf("after the app exited main = %q", got)
+	}
+	if got, want := opens(), [][]string{append([]string{"-n"}, openArgs(p.target, nil)...)}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("opened the app with %q, want %q", got, want)
+	}
+	log := readLog(logPath)
+	listed := strings.Index(log, "Launch Services still lists process "+strconv.Itoa(appPid))
+	if listed < 0 || strings.Contains(log, "another instance") || !strings.Contains(log, "opened "+p.target) {
+		t.Errorf("the log:\n%s", log)
+	}
+	// The swap does not wait for Launch Services before it installs.
+	if installed := strings.Index(log, "installed the update"); installed < 0 || installed > listed {
+		t.Errorf("waited for Launch Services before installing:\n%s", log)
+	}
+}
+
+// An instance opened as the app quit runs from the target once the app
+// has exited: the swap leaves the update rather than remove the bundle
+// under it, and opens nothing.
+func TestUpdateSwapAnotherInstance(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	logPath, opens := fakeSwap(t, false)
+	p := stagedApp(t)
+	app := fakeApp(t)
+	swap, err := startSwap(p, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	touch(t, swapFake.running)
+	exitApp(app)
+	if err := swap.Wait(); err == nil {
+		t.Error("the swap succeeded while another instance runs")
+	}
+	if got := mainOf(p.target); got != "v1" {
+		t.Errorf("main = %q", got)
+	}
+	if got := mainOf(p.bundle); got != "v2" {
+		t.Errorf("the update's main = %q", got)
+	}
+	if got := opens(); len(got) != 0 {
+		t.Errorf("opened the app with %q", got)
+	}
+	if log := readLog(logPath); !strings.Contains(log, "another instance runs from "+p.target+": the update stays in "+p.work) {
+		t.Errorf("the log:\n%s", log)
+	}
+}
+
+// When the app was moved or deleted while it ran, the swap leaves the
+// update and logs it.
+func TestUpdateSwapTargetGone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	logPath, opens := fakeSwap(t, false)
+	p := stagedApp(t)
+	app := fakeApp(t)
+	swap, err := startSwap(p, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(p.target); err != nil {
+		t.Fatal(err)
+	}
+	exitApp(app)
+	if err := swap.Wait(); err == nil {
+		t.Error("the swap succeeded without the app")
+	}
+	if got := mainOf(p.bundle); got != "v2" {
+		t.Errorf("the update's main = %q", got)
+	}
+	if got := opens(); len(got) != 0 {
+		t.Errorf("opened the app with %q", got)
+	}
+	if log := readLog(logPath); !strings.Contains(log, p.target+" is gone: the update stays in "+p.work) {
+		t.Errorf("the log:\n%s", log)
+	}
+}
+
+// A zombie has exited: the swap does not wait for its parent to reap it.
+func TestUpdateSwapZombie(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	_, opens := fakeSwap(t, false)
+	swapWaitSteps = 50
+	p := stagedApp(t)
+	app := fakeApp(t)
+	if err := app.Process.Signal(syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	// Not reaped until the end of the test.
+	wait.Until(t, "the app to be a zombie", func() bool {
+		out, _ := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(appPid)).Output()
+		return strings.HasPrefix(string(out), "Z")
+	})
+	swap, err := startSwap(p, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := swap.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if got := mainOf(p.target); got != "v2" {
+		t.Errorf("main = %q", got)
+	}
+	if got := opens(); len(got) != 1 {
+		t.Errorf("opened the app with %q", got)
+	}
+}
+
+// Relaunch with an update staged leaves opening the app to the process
+// that installs it, which only one call starts, and opens it itself
+// without one.
+func TestRelaunchNowWithUpdate(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	if launchedByDev() {
+		t.Skip("mygo dev relaunches the app")
+	}
+	logPath, opens := fakeSwap(t, false)
+	var bundleOpens [][]string
+	oldOpenBundle := openBundle
+	openBundle = func(args []string) bool {
+		bundleOpens = append(bundleOpens, args)
+		return true
+	}
+	defer func() { openBundle = oldOpenBundle }()
+	App.relaunchArgs = []string{"--updated"}
+	defer func() { App.relaunchArgs = nil }()
+
+	app := fakeApp(t)
+	p := stagedApp(t)
+	stage(t, p)
+	relaunchNow()
+	exitApp(app)
+	wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+	if len(bundleOpens) != 0 {
+		t.Errorf("the app opened itself too, with %q", bundleOpens)
+	}
+	if got, want := opens(), [][]string{openArgs(p.target, []string{"--updated"})}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("the update opened the app with %q, want %q", got, want)
+	}
+
+	// A second signal, after finish started the process, waits for it
+	// and starts no other.
+	if !installStagedUpdate(false, nil) {
+		t.Error("a later call reports that no process installs the update")
+	}
+	if n := strings.Count(readLog(logPath), "] installing "); n != 1 {
+		t.Errorf("%d processes install the update:\n%s", n, readLog(logPath))
+	}
+	stageMu.Lock()
+	pendingUpdate, updateQuitting = nil, false
+	swapStarted, swapRunning = make(chan struct{}), false
+	stageMu.Unlock()
+	relaunchNow()
+	if want := [][]string{{"--updated"}}; !slices.EqualFunc(bundleOpens, want, slices.Equal) {
+		t.Errorf("without an update the app opened itself with %q, want %q", bundleOpens, want)
+	}
+	if got := opens(); len(got) != 1 {
+		t.Errorf("a swap opened the app without an update: %q", got)
+	}
+}
+
+// When a second signal took the staged update before finish, Relaunch
+// opens nothing: the old version would run from the bundle that the
+// process moves away and removes, and the app exits on the signal.
+func TestRelaunchNowAfterSignal(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	if launchedByDev() {
+		t.Skip("mygo dev relaunches the app")
+	}
+	logPath, opens := fakeSwap(t, false)
+	var bundleOpens [][]string
+	oldOpenBundle := openBundle
+	openBundle = func(args []string) bool {
+		bundleOpens = append(bundleOpens, args)
+		return true
+	}
+	defer func() { openBundle = oldOpenBundle }()
+	app := fakeApp(t)
+	p := stagedApp(t)
+	stage(t, p)
+	if !installStaged(false, nil) {
+		t.Fatal("no process installs the update")
+	}
+	relaunchNow()
+	exitApp(app)
+	wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+	if len(bundleOpens) != 0 {
+		t.Errorf("the app opened itself, with %q", bundleOpens)
+	}
+	if got := opens(); len(got) != 0 {
+		t.Errorf("the update opened the app with %q", got)
+	}
+	if got := mainOf(p.target); got != "v2" {
+		t.Errorf("main = %q", got)
+	}
+}
+
+// A call of installStagedUpdate while another is starting the process
+// waits for it, reports it, and starts no other: a second signal must not
+// exit before the process started.
+func TestInstallStagedUpdateOnce(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	logPath, _ := fakeSwap(t, false)
+	// Never over in the test: the second call reports the first's start,
+	// not the end of its wait.
+	swapStartWait = time.Hour
+	app := fakeApp(t)
+	p := stagedApp(t)
+	stage(t, p)
+	// The first call stops in startSwap until released, and the second
+	// says when it waits for it.
+	entered, release, waiting := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	updateLogPath = func() (string, error) {
+		close(entered)
+		<-release
+		return logPath, nil
+	}
+	swapWaitHook = func() { close(waiting) }
+	defer func() { swapWaitHook = nil }()
+	first, second := make(chan bool), make(chan bool)
+	go func() { first <- installStagedUpdate(true, nil) }()
+	<-entered
+	go func() { second <- installStagedUpdate(false, nil) }()
+	select {
+	case <-waiting:
+	case ok := <-second:
+		t.Fatalf("the second call returned %v without waiting for the first", ok)
+	case <-time.After(wait.Guard):
+		t.Fatal("the second call does not wait for the first")
+	}
+	select {
+	case <-second:
+		t.Fatal("the second call returned before the first started the process")
+	default:
+	}
+	close(release)
+	if !<-first || !<-second {
+		t.Error("a call reports that no process installs the update")
+	}
+	exitApp(app)
+	wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+	if n := strings.Count(readLog(logPath), "] installing "); n != 1 {
+		t.Errorf("%d processes install the update:\n%s", n, readLog(logPath))
+	}
+}
+
+// When the process cannot start, every call reports it, and Relaunch
+// opens the app itself.
+func TestInstallStagedUpdateCannotStart(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	if launchedByDev() {
+		t.Skip("mygo dev relaunches the app")
+	}
+	fakeSwap(t, false)
+	swapShell = filepath.Join(t.TempDir(), "sh")
+	var bundleOpens [][]string
+	oldOpenBundle := openBundle
+	openBundle = func(args []string) bool {
+		bundleOpens = append(bundleOpens, args)
+		return true
+	}
+	defer func() { openBundle = oldOpenBundle }()
+	App.relaunchArgs = []string{"--updated"}
+	defer func() { App.relaunchArgs = nil }()
+	stage(t, stagedApp(t))
+	if installStagedUpdate(true, nil) || installStagedUpdate(false, nil) {
+		t.Error("a call reports a process that did not start")
+	}
+	relaunchNow()
+	if want := [][]string{{"--updated"}}; !slices.EqualFunc(bundleOpens, want, slices.Equal) {
+		t.Errorf("the app opened itself with %q, want %q", bundleOpens, want)
+	}
+}
+
+// An app that quits without relaunching gets the update as soon as it
+// has exited: the swap does not wait for Launch Services, which only
+// matters to open, and asks it only once about the app that exited.
+func TestUpdateSwapBeforeLaunchServices(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	logPath, _ := fakeSwap(t, false)
+	if err := os.WriteFile(swapFake.registered, []byte("100"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := stagedApp(t)
+	app := fakeApp(t)
+	swap, err := startSwap(p, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitApp(app)
+	if err := swap.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if got := mainOf(p.target); got != "v2" {
+		t.Errorf("main = %q", got)
+	}
+	if b, _ := os.ReadFile(swapFake.registered); strings.TrimSpace(string(b)) != "99" {
+		t.Errorf("asked Launch Services about the app %s times, want 1", b)
+	}
+	if log := readLog(logPath); strings.Contains(log, "Launch Services") || !swapDone(logPath) {
+		t.Errorf("the log:\n%s", log)
+	}
+}
+
+// The swap runs the system's commands, whatever the PATH of the app.
+func TestUpdateSwapPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	_, opens := fakeSwap(t, false)
+	bin := t.TempDir()
+	for _, name := range []string{"mv", "rm", "date", "sleep", "ps", "kill", "grep"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+	p := stagedApp(t)
+	app := fakeApp(t)
+	swap, err := startSwap(p, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitApp(app)
+	if err := swap.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if got := mainOf(p.target); got != "v2" {
+		t.Errorf("main = %q", got)
+	}
+	if _, err := os.Stat(p.work); !os.IsNotExist(err) {
+		t.Error("the swap left its work")
+	}
+	if got := opens(); len(got) != 1 {
+		t.Errorf("opened the app with %q", got)
+	}
+}
+
+// When the update cannot be moved into place, the swap puts the old
+// version back, leaves the update, opens the old version when the app
+// relaunches, and fails.
+func TestUpdateSwapCannotMoveIn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	logPath, opens := fakeSwap(t, false)
+	p := stagedApp(t)
+	app := fakeApp(t)
+	swap, err := startSwap(p, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(p.bundle); err != nil {
+		t.Fatal(err)
+	}
+	exitApp(app)
+	if err := swap.Wait(); err == nil {
+		t.Error("the swap succeeded without the update")
+	}
+	if got := mainOf(p.target); got != "v1" {
+		t.Errorf("main = %q", got)
+	}
+	if _, err := os.Stat(p.work); err != nil {
+		t.Errorf("the swap removed its work: %v", err)
+	}
+	if got, want := opens(), [][]string{openArgs(p.target, nil)}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("opened the app with %q, want %q", got, want)
+	}
+	if log := readLog(logPath); !strings.Contains(log, "put the old version back, the update stays in "+p.work) || swapDone(logPath) {
+		t.Errorf("the log:\n%s", log)
+	}
+}
+
+// updateOnQuit is a helper process for TestUpdateOnQuit: an app with an
+// update staged, with the fakes of the swap that MYGO_TEST_UPDATE_SWAP
+// names, quits as mode says, and prints what it opens itself. It stages
+// the update before App.Run, which starts the process that installs it
+// at once, and Run stops it: the app installs it as it quits.
+func updateOnQuit(mode string) {
+	f := strings.Split(os.Getenv("MYGO_TEST_UPDATE_SWAP"), "\n")
+	swapOpen, swapApps, swapAppSteps = f[0], f[1], 5
+	updateLogPath = func() (string, error) { return f[2], nil }
+	openBundle = func(args []string) bool {
+		fmt.Printf("openBundle %q\n", args)
+		return true
+	}
+	if err := stageBundle(f[4], filepath.Dir(f[5]), f[3]); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	if mode == "fail" {
+		// The process that Run stops started; the one of the quit cannot.
+		swapShell = f[2] + ".missing"
+	}
+	stopGrace = 0
+	App.SetName("MyGoTest")
+	App.OnWindowAllClosed(func() {})
+	App.OnQuit(func() {
+		if mode == "exit" {
+			// A listener that exits leaves the update installed.
+			os.Exit(0)
+		}
+	})
+	App.WhenReady(func() {
+		switch mode {
+		case "quit", "exit":
+			App.Quit()
+		case "relaunch", "fail":
+			App.Relaunch("--updated")
+		case "session":
+			postMain(func() {
+				fb.EndSession()
+				os.Exit(0)
+			})
+		}
+	})
+	if err := App.Run(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+// TestUpdateOnQuit: however the app quits, through Quit, Relaunch or the
+// session ending, and whatever its OnQuit listeners do, it starts the
+// process that installs the update it staged, which opens the new version
+// after Relaunch, while the app does not; when that process cannot
+// start, Relaunch opens the app itself.
+func TestUpdateOnQuit(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	if launchedByDev() {
+		t.Skip("mygo dev relaunches the app")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"quit", "exit", "session", "relaunch", "fail"} {
+		t.Run(mode, func(t *testing.T) {
+			logPath, opens := fakeSwap(t, false)
+			p := stagedApp(t)
+			cmd := exec.Command(exe, "-test.run=^$")
+			cmd.Env = append(os.Environ(), "MYGO_TEST_UPDATE_QUIT="+mode,
+				"MYGO_TEST_UPDATE_SWAP="+strings.Join([]string{swapOpen, swapApps, logPath, p.target, p.work, p.bundle}, "\n"))
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			if mode == "fail" {
+				if n := strings.Count(string(out), "openBundle [\"--updated\"]\n"); n != 1 {
+					t.Errorf("the app opened itself %d times:\n%s", n, out)
+				}
+				if got := mainOf(p.target); got != "v1" {
+					t.Errorf("main = %q", got)
+				}
+				return
+			}
+			if strings.Contains(string(out), "openBundle") {
+				t.Errorf("the app opened itself:\n%s", out)
+			}
+			wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+			// The process that Install started before Run, which Run
+			// stopped, may have logged its start, but only the one of
+			// the quit saw the app exit.
+			if log := readLog(logPath); !strings.Contains(log, "] installing "+p.bundle) || strings.Count(log, " exited\n") != 1 {
+				t.Errorf("the log:\n%s", log)
+			}
+			if got := mainOf(p.target); got != "v2" {
+				t.Errorf("main = %q", got)
+			}
+			var want [][]string
+			if mode == "relaunch" {
+				want = [][]string{openArgs(p.target, []string{"--updated"})}
+			}
+			if got := opens(); !slices.EqualFunc(got, want, slices.Equal) {
+				t.Errorf("the update opened the app with %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// A swap whose app does not exit gives up after its wait, logs it, and
+// leaves the update and the app as they are, for the next Install to
+// remove.
+func TestUpdateSwapGivesUp(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("only macOS installs updates with a script")
+	}
+	logPath, opens := fakeSwap(t, false)
+	swapWaitSteps = 0
+	p := stagedApp(t)
+	fakeApp(t)
+	swap, err := startSwap(p, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := swap.Wait(); err == nil {
+		t.Error("the swap succeeded while the app runs")
+	}
+	if got := mainOf(p.target); got != "v1" {
+		t.Errorf("while the app runs main = %q", got)
+	}
+	if got := mainOf(p.bundle); got != "v2" {
+		t.Errorf("the update's main = %q", got)
+	}
+	if got := opens(); len(got) != 0 {
+		t.Errorf("opened the app with %q", got)
+	}
+	if log := readLog(logPath); !strings.Contains(log, "giving up, the update stays in "+p.work) {
+		t.Errorf("the log:\n%s", log)
+	}
+}
+
+// Once the app finishes, the update it staged is the one installed: an
+// Install that completes meanwhile is discarded, and does not remove the
+// update that the swap process moves into place. The swap opens the app,
+// and the app does not.
+func TestUpdaterRestageWhileQuitting(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	ctx := context.Background()
+	srv, key, _, _ := updateServer(t, "1.2.0", "v2", "")
+	up, err := checkUpdate(ctx, feedSource(srv.URL+"/update.json"), key, "1.1.9", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, main := installedApp(t)
+	app := fakeApp(t)
+	logPath, opens := fakeSwap(t, false)
+	if err := installUpdate(ctx, httpGet, up.manifest, key, up.current, target, nil); err != nil {
+		t.Fatal(err)
+	}
+	staged := pendingUpdate
+	if !installStagedUpdate(true, []string{"--updated"}) {
+		t.Fatal("no process installs the update")
+	}
+	if err := installUpdate(ctx, httpGet, up.manifest, key, up.current, target, nil); err == nil || !strings.Contains(err.Error(), "another update") {
+		t.Errorf("an update staged while quitting: %v", err)
+	}
+	if pendingUpdate != staged {
+		t.Errorf("staged %+v, want %+v", pendingUpdate, staged)
+	}
+	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".*")); !slices.Equal(leftovers, []string{staged.work}) {
+		t.Errorf("next to the app: %q, want the staged update's work alone", leftovers)
+	}
+	exitApp(app)
+	wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+	if b, _ := os.ReadFile(main); string(b) != "v2" {
+		t.Errorf("after the app exited main = %q", b)
+	}
+	if got, want := opens(), [][]string{openArgs(target, []string{"--updated"})}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("opened the app with %q, want %q", got, want)
+	}
+	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".*")); len(leftovers) > 0 {
+		t.Errorf("left behind: %q", leftovers)
+	}
+}
+
+// withoutRun makes the app look as if App.Run had not started, until the
+// test ends.
+func withoutRun(t *testing.T) {
+	t.Helper()
+	setRunning(false)
+	t.Cleanup(func() { setRunning(true) })
+}
+
+// setRunning sets App.running, as Run does.
+func setRunning(running bool) {
+	App.mu.Lock()
+	App.running = running
+	App.mu.Unlock()
+}
+
+// A program whose event loop does not run, as one that never calls
+// App.Run or whose Run returned, gets the process that installs the
+// update as soon as Install staged it: nothing else would start it. It
+// installs the update once the program exits and opens nothing; a later
+// Install is refused, and the app starts no second process as it
+// finishes.
+func TestUpdateWithoutEventLoop(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	for _, when := range []string{"never run", "after run"} {
+		t.Run(when, func(t *testing.T) {
+			logPath, opens := fakeSwap(t, false)
+			if when == "never run" {
+				withoutRun(t)
+			} else {
+				// finish found no update, with the installer set by an
+				// earlier Install, and Run returned.
+				stagingClosed.Store(true)
+				if installStagedUpdate(false, nil) {
+					t.Fatal("a process installs no update")
+				}
+				runReturned.Store(true)
+			}
+			app := fakeApp(t)
+			p := stagedApp(t)
+			stage(t, p)
+			wait.Until(t, "the swap to wait for the app", func() bool { return strings.Contains(readLog(logPath), "once process") })
+			if got := mainOf(p.target); got != "v1" {
+				t.Errorf("while the app runs main = %q", got)
+			}
+			q := stagedApp(t)
+			if err := stageBundle(q.work, filepath.Dir(q.bundle), q.target); err == nil || !strings.Contains(err.Error(), "another update") {
+				t.Errorf("a second update staged: %v", err)
+			}
+			if !installStagedUpdate(true, []string{"--updated"}) {
+				t.Error("finishing reports that no process installs the update")
+			}
+			exitApp(app)
+			wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+			if got := mainOf(p.target); got != "v2" {
+				t.Errorf("after the app exited main = %q", got)
+			}
+			if got := opens(); len(got) != 0 {
+				t.Errorf("opened the app with %q", got)
+			}
+			if n := strings.Count(readLog(logPath), "] installing "); n != 1 {
+				t.Errorf("%d processes install the update:\n%s", n, readLog(logPath))
+			}
+		})
+	}
+}
+
+// While the app quits, until Run returns, an Install that completes is
+// refused: finish may be about to take the update staged before, which it
+// opens after Relaunch, or have taken none.
+func TestUpdaterRefusedAsTheAppQuits(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	for _, when := range []string{"before the take", "after the take"} {
+		t.Run(when, func(t *testing.T) {
+			logPath, opens := fakeSwap(t, false)
+			app := fakeApp(t)
+			p := stagedApp(t)
+			if when == "before the take" {
+				stage(t, p)
+			}
+			// finish looked for the update (installStaged) but has not
+			// taken it yet, or took what was staged.
+			stagingClosed.Store(true)
+			if when == "after the take" && installStagedUpdate(false, nil) {
+				t.Fatal("a process installs no update")
+			}
+			q := stagedApp(t)
+			if err := stageBundle(q.work, filepath.Dir(q.bundle), q.target); err == nil || !strings.Contains(err.Error(), "quitting") {
+				t.Fatalf("an update staged as the app quits: %v", err)
+			}
+			stageMu.Lock()
+			early := swapEarly
+			stageMu.Unlock()
+			if early {
+				t.Fatal("an update staged as the app quits started its process")
+			}
+			if when == "after the take" {
+				return
+			}
+			if !installStagedUpdate(true, []string{"--updated"}) {
+				t.Fatal("no process installs the update")
+			}
+			exitApp(app)
+			wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+			if got := mainOf(p.target); got != "v2" {
+				t.Errorf("main = %q", got)
+			}
+			if got, want := opens(), [][]string{openArgs(p.target, []string{"--updated"})}; !slices.EqualFunc(got, want, slices.Equal) {
+				t.Errorf("opened the app with %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// Without the event loop, a process that gives up waiting for the program
+// to exit leaves its update unstaged: the next Install stages its own, and
+// starts its process.
+func TestUpdateWithoutEventLoopGivesUp(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	logPath, _ := fakeSwap(t, false)
+	withoutRun(t)
+	app := fakeApp(t)
+	steps := swapWaitSteps
+	swapWaitSteps = 0
+	p := stagedApp(t)
+	stage(t, p)
+	wait.Until(t, "the process to give up", func() bool {
+		stageMu.Lock()
+		defer stageMu.Unlock()
+		return pendingUpdate == nil && !updateQuitting && !swapEarly && earlySwap == nil
+	})
+	if log := readLog(logPath); !strings.Contains(log, "giving up, the update stays in "+p.work) {
+		t.Errorf("the log:\n%s", log)
+	}
+	swapWaitSteps = steps
+	q := stagedApp(t)
+	stage(t, q)
+	exitApp(app)
+	wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+	if got := mainOf(q.target); got != "v2" {
+		t.Errorf("main = %q", got)
+	}
+	if got := mainOf(p.target); got != "v1" {
+		t.Errorf("the update that gave up was installed: main = %q", got)
+	}
+}
+
+// Without the event loop, an Install whose process cannot start fails,
+// and leaves nothing staged: the next one starts its own.
+func TestUpdateWithoutEventLoopCannotStart(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	logPath, _ := fakeSwap(t, false)
+	withoutRun(t)
+	app := fakeApp(t)
+	shell := swapShell
+	swapShell = filepath.Join(t.TempDir(), "sh")
+	p := stagedApp(t)
+	if err := stageBundle(p.work, filepath.Dir(p.bundle), p.target); err == nil {
+		t.Fatal("staged an update whose process did not start")
+	}
+	stageMu.Lock()
+	staged, quitting, early := pendingUpdate, updateQuitting, swapEarly
+	stageMu.Unlock()
+	if staged != nil || quitting || early {
+		t.Fatalf("staged %+v, quitting %v, early %v", staged, quitting, early)
+	}
+	swapShell = shell
+	stage(t, p)
+	exitApp(app)
+	wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+	if got := mainOf(p.target); got != "v2" {
+		t.Errorf("main = %q", got)
+	}
+}
+
+// An update staged before App.Run starts gets its process at once, which
+// Run stops as it starts: the app installs the update as it quits, and
+// opens it after Relaunch.
+func TestUpdateStagedBeforeRun(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	logPath, opens := fakeSwap(t, false)
+	withoutRun(t)
+	app := fakeApp(t)
+	p := stagedApp(t)
+	stage(t, p)
+	stageMu.Lock()
+	early := earlySwap
+	stageMu.Unlock()
+	if early == nil {
+		t.Fatal("no process installs the update")
+	}
+	wait.Until(t, "the swap to wait for the app", func() bool { return strings.Contains(readLog(logPath), "once process") })
+	setRunning(true)
+	reclaimStaged()
+	if err := early.Signal(syscall.Signal(0)); err != os.ErrProcessDone {
+		t.Errorf("the process that Install started still runs: %v", err)
+	}
+	stageMu.Lock()
+	staged, quitting := pendingUpdate, updateQuitting
+	stageMu.Unlock()
+	if staged == nil || staged.work != p.work || quitting {
+		t.Fatalf("staged %+v, quitting %v", staged, quitting)
+	}
+	if !installStagedUpdate(true, []string{"--updated"}) {
+		t.Fatal("no process installs the update")
+	}
+	exitApp(app)
+	wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+	if got := mainOf(p.target); got != "v2" {
+		t.Errorf("main = %q", got)
+	}
+	if got, want := opens(), [][]string{openArgs(p.target, []string{"--updated"})}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("opened the app with %q, want %q", got, want)
+	}
+	if n := strings.Count(readLog(logPath), " exited\n"); n != 1 {
+		t.Errorf("%d processes saw the app exit:\n%s", n, readLog(logPath))
+	}
+}
+
+// An Install that completes as App.Run starts leaves one process to
+// install the update, which the app starts as it quits.
+func TestUpdateStagedAsRunStarts(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	logPath, opens := fakeSwap(t, false)
+	withoutRun(t)
+	app := fakeApp(t)
+	p := stagedApp(t)
+	var wg sync.WaitGroup
+	var err error
+	wg.Go(func() { err = stageBundle(p.work, filepath.Dir(p.bundle), p.target) })
+	wg.Go(func() {
+		setRunning(true)
+		reclaimStaged()
+	})
+	wg.Wait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !installStagedUpdate(true, []string{"--updated"}) {
+		t.Fatal("no process installs the update")
+	}
+	exitApp(app)
+	wait.Until(t, "the update to be installed", func() bool { return swapDone(logPath) })
+	if got, want := opens(), [][]string{openArgs(p.target, []string{"--updated"})}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("opened the app with %q, want %q", got, want)
+	}
+	if n := strings.Count(readLog(logPath), " exited\n"); n != 1 {
+		t.Errorf("%d processes saw the app exit:\n%s", n, readLog(logPath))
+	}
+}
+
+// An Install on macOS first removes the work that earlier updates left
+// next to the app, as a crash does, but not the staged update's, nor that
+// of an Install under way, nor anything else.
+func TestUpdaterRemovesStaleWork(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS leaves staged updates")
+	}
+	fakeSwap(t, false)
+	target, _ := installedApp(t)
+	dir := filepath.Dir(target)
+	stale := []string{".My App.app.update-123", ".My App.app.update-4567"}
+	kept := []string{".My App.app.update-", ".My App.app.update-12x", ".Other.app.update-123", ".mygo-update-123", "My App.app.update-123"}
+	for _, name := range append(slices.Clone(stale), kept...) {
+		if err := os.MkdirAll(filepath.Join(dir, name, "app"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := ".My App.app.update-999"
+	if err := os.WriteFile(filepath.Join(dir, file), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kept = append(kept, file)
+	pending, err := os.MkdirTemp(dir, workPattern(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingUpdate = &stagedUpdate{work: pending, target: target}
+	under, doneUnder, err := makeWork(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer doneUnder()
+	work, done, err := makeWork(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer done()
+	for _, name := range stale {
+		if _, err := os.Lstat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("%s stays: %v", name, err)
+		}
+	}
+	for _, p := range append(kept, filepath.Base(pending), filepath.Base(under), filepath.Base(work), filepath.Base(target)) {
+		if _, err := os.Lstat(filepath.Join(dir, p)); err != nil {
+			t.Errorf("%s was removed: %v", p, err)
+		}
 	}
 }
 
@@ -670,33 +1918,27 @@ func TestRelaunchArguments(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		return
 	}
-	// The script that installs a staged update opens the app with the
-	// arguments of open that the relaunch file sets, as Relaunch wrote
-	// them once the update was staged. It prints them here.
-	dir := t.TempDir()
-	target, bundle, work := filepath.Join(dir, "A.app"), filepath.Join(dir, "new", "A.app"), filepath.Join(dir, "work")
-	for _, d := range []string{target, bundle, work} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(work, "relaunch"), []byte(setArgs(openArgs(target, args))), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// The process that installs a staged update opens the app with the
+	// arguments of open that Relaunch passed it, as arguments of the
+	// script.
+	_, opens := fakeSwap(t, false)
+	swapWaitSteps = 10 // the pid may be reused
+	p := stagedApp(t)
 	exited := exec.Command("/bin/sh", "-c", "exit 0")
 	if err := exited.Run(); err != nil {
 		t.Fatal(err)
 	}
-	script := strings.Replace(installAfterExit, "exec /usr/bin/open", `printf '%s\0'`, 1)
-	out, err := exec.Command("/bin/sh", "-c", script, "mygo-update", strconv.Itoa(exited.Process.Pid), target, bundle, work).Output()
+	old := appPid
+	appPid = exited.Process.Pid
+	defer func() { appPid = old }()
+	swap, err := startSwap(p, true, args)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Split(string(out), "\x00")
-	if want := openArgs(target, args); !slices.Equal(got[:len(got)-1], want) {
-		t.Errorf("the update opened the app with %q, want %q", got, want)
+	if err := swap.Wait(); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(work); !os.IsNotExist(err) {
-		t.Error("the update left its work")
+	if got, want := opens(), [][]string{openArgs(p.target, args)}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("the update opened the app with %q, want %q", got, want)
 	}
 }
