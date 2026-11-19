@@ -2208,34 +2208,41 @@ as in Tauri:
   the app that exited, `lsappinfo find pid=`), one opened as the app quit,
   which `RequestSingleInstanceLock` made wait for it to exit, and whose
   bundle the swap would remove; if the target is gone, or is there again
-  once moved aside, as the new bundle would move into it; and if the new
-  bundle cannot move in, after putting the old one back. Otherwise it
-  removes the work directory. When the app relaunches, it then waits for
-  Launch Services to forget the app that exited (at most 10 s), and opens
-  the app without `-n` (the app has exited, and the Dock gives the new
-  version its tile), then with `-n` if that fails (not when the app is
-  only slow to start, which would start two); only with `-n` if Launch
-  Services still lists the app that exited, as `open` would only bring it
-  forward. Its output, each step with the time, goes to `update.log` in
-  `PathLogs` (which `SetPath` changes), emptied past 256 KB. Once the app
-  looked for the staged update as it quits, an `Install` that completes is
-  discarded rather than staged (`updateQuitting`, `stagingClosed`), and
-  each `Install` first removes the work directories next to the app that
-  are neither the staged update's nor one under way (`removeStaleWork`):
-  a crash, `App.Exit`, another signal, or a swap that left the update or
-  gave up, leaves them, with a hidden copy of the new version next to the
-  app until then. On Linux and Windows the app directory
-  holds `update.FileList` (`.mygo-files`),
-  its top-level entries as installed, one per line: `mygo build` writes it
-  into the app (so the archive, installer and packages have it), and
-  `swapFiles` rewrites it in the update with the update's entries before
-  swapping it in with them. The entries that the installed list names and
-  the update lacks are renamed aside first, as replaced ones are, and
-  deleted once the swap succeeds, so a failed swap puts them back; entries
-  that no list names (the user's, the uninstaller) and all of an app
-  without a list stay, and so does the running executable. Deltas never
-  make the list from the installed one, which the updater rewrote.
-  `App.Relaunch` then starts the new version from the path the app
+  once moved aside, as the new bundle would move into it (checked again
+  after the move, which takes the bundle back out of a directory created in
+  between); and if the new bundle cannot move in, after putting the old one
+  back. Otherwise it removes the work directory. When the app relaunches, it
+  then waits for Launch Services to forget the app that exited (at most
+  10 s), and opens the app without `-n` (the app has exited, and the Dock
+  gives the new version its tile), then with `-n` if that fails (not when
+  the app is only slow to start, which would start two); only with `-n` if
+  Launch Services still lists the app that exited, as `open` would only
+  bring it forward. Its output, each step with the time, goes to
+  `update.log` in `PathLogs` (which `SetPath` changes), emptied past 256 KB.
+  Once the app looked for the staged update as it quits, an `Install` that
+  completes is discarded rather than staged (`updateQuitting`,
+  `stagingClosed`), and each `Install` first removes the work directories
+  next to the app that are neither the staged update's nor one under way
+  (`removeStaleWork`): a crash, `App.Exit`, another signal, or a swap that
+  left the update or gave up, leaves them, with a hidden copy of the new
+  version next to the app until then. Known limits: a second SIGINT or
+  SIGTERM during the quit installs the update but opens nothing, even after
+  `Relaunch` (its process gets `relaunch` false, and `relaunchNow` then
+  opens nothing either); the paths that leave the update (gave up, target
+  gone or there again, another instance) log and exit without opening
+  anything; and an instance started by running `Contents/MacOS/<exe>`
+  directly counts as another instance only once it registers with Launch
+  Services, as its app starts. On Linux and Windows the app directory holds
+  `update.FileList` (`.mygo-files`), its top-level entries as installed, one
+  per line: `mygo build` writes it into the app (so the archive, installer
+  and packages have it), and `swapFiles` rewrites it in the update with the
+  update's entries before swapping it in with them. The entries that the
+  installed list names and the update lacks are renamed aside first, as
+  replaced ones are, and deleted once the swap succeeds, so a failed swap
+  puts them back; entries that no list names (the user's, the uninstaller)
+  and all of an app without a list stay, and so does the running executable.
+  Deltas never make the list from the installed one, which the updater
+  rewrote. `App.Relaunch` then starts the new version from the path the app
   started from. Development builds are never updated. Delta updates work
   as Sparkle's (`internal/update/delta.go`): `mygo build` fetches the
   published manifest of the target, downloads the archives of up to
