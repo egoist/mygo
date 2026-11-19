@@ -1604,7 +1604,8 @@ build` like mygo-runtime and released with the same version.
   or closing the connection, calls `Conn.Interrupt` (`sqlite3_interrupt`,
   which the busy handler checks too) and waits for it before the next one.
   Transactions hold one connection through BEGIN IMMEDIATE, COMMIT or
-  rollback. The page client preserves int64 and BLOB values with tagged
+  rollback: a batch, or Go's `TransactionFunc`, whose `Tx` runs the
+  function's statements until it returns. The page client preserves int64 and BLOB values with tagged
   cells and confines database files to the Go-configured directory.
   Connections belong to their page and close on navigation or app quit.
   Go and native UI apps can also open connections directly.

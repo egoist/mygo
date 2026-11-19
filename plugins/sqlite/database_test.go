@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"path/filepath"
 	"reflect"
@@ -163,6 +164,151 @@ func TestTransactions(t *testing.T) {
 	if r, err := db.Transaction(context.Background(), nil); err != nil || r == nil || len(r) != 0 {
 		t.Fatalf("empty batch: %v %v", r, err)
 	}
+}
+
+func TestTransactionFunc(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tx.db")
+	db := testDB(t, path)
+	other := testDB(t, path)
+	execute(t, db, "CREATE TABLE items (n UNIQUE)")
+	execute(t, db, "INSERT INTO items VALUES (1)")
+	ctx := context.Background()
+	count := func(t *testing.T, db *DB) int64 {
+		t.Helper()
+		return query(t, db, "SELECT count(*) FROM items").Values[0][0].(int64)
+	}
+
+	// A write that depends on a read, seeing its own writes, isolated from
+	// another connection until COMMIT.
+	busy, err := Open(ctx, path, OpenOptions{BusyTimeout: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	err = db.TransactionFunc(ctx, func(tx *Tx) error {
+		rows, err := tx.Query("SELECT max(n) FROM items")
+		if err != nil {
+			return err
+		}
+		next := rows.Values[0][0].(int64) + 1
+		if r, err := tx.Execute("INSERT INTO items VALUES (?)", next); err != nil || r.Changes != 1 {
+			return fmt.Errorf("insert: %v %v", r, err)
+		}
+		if rows, err := tx.Query("SELECT n FROM items ORDER BY n"); err != nil || !reflect.DeepEqual(rows.Values, [][]any{{int64(1)}, {int64(2)}}) {
+			return fmt.Errorf("own writes: %v %v", rows, err)
+		}
+		if n := count(t, other); n != 1 {
+			return fmt.Errorf("another connection read %d rows before COMMIT", n)
+		}
+		var sqliteErr *Error
+		if _, err := busy.Execute(ctx, "INSERT INTO items VALUES (3)"); !errors.As(err, &sqliteErr) || sqliteErr.Code != 5 {
+			return fmt.Errorf("another connection wrote during the transaction: %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, other); n != 2 {
+		t.Fatalf("committed rows = %d from another connection", n)
+	}
+
+	// Rollback: fn's error, a statement's, transaction control and
+	// cancellation each roll back, returning the error as it was.
+	mine := errors.New("decided not to")
+	var stmtErr error
+	failed := func(err error) bool { return err != nil }
+	for _, c := range []struct {
+		name string
+		fn   func(tx *Tx, cancel func()) error
+		want func(error) bool
+	}{
+		{"fn's error", func(*Tx, func()) error { return mine }, func(err error) bool { return err == mine }},
+		{"statement error", func(tx *Tx, _ func()) error {
+			_, stmtErr = tx.Execute("INSERT INTO items VALUES (1)")
+			return stmtErr
+		}, func(err error) bool {
+			var e *Error
+			return err != nil && err == stmtErr && errors.As(err, &e) && e.ExtendedCode == 2067
+		}},
+		{"COMMIT", func(tx *Tx, _ func()) error { _, err := tx.Execute("COMMIT"); return err }, failed},
+		{"ROLLBACK", func(tx *Tx, _ func()) error { _, err := tx.Execute("ROLLBACK"); return err }, failed},
+		{"BEGIN", func(tx *Tx, _ func()) error { _, err := tx.Query("BEGIN"); return err }, failed},
+		{"SAVEPOINT", func(tx *Tx, _ func()) error { _, err := tx.Execute("SAVEPOINT escape"); return err }, failed},
+		{"canceled", func(tx *Tx, cancel func()) error { cancel(); return nil }, func(err error) bool { return err == context.Canceled }},
+		{"canceled statement", func(tx *Tx, cancel func()) error {
+			cancel()
+			_, err := tx.Execute("INSERT INTO items VALUES (101)")
+			return err
+		}, func(err error) bool { return err == context.Canceled }},
+	} {
+		ctx, cancel := context.WithCancel(ctx)
+		err := db.TransactionFunc(ctx, func(tx *Tx) error {
+			if _, err := tx.Execute("INSERT INTO items VALUES (100)"); err != nil {
+				return err
+			}
+			return c.fn(tx, cancel)
+		})
+		cancel()
+		if !c.want(err) {
+			t.Errorf("%s: %v", c.name, err)
+		}
+		if n := count(t, db); n != 2 {
+			t.Errorf("%s did not roll back: %d rows", c.name, n)
+		}
+	}
+	// Cancellation interrupts the statement running, as in Transaction.
+	timeout, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer cancel()
+	err = db.TransactionFunc(timeout, func(tx *Tx) error {
+		if _, err := tx.Execute("INSERT INTO items VALUES (100)"); err != nil {
+			return err
+		}
+		_, err := tx.Query(longQuery)
+		return err
+	})
+	if err != context.DeadlineExceeded {
+		t.Errorf("interrupted statement: %v", err)
+	}
+	if n := count(t, db); n != 2 {
+		t.Errorf("interrupted statement did not roll back: %d rows", n)
+	}
+
+	// A Tx used after fn returns, committed or rolled back.
+	for _, result := range []error{nil, mine} {
+		var kept *Tx
+		if err := db.TransactionFunc(ctx, func(tx *Tx) error { kept = tx; return result }); err != result {
+			t.Fatal(err)
+		}
+		if _, err := kept.Execute("INSERT INTO items VALUES (200)"); err != ErrTxDone {
+			t.Fatalf("Execute after the transaction: %v", err)
+		}
+		if _, err := kept.Query("SELECT 1"); err != ErrTxDone {
+			t.Fatalf("Query after the transaction: %v", err)
+		}
+	}
+	if n := count(t, other); n != 2 {
+		t.Fatalf("a done Tx wrote: %d rows", n)
+	}
+
+	// A panic in fn rolls back, and goes on.
+	func() {
+		defer func() {
+			if r := recover(); r != "boom" {
+				t.Fatalf("recovered %v", r)
+			}
+		}()
+		_ = db.TransactionFunc(ctx, func(tx *Tx) error {
+			if _, err := tx.Execute("INSERT INTO items VALUES (300)"); err != nil {
+				return err
+			}
+			panic("boom")
+		})
+	}()
+	if n := count(t, db); n != 2 {
+		t.Fatalf("panic did not roll back: %d rows", n)
+	}
+	execute(t, db, "INSERT INTO items VALUES (3)") // the connection was released
 }
 
 const longQuery = "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000000000) SELECT sum(x) FROM n"

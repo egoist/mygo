@@ -98,6 +98,22 @@ rows, err := db.Query(ctx, "SELECT title FROM notes")
 
 Go 的 `Open` 直接接受路径；其父目录必须存在。连接可以从任何 goroutine 安全使用。连接的生命周期由 Go 调用者管理，调用者必须调用 `Close`。`sqlite.Error` 暴露 SQLite 的主要错误码和扩展错误码；已关闭的连接返回 `sqlite.ErrClosed`，被取消的操作返回各自的上下文错误。
 
+当写入取决于事务先读到的内容时，`TransactionFunc` 在一个事务中运行一个 Go 函数：
+
+```go
+err = db.TransactionFunc(ctx, func(tx *sqlite.Tx) error {
+    rows, err := tx.Query("SELECT count(*) FROM notes")
+    if err != nil { return err }
+    if rows.Values[0][0].(int64) >= 100 {
+        return errTooManyNotes // rolls back, and TransactionFunc returns it
+    }
+    _, err = tx.Execute("INSERT INTO notes VALUES (?)", "third")
+    return err
+})
+```
+
+和 `Transaction` 一样，它使用 `BEGIN IMMEDIATE`，并在函数运行期间保持连接，因此在它的读取和写入之间，没有其他连接能写入。函数返回 nil 时它会提交。函数返回错误时（包括函数原样传出的语句错误），它会回滚，并原样返回该错误；取消上下文会回滚并返回上下文的错误；函数中的 panic 会回滚，然后继续 panic。`tx.Execute` 和 `tx.Query` 与连接的同名方法用法相同，能读到事务自己的写入，并拒绝事务控制语句；函数返回之后，它们返回 `sqlite.ErrTxDone`。在函数内使用 `tx`，因为连接自己的方法会等待事务结束；并让函数保持简短：其他连接的写入会等待它。页面客户端只有批次形式的 `transaction`。
+
 <!-- repository-only:start -->
 
 ## 构建与发布
