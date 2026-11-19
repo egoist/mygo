@@ -262,6 +262,101 @@ func TestAlertDialogKeepOpen(t *testing.T) {
 	}
 }
 
+// A destructive button shows in the theme's Danger color and is never the
+// default: the last button that is not destructive is, in the accent,
+// with the focus, which Enter clicks, as AppKit's hasDestructiveAction.
+func TestAlertDialogDestructive(t *testing.T) {
+	open, got := true, []int{}
+	buttons := []AlertButton{{Label: "Cancel"}, {Label: "Delete", Destructive: true}}
+	tt := coreNewTester(func(c *context) {
+		if i := coreAlertDialogButtons(c, &open, "Delete Notes?", "You can't undo this.", buttons...); i != -1 {
+			got = append(got, i)
+		}
+	}, 500, 400)
+	th := LightTheme()
+	if !tt.Focused("Cancel") {
+		t.Fatal("the default is not the button that is not destructive")
+	}
+	if c := textColor(t, tt, "Delete"); !sameRGB(c, th.Danger) {
+		t.Errorf("Delete in %v, not the theme's Danger %v", c, th.Danger)
+	}
+	if c := textColor(t, tt, "Cancel"); !sameRGB(c, th.AccentText) {
+		t.Errorf("Cancel in %v, not the default's AccentText %v", c, th.AccentText)
+	}
+	tt.Key(0, KeyEnter)
+	if open || len(got) != 1 || got[0] != 0 {
+		t.Fatalf("Enter: open %v, chose %v; want Cancel", open, got)
+	}
+	open, got = true, nil
+	tt.Frame()
+	tt.Click("Delete")
+	if open || len(got) != 1 || got[0] != 1 {
+		t.Fatalf("a click on Delete: open %v, chose %v", open, got)
+	}
+	// Enter clicks Delete once Tab has moved the focus to it.
+	open, got = true, nil
+	tt.Frame()
+	tt.Key(0, KeyTab)
+	if !tt.Focused("Delete") {
+		t.Fatal("Tab did not move the focus to Delete")
+	}
+	tt.Key(0, KeyEnter)
+	if open || len(got) != 1 || got[0] != 1 {
+		t.Fatalf("Enter on the focused Delete: open %v, chose %v", open, got)
+	}
+
+	// Between two buttons that are not, the default is the last of
+	// them, Keep, past Delete.
+	buttons = []AlertButton{{Label: "Cancel"}, {Label: "Delete", Destructive: true}, {Label: "Keep"}}
+	open, got = true, nil
+	tt.Frame()
+	tt.Frame()
+	if !tt.Focused("Keep") {
+		t.Fatal("the default is not Keep, the last button that is not destructive")
+	}
+	for _, b := range []struct {
+		label string
+		want  Color
+	}{{"Cancel", th.Text}, {"Delete", th.Danger}, {"Keep", th.AccentText}} {
+		if c := textColor(t, tt, b.label); !sameRGB(c, b.want) {
+			t.Errorf("%s in %v, want %v", b.label, c, b.want)
+		}
+	}
+	tt.Key(0, KeyEnter)
+	if open || len(got) != 1 || got[0] != 2 {
+		t.Fatalf("Enter with Keep the default: open %v, chose %v", open, got)
+	}
+
+	// With only destructive buttons, none is the default, and Enter
+	// clicks none: the alert holds the focus, without a ring, and Tab
+	// goes among the buttons alone.
+	buttons = []AlertButton{{Label: "Erase", Destructive: true}, {Label: "Erase All", Destructive: true}}
+	open, got = true, nil
+	tt.Frame()
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	panel := accessNode(t, tt.h.access, platform.RoleAlertDialog, "Delete Notes?")
+	if tt.h.access.Focus != panel.ID {
+		t.Fatal("the focus is not on the alert")
+	}
+	if st := tt.rt.states[tt.rt.focused]; st == nil || st.flags&flagOwnRing == 0 {
+		t.Error("the alert holding the focus shows a focus ring")
+	}
+	tt.Key(0, KeyEnter)
+	if !open || len(got) != 0 {
+		t.Fatalf("Enter with no default: open %v, chose %v", open, got)
+	}
+	for k := 0; k < 4; k++ {
+		tt.Key(0, KeyTab)
+		if tt.h.access.Focus == panel.ID {
+			t.Fatal("Tab stops on the alert")
+		}
+	}
+	tt.Key(0, KeyEscape)
+	if open || len(got) != 1 || got[0] != AlertDismissed {
+		t.Errorf("Escape: open %v, returned %v", open, got)
+	}
+}
+
 func TestFindBar(t *testing.T) {
 	open := false
 	query, current, moves := "", 0, 0
