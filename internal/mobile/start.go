@@ -40,8 +40,9 @@ func drain() {
 //
 // The report of a panic or fatal error that ends the app would not get
 // through: the runtime writes it to the pipe and exits before the line
-// reader runs. keepCrashOutput has it written where it shows as well
-// (App.Run sends it to the crash log instead, but in development).
+// reader runs. keepCrashOutput has it written, whole, where it shows as
+// well (on iOS App.Run sends it to the crash log instead, but in
+// development).
 func redirectOutput() {
 	keepCrashOutput()
 	for _, f := range []struct {
