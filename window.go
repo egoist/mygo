@@ -452,6 +452,11 @@ type Window struct {
 	// closedEarly holds the channels the current page closed before
 	// their calls made them, with the page's token.
 	closedEarly map[int64]string
+	// sources are the page-to-Go streams of the current page, by the
+	// page's id for them, and earlySources the values and ends that
+	// arrived before their calls made them.
+	sources      map[int64]*source
+	earlySources map[int64][]earlySourceValue
 	// cancels are the calls of the current page that it may cancel, by
 	// the page's id for them, with the page's token.
 	cancels map[int64]pageCancel
@@ -2025,6 +2030,8 @@ func (w *Window) resetPage() {
 	w.pageCtx, w.pageCancel = ctx, cancel
 	w.channels = nil // they close with the previous page's context
 	w.closedEarly = nil
+	w.sources = nil // they close with the previous page's context
+	w.earlySources = nil
 	w.cancels = nil
 	w.ran = nil
 	w.canceledEarly = nil
