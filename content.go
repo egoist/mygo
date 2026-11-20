@@ -166,6 +166,23 @@ func (w *Window) Invalidate() {
 	})
 }
 
+// FrameNow draws the window's pending frame at once, without waiting for the
+// display's next refresh, and returns once it is drawn.
+//
+// It is for a caller that moves the window and changes what it shows in the
+// same gesture, as dragging it: Invalidate alone lands the move in the next
+// frame and the new content in the frame after, and that one frame of
+// difference is what reads as the glass lagging behind the window.
+func (w *Window) FrameNow() {
+	if w == nil || w.conn == nil || w.conn.Surface == nil {
+		return
+	}
+	w.contentChanged()
+	if p, ok := w.conn.Surface.(platform.PacedSurface); ok {
+		p.FrameNow()
+	}
+}
+
 // Update runs fn on the main thread, where the window's Content builds its
 // user interface, then redraws the Content. Goroutines change the state
 // the interface shows through it:

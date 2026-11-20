@@ -26,6 +26,14 @@ func (s Services) Invalidate() {
 		rt.host.invalidate()
 	}
 }
+
+// FrameNow draws the pending frame at once, without waiting for the display's
+// next refresh. See Context.FrameNow.
+func (s Services) FrameNow() {
+	if rt := s.owner.Value(); rt != nil && !rt.closed {
+		rt.host.frameNow()
+	}
+}
 func (s Services) ReadClipboard() string {
 	if rt := s.owner.Value(); rt != nil && !rt.closed {
 		return rt.host.readClipboard()
