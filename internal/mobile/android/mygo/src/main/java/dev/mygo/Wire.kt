@@ -905,9 +905,11 @@ class AudioOpenCall(
 
 class AudioOpenReply(
     @JvmField var error: String = "",
+    @JvmField var delay: Double = 0.0,
 ) {
     fun encode(w: WireWriter) {
         w.string(error)
+        w.float(delay)
     }
 }
 
@@ -1326,7 +1328,7 @@ interface HostCalls {
     fun setBarItems(c: SetBarItemsCall)
     /** a call of a plugin's native code: Args and PluginResult's Result are JSON */
     fun pluginCall(c: PluginCallCall)
-    /** opens the sound's output: stereo at Rate frames a second, holding about Ahead milliseconds; on the caller's thread */
+    /** opens the sound's output: stereo at Rate frames a second, holding about Ahead milliseconds; on the caller's thread. Delay is the seconds a sample written waits before it is heard: what the output holds, and the system's latency after it */
     fun audioOpen(c: AudioOpenCall): AudioOpenReply
     /** plays interleaved stereo float32 samples after those written, waiting while the output holds enough; on the caller's thread */
     fun audioWrite(c: AudioWriteCall): AudioWriteReply

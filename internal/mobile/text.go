@@ -1,6 +1,10 @@
 package mobile
 
-import "github.com/egoist/mygo/internal/mobile/wire"
+import (
+	"time"
+
+	"github.com/egoist/mygo/internal/mobile/wire"
+)
 
 // The text of native UI on Android, which the host's Paint measures and
 // draws (internal/text's engine): any goroutine but the UI thread. It goes
@@ -48,17 +52,18 @@ func callHost(h hereCaller, m message, reply interface{ Decode(*wire.Reader) }) 
 // The sound's output: blocking calls of the host on the audio's own thread,
 // which must not wait for the UI thread, nor the UI thread for it.
 
-// AudioOpen opens the output.
-func AudioOpen(rate, aheadMS int) error {
+// AudioOpen opens the output, and returns how long a sample written waits
+// before it is heard: what the output holds, and the system's latency.
+func AudioOpen(rate, aheadMS int) (time.Duration, error) {
 	b := current.Load()
 	if b == nil || b.t == nil {
-		return errUnsupported
+		return 0, errUnsupported
 	}
 	var r wire.AudioOpenReply
 	if !callHere(b, &wire.AudioOpen{Rate: rate, Ahead: aheadMS}, &r) {
-		return errUnsupported
+		return 0, errUnsupported
 	}
-	return errorOf(r.Error)
+	return time.Duration(r.Delay * float64(time.Second)), errorOf(r.Error)
 }
 
 // AudioWrite plays samples after those written.

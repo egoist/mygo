@@ -135,9 +135,39 @@ mp4.RegisterCodec("Opus", func(config []byte) (mp4.Codec, error) {
 
 不支持解码 HE-AAC（AAC+，带 SBR）：这类文件打开会失败，`Decodable` 也会这样表明。go-aac 采用 LGPL 2.1 或更高版本的许可，这一点与 MyGo 不同：导入 `audio/aac` 的应用会链接它，并须遵守 LGPL 对该库的条款；不导入的应用则不受影响。
 
+## 自己的音频引擎
+
+自带音频引擎的音乐应用会自己混音、设置音量、做均衡和交叉淡化，并自己记录播放位置。如果通过 `Player` 播放，它会被提前约一秒解码，每次改动都要晚这么久才能听到。`Output` 则在设备取用前一刻才向应用要每个周期的采样，与扬声器之间的延迟是已知的：
+
+```go
+out := audio.NewOutput(func(dst []float32) {
+	engine.Render(dst) // interleaved stereo at 48 kHz: left, right, left, right…
+}).SetLatency(20 * time.Millisecond)
+out.Start()
+defer out.Close()
+
+// What is heard now, for the line of lyrics and the progress bar.
+heard := engine.Rendered() - out.Delay()
+```
+
+`fill` 在输出的 goroutine 上运行，每个周期一次：多数平台上是 10 ms，macOS 上是 512 帧，浏览器中是 1024 帧；设备保持打开期间，每次调用的 `len(dst)` 都相同。`dst` 初始为静音。`fill` 必须按时返回，因此不要阻塞、不要等待长时间持有的锁，也不要大量分配内存；包本身在每次调用中不分配内存。NaN 按静音播放，`fill` 中的 panic 会终止程序，与 `Decoder` 中的 panic 一样。`Stop` 停止调用它（正在进行的调用会执行完），`Start` 继续调用，`Close` 永久停止；三者都可以在 `fill` 中调用。
+
+`SetLatency` 设置设备在听到的内容之前缓冲多少，从 20 ms 到 1 s，默认 40 ms。`Delay` 是 `fill` 给出的一帧从 `fill` 返回到被听到所等待的时间：设备缓冲的内容，加上系统报告时其后的系统延迟：
+
+| 平台 | `Delay` |
+|---|---|
+| macOS | Audio Queue 的缓冲区，以及打开时 Core Audio 报告的默认输出的延迟、安全偏移和 I/O 缓冲区 |
+| Linux | PulseAudio 在每次写入后测得的流延迟，否则为 ALSA 的 `snd_pcm_delay` |
+| Windows | WASAPI 的缓冲区及其流延迟 |
+| iOS | AVAudioEngine 缓冲的写入、它的 I/O 缓冲区，以及打开时音频路由的 `outputLatency`（包括蓝牙） |
+| Android | AudioTrack 的缓冲区；其后设备自身的延迟（例如蓝牙的）不计入 |
+| 浏览器 | AudioWorklet 的队列，以及 AudioContext 的 `baseLatency` 和 `outputLatency` |
+
+`Output` 与播放器通过同一个输出播放，叠加在播放器之上：应用可以在引擎播放的音乐之上用 `Sound` 播放音效。有 `Output` 运行时，设备缓冲的是这些 `Output` 中最小的延迟，而不是 `audio.SetLatency` 设置的延迟；它变化时设备会重新打开，并丢弃其中缓冲的内容。`audio.SetVolume` 不作用于 `Output`。如果没有输出能打开，`fill` 仍会按时调用，只是听不到声音，`Delay` 为 0。
+
 ## 输出
 
-音频输出在首次播放时打开，全部停止五秒后关闭，因此不播放声音的应用不会占用音频设备。输出采用 48 kHz 立体声，提前混音约 40 ms；其他采样率的播放器在播放时重采样。有效采样率高于 48 kHz 的音频——例如 88.2、96 或 192 kHz 的音频，或加速播放的音频——会先经过低通滤波：20 kHz 以内的频率响应保持平坦，24 kHz 及以上衰减 80 dB，避免这些高频成分混叠为可听音调；每个这样的 96 kHz 播放器约占用 1% 的单核算力。
+音频输出在首次播放时（播放器或 `Output`）打开，全部停止五秒后关闭，因此不播放声音的应用不会占用音频设备。输出采用 48 kHz 立体声，提前混音约 40 ms；其他采样率的播放器在播放时重采样。有效采样率高于 48 kHz 的音频——例如 88.2、96 或 192 kHz 的音频，或加速播放的音频——会先经过低通滤波：20 kHz 以内的频率响应保持平坦，24 kHz 及以上衰减 80 dB，避免这些高频成分混叠为可听音调；每个这样的 96 kHz 播放器约占用 1% 的单核算力。
 
 `audio.SetLatency` 设置混音提前多少，与 Web Audio 的 `latencyHint` 相同：
 
@@ -153,6 +183,8 @@ mp4.RegisterCodec("Opus", func(config []byte) (mp4.Codec, error) {
 | macOS | 默认输出设备上的 Audio Queue，会跟随默认输出的切换 |
 | Linux | PulseAudio 的简单 API（PipeWire 也能提供），否则用 ALSA 的默认设备 |
 | Windows | 共享模式的 WASAPI，默认输出变化时重新打开 |
+| iOS | AVAudioEngine |
+| Android | AudioTrack，使用其低延迟模式 |
 | 浏览器 | 一个 AudioWorklet；页面只有在用户与其交互后才能播放音频，所以它会在第一次点击或按键时启动 |
 
 如果没有输出能打开，比如机器没有音频设备，播放器仍会按时播放，只是听不到声音，原因由 `audio.Err` 说明。每个函数和方法都可以从任何 goroutine 安全调用。

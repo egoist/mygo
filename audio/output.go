@@ -17,6 +17,13 @@ type device interface {
 	close()
 }
 
+// A delayer is a device that knows how long a frame written waits before
+// it is heard, more exactly than what it was asked to hold: the output
+// asks after every write.
+type delayer interface {
+	delay() time.Duration
+}
+
 // idleClose is how long the output stays open with nothing playing.
 const idleClose = 5 * time.Second
 
@@ -41,48 +48,89 @@ func wakeOutput() {
 	}
 }
 
-func active() bool {
+// opening reports whether anything plays, for the output to open the
+// device, and how far ahead it is to hold: the least latency of the
+// Outputs started, or else SetLatency's. Until the device says, a frame
+// written waits that long.
+func opening() (ahead time.Duration, ok bool) {
 	mu.Lock()
 	defer mu.Unlock()
-	return len(voices) > 0 && !testMode
+	if testMode || len(voices) == 0 && len(outputs) == 0 {
+		return 0, false
+	}
+	ahead = aheadLocked()
+	lag = ahead
+	return ahead, true
 }
 
-// mixFor mixes into buf for an output open at latency lat, and reports
+// aheadLocked returns how far ahead the device is to hold. The caller
+// holds mu.
+func aheadLocked() time.Duration {
+	if len(outputs) == 0 {
+		return latency.ahead()
+	}
+	a := outputs[0].latency
+	for _, o := range outputs[1:] {
+		a = min(a, o.latency)
+	}
+	return a
+}
+
+// mixFor mixes into buf for a device open to hold ahead, and reports
 // whether anything plays; ok is false, and it mixes nothing, once tests
 // mix by hand or the latency changed.
-func mixFor(buf []float32, lat Latency) (busy, ok bool) {
+func mixFor(buf []float32, ahead time.Duration) (busy, ok bool) {
 	mu.Lock()
 	defer mu.Unlock()
-	if testMode || latency != lat {
+	if testMode || aheadLocked() != ahead {
 		return false, false
 	}
 	return mixLocked(buf), true
 }
 
+// lag is how long a frame written to the device waits before it is
+// heard, or -1 while none is open, under mu.
+var lag time.Duration = -1
+
+func setLag(d time.Duration) {
+	mu.Lock()
+	defer mu.Unlock()
+	lag = d
+}
+
 // run opens the device while anything plays, and mixes into it.
 func run() {
+	var fills []*Output // the Outputs filled in a period
 	for {
-		for !active() {
+		ahead, ok := opening()
+		for !ok {
 			<-wake
+			ahead, ok = opening()
 		}
-		lat := outputLatency()
-		dev, n, err := openOutput(lat.ahead())
+		dev, n, err := openOutput(ahead)
+		var dl delayer
 		if err != nil {
 			setErr(err)
 			dev, n = newNullDevice(err != errUnsupported), nullFrames
 			// It holds nothing: what it takes is heard as it takes it.
 			setHeld(0)
+			setLag(0)
 		} else {
 			setErr(nil)
-			setHeld(int64(lat.ahead() * sampleRate / time.Second))
+			setHeld(int64(ahead * sampleRate / time.Second))
+			dl, _ = dev.(delayer)
 		}
 		buf := make([]float32, n*channels)
+		last := time.Duration(-1) // the lag the device said last
 		idle := time.Duration(0)
 		per := frames(int64(n), sampleRate)
 		for {
-			busy, ok := mixFor(buf, lat)
+			busy, ok := mixFor(buf, ahead)
 			if !ok {
 				break
+			}
+			if fillOutputs(buf, &fills) {
+				busy = true
 			}
 			// write blocks in C, keeping the P, which the runtime would
 			// take back every 10 ms, waking more often after.
@@ -91,6 +139,12 @@ func run() {
 				// Lost, or a null device trying the real one again.
 				break
 			}
+			if dl != nil {
+				if d := dl.delay(); d > 0 && d != last {
+					setLag(d)
+					last = d
+				}
+			}
 			if busy {
 				idle = 0
 			} else if idle += per; idle >= idleClose {
@@ -98,6 +152,7 @@ func run() {
 			}
 		}
 		dev.close()
+		setLag(-1)
 	}
 }
 

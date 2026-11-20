@@ -12,6 +12,10 @@
 // WAV decodes out of the box; import audio/vorbis for Ogg Vorbis and
 // audio/mp3 for MP3, which register themselves as image's formats do.
 //
+// An app with an audio engine of its own plays it through an Output, which
+// asks it for each period's samples as the system needs them, a known
+// Delay ahead of what is heard.
+//
 // The output opens when something first plays and closes a few seconds
 // after everything stopped. Where no output can open, players still play
 // on time, unheard, and Err says why. Every function and method is safe
@@ -578,7 +582,8 @@ func (l Latency) ahead() time.Duration {
 }
 
 // SetLatency sets how far ahead the output mixes. An output already open
-// opens again, which drops what it held.
+// opens again, which drops what it held. While Outputs run, the output
+// holds their latency instead (Output.SetLatency).
 func SetLatency(l Latency) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -586,13 +591,6 @@ func SetLatency(l Latency) {
 		l = LatencyInteractive
 	}
 	latency = l
-}
-
-// outputLatency returns the latency set.
-func outputLatency() Latency {
-	mu.Lock()
-	defer mu.Unlock()
-	return latency
 }
 
 // Err returns why the last output to open is not the system's audio

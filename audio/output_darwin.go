@@ -61,6 +61,23 @@ var (
 	dispatchTime            uintptr
 
 	dispatchSemaphoreSignal uintptr // every queue's callback
+
+	// Core Audio's, for the output's latency; nil where it didn't load.
+	audioObjectGetPropertyData func(obj uint32, addr *audioObjectPropertyAddress, qualSize uint32, qual unsafe.Pointer, size *uint32, data unsafe.Pointer) int32
+)
+
+type audioObjectPropertyAddress struct{ selector, scope, element uint32 }
+
+const (
+	kAudioObjectSystemObject                  = 1
+	kAudioHardwarePropertyDefaultOutputDevice = 0x644f7574 // 'dOut'
+	kAudioObjectPropertyScopeGlobal           = 0x676c6f62 // 'glob'
+	kAudioObjectPropertyScopeOutput           = 0x6f757470 // 'outp'
+	kAudioDevicePropertyLatency               = 0x6c746e63 // 'ltnc', a stream's as well
+	kAudioDevicePropertySafetyOffset          = 0x73616674 // 'saft'
+	kAudioDevicePropertyBufferFrameSize       = 0x6673697a // 'fsiz'
+	kAudioDevicePropertyNominalSampleRate     = 0x6e737274 // 'nsrt'
+	kAudioDevicePropertyStreams               = 0x73746d23 // 'stm#'
 )
 
 func loadAudioToolbox() error {
@@ -81,8 +98,46 @@ func loadAudioToolbox() error {
 		dispatchSemaphoreWait = cFunc(purego.RTLD_DEFAULT, "dispatch_semaphore_wait")
 		dispatchSemaphoreSignal = cFunc(purego.RTLD_DEFAULT, "dispatch_semaphore_signal")
 		dispatchTime = cFunc(purego.RTLD_DEFAULT, "dispatch_time")
+		if ca, err := purego.Dlopen("/System/Library/Frameworks/CoreAudio.framework/CoreAudio", purego.RTLD_LAZY|purego.RTLD_GLOBAL); err == nil {
+			purego.RegisterLibFunc(&audioObjectGetPropertyData, ca, "AudioObjectGetPropertyData")
+		}
 	})
 	return aqErr
+}
+
+// deviceLatency returns how long the default output, which the queue
+// plays on, takes from a frame the queue gives it to the speakers: its
+// I/O buffer, safety offset, and its own and its stream's latency, as
+// Core Audio reports them, more over Bluetooth or AirPlay. It returns 0
+// where it can't tell.
+func deviceLatency() time.Duration {
+	if audioObjectGetPropertyData == nil {
+		return 0
+	}
+	get := func(obj, selector, scope uint32, data unsafe.Pointer, size uint32) bool {
+		addr := audioObjectPropertyAddress{selector, scope, 0}
+		return audioObjectGetPropertyData(obj, &addr, 0, nil, &size, data) == 0
+	}
+	var dev uint32
+	var rate float64
+	if !get(kAudioObjectSystemObject, kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, unsafe.Pointer(&dev), 4) || dev == 0 ||
+		!get(dev, kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, unsafe.Pointer(&rate), 8) || rate <= 0 {
+		return 0
+	}
+	var total int64
+	for _, sel := range []uint32{kAudioDevicePropertyLatency, kAudioDevicePropertySafetyOffset, kAudioDevicePropertyBufferFrameSize} {
+		var n uint32
+		if get(dev, sel, kAudioObjectPropertyScopeOutput, unsafe.Pointer(&n), 4) {
+			total += int64(n)
+		}
+	}
+	var streams [8]uint32
+	var n uint32
+	if get(dev, kAudioDevicePropertyStreams, kAudioObjectPropertyScopeOutput, unsafe.Pointer(&streams), uint32(unsafe.Sizeof(streams))) && streams[0] != 0 &&
+		get(streams[0], kAudioDevicePropertyLatency, kAudioObjectPropertyScopeGlobal, unsafe.Pointer(&n), 4) {
+		total += int64(n)
+	}
+	return frames(total, int(rate))
 }
 
 // An aqDevice is an Audio Queue whose callback is
@@ -98,6 +153,7 @@ type aqDevice struct {
 	queued  int // buffers enqueued before the queue started
 	started bool
 	c       cCaller
+	lag     time.Duration // from a write to the speakers
 }
 
 func openDevice(ahead time.Duration) (device, int, error) {
@@ -127,8 +183,11 @@ func openDevice(ahead time.Duration) (device, int, error) {
 			return nil, 0, fmt.Errorf("audio: AudioQueueAllocateBuffer failed (OSStatus %d)", st)
 		}
 	}
+	d.lag = frames(int64(n*aqFrames), sampleRate) + deviceLatency()
 	return d, aqFrames, nil
 }
+
+func (d *aqDevice) delay() time.Duration { return d.lag }
 
 func (d *aqDevice) write(samples []float32) error {
 	if d.started {

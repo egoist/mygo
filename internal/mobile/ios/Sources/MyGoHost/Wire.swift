@@ -885,9 +885,11 @@ public struct AudioOpenCall {
 
 public struct AudioOpenReply {
     public var error: String = ""
+    public var delay: Double = 0
     public init() {}
     func encode(_ w: inout WireWriter) {
         w.string(error)
+        w.float(delay)
     }
 }
 
@@ -1307,7 +1309,7 @@ public protocol HostCalls: AnyObject {
     func setBarItems(_ c: SetBarItemsCall)
     /// a call of a plugin's native code: Args and PluginResult's Result are JSON
     func pluginCall(_ c: PluginCallCall)
-    /// opens the sound's output: stereo at Rate frames a second, holding about Ahead milliseconds; on the caller's thread
+    /// opens the sound's output: stereo at Rate frames a second, holding about Ahead milliseconds; on the caller's thread. Delay is the seconds a sample written waits before it is heard: what the output holds, and the system's latency after it
     func audioOpen(_ c: AudioOpenCall) -> AudioOpenReply
     /// plays interleaved stereo float32 samples after those written, waiting while the output holds enough; on the caller's thread
     func audioWrite(_ c: AudioWriteCall) -> AudioWriteReply
