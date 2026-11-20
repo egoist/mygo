@@ -9,7 +9,7 @@ ui.Textf(c, "%d files, %s", n, size).TextColor(c.Theme().TextMuted)
 
 ## 样式
 
-`FontSize`、`FontWeight`、`Bold`、`Italic`、`Font`、`LineHeight`、`FixedLineHeight`（以 DIP 计，无论字号多大）、`TextColor`、`TextAlign`、`Underline`、`WavyUnderline`、`DottedUnderline`（例如链接标示悬停时）、`Strikethrough`、`DecorationColor` 和 `DecorationThickness`（下划线和删除线的颜色与粗细）、`UnderlineOffset`（下划线顶部在基线下方多远，如 CSS 的 `text-underline-offset`）、`TextBackground`（行背后的高亮）、`LetterSpacing` 和 `FontFeatures` 用来设置样式，可以设在文本上，也可以设在它上方的任何元素上，其中的文本会继承这些样式。`FontFeatures` 按标签开启字体的 OpenType 特性，或用 `tag=value` 设置它们：`FontFeatures("tnum")` 让不断变化的数字宽度一致，`FontFeatures("liga=0")` 关闭连字。
+`FontSize`、`FontWeight`、`Bold`、`Italic`、`Font`、`LineHeight`（字号的倍数，是最小值：行里有更高的回退字体时会变高）、`FixedLineHeight`（以 DIP 计的精确行高，无论字号多大、用了什么回退字体，如 CSS 以 px 设的 `line-height`；更高字体的笔画可以超出行外）、`TextColor`、`TextAlign`、`Underline`、`WavyUnderline`、`DottedUnderline`（例如链接标示悬停时）、`Strikethrough`、`DecorationColor` 和 `DecorationThickness`（下划线和删除线的颜色与粗细）、`UnderlineOffset`（下划线顶部在基线下方多远，如 CSS 的 `text-underline-offset`）、`TextBackground`（行背后的高亮）、`LetterSpacing` 和 `FontFeatures` 用来设置样式，可以设在文本上，也可以设在它上方的任何元素上，其中的文本会继承这些样式。`FontFeatures` 按标签开启字体的 OpenType 特性，或用 `tag=value` 设置它们：`FontFeatures("tnum")` 让不断变化的数字宽度一致，`FontFeatures("liga=0")` 关闭连字。
 
 链接的下划线比字体默认位置略低，避开下伸笔画，和 Web 上的 `underline-offset-4` 一样：
 

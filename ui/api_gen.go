@@ -5290,7 +5290,10 @@ func (_handle Element) Fit(f Fit) Element {
 }
 
 // FixedLineHeight sets the height of lines of text in DIPs, whatever the
-// font size, as for rows of text that line up with a grid.
+// font size, as for rows of text that line up with a grid. Lines keep it
+// exactly, as CSS's line-height in px: a taller font in a line, as a
+// fallback font's, doesn't grow it, and its ink may reach past the line.
+// Inline objects and spans shifted off the baseline still grow it.
 func (_handle Element) FixedLineHeight(v float32) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -6232,7 +6235,8 @@ func (_handle Element) Level(n int) Element {
 }
 
 // LineHeight sets the height of lines of text as a multiple of the font
-// size.
+// size. It is a minimum: a line with a taller font in it, as a fallback
+// font's, grows to fit it.
 func (_handle Element) LineHeight(m float32) Element {
 	_node := _handle.node()
 	if _node == nil {

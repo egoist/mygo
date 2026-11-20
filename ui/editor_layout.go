@@ -90,8 +90,17 @@ func (e *node) inputHeight(cw float32) float32 {
 		// As high as its paragraphs unwrapped, without laying them out.
 		return float32(max(len(ed.buf.paras), 3)) * line
 	}
-	l := ed.shapeInput(e.inputParams(0))
-	return l.Lines[0].Height
+	h := ed.shapeInput(e.inputParams(0)).Lines[0].Height
+	if ed.buf.n == 0 && ed.compose == "" && ed.placeholder != "" {
+		// As high as the placeholder it shows needs, in a taller fallback
+		// font too, as it is once that text is typed: no jump with the first
+		// letter. Its line does not wrap, so its unwrapped layout tells, which
+		// the one paintInput draws at the box's width is realigned from.
+		if pl := ed.sys.Layout(e.placeholderParams(0)); len(pl.Lines) > 0 {
+			h = max(h, pl.Lines[0].Height)
+		}
+	}
+	return h
 }
 
 func (e *node) layoutInput(cw, ch float32) {
@@ -173,8 +182,15 @@ func (e *node) paintInput(p *Painter) {
 		if ed.placeholderColorSet {
 			color = ed.placeholderColor
 		}
-		// The placeholder aligns itself in the content box, as its layout has the box's width.
-		p.textLayout(pl, e.x+e.contentX(), oy, color, ts, nil)
+		// The placeholder aligns itself in the content box, as its layout
+		// has the box's width. A single-line input centers its first line
+		// there, as layoutInput does the value's, whose line may be shorter:
+		// a fallback font can make the placeholder's taller.
+		py := oy
+		if ed.area == nil && len(pl.Lines) > 0 {
+			py = box.Y + max((box.H-pl.Lines[0].Height)/2, 0)
+		}
+		p.textLayout(pl, e.x+e.contentX(), py, color, ts, nil)
 	}
 	if ed.area != nil {
 		ed.area.paint(e, p, e.x+ed.originX, e.y+ed.originY)

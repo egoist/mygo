@@ -28,6 +28,12 @@ type Style struct {
 	// LineHeight is the height of a line as a multiple of Size; 0 takes
 	// the font's own line spacing.
 	LineHeight float32
+	// ExactLineHeight keeps every line LineHeight high, with its baseline
+	// where the style's font puts it: a run in a taller font, as a
+	// fallback's or a larger span's, doesn't grow the line, and its ink
+	// may reach past it. Inline objects and spans shifted off the
+	// baseline still grow it. Without it LineHeight is a minimum.
+	ExactLineHeight bool
 	// LetterSpacing adds DIPs after every character; negative tightens.
 	LetterSpacing float32
 	// Features are OpenType features, comma separated: a tag turns one
@@ -1672,13 +1678,16 @@ func line(p Params, text []rune, sl shapedLine, offset int, rtl bool, m lineMetr
 		}
 	}
 	size := p.Style.FontSize()
+	exact := p.Style.ExactLineHeight && p.Style.LineHeight > 0
 	x0 := float32(math.MaxFloat32)
 	starts := *buf
 	for _, run := range sl.runs {
 		runSize := size
 		if f := run.font; f != nil {
-			line.Ascent = max(line.Ascent, f.Ascent)
-			line.Descent = max(line.Descent, f.Descent)
+			if !exact {
+				line.Ascent = max(line.Ascent, f.Ascent)
+				line.Descent = max(line.Descent, f.Descent)
+			}
 			if f.Size > 0 {
 				runSize = f.Size // a span of another size
 			}
@@ -1726,6 +1735,9 @@ func line(p Params, text []rune, sl shapedLine, offset int, rtl bool, m lineMetr
 						g.Object, g.Advance, g.ID = true, sp.ObjectWidth, 0
 						line.Ascent = max(line.Ascent, sp.ObjectHeight+shift)
 						line.Descent = max(line.Descent, sp.ObjectDescent-shift)
+					case shift != 0 && exact:
+						line.Ascent = max(line.Ascent, m.ascent+shift)
+						line.Descent = max(line.Descent, m.descent-shift)
 					case shift != 0 && g.Font != nil:
 						line.Ascent = max(line.Ascent, g.Font.Ascent+shift)
 						line.Descent = max(line.Descent, g.Font.Descent-shift)
@@ -1747,7 +1759,13 @@ func line(p Params, text []rune, sl shapedLine, offset int, rtl bool, m lineMetr
 		x0 = 0
 	}
 	line.Width = max(line.Width, 0)
-	line.Height = max(m.lineHeight, line.Ascent+line.Descent)
+	if exact {
+		// Only what an object or a shift adds to the style's own font
+		// grows an exact line.
+		line.Height = m.lineHeight + max(line.Ascent+line.Descent-m.ascent-m.descent, 0)
+	} else {
+		line.Height = max(m.lineHeight, line.Ascent+line.Descent)
+	}
 	line.Y = *y
 	line.Baseline = *y + (line.Height-line.Ascent-line.Descent)/2 + line.Ascent
 	for i := range line.Glyphs {

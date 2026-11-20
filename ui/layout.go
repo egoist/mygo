@@ -217,6 +217,7 @@ func (e *node) textParams(width float32) text.Params {
 	}
 	if ts.fixedLine && ts.lineHeight > 0 {
 		style.LineHeight = ts.lineHeight / style.FontSize()
+		style.ExactLineHeight = true
 	}
 	p := text.Params{Text: e.text, Width: width, MaxLines: e.maxLines, Style: style, Spans: e.textSpans(), NoWrap: e.noWrap, Balance: e.balance, Pretty: e.pretty, KeepSpaces: e.keepSpaces, Ellipsis: e.ellipsis, TruncateMiddle: e.middle, TruncateStart: e.cutStart, RTL: e.rtl()}
 	switch {

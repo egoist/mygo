@@ -10,8 +10,11 @@ ui.Textf(c, "%d files, %s", n, size).TextColor(c.Theme().TextMuted)
 
 ## Style
 
-`FontSize`, `FontWeight`, `Bold`, `Italic`, `Font`, `LineHeight`,
-`FixedLineHeight` (in DIPs, whatever the font size), `TextColor`,
+`FontSize`, `FontWeight`, `Bold`, `Italic`, `Font`, `LineHeight` (a
+minimum, as a multiple of the font size: a line with a taller fallback
+font in it grows), `FixedLineHeight` (an exact height in DIPs, whatever
+the font size or fallback fonts, as CSS's `line-height` in px; a taller
+font's ink may reach past it), `TextColor`,
 `TextAlign`, `Underline`, `WavyUnderline`, `DottedUnderline` (as links
 mark hover), `Strikethrough`,
 `DecorationColor` and `DecorationThickness` (of the underline and

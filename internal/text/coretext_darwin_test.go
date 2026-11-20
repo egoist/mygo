@@ -11,6 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ebitengine/purego"
+	"golang.org/x/image/font/gofont/goregular"
 )
 
 func TestCoreTextSyntheticItalic(t *testing.T) {
@@ -555,4 +558,126 @@ func report(t *testing.T, text []rune, style Style, width float32, got, want []s
 		}
 	}
 	t.Fatalf("in %+v at %v, %d lines, Core Text's %d", style, width, len(got), len(want))
+}
+
+// TestCoreTextNastaliqAtMeasuredWidth lays Urdu out again at the width it
+// measured, in a font with Latin letters alone, from which Core Text falls
+// back to the system's Noto Nastaliq Urdu for text in Urdu: each stays on
+// one line, uncut, as TestLayoutAtMeasuredWidth and TestFitsItsWidth hold
+// Latin and Han text to. Core Text places the letters of a Nastaliq word
+// apart from their advances, and breaks lines by those positions (#2016).
+func TestCoreTextNastaliqAtMeasuredWidth(t *testing.T) {
+	s := newSystem()
+	const family = "MyGo Test Latin Only"
+	if err := s.RegisterFont(goregular.TTF, family); err != nil {
+		t.Fatal(err)
+	}
+	texts := []string{"سرچ", "ترتیبات", "سب کچھ", "آپ کے", "مارکیٹ پلیس", "ایکسپلور", "لائبریری"}
+next:
+	for _, text := range texts {
+		for _, weight := range []int{400, 700} {
+			for size := float32(10); size <= 32; size += 0.5 {
+				style := Style{Family: family, Size: size, Weight: weight, Lang: "ur"}
+				measured := s.Layout(Params{Text: text, Style: style})
+				w := measured.Width
+				if size == 17 && weight == 400 {
+					if line := measured.Lines[0]; line.Ascent+line.Descent < 2*size {
+						t.Logf("%q: a line %v high at %v: not in Noto Nastaliq Urdu?", text, line.Ascent+line.Descent, size)
+					}
+				}
+				for _, p := range []Params{
+					{Text: text, Style: style, Width: w},
+					{Text: text, Style: style, Width: w, MaxLines: 1},
+					{Text: text, Style: style, Width: w * (1 - 1e-6), MaxLines: 1},
+				} {
+					if l := s.Layout(p); l.Truncated || len(l.Lines) != 1 {
+						t.Errorf("%q, weight %d, size %g: at %v of its measured %v (Core Text's line %v), %d lines, truncated %v", text, weight, size, p.Width, w, coreTextWidth(s, text, style), len(l.Lines), l.Truncated)
+						logGlyphs(t, measured)
+						continue next // one failure a text tells enough
+					}
+				}
+			}
+		}
+	}
+}
+
+// coreTextWidth returns the typographic width of Core Text's own line of
+// text in style, right to left, or -1: what a failure tells beside the
+// glyphs.
+func coreTextWidth(s *System, text string, style Style) float64 {
+	lib, err := purego.Dlopen("/System/Library/Frameworks/CoreText.framework/CoreText", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+	if err != nil {
+		return -1
+	}
+	var bounds func(line uintptr, ascent, descent, leading *float64) float64
+	purego.RegisterLibFunc(&bounds, lib, "CTLineGetTypographicBounds")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e := s.engine().(*coreText)
+	runes := []rune(text)
+	e.u16, e.index = appendUTF16(e.u16[:0], e.index[:0], runes)
+	typesetter := e.newTypesetter(e.ctFont(style), e.u16, runes, style, nil, true, style.Lang)
+	if typesetter == 0 {
+		return -1
+	}
+	defer ct.release(typesetter)
+	line := ct.typesetterCreateLine(typesetter, cfRange{0, len(e.u16)})
+	if line == 0 {
+		return -1
+	}
+	defer ct.release(line)
+	var ascent, descent, leading float64
+	return bounds(line, &ascent, &descent, &leading)
+}
+
+// logGlyphs logs the glyphs of l's lines.
+func logGlyphs(t *testing.T, l *Layout) {
+	t.Helper()
+	for _, line := range l.Lines {
+		for i, g := range line.Glyphs {
+			t.Logf("  glyph %d: id %d cluster %d rtl %v x %v advance %v", i, g.ID, g.Cluster, g.RTL, g.X, g.Advance)
+		}
+	}
+}
+
+// penAdvances gives the room between glyphs to the advance of the glyph
+// left of it, in either direction, so that the advances add up to the
+// pen's way along the line, and leaves marks, and letters that overlap,
+// as they are: right to left from the right edge of the last glyph in
+// visual order, a mark before its letter.
+func TestPenAdvances(t *testing.T) {
+	g := func(x, adv float32, rtl bool) Glyph { return Glyph{X: x, Advance: adv, RTL: rtl} }
+	for _, c := range []struct {
+		name string
+		runs [][]Glyph
+		want [][]float32
+	}{
+		{"left to right", [][]Glyph{{g(0, 10, false), g(12, 10, false)}, {g(25, 5, false)}}, [][]float32{{12, 13}, {5}}},
+		{"left to right, a mark back over its letter", [][]Glyph{{g(0, 10, false), g(4, 0, false), g(10, 5, false)}}, [][]float32{{10, 0, 5}}},
+		// Visual order: the word's last letter at the left, its first at
+		// the right, a mark before its letter.
+		{"right to left", [][]Glyph{{g(0, 8, true), g(10, 6, true), g(18, 4, true)}}, [][]float32{{10, 8, 4}}},
+		{"right to left, a mark", [][]Glyph{{g(0, 8, true), g(12, 0, true), g(10, 6, true)}}, [][]float32{{10, 0, 6}}},
+		{"right to left, a mark ahead of the pen", [][]Glyph{{g(0, 8, true), g(5, 0, true), g(10, 6, true)}}, [][]float32{{10, 0, 6}}},
+		// Core Text's: a mark right of the pen, its advance bringing the
+		// pen back; one pulling the next letter back over the last.
+		{"right to left, a mark placed by its offset", [][]Glyph{{g(4, -4, true), g(0, 8, true), g(8, 4, true)}}, [][]float32{{0, 8, 4}}},
+		{"right to left, a mark pulling the pen back", [][]Glyph{{g(0, 10, true), g(10, -2, true), g(8, 4, true)}}, [][]float32{{10, -2, 4}}},
+		{"right to left, letters overlapping", [][]Glyph{{g(0, 8, true), g(6, 6, true)}}, [][]float32{{8, 6}}},
+		{"right to left, across runs", [][]Glyph{{g(0, 8, true)}, {g(9, 3, true)}, {g(13, 6, true)}}, [][]float32{{9}, {4}, {6}}},
+		{"mixed: no room between directions", [][]Glyph{{g(0, 10, false)}, {g(12, 6, true), g(20, 6, true)}, {g(30, 5, false)}}, [][]float32{{10}, {8, 6}, {5}}},
+	} {
+		runs := make([]shapedRun, len(c.runs))
+		for i, gs := range c.runs {
+			runs[i].glyphs = slices.Clone(gs)
+		}
+		penAdvances(runs)
+		for i := range runs {
+			for j, g := range runs[i].glyphs {
+				if g.Advance != c.want[i][j] {
+					t.Errorf("%s: run %d glyph %d advance %v, want %v", c.name, i, j, g.Advance, c.want[i][j])
+				}
+			}
+		}
+	}
 }

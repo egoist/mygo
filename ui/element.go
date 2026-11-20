@@ -1864,7 +1864,8 @@ func (ts *textStyle) caretColor(t *Theme) Color {
 }
 
 // LineHeight sets the height of lines of text as a multiple of the font
-// size.
+// size. It is a minimum: a line with a taller font in it, as a fallback
+// font's, grows to fit it.
 func (e *node) LineHeight(m float32) *node {
 	e.ts.lineHeight, e.ts.fixedLine = m, false
 	e.ts.set |= setLineHeight
@@ -1872,7 +1873,10 @@ func (e *node) LineHeight(m float32) *node {
 }
 
 // FixedLineHeight sets the height of lines of text in DIPs, whatever the
-// font size, as for rows of text that line up with a grid.
+// font size, as for rows of text that line up with a grid. Lines keep it
+// exactly, as CSS's line-height in px: a taller font in a line, as a
+// fallback font's, doesn't grow it, and its ink may reach past the line.
+// Inline objects and spans shifted off the baseline still grow it.
 func (e *node) FixedLineHeight(v float32) *node {
 	e.ts.lineHeight, e.ts.fixedLine = v, true
 	e.ts.set |= setLineHeight
