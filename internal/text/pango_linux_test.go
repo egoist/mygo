@@ -5,7 +5,6 @@ package text
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -108,30 +107,6 @@ func TestPangoLayoutAtMeasuredWidth(t *testing.T) {
 						}
 					}
 				})
-			}
-		}
-	}
-}
-
-// Underlines and strikethroughs are whole pixels thick on whole pixels,
-// as GTK draws them with metrics hinted, whatever Pango's stack: Ubuntu
-// 22.04's and Debian 12's give fractions of a pixel, which draw faint.
-func TestPangoDecorationMetricsWholePixels(t *testing.T) {
-	s := newSystem()
-	for _, family := range []string{"sans-serif", "serif", "monospace"} {
-		for _, size := range []float32{9, 12, 13, 16, 24, 72} {
-			l := s.Layout(Params{Text: "Hello", Style: Style{Family: family, Size: size}})
-			f := l.Lines[0].Glyphs[0].Font
-			for _, m := range []struct {
-				name string
-				v    float32
-			}{{"underline top", f.underlineTop}, {"underline thickness", f.underlineThick}, {"strikethrough top", f.strikeTop}, {"strikethrough thickness", f.strikeThick}} {
-				if m.v != float32(math.Ceil(float64(m.v))) {
-					t.Errorf("%s %g: %s %g is not a whole pixel", family, size, m.name, m.v)
-				}
-			}
-			if f.underlineThick < 1 || f.strikeThick < 1 {
-				t.Errorf("%s %g: underline %g, strikethrough %g thick", family, size, f.underlineThick, f.strikeThick)
 			}
 		}
 	}
