@@ -157,7 +157,7 @@ func (e *node) spanStyle() (Span, float32) {
 		s.UnderlineOffset, s.offsetSet = t.decoOffset, true
 	}
 	if t.set&setStroke != 0 {
-		s.strokeWidth, s.strokeColor, s.strokeSet = t.strokeWidth, t.strokeColor, true
+		s.Stroke, s.strokeSet = TextStroke{t.strokeWidth, t.strokeColor}, true
 	}
 	if t.set&setShadow != 0 {
 		s.Shadow, s.shadowSet = t.shadow, true
@@ -189,7 +189,7 @@ func (e *node) spanStyle() (Span, float32) {
 			s.DecorationColor, s.decoColorSet = r.decoColor, r.decoColor.A == 0
 		}
 		if r.set&setStroke != 0 {
-			s.strokeWidth, s.strokeColor, s.strokeSet = r.strokeWidth, r.strokeColor, true
+			s.Stroke, s.strokeSet = TextStroke{r.strokeWidth, r.strokeColor}, true
 		}
 		if r.set&setShadow != 0 {
 			s.Shadow, s.shadowSet = r.shadow, true
@@ -211,8 +211,9 @@ func (s Span) faded(alpha float32) Span {
 		s.DecorationColor = c.Alpha(alpha)
 		s.decoColorSet = s.DecorationColor.A == 0
 	}
-	if s.strokeSet {
-		s.strokeColor = s.strokeColor.Alpha(alpha)
+	if _, ok := s.stroke(); ok {
+		s.Stroke.color = s.Stroke.color.Alpha(alpha)
+		s.strokeSet = true
 	}
 	if _, ok := s.shadow(); ok {
 		s.Shadow.color = s.Shadow.color.Alpha(alpha)
@@ -250,8 +251,8 @@ func over(s, base Span) Span {
 	if s.Background.A == 0 {
 		s.Background = base.Background
 	}
-	if !s.strokeSet {
-		s.strokeWidth, s.strokeColor, s.strokeSet = base.strokeWidth, base.strokeColor, base.strokeSet
+	if _, ok := s.stroke(); !ok {
+		s.Stroke, s.strokeSet = base.Stroke, base.strokeSet
 	}
 	if _, ok := s.shadow(); !ok {
 		s.Shadow, s.shadowSet = base.Shadow, base.shadowSet

@@ -84,6 +84,36 @@ func TestInlineStroke(t *testing.T) {
 	}
 }
 
+// TestTextStrokeSpans strokes the text of a span with its own stroke,
+// over its paragraph's.
+func TestTextStrokeSpans(t *testing.T) {
+	black, blue, green := RGB(0, 0, 0), RGB(0, 0, 255), RGB(0, 255, 0)
+	tt := coreNewTester(func(c *context) {
+		coreRichText(c, Span{Text: "ab"}, Span{Text: "cd", Stroke: NewTextStroke(2, green)}).TextColor(black).TextStroke(2, blue)
+	}, 300, 100)
+	blues, fills, under := strokesAndFills(tt, blue, black)
+	greens, _, _ := strokesAndFills(tt, green, black)
+	if len(blues) != 2 || len(greens) != 2 || len(fills) != 4 || !under {
+		t.Errorf("%d blue strokes, %d green, %d fills, strokes under: %v; want 2, 2, 4, true", len(blues), len(greens), len(fills), under)
+	}
+}
+
+// TestTextStrokeLayout strokes the spans of a layout an app shapes and
+// paints itself, as text lit up as it is sung, a clip at a time.
+func TestTextStrokeLayout(t *testing.T) {
+	black, green := RGB(0, 0, 0), RGB(0, 255, 0)
+	l := ShapeRichText([]Span{{Text: "ab"}, {Text: "cd", Stroke: NewTextStroke(2, green)}}, Font{Size: 16}, 0)
+	tt := coreNewTester(func(c *context) {
+		coreBox(c).Size(200, 40).Draw(func(p *Painter, r Rect) {
+			p.TextLayout(l, r.X, r.Y, black)
+		})
+	}, 300, 100)
+	greens, fills, under := strokesAndFills(tt, green, black)
+	if len(greens) != 2 || len(fills) != 4 || !under {
+		t.Errorf("%d strokes, %d fills, strokes under: %v; want 2, 4, true", len(greens), len(fills), under)
+	}
+}
+
 // TestInlineStrokeHidden strokes none of the text of an inline element
 // hidden or faded out, whether the stroke is its own or its paragraph's.
 func TestInlineStrokeHidden(t *testing.T) {
