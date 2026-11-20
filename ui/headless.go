@@ -91,6 +91,9 @@ type headless struct {
 	dragData    transfer.Data
 	dragLocal   any
 	dragOptions transfer.DragOptions
+	// drags counts startDrag calls, so a test can tell whether a press went
+	// to a DragWindow element or to something that took it first.
+	drags int
 	// webViews are where the last frame showing web views showed them;
 	// tabbedInto the web view Tab gave the keyboard last, from its end
 	// when tabbedBack.
@@ -138,7 +141,7 @@ func (h *headless) repaintTimer(at time.Time)                  { h.repaintAt = a
 func (h *headless) setCursor(c Cursor)                         { h.cursor = c }
 func (h *headless) setTextInput(t platform.TextInputState)     { h.ime = t }
 func (h *headless) updateAccessibility(t *platform.AccessTree) { h.keepAccess(t) }
-func (h *headless) startDrag()                                 {}
+func (h *headless) startDrag()                                 { h.drags++ }
 func (h *headless) setDropFormats([]transfer.Format)           {}
 func (h *headless) readClipboard() string {
 	if r := h.reading; r != nil {
@@ -206,6 +209,9 @@ func (h *headless) invalidate() {
 	h.invalidated.Store(true)
 	h.requested.Store(true)
 }
+
+// frameNow has nothing to show at once: headless frames go nowhere.
+func (h *headless) frameNow() { h.invalidate() }
 
 // writeClipboard copies s, unless FailClipboard set an error;
 // writeClipboardThen gives done that error before the next frame too, as
@@ -364,6 +370,11 @@ func (t *Tester) runLater() {
 // Now returns the Tester's time, that of its next frame, which stands
 // still until Advance moves it.
 func (t *Tester) Now() time.Time { return t.now }
+
+// Drags is how many times the view asked the window to move, a press on
+// a DragWindow element being one: a test tells whether a spot of the panel
+// can be dragged by pressing it and reading whether Drags grew.
+func (t *Tester) Drags() int { return t.h.drags }
 
 // Advance moves the Tester's clock on by d, running the frames due
 // meanwhile at their times: one each refresh while something moves, and
