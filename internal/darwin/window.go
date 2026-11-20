@@ -708,7 +708,7 @@ func (w *window) stopObserving() {
 		}
 	}
 	for download := range w.downloads {
-		w.unobserveDownload(download)
+		w.forgetDownload(download)
 	}
 }
 
@@ -723,10 +723,12 @@ func (w *window) unobserveDownload(download id) {
 }
 
 // forgetDownload drops a download that ended, removing its progress
-// observers before WebKit may release it.
+// observers and the reference decideDestination took: the download is
+// used outside WebKit's callbacks (progress, cancel), so it must be held.
 func (w *window) forgetDownload(download id) {
 	w.unobserveDownload(download)
 	delete(w.downloads, download)
+	send(download, "release")
 }
 
 // downloadFor returns the WKDownload of url saved at path, or 0 when none
@@ -2755,6 +2757,7 @@ func registerWindowClasses() {
 					return
 				}
 				os.Remove(path) // WebKit refuses to replace a file
+				send(download, "retain") // held until forgetDownload, for use outside the callbacks
 				w.downloads[download] = [2]string{url, path}
 				for _, key := range downloadProgressKeys {
 					send(download, "addObserver:forKeyPath:options:context:", uintptr(self), uintptr(nsString(key)), 0, 0)
