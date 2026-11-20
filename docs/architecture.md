@@ -1368,6 +1368,8 @@ Trust):
 | `{"t":"cancel","id":N,"k":token}` | the page gave the call up: its context is canceled |
 | `{"t":"chan-ack","c":N,"k":token,"n":S}` | the page took the values of channel N up to the S-th |
 | `{"t":"chan-close","c":N,"k":token}` | the page closed channel N |
+| `{"t":"src-push","c":N,"k":token,"p":value}` | a value the page sends to source N of a call |
+| `{"t":"src-end","c":N,"k":token}` | the page ended source N: no more values |
 | `{"t":"dom-ready"}` | DOMContentLoaded fired, or the page shows again from the web view's cache of pages |
 | `{"t":"theme-color","v":"#rrggbbaa"}` | the page's theme color changed; `""` for none |
 | `{"t":"content-size","w":W,"h":H,"sw":SW,"sh":SH}` | the size of the content of a window that fits it, and the room of its scrollbars, in CSS pixels |
@@ -1385,6 +1387,8 @@ faster, unless the inspector is enabled (development builds):
 | `{"t":"reply","id":N,"k":token,"ok":false,"e":"message"}` | error or panic |
 | `{"t":"chan","c":N,"k":token,"p":value}` | a value of channel N; `"a":1` asks for an acknowledgment |
 | `{"t":"chan","c":N,"k":token,"end":true}` | Go closed channel N |
+| `{"t":"src-ack","c":N,"k":token,"n":S}` | the method took the values of source N up to the S-th |
+| `{"t":"src-close","c":N,"k":token}` | the method closed source N: the page's send rejects |
 | `{"t":"event","n":"name","p":payload}` | typed event |
 
 `k` is a random per-page token: a reply meant for a page that has since
@@ -1466,6 +1470,26 @@ messages: every half MiB of messages, a value asks for an acknowledgment,
 which the page sends once it took that value (handled it, or yielded it to
 an iterator), and `Send` waits while more than a MiB is unacknowledged. It
 never waits on the main thread, which receives the acknowledgments.
+
+### Sources
+
+A `*Source[T]` parameter (`source.go`) receives values the page sends, the
+other direction of a channel. The page's `Source` goes into the call's
+arguments as an id it chose, from the same counter as channels;
+`method.call` creates the Go side, registered in `Window.sources`, and
+closes it when the method returns, before the reply is queued. The page
+fills it with `src-push` and ends it with `src-end`, which ends the
+sending, not the call: `Recv` returns `io.EOF` once the values are taken,
+and the method still returns its result. Values and ends that arrive
+before the call's goroutine made its source wait in `Window.earlySources`
+(bounded, reset with the page) and are queued, in order, when it does;
+`handleMessage` routes them under the window lock so none slips past the
+creation. The page going away cancels the call, which `Recv` reports.
+
+Flow control mirrors the channel's, reversed: the method acknowledges
+every half MiB it took (`src-ack`), and the page's `send` waits while more
+than a MiB is unacknowledged. Values are decoded on the call's goroutine,
+not the main thread, which only queues their raw bytes.
 
 ### Eval
 

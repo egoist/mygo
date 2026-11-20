@@ -37,6 +37,19 @@ for await (const line of lines) console.log(line);
 await done;
 ```
 
+A Go method that receives values through a `*mygo.Source[T]` parameter takes
+a `Source` in its place, which the page fills and closes:
+
+```ts
+import { Source } from "mygo-runtime";
+
+const data = new Source<Uint8Array>();
+const done = Files.save("report.bin", data);
+for (const chunk of chunks) await data.send(chunk);
+data.close();
+await done;
+```
+
 A Go method returning an error rejects with a `CallError` (see
 `isCallError`). Outside a MyGo window, e.g. when the dev server is opened in a
 browser, calls reject and `isMyGo()` is false.

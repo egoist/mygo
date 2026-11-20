@@ -377,6 +377,63 @@ methods that return one or take one inside another value.
 Events or channels? An event goes to every listener of a page, for as long
 as it lives; a channel carries the answer of one call and ends with it.
 
+## Sources
+
+A method that consumes values over time — an upload's chunks, a recording's
+samples, a long text as it is typed — receives them through a
+`*mygo.Source[T]` parameter, the other direction of a channel:
+
+```go
+// Save writes what the page sends to a file.
+func (Files) Save(ctx context.Context, name string, data *mygo.Source[[]byte]) error {
+	f, err := os.Create(name)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	for chunk, err := range data.Values() {
+		if errors.Is(err, io.EOF) {
+			break // the page closed the source
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := f.Write(chunk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+```
+
+The client types the parameter as a `Source` of `mygo-runtime`, which the
+page creates, passes in its place, then fills and closes:
+
+```ts
+import { Source } from "mygo-runtime";
+import { Files } from "./mygo";
+
+const data = new Source<Uint8Array>();
+const done = Files.save("report.bin", data);
+for (const chunk of chunks) await data.send(chunk);
+data.close();
+await done; // rejects if Save returned an error
+```
+
+- Values arrive in order. `Recv` returns one at a time; `Values` iterates
+  them, ending with `io.EOF` once the page closed the source and its values
+  are taken.
+- The page's `close()` ends the sending, not the call: the method still
+  returns its result, which arrives after. The source closes when the
+  method returns too, or calls `Close`: `send` rejects from then on.
+- `send` waits while the method has more than a MiB of values yet to take,
+  so a page faster than the method does not pile them up in memory.
+- Navigating away and closing the window cancel the call: `Recv` returns
+  the context's error.
+
+A source serves one call, and is a parameter only, as a channel is. Pass it
+to the call before sending: `send` rejects until then.
+
 ## Without the generated client
 
 `mygo-runtime` calls methods and subscribes to events by name, and pages

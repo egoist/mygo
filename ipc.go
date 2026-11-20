@@ -55,6 +55,9 @@ type method struct {
 	// is (streams).
 	chans   []bool
 	streams bool
+	// sources marks the parameters that are sources (*Source[T]), which
+	// the page fills.
+	sources []bool
 	result  reflect.Type
 	hasErr  bool
 	pc      uintptr
@@ -223,15 +226,20 @@ func newMethod(service, name string, fn reflect.Value) (*method, error) {
 	for i := start; i < ft.NumIn(); i++ {
 		p := ft.In(i)
 		isChan := p.Implements(channelParamType)
+		isSource := p.Implements(sourceParamType)
 		t := p
 		if isChan {
 			t = reflect.Zero(p).Interface().(channelParam).valueType()
+		}
+		if isSource {
+			t = reflect.Zero(p).Interface().(sourceParam).valueType()
 		}
 		if err := validateType(t); err != nil {
 			return nil, fmt.Errorf("mygo: %s: parameter %d: %w", where, i-start+1, err)
 		}
 		mi.params = append(mi.params, p)
 		mi.chans = append(mi.chans, isChan)
+		mi.sources = append(mi.sources, isSource)
 		mi.streams = mi.streams || isChan
 	}
 	switch ft.NumOut() {
@@ -263,6 +271,9 @@ func newMethod(service, name string, fn reflect.Value) (*method, error) {
 func validateType(t reflect.Type) error {
 	if hasChannel(t, map[reflect.Type]bool{}) {
 		return fmt.Errorf("type %s holds a Channel, which can only be a parameter", t)
+	}
+	if hasSource(t, map[reflect.Type]bool{}) {
+		return fmt.Errorf("type %s holds a Source, which can only be a parameter", t)
 	}
 	return tsgen.Validate(t)
 }
@@ -303,6 +314,14 @@ func (m *method) call(w *Window, page context.Context, token string, args []rawV
 			cancel()
 		}()
 	}
+	var srcs []*source
+	defer func() {
+		// The sources close when the method returns, before its result is
+		// sent; the page's send rejects from then on.
+		for _, s := range srcs {
+			s.close(closedByGo)
+		}
+	}()
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
@@ -328,6 +347,22 @@ func (m *method) call(w *Window, page context.Context, token string, args []rawV
 			chans = append(chans, c)
 			v := reflect.New(t.Elem())
 			v.Interface().(channelParam).init(c)
+			in = append(in, v)
+			continue
+		}
+		if m.sources[i] {
+			// The page passes the id of its source.
+			var id int64
+			if i < len(args) {
+				_ = json.Unmarshal(args[i], &id)
+			}
+			if id <= 0 {
+				return nil, fmt.Errorf("invalid argument %d: not a Source", i+1)
+			}
+			s := w.newSource(page, ctx, id, token)
+			srcs = append(srcs, s)
+			v := reflect.New(t.Elem())
+			v.Interface().(sourceParam).init(s)
 			in = append(in, v)
 			continue
 		}

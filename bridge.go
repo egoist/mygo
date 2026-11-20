@@ -316,10 +316,11 @@ func (w *Window) handleMessage(msg string) {
 		T  string  `json:"t"`
 		X  float64 `json:"x"` // drop
 		Y  float64 `json:"y"`
-		C  int64   `json:"c"` // channels
+		C  int64   `json:"c"` // channels and sources
 		K  string  `json:"k"`
 		ID int64   `json:"id"` // the call of a cancel
 		N  int64   `json:"n"`
+		P  rawValue `json:"p"` // a source's value
 		V  string  `json:"v"` // theme-color
 		W  float64 `json:"w"` // content-size
 		H  float64 `json:"h"`
@@ -393,6 +394,10 @@ func (w *Window) handleMessage(msg string) {
 		}
 	case "chan-close":
 		w.pageClosedChannel(m.C, m.K)
+	case "src-push":
+		w.sourceMessage(m.C, m.K, m.P, false)
+	case "src-end":
+		w.sourceMessage(m.C, m.K, nil, true)
 	}
 }
 

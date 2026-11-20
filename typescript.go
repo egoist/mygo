@@ -35,12 +35,15 @@ func GenerateTypeScript() ([]byte, error) {
 				HasCtx:   m.ctx,
 				PC:       m.pc,
 			}
-			if m.streams {
-				// The client declares what channels carry.
-				meth.Params, meth.Channels = slices.Clone(m.params), m.chans
-				for i, isChan := range m.chans {
-					if isChan {
-						meth.Params[i] = reflect.Zero(m.params[i]).Interface().(channelParam).valueType()
+			if m.streams || slices.Contains(m.sources, true) {
+				// The client declares what channels and sources carry.
+				meth.Params, meth.Channels, meth.Sources = slices.Clone(m.params), m.chans, m.sources
+				for i, p := range m.params {
+					if m.chans[i] {
+						meth.Params[i] = reflect.Zero(p).Interface().(channelParam).valueType()
+					}
+					if m.sources[i] {
+						meth.Params[i] = reflect.Zero(p).Interface().(sourceParam).valueType()
 					}
 				}
 			}

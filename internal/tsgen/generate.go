@@ -36,6 +36,9 @@ type Method struct {
 	// Channels marks the parameters that are channels (mygo.Channel),
 	// whose Params are the type of their values.
 	Channels []bool
+	// Sources marks the parameters that are sources (mygo.Source), whose
+	// Params are the type of their values.
+	Sources  []bool
 	Variadic bool
 	Result   reflect.Type
 	HasCtx   bool
@@ -115,6 +118,9 @@ func Generate(m Model) ([]byte, error) {
 			if slices.Contains(meth.Channels, true) {
 				g.taken["Channel"] = reflect.TypeFor[runtimeSentinel]()
 			}
+			if slices.Contains(meth.Sources, true) {
+				g.taken["Source"] = reflect.TypeFor[runtimeSentinel]()
+			}
 			file, line := g.src.learnPC(meth.PC)
 			locs[meth] = methodSrc{file, line}
 		}
@@ -126,6 +132,7 @@ func Generate(m Model) ([]byte, error) {
 
 	var services bytes.Buffer
 	channels := false
+	sources := false
 	for _, s := range m.Services {
 		base := s.Type
 		if base.Kind() == reflect.Pointer {
@@ -178,6 +185,10 @@ func Generate(m Model) ([]byte, error) {
 					typ = "Channel<" + typ + ">"
 					channels = true
 				}
+				if pi < len(meth.Sources) && meth.Sources[pi] {
+					typ = "Source<" + typ + ">"
+					sources = true
+				}
 				params = append(params, name+": "+typ)
 				args = append(args, name)
 				types = append(types, typ)
@@ -225,6 +236,9 @@ func Generate(m Model) ([]byte, error) {
 	}
 	if channels {
 		imports = append(imports, "type Channel")
+	}
+	if sources {
+		imports = append(imports, "type Source")
 	}
 	for _, name := range slices.Sorted(maps.Keys(g.imported)) {
 		imports = append(imports, "type "+name)

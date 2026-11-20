@@ -10,6 +10,7 @@ export type {
   LocaleChange,
   Platform,
   Runtime,
+  Source,
   ThemePreferences,
   WindowControls,
 } from "../../runtime/src/types";
@@ -39,6 +40,10 @@ export type Outgoing =
   /** Channel c took the values up to the n-th. */
   | { t: "chan-ack"; c: number; k: string; n: number }
   | { t: "chan-close"; c: number; k: string }
+  /** A value p of source c, which the method receives. */
+  | { t: "src-push"; c: number; k: string; p: unknown }
+  /** The page ended source c: no more values. */
+  | { t: "src-end"; c: number; k: string }
   | { t: "dom-ready" }
   /** The page's theme color changed: #rrggbbaa, or "" for none. */
   | { t: "theme-color"; v: string }
@@ -56,4 +61,8 @@ export type Incoming =
   | { t: "event"; n: string; p?: unknown }
   | { t: "reply"; id: number; k: string; ok: boolean; v?: unknown; e?: string }
   /** A value p of channel c, which asks for an acknowledgment with a, or its end. */
-  | { t: "chan"; c: number; k: string; p?: unknown; a?: 1; end?: true };
+  | { t: "chan"; c: number; k: string; p?: unknown; a?: 1; end?: true }
+  /** The method took the values of source c up to the n-th. */
+  | { t: "src-ack"; c: number; k: string; n: number }
+  /** The method closed source c: send rejects from then on. */
+  | { t: "src-close"; c: number; k: string };
