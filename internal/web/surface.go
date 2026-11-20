@@ -106,6 +106,8 @@ type listener struct {
 }
 
 func (s *surface) send(ev platform.SurfaceEvent) bool {
+	// The UI uses Touch to enter finger panning and long-press handling.
+	ev.Touch = ev.Pointer == platform.PointerTouch
 	if !s.held.Track(ev) {
 		return false
 	}
