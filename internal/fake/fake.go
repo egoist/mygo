@@ -611,6 +611,7 @@ type Window struct {
 	Progress        string
 	ProgressValue   float64
 	Flashing        bool
+	AspectRatio     float64
 	SkipsTaskbar    bool
 	OnAllWorkspaces bool
 	AutoHidesMenu   bool
@@ -681,6 +682,7 @@ func (w *Window) SetProgressBar(state string, value float64) {
 	w.mu.Unlock()
 }
 func (w *Window) FlashFrame(v bool)                { w.mu.Lock(); w.Flashing = v; w.mu.Unlock() }
+func (w *Window) SetAspectRatio(v float64)         { w.mu.Lock(); w.AspectRatio = v; w.mu.Unlock() }
 func (w *Window) SetSkipTaskbar(v bool)            { w.mu.Lock(); w.SkipsTaskbar = v; w.mu.Unlock() }
 func (w *Window) SetVisibleOnAllWorkspaces(v bool) { w.mu.Lock(); w.OnAllWorkspaces = v; w.mu.Unlock() }
 func (w *Window) SetAutoHideMenu(v bool)           { w.mu.Lock(); w.AutoHidesMenu = v; w.mu.Unlock() }

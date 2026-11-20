@@ -220,6 +220,7 @@ func (w *window) SetActiveAppearance(bool)                   {}
 func (w *window) SetWindowButtonsTheme(string)               {}
 func (w *window) SetProgressBar(string, float64)             {}
 func (w *window) FlashFrame(bool)                            {}
+func (w *window) SetAspectRatio(float64)                     {}
 func (w *window) SetSkipTaskbar(bool)                        {}
 func (w *window) SetVisibleOnAllWorkspaces(bool)             {}
 func (w *window) SetIcon([]byte) error                       { return nil }

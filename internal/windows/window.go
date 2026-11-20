@@ -63,6 +63,7 @@ type window struct {
 	reloadAdopted bool
 
 	minW, minH, maxW, maxH int // DIPs
+	aspect                 float64
 	movable, closable      bool
 	frameless              bool
 	hiddenTitleBar         bool        // a TitleBarStyle that hides the caption
@@ -622,6 +623,11 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			info.MaxTrackSize.Y = toPx(w.maxH, dpi)
 		}
 		return 0, true
+	case wmSizing:
+		if w.aspect > 0 {
+			w.sizingAspect((*rect)(native(lp)), uint32(wp))
+			return 0, true
+		}
 	case wmDpiChanged:
 		r := (*rect)(native(lp))
 		if w.placing != nil {
@@ -1071,6 +1077,7 @@ func (w *window) ContentBounds() platform.Rect {
 
 func (w *window) SetMinimumSize(s platform.Size) { w.minW, w.minH = s.Width, s.Height }
 func (w *window) SetMaximumSize(s platform.Size) { w.maxW, w.maxH = s.Width, s.Height }
+func (w *window) SetAspectRatio(ratio float64)  { w.aspect = ratio }
 
 func (w *window) setStyle(bits uint32, on bool) {
 	style := windowLong(w.hwnd, gwlStyle)
