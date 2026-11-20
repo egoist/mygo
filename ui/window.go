@@ -1101,6 +1101,20 @@ func (h *windowHost) active() bool { return h.conn.Active == nil || h.conn.Activ
 
 func (h *windowHost) invalidate() { h.conn.Invalidate() }
 
+// frameNow draws the pending frame without waiting for the display's next
+// refresh: the window's move and the content it shows then reach the
+// compositor in the same frame instead of a frame apart.
+func (h *windowHost) frameNow() {
+	if h.conn == nil || h.conn.Surface == nil {
+		return
+	}
+	if p, ok := h.conn.Surface.(platform.PacedSurface); ok {
+		p.FrameNow()
+		return
+	}
+	h.conn.Invalidate()
+}
+
 func (h *windowHost) openURL(u string, done func(error)) {
 	if h.conn.OpenURL != nil {
 		h.conn.OpenURL(u, done)

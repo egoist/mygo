@@ -83,6 +83,13 @@ type host interface {
 	active() bool
 	// invalidate asks for a frame from any goroutine.
 	invalidate()
+	// frameNow draws the pending frame at once, without waiting for the
+	// display's next refresh. It is what a caller that has just moved the
+	// window and changed what it shows needs: the move and the new content
+	// then reach the compositor in the same frame, rather than a frame
+	// apart, which shows as the content lagging the window while dragged.
+	// It blocks until the frame is drawn, so call it from the main thread.
+	frameNow()
 	// post runs fn on the main thread soon; it is safe from any goroutine.
 	post(fn func())
 	openURL(url string, done func(error))

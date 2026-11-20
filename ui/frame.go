@@ -44,6 +44,20 @@ func (c *Context) Invalidate() {
 	}
 }
 
+// FrameNow draws the pending frame at once, without waiting for the display's
+// next refresh, and blocks until it is drawn.
+//
+// It is for a caller that has just moved its window and changed what it shows
+// in the same gesture, as a window being dragged: the move and the new content
+// then reach the compositor in one frame. With Invalidate alone the move lands
+// in the next frame and the new content in the one after, and that one frame of
+// difference is what reads as the content lagging behind the window.
+func (c *Context) FrameNow() {
+	if c != nil {
+		c.services.FrameNow()
+	}
+}
+
 // Key assigns the identity of the next control before its state is read.
 // A compound widget consumes the key for its outermost element.
 func (c *Context) Key(key any) *Context {

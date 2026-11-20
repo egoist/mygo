@@ -665,6 +665,15 @@ func (r *Renderer) setBackground(c scene.Color) bool {
 // the window's swap chain shows it.
 func (r *Renderer) background() [4]float32 {
 	rgba := r.bg.Premul(1)
+	// A translucent content background must stay translucent: its alpha
+	// is what shows the window behind it (the desktop snapshot under a
+	// rounded corner, say). Forcing it to 1 turns every unpainted pixel —
+	// the corners left round, a frame still being drawn — into opaque
+	// white. An opaque background is still forced opaque, as before.
+	if r.bg.A < 255 {
+		rgba[3] = float32(r.bg.A) / 255
+		return rgba
+	}
 	rgba[3] = 1
 	return rgba
 }

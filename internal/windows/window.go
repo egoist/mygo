@@ -23,6 +23,10 @@ type window struct {
 	// flyoutSize.
 	flyout     platform.Flyout
 	flyoutSize platform.Size
+	// cornerRadius rounds the window's content in its surface's clip, in the
+	// window's pixels: WindowOptions.CornerRadius, where the platform rounds
+	// nothing itself (Windows 10, whose DWM gives every window square corners).
+	cornerRadius int32
 
 	// The WebView2 controller is created asynchronously; calls that need
 	// it wait in pending until it exists, or fail with webViewErr, why it
@@ -224,7 +228,12 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if o.Panel || o.Frameless && o.CornerRadius > 0 {
 		// Windows 11 gives tool windows the small corners of menus, and
 		// frameless windows none: rounded, they take its own corners,
-		// whatever the radius.
+		// whatever the radius. Windows 10 rounds nothing at all, so the
+		// content is cut to the radius in its surface's clip instead (see
+		// compositor.round), which antialiases it as DWM does on 11.
+		if o.CornerRadius > 0 {
+			w.cornerRadius = int32(toPx(o.CornerRadius, dpiOf(w.hwnd)))
+		}
 		w.roundFlyout()
 	}
 	if o.Flyout != nil {
@@ -633,6 +642,18 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		if w.captionless() && wp != 0 && !w.fullScreen {
 			return w.frameCalcSize(wp, lp), true
 		}
+	case wmNCHitTest:
+		// With the client area covering the whole window (frameCalcSize),
+		// every point is a client point and DefWindowProc answers HTCLIENT
+		// everywhere: the edges would only move the window, never resize it.
+		// Answer the border ring here instead, by the frame's thickness, with
+		// the outer 16px of each corner as its corner (Chromium's frame does
+		// the same).
+		if w.captionless() && !w.fullScreen && !w.IsMaximized() && w.hasStyle(wsThickFrame) {
+			if hit, ok := w.resizeHitTest(getXParam(lp), getYParam(lp)); ok {
+				return hit, true
+			}
+		}
 	case wmEraseBkgnd:
 		brush := w.bgBrush
 		if w.surface != nil && w.surface.bgBrush != 0 {
@@ -895,19 +916,73 @@ func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 		return 0
 	}
 	if windowLong(w.hwnd, gwlStyle)&wsThickFrame != 0 {
-		top := params.Rgrc[0].Top
+		windowRect := params.Rgrc[0]
 		procDefWindowProcW.Call(w.hwnd, wmNCCalcSize, wp, lp)
-		params.Rgrc[0].Top = top
+		// Drop the title bar and let the client area cover the whole window.
+		//
+		// DefWindowProc leaves the left, right and bottom invisible borders
+		// in place: they make the window resizable from its edges, but they
+		// also shrink the client area by a few pixels (18×9 on this machine).
+		// A window whose content is a rounded glass panel drawn across the
+		// whole window shows the desktop through those strips at the bottom
+		// and sides, which reads as the bottom corners being cut off, and no
+		// corner radius can paint over it.
+		//
+		// Taking the whole rect costs nothing: DefWindowProc answers
+		// WM_NCHITTEST against the window rect, not the client area, so the
+		// edges still resize (Electron's frame: false does the same).
+		params.Rgrc[0].Top = windowRect.Top
 		if w.hiddenTitleBar && windows11() {
 			params.Rgrc[0].Top++
 		}
-		if b := w.frameBorder(); b > 0 {
-			params.Rgrc[0].Left -= b
-			params.Rgrc[0].Right += b
-			params.Rgrc[0].Bottom += b
-		}
+		params.Rgrc[0].Left = windowRect.Left
+		params.Rgrc[0].Right = windowRect.Right
+		params.Rgrc[0].Bottom = windowRect.Bottom
 	}
 	return 0
+}
+
+// resizeHitTest answers WM_NCHITTEST along the edges of a window whose client
+// area covers the whole window: ok false in the middle, where the drag region
+// of the page or of native UI moves the window.
+func (w *window) resizeHitTest(sx, sy int32) (uintptr, bool) {
+	pt := point{sx, sy}
+	procScreenToClient.Call(w.hwnd, uintptr(unsafe.Pointer(&pt)))
+	var r rect
+	procGetClientRect.Call(w.hwnd, uintptr(unsafe.Pointer(&r)))
+	if pt.X < 0 || pt.Y < 0 || pt.X >= r.Right || pt.Y >= r.Bottom {
+		return 0, false
+	}
+	dpi := dpiOf(w.hwnd)
+	b := resizeBorder(dpi)
+	corner := toPx(resizeCornerSize, dpi)
+	left := pt.X < b
+	right := pt.X >= r.Right-b
+	top := pt.Y < b
+	bottom := pt.Y >= r.Bottom-b
+	nearLeft := pt.X < corner
+	nearRight := pt.X >= r.Right-corner
+	nearTop := pt.Y < corner
+	nearBottom := pt.Y >= r.Bottom-corner
+	switch {
+	case nearTop && nearLeft:
+		return htTopLeft, true
+	case nearTop && nearRight:
+		return htTopRight, true
+	case nearBottom && nearLeft:
+		return htBottomLeft, true
+	case nearBottom && nearRight:
+		return htBottomRight, true
+	case top:
+		return htTop, true
+	case bottom:
+		return htBottom, true
+	case left:
+		return htLeft, true
+	case right:
+		return htRight, true
+	}
+	return 0, false
 }
 
 // frameBorder returns how many pixels of the left, right and bottom
