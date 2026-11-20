@@ -815,6 +815,13 @@ type Page interface {
 	// "drop" message); backends record the paths before the page sees it.
 	DroppedFiles() []string
 	Print()
+	// PauseDownload, ResumeDownload and CancelDownload control the
+	// download of url saved at path, which DownloadStarted reported.
+	// Pause and Resume return ErrUnsupported where the engine cannot
+	// pause (WebKitGTK), and an error when no such download is running.
+	PauseDownload(url, path string) error
+	ResumeDownload(url, path string) error
+	CancelDownload(url, path string)
 }
 
 // CaptureKind is a kind of device a page captures (Page.CaptureState).
@@ -1005,8 +1012,10 @@ type WindowHandler interface {
 	CaptureStateChanged(kind CaptureKind, state CaptureState)
 	SchemeRequest(req *SchemeRequest)
 	// DownloadStarted returns where to save a download, "" to cancel it;
+	// DownloadProgress reports how far it got, total 0 when unknown;
 	// DownloadFinished reports how it ended.
 	DownloadStarted(url, suggestedName string) string
+	DownloadProgress(url, path string, received, total int64)
 	DownloadFinished(url, path string, err error)
 	// SchemeDownload downloads a URL of a custom scheme, which the engine
 	// cannot turn into a download, by serving it again.

@@ -246,6 +246,9 @@ func (w *window) SessionState() []byte                                     { ret
 func (w *window) RestoreSessionState([]byte) bool                          { return false }
 func (w *window) DroppedFiles() []string                                   { return nil }
 func (w *window) Print()                                                   {}
+func (w *window) PauseDownload(string, string) error                       { return errUnsupported }
+func (w *window) ResumeDownload(string, string) error                      { return errUnsupported }
+func (w *window) CancelDownload(string, string)                            {}
 func (w *window) CapturePage(cb func([]byte, error))                       { cb(nil, errUnsupported) }
 func (w *window) PrintToPDF(_ platform.PDFOptions, cb func([]byte, error)) { cb(nil, errUnsupported) }
 

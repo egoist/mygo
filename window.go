@@ -442,6 +442,9 @@ type Window struct {
 	// canceledEarly holds the calls the current page canceled before
 	// their calls made them, with the page's token.
 	canceledEarly map[int64]string
+	// downloads are those in progress, by their URL and path (main
+	// thread).
+	downloads map[downloadKey]*Download
 
 	outMu    sync.Mutex
 	outbox   []message

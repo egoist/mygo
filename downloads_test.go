@@ -3,6 +3,7 @@
 package mygo
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -56,6 +57,66 @@ func TestDownloadEvents(t *testing.T) {
 		}
 	case <-time.After(wait.Guard):
 		t.Fatal("the scheme download did not finish")
+	}
+}
+
+func TestDownloadProgressAndControl(t *testing.T) {
+	dir := t.TempDir()
+	App.SetPath(PathDownloads, dir)
+	defer App.SetPath(PathDownloads, "")
+	w, fw := testWindow(t, WindowOptions{})
+
+	var handle *Download
+	off := w.Page().OnWillDownload(func(e *DownloadEvent) { handle = e.Download })
+	defer off()
+	path := onMainValue(func() string { return fw.H.DownloadStarted("https://x/big", "big.bin") })
+	if handle == nil || handle.URL != "https://x/big" || handle.Path != path {
+		t.Fatalf("DownloadEvent.Download = %+v, want the download of https://x/big at %q", handle, path)
+	}
+
+	var progress [][2]int64
+	handle.OnProgress(func(received, total int64) { progress = append(progress, [2]int64{received, total}) })
+	onMain(func() { fw.H.DownloadProgress("https://x/big", path, 100, 500) })
+	onMain(func() { fw.H.DownloadProgress("https://x/big", path, 500, 500) })
+	onMain(func() { fw.H.DownloadProgress("https://x/other", path, 1, 1) }) // not this download
+	if len(progress) != 2 || progress[0] != [2]int64{100, 500} || progress[1] != [2]int64{500, 500} {
+		t.Errorf("progress = %v, want [[100 500] [500 500]]", progress)
+	}
+
+	if err := handle.Pause(); err != nil {
+		t.Errorf("Pause: %v", err)
+	}
+	if err := handle.Resume(); err != nil {
+		t.Errorf("Resume: %v", err)
+	}
+	handle.Cancel()
+	controls := onMainValue(func() []string {
+		return append([]string(nil), fw.DownloadControls...)
+	})
+	want := []string{"pause https://x/big " + path, "resume https://x/big " + path, "cancel https://x/big " + path}
+	if len(controls) != 3 || controls[0] != want[0] || controls[1] != want[1] || controls[2] != want[2] {
+		t.Errorf("controls = %v, want %v", controls, want)
+	}
+
+	done := make(chan *Download, 1)
+	defer w.Page().OnDownloadDone(func(d *Download) { done <- d })()
+	stopped := errors.New("stopped")
+	onMain(func() { fw.H.DownloadFinished("https://x/big", path, stopped) })
+	select {
+	case d := <-done:
+		if d != handle {
+			t.Error("OnDownloadDone got a different object than DownloadEvent.Download")
+		}
+		if !errors.Is(d.Err, stopped) {
+			t.Errorf("Err = %v, want %v", d.Err, stopped)
+		}
+	case <-time.After(wait.Guard):
+		t.Fatal("the download did not end")
+	}
+	// Progress of an ended download reaches no listener.
+	onMain(func() { fw.H.DownloadProgress("https://x/big", path, 600, 500) })
+	if len(progress) != 2 {
+		t.Errorf("progress after the end = %v", progress)
 	}
 }
 

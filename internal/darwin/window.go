@@ -707,6 +707,61 @@ func (w *window) stopObserving() {
 			send(w.web, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString(key)))
 		}
 	}
+	for download := range w.downloads {
+		w.unobserveDownload(download)
+	}
+}
+
+// downloadProgressKeys are the key paths of a WKDownload's NSProgress
+// whose changes report the download's progress.
+var downloadProgressKeys = []string{"progress.completedUnitCount", "progress.totalUnitCount"}
+
+func (w *window) unobserveDownload(download id) {
+	for _, key := range downloadProgressKeys {
+		send(download, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString(key)))
+	}
+}
+
+// forgetDownload drops a download that ended, removing its progress
+// observers before WebKit may release it.
+func (w *window) forgetDownload(download id) {
+	w.unobserveDownload(download)
+	delete(w.downloads, download)
+}
+
+// downloadFor returns the WKDownload of url saved at path, or 0 when none
+// is running.
+func (w *window) downloadFor(url, path string) id {
+	for d, dp := range w.downloads {
+		if dp[0] == url && dp[1] == path {
+			return d
+		}
+	}
+	return 0
+}
+
+func (w *window) PauseDownload(url, path string) error {
+	d := w.downloadFor(url, path)
+	if d == 0 {
+		return errors.New("mygo: no such download in progress")
+	}
+	send(d, "pause")
+	return nil
+}
+
+func (w *window) ResumeDownload(url, path string) error {
+	d := w.downloadFor(url, path)
+	if d == 0 {
+		return errors.New("mygo: no such download in progress")
+	}
+	send(d, "resume")
+	return nil
+}
+
+func (w *window) CancelDownload(url, path string) {
+	if d := w.downloadFor(url, path); d != 0 {
+		send(d, "cancel")
+	}
 }
 
 func nsColor(c platform.Color) id {
@@ -2617,6 +2672,16 @@ func registerWindowClasses() {
 				case "effectiveAppearance":
 					// AppKit lays the title bar out again after telling us.
 					b().post(w.layoutTrafficLights)
+				case "progress.completedUnitCount", "progress.totalUnitCount":
+					if d, ok := w.downloads[object]; ok {
+						progress := send(object, "progress")
+						received := int64(send(progress, "completedUnitCount"))
+						total := int64(send(progress, "totalUnitCount"))
+						if total < 0 {
+							total = 0 // NSProgress counts -1 as unknown
+						}
+						w.h.DownloadProgress(d[0], d[1], received, total)
+					}
 				}
 			}),
 
@@ -2698,12 +2763,15 @@ func registerWindowClasses() {
 				}
 				os.Remove(path) // WebKit refuses to replace a file
 				w.downloads[download] = [2]string{url, path}
+				for _, key := range downloadProgressKeys {
+					send(download, "addObserver:forKeyPath:options:context:", uintptr(self), uintptr(nsString(key)), 0, 0)
+				}
 				withPool(func() { callBlock(handler, uintptr(send(class("NSURL"), "fileURLWithPath:", uintptr(nsString(path))))) })
 			}),
 			method("downloadDidFinish:", func(self id, _ objc.SEL, download id) {
 				if w := b().windowFor(self); w != nil {
 					if d, ok := w.downloads[download]; ok {
-						delete(w.downloads, download)
+						w.forgetDownload(download)
 						w.h.DownloadFinished(d[0], d[1], nil)
 					}
 				}
@@ -2711,7 +2779,7 @@ func registerWindowClasses() {
 			method("download:didFailWithError:resumeData:", func(self id, _ objc.SEL, download, nserr, resume id) {
 				if w := b().windowFor(self); w != nil {
 					if d, ok := w.downloads[download]; ok {
-						delete(w.downloads, download)
+						w.forgetDownload(download)
 						w.h.DownloadFinished(d[0], d[1], errors.New(goString(send(nserr, "localizedDescription"))))
 					}
 				}

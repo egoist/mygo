@@ -76,6 +76,7 @@ type window struct {
 	reframing              bool     // SetFullScreen is changing the frame
 	showMaximized          bool     // on the first show (WindowOptions.Maximized)
 	dropped                []string // DroppedFiles
+	downloads              map[downloadKey]uintptr
 	skipTaskbar            bool
 	progress               struct {
 		state string
@@ -958,6 +959,10 @@ func (w *window) cleanup() {
 	for id, cb := range w.calls {
 		delete(w.calls, id)
 		cb("", errDestroyed)
+	}
+	for key, op := range w.downloads {
+		delete(w.downloads, key)
+		release(op)
 	}
 	w.failPending(errDestroyed)
 	if w.caption != nil {

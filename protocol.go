@@ -413,6 +413,7 @@ func downloadScheme(h *windowHandler, rawURL string) {
 		return
 	}
 	rw := &downloadWriter{h: h, url: rawURL, header: http.Header{}}
+	rw.cond.L = &rw.mu
 	func() {
 		// As serveScheme: a handler that panics fails its download, not
 		// the app, which a panic on this goroutine would end.
@@ -444,6 +445,9 @@ func downloadScheme(h *windowHandler, rawURL string) {
 }
 
 // downloadWriter writes a response into the file OnWillDownload chose.
+// It is also the download's control: a scheme download is the app's own
+// handler served into a file, so pausing holds its Write, and progress is
+// what it wrote.
 type downloadWriter struct {
 	h      *windowHandler
 	url    string
@@ -452,6 +456,14 @@ type downloadWriter struct {
 	path   string
 	file   *os.File
 	err    error
+
+	mu       sync.Mutex
+	cond     sync.Cond
+	paused   bool
+	canceled bool
+	received int64
+	reported int64
+	total    int64
 }
 
 func (d *downloadWriter) Header() http.Header { return d.header }
@@ -465,6 +477,9 @@ func (d *downloadWriter) WriteHeader(status int) {
 		d.err = fmt.Errorf("mygo: downloading %s: %d %s", d.url, status, http.StatusText(status))
 		return
 	}
+	if d.err != nil { // canceled before it started
+		return
+	}
 	name := ""
 	if _, params, err := mime.ParseMediaType(d.header.Get("Content-Disposition")); err == nil {
 		name = params["filename"]
@@ -474,6 +489,7 @@ func (d *downloadWriter) WriteHeader(status int) {
 			name = path.Base(u.Path)
 		}
 	}
+	d.total, _ = strconv.ParseInt(d.header.Get("Content-Length"), 10, 64)
 	d.path = onMainValue(func() string { return d.h.DownloadStarted(d.url, name) })
 	if d.path == "" {
 		return
@@ -481,11 +497,22 @@ func (d *downloadWriter) WriteHeader(status int) {
 	d.file, d.err = os.Create(d.path)
 	if d.err != nil {
 		d.file = nil
+		return
 	}
+	onMain(func() {
+		if dl := d.h.w.downloads[downloadKey{d.url, d.path}]; dl != nil {
+			dl.scheme.Store(d)
+		}
+	})
 }
 
 func (d *downloadWriter) Write(b []byte) (int, error) {
 	d.WriteHeader(http.StatusOK)
+	d.mu.Lock()
+	for d.paused && !d.canceled {
+		d.cond.Wait()
+	}
+	d.mu.Unlock()
 	if d.file == nil || d.err != nil {
 		return len(b), nil // canceled: drain
 	}
@@ -493,5 +520,41 @@ func (d *downloadWriter) Write(b []byte) (int, error) {
 	if err != nil {
 		d.err = err
 	}
+	d.mu.Lock()
+	d.received += int64(n)
+	report := d.received-d.reported >= 64<<10
+	if report {
+		d.reported = d.received
+	}
+	received, total := d.received, d.total
+	d.mu.Unlock()
+	if report {
+		postMain(func() { d.h.DownloadProgress(d.url, d.path, received, total) })
+	}
 	return n, err
+}
+
+func (d *downloadWriter) pause() error {
+	d.mu.Lock()
+	d.paused = true
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *downloadWriter) resume() error {
+	d.mu.Lock()
+	d.paused = false
+	d.cond.Broadcast()
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *downloadWriter) cancel() {
+	d.mu.Lock()
+	d.canceled = true
+	if d.err == nil {
+		d.err = fmt.Errorf("mygo: download canceled")
+	}
+	d.cond.Broadcast()
+	d.mu.Unlock()
 }

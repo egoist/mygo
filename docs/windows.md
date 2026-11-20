@@ -1258,6 +1258,25 @@ win.Page().OnDownloadDone(func(d *mygo.Download) {
 })
 ```
 
+`DownloadEvent.Download` is the running download's handle, the same object
+`OnDownloadDone` receives: `OnProgress` reports the bytes received of the
+total the server announced (0 when unknown), and `Pause`, `Resume` and
+`Cancel` control it:
+
+```go
+win.Page().OnWillDownload(func(e *mygo.DownloadEvent) {
+	e.Download.OnProgress(func(received, total int64) {
+		updateBar(received, total)
+	})
+	pauseButton.OnClick(func() { e.Download.Pause() })
+})
+```
+
+Downloads of the app's own schemes, which MyGo serves itself, pause and
+resume everywhere; the engine's downloads do on macOS and Windows, while
+WebKitGTK (Linux) can only cancel them, and `Pause` returns
+`ErrUnsupported` there. A canceled or failed download ends with `Err` set.
+
 ### Permissions
 
 Pages ask for the camera, the microphone, the location or notifications.
