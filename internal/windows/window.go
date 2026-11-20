@@ -164,6 +164,11 @@ type window struct {
 	calls        map[int]func(string, error)
 	nextCall     int
 
+	// parked tells that Suspend made the controller invisible, as
+	// TrySuspend needs, while the window (or the host of a web view) is
+	// hidden: until it shows, Resume, or the suspension failed.
+	parked bool
+
 	// flyoutLeft tells that the activation left the window's focusable
 	// flyout for another app's window, which draws the window inactive
 	// though the flyout still shows (keepsActive).
@@ -568,7 +573,15 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		return 0, true
 	case wmShowWindow:
 		w.hidden = wp == 0
+		// Showing the window shows the pages that Suspend parked, which
+		// WebView2 resumes as their controllers become visible again.
+		if !w.hidden {
+			w.unpark()
+		}
 		for _, v := range w.webViews {
+			if !w.hidden {
+				v.parked = false
+			}
 			v.placeEmbedded()
 		}
 		if inputRegionShown != nil {

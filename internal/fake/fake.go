@@ -583,10 +583,12 @@ type Window struct {
 	zoom      float64
 	closed    bool
 	devtools  bool
-	pid       int  // SetProcessID
-	gpuPID    int  // SetGPUProcessID
-	audible   bool // SetAudible
-	muted     bool // SetAudioMuted
+	pid       int                   // SetProcessID
+	gpuPID    int                   // SetGPUProcessID
+	audible   bool                  // SetAudible
+	muted     bool                  // SetAudioMuted
+	memory    platform.MemoryTarget // SetMemoryTarget
+	suspended bool                  // Suspend, until Resume or Show
 	// capture is the page's capture of each kind (SetCapture).
 	capture [platform.CaptureDisplay + 1]platform.CaptureState
 	pip     bool // TogglePictureInPicture
@@ -767,11 +769,17 @@ func (w *Window) IsAlwaysOnTop() bool              { return w.Opts.AlwaysOnTop }
 func (w *Window) Show() {
 	w.mu.Lock()
 	w.visible = true
+	w.suspended = false // a page wakes as it shows
 	w.focused = w.focused || w.Opts.Flyout == nil || w.Opts.Flyout.Focusable
 	w.mu.Unlock()
 	w.framesOnShow()
 }
-func (w *Window) ShowInactive() { w.mu.Lock(); w.visible = true; w.mu.Unlock(); w.framesOnShow() }
+func (w *Window) ShowInactive() {
+	w.mu.Lock()
+	w.visible, w.suspended = true, false
+	w.mu.Unlock()
+	w.framesOnShow()
+}
 
 // framesOnShow draws the frame the content asked for with FramesOnShow.
 func (w *Window) framesOnShow() {
@@ -864,6 +872,38 @@ func (w *Window) CloseDevTools()                     { w.mu.Lock(); w.devtools =
 func (w *Window) IsDevToolsOpened() bool             { w.mu.Lock(); defer w.mu.Unlock(); return w.devtools }
 func (w *Window) CapturePage(cb func([]byte, error)) { cb([]byte("png"), nil) }
 func (w *Window) Print()                             {}
+
+// SetMemoryTarget records the target, which MemoryTarget returns.
+func (w *Window) SetMemoryTarget(t platform.MemoryTarget) { w.mu.Lock(); w.memory = t; w.mu.Unlock() }
+
+// MemoryTarget returns what SetMemoryTarget set last.
+func (w *Window) MemoryTarget() platform.MemoryTarget {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.memory
+}
+
+// ErrPageShows is Suspend's error for a page whose window is visible.
+var ErrPageShows = errors.New("fake: the page shows")
+
+// Suspend suspends the page of a window not visible, as WebView2 suspends
+// an invisible web view only; Show and Resume wake it.
+func (w *Window) Suspend(cb func(error)) {
+	w.mu.Lock()
+	visible := w.visible
+	if !visible {
+		w.suspended = true
+	}
+	w.mu.Unlock()
+	if visible {
+		cb(ErrPageShows)
+		return
+	}
+	cb(nil)
+}
+
+func (w *Window) Resume()           { w.mu.Lock(); w.suspended = false; w.mu.Unlock() }
+func (w *Window) IsSuspended() bool { w.mu.Lock(); defer w.mu.Unlock(); return w.suspended }
 
 // TogglePictureInPicture moves the page's video into picture in picture
 // or back, as a page with a video it can move.

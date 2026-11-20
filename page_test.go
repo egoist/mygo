@@ -8,7 +8,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/egoist/mygo/internal/fake"
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/wait"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -372,4 +374,118 @@ func TestPagePictureInPicture(t *testing.T) {
 		t.Error("a closed window's page: IsPictureInPictureActive true")
 	}
 	p.TogglePictureInPicture() // does nothing
+}
+
+// TestPageMemoryTarget passes the memory target to the platform, for a
+// window's page and a web view's, and ignores an unknown one.
+func TestPageMemoryTarget(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{Hidden: true})
+	p := w.Page()
+	p.SetMemoryTarget(MemoryLow)
+	if got := fw.MemoryTarget(); got != platform.MemoryLow {
+		t.Errorf("SetMemoryTarget(MemoryLow): the backend's target %d", got)
+	}
+	p.SetMemoryTarget(MemoryTarget(7))
+	if got := fw.MemoryTarget(); got != platform.MemoryLow {
+		t.Errorf("SetMemoryTarget(7) changed the backend's target to %d", got)
+	}
+	p.SetMemoryTarget(MemoryNormal)
+	if got := fw.MemoryTarget(); got != platform.MemoryNormal {
+		t.Errorf("SetMemoryTarget(MemoryNormal): the backend's target %d", got)
+	}
+
+	cw, _, s := contentWindow(t, func(c *ui.Context) {})
+	v, err := cw.NewWebView(WebViewOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v.Page().SetMemoryTarget(MemoryLow)
+	if got := s.WebViews()[0].MemoryTarget(); got != platform.MemoryLow {
+		t.Errorf("a web view's SetMemoryTarget(MemoryLow): the backend's target %d", got)
+	}
+}
+
+// suspend calls p.Suspend and returns the error its done got, checking
+// that done ran once, on the main thread.
+func suspend(t *testing.T, p *Page) error {
+	t.Helper()
+	ch := make(chan error, 2)
+	p.Suspend(func(err error) {
+		if !isMainThread() {
+			t.Error("Suspend's done ran off the main thread")
+		}
+		ch <- err
+	})
+	err := wait.For(t, "Suspend's done", ch)
+	onMain(func() {}) // a second call of done would have come by now
+	select {
+	case err2 := <-ch:
+		t.Errorf("Suspend's done ran twice: %v, then %v", err, err2)
+	default:
+	}
+	return err
+}
+
+// TestPageSuspend: Suspend reaches the platform for the page of a hidden
+// window, and reports its error for one that shows; Resume and showing
+// the window wake the page.
+func TestPageSuspend(t *testing.T) {
+	w, _ := testWindow(t, WindowOptions{Hidden: true})
+	p := w.Page()
+	if p.IsSuspended() {
+		t.Error("a new page is suspended")
+	}
+	if err := suspend(t, p); err != nil {
+		t.Fatalf("Suspend of a hidden window's page: %v", err)
+	}
+	if !p.IsSuspended() {
+		t.Error("Suspend: the page isn't suspended")
+	}
+	p.Resume()
+	if p.IsSuspended() {
+		t.Error("Resume: the page is still suspended")
+	}
+
+	if err := suspend(t, p); err != nil {
+		t.Fatal(err)
+	}
+	w.Show()
+	if p.IsSuspended() {
+		t.Error("showing the window left its page suspended")
+	}
+	if err := suspend(t, p); !errors.Is(err, fake.ErrPageShows) {
+		t.Errorf("Suspend of a visible window's page: %v, want the backend's error", err)
+	}
+	if p.IsSuspended() {
+		t.Error("a visible window's page is suspended")
+	}
+	p.Suspend(nil) // done may be nil
+
+	w.Destroy()
+	if err := suspend(t, p); !errors.Is(err, errDestroyed) {
+		t.Errorf("Suspend after Destroy: %v, want %v", err, errDestroyed)
+	}
+	if p.IsSuspended() {
+		t.Error("a closed window's page is suspended")
+	}
+	p.Resume() // does nothing
+}
+
+// TestWebViewSuspend: a web view's page suspends through its own backend.
+func TestWebViewSuspend(t *testing.T) {
+	w, _, s := contentWindow(t, func(c *ui.Context) {})
+	v, err := w.NewWebView(WebViewOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := suspend(t, v.Page()); err != nil {
+		t.Fatalf("Suspend of a web view's page: %v", err)
+	}
+	if !v.Page().IsSuspended() || !s.WebViews()[0].IsSuspended() {
+		t.Error("Suspend: the web view's page isn't suspended")
+	}
+	v.Page().Resume()
+	if v.Page().IsSuspended() {
+		t.Error("Resume: the web view's page is still suspended")
+	}
 }

@@ -406,6 +406,12 @@ func (w *window) GPUProcessID() int    { return 0 }
 func (w *window) IsAudible() bool      { return false }
 func (w *window) SetAudioMuted(m bool) { w.muted = m }
 func (w *window) IsAudioMuted() bool   { return false }
+
+// The phones' web views have no memory target or suspension MyGo reaches.
+func (w *window) SetMemoryTarget(platform.MemoryTarget) {}
+func (w *window) Suspend(cb func(error))                { cb(platform.ErrUnsupported) }
+func (w *window) Resume()                               {}
+func (w *window) IsSuspended() bool                     { return false }
 func (w *window) CaptureState(platform.CaptureKind) platform.CaptureState {
 	return platform.CaptureNone
 }

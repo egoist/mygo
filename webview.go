@@ -336,6 +336,12 @@ func (n *webViewNative) SetCaptureState(kind platform.CaptureKind, state platfor
 func (n *webViewNative) TogglePictureInPicture() {
 	n.web.TogglePictureInPicture()
 }
+func (n *webViewNative) SetMemoryTarget(target platform.MemoryTarget) {
+	n.web.SetMemoryTarget(target)
+}
+func (n *webViewNative) Suspend(cb func(error)) { n.web.Suspend(cb) }
+func (n *webViewNative) Resume()                { n.web.Resume() }
+func (n *webViewNative) IsSuspended() bool      { return n.web.IsSuspended() }
 func (n *webViewNative) PictureInPictureActive(cb func(bool)) {
 	n.web.PictureInPictureActive(cb)
 }

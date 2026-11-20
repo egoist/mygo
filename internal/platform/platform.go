@@ -793,6 +793,22 @@ type Page interface {
 	// the main thread exactly once, maybe before PictureInPictureActive
 	// returns.
 	PictureInPictureActive(cb func(active bool))
+	// SetMemoryTarget asks the web engine to keep the page's memory at
+	// target, applied once the web view is made; a backend without such
+	// a hint does nothing.
+	SetMemoryTarget(target MemoryTarget)
+	// Suspend suspends the page, which must not show: its scripts,
+	// timers and animations stop, and the engine may give its memory
+	// back. cb runs on the main thread exactly once, maybe before Suspend
+	// returns, with nil once the page is suspended, ErrUnsupported where
+	// the backend can't suspend a page.
+	Suspend(cb func(err error))
+	// Resume lets a page that Suspend suspended run again; it does
+	// nothing for one running.
+	Resume()
+	// IsSuspended reports whether the page is suspended, false where the
+	// backend can't suspend a page.
+	IsSuspended() bool
 	// SessionState returns the engine's own state of the page's
 	// back/forward list, with the scroll positions and form state it
 	// saved of its entries, nil where the backend keeps none.
@@ -836,6 +852,16 @@ const (
 	CaptureNone CaptureState = iota
 	CaptureActive
 	CaptureMuted
+)
+
+// MemoryTarget is how much memory a page's web engine aims to use
+// (Page.SetMemoryTarget). The values are WebView2's
+// COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL.
+type MemoryTarget int
+
+const (
+	MemoryNormal MemoryTarget = iota
+	MemoryLow
 )
 
 // WebView is a web view in a window showing a Surface, which its content

@@ -290,6 +290,116 @@ func (p *Page) IsPictureInPictureActive() bool {
 	return asked && await(ch)
 }
 
+// MemoryTarget is how much memory a page's web engine aims to use
+// (Page.SetMemoryTarget).
+type MemoryTarget int
+
+const (
+	// MemoryNormal, the default, leaves the page's memory to its web
+	// engine.
+	MemoryNormal = MemoryTarget(platform.MemoryNormal)
+	// MemoryLow asks the web engine to give back what memory of the page
+	// it can, at the cost of time when the page runs or shows again: for
+	// a page the app keeps open while it is idle, rather than closing it
+	// and paying its start-up later.
+	MemoryLow = MemoryTarget(platform.MemoryLow)
+)
+
+// SetMemoryTarget asks the page's web engine to keep its memory low
+// (MemoryLow), or to leave it as it was (MemoryNormal), as an app does
+// for a page it keeps open while it is idle, such as the player of a
+// hidden window between the tracks it plays:
+//
+//	player.Page().SetMemoryTarget(mygo.MemoryLow)    // its track ended
+//	player.Page().SetMemoryTarget(mygo.MemoryNormal) // before it plays again
+//
+// It is a hint: the page goes on running, and the engine decides what it
+// gives back, which is most for a page that doesn't show. The target
+// lasts as the page navigates, until it is set again, and one set before
+// the page's web view is ready applies once it is. It does nothing for an
+// unknown target, for a window showing native UI, after the window closed
+// and where the platform has no such hint:
+//
+//   - Windows: ICoreWebView2_19's MemoryUsageTargetLevel; nothing on
+//     WebView2 runtimes older than it.
+//   - macOS, Linux: nothing, WKWebView and WebKitGTK have no such hint
+//     for a page (WebKit trims its memory as the system asks).
+//   - Phones and browsers: nothing.
+func (p *Page) SetMemoryTarget(target MemoryTarget) {
+	if target != MemoryNormal && target != MemoryLow {
+		return
+	}
+	p.w.page(func(n platform.Window) { n.SetMemoryTarget(platform.MemoryTarget(target)) })
+}
+
+// Suspend suspends a page that doesn't show, as a browser puts a tab to
+// sleep: its scripts, timers and animations stop, its renderer process
+// idles, and the system may give its memory to other processes. A
+// page kept in a hidden window, rather than closed and opened again later,
+// then costs little while it is idle, and Resume brings it back in less
+// time than it would take to load:
+//
+//	player.Hide()
+//	player.Page().Suspend(func(err error) {
+//		if err != nil {
+//			log.Println("player stays awake:", err)
+//		}
+//	})
+//	// later, before it plays again
+//	player.Page().Resume()
+//
+// Suspend returns at once; done, unless nil, runs on the main thread, as
+// events do, with nil once the page is suspended (IsSuspended), or with
+// why it isn't: the page shows (its window is visible, minimized
+// included, or its web view shows in its window's native UI), the web
+// engine keeps it awake (as a browser keeps a tab playing sound awake),
+// the window shows native UI or closed, or the platform can't suspend
+// pages, which errors.ErrUnsupported tells.
+//
+// A suspended page wakes when its window shows (or its web view shows
+// again), when it navigates, and with Resume, which an app calls before it
+// needs the page again, to run its script (Eval) among others.
+//
+//   - Windows: ICoreWebView2_3's TrySuspend, with its web view's
+//     controller made invisible first while the window is hidden (and
+//     visible again when the window shows, or with Resume), as WebView2
+//     suspends only an invisible web view; errors.ErrUnsupported on
+//     WebView2 runtimes older than it.
+//   - macOS, Linux, phones and browsers: errors.ErrUnsupported: WebKit
+//     has no API to suspend a page. It slows the page of a hidden window
+//     down on its own, and WKWebView may suspend it, unless
+//     PageOptions.BackgroundThrottling is ThrottlingOff.
+func (p *Page) Suspend(done func(err error)) {
+	finish := func(err error) {
+		if done != nil {
+			done(err)
+		}
+	}
+	if p.w.content {
+		postMain(func() { finish(errNoPage) })
+		return
+	}
+	onMain(func() {
+		p.w.settleShow()
+		if p.w.native == nil {
+			finish(errDestroyed)
+			return
+		}
+		p.w.native.Suspend(finish)
+	})
+}
+
+// Resume lets a page that Suspend suspended run again, and puts back what
+// Suspend changed to suspend it. It does nothing for a page running, for a
+// window showing native UI, after the window closed and where the platform
+// can't suspend pages.
+func (p *Page) Resume() { p.w.page(platform.Window.Resume) }
+
+// IsSuspended reports whether the page is suspended (Suspend): false once
+// it woke, for a window showing native UI, after the window closed and
+// where the platform can't suspend pages.
+func (p *Page) IsSuspended() bool { return pageGet(p.w, platform.Window.IsSuspended) }
+
 func nrgba(c platform.Color) color.NRGBA { return color.NRGBA{R: c.R, G: c.G, B: c.B, A: c.A} }
 
 // PageOptions configure the web page of a window.

@@ -1914,6 +1914,15 @@ func (w *window) IsAudioMuted() bool {
 	return w.canMute() && uintptr(send(w.web, "_mediaMutedState"))&wkMediaAudioMuted != 0
 }
 
+// SetMemoryTarget does nothing: WKWebView has no memory target for a
+// page, WebKit trims its memory as the system asks.
+func (w *window) SetMemoryTarget(platform.MemoryTarget) {}
+
+// Suspend can't: WKWebView has no API to suspend a page.
+func (w *window) Suspend(cb func(error)) { cb(platform.ErrUnsupported) }
+func (w *window) Resume()                {}
+func (w *window) IsSuspended() bool      { return false }
+
 // captureKeys are the properties of WKWebView that tell the page's
 // capture, by platform.CaptureKind: the camera's and the microphone's
 // (macOS 12+), and WebKit's private _displayCaptureState (macOS 13+), all

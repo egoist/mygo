@@ -240,6 +240,10 @@ func (w *window) GPUProcessID() int                                        { ret
 func (w *window) IsAudible() bool                                          { return false }
 func (w *window) SetAudioMuted(bool)                                       {}
 func (w *window) IsAudioMuted() bool                                       { return false }
+func (w *window) SetMemoryTarget(platform.MemoryTarget)                    {}
+func (w *window) Suspend(cb func(error))                                   { cb(platform.ErrUnsupported) }
+func (w *window) Resume()                                                  {}
+func (w *window) IsSuspended() bool                                        { return false }
 func (w *window) TogglePictureInPicture()                                  {}
 func (w *window) PictureInPictureActive(cb func(bool))                     { cb(false) }
 func (w *window) SessionState() []byte                                     { return nil }

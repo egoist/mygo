@@ -302,6 +302,27 @@ var testFailWebViews int
 // reports a failure, when it would have created them; 0 lets them be.
 func TestFailWebViews(n int) { testFailWebViews = n }
 
+// TestPageController reports whether the controller of a window's page is
+// visible, and the page's MemoryUsageTargetLevel (ICoreWebView2_19), -1 on
+// runtimes older than it; ok is false until the web view is made.
+func TestPageController(hwnd uintptr) (visible bool, memoryTarget int, ok bool) {
+	w := theBackend.windows[hwnd]
+	if w == nil || w.controller == 0 || w.webview == 0 {
+		return false, 0, false
+	}
+	var v int32
+	comCall(w.controller, ctlGetIsVisible, uintptr(unsafe.Pointer(&v)))
+	memoryTarget = -1
+	if wv19 := queryInterface(w.webview, &iidICoreWebView2_19); wv19 != 0 {
+		var level int32
+		if !failed(comCall(wv19, wv19GetMemoryUsageTargetLevel, uintptr(unsafe.Pointer(&level)))) {
+			memoryTarget = int(level)
+		}
+		release(wv19)
+	}
+	return v != 0, memoryTarget, true
+}
+
 // TestTopNonClient returns how many pixels at the top of a window are not
 // its client area, and how many a hidden title bar keeps there on this
 // version of Windows: one on Windows 11, none on Windows 10.

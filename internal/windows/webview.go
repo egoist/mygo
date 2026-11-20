@@ -1200,6 +1200,125 @@ func (w *window) IsAudioMuted() bool {
 	return w.getBool8(wv8GetIsMuted)
 }
 
+// SetMemoryTarget puts ICoreWebView2_19's MemoryUsageTargetLevel once the
+// web view is made; a runtime older than ICoreWebView2_19 has none.
+func (w *window) SetMemoryTarget(target platform.MemoryTarget) {
+	w.withWebView(func() {
+		if wv19 := queryInterface(w.webview, &iidICoreWebView2_19); wv19 != 0 {
+			comCall(wv19, wv19PutMemoryUsageTargetLevel, uintptr(target))
+			release(wv19)
+		}
+	})
+}
+
+var (
+	errPageShows    = errors.New("mygo: the page shows: only the page of a hidden window, or a web view not shown, can be suspended")
+	errNotSuspended = errors.New("mygo: WebView2 did not suspend the page, which it keeps awake (as one playing sound)")
+)
+
+// Suspend calls ICoreWebView2_3's TrySuspend, which WebView2 refuses for a
+// web view whose controller is visible. A window shows its page with a
+// visible controller even while hidden, so the controller of a hidden
+// window, or of a web view in one, is made invisible first (parked) until
+// the window shows, Resume, or a failed suspension; WebView2 resumes the
+// page by itself as it is made visible again. A web view that its window's
+// content doesn't show has an invisible controller already. A runtime
+// older than ICoreWebView2_3 can't suspend.
+func (w *window) Suspend(cb func(error)) {
+	w.withWebViewOr(func() {
+		wv3 := queryInterface(w.webview, &iidICoreWebView2_3)
+		if wv3 == 0 {
+			cb(platform.ErrUnsupported)
+			return
+		}
+		defer release(wv3)
+		if !w.parked && !w.top().IsVisible() {
+			w.parked = true
+			w.putIsVisible()
+		}
+		var visible int32
+		if comCall(w.controller, ctlGetIsVisible, uintptr(unsafe.Pointer(&visible))); visible != 0 {
+			cb(errPageShows)
+			return
+		}
+		w.nextCall++
+		id := w.nextCall
+		w.calls[id] = func(string, error) { cb(errDestroyed) }
+		end := func(err error) {
+			delete(w.calls, id)
+			if err != nil {
+				w.unpark()
+			}
+			cb(err)
+		}
+		hr := withHandler(func(hr, suspended uintptr) {
+			switch {
+			case w.calls[id] == nil:
+				// The window closed.
+			case failed(hr):
+				end(hresultError("TrySuspend", hr))
+			case uint32(suspended) == 0: // a BOOL
+				end(errNotSuspended)
+			default:
+				end(nil)
+			}
+		}, func(h uintptr) uintptr { return comCall(wv3, wv3TrySuspend, h) })
+		if failed(hr) {
+			end(hresultError("TrySuspend", hr))
+		}
+	}, cb)
+}
+
+// Resume calls ICoreWebView2_3's Resume, and makes the controller that
+// Suspend made invisible visible again, as it was.
+func (w *window) Resume() {
+	w.withWebView(func() {
+		if wv3 := queryInterface(w.webview, &iidICoreWebView2_3); wv3 != 0 {
+			comCall(wv3, wv3Resume)
+			release(wv3)
+		}
+		w.unpark()
+	})
+}
+
+// IsSuspended returns ICoreWebView2_3's IsSuspended, false before the web
+// view is made and on runtimes older than ICoreWebView2_3.
+func (w *window) IsSuspended() bool {
+	if w.webview == 0 {
+		return false
+	}
+	wv3 := queryInterface(w.webview, &iidICoreWebView2_3)
+	if wv3 == 0 {
+		return false
+	}
+	defer release(wv3)
+	var v int32
+	return !failed(comCall(wv3, wv3GetIsSuspended, uintptr(unsafe.Pointer(&v)))) && v != 0
+}
+
+// unpark makes the controller that Suspend made invisible visible again,
+// which resumes a suspended page.
+func (w *window) unpark() {
+	if w.parked {
+		w.parked = false
+		w.putIsVisible()
+	}
+}
+
+// putIsVisible puts the controller's IsVisible: a window's is visible but
+// while parked, and a web view's while shown in its host's content, the
+// host not hidden, and not parked.
+func (w *window) putIsVisible() {
+	if w.controller == 0 {
+		return
+	}
+	visible := !w.parked
+	if w.host != nil {
+		visible = visible && w.shown && !w.host.hidden
+	}
+	comCall(w.controller, ctlPutIsVisible, boolArg(visible))
+}
+
 // CaptureState is always CaptureNone: WebView2 tells nothing of a page's
 // capture of the camera, the microphone or the display.
 func (w *window) CaptureState(platform.CaptureKind) platform.CaptureState {

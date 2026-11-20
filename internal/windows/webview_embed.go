@@ -425,7 +425,7 @@ func (w *window) placeEmbedded() {
 		// in windows of its own, as a select's options.
 		putBounds(w.controller, rect{int32(fx), int32(fy), int32(fx + width), int32(fy + height)})
 	}
-	comCall(w.controller, ctlPutIsVisible, boolArg(w.shown && !w.host.hidden))
+	w.putIsVisible()
 }
 
 // webViewAt returns the web view that takes the pointer at x, y in the

@@ -713,6 +713,33 @@ mygo.NewWindow(mygo.WindowOptions{
 
 在 Windows 上，与 [`ThrottlingOff`](#后台页面)一样，该参数属于 WebView2 环境，应用的所有页面共享它，并由第一个显示页面的窗口或 web view 创建：把选项给那一个。之后应用中的每个页面都可以无手势播放，保持 `AutoplayUserGesture` 的页面也一样；稍后再请求的页面已经太晚，日志会说明。在第一个窗口是原生 UI 的应用中，播放声音的页面所在的窗口通常就是第一个显示页面的窗口，给它选项就够了。第一个窗口就显示页面的应用，也要把选项给该窗口，或先创建要播放的页面。应用的两个进程必须一致，如同 `ThrottlingOff`。
 
+### 空闲页面
+
+应用可能在页面空闲时仍让它开着，因为重新打开很慢：隐藏窗口中的播放器在两首曲目之间仍把整个 Web 引擎留在内存里。在 Windows 上，应用无需关闭它就能降低它的开销。`SetMemoryTarget(mygo.MemoryLow)` 请求引擎归还页面尽可能多的内存；`Suspend` 暂停一个不显示的页面，如同浏览器让标签页休眠，而 `Resume` 让它恢复，所需时间少于重新加载：
+
+```go
+page := player.Page()
+// Its track ended.
+page.SetMemoryTarget(mygo.MemoryLow)
+// Minutes later, still idle.
+player.Hide()
+page.Suspend(func(err error) {
+	if err != nil {
+		log.Println("player stays awake:", err) // it shows, plays, or can't
+	}
+})
+// Before it plays again.
+page.Resume()
+page.SetMemoryTarget(mygo.MemoryNormal)
+```
+
+内存目标只是一个提示，在页面导航后仍然保留：页面继续运行。`Suspend` 停止页面的脚本、计时器和动画；它的 `done` 在主线程上运行，页面被暂停后（`IsSuspended`）得到 `nil`，否则得到原因：页面正在显示（窗口可见，包括最小化，或者窗口的原生 UI 正显示该 [web view](ui/web-view.md)）、引擎让它保持唤醒（如同浏览器不让正在播放声音的标签页休眠），或平台不支持（`errors.ErrUnsupported`）。被暂停的页面在其窗口显示时、导航时以及调用 `Resume` 时唤醒；应用在再次需要页面之前（包括运行其脚本，`Eval`）调用 `Resume`。web view 的页面也有这些方法。
+
+| | 内存目标 | 暂停 |
+|---|---|---|
+| Windows | WebView2 的 `MemoryUsageTargetLevel`（`ICoreWebView2_19`）；在更旧的运行时上什么也不做 | WebView2 的 `TrySuspend`（`ICoreWebView2_3`），它只暂停不可见的 web view：MyGo 先让隐藏窗口的 web view 不可见，直到窗口显示或调用 `Resume`；在更旧的运行时上为 `errors.ErrUnsupported` |
+| macOS、Linux | 什么也不做：WebKit 没有针对页面的此类提示 | `errors.ErrUnsupported`：WebKit 没有暂停页面的 API，不过它会自行让隐藏窗口的页面变慢（[后台页面](#后台页面)） |
+
 ### 摄像头和麦克风
 
 `CaptureState` 表示页面是否在捕获摄像头、麦克风或显示器（`getUserMedia()`、`getDisplayMedia()`），来自其任何框架，以及捕获是否被静音：`CaptureNone`、`CaptureActive` 或 `CaptureMuted`。`OnCaptureStateChanged` 在该状态改变时告知，用于窗口或菜单栏中的录制指示器，如同 Safari 显示的那样。`SetCaptureState` 无需页面配合就能静音、取消静音或停止捕获，如同通话应用的静音按钮：被静音的捕获保留页面的轨道，轨道收到的是无声或黑帧；被停止的捕获则结束它们。

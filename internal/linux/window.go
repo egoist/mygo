@@ -1427,6 +1427,15 @@ func (w *window) IsAudioMuted() bool {
 	return webkitWebViewGetIsMuted != nil && webkitWebViewGetIsMuted(w.web)
 }
 
+// SetMemoryTarget does nothing: WebKitGTK's memory pressure settings are
+// its web contexts', set as they are made, not a page's.
+func (w *window) SetMemoryTarget(platform.MemoryTarget) {}
+
+// Suspend can't: WebKitGTK has no API to suspend a page.
+func (w *window) Suspend(cb func(error)) { cb(platform.ErrUnsupported) }
+func (w *window) Resume()                {}
+func (w *window) IsSuspended() bool      { return false }
+
 // captureProperties are the web view's properties of its capture, by
 // platform.CaptureKind (WebKitGTK 2.34+). Their values are
 // WebKitMediaCaptureState's, none, active and muted, as

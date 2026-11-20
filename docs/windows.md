@@ -1112,6 +1112,48 @@ whose first window shows a page gives that window the option too, or creates
 the page that plays first. Two processes of the app must agree, as with
 `ThrottlingOff`.
 
+### Idle pages
+
+An app may keep a page open while it is idle, because opening it again is
+slow: the player of a hidden window, between the tracks it plays, keeps a
+whole web engine in memory. On Windows the app can make it cost less
+without closing it. `SetMemoryTarget(mygo.MemoryLow)` asks the engine to
+give back what memory of the page it can; `Suspend` stops a page that
+doesn't show, as a browser puts a tab to sleep, and `Resume` brings it back
+in less time than loading it would take:
+
+```go
+page := player.Page()
+// Its track ended.
+page.SetMemoryTarget(mygo.MemoryLow)
+// Minutes later, still idle.
+player.Hide()
+page.Suspend(func(err error) {
+	if err != nil {
+		log.Println("player stays awake:", err) // it shows, plays, or can't
+	}
+})
+// Before it plays again.
+page.Resume()
+page.SetMemoryTarget(mygo.MemoryNormal)
+```
+
+The memory target is a hint, which lasts as the page navigates: the page
+goes on running. `Suspend` stops the page's scripts, timers and animations;
+its `done` runs on the main thread with `nil` once the page is suspended
+(`IsSuspended`), or with why it isn't: the page shows (a visible window,
+minimized included, or a [web view](ui/web-view.md) its window's native UI
+shows), the engine keeps it awake (as a browser keeps a tab playing sound
+awake), or the platform can't (`errors.ErrUnsupported`). A suspended page
+wakes when its window shows, when it navigates, and with `Resume`, which an
+app calls before it needs the page again, to run its script (`Eval`) among
+others. A web view's page has them too.
+
+| | Memory target | Suspend |
+|---|---|---|
+| Windows | `MemoryUsageTargetLevel` of WebView2 (`ICoreWebView2_19`); nothing on older runtimes | `TrySuspend` of WebView2 (`ICoreWebView2_3`), which suspends only an invisible web view: MyGo makes the web view of a hidden window invisible first, until the window shows or `Resume`; `errors.ErrUnsupported` on older runtimes |
+| macOS, Linux | nothing: WebKit has no such hint for a page | `errors.ErrUnsupported`: WebKit has no API to suspend a page, though it slows the page of a hidden window down on its own ([Background pages](#background-pages)) |
+
 ### Camera and microphone
 
 `CaptureState` tells whether a page captures the camera, the microphone or

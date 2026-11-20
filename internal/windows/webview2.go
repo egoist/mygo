@@ -16,6 +16,7 @@ const (
 	envCreateWebResourceResponse = 4
 
 	// ICoreWebView2Controller, ICoreWebView2Controller2
+	ctlGetIsVisible                      = 3
 	ctlPutIsVisible                      = 4
 	ctlPutBounds                         = 6
 	ctlGetZoomFactor                     = 7
@@ -156,6 +157,29 @@ const (
 	wv8GetIsDocumentPlayingAudio        = 87
 )
 
+// ICoreWebView2_3 follows ICoreWebView2_2's methods, the last of which is
+// get_Environment (67), in WebView2.h: TrySuspend (68), Resume (69),
+// get_IsSuspended (70), then SetVirtualHostNameToFolderMapping (71) and
+// ClearVirtualHostNameToFolderMapping (72), before ICoreWebView2_4's
+// add_FrameCreated (73). TrySuspend's completion handler is called with
+// an HRESULT and a BOOL telling whether the web view was suspended.
+const (
+	wv3TrySuspend     = 68
+	wv3Resume         = 69
+	wv3GetIsSuspended = 70
+)
+
+// ICoreWebView2_19 follows ICoreWebView2_18's
+// remove_LaunchingExternalUriScheme (118) in WebView2.h with
+// get_MemoryUsageTargetLevel (119) and put_MemoryUsageTargetLevel (120),
+// before ICoreWebView2_20's get_FrameId (121). The level is a
+// COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL: NORMAL (0) or LOW (1), as
+// platform.MemoryTarget's values.
+const (
+	wv19GetMemoryUsageTargetLevel = 119
+	wv19PutMemoryUsageTargetLevel = 120
+)
+
 // ICoreWebView2_22 (SDK 1.0.2651.64, runtime 127) follows
 // ICoreWebView2_21's methods in WebView2.h with
 // AddWebResourceRequestedFilterWithRequestSourceKinds (123) and its Remove
@@ -177,9 +201,11 @@ var (
 	iidICoreWebView2WebMessageReceivedEventArgs2 = guid("06fc7ab7-c90c-4297-9389-33ca01cf6d5e")
 	iidICoreWebView2NavigationStartingEventArgs3 = guid("ddffe494-4942-4bd2-ab73-35b8ff40e19f")
 	iidICoreWebView2File                         = guid("f2c19559-6bc1-4583-a757-90021be9afec")
+	iidICoreWebView2_3                           = guid("a0d6df20-3b92-416d-aa0c-437a9c727857")
 	iidICoreWebView2_4                           = guid("20d02d59-6df2-42dc-bd06-f98a694b1302")
 	iidICoreWebView2_8                           = guid("e9632730-6e1e-43ab-b7b8-7b2c9e62e094")
 	iidICoreWebView2_13                          = guid("f75f09a8-667e-4983-88d6-c8773f315e84")
+	iidICoreWebView2_19                          = guid("6921f954-79b0-437f-a997-c85811897c68")
 	iidICoreWebView2_22                          = guid("db75dfc7-a857-4632-a398-6969dde26c0a")
 	iidICoreWebView2Profile2                     = guid("fa740d4b-5eae-4344-a8ad-74be31925397")
 	iidICoreWebView2Environment8                 = guid("d6eb91dd-c3d2-45e5-bd29-6dc2bc4de9cf")
