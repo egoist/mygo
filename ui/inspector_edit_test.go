@@ -26,19 +26,21 @@ func styled(t *testing.T) *Tester {
 	return tt
 }
 
-// chooseKeyed chooses the element keyed k.
-func chooseKeyed(t *testing.T, tt *Tester, k string) *node {
+// chooseKeyed chooses the element keyed k, and returns its ID: an
+// element is built in a node of its own each frame when it is keyed late,
+// so what identifies it is its ID, not the node it was built in.
+func chooseKeyed(t *testing.T, tt *Tester, k string) uint64 {
 	t.Helper()
 	in := &tt.rt.insp
 	for id, key := range in.keys {
 		if key == k {
 			in.choose(id)
 			tt.Frame()
-			return elementOf(t, tt, id)
+			return id
 		}
 	}
 	t.Fatalf("no element is keyed %q: %v", k, in.keys)
-	return nil
+	return 0
 }
 
 // elementOf returns the element id of the last frame.
@@ -81,14 +83,14 @@ func pixelAt(tt *Tester, e *node) color.RGBA {
 
 func TestInspectorEditsAValue(t *testing.T) {
 	tt := styled(t)
-	e := chooseKeyed(t, tt, "box")
+	id := chooseKeyed(t, tt, "box")
 	clickValue(t, tt, "background-color")
 	if !tt.rt.insp.editing.active {
 		t.Fatal("clicking the value does not edit it")
 	}
 	// What is typed replaces the value, and shows as it is typed.
 	tt.Type("#0000ff")
-	if c := pixelAt(tt, elementOf(t, tt, e.id)); c.B != 255 || c.R != 0 {
+	if c := pixelAt(tt, elementOf(t, tt, id)); c.B != 255 || c.R != 0 {
 		t.Errorf("the window does not preview the color: %v", c)
 	}
 	tt.Key(0, KeyEnter)
@@ -99,7 +101,7 @@ func TestInspectorEditsAValue(t *testing.T) {
 	if !tt.HasText("#0000ff") || !tt.HasText("1 change") {
 		t.Errorf("the tab does not show the change: %q", tt.Texts())
 	}
-	if c := pixelAt(tt, elementOf(t, tt, e.id)); c.B != 255 {
+	if c := pixelAt(tt, elementOf(t, tt, id)); c.B != 255 {
 		t.Errorf("the change did not stay: %v", c)
 	}
 	// Reset gives back what the view builds.
@@ -107,7 +109,7 @@ func TestInspectorEditsAValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if c := pixelAt(tt, elementOf(t, tt, e.id)); c.R != 255 || c.B != 0 {
+	if c := pixelAt(tt, elementOf(t, tt, id)); c.R != 255 || c.B != 0 {
 		t.Errorf("Reset did not bring the color back: %v", c)
 	}
 	if tt.HasText("1 change") {
@@ -117,15 +119,15 @@ func TestInspectorEditsAValue(t *testing.T) {
 
 func TestInspectorEscapeGoesBack(t *testing.T) {
 	tt := styled(t)
-	e := chooseKeyed(t, tt, "box")
+	id := chooseKeyed(t, tt, "box")
 	clickValue(t, tt, "width")
 	tt.Type("300")
-	if got := elementOf(t, tt, e.id).w; got != 300 {
+	if got := elementOf(t, tt, id).w; got != 300 {
 		t.Errorf("width previews as %v", got)
 	}
 	tt.Key(0, KeyEscape)
 	tt.Frame()
-	if got := elementOf(t, tt, e.id).w; got != 100 {
+	if got := elementOf(t, tt, id).w; got != 100 {
 		t.Errorf("after Escape, the width is %v", got)
 	}
 	if n := tt.rt.insp.changes(); n != 0 {
@@ -135,12 +137,12 @@ func TestInspectorEscapeGoesBack(t *testing.T) {
 
 func TestInspectorTurnsDeclarationsOff(t *testing.T) {
 	tt := styled(t)
-	e := chooseKeyed(t, tt, "box")
+	id := chooseKeyed(t, tt, "box")
 	if err := tt.Click("width on"); err != nil {
 		t.Fatalf("%v: %q", err, tt.Texts())
 	}
 	tt.Frame()
-	if got := elementOf(t, tt, e.id); got.width.u != unitAuto {
+	if got := elementOf(t, tt, id); got.width.u != unitAuto {
 		t.Errorf("turned off, width is still %v", got.width)
 	}
 	// It stays in the tab, in its place, to turn on again.
@@ -152,7 +154,7 @@ func TestInspectorTurnsDeclarationsOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if got := elementOf(t, tt, e.id).w; got != 100 {
+	if got := elementOf(t, tt, id).w; got != 100 {
 		t.Errorf("turned on, the width is %v", got)
 	}
 	if n := tt.rt.insp.changes(); n != 0 {
@@ -190,14 +192,14 @@ func TestInspectorInheritedDeclarations(t *testing.T) {
 
 func TestInspectorAddsDeclarations(t *testing.T) {
 	tt := styled(t)
-	e := chooseKeyed(t, tt, "box")
+	id := chooseKeyed(t, tt, "box")
 	if err := tt.Click("Add a style"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Type("opacity: 0.5; nonsense: 1")
 	tt.Key(0, KeyEnter)
 	tt.Frame()
-	if got := elementOf(t, tt, e.id); !got.opacitySet || got.opacity != 0.5 {
+	if got := elementOf(t, tt, id); !got.opacitySet || got.opacity != 0.5 {
 		t.Errorf("opacity is %v", got.opacity)
 	}
 	// What it does not understand shows, marked.
@@ -212,22 +214,21 @@ func TestInspectorAddsDeclarations(t *testing.T) {
 
 func TestInspectorArrowsMoveANumber(t *testing.T) {
 	tt := styled(t)
-	e := chooseKeyed(t, tt, "box")
+	id := chooseKeyed(t, tt, "box")
 	clickValue(t, tt, "width")
 	tt.Key(0, KeyUp)
-	if got := elementOf(t, tt, e.id).w; got != 101 {
+	if got := elementOf(t, tt, id).w; got != 101 {
 		t.Errorf("Up: the width is %v", got)
 	}
 	tt.Key(Shift, KeyDown)
-	if got := elementOf(t, tt, e.id).w; got != 91 {
+	if got := elementOf(t, tt, id).w; got != 91 {
 		t.Errorf("Shift+Down: the width is %v", got)
 	}
 }
 
 func TestInspectorCloseDropsEdits(t *testing.T) {
 	tt := styled(t)
-	e := chooseKeyed(t, tt, "box")
-	id := e.id
+	id := chooseKeyed(t, tt, "box")
 	clickValue(t, tt, "width")
 	tt.Type("300")
 	tt.Key(0, KeyEnter)
@@ -479,7 +480,7 @@ func TestInspectorForcesStates(t *testing.T) {
 		})
 	})
 	openInspector(tt)
-	e := chooseKeyed(t, tt, "box")
+	id := chooseKeyed(t, tt, "box")
 	if hovered || pressed || focused || visible || within {
 		t.Fatal("the box starts in a state")
 	}
@@ -503,7 +504,7 @@ func TestInspectorForcesStates(t *testing.T) {
 			t.Errorf("%s does not show: %q", s.name, tt.Texts())
 		}
 	}
-	if tt.rt.focused == e.id {
+	if tt.rt.focused == id {
 		t.Error("forcing the focus moved the real focus")
 	}
 	// Forcing goes, one at a time, and with the inspector.
@@ -525,13 +526,13 @@ func TestInspectorForcedFocusRings(t *testing.T) {
 		coreColumn(c).Padding(20).Children(func() { coreBox(c).Key("box").Size(40, 40).Focusable() })
 	})
 	openInspector(tt)
-	e := chooseKeyed(t, tt, "box")
-	if elementOf(t, tt, e.id).ringShown() {
+	id := chooseKeyed(t, tt, "box")
+	if elementOf(t, tt, id).ringShown() {
 		t.Fatal("the box has a ring")
 	}
-	tt.rt.insp.toggleForced(e.id, forceFocusVisible)
+	tt.rt.insp.toggleForced(id, forceFocusVisible)
 	tt.Frame()
-	if !elementOf(t, tt, e.id).ringShown() {
+	if !elementOf(t, tt, id).ringShown() {
 		t.Error(":focus-visible does not ring the box")
 	}
 }

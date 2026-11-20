@@ -90,11 +90,11 @@ const chunkSize = 32
 const allFree = 1<<chunkSize - 1
 
 // take returns the node an element of this pass is built with, empty as
-// the pool's are: the node its state kept, if the state has one and no
-// other element of this pass took it, or one from the pool.
-func (c *context) take(st *state, built bool) *node {
+// the pool's are: the node its state kept, if the state has one, or one
+// from the pool.
+func (c *context) take(st *state) *node {
 	var e *node
-	if !built && st.node != nil {
+	if st.node != nil {
 		// The node the state kept: the element comes back to it, which
 		// holds what the element built before.
 		e, st.node = st.node, nil
@@ -234,13 +234,13 @@ func (c *context) reset(now time.Time, w, h float32) {
 	c.router, c.routers, c.inert = nil, 0, false
 	c.serial = 0
 	st := c.rt.stateFor(rootID)
-	root := c.take(st, false)
+	root := c.take(st)
 	root.c = c
 	root.id = rootID
 	root.kind = kindBox
 	root.width, root.height = px(w), px(h)
 	root.st = st
-	c.rt.buildState(root, false)
+	c.rt.buildState(root)
 	root.bg = c.theme.Background
 	root.ts = textStyle{set: setColor | setSize | setFamily, color: c.theme.Text, size: c.theme.FontSize, family: c.theme.Font}
 	if c.rt.lang != "" {
@@ -295,7 +295,7 @@ const (
 func (c *context) overlayRoot() *node {
 	if c.overlay == nil {
 		st := c.rt.stateFor(overlayID)
-		o := c.take(st, false)
+		o := c.take(st)
 		o.c = c
 		o.id = overlayID
 		o.kind = kindBox
@@ -305,7 +305,7 @@ func (c *context) overlayRoot() *node {
 		o.insetSet = true
 		o.depth = 1
 		o.st = st
-		c.rt.buildState(o, false)
+		c.rt.buildState(o)
 		c.overlay = o
 	}
 	return c.overlay
@@ -322,7 +322,8 @@ func (c *context) newElement(k kind) *node {
 	}
 
 	p := c.parent
-	id := mix(p.id, uint64(p.nchild)+uint64(k)<<56)
+	place := mix(p.id, uint64(p.nchild)+uint64(k)<<56)
+	id := place
 	dir := p.dir &^ dirSet
 	keyed := c.keySet
 	var key any
@@ -333,9 +334,14 @@ func (c *context) newElement(k kind) *node {
 	}
 	st, built := c.rt.lookState(id)
 	if keyed && built {
+		// Another element of the pass has the key under the same parent:
+		// this one keeps the identity of its place, and MyGo says the key
+		// is twice.
 		c.rt.duplicateKey(id, key)
+		id = place
+		st, built = c.rt.lookState(place)
 	}
-	e := c.take(st, built)
+	e := c.take(st)
 	e.c = c
 	e.kind = k
 	e.id = id
@@ -343,7 +349,7 @@ func (c *context) newElement(k kind) *node {
 	e.key = key
 	e.st = st
 	p.add(e)
-	c.rt.buildState(e, built)
+	c.rt.buildState(e)
 	if c.rt.insp.open && e.id == c.rt.insp.selected {
 		c.rt.insp.noteSource()
 	}
@@ -352,6 +358,10 @@ func (c *context) newElement(k kind) *node {
 
 var keySeed = maphash.MakeSeed()
 
+// rekey gives the element the identity of the key k under its parent.
+// The identity takes the node the element was built in: nothing moves, so
+// a handle the app kept still names the element, and the node the
+// identity kept goes back to the pool.
 func (c *context) rekey(e *node, k any) *node {
 	parent := uint64(0)
 	if e.parent != nil {
@@ -362,24 +372,22 @@ func (c *context) rekey(e *node, k any) *node {
 	if e.stateRead {
 		rt.lateKey(id, k)
 	}
-	if id != e.id {
-		rt.unlook(e.st)
+	if id == e.id {
+		// The element has the key already.
+		return e
 	}
 	st, built := rt.lookState(id)
-	if built && id != e.id {
-		// Another element of the pass has the key under the same parent.
+	if built {
+		// Another element of the pass has the key under the same parent:
+		// this one keeps the identity it was built with, and MyGo says the
+		// key is twice.
 		rt.duplicateKey(id, k)
+		e.key = k
+		return e
 	}
-	if !built && st.node != nil && st.node != e && !rt.holdsNode(st.node) {
-		// The identity kept a node from the frame before: the element is
-		// built in it, so that what the identity holds does not change
-		// from frame to frame. What still holds the node — a transition
-		// copying it as its Exit says — keeps it, and the element takes
-		// one of its own.
-		e = c.move(e, st.node)
-	}
+	rt.unlook(e.st)
 	e.id, e.st, e.key = id, st, k
-	rt.buildState(e, built)
+	rt.buildState(e)
 	if rt.insp.open {
 		rt.insp.noteKey(id, k)
 		if id == rt.insp.selected {
@@ -387,44 +395,6 @@ func (c *context) rekey(e *node, k any) *node {
 		}
 	}
 	return e
-}
-
-// move puts the element e in the node its identity kept, so that what the
-// identity holds does not change from frame to frame. The nodes take each
-// other's content: the identity's node holds what the element built, and
-// the node the element was built in holds what the identity had, which
-// goes back to the pool with it, and the room it held.
-func (c *context) move(e, dst *node) *node {
-	dslot, eslot := dst.slot, e.slot
-	parent, id := e.parent, e.id
-	*dst, *e = *e, *dst
-	dst.slot, e.slot = dslot, eslot
-	// The children the element built are the identity's now.
-	for ch := dst.first; ch != nil; ch = ch.next {
-		ch.parent = dst
-	}
-	// The identity's node takes the element's place among its siblings.
-	if parent != nil {
-		if parent.first == e {
-			parent.first = dst
-		}
-		if parent.last == e {
-			parent.last = dst
-		}
-		for p := parent.first; p != nil; p = p.next {
-			if p.next == e {
-				p.next = dst
-				break
-			}
-		}
-	}
-	// The transition the element had before the Key follows it.
-	if r := c.rt.trans[id]; r != nil && r.elem == e {
-		r.elem = dst
-	}
-	// The node the element was built in goes back to the pool.
-	c.rt.loose = append(c.rt.loose, e)
-	return dst
 }
 
 // keyedID returns the ID of the child of parent keyed by k.
@@ -1215,30 +1185,28 @@ func (rt *engine) lookState(id uint64) (s *state, built bool) {
 // buildState notes that a node e was built for its state this pass: the
 // state is alive until a pass builds another, references to the element
 // resolve to e (elementRef), and what the element drags and takes as it
-// builds goes anew. built tells that a node of this id was already built
-// this pass (a duplicate key), so that this one is not counted in
-// rt.built again.
-func (rt *engine) buildState(e *node, built bool) {
+// builds goes anew.
+func (rt *engine) buildState(e *node) {
 	s := e.st
-	if !built {
-		rt.built = append(rt.built, s)
-		rt.nbuilt++
-		if s.node != nil && s.node != e {
-			// The state kept another node, of the element that had this
-			// identity before: a transition keeps it, to copy it as its
-			// Exit says if the element goes, and takes the element's own
-			// from now on; either way the one it had goes back to the pool.
-			if r := rt.trans[s.id]; r != nil && r.elem == s.node {
-				r.elem = e
-			}
+	rt.built = append(rt.built, s)
+	rt.nbuilt++
+	if s.node != nil && s.node != e {
+		// The state kept another node, of the element that had this
+		// identity before: a transition keeps it, to copy it as its
+		// Exit says if the element goes, and takes the element's own
+		// from now on; either way the one it had goes back to the pool.
+		if r := rt.trans[s.id]; r != nil && r.elem == s.node {
+			r.elem = e
+		}
+		if rt.holdsNode(s.node) {
+			// Something keeps the node: it goes back to the pool when
+			// nothing keeps it any more.
+			rt.loose = append(rt.loose, s.node)
+		} else {
 			rt.c.freeNode(s.node)
 		}
-		s.node = e
-	} else {
-		// Another element of this pass has the key: it took a node of its
-		// own, and the state keeps the one of the element that came first.
-		rt.loose = append(rt.loose, e)
 	}
+	s.node = e
 	s.lookedSeen, s.lookedPass = s.seen, s.pass
 	s.seen, s.pass = rt.frame, rt.pass
 	if e.parent != nil {
