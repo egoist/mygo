@@ -740,22 +740,15 @@ func (w *window) downloadFor(url, path string) id {
 	return 0
 }
 
-func (w *window) PauseDownload(url, path string) error {
-	d := w.downloadFor(url, path)
-	if d == 0 {
-		return errors.New("mygo: no such download in progress")
-	}
-	send(d, "pause")
-	return nil
+// WKDownload can only cancel: pausing would need its session task's
+// resume data, which WebKit exposes no public way to restart a download
+// with.
+func (w *window) PauseDownload(string, string) error {
+	return fmt.Errorf("mygo: pausing a download: %w", platform.ErrUnsupported)
 }
 
-func (w *window) ResumeDownload(url, path string) error {
-	d := w.downloadFor(url, path)
-	if d == 0 {
-		return errors.New("mygo: no such download in progress")
-	}
-	send(d, "resume")
-	return nil
+func (w *window) ResumeDownload(string, string) error {
+	return fmt.Errorf("mygo: resuming a download: %w", platform.ErrUnsupported)
 }
 
 func (w *window) CancelDownload(url, path string) {

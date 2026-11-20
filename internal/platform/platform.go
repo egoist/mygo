@@ -818,7 +818,8 @@ type Page interface {
 	// PauseDownload, ResumeDownload and CancelDownload control the
 	// download of url saved at path, which DownloadStarted reported.
 	// Pause and Resume return ErrUnsupported where the engine cannot
-	// pause (WebKitGTK), and an error when no such download is running.
+	// pause (WKWebView, WebKitGTK), and an error when no such download
+	// is running.
 	PauseDownload(url, path string) error
 	ResumeDownload(url, path string) error
 	CancelDownload(url, path string)

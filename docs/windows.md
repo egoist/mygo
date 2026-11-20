@@ -1273,9 +1273,10 @@ win.Page().OnWillDownload(func(e *mygo.DownloadEvent) {
 ```
 
 Downloads of the app's own schemes, which MyGo serves itself, pause and
-resume everywhere; the engine's downloads do on macOS and Windows, while
-WebKitGTK (Linux) can only cancel them, and `Pause` returns
-`ErrUnsupported` there. A canceled or failed download ends with `Err` set.
+resume everywhere; of the engine's downloads, only Windows can pause and
+resume them: macOS's WKWebView and Linux's WebKitGTK can only cancel, and
+`Pause` returns `ErrUnsupported` there. A canceled or failed download ends
+with `Err` set.
 
 ### Permissions
 

@@ -1,3 +1,5 @@
+//go:build !js
+
 package e2e
 
 import (
@@ -56,7 +58,7 @@ func checkDownloadContent(t *testing.T, path string) {
 // and resumes, and the file arrives whole. engine tells whether the
 // webview's engine downloads the URL (a loopback server) or the core
 // serves it (a custom scheme); only the engine's downloads may refuse to
-// pause, as WebKitGTK does.
+// pause, as WKWebView and WebKitGTK do.
 func downloadPauseCase(t *testing.T, url, name string, engine bool) {
 	w := newWindow(t, mygo.WindowOptions{Title: "Download pause", Width: 300, Height: 200})
 	if err := w.Page().LoadURL("app://localhost/"); err != nil {
@@ -89,8 +91,8 @@ func downloadPauseCase(t *testing.T, url, name string, engine bool) {
 	mustEval(t, w, fmt.Sprintf(`(location.href = %q, true)`, url))
 	pauseErr := wait.For(t, "the first progress event", paused)
 	switch {
-	case pauseErr != nil && engine && runtime.GOOS == "linux":
-		// WebKitGTK cannot pause; the download runs on.
+	case pauseErr != nil && engine && (runtime.GOOS == "linux" || runtime.GOOS == "darwin"):
+		// WKWebView and WebKitGTK cannot pause; the download runs on.
 	case pauseErr != nil:
 		t.Errorf("Pause: %v", pauseErr)
 	default:

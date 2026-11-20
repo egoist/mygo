@@ -54,8 +54,9 @@ func (d *Download) OnProgress(fn func(received, total int64)) (off func()) {
 }
 
 // Pause pauses a running download, which Resume continues. It returns
-// ErrUnsupported on Linux for the engine's downloads, whose WebKitGTK
-// cannot pause them, and an error once the download ended.
+// ErrUnsupported for the engine's downloads on macOS and Linux, whose
+// WKWebView and WebKitGTK can only cancel them, and an error once the
+// download ended. Downloads of the app's own schemes pause everywhere.
 func (d *Download) Pause() error {
 	if s := d.scheme.Load(); s != nil {
 		return s.pause()
