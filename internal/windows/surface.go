@@ -216,7 +216,11 @@ func registerSurfaceClass() {
 func newSurface(w *window) *surface {
 	registerSurfaceClass()
 	s := &surface{w: w}
-	s.hwnd = createWindow(0, surfaceClass, "", wsChild|wsVisible|wsClipSiblings, 0, 0, 0, 0, w.hwnd)
+	// The content surface is a child window, and a child window with a
+	// redirection bitmap gets an opaque white one: the pixels the parent's
+	// DirectComposition surface leaves translucent would show that white
+	// instead of the desktop. A window without one lets them through.
+	s.hwnd = createWindow(wsExNoRedirect, surfaceClass, "", wsChild|wsVisible|wsClipSiblings, 0, 0, 0, 0, w.hwnd)
 	if s.hwnd == 0 {
 		return nil
 	}
@@ -567,6 +571,12 @@ func (s *surface) PresentPixels(pix []byte, stride, width, height int) {
 		if s.comp == nil {
 			s.comp = newCompositor(s.w.b, s.hwnd)
 		}
+		if s.w != nil && s.w.opts.CornerRadius > 0 {
+			// The radius in pixels follows the DPI the window has now, not
+			// the one it was made with: at creation the window may not know
+			// its monitor yet, and a window moved to another one changes it.
+			s.comp.radius = toPx(s.w.opts.CornerRadius, s.dpi())
+		}
 		px := s.comp.pixels(width * height)
 		for y := range height {
 			copy(px[y*width:(y+1)*width], unsafe.Slice((*uint32)(unsafe.Pointer(&pix[y*stride])), width))
@@ -763,6 +773,23 @@ func (s *surface) pointer(kind platform.SurfaceEventKind, lp uintptr, button int
 
 func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool) {
 	switch m {
+	case wmNCHitTest:
+		// With the client area covering the whole window (frameCalcSize), the
+		// pointer is always over the content surface: the window itself is
+		// never asked, so its edges would only move the window. Answer the
+		// border ring here too, and leave the middle to the UI, whose drag
+		// region moves the window.
+		if w := s.w; w.captionless() && !w.fullScreen && !w.IsMaximized() && w.hasStyle(wsThickFrame) {
+			if hit, ok := w.resizeHitTest(getXParam(lp), getYParam(lp)); ok {
+				return hit, true
+			}
+		}
+	case wmNCLButtonDown, wmNCLButtonDblClk:
+		// Once the hit test says a border, the system sends the button down
+		// to this child, which cannot resize its parent on its own. Forward it,
+		// and the resize loop starts (topedge.go's edge window forwards too).
+		r, _, _ := procSendMessageW.Call(s.w.hwnd, uintptr(m), wp, lp)
+		return r, true
 	case wmMouseMove, wmLButtonDown, wmLButtonDblClk, wmLButtonUp, wmRButtonDown, wmRButtonDblClk, wmRButtonUp,
 		wmMButtonDown, wmMButtonDblClk, wmMButtonUp, wmXButtonDown, wmXButtonDblClk, wmXButtonUp, wmMouseWheel, wmMouseHWheel:
 		if s.forwardMouse(m, wp, lp) {
