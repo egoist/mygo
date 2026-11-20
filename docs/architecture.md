@@ -1152,8 +1152,9 @@ fake host. Desktop files of `darwin` and `linux` exclude `ios` and
   scroll views delay their content's touches) or as it lifts sooner, so a
   drag that starts at once presses nothing. Android's back goes first to
   the stack in front, then to the content as Escape and `KeyBack`, which
-  `ui` reports taken when a shortcut claims it (a Router only while it
-  can go back); untaken, the app goes to the background. `ui` tells the
+  `ui` reports taken when a shortcut claims it, an overlay's as a
+  dialog's among them (a Router only while it can go back); untaken, the
+  app goes to the background. `ui` tells the
   surface whether it takes back (`SetBackAvailable`), for Android's predictive
   back, which `ui.Router` follows (`ui/touch_back.go`, with iOS's edge swipe).
   A finger locks to an axis and a container, overscrolls and long-presses

@@ -1255,8 +1255,14 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCod
 	rt.requestFrame()
 	// The keys that go back, which a shortcut takes in the next frame:
 	// the system leaves them alone then, as Android's back then goes back
-	// in the app rather than out of it.
-	return (key == KeyBack || key == KeyEscape) && mods == 0 && rt.claimed(k)
+	// in the app rather than out of it. An overlay's counts, as a dialog
+	// closing on them: it takes what the focus leaves (routeKey), as
+	// tellBack counts it.
+	if (key == KeyBack || key == KeyEscape) && mods == 0 {
+		_, found := routeKey(rt.regs, rt.focusChain(), k)
+		return found
+	}
+	return false
 }
 
 // typePause is how long after a letter typed to choose a row the next
