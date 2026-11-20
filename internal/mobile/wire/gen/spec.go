@@ -39,13 +39,13 @@ var calls = []msg{
 	}},
 	{name: "Log", doc: "a line the app wrote to its standard output or error", args: []field{f("Error", "bool"), f("Line", "string")}},
 
-	{name: "CreateWindow", doc: "the screen's content: a web view, or a surface for native UI", wait: true,
+	{name: "CreateWindow", doc: "the screen's content: a web view, in the data store Store (NewDataStore; 0 for the default one), or a surface for native UI", wait: true,
 		args: []field{
 			f("ID", "int"), f("Surface", "bool"), f("OwnScene", "bool"), f("Background", "int"), f("HasBackground", "bool"),
 			f("Schemes", "strings"), f("Scripts", "strings"), f("ScriptFlags", "strings"),
 			f("UserAgent", "string"), f("UserAgentSuffix", "string"), f("Inspectable", "bool"),
 			f("Autoplay", "bool"), f("SwipeNavigation", "bool"), f("PinchZoom", "bool"),
-			f("Parent", "int"), f("ViewType", "string"), f("ViewArgs", "string"),
+			f("Parent", "int"), f("ViewType", "string"), f("ViewArgs", "string"), f("Store", "int"),
 		},
 		reply: []field{f("Error", "string"), f("Layer", "int")}},
 	{name: "FirstFrame", doc: "the window's content presented its first frame", args: []field{f("ID", "int")}},
@@ -176,6 +176,21 @@ var calls = []msg{
 		args: []field{f("Data", "bytes"), f("Family", "string")}, reply: []field{f("Family", "string"), f("Error", "string")}},
 	{name: "SetFrameRate", doc: "how many Frames a second come from now on while they follow each other, a whole fraction of the display's rate, or 0 for the display's own (platform.FrameRateSurface)",
 		args: []field{f("ID", "int"), f("FPS", "float")}},
+
+	// Website data: the stores of sessions, and their cookies. Store 0 is
+	// the default store; SiteDataDone answers the calls with a Req.
+	{name: "NewDataStore", doc: "a website data store of a session: kept on disk under ID, a UUID, unless Ephemeral; Store numbers it, Error says why there is none", wait: true,
+		args: []field{f("ID", "string"), f("Ephemeral", "bool")}, reply: []field{f("Store", "int"), f("Error", "string")}},
+	{name: "CloseDataStore", doc: "the end of the app's use of a store, which goes once no web view uses it", args: []field{f("Store", "int")}},
+	{name: "ListCookies", doc: "the store's cookies as lines of a Set-Cookie header's form (name=value; domain=…; path=…; expires=…; secure; httponly; samesite=…): every cookie, or with URL those a request to it sends",
+		args: []field{f("Req", "int"), f("Store", "int"), f("URL", "string")}},
+	{name: "SetCookie", doc: "a cookie to set, Name=Value with the Attributes of a Set-Cookie header (Path, SameSite, and Domain, Expires, Secure and HttpOnly when set) as a response from URL would; the other fields are what the cookie must be, which a store checks where it parses the attributes itself",
+		args: []field{f("Req", "int"), f("Store", "int"), f("URL", "string"), f("Name", "string"), f("Value", "string"), f("Attributes", "string"),
+			f("Domain", "string"), f("Path", "string"), f("Secure", "bool"), f("HTTPOnly", "bool"), f("SameSite", "string")}},
+	{name: "DeleteCookie", doc: "the cookie of Name, Domain and Path to delete, if any; a store that can only set cookies sets Name= with the Attributes, which expire it, as a response from URL",
+		args: []field{f("Req", "int"), f("Store", "int"), f("URL", "string"), f("Name", "string"), f("Domain", "string"), f("Path", "string"), f("Attributes", "string")}},
+	{name: "ClearSiteData", doc: "the data of Types (platform.SiteData) to delete from the store, whatever its age",
+		args: []field{f("Req", "int"), f("Store", "int"), f("Types", "int")}},
 }
 
 // events go from the host to Go.
@@ -271,4 +286,7 @@ var events = []msg{
 		args: []field{f("ID", "int")}, reply: []field{f("Nodes", "bytes")}},
 	{name: "AccessibilityAction", doc: `an assistive technology's action on an element: "press", "increment", "decrement", "focus", "scrollForward", …`, wait: true,
 		args: []field{f("ID", "int"), f("Node", "int"), f("Action", "string")}, reply: []field{f("Handled", "bool")}},
+
+	{name: "SiteDataDone", doc: "the answer to a call of a website data store: Cookies are ListCookies' lines; Unsupported tells the store cannot do what was asked",
+		args: []field{f("Req", "int"), f("Cookies", "strings"), f("Error", "string"), f("Unsupported", "bool")}},
 }

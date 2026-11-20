@@ -169,6 +169,16 @@ running after `mygo dev` ends, as starting it again is slow.
   desktop.
 - **Secrets** go to the Keychain on iOS, and on Android to the app's
   storage, encrypted with a key of Android's keystore.
+- **Cookies**: `mygo.Cookies` and `Session.Cookies` read and change the
+  cookies of the app's pages, `HttpOnly` ones included, so an app that
+  signs the user in through a page can call APIs with the session it got.
+  On iOS they are those of the session's `WKWebsiteDataStore`, as on macOS,
+  and `NewSession` and `NewEphemeralSession` work. On Android they are
+  `CookieManager`'s, which every web view of the app shares: `List` needs a
+  `CookieFilter.URL`, and sessions other than the default one, their
+  cookies included, are unsupported (`ErrUnsupported`). `ClearBrowsingData`
+  clears all kinds of data on iOS and cookies alone on Android
+  ([Cookies](../app.md#cookies)).
 - **Notifications** ask for the user's permission the first time.
 - What phones lack does nothing: menu bars, trays, the Dock, global
   shortcuts, the updater (stores update apps).

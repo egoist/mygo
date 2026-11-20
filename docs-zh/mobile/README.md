@@ -83,6 +83,7 @@ mygo.KeepState(a)
 - **对话框**：消息框是系统的警告框；`Dialog.Open` 显示系统的文稿选择器，并在应用的临时文件中提供所选文件的副本。`Dialog.Save` 提供一个用于写入的临时文件；`Dialog.SaveCopy` 让用户选择应用生成的文件存放到哪里。
 - **文件**：`WatchFiles` 与桌面上一样监视应用的目录。
 - **密钥**在 iOS 上存入钥匙串，在 Android 上存入应用的存储，并用 Android 密钥库中的密钥加密。
+- **Cookie**：`mygo.Cookies` 和 `Session.Cookies` 读取和更改应用页面的 Cookie，包括 `HttpOnly` 的，所以通过页面让用户登录的应用可以用得到的会话调用 API。在 iOS 上，它们是会话的 `WKWebsiteDataStore` 的 Cookie，与 macOS 上一样，`NewSession` 和 `NewEphemeralSession` 也可用。在 Android 上，它们是应用所有 web 视图共享的 `CookieManager` 的 Cookie：`List` 需要 `CookieFilter.URL`，并且不支持默认会话以外的会话及其 Cookie（`ErrUnsupported`）。`ClearBrowsingData` 在 iOS 上清除所有类型的数据，在 Android 上只清除 Cookie（[Cookie](../app.md#cookie)）。
 - **通知**第一次使用时会请求用户的许可。
 - 手机没有的功能什么都不做：菜单栏、托盘、程序坞、全局快捷键、更新器（应用由应用商店更新）。
 

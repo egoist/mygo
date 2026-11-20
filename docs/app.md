@@ -434,7 +434,9 @@ setting.
 local and session storage, IndexedDB, service workers and caches, for
 example when the user signs out. Open pages keep what they hold in memory
 until they reload. It clears the default session; `Session.ClearData`
-clears another, or some kinds of data only.
+clears another, or some kinds of data only. On Android it can clear
+cookies alone (`SiteDataCookies`), and other kinds fail with
+`ErrUnsupported`: Android's web view has no call that clears them.
 
 ### Cookies
 
@@ -502,6 +504,18 @@ WebKitGTK 2.42 or newer, and `Set` libsoup 2.70 or newer; WebKitGTK keeps
 the cookies in `cookies.sqlite` of the app's user data directory
 (`~/.config/<Name>`).
 
+On phones the methods work too, so an app that signs the user in through
+a page reads the session's cookies, `HttpOnly` ones included, as on the
+desktop. On iOS they are the `WKHTTPCookieStore` of the session's
+`WKWebsiteDataStore`, which takes all of `CookieFilter`. On Android they
+are `CookieManager`'s, which the app's web views share: `List` needs a
+`URL`, as Android's web view lists only the cookies a request sends
+(with their attributes where Android System WebView has
+`GET_COOKIE_INFO`, as current versions do, and `ErrUnsupported` on older
+ones), and `Delete` sets an expired cookie of the same name, domain and
+path in its place. Sessions other than the default one are unsupported
+on Android, so their cookies are too (`ErrUnsupported`).
+
 ### Sessions
 
 Every page shows in the default session unless `PageOptions.Session` names
@@ -549,6 +563,8 @@ the data the engine keeps for sites, those kinds and the others it has.
 | macOS | `WKWebsiteDataStore dataStoreForIdentifier:` with a UUID made of the name, from macOS 14; before, an in-memory store that lasts until the app quits | `nonPersistentDataStore` |
 | Linux | a web context of its own, with its data in `Sessions/<UUID>` of the user data directory and its caches in that of the cache directory; WebKitGTK 2.16 or newer | a web context with an ephemeral website data manager |
 | Windows | a WebView2 profile, `mygo-<UUID>`, in the app's WebView2 user data; WebView2 Runtime 1.0.1185 or newer | an InPrivate profile, `mygo-private-<n>`, which WebView2 drops with its last web view |
+| iOS | `WKWebsiteDataStore(forIdentifier:)` with a UUID made of the name | `nonPersistent()` |
+| Android | unsupported: `CookieManager` and the web view's storage are the app's, which every page shares | unsupported |
 
 On Windows, the cookies of a session come from a web view of its profile,
 as the default session's do: before one of its windows shows a page, the

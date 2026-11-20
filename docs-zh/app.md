@@ -262,7 +262,7 @@ mygo.App.SetDMABUFRenderer(mygo.DMABUFRendererAuto)
 
 ## 浏览数据
 
-`App.ClearBrowsingData()` 删除应用页面存储的内容：Cookie、本地和会话存储、IndexedDB、Service Worker 和缓存，例如用户退出登录时。打开的页面会把内存中的内容保留到重新加载。它清除默认会话；`Session.ClearData` 清除另一个会话，或只清除某些类型的数据。
+`App.ClearBrowsingData()` 删除应用页面存储的内容：Cookie、本地和会话存储、IndexedDB、Service Worker 和缓存，例如用户退出登录时。打开的页面会把内存中的内容保留到重新加载。它清除默认会话；`Session.ClearData` 清除另一个会话，或只清除某些类型的数据。在 Android 上它只能清除 Cookie（`SiteDataCookies`），清除其他类型会返回 `ErrUnsupported`：Android 的 webview 没有清除它们的调用。
 
 ### Cookie
 
@@ -297,6 +297,8 @@ Cookie 的名称、域和路径标识它：`Set` 替换同名、同域、同路�
 
 在 Windows 上，WebView2 只能通过 web 视图提供 Cookie：如果没有窗口或原生 UI 中的 web 视图显示页面，这些方法以及 `App.ClearBrowsingData` 会创建隐藏的 web 视图，并启动 WebView2 浏览器进程。窗口创建首个页面的 web 视图时，会等待正在进行的调用完成。页面显示后，或应用不显示页面且最后一次调用结束几秒后，隐藏的 web 视图会关闭，WebView2 进程也随之退出；但如果会话中有仅在 WebView2 进程运行期间保留的 Cookie，隐藏视图就会保持打开，包括 `Expires` 为零值的 Cookie，以及临时会话中的所有 Cookie。WebView2 在调用返回后才应用更改，因此这些方法会等待更改生效；如果两秒内未生效（例如引擎拒绝了某个 Cookie），则返回错误。在 Linux 上，这些方法需要 WebKitGTK 2.42 或更新版本，`Set` 还需要 libsoup 2.70 或更新版本；WebKitGTK 将 Cookie 保存在应用用户数据目录（`~/.config/<Name>`）下的 `cookies.sqlite` 中。
 
+这些方法在手机上同样可用：通过页面让用户登录的应用，可以像在桌面上一样读取会话的 Cookie，包括 `HttpOnly` 的。在 iOS 上，它们是会话的 `WKWebsiteDataStore` 的 `WKHTTPCookieStore`，支持 `CookieFilter` 的所有字段。在 Android 上，它们是应用的所有 web 视图共享的 `CookieManager` 的 Cookie：`List` 需要 `URL`，因为 Android 的 webview 只列出请求会携带的 Cookie（Android System WebView 有 `GET_COOKIE_INFO` 时带有属性，当前版本都有；较旧的版本返回 `ErrUnsupported`）；`Delete` 会设置一个同名、同域、同路径的过期 Cookie 来取代它。Android 不支持默认会话以外的会话，所以也不支持它们的 Cookie（`ErrUnsupported`）。
+
 ### 会话
 
 每个页面都显示在默认会话中，除非 `PageOptions.Session` 指定另一个：它有自己的 Cookie、本地和会话存储、IndexedDB、缓存和 Service Worker，其他会话的页面看不到它们，就像 Electron 的分区。同一服务的两个账号同时使用、一个私密窗口、一个不能看到用户登录状态的预览，或一个与应用自身存储隔离的第三方页面，各用一个会话：
@@ -325,5 +327,7 @@ err = work.ClearData(mygo.SiteDataCookies | mygo.SiteDataCaches)  // some kinds
 | macOS | 从 macOS 14 起，`WKWebsiteDataStore dataStoreForIdentifier:`，使用由名称生成的 UUID；之前是持续到应用退出的内存存储 | `nonPersistentDataStore` |
 | Linux | 自己的 web 上下文，数据在用户数据目录的 `Sessions/<UUID>` 中，缓存在缓存目录的对应位置；WebKitGTK 2.16 或更新版本 | 带临时网站数据管理器的 web 上下文 |
 | Windows | WebView2 配置文件 `mygo-<UUID>`，位于应用的 WebView2 用户数据中；WebView2 Runtime 1.0.1185 或更新版本 | InPrivate 配置文件 `mygo-private-<n>`，WebView2 在最后一个 web 视图关闭时丢弃它 |
+| iOS | `WKWebsiteDataStore(forIdentifier:)`，使用由名称生成的 UUID | `nonPersistent()` |
+| Android | 不支持：`CookieManager` 和 webview 的存储属于整个应用，所有页面共享 | 不支持 |
 
 在 Windows 上，会话的 Cookie 来自其配置文件的 web 视图，与默认会话一样：在它的某个窗口显示页面之前，这些调用会创建一个隐藏的 web 视图。

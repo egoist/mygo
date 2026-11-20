@@ -30,7 +30,10 @@ import (
 //
 // On macOS, a session NewSession makes keeps its data on disk from macOS
 // 14 on; before, it keeps it in memory until the app quits, still apart
-// from the other sessions' data.
+// from the other sessions' data. On iOS a session has a WKWebsiteDataStore
+// of its own. Android's web view keeps one store for the app, so only the
+// default session is there: a page of another does not open, and its
+// methods fail with errors.ErrUnsupported.
 type Session struct {
 	// Cookies reads and changes the session's cookies, as mygo.Cookies
 	// does those of the default session.

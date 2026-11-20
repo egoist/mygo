@@ -179,6 +179,7 @@ public struct CreateWindowCall {
     public var parent: Int = 0
     public var viewType: String = ""
     public var viewArgs: String = ""
+    public var store: Int = 0
     public init() {}
     init(_ r: inout WireReader) {
         id = r.int()
@@ -198,6 +199,7 @@ public struct CreateWindowCall {
         parent = r.int()
         viewType = r.string()
         viewArgs = r.string()
+        store = r.int()
     }
 }
 
@@ -1207,6 +1209,106 @@ public struct SetFrameRateCall {
     }
 }
 
+public struct NewDataStoreCall {
+    public var id: String = ""
+    public var ephemeral: Bool = false
+    public init() {}
+    init(_ r: inout WireReader) {
+        id = r.string()
+        ephemeral = r.bool()
+    }
+}
+
+public struct NewDataStoreReply {
+    public var store: Int = 0
+    public var error: String = ""
+    public init() {}
+    func encode(_ w: inout WireWriter) {
+        w.int(store)
+        w.string(error)
+    }
+}
+
+public struct CloseDataStoreCall {
+    public var store: Int = 0
+    public init() {}
+    init(_ r: inout WireReader) {
+        store = r.int()
+    }
+}
+
+public struct ListCookiesCall {
+    public var req: Int = 0
+    public var store: Int = 0
+    public var url: String = ""
+    public init() {}
+    init(_ r: inout WireReader) {
+        req = r.int()
+        store = r.int()
+        url = r.string()
+    }
+}
+
+public struct SetCookieCall {
+    public var req: Int = 0
+    public var store: Int = 0
+    public var url: String = ""
+    public var name: String = ""
+    public var value: String = ""
+    public var attributes: String = ""
+    public var domain: String = ""
+    public var path: String = ""
+    public var secure: Bool = false
+    public var httpOnly: Bool = false
+    public var sameSite: String = ""
+    public init() {}
+    init(_ r: inout WireReader) {
+        req = r.int()
+        store = r.int()
+        url = r.string()
+        name = r.string()
+        value = r.string()
+        attributes = r.string()
+        domain = r.string()
+        path = r.string()
+        secure = r.bool()
+        httpOnly = r.bool()
+        sameSite = r.string()
+    }
+}
+
+public struct DeleteCookieCall {
+    public var req: Int = 0
+    public var store: Int = 0
+    public var url: String = ""
+    public var name: String = ""
+    public var domain: String = ""
+    public var path: String = ""
+    public var attributes: String = ""
+    public init() {}
+    init(_ r: inout WireReader) {
+        req = r.int()
+        store = r.int()
+        url = r.string()
+        name = r.string()
+        domain = r.string()
+        path = r.string()
+        attributes = r.string()
+    }
+}
+
+public struct ClearSiteDataCall {
+    public var req: Int = 0
+    public var store: Int = 0
+    public var types: Int = 0
+    public init() {}
+    init(_ r: inout WireReader) {
+        req = r.int()
+        store = r.int()
+        types = r.int()
+    }
+}
+
 /// The calls Go makes of the host, on the main thread.
 public protocol HostCalls: AnyObject {
     /// the app's bundle and the system's settings, asked once at start
@@ -1221,7 +1323,7 @@ public protocol HostCalls: AnyObject {
     func screen() -> ScreenReply
     /// a line the app wrote to its standard output or error
     func log(_ c: LogCall)
-    /// the screen's content: a web view, or a surface for native UI
+    /// the screen's content: a web view, in the data store Store (NewDataStore; 0 for the default one), or a surface for native UI
     func createWindow(_ c: CreateWindowCall) -> CreateWindowReply
     /// the window's content presented its first frame
     func firstFrame(_ c: FirstFrameCall)
@@ -1342,6 +1444,18 @@ public protocol HostCalls: AnyObject {
     func registerFont(_ c: RegisterFontCall) -> RegisterFontReply
     /// how many Frames a second come from now on while they follow each other, a whole fraction of the display's rate, or 0 for the display's own (platform.FrameRateSurface)
     func setFrameRate(_ c: SetFrameRateCall)
+    /// a website data store of a session: kept on disk under ID, a UUID, unless Ephemeral; Store numbers it, Error says why there is none
+    func newDataStore(_ c: NewDataStoreCall) -> NewDataStoreReply
+    /// the end of the app's use of a store, which goes once no web view uses it
+    func closeDataStore(_ c: CloseDataStoreCall)
+    /// the store's cookies as lines of a Set-Cookie header's form (name=value; domain=…; path=…; expires=…; secure; httponly; samesite=…): every cookie, or with URL those a request to it sends
+    func listCookies(_ c: ListCookiesCall)
+    /// a cookie to set, Name=Value with the Attributes of a Set-Cookie header (Path, SameSite, and Domain, Expires, Secure and HttpOnly when set) as a response from URL would; the other fields are what the cookie must be, which a store checks where it parses the attributes itself
+    func setCookie(_ c: SetCookieCall)
+    /// the cookie of Name, Domain and Path to delete, if any; a store that can only set cookies sets Name= with the Attributes, which expire it, as a response from URL
+    func deleteCookie(_ c: DeleteCookieCall)
+    /// the data of Types (platform.SiteData) to delete from the store, whatever its age
+    func clearSiteData(_ c: ClearSiteDataCall)
 }
 
 /// Runs a call on h and encodes its reply, nil for a call not waited for.
@@ -1606,6 +1720,24 @@ public func dispatchCall(_ h: HostCalls, _ buf: UnsafeRawBufferPointer) -> [UInt
         return w.buf
     case 86:
         h.setFrameRate(SetFrameRateCall(&r))
+        return nil
+    case 87:
+        h.newDataStore(NewDataStoreCall(&r)).encode(&w)
+        return w.buf
+    case 88:
+        h.closeDataStore(CloseDataStoreCall(&r))
+        return nil
+    case 89:
+        h.listCookies(ListCookiesCall(&r))
+        return nil
+    case 90:
+        h.setCookie(SetCookieCall(&r))
+        return nil
+    case 91:
+        h.deleteCookie(DeleteCookieCall(&r))
+        return nil
+    case 92:
+        h.clearSiteData(ClearSiteDataCall(&r))
         return nil
     default:
         return nil
@@ -2120,6 +2252,16 @@ public enum Event {
         w.int(id)
         w.int(node)
         w.string(action)
+        return w.buf
+    }
+    /// the answer to a call of a website data store: Cookies are ListCookies' lines; Unsupported tells the store cannot do what was asked
+    public static func siteDataDone(req: Int, cookies: [String], error: String, unsupported: Bool) -> [UInt8] {
+        var w = WireWriter()
+        w.uvarint(63)
+        w.int(req)
+        w.strings(cookies)
+        w.string(error)
+        w.bool(unsupported)
         return w.buf
     }
 }
