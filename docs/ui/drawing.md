@@ -337,6 +337,12 @@ display shows evenly, a whole number of refreshes a frame: 60, 40 or 30
 frames a second on a 120 Hz display, 60 or 30 on a 60 Hz one. The window
 draws at the fastest rate anything in it asks for, so a drawing asking for
 `AnimationFrame` or a view that animates still draws at the display's.
+While the window does not have the keyboard focus, behind another the user
+works in, `AnimationFrameRate` asks for half as many frames, as
+`ui.Spinner` steps half as often there. Each frame costs about the same
+whatever it draws (about 2 ms of CPU on an M3 for one small drawing,
+mostly the system's compositing and the GPU's submission rather than the
+drawing), so the frames a second are what motion that lasts costs.
 Pacing with `p.After(time.Second / 60)` instead draws unevenly: a frame
 asked for later than a refresh waits for the next.
 

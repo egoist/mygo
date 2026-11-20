@@ -108,10 +108,16 @@ loading.Ring(c, loading.Options{
 
 ## Motion and accessibility
 
-An indicator asks for a frame each time it is painted, as a spinner
-does (`Painter.AnimationFrame`), and only while it shows: one out of view
-is not painted and asks for none, and it does not build the view again.
+An indicator asks to be painted again at `Options.FPS` frames a second,
+`DefaultFPS` (30) unless set (`Painter.AnimationFrameRate`), half as many
+while its window is in the background, and only while it shows: one out
+of view is not painted and asks for none, and it does not build the view
+again.
 Each starts its cycle as it first shows, as a CSS animation does.
+Each frame is one of the whole window, so the display's rate (120 a
+second on ProMotion) would cost four times as much for motion that looks
+no smoother at an indicator's size; a negative `FPS` asks for it
+(`Painter.AnimationFrame`).
 
 Where the desktop asks for less motion (`ui.Preferences.ReduceMotion`:
 macOS's Reduce Motion, Windows's animation effects or GNOME's animations
