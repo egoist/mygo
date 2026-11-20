@@ -105,6 +105,36 @@ The scales are values with no mutable caches or timers; they add no
 runtime dependency. The gallery's Charts page compares linear and log
 latencies, and lets you change the symlog linear region.
 
+### Fixed color thresholds
+
+`chart.NewThreshold(100, 300)` classifies finite values into three
+buckets: below 100, from 100 up to 300, and 300 or above. Use the same
+scale across filters and time windows to keep the meaning of colors
+stable, as in a latency heat map with service targets. `NewThreshold`
+copies the supplied values into `Threshold.Cutoffs`. Keep the cutoffs
+finite and strictly increasing.
+
+```go
+latency := chart.NewThreshold(100, 300) // milliseconds
+palette := []ui.Color{ui.RGB(0, 128, 0), ui.RGB(255, 128, 0), ui.RGB(255, 0, 0)}
+columns := chart.NewLinear(0, float64(len(samples)))
+chart.Plot(c, chart.Axes{}, func(area ui.Element) {
+	for i, v := range samples {
+		if bucket, ok := latency.Index(v); ok {
+			chart.Rect(c, columns.Span(float64(i), float64(i+1)), chart.Span{Lo: 0, Hi: 1}).
+				Background(palette[bucket])
+		}
+	}
+}).Height(32)
+```
+
+`Index` gives no bucket for NaN or infinity, so those cells can show
+a missing-data style. Use `Len` and `Bounds(i)` to build a legend from
+the same thresholds. The lower limit is inclusive and the upper limit
+is exclusive. Negative and positive infinity in those bounds indicate
+an open end. On a dashboard, add text labels for the ranges so that
+their meaning is available alongside the colors.
+
 ## The plot and its axes
 
 `chart.Plot` lays the plot's area out in a grid with an axis on each side

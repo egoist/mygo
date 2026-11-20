@@ -54,6 +54,26 @@ bar := changes.Span(0, -100)     // a signed bar around that baseline
 
 定义域必须是有限的。对数定义域不能接触或跨过零，它的非零基数必须有限且大于 1，symlog 标度的非零常数必须有限且为正。无效的标度给出 NaN 位置且没有刻度；`Nice` 不会改动它们。接近 float64 的极限时，如果下一个幂无法表示，对数 `Nice` 会保留一个端点。标度是值类型，没有可变的缓存或计时器，也不会增加运行时依赖。Gallery 示例的 Charts 页面会比较线性与对数延迟，还可以调整 symlog 的线性区域。
 
+### 固定颜色阈值
+
+`chart.NewThreshold(100, 300)` 把有限数值分为三档：小于 100、从 100 到小于 300、300 及以上。延迟热图可用它表示服务目标。在不同筛选条件和时间窗口中复用同一个标度，每种颜色就始终代表同一个区间。`NewThreshold` 将传入的值复制到 `Threshold.Cutoffs`。调用方需保证阈值有限且严格递增。
+
+```go
+latency := chart.NewThreshold(100, 300) // 毫秒
+palette := []ui.Color{ui.RGB(0, 128, 0), ui.RGB(255, 128, 0), ui.RGB(255, 0, 0)}
+columns := chart.NewLinear(0, float64(len(samples)))
+chart.Plot(c, chart.Axes{}, func(area ui.Element) {
+	for i, v := range samples {
+		if bucket, ok := latency.Index(v); ok {
+			chart.Rect(c, columns.Span(float64(i), float64(i+1)), chart.Span{Lo: 0, Hi: 1}).
+				Background(palette[bucket])
+		}
+	}
+}).Height(32)
+```
+
+NaN 或无穷大的样本在 `Index` 中没有对应档位，可以显示为缺失数据。用 `Len` 和 `Bounds(i)` 从同一套阈值生成图例。区间包含下限，排除上限，两端的负无穷和正无穷表示该端没有界限。在仪表盘中给区间添加文字标签，便于用户理解颜色的含义。
+
 ## 绘图区及其坐标轴
 
 `chart.Plot` 用网格布置绘图区，每侧有一条坐标轴，刻度由 `chart.Axes` 提供：`Left` 和 `Right` 沿高度排列，`Top` 和 `Bottom` 沿宽度排列。标签参与布局，因此坐标轴占用所需的空间，剩余空间归绘图区：给绘图区一个高度，或让它在父元素中 `Fill`，并用 `Gap`（或 `GapX` 和 `GapY`）设置标签与区域之间的间距。`Axes.Label` 构建每个标签，并让它以对应刻度为中心；默认使用纯文本。标签放在宽高为零、用于居中的盒子里，因此要用 `NoWrap` 让文本保持在一行：
