@@ -263,6 +263,64 @@ func TestTrashItem(t *testing.T) {
 	}
 }
 
+func TestTrashItemResult(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	procCoInitializeEx.Call(0, coinitApartmentThreaded)
+	dir := t.TempDir()
+
+	file := filepath.Join(dir, "file.txt")
+	os.WriteFile(file, []byte("trash me"), 0o644)
+	folder := filepath.Join(dir, "folder")
+	os.MkdirAll(folder, 0o755)
+	for _, path := range []string{file, folder} {
+		result, err := (shell{}).TrashItemResult(path)
+		if err != nil {
+			t.Fatalf("TrashItemResult(%s): %v", path, err)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s is still there: %v", path, err)
+		}
+		if _, err := os.Stat(result); err != nil {
+			t.Errorf("TrashItemResult(%s) = %s, which is not there: %v", path, result, err)
+		}
+		base := filepath.Base(result)
+		if !strings.HasPrefix(base, "$R") {
+			t.Errorf("TrashItemResult(%s) = %s, want a $R item of the recycle bin", path, result)
+			continue
+		}
+		// The $I file paired with the $R one names where the item was
+		// deleted from, as inRecycleBin reads it.
+		info := filepath.Join(filepath.Dir(result), "$I"+strings.TrimPrefix(base, "$R"))
+		b, err := os.ReadFile(info)
+		if err != nil || len(b) < 28 || binary.LittleEndian.Uint64(b) != 2 {
+			t.Errorf("TrashItemResult(%s): cannot read %s: %v", path, info, err)
+			continue
+		}
+		n := int(binary.LittleEndian.Uint32(b[24:]))
+		if len(b) < 28+2*n {
+			t.Errorf("TrashItemResult(%s): short $I file %s", path, info)
+			continue
+		}
+		name := make([]uint16, n)
+		for i := range name {
+			name[i] = binary.LittleEndian.Uint16(b[28+2*i:])
+		}
+		wantDir, err := filepath.EvalSymlinks(filepath.Dir(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(wantDir, filepath.Base(path))
+		if got := syscall.UTF16ToString(name); !strings.EqualFold(got, want) {
+			t.Errorf("TrashItemResult(%s) = %s, whose $I names %s", path, result, got)
+		}
+	}
+
+	if _, err := (shell{}).TrashItemResult(filepath.Join(dir, "missing")); err == nil {
+		t.Error("TrashItemResult of a missing file did not fail")
+	}
+}
+
 func TestTrashItemKeepsAnItemTooBigForTheRecycleBin(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
