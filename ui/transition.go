@@ -331,6 +331,10 @@ type transition struct {
 	// index is where the element was among its siblings in the frame it
 	// went from, which orders the copies going under one parent.
 	index int
+	// left is the frame the element started leaving in, which orders the
+	// copies going under one parent too: the copy of the element that
+	// left first goes first.
+	left uint64
 	// matching moves an element appearing from where the one it Matches
 	// showed, and match is the record of its Match it had last
 	// (*matchRec, match.go), which apps without one do not link.
@@ -958,6 +962,11 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 			e := r.elem
 			r.t.Exit = r.t.Exit.flippedFor(e)
 			index := e.st.index
+			// The frame it started leaving in, which orders the copies
+			// going under one parent: the copy of an element that left
+			// before goes first, though the element itself was built
+			// after the other one.
+			r.left = rt.frame
 			// The transition takes a copy of the element as it showed: the
 			// node itself is another element's, or the window's, and the
 			// copy is what goes.
@@ -1084,8 +1093,14 @@ type exit struct {
 	p  *node
 }
 
-// before tells whether x's copy goes before y's under a parent.
+// before tells whether x's copy goes before y's under a parent: the
+// copy of the element that left first goes first, and the copies of the
+// elements that left together go in the order the elements were built
+// in.
 func (x exit) before(y exit) bool {
+	if x.r.left != y.r.left {
+		return x.r.left < y.r.left
+	}
 	if x.r.index != y.r.index {
 		return x.r.index < y.r.index
 	}

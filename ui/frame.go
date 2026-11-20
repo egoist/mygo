@@ -151,11 +151,9 @@ func (e Element) Children(fn func()) Element {
 // control, use Context.Key before construction instead.
 func (e Element) Key(key any) Element {
 	if n := e.node(); n != nil {
-		// The element takes the node its identity kept, which is not the
-		// one it was built in: the handle names the new one.
-		if m := n.Key(key); m != n {
-			return wrapElement(m)
-		}
+		// The element keeps the node it was built in: the identity takes
+		// it, so the handle still names the element.
+		n.Key(key)
 	}
 	return e
 }

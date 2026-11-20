@@ -8,7 +8,8 @@ import "testing"
 func TestNodeLivesPerIdentity(t *testing.T) {
 	var first *node
 	tt := NewTester(func(c *Context) {
-		e := Box(c).Key("row").Height(1)
+		c.Key("row")
+		e := Box(c).Height(1)
 		n := e.lookup()
 		if n == nil {
 			t.Fatal("the element has no node")
@@ -19,6 +20,48 @@ func TestNodeLivesPerIdentity(t *testing.T) {
 		}
 		if n != first {
 			t.Fatal("the element was built in another node")
+		}
+	}, 100, 50)
+	tt.Frame()
+	tt.Frame()
+}
+
+// An element keyed after it was built is built in a node of its own each
+// frame: the identity takes the node the element was built in, so that
+// nothing moves and no handle goes stale. What the identity holds does
+// not change from frame to frame.
+func TestLateKeyedElementIsBuiltInANodeOfItsOwn(t *testing.T) {
+	var ids []uint64
+	var nodes []*node
+	tt := NewTester(func(c *Context) {
+		e := Box(c).Key("row").Height(1)
+		n := e.lookup()
+		if n == nil {
+			t.Fatal("the element has no node")
+		}
+		ids = append(ids, n.id)
+		nodes = append(nodes, n)
+	}, 100, 50)
+	tt.Frame()
+	tt.Frame()
+	if ids[0] != ids[1] {
+		t.Errorf("the element changed its identity: %x, then %x", ids[0], ids[1])
+	}
+	if nodes[0] == nodes[1] {
+		t.Error("the element kept its node, though it was keyed late")
+	}
+}
+
+// A handle keeps naming the element it was made for, though the element
+// is keyed after: the identity takes the node the element was built in,
+// so nothing moves.
+func TestHandleSurvivesALateKey(t *testing.T) {
+	tt := NewTester(func(c *Context) {
+		b := Box(c)
+		b.Key("x")
+		b.Label("kept")
+		if b.lookup() == nil {
+			t.Fatal("the handle does not name the element any more")
 		}
 	}, 100, 50)
 	tt.Frame()
@@ -110,5 +153,35 @@ func TestDuplicateKeyDoesNotTakeTheNodeBeingBuilt(t *testing.T) {
 	}
 	if first == second {
 		t.Fatal("the second element took the node the first was building in")
+	}
+}
+
+// A duplicate key leaves the tree of the frame whole: the element that
+// has the key twice keeps the identity of its place, so that the node it
+// is built in stays in the tree, and the elements after it are still there.
+func TestDuplicateKeyKeepsTheTreeWhole(t *testing.T) {
+	dupe := false
+	tt := NewTester(func(c *Context) {
+		if !dupe {
+			return
+		}
+		Box(c).Key("same").Height(1)
+		Box(c).Key("same").Height(2)
+		Box(c).Height(3)
+	}, 100, 50)
+	tt.rt.strict = false
+	dupe = true
+	tt.Frame()
+	var heights []float32
+	for e := tt.rt.c.root.first; e != nil; e = e.next {
+		heights = append(heights, e.h)
+	}
+	if len(heights) != 3 {
+		t.Fatalf("the tree of the frame holds %d elements, not 3: %v", len(heights), heights)
+	}
+	for i, h := range heights {
+		if h != float32(i+1) {
+			t.Errorf("the element %d of the frame has the height %v", i, h)
+		}
 	}
 }

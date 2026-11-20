@@ -7,21 +7,23 @@ import "testing"
 // the born of its state, is part of what it names (elementRef).
 func TestReferenceNamesOneElement(t *testing.T) {
 	var ref, again elementRef
-	var first, second *node
+	// The element is keyed late, so it is built in a node of its own
+	// each frame: what names it is its ID, not the node it was built in.
+	var first, second uint64
 	show := true
 	tt := coreNewTester(func(c *context) {
 		if !show {
 			return
 		}
 		e := coreText(c, "Target").Key("target")
-		if first == nil {
-			first, ref = e, refTo(e)
+		if first == 0 {
+			first, ref = e.id, refTo(e)
 		} else {
-			second, again = e, refTo(e)
+			second, again = e.id, refTo(e)
 		}
 	}, 200, 150)
 	tt.Frame()
-	if got := tt.rt.c.root.resolve(ref); got != first {
+	if got := tt.rt.c.root.resolve(ref); got == nil || got.id != first {
 		t.Fatal("the reference did not resolve to the element it named")
 	}
 	// The element goes, and the state of its id with it.
@@ -42,7 +44,7 @@ func TestReferenceNamesOneElement(t *testing.T) {
 	if got := tt.rt.c.root.resolve(ref); got != nil {
 		t.Fatal("the reference followed its id to another element")
 	}
-	if got := tt.rt.c.root.resolve(again); got != second {
+	if got := tt.rt.c.root.resolve(again); got == nil || got.id != second {
 		t.Fatal("the new element's own reference did not resolve to it")
 	}
 }
