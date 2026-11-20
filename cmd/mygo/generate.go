@@ -8,10 +8,11 @@ import (
 
 func runGenerate(args []string) error {
 	fs := newFlags("generate", "[-o file] [dir]", `Writes the typed TypeScript client for the services bound with mygo.Bind
-and the events declared with mygo.NewEvent. With i18n in mygo.json, it first
-checks the catalogs of the app's messages and writes their accessors: Go
-functions in the catalogs' directory, and a TypeScript module next to the
-client, named after the directory (src/locales.ts).`)
+and the events declared with mygo.NewEvent, and compiles the app's .view
+files to their *_view.go. With i18n in mygo.json, it first checks the
+catalogs of the app's messages and writes their accessors: Go functions in
+the catalogs' directory, and a TypeScript module next to the client, named
+after the directory (src/locales.ts).`)
 	out := fs.String("o", "", "output file (default: bindings from mygo.json)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -32,15 +33,22 @@ client, named after the directory (src/locales.ts).`)
 			return err
 		}
 	}
-	if c.Bindings == "" && c.I18n == nil {
-		if len(modules) > 0 {
-			return nil
-		}
-		return fmt.Errorf("the project has no frontend to write a client for: set bindings in %s, or pass -o", c.configName())
-	}
-	// The accessors come first: the app's Go code calls them.
+	// The accessors come first: the app's Go code calls them, its views
+	// included.
 	if err := generateI18n(c); err != nil {
 		return err
+	}
+	// The views of a native app are its frontend half: generating them
+	// is work enough on its own (#1457).
+	views, err := prepareViews(context.Background(), c, nil)
+	if err != nil {
+		return err
+	}
+	if c.Bindings == "" && c.I18n == nil {
+		if len(modules) > 0 || views {
+			return nil
+		}
+		return fmt.Errorf("the project has no frontend to write a client for: set bindings in %s, pass -o, or add a .view file", c.configName())
 	}
 	if c.I18n != nil {
 		if dirs := compiledDirs(c); dirs != nil {

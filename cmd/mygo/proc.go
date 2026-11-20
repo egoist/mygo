@@ -86,6 +86,9 @@ func buildBinary(c *Config, out string, env []string, flags ...string) error {
 // goBuild compiles the app package into out, showing on t the packages it
 // compiles, which go build -v lists.
 func goBuild(ctx context.Context, c *Config, t *task, out string, env []string, flags ...string) error {
+	if _, err := prepareViews(ctx, c, env, flags...); err != nil {
+		return err
+	}
 	args := append([]string{"build", "-v", "-o", out}, flags...)
 	args = append(args, c.Main)
 	cmd := goCommandContext(ctx, c.root, env, args...)
