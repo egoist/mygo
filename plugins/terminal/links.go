@@ -28,9 +28,14 @@ var pathToken = regexp.MustCompile(`[^\s"'<>` + "`" + proseDelimiters + `]+`)
 var pathInToken = regexp.MustCompile(`(?:(?:~|\.{1,2})?/[^\s:]+|[\p{L}\p{N}_.@+-]+(?:/[\p{L}\p{N}_.@+-]+)+/?)(?::\d+(?::\d+)?)?|[\p{L}\p{N}_@+-][\p{L}\p{N}_.@+-]*\.[\p{L}\p{N}_]+(?::\d+(?::\d+)?)?`)
 
 // drive starts a Windows path at a drive, as D:\dev or D:/dev. Its colon is
-// the path's, not a place's, and its backslashes are slashes: the whole of
-// D:\dev\main.go is the link, not main.go at its end.
+// the path's, not a place's.
 var drive = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
+
+// windowsPath starts a Windows path, at a drive or a UNC server, as
+// \\server\share, whose backslashes are slashes: the whole of
+// D:\dev\main.go is the link, not main.go at its end. Elsewhere a backslash
+// is not a separator, so that hello\nworld and \d+ are not paths.
+var windowsPath = regexp.MustCompile(`^(?:[A-Za-z]:|\\\\[^\\/\s]+)[\\/]`)
 
 // quotedPlace finds the place after a quoted path, as "main.py":12.
 var quotedPlace = regexp.MustCompile(`^:\d+(?::\d+)?`)
@@ -183,7 +188,11 @@ func pathOf(tok string) (path string, a, b int) {
 	}
 	// Words are not paths: a name without a slash takes a letter, and an
 	// extension or a line, so that version 1.2.3 and 12:30 are neither.
-	if !strings.ContainsAny(name, `/\`) {
+	separators := "/"
+	if windowsPath.MatchString(name) {
+		separators = `/\`
+	}
+	if !strings.ContainsAny(name, separators) {
 		dot := strings.LastIndexByte(name, '.')
 		if strings.IndexFunc(name, unicode.IsLetter) < 0 || line == 0 && (dot < 0 || dot == len(name)-1) {
 			return "", 0, 0

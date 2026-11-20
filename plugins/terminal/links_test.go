@@ -77,6 +77,12 @@ func TestPathAt(t *testing.T) {
 		{`C:/Users/me/.codex/images/exec-1.png`, 0, `C:/Users/me/.codex/images/exec-1.png`},
 		{`C:/Users/me/.codex/images/exec-1.png`, 20, `C:/Users/me/.codex/images/exec-1.png`},
 		{`time 12:30:45 ok`, 7, ""},
+		{`copied \\server\share\reports`, 12, `\\server\share\reports`},
+		// A backslash elsewhere is an escape, not a separator.
+		{`echo hello\nworld`, 8, ""},
+		{`printf %s\t%s`, 9, ""},
+		{`grep \d+ file`, 6, ""},
+		{`\section intro`, 3, ""},
 	} {
 		text := []rune(c.row)
 		cols := make([]int, len(text))
