@@ -1827,4 +1827,9 @@ func TestDiffViewDeletionAfterFinalNewline(t *testing.T) {
 	if !slices.ContainsFunc(below, func(b block) bool { return b.kind == blockDeleted && b.from == 1 && b.to == 3 }) {
 		t.Fatalf("the deleted lines are not under the last line: %+v", below)
 	}
+	// LineTop finds them there, each a line below the one before.
+	lh := d.LineTop(DiffOld, 1)
+	if lh <= 0 || d.LineTop(DiffOld, 2) != 2*lh || d.LineTop(DiffNew, 1) != 3*lh {
+		t.Fatalf("the tops of the old lines 1 and 2 and the end are %v, %v and %v", lh, d.LineTop(DiffOld, 2), d.LineTop(DiffNew, 1))
+	}
 }
