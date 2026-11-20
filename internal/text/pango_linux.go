@@ -674,6 +674,11 @@ func (e *pangoEngine) font(style Style) *Font {
 	return f
 }
 
+// pangoCeil returns v, in Pango units, rounded up to whole DIPs.
+func pangoCeil(v int32) float32 {
+	return float32(math.Ceil(float64(v) / pangoScale))
+}
+
 // fontOf returns the Font of a PangoFont.
 func (e *pangoEngine) fontOf(font uintptr) *Font {
 	if f, ok := e.fonts[font]; ok {
@@ -690,11 +695,13 @@ func (e *pangoEngine) fontOf(font uintptr) *Font {
 	if m := l.fontGetMetrics(font, 0); m != 0 {
 		f.Ascent = float32(l.metricsGetAscent(m)) / pangoScale
 		f.Descent = float32(l.metricsGetDescent(m)) / pangoScale
-		// Hinted metrics are whole pixels (DIPs), rounded up.
-		f.underlineTop = float32(l.metricsGetUnderlinePos(m)) / pangoScale
-		f.underlineThick = float32(l.metricsGetUnderlineThick(m)) / pangoScale
-		f.strikeTop = float32(l.metricsGetStrikePos(m)) / pangoScale
-		f.strikeThick = float32(l.metricsGetStrikeThick(m)) / pangoScale
+		// Hinted metrics are whole pixels (DIPs), rounded up. Older stacks
+		// (Ubuntu 22.04's, Debian 12's) leave the lines' fractions of a
+		// pixel, which draw faint: round those up too.
+		f.underlineTop = pangoCeil(l.metricsGetUnderlinePos(m))
+		f.underlineThick = pangoCeil(l.metricsGetUnderlineThick(m))
+		f.strikeTop = pangoCeil(l.metricsGetStrikePos(m))
+		f.strikeThick = pangoCeil(l.metricsGetStrikeThick(m))
 		if l.metricsGetHeight != nil {
 			f.LineGap = max(float32(l.metricsGetHeight(m))/pangoScale-f.Ascent-f.Descent, 0)
 		}
