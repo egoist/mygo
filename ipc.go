@@ -351,16 +351,22 @@ func (m *method) call(w *Window, page, parent context.Context, token string, arg
 		}
 		in = append(in, v)
 	}
-	out := m.fn.Call(in)
-	if m.hasErr {
-		if e := out[len(out)-1]; !e.IsNil() {
-			return nil, e.Interface().(error)
+	invoke := func(ctx context.Context) (any, error) {
+		if m.ctx {
+			in[0] = reflect.ValueOf(ctx)
 		}
+		out := m.fn.Call(in)
+		if m.hasErr {
+			if e := out[len(out)-1]; !e.IsNil() {
+				return nil, e.Interface().(error)
+			}
+		}
+		if m.result != nil {
+			return out[0].Interface(), nil
+		}
+		return nil, nil
 	}
-	if m.result != nil {
-		return out[0].Interface(), nil
-	}
-	return nil, nil
+	return runMiddleware(ctx, m, in, invoke)
 }
 
 func decodeArg(raw rawValue, t reflect.Type, i int) (reflect.Value, error) {
