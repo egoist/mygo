@@ -470,27 +470,51 @@ func TestTrashItemFailsWhenWindowsDeletesAFileAllTheSame(t *testing.T) {
 	}
 }
 
+// samePath reports whether a and b are both empty or name the same file,
+// whichever of its long and short (8.3) names they use.
+func samePath(a, b string) bool {
+	if a == "" || b == "" {
+		return a == b
+	}
+	ai, err1 := os.Stat(a)
+	bi, err2 := os.Stat(b)
+	return err1 == nil && err2 == nil && os.SameFile(ai, bi)
+}
+
 func TestTrashSinkNotesOnlyPermanentDeletes(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	procCoInitializeEx.Call(0, coinitApartmentThreaded)
 	trashSinkOnce.Do(initTrashSink)
+	// The recycle bin's new item, which the sink takes the path of.
+	dir := t.TempDir()
+	var item uintptr
+	if r, _, _ := procSHCreateItemFromParsingName.Call(uintptr(unsafe.Pointer(u16(dir))), 0, uintptr(unsafe.Pointer(&iidIShellItem)), uintptr(unsafe.Pointer(&item))); failed(r) || item == 0 {
+		t.Fatal(hresultError("SHCreateItemFromParsingName", r))
+	}
+	defer release(item)
 	for _, tc := range []struct {
 		name     string
-		hr, item uintptr // hrDelete, and whether there is a new item
+		hr, item uintptr // hrDelete, and the new item
 		deleted  bool
+		result   string
 	}{
-		{"recycled", 0x00270008, 1, false},
-		{"deleted for good", 0x00270008, 0, true},
-		{"a folder too big, before its items", copyEngineSNotHandled, 0, false},
-		{"refused", eAbort, 0, false},
+		{"recycled", 0x00270008, item, false, dir},
+		{"deleted for good", 0x00270008, 0, true, ""},
+		{"a folder too big, before its items", copyEngineSNotHandled, 0, false, ""},
+		{"refused", eAbort, 0, false, ""},
 	} {
 		sink := &trashSink{vtbl: &trashSinkVtbl, refs: 1}
 		p := uintptr(unsafe.Pointer(sink))
 		trashSinks[p] = sink
-		// PostDeleteItem(flags, item, hrDelete, newlyCreated), which only
-		// compares newlyCreated with nil.
+		// PostDeleteItem(flags, item, hrDelete, newlyCreated).
 		syscall.SyscallN(trashSinkVtbl[12], p, 0, 0, tc.hr, tc.item)
 		delete(trashSinks, p)
 		if sink.deleted != tc.deleted {
 			t.Errorf("%s: deleted = %t, want %t", tc.name, sink.deleted, tc.deleted)
+		}
+		if !samePath(sink.result, tc.result) {
+			t.Errorf("%s: result = %q, want %q", tc.name, sink.result, tc.result)
 		}
 	}
 }

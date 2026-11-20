@@ -111,7 +111,6 @@ func initTrashSink() {
 				s.deleted = true
 			}
 			if newlyCreated != 0 && s.result == "" {
-				const sigdnFileSysPath = 0x80058000
 				var name uintptr
 				if r := comCall(newlyCreated, siGetDisplayName, sigdnFileSysPath, uintptr(unsafe.Pointer(&name))); !failed(r) {
 					s.result = takeWstr(name)
