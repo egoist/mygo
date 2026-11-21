@@ -409,6 +409,12 @@ func (s *surface) listen() {
 // lineHeight is how many DIPs a line of a wheel scrolls.
 const lineHeight = 16
 
+// wheel scrolls the content, or zooms it for a touchpad's pinch. A window
+// in the page's element #mygo leaves the page the wheel its content does
+// not take, which scrolls the page around it, as a scroll view at its end
+// lets the one around it scroll; with Control held, the browser would zoom
+// the page instead. A window filling the page keeps every wheel, which
+// would otherwise go back a page or bounce it.
 func (s *surface) wheel(e js.Value) {
 	x, y := s.point(e)
 	dx, dy := e.Get("deltaX").Float(), e.Get("deltaY").Float()
@@ -425,8 +431,14 @@ func (s *surface) wheel(e js.Value) {
 			precise = false
 		}
 	}
-	if ctrl {
+	chain := s.w.embedded && !ctrl
+	if !chain {
 		e.Call("preventDefault")
+	} else if c := e.Get("cancelable"); c.Type() == js.TypeBoolean && !c.Bool() {
+		// The page scrolls with the rest of a gesture whose first wheel
+		// the content did not take: the browser no longer lets it be
+		// taken, and the content scrolling too would move both.
+		return
 	}
 	if precise && ctrl {
 		// A touchpad's pinch, which Chrome and Firefox send as
@@ -436,15 +448,7 @@ func (s *surface) wheel(e js.Value) {
 		s.send(platform.SurfaceEvent{Kind: platform.PointerZoom, X: x, Y: y, Scale: math.Exp(-dy / 100), Mods: s.mods(e)})
 		return
 	}
-	if !ctrl {
-		// Once the browser owns an unconsumed scroll gesture, later events
-		// arrive non-cancelable; leave them to the page rather than scrolling
-		// both.
-		if c := e.Get("cancelable"); c.Type() == js.TypeBoolean && !c.Bool() {
-			return
-		}
-	}
-	if s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: dx, DY: dy, Precise: precise, Mods: s.mods(e)}) && !ctrl {
+	if s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: dx, DY: dy, Precise: precise, Mods: s.mods(e)}) && chain {
 		e.Call("preventDefault")
 	}
 }

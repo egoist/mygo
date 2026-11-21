@@ -267,6 +267,7 @@ func TestWheelPreventDefault(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		props       map[string]any
+		fullPage    bool
 		take        bool
 		wantCalled  bool
 		wantKind    platform.SurfaceEventKind
@@ -296,6 +297,24 @@ func TestWheelPreventDefault(t *testing.T) {
 			wantPrevent: false,
 		},
 		{
+			name:        "full page, scroll unconsumed",
+			props:       map[string]any{"deltaX": 0.0, "deltaY": 40.0, "deltaMode": 0, "ctrlKey": false, "cancelable": true},
+			fullPage:    true,
+			take:        false,
+			wantCalled:  true,
+			wantKind:    platform.PointerScroll,
+			wantPrevent: true,
+		},
+		{
+			name:        "full page, non-cancelable scroll still delivered",
+			props:       map[string]any{"deltaX": 0.0, "deltaY": 40.0, "deltaMode": 0, "ctrlKey": false, "cancelable": false},
+			fullPage:    true,
+			take:        true,
+			wantCalled:  true,
+			wantKind:    platform.PointerScroll,
+			wantPrevent: true,
+		},
+		{
 			name:        "pinch always prevented",
 			props:       map[string]any{"deltaX": 0.0, "deltaY": -10.0, "deltaMode": 0, "ctrlKey": true, "cancelable": true},
 			take:        false,
@@ -322,7 +341,7 @@ func TestWheelPreventDefault(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := &wheelTestHandler{take: tc.take}
-			s := &surface{w: &window{b: &Backend{}, h: h}, canvas: canvas, width: 400, height: 300}
+			s := &surface{w: &window{b: &Backend{}, h: h, embedded: !tc.fullPage}, canvas: canvas, width: 400, height: 300}
 			prevented := false
 			preventFn := js.FuncOf(func(js.Value, []js.Value) any {
 				prevented = true
