@@ -163,6 +163,46 @@ func TestMiddlewareDerivesContext(t *testing.T) {
 	}
 }
 
+func TestMiddlewareNextTwice(t *testing.T) {
+	resetMiddleware(t)
+	svc := &mwService{}
+	BindAs("mwTwice", svc)
+	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
+		v, err := next(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := next(ctx); err == nil {
+			return nil, errors.New("the second next ran")
+		}
+		return v, nil
+	})
+	w := &Window{}
+	reply := mwReply(t, w, "mwTwice.Echo", `["hi",3]`)
+	if reply["ok"] != true || reply["v"] != "hi:3" {
+		t.Errorf("reply = %v, want ok with hi:3", reply)
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if len(svc.calls) != 1 {
+		t.Errorf("the method ran %d times, want once", len(svc.calls))
+	}
+}
+
+func TestMiddlewareNextNilContext(t *testing.T) {
+	resetMiddleware(t)
+	svc := &mwService{}
+	BindAs("mwNilCtx", svc)
+	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
+		return next(nil) // runs with the call's own context
+	})
+	w := &Window{}
+	reply := mwReply(t, w, "mwNilCtx.ContextValue", `[]`)
+	if reply["ok"] != true || reply["v"] != "" {
+		t.Errorf("reply = %v, want ok with an empty value", reply)
+	}
+}
+
 func TestMiddlewarePanicBecomesError(t *testing.T) {
 	resetMiddleware(t)
 	svc := &mwService{}
