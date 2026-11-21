@@ -342,7 +342,8 @@ type Window struct {
 	cornerRadius int
 	// transparent is WindowOptions.Transparent: the window shows what is
 	// behind it, so that the arc of its corners has something to show.
-	transparent bool
+	// frameless is WindowOptions.Frameless.
+	transparent, frameless bool
 	// active tells that the window is drawn as active (active.go);
 	// focusKnown, that it had the keyboard once or showed without it;
 	// keepActive, that SetActiveAppearance keeps it active. Main thread
@@ -663,7 +664,7 @@ func newWindow(opts WindowOptions, bg, tint *background, native uintptr, flyout 
 	id := windows.nextID
 	windows.Unlock()
 
-	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, untrusted: opts.Page.Untrusted, secret: randomText(), stateKey: opts.StateKey, background: bg, vibrancyTint: tint, content: opts.Content != nil, panel: opts.Panel && flyout == nil, active: true, cornerRadius: opts.CornerRadius, transparent: opts.Transparent}
+	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, untrusted: opts.Page.Untrusted, secret: randomText(), stateKey: opts.StateKey, background: bg, vibrancyTint: tint, content: opts.Content != nil, panel: opts.Panel && flyout == nil, active: true, cornerRadius: opts.CornerRadius, transparent: opts.Transparent, frameless: opts.Frameless}
 	w.pg = &Page{w}
 	if flyout != nil {
 		w.fit = flyout.fit

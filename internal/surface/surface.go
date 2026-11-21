@@ -22,13 +22,12 @@ type Conn struct {
 	// TitleBarDoubleClicked does what a double click on a title bar does.
 	StartDrag             func()
 	TitleBarDoubleClicked func()
-	// CornerRadius is the radius, in DIPs, the window's corners are rounded
-	// to on screen and its frames cut to, or 0 where they are square. The
-	// system's corners take the frames' (Windows 11), while where it draws
-	// them square (Windows 10) RoundContent tells that the content rounds
-	// its own.
-	CornerRadius float64
-	RoundContent bool
+	// ContentCorners, where it is not nil, returns the radius, in DIPs,
+	// that the content cuts its frames' corners to, as the system keeps
+	// the window's square (a transparent frameless window with a
+	// CornerRadius on Windows 10), or 0 while they are square anyway
+	// (maximized, full screen). Each frame asks it. Main thread only.
+	ContentCorners func() float64
 	// Escape is called with an Escape that no element or shortcut of the
 	// content handled, which closes a flyout.
 	Escape func()

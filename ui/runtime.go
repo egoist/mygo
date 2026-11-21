@@ -108,10 +108,11 @@ type host interface {
 // the view function, lays them out, paints them and routes input to the
 // elements of the last frame. Main thread only, except where noted.
 type engine struct {
-	// corner is the radius, in DIPs, the window's frames are cut to where
-	// the system does not round its corners (surface.Conn.CornerRadius), 0
-	// where they are square or the system rounds them.
-	corner float32
+	// corners returns the radius, in DIPs, the window's frames are cut to
+	// where the system does not round its corners
+	// (surface.Conn.ContentCorners), 0 while they are square. nil for
+	// every other window.
+	corners func() float64
 	// inlineRects is placeInline's scratch, kept from frame to frame.
 	inlineRects []text.Rect
 	// byPosition holds the keys whose press stood for its physical key
@@ -721,8 +722,8 @@ func newRuntime(view func(*context), h host) *engine {
 		statsThreshold, statsOn = frameStatsSetting(os.Getenv("MYGO_FRAME_STATS"))
 	}
 	rt := &engine{view: view, host: h, text: h.textSystem(), states: map[uint64]*state{}, windowFocused: true}
-	if c, ok := h.(*windowHost); ok && c.conn != nil && c.conn.RoundContent {
-		rt.corner = float32(max(c.conn.CornerRadius, 0))
+	if c, ok := h.(*windowHost); ok && c.conn != nil {
+		rt.corners = c.conn.ContentCorners
 	}
 	rt.c.rt = rt
 	rt.owner = weak.Make(rt)

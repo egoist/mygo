@@ -100,9 +100,12 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	// and the GPU renderers antialias (scene.OpPushClip's radii), so that
 	// what it draws outside the corners is not shown either way. The
 	// background fills the rounded rect, and the frames clear to nothing
-	// beyond it. A window with nothing behind it keeps the square corners
-	// it shows (surface.Conn.RoundContent).
-	rounded := roundFrame(s, rt.corner*scale, pw, ph)
+	// beyond it. Only a transparent window has something behind it to
+	// show there (surface.Conn.ContentCorners).
+	rounded := false
+	if rt.corners != nil {
+		rounded = roundFrame(s, float32(rt.corners())*scale, pw, ph)
+	}
 	under := rt.under[:0]
 	if opaque {
 		// Under all the window paints, as what it drags.
@@ -147,9 +150,11 @@ func roundFrame(s *scene.Scene, radius float32, pw, ph int) bool {
 	}
 	bg := s.Background
 	s.Background = scene.Color{}
-	s.Ops = append(s.Ops,
-		scene.Op{Kind: scene.OpFill, Rect: scene.Rect{W: float32(pw), H: float32(ph)}, Color: bg},
-		scene.Op{Kind: scene.OpPushClip, Rect: scene.Rect{W: float32(pw), H: float32(ph)}, Radii: scene.Uniform(radius)})
+	r := scene.Rect{W: float32(pw), H: float32(ph)}
+	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPushClip, Rect: r, Radii: scene.Uniform(radius)})
+	if bg.A != 0 {
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: r, Color: bg})
+	}
 	return true
 }
 
