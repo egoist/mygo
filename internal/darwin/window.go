@@ -744,9 +744,10 @@ func (w *window) downloadFor(url, path string) id {
 	return 0
 }
 
-// WKDownload can only cancel: pausing would need its session task's
-// resume data, which WebKit exposes no public way to restart a download
-// with.
+// Pausing a WKDownload would be cancel: keeping its resume data, then
+// -[WKWebView resumeDownloadFromResumeData:completionHandler:] (macOS
+// 11.3+), which hands a new WKDownload to re-key, set the delegate of and
+// observe again. MyGo does not do that yet, so Pause and Resume say so.
 func (w *window) PauseDownload(string, string) error {
 	return fmt.Errorf("mygo: pausing a download: %w", platform.ErrUnsupported)
 }
@@ -2771,7 +2772,7 @@ func registerWindowClasses() {
 					callBlock(handler, 0) // cancels the download
 					return
 				}
-				os.Remove(path) // WebKit refuses to replace a file
+				os.Remove(path)          // WebKit refuses to replace a file
 				send(download, "retain") // held until forgetDownload, for use outside the callbacks
 				w.downloads[download] = [2]string{url, path}
 				for _, key := range downloadProgressKeys {

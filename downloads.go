@@ -1,16 +1,21 @@
-//go:build !js
-
 package mygo
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/egoist/mygo/internal/platform"
 )
+
+// ErrDownloadCanceled is what a download the app canceled ends with: the
+// errors DownloadFinished reports wrap it, whatever the engine's own cause.
+var ErrDownloadCanceled = errors.New("mygo: download canceled")
 
 // DownloadEvent is passed to Page.OnWillDownload listeners. Setting Path
 // chooses where the file goes; preventing the event cancels the download.
@@ -40,9 +45,33 @@ type Download struct {
 
 	w          *Window
 	onProgress listeners[func(received, total int64)]
-	// scheme controls a download of a custom scheme, which the core
-	// serves itself (downloadWriter); nil for the engine's downloads.
-	scheme atomic.Pointer[downloadWriter]
+	// canceled records that the app canceled it, so that how it ended can
+	// be reported as ErrDownloadCanceled whatever the engine names.
+	canceled atomic.Bool
+	// mu guards scheme, the writer of a custom scheme's download, which
+	// the core serves itself; nil for the engine's downloads.
+	mu     sync.Mutex
+	scheme schemeControl
+}
+
+// schemeControl is a custom scheme's download, which the core serves
+// itself (downloadWriter).
+type schemeControl interface {
+	pause() error
+	resume() error
+	cancel()
+}
+
+func (d *Download) setScheme(s schemeControl) {
+	d.mu.Lock()
+	d.scheme = s
+	d.mu.Unlock()
+}
+
+func (d *Download) schemeDownload() schemeControl {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.scheme
 }
 
 // OnProgress registers fn to run as the download's bytes arrive, with the
@@ -57,8 +86,10 @@ func (d *Download) OnProgress(fn func(received, total int64)) (off func()) {
 // ErrUnsupported for the engine's downloads on macOS and Linux, whose
 // WKWebView and WebKitGTK can only cancel them, and an error once the
 // download ended. Downloads of the app's own schemes pause everywhere.
+// Controls act on a running download: one called from the OnWillDownload
+// listener, before it registered, reaches nothing.
 func (d *Download) Pause() error {
-	if s := d.scheme.Load(); s != nil {
+	if s := d.schemeDownload(); s != nil {
 		return s.pause()
 	}
 	return get(d.w, func(n platform.Window) error { return n.PauseDownload(d.URL, d.Path) })
@@ -66,15 +97,16 @@ func (d *Download) Pause() error {
 
 // Resume continues a paused download, with the same limits as Pause.
 func (d *Download) Resume() error {
-	if s := d.scheme.Load(); s != nil {
+	if s := d.schemeDownload(); s != nil {
 		return s.resume()
 	}
 	return get(d.w, func(n platform.Window) error { return n.ResumeDownload(d.URL, d.Path) })
 }
 
-// Cancel stops a running download, which ends with an error.
+// Cancel stops a running download, which ends with ErrDownloadCanceled.
 func (d *Download) Cancel() {
-	if s := d.scheme.Load(); s != nil {
+	d.canceled.Store(true)
+	if s := d.schemeDownload(); s != nil {
 		s.cancel()
 		return
 	}
@@ -138,8 +170,27 @@ func (h *windowHandler) DownloadFinished(url, path string, err error) {
 	if d == nil {
 		d = &Download{URL: url, Path: path, w: h.w}
 	}
+	if err != nil && d.canceled.Load() && !errors.Is(err, ErrDownloadCanceled) {
+		err = fmt.Errorf("%w: %w", ErrDownloadCanceled, err)
+	}
 	d.Err = err
 	fire1(&h.w.onDownloadDone, d)
+}
+
+// cancelSchemeDownloads ends the window's custom-scheme downloads: their
+// writers wait on the page of a window that is going away, paused or not.
+func (w *Window) cancelSchemeDownloads() {
+	w.mu.Lock()
+	var schemes []schemeControl
+	for _, d := range w.downloads {
+		if s := d.schemeDownload(); s != nil {
+			schemes = append(schemes, s)
+		}
+	}
+	w.mu.Unlock()
+	for _, s := range schemes {
+		s.cancel()
+	}
 }
 
 // uniquePath numbers path, like "name (2).ext", when a file has that name.

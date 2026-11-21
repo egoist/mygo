@@ -1275,8 +1275,11 @@ win.Page().OnWillDownload(func(e *mygo.DownloadEvent) {
 Downloads of the app's own schemes, which MyGo serves itself, pause and
 resume everywhere; of the engine's downloads, only Windows can pause and
 resume them: macOS's WKWebView and Linux's WebKitGTK can only cancel, and
-`Pause` returns `ErrUnsupported` there. A canceled or failed download ends
-with `Err` set.
+`Pause` returns `ErrUnsupported` there. Controls act on a running
+download: one called from the `OnWillDownload` listener, before the
+download registered, reaches nothing. A canceled download ends with an
+error that wraps `mygo.ErrDownloadCanceled`, so an app can tell it from a
+failure. A failed download ends with `Err` set.
 
 ### Permissions
 

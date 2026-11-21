@@ -985,6 +985,7 @@ func (w *Window) Destroy() { onMain(w.destroy) }
 
 func (w *Window) destroy() {
 	if n := w.native; n != nil {
+		w.cancelSchemeDownloads()
 		w.closeState()
 		n.Close()
 		// Backends report Closed synchronously, but be defensive.

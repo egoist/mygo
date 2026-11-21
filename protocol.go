@@ -428,6 +428,7 @@ func downloadScheme(h *windowHandler, rawURL string) {
 		}()
 		handler.ServeHTTP(rw, req)
 	}()
+	rw.settle()
 	rw.WriteHeader(http.StatusOK) // nothing written
 	if rw.file == nil {
 		if rw.err != nil {
@@ -435,6 +436,7 @@ func downloadScheme(h *windowHandler, rawURL string) {
 		}
 		return // canceled
 	}
+	rw.report(true) // the last one, even short of the total
 	if err := rw.file.Close(); rw.err == nil {
 		rw.err = err
 	}
@@ -477,7 +479,13 @@ func (d *downloadWriter) WriteHeader(status int) {
 		d.err = fmt.Errorf("mygo: downloading %s: %d %s", d.url, status, http.StatusText(status))
 		return
 	}
-	if d.err != nil { // canceled before it started
+	d.mu.Lock()
+	if d.canceled && d.err == nil {
+		d.err = ErrDownloadCanceled
+	}
+	canceled := d.canceled
+	d.mu.Unlock()
+	if canceled || d.err != nil { // canceled before it started
 		return
 	}
 	name := ""
@@ -501,7 +509,7 @@ func (d *downloadWriter) WriteHeader(status int) {
 	}
 	onMain(func() {
 		if dl := d.h.w.downloads[downloadKey{d.url, d.path}]; dl != nil {
-			dl.scheme.Store(d)
+			dl.setScheme(d)
 		}
 	})
 }
@@ -511,6 +519,11 @@ func (d *downloadWriter) Write(b []byte) (int, error) {
 	d.mu.Lock()
 	for d.paused && !d.canceled {
 		d.cond.Wait()
+	}
+	if d.canceled && d.err == nil {
+		// cancel only sets canceled, which the writer turns into the
+		// error it ends with, on its own goroutine.
+		d.err = ErrDownloadCanceled
 	}
 	d.mu.Unlock()
 	if d.file == nil || d.err != nil {
@@ -522,16 +535,35 @@ func (d *downloadWriter) Write(b []byte) (int, error) {
 	}
 	d.mu.Lock()
 	d.received += int64(n)
-	report := d.received-d.reported >= 64<<10
+	d.mu.Unlock()
+	d.report(false)
+	return n, err
+}
+
+// settle turns a cancel that stopped the handler between writes into the
+// error the download ends with, on the writer's goroutine.
+func (d *downloadWriter) settle() {
+	d.mu.Lock()
+	if d.canceled && d.err == nil {
+		d.err = ErrDownloadCanceled
+	}
+	d.mu.Unlock()
+}
+
+// report sends the bytes received so far to the page, once every 64 KiB,
+// or always with final: the last one can stop short of the total.
+func (d *downloadWriter) report(final bool) {
+	d.mu.Lock()
+	report := final || d.received-d.reported >= 64<<10
 	if report {
 		d.reported = d.received
 	}
 	received, total := d.received, d.total
 	d.mu.Unlock()
-	if report {
-		postMain(func() { d.h.DownloadProgress(d.url, d.path, received, total) })
+	if !report || d.path == "" {
+		return
 	}
-	return n, err
+	postMain(func() { d.h.DownloadProgress(d.url, d.path, received, total) })
 }
 
 func (d *downloadWriter) pause() error {
@@ -549,12 +581,11 @@ func (d *downloadWriter) resume() error {
 	return nil
 }
 
+// cancel asks the writer to stop. It sets the flag only: the download's
+// goroutine turns it into d.err, under its own writes.
 func (d *downloadWriter) cancel() {
 	d.mu.Lock()
 	d.canceled = true
-	if d.err == nil {
-		d.err = fmt.Errorf("mygo: download canceled")
-	}
 	d.cond.Broadcast()
 	d.mu.Unlock()
 }

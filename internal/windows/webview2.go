@@ -144,12 +144,12 @@ const (
 	// dlInterruptUserPaused is the interrupt reason Pause reports: the
 	// download is interrupted while paused, and Resume continues it.
 	dlInterruptUserPaused = 28
-	permGetURI                    = 3
-	permGetKind                   = 4
-	permPutState                  = 7
-	accelGetKeyEventKind          = 3
-	accelGetVirtualKey            = 4
-	accelPutHandled               = 8
+	permGetURI            = 3
+	permGetKind           = 4
+	permPutState          = 7
+	accelGetKeyEventKind  = 3
+	accelGetVirtualKey    = 4
+	accelPutHandled       = 8
 )
 
 // ICoreWebView2_8, whose methods follow ICoreWebView2_7's PrintToPdf (80)

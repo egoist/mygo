@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -107,8 +108,8 @@ func TestDownloadProgressAndControl(t *testing.T) {
 		if d != handle {
 			t.Error("OnDownloadDone got a different object than DownloadEvent.Download")
 		}
-		if !errors.Is(d.Err, stopped) {
-			t.Errorf("Err = %v, want %v", d.Err, stopped)
+		if !errors.Is(d.Err, stopped) || !errors.Is(d.Err, ErrDownloadCanceled) {
+			t.Errorf("Err = %v, want %v and ErrDownloadCanceled", d.Err, stopped)
 		}
 	case <-time.After(wait.Guard):
 		t.Fatal("the download did not end")
@@ -159,4 +160,97 @@ func TestDownloadSchemePanic(t *testing.T) {
 			}
 		}
 	}
+}
+
+// slowScheme serves size bytes in paced chunks from proto, so a download
+// of it is still running when its first progress arrives.
+func slowScheme(t *testing.T, proto string, size int) {
+	t.Helper()
+	if err := Protocol.HandleFunc(proto, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Disposition", `attachment; filename="big.bin"`)
+		chunk := make([]byte, 64<<10)
+		for sent := 0; sent < size; sent += len(chunk) {
+			w.Write(chunk)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { Protocol.Unhandle(proto) })
+}
+
+func TestSchemeDownloadCanceled(t *testing.T) {
+	dir := t.TempDir()
+	App.SetPath(PathDownloads, dir)
+	defer App.SetPath(PathDownloads, "")
+	w, fw := testWindow(t, WindowOptions{})
+	slowScheme(t, "dlcancel", 512<<10)
+	var canceled atomic.Bool
+	first := make(chan struct{}, 1)
+	off := w.Page().OnWillDownload(func(e *DownloadEvent) {
+		e.Path = filepath.Join(dir, "big.bin")
+		e.Download.OnProgress(func(received, total int64) {
+			if !canceled.Swap(true) {
+				e.Download.Cancel()
+				first <- struct{}{}
+			}
+		})
+	})
+	defer off()
+	done := make(chan *Download, 1)
+	defer w.Page().OnDownloadDone(func(d *Download) { done <- d })()
+	onMain(func() { fw.H.SchemeDownload("dlcancel://localhost/file") })
+	wait.For(t, "the first progress", first)
+	d := wait.For(t, "the canceled download to end", done)
+	if !errors.Is(d.Err, ErrDownloadCanceled) {
+		t.Errorf("Err = %v, want ErrDownloadCanceled", d.Err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "big.bin")); err == nil && len(b) == 512<<10 {
+		t.Error("the canceled download saved the whole file")
+	}
+}
+
+func TestSchemeDownloadPausedWindowClose(t *testing.T) {
+	dir := t.TempDir()
+	App.SetPath(PathDownloads, dir)
+	defer App.SetPath(PathDownloads, "")
+	w, fw := testWindow(t, WindowOptions{})
+	closed := make(chan struct{})
+	if err := Protocol.HandleFunc("dlpause", func(rw http.ResponseWriter, r *http.Request) {
+		defer close(closed)
+		rw.Header().Set("Content-Disposition", `attachment; filename="big.bin"`)
+		chunk := make([]byte, 64<<10)
+		for sent := 0; sent < 512<<10; sent += len(chunk) {
+			rw.Write(chunk)
+			if f, ok := rw.(http.Flusher); ok {
+				f.Flush()
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer Protocol.Unhandle("dlpause")
+	paused := make(chan struct{}, 1)
+	off := w.Page().OnWillDownload(func(e *DownloadEvent) {
+		e.Path = filepath.Join(dir, "big.bin")
+		e.Download.OnProgress(func(received, total int64) {
+			select {
+			case <-paused:
+			default:
+				if err := e.Download.Pause(); err == nil {
+					close(paused)
+				}
+			}
+		})
+	})
+	defer off()
+	onMain(func() { fw.H.SchemeDownload("dlpause://localhost/file") })
+	wait.For(t, "the first progress", paused)
+	// The handler is blocked in Write: closing the window must let it go.
+	w.Destroy()
+	wait.For(t, "the handler to return", closed)
 }

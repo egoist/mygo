@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -132,6 +133,8 @@ func downloadCancelCase(t *testing.T, url, name string) {
 	d := wait.For(t, "the canceled download to end", done)
 	if d.Err == nil {
 		t.Error("the canceled download ended without an error")
+	} else if !errors.Is(d.Err, mygo.ErrDownloadCanceled) {
+		t.Errorf("the canceled download ended with %v, want ErrDownloadCanceled", d.Err)
 	}
 	if b, err := os.ReadFile(d.Path); err == nil && len(b) == downloadSize {
 		t.Error("the canceled download saved the whole file")

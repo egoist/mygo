@@ -556,7 +556,9 @@ func (w *window) downloadStarting(_, args uintptr) {
 		comCall(sender, dlOpGetBytesReceived, uintptr(unsafe.Pointer(&received)))
 		comCall(sender, dlOpGetTotalBytesToReceive, uintptr(unsafe.Pointer(&total)))
 		w.h.DownloadProgress(uri, path, received, total)
-	}, func(h uintptr) uintptr { return comCall(op, dlOpAddBytesReceivedChanged, h, uintptr(unsafe.Pointer(&tok))) })
+	}, func(h uintptr) uintptr {
+		return comCall(op, dlOpAddBytesReceivedChanged, h, uintptr(unsafe.Pointer(&tok)))
+	})
 	withHandler(func(sender, _ uintptr) {
 		var state, reason int32
 		comCall(sender, dlOpGetState, uintptr(unsafe.Pointer(&state)))
