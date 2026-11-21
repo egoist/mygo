@@ -331,6 +331,11 @@ type Android struct {
 	// serves /.well-known/assetlinks.json naming the app. "*.example.com"
 	// takes its subdomains.
 	AppLinks []string `json:"appLinks"`
+	// CleartextHosts are the hosts the app's web views and requests may
+	// reach over plain http, which Android refuses otherwise, as "localhost"
+	// for a dev server reached through adb reverse. "*.example.com" takes
+	// its subdomains.
+	CleartextHosts []string `json:"cleartextHosts"`
 	// AdaptiveIcon is the launcher icon of Android 8.0 and later, which the
 	// launcher masks and moves. Without it, launchers show icon as it is.
 	AdaptiveIcon *AndroidAdaptiveIcon `json:"adaptiveIcon"`
@@ -548,6 +553,11 @@ func (c *Config) validateMobile() error {
 	for _, h := range c.Android.AppLinks {
 		if !hostRe.MatchString(h) {
 			return fmt.Errorf("android.appLinks: %q is not a host, as example.com or *.example.com, without https://", h)
+		}
+	}
+	for _, h := range c.Android.CleartextHosts {
+		if !hostRe.MatchString(h) {
+			return fmt.Errorf("android.cleartextHosts: %q is not a host, as localhost or *.example.com, without http://", h)
 		}
 	}
 	if a := c.Android.AdaptiveIcon; a != nil {

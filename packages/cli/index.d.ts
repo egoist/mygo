@@ -362,6 +362,12 @@ export interface AndroidConfig {
    * app. `*.example.com` takes its subdomains.
    */
   appLinks?: string[];
+  /**
+   * The hosts the app's web views and requests may reach over plain http,
+   * which Android refuses otherwise, as `localhost` for a dev server reached
+   * through adb reverse. `*.example.com` takes its subdomains.
+   */
+  cleartextHosts?: string[];
   /** The launcher icon of Android 8.0 and later, which the launcher masks and moves. Without it, launchers show `icon` as it is. */
   adaptiveIcon?: AndroidAdaptiveIcon;
   /** The color of the screen the system shows while the app starts, as `#102030` (default: the theme's). */

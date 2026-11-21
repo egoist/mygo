@@ -48,6 +48,7 @@ func TestMobileConfigValidate(t *testing.T) {
 		`{"ios": {"launchScreen": {"background": "red"}}}`:                        "launchScreen.background",
 		`{"ios": {"backgroundModes": ["not one"]}}`:                               "backgroundModes",
 		`{"android": {"appLinks": ["https://example.com"]}}`:                      "appLinks",
+		`{"android": {"cleartextHosts": ["http://localhost:3000"]}}`:              "cleartextHosts",
 		`{"android": {"adaptiveIcon": {"background": "#000"}}}`:                   "foreground",
 		`{"android": {"adaptiveIcon": {"foreground": "a.png"}}}`:                  "background",
 		`{"android": {"adaptiveIcon": {"foreground": "a", "background": "#12"}}}`: "background",
@@ -63,7 +64,7 @@ func TestMobileConfigValidate(t *testing.T) {
 	writeBytes(t, filepath.Join(dir, jsonConfig), []byte(`{
 		"ios": {"associatedDomains": ["example.com", "webcredentials:example.com", "applinks:*.example.com?mode=developer"],
 			"launchScreen": {"background": "#102030"}, "backgroundModes": ["audio"]},
-		"android": {"appLinks": ["example.com", "*.example.org"], "splash": "#fff",
+		"android": {"appLinks": ["example.com", "*.example.org"], "splash": "#fff", "cleartextHosts": ["localhost", "10.0.2.2"],
 			"adaptiveIcon": {"foreground": "fg.png", "background": "#102030"}}
 	}`))
 	if _, err := loadConfig(dir); err != nil {
@@ -93,6 +94,31 @@ func TestAndroidManifestOfConfig(t *testing.T) {
 	c.Android.Splash = "#102030"
 	if m := string(androidManifest(c, nil)); !strings.Contains(m, `android:theme="@style/`+androidSplashTheme+`"`) {
 		t.Errorf("no splash theme:\n%s", m)
+	}
+	// Plain http stays refused unless hosts are named.
+	if strings.Contains(m, "networkSecurityConfig") {
+		t.Errorf("a network security configuration without cleartextHosts:\n%s", m)
+	}
+	c.Android.CleartextHosts = []string{"localhost"}
+	if m := string(androidManifest(c, nil)); !strings.Contains(m, `android:networkSecurityConfig="@xml/`+androidNetworkSecurity+`"`) {
+		t.Errorf("no network security configuration:\n%s", m)
+	}
+}
+
+func TestAndroidNetworkSecurity(t *testing.T) {
+	res := t.TempDir()
+	if err := writeAndroidNetworkSecurity(res, []string{"localhost", "*.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(res, "xml", androidNetworkSecurity+".xml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`<domain-config cleartextTrafficPermitted="true">`,
+		`<domain includeSubdomains="false">localhost</domain>`, `<domain includeSubdomains="true">example.com</domain>`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("no %s in:\n%s", want, b)
+		}
 	}
 }
 

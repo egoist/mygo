@@ -241,9 +241,13 @@ func androidManifest(c *Config, plugins mobilePlugins) []byte {
 	if c.Android.Splash != "" {
 		theme = androidSplashTheme
 	}
+	security := ""
+	if len(c.Android.CleartextHosts) > 0 {
+		security = "\n        android:networkSecurityConfig=\"@xml/" + androidNetworkSecurity + "\""
+	}
 	b.WriteString(`    <application
         android:label="${mygoAppName}"
-        android:icon="${mygoIcon}"
+        android:icon="${mygoIcon}"` + security + `
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/` + theme + `">
@@ -406,6 +410,24 @@ func writeAndroidSplash(res, background string) error {
 	})
 }
 
+// androidNetworkSecurity is the network security configuration the
+// manifest names with android.cleartextHosts.
+const androidNetworkSecurity = "mygo_network_security"
+
+// writeAndroidNetworkSecurity writes the network security configuration that
+// lets the app reach hosts over plain http: "*.example.com" takes the domain
+// and its subdomains. Everything else keeps the system's default, https only.
+func writeAndroidNetworkSecurity(res string, hosts []string) error {
+	var b strings.Builder
+	b.WriteString("<network-security-config>\n    <domain-config cleartextTrafficPermitted=\"true\">\n")
+	for _, h := range hosts {
+		sub := strings.HasPrefix(h, "*.")
+		fmt.Fprintf(&b, "        <domain includeSubdomains=\"%t\">%s</domain>\n", sub, strings.TrimPrefix(h, "*."))
+	}
+	b.WriteString("    </domain-config>\n</network-security-config>\n")
+	return writeResFiles(res, map[string]string{filepath.Join("xml", androidNetworkSecurity+".xml"): b.String()})
+}
+
 func writeResFiles(res string, files map[string]string) error {
 	for name, content := range files {
 		path := filepath.Join(res, name)
@@ -455,6 +477,11 @@ func (t *androidToolchain) gradle(ctx context.Context, c, dc *Config, dir, work,
 	}
 	if dc.Android.Splash != "" {
 		if err := writeAndroidSplash(res, dc.Android.Splash); err != nil {
+			return err
+		}
+	}
+	if len(dc.Android.CleartextHosts) > 0 {
+		if err := writeAndroidNetworkSecurity(res, dc.Android.CleartextHosts); err != nil {
 			return err
 		}
 	}
