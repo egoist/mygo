@@ -755,7 +755,8 @@ func (w *window) ResumeDownload(string, string) error {
 
 func (w *window) CancelDownload(url, path string) {
 	if d := w.downloadFor(url, path); d != 0 {
-		send(d, "cancel")
+		// cancel: takes a handler for the resume data; nil discards it.
+		send(d, "cancel:", 0)
 	}
 }
 
