@@ -26,53 +26,70 @@ func (w *window) sizingAspect(r *rect, edge uint32) {
 	var wr, cr rect
 	procGetWindowRect.Call(w.hwnd, uintptr(unsafe.Pointer(&wr)))
 	procGetClientRect.Call(w.hwnd, uintptr(unsafe.Pointer(&cr)))
+	dpi := dpiOf(w.hwnd)
 	aspectRect(r, edge, w.aspect,
 		(wr.Right-wr.Left)-(cr.Right-cr.Left),
-		(wr.Bottom-wr.Top)-(cr.Bottom-cr.Top))
+		(wr.Bottom-wr.Top)-(cr.Bottom-cr.Top),
+		toPx(w.minW, dpi), toPx(w.minH, dpi), toPx(w.maxW, dpi), toPx(w.maxH, dpi))
 }
 
 // aspectRect adjusts r, the window rectangle the user is dragging by the
-// edge or corner edge, so its content keeps ratio. frameW and frameH are
-// the room the frame takes around the content. The side or corner being
-// dragged stays under the pointer; a side drag grows the other axis around
-// its center, as AppKit's content aspect ratio does, and a corner drag
-// keeps the opposite corner put. A corner's proposal keeps the ratio by
-// growing the dimension that lags behind it, never shrinking either below
-// the proposal.
-func aspectRect(r *rect, edge uint32, ratio float64, frameW, frameH int32) {
+// edge or corner edge, so its content keeps ratio, within minW, minH, maxW
+// and maxH (0 for no limit). frameW and frameH are the room the frame
+// takes around the content. The side or corner being dragged stays under
+// the pointer; a side drag keeps the top or left edge put and grows the
+// window from there, as Electron and Chromium do on Windows, and a corner
+// drag keeps the opposite corner put. A corner's proposal keeps the ratio
+// by growing the dimension that lags behind it, never shrinking either
+// below the proposal. The limits are applied inside the ratio's math, so a
+// drag that reaches one stops there with the ratio still holding.
+func aspectRect(r *rect, edge uint32, ratio float64, frameW, frameH, minW, minH, maxW, maxH int32) {
 	pw := r.Right - r.Left - frameW
 	ph := r.Bottom - r.Top - frameH
 	if pw <= 0 || ph <= 0 || ratio <= 0 {
 		return
 	}
-	cw, ch := pw, int32(math.Round(float64(pw)/ratio))
 	// A side drag drives its own axis; a corner grows the dimension that
 	// lags behind the ratio.
-	growWidth := edge == wmszTop || edge == wmszBottom
-	if edge != wmszLeft && edge != wmszRight && !growWidth {
-		growWidth = float64(ph)*ratio > float64(pw)
+	widthDriven := edge == wmszLeft || edge == wmszRight
+	if !widthDriven && edge != wmszTop && edge != wmszBottom {
+		widthDriven = float64(ph)*ratio <= float64(pw)
 	}
-	if growWidth {
+	cw, ch := pw, int32(math.Round(float64(pw)/ratio))
+	if !widthDriven {
 		cw, ch = int32(math.Round(float64(ph)*ratio)), ph
+	}
+	// Clamp the driver at a limit, then derive the other dimension from it
+	// again, so the ratio holds where the drag stops.
+	if widthDriven {
+		cw = clampDim(cw, minW, maxW)
+		ch = int32(math.Round(float64(cw) / ratio))
+		if dh := clampDim(ch, minH, maxH); dh != ch {
+			ch = dh
+			cw = clampDim(int32(math.Round(float64(ch)*ratio)), minW, maxW)
+		}
+	} else {
+		ch = clampDim(ch, minH, maxH)
+		cw = int32(math.Round(float64(ch) * ratio))
+		if dw := clampDim(cw, minW, maxW); dw != cw {
+			cw = dw
+			ch = clampDim(int32(math.Round(float64(cw)/ratio)), minH, maxH)
+		}
 	}
 	totalW, totalH := cw+frameW, ch+frameH
 	switch edge {
 	case wmszLeft:
-		mid := (r.Top + r.Bottom) / 2
 		r.Left = r.Right - totalW
-		r.Top, r.Bottom = mid-totalH/2, mid-totalH/2+totalH
-	case wmszRight:
-		mid := (r.Top + r.Bottom) / 2
-		r.Right = r.Left + totalW
-		r.Top, r.Bottom = mid-totalH/2, mid-totalH/2+totalH
-	case wmszTop:
-		mid := (r.Left + r.Right) / 2
-		r.Top = r.Bottom - totalH
-		r.Left, r.Right = mid-totalW/2, mid-totalW/2+totalW
-	case wmszBottom:
-		mid := (r.Left + r.Right) / 2
 		r.Bottom = r.Top + totalH
-		r.Left, r.Right = mid-totalW/2, mid-totalW/2+totalW
+	case wmszRight:
+		r.Right = r.Left + totalW
+		r.Bottom = r.Top + totalH
+	case wmszTop:
+		r.Top = r.Bottom - totalH
+		r.Right = r.Left + totalW
+	case wmszBottom:
+		r.Bottom = r.Top + totalH
+		r.Right = r.Left + totalW
 	case wmszTopLeft:
 		r.Left, r.Top = r.Right-totalW, r.Bottom-totalH
 	case wmszTopRight:
@@ -82,6 +99,17 @@ func aspectRect(r *rect, edge uint32, ratio float64, frameW, frameH int32) {
 	default: // wmszBottomRight
 		r.Right, r.Bottom = r.Left+totalW, r.Top+totalH
 	}
+}
+
+// clampDim limits v to a minimum and a maximum, where 0 means no limit.
+func clampDim(v, min, max int32) int32 {
+	if min > 0 && v < min {
+		v = min
+	}
+	if max > 0 && v > max {
+		v = max
+	}
+	return v
 }
 
 // TestSizingAspect grows the window's rectangle by dw, dh pixels, sends

@@ -428,7 +428,7 @@ func (w *window) applyGeometry() {
 	}
 	if w.aspect > 0 {
 		g.MinAspect, g.MaxAspect = w.aspect, w.aspect
-		mask |= 1 << 5 // GDK_HINT_ASPECT
+		mask |= 1 << 4 // GDK_HINT_ASPECT
 	}
 	gtkWindowSetGeometryHints(w.win, 0, &g, mask)
 }
