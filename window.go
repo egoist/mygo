@@ -455,6 +455,9 @@ type Window struct {
 	// canceledEarly holds the calls the current page canceled before
 	// their calls made them, with the page's token.
 	canceledEarly map[int64]string
+	// downloads are those in progress, by their URL and path (main
+	// thread).
+	downloads map[downloadKey]*Download
 
 	outMu    sync.Mutex
 	outbox   []message
@@ -2330,6 +2333,9 @@ func (h *windowHandler) Closed() {
 	if w.native == nil {
 		return
 	}
+	// The close button ends the window here, Destroy in destroy: both let
+	// the scheme downloads' writers go.
+	w.cancelSchemeDownloads()
 	w.cancelDataDrag()
 	w.destroyWebViews()
 	w.detachContent()

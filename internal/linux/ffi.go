@@ -404,6 +404,8 @@ var (
 	webkitWebsiteDataManagerClearFinish               func(m, res ptr, err *ptr) bool
 	webkitDownloadGetWebView                          func(d ptr) ptr
 	webkitDownloadGetRequest                          func(d ptr) ptr
+	webkitDownloadGetResponse                         func(d ptr) ptr
+	webkitDownloadGetReceivedDataLength               func(d ptr) uint64
 	webkitDownloadSetDestination                      func(d ptr, uri *byte)
 	webkitDownloadSetAllowOverwrite                   func(d ptr, v bool)
 	webkitDownloadCancel                              func(d ptr)
@@ -412,6 +414,7 @@ var (
 	webkitPolicyDecisionDownload                      func(d ptr)
 	webkitURIResponseGetURI                           func(r ptr) ptr
 	webkitURIResponseGetHTTPHeaders                   func(r ptr) ptr
+	webkitURIResponseGetContentLength                 func(r ptr) uint64
 	webkitSecurityManagerRegisterSecure               func(m ptr, scheme *byte)
 	webkitSecurityManagerRegisterCORS                 func(m ptr, scheme *byte)
 	webkitUserContentManagerNew                       func() ptr
@@ -934,6 +937,8 @@ func loadWebKit() error {
 	mustBind(w, &webkitWebsiteDataManagerClearFinish, "webkit_website_data_manager_clear_finish")
 	mustBind(w, &webkitDownloadGetWebView, "webkit_download_get_web_view")
 	mustBind(w, &webkitDownloadGetRequest, "webkit_download_get_request")
+	mustBind(w, &webkitDownloadGetResponse, "webkit_download_get_response")
+	mustBind(w, &webkitDownloadGetReceivedDataLength, "webkit_download_get_received_data_length")
 	mustBind(w, &webkitDownloadSetDestination, "webkit_download_set_destination")
 	mustBind(w, &webkitDownloadSetAllowOverwrite, "webkit_download_set_allow_overwrite")
 	mustBind(w, &webkitDownloadCancel, "webkit_download_cancel")
@@ -942,6 +947,7 @@ func loadWebKit() error {
 	mustBind(w, &webkitPolicyDecisionDownload, "webkit_policy_decision_download")
 	mustBind(w, &webkitURIResponseGetURI, "webkit_uri_response_get_uri")
 	mustBind(w, &webkitURIResponseGetHTTPHeaders, "webkit_uri_response_get_http_headers")
+	mustBind(w, &webkitURIResponseGetContentLength, "webkit_uri_response_get_content_length")
 	mustBind(w, &webkitSecurityManagerRegisterSecure, "webkit_security_manager_register_uri_scheme_as_secure")
 	mustBind(w, &webkitSecurityManagerRegisterCORS, "webkit_security_manager_register_uri_scheme_as_cors_enabled")
 	mustBind(w, &webkitUserContentManagerNew, "webkit_user_content_manager_new")

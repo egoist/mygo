@@ -419,6 +419,9 @@ func (w *window) CloseDevTools()                                              {}
 func (w *window) IsDevToolsOpened() bool                                      { return false }
 func (w *window) DroppedFiles() []string                                      { return nil }
 func (w *window) Print()                                                      {}
+func (w *window) PauseDownload(string, string) error                          { return platform.ErrUnsupported }
+func (w *window) ResumeDownload(string, string) error                         { return platform.ErrUnsupported }
+func (w *window) CancelDownload(string, string)                               {}
 
 func (w *window) CapturePage(cb func([]byte, error)) {
 	req := w.b.request(func(r wire.Reader) {

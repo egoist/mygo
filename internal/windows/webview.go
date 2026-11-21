@@ -519,19 +519,20 @@ func (w *window) navigationCompleted(_, args uintptr) {
 }
 
 // downloadStarting asks where to save a download, instead of WebView2's own
-// download UI, and reports when it ended. What custom schemes serve comes
-// from the app itself, so it is downloaded from there.
+// download UI, keeps its operation for progress and control, and reports
+// when it ended. What custom schemes serve comes from the app itself, so
+// it is downloaded from there.
 func (w *window) downloadStarting(_, args uintptr) {
 	var op uintptr
 	if failed(comCall(args, dlStartGetOperation, uintptr(unsafe.Pointer(&op)))) || op == 0 {
 		return
 	}
-	defer release(op)
 	var p uintptr
 	comCall(op, dlOpGetURI, uintptr(unsafe.Pointer(&p)))
 	uri := takeWstr(p)
 	if app := w.appURL(uri); app != uri {
 		comCall(args, dlStartPutCancel, 1)
+		release(op)
 		w.h.SchemeDownload(app)
 		return
 	}
@@ -540,20 +541,37 @@ func (w *window) downloadStarting(_, args uintptr) {
 	comCall(args, dlStartPutHandled, 1) // no download UI of WebView2
 	if path == "" {
 		comCall(args, dlStartPutCancel, 1)
+		release(op)
 		return
 	}
 	os.Remove(path) // a file there is replaced
 	comCall(args, dlStartPutResultFilePath, uintptr(unsafe.Pointer(u16(path))))
+	key := downloadKey{uri, path}
+	if w.downloads == nil {
+		w.downloads = map[downloadKey]uintptr{}
+	}
+	w.downloads[key] = op // the map owns the operation's reference
 	var tok int64
+	withHandler(func(sender, _ uintptr) {
+		var received, total int64
+		comCall(sender, dlOpGetBytesReceived, uintptr(unsafe.Pointer(&received)))
+		comCall(sender, dlOpGetTotalBytesToReceive, uintptr(unsafe.Pointer(&total)))
+		w.h.DownloadProgress(uri, path, received, total)
+	}, func(h uintptr) uintptr {
+		return comCall(op, dlOpAddBytesReceivedChanged, h, uintptr(unsafe.Pointer(&tok)))
+	})
 	withHandler(func(sender, _ uintptr) {
 		var state, reason int32
 		comCall(sender, dlOpGetState, uintptr(unsafe.Pointer(&state)))
 		switch state {
 		case 1: // interrupted
 			comCall(sender, dlOpGetInterruptReason, uintptr(unsafe.Pointer(&reason)))
-			w.h.DownloadFinished(uri, path, fmt.Errorf("mygo: download interrupted (reason %d)", reason))
+			if reason == dlInterruptUserPaused {
+				return // Pause puts it here; Resume continues it
+			}
+			w.finishDownload(key, fmt.Errorf("mygo: download interrupted (reason %d)", reason))
 		case 2: // completed
-			w.h.DownloadFinished(uri, path, nil)
+			w.finishDownload(key, nil)
 		}
 	}, func(h uintptr) uintptr { return comCall(op, dlOpAddStateChanged, h, uintptr(unsafe.Pointer(&tok))) })
 }
