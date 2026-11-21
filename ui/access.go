@@ -480,7 +480,7 @@ func (e *node) Multiselectable(on bool) *node {
 // a menu that keeps the focus itself, as a combobox's input does. Call it
 // once d is built, inside the element or in its popup.
 func (e *node) ActiveDescendant(d *node) *node {
-	e.activeDescendant = d
+	e.activeDescendant = refTo(d)
 	return e
 }
 
@@ -500,8 +500,8 @@ func (e *node) RoleDescription(s string) *node {
 // narrows. Screen readers offer to move to it. Call it once target is
 // built, once for each element it controls.
 func (e *node) Controls(target *node) *node {
-	if target != nil && !slices.Contains(e.controls, target) {
-		e.controls = append(e.controls, target)
+	if target != nil && !slices.Contains(e.controls, refTo(target)) {
+		e.controls = append(e.controls, refTo(target))
 	}
 	return e
 }
@@ -768,7 +768,7 @@ func (rt *engine) accessTree() *platform.AccessTree {
 			}
 		}
 		// A combobox has the focus for the option its arrows are on.
-		if focused != nil && focused.activeDescendant != nil {
+		if focused != nil && focused.activeDescendant.id != 0 {
 			focus = focused.activeDescendant.id
 		}
 		for _, id := range []uint64{focus, rt.focused} {
@@ -924,7 +924,7 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	for _, c := range e.controls {
 		n.Controls = append(n.Controls, c.id)
 	}
-	if f := e.nameFrom; f != nil {
+	if f := e.resolve(e.nameFrom); f != nil {
 		switch {
 		case n.Label == "" || e.labelledBy && f.nameOf() != "":
 			n.Label = f.nameOf()
@@ -1127,7 +1127,9 @@ func accessRelations(e *node, n *platform.AccessNode) {
 	var desc innerTexts
 	for _, d := range e.describedBy {
 		n.DescribedBy = append(n.DescribedBy, d.id)
-		desc.add(d.describes())
+		if t := e.resolve(d); t != nil {
+			desc.add(t.describes())
+		}
 	}
 	n.Description = joinDescription(n.Description, desc.String())
 	if !e.invalid {
@@ -1136,7 +1138,9 @@ func accessRelations(e *node, n *platform.AccessNode) {
 	var msg innerTexts
 	for _, m := range e.errorMessage {
 		n.ErrorMessage = append(n.ErrorMessage, m.id)
-		msg.add(m.describes())
+		if t := e.resolve(m); t != nil {
+			msg.add(t.describes())
+		}
 	}
 	n.Description = joinDescription(msg.String(), n.Description)
 }

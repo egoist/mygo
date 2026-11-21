@@ -146,10 +146,7 @@ func sameLayout(e *node, parent uint64, index int, changed bool) bool {
 	case kindIcon:
 		media[0], media[1] = e.svg.imageSize()
 	}
-	var placeOn uint64
-	if e.placeOn != nil {
-		placeOn = e.placeOn.id
-	}
+	placeOn := e.placeOn.id
 	// What lays it out, against what the last layout saw.
 	fresh := r.ok && r.layout == n-1
 	sameText := fresh && r.ts.same(&e.ts)

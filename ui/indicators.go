@@ -371,7 +371,7 @@ func coreRangeSlider(c *context, low, high *float64, lo, hi, step float64) *node
 			knob.flags |= flagDraggable | flagHover
 			knob.hasRange, knob.accRange, knob.accStep = true, [3]float64{lo, hi, *v}, keyStep
 			// Named after the slider, as "Price minimum".
-			knob.label, knob.nameFrom, knob.nameJoin = []string{"minimum", "maximum"}[k], e, true
+			knob.label, knob.nameFrom, knob.nameJoin = []string{"minimum", "maximum"}[k], refTo(e), true
 			knob.afterInput(func() {
 				back, forth := knob.arrows()
 				switch {

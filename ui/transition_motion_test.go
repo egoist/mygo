@@ -393,6 +393,41 @@ func leavingUnder(p *node) []*node {
 	return gs
 }
 
+// Two elements under one parent leave one frame apart: their copies go
+// out in the order the elements were built in, though one of them left
+// before the other, and its copy was already under the parent.
+func TestTransitionExitsOneFrameApartKeepOrder(t *testing.T) {
+	first, second := true, true
+	tr := ElementTransition{Duration: 100 * time.Millisecond, Ease: Linear, Exit: &Motion{X: 15}}
+	tt, now := clockTester(func(c *context) {
+		coreRow(c).Size(200, 40).Children(func() {
+			if first {
+				coreBox(c).Key(0).Size(20, 20).Background(RGB(255, 0, 0)).Transition(tr)
+			}
+			if second {
+				coreBox(c).Key(1).Size(20, 20).Background(RGB(0, 255, 0)).Transition(tr)
+			}
+		})
+	}, 200, 40)
+	// The first leaves.
+	first = false
+	tt.Frame()
+	*now = now.Add(50 * time.Millisecond)
+	tt.Frame()
+	// The second leaves, one frame after the first.
+	second = false
+	tt.Frame()
+	var order []Color
+	for g := tt.rt.c.root.first.first; g != nil; g = g.next {
+		if g.leaving != 0 {
+			order = append(order, g.bg)
+		}
+	}
+	if !slices.Equal(order, []Color{RGB(255, 0, 0), RGB(0, 255, 0)}) {
+		t.Fatalf("the copies leaving go in the order %v, not the order they were built in", order)
+	}
+}
+
 func TestTransitionEntersAndExitsBlurred(t *testing.T) {
 	show, own := false, float32(0)
 	tr := ElementTransition{Duration: 100 * time.Millisecond, Ease: Linear,

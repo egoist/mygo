@@ -54,7 +54,7 @@ func coreSidebar(c *context, selected *string, fn func()) *node {
 	e.afterInput(sb.keys)
 	// The item chosen has the focus for assistive technology, as a list's
 	// row chosen does.
-	e.activeDescendant = sb.chosen
+	e.activeDescendant = refTo(sb.chosen)
 	return e
 }
 

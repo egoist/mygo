@@ -182,7 +182,7 @@ func (p treeItemParts) Group(fn func()) *node {
 	g := coreColumn(c).Shrink(0)
 	// Keyed by its item, so that the items inside keep theirs as items
 	// above open and close.
-	c.rekey(g, p.Row.id)
+	g = c.rekey(g, p.Row.id)
 	b.parents = append(b.parents, p.at)
 	g.Children(fn)
 	b.parents = b.parents[:len(b.parents)-1]

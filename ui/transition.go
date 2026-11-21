@@ -331,6 +331,10 @@ type transition struct {
 	// index is where the element was among its siblings in the frame it
 	// went from, which orders the copies going under one parent.
 	index int
+	// left is the frame the element started leaving in, which orders the
+	// copies going under one parent too: the copy of the element that
+	// left first goes first.
+	left uint64
 	// matching moves an element appearing from where the one it Matches
 	// showed, and match is the record of its Match it had last
 	// (*matchRec, match.go), which apps without one do not link.
@@ -628,7 +632,7 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 		if e.inHidden() {
 			// Hidden, it has no box to go from or to, and shows again
 			// where it is then, as it hides, at once.
-			delete(rt.trans, e.id)
+			rt.endTransition(e.id)
 			e.st.trec = nil
 			continue
 		}
@@ -928,26 +932,22 @@ func (s tbox) turn() (Transform, bool) {
 }
 
 // animateExits moves the copies of the elements gone with an Exit, under
-// their parents, and copies those that just went, from the frame before,
-// which the engine kept for them.
+// their parents, and those that just went, which keep their node.
 func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
-	var byID map[uint64]*node
 	going := rt.going[:0]
 	for id, r := range rt.trans {
 		if r.built == rt.frame {
 			continue
 		}
 		if r.ghost == nil && (r.t.Exit == nil || r.held || instant && rt.instant() || r.laid+1 != rt.frame) {
-			delete(rt.trans, id)
+			rt.endTransition(id)
 			continue
 		}
-		if byID == nil {
-			byID = rt.elementsByID(root)
-		}
-		p := byID[r.parent]
+		// Its parent, through its state: the element still there.
+		p := rt.parentOf(r.parent)
 		if p == nil || p.leaving != 0 {
 			// Its parent went too.
-			delete(rt.trans, id)
+			rt.endTransition(id)
 			continue
 		}
 		if r.ghost == nil {
@@ -956,11 +956,20 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 				r.t.Exit = &m
 			}
 			if still && !r.t.Exit.fades() || r.exitsAtOnce() {
-				delete(rt.trans, id)
+				rt.endTransition(id)
 				continue
 			}
 			e := r.elem
 			r.t.Exit = r.t.Exit.flippedFor(e)
+			index := e.st.index
+			// The frame it started leaving in, which orders the copies
+			// going under one parent: the copy of an element that left
+			// before goes first, though the element itself was built
+			// after the other one.
+			r.left = rt.frame
+			// The transition takes a copy of the element as it showed: the
+			// node itself is another element's, or the window's, and the
+			// copy is what goes.
 			r.ghost = ghostOf(e)
 			r.elem = nil
 			r.ghost.leaving = 1
@@ -990,10 +999,7 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 			// ExitDuration says.
 			r.headWith(r.gone.moved(r.t.Exit, r.collapse, still), moveAll, r.exitAnimation(), now)
 			// The frame it went from is still whole.
-			r.index = 0
-			for c := e.parent.first; c != nil && c != e; c = c.next {
-				r.index++
-			}
+			r.index = index
 		}
 		going = append(going, exit{id, r, p})
 	}
@@ -1009,7 +1015,7 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 		id, r, p := x.id, x.r, x.p
 		s := r.sample(r.gone.moved(r.t.Exit, r.collapse, still), now)
 		if r.moving == 0 {
-			delete(rt.trans, id)
+			rt.endTransition(id)
 			continue
 		}
 		g := r.ghost
@@ -1054,6 +1060,32 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 	rt.going = going[:0]
 }
 
+// endTransition ends the transition of the element id: the copy going
+// with it goes, and what the element showed is not kept any more.
+func (rt *engine) endTransition(id uint64) {
+	r := rt.trans[id]
+	if r == nil {
+		return
+	}
+	r.ghost = nil
+	delete(rt.trans, id)
+}
+
+// parentOf returns the node of the element id, if the frame built it.
+func (rt *engine) parentOf(id uint64) *node {
+	s := rt.states[id]
+	if s == nil || s.seen != rt.frame || s.pass != rt.pass || s.node == nil {
+		return nil
+	}
+	return s.node
+}
+
+// matchesHolds reports whether the matcher keeps the node n, as the
+// element it noted showed.
+func (rt *engine) matchesHolds(n *node) bool {
+	return rt.matches != nil && rt.matches.holds(n)
+}
+
 // exit is a transition whose element's copy goes under p.
 type exit struct {
 	id uint64
@@ -1061,38 +1093,50 @@ type exit struct {
 	p  *node
 }
 
-// before tells whether x's copy goes before y's under a parent.
+// before tells whether x's copy goes before y's under a parent: the
+// copy of the element that left first goes first, and the copies of the
+// elements that left together go in the order the elements were built
+// in.
 func (x exit) before(y exit) bool {
+	if x.r.left != y.r.left {
+		return x.r.left < y.r.left
+	}
 	if x.r.index != y.r.index {
 		return x.r.index < y.r.index
 	}
 	return x.id < y.id
 }
 
-// elementsByID returns the elements of the frame by ID, in a map the
-// engine reuses.
-func (rt *engine) elementsByID(root *node) map[uint64]*node {
-	if rt.byID == nil {
-		rt.byID = map[uint64]*node{}
-	}
-	clear(rt.byID)
-	var walk func(e *node)
-	walk = func(e *node) {
-		rt.byID[e.id] = e
-		for c := e.first; c != nil; c = c.next {
-			walk(c)
-		}
-	}
-	walk(root)
-	return rt.byID
-}
-
+// ghostOf copies e, an element of the frame before, and the elements inside
+// it, for its exit transition. The copy only shows: it refers to no other
+// element nor to the app's state, has states of its own, and is inert.
 // ghostOf copies e, an element of the frame before, and the elements inside
 // it, for its exit transition. The copy only shows: it refers to no other
 // element nor to the app's state, has states of its own, and is inert.
 func ghostOf(e *node) *node {
 	g := new(node)
 	*g = *e
+	g.slot = -1 // the copy is no chunk's: the pool has nothing to do with it
+	st := leaving(g)
+	g.spans = slices.Clone(e.spans)
+	if g.spans != nil {
+		st.spans = &spanCache{}
+		st.spans.update(g.spans)
+	}
+	g.parent, g.first, g.last, g.next, g.nchild = nil, nil, nil, nil, 0
+	g.shadows, g.cols, g.rows, g.frags = slices.Clone(e.shadows), slices.Clone(e.cols), slices.Clone(e.rows), slices.Clone(e.frags)
+	for c := e.first; c != nil; c = c.next {
+		if c.leaving == 0 {
+			g.add(ghostOf(c))
+		}
+	}
+	return g
+}
+
+// leaving treats the element e as one going: it refers to no other element
+// nor to the app's state, has a state of its own, and is inert. It returns
+// that state.
+func leaving(e *node) *state {
 	st := *e.st
 	st.trec = nil
 	// Its layer too (effectLayer), as an element taking the state in its
@@ -1102,35 +1146,26 @@ func ghostOf(e *node) *node {
 	// element taking its state in its place, in this frame, made the
 	// state's its own already. A paragraph's spans are in a buffer of the
 	// state (inlineSpans).
-	g.spans, st.spans = slices.Clone(e.spans), nil
-	if g.spans != nil {
-		st.spans = &spanCache{}
-		st.spans.update(g.spans)
-	}
-	g.st = &st
-	g.parent, g.first, g.last, g.next, g.nchild = nil, nil, nil, nil, 0
-	g.shadows, g.cols, g.rows, g.frags = slices.Clone(e.shadows), slices.Clone(e.cols), slices.Clone(e.rows), slices.Clone(e.frags)
-	g.track, g.popover, g.list, g.rowsOf, g.overflow = nil, nil, nil, nil, nil
-	g.activeDescendant, g.nameFrom, g.focusTo, g.field, g.form = nil, nil, nil, nil, nil
-	g.describedBy, g.errorMessage = nil, nil
-	g.followX, g.colFit, g.gridFit = nil, nil, nil
-	g.special = false // it lays out by none of those now
+	st.spans = nil
+	e.st = &st
+	st.node = nil // it is in no state: no reference resolves to it
+	e.track, e.list, e.rowsOf, e.overflow = nil, nil, nil, nil
+	e.popover, e.barsFrom, e.placeOn = elementRef{}, elementRef{}, elementRef{}
+	e.activeDescendant, e.nameFrom, e.focusTo, e.field, e.form = elementRef{}, elementRef{}, elementRef{}, nil, nil
+	e.describedBy, e.errorMessage, e.controls = nil, nil, nil
+	e.followX, e.colFit, e.gridFit = elementRef{}, nil, nil
+	e.special = false // it lays out by none of those now
 	// It no longer flies (Fly), if it did: it goes as its parent's copy.
-	g.inputFn, g.observeFn, g.ghosts, g.lift = nil, nil, false, false
-	if g.themed != nil {
+	e.inputFn, e.observeFn, e.ghosts, e.lift = nil, nil, false, false
+	if e.themed != nil {
 		// The app may change its theme while the copy leaves.
-		t := *g.themed
-		g.themed = &t
+		t := *e.themed
+		e.themed = &t
 	}
-	g.poseSet = false // it keeps the pose it had
-	g.tl, g.nmeasure, g.leafOK, g.intrOK, g.lay = nil, 0, false, 0, 0
-	g.flags = g.flags&^(flagModal|flagPage|flagFocusTarget) | flagInert
-	for c := e.first; c != nil; c = c.next {
-		if c.leaving == 0 {
-			g.add(ghostOf(c))
-		}
-	}
-	return g
+	e.poseSet = false // it keeps the pose it had
+	e.tl, e.nmeasure, e.leafOK, e.intrOK, e.lay = nil, 0, false, 0, 0
+	e.flags = e.flags&^(flagModal|flagPage|flagFocusTarget) | flagInert
+	return &st
 }
 
 // animateColors moves e's background and border colors, once its styleFn

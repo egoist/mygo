@@ -495,6 +495,6 @@ func (e *node) RowWidth(w float32) *node {
 // scroll container, scrolls its own, as a table's header goes with its
 // rows. Clip the element, so that what goes out of it does not show.
 func (e *node) ScrollWith(scroller *node) *node {
-	e.followX = scroller
+	e.followX = refTo(scroller)
 	return e
 }

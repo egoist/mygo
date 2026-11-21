@@ -253,3 +253,13 @@ func TestChildWalkFitsCacheLines(t *testing.T) {
 		t.Errorf("a container's walk of its children reads %d cache lines of an element, more than %d", nlines, want)
 	}
 }
+
+// The engine allocates elements from chunks of 32 (context.go), strided by
+// the element's size: a whole number of cache lines keeps each element of a
+// chunk beginning on one, which is what lets the walk above read a child's
+// box and style in the same lines whichever child it is on.
+func TestNodeFitsCacheLines(t *testing.T) {
+	if n := unsafe.Sizeof(node{}); n%64 != 0 {
+		t.Errorf("the element is %d bytes, not a whole number of cache lines", n)
+	}
+}

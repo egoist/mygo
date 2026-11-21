@@ -95,7 +95,9 @@ func tooltipBase(c *context, anchor *node, fn func(tip *node)) (*node, bool) {
 	}
 	var tip *node
 	coreOverlay(c, func() {
-		tip = coreBox(c).Absolute().IgnoreInput(true).Role(RoleTooltip)
+		// Keyed by the anchor, as a popover's panel: its identity is its
+		// own, not the place it shows in (toast.go).
+		tip = coreBox(c).Key(mix(anchor.id, tooltipTipKey)).Absolute().IgnoreInput(true).Role(RoleTooltip)
 		fn(tip)
 		if tip.attach == 0 {
 			tip.AttachTo(anchor, AnchorTop, AnchorBottom)
