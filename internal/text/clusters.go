@@ -5,6 +5,7 @@ package text
 import (
 	"math"
 	"slices"
+	"strings"
 	"unicode"
 
 	"github.com/go-text/typesetting/bidi"
@@ -415,8 +416,12 @@ func (e *clusterEngine) shape(text []rune, style Style, spans []Span, width floa
 // right-to-left run goes in a right-to-left isolate, in which the host
 // mirrors brackets: drawn alone, a bracket would be drawn left to right,
 // and "(ar)" in Arabic would read ")ar(".
+//
+// A piece a contextual host shapes within its word (contextText) says its
+// direction itself, which the host lays it out in, mirroring brackets: it
+// is drawn from the text it was measured from.
 func drawnText(c cluster) string {
-	if c.level%2 == 1 {
+	if c.level%2 == 1 && !strings.ContainsAny(c.text, string(contextRTL)+string(contextLTR)) {
 		return "⁧" + c.text + "⁩"
 	}
 	return c.text

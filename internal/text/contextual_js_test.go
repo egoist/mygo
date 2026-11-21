@@ -62,7 +62,9 @@ func checkContext(t *testing.T, h *contextualFake, spans []string, width float32
 				// A mark on a space (the pause of saktah, ۜ, between
 				// words) joins nothing.
 				complex := strings.IndexFunc(piece, complexScript) >= 0
-				if !complex || strings.HasPrefix(piece, " ") {
+				// (drawnText puts what it draws alone right to left in
+				// an isolate.)
+				if !complex || strings.HasPrefix(strings.TrimPrefix(piece, "\u2067"), " ") {
 					continue
 				}
 				if w := word(g.Cluster); !ok || before+piece+after != strings.TrimSpace(w) {
