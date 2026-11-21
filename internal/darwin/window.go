@@ -758,11 +758,19 @@ func (w *window) ResumeDownload(string, string) error {
 func (w *window) CancelDownload(url, path string) {
 	if d := w.downloadFor(url, path); d != 0 {
 		// cancel: takes a handler for the resume data; nil discards it.
-		log.Printf("DLDEBUG cancel %s", url)
 		send(d, "cancel:", 0)
-		log.Printf("DLDEBUG cancel returned")
-	} else {
-		log.Printf("DLDEBUG cancel: no download for %s", url)
+		// WKDownload does not tell its delegate that a cancel ended it
+		// (CI's macOS runner: no didFailWithError after cancel:), so the
+		// end is reported here, on the next main-loop turn so the KVO
+		// notification this may run inside finishes first. A delegate
+		// callback that ends it sooner finds the entry gone, and this
+		// finds it gone too: neither reports twice.
+		theBackend.post(func() {
+			if w.downloadFor(url, path) == d {
+				w.forgetDownload(d)
+				w.h.DownloadFinished(url, path, errors.New("mygo: download canceled"))
+			}
+		})
 	}
 }
 
@@ -2679,7 +2687,6 @@ func registerWindowClasses() {
 						progress := send(object, "progress")
 						received := int64(send(progress, "completedUnitCount"))
 						total := int64(send(progress, "totalUnitCount"))
-						log.Printf("DLDEBUG progress %s %d/%d", d[0], received, total)
 						if total < 0 {
 							total = 0 // NSProgress counts -1 as unknown
 						}
@@ -2765,7 +2772,6 @@ func registerWindowClasses() {
 					return
 				}
 				os.Remove(path) // WebKit refuses to replace a file
-				log.Printf("DLDEBUG decide %s -> %s", url, path)
 				send(download, "retain") // held until forgetDownload, for use outside the callbacks
 				w.downloads[download] = [2]string{url, path}
 				for _, key := range downloadProgressKeys {
@@ -2776,22 +2782,16 @@ func registerWindowClasses() {
 			method("downloadDidFinish:", func(self id, _ objc.SEL, download id) {
 				if w := b().windowFor(self); w != nil {
 					if d, ok := w.downloads[download]; ok {
-						log.Printf("DLDEBUG finish %s", d[0])
 						w.forgetDownload(download)
 						w.h.DownloadFinished(d[0], d[1], nil)
-					} else {
-						log.Printf("DLDEBUG finish: not in map")
 					}
 				}
 			}),
 			method("download:didFailWithError:resumeData:", func(self id, _ objc.SEL, download, nserr, resume id) {
 				if w := b().windowFor(self); w != nil {
 					if d, ok := w.downloads[download]; ok {
-						log.Printf("DLDEBUG fail %s: %s", d[0], goString(send(nserr, "localizedDescription")))
 						w.forgetDownload(download)
 						w.h.DownloadFinished(d[0], d[1], errors.New(goString(send(nserr, "localizedDescription"))))
-					} else {
-						log.Printf("DLDEBUG fail: not in map")
 					}
 				}
 			}),
