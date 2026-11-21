@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package darwin
 
@@ -111,9 +111,12 @@ type window struct {
 	// popover shows a flyout with the look of AppKit's popovers
 	// (Flyout.Popover), in its window, win while it shows; popoverClosing
 	// tells that the backend closes it, not the user; popoverHeld that
-	// a window was modal to it as it showed (holdPopover).
+	// a window was modal to it as it showed (holdPopover); popoverShown
+	// whether its surface was last told that some of it shows
+	// (tellPopoverOcclusion).
 	popover, popoverController  id
 	popoverClosing, popoverHeld bool
+	popoverShown                bool
 	// ignoreMouse is SetIgnoreMouseEvents', and inputRegion
 	// SetInputRegion's (input_region.go), nil for none, whose tracking
 	// area is regionTracking; ignoring is whether the window lets the
@@ -267,6 +270,10 @@ func (w *window) create() {
 		behavior = collectionCanJoinAllSpaces | collectionFullScreenAuxiliary | collectionIgnoresCycle | collectionTransient
 		// A panel stays as the app is deactivated: the app hides it.
 		send(w.win, "setHidesOnDeactivate:", 0)
+		// NSPanel becomes key only when a view needs it (the default). A
+		// hidden page has no first responder yet: Show would order the
+		// panel front without the keyboard while another app is active.
+		send(w.win, "setBecomesKeyOnlyIfNeeded:", 0)
 	} else if w.modalToFlyout() {
 		// Where its flyout is, over another app in full screen too.
 		behavior = collectionFullScreenAuxiliary | collectionTransient
@@ -927,9 +934,11 @@ func (w *window) Show() {
 		return
 	}
 	w.showAboveParent(true)
-	if !w.opts.Panel {
-		send(w.b.app, "activateIgnoringOtherApps:", 1)
+	if w.opts.Panel {
+		w.takeKeyWithoutActivating()
+		return
 	}
+	send(w.b.app, "activateIgnoringOtherApps:", 1)
 }
 
 // A window modal to a flyout (modalToFlyout) is no sheet of it, which
@@ -1228,6 +1237,22 @@ func (w *window) IsVisible() bool {
 	return sendBool(w.win, "isVisible") || !w.hidMiniaturized && w.IsMinimized()
 }
 
+// takeKeyWithoutActivating makes a panel the key window without activating
+// the app. Show and Focus already ordered it front; NSApp may still be
+// resigning active (Finder can be frontmost first, see TestGlass), which
+// would take the key back. The next turn takes it again if that happens.
+func (w *window) takeKeyWithoutActivating() {
+	if !sendBool(w.win, "isKeyWindow") {
+		send(w.win, "makeKeyWindow")
+	}
+	w.b.post(func() {
+		if w.closed || !sendBool(w.win, "isVisible") || sendBool(w.win, "isKeyWindow") {
+			return
+		}
+		send(w.win, "makeKeyWindow")
+	})
+}
+
 func (w *window) Focus() {
 	if w.host != nil {
 		if !w.closed {
@@ -1241,9 +1266,11 @@ func (w *window) Focus() {
 	}
 	w.hiddenWithParent, w.hidMiniaturized = false, false
 	send(w.win, "makeKeyAndOrderFront:", 0)
-	if !w.opts.Panel {
-		send(w.b.app, "activateIgnoringOtherApps:", 1)
+	if w.opts.Panel {
+		w.takeKeyWithoutActivating()
+		return
 	}
+	send(w.b.app, "activateIgnoringOtherApps:", 1)
 }
 
 func (w *window) Blur() { send(w.win, "orderBack:", 0) }
@@ -2479,6 +2506,12 @@ func registerWindowClasses() {
 			}),
 			method("windowDidChangeOcclusionState:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil && w.surface != nil {
+					if w.popover != 0 {
+						// Its popover's window, from the notification
+						// center (adoptPopoverWindow).
+						w.tellPopoverOcclusion()
+						return
+					}
 					kind := platform.SurfaceShown
 					if !w.surface.visible() {
 						kind = platform.SurfaceHidden

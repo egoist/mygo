@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,6 +61,10 @@ type Rectangle struct{ X, Y, Width, Height int }
 // WindowOptions configures NewWindow. The zero value is a visible,
 // resizable 800x600 window centered on screen.
 type WindowOptions struct {
+	// OwnScene opens the window as a window of the system's own on iPad, beside
+	// the app's others, which ios.multipleWindows in mygo.json allows. Elsewhere
+	// it's a window as any: on a phone or Android, over the one before.
+	OwnScene bool
 	// Title of the window. Defaults to the application name. The title
 	// follows the page's <title> unless an OnPageTitleUpdated listener
 	// prevents it.
@@ -93,6 +98,19 @@ type WindowOptions struct {
 	// Hidden creates the window without showing it. Call Show, typically
 	// from OnReadyToShow, to avoid a blank window while the page loads.
 	Hidden bool
+	// ConsumeActivationClick consumes the click that makes a non-key
+	// window key, without sending the press to its content (macOS,
+	// Windows). It applies to the page, native UI and embedded WebViews;
+	// system window controls keep their own behavior, while custom
+	// title-bar drag regions (`--app-region: drag`, `ui.Element.DragWindow`)
+	// require the window to be active first. On Windows, a regular
+	// WebView2 page (without Content) disables its child control while
+	// inactive so the activation click reaches the host window, which
+	// also prevents wheel scrolling, hover and file drops on that page
+	// until the window is active; native UI and embedded WebViews keep
+	// all three while inactive. By default the activation click also
+	// reaches the content. Other platforms ignore it.
+	ConsumeActivationClick bool
 	// Frameless removes the title bar and window chrome. Mark draggable
 	// areas with the CSS `--app-region: drag`.
 	Frameless bool
@@ -385,6 +403,9 @@ type Window struct {
 	// hear the room the window controls take. Main thread only.
 	hiddenTitleBar bool
 	menu           *Menu
+	// thumbBar is what SetThumbBar set last; a button's Click is looked up
+	// here by the position the shell reports. Main thread only.
+	thumbBar []ThumbButton
 	// title is the title the app or the page set; representedFile and
 	// documentEdited are the document the window shows. Main thread only.
 	title           string
@@ -394,6 +415,10 @@ type Window struct {
 	// once it settled. Main thread only.
 	stateKey   string
 	stateTimer *time.Timer
+	// devSlot is the place, from 1, of a window without a stateKey in
+	// what mygo dev keeps of the windows (restoreDevWindow), 0 for none.
+	// Main thread only.
+	devSlot int
 
 	// trusted reports whether the current page may call bound methods.
 	// Main thread only.
@@ -647,6 +672,7 @@ func newWindow(opts WindowOptions, bg, tint *background, native uintptr, flyout 
 	popts := w.platformOptions(&opts)
 	popts.BackgroundColor = w.backgroundColor()
 	popts.Surface = opts.Content != nil
+	popts.OwnScene = opts.OwnScene
 	if opts.Transparent {
 		// Backends keep transparent windows clear; so do theme changes.
 		w.background = nil
@@ -668,6 +694,8 @@ func newWindow(opts WindowOptions, bg, tint *background, native uintptr, flyout 
 	w.devTools = popts.DevTools
 	if w.stateKey != "" {
 		restoreWindowState(w.stateKey, popts)
+	} else {
+		w.restoreDevWindow(popts, native)
 	}
 	w.title = popts.Title
 	if s := opts.Page.Session; s != nil && opts.Content == nil {
@@ -689,7 +717,7 @@ func newWindow(opts WindowOptions, bg, tint *background, native uintptr, flyout 
 		// reaches it in between.
 		nw.SetIgnoreMouseEvents(true)
 	}
-	if w.stateKey != "" {
+	if w.stateKey != "" || w.devSlot > 0 {
 		w.initState(popts)
 	}
 	if w.content {
@@ -770,9 +798,11 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		Autoplay:               po.Autoplay == AutoplayAllow,
 		SwipeNavigation:        po.SwipeNavigation,
 		PinchZoom:              po.PinchZoom,
+		ZoomControl:            po.ZoomControl,
 		Schemes:                Protocol.schemes(),
 		Panel:                  o.Panel,
 		PictureInPicture:       po.PictureInPicture,
+		ConsumeActivationClick: o.ConsumeActivationClick,
 	}
 	if o.Panel {
 		p.Minimizable, p.Maximizable, p.Fullscreenable = false, false, false
@@ -1534,6 +1564,81 @@ func (w *Window) SetIcon(png []byte) error {
 	return err
 }
 
+// ThumbButton is a button of the window's thumbnail toolbar, the row of
+// small buttons Windows shows under a taskbar button's live preview. See
+// SetThumbBar.
+type ThumbButton struct {
+	// Icon is a PNG image for the button. On updates, nil keeps the
+	// button's existing icon.
+	Icon []byte
+	// ToolTip names the button for the user.
+	ToolTip string
+	// Disabled grays the button out; Hidden keeps it out of the toolbar.
+	Disabled bool
+	Hidden   bool
+	// Click is called on the main thread when the user clicks the button.
+	Click func(b *ThumbButton, win *Window)
+}
+
+// SetThumbBar sets the window's thumbnail toolbar (Windows):
+//
+//	win.SetThumbBar([]mygo.ThumbButton{
+//	    {Icon: back, ToolTip: "Back", Click: goBack},
+//	    {Icon: play, ToolTip: "Play", Click: play},
+//	})
+//
+// The first call fixes the buttons' count and order; later calls update
+// their icons (passing new PNGs, or nil to keep them),
+// tooltips, Disabled and Hidden state, and replace their Click functions.
+// The toolbar takes one to 7 buttons, and a later call that changes their
+// number fails with an error. A button's Click runs on the main thread.
+// Elsewhere SetThumbBar returns errors.ErrUnsupported.
+func (w *Window) SetThumbBar(buttons []ThumbButton) error {
+	if len(buttons) == 0 {
+		return errors.New("mygo: a thumbnail toolbar takes one or more buttons")
+	}
+	if len(buttons) > 7 {
+		return errors.New("mygo: a thumbnail toolbar takes at most 7 buttons")
+	}
+	var err error
+	w.do(func(n platform.Window) {
+		tb, ok := n.(platform.ThumbBarWindow)
+		if !ok {
+			err = platform.ErrUnsupported
+			return
+		}
+		// Link the backend hook on the main thread: WndProc and applyTaskbar
+		// read these vars on that thread.
+		linkThumbBars()
+		updating := len(w.thumbBar) != 0
+		if updating && len(buttons) != len(w.thumbBar) {
+			err = errors.New("mygo: the buttons of a thumbnail toolbar cannot change once they are set")
+			return
+		}
+		// The shell reports a click by the button's position.
+		updated := make([]ThumbButton, len(buttons))
+		native := make([]platform.ThumbButton, len(buttons))
+		for i, b := range buttons {
+			switch {
+			case len(b.Icon) > 0:
+				b.Icon = slices.Clone(b.Icon)
+			case updating:
+				b.Icon = w.thumbBar[i].Icon
+			default:
+				err = errors.New("mygo: a thumbnail toolbar button needs an icon")
+				return
+			}
+			updated[i] = b
+			native[i] = platform.ThumbButton{Icon: b.Icon, ToolTip: b.ToolTip,
+				Disabled: b.Disabled, Hidden: b.Hidden}
+		}
+		if err = tb.SetThumbBar(native); err == nil {
+			w.thumbBar = updated
+		}
+	})
+	return err
+}
+
 // SetMenu sets the menu bar of this window (Linux, Windows). On macOS the
 // menu bar belongs to the application; see Application.SetMenu.
 func (w *Window) SetMenu(m *Menu) {
@@ -1839,7 +1944,9 @@ var errNoPage = errors.New("mygo: the window shows Content, not a web page")
 //	n, err := win.Page().Eval("const items = document.querySelectorAll('li'); return items.length")
 //
 // Eval is not subject to the page's Content Security Policy. It returns an
-// error when the window closes or the app quits before the page answers.
+// error when the page navigates away (a load, a reload, a change of
+// location), the window closes or the app quits before the page answers.
+// history.pushState and a new fragment stay in the page.
 func (p *Page) Eval(code string) (any, error) {
 	return p.EvalContext(context.Background(), code)
 }
@@ -2298,6 +2405,18 @@ func (h *windowHandler) MenuItemClicked(id int) {
 	}
 }
 
+// ThumbButtonClicked runs the Click of the thumbnail toolbar button at id,
+// the position SetThumbBar gave it. The shell only reports clicks of
+// buttons that are shown and enabled, and the toolbar's size keeps the
+// slice's, so the check is for the cross-layer id alone.
+func (h *windowHandler) ThumbButtonClicked(id int) {
+	if h.w.native != nil && id >= 0 && id < len(h.w.thumbBar) {
+		if b := &h.w.thumbBar[id]; b.Click != nil {
+			b.Click(b, h.w)
+		}
+	}
+}
+
 func (h *windowHandler) Resized()           { h.w.stateChanged(); h.w.placeFlyouts(); fire(&h.w.onResize) }
 func (h *windowHandler) Moved()             { h.w.stateChanged(); h.w.placeFlyouts(); fire(&h.w.onMove) }
 func (h *windowHandler) Minimized()         { h.w.stateChanged(); fire(&h.w.onMinimize) }
@@ -2459,6 +2578,10 @@ func (h *windowHandler) AudibleChanged(audible bool) {
 	h.w.audible = audible
 	fire1(&h.w.onAudibleChanged, audible)
 }
+
+// ZoomChanged tells the page and its window of a zoom the user chose, as
+// SetZoomFactor does of the app's.
+func (h *windowHandler) ZoomChanged() { h.w.zoomChanged() }
 
 func (h *windowHandler) CaptureStateChanged(kind platform.CaptureKind, state platform.CaptureState) {
 	k := CaptureKind(kind)

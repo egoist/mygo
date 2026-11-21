@@ -1,4 +1,4 @@
-//go:build linux && (amd64 || arm64)
+//go:build linux && !android && (amd64 || arm64)
 
 package linux
 
@@ -299,12 +299,13 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if w.web != 0 {
 		b.byWebView[w.web] = w
 	}
-	if o.Frameless && !w.csd && o.Flyout == nil && !w.layer && b.announceCSD != nil {
+	if (o.Frameless || w.hiddenTitleBar() && !b.compositorDecorates) && !w.csd && o.Flyout == nil && !w.layer && b.announceCSD != nil {
 		// GTK asks a Wayland compositor that speaks
 		// org_kde_kwin_server_decoration (KWin, COSMIC, Sway…) to decorate
 		// every window it does not decorate itself, an undecorated one
 		// too: say the window decorates itself, before it is mapped, so
-		// that the compositor draws no title bar.
+		// that the compositor draws no title bar. A hidden title bar keeps
+		// a tiling compositor's decorations (titlebar.go).
 		gtkWidgetRealize(w.win)
 		b.announceCSD(gtkWidgetGetWindow(w.win))
 	}
@@ -439,6 +440,14 @@ func (w *window) cleanup() {
 	w.b.flyouts = slices.DeleteFunc(w.b.flyouts, func(x *window) bool { return x == w })
 	delete(w.b.byWebView, w.web)
 	dropOwner(w.owner)
+	if w.accel != 0 {
+		// The window gives up its own reference as GTK destroys it; this
+		// is the one gtk_accel_group_new returned, as installMenu frees
+		// the group it replaces.
+		delete(roleKeys, w.accel)
+		gObjectUnref(w.accel)
+		w.accel = 0
+	}
 	if w.surface != nil {
 		w.surface.destroy()
 	}
@@ -1140,8 +1149,8 @@ func (w *window) undecorated() bool { return w.opts.Frameless || w.hiddenTitleBa
 //   - Overlays on a layer surface (initOverlay), which the compositor puts
 //     without them too, and resizes through no edges of GTK's: the page's
 //     edges resize them (moveLayer).
-//   - A hidden title bar where the compositor decorates windows itself
-//     (KWin): it keeps the compositor's title bar, with the buttons.
+//   - A hidden title bar where a tiling compositor decorates windows
+//     itself (Hyprland, Sway): it keeps what the compositor draws.
 //   - X11, where Mutter puts its shadow around opaque undecorated windows
 //     as it composites, and where a window that decorates itself has its
 //     shadow inside its X window, which Bounds, SetBounds and the frame

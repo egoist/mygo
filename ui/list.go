@@ -3,9 +3,10 @@ package ui
 import (
 	"math"
 	"math/bits"
-	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/egoist/mygo/internal/platform"
 )
 
 // A List builds only the rows in view, and keeps its place by a row, its
@@ -80,7 +81,8 @@ type ListState struct {
 	// End do while the list has the keyboard focus, and Page Up and Page
 	// Down on Linux and Windows: *Selected is the chosen row, -1 for none,
 	// which shows in the accent color. The list's Changed reports a new
-	// choice, and its Submitted a double click or Enter. With a Key, the
+	// choice, and its Submitted a double click or Enter, which a button in
+	// a row holding the focus takes for itself. With a Key, the
 	// choice follows its item as rows come and go, and becomes -1 when the
 	// item is no longer among the rows: the list writes that as it builds,
 	// so what the app builds after the list in the same pass reads -1. An
@@ -188,6 +190,15 @@ type ListState struct {
 	// go, when the order or a width is new, and once a double click on
 	// an edge fits a column to its cells.
 	Columns TableLayout
+	// VirtualColumns makes a Table build, in each row, only the columns in
+	// view and a margin of half its width on both sides, as it builds only
+	// the rows in view: the others are blocks as wide as they are, so that
+	// the table scrolls as with all of them. It needs a Width for every
+	// column (or the user's), else the table builds them all. The headers
+	// are always built whole. The cell builder is not called for columns
+	// out of view, which sizing does not see either; assistive technology
+	// is told how many columns there are and the place of each cell.
+	VirtualColumns bool
 	// RoundRows rounds the corners of a Table's chosen and hovered rows at
 	// the theme's Radius, as a List's are, rather than leaving them square
 	// from edge to edge.
@@ -339,6 +350,18 @@ type ListState struct {
 	// tableCols are the columns of the Table choosing cells (CellSelect)
 	// in the order shown, in this frame.
 	tableCols []tableCol
+	// frozenN is how many columns of the Table are pinned, frozenW wide
+	// together, as the last frame built it.
+	frozenN int
+	frozenW float32
+	// focusCol is the ID of the column whose cell held the keyboard in
+	// the last frame, and focusColNext of the one that does in this, when
+	// focusColOn and focusColNextOn say there is one (an ID may be empty):
+	// a Table with VirtualColumns keeps it built, as a List keeps its
+	// focused row, so that the focus does not go as it scrolls out of
+	// view.
+	focusCol, focusColNext     string
+	focusColOn, focusColNextOn bool
 }
 
 // listRequest is where the app or the user asked the list to go: to row
@@ -1111,7 +1134,7 @@ func (f *listFrame) toggle(i int) {
 // extend chooses the rows from the pivot to row i, as Shift does: on
 // macOS in place of those it last chose, elsewhere in place of all others
 // unless keep.
-func (f *listFrame) extend(i int, keep bool) { f.extendBy(i, keep, runtime.GOOS == "darwin") }
+func (f *listFrame) extend(i int, keep bool) { f.extendBy(i, keep, platform.MacKeys) }
 
 // extendBy is extend, choosing the rows from the pivot to row i in place
 // of those it last chose with span, else in place of all others unless
@@ -1355,7 +1378,7 @@ func (f *listFrame) page(d int) int {
 // navigate moves the choice with the keys, past headers.
 func (f *listFrame) navigate() {
 	o, n, sel, s := f.owner, f.n, f.s.cursor(), f.s
-	multi, mac := s.Selection != nil, runtime.GOOS == "darwin"
+	multi, mac := s.Selection != nil, platform.MacKeys
 	if s.Label != nil {
 		o.flags |= flagTypeSelect
 	}
@@ -1389,7 +1412,8 @@ func (f *listFrame) navigate() {
 	in := *sel >= 0 && *sel < n
 	// Enter on macOS, as in Finder, and F2 elsewhere edit the text of the
 	// row chosen in place (EditableText), where it has one.
-	enter := o.Shortcut(0, KeyEnter)
+	// A button in a row clicks on it rather than submitting the row.
+	enter := o.yieldingShortcut(0, KeyEnter)
 	edit := s.editables && (o.Shortcut(0, KeyF2) || mac && enter)
 	switch {
 	case edit && in && !f.isHeader(*sel):

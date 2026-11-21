@@ -55,6 +55,12 @@ func TestMain(m *testing.M) {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		os.Exit(0)
 	}
+	if dir := os.Getenv("MYGO_TEST_CRASH_LOG"); dir != "" {
+		// Helper process for TestCrashLog: a packaged app that panics.
+		App.SetPath(PathLogs, dir)
+		logCrashes()
+		panic("mygo test crash")
+	}
 	fb = fake.New()
 	backendOnce.Do(func() { theBackend = fb })
 	if os.Getenv("MYGO_TEST_STUCK_QUIT") == "1" {
@@ -317,6 +323,15 @@ func TestWindowOptions(t *testing.T) {
 	}
 	if fw.URL() != "https://example.com/" {
 		t.Errorf("URL not loaded: %q", fw.URL())
+	}
+}
+
+func TestConsumeActivationClickOption(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		_, fw := testWindow(t, WindowOptions{ConsumeActivationClick: enabled})
+		if fw.Opts.ConsumeActivationClick != enabled {
+			t.Errorf("ConsumeActivationClick = %v, want %v", fw.Opts.ConsumeActivationClick, enabled)
+		}
 	}
 }
 
@@ -1181,11 +1196,11 @@ func TestEval(t *testing.T) {
 	fw.AsyncFunction = func(body string) (string, error) {
 		bodies = append(bodies, body)
 		switch {
-		case strings.Contains(body, "await(\ndocument.title\n)"):
+		case strings.Contains(body, "(async()=>(\ndocument.title\n))()"):
 			return `{"ok":true,"v":"Title"}`, nil
-		case strings.Contains(body, "await(\nlet x = 1; return x\n)"):
+		case strings.Contains(body, "(async()=>(\nlet x = 1; return x\n))()"):
 			return "", errors.New("SyntaxError: Unexpected token")
-		case strings.Contains(body, "await(async()=>{\nlet x = 1; return x\n})()"):
+		case strings.Contains(body, "(async()=>{\nlet x = 1; return x\n})()"):
 			return `{"ok":true,"v":1}`, nil
 		case strings.Contains(body, "boom"):
 			return `{"ok":false,"e":"boom"}`, nil
@@ -1212,6 +1227,21 @@ func TestEval(t *testing.T) {
 	fw.AsyncFunction = func(string) (string, error) { return "", fake.ErrNoReply }
 	if _, err := w.Page().EvalContext(ctx, "1"); !errors.Is(err, context.Canceled) {
 		t.Errorf("EvalContext with canceled context = %v", err)
+	}
+
+	// The page left before the code answered says so, rather than as the
+	// code's own error, whether its pagehide or the backend tells it.
+	fw.AsyncFunction = func(string) (string, error) { return `{"left":true}`, nil }
+	if _, err := w.Page().Eval("pending"); !errors.Is(err, platform.ErrNavigated) {
+		t.Errorf("Eval in a page left = %v, want %v", err, platform.ErrNavigated)
+	}
+	bodies = nil
+	fw.AsyncFunction = func(body string) (string, error) {
+		bodies = append(bodies, body)
+		return "", platform.ErrNavigated
+	}
+	if _, err := w.Page().Eval("pending"); !errors.Is(err, platform.ErrNavigated) || len(bodies) != 1 {
+		t.Errorf("Eval in a page the backend says was left = %v, ran %d times; want %v, once", err, len(bodies), platform.ErrNavigated)
 	}
 
 	// Only a syntax error means the code did not run: other failures are
@@ -1287,6 +1317,37 @@ func TestEvalWindowCloses(t *testing.T) {
 		}
 	case <-time.After(wait.Guard):
 		t.Fatal("Eval still waits for the page of a closed window")
+	}
+}
+
+// TestEvalAnsweredByNextPage: an eval sent just before a navigation
+// commits may run in the page that comes next, as one sent right after
+// opening a window may run in the page it loads rather than the empty one
+// it starts with: the navigation leaves it be, and Eval returns the
+// answer of that page.
+func TestEvalAnsweredByNextPage(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{})
+	replies := make(chan func(string, error), 1)
+	fw.AsyncCallback = func(body string, reply func(string, error)) { replies <- reply }
+	type res struct {
+		v   any
+		err error
+	}
+	done := make(chan res, 1)
+	go func() {
+		v, err := w.Page().Eval("navigator.userAgent")
+		done <- res{v, err}
+	}()
+	reply := <-replies
+	onMain(func() { fw.H.NavigationCommitted("app://localhost/") })
+	onMain(func() { reply(`{"ok":true,"v":"Agent"}`, nil) })
+	select {
+	case r := <-done:
+		if r.v != "Agent" || r.err != nil {
+			t.Errorf("Eval = %v, %v", r.v, r.err)
+		}
+	case <-time.After(wait.Guard):
+		t.Fatal("Eval did not return the answer of the page that came next")
 	}
 }
 
