@@ -68,6 +68,11 @@ func (d *Download) setScheme(s schemeControl) {
 	d.mu.Lock()
 	d.scheme = s
 	d.mu.Unlock()
+	if d.canceled.Load() {
+		// Cancel landed after the download registered but before its
+		// writer did: it went to the engine, whose download this is not.
+		s.cancel()
+	}
 }
 
 func (d *Download) schemeDownload() schemeControl {
