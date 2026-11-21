@@ -184,9 +184,9 @@ func hasSource(t reflect.Type, seen map[reflect.Type]bool) bool {
 	return false
 }
 
-// sourceWindow is how many bytes of values may wait for the method to
-// take them. The method acknowledges what it took, once every half
-// window.
+// sourceWindow is how much of a source's text, in UTF-16 units as the page
+// counts it, may wait for the method to take it. The method acknowledges
+// what it took, once every half window.
 const sourceWindow = 1 << 20
 
 // source is a Source of any type: the stream of one call's argument, which
@@ -196,6 +196,10 @@ type source struct {
 	id    int64 // the page's
 	token string
 	ctx   context.Context // the call's
+	// store is the source state of the page the call was made for, which
+	// close marks it gone in: after a navigation the window's is another
+	// page's, whose first ids start over.
+	store *sourceStore
 
 	mu     sync.Mutex
 	cond   sync.Cond
@@ -233,6 +237,7 @@ func (w *Window) newSource(page, ctx context.Context, id int64, token string) *s
 	w.mu.Lock()
 	if w.pageCtx == page {
 		st := w.sourceStore()
+		s.store = st
 		if st.sources == nil {
 			st.sources = map[int64]*source{}
 		}
@@ -274,11 +279,11 @@ func (w *Window) newSource(page, ctx context.Context, id int64, token string) *s
 	return s
 }
 
-// maxEarlySourceBytes is how many bytes of values one source may hold
-// before its call makes it: flow control lets a well-behaved page hold a
-// window and one message, and nothing is acknowledged before the source
-// exists, so more than that is a page sending for an id no call makes.
-const maxEarlySourceBytes = sourceWindow
+// maxEarlySourceBytes is how much text one source may hold before its
+// call makes it. Flow control is a window as the page counts it, in UTF-16
+// units, and nothing is acknowledged before the source exists; Go counts
+// the UTF-8 bytes, at most three times as many, plus one message.
+const maxEarlySourceBytes = 3*sourceWindow + 64<<10
 
 // maxEarlySourceIDs bounds the sources that may wait for their calls at
 // once; a page sending for more ids than this is not one whose calls are
@@ -374,15 +379,18 @@ func (w *Window) sourceMessage(id int64, token string, raw []byte, end bool) {
 		early = &earlySource{}
 		st.early[id] = early
 	}
-	if early.bytes >= maxEarlySourceBytes {
-		// More than flow control lets a page hold for a source that does
-		// not exist: fail it instead of buffering more.
-		delete(st.early, id)
-		w.markSourceGone(st, id)
-		return
+	if !end {
+		if early.bytes >= maxEarlySourceBytes {
+			// More than flow control lets a page hold for a source that
+			// does not exist: fail it instead of buffering more. An end
+			// is never a flood: the page sends it outside flow control.
+			delete(st.early, id)
+			w.markSourceGone(st, id)
+			return
+		}
+		early.bytes += len(raw)
 	}
 	early.values = append(early.values, earlySourceValue{token: token, raw: bytes.Clone(raw), end: end})
-	early.bytes += len(raw) + 64 // as recv counts them
 }
 
 // push queues a value the page sent, on the main thread. The raw bytes are
@@ -417,10 +425,10 @@ func (s *source) recv() ([]byte, error) {
 	if len(s.queue) > 0 {
 		e := s.queue[0]
 		s.queue = s.queue[1:]
-		// The page measures the whole message (body.length); this estimate
-		// stays under it, and acknowledging every half window keeps the
-		// two within one window of each other.
-		s.taken += int64(len(e.raw)) + 64
+		// The page counts a value's message in UTF-16 units (body.length)
+		// and this counts its UTF-8 bytes, at most three times as many:
+		// for other scripts the acknowledgment comes sooner, never later.
+		s.taken += int64(len(e.raw))
 		var ack []byte
 		if s.taken-s.asked >= sourceWindow/2 {
 			s.asked = s.taken
@@ -469,10 +477,11 @@ func (s *source) close(by int) {
 		stop()
 	}
 	s.w.mu.Lock()
-	st := s.w.sourceStore()
-	if st.sources[s.id] == s {
-		delete(st.sources, s.id)
+	if st := s.store; st != nil {
+		if st.sources[s.id] == s {
+			delete(st.sources, s.id)
+		}
+		s.w.markSourceGone(st, s.id)
 	}
-	s.w.markSourceGone(st, s.id)
 	s.w.mu.Unlock()
 }

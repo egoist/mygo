@@ -3,6 +3,7 @@
 package mygo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -250,7 +251,7 @@ func TestSourceFloodFailsTheSource(t *testing.T) {
 	w := &Window{}
 	sourceWindowSetup(w)
 	big := make([]byte, 64<<10)
-	for range 17 { // over a window
+	for range 50 { // past what flow control lets a page hold
 		w.sourceMessage(7, "tok", big, false)
 	}
 	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`)
@@ -275,5 +276,45 @@ func TestSourceManySmallEarlyValues(t *testing.T) {
 	out := sourceOutbox(w)
 	if !strings.Contains(out, `"ok":true`) || strings.Contains(out, "source closed") {
 		t.Errorf("outbox = %q, want the method to get every value", out)
+	}
+}
+
+// A page that fills its flow window before its source exists, and ends,
+// is not a flood: the end comes outside flow control, and Go's UTF-8
+// bytes count more than the page's UTF-16 units.
+func TestSourceEarlyWindowEnd(t *testing.T) {
+	sourceServiceFor(t)
+	w := &Window{}
+	sourceWindowSetup(w)
+	value := append(append([]byte(`"`), bytes.Repeat([]byte("A"), 64<<10)...), '"')
+	for range 17 { // over a window by the page's count
+		w.sourceMessage(7, "tok", value, false)
+	}
+	w.sourceMessage(7, "tok", nil, true)
+	wait.For(t, "the call to end", startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`))
+	if out := sourceOutbox(w); !strings.Contains(out, `"ok":true`) {
+		t.Errorf("outbox = %q, want the method to get the values", out[:200])
+	}
+}
+
+// The page numbers its streams from 1 on every load: a source that closes
+// after a navigation must not fail the new page's source of the same id.
+func TestSourceIdReusedAfterNavigation(t *testing.T) {
+	svc := sourceServiceFor(t)
+	svc.started = make(chan struct{})
+	w := &Window{}
+	sourceWindowSetup(w)
+	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`)
+	wait.For(t, "the first call to start", svc.started)
+	w.resetPage() // the page navigates: the old call's context is canceled
+	wait.For(t, "the old call to end", done)
+	svc.started = make(chan struct{})
+	done = startSourceCall(w, `{"id":2,"k":"tok","m":"srcTest.Collect","a":[7]}`)
+	wait.For(t, "the new call to start", svc.started)
+	w.handleMessage(`{"t":"src-push","c":7,"k":"tok","p":"a"}`)
+	w.handleMessage(`{"t":"src-end","c":7,"k":"tok"}`)
+	wait.For(t, "the new call to end", done)
+	if out := sourceOutbox(w); !strings.Contains(out, `"v":"a"`) {
+		t.Errorf("outbox = %q, want the new page's call to get its value", out)
 	}
 }
