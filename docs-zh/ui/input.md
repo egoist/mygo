@@ -194,9 +194,11 @@ if !hovered {
 `Focus` 不会干扰用户的滚动。点击会让元素在原地获得焦点，按住指针按钮时调用
 `Focus` 也一样，例如一行通过按下它的手柄来获得焦点。要以其他方式让它对齐，
 就在它获得焦点的那一帧调用 `ScrollIntoView` 并带上它的选项。要让滚动留在
-原处，如 Web 的 `focus({ preventScroll: true })`，传入 `ui.FocusOptions`：
+原处，如 Web 的 `focus({ preventScroll: true })`，向 `Focus`、`AutoFocus` 或
+句柄的 `FocusWith` 传入 `ui.FocusOptions`：
 `cell.Focus(ui.FocusOptions{PreventScroll: true})` 在对话框关闭时把焦点还给
-网格的某个单元格，而不滚动网格。对于把焦点交给内部输入框的字段，这个选项也
+网格的某个单元格，而不滚动网格，`field.AutoFocus(ui.FocusOptions{PreventScroll: true})`
+则在原地聚焦新出现的控件。对于把焦点交给内部输入框的字段，这个选项也
 同样有效。零值选项等同于不带选项的 `Focus()`。
 
 `TabStop(false)` 让元素可聚焦但不在 Tab 顺序中，如同 HTML 的
@@ -261,13 +263,16 @@ ui.TextInput(c.Key("search"), &app.query).Bind(&app.search)
 ```
 
 在应用状态中声明 `search ui.Handle`。`app.search.Focus()` 请求焦点，并在
-控件隐藏时等待。`CancelFocus()` 取消请求。`Focused(c)` 和 `FocusWithin(c)`
+控件隐藏时等待；`app.search.FocusWith(ui.FocusOptions{PreventScroll: true})`
+同样如此，但不会滚动控件周围的容器。`app.search.SelectAll()` 也一样，并会
+全选输入框中的文本，如同按 Tab 切入那样，即使控件已有焦点也是如此：重新打开
+搜索框时会选中它的查询词，直接输入即可替换。`CancelFocus()` 取消请求。`Focused(c)` 和 `FocusWithin(c)`
 可在控件构建前后查询其焦点状态。`c.Resolve(app.search)` 只返回本次构建的
 元素。`app.search.Bounds(c)` 从已提交的帧读取控件边界，输入回调中及
 两次构建之间也可查询。关闭窗口会取消该窗口的焦点请求。
 
-一个句柄可以在多个窗口中绑定。查询时要用那个窗口的 Context；用 `Focus(c)`
-或 `CancelFocus(c)` 可以显式选择窗口。不带参数的焦点调用要求至多有一个
+一个句柄可以在多个窗口中绑定。查询时要用那个窗口的 Context；用 `Focus(c)`、
+`FocusWith(options, c)`、`SelectAll(c)` 或 `CancelFocus(c)` 可以显式选择窗口。不带参数的焦点调用要求至多有一个
 仍有效的窗口绑定。
 
 ## 绑定到数据的焦点
@@ -315,6 +320,7 @@ ui.Row(c).Gap(4).FocusGroup(ui.Horizontal).Children(func() {
 `Element.Shortcut` 只在元素或它内部的某个元素有焦点时才报告，而且它优先。
 有焦点的按钮保留 Enter 和空格，链接保留 Enter，切换按钮保留空格，所以
 `c.Shortcut(0, ui.KeyEnter)` 可在焦点位于其他位置时按下对话框的默认按钮。
+文本输入框同样保留 Enter：单行输入框用 [`Submitted`](text-input.md) 报告它，文本区域则换行。
 
 ```go
 if c.Shortcut(ui.Cmd, ui.KeyS) {
@@ -345,7 +351,7 @@ if c.Shortcut(0, ui.KeyT) && !c.ShortcutRepeated() {
 标记重复，所以在 Linux 上，一个已经按住的键再次按下（中间没有松开）就是一次
 重复，正如 X11（带可检测的自动重复，GDK 会打开它）和 Wayland 发送它们那样。
 
-`ui.Cmd` 在 macOS 上是 Command，在其他平台上是 Ctrl。`ui.KeyBack` 和
+`ui.Cmd` 在 macOS 和 iOS 上是 Command，在其他平台上是 Ctrl。`ui.KeyBack` 和
 `ui.KeyForward` 是鼠标的后退和前进按钮，以及有此键的键盘上的键，
 [路由器](navigation.md)会接受它们。[菜单](../menus.md)的快捷键仍然有效，
 编辑菜单的角色（剪切、复制、粘贴、全选、撤销、重做）作用于有焦点的文本输入。
@@ -358,7 +364,7 @@ if c.Shortcut(0, ui.KeyT) && !c.ShortcutRepeated() {
 时，某个键输入的不是 US 键位上的字母——如俄语布局上的 ы——它就代表 US 键盘
 上同一位置的键，所以 Cmd+ы 是 `ui.KeyS`。不加这些修饰键输入时，它仍是文本。
 
-有焦点的文本输入会先处理平台的编辑键：在 macOS 上，Option 和 Command 配合
+有焦点的文本输入会先处理平台的编辑键：在 macOS 和 iOS 上，Option 和 Command 配合
 方向键和 Backspace，以及 Control 配合 A、E、B、F、N、P、D、H 和 K，如同其他
 Mac 应用；在其他平台，它让出 Alt 和方向键（它们用于后退和前进）以及功能键。
 
@@ -485,7 +491,8 @@ ui.Box(c).Fill().HandleInput(func(ev ui.InputEvent) bool {
 构建以来抬起或被系统接管的手指，按落下的顺序排列。每个 `ui.Touch` 从手指落下
 到抬起都保持同一个 `ID`，不受其他手指影响，并带有它相对元素盒子的当前位置
 （`X`、`Y`）和落下的位置（`StartX`、`StartY`）、按压力度（`Pressure`，系统
-不报告时为 0.5），以及自上次构建以来的 `Phase`：`ui.TouchBegan`、
+不报告时为 0.5）、与屏幕接触的大小（`Width`、`Height`，以元素的单位计，系统
+不报告时为 0），以及自上次构建以来的 `Phase`：`ui.TouchBegan`、
 `ui.TouchMoved`、`ui.TouchStationary`、`ui.TouchEnded`（在它抬起的位置）或
 `ui.TouchCanceled`（被系统接管，如屏幕边缘的系统手势：不是完成的手势）。结束或
 被取消的手指只在一次构建中出现，之后就消失。请求它们的元素会在手指落下、移动
@@ -541,6 +548,37 @@ Windows 会把三指和四指的轻扫与点按留给它自己的手势（切换
 两根手指。在一次构建之前就落下又抬起的手指，比如快速
 点按，会在一次构建中以 `TouchBegan` 出现，在下一次构建中以 `TouchEnded`
 出现，因此统计落下手指数的视图会数到每一根。
+
+### 手掌与手指
+
+手掌按在屏幕上的面积比指尖大，大屏上的白板据接触的大小分辨二者，用手掌擦除，
+用手指书写：
+
+```go
+for _, t := range canvas.Touches() {
+	if t.Phase == ui.TouchEnded || t.Phase == ui.TouchCanceled {
+		continue
+	}
+	if t.Width*t.Height > 40*40 { // a palm
+		app.ink.Erase(t.X, t.Y, t.Width, t.Height)
+	} else {
+		app.ink.LineTo(t.ID, t.X, t.Y)
+	}
+}
+```
+
+大小以元素的单位计：在放大 2 倍的元素上减半，与 `X`、`Y` 一样。手指在原地
+变成手掌时以 `TouchMoved` 到来。系统报告它的地方：
+
+| 平台 | 接触大小 |
+| --- | --- |
+| Windows | 手指的 `POINTER_TOUCH_INFO` 的 `rcContact`，触摸屏报告时（`TOUCH_MASK_CONTACTAREA`），以 DIP 计 |
+| 浏览器 | Pointer Event 的 `width` 和 `height`；浏览器报告 1×1 时为 0，它无法得知时就这样报告 |
+| Linux | 无：GDK 不报告接触大小，`Width` 和 `Height` 为 0 |
+| macOS | 没有触摸屏，也就没有触摸 |
+
+为白板制造的大触摸屏通常会在 Windows 上报告接触大小。需要它的应用在 `Width`
+和 `Height` 为 0 时应以其他方式分辨手掌与手指。
 
 ## 每个键，随到随处理
 

@@ -44,7 +44,9 @@ mygo.Dialog.Error("Import failed", err.Error())
 ```
 
 `OpenDialogOptions` also pick directories (`Directory`), show hidden files
-and, on macOS, a message and a New Folder button.
+and, on macOS, a message and a New Folder button. On Windows, choosing a
+library, such as Documents, in a directory picker picks the folder it saves
+to.
 
 A filter takes files by type too, as HTML's `accept`: `MIMETypes` such as
 `"application/pdf"`, or all of a kind, `"image/*"`, which the system's
@@ -476,6 +478,20 @@ defer release()
 `Control` hears the player's end; after the app plays, pauses or seeks it
 itself, `NowPlaying.Sync` shows it. In browsers, `NowPlaying` is the
 page's Media Session.
+
+A track with more than one artist names them in `Artists`, which wins
+over `Artist` when it names any: MPRIS clients list them, and macOS,
+Windows and browsers, which show one artist, show them joined with ", ".
+
+```go
+mygo.NowPlaying.Set(mygo.NowPlayingInfo{
+	Title: "Get Lucky", Artists: []string{"Daft Punk", "Pharrell Williams", "Nile Rodgers"},
+})
+```
+
+On Linux, an MPRIS client can raise the player (`Raise`), as the media
+controls of GNOME and KDE do when it is clicked: the app's window that had
+the keyboard last shows, if hidden, and takes the keyboard.
 
 ## Network
 

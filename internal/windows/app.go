@@ -19,10 +19,14 @@ import (
 // Backend is the Windows (Win32 + WebView2) implementation of
 // platform.Backend.
 type Backend struct {
-	h       platform.AppHandler
-	name    string
-	appHwnd uintptr // hidden window receiving app level messages
-	running bool
+	h    platform.AppHandler
+	name string
+	// background is AppOptions.Background (mygo dev -background):
+	// ShowInactive orders windows in behind another app's foreground
+	// window (behindForeground).
+	background bool
+	appHwnd    uintptr // hidden window receiving app level messages
+	running    bool
 	// exiting is set by Exiting: the windows get only the default
 	// window procedure while they are destroyed.
 	exiting bool
@@ -147,6 +151,7 @@ func (b *Backend) IsMainThread() bool { return currentThreadID() == mainThreadID
 func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	b.h = h
 	b.name = opts.Name
+	b.background = opts.Background
 	theBackend = b
 	procCoInitializeEx.Call(0, coinitApartmentThreaded)
 	if has(procSetProcessDpiAwarenessContext) {
@@ -461,12 +466,13 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 		return 0, true
 	}
 	if m == b.taskbarCreated && m != 0 {
-		// Explorer restarted: the notification area forgot our icons. A
-		// temporary icon, which only carries a notification's balloon, has
-		// lost that balloon with the rest of explorer, so it is not added
-		// again: what is left of it is reclaimed on its own timer.
+		// Explorer started, or restarted: the notification area forgot our
+		// icons, or refused them while it was away. A temporary icon, which
+		// only carries a notification's balloon, has lost that balloon with
+		// the rest of explorer, so it is not added again: what is left of it
+		// is reclaimed on its own timer.
 		for _, t := range b.trays {
-			if t.added && !t.temporary {
+			if !t.temporary {
 				t.add()
 			}
 		}

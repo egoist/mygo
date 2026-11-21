@@ -1,4 +1,4 @@
-//go:build linux && (amd64 || arm64)
+//go:build linux && !android && (amd64 || arm64)
 
 // Package linux implements the Linux backend (GTK 3 + WebKitGTK) in pure Go:
 // the libraries are loaded at run time with purego, no cgo.
@@ -155,6 +155,7 @@ var (
 	gVariantNewTuple               func(children unsafe.Pointer, n uintptr) ptr
 	gVariantNewArray               func(typ ptr, children unsafe.Pointer, n uintptr) ptr
 	gVariantTypeNew                func(s *byte) ptr
+	gVariantTypeFree               func(typ ptr)
 	gVariantGetChildValue          func(v ptr, i uintptr) ptr
 	gVariantGetUint32              func(v ptr) uint32
 	gVariantGetUint64              func(v ptr) uint64
@@ -592,6 +593,7 @@ func load() error {
 	mustBind(g, &gVariantNewTuple, "g_variant_new_tuple")
 	mustBind(g, &gVariantNewArray, "g_variant_new_array")
 	mustBind(g, &gVariantTypeNew, "g_variant_type_new")
+	mustBind(g, &gVariantTypeFree, "g_variant_type_free")
 	mustBind(g, &gVariantGetChildValue, "g_variant_get_child_value")
 	mustBind(g, &gVariantGetUint32, "g_variant_get_uint32")
 	mustBind(g, &gVariantGetUint64, "g_variant_get_uint64")
@@ -887,13 +889,15 @@ var (
 // may do (WebViewAvailable). WebKitGTK takes the first thread that calls
 // into it for its UI thread, and aborts when another calls later: the
 // first call, persistCookies, waits for the main thread, whose users of
-// WebKit all call webKit first.
+// WebKit all call webKit first. fixScreenResolution comes before it, so
+// that the first web context reads a sane resolution.
 func webKit() error {
 	webKitOnce.Do(func() {
 		errWebKit = loadWebKit()
 		webKitLoaded.Store(errWebKit == nil)
 	})
 	if errWebKit == nil && theBackend != nil && theBackend.IsMainThread() {
+		resolutionOnce.Do(fixScreenResolution)
 		cookiesOnce.Do(persistCookies)
 	}
 	return errWebKit

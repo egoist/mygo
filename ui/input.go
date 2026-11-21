@@ -11,11 +11,16 @@ import (
 
 // event handles a surface event on the main thread. It reports whether
 // an element takes files dragged over or dropped at the event's position,
-// the key pressed or the composition (platform.WindowHandler.SurfaceEvent).
+// the key pressed, the scroll or the composition (platform.WindowHandler.SurfaceEvent).
 func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	if ev.Kind == platform.SurfaceCommandEnabled {
 		// A menu asking about its item changes nothing.
 		return rt.commandEnabled(ev.Text)
+	}
+	if ev.Kind == platform.DragRegionAt {
+		// A backend asking where a finger lands changes nothing either.
+		rt.fromWindow(&ev)
+		return rt.dragRegionAt(float32(ev.X), float32(ev.Y))
 	}
 	if ev.Kind >= platform.TouchDown && ev.Kind <= platform.TouchCancel {
 		// Fingers, which only views that ask follow (Touches): the
@@ -58,8 +63,10 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	held := rt.buttons
 	switch ev.Kind {
 	case platform.PointerMove, platform.PointerUp:
+		rt.lastPointerTouch = ev.Touch
 		rt.pointerDevice(ev)
 	case platform.PointerDown:
+		rt.lastPointerTouch = ev.Touch
 		// It presses once it came where it presses (pointerDevice).
 		rt.pointerType = PointerType(ev.Pointer)
 	case platform.SurfaceBlur, platform.PointerCancel:
@@ -69,6 +76,12 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	}
 	if rt.insp.pointer(rt, ev, x, y) {
 		return true
+	}
+	if ev.Touch && touchInput != nil {
+		x, y = rt.aimTouch(ev.Kind, x, y)
+		if touchInput(rt, ev, x, y) {
+			return false
+		}
 	}
 	switch ev.Kind {
 	case platform.PointerMove, platform.PointerDown, platform.PointerUp, platform.PointerScroll, platform.PointerZoom:
@@ -122,10 +135,10 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		}
 	case platform.PointerScroll:
 		rt.pointerMove(x, y)
-		rt.scroll(float32(ev.DX), float32(ev.DY), Modifiers(ev.Mods), ev.Precise, ev.Momentum)
+		taken = rt.scroll(float32(ev.DX), float32(ev.DY), Modifiers(ev.Mods), ev.Precise, ev.Momentum)
 	case platform.PointerZoom:
 		rt.pointerMove(x, y)
-		rt.zoom(float32(ev.Scale), Modifiers(ev.Mods))
+		rt.zoom(float32(ev.Scale), float32(ev.Rotation), Modifiers(ev.Mods))
 	case platform.KeyPressed:
 		rt.modsChanged(Modifiers(ev.Mods))
 		rt.holdKey(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey))
@@ -530,6 +543,30 @@ func (s *state) pointer(rt *engine) (x, y float32) {
 
 const interactive = flagClickable | flagFocusable | flagEditable | flagSelectable | flagDragWindow | flagDraggable | flagTrackPointer
 
+// dragRegionAt reports whether a finger landing at x, y moves the
+// window, as a press of the first button does there (pointerDown): the
+// first interactive element under it is a drag region (DragWindow) and
+// nothing else, and nothing around it scrolls, as a sidebar that is a
+// drag region does, which the finger scrolls instead. An element's
+// handler (HandleInput) may still take the press there.
+func (rt *engine) dragRegionAt(x, y float32) bool {
+	drag := false
+	for _, id := range rt.hitChain(x, y) {
+		s := rt.states[id]
+		switch {
+		case s == nil:
+		case s.flags&flagScrollY != 0 && s.contentH > float64(s.h), s.flags&flagScrollX != 0 && s.contentW > float64(s.w):
+			return false
+		case !drag && s.flags&interactive != 0:
+			if s.flags&flagDragWindow == 0 || s.flags&(interactive&^flagDragWindow) != 0 {
+				return false
+			}
+			drag = true
+		}
+	}
+	return drag
+}
+
 func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks int) {
 	rt.downing++
 	defer rt.endDown()
@@ -567,6 +604,9 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 		newFocus := uint64(0)
 		if focus != nil {
 			newFocus = focus.id
+			if rt.touch.down && focus.textClient != nil {
+				rt.ime.show++
+			}
 		}
 		if newFocus != rt.focused {
 			rt.focused = newFocus
@@ -863,7 +903,7 @@ func (s *state) quietClick(mods Modifiers) {
 	s.click(mods)
 }
 
-func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool) {
+func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool) bool {
 	chain := rt.appendHitChain(rt.chain[:0], rt.pointerX, rt.pointerY)
 	rt.chain = chain[:0]
 	// From the innermost element out, the first handling its input to
@@ -875,7 +915,7 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool)
 	ev := InputEvent{Kind: InputScroll, DX: dx, DY: dy, Mods: mods, Precise: precise, Momentum: momentum}
 	for _, id := range chain {
 		if s := rt.states[id]; s != nil && s.input != nil && s.flags&flagDisabled == 0 && rt.deliver(s, ev) {
-			return
+			return true
 		}
 	}
 	// Shift turns the wheel sideways: down is toward the end, which is
@@ -900,7 +940,7 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool)
 			// A notch goes to the next place of a container that snaps.
 			if moved, took := rt.snapNotch(s, sx, sy); took {
 				if moved {
-					return
+					return true
 				}
 				continue
 			}
@@ -908,7 +948,7 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool)
 		if glide {
 			if wheelMoves(s, sx, sy) {
 				rt.wheelScroll(s, sx, sy)
-				return
+				return true
 			}
 			continue
 		}
@@ -920,20 +960,27 @@ func (rt *engine) scroll(dx, dy float32, mods Modifiers, precise, momentum bool)
 				s.snap.scrolled(rt, s, snapSettle)
 			}
 			rt.requestFrame()
-			return
+			return true
 		}
 	}
+	return false
 }
 
-// zoom gives a pinch to the element under the pointer that handles its
-// input; no element zooms of its own.
-func (rt *engine) zoom(scale float32, mods Modifiers) {
-	if scale <= 0 || scale == 1 {
+// zoom gives a pinch or twist to the innermost element under the pointer
+// that handles it; one whose handler leaves it passes it on to the handlers
+// around it, as scroll does. No element zooms of its own.
+func (rt *engine) zoom(scale, rotation float32, mods Modifiers) {
+	if scale <= 0 || scale == 1 && rotation == 0 {
 		return
 	}
 	chain := rt.appendHitChain(rt.chain[:0], rt.pointerX, rt.pointerY)
 	rt.chain = chain[:0]
-	rt.deliver(rt.handler(chain), InputEvent{Kind: InputZoom, Scale: scale, Mods: mods})
+	ev := InputEvent{Kind: InputZoom, Scale: scale, Rotation: rotation, Mods: mods}
+	for _, id := range chain {
+		if s := rt.states[id]; s != nil && s.input != nil && s.flags&flagDisabled == 0 && rt.deliver(s, ev) {
+			return
+		}
+	}
 }
 
 // dragTo returns the offset of content whose thumb moved by moved DIPs
@@ -1006,9 +1053,9 @@ func (rt *engine) scrollKey(mods Modifiers, key Key) bool {
 		page = 1
 	case mods == 0 && key == KeyPageUp, mods == Shift && key == KeySpace:
 		page = -1
-	case (mods == 0 || mods == Cmd) && key == KeyHome, mods == Cmd && key == KeyUp && runtime.GOOS == "darwin":
+	case (mods == 0 || mods == Cmd) && key == KeyHome, mods == Cmd && key == KeyUp && platform.MacKeys:
 		dy = -far
-	case (mods == 0 || mods == Cmd) && key == KeyEnd, mods == Cmd && key == KeyDown && runtime.GOOS == "darwin":
+	case (mods == 0 || mods == Cmd) && key == KeyEnd, mods == Cmd && key == KeyDown && platform.MacKeys:
 		dy = far
 	default:
 		return false
@@ -1067,10 +1114,20 @@ func (rt *engine) claimed(k keyEvent) bool { return rt.claimedBy(k, true) }
 // claimedBy reports whether an element around the focus handles the key as
 // a shortcut, or, when window is set, the window.
 func (rt *engine) claimedBy(k keyEvent, window bool) bool {
+	return rt.claimedAround(k, window, false)
+}
+
+// claimedAround is claimedBy, past the shortcuts of elements around the
+// focus that yield to a control inside them (yieldingShortcut) when
+// control is set: the focus is a control that acts on the key.
+func (rt *engine) claimedAround(k keyEvent, window, control bool) bool {
 	var chain []uint64
 	for _, r := range rt.regs {
 		if r.mods != k.mods || r.key != k.key || r.overlay {
 			continue // an overlay takes what the focus leaves
+		}
+		if control && r.yields && r.id != rt.focused {
+			continue
 		}
 		if r.id == 0 {
 			if window {
@@ -1165,7 +1222,7 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCod
 		rt.requestFrame()
 		return false
 	}
-	if s := rt.states[rt.focused]; s != nil && s.flags&flagMenuButton != 0 && s.flags&flagDisabled == 0 && !rt.claimedBy(k, false) &&
+	if s := rt.states[rt.focused]; s != nil && s.flags&flagMenuButton != 0 && s.flags&flagDisabled == 0 && !rt.claimedAround(k, false, true) &&
 		(mods == 0 && (key == KeyEnter || key == KeySpace || key == KeyDown || key == KeyUp) || mods == Alt && key == KeyDown) {
 		rt.focusVisible = true
 		if key == KeyUp {
@@ -1182,7 +1239,7 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCod
 		// page: Space scrolls as it does elsewhere.
 		s := rt.states[rt.focused]
 		window := s != nil && key == KeyEnter && s.flags&flagToggle != 0
-		if s != nil && !rt.claimedBy(k, window) && s.flags&flagClickable != 0 && s.flags&flagDisabled == 0 &&
+		if s != nil && !rt.claimedAround(k, window, true) && s.flags&flagClickable != 0 && s.flags&flagDisabled == 0 &&
 			(key == KeyEnter || s.role != RoleLink) {
 			s.click(0)
 			rt.focusVisible = true
@@ -1197,7 +1254,10 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCod
 	}
 	rt.keys = append(rt.keys, k)
 	rt.requestFrame()
-	return false
+	// The keys that go back, which a shortcut takes in the next frame:
+	// the system leaves them alone then, as Android's back then goes back
+	// in the app rather than out of it.
+	return (key == KeyBack || key == KeyEscape) && mods == 0 && rt.claimed(k)
 }
 
 // typePause is how long after a letter typed to choose a row the next
@@ -1383,7 +1443,24 @@ func (rt *engine) settleKeys() {
 // shortcut registers that element id (0 for the window) handles mods+key
 // and reports whether such a key was delivered to it.
 func (rt *engine) shortcut(id uint64, mods Modifiers, key Key) bool {
-	rt.nextRegs = append(rt.nextRegs, shortcutReg{id: id, mods: mods, key: key})
+	return rt.register(shortcutReg{id: id, mods: mods, key: key})
+}
+
+// yieldingShortcut is Shortcut for a key the element takes only where a
+// control inside it, holding the focus, does nothing with it: a button
+// there clicks on it instead, as a list's Enter submitting the row
+// chosen leaves a button in a row clicking on Enter.
+func (e *node) yieldingShortcut(mods Modifiers, key Key) bool {
+	if e.disabled() {
+		return false
+	}
+	return e.c.rt.register(shortcutReg{id: e.id, mods: mods, key: key, yields: true})
+}
+
+// register registers r and reports whether its key was delivered to it.
+func (rt *engine) register(r shortcutReg) bool {
+	id, mods, key := r.id, r.mods, r.key
+	rt.nextRegs = append(rt.nextRegs, r)
 	for i, d := range rt.delivered {
 		if d.id == id && d.mods == mods && d.key == key {
 			rt.delivered = append(rt.delivered[:i], rt.delivered[i+1:]...)
@@ -1406,8 +1483,8 @@ func (rt *engine) editEvent(ev editEvent) bool {
 		}
 		rt.observeFocus(InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret})
 	}
-	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocus() && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
-		if ev.kind == editInsert || ev.kind == editCompose {
+	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
+		if ev.kind == editInsert || (ev.kind == editCompose && rt.windowFocus()) {
 			var r *TextInputRange
 			if ev.replace {
 				v := TextInputRange{Start: ev.from, End: ev.to}
@@ -1422,7 +1499,13 @@ func (rt *engine) editEvent(ev editEvent) bool {
 			return true
 		}
 	}
-	if h := rt.focusHandler(); h != nil && h.editor == nil {
+	h := rt.focusHandler()
+	if h == nil && ev.kind == editInsert {
+		if s := rt.states[rt.focused]; s != nil && s.editor == nil && s.input != nil && s.takesText && s.flags&flagDisabled == 0 {
+			h = s
+		}
+	}
+	if h != nil && h.editor == nil {
 		kind := map[editKind]InputKind{editInsert: InputText, editCompose: InputCompose, editCommand: InputCommand}[ev.kind]
 		handled := kind != 0 && rt.deliver(h, InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret})
 		if !handled && kind == InputCommand && ev.text == "pasteAndMatchStyle" {
@@ -1535,6 +1618,15 @@ func (rt *engine) updateTextInput() {
 		t.Active, t.NoInputMethod = true, s.noIME
 		r := transformRect(s.world, Rect{s.x + s.caret.X, s.y + s.caret.Y, s.caret.W, s.caret.H})
 		t.Caret = rt.toWindow(platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)})
+	}
+	if t.Active {
+		if s := rt.states[rt.focused]; s != nil {
+			t.Traits = s.traits
+			if s.editor != nil {
+				t.Traits.Multiline, t.Traits.Secure = s.editor.multiline, s.editor.password
+			}
+		}
+		t.ShowKeyboard = rt.ime.show
 	}
 	if t != rt.ime.state {
 		if t.Client != rt.ime.state.Client {
@@ -1880,10 +1972,14 @@ func (e *node) focus(reveal bool) {
 }
 
 // AutoFocus gives the element the keyboard focus in the frame it appears,
-// as the first field of a dialog.
-func (e *node) AutoFocus() *node {
+// as the first field of a dialog. Its options, as Focus's, keep the scroll
+// where the user left it with PreventScroll.
+func (e *node) AutoFocus(options ...FocusOptions) *node {
+	if len(options) > 1 {
+		panic("ui: AutoFocus takes at most one FocusOptions")
+	}
 	if e.hasState() && e.st.born == e.c.rt.frame {
-		e.Focus()
+		e.Focus(options...)
 	}
 	return e
 }

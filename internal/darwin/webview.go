@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package darwin
 
@@ -133,6 +133,12 @@ func (s *surface) PlaceWebViews(views []platform.WebViewPlacement) {
 			msgSetSize(v.pane, sel("setBoundsSize:"), NSSize{pw, ph})
 			msgSetRect(v.web, sel("setFrame:"), NSRect{Size: NSSize{pw, ph}})
 			v.roundPane(p.Radii, pw, ph)
+			// The placement's opacity fades the page itself, over what is
+			// behind the window too, as a flyout over a parent left live.
+			// The layer's own opacity is a 32-bit float, which a double's
+			// low half reads as none at all: the view's alpha takes a
+			// CGFloat, and fades what is inside it, the page with it.
+			msgSetFloat(v.clip, sel("setAlphaValue:"), p.Opacity)
 			if sendBool(v.clip, "isHidden") {
 				send(v.clip, "setHidden:", 0)
 			}
@@ -490,10 +496,17 @@ func webViewMethods() []objc.MethodDef {
 		sendSuper(self, "MyGoWebView", cmd, uintptr(ev))
 	}
 	return []objc.MethodDef{
-		// The first click in a window that is not key is the page's, as it
-		// is native UI's (MyGoSurfaceView): WKWebView answers no, which
-		// spends the click on making the window key.
-		method("acceptsFirstMouse:", func(self id, _ objc.SEL, ev id) bool { return true }),
+		// An embedded page follows its host window's activation policy.
+		method("acceptsFirstMouse:", func(self id, _ objc.SEL, ev id) bool {
+			w := theBackend.byWebView[self]
+			if w == nil {
+				return true
+			}
+			if w.host != nil {
+				w = w.host
+			}
+			return !w.opts.ConsumeActivationClick
+		}),
 		method("scrollWheel:", func(self id, cmd objc.SEL, ev id) {
 			w := theBackend.byWebView[self]
 			if w == nil || w.host == nil || w.host.surface == nil || w.opts == nil || !w.opts.ScrollToContainer {

@@ -3,9 +3,10 @@ package ui
 import (
 	"math"
 	"math/bits"
-	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/egoist/mygo/internal/platform"
 )
 
 // A List builds only the rows in view, and keeps its place by a row, its
@@ -66,11 +67,22 @@ type ListState struct {
 	// goes on from where it is as more comes, and the user scrolling stops
 	// it. It shows the end at once where the desktop asks for less motion.
 	FollowAnimation *Animation
+	// MoveAnimation, when set, with a Key, makes the rows in view glide to
+	// their places as rows come, go or move around them, as the animation
+	// says (Smooth, a spring, or a curve), rather than jump there: a row
+	// whose index changed shows where it showed, and goes on from there.
+	// The rows below a row that went close its gap, and those below rows
+	// that came open theirs; rows coming into view with them move with
+	// them, as those a ScrollTo in the same frame brings. Scrolling moves
+	// no row's index, and is not animated. Rows go to their places at once
+	// where the desktop asks for less motion.
+	MoveAnimation *Animation
 	// Selected, when set, lets a click choose a row, as Up, Down, Home and
 	// End do while the list has the keyboard focus, and Page Up and Page
 	// Down on Linux and Windows: *Selected is the chosen row, -1 for none,
 	// which shows in the accent color. The list's Changed reports a new
-	// choice, and its Submitted a double click or Enter. With a Key, the
+	// choice, and its Submitted a double click or Enter, which a button in
+	// a row holding the focus takes for itself. With a Key, the
 	// choice follows its item as rows come and go, and becomes -1 when the
 	// item is no longer among the rows: the list writes that as it builds,
 	// so what the app builds after the list in the same pass reads -1. An
@@ -178,6 +190,15 @@ type ListState struct {
 	// go, when the order or a width is new, and once a double click on
 	// an edge fits a column to its cells.
 	Columns TableLayout
+	// VirtualColumns makes a Table build, in each row, only the columns in
+	// view and a margin of half its width on both sides, as it builds only
+	// the rows in view: the others are blocks as wide as they are, so that
+	// the table scrolls as with all of them. It needs a Width for every
+	// column (or the user's), else the table builds them all. The headers
+	// are always built whole. The cell builder is not called for columns
+	// out of view, which sizing does not see either; assistive technology
+	// is told how many columns there are and the place of each cell.
+	VirtualColumns bool
 	// RoundRows rounds the corners of a Table's chosen and hovered rows at
 	// the theme's Radius, as a List's are, rather than leaving them square
 	// from edge to edge.
@@ -236,12 +257,25 @@ type ListState struct {
 	// left it, followWas as the frame before left it, and followBase the
 	// glide as it was at the start of followFrame: the layouts of a frame
 	// all start from them.
-	followLag   channel
-	follow      followMark
-	followWas   followMark
-	followBase  channel
-	followFrame uint64
-	laidOut     bool
+	followLag channel
+	// moved are the rows as the last layout placed them with their glides
+	// (MoveAnimation), movedWas as the frame before left them, which the
+	// layouts of moveFrame start from, of moveN rows; lags are how far
+	// each row shows from its place, and moveKnown which rows movedWas
+	// placed. moveScroll is how far the user or the app scrolled the list
+	// by a step in this frame, and moveJump tells that it went elsewhere.
+	moved, movedWas []moveMark
+	moveFrame       uint64
+	moveN           int
+	lags            []float64
+	moveKnown       []bool
+	moveScroll      float64
+	moveJump        bool
+	follow          followMark
+	followWas       followMark
+	followBase      channel
+	followFrame     uint64
+	laidOut         bool
 	// wroteY is the offset the list set, to tell it from scrolling.
 	wroteY  float64
 	req     listRequest
@@ -316,6 +350,18 @@ type ListState struct {
 	// tableCols are the columns of the Table choosing cells (CellSelect)
 	// in the order shown, in this frame.
 	tableCols []tableCol
+	// frozenN is how many columns of the Table are pinned, frozenW wide
+	// together, as the last frame built it.
+	frozenN int
+	frozenW float32
+	// focusCol is the ID of the column whose cell held the keyboard in
+	// the last frame, and focusColNext of the one that does in this, when
+	// focusColOn and focusColNextOn say there is one (an ID may be empty):
+	// a Table with VirtualColumns keeps it built, as a List keeps its
+	// focused row, so that the focus does not go as it scrolls out of
+	// view.
+	focusCol, focusColNext     string
+	focusColOn, focusColNextOn bool
 }
 
 // listRequest is where the app or the user asked the list to go: to row
@@ -671,6 +717,7 @@ func (s *ListState) sync(e *node, n int) {
 		s.header.ok = false
 	}
 	s.anchor = max(0, min(s.anchor, n-1))
+	s.moveScroll, s.moveJump = 0, false
 	switch {
 	case st.list != s || st.born == rt.frame || !s.laidOut:
 		// Built anew, as when its page shows again, or showing another
@@ -684,6 +731,7 @@ func (s *ListState) sync(e *node, n int) {
 	case st.scrollY != s.wroteY && !s.req.set && s.follows() && s.followLag.value > 0.5 && st.scrollY > s.wroteY:
 		// Scrolled toward the end it glides to: it goes on following.
 		s.userAt = rt.frame
+		s.moveJump = true
 	case st.scrollY != s.wroteY && !s.req.set:
 		// Scrolled by the wheel, the keys, the scroll bar or the app: a
 		// step moves the rows by as much, from the place; a jump goes
@@ -694,10 +742,13 @@ func (s *ListState) sync(e *node, n int) {
 		switch d := y - s.wroteY; {
 		case top > 0 && y >= top-0.5:
 			s.req = listRequest{set: true, end: true, user: true}
+			s.moveJump = true
 		case d >= -2*float64(st.h) && d <= 2*float64(st.h):
 			s.inset += d
+			s.moveScroll = d
 		default:
 			s.req = listRequest{set: true, offset: true, y: y, user: true}
+			s.moveJump = true
 		}
 		s.following = top > 0 && y >= top-0.5
 	}
@@ -1083,7 +1134,7 @@ func (f *listFrame) toggle(i int) {
 // extend chooses the rows from the pivot to row i, as Shift does: on
 // macOS in place of those it last chose, elsewhere in place of all others
 // unless keep.
-func (f *listFrame) extend(i int, keep bool) { f.extendBy(i, keep, runtime.GOOS == "darwin") }
+func (f *listFrame) extend(i int, keep bool) { f.extendBy(i, keep, platform.MacKeys) }
 
 // extendBy is extend, choosing the rows from the pivot to row i in place
 // of those it last chose with span, else in place of all others unless
@@ -1327,7 +1378,7 @@ func (f *listFrame) page(d int) int {
 // navigate moves the choice with the keys, past headers.
 func (f *listFrame) navigate() {
 	o, n, sel, s := f.owner, f.n, f.s.cursor(), f.s
-	multi, mac := s.Selection != nil, runtime.GOOS == "darwin"
+	multi, mac := s.Selection != nil, platform.MacKeys
 	if s.Label != nil {
 		o.flags |= flagTypeSelect
 	}
@@ -1361,7 +1412,8 @@ func (f *listFrame) navigate() {
 	in := *sel >= 0 && *sel < n
 	// Enter on macOS, as in Finder, and F2 elsewhere edit the text of the
 	// row chosen in place (EditableText), where it has one.
-	enter := o.Shortcut(0, KeyEnter)
+	// A button in a row clicks on it rather than submitting the row.
+	enter := o.yieldingShortcut(0, KeyEnter)
 	edit := s.editables && (o.Shortcut(0, KeyF2) || mac && enter)
 	switch {
 	case edit && in && !f.isHeader(*sel):
@@ -1513,6 +1565,7 @@ func (e *node) layoutList(w, h float32) {
 		layoutAbsolute(e)
 		journalKeep(rt, &e.scrollBase)
 		e.scrollBase = 0
+		s.moved, s.movedWas, s.moveFrame = s.moved[:0], s.movedWas[:0], 0
 		s.remember(e, 0, -1, true, st.scrollY)
 		return
 	}
@@ -1648,6 +1701,7 @@ func (e *node) layoutList(w, h float32) {
 		lo--
 		yLo -= ht(lo) + gap
 	}
+	lo, hi, yLo, yHi = s.moveRows(e, n, lo, hi, yLo, yHi, top, bottom, ht, ensure)
 
 	// The offset: where the heights known put row lo's top, less where it
 	// shows.
@@ -1706,7 +1760,13 @@ func (e *node) layoutList(w, h float32) {
 	for k := range f.rows {
 		r := &f.rows[k]
 		link(r.e)
-		r.e.x, r.e.y = e.contentX(), float32(r.y)
+		// A row gliding to its place (MoveAnimation) shows away from it;
+		// the header pinned at the top stays there.
+		y := r.y
+		if r.e != pinned {
+			y += s.lagOf(r.i, lo)
+		}
+		r.e.x, r.e.y = e.contentX(), float32(y)
 		layoutBox(r.e, cw, float32(ht(r.i)))
 	}
 	for _, ch := range extras {
