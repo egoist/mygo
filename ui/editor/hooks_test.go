@@ -1,7 +1,9 @@
 package editor
 
 import (
+	"bytes"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -170,9 +172,20 @@ func TestCursorNone(t *testing.T) {
 	if !hasRedAround(barRect0) {
 		t.Fatal("expected bar caret to paint red pixels")
 	}
+	// What a frame shows without carets: the bars' frame while they blink
+	// off, or while the editor is unfocused. Compared whole, as glyphs'
+	// subpixel fringes (ClearType on Windows) can look red.
+	snapshot := func() []byte { return slices.Clone(ct.tt.Image().Pix) }
+	ct.st.SetSelections(Selection{Anchor: 0, Head: 0}, Selection{Anchor: 5, Head: 5})
+	ct.tt.Frame()
+	ct.tt.Advance(blinkInterval)
+	barsOff := snapshot()
+	ct.tt.SetFocused(false)
+	ct.tt.Frame()
+	barsUnfocused := snapshot()
+	ct.tt.SetFocused(true)
 
 	ct.st.CursorShape = CursorNone
-	ct.st.SetSelections(Selection{Anchor: 0, Head: 0}, Selection{Anchor: 5, Head: 5})
 	ct.tt.Frame()
 	if !ct.st.Focused() {
 		t.Fatal("expected editor to stay focused")
@@ -194,7 +207,7 @@ func TestCursorNone(t *testing.T) {
 	ct.st.SetSelections(Selection{Anchor: 0, Head: 0}, Selection{Anchor: 5, Head: 5})
 	ct.tt.Frame()
 
-	if hasRedAround(barRect0) || hasRedAround(barRect5) {
+	if !bytes.Equal(snapshot(), barsOff) {
 		t.Fatal("focused CursorNone painted caret pixels")
 	}
 
@@ -214,9 +227,10 @@ func TestCursorNone(t *testing.T) {
 		t.Fatalf("focused CursorNone armed a blink timer after caret move (frameNow %v -> %v, pending %v)", lastPaint, ed.frameNow, ct.tt.FramePending())
 	}
 
+	ct.st.SetSelections(Selection{Anchor: 0, Head: 0}, Selection{Anchor: 5, Head: 5})
 	ct.tt.SetFocused(false)
 	ct.tt.Frame()
-	if hasRedAround(barRect0) || hasRedAround(barRect5) {
+	if !bytes.Equal(snapshot(), barsUnfocused) {
 		t.Fatal("unfocused CursorNone painted caret pixels")
 	}
 
