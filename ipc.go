@@ -290,6 +290,15 @@ func lookupMethod(name string) *method {
 // call calls the method for the page of w whose context is page and whose
 // token is token.
 func (m *method) call(w *Window, page context.Context, token string, args []rawValue) (result any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v", r)
+			log.Printf("mygo: panic in %s.%s: %v\n%s", m.service, m.name, r, debug.Stack())
+		}
+	}()
+	if ic := runners.Load(); ic != nil {
+		return ic.run(w, m, page, token, args)
+	}
 	ctx, cancel := page, context.CancelFunc(nil)
 	var chans []*channel
 	if m.streams {
@@ -303,12 +312,6 @@ func (m *method) call(w *Window, page context.Context, token string, args []rawV
 			cancel()
 		}()
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic: %v", r)
-			log.Printf("mygo: panic in %s.%s: %v\n%s", m.service, m.name, r, debug.Stack())
-		}
-	}()
 	in := make([]reflect.Value, 0, len(m.params)+1)
 	if m.ctx {
 		in = append(in, reflect.ValueOf(ctx))
@@ -351,22 +354,16 @@ func (m *method) call(w *Window, page context.Context, token string, args []rawV
 		}
 		in = append(in, v)
 	}
-	invoke := func(ctx context.Context) (any, error) {
-		if m.ctx {
-			in[0] = reflect.ValueOf(ctx)
+	out := m.fn.Call(in)
+	if m.hasErr {
+		if e := out[len(out)-1]; !e.IsNil() {
+			return nil, e.Interface().(error)
 		}
-		out := m.fn.Call(in)
-		if m.hasErr {
-			if e := out[len(out)-1]; !e.IsNil() {
-				return nil, e.Interface().(error)
-			}
-		}
-		if m.result != nil {
-			return out[0].Interface(), nil
-		}
-		return nil, nil
 	}
-	return runMiddleware(ctx, m, in, invoke)
+	if m.result != nil {
+		return out[0].Interface(), nil
+	}
+	return nil, nil
 }
 
 func decodeArg(raw rawValue, t reflect.Type, i int) (reflect.Value, error) {

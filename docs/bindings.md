@@ -449,7 +449,9 @@ trust checks above and the arguments decoded, and before the method runs.
 `call.Method` is `"Service.Method"` and `call.Args` the decoded arguments,
 without the method's leading `context.Context`; read them, do not modify
 them. `next` runs the method, or the rest of the chain, with the context it
-is given, so a middleware may derive one with a deadline or a value.
+is given, so a middleware may derive one with a deadline or a value; a nil
+context runs it with the call's own. A step's `next` runs at most once: a
+second call returns an error and runs no method again.
 Returning without calling `next` short-circuits the call: the method never
 runs, and the error rejects the page's promise. The result may be wrapped
 or replaced, but must still encode as the method's result type. A panic in
