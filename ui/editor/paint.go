@@ -160,16 +160,18 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 		p.Fill(r, ct.Background, 0)
 	}
 	ed.prepare(&f)
-	if ed.focused {
-		phase := ed.frameNow.Sub(ed.blinkStart)
-		f.caretsOn = (phase/blinkInterval)%2 == 0 || ed.gesture.active
-		if !ed.gesture.active {
-			p.After(blinkInterval - phase%blinkInterval)
+	if ed.o.cursorShape != CursorNone {
+		if ed.focused {
+			phase := ed.frameNow.Sub(ed.blinkStart)
+			f.caretsOn = (phase/blinkInterval)%2 == 0 || ed.gesture.active
+			if !ed.gesture.active {
+				p.After(blinkInterval - phase%blinkInterval)
+			}
+		} else if ed.o.cursorShape == CursorBlock {
+			// Outlined, not blinking, as Vim's and Zed's blocks without the
+			// keyboard.
+			f.caretsOn = true
 		}
-	} else if ed.o.cursorShape == CursorBlock {
-		// Outlined, not blinking, as Vim's and Zed's blocks without the
-		// keyboard.
-		f.caretsOn = true
 	}
 	// Scrolled, or laid out anew, since the app's elements were
 	// placed, by a frame painting without building, as dragging past the
@@ -576,6 +578,8 @@ func (ed *editor) paintLine(p *ui.Painter, r ui.Rect, f *frame, line int, g line
 func (ed *editor) paintCaret(p *ui.Painter, cell ui.Rect) {
 	color := ed.theme.Cursor
 	switch ed.o.cursorShape {
+	case CursorNone:
+		return
 	case CursorBlock:
 		if ed.focused {
 			p.Fill(cell, color.Alpha(0.4), 0)

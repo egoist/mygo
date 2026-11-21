@@ -62,9 +62,9 @@ type State struct {
 	NoFolding bool
 	// NoActiveLine stops highlighting the lines with a caret.
 	NoActiveLine bool
-	// CursorShape is the shape of the carets: bars by default, or blocks
-	// over the character after them, as Vim's normal mode has, or
-	// underlines, as its pending operators do.
+	// CursorShape is the shape of the carets: bars by default, blocks
+	// over the character after them, as Vim's normal mode has,
+	// underlines, as its pending operators do, or none to hide them.
 	CursorShape CursorShape
 	// FitContent makes the editor as high as its lines, to show in a
 	// scroll view or a list, rather than scrolling them itself. The
@@ -224,6 +224,9 @@ const (
 	CursorBlock
 	// CursorUnderline underlines the character after the caret.
 	CursorUnderline
+	// CursorNone hides the carets without arming the blink timer, as
+	// when the app draws its own carets over the editor.
+	CursorNone
 )
 
 // GutterMark marks a line in the gutter.
