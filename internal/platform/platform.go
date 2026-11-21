@@ -689,6 +689,9 @@ type Window interface {
 	// "paused" or "error", value between 0 and 1.
 	SetProgressBar(state string, value float64)
 	FlashFrame(flash bool)
+	// SetAspectRatio keeps the window's content at width/height ratio
+	// while the user resizes it; 0 removes the constraint.
+	SetAspectRatio(ratio float64)
 	SetSkipTaskbar(v bool)
 	SetVisibleOnAllWorkspaces(v bool)
 	// SetIcon sets the window icon from a PNG image; nil restores the

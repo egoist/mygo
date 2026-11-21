@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1310,6 +1311,24 @@ func (w *Window) SetMinimumSize(width, height int) {
 // limit.
 func (w *Window) SetMaximumSize(width, height int) {
 	w.do(func(n platform.Window) { n.SetMaximumSize(platform.Size{Width: width, Height: height}) })
+}
+
+// SetAspectRatio keeps the window's content at a width/height ratio while
+// the user resizes it, as a video player keeps its picture's shape:
+//
+//	win.SetAspectRatio(16.0 / 9.0)
+//	win.SetAspectRatio(0) // free resizing again
+//
+// The ratio must be positive and finite; 0 removes the constraint. It
+// applies to interactive resizing only: SetBounds, maximizing and full
+// screen are not constrained. On Linux the window manager honors it on
+// X11; a Wayland compositor may not.
+func (w *Window) SetAspectRatio(ratio float64) {
+	// Validate in the caller's goroutine so mistakes point at the call.
+	if ratio < 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+		panic(fmt.Sprintf("mygo: SetAspectRatio: ratio must be positive and finite, or 0, got %v", ratio))
+	}
+	w.do(func(n platform.Window) { n.SetAspectRatio(ratio) })
 }
 
 // SetResizable sets whether the user can resize the window.
