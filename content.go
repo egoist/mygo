@@ -34,6 +34,8 @@ func (w *Window) attachContent(content Content) {
 	w.conn = &surface.Conn{
 		Surface:        s,
 		Window:         w,
+		CornerRadius:   float64(w.cornerRadius),
+		RoundContent:   w.roundsContentCorners(),
 		Clipboard:      backend().Clipboard(),
 		StartDataDrag:  w.startDataDrag,
 		CancelDataDrag: w.cancelDataDrag,
