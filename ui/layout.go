@@ -136,7 +136,7 @@ func place(e *node, x, y float32) {
 		return
 	}
 	cx, cy := e.x, e.y
-	if f := e.followX; f != nil {
+	if f := e.resolve(e.followX); f != nil {
 		cx -= float32(f.followShift())
 	}
 	if e.scrolls() {
@@ -1574,14 +1574,15 @@ func layoutAbsolute(e *node) {
 			continue
 		}
 		if c.attach != 0 {
-			if c.popover != nil && c.popover.inHidden() {
+			p := c.resolve(c.popover)
+			if p != nil && p.inHidden() {
 				// Nowhere to attach to: it hides with its target.
 				journalKeep(c.c.rt, &c.hidden)
 				c.hidden = true
 				continue
 			}
-			if c.popover != nil {
-				attachTo(c, e, pw, ph)
+			if p != nil {
+				attachTo(c, e, p, pw, ph)
 			} else {
 				attach(c, e, pw, ph)
 			}
@@ -1589,7 +1590,7 @@ func layoutAbsolute(e *node) {
 		}
 		pw, ph := pw, ph
 		var ox, oy float32
-		if s := c.placeOn; s != nil {
+		if s := c.resolve(c.placeOn); s != nil {
 			pw, ph = s.w, s.h
 			ox, oy = s.x-e.border[3], s.y-e.border[0]
 		}
@@ -1647,8 +1648,8 @@ func layoutAbsolute(e *node) {
 }
 
 // attachTo places c, a child of e whose padding box is pw×ph, attached to
-// a point of the box of the element it is a popover of (AttachTo).
-func attachTo(c, e *node, pw, ph float32) {
+// a point of the box of p, the element it is a popover of (AttachTo).
+func attachTo(c, e, p *node, pw, ph float32) {
 	var w float32
 	if v, ok := c.width.resolve(pw); ok {
 		w = c.clampW(v, pw)
@@ -1661,7 +1662,7 @@ func attachTo(c, e *node, pw, ph float32) {
 	} else {
 		h = heightAt(c, w, ph)
 	}
-	t := laidOutVisualBox(c.popover)
+	t := laidOutVisualBox(p)
 	// No taller than the room the window has: one that scrolls, as a
 	// select's long list of options, scrolls, and children that shrink,
 	// as a scroll container inside a panel of SelectBase's, fit.
@@ -1679,10 +1680,11 @@ func attachTo(c, e *node, pw, ph float32) {
 func reattach(ov *node) {
 	pw, ph := ov.w-ov.border[1]-ov.border[3], ov.h-ov.border[0]-ov.border[2]
 	for c := ov.first; c != nil; c = c.next {
-		if c.popover == nil || c.attach == 0 || c.flags&flagAbsolute == 0 || c.leaving != 0 || c.hidden {
+		p := c.resolve(c.popover)
+		if p == nil || c.attach == 0 || c.flags&flagAbsolute == 0 || c.leaving != 0 || c.hidden {
 			continue
 		}
-		c.x, c.y = attachedAt(c, ov, laidOutVisualBox(c.popover), pw, ph, c.w, c.h)
+		c.x, c.y = attachedAt(c, ov, laidOutVisualBox(p), pw, ph, c.w, c.h)
 		if r := ov.c.rt.trans[c.id]; r != nil && r.entering&movePos != 0 {
 			c.x += r.shown.x - r.target.x
 			c.y += r.shown.y - r.target.y
@@ -1810,7 +1812,7 @@ func flowOrigin(e *node) (x, y float32) {
 	}
 	x, y = laidOutOrigin(p)
 	if e.flags&flagAbsolute == 0 || e.leaving == 1 {
-		if f := p.followX; f != nil {
+		if f := p.resolve(p.followX); f != nil {
 			x -= float32(f.followShift())
 		}
 		if p.scrolls() {

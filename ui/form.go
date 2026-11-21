@@ -115,8 +115,8 @@ func coreField(c *context, label string, fn func()) *node {
 	}
 	if namesItself(ctrl) {
 		f.Role(RoleGroup).Label(label)
-	} else if ctrl.nameFrom == nil || ctrl.nameFrom.label == "" {
-		ctrl.nameFrom = l
+	} else if named := ctrl.resolve(ctrl.nameFrom); named == nil || named.label == "" {
+		ctrl.nameFrom = refTo(l)
 	}
 	l.labels(ctrl)
 	l.styleFn = func(l *node) {
@@ -145,10 +145,10 @@ func (e *node) LabelledBy(label *node) *node {
 		return e
 	}
 	ctrl := e
-	if e.focusTo != nil {
-		ctrl = e.focusTo // the input of the box around it, as a SearchField's
+	if in := e.resolve(e.focusTo); in != nil {
+		ctrl = in // the input of the box around it, as a SearchField's
 	}
-	ctrl.nameFrom, ctrl.labelledBy = label, true
+	ctrl.nameFrom, ctrl.labelledBy = refTo(label), true
 	label.labels(ctrl)
 	return e
 }
@@ -322,8 +322,8 @@ func (e *node) Invalid(on bool) *node {
 //	hint := ui.Text(c, "16 digits, no spaces").TextColor(t.TextMuted)
 //	ui.TextInput(c, &app.card).Label("Card number").DescribedBy(hint)
 func (e *node) DescribedBy(desc *node) *node {
-	if target := e.describedNode(); desc != nil && desc != target && !slices.Contains(target.describedBy, desc) {
-		target.describedBy = append(target.describedBy, desc)
+	if target := e.describedNode(); desc != nil && desc != target && !slices.Contains(target.describedBy, refTo(desc)) {
+		target.describedBy = append(target.describedBy, refTo(desc))
 	}
 	return e
 }
@@ -342,8 +342,8 @@ func (e *node) DescribedBy(desc *node) *node {
 //		in.ErrorMessage(ui.Text(c, app.emailError).TextColor(t.Danger))
 //	}
 func (e *node) ErrorMessage(msg *node) *node {
-	if target := e.describedNode(); msg != nil && msg != target && !slices.Contains(target.errorMessage, msg) {
-		target.errorMessage = append(target.errorMessage, msg)
+	if target := e.describedNode(); msg != nil && msg != target && !slices.Contains(target.errorMessage, refTo(msg)) {
+		target.errorMessage = append(target.errorMessage, refTo(msg))
 	}
 	return e
 }
@@ -355,8 +355,8 @@ func (e *node) describedNode() *node {
 	if f := e.field; f != nil && f.control != nil {
 		return f.control
 	}
-	if e.focusTo != nil {
-		return e.focusTo
+	if in := e.resolve(e.focusTo); in != nil {
+		return in
 	}
 	return e
 }

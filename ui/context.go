@@ -153,6 +153,7 @@ func (c *context) reset(now time.Time, w, h float32) {
 	root.kind = kindBox
 	root.width, root.height = px(w), px(h)
 	root.st = c.rt.stateFor(root.id)
+	c.rt.buildState(root, false)
 	root.bg = c.theme.Background
 	root.ts = textStyle{set: setColor | setSize | setFamily, color: c.theme.Text, size: c.theme.FontSize, family: c.theme.Font}
 	if c.rt.lang != "" {
@@ -215,6 +216,20 @@ func trimArena(chunks [][]node, used, dirty int) [][]node {
 // overlayID is the ID of the layer of overlays.
 var overlayID = mix(1, 0x6f7665726c6179)
 
+// What an opener opens over the window is keyed under its id, as a menu's
+// panels are (mix(trigger.id, level+1)) and its point (mix(trigger.id,
+// 0)): a popover's panel and the backdrop taking the presses outside it, a
+// tooltip's tip, and the options of a combo box. Their kinds stay apart
+// from a menu's levels and from one another, so what one opener builds
+// never takes the identity, and the hover and the focus, of what another
+// built in its place (toast.go).
+const (
+	popoverPanelKey uint64 = 1<<56 + iota + 1
+	popoverBackdropKey
+	tooltipTipKey
+	optionsPanelKey
+)
+
 // overlayRoot returns the layer above the window's content that Overlay
 // builds into; the frame adds it to the root once the view returns.
 func (c *context) overlayRoot() *node {
@@ -229,6 +244,7 @@ func (c *context) overlayRoot() *node {
 		o.insetSet = true
 		o.depth = 1
 		o.st = c.rt.stateFor(o.id)
+		c.rt.buildState(o, false)
 		c.overlay = o
 	}
 	return c.overlay
@@ -262,6 +278,7 @@ func (c *context) newElement(k kind) *node {
 	if keyed && built {
 		c.rt.duplicateKey(e.id, e.key)
 	}
+	c.rt.buildState(e, built)
 	if c.rt.insp.open && e.id == c.rt.insp.selected {
 		c.rt.insp.noteSource()
 	}
@@ -289,6 +306,7 @@ func (c *context) rekey(e *node, k any) {
 		rt.duplicateKey(id, k)
 	}
 	e.id, e.st, e.key = id, st, k
+	rt.buildState(e, built)
 	if rt.insp.open {
 		rt.insp.noteKey(id, k)
 		if id == rt.insp.selected {
@@ -744,11 +762,17 @@ type state struct {
 	selfClip   Rect
 	selfRadius float32
 	id         uint64
-	seen       uint64
-	pass       int    // the pass of the frame that built it last
-	born       uint64 // the frame that first built the element
-	// lookedSeen and lookedPass are seen and pass before the last
-	// lookup (lookState), 0 for a state it created.
+	// seen and pass are the frame and pass whose node built it last
+	// (buildState): the state is alive while they are the engine's. node
+	// is that node's serial, which references to the element resolve to
+	// (elementRef), 0 while none of the pass stands for it: a number, so
+	// that the state keeps no node of the frame once it goes (#1281).
+	seen uint64
+	pass int    // the pass of the frame that built it last
+	born uint64 // the frame that first built the element: its incarnation
+	node uint32
+	// lookedSeen and lookedPass are seen and pass before the last build
+	// (buildState), 0 for a state it created.
 	lookedSeen uint64
 	lookedPass int
 	// lay is what the element's last layout was (layoutcache.go), and
@@ -1000,13 +1024,49 @@ type shortcut struct {
 	key  Key
 }
 
+// elementRef names an element another refers to — its anchor, what names
+// it, describes or controls it — by its id plus the incarnation of its
+// state (born), so that it names that element alone: when its state is
+// pruned and another element takes the id, the reference resolves to
+// nothing, not to that element. Zero refers to none.
+type elementRef struct {
+	id   uint64
+	born uint64
+}
+
+// refTo is the reference to e from another element.
+func refTo(e *node) elementRef {
+	if e == nil {
+		return elementRef{}
+	}
+	return elementRef{id: e.id, born: e.st.born}
+}
+
+// resolve returns the node of the element r names, or nil while the
+// element it named is gone: no node of this pass stands for it, or its
+// state was pruned and another element took its id.
+func (e *node) resolve(r elementRef) *node {
+	if r.id == 0 {
+		return nil
+	}
+	rt := e.c.rt
+	s := rt.states[r.id]
+	if s == nil || s.born != r.born || s.seen != rt.frame || s.pass != rt.pass || s.node == 0 {
+		return nil
+	}
+	return rt.nodeAt(s.node - 1)
+}
+
 func (rt *engine) stateFor(id uint64) *state {
 	s, _ := rt.lookState(id)
 	return s
 }
 
-// lookState returns the state of the element id as stateFor does, and
-// whether the pass built an element with that ID already.
+// lookState returns the state of the element id, and whether a node
+// built with that id stamped it this pass already: a duplicate of a key
+// under the same parent. It only finds or makes the state; what makes
+// the state alive is a node built for it (buildState), which is what
+// prune reads.
 func (rt *engine) lookState(id uint64) (s *state, built bool) {
 	s = rt.states[id]
 	if s == nil {
@@ -1027,18 +1087,29 @@ func (rt *engine) lookState(id uint64) (s *state, built bool) {
 	} else {
 		built = s.seen == rt.frame && s.pass == rt.pass
 	}
+	s.rt = rt
+	return s, built
+}
+
+// buildState notes that a node e was built for its state this pass: the
+// state is alive until a pass builds another, references to the element
+// resolve to e (elementRef), and what the element drags and takes as it
+// builds goes anew. built tells that a node of this id was already built
+// this pass (a duplicate key), so that this one is not counted in
+// rt.built again.
+func (rt *engine) buildState(e *node, built bool) {
+	s := e.st
 	if !built {
 		rt.built = append(rt.built, s)
 		rt.nbuilt++
 	}
-	s.rt = rt
 	s.lookedSeen, s.lookedPass = s.seen, s.pass
 	s.seen, s.pass = rt.frame, rt.pass
+	s.node = uint32(e.serial)
 	s.hoverBuilt = false
 	// What the element drags and takes, as this pass asks.
 	s.dragValue, s.dragFn, s.accepts = nil, nil, nil
 	s.dataSource, s.dataTarget = nil, nil
-	return s, built
 }
 
 // unlook undoes the lookup of s by an element that Key gave another
@@ -1051,10 +1122,13 @@ func (rt *engine) lookState(id uint64) (s *state, built bool) {
 func (rt *engine) unlook(s *state) {
 	if s.lookedSeen != 0 {
 		if s.lookedSeen != rt.frame || s.lookedPass != rt.pass {
-			// This lookup counted it built (lookState).
+			// This build counted it built (buildState).
 			rt.nbuilt--
 		}
 		s.seen, s.pass = s.lookedSeen, s.lookedPass
+		// No node of this pass stands for the element the lookup took
+		// the place of, which references resolve to (elementRef).
+		s.node = 0
 		return
 	}
 	rt.nbuilt--
