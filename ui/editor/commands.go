@@ -248,6 +248,9 @@ func (ed *editor) run(cmd Command) bool {
 		if ed.completing() {
 			return ed.acceptCompletion()
 		}
+		if ed.markdownNewline() {
+			return true
+		}
 		return ed.newline()
 	case NewlineAbove, NewlineBelow:
 		return ed.newlineAround(cmd == NewlineAbove)
