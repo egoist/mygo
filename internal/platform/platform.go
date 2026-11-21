@@ -1588,6 +1588,9 @@ type Notification struct {
 	Subtitle string
 	Body     string
 	Silent   bool
+	// Level is how much the notification interrupts the user
+	// (mygo.NotificationLevel).
+	Level NotificationLevel
 	// Group gathers the notifications that share it (threadIdentifier on
 	// macOS).
 	Group string
@@ -1597,6 +1600,21 @@ type Notification struct {
 	Image  []byte
 	Sender *NotificationSender
 }
+
+// NotificationLevel is how much a notification interrupts the user, in
+// the order of mygo.NotificationLevel's constants.
+type NotificationLevel int
+
+const (
+	// NotificationActive shows a banner and plays the sound: the default.
+	NotificationActive NotificationLevel = iota
+	// NotificationPassive goes straight to the notification history, with
+	// no banner and no sound, where the platform can.
+	NotificationPassive
+	// NotificationTimeSensitive breaks through a Focus that allows it
+	// (macOS and iOS, with the entitlement).
+	NotificationTimeSensitive
+)
 
 // NotificationSender describes an incoming direct message's sender.
 type NotificationSender struct {

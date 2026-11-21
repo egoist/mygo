@@ -1067,6 +1067,7 @@ type Notify struct {
 	Body           string
 	Group          string
 	Silent         bool
+	Level          int
 }
 
 func (m *Notify) Encode(w *Writer) {
@@ -1078,6 +1079,7 @@ func (m *Notify) Encode(w *Writer) {
 	w.String(m.Body)
 	w.String(m.Group)
 	w.Bool(m.Silent)
+	w.Int(m.Level)
 }
 
 // Wait reports whether the caller waits for the host to run it.

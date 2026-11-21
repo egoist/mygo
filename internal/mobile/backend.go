@@ -421,7 +421,7 @@ func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 		done(errorOf(e.Error))
 	})
 	b.call(&wire.Notify{Req: req, NotificationID: n.ID, Title: n.Title, Subtitle: n.Subtitle, Body: n.Body,
-		Group: n.Group, Silent: n.Silent}, nil)
+		Group: n.Group, Silent: n.Silent, Level: int(n.Level)}, nil)
 }
 
 func (b *Backend) RemoveNotification(id string) {

@@ -375,6 +375,14 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
             content.body = c.body
             if !c.group.isEmpty { content.threadIdentifier = c.group }
             if !c.silent { content.sound = .default }
+            if #available(iOS 15.0, *) {
+                // The levels of mygo.NotificationLevel: active, passive, time-sensitive.
+                switch c.level {
+                case 1: content.interruptionLevel = .passive
+                case 2: content.interruptionLevel = .timeSensitive
+                default: break
+                }
+            }
             let id = c.notificationID.isEmpty ? UUID().uuidString : c.notificationID
             center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil)) { error in
                 Go.send(Event.notifyDone(req: c.req, error: error?.localizedDescription ?? ""))
@@ -388,6 +396,11 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
         // background mode and a flag in the push.
         if n.request.trigger is UNPushNotificationTrigger {
             PluginHost.applicationEvent(.pushMessage(n.request.content.userInfo))
+        }
+        if #available(iOS 15.0, *), n.request.content.interruptionLevel == .passive {
+            // A passive notification goes to Notification Center alone, also in the foreground.
+            done([.list])
+            return
         }
         done([.banner, .list, .sound])
     }
