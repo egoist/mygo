@@ -186,6 +186,8 @@ components, from buttons to tables.
   guide to System Settings with the app to drag into its list.
 - [Render](plugins/render.md): videos of native UI, its frames drawn on
   the GPU and encoded with the system's encoders, with sound.
+- [Screen capture](plugins/screencapture.md): screenshots of displays and
+  windows, and recordings of them as frames.
 
 ## Reference
 

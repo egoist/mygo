@@ -42,6 +42,9 @@ JavaScript package whose functions call them. The app uses the Go half with
 - [Render](plugins/render.md): videos of native UI, as Remotion makes
   them of pages: a view builds each frame from its number, drawn on the
   GPU and encoded with the system's encoders, with sound. It is all Go.
+- [Screen capture](plugins/screencapture.md): screenshots of displays and
+  windows, and recordings of them as frames, with ScreenCaptureKit,
+  Windows.Graphics.Capture and PipeWire. It is all Go.
 
 ## Using plugins
 
