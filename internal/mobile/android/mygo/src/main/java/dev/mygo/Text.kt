@@ -91,11 +91,25 @@ object Text {
     private fun set(family: String, size: Double, weight: Long, italic: Boolean, noKern: Boolean = false): Paint {
         paint.typeface = typeface(family, weight, italic)
         paint.textSize = size.toFloat()
-        // Go draws clusters alone, which ligatures would join: "fl" would
-        // take the advance of both, and draw as an f before a gap.
-        paint.fontFeatureSettings = if (noKern) "'liga' 0, 'clig' 0, 'kern' 0" else "'liga' 0, 'clig' 0"
+        features(noKern, false)
         paint.color = Color.WHITE
         return paint
+    }
+
+    /**
+     * Go draws clusters alone, which ligatures would join: "fl" would take
+     * the advance of both, and draw as an f before a gap. A word of a
+     * complex script (a Piece) is shaped whole, and keeps them: fonts set
+     * Arabic with them, as Scheherazade puts an ayah's number in its mark.
+     */
+    private fun features(noKern: Boolean, whole: Boolean) {
+        val f = when {
+            whole && noKern -> "'kern' 0"
+            whole -> ""
+            noKern -> "'liga' 0, 'clig' 0, 'kern' 0"
+            else -> "'liga' 0, 'clig' 0"
+        }
+        if (paint.fontFeatureSettings.orEmpty() != f) paint.fontFeatureSettings = f
     }
 
     @Synchronized
@@ -126,6 +140,7 @@ object Text {
         r.widths = DoubleArray(c.texts.size) { i ->
             val t = c.texts[i]
             val k = piece(t)
+            features(c.noKern, k != null)
             if (k != null) {
                 p.getRunAdvance(k.text, k.start, k.end, 0, k.text.length, k.rtl, k.end).toDouble()
             } else {
@@ -154,6 +169,7 @@ object Text {
         // The font at the size text was measured at, the canvas scaled, as
         // the measurements were made.
         val p = set(c.family, c.size, c.weight, c.italic)
+        features(false, k != null)
         // A piece draws from its own pen, where the whole word would draw
         // from shift: the ink of the whole, there, holds the piece's.
         var shift = 0f

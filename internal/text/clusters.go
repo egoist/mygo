@@ -151,10 +151,22 @@ type cluster struct {
 	text       string
 }
 
+// concatenationMark reports whether a rune is a prepended concatenation
+// mark, which the font draws around the digits after it: Arabic's end of
+// ayah (U+06DD) or number sign, Syriac's abbreviation mark, Kaithi's number
+// signs. Their script is Common, but the digits after them, whatever how
+// many, are shaped with them, as one word.
+func concatenationMark(r rune) bool {
+	return r >= 0x0600 && r <= 0x0605 || r == 0x06DD || r == 0x070F || r == 0x0890 || r == 0x0891 ||
+		r == 0x08E2 || r == 0x110BD || r == 0x110CD
+}
+
 // complexScript reports whether a rune is of a script whose letters
 // change with their neighbors, or reorder: its words are drawn whole.
 func complexScript(r rune) bool {
-	return unicode.In(r, unicode.Arabic, unicode.Syriac, unicode.Nko, unicode.Mongolian, unicode.Devanagari,
+	// Tatweel, which lengthens the join between two letters, is Common
+	// too, and is shaped with the letters it joins.
+	return r == 0x0640 || concatenationMark(r) || unicode.In(r, unicode.Arabic, unicode.Syriac, unicode.Nko, unicode.Mongolian, unicode.Devanagari,
 		unicode.Bengali, unicode.Gurmukhi, unicode.Gujarati, unicode.Oriya, unicode.Tamil, unicode.Telugu,
 		unicode.Kannada, unicode.Malayalam, unicode.Sinhala, unicode.Thai, unicode.Lao, unicode.Tibetan,
 		unicode.Myanmar, unicode.Khmer, unicode.Javanese, unicode.Balinese)
