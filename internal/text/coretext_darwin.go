@@ -1298,22 +1298,38 @@ func (e *coreText) line(line uintptr, index []int, n int, italic bool) shapedLin
 // Japanese text, to the advance of the letter before it, so that the
 // widths of lines and the carets follow the pen. Only room ahead of the
 // pen counts: a mark placed back over its letter leaves the advances as
-// they are. Right-to-left runs keep theirs.
+// they are.
+//
+// Right to left, Core Text's advances take the pen from a glyph's
+// position to the next one's, but for where it places a glyph past the
+// pen: a font that attaches its letters cursively, or places a mark
+// ahead of its letter, as Amiri does (مَّرَضٌ starts with its tanween at
+// 57 of 203, whose advance takes the pen back to 0), leaves that room
+// out of the advances, and the line would be narrower than its glyphs.
+// That room, from the line's start on, counts too.
 func penAdvances(runs []shapedRun) {
 	var prev *Glyph
 	var pen float32
 	for i := range runs {
 		for j := range runs[i].glyphs {
 			g := &runs[i].glyphs[j]
+			adv := g.Advance
 			if prev != nil && !prev.RTL && !g.RTL {
 				if gap := g.X - pen; gap > 1e-3 {
 					prev.Advance += gap
 					pen += gap
 				}
 			} else {
+				if gap := g.X - pen; g.RTL && gap > 1e-3 {
+					if prev != nil {
+						prev.Advance += gap
+					} else {
+						g.Advance += gap
+					}
+				}
 				pen = g.X
 			}
-			pen += g.Advance
+			pen += adv
 			prev = g
 		}
 	}
