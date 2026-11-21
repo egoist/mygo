@@ -115,7 +115,10 @@ func TestSourceEndToEnd(t *testing.T) {
 	// The source closed with the method: a later value reaches nothing.
 	w.handleMessage(`{"t":"src-push","c":7,"k":"tok","p":"late"}`)
 	w.mu.Lock()
-	n := len(w.sources)
+	n := 0
+	if st, _ := w.sourceStates.(*sourceStore); st != nil {
+		n = len(st.sources)
+	}
 	w.mu.Unlock()
 	if n != 0 {
 		t.Errorf("sources left after the call: %d", n)
@@ -228,28 +231,49 @@ func TestSourceValuesAfterGoClosed(t *testing.T) {
 		w.handleMessage(`{"t":"src-push","c":7,"k":"tok","p":"late"}`)
 	}
 	w.mu.Lock()
-	early, gone := len(w.earlySources), w.goneSources[7]
+	st, _ := w.sourceStates.(*sourceStore)
+	early, gone := 0, false
+	if st != nil {
+		early, gone = len(st.early), st.gone[7]
+	}
 	w.mu.Unlock()
 	if early != 0 || !gone {
-		t.Errorf("after the end: %d early values, gone=%v, want none and gone", early, gone)
+		t.Errorf("after the end: %d early sources, gone=%v, want none and gone", early, gone)
 	}
 }
 
-// A page flooding values for ids whose calls never come fails the source
-// at the cap instead of dropping its values, which would leave its call
-// waiting forever.
+// A page sending more than flow control lets it hold for a source whose
+// call never comes fails that source instead of dropping its values,
+// which would leave its call waiting forever.
 func TestSourceFloodFailsTheSource(t *testing.T) {
 	sourceServiceFor(t)
 	w := &Window{}
 	sourceWindowSetup(w)
-	for range maxEarlySourceValues {
-		w.sourceMessage(999, "tok", []byte(`"x"`), false)
+	big := make([]byte, 64<<10)
+	for range 17 { // over a window
+		w.sourceMessage(7, "tok", big, false)
 	}
-	w.sourceMessage(7, "tok", []byte(`"a"`), false)
-	w.sourceMessage(7, "tok", nil, true)
 	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`)
 	wait.For(t, "the call to end", done)
 	if out := sourceOutbox(w); !strings.Contains(out, "source closed") {
 		t.Errorf("outbox = %q, want the method to see the source closed", out)
+	}
+}
+
+// The values a bridge sends straight after its call — many small ones,
+// within the window's bytes — are not a flood: the call must get them.
+func TestSourceManySmallEarlyValues(t *testing.T) {
+	sourceServiceFor(t)
+	w := &Window{}
+	sourceWindowSetup(w)
+	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`)
+	for range 3000 {
+		w.handleMessage(`{"t":"src-push","c":7,"k":"tok","p":"x"}`)
+	}
+	w.handleMessage(`{"t":"src-end","c":7,"k":"tok"}`)
+	wait.For(t, "the call to end", done)
+	out := sourceOutbox(w)
+	if !strings.Contains(out, `"ok":true`) || strings.Contains(out, "source closed") {
+		t.Errorf("outbox = %q, want the method to get every value", out)
 	}
 }
