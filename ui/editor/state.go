@@ -37,6 +37,10 @@ type State struct {
 	// LineNumbers shows the numbers of lines in the gutter, absolute by
 	// default.
 	LineNumbers LineNumbers
+	// GutterDigits is the minimum number of digits reserved for line numbers.
+	// Values below three use the default of three. The gutter still grows
+	// when line numbers need more digits.
+	GutterDigits int
 	// ReadOnly makes the text selectable and copyable, not editable.
 	ReadOnly bool
 	// Whitespace says where spaces and tabs show as dots and arrows:
@@ -267,7 +271,7 @@ func (st *State) options() options {
 		backgrounds: st.LineBackgrounds, textBgs: st.TextBackgrounds, diffBase: st.DiffBase, onCompletion: st.OnCompletion, onHover: st.OnHover, onDefinition: st.OnDefinition,
 		hoverDelay: st.HoverDelay, noPointerHover: st.NoPointerHover,
 		noDefinitionClick: st.NoDefinitionClick, noDefinitionLink: st.NoDefinitionLink,
-		onGutterClick: st.OnGutterClick, contextMenu: st.ContextMenu, onInput: st.OnInput, noInputMethod: st.NoInputMethod, minDigits: 3,
+		onGutterClick: st.OnGutterClick, contextMenu: st.ContextMenu, onInput: st.OnInput, noInputMethod: st.NoInputMethod, minDigits: max(3, st.GutterDigits),
 		renderFindBar: st.RenderFindBar, renderGoToLine: st.RenderGoToLine,
 		renderCompletions: st.RenderCompletions, renderHover: st.RenderHover,
 	}
