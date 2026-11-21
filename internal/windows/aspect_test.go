@@ -27,6 +27,9 @@ func TestAspectRect(t *testing.T) {
 		{"top edge keeps the left", rect{100, 100, 410, 430}, wmszTop, 2, 0, 0, 0, 0, rect{100, 100, 710, 430}},
 		{"rounds the derived dimension", rect{0, 0, 1010, 500}, wmszBottomRight, 16.0 / 9.0, 0, 0, 0, 0, rect{0, 0, 1010, 593}},
 		{"leaves a degenerate proposal", rect{0, 0, 5, 330}, wmszBottomRight, 2, 0, 0, 0, 0, rect{0, 0, 5, 330}},
+		// The limits are content sizes: the frame around them is not theirs.
+		// 250 is a 280 px maximum height through the 30 px frame, and 300 a
+		// 310 px minimum width through the 10 px side frames.
 		{"stops at the maximum height with the ratio", rect{0, 0, 610, 230}, wmszBottomRight, 2, 0, 0, 0, 250, rect{0, 0, 510, 280}},
 		{"stops at the minimum width with the ratio", rect{0, 0, 210, 130}, wmszBottomRight, 2, 300, 0, 0, 0, rect{0, 0, 310, 180}},
 	} {

@@ -27,10 +27,20 @@ func (w *window) sizingAspect(r *rect, edge uint32) {
 	procGetWindowRect.Call(w.hwnd, uintptr(unsafe.Pointer(&wr)))
 	procGetClientRect.Call(w.hwnd, uintptr(unsafe.Pointer(&cr)))
 	dpi := dpiOf(w.hwnd)
-	aspectRect(r, edge, w.aspect,
-		(wr.Right-wr.Left)-(cr.Right-cr.Left),
-		(wr.Bottom-wr.Top)-(cr.Bottom-cr.Top),
-		toPx(w.minW, dpi), toPx(w.minH, dpi), toPx(w.maxW, dpi), toPx(w.maxH, dpi))
+	frameW := (wr.Right - wr.Left) - (cr.Right - cr.Left)
+	frameH := (wr.Bottom - wr.Top) - (cr.Bottom - cr.Top)
+	// MinimumSize and MaximumSize are window sizes (WM_GETMINMAXINFO
+	// tracks them with the frame in), and the ratio's limits are content
+	// sizes: take the frame out, so a drag stops with the ratio holding
+	// at the size the app set. 0 is no limit.
+	lim := func(v int, frame int32) int32 {
+		if v == 0 {
+			return 0
+		}
+		return max(toPx(v, dpi)-frame, 1)
+	}
+	aspectRect(r, edge, w.aspect, frameW, frameH,
+		lim(w.minW, frameW), lim(w.minH, frameH), lim(w.maxW, frameW), lim(w.maxH, frameH))
 }
 
 // aspectRect adjusts r, the window rectangle the user is dragging by the
