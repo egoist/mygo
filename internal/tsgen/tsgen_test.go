@@ -48,6 +48,9 @@ func generate(t *testing.T) string {
 		if m.Name == "Watch" {
 			tasks.Methods[i].Channels = []bool{false, true}
 		}
+		if m.Name == "Upload" {
+			tasks.Methods[i].Sources = []bool{false, true}
+		}
 	}
 	out, err := Generate(Model{
 		Services: []Service{tasks},
@@ -62,7 +65,7 @@ func generate(t *testing.T) string {
 func TestGenerate(t *testing.T) {
 	src := generate(t)
 	for _, want := range []string{
-		`import { bind, event, type Channel } from "mygo-runtime";`,
+		`import { bind, event, type Channel, type Source } from "mygo-runtime";`,
 		`export type Status = "todo" | "done";`,
 		`export type Priority = 0 | 1 | 2;`,
 		"export interface FixtureChannel {\n  name: string;\n}",
@@ -100,6 +103,7 @@ func TestGenerate(t *testing.T) {
 		"  dispatch: bind<[string, string], void>(\"Tasks.Dispatch\", (call_: string, call__: string) => [call_, call__]),",
 		"  dispatchMany: bind<[...string[]], void>(\"Tasks.DispatchMany\", (...call_: string[]) => [...call_]),",
 		"  watch: bind<[Status, Channel<Task>], void>(\"Tasks.Watch\", (status: Status, updates: Channel<Task>) => [status, updates]),",
+		"  upload: bind<[string, Source<Task>], void>(\"Tasks.Upload\", (name: string, data: Source<Task>) => [name, data]),",
 		`  taskAdded: event<Task>("task-added"),`,
 	} {
 		if !strings.Contains(src, want) {

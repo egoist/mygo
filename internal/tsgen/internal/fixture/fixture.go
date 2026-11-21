@@ -116,3 +116,7 @@ func (Tasks) DispatchMany(call ...string) {}
 // Watch sends the tasks with the given status as they change. The test
 // declares updates a channel of tasks.
 func (Tasks) Watch(status Status, updates Task) {}
+
+// Upload receives tasks as the page sends them. The test declares data a
+// source of tasks.
+func (Tasks) Upload(name string, data Task) {}

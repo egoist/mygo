@@ -19,6 +19,7 @@ import type {
   Direction,
   LocaleChange,
   Runtime,
+  Source as SourceType,
   ThemePreferences,
   WindowControls,
 } from "./types";
@@ -128,6 +129,30 @@ export type Channel<T = unknown> = ChannelType<T>;
 export const Channel = function <T>(onmessage?: (value: T) => void): Channel<T> {
   return runtime().channel<T>(onmessage);
 } as unknown as new <T = unknown>(onmessage?: (value: T) => void) => Channel<T>;
+
+/**
+ * A stream of values to a Go method that takes a `*mygo.Source[T]`.
+ * Create one, pass it to the call in place of that parameter, then send
+ * values and close when done:
+ *
+ * ```ts
+ * const data = new Source<Uint8Array>();
+ * const done = Files.save("report.bin", data);
+ * for (const chunk of chunks) await data.send(chunk);
+ * data.close();
+ * await done;
+ * ```
+ *
+ * The method receives the values in order; its result arrives after the
+ * source is closed. `send` waits while the method is behind, and rejects
+ * once the method returned. A source serves one call.
+ */
+export type Source<T = unknown> = SourceType<T>;
+
+/** Creates a {@link Source}. */
+export const Source = function <T>(): Source<T> {
+  return runtime().source<T>();
+} as unknown as new <T = unknown>() => Source<T>;
 
 /** Subscribes to a Go event by name. Returns a function that unsubscribes. */
 export function on<T = unknown>(name: string, listener: (payload: T) => void): () => void {

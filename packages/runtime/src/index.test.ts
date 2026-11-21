@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import {
   Channel,
+  Source,
   bind,
   call,
   currentWindow,
@@ -47,6 +48,7 @@ const fake: Runtime = {
   },
   channel: <T>(onmessage?: (value: T) => void) =>
     ({ onmessage, onclose: null, closed: false, close() {}, [Symbol.asyncIterator]: () => ({}) }) as unknown as Channel<T>,
+  source: <T>() => ({ send: async () => {}, close() {}, closed: false }) as unknown as Source<T>,
   on: (name, listener) => {
     listeners.set(name, listener as (payload: unknown) => void);
     return () => listeners.delete(name);

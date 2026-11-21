@@ -47,6 +47,29 @@ export interface Channel<T = unknown> extends AsyncIterable<T> {
 }
 
 /**
+ * A stream of values to a Go method that takes a `*mygo.Source[T]`,
+ * passed to the call in its place: an upload's chunks, a recording's
+ * samples. The method receives the values in order, and its result
+ * arrives after the source is closed. A source serves one call.
+ */
+export interface Source<T = unknown> {
+  /**
+   * Sends a value to the Go method. The promise resolves once there is
+   * room for it: a method slower than the page holds `send` until it
+   * takes what it has, so a fast page does not pile values up in memory.
+   * It rejects once the source is closed, as when the method returned.
+   */
+  send(value: T): Promise<void>;
+  /**
+   * Ends the sending: the method's `Recv` returns `io.EOF` once it took
+   * the values sent before. The call still returns its result.
+   */
+  close(): void;
+  /** Whether the source is closed. */
+  readonly closed: boolean;
+}
+
+/**
  * The accent color and the accessibility settings of the desktop, as
  * `mygo.ThemePreferences` encodes them.
  */
@@ -94,6 +117,11 @@ export interface Runtime {
    * through a `*mygo.Channel[T]` parameter. A channel serves one call.
    */
   channel<T = unknown>(onmessage?: (value: T) => void): Channel<T>;
+  /**
+   * Creates a source to pass to a call of a Go method that receives values
+   * through a `*mygo.Source[T]` parameter. A source serves one call.
+   */
+  source<T = unknown>(): Source<T>;
   /** Subscribes to a Go event. Returns a function that unsubscribes. */
   on<T = unknown>(event: string, listener: (payload: T) => void): () => void;
   /** Like `on`, but unsubscribes after the first event. */
