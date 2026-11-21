@@ -1300,13 +1300,15 @@ func (e *coreText) line(line uintptr, index []int, n int, italic bool) shapedLin
 // pen counts: a mark placed back over its letter leaves the advances as
 // they are.
 //
-// Right to left, Core Text's advances take the pen from a glyph's
-// position to the next one's, but for where it places a glyph past the
-// pen: a font that attaches its letters cursively, or places a mark
-// ahead of its letter, as Amiri does (مَّرَضٌ starts with its tanween at
-// 57 of 203, whose advance takes the pen back to 0), leaves that room
-// out of the advances, and the line would be narrower than its glyphs.
-// That room, from the line's start on, counts too.
+// Right to left, Core Text places glyphs off the pen where a font
+// attaches its letters cursively or places a mark ahead of its letter or
+// behind it: in Amiri, مَّرَضٌ starts with its tanween at 57, whose
+// advance takes the pen back to 0, and بِسْمِ ٱللَّهِ with a kasra at
+// -7.5. Its line is as wide as its last glyph's pen, which the advances
+// alone miss (128 of مَّرَضٌ's 203). So the room between a right-to-left
+// glyph and the pen, ahead or behind and from the line's start on, goes
+// to the advance of the glyph before it, or of the first glyph, and the
+// line is as wide as Core Text's (CTLineGetTypographicBounds).
 func penAdvances(runs []shapedRun) {
 	var prev *Glyph
 	var pen float32
@@ -1320,7 +1322,7 @@ func penAdvances(runs []shapedRun) {
 					pen += gap
 				}
 			} else {
-				if gap := g.X - pen; g.RTL && gap > 1e-3 {
+				if gap := g.X - pen; g.RTL && (gap > 1e-3 || gap < -1e-3) {
 					if prev != nil {
 						prev.Advance += gap
 					} else {

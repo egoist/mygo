@@ -16,7 +16,9 @@ func newEngine() engine {
 // paintEngine lays out and draws text with Android's Paint, through the
 // host: Minikin finds the fonts, falls back for what one lacks and lays
 // words out, Skia draws them, as for a TextView. Its glyphs are grapheme
-// clusters (clusterEngine), measured within their words.
+// clusters (clusterEngine), measured within their words, and the pieces
+// of words of scripts whose letters join, laid out within their words in
+// their runs' directions (runHost).
 type paintEngine struct {
 	clusterEngine
 	fonts map[paintSpec]*Font
@@ -59,10 +61,6 @@ func (e *paintEngine) font(style Style) *Font {
 	return f
 }
 
-// contextual: Android measures and draws a piece of a word within the
-// word (Text.kt), so Arabic keeps its joins across tajweed's colors.
-func (e *paintEngine) contextual() bool { return true }
-
 func (e *paintEngine) spec(f *Font) paintSpec { return f.data.(*paintFont).spec }
 
 func (e *paintEngine) measure(f *Font, text string, noKern bool) float32 {
@@ -71,6 +69,23 @@ func (e *paintEngine) measure(f *Font, text string, noKern bool) float32 {
 		return float32(w[0])
 	}
 	return 0
+}
+
+// measureRun measures a piece of a word within the word, as a TextView
+// measures a span.
+func (e *paintEngine) measureRun(f *Font, text []rune, run textRun, noKern bool) float32 {
+	s := e.spec(f)
+	start, end := utf16Index(text, run.start), utf16Index(text, run.end)
+	return float32(mobile.MeasureTextRun(s.family, float64(s.size), s.weight, s.italic, noKern, string(text), start, end, run.rtl))
+}
+
+// utf16Index returns the index in UTF-16 units of rune i of text.
+func utf16Index(text []rune, i int) int {
+	n := 0
+	for _, r := range text[:i] {
+		n += max(utf16.RuneLen(r), 1)
+	}
+	return n
 }
 
 // pens lays the word out whole and sums the advances of its clusters'
@@ -114,7 +129,14 @@ func (e *paintEngine) glyph(f *Font, id uint32, scale, dx float32, _ Shade, _ bo
 		return bitmap{}
 	}
 	s := pf.spec
-	r := mobile.DrawText(s.family, float64(s.size), s.weight, s.italic, pf.glyphs.texts[id], float64(scale), float64(dx))
+	text := pf.glyphs.texts[id]
+	var start, end int
+	run := pf.glyphs.run(id)
+	if run.end > 0 {
+		rs := []rune(text)
+		start, end = utf16Index(rs, run.start), utf16Index(rs, run.end)
+	}
+	r := mobile.DrawText(s.family, float64(s.size), s.weight, s.italic, text, float64(scale), float64(dx), start, end, run.rtl)
 	if r.Width <= 0 || r.Height <= 0 {
 		return bitmap{}
 	}

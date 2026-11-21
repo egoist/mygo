@@ -17,7 +17,9 @@ import kotlin.math.floor
  * Text of native UI, measured and drawn as a TextView measures and draws
  * it: Minikin lays it out, Skia draws it. Go breaks lines itself and asks
  * how wide words are (getTextRunAdvances) and what a cluster looks like
- * (drawText).
+ * (drawText). A piece of a word whose letters join, where its style
+ * changes, is measured and drawn within the word in its run's direction,
+ * as TextLine measures and draws a span (getRunAdvance, drawTextRun).
  */
 object Text {
     // The faces the app registered under each family, a weight and style each.
@@ -63,53 +65,23 @@ object Text {
     private fun weightOf(t: Typeface): Int =
         if (Build.VERSION.SDK_INT >= 28) t.weight else if (t.isBold) 700 else 400
 
-    /**
-     * A piece of a word within the word: text [start, end) of the whole,
-     * which Go sends as before + sep + piece + sep + after (contextText in
-     * internal/text), the separator saying the run's direction. Minikin
-     * lays the whole out, so letters that join keep their forms where the
-     * word's style, a tajweed color, changes.
-     */
-    private class Piece(val text: String, val start: Int, val end: Int, val rtl: Boolean)
-
-    private const val CONTEXT_RTL = '\u0001'
-    private const val CONTEXT_LTR = '\u0002'
-
-    private fun piece(t: String): Piece? {
-        val sep = when {
-            t.indexOf(CONTEXT_RTL) >= 0 -> CONTEXT_RTL
-            t.indexOf(CONTEXT_LTR) >= 0 -> CONTEXT_LTR
-            else -> return null
-        }
-        val a = t.indexOf(sep)
-        val b = t.indexOf(sep, a + 1)
-        if (b < 0) return null
-        val whole = t.substring(0, a) + t.substring(a + 1, b) + t.substring(b + 1)
-        return Piece(whole, a, b - 1, sep == CONTEXT_RTL)
-    }
-
-    private fun set(family: String, size: Double, weight: Long, italic: Boolean, noKern: Boolean = false): Paint {
+    private fun set(family: String, size: Double, weight: Long, italic: Boolean, noKern: Boolean = false, run: Boolean = false): Paint {
         paint.typeface = typeface(family, weight, italic)
         paint.textSize = size.toFloat()
-        features(noKern, false)
-        paint.color = Color.WHITE
-        return paint
-    }
-
-    /**
-     * Go draws clusters alone, which ligatures would join: "fl" would take
-     * the advance of both, and draw as an f before a gap. A word of a
-     * complex script (a Piece) is shaped whole, and keeps them: fonts set
-     * Arabic with them, as Scheherazade puts an ayah's number in its mark.
-     */
-    private fun features(noKern: Boolean, whole: Boolean) {
+        // Go draws clusters alone, which ligatures would join: "fl" would
+        // take the advance of both, and draw as an f before a gap. A run,
+        // a word whose letters join laid out within the word, keeps them,
+        // as a TextView's span does: fonts set Arabic with them, as
+        // Scheherazade New puts an ayah's number inside its mark (U+06DD).
         val f = when {
-            whole && noKern -> "'kern' 0"
-            whole -> ""
+            run && noKern -> "'kern' 0"
+            run -> ""
             noKern -> "'liga' 0, 'clig' 0, 'kern' 0"
             else -> "'liga' 0, 'clig' 0"
         }
         if (paint.fontFeatureSettings.orEmpty() != f) paint.fontFeatureSettings = f
+        paint.color = Color.WHITE
+        return paint
     }
 
     @Synchronized
@@ -139,14 +111,19 @@ object Text {
         val r = MeasureTextReply()
         r.widths = DoubleArray(c.texts.size) { i ->
             val t = c.texts[i]
-            val k = piece(t)
-            features(c.noKern, k != null)
-            if (k != null) {
-                p.getRunAdvance(k.text, k.start, k.end, 0, k.text.length, k.rtl, k.end).toDouble()
-            } else {
-                p.getRunAdvance(t, 0, t.length, 0, t.length, false, t.length).toDouble()
-            }
+            p.getRunAdvance(t, 0, t.length, 0, t.length, false, t.length).toDouble()
         }
+        return r
+    }
+
+    @Synchronized
+    fun measureRun(c: MeasureTextRunCall): MeasureTextRunReply {
+        val p = set(c.family, c.size, c.weight, c.italic, c.noKern, run = true)
+        val t = c.text
+        val start = c.start.toInt().coerceIn(0, t.length)
+        val end = c.end.toInt().coerceIn(start, t.length)
+        val r = MeasureTextRunReply()
+        r.width = p.getRunAdvance(t, start, end, 0, t.length, c.rtl, end).toDouble()
         return r
     }
 
@@ -164,27 +141,26 @@ object Text {
     @Synchronized
     fun draw(c: DrawTextCall): DrawTextReply {
         val r = DrawTextReply()
-        val k = piece(c.text)
-        if ((k?.text?.substring(k.start, k.end) ?: c.text).isBlank()) return r
+        val t = c.text
+        // A run: units [start, end) of the text, laid out within the whole.
+        val run = c.end > 0
+        val start = if (run) c.start.toInt().coerceIn(0, t.length) else 0
+        val end = if (run) c.end.toInt().coerceIn(start, t.length) else t.length
+        if (t.substring(start, end).isBlank()) return r
         // The font at the size text was measured at, the canvas scaled, as
         // the measurements were made.
-        val p = set(c.family, c.size, c.weight, c.italic)
-        features(false, k != null)
-        // A piece draws from its own pen, where the whole word would draw
-        // from shift: the ink of the whole, there, holds the piece's.
-        var shift = 0f
-        if (k != null) {
-            p.getTextBounds(k.text, 0, k.text.length, bounds)
-            val n = k.text.length
-            shift = if (k.rtl) {
-                -(p.getRunAdvance(k.text, 0, n, 0, n, true, n) - p.getRunAdvance(k.text, 0, n, 0, n, true, k.end))
-            } else {
-                -p.getRunAdvance(k.text, 0, n, 0, n, false, k.start)
-            }
-            bounds.offset(floor(shift).toInt(), 0)
-            bounds.right += 1
-        } else {
-            p.getTextBounds(c.text, 0, c.text.length, bounds)
+        val p = set(c.family, c.size, c.weight, c.italic, run = run)
+        p.getTextBounds(t, 0, t.length, bounds)
+        if (run) {
+            // The run draws from the pen at its left, where the whole
+            // draws from its own: the whole's ink, moved there, and the
+            // run's advance, hold the run's ink.
+            val n = t.length
+            val whole = p.getRunAdvance(t, 0, n, 0, n, c.rtl, n)
+            val at = if (c.rtl) whole - p.getRunAdvance(t, 0, n, 0, n, true, end) else p.getRunAdvance(t, 0, n, 0, n, false, start)
+            val adv = p.getRunAdvance(t, start, end, 0, n, c.rtl, end)
+            bounds.left = minOf(floor(bounds.left - at).toInt(), 0)
+            bounds.right = maxOf(ceil(bounds.right - at).toInt(), ceil(adv).toInt())
         }
         val s = c.scale
         val pad = 2
@@ -205,19 +181,15 @@ object Text {
         val canvas = Canvas(bm)
         canvas.translate((c.dx - left).toFloat(), (-top).toFloat())
         canvas.scale(s.toFloat(), s.toFloat())
-        if (k != null) {
-            canvas.drawTextRun(k.text, k.start, k.end, 0, k.text.length, 0f, 0f, k.rtl, p)
-        } else {
-            canvas.drawText(c.text, 0f, 0f, p)
-        }
+        if (run) canvas.drawTextRun(t, start, end, 0, t.length, 0f, 0f, c.rtl, p) else canvas.drawText(t, 0f, 0f, p)
         val buf = ByteBuffer.allocate(bm.byteCount)
         bm.copyPixelsToBuffer(buf)
         val px = buf.array()
         val stride = bm.width * 4
-        // A piece's bitmap holds the whole word's room: only the columns
-        // the piece inked, and the pad around them, are kept.
+        // A run's box holds its whole word's room: only the columns it
+        // inked are kept, with the pad around them.
         var x0 = 0
-        if (k != null) {
+        if (run) {
             var lo = w
             var hi = -1
             for (y in 0 until h) for (x in 0 until w) {
@@ -253,7 +225,7 @@ object Text {
         r.pixels = if (color) {
             ByteArray(w * h * 4).also { out -> for (y in 0 until h) System.arraycopy(px, y * stride + x0 * 4, out, y * w * 4, w * 4) }
         } else {
-            ByteArray(w * h) { i -> px[(i / w) * stride + (x0 + i % w) * 4 + 3] }
+            ByteArray(w * h) { k -> px[(k / w) * stride + (x0 + k % w) * 4 + 3] }
         }
         return r
     }
