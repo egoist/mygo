@@ -312,6 +312,24 @@ func (w *Window) handleMessage(msg string) {
 		go handleCall(w, w.pageContext(), msg, w.trusted)
 		return
 	}
+	// A source's value is the largest message a page sends: decode only
+	// what routes it, and let the call's goroutine decode the value. The
+	// bridge writes "t" first, so the prefix catches every value it sends;
+	// one written otherwise falls through and is dropped, which only the
+	// page's own bridge could do, and it never does.
+	if len(msg) > 16 && msg[:16] == `{"t":"src-push",` {
+		if fn := sourceMessageHook; fn != nil {
+			var m struct {
+				C int64    `json:"c"`
+				K string   `json:"k"`
+				P rawValue `json:"p"`
+			}
+			if err := json.Unmarshal(stringBytes(msg), &m, decodeOptions); err == nil {
+				fn(w, m.C, m.K, m.P, false)
+			}
+		}
+		return
+	}
 	var m struct {
 		T  string  `json:"t"`
 		X  float64 `json:"x"` // drop
@@ -320,7 +338,6 @@ func (w *Window) handleMessage(msg string) {
 		K  string  `json:"k"`
 		ID int64   `json:"id"` // the call of a cancel
 		N  int64   `json:"n"`
-		P  rawValue `json:"p"` // a source's value
 		V  string  `json:"v"` // theme-color
 		W  float64 `json:"w"` // content-size
 		H  float64 `json:"h"`
@@ -394,10 +411,10 @@ func (w *Window) handleMessage(msg string) {
 		}
 	case "chan-close":
 		w.pageClosedChannel(m.C, m.K)
-	case "src-push":
-		w.sourceMessage(m.C, m.K, m.P, false)
 	case "src-end":
-		w.sourceMessage(m.C, m.K, nil, true)
+		if fn := sourceMessageHook; fn != nil {
+			fn(w, m.C, m.K, nil, true)
+		}
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/egoist/mygo/internal/wait"
@@ -15,6 +16,27 @@ import (
 
 type sourceService struct {
 	started chan struct{}
+}
+
+// The tests share one bound service: binding a second under the same name
+// panics, and -count runs them again in the same process.
+var (
+	srcOnce sync.Once
+	srcSvc  = &sourceService{}
+)
+
+func sourceServiceFor(t *testing.T) *sourceService {
+	t.Helper()
+	srcOnce.Do(func() { BindAs("srcTest", srcSvc) })
+	srcSvc.started = nil
+	return srcSvc
+}
+
+func (s *sourceService) TakeOne(ctx context.Context, src *Source[string]) (string, error) {
+	if s.started != nil {
+		close(s.started)
+	}
+	return src.Recv()
 }
 
 func (s *sourceService) Collect(ctx context.Context, src *Source[string]) (string, error) {
@@ -75,11 +97,11 @@ func startSourceCall(w *Window, raw string) chan struct{} {
 }
 
 func TestSourceEndToEnd(t *testing.T) {
-	svc := &sourceService{started: make(chan struct{})}
-	BindAs("srcEnd", svc)
+	svc := sourceServiceFor(t)
+	svc.started = make(chan struct{})
 	w := &Window{}
 	sourceWindowSetup(w)
-	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcEnd.Collect","a":[7]}`)
+	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`)
 	wait.For(t, "the call to start", svc.started)
 	w.handleMessage(`{"t":"src-push","c":7,"k":"tok","p":"a"}`)
 	w.handleMessage(`{"t":"src-push","c":7,"k":"tok","p":"b"}`)
@@ -101,12 +123,11 @@ func TestSourceEndToEnd(t *testing.T) {
 }
 
 func TestSourceEndedBeforeTheCall(t *testing.T) {
-	svc := &sourceService{}
-	BindAs("srcEarly", svc)
+	sourceServiceFor(t)
 	w := &Window{}
 	sourceWindowSetup(w)
 	w.sourceMessage(7, "tok", nil, true)
-	wait.For(t, "the call to end", startSourceCall(w, `{"id":1,"k":"tok","m":"srcEarly.Collect","a":[7]}`))
+	wait.For(t, "the call to end", startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`))
 	out := sourceOutbox(w)
 	if !strings.Contains(out, `"ok":true`) || !strings.Contains(out, `"v":""`) {
 		t.Errorf("outbox = %q, want an empty result", out)
@@ -114,8 +135,7 @@ func TestSourceEndedBeforeTheCall(t *testing.T) {
 }
 
 func TestSourceValuesBeforeTheCall(t *testing.T) {
-	svc := &sourceService{}
-	BindAs("srcEarlyValues", svc)
+	sourceServiceFor(t)
 	w := &Window{}
 	sourceWindowSetup(w)
 	// The page's values can arrive before the call's goroutine makes its
@@ -123,7 +143,7 @@ func TestSourceValuesBeforeTheCall(t *testing.T) {
 	w.sourceMessage(7, "tok", []byte(`"a"`), false)
 	w.sourceMessage(7, "tok", []byte(`"b"`), false)
 	w.sourceMessage(7, "tok", nil, true)
-	wait.For(t, "the call to end", startSourceCall(w, `{"id":1,"k":"tok","m":"srcEarlyValues.Collect","a":[7]}`))
+	wait.For(t, "the call to end", startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`))
 	out := sourceOutbox(w)
 	if !strings.Contains(out, `"ok":true`) || !strings.Contains(out, `"v":"a,b"`) {
 		t.Errorf("outbox = %q, want the reply a,b", out)
@@ -131,22 +151,21 @@ func TestSourceValuesBeforeTheCall(t *testing.T) {
 }
 
 func TestSourceInvalidArgument(t *testing.T) {
-	svc := &sourceService{}
-	BindAs("srcInvalid", svc)
+	sourceServiceFor(t)
 	w := &Window{}
 	sourceWindowSetup(w)
-	wait.For(t, "the call to end", startSourceCall(w, `{"id":1,"k":"tok","m":"srcInvalid.Collect","a":[0]}`))
+	wait.For(t, "the call to end", startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[0]}`))
 	if out := sourceOutbox(w); !strings.Contains(out, "not a Source") {
 		t.Errorf("outbox = %q, want the invalid-argument error", out)
 	}
 }
 
 func TestSourceCloseByGo(t *testing.T) {
-	svc := &sourceService{started: make(chan struct{})}
-	BindAs("srcClose", svc)
+	svc := sourceServiceFor(t)
+	svc.started = make(chan struct{})
 	w := &Window{}
 	sourceWindowSetup(w)
-	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcClose.CloseEarly","a":[7]}`)
+	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.CloseEarly","a":[7]}`)
 	wait.For(t, "the call to start", svc.started)
 	wait.For(t, "the call to end", done)
 	out := sourceOutbox(w)
@@ -159,11 +178,11 @@ func TestSourceCloseByGo(t *testing.T) {
 }
 
 func TestSourceCanceledContext(t *testing.T) {
-	svc := &sourceService{started: make(chan struct{})}
-	BindAs("srcCancel", svc)
+	svc := sourceServiceFor(t)
+	svc.started = make(chan struct{})
 	w := &Window{}
 	sourceWindowSetup(w)
-	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcCancel.Collect","a":[7]}`)
+	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`)
 	wait.For(t, "the call to start", svc.started)
 	w.mu.Lock()
 	cancel := w.pageCancel
@@ -176,11 +195,11 @@ func TestSourceCanceledContext(t *testing.T) {
 }
 
 func TestSourceAcknowledgments(t *testing.T) {
-	svc := &sourceService{started: make(chan struct{})}
-	BindAs("srcAck", svc)
+	svc := sourceServiceFor(t)
+	svc.started = make(chan struct{})
 	w := &Window{}
 	sourceWindowSetup(w)
-	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcAck.Collect","a":[7]}`)
+	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`)
 	wait.For(t, "the call to start", svc.started)
 	big := strings.Repeat("x", 600<<10)
 	raw, _ := json.Marshal(big)
@@ -192,5 +211,45 @@ func TestSourceAcknowledgments(t *testing.T) {
 	// The method took over half a MiB: an acknowledgment went to the page.
 	if out := sourceOutbox(w); !strings.Contains(out, `"t":"src-ack"`) {
 		t.Errorf("outbox = %q, want a src-ack", out)
+	}
+}
+func TestSourceValuesAfterGoClosed(t *testing.T) {
+	svc := sourceServiceFor(t)
+	svc.started = make(chan struct{})
+	w := &Window{}
+	sourceWindowSetup(w)
+	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.TakeOne","a":[7]}`)
+	wait.For(t, "the call to start", svc.started)
+	w.handleMessage(`{"t":"src-push","c":7,"k":"tok","p":"only"}`)
+	wait.For(t, "the call to end", done)
+	// The page still had values in flight: they are dropped, not kept for
+	// a source that is over until the page navigates.
+	for range 10 {
+		w.handleMessage(`{"t":"src-push","c":7,"k":"tok","p":"late"}`)
+	}
+	w.mu.Lock()
+	early, gone := len(w.earlySources), w.goneSources[7]
+	w.mu.Unlock()
+	if early != 0 || !gone {
+		t.Errorf("after the end: %d early values, gone=%v, want none and gone", early, gone)
+	}
+}
+
+// A page flooding values for ids whose calls never come fails the source
+// at the cap instead of dropping its values, which would leave its call
+// waiting forever.
+func TestSourceFloodFailsTheSource(t *testing.T) {
+	sourceServiceFor(t)
+	w := &Window{}
+	sourceWindowSetup(w)
+	for range maxEarlySourceValues {
+		w.sourceMessage(999, "tok", []byte(`"x"`), false)
+	}
+	w.sourceMessage(7, "tok", []byte(`"a"`), false)
+	w.sourceMessage(7, "tok", nil, true)
+	done := startSourceCall(w, `{"id":1,"k":"tok","m":"srcTest.Collect","a":[7]}`)
+	wait.For(t, "the call to end", done)
+	if out := sourceOutbox(w); !strings.Contains(out, "source closed") {
+		t.Errorf("outbox = %q, want the method to see the source closed", out)
 	}
 }

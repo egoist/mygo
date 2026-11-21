@@ -43,9 +43,9 @@ a `Source` in its place, which the page fills and closes:
 ```ts
 import { Source } from "mygo-runtime";
 
-const data = new Source<Uint8Array>();
+const data = new Source<string>(); // a Go []byte crosses as base64
 const done = Files.save("report.bin", data);
-for (const chunk of chunks) await data.send(chunk);
+for (const chunk of chunks) await data.send(btoa(chunk));
 data.close();
 await done;
 ```

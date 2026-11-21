@@ -56,11 +56,12 @@ type method struct {
 	chans   []bool
 	streams bool
 	// sources marks the parameters that are sources (*Source[T]), which
-	// the page fills.
-	sources []bool
-	result  reflect.Type
-	hasErr  bool
-	pc      uintptr
+	// the page fills, and hasSources tells that any is.
+	sources    []bool
+	hasSources bool
+	result     reflect.Type
+	hasErr     bool
+	pc         uintptr
 }
 
 type eventInfo struct {
@@ -240,6 +241,7 @@ func newMethod(service, name string, fn reflect.Value) (*method, error) {
 		mi.params = append(mi.params, p)
 		mi.chans = append(mi.chans, isChan)
 		mi.sources = append(mi.sources, isSource)
+		mi.hasSources = mi.hasSources || isSource
 		mi.streams = mi.streams || isChan
 	}
 	switch ft.NumOut() {
@@ -315,13 +317,12 @@ func (m *method) call(w *Window, page, parent context.Context, token string, arg
 		}()
 	}
 	var srcs []*source
-	defer func() {
+	if m.hasSources {
 		// The sources close when the method returns, before its result is
-		// sent; the page's send rejects from then on.
-		for _, s := range srcs {
-			s.close(closedByGo)
-		}
-	}()
+		// sent; the page's send rejects from then on. The hook has been
+		// set since Bind named the type.
+		defer func() { sourceCloseHook(srcs) }()
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
@@ -359,7 +360,11 @@ func (m *method) call(w *Window, page, parent context.Context, token string, arg
 			if id <= 0 {
 				return nil, fmt.Errorf("invalid argument %d: not a Source", i+1)
 			}
-			s := w.newSource(page, ctx, id, token)
+			newSource := sourceNewHook
+			if newSource == nil {
+				return nil, fmt.Errorf("invalid argument %d: not a Source", i+1)
+			}
+			s := newSource(w, page, ctx, id, token)
 			srcs = append(srcs, s)
 			v := reflect.New(t.Elem())
 			v.Interface().(sourceParam).init(s)
