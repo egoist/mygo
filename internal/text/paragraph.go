@@ -128,6 +128,8 @@ func paddedWidth(l shapedLine, text []rune, spans []Span) (w, pad float32) {
 	return linePaddedWidth(l, text, spans, false)
 }
 
+// linePaddedWidth is paddedWidth, counting the whitespace ending the line
+// too when keepSpaces, as Params.KeepSpaces keeps it.
 func linePaddedWidth(l shapedLine, text []rune, spans []Span, keepSpaces bool) (w, pad float32) {
 	trim := l.end
 	if !keepSpaces {
