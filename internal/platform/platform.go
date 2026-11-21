@@ -16,6 +16,11 @@ import (
 	"github.com/egoist/mygo/transfer"
 )
 
+// ErrDownloadCanceled is the cause a download the app canceled ends with;
+// mygo.ErrDownloadCanceled is it, so a backend reports the cancel with it
+// and the core does not wrap it twice.
+var ErrDownloadCanceled = errors.New("mygo: download canceled")
+
 // ErrUnsupported is returned by features the current backend cannot provide.
 // It is errors.ErrUnsupported too (errors.Is), which apps check.
 var ErrUnsupported error = unsupportedError{}

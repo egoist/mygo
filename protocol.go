@@ -436,7 +436,9 @@ func downloadScheme(h *windowHandler, rawURL string) {
 		}
 		return // canceled
 	}
-	rw.report(true) // the last one, even short of the total
+	if rw.err == nil {
+		rw.report(true) // the last one, even short of the total
+	}
 	if err := rw.file.Close(); rw.err == nil {
 		rw.err = err
 	}

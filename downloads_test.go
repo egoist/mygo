@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/internal/fake"
 	"github.com/egoist/mygo/internal/wait"
 )
 
@@ -213,10 +214,14 @@ func TestSchemeDownloadCanceled(t *testing.T) {
 	}
 }
 
-func TestSchemeDownloadPausedWindowClose(t *testing.T) {
+// startPausedSchemeDownload starts a paced scheme download and pauses it
+// on its first progress, so its handler is blocked in Write, and returns
+// the window and the channel that closes when the handler returns.
+func startPausedSchemeDownload(t *testing.T) (*Window, *fake.Window, chan struct{}) {
+	t.Helper()
 	dir := t.TempDir()
 	App.SetPath(PathDownloads, dir)
-	defer App.SetPath(PathDownloads, "")
+	t.Cleanup(func() { App.SetPath(PathDownloads, "") })
 	w, fw := testWindow(t, WindowOptions{})
 	closed := make(chan struct{})
 	if err := Protocol.HandleFunc("dlpause", func(rw http.ResponseWriter, r *http.Request) {
@@ -233,7 +238,7 @@ func TestSchemeDownloadPausedWindowClose(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	defer Protocol.Unhandle("dlpause")
+	t.Cleanup(func() { Protocol.Unhandle("dlpause") })
 	paused := make(chan struct{}, 1)
 	off := w.Page().OnWillDownload(func(e *DownloadEvent) {
 		e.Path = filepath.Join(dir, "big.bin")
@@ -247,10 +252,25 @@ func TestSchemeDownloadPausedWindowClose(t *testing.T) {
 			}
 		})
 	})
-	defer off()
+	t.Cleanup(off)
 	onMain(func() { fw.H.SchemeDownload("dlpause://localhost/file") })
 	wait.For(t, "the first progress", paused)
-	// The handler is blocked in Write: closing the window must let it go.
+	return w, fw, closed
+}
+
+func TestSchemeDownloadPausedWindowDestroy(t *testing.T) {
+	w, _, closed := startPausedSchemeDownload(t)
+	// The handler is blocked in Write: destroying the window must let it go.
 	w.Destroy()
+	wait.For(t, "the handler to return", closed)
+}
+
+func TestSchemeDownloadPausedUserClose(t *testing.T) {
+	_, fw, closed := startPausedSchemeDownload(t)
+	// Closing from the close button goes through the handler, not Destroy.
+	onMain(func() {
+		fw.H.ShouldClose()
+		fw.H.Closed()
+	})
 	wait.For(t, "the handler to return", closed)
 }

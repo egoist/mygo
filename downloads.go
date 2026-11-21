@@ -15,7 +15,7 @@ import (
 
 // ErrDownloadCanceled is what a download the app canceled ends with: the
 // errors DownloadFinished reports wrap it, whatever the engine's own cause.
-var ErrDownloadCanceled = errors.New("mygo: download canceled")
+var ErrDownloadCanceled = platform.ErrDownloadCanceled
 
 // DownloadEvent is passed to Page.OnWillDownload listeners. Setting Path
 // chooses where the file goes; preventing the event cancels the download.
@@ -46,8 +46,10 @@ type Download struct {
 	w          *Window
 	onProgress listeners[func(received, total int64)]
 	// canceled records that the app canceled it, so that how it ended can
-	// be reported as ErrDownloadCanceled whatever the engine names.
+	// be reported as ErrDownloadCanceled whatever the engine names; ready
+	// tells that it is running, and so that controls reach it.
 	canceled atomic.Bool
+	ready    atomic.Bool
 	// mu guards scheme, the writer of a custom scheme's download, which
 	// the core serves itself; nil for the engine's downloads.
 	mu     sync.Mutex
@@ -105,6 +107,9 @@ func (d *Download) Resume() error {
 
 // Cancel stops a running download, which ends with ErrDownloadCanceled.
 func (d *Download) Cancel() {
+	if !d.ready.Load() {
+		return // not running yet: nothing to cancel, and no error to relabel
+	}
 	d.canceled.Store(true)
 	if s := d.schemeDownload(); s != nil {
 		s.cancel()
@@ -154,6 +159,7 @@ func (h *windowHandler) DownloadStarted(url, suggested string) string {
 		h.w.downloads = map[downloadKey]*Download{}
 	}
 	h.w.downloads[downloadKey{url, e.Path}] = d
+	d.ready.Store(true)
 	return e.Path
 }
 

@@ -769,7 +769,7 @@ func (w *window) CancelDownload(url, path string) {
 		theBackend.post(func() {
 			if w.downloadFor(url, path) == d {
 				w.forgetDownload(d)
-				w.h.DownloadFinished(url, path, errors.New("mygo: download canceled"))
+				w.h.DownloadFinished(url, path, platform.ErrDownloadCanceled)
 			}
 		})
 	}
