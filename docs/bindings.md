@@ -413,13 +413,16 @@ page creates, passes in its place, then fills and closes:
 import { Source } from "mygo-runtime";
 import { Files } from "./mygo";
 
-const data = new Source<Uint8Array>();
+const data = new Source<string>();
 const done = Files.save("report.bin", data);
-for (const chunk of chunks) await data.send(chunk);
+for (const chunk of chunks) await data.send(btoa(chunk));
 data.close();
 await done; // rejects if Save returned an error
 ```
 
+- A Go `[]byte` parameter crosses as a base64 string, as everywhere in the
+  JSON API: a page sending bytes encodes them (`btoa` above); the method
+  receives their bytes.
 - Values arrive in order. `Recv` returns one at a time; `Values` iterates
   them, ending with `io.EOF` once the page closed the source and its values
   are taken.
