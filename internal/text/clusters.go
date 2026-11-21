@@ -32,6 +32,42 @@ type clusterEngine struct {
 	words map[wordKey][]float32
 	seg   segmenter.Segmenter
 	para  bidi.Paragraph
+	// contextual is whether the host shapes a piece of a word within the
+	// word (contextualHost), so that letters that join keep their forms,
+	// and their kerning, where the word's style changes.
+	contextual bool
+}
+
+// contextualHost is a clusterHost that measures and draws a piece of text
+// within the text around it: a glyph's text that contextText made. Android
+// does (Paint.getRunAdvance and Canvas.drawTextRun); a browser's canvas,
+// which shapes what it draws alone, does not.
+type contextualHost interface {
+	clusterHost
+	contextual() bool
+}
+
+// The separators of a piece from its context, in a glyph's text, which say
+// the direction of the run: before + sep + piece + sep + after.
+const (
+	contextRTL = '\u0001'
+	contextLTR = '\u0002'
+)
+
+// contextText returns the text of a glyph drawing piece within the text
+// before and after it, in a run of direction rtl.
+func contextText(before, piece, after []rune, rtl bool) string {
+	sep := string(contextLTR)
+	if rtl {
+		sep = string(contextRTL)
+	}
+	return string(before) + sep + string(piece) + sep + string(after)
+}
+
+// joinsAcross reports whether a rune is of a word whose letters may join
+// across a change of style: of a complex script, or a mark or joiner.
+func joinsAcross(r rune) bool {
+	return complexScript(r) || r == 0x200C || r == 0x200D || unicode.Is(unicode.Mn, r)
 }
 
 // clusterHost is the text stack of a clusterEngine.
@@ -66,6 +102,9 @@ type wordKey struct {
 
 func (e *clusterEngine) init(host clusterHost) {
 	e.host = host
+	if h, ok := host.(contextualHost); ok {
+		e.contextual = h.contextual()
+	}
 	e.glyphs = newGlyphTexts()
 	e.words = map[wordKey][]float32{}
 }
@@ -212,6 +251,7 @@ func (e *clusterEngine) shape(text []rune, style Style, spans []Span, width floa
 	b := 0 // the cluster boundary
 	start := 0
 	for _, end := range breaks {
+		segStart := start
 		for start < end {
 			// The piece: same style, level and script complexity.
 			pe := start + 1
@@ -232,7 +272,18 @@ func (e *clusterEngine) shape(text []rune, style Style, spans []Span, width floa
 			pe = bounds[ce]
 			st := styles[fontAt[start]]
 			f := fonts[fontAt[start]]
-			clusters = e.measureWord(clusters, text, bounds[b:ce+1], f, st.LetterSpacing, noKern(st), levels[start])
+			// The word around the piece, of the same direction, which a
+			// contextual host shapes it in.
+			ctx := [2]int{start, pe}
+			if e.contextual {
+				for ctx[0] > segStart && levels[ctx[0]-1] == levels[start] && joinsAcross(text[ctx[0]-1]) {
+					ctx[0]--
+				}
+				for ctx[1] < end && levels[ctx[1]] == levels[start] && joinsAcross(text[ctx[1]]) {
+					ctx[1]++
+				}
+			}
+			clusters = e.measureWord(clusters, text, bounds[b:ce+1], ctx, f, st.LetterSpacing, noKern(st), levels[start])
 			b, start = ce, pe
 		}
 	}
@@ -373,8 +424,9 @@ func isSpace(text []rune, c cluster) bool {
 // measureWord appends the clusters of a word of runes [bounds[0],
 // bounds[len-1]) in f, at level, their boundaries bounds, positioned as
 // the browser lays the word out. Clusters of scripts whose letters join
-// make one, which the browser shapes whole.
-func (e *clusterEngine) measureWord(out []cluster, text []rune, bounds []int, f *Font, spacing float32, noKern bool, level bidi.Level) []cluster {
+// make one, which the browser shapes whole, or a contextual host within
+// the runes ctx of the word around it.
+func (e *clusterEngine) measureWord(out []cluster, text []rune, bounds []int, ctx [2]int, f *Font, spacing float32, noKern bool, level bidi.Level) []cluster {
 	for k := 0; k < len(bounds)-1; {
 		j := k + 1
 		joins := complexScript(text[bounds[k]])
@@ -383,6 +435,20 @@ func (e *clusterEngine) measureWord(out []cluster, text []rune, bounds []int, f 
 		}
 		if joins {
 			word := string(text[bounds[k]:bounds[j]])
+			// Within the word around it, where the piece is of a word
+			// whose style changes, and in the run's direction, which
+			// the host shapes it in.
+			before, after := bounds[k], bounds[j]
+			if k == 0 {
+				before = ctx[0]
+			}
+			if j == len(bounds)-1 {
+				after = max(ctx[1], after)
+			}
+			// Every such word, as the host must know its direction.
+			if e.contextual {
+				word = contextText(text[before:bounds[k]], text[bounds[k]:bounds[j]], text[bounds[j]:after], level%2 == 1)
+			}
 			w := e.host.measure(f, word, noKern)
 			out = append(out, cluster{start: bounds[k], end: bounds[j], font: f, advance: w + spacing*float32(j-k), level: level, text: word})
 		} else {

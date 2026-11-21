@@ -59,6 +59,10 @@ func (e *paintEngine) font(style Style) *Font {
 	return f
 }
 
+// contextual: Android measures and draws a piece of a word within the
+// word (Text.kt), so Arabic keeps its joins across tajweed's colors.
+func (e *paintEngine) contextual() bool { return true }
+
 func (e *paintEngine) spec(f *Font) paintSpec { return f.data.(*paintFont).spec }
 
 func (e *paintEngine) measure(f *Font, text string, noKern bool) float32 {

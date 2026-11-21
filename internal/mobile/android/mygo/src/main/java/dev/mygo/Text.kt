@@ -63,6 +63,31 @@ object Text {
     private fun weightOf(t: Typeface): Int =
         if (Build.VERSION.SDK_INT >= 28) t.weight else if (t.isBold) 700 else 400
 
+    /**
+     * A piece of a word within the word: text [start, end) of the whole,
+     * which Go sends as before + sep + piece + sep + after (contextText in
+     * internal/text), the separator saying the run's direction. Minikin
+     * lays the whole out, so letters that join keep their forms where the
+     * word's style, a tajweed color, changes.
+     */
+    private class Piece(val text: String, val start: Int, val end: Int, val rtl: Boolean)
+
+    private const val CONTEXT_RTL = '\u0001'
+    private const val CONTEXT_LTR = '\u0002'
+
+    private fun piece(t: String): Piece? {
+        val sep = when {
+            t.indexOf(CONTEXT_RTL) >= 0 -> CONTEXT_RTL
+            t.indexOf(CONTEXT_LTR) >= 0 -> CONTEXT_LTR
+            else -> return null
+        }
+        val a = t.indexOf(sep)
+        val b = t.indexOf(sep, a + 1)
+        if (b < 0) return null
+        val whole = t.substring(0, a) + t.substring(a + 1, b) + t.substring(b + 1)
+        return Piece(whole, a, b - 1, sep == CONTEXT_RTL)
+    }
+
     private fun set(family: String, size: Double, weight: Long, italic: Boolean, noKern: Boolean = false): Paint {
         paint.typeface = typeface(family, weight, italic)
         paint.textSize = size.toFloat()
@@ -100,7 +125,12 @@ object Text {
         val r = MeasureTextReply()
         r.widths = DoubleArray(c.texts.size) { i ->
             val t = c.texts[i]
-            p.getRunAdvance(t, 0, t.length, 0, t.length, false, t.length).toDouble()
+            val k = piece(t)
+            if (k != null) {
+                p.getRunAdvance(k.text, k.start, k.end, 0, k.text.length, k.rtl, k.end).toDouble()
+            } else {
+                p.getRunAdvance(t, 0, t.length, 0, t.length, false, t.length).toDouble()
+            }
         }
         return r
     }
@@ -119,18 +149,34 @@ object Text {
     @Synchronized
     fun draw(c: DrawTextCall): DrawTextReply {
         val r = DrawTextReply()
-        if (c.text.isBlank()) return r
+        val k = piece(c.text)
+        if ((k?.text?.substring(k.start, k.end) ?: c.text).isBlank()) return r
         // The font at the size text was measured at, the canvas scaled, as
         // the measurements were made.
         val p = set(c.family, c.size, c.weight, c.italic)
-        p.getTextBounds(c.text, 0, c.text.length, bounds)
+        // A piece draws from its own pen, where the whole word would draw
+        // from shift: the ink of the whole, there, holds the piece's.
+        var shift = 0f
+        if (k != null) {
+            p.getTextBounds(k.text, 0, k.text.length, bounds)
+            val n = k.text.length
+            shift = if (k.rtl) {
+                -(p.getRunAdvance(k.text, 0, n, 0, n, true, n) - p.getRunAdvance(k.text, 0, n, 0, n, true, k.end))
+            } else {
+                -p.getRunAdvance(k.text, 0, n, 0, n, false, k.start)
+            }
+            bounds.offset(floor(shift).toInt(), 0)
+            bounds.right += 1
+        } else {
+            p.getTextBounds(c.text, 0, c.text.length, bounds)
+        }
         val s = c.scale
         val pad = 2
-        val left = floor(bounds.left * s + c.dx).toInt() - pad
+        var left = floor(bounds.left * s + c.dx).toInt() - pad
         val right = ceil(bounds.right * s + c.dx).toInt() + pad
         val top = floor(bounds.top * s).toInt() - pad
         val bottom = ceil(bounds.bottom * s).toInt() + pad
-        val w = right - left
+        var w = right - left
         val h = bottom - top
         if (w <= 2 * pad || h <= 2 * pad || w > 2048 || h > 2048) return r
         var bm = bitmap
@@ -143,16 +189,37 @@ object Text {
         val canvas = Canvas(bm)
         canvas.translate((c.dx - left).toFloat(), (-top).toFloat())
         canvas.scale(s.toFloat(), s.toFloat())
-        canvas.drawText(c.text, 0f, 0f, p)
+        if (k != null) {
+            canvas.drawTextRun(k.text, k.start, k.end, 0, k.text.length, 0f, 0f, k.rtl, p)
+        } else {
+            canvas.drawText(c.text, 0f, 0f, p)
+        }
         val buf = ByteBuffer.allocate(bm.byteCount)
         bm.copyPixelsToBuffer(buf)
         val px = buf.array()
         val stride = bm.width * 4
+        // A piece's bitmap holds the whole word's room: only the columns
+        // the piece inked, and the pad around them, are kept.
+        var x0 = 0
+        if (k != null) {
+            var lo = w
+            var hi = -1
+            for (y in 0 until h) for (x in 0 until w) {
+                if (px[y * stride + x * 4 + 3].toInt() != 0) {
+                    if (x < lo) lo = x
+                    if (x > hi) hi = x
+                }
+            }
+            if (hi < 0) return r
+            x0 = maxOf(lo - pad, 0)
+            w = minOf(hi + pad + 1, w) - x0
+            left += x0
+        }
         // White text is as covered as it is opaque; other colors are an
         // emoji's.
         var color = false
         loop@ for (y in 0 until h) for (x in 0 until w) {
-            val i = y * stride + x * 4
+            val i = y * stride + (x0 + x) * 4
             val a = px[i + 3].toInt() and 0xff
             if (a > 32) {
                 val far = { v: Int -> v < a - 24 }
@@ -168,9 +235,9 @@ object Text {
         r.height = h.toLong()
         r.color = color
         r.pixels = if (color) {
-            ByteArray(w * h * 4).also { out -> for (y in 0 until h) System.arraycopy(px, y * stride, out, y * w * 4, w * 4) }
+            ByteArray(w * h * 4).also { out -> for (y in 0 until h) System.arraycopy(px, y * stride + x0 * 4, out, y * w * 4, w * 4) }
         } else {
-            ByteArray(w * h) { k -> px[(k / w) * stride + (k % w) * 4 + 3] }
+            ByteArray(w * h) { i -> px[(i / w) * stride + (x0 + i % w) * 4 + 3] }
         }
         return r
     }
