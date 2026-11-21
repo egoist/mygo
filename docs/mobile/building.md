@@ -162,3 +162,49 @@ the app execs one.
 Link such an executable for 16 KB pages (`-Wl,-z,max-page-size=16384`), as
 Android's own libraries are: on a device or emulator with 16 KB pages, one
 linked for 4 KB pages crashes as it starts.
+
+## Background audio and lock-screen controls
+
+Import `github.com/egoist/mygo/plugins/backgroundaudio` in the app and build
+with `mygo build`. The import adds the audio background mode and MediaPlayer
+framework on iOS. On Android it declares a private media playback foreground
+service and the two foreground-service permissions. Start playback from the
+visible app. The service shows a media notification while playback is active.
+
+Given an open `*audio.Player`, wire it to the controls once, then publish the
+track when the user starts it:
+
+```go
+release := mygo.NowPlaying.Control(player) // call release when closing the player
+off := backgroundaudio.OnEvent(func(e backgroundaudio.Event) {
+    switch e.Kind {
+    case "interrupted", "focusLoss", "focusTransient", "outputRemoved":
+        player.Pause()
+        mygo.NowPlaying.Sync()
+    }
+})
+player.Play()
+mygo.NowPlaying.Set(mygo.NowPlayingInfo{
+    Title: "Spring", Artist: "Vivaldi", Artwork: coverPNG,
+})
+// When finished:
+player.Stop()
+mygo.NowPlaying.Clear()
+off()
+release()
+```
+
+Control handles play, pause, stop and seek. Register OnCommand and advertise
+MediaNext or MediaPrevious for a queue. Call Sync after changing playback
+from the app. Clear releases the session. On iOS, resume events include the
+system's ResumeAllowed hint. On Android, duck and focusGain let the app lower
+and restore volume. The app decides whether to resume after an interruption.
+
+Run `mygo dev -platform ios examples/background-audio` on an iOS simulator
+or build and install it on a signed device. Run
+`mygo dev -platform android examples/background-audio` on a connected phone.
+Tap **Play tone**, switch apps, then lock the screen. Check that audio continues
+and that the lock-screen title, artwork, play, pause and seek match the player.
+Disconnect headphones and interrupt playback with another audio app or a call.
+Check the reported events in the app log, then tap **Stop and clear** and check
+that the session and notification disappear.
