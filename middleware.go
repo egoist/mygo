@@ -153,12 +153,11 @@ func runMiddleware(w *Window, m *method, page, parent context.Context, token str
 	for i := len(chain) - 1; i >= 0; i-- {
 		mw, next := chain[i], run
 		run = func(ctx context.Context) (any, error) {
-			called := false
+			var called atomic.Bool
 			return mw(ctx, call, func(nextCtx context.Context) (any, error) {
-				if called {
+				if !called.CompareAndSwap(false, true) {
 					return nil, errors.New("mygo: a middleware called next twice")
 				}
-				called = true
 				if nextCtx == nil {
 					nextCtx = ctx
 				}
