@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 // Source receives values of type T that the page sends to a bound method,
@@ -120,23 +121,29 @@ func (s *Source[T]) Close() {
 
 func (s *Source[T]) init(c *source) { s.s = c }
 
+// sourceHooks are what method.call and handleMessage reach sources
+// through, set by *Source[T].valueType when Bind names the type: an app
+// without a Source parameter links neither their code nor the sources'.
+type sourceHooks struct {
+	newSource func(w *Window, page, ctx context.Context, id int64, token string) *source
+	message   func(w *Window, id int64, token string, raw []byte, end bool)
+	close     func(srcs []*source)
+}
+
+var sourceHooksPtr atomic.Pointer[sourceHooks]
+
 // valueType tells Bind what a Source carries, and links what the sources
 // need, so that only an app with a *Source[T] parameter links them.
 func (*Source[T]) valueType() reflect.Type {
-	sourceNewHook = (*Window).newSource
-	sourceMessageHook = (*Window).sourceMessage
-	sourceCloseHook = closeSources
+	if sourceHooksPtr.Load() == nil {
+		sourceHooksPtr.CompareAndSwap(nil, &sourceHooks{
+			newSource: (*Window).newSource,
+			message:   (*Window).sourceMessage,
+			close:     closeSources,
+		})
+	}
 	return reflect.TypeFor[T]()
 }
-
-// The hooks method.call and handleMessage reach sources through, set by
-// *Source[T].valueType when a bound method names the type: an app without
-// one links neither their code nor the sources'.
-var (
-	sourceNewHook     func(w *Window, page, ctx context.Context, id int64, token string) *source
-	sourceMessageHook func(w *Window, id int64, token string, raw []byte, end bool)
-	sourceCloseHook   func(srcs []*source)
-)
 
 // closeSources closes the sources a call made, before its result is sent.
 func closeSources(srcs []*source) {
@@ -225,30 +232,33 @@ func (w *Window) newSource(page, ctx context.Context, id int64, token string) *s
 
 	w.mu.Lock()
 	if w.pageCtx == page {
-		if w.sources == nil {
-			w.sources = map[int64]*source{}
+		st := w.sourceStore()
+		if st.sources == nil {
+			st.sources = map[int64]*source{}
 		}
-		w.sources[id] = s
-		if w.goneSources[id] {
+		st.sources[id] = s
+		if st.gone[id] {
 			// The call ended or failed before its source was made: the
 			// method sees it closed, not a stream that never ends.
 			s.closed = true
 		}
 		// Values the page sent before the call made its source, in order.
 		s.mu.Lock()
-		for _, e := range w.earlySources[id] {
-			if e.token != token {
-				continue
-			}
-			if e.end {
-				s.ended = true
-			} else if !s.ended && !s.closed {
-				s.seq++
-				s.queue = append(s.queue, sourceValue{raw: e.raw, seq: s.seq})
+		if early := st.early[id]; early != nil {
+			for _, e := range early.values {
+				if e.token != token {
+					continue
+				}
+				if e.end {
+					s.ended = true
+				} else if !s.ended && !s.closed {
+					s.seq++
+					s.queue = append(s.queue, sourceValue{raw: e.raw, seq: s.seq})
+				}
 			}
 		}
 		s.mu.Unlock()
-		delete(w.earlySources, id)
+		delete(st.early, id)
 	} else {
 		s.closed = true
 	}
@@ -264,31 +274,64 @@ func (w *Window) newSource(page, ctx context.Context, id int64, token string) *s
 	return s
 }
 
-// maxEarlySourceValues bounds the values kept for sources whose calls have
-// not made them yet; a page's flow control holds it far below this.
-const maxEarlySourceValues = 1024
+// maxEarlySourceBytes is how many bytes of values one source may hold
+// before its call makes it: flow control lets a well-behaved page hold a
+// window and one message, and nothing is acknowledged before the source
+// exists, so more than that is a page sending for an id no call makes.
+const maxEarlySourceBytes = sourceWindow
+
+// maxEarlySourceIDs bounds the sources that may wait for their calls at
+// once; a page sending for more ids than this is not one whose calls are
+// on their way.
+const maxEarlySourceIDs = 1024
 
 // maxGoneSources bounds the ids of sources that are over, whose in-flight
 // values are dropped rather than kept: ids only go up, so the oldest are
 // the least likely to have any left in flight.
 const maxGoneSources = 1024
 
+// sourceStore is a page's sources: those its calls made, the values that
+// arrived before they made them, and the ids that are over. Window holds
+// it opaquely, so a window without sources names none of these types.
+type sourceStore struct {
+	sources map[int64]*source
+	early   map[int64]*earlySource
+	gone    map[int64]bool
+}
+
+// sourceStore returns the page's sources, making the store if needed.
+// w.mu is held.
+func (w *Window) sourceStore() *sourceStore {
+	st, _ := w.sourceStates.(*sourceStore)
+	if st == nil {
+		st = &sourceStore{}
+		w.sourceStates = st
+	}
+	return st
+}
+
 // markSourceGone records that pushes for id are to be dropped. w.mu is
 // held.
-func (w *Window) markSourceGone(id int64) {
-	if w.goneSources == nil {
-		w.goneSources = map[int64]bool{}
+func (w *Window) markSourceGone(st *sourceStore, id int64) {
+	if st.gone == nil {
+		st.gone = map[int64]bool{}
 	}
-	if len(w.goneSources) >= maxGoneSources {
+	if len(st.gone) >= maxGoneSources {
 		oldest := id
-		for k := range w.goneSources {
+		for k := range st.gone {
 			if k < oldest {
 				oldest = k
 			}
 		}
-		delete(w.goneSources, oldest)
+		delete(st.gone, oldest)
 	}
-	w.goneSources[id] = true
+	st.gone[id] = true
+}
+
+// earlySource is what one source holds before its call makes it.
+type earlySource struct {
+	values []earlySourceValue
+	bytes  int // as the method counts them when it takes them
 }
 
 // earlySourceValue is a value or end that arrived before its source.
@@ -304,7 +347,8 @@ type earlySourceValue struct {
 func (w *Window) sourceMessage(id int64, token string, raw []byte, end bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if s := w.sources[id]; s != nil && s.token == token {
+	st := w.sourceStore()
+	if s := st.sources[id]; s != nil && s.token == token {
 		if end {
 			s.end()
 		} else {
@@ -312,25 +356,33 @@ func (w *Window) sourceMessage(id int64, token string, raw []byte, end bool) {
 		}
 		return
 	}
-	if w.pageCtx == nil || w.goneSources[id] {
+	if w.pageCtx == nil || st.gone[id] {
 		// The call is over, or never comes: drop what it would hold.
 		return
 	}
-	n := 0
-	for _, es := range w.earlySources {
-		n += len(es)
+	early := st.early[id]
+	if early == nil {
+		if len(st.early) >= maxEarlySourceIDs {
+			// Too many sources waiting at once: fail this one rather
+			// than dropping its values and leaving its call waiting.
+			w.markSourceGone(st, id)
+			return
+		}
+		if st.early == nil {
+			st.early = map[int64]*earlySource{}
+		}
+		early = &earlySource{}
+		st.early[id] = early
 	}
-	if n >= maxEarlySourceValues {
-		// A page flooding unknown ids fails the offending source rather
-		// than dropping its values and leaving its call waiting forever.
-		w.markSourceGone(id)
-		delete(w.earlySources, id)
+	if early.bytes >= maxEarlySourceBytes {
+		// More than flow control lets a page hold for a source that does
+		// not exist: fail it instead of buffering more.
+		delete(st.early, id)
+		w.markSourceGone(st, id)
 		return
 	}
-	if w.earlySources == nil {
-		w.earlySources = map[int64][]earlySourceValue{}
-	}
-	w.earlySources[id] = append(w.earlySources[id], earlySourceValue{token: token, raw: bytes.Clone(raw), end: end})
+	early.values = append(early.values, earlySourceValue{token: token, raw: bytes.Clone(raw), end: end})
+	early.bytes += len(raw) + 64 // as recv counts them
 }
 
 // push queues a value the page sent, on the main thread. The raw bytes are
@@ -417,9 +469,10 @@ func (s *source) close(by int) {
 		stop()
 	}
 	s.w.mu.Lock()
-	if s.w.sources[s.id] == s {
-		delete(s.w.sources, s.id)
+	st := s.w.sourceStore()
+	if st.sources[s.id] == s {
+		delete(st.sources, s.id)
 	}
-	s.w.markSourceGone(s.id)
+	s.w.markSourceGone(st, s.id)
 	s.w.mu.Unlock()
 }

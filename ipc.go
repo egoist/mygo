@@ -319,9 +319,13 @@ func (m *method) call(w *Window, page context.Context, token string, args []rawV
 	var srcs []*source
 	if m.hasSources {
 		// The sources close when the method returns, before its result is
-		// sent; the page's send rejects from then on. The hook has been
+		// sent; the page's send rejects from then on. The hooks have been
 		// set since Bind named the type.
-		defer func() { sourceCloseHook(srcs) }()
+		defer func() {
+			if hooks := sourceHooksPtr.Load(); hooks != nil {
+				hooks.close(srcs)
+			}
+		}()
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -360,11 +364,11 @@ func (m *method) call(w *Window, page context.Context, token string, args []rawV
 			if id <= 0 {
 				return nil, fmt.Errorf("invalid argument %d: not a Source", i+1)
 			}
-			newSource := sourceNewHook
-			if newSource == nil {
+			hooks := sourceHooksPtr.Load()
+			if hooks == nil {
 				return nil, fmt.Errorf("invalid argument %d: not a Source", i+1)
 			}
-			s := newSource(w, page, ctx, id, token)
+			s := hooks.newSource(w, page, ctx, id, token)
 			srcs = append(srcs, s)
 			v := reflect.New(t.Elem())
 			v.Interface().(sourceParam).init(s)

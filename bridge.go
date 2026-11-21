@@ -318,14 +318,14 @@ func (w *Window) handleMessage(msg string) {
 	// one written otherwise falls through and is dropped, which only the
 	// page's own bridge could do, and it never does.
 	if len(msg) > 16 && msg[:16] == `{"t":"src-push",` {
-		if fn := sourceMessageHook; fn != nil {
+		if hooks := sourceHooksPtr.Load(); hooks != nil {
 			var m struct {
 				C int64    `json:"c"`
 				K string   `json:"k"`
 				P rawValue `json:"p"`
 			}
 			if err := json.Unmarshal(stringBytes(msg), &m, decodeOptions); err == nil {
-				fn(w, m.C, m.K, m.P, false)
+				hooks.message(w, m.C, m.K, m.P, false)
 			}
 		}
 		return
@@ -412,8 +412,8 @@ func (w *Window) handleMessage(msg string) {
 	case "chan-close":
 		w.pageClosedChannel(m.C, m.K)
 	case "src-end":
-		if fn := sourceMessageHook; fn != nil {
-			fn(w, m.C, m.K, nil, true)
+		if hooks := sourceHooksPtr.Load(); hooks != nil {
+			hooks.message(w, m.C, m.K, nil, true)
 		}
 	}
 }

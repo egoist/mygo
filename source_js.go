@@ -31,9 +31,3 @@ func (s *Source[T]) Values() iter.Seq2[T, error] {
 
 // Close closes the source.
 func (s *Source[T]) Close() {}
-
-// source is the stream of one call's argument, of which there are none,
-// and earlySourceValue a value that arrived before its call.
-type source struct{}
-
-type earlySourceValue struct{}
