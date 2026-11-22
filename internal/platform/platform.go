@@ -20,10 +20,20 @@ import (
 // It is errors.ErrUnsupported too (errors.Is), which apps check.
 var ErrUnsupported error = unsupportedError{}
 
+// Unsupported returns ErrUnsupported in a backend's own words, a browser's
+// or a phone's: Error reports message, and errors.Is matches it as
+// ErrUnsupported and errors.ErrUnsupported.
+func Unsupported(message string) error { return unsupportedMessage(message) }
+
 type unsupportedError struct{}
 
 func (unsupportedError) Error() string        { return "not supported on this platform" }
 func (unsupportedError) Is(target error) bool { return target == errors.ErrUnsupported }
+
+type unsupportedMessage string
+
+func (e unsupportedMessage) Error() string { return string(e) }
+func (unsupportedMessage) Unwrap() error   { return ErrUnsupported }
 
 // ErrNavigated is what CallAsyncFunction fails with when the document the
 // body ran in went away before it answered, and what Page.Eval returns
@@ -1466,8 +1476,9 @@ type Power interface {
 	// sleeping while idle until release is called.
 	KeepAwake(display bool, reason string) (release func())
 	// KeepRunning keeps the system from slowing the app down while none
-	// of its windows shows, as macOS's App Nap does, until release is
-	// called; it leaves the system free to sleep when idle.
+	// of its windows shows, as macOS's App Nap and Windows' power
+	// throttling do, until release is called; it leaves the system free
+	// to sleep when idle.
 	KeepRunning(reason string) (release func())
 	OnBattery() bool
 	IdleTime() time.Duration
