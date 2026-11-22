@@ -52,6 +52,30 @@ func resetMiddleware(t *testing.T) {
 	})
 }
 
+// bindMiddlewareService returns the one service bound under name, binding
+// it the first time: go test -count=2 runs a test again in the same process,
+// where a second BindAs of the same name panics. Each call clears the calls
+// the last run recorded.
+var (
+	mwServicesMu sync.Mutex
+	mwServices   = map[string]*mwService{}
+)
+
+func bindMiddlewareService(name string) *mwService {
+	mwServicesMu.Lock()
+	defer mwServicesMu.Unlock()
+	svc, ok := mwServices[name]
+	if !ok {
+		svc = &mwService{}
+		BindAs(name, svc)
+		mwServices[name] = svc
+	}
+	svc.mu.Lock()
+	svc.calls = nil
+	svc.mu.Unlock()
+	return svc
+}
+
 // mwReply runs a call and decodes the reply it queued.
 func mwReply(t *testing.T, w *Window, method, args string) map[string]any {
 	t.Helper()
@@ -72,8 +96,7 @@ func mwReply(t *testing.T, w *Window, method, args string) map[string]any {
 
 func TestMiddlewareOrderAndArgs(t *testing.T) {
 	resetMiddleware(t)
-	svc := &mwService{}
-	BindAs("mwOrder", svc)
+	svc := bindMiddlewareService("mwOrder")
 	var order []string
 	var gotCall Call
 	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
@@ -109,8 +132,7 @@ func TestMiddlewareOrderAndArgs(t *testing.T) {
 
 func TestMiddlewareShortCircuit(t *testing.T) {
 	resetMiddleware(t)
-	svc := &mwService{}
-	BindAs("mwShort", svc)
+	svc := bindMiddlewareService("mwShort")
 	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
 		return nil, errors.New("denied")
 	})
@@ -128,8 +150,7 @@ func TestMiddlewareShortCircuit(t *testing.T) {
 
 func TestMiddlewareWrapsResultAndError(t *testing.T) {
 	resetMiddleware(t)
-	svc := &mwService{}
-	BindAs("mwWrap", svc)
+	bindMiddlewareService("mwWrap")
 	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
 		v, err := next(ctx)
 		if err != nil {
@@ -151,8 +172,7 @@ func TestMiddlewareWrapsResultAndError(t *testing.T) {
 
 func TestMiddlewareDerivesContext(t *testing.T) {
 	resetMiddleware(t)
-	svc := &mwService{}
-	BindAs("mwCtx", svc)
+	bindMiddlewareService("mwCtx")
 	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
 		return next(context.WithValue(ctx, mwKey{}, "from middleware"))
 	})
@@ -165,8 +185,7 @@ func TestMiddlewareDerivesContext(t *testing.T) {
 
 func TestMiddlewareNextTwice(t *testing.T) {
 	resetMiddleware(t)
-	svc := &mwService{}
-	BindAs("mwTwice", svc)
+	svc := bindMiddlewareService("mwTwice")
 	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
 		v, err := next(ctx)
 		if err != nil {
@@ -191,8 +210,7 @@ func TestMiddlewareNextTwice(t *testing.T) {
 
 func TestMiddlewareNextNilContext(t *testing.T) {
 	resetMiddleware(t)
-	svc := &mwService{}
-	BindAs("mwNilCtx", svc)
+	bindMiddlewareService("mwNilCtx")
 	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
 		return next(nil) // runs with the call's own context
 	})
@@ -205,8 +223,7 @@ func TestMiddlewareNextNilContext(t *testing.T) {
 
 func TestMiddlewarePanicBecomesError(t *testing.T) {
 	resetMiddleware(t)
-	svc := &mwService{}
-	BindAs("mwPanic", svc)
+	bindMiddlewareService("mwPanic")
 	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
 		panic("middleware exploded")
 	})
@@ -219,8 +236,7 @@ func TestMiddlewarePanicBecomesError(t *testing.T) {
 
 func TestMiddlewareSkipsUntrustedCalls(t *testing.T) {
 	resetMiddleware(t)
-	svc := &mwService{}
-	BindAs("mwUntrusted", svc)
+	bindMiddlewareService("mwUntrusted")
 	ran := false
 	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
 		ran = true
@@ -245,8 +261,7 @@ func TestMiddlewareSkipsUntrustedCalls(t *testing.T) {
 
 func TestMiddlewareCallerWindow(t *testing.T) {
 	resetMiddleware(t)
-	svc := &mwService{}
-	BindAs("mwWindow", svc)
+	bindMiddlewareService("mwWindow")
 	var seen *Window
 	Intercept(func(ctx context.Context, call Call, next func(context.Context) (any, error)) (any, error) {
 		seen = CallerWindow(ctx)
@@ -262,8 +277,7 @@ func TestMiddlewareCallerWindow(t *testing.T) {
 
 func TestInterceptConcurrentWithCalls(t *testing.T) {
 	resetMiddleware(t)
-	svc := &mwService{}
-	BindAs("mwConcurrent", svc)
+	svc := bindMiddlewareService("mwConcurrent")
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Add(1)

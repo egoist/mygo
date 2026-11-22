@@ -300,7 +300,6 @@ func (m *method) call(w *Window, page, parent context.Context, token string, arg
 		return ic.run(w, m, page, parent, token, args)
 	}
 	ctx, cancel := parent, context.CancelFunc(nil)
-
 	var chans []*channel
 	if m.streams {
 		// The page closing a channel cancels the call. The channels close
