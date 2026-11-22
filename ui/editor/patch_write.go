@@ -91,25 +91,25 @@ func DiffPatch(oldName, newName, old, new string) FilePatch {
 	p := FilePatch{OldName: oldName, NewName: newName}
 	oldLines, oldEOL := patchLines(old)
 	newLines, newEOL := patchLines(new)
-	hs := diff.Lines(oldLines, newLines)
-	if oldEOL != newEOL && len(oldLines) > 0 && (len(hs) == 0 || hs[len(hs)-1].A1 < len(oldLines)) {
-		// The last line is the same text on both sides and ends with a
-		// newline in only one of them: a patch says that by writing the line
-		// again, with the "\ No newline at end of file" that tells it, as git
-		// does. A marker after a context line would say it of both sides.
-		last, lastNew := len(oldLines)-1, len(newLines)-1
-		if k := len(hs) - 1; k >= 0 && hs[k].A1 == last {
-			// The change reaches the last line: the line it rewrites is part
-			// of it, as one hunk of the two sides git writes of them.
-			hs[k].A1, hs[k].B1 = last+1, lastNew+1
-		} else {
-			hs = append(hs, diff.Hunk{A0: last, A1: last + 1, B0: lastNew, B1: lastNew + 1})
-		}
-	}
+	hs := diff.Lines(patchKeyed(oldLines, oldEOL), patchKeyed(newLines, newEOL))
 	for _, g := range patchGroups(hs, len(oldLines)) {
 		p.Hunks = append(p.Hunks, patchHunk(g, oldLines, oldEOL, newLines, newEOL))
 	}
 	return p
+}
+
+// patchKeyed returns the lines a diff compares: a last line without its
+// newline is another line than the same text with one, as git compares them,
+// so it is never context for one that has it. That is what the "\ No newline
+// at end of file" line of a patch says, and the diff has to know it before
+// the hunks are made, not after.
+func patchKeyed(lines []string, eol bool) []string {
+	if eol || len(lines) == 0 {
+		return lines
+	}
+	k := append([]string(nil), lines...)
+	k[len(k)-1] += "\n"
+	return k
 }
 
 // patchLines splits a text into the lines a patch counts, and tells whether

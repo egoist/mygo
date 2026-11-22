@@ -285,6 +285,64 @@ func TestDiffPatchRoundTrip(t *testing.T) {
 	}
 }
 
+// TestDiffPatchEverySmallPair writes the patch of every pair of small texts
+// and applies it, as git's xdiff would: a last line without its newline is
+// not the line of the same text with one, so it is never context for it. A
+// patch that takes one for the other cuts a hunk with a "\ No newline at end
+// of file" line and does not apply to the text it names.
+func TestDiffPatchEverySmallPair(t *testing.T) {
+	texts := []string{""}
+	var grow func(prefix []string, n int)
+	grow = func(prefix []string, n int) {
+		if len(prefix) > 0 {
+			body := strings.Join(prefix, "\n")
+			texts = append(texts, body, body+"\n")
+		}
+		if n == 0 {
+			return
+		}
+		for _, l := range []string{"a", "b", "c"} {
+			grow(append(prefix, l), n-1)
+		}
+	}
+	grow(nil, 4)
+	for _, old := range texts {
+		for _, new := range texts {
+			p := DiffPatch("f", "f", old, new)
+			text := p.Format()
+			got, err := p.Apply(old)
+			if err != nil {
+				t.Fatalf("applying %q to %q: %v\n%s", new, old, err, text)
+			}
+			if got != new {
+				t.Fatalf("applying the patch of %q to %q gives %q\n%s", new, old, got, text)
+			}
+			// A marker says that a line of a side ends without a newline, so
+			// it ends its hunk or follows the last line taken out of the old
+			// text, which the lines put in after it follow. One that follows
+			// a line put in ends the hunk.
+			for _, h := range p.Hunks {
+				for i, l := range h.Lines {
+					if l != noNewline {
+						continue
+					}
+					if i > 0 && strings.HasPrefix(h.Lines[i-1], "+") && i != len(h.Lines)-1 {
+						t.Fatalf("a marker of %q to %q is not the last line of its hunk\n%s", old, new, text)
+					}
+					for _, after := range h.Lines[i+1:] {
+						if after == noNewline {
+							break
+						}
+						if !strings.HasPrefix(after, "+") {
+							t.Fatalf("a marker of %q to %q is followed by %q\n%s", old, new, after, text)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestFormatPatch(t *testing.T) {
 	tests := []struct {
 		name string
