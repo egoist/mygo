@@ -315,6 +315,27 @@ if err := d.SetPatchFiles(f, old, new); err != nil {
 }
 ```
 
+A patch is written as it is read: `FilePatch.Format` prints one as the text
+of a unified diff, and `FormatPatch` prints a change's files one after
+another, which `ParsePatch` reads back as them. `DiffPatch(oldName, newName,
+old, new)` makes one from two texts, with the three lines of context around
+each change that `git diff` shows, the changes closer than that as one hunk,
+and a `\ No newline at end of file` line where a text ends without one, so an
+app that has edited a file can hand the change on as a patch, to `git apply`
+or to another tool:
+
+```go
+p := editor.DiffPatch("notes.md", "notes.md", before, after)
+if err := os.WriteFile("notes.patch", []byte(p.Format()), 0o644); err != nil {
+	return err
+}
+```
+
+What a `FilePatch` doesn't hold, `Format` cannot write: the `index` line of
+the change's blob hashes, and the contents of a binary change, which a patch
+names rather than carries. Hunks read from git's output keep their section
+text; `DiffPatch` writes none, two texts having no function to name.
+
 ## Accessibility
 
 Assistive technology sees each side as a text field, "Old text" and "New
