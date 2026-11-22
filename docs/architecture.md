@@ -5514,8 +5514,9 @@ either.
     corners and as smooth as the glyph; color glyphs stroke their alpha.
     Cached with the glyphs, under a key with the width, and drawn by
     every renderer as any mask glyph, all of a text's before its glyphs
-    (`paint-order: stroke fill`). `TextStroke` links it, so that apps that
-    stroke no text do not.
+    (`paint-order: stroke fill`). `TextStroke` and `NewTextStroke`, which
+    a `Span`'s `Stroke` takes, link it, so that apps that stroke no text
+    do not.
   - *Shadows.* `TextShadow` and `Span.Shadow` draw each glyph's shadow
     as a mask of its own (`System.ShadowGlyph`), the glyph's coverage
     (the alpha of a color glyph) blurred in Go by a separable Gaussian

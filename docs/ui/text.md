@@ -35,11 +35,14 @@ fill, as CSS's `-webkit-text-stroke` with `paint-order: stroke fill`: half
 the stroke shows around each glyph, a halo that keeps a label readable
 over whatever is behind it. All the strokes of a text paint under all its
 glyphs, so a stroke never covers the glyph beside it; the text of an
-inline element strokes with its own. A chart's labels over its bars,
-outlined in the background's color:
+inline element strokes with its own. A `Span`'s `Stroke` strokes its
+text, made by `NewTextStroke`, in `RichText` and in a layout an app paints
+itself (`ShapeRichText`, `Painter.TextLayout`). A chart's labels over its
+bars, outlined in the background's color:
 
 ```go
 ui.Text(c, "42%").TextColor(t.Text).TextStroke(3, t.Background)
+ui.RichText(c, ui.Span{Text: "Sale", Stroke: ui.NewTextStroke(2, t.Background)})
 ```
 
 `TextShadow(x, y, blur, color)` casts a shadow of the text, as CSS's

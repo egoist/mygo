@@ -78,17 +78,18 @@ type Span struct {
 	// Shadow is the shadow the span's text casts (NewTextShadow), as
 	// Element.TextShadow casts one: zero casts that of the text around it.
 	Shadow TextShadow
+	// Stroke strokes the outlines of the span's glyphs (NewTextStroke), as
+	// Element.TextStroke strokes text: zero strokes as the text around it.
+	Stroke TextStroke
 
 	// solid draws Underline through descenders, as a link's hover.
 	solid bool
 	// offsetSet marks an UnderlineOffset set, zero included, by the
 	// style of an inline element.
 	offsetSet bool
-	// strokeWidth and strokeColor are the stroke of the text of an inline
-	// element (TextStroke), if strokeSet.
-	strokeWidth float32
-	strokeColor Color
-	strokeSet   bool
+	// strokeSet marks a Stroke set, though of no width or transparent, by
+	// the style of an inline element (TextStroke).
+	strokeSet bool
 	// shadowSet marks a Shadow set, though transparent, by the style of
 	// an inline element (TextShadow).
 	shadowSet bool
@@ -115,6 +116,32 @@ type TextShadow struct {
 func NewTextShadow(x, y, blur float32, c Color) TextShadow {
 	linkTextShadows()
 	return TextShadow{x: x, y: y, blur: max(blur, 0), color: c}
+}
+
+// TextStroke is a stroke of the outlines of glyphs, as CSS's
+// -webkit-text-stroke, which NewTextStroke makes. The zero TextStroke
+// strokes none.
+type TextStroke struct {
+	width float32
+	color Color
+}
+
+// NewTextStroke returns the stroke of the outlines of glyphs width DIPs
+// wide in c, under their fill, as Element.TextStroke strokes them, for a
+// Span's Stroke:
+//
+//	ui.Span{Text: "Sale", Stroke: ui.NewTextStroke(2, t.Background)}
+//
+// Text strokes only with the strokes that are made, so that apps that
+// make none do not link their painting.
+func NewTextStroke(width float32, c Color) TextStroke {
+	linkStrokes()
+	return TextStroke{width: max(width, 0), color: c}
+}
+
+// stroke returns the span's Stroke, and whether it sets one.
+func (s *Span) stroke() (TextStroke, bool) {
+	return s.Stroke, s.strokeSet || s.Stroke.width > 0 && s.Stroke.color.A > 0
 }
 
 // shadow returns the span's Shadow, and whether it sets one.
@@ -250,7 +277,7 @@ func (sc *spanCache) update(spans []Span) {
 	paints := false
 	for i, s := range spans {
 		end += utf8.RuneCountInString(s.Text)
-		paints = paints || s.Color.A > 0 || s.colorSet || s.Underline || s.WavyUnderline || s.DottedUnderline || s.Strikethrough || s.Background.A > 0 || s.strokeSet || s.shadowSet || s.Shadow.color.A > 0
+		paints = paints || s.Color.A > 0 || s.colorSet || s.Underline || s.WavyUnderline || s.DottedUnderline || s.Strikethrough || s.Background.A > 0 || s.strokeSet || s.Stroke.color.A > 0 || s.shadowSet || s.Shadow.color.A > 0
 		same = same && sc.styles[i] == spanStyle(s, end)
 	}
 	sc.paints = paints
@@ -467,8 +494,10 @@ func (sp *spanPaint) color(i int, c Color) Color {
 
 // stroke returns the width and color of the stroke of span i, or w and c.
 func (sp *spanPaint) stroke(i int, w float32, c Color) (float32, Color) {
-	if i >= 0 && sp.spans[i].strokeSet {
-		return sp.spans[i].strokeWidth, sp.spans[i].strokeColor
+	if i >= 0 {
+		if s, ok := sp.spans[i].stroke(); ok {
+			return s.width, s.color
+		}
 	}
 	return w, c
 }
@@ -496,7 +525,7 @@ func (sp *spanPaint) shadows() bool {
 // strokes reports whether a span strokes its glyphs.
 func (sp *spanPaint) strokes() bool {
 	for i := range sp.spans {
-		if s := &sp.spans[i]; s.strokeSet && s.strokeWidth > 0 && s.strokeColor.A > 0 {
+		if s := sp.spans[i].Stroke; s.width > 0 && s.color.A > 0 {
 			return true
 		}
 	}
