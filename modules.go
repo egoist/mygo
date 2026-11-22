@@ -1007,29 +1007,19 @@ func (t *Tray) PopUpMenu() {
 // Bounds returns the position of the icon on screen. macOS shows a menu bar
 // item on each display: Bounds is the one the user last clicked, so a window
 // placed against it, as a flyout, goes on the display the user clicked.
+//
+// Bounds is empty where the icon has no place on screen to report: on
+// Linux, whose panels never say where their icons are, and on Windows for
+// an icon the user keeps in the notification area's overflow while that
+// flyout is closed. An empty Bounds does not mean the icon is gone: MyGo
+// adds every icon again when the notification area restarts, so don't
+// rebuild the tray on it.
 func (t *Tray) Bounds() Rectangle {
 	return onMainValue(func() Rectangle {
 		if t.native == nil {
 			return Rectangle{}
 		}
 		return Rectangle(t.native.Bounds())
-	})
-}
-
-// Exists reports whether the bar still holds the icon. An icon the user
-// keeps in the notification area's overflow, with that flyout closed, has
-// no Bounds, and Windows cannot tell it from an icon the area dropped: does
-// an app that rebuilds the icon of one it lost, as a shell that restarted
-// drops, rebuild the icon of one the user merely hid? Exists tells them
-// apart, and is true for an icon the user hid. macOS and Linux report no
-// bounds of a live icon at all, and exist while it was made; a tray that
-// was destroyed is gone everywhere.
-func (t *Tray) Exists() bool {
-	return onMainValue(func() bool {
-		if t.native == nil {
-			return false
-		}
-		return t.native.Exists()
 	})
 }
 

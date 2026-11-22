@@ -1695,11 +1695,6 @@ func (t *tray) Bounds() platform.Rect {
 	return rectFromMac(t.frame())
 }
 
-// Exists reports whether the menu bar holds the item. It does while the item
-// was made: an NSStatusItem stays in the bar, and Bounds is where AppKit drew
-// it.
-func (t *tray) Exists() bool { return true }
-
 // noteClick keeps where on screen the copy of the item that the click ev was
 // on is (clickedItem). An event in another window, which an action that no
 // click sent leaves current, changes nothing.

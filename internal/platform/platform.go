@@ -1589,10 +1589,6 @@ type Tray interface {
 	// report clicks themselves ignore it.
 	SetActivatable(on bool)
 	Bounds() Rect
-	// Exists reports whether the bar still holds the icon, which Bounds
-	// cannot answer alone: Windows keeps an icon the user hid in its
-	// overflow, and gives it no rectangle until that flyout opens.
-	Exists() bool
 	Destroy()
 }
 

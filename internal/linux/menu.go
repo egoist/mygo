@@ -810,11 +810,6 @@ func (t *tray) SetMenu(m *platform.Menu) {
 func (t *tray) PopUpMenu(*platform.Menu) {}
 func (t *tray) Bounds() platform.Rect    { return platform.Rect{} }
 
-// Exists reports whether the panel holds the icon. It does while the
-// indicator was made, which is what the panel shows, and Bounds reports no
-// panel's icon.
-func (t *tray) Exists() bool { return true }
-
 // SetActivatable connects or drops the indicator's activate handler, which
 // is also the answer a panel gets when it asks the icon whether it can be
 // activated at all: the Activate method of the StatusNotifierItem

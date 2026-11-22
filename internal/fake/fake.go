@@ -1540,10 +1540,6 @@ func (*tray) SetActivatable(bool)         {}
 
 // Bounds puts the icon in the menu bar above the fake display's work area.
 func (*tray) Bounds() platform.Rect { return platform.Rect{X: 1300, Width: 30, Height: 25} }
-
-// Exists reports whether the bar holds the icon: the fake bar holds every
-// icon that was made.
-func (*tray) Exists() bool { return true }
 func (t *tray) Destroy() {
 	t.b.mu.Lock()
 	t.b.trays = slices.DeleteFunc(t.b.trays, func(x *tray) bool { return x == t })
