@@ -110,7 +110,14 @@ func (t *tone) Read(buf []float32) (int, error) {
 audio.NewPlayer(&tone{}).Play()
 ```
 
-`NewSound` 接收应用一次性计算好的采样。
+`NewSound` 接收应用一次性计算好的采样；`WriteWAV`（要文件内容时用 `EncodeWAV`）再把声音写回 WAV：16 位 PCM，所有系统都能播放。生成音效的工具用它保存音效，任何格式解码出来的声音也可以编码成 WAV：
+
+```go
+s := audio.NewSound(48000, 1, samples)
+os.WriteFile("tone.wav", s.EncodeWAV(), 0o644)
+```
+
+编码时超出 -1 到 1 的采样会被截断，而不是回绕（回绕会爆音），不是数字的采样是静音。
 
 ### MP4
 
