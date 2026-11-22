@@ -4,6 +4,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/egoist/mygo/internal/rope"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -85,6 +86,19 @@ func (ed *editor) dispatch(ev ui.InputEvent) bool {
 		return false
 	case ui.InputScroll:
 		return ed.wheel(ev)
+	case ui.InputSelect:
+		// Assistive technology selects runes of the value it reads
+		// (accessibility), which starts at the lines in view of a very
+		// large text.
+		t := &ed.view.text
+		from := 0
+		if t.Len() > 4<<20 {
+			from = t.LineStart(ed.anchorLine)
+		}
+		a := rope.ByteAfterRunes(t.Root(), from, ev.Start)
+		z := rope.ByteAfterRunes(t.Root(), from, ev.End)
+		ed.setSels([]sel{ed.newSel(a, z)}, revealFit)
+		return true
 	}
 	return false
 }
