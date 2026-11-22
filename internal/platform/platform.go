@@ -20,43 +20,20 @@ import (
 // It is errors.ErrUnsupported too (errors.Is), which apps check.
 var ErrUnsupported error = unsupportedError{}
 
-// Unsupported returns an error for a call this backend doesn't implement,
-// saying what it is missing in the backend's own words: a browser with no
-// window to hide, a phone with no menu bar. Error reports the message, and
-// errors.Is matches it as ErrUnsupported, as every other error from here, and
-// as errors.ErrUnsupported, so an app knows that a platform cannot do
-// something without knowing which backend it runs on.
-func Unsupported(message string) error { return unsupportedMessage{message: message} }
+// Unsupported returns ErrUnsupported in a backend's own words, a browser's
+// or a phone's: Error reports message, and errors.Is matches it as
+// ErrUnsupported and errors.ErrUnsupported.
+func Unsupported(message string) error { return unsupportedMessage(message) }
 
 type unsupportedError struct{}
 
 func (unsupportedError) Error() string        { return "not supported on this platform" }
 func (unsupportedError) Is(target error) bool { return target == errors.ErrUnsupported }
 
-// unsupportedMessage is ErrUnsupported in a backend's words. An app compares
-// the error it got against ErrUnsupported, so that direction of errors.Is is
-// the one that has to hold, and ErrUnsupported keeps the methods it had.
-type unsupportedMessage struct {
-	message string
-}
+type unsupportedMessage string
 
-func (e unsupportedMessage) Error() string {
-	if e.message == "" {
-		return "not supported on this platform"
-	}
-	return e.message
-}
-
-func (unsupportedMessage) Is(target error) bool {
-	if target == errors.ErrUnsupported {
-		return true
-	}
-	switch target.(type) {
-	case unsupportedError, unsupportedMessage:
-		return true
-	}
-	return false
-}
+func (e unsupportedMessage) Error() string { return string(e) }
+func (unsupportedMessage) Unwrap() error   { return ErrUnsupported }
 
 // ErrNavigated is what CallAsyncFunction fails with when the document the
 // body ran in went away before it answered, and what Page.Eval returns
