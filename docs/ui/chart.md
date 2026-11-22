@@ -70,7 +70,10 @@ resizes; `Draw` functions get the plot's box, and `chart.X(r, f)` and
   the times' location, chosen for the span as d3's are: seconds, quarters
   of an hour, midnights, Sundays, the firsts of months or years; and each
   is labeled with what changed since the last round time of the coarser
-  unit: "2026", "Mar", "Mar 5", "14:00", ":30".
+  unit: "2026", "Mar", "Mar 5", "14:00", ":30". `Nice(n)` rounds the domain
+  out to those round times, as `Linear.Nice` rounds numbers out, so the
+  plot begins and ends on a midnight, an hour, the first of a month:
+  a fortnight with `Nice(2)` begins on a Sunday and ends on the next.
 
 Ticks are `chart.Tick` values, `At` a fraction, `Value` and `Label`: make
 your own for axes a scale does not mark.

@@ -88,10 +88,21 @@ func tickInterval(lo, hi time.Time, count int) interval {
 	i := sort.Search(len(intervals), func(i int) bool { return intervals[i].d > target })
 	switch {
 	case i == len(intervals):
-		n := tickStep(float64(lo.Year()), float64(hi.Year())+float64(hi.YearDay())/366, float64(count))
+		// The years of a year's step count from the epoch, as d3's, and
+		// not from the first year of the domain: a 365-day year makes
+		// 2019 49.4 of them, and it is the fraction that picks the step.
+		from := float64(lo.UnixMilli()) / float64(year.Milliseconds())
+		to := float64(hi.UnixMilli()) / float64(year.Milliseconds())
+		n := tickStep(from, to, float64(count))
 		return interval{unitYear, max(1, int(math.Round(n))), year}
 	case i == 0:
-		n := tickStep(0, float64(hi.Sub(lo).Milliseconds()), float64(count))
+		// So do the milliseconds of one, which d3 picks over the times
+		// themselves: such a step that would leave fewer than two ticks
+		// halves, so a span of no more than a second still has one.
+		n := tickStep(float64(lo.UnixMilli()), float64(hi.UnixMilli()), float64(count))
+		if !(n > 0) { // no time between them, or of no length
+			n = 1
+		}
 		return interval{unitMilli, max(1, int(math.Round(n))), time.Millisecond}
 	}
 	if float64(target)/float64(intervals[i-1].d) < float64(intervals[i].d)/float64(target) {
@@ -154,6 +165,45 @@ func (iv interval) next(t time.Time) time.Time {
 	default:
 		return time.Date(t.Year()+iv.n, 1, 1, 0, 0, 0, 0, t.Location())
 	}
+}
+
+// ceil returns the earliest round time of the interval at or after t.
+func (iv interval) ceil(t time.Time) time.Time {
+	f := iv.floor(t)
+	if f.Equal(t) {
+		return t
+	}
+	return iv.next(f)
+}
+
+// Nice extends the domain to round times, as Linear.Nice extends it to round
+// values: the start goes back to the first round time of the interval of
+// about count ticks and the end forward to the next, so the plot begins and
+// ends on a midnight, an hour, the first of a month, whichever the span
+// calls for, and its first and last ticks are its ends:
+//
+//	x := chart.NewTime(start, end).Nice(6)
+//
+// A domain of no time, or a count of no ticks, is unchanged.
+func (s Time) Nice(count int) Time {
+	if count <= 0 {
+		return s
+	}
+	lo, hi := s.From, s.To
+	reverse := hi.Before(lo)
+	if reverse {
+		lo, hi = hi, lo
+	}
+	if !lo.Before(hi) {
+		return s
+	}
+	iv := tickInterval(lo, hi, count)
+	lo, hi = iv.floor(lo), iv.ceil(hi)
+	if reverse {
+		lo, hi = hi, lo
+	}
+	s.From, s.To = lo, hi
+	return s
 }
 
 // Ticks returns about count round times within the domain.

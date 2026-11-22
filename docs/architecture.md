@@ -4495,8 +4495,11 @@ either.
   standard-library math: log domains stay on one side of zero, symlog's
   `log1p`/`expm1` keep a linear region around it. Reversed domains and
   clamping share the same normalized-coordinate contract. A separately
-  generated D3 fixture checks mappings, inverses, ticks and nice domains;
-  constant log domains intentionally keep one tick even where D3 omits it.
+  generated D3 fixture checks mappings, inverses, ticks and nice domains,
+  a time scale's too: a day of a step is a day of the month, and a step of a
+  year or of a millisecond is searched over the times themselves, as d3's
+  is. Constant log domains intentionally keep one tick even where D3 omits
+  it.
 - **Code editor and diff viewer** (`ui/editor`, `internal/diff`). Package
   `editor` is built on ui's public API, as `ui/chart` is, with four hooks
   for it: `Painter.TextLine` paints a shaped line with a color per

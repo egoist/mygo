@@ -191,6 +191,59 @@ func TestTimeTicks(t *testing.T) {
 	}
 }
 
+func TestTimeNice(t *testing.T) {
+	parse := func(s string) time.Time {
+		v, err := time.Parse(time.RFC3339Nano, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	for _, tc := range []struct {
+		from, to         string
+		count            int
+		wantFrom, wantTo string
+	}{
+		// A seventh of the day: quarters of an hour.
+		{"2026-03-05T14:07:00Z", "2026-03-05T15:53:00Z", 5, "2026-03-05T14:00:00Z", "2026-03-05T16:00:00Z"},
+		// A quarter of a year: months.
+		{"2026-01-15T00:00:00Z", "2026-04-02T00:00:00Z", 3, "2026-01-01T00:00:00Z", "2026-05-01T00:00:00Z"},
+		// Seven years: two at a time.
+		{"2019-06-01T00:00:00Z", "2026-03-01T00:00:00Z", 4, "2018-01-01T00:00:00Z", "2028-01-01T00:00:00Z"},
+		// A fortnight: weeks, from a Sunday to a Sunday.
+		{"2026-03-05T00:00:00Z", "2026-03-19T00:00:00Z", 2, "2026-03-01T00:00:00Z", "2026-03-22T00:00:00Z"},
+		// Round already: unchanged.
+		{"2026-03-05T14:00:00Z", "2026-03-05T16:00:00Z", 5, "2026-03-05T14:00:00Z", "2026-03-05T16:00:00Z"},
+		// A reversed domain stays reversed.
+		{"2026-03-05T16:00:00Z", "2026-03-05T14:07:00Z", 5, "2026-03-05T16:00:00Z", "2026-03-05T14:00:00Z"},
+		// No time at all: unchanged.
+		{"2026-03-05T14:07:00Z", "2026-03-05T14:07:00Z", 5, "2026-03-05T14:07:00Z", "2026-03-05T14:07:00Z"},
+		// A count of no ticks: unchanged.
+		{"2026-03-05T14:07:00Z", "2026-03-05T15:53:00Z", 0, "2026-03-05T14:07:00Z", "2026-03-05T15:53:00Z"},
+		// Part of a second: fifths of it.
+		{"2026-01-01T00:00:00.120Z", "2026-01-01T00:00:00.870Z", 5, "2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z"},
+	} {
+		s := NewTime(parse(tc.from), parse(tc.to)).Nice(tc.count)
+		got := []string{s.From.Format(time.RFC3339Nano), s.To.Format(time.RFC3339Nano)}
+		want := []string{tc.wantFrom, tc.wantTo}
+		if !slices.Equal(got, want) {
+			t.Errorf("Nice(%s, %s, %d) = %v, want %v", tc.from, tc.to, tc.count, got, want)
+		}
+	}
+	// The ticks of a niced domain start and end on its ends.
+	s := NewTime(parse("2026-03-05T14:07:00Z"), parse("2026-03-05T15:53:00Z")).Nice(5)
+	ts := s.Ticks(5)
+	if len(ts) != 5 || ts[0].At != 0 || ts[len(ts)-1].At != 1 {
+		t.Errorf("ticks of a niced domain: %+v", ts)
+	}
+	// Nice rounds to round times of the times' location.
+	tokyo := time.FixedZone("JST", 9*3600)
+	n := NewTime(time.Date(2026, 3, 5, 14, 7, 0, 0, tokyo), time.Date(2026, 3, 5, 15, 53, 0, 0, tokyo)).Nice(5)
+	if n.From.Location() != tokyo || n.From.Hour() != 14 || n.To.Hour() != 16 {
+		t.Errorf("Nice in Tokyo: %v to %v", n.From, n.To)
+	}
+}
+
 func TestStack(t *testing.T) {
 	seg := func(v [][][2]float64) [][]Segment {
 		out := make([][]Segment, len(v))
