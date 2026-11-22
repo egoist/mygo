@@ -84,6 +84,41 @@ func TestDiffPatch(t *testing.T) {
 				"@@ -1,2 +1,2 @@\n a\n-b\n+b\n" + noNewline + "\n",
 		},
 		{
+			// git rewrites the last line here too: a marker after a context
+			// line would say that both sides end without a newline.
+			name:    "a newline added at the end, and a line changed",
+			oldName: "f", newName: "f",
+			old: "a\nb",
+			new: "X\nb\n",
+			want: "diff --git a/f b/f\n--- a/f\n+++ b/f\n" +
+				"@@ -1,2 +1,2 @@\n-a\n-b\n" + noNewline + "\n+X\n+b\n",
+		},
+		{
+			name:    "a newline lost at the end, and a line changed",
+			oldName: "f", newName: "f",
+			old: "a\nb\n",
+			new: "X\nb",
+			want: "diff --git a/f b/f\n--- a/f\n+++ b/f\n" +
+				"@@ -1,2 +1,2 @@\n-a\n-b\n+X\n+b\n" + noNewline + "\n",
+		},
+		{
+			name:    "one marker where both end without a newline",
+			oldName: "f", newName: "f",
+			old: "a\nb\nc\nd",
+			new: "X\nb\nc\nd",
+			want: "diff --git a/f b/f\n--- a/f\n+++ b/f\n" +
+				"@@ -1,4 +1,4 @@\n-a\n+X\n b\n c\n d\n" + noNewline + "\n",
+		},
+		{
+			name:    "a name with a space",
+			oldName: "x y.txt", newName: "x y.txt",
+			old: "one\nz\n",
+			new: "two\nz\n",
+			want: "diff --git a/x y.txt b/x y.txt\n" +
+				"--- a/x y.txt\t\n+++ b/x y.txt\t\n" +
+				"@@ -1,2 +1,2 @@\n-one\n+two\n z\n",
+		},
+		{
 			name:    "carriage returns of a file with them",
 			oldName: "f", newName: "f",
 			old: "a\r\nb\r\n",
@@ -339,7 +374,7 @@ func TestFormatPatchNames(t *testing.T) {
 	// back.
 	tests := []struct{ name, prefix, want string }{
 		{"x", "a/", "a/x"},
-		{"x y", "a/", `"a/x y"`},
+		{"x y", "a/", "a/x y"},
 		{"x\tz", "b/", `"b/x\tz"`},
 		{"x\ny", "a/", `"a/x\ny"`},
 		{"x\"y", "a/", `"a/x\"y"`},
@@ -351,5 +386,13 @@ func TestFormatPatchNames(t *testing.T) {
 		if got := patchNameText(tt.prefix, tt.name); got != tt.want {
 			t.Errorf("patchNameText(%q, %q) = %s, want %s", tt.prefix, tt.name, got, tt.want)
 		}
+	}
+	// A name with a space ends the field of a --- or +++ line, so git puts a
+	// tab after it, and so does a patch of it here.
+	if got, want := patchSide("x y", "a/"), "a/x y\t"; got != want {
+		t.Errorf("patchSide(%q, %q) = %q, want %q", "x y", "a/", got, want)
+	}
+	if got, want := patchSide("x", "a/"), "a/x"; got != want {
+		t.Errorf("patchSide(%q, %q) = %q, want %q", "x", "a/", got, want)
 	}
 }

@@ -2,9 +2,10 @@ package editor
 
 import (
 	"fmt"
-	"github.com/egoist/mygo/internal/diff"
 	"strconv"
 	"strings"
+
+	"github.com/egoist/mygo/internal/diff"
 )
 
 // noNewline is the line a patch puts after the last line of a text that
@@ -91,13 +92,19 @@ func DiffPatch(oldName, newName, old, new string) FilePatch {
 	oldLines, oldEOL := patchLines(old)
 	newLines, newEOL := patchLines(new)
 	hs := diff.Lines(oldLines, newLines)
-	if len(hs) == 0 && oldEOL != newEOL && len(oldLines) > 0 {
-		// Texts whose lines are equal but whose last one ends with a
-		// newline in only one of them: a patch says that by writing the
-		// line again, with the "\ No newline at end of file" that tells
-		// it, as git does.
+	if oldEOL != newEOL && len(oldLines) > 0 && (len(hs) == 0 || hs[len(hs)-1].A1 < len(oldLines)) {
+		// The last line is the same text on both sides and ends with a
+		// newline in only one of them: a patch says that by writing the line
+		// again, with the "\ No newline at end of file" that tells it, as git
+		// does. A marker after a context line would say it of both sides.
 		last, lastNew := len(oldLines)-1, len(newLines)-1
-		hs = []diff.Hunk{{A0: last, A1: last + 1, B0: lastNew, B1: lastNew + 1}}
+		if k := len(hs) - 1; k >= 0 && hs[k].A1 == last {
+			// The change reaches the last line: the line it rewrites is part
+			// of it, as one hunk of the two sides git writes of them.
+			hs[k].A1, hs[k].B1 = last+1, lastNew+1
+		} else {
+			hs = append(hs, diff.Hunk{A0: last, A1: last + 1, B0: lastNew, B1: lastNew + 1})
+		}
 	}
 	for _, g := range patchGroups(hs, len(oldLines)) {
 		p.Hunks = append(p.Hunks, patchHunk(g, oldLines, oldEOL, newLines, newEOL))
@@ -156,10 +163,8 @@ func patchHunk(g patchGroup, oldLines []string, oldEOL bool, newLines []string, 
 	for _, c := range g.hunks {
 		for ; at < c.A0; at++ {
 			h.Lines = append(h.Lines, " "+oldLines[at])
-			if at == last && !oldEOL {
-				h.Lines = append(h.Lines, noNewline)
-			}
-			if newAt == lastNew && !newEOL {
+			if (at == last && !oldEOL) || (newAt == lastNew && !newEOL) {
+				// One marker says it of both sides, as git writes it.
 				h.Lines = append(h.Lines, noNewline)
 			}
 			newAt++
@@ -179,10 +184,7 @@ func patchHunk(g patchGroup, oldLines []string, oldEOL bool, newLines []string, 
 	}
 	for ; at < g.end; at++ {
 		h.Lines = append(h.Lines, " "+oldLines[at])
-		if at == last && !oldEOL {
-			h.Lines = append(h.Lines, noNewline)
-		}
-		if newAt == lastNew && !newEOL {
+		if (at == last && !oldEOL) || (newAt == lastNew && !newEOL) {
 			h.Lines = append(h.Lines, noNewline)
 		}
 		newAt++
@@ -247,18 +249,25 @@ func patchSide(name, prefix string) string {
 	if name == "" {
 		return "/dev/null"
 	}
-	return patchNameText(prefix, name)
+	s := patchNameText(prefix, name)
+	if !strings.HasPrefix(s, "\"") && strings.Contains(name, " ") {
+		// A name with a space ends the field: git writes a tab after it, so
+		// that a timestamp there would not read as part of the name.
+		s += "\t"
+	}
+	return s
 }
 
 // patchNameText is a name as a patch writes it: quoted, as a C string, when
 // it holds a byte that the headers of a patch read otherwise, as git quotes
-// them, and with its prefix as it is when not.
+// them, and with its prefix as it is when not. A space needs no quotes: git
+// writes it, and reads a name with spaces back.
 func patchNameText(prefix, name string) string {
 	s := prefix + name
 	quote := false
 	for i := 0; i < len(s) && !quote; i++ {
 		switch c := s[i]; {
-		case c == ' ', c == '"', c == '\\', c < 0x20, c >= 0x7f:
+		case c == '"', c == '\\', c < 0x20, c >= 0x7f:
 			quote = true
 		}
 	}

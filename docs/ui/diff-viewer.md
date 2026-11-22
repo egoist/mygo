@@ -320,7 +320,10 @@ of a unified diff, and `FormatPatch` prints a change's files one after
 another, which `ParsePatch` reads back as them. `DiffPatch(oldName, newName,
 old, new)` makes one from two texts, with the three lines of context around
 each change that `git diff` shows, the changes closer than that as one hunk,
-and a `\ No newline at end of file` line where a text ends without one, so an
+and a `\ No newline at end of file` line where a text ends without one. A
+text that ends with a newline on one side only has its last line written out
+again, even where the text of it did not change, as git writes it: a marker
+after a context line would say that neither side ends with a newline. So an
 app that has edited a file can hand the change on as a patch, to `git apply`
 or to another tool:
 

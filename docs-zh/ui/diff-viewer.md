@@ -178,7 +178,7 @@ if err := d.SetPatchFiles(f, old, new); err != nil {
 }
 ```
 
-补丁怎么读，也就怎么写：`FilePatch.Format` 把一个补丁打印成统一 diff 文本，`FormatPatch` 把一次更改的几个文件按顺序接成一段，`ParsePatch` 读回来就是它们本身。`DiffPatch(oldName, newName, old, new)` 用两个文本做出一个补丁：每个更改周围带上 `git diff` 显示的那三行上下文，相隔不到这么远的更改合成一个差异块，文本末尾没有换行符时写出 `\ No newline at end of file` 那一行；因此应用改完一个文件，可以把这次改动作为补丁交出去，交给 `git apply` 或别的工具：
+补丁怎么读，也就怎么写：`FilePatch.Format` 把一个补丁打印成统一 diff 文本，`FormatPatch` 把一次更改的几个文件按顺序接成一段，`ParsePatch` 读回来就是它们本身。`DiffPatch(oldName, newName, old, new)` 用两个文本做出一个补丁：每个更改周围带上 `git diff` 显示的那三行上下文，相隔不到这么远的更改合成一个差异块，文本末尾没有换行符时写出 `\ No newline at end of file` 那一行。只有一侧的末尾有换行符时，最后一行即使文字没变也要重新写一遍，git 就是这么写的：把这行当作上下文再跟一个标记，等于说两侧都没有换行符。因此应用改完一个文件，可以把这次改动作为补丁交出去，交给 `git apply` 或别的工具：
 
 ```go
 p := editor.DiffPatch("notes.md", "notes.md", before, after)
