@@ -106,34 +106,31 @@ func (p power) KeepAwake(display bool, reason string) func() {
 	}
 }
 
-// powerThrottlingState is PROCESS_POWER_THROTTLING_STATE: the requests to
-// change, of controlMask, and the state they are set to, in stateMask.
+// powerThrottlingState is PROCESS_POWER_THROTTLING_STATE: the mechanisms
+// the process decides itself, in controlMask, and what it decided for them,
+// in stateMask. A mechanism outside controlMask is the system's to decide,
+// which is how a process starts: GetProcessInformation reports this policy,
+// not whether Windows throttles the process at the moment.
 type powerThrottlingState struct {
 	version, controlMask, stateMask uint32
 }
 
-// throttling reports whether Windows throttles the process's execution speed,
-// and whether it could tell.
-func throttling() (on bool, ok bool) {
+// throttlingPolicy returns the process's power throttling policy, and
+// whether Windows told it.
+func throttlingPolicy() (powerThrottlingState, bool) {
 	st := powerThrottlingState{version: powerThrottlingVersion}
 	process, err := syscall.GetCurrentProcess()
 	if err != nil {
-		return false, false
+		return st, false
 	}
 	r, _, _ := procGetProcessInformation.Call(uintptr(process), processPowerThrottling, uintptr(unsafe.Pointer(&st)), unsafe.Sizeof(st))
-	if r == 0 {
-		return false, false
-	}
-	return st.stateMask&powerThrottlingExecutionSpeed != 0, true
+	return st, r != 0
 }
 
-// setThrottling asks Windows to throttle the process's execution speed, or not
-// to, and reports whether it did.
-func setThrottling(on bool) bool {
-	st := powerThrottlingState{version: powerThrottlingVersion, controlMask: powerThrottlingExecutionSpeed}
-	if on {
-		st.stateMask = powerThrottlingExecutionSpeed
-	}
+// setThrottlingPolicy sets the process's power throttling policy, and
+// reports whether Windows took it.
+func setThrottlingPolicy(st powerThrottlingState) bool {
+	st.version = powerThrottlingVersion
 	process, err := syscall.GetCurrentProcess()
 	if err != nil {
 		return false
@@ -142,27 +139,42 @@ func setThrottling(on bool) bool {
 	return r != 0
 }
 
-// KeepRunning turns the power throttling off that Windows applies to a process
-// it doesn't see, as one whose windows are hidden, minimized or behind another
-// is, in favor of the ones it shows: EcoQoS slows its threads and moves them to
-// the efficiency cores of hybrid processors, which an app that serves the
-// network, streams or syncs out of sight pays for. It doesn't keep the computer
-// awake, as KeepAwake does.
+// KeepRunning turns off the power throttling Windows applies to a process
+// it doesn't see, as one whose windows are hidden, minimized or behind
+// another is, in favor of the ones it shows: EcoQoS slows its threads and
+// moves them to the efficiency cores of hybrid processors, which an app
+// that serves the network, streams or syncs out of sight pays for. It
+// doesn't keep the computer awake, as KeepAwake does.
 //
-// The throttling the process had when KeepRunning was first called, if Windows
-// tells it, comes back with the last release, so an app that shows a window
-// again is treated as Windows treats it.
+// The first holder opts the process out of execution speed throttling;
+// the last release puts back the policy the process had before, which
+// usually leaves it to the system again, so an app that shows a window
+// again is treated as Windows treats it. The other mechanisms (timer
+// resolution) keep their policy throughout.
 func (p power) KeepRunning(string) func() {
 	b := p.b
 	if b.keepRunning == 0 {
-		b.throttledWhileIdle, b.throttledKnown = throttling()
-		setThrottling(false)
+		b.throttlingBefore, b.throttlingKnown = throttlingPolicy()
+		st := b.throttlingBefore
+		if !b.throttlingKnown {
+			st = powerThrottlingState{}
+		}
+		st.controlMask |= powerThrottlingExecutionSpeed
+		st.stateMask &^= powerThrottlingExecutionSpeed
+		setThrottlingPolicy(st)
 	}
 	b.keepRunning++
 	return func() {
 		b.keepRunning--
-		if b.keepRunning == 0 && b.throttledKnown && b.throttledWhileIdle {
-			setThrottling(true)
+		if b.keepRunning > 0 {
+			return
+		}
+		if b.throttlingKnown {
+			setThrottlingPolicy(b.throttlingBefore)
+		} else {
+			// Windows didn't tell the policy before: MyGo sets it nowhere
+			// else, so it was the system's to decide.
+			setThrottlingPolicy(powerThrottlingState{})
 		}
 	}
 }

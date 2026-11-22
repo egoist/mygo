@@ -89,10 +89,10 @@ func (p *PowerModule) KeepAwake(reason string, display bool) (release func()) {
 // lowers the app's priority, coalesces its timers and throttles its I/O.
 // Windows throttles a process it doesn't see in much the same way, slowing
 // its threads and moving them to the efficiency cores of hybrid processors,
-// and KeepRunning turns that off too, putting back the throttling the
-// process had when the last release comes. Linux desktops don't slow an app
-// out of sight. KeepAwake keeps App Nap off too, but the computer awake as
-// well, which an app that stays in the menu bar all day should not do.
+// and KeepRunning turns that off too, until the last release leaves it to
+// Windows again. Linux desktops don't slow an app out of sight. KeepAwake
+// keeps App Nap off too, but the computer awake as well, which an app that
+// stays in the menu bar all day should not do.
 func (p *PowerModule) KeepRunning(reason string) (release func()) {
 	needsApp("Power.KeepRunning")
 	var r func()

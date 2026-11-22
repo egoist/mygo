@@ -4,62 +4,71 @@ package windows
 
 import "testing"
 
-// throttledTest asks Windows to throttle the test process, and skips the test
-// where it can't: the system's power policy, or a Windows too old for power
-// throttling, may say no.
-func throttled(t *testing.T) {
+// powerThrottlingIgnoreTimerResolution is PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION.
+const powerThrottlingIgnoreTimerResolution = 0x4
+
+// withThrottlingPolicy sets the test process's power throttling policy to
+// st, and skips the test where Windows can't set it or tell it, and gives
+// the policy back to the system when the test ends.
+func withThrottlingPolicy(t *testing.T, st powerThrottlingState) {
 	t.Helper()
 	if !has(procGetProcessInformation) || !has(procSetProcessInformation) {
 		t.Skip("no power throttling on this Windows")
 	}
-	if _, ok := throttling(); !ok {
-		t.Skip("the process's power throttling can't be read here")
+	if !setThrottlingPolicy(st) {
+		t.Skipf("Windows refuses the power throttling policy %+v here", st)
 	}
-	if !setThrottling(true) {
-		t.Skip("the process can't be throttled here")
-	}
-	if on, ok := throttling(); !ok || !on {
-		setThrottling(false)
-		t.Skip("the process can't be throttled here")
+	t.Cleanup(func() { setThrottlingPolicy(powerThrottlingState{}) })
+	if got, ok := throttlingPolicy(); !ok || got.controlMask != st.controlMask || got.stateMask != st.stateMask {
+		t.Skipf("the power throttling policy reads back as %+v (%v), not %+v", got, ok, st)
 	}
 }
 
-func TestKeepRunningTurnsThrottlingOff(t *testing.T) {
-	throttled(t)
-	p := power{&Backend{}}
-	release := p.KeepRunning("Serving the phones")
-	if on, ok := throttling(); !ok || on {
-		t.Fatal("the process is still throttled while it keeps running")
+func wantPolicy(t *testing.T, when string, control, state uint32) {
+	t.Helper()
+	got, ok := throttlingPolicy()
+	if !ok {
+		t.Fatalf("%s: the power throttling policy can't be read", when)
 	}
+	if got.controlMask != control || got.stateMask != state {
+		t.Errorf("%s: policy control %#x state %#x, want control %#x state %#x", when, got.controlMask, got.stateMask, control, state)
+	}
+}
+
+// A process starts with its throttling the system's to decide: KeepRunning
+// opts it out, and the release leaves it to the system again, rather than
+// opted out for as long as it runs.
+func TestKeepRunningGivesThrottlingBackToTheSystem(t *testing.T) {
+	withThrottlingPolicy(t, powerThrottlingState{})
+	release := power{&Backend{}}.KeepRunning("Serving the phones")
+	wantPolicy(t, "held", powerThrottlingExecutionSpeed, 0)
 	release()
-	if on, ok := throttling(); !ok || !on {
-		t.Fatal("the throttling the process had was not put back")
-	}
-	setThrottling(false)
+	wantPolicy(t, "released", 0, 0)
+}
+
+func TestKeepRunningPutsBackThrottlingOptedInto(t *testing.T) {
+	withThrottlingPolicy(t, powerThrottlingState{controlMask: powerThrottlingExecutionSpeed, stateMask: powerThrottlingExecutionSpeed})
+	release := power{&Backend{}}.KeepRunning("Serving the phones")
+	wantPolicy(t, "held", powerThrottlingExecutionSpeed, 0)
+	release()
+	wantPolicy(t, "released", powerThrottlingExecutionSpeed, powerThrottlingExecutionSpeed)
 }
 
 func TestKeepRunningNests(t *testing.T) {
-	throttled(t)
+	withThrottlingPolicy(t, powerThrottlingState{})
 	p := power{&Backend{}}
 	first := p.KeepRunning("Serving the phones")
 	second := p.KeepRunning("Exporting the video")
 	first()
-	if on, _ := throttling(); on {
-		t.Fatal("the process is throttled while another KeepRunning holds")
-	}
+	wantPolicy(t, "one of two released", powerThrottlingExecutionSpeed, 0)
 	second()
-	if on, _ := throttling(); !on {
-		t.Fatal("the throttling the process had was not put back")
-	}
-	setThrottling(false)
+	wantPolicy(t, "both released", 0, 0)
 }
 
-func TestKeepRunningLeavesAFastProcessFast(t *testing.T) {
-	throttled(t)
-	setThrottling(false)
-	p := power{&Backend{}}
-	p.KeepRunning("Serving the phones")()
-	if on, _ := throttling(); on {
-		t.Fatal("a process that was not throttled was throttled by a release")
-	}
+func TestKeepRunningKeepsTimerResolutionPolicy(t *testing.T) {
+	withThrottlingPolicy(t, powerThrottlingState{controlMask: powerThrottlingIgnoreTimerResolution, stateMask: powerThrottlingIgnoreTimerResolution})
+	release := power{&Backend{}}.KeepRunning("Serving the phones")
+	wantPolicy(t, "held", powerThrottlingIgnoreTimerResolution|powerThrottlingExecutionSpeed, powerThrottlingIgnoreTimerResolution)
+	release()
+	wantPolicy(t, "released", powerThrottlingIgnoreTimerResolution, powerThrottlingIgnoreTimerResolution)
 }

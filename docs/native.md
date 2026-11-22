@@ -427,10 +427,10 @@ sleep when idle, as an app that stays in the menu bar all day should;
 `KeepAwake` keeps App Nap off too, but the computer awake as well. Windows
 throttles a process it does not see in much the same way: EcoQoS slows its
 threads, and on hybrid processors moves them to the efficiency cores.
-`KeepRunning` turns that off until its release, and puts back the throttling
-Windows had set before it, so an app that shows its window again is treated
-as Windows treats it. Linux desktops do not slow an app out of sight, and do
-nothing for `KeepRunning`.
+`KeepRunning` turns that off until its release, which leaves the throttling
+to Windows again, so an app that shows its window again is treated as
+Windows treats any other. Linux desktops do not slow an app out of sight,
+and do nothing for `KeepRunning`.
 
 On Linux, `OnLockScreen` is called when the screen saver starts,
 which usually locks the screen, and `IdleTime` is 0 on desktops that do not
