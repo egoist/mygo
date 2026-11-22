@@ -9,8 +9,18 @@ import (
 	"testing"
 )
 
-// TestEncodeWAV checks every byte of a file, header and all.
-func TestEncodeWAV(t *testing.T) {
+// wavBytes returns what s writes as a WAV file.
+func wavBytes(t *testing.T, s *Sound) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	if err := s.WriteWAV(&b); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+// TestWriteWAVBytes checks every byte of a file, header and all.
+func TestWriteWAVBytes(t *testing.T) {
 	s := NewSound(8000, 2, []float32{0, 0.5, -0.5, -1})
 	want := []byte{
 		'R', 'I', 'F', 'F', 44, 0, 0, 0, // the file's size minus these 8 bytes
@@ -28,20 +38,13 @@ func TestEncodeWAV(t *testing.T) {
 		0x00, 0xc0, // -0.5
 		0x00, 0x80, // -1
 	}
-	if got := s.EncodeWAV(); !bytes.Equal(got, want) {
-		t.Errorf("EncodeWAV =\n% x\nwant\n% x", got, want)
-	}
-	var b bytes.Buffer
-	if err := s.WriteWAV(&b); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(b.Bytes(), want) {
-		t.Errorf("WriteWAV =\n% x\nwant\n% x", b.Bytes(), want)
+	if got := wavBytes(t, s); !bytes.Equal(got, want) {
+		t.Errorf("WriteWAV =\n% x\nwant\n% x", got, want)
 	}
 }
 
-// TestWAVRoundTrip encodes sounds and decodes them again: the samples come
-// back within half a step of 16 bits, and nothing else changes.
+// TestWAVRoundTrip writes sounds and decodes them again: the samples come
+// back within a step of 16 bits, 1/32768, and nothing else changes.
 func TestWAVRoundTrip(t *testing.T) {
 	sine := func(n int) []float32 {
 		s := make([]float32, n)
@@ -62,7 +65,7 @@ func TestWAVRoundTrip(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			want := NewSound(tc.rate, tc.ch, tc.samples)
-			got, err := DecodeSound(want.EncodeWAV())
+			got, err := DecodeSound(wavBytes(t, want))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,7 +91,7 @@ func TestWAVRoundTrip(t *testing.T) {
 // a sample that is not a number is silence.
 func TestWAVClips(t *testing.T) {
 	s := NewSound(8000, 1, []float32{2, -2, 1, -1, float32(math.NaN()), float32(math.Inf(1))})
-	got, err := DecodeSound(s.EncodeWAV())
+	got, err := DecodeSound(wavBytes(t, s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,12 +104,12 @@ func TestWAVClips(t *testing.T) {
 	}
 }
 
-// A sound of a frame and a half encodes its whole frames, and says so.
+// A sound of a frame and a half writes its whole frames, and says so.
 func TestWAVOfAWholeFrame(t *testing.T) {
 	s := &Sound{samples: []float32{0.5, 0.5, 0.5}, channels: 2, rate: 8000}
-	b := s.EncodeWAV()
+	b := wavBytes(t, s)
 	if len(b) != wavHeaderSize+4 {
-		t.Fatalf("encoded %d bytes, want %d", len(b), wavHeaderSize+4)
+		t.Fatalf("wrote %d bytes, want %d", len(b), wavHeaderSize+4)
 	}
 	if n := binary.LittleEndian.Uint32(b[40:]); n != 4 {
 		t.Errorf("the data chunk says %d bytes, want 4", n)

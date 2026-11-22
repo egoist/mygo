@@ -150,19 +150,26 @@ func (t *tone) Read(buf []float32) (int, error) {
 audio.NewPlayer(&tone{}).Play()
 ```
 
-`NewSound` takes samples an app computed once, and `WriteWAV`, or
-`EncodeWAV` for a file's contents, writes a sound back out as WAV: 16-bit
-PCM, which every system plays. A tool that generates effects saves them
-that way, and any sound, decoded from any format, encodes to WAV:
+`NewSound` takes samples an app computed once, and `WriteWAV` writes a sound
+back out as WAV: 16-bit PCM, which every system plays. A tool that generates
+effects saves them that way, and any sound, decoded from any format, encodes
+to WAV:
 
 ```go
 s := audio.NewSound(48000, 1, samples)
-os.WriteFile("tone.wav", s.EncodeWAV(), 0o644)
+f, err := os.Create("tone.wav")
+if err != nil {
+	return err
+}
+defer f.Close()
+if err := s.WriteWAV(f); err != nil {
+	return err
+}
 ```
 
-Encoding clips samples beyond -1 and 1, as a sound mixed past full scale
-is, rather than wrapping them, which would click, and a sample that is not
-a number is silence.
+Writing clips samples beyond -1 and 1, which a sound mixed past full scale
+has, rather than wrapping them, which would click, and a sample that is not a
+number is silence.
 
 ### MP4
 

@@ -152,9 +152,10 @@ func (d *wavDecoder) Read(dst []float32) (int, error) {
 const wavHeaderSize = 44
 
 // WriteWAV writes s to w as a WAV file of 16-bit PCM, which every system
-// plays, in the sound's channels and sample rate. Samples beyond -1 and 1
-// are clipped, as a sound mixed beyond full scale is, rather than wrapped,
-// which would click, and a sample that is not a number is silence:
+// plays, in the sound's channels and sample rate. Samples beyond -1 and 1,
+// which a sound mixed past full scale has, are clipped rather than wrapped:
+// a wrap turns the top of a loud sound into a click. A sample that is not a
+// number is silence:
 //
 //	f, err := os.Create("effect.wav")
 //	if err != nil {
@@ -165,12 +166,12 @@ const wavHeaderSize = 44
 //		return err
 //	}
 //
-// A sound that DecodeSound read encodes to a file whose samples come back
+// A sound that DecodeSound read writes to a file whose samples come back
 // within a step of 16 bits, 1/32768, of what was decoded, which full scale
 // positive spends on 32767 rather than 32768. Samples past a whole frame,
-// which NewSound and decoding never make, are left out, as they are left
-// out of Duration. A sound of more than six hours at 44.1 kHz is more than
-// the RIFF header's size can say, and is an error.
+// which NewSound and decoding never make, are left out, as they are left out
+// of Duration. A sound of more than six hours at 44.1 kHz runs past what the
+// RIFF header's sizes can say, and is an error.
 func (s *Sound) WriteWAV(w io.Writer) error {
 	frames := len(s.samples) / s.channels
 	data, ok := wavData(frames, s.channels)
@@ -193,24 +194,6 @@ func (s *Sound) WriteWAV(w io.Writer) error {
 		}
 	}
 	return nil
-}
-
-// EncodeWAV returns s as a WAV file, as WriteWAV writes it, and panics for a
-// sound too long for the header's sizes, which WriteWAV reports as an error:
-// an hour at 48 kHz, in stereo, is 691 MB.
-func (s *Sound) EncodeWAV() []byte {
-	frames := len(s.samples) / s.channels
-	data, ok := wavData(frames, s.channels)
-	if !ok {
-		panic("audio: a WAV file holds less than 4 GB of samples")
-	}
-	samples := s.samples[:frames*s.channels]
-	b := make([]byte, wavHeaderSize, wavHeaderSize+len(samples)*2)
-	copy(b, s.wavHeader(data))
-	for _, v := range samples {
-		b = binary.LittleEndian.AppendUint16(b, pcm16(v))
-	}
-	return b
 }
 
 // wavData returns the size of frames of channels 16-bit samples, and
