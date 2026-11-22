@@ -236,7 +236,17 @@ app.code.OnInput = func(ev ui.InputEvent) bool {
   where they are as the text is edited, cut to its end until computed
   again when the buffer's `Version` changes.
 - `TabSize` and `Indent` set indentation: tabs or spaces, as the
-  language's files usually have them when zero (Go's tabs).
+  language's files usually have them when zero (Go's tabs). `IndentDetect`
+  takes both from the text itself, as `DetectIndent` reads them: the style
+  most of its indented lines use, and the step those lines take, of 2, 3,
+  4 and 8 columns. A language whose files are written with tabs keeps them
+  unless spaces are more than twice as many of the text's indented lines,
+  which a Go file embedding HTML is the case of. The editor reads the text
+  when its buffer is set, not on every edit, so a pasted block of another
+  style does not change the tab width of the buffer as it is typed. A text
+  with no indented line yet, as a new file's, keeps the language's.
+  `DetectIndent` is exported for the text of no editor, as a formatter's or
+  a language server's.
 - `Whitespace` shows spaces and tabs as dots and arrows: within selections
   by default, everywhere, at the ends of lines, or nowhere.
 - `WrapGuides` draws guides at columns, as 80 and 100; `NoIndentGuides`

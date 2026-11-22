@@ -63,6 +63,10 @@ type Buffer struct {
 	// wake are the windows showing the buffer, which a highlighter
 	// working in the background has draw again.
 	wake []ui.Services
+	// sets counts the times the whole text was set, which an editor reads
+	// to read the text's indentation again: an edit does not change how a
+	// text is written, and a text set does.
+	sets uint64
 }
 
 // Edit replaces the bytes Start to End of a Buffer's text with Text.
@@ -298,6 +302,7 @@ func (b *Buffer) Reset(text string) {
 	b.text, b.ends = rope.New(t), ends
 	b.saved, b.savedEnds = b.text, b.ends
 	b.undo, b.redo, b.openTx = nil, nil, nil
+	b.sets++
 	b.record([]change{wholeChange(old, b.text)})
 }
 
@@ -305,7 +310,16 @@ func (b *Buffer) Reset(text string) {
 func (b *Buffer) Set(text string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.sets++
 	b.edit([]Edit{{Start: 0, End: b.text.Len(), Text: text}}, editOther, nil, nil)
+}
+
+// setCount returns how many times the whole text was set, which Set and Reset
+// count, and edits do not.
+func (b *Buffer) setCount() uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.sets
 }
 
 // Edit applies edits to the text as one step of undo. Their offsets are

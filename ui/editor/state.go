@@ -25,10 +25,12 @@ type State struct {
 	// 1.5 when 0.
 	LineHeight float32
 	// TabSize is how many columns a tab and a level of indentation take:
-	// the language's, else 4, when 0.
+	// the language's, else 4, when 0 — with IndentDetect, the step the
+	// text's own lines take, when they take it with spaces.
 	TabSize int
 	// Indent says whether indenting inserts tabs or spaces: as the
-	// language's files usually do (Go's tabs) by default.
+	// language's files usually do (Go's tabs) by default, or as the text
+	// itself is indented, with IndentDetect.
 	Indent IndentStyle
 	// SoftWrap wraps lines at the editor's width, or at WrapColumn
 	// columns when narrower.
@@ -186,6 +188,12 @@ const (
 	IndentAuto IndentStyle = iota
 	IndentSpaces
 	IndentTabs
+	// IndentDetect indents as the text's own lines do, as DetectIndent
+	// reads them, and as the language's files do when none of them is
+	// indented, or when the language writes its files with tabs and the
+	// text only leans to spaces. The text is read when the buffer is set,
+	// not on every edit.
+	IndentDetect
 )
 
 // LineNumbers is how the gutter numbers lines.

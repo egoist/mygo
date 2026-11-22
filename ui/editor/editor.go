@@ -251,6 +251,13 @@ type editor struct {
 	diags    []Diagnostic
 	gitDiff  *gitDiff
 	brackets bracketCache
+	// indent, indentOK, indentSets and indentBuf are the indentation
+	// DetectIndent read of the text, kept until the text is set again.
+	indent      Indentation
+	indentOK    bool
+	indentSets  uint64
+	indentBuf   *Buffer
+	indentKnown bool
 
 	// placed are the elements of replacements and blocks the last build
 	// placed, at the scroll of placedScroll, which a frame painting them
@@ -341,6 +348,11 @@ func (ed *editor) tabSize() int {
 	if ed.o.tabSize > 0 {
 		return ed.o.tabSize
 	}
+	if ed.o.indent == IndentDetect {
+		if ind, ok := ed.detectIndent(); ok && ind.Style == IndentSpaces {
+			return ind.Width
+		}
+	}
 	if l := ed.language(); l != nil && l.TabSize > 0 {
 		return l.TabSize
 	}
@@ -353,9 +365,34 @@ func (ed *editor) hardTabs() bool {
 		return true
 	case IndentSpaces:
 		return false
+	case IndentDetect:
+		if ind, ok := ed.detectIndent(); ok {
+			return ind.Style == IndentTabs
+		}
 	}
 	l := ed.language()
 	return l != nil && l.HardTabs
+}
+
+// detectIndent returns the indentation the buffer's text has, read from its
+// first indentSample bytes when the text is set, and kept until it is set
+// again: an edit does not change how a text is written, and reading it once
+// per keystroke would let a pasted block flip the buffer's tab width, as VS
+// Code reads a model's text when it is set.
+func (ed *editor) detectIndent() (Indentation, bool) {
+	b := ed.buf()
+	if b == nil {
+		return Indentation{}, false
+	}
+	sets := b.setCount()
+	if ed.indentKnown && ed.indentBuf == b && ed.indentSets == sets {
+		return ed.indent, ed.indentOK
+	}
+	s := b.Snapshot()
+	l := ed.language()
+	ed.indent, ed.indentOK = detectIndent(s.Slice(0, min(s.Len(), indentSample)), l != nil && l.HardTabs)
+	ed.indentBuf, ed.indentSets, ed.indentKnown = b, sets, true
+	return ed.indent, ed.indentOK
 }
 
 func (ed *editor) language() *Language {
@@ -477,6 +514,7 @@ func (ed *editor) resetForBuffer() {
 	ed.goTo.open = false
 	ed.gesture.active = false
 	ed.brackets = bracketCache{}
+	ed.indentKnown = false
 	ed.scrollY, ed.scrollX, ed.anchorLine, ed.anchorOff = 0, 0, 0, 0
 	ed.anchorRows = false
 	ed.paintedW = 0
