@@ -242,9 +242,6 @@ func TestOnInputChord(t *testing.T) {
 	}
 }
 
-// An on-screen keyboard's cursor (Gboard's space bar swipe, iOS's
-// trackpad) moves the selection: typing goes where it put the caret, a
-// composition stays in as it was, and Up and Down go from there.
 // TestAccessSelectsText checks that assistive technology selects the
 // editor's text, in runes of the value it reads, as it does a text area's.
 func TestAccessSelectsText(t *testing.T) {
@@ -258,6 +255,9 @@ func TestAccessSelectsText(t *testing.T) {
 	ct.want("héllo\nwö|rld\nfoo")
 }
 
+// An on-screen keyboard's cursor (Gboard's space bar swipe, iOS's
+// trackpad) moves the selection: typing goes where it put the caret, a
+// composition stays in as it was, and Up and Down go from there.
 func TestKeyboardMovesSelection(t *testing.T) {
 	ct := newEditorTest(t, "", "aaaaaa\naaaaaa\naaaaaa|")
 	ct.tt.Frame()
