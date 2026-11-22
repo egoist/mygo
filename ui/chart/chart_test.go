@@ -160,6 +160,9 @@ func TestTimeTicks(t *testing.T) {
 		{"2010-06-01T00:00:00Z", "2026-06-01T00:00:00Z", 5,
 			[]string{"2015-01-01T00:00:00Z", "2020-01-01T00:00:00Z", "2025-01-01T00:00:00Z"},
 			"2015 2020 2025"},
+		{"1700-01-01T00:00:00Z", "2100-01-01T00:00:00Z", 5,
+			[]string{"1700-01-01T00:00:00Z", "1800-01-01T00:00:00Z", "1900-01-01T00:00:00Z", "2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z"},
+			"1700 1800 1900 2000 2100"},
 		{"2026-01-29T00:00:00Z", "2026-02-12T00:00:00Z", 8,
 			[]string{"2026-01-29T00:00:00Z", "2026-01-31T00:00:00Z", "2026-02-01T00:00:00Z", "2026-02-03T00:00:00Z", "2026-02-05T00:00:00Z", "2026-02-07T00:00:00Z", "2026-02-09T00:00:00Z", "2026-02-11T00:00:00Z"},
 			"Jan 29 Jan 31 Feb Feb 3 Feb 5 Feb 7 Feb 9 Feb 11"},
@@ -188,6 +191,16 @@ func TestTimeTicks(t *testing.T) {
 	s := NewTime(time.Date(2026, 3, 1, 0, 0, 0, 0, tokyo), time.Date(2026, 3, 4, 0, 0, 0, 0, tokyo))
 	if ts := s.Ticks(3); len(ts) != 4 || ts[1].Label != "Mar 2" {
 		t.Errorf("ticks in Tokyo: %+v", ts)
+	}
+	// A span of more than the 292 years a time.Duration holds steps by years
+	// too, and by the years before 0 that are round in steps of them.
+	long := NewTime(time.Date(-500, 6, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)).Ticks(5)
+	var years []int
+	for _, tick := range long {
+		years = append(years, time.UnixMilli(int64(tick.Value)).UTC().Year())
+	}
+	if want := []int{0, 500, 1000, 1500, 2000}; !slices.Equal(years, want) {
+		t.Errorf("ticks of -500 to 2026: %v, want %v", years, want)
 	}
 }
 

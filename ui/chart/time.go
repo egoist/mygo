@@ -84,8 +84,10 @@ var intervals = []interval{
 // as d3-time's tickInterval: the one closest to the span over count, in
 // years beyond them and milliseconds below them.
 func tickInterval(lo, hi time.Time, count int) interval {
-	target := time.Duration(float64(hi.Sub(lo)) / float64(max(1, count)))
-	i := sort.Search(len(intervals), func(i int) bool { return intervals[i].d > target })
+	// The span in milliseconds, as d3 keeps it: one of centuries is more than
+	// a time.Duration holds, and still has an interval.
+	target := float64(hi.UnixMilli()-lo.UnixMilli()) * float64(time.Millisecond) / float64(max(1, count))
+	i := sort.Search(len(intervals), func(i int) bool { return float64(intervals[i].d) > target })
 	switch {
 	case i == len(intervals):
 		// The years of a year's step count from the epoch, as d3's, and
@@ -105,7 +107,7 @@ func tickInterval(lo, hi time.Time, count int) interval {
 		}
 		return interval{unitMilli, max(1, int(math.Round(n))), time.Millisecond}
 	}
-	if float64(target)/float64(intervals[i-1].d) < float64(intervals[i].d)/float64(target) {
+	if target/float64(intervals[i-1].d) < float64(intervals[i].d)/target {
 		return intervals[i-1]
 	}
 	return intervals[i]
