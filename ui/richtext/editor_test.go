@@ -530,6 +530,42 @@ func TestRichTextReplaceCRLF(t *testing.T) {
 	}
 }
 
+// TestRichTextKeyboardMovesSelection checks that an on-screen keyboard's
+// cursor (Gboard's space bar swipe, iOS's trackpad) moves the selection,
+// and that typing then goes where it put the caret.
+func TestRichTextKeyboardMovesSelection(t *testing.T) {
+	doc := NewDocument(Text{})
+	tt, _ := richTester(t, doc)
+	typeRunes(tt, "hello world")
+	tt.Key(0, ui.KeyHome)
+	for range 5 {
+		tt.Key(ui.Shift, ui.KeyRight)
+	}
+	set, ok := any(doc.shownIn.Value()).(ui.TextInputSelectionSetter)
+	if !ok {
+		t.Fatal("the editor's selection can't be moved by a keyboard")
+	}
+	set.SetTextSelection(ui.TextInputRange{Start: 8, End: 8})
+	tt.Frame()
+	if a, c := doc.Selection(); a != 8 || c != 8 {
+		t.Fatalf("the keyboard put the caret at 8, selection %d–%d", a, c)
+	}
+	tt.Type("X")
+	if got := doc.Text().String(); got != "hello woXrld" {
+		t.Fatalf("typed %q", got)
+	}
+	// A composition goes in where it was, then the caret moves.
+	tt.Compose("yz", 2)
+	set.SetTextSelection(ui.TextInputRange{Start: 2, End: 4})
+	tt.Frame()
+	if got := doc.Text().String(); got != "hello woXyzrld" {
+		t.Fatalf("composition left %q", got)
+	}
+	if a, c := doc.Selection(); a != 2 || c != 4 {
+		t.Fatalf("selection %d–%d, want 2–4", a, c)
+	}
+}
+
 // TestRichTextSetMarkedEmpty checks that SetMarkedText with an empty string
 // and nil range from idle is a no-op (leaving selection and undo intact), and
 // that clearing preedit before UnmarkText and ReplaceText (GTK commit order)
