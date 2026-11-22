@@ -186,6 +186,7 @@ func (v *view) SetTextSelection(r ui.TextInputRange) {
 	v.commitCompose()
 	v.selAnchor, v.caret = v.runeOfUnits(r.Start), v.runeOfUnits(r.End)
 	v.affinity = ui.TextDownstream
+	v.hasDesired = false
 	v.coalesce = false
 	v.reveal = true
 	v.publish()

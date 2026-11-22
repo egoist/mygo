@@ -1587,3 +1587,27 @@ func TestTallEditorNewLook(t *testing.T) {
 		t.Fatalf("scrolled down the text, %d paragraphs there laid out, %d in all", far, v.laid)
 	}
 }
+
+// TestRichTextKeyboardSelectionForgetsColumn checks that Up and Down after
+// an on-screen keyboard moved the caret go from where it put it, not from
+// the column a vertical move remembered before.
+func TestRichTextKeyboardSelectionForgetsColumn(t *testing.T) {
+	doc := NewDocument(NewText("aaaaaa\naaaaaa\naaaaaa"))
+	tt, _ := richTester(t, doc)
+	doc.SetSelection(0, 0)
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	if a, c := doc.Selection(); a != 7 || c != 7 {
+		t.Fatalf("Down from 0 = (%d, %d), want (7, 7)", a, c)
+	}
+	set, ok := any(doc.shownIn.Value()).(ui.TextInputSelectionSetter)
+	if !ok {
+		t.Fatal("the editor's selection can't be moved by a keyboard")
+	}
+	set.SetTextSelection(ui.TextInputRange{Start: 12, End: 12})
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	if a, c := doc.Selection(); a != 19 || c != 19 {
+		t.Fatalf("Down after the keyboard put the caret at 12 = (%d, %d), want (19, 19)", a, c)
+	}
+}
