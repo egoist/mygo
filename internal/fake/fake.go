@@ -284,7 +284,7 @@ func (b *Backend) Windows() []*Window {
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
-	w := &Window{b: b, H: h, Opts: o, title: o.Title, zoom: o.Zoom, bounds: platform.Rect{X: o.X, Y: o.Y, Width: o.Width, Height: o.Height}, maximized: o.Maximized, full: o.FullScreen}
+	w := &Window{b: b, H: h, Opts: o, title: o.Title, zoom: o.Zoom, bounds: platform.Rect{X: o.X, Y: o.Y, Width: o.Width, Height: o.Height}, maximized: o.Maximized, full: o.FullScreen, alwaysOnTop: o.AlwaysOnTop}
 	if o.Surface {
 		w.surface = &Surface{w: w, Scale: 1}
 	}
@@ -580,13 +580,17 @@ type Window struct {
 	minimized bool
 	maximized bool
 	full      bool
-	zoom      float64
-	closed    bool
-	devtools  bool
-	pid       int  // SetProcessID
-	gpuPID    int  // SetGPUProcessID
-	audible   bool // SetAudible
-	muted     bool // SetAudioMuted
+	// alwaysOnTop is what SetAlwaysOnTop set last, and centers counts the
+	// calls of Center.
+	alwaysOnTop bool
+	centers     int
+	zoom        float64
+	closed      bool
+	devtools    bool
+	pid         int  // SetProcessID
+	gpuPID      int  // SetGPUProcessID
+	audible     bool // SetAudible
+	muted       bool // SetAudioMuted
 	// capture is the page's capture of each kind (SetCapture).
 	capture [platform.CaptureDisplay + 1]platform.CaptureState
 	pip     bool // TogglePictureInPicture
@@ -762,8 +766,8 @@ func (w *Window) SetMaximizable(bool)              {}
 func (w *Window) IsMaximizable() bool              { return w.Opts.Maximizable }
 func (w *Window) SetClosable(bool)                 {}
 func (w *Window) IsClosable() bool                 { return w.Opts.Closable }
-func (w *Window) SetAlwaysOnTop(bool)              {}
-func (w *Window) IsAlwaysOnTop() bool              { return w.Opts.AlwaysOnTop }
+func (w *Window) SetAlwaysOnTop(v bool)            { w.mu.Lock(); w.alwaysOnTop = v; w.mu.Unlock() }
+func (w *Window) IsAlwaysOnTop() bool              { w.mu.Lock(); defer w.mu.Unlock(); return w.alwaysOnTop }
 func (w *Window) Show() {
 	w.mu.Lock()
 	w.visible = true
@@ -782,8 +786,18 @@ func (w *Window) framesOnShow() {
 
 func (w *Window) Hide()           { w.mu.Lock(); w.visible = false; w.mu.Unlock() }
 func (w *Window) IsVisible() bool { w.mu.Lock(); defer w.mu.Unlock(); return w.visible }
-func (w *Window) Focus()          { w.H.Focused() }
-func (w *Window) Blur()           { w.H.Blurred() }
+func (w *Window) Focus() {
+	w.mu.Lock()
+	w.focused = true
+	w.mu.Unlock()
+	w.H.Focused()
+}
+func (w *Window) Blur() {
+	w.mu.Lock()
+	w.focused = false
+	w.mu.Unlock()
+	w.H.Blurred()
+}
 func (w *Window) IsFocused() bool { w.mu.Lock(); defer w.mu.Unlock(); return w.focused }
 
 // CornerRadius is the frameless window's WindowOptions.CornerRadius, as
@@ -803,15 +817,18 @@ func (w *Window) CornerRadius() float64 {
 // SetCornerRadius makes CornerRadius r, as a system that rounds the window.
 func (w *Window) SetCornerRadius(r float64) { w.mu.Lock(); w.radius = r; w.mu.Unlock() }
 
-func (w *Window) Minimize()                       { w.mu.Lock(); w.minimized = true; w.mu.Unlock(); w.H.Minimized() }
-func (w *Window) IsMinimized() bool               { w.mu.Lock(); defer w.mu.Unlock(); return w.minimized }
-func (w *Window) Maximize()                       { w.mu.Lock(); w.maximized = true; w.mu.Unlock(); w.H.Maximized() }
-func (w *Window) Unmaximize()                     { w.mu.Lock(); w.maximized = false; w.mu.Unlock(); w.H.Unmaximized() }
-func (w *Window) IsMaximized() bool               { w.mu.Lock(); defer w.mu.Unlock(); return w.maximized }
-func (w *Window) Restore()                        { w.mu.Lock(); w.minimized = false; w.mu.Unlock(); w.H.Restored() }
-func (w *Window) SetFullScreen(v bool)            { w.mu.Lock(); w.full = v; w.mu.Unlock() }
-func (w *Window) IsFullScreen() bool              { w.mu.Lock(); defer w.mu.Unlock(); return w.full }
-func (w *Window) Center()                         {}
+func (w *Window) Minimize()            { w.mu.Lock(); w.minimized = true; w.mu.Unlock(); w.H.Minimized() }
+func (w *Window) IsMinimized() bool    { w.mu.Lock(); defer w.mu.Unlock(); return w.minimized }
+func (w *Window) Maximize()            { w.mu.Lock(); w.maximized = true; w.mu.Unlock(); w.H.Maximized() }
+func (w *Window) Unmaximize()          { w.mu.Lock(); w.maximized = false; w.mu.Unlock(); w.H.Unmaximized() }
+func (w *Window) IsMaximized() bool    { w.mu.Lock(); defer w.mu.Unlock(); return w.maximized }
+func (w *Window) Restore()             { w.mu.Lock(); w.minimized = false; w.mu.Unlock(); w.H.Restored() }
+func (w *Window) SetFullScreen(v bool) { w.mu.Lock(); w.full = v; w.mu.Unlock() }
+func (w *Window) IsFullScreen() bool   { w.mu.Lock(); defer w.mu.Unlock(); return w.full }
+func (w *Window) Center()              { w.mu.Lock(); w.centers++; w.mu.Unlock() }
+
+// Centers returns how many times Center was called.
+func (w *Window) Centers() int                    { w.mu.Lock(); defer w.mu.Unlock(); return w.centers }
 func (w *Window) SetOpacity(float64)              {}
 func (w *Window) Opacity() float64                { return 1 }
 func (w *Window) SetHasShadow(bool)               {}

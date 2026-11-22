@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -802,6 +803,59 @@ func TestWindowControls(t *testing.T) {
 	call(t, fw, 3, "mygo:window.SetTitle", "Set by page")
 	if w.Title() != "Set by page" {
 		t.Errorf("title = %q", w.Title())
+	}
+	call(t, fw, 4, "mygo:window.SetSize", 600, 400)
+	if width, height := w.Size(); width != 600 || height != 400 {
+		t.Errorf("SetSize left the window %dx%d", width, height)
+	}
+	call(t, fw, 5, "mygo:window.SetPosition", 30, 40)
+	if x, y := w.Position(); x != 30 || y != 40 {
+		t.Errorf("SetPosition left the window at %d,%d", x, y)
+	}
+	// GetBounds reports the frame the two calls made, in DIPs, under the
+	// names a page reads: the x, y, width and height of a rectangle.
+	if m := call(t, fw, 6, "mygo:window.GetBounds"); m["v"] != nil {
+		want := map[string]any{"x": 30.0, "y": 40.0, "width": 600.0, "height": 400.0}
+		got, _ := m["v"].(map[string]any)
+		if !maps.Equal(got, want) {
+			t.Errorf("GetBounds = %v, want %v", m["v"], want)
+		}
+	}
+	call(t, fw, 7, "mygo:window.SetFullScreen", true)
+	if !w.IsFullScreen() {
+		t.Error("SetFullScreen(true)")
+	}
+	if m := call(t, fw, 8, "mygo:window.IsFullScreen"); m["v"] != true {
+		t.Errorf("IsFullScreen = %v", m)
+	}
+	call(t, fw, 9, "mygo:window.SetAlwaysOnTop", true)
+	if m := call(t, fw, 10, "mygo:window.IsAlwaysOnTop"); m["v"] != true {
+		t.Errorf("IsAlwaysOnTop after SetAlwaysOnTop(true) = %v", m)
+	}
+	call(t, fw, 11, "mygo:window.SetAlwaysOnTop", false)
+	if m := call(t, fw, 12, "mygo:window.IsAlwaysOnTop"); m["v"] != false {
+		t.Errorf("IsAlwaysOnTop after SetAlwaysOnTop(false) = %v", m)
+	}
+	call(t, fw, 13, "mygo:window.Minimize")
+	if m := call(t, fw, 14, "mygo:window.IsMinimized"); m["v"] != true {
+		t.Errorf("IsMinimized = %v", m)
+	}
+	// The window has the keyboard before Focus is called, which would say
+	// nothing: it is left first, then given it again by the page.
+	fw.Blur()
+	if m := call(t, fw, 15, "mygo:window.IsFocused"); m["v"] != false {
+		t.Errorf("IsFocused after Blurred = %v", m)
+	}
+	call(t, fw, 16, "mygo:window.Focus")
+	if m := call(t, fw, 17, "mygo:window.IsFocused"); m["v"] != true {
+		t.Errorf("IsFocused after Focus = %v", m)
+	}
+	if !w.IsFocused() {
+		t.Error("Focus left the window unfocused")
+	}
+	call(t, fw, 18, "mygo:window.Center")
+	if n := fw.Centers(); n != 1 {
+		t.Errorf("Center was called %d times, want 1", n)
 	}
 }
 

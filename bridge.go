@@ -71,7 +71,13 @@ const preferencesScriptIndex = 1
 
 // pageScripts are the scripts a page of the window gets at document start:
 // the bridge, the preferences of the page and the preload script.
+//
+// The window controls a page calls are bound here, once, for a window that
+// has a page: a window of native UI has none, and keeps none of them.
 func (w *Window) pageScripts() []platform.UserScript {
+	if !w.content {
+		bindWindowControls()
+	}
 	scripts := []platform.UserScript{{Source: w.bridgeScript()}, {Source: preferencesScript()}}
 	if w.preload != "" {
 		scripts = append(scripts, platform.UserScript{Source: w.preload, AllFrames: w.preloadAllFrames})

@@ -12,16 +12,54 @@ export interface LocaleChange {
   dir: Direction;
 }
 
-/** Controls for the window hosting the page, handy for custom title bars. */
+/**
+ * Controls for the window hosting the page, handy for custom title bars, and
+ * for a page that places its window itself.
+ */
 export interface WindowControls {
   minimize(): Promise<void>;
   maximize(): Promise<void>;
   unmaximize(): Promise<void>;
   toggleMaximize(): Promise<void>;
   isMaximized(): Promise<boolean>;
+  isMinimized(): Promise<boolean>;
   toggleFullScreen(): Promise<void>;
+  setFullScreen(on: boolean): Promise<void>;
+  isFullScreen(): Promise<boolean>;
   close(): Promise<void>;
   setTitle(title: string): Promise<void>;
+  focus(): Promise<void>;
+  isFocused(): Promise<boolean>;
+  /**
+   * Sets the window's size, title bar included, in DIPs, as every length of
+   * the window is: a title bar of 32 is 32 of them, whatever the scale of the
+   * screen. A number that is not whole is rounded, as the window's own are.
+   */
+  setSize(width: number, height: number): Promise<void>;
+  /**
+   * Moves the window so that its top left corner is at x, y, in DIPs, on the
+   * screen they name. A compositor that places windows itself, as Wayland's
+   * does, may ignore it.
+   */
+  setPosition(x: number, y: number): Promise<void>;
+  /** Centers the window on the screen it is on. */
+  center(): Promise<void>;
+  /** Keeps the window above the others, or not. */
+  setAlwaysOnTop(on: boolean): Promise<void>;
+  isAlwaysOnTop(): Promise<boolean>;
+  /**
+   * The window's frame, in DIPs: the x and y of its top left corner on the
+   * screen it is on, and its width and height, title bar included.
+   */
+  getBounds(): Promise<Rectangle>;
+}
+
+/** A rectangle in DIPs. */
+export interface Rectangle {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 /**

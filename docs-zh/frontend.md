@@ -174,7 +174,7 @@ await currentWindow.toggleMaximize();
 | `isCallError(err)` | 一次拒绝是否来自 Go 的 error |
 | `isMyGo()` | 页面是否运行在 MyGo 窗口里，而不是开发服务器的浏览器标签页里 |
 | `runtime()` | 运行时：`platform`（`"darwin"`、`"linux"` 或 `"win32"`）、`windowId`（Go 窗口的 `ID()`）和 `version`；在 MyGo 之外会抛出错误 |
-| `currentWindow` | 页面的窗口：`minimize`、`maximize`、`unmaximize`、`toggleMaximize`、`isMaximized`、`toggleFullScreen`、`close` 和 `setTitle` |
+| `currentWindow` | 页面的窗口：`minimize`、`maximize`、`unmaximize`、`toggleMaximize`、`isMaximized`、`isMinimized`、`toggleFullScreen`、`setFullScreen`、`isFullScreen`、`close`、`setTitle`、`focus`、`isFocused`、`setSize`、`setPosition`、`center`、`setAlwaysOnTop`、`isAlwaysOnTop` 和 `getBounds` |
 | `onFileDrop(listener)` | 拖放到窗口上的文件及其路径 |
 | `preferences()` | 桌面的强调色和辅助功能设置；在 MyGo 之外会抛出错误 |
 | `onPreferences(listener)` | `preferences()` 的变化 |
@@ -210,6 +210,8 @@ minimizeButton.onclick = () => currentWindow.minimize();
 maximizeButton.onclick = () => currentWindow.toggleMaximize();
 closeButton.onclick = () => currentWindow.close();
 ```
+
+页面还可以向自己的窗口要求更多，这些都是 `Window` 给 Go 的能力：`isMinimized()`、`isFullScreen()` 和 `isFocused()` 告诉窗口现在在哪，`getBounds()` 告诉它在哪里、有多大，`setFullScreen(on)` 和 `setAlwaysOnTop(on)` 决定它去哪，`setSize(width, height)` 和 `setPosition(x, y)` 放置它（含标题栏）；`center()` 把它放到所在屏幕的中央，`focus()` 把它提到前面。长度以 DIP 为单位，和窗口自己的长度一样，不是整数的会四舍五入到最近的整数。全屏中的窗口保持自己的大小和位置，Wayland 合成器自己摆放窗口，因此在那里忽略 `setPosition`。
 
 该属性会被继承：`no-drag` 可以把区域中的部分重新排除在外，区域内的按钮、链接、输入框和其他交互元素仍然可以点击。双击区域的效果与双击标题栏相同。
 

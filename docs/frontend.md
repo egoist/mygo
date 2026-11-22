@@ -282,7 +282,7 @@ await currentWindow.toggleMaximize();
 | `bind(method, args)` | a bound Go method, which a call may cancel, see [canceling a call](bindings.md#canceling-a-call) |
 | `isMyGo()` | whether the page runs in a MyGo window, not in a browser tab of the dev server |
 | `runtime()` | the runtime: `platform` (`"darwin"`, `"linux"` or `"win32"`), `windowId` (the Go window's `ID()`) and `version`; throws outside MyGo |
-| `currentWindow` | the page's window: `minimize`, `maximize`, `unmaximize`, `toggleMaximize`, `isMaximized`, `toggleFullScreen`, `close` and `setTitle` |
+| `currentWindow` | the page's window: `minimize`, `maximize`, `unmaximize`, `toggleMaximize`, `isMaximized`, `isMinimized`, `toggleFullScreen`, `setFullScreen`, `isFullScreen`, `close`, `setTitle`, `focus`, `isFocused`, `setSize`, `setPosition`, `center`, `setAlwaysOnTop`, `isAlwaysOnTop` and `getBounds` |
 | `onFileDrop(listener)` | files dropped on the window, with their paths |
 | `preferences()` | the accent color and the accessibility settings of the desktop; throws outside MyGo |
 | `onPreferences(listener)` | the changes of `preferences()` |
@@ -325,6 +325,16 @@ minimizeButton.onclick = () => currentWindow.minimize();
 maximizeButton.onclick = () => currentWindow.toggleMaximize();
 closeButton.onclick = () => currentWindow.close();
 ```
+
+A page can ask more of its window, all of it what `Window` offers Go:
+`isMinimized()`, `isFullScreen()` and `isFocused()` say where the window
+is, `getBounds()` says where and how big it is, `setFullScreen(on)` and
+`setAlwaysOnTop(on)` say where it goes, and `setSize(width, height)` and
+`setPosition(x, y)` place it, title bar included; `center()` centers it on
+the screen it is on and `focus()` brings it forward. The lengths are DIPs,
+as the window's own are, and one that is not whole is rounded to the
+nearest. A window in full screen keeps its size and position, and Wayland
+compositors place windows themselves, so they ignore `setPosition` there.
 
 The property is inherited: `no-drag` excludes parts of a region again, and
 buttons, links, inputs and other interactive elements inside a region stay

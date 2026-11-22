@@ -1220,7 +1220,8 @@ document start into the main frame. It installs:
 
 - `window.mygo`: `call(method, ...args)`, `callWith(method, args, options)`,
   `on(event, fn)`, `once`, the
-  `window` controls (`minimize`, `toggleMaximize`, `close`, …), `platform`,
+  `window` controls (`minimize`, `toggleMaximize`, `isFullScreen`,
+  `setSize`, `center`, …), `platform`,
   `windowId`, `version`. Frozen, so pages cannot tamper with it.
 - `window.__mygo.receive(messages)`, used by Go to deliver messages.
 - dom-ready notification and `--app-region: drag` handling for frameless

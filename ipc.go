@@ -589,18 +589,57 @@ func encodeEvent(name string, payload any) (message, error) {
 }
 
 // The service mygo:window backs window.mygo.window in the page.
-func init() {
-	err := bindFuncs("mygo:window",
-		namedFunc{"Minimize", func(ctx context.Context) { CallerWindow(ctx).Minimize() }},
-		namedFunc{"Maximize", func(ctx context.Context) { CallerWindow(ctx).Maximize() }},
-		namedFunc{"Unmaximize", func(ctx context.Context) { CallerWindow(ctx).Unmaximize() }},
-		namedFunc{"ToggleMaximize", func(ctx context.Context) { CallerWindow(ctx).ToggleMaximize() }},
-		namedFunc{"IsMaximized", func(ctx context.Context) bool { return CallerWindow(ctx).IsMaximized() }},
-		namedFunc{"ToggleFullScreen", func(ctx context.Context) { CallerWindow(ctx).ToggleFullScreen() }},
-		namedFunc{"Close", func(ctx context.Context) { CallerWindow(ctx).Close() }},
-		namedFunc{"SetTitle", func(ctx context.Context, title string) { CallerWindow(ctx).SetTitle(title) }},
-	)
-	if err != nil {
-		panic(err)
-	}
+//
+// It is what a page that draws its own title bar needs, and what any page
+// needs to ask its own window where it is: the calls that set and report
+// geometry, focus, stacking and full screen. They are the methods of Window
+// itself, so a page can do no more than its frame could do from Go, and an
+// untrusted page reaches none of them (handleCall refuses it first).
+//
+// The service is bound when a window first has a page to call it, as the
+// menus reach linkedDocuments when they are used: a window of native UI has
+// no page, and keeps none of these methods, the eight a title bar calls
+// included.
+var windowControls sync.Once
+
+func bindWindowControls() {
+	windowControls.Do(func() {
+		err := bindFuncs("mygo:window",
+			namedFunc{"Minimize", func(ctx context.Context) { CallerWindow(ctx).Minimize() }},
+			namedFunc{"Maximize", func(ctx context.Context) { CallerWindow(ctx).Maximize() }},
+			namedFunc{"Unmaximize", func(ctx context.Context) { CallerWindow(ctx).Unmaximize() }},
+			namedFunc{"ToggleMaximize", func(ctx context.Context) { CallerWindow(ctx).ToggleMaximize() }},
+			namedFunc{"IsMaximized", func(ctx context.Context) bool { return CallerWindow(ctx).IsMaximized() }},
+			namedFunc{"IsMinimized", func(ctx context.Context) bool { return CallerWindow(ctx).IsMinimized() }},
+			namedFunc{"ToggleFullScreen", func(ctx context.Context) { CallerWindow(ctx).ToggleFullScreen() }},
+			namedFunc{"SetFullScreen", func(ctx context.Context, on bool) { CallerWindow(ctx).SetFullScreen(on) }},
+			namedFunc{"IsFullScreen", func(ctx context.Context) bool { return CallerWindow(ctx).IsFullScreen() }},
+			namedFunc{"Close", func(ctx context.Context) { CallerWindow(ctx).Close() }},
+			namedFunc{"SetTitle", func(ctx context.Context, title string) { CallerWindow(ctx).SetTitle(title) }},
+			namedFunc{"Focus", func(ctx context.Context) { CallerWindow(ctx).Focus() }},
+			namedFunc{"IsFocused", func(ctx context.Context) bool { return CallerWindow(ctx).IsFocused() }},
+			namedFunc{"SetSize", func(ctx context.Context, width, height int) { CallerWindow(ctx).SetSize(width, height) }},
+			namedFunc{"SetPosition", func(ctx context.Context, x, y int) { CallerWindow(ctx).SetPosition(x, y) }},
+			namedFunc{"Center", func(ctx context.Context) { CallerWindow(ctx).Center() }},
+			namedFunc{"SetAlwaysOnTop", func(ctx context.Context, on bool) { CallerWindow(ctx).SetAlwaysOnTop(on) }},
+			namedFunc{"IsAlwaysOnTop", func(ctx context.Context) bool { return CallerWindow(ctx).IsAlwaysOnTop() }},
+			namedFunc{"GetBounds", func(ctx context.Context) pageBounds {
+				r := CallerWindow(ctx).Bounds()
+				return pageBounds{X: r.X, Y: r.Y, Width: r.Width, Height: r.Height}
+			}},
+		)
+		if err != nil {
+			panic(err)
+		}
+	})
+}
+
+// pageBounds is a window's frame as a page reads it, in DIPs: the rectangle
+// of Window.Bounds with the names a page reads, which Rectangle's own fields
+// keep as Go has them, for the values that outlive the call.
+type pageBounds struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
 }

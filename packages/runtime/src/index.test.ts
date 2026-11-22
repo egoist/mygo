@@ -68,9 +68,20 @@ const fake: Runtime = {
     unmaximize: () => fake.call("mygo:window.Unmaximize"),
     toggleMaximize: () => fake.call("mygo:window.ToggleMaximize"),
     isMaximized: () => fake.call("mygo:window.IsMaximized"),
+    isMinimized: () => fake.call("mygo:window.IsMinimized"),
     toggleFullScreen: () => fake.call("mygo:window.ToggleFullScreen"),
+    setFullScreen: (on) => fake.call("mygo:window.SetFullScreen", on),
+    isFullScreen: () => fake.call("mygo:window.IsFullScreen"),
     close: () => fake.call("mygo:window.Close"),
     setTitle: (title) => fake.call("mygo:window.SetTitle", title),
+    focus: () => fake.call("mygo:window.Focus"),
+    isFocused: () => fake.call("mygo:window.IsFocused"),
+    setSize: (width, height) => fake.call("mygo:window.SetSize", width, height),
+    setPosition: (x, y) => fake.call("mygo:window.SetPosition", x, y),
+    center: () => fake.call("mygo:window.Center"),
+    setAlwaysOnTop: (on) => fake.call("mygo:window.SetAlwaysOnTop", on),
+    isAlwaysOnTop: () => fake.call("mygo:window.IsAlwaysOnTop"),
+    getBounds: () => fake.call("mygo:window.GetBounds"),
   },
 };
 
@@ -104,6 +115,23 @@ test("delegates to window.mygo", async () => {
 
   await currentWindow.setTitle("Hi");
   expect(calls.at(-1)).toEqual(["mygo:window.SetTitle", ["Hi"]]);
+
+  await currentWindow.setSize(800, 600);
+  expect(calls.at(-1)).toEqual(["mygo:window.SetSize", [800, 600]]);
+
+  await currentWindow.setPosition(10, 20);
+  expect(calls.at(-1)).toEqual(["mygo:window.SetPosition", [10, 20]]);
+
+  await currentWindow.setAlwaysOnTop(true);
+  expect(calls.at(-1)).toEqual(["mygo:window.SetAlwaysOnTop", [true]]);
+
+  // A length of no whole DIP is rounded by the bridge, which the bridge's
+  // own tests pin; this one forwards what it is given.
+  await currentWindow.setSize(600.5, 400.4);
+  expect(calls.at(-1)).toEqual(["mygo:window.SetSize", [600.5, 400.4]]);
+
+  await currentWindow.getBounds();
+  expect(calls.at(-1)).toEqual(["mygo:window.GetBounds", []]);
 
   const err = await call("Svc.Fail").catch((e: unknown) => e);
   expect(isCallError(err)).toBe(true);

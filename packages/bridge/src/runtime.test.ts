@@ -56,6 +56,39 @@ describe("call", () => {
     expect(sent.map((m) => (m as CallMsg).m)).toEqual(["mygo:window.Minimize", "mygo:window.SetTitle"]);
     expect((sent[1] as CallMsg).a).toEqual(["Hi"]);
   });
+
+  test("window controls pass their arguments", () => {
+    const { sent, runtime } = setup();
+    runtime.window.setSize(800, 600);
+    runtime.window.setPosition(10, 20);
+    runtime.window.setFullScreen(true);
+    runtime.window.setAlwaysOnTop(false);
+    expect(sent.map((m) => [(m as CallMsg).m, (m as CallMsg).a])).toEqual([
+      ["mygo:window.SetSize", [800, 600]],
+      ["mygo:window.SetPosition", [10, 20]],
+      ["mygo:window.SetFullScreen", [true]],
+      ["mygo:window.SetAlwaysOnTop", [false]],
+    ]);
+  });
+
+  test("a length of no whole DIP is rounded", () => {
+    // A window's lengths are ints in Go, and a page that measures its own
+    // title bar divides numbers: it gets the nearest whole DIP.
+    const { sent, runtime } = setup();
+    runtime.window.setSize(600.5, 400.4);
+    runtime.window.setPosition(10.6, -20.5);
+    expect(sent.map((m) => (m as CallMsg).a)).toEqual([
+      [601, 400],
+      [11, -20],
+    ]);
+  });
+
+  test("bounds are read back as they are", () => {
+    const { sent, runtime } = setup();
+    runtime.window.getBounds();
+    expect((sent[0] as CallMsg).m).toBe("mygo:window.GetBounds");
+    expect((sent[0] as CallMsg).a).toEqual([]);
+  });
 });
 
 describe("canceling a call", () => {
