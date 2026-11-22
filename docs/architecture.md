@@ -7324,7 +7324,9 @@ which npm allows only for packages that exist: the first release uses an
    need: main-thread only, synchronous, or with a callback that runs on the
    main thread exactly once.
 3. **Implement it in every backend**: `darwin`, `linux`, `windows`, `web`,
-   `fake` and `unsupported` (return `platform.ErrUnsupported` or a zero
+   `fake` and `unsupported` (return `platform.ErrUnsupported`, or
+   `platform.Unsupported` with the backend's own words, which is the same
+   error to `errors.Is` and says which platform is missing what, or a zero
    value).
    Create callbacks once, never per call.
 4. **Wire the core**: hop with `onMain`/`onMainValue`, or `postMain` + `await`
