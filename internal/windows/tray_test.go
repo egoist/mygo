@@ -146,3 +146,43 @@ func TestTrayMenuAt(t *testing.T) {
 		t.Error("rectangles that touch overlap")
 	}
 }
+
+// TestHeldByArea tells the answer of an icon the notification area holds,
+// which S_FALSE is for one in its overflow, from the failure of one it
+// dropped.
+func TestHeldByArea(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		hr   uintptr
+		held bool
+	}{
+		{"S_OK", 0, true},
+		{"S_FALSE", 1, true},
+		{"E_FAIL", 0x80004005, false},
+		{"E_INVALIDARG", 0x80070057, false},
+		{"E_UNEXPECTED", 0x8000FFFF, false},
+	} {
+		if got := heldByArea(c.hr); got != c.held {
+			t.Errorf("%s (%#x): heldByArea = %v, want %v", c.name, c.hr, got, c.held)
+		}
+	}
+}
+
+// TestTrayExistsAsksIcon: an icon the notification area was never given is
+// not there, and asking adds none.
+func TestTrayExistsAsksIcon(t *testing.T) {
+	b := &Backend{trays: map[uint32]*tray{}}
+	tr := &tray{b: b, id: 1}
+	if tr.Exists() {
+		t.Error("an icon that was never added exists")
+	}
+	// A temporary icon, a notification's, is asked about, and the area has
+	// nothing of it.
+	temp := &tray{b: b, id: 2, temporary: true}
+	if temp.Exists() {
+		t.Error("an icon the notification area has nothing of exists")
+	}
+	if len(b.trays) != 0 {
+		t.Errorf("asking added icons: %v", b.trays)
+	}
+}

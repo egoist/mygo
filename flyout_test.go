@@ -219,7 +219,22 @@ func TestTrayFlyout(t *testing.T) {
 	}()
 }
 
-// TestFlyoutModalWindow opens a window modal to a flyout, a tray's too:
+// TestTrayExists tells an icon the bar holds from one it lost, which Bounds
+// cannot do for an icon Windows keeps in its overflow.
+func TestTrayExists(t *testing.T) {
+	tray, err := NewTray(TrayOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tray.Exists() {
+		t.Error("a tray that was made does not exist")
+	}
+	tray.Destroy()
+	if tray.Exists() {
+		t.Error("a destroyed tray exists")
+	}
+}
+
 // centered over it, in the work area, and closing with it.
 func TestFlyoutModalWindow(t *testing.T) {
 	parent, _ := testWindow(t, WindowOptions{X: 100, Y: 100, Width: 400, Height: 300})

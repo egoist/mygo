@@ -504,6 +504,14 @@ taskbar's overflow, at the pointer. To show a menu only on right-click while kee
 primary clicks available, set the menu in `OnRightClick`, call
 `PopUpMenu`, then clear it with `SetMenu(nil)` when the call returns.
 
+An icon the user hides in the notification area's overflow has no
+`Bounds` until that flyout opens, and Windows gives the same empty
+rectangle for it as for an icon the area dropped, as a shell that
+restarted does. `Tray.Exists` tells them apart: true for an icon the user
+hid, false once the area no longer holds it, so an app that rebuilds an
+icon it lost does not rebuild one that is there. macOS and Linux report no
+bounds of a live icon at all, and `Exists` is true while the icon was made.
+
 A tray icon does not keep the app running: the app quits when its last
 window closes ([Quitting](app.md#quitting)). To close a window to the
 tray, hide it instead, which keeps the window and the app. A quit, as the

@@ -370,22 +370,58 @@ func (t *tray) rect() (rect, bool) {
 	if !t.added && !t.temporary {
 		t.add() // it is somewhere once added
 	}
-	type identifier struct {
-		Size uint32
-		Wnd  uintptr
-		ID   uint32
-		GUID GUID
-	}
-	ident := identifier{Wnd: t.b.appHwnd, ID: t.id}
-	ident.Size = uint32(unsafe.Sizeof(ident))
 	var r rect
-	if !has(procShellNotifyIconGetRect) {
-		return r, false
-	}
-	if hr, _, _ := procShellNotifyIconGetRect.Call(uintptr(unsafe.Pointer(&ident)), uintptr(unsafe.Pointer(&r))); failed(hr) {
+	hr, ok := t.getRect(&r)
+	if !ok || failed(hr) {
 		return r, false
 	}
 	return r, r.Right > r.Left && r.Bottom > r.Top
+}
+
+// Exists reports whether the notification area holds the icon. An icon the
+// user keeps in the overflow area, with that flyout closed, has no rectangle
+// to report: GetRect answers S_FALSE (1), which is not a failure, where an
+// icon the area dropped answers a failure HRESULT. Bounds cannot tell them
+// apart, and Exists does not add an icon to ask, so one that was never added
+// is not there.
+func (t *tray) Exists() bool {
+	if !t.added && !t.temporary {
+		return false
+	}
+	var r rect
+	hr, ok := t.getRect(&r)
+	if !ok {
+		return true // nothing to ask: an icon that was made is there
+	}
+	return heldByArea(hr)
+}
+
+// heldByArea tells whether Shell_NotifyIconGetRect's answer is about an icon
+// the notification area holds: S_OK (0), or S_FALSE (1) for an icon the area
+// keeps in its overflow while that flyout is closed. A failure HRESULT, as
+// E_FAIL or E_INVALIDARG is, says the area does not have it.
+func heldByArea(hr uintptr) bool { return !failed(hr) }
+
+// trayIdentifier is the NOTIFYICONIDENTIFIER that names the icon to
+// Shell_NotifyIconGetRect.
+type trayIdentifier struct {
+	Size uint32
+	Wnd  uintptr
+	ID   uint32
+	GUID GUID
+}
+
+// getRect asks the notification area where the icon is and returns its answer
+// as the area gave it, S_OK or S_FALSE included. ok is false where the shell
+// has no GetRect to ask.
+func (t *tray) getRect(r *rect) (hr uintptr, ok bool) {
+	if !has(procShellNotifyIconGetRect) {
+		return 0, false
+	}
+	ident := trayIdentifier{Wnd: t.b.appHwnd, ID: t.id}
+	ident.Size = uint32(unsafe.Sizeof(ident))
+	hr, _, _ = procShellNotifyIconGetRect.Call(uintptr(unsafe.Pointer(&ident)), uintptr(unsafe.Pointer(r)))
+	return hr, true
 }
 
 func (t *tray) Destroy() {
