@@ -20,13 +20,13 @@ import (
 // writing and releases it after writing; the renderer acquires it while
 // drawing and releases it once its GPU commands have been issued.
 //
-// fallback, when non-nil, is a CPU image to retain for software rendering or
-// when the native texture cannot be opened. When nil, the bitmap's existing
-// CPU pixels are retained as the fallback. Pass a new fallback when the
-// texture's size changes if the old one is no longer suitable.
+// fallback, when non-nil, is a CPU image retained for software rendering.
+// When nil, the bitmap's existing CPU pixels are retained as the fallback.
+// Pass a new fallback when the texture's size changes if the old one is no
+// longer suitable.
 //
-// Call on the UI thread, or from Window.Update. The bitmap's existing
-// dimensions are changed to width×height.
+// Call on the UI thread, or from Window.Update. The bitmap's dimensions are
+// changed to width×height.
 func (b *Bitmap) UpdateD3D11Texture(handle uintptr, id uint64, width, height int, fallback image.Image) error {
 	if b == nil || b.img == nil {
 		return errors.New("ui: nil bitmap")
@@ -44,6 +44,11 @@ func (b *Bitmap) UpdateD3D11Texture(handle uintptr, id uint64, width, height int
 		return errors.New("ui: D3D11 fallback image dimensions do not match the texture")
 	}
 
+	// If ReleasePixels dropped the static fallback, restore it before
+	// removing the restoration callbacks.
+	if b.released && fallback == nil {
+		b.img.Pixels()
+	}
 	b.remake, b.source = nil, nil
 	if b.released {
 		b.released = false
