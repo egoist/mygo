@@ -3,6 +3,7 @@
 package windows
 
 import (
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -20,6 +21,8 @@ var (
 	procGetSystemPowerStatus           = kernel32.NewProc("GetSystemPowerStatus")
 	procGetTickCount                   = kernel32.NewProc("GetTickCount")
 	procGetLastInputInfo               = user32.NewProc("GetLastInputInfo")
+	procGetProcessInformation          = kernel32.NewProc("GetProcessInformation")
+	procSetProcessInformation          = kernel32.NewProc("SetProcessInformation")
 )
 
 // Messages about power and the session, which the application window gets.
@@ -30,6 +33,15 @@ const (
 	pbtAPMResumeAutomatic = 0x12
 	wtsSessionLock        = 0x7
 	wtsSessionUnlock      = 0x8
+)
+
+// Power throttling (ProcessPowerThrottling), which Windows applies to the
+// processes it doesn't see, EcoQoS: their threads run slower, and on hybrid
+// processors on the efficiency cores.
+const (
+	processPowerThrottling        = 4 // ProcessPowerThrottling
+	powerThrottlingVersion        = 1 // PROCESS_POWER_THROTTLING_CURRENT_VERSION
+	powerThrottlingExecutionSpeed = 0x1
 )
 
 func (b *Backend) Power() platform.Power     { return power{b} }
@@ -94,10 +106,66 @@ func (p power) KeepAwake(display bool, reason string) func() {
 	}
 }
 
-// KeepRunning does nothing for now. Windows slows some processes out of
-// sight too (power throttling, EcoQoS), which SetProcessInformation's
-// ProcessPowerThrottling would turn off.
-func (p power) KeepRunning(string) func() { return func() {} }
+// powerThrottlingState is PROCESS_POWER_THROTTLING_STATE: the requests to
+// change, of controlMask, and the state they are set to, in stateMask.
+type powerThrottlingState struct {
+	version, controlMask, stateMask uint32
+}
+
+// throttling reports whether Windows throttles the process's execution speed,
+// and whether it could tell.
+func throttling() (on bool, ok bool) {
+	st := powerThrottlingState{version: powerThrottlingVersion}
+	process, err := syscall.GetCurrentProcess()
+	if err != nil {
+		return false, false
+	}
+	r, _, _ := procGetProcessInformation.Call(uintptr(process), processPowerThrottling, uintptr(unsafe.Pointer(&st)), unsafe.Sizeof(st))
+	if r == 0 {
+		return false, false
+	}
+	return st.stateMask&powerThrottlingExecutionSpeed != 0, true
+}
+
+// setThrottling asks Windows to throttle the process's execution speed, or not
+// to, and reports whether it did.
+func setThrottling(on bool) bool {
+	st := powerThrottlingState{version: powerThrottlingVersion, controlMask: powerThrottlingExecutionSpeed}
+	if on {
+		st.stateMask = powerThrottlingExecutionSpeed
+	}
+	process, err := syscall.GetCurrentProcess()
+	if err != nil {
+		return false
+	}
+	r, _, _ := procSetProcessInformation.Call(uintptr(process), processPowerThrottling, uintptr(unsafe.Pointer(&st)), unsafe.Sizeof(st))
+	return r != 0
+}
+
+// KeepRunning turns the power throttling off that Windows applies to a process
+// it doesn't see, as one whose windows are hidden, minimized or behind another
+// is, in favor of the ones it shows: EcoQoS slows its threads and moves them to
+// the efficiency cores of hybrid processors, which an app that serves the
+// network, streams or syncs out of sight pays for. It doesn't keep the computer
+// awake, as KeepAwake does.
+//
+// The throttling the process had when KeepRunning was first called, if Windows
+// tells it, comes back with the last release, so an app that shows a window
+// again is treated as Windows treats it.
+func (p power) KeepRunning(string) func() {
+	b := p.b
+	if b.keepRunning == 0 {
+		b.throttledWhileIdle, b.throttledKnown = throttling()
+		setThrottling(false)
+	}
+	b.keepRunning++
+	return func() {
+		b.keepRunning--
+		if b.keepRunning == 0 && b.throttledKnown && b.throttledWhileIdle {
+			setThrottling(true)
+		}
+	}
+}
 
 func (p power) OnBattery() bool {
 	var status struct {
