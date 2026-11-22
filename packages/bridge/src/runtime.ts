@@ -311,7 +311,11 @@ export function createRuntime(
   };
 
   // How many bytes of values may wait for the method to take them, as
-  // Go's sourceWindow.
+  // Go's sourceWindow. A value counts as its own text, in the UTF-16 units
+  // this counts, which is what Go counts in its bytes: a message's envelope
+  // is the page's business, and a page sending short values has many of
+  // them, so counting it would fill the window before Go had taken a
+  // quarter and no acknowledgment would come.
   const sourceWindow = 1 << 20;
 
   const source = <T>(): Source<T> => {
@@ -326,6 +330,8 @@ export function createRuntime(
     const waiters: { n: number; size: number; body: string; resolve: () => void; reject: (e: unknown) => void }[] = [];
 
     const closedError = () => new Error("mygo: the source is closed");
+    // The token as the messages carry it, quoted once.
+    const quotedToken = JSON.stringify(token);
     const flush = () => {
       while (waiters.length > 0 && sent - taken < sourceWindow) {
         const w = waiters.shift()!;
@@ -367,8 +373,14 @@ export function createRuntime(
           return Promise.reject(new Error("mygo: pass the source to a call before sending"));
         }
         const n = ++seq;
-        const body = JSON.stringify({ t: "src-push", c: state.id, k: token, p: value } satisfies Outgoing);
-        const size = body.length;
+        // The value's own text, which is what Go counts when the method
+        // takes it: what the page sends around it is not a value.
+        const text = JSON.stringify(value);
+        const size = text === undefined ? 0 : text.length;
+        const body =
+          text === undefined
+            ? `{"t":"src-push","c":${state.id},"k":${quotedToken}}`
+            : `{"t":"src-push","c":${state.id},"k":${quotedToken},"p":${text}}`;
         if (waiters.length === 0 && sent - taken < sourceWindow) {
           try {
             post(body);

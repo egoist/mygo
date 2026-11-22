@@ -409,6 +409,19 @@ describe("sources", () => {
     await p;
   });
 
+  test("short values fill no window with the messages around them", async () => {
+    // Go counts the values it takes and acknowledges them; a page that
+    // counted its messages would fill the window at 20,000 of one
+    // character, before Go had taken a quarter of it, and wait forever.
+    const { sent, runtime } = setup();
+    const src = runtime.source<string>();
+    runtime.call("Svc.Upload", src);
+    const sends: Promise<void>[] = [];
+    for (let i = 0; i < 30_000; i++) sends.push(src.send("x"));
+    expect(sent.filter((m) => m.t === "src-push").length).toBe(30_000);
+    for (const s of sends) await s;
+  });
+
   test("Go closing the source rejects waiting sends", async () => {
     const { sent, runtime, internal } = setup();
     const src = runtime.source<string>();

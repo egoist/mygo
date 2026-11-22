@@ -281,8 +281,8 @@ func (w *Window) newSource(page, ctx context.Context, id int64, token string) *s
 
 // maxEarlySourceBytes is how much text one source may hold before its
 // call makes it. Flow control is a window as the page counts it, in UTF-16
-// units, and nothing is acknowledged before the source exists; Go counts
-// the UTF-8 bytes, at most three times as many, plus one message.
+// units of the values, and nothing is acknowledged before the source exists;
+// Go counts their UTF-8 bytes, at most three times as many.
 const maxEarlySourceBytes = 3*sourceWindow + 64<<10
 
 // maxEarlySourceIDs bounds the sources that may wait for their calls at
@@ -425,9 +425,9 @@ func (s *source) recv() ([]byte, error) {
 	if len(s.queue) > 0 {
 		e := s.queue[0]
 		s.queue = s.queue[1:]
-		// The page counts a value's message in UTF-16 units (body.length)
-		// and this counts its UTF-8 bytes, at most three times as many:
-		// for other scripts the acknowledgment comes sooner, never later.
+		// The page counts a value's text in UTF-16 units and this counts its
+		// UTF-8 bytes, at most three times as many: for other scripts the
+		// acknowledgment comes sooner, never later.
 		s.taken += int64(len(e.raw))
 		var ack []byte
 		if s.taken-s.asked >= sourceWindow/2 {
