@@ -530,6 +530,42 @@ func TestRichTextReplaceCRLF(t *testing.T) {
 	}
 }
 
+// TestRichTextKeyboardMovesSelection checks that an on-screen keyboard's
+// cursor (Gboard's space bar swipe, iOS's trackpad) moves the selection,
+// and that typing then goes where it put the caret.
+func TestRichTextKeyboardMovesSelection(t *testing.T) {
+	doc := NewDocument(Text{})
+	tt, _ := richTester(t, doc)
+	typeRunes(tt, "hello world")
+	tt.Key(0, ui.KeyHome)
+	for range 5 {
+		tt.Key(ui.Shift, ui.KeyRight)
+	}
+	set, ok := any(doc.shownIn.Value()).(ui.TextInputSelectionSetter)
+	if !ok {
+		t.Fatal("the editor's selection can't be moved by a keyboard")
+	}
+	set.SetTextSelection(ui.TextInputRange{Start: 8, End: 8})
+	tt.Frame()
+	if a, c := doc.Selection(); a != 8 || c != 8 {
+		t.Fatalf("the keyboard put the caret at 8, selection %d–%d", a, c)
+	}
+	tt.Type("X")
+	if got := doc.Text().String(); got != "hello woXrld" {
+		t.Fatalf("typed %q", got)
+	}
+	// A composition goes in where it was, then the caret moves.
+	tt.Compose("yz", 2)
+	set.SetTextSelection(ui.TextInputRange{Start: 2, End: 4})
+	tt.Frame()
+	if got := doc.Text().String(); got != "hello woXyzrld" {
+		t.Fatalf("composition left %q", got)
+	}
+	if a, c := doc.Selection(); a != 2 || c != 4 {
+		t.Fatalf("selection %d–%d, want 2–4", a, c)
+	}
+}
+
 // TestRichTextAccessSelectForgetsColumn checks that Up and Down after
 // assistive technology selected text go from where it put the caret, not
 // from the column a vertical move remembered before.
@@ -1569,5 +1605,29 @@ func TestTallEditorNewLook(t *testing.T) {
 	}
 	if far == 0 || v.laid > 300 {
 		t.Fatalf("scrolled down the text, %d paragraphs there laid out, %d in all", far, v.laid)
+	}
+}
+
+// TestRichTextKeyboardSelectionForgetsColumn checks that Up and Down after
+// an on-screen keyboard moved the caret go from where it put it, not from
+// the column a vertical move remembered before.
+func TestRichTextKeyboardSelectionForgetsColumn(t *testing.T) {
+	doc := NewDocument(NewText("aaaaaa\naaaaaa\naaaaaa"))
+	tt, _ := richTester(t, doc)
+	doc.SetSelection(0, 0)
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	if a, c := doc.Selection(); a != 7 || c != 7 {
+		t.Fatalf("Down from 0 = (%d, %d), want (7, 7)", a, c)
+	}
+	set, ok := any(doc.shownIn.Value()).(ui.TextInputSelectionSetter)
+	if !ok {
+		t.Fatal("the editor's selection can't be moved by a keyboard")
+	}
+	set.SetTextSelection(ui.TextInputRange{Start: 12, End: 12})
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	if a, c := doc.Selection(); a != 19 || c != 19 {
+		t.Fatalf("Down after the keyboard put the caret at 12 = (%d, %d), want (19, 19)", a, c)
 	}
 }
