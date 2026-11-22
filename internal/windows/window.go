@@ -457,29 +457,25 @@ func (w *window) outerSize(width, height int32, dpi int) (int32, int32) {
 }
 
 // addFrame grows r, a page area in pixels, to the window around it. A window
-// without a caption has no title bar or menu bar, and keeps what
-// frameCalcSize leaves it: the borders of a resizable one, less what the
-// client area takes of them (frameBorder), and the pixel at the top of a
-// hidden title bar on Windows 11.
+// without a caption has no title bar or menu bar, and its client area covers
+// the whole window (frameCalcSize): the window around a page area is that
+// area itself, plus the pixel at the top of a hidden title bar on Windows 11.
+// The invisible borders of a resizable window must not be added: the client
+// area no longer leaves room for them, and adding them would grow the window
+// (and the page with it) by the borders on every SetContentSize.
 func (w *window) addFrame(r *rect, menu uintptr, dpi int) {
 	style, ex := windowLong(w.hwnd, gwlStyle), windowLong(w.hwnd, gwlExStyle)
 	captionless := w.captionless()
-	if captionless && style&wsThickFrame == 0 || !has(procAdjustWindowRectExForDpi) {
-		return
-	}
-	top := r.Top
 	if captionless {
-		menu = 0
-	}
-	procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(r)), style, menu, ex, uintptr(dpi))
-	if captionless {
-		r.Top = top
-		if w.hiddenTitleBar && windows11() {
+		if style&wsThickFrame != 0 && w.hiddenTitleBar && windows11() {
 			r.Top--
 		}
-		b := w.frameBorder()
-		r.Left, r.Right, r.Bottom = r.Left+b, r.Right-b, r.Bottom-b
+		return
 	}
+	if !has(procAdjustWindowRectExForDpi) {
+		return
+	}
+	procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(r)), style, menu, ex, uintptr(dpi))
 }
 
 // monitorAt returns the monitor at x, y in pixels, or the nearest.
@@ -978,9 +974,10 @@ func (w *window) plainCaption() {
 	procDwmSetWindowAttribute.Call(w.hwnd, dwmwaCaptionColor, uintptr(unsafe.Pointer(&none)), 4)
 }
 
-// frameCalcSize removes the title bar of windows without a caption.
-// Resizable ones keep their left, right and bottom borders, which Windows
-// 10 and later draw invisible outside the window, so they still resize.
+// frameCalcSize removes the title bar of windows without a caption and gives
+// the client area the whole window. They no longer keep the invisible left,
+// right and bottom borders that Windows resizes from outside: resizeHitTest
+// answers the border ring inside the client area instead.
 // Maximized windows would overflow the screen by their borders: fit the
 // work area.
 //
@@ -989,9 +986,6 @@ func (w *window) plainCaption() {
 // snap layouts over the maximize button of a window that is not maximized.
 // Windows 10 has no snap layouts, and over a window that keeps any of its top
 // it draws its whole title bar, above the page and the controls.
-//
-// A frameless window on Windows 10 takes the visible pixel of its borders
-// too (frameBorder), and keeps only the invisible ones.
 func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 	params := (*ncCalcSizeParams)(native(lp))
 	if w.IsMaximized() {
