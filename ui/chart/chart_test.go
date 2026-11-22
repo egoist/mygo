@@ -236,6 +236,13 @@ func TestTimeNice(t *testing.T) {
 	if len(ts) != 5 || ts[0].At != 0 || ts[len(ts)-1].At != 1 {
 		t.Errorf("ticks of a niced domain: %+v", ts)
 	}
+	// Before the year 0, years floor down, not toward zero.
+	for _, count := range []int{1, 5} {
+		lo, hi := time.Date(-500, 6, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+		if n := NewTime(lo, hi).Nice(count); n.From.After(lo) || n.To.Before(hi) || n.From.Month() != 1 || n.From.Day() != 1 {
+			t.Errorf("Nice(%d) of -500 to 2026: %v to %v", count, n.From, n.To)
+		}
+	}
 	// Nice rounds to round times of the times' location.
 	tokyo := time.FixedZone("JST", 9*3600)
 	n := NewTime(time.Date(2026, 3, 5, 14, 7, 0, 0, tokyo), time.Date(2026, 3, 5, 15, 53, 0, 0, tokyo)).Nice(5)

@@ -58,15 +58,15 @@ func TestTimeMatchesD3(t *testing.T) {
 				t.Errorf("Ticks(%d) of %v: %v, want %v", c.Count, c.Domain, got, c.Ticks)
 			}
 			if c.Nice == nil {
-				// d3 leaves a domain that descends, of less than a second,
-				// as it is: the step of a reversed pair is negative, and
-				// scaleTime.every then gets a millisecond of it. The port
-				// rounds such a domain like its ascending twin's.
+				// d3 leaves a descending domain of less than a second, or
+				// of years, as it is: the step of a reversed pair is
+				// negative. The port rounds every descending domain as
+				// it does its ascending twin.
 				up, down := NewTime(to, from).Nice(c.Count), s.Nice(c.Count)
 				got, want := [2]int64{down.From.UnixMilli(), down.To.UnixMilli()},
 					[2]int64{up.To.UnixMilli(), up.From.UnixMilli()}
 				if got != want {
-					t.Errorf("Nice(%d) of %v = %v, want the drawn up twin's %v", c.Count, c.Domain, got, want)
+					t.Errorf("Nice(%d) of %v = %v, want the ascending twin's %v", c.Count, c.Domain, got, want)
 				}
 				return
 			}

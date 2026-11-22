@@ -134,8 +134,12 @@ func (iv interval) floor(t time.Time) time.Time {
 	case unitMonth:
 		m := int(mo) - 1
 		return time.Date(y, time.Month(m-m%iv.n+1), 1, 0, 0, 0, 0, loc)
-	default:
-		return time.Date(y-y%iv.n, 1, 1, 0, 0, 0, 0, loc)
+	default: // floored, as d3's: the year -500 in steps of 1000 is -1000
+		r := y % iv.n
+		if r < 0 {
+			r += iv.n
+		}
+		return time.Date(y-r, 1, 1, 0, 0, 0, 0, loc)
 	}
 }
 
@@ -180,10 +184,12 @@ func (iv interval) ceil(t time.Time) time.Time {
 // values: the start goes back to the first round time of the interval of
 // about count ticks and the end forward to the next, so the plot begins and
 // ends on a midnight, an hour, the first of a month, whichever the span
-// calls for, and its first and last ticks are its ends:
+// calls for:
 //
 //	x := chart.NewTime(start, end).Nice(6)
 //
+// It rounds once, as d3's does, so the niced domain's Ticks can step
+// coarser and leave its ends unmarked, mostly for a count of one or two.
 // A domain of no time, or a count of no ticks, is unchanged.
 func (s Time) Nice(count int) Time {
 	if count <= 0 {

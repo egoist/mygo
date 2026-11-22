@@ -57,19 +57,20 @@ const spans: [string, string][] = [
   ["2026-03-05T14:00:00.000Z", "2026-03-05T16:00:00.000Z"], // round already
 ];
 for (const [from, to] of spans) {
-  for (const [lo, hi] of [[from, to], [to, from]]) {
+  for (const [lo, hi] of [[from, to], [to, from]] as const) {
     for (const count of [1, 2, 3, 5, 7, 10]) {
       const domain = [Date.parse(lo), Date.parse(hi)];
       const scale = scaleTime().domain(domain);
       const niced = scale.copy().nice(count);
-      // d3 leaves a domain that descends, of less than a second, as it is:
-      // the step of a reversed pair is negative, and a millisecond of it is
-      // what scaleTime.every gets. The port rounds it as it does any other,
-      // so the descending cases record only their ticks.
+      // d3 leaves a descending domain of less than a second, or of years,
+      // as it is: the step of a reversed pair is negative, which
+      // millisecond.every clamps to 1 ms and year.every refuses. The port
+      // rounds it as it does any other, so the descending cases record
+      // only their ticks.
       times.push({ domain, count,
-        ticks: scale.ticks(count).map((d) => +d),
-        nice: lo < hi ? niced.domain().map((d) => +d) : null,
-        niceTicks: lo < hi ? niced.ticks(count).map((d) => +d) : null });
+        ticks: scale.ticks(count).map((d: Date) => +d),
+        nice: lo < hi ? niced.domain().map((d: Date) => +d) : null,
+        niceTicks: lo < hi ? niced.ticks(count).map((d: Date) => +d) : null });
     }
   }
 }
