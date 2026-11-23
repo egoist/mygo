@@ -179,6 +179,57 @@ func TestOverlayGivesTheFocusBack(t *testing.T) {
 	}
 }
 
+// An element of an overlay focused as it is built, as an alert's default
+// button or an input with AutoFocus, is not taken for the overlay's opener:
+// the focus goes back to the element that had it.
+func TestOverlayFocusedAsItIsBuiltGivesTheFocusBack(t *testing.T) {
+	for _, name := range []string{"AutoFocus", "AlertDialog"} {
+		open, q := false, ""
+		tt := coreNewTester(func(c *context) {
+			if coreButton(c, "Open").Clicked() {
+				open = true
+			}
+			if name == "AlertDialog" {
+				coreAlertDialog(c, &open, "Delete Notes?", "", "OK")
+			} else {
+				coreModal(c, &open, func() { coreTextInput(c, &q).Label("Search").AutoFocus() })
+			}
+		}, 500, 400)
+		tt.Click("Open")
+		tt.Key(0, KeyEscape)
+		if open || !tt.Focused("Open") {
+			t.Errorf("%s: closed by Escape, the focus is not back on Open (open %v)", name, open)
+		}
+	}
+}
+
+// A dialog opened from a dialog gives the focus back to the element of the
+// outer one that opened it.
+func TestNestedDialogGivesTheFocusBack(t *testing.T) {
+	outer, inner := false, false
+	tt := coreNewTester(func(c *context) {
+		if coreButton(c, "Open").Clicked() {
+			outer = true
+		}
+		coreModal(c, &outer, func() {
+			coreButton(c, "First")
+			if coreButton(c, "Inner").Clicked() {
+				inner = true
+			}
+			coreModal(c, &inner, func() { coreButton(c, "Deep") })
+		})
+	}, 500, 400)
+	tt.Click("Open")
+	tt.Click("Inner")
+	if !inner {
+		t.Fatal("Inner did not open the inner dialog")
+	}
+	tt.Key(0, KeyEscape)
+	if inner || !outer || !tt.Focused("Inner") {
+		t.Errorf("closing the inner dialog: the focus is not back on Inner (inner %v, outer %v, First focused %v)", inner, outer, tt.Focused("First"))
+	}
+}
+
 // A dialog with nothing to focus takes the focus from the page behind it
 // all the same: what is typed does not reach the input there, Escape still
 // closes the dialog, and the input has the focus again after.
@@ -347,5 +398,30 @@ func TestEscapeGoesToTheFocusedElementFirst(t *testing.T) {
 	tt.Key(0, KeyEscape)
 	if !open || escapes != 1 {
 		t.Errorf("Escape in the terminal: dialog open %v, the terminal took %d", open, escapes)
+	}
+}
+
+// A dialog with nothing to focus, opened from a dialog, gives the focus
+// back to the element of the outer one that opened it, though it took the
+// focus from it.
+func TestNestedDialogWithNothingToFocusGivesTheFocusBack(t *testing.T) {
+	outer, inner := false, false
+	tt := coreNewTester(func(c *context) {
+		if coreButton(c, "Open").Clicked() {
+			outer = true
+		}
+		coreModal(c, &outer, func() {
+			coreButton(c, "First")
+			if coreButton(c, "Inner").Clicked() {
+				inner = true
+			}
+			coreModal(c, &inner, func() { coreText(c, "Just a message") })
+		})
+	}, 500, 400)
+	tt.Click("Open")
+	tt.Click("Inner")
+	tt.Key(0, KeyEscape)
+	if inner || !outer || !tt.Focused("Inner") {
+		t.Errorf("closing the inner dialog: the focus is not back on Inner (inner %v, outer %v, First focused %v)", inner, outer, tt.Focused("First"))
 	}
 }
