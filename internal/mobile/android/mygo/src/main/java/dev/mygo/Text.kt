@@ -22,12 +22,26 @@ import kotlin.math.floor
  * as TextLine measures and draws a span (getRunAdvance, drawTextRun).
  */
 object Text {
+    // Largest width or height kept in the reusable rasterization scratch
+    // bitmap; larger runs use a temporary bitmap recycled right away.
+    private const val MAX_SCRATCH = 256
+
     // The faces the app registered under each family, a weight and style each.
     private val registered = HashMap<String, ArrayList<Typeface>>()
     private val faces = HashMap<String, Typeface>()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG)
     private val bounds = Rect()
     private var bitmap: Bitmap? = null
+    private var pixelBuf: ByteBuffer? = null
+
+    /** Releases cached scratch buffers and resolved typefaces on memory pressure. */
+    @Synchronized
+    fun trim() {
+        bitmap?.recycle()
+        bitmap = null
+        pixelBuf = null
+        faces.clear()
+    }
 
     /** The typeface of a CSS-like list of families, at a weight. */
     private fun typeface(families: String, weight: Long, italic: Boolean): Typeface {
@@ -171,63 +185,84 @@ object Text {
         var w = right - left
         val h = bottom - top
         if (w <= 2 * pad || h <= 2 * pad || w > 2048 || h > 2048) return r
-        var bm = bitmap
-        if (bm == null || bm.width < w || bm.height < h) {
-            bm?.recycle()
-            bm = Bitmap.createBitmap(maxOf(w, bm?.width ?: 0, 64), maxOf(h, bm?.height ?: 0, 64), Bitmap.Config.ARGB_8888)
-            bitmap = bm
-        }
-        bm!!.eraseColor(Color.TRANSPARENT)
-        val canvas = Canvas(bm)
-        canvas.translate((c.dx - left).toFloat(), (-top).toFloat())
-        canvas.scale(s.toFloat(), s.toFloat())
-        if (run) canvas.drawTextRun(t, start, end, 0, t.length, 0f, 0f, c.rtl, p) else canvas.drawText(t, 0f, 0f, p)
-        val buf = ByteBuffer.allocate(bm.byteCount)
-        bm.copyPixelsToBuffer(buf)
-        val px = buf.array()
-        val stride = bm.width * 4
-        // A run's box holds its whole word's room: only the columns it
-        // inked are kept, with the pad around them.
-        var x0 = 0
-        if (run) {
-            var lo = w
-            var hi = -1
-            for (y in 0 until h) for (x in 0 until w) {
-                if (px[y * stride + x * 4 + 3].toInt() != 0) {
-                    if (x < lo) lo = x
-                    if (x > hi) hi = x
-                }
+        val reuse = w <= MAX_SCRATCH && h <= MAX_SCRATCH
+        val bm: Bitmap
+        val buf: ByteBuffer
+        if (reuse) {
+            var cached = bitmap
+            if (cached == null || cached.width < w || cached.height < h) {
+                val nw = maxOf(w, cached?.width ?: 0, 64)
+                val nh = maxOf(h, cached?.height ?: 0, 64)
+                cached?.recycle()
+                cached = Bitmap.createBitmap(nw, nh, Bitmap.Config.ARGB_8888)
+                bitmap = cached
             }
-            if (hi < 0) return r
-            x0 = maxOf(lo - pad, 0)
-            w = minOf(hi + pad + 1, w) - x0
-            left += x0
-        }
-        // White text is as covered as it is opaque; other colors are an
-        // emoji's.
-        var color = false
-        loop@ for (y in 0 until h) for (x in 0 until w) {
-            val i = y * stride + (x0 + x) * 4
-            val a = px[i + 3].toInt() and 0xff
-            if (a > 32) {
-                val far = { v: Int -> v < a - 24 }
-                if (far(px[i].toInt() and 0xff) || far(px[i + 1].toInt() and 0xff) || far(px[i + 2].toInt() and 0xff)) {
-                    color = true
-                    break@loop
-                }
+            bm = cached
+            var b = pixelBuf
+            if (b == null || b.capacity() < bm.byteCount) {
+                b = ByteBuffer.allocate(bm.byteCount)
+                pixelBuf = b
             }
-        }
-        r.left = left.toLong()
-        r.top = top.toLong()
-        r.width = w.toLong()
-        r.height = h.toLong()
-        r.color = color
-        r.pixels = if (color) {
-            ByteArray(w * h * 4).also { out -> for (y in 0 until h) System.arraycopy(px, y * stride + x0 * 4, out, y * w * 4, w * 4) }
+            b.clear()
+            buf = b
         } else {
-            ByteArray(w * h) { k -> px[(k / w) * stride + (x0 + k % w) * 4 + 3] }
+            bm = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            buf = ByteBuffer.allocate(bm.byteCount)
         }
-        return r
+        try {
+            if (reuse) bm.eraseColor(Color.TRANSPARENT)
+            val canvas = Canvas(bm)
+            canvas.translate((c.dx - left).toFloat(), (-top).toFloat())
+            canvas.scale(s.toFloat(), s.toFloat())
+            if (run) canvas.drawTextRun(t, start, end, 0, t.length, 0f, 0f, c.rtl, p) else canvas.drawText(t, 0f, 0f, p)
+            bm.copyPixelsToBuffer(buf)
+            val px = buf.array()
+            val stride = bm.width * 4
+            // A run's box holds its whole word's room: only the columns it
+            // inked are kept, with the pad around them.
+            var x0 = 0
+            if (run) {
+                var lo = w
+                var hi = -1
+                for (y in 0 until h) for (x in 0 until w) {
+                    if (px[y * stride + x * 4 + 3].toInt() != 0) {
+                        if (x < lo) lo = x
+                        if (x > hi) hi = x
+                    }
+                }
+                if (hi < 0) return r
+                x0 = maxOf(lo - pad, 0)
+                w = minOf(hi + pad + 1, w) - x0
+                left += x0
+            }
+            // White text is as covered as it is opaque; other colors are an
+            // emoji's.
+            var color = false
+            loop@ for (y in 0 until h) for (x in 0 until w) {
+                val i = y * stride + (x0 + x) * 4
+                val a = px[i + 3].toInt() and 0xff
+                if (a > 32) {
+                    val far = { v: Int -> v < a - 24 }
+                    if (far(px[i].toInt() and 0xff) || far(px[i + 1].toInt() and 0xff) || far(px[i + 2].toInt() and 0xff)) {
+                        color = true
+                        break@loop
+                    }
+                }
+            }
+            r.left = left.toLong()
+            r.top = top.toLong()
+            r.width = w.toLong()
+            r.height = h.toLong()
+            r.color = color
+            r.pixels = if (color) {
+                ByteArray(w * h * 4).also { out -> for (y in 0 until h) System.arraycopy(px, y * stride + x0 * 4, out, y * w * 4, w * 4) }
+            } else {
+                ByteArray(w * h) { k -> px[(k / w) * stride + (x0 + k % w) * 4 + 3] }
+            }
+            return r
+        } finally {
+            if (!reuse) bm.recycle()
+        }
     }
 
     @Synchronized
