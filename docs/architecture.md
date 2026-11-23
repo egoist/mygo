@@ -2292,45 +2292,42 @@ as in Tauri:
   Launch Services still lists the app that exited, as `open` would only
   bring it forward. Its output, each step with the time, goes to
   `update.log` in `PathLogs` (which `SetPath` changes), emptied past 256 KB.
-  Without `Run` running (`runRunning`: it has not started, or it returned,
-  `runReturned`, set after `finish`), nothing would start the process:
-  `stageBundle` takes the update and starts it at once, without
-  relaunching (`swapEarly`), and fails if it cannot, as for a program that
-  never calls `Run`. If `Run` starts later, it kills that process, which
-  only waits for the app, and stages the update again
-  (`reclaimStagedUpdate`, through `stagedReclaimer`, which `stageBundle`
-  sets). `reapEarlySwap` waits for the process; if it exits while the app
-  runs, having given up after five minutes, the update is no longer
-  staged, and the next `Install` removes its work and stages its own. The
-  process's log is `PathLogs` as it is when `Install` completes.
-  `stageBundle` sets both hooks before it reads `App.running` and
-  `stagingClosed` under `stageMu`, and the app sets those before it reads
-  the hooks, so either `stageBundle` sees the app or the app sees the
-  update. Once the app looked for the staged update as it quits
-  (`stagingClosed`), until `Run` returns, and once a process took the
-  staged update (`updateQuitting`), an `Install` that completes is
-  discarded rather than staged: `finish` may be about to take the update
-  staged before, to open it after `Relaunch`, or have taken none and open
-  the old version. Each `Install` first removes the work directories next to
-  the app that are neither the staged update's nor one under way
-  (`removeStaleWork`): a crash, `App.Exit`, another signal, or a swap that
-  left the update or gave up, leaves them, with a hidden copy of the new
-  version next to the app until then. Known limits: a second SIGINT or
+  Before `Run` started (`App.running`), nothing would start the process,
+  and the program has no Dock tile to keep: `stageBundle` swaps at once
+  instead (`swapNow`), running the same script in its `now` mode, which
+  waits for nothing and opens nothing, and returns once the script exits,
+  failing with the log's path when it left the update (Install then
+  removes the work, unless the old version is in it). The script exits
+  before `Install` returns, so nothing is marked close-on-exec then;
+  `swapNowMu` keeps those swaps one at a time. An `Install` racing with
+  `Run` starting may still swap under the app as it starts.
+  `stageBundle` sets the hook before it reads `stagingClosed` under
+  `stageMu`, and the app sets that before it reads the hook, so either
+  `stageBundle` sees the app quit or the app sees the update. Once the app
+  looked for the staged update as it quits (`stagingClosed`, also when
+  the backend cannot start), and once a process took the staged update
+  (`updateQuitting`), an `Install` that completes is discarded rather than
+  staged, also after `Run` returned: `finish` may be about to take the
+  update staged before, to open it after `Relaunch`, or have taken none
+  and open the old version. Each `Install` first removes the work
+  directories next to the app that are neither the staged update's nor
+  one under way, and that nothing changed for ten minutes
+  (`removeStaleWork`, `staleWorkAge`): a crash, `App.Exit`, another
+  signal, or a swap that left the update or gave up, leaves them, with a
+  hidden copy of the new version next to the app until then. The age
+  keeps the work of another instance of the app, which this process does
+  not know of: a download writes into it, and `startSwap` touches it, so
+  the five minutes a swap waits for its app stay within it; a staged
+  update whose instance runs on for longer may still go, and its swap
+  then logs that it cannot move the bundle aside and leaves the app as
+  it was. Known limits: a second SIGINT or
   SIGTERM during the quit installs the update but opens nothing, even after
-  `Relaunch` (its process gets `relaunch` false, and `relaunchNow` then
+  `Relaunch` (its process gets the mode `quit`, not `relaunch`, and `relaunchNow` then
   opens nothing either); the paths that leave the update (gave up, target
   gone or there again, another instance) log and exit without opening
   anything; and an instance started by running `Contents/MacOS/<exe>`
   directly counts as another instance only once it registers with Launch
-  Services, as its app starts. Without `Run`, `inheritNoFiles` marks the
-  program's files close-on-exec as soon as `Install` completes, and the
-  program, which goes on, passes its later children only the files it
-  passes explicitly (`ExtraFiles`). After `Run` returned, once `finish`
-  took an update, every later `Install` is refused (`updateQuitting`
-  stays set), and the process `finish` started is released, not reaped
-  (`reapEarlySwap` is only for the processes that `stageBundle` starts):
-  if it gives up while the program runs, nothing resets, and it stays a
-  zombie until the program exits. On Linux and Windows the app directory holds
+  Services, as its app starts. On Linux and Windows the app directory holds
   `update.FileList` (`.mygo-files`), its top-level entries as installed, one
   per line: `mygo build` writes it into the app (so the archive, installer
   and packages have it), and `swapFiles` rewrites it in the update with the
