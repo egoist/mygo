@@ -343,6 +343,11 @@ type Android struct {
 	// module's jniLibs. By default they stay in the APK, uncompressed, and
 	// are loaded from it.
 	ExtractNativeLibs bool `json:"extractNativeLibs"`
+	// V1Signing signs the APK with the JAR signature (v1) as well as the
+	// newer schemes. Android does not need it from 7.0, so the build leaves
+	// it out from minSdk 24, but some phones' installers still refuse an
+	// APK without it.
+	V1Signing bool `json:"v1Signing"`
 }
 
 // AndroidAdaptiveIcon is an icon of two layers.
