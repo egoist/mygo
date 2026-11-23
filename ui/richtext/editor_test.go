@@ -1611,3 +1611,42 @@ func TestRichTextKeyboardSelectionForgetsColumn(t *testing.T) {
 		t.Fatalf("Down after the keyboard put the caret at 12 = (%d, %d), want (19, 19)", a, c)
 	}
 }
+
+// Redo puts the caret where a paste or typing over a selection left it,
+// as undo puts back the selection it replaced.
+func TestRichTextRedoPutsCaretAfterReplacedSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		a, z int
+		act  func(tt *ui.Tester)
+	}{
+		{"paste over a forward selection", 2, 8, func(tt *ui.Tester) {
+			tt.SetClipboardData(clipboardData(NewText("X")))
+			tt.Key(ui.Cmd, ui.KeyV)
+		}},
+		{"paste over a backward selection", 8, 2, func(tt *ui.Tester) {
+			tt.SetClipboardData(clipboardData(NewText("X")))
+			tt.Key(ui.Cmd, ui.KeyV)
+		}},
+		{"plain paste over a selection", 2, 8, func(tt *ui.Tester) {
+			tt.SetClipboard("XY")
+			tt.Key(ui.Cmd, ui.KeyV)
+		}},
+		{"typing over a selection", 2, 8, func(tt *ui.Tester) { tt.Type("X") }},
+	} {
+		doc := NewDocument(NewText("hello world"))
+		tt, _ := richTester(t, doc)
+		doc.SetSelection(tc.a, tc.z)
+		tt.Frame()
+		tc.act(tt)
+		wantA, wantZ := doc.Selection()
+		tt.Key(ui.Cmd, ui.KeyZ)
+		if a, z := doc.Selection(); a != tc.a || z != tc.z {
+			t.Errorf("%s: undo selected %d,%d, want %d,%d", tc.name, a, z, tc.a, tc.z)
+		}
+		tt.Key(ui.Cmd|ui.Shift, ui.KeyZ)
+		if a, z := doc.Selection(); a != wantA || z != wantZ {
+			t.Errorf("%s: redo selected %d,%d, want %d,%d as the edit left", tc.name, a, z, wantA, wantZ)
+		}
+	}
+}
