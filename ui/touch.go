@@ -1002,6 +1002,16 @@ func (rt *engine) scrollToTop() {
 // lowMemory lets go of what the next frame makes again.
 func (rt *engine) lowMemory() {
 	rt.text.Forget()
+	rt.scene = scene.Scene{}
+	rt.drawn = nil
+	rt.partOps = nil
+	rt.maskScene = nil
+	clear(rt.pathClips)
+	clear(rt.svgs.pictures)
+	rt.svgs.canvas = nil
+	rt.svgs.mask = nil
+	rt.paths.pix = nil
+	rt.paths.spill.layers = nil
 	rt.requestFrame()
 }
 

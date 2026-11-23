@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/scene"
 	"github.com/egoist/mygo/internal/surface"
+	"github.com/egoist/mygo/internal/text"
 	"github.com/egoist/mygo/transfer"
 )
 
@@ -843,5 +844,41 @@ func TestRendererReleasedOnSurfaceRenew(t *testing.T) {
 	frame()
 	if len(made) != 2 || made[1].frames != 1 {
 		t.Errorf("after: %d renderers", len(made))
+	}
+}
+
+func TestLowMemoryReleasesCachedBuffersAndAtlases(t *testing.T) {
+	oldTouch := touchSystem
+	touchSystem = (*engine).systemEvent
+	t.Cleanup(func() { touchSystem = oldTouch })
+
+	h, _, frame := gpuHost(t, func() (gpuRenderer, error) { return &testGPU{}, nil })
+	h.rt.text = text.New()
+	frame()
+	if h.last == nil {
+		t.Fatal("first frame did not record last scene")
+	}
+	h.rt.text.MaskAtlas.Grow()
+	h.rt.pathClips = map[uint64]*pathClip{1: {img: scene.NewImageRGBA(4, 4, make([]byte, 64))}}
+	h.rt.svgs.pictures = map[pictureKey]*picture{{}: {img: scene.NewImageRGBA(4, 4, make([]byte, 64))}}
+	h.rt.svgs.canvas = image.NewRGBA(image.Rect(0, 0, 8, 8))
+	h.rt.svgs.mask = make([]byte, 64)
+	h.rt.paths.pix = make([]byte, 64)
+
+	h.event(platform.SurfaceEvent{Kind: platform.SurfaceLowMemory})
+	if h.last != nil {
+		t.Error("SurfaceLowMemory kept h.last")
+	}
+	if len(h.rt.scene.Ops) != 0 || len(h.rt.drawn) != 0 || len(h.rt.pathClips) != 0 || len(h.rt.svgs.pictures) != 0 ||
+		h.rt.svgs.canvas != nil || h.rt.svgs.mask != nil || h.rt.paths.pix != nil {
+		t.Error("SurfaceLowMemory kept engine paint caches")
+	}
+	if a := h.rt.text.MaskAtlas; a.W != 256 || a.H != 256 {
+		t.Errorf("mask atlas %dx%d after low memory, want 256x256", a.W, a.H)
+	}
+	// The next frame repaints cleanly from scratch.
+	frame()
+	if h.last == nil {
+		t.Error("frame after low memory did not render")
 	}
 }

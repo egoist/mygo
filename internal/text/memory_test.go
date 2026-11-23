@@ -313,3 +313,93 @@ func TestOversizedParagraphEvictsUnusedLayouts(t *testing.T) {
 		t.Fatal("the unused layouts survived")
 	}
 }
+
+type forgetTestEngine struct {
+	stubEngine
+	forgot, released, shaped int
+	color                    bool
+}
+
+func (e *forgetTestEngine) fontCount() int  { return 1 }
+func (e *forgetTestEngine) forgetFonts()    { e.forgot++ }
+func (e *forgetTestEngine) releaseFonts()   { e.released++ }
+func (e *forgetTestEngine) endFrame()       {}
+func (e *forgetTestEngine) releaseShaping() { e.shaped++ }
+func (e *forgetTestEngine) glyph(f *Font, id uint32, scale, dx float32, shade Shade, subpixel bool) bitmap {
+	if e.color {
+		return bitmap{w: 16, h: 16, pix: make([]byte, 16*16*4), color: true}
+	}
+	return bitmap{w: 16, h: 16, pix: make([]byte, 16*16)}
+}
+
+func TestForgetShrinksAtlasesAndReleasesCaches(t *testing.T) {
+	s := newSystem()
+	eng := &forgetTestEngine{}
+	s.eng = eng
+	s.Layout(Params{Text: "cached label"})
+	s.BeginFrame()
+	if !s.Mask(1, func() (int, int, []byte) { return 200, 200, make([]byte, 200*200) }).OK {
+		t.Fatal("initial mask did not fit")
+	}
+	s.EndFrame()
+	for s.MaskAtlas.W < 1024 {
+		s.MaskAtlas.Grow()
+	}
+	eng.color = true
+	f := s.font(Style{})
+	if !s.Glyph(f, 1, 1, 0, 0, false).OK {
+		t.Fatal("first color glyph did not fit")
+	}
+	for s.ColorAtlas.W < 512 {
+		s.ColorAtlas.Grow()
+	}
+	maskGen, colorGen := s.MaskAtlas.Generation(), s.ColorAtlas.Generation()
+	oldMask := weak.Make(&s.MaskAtlas.Pix[0])
+	oldColor := weak.Make(&s.ColorAtlas.Pix[0])
+	releasedBefore := eng.released
+
+	s.Forget()
+	runtime.GC()
+	if oldMask.Value() != nil || oldColor.Value() != nil {
+		t.Error("Forget retained grown atlas backing buffers")
+	}
+	if s.MaskAtlas.W != initMaskAtlasSize || s.MaskAtlas.H != initMaskAtlasSize {
+		t.Errorf("mask atlas %dx%d, want %dx%d", s.MaskAtlas.W, s.MaskAtlas.H, initMaskAtlasSize, initMaskAtlasSize)
+	}
+	if s.ColorAtlas.W != initColorAtlasSize || s.ColorAtlas.H != initColorAtlasSize {
+		t.Errorf("color atlas %dx%d, want %dx%d", s.ColorAtlas.W, s.ColorAtlas.H, initColorAtlasSize, initColorAtlasSize)
+	}
+	if s.MaskAtlas.Generation() == maskGen || s.ColorAtlas.Generation() == colorGen {
+		t.Error("Forget did not advance atlas generations")
+	}
+	if len(s.layouts) != 0 || len(s.glyphs) != 0 || len(s.masks) != 0 || len(s.transient) != 0 || len(s.recent) != 0 {
+		t.Errorf("caches not empty after Forget: layouts=%d glyphs=%d masks=%d transient=%d recent=%d",
+			len(s.layouts), len(s.glyphs), len(s.masks), len(s.transient), len(s.recent))
+	}
+	if eng.forgot != 1 || eng.released != releasedBefore+1 || eng.shaped != 1 {
+		t.Errorf("engine hooks: forgot=%d released=%d (before %d) shaped=%d", eng.forgot, eng.released, releasedBefore, eng.shaped)
+	}
+
+	// After Forget, a color glyph on the shrunk 1x1 atlas triggers MakeRoom
+	// and fits cleanly on the retry.
+	s.BeginFrame()
+	if g := s.Glyph(s.font(Style{}), 1, 1, 0, 0, false); g.OK || !s.Full() {
+		t.Fatalf("color glyph before MakeRoom: %+v full=%v", g, s.Full())
+	}
+	s.MakeRoom()
+	if g := s.Glyph(s.font(Style{}), 1, 1, 0, 0, false); !g.OK || s.Full() {
+		t.Fatalf("color glyph after MakeRoom: %+v full=%v", g, s.Full())
+	}
+	runtime.KeepAlive(s)
+}
+
+func TestForgetWorksWithoutFontForgetter(t *testing.T) {
+	s := newSystem()
+	s.eng = &stubEngine{}
+	s.Layout(Params{Text: "label"})
+	s.MaskAtlas.Grow()
+	s.Forget()
+	if len(s.layouts) != 0 || s.MaskAtlas.W != initMaskAtlasSize {
+		t.Fatalf("after Forget: layouts=%d mask=%dx%d", len(s.layouts), s.MaskAtlas.W, s.MaskAtlas.H)
+	}
+}

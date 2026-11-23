@@ -2,7 +2,9 @@ package scene
 
 import (
 	"image"
+	"runtime"
 	"testing"
+	"weak"
 )
 
 func TestAtlasZones(t *testing.T) {
@@ -121,4 +123,49 @@ func TestAtlasRepackAndGrow(t *testing.T) {
 	if _, _, ok := a.Alloc(40, 40); !ok {
 		t.Error("no room after growing")
 	}
+}
+
+func TestAtlasResetToShrinksAndInvalidates(t *testing.T) {
+	a := NewAtlas(4, 1, 1)
+	for a.W < 256 {
+		a.Grow()
+	}
+	x, y, ok := a.Alloc(8, 8)
+	if !ok {
+		t.Fatal("cannot allocate in grown atlas")
+	}
+	a.Put(x, y, 1, 1, []byte{1, 2, 3, 4}, 4)
+	oldGen, oldVer := a.Generation(), a.Version()
+	oldPix := weak.Make(&a.Pix[0])
+
+	a.ResetTo(1, 1)
+	runtime.GC()
+	if oldPix.Value() != nil {
+		t.Error("ResetTo retained the larger pixel buffer")
+	}
+	if a.W != 1 || a.H != 1 || len(a.Pix) != 4 {
+		t.Fatalf("size %dx%d (%d bytes), want 1x1 (4 bytes)", a.W, a.H, len(a.Pix))
+	}
+	if a.Generation() == oldGen {
+		t.Error("ResetTo did not advance the generation")
+	}
+	if a.Version() <= oldVer {
+		t.Errorf("version %d did not advance past %d", a.Version(), oldVer)
+	}
+	if _, full := a.Changes(oldGen, oldVer); !full {
+		t.Error("Changes did not ask for a full upload after ResetTo")
+	}
+	a.Grow()
+	a.Grow()
+	before := a.Version()
+	x, y, ok = a.Alloc(2, 2)
+	if !ok || x != 0 || y != 0 {
+		t.Fatalf("alloc after ResetTo+Grow: %d,%d %v", x, y, ok)
+	}
+	a.Put(x, y, 2, 2, make([]byte, 16), 8)
+	rects, full := a.Changes(a.Generation(), before)
+	if full || len(rects) != 1 || rects[0] != image.Rect(0, 0, 3, 3) {
+		t.Errorf("changes after Put: %v full=%v", rects, full)
+	}
+	runtime.KeepAlive(a)
 }

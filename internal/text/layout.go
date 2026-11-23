@@ -558,11 +558,16 @@ func newSystem() *System {
 	return s
 }
 
+const (
+	initMaskAtlasSize  = 256
+	initColorAtlasSize = 1
+)
+
 // newAtlases returns the glyph atlases a System starts with.
 func newAtlases() (mask, color *scene.Atlas) {
 	// Most interfaces have no color or subpixel glyphs. Keep just a
 	// transparent texel until one asks for room.
-	return scene.NewAtlas(1, 256, 256), scene.NewAtlas(4, 1, 1)
+	return scene.NewAtlas(1, initMaskAtlasSize, initMaskAtlasSize), scene.NewAtlas(4, initColorAtlasSize, initColorAtlasSize)
 }
 
 // Shared returns the process-wide text system.
@@ -944,8 +949,8 @@ func (s *System) Preload() {
 	s.font(Style{})
 }
 
-// forgetAll lets go of the fonts and what refers to them.
-func (s *System) forgetAll(f fontForgetter) {
+// forgetCaches lets go of cached layouts, fonts and glyphs.
+func (s *System) forgetCaches() {
 	s.gen++
 	s.clearLayouts()
 	clear(s.marks)
@@ -953,17 +958,34 @@ func (s *System) forgetAll(f fontForgetter) {
 	clear(s.glyphs)
 	clear(s.places)
 	clear(s.runs)
+}
+
+// forgetAll lets go of the fonts and what refers to them.
+func (s *System) forgetAll(f fontForgetter) {
+	s.forgetCaches()
 	f.forgetFonts()
 }
 
 // Forget lets go of what the System can make again: layouts, fonts, glyphs,
-// as the system runs short of memory.
+// masks and grown atlases, as the system runs short of memory.
 func (s *System) Forget() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.forgetCaches()
 	if f, ok := s.eng.(fontForgetter); ok {
-		s.forgetAll(f)
+		f.forgetFonts()
+		f.releaseFonts()
 	}
+	if k, ok := s.eng.(shapingKeeper); ok {
+		k.releaseShaping()
+	}
+	s.MaskAtlas.ResetTo(initMaskAtlasSize, initMaskAtlasSize)
+	s.ColorAtlas.ResetTo(initColorAtlasSize, initColorAtlasSize)
+	clear(s.masks)
+	clear(s.transient)
+	clear(s.recent)
+	s.forgetLeftOut()
+	s.rooms = 0
 }
 
 // EndFrame forgets layouts no frame used for a while. The ui package calls

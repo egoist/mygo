@@ -353,14 +353,16 @@ func (h *windowHost) event(ev platform.SurfaceEvent) bool {
 	if ev.Kind >= platform.SurfaceLowMemory && ev.Kind <= platform.SurfaceStackPopped {
 		if ev.Kind == platform.SurfaceLowMemory {
 			// What the next frame makes again: the renderer's textures, its
-			// atlases and pipelines among them, and a renderer kept while
-			// the surface has none to draw into.
+			// atlases and pipelines among them, a renderer kept while the
+			// surface has none to draw into, and the software frame buffer.
 			if h.gpu != nil {
 				h.gpu.Release()
 				h.gpu = nil
 				h.gpuTried, h.retryAt = false, time.Time{}
 			}
 			h.releaseParked()
+			h.soft.Release()
+			h.last = nil
 			h.requestFrame()
 		}
 		if touchSystem != nil {

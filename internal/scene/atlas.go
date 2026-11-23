@@ -230,6 +230,23 @@ func (a *Atlas) Reset() {
 	a.changedAll()
 }
 
+// ResetTo empties the atlas and resizes it to w×h: every allocation becomes
+// invalid, and any larger backing buffer is let go.
+func (a *Atlas) ResetTo(w, h int) {
+	if a.W != w || a.H != h {
+		a.W, a.H = w, h
+		a.Pix = make([]byte, w*h*a.BPP)
+	} else {
+		clear(a.Pix)
+	}
+	a.shelves = nil
+	a.transient = nil
+	a.bottom = 0
+	a.top = h
+	a.log = nil
+	a.changedAll()
+}
+
 // changedAll makes renderers upload the whole atlas.
 func (a *Atlas) changedAll() {
 	a.gen++
