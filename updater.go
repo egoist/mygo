@@ -213,41 +213,13 @@ func checkUpdate(ctx context.Context, src UpdateSource, key, current string, pre
 // version, only the delta is downloaded, unless it fails to make the new
 // version: the whole update is downloaded then, and the progress starts
 // over. The running app is not affected: the new version runs after
-// App.Relaunch, or at the next launch. On macOS the update is only staged
-// next to the app until it quits: as it finishes, however it quits (but
-// with App.Exit, a crash, or a signal other than SIGINT and SIGTERM, which
-// leave the update for the next Install to remove), the app starts a
-// process that waits for it to exit, installs the update, opens the new
-// version after App.Relaunch, and logs each step to update.log in the
-// app's logs (App.Path(PathLogs), which SetPath changes). A second SIGINT
-// or SIGTERM while the app quits installs the update but opens nothing,
-// even after App.Relaunch. The process opens nothing either when it
-// leaves the update: when the app runs on for five minutes, when the
-// app's bundle is gone or there again once moved aside, or when another
-// instance runs from it, which it sees only once that instance registers
-// with Launch Services (an executable run from Contents/MacOS in a
-// terminal does so only as its app starts).
-//
-// A program whose App.Run is not running when Install completes (one that
-// never calls it, or calls it later, or whose Run returned) gets that
-// process at once, which installs the update once the program exits and
-// opens nothing; if the program then calls Run, Run stops the process and
-// the update is installed as the app quits, as above. While that process
-// waits, a later Install fails, as one does once the app began quitting.
-// If the program runs on for five minutes, the process gives up, and the
-// next Install removes the update and stages its own. That process logs
-// to the logs directory as it is when Install completes: set the app's
-// name and PathLogs before. Starting it marks every file of the program
-// above its standard streams close-on-exec, as the app does as it quits:
-// without Run, that happens as soon as Install completes, and the
-// program's later child processes inherit no file it did not pass them
-// explicitly (as exec.Cmd's ExtraFiles, which still work).
-//
-// Known limits of a program that goes on running after Run returned:
-// when the app took an update as it quit, every later Install fails; and
-// the process started then, which gives up after five minutes while the
-// program runs, is not waited for, so it stays a zombie until the program
-// exits, and later Installs still fail.
+// App.Relaunch, or at the next launch. On macOS the update is installed
+// as the app quits, through App.Quit, App.Relaunch, SIGINT or SIGTERM, and
+// each step is logged to update.log in the app's logs directory
+// (App.Path(PathLogs)). A crash or App.Exit leaves it next to the app,
+// for the next Install to remove. A program that calls Install before
+// App.Run, or never calls Run, gets the update installed before Install
+// returns.
 //
 // The app must be able to write where it is installed: a bundle in
 // /Applications of an administrator, or an app directory the user owns on
@@ -305,9 +277,9 @@ func installUpdate(ctx context.Context, get update.Getter, m update.Manifest, ke
 	if err != nil {
 		return fmt.Errorf("cannot write next to the app: %w", err)
 	}
-	staged := false
+	keep := false
 	defer func() {
-		if !staged {
+		if !keep {
 			os.RemoveAll(work)
 		}
 		done()
@@ -317,7 +289,9 @@ func installUpdate(ctx context.Context, get update.Getter, m update.Manifest, ke
 	if runtime.GOOS == "darwin" {
 		swap = func(dir, target string) error {
 			err := stageBundle(work, dir, target)
-			staged = err == nil
+			// Staged, or a swap that failed left the old version there.
+			_, oldErr := os.Lstat(filepath.Join(work, "old"))
+			keep = err == nil || oldErr == nil
 			return err
 		}
 	}
@@ -427,8 +401,7 @@ type stagedUpdate struct {
 // The state of the updates that Install stages on macOS, which stageMu
 // guards: the staged update, the work directories of the Installs under
 // way, whether the app began installing the staged update as it
-// finishes, or Install did without the event loop, and whether it started
-// the process that installs it.
+// finishes, and whether it started the process that installs it.
 var (
 	stageMu sync.Mutex
 	// pendingUpdate is the update that Install staged on macOS. It replaces
@@ -441,26 +414,20 @@ var (
 	// which removeStaleWork leaves alone.
 	updateWork = map[string]bool{}
 	// updateQuitting is set once the app finishes and installStagedUpdate
-	// took pendingUpdate, or stageBundle took it without the event loop
-	// (swapEarly): an update staged later would never be installed, and
-	// replacing the pending one would remove the bundle that the swap
+	// took pendingUpdate: an update staged later would never be installed,
+	// and replacing the pending one would remove the bundle that the swap
 	// process is about to move into place.
 	updateQuitting bool
-	// swapStarted is closed once the call of installStagedUpdate or
-	// stageBundle that took pendingUpdate started the swap process, which
-	// swapRunning reports, or failed to.
+	// swapStarted is closed once the call of installStagedUpdate that took
+	// pendingUpdate started the swap process, which swapRunning reports,
+	// or failed to.
 	swapStarted = make(chan struct{})
 	swapRunning bool
-	// swapEarly is set while stageBundle took pendingUpdate as App.Run was
-	// not running, and earlySwap is the process it started, which Run stops
-	// if it starts (reclaimStagedUpdate), and which reapEarlySwap waits for,
-	// closing earlyExited then. earlyQuitting is what updateQuitting was
-	// before, which it is again once the process exits while this one runs.
-	swapEarly     bool
-	earlySwap     *os.Process
-	earlyExited   chan struct{}
-	earlyQuitting bool
 )
+
+// swapNowMu keeps the swaps that Install runs itself, without App.Run,
+// one at a time (swapNow).
+var swapNowMu sync.Mutex
 
 // appPid is the process whose exit a staged update waits for: the app's,
 // which tests replace.
@@ -523,30 +490,18 @@ func removeStaleWork(target string) {
 	}
 }
 
-// runRunning reports whether App.Run runs: it started and has not
-// returned (runReturned). Without it, stageBundle starts the process that
-// installs the update at once, as nothing else would.
-func runRunning() bool {
-	App.mu.Lock()
-	running := App.running
-	App.mu.Unlock()
-	return running && !runReturned.Load()
-}
-
 // stageBundle leaves the bundle that dir holds to replace target once the
 // app has exited, in place of an update staged before, whose work it
 // removes. Nothing runs until then: the app starts the process that
 // installs it as it finishes (installStagedUpdate, which it reaches
 // through stagedInstaller, set here). Once it looked for the update
-// (stagingClosed), until Run returns, or once a process installs an
-// update, the update is refused, and Install removes it.
+// (stagingClosed), the update is refused, and Install removes it: the
+// app may be about to take the update staged before, to open it after
+// Relaunch, or have taken none and open the old version.
 //
-// Without Run running (runRunning: it has not started, or it returned), no
-// finish would start the process: stageBundle takes the update and starts
-// it at once, not to relaunch the app, and fails if it cannot. If Run
-// starts later, it takes the update back (reclaimStagedUpdate, through
-// stagedReclaimer, set here); if the process exits while this one runs,
-// having given up, the update is no longer staged (reapEarlySwap).
+// Before App.Run started, no finish would start that process, and the
+// program has no Dock tile to keep: stageBundle swaps the bundles itself,
+// at once (swapNow).
 func stageBundle(work, dir, target string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -556,43 +511,44 @@ func stageBundle(work, dir, target string) error {
 		return errors.New("the update holds no app bundle")
 	}
 	p := &stagedUpdate{work: work, bundle: filepath.Join(dir, entries[0].Name()), target: target}
-	// Before checking stagingClosed, which the app sets before it reads
-	// stagedInstaller, and App.running, which Run sets before it reads
-	// stagedReclaimer: either the app finds them, or this call sees that
-	// the app quits, or that Run does not run.
-	install, reclaim := installStagedUpdate, reclaimStagedUpdate
-	stagedInstaller.CompareAndSwap(nil, &install)
-	stagedReclaimer.CompareAndSwap(nil, &reclaim)
-	stageMu.Lock()
-	if updateQuitting && pendingUpdate != nil {
-		stageMu.Unlock()
-		return errors.New("another update is installed once the app exits")
+	App.mu.Lock()
+	running := App.running
+	App.mu.Unlock()
+	if !running {
+		return swapNow(p)
 	}
-	running := runRunning()
-	// The app quits: it may be about to take the update it staged, to
-	// open it after Relaunch, or have taken none and open the old version.
-	if running && (updateQuitting || stagingClosed.Load()) {
+	// Before checking stagingClosed, which the app sets before it reads
+	// stagedInstaller: either the app finds the installer, or the update
+	// is refused.
+	install := installStagedUpdate
+	stagedInstaller.CompareAndSwap(nil, &install)
+	stageMu.Lock()
+	if updateQuitting || stagingClosed.Load() {
 		stageMu.Unlock()
 		return errors.New("the app is quitting")
 	}
-	old, quitting := pendingUpdate, updateQuitting
+	old := pendingUpdate
 	pendingUpdate = p
-	now := !running
-	if now {
-		updateQuitting, swapEarly, earlyQuitting = true, true, quitting
-	}
-	started := swapStarted
 	stageMu.Unlock()
 	if old != nil {
 		_ = os.RemoveAll(old.work)
 	}
-	if now && !startStaged(p, false, nil, started, true) {
-		stageMu.Lock()
-		if pendingUpdate == p {
-			pendingUpdate, updateQuitting, swapEarly, swapStarted = nil, quitting, false, make(chan struct{})
-		}
-		stageMu.Unlock()
-		return errors.New("cannot start the process that installs it")
+	return nil
+}
+
+// swapNow installs p at once, with the script that installs a staged
+// update as the app quits, in its mode that waits for nothing and opens
+// nothing, and returns once it is done, with its steps in the update log.
+// The script exits before Install returns, so the program's files it
+// inherits stay with the program alone.
+func swapNow(p *stagedUpdate) error {
+	swapNowMu.Lock()
+	defer swapNowMu.Unlock()
+	cmd, closeLog := swapCommand(p, "now", nil)
+	defer closeLog()
+	if err := cmd.Run(); err != nil {
+		path, _ := updateLogPath()
+		return fmt.Errorf("the update was not installed (%v): see %s", err, path)
 	}
 	return nil
 }
@@ -601,9 +557,8 @@ func stageBundle(work, dir, target string) error {
 // keeps Install from staging another (updateQuitting). Only its first
 // call returns it: a second signal can arrive as the app finishes, and
 // both would start a process that installs it. Later calls report
-// whether an earlier one took an update instead, or stageBundle did
-// without the event loop, with started, which that call closes once it
-// started the process or failed to.
+// whether an earlier one took an update instead, with started, which
+// that call closes once it started the process or failed to.
 func takeStagedUpdate() (p *stagedUpdate, taken bool, started chan struct{}) {
 	stageMu.Lock()
 	defer stageMu.Unlock()
@@ -618,14 +573,13 @@ func takeStagedUpdate() (p *stagedUpdate, taken bool, started chan struct{}) {
 // Install staged on macOS, once the app has exited, and that then opens
 // the new version when relaunch is set, with the arguments args. It
 // reports whether a process installs the update. Only its first call
-// starts one, unless stageBundle did without the event loop: a later
-// call waits for that one to start it, at most swapStartWait (2 s), and
-// reports what it did; once that wait is over it takes the process as
-// started and reports true, whether or not it ever starts. So a second
-// signal does not exit before the process started, unless starting it
-// takes longer than the wait, and Relaunch does not open the old
-// version, which the process is about to move away. The app calls it as
-// it finishes, however it quits, and on a second signal
+// starts one: a later call waits for that one to start it, at most
+// swapStartWait (2 s), and reports what it did; once that wait is over it
+// takes the process as started and reports true, whether or not it ever
+// starts. So a second signal does not exit before the process started,
+// unless starting it takes longer than the wait, and Relaunch does not
+// open the old version, which the process is about to move away. The app
+// calls it as it finishes, however it quits, and on a second signal
 // (stagedInstaller).
 func installStagedUpdate(relaunch bool, args []string) bool {
 	p, taken, started := takeStagedUpdate()
@@ -645,81 +599,20 @@ func installStagedUpdate(relaunch bool, args []string) bool {
 	if p == nil {
 		return false
 	}
-	return startStaged(p, relaunch, args, started, false)
-}
-
-// startStaged starts the process that installs p, which opens the app
-// after when relaunch is set, with the arguments args, closes started
-// once it did or failed to, and reports whether it did. The process is
-// left to run (released), but the one that stageBundle starts without
-// the event loop (early), which Run may stop: it is kept in earlySwap.
-func startStaged(p *stagedUpdate, relaunch bool, args []string, started chan struct{}, early bool) bool {
-	var proc *os.Process
+	ok := false
 	if runtime.GOOS == "darwin" {
 		if cmd, err := startSwap(p, relaunch, args); err != nil {
 			log.Printf("mygo: cannot start installing the update in %s: %v", p.work, err)
 		} else {
-			proc = cmd.Process
+			_ = cmd.Process.Release()
+			ok = true
 		}
 	}
 	stageMu.Lock()
-	swapRunning = proc != nil
-	if early && swapEarly && proc != nil {
-		earlySwap, earlyExited = proc, make(chan struct{})
-		go reapEarlySwap(proc, earlyExited)
-	} else if proc != nil {
-		_ = proc.Release()
-	}
+	swapRunning = ok
 	close(started)
 	stageMu.Unlock()
-	return proc != nil
-}
-
-// reapEarlySwap waits for the process proc that stageBundle started
-// without Run, and closes exited then. If it exits while this process
-// runs, and Run did not stop it, it gave up waiting: its update stays in
-// its work, which the next Install removes, and is no longer staged, so
-// that the next Install stages its own.
-func reapEarlySwap(proc *os.Process, exited chan struct{}) {
-	_, _ = proc.Wait()
-	close(exited)
-	stageMu.Lock()
-	defer stageMu.Unlock()
-	if earlySwap != proc {
-		return
-	}
-	pendingUpdate, updateQuitting = nil, earlyQuitting
-	earlySwap, swapEarly, earlyExited = nil, false, nil
-	swapStarted, swapRunning = make(chan struct{}), false
-}
-
-// reclaimStagedUpdate stops the process that stageBundle started as
-// App.Run was not running, and stages its update again, as Install would
-// have while Run runs: the app installs it as it quits, opens it after
-// App.Relaunch, and takes a later Install in its place. Run calls it as it
-// starts (stagedReclaimer). The process has changed nothing: it waits for
-// this process to exit.
-func reclaimStagedUpdate() {
-	stageMu.Lock()
-	early, started := swapEarly, swapStarted
-	stageMu.Unlock()
-	if !early {
-		return
-	}
-	<-started
-	stageMu.Lock()
-	defer stageMu.Unlock()
-	if !swapEarly {
-		return
-	}
-	if earlySwap != nil {
-		// reapEarlySwap closes earlyExited before it takes stageMu, and
-		// then leaves the state alone, as earlySwap is no longer its.
-		_ = earlySwap.Kill()
-		<-earlyExited
-	}
-	earlySwap, swapEarly, earlyExited, updateQuitting = nil, false, nil, false
-	swapStarted, swapRunning = make(chan struct{}), false
+	return ok
 }
 
 // The swap process's settings, which tests replace: the shell that runs
@@ -757,26 +650,36 @@ const maxUpdateLog = 256 << 10
 // that end the app's: whatever ends the app, the process must outlive it.
 // It inherits no file of the app but its log (inheritNoFiles).
 func startSwap(p *stagedUpdate, relaunch bool, args []string) (*exec.Cmd, error) {
-	flag := ""
+	mode := "quit"
 	if relaunch {
-		flag = "1"
+		mode = "relaunch"
 	}
 	inheritNoFiles()
-	cmd := exec.Command(swapShell, append([]string{"-c", installAfterExit, "mygo-update",
-		strconv.Itoa(appPid), p.target, p.bundle, p.work, swapOpen, flag, strconv.Itoa(swapWaitSteps),
-		swapApps, strconv.Itoa(swapAppSteps)},
-		openArgs(p.target, args)...)...)
-	cmd.SysProcAttr = detachedProcess()
-	if f, err := openUpdateLog(); err != nil {
-		log.Printf("mygo: the update logs nothing: %v", err)
-	} else {
-		defer f.Close()
-		cmd.Stdout, cmd.Stderr = f, f
-	}
+	cmd, closeLog := swapCommand(p, mode, args)
+	defer closeLog()
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	return cmd, nil
+}
+
+// swapCommand returns the command of the script that installs p in mode
+// (installAfterExit), opening the app with the arguments args when mode
+// is relaunch, with its output going to the update log, which closeLog
+// closes once the command started.
+func swapCommand(p *stagedUpdate, mode string, args []string) (cmd *exec.Cmd, closeLog func()) {
+	cmd = exec.Command(swapShell, append([]string{"-c", installAfterExit, "mygo-update",
+		strconv.Itoa(appPid), p.target, p.bundle, p.work, swapOpen, mode, strconv.Itoa(swapWaitSteps),
+		swapApps, strconv.Itoa(swapAppSteps)},
+		openArgs(p.target, args)...)...)
+	cmd.SysProcAttr = detachedProcess()
+	f, err := openUpdateLog()
+	if err != nil {
+		log.Printf("mygo: the update logs nothing: %v", err)
+		return cmd, func() {}
+	}
+	cmd.Stdout, cmd.Stderr = f, f
+	return cmd, func() { f.Close() }
 }
 
 // openUpdateLog opens the update log for appending, emptied first once
@@ -797,14 +700,15 @@ func openUpdateLog() (*os.File, error) {
 
 // installAfterExit is the script of /bin/sh that installs a staged update
 // once the app has exited. Its arguments are the pid of the app; the
-// target, bundle and work of the update; the open command; 1 to open the
-// app afterwards, else nothing; how many tenths of a second to wait for
-// the app; the lsappinfo command; how many tenths of a second to wait for
+// target, bundle and work of the update; the open command; the mode:
+// quit, relaunch to open the app afterwards, or now to install at once,
+// without waiting for the program, which never ran App.Run; how many
+// tenths of a second to wait for the app; the lsappinfo command; how many tenths of a second to wait for
 // Launch Services; and the arguments of open, which are never part of the
 // script. It runs the system's commands, whatever the app's PATH.
 //
 // It ignores the signals that end the app's processes, waits for the app
-// to exit (a zombie has), and gives up after that wait, leaving the update
+// to exit (a zombie has), but in mode now, and gives up after that wait, leaving the update
 // for the next Install to remove. It then swaps the bundles at once: the
 // end of the session, whose SIGKILL nothing ignores, must not find it
 // between the two moves. It leaves the update when an instance of the app
@@ -829,7 +733,7 @@ func openUpdateLog() (*os.File, error) {
 // time.
 const installAfterExit = `PATH=/usr/bin:/bin:/usr/sbin:/sbin
 export PATH
-pid=$1 target=$2 new=$3 work=$4 open=$5 relaunch=$6 steps=$7 apps=$8 appsteps=$9
+pid=$1 target=$2 new=$3 work=$4 open=$5 mode=$6 steps=$7 apps=$8 appsteps=$9
 shift 9
 trap '' HUP TERM INT
 say() { printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "$*"; }
@@ -856,18 +760,23 @@ launch() {
 	done
 	say "opened $target"
 }
-say "installing $new in $target once process $pid exits"
-i=0
-while alive; do
-	if [ "$i" -ge "$steps" ]; then
-		say "process $pid still runs after $((steps / 10)) s: giving up, the update stays in $work"
-		exit 1
-	fi
-	i=$((i + 1))
-	sleep 0.1
-done
-say "process $pid exited"
-# The entry of the app that exited, while Launch Services lists it.
+if [ "$mode" = now ]; then
+	say "installing $new in $target now, as process $pid runs without App.Run"
+else
+	say "installing $new in $target once process $pid exits"
+	i=0
+	while alive; do
+		if [ "$i" -ge "$steps" ]; then
+			say "process $pid still runs after $((steps / 10)) s: giving up, the update stays in $work"
+			exit 1
+		fi
+		i=$((i + 1))
+		sleep 0.1
+	done
+	say "process $pid exited"
+fi
+# The entry of the app that exited, or of the program that installs now,
+# while Launch Services lists it.
 gone=$("$apps" find "pid=$pid" 2>/dev/null)
 if others; then
 	say "another instance runs from $target: the update stays in $work"
@@ -904,7 +813,7 @@ else
 	say "installed the update in $target"
 	rm -rf "$work"
 fi
-if [ -n "$relaunch" ]; then
+if [ "$mode" = relaunch ]; then
 	i=0 again=
 	while listed; do
 		if [ "$i" -ge "$appsteps" ]; then

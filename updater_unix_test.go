@@ -66,6 +66,36 @@ func TestUpdateSwapInheritsNoFiles(t *testing.T) {
 	}
 }
 
+// An Install without App.Run, which swaps at once and waits for the swap,
+// leaves the program's files as they are: its later children inherit
+// them as before.
+func TestUpdateWithoutRunKeepsFiles(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS stages updates")
+	}
+	fd, err := syscall.Open("/dev/null", syscall.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fd)
+	open := func() bool {
+		return exec.Command("/bin/sh", "-c", "[ -e /dev/fd/"+strconv.Itoa(fd)+" ]").Run() == nil
+	}
+	if !open() {
+		t.Skip("a child inherits no file without close-on-exec here")
+	}
+	fakeSwap(t, false)
+	withoutRun(t)
+	p := stagedApp(t)
+	stage(t, p)
+	if got := mainOf(p.target); got != "v2" {
+		t.Errorf("once Install returned main = %q", got)
+	}
+	if !open() {
+		t.Error("Install marked the program's file close-on-exec")
+	}
+}
+
 // The swap reads lsappinfo's output as it is: an app found by its bundle
 // is listed in the line that finding it by its pid prints, and a bundle
 // that runs nothing prints no line, and succeeds. It needs a desktop
