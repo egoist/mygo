@@ -154,7 +154,7 @@ func checkForUpdates(ctx context.Context) {
 ```
 
 - `Check` 返回较新的版本，包含 `Version`、`Notes` 和 `Date`；应用已是最新时返回 nil。
-- `Install` 下载归档，或运行中版本的增量更新，校验签名，并替换应用。进度回调先收到增量更新的字节；增量更新失败时，则从头改用归档的字节。运行中的应用不受影响：新版本在 `App.Relaunch` 之后运行，或在下次启动时运行。在 macOS 上，新应用包会在应用退出后替换旧应用包，这样 Dock 会保留应用的图标：更新在应用通过 `App.Quit`、`App.Relaunch`、SIGINT 或 SIGTERM 退出时安装，每一步都记录到应用日志目录（`~/Library/Logs/<Name>`，或 `App.SetPath(mygo.PathLogs, …)` 设置的目录）中的 `update.log`。应用崩溃或调用 `App.Exit` 时，更新会留在应用旁边，由下一次 `Install` 移除。在 `App.Run` 之前调用 `Install`、或从不调用 `App.Run` 的程序没有 Dock 图标需要保留：它的 `Install` 会在返回前替换应用包。在 Linux 和 Windows 上，它替换应用文件夹中的文件，并移除运行中版本安装过、新版本不再有的文件，要移除哪些文件由文件夹中的 `.mygo-files` 列出。任何版本都未安装的文件会保留，例如便携副本在它旁边保存的数据；应用运行所用的可执行文件也保留。在 MyGo 写出该列表之前构建的应用没有这个列表，所以它的第一次更新不会移除任何东西。
+- `Install` 下载归档，或运行中版本的增量更新，校验签名，并替换应用。进度回调先收到增量更新的字节；增量更新失败时，则从头改用归档的字节。运行中的应用不受影响（在 macOS 上，前提是 `App.Run` 已经启动，见下文）：新版本在 `App.Relaunch` 之后运行，或在下次启动时运行。在 macOS 上，新应用包会在应用退出后替换旧应用包，这样 Dock 会保留应用的图标：更新在应用通过 `App.Quit`、`App.Relaunch`、SIGINT 或 SIGTERM 退出时安装，每一步都记录到应用日志目录（`~/Library/Logs/<Name>`，或 `App.SetPath(mygo.PathLogs, …)` 设置的目录）中的 `update.log`。应用崩溃或调用 `App.Exit` 时，更新会留在应用旁边，等它超过 10 分钟后由下一次 `Install` 移除。在 `App.Run` 之前调用 `Install`、或从不调用 `App.Run` 的程序，`Install` 会在返回前替换正在运行的程序的应用包：之后程序应当退出或重新启动，而不是继续调用 `Run`。不支持在 `Run` 启动的同时调用 `Install`；`Run` 返回后调用 `Install` 会失败，错误为 "the app is quitting"。在 Linux 和 Windows 上，它替换应用文件夹中的文件，并移除运行中版本安装过、新版本不再有的文件，要移除哪些文件由文件夹中的 `.mygo-files` 列出。任何版本都未安装的文件会保留，例如便携副本在它旁边保存的数据；应用运行所用的可执行文件也保留。在 MyGo 写出该列表之前构建的应用没有这个列表，所以它的第一次更新不会移除任何东西。
 - `Enabled` 报告应用能否自我更新：必须在构建时启用更新，且安装位置可写。开发构建不支持自我更新，调用 `Check` 会返回 `mygo.ErrUpdatesDisabled`。
 - `Check` 和 `Install` 会走系统设置中的代理；设置了 `HTTPS_PROXY` 时，则走环境变量指定的代理（见[代理](native.md#代理)）。
 

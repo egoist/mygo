@@ -19,7 +19,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -213,14 +212,19 @@ func checkUpdate(ctx context.Context, src UpdateSource, key, current string, pre
 // the bytes downloaded so far. When the update has a delta for the running
 // version, only the delta is downloaded, unless it fails to make the new
 // version: the whole update is downloaded then, and the progress starts
-// over. The running app is not affected: the new version runs after
-// App.Relaunch, or at the next launch. On macOS the update is installed
-// as the app quits, through App.Quit, App.Relaunch, SIGINT or SIGTERM, and
-// each step is logged to update.log in the app's logs directory
-// (App.Path(PathLogs)). A crash or App.Exit leaves it next to the app,
-// for the next Install to remove. A program that calls Install before
-// App.Run, or never calls Run, gets the update installed before Install
-// returns.
+// over. The running app is not affected (on macOS, once App.Run started:
+// see below): the new version runs after App.Relaunch, or at the next
+// launch. On macOS the update is installed as the app quits, through
+// App.Quit, App.Relaunch, SIGINT or SIGTERM, and each step is logged to
+// update.log in the app's logs directory (App.Path(PathLogs)). A crash or
+// App.Exit leaves it next to the app, for an Install to remove once it is
+// over 10 minutes old.
+//
+// On macOS, a program that calls Install before App.Run, or never calls
+// Run, gets its bundle replaced before Install returns, under the running
+// program: it should then quit, or relaunch, rather than go on into Run.
+// Install while Run starts is not supported, and Install after Run
+// returned fails with "the app is quitting".
 //
 // The app must be able to write where it is installed: a bundle in
 // /Applications of an administrator, or an app directory the user owns on
@@ -464,42 +468,94 @@ func makeWork(target string) (work string, done func(), err error) {
 // startSwap touches the work as it starts it.
 const staleWorkAge = 10 * time.Minute
 
+// removingSuffix and the pid of the Install that claimed it end the name
+// of a work directory that removeStaleWork took away from its owner to
+// remove it (removeWork).
+const removingSuffix = ".removing-"
+
+// staleWorkHook, when not nil, is called by removeWork once it found the
+// work directory p stale (checked), and once it claimed it, before it
+// removes it (claimed): tests set it, to change the work in between.
+var staleWorkHook func(step, p string)
+
 // removeStaleWork removes the work directories of updates next to the app
 // at target that are neither the staged update's nor an Install's under
 // way, and that nothing changed for staleWorkAge (workChanged): an app
 // that crashed, or quit without finishing, leaves the update it staged,
 // and so does a swap process that gave up waiting for the app to exit.
 // Only directories named as os.MkdirTemp names those of workPattern are
-// removed.
+// removed, and those that an Install claimed and did not finish removing
+// (removingSuffix), through removeWork.
 func removeStaleWork(target string) {
 	dir, prefix := filepath.Dir(target), workPattern(target)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
-	var stale []string
+	digit := func(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
+	var stale [][2]string // the directory, and its name as made
 	stageMu.Lock()
 	for _, e := range entries {
 		rest, ok := strings.CutPrefix(e.Name(), prefix)
-		if !ok || rest == "" || strings.Trim(rest, "0123456789") != "" || !e.IsDir() {
+		made, claim, claimed := strings.Cut(rest, removingSuffix)
+		if !ok || !digit(made) || claimed && !digit(claim) || !e.IsDir() {
 			continue
 		}
-		p := filepath.Join(dir, e.Name())
-		if updateWork[p] || pendingUpdate != nil && pendingUpdate.work == p {
+		p, original := filepath.Join(dir, e.Name()), filepath.Join(dir, prefix+made)
+		if updateWork[original] || pendingUpdate != nil && pendingUpdate.work == original {
 			continue
 		}
-		stale = append(stale, p)
+		stale = append(stale, [2]string{p, original})
 	}
 	stageMu.Unlock()
-	stale = slices.DeleteFunc(stale, func(p string) bool {
-		return time.Since(workChanged(p)) < staleWorkAge
-	})
-	// Outside the lock, which the app takes as it quits: a directory that
-	// is stale stays stale, as only os.MkdirTemp names new ones.
-	for _, p := range stale {
-		if err := os.RemoveAll(p); err != nil {
-			log.Printf("mygo: removing what an earlier update left: %v", err)
+	// Outside the lock, which the app takes as it quits.
+	for _, w := range stale {
+		removeWork(target, w[0], w[1])
+	}
+}
+
+// removeWork removes the work directory p of an update of the app at
+// target, named original as made, unless it changed within staleWorkAge
+// or holds the only copy of the app. Checking the work and then removing
+// it would remove what another instance put in between, as its swap
+// process moving the app into old: removeWork first claims it, renaming
+// it away from the name its owners reach it by, and checks it again.
+// Then nothing can change it, and what changed it before shows: it puts
+// it back if it changed, or if it holds old while target is gone, as a
+// swap that could not put the old version back leaves it.
+func removeWork(target, p, original string) {
+	// Work claimed before goes back if it changed lately, as below.
+	if p == original && time.Since(workChanged(p)) < staleWorkAge {
+		return
+	}
+	if staleWorkHook != nil {
+		staleWorkHook("checked", p)
+	}
+	claimed := original + removingSuffix + strconv.Itoa(os.Getpid())
+	if err := os.Rename(p, claimed); err != nil {
+		// Gone, or claimed by another Install.
+		return
+	}
+	keep := time.Since(workChanged(claimed)) < staleWorkAge
+	if !keep {
+		if _, err := os.Lstat(filepath.Join(claimed, "old")); err == nil {
+			if _, err := os.Lstat(target); err != nil {
+				keep = true
+				log.Printf("mygo: leaving %s, whose old is the only copy of %s", original, target)
+			}
 		}
+	}
+	if keep {
+		if err := os.Rename(claimed, original); err != nil {
+			log.Printf("mygo: putting back what an earlier update left: %v", err)
+		}
+		return
+	}
+	if staleWorkHook != nil {
+		staleWorkHook("claimed", claimed)
+	}
+	if err := os.RemoveAll(claimed); err != nil {
+		log.Printf("mygo: removing what an earlier update left: %v", err)
 	}
 }
 
@@ -574,11 +630,13 @@ func stageBundle(work, dir, target string) error {
 func swapNow(p *stagedUpdate) error {
 	swapNowMu.Lock()
 	defer swapNowMu.Unlock()
-	cmd, closeLog := swapCommand(p, "now", nil)
+	cmd, logged, closeLog := swapCommand(p, "now", nil)
 	defer closeLog()
 	if err := cmd.Run(); err != nil {
-		path, _ := updateLogPath()
-		return fmt.Errorf("the update was not installed (%v): see %s", err, path)
+		if path, perr := updateLogPath(); logged && perr == nil {
+			return fmt.Errorf("the update was not installed (%v): see %s", err, path)
+		}
+		return fmt.Errorf("the update was not installed (%v), and its log could not be opened", err)
 	}
 	return nil
 }
@@ -689,7 +747,7 @@ func startSwap(p *stagedUpdate, relaunch bool, args []string) (*exec.Cmd, error)
 	now := time.Now()
 	_ = os.Chtimes(p.work, now, now)
 	inheritNoFiles()
-	cmd, closeLog := swapCommand(p, mode, args)
+	cmd, _, closeLog := swapCommand(p, mode, args)
 	defer closeLog()
 	if err := cmd.Start(); err != nil {
 		return nil, err
@@ -700,8 +758,9 @@ func startSwap(p *stagedUpdate, relaunch bool, args []string) (*exec.Cmd, error)
 // swapCommand returns the command of the script that installs p in mode
 // (installAfterExit), opening the app with the arguments args when mode
 // is relaunch, with its output going to the update log, which closeLog
-// closes once the command started.
-func swapCommand(p *stagedUpdate, mode string, args []string) (cmd *exec.Cmd, closeLog func()) {
+// closes once the command started; logged reports whether the log could
+// be opened.
+func swapCommand(p *stagedUpdate, mode string, args []string) (cmd *exec.Cmd, logged bool, closeLog func()) {
 	cmd = exec.Command(swapShell, append([]string{"-c", installAfterExit, "mygo-update",
 		strconv.Itoa(appPid), p.target, p.bundle, p.work, swapOpen, mode, strconv.Itoa(swapWaitSteps),
 		swapApps, strconv.Itoa(swapAppSteps)},
@@ -710,10 +769,10 @@ func swapCommand(p *stagedUpdate, mode string, args []string) (cmd *exec.Cmd, cl
 	f, err := openUpdateLog()
 	if err != nil {
 		log.Printf("mygo: the update logs nothing: %v", err)
-		return cmd, func() {}
+		return cmd, false, func() {}
 	}
 	cmd.Stdout, cmd.Stderr = f, f
-	return cmd, func() { f.Close() }
+	return cmd, true, func() { f.Close() }
 }
 
 // openUpdateLog opens the update log for appending, emptied first once
@@ -737,18 +796,19 @@ func openUpdateLog() (*os.File, error) {
 // target, bundle and work of the update; the open command; the mode:
 // quit, relaunch to open the app afterwards, or now to install at once,
 // without waiting for the program, which never ran App.Run; how many
-// tenths of a second to wait for the app; the lsappinfo command; how many tenths of a second to wait for
-// Launch Services; and the arguments of open, which are never part of the
-// script. It runs the system's commands, whatever the app's PATH.
+// tenths of a second to wait for the app; the lsappinfo command; how
+// many tenths of a second to wait for Launch Services; and the arguments
+// of open, which are never part of the script. It runs the system's
+// commands, whatever the app's PATH.
 //
 // It ignores the signals that end the app's processes, waits for the app
-// to exit (a zombie has), but in mode now, and gives up after that wait, leaving the update
-// for the next Install to remove. It then swaps the bundles at once: the
-// end of the session, whose SIGKILL nothing ignores, must not find it
-// between the two moves. It leaves the update when an instance of the app
-// runs from the target, as one opened while the app quit, which waited for
-// it to exit (RequestSingleInstanceLock): the update would remove its
-// bundle under it. The app that exited, which Launch Services may still
+// to exit (a zombie has), but in mode now, and gives up after that wait,
+// leaving the update for an Install to remove. It then swaps the
+// bundles at once: the end of the session, whose SIGKILL nothing
+// ignores, must not find it between the two moves. It leaves the update
+// when an instance of the app runs from the target, as one opened while
+// the app quit, which waited for it to exit (RequestSingleInstanceLock):
+// the update would remove its bundle under it. The app that exited, which Launch Services may still
 // list, is no such instance. It leaves it too when the target is gone, or
 // is there again once moved aside, as the new bundle would be moved into
 // it then (checked again once moved, as a directory created in between
@@ -764,12 +824,21 @@ func openUpdateLog() (*os.File, error) {
 // however slowly the app starts: that would start two. An instance opened
 // between the check and the swap still loses its bundle: that window is
 // milliseconds. Every step goes to its output, the update log, with the
-// time.
+// time. In mode now, Install removes at once an update that the script
+// leaves, unless the old version is in the work too, and the log says
+// so.
 const installAfterExit = `PATH=/usr/bin:/bin:/usr/sbin:/sbin
 export PATH
 pid=$1 target=$2 new=$3 work=$4 open=$5 mode=$6 steps=$7 apps=$8 appsteps=$9
 shift 9
 trap '' HUP TERM INT
+# left: what becomes of the update when the script leaves it, but with
+# the old version in the work, which Install keeps then too.
+if [ "$mode" = now ]; then
+	left="Install removes the update"
+else
+	left="the update stays in $work"
+fi
 say() { printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "$*"; }
 alive() {
 	kill -0 "$pid" 2>/dev/null || return 1
@@ -813,23 +882,23 @@ fi
 # while Launch Services lists it.
 gone=$("$apps" find "pid=$pid" 2>/dev/null)
 if others; then
-	say "another instance runs from $target: the update stays in $work"
+	say "another instance runs from $target: $left"
 	exit 1
 fi
 if [ ! -e "$target" ]; then
-	say "$target is gone: the update stays in $work"
+	say "$target is gone: $left"
 	exit 1
 fi
 status=0
 if ! mv "$target" "$work/old"; then
-	say "cannot move $target aside: the update stays in $work"
+	say "cannot move $target aside: $left"
 	status=1
 elif [ -e "$target" ]; then
 	say "$target is there again: the update stays in $work, the old version in $work/old"
 	exit 1
 elif ! mv "$new" "$target"; then
 	if mv "$work/old" "$target"; then
-		say "cannot move the update into place: put the old version back, the update stays in $work"
+		say "cannot move the update into place: put the old version back, $left"
 		status=1
 	else
 		say "cannot put the old version back: it is in $work/old"

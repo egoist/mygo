@@ -2292,15 +2292,18 @@ as in Tauri:
   Launch Services still lists the app that exited, as `open` would only
   bring it forward. Its output, each step with the time, goes to
   `update.log` in `PathLogs` (which `SetPath` changes), emptied past 256 KB.
-  Before `Run` started (`App.running`), nothing would start the process,
-  and the program has no Dock tile to keep: `stageBundle` swaps at once
-  instead (`swapNow`), running the same script in its `now` mode, which
-  waits for nothing and opens nothing, and returns once the script exits,
-  failing with the log's path when it left the update (Install then
-  removes the work, unless the old version is in it). The script exits
+  Before `Run` started (`App.running`), nothing would start the process:
+  `stageBundle` swaps at once instead (`swapNow`), under the running
+  program, which should then quit or relaunch rather than go on into
+  `Run`. It runs the same script in its `now` mode, which waits for
+  nothing and opens nothing, and returns once the script exits, failing
+  with the log's path when it left the update (or saying that the log
+  could not be opened); Install then removes the work, unless the old
+  version is in it, and the script's log says which. The script exits
   before `Install` returns, so nothing is marked close-on-exec then;
   `swapNowMu` keeps those swaps one at a time. An `Install` racing with
-  `Run` starting may still swap under the app as it starts.
+  `Run` starting is not supported: it may swap under the app as it
+  starts.
   `stageBundle` sets the hook before it reads `stagingClosed` under
   `stageMu`, and the app sets that before it reads the hook, so either
   `stageBundle` sees the app quit or the app sees the update. Once the app
@@ -2320,7 +2323,15 @@ as in Tauri:
   the five minutes a swap waits for its app stay within it; a staged
   update whose instance runs on for longer may still go, and its swap
   then logs that it cannot move the bundle aside and leaves the app as
-  it was. Known limits: a second SIGINT or
+  it was. Checking the age and then removing would remove what another
+  instance's swap moved in between, as the app moved into `old`:
+  `removeWork` first claims the work, renaming it to
+  `<work>.removing-<pid>`, out of reach of the names its owners use,
+  then checks it again, and renames it back if it changed meanwhile, or
+  if it holds `old` while the app's bundle is gone (a swap that could not
+  put the old version back leaves the only copy there). Claimed
+  directories that an Install did not finish removing go through the
+  same steps. Known limits: a second SIGINT or
   SIGTERM during the quit installs the update but opens nothing, even after
   `Relaunch` (its process gets the mode `quit`, not `relaunch`, and `relaunchNow` then
   opens nothing either); the paths that leave the update (gave up, target

@@ -1320,8 +1320,8 @@ func TestUpdateWithoutRun(t *testing.T) {
 }
 
 // Without App.Run, an Install whose swap leaves the update, as another
-// instance runs from the app, fails, says where the log is, and leaves
-// the app and nothing next to it.
+// instance runs from the app, fails, says where the log is, if there is
+// one, and leaves the app and nothing next to it.
 func TestUpdateWithoutRunFails(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("only macOS stages updates")
@@ -1345,9 +1345,18 @@ func TestUpdateWithoutRunFails(t *testing.T) {
 	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".*")); len(leftovers) > 0 {
 		t.Errorf("left behind: %q", leftovers)
 	}
-	if log := readLog(logPath); !strings.Contains(log, "another instance runs from "+target) {
+	// Install removes the update, as the log says.
+	if log := readLog(logPath); !strings.Contains(log, "another instance runs from "+target+": Install removes the update\n") || strings.Contains(log, "stays in") {
 		t.Errorf("the log:\n%s", log)
 	}
+	// Without a log, the error points to none.
+	noLog := filepath.Join(t.TempDir(), "file")
+	touch(t, noLog)
+	updateLogPath = func() (string, error) { return filepath.Join(noLog, "update.log"), nil }
+	if err := installUpdate(ctx, httpGet, up.manifest, key, up.current, target, nil); err == nil || strings.Contains(err.Error(), "update.log") || !strings.Contains(err.Error(), "could not be opened") {
+		t.Errorf("Install without a log: %v", err)
+	}
+	updateLogPath = func() (string, error) { return logPath, nil }
 	os.Remove(swapFake.running)
 	if err := installUpdate(ctx, httpGet, up.manifest, key, up.current, target, nil); err != nil {
 		t.Fatal(err)
@@ -1488,8 +1497,17 @@ func TestUpdaterKeepsOtherInstancesWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The download goes on in a file that it made long ago: only the
+	// file changed lately, not the directory.
+	archive := filepath.Join(downloading, "update.tar.gz")
+	touch(t, archive)
 	age(t, downloading)
-	touch(t, filepath.Join(downloading, "update.tar.gz"))
+	if err := os.Chtimes(archive, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(downloading); err != nil || time.Since(fi.ModTime()) < staleWorkAge {
+		t.Fatalf("the directory changed lately: %v", err)
+	}
 	staged, err := os.MkdirTemp(dir, workPattern(target))
 	if err != nil {
 		t.Fatal(err)
@@ -1529,6 +1547,183 @@ func TestUpdaterKeepsOtherInstancesWork(t *testing.T) {
 	if _, err := os.Lstat(made); !os.IsNotExist(err) {
 		t.Errorf("the work that nothing changed stays: %v", err)
 	}
+}
+
+// staleWork makes a work directory next to the app at target, holding
+// app, that nothing changed for staleWorkAge.
+func staleWork(t *testing.T, target string) string {
+	t.Helper()
+	p, err := os.MkdirTemp(filepath.Dir(target), workPattern(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(p, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	age(t, p)
+	return p
+}
+
+// onStaleWork sets staleWorkHook to call fn at step, until the test ends.
+func onStaleWork(t *testing.T, step string, fn func(p string)) {
+	t.Helper()
+	staleWorkHook = func(s, p string) {
+		if s == step {
+			fn(p)
+		}
+	}
+	t.Cleanup(func() { staleWorkHook = nil })
+}
+
+// claims lists the claimed work directories next to the app at target.
+func claims(target string) []string {
+	m, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".*"+removingSuffix+"*"))
+	return m
+}
+
+// An Install claims a stale work directory before it removes it, and
+// checks it again then: what another instance's swap did in between, or
+// a swap that left the only copy of the app in old, is never removed.
+func TestUpdaterRemovesStaleWorkClaimed(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS leaves staged updates")
+	}
+	t.Run("changed after the check", func(t *testing.T) {
+		// Another instance's swap starts (startSwap touches the work) and
+		// moves its app into old, between the check and the removal.
+		fakeSwap(t, false)
+		target, main := installedApp(t)
+		p := staleWork(t, target)
+		onStaleWork(t, "checked", func(p string) {
+			now := time.Now()
+			if err := os.Chtimes(p, now, now); err != nil {
+				t.Error(err)
+			}
+			if err := os.Rename(target, filepath.Join(p, "old")); err != nil {
+				t.Error(err)
+			}
+		})
+		removeStaleWork(target)
+		if b, err := os.ReadFile(filepath.Join(p, "old", filepath.Base(main))); err != nil || string(b) != "v1" {
+			t.Errorf("the app moved into the work was lost: %q, %v", b, err)
+		}
+		if c := claims(target); len(c) != 0 {
+			t.Errorf("left claimed: %q", c)
+		}
+	})
+	t.Run("moved in after the check, aged", func(t *testing.T) {
+		// The same, but the work looks as old as before: the app's
+		// bundle is gone, and old is its only copy.
+		fakeSwap(t, false)
+		target, main := installedApp(t)
+		p := staleWork(t, target)
+		onStaleWork(t, "checked", func(p string) {
+			if err := os.Rename(target, filepath.Join(p, "old")); err != nil {
+				t.Error(err)
+			}
+			age(t, p)
+		})
+		removeStaleWork(target)
+		if b, err := os.ReadFile(filepath.Join(p, "old", filepath.Base(main))); err != nil || string(b) != "v1" {
+			t.Errorf("the only copy of the app was lost: %q, %v", b, err)
+		}
+		if c := claims(target); len(c) != 0 {
+			t.Errorf("left claimed: %q", c)
+		}
+	})
+	t.Run("touched after the check", func(t *testing.T) {
+		fakeSwap(t, false)
+		target, _ := installedApp(t)
+		p := staleWork(t, target)
+		onStaleWork(t, "checked", func(p string) {
+			now := time.Now()
+			if err := os.Chtimes(p, now, now); err != nil {
+				t.Error(err)
+			}
+		})
+		removeStaleWork(target)
+		if _, err := os.Stat(filepath.Join(p, "app")); err != nil {
+			t.Errorf("the work touched after the check was not put back: %v", err)
+		}
+		if c := claims(target); len(c) != 0 {
+			t.Errorf("left claimed: %q", c)
+		}
+	})
+	t.Run("only copy", func(t *testing.T) {
+		// A swap that could not put the old version back left it in old,
+		// long ago, and the app's bundle is gone.
+		fakeSwap(t, false)
+		target, main := installedApp(t)
+		p := staleWork(t, target)
+		if err := os.Rename(target, filepath.Join(p, "old")); err != nil {
+			t.Fatal(err)
+		}
+		age(t, p)
+		removeStaleWork(target)
+		if b, err := os.ReadFile(filepath.Join(p, "old", filepath.Base(main))); err != nil || string(b) != "v1" {
+			t.Errorf("the only copy of the app was removed: %q, %v", b, err)
+		}
+		// Once the app is there again, old is a copy like any.
+		if err := os.Mkdir(target, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		age(t, p)
+		removeStaleWork(target)
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			t.Errorf("the stale work stays: %v", err)
+		}
+	})
+	t.Run("moved in once claimed", func(t *testing.T) {
+		// Once claimed, the work is out of reach of the swap that owns it:
+		// moving the app into it fails, and the app stays.
+		fakeSwap(t, false)
+		target, main := installedApp(t)
+		p := staleWork(t, target)
+		onStaleWork(t, "claimed", func(string) {
+			if err := os.Rename(target, filepath.Join(p, "old")); err == nil {
+				t.Error("the app moved into claimed work")
+			}
+		})
+		removeStaleWork(target)
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			t.Errorf("the stale work stays: %v", err)
+		}
+		if b, _ := os.ReadFile(main); string(b) != "v1" {
+			t.Errorf("main = %q", b)
+		}
+		if c := claims(target); len(c) != 0 {
+			t.Errorf("left claimed: %q", c)
+		}
+	})
+	t.Run("claimed before", func(t *testing.T) {
+		// What an Install claimed and did not remove, as it crashed: gone
+		// once stale, put back if it changed.
+		fakeSwap(t, false)
+		target, _ := installedApp(t)
+		stale := staleWork(t, target)
+		claimed := stale + removingSuffix + "1"
+		if err := os.Rename(stale, claimed); err != nil {
+			t.Fatal(err)
+		}
+		fresh, err := os.MkdirTemp(filepath.Dir(target), workPattern(target))
+		if err != nil {
+			t.Fatal(err)
+		}
+		freshClaimed := fresh + removingSuffix + "2"
+		if err := os.Rename(fresh, freshClaimed); err != nil {
+			t.Fatal(err)
+		}
+		removeStaleWork(target)
+		if _, err := os.Lstat(fresh); err != nil {
+			t.Errorf("the claimed work that changed lately was not put back: %v", err)
+		}
+		if c := claims(target); len(c) != 0 {
+			t.Errorf("left claimed: %q", c)
+		}
+		if _, err := os.Lstat(stale); !os.IsNotExist(err) {
+			t.Errorf("the claimed stale work was put back: %v", err)
+		}
+	})
 }
 
 func TestUpdaterWaitsForOpenFiles(t *testing.T) {
