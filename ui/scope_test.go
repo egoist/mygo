@@ -179,6 +179,34 @@ func TestOverlayGivesTheFocusBack(t *testing.T) {
 	}
 }
 
+// A dialog with nothing to focus takes the focus from the page behind it
+// all the same: what is typed does not reach the input there, Escape still
+// closes the dialog, and the input has the focus again after.
+func TestDialogWithNothingToFocusTakesTheFocus(t *testing.T) {
+	open, text := false, ""
+	tt := coreNewTester(func(c *context) {
+		coreTextInput(c, &text).Label("Behind")
+		if c.Shortcut(Cmd, KeyK) {
+			open = true
+		}
+		coreModal(c, &open, func() { coreText(c, "Just a message") })
+	}, 500, 400)
+	tt.Click("Behind")
+	tt.Key(Cmd, KeyK)
+	if !open {
+		t.Fatal("Cmd+K did not open the dialog")
+	}
+	tt.Type("yz")
+	tt.Key(0, KeyBackspace)
+	if text != "" || tt.Focused("Behind") {
+		t.Errorf("the input behind the dialog has the focus and %q", text)
+	}
+	tt.Key(0, KeyEscape)
+	if open || !tt.Focused("Behind") {
+		t.Errorf("closed by Escape: the focus is not back on the input (open %v)", open)
+	}
+}
+
 // An input focused in the frame that first builds it is within its
 // panel once the frame settles, as a popover's search field taking the
 // focus as the popover opens, with no frame to come.

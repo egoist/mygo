@@ -55,6 +55,9 @@ func (rt *engine) arrangeFocus() {
 		rt.placePopovers(order, scopes)
 	}
 	if m := rt.modal; m != 0 && rt.scopeOf(rt.focused) != m {
+		// Nothing behind the dialog keeps it, even when the dialog has
+		// nothing to take it: the opener has it back as the dialog closes.
+		rt.focused = 0
 		for i, sc := range rt.focusScopes {
 			if sc.modal == m {
 				rt.focused = rt.focusOrder[i]
