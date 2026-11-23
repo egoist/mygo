@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -101,5 +102,51 @@ func TestSwiftStamp(t *testing.T) {
 	}
 	if swiftCompiled(dir, "arm64", obj) {
 		t.Error("a source changed")
+	}
+}
+
+func TestBackgroundAudioOptIn(t *testing.T) {
+	for _, app := range []string{"background-audio", "counter-native"} {
+		want := app == "background-audio"
+		root, err := filepath.Abs(filepath.Join("..", "..", "examples", app))
+		if err != nil {
+			t.Fatal(err)
+		}
+		config, err := loadConfig(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, target := range []string{"ios", "android"} {
+			plugins, err := config.mobilePlugins(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			if target == "ios" {
+				err = plugins.writeSwift(dir)
+				if slices.Contains(plugins.frameworks(), "MediaPlayer") != want {
+					t.Errorf("%s: MediaPlayer framework", app)
+				}
+				modes, _ := plugins.infoPlist(config.Identifier)["UIBackgroundModes"].([]any)
+				if slices.Contains(modes, any("audio")) != want {
+					t.Errorf("%s: audio background mode", app)
+				}
+			} else {
+				err = plugins.writeKotlin(dir)
+				manifest := string(androidManifest(config, plugins))
+				for _, declaration := range []string{"android.permission.FOREGROUND_SERVICE\"", "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK", "dev.mygo.BackgroundAudioService", "android:foregroundServiceType=\"mediaPlayback\""} {
+					if strings.Contains(manifest, declaration) != want {
+						t.Errorf("%s: %s", app, declaration)
+					}
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			files, err := filepath.Glob(filepath.Join(dir, "Plugin_backgroundaudio_*"))
+			if err != nil || (len(files) != 0) != want {
+				t.Errorf("%s %s sources: %v, %v", app, target, files, err)
+			}
+		}
 	}
 }

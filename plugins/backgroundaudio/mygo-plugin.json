@@ -1,0 +1,15 @@
+{
+  "mobile": {
+    "id": "backgroundaudio",
+    "ios": {
+      "sources": ["ios/*.swift"], "class": "BackgroundAudioPlugin",
+      "frameworks": ["MediaPlayer", "AVFoundation"],
+      "infoPlist": {"UIBackgroundModes": ["audio"]}
+    },
+    "android": {
+      "sources": ["android/*.kt"], "class": "BackgroundAudioPlugin",
+      "permissions": ["FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MEDIA_PLAYBACK"],
+      "application": ["<service android:name=\"dev.mygo.BackgroundAudioService\" android:foregroundServiceType=\"mediaPlayback\" android:exported=\"false\" />", "<receiver android:name=\"dev.mygo.BackgroundAudioAction\" android:exported=\"false\" />"]
+    }
+  }
+}
