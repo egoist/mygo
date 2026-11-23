@@ -25,8 +25,9 @@ import (
 //     instead. It answers WM_NCHITTEST with the buttons' hit-test codes,
 //     which brings Windows 11's snap layouts over the maximize button, and
 //     runs the buttons from the non-client mouse messages that follow.
-//   - The top edge (newTopEdge), which every resizable window without a
-//     caption has, frameless ones too, along the rest of the top.
+//   - The resize edges (newResizeEdges), which every resizable window without
+//     a caption has, frameless ones too: the top along the rest of the top,
+//     and on Windows 10 the left, right and bottom along the content.
 //
 // Pages keep clear of the buttons with the --mygo-titlebar-* CSS variables
 // (Window.TitleBar).
@@ -171,7 +172,7 @@ func (w *window) titleBarScript() string { return bridge.TitleBarScript(w.TitleB
 // captionChanged lays the controls out again after the window gained or lost
 // a button, or entered or left full screen, and tells the page.
 func (w *window) captionChanged() {
-	w.layoutTopEdge()
+	w.layoutResizeEdges()
 	if w.caption == nil {
 		return
 	}

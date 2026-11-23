@@ -738,13 +738,17 @@ features GTK 4 lacks become X11-only code beside it.
   shows as a white line along the top. Other windows without a caption
   extend it by a pixel, without which a window with no borders has no
   shadow. The build comes from `RtlGetVersion`, which no manifest changes.
-- The top edge of a window without a caption (`topedge.go`), which
+- The resize edges of a window without a caption (`resizeedge.go`), which
   `WM_NCCALCSIZE` gives to the client area, where the webview's or the
-  surface's window answers `HTCLIENT`, is a child window above them: a
-  layered window without a bitmap (`WS_EX_NOREDIRECTIONBITMAP`), as tall
-  as the sizing frame, that answers `HTTOP`, and `HTTOPLEFT` and
-  `HTTOPRIGHT` near the corners it reaches, and sends the window's presses
-  on, so it resizes; Windows Terminal's caption works the same way. Below
+  surface's window answers `HTCLIENT`, are child windows above them: layered
+  windows without a bitmap (`WS_EX_NOREDIRECTIONBITMAP`), as thick as the
+  sizing frame. The top edge answers `HTTOP`, and `HTTOPLEFT` and
+  `HTTOPRIGHT` near the corners it reaches; on Windows 10 the left, right and
+  bottom edges answer `HTLEFT`, `HTRIGHT`, `HTBOTTOM` and their corners, over
+  the web view that would otherwise take every point. They send the window's
+  presses on, so it resizes; Windows Terminal's caption works the same way.
+  Windows 11 keeps its native left, right and bottom borders, and only needs
+  the top edge. Below
   it, `--app-region: drag` still moves the window. It spans a frameless
   window and stops at a hidden title bar's buttons, and hides while the
   window is maximized, in full screen or not resizable.

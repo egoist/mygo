@@ -790,12 +790,13 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 			s.ateUp = 0
 		}
 	case wmNCHitTest:
-		// With the client area covering the whole window (frameCalcSize), the
-		// pointer is always over the content surface: the window itself is
-		// never asked, so its edges would only move the window. Answer the
-		// border ring here too, and leave the middle to the UI, whose drag
-		// region moves the window.
-		if w := s.w; w.captionless() && !w.fullScreen && !w.IsMaximized() && w.hasStyle(wsThickFrame) {
+		// With the client area covering the whole window (frameCalcSize on
+		// Windows 10), the pointer is always over the content surface: the
+		// window itself is never asked, so its edges would only move the
+		// window. Answer the border ring here too, and leave the middle to
+		// the UI, whose drag region moves the window. Windows 11 keeps its
+		// native borders, and never sends this to the content.
+		if w := s.w; w.fullClientArea() && !w.fullScreen && !w.IsMaximized() && w.hasStyle(wsThickFrame) {
 			if hit, ok := w.resizeHitTest(getXParam(lp), getYParam(lp)); ok {
 				return hit, true
 			}
@@ -803,7 +804,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 	case wmNCLButtonDown, wmNCLButtonDblClk:
 		// Once the hit test says a border, the system sends the button down
 		// to this child, which cannot resize its parent on its own. Forward it,
-		// and the resize loop starts (topedge.go's edge window forwards too).
+		// and the resize loop starts (resizeedge.go's edge windows forward too).
 		r, _, _ := procSendMessageW.Call(s.w.hwnd, uintptr(m), wp, lp)
 		return r, true
 	}

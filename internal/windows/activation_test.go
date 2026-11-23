@@ -122,7 +122,7 @@ func TestSyncWebViewEnabled(t *testing.T) {
 	b := &Backend{
 		windows:      map[uintptr]*window{},
 		captions:     map[uintptr]*captionBar{},
-		topEdges:     map[uintptr]*window{},
+		resizeEdges:  map[uintptr]resizeEdge{},
 		surfaces:     map[uintptr]*surface{},
 		captionFonts: map[int]captionFont{},
 	}

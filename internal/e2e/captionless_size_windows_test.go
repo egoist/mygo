@@ -6,31 +6,33 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo"
+	win "github.com/egoist/mygo/internal/windows"
 )
 
-// TestCaptionlessWindowSize pins the sizes of a window without a caption,
-// now that its client area covers the whole window (frameCalcSize). The
-// frame around it must not grow it: a captionless window is the size its
-// options ask for, and its page is the size UseContentSize asks for.
+// TestCaptionlessWindowSize pins the sizes of a window without a caption on
+// both sides of the frameCalcSize change.
 //
-// Before this, outerSize still added the invisible borders of a resizable
-// window, which frameCalcSize no longer takes out of the client area: a
-// 400x300 window with UseContentSize came out 416x308 on Windows 10 and 11,
+// On Windows 10 the client area covers the whole window: a captionless
+// window is the size its options ask for, and its page is the size
+// UseContentSize asks for. Before this, outerSize still added the invisible
+// borders of a resizable window, which frameCalcSize no longer takes out of
+// the client area: a 400x300 window with UseContentSize came out 413x306 here,
 // and SetContentSize/SetContentBounds grew it by the same borders.
 //
-// A hidden title bar keeps one pixel at the top on Windows 11 for the line
-// DWM draws there, so its page may be one pixel shorter than its window, or
-// its window one pixel taller than its page. Nothing else may differ.
+// Windows 11 keeps its native frame: options still size the window, and its
+// page is smaller than it by the native borders. UseContentSize still makes
+// the page 400x300, and the window grows around it.
 func TestCaptionlessWindowSize(t *testing.T) {
+	fullClient := win.TestWindowsBuild() < 22000 // frameCalcSize covers the whole window on Windows 10
 	for _, test := range []struct {
-		name        string
-		opts        mygo.WindowOptions
-		hiddenTitle bool
+		name      string
+		opts      mygo.WindowOptions
+		resizable bool
 	}{
-		{"frameless", mygo.WindowOptions{Frameless: true}, false},
+		{"frameless", mygo.WindowOptions{Frameless: true}, true},
 		{"fixed frameless", mygo.WindowOptions{Frameless: true, DisableResize: true}, false},
 		{"hidden title bar", mygo.WindowOptions{TitleBarStyle: mygo.TitleBarHidden}, true},
-		{"fixed hidden title bar", mygo.WindowOptions{TitleBarStyle: mygo.TitleBarHidden, DisableResize: true}, true},
+		{"fixed hidden title bar", mygo.WindowOptions{TitleBarStyle: mygo.TitleBarHidden, DisableResize: true}, false},
 	} {
 		test := test
 		t.Run(test.name+"/window size", func(t *testing.T) {
@@ -41,20 +43,26 @@ func TestCaptionlessWindowSize(t *testing.T) {
 				t.Errorf("window bounds = %dx%d, want 400x300", b.Width, b.Height)
 			}
 			width, height := w.ContentSize()
-			if width != 400 || height != 300 && !(test.hiddenTitle && height == 299) {
-				t.Errorf("content size = %dx%d, want 400x300 (a hidden title bar may keep one pixel on Windows 11)", width, height)
+			if fullClient || !test.resizable {
+				if width != 400 || height != 300 {
+					t.Errorf("content size = %dx%d, want 400x300", width, height)
+				}
+			} else if width >= 400 || height >= 300 {
+				t.Errorf("content size = %dx%d, want less than 400x300 inside the native frame", width, height)
 			}
-			// A resize after the window exists takes the size it asks for too:
-			// WM_NCCALCSIZE gives the page the whole window, so the window
-			// around it must not add the borders back.
+			// A resize after the window exists takes the size it asks for too.
 			resized := mygo.Rectangle{X: 200, Y: 180, Width: 420, Height: 280}
 			w.SetBounds(resized)
 			if b := w.Bounds(); b.Width != 420 || b.Height != 280 {
 				t.Errorf("window bounds after SetBounds = %dx%d, want 420x280", b.Width, b.Height)
 			}
 			width, height = w.ContentSize()
-			if width != 420 || height != 280 && !(test.hiddenTitle && height == 279) {
-				t.Errorf("content size after SetBounds = %dx%d, want 420x280 (a hidden title bar may keep one pixel on Windows 11)", width, height)
+			if fullClient || !test.resizable {
+				if width != 420 || height != 280 {
+					t.Errorf("content size after SetBounds = %dx%d, want 420x280", width, height)
+				}
+			} else if width >= 420 || height >= 280 {
+				t.Errorf("content size after SetBounds = %dx%d, want less than 420x280 inside the native frame", width, height)
 			}
 		})
 
@@ -67,8 +75,12 @@ func TestCaptionlessWindowSize(t *testing.T) {
 				t.Fatalf("content size = %dx%d, want 400x300", width, height)
 			}
 			b := w.Bounds()
-			if b.Width != 400 || b.Height != 300 && !(test.hiddenTitle && b.Height == 301) {
-				t.Errorf("window bounds = %dx%d, want 400x300 (a hidden title bar may need one more pixel on Windows 11)", b.Width, b.Height)
+			if fullClient || !test.resizable {
+				if b.Width != 400 || b.Height != 300 {
+					t.Errorf("window bounds = %dx%d, want 400x300", b.Width, b.Height)
+				}
+			} else if b.Width <= 400 || b.Height <= 300 {
+				t.Errorf("window bounds = %dx%d, want more than 400x300 around the native frame", b.Width, b.Height)
 			}
 		})
 
@@ -82,8 +94,12 @@ func TestCaptionlessWindowSize(t *testing.T) {
 				t.Fatalf("content size after SetContentSize = %dx%d, want 420x280", width, height)
 			}
 			b := w.Bounds()
-			if b.Width != 420 || b.Height != 280 && !(test.hiddenTitle && b.Height == 281) {
-				t.Errorf("window bounds after SetContentSize = %dx%d, want 420x280 (a hidden title bar may need one more pixel on Windows 11)", b.Width, b.Height)
+			if fullClient || !test.resizable {
+				if b.Width != 420 || b.Height != 280 {
+					t.Errorf("window bounds after SetContentSize = %dx%d, want 420x280", b.Width, b.Height)
+				}
+			} else if b.Width <= 420 || b.Height <= 280 {
+				t.Errorf("window bounds after SetContentSize = %dx%d, want more than 420x280 around the native frame", b.Width, b.Height)
 			}
 		})
 
@@ -94,9 +110,13 @@ func TestCaptionlessWindowSize(t *testing.T) {
 			want := mygo.Rectangle{X: 200, Y: 180, Width: 360, Height: 240}
 			w.SetContentBounds(want)
 			eventually(t, "the content where it was put", func() bool { return w.ContentBounds() == want })
-			if b := w.Bounds(); b.Width != want.Width || b.Height != want.Height && !(test.hiddenTitle && b.Height == want.Height+1) {
-				t.Errorf("window bounds after SetContentBounds = %dx%d, want %dx%d (a hidden title bar may need one more pixel on Windows 11)",
-					b.Width, b.Height, want.Width, want.Height)
+			b := w.Bounds()
+			if fullClient || !test.resizable {
+				if b.Width != want.Width || b.Height != want.Height {
+					t.Errorf("window bounds after SetContentBounds = %dx%d, want %dx%d", b.Width, b.Height, want.Width, want.Height)
+				}
+			} else if b.Width <= want.Width || b.Height <= want.Height {
+				t.Errorf("window bounds after SetContentBounds = %dx%d, want more than %dx%d around the native frame", b.Width, b.Height, want.Width, want.Height)
 			}
 		})
 	}

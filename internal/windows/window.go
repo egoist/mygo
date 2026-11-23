@@ -70,11 +70,11 @@ type window struct {
 	minW, minH, maxW, maxH int // DIPs
 	movable, closable      bool
 	frameless              bool
-	hiddenTitleBar         bool        // a TitleBarStyle that hides the caption
-	caption                *captionBar // the controls in its place, nil if they failed
-	buttonsTheme           string      // "light" or "dark" for the controls (SetWindowButtonsTheme), "" as the app
-	topEdge                uintptr     // the window over the top resize border of one without a caption (topedge.go), or 0
-	noRedirect             bool        // no redirection bitmap, for a material behind the page
+	hiddenTitleBar         bool               // a TitleBarStyle that hides the caption
+	caption                *captionBar        // the controls in its place, nil if they failed
+	buttonsTheme           string             // "light" or "dark" for the controls (SetWindowButtonsTheme), "" as the app
+	edges                  [edgeCount]uintptr // the windows over the resize edges of one without a caption (resizeedge.go), or 0
+	noRedirect             bool               // no redirection bitmap, for a material behind the page
 	fullScreen             bool
 	fullByApp              bool     // the app asked for the full screen; the page's own does not end it
 	pageFull               bool     // the page has an element full screen (webview.go)
@@ -273,7 +273,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	if w.hiddenTitleBar {
 		w.caption = newCaptionBar(w)
 	}
-	w.newTopEdge()
+	w.newResizeEdges()
 	if o.Surface {
 		if w.surface = newSurface(w); w.surface == nil {
 			procDestroyWindow.Call(w.hwnd)
@@ -457,25 +457,37 @@ func (w *window) outerSize(width, height int32, dpi int) (int32, int32) {
 }
 
 // addFrame grows r, a page area in pixels, to the window around it. A window
-// without a caption has no title bar or menu bar, and its client area covers
-// the whole window (frameCalcSize): the window around a page area is that
-// area itself, plus the pixel at the top of a hidden title bar on Windows 11.
-// The invisible borders of a resizable window must not be added: the client
-// area no longer leaves room for them, and adding them would grow the window
-// (and the page with it) by the borders on every SetContentSize.
+// whose client area covers the whole window (fullClientArea) has no frame
+// around it: the window around a page area is that area itself. Any other
+// window without a caption has no title bar or menu bar, and keeps what
+// frameCalcSize leaves it: the borders of a resizable one, less what the
+// client area takes of them (frameBorder), and the pixel at the top of a
+// hidden title bar on Windows 11.
 func (w *window) addFrame(r *rect, menu uintptr, dpi int) {
 	style, ex := windowLong(w.hwnd, gwlStyle), windowLong(w.hwnd, gwlExStyle)
 	captionless := w.captionless()
-	if captionless {
-		if style&wsThickFrame != 0 && w.hiddenTitleBar && windows11() {
-			r.Top--
-		}
+	if w.fullClientArea() {
+		// The client area covers the whole window, so adding the invisible
+		// borders of WS_THICKFRAME would grow the window (and the page with it)
+		// by the borders on every SetContentSize.
 		return
 	}
-	if !has(procAdjustWindowRectExForDpi) {
+	if captionless && style&wsThickFrame == 0 || !has(procAdjustWindowRectExForDpi) {
 		return
+	}
+	top := r.Top
+	if captionless {
+		menu = 0
 	}
 	procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(r)), style, menu, ex, uintptr(dpi))
+	if captionless {
+		r.Top = top
+		if w.hiddenTitleBar && windows11() {
+			r.Top--
+		}
+		b := w.frameBorder()
+		r.Left, r.Right, r.Bottom = r.Left+b, r.Right-b, r.Bottom-b
+	}
 }
 
 // monitorAt returns the monitor at x, y in pixels, or the nearest.
@@ -736,8 +748,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		// everywhere: the edges would only move the window, never resize it.
 		// Answer the border ring here instead, by the frame's thickness, with
 		// the outer 16px of each corner as its corner (Chromium's frame does
-		// the same).
-		if w.captionless() && !w.fullScreen && !w.IsMaximized() && w.hasStyle(wsThickFrame) {
+		// the same). Windows 11 keeps its native non-client borders, and this
+		// does not run.
+		if w.fullClientArea() && !w.fullScreen && !w.IsMaximized() && w.hasStyle(wsThickFrame) {
 			if hit, ok := w.resizeHitTest(getXParam(lp), getYParam(lp)); ok {
 				return hit, true
 			}
@@ -947,11 +960,11 @@ func workAreaMaximized(r, monitor, work rect) (fit rect, ok bool) {
 }
 
 // layoutControls lays out what sits above the webview or the surface: the
-// top edge, and above it the window controls of a hidden title bar, among
-// them a maximize button the content draws (SetMaximizeButton), which
+// resize edges, and above them the window controls of a hidden title bar,
+// among them a maximize button the content draws (SetMaximizeButton), which
 // keeps the snap layouts over its whole height.
 func (w *window) layoutControls() {
-	w.layoutTopEdge()
+	w.layoutResizeEdges()
 	if w.caption != nil {
 		w.caption.layout()
 	}
@@ -960,6 +973,11 @@ func (w *window) layoutControls() {
 // captionless reports a window without a caption: frameless, or with a
 // hidden title bar.
 func (w *window) captionless() bool { return w.frameless || w.hiddenTitleBar }
+
+// fullClientArea reports a window whose client area covers the whole window.
+// A captionless one has that on Windows 10 only (frameCalcSize): Windows 11
+// keeps its native frame, whose borders outside the client area still resize.
+func (w *window) fullClientArea() bool { return w.captionless() && !windows11() }
 
 // plainCaption keeps the accent color off the top of a window without a
 // caption. With "Show accent color on title bars and window borders" on,
@@ -974,10 +992,15 @@ func (w *window) plainCaption() {
 	procDwmSetWindowAttribute.Call(w.hwnd, dwmwaCaptionColor, uintptr(unsafe.Pointer(&none)), 4)
 }
 
-// frameCalcSize removes the title bar of windows without a caption and gives
-// the client area the whole window. They no longer keep the invisible left,
-// right and bottom borders that Windows resizes from outside: resizeHitTest
-// answers the border ring inside the client area instead.
+// frameCalcSize removes the title bar of windows without a caption. On
+// Windows 10 it also gives the client area the whole window: those windows
+// no longer keep the invisible left, right and bottom borders that Windows
+// resizes from outside, and resizeHitTest answers the border ring inside the
+// client area instead. Windows 11 keeps its native frame, and with it the
+// borders outside the client area: moving the resize band inside the content
+// there would take clicks from scrollbars and list edges, and its client area
+// already starts inside the frame DWM draws.
+//
 // Maximized windows would overflow the screen by their borders: fit the
 // work area.
 //
@@ -1004,26 +1027,23 @@ func (w *window) frameCalcSize(wp, lp uintptr) uintptr {
 	if windowLong(w.hwnd, gwlStyle)&wsThickFrame != 0 {
 		windowRect := params.Rgrc[0]
 		procDefWindowProcW.Call(w.hwnd, wmNCCalcSize, wp, lp)
-		// Drop the title bar and let the client area cover the whole window.
-		//
-		// DefWindowProc leaves the left, right and bottom invisible borders
-		// in place: they make the window resizable from its edges, but they
-		// also shrink the client area by a few pixels (18×9 on this machine).
-		// A window whose content is a rounded glass panel drawn across the
-		// whole window shows the desktop through those strips at the bottom
-		// and sides, which reads as the bottom corners being cut off, and no
-		// corner radius can paint over it.
-		//
-		// Taking the whole rect costs nothing: DefWindowProc answers
-		// WM_NCHITTEST against the window rect, not the client area, so the
-		// edges still resize (Electron's frame: false does the same).
 		params.Rgrc[0].Top = windowRect.Top
 		if w.hiddenTitleBar && windows11() {
 			params.Rgrc[0].Top++
 		}
-		params.Rgrc[0].Left = windowRect.Left
-		params.Rgrc[0].Right = windowRect.Right
-		params.Rgrc[0].Bottom = windowRect.Bottom
+		if w.fullClientArea() {
+			// The client area covers the whole window, title bar and invisible
+			// borders alike: a rounded glass panel can paint to the edge, and
+			// nothing of the desktop shows through the strips at the sides and
+			// bottom. The edges still resize, through resizeHitTest.
+			params.Rgrc[0].Left = windowRect.Left
+			params.Rgrc[0].Right = windowRect.Right
+			params.Rgrc[0].Bottom = windowRect.Bottom
+		} else if b := w.frameBorder(); b > 0 {
+			params.Rgrc[0].Left -= b
+			params.Rgrc[0].Right += b
+			params.Rgrc[0].Bottom += b
+		}
 	}
 	return 0
 }
@@ -1124,8 +1144,10 @@ func (w *window) cleanup() {
 	if w.caption != nil {
 		w.caption.forget()
 	}
-	if w.topEdge != 0 {
-		delete(w.b.topEdges, w.topEdge)
+	for _, e := range w.edges {
+		if e != 0 {
+			delete(w.b.resizeEdges, e)
+		}
 	}
 	if w.controller != 0 {
 		comCall(w.controller, ctlClose)
