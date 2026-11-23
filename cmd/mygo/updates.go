@@ -217,7 +217,8 @@ func writeArchive(c *Config, stage, target string, entries []string) ([]string, 
 			return nil, err
 		}
 	}
-	name := c.slug() + "-" + c.Version + "-" + target + ".tar.gz"
+	goos, goarch, _ := strings.Cut(target, "-")
+	name := fileName(c, goos, goarch, ".tar.gz")
 	archive := filepath.Join(stage, name)
 	size, sig, err := writeSigned(archive, key, func(w io.Writer) error {
 		return update.WriteArchive(w, stage, entries)
@@ -323,7 +324,7 @@ func writeDeltas(c *Config, key ed25519.PrivateKey, stage, target string, entrie
 	get := c.archiveGetter()
 	var files []string
 	for i, base := range bases {
-		name := c.slug() + "-" + base.Version + "-to-" + c.Version + "-" + target + ".delta"
+		name := c.slug() + "-" + fsName(base.Version) + "-to-" + fsName(c.Version) + "-" + update.Platform(target) + ".delta"
 		path := filepath.Join(stage, name)
 		d, err := writeDelta(get, key, base, filepath.Join(work, strconv.Itoa(i)), path, c.Version, newDir, newEntries)
 		switch {

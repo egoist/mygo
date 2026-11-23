@@ -206,9 +206,9 @@ func TestLinuxFormats(t *testing.T) {
 		t.Fatal(err)
 	}
 	const (
-		deb     = "note-pad_1.2.0_amd64.deb"
-		rpm     = "note-pad-1.2.0-1.x86_64.rpm"
-		archive = "note-pad-1.2.0-linux-amd64.tar.gz"
+		deb     = "note-pad-1.2.0-linux-x86_64.deb"
+		rpm     = "note-pad-1.2.0-linux-x86_64.rpm"
+		archive = "note-pad-1.2.0-linux-x86_64.tar.gz"
 	)
 	for _, tc := range []struct {
 		formats string // in mygo.json
@@ -366,7 +366,7 @@ func TestBuildLinuxSlug(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(dir, "build", "linux-amd64")
-	for _, name := range []string{"cloud-music", "cloud-music.desktop", "cloud-music-0.1.0-linux-amd64.tar.gz", "cloud-music_0.1.0_amd64.deb", pkgbuildName, "cloud-music-0.1.0-1.x86_64.rpm"} {
+	for _, name := range []string{"cloud-music", "cloud-music.desktop", "cloud-music-0.1.0-linux-x86_64.tar.gz", "cloud-music-0.1.0-linux-x86_64.deb", pkgbuildName, "cloud-music-0.1.0-linux-x86_64.rpm"} {
 		if _, err := os.Stat(filepath.Join(out, name)); err != nil {
 			t.Error(err)
 		}
@@ -374,13 +374,13 @@ func TestBuildLinuxSlug(t *testing.T) {
 	if t.Failed() {
 		return
 	}
-	files := debData(t, filepath.Join(out, "cloud-music_0.1.0_amd64.deb"))
+	files := debData(t, filepath.Join(out, "cloud-music-0.1.0-linux-x86_64.deb"))
 	if _, ok := files["opt/cloud-music/cloud-music"]; !ok {
 		t.Error("the package has no opt/cloud-music/cloud-music")
 	}
 	// The list of what the version installs, from which its update knows
 	// what to remove, is in the app's archive.
-	f, err := os.Open(filepath.Join(out, "cloud-music-0.1.0-linux-amd64.tar.gz"))
+	f, err := os.Open(filepath.Join(out, "cloud-music-0.1.0-linux-x86_64.tar.gz"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,18 +397,18 @@ func TestBuildLinuxSlug(t *testing.T) {
 	if entries, _ := entryNames(unpacked); len(entries) < 2 || !slices.Equal(update.ParseFileList(list), entries) {
 		t.Errorf("the list names %q, the archive holds %q", list, entries)
 	}
-	if !strings.HasPrefix(debMember(t, filepath.Join(out, "cloud-music_0.1.0_amd64.deb"), "control.tar.gz")["control"], "Package: cloud-music\n") {
+	if !strings.HasPrefix(debMember(t, filepath.Join(out, "cloud-music-0.1.0-linux-x86_64.deb"), "control.tar.gz")["control"], "Package: cloud-music\n") {
 		t.Error("the package is not named cloud-music")
 	}
 	pkgbuild, err := os.ReadFile(filepath.Join(out, pkgbuildName))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(pkgbuild), "\npkgname='cloud-music'\n") || !strings.Contains(string(pkgbuild), "\nsource=('cloud-music-0.1.0-linux-amd64.tar.gz')\n") || !strings.Contains(string(pkgbuild), "\ndepends=('gtk3')\n") {
+	if !strings.Contains(string(pkgbuild), "\npkgname='cloud-music'\n") || !strings.Contains(string(pkgbuild), "\nsource=('cloud-music-0.1.0-linux-x86_64.tar.gz')\n") || !strings.Contains(string(pkgbuild), "\ndepends=('gtk3')\n") {
 		t.Errorf("the PKGBUILD does not package cloud-music:\n%s", pkgbuild)
 	}
 	if rpm, err := exec.LookPath("rpm"); err == nil {
-		written := filepath.Join(out, "cloud-music-0.1.0-1.x86_64.rpm")
+		written := filepath.Join(out, "cloud-music-0.1.0-linux-x86_64.rpm")
 		if out := rpmQuery(t, rpm, written, "-qp", "--qf", "%{NAME}\n[%{FILENAMES}\n]"); !strings.HasPrefix(out, "cloud-music\n") || !strings.Contains(out, "\n/opt/cloud-music/cloud-music\n") {
 			t.Errorf("the RPM does not package cloud-music:\n%s", out)
 		}

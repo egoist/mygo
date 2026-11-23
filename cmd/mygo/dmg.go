@@ -15,17 +15,10 @@ import (
 // finderHasCustomIcon is the Finder flag of folders with a custom icon.
 const finderHasCustomIcon = 0x0400
 
-// dmgFileName is "<slug>-<version>-<arch>.dmg", as
-// "my-app-1.2.0-arm64.dmg", or "<slug>-<version>.dmg" for darwin/universal,
-// which is for every Mac: each architecture's disk image is named apart, so
-// that the builds of two, uploaded to one release or bucket, keep both.
-// The slug keeps the name whole where it is uploaded, as GitHub drops what
-// is not ASCII from the names of a release's files.
+// dmgFileName is "<slug>-<version>-macos-<arch>.dmg", as
+// "my-app-1.2.0-macos-arm64.dmg" (fileName).
 func dmgFileName(c *Config, goarch string) string {
-	if goarch == "universal" {
-		return c.slug() + "-" + fsName(c.Version) + ".dmg"
-	}
-	return c.slug() + "-" + fsName(c.Version) + "-" + goarch + ".dmg"
+	return fileName(c, "darwin", goarch, ".dmg")
 }
 
 // buildDMG packages app, built for goarch, into a compressed, read-only

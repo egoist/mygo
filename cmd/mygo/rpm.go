@@ -198,7 +198,7 @@ func writeRpm(c *Config, stage, name, goarch string, app []string) (string, erro
 		return "", err
 	}
 
-	outpath := filepath.Join(stage, fmt.Sprintf("%s-%s-%v.%s.rpm", name, rpmVersion(c.Version), rpmRelease, arch))
+	outpath := filepath.Join(stage, fileName(c, "linux", goarch, ".rpm"))
 	out, err := os.Create(outpath)
 	if err != nil {
 		return "", err

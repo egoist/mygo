@@ -165,12 +165,12 @@ func TestCreateDMGFallsBackToAPFS(t *testing.T) {
 // where they are uploaded. A universal disk image is for every Mac.
 func TestInstallerNames(t *testing.T) {
 	c := &Config{Name: "A/B: C", Version: "1.0"}
-	for goarch, want := range map[string]string{"arm64": "a-b-c-1.0-arm64.dmg", "amd64": "a-b-c-1.0-amd64.dmg", "universal": "a-b-c-1.0.dmg"} {
+	for goarch, want := range map[string]string{"arm64": "a-b-c-1.0-macos-arm64.dmg", "amd64": "a-b-c-1.0-macos-x86_64.dmg", "universal": "a-b-c-1.0-macos-universal.dmg"} {
 		if got := dmgFileName(c, goarch); got != want {
 			t.Errorf("dmgFileName(%s) = %q, want %q", goarch, got, want)
 		}
 	}
-	for goarch, want := range map[string]string{"amd64": "a-b-c-setup-1.0-amd64.exe", "arm64": "a-b-c-setup-1.0-arm64.exe"} {
+	for goarch, want := range map[string]string{"amd64": "a-b-c-1.0-windows-x86_64-setup.exe", "arm64": "a-b-c-1.0-windows-arm64-setup.exe"} {
 		if got := installerFileName(c, goarch); got != want {
 			t.Errorf("installerFileName(%s) = %q, want %q", goarch, got, want)
 		}
@@ -276,7 +276,7 @@ esac
 // checks what it shows and returns where it is mounted.
 func checkDMG(t *testing.T, dmg string, icns []byte) string {
 	t.Helper()
-	if filepath.Base(dmg) != "dmg-test-1.2.3-"+runtime.GOARCH+".dmg" {
+	if filepath.Base(dmg) != dmgFileName(&Config{Name: "DMG Test", Version: "1.2.3"}, runtime.GOARCH) {
 		t.Errorf("dmg = %s", dmg)
 	}
 	mnt := attachDMG(t, dmg)

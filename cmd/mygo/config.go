@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/egoist/mygo/i18n"
+	"github.com/egoist/mygo/internal/update"
 )
 
 // The configuration of a project is in one of these files at its root.
@@ -787,6 +788,18 @@ func (c *Config) slug() string {
 		return c.Slug
 	}
 	return slugify(c.executableName())
+}
+
+// fileName is the name of a file of the app's for goos/goarch that users
+// download or updates fetch, "<slug>-<version>-<platform><ext>", as
+// "my-app-1.2.0-macos-arm64.dmg" or "my-app-1.2.0-linux-x86_64.deb": every
+// file of a release names its platform alike (update.Platform), and each
+// architecture's apart, so that the builds of two, uploaded to one release
+// or bucket, keep both. The slug keeps the name whole where it is
+// uploaded, as GitHub drops what is not ASCII from the names of a
+// release's files.
+func fileName(c *Config, goos, goarch, ext string) string {
+	return c.slug() + "-" + fsName(c.Version) + "-" + update.Platform(goos+"-"+goarch) + ext
 }
 
 // fsName makes s usable as a file name on every platform.

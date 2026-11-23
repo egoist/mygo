@@ -29,8 +29,8 @@ func runBuild(args []string) error {
 	flags := newFlags("build", "[flags] [dir]", `Builds a production app for each platform. It runs buildCommand from
 mygo.json, then compiles the app with the frontendDist files embedded, served
 at mygo://localhost/. macOS gets a signed .app bundle and a
-"<slug>-<version>-<arch>.dmg" disk image (slug in mygo.json, by default
-the name in lower case), without the arch for darwin/universal, whose
+"<slug>-<version>-macos-<arch>.dmg" disk image (slug in mygo.json, by
+default the name in lower case; arch is arm64, x86_64 or universal), whose
 window invites dragging the app to Applications; other platforms get an
 executable. Linux also gets the app as
 <slug>-<version>-linux-<arch>.tar.gz with install.sh, which installs it
@@ -47,7 +47,7 @@ darwin-amd64. Go source files in resources, and the paths there that match
 resourcesExclude in mygo.json, such as "**/*.psd", are left out. MyGo needs
 no cgo, so any platform can be compiled from any machine; signing and disk
 images need macOS. Windows also gets
-"<slug>-setup-<version>-<arch>.exe", made with NSIS, which mygo build
+"<slug>-<version>-windows-<arch>-setup.exe", made with NSIS, which mygo build
 downloads on Windows when it is not installed; -skip-installer leaves both
 out.
 
@@ -57,7 +57,7 @@ outside the Mac App Store, and macos.notarize to notarize the app and the disk i
 With updates in mygo.json and the key of mygo keygen in
 MYGO_UPDATER_PRIVATE_KEY, each platform also gets a signed update archive,
 delta updates from the last versions published (updates.deltas), and
-update-<platform>.json: publish them where updates point to.
+update-<os>-<arch>.json: publish them where updates point to.
 
 The platform web (or js/wasm) builds an app of native UI for browsers into
 <out>/web: index.html, which loads the app, Go's wasm_exec.js and the app's
@@ -67,7 +67,7 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 	skipBuildCommand := flags.Bool("skip-build-command", false, "do not run buildCommand")
 	skipDMG := flags.Bool("skip-dmg", false, "do not create a disk image for macOS")
 	skipNotarize := flags.Bool("skip-notarize", false, "do not notarize even when macos.notarize is set")
-	skipInstaller := flags.Bool("skip-installer", false, "do not create the Windows installer (<slug>-setup-<version>-<arch>.exe), nor download NSIS for it")
+	skipInstaller := flags.Bool("skip-installer", false, "do not create the Windows installer (<slug>-<version>-windows-<arch>-setup.exe), nor download NSIS for it")
 	sign := flags.String("sign", "", `macOS signing identity (default: macos.signingIdentity, or "-" for ad hoc)`)
 	out := flags.String("o", "", "output directory (default: out from mygo.json or dist)")
 	upload := flags.Bool("upload", false, "upload the installers and updates to the GitHub release of this version (updates.github), as a draft, or to the bucket of updates.s3")

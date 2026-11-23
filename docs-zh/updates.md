@@ -50,9 +50,9 @@ MYGO_UPDATER_PRIVATE_KEY="$(cat path/to/mygo-update.key)" go tool mygo build   #
 
 除了各平台的安装程序，还会生成：
 
-- `my-app-1.2.0-darwin-arm64.tar.gz`，包含与安装后相同的应用文件，以应用的 [`slug`](configuration.md#应用) 命名，
-- 从之前的版本生成的[增量更新](#增量更新)，例如 `my-app-1.1.0-to-1.2.0-darwin-arm64.delta`，以及
-- `update-darwin-arm64.json`，清单：版本、发布说明、日期，以及归档和每个增量更新的 URL、大小与签名。
+- `my-app-1.2.0-macos-arm64.tar.gz`，包含与安装后相同的应用文件，像发布版本中的每个文件一样以应用的 [`slug`](configuration.md#应用) 和平台命名：`macos`、`windows` 或 `linux`，再加 `arm64`、`x86_64` 或 `universal`，
+- 从之前的版本生成的[增量更新](#增量更新)，例如 `my-app-1.1.0-to-1.2.0-macos-arm64.delta`，以及
+- `update-darwin-arm64.json`，清单：版本、发布说明、日期，以及归档和每个增量更新的 URL、大小与签名。它的名称沿用 Go 对平台的命名，因为已安装的应用内置了这个名称。
 
 没有密钥时，`mygo build` 会构建应用，但不写更新文件；Linux 归档例外，因为 [`install.sh`](distribution.md#安装脚本) 要从它安装。`mygo build -upload` 需要密钥：它会在构建之前停下，因为已安装的应用无法更新到没有清单的发布版本。
 

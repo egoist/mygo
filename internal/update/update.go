@@ -67,7 +67,32 @@ func (m *Manifest) Delta(from string) *Delta {
 }
 
 // ManifestName is the file name of the manifest of target.
+//
+// It keeps Go's names, as update-darwin-arm64.json, unlike the files of a
+// release (Platform): installed apps have the URL of their manifest built
+// in, and must keep finding it.
 func ManifestName(target string) string { return "update-" + target + ".json" }
+
+// Platform names target, a GOOS-GOARCH pair, in the names of an app's
+// files, as users know it rather than as Go does: the system as macos,
+// windows or linux, and the CPU as x86_64 or arm64, as "macos-arm64" or
+// "windows-x86_64". Every file of a release names its platform so, but
+// the manifests (ManifestName).
+func Platform(target string) string {
+	goos, goarch, _ := strings.Cut(target, "-")
+	if name, ok := platformOS[goos]; ok {
+		goos = name
+	}
+	if name, ok := platformArch[goarch]; ok {
+		goarch = name
+	}
+	return goos + "-" + goarch
+}
+
+var (
+	platformOS   = map[string]string{"darwin": "macos"}
+	platformArch = map[string]string{"amd64": "x86_64"}
+)
 
 // Limits of what an app downloads.
 const (

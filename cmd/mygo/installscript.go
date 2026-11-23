@@ -250,8 +250,10 @@ linux() {
 	[ "$(printf '%s' "$app_dir" | tr -d '"$%\\\140\n')" = "$app_dir" ] ||
 		fail "cannot install in $app_dir: the path has characters a desktop entry cannot hold"
 	case "$(uname -m)" in
-	x86_64 | amd64) target=linux-amd64 ;;
-	aarch64 | arm64) target=linux-arm64 ;;
+	# The archive names the CPU as users do, the manifest as Go does: the
+	# apps installed have its name built in.
+	x86_64 | amd64) target=linux-x86_64 feed=linux-amd64 ;;
+	aarch64 | arm64) target=linux-arm64 feed=linux-arm64 ;;
 	*) fail "$app_name is not made for $(uname -m)" ;;
 	esac
 
@@ -271,9 +273,9 @@ linux() {
 		if [ -n "$api" ]; then
 			tag="$(latest_tag)" || fail "could not list the releases at $api"
 			[ -n "$tag" ] || fail "no release of $app_name is published"
-			manifest="$releases$tag/update-$target.json"
+			manifest="$releases$tag/update-$feed.json"
 		else
-			manifest="${releases}update-$target.json"
+			manifest="${releases}update-$feed.json"
 		fi
 		# Fail before downloading when nothing here checks Ed25519.
 		has_ed25519 || fail "checking the signature of $app_name needs OpenSSL 3.0 or later (the openssl command): install it, or download $name-<version>-$target.tar.gz and run sh install.sh with it"

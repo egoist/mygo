@@ -264,7 +264,7 @@ func writeDeb(c *Config, stage, name, goarch string, app []string) (string, erro
 			deb.WriteByte('\n')
 		}
 	}
-	out := filepath.Join(stage, fmt.Sprintf("%s_%s_%s.deb", name, debVersion(c.Version), arch))
+	out := filepath.Join(stage, fileName(c, "linux", goarch, ".deb"))
 	return out, os.WriteFile(out, deb.Bytes(), 0o644)
 }
 
