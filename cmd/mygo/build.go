@@ -71,8 +71,12 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 	sign := flags.String("sign", "", `macOS signing identity (default: macos.signingIdentity, or "-" for ad hoc)`)
 	out := flags.String("o", "", "output directory (default: out from mygo.json or dist)")
 	upload := flags.Bool("upload", false, "upload the installers and updates to the GitHub release of this version (updates.github), as a draft, or to the bucket of updates.s3")
+	remote := flags.String("remote", os.Getenv("MYGO_REMOTE"), "run the build on a remote SSH host, syncing sources and fetching artifacts (or set MYGO_REMOTE)")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *remote != "" {
+		return runRemoteBuild(*remote, args, flags.Args(), *out)
 	}
 	targets, err := buildPlatforms(*platforms)
 	if err != nil {
