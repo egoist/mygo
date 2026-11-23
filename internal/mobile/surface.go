@@ -131,6 +131,10 @@ func (s *surface) RequestFrame() {
 	if s.pending || s.gone {
 		return
 	}
+	if s.w.b.background {
+		s.deferred = true
+		return
+	}
 	s.pending = true
 	s.w.b.call(&wire.RequestFrame{ID: s.w.id}, nil)
 }
