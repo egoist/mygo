@@ -1400,6 +1400,22 @@ func TestUpdaterRefusedAsTheAppQuits(t *testing.T) {
 	}
 }
 
+// age sets the times of path, and of the entries of the directory path,
+// to staleWorkAge and a minute ago: nothing changed them since.
+func age(t *testing.T, path string) {
+	t.Helper()
+	old := time.Now().Add(-staleWorkAge - time.Minute)
+	entries, _ := os.ReadDir(path)
+	for _, e := range entries {
+		if err := os.Chtimes(filepath.Join(path, e.Name()), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // An Install on macOS first removes the work that earlier updates left
 // next to the app, as a crash does, but not the staged update's, nor that
 // of an Install under way, nor anything else.
@@ -1416,6 +1432,7 @@ func TestUpdaterRemovesStaleWork(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(dir, name, "app"), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		age(t, filepath.Join(dir, name))
 	}
 	file := ".My App.app.update-999"
 	if err := os.WriteFile(filepath.Join(dir, file), nil, 0o644); err != nil {
@@ -1426,12 +1443,14 @@ func TestUpdaterRemovesStaleWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	age(t, pending)
 	pendingUpdate = &stagedUpdate{work: pending, target: target}
 	under, doneUnder, err := makeWork(target)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer doneUnder()
+	age(t, under)
 	work, done, err := makeWork(target)
 	if err != nil {
 		t.Fatal(err)
@@ -1446,6 +1465,69 @@ func TestUpdaterRemovesStaleWork(t *testing.T) {
 		if _, err := os.Lstat(filepath.Join(dir, p)); err != nil {
 			t.Errorf("%s was removed: %v", p, err)
 		}
+	}
+}
+
+// The work of another instance's Install, which this process does not
+// know of, stays while it changed lately: one just made, one whose
+// download goes on in a file of it, and the staged update whose swap
+// process its app started as it quit. Once nothing changed it for
+// staleWorkAge, it goes.
+func TestUpdaterKeepsOtherInstancesWork(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS leaves staged updates")
+	}
+	fakeSwap(t, false)
+	target, _ := installedApp(t)
+	dir := filepath.Dir(target)
+	made, err := os.MkdirTemp(dir, workPattern(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	downloading, err := os.MkdirTemp(dir, workPattern(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	age(t, downloading)
+	touch(t, filepath.Join(downloading, "update.tar.gz"))
+	staged, err := os.MkdirTemp(dir, workPattern(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &stagedUpdate{work: staged, target: target, bundle: filepath.Join(staged, "app", "My App.app")}
+	if err := os.MkdirAll(p.bundle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	age(t, staged)
+	app := fakeApp(t)
+	swap, err := startSwap(p, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		exitApp(app)
+		swap.Wait()
+	})
+	work, done, err := makeWork(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done()
+	os.Remove(work)
+	for _, p := range []string{made, downloading, staged} {
+		if _, err := os.Lstat(p); err != nil {
+			t.Errorf("another instance's %s was removed: %v", filepath.Base(p), err)
+		}
+	}
+	age(t, made)
+	work, done, err = makeWork(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done()
+	os.Remove(work)
+	if _, err := os.Lstat(made); !os.IsNotExist(err) {
+		t.Errorf("the work that nothing changed stays: %v", err)
 	}
 }
 

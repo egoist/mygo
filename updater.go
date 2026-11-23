@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -455,12 +456,21 @@ func makeWork(target string) (work string, done func(), err error) {
 	}, nil
 }
 
+// staleWorkAge is how long the work directory of an update next to the
+// app must have stayed unchanged before an Install takes it for stale.
+// Another instance of the app, which this process knows nothing of, may
+// be downloading into it, or its swap process may be waiting for it to
+// exit: that one gives up after five minutes (swapWaitSteps), and
+// startSwap touches the work as it starts it.
+const staleWorkAge = 10 * time.Minute
+
 // removeStaleWork removes the work directories of updates next to the app
 // at target that are neither the staged update's nor an Install's under
-// way: an app that crashed, or quit without finishing, leaves the update
-// it staged, and so does a swap process that gave up waiting for the app
-// to exit. Only directories named as os.MkdirTemp names those of
-// workPattern are removed.
+// way, and that nothing changed for staleWorkAge (workChanged): an app
+// that crashed, or quit without finishing, leaves the update it staged,
+// and so does a swap process that gave up waiting for the app to exit.
+// Only directories named as os.MkdirTemp names those of workPattern are
+// removed.
 func removeStaleWork(target string) {
 	dir, prefix := filepath.Dir(target), workPattern(target)
 	entries, err := os.ReadDir(dir)
@@ -481,6 +491,9 @@ func removeStaleWork(target string) {
 		stale = append(stale, p)
 	}
 	stageMu.Unlock()
+	stale = slices.DeleteFunc(stale, func(p string) bool {
+		return time.Since(workChanged(p)) < staleWorkAge
+	})
 	// Outside the lock, which the app takes as it quits: a directory that
 	// is stale stays stale, as only os.MkdirTemp names new ones.
 	for _, p := range stale {
@@ -488,6 +501,23 @@ func removeStaleWork(target string) {
 			log.Printf("mygo: removing what an earlier update left: %v", err)
 		}
 	}
+}
+
+// workChanged returns when the work directory p or one of its entries
+// last changed: a download writes into a file of p, and unpacking adds
+// app to it.
+func workChanged(p string) time.Time {
+	var last time.Time
+	if fi, err := os.Lstat(p); err == nil {
+		last = fi.ModTime()
+	}
+	entries, _ := os.ReadDir(p)
+	for _, e := range entries {
+		if fi, err := e.Info(); err == nil && fi.ModTime().After(last) {
+			last = fi.ModTime()
+		}
+	}
+	return last
 }
 
 // stageBundle leaves the bundle that dir holds to replace target once the
@@ -654,6 +684,10 @@ func startSwap(p *stagedUpdate, relaunch bool, args []string) (*exec.Cmd, error)
 	if relaunch {
 		mode = "relaunch"
 	}
+	// The work is in use again, until the process gives up: the Installs
+	// of other instances leave it (removeStaleWork).
+	now := time.Now()
+	_ = os.Chtimes(p.work, now, now)
 	inheritNoFiles()
 	cmd, closeLog := swapCommand(p, mode, args)
 	defer closeLog()
