@@ -93,8 +93,8 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 			return err
 		}
 	}
-	if *maxSize < 0 {
-		return fmt.Errorf("-max-size %v is negative", *maxSize)
+	if !(*maxSize >= 0 && *maxSize <= 1<<20) {
+		return fmt.Errorf("-max-size %v is not a size in MB", *maxSize)
 	}
 	// The catalogs name the languages the packages declare.
 	if _, err := c.languages(); err != nil {
@@ -651,7 +651,9 @@ func mygoSyso(name string) bool {
 }
 
 // checkSize fails when the compiled program at path has more than max bytes
-// (-max-size); max 0 is no limit.
+// (-max-size); max 0 is no limit. It checks executables, Android's
+// libraries and the WebAssembly of browsers, not iOS's archive, which Xcode
+// links.
 func checkSize(path string, max int64) error {
 	if max <= 0 {
 		return nil

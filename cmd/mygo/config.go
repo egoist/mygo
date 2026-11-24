@@ -419,9 +419,15 @@ func readConfig(root string) (data []byte, file string, err error) {
 }
 
 // setVersion makes v the app's version, in place of mygo.json's (mygo build
-// -version): a release's tag, whose leading v is dropped.
+// -version): a release's tag, whose prefix is dropped, updates.tagPrefix or
+// else a leading v.
 func (c *Config) setVersion(v string) error {
-	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	v = strings.TrimSpace(v)
+	prefix := "v"
+	if c.Updates != nil && c.Updates.TagPrefix != "" {
+		prefix = c.Updates.TagPrefix
+	}
+	v = strings.TrimPrefix(v, prefix)
 	if v == "" || strings.ContainsFunc(v, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r == '/' || r == '\\' }) {
 		return fmt.Errorf("-version %q is not a version", v)
 	}

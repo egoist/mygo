@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"debug/pe"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"go/parser"
@@ -759,6 +761,12 @@ func TestBuildVersion(t *testing.T) {
 	}
 	if got := packageFlags(c); !strings.Contains(got, "packageVersion=1.3.0-beta.1") {
 		t.Errorf("the version is not linked in: %s", got)
+	}
+	// The tag prefix of the updates, in place of v.
+	pub, _, _ := ed25519.GenerateKey(nil)
+	c.Updates = &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), GitHub: "o/r", TagPrefix: "app-v"}
+	if err := c.setVersion("app-v2.0.0"); err != nil || c.Version != "2.0.0" {
+		t.Errorf("setVersion(app-v2.0.0) with tagPrefix app-v: %q, %v", c.Version, err)
 	}
 }
 
