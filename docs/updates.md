@@ -275,13 +275,18 @@ func checkForUpdates(ctx context.Context) {
   before MyGo wrote the list has none, so its first update removes
   nothing.
 - The version an update replaces is kept until the new one has started
-  well: for 20 seconds, or until it quits normally before. A start of the
-  new version that follows a first start that ended sooner, as one that
-  crashed, puts the previous version back and opens it instead, so an
-  update that cannot start is not one the user is stuck with. A second
-  copy of the app opened while the first start runs does not count. The
-  previous version waits in `.mygo-previous` in the app's folder, or
-  beside the bundle on macOS (`.My App.app.previous`).
+  well: until it shows its first window, or quits normally before. A
+  start of the new version that follows a first start that ended sooner,
+  as one that crashed, puts the previous version back and opens it
+  instead, so an update that cannot start is not one the user is stuck
+  with. A second copy of the app opened while the first start runs does
+  not count. The version put back is offered no more, only a newer one,
+  and `RolledBack` returns it once, for the app to tell the user. An app
+  without windows, as one of the menu bar's, calls `ConfirmStart` once it
+  is up. The previous version waits in `.mygo-previous` in the app's
+  folder, or beside the bundle on macOS (`.My App.app.previous`). Apps
+  built without `updates` carry none of it: `mygo build` builds those
+  with it with the tag `mygo_updates`.
 - `Enabled` reports whether the app can update itself: it was built with
   updates, and it can write where it is installed. Development builds
   cannot, and `Check` returns `mygo.ErrUpdatesDisabled` in them.

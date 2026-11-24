@@ -99,6 +99,10 @@ type Application struct {
 	onNotificationClick listeners[func(string)]
 }
 
+// updatedStart, when set (updater_start.go), judges a start after an
+// update, before anything else of the app's.
+var updatedStart func()
+
 // App is the application singleton.
 var App = &Application{readyCh: make(chan struct{}), Dock: &Dock{}, JumpList: &JumpList{}}
 
@@ -129,7 +133,9 @@ func (a *Application) Run() error {
 	a.running = true
 	a.mu.Unlock()
 	logCrashes()
-	judgeUpdatedStart()
+	if updatedStart != nil {
+		updatedStart()
+	}
 	go cleanUpdateLeftovers()
 
 	b := backend()
@@ -322,7 +328,6 @@ func (a *Application) finish() {
 		backend().Clipboard().Close()
 		saveWindowStates()
 		fire(&a.onQuit)
-		proveUpdatedStart()
 		backendExiting()
 		if a.relaunch {
 			// After OnQuit, which stops taking the command lines of later

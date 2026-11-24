@@ -148,7 +148,11 @@ func (u *UpdaterModule) Check(ctx context.Context) (*Update, error) {
 	if s := updateSource.Load(); s != nil {
 		src = *s
 	}
-	return checkUpdate(ctx, src, packageUpdateKey, App.Version(), prereleases.Load())
+	up, err := checkUpdate(ctx, src, packageUpdateKey, App.Version(), prereleases.Load())
+	if up != nil && skipsUpdate(up.Version) {
+		return nil, nil // it was put back after its first start failed
+	}
+	return up, err
 }
 
 // SetPrereleases makes Check offer prereleases too, such as 1.3.0-beta.1,
@@ -165,6 +169,20 @@ func (u *UpdaterModule) SetPrereleases(on bool) { prereleases.Store(on) }
 
 // Prereleases reports whether Check offers prereleases (SetPrereleases).
 func (u *UpdaterModule) Prereleases() bool { return prereleases.Load() }
+
+// RolledBack returns the version of an update that was undone, the first
+// time it is called after that, so that the app can tell the user once:
+// its first start ended before it showed a window, as when it crashed, and
+// the next start put the version before back. Check offers that version no
+// more, only a newer one. Empty otherwise.
+func (u *UpdaterModule) RolledBack() string { return rolledBackOnce() }
+
+// ConfirmStart tells that the first start of an update went well, so that
+// the version it replaced, which is kept until then, is deleted. An app
+// that shows a window has no need: its first window confirms it, and so
+// does a normal quit. An app without windows, as one of the menu bar's,
+// calls it once it is up.
+func (u *UpdaterModule) ConfirmStart() { proveStart() }
 
 // feedSource is the update feed that mygo.config.ts configures, the URL of
 // a manifest or a feed that update.ResolveFeed resolves.

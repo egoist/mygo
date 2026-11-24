@@ -294,6 +294,10 @@ func TestUpdaterRollback(t *testing.T) {
 	old := startRestored
 	startRestored = func(target string) bool { started = append(started, target); return true }
 	t.Cleanup(func() { startRestored = old })
+	rolledBack := filepath.Join(t.TempDir(), "mygo-rolled-back")
+	oldFile := rolledBackFile
+	rolledBackFile = func() (string, error) { return rolledBack, nil }
+	t.Cleanup(func() { rolledBackFile = oldFile })
 	install := func() (target, main string) {
 		t.Helper()
 		target, main = installedApp(t)
@@ -334,6 +338,20 @@ func TestUpdaterRollback(t *testing.T) {
 	if !checkUpdatedStart(target, "1.2.0") || len(started) != 1 || started[0] != target {
 		t.Fatalf("a start after a first one that died started %q", started)
 	}
+	// 1.2.0 is offered no more, only a newer version, and the app is told
+	// once.
+	if !skipsUpdate("1.2.0") || !skipsUpdate("1.1.9") || skipsUpdate("1.2.1") {
+		t.Error("Check skips other versions than those up to the one put back")
+	}
+	if v := Updater.RolledBack(); v != "1.2.0" {
+		t.Errorf("RolledBack = %q", v)
+	}
+	if v := Updater.RolledBack(); v != "" {
+		t.Errorf("RolledBack told again: %q", v)
+	}
+	if !skipsUpdate("1.2.0") {
+		t.Error("telling the app forgot the version")
+	}
 	if b, _ := os.ReadFile(main); string(b) != "v1" {
 		t.Errorf("after the rollback main = %q", b)
 	}
@@ -358,6 +376,11 @@ func TestUpdaterRollback(t *testing.T) {
 	if checkUpdatedStart(target, "1.2.0") {
 		t.Fatal("the first start was rolled back")
 	}
+	Updater.ConfirmStart() // as its first window shows
+	if _, err := os.Stat(prev); err == nil {
+		t.Error("the previous version is kept after the update proved itself")
+	}
+	Updater.ConfirmStart() // and as it quits: nothing left to do
 	confirmUpdate(target, "1.2.0")
 	if _, err := os.Stat(prev); err == nil {
 		t.Error("the previous version is kept after the update proved itself")

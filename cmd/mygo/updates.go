@@ -142,6 +142,20 @@ func updateFlags(c *Config, target string) string {
 		" -X github.com/egoist/mygo.packageUpdateKey=" + c.Updates.PublicKey
 }
 
+// updatesTag is the build tag of an app with updates, which judges the
+// first start of an update at the app's start (the package's
+// updater_start.go): apps without updates leave it out.
+const updatesTag = "mygo_updates"
+
+// updateTags returns the build tags of updates: updatesTag for an app with
+// them.
+func updateTags(c *Config) []string {
+	if c.Updates == nil {
+		return nil
+	}
+	return []string{updatesTag}
+}
+
 // signingKey returns the private key that signs updates, or nil when none
 // is available.
 func (c *Config) signingKey() (ed25519.PrivateKey, error) {

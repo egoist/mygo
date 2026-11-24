@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/egoist/mygo/internal/update"
 )
@@ -29,13 +28,16 @@ import (
 // and can take the lock follows one that ended without proving itself, and
 // restores the previous version; while the first start runs, as when the
 // app is opened twice, the lock is held and the start goes on.
-// A start proves itself once it has run for updateProofDelay, or quits
-// normally before (confirmUpdate); the previous version is deleted then.
-// Only the new version judges: a mark of another version is left alone.
-
-// updateProofDelay is how long the first start of an update runs before it
-// has proved itself.
-const updateProofDelay = 20 * time.Second
+// A start proves itself once it shows its first window, quits normally
+// before, or calls Updater.ConfirmStart, as an app without windows does
+// (confirmUpdate); the previous version is deleted then. Only the new
+// version judges: a mark of another version is left alone. A version put
+// back so is remembered (rememberRolledBack): Check offers it no more, only
+// a newer one, and Updater.RolledBack tells the app once.
+//
+// The judging is reached through updatedStart, which updater_start.go sets
+// in the builds of apps with updates alone (the build tag mygo_updates of
+// `mygo build`), so that the start of other apps does not carry it.
 
 // previousDir is where an update keeps the version of the app at target it
 // replaced: a hidden directory in the app's on Linux and Windows, which no
@@ -102,11 +104,8 @@ func checkUpdatedStart(target, version string) bool {
 			return false
 		}
 		firstStart.Lock()
-		firstStart.lock = lock
+		firstStart.lock, firstStart.target, firstStart.version = lock, target, version
 		firstStart.Unlock()
-		proveUpdate.Do(func() {
-			time.AfterFunc(updateProofDelay, func() { confirmUpdate(target, version) })
-		})
 		return false
 	}
 	lock.Close()
@@ -116,17 +115,28 @@ func checkUpdatedStart(target, version string) bool {
 		_ = os.RemoveAll(prev)
 		return false
 	}
+	rememberRolledBack(version)
 	return startRestored(target)
 }
 
-// proveUpdate starts the timer of a first start once.
-var proveUpdate sync.Once
-
 // firstStart holds the lock of started.lock while the first start of an
-// update runs.
+// update runs, with the app's target and version, which proveStart
+// confirms.
 var firstStart struct {
 	sync.Mutex
-	lock *os.File
+	lock            *os.File
+	target, version string
+}
+
+// proveStart confirms the first start of an update, when this start is
+// one.
+func proveStart() {
+	firstStart.Lock()
+	target, version := firstStart.target, firstStart.version
+	firstStart.Unlock()
+	if target != "" {
+		confirmUpdate(target, version)
+	}
 }
 
 // confirmUpdate deletes the version that the update of version replaced at
@@ -143,6 +153,72 @@ func confirmUpdate(target, version string) {
 		}
 		_ = os.RemoveAll(prev)
 	}
+	if firstStart.target == target {
+		firstStart.target, firstStart.version = "", ""
+	}
+}
+
+// rolledBackFile is the file in the app's user data that names the version
+// put back last (rememberRolledBack), and, once Updater.RolledBack told
+// it, the word told.
+var rolledBackFile = func() (string, error) {
+	dir, err := App.Path(PathUserData)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "mygo-rolled-back"), nil
+}
+
+// rememberRolledBack remembers that version was put back, so that Check
+// skips it.
+func rememberRolledBack(version string) {
+	path, err := rolledBackFile()
+	if err == nil {
+		if err = os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
+			err = os.WriteFile(path, []byte(version+"\n"), 0o644)
+		}
+	}
+	if err != nil {
+		log.Printf("mygo: cannot remember that %s was put back, so it may be offered again: %v", version, err)
+	}
+}
+
+// readRolledBack reads rolledBackFile: the version put back last, and
+// whether the app was told.
+func readRolledBack() (version string, told bool) {
+	path, err := rolledBackFile()
+	if err != nil {
+		return "", false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	f := strings.Fields(string(b))
+	if len(f) == 0 {
+		return "", false
+	}
+	return f[0], len(f) > 1 && f[1] == "told"
+}
+
+// rolledBackOnce returns the version put back last, the first time it is
+// asked, and "" after.
+func rolledBackOnce() string {
+	v, told := readRolledBack()
+	if v == "" || told {
+		return ""
+	}
+	if path, err := rolledBackFile(); err == nil {
+		_ = os.WriteFile(path, []byte(v+"\ntold\n"), 0o644)
+	}
+	return v
+}
+
+// skipsUpdate reports whether Check skips version: it is not newer than a
+// version that was put back.
+func skipsUpdate(version string) bool {
+	v, _ := readRolledBack()
+	return v != "" && update.Compare(version, v) <= 0
 }
 
 // restorePrevious puts the version kept in prev back at target: on macOS
@@ -238,7 +314,8 @@ var startRestored = func(target string) bool {
 
 // judgeUpdatedStart runs checkUpdatedStart for an app that updates itself,
 // as early in its start as it can, exiting when it started the previous
-// version instead.
+// version instead. A first start proves itself when its first window
+// shows, or it quits normally.
 func judgeUpdatedStart() {
 	if packageUpdateFeed == "" || IsDev() {
 		return
@@ -250,17 +327,11 @@ func judgeUpdatedStart() {
 	if checkUpdatedStart(target, App.Version()) {
 		os.Exit(0)
 	}
-}
-
-// proveUpdatedStart is called when the app quits normally: a first start
-// of an update that ends so has proved itself too.
-func proveUpdatedStart() {
-	if packageUpdateFeed == "" || IsDev() {
-		return
-	}
-	if target, err := installTarget(); err == nil {
-		if _, started, err := readPreviousMark(previousDir(target)); err == nil && started {
-			confirmUpdate(target, App.Version())
-		}
+	firstStart.Lock()
+	first := firstStart.target != ""
+	firstStart.Unlock()
+	if first {
+		App.OnWindowCreated(func(w *Window) { w.OnShow(proveStart) })
+		App.OnQuit(proveStart)
 	}
 }

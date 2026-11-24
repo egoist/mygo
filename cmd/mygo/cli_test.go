@@ -405,6 +405,13 @@ func TestProductionTags(t *testing.T) {
 	if got := tags(false); got != "-tags sqlite,fts5,mygo_nodownload" {
 		t.Errorf("MYGO_INSPECTOR=1 leaves %q", got)
 	}
+	// An app with updates has their tag, in a debug build too.
+	if got := strings.Join(productionTags(true, updatesTag), " "); got != "-tags sqlite,fts5,mygo_updates" {
+		t.Errorf("a debug build with updates has %q", got)
+	}
+	if got := strings.Join(productionTags(false, updatesTag), " "); got != "-tags sqlite,fts5,mygo_updates,mygo_nodownload" {
+		t.Errorf("a production build with updates has %q", got)
+	}
 }
 
 func TestWindowsSignCommand(t *testing.T) {

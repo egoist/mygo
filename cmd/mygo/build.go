@@ -288,7 +288,7 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 				return err
 			}
 			flags := []string{"-trimpath", "-ldflags", ldflags}
-			flags = append(flags, productionTags(opts.debug)...)
+			flags = append(flags, productionTags(opts.debug, updateTags(c)...)...)
 			if overlay != "" {
 				flags = append(flags, "-overlay", overlay)
 			}
@@ -530,10 +530,10 @@ func keepInspector() bool { return os.Getenv("MYGO_INSPECTOR") == "1" }
 const noDownloadTag = "mygo_nodownload"
 
 // productionTags returns the -tags of a build: those GOFLAGS sets, which a
-// -tags flag would override, the downloader's, and the inspector's in a
-// production build unless it keeps it.
-func productionTags(debug bool) []string {
-	if debug {
+// -tags flag would override, extra, and in a production build the
+// downloader's and the inspector's unless it keeps it.
+func productionTags(debug bool, extra ...string) []string {
+	if debug && len(extra) == 0 {
 		return nil
 	}
 	var tags []string
@@ -542,9 +542,12 @@ func productionTags(debug bool) []string {
 			tags = append(tags, v)
 		}
 	}
-	tags = append(tags, noDownloadTag)
-	if !keepInspector() {
-		tags = append(tags, inspectorTag)
+	tags = append(tags, extra...)
+	if !debug {
+		tags = append(tags, noDownloadTag)
+		if !keepInspector() {
+			tags = append(tags, inspectorTag)
+		}
 	}
 	return []string{"-tags", strings.Join(tags, ",")}
 }

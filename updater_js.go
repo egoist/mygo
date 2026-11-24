@@ -68,6 +68,8 @@ func relaunchNow() {}
 
 func cleanUpdateLeftovers() {}
 
-func judgeUpdatedStart() {}
+// RolledBack returns "": the browser does not update apps.
+func (u *UpdaterModule) RolledBack() string { return "" }
 
-func proveUpdatedStart() {}
+// ConfirmStart does nothing: the browser does not update apps.
+func (u *UpdaterModule) ConfirmStart() {}
