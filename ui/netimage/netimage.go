@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -485,6 +486,8 @@ func (m *cache) paths(url string) (body, meta string) {
 type metadata struct {
 	ETag         string    `json:"etag,omitempty"`
 	LastModified string    `json:"lastModified,omitempty"`
+	CacheControl string    `json:"cacheControl,omitempty"`
+	Expires      string    `json:"expires,omitempty"`
 	FreshUntil   time.Time `json:"freshUntil"`
 }
 
@@ -548,13 +551,14 @@ func (m *cache) fetch(url string) (fetched, error) {
 	defer res.Body.Close()
 	switch {
 	case res.StatusCode == http.StatusNotModified && cached != nil:
-		next := m.metadataOf(res)
-		if next.ETag == "" {
-			next.ETag = meta.ETag
-		}
-		if next.LastModified == "" {
-			next.LastModified = meta.LastModified
-		}
+		// What it doesn't say again stays as the picture came with it.
+		h := http.Header{}
+		h.Set("ETag", meta.ETag)
+		h.Set("Last-Modified", meta.LastModified)
+		h.Set("Cache-Control", meta.CacheControl)
+		h.Set("Expires", meta.Expires)
+		maps.Copy(h, res.Header)
+		next := m.metadataOf(&http.Response{Header: h})
 		stale.store = func(e *entry) {
 			m.place(e, func() { m.writeMeta(metaPath, next) })
 		}
@@ -595,7 +599,10 @@ func noStore(res *http.Response) bool {
 // metadataOf reads Cache-Control's max-age and no-cache, then Expires, which
 // is past when it's no date, as "0".
 func (m *cache) metadataOf(res *http.Response) metadata {
-	meta := metadata{ETag: res.Header.Get("ETag"), LastModified: res.Header.Get("Last-Modified")}
+	meta := metadata{
+		ETag: res.Header.Get("ETag"), LastModified: res.Header.Get("Last-Modified"),
+		CacheControl: cacheControl(res), Expires: res.Header.Get("Expires"),
+	}
 	now := m.now()
 	fresh := defaultFresh
 	found := false

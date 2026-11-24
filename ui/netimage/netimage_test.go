@@ -167,6 +167,58 @@ func TestCacheHeaders(t *testing.T) {
 	}
 }
 
+// A 304 that repeats no Cache-Control or Expires leaves those the picture came
+// with; what it does say is taken.
+func TestNotModifiedKeepsHeaders(t *testing.T) {
+	data := picture(t, 8, 8)
+	for _, c := range []struct {
+		name        string
+		header, not http.Header
+		hits        int32 // after a restart an hour after the 304
+	}{
+		{"max-age", http.Header{"Cache-Control": {"max-age=60"}}, nil, 3},
+		{"no-cache", http.Header{"Cache-Control": {"private", "no-cache"}}, nil, 3},
+		{"Expires", http.Header{"Expires": {"Mon, 02 Nov 2026 12:30:00 GMT"}}, nil, 3},
+		{"another max-age", http.Header{"Cache-Control": {"max-age=60"}}, http.Header{"Cache-Control": {"max-age=86400"}}, 2},
+		{"another Expires", http.Header{"Expires": {"0"}}, http.Header{"Expires": {"Tue, 03 Nov 2026 12:00:00 GMT"}}, 2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var hits atomic.Int32
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				w.Header().Set("ETag", `"v1"`)
+				same := r.Header.Get("If-None-Match") == `"v1"`
+				header := c.header
+				if same {
+					header = c.not
+				}
+				for k, v := range header {
+					w.Header()[k] = v
+				}
+				if same {
+					w.WriteHeader(http.StatusNotModified)
+					return
+				}
+				w.Write(data)
+			}))
+			defer s.Close()
+			m, clock := testCache(t)
+			get(t, m, s.URL, 100)
+			idle(t, m)
+			for i, want := range []int32{2, c.hits} {
+				next, c2 := testCache(t)
+				next.dir = m.dir
+				*c2 = clock.Add(time.Duration(i+1) * time.Hour)
+				get(t, next, s.URL, 100)
+				idle(t, next)
+				if hits.Load() != want {
+					t.Fatalf("%d hours later, %d requests, want %d", i+1, hits.Load(), want)
+				}
+			}
+		})
+	}
+}
+
 // Offline, what it has shows, however old.
 func TestOffline(t *testing.T) {
 	data := picture(t, 8, 8)
