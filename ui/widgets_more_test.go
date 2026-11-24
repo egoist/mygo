@@ -482,10 +482,15 @@ func countShown(t *testing.T, tt *Tester) string {
 func TestNumberInputKeepsInsideFractionalBounds(t *testing.T) {
 	v := 2.0
 	tt := numberTester(&v, -2.5, 2.5, 1)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
 	tt.Click("Count")
 	tt.Key(0, KeyUp)
 	if v != 2 || countShown(t, tt) != "2" {
 		t.Errorf("Up from 2 below 2.5: %v, showing %q", v, countShown(t, tt))
+	}
+	// 2 is as high as a step of 1 goes: the button stepping up is disabled.
+	if n := accessNode(t, tt.h.access, platform.RoleButton, "Increase"); n.States&platform.AccessDisabled == 0 {
+		t.Errorf("Increase at 2 below 2.5: %+v", n)
 	}
 	tt.Key(Cmd, KeyA)
 	tt.Type("2.5")
@@ -497,6 +502,9 @@ func TestNumberInputKeepsInsideFractionalBounds(t *testing.T) {
 	tt.Key(0, KeyDown)
 	if v != -2 || countShown(t, tt) != "-2" {
 		t.Errorf("Down from -2 above -2.5: %v, showing %q", v, countShown(t, tt))
+	}
+	if n := accessNode(t, tt.h.access, platform.RoleButton, "Decrease"); n.States&platform.AccessDisabled == 0 {
+		t.Errorf("Decrease at -2 above -2.5: %+v", n)
 	}
 }
 
