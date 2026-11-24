@@ -372,6 +372,12 @@ func (m *merger) place(group []source) error {
 		m.list = append(m.list, r)
 		return nil
 	}
+	if same, err := m.sameDotfile(group); err != nil || same {
+		if same {
+			m.list = append(m.list, resource{name: first.name, src: first.path, nested: first.nested})
+		}
+		return err
+	}
 	var children []source
 	for i, s := range group {
 		dir, err := m.isDir(s)
@@ -396,6 +402,33 @@ func (m *merger) place(group []source) error {
 	}
 	m.list = append(m.list, resource{name: first.name})
 	return m.merge(children)
+}
+
+// sameDotfile reports whether the sources of a group are one dotfile that
+// directories which merge all hold, with the same contents, such as the
+// .gitkeep of an otherwise empty directory: it is installed once.
+func (m *merger) sameDotfile(group []source) (bool, error) {
+	first := group[0]
+	if !hiddenName(path.Base(first.name)) {
+		return false, nil
+	}
+	for _, s := range group {
+		if s.name != first.name || s.listed || !s.nested {
+			return false, nil
+		}
+		for _, p := range []string{s.path, s.amd64} {
+			if p == "" {
+				continue
+			}
+			if info, err := s.stat(p); err != nil || !info.Mode().IsRegular() {
+				return false, err
+			}
+			if same, err := sameContents(first.path, p); err != nil || !same {
+				return false, err
+			}
+		}
+	}
+	return true, nil
 }
 
 // isDir reports whether s is a directory: for a universal pair, both

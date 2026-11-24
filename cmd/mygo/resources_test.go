@@ -820,6 +820,8 @@ func TestPlatformResourceErrors(t *testing.T) {
 			want: []string{"p:resources/linux/x and p:resources/linux-amd64/x would both be installed as x"}},
 		{files: map[string]string{"resources/Bin/tool": "", "resources/linux-amd64/bin/server": ""},
 			want: []string{"p:resources/Bin and p:resources/linux-amd64/bin would both be installed as bin"}},
+		{files: map[string]string{"resources/bin/.config": "a", "resources/linux/bin/.config": "b"},
+			want: []string{"p:resources/bin/.config and p:resources/linux/bin/.config would both be installed as bin/.config"}},
 		{files: map[string]string{"resources/bin": "a file", "resources/linux/bin/server": ""},
 			want: []string{"p:resources/bin and p:resources/linux/bin would both be installed as bin"}},
 		{files: map[string]string{"resources/windows/App.exe": ""}, platform: "windows/amd64",
@@ -1152,5 +1154,56 @@ func TestResourcesMergedDotfiles(t *testing.T) {
 				t.Errorf("shipped %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestResourcesMergedSameDotfile installs once a dotfile that directories
+// which merge all hold with the same contents, as the .gitkeep of an empty
+// directory (one they hold with different contents fails, as any file).
+func TestResourcesMergedSameDotfile(t *testing.T) {
+	for _, tt := range []struct {
+		goos, goarch string
+		files        map[string]string
+		want         []string
+	}{
+		{"linux", "amd64", map[string]string{
+			"resources/bin/.gitkeep":             "",
+			"resources/bin/a":                    "a",
+			"resources/linux/bin/.gitkeep":       "",
+			"resources/linux/bin/b":              "b",
+			"resources/linux-amd64/bin/.gitkeep": "",
+		}, []string{".gitkeep", "a", "b"}},
+		{"darwin", "universal", map[string]string{
+			"resources/darwin/bin/.gitkeep":       "",
+			"resources/darwin-arm64/bin/.gitkeep": "",
+			"resources/darwin-amd64/bin/.gitkeep": "",
+			"resources/darwin-arm64/bin/a":        "a",
+			"resources/darwin-amd64/bin/a":        "a",
+		}, []string{".gitkeep", "a"}},
+	} {
+		dir := t.TempDir()
+		files := map[string]string{"mygo.json": `{"name": "App"}`}
+		maps.Copy(files, tt.files)
+		writeFiles(t, dir, files)
+		c, err := loadConfig(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, err := c.resources(tt.goos, tt.goarch)
+		if err != nil {
+			t.Fatalf("%s/%s: %v", tt.goos, tt.goarch, err)
+		}
+		dst := t.TempDir()
+		if err := copyResources(list, dst); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		entries, err := os.ReadDir(filepath.Join(dst, "bin"))
+		for _, e := range entries {
+			got = append(got, e.Name())
+		}
+		if err != nil || !slices.Equal(got, tt.want) {
+			t.Errorf("%s/%s shipped %q, %v; want %q", tt.goos, tt.goarch, got, err, tt.want)
+		}
 	}
 }
