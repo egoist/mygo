@@ -244,4 +244,11 @@ func TestGridViewTypeToChoose(t *testing.T) {
 	if !slices.Equal(went, []int{3, 3, 3, 2}) {
 		t.Fatalf("c, h, e, r went to %v", went)
 	}
+	// The app took items out from under the choice: from the first again.
+	pause()
+	sel = 10
+	tt.Key(0, KeyA)
+	if sel != 0 {
+		t.Fatalf("A with item 10 of 6 chosen went to %d", sel)
+	}
 }

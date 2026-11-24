@@ -417,9 +417,13 @@ func (s *GridState) keys(grid *node, n int) {
 		grid.st.markSubmitted()
 	}
 	if st := grid.st; st.typing && st.typed != "" && s.Label != nil {
-		// From the item chosen, as a list's rows: the same letter again
-		// goes on to the next item starting with it.
-		typed, from := strings.ToLower(st.typed), max(at, 0)
+		// From the item chosen, as a list's rows, or the first when none
+		// is: the same letter again goes on to the next item starting
+		// with it.
+		typed, from := strings.ToLower(st.typed), 0
+		if in {
+			from = at
+		}
 		if r := []rune(typed); strings.Count(typed, string(r[0])) == len(r) {
 			typed = string(r[0])
 			if in {
