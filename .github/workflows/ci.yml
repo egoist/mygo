@@ -303,13 +303,31 @@ jobs:
       # Zig 0.16's aarch64 Windows build crashes running zig build (the
       # build runner segfaults at once), so this job uses its x86_64
       # build, which Windows runs emulated and which cross-compiles the
-      # arm64 library just the same.
+      # arm64 library just the same. Its download from ziglang.org took
+      # 5 to 25 minutes (November 2026), which twice left the tests too
+      # little of the job's limit: it is kept in the Actions cache.
+      - name: Restore Zig (x86_64)
+        id: zig-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/zig-x86_64-windows-${{ env.ZIG_VERSION }}
+          key: zig-x86_64-windows-${{ env.ZIG_VERSION }}
+      - name: Download Zig (x86_64)
+        if: steps.zig-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          curl.exe -fsSL --retry 3 -o "$env:RUNNER_TEMP\zig.zip" "https://ziglang.org/download/$env:ZIG_VERSION/zig-x86_64-windows-$env:ZIG_VERSION.zip"
+          tar.exe -xf "$env:RUNNER_TEMP\zig.zip" -C "$HOME"
+      - name: Save Zig (x86_64)
+        if: steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/zig-x86_64-windows-${{ env.ZIG_VERSION }}
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
       - name: Install Zig (x86_64)
         shell: pwsh
         run: |
-          Invoke-WebRequest "https://ziglang.org/download/$env:ZIG_VERSION/zig-x86_64-windows-$env:ZIG_VERSION.zip" -OutFile "$env:RUNNER_TEMP\zig.zip"
-          Expand-Archive "$env:RUNNER_TEMP\zig.zip" -DestinationPath "$env:RUNNER_TEMP"
-          "$env:RUNNER_TEMP\zig-x86_64-windows-$env:ZIG_VERSION" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          "$HOME\zig-x86_64-windows-$env:ZIG_VERSION" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
       # As in the job above. The emulated build takes five or six minutes,
       # and twice it ran past 25, until the job's limit canceled it: one
       # that runs past 15 fails then, naming this step, rather than
