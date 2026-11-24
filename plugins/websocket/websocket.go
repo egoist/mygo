@@ -159,7 +159,7 @@ func (s *service) connect(ctx context.Context, page any, opts connectOptions, se
 		if err != nil {
 			ev := event{Type: "close", Code: closeAbnormal}
 			if f, ok := errors.AsType[*failure](err); ok {
-				c.writeClose(f.code, "")
+				c.close(f.code, "", s.opts.CloseTimeout)
 				ev.Error = err.Error()
 			} else if !c.closing() {
 				// Not the server missing the closing handshake the page
@@ -177,12 +177,12 @@ func (s *service) connect(ctx context.Context, page any, opts connectOptions, se
 		case opClose:
 			code, reason, perr := parseClose(data)
 			if perr != nil {
-				c.writeClose(perr.(*failure).code, "")
+				c.close(perr.(*failure).code, "", s.opts.CloseTimeout)
 				send(event{Type: "close", Code: closeAbnormal, Error: perr.Error()})
 				return
 			}
 			// Echo the code, unless the page closed first.
-			c.writeClose(code, "")
+			c.close(code, "", s.opts.CloseTimeout)
 			send(event{Type: "close", Code: code, Reason: reason, Clean: true})
 			return
 		}
