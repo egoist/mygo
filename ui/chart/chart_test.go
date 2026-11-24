@@ -160,6 +160,9 @@ func TestTimeTicks(t *testing.T) {
 		{"2010-06-01T00:00:00Z", "2026-06-01T00:00:00Z", 5,
 			[]string{"2015-01-01T00:00:00Z", "2020-01-01T00:00:00Z", "2025-01-01T00:00:00Z"},
 			"2015 2020 2025"},
+		{"1700-01-01T00:00:00Z", "2100-01-01T00:00:00Z", 5,
+			[]string{"1700-01-01T00:00:00Z", "1800-01-01T00:00:00Z", "1900-01-01T00:00:00Z", "2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z"},
+			"1700 1800 1900 2000 2100"},
 		{"2026-01-29T00:00:00Z", "2026-02-12T00:00:00Z", 8,
 			[]string{"2026-01-29T00:00:00Z", "2026-01-31T00:00:00Z", "2026-02-01T00:00:00Z", "2026-02-03T00:00:00Z", "2026-02-05T00:00:00Z", "2026-02-07T00:00:00Z", "2026-02-09T00:00:00Z", "2026-02-11T00:00:00Z"},
 			"Jan 29 Jan 31 Feb Feb 3 Feb 5 Feb 7 Feb 9 Feb 11"},
@@ -188,6 +191,76 @@ func TestTimeTicks(t *testing.T) {
 	s := NewTime(time.Date(2026, 3, 1, 0, 0, 0, 0, tokyo), time.Date(2026, 3, 4, 0, 0, 0, 0, tokyo))
 	if ts := s.Ticks(3); len(ts) != 4 || ts[1].Label != "Mar 2" {
 		t.Errorf("ticks in Tokyo: %+v", ts)
+	}
+	// A span of more than the 292 years a time.Duration holds steps by years
+	// too, and by the years before 0 that are round in steps of them.
+	long := NewTime(time.Date(-500, 6, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)).Ticks(5)
+	var years []int
+	for _, tick := range long {
+		years = append(years, time.UnixMilli(int64(tick.Value)).UTC().Year())
+	}
+	if want := []int{0, 500, 1000, 1500, 2000}; !slices.Equal(years, want) {
+		t.Errorf("ticks of -500 to 2026: %v, want %v", years, want)
+	}
+}
+
+func TestTimeNice(t *testing.T) {
+	parse := func(s string) time.Time {
+		v, err := time.Parse(time.RFC3339Nano, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	for _, tc := range []struct {
+		from, to         string
+		count            int
+		wantFrom, wantTo string
+	}{
+		// A seventh of the day: quarters of an hour.
+		{"2026-03-05T14:07:00Z", "2026-03-05T15:53:00Z", 5, "2026-03-05T14:00:00Z", "2026-03-05T16:00:00Z"},
+		// A quarter of a year: months.
+		{"2026-01-15T00:00:00Z", "2026-04-02T00:00:00Z", 3, "2026-01-01T00:00:00Z", "2026-05-01T00:00:00Z"},
+		// Seven years: two at a time.
+		{"2019-06-01T00:00:00Z", "2026-03-01T00:00:00Z", 4, "2018-01-01T00:00:00Z", "2028-01-01T00:00:00Z"},
+		// A fortnight: weeks, from a Sunday to a Sunday.
+		{"2026-03-05T00:00:00Z", "2026-03-19T00:00:00Z", 2, "2026-03-01T00:00:00Z", "2026-03-22T00:00:00Z"},
+		// Round already: unchanged.
+		{"2026-03-05T14:00:00Z", "2026-03-05T16:00:00Z", 5, "2026-03-05T14:00:00Z", "2026-03-05T16:00:00Z"},
+		// A reversed domain stays reversed.
+		{"2026-03-05T16:00:00Z", "2026-03-05T14:07:00Z", 5, "2026-03-05T16:00:00Z", "2026-03-05T14:00:00Z"},
+		// No time at all: unchanged.
+		{"2026-03-05T14:07:00Z", "2026-03-05T14:07:00Z", 5, "2026-03-05T14:07:00Z", "2026-03-05T14:07:00Z"},
+		// A count of no ticks: unchanged.
+		{"2026-03-05T14:07:00Z", "2026-03-05T15:53:00Z", 0, "2026-03-05T14:07:00Z", "2026-03-05T15:53:00Z"},
+		// Part of a second: fifths of it.
+		{"2026-01-01T00:00:00.120Z", "2026-01-01T00:00:00.870Z", 5, "2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z"},
+	} {
+		s := NewTime(parse(tc.from), parse(tc.to)).Nice(tc.count)
+		got := []string{s.From.Format(time.RFC3339Nano), s.To.Format(time.RFC3339Nano)}
+		want := []string{tc.wantFrom, tc.wantTo}
+		if !slices.Equal(got, want) {
+			t.Errorf("Nice(%s, %s, %d) = %v, want %v", tc.from, tc.to, tc.count, got, want)
+		}
+	}
+	// The ticks of a niced domain start and end on its ends.
+	s := NewTime(parse("2026-03-05T14:07:00Z"), parse("2026-03-05T15:53:00Z")).Nice(5)
+	ts := s.Ticks(5)
+	if len(ts) != 5 || ts[0].At != 0 || ts[len(ts)-1].At != 1 {
+		t.Errorf("ticks of a niced domain: %+v", ts)
+	}
+	// Before the year 0, years floor down, not toward zero.
+	for _, count := range []int{1, 5} {
+		lo, hi := time.Date(-500, 6, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+		if n := NewTime(lo, hi).Nice(count); n.From.After(lo) || n.To.Before(hi) || n.From.Month() != 1 || n.From.Day() != 1 {
+			t.Errorf("Nice(%d) of -500 to 2026: %v to %v", count, n.From, n.To)
+		}
+	}
+	// Nice rounds to round times of the times' location.
+	tokyo := time.FixedZone("JST", 9*3600)
+	n := NewTime(time.Date(2026, 3, 5, 14, 7, 0, 0, tokyo), time.Date(2026, 3, 5, 15, 53, 0, 0, tokyo)).Nice(5)
+	if n.From.Location() != tokyo || n.From.Hour() != 14 || n.To.Hour() != 16 {
+		t.Errorf("Nice in Tokyo: %v to %v", n.From, n.To)
 	}
 }
 
