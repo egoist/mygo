@@ -54,6 +54,7 @@ func registerDocKind(k *docKind) {
 	}
 	App.OnOpenFile(openDocumentFile)
 	App.OnBeforeQuit(documentsBeforeQuit)
+	App.OnQuitCanceled(documentsQuitCanceled)
 	App.OnQuit(func() {
 		for _, k := range docKinds() {
 			k.recovery.close()
@@ -687,9 +688,30 @@ func documentsBeforeQuit(e *QuitEvent) {
 			if ok {
 				docQuit.resolved = true
 				quitAgain()
+			} else {
+				documentsQuitCanceled()
 			}
 		})
 	}()
+}
+
+// documentsQuitCanceled keeps the changes discarded for a quit that was
+// canceled then: their documents stay open. Main thread only.
+func documentsQuitCanceled() {
+	if docQuit.running {
+		return // still asking
+	}
+	for _, b := range allDocuments() {
+		b.mu.Lock()
+		kept := b.discarded && !b.closing
+		if kept {
+			b.discarded = false
+		}
+		b.mu.Unlock()
+		if kept {
+			docWork.Go(func() { b.backup() })
+		}
+	}
 }
 
 // resolveQuit takes care of the edited documents before quitting, and

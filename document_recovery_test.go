@@ -9,7 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
+
+	"github.com/egoist/mygo/internal/platform"
 )
 
 // recoveryDocs keeps the automatic restore from racing the explicit restores below.
@@ -90,6 +93,81 @@ func TestDocumentRecoveryKeepsCopyWhenBackupFails(t *testing.T) {
 	if got := readString(t, filepath.Join(dir, "unsaved")); got != "unsaved changes" {
 		t.Fatalf("recovery copy = %q, want unsaved changes", got)
 	}
+}
+
+// TestDocumentRecoveryCanceledQuit cancels a quit after the user chose not
+// to save: the documents stay open, and their changes in recovery copies,
+// also when their windows close without asking, as when the OS ends the
+// session.
+func TestDocumentRecoveryCanceledQuit(t *testing.T) {
+	copied := func(d *Document[string]) bool {
+		r := d.kind.recovery
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		_, ok := r.entries[d.id]
+		return ok
+	}
+	check := func(t *testing.T, docs ...*Document[string]) {
+		t.Helper()
+		for _, d := range docs {
+			waitFor(t, "the recovery copy", func() bool { return copied(d) })
+		}
+		for _, d := range docs {
+			onMain(d.Window().destroy)
+		}
+		docWork.Wait()
+		for _, d := range docs {
+			if !copied(d) {
+				t.Errorf("%s lost its recovery copy with its window", d.Name())
+			}
+		}
+	}
+
+	t.Run("by a listener", func(t *testing.T) {
+		ds := testDocs(t, DocumentsOptions[string]{Autosave: AutosaveOff, AskOnQuit: true})
+		d := ds.New()
+		d.Set("unsaved")
+		if !d.backup() {
+			t.Fatal("no recovery copy")
+		}
+		// Runs after the documents' listener, so it cancels the second quit,
+		// once the changes were discarded.
+		t.Cleanup(App.OnBeforeQuit(func(e *QuitEvent) { e.PreventDefault() }))
+		quits := make(chan bool, 1)
+		quitAgain = func() { quits <- App.prepareQuit() }
+		t.Cleanup(func() { quitAgain = func() { App.Quit() } })
+		answer("Don’t Save")
+		onMainValue(fb.QuitRequested)
+		if <-quits {
+			t.Fatal("the app quits")
+		}
+		check(t, d)
+	})
+
+	t.Run("by the next document", func(t *testing.T) {
+		if runtime.GOOS != "darwin" {
+			t.Skip("only macOS asks about each document")
+		}
+		ds := testDocs(t, DocumentsOptions[string]{Autosave: AutosaveOff, AskOnQuit: true})
+		a, b := ds.New(), ds.New()
+		for _, d := range []*Document[string]{a, b} {
+			d.Set("unsaved")
+			if !d.backup() {
+				t.Fatal("no recovery copy")
+			}
+		}
+		answers := []string{"Review Changes…", "Don’t Save", "Cancel"}
+		onMain(func() {
+			fb.OnMessageBox = func(o *platform.MessageBoxOptions) platform.MessageBoxResult {
+				label := answers[0]
+				answers = answers[1:]
+				return platform.MessageBoxResult{Response: slices.Index(o.Buttons, label)}
+			}
+		})
+		onMainValue(fb.QuitRequested)
+		waitFor(t, "the quit to be canceled", func() bool { return onMainValue(func() bool { return len(answers) == 0 && !docQuit.running }) })
+		check(t, a, b)
+	})
 }
 
 func TestDocumentRecoveryCleansOnlyRestoredEntries(t *testing.T) {
