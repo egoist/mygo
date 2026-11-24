@@ -1016,6 +1016,23 @@ func (t *Tester) Scroll(x, y, dx, dy float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: float64(x), Y: float64(y), DX: float64(dx), DY: float64(dy), Precise: true})
 }
 
+// FileDragOver drags the files of another app to (x, y) without dropping
+// them, as moving them over the window in Finder does, and reports whether
+// an element takes them there: the frame it draws then shows FileDragOver
+// on that element. FileDragLeave takes them out again, and DropFiles drops
+// them.
+func (t *Tester) FileDragOver(x, y float32) bool {
+	taken := t.rt.event(platform.SurfaceEvent{Kind: platform.FileDragOver, X: float64(x), Y: float64(y)})
+	t.settle()
+	return taken
+}
+
+// FileDragLeave takes the files FileDragOver dragged in out of the window,
+// which then shows no element taking them.
+func (t *Tester) FileDragLeave() {
+	t.send(platform.SurfaceEvent{Kind: platform.FileDragLeave})
+}
+
 // DropFiles drops files dragged from another app at (x, y), as from
 // Finder, and reports whether an element took them (DroppedFiles).
 func (t *Tester) DropFiles(x, y float32, paths ...string) bool {
