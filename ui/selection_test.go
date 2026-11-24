@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"runtime"
 	"slices"
 	"testing"
@@ -166,6 +167,18 @@ func TestListArrowsAfterRowsRemoved(t *testing.T) {
 		if sel != 0 {
 			t.Errorf("%s with row 4 of 2 chosen went to %d", name, sel)
 		}
+	}
+	// Typing a row's first letter, too.
+	sel, n := 4, 5
+	s := ListState{Selected: &sel, Label: func(i int) string { return fmt.Sprintf("Row %d", i) }}
+	tt := coreNewTester(func(c *context) {
+		coreList(c, &s, n, func(i int) { coreTextf(c, "Row %d", i) }).Grow(1).AutoFocus()
+	}, 300, 400)
+	n = 2
+	tt.Frame()
+	tt.Key(0, KeyR)
+	if sel != 0 {
+		t.Errorf("R with row 4 of 2 chosen went to %d", sel)
 	}
 }
 
