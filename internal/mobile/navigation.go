@@ -63,6 +63,10 @@ func (t *tabBar) SetBadge(i int, badge string) {
 	t.b.call(&wire.SetTabBadge{ID: t.id, Index: i, Badge: badge}, nil)
 }
 
+func (t *tabBar) SetTitle(i int, title string) {
+	t.b.call(&wire.SetTabTitle{ID: t.id, Index: i, Title: title}, nil)
+}
+
 func (t *tabBar) Close() {
 	delete(t.b.tabs, t.id)
 	t.b.call(&wire.CloseTabs{ID: t.id}, nil)

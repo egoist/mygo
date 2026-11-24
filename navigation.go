@@ -119,6 +119,21 @@ func (t *Tabs) SetBadge(i int, text string) {
 	})
 }
 
+// SetTitle changes the title of tab i, which the tab bar shows and
+// assistive technology reads. On desktops it changes nothing: a tab's
+// window has a title of its own (Window.SetTitle).
+func (t *Tabs) SetTitle(i int, title string) {
+	onMain(func() {
+		if i < 0 || i >= len(t.items) {
+			return
+		}
+		t.items[i].Title = title
+		if t.native != nil {
+			t.native.SetTitle(i, title)
+		}
+	})
+}
+
 // OnSelect calls fn on the main thread when the user chooses another tab,
 // with its index.
 func (t *Tabs) OnSelect(fn func(i int)) (off func()) { return t.onSelect.add(fn, false) }
