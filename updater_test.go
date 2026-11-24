@@ -30,12 +30,16 @@ import (
 	"github.com/egoist/mygo/internal/wait"
 )
 
+// updateKeys are the private keys of the public keys updateServer returns.
+var updateKeys sync.Map
+
 // updateServer serves a signed update whose app holds main with content,
 // and with deltaFrom, a delta of it from that version of installedApp.
 // requests counts the requests of each file.
 func updateServer(t *testing.T, version, content, deltaFrom string) (srv *httptest.Server, key string, m update.Manifest, requests func(string) int) {
 	t.Helper()
 	pub, priv, _ := ed25519.GenerateKey(nil)
+	updateKeys.Store(base64.StdEncoding.EncodeToString(pub), priv)
 	src := t.TempDir()
 	app := "app"
 	if runtime.GOOS == "darwin" {
@@ -64,7 +68,8 @@ func updateServer(t *testing.T, version, content, deltaFrom string) (srv *httpte
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(archive.Bytes())
-	m = update.Manifest{Version: version, Notes: "- Faster", Date: "2026-09-27T10:00:00Z", Size: int64(archive.Len()), Signature: update.Sign(priv, sum[:])}
+	m = update.Manifest{Version: version, Notes: "- Faster", Date: "2026-09-27T10:00:00Z", Size: int64(archive.Len()), Signature: update.Sign(priv, sum[:]),
+		Signature2: update.SignFile(priv, update.File{Kind: "archive", Target: updateTarget(), Version: version}, sum[:])}
 	var mu sync.Mutex
 	counts := map[string]int{}
 	mux := http.NewServeMux()
@@ -87,7 +92,8 @@ func updateServer(t *testing.T, version, content, deltaFrom string) (srv *httpte
 			t.Fatal(err)
 		}
 		sum := sha256.Sum256(delta.Bytes())
-		m.Deltas = []update.Delta{{From: deltaFrom, URL: srv.URL + "/app.delta", Size: int64(delta.Len()), Signature: update.Sign(priv, sum[:])}}
+		m.Deltas = []update.Delta{{From: deltaFrom, URL: srv.URL + "/app.delta", Size: int64(delta.Len()), Signature: update.Sign(priv, sum[:]),
+			Signature2: update.SignFile(priv, update.File{Kind: "delta", Target: updateTarget(), Version: version, From: deltaFrom}, sum[:])}}
 		mux.HandleFunc("/app.delta", func(w http.ResponseWriter, r *http.Request) { w.Write(delta.Bytes()) })
 	}
 	mux.HandleFunc("/update.json", func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(m) })
@@ -188,9 +194,37 @@ func TestUpdater(t *testing.T) {
 	// changes nothing.
 	target, main = installedApp(t)
 	bad := up.manifest
-	bad.Signature = base64.StdEncoding.EncodeToString(make([]byte, 64))
+	bad.Signature2 = base64.StdEncoding.EncodeToString(make([]byte, 64))
 	if err := installUpdate(ctx, httpGet, bad, key, up.current, target, nil); err == nil || !strings.Contains(err.Error(), "signed") {
 		t.Errorf("bad signature: %v", err)
+	}
+	// So is an archive signed with the app's key for another version or
+	// platform, or with the bare signature of its digest alone: a feed that
+	// served an older version's archive as this one's, or another
+	// platform's, is not believed.
+	for _, f := range []update.File{
+		{Kind: "archive", Target: updateTarget(), Version: "1.1.0"},
+		{Kind: "archive", Target: "plan9-386", Version: up.Version},
+		{Kind: "delta", Target: updateTarget(), Version: up.Version},
+	} {
+		priv, _ := updateKeys.Load(key)
+		resp, err := http.Get(up.manifest.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		archive, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		sum := sha256.Sum256(archive)
+		replayed := up.manifest
+		replayed.Signature2 = update.SignFile(priv.(ed25519.PrivateKey), f, sum[:])
+		if err := installUpdate(ctx, httpGet, replayed, key, up.current, target, nil); err == nil || !strings.Contains(err.Error(), "signed") {
+			t.Errorf("signed as %+v: %v", f, err)
+		}
+	}
+	bare := up.manifest
+	bare.Signature2 = bare.Signature
+	if err := installUpdate(ctx, httpGet, bare, key, up.current, target, nil); err == nil || !strings.Contains(err.Error(), "signed") {
+		t.Errorf("the bare signature: %v", err)
 	}
 	otherKey, _, _ := ed25519.GenerateKey(nil)
 	if err := installUpdate(ctx, httpGet, up.manifest, base64.StdEncoding.EncodeToString(otherKey), up.current, target, nil); err == nil {
@@ -266,7 +300,7 @@ func TestUpdaterDelta(t *testing.T) {
 	}
 	unsigned := up.manifest
 	unsigned.Deltas = []update.Delta{delta}
-	unsigned.Deltas[0].Signature = m.Signature
+	unsigned.Deltas[0].Signature2 = m.Signature2 // the archive's, not signed as a delta
 	install(unsigned, up.current, false)
 	if requests("/app.delta") != 3 || requests("/app.tar.gz") != 3 {
 		t.Errorf("downloaded the delta %d times and the archive %d", requests("/app.delta"), requests("/app.tar.gz"))
@@ -445,11 +479,11 @@ func TestUpdaterSource(t *testing.T) {
 	// A source's updates are checked as the feed's: Check refuses one that
 	// is not signed, and Install one that is signed badly, which changes
 	// nothing.
-	src.m.Signature = ""
+	src.m.Signature2 = ""
 	if up, err := checkUpdate(ctx, src, key, "1.1.9", false); err == nil {
 		t.Errorf("an unsigned update was offered: %+v", up)
 	}
-	src.m.Signature = base64.StdEncoding.EncodeToString(make([]byte, 64))
+	src.m.Signature2 = base64.StdEncoding.EncodeToString(make([]byte, 64))
 	up, err = checkUpdate(ctx, src, key, "1.1.9", false)
 	if err != nil || up == nil {
 		t.Fatalf("checkUpdate = %+v, %v", up, err)

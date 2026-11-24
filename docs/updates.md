@@ -78,8 +78,16 @@ Next to the installers of each platform it writes:
 - [delta updates](#delta-updates) from the versions before, such as
   `my-app-1.1.0-to-1.2.0-darwin-arm64.delta`, and
 - `update-darwin-arm64.json`, the manifest: the version, its release
-  notes, the date, and the URL, size and signature of the archive and of
+  notes, the date, and the URL, size and signatures of the archive and of
   each delta.
+
+Each file is signed twice. `signature2` signs what the file is with its
+SHA-256 digest: an archive or a delta, the target, the version it
+installs and, for a delta, the version it updates. So a feed cannot serve
+an older version's archive, or another platform's, as this one, though
+each is signed with your key. Apps check `signature2`; `signature` signs
+the digest alone, which apps built with an earlier MyGo check, so that
+they update to this release too.
 
 Without a key, `mygo build` builds the apps and skips the update files,
 but for the Linux archives, which [`install.sh`](distribution.md#the-install-script)

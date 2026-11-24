@@ -356,6 +356,24 @@ func main() {
 	if d := m.Deltas[0]; d.Size > m.Size/5 {
 		t.Errorf("the delta update takes %d bytes, the archive %d", d.Size, m.Size)
 	}
+	// Each file is signed as what it is: the archive of 1.1.0 for target,
+	// the delta from 1.0.0 to it.
+	for _, f := range []struct {
+		url, sig string
+		file     update.File
+	}{
+		{m.URL, m.Signature2, update.File{Kind: "archive", Target: target, Version: "1.1.0"}},
+		{m.Deltas[0].URL, m.Deltas[0].Signature2, update.File{Kind: "delta", Target: target, Version: "1.1.0", From: "1.0.0"}},
+	} {
+		b, err := os.ReadFile(filepath.Join(serve, filepath.Base(f.url)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(b)
+		if err := update.VerifyFile(pub, f.file, sum[:], f.sig); err != nil {
+			t.Errorf("%s: %v", filepath.Base(f.url), err)
+		}
+	}
 
 	// Install 1.0.0 as a user would, and run it.
 	install := t.TempDir()
