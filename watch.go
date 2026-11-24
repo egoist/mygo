@@ -98,13 +98,16 @@ type FileWatchOptions struct {
 	// it cannot be told: where the system has no file watching (browsers,
 	// Linux on another architecture), and with Poll. Zero, a watch fails
 	// where the system has none, with an error for which
-	// errors.Is(err, errors.ErrUnsupported) holds.
+	// errors.Is(err, errors.ErrUnsupported) holds, as a HintsOnly watch
+	// does in any case: it keeps nothing to compare with, so it could
+	// only hint at everything every time.
 	PollInterval time.Duration
 	// Poll watches by looking at everything every PollInterval (a second
 	// when zero) instead of through the system: for a directory on a
 	// network share, whose changes made by other machines the system does
 	// not report, or a file system it does not watch. The cost is a
-	// listing and a stat of what the watch covers each time.
+	// listing and a stat of what the watch covers each time. It can't be
+	// combined with HintsOnly.
 	Poll bool
 }
 
@@ -194,6 +197,9 @@ func WatchFiles(ctx context.Context, path string, opts FileWatchOptions) (*FileW
 	if opts.PollInterval < 0 {
 		return nil, errors.New("mygo: negative watch poll interval")
 	}
+	if opts.Poll && opts.HintsOnly {
+		return nil, errors.New("mygo: a HintsOnly watch can't poll")
+	}
 	if opts.Poll && opts.PollInterval == 0 {
 		opts.PollInterval = time.Second
 	}
@@ -231,7 +237,7 @@ func WatchFiles(ctx context.Context, path string, opts FileWatchOptions) (*FileW
 	fileWatches.Unlock()
 	if opts.Poll {
 		w.native, w.polling = pollFileWatch{}, true
-	} else if w.native, err = backend().NewFileWatch(w.notice); errors.Is(err, platform.ErrUnsupported) && opts.PollInterval > 0 {
+	} else if w.native, err = backend().NewFileWatch(w.notice); errors.Is(err, platform.ErrUnsupported) && opts.PollInterval > 0 && !opts.HintsOnly {
 		w.native, w.polling, err = pollFileWatch{}, true, nil
 	}
 	if err != nil {

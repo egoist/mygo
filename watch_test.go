@@ -1563,6 +1563,11 @@ func TestFileWatchPoll(t *testing.T) {
 	if _, err := WatchFiles(context.Background(), dir, FileWatchOptions{PollInterval: -1}); err == nil {
 		t.Fatal("a negative poll interval was taken")
 	}
+	// A HintsOnly watch has no snapshot to compare with: polling, it would
+	// hint at everything every time.
+	if _, err := WatchFiles(context.Background(), dir, FileWatchOptions{Poll: true, HintsOnly: true}); err == nil {
+		t.Fatal("a HintsOnly watch polls")
+	}
 }
 
 // Where the system has no file watching, a watch fails, unless it is given
@@ -1581,4 +1586,7 @@ func TestFileWatchPollFallback(t *testing.T) {
 	defer w.Close()
 	os.WriteFile(filepath.Join(dir, "a"), []byte("a"), 0600)
 	fileWatchTestUntil(t, w, FileEvent{Op: FileCreate, Path: "a"})
+	if _, err := WatchFiles(context.Background(), dir, FileWatchOptions{PollInterval: 5 * time.Millisecond, HintsOnly: true}); !errors.Is(err, errors.ErrUnsupported) {
+		t.Fatalf("a HintsOnly watch fell back to polling: %v", err)
+	}
 }

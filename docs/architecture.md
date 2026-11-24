@@ -2823,6 +2823,7 @@ A watch that polls (`Poll`, or `PollInterval` where `NewFileWatch`
 returns `ErrUnsupported`) is given `pollFileWatch`, which takes every target
 and says nothing, and its goroutine calls `lookAll` every `PollInterval`,
 as after an overflow: the scan finds what changed against its snapshot.
+`HintsOnly` has no snapshot, so it never polls.
 
 `HintsOnly` swaps the scan for `fileWatchHints` (`watch_hints.go`), behind
 the same `fileWatchLooker` the watch's goroutine drives: no snapshot, only

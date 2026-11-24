@@ -764,7 +764,8 @@ Where the system cannot tell a watch what changes, it can look itself.
 directory on a network share, whose changes made by other machines the
 system does not report. Polling lists and stats what the watch covers
 every `PollInterval` (a second by default with `Poll`), and reports the
-same events as a watch the system tells:
+same events as a watch the system tells. A `HintsOnly` watch doesn't
+poll: with nothing to compare with, it could only hint at everything.
 
 ```go
 w, err := mygo.WatchFiles(ctx, dir, mygo.FileWatchOptions{
