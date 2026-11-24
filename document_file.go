@@ -58,7 +58,7 @@ const (
 // anything: a document whose file another app changed is not written
 // (ErrDocumentChanged), but marked in conflict.
 func (b *docBase) write(target string, op writeOp) (bool, error) {
-	wrote, moved, err := b.writeLocked(target, op)
+	wrote, moved, err := b.writeHoldingIO(target, op)
 	if !wrote || err != nil {
 		return false, err
 	}
@@ -71,9 +71,9 @@ func (b *docBase) write(target string, op writeOp) (bool, error) {
 	return true, nil
 }
 
-// writeLocked is write while it holds io; moved tells that the document
-// became the file at target.
-func (b *docBase) writeLocked(target string, op writeOp) (wrote, moved bool, err error) {
+// writeHoldingIO is the part of write that takes and holds io; moved tells
+// that the document became the file at target.
+func (b *docBase) writeHoldingIO(target string, op writeOp) (wrote, moved bool, err error) {
 	snap := b.ops.capture()
 	b.io.Lock()
 	defer b.io.Unlock()
