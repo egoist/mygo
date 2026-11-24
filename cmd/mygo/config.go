@@ -418,6 +418,17 @@ func readConfig(root string) (data []byte, file string, err error) {
 	return nil, "", nil
 }
 
+// setVersion makes v the app's version, in place of mygo.json's (mygo build
+// -version): a release's tag, whose leading v is dropped.
+func (c *Config) setVersion(v string) error {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	if v == "" || strings.ContainsFunc(v, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r == '/' || r == '\\' }) {
+		return fmt.Errorf("-version %q is not a version", v)
+	}
+	c.Version = v
+	return c.validate()
+}
+
 func (c *Config) validate() error {
 	if n := c.MacOS.Notarize; n != nil && n.KeychainProfile == "" {
 		return errors.New("macos.notarize needs a keychainProfile (see xcrun notarytool store-credentials)")
