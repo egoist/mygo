@@ -603,11 +603,10 @@ func (b *docBase) SaveAnyway() error {
 
 // Revert reads the document's file again, discarding the unsaved changes.
 func (b *docBase) Revert() error {
-	path := b.Path()
-	if path == "" {
+	if b.Path() == "" {
 		return errors.New("mygo: an untitled document has no file to revert to")
 	}
-	return b.reload(path)
+	return b.reload()
 }
 
 // Rename renames the document's file to name, in its folder, as File >

@@ -426,7 +426,7 @@ func (b *docBase) resolveConflict(path string) error {
 		_, err := b.write(path, writeOverwrite)
 		return err
 	case revertAt:
-		return b.reload(path)
+		return b.reload()
 	}
 	return ErrCanceled
 }
@@ -617,7 +617,7 @@ func (b *docBase) revert() error {
 	if err != nil || r.Button != 0 {
 		return ErrCanceled
 	}
-	return b.reload(s.Path)
+	return b.reload()
 }
 
 // showDocumentError tells the user what went wrong.

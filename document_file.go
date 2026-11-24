@@ -67,6 +67,9 @@ func (b *docBase) write(target string, op writeOp) (bool, error) {
 		return false, nil
 	}
 	known, deleted := b.stamp, b.deleted
+	if op != writeSaveAs {
+		target = b.path // where a rename since moved it
+	}
 	b.mu.Unlock()
 	if op == writeSave || op == writeAutosave {
 		now, exists, err := statStamp(target)
@@ -121,10 +124,10 @@ func (b *docBase) write(target string, op writeOp) (bool, error) {
 	return true, nil
 }
 
-// reload reads path again and makes it the content.
-func (b *docBase) reload(path string) error {
+// reload reads b's file again and makes it the content.
+func (b *docBase) reload() error {
 	b.io.Lock()
-	return b.reloadLocked(path, nil)
+	return b.reloadLocked(b.Path(), nil)
 }
 
 // reloadLocked is reload with io held, which it releases. With at, the

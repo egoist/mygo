@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -764,6 +765,65 @@ func TestDocumentLookFollowsRename(t *testing.T) {
 	})
 	if d.State().Deleted {
 		t.Error("deleted")
+	}
+}
+
+// TestDocumentSaveAfterRename renames a document between when a save of
+// it begins, with its path, and when that writes: the save goes to the
+// renamed file, and its old one stays gone.
+func TestDocumentSaveAfterRename(t *testing.T) {
+	gone := func(t *testing.T, path string) {
+		t.Helper()
+		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s is back: %v", filepath.Base(path), err)
+		}
+	}
+	for _, op := range []writeOp{writeSave, writeAutosave, writeOverwrite} {
+		t.Run(fmt.Sprint("op ", op), func(t *testing.T) {
+			ds := testDocs(t, DocumentsOptions[string]{Autosave: AutosaveOff})
+			path := writeTemp(t, "old.txt", "one")
+			d, _ := ds.Open(path)
+			d.Set("two")
+			if err := d.Rename("new.txt"); err != nil {
+				t.Fatal(err)
+			}
+			renamed := d.Path()
+			if _, err := d.write(path, op); err != nil {
+				t.Fatal(err)
+			}
+			if d.Path() != renamed || readString(t, renamed) != "two" || d.IsEdited() {
+				t.Errorf("the document is %s, edited %v, the renamed file has %q", d.Path(), d.IsEdited(), readString(t, renamed))
+			}
+			gone(t, path)
+		})
+	}
+	// The question about another app's change stays open meanwhile.
+	for button, want := range map[string]string{"Save Anyway": "mine", "Revert": "theirs, longer"} {
+		t.Run(button, func(t *testing.T) {
+			ds := testDocs(t, DocumentsOptions[string]{Autosave: AutosaveOff})
+			path := writeTemp(t, "old.txt", "one")
+			d, _ := ds.Open(path)
+			d.Set("mine")
+			if err := os.WriteFile(path, []byte("theirs, longer"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			onMain(func() {
+				fb.OnMessageBox = func(o *platform.MessageBoxOptions) platform.MessageBoxResult {
+					if err := d.Rename("new.txt"); err != nil {
+						t.Error(err)
+					}
+					return platform.MessageBoxResult{Response: slices.Index(o.Buttons, button)}
+				}
+			})
+			if err := d.Save(); err != nil {
+				t.Fatal(err)
+			}
+			renamed := filepath.Join(filepath.Dir(path), "new.txt")
+			if d.Path() != renamed || readString(t, renamed) != want || d.Content() != want {
+				t.Errorf("the document is %s with %q, the renamed file has %q", d.Path(), d.Content(), readString(t, renamed))
+			}
+			gone(t, path)
+		})
 	}
 }
 
