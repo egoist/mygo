@@ -376,7 +376,7 @@ latest_tag() {
 		tag="$(awk -v prefix="$tag_prefix" '
 			/^"tag_name"/ { sub(/^"tag_name": *"/, ""); sub(/"$/, ""); tag = $0; draft = 0; next }
 			/^"draft"/ { draft = /true$/; next }
-			/^"prerelease"/ { if (!draft && /false$/ && index(tag, prefix) == 1) { print tag; exit } }
+			/^"prerelease"/ { if (!draft && /false$/ && index(tag, prefix) == 1 && substr(tag, length(prefix) + 1) ~ /^[0-9]/) { print tag; exit } }
 		' "$work/fields")"
 		if [ -n "$tag" ]; then
 			echo "$tag"

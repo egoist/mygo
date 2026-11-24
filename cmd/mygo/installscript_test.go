@@ -374,7 +374,7 @@ cat "$file"
 	if out, err := exec.Command("sh", script).CombinedOutput(); err == nil || !strings.Contains(string(out), "no release of My App is published") {
 		t.Errorf("without a release, install.sh printed %v:\n%s", err, out)
 	}
-	page(rel("cli-v2.0.0", false, false), rel("desktop-v1.2.0", true, false), rel("desktop-v1.2.0-beta.1", false, true),
+	page(rel("cli-v2.0.0", false, false), rel("desktop-v-cli-2.0.0", false, false), rel("desktop-v1.2.0", true, false), rel("desktop-v1.2.0-beta.1", false, true),
 		rel("desktop-v1.1.0", false, false), rel("desktop-v1.0.0", false, false))
 	out, err := exec.Command("sh", script).CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "Downloading My App 1.1.0") {
