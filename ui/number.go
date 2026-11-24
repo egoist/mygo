@@ -31,9 +31,16 @@ func coreNumberInput(c *context, value *float64, lo, hi, step float64) *node {
 		*text, *shown = format(*value), *value
 	}
 	// The lowest and highest values shown with step's decimals: a bound
-	// with more, as 2.5 with a step of 1, rounds to inside it.
+	// with more, as 2.5 with a step of 1, rounds to inside it. Rounding
+	// first keeps a bound on them, as 0.29 (0.29*100 is 28.999…).
 	p := math.Pow(10, float64(decimals))
-	bottom, top := math.Ceil(lo*p)/p, math.Floor(hi*p)/p
+	bottom, top := math.Round(lo*p)/p, math.Round(hi*p)/p
+	if bottom < lo {
+		bottom = math.Ceil(lo*p) / p
+	}
+	if top > hi {
+		top = math.Floor(hi*p) / p
+	}
 	set := func(v float64) {
 		v = math.Round(math.Max(lo, math.Min(hi, v))*p) / p
 		if v > hi {

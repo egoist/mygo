@@ -508,6 +508,31 @@ func TestNumberInputKeepsInsideFractionalBounds(t *testing.T) {
 	}
 }
 
+// Bounds on step's decimals that floating point puts a hair off, as 0.29
+// times 100 (28.999…), keep the buttons stepping to them.
+func TestNumberInputButtonsReachBoundsOnStep(t *testing.T) {
+	v := 0.28
+	tt := numberTester(&v, 0.07, 0.29, 0.01)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	tt.Frame()
+	if n := accessNode(t, tt.h.access, platform.RoleButton, "Increase"); n.States&platform.AccessDisabled != 0 {
+		t.Errorf("Increase at 0.28 below 0.29 is disabled")
+	}
+	tt.Click("Increase")
+	if v != 0.29 {
+		t.Errorf("Increase from 0.28: %v", v)
+	}
+	v = 0.08
+	tt.Frame()
+	if n := accessNode(t, tt.h.access, platform.RoleButton, "Decrease"); n.States&platform.AccessDisabled != 0 {
+		t.Errorf("Decrease at 0.08 above 0.07 is disabled")
+	}
+	tt.Click("Decrease")
+	if v != 0.07 {
+		t.Errorf("Decrease from 0.08: %v", v)
+	}
+}
+
 // A value the app sets shows in the frame that builds it, not in the one
 // after, as when the app loads settings: in place of what was typed too.
 func TestNumberInputShowsAValueTheAppSets(t *testing.T) {
