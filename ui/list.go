@@ -1430,7 +1430,9 @@ func (f *listFrame) navigate() {
 	to := -1
 	switch key {
 	case KeyDown:
-		to = f.step(max(*sel, -1), 1)
+		if to = f.step(*sel, 1); !in {
+			to = f.step(-1, 1)
+		}
 	case KeyUp:
 		if to = f.step(*sel, -1); !in {
 			to = f.step(-1, 1)

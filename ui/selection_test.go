@@ -151,6 +151,24 @@ func TestListMovesWithoutChoosing(t *testing.T) {
 	expectChosen(t, &sel, 5, 6)
 }
 
+func TestListArrowsAfterRowsRemoved(t *testing.T) {
+	// The app drops rows below the one chosen: Down, as Up, starts again
+	// from the first row.
+	for name, key := range map[string]Key{"Down": KeyDown, "Up": KeyUp} {
+		sel, n := 4, 5
+		s := ListState{Selected: &sel}
+		tt := coreNewTester(func(c *context) {
+			coreTable(c, &s, []TableColumn{{Title: "Name"}}, n, func(i, _ int) { coreTextf(c, "Row %d", i) }).Grow(1).AutoFocus()
+		}, 300, 400)
+		n = 2
+		tt.Frame()
+		tt.Key(0, key)
+		if sel != 0 {
+			t.Errorf("%s with row 4 of 2 chosen went to %d", name, sel)
+		}
+	}
+}
+
 func TestListChoiceOfSeveralFollowsItsItems(t *testing.T) {
 	items := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
 	var sel Selection[string]
