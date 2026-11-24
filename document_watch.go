@@ -236,6 +236,7 @@ func (b *docBase) moved(path string) {
 	b.mu.Lock()
 	b.path = path
 	b.mu.Unlock()
+	b.backupMoved()
 	addRecent(path)
 	b.watch()
 	b.notify()
