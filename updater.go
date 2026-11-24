@@ -279,10 +279,20 @@ func installUpdate(ctx context.Context, get update.Getter, m update.Manifest, ke
 		}
 	}()
 	unpacked := filepath.Join(work, "app")
-	swap := swapFiles
+	swap := func(dir, target string) error {
+		prev := previousDir(target)
+		if err := os.RemoveAll(prev); err != nil {
+			return err
+		}
+		if err := swapFiles(dir, target, prev); err != nil {
+			return err
+		}
+		markPrevious(prev, m.Version)
+		return nil
+	}
 	if runtime.GOOS == "darwin" {
 		swap = func(dir, target string) error {
-			err := stageBundle(work, dir, target)
+			err := stageBundle(work, dir, target, m.Version)
 			staged = err == nil
 			return err
 		}
@@ -403,9 +413,9 @@ var pendingUpdate atomic.Pointer[stagedUpdate]
 // which tests replace.
 var appPid = os.Getpid()
 
-// stageBundle leaves the bundle that dir holds to replace target once the
-// app has exited, in place of an update staged before.
-func stageBundle(work, dir, target string) error {
+// stageBundle leaves the bundle that dir holds, of version, to replace
+// target once the app has exited, in place of an update staged before.
+func stageBundle(work, dir, target, version string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -414,7 +424,7 @@ func stageBundle(work, dir, target string) error {
 		return errors.New("the update holds no app bundle")
 	}
 	p := &stagedUpdate{work: work, bundle: filepath.Join(dir, entries[0].Name()), target: target}
-	p.helper = exec.Command("/bin/sh", "-c", installAfterExit, "mygo-update", strconv.Itoa(appPid), p.target, p.bundle, p.work)
+	p.helper = exec.Command("/bin/sh", "-c", installAfterExit, "mygo-update", strconv.Itoa(appPid), p.target, p.bundle, p.work, previousDir(target), version)
 	if err := p.helper.Start(); err != nil {
 		return err
 	}
@@ -427,18 +437,27 @@ func stageBundle(work, dir, target string) error {
 }
 
 // installAfterExit is the script of /bin/sh that installs a staged update:
-// with the pid of the app, the target, bundle and work of the update, it
+// with the pid of the app, the target, bundle and work of the update, the
+// directory that keeps the previous version and the update's version, it
 // waits for the app to exit, swaps the bundles, putting the old one back
-// if the new one cannot be moved in, and opens the app again when Relaunch
+// if the new one cannot be moved in, keeps the old one with the version
+// (keepPrevious), and opens the app again when Relaunch
 // asked for it (relaunchUpdated), with the arguments of open that
 // work/relaunch sets: Relaunch's arguments are known only then. Through
 // Launch Services, as openBundle, but without -n: the app has exited, and
 // the Dock gives the new version the app's tile.
-const installAfterExit = `pid=$1 target=$2 new=$3 work=$4
+const installAfterExit = `pid=$1 target=$2 new=$3 work=$4 prev=$5 version=$6
 trap '' HUP
 while kill -0 "$pid" 2>/dev/null; do sleep 0.05; done
 if mv "$target" "$work/old"; then
-	mv "$new" "$target" || mv "$work/old" "$target"
+	if mv "$new" "$target"; then
+		rm -rf "$prev"
+		if mkdir "$prev" && mv "$work/old" "$prev/${target##*/}"; then
+			printf '%s\n' "$version" >"$prev/update"
+		fi
+	else
+		mv "$work/old" "$target"
+	fi
 fi
 relaunch=
 if [ -e "$work/relaunch" ]; then relaunch=1; . "$work/relaunch"; fi
@@ -486,7 +505,9 @@ func setArgs(args []string) string {
 // others are put back. The running executable is renamed away, which
 // Windows allows, and removed at the next launch (cleanUpdateLeftovers).
 // dir gets the list of its entries, which moves into target with them.
-func swapFiles(dir, target string) error {
+// With keep, the replaced and removed entries move there instead of being
+// deleted, the list of the version they were among them (keepPrevious).
+func swapFiles(dir, target, keep string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -564,7 +585,16 @@ func swapFiles(dir, target string) error {
 		}
 		placed = append(placed, [2]string{src, dst})
 	}
+	if keep != "" {
+		if err := os.Mkdir(keep, 0o755); err != nil {
+			log.Printf("mygo: not keeping the previous version: %v", err)
+			keep = ""
+		}
+	}
 	for _, m := range moved {
+		if keep != "" && rename(m[1], filepath.Join(keep, filepath.Base(m[0]))) == nil {
+			continue
+		}
 		_ = os.RemoveAll(m[1])
 	}
 	return nil

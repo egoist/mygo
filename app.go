@@ -129,6 +129,7 @@ func (a *Application) Run() error {
 	a.running = true
 	a.mu.Unlock()
 	logCrashes()
+	judgeUpdatedStart()
 	go cleanUpdateLeftovers()
 
 	b := backend()
@@ -321,6 +322,7 @@ func (a *Application) finish() {
 		backend().Clipboard().Close()
 		saveWindowStates()
 		fire(&a.onQuit)
+		proveUpdatedStart()
 		backendExiting()
 		if a.relaunch {
 			// After OnQuit, which stops taking the command lines of later

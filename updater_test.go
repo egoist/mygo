@@ -180,7 +180,7 @@ func TestUpdater(t *testing.T) {
 	if progress != [2]int64{m.Size, m.Size} {
 		t.Errorf("progress = %v, want %d", progress, m.Size)
 	}
-	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".*")); runtime.GOOS == "darwin" && len(leftovers) > 0 {
+	if leftovers := leftoversBeside(target); runtime.GOOS == "darwin" && len(leftovers) > 0 {
 		t.Errorf("left behind: %q", leftovers)
 	}
 
@@ -234,7 +234,7 @@ func TestUpdaterDelta(t *testing.T) {
 		if b, _ := os.ReadFile(filepath.Join(target, "code")); !bytes.Equal(b, newCode) {
 			t.Error("after the update code is not the new one")
 		}
-		if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".*")); runtime.GOOS == "darwin" && len(leftovers) > 0 {
+		if leftovers := leftoversBeside(target); runtime.GOOS == "darwin" && len(leftovers) > 0 {
 			t.Errorf("left behind: %q", leftovers)
 		}
 		return progress
@@ -270,6 +270,103 @@ func TestUpdaterDelta(t *testing.T) {
 	install(unsigned, up.current, false)
 	if requests("/app.delta") != 3 || requests("/app.tar.gz") != 3 {
 		t.Errorf("downloaded the delta %d times and the archive %d", requests("/app.delta"), requests("/app.tar.gz"))
+	}
+}
+
+// leftoversBeside returns the hidden entries beside target that an update
+// left, but for the previous version it keeps.
+func leftoversBeside(target string) []string {
+	all, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".*"))
+	return slices.DeleteFunc(all, func(p string) bool { return p == previousDir(target) })
+}
+
+// An update keeps the version it replaced until the new one has started
+// well: a start after a first start that did not prove itself puts it
+// back and starts it, and one that proved itself deletes it.
+func TestUpdaterRollback(t *testing.T) {
+	ctx := context.Background()
+	srv, key, _, _ := updateServer(t, "1.2.0", "v2", "")
+	up, err := checkUpdate(ctx, feedSource(srv.URL+"/update.json"), key, "1.1.9", false)
+	if err != nil || up == nil {
+		t.Fatalf("checkUpdate = %+v, %v", up, err)
+	}
+	var started []string
+	old := startRestored
+	startRestored = func(target string) bool { started = append(started, target); return true }
+	t.Cleanup(func() { startRestored = old })
+	install := func() (target, main string) {
+		t.Helper()
+		target, main = installedApp(t)
+		quit := runningApp(t)
+		if err := installUpdate(ctx, httpGet, up.manifest, key, up.current, target, nil); err != nil {
+			t.Fatal(err)
+		}
+		quit()
+		if b, _ := os.ReadFile(main); string(b) != "v2" {
+			t.Fatalf("after the update main = %q", b)
+		}
+		return target, main
+	}
+
+	// A first start that dies: the next start puts 1.1.9 back.
+	target, main := install()
+	prev := previousDir(target)
+	if v, started, err := readPreviousMark(prev); v != "1.2.0" || started || err != nil {
+		t.Fatalf("the mark is %q, %v, %v", v, started, err)
+	}
+	if checkUpdatedStart(target, "1.1.9") {
+		t.Error("another version judged the update")
+	}
+	if checkUpdatedStart(target, "1.2.0") {
+		t.Fatal("the first start was rolled back")
+	}
+	if _, started, _ := readPreviousMark(prev); !started {
+		t.Error("the first start is not marked")
+	}
+	// While the first start runs, another start goes on.
+	if checkUpdatedStart(target, "1.2.0") || len(started) != 0 {
+		t.Fatal("a start while the first one ran was rolled back")
+	}
+	firstStart.Lock()
+	firstStart.lock.Close() // the first start ends without proving itself
+	firstStart.lock = nil
+	firstStart.Unlock()
+	if !checkUpdatedStart(target, "1.2.0") || len(started) != 1 || started[0] != target {
+		t.Fatalf("a start after a first one that died started %q", started)
+	}
+	if b, _ := os.ReadFile(main); string(b) != "v1" {
+		t.Errorf("after the rollback main = %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(target, "code")); !bytes.Equal(b, oldCode) {
+		t.Error("after the rollback code is not the old one")
+	}
+	if _, err := os.Stat(prev); err == nil {
+		t.Error("the previous version is still kept")
+	}
+	if left := leftoversBeside(target); len(left) > 0 {
+		t.Errorf("left behind: %q", left)
+	}
+	if runtime.GOOS != "darwin" {
+		if b, _ := os.ReadFile(filepath.Join(target, update.FileList)); len(b) > 0 {
+			t.Errorf("the list of the files of 1.2.0 stayed: %q", b)
+		}
+	}
+
+	// A first start that proved itself: the previous version goes.
+	target, main = install()
+	prev = previousDir(target)
+	if checkUpdatedStart(target, "1.2.0") {
+		t.Fatal("the first start was rolled back")
+	}
+	confirmUpdate(target, "1.2.0")
+	if _, err := os.Stat(prev); err == nil {
+		t.Error("the previous version is kept after the update proved itself")
+	}
+	if checkUpdatedStart(target, "1.2.0") || len(started) != 1 {
+		t.Error("a start after one that proved itself was rolled back")
+	}
+	if b, _ := os.ReadFile(main); string(b) != "v2" {
+		t.Errorf("main = %q", b)
 	}
 }
 
@@ -328,7 +425,7 @@ func TestUpdaterWaitsForTheAppToExit(t *testing.T) {
 	if b, _ := os.ReadFile(main); string(b) != "v2" {
 		t.Errorf("after the app exited main = %q", b)
 	}
-	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".*")); len(leftovers) > 0 {
+	if leftovers := leftoversBeside(target); len(leftovers) > 0 {
 		t.Errorf("left behind: %q", leftovers)
 	}
 }

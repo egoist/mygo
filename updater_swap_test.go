@@ -118,7 +118,7 @@ func TestSwapFiles(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			target := swapTree(t, tc.installed, tc.list)
 			dir := swapTree(t, tc.update, nil)
-			if err := swapFiles(dir, target); err != nil {
+			if err := swapFiles(dir, target, ""); err != nil {
 				t.Fatal(err)
 			}
 			got, list := swapState(t, target)
@@ -147,7 +147,7 @@ func TestSwapFilesUndo(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := swapTree(t, map[string]string{"app.exe": "v2", "new.txt": "new", "z.dll": "v2"}, nil)
-	if err := swapFiles(dir, target); err == nil {
+	if err := swapFiles(dir, target, ""); err == nil {
 		t.Fatal("the swap succeeded")
 	}
 	if err := os.RemoveAll(blocker); err != nil {
@@ -177,7 +177,7 @@ func TestSwapFilesKeepsTheRunningExecutable(t *testing.T) {
 	startExe = filepath.Join(target, "Old Name.exe")
 	t.Cleanup(func() { startExe = old })
 	dir := swapTree(t, map[string]string{"New Name.exe": "v2"}, nil)
-	if err := swapFiles(dir, target); err != nil {
+	if err := swapFiles(dir, target, ""); err != nil {
 		t.Fatal(err)
 	}
 	got, list := swapState(t, target)
