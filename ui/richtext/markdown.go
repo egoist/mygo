@@ -287,8 +287,9 @@ func renderRuns(runs []Run, html map[delimKey]bool) (string, []delim) {
 		core := strings.TrimFunc(r.Text, unicode.IsSpace)
 		lead, trail := "", ""
 		switch {
-		case core == "" && r.Attributes.Code && r.Text != "":
-			// A code span of spaces alone, which Markdown keeps as it is.
+		case r.Attributes.Code && r.Text != "":
+			// A code span keeps its spaces, at its ends too, and one of
+			// spaces alone.
 			core = r.Text
 		case core == "":
 			pending += r.Text
@@ -452,7 +453,11 @@ func codeSpan(s string) string {
 		}
 	}
 	fence := strings.Repeat("`", longest+1)
-	if strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") {
+	// A space on each side, which Markdown takes off: beside a backtick,
+	// and around a span that has its own on both sides, but for one of
+	// spaces alone, which it keeps.
+	spaced := strings.HasPrefix(s, " ") && strings.HasSuffix(s, " ") && strings.Trim(s, " ") != ""
+	if strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") || spaced {
 		s = " " + s + " "
 	}
 	return fence + s + fence

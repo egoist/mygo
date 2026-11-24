@@ -377,8 +377,8 @@ func TestParseMarkdownInvalidUTF8(t *testing.T) {
 	}
 }
 
-// A code span of spaces alone stays one, and does not turn the marks after
-// it into HTML.
+// A code span keeps its spaces, one of spaces alone too, and does not turn
+// the marks beside it into HTML.
 func TestMarkdownBlankCodeSpan(t *testing.T) {
 	for _, c := range []struct {
 		runs []Run
@@ -387,6 +387,9 @@ func TestMarkdownBlankCodeSpan(t *testing.T) {
 		{[]Run{{Text: " ", Attributes: Attributes{Code: true}}, {Text: "0", Attributes: Attributes{Italic: true}}}, "` `*0*"},
 		{[]Run{{Text: "a "}, {Text: "  ", Attributes: Attributes{Code: true}}, {Text: " b"}}, "a `  ` b"},
 		{[]Run{{Text: " ", Attributes: Attributes{Code: true}}}, "` `"},
+		// and its spaces at its ends stay in it
+		{[]Run{{Text: "0", Attributes: Attributes{Strikethrough: true}}, {Text: " 0", Attributes: Attributes{Code: true}}}, "~~0~~` 0`"},
+		{[]Run{{Text: "a"}, {Text: " b ", Attributes: Attributes{Code: true}}}, "a`  b  `"},
 	} {
 		want := TextOf(Paragraph{Runs: c.runs})
 		md := want.Markdown()
