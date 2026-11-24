@@ -44,8 +44,9 @@ type Options struct {
 	// MaxMessageSize is the most bytes a received message may have, 64 MiB
 	// when zero. A bigger message fails the connection.
 	MaxMessageSize int64
-	// CloseTimeout is how long a connection closed by the page waits for
-	// the server to finish the closing handshake, 5 seconds when zero.
+	// CloseTimeout is how long a connection that sends a close frame waits
+	// for the server to read it and, when the page closed first, to finish
+	// the closing handshake, 5 seconds when zero.
 	CloseTimeout time.Duration
 }
 
