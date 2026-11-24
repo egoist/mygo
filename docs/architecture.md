@@ -1943,7 +1943,8 @@ Package `i18n` is a leaf (it imports golang.org/x/text/language only):
   "modern", 430 locales) comes from cldr-dates-full, cldr-numbers-full and
   cldr-localenames-full, pinned like cldr-core (`format.go` of the
   generator writes `format_tables.go`). A locale's data is a record of
-  slots (month and weekday names by context and width, day periods, eras,
+  slots (month, quarter and weekday names by context and width, day
+  periods, eras,
   date, time and date-time patterns, the availableFormats of the
   skeletons MyGo formats, time zones' GMT formats, number symbols,
   patterns and digits of the default numbering system and of latn); each
@@ -1954,7 +1955,7 @@ Package `i18n` is a leaf (it imports golang.org/x/text/language only):
   a constant of its own: the numbers with the locales and their parents
   (`fmtPackedNumbers`, 3 KB), which every app links, as MyGo's own strings
   format numbers, and the dates with the names of languages
-  (`fmtPackedDates`, 77 KB), which only apps that format dates or name
+  (`fmtPackedDates`, 84 KB), which only apps that format dates or name
   languages link. At run time `cldr.go` inflates each once and puts a
   locale's record together on its first use (an atomic pointer per
   locale), its dates on the first date it formats (`withDates`); `keyOf` caches what a tag formats with (its data locale, by
@@ -4696,7 +4697,10 @@ either.
   source offsets, to copy text with block separators, Markdown, and the
   HTML of that Markdown parsed again, which `ui/richtext` pastes with its
   formatting, as it reads Markdown with the same parser
-  (`ParseMarkdown`). Links open in the system only when `ui.SafeToOpen`
+  (`ParseMarkdown`). `HTML` escapes the raw tags a browser reads to their
+  end, which is cmark-gfm's tagfilter (`ExtTagFilter`, in `GFM` and so in
+  `Default`), so that what an app copies as HTML carries no `<script>`
+  into what pastes it. Links open in the system only when `ui.SafeToOpen`
   allows them, in both. Tasks' check boxes are boxes of `RoleCheckBox`,
   read-only, or, with `Options.OnTask`, focusable and named by the plain
   text of their item's first paragraph, kept by block while its start,
@@ -5699,7 +5703,9 @@ either.
   the other params, so a build lays it out once.
   Text elements built inside a text (`ui/inline.go`) are inline: the
   paragraph takes their text when its `Children` returns, and their
-  styles as spans over its own when it lays out. At commit, each gets the
+  styles as spans over its own when it lays out (a background, with its
+  corners and padding, as a span's `Radius`, `PaddingX`, `PaddingY` and
+  `PaddingStart`). At commit, each gets the
   boxes of its runes in the paragraph's layout (`Selection`), one hit
   each, so the pointer, the focus order, tooltips and menus work as for
   any element; they paint only their focus ring (their `Opacity`,
@@ -7324,8 +7330,9 @@ which npm allows only for packages that exist: the first release uses an
    need: main-thread only, synchronous, or with a callback that runs on the
    main thread exactly once.
 3. **Implement it in every backend**: `darwin`, `linux`, `windows`, `web`,
-   `fake` and `unsupported` (return `platform.ErrUnsupported` or a zero
-   value).
+   `fake` and `unsupported` (return `platform.ErrUnsupported`, or
+   `platform.Unsupported(message)` to say it in the backend's own words, or
+   a zero value).
    Create callbacks once, never per call.
 4. **Wire the core**: hop with `onMain`/`onMainValue`, or `postMain` + `await`
    + `deliver` for asynchronous native results. Start with `needsApp` when
@@ -7419,7 +7426,7 @@ which npm allows only for packages that exist: the first release uses an
 | power events | NSWorkspace sleep/wake, `com.apple.screenIsLocked` distributed notifications | logind `PrepareForSleep` (system bus), screen saver `ActiveChanged` (GNOME, freedesktop) | `WM_POWERBROADCAST`, `WM_WTSSESSION_CHANGE` |
 | Now Playing and media keys | `MPNowPlayingInfoCenter` (its `nowPlayingInfo` and `playbackState`; artwork as an `MPMediaItemArtwork` decoding the bytes it holds when asked) and the targets of `MPRemoteCommandCenter`'s commands, enabled as the info offers them; MediaPlayer.framework loads with the first `Set` | an MPRIS player (`org.mpris.MediaPlayer2` and `.Player` at `/org/mpris/MediaPlayer2`, exported with `g_dbus_connection_register_object`), whose bus name `org.mpris.MediaPlayer2.<app>.instance<pid>` is owned only while it shows something; `PropertiesChanged` on each change, `Seeked` when the position jumps; `xesam:artist` lists `Artists`; the artwork goes to a file in `$XDG_RUNTIME_DIR` for `mpris:artUrl`; `Raise` reaches the core as `platform.MediaRaise`, which shows and focuses the window that had the keyboard last | the `SystemMediaTransportControls` of the application window (`ISystemMediaTransportControlsInterop::GetForWindow`), with agile event handlers, a `RandomAccessStreamReference` over a memory stream for the thumbnail, and the timeline properties for position and seeking |
 | KeepAwake | `NSProcessInfo` activity (shows in `pmset -g assertions`) | XDG portal `Inhibit`, else `org.freedesktop.ScreenSaver.Inhibit` | `PowerCreateRequest` |
-| KeepRunning | `NSProcessInfo` activity `NSActivityUserInitiatedAllowingIdleSystemSleep`: no App Nap, idle sleep allowed (not in `pmset -g assertions`) | nothing: desktops don't slow apps out of sight | nothing yet (power throttling, EcoQoS, would be `SetProcessInformation`'s `ProcessPowerThrottling`) |
+| KeepRunning | `NSProcessInfo` activity `NSActivityUserInitiatedAllowingIdleSystemSleep`: no App Nap, idle sleep allowed (not in `pmset -g assertions`) | nothing: desktops don't slow apps out of sight | `SetProcessInformation`'s `ProcessPowerThrottling`: execution speed opted out until the last release, which puts back the policy read before (usually the system's to decide) |
 | IsOnBattery, IdleTime | IOKit power sources, `CGEventSourceSecondsSinceLastEventType` | `/sys/class/power_supply`; Mutter idle monitor or `GetSessionIdleTime` | `GetSystemPowerStatus`, `GetLastInputInfo` |
 | network status | `nw_path_monitor` on a queue of its own, the first `Status` waiting (up to a second) for its first path; online when the path is satisfied, metered when it is expensive or constrained | `GNetworkMonitor`, `network-available` (a default route) and `network-metered` | `GetNetworkConnectivityHint`, `NotifyNetworkConnectivityHintChange`; online from local access up (not none or hidden), metered for a fixed or variable cost, roaming, over or near the data limit |
 | window position | honored | ignored by Wayland compositors | honored |

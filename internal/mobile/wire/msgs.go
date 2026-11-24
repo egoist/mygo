@@ -81,15 +81,17 @@ const (
 	CallAccessibilityChanged   = 75
 	CallAnnounce               = 76
 	CallShowMenu               = 77
-	CallSetBackAvailable       = 78
-	CallShowMagnifier          = 79
-	CallHideMagnifier          = 80
-	CallTextMetrics            = 81
-	CallMeasureText            = 82
-	CallTextAdvances           = 83
-	CallDrawText               = 84
-	CallRegisterFont           = 85
-	CallSetFrameRate           = 86
+	CallHideMenu               = 78
+	CallSetBackAvailable       = 79
+	CallShowMagnifier          = 80
+	CallHideMagnifier          = 81
+	CallTextMetrics            = 82
+	CallMeasureText            = 83
+	CallTextAdvances           = 84
+	CallMeasureTextRun         = 85
+	CallDrawText               = 86
+	CallRegisterFont           = 87
+	CallSetFrameRate           = 88
 )
 
 // Numbers of events.
@@ -1531,6 +1533,19 @@ func (m *ShowMenu) Encode(w *Writer) {
 // Wait reports whether the caller waits for the host to run it.
 func (*ShowMenu) Wait() bool { return false }
 
+// HideMenu is takes the edit menu of ShowMenu away.
+type HideMenu struct {
+	ID int
+}
+
+func (m *HideMenu) Encode(w *Writer) {
+	w.Uvarint(CallHideMenu)
+	w.Int(m.ID)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*HideMenu) Wait() bool { return false }
+
 // SetBackAvailable is whether the content takes the system's back.
 type SetBackAvailable struct {
 	ID int
@@ -1676,7 +1691,44 @@ func (m *TextAdvancesReply) Decode(r *Reader) {
 	m.Advances = r.Floats()
 }
 
-// DrawText is draws Text in white at Scale pixels per DIP, its pen DX pixels right of a pixel's edge: its ink's box from the pen and its pixels, a byte of coverage each, or premultiplied RGBA when Color.
+// MeasureTextRun is how wide Text's UTF-16 units [Start, End) are laid out within the whole of Text, right to left if RTL, as a TextView measures a span (getRunAdvance).
+type MeasureTextRun struct {
+	Family string
+	Size   float64
+	Weight int
+	Italic bool
+	NoKern bool
+	Text   string
+	Start  int
+	End    int
+	RTL    bool
+}
+
+func (m *MeasureTextRun) Encode(w *Writer) {
+	w.Uvarint(CallMeasureTextRun)
+	w.String(m.Family)
+	w.Float(m.Size)
+	w.Int(m.Weight)
+	w.Bool(m.Italic)
+	w.Bool(m.NoKern)
+	w.String(m.Text)
+	w.Int(m.Start)
+	w.Int(m.End)
+	w.Bool(m.RTL)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*MeasureTextRun) Wait() bool { return true }
+
+type MeasureTextRunReply struct {
+	Width float64
+}
+
+func (m *MeasureTextRunReply) Decode(r *Reader) {
+	m.Width = r.Float()
+}
+
+// DrawText is draws Text in white at Scale pixels per DIP, its pen DX pixels right of a pixel's edge: its ink's box from the pen and its pixels, a byte of coverage each, or premultiplied RGBA when Color. When End > 0, only its UTF-16 units [Start, End), laid out within the whole, right to left if RTL (drawTextRun), from the pen at their left.
 type DrawText struct {
 	Family string
 	Size   float64
@@ -1685,6 +1737,9 @@ type DrawText struct {
 	Text   string
 	Scale  float64
 	DX     float64
+	Start  int
+	End    int
+	RTL    bool
 }
 
 func (m *DrawText) Encode(w *Writer) {
@@ -1696,6 +1751,9 @@ func (m *DrawText) Encode(w *Writer) {
 	w.String(m.Text)
 	w.Float(m.Scale)
 	w.Float(m.DX)
+	w.Int(m.Start)
+	w.Int(m.End)
+	w.Bool(m.RTL)
 }
 
 // Wait reports whether the caller waits for the host to run it.
