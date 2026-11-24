@@ -376,3 +376,21 @@ func TestParseMarkdownInvalidUTF8(t *testing.T) {
 		}
 	}
 }
+
+// Tabs at the end of a paragraph, which Markdown drops as it drops spaces,
+// leave the marks before them in Markdown, not HTML.
+func TestMarkdownTrailingTabs(t *testing.T) {
+	for _, c := range []struct {
+		runs []Run
+		md   string
+	}{
+		{[]Run{{Text: "a", Attributes: Attributes{Italic: true}}, {Text: " \t"}}, "*a* \t"},
+		{[]Run{{Text: "a\t", Attributes: Attributes{Strikethrough: true}}}, "~~a~~\t"},
+		{[]Run{{Text: "b", Attributes: Attributes{Weight: 700}}, {Text: "\t\t"}}, "**b**\t\t"},
+	} {
+		md := TextOf(Paragraph{Runs: c.runs}).Markdown()
+		if md != c.md {
+			t.Errorf("%s as Markdown is %q, want %q", dump(TextOf(Paragraph{Runs: c.runs})), md, c.md)
+		}
+	}
+}
