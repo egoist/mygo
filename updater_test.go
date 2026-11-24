@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -727,5 +728,20 @@ func TestUpdateCheckRedirect(t *testing.T) {
 	}
 	if err := checkRedirect(req("https://cdn.example.com/feed.json"), many); err == nil {
 		t.Error("an eleventh redirect: followed")
+	}
+
+	// httpGet gives up on a refused redirect at once: asked again, the
+	// server would only redirect again.
+	var asked atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked.Add(1)
+		http.Redirect(w, r, "http://updates.example.invalid/feed.json", http.StatusFound)
+	}))
+	defer srv.Close()
+	if _, err := httpGet(context.Background(), srv.URL+"/feed.json"); !errors.Is(err, errRedirect) {
+		t.Errorf("httpGet = %v", err)
+	}
+	if n := asked.Load(); n != 1 {
+		t.Errorf("asked %d times", n)
 	}
 }
