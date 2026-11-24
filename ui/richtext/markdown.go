@@ -285,12 +285,18 @@ func renderRuns(runs []Run, html map[delimKey]bool) (string, []delim) {
 			continue
 		}
 		core := strings.TrimFunc(r.Text, unicode.IsSpace)
-		if core == "" {
+		lead, trail := "", ""
+		switch {
+		case core == "" && r.Attributes.Code && r.Text != "":
+			// A code span of spaces alone, which Markdown keeps as it is.
+			core = r.Text
+		case core == "":
 			pending += r.Text
 			continue
+		default:
+			lead = r.Text[:strings.Index(r.Text, core)]
+			trail = r.Text[len(lead)+len(core):]
 		}
-		lead := r.Text[:strings.Index(r.Text, core)]
-		trail := r.Text[len(lead)+len(core):]
 		want := marksOf(r.Attributes)
 		k := 0
 		for k < len(open) && k < len(want) && open[k].mark == want[k] {
