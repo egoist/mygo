@@ -700,3 +700,32 @@ func TestRelaunchArguments(t *testing.T) {
 		t.Error("the update left its work")
 	}
 }
+
+// An update's request follows redirects only to HTTPS, or over the loopback,
+// and not past ten.
+func TestUpdateCheckRedirect(t *testing.T) {
+	req := func(u string) *http.Request {
+		r, err := http.NewRequest("GET", u, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	via := []*http.Request{req("https://example.com/feed.json")}
+	if err := checkRedirect(req("https://cdn.example.com/feed.json"), via); err != nil {
+		t.Errorf("to HTTPS: %v", err)
+	}
+	if err := checkRedirect(req("http://cdn.example.com/feed.json"), via); err == nil {
+		t.Error("to plain HTTP: followed")
+	}
+	if err := checkRedirect(req("http://127.0.0.1:8080/feed.json"), via); err != nil {
+		t.Errorf("over the loopback: %v", err)
+	}
+	many := make([]*http.Request, 10)
+	for i := range many {
+		many[i] = via[0]
+	}
+	if err := checkRedirect(req("https://cdn.example.com/feed.json"), many); err == nil {
+		t.Error("an eleventh redirect: followed")
+	}
+}
