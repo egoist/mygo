@@ -375,6 +375,26 @@ func TestRangeSliderKnobsMet(t *testing.T) {
 			}
 		}
 	}
+	// Pressed where they meet, before the pointer moves, a knob looks held.
+	low, high := 50.0, 50.0
+	tt := coreNewTester(func(c *context) {
+		coreRangeSlider(c, &low, &high, 0, 100, 0).Width(220).Label("Price")
+	}, 300, 100)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	r := accessNode(t, tt.h.access, platform.RoleGroup, "Price").Bounds
+	tt.Advance(time.Second)
+	before := sliderFrameHash(tt)
+	tt.Press(float32(r.X)+110, float32(r.Y+10))
+	tt.Advance(time.Second)
+	if sliderFrameHash(tt) == before {
+		t.Error("pressed where the knobs meet, no knob looks held")
+	}
+}
+
+func sliderFrameHash(tt *Tester) uint64 {
+	h := fnv.New64a()
+	h.Write(tt.Image().Pix)
+	return h.Sum64()
 }
 
 // A slider let go before a frame takes the value where the pointer let

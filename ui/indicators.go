@@ -439,8 +439,13 @@ func coreRangeSlider(c *context, low, high *float64, lo, hi, step float64) *node
 		}
 
 	})
-	held := e.Animate("held", b2f(*dragging >= 0), 150*time.Millisecond)
 	which := *dragging
+	if which < 0 && down && *low == *high {
+		// Pressed where the knobs meet, before the pointer picks one: the
+		// high one, on top, is held.
+		which = 1
+	}
+	held := e.Animate("held", b2f(which >= 0), 150*time.Millisecond)
 	e.Draw(func(p *Painter, r Rect) {
 		h := t.Space(1.5)
 		cy := r.Y + t.Space(2.5)
