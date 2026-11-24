@@ -341,7 +341,12 @@ the archive or delta through its `Open`; `prereleases` is what
 `SetPrereleases` set, for a source with a beta channel. The URLs are the
 manifest's, so a service that writes its own manifests from those of
 `mygo build` may name the files by ids of its own, as long as the sizes
-and signatures stay. `SetSource(nil)` goes back to the feed.
+and signatures stay: `signature2` too, of the archive and of each delta.
+An app refuses a manifest without it, so a service that copies the
+fields it knows, and not that one, stops its apps' updates. The
+statement `signature2` signs holds the version and the target, not the
+URL, so the version and the target must stay as `mygo build` wrote them,
+and the files may be renamed. `SetSource(nil)` goes back to the feed.
 
 ## Where apps can update
 
