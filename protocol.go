@@ -423,6 +423,7 @@ func downloadScheme(h *windowHandler, rawURL string) {
 		return
 	}
 	rw := &downloadWriter{h: h, url: rawURL, header: http.Header{}}
+	rw.cond.L = &rw.mu
 	func() {
 		// As serveScheme: a handler that panics fails its download, not
 		// the app, which a panic on this goroutine would end.
@@ -437,12 +438,16 @@ func downloadScheme(h *windowHandler, rawURL string) {
 		}()
 		handler.ServeHTTP(rw, req)
 	}()
+	rw.settle()
 	rw.WriteHeader(http.StatusOK) // nothing written
 	if rw.file == nil {
 		if rw.err != nil {
 			finish("", rw.err)
 		}
 		return // canceled
+	}
+	if rw.err == nil {
+		rw.report(true) // the last one, even short of the total
 	}
 	if err := rw.file.Close(); rw.err == nil {
 		rw.err = err
@@ -454,6 +459,9 @@ func downloadScheme(h *windowHandler, rawURL string) {
 }
 
 // downloadWriter writes a response into the file OnWillDownload chose.
+// It is also the download's control: a scheme download is the app's own
+// handler served into a file, so pausing holds its Write, and progress is
+// what it wrote.
 type downloadWriter struct {
 	h      *windowHandler
 	url    string
@@ -462,6 +470,14 @@ type downloadWriter struct {
 	path   string
 	file   *os.File
 	err    error
+
+	mu       sync.Mutex
+	cond     sync.Cond
+	paused   bool
+	canceled bool
+	received int64
+	reported int64
+	total    int64
 }
 
 func (d *downloadWriter) Header() http.Header { return d.header }
@@ -475,6 +491,15 @@ func (d *downloadWriter) WriteHeader(status int) {
 		d.err = fmt.Errorf("mygo: downloading %s: %d %s", d.url, status, http.StatusText(status))
 		return
 	}
+	d.mu.Lock()
+	if d.canceled && d.err == nil {
+		d.err = ErrDownloadCanceled
+	}
+	canceled := d.canceled
+	d.mu.Unlock()
+	if canceled || d.err != nil { // canceled before it started
+		return
+	}
 	name := ""
 	if _, params, err := mime.ParseMediaType(d.header.Get("Content-Disposition")); err == nil {
 		name = params["filename"]
@@ -484,6 +509,7 @@ func (d *downloadWriter) WriteHeader(status int) {
 			name = path.Base(u.Path)
 		}
 	}
+	d.total, _ = strconv.ParseInt(d.header.Get("Content-Length"), 10, 64)
 	d.path = onMainValue(func() string { return d.h.DownloadStarted(d.url, name) })
 	if d.path == "" {
 		return
@@ -491,11 +517,27 @@ func (d *downloadWriter) WriteHeader(status int) {
 	d.file, d.err = os.Create(d.path)
 	if d.err != nil {
 		d.file = nil
+		return
 	}
+	onMain(func() {
+		if dl := d.h.w.downloads[downloadKey{d.url, d.path}]; dl != nil {
+			dl.setScheme(d)
+		}
+	})
 }
 
 func (d *downloadWriter) Write(b []byte) (int, error) {
 	d.WriteHeader(http.StatusOK)
+	d.mu.Lock()
+	for d.paused && !d.canceled {
+		d.cond.Wait()
+	}
+	if d.canceled && d.err == nil {
+		// cancel only sets canceled, which the writer turns into the
+		// error it ends with, on its own goroutine.
+		d.err = ErrDownloadCanceled
+	}
+	d.mu.Unlock()
 	if d.file == nil || d.err != nil {
 		return len(b), nil // canceled: drain
 	}
@@ -503,5 +545,59 @@ func (d *downloadWriter) Write(b []byte) (int, error) {
 	if err != nil {
 		d.err = err
 	}
+	d.mu.Lock()
+	d.received += int64(n)
+	d.mu.Unlock()
+	d.report(false)
 	return n, err
+}
+
+// settle turns a cancel that stopped the handler between writes into the
+// error the download ends with, on the writer's goroutine.
+func (d *downloadWriter) settle() {
+	d.mu.Lock()
+	if d.canceled && d.err == nil {
+		d.err = ErrDownloadCanceled
+	}
+	d.mu.Unlock()
+}
+
+// report sends the bytes received so far to the page, once every 64 KiB,
+// or always with final: the last one can stop short of the total.
+func (d *downloadWriter) report(final bool) {
+	d.mu.Lock()
+	report := final || d.received-d.reported >= 64<<10
+	if report {
+		d.reported = d.received
+	}
+	received, total := d.received, d.total
+	d.mu.Unlock()
+	if !report || d.path == "" {
+		return
+	}
+	postMain(func() { d.h.DownloadProgress(d.url, d.path, received, total) })
+}
+
+func (d *downloadWriter) pause() error {
+	d.mu.Lock()
+	d.paused = true
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *downloadWriter) resume() error {
+	d.mu.Lock()
+	d.paused = false
+	d.cond.Broadcast()
+	d.mu.Unlock()
+	return nil
+}
+
+// cancel asks the writer to stop. It sets the flag only: the download's
+// goroutine turns it into d.err, under its own writes.
+func (d *downloadWriter) cancel() {
+	d.mu.Lock()
+	d.canceled = true
+	d.cond.Broadcast()
+	d.mu.Unlock()
 }

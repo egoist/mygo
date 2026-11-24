@@ -630,6 +630,9 @@ type Window struct {
 	InputRegion []platform.Rect
 	// ThumbBar is what SetThumbBar set last.
 	ThumbBar []platform.ThumbButton
+	// DownloadControls records the PauseDownload, ResumeDownload and
+	// CancelDownload calls, as "pause <url> <path>" and so on.
+	DownloadControls []string
 	// AsyncFunction answers CallAsyncFunction.
 	AsyncFunction func(body string) (string, error)
 	// AsyncCallback, when set, receives CallAsyncFunction calls to answer
@@ -864,6 +867,26 @@ func (w *Window) CloseDevTools()                     { w.mu.Lock(); w.devtools =
 func (w *Window) IsDevToolsOpened() bool             { w.mu.Lock(); defer w.mu.Unlock(); return w.devtools }
 func (w *Window) CapturePage(cb func([]byte, error)) { cb([]byte("png"), nil) }
 func (w *Window) Print()                             {}
+
+func (w *Window) PauseDownload(url, path string) error {
+	w.mu.Lock()
+	w.DownloadControls = append(w.DownloadControls, "pause "+url+" "+path)
+	w.mu.Unlock()
+	return nil
+}
+
+func (w *Window) ResumeDownload(url, path string) error {
+	w.mu.Lock()
+	w.DownloadControls = append(w.DownloadControls, "resume "+url+" "+path)
+	w.mu.Unlock()
+	return nil
+}
+
+func (w *Window) CancelDownload(url, path string) {
+	w.mu.Lock()
+	w.DownloadControls = append(w.DownloadControls, "cancel "+url+" "+path)
+	w.mu.Unlock()
+}
 
 // TogglePictureInPicture moves the page's video into picture in picture
 // or back, as a page with a video it can move.

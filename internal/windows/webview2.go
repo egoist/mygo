@@ -131,16 +131,25 @@ const (
 	dlStartGetResultFilePath      = 6
 	dlStartPutResultFilePath      = 7
 	dlStartPutHandled             = 9
+	dlOpAddBytesReceivedChanged   = 3
 	dlOpAddStateChanged           = 7
 	dlOpGetURI                    = 9
+	dlOpGetTotalBytesToReceive    = 12
+	dlOpGetBytesReceived          = 13
 	dlOpGetState                  = 16
 	dlOpGetInterruptReason        = 17
-	permGetURI                    = 3
-	permGetKind                   = 4
-	permPutState                  = 7
-	accelGetKeyEventKind          = 3
-	accelGetVirtualKey            = 4
-	accelPutHandled               = 8
+	dlOpCancel                    = 18
+	dlOpPause                     = 19
+	dlOpResume                    = 20
+	// dlInterruptUserPaused is the interrupt reason Pause reports: the
+	// download is interrupted while paused, and Resume continues it.
+	dlInterruptUserPaused = 28
+	permGetURI            = 3
+	permGetKind           = 4
+	permPutState          = 7
+	accelGetKeyEventKind  = 3
+	accelGetVirtualKey    = 4
+	accelPutHandled       = 8
 )
 
 // ICoreWebView2_8, whose methods follow ICoreWebView2_7's PrintToPdf (80)
