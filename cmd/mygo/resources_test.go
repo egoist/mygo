@@ -764,7 +764,7 @@ func TestPlatformResources(t *testing.T) {
 		{"linux", "amd64", map[string]string{"bin/server": "linux amd64 server"}},
 		{"linux", "arm64", map[string]string{"lib/libx.so": "linux arm64 library"}},
 		{"linux", "riscv64", nil},
-		{"windows", "amd64", map[string]string{"bin/server.exe": "windows amd64 server"}},
+		{"windows", "amd64", map[string]string{"bin/server.exe": "windows amd64 server", "bin/.keep": ""}},
 	} {
 		list, err := c.resources(tc.goos, tc.goarch, reservedNames(c, tc.goos)...)
 		if err != nil {
@@ -1067,5 +1067,90 @@ func TestPlaceBuildRunningResource(t *testing.T) {
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "extra", "data.txt")); err != nil || string(b) != "v2" {
 		t.Errorf("extra/data.txt = %q, %v; want v2", b, err)
+	}
+}
+
+// entryNames returns the names in dir, sorted, but those starting with a
+// dot.
+func entryNames(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if !hiddenName(e.Name()) {
+			names = append(names, e.Name())
+		}
+	}
+	return names, nil
+}
+
+// TestResourcesMergedDotfiles ships the same of a directory whether it is
+// copied whole, merges with a platform's, or is a universal pair: dotfiles,
+// but hidden directories and what file managers leave behind.
+func TestResourcesMergedDotfiles(t *testing.T) {
+	data := func(dir string) map[string]string {
+		return map[string]string{
+			dir + "/data/.manifest.json":    "{}",
+			dir + "/data/.git/HEAD":         "ref",
+			dir + "/data/.DS_Store":         "junk",
+			dir + "/data/Thumbs.db":         "junk",
+			dir + "/data/words.txt":         "hello",
+			dir + "/data/sub/.keep":         "",
+			dir + "/data/sub/.cache/a":      "junk",
+			dir + "/data/sub/deep/.env.txt": "x",
+		}
+	}
+	want := []string{".manifest.json", "sub/.keep", "sub/deep/.env.txt", "words.txt"}
+	for _, tt := range []struct {
+		name, goos, goarch string
+		dirs               []string
+		more               map[string]string
+		want               []string
+	}{
+		{"copied", "linux", "amd64", []string{"resources"}, nil, want},
+		{"merged", "linux", "amd64", []string{"resources"},
+			map[string]string{"resources/linux/data/extra.txt": "x", "resources/linux/data/sub/more.txt": "x"},
+			slices.Sorted(slices.Values(append([]string{"extra.txt", "sub/more.txt"}, want...)))},
+		{"universal", "darwin", "universal", []string{"resources/darwin-arm64", "resources/darwin-amd64"}, nil, want},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFiles(t, dir, map[string]string{"mygo.json": `{"name": "App"}`})
+			for _, d := range tt.dirs {
+				writeFiles(t, dir, data(d))
+			}
+			writeFiles(t, dir, tt.more)
+			c, err := loadConfig(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			list, err := c.resources(tt.goos, tt.goarch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dst := t.TempDir()
+			if err := copyResources(list, dst); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			root := filepath.Join(dst, "data")
+			err = filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+				if err != nil || e.IsDir() {
+					return err
+				}
+				rel, err := filepath.Rel(root, path)
+				got = append(got, filepath.ToSlash(rel))
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("shipped %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

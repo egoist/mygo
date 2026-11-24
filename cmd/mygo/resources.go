@@ -457,32 +457,24 @@ func (m *merger) children(s source, nested bool) ([]source, error) {
 }
 
 // entryNames returns the names in dir that the app ships, sorted: not
-// those starting with a dot, nor those the filter excludes, whose links
-// are followed unless nested.
+// those starting with a dot, but the files when nested, as walk ships
+// them, nor those the filter excludes, whose links are followed unless
+// nested.
 func (m *merger) entryNames(dir string, nested bool) ([]string, error) {
-	names, err := entryNames(dir)
-	if err != nil {
-		return nil, err
-	}
-	return slices.DeleteFunc(names, func(n string) bool {
-		path := filepath.Join(dir, n)
-		info, err := source{nested: nested}.stat(path)
-		return m.filter.excludes(path, err == nil && info.IsDir())
-	}), nil
-}
-
-// entryNames returns the names in dir, sorted, but those starting with a
-// dot.
-func entryNames(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 	var names []string
 	for _, e := range entries {
-		if !hiddenName(e.Name()) {
-			names = append(names, e.Name())
+		n := e.Name()
+		path := filepath.Join(dir, n)
+		info, err := source{nested: nested}.stat(path)
+		isDir := err == nil && info.IsDir()
+		if hiddenName(n) && (!nested || isDir) || nested && junkName(n) || m.filter.excludes(path, isDir) {
+			continue
 		}
+		names = append(names, n)
 	}
 	return names, nil
 }
