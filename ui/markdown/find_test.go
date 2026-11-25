@@ -129,17 +129,21 @@ func near(a, b [3]int) bool {
 	return true
 }
 
-// tinted reports whether img has a pixel in r of a match's tint, as the
-// find bar paints over the light background: warm, and not the text's.
-func tinted(img *image.RGBA, r ui.Rect) bool {
+// tintPixels counts the pixels of r in img tinted with c over bg, the color
+// behind the text there, as the bar paints a match: the colors ClearType's
+// fringes make of plain text are others.
+func tintPixels(img *image.RGBA, r ui.Rect, c ui.Color, bg [3]int) int {
+	want := over(c, bg)
+	n := 0
 	for y := int(r.Y); y < int(r.Y+r.H); y++ {
 		for x := int(r.X); x < int(r.X+r.W); x++ {
-			if c := img.RGBAAt(x, y); c.R > 230 && c.B < 210 {
-				return true
+			p := img.RGBAAt(x, y)
+			if near([3]int{int(p.R), int(p.G), int(p.B)}, want) {
+				n++
 			}
 		}
 	}
-	return false
+	return n
 }
 
 // TestViewFind checks that the view's find bar is the code editor's, and
@@ -159,10 +163,15 @@ func TestViewFind(t *testing.T) {
 		}
 	}
 	findSays(t, tt, "1 of 2")
-	if r, ok := tt.Find("cache one"); !ok {
-		t.Fatal("the view does not show the first match")
-	} else if !tinted(tt.Image(), r) {
-		t.Error("the matches do not highlight")
+	// The theme's tints, over the page: the match the bar is on in
+	// CurrentMatch, the other in Match.
+	th := editor.DefaultTheme(ui.LightTheme())
+	bg := wash(tt.Image(), rect(t, tt, "filler text"))
+	if n := tintPixels(tt.Image(), rect(t, tt, "cache one"), th.CurrentMatch, bg); n < 20 {
+		t.Errorf("the match the bar is on highlights with %d pixels, want its tint", n)
+	}
+	if n := tintPixels(tt.Image(), rect(t, tt, "cache two"), th.Match, bg); n < 20 {
+		t.Errorf("the other match highlights with %d pixels, want its tint", n)
 	}
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
@@ -175,17 +184,19 @@ func TestViewFind(t *testing.T) {
 	if tt.HasText("of 2") {
 		t.Error("Escape did not close the bar")
 	}
-	if r, ok := tt.Find("cache one"); !ok {
-		t.Fatal("the view lost its first paragraph")
-	} else if tinted(tt.Image(), r) {
-		t.Error("the matches highlight with the bar closed")
+	for _, s := range []string{"cache one", "cache two"} {
+		for _, c := range []ui.Color{th.Match, th.CurrentMatch} {
+			if n := tintPixels(tt.Image(), rect(t, tt, s), c, bg); n != 0 {
+				t.Errorf("%s highlights with %d pixels with the bar closed", s, n)
+			}
+		}
 	}
 	// Open again, as a Find menu item does: the same query finds again.
 	o.FindVersion++
 	tt.Frame()
 	findSays(t, tt, "1 of 2")
-	if r, ok := tt.Find("cache one"); !ok || !tinted(tt.Image(), r) {
-		t.Error("opening the bar again did not highlight again")
+	if n := tintPixels(tt.Image(), rect(t, tt, "cache one"), th.CurrentMatch, bg); n < 20 {
+		t.Errorf("opening the bar again highlights with %d pixels, want its tint", n)
 	}
 }
 
@@ -556,10 +567,11 @@ func TestViewFindInCodeBlocks(t *testing.T) {
 	tt.Type("mutex")
 	tt.Frame()
 	findSays(t, tt, "1 of 2")
-	if r, ok := tt.Find("mutex here"); !ok {
-		t.Fatal("the view does not show the code block")
-	} else if !tinted(tt.Image(), r) {
-		t.Error("a match in a code block does not highlight")
+	// A code block's matches tint over its own background.
+	th := DefaultTheme(ui.LightTheme())
+	bg := over(th.CodeBlockBackground, wash(tt.Image(), rect(t, tt, "Intro.")))
+	if n := tintPixels(tt.Image(), rect(t, tt, "mutex here"), th.CurrentMatch, bg); n < 20 {
+		t.Errorf("a match in a code block highlights with %d pixels, want its tint", n)
 	}
 	// The second match, in the second chunk of the long block, below the
 	// fold.
