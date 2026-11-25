@@ -13,6 +13,11 @@
 // Present is the hot path: it allocates nothing on the Go heap once each
 // frame of the pool was seen. Timings, when asked for, record each frame's
 // way from Present to the screen.
+//
+// Every platform has the whole API, with the same signatures: where a
+// feature is missing, its methods return ErrUnsupported or do nothing,
+// and New returns ErrUnsupported on platforms other than macOS and
+// Windows.
 package gpusurface
 
 import (
@@ -104,6 +109,10 @@ var ErrUnsupported = errors.New("gpusurface: not supported on this platform")
 // ErrFormat is Present's error for a frame in a format the surface does
 // not take.
 var ErrFormat = errors.New("gpusurface: unsupported frame format")
+
+// ErrHDRNeeds10Bit is SetHDR10's error on a macOS surface whose drawables
+// are 8-bit: make it with Options.HDR10 or Drawable10Bit.
+var ErrHDRNeeds10Bit = errors.New("gpusurface: HDR10 needs BGR10A2 drawables")
 
 // timings records the frames' Timing, from the first, up to its capacity.
 type timings struct {

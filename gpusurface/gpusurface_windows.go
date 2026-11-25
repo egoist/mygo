@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
@@ -285,7 +286,8 @@ type Surface struct {
 	// timings has no Presented: DXGI's frame statistics, read after each
 	// present, gave times before the frame was submitted, composed by DWM,
 	// in a multiplane overlay and across adapters alike.
-	timings timings
+	timings     timings
+	onPresented atomic.Pointer[func(tag, submitted, presented int64)]
 }
 
 // New makes a surface with a swap chain of its own on opts.Window, an
@@ -488,6 +490,9 @@ func blobBytes(blob uintptr) []byte {
 func (s *Surface) Device() uintptr  { return s.device }
 func (s *Surface) Context() uintptr { return s.ctx }
 
+// Queue returns 0: Direct3D 11 has no command queue to share.
+func (s *Surface) Queue() uintptr { return 0 }
+
 // Size returns the size of the swap chain's buffers in pixels.
 func (s *Surface) Size() (w, h int) { return s.width, s.height }
 
@@ -500,7 +505,22 @@ func (s *Surface) Tearing() bool { return s.tearing }
 // Present draws the frame in texture, an ID3D11Texture2D of the surface's
 // device in BGRA, NV12 or P010 that shaders can read, and presents it at
 // once.
-func (s *Surface) Present(texture uintptr) error { return s.PresentSlice(texture, 0, 0, 0) }
+func (s *Surface) Present(texture uintptr) error { return s.present(texture, 0, 0, 0, 0) }
+
+// PresentTagged is Present with a tag the OnPresented handler receives
+// back for this frame.
+func (s *Surface) PresentTagged(texture uintptr, tag int64) error {
+	return s.present(texture, 0, 0, 0, tag)
+}
+
+// OnPresented sets f to be called once for each frame presented after it,
+// with the frame's tag (0 but from PresentTagged), the time Present was
+// called and 0 for the time it reached the screen, which DXGI does not
+// tell (see Timing). It is called on the presenting thread as the present
+// returns. Set it before the first present.
+func (s *Surface) OnPresented(f func(tag, submitted, presented int64)) {
+	s.onPresented.Store(&f)
+}
 
 // PresentSlice is Present for slice of a texture array, as hardware
 // decoders write their pictures, showing its top-left width x height: the
@@ -508,6 +528,10 @@ func (s *Surface) Present(texture uintptr) error { return s.PresentSlice(texture
 // the whole texture. A picture of another shape than the swap chain shows
 // whole between black bars.
 func (s *Surface) PresentSlice(texture uintptr, slice, width, height int) error {
+	return s.present(texture, slice, width, height, 0)
+}
+
+func (s *Surface) present(texture uintptr, slice, width, height int, tag int64) error {
 	submitted := Now()
 	f := s.wrap(texture, slice, width, height)
 	if f == nil {
@@ -547,6 +571,9 @@ func (s *Surface) PresentSlice(texture uintptr, slice, width, height int) error 
 	if i := s.timings.start(submitted); i >= 0 {
 		s.timings.recs[i].Encoded = Now()
 		s.timings.resolve(i, 0)
+	}
+	if f := s.onPresented.Load(); f != nil {
+		(*f)(tag, submitted, 0)
 	}
 	return nil
 }

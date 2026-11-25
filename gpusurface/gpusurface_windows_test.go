@@ -154,3 +154,31 @@ func TestFitViewport(t *testing.T) {
 		t.Fatalf("32:9 in 32:9: viewport %+v", s.vp)
 	}
 }
+
+// TestOnPresented: each present after OnPresented calls it back with the
+// frame's tag and its submit time, and 0 for the time it reached the
+// screen, which DXGI does not tell.
+func TestOnPresented(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	hwnd := testWindow(t, 64, 64)
+	s, err := New(Options{Window: hwnd, Composite: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	type call struct{ tag, submitted, presented int64 }
+	var calls []call
+	s.OnPresented(func(tag, submitted, presented int64) { calls = append(calls, call{tag, submitted, presented}) })
+	frame := solid(t, s, 16, 16, 0xff0000ff)
+	before := Now()
+	if err := s.PresentTagged(frame, 7); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Present(frame); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[0].tag != 7 || calls[1].tag != 0 || calls[0].submitted < before || calls[1].submitted < calls[0].submitted || calls[0].presented != 0 {
+		t.Fatalf("OnPresented calls %+v after PresentTagged(7) and Present at %d", calls, before)
+	}
+}

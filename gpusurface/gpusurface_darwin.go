@@ -478,6 +478,22 @@ func describe(err uintptr) string {
 func (s *Surface) Device() uintptr { return s.device }
 func (s *Surface) Queue() uintptr  { return s.queue }
 
+// Context and SwapChain return 0: they are Direct3D's, on Windows.
+func (s *Surface) Context() uintptr   { return 0 }
+func (s *Surface) SwapChain() uintptr { return 0 }
+
+// Tearing reports false: tearing is DXGI's, on Windows. The drawables
+// present with display sync off all the same.
+func (s *Surface) Tearing() bool { return false }
+
+// AdapterName returns the name of the Metal device the surface draws on.
+func (s *Surface) AdapterName() string {
+	if s.device == 0 {
+		return ""
+	}
+	return objc.Send[string](objc.ID(send(s.device, "name")), objc.RegisterName("UTF8String"))
+}
+
 // Size returns the size of the drawables in pixels.
 func (s *Surface) Size() (w, h int) {
 	v := s.size.Load()
@@ -535,6 +551,16 @@ func (s *Surface) OnPresented(f func(tag, submitted, presented int64)) {
 // NV12 ('420v') or P010 ('x420'), and presents it at once. A frame of
 // another shape than the drawable shows whole between black bars.
 func (s *Surface) Present(surface uintptr) error { return s.PresentTagged(surface, 0) }
+
+// PresentSlice is Present for an IOSurface, which has no slices and no
+// visible size apart from its own: slice, width and height must be 0, or
+// it returns ErrUnsupported.
+func (s *Surface) PresentSlice(surface uintptr, slice, width, height int) error {
+	if slice != 0 || width != 0 || height != 0 {
+		return ErrUnsupported
+	}
+	return s.PresentTagged(surface, 0)
+}
 
 // PresentTagged is Present with a tag the OnPresented handler receives
 // back for this frame.

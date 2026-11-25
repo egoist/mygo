@@ -60,10 +60,6 @@ func releaseSpace(cs *uintptr) {
 	*cs = 0
 }
 
-// ErrHDRNeeds10Bit is SetHDR10's error on a surface whose drawables are
-// 8-bit: make it with Options.HDR10 or Drawable10Bit.
-var ErrHDRNeeds10Bit = errors.New("gpusurface: HDR10 needs BGR10A2 drawables")
-
 // HDR10 reports whether the surface presents BT.2020 PQ.
 func (s *Surface) HDR10() bool { return s.hdr.Load() }
 
