@@ -2,6 +2,7 @@ package dev.mygo
 
 import android.Manifest
 import android.content.Context
+import android.os.SystemClock
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
@@ -29,8 +30,8 @@ class CameraPlugin : MyGoPlugin {
         var error = "the camera is not running"
         // The thread reading QR codes, while the app asks for them.
         var codes: ExecutorService? = null
-        // The code told last, which is told again only after another.
-        var lastCode: String? = null
+        // When each code in view was last read: one is told as it comes into view.
+        val seen = HashMap<String, Long>()
     }
 
     private val cams = HashMap<Long, Cam>()
@@ -89,6 +90,9 @@ class CameraPlugin : MyGoPlugin {
                 val bytes = ByteArray(y.buffer.remaining()).also { b -> y.buffer.get(b) }
                 val rows = (bytes.size + y.rowStride - 1) / y.rowStride
                 val source = PlanarYUVLuminanceSource(bytes, y.rowStride, rows, 0, 0, it.width, it.height, false)
+                val now = SystemClock.elapsedRealtime()
+                // A code unread for a second has left the view.
+                c.seen.values.removeAll { now - it > 1000 }
                 val text = try {
                     reader.decode(BinaryBitmap(HybridBinarizer(source))).text
                 } catch (e: ReaderException) {
@@ -96,8 +100,7 @@ class CameraPlugin : MyGoPlugin {
                 } finally {
                     reader.reset()
                 }
-                if (text != null && text != c.lastCode) {
-                    c.lastCode = text
+                if (text != null && c.seen.put(text, now) == null) {
                     PluginHost.emit("camera", "code", JSONObject().put("id", c.id).put("text", text))
                 }
             }
@@ -128,8 +131,8 @@ class CameraPlugin : MyGoPlugin {
             }
             "dispose" -> {
                 cams.remove(id)
-                c.codes?.shutdown()
                 runCatching { ProcessCameraProvider.getInstance(PluginHost.context).get().unbindAll() }
+                c.codes?.shutdown()
                 reply.success(null)
             }
             else -> reply.failure(PluginFailure("NoMethod", method))

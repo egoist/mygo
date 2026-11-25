@@ -7,8 +7,8 @@ private final class PreviewView: UIView, AVCapturePhotoCaptureDelegate, AVCaptur
     let output = AVCapturePhotoOutput()
     var waiting: PluginReply?
     var id = 0
-    // lastCode is the code told last, which is told again only after another.
-    var lastCode: String?
+    // seen is when each code in view was last read: one is told as it comes into view.
+    var seen: [String: CFTimeInterval] = [:]
 
     func start(front: Bool, codes: Bool) {
         (layer as! AVCaptureVideoPreviewLayer).session = session
@@ -40,9 +40,11 @@ private final class PreviewView: UIView, AVCapturePhotoCaptureDelegate, AVCaptur
     }
 
     func metadataOutput(_ o: AVCaptureMetadataOutput, didOutput objects: [AVMetadataObject], from c: AVCaptureConnection) {
+        let now = CACurrentMediaTime()
+        // A code unread for a second has left the view.
+        seen = seen.filter { now - $0.value <= 1 }
         for case let code as AVMetadataMachineReadableCodeObject in objects {
-            guard let text = code.stringValue, text != lastCode else { continue }
-            lastCode = text
+            guard let text = code.stringValue, seen.updateValue(now, forKey: text) == nil else { continue }
             PluginHost.emit("camera", "code", ["id": id, "text": text])
         }
     }

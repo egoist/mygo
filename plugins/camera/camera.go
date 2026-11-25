@@ -34,8 +34,10 @@ const pluginID = "camera"
 type Options struct {
 	// Front chooses the camera on the screen's side.
 	Front bool
-	// OnCode, when set, is called on the main thread with each QR code the
-	// camera comes to see: once, until it sees another.
+	// OnCode, when set, is called on the main thread with each QR code that
+	// comes into the camera's view: once while it stays in view, as several
+	// codes in view are told once each. A code read again after it was out of
+	// view for a second is told again.
 	OnCode func(Code)
 }
 
