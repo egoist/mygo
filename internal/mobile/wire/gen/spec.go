@@ -153,6 +153,7 @@ var calls = []msg{
 	{name: "Announce", args: []field{f("Text", "string")}},
 	{name: "ShowMenu", doc: "the system's edit menu at a point, with the actions given (cut, copy, paste, selectAll); TextCommand answers",
 		args: []field{f("ID", "int"), f("X", "float"), f("Y", "float"), f("Actions", "strings")}},
+	{name: "HideMenu", doc: "takes the edit menu of ShowMenu away", args: []field{f("ID", "int")}},
 	{name: "SetBackAvailable", doc: "whether the content takes the system's back", args: []field{f("ID", "int"), f("On", "bool")}},
 	{name: "ShowMagnifier", doc: "the system's magnifier of what is at a point", args: []field{f("ID", "int"), f("X", "float"), f("Y", "float")}},
 	{name: "HideMagnifier", args: []field{f("ID", "int")}},
@@ -180,6 +181,7 @@ var calls = []msg{
 		args: []field{f("Data", "bytes"), f("Family", "string")}, reply: []field{f("Family", "string"), f("Error", "string")}},
 	{name: "SetFrameRate", doc: "how many Frames a second come from now on while they follow each other, a whole fraction of the display's rate, or 0 for the display's own (platform.FrameRateSurface)",
 		args: []field{f("ID", "int"), f("FPS", "float")}},
+	{name: "SetTabTitle", doc: "a tab's title, which the bar shows", args: []field{f("ID", "int"), f("Index", "int"), f("Title", "string")}},
 }
 
 // events go from the host to Go.

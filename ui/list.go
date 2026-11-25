@@ -938,8 +938,12 @@ func (f *listFrame) isHeader(i int) bool { return f.s.Header != nil && f.s.Heade
 
 // cursor returns where the keys move the choice from, or nil when the list
 // does not choose rows: *Selected, or the row last chosen in a list
-// choosing several without it.
+// choosing several without it. A frame whose state has gone reports none:
+// the accessibility pass reads it after the list may already be unbuilt.
 func (s *ListState) cursor() *int {
+	if s == nil {
+		return nil
+	}
 	switch {
 	case s.Selected != nil:
 		return s.Selected
@@ -1221,7 +1225,8 @@ func (rt *engine) chooseRowAt(chain []uint64, x, y float32) {
 			continue
 		}
 		b, ok := s.valueBinding.(*listRowInput)
-		if !ok || b.f.s.Selection == nil || b.f.s.MenuKeepsSelection {
+		// A ListState reset since the frame leaves its rows no list.
+		if !ok || b.f.s == nil || b.f.s.Selection == nil || b.f.s.MenuKeepsSelection {
 			return
 		}
 		p := &b.f.s.menuPick
@@ -1425,7 +1430,9 @@ func (f *listFrame) navigate() {
 	to := -1
 	switch key {
 	case KeyDown:
-		to = f.step(max(*sel, -1), 1)
+		if to = f.step(*sel, 1); !in {
+			to = f.step(-1, 1)
+		}
 	case KeyUp:
 		if to = f.step(*sel, -1); !in {
 			to = f.step(-1, 1)
@@ -1476,10 +1483,15 @@ func (f *listFrame) typed(text string) int {
 	if text == "" {
 		return -1
 	}
-	from := max(cur, 0)
+	// From the first row when the one chosen is gone, as the app took
+	// rows out from under it.
+	in, from := cur >= 0 && cur < n, 0
+	if in {
+		from = cur
+	}
 	if strings.Count(text, text[:1]) == len(text) {
 		text = text[:1]
-		if cur >= 0 {
+		if in {
 			from = cur + 1
 		}
 	}

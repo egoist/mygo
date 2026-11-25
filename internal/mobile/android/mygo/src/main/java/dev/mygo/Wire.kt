@@ -1044,6 +1044,14 @@ class ShowMenuCall(
     }
 }
 
+class HideMenuCall(
+    @JvmField var id: Long = 0L,
+) {
+    constructor(r: WireReader) : this() {
+        id = r.int()
+    }
+}
+
 class SetBackAvailableCall(
     @JvmField var id: Long = 0L,
     @JvmField var on: Boolean = false,
@@ -1266,6 +1274,18 @@ class SetFrameRateCall(
     }
 }
 
+class SetTabTitleCall(
+    @JvmField var id: Long = 0L,
+    @JvmField var index: Long = 0L,
+    @JvmField var title: String = "",
+) {
+    constructor(r: WireReader) : this() {
+        id = r.int()
+        index = r.int()
+        title = r.string()
+    }
+}
+
 /** The calls Go makes of the host, on the UI thread. */
 interface HostCalls {
     /** the app's bundle and the system's settings, asked once at start */
@@ -1384,6 +1404,8 @@ interface HostCalls {
     fun announce(c: AnnounceCall)
     /** the system's edit menu at a point, with the actions given (cut, copy, paste, selectAll); TextCommand answers */
     fun showMenu(c: ShowMenuCall)
+    /** takes the edit menu of ShowMenu away */
+    fun hideMenu(c: HideMenuCall)
     /** whether the content takes the system's back */
     fun setBackAvailable(c: SetBackAvailableCall)
     /** the system's magnifier of what is at a point */
@@ -1403,6 +1425,8 @@ interface HostCalls {
     fun registerFont(c: RegisterFontCall): RegisterFontReply
     /** how many Frames a second come from now on while they follow each other, a whole fraction of the display's rate, or 0 for the display's own (platform.FrameRateSurface) */
     fun setFrameRate(c: SetFrameRateCall)
+    /** a tab's title, which the bar shows */
+    fun setTabTitle(c: SetTabTitleCall)
 }
 
 /** Runs a call on h and encodes its reply, null for a call not waited for. */
@@ -1487,16 +1511,18 @@ fun dispatchCall(h: HostCalls, buf: ByteArray): ByteArray? {
         75 -> h.accessibilityChanged(AccessibilityChangedCall(r))
         76 -> h.announce(AnnounceCall(r))
         77 -> h.showMenu(ShowMenuCall(r))
-        78 -> h.setBackAvailable(SetBackAvailableCall(r))
-        79 -> h.showMagnifier(ShowMagnifierCall(r))
-        80 -> h.hideMagnifier(HideMagnifierCall(r))
-        81 -> { h.textMetrics(TextMetricsCall(r)).encode(w); return w.toByteArray() }
-        82 -> { h.measureText(MeasureTextCall(r)).encode(w); return w.toByteArray() }
-        83 -> { h.textAdvances(TextAdvancesCall(r)).encode(w); return w.toByteArray() }
-        84 -> { h.measureTextRun(MeasureTextRunCall(r)).encode(w); return w.toByteArray() }
-        85 -> { h.drawText(DrawTextCall(r)).encode(w); return w.toByteArray() }
-        86 -> { h.registerFont(RegisterFontCall(r)).encode(w); return w.toByteArray() }
-        87 -> h.setFrameRate(SetFrameRateCall(r))
+        78 -> h.hideMenu(HideMenuCall(r))
+        79 -> h.setBackAvailable(SetBackAvailableCall(r))
+        80 -> h.showMagnifier(ShowMagnifierCall(r))
+        81 -> h.hideMagnifier(HideMagnifierCall(r))
+        82 -> { h.textMetrics(TextMetricsCall(r)).encode(w); return w.toByteArray() }
+        83 -> { h.measureText(MeasureTextCall(r)).encode(w); return w.toByteArray() }
+        84 -> { h.textAdvances(TextAdvancesCall(r)).encode(w); return w.toByteArray() }
+        85 -> { h.measureTextRun(MeasureTextRunCall(r)).encode(w); return w.toByteArray() }
+        86 -> { h.drawText(DrawTextCall(r)).encode(w); return w.toByteArray() }
+        87 -> { h.registerFont(RegisterFontCall(r)).encode(w); return w.toByteArray() }
+        88 -> h.setFrameRate(SetFrameRateCall(r))
+        89 -> h.setTabTitle(SetTabTitleCall(r))
     }
     return null
 }
