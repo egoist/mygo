@@ -268,6 +268,9 @@ type texture struct {
 	w, h      int
 	gen, ver  uint64
 	lastFrame uint64
+	// source belongs to uploads of RGBA images. Holding it weakly lets
+	// an idle renderer recognize textures that cannot be used again.
+	source weak.Pointer[scene.Image]
 }
 
 // canvasTexture is the texture a canvas (scene.NewCanvas) is drawn into,
@@ -382,6 +385,9 @@ type Renderer struct {
 	// render target drawn into now: the back buffer's, or a canvas's.
 	canvases map[uint64]*canvasTexture
 	drawing  uintptr
+	// atlases are the atlases of the frame being drawn, which mask and
+	// color hold: a canvas's scene may draw from its own (scene.Scene.Own).
+	atlases [2]*scene.Atlas
 
 	// The passes computing the backdrops of effects: their shaders and
 	// constants, grab, which holds the area of the frame read, and
@@ -442,20 +448,26 @@ var noPartial = os.Getenv("MYGO_PARTIAL") == "0"
 // New creates a renderer drawing into the window hwnd, on the GPU or, when
 // there is none, with Windows' software rasterizer (WARP). Its frames are
 // opaque: what they leave transparent shows black.
-func New(hwnd uintptr) (*Renderer, error) { return newRenderer(hwnd, false) }
+func New(hwnd uintptr) (*Renderer, error) { return newRenderer(hwnd, false, false) }
 
 // NewComposed creates a renderer whose frames show on the window hwnd
 // through DirectComposition, premultiplied by their alpha, over what is
 // behind the window's content: in a window without a redirection bitmap
 // (WS_EX_NOREDIRECTIONBITMAP), its system backdrop, as Mica.
-func NewComposed(hwnd uintptr) (*Renderer, error) { return newRenderer(hwnd, true) }
+func NewComposed(hwnd uintptr) (*Renderer, error) { return newRenderer(hwnd, true, false) }
 
-func newRenderer(hwnd uintptr, composed bool) (*Renderer, error) {
+// newRenderer creates a renderer of hwnd, on the device renderers share,
+// or on one of its own when own (ownDevice).
+func newRenderer(hwnd uintptr, composed, own bool) (*Renderer, error) {
 	if hwnd == 0 {
 		return nil, errors.New("d3d11: no window")
 	}
 	r := &Renderer{hwnd: hwnd, composed: composed, uncapped: pacing.Uncapped, images: map[uint64]*texture{}}
-	d, err := acquireDevice()
+	acquire := acquireDevice
+	if own {
+		acquire = ownDevice
+	}
+	d, err := acquire()
 	if err != nil {
 		return nil, err
 	}
@@ -937,7 +949,7 @@ func (r *Renderer) imageView(img *scene.Image) uintptr {
 		if pix == nil {
 			return 0
 		}
-		t = &texture{}
+		t = &texture{source: weak.Make(img)}
 		if err := r.newTexture(t, img.W, img.H, formatR8G8B8A8Unorm, pix, 4); err != nil {
 			return 0
 		}
@@ -1103,6 +1115,7 @@ func (r *Renderer) drawFrame(s *scene.Scene) (bool, error) {
 	if err := r.syncAtlas(&r.color, s.ColorAtlas, formatR8G8B8A8Unorm); err != nil {
 		return false, err
 	}
+	r.atlases = [2]*scene.Atlas{s.MaskAtlas, s.ColorAtlas}
 	if err := r.drawCanvases(s); err != nil {
 		return false, err
 	}
@@ -1183,6 +1196,30 @@ func (r *Renderer) drawCanvas(c *scene.Image) error {
 	}
 	cs := c.Scene
 	cs.Width, cs.Height = c.W, c.H
+	// A canvas that keeps its glyphs (scene.Scene.Own) draws them from
+	// atlases of its own, in textures made for this drawing.
+	frame := [2]texture{r.mask, r.color}
+	defer func() {
+		for i, a := range [2]*texture{&r.mask, &r.color} {
+			if a.tex != frame[i].tex {
+				free(&a.srv)
+				free(&a.tex)
+			}
+			*a = frame[i]
+		}
+	}()
+	if a := cs.MaskAtlas; a != nil && a != r.atlases[0] {
+		r.mask = texture{}
+		if err := r.syncAtlas(&r.mask, a, formatR8Unorm); err != nil {
+			return err
+		}
+	}
+	if a := cs.ColorAtlas; a != nil && a != r.atlases[1] {
+		r.color = texture{}
+		if err := r.syncAtlas(&r.color, a, formatR8G8B8A8Unorm); err != nil {
+			return err
+		}
+	}
 	if err := r.drawScene(cs, &t.b, t.rtv); err != nil {
 		return err
 	}
@@ -1972,6 +2009,24 @@ func (r *Renderer) FrameInfo() string {
 // animation that changes every other frame could present none of the
 // multiples, and never sweep.
 const sweepEvery = 120
+
+// TrimIdleImages releases textures of collected images once the window
+// stops drawing. It runs on the UI thread, like Render and Release.
+func (r *Renderer) TrimIdleImages() {
+	removed := false
+	for id, t := range r.images {
+		if t.chroma == nil && t.source.Value() == nil {
+			freeTexture(t)
+			delete(r.images, id)
+			removed = true
+		}
+	}
+	if removed {
+		// Direct3D can defer destruction until more work is submitted.
+		// An idle window may not submit another frame.
+		call(r.ctx, ctxFlush)
+	}
+}
 
 // sweep frees the textures of images no frame drew for a while, and
 // those of canvases gone, or transient and not drawn this frame.

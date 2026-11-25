@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 // Package darwin implements the macOS backend (AppKit + WKWebView) in pure
 // Go: Objective-C is driven through the runtime with purego, no cgo.
@@ -152,6 +152,7 @@ func load() {
 		purego.RegisterFunc(&msgSize, msgSendAddr)
 		purego.RegisterFunc(&msgSetSize, msgSendAddr)
 		purego.RegisterFunc(&msgSuperSetSize, msgSendSuperAddr)
+		purego.RegisterFunc(&msgSuperFloat, msgSendSuperAddr)
 		purego.RegisterFunc(&msgSuperPoint, msgSendSuperAddr)
 		purego.RegisterFunc(&msgPoint, msgSendAddr)
 		purego.RegisterFunc(&msgSetPoint, msgSendAddr)

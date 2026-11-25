@@ -424,11 +424,18 @@ func (ed *editor) copy(cut bool) {
 			line := r.LineOf(s.head)
 			a, z := r.LineStart(line), min(r.Len(), r.LineEnd(line)+1)
 			t := r.Slice(a, z)
+			from := a
 			if !strings.HasSuffix(t, "\n") {
 				t += "\n"
+				// The last line has no newline of its own to take along, so
+				// a cut would leave an empty line (or, when it is empty,
+				// nothing at all): take the one before it instead.
+				if line > 0 {
+					from = r.LineEnd(line - 1)
+				}
 			}
 			pieces, whole = append(pieces, t), append(whole, true)
-			edits = append(edits, Edit{Start: a, End: z})
+			edits = append(edits, Edit{Start: from, End: z})
 			continue
 		}
 		pieces, whole = append(pieces, r.Slice(s.start(), s.end())), append(whole, false)
@@ -449,25 +456,32 @@ func (ed *editor) copy(cut bool) {
 }
 
 // paste inserts text at the selections: a piece each when the clipboard
-// holds what this editor copied from as many selections, and whole lines
-// above the lines of carets.
-func (ed *editor) paste(text string) {
+// holds what this editor copied from as many selections, whole lines
+// above the lines of carets, or, when splitLines is true, a line each
+// when multi-line text has as many lines as selections.
+func (ed *editor) paste(text string, splitLines bool) {
 	if ed.o.readOnly || text == "" {
 		return
 	}
+	raw := text
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	r := &ed.view.text
 	pieces := []string{text}
 	whole := []bool{false}
 	clip := lastClip
 	switch {
-	case clip.text != text:
-	case len(clip.pieces) == len(ed.sels):
+	case clip.text == text && len(clip.pieces) == len(ed.sels):
 		pieces, whole = clip.pieces, clip.lines
-	case !slices.Contains(clip.lines, false):
+	case clip.text == text && !slices.Contains(clip.lines, false):
 		// Whole lines, from one caret or several: pasted as lines above
 		// each caret's, as Zed's.
 		whole = []bool{true}
+	case splitLines && len(ed.sels) > 1:
+		if trimmed := strings.TrimSuffix(lf(raw), "\n"); strings.Count(trimmed, "\n")+1 == len(ed.sels) {
+			lines := strings.Split(trimmed, "\n")
+			ed.replaceEach(editOther, false, func(i int, _ sel) string { return lines[i] })
+			return
+		}
 	}
 	var edits []Edit
 	for i, s := range ed.sels {

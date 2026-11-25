@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package darwin
 
@@ -21,7 +21,8 @@ type Backend struct {
 	mainLoop uintptr
 
 	// background is AppOptions.Background: the app does not come to the
-	// front as it finishes launching.
+	// front as it finishes launching, and while it is not the active app
+	// ShowInactive orders windows in behind the active app's.
 	background bool
 
 	// Lookup tables for Objective-C callbacks. Main thread only.
@@ -69,6 +70,9 @@ type Backend struct {
 	// dockMenu is returned by applicationDockMenu: (retained).
 	dockMenu      id
 	dockMenuOwner int
+	// dockIcon is the image SetDockIcon gave (retained), given again as
+	// the app turns regular.
+	dockIcon id
 }
 
 // New creates the macOS backend.
@@ -303,10 +307,13 @@ func registerAppDelegate() {
 			aem := send(class("NSAppleEventManager"), "sharedAppleEventManager")
 			send(aem, "setEventHandler:andSelector:forEventClass:andEventID:", uintptr(self),
 				uintptr(sel("mygoHandleQuitEvent:withReplyEvent:")), kCoreEventClass, kAEQuitApplication)
-			theBackend.openedAtLogin = launchedAsLoginItem()
 		}),
 		method("applicationDidFinishLaunching:", func(self id, _ objc.SEL, n id) {
 			b := theBackend
+			// AppKit sends this notification while it handles the Apple
+			// Event that launched the app, which it delivers only after
+			// applicationWillFinishLaunching:.
+			b.openedAtLogin = launchedAsLoginItem()
 			if send(b.app, "activationPolicy") == nsApplicationActivationPolicyRegular && !b.background {
 				// Plain executables (go run) do not come to the front on
 				// their own.
@@ -399,6 +406,13 @@ type appController struct{ b *Backend }
 
 func (a appController) SetActivationPolicy(p string) {
 	send(a.b.app, "setActivationPolicy:", activationPolicy(p))
+	if p == "regular" && a.b.dockIcon != 0 {
+		// The Dock tile a process gets as it turns regular shows its
+		// bundle's icon, or the generic one, whatever icon the app set
+		// before: AppKit keeps applicationIconImage but does not give it
+		// to the new tile. Given again, it reaches the tile.
+		send(a.b.app, "setApplicationIconImage:", uintptr(a.b.dockIcon))
+	}
 	if p == "regular" {
 		send(a.b.app, "activateIgnoringOtherApps:", 1)
 	}
@@ -459,9 +473,10 @@ func (a appController) SetDockIcon(png []byte) error {
 		if img == 0 {
 			return errInvalidImage
 		}
-		defer release(img)
 	}
 	send(a.b.app, "setApplicationIconImage:", uintptr(img))
+	release(a.b.dockIcon)
+	a.b.dockIcon = img
 	return nil
 }
 

@@ -44,7 +44,9 @@ mygo.Dialog.Error("Import failed", err.Error())
 ```
 
 `OpenDialogOptions` also pick directories (`Directory`), show hidden files
-and, on macOS, a message and a New Folder button.
+and, on macOS, a message and a New Folder button. On Windows, choosing a
+library, such as Documents, in a directory picker picks the folder it saves
+to.
 
 A filter takes files by type too, as HTML's `accept`: `MIMETypes` such as
 `"application/pdf"`, or all of a kind, `"image/*"`, which the system's
@@ -422,8 +424,13 @@ app that serves the network, streams or syncs in the background. A tray
 icon counts as a window that shows while the menu bar shows it.
 `KeepRunning` keeps App Nap off until its release, and lets the computer
 sleep when idle, as an app that stays in the menu bar all day should;
-`KeepAwake` keeps App Nap off too, but the computer awake as well. Other
-systems do nothing for `KeepRunning`.
+`KeepAwake` keeps App Nap off too, but the computer awake as well. Windows
+throttles a process it does not see in much the same way: EcoQoS slows its
+threads, and on hybrid processors moves them to the efficiency cores.
+`KeepRunning` turns that off until its release, which leaves the throttling
+to Windows again, so an app that shows its window again is treated as
+Windows treats any other. Linux desktops do not slow an app out of sight,
+and do nothing for `KeepRunning`.
 
 On Linux, `OnLockScreen` is called when the screen saver starts,
 which usually locks the screen, and `IdleTime` is 0 on desktops that do not
@@ -749,6 +756,23 @@ which the system watches whole; on Linux it enrolls every directory,
 reading their entries' types without stat'ing them. Symlinks are still not
 followed, nothing outside the directory is watched, and the watched
 directory going away still ends the watch with a `FileRemove` of `.`.
+
+Where the system cannot tell a watch what changes, it can look itself.
+`PollInterval` has a watch poll where the system has no file watching
+(browsers, Linux on another architecture) instead of failing with
+`errors.ErrUnsupported`; `Poll` makes it poll in any case, for a
+directory on a network share, whose changes made by other machines the
+system does not report. Polling lists and stats what the watch covers
+every `PollInterval` (a second by default with `Poll`), and reports the
+same events as a watch the system tells. A `HintsOnly` watch doesn't
+poll: with nothing to compare with, it could only hint at everything.
+
+```go
+w, err := mygo.WatchFiles(ctx, dir, mygo.FileWatchOptions{
+	Recursive:    true,
+	PollInterval: 2 * time.Second, // where the system cannot watch
+})
+```
 
 ## Global shortcuts
 

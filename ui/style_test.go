@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // boxes lays out view in a window w×h and returns the boxes of the
@@ -558,9 +560,32 @@ func TestPaints(t *testing.T) {
 	}
 }
 
+// tinted reports whether p is c drawn over white with at least a quarter
+// of its coverage. Decorations are lines a fraction of a pixel thick
+// where Pango's metrics are (before 1.52, on Ubuntu 22.04 and Debian 12),
+// drawn faint as GTK draws them.
+func tinted(p color.RGBA, c Color) bool {
+	a := 0.0
+	ch := [3][2]float64{{float64(p.R), float64(c.R)}, {float64(p.G), float64(c.G)}, {float64(p.B), float64(c.B)}}
+	for _, v := range ch {
+		if 255-v[1] > 64 {
+			a = max(a, (255-v[0])/(255-v[1]))
+		}
+	}
+	if a < 0.25 {
+		return false
+	}
+	for _, v := range ch {
+		if math.Abs(v[0]-(255-a*(255-v[1]))) > 24 {
+			return false
+		}
+	}
+	return true
+}
+
 func TestTextDecorations(t *testing.T) {
 	red := RGB(255, 0, 0)
-	isRed := func(c color.RGBA) bool { return c.R > 200 && c.G < 60 && c.B < 60 }
+	isRed := func(c color.RGBA) bool { return tinted(c, red) }
 	reds := func(img *image.RGBA, r Rect) (n int, rows map[int]bool) {
 		rows = map[int]bool{}
 		for y := int(r.Y); y < int(r.Y+r.H); y++ {
@@ -602,6 +627,81 @@ func TestTextDecorations(t *testing.T) {
 	}
 }
 
+// TestDottedUnderline checks that a dotted underline is drawn as dots:
+// along the row of a solid underline under the same text, some of its
+// pixels are lit and some are not, set on the text or above it.
+func TestDottedUnderline(t *testing.T) {
+	red := RGB(255, 0, 0)
+	// lit returns the red pixels of the reddest row under the text, and
+	// how wide that row's run from its first to its last red pixel is.
+	lit := func(view func(c *context)) (n, span int) {
+		t.Helper()
+		tt := coreNewTester(view, 300, 60)
+		r, ok := tt.Find("t")
+		if !ok {
+			t.Fatal("no text")
+		}
+		img := tt.Image()
+		for y := int(r.Y); y < int(r.Y+r.H+4); y++ {
+			count, first, last := 0, -1, -1
+			for x := int(r.X); x < int(r.X+r.W); x++ {
+				if c := img.RGBAAt(x, y); c.R > 200 && c.G < 60 && c.B < 60 {
+					count++
+					if first < 0 {
+						first = x
+					}
+					last = x
+				}
+			}
+			if count > n {
+				n, span = count, last-first+1
+			}
+		}
+		return n, span
+	}
+	solid, _ := lit(func(c *context) { coreText(c, "Hello world").Underline().DecorationColor(red).Label("t") })
+	for _, v := range []struct {
+		name string
+		view func(c *context)
+	}{
+		{"text", func(c *context) {
+			coreText(c, "Hello world").DottedUnderline().DecorationColor(red).Label("t")
+		}},
+		{"inherited", func(c *context) {
+			coreBox(c).DottedUnderline().DecorationColor(red).Children(func() { coreText(c, "Hello world").Label("t") })
+		}},
+	} {
+		n, span := lit(v.view)
+		if n == 0 || span < solid*3/4 || n > span*2/3 {
+			t.Errorf("%s: %d dotted pixels over %d, a solid underline %d", v.name, n, span, solid)
+		}
+	}
+}
+
+// TestMorphDottedUnderline: text morphing keeps its underline dotted, a
+// fill a dot rather than one a line.
+func TestMorphDottedUnderline(t *testing.T) {
+	red := RGB(255, 0, 0)
+	s := "Hello"
+	a := Animation{Duration: 100 * time.Millisecond, Ease: Linear}
+	tt, now := clockTester(func(c *context) {
+		keep("text", coreText(c, s)).DottedUnderline().DecorationColor(red).ContentTransition(ContentTransition{Morph: true, Animation: &a})
+	}, 200, 60)
+	s = "Hello world"
+	tt.Frame()
+	*now = now.Add(50 * time.Millisecond)
+	tt.Frame()
+	fills := 0
+	for _, op := range tt.h.last.Ops {
+		if op.Kind == scene.OpFill && op.Color == red.scene() {
+			fills++
+		}
+	}
+	if fills < 10 {
+		t.Errorf("halfway, the underline paints %d fills, want a dot each", fills)
+	}
+}
+
 // TestUnderlineOffset checks text-underline-offset: the top of the
 // underline that many DIPs below the baseline, set on the text or above
 // it, of an inline element and of a span, as thick as without it.
@@ -623,7 +723,7 @@ func TestUnderlineOffset(t *testing.T) {
 		var out []int
 		for y := 0; y < img.Bounds().Dy(); y++ {
 			for x := 0; x < img.Bounds().Dx(); x++ {
-				if c := img.RGBAAt(x, y); c.R > 200 && c.G < 60 && c.B < 60 {
+				if c := img.RGBAAt(x, y); tinted(c, red) {
 					out = append(out, y-base)
 					break
 				}

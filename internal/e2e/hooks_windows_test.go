@@ -90,6 +90,7 @@ func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
 // Collection behaviors and deactivating the app are macOS's.
 func collectionBehavior(*mygo.Window) (uint, bool)               { return 0, false }
+func becomesKeyOnlyIfNeeded(*mygo.Window) (bool, bool)           { return false, false }
 func deactivateApp() bool                                        { return false }
 func material(*mygo.Window) (string, int, float64, bool, bool)   { return "", 0, 0, false, false }
 func materialState(*mygo.Window) (int, bool)                     { return 0, false }
@@ -364,12 +365,21 @@ func popupItemEnabled(label string) (enabled, ok bool) {
 func pressKey(*mygo.Window, uint16, string) bool { return false }
 
 func pressKeyComposing(*mygo.Window, uint16, string, string, string) bool { return false }
+func pressKeyComposingOver(*mygo.Window, uint16, string, string, string, int, int) bool {
+	return false
+}
 
 // dragFiles drags files from another application to (x, y) of a window of
 // native UI and drops them, as OLE does, waiting for the target to answer.
 func dragFiles(w *mygo.Window, x, y float64, paths []string) (dropped, ok bool) {
 	mygo.RunOnMain(func() { dropped = win.TestDragFiles(w.NativeHandle(), x, y, paths) })
 	return dropped, true
+}
+
+// OLE routes a drag to a window's drop target as a whole, whose answer does
+// not follow the pointer within it.
+func dropFilesFrom(*mygo.Window, float64, float64, float64, float64, []string) (bool, bool, bool) {
+	return false, false, false
 }
 
 // pressTab presses Tab, with Shift when back, on the keyboard, in the
@@ -397,6 +407,13 @@ func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 func pressEscape(*mygo.Window) bool {
 	mygo.RunOnMain(func() { win.TestPressKeys(0x1B) }) // VK_ESCAPE
 	return true
+}
+
+// keyboardTarget says where keys typed now go, for a test whose key
+// went astray.
+func keyboardTarget(w *mygo.Window) (s string) {
+	mygo.RunOnMain(func() { s = win.TestKeyboard(w.NativeHandle()) })
+	return s
 }
 
 // Windows shows no document but the title.
@@ -492,6 +509,11 @@ func pressLetter(w *mygo.Window, letter byte, cmd bool) (ok bool) {
 	return ok
 }
 
+// pressPageLetter presses the key of an uppercase letter in a foreground window showing a web page.
+func pressPageLetter(w *mygo.Window, letter byte) bool {
+	return pressLetter(w, letter, false)
+}
+
 func glassTint(*mygo.Window) (red, green, blue, alpha float64, ok bool) { return 0, 0, 0, 0, false }
 
 func nativeGlassSupported() bool { return false }
@@ -505,6 +527,39 @@ func nativeGlassTint(*mygo.Window) (red, green, blue, alpha float64) { return 0,
 func activateApp() {}
 
 func hitView(*mygo.Window, float64, float64) string { return "" }
+
+func checkActivationHit(t *testing.T, w *mygo.Window, kind string, enabled bool) {
+	t.Helper()
+	var res uintptr
+	var cls string
+	eventually(t, "the content window placed", func() bool {
+		mygo.RunOnMain(func() { res, cls = win.TestMouseActivate(w.NativeHandle(), 100, 100) })
+		if kind == "page" {
+			if enabled {
+				return cls == "MyGoWindow"
+			}
+			return cls != "" && cls != "MyGoWindow"
+		}
+		return cls == "MyGoSurface"
+	})
+	want := uintptr(1) // MA_ACTIVATE
+	if enabled {
+		want = 2 // MA_ACTIVATEANDEAT
+	}
+	if res != want {
+		t.Fatalf("WM_MOUSEACTIVATE on %s (%s) = %d, want %d", kind, cls, res, want)
+	}
+}
+
+func requireForeground(t *testing.T, w *mygo.Window) {
+	t.Helper()
+	takeForeground(w)
+	var front bool
+	mygo.RunOnMain(func() { front = win.TestForeground(w.NativeHandle()) })
+	if !front {
+		t.Skip("windows cannot take foreground in this session (non-input desktop)")
+	}
+}
 
 // Only X servers keep a keyboard's state for the tests after a test: see
 // left_behind_linux_test.go.

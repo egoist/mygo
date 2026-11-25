@@ -44,7 +44,10 @@ panics where the second key was given, as apps only log it.
   a right-button drag, `tt.CancelPress`, which ends the press as the
   system cancels one, with no click, `tt.Scroll`, which scrolls at
   once as a touchpad does, and `tt.Wheel`, a notch of a mouse wheel, which
-  glides there as the clock advances (`tt.Advance`).
+  glides there as the clock advances (`tt.Advance`). `tt.DropFiles`
+  drops files from another app, and `tt.DragFiles` holds them over a
+  point without dropping, to check a drop zone's `FileDragOver`, until
+  `tt.DragFilesOut` drags them out of the window.
   `tt.UsePointer(ui.PointerPen, 0.6)` has the presses and moves after it
   come from a pen pressing that hard, or a finger (`ui.PointerTouch`).
 - **Keyboard.** `tt.Key(ui.Cmd, ui.KeyS)` presses a key, `tt.KeyRepeat` presses
@@ -157,8 +160,8 @@ its error), `Vertical` and `Horizontal` (`aria-orientation`), `Level`,
 `PositionInSet` gives them), `Multiselectable`, `RowCount`,
 `ColumnCount`, `RowIndex` and `ColumnIndex` (of a
 [grid](accessibility.md#grids)), `RowSpan` and `ColumnSpan` (of its
-cells), `Min`, `Max` and `Now` of a range, and its `Bounds`. So a test
-checks
+cells), `Min`, `Max` and `Now` of a range, and its `Bounds` (the visible
+box in the window's DIPs, clipped as `Find`'s is). So a test checks
 that a state reaches assistive technology, not only that the view set
 it:
 
