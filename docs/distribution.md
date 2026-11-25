@@ -689,7 +689,8 @@ unless another program is there; it says to run the app by the first it
 links. With [updates](updates.md) configured, it downloads the latest
 version, which the update manifest of the machine names, and checks its
 size and its Ed25519 signature against `updates.publicKey`, as the app's
-updater does, before installing it, so one line installs the app:
+updater does (`signature`, not the `versionSignature` the updater checks
+too), before installing it, so one line installs the app:
 
 ```sh
 curl -fsSL https://github.com/me/my-app/releases/latest/download/install.sh | sh
@@ -747,7 +748,8 @@ On macOS, `install.sh` downloads the archive that the update manifest of
 the Mac's architecture, else of `darwin-universal`, names (Apple silicon's,
 `darwin-arm64`, also from a shell under Rosetta), checks its size
 and its Ed25519 signature against `updates.publicKey`, as the app's
-updater does (macOS has no tool for Ed25519 signatures, so the script
+updater does (`signature`, not the `versionSignature` the updater checks
+too; macOS has no tool for Ed25519 signatures, so the script
 hashes with `openssl` and `shasum` and does the arithmetic of the curve in
 JavaScript for Automation), quits the app if it runs, and replaces the
 bundle in `/Applications`, or in `~/Applications` when the user cannot

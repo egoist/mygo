@@ -31,11 +31,17 @@ import (
 
 // Set by `mygo build` with -ldflags -X when mygo.config.ts configures updates:
 // the manifest of this build's target, or with a tag prefix on GitHub its
-// feed in the newest tagged release (update.TaggedFeed), and the public key
-// updates must be signed with.
+// feed in the newest tagged release (update.TaggedFeed), the public key
+// updates must be signed with, and the target of the build, such as
+// darwin-arm64. With the target, an update must be signed as a version of
+// the app (packageIdentifier) for it too (update.SignVersion), which the
+// `mygo build` that sets it does to what it publishes: the build of an
+// earlier one sets none, and takes what is signed with the key, as its
+// manifests say no more.
 var (
-	packageUpdateFeed string
-	packageUpdateKey  string
+	packageUpdateFeed   string
+	packageUpdateKey    string
+	packageUpdateTarget string
 )
 
 // startExe is the executable the app started from. On Linux, os.Executable
@@ -70,7 +76,9 @@ var updateSource atomic.Pointer[UpdateSource]
 // chooses while it runs. It serves what `mygo build` publishes, from
 // wherever the app keeps it, and Updater checks it as it checks the feed's:
 // the archive and deltas must be signed with the key of updates.publicKey
-// that the app was built with, or they are not installed.
+// that the app was built with, as the version the manifest says
+// (versionSignature, which a source that writes its own manifests must
+// keep), or they are not installed.
 type UpdateSource interface {
 	// Manifest returns the manifest of the running platform: the JSON that
 	// `mygo build` writes as update-<target>.json, such as
@@ -202,13 +210,18 @@ func checkUpdate(ctx context.Context, src UpdateSource, key, current string, pre
 	if update.Compare(m.Version, current) <= 0 {
 		return nil, nil
 	}
+	if packageUpdateTarget != "" && m.VersionSignature == "" {
+		// Not offered, as Install would refuse it.
+		return nil, fmt.Errorf("mygo: checking for updates: the manifest does not sign %s as a version for %s: publish it with the mygo build of this app's version of MyGo, or a later one", m.Version, packageUpdateTarget)
+	}
 	up := &Update{Version: m.Version, Notes: m.Notes, manifest: m, key: key, current: current, source: src}
 	up.Date, _ = time.Parse(time.RFC3339, m.Date)
 	return up, nil
 }
 
 // Install downloads the update, checks that it is signed with the app's
-// key and replaces the app with it; progress, when not nil, is called with
+// key, as the version it says for the platform of the app, and replaces
+// the app with it; progress, when not nil, is called with
 // the bytes downloaded so far. When the update has a delta for the running
 // version, only the delta is downloaded, unless it fails to make the new
 // version: the whole update is downloaded then, and the progress starts
@@ -306,7 +319,7 @@ func installUpdate(ctx context.Context, get update.Getter, m update.Manifest, ke
 		return fmt.Errorf("invalid size %d", m.Size)
 	}
 	archive := filepath.Join(work, "update.tar.gz")
-	if err := download(ctx, get, m.URL, m.Size, m.Signature, pub, archive, progress); err != nil {
+	if err := download(ctx, get, m.URL, m.Size, m.Signature, m.VersionSignature, m.Version, pub, archive, progress); err != nil {
 		return err
 	}
 	f, err := os.Open(archive)
@@ -341,7 +354,7 @@ func applyDelta(ctx context.Context, get update.Getter, d update.Delta, pub ed25
 		return fmt.Errorf("invalid size %d", d.Size)
 	}
 	path := filepath.Join(work, "update.delta")
-	if err := download(ctx, get, d.URL, d.Size, d.Signature, pub, path, progress); err != nil {
+	if err := download(ctx, get, d.URL, d.Size, d.Signature, d.VersionSignature, version, pub, path, progress); err != nil {
 		return err
 	}
 	f, err := os.Open(path)
@@ -359,8 +372,11 @@ func applyDelta(ctx context.Context, get update.Getter, d update.Delta, pub ed25
 }
 
 // download fetches url with get into the file path and checks its size and
-// signature.
-func download(ctx context.Context, get update.Getter, url string, size int64, signature string, pub ed25519.PublicKey, path string, progress func(downloaded, total int64)) error {
+// signature, and in a build that knows its target, that versionSignature
+// signs the file as version of the app for it: the signature alone would
+// let a manifest name an older file of the app, one for another platform,
+// or one of another app signed with the same key, as a newer version.
+func download(ctx context.Context, get update.Getter, url string, size int64, signature, versionSignature, version string, pub ed25519.PublicKey, path string, progress func(downloaded, total int64)) error {
 	body, err := get(ctx, url)
 	if err != nil {
 		return err
@@ -381,7 +397,22 @@ func download(ctx context.Context, get update.Getter, url string, size int64, si
 	if n != size {
 		return fmt.Errorf("downloaded %d bytes, want %d", n, size)
 	}
-	return update.Verify(pub, sum.Sum(nil), signature)
+	digest := sum.Sum(nil)
+	if err := update.Verify(pub, digest, signature); err != nil {
+		return err
+	}
+	if packageUpdateTarget == "" {
+		return nil
+	}
+	err = update.VerifyVersion(pub, packageIdentifier, packageUpdateTarget, version, digest, versionSignature)
+	if err != nil && (packageUpdateTarget == "darwin-arm64" || packageUpdateTarget == "darwin-amd64") &&
+		update.VerifyVersion(pub, packageIdentifier, "darwin-universal", version, digest, versionSignature) == nil {
+		// The universal app runs where the app of one architecture does:
+		// an app that stops building one publishes its manifest with
+		// the universal archive, as install.sh falls back to it.
+		return nil
+	}
+	return err
 }
 
 // stagedUpdate is a new version of the app bundle target, at bundle in

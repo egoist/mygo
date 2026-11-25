@@ -65,6 +65,41 @@ func TestSignatures(t *testing.T) {
 	}
 }
 
+// A signature of a version signs the app, the target, the version and the
+// digest, and neither kind of signature stands for the other.
+func TestVersionSignatures(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	sum := sha256.Sum256([]byte("archive"))
+	sig := SignVersion(priv, "com.example.app", "darwin-arm64", "1.2.0", sum[:])
+	if err := VerifyVersion(pub, "com.example.app", "darwin-arm64", "1.2.0", sum[:], sig); err != nil {
+		t.Fatal(err)
+	}
+	other := sha256.Sum256([]byte("tampered"))
+	otherPub, _, _ := ed25519.GenerateKey(nil)
+	for name, err := range map[string]error{
+		"another version": VerifyVersion(pub, "com.example.app", "darwin-arm64", "1.3.0", sum[:], sig),
+		"another target":  VerifyVersion(pub, "com.example.app", "darwin-amd64", "1.2.0", sum[:], sig),
+		"another app":     VerifyVersion(pub, "com.example.other", "darwin-arm64", "1.2.0", sum[:], sig),
+		"another archive": VerifyVersion(pub, "com.example.app", "darwin-arm64", "1.2.0", other[:], sig),
+		"another key":     VerifyVersion(otherPub, "com.example.app", "darwin-arm64", "1.2.0", sum[:], sig),
+		"no signature":    VerifyVersion(pub, "com.example.app", "darwin-arm64", "1.2.0", sum[:], ""),
+		"the digest's":    VerifyVersion(pub, "com.example.app", "darwin-arm64", "1.2.0", sum[:], Sign(priv, sum[:])),
+		// Lines that move from a field to the next.
+		"shifted lines":  VerifyVersion(pub, "app", "darwin", "arm64\n1.2.0", sum[:], SignVersion(priv, "app", "darwin\narm64", "1.2.0", sum[:])),
+		"shifted quotes": VerifyVersion(pub, "app", "darwin", "arm64\"\n\"1.2.0", sum[:], SignVersion(priv, "app", "darwin\"\n\"arm64", "1.2.0", sum[:])),
+	} {
+		if err == nil {
+			t.Errorf("%s verified", name)
+		}
+	}
+	if Verify(pub, sum[:], sig) == nil {
+		t.Error("the signature of a version verified as the digest's")
+	}
+	if n := len(versionStatement("", "", "", sum[:])); n <= len(sum) {
+		t.Errorf("the shortest statement takes %d bytes, no more than a digest", n)
+	}
+}
+
 func TestArchive(t *testing.T) {
 	src := t.TempDir()
 	write := func(name, content string, mode os.FileMode) {

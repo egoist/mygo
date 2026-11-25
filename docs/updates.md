@@ -78,8 +78,33 @@ Next to the installers of each platform it writes:
 - [delta updates](#delta-updates) from the versions before, such as
   `my-app-1.1.0-to-1.2.0-darwin-arm64.delta`, and
 - `update-darwin-arm64.json`, the manifest: the version, its release
-  notes, the date, and the URL, size and signature of the archive and of
+  notes, the date, and the URL, size and signatures of the archive and of
   each delta.
+
+Each file is signed twice. `signature` says that your key signed the
+file, and `versionSignature` what the file is: this version of this app
+(its `identifier`) for this platform. An app checks both, so whoever can
+write where the manifests are published, without your key, cannot give
+a file another name: an older archive the number of a newer version, the
+archive of another platform, or that of another app you sign with the
+same key install nothing. An app for one architecture of macOS takes the
+universal app too, which runs where it does.
+
+That is all it checks. A manifest may still name any version you
+published that is newer than the one the app runs, a prerelease
+included, or keep an old manifest in place of a newer one; and
+[`install.sh`](distribution.md#the-install-script), which installs an
+app that is not there yet, checks `signature` alone.
+
+An app checks `versionSignature` when both the `mygo build` that built
+it and the `github.com/egoist/mygo` module of its go.mod write and read
+it; an app built before checks `signature` alone, as the manifests it
+was published with have no other. Build and publish the app again for
+its users to get the check, and from then on publish every version with
+that `mygo build` or a later one, and keep the app's `identifier`: an
+app that checks refuses a manifest without `versionSignature`, or one
+signed for another identifier, and `Check` or `Install` return an error
+saying so.
 
 Without a key, `mygo build` builds the apps and skips the update files,
 but for the Linux archives, which [`install.sh`](distribution.md#the-install-script)
@@ -201,7 +226,7 @@ with the configured tag prefix, skipping drafts and prereleases. This
 keeps delta updates and their history when platforms are published
 separately. Installed apps still check the configured update feed.
 
-An app whose version has a delta downloads it, checks its signature and
+An app whose version has a delta downloads it, checks its signatures and
 makes the new version from itself next to it, checking that every file has
 the size and SHA-256 that the delta gives, so that the result is exactly
 the version published, code signature included. When anything fails, for
@@ -336,8 +361,9 @@ mygo.Updater.SetSource(accountUpdates{token: session.Token})
 the archive or delta through its `Open`; `prereleases` is what
 `SetPrereleases` set, for a source with a beta channel. The URLs are the
 manifest's, so a service that writes its own manifests from those of
-`mygo build` may name the files by ids of its own, as long as the sizes
-and signatures stay. `SetSource(nil)` goes back to the feed.
+`mygo build` may name the files by ids of its own, as long as the
+version, the sizes and both signatures of each file (`signature` and
+`versionSignature`) stay. `SetSource(nil)` goes back to the feed.
 
 ## Where apps can update
 
