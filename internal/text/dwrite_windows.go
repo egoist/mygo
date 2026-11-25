@@ -2461,7 +2461,7 @@ func (e *dwrite) close() {
 	}
 	clear(e.fallbacks)
 	for _, face := range e.faces {
-		release(face)
+		release(face.face)
 	}
 	clear(e.faces)
 	release(e.params)
