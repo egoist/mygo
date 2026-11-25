@@ -166,21 +166,12 @@ func (f *finder) search(ed *editor) {
 // a match of theirs would land on the gap's separator.
 func (f *finder) scan(ed *editor, text, lower string, base int, found func(m diffRange, sub []int) bool) {
 	// The query's matcher, made once for the shown ranges of one search.
-	var re *regexp.Regexp
-	switch {
-	case f.regex:
-		pat := f.query
-		if !f.caseSens {
-			pat = "(?i)" + pat
-		}
-		var err error
-		if re, err = regexp.Compile("(?m)" + pat); err != nil {
-			f.err = err
-			return
-		}
-	case !(f.caseSens || isASCII(f.query)):
-		re = regexp.MustCompile("(?i)" + regexp.QuoteMeta(f.query))
-	case !f.caseSens && isASCII(f.query) && lower == "":
+	re, err := queryRegexp(f.query, FindOptions{CaseSensitive: f.caseSens, Regexp: f.regex})
+	if err != nil {
+		f.err = err
+		return
+	}
+	if re == nil && !f.caseSens && isASCII(f.query) && lower == "" {
 		// The shown ranges slice the lowered text.
 		lower = asciiLower(text)
 	}
@@ -248,25 +239,115 @@ func (f *finder) scanShown(ed *editor, text, lower string, re *regexp.Regexp, ba
 		}
 		return true
 	}
+	// seg lowered, which a plain query that is ASCII and matches any case
+	// searches: made for it alone, as the lowered text may be none.
+	var lowered string
+	if !f.regex && !f.caseSens && isASCII(f.query) {
+		lowered = lower[from-base : to-base]
+	}
+	// The matches are of seg: the caller's are of the whole text.
+	return matchQuery(seg, lowered, f.query, FindOptions{CaseSensitive: f.caseSens, Regexp: f.regex}, re, keep,
+		func(m diffRange, sub []int) bool {
+			m.start, m.end = from+m.start, from+m.end
+			for j := range sub {
+				if sub[j] >= 0 {
+					sub[j] += from
+				}
+			}
+			return found(m, sub)
+		})
+}
+
+// FindOptions are how a find bar's query matches, as its toggles set them.
+type FindOptions struct {
+	// CaseSensitive matches case, where otherwise the query matches any.
+	CaseSensitive bool
+	// WholeWord matches whole words only.
+	WholeWord bool
+	// Regexp takes the query as a regular expression (RE2, as package
+	// regexp's), over lines.
+	Regexp bool
+}
+
+// FindQuery is a query as FindOptions have it match, made once to find in
+// many texts (Matches): the editor's find finds as it does, and so can
+// another view's that finds in the text it shows, as ui/markdown's does.
+type FindQuery struct {
+	query string
+	opts  FindOptions
+	re    *regexp.Regexp
+}
+
+// NewFindQuery makes query, to find with Matches. Its error is of a regular
+// expression that is not one.
+func NewFindQuery(query string, o FindOptions) (*FindQuery, error) {
+	re, err := queryRegexp(query, o)
+	if err != nil {
+		return nil, err
+	}
+	return &FindQuery{query: query, opts: o, re: re}, nil
+}
+
+// Matches returns where the query is in text, as byte ranges, whole words
+// only as the options say; none is empty, or starts or ends within a
+// character.
+func (q *FindQuery) Matches(text string) [][2]int {
+	var lower string
+	if q.re == nil && !q.opts.CaseSensitive {
+		lower = asciiLower(text)
+	}
+	var out [][2]int
+	keep := func(a, b int) bool { return !q.opts.WholeWord || isWholeWord(text, a, b, "") }
+	matchQuery(text, lower, q.query, q.opts, q.re, keep, func(m diffRange, _ []int) bool {
+		out = append(out, [2]int{m.start, m.end})
+		return true
+	})
+	return out
+}
+
+// queryRegexp is the regular expression the query needs where its matching
+// does: the query as one, matching any case unless o says otherwise, or a
+// plain query that is not ASCII, matching any case; nil for a plain query
+// otherwise.
+func queryRegexp(query string, o FindOptions) (*regexp.Regexp, error) {
 	switch {
-	case f.regex:
-		for _, m := range re.FindAllStringSubmatchIndex(seg, maxMatches) {
+	case o.Regexp:
+		pat := query
+		if !o.CaseSensitive {
+			pat = "(?i)" + pat
+		}
+		return regexp.Compile("(?m)" + pat)
+	case !(o.CaseSensitive || isASCII(query)):
+		return regexp.MustCompile("(?i)" + regexp.QuoteMeta(query)), nil
+	}
+	return nil, nil
+}
+
+// matchQuery finds the query in text as o has it match (none where the
+// query is empty), and calls found with each match keep keeps, as offsets
+// into text and a regular expression's submatches (nil for a plain query's),
+// until found returns false. re is the query's regular expression
+// (queryRegexp), nil for a plain query; lower is text with its ASCII
+// letters lowered, which a plain query that is ASCII and matches any case
+// searches, "" otherwise.
+func matchQuery(text, lower, query string, o FindOptions, re *regexp.Regexp, keep func(a, b int) bool, found func(m diffRange, sub []int) bool) bool {
+	if query == "" {
+		return true
+	}
+	switch {
+	case o.Regexp:
+		for _, m := range re.FindAllStringSubmatchIndex(text, maxMatches) {
 			if m[1] == m[0] || !keep(m[0], m[1]) {
 				continue
-			}
-			for j := range m {
-				if m[j] >= 0 {
-					m[j] += from
-				}
 			}
 			if !found(diffRange{m[0], m[1]}, m) {
 				return false
 			}
 		}
-	case f.caseSens || isASCII(f.query):
-		q, in := f.query, seg
-		if !f.caseSens {
-			q, in = asciiLower(f.query), lower[from-base:to-base]
+	case o.CaseSensitive || isASCII(query):
+		q, in := query, text
+		if !o.CaseSensitive {
+			q, in = asciiLower(query), lower
 		}
 		for at := 0; ; {
 			i := strings.Index(in[at:], q)
@@ -274,14 +355,14 @@ func (f *finder) scanShown(ed *editor, text, lower string, re *regexp.Regexp, ba
 				return true
 			}
 			a, b := at+i, at+i+len(q)
-			if keep(a, b) && !found(diffRange{from + a, from + b}, nil) {
+			if keep(a, b) && !found(diffRange{a, b}, nil) {
 				return false
 			}
 			at = b
 		}
 	default:
-		for _, m := range re.FindAllStringIndex(seg, maxMatches) {
-			if keep(m[0], m[1]) && !found(diffRange{from + m[0], from + m[1]}, nil) {
+		for _, m := range re.FindAllStringIndex(text, maxMatches) {
+			if keep(m[0], m[1]) && !found(diffRange{m[0], m[1]}, nil) {
 				return false
 			}
 		}

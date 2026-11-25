@@ -362,6 +362,7 @@ app.code.RenderHover = func(c *ui.Context, panel ui.Element, h *editor.HoverCard
 ```
 
 - `FindBar` 把字段和开关绑定起来：`Query` 和 `Replacement`，以及 `CaseSensitive`、`WholeWord`、`Regexp` 和 `InSelection` 都是指针，匹配项会随它们变化。`QueryInput` 和 `ReplacementInput` 给输入框装上查找栏的按键：栏打开时查询获得焦点，Enter 和 Shift+Enter 遍历匹配项，Alt+Enter 全选它们，在替换框中按 Enter 和 Cmd+Enter 分别替换一个或全部，Escape 关闭。`Matches` 和 `Status` 统计匹配项，`Next`、`Previous`、`SelectAll`、`Replace`、`ReplaceAll` 和 `Close` 执行操作；`Replacing` 说明这个栏是否也执行替换，Cmd+Alt+F 打开的就是这种。
+- 在不由自己编辑的文本中查找的其他视图也能用同一个栏：它的查找显示和执行的内容实现 `FindBarSource`（`Query`、四个选项、`Width`、`Status`、`Err`、`Next`、`Previous`、`Close` 和 `FocusQuery`），`FindBarInRow` 用编辑器自带的外观构建这个栏，放在与内容等高的视图放置它的位置，并处理遍历匹配项的按键，[Markdown 视图](markdown.md#查找)就是这样做的。它的匹配项由 `FindQuery` 给出：`NewFindQuery` 用查询和 `FindOptions` 生成一个，匹配方式与编辑器的查找相同（查询不是合法的正则表达式时返回错误），`Matches` 用它在文本中查找。
 - `GoToLineBar` 用 `Text` 作为输入框内容（`Input` 给它装上该栏的按键），用 `Cursor`、`LineCount` 和 `Target` 告诉它跳到哪里，另有 `Go` 和 `Close`。
 - `CompletionMenu` 有要显示的 `Items`（最优的在前）和当前选中的那一项 `Selected`。`Item(i)` 生成某个菜单项对应的行：方向键移动时它被选中，并滚动到视图中，单击则插入该项；可以设置它的样式、给它内容。`Font`、`LineHeight` 和 `Theme` 让代码的显示效果与编辑器一致；每个 `CompletionKind` 有 `Icon`，以及决定其色调的 `Token`。
 - `HoverCard` 包含被悬停文本的 `Diagnostics`、应用传给 `ShowHover` 的 `Text`，以及 `Content`，其中的内容由对应函数构建。

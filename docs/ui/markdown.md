@@ -145,6 +145,48 @@ streams in.
 `ShareSelection` leaves the selection to a `Selectable` container around
 the view, as one across a chat's messages.
 
+## Finding
+
+Cmd+F, while the view has the focus, opens a find bar over its top
+right: the [code editor's](code-editor.md#bars-and-popups) own, with its
+options and its keys, which finds in the text as it reads — the source's
+syntax is not the text: a `**bold**` word matches as "bold", not as
+asterisks. Paragraphs, headings, list items, quotes, the cells of tables
+and the lines of code blocks match; an image's description and a block of
+HTML or math do not. Every match highlights, `Theme.Match` behind it and
+`Theme.CurrentMatch` behind the one the bar is on, which comes into the
+middle of the view. Enter goes to the next match, Shift+Enter to the
+previous, as do Cmd+G and Shift+Cmd+G on macOS, F3 and Shift+F3
+elsewhere, round the ends; Escape closes the bar, gives the view the
+focus back and keeps the query for the next time it opens. The options
+match as the editor's do: the query matches any case unless Match case
+is on, Match whole word keeps the matches that are whole words, Use
+regular expression takes it as one (`Invalid` for one that is not), and
+Find in selection finds within the text selected as it was turned on. As
+an option turns, the match the bar is on stays where it was. The view's
+text only reads: the bar replaces nothing, and does not select every
+match at once. In a narrow view it leaves out the count, then its
+options and the buttons going through the matches, as it does in an
+editor. A reply still streaming in is found as it comes.
+
+`Find` opens the bar as a Find menu item does, and `FindVersion` opens
+or closes it again when it changes:
+
+```go
+if m.Item("Find…").Chosen() {
+	app.md.Find = true
+	app.md.FindVersion++
+}
+```
+
+Each view has a bar of its own: a chat whose messages share their
+`Options` would open one in every message at once, so a chat gives the
+view it finds in an `Options` of its own, or leaves finding to Cmd+F,
+which finds in the message clicked. With `ShareSelection`, Find in
+selection finds in the selection of the view whose blocks hold the view;
+where an app's own `Selectable` container holds the selection, the view
+cannot see it, and Find in selection finds in all of the text.
+
 ## Links and images
 
 Links to `http`, `https` and `mailto` addresses (`ui.SafeToOpen`, as the
@@ -409,10 +451,11 @@ the spacing between blocks and list items; each heading level's size,
 weight, color, spacing and rule; list indentation; block quotes' bar and
 text; code blocks' background, border, corners, padding and token colors
 (an `editor.Theme`); tables' lines, header, stripes, padding and widest
-column; marked text; and check boxes. Lengths are in ems, times the font
-size, so that a theme scales with it. `LinkWeight` is the least weight of
-links' text, for links that read as links where color alone doesn't, in a
-gray print theme or to a colorblind reader.
+column; marked text; the find bar's matches; and check boxes. Lengths
+are in ems, times the font size, so that a theme scales with it.
+`LinkWeight` is the least weight of links' text, for links that read as
+links where color alone doesn't, in a gray print theme or to a colorblind
+reader.
 
 `Block` replaces how any block shows: it is asked first for each block,
 and builds it when it returns true, from the document's blocks and
@@ -437,7 +480,11 @@ cells, task items check boxes, checked or not, images images named by
 their descriptions, and code blocks groups named by their language,
 with a Copy code button. A task's check box is read-only, or, with
 `OnTask`, named by the task's text, takes the focus, and asks for the
-other state when assistive technology presses it, as a click does.
+other state when assistive technology presses it, as a click does. The
+find bar is a toolbar that tells the count of matches, except in a narrow
+view, where its query field still tells an invalid regular expression;
+its names are in the window's language
+([MyGo's own strings](../i18n.md#mygos-own-strings)).
 
 ## The parser
 

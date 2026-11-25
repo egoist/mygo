@@ -47,6 +47,10 @@ type para struct {
 	// objects are its math drawn by the app, in order: a slice of each
 	// build's own, which the view's drawing keeps.
 	objects []mathObject
+	// notText are the ranges, in the bytes of its spans' text joined, of
+	// what it shows in place of text: images' descriptions, which the find
+	// bar does not find in.
+	notText [][2]int
 	runes   int
 	fading  bool // its spans fade in: build them anew next frame
 	// refs are the inlines of its mentions, references and code, and
@@ -127,7 +131,7 @@ func (sb *spanBuilder) colorLink(dest string) Color {
 
 // build makes the paragraph of block i, of base style s.
 func (sb *spanBuilder) build(p *para, base spanStyle) {
-	*p = para{pieces: p.pieces[:0], marks: p.marks[:0], refs: p.refs[:0], resolved: p.resolved[:0], resolvers: sb.resolvers, colored: p.colored[:0], linkColor: sb.linkColor != nil}
+	*p = para{pieces: p.pieces[:0], marks: p.marks[:0], refs: p.refs[:0], resolved: p.resolved[:0], resolvers: sb.resolvers, colored: p.colored[:0], linkColor: sb.linkColor != nil, notText: p.notText[:0]}
 	sb.p = p
 	sb.in = sb.d.Inlines(sb.block)
 	sb.html = sb.html[:0]
@@ -146,6 +150,18 @@ func (sb *spanBuilder) piece(link int) *piece {
 		sb.cur = &sb.p.pieces[len(sb.p.pieces)-1]
 	}
 	return sb.cur
+}
+
+// textLen is the length, in bytes, of the text of the paragraph's spans
+// built so far, joined.
+func (sb *spanBuilder) textLen() int {
+	n := 0
+	for i := range sb.p.pieces {
+		for _, sp := range sb.p.pieces[i].spans {
+			n += len(sp.Text)
+		}
+	}
+	return n
 }
 
 // add adds text, which comes from the source's [src, end) (exact when it
@@ -417,7 +433,11 @@ func (sb *spanBuilder) inlines(from, to int, s spanStyle) {
 			if alt == "" {
 				alt = "image"
 			}
+			// The description stands in for the image: the find bar passes
+			// it by.
+			at := sb.textLen()
 			sb.add("["+alt+"]", n.Start, n.End, false, cs, link)
+			sb.p.notText = append(sb.p.notText, [2]int{at, sb.textLen()})
 		case parser.HTML:
 			if !sb.inlineHTML(n.Text) {
 				sb.add(n.Text, n.Start, n.End, true, s, link)

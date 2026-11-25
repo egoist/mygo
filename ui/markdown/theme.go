@@ -81,6 +81,9 @@ type Theme struct {
 	Mark Color
 	// Checkbox colors the check boxes of task lists that are checked.
 	Checkbox Color
+	// Match highlights the matches of the find bar, CurrentMatch the one
+	// the bar is on.
+	Match, CurrentMatch Color
 }
 
 // Color is a color of ui.
@@ -105,6 +108,9 @@ type HeadingStyle struct {
 // and colors, a code span tinted with its text color, code colored as the
 // code editor colors it, and the spacing of the chat apps.
 func DefaultTheme(t *ui.Theme) *Theme {
+	// The find bar's colors are the code editor's, as it highlights its
+	// own.
+	ect := editor.DefaultTheme(t)
 	th := &Theme{
 		FontSize:            t.FontSize,
 		Font:                t.Font,
@@ -131,7 +137,9 @@ func DefaultTheme(t *ui.Theme) *Theme {
 		CodeBlockBorder:     t.Border,
 		CodeBlockRadius:     t.Radius + 2,
 		CodeBlockPadding:    0.85,
-		CodeColors:          editor.DefaultTheme(t),
+		CodeColors:          ect,
+		Match:               ect.Match,
+		CurrentMatch:        ect.CurrentMatch,
 		TableBorder:         t.Border,
 		TableHeader:         t.Text.Alpha(0.04),
 		TableCellPadding:    [2]float32{0.6, 0.4},
@@ -225,6 +233,8 @@ func resolve(th *Theme, def *Theme) Theme {
 	f(&out.TableMaxColumn, def.TableMaxColumn)
 	c(&out.Mark, def.Mark)
 	c(&out.Checkbox, def.Checkbox)
+	c(&out.Match, def.Match)
+	c(&out.CurrentMatch, def.CurrentMatch)
 	return out
 }
 
