@@ -7867,6 +7867,24 @@ func (_handle Element) ScrollSnap(s Snap) Element {
 	return wrapElement(_node.ScrollSnap(s))
 }
 
+// ScrollTextRangeIntoView scrolls the containers around the element to
+// show runes [start, end) of its text, as ScrollIntoView shows its box: a
+// match of a find in a paragraph or a code block taller than the view
+// comes into view by its own line, not by the middle of what holds it.
+// An element that is not text, or has not laid its text out yet, scrolls
+// as ScrollIntoView scrolls it.
+//
+//	el.ScrollTextRangeIntoView(start, end, ui.ScrollIntoViewOptions{Block: ui.ScrollCenter})
+func (_handle Element) ScrollTextRangeIntoView(start int, end int, options ...ScrollIntoViewOptions) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.ScrollTextRangeIntoView(start, end, options...))
+}
+
 // ScrollWith moves the element's content sideways as far as scroller, a
 // scroll container, scrolls its own, as a table's header goes with its
 // rows. Clip the element, so that what goes out of it does not show.

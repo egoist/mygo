@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -237,6 +238,114 @@ func revealTester(sideways bool, s *ScrollState, ask *bool, o *[]ScrollIntoViewO
 			}
 		})
 	}, 200, 200)
+}
+
+// TestScrollTextRangeIntoView centers the line of a range of a text taller
+// than the view, not the text's start.
+func TestScrollTextRangeIntoView(t *testing.T) {
+	var s ScrollState
+	var text *node
+	const tail = "needle"
+	src := strings.Repeat("word ", 400) + tail
+	ask := false
+	tt := coreNewTester(func(c *context) {
+		c.DisableAnimations()
+		coreScroll(c).Fill().TrackScroll(&s).Children(func() {
+			text = coreText(c, src)
+			if ask {
+				text.ScrollTextRangeIntoView(len(src)-len(tail), len(src), ScrollIntoViewOptions{Block: ScrollCenter})
+			}
+		})
+	}, 300, 300)
+	tt.Frame()
+	ask = true
+	tt.Frame()
+	rs := text.tl.Selection(len(src)-len(tail), len(src))
+	if len(rs) == 0 {
+		t.Fatal("the range has no box")
+	}
+	if want := min(rs[0].Y+rs[0].H/2-150, s.MaxY); math.Abs(float64(s.Y-want)) > 1 {
+		t.Errorf("the range is centered at scroll %g, want %g", s.Y, want)
+	}
+	if s.Y <= 0 {
+		t.Errorf("the range did not scroll the view: %g", s.Y)
+	}
+}
+
+// TestScrollTextRangeIntoViewAsk checks that an element asked twice in a
+// frame shows what the last ask wanted, its box or a range of its text,
+// while an ask without options keeps the options asked before.
+func TestScrollTextRangeIntoViewAsk(t *testing.T) {
+	const tail = "needle"
+	src := strings.Repeat("word ", 400) + tail
+	start := len(src) - len(tail)
+	for _, tc := range []struct {
+		name string
+		ask  func(el *node)
+		want func(el *node) float32
+	}{
+		{
+			"box then range",
+			func(el *node) {
+				el.ScrollIntoView()
+				el.ScrollTextRangeIntoView(start, len(src))
+			},
+			func(el *node) float32 {
+				// The range at the bottom, as ScrollNearest shows it.
+				rs := el.tl.Selection(start, len(src))
+				return rs[0].Y + rs[0].H - 300
+			},
+		},
+		{
+			"range then box",
+			func(el *node) {
+				el.ScrollTextRangeIntoView(start, len(src), ScrollIntoViewOptions{Block: ScrollStart})
+				el.ScrollIntoView(ScrollIntoViewOptions{Block: ScrollStart})
+			},
+			func(*node) float32 { return 0 },
+		},
+		{
+			"range then box without options",
+			func(el *node) {
+				el.ScrollTextRangeIntoView(start, len(src))
+				el.ScrollIntoView()
+			},
+			func(*node) float32 { return 0 },
+		},
+		{
+			"box with Start, then range without options",
+			func(el *node) {
+				el.ScrollIntoView(ScrollIntoViewOptions{Block: ScrollStart})
+				el.ScrollTextRangeIntoView(start, len(src))
+			},
+			func(el *node) float32 {
+				// Start is kept, and the range is what shows.
+				return el.tl.Selection(start, len(src))[0].Y
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var s ScrollState
+			var el *node
+			ask := false
+			tt := coreNewTester(func(c *context) {
+				c.DisableAnimations()
+				coreScroll(c).Fill().TrackScroll(&s).Children(func() {
+					el = coreText(c, src)
+					coreBox(c).Height(800).Shrink(0) // room below, so nothing clamps
+					if ask {
+						tc.ask(el)
+					}
+				})
+			}, 300, 300)
+			tt.Frame()
+			ask = true
+			tt.Frame()
+			if want := min(tc.want(el), s.MaxY); math.Abs(float64(s.Y-want)) > 1 {
+				t.Errorf("scroll %g, want %g", s.Y, want)
+			}
+		})
+	}
 }
 
 // TestScrollIntoViewAlign lines a box up as the web's scrollIntoView's
