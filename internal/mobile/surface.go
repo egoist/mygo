@@ -19,6 +19,9 @@ import (
 type surface struct {
 	w      *window
 	handle uintptr
+	// width and height are the native surface's size, as the host last
+	// told of it (SurfaceChanged).
+	width, height float64
 	// refresh is how many times a second the display refreshes.
 	refresh float64
 
@@ -51,6 +54,15 @@ type surface struct {
 	access     *platform.AccessTree
 	accessOn   bool
 }
+
+// renewsOnResize tells that the content makes its GPU renderer's surface
+// anew on the native surface as its size changes, on Android, as
+// GLSurfaceView and Flutter make their EGL surfaces: the driver takes the
+// buffers' size and rotation (the transform hint) as an EGL surface is
+// made, and one made before the screen rotated draws the next frame at the
+// old size or rotation, which the system drops (#2219). The host holds the
+// window's draw back until the frame on the new one (FirstFrame).
+var renewsOnResize = runtime.GOOS == "android"
 
 func newSurface(w *window) *surface {
 	return &surface{w: w, refresh: 60, fingers: map[int][2]float64{}}
@@ -142,6 +154,15 @@ func (s *surface) frame() {
 func (s *surface) FrameNow() { s.draw(false) }
 
 var _ platform.PacedSurface = (*surface)(nil)
+
+// FrameAhead: on Android, a frame asked for goes through the pipe to the
+// UI thread before Choreographer asks for the next refresh, so the content
+// asks for its next frame as it starts one while it animates
+// (platform.FrameAheadSurface). pending, and the host's own, coalesce the
+// request the frame's end makes. iOS's display link asks at once.
+func (s *surface) FrameAhead() bool { return runtime.GOOS == "android" }
+
+var _ platform.FrameAheadSurface = (*surface)(nil)
 
 // draw sends the content a frame, paced or not, unless there is nothing
 // to draw on.
@@ -261,6 +282,8 @@ func (s *surface) Haptic(kind string) { s.w.b.Haptic(kind) }
 func (s *surface) ShowEditMenu(x, y float64, actions []string) {
 	s.w.b.call(&wire.ShowMenu{ID: s.w.id, X: x, Y: y, Actions: actions}, nil)
 }
+
+func (s *surface) HideEditMenu() { s.w.b.call(&wire.HideMenu{ID: s.w.id}, nil) }
 
 func (s *surface) SetBackAvailable(on bool) {
 	s.w.b.call(&wire.SetBackAvailable{ID: s.w.id, On: on}, nil)
@@ -617,7 +640,9 @@ func (b *Backend) handleSurface(op uint64, r *wire.Reader, w *wire.Writer) bool 
 			if e.Refresh > 0 {
 				s.refresh = e.Refresh
 			}
-			if old != 0 && s.handle != old {
+			resized := e.Width != s.width || e.Height != s.height
+			s.width, s.height = e.Width, e.Height
+			if old != 0 && (s.handle != old || resized && renewsOnResize) {
 				s.send(platform.SurfaceEvent{Kind: platform.SurfaceRenew})
 			}
 			if s.handle != 0 {
@@ -629,7 +654,8 @@ func (b *Backend) handleSurface(op uint64, r *wire.Reader, w *wire.Writer) bool 
 		e.Decode(r)
 		if s := sf(e.ID); s != nil && s.handle != 0 {
 			s.handle = 0
-			// The content lets go of its renderer at once.
+			// The content lets go of what draws into the surface at once:
+			// on Android its EGL surface, keeping the context for the next.
 			s.send(platform.SurfaceEvent{Kind: platform.SurfaceRenew})
 		}
 	case wire.EventTouch:

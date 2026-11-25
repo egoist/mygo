@@ -73,6 +73,10 @@ type window struct {
 	// radius is the corners the content view is cut to (Flyout.Radius,
 	// WindowOptions.CornerRadius), which the material follows.
 	radius int
+	// frameRadius is a titled window's own corner radius
+	// (WindowOptions.CornerRadius), which its theme frame gives AppKit
+	// (corners.go); 0 for the system's.
+	frameRadius int
 	// systemBacking tells that the content view of a rounded window has
 	// the system's window color, which a layer cannot follow: it is
 	// resolved again when the appearance changes (fillSystemBacking).
@@ -270,6 +274,10 @@ func (w *window) create() {
 		behavior = collectionCanJoinAllSpaces | collectionFullScreenAuxiliary | collectionIgnoresCycle | collectionTransient
 		// A panel stays as the app is deactivated: the app hides it.
 		send(w.win, "setHidesOnDeactivate:", 0)
+		// NSPanel becomes key only when a view needs it (the default). A
+		// hidden page has no first responder yet: Show would order the
+		// panel front without the keyboard while another app is active.
+		send(w.win, "setBecomesKeyOnlyIfNeeded:", 0)
 	} else if w.modalToFlyout() {
 		// Where its flyout is, over another app in full screen too.
 		behavior = collectionFullScreenAuxiliary | collectionTransient
@@ -281,6 +289,8 @@ func (w *window) create() {
 	radius := 0
 	if o.Frameless {
 		radius = o.CornerRadius
+	} else {
+		w.frameRadius = max(o.CornerRadius, 0) // AppKit draws them (corners.go)
 	}
 	w.fillWindow(content, radius)
 
@@ -299,6 +309,9 @@ func (w *window) create() {
 		send(w.win, "addObserver:forKeyPath:options:context:", uintptr(w.delegate), uintptr(nsString("effectiveAppearance")), 0, 0)
 	}
 	w.register()
+	if w.frameRadius > 0 { // registered: the theme frame finds the window's radius now
+		w.invalidateCorners()
+	}
 
 	if o.FullScreen {
 		send(w.win, "toggleFullScreen:", 0)
@@ -930,9 +943,11 @@ func (w *window) Show() {
 		return
 	}
 	w.showAboveParent(true)
-	if !w.opts.Panel {
-		send(w.b.app, "activateIgnoringOtherApps:", 1)
+	if w.opts.Panel {
+		w.takeKeyWithoutActivating()
+		return
 	}
+	send(w.b.app, "activateIgnoringOtherApps:", 1)
 }
 
 // A window modal to a flyout (modalToFlyout) is no sheet of it, which
@@ -1231,6 +1246,22 @@ func (w *window) IsVisible() bool {
 	return sendBool(w.win, "isVisible") || !w.hidMiniaturized && w.IsMinimized()
 }
 
+// takeKeyWithoutActivating makes a panel the key window without activating
+// the app. Show and Focus already ordered it front; NSApp may still be
+// resigning active (Finder can be frontmost first, see TestGlass), which
+// would take the key back. The next turn takes it again if that happens.
+func (w *window) takeKeyWithoutActivating() {
+	if !sendBool(w.win, "isKeyWindow") {
+		send(w.win, "makeKeyWindow")
+	}
+	w.b.post(func() {
+		if w.closed || !sendBool(w.win, "isVisible") || sendBool(w.win, "isKeyWindow") {
+			return
+		}
+		send(w.win, "makeKeyWindow")
+	})
+}
+
 func (w *window) Focus() {
 	if w.host != nil {
 		if !w.closed {
@@ -1244,9 +1275,11 @@ func (w *window) Focus() {
 	}
 	w.hiddenWithParent, w.hidMiniaturized = false, false
 	send(w.win, "makeKeyAndOrderFront:", 0)
-	if !w.opts.Panel {
-		send(w.b.app, "activateIgnoringOtherApps:", 1)
+	if w.opts.Panel {
+		w.takeKeyWithoutActivating()
+		return
 	}
+	send(w.b.app, "activateIgnoringOtherApps:", 1)
 }
 
 func (w *window) Blur() { send(w.win, "orderBack:", 0) }
@@ -1265,6 +1298,8 @@ func (w *window) CornerRadius() float64 {
 		return 0
 	case w.radius > 0:
 		return float64(w.radius)
+	case w.frameRadius > 0: // a titled window's own (corners.go)
+		return float64(w.frameRadius)
 	case !w.hasStyle(styleTitled) || !respondsTo(w.win, "_cornerRadius"):
 		return 0
 	}
@@ -2348,6 +2383,12 @@ func registerWindowClasses() {
 		method("selectKeyViewFollowingView:", selectKeyView("MyGoWindow", false)),
 		method("selectKeyViewPrecedingView:", selectKeyView("MyGoWindow", true)),
 	})
+	// The theme frame of a titled window with corners of its own
+	// (corners.go).
+	frameClass := func(cls, base string) {
+		class(cls).Class().AddMethod(sel("frameViewClassForStyleMask:"), objc.NewIMP(frameViewClassFor(base)), "#24@0:8Q16")
+	}
+	frameClass("MyGoWindow", "NSWindow")
 
 	// A panel (WindowOptions.Panel) takes the keyboard, without
 	// activating the app, and is never the main window.
@@ -2362,6 +2403,7 @@ func registerWindowClasses() {
 		method("selectKeyViewFollowingView:", selectKeyView("MyGoPanel", false)),
 		method("selectKeyViewPrecedingView:", selectKeyView("MyGoPanel", true)),
 	})
+	frameClass("MyGoPanel", "NSPanel")
 
 	// A flyout's panel becomes the key window only when it takes the
 	// keyboard, and never the main window: its parent stays it.

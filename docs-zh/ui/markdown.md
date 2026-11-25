@@ -157,6 +157,16 @@ app.md.LinkIcon = func(dest string, size float32) (markdown.InlineObject, bool) 
 }
 ```
 
+`LinkColor` 按目标地址为链接文本着色，返回 true 时用它给出的颜色代替 `Theme.Link`：比如聊天应用把引用来源显示成弱化的颜色，作为旁注；文档阅读器用颜色区分站外链接和站内链接。提及、引用和代码链接同样适用，悬停时链接照常显示下划线；仍在流式传入的链接要等目标地址完整后才着色，此前保持 `Theme.Link`。视图每次构建时都会为显示的每个链接调用它，因此只应查询应用手头已有的数据；它的返回值变化时，段落会随之更新：
+
+```go
+app.md.LinkColor = func(dest string) (ui.Color, bool) {
+	return ui.Hex("#6b7280"), app.isCitation(dest)
+}
+```
+
+`LinkIcon` 的图标颜色由它的 `Draw` 决定，上例用的是 `Theme.Link`。若要与 `LinkColor` 着色的链接一致，就用 `LinkColor` 为同一目标地址给出的颜色绘制图标。颜色变化的段落会重新构建，并再次请求它的图标。
+
 图像在 `LoadImage` 加载它们之前会显示描述文字，加载在各自的 goroutine 上进行；如果没有它，图像就一直只是描述文字，因为视图自身不会从网络加载任何内容。`FileImages(dir)` 加载一个目录中的文件。仅由图像组成的段落按它们原本的大小显示，最宽不超过视图。
 
 ```go
@@ -292,6 +302,8 @@ html := d.HTML()
 ```
 
 块和行内元素以扁平切片保存，按文稿顺序排列，每项包含其在源文本中的字节范围（`Start` 和 `End`），以及所有子元素之后的索引（`Next`）。`Inlines` 首次调用时才解析相应块的行内元素。`New(ext)` 可指定不同于 `Default` 的扩展组合，`SetStreaming` 则像 `Stream` 一样补全末尾语法。
+
+按 GitHub 规范，`HTML` 会转义那些浏览器会一直读到结束的原始标签——`title`、`textarea`、`style`、`xmp`、`iframe`、`noembed`、`noframes`、`script` 和 `plaintext`——于是把文档当 HTML 复制出去时，其中的 `<script>` 到粘贴它的地方仍是文本。这就是 cmark-gfm 的 tagfilter，即 `ExtTagFilter` 扩展，`GFM` 及其包含的 `Default` 都启用了它；`New(ext &^ parser.ExtTagFilter)` 则按原样写出原始 HTML。其他原始 HTML，例如标签上的事件处理器，仍然是 HTML。
 
 它通过 CommonMark 0.31.2 规范的全部 652 个示例以及 GitHub 扩展的示例，对那些在其他解析器中很慢的输入也能保持线性时间，和 cmark 一样，并且不依赖标准库之外的任何东西。
 

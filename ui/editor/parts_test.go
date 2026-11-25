@@ -611,9 +611,7 @@ func TestCodeEditorDefinitionLink(t *testing.T) {
 	if st.ed.link != [2]int{0, 5} || tt.Cursor() != ui.CursorPointer {
 		t.Fatalf("link %v, cursor %v over \"first\" with Cmd held", st.ed.link, tt.Cursor())
 	}
-	// The tester's moves bring no modifiers, as a move with Cmd let go.
 	tt.Move(st.ed.textX+st.ed.view.charWidth*8, 5)
-	tt.HoldModifiers(ui.Cmd)
 	if st.ed.link != [2]int{6, 10} {
 		t.Fatalf("link %v over \"line\"", st.ed.link)
 	}
@@ -666,5 +664,29 @@ func TestCodeEditorNoDefinitionClick(t *testing.T) {
 	tt.Frame()
 	if len(asked) != 1 || asked[0] != 2 {
 		t.Fatalf("Cmd+click went to the definitions at %v, not at 2", asked)
+	}
+}
+
+// A bar of an editor that scrolls itself is an absolute box, as it has
+// always been: the insets an app's render function sets place it against
+// the editor, rather than moving it within a row.
+func TestCodeEditorFindBarAbsolute(t *testing.T) {
+	st := &State{Buffer: NewBuffer(strings.Repeat("line\n", 50))}
+	st.RenderFindBar = func(c *ui.Context, bar ui.Element, f *FindBar) {
+		bar.Left(30).Top(20)
+		DefaultFindBar(c, bar, f)
+	}
+	tt := ui.NewTester(func(c *ui.Context) { View(c, st).Fill() }, 600, 400)
+	tt.Frame()
+	st.Find("line")
+	tt.Frame()
+	r, ok := tt.Find("Find")
+	if !ok {
+		t.Fatal("the find bar is not built")
+	}
+	// The insets place the bar against the editor, within its padding's
+	// reach; a bar in a row would sit where the row put it instead.
+	if r.X < 30 || r.X > 42 || r.Y < 20 || r.Y > 32 {
+		t.Fatalf("the bar's insets place it at %v, %v, want 30, 20, up to its padding", r.X, r.Y)
 	}
 }

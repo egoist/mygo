@@ -23,14 +23,33 @@ func coreNumberInput(c *context, value *float64, lo, hi, step float64) *node {
 	}
 	format := func(v float64) string { return strconv.FormatFloat(v, 'f', decimals, 64) }
 	text := coreLocal(row, "text", func() string { return format(*value) })
+	// shown is the value the text was last made from, or that typing set.
+	shown := coreLocal(row, "shown", func() float64 { return *value })
+	if *value != *shown {
+		// A value the app set replaces what was typed, before the input
+		// below takes the text.
+		*text, *shown = format(*value), *value
+	}
+	// The lowest and highest values shown with step's decimals: a bound
+	// with more, as 2.5 with a step of 1, rounds to inside it. Rounding
+	// first keeps a bound on them, as 0.29 (0.29*100 is 28.999…).
+	p := math.Pow(10, float64(decimals))
+	bottom, top := math.Round(lo*p)/p, math.Round(hi*p)/p
+	if bottom < lo {
+		bottom = math.Ceil(lo*p) / p
+	}
+	if top > hi {
+		top = math.Floor(hi*p) / p
+	}
 	set := func(v float64) {
-		v = math.Max(lo, math.Min(hi, v))
-		if decimals >= 0 {
-			p := math.Pow(10, float64(decimals))
-			v = math.Round(v*p) / p
+		v = math.Round(math.Max(lo, math.Min(hi, v))*p) / p
+		if v > hi {
+			v = top
+		} else if v < lo {
+			v = bottom
 		}
 		if v != *value {
-			*value = v
+			*value, *shown = v, v
 			row.st.markChanged()
 			c.rt.consumed = true
 		}
@@ -63,7 +82,7 @@ func coreNumberInput(c *context, value *float64, lo, hi, step float64) *node {
 			delta float64
 		}{{"−", -step}, {"+", step}} {
 			btn := coreButton(c, b.label).Padding(t.Space(1), t.Space(2)).Label(map[bool]string{true: "Increase", false: "Decrease"}[b.delta > 0])
-			btn.Disabled(b.delta < 0 && *value <= lo || b.delta > 0 && *value >= hi)
+			btn.Disabled(b.delta < 0 && *value <= bottom || b.delta > 0 && *value >= top)
 			btn.afterInput(func() {
 				if btn.Clicked() {
 					set(*value + b.delta)

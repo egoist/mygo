@@ -23,7 +23,7 @@ var roleNames = [...]string{
 	"menuItemCheckBox", "menuItemRadio", "heading", "region", "log", "timer",
 	"alert", "separator", "rowHeader", "search", "article",
 	"navigation", "grid", "treeGrid", "deletion", "insertion", "tabPanel",
-	"main", "banner", "contentInfo", "complementary",
+	"main", "banner", "contentInfo", "complementary", "form",
 }
 
 func roleName(r platform.AccessRole) string {
@@ -189,7 +189,7 @@ func modifiers(list []string) (platform.Modifiers, error) {
 		case "super", "cmd", "command", "meta":
 			mods |= platform.ModSuper
 		case "cmdorctrl":
-			if runtime.GOOS == "darwin" {
+			if platform.MacKeys {
 				mods |= platform.ModSuper
 			} else {
 				mods |= platform.ModCtrl

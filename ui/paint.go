@@ -95,13 +95,24 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 		// size shows (platform.BackgroundSurface).
 		s.Background = root.bg.scene()
 	}
-	// The painter is the engine's, which draw callbacks get, so that
-	// painting allocates none.
+	// A window whose system does not round its corners (Windows 10) cuts
+	// its frames to the radius here, through the clip that both the raster
+	// and the GPU renderers antialias (scene.OpPushClip's radii), so that
+	// what it draws outside the corners is not shown either way. The
+	// background fills the rounded rect, and the frames clear to nothing
+	// beyond it. Only a transparent window has something behind it to
+	// show there (surface.Conn.ContentCorners).
+	rounded := false
+	if rt.corners != nil {
+		rounded = roundFrame(s, float32(rt.corners())*scale, pw, ph)
+	}
 	under := rt.under[:0]
 	if opaque {
 		// Under all the window paints, as what it drags.
 		under = append(under, opaqueBox{r: Rect{0, 0, w, h}, opaque: true})
 	}
+	// The painter is the engine's, which draw callbacks get, so that
+	// painting allocates none.
 	rt.painter = Painter{rt: rt, s: s, scale: scale, opacity: 1, clip: Rect{0, 0, w, h}, opaque: opaque, under: under, holes: rt.holes[:0]}
 	p := &rt.painter
 	uses, opened := rt.text.TransientUses(), rt.paths.spill.opened
@@ -117,6 +128,9 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	}
 	rt.paintDrag(p, w, h)
 	rt.finishSpills()
+	if rounded {
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPopClip})
+	}
 	rt.under, rt.holes = p.under[:0], p.holes[:0] // kept for the next frame's
 	rt.partsBase = sceneData(s)
 	rt.atlases = atlasGenerations(s)
@@ -124,6 +138,24 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	// reused as the parts are painted again, as masks of the transient
 	// room are.
 	rt.transient = rt.text.TransientUses()-uses > rt.partTransient || rt.paths.spill.opened-opened > rt.paths.spill.inParts
+}
+
+// roundFrame cuts a frame s, pw wide and ph high, to corners of radius: a clip
+// with the radii the raster renderer and the GPU's shader antialias alike, and
+// the background filled inside it, so that what the frame draws outside the arc
+// is not shown and the frames clear to nothing beyond it.
+func roundFrame(s *scene.Scene, radius float32, pw, ph int) bool {
+	if radius <= 0 || 2*radius > float32(min(pw, ph)) {
+		return false
+	}
+	bg := s.Background
+	s.Background = scene.Color{}
+	r := scene.Rect{W: float32(pw), H: float32(ph)}
+	s.Ops = append(s.Ops, scene.Op{Kind: scene.OpPushClip, Rect: r, Radii: scene.Uniform(radius)})
+	if bg.A != 0 {
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpFill, Rect: r, Color: bg})
+	}
+	return true
 }
 
 // atlasGenerations returns the generations of the atlases s draws glyphs
@@ -352,7 +384,7 @@ func (p *Painter) element(e *node) {
 		e.dropGroupLayer()
 	}
 	saved := p.opacity
-	if e.flags&flagDisabled != 0 && !e.undimmed && !p.Theme().DisableAutoDimming {
+	if (e.flags&flagDisabled != 0 || e.unavailable) && !e.undimmed && !p.Theme().DisableAutoDimming {
 		p.opacity *= 0.5
 	}
 	// In its layer (paintEffect, paintGroup), the layer takes its fade.
@@ -374,11 +406,13 @@ func (p *Painter) element(e *node) {
 	// What the element paints lands on an opaque background when all of
 	// it that shows does.
 	p.opaque = p.covered(intersect(box, p.clip))
-	if e.world.Set && (p.lifting == nil || !translates(e.world)) {
+	if e.world.Set && ((p.lifting == nil && !e.pinWorld) || !translates(e.world)) {
 		// Transformed glyphs are drawn with grayscale coverage; but those
 		// of an element flying, which a translation shows where it is
-		// (matches.pin), as at rest, which renderers make gray while it
-		// moves, so that they are the text at rest once there.
+		// (matches.pin), or moving in a transition, which only its
+		// remainders to its resting pixels translate (pinsOnly), as at
+		// rest, which renderers make gray while it moves, so that they are
+		// the text at rest once there.
 		p.opaque = false
 	}
 	margin := e.shadowMargin()
@@ -412,15 +446,35 @@ func (p *Painter) element(e *node) {
 		}
 		switch e.kind {
 		case kindText:
+			cw := e.w - e.padX()
+			if e.maxLines > 0 && !e.noWrap && cw <= 0 {
+				break
+			}
 			ts := e.resolvedText()
 			ox, oy := e.x+e.contentX(), e.y+e.contentY()
 			var sp spanPaint
 			p.inline = e
+			overflows := e.tl != nil && e.tl.Width > cw+1e-3
+			if !overflows && e.contentSet && e.st != nil && e.st.crec != nil {
+				r := e.st.crec
+				overflows = r.oldTL != nil && r.oldTL.Width > cw+1e-3 || r.tl != nil && r.tl.Width > cw+1e-3
+			}
+			clipX := e.maxLines > 0 && !e.noWrap && overflows
+			var savedClip Rect
+			if clipX {
+				const far = 1e6
+				savedClip = p.clip
+				p.pushClip(Rect{ox, -far, cw, 2 * far}, [4]float32{})
+			}
 			if spans := e.paintSpans(&sp); !e.contentSet || !p.contentText(e, ox, oy, ts, spans) {
 				p.textLayout(e.tl, ox, oy, ts.color, ts, spans)
 				if e.objectFn != nil {
 					paintObjects(p, e.tl, ox, oy, e.objectFn)
 				}
+			}
+			if clipX {
+				p.popClip()
+				p.clip = savedClip
 			}
 			p.inline = nil
 		case kindImage:
@@ -522,6 +576,18 @@ func (p *Painter) element(e *node) {
 	p.opaque, p.under = savedOpaque, p.under[:under]
 }
 
+// pinsOnly reports whether the world transform of e, with base the one
+// the elements around it give it, only moves it by the remainders that
+// transitions moving it, or the elements around it, carry to their
+// resting pixels (transition.apply): the glyphs of text at rest, which
+// renderers make gray while they move.
+func pinsOnly(e *node, base scene.Affine) bool {
+	if !e.world.Set || !translates(e.world) || e.translatePct != ([2]float32{}) || e.poseM.Set || e.transform.set() && !e.pinned {
+		return false
+	}
+	return !base.Set || e.parent.pinWorld && base == e.parent.world
+}
+
 // translates reports whether m only moves what it transforms.
 func translates(m scene.Affine) bool {
 	_, _, ok := m.Translation()
@@ -570,13 +636,9 @@ func (p *Painter) holds(r Rect, opaque bool) bool {
 // not clip.
 func (e *node) clipRect() (Rect, [4]float32) {
 	r := Rect{e.x + e.border[3], e.y + e.border[0], e.w - e.border[1] - e.border[3], e.h - e.border[0] - e.border[2]}
-	var rad [4]float32
 	all := e.flags&(flagScrollX|flagScrollY) != 0 || e.flags&flagClip == flagClip
 	if all {
-		for i, side := range [4][2]int{{0, 3}, {0, 1}, {2, 1}, {2, 3}} {
-			rad[i] = max(e.radius[i]-max(e.border[side[0]], e.border[side[1]]), 0)
-		}
-		return r, rad
+		return r, e.innerRadii()
 	}
 	const far = 1e6
 	if e.flags&flagClipX == 0 {
@@ -585,7 +647,17 @@ func (e *node) clipRect() (Rect, [4]float32) {
 	if e.flags&flagClipY == 0 {
 		r.Y, r.H = -far, 2*far
 	}
-	return r, rad
+	return r, [4]float32{}
+}
+
+// innerRadii returns the radii of the corners inside the border: each
+// corner's radius less the wider of the borders that meet there.
+func (e *node) innerRadii() [4]float32 {
+	var rad [4]float32
+	for i, side := range [4][2]int{{0, 3}, {0, 1}, {2, 1}, {2, 3}} {
+		rad[i] = max(e.radius[i]-max(e.border[side[0]], e.border[side[1]]), 0)
+	}
+	return rad
 }
 
 // borders returns border widths in device pixels, whole ones at least one

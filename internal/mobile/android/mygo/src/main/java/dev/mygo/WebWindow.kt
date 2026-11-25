@@ -29,7 +29,6 @@ import android.widget.FrameLayout
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
-import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.concurrent.CountDownLatch
@@ -41,11 +40,16 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
     private val frame = FrameLayout(context)
     override val view: View get() = frame
     val web = WebView(context)
+    /** Whether the page slows down while it can't be seen: not with ThrottlingOff. */
+    val throttles = !c.noBackgroundThrottling
     private val schemes = c.schemes.toSet()
     private var scripts = ArrayList<ScriptHandler>()
     private var defaultUA = ""
     private var suffix = c.userAgentSuffix
     private val ui = Handler(Looper.getMainLooper())
+    /** Whether the web view showed a page, which it keeps in a new Activity. */
+    var pageShown = false
+        private set
 
     init {
         val s = web.settings
@@ -119,14 +123,20 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
         web.loadDataWithBaseURL(base.ifEmpty { null }, html, "text/html", "utf-8", null)
     }
 
-    // A body that does not compile reports String(e), "SyntaxError: …" with
-    // the error's name, which Eval looks for to run a script of statements as
-    // a function body; e.message alone leaves the name out.
+    // The body is compiled as part of the script evaluateJavascript runs, which the page's Content Security
+    // Policy does not govern; an AsyncFunction made from a string in the page is eval, which a policy without
+    // 'unsafe-eval' refuses. Its function sits at the top level of the script: the code sees the page's globals
+    // and none of the names in here. A script that does not compile runs nothing and answers null. Once the body
+    // has started the script answers 1 whatever the page made of then and mygoAndroid, so that a compile error,
+    // after which Eval runs the code again as statements, is never reported for code that ran.
     fun callAsync(req: Long, body: String) {
-        val js = "(function(){var r=$req;try{var F=Object.getPrototypeOf(async function(){}).constructor;" +
-            "new F(${JSONObject.quote(body)})().then(function(v){mygoAndroid.asyncResult(r,String(v),'')}," +
-            "function(e){mygoAndroid.asyncResult(r,'',String(e&&e.message||e))})}catch(e){mygoAndroid.asyncResult(r,'',String(e))}})()"
-        web.evaluateJavascript(js, null)
+        val js = "(function(p,r){try{p.then(function(v){mygoAndroid.asyncResult(r,String(v),'')}," +
+            "function(e){mygoAndroid.asyncResult(r,'',String(e&&e.message||e))})}" +
+            "catch(e){try{mygoAndroid.asyncResult(r,'',String(e&&e.message||e))}catch(e){}}return 1})" +
+            "((async function(){\n$body\n})(),$req)"
+        web.evaluateJavascript(js) { v ->
+            if (v != "1") Go.send(Event.asyncResult(req, "", "SyntaxError: the script does not compile"))
+        }
     }
 
     fun capture(req: Long) {
@@ -165,8 +175,12 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
         @JavascriptInterface
         fun postMessage(text: String) = Go.send(Event.message(w.id, text))
 
+        // Only the callback of evaluateJavascript, which the page cannot call, says that a script does not
+        // compile: an error the page reports never starts with SyntaxError, which has Eval run the code again.
         @JavascriptInterface
-        fun asyncResult(req: Long, result: String, error: String) = Go.send(Event.asyncResult(req, result, error))
+        fun asyncResult(req: Long, result: String, error: String) {
+            Go.send(Event.asyncResult(req, result, if (error.startsWith("SyntaxError")) "Uncaught $error" else error))
+        }
 
         /** The body of a request to the app's schemes, which Android does not give shouldInterceptRequest. */
         @JavascriptInterface
@@ -199,6 +213,7 @@ class WebWindow(context: Context, c: CreateWindowCall) : HostWindow(context, c.i
         }
 
         override fun onPageCommitVisible(view: WebView, url: String) {
+            pageShown = true
             HostImpl.drew = true
         }
 
@@ -434,6 +449,14 @@ object Schemes {
         val charset = Regex("charset=([^;]+)", RegexOption.IGNORE_CASE).find(type)?.groupValues?.get(1)?.trim()
         // A WebResourceResponse takes no redirect.
         val status = if (p.status in 300..399) 200 else p.status
+        // The web view answers a Range itself, skipping the body to the range's first byte: a partial body
+        // Go gave (206, as http.ServeContent's) already starts there, so those bytes are skipped for free.
+        if (status == 206) {
+            val range = p.header.entries.firstOrNull { it.key.equals("Content-Range", true) }?.value
+            Regex("""^\s*bytes\s+(\d+)-""", RegexOption.IGNORE_CASE).find(range ?: "")?.let {
+                p.body.before = it.groupValues[1].toLongOrNull() ?: 0
+            }
+        }
         return WebResourceResponse(mime, charset, status, reason(status), p.header, p.body)
     }
 
@@ -474,6 +497,20 @@ object Schemes {
         private var cur = ByteArray(0)
         private var at = 0
         private var done = false
+
+        /** The bytes of the resource before the body (a partial one's), which skip passes without reading. */
+        @Volatile
+        var before = 0L
+
+        override fun skip(n: Long): Long {
+            if (n <= 0) return 0
+            if (before > 0) {
+                val k = minOf(n, before)
+                before -= k
+                return k
+            }
+            return super.skip(n)
+        }
 
         private fun fill(): Boolean {
             while (at >= cur.size) {

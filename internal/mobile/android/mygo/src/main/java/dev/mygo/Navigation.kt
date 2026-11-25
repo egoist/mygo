@@ -23,7 +23,25 @@ import com.google.android.material.color.DynamicColors
 
 object Navigation {
     /** A window's page in a stack: its toolbar, when it has one, over it. */
-    class Page(val window: HostWindow, var toolbar: MaterialToolbar?, val view: LinearLayout)
+    class Page(val window: HostWindow, var toolbar: Bar?, val view: LinearLayout)
+
+    /**
+     * A page's toolbar. It reaches under the status bar, and under the
+     * navigation bar or a cutout at a side (in landscape), padded by their
+     * room, and keeps its own height (Material's 64dp) below the status
+     * bar. A toolbar's least height counts its padding, and only that least
+     * height makes room for its title's margins: a padding eating it cut the
+     * title. (The least height stays: the toolbar aligns its buttons to it.)
+     */
+    class Bar(context: Context) : MaterialToolbar(context) {
+        fun inset(b: androidx.core.graphics.Insets) = setPadding(b.left, b.top, b.right, 0)
+
+        override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+            super.onMeasure(widthSpec, heightSpec)
+            val least = minimumHeight + paddingTop + paddingBottom
+            if (measuredHeight in 1 until least) setMeasuredDimension(measuredWidth, resolveSize(least, heightSpec))
+        }
+    }
 
     /** A stack of pages: the first is the window it shows, the others pushed over it. */
     class Stack(context: Context) : FrameLayout(context) {
@@ -61,6 +79,7 @@ object Navigation {
             for ((k, s) in stacks.withIndex()) s.visibility = if (k == i) View.VISIBLE else View.GONE
             if (bar.selectedItemId != i) bar.selectedItemId = i
             for (p in stacks[i].pages) p.window.reportSize()
+            HostImpl.updateBack() // the stack in front changed
         }
     }
 
@@ -72,8 +91,8 @@ object Navigation {
     fun material(context: Context): Context =
         DynamicColors.wrapContextIfAvailable(ContextThemeWrapper(context, com.google.android.material.R.style.Theme_Material3_DayNight_NoActionBar))
 
-    private fun toolbar(w: HostWindow, title: String): MaterialToolbar {
-        val t = MaterialToolbar(material(w.context))
+    private fun toolbar(w: HostWindow, title: String): Bar {
+        val t = Bar(material(w.context))
         t.title = title
         t.setBackgroundColor(if (w.fill != 0) w.fill else HostImpl.themeColor(android.R.attr.colorBackground))
         return t
@@ -94,7 +113,7 @@ object Navigation {
     private fun page(w: HostWindow, title: String?, back: Boolean): Page {
         (w.view.parent as? ViewGroup)?.removeView(w.view)
         val v = LinearLayout(w.context).apply { orientation = LinearLayout.VERTICAL }
-        var toolbar: MaterialToolbar? = null
+        var toolbar: Bar? = null
         if (title != null) {
             val t = toolbar(w, title)
             if (back) back(t) { pop(w, true) }
@@ -170,6 +189,7 @@ object Navigation {
 
     fun forget(w: HostWindow) {
         routed.remove(w.id)
+        barItems.remove(w.id)
         val s = stacks.remove(w.id) ?: return
         s.pages.removeAll { it.window === w }
     }
@@ -283,7 +303,7 @@ object Navigation {
                 p.toolbar = null
             } else {
                 t.title = r.title
-                back(t, if (i > 0) ({ pop(w, true) }) else null)
+                arrow(t, w, i)
             }
             return
         }
@@ -300,14 +320,41 @@ object Navigation {
         }
         routed[w.id]?.depth = titles.size
         t!!.title = titles.last()
+        arrow(t, w, i)
+    }
+
+    /**
+     * arrow gives the toolbar of w, the i-th page of its stack, the back arrow
+     * it has: the router's, past its first page, or the stack's, past the first.
+     */
+    private fun arrow(t: MaterialToolbar, w: HostWindow, i: Int) {
         when {
-            titles.size > 1 -> back(t) {
+            (routed[w.id]?.depth ?: 0) > 1 -> back(t) {
                 val d = routed[w.id]?.depth ?: 1
                 if (d > 1) Go.send(Event.stackPopped(w.id, (d - 1).toLong()))
             }
             i > 0 -> back(t) { pop(w, true) }
             else -> back(t, null)
         }
+    }
+
+    /**
+     * The system's theme or size of text changed. A toolbar takes its colors
+     * and the size of its title from the theme when it is made, so each is
+     * made again, in the theme of now, with what the old one showed.
+     */
+    fun themeChanged() {
+        for (s in stacks.values.toSet()) for ((i, p) in s.pages.withIndex()) {
+            val old = p.toolbar ?: continue
+            val t = toolbar(p.window, old.title?.toString() ?: "")
+            arrow(t, p.window, i)
+            val at = p.view.indexOfChild(old)
+            p.view.removeView(old)
+            p.view.addView(t, at, old.layoutParams)
+            p.toolbar = t
+            barItems[p.window.id]?.let { setBarItems(p.window, it) }
+        }
+        insetsChanged()
     }
 
     // Tabs.
@@ -356,6 +403,35 @@ object Navigation {
         badge.toIntOrNull()?.let { b.number = it } ?: run { b.text = badge }
     }
 
+    /**
+     * setTabTitle changes what tab i's item reads, and the toolbar the tab's
+     * stack shows while its window is at the root.
+     */
+    fun setTabTitle(id: Long, i: Int, title: String) {
+        val t = tabs[id] ?: return
+        t.bar.menu.findItem(i)?.title = title
+        val s = t.stacks.getOrNull(i) ?: return
+        val p = s.pages.firstOrNull() ?: return
+        if (p.window.id in routed) return // the router's page has the toolbar's title
+        val tb = p.toolbar
+        if (title.isEmpty()) {
+            if (tb != null) {
+                p.view.removeView(tb)
+                p.toolbar = null
+                insetsChanged()
+            }
+            return
+        }
+        if (tb != null) {
+            tb.title = title
+            return
+        }
+        val nt = toolbar(p.window, title)
+        p.view.addView(nt, 0, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        p.toolbar = nt
+        insetsChanged()
+    }
+
     fun closeTabs(id: Long) {
         val t = tabs.remove(id) ?: return
         root.removeView(t)
@@ -379,8 +455,11 @@ object Navigation {
         s.tabs?.bar?.setBackgroundColor(w.fill)
     }
 
+    private val barItems = HashMap<Long, SetBarItemsCall>() // by window, for toolbars made again
+
     /** Buttons at the end of the window's toolbar. */
     fun setBarItems(w: HostWindow, c: SetBarItemsCall) {
+        barItems[w.id] = c
         val t = stacks[w.id]?.pages?.firstOrNull { it.window === w }?.toolbar ?: return
         t.menu.clear()
         c.titles.forEachIndexed { i, title ->
@@ -402,10 +481,14 @@ object Navigation {
         stacks[w.id]?.pages?.firstOrNull { it.window === w }?.toolbar?.title = title
     }
 
-    /** The toolbars at the top of the screen take the status bar's room. */
+    /**
+     * The toolbars at the top of the screen take the status bar's room, and
+     * the room of what covers the screen's sides: the navigation bar of three
+     * buttons in landscape, a cutout.
+     */
     fun insetsChanged() {
-        val top = HostImpl.bars.top
-        for (s in stacks.values.toSet()) for (p in s.pages) p.toolbar?.setPadding(0, top, 0, 0)
+        val b = HostImpl.bars
+        for (s in stacks.values.toSet()) for (p in s.pages) p.toolbar?.inset(b)
         for (w in HostImpl.windows.values) w.insetsChanged()
     }
 }
