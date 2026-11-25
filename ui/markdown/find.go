@@ -332,8 +332,7 @@ func (st *viewState) buildFindBar(c *ui.Context) {
 
 // findBar is the view's finding as its find bar shows and does it
 // (editor.FindBarSource). The view's text only reads: the bar replaces
-// nothing, and does not select every match at once
-// (editor.FindBarSelectAll), as an editor's does.
+// nothing, and does not select every match at once, as an editor's does.
 type findBar struct {
 	c  *ui.Context
 	st *viewState

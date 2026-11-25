@@ -18,8 +18,8 @@ import (
 // FindBarSource is what a find bar shows and does: the query, its options
 // and going through the matches. The editor's find is one, as FindBar, and
 // so is the find of another view that finds in the text it shows, as
-// ui/markdown's does: DefaultFindBar builds the bar of either, and
-// FindBarInRow places it.
+// ui/markdown's does: FindBarInRow builds the bar of either, in the
+// editor's own look.
 type FindBarSource interface {
 	// Query is the text of the bar's field, to bind an input to.
 	Query() *string
@@ -45,11 +45,11 @@ type FindBarSource interface {
 	FocusQuery() bool
 }
 
-// FindBarReplacing is what a FindBarSource that replaces too does, as an
+// findBarReplacing is what a FindBarSource that replaces too does, as an
 // editor's does: the bar shows the replacement below the query while
-// Replacing, which its button turns on and off where CanReplace, as a
+// replacing, which its button turns on and off where it can, as a
 // read-only editor's never does.
-type FindBarReplacing interface {
+type findBarReplacing interface {
 	FindBarSource
 	Replacement() *string
 	Replacing() bool
@@ -60,10 +60,10 @@ type FindBarReplacing interface {
 	ReplacementInput(in ui.Element) ui.Element
 }
 
-// FindBarSelectAll is what a FindBarSource whose matches all select does,
-// as an editor's does: Alt+Enter in the field calls SelectAll, which
-// selects every match and closes the bar.
-type FindBarSelectAll interface {
+// findBarSelectAll is what a FindBarSource whose matches all select does,
+// as an editor's does: Alt+Enter in the field selects every match and
+// closes the bar.
+type findBarSelectAll interface {
 	FindBarSource
 	SelectAll()
 }
@@ -159,15 +159,14 @@ func (f *FindBar) QueryInput(in ui.Element) ui.Element {
 }
 
 // findBarInput makes in the field of the query of the bar of f, as
-// FindBar's QueryInput does: where the matches of f all select
-// (FindBarSelectAll), Alt+Enter selects them, and Enter goes to the next
-// match otherwise.
+// FindBar's QueryInput does: where f selects every match, Alt+Enter selects
+// them, and Enter goes to the next match otherwise.
 func findBarInput(c *ui.Context, f FindBarSource, in ui.Element) ui.Element {
 	if f.FocusQuery() {
 		in.Focus().SetTextSelection(0, utf8.RuneCountInString(*f.Query()))
 	}
 	mods := c.Modifiers()
-	selecting, _ := f.(FindBarSelectAll)
+	selecting, _ := f.(findBarSelectAll)
 	switch {
 	case in.Submitted() && mods&ui.Shift != 0:
 		f.Previous()
@@ -214,19 +213,29 @@ func findBarSize(w float32) int {
 	return 2
 }
 
-// DefaultFindBar builds the find bar into bar from what f shows and does,
-// the editor's own look: the query with its options inside its field, the
-// count of matches and the buttons going through them, and the replacement
-// below it while f replaces (FindBarReplacing). In a narrow bar, by the
-// width f gives, it leaves out the count, then all but the fields, the
-// button showing or hiding the replacement and the close button.
-func DefaultFindBar(c *ui.Context, bar ui.Element, f FindBarSource) {
+// DefaultFindBar builds the editor's own find bar into bar: the query with
+// its options inside its field, the count of matches and the buttons going
+// through them, and the replacement below it while replacing. In a narrow
+// editor it leaves out the count, then all but the fields, the button
+// showing or hiding the replacement and the close button.
+func DefaultFindBar(c *ui.Context, bar ui.Element, f *FindBar) {
+	defaultFindBar(c, bar, f)
+}
+
+// defaultFindBar builds the find bar of f into bar from what f shows and
+// does, the editor's own look: the query with its options inside its field,
+// the count of matches and the buttons going through them, and the
+// replacement below it while f replaces (findBarReplacing). In a narrow
+// bar, by the width f gives, it leaves out the count, then all but the
+// fields, the button showing or hiding the replacement and the close
+// button.
+func defaultFindBar(c *ui.Context, bar ui.Element, f FindBarSource) {
 	t := c.Theme()
 	tx := l10n.In(c.Locale())
 	size := findBarSize(f.Width())
 	// What the bar replaces: where f does, and can.
-	var rep FindBarReplacing
-	if r, ok := f.(FindBarReplacing); ok && r.CanReplace() {
+	var rep findBarReplacing
+	if r, ok := f.(findBarReplacing); ok && r.CanReplace() {
 		rep = r
 	}
 	bar.Gap(t.Space(1)).Padding(t.Space(1.5)).Background(t.Surface).Border(1, t.Border).Radius(t.Radius).
@@ -342,13 +351,13 @@ func findBarBox(c *ui.Context, key string) ui.Element {
 // FindBarInRow builds the find bar of f over the top right of what is being
 // built, as an editor as high as its content places its own: in a row over
 // the whole of it, which sticks to the top of the part of it the containers
-// around show, and no wider than it. The bar is the editor's own
-// (DefaultFindBar), and the shortcuts go through its matches as an editor's
-// do; key names the bar's row, and its box, with " bar" after it. f is the
-// find of what has text it doesn't edit, as ui/markdown's view has.
+// around show, and no wider than it. The bar is in the editor's own look,
+// and the shortcuts go through its matches as an editor's do; key names the
+// bar's row, and its box, with " bar" after it. f is the find of what has
+// text it doesn't edit, as ui/markdown's view has.
 func FindBarInRow(c *ui.Context, key string, f FindBarSource) {
 	barInRow(c, key, ui.End, func() ui.Element { return findBarBox(c, key+" bar") }, func(bar ui.Element) {
-		DefaultFindBar(c, bar, f)
+		defaultFindBar(c, bar, f)
 	})
 	findBarKeys(c, f)
 }
@@ -382,7 +391,7 @@ func (ed *editor) buildFindBar(c *ui.Context) {
 	f.builtW = ed.fitWidth()
 	render := ed.o.renderFindBar
 	if render == nil {
-		render = func(c *ui.Context, bar ui.Element, f *FindBar) { DefaultFindBar(c, bar, f) }
+		render = DefaultFindBar
 	}
 	newBar := func() ui.Element { return findBarBox(c, "code find") }
 	if ed.o.fitContent {
