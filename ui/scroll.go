@@ -340,10 +340,11 @@ func (rt *engine) askReveal(id uint64, o ScrollIntoViewOptions, text *textRange)
 	switch {
 	case i < 0:
 		rt.revealIDs = append(rt.revealIDs, revealAsk{id, o, text})
+	case o != ScrollIntoViewOptions{}:
+		rt.revealIDs[i].o = o
+		rt.revealIDs[i].text = text
 	default:
-		if o != (ScrollIntoViewOptions{}) {
-			rt.revealIDs[i].o = o
-		}
+		// The zero options leave those asked before.
 		rt.revealIDs[i].text = text
 	}
 }
