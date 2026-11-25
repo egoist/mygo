@@ -1,9 +1,11 @@
-//go:build linux && (amd64 || arm64)
+//go:build linux
 
-package linux
+package inotify
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,9 +17,9 @@ import (
 
 func TestWatchInotifyParser(t *testing.T) {
 	record := make([]byte, 20)
-	binary.LittleEndian.PutUint32(record, 5)
-	binary.LittleEndian.PutUint32(record[8:], 77)
-	binary.LittleEndian.PutUint32(record[12:], 4)
+	binary.NativeEndian.PutUint32(record, 5)
+	binary.NativeEndian.PutUint32(record[8:], 77)
+	binary.NativeEndian.PutUint32(record[12:], 4)
 	copy(record[16:], "abc")
 	got, err := parseInotify(record)
 	if err != nil || len(got) != 1 || got[0].name != "abc" || got[0].cookie != 77 || got[0].wd != 5 {
@@ -33,7 +35,7 @@ func TestWatchInotifyParser(t *testing.T) {
 	if _, err := parseInotify(malformed); err == nil {
 		t.Fatal("accepted unterminated name")
 	}
-	binary.LittleEndian.PutUint32(malformed[12:], 0xffffffff)
+	binary.NativeEndian.PutUint32(malformed[12:], 0xffffffff)
 	if _, err := parseInotify(malformed); err == nil {
 		t.Fatal("accepted oversized name")
 	}
@@ -46,7 +48,7 @@ func TestInotifyWatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	notices := make(chan platform.FileWatchNotice, 16)
-	w, err := (&Backend{}).NewFileWatch(func(n platform.FileWatchNotice) { notices <- n })
+	w, err := New(func(n platform.FileWatchNotice) { notices <- n })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +61,7 @@ func TestInotifyWatch(t *testing.T) {
 		}
 		return w.Add(platform.FileWatchTarget{ID: id, Path: path, Directory: info.IsDir(), Info: info, Subtree: subtree})
 	}
-	if err := add(1, dir, true); err != platform.ErrUnsupported {
+	if err := add(1, dir, true); !errors.Is(err, platform.ErrUnsupported) {
 		t.Fatalf("subtree: %v", err)
 	}
 	for id, path := range map[uint64]string{1: dir, 2: sub} {
@@ -69,18 +71,13 @@ func TestInotifyWatch(t *testing.T) {
 	}
 	next := func(want platform.FileWatchNotice) {
 		t.Helper()
-		timeout := time.After(5 * time.Second)
 		for {
-			select {
-			case n := <-notices:
-				if n == want {
-					return
-				}
-				if n.Err != nil || n.Kind == platform.FileWatchLost {
-					t.Fatalf("notice %+v", n)
-				}
-			case <-timeout:
-				t.Fatalf("no notice %+v", want)
+			n := wait.For(t, fmt.Sprintf("notice %+v", want), notices)
+			if n == want {
+				return
+			}
+			if n.Err != nil || n.Kind == platform.FileWatchLost {
+				t.Fatalf("notice %+v", n)
 			}
 		}
 	}
@@ -92,13 +89,24 @@ func TestInotifyWatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	next(platform.FileWatchNotice{Target: 2, Kind: platform.FileWatchWrite, Name: "file"})
-	// A directory deleted is a removal, not a lost watch.
+	// A directory deleted is watched no more, though another one made at
+	// its path may have its inode: it has to be added again.
 	if err := os.RemoveAll(sub); err != nil {
 		t.Fatal(err)
 	}
-	next(platform.FileWatchNotice{Target: 2, Kind: platform.FileWatchRemove})
-	next(platform.FileWatchNotice{Target: 1, Kind: platform.FileWatchRemove, Name: "sub"})
+	if err := os.Mkdir(sub, 0700); err != nil {
+		t.Fatal(err)
+	}
+	next(platform.FileWatchNotice{Target: 2, Kind: platform.FileWatchLost})
+	next(platform.FileWatchNotice{Target: 1, Kind: platform.FileWatchCreate, Name: "sub"})
 	w.Remove(2)
+	if err := add(3, sub, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "file"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	next(platform.FileWatchNotice{Target: 3, Kind: platform.FileWatchCreate, Name: "file"})
 	if err := os.Rename(filepath.Join(dir, "missing"), filepath.Join(dir, "x")); err == nil {
 		t.Fatal("renamed nothing")
 	}
@@ -119,7 +127,7 @@ func TestInotifyShared(t *testing.T) {
 	watch := func() (platform.FileWatch, chan platform.FileWatchNotice) {
 		t.Helper()
 		notices := make(chan platform.FileWatchNotice, 16)
-		w, err := (&Backend{}).NewFileWatch(func(n platform.FileWatchNotice) { notices <- n })
+		w, err := New(func(n platform.FileWatchNotice) { notices <- n })
 		if err != nil {
 			t.Fatal(err)
 		}

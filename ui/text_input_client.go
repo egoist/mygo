@@ -85,11 +85,14 @@ type textInputAdapter struct {
 }
 
 func (a *textInputAdapter) client() (TextInputClient, *state) {
-	if a.rt.textInputClosed || !a.rt.windowFocus() || a.rt.focused != a.id {
+	// A non-key window can still receive text from system panels such as
+	// macOS's Character Viewer (Emoji & Symbols) while its view remains first
+	// responder, so do not require windowFocus() here.
+	if a.rt.textInputClosed || a.rt.focused != a.id {
 		return nil, nil
 	}
 	s := a.rt.states[a.id]
-	if s == nil || s.textAdapter != a || s.textClient == nil || s.flags&flagDisabled != 0 {
+	if s == nil || s.textAdapter != a || s.textClient == nil || s.flags&flagDisabled != 0 || (s.editor != nil && s.editor.readOnly) {
 		return nil, nil
 	}
 	return s.textClient, s
@@ -127,6 +130,7 @@ func (a *textInputAdapter) changed() { a.rt.requestFrame(); a.rt.updateTextInput
 func (a *textInputAdapter) ReplaceText(r *platform.TextRange, s string) {
 	if c, _ := a.client(); c != nil {
 		c.ReplaceText(r, s)
+		a.rt.textKeyed()
 		a.changed()
 	}
 }
@@ -161,4 +165,23 @@ func (a *textInputAdapter) IndexForPoint(x, y float64) (int, bool) {
 		return c.IndexForPoint(Point{lx, ly})
 	}
 	return 0, false
+}
+
+// SetTextSelection moves the selection of a client that can, as an
+// on-screen keyboard's cursor does (platform.TextSelectionSetter).
+func (a *textInputAdapter) SetTextSelection(r platform.TextRange) {
+	c, _ := a.client()
+	if c == nil {
+		return
+	}
+	if set, ok := c.(TextInputSelectionSetter); ok {
+		set.SetTextSelection(platform.NormalizeTextRange(r))
+		a.changed()
+	}
+}
+
+// TextInputSelectionSetter is a TextInputClient whose selection on-screen
+// keyboards can move, as with iOS's space bar held down.
+type TextInputSelectionSetter interface {
+	SetTextSelection(TextInputRange)
 }

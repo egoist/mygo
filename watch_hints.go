@@ -61,10 +61,11 @@ type fileWatchHints struct {
 	subtree, noSubtree bool
 	// What the next update does: the directories it hints at, the paths
 	// it enrolls if they are directories (walks), the enrolled
-	// directories it checks are still there (checks), whether it checks
-	// the root (check) and looks at everything (all).
-	hints, walks, checks map[string]bool
-	check, all           bool
+	// directories it checks are still there (checks) and those of them it
+	// lists for new directories (lists), whether it checks the root
+	// (check) and looks at everything (all).
+	hints, walks, checks, lists map[string]bool
+	check, all                  bool
 }
 
 func newFileWatchHints(w *FileWatcher) *fileWatchHints {
@@ -75,6 +76,7 @@ func newFileWatchHints(w *FileWatcher) *fileWatchHints {
 		hints:   map[string]bool{},
 		walks:   map[string]bool{},
 		checks:  map[string]bool{},
+		lists:   map[string]bool{},
 	}
 }
 
@@ -210,7 +212,7 @@ func (s *fileWatchHints) enrollTree(dir *os.Root, name, p string, want os.FileIn
 	if seen != nil {
 		seen[p] = true
 	}
-	if err := s.enroll(p, info); err != nil {
+	if err := s.enroll(p, info, seen != nil); err != nil {
 		return err
 	}
 	if !s.w.opts.Recursive || s.subtree {
@@ -237,23 +239,32 @@ func (s *fileWatchHints) enrollTree(dir *os.Root, name, p string, want os.FileIn
 }
 
 // enroll has the backend watch directory p, which is info; one replaced
-// as it is enrolled is left to the hint of its parent.
-func (s *fileWatchHints) enroll(p string, info os.FileInfo) error {
+// as it is enrolled is left to the hint of its parent. again says the
+// tree is enrolled again, and what is gone not dropped yet.
+func (s *fileWatchHints) enroll(p string, info os.FileInfo, again bool) error {
 	if t, ok := s.targets[p]; ok {
 		if t.identity == fileWatchEntryOf(info).id {
 			return nil
 		}
 		s.unenroll(p)
 	}
-	if len(s.targets) >= s.w.opts.MaxEntries {
+	// Enrolling the tree again can come to what moved at its new path
+	// before it drops the old one: update counts again once it is done.
+	count := len(s.targets)
+	if again {
+		count /= 2
+	}
+	if count >= s.w.opts.MaxEntries {
 		return ErrWatchLimit
 	}
 	err := s.add(p, info)
 	if err == nil || errors.Is(err, context.Canceled) {
 		return err
 	}
+	// Gone or replaced, or a directory above it was, by a file or a
+	// symlink out of the root, through which it can't be looked at.
 	checked, statErr := s.root.Lstat(filepath.FromSlash(p))
-	if errors.Is(statErr, fs.ErrNotExist) || statErr == nil && !os.SameFile(StatIdentity(checked), info) || fileWatchInaccessible(err) {
+	if statErr != nil || !os.SameFile(StatIdentity(checked), info) || fileWatchInaccessible(err) {
 		if p == "." {
 			return &os.PathError{Op: "watch", Path: s.dir, Err: errWatchRootChanged}
 		}
@@ -352,9 +363,14 @@ func (s *fileWatchHints) mark(n platform.FileWatchNotice) error {
 		return nil
 	}
 	if n.Name == "" {
-		// The directory itself, which may have moved.
+		// The directory itself, which may have moved, or its entries,
+		// from a backend that doesn't say which (kqueue): a directory
+		// new in it is found by listing it.
 		s.checks[p] = true
 		s.hints[p] = true
+		if s.w.opts.Recursive && !s.subtree {
+			s.lists[p] = true
+		}
 		return nil
 	}
 	if !validWatchName(n.Name, s.subtree && p == ".") {
@@ -377,6 +393,7 @@ func (s *fileWatchHints) mark(n platform.FileWatchNotice) error {
 		s.all = true
 		clear(s.walks)
 		clear(s.checks)
+		clear(s.lists)
 	}
 	return nil
 }
@@ -416,6 +433,7 @@ func (s *fileWatchHints) update() ([]FileEvent, error) {
 		s.all = false
 		clear(s.walks)
 		clear(s.checks)
+		clear(s.lists)
 		clear(s.hints)
 		s.hints["."] = true
 		if _, ok := s.targets["."]; !ok {
@@ -429,6 +447,9 @@ func (s *fileWatchHints) update() ([]FileEvent, error) {
 			if q != ".." && !seen[q] {
 				s.unenroll(q)
 			}
+		}
+		if len(s.targets) > s.w.opts.MaxEntries {
+			return nil, ErrWatchLimit
 		}
 	} else {
 		if _, ok := s.targets["."]; !ok {
@@ -444,6 +465,11 @@ func (s *fileWatchHints) update() ([]FileEvent, error) {
 			}
 			info, err := s.root.Lstat(filepath.FromSlash(p))
 			if err == nil && info.IsDir() && t.identity == fileWatchEntryOf(info).id {
+				if s.lists[p] {
+					if err := s.walkSubdirs(p); err != nil {
+						return nil, err
+					}
+				}
 				continue
 			}
 			// Moved, removed or replaced: what was enrolled there is stale.
@@ -451,8 +477,16 @@ func (s *fileWatchHints) update() ([]FileEvent, error) {
 			s.walks[p] = true
 		}
 		clear(s.checks)
+		clear(s.lists)
 		for _, p := range fileWatchShallowFirst(s.walks) {
 			if _, ok := s.targets[p]; ok || s.ignores(p) {
+				continue
+			}
+			if _, ok := s.targets[path.Dir(p)]; !ok {
+				// Its directory went away or was replaced, as by a
+				// symlink through which p would be another directory,
+				// or it was enrolled with what is in it: its parent's
+				// hint covers it.
 				continue
 			}
 			info, err := s.root.Lstat(filepath.FromSlash(p))
@@ -468,6 +502,33 @@ func (s *fileWatchHints) update() ([]FileEvent, error) {
 	events := fileWatchHintEvents(s.hints)
 	clear(s.hints)
 	return events, nil
+}
+
+// walkSubdirs has the update enroll the directories in enrolled directory
+// p that aren't yet.
+func (s *fileWatchHints) walkSubdirs(p string) error {
+	d := s.root
+	if p != "." {
+		var err error
+		if d, err = s.root.OpenRoot(filepath.FromSlash(p)); err != nil {
+			if errors.Is(err, fs.ErrNotExist) || fileWatchInaccessible(err) {
+				return nil // gone or unreadable: its hint covers it
+			}
+			return err
+		}
+		defer d.Close()
+	}
+	names, err := fileWatchSubdirs(d)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || fileWatchInaccessible(err) {
+			return nil
+		}
+		return err
+	}
+	for _, name := range names {
+		s.walks[path.Join(p, name)] = true // the enrolled are skipped
+	}
+	return nil
 }
 
 // fileWatchShallowFirst returns the paths of m, parents first.
