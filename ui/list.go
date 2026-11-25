@@ -995,8 +995,7 @@ func (f *listFrame) reorder() {
 	if s.Reorder == nil {
 		return
 	}
-	e.flags |= flagValueDrop
-	e.st.accepts = func(v any) bool { d, ok := v.(*rowDrag); return ok && d.s == s }
+	e.takes(func(v any) bool { d, ok := v.(*rowDrag); return ok && d.s == s })
 	rt := f.c.rt
 	var d *rowDrag
 	dropped, y := false, rt.pointerY

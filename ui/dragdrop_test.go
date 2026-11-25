@@ -545,3 +545,37 @@ func TestDropSeveralTypes(t *testing.T) {
 		t.Errorf("dropped words %q, numbers %v", words, numbers)
 	}
 }
+
+// A list that reorders its rows takes other values dropped on it too.
+func TestListReorderTakesOtherDrops(t *testing.T) {
+	items := []string{"a", "b", "c"}
+	var moves [][]int
+	var words []string
+	s := ListState{
+		Key:     func(i int) any { return items[i] },
+		Reorder: func(rows []int, to int) { moves = append(moves, append(slices.Clone(rows), to)) },
+	}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Children(func() {
+			coreBox(c).Size(100, 40).Label("Word").Drag("hello")
+			list := coreList(c, &s, len(items), func(i int) {
+				coreText(c, items[i]).Padding(8)
+			}).Height(200)
+			if v, ok := coreDrop[string](list); ok {
+				words = append(words, v)
+			}
+		})
+	}, 300, 400)
+	word, _ := tt.Find("Word")
+	b, _ := tt.Find("b")
+	drag(tt, word.X+10, word.Y+10, b.X+5, b.Y+5)
+	if !slices.Equal(words, []string{"hello"}) {
+		t.Errorf("the list took words %q", words)
+	}
+	a, _ := tt.Find("a")
+	c, _ := tt.Find("c")
+	drag(tt, a.X, a.Y+a.H/2, c.X, c.Y+c.H)
+	if len(moves) != 1 || !slices.Equal(moves[0], []int{0, 3}) {
+		t.Errorf("moves %v", moves)
+	}
+}
