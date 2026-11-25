@@ -246,9 +246,9 @@ func (sb *spanBuilder) addSpan(text string, src, end int, exact bool, s spanStyl
 	}
 	if s.code {
 		sp.Font = th.CodeFont
-		sp.Size = th.em(th.CodeSize)
+		sp.Size = th.em(th.InlineCodeSize)
 		if s.size != 0 {
-			sp.Size = s.size * th.CodeSize
+			sp.Size = s.size * th.InlineCodeSize
 		}
 		sp.Background = th.CodeBackground
 		sp.Radius = max(3, sp.Size/4)

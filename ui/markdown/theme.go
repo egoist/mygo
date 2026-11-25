@@ -35,9 +35,11 @@ type Theme struct {
 	LinkWeight int
 
 	// Code colors code spans, with CodeBackground behind them; CodeSize is
-	// their size in ems: 0.875.
+	// the size of code blocks in ems: 0.875. InlineCodeSize is that of code
+	// spans, relative to the text around them: 0 for CodeSize.
 	Code, CodeBackground Color
 	CodeSize             float32
+	InlineCodeSize       float32
 
 	// BlockSpacing is the space between blocks, in ems: 0.75. ItemSpacing
 	// is that between the items of a tight list: 0.25.
@@ -154,7 +156,11 @@ func DefaultTheme(t *ui.Theme) *Theme {
 // resolve returns th with what it leaves zero taken from def.
 func resolve(th *Theme, def *Theme) Theme {
 	if th == nil {
-		return *def
+		out := *def
+		if out.InlineCodeSize == 0 {
+			out.InlineCodeSize = out.CodeSize
+		}
+		return out
 	}
 	out := *th
 	f := func(v *float32, d float32) {
@@ -187,6 +193,7 @@ func resolve(th *Theme, def *Theme) Theme {
 	c(&out.Code, out.Text)
 	c(&out.CodeBackground, def.CodeBackground)
 	f(&out.CodeSize, def.CodeSize)
+	f(&out.InlineCodeSize, out.CodeSize)
 	f(&out.BlockSpacing, def.BlockSpacing)
 	f(&out.ItemSpacing, def.ItemSpacing)
 	for i := range out.Headings {
