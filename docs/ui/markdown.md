@@ -156,7 +156,8 @@ asterisks. Paragraphs, headings, list items, quotes, the cells of tables
 and the lines of code blocks match; an image's description and a block of
 HTML or math do not. Every match highlights, `Theme.Match` behind it and
 `Theme.CurrentMatch` behind the one the bar is on, which comes into the
-middle of the view. Enter goes to the next match, Shift+Enter to the
+middle of the view, its own line where the paragraph or code block is
+taller than it. Enter goes to the next match, Shift+Enter to the
 previous, as do Cmd+G and Shift+Cmd+G on macOS, F3 and Shift+F3
 elsewhere, round the ends; Escape closes the bar, gives the view the
 focus back and keeps the query for the next time it opens. The options

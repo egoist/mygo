@@ -2,6 +2,7 @@ package markdown
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/ui"
@@ -85,20 +86,22 @@ type findState struct {
 	reveal  bool
 	// The frame's matches, in the order the view builds them, the one the
 	// bar is on among them (-1 for none), and revealHere its element
-	// waiting to come into view.
-	frameKeys  []findMatch
-	currentSeq int
-	revealHere bool
+	// waiting to come into view. revealRunes is that match's range, in
+	// runes of its element's text.
+	frameKeys   []findMatch
+	currentSeq  int
+	revealHere  bool
+	revealRunes [2]int
 }
 
 // active reports whether the view's text is being searched.
 func (f *findState) active() bool { return f.open && f.query != "" }
 
-// note notes a match starting at byte at of the text of the element of
-// block and line, and reports whether it is the one the bar is on: the
+// note notes a match of bytes [start, end) of text, the text of the element
+// of block and line, and reports whether it is the one the bar is on: the
 // first at or after pending is, and one a frame notes only.
-func (f *findState) note(block, line, at int) bool {
-	m := findMatch{block, line, at}
+func (f *findState) note(block, line, start, end int, text string) bool {
+	m := findMatch{block, line, start}
 	f.frameKeys = append(f.frameKeys, m)
 	if f.currentSeq >= 0 || !m.atOrAfter(f.pending) {
 		return false
@@ -106,6 +109,7 @@ func (f *findState) note(block, line, at int) bool {
 	f.currentSeq, f.cur = len(f.frameKeys)-1, m
 	f.revealHere = f.reveal
 	f.reveal = false
+	f.revealRunes = [2]int{utf8.RuneCountInString(text[:start]), utf8.RuneCountInString(text[:end])}
 	return true
 }
 
@@ -242,14 +246,16 @@ func (st *viewState) findStep(c *ui.Context, dir int) {
 	c.Invalidate()
 }
 
-// findReveal brings the current match's element, once it is built, into
-// the middle of the containers around the view.
+// findReveal brings the current match, once its element is built, into the
+// middle of the containers around the view: its own line where the element
+// is taller than they show.
 func (st *viewState) findReveal(el ui.Element) {
 	if !st.find.revealHere {
 		return
 	}
 	st.find.revealHere = false
-	el.ScrollIntoView(ui.ScrollIntoViewOptions{Block: ui.ScrollCenter})
+	f := &st.find
+	el.ScrollTextRangeIntoView(f.revealRunes[0], f.revealRunes[1], ui.ScrollIntoViewOptions{Block: ui.ScrollCenter})
 }
 
 // findPara returns the pieces of p, the paragraph of block i, cut at the
@@ -262,18 +268,19 @@ func (st *viewState) findPara(i int, p *para) []piece {
 		return p.pieces
 	}
 	pc := &st.paras[i]
+	text := piecesText(p.pieces)
 	if pc.findRev == f.rev {
 		for _, r := range pc.findRanges {
-			f.note(i, -1, r[0])
+			f.note(i, -1, r[0], r[1], text)
 		}
 		return pc.findPieces
 	}
 	pc.findRev = f.rev
-	pc.findRanges = p.findable(st.findIn(i, -1, piecesText(p.pieces)))
+	pc.findRanges = p.findable(st.findIn(i, -1, text))
 	pc.findPieces = p.pieces
 	if len(pc.findRanges) > 0 {
 		pc.findPieces = cutPieces(p.pieces, pc.findRanges, func(k int) Color {
-			if f.note(i, -1, pc.findRanges[k][0]) {
+			if f.note(i, -1, pc.findRanges[k][0], pc.findRanges[k][1], text) {
 				return st.th.CurrentMatch
 			}
 			return st.th.Match
@@ -291,18 +298,19 @@ func (st *viewState) findChunk(ch *codeChunk, i, line int) []ui.Span {
 	if !f.active() {
 		return ch.spans
 	}
+	text := spansText(ch.spans)
 	if ch.findRev == f.rev {
 		for _, r := range ch.findRanges {
-			f.note(i, line, r[0])
+			f.note(i, line, r[0], r[1], text)
 		}
 		return ch.findSpans
 	}
 	ch.findRev = f.rev
-	ch.findRanges = st.findIn(i, line, spansText(ch.spans))
+	ch.findRanges = st.findIn(i, line, text)
 	ch.findSpans = ch.spans
 	if len(ch.findRanges) > 0 {
 		ch.findSpans = cutSpans(ch.spans, ch.findRanges, func(k int) Color {
-			if f.note(i, line, ch.findRanges[k][0]) {
+			if f.note(i, line, ch.findRanges[k][0], ch.findRanges[k][1], text) {
 				return st.th.CurrentMatch
 			}
 			return st.th.Match

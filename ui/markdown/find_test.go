@@ -331,6 +331,24 @@ func TestViewFindScrollsToMatch(t *testing.T) {
 	}
 }
 
+// TestViewFindRevealsTallParagraph checks that a match near the end of a
+// paragraph taller than the view comes into it, not only the paragraph's
+// middle.
+func TestViewFindRevealsTallParagraph(t *testing.T) {
+	src := strings.Repeat("filler words ", 300) + "needle\n"
+	o := &Options{Find: true}
+	tt, _, _ := findView(&src, o)
+	tt.Type("needle")
+	tt.Frame()
+	findSays(t, tt, "1 of 1")
+	view := ui.Rect{X: 0, Y: 0, W: 700, H: 300}
+	img := tt.Image()
+	th := editor.DefaultTheme(ui.LightTheme())
+	if n := tintPixels(img, view, th.CurrentMatch, wash(img, view)); n < 20 {
+		t.Errorf("the match in the tall paragraph is not in the view: %d pixels", n)
+	}
+}
+
 // TestViewFindCentersMatch checks that the match the bar goes to comes to
 // the middle of the view, where the scroll reaches it.
 func TestViewFindCentersMatch(t *testing.T) {
@@ -561,7 +579,8 @@ func TestViewFindSkipsImageDescriptions(t *testing.T) {
 // into view.
 func TestViewFindInCodeBlocks(t *testing.T) {
 	src := "Intro.\n\n```\nmutex here\n```\n\n```go\n" +
-		strings.Repeat("line of code\n", 40) + "deeply buried mutex\n```\n"
+		strings.Repeat("line of code\n", 60) + "deeply buried mutex\n```\n\n" +
+		strings.Repeat("tail text\n\n", 30)
 	o := &Options{Find: true}
 	tt, scroll, _ := findView(&src, o)
 	tt.Type("mutex")
@@ -577,8 +596,12 @@ func TestViewFindInCodeBlocks(t *testing.T) {
 	// fold.
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
+	findSays(t, tt, "2 of 2")
 	if scroll.Y <= 0 {
 		t.Error("the match in the block's second chunk did not come into view")
+	}
+	if n := tintPixels(tt.Image(), ui.Rect{X: 0, Y: 0, W: 700, H: 300}, th.CurrentMatch, bg); n < 20 {
+		t.Errorf("the match in the block's second chunk is not in the view: %d pixels", n)
 	}
 }
 
