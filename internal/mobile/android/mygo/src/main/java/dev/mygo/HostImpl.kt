@@ -116,6 +116,13 @@ object HostImpl : HostCalls {
     fun startGo(a: Context, intent: Intent?) {
         if (started) return
         started = true
+        // The system keeps the night mode an app set from Android 12 on,
+        // past its process and a reboot, but Go starts following the
+        // system, as below 12 and elsewhere: Run applies what the app
+        // sets before it.
+        if (Build.VERSION.SDK_INT >= 31) {
+            (app.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).setApplicationNightMode(UiModeManager.MODE_NIGHT_AUTO)
+        }
         val files = a.filesDir.absolutePath
         val cache = a.cacheDir.absolutePath
         // Android sets none of these, which os.UserHomeDir, UserConfigDir,
