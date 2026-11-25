@@ -92,8 +92,38 @@ func (e *node) TrackScroll(s *ScrollState) *node {
 //		hit.ScrollIntoView(ui.ScrollIntoViewOptions{Block: ui.ScrollCenter, Animation: &ui.Smooth})
 //	}
 func (e *node) ScrollIntoView(options ...ScrollIntoViewOptions) *node {
+	o := scrollOptions("ScrollIntoView", options)
+	if !e.hasState() {
+		return e
+	}
+	e.c.reveal = append(e.c.reveal, nodeReveal{e: e, o: o})
+	return e
+}
+
+// ScrollTextRangeIntoView scrolls the containers around the element to
+// show runes [start, end) of its text, as ScrollIntoView shows its box: a
+// match of a find in a paragraph or a code block taller than the view
+// comes into view by its own line, not by the middle of what holds it.
+// An element that is not text, or has not laid its text out yet, scrolls
+// as ScrollIntoView scrolls it.
+//
+//	el.ScrollTextRangeIntoView(start, end, ui.ScrollIntoViewOptions{Block: ui.ScrollCenter})
+func (e *node) ScrollTextRangeIntoView(start, end int, options ...ScrollIntoViewOptions) *node {
+	o := scrollOptions("ScrollTextRangeIntoView", options)
+	if !e.hasState() {
+		return e
+	}
+	if start > end {
+		start, end = end, start
+	}
+	e.c.reveal = append(e.c.reveal, nodeReveal{e: e, o: o, text: &textRange{start, end}})
+	return e
+}
+
+// scrollOptions reads the options of a method that takes at most one.
+func scrollOptions(name string, options []ScrollIntoViewOptions) ScrollIntoViewOptions {
 	if len(options) > 1 {
-		panic("ui: ScrollIntoView takes at most one ScrollIntoViewOptions")
+		panic("ui: " + name + " takes at most one ScrollIntoViewOptions")
 	}
 	var o ScrollIntoViewOptions
 	if len(options) > 0 {
@@ -105,11 +135,7 @@ func (e *node) ScrollIntoView(options ...ScrollIntoViewOptions) *node {
 			panic("ui: animation durations must not be negative")
 		}
 	}
-	if !e.hasState() {
-		return e
-	}
-	e.c.reveal = append(e.c.reveal, nodeReveal{e, o})
-	return e
+	return o
 }
 
 // ScrollIntoViewOptions say where ScrollIntoView brings an element in the
@@ -150,16 +176,25 @@ const (
 	ScrollEnd
 )
 
-// nodeReveal is an element asked to come into view, as o says.
+// textRange is runes [start, end) of an element's text to bring into view
+// instead of its box, as ScrollTextRangeIntoView asks.
+type textRange struct {
+	start, end int
+}
+
+// nodeReveal is an element asked to come into view, as o says, by its box
+// or, with text, by the range of its text.
 type nodeReveal struct {
-	e *node
-	o ScrollIntoViewOptions
+	e    *node
+	o    ScrollIntoViewOptions
+	text *textRange
 }
 
 // revealAsk is the element id asked to come into view, as o says.
 type revealAsk struct {
-	id uint64
-	o  ScrollIntoViewOptions
+	id   uint64
+	o    ScrollIntoViewOptions
+	text *textRange
 }
 
 // adoptScroll takes the offset the app set in the element's ScrollState,
@@ -291,20 +326,24 @@ func (s *state) movedIn(frame uint64) bool {
 // reveal scrolls element id into view in the next frame, once it is laid
 // out.
 func (rt *engine) reveal(id uint64) {
-	rt.askReveal(id, ScrollIntoViewOptions{})
+	rt.askReveal(id, ScrollIntoViewOptions{}, nil)
 	rt.requestFrame()
 }
 
 // askReveal adds element id to those to scroll into view once the frame
-// is laid out, as o says: an element asked again keeps its place among
-// them, and takes the options asked last, but for the zero ones.
-func (rt *engine) askReveal(id uint64, o ScrollIntoViewOptions) {
+// is laid out, as o says, by its box or, with text, by the range of its
+// text: an element asked again keeps its place among them, and takes the
+// options asked last, but for the zero ones.
+func (rt *engine) askReveal(id uint64, o ScrollIntoViewOptions, text *textRange) {
 	i := revealIndex(rt.revealIDs, id)
 	switch {
 	case i < 0:
-		rt.revealIDs = append(rt.revealIDs, revealAsk{id, o})
+		rt.revealIDs = append(rt.revealIDs, revealAsk{id, o, text})
 	case o != ScrollIntoViewOptions{}:
 		rt.revealIDs[i].o = o
+		if text != nil {
+			rt.revealIDs[i].text = text
+		}
 	}
 }
 
@@ -338,20 +377,29 @@ func revealAll(root *node, asks []revealAsk) {
 	walk(root)
 	for i, e := range found {
 		if e != nil {
-			reveal(e, asks[i].o)
+			reveal(e, asks[i].o, asks[i].text)
 		}
 	}
 }
 
 // reveal scrolls the containers around e, innermost first, to show its
-// box as o says. The layout has sized and arranged the boxes, relative to
-// their parents, but not placed them yet.
-func reveal(e *node, o ScrollIntoViewOptions) {
-	for e.isInline() {
-		e = e.parent
+// box as o says, or the range text of its text. The layout has sized and
+// arranged the boxes, relative to their parents, but not placed them yet.
+func reveal(e *node, o ScrollIntoViewOptions, text *textRange) {
+	if text == nil || e.tl == nil {
+		for e.isInline() {
+			e = e.parent
+		}
 	}
 	x, y, w, h := e.x, e.y, e.w, e.h
-	if r, ok := clientCaret(e); ok {
+	if text != nil && e.tl != nil {
+		// The element's text shows a range of it, as a paragraph or a code
+		// block taller than the view: that is what comes into view.
+		if rs := e.tl.Selection(text.start, text.end); len(rs) > 0 {
+			r := rs[0]
+			x, y, w, h = x+e.contentX()+r.X, y+e.contentY()+r.Y, max(r.W, 1), r.H
+		}
+	} else if r, ok := clientCaret(e); ok {
 		// An app's text field shows its caret: the text it edits may be
 		// taller than the view, as a code editor as high as its lines.
 		x, y, w, h = x+r.X, y+r.Y, max(r.W, 1), r.H

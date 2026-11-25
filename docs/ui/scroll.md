@@ -151,6 +151,15 @@ if app.matchMoved {
 
 The zero options are those of `ScrollIntoView()` without them.
 
+A text taller than the containers around it shows a range of itself:
+`ScrollTextRangeIntoView` lines up runes `start` to `end` of a text
+element, not its box, as the match of a find in a long paragraph or a code
+block does.
+
+```go
+hit.ScrollTextRangeIntoView(start, end, ui.ScrollIntoViewOptions{Block: ui.ScrollCenter})
+```
+
 The keyboard focus scrolls into view as it moves. An element with a
 `TextInputClient` of the app's ([text input clients](text-input-client.md))
 scrolls its caret into view, where `BoundsForRange` places it, rather than

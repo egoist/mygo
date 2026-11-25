@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -237,6 +238,38 @@ func revealTester(sideways bool, s *ScrollState, ask *bool, o *[]ScrollIntoViewO
 			}
 		})
 	}, 200, 200)
+}
+
+// TestScrollTextRangeIntoView centers the line of a range of a text taller
+// than the view, not the text's start.
+func TestScrollTextRangeIntoView(t *testing.T) {
+	var s ScrollState
+	var text *node
+	const tail = "needle"
+	src := strings.Repeat("word ", 400) + tail
+	ask := false
+	tt := coreNewTester(func(c *context) {
+		c.DisableAnimations()
+		coreScroll(c).Fill().TrackScroll(&s).Children(func() {
+			text = coreText(c, src)
+			if ask {
+				text.ScrollTextRangeIntoView(len(src)-len(tail), len(src), ScrollIntoViewOptions{Block: ScrollCenter})
+			}
+		})
+	}, 300, 300)
+	tt.Frame()
+	ask = true
+	tt.Frame()
+	rs := text.tl.Selection(len(src)-len(tail), len(src))
+	if len(rs) == 0 {
+		t.Fatal("the range has no box")
+	}
+	if want := min(rs[0].Y+rs[0].H/2-150, s.MaxY); math.Abs(float64(s.Y-want)) > 1 {
+		t.Errorf("the range is centered at scroll %g, want %g", s.Y, want)
+	}
+	if s.Y <= 0 {
+		t.Errorf("the range did not scroll the view: %g", s.Y)
+	}
 }
 
 // TestScrollIntoViewAlign lines a box up as the web's scrollIntoView's
