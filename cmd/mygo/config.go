@@ -343,6 +343,17 @@ type Android struct {
 	// module's jniLibs. By default they stay in the APK, uncompressed, and
 	// are loaded from it.
 	ExtractNativeLibs bool `json:"extractNativeLibs"`
+	// ABIs are those the app is built for, as "arm64", "arm" or "amd64"
+	// (or "arm64-v8a", "armeabi-v7a", "x86_64"): for an app whose native
+	// modules ship prebuilt libraries for some only, such as an executable
+	// it runs. The APK then carries no library of another ABI. Default:
+	// all three.
+	ABIs []string `json:"abis"`
+	// V1Signing signs the APK with the JAR signature (v1) as well as the
+	// newer schemes. Android does not need it from 7.0, so the build leaves
+	// it out from minSdk 24, but some phones' installers still refuse an
+	// APK without it.
+	V1Signing bool `json:"v1Signing"`
 }
 
 // AndroidAdaptiveIcon is an icon of two layers.
@@ -405,6 +416,23 @@ func readConfig(root string) (data []byte, file string, err error) {
 		return data, jsonFile, err
 	}
 	return nil, "", nil
+}
+
+// setVersion makes v the app's version, in place of mygo.json's (mygo build
+// -version): a release's tag, whose prefix is dropped, updates.tagPrefix or
+// else a leading v.
+func (c *Config) setVersion(v string) error {
+	v = strings.TrimSpace(v)
+	prefix := "v"
+	if c.Updates != nil && c.Updates.TagPrefix != "" {
+		prefix = c.Updates.TagPrefix
+	}
+	v = strings.TrimPrefix(v, prefix)
+	if v == "" || strings.ContainsFunc(v, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r == '/' || r == '\\' }) {
+		return fmt.Errorf("-version %q is not a version", v)
+	}
+	c.Version = v
+	return c.validate()
 }
 
 func (c *Config) validate() error {
@@ -561,6 +589,11 @@ func (c *Config) validateMobile() error {
 	if c.Android.Splash != "" {
 		if _, err := parseHexColor(c.Android.Splash); err != nil {
 			return fmt.Errorf("android.splash: %w", err)
+		}
+	}
+	for _, a := range c.Android.ABIs {
+		if androidABI(a) == "" {
+			return fmt.Errorf("android.abis: %q is not an ABI, as arm64, arm or amd64", a)
 		}
 	}
 	return nil

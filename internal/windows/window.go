@@ -5,6 +5,7 @@ package windows
 import (
 	"errors"
 	"log"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -82,6 +83,15 @@ type window struct {
 		value float64
 	}
 	icons [2]uintptr // small and big, from SetIcon
+	// thumb is the window's thumbnail toolbar (thumbbar.go): the buttons
+	// the core set last, and whether the shell has them (live).
+	thumb struct {
+		buttons []platform.ThumbButton
+		live    bool
+	}
+	// taskbarButton is whether Explorer has sent TaskbarButtonCreated for
+	// the window's current taskbar button.
+	taskbarButton bool
 	// placing is the rectangle, in pixels, that place is moving the window
 	// to, already in the DPI of its display: WM_DPICHANGED keeps it.
 	placing *rect
@@ -154,6 +164,12 @@ type window struct {
 	htmlNext     bool              // LoadHTML started the next navigation
 	calls        map[int]func(string, error)
 	nextCall     int
+
+	active bool
+	// atePageUp is the mouse button release of an activation press
+	// WM_MOUSEACTIVATE ate on a WebView2 page window, held until the
+	// release arrives so it does not land in the page as an orphan mouseup.
+	atePageUp uint32
 
 	// flyoutLeft tells that the activation left the window's focusable
 	// flyout for another app's window, which draws the window inactive
@@ -488,9 +504,60 @@ func (w *window) monitor() uintptr {
 	return m
 }
 
+// releaseMessage maps a mouse-down message from WM_MOUSEACTIVATE to its
+// matching mouse-up message.
+func releaseMessage(down uint16) uint32 {
+	switch down {
+	case wmLButtonDown:
+		return wmLButtonUp
+	case wmRButtonDown:
+		return wmRButtonUp
+	case wmMButtonDown:
+		return wmMButtonUp
+	case wmXButtonDown:
+		return wmXButtonUp
+	}
+	return 0
+}
+
+// webViewChild returns WebView2's direct child window (Chrome_WidgetWin_0)
+// under w.hwnd, or 0 if none exists. That class name is WebView2's
+// undocumented internal host window; when it is absent, syncWebViewEnabled
+// is a no-op and the activation click falls back to reaching the page.
+func (w *window) webViewChild() uintptr {
+	const gwHwndNext = 2
+	for h, _, _ := procGetTopWindow.Call(w.hwnd); h != 0; h, _, _ = procGetNextWindow.Call(h, gwHwndNext) {
+		var buf [32]uint16
+		n, _, _ := procGetClassNameW.Call(h, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+		if syscall.UTF16ToString(buf[:n]) == "Chrome_WidgetWin_0" {
+			return h
+		}
+	}
+	return 0
+}
+
+// syncWebViewEnabled disables WebView2's child window while an inactive
+// window has ConsumeActivationClick set (or is still awaiting the release of
+// an eaten activation press), so Windows routes WM_MOUSEACTIVATE and the
+// matching button-up to w.hwnd instead of WebView2's cross-process
+// Chrome_RenderWidgetHostHWND.
+func (w *window) syncWebViewEnabled() {
+	if !webViewBuilt || !w.opts.ConsumeActivationClick || w.host != nil || w.surface != nil || w.controller == 0 {
+		return
+	}
+	if child := w.webViewChild(); child != 0 {
+		enable := uintptr(0)
+		if w.active && w.atePageUp == 0 {
+			enable = 1
+		}
+		procEnableWindow.Call(child, enable)
+	}
+}
+
 // message handles a window message; ok false lets DefWindowProc run.
 func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 	if m == w.b.taskbarButtonCreated && m != 0 {
+		w.taskbarButton = true
 		w.applyTaskbar()
 		return 0, true
 	}
@@ -499,8 +566,23 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			return r, true
 		}
 	}
-	if m == wmMouseActivate && w.ownsFocusableFlyout() {
+	if m == wmMouseActivate && (w.ownsFocusableFlyout() || !w.active && w.opts.ConsumeActivationClick && loword(lp) == htClient) {
+		if w.surface != nil {
+			w.surface.eatActivationRelease(hiword(lp))
+		} else if w.opts.ConsumeActivationClick && w.controller != 0 {
+			w.atePageUp = releaseMessage(hiword(lp))
+		}
 		return maActivateAndEat, true
+	}
+	if m != 0 && m == w.atePageUp {
+		w.atePageUp = 0
+		procReleaseCapture.Call()
+		w.syncWebViewEnabled()
+		if w.active {
+			// WM_SETFOCUS came while the child was disabled, so MoveFocus could not take focus yet.
+			w.focusWebView()
+		}
+		return 0, true
 	}
 	if m == wmNCActivate && wp == 0 && w.keepsActive() {
 		// Its flyout takes the activation: the frame and the material
@@ -577,18 +659,38 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		w.h.Moved()
 		return 0, true
 	case wmActivate:
-		if loword(wp) != waInactive {
+		const waClickActive = 2
+		w.active = loword(wp) != waInactive
+		if loword(wp) != waClickActive {
+			w.atePageUp = 0
+		}
+		w.syncWebViewEnabled()
+		if loword(wp) == waClickActive && w.atePageUp != 0 {
+			procSetCapture.Call(w.hwnd)
+		}
+		if w.active {
 			w.flyoutLeft = false
 		}
 		if w.caption != nil {
-			w.caption.activate(loword(wp) != waInactive || w.keepsActive())
+			w.caption.activate(w.active || w.keepsActive())
 		}
-		if loword(wp) == waInactive {
+		if !w.active {
 			w.h.Blurred()
 		} else {
 			w.h.Focused()
 		}
 		return 0, false
+	case wmCaptureChanged:
+		if w.atePageUp != 0 && lp != w.hwnd {
+			w.atePageUp = 0
+			w.syncWebViewEnabled()
+		}
+	case wmLButtonDown, wmLButtonDblClk, wmRButtonDown, wmRButtonDblClk, wmMButtonDown, wmMButtonDblClk, wmXButtonDown, wmXButtonDblClk:
+		if w.atePageUp != 0 {
+			w.atePageUp = 0
+			procReleaseCapture.Call()
+			w.syncWebViewEnabled()
+		}
 	case wmSetFocus:
 		if w.menusHaveKeyboard {
 			return 0, true // the page gets it back once the menus close
@@ -637,6 +739,15 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			procFillRect.Call(wp, uintptr(unsafe.Pointer(&r)), brush)
 		}
 		return 1, true
+	case wmStyleChanging:
+		if int32(wp) == gwlStyle && w.surface != nil && w.surface.cloaked {
+			styles := (*styleStruct)(native(lp))
+			if styles.Old&wsChild == 0 && styles.New&wsChild != 0 {
+				// DWM can refuse to uncloak a child HWND. Clear the
+				// first-frame cloak while this window is still top-level.
+				w.surface.uncloak()
+			}
+		}
 	case wmWindowPosChanging:
 		pos := (*windowPos)(native(lp))
 		if pos.Flags&swpShowWindow != 0 && w.surface != nil {
@@ -648,6 +759,12 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 		}
 		return 0, false
 	case wmCommand:
+		if hiword(wp) == thbnClicked && lp == 0 { // a thumbnail toolbar button
+			if thumbClicked != nil {
+				thumbClicked(w, loword(wp))
+			}
+			return 0, true
+		}
 		if hiword(wp) == 0 && lp == 0 { // a menu item
 			w.b.menuCommand(loword(wp), w)
 			return 0, true
@@ -934,6 +1051,8 @@ func (w *window) cleanup() {
 	if w.closed {
 		return
 	}
+	// Also while Windows destroys it with its owner.
+	w.destroying = true
 	w.closeWebViews()
 	w.closed = true
 	if w.opts.Modal && w.parent != nil && !w.parent.closed {

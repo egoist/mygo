@@ -348,6 +348,7 @@ object HostImpl : HostCalls {
     override fun showTabs(c: ShowTabsCall) = Navigation.showTabs(c.id)
     override fun selectTab(c: SelectTabCall) { Navigation.tabs[c.id]?.select(c.index.toInt()) }
     override fun setTabBadge(c: SetTabBadgeCall) = Navigation.setBadge(c.id, c.index.toInt(), c.badge)
+    override fun setTabTitle(c: SetTabTitleCall) = Navigation.setTabTitle(c.id, c.index.toInt(), c.title)
     override fun closeTabs(c: CloseTabsCall) = Navigation.closeTabs(c.id)
     override fun pushWindow(c: PushWindowCall) {
         val p = windows[c.parent] ?: return
@@ -894,6 +895,7 @@ object HostImpl : HostCalls {
     override fun accessibilityChanged(c: AccessibilityChangedCall) { surface(c.id)?.accessibilityChanged(c.focus) }
     override fun announce(c: AnnounceCall) { (front()?.view ?: root).announceForAccessibility(c.text) }
     override fun showMenu(c: ShowMenuCall) { surface(c.id)?.showMenu(c) }
+    override fun hideMenu(c: HideMenuCall) { surface(c.id)?.hideMenu() }
     override fun setBackAvailable(c: SetBackAvailableCall) {
         surface(c.id)?.backAvailable = c.on
         updateBack()
@@ -903,6 +905,7 @@ object HostImpl : HostCalls {
     override fun textMetrics(c: TextMetricsCall): TextMetricsReply = Text.metrics(c)
     override fun measureText(c: MeasureTextCall): MeasureTextReply = Text.measure(c)
     override fun textAdvances(c: TextAdvancesCall): TextAdvancesReply = Text.advances(c)
+    override fun measureTextRun(c: MeasureTextRunCall): MeasureTextRunReply = Text.measureRun(c)
     override fun drawText(c: DrawTextCall): DrawTextReply = Text.draw(c)
     override fun registerFont(c: RegisterFontCall): RegisterFontReply = Text.register(c)
 }

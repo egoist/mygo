@@ -7,6 +7,7 @@ import (
 	"image"
 	"math"
 	"os"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -95,7 +96,10 @@ func TestPerformKeyEquivalent(key string, shift bool) bool {
 	withPool(func() {
 		flags := uint(1 << 20)
 		if shift {
+			// The characters of a shifted press are shifted, as AppKit
+			// gives them.
 			flags |= 1 << 17
+			key = strings.ToUpper(key)
 		}
 		ev := msgKeyEvent(class("NSEvent"), sel("keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"),
 			10 /* NSEventTypeKeyDown */, NSPoint{}, flags, 0, 0, 0, nsString(key), nsString(key), false, 0)
@@ -199,6 +203,18 @@ func TestHitView(handle uintptr, x, y float64) (cls string) {
 		}
 	})
 	return cls
+}
+
+// TestAcceptsFirstMouse asks the hit-tested content view whether an
+// activation press reaches it, at a point in the content's top-left origin.
+func TestAcceptsFirstMouse(handle uintptr, x, y float64) (accepts bool) {
+	withPool(func() {
+		content := send(id(handle), "contentView")
+		bounds := msgRect(content, sel("bounds"))
+		hit := msgHitTest(content, sel("hitTest:"), NSPoint{X: x, Y: bounds.Size.Height - y})
+		accepts = hit != 0 && objc.Send[bool](hit, sel("acceptsFirstMouse:"), id(0))
+	})
+	return accepts
 }
 
 // TestAppPress is half of TestAppClick: the left mouse down, or the up,
@@ -839,6 +855,11 @@ func TestIsFrontmost() bool {
 // TestCollectionBehavior returns a window's NSWindowCollectionBehavior.
 func TestCollectionBehavior(handle uintptr) uint {
 	return uint(sendInt(id(handle), "collectionBehavior"))
+}
+
+// TestBecomesKeyOnlyIfNeeded reports an NSPanel's becomesKeyOnlyIfNeeded.
+func TestBecomesKeyOnlyIfNeeded(handle uintptr) bool {
+	return sendBool(id(handle), "becomesKeyOnlyIfNeeded")
 }
 
 // TestMaterial returns the class of a window's material (Vibrancy), its

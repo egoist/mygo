@@ -69,15 +69,14 @@ func (ShellModule) TrashItem(path string) error {
 // path where it landed inside the trash directory, so an app can put it
 // back exactly. A relative path is relative to the working directory.
 //
-// It is supported on macOS only. On Windows, Linux and in browsers it
-// returns ("", ErrUnsupported): Windows's IFileOperation and Linux's
-// g_file_trash do not report the resulting path. Use TrashItem there, and
-// record the original path yourself before trashing, as Finder's "Put
-// Back" does on macOS.
+// It is supported on macOS, Windows and Linux; in browsers it returns
+// ("", ErrUnsupported).
 //
-// On macOS the returned path is where the system left the item, which may
-// not be the same name as the input: Finder renames an item that collides
-// with one already in the trash ("foo.txt" -> "foo 2.txt").
+// The returned path is where the system left the item, which may not be
+// the same name as the input: the trash renames an item that collides
+// with one already there (Finder: "foo.txt" -> "foo 2.txt"; Windows: a
+// $R file of the recycle bin; Linux: the name GIO picked in the trash's
+// files directory).
 func (ShellModule) TrashItemResult(path string) (string, error) {
 	needsApp("Shell.TrashItemResult")
 	abs, err := filepath.Abs(path)
@@ -653,9 +652,9 @@ func (b WindowButtons) Empty() bool { return len(b.Start) == 0 && len(b.End) == 
 // On macOS they are close, minimize and maximize at the start; on Windows
 // minimize, maximize and close at the end. On Linux the desktop's button
 // layout (gtk-decoration-layout) decides, as it does for the buttons of a
-// hidden title bar (TitleBarStyle): none under a Wayland compositor that
-// decorates windows itself, as tiling ones such as Hyprland and Sway,
-// which draw no buttons, and none where the user emptied the layout, as
+// hidden title bar (TitleBarStyle): none under a tiling Wayland compositor
+// that decorates windows itself, as Hyprland and Sway, which draw no
+// buttons, and none where the user emptied the layout, as
 // users of tiling window managers on X11 do. OnUpdated tells when it
 // changes. It is safe from any goroutine; like the other calls that need
 // the running app, it panics on the main goroutine before App.Run.
@@ -1008,6 +1007,13 @@ func (t *Tray) PopUpMenu() {
 // Bounds returns the position of the icon on screen. macOS shows a menu bar
 // item on each display: Bounds is the one the user last clicked, so a window
 // placed against it, as a flyout, goes on the display the user clicked.
+//
+// Bounds is empty where the icon has no place on screen to report: on
+// Linux, whose panels never say where their icons are, and on Windows for
+// an icon the user keeps in the notification area's overflow while that
+// flyout is closed. An empty Bounds does not mean the icon is gone: MyGo
+// adds every icon again when the notification area restarts, so don't
+// rebuild the tray on it.
 func (t *Tray) Bounds() Rectangle {
 	return onMainValue(func() Rectangle {
 		if t.native == nil {

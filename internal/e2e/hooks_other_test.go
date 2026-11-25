@@ -40,6 +40,7 @@ func webViewAttached(*mygo.Window) (bool, bool) { return false, false }
 
 // Collection behaviors and deactivating the app are macOS's.
 func collectionBehavior(*mygo.Window) (uint, bool)               { return 0, false }
+func becomesKeyOnlyIfNeeded(*mygo.Window) (bool, bool)           { return false, false }
 func deactivateApp() bool                                        { return false }
 func material(*mygo.Window) (string, int, float64, bool, bool)   { return "", 0, 0, false, false }
 func materialState(*mygo.Window) (int, bool)                     { return 0, false }
@@ -164,6 +165,10 @@ func dropFilesFrom(*mygo.Window, float64, float64, float64, float64, []string) (
 func axAttribute(*mygo.Window, string, string) (string, bool, bool, bool) {
 	return "", false, false, false
 }
+
+// keyboardTarget would say where keys typed now go, which only Windows'
+// tests ask the system.
+func keyboardTarget(*mygo.Window) string { return "" }
 
 func pressEscape(*mygo.Window) bool { return false }
 

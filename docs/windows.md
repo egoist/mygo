@@ -47,6 +47,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `FitContent` | sizes the page area to its page's content, and follows it, within the limits above, as a [flyout's](#size-a-flyout-to-its-content) |
 | `StateKey` | remembers the window's bounds and state under this key, see [below](#remember-where-windows-were) |
 | `Hidden` | creates the window without showing it |
+| `ConsumeActivationClick` | spends the first click in a non-key window on making it key, without sending the press to its page, native UI or embedded WebViews (macOS, Windows); system window controls keep their behavior, while custom title-bar drag regions (`--app-region: drag`, `ui.Element.DragWindow`) require the window to be active first. On Windows, a page window without `Content` disables its WebView2 control while inactive, so wheel scrolling, hover and file drops do not reach it until the window is active; native UI and embedded WebViews keep all three while inactive. The default also sends the press to the content |
 | `Maximized`, `FullScreen` | creates it maximized or in full screen |
 | `Frameless` | no title bar and borders: the page draws them, see [custom title bars](frontend.md#custom-title-bars), or the [native UI](ui/windows.md) |
 | `TitleBarStyle` | hides the title bar but keeps the window buttons over the page, see [custom title bars](frontend.md#custom-title-bars), or over [native UI](ui/windows.md) |
@@ -316,6 +317,24 @@ Other properties:
 - `FlashFrame(true)` asks for attention: the taskbar button flashes
   (Windows), the window is marked urgent (Linux) or the Dock icon bounces
   (macOS).
+- `SetThumbBar` puts a thumbnail toolbar under the window's live preview
+  in the taskbar (Windows): a row of up to 7 small buttons, each with a
+  PNG icon, a tooltip and a state:
+
+  ```go
+  win.SetThumbBar([]mygo.ThumbButton{
+      {Icon: back, ToolTip: "Back", Click: func(b *mygo.ThumbButton, win *mygo.Window) { goBack() }},
+      {Icon: play, ToolTip: "Play", Click: func(b *mygo.ThumbButton, win *mygo.Window) { play() }},
+  })
+  ```
+
+  The first call fixes the buttons' count and order (what the shell's
+  `ThumbBarAddButtons` allows); later calls update their icons (passing
+  new PNGs, or nil / the same PNGs to keep them), tooltips, `Disabled`
+  and `Hidden` state, and replace their `Click` functions. Buttons that
+  matter most come first: the toolbar is cut from the right where it does
+  not fit. The Click of a button runs on the main thread. On the other
+  platforms `SetThumbBar` reports `errors.ErrUnsupported`.
 
 ## Active and inactive windows
 
