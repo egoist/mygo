@@ -332,18 +332,19 @@ func (rt *engine) reveal(id uint64) {
 
 // askReveal adds element id to those to scroll into view once the frame
 // is laid out, as o says, by its box or, with text, by the range of its
-// text: an element asked again keeps its place among them, and takes the
-// options asked last, but for the zero ones.
+// text: an element asked again keeps its place among them, shows what was
+// asked last (its box or a range of its text), and takes the options asked
+// last, but for the zero ones.
 func (rt *engine) askReveal(id uint64, o ScrollIntoViewOptions, text *textRange) {
 	i := revealIndex(rt.revealIDs, id)
 	switch {
 	case i < 0:
 		rt.revealIDs = append(rt.revealIDs, revealAsk{id, o, text})
-	case o != ScrollIntoViewOptions{}:
-		rt.revealIDs[i].o = o
-		if text != nil {
-			rt.revealIDs[i].text = text
+	default:
+		if o != (ScrollIntoViewOptions{}) {
+			rt.revealIDs[i].o = o
 		}
+		rt.revealIDs[i].text = text
 	}
 }
 
