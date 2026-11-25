@@ -120,8 +120,14 @@ func (t *Tabs) SetBadge(i int, text string) {
 }
 
 // SetTitle changes the title of tab i, which the tab bar shows and
-// assistive technology reads. On desktops it changes nothing: a tab's
-// window has a title of its own (Window.SetTitle).
+// assistive technology reads. While the tab's window is at the root of
+// its stack it also retitles the bar at the top of the page: a title
+// coming to an untitled tab shows that bar, as at NewTabs, and "" takes
+// it away. In both it overrides an earlier Window.SetTitle on the tab's
+// window. On Android a title of "" takes the bar's Window.SetBarItems
+// buttons with it, as an untitled tab has no bar for them. On desktops
+// it changes nothing: a tab's window has a title of its own
+// (Window.SetTitle).
 func (t *Tabs) SetTitle(i int, title string) {
 	onMain(func() {
 		if i < 0 || i >= len(t.items) {
