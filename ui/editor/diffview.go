@@ -54,7 +54,10 @@ type DiffState struct {
 	// Wrap wraps long lines rather than scrolling them sideways.
 	Wrap bool
 	// FitContent makes the viewer as high as its lines, as a file of a
-	// list of them, rather than scrolling them itself.
+	// list of them, rather than scrolling them itself. The containers
+	// around it scroll it: its find bar and go to line bring their text
+	// into view through them, and the bars stick to the top of the part
+	// of the diff those containers show.
 	FitContent bool
 	// ScrollPastEnd lets the lines scroll up until the last is at the top,
 	// as State's do unless NoScrollPastEnd, so that GoToHunk can bring a
@@ -457,13 +460,13 @@ func blockTop(h *heights, line int, below bool, is func(b *block) bool) (float64
 func (d *DiffState) deletedTop(line int) float64 {
 	ed := &d.eds[1]
 	h := &ed.view.heights
-	n := h.n
+	n := d.shownLines(ed.view.text)
 	for i, hk := range d.model.hunks {
 		if line < hk.A0 || line >= hk.A1 {
 			continue
 		}
 		// Where prepare put the block: above the change's first new line,
-		// or below the last line of the text.
+		// or below the last line the diff shows.
 		at, below := hk.B0, false
 		if at >= n {
 			at, below = n-1, true

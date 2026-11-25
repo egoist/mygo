@@ -1,9 +1,11 @@
 package dev.mygo
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.ext.SdkExtensions
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import org.json.JSONArray
@@ -27,8 +29,10 @@ class ImagePickerPlugin : MyGoPlugin {
         }
         val limit = args.optInt("limit", 1)
         // The Photo Picker, where the system has it; Google Play brings it to
-        // older ones.
-        val photo = Build.VERSION.SDK_INT >= 33 || MediaStore.getPickImagesMaxLimit() > 0
+        // Android 11 and 12, as their SDK extension 2 (androidx's check:
+        // before it, MediaStore has no getPickImagesMaxLimit to ask).
+        val photo = Build.VERSION.SDK_INT >= 33 ||
+            (Build.VERSION.SDK_INT >= 30 && SdkExtensions.getExtensionVersion(Build.VERSION_CODES.R) >= 2)
         val i = if (photo) {
             Intent(MediaStore.ACTION_PICK_IMAGES).apply {
                 if (type != "*/*") setType(type)
@@ -64,12 +68,14 @@ class ImagePickerPlugin : MyGoPlugin {
         val f = File(dir, "${System.nanoTime()}.jpg")
         val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".mygo.files", f)
         val i = Intent(MediaStore.ACTION_IMAGE_CAPTURE).putExtra(MediaStore.EXTRA_OUTPUT, uri).addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        if (i.resolveActivity(ctx.packageManager) == null) {
+        // Started rather than looked up first: since Android 11 the app sees
+        // no camera app unless its manifest names the intent in <queries>.
+        try {
+            PluginHost.startForResult(i) { code, _ ->
+                reply.success(JSONObject().put("path", if (code == Activity.RESULT_OK && f.length() > 0) f.absolutePath else ""))
+            }
+        } catch (e: ActivityNotFoundException) {
             reply.failure(PluginFailure("NoCamera", "the device has no camera app"))
-            return
-        }
-        PluginHost.startForResult(i) { code, _ ->
-            reply.success(JSONObject().put("path", if (code == Activity.RESULT_OK && f.length() > 0) f.absolutePath else ""))
         }
     }
 }

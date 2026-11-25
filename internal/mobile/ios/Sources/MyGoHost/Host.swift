@@ -171,6 +171,9 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
     func setTabBadge(_ c: SetTabBadgeCall) {
         Navigation.shared.tabs[c.id]?.viewControllers?[safe: c.index]?.tabBarItem.badgeValue = c.badge.isEmpty ? nil : c.badge
     }
+    func setTabTitle(_ c: SetTabTitleCall) {
+        Navigation.shared.setTabTitle(c.id, index: c.index, title: c.title)
+    }
     func closeTabs(_ c: CloseTabsCall) { Navigation.shared.closeTabs(c.id) }
     func pushWindow(_ c: PushWindowCall) {
         guard let p = windows[c.parent], let w = windows[c.child] else { return }
@@ -614,6 +617,7 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
     func accessibilityChanged(_ c: AccessibilityChangedCall) { surface(c.id)?.accessibilityChanged(focus: c.focus) }
     func announce(_ c: AnnounceCall) { UIAccessibility.post(notification: .announcement, argument: c.text) }
     func showMenu(_ c: ShowMenuCall) { surface(c.id)?.showMenu(c) }
+    func hideMenu(_ c: HideMenuCall) { surface(c.id)?.hideMenu() }
     // iOS's back is the swipe from the edge the content handles itself.
     func setBackAvailable(_ c: SetBackAvailableCall) {}
     func showMagnifier(_ c: ShowMagnifierCall) { surface(c.id)?.showMagnifier(c) }
@@ -622,6 +626,7 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
     func textMetrics(_ c: TextMetricsCall) -> TextMetricsReply { TextMetricsReply() }
     func measureText(_ c: MeasureTextCall) -> MeasureTextReply { MeasureTextReply() }
     func textAdvances(_ c: TextAdvancesCall) -> TextAdvancesReply { TextAdvancesReply() }
+    func measureTextRun(_ c: MeasureTextRunCall) -> MeasureTextRunReply { MeasureTextRunReply() }
     func drawText(_ c: DrawTextCall) -> DrawTextReply { DrawTextReply() }
     func registerFont(_ c: RegisterFontCall) -> RegisterFontReply { RegisterFontReply() }
 }

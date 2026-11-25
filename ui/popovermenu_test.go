@@ -193,6 +193,7 @@ func TestPopoverMenuFlipsAtTheWindowsEdges(t *testing.T) {
 }
 
 func TestPopoverMenuKeyboard(t *testing.T) {
+	reachUnavailable(t, false) // skipping Delete, as macOS's and Linux's menus do
 	a := &menuApp{}
 	tt := coreNewTester(a.view, 400, 400)
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
@@ -290,6 +291,7 @@ func TestPopoverMenuKeyboard(t *testing.T) {
 }
 
 func TestPopoverMenuRightToLeftKeys(t *testing.T) {
+	reachUnavailable(t, false) // skipping Delete, as macOS's and Linux's menus do
 	a := &menuApp{}
 	tt := coreNewTester(a.view, 400, 400)
 	tt.SetDirection(RightToLeft)
@@ -403,6 +405,7 @@ func TestPopoverMenuCloses(t *testing.T) {
 }
 
 func TestPopoverMenuAccessibility(t *testing.T) {
+	reachUnavailable(t, false) // skipping Delete, as macOS's and Linux's menus do
 	a := &menuApp{sort: "Date", pinned: true}
 	tt := coreNewTester(a.view, 400, 400)
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
@@ -705,6 +708,7 @@ func TestPopoverMenuButtonFlipsAtTheWindowsEdges(t *testing.T) {
 }
 
 func TestPopoverMenuButtonKeyboard(t *testing.T) {
+	reachUnavailable(t, false) // skipping Delete, as macOS's and Linux's menus do
 	a := &buttonMenuApp{}
 	tt := coreNewTester(a.view, 400, 400)
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
@@ -935,5 +939,38 @@ func TestPopoverMenuButtonInAToolbar(t *testing.T) {
 	}
 	if chosen != "PNG" || tt.HasText("As PDF") {
 		t.Errorf("chose %q, menu shows %v", chosen, tt.HasText("As PDF"))
+	}
+}
+
+// TestPopoverMenuSameLetterAgain types a letter several times quickly: each
+// goes to the next item starting with it, round, as in a list.
+func TestPopoverMenuSameLetterAgain(t *testing.T) {
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().Children(func() {
+			corePopoverMenuButton(c, "Edit", func(m *Menu) {
+				for _, s := range []string{"Open", "Copy", "Cut", "Close"} {
+					m.Item(s)
+				}
+			})
+		})
+	}, 400, 400)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	tt.Click("Edit")
+	for i, want := range []string{"Copy", "Cut", "Close", "Copy"} {
+		tt.TypeKey(0, KeyC, "c")
+		if n := accessFocus(t, tt); n.Label != want {
+			t.Fatalf("c typed %d times went to %q, want %q", i+1, n.Label, want)
+		}
+	}
+	// Other letters add up, from the item highlighted on.
+	tt.Advance(2 * typePause)
+	for i, s := range []struct {
+		key  Key
+		want string
+	}{{KeyC, "Cut"}, {KeyL, "Close"}} {
+		tt.Key(0, s.key)
+		if n := accessFocus(t, tt); n.Label != s.want {
+			t.Fatalf("letter %d of cl went to %q, want %q", i+1, n.Label, s.want)
+		}
 	}
 }

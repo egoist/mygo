@@ -458,6 +458,127 @@ func TestNumberInput(t *testing.T) {
 	}
 }
 
+// numberTester shows a NumberInput of *value in a field named Count.
+func numberTester(value *float64, lo, hi, step float64) *Tester {
+	return coreNewTester(func(c *context) {
+		coreColumn(c).Padding(10).AlignItems(Start).Children(func() {
+			coreField(c, "Count", func() { coreNumberInput(c, value, lo, hi, step) })
+		})
+	}, 400, 100)
+}
+
+// countShown returns the text of the input named Count.
+func countShown(t *testing.T, tt *Tester) string {
+	t.Helper()
+	a, ok := tt.AccessByRole(RoleTextField, "Count")
+	if !ok {
+		t.Fatal("no input named Count")
+	}
+	return a.Value
+}
+
+// A bound with more decimals than step's keeps the value in range:
+// rounded to the step's decimals, 2.5 would be 3.
+func TestNumberInputKeepsInsideFractionalBounds(t *testing.T) {
+	v := 2.0
+	tt := numberTester(&v, -2.5, 2.5, 1)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	tt.Click("Count")
+	tt.Key(0, KeyUp)
+	if v != 2 || countShown(t, tt) != "2" {
+		t.Errorf("Up from 2 below 2.5: %v, showing %q", v, countShown(t, tt))
+	}
+	// 2 is as high as a step of 1 goes: the button stepping up is disabled.
+	if n := accessNode(t, tt.h.access, platform.RoleButton, "Increase"); n.States&platform.AccessDisabled == 0 {
+		t.Errorf("Increase at 2 below 2.5: %+v", n)
+	}
+	tt.Key(Cmd, KeyA)
+	tt.Type("2.5")
+	if v != 2 {
+		t.Errorf("typed 2.5 below 2.5: %v", v)
+	}
+	v = -2
+	tt.Frame()
+	tt.Key(0, KeyDown)
+	if v != -2 || countShown(t, tt) != "-2" {
+		t.Errorf("Down from -2 above -2.5: %v, showing %q", v, countShown(t, tt))
+	}
+	if n := accessNode(t, tt.h.access, platform.RoleButton, "Decrease"); n.States&platform.AccessDisabled == 0 {
+		t.Errorf("Decrease at -2 above -2.5: %+v", n)
+	}
+}
+
+// Bounds on step's decimals that floating point puts a hair off, as 0.29
+// times 100 (28.999…), keep the buttons stepping to them.
+func TestNumberInputButtonsReachBoundsOnStep(t *testing.T) {
+	v := 0.28
+	tt := numberTester(&v, 0.07, 0.29, 0.01)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	tt.Frame()
+	if n := accessNode(t, tt.h.access, platform.RoleButton, "Increase"); n.States&platform.AccessDisabled != 0 {
+		t.Errorf("Increase at 0.28 below 0.29 is disabled")
+	}
+	tt.Click("Increase")
+	if v != 0.29 {
+		t.Errorf("Increase from 0.28: %v", v)
+	}
+	v = 0.08
+	tt.Frame()
+	if n := accessNode(t, tt.h.access, platform.RoleButton, "Decrease"); n.States&platform.AccessDisabled != 0 {
+		t.Errorf("Decrease at 0.08 above 0.07 is disabled")
+	}
+	tt.Click("Decrease")
+	if v != 0.07 {
+		t.Errorf("Decrease from 0.08: %v", v)
+	}
+}
+
+// A value the app sets shows in the frame that builds it, not in the one
+// after, as when the app loads settings: in place of what was typed too.
+func TestNumberInputShowsAValueTheAppSets(t *testing.T) {
+	v := 300.0
+	tt := numberTester(&v, 0, 1000, 1)
+	if s := countShown(t, tt); s != "300" {
+		t.Fatalf("300 shows as %q", s)
+	}
+	v = 512
+	tt.Frame()
+	if s := countShown(t, tt); s != "512" {
+		t.Errorf("the app set 512, the input shows %q", s)
+	}
+	tt.Click("Count")
+	tt.Key(Cmd, KeyA)
+	tt.Type("6")
+	v = 128
+	tt.Frame()
+	if s := countShown(t, tt); s != "128" || !tt.Focused("Count") {
+		t.Errorf("the app set 128 as 6 is typed: the input shows %q, focused %v", s, tt.Focused("Count"))
+	}
+}
+
+// A frame that sets no value, as the app refreshes, keeps what is typed,
+// and the focus.
+func TestNumberInputKeepsWhatIsTypedThroughARefresh(t *testing.T) {
+	v := 5.0
+	tt := numberTester(&v, 0, 10, 0.5)
+	tt.Click("Count")
+	tt.Key(Cmd, KeyA)
+	tt.Type("7.")
+	if v != 7 {
+		t.Fatalf("typed 7.: %v", v)
+	}
+	// The app sets the value it has again.
+	v = 7
+	tt.Frame()
+	if s := countShown(t, tt); s != "7." || !tt.Focused("Count") {
+		t.Fatalf("a refresh as 7. is typed: the input shows %q, focused %v", s, tt.Focused("Count"))
+	}
+	tt.Type("5")
+	if s := countShown(t, tt); v != 7.5 || s != "7.5" {
+		t.Errorf("typed 5 after 7.: %v, showing %q", v, s)
+	}
+}
+
 // A width given to a NumberInput or DecimalInput sizes the whole input,
 // buttons and all: the field gives up the room the buttons need rather
 // than pushing them over what comes after.

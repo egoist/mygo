@@ -164,6 +164,20 @@ type FrameRateSurface interface {
 	SetFrameRate(fps float64)
 }
 
+// FrameAheadSurface is a Surface whose frames asked for take long to be
+// asked of the display, as Android's do: a RequestFrame crosses to the
+// host's UI thread before it reaches Choreographer, which asks for the
+// display's next refresh. A frame asked for after the last was presented
+// would miss the next refresh whenever that frame took most of one, and
+// frames would come at half the display's rate. While the view animates,
+// FrameAhead has the content ask for its next frame as it starts drawing
+// one, rather than once it presented it: the requests coalesce, and a
+// frame that runs late finds one frame waiting, not several.
+type FrameAheadSurface interface {
+	// FrameAhead reports whether frames are asked for as the last starts.
+	FrameAhead() bool
+}
+
 // ImmediateFrameSurface is a Surface whose RequestFrame sends a
 // SurfaceFrame at once, as Windows' does, rather than at the display's next
 // refresh: a frame due at a later refresh waits on a timer instead.
@@ -202,6 +216,9 @@ type TouchSurface interface {
 	// "cut", "copy", "paste" and "selectAll", at a point in DIPs; they come as
 	// SurfaceCommand.
 	ShowEditMenu(x, y float64, actions []string)
+	// HideEditMenu takes the menu of ShowEditMenu away, as what it was
+	// for loses the focus or a finger lands elsewhere.
+	HideEditMenu()
 	// ShowMagnifier shows the system's magnifier of what is at a point in
 	// DIPs, as a finger drags a text handle, until HideMagnifier.
 	ShowMagnifier(x, y float64)
@@ -278,7 +295,9 @@ type BackgroundSurface interface {
 type FirstFrameSurface interface {
 	// FirstFrame tells that the content presented its first frame. It is
 	// called once, within the frame, before the window is told it is
-	// ready to show.
+	// ready to show, and again for the first frame presented after each
+	// SurfaceRenew, on the surface's new native objects: Android's
+	// SurfaceView holds back the window's first draw until it shows one.
 	FirstFrame()
 }
 
@@ -515,7 +534,9 @@ const (
 	DataDrop
 	// SurfaceRenew reports that the native objects a GPU renderer draws
 	// into changed (Surface.Native), as a window of Windows composes its
-	// frames once it has web views: the content makes its renderer again.
+	// frames once it has web views: the content makes its renderer again,
+	// or, for one that outlives them (Android's EGL context), lets go of
+	// what draws into the old ones and attaches it to the new ones.
 	SurfaceRenew
 	// WebViewPress reports that Button went down at X, Y on a web view
 	// the content shows there (Surface.PlaceWebViews), which takes the
@@ -594,9 +615,13 @@ type SurfaceEvent struct {
 	// DX and DY are scroll distances in DIPs; Precise marks touchpads and
 	// other devices that scroll by pixels rather than by lines. Momentum
 	// marks scrolling that continues after the fingers leave a touchpad.
+	// Swipe marks a touchpad's scroll that may be a swipe between pages
+	// (macOS): the content then reports whether it took the scroll
+	// sideways, for the swipe goes on where it did not.
 	DX, DY   float64
 	Precise  bool
 	Momentum bool
+	Swipe    bool
 	// Scale is PointerZoom's, and Rotation the radians clockwise two fingers
 	// turned since the last, on touch screens.
 	Scale, Rotation float64

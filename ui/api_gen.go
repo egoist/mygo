@@ -1750,7 +1750,9 @@ func Local[T any](e Element, key any, init func() T) *T {
 // Right opens a submenu and Left closes it, the other way round right to
 // left (Direction); Enter and Space choose an item, Escape closes the
 // submenu on top, and Tab and a press outside the menu close it. The
-// pointer highlights the item it moves onto, opening its submenu.
+// pointer highlights the item it moves onto, opening its submenu, but for
+// those it crosses heading for a submenu that shows, which stays open
+// until the pointer rests on one of them (menuAimGrace).
 // Assistive technology sees a menu button, expanded while its menu shows,
 // and a menu of items, check box items and radio items. PopoverMenuButton
 // draws its menu with these parts, in the theme's look.
@@ -2502,6 +2504,8 @@ func Spinner(c *Context) Element {
 // gives way, keeping *size for when there is room again. Changed reports a
 // move. Right to left (Direction), first is on the right. SplitReset makes
 // a double click on the divider put first back at a size the app chooses.
+// SplitGap spaces the panes apart by a number of DIPs without drawing the
+// 1 DIP divider line, including 0 for flush panes.
 //
 //	ui.Split(c, &app.sidebar, app.files, app.editor).Fill()
 func Split(c *Context, size *float32, first func(), second func()) Element {
@@ -2669,7 +2673,8 @@ func SwitchBase(c *Context, on *bool) Element {
 // reports the new layout once the user lets go, or once a double click
 // fits a column to its cells, for the app to save. Columns wider
 // than the table scroll sideways, the header with them. With s.Sort, a
-// click on the header of a Sortable column sorts the rows by it; with
+// click on the header of a Sortable column sorts the rows by it, as Enter
+// and Space do on the header Tab reached; with
 // s.SortBy, a Cmd-click or a Shift-click sorts by it after the others;
 // with s.HeaderMenu, the header has a context menu.
 //
@@ -3874,8 +3879,9 @@ func (_handle Element) AutoComplete(kind AutoComplete) Element {
 }
 
 // AutoFocus gives the element the keyboard focus in the frame it appears,
-// as the first field of a dialog.
-func (_handle Element) AutoFocus() Element {
+// as the first field of a dialog. Its options, as Focus's, keep the scroll
+// where the user left it with PreventScroll.
+func (_handle Element) AutoFocus(options ...FocusOptions) Element {
 	_node := _handle.node()
 	if _node == nil {
 		return Element{}
@@ -3883,7 +3889,7 @@ func (_handle Element) AutoFocus() Element {
 	_ctx := _node.c
 	_ = _ctx
 	_node.markStateRead()
-	return wrapElement(_node.AutoFocus())
+	return wrapElement(_node.AutoFocus(options...))
 }
 
 // Autocorrect turns an on-screen keyboard's corrections and suggestions on
@@ -7090,15 +7096,17 @@ func (_handle Element) PointerPosition() (float32, float32, bool) {
 //	})
 //
 // The menu takes the focus as it opens and gives it back as it closes, to
-// the element that had it. Up and Down move among its items, past those
-// disabled, as do Home, End and typing the first letters of an item;
-// Right opens a submenu and Left closes it, the other way round right to
-// left (Direction); Enter and Space choose an item, Escape closes the
-// submenu on top, and a press outside the menu closes it. It shows below
-// and after where it opened, and on the other side where the window has
-// no room. Assistive technology sees a menu of items, check box items and
-// radio items, as the system's. ContextMenuBase is such a menu without a
-// look, for items of a layout of one's own.
+// the element that had it. Up and Down move among its items, as do Home,
+// End and typing the first letters of an item: past those disabled, as
+// macOS's and Linux's menus do, and onto them on Windows, as its menus do.
+// A disabled item shows its Tooltip as the pointer rests on it, and
+// choosing it does nothing. Right opens a submenu and Left closes it, the
+// other way round right to left (Direction); Enter and Space choose an
+// item, Escape closes the submenu on top, and a press outside the menu
+// closes it. It shows below and after where it opened, and on the other
+// side where the window has no room. Assistive technology sees a menu of
+// items, check box items and radio items, as the system's. ContextMenuBase
+// is such a menu without a look, for items of a layout of one's own.
 //
 // PopoverMenuButton draws the menu of a menu button so.
 //
@@ -7238,7 +7246,8 @@ func (_handle Element) PressCanceled() bool {
 }
 
 // Pressed reports whether the element is being pressed with the pointer's
-// primary button, unless it is disabled. A press of another button, as a
+// primary button, or, focused, held down with Space, which clicks it as
+// it goes up, unless it is disabled. A press of another button, as a
 // right-click's, is no press here, as CSS's :active and drags on the web
 // have it: PressedButton tells which button presses the element.
 func (_handle Element) Pressed() bool {
@@ -8187,6 +8196,23 @@ func (_handle Element) Sort(dir SortDirection) Element {
 	return wrapElement(_node.Sort(dir))
 }
 
+// SplitGap spaces the two panes of a Split apart by v DIPs without drawing
+// the 1 DIP divider line between them, as two cards side by side or panes
+// that draw their own edges: SplitGap(0) puts them flush with no line, and
+// a positive v leaves that room between them, where the resize handle sits.
+//
+//	ui.Split(c, &app.sidebar, app.files, app.editor).SplitGap(8).Fill()
+func (_handle Element) SplitGap(v float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	_node.markStateRead()
+	return wrapElement(_node.SplitGap(v))
+}
+
 // SplitReset makes a double click on the divider of a Split put the first
 // pane at v, in the split's own unit: DIPs for Split and SplitVertical, a
 // percentage for SplitPercent and SplitVerticalPercent. A split without it
@@ -9117,8 +9143,8 @@ func (_handle TabsParts) Tab(i int) Element {
 }
 
 // ActionButton creates a button without a look, as ButtonBase does, that
-// runs the toast's OnAction and closes it. Give it children, as the
-// toast's Action.
+// runs the toast's OnAction and closes it, unless OnAction added a toast
+// with its ID. Give it children, as the toast's Action.
 func (_handle ToastParts) ActionButton() Element {
 	_parts := _handle.resolve()
 	if _parts == nil {

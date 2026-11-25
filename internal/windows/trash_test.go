@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -15,8 +16,6 @@ import (
 	"testing"
 	"unsafe"
 )
-
-var procSHQueryRecycleBinW = shell32.NewProc("SHQueryRecycleBinW")
 
 func TestMain(m *testing.M) {
 	if path := os.Getenv("MYGO_TEST_TRASH_ITEM"); path != "" {
@@ -174,20 +173,48 @@ func trashItemInHelper(t *testing.T, path string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// recycled returns how many items the recycle bin of path's drive holds.
-func recycled(t *testing.T, path string) int64 {
+// inRecycleBin reports whether the recycle bin of path's drive holds the
+// item deleted from path, by the $I file Windows keeps for each item, which
+// names where it was deleted from. Counting the items would not tell: a
+// recycle bin fuller than its size drops its oldest items, at a moment of
+// its own, while an item is deleted or long after.
+func inRecycleBin(t *testing.T, path string) bool {
 	t.Helper()
-	info := struct {
-		Size  uint32
-		Bytes int64
-		Items int64
-	}{}
-	info.Size = uint32(unsafe.Sizeof(info))
-	root := filepath.VolumeName(path) + `\`
-	if r, _, _ := procSHQueryRecycleBinW.Call(uintptr(unsafe.Pointer(u16(root))), uintptr(unsafe.Pointer(&info))); failed(r) {
-		t.Fatalf("SHQueryRecycleBin(%s): %#x", root, r)
+	u, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
 	}
-	return info.Items
+	// The $I files name the item by its long path, which a temporary
+	// directory's (RUNNER~1) may not be.
+	dir, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, filepath.Base(path))
+	infos, err := filepath.Glob(filepath.Join(filepath.VolumeName(path)+`\`, "$Recycle.Bin", u.Uid, "$I*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, info := range infos {
+		// Version 2: the version, the item's size, when it was deleted,
+		// and the length of the path, NUL included, before the path.
+		b, err := os.ReadFile(info)
+		if err != nil || len(b) < 28 || binary.LittleEndian.Uint64(b) != 2 {
+			continue
+		}
+		n := int(binary.LittleEndian.Uint32(b[24:]))
+		if len(b) < 28+2*n {
+			continue
+		}
+		name := make([]uint16, n)
+		for i := range name {
+			name[i] = binary.LittleEndian.Uint16(b[28+2*i:])
+		}
+		if strings.EqualFold(syscall.UTF16ToString(name), want) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestTrashItem(t *testing.T) {
@@ -202,15 +229,14 @@ func TestTrashItem(t *testing.T) {
 	os.MkdirAll(filepath.Join(folder, "inner"), 0o755)
 	os.WriteFile(filepath.Join(folder, "inner", "a.txt"), []byte("a"), 0o644)
 	for _, path := range []string{file, folder} {
-		before := recycled(t, path)
 		if err := (shell{}).TrashItem(path); err != nil {
 			t.Fatalf("TrashItem(%s): %v", path, err)
 		}
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("%s is still there: %v", path, err)
 		}
-		if after := recycled(t, path); after != before+1 {
-			t.Errorf("TrashItem(%s): the recycle bin went from %d to %d items, not to the recycle bin", path, before, after)
+		if !inRecycleBin(t, path) {
+			t.Errorf("TrashItem(%s): not in the recycle bin", path)
 		}
 	}
 
@@ -234,6 +260,64 @@ func TestTrashItem(t *testing.T) {
 	}
 	if _, err := os.Stat(kept); err != nil {
 		t.Errorf("TrashItem(%s) deleted the file: %v", unc, err)
+	}
+}
+
+func TestTrashItemResult(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	procCoInitializeEx.Call(0, coinitApartmentThreaded)
+	dir := t.TempDir()
+
+	file := filepath.Join(dir, "file.txt")
+	os.WriteFile(file, []byte("trash me"), 0o644)
+	folder := filepath.Join(dir, "folder")
+	os.MkdirAll(folder, 0o755)
+	for _, path := range []string{file, folder} {
+		result, err := (shell{}).TrashItemResult(path)
+		if err != nil {
+			t.Fatalf("TrashItemResult(%s): %v", path, err)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s is still there: %v", path, err)
+		}
+		if _, err := os.Stat(result); err != nil {
+			t.Errorf("TrashItemResult(%s) = %s, which is not there: %v", path, result, err)
+		}
+		base := filepath.Base(result)
+		if !strings.HasPrefix(base, "$R") {
+			t.Errorf("TrashItemResult(%s) = %s, want a $R item of the recycle bin", path, result)
+			continue
+		}
+		// The $I file paired with the $R one names where the item was
+		// deleted from, as inRecycleBin reads it.
+		info := filepath.Join(filepath.Dir(result), "$I"+strings.TrimPrefix(base, "$R"))
+		b, err := os.ReadFile(info)
+		if err != nil || len(b) < 28 || binary.LittleEndian.Uint64(b) != 2 {
+			t.Errorf("TrashItemResult(%s): cannot read %s: %v", path, info, err)
+			continue
+		}
+		n := int(binary.LittleEndian.Uint32(b[24:]))
+		if len(b) < 28+2*n {
+			t.Errorf("TrashItemResult(%s): short $I file %s", path, info)
+			continue
+		}
+		name := make([]uint16, n)
+		for i := range name {
+			name[i] = binary.LittleEndian.Uint16(b[28+2*i:])
+		}
+		wantDir, err := filepath.EvalSymlinks(filepath.Dir(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(wantDir, filepath.Base(path))
+		if got := syscall.UTF16ToString(name); !strings.EqualFold(got, want) {
+			t.Errorf("TrashItemResult(%s) = %s, whose $I names %s", path, result, got)
+		}
+	}
+
+	if _, err := (shell{}).TrashItemResult(filepath.Join(dir, "missing")); err == nil {
+		t.Error("TrashItemResult of a missing file did not fail")
 	}
 }
 
@@ -261,7 +345,6 @@ func TestTrashItemKeepsAnItemTooBigForTheRecycleBin(t *testing.T) {
 		}
 	}
 	for _, path := range []string{file, folder} {
-		before := recycled(t, path)
 		if result := trashItemInHelper(t, path); result == "" || result == "<nil>" {
 			t.Errorf("TrashItem(%s) reported %q, want an error for an item bigger than the 1 MiB recycle bin", path, result)
 		} else {
@@ -282,8 +365,8 @@ func TestTrashItemKeepsAnItemTooBigForTheRecycleBin(t *testing.T) {
 		} else if size != 4<<20 {
 			t.Errorf("TrashItem(%s) left %d bytes, want %d", path, size, 4<<20)
 		}
-		if after := recycled(t, path); after != before {
-			t.Errorf("TrashItem(%s): the recycle bin went from %d to %d items, want unchanged", path, before, after)
+		if inRecycleBin(t, path) {
+			t.Errorf("TrashItem(%s): in the recycle bin, want it kept at its path", path)
 		}
 	}
 }
@@ -301,15 +384,14 @@ func TestTrashItemRecyclesAFileAsBigAsTheRecycleBin(t *testing.T) {
 	if err := os.WriteFile(path, make([]byte, 1<<20), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	before := recycled(t, path)
 	if result := trashItemInHelper(t, path); result != "<nil>" {
 		t.Errorf("TrashItem(%s) reported %q, want <nil> for an item that fits the recycle bin", path, result)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("TrashItem(%s) did not remove the item: %v", path, err)
 	}
-	if after := recycled(t, path); after != before+1 {
-		t.Errorf("TrashItem(%s): the recycle bin went from %d to %d items, want one more", path, before, after)
+	if !inRecycleBin(t, path) {
+		t.Errorf("TrashItem(%s): not in the recycle bin", path)
 	}
 }
 
@@ -388,27 +470,51 @@ func TestTrashItemFailsWhenWindowsDeletesAFileAllTheSame(t *testing.T) {
 	}
 }
 
+// samePath reports whether a and b are both empty or name the same file,
+// whichever of its long and short (8.3) names they use.
+func samePath(a, b string) bool {
+	if a == "" || b == "" {
+		return a == b
+	}
+	ai, err1 := os.Stat(a)
+	bi, err2 := os.Stat(b)
+	return err1 == nil && err2 == nil && os.SameFile(ai, bi)
+}
+
 func TestTrashSinkNotesOnlyPermanentDeletes(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	procCoInitializeEx.Call(0, coinitApartmentThreaded)
 	trashSinkOnce.Do(initTrashSink)
+	// The recycle bin's new item, which the sink takes the path of.
+	dir := t.TempDir()
+	var item uintptr
+	if r, _, _ := procSHCreateItemFromParsingName.Call(uintptr(unsafe.Pointer(u16(dir))), 0, uintptr(unsafe.Pointer(&iidIShellItem)), uintptr(unsafe.Pointer(&item))); failed(r) || item == 0 {
+		t.Fatal(hresultError("SHCreateItemFromParsingName", r))
+	}
+	defer release(item)
 	for _, tc := range []struct {
 		name     string
-		hr, item uintptr // hrDelete, and whether there is a new item
+		hr, item uintptr // hrDelete, and the new item
 		deleted  bool
+		result   string
 	}{
-		{"recycled", 0x00270008, 1, false},
-		{"deleted for good", 0x00270008, 0, true},
-		{"a folder too big, before its items", copyEngineSNotHandled, 0, false},
-		{"refused", eAbort, 0, false},
+		{"recycled", 0x00270008, item, false, dir},
+		{"deleted for good", 0x00270008, 0, true, ""},
+		{"a folder too big, before its items", copyEngineSNotHandled, 0, false, ""},
+		{"refused", eAbort, 0, false, ""},
 	} {
 		sink := &trashSink{vtbl: &trashSinkVtbl, refs: 1}
 		p := uintptr(unsafe.Pointer(sink))
 		trashSinks[p] = sink
-		// PostDeleteItem(flags, item, hrDelete, newlyCreated), which only
-		// compares newlyCreated with nil.
+		// PostDeleteItem(flags, item, hrDelete, newlyCreated).
 		syscall.SyscallN(trashSinkVtbl[12], p, 0, 0, tc.hr, tc.item)
 		delete(trashSinks, p)
 		if sink.deleted != tc.deleted {
 			t.Errorf("%s: deleted = %t, want %t", tc.name, sink.deleted, tc.deleted)
+		}
+		if !samePath(sink.result, tc.result) {
+			t.Errorf("%s: result = %q, want %q", tc.name, sink.result, tc.result)
 		}
 	}
 }

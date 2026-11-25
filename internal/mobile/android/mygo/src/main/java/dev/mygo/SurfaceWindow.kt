@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Rect
 import android.os.Bundle
 import android.text.InputType
+import android.hardware.display.DisplayManager
 import android.view.Choreographer
 import android.view.InputDevice
 import android.view.ActionMode
@@ -19,6 +20,7 @@ import android.view.View
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityNodeProvider
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -36,8 +38,33 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
     private val wid: Long = id
     private val surface = Surface(context)
     /** The surface, and under it the views it holds. */
-    private val box = android.widget.FrameLayout(context).apply {
+    private val box: android.widget.FrameLayout = object : android.widget.FrameLayout(context) {
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            // Before the surface's own, which places it.
+            if (android.os.Build.VERSION.SDK_INT < 31) viewTreeObserver.addOnPreDrawListener(away)
+        }
+
+        override fun onDetachedFromWindow() {
+            viewTreeObserver.removeOnPreDrawListener(away)
+            super.onDetachedFromWindow()
+        }
+    }.apply {
         addView(surface, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
+    }
+
+    /**
+     * Android 10 (and at times 11) shows a surface again as the app comes
+     * back to the front, whatever the views around it, so a window a view
+     * hides (its tab is not the one selected, a page was pushed over it,
+     * another stack is in front) would show over the one that is: while
+     * hidden, the surface stands far off the screen, where it goes then.
+     * Its frames stay, ready for when it shows.
+     */
+    private val away: android.view.ViewTreeObserver.OnPreDrawListener = android.view.ViewTreeObserver.OnPreDrawListener {
+        val x = if (box.isShown) 0f else 100_000f
+        if (surface.translationX != x) surface.translationX = x
+        true
     }
     override val view: View get() = box
     private var native = 0L
@@ -45,6 +72,90 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
     private val frame = Choreographer.FrameCallback {
         framePending = false
         Go.send(Event.frame(wid))
+    }
+
+    /** Whether Go presented a frame on the surface since it was made or resized (FirstFrame). */
+    private var drawnOnSurface = false
+    /**
+     * What the SurfaceView waits for to show the window's draw with the
+     * surface, as surfaceRedrawNeededAsync gave them: Go's first frame on it.
+     */
+    private val redraws = ArrayList<Runnable>()
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private val redrawTimeout = Runnable { finishRedraws() }
+    /** The display's refresh rate Go was last told, 0 for none yet. */
+    private var hz = 0.0
+    private var displayListening = false
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {}
+        override fun onDisplayRemoved(displayId: Int) {}
+        // The refresh rate changes as the display switches modes, as the
+        // rate preferFastest asks for takes effect.
+        override fun onDisplayChanged(displayId: Int) {
+            if (native != 0L && displayId == surface.display?.displayId) tellSurface(false)
+        }
+    }
+
+    /**
+     * Go presented its first frame on the surface (FirstFrame): the window's
+     * draw that waits for it shows, with the frame.
+     */
+    fun drawn() {
+        drawnOnSurface = true
+        finishRedraws()
+    }
+
+    private fun finishRedraws() {
+        main.removeCallbacks(redrawTimeout)
+        if (redraws.isEmpty()) return
+        val done = ArrayList(redraws)
+        redraws.clear()
+        for (r in done) r.run()
+    }
+
+    /**
+     * Tells Go the surface, and the display's refresh rate now: the active
+     * mode's, not the fastest it has, which it may not switch to. Only when
+     * the rate changed, unless created.
+     */
+    private fun tellSurface(created: Boolean) {
+        val rate = surface.display?.refreshRate?.toDouble()?.takeIf { it > 0 } ?: 60.0
+        if (!created && rate == hz) return
+        hz = rate
+        if (created) {
+            toldWidth = surface.width
+            toldHeight = surface.height
+        }
+        Go.send(Event.surfaceChanged(wid, native, toldWidth / density, toldHeight / density, density, rate))
+    }
+
+    /** The surface's size in pixels, as Go was last told of it. */
+    private var toldWidth = 0
+    private var toldHeight = 0
+
+    /**
+     * The surface's buffers changed size, as the screen rotated: Go makes
+     * its EGL surface anew on them, as GLSurfaceView and Flutter do. The
+     * driver takes the buffers' size and rotation (the transform hint) as
+     * an EGL surface is made, and an old one draws the next frame at the
+     * old size or rotation, which the system drops: an idle window shows a
+     * black screen or the frame before the rotation until something drew
+     * again (#2219). The window's draw waits for that frame
+     * (surfaceRedrawNeededAsync), as it does for the first.
+     */
+    private fun tellResized(w: Int, h: Int) {
+        if (native == 0L || (w == toldWidth && h == toldHeight)) return
+        toldWidth = w
+        toldHeight = h
+        drawnOnSurface = false
+        Go.send(Event.surfaceChanged(wid, native, w / density, h / density, density, hz))
+    }
+
+    private fun listenToDisplay(on: Boolean) {
+        if (on == displayListening) return
+        displayListening = on
+        val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        if (on) dm.registerDisplayListener(displayListener, main) else dm.unregisterDisplayListener(displayListener)
     }
 
     // The input being edited, as Go last told it (SetTextInput): the text
@@ -67,7 +178,25 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
     private class Held(val window: HostWindow, val clip: android.widget.FrameLayout) {
         var box = Rect()
         var covers = emptyList<Rect>()
+        private var shown: Boolean? = null
         fun takes(x: Int, y: Int) = clip.visibility == View.VISIBLE && box.contains(x, y) && covers.none { it.contains(x, y) }
+
+        /**
+         * Shows the view or hides it, and pauses a web view while it is
+         * hidden, unless its page asked not to be throttled. Hiding the clip
+         * is not enough for one: its own visibility stays VISIBLE, the only
+         * one Chromium reads, so its page would stay visible and go on
+         * drawing frames, on the renderer thread the web views of an app
+         * share.
+         */
+        fun show(on: Boolean) {
+            if (shown == on) return
+            shown = on
+            clip.visibility = if (on) View.VISIBLE else View.GONE
+            val w = window as? WebWindow ?: return
+            if (!w.throttles) return
+            if (on) w.web.onResume() else w.web.onPause()
+        }
     }
 
     private val held = ArrayList<Held>()
@@ -82,7 +211,6 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
         (w.view.parent as? android.view.ViewGroup)?.removeView(w.view)
         val clip = android.widget.FrameLayout(context)
         clip.clipChildren = true
-        clip.visibility = View.GONE
         clip.addView(w.view, android.widget.FrameLayout.LayoutParams(0, 0))
         box.addView(clip, 0, android.widget.FrameLayout.LayoutParams(0, 0))
         if (held.isEmpty()) {
@@ -95,7 +223,7 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
                 box.addView(surface, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
             }
         }
-        held.add(Held(w, clip))
+        held.add(Held(w, clip).apply { show(false) })
     }
 
     fun release(w: HostWindow) {
@@ -138,7 +266,7 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
             h.window.view.post { h.window.reportSize() }
             h.box = clip
             h.covers = covers
-            h.clip.visibility = View.VISIBLE
+            h.show(true)
             if (box.indexOfChild(h.clip) != order) {
                 box.removeView(h.clip)
                 box.addView(h.clip, order)
@@ -146,7 +274,7 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
             order++
             shown.add(h)
         }
-        for (h in held) if (h !in shown) h.clip.visibility = View.GONE
+        for (h in held) if (h !in shown) h.show(false)
     }
 
     /** A finger going down on a view it holds, which gets it: the content hears of it. */
@@ -166,6 +294,8 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
 
     override fun close() {
         if (framePending) Choreographer.getInstance().removeFrameCallback(frame)
+        listenToDisplay(false)
+        finishRedraws()
         releaseNative()
     }
 
@@ -283,14 +413,23 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
         }, ActionMode.TYPE_FLOATING)
     }
 
+    /** Finishes the menu of showMenu, as what it was for went. */
+    fun hideMenu() { actionMode?.finish() }
+
     private var magnifier: Magnifier? = null // API 28
 
     /** The system's magnifier of what is at a point. */
     fun showMagnifier(c: ShowMagnifierCall) {
         if (android.os.Build.VERSION.SDK_INT < 28) return
-        val m = magnifier ?: Magnifier.Builder(surface).build().also { magnifier = it }
+        val m = magnifier ?: newMagnifier().also { magnifier = it }
         m.show((c.x * density).toFloat(), (c.y * density).toFloat())
     }
+
+    /** A magnifier of the surface: its builder is API 29, Android 9 has the constructor. */
+    @androidx.annotation.RequiresApi(28)
+    @Suppress("DEPRECATION")
+    private fun newMagnifier(): Magnifier =
+        if (android.os.Build.VERSION.SDK_INT >= 29) Magnifier.Builder(surface).build() else Magnifier(surface)
 
     fun hideMagnifier() {
         if (android.os.Build.VERSION.SDK_INT >= 28) magnifier?.dismiss()
@@ -309,7 +448,7 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
         return n
     }
 
-    private inner class Surface(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
+    private inner class Surface(context: Context) : SurfaceView(context), SurfaceHolder.Callback2 {
         init {
             holder.addCallback(this)
             isFocusable = true
@@ -318,22 +457,58 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
 
         override fun surfaceCreated(h: SurfaceHolder) {
             native = MyGoNative.nativeWindow(h.surface)
-            val hz = display?.supportedModes?.maxOfOrNull { it.refreshRate }?.toDouble() ?: display?.refreshRate?.toDouble() ?: 60.0
-            Go.send(Event.surfaceChanged(wid, native, width / density, height / density, density, hz))
+            drawnOnSurface = false
+            tellSurface(true)
+            listenToDisplay(true)
+        }
+
+        override fun surfaceRedrawNeeded(h: SurfaceHolder) {}
+
+        /**
+         * The window shows its draw with the surface once drawingFinished
+         * runs: for a surface just made or resized, after Go's first frame
+         * on it (drawn), rather than with the surface empty, black, or with
+         * the frame before the rotation, for a frame or more, as
+         * GLSurfaceView waits for its frame. Android's splash stays
+         * meanwhile, or the rotation's animation. A surface Go drew on
+         * already is done at once, as by default; and should Go draw
+         * nothing, the window shows after a while all the same.
+         */
+        override fun surfaceRedrawNeededAsync(h: SurfaceHolder, drawingFinished: Runnable) {
+            if (drawnOnSurface || native == 0L) {
+                drawingFinished.run()
+                return
+            }
+            if (redraws.isEmpty()) main.postDelayed(redrawTimeout, FIRST_FRAME_WAIT_MS)
+            redraws.add(drawingFinished)
+            requestFrame()
         }
 
         override fun surfaceChanged(h: SurfaceHolder, format: Int, w: Int, ht: Int) {
             preferFastest(h)
+            tellResized(w, ht)
             reportSize()
             requestFrame()
         }
 
-        /** Asks the display for its fastest refresh, which Choreographer then gives. */
+        /**
+         * Asks the display for its fastest refresh, which Choreographer then
+         * gives. From Android 12, the two-argument form switches only where
+         * the switch is seamless, which a switch from 60 Hz to 120 Hz often
+         * is not: the app asks for it always.
+         */
         private fun preferFastest(h: SurfaceHolder) {
             if (android.os.Build.VERSION.SDK_INT < 30) return
             val modes = display?.supportedModes ?: return
             val hz = modes.maxOfOrNull { it.refreshRate } ?: return
-            runCatching { h.surface.setFrameRate(hz, android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT) }
+            val s = h.surface
+            runCatching {
+                if (android.os.Build.VERSION.SDK_INT >= 31) {
+                    s.setFrameRate(hz, android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT, android.view.Surface.CHANGE_FRAME_RATE_ALWAYS)
+                } else {
+                    s.setFrameRate(hz, android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+                }
+            }
         }
 
         // A mouse's pointer hovers.
@@ -344,7 +519,12 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
             return true
         }
 
-        override fun surfaceDestroyed(h: SurfaceHolder) = releaseNative()
+        override fun surfaceDestroyed(h: SurfaceHolder) {
+            listenToDisplay(false)
+            // Nothing is left to wait for on this surface.
+            finishRedraws()
+            releaseNative()
+        }
 
         // A finger on a view it holds passes through to it, under this view.
         override fun dispatchTouchEvent(e: MotionEvent): Boolean {
@@ -391,10 +571,21 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
             if (e.isAltPressed) mods = mods or 4
             if (e.isMetaPressed) mods = mods or 8
             val text = if (e.unicodeChar > 0) String(Character.toChars(e.unicodeChar)) else ""
+            // Keys typing text type it, which the content takes as text,
+            // whatever Go answered: its text inputs take a printable key
+            // as handled, as the text comes after it, as on macOS. Space
+            // types too; keys with Control or Meta are shortcuts.
+            val types = down && editing && text.isNotEmpty() && (keyNames[code] == null || code == KeyEvent.KEYCODE_SPACE) &&
+                !e.isCtrlPressed && !e.isMetaPressed
+            // The word an input method marks around the cursor, as LatinIME
+            // does once the cursor moved, stays where it is, and so does the
+            // cursor, as in TextView: the content commits its marked text
+            // at a key with the cursor after it, so the key, typed in the
+            // middle of the word, came at its end.
+            if (types && input.markStart >= 0) edit(Event.textSelect(wid, input.selStart, input.selEnd))
             val r = Go.ask(Event.key(wid, down, name, text, mods, e.repeatCount > 0)) ?: return false
             val handled = KeyReply(r).handled
-            // Keys typing text type it, which the content takes as text.
-            if (!handled && down && editing && text.isNotEmpty() && keyNames[code] == null) {
+            if (types) {
                 edit(Event.textReplace(wid, false, 0, 0, text))
                 return true
             }
@@ -546,11 +737,12 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
             return true
         }
 
-        override fun commitCorrection(c: android.view.inputmethod.CorrectionInfo): Boolean {
-            val at = c.offset.toLong()
-            edit(Event.textReplace(wid, true, at, at + c.oldText.length, c.newText.toString()))
-            return true
-        }
+        // A correction the input method made is in the text already: it
+        // tells of it after committing the word itself, for the editor to
+        // flash it, as TextView does, with nothing to edit. Gboard tells of
+        // its corrections of words typed on a hardware keyboard: edited
+        // again, a word came twice and the cursor went back.
+        override fun commitCorrection(c: android.view.inputmethod.CorrectionInfo) = true
 
         override fun setComposingText(t: CharSequence, newCursorPosition: Int): Boolean {
             // The selection in the text composed, from the cursor Android
@@ -564,9 +756,22 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
         override fun setComposingRegion(start: Int, end: Int): Boolean {
             val a = minOf(start, end).coerceAtLeast(0)
             val b = maxOf(start, end).coerceAtMost(input.length.toInt())
+            // No region is no composing text, as in BaseInputConnection.
+            if (a >= b) return finishComposingText()
+            // Marking text leaves the selection where it is, as TextView
+            // does. The content's marked text holds the selection, though,
+            // and an input method may name a region the selection has left:
+            // LatinIME marks the word before the cursor some time after it
+            // hears of it, and keys of a hardware keyboard typed meanwhile
+            // went past it. Marked, the cursor went back into the word and
+            // the keys after came before the ones typed since. That region
+            // stays unmarked: the input method heard where the cursor went,
+            // and marks the word again from there.
+            val lo = minOf(input.selStart, input.selEnd).toInt()
+            val hi = maxOf(input.selStart, input.selEnd).toInt()
+            if (lo < a || hi > b) return true
             val text = document(a, b).toString()
-            val n = text.length.toLong()
-            edit(Event.textMark(wid, true, a.toLong(), b.toLong(), text, n, n))
+            edit(Event.textMark(wid, true, a.toLong(), b.toLong(), text, (lo - a).toLong(), (hi - a).toLong()))
             return true
         }
 
@@ -674,7 +879,9 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
     private var accessFocus = View.NO_ID
 
     private fun sendVirtual(id: Int, type: Int) {
-        val e = AccessibilityEvent(type)
+        // The constructor with a type is API 30, obtain what came before.
+        @Suppress("DEPRECATION")
+        val e = if (android.os.Build.VERSION.SDK_INT >= 30) AccessibilityEvent(type) else AccessibilityEvent.obtain(type)
         e.packageName = context.packageName
         e.setSource(surface, id)
         (surface.parent as? android.view.ViewGroup)?.requestSendAccessibilityEvent(surface, e)
@@ -692,6 +899,11 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
             }
             val n = nodes.firstOrNull { it.id.toInt() == virtualId } ?: return null
             val info = AccessibilityNodeInfo.obtain(surface, virtualId)
+            // What Android added after the minimum SDK (state descriptions
+            // in 30, tooltips and headings in 28) goes through androidx,
+            // which keeps it in the node's extras before, where TalkBack
+            // reads it: the setters themselves would throw NoSuchMethodError.
+            val compat = AccessibilityNodeInfoCompat.wrap(info)
             info.setParent(surface)
             info.packageName = context.packageName
             info.className = n.className
@@ -704,9 +916,9 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
                 info.isPassword = n.states and 128 != 0L
             } else {
                 info.text = n.label.ifEmpty { null }
-                if (n.value.isNotEmpty()) info.stateDescription = n.value
+                if (n.value.isNotEmpty()) compat.stateDescription = n.value
             }
-            if (n.hint.isNotEmpty()) info.tooltipText = n.hint
+            if (n.hint.isNotEmpty()) compat.tooltipText = n.hint
             val d = density
             val box = Rect((n.x * d).toInt(), (n.y * d).toInt(), ((n.x + n.w) * d).toInt(), ((n.y + n.h) * d).toInt())
             val loc = IntArray(2)
@@ -717,7 +929,7 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
             info.isChecked = n.states and 4 != 0L
             info.isCheckable = n.role in longArrayOf(4, 5, 6, 31)
             info.isSelected = n.states and 16 != 0L
-            info.isHeading = n.role == 43L
+            compat.isHeading = n.role == 43L
             info.isVisibleToUser = true
             info.isFocusable = true
             info.isAccessibilityFocused = accessFocus == virtualId
@@ -761,6 +973,13 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
     }
 
     companion object {
+        /**
+         * How long a window waits for Go's first frame before it shows all
+         * the same: with the splash (MyGoActivity.holdSplash), or with a
+         * surface Go has not drawn on yet.
+         */
+        const val FIRST_FRAME_WAIT_MS = 4000L
+
         private val keyNames = mapOf(
             KeyEvent.KEYCODE_ENTER to "Enter", KeyEvent.KEYCODE_ESCAPE to "Escape", KeyEvent.KEYCODE_DEL to "Backspace",
             KeyEvent.KEYCODE_TAB to "Tab", KeyEvent.KEYCODE_SPACE to "Space", KeyEvent.KEYCODE_FORWARD_DEL to "Delete",

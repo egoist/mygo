@@ -20,10 +20,25 @@ import (
 // It is errors.ErrUnsupported too (errors.Is), which apps check.
 var ErrUnsupported error = unsupportedError{}
 
+// Unsupported returns ErrUnsupported in a backend's own words, a browser's
+// or a phone's: Error reports message, and errors.Is matches it as
+// ErrUnsupported and errors.ErrUnsupported.
+func Unsupported(message string) error { return unsupportedMessage(message) }
+
 type unsupportedError struct{}
 
 func (unsupportedError) Error() string        { return "not supported on this platform" }
 func (unsupportedError) Is(target error) bool { return target == errors.ErrUnsupported }
+
+type unsupportedMessage string
+
+func (e unsupportedMessage) Error() string { return string(e) }
+func (unsupportedMessage) Unwrap() error   { return ErrUnsupported }
+
+// ErrNavigated is what CallAsyncFunction fails with when the document the
+// body ran in went away before it answered, and what Page.Eval returns
+// then.
+var ErrNavigated = errors.New("mygo: the page navigated away before it answered")
 
 // ErrNotificationsDenied is what ShowNotification fails with when the user
 // does not allow the app to show notifications.
@@ -155,6 +170,24 @@ type WindowStateWindow interface {
 // that only apps setting a region link it.
 type InputRegionWindow interface {
 	SetInputRegion(region []Rect)
+}
+
+// ThumbButton is a button of a thumbnail toolbar (ThumbBarWindow): the core
+// resolves the buttons of the public SetThumbBar into these, in the order
+// the shell reports a click by (the button's index). Icon is always the
+// button's PNG; the backend compares it with the one it has.
+type ThumbButton struct {
+	Icon     []byte
+	ToolTip  string
+	Disabled bool
+	Hidden   bool
+}
+
+// ThumbBarWindow is a window with a thumbnail toolbar, the row of small
+// buttons Windows shows under a taskbar button's live preview
+// (SetThumbBar). Apart from Window, so that only apps setting one link it.
+type ThumbBarWindow interface {
+	SetThumbBar(buttons []ThumbButton) error
 }
 
 // WindowStateBackend restores windows at their pixels (Windows):
@@ -429,6 +462,9 @@ type WindowOptions struct {
 	HasShadow      bool
 	Frameless      bool
 	Transparent    bool
+	// ConsumeActivationClick withholds the activation press from a
+	// window's content (macOS, Windows). Other platforms ignore it.
+	ConsumeActivationClick bool
 	// BackgroundColor is painted before the page renders; nil keeps the
 	// platform default.
 	BackgroundColor *Color
@@ -450,7 +486,8 @@ type WindowOptions struct {
 	VibrancyTint *Color
 	// CornerRadius rounds a frameless window's corners, in DIPs: its
 	// content and material are cut to them (macOS), or the system rounds
-	// it with its own corners (Windows 11).
+	// it with its own corners (Windows 11). On macOS a titled window's
+	// corners are drawn by the system at it.
 	CornerRadius int
 	Opacity      float64
 	Parent       Window
@@ -501,6 +538,11 @@ type WindowOptions struct {
 	// PinchZoom lets a pinch magnify the page; the backends turn it off
 	// where their webview has it on by default (mygo.PageOptions.PinchZoom).
 	PinchZoom bool
+	// ZoomControl lets the user zoom the page with the wheel and the
+	// browser's zoom keys, where the webview has them (Windows,
+	// mygo.PageOptions.ZoomControl); the backend reports the zoom
+	// through WindowHandler.ZoomChanged.
+	ZoomControl bool
 	// DataStore is the website data store of the page, one of
 	// AppController.NewDataStore; nil is the default store. A window
 	// opened by window.open has its opener's.
@@ -719,7 +761,9 @@ type Page interface {
 	// CallAsyncFunction runs body as the body of an async function in the
 	// main frame, awaits it and reports the returned value, which the
 	// caller arranges to be a string. err is non-nil when the body fails to
-	// compile or the evaluation fails natively. Page CSP does not apply.
+	// compile or the evaluation fails natively, and is ErrNavigated when
+	// the webview tells that the document it ran in went away. Page CSP
+	// does not apply.
 	CallAsyncFunction(body string, cb func(result string, err error))
 	SetZoom(factor float64)
 	Zoom() float64
@@ -966,6 +1010,10 @@ type WindowHandler interface {
 	RenderProcessGone(reason string)
 	// AudibleChanged is called when Page.IsAudible changes.
 	AudibleChanged(audible bool)
+	// ZoomChanged is called when the page's zoom changed from Window.Zoom
+	// without the core's SetZoom, as when the user zooms it
+	// (mygo.PageOptions.ZoomControl).
+	ZoomChanged()
 	// CaptureStateChanged is called when Page.CaptureState of kind may
 	// have changed, with its state.
 	CaptureStateChanged(kind CaptureKind, state CaptureState)
@@ -1009,7 +1057,10 @@ type WindowHandler interface {
 	// takes the files where they are, for KeyPressed whether it took
 	// the key itself, which the system then leaves alone (Windows opens no
 	// menu for Alt and the key), for TextComposition whether it took the
-	// composition, which the input method gives up otherwise (macOS), and
+	// composition, which the input method gives up otherwise (macOS), for
+	// PointerScroll whether the content scrolled or a handler took it
+	// (with Swipe, whether a handler took it or the content scrolled
+	// sideways), and
 	// for SurfaceCommandEnabled whether the command would act; it returns
 	// false for other events.
 	SurfaceEvent(ev SurfaceEvent) bool
@@ -1056,11 +1107,35 @@ type SchemeRequest struct {
 	// not import net/http, which builds for browsers leave out: values of
 	// either type assign to the other.
 	Header map[string][]string
-	// Body is nil for requests without a body.
+	// Body is nil for requests without a body. Backends, which hold the
+	// whole body, pass it as BytesBody, whose length becomes the
+	// request's ContentLength.
 	Body io.ReadCloser
 	// Responder methods must be called on the main thread, Respond first.
 	Responder SchemeResponder
 }
+
+// BytesBody is a SchemeRequest's body held in memory. Its Len tells the
+// request's ContentLength, which io.NopCloser would hide: handlers that
+// trust it, as httputil.ReverseProxy, would drop the body. It has only
+// Read, Len and Close, which every app keeps (a bytes.Reader's other
+// methods would grow apps by 8 KB).
+func BytesBody(b []byte) io.ReadCloser { return &bytesBody{b} }
+
+type bytesBody struct{ b []byte }
+
+func (r *bytesBody) Read(p []byte) (int, error) {
+	if len(r.b) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.b)
+	r.b = r.b[n:]
+	return n, nil
+}
+
+func (r *bytesBody) Len() int { return len(r.b) }
+
+func (*bytesBody) Close() error { return nil }
 
 // SchemeResponder delivers a custom protocol response to the webview.
 type SchemeResponder interface {
@@ -1404,8 +1479,9 @@ type Power interface {
 	// sleeping while idle until release is called.
 	KeepAwake(display bool, reason string) (release func())
 	// KeepRunning keeps the system from slowing the app down while none
-	// of its windows shows, as macOS's App Nap does, until release is
-	// called; it leaves the system free to sleep when idle.
+	// of its windows shows, as macOS's App Nap and Windows' power
+	// throttling do, until release is called; it leaves the system free
+	// to sleep when idle.
 	KeepRunning(reason string) (release func())
 	OnBattery() bool
 	IdleTime() time.Duration
@@ -1649,6 +1725,7 @@ type Tab struct {
 type TabBar interface {
 	Select(i int)
 	SetBadge(i int, badge string)
+	SetTitle(i int, title string)
 	Close()
 }
 
@@ -1662,4 +1739,10 @@ type TabsHandler interface {
 // window off its stack (the back button, a swipe, Android's back).
 type NavigationHandler interface {
 	Popped()
+}
+
+// ThumbBarHandler is a WindowHandler told that the user clicked a button
+// of its window's thumbnail toolbar, by its ID (Windows).
+type ThumbBarHandler interface {
+	ThumbButtonClicked(id int)
 }

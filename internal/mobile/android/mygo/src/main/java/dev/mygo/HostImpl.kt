@@ -200,11 +200,30 @@ object HostImpl : HostCalls {
         return r
     }
 
-    /** Whether the app has something on screen, which the splash waits for. */
+    /**
+     * Whether the app has something on screen in the Activity, which the
+     * splash waits for (MyGoActivity.holdSplash).
+     */
     @Volatile var drew = false
 
+    /**
+     * A new Activity shows the app's windows, and waits anew for something
+     * on screen (drew), as for none yet: a surface Go draws on is made anew
+     * with it, empty until Go's first frame on it, while a web view keeps
+     * the page it showed. The Activity is not attached yet: what shows is
+     * what is visible under the root.
+     */
+    fun activityCreated() {
+        val shown = windows.values.filter { w ->
+            generateSequence(w.view) { it.parent as? View }.takeWhile { it !== root }.all { it.visibility == View.VISIBLE }
+        }
+        drew = shown.isNotEmpty() && shown.all { it is WebWindow && it.pageShown }
+    }
+
+    /** Go presented its first frame on a window's surface, as it was made or made anew. */
     override fun firstFrame(c: FirstFrameCall) {
         drew = true
+        surface(c.id)?.drawn()
     }
 
     override fun appInfo(): AppInfoReply {
@@ -329,6 +348,7 @@ object HostImpl : HostCalls {
     override fun showTabs(c: ShowTabsCall) = Navigation.showTabs(c.id)
     override fun selectTab(c: SelectTabCall) { Navigation.tabs[c.id]?.select(c.index.toInt()) }
     override fun setTabBadge(c: SetTabBadgeCall) = Navigation.setBadge(c.id, c.index.toInt(), c.badge)
+    override fun setTabTitle(c: SetTabTitleCall) = Navigation.setTabTitle(c.id, c.index.toInt(), c.title)
     override fun closeTabs(c: CloseTabsCall) = Navigation.closeTabs(c.id)
     override fun pushWindow(c: PushWindowCall) {
         val p = windows[c.parent] ?: return
@@ -875,6 +895,7 @@ object HostImpl : HostCalls {
     override fun accessibilityChanged(c: AccessibilityChangedCall) { surface(c.id)?.accessibilityChanged(c.focus) }
     override fun announce(c: AnnounceCall) { (front()?.view ?: root).announceForAccessibility(c.text) }
     override fun showMenu(c: ShowMenuCall) { surface(c.id)?.showMenu(c) }
+    override fun hideMenu(c: HideMenuCall) { surface(c.id)?.hideMenu() }
     override fun setBackAvailable(c: SetBackAvailableCall) {
         surface(c.id)?.backAvailable = c.on
         updateBack()
@@ -884,6 +905,7 @@ object HostImpl : HostCalls {
     override fun textMetrics(c: TextMetricsCall): TextMetricsReply = Text.metrics(c)
     override fun measureText(c: MeasureTextCall): MeasureTextReply = Text.measure(c)
     override fun textAdvances(c: TextAdvancesCall): TextAdvancesReply = Text.advances(c)
+    override fun measureTextRun(c: MeasureTextRunCall): MeasureTextRunReply = Text.measureRun(c)
     override fun drawText(c: DrawTextCall): DrawTextReply = Text.draw(c)
     override fun registerFont(c: RegisterFontCall): RegisterFontReply = Text.register(c)
 }
