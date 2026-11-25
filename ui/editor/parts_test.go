@@ -242,13 +242,17 @@ func TestCodeDiffParts(t *testing.T) {
 		t.Fatal("the custom action did not revert the change")
 	}
 	// The gutter's button, on the line under the pointer, of the old side
-	// on the left.
+	// on the left. The editor takes its press, and assistive technology
+	// keeps it.
 	y := float32(ed.view.heights.geometry(28).rows-ed.scrollY) + ed.view.lineHeight/2
 	tt.Move(ed.gutterW/2, y)
 	tt.Frame()
-	if err := tt.Click("Comment"); err != nil {
-		t.Fatalf("%v: %q", err, tt.Texts())
+	r, ok := tt.Find("Comment")
+	if _, named := tt.Access("Comment"); !ok || !named {
+		t.Fatalf("no gutter button: %q", tt.Texts())
 	}
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
 	if len(commented) != 1 || commented[0] != (DiffLineRange{Side: DiffOld, Start: 28, End: 28}) {
 		t.Fatalf("gutter button reported %+v", commented)
 	}

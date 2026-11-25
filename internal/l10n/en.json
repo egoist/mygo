@@ -266,6 +266,14 @@
       }
     }
   },
+  "change": "Change",
+  "@change": {
+    "description": "What assistive technology calls the check box of a diff viewer that checks or unchecks all the lines of a change."
+  },
+  "lineActions": "Line actions",
+  "@lineActions": {
+    "description": "What assistive technology calls the button at the end of a diff viewer's line that opens a menu of actions on the line, or on the lines selected."
+  },
   "line": "Line {n, number, ::group-off}",
   "@line": {
     "description": "A line of a diff viewer, as assistive technology reads it: the line a gutter button adds a line at, and the number of each line it shows.",

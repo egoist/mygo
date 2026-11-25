@@ -78,6 +78,12 @@ type options struct {
 	sharedScroll *sharedScroll
 	// signs leaves room for a diff's + and - before the text.
 	signs bool
+	// checks leaves room in the gutter for a diff's check boxes of lines
+	// (DiffState.LineChecks).
+	checks bool
+	// button leaves room at the gutter's right for a diff's button on the
+	// line under the pointer (DiffState.OnGutterButton).
+	button bool
 	// hoverDelay and noPointerHover are State's HoverDelay and
 	// NoPointerHover.
 	hoverDelay     time.Duration
@@ -125,6 +131,7 @@ type lineLook struct {
 	bar                ui.Color
 	stripes            bool   // the bar is striped, as deletions' are
 	sign               string // "+" or "-" in classic indicators
+	check              uint8  // a check box: 0 none, 1 unchecked, 2 checked
 }
 
 // diffRange is a range of a line's bytes a diff highlights.
@@ -296,6 +303,10 @@ type gesture struct {
 	add      bool // added to the selections, which keep the others
 	others   []sel
 	colStart ui.Point
+	// drag, set by startDrag, takes the drag's points in place of the
+	// text's selection, and end its release.
+	drag func(cx float32, cy float64)
+	end  func()
 }
 
 // init sets up the editor for a frame.
@@ -882,6 +893,10 @@ func (ed *editor) gutterWidth() float32 {
 	if len(ed.o.gutterMarks) > 0 && !ed.numbersOn() {
 		w += v.lineHeight * 0.7
 	}
+	if ed.o.checks {
+		w += ed.checkRoom()
+	}
+	w += ed.buttonRoom()
 	if w > 0 {
 		w += 4
 	}

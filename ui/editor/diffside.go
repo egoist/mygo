@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/egoist/mygo/internal/diff"
+	"github.com/egoist/mygo/internal/l10n"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -82,20 +84,59 @@ func (s *diffSide) lineStyle(line int) lineLook {
 	if s.old {
 		side = DiffOld
 	}
-	if d.hasSel && d.selected.Side == side && line >= d.selected.Start && line <= d.selected.End {
-		m := ed.theme.Modified
-		bg := st.bg
-		if bg.A == 0 {
-			bg = ed.theme.Background
-		}
-		st.bg = mixLab(bg, m, 0.18)
-		g := st.gutter
-		if g.A == 0 {
-			g = ed.theme.Background
-		}
-		st.gutter = mixLab(g, m, 0.3)
-		st.number = m
+	st = s.selectedLook(ed, side, line, st)
+	if s.hunkOf(line) >= 0 && !s.empty() {
+		st = s.checkLook(ed, side, line, st)
 	}
+	return st
+}
+
+// checkLook returns st with the check box of a changed line of side
+// (LineChecks), its gutter tinted when checked, as GitHub Desktop's;
+// with NoCheckMarks, the tint alone.
+func (s *diffSide) checkLook(ed *editor, side DiffSide, line int, st lineLook) lineLook {
+	d := s.d
+	if !d.LineChecks {
+		return st
+	}
+	checked := d.lineChecked(side, line)
+	if !d.NoCheckMarks {
+		st.check = 1
+		if checked {
+			st.check = 2
+		}
+	}
+	if !checked {
+		return st
+	}
+	g := st.gutter
+	if g.A == 0 {
+		g = ed.theme.Background
+	}
+	st.gutter = mixLab(g, ed.theme.Modified, 0.35)
+	return st
+}
+
+// selectedLook returns st tinted as a line selected by its number
+// (LineSelection) when the line of side is, or else st: a line of a
+// side's text, or a deleted line of a unified view.
+func (s *diffSide) selectedLook(ed *editor, side DiffSide, line int, st lineLook) lineLook {
+	d := s.d
+	if !d.hasSel || d.selected.Side != side || line < d.selected.Start || line > d.selected.End {
+		return st
+	}
+	m := ed.theme.Modified
+	bg := st.bg
+	if bg.A == 0 {
+		bg = ed.theme.Background
+	}
+	st.bg = mixLab(bg, m, 0.18)
+	g := st.gutter
+	if g.A == 0 {
+		g = ed.theme.Background
+	}
+	st.gutter = mixLab(g, m, 0.3)
+	st.number = m
 	return st
 }
 
@@ -219,9 +260,17 @@ func (s *diffSide) paintDeleted(p *ui.Painter, ed *editor, b *block, r ui.Rect) 
 		}
 	}
 	for _, pl := range lines {
+		look := lineLook{number: dc.deleted}
 		if !d.NoBackground {
-			p.Fill(ui.Rect{X: text.X, Y: pl.y, W: text.W, H: pl.h}, dc.deletedLine, 0)
-			p.Fill(ui.Rect{X: r.X, Y: pl.y, W: ed.gutterW, H: pl.h}, dc.deletedGutter, 0)
+			look.bg, look.gutter = dc.deletedLine, dc.deletedGutter
+		}
+		look = s.selectedLook(ed, DiffOld, pl.line, look)
+		look = s.checkLook(ed, DiffOld, pl.line, look)
+		if look.bg.A != 0 {
+			p.Fill(ui.Rect{X: text.X, Y: pl.y, W: text.W, H: pl.h}, look.bg, 0)
+		}
+		if look.gutter.A != 0 {
+			p.Fill(ui.Rect{X: r.X, Y: pl.y, W: ed.gutterW, H: pl.h}, look.gutter, 0)
 		}
 		if !d.NoLineNumbers {
 			n := pl.line + 1
@@ -232,11 +281,14 @@ func (s *diffSide) paintDeleted(p *ui.Painter, ed *editor, b *block, r ui.Rect) 
 			lay := ed.view.shaped.get(num, ed.view.style)
 			nr := rowLayout{pieces: []rowPiece{{to: len(num), l: lay, ascii: true, width: lay.Width}}, to: len(num)}
 			var nc runColors
-			col := dc.deleted
-			ed.view.paintRow(p, &lineLayout{disp: num}, &nr, r.X+ed.gutterW-4-ed.view.charWidth*0.5-lay.Width, pl.y, &nc, func(int, ui.Color) ui.Color { return col })
+			col := look.number
+			ed.view.paintRow(p, &lineLayout{disp: num}, &nr, r.X+ed.gutterW-4-ed.view.charWidth*0.5-ed.buttonRoom()-lay.Width, pl.y, &nc, func(int, ui.Color) ui.Color { return col })
 		}
 		if d.Indicators == DiffBars {
 			ed.paintBar(p, ui.Rect{X: r.X, Y: pl.y, W: 4, H: pl.h}, lineLook{bar: dc.deleted, stripes: true})
+		}
+		if look.check != 0 {
+			ed.paintCheck(p, r.X, pl.y, look.check == 2)
 		}
 	}
 	p.Clip(text, 0, func() {
@@ -294,14 +346,18 @@ func (s *diffSide) blockInput(ed *editor, b *block, ev ui.InputEvent, r ui.Rect)
 	if b != nil {
 		switch b.kind {
 		case blockDeleted:
-			// Lines of the old text: their numbers select them.
-			if ev.X < ed.gutterW && d.LineSelection && ev.Kind == ui.InputPointerDown {
-				// The line by the tops of the lines, its annotations its own.
-				tops := d.deletedTops[b.hunk]
-				i := sort.Search(len(tops), func(i int) bool { return tops[i] > float64(ev.Y-r.Y) })
-				line := b.from + min(max(i-1, 0), b.to-b.from-1)
-				d.selectLine(DiffOld, line, ev.Mods&ui.Shift != 0)
+			// Lines of the old text: their gutters check them, or
+			// their numbers select them.
+			if ev.X >= ed.gutterW || ev.Kind != ui.InputPointerDown {
 				return true
+			}
+			line := d.deletedLineAt(b, float64(ev.Y-r.Y))
+			switch {
+			case d.LineChecks:
+				_, cy := ed.toContent(ev.X, ev.Y)
+				d.pressCheck(1, DiffOld, line, cy)
+			case d.LineSelection:
+				s.pressLine(ed, DiffOld, line, ev.Mods)
 			}
 			return true
 		}
@@ -313,11 +369,91 @@ func (s *diffSide) blockInput(ed *editor, b *block, ev ui.InputEvent, r ui.Rect)
 	}
 	_, cy := ed.toContent(ev.X, ev.Y)
 	line := ed.view.heights.lineAt(cy)
+	if d.OnGutterButton != nil && !s.empty() && ed.onButton(ev.X, ev.Y) {
+		s.pressButton(ed, side, line)
+		return true
+	}
+	if d.LineChecks && !s.empty() && s.hunkOf(line) >= 0 {
+		i := 1
+		if s.old {
+			i = 0
+		}
+		d.pressCheck(i, side, line, cy)
+		return true
+	}
 	if d.LineSelection && !s.empty() {
-		d.selectLine(side, line, ev.Mods&ui.Shift != 0)
+		s.pressLine(ed, side, line, ev.Mods)
 		return true
 	}
 	return false
+}
+
+// pressLine selects the line whose number is pressed, or extends the
+// selection to it with Shift, and has the drag that follows select the
+// lines it goes over (dragLine).
+func (s *diffSide) pressLine(ed *editor, side DiffSide, line int, mods ui.Modifiers) {
+	d := s.d
+	d.selectLine(side, line, mods&ui.Shift != 0)
+	if d.hasSel {
+		ed.startDrag(func(_ float32, cy float64) { s.dragLine(ed, cy) }, nil)
+	}
+}
+
+// pressButton selects the line whose gutter button is pressed, or keeps
+// the lines selected when it is among them, and has the drag that
+// follows select from it to the line under the pointer (dragLine). The
+// release calls OnGutterButton with the lines selected, as a review
+// comments on them.
+func (s *diffSide) pressButton(ed *editor, side DiffSide, line int) {
+	d := s.d
+	if !d.hasSel || d.selected.Side != side || line < d.selected.Start || line > d.selected.End {
+		d.selected, d.hasSel = DiffLineRange{Side: side, Start: line, End: line}, true
+		if d.OnLineSelection != nil {
+			d.OnLineSelection(d.selected)
+		}
+	}
+	// The lines selected stay until the pointer leaves the line pressed.
+	moved := false
+	ed.startDrag(func(_ float32, cy float64) {
+		if !moved {
+			if sd, l, ok := s.lineAt(ed, cy); !ok || (sd == side && l == line) {
+				return
+			}
+			moved, d.selAnchor = true, line
+		}
+		s.dragLine(ed, cy)
+	}, func() {
+		d.OnGutterButton(d.selected)
+	})
+}
+
+// dragLine extends the lines selected to the line at height y of the
+// content (lineAt).
+func (s *diffSide) dragLine(ed *editor, y float64) {
+	if side, line, ok := s.lineAt(ed, y); ok {
+		s.d.dragLine(side, line)
+	}
+}
+
+// lineAt returns the line at height y of the content: a deleted line of
+// a unified view, or a line of the side's text. Blocks that hold no line,
+// as annotations, hold none.
+func (s *diffSide) lineAt(ed *editor, y float64) (DiffSide, int, bool) {
+	d := s.d
+	if b, r, ok := ed.blockAt(y); ok {
+		if b.kind == blockDeleted {
+			return DiffOld, d.deletedLineAt(b, y-ed.scrollY-float64(r.Y)), true
+		}
+		return 0, 0, false
+	}
+	if s.empty() {
+		return 0, 0, false
+	}
+	side := DiffNew
+	if s.old {
+		side = DiffOld
+	}
+	return side, ed.view.heights.lineAt(y), true
 }
 
 // buildBlocks builds what blocks hold of elements in view: annotations,
@@ -409,6 +545,11 @@ func (s *diffSide) buildBlocks(c *ui.Context, ed *editor) {
 			box.Children(func() { d.RenderAnnotation(c, a) })
 		}
 	}
+	// The actions of a change go left of the line's menu button.
+	right := ed.trackWidth() + 6
+	if d.LineMenu != nil {
+		right += ed.view.lineHeight + 2
+	}
 	// Revert and Keep on the hunk under the pointer, or the caret's.
 	if d.HunkActions && !s.old {
 		active := d.activeHunk()
@@ -442,7 +583,7 @@ func (s *diffSide) buildBlocks(c *ui.Context, ed *editor) {
 			if top < y0-float64(v.lineHeight) || top > y1 {
 				continue
 			}
-			bar := ui.Row(c).Key(fmt.Sprint("hunk actions ", i)).Absolute().Right(ed.trackWidth() + 6).Top(float32(top-ed.scrollY) + 2).
+			bar := ui.Row(c).Key(fmt.Sprint("hunk actions ", i)).Absolute().Right(right).Top(float32(top-ed.scrollY) + 2).
 				Cursor(ui.CursorDefault).KeepFocus().HandleInput(shield)
 			render := d.RenderHunkActions
 			if render == nil {
@@ -451,13 +592,24 @@ func (s *diffSide) buildBlocks(c *ui.Context, ed *editor) {
 			render(c, bar, &DiffHunkActions{Index: i, Hunk: DiffHunk{hk.A0, hk.A1, hk.B0, hk.B1}, d: d})
 		}
 	}
+	// A check box of each change's lines in view, over its change bar.
+	if d.LineChecks {
+		for i, hk := range d.model.hunks {
+			if top, bottom, ok := s.hunkSpan(ed, hk); ok && bottom >= y0 && top <= y1 {
+				s.buildHunkCheck(c, ed, i, hk, top, bottom)
+			}
+		}
+	}
 	// The gutter's button, on the line under the pointer.
 	if d.OnGutterButton != nil && !s.empty() && ed.pointerIn && ed.hoverLine >= 0 && ed.hoverLine < v.text.LineCount() && ed.pointer.X < ed.gutterW+40 {
 		g := h.geometry(ed.hoverLine)
 		if !g.hidden {
 			line := DiffLineRange{Side: side, Start: ed.hoverLine, End: ed.hoverLine}
-			ui.Box(c).Key("gutter button").Absolute().Left(2).Top(float32(g.rows-ed.scrollY) + 2).HandleInput(shield).Children(func() {
-				btn := ui.ButtonBase(c).Size(16, v.lineHeight-4).Cursor(ui.CursorPointer).KeepFocus()
+			// The editor takes its press, which a drag follows
+			// (pressButton); assistive technology presses it alone.
+			room := ed.buttonRoom()
+			ui.Box(c).Key("gutter button").Absolute().Left(ed.gutterW - room).Top(float32(g.rows-ed.scrollY) + 2).IgnoreInput(true).Children(func() {
+				btn := ui.ButtonBase(c).Size(room-4, v.lineHeight-4).KeepFocus()
 				render := d.RenderGutterButton
 				if render == nil {
 					render = DefaultGutterButton
@@ -469,4 +621,187 @@ func (s *diffSide) buildBlocks(c *ui.Context, ed *editor) {
 			})
 		}
 	}
+	if d.LineMenu != nil {
+		s.buildLineMenu(c, ed, side)
+	}
+}
+
+// buildLineMenu builds the menu button at the right end of the line under
+// the pointer, and of the line whose menu shows in the window, which
+// stays on its line while the pointer goes on to others. A system menu
+// takes the pointer while it shows.
+func (s *diffSide) buildLineMenu(c *ui.Context, ed *editor, side DiffSide) {
+	d := s.d
+	n := ed.view.text.LineCount()
+	i := int(side)
+	held := -1
+	if d.menuHeld[i] && d.menuLine[i] < n {
+		held = d.menuLine[i]
+	}
+	d.menuHeld[i] = false
+	if held >= 0 {
+		s.lineMenuButton(c, ed, side, held)
+	}
+	if hover := ed.hoverLine; !s.empty() && !ed.gesture.active && hover >= 0 && hover < n && hover != held {
+		s.lineMenuButton(c, ed, side, hover)
+	}
+}
+
+// lineMenuButton builds the menu button of a line, whose menu LineMenu
+// fills for the line, or for the lines selected when it is among them.
+func (s *diffSide) lineMenuButton(c *ui.Context, ed *editor, side DiffSide, line int) {
+	d := s.d
+	v := &ed.view
+	g := v.heights.geometry(line)
+	if g.hidden {
+		return
+	}
+	lines := DiffLineRange{Side: side, Start: line, End: line}
+	if d.hasSel && d.selected.Side == side && line >= d.selected.Start && line <= d.selected.End {
+		lines = d.selected
+	}
+	lh := v.lineHeight
+	t := c.Theme()
+	ui.Box(c).Key(fmt.Sprint("line menu ", line)).Absolute().Right(ed.trackWidth() + 6).Top(float32(g.rows-ed.scrollY) + 2).HandleInput(shield).Children(func() {
+		btn := ui.ButtonBase(c).Size(lh-4, lh-4).Radius(4).Label(l10n.In(c.Locale()).LineActions()).Cursor(ui.CursorPointer)
+		btn.Draw(func(p *ui.Painter, r ui.Rect) {
+			bg := t.Surface
+			if btn.Hovered() || btn.Focused() {
+				bg = t.Border
+			}
+			p.Fill(r, bg, 4)
+			cx, cy := r.X+r.W/2, r.Y+r.H/2
+			var chevron ui.Path
+			chevron.MoveTo(cx-3.5, cy-1.75).LineTo(cx, cy+1.75).LineTo(cx+3.5, cy-1.75)
+			p.StrokePath(&chevron, 1.5, t.Text)
+		})
+		btn.Menu(func(m *ui.Menu) {
+			d.menuHeld[int(side)], d.menuLine[int(side)] = true, line
+			d.LineMenu(m, lines)
+			s.lineMenuItems(m, ed, lines)
+		})
+	})
+}
+
+// lineMenuItems adds the diff's own items to a line's menu, after the
+// app's: copying the lines, selecting all the side's text, and revealing
+// the unchanged lines hidden above and below them.
+func (s *diffSide) lineMenuItems(m *ui.Menu, ed *editor, lines DiffLineRange) {
+	tx := ed.texts
+	m.Separator()
+	if m.Item(tx.Copy()).Chosen() {
+		r := &ed.view.text
+		ed.services.WriteClipboard(r.Slice(r.LineStart(lines.Start), r.LineEnd(lines.End)))
+	}
+	if m.Item(tx.SelectAll()).Chosen() {
+		ed.run(SelectAll)
+	}
+	m.Separator()
+	above, below := s.gapsAround(lines)
+	if m.Item(tx.ExpandUp()).Disabled(above == nil).Chosen() {
+		s.d.expand(above.a, -1, false)
+	}
+	if m.Item(tx.ExpandDown()).Disabled(below == nil).Chosen() {
+		s.d.expand(below.a, 1, false)
+	}
+}
+
+// gapsAround returns the nearest gaps hiding lines of the side above and
+// below the lines, or nil.
+func (s *diffSide) gapsAround(lines DiffLineRange) (above, below *diffGap) {
+	for i := range s.d.gapList {
+		g := &s.d.gapList[i]
+		if g.hidden == 0 {
+			continue
+		}
+		start := g.hideB
+		if s.old {
+			start = g.hideA
+		}
+		switch {
+		case start+g.hidden-1 < lines.Start:
+			above = g
+		case start > lines.End && below == nil:
+			below = g
+		}
+	}
+	return above, below
+}
+
+// hunkSpan returns the heights of the content a change's lines show
+// from and to on the side, the deleted lines among them in a unified
+// view, and whether it shows lines of the change.
+func (s *diffSide) hunkSpan(ed *editor, hk diff.Hunk) (top, bottom float64, ok bool) {
+	d := s.d
+	h := &ed.view.heights
+	from, to := hk.B0, hk.B1
+	if s.old {
+		from, to = hk.A0, hk.A1
+	}
+	if !s.unified {
+		if to <= from || s.empty() {
+			return 0, 0, false
+		}
+		return h.geometry(from).rows, h.geometry(to - 1).below, true
+	}
+	// Above the new lines, the deleted.
+	if hk.A1 > hk.A0 {
+		top = d.deletedTop(hk.A0)
+		last := hk.A1 - 1
+		bottom = d.deletedTop(last) + float64(float32(d.oldView.heights.wraps.rows(last))*ed.view.lineHeight)
+	}
+	if to > from && !s.empty() {
+		if hk.A1 <= hk.A0 {
+			top = h.geometry(from).rows
+		}
+		bottom = h.geometry(to - 1).below
+	}
+	return top, bottom, bottom > top
+}
+
+// buildHunkCheck builds the check box of change i's lines over its
+// change bar, from height top to bottom of the content: a click checks
+// them all, or unchecks them when they all are.
+func (s *diffSide) buildHunkCheck(c *ui.Context, ed *editor, i int, hk diff.Hunk, top, bottom float64) {
+	d := s.d
+	var lines []DiffLineRange
+	if hk.A1 > hk.A0 {
+		lines = append(lines, DiffLineRange{Side: DiffOld, Start: hk.A0, End: hk.A1 - 1})
+	}
+	if hk.B1 > hk.B0 {
+		lines = append(lines, DiffLineRange{Side: DiffNew, Start: hk.B0, End: hk.B1 - 1})
+	}
+	checked, all := false, true
+	for _, r := range lines {
+		for l := r.Start; l <= r.End; l++ {
+			if d.lineChecked(r.Side, l) {
+				checked = true
+			} else {
+				all = false
+			}
+		}
+	}
+	// A shield, as the gutter button's, keeps the press from the editor's
+	// line check below it.
+	ui.Box(c).Key(fmt.Sprint("hunk check ", i)).Absolute().Left(0).Top(float32(top - ed.scrollY)).HandleInput(shield).Children(func() {
+		box := ui.ButtonBase(c).Size(6, float32(bottom-top)).Role(ui.RoleCheckBox).Label(l10n.In(c.Locale()).Change()).
+			Cursor(ui.CursorPointer).KeepFocus()
+		switch {
+		case all:
+			box.Checked(true)
+		case checked:
+			box.Mixed()
+		default:
+			box.Checked(false)
+		}
+		m := ed.theme.Modified
+		box.Draw(func(p *ui.Painter, r ui.Rect) {
+			if box.Hovered() {
+				p.Fill(r, m, 2)
+			}
+		})
+		if box.Clicked() && d.OnCheckLines != nil {
+			d.OnCheckLines(lines, !all)
+		}
+	})
 }
