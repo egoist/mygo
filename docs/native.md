@@ -44,7 +44,9 @@ mygo.Dialog.Error("Import failed", err.Error())
 ```
 
 `OpenDialogOptions` also pick directories (`Directory`), show hidden files
-and, on macOS, a message and a New Folder button.
+and, on macOS, a message and a New Folder button. On Windows, choosing a
+library, such as Documents, in a directory picker picks the folder it saves
+to.
 
 A filter takes files by type too, as HTML's `accept`: `MIMETypes` such as
 `"application/pdf"`, or all of a kind, `"image/*"`, which the system's
@@ -422,8 +424,13 @@ app that serves the network, streams or syncs in the background. A tray
 icon counts as a window that shows while the menu bar shows it.
 `KeepRunning` keeps App Nap off until its release, and lets the computer
 sleep when idle, as an app that stays in the menu bar all day should;
-`KeepAwake` keeps App Nap off too, but the computer awake as well. Other
-systems do nothing for `KeepRunning`.
+`KeepAwake` keeps App Nap off too, but the computer awake as well. Windows
+throttles a process it does not see in much the same way: EcoQoS slows its
+threads, and on hybrid processors moves them to the efficiency cores.
+`KeepRunning` turns that off until its release, which leaves the throttling
+to Windows again, so an app that shows its window again is treated as
+Windows treats any other. Linux desktops do not slow an app out of sight,
+and do nothing for `KeepRunning`.
 
 On Linux, `OnLockScreen` is called when the screen saver starts,
 which usually locks the screen, and `IdleTime` is 0 on desktops that do not
@@ -476,6 +483,20 @@ defer release()
 `Control` hears the player's end; after the app plays, pauses or seeks it
 itself, `NowPlaying.Sync` shows it. In browsers, `NowPlaying` is the
 page's Media Session.
+
+A track with more than one artist names them in `Artists`, which wins
+over `Artist` when it names any: MPRIS clients list them, and macOS,
+Windows and browsers, which show one artist, show them joined with ", ".
+
+```go
+mygo.NowPlaying.Set(mygo.NowPlayingInfo{
+	Title: "Get Lucky", Artists: []string{"Daft Punk", "Pharrell Williams", "Nile Rodgers"},
+})
+```
+
+On Linux, an MPRIS client can raise the player (`Raise`), as the media
+controls of GNOME and KDE do when it is clicked: the app's window that had
+the keyboard last shows, if hidden, and takes the keyboard.
 
 ## Network
 
@@ -736,6 +757,23 @@ reading their entries' types without stat'ing them. Symlinks are still not
 followed, nothing outside the directory is watched, and the watched
 directory going away still ends the watch with a `FileRemove` of `.`.
 
+Where the system cannot tell a watch what changes, it can look itself.
+`PollInterval` has a watch poll where the system has no file watching
+(browsers, Linux on another architecture) instead of failing with
+`errors.ErrUnsupported`; `Poll` makes it poll in any case, for a
+directory on a network share, whose changes made by other machines the
+system does not report. Polling lists and stats what the watch covers
+every `PollInterval` (a second by default with `Poll`), and reports the
+same events as a watch the system tells. A `HintsOnly` watch doesn't
+poll: with nothing to compare with, it could only hint at everything.
+
+```go
+w, err := mygo.WatchFiles(ctx, dir, mygo.FileWatchOptions{
+	Recursive:    true,
+	PollInterval: 2 * time.Second, // where the system cannot watch
+})
+```
+
 ## Global shortcuts
 
 Global shortcuts work while the app is in the background, for example to
@@ -755,12 +793,15 @@ by the app or, where the system tells, by another app.
 
 On Linux under X11 the app grabs the keys itself. Under Wayland, where apps
 cannot, the desktop binds shortcuts for the app through the XDG desktop
-portal, which KDE Plasma 6 and GNOME 48 and later provide: the desktop may
+portal, which KDE Plasma 6 and GNOME 48 and later provide, and so it does
+for an app that runs on XWayland in a Wayland session (`GDK_BACKEND=x11`),
+whose grabs would get the keys only while it has the focus: the desktop may
 ask the user to confirm new shortcuts and lets them pick other keys, and it
 needs the app installed, since it identifies apps by their desktop entry.
 The shortcut works shortly after `Register` returns. Windows the function
 shows or focuses take the focus with the key press's activation token where
-the desktop provides one, as GNOME does.
+the desktop provides one, as GNOME does; under XWayland they show without
+it on GNOME, which keeps the focus for the window the user is in.
 
 Such a desktop shows the app's shortcuts to the user, where it asks to
 confirm them and in its settings, and the user may decline one, which then

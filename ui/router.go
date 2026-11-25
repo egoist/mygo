@@ -3,10 +3,11 @@ package ui
 import (
 	"net/url"
 	"path"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/egoist/mygo/internal/platform"
 )
 
 // Router keeps the history of the pages of a window, or of a part of one,
@@ -69,6 +70,27 @@ type Router struct {
 	Transition Transition
 	Animation  *Animation
 
+	// SystemStack has phones show the pages as the system's own stack of
+	// screens: the history up to the page shown is the stack, under the
+	// system's navigation bar, which shows the title of the page (Route.Title)
+	// and a back button. On iOS the system moves the pages, as UIKit's
+	// navigation controller does, with its swipe back from the left edge;
+	// on Android the bar is Material's toolbar, over the pages as the router
+	// moves them. Set it for the window's first router, whose View fills the
+	// window, and show no bar of your own while InSystemStack reports it:
+	//
+	//	app.router.SystemStack = true
+	//	if !app.router.InSystemStack(c) {
+	//		ui.Row(c).Children(func() {
+	//			ui.BackButton(c, app.router)
+	//			ui.Text(c, app.router.Title())
+	//		})
+	//	}
+	//	app.router.View(c, app.page)
+	//
+	// Elsewhere, as on desktops and in browsers, it changes nothing.
+	SystemStack bool
+
 	entries []*routeEntry
 	at      int
 	// base numbers entries[0] among all the entries the history had, as
@@ -81,6 +103,20 @@ type Router struct {
 	// view is the state of View; the views of Route.View keep theirs in
 	// their elements.
 	view routeView
+	// swipe is how far, from 0 to 1, a gesture has taken the page shown back
+	// over the one before it (touch_back.go), while swiping; settle takes it
+	// back to 0 as the gesture is given up.
+	swipe    float32
+	swiping  bool
+	settle   channel
+	settling bool
+	// resume is where the slide of the next page starts, a gesture having
+	// gone that far of it.
+	resume float32
+	// stackMoves is set while the system's stack moves the pages
+	// (router_stack.go), and keyed counts the keys of entries.
+	stackMoves bool
+	keyed      uint64
 }
 
 // routeEntry is an entry of the history: a location of a page.
@@ -95,6 +131,9 @@ type routeEntry struct {
 	// Route.View takes, -1 for other pages and those not built yet.
 	layouts []int
 	title   string
+	// key tells the entry's screen apart in a system's stack, 0 until it
+	// shows in one (Router.entryKey).
+	key uint64
 	// focus is the element that had the keyboard focus as the entry went
 	// out of sight.
 	focus uint64
@@ -171,7 +210,7 @@ func (r *Router) pageAt(e *routeEntry, level int) uint64 {
 
 // resolve returns the location of target, relative to the page shown as
 // a link in a web page is: its path made absolute and clean, and its
-// query.
+// query. p is the path, escaped.
 func (r *Router) resolve(target string) (loc, p string, ok bool) {
 	ref, err := url.Parse(target)
 	if err != nil {
@@ -182,18 +221,35 @@ func (r *Router) resolve(target string) (loc, p string, ok bool) {
 		base, _ = url.Parse(r.entries[r.at].loc)
 	}
 	u := base.ResolveReference(ref)
-	p = path.Clean("/" + u.Path)
-	return (&url.URL{Path: p, RawQuery: u.RawQuery}).String(), p, true
+	p = path.Clean("/" + escapeParts(u.EscapedPath()))
+	loc = p
+	if u.RawQuery != "" {
+		loc += "?" + u.RawQuery
+	}
+	return loc, p, true
 }
 
-// shared returns the pages of entry e that an entry of path p shares, with
-// what they take of the path: all of them for the same path, else those
-// of the layouts whose part of the path p keeps.
+// escapeParts escapes each part of an escaped path anew, all the same way
+// however they were, an escaped slash staying one.
+func escapeParts(escaped string) string {
+	parts := strings.Split(escaped, "/")
+	for i, s := range parts {
+		if s, err := url.PathUnescape(s); err == nil {
+			u := url.URL{Path: "/" + s}
+			parts[i] = strings.ReplaceAll(u.EscapedPath()[1:], "/", "%2F")
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+// shared returns the pages of entry e that an entry of path p, escaped,
+// shares, with what they take of the path: all of them for the same path,
+// else those of the layouts whose part of the path p keeps.
 func shared(e *routeEntry, p string) ([]uint64, []int) {
-	if p == pathOf(e.loc) {
+	if p == escapedPathOf(e.loc) {
 		return slices.Clone(e.pages), slices.Clone(e.layouts)
 	}
-	parts, from := pathParts(p), pathParts(pathOf(e.loc))
+	parts, from := pathParts(p), pathParts(escapedPathOf(e.loc))
 	n := 0
 	for n < len(e.pages) && n < len(e.layouts) {
 		k := e.layouts[n]
@@ -246,7 +302,7 @@ func (r *Router) Replace(target string) {
 	} else {
 		old := r.entries[r.at]
 		e.pages, e.layouts = shared(old, p)
-		if p == pathOf(old.loc) {
+		if p == escapedPathOf(old.loc) {
 			e.title = old.title
 		}
 		r.entries[r.at] = e
@@ -266,6 +322,7 @@ func (r *Router) Forward() { r.Go(1) }
 // Go moves n pages through the history: back for a negative n, forward
 // for a positive one, as far as it goes.
 func (r *Router) Go(n int) {
+	r.endSwipe()
 	r.current()
 	at := max(0, min(r.at+n, len(r.entries)-1))
 	if at != r.at {
@@ -339,6 +396,14 @@ func isPath(target string) bool {
 func pathOf(loc string) string {
 	if u, err := url.Parse(loc); err == nil {
 		return u.Path
+	}
+	return loc
+}
+
+// escapedPathOf returns the path of a location, escaped.
+func escapedPathOf(loc string) string {
+	if u, err := url.Parse(loc); err == nil {
+		return u.EscapedPath()
 	}
 	return loc
 }
@@ -517,8 +582,18 @@ func (r *Router) coreView(c *context, fn func(r *Route)) *node {
 	box := coreColumn(c).Grow(1).AlignSelf(Stretch).MinWidth(0).MinHeight(0)
 	box.widget = "Router"
 	wrapElement(box).Bind(&r.Handle)
+	if noteRouter != nil {
+		noteRouter(r, box)
+	}
 	r.keys(c, box)
+	r.noteStack(c)
+	if touchFrame != nil && c.routers == 1 {
+		r.noteBack(c)
+	}
 	r.build(c, box, &r.view, nil, fn)
+	if routerBuilt != nil {
+		routerBuilt(r, box)
+	}
 	return box
 }
 
@@ -552,6 +627,17 @@ func (r *Router) build(c *context, box *node, v *routeView, parent *Route, fn fu
 	box.Children(func() {
 		var page *node
 		switch {
+		case v.leaving == nil && parent == nil && r.peeking(c) && r.at > 0:
+			// A gesture takes the page back: the one before shows under it.
+			box.Clip()
+			bg := backdrop(box)
+			at := r.swipe
+			lower := r.page(c, parent, r.entries[r.at-1], fn, true)
+			page = r.page(c, parent, cur, fn, false)
+			page.Absolute().Top(0).Fill().Background(bg).StartPercent(100*at).Shadow(0, 0, 16, 0, RGBA(0, 0, 0, 0.15))
+			lower.StartPercent(-30 * (1 - at)).Background(bg).DrawOver(func(p *Painter, rc Rect) {
+				p.Fill(rc, RGBA(0, 0, 0, 0.06*(1-at)), 0)
+			})
 		case v.leaving == nil:
 			page = r.page(c, parent, cur, fn, false)
 		case r.Transition == TransitionMatch:
@@ -602,10 +688,15 @@ func (r *Router) keys(c *context, box *node) {
 	// Right right to left, as in browsers.
 	left, right := box.arrows()
 	back, forward := [2]shortcut{{0, KeyBack}, {Alt, left}}, [2]shortcut{{0, KeyForward}, {Alt, right}}
-	if runtime.GOOS == "darwin" {
+	if platform.MacKeys {
 		back[1], forward[1] = shortcut{Super, KeyBracketLeft}, shortcut{Super, KeyBracketRight}
 	}
-	pressed := func(keys [2]shortcut) bool {
+	// Only while there is somewhere to go: the keys are the window's
+	// otherwise, and Android's back leaves the app.
+	pressed := func(keys [2]shortcut, can bool) bool {
+		if !can {
+			return false
+		}
 		hit := false
 		for _, k := range keys {
 			if box.Shortcut(k.mods, k.key) || first && c.Shortcut(k.mods, k.key) {
@@ -614,10 +705,10 @@ func (r *Router) keys(c *context, box *node) {
 		}
 		return hit
 	}
-	if pressed(back) {
+	if pressed(back, r.CanGoBack()) {
 		r.Back()
 	}
-	if pressed(forward) {
+	if pressed(forward, r.CanGoForward()) {
 		r.Forward()
 	}
 }
@@ -649,12 +740,13 @@ func (r *Router) show(c *context, box *node, v *routeView, parent *Route, cur *r
 	// took its place while it was away, and easing from that element's
 	// color is not its own.
 	rt.forgetColors()
-	if r.Transition == TransitionNone || rt.instant() {
+	if r.Transition == TransitionNone || rt.instant() || r.stackMoves && parent == nil {
 		return
 	}
 	v.leaving = old
 	defer func() {
-		v.progress = channel{at: c.now}
+		v.progress = channel{value: float64(r.resume), at: c.now}
+		r.resume = 0
 		headFor(&v.progress, 1, r.animation(v.dir), c.now)
 	}()
 	if r.Transition == TransitionAuto && !rt.preferences().ReduceMotion {

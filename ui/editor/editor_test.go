@@ -604,6 +604,94 @@ func TestCodeEditorClipboard(t *testing.T) {
 	ct.want("ab|c")
 }
 
+func TestCodeEditorMultiCursorPaste(t *testing.T) {
+	oldClip := lastClip
+	t.Cleanup(func() { lastClip = oldClip })
+
+	for _, tc := range []struct {
+		name string
+		init string
+		clip string
+		want string
+	}{
+		{name: "carets", init: "a|\nb|", clip: "1\n2", want: "a1|\nb2|"},
+		{name: "selections", init: "[a]\n[b]", clip: "1\n2", want: "1|\n2|"},
+		{name: "adjacent-selections", init: "[ab][ab]", clip: "x\ny", want: "x|y|"},
+		{name: "trailing-newline", init: "a|\nb|", clip: "1\n2\n", want: "a1|\nb2|"},
+		{name: "single-line-trailing-newline", init: "a|\nb|", clip: "1\n", want: "a1\n|\nb1\n|"},
+		{name: "mismatched-line-count", init: "a|\nb|", clip: "1\n2\n3", want: "a1\n2\n3|\nb1\n2\n3|"},
+		{name: "trailing-blank-line", init: "[a]\n[b]", clip: "1\n\n", want: "1|\n|"},
+		{name: "trailing-blank-line-mismatch", init: "a|\nb|\nc|", clip: "1\n\n", want: "a1\n\n|\nb1\n\n|\nc1\n\n|"},
+		{name: "two-blank-lines", init: "[a]\n[b]", clip: "\n\n", want: "|\n|"},
+		{name: "single-newline", init: "a|\nb|", clip: "\n", want: "a\n|\nb\n|"},
+		{name: "crlf", init: "a|\nb|", clip: "1\r\n2\r\n", want: "a1|\nb2|"},
+		{name: "cr", init: "a|\nb|", clip: "1\r2\r", want: "a1|\nb2|"},
+		{name: "single-cursor-trailing-newline", init: "a|", clip: "1\n", want: "a1\n|"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lastClip = clipboard{}
+			ct := newEditorTest(t, "", tc.init)
+			ct.tt.SetClipboard(tc.clip)
+			ct.key(ui.Cmd, ui.KeyV)
+			ct.want(tc.want)
+		})
+	}
+
+	t.Run("insert-keeps-full-text", func(t *testing.T) {
+		lastClip = clipboard{}
+		ct := newEditorTest(t, "", "a|\nb|")
+		ct.st.Insert("1\n2")
+		ct.tt.Frame()
+		ct.want("a1\n2|\nb1\n2|")
+	})
+
+	t.Run("single-cursor-cr-preserved", func(t *testing.T) {
+		lastClip = clipboard{}
+		ct := newEditorTest(t, "", "|")
+		ct.tt.SetClipboard("one\rtwo")
+		ct.key(ui.Cmd, ui.KeyV)
+		if got := written(t, ct.st.Buffer); got != "one\rtwo" {
+			t.Fatalf("written %q, want %q", got, "one\rtwo")
+		}
+	})
+
+	t.Run("internal-multiline-selection", func(t *testing.T) {
+		src := newEditorTest(t, "", "[one\ntwo\n]")
+		src.key(ui.Cmd, ui.KeyC)
+		dst := newEditorTest(t, "", "a|\nb|")
+		dst.tt.SetClipboard(src.tt.Clipboard())
+		dst.key(ui.Cmd, ui.KeyV)
+		dst.want("aone|\nbtwo|")
+	})
+
+	t.Run("preserve-lastclip-whole-line-single-to-multi", func(t *testing.T) {
+		src := newEditorTest(t, "", "o|ne\ntwo")
+		src.key(ui.Cmd, ui.KeyC)
+		dst := newEditorTest(t, "", "a|\nb|")
+		dst.tt.SetClipboard(src.tt.Clipboard())
+		dst.key(ui.Cmd, ui.KeyV)
+		dst.want("one\na|\none\nb|")
+	})
+
+	t.Run("preserve-lastclip-whole-line-multi-to-multi", func(t *testing.T) {
+		src := newEditorTest(t, "", "o|ne\nt|wo")
+		src.key(ui.Cmd, ui.KeyC)
+		dst := newEditorTest(t, "", "a|\nb|")
+		dst.tt.SetClipboard(src.tt.Clipboard())
+		dst.key(ui.Cmd, ui.KeyV)
+		dst.want("one\na|\ntwo\nb|")
+	})
+
+	t.Run("preserve-lastclip-multiline-pieces", func(t *testing.T) {
+		src := newEditorTest(t, "", "[a\nb] [c\nd]")
+		src.key(ui.Cmd, ui.KeyC)
+		dst := newEditorTest(t, "", "x|\ny|")
+		dst.tt.SetClipboard(src.tt.Clipboard())
+		dst.key(ui.Cmd, ui.KeyV)
+		dst.want("xa\nb|\nyc\nd|")
+	})
+}
+
 func TestCodeEditorComposition(t *testing.T) {
 	ct := newEditorTest(t, "", "a|b\nc|d")
 	ct.tt.Compose("に", 1)
@@ -744,6 +832,58 @@ func TestCodeEditorFoldImports(t *testing.T) {
 	if !ct.st.ed.foldable(0) || ct.st.ed.foldable(1) {
 		t.Errorf("foldable %v %v, want the first line only", ct.st.ed.foldable(0), ct.st.ed.foldable(1))
 	}
+}
+
+// TestSelectSmallerAfterEdit checks that the selections Select Larger grew
+// move with the text edited since, as the carets do: Select Smaller takes
+// them back to where their text went, not to where it was.
+func TestSelectSmallerAfterEdit(t *testing.T) {
+	// Typed over the word selected: the caret is after the letter, not
+	// between its bytes, where the next letter typed would break it.
+	ct := newEditorTest(t, "", "a|b cd")
+	ct.run(SelectLarger)
+	ct.want("[ab] cd")
+	ct.typ("é")
+	ct.run(SelectSmaller)
+	ct.want("é| cd")
+	ct.typ("z")
+	ct.want("éz| cd")
+	// The text is shorter than the caret was far.
+	ct = newEditorTest(t, "", "abc|def")
+	ct.run(SelectLarger)
+	ct.want("[abcdef]")
+	ct.typ("x")
+	ct.run(SelectSmaller)
+	ct.want("x|")
+	// An edit of the app's before the selection.
+	ct = newEditorTest(t, "", "one two thr|ee")
+	ct.run(SelectLarger)
+	ct.want("one two [three]")
+	ct.st.Buffer.Edit(Edit{Start: 0, End: 4})
+	ct.run(SelectSmaller)
+	ct.want("two thr|ee")
+}
+
+// TestDragFollowsEdits checks that a drag goes on from where its start
+// went with the text edited since the press, as under a reply that
+// streams in, and that the carets an Alt drag keeps go with it too.
+func TestDragFollowsEdits(t *testing.T) {
+	ct := newEditorTest(t, "", "aé\nxyz")
+	ct.tt.Press(300, 5) // past the end of the first line
+	ct.want("aé|\nxyz")
+	ct.st.Buffer.Edit(Edit{Start: 0, End: 1})
+	ct.tt.Move(0, 5)
+	ct.want("[é]\nxyz")
+	ct.tt.Release(0, 5)
+
+	ct = newEditorTest(t, "", "aé|\nxyz")
+	y := 5 + ct.st.ed.view.lineHeight
+	// The editor takes these itself: a Tester's press holds no modifier.
+	ct.st.ed.input(ui.InputEvent{Kind: ui.InputPointerDown, X: 300, Y: y, Clicks: 1, Mods: ui.Alt})
+	ct.want("aé|\nxyz|")
+	ct.st.Buffer.Edit(Edit{Start: 0, End: 1})
+	ct.st.ed.input(ui.InputEvent{Kind: ui.InputPointerMove, Y: y, Mods: ui.Alt})
+	ct.want("é|\n[xyz]")
 }
 
 func TestCodeEditorWords(t *testing.T) {
@@ -1123,6 +1263,47 @@ func TestCodeEditorTokenFaces(t *testing.T) {
 	check(v, l)
 }
 
+// Finding a match left of the view shows the whole of it, not its end at
+// the left edge: the caret alone, at a match's end, would hide the start.
+func TestFindRevealsTheWholeMatchSideways(t *testing.T) {
+	long := strings.Repeat("x", 300) + " closeDate " + strings.Repeat("y", 300)
+	text := long + "\n" + "needle closeDate tail\n"
+	for _, fit := range []bool{false, true} {
+		st := &State{Buffer: NewBuffer(text), FitContent: fit}
+		tt := ui.NewTester(func(c *ui.Context) {
+			if fit {
+				ui.Scroll(c).Fill().Children(func() { View(c, st).Shrink(0) })
+				return
+			}
+			View(c, st).Fill()
+		}, 600, 400)
+		tt.Frame()
+		ed := &st.ed
+		// The user scrolled right, into the long first line.
+		ed.scrollX = 4000
+		tt.Frame()
+		tt.Frame()
+		st.Find("closeDate")
+		tt.Frame()
+		tt.Frame()
+		i := strings.Index(text, "closeDate")
+		r, ok := ed.caretRect(i)
+		if !ok {
+			t.Fatalf("FitContent %v: the match has no rectangle", fit)
+		}
+		if r.X < ed.scrollX {
+			t.Fatalf("FitContent %v: the match starts at %v, left of the view from %v", fit, r.X, ed.scrollX)
+		}
+		end, ok := ed.caretRect(i + len("closeDate"))
+		if !ok {
+			t.Fatalf("FitContent %v: the match's end has no rectangle", fit)
+		}
+		if end.X > ed.scrollX+ed.r.W-ed.textX {
+			t.Fatalf("FitContent %v: the match ends at %v, right of the view from %v wide", fit, end.X, ed.r.W)
+		}
+	}
+}
+
 // An editor as high as its lines, in a scroll view, shows its caret as it
 // takes the focus, not its first line.
 func TestFitContentFocusRevealsCaret(t *testing.T) {
@@ -1179,5 +1360,41 @@ func TestHeightsZeroValue(t *testing.T) {
 	}
 	if got := h.lineAt(10); got != 0 {
 		t.Fatalf("lineAt of the zero heights = %d, want 0", got)
+	}
+}
+
+// A caret alone cuts its line even when it is the last, which has no newline
+// of its own: the line goes, and the caret lands at the end of the one above.
+func TestCodeEditorCutLastLine(t *testing.T) {
+	ct := newEditorTest(t, "", "one\ntw|o")
+	ct.key(ui.Cmd, ui.KeyX)
+	ct.want("one|")
+	if got := ct.tt.Clipboard(); got != "two\n" {
+		t.Errorf("cut %q", got)
+	}
+	// An empty last line goes too, rather than cutting nothing.
+	ct = newEditorTest(t, "", "one\n|")
+	ct.key(ui.Cmd, ui.KeyX)
+	ct.want("one|")
+	// The only line is emptied, with nothing above to take.
+	ct = newEditorTest(t, "", "o|ne")
+	ct.key(ui.Cmd, ui.KeyX)
+	ct.want("|")
+	// A line in the middle still takes its own newline.
+	ct = newEditorTest(t, "", "one\nt|wo\nthree")
+	ct.key(ui.Cmd, ui.KeyX)
+	ct.want("one\n|three")
+}
+
+// Comment toggling on blank lines has nothing to uncomment, so it comments.
+func TestCodeEditorToggleCommentBlankLine(t *testing.T) {
+	ct := newEditorTest(t, "sql", "select 1;\n|")
+	ct.key(ui.Cmd, ui.KeySlash)
+	if got := ct.st.Buffer.String(); got != "select 1;\n-- " {
+		t.Fatalf("a blank line gave %q", got)
+	}
+	ct.key(ui.Cmd, ui.KeySlash)
+	if got := ct.st.Buffer.String(); got != "select 1;\n" {
+		t.Errorf("toggled back to %q", got)
 	}
 }

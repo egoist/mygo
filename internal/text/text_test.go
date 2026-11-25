@@ -19,6 +19,7 @@ import (
 	"golang.org/x/image/font/gofont/gomediumitalic"
 	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
+	"golang.org/x/image/font/gofont/gosmallcaps"
 )
 
 func TestLayoutWraps(t *testing.T) {
@@ -905,6 +906,116 @@ func TestEllipsis(t *testing.T) {
 	}
 }
 
+func TestEllipsisTooNarrow(t *testing.T) {
+	s := newSystem()
+	s.UseTruncateMiddle()
+	s.UseTruncateStart()
+	style := Style{Size: 14}
+	lineHeight := s.Layout(Params{Text: "some/path", Style: style}).Height
+	markW := s.Layout(Params{Text: "…", Style: style}).Width
+	dotsW := s.Layout(Params{Text: "...", Style: style}).Width
+	if markW <= 3 || dotsW <= 3 {
+		t.Fatalf("ellipsis widths %v and %v too small to test", markW, dotsW)
+	}
+
+	narrowCases := []struct {
+		name string
+		p    Params
+	}{
+		{"end", Params{Text: "some/path", Style: style, Width: 3, MaxLines: 1}},
+		{"custom", Params{Text: "some/path", Style: style, Width: dotsW - 1, MaxLines: 1, Ellipsis: "..."}},
+		{"middle", Params{Text: "some/path", Style: style, Width: 3, MaxLines: 1, TruncateMiddle: true}},
+		{"start", Params{Text: "some/path", Style: style, Width: 3, MaxLines: 1, TruncateStart: true}},
+		{"single_char", Params{Text: "W", Style: style, Width: 3, MaxLines: 1}},
+		{"multiline", Params{Text: "alpha\nbeta", Style: style, Width: 3, MaxLines: 1}},
+		{"indent_fills_width", Params{Text: "some/path", Style: style, Width: 20, Indent: 20, MaxLines: 1}},
+	}
+	for _, tc := range narrowCases {
+		t.Run(tc.name, func(t *testing.T) {
+			l := s.Layout(tc.p)
+			if !l.Truncated || len(l.Lines) != 1 || len(l.Lines[0].Glyphs) != 0 || l.Lines[0].Width != 0 || l.Width != tc.p.Indent {
+				t.Errorf("got truncated=%v lines=%d glyphs=%d lineW=%v layoutW=%v", l.Truncated, len(l.Lines), len(l.Lines[0].Glyphs), l.Lines[0].Width, l.Width)
+			}
+			if l.Height != lineHeight {
+				t.Errorf("height %v, want %v", l.Height, lineHeight)
+			}
+			_, _, ch := l.Caret(0)
+			if ch != lineHeight {
+				t.Errorf("caret height %v, want %v", ch, lineHeight)
+			}
+			if pos := l.PositionAt(0, 0); pos.Index != 0 {
+				t.Errorf("PositionAt(0, 0) = %+v", pos)
+			}
+			if rects := l.Selection(0, len(l.Runes)); len(rects) != 0 {
+				t.Errorf("Selection = %+v, want empty", rects)
+			}
+		})
+	}
+
+	// Wide enough for the ellipsis alone: keeps the ellipsis within Width.
+	fitW := markW + 0.5
+	for _, p := range []Params{
+		{Text: "some/path", Style: style, Width: fitW, MaxLines: 1},
+		{Text: "some/path", Style: style, Width: fitW, MaxLines: 1, TruncateMiddle: true},
+		{Text: "some/path", Style: style, Width: fitW, MaxLines: 1, TruncateStart: true},
+	} {
+		l := s.Layout(p)
+		if !l.Truncated || len(l.Lines) != 1 || len(l.Lines[0].Glyphs) == 0 || l.Lines[0].Width > fitW {
+			t.Errorf("at %v (middle=%v start=%v): truncated=%v glyphs=%d width=%v", fitW, p.TruncateMiddle, p.TruncateStart, l.Truncated, len(l.Lines[0].Glyphs), l.Lines[0].Width)
+		}
+	}
+
+	// Single wide character narrower than itself but wide enough for the ellipsis.
+	if wW := s.Layout(Params{Text: "W", Style: style}).Width; wW > fitW+0.5 {
+		l := s.Layout(Params{Text: "W", Style: style, Width: fitW, MaxLines: 1})
+		if !l.Truncated || len(l.Lines[0].Glyphs) == 0 || l.Lines[0].Width > fitW || l.Lines[0].Glyphs[0].Runes != 0 {
+			t.Errorf("single wide char at %v: truncated=%v width=%v glyphs=%+v", fitW, l.Truncated, l.Lines[0].Width, l.Lines[0].Glyphs)
+		}
+	}
+
+	// Ellipsis inheriting a larger span's font size must not overflow Width.
+	t.Run("large_span_ellipsis_fits", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			p    Params
+		}{
+			{"end", Params{Text: "iiii", Style: Style{Size: 14}, Spans: EncodeSpans([]Span{{End: 4, Size: 48}}), Width: 24, MaxLines: 1}},
+			{"middle", Params{Text: "iiii", Style: Style{Size: 14}, Spans: EncodeSpans([]Span{{End: 4, Size: 96}}), Width: 52, MaxLines: 1, TruncateMiddle: true}},
+			{"start", Params{Text: "iiii", Style: Style{Size: 14}, Spans: EncodeSpans([]Span{{End: 4, Size: 96}}), Width: 52, MaxLines: 1, TruncateStart: true}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				l := s.Layout(tc.p)
+				if !l.Truncated || len(l.Lines) != 1 || l.Lines[0].Width > tc.p.Width+1e-3 {
+					t.Errorf("large span at width %v: truncated=%v width=%v glyphs=%+v", tc.p.Width, l.Truncated, l.Lines[0].Width, l.Lines[0].Glyphs)
+				}
+			})
+		}
+	})
+
+	// KeepSpaces counts trailing spaces toward single-line overflow and inside truncation.
+	t.Run("keep_spaces_overflow", func(t *testing.T) {
+		full := s.Layout(Params{Text: "a    ", Style: style, KeepSpaces: true}).Width
+		w := full - 1
+		l := s.Layout(Params{Text: "a    ", Style: style, Width: w, MaxLines: 1, KeepSpaces: true})
+		if !l.Truncated || len(l.Lines) != 1 || l.Lines[0].Width > w+1e-3 {
+			t.Errorf("KeepSpaces at width %v (full %v): truncated=%v width=%v", w, full, l.Truncated, l.Lines[0].Width)
+		}
+		spans := EncodeSpans([]Span{{End: 9, Size: 18}})
+		for _, tc := range []struct {
+			name string
+			p    Params
+		}{
+			{"start", Params{Text: "iiiiiiii ", Style: style, Spans: spans, Width: 20, MaxLines: 1, KeepSpaces: true, TruncateStart: true}},
+			{"middle", Params{Text: "iiiiiiii ", Style: style, Spans: spans, Width: 28, MaxLines: 1, KeepSpaces: true, TruncateMiddle: true}},
+		} {
+			l := s.Layout(tc.p)
+			if !l.Truncated || len(l.Lines) != 1 || l.Lines[0].Width > tc.p.Width+1e-3 {
+				t.Errorf("KeepSpaces %s at width %v: truncated=%v width=%v", tc.name, tc.p.Width, l.Truncated, l.Lines[0].Width)
+			}
+		}
+	})
+}
+
 // checkMiddleCut returns the runes a line that TruncateMiddle cut keeps
 // before its ellipsis and from where it keeps them after it, checking
 // that its glyphs hold no hidden rune and that one ellipsis stands
@@ -1088,6 +1199,185 @@ func TestTruncateMiddleEnds(t *testing.T) {
 	}
 }
 
+// checkStartCut returns from where a line that TruncateStart cut keeps
+// the runes of its paragraph, checking it as checkMiddleCut does and
+// that the ellipsis, before them, keeps none of its start.
+func checkStartCut(t *testing.T, l *Layout) (resume int) {
+	t.Helper()
+	cut, resume := checkMiddleCut(t, l)
+	if cut != 0 {
+		t.Fatalf("keeps %d runes before the ellipsis", cut)
+	}
+	return resume
+}
+
+func TestTruncateStart(t *testing.T) {
+	s := newSystem()
+	s.UseTruncateStart()
+	path := "src/components/settings/appearance/theme/picker.go"
+	p := Params{Text: path, Style: Style{Size: 14}, Width: 160, MaxLines: 1, TruncateStart: true}
+	l := s.Layout(p)
+	resume := checkStartCut(t, l)
+	line := l.Lines[0]
+	if line.Width > p.Width {
+		t.Errorf("the line is %v wide in %v", line.Width, p.Width)
+	}
+	if g := line.Glyphs[0]; g.Runes != 0 {
+		t.Errorf("the line starts with %+v, not the ellipsis", g)
+	}
+	if resume > len(path)-len("theme/picker.go") {
+		t.Errorf("kept …%q", path[resume:])
+	}
+	// It keeps as much of the end as fits: one grapheme more does not.
+	width := func(text string) float32 { return s.Layout(Params{Text: text, Style: p.Style}).Width }
+	if w := width("…" + path[resume-1:]); w <= p.Width {
+		t.Errorf("…%q is %v wide, fitting %v", path[resume-1:], w, p.Width)
+	}
+	// The runes it hides, its first too, sit where the text resumes,
+	// after the ellipsis, as those an end cut hides sit before it.
+	at, _, _ := l.Caret(resume)
+	for i := 0; i < resume; i++ {
+		if x, _, _ := l.Caret(i); x != at {
+			t.Errorf("the caret before hidden rune %d is at %v, not %v", i, x, at)
+		}
+	}
+	prev := float32(-1)
+	for i := 0; i <= len(path); i++ {
+		x, _, _ := l.Caret(i)
+		if x < prev {
+			t.Errorf("the caret before rune %d is at %v, left of %v", i, x, prev)
+		}
+		prev = x
+	}
+	if i := l.IndexAt(-10, 5); i != resume {
+		t.Errorf("before the start is rune %d, not %d", i, resume)
+	}
+	if i := l.IndexAt(line.Width+10, 5); i != len(path) {
+		t.Errorf("past the end is rune %d", i)
+	}
+	// Asked for both, the start is cut.
+	p.TruncateMiddle = true
+	if r := checkStartCut(t, s.Layout(p)); r != resume {
+		t.Errorf("with TruncateMiddle too, resumes at %d, not %d", r, resume)
+	}
+}
+
+func TestTruncateStartGraphemes(t *testing.T) {
+	s := newSystem()
+	s.UseTruncateStart()
+	for _, text := range []string{strings.Repeat("é", 40), strings.Repeat("👩‍👩‍👧‍👦", 12)} {
+		l := s.Layout(Params{Text: text, Style: Style{Size: 14}, Width: 90, MaxLines: 1, TruncateStart: true})
+		resume := checkStartCut(t, l)
+		var b Boundaries
+		b.Reset(l.Runes)
+		if _, ok := slices.BinarySearch(b.graphemes, resume); !ok {
+			t.Errorf("%q resumes at rune %d, inside a grapheme", text, resume)
+		}
+	}
+}
+
+func TestTruncateStartRTL(t *testing.T) {
+	s := newSystem()
+	s.UseTruncateStart()
+	for _, text := range []string{
+		"שלום עולם זהו טקסט ארוך מאוד שצריך לקצר בהתחלה",
+		"مرحبا بالعالم هذا نص طويل جدا يجب اختصاره في البداية",
+		"docs/מדריכים/התחלה/מהירה/readme.md",
+	} {
+		p := Params{Text: text, Style: Style{Size: 14}, Width: 140, MaxLines: 1, TruncateStart: true}
+		l := s.Layout(p)
+		resume := checkStartCut(t, l)
+		line := l.Lines[0]
+		joins := strings.ContainsFunc(text, func(r rune) bool { return unicode.Is(unicode.Arabic, r) })
+		if line.Width > p.Width && !joins || resume == len(l.Runes) {
+			t.Errorf("%q: %v wide, resuming at %d", text, line.Width, resume)
+		}
+		if want := isRTL(l.Runes, false); line.RTL != want {
+			t.Errorf("%q: RTL %v", text, line.RTL)
+		}
+	}
+}
+
+func TestTruncateStartSpans(t *testing.T) {
+	s := newSystem()
+	s.UseTruncateStart()
+	// A folder in the style of the text, then a file's name larger.
+	text := "src/components/settings/theme/picker.go"
+	name := strings.Index(text, "picker")
+	spans := EncodeSpans([]Span{{End: name}, {End: len(text), Size: 20}})
+	l := s.Layout(Params{Text: text, Style: Style{Size: 12}, Spans: spans, Width: 180, MaxLines: 1, TruncateStart: true})
+	resume := checkStartCut(t, l)
+	if resume > name {
+		t.Fatalf("resumes at %d, after the name at %d", resume, name)
+	}
+	for _, g := range l.Lines[0].Glyphs {
+		want := float32(12)
+		if g.Runes > 0 && g.Cluster >= name {
+			want = 20
+		}
+		if g.Size != want {
+			t.Errorf("glyph %+v of rune %d (resuming at %d) is %v large", g, g.Cluster, resume, g.Size)
+		}
+	}
+	// Where only the name shows, the ellipsis takes its style, as it
+	// takes that of the text it ends at the end of a line.
+	l = s.Layout(Params{Text: text, Style: Style{Size: 12}, Spans: spans, Width: 80, MaxLines: 1, TruncateStart: true})
+	if resume := checkStartCut(t, l); resume < name {
+		t.Fatalf("resumes at %d, before the name at %d", resume, name)
+	}
+	for _, g := range l.Lines[0].Glyphs {
+		if g.Size != 20 {
+			t.Errorf("glyph %+v is %v large", g, g.Size)
+		}
+	}
+}
+
+func TestTruncateStartEnds(t *testing.T) {
+	s := newSystem()
+	text := "src/components/settings/appearance/theme/picker.go"
+	p := Params{Text: text, Style: Style{Size: 14}, Width: 160, MaxLines: 1, TruncateStart: true}
+	endsWithEllipsis := func(l *Layout) bool {
+		gs := l.Lines[0].Glyphs
+		return l.Truncated && gs[len(gs)-1].Runes == 0 && l.Lines[0].End < len(l.Runes)
+	}
+	// Before UseTruncateStart the ellipsis ends the line.
+	if l := s.Layout(p); !endsWithEllipsis(l) {
+		t.Errorf("without UseTruncateStart: %+v", l.Lines[0])
+	}
+	s.UseTruncateStart()
+	// So it does where the paragraph fits and only the next one is cut,
+	// and without a width.
+	for _, q := range []Params{
+		{Text: "src/a.go\nsrc/b.go", Style: p.Style, Width: 160, MaxLines: 1, TruncateStart: true},
+		{Text: text + "\n" + text, Style: p.Style, MaxLines: 1, TruncateStart: true},
+	} {
+		if l := s.Layout(q); !endsWithEllipsis(l) {
+			t.Errorf("%q in %v: %+v", q.Text, q.Width, l.Lines[0])
+		}
+	}
+	// A text that fits is not cut.
+	p.Width = 1000
+	if l := s.Layout(p); l.Truncated {
+		t.Errorf("a text that fits is cut: %+v", l.Lines[0])
+	}
+	// The last of several lines is cut at its start, keeping the end of
+	// its paragraph, and the lines before it are whole.
+	long := "The quick brown fox jumps over the lazy dog and keeps running to the end.txt"
+	whole := s.Layout(Params{Text: long, Style: p.Style, Width: 160})
+	l := s.Layout(Params{Text: long, Style: p.Style, Width: 160, MaxLines: 2, TruncateStart: true})
+	if len(l.Lines) != 2 || !l.Truncated || len(whole.Lines) < 3 {
+		t.Fatalf("%d lines, truncated %v, of %d", len(l.Lines), l.Truncated, len(whole.Lines))
+	}
+	if first := l.Lines[0]; first.Start != 0 || first.End != whole.Lines[0].End {
+		t.Errorf("the first line holds runes %d to %d, not to %d", first.Start, first.End, whole.Lines[0].End)
+	}
+	last := l.Lines[1]
+	head, tail := last.Glyphs[0], last.Glyphs[len(last.Glyphs)-1]
+	if head.Runes != 0 || head.Cluster != last.Start || last.End != len(l.Runes) || tail.Cluster+tail.Runes != len(l.Runes) || last.Width > 160 {
+		t.Errorf("the last line, runes %d to %d, starts with %+v and ends with %+v, %v wide", last.Start, last.End, head, tail, last.Width)
+	}
+}
+
 func TestColorEmoji(t *testing.T) {
 	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 		t.Skip("emoji fonts vary")
@@ -1164,6 +1454,56 @@ func TestRegisterAppFontReachesSystemsNewMakes(t *testing.T) {
 		if !monospaced(s) {
 			t.Errorf("%s: text does not use the app's font", name)
 		}
+	}
+}
+
+// Registering an app's font again, the same data under the same family,
+// does nothing: neither Shared nor a System New makes registers it again,
+// as each Tester's would, which kept a font again in each (#1902). The
+// same data under another family is another font of the app's.
+func TestRegisterAppFontTwiceAddsItOnce(t *testing.T) {
+	const family = "MyGo Test Once App Mono"
+	count := func(family string) int {
+		appFonts.mu.Lock()
+		defer appFonts.mu.Unlock()
+		n := 0
+		for _, f := range appFonts.fonts {
+			if f.family == family {
+				n++
+			}
+		}
+		return n
+	}
+	if err := RegisterAppFont(gomono.TTF, family); err != nil {
+		t.Fatal(err)
+	}
+	shared := Shared().Generation()
+	// The same bytes, from another slice too.
+	for _, data := range [][]byte{gomono.TTF, slices.Clone(gomono.TTF)} {
+		if err := RegisterAppFont(data, family); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := count(family); n != 1 {
+		t.Errorf("%s is %d of the app's fonts, want 1", family, n)
+	}
+	if got := Shared().Generation(); got != shared {
+		t.Errorf("Shared registered the font again: generation %d, want %d", got, shared)
+	}
+	if err := RegisterAppFont(gomono.TTF, family+" Other"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(family + " Other"); n != 1 {
+		t.Errorf("the same data under another family is %d of the app's fonts, want 1", n)
+	}
+	// Go Mono is monospaced, so "iiiiiiii" is as wide as "mmmmmmmm" only
+	// in it.
+	s := New()
+	width := func(text string) float32 {
+		return s.Layout(Params{Text: text, Style: Style{Size: 20, Family: family}}).Lines[0].Width
+	}
+	if i, m := width("iiiiiiii"), width("mmmmmmmm"); i < m-0.5 || i > m+0.5 {
+		t.Error("a System New makes does not use the app's font")
 	}
 }
 
@@ -1278,10 +1618,14 @@ func TestFontFamilies(t *testing.T) {
 		t.Error("listing again changed the families")
 	}
 	t.Logf("again in %v", time.Since(start))
-	if err := s.RegisterFont(gobold.TTF, ""); err != nil {
+	// Not Go, which a font registered under its own family would take from
+	// the faces other tests register under families of their own: the
+	// families given are the process's, as fontconfig's faces are.
+	if err := s.RegisterFont(gosmallcaps.TTF, ""); err != nil {
 		t.Fatal(err)
 	}
-	if i := slices.IndexFunc(s.FontFamilies(), func(f FontFamily) bool { return f.Name == "Go" }); i != 0 {
+	after := s.FontFamilies()
+	if i := slices.IndexFunc(after, func(f FontFamily) bool { return f.Name == "Go Smallcaps" }); i < 0 || i > len(app) || !after[i].Registered {
 		t.Errorf("a font registered after listing is at %d", i)
 	}
 

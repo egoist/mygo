@@ -2,6 +2,7 @@ package richtext
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -139,6 +140,96 @@ func BenchmarkRuns(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				for range t.Runs(0, t.Len()) {
+				}
+			}
+		})
+	}
+}
+
+// readsAsRuns returns a paragraph with every mark Markdown writes.
+func readsAsRuns() []Run {
+	bold := Attributes{Weight: 700}
+	italic := Attributes{Italic: true}
+	underlined := Attributes{Underline: true}
+	strike := Attributes{Strikethrough: true}
+	code := Attributes{Code: true}
+	linked := Attributes{Link: "https://example.com"}
+	attachment := &Attachment{Name: "a cat", URL: "cat.png"}
+	var runs []Run
+	for repeat := 0; repeat < 32; repeat++ {
+		runs = append(runs,
+			Run{Text: "a é "},
+			Run{Text: "bold", Attributes: bold},
+			Run{Text: " "},
+			Run{Text: "italic", Attributes: italic},
+			Run{Text: " "},
+			Run{Text: "under", Attributes: underlined},
+			Run{Text: " "},
+			Run{Text: "strike", Attributes: strike},
+			Run{Text: " "},
+			Run{Text: "code", Attributes: code},
+			Run{Text: " "},
+			Run{Text: "link", Attributes: linked},
+			Run{Text: " "},
+			Run{Text: string(ObjectReplacement), Attributes: Attributes{Attachment: attachment}},
+			Run{Text: " "},
+		)
+	}
+	runs = append(runs, Run{Text: "  "})
+	return runs
+}
+
+// BenchmarkReadsAs measures reading a written paragraph back, which
+// compares every rune and its marks.
+func BenchmarkReadsAs(bench *testing.B) {
+	runs := readsAsRuns()
+	var builder strings.Builder
+	writeMarkdownRuns(&builder, runs)
+	markdown := builder.String()
+	if !readsAs(markdown, runs) {
+		bench.Fatal("Markdown does not read back")
+	}
+	bench.ReportAllocs()
+	for bench.Loop() {
+		if !readsAs(markdown, runs) {
+			bench.Fatal("Markdown does not read back")
+		}
+	}
+}
+
+// benchMarkdown returns a Markdown document of roughly n blocks: headings,
+// formatted paragraphs, lists, nested quotes, code blocks and tables.
+func benchMarkdown(n int) string {
+	var b strings.Builder
+	for i := range n {
+		switch i % 10 {
+		case 0:
+			fmt.Fprintf(&b, "## Section %d\n\n", i)
+		case 3:
+			fmt.Fprintf(&b, "- Item %d with **bold**, *italic*, `code` and [link](https://example.com/%d)\n\n", i, i)
+		case 5:
+			fmt.Fprintf(&b, "> > Quoted paragraph %d with ~~strike~~ and <u>underline</u>.\n\n", i)
+		case 7:
+			fmt.Fprintf(&b, "```go\nfunc f%d() int { return %d }\n```\n\n", i, i)
+		case 9:
+			fmt.Fprintf(&b, "| Col A | Col B |\n|---|---|\n| %d | **val %d** |\n\n", i, i)
+		default:
+			fmt.Fprintf(&b, "Paragraph %d has **bold words**, an *italic one*, `inline code` and [a link](https://example.com/%d) in a line long enough to wrap.\n\n", i, i)
+		}
+	}
+	return b.String()
+}
+
+// BenchmarkParseMarkdown parses Markdown documents of varying sizes into Text.
+func BenchmarkParseMarkdown(b *testing.B) {
+	for _, n := range []int{100, 1000, 10000} {
+		src := benchMarkdown(n)
+		b.Run(fmt.Sprint(n), func(b *testing.B) {
+			b.SetBytes(int64(len(src)))
+			b.ReportAllocs()
+			for b.Loop() {
+				if ParseMarkdown(src).Len() == 0 {
+					b.Fatal("empty")
 				}
 			}
 		})

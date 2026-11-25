@@ -391,7 +391,7 @@ func snap(v, lo, hi, step float64) float64 {
 		return v
 	}
 	v = lo + math.Round((v-lo)/step)*step
-	if v > hi {
+	if v > hi+step*1e-9 { // as tickCount, for steps that add up past hi
 		v -= step
 	}
 	// Away from the rounding of floating point, as 0.1 steps add up: to
@@ -399,13 +399,13 @@ func snap(v, lo, hi, step float64) float64 {
 	// their number inputs.
 	d := max(decimals(step), decimals(lo))
 	if d >= 15 {
-		return v
+		return min(v, hi)
 	}
 	r, err := strconv.ParseFloat(strconv.FormatFloat(v, 'f', d, 64), 64)
 	if err != nil {
-		return v
+		return min(v, hi)
 	}
-	return r
+	return min(r, hi)
 }
 
 // decimals returns how many digits a number has after the decimal point,
@@ -655,6 +655,9 @@ func coreOverlay(c *context, fn func()) {
 	dir := o.dir
 	o.dir = saved.dir &^ dirSet
 	theme := c.theme
+	// The element that had the focus before fn, which may focus one of
+	// its own as it builds it (AutoFocus, an alert's default button).
+	opener := c.rt.focused
 	fn()
 	o.dir = dir
 	c.parent = saved
@@ -673,7 +676,7 @@ func coreOverlay(c *context, fn func()) {
 		return
 	}
 	for e := first; e != nil; e = e.next {
-		c.rt.openOverlay(e)
+		c.rt.openOverlay(e, opener)
 	}
 }
 

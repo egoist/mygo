@@ -69,15 +69,14 @@ func (ShellModule) TrashItem(path string) error {
 // path where it landed inside the trash directory, so an app can put it
 // back exactly. A relative path is relative to the working directory.
 //
-// It is supported on macOS only. On Windows, Linux and in browsers it
-// returns ("", ErrUnsupported): Windows's IFileOperation and Linux's
-// g_file_trash do not report the resulting path. Use TrashItem there, and
-// record the original path yourself before trashing, as Finder's "Put
-// Back" does on macOS.
+// It is supported on macOS, Windows and Linux; in browsers it returns
+// ("", ErrUnsupported).
 //
-// On macOS the returned path is where the system left the item, which may
-// not be the same name as the input: Finder renames an item that collides
-// with one already in the trash ("foo.txt" -> "foo 2.txt").
+// The returned path is where the system left the item, which may not be
+// the same name as the input: the trash renames an item that collides
+// with one already there (Finder: "foo.txt" -> "foo 2.txt"; Windows: a
+// $R file of the recycle bin; Linux: the name GIO picked in the trash's
+// files directory).
 func (ShellModule) TrashItemResult(path string) (string, error) {
 	needsApp("Shell.TrashItemResult")
 	abs, err := filepath.Abs(path)
@@ -230,6 +229,8 @@ type ClipboardModule struct{}
 var Clipboard ClipboardModule
 
 // ReadText returns the plain text on the clipboard.
+// On Windows it converts CRLF line endings to LF. Read(transfer.Text)
+// preserves the original bytes of a registered text/plain representation.
 func (ClipboardModule) ReadText() string {
 	needsApp("Clipboard.ReadText")
 	return clipboardNativeValue(func() string { return backend().Clipboard().ReadText() })
@@ -651,9 +652,9 @@ func (b WindowButtons) Empty() bool { return len(b.Start) == 0 && len(b.End) == 
 // On macOS they are close, minimize and maximize at the start; on Windows
 // minimize, maximize and close at the end. On Linux the desktop's button
 // layout (gtk-decoration-layout) decides, as it does for the buttons of a
-// hidden title bar (TitleBarStyle): none under a Wayland compositor that
-// decorates windows itself, as tiling ones such as Hyprland and Sway,
-// which draw no buttons, and none where the user emptied the layout, as
+// hidden title bar (TitleBarStyle): none under a tiling Wayland compositor
+// that decorates windows itself, as Hyprland and Sway, which draw no
+// buttons, and none where the user emptied the layout, as
 // users of tiling window managers on X11 do. OnUpdated tells when it
 // changes. It is safe from any goroutine; like the other calls that need
 // the running app, it panics on the main goroutine before App.Run.
@@ -880,7 +881,8 @@ type TrayOptions struct {
 	// app makes it again or makes its icons in another order. On Linux it
 	// is the icon's StatusNotifierItem ID, after the program's name, by
 	// which a panel keeps its settings for the icon, as KDE Plasma keeps
-	// whether it shows the icon or hides it.
+	// whether it shows the icon or hides it; empty, it is the program's
+	// name and the icon's number among the app's icons.
 	ID string
 	// Icon is a PNG image, ideally 16x16 points (32x32 pixels for Retina).
 	Icon []byte
@@ -889,8 +891,14 @@ type TrayOptions struct {
 	// while the desktop prefers dark.
 	IconIsTemplate bool
 	// Title is shown next to the icon (macOS).
-	Title   string
-	ToolTip string
+	Title string
+	// MonospacedTitle draws the title in the system's monospaced font
+	// (macOS), where every character is as wide as the others: a title of
+	// a fixed number of characters keeps its width whatever they are, as a
+	// rate whose unit changes ("60K", then "1.3M"). Otherwise only its
+	// digits share a width.
+	MonospacedTitle bool
+	ToolTip         string
 	// Menu is shown when the icon is clicked.
 	Menu *Menu
 }
@@ -933,6 +941,9 @@ func NewTray(opts TrayOptions) (*Tray, error) {
 				return
 			}
 		}
+		if opts.MonospacedTitle {
+			t.native.SetTitleMonospaced(true)
+		}
 		if opts.Title != "" {
 			t.native.SetTitle(opts.Title)
 		}
@@ -971,7 +982,9 @@ func (t *Tray) SetIcon(png []byte, template bool) error {
 // the same width, so a number that changes, such as a rate, keeps the
 // item's width as long as the text keeps its length: pad the value to a
 // fixed number of characters with figure spaces (U+2007), as wide as a
-// digit, rather than ordinary spaces.
+// digit, rather than ordinary spaces. Letters and punctuation keep their
+// own widths, so text that changes them changes the item's width, unless
+// the tray was made with TrayOptions.MonospacedTitle.
 func (t *Tray) SetTitle(title string) { t.do(func(n platform.Tray) { n.SetTitle(title) }) }
 
 // SetToolTip sets the hover text.
@@ -994,6 +1007,13 @@ func (t *Tray) PopUpMenu() {
 // Bounds returns the position of the icon on screen. macOS shows a menu bar
 // item on each display: Bounds is the one the user last clicked, so a window
 // placed against it, as a flyout, goes on the display the user clicked.
+//
+// Bounds is empty where the icon has no place on screen to report: on
+// Linux, whose panels never say where their icons are, and on Windows for
+// an icon the user keeps in the notification area's overflow while that
+// flyout is closed. An empty Bounds does not mean the icon is gone: MyGo
+// adds every icon again when the notification area restarts, so don't
+// rebuild the tray on it.
 func (t *Tray) Bounds() Rectangle {
 	return onMainValue(func() Rectangle {
 		if t.native == nil {

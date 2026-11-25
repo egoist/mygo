@@ -67,12 +67,16 @@ type EditorOptions struct {
 	SpansVersion int
 	// Space is given paragraph p (from 0) and returns the room in DIPs to
 	// leave above it, more than the theme's, as a list opens a place
-	// where an item dragged would go. It is asked as the paragraphs are
-	// laid out, each frame for those in view, so that what it returns can
-	// change from frame to frame and the paragraphs below move with it.
-	// While the editor has the keyboard and is scrolled down its text,
-	// room that opens between the top of the view and the caret moves the
-	// paragraphs above it up instead, so that the line being typed stays.
+	// where an item dragged would go. Less than zero takes room away from
+	// the theme's, down to none, as a rule sits closer to the text around
+	// it than a line of text would. Above the first paragraph of a block
+	// of code, the room is a margin outside the block's background. It is
+	// asked as the paragraphs are laid out, each frame for those in view,
+	// so that what it returns can change from frame to frame and the
+	// paragraphs below move with it. While the editor has the keyboard and
+	// is scrolled down its text, room that opens between the top of the
+	// view and the caret moves the paragraphs above it up instead, so that
+	// the line being typed stays.
 	Space func(p int) float32
 	// NoScrollbar draws no scroll bar of the editor's own, and a press
 	// where it would be goes to the text: an app that makes the editor as
@@ -105,12 +109,15 @@ type EditorOptions struct {
 func Editor(c *ui.Context, doc *Document, options ...EditorOptions) ui.Element {
 	t := c.Theme()
 	e := build(c, doc, options, true)
-	e.Radius(t.Radius).Background(t.Surface).Border(1, t.Border).MinHeight(t.Space(30))
+	e.Radius(t.Radius).Background(t.Surface).Border(editorBorder, t.Border).MinHeight(t.Space(30))
 	if e.Focused() {
-		e.Border(1, t.Accent)
+		e.Border(editorBorder, t.Accent)
 	}
 	return e
 }
+
+// editorBorder is how wide the border of an Editor is, in DIPs.
+const editorBorder = 1
 
 // EditorBase creates an Editor without padding, background, border or
 // corners, for an editor of the app's own look.
@@ -140,7 +147,10 @@ type view struct {
 	// laidLook is the look the layouts were made in.
 	laidLook   lookKey
 	padX, padY float32
-	rect       ui.Rect
+	// border and radius are those of the element's box, which the text
+	// is clipped inside of.
+	border, radius float32
+	rect           ui.Rect
 	// clip is the part of the element the painter's clip showed in the
 	// last paint, from its top, while clipped is true: an editor as tall
 	// as its text, in a scroll container, shows a window of it.
@@ -350,8 +360,10 @@ func (v *view) setLook(t *ui.Theme, styled bool) {
 	}
 	if styled {
 		v.padX, v.padY = th.Padding[0], th.Padding[1]
+		v.border, v.radius = editorBorder, t.Radius
 	} else {
 		v.padX, v.padY = 0, 0
+		v.border, v.radius = 0, 0
 	}
 }
 
@@ -581,6 +593,9 @@ func (v *view) paraFont(st ParagraphStyle) ui.Font {
 		h := v.look.heading(st.Heading)
 		f.Size *= h.Size
 		f.Weight = h.Weight
+		if h.LineHeight > 0 {
+			f.LineHeight = h.LineHeight
+		}
 	case st.CodeBlock:
 		f.Family = v.look.CodeFont
 		f.Size *= v.look.CodeSize
@@ -674,7 +689,7 @@ func (v *view) space(p int, st ParagraphStyle) (above, below float32) {
 		}
 	}
 	if v.opts.Space != nil {
-		above += max(0, v.opts.Space(p))
+		above = max(0, above+v.opts.Space(p))
 	}
 	return above, below
 }
@@ -764,7 +779,10 @@ func (v *view) paraLayout(p int) *paraView {
 	}
 	composed := compose
 	left, right := v.insets(para.style)
-	v.look.width = max(v.width-left-right, 1)
+	// The last column stays for the caret, as in a text area: on the
+	// right edge, where a paragraph laid out right to left starts, the
+	// clip would cut it away.
+	v.look.width = max(v.width-left-right-1, 1)
 	line := v.lineOf(p)
 	var spans []ui.Span
 	var typing Attributes

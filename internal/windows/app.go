@@ -19,10 +19,17 @@ import (
 // Backend is the Windows (Win32 + WebView2) implementation of
 // platform.Backend.
 type Backend struct {
-	h       platform.AppHandler
-	name    string
-	appHwnd uintptr // hidden window receiving app level messages
-	running bool
+	h    platform.AppHandler
+	name string
+	// background is AppOptions.Background (mygo dev -background):
+	// ShowInactive orders windows in behind another app's foreground
+	// window (behindForeground).
+	background bool
+	appHwnd    uintptr // hidden window receiving app level messages
+	running    bool
+	// exiting is set by Exiting: the windows get only the default
+	// window procedure while they are destroyed.
+	exiting bool
 
 	signaled atomic.Bool
 	// posted are the functions post runs on the main thread.
@@ -72,7 +79,13 @@ type Backend struct {
 	taskbarFailed        bool
 	taskbarButtonCreated uint32
 
-	watchingPower    bool
+	watchingPower bool
+	// keepRunning counts the KeepRunning holders, and throttlingBefore is
+	// the power throttling policy the process had before the first of
+	// them, if throttlingKnown, which the last release puts back (power.go).
+	keepRunning      int
+	throttlingBefore powerThrottlingState
+	throttlingKnown  bool
 	clipboardChanged func()
 	notifications    map[string]*notification
 
@@ -100,11 +113,13 @@ type Backend struct {
 	// MyGo is showing: TrackPopupMenuEx runs the menu loop that creates
 	// their windows, and their submenus', unlike the loops of a menu bar's
 	// dropdowns and of Windows' window menu, which are not MyGo's
-	// (menuProc).
+	// (menuProc). popupDPI is the DPI of the monitor the popup shows on
+	// while one does, 0 otherwise (trackPopup).
 	menuHook    uintptr
 	menuGlass   bool
 	menuWindows map[uintptr]*menuWindow
 	popups      int
+	popupDPI    int
 	// comp shows the controls of windows with a material behind them
 	// (compositor.go). compRetry is when to try making it again after
 	// compFails failures in a row, and composeAt when timerCompose draws
@@ -144,6 +159,7 @@ func (b *Backend) IsMainThread() bool { return currentThreadID() == mainThreadID
 func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	b.h = h
 	b.name = opts.Name
+	b.background = opts.Background
 	theBackend = b
 	procCoInitializeEx.Call(0, coinitApartmentThreaded)
 	if has(procSetProcessDpiAwarenessContext) {
@@ -304,7 +320,7 @@ func registerWindowMessage(name string) uint32 {
 
 func wndProc(hwnd, m, wp, lp uintptr) uintptr {
 	b := theBackend
-	if b != nil {
+	if b != nil && !b.exiting {
 		if hwnd == b.appHwnd {
 			if r, ok := b.appMessage(uint32(m), wp, lp); ok {
 				return r
@@ -329,6 +345,52 @@ func wndProc(hwnd, m, wp, lp uintptr) uintptr {
 	}
 	r, _, _ := procDefWindowProcW.Call(hwnd, m, wp, lp)
 	return r
+}
+
+// Exiting destroys the windows of MyGo's classes still there, the hidden
+// application window last, before the process exits (#1896). A window
+// left alive takes its Go window procedure into ExitProcess: a DLL that
+// destroys a child of it while it unloads (an input method's helper
+// window, a child of the application window) has Windows call that
+// procedure on the thread already inside the runtime's exit, and the
+// runtime deadlocks there, leaving the process behind. Destroyed now, the
+// children go with them while the runtime still runs. Nothing of the app
+// handles their messages anymore: the app has finished.
+func (b *Backend) Exiting() {
+	if b.exiting || b.appHwnd == 0 {
+		return
+	}
+	thread, _, _ := procGetWindowThreadProcessId.Call(b.appHwnd, 0)
+	if uint32(thread) != currentThreadID() {
+		return // a window can be destroyed only on its own thread
+	}
+	b.exiting = true
+	var hwnds []uintptr
+	enum := syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
+		if hwnd != b.appHwnd && ownClass(hwnd) {
+			hwnds = append(hwnds, hwnd)
+		}
+		return 1
+	})
+	procEnumThreadWindows.Call(thread, enum, 0)
+	for _, hwnd := range append(hwnds, b.appHwnd) {
+		procDestroyWindow.Call(hwnd)
+	}
+	b.appHwnd = 0
+}
+
+// ownClass reports whether hwnd is of one of the window classes that
+// registerClasses registers.
+func ownClass(hwnd uintptr) bool {
+	var buf [64]uint16
+	n, _, _ := procGetClassNameW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	name := syscall.UTF16ToString(buf[:n])
+	for _, c := range []string{appClass, windowClass, captionClass, flyoutShadowClass} {
+		if name == c {
+			return true
+		}
+	}
+	return false
 }
 
 // appMessage handles the messages of the application window.
@@ -412,12 +474,13 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 		return 0, true
 	}
 	if m == b.taskbarCreated && m != 0 {
-		// Explorer restarted: the notification area forgot our icons. A
-		// temporary icon, which only carries a notification's balloon, has
-		// lost that balloon with the rest of explorer, so it is not added
-		// again: what is left of it is reclaimed on its own timer.
+		// Explorer started, or restarted: the notification area forgot our
+		// icons, or refused them while it was away. A temporary icon, which
+		// only carries a notification's balloon, has lost that balloon with
+		// the rest of explorer, so it is not added again: what is left of it
+		// is reclaimed on its own timer.
 		for _, t := range b.trays {
-			if t.added && !t.temporary {
+			if !t.temporary {
 				t.add()
 			}
 		}

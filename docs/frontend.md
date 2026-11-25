@@ -150,7 +150,11 @@ On Windows, fetch a scheme at `http://<scheme>.localhost/`, where
 WebView2 serves it, and another host at `http://<host>.<scheme>.localhost/`
 (`myapp://abc/` is `http://abc.myapp.localhost/`). Such hosts are DNS
 names (letters, digits, hyphens and dots) and are reported in lower case;
-URLs with another host or a port aren't served there.
+URLs with another host or a port aren't served there. An iframe of
+another origin, such as `http://abc.myapp.localhost/` in the frontend,
+loads its scripts, styles and fetches through the scheme too, from
+WebView2 Runtime 127 on; older runtimes serve such an iframe its
+document alone.
 
 ### Trust
 
@@ -272,9 +276,10 @@ await currentWindow.toggleMaximize();
 
 | Export | What it does |
 |---|---|
-| `call(method, ...args)`, `on(event, listener)`, `once(event, listener)`, `event<T>(name)` | untyped calls and events, see [bindings](bindings.md#without-the-generated-client) |
+| `call(method, ...args)`, `callWith(method, args, options)`, `on(event, listener)`, `once(event, listener)`, `event<T>(name)` | untyped calls and events, see [bindings](bindings.md#without-the-generated-client) |
 | `Channel` | a stream of values from a Go method, see [channels](bindings.md#channels) |
 | `isCallError(err)` | whether a rejection came from a Go error |
+| `bind(method, args)` | a bound Go method, which a call may cancel, see [canceling a call](bindings.md#canceling-a-call) |
 | `isMyGo()` | whether the page runs in a MyGo window, not in a browser tab of the dev server |
 | `runtime()` | the runtime: `platform` (`"darwin"`, `"linux"` or `"win32"`), `windowId` (the Go window's `ID()`) and `version`; throws outside MyGo |
 | `currentWindow` | the page's window: `minimize`, `maximize`, `unmaximize`, `toggleMaximize`, `isMaximized`, `toggleFullScreen`, `close` and `setTitle` |
@@ -359,9 +364,10 @@ the window:
 - On Linux, GTK's own title buttons, where the desktop's button layout puts
   them, centered in `TitleBarHeight` (by default the height of the
   desktop's header bars). The layout decides which buttons show, possibly
-  none, as tiling window managers are often set up. A Wayland compositor
-  that decorates windows itself, as KWin, Hyprland and Sway do, has none:
-  its own title bar holds the buttons, and a tiling one shows none. The
+  none, as tiling window managers are often set up. A tiling Wayland
+  compositor that decorates windows itself, as Hyprland and Sway do, has
+  none, and shows none of its own. On KDE Plasma, KWin draws no title bar
+  over the page: the buttons are GTK's, where KDE's layout puts them. The
   outer pixels of the page resize the window, as a frameless one's. The
   window's menu bar hides, as with `AutoHideMenuBar`: Alt and F10 show it
   above the page while its menus are open, and its shortcuts work all
@@ -617,6 +623,8 @@ environment.
 On Windows, WebView2's own keys come with the inspector: F5 and Ctrl+R reload
 the page (a reload [`OnWillNavigate`](windows.md#pages) is not asked about),
 Ctrl+P prints, Ctrl+F finds and Ctrl+Plus zooms only where the inspector is
-on. Without it, as in production builds, a page has none of them, as on macOS
-and Linux, and only the app's menu items take these keys, such as the View
-menu's (`RoleViewMenu`).
+on, and Ctrl+Plus only in a page that lets the user zoom it
+([`ZoomControl`](windows.md#the-users-zoom)). Without the inspector, as in
+production builds, a page has none of them, as on macOS and Linux, and only
+the app's menu items take these keys, such as the View menu's
+(`RoleViewMenu`).

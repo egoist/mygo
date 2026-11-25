@@ -1,9 +1,9 @@
 package ui
 
 import (
-	"runtime"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/text"
 )
 
@@ -43,7 +43,7 @@ func (ed *editor) wants(k keyEvent) bool {
 	case KeyLeft, KeyRight:
 		// But Alt and an arrow, which go back and forward outside of macOS,
 		// where they move by words.
-		return m != Alt || runtime.GOOS == "darwin"
+		return m != Alt || platform.MacKeys
 	case KeyHome, KeyEnd, KeyDelete:
 		return true
 	case KeyUp, KeyDown, KeyPageUp, KeyPageDown:
@@ -61,13 +61,13 @@ func (ed *editor) wants(k keyEvent) bool {
 			return true
 		}
 	}
-	if m == Ctrl && runtime.GOOS == "darwin" {
+	if m == Ctrl && platform.MacKeys {
 		if _, ok := emacsKeys[k.key]; ok || k.key == KeyA || k.key == KeyE || k.key == KeyK {
 			return true
 		}
 	}
 	// Printable keys type text, which comes as TextInput.
-	return m == 0 || m == Alt && runtime.GOOS == "darwin"
+	return m == 0 || m == Alt && platform.MacKeys
 }
 
 func (ed *editor) move(to int, extend bool) {
@@ -85,7 +85,19 @@ func (ed *editor) move(to int, extend bool) {
 	}
 }
 
-// lineEdges returns the edges of the visual line holding rune i.
+// moveToLineEnd moves the caret to e, the end of its visual line, drawn
+// there rather than at the start of the next line when the paragraph wraps
+// at e.
+func (ed *editor) moveToLineEnd(e int, extend bool) {
+	ed.move(e, extend)
+	ed.caretAffinity = text.Upstream
+	if !extend {
+		ed.anchorAffinity = text.Upstream
+	}
+}
+
+// lineEdges returns the edges of the visual line holding rune i, the one
+// the caret is drawn on when i is the caret.
 func (ed *editor) lineEdges(i int) (int, int) {
 	if ed.area != nil {
 		return ed.area.lineEdges(ed, i)
@@ -93,7 +105,11 @@ func (ed *editor) lineEdges(i int) (int, int) {
 	if ed.layout == nil || len(ed.layout.Lines) == 0 {
 		return 0, ed.buf.n
 	}
-	li := ed.layout.LineAt(ed.displayIndex(i))
+	affinity := text.Downstream
+	if i == ed.caret {
+		affinity = ed.caretAffinity
+	}
+	li := ed.layout.CaretLine(text.CaretPosition{Index: ed.displayIndex(i), Affinity: affinity})
 	line := ed.layout.Lines[li]
 	return ed.textIndex(line.Start), ed.textIndex(line.End)
 }
@@ -166,7 +182,7 @@ var emacsKeys = map[Key]Key{KeyB: KeyLeft, KeyF: KeyRight, KeyP: KeyUp, KeyN: Ke
 func (ed *editor) key(c *context, st *state, k editEvent) {
 	shift := k.mods&Shift != 0
 	m := k.mods &^ Shift
-	mac := runtime.GOOS == "darwin"
+	mac := platform.MacKeys
 	if mac && m == Ctrl {
 		if to, ok := emacsKeys[k.key]; ok {
 			k.key, m = to, 0
@@ -193,7 +209,7 @@ func (ed *editor) key(c *context, st *state, k editEvent) {
 			if !forward {
 				ed.move(s, shift)
 			} else {
-				ed.move(e, shift)
+				ed.moveToLineEnd(e, shift)
 			}
 		case word && !forward:
 			ed.move(b.prevWord(ed.caret), shift)
@@ -245,7 +261,7 @@ func (ed *editor) key(c *context, st *state, k editEvent) {
 		if k.key == KeyHome {
 			ed.move(s, shift)
 		} else {
-			ed.move(e, shift)
+			ed.moveToLineEnd(e, shift)
 		}
 		return
 	case KeyBackspace:
@@ -284,6 +300,9 @@ func (ed *editor) key(c *context, st *state, k editEvent) {
 			st.markSubmitted()
 			st.submitMods = k.mods
 			c.rt.consumed = true
+			if st.traits.ReturnKey == ReturnNext {
+				c.rt.moveFocus(false)
+			}
 		}
 		return
 	}
@@ -363,7 +382,7 @@ func (ed *editor) command(c *context, name string) {
 			}
 		}
 		if s != "" {
-			ed.insert(s)
+			ed.paste(s)
 		}
 	case "selectAll":
 		ed.selectAll()
@@ -379,7 +398,7 @@ func (ed *editor) command(c *context, name string) {
 }
 
 // press puts the caret where the pointer went down, at (x, y) relative to
-// the element; double and triple clicks select words and lines.
+// the element; double and triple clicks select words and paragraphs.
 func (ed *editor) press(x, y float32, clicks, button int) {
 	if button != 0 || !ed.laidOut() {
 		return
@@ -401,7 +420,7 @@ func (ed *editor) press(x, y float32, clicks, button int) {
 		ed.anchor, ed.caret = s, e
 	default:
 		if ed.multiline {
-			s, e := ed.lineEdges(i)
+			s, e := ed.buf.paraEdges(i)
 			ed.anchor, ed.caret = s, e
 		} else {
 			ed.selectAll()
@@ -438,14 +457,18 @@ func (ed *editor) drag(x, y float32) {
 	p := ed.hitPosition(x, y)
 	i := p.Index
 	switch ed.dragUnit {
-	case 2:
-		s, e := ed.buf.wordAt(i)
+	case 2, 3:
+		var s, e int
+		if ed.dragUnit == 2 {
+			s, e = ed.buf.wordAt(i)
+		} else {
+			s, e = ed.buf.paraEdges(i)
+		}
 		if i < ed.dragStart[0] {
 			ed.anchor, ed.caret = ed.dragStart[1], s
 		} else {
 			ed.anchor, ed.caret = ed.dragStart[0], max(e, ed.dragStart[1])
 		}
-	case 3:
 	default:
 		ed.movePosition(p, true)
 	}

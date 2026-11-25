@@ -572,6 +572,13 @@ func (b *Backend) trackPopup(menu, owner uintptr, pt point, flags uintptr, exclu
 	// open on Alt (menuProc).
 	b.popups++
 	defer func() { b.popups-- }()
+	// Its items are measured and drawn at the DPI of the monitor it shows
+	// on, as buildMenu made their icons, not at the owner's: the hidden
+	// application window, which owns the menus of trays and those without
+	// a window, has the DPI of the monitor at 0,0 as the app started.
+	old := b.popupDPI
+	b.popupDPI = monitorDPI(monitorAt(int(pt.X), int(pt.Y)))
+	defer func() { b.popupDPI = old }()
 	var params *tpmParams
 	if exclude != nil {
 		params = &tpmParams{Exclude: *exclude}
@@ -684,11 +691,15 @@ func atoi(s string) int {
 }
 
 // menuLabel is the text of an item's menu entry: its label, in which an
-// ampersand marks the mnemonic, and its subtitle after it, in which it is
-// an ampersand.
+// ampersand marks the mnemonic, and its subtitle and badge after it, in
+// which it is an ampersand.
 func menuLabel(it *platform.MenuItem) string {
-	if it.Subtitle == "" {
-		return it.Label
+	label := it.Label
+	if it.Subtitle != "" {
+		label += " — " + strings.ReplaceAll(it.Subtitle, "&", "&&")
 	}
-	return it.Label + " — " + strings.ReplaceAll(it.Subtitle, "&", "&&")
+	if it.Badge != "" {
+		label += "  " + strings.ReplaceAll(it.Badge, "&", "&&")
+	}
+	return label
 }

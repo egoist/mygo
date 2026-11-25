@@ -196,9 +196,10 @@ architecture, as in `darwin-arm64` or `windows-amd64`, for one. An app
 ships the platform directories of its target merged with the other
 resources, so the Linux x86-64 app above has `data/seed.db` and its own
 `bin/server`, and nothing of the other platforms. A path that two
-directories would both install fails the build, and so does a directory
-named the way other tools name platforms, such as `darwin-x64` or `macos`,
-which would ship to every platform. The build also notes a target without
+directories would both install fails the build (a dotfile they both
+hold with the same contents, such as a `.gitkeep`, ships once), and so
+does a directory named the way other tools name platforms, such as
+`darwin-x64` or `macos`, which would ship to every platform. The build also notes a target without
 a directory of its own when another architecture of its system has one,
 such as `linux/arm64` next to `linux-amd64`.
 
@@ -324,9 +325,10 @@ Store the credentials of the notary service in the keychain once:
 xcrun notarytool store-credentials notary
 ```
 
-`mygo build` then signs the app with the hardened runtime, submits the disk
-image to the notary service, and staples the ticket to the disk image and
-to the app, which updates ship. `security
+`mygo build` then signs the app with the hardened runtime, submits the app
+to the notary service and staples its ticket to it, then does the same for
+the disk image, which holds the stapled app. Updates ship the stapled app
+too. `security
 find-identity -v -p codesigning` lists your identities, and `mygo doctor`
 counts the Developer IDs.
 
@@ -436,6 +438,10 @@ Start menu shortcut and an uninstaller listed in Settings, and registers
 the app's URL schemes and file associations. Its last page offers to run
 the app and to create a desktop shortcut, which is checked; silent
 installs (`/S`) create none.
+
+In a folder the user chose that holds other files, as `D:\Tools`, the
+installer makes a folder for the app, `D:\Tools\My App`, since the
+uninstaller removes the app's folder with everything in it.
 
 The shortcuts, the entry in Settings > Apps and the installer's title
 show the app's `name`, or

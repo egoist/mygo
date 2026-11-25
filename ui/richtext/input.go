@@ -1,8 +1,9 @@
 package richtext
 
 import (
-	"runtime"
+	"unicode/utf8"
 
+	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/rope"
 	"github.com/egoist/mygo/internal/text"
 	"github.com/egoist/mygo/ui"
@@ -237,7 +238,7 @@ func (v *view) key(key ui.Key, mods ui.Modifiers) bool {
 	if cmd, ok := shortcut(key, mods); ok {
 		return v.run(cmd)
 	}
-	mac := runtime.GOOS == "darwin"
+	mac := platform.MacKeys
 	shift := mods&ui.Shift != 0
 	m := mods &^ ui.Shift
 	if mac && m == ui.Ctrl {
@@ -458,7 +459,7 @@ func (v *view) key(key ui.Key, mods ui.Modifiers) bool {
 // Notes and Google Docs have them, with Control in place of Command
 // elsewhere, where Ctrl+L, Ctrl+E, Ctrl+R align, as in Word.
 func shortcut(key ui.Key, mods ui.Modifiers) (string, bool) {
-	mac := runtime.GOOS == "darwin"
+	mac := platform.MacKeys
 	switch mods {
 	case ui.Cmd:
 		switch key {
@@ -699,17 +700,25 @@ func (v *view) release(ev ui.InputEvent) bool {
 	return true
 }
 
-// Attachments occupy one rune, but either half of their drawn box opens
-// the link. Keep nearest-caret hit testing for selection alone.
+// Links are hit only where their text or attachment is drawn; nearest-caret
+// hit testing is for placing the selection.
 func (v *view) linkAt(x float32, y float64) string {
-	p, l, _ := v.layoutPositionAt(x, y)
+	if len(v.paras) == 0 || y < 0 {
+		return ""
+	}
+	p, _, _ := v.layoutPositionAt(x, y)
 	if p < 0 {
 		return ""
 	}
 	pv := v.paraLayout(p)
+	top := v.hs.top(p)
+	if y < top || y >= top+float64(pv.h) {
+		return ""
+	}
 	ox, oy := v.origin(p)
+	lx, ly := x-ox, float32(y-oy)
 	for _, object := range pv.layout.Objects() {
-		if object.Rect.Contains(x-ox, float32(y-oy)) {
+		if object.Rect.Contains(lx, ly) {
 			at := pv.runeOfUnit(object.Index)
 			start := v.caret - v.shown.paraStart(p)
 			if v.compose != "" && v.shown.paraAt(v.caret) == p && at >= start && at < start+len([]rune(v.compose)) {
@@ -718,12 +727,56 @@ func (v *view) linkAt(x float32, y float64) string {
 			return v.shown.AttributesAt(v.global(p, at)).Link
 		}
 	}
-	i := v.global(p, l)
-	if i < v.shown.Len() {
-		a := v.shown.AttributesAt(i)
-		if a.Attachment == nil {
-			return a.Link
+	para := v.para(p)
+	if para.n == 0 || len(pv.units) < 2 {
+		return ""
+	}
+	cAt, cLen := para.n+1, 0
+	if v.compose != "" && v.shown.paraAt(v.caret) == p {
+		cAt = v.caret - v.shown.paraStart(p)
+		cLen = utf8.RuneCountInString(v.compose)
+	}
+	hit := func(from, to int) bool {
+		if from >= to || from < 0 || to >= len(pv.units) {
+			return false
 		}
+		for _, r := range pv.layout.SelectionRects(ui.TextInputRange{Start: pv.units[from], End: pv.units[to]}) {
+			if r.Contains(lx, ly) {
+				return true
+			}
+		}
+		return false
+	}
+	hitDoc := func(a, z int) bool {
+		if cLen == 0 || z <= cAt {
+			return hit(a, z)
+		}
+		if a >= cAt {
+			return hit(a+cLen, z+cLen)
+		}
+		return hit(a, cAt) || hit(cAt+cLen, z+cLen)
+	}
+	at, spanStart := 0, 0
+	link := ""
+	for _, r := range para.runs {
+		end := min(at+r.n, para.n)
+		url := ""
+		if r.a.Attachment == nil {
+			url = r.a.Link
+		}
+		if url != link {
+			if link != "" && hitDoc(spanStart, at) {
+				return link
+			}
+			spanStart, link = at, url
+		}
+		at = end
+		if at >= para.n {
+			break
+		}
+	}
+	if link != "" && hitDoc(spanStart, at) {
+		return link
 	}
 	return ""
 }

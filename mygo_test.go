@@ -3,6 +3,7 @@
 package mygo
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -44,17 +45,21 @@ func TestMain(m *testing.M) {
 		helper := fake.New()
 		backendOnce.Do(func() { theBackend = helper })
 		packageIdentifier = os.Getenv("MYGO_TEST_IDENTIFIER")
-		App.SetName("MyGoTest")
-		if App.RequestSingleInstanceLock() {
-			fmt.Println("locked")
-			releaseSingleInstanceLock()
-		} else {
-			fmt.Println("forwarded")
-		}
-		if helper.ForegroundAllowed > 0 {
-			fmt.Println("passed the foreground on")
-		}
+		App.SetName(cmp.Or(os.Getenv("MYGO_TEST_INSTANCE_NAME"), "MyGoTest"))
+		singleInstanceTestHelper(helper)
 		os.Exit(0)
+	}
+	if os.Getenv("MYGO_TEST_INSTANCE_CHILD") == "1" {
+		// A process that an instance started, which outlives it.
+		fmt.Println("child started")
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		os.Exit(0)
+	}
+	if dir := os.Getenv("MYGO_TEST_CRASH_LOG"); dir != "" {
+		// Helper process for TestCrashLog: a packaged app that panics.
+		App.SetPath(PathLogs, dir)
+		logCrashes()
+		panic("mygo test crash")
 	}
 	fb = fake.New()
 	backendOnce.Do(func() { theBackend = fb })
@@ -318,6 +323,15 @@ func TestWindowOptions(t *testing.T) {
 	}
 	if fw.URL() != "https://example.com/" {
 		t.Errorf("URL not loaded: %q", fw.URL())
+	}
+}
+
+func TestConsumeActivationClickOption(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		_, fw := testWindow(t, WindowOptions{ConsumeActivationClick: enabled})
+		if fw.Opts.ConsumeActivationClick != enabled {
+			t.Errorf("ConsumeActivationClick = %v, want %v", fw.Opts.ConsumeActivationClick, enabled)
+		}
 	}
 }
 
@@ -600,6 +614,34 @@ func TestReadyToShowFiresOnce(t *testing.T) {
 	}
 }
 
+// A window created hidden and shown from OnReadyToShow shows when its
+// first page fails to load, unless a listener of the failure loads
+// another page, which the window then waits for.
+func TestReadyToShowAfterFailedLoad(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{Hidden: true})
+	var n atomic.Int32
+	w.OnReadyToShow(func() { n.Add(1) })
+	fail := func() { onMain(func() { fw.H.LoadFailed("https://down.example/", -1004, "could not connect") }) }
+	fail()
+	if n.Load() != 1 {
+		t.Errorf("ready-to-show fired %d times after a failed load, want 1", n.Load())
+	}
+
+	w, fw = testWindow(t, WindowOptions{Hidden: true})
+	n.Store(0)
+	w.OnReadyToShow(func() { n.Add(1) })
+	off := w.Page().OnDidFailLoad(func(*LoadError) { w.Page().LoadHTML("<p>offline</p>", "") })
+	fail()
+	if n.Load() != 0 {
+		t.Errorf("ready-to-show fired %d times while the page of a listener loads, want 0", n.Load())
+	}
+	off()
+	fail()
+	if n.Load() != 1 {
+		t.Errorf("ready-to-show fired %d times after that page failed too, want 1", n.Load())
+	}
+}
+
 // Bound services.
 
 type testUser struct {
@@ -672,6 +714,28 @@ func TestCalls(t *testing.T) {
 	}
 	if svc.calls.Load() != 1 {
 		t.Errorf("Hello called %d times", svc.calls.Load())
+	}
+}
+
+// Text cut in the middle of an emoji holds half of a surrogate pair, which
+// JSON.stringify writes as an escape that is no character. The call is
+// made with U+FFFD in its place, and answered.
+func TestCallLoneSurrogate(t *testing.T) {
+	bindForTest(t, "Half", &testService{})
+	_, fw := testWindow(t, WindowOptions{})
+	for i, tt := range []struct{ method, arg, want string }{
+		{"Half.Hello", `"x\ud83d"`, "hello x\ufffd"},
+		{"Half.Hello", `"\ude00x"`, "hello \ufffdx"},
+		{"Half.Echo", `{"name":"a\ud83d","tags":[]}`, "map[name:a\ufffd tags:[echoed]]"},
+	} {
+		id := 300 + i
+		page(fw, fmt.Sprintf(`{"t":"call","id":%d,"k":"tok","m":%q,"a":[%s]}`, id, tt.method, tt.arg))
+		m := received(t, fw, func(m map[string]any) bool {
+			return m["t"] == "reply" && m["id"] == float64(id)
+		})
+		if m["ok"] != true || fmt.Sprint(m["v"]) != tt.want {
+			t.Errorf("%s(%s) = %v (%v), want %q", tt.method, tt.arg, m["v"], m["e"], tt.want)
+		}
 	}
 }
 
@@ -1006,6 +1070,39 @@ func TestChannelsClosedAtOnce(t *testing.T) {
 	}
 }
 
+// A call the page may cancel with a signal streams through its channels,
+// and canceling it cancels the method's context.
+func TestChannelsOfACancelableCall(t *testing.T) {
+	s := &streamer{sent: make(chan error, 16), stopped: make(chan error, 1)}
+	bindForTest(t, "Stream", s)
+	_, fw := testWindow(t, WindowOptions{})
+
+	page(fw, `{"t":"call","id":1,"k":"tok","m":"Stream.Count","a":[2,7],"cancel":true}`)
+	reply := received(t, fw, func(m map[string]any) bool { return m["t"] == "reply" && m["id"] == float64(1) })
+	if reply["ok"] != true {
+		t.Fatalf("a cancelable call could not send on its channel: %v", reply)
+	}
+	var got []any
+	for _, m := range pageMessages(t, fw) {
+		if m["t"] == "chan" && m["c"] == float64(7) && m["end"] != true {
+			got = append(got, m["p"])
+		}
+	}
+	if len(got) != 2 {
+		t.Errorf("page received %v, want [0 1]", got)
+	}
+
+	page(fw, `{"t":"call","id":2,"k":"tok","m":"Stream.Wait","a":[8],"cancel":true}`)
+	received(t, fw, func(m map[string]any) bool { return m["c"] == float64(8) && m["p"] == "ready" })
+	page(fw, `{"t":"cancel","id":2,"k":"tok"}`)
+	if err := wait.For(t, "the call to be canceled", s.stopped); !errors.Is(err, context.Canceled) {
+		t.Errorf("call context: %v", err)
+	}
+	if err := wait.For(t, "the late send", s.sent); !errors.Is(err, ErrChannelClosed) {
+		t.Errorf("Send after the call was canceled = %v", err)
+	}
+}
+
 type badStreams struct{}
 
 func (badStreams) Result() *Channel[int]            { return nil }
@@ -1132,11 +1229,11 @@ func TestEval(t *testing.T) {
 	fw.AsyncFunction = func(body string) (string, error) {
 		bodies = append(bodies, body)
 		switch {
-		case strings.Contains(body, "await(\ndocument.title\n)"):
+		case strings.Contains(body, "(async()=>(\ndocument.title\n))()"):
 			return `{"ok":true,"v":"Title"}`, nil
-		case strings.Contains(body, "await(\nlet x = 1; return x\n)"):
+		case strings.Contains(body, "(async()=>(\nlet x = 1; return x\n))()"):
 			return "", errors.New("SyntaxError: Unexpected token")
-		case strings.Contains(body, "await(async()=>{\nlet x = 1; return x\n})()"):
+		case strings.Contains(body, "(async()=>{\nlet x = 1; return x\n})()"):
 			return `{"ok":true,"v":1}`, nil
 		case strings.Contains(body, "boom"):
 			return `{"ok":false,"e":"boom"}`, nil
@@ -1163,6 +1260,21 @@ func TestEval(t *testing.T) {
 	fw.AsyncFunction = func(string) (string, error) { return "", fake.ErrNoReply }
 	if _, err := w.Page().EvalContext(ctx, "1"); !errors.Is(err, context.Canceled) {
 		t.Errorf("EvalContext with canceled context = %v", err)
+	}
+
+	// The page left before the code answered says so, rather than as the
+	// code's own error, whether its pagehide or the backend tells it.
+	fw.AsyncFunction = func(string) (string, error) { return `{"left":true}`, nil }
+	if _, err := w.Page().Eval("pending"); !errors.Is(err, platform.ErrNavigated) {
+		t.Errorf("Eval in a page left = %v, want %v", err, platform.ErrNavigated)
+	}
+	bodies = nil
+	fw.AsyncFunction = func(body string) (string, error) {
+		bodies = append(bodies, body)
+		return "", platform.ErrNavigated
+	}
+	if _, err := w.Page().Eval("pending"); !errors.Is(err, platform.ErrNavigated) || len(bodies) != 1 {
+		t.Errorf("Eval in a page the backend says was left = %v, ran %d times; want %v, once", err, len(bodies), platform.ErrNavigated)
 	}
 
 	// Only a syntax error means the code did not run: other failures are
@@ -1238,6 +1350,37 @@ func TestEvalWindowCloses(t *testing.T) {
 		}
 	case <-time.After(wait.Guard):
 		t.Fatal("Eval still waits for the page of a closed window")
+	}
+}
+
+// TestEvalAnsweredByNextPage: an eval sent just before a navigation
+// commits may run in the page that comes next, as one sent right after
+// opening a window may run in the page it loads rather than the empty one
+// it starts with: the navigation leaves it be, and Eval returns the
+// answer of that page.
+func TestEvalAnsweredByNextPage(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{})
+	replies := make(chan func(string, error), 1)
+	fw.AsyncCallback = func(body string, reply func(string, error)) { replies <- reply }
+	type res struct {
+		v   any
+		err error
+	}
+	done := make(chan res, 1)
+	go func() {
+		v, err := w.Page().Eval("navigator.userAgent")
+		done <- res{v, err}
+	}()
+	reply := <-replies
+	onMain(func() { fw.H.NavigationCommitted("app://localhost/") })
+	onMain(func() { reply(`{"ok":true,"v":"Agent"}`, nil) })
+	select {
+	case r := <-done:
+		if r.v != "Agent" || r.err != nil {
+			t.Errorf("Eval = %v, %v", r.v, r.err)
+		}
+	case <-time.After(wait.Guard):
+		t.Fatal("Eval did not return the answer of the page that came next")
 	}
 }
 
@@ -1749,6 +1892,46 @@ func TestMenuRolesAndState(t *testing.T) {
 	last := updates[len(updates)-1]
 	if last.ID != menu.ItemByID("new").uid || last.Enabled {
 		t.Errorf("SetEnabled not propagated: %+v", last)
+	}
+}
+
+func TestMenuBadge(t *testing.T) {
+	menu := NewMenu([]*MenuItem{{
+		ID: "node", Label: "Node", Badge: "120 ms", BadgeAlign: BadgeAlignLeft,
+		BadgeShape: BadgeShapePill, BadgeColor: "#34c759", BadgeTextColor: "#fff",
+	}})
+	snap := menu.snapshot()
+	if got := snap.Items[0].Badge; got != "120 ms" {
+		t.Fatalf("badge = %q", got)
+	}
+	if got := snap.Items[0].BadgeAlign; got != platform.BadgeAlignLeft {
+		t.Fatalf("badge align = %q", got)
+	}
+	if pill := snap.Items[0]; pill.BadgeShape != platform.BadgeShapePill || pill.BadgeColor == nil ||
+		*pill.BadgeColor != (platform.Color{R: 0x34, G: 0xc7, B: 0x59, A: 255}) ||
+		pill.BadgeTextColor == nil || *pill.BadgeTextColor != (platform.Color{R: 255, G: 255, B: 255, A: 255}) {
+		t.Fatalf("badge pill = %+v", pill)
+	}
+	item := menu.ItemByID("node")
+	item.SetBadge("1.2s")
+	item.SetBadgeAlign(BadgeAlignCenter)
+	item.SetBadgeShape("")
+	item.SetBadgeColor("")
+	item.SetBadgeTextColor("#000")
+	onMain(func() {}) // the updates reach the backend on the main thread
+	updates := fb.MenuUpdates()
+	last := updates[len(updates)-1]
+	if last.ID != item.uid || last.Badge != "1.2s" || last.BadgeAlign != platform.BadgeAlignCenter ||
+		last.BadgeShape != "" || last.BadgeColor != nil ||
+		last.BadgeTextColor == nil || *last.BadgeTextColor != (platform.Color{R: 0, G: 0, B: 0, A: 255}) {
+		t.Errorf("badge updates not propagated: %+v", last)
+	}
+}
+
+func TestMenuKeepOpen(t *testing.T) {
+	menu := NewMenu([]*MenuItem{{ID: "node", Label: "Node", KeepOpen: true}})
+	if !menu.snapshot().Items[0].KeepOpen {
+		t.Error("KeepOpen lost in the snapshot")
 	}
 }
 

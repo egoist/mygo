@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/egoist/mygo/transfer"
+	"github.com/egoist/mygo/ui"
 )
 
 // Format is the clipboard's format of attributed text copied from an
@@ -210,29 +211,35 @@ func (v *view) paste(matchStyle bool) {
 	ok := false
 	if !matchStyle {
 		d := v.services.ReadClipboardData(Format, transfer.HTML, RTF, transfer.Markdown, transfer.Text)
+		// A format with no text in it, as the HTML some apps copy beside
+		// their plain text, gives way to the next one.
 		if b, err := d.Read(Format); err == nil {
 			t, ok = decodeClip(b)
+			ok = ok && t.Len() > 0
 		}
 		if !ok {
 			if b, err := d.Read(transfer.HTML); err == nil && len(b) > 0 {
-				t, ok = ParseHTML(string(b)), true
+				t = ParseHTML(string(b))
+				ok = t.Len() > 0
 			}
 		}
 		if !ok {
 			// TextEdit, Pages and WordPad copy RTF without HTML.
 			if b, err := d.Read(RTF); err == nil && len(b) > 0 {
-				t, ok = ParseRTF(b), true
+				t = ParseRTF(b)
+				ok = t.Len() > 0
 			}
 		}
 		if !ok {
 			// Markdown apps and Markdown views copy it.
 			if b, err := d.Read(transfer.Markdown); err == nil && len(b) > 0 {
-				t, ok = ParseMarkdown(string(b)), true
+				t = ParseMarkdown(string(b))
+				ok = t.Len() > 0
 			}
 		}
 		if !ok {
 			if b, err := d.Read(transfer.Text); err == nil && len(b) > 0 {
-				v.insert(string(b))
+				v.pasteText(string(b))
 				return
 			}
 		}
@@ -240,7 +247,7 @@ func (v *view) paste(matchStyle bool) {
 	if !ok {
 		s := v.services.ReadClipboard()
 		if s != "" {
-			v.insert(s)
+			v.pasteText(s)
 		}
 		return
 	}
@@ -250,11 +257,15 @@ func (v *view) paste(matchStyle bool) {
 	v.lockedSync()
 	a, z := v.selection() // as the sync moved it
 	v.lockedPublish()
-	v.lockedEdit(func(e *Edit) { e.Replace(a, z, t) })
 	caret := a + t.Len()
+	v.lockedEdit(func(e *Edit) {
+		e.Replace(a, z, t)
+		d.anchor, d.caret = caret, caret // where redo puts it
+	})
 	v.selAnchor, v.caret = caret, caret
-	d.anchor, d.caret = caret, caret
 	d.mu.Unlock()
 	v.mode, v.coalesce = newStep, false
+	v.affinity = ui.TextDownstream
+	v.hasDesired = false
 	v.reveal = true
 }
