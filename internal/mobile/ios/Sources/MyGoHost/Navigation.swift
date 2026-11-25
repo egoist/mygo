@@ -395,12 +395,13 @@ final class Navigation: NSObject, UINavigationControllerDelegate, UITabBarContro
         if nav.topViewController === c {
             nav.setNavigationBarHidden(!c.barAtRoot && !c.routed, animated: false)
             // Hiding a large title lets the page reach the top again, but the
-            // title scroll view's adjustedContentInset does not re-evaluate on
-            // the hide alone. Laying the window out and reporting its size
-            // readjusts it, so the page is not left pushed down by where the
-            // bar was.
-            nav.view.setNeedsLayout()
-            nav.view.layoutIfNeeded()
+            // window's own safeAreaInsets does not re-evaluate on the hide
+            // alone: it keeps the bar's height, and reportSize takes the max
+            // of it and the content scroll view's. Laying the window's view
+            // out readjusts it, so the page is not left pushed down by where
+            // the bar was.
+            c.view.setNeedsLayout()
+            c.view.layoutIfNeeded()
             c.window.reportSize()
         }
     }
