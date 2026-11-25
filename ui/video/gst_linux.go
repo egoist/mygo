@@ -89,6 +89,8 @@ const (
 	gstStatePaused  = 3
 	gstStatePlaying = 4
 
+	gstStateChangeAsync = 2
+
 	gstFormatTime = 3
 
 	gstSeekFlagFlush    = 1
@@ -246,8 +248,15 @@ type gstEngine struct {
 	// sound: the video fails as it prerolls with no video.
 	noDecoder string
 	// pending are a seek, and a rate, asked for before the pipeline
-	// could take them, once it prerolled (prerolled).
+	// could take them, once it prerolled (prerolled), or while it
+	// prerolls again, after a seek (seeking) or a change of its state
+	// that it completes later (changing), as from playing to paused, once
+	// it did. A seek waits for those, as a seek asked for while another
+	// goes is dropped by matroskademux reading a stream (HTTP, in push
+	// mode), and as the pipeline's ASYNC_DONE tells neither which it ends.
 	prerolled  bool
+	seeking    bool
+	changing   bool
 	seekTo     time.Duration
 	seekSet    bool
 	rate       float64
@@ -508,9 +517,9 @@ func (e *gstEngine) handle(msg uintptr, kind uint32) {
 		e.noDecoder = t
 	case gstMessageAsyncDone:
 		// Prerolled, after loading or a seek: a seek the pipeline did
-		// not take yet goes now.
+		// not take yet goes now, the last of those asked for meanwhile.
 		first := !e.prerolled
-		e.prerolled = true
+		e.prerolled, e.seeking, e.changing = true, false, false
 		if first && e.noDecoder != "" && e.videoStreams() == 0 {
 			// The sound plays, and no picture comes.
 			e.state, e.err = media.Failed, errors.New("video: GStreamer has no decoder for "+e.noDecoder)
@@ -540,6 +549,7 @@ func (e *gstEngine) handle(msg uintptr, kind uint32) {
 			gFree(debug)
 		}
 		e.state, e.err = media.Failed, errors.New("video: "+text)
+		e.seeking, e.changing = false, false
 	case gstMessageBuffering:
 		var percent int32
 		gstMessageParseBuffering(msg, &percent)
@@ -614,10 +624,12 @@ func (e *gstEngine) applyState() {
 		return
 	}
 
+	state := int32(gstStatePaused)
 	if e.wantPlay && !e.buffering && e.state != media.Ended && e.state != media.Failed {
-		gstElementSetState(e.pipe, gstStatePlaying)
-	} else {
-		gstElementSetState(e.pipe, gstStatePaused)
+		state = gstStatePlaying
+	}
+	if gstElementSetState(e.pipe, state) == gstStateChangeAsync {
+		e.changing = true
 	}
 }
 
@@ -673,7 +685,7 @@ func (e *gstEngine) Position() time.Duration {
 	if e.closed {
 		return time.Duration(e.lastPosNs)
 	}
-	if !e.prerolled && e.seekSet {
+	if e.seeking || e.seekSet && (!e.prerolled || e.changing) {
 		return e.seekTo
 	}
 	var p int64
@@ -712,19 +724,19 @@ func (e *gstEngine) Seek(d time.Duration) {
 }
 
 // seekLocked seeks the pipeline to d at the rate, or keeps d for once it
-// prerolled.
+// prerolled, or prerolled again: of the seeks asked for meanwhile, as a
+// slider dragged asks for them, the last goes.
 func (e *gstEngine) seekLocked(d time.Duration) {
-
 	if e.closed {
 		return
 	}
 	e.seekTo, e.seekSet = d, true
 	e.lastPosNs = int64(d)
-	if !e.prerolled {
+	if !e.prerolled || e.seeking || e.changing {
 		return
 	}
 	if gstElementSeek(e.pipe, e.rate, gstFormatTime, gstSeekFlagFlush|gstSeekFlagAccurate, gstSeekTypeSet, int64(d), gstSeekTypeNone, -1) {
-		e.seekSet = false
+		e.seekSet, e.seeking = false, true
 	}
 }
 
