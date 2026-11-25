@@ -1004,7 +1004,7 @@ func (f *listFrame) reorder() {
 		// Where the rows dropped, which the pointer may have left since,
 		// as when Windows moves it back to the mouse after a test's drag.
 		d, _ = e.st.droppedValue.(*rowDrag)
-		e.st.hasDropped, dropped, y = false, true, e.st.dropY
+		dropped, y = true, e.st.dropY
 	case rt.drag != nil && !rt.drag.canceled && rt.drag.over == e.id:
 		d, _ = rt.drag.value.(*rowDrag)
 	}
@@ -1013,7 +1013,8 @@ func (f *listFrame) reorder() {
 	}
 	x := rt.pointerX
 	if dropped {
-		x = e.st.dropX
+		// Only the list's own rows: other values are the app's Drop's.
+		e.st.hasDropped, x = false, e.st.dropX
 	}
 	_, y = e.st.local(x, y)
 	y += e.st.y

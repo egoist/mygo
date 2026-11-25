@@ -579,3 +579,36 @@ func TestListReorderTakesOtherDrops(t *testing.T) {
 		t.Errorf("moves %v", moves)
 	}
 }
+
+// A grid that reorders its items takes other values dropped on it too,
+// though it reorders as it builds, before the app's Drop.
+func TestGridReorderTakesOtherDrops(t *testing.T) {
+	var moves [][]int
+	var words []string
+	s := GridState{Reorder: func(items []int, to int) {
+		moves = append(moves, append(slices.Clone(items), to))
+	}}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Children(func() {
+			coreBox(c).Size(100, 40).Label("Word").Drag("hello")
+			grid := coreGridView(c, &s, 12, 100, 60, func(i int) {
+				coreTextf(c, "Item %d", i)
+			}).Grow(1)
+			if v, ok := coreDrop[string](grid); ok {
+				words = append(words, v)
+			}
+		})
+	}, 448, 400)
+	word, _ := tt.Find("Word")
+	one, _ := tt.Find("Item 1")
+	drag(tt, word.X+10, word.Y+10, one.X+5, one.Y+5)
+	if !slices.Equal(words, []string{"hello"}) {
+		t.Errorf("the grid took words %q", words)
+	}
+	from, _ := tt.Find("Item 0")
+	to, _ := tt.Find("Item 2")
+	drag(tt, from.X, from.Y, to.X+to.W+20, to.Y)
+	if len(moves) != 1 || !slices.Equal(moves[0], []int{0, 3}) {
+		t.Errorf("moves %v", moves)
+	}
+}
