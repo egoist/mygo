@@ -93,6 +93,49 @@ still accept TIFF, GTK image targets, and Windows DIBs. `WriteFiles` and
 `ReadFiles` exchange native file lists. Empty `Write`/`WriteFiles` clears the
 clipboard. A failed write does not install its release hook.
 
+## Observing changes
+
+`Clipboard.OnChanged` observes changes made by this app or another app, and
+returns the function that stops it, as the other `On…` listeners do. It does
+not read clipboard contents or invoke their providers. Read only the formats
+your app needs in the callback:
+
+```go
+off := mygo.Clipboard.OnChanged(func() {
+    // Called on the main thread. The contents can change again before Read.
+    data, err := mygo.Clipboard.Read(transfer.Text)
+    if err == nil {
+        text, _ := data.Read(transfer.Text)
+        // Use text; avoid retaining sensitive clipboard contents by default.
+        _ = text
+    }
+})
+win.OnClosed(off) // when this window no longer needs the observation
+```
+
+Registration does not report the initial contents. Multiple notifications
+may be coalesced, so this is a prompt to read the current clipboard, not a
+complete history or a snapshot of a particular copy. Reading or delayed
+rendering can itself produce a native notification; do not unconditionally
+write the clipboard from every callback. Callbacks may read or write it,
+and are deferred until native clipboard operations and earlier callbacks
+return. Keep them short, like other main-thread event handlers.
+
+Listeners share one native watch, which starts once the app is ready: a
+listener may be added before `App.Run`. `off` is goroutine-safe and
+idempotent, and may be called from the callback; a listener removed while a
+change is delivered may still hear that one. Removing the last listener
+stops the watch, and so does quitting. Observing touches nothing the
+clipboard holds, so a clipboard provider may add and remove listeners.
+
+Windows uses `AddClipboardFormatListener`; Linux uses GTK's `owner-change`
+signal, subject to the desktop exposing changes (in particular on Wayland).
+macOS has no public pasteboard-change notification, so it checks only
+`changeCount` every 250 ms while subscribed, with a tolerance of 25 ms that
+lets the system fire the timer with its other wakeups. Changes overwritten
+between checks cannot be recovered. Browsers do not expose system clipboard
+observation: there the callback is never called.
+
 ## Lazy providers and ownership
 
 Each write and each drag takes a new `Data.Snapshot`. A lazy provider runs at

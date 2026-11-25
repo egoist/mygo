@@ -44,7 +44,10 @@ panics where the second key was given, as apps only log it.
   a right-button drag, `tt.CancelPress`, which ends the press as the
   system cancels one, with no click, `tt.Scroll`, which scrolls at
   once as a touchpad does, and `tt.Wheel`, a notch of a mouse wheel, which
-  glides there as the clock advances (`tt.Advance`).
+  glides there as the clock advances (`tt.Advance`). `tt.DropFiles`
+  drops files from another app, and `tt.DragFiles` holds them over a
+  point without dropping, to check a drop zone's `FileDragOver`, until
+  `tt.DragFilesOut` drags them out of the window.
   `tt.UsePointer(ui.PointerPen, 0.6)` has the presses and moves after it
   come from a pen pressing that hard, or a finger (`ui.PointerTouch`).
 - **Keyboard.** `tt.Key(ui.Cmd, ui.KeyS)` presses a key, `tt.KeyRepeat` presses
@@ -77,7 +80,8 @@ panics where the second key was given, as apps only log it.
   ([hidden windows](windows.md#hidden-windows)).
 - **What it shows.** `tt.Texts`, `tt.HasText`, `tt.Find` (the box of a
   text), `tt.Focused`, `tt.Cursor`, `tt.Clipboard`, `tt.OpenedURLs` and
-  `tt.Announcements`, what the view asked screen readers to read out;
+  `tt.Announcements`, what the view asked screen readers to read out
+  ([live regions](#live-regions-and-announcements));
   `tt.FailOpenURL` makes the links it opens fail, as those no app opens,
   and `tt.FailClipboard` its writes of text to the clipboard, as a
   browser refuses them (`WriteClipboardThen`).
@@ -113,6 +117,26 @@ panics where the second key was given, as apps only log it.
   }
   ```
 
+## Live regions and announcements
+
+`tt.Announcements()` returns what the view asked screen readers to read
+out with `c.Announce`, and forgets it. To test what live regions read, turn
+a screen reader on with `tt.UseScreenReader()`: from then on every frame's
+accessibility tree goes to it, and, as in ARIA, a `RoleStatus` text that
+changes and what is added to a `RoleLog` are read politely, once, in
+`tt.Announcements()` with the `c.Announce` texts, while a `RoleAlert` is
+read at once, in `tt.Alerts()`. What showed before the screen reader was
+on is not read, as when a real one attaches.
+
+```go
+tt := ui.NewTester(view, 400, 300)
+tt.UseScreenReader()
+tt.Click("Save")
+if got := tt.Announcements(); !slices.Equal(got, []string{"Saved 2 files"}) {
+	t.Errorf("read out %q", got)
+}
+```
+
 ## What assistive technology sees
 
 `tt.AccessByRole(role, name)` returns what screen readers get of the
@@ -136,8 +160,8 @@ its error), `Vertical` and `Horizontal` (`aria-orientation`), `Level`,
 `PositionInSet` gives them), `Multiselectable`, `RowCount`,
 `ColumnCount`, `RowIndex` and `ColumnIndex` (of a
 [grid](accessibility.md#grids)), `RowSpan` and `ColumnSpan` (of its
-cells), `Min`, `Max` and `Now` of a range, and its `Bounds`. So a test
-checks
+cells), `Min`, `Max` and `Now` of a range, and its `Bounds` (the visible
+box in the window's DIPs, clipped as `Find`'s is). So a test checks
 that a state reaches assistive technology, not only that the view set
 it:
 

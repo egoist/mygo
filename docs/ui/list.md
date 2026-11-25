@@ -75,6 +75,12 @@ behaves and to move it:
   for the next layout alone: call it in the frame a click opens a fold in
   the last message, and the line clicked stays under the pointer rather
   than following the end as the row grows.
+- `MoveAnimation`, with a `Key`, makes the rows glide to their places as
+  rows come, go or move around them, rather than jump there: the rows
+  below a row that went close its gap, those below rows that came open
+  theirs, and rows a `ScrollTo` in the same frame brings into view come
+  in with them, as new items sliding in at the top of a feed. Scrolling
+  moves the rows at once, as does a desktop asking for less motion.
 - `Header` names the rows heading sections: the header of the section at
   the top stays pinned there while its rows scroll under it, until the next
   header pushes it away. Give headers a background.
@@ -259,8 +265,9 @@ In a list that chooses no rows, `Pressed` makes the row take the press.
 `ui.End` of the list, `ScrollIntoView(row)` scrolls as little as shows it,
 and `ScrollToEnd` scrolls to the end, rows not built yet included: the list
 scrolls as the frame is laid out, to where the row is once measured.
-`Visible` returns the first and last rows in view and `AtEnd` whether the
-end shows, to load more as the list nears the end of what was loaded.
+`Visible` returns the first and last rows in view in the last frame and
+`AtEnd` whether the end showed, for what the view shows, as a button to jump
+to the latest message.
 
 A chat:
 
@@ -278,6 +285,41 @@ ui.List(c, &app.chat, len(app.messages), func(i int) {
 	message(c, app.messages[i])
 }).Grow(1).Justify(ui.End)
 ```
+
+## Loading more
+
+A list paging in a long collection, from a database or the network, as the
+user nears the end of what was loaded, loads the next page in
+`EndReached`, rather than reading `Visible` as it builds: the list calls it
+once a frame is laid out in which the user's scrolling (the wheel, a
+touchpad, the scroll bar, the keys, a drag) brought the rows in view within
+`NearEnd` rows of the end (0 for the last row alone), with the last row in
+view. Start the load there, off the UI thread: the frame goes on with the
+rows it has, and those loaded show in the frames after.
+
+```go
+app.list.Key = func(i int) any { return app.chats[i].ID }
+app.list.NearEnd = 20
+app.list.EndReached = func(last int) {
+	if app.more && !app.loading {
+		app.loading = true
+		go app.loadPage(len(app.chats)) // appends the page on the UI thread
+	}
+}
+ui.List(c, &app.list, len(app.chats), func(i int) {
+	chatRow(c, app.chats[i])
+}).Grow(1)
+```
+
+It is called as the rows in view come near the end, not in every frame while
+they stay there. Once they left it, or the rows changed in number, as when a
+page was added, the user's next scroll near the end calls it again: a page
+arriving does not call it by itself, so a list never loads page after page
+on its own. Only the user's scrolling calls it: `ScrollTo`,
+`ScrollIntoView` and `ScrollToEnd` (a notification opening a message far
+down, say), the list showing first, being resized or built at another
+height, and rows sorted again do not. A list whose first page does not fill
+it cannot be scrolled, so load a first page taller than the list.
 
 ## Reordering
 

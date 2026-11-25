@@ -142,6 +142,16 @@
   }
 }
 
+/* Chinese, set in its own fonts, and without the tracking and capitals of
+   Latin text: tracking would pull its characters together. */
+html:lang(zh) {
+  font-family: "Geist Variable", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+}
+html:lang(zh) * {
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 /* The column of every page, between two hairlines. */
 @utility frame {
   @apply mx-auto w-full max-w-6xl border-x;

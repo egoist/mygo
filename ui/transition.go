@@ -325,6 +325,9 @@ type transition struct {
 	gone          tbox
 	opacity, blur float32
 	turn          Transform
+	// shown's subpixel remainder that apply moved onto e.transform, removed
+	// from turn if e exits mid-transition so r.gone is not offset twice.
+	pin Point
 	// index is where the element was among its siblings in the frame it
 	// went from, which orders the copies going under one parent.
 	index int
@@ -686,7 +689,12 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 		if parent == c.overlay {
 			parent = root
 		}
-		appears := r.fresh && !resized && e.st.born == rt.frame && parent.st.born != rt.frame
+		// A row that just came into a list that was there comes in too:
+		// the list's row wrapper is born with the row and is scaffolding,
+		// not interface. A list newly shown comes in with its page, at
+		// once.
+		inNewRow := parent.listRow && parent.st.born == rt.frame && parent.parent.st.born != rt.frame
+		appears := r.fresh && !resized && e.st.born == rt.frame && (parent.st.born != rt.frame || inNewRow)
 		if r.held || appears && r.t.AfterExits {
 			// Unseen until the copies of its siblings are gone, which
 			// animateExits makes: then it comes in.
@@ -760,7 +768,7 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 			if rt.focused == 0 {
 				// Unless the focus went elsewhere meanwhile; the next
 				// frame builds it focused.
-				e.Focus()
+				e.focus(false)
 				rt.animating = true
 			}
 		}
@@ -866,7 +874,15 @@ func (r *transition) apply(e *node, s tbox) {
 			layoutBox(e, max(s.w, 0), max(s.h, 0))
 		}
 	}
-	e.x, e.y = s.x, s.y
+	x, y := s.x, s.y
+	var rx, ry float32
+	if r.moving != 0 && (s.x != r.target.x || s.y != r.target.y) {
+		_, _, scale := e.c.rt.size()
+		x, rx = snapTo(s.x, r.target.x, scale)
+		y, ry = snapTo(s.y, r.target.y, scale)
+	}
+	e.x, e.y = x, y
+	r.pin = Point{rx, ry}
 	if s.alpha < 1 {
 		o := float32(1)
 		if e.opacitySet {
@@ -877,9 +893,25 @@ func (r *transition) apply(e *node, s tbox) {
 	if t, ok := s.turn(); ok {
 		e.transform = e.transform.Then(t)
 	}
+	if rx != 0 || ry != 0 {
+		e.pinned = !e.transform.set()
+		e.transform = e.transform.Then(Transform{m: scene.Translation(rx, ry)})
+	}
 	if s.blur > 0 {
 		e.blur = addBlur(e.blur, s.blur)
 	}
+}
+
+// snapTo returns where to place a box at pos, s pixels a DIP, so that it
+// sits on the pixels as one at rest does, and what is left of the way to
+// pos.
+func snapTo(pos, rest, s float32) (placed, left float32) {
+	if s <= 0 {
+		return pos, 0
+	}
+	d := (pos - rest) * s
+	left = (d - float32(math.Round(float64(d)))) / s
+	return pos - left, left
 }
 
 // addBlur returns the sigma of a blur by a after one by b, as Gaussians
@@ -935,12 +967,19 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 			if e.flags&flagAbsolute != 0 {
 				r.ghost.leaving = 2
 			}
-			r.ghost.flags |= flagAbsolute
+			r.ghost.markAbsolute()
 			r.opacity = 1
 			if e.opacitySet {
 				r.opacity = e.opacity / max(r.shown.alpha, 0.001)
 			}
 			r.turn = r.ghost.transform
+			switch {
+			case r.ghost.pinned:
+				// Only its pin, which the ghost's own takes over.
+				r.turn = Transform{}
+			case r.pin != (Point{}):
+				r.turn = r.turn.Then(Transform{m: scene.Translation(-r.pin.X, -r.pin.Y)})
+			}
 			// Its own blur, without its transition's.
 			r.blur = float32(math.Sqrt(max(0, float64(e.blur)*float64(e.blur)-float64(r.shown.blur)*float64(r.shown.blur))))
 			r.gone, r.collapse = r.shown, 0
@@ -986,11 +1025,23 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 			g.w, g.h = max(s.w, 0), max(s.h, 0)
 			g.flags |= flagClip
 		}
-		g.x, g.y = s.x, s.y
+		gx, gy := s.x, s.y
+		var rx, ry float32
+		if s.x != r.gone.x || s.y != r.gone.y || r.pin != (Point{}) {
+			_, _, scale := rt.size()
+			gx, rx = snapTo(s.x, r.gone.x-r.pin.X, scale)
+			gy, ry = snapTo(s.y, r.gone.y-r.pin.Y, scale)
+		}
+		g.x, g.y = gx, gy
 		g.opacity, g.opacitySet = r.opacity*max(s.alpha, 0), true
 		g.transform = r.turn
 		if t, ok := s.turn(); ok {
 			g.transform = g.transform.Then(t)
+		}
+		g.pinned = false
+		if rx != 0 || ry != 0 {
+			g.pinned = !g.transform.set()
+			g.transform = g.transform.Then(Transform{m: scene.Translation(rx, ry)})
 		}
 		g.blur = r.blur
 		if s.blur > 0 {
@@ -1063,6 +1114,7 @@ func ghostOf(e *node) *node {
 	g.activeDescendant, g.nameFrom, g.focusTo, g.field, g.form = nil, nil, nil, nil, nil
 	g.describedBy, g.errorMessage = nil, nil
 	g.followX, g.colFit, g.gridFit = nil, nil, nil
+	g.special = false // it lays out by none of those now
 	// It no longer flies (Fly), if it did: it goes as its parent's copy.
 	g.inputFn, g.observeFn, g.ghosts, g.lift = nil, nil, false, false
 	if g.themed != nil {

@@ -177,8 +177,11 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
   other content, another size, the window's scale or theme. A still card
   of gradients, blurred images and large shadows around a drawing that
   moves then costs one image wherever a frame redraws over it, and
-  turning or scaling the element with a transform moves the bitmap
-  without drawing it again. The bitmap holds the box, its shadows and
+  moving or turning the element with a transform moves the bitmap
+  without drawing it again. Scaled by a transform, the bitmap is drawn
+  for the pixels it shows on, so that its text stays sharp: at the scale
+  itself at rest, and at steps of about 9% while an animation scales it.
+  The bitmap holds the box, its shadows and
   children beyond it that it does not clip; text over no opaque
   background of the subtree's own is smoothed in grayscale, as in a blur.
   With `Blur` or an effect, their bitmap is the one kept.
@@ -252,8 +255,10 @@ its colors in your own elements so they follow too. To change it, set a
 copy:
 
 ```go
-t := *c.Theme() // the default, which follows the system
-t.Accent, t.Radius = ui.Hex("#7c3aed"), 8
+// The default, which follows the system, in an accent of the app's,
+// with its hover, pressed, selection and focus shades.
+t := *c.Theme().WithAccent(ui.Hex("#7c3aed"))
+t.Radius = 8
 t.Spacing = 3 // compact
 // A square bar, as VS Code's editor.
 t.ScrollbarStyle = ui.ScrollbarStyle{
@@ -404,3 +409,30 @@ theme follows and a frame follows the changes of:
   there, the touch screen being the primary one in tablet mode; browsers
   answer the media queries. macOS's, and those not known, are a mouse's:
   fine, and hovering.
+
+A theme of your own (`SetTheme`) does not follow them: it is yours. To
+have it follow them as the default theme does, as an app that lets the
+user pick light or dark over the system's appearance would, take them
+with `WithPreferences`, which returns a copy of the theme in the desktop's
+accent, with its contrast and text size:
+
+```go
+t := ui.DarkTheme()
+t.Background = ui.Hex("#18181b")
+c.SetTheme(t.WithPreferences(c.Preferences()))
+```
+
+A theme that already follows them, as `c.Theme()` and what
+`WithPreferences` returns do, follows the settings given in their place:
+what following changed goes back first, so text is not made larger twice
+and a setting the user turned off goes, while colors you set since stay.
+`WithAccent` takes an accent alone, the desktop's or one of
+your own, with the shades the default theme gives it: `AccentHover`,
+`AccentPressed`, `Selection` and `Focus` become shades of the accent,
+lighter in the dark, and `AccentText` white, or near black on an accent as
+light as yellow. An accent with an `A` of 0, as where the desktop has
+none, keeps the theme's own:
+
+```go
+t := ui.LightTheme().WithAccent(ui.Hex("#7c3aed")) // a brand color
+```

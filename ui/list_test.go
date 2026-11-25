@@ -514,6 +514,65 @@ func TestListKeysAppChoiceAtTheSameIndex(t *testing.T) {
 	}
 }
 
+// Without a Selection, the app choosing another item with Choose, at the
+// row the choice had, keeps it: a new file sorted above the one chosen,
+// then chosen, as a file list does once it is created.
+func TestListChooseAtTheSameIndex(t *testing.T) {
+	ids := []string{"a", "b", "c"}
+	sel, choose := 1, -1
+	s := ListState{Selected: &sel, Key: func(i int) any { return ids[i] }}
+	tt := coreNewTester(func(c *context) {
+		if choose >= 0 {
+			s.Choose(choose)
+			choose = -1
+		}
+		coreList(c, &s, len(ids), func(i int) { coreText(c, ids[i]).Height(20) }).Grow(1)
+	}, 300, 400)
+	ids = []string{"a", "new", "b", "c"}
+	choose = 1
+	tt.Frame()
+	if sel != 1 || ids[sel] != "new" {
+		t.Fatalf("chose the new row 1: cursor %d", sel)
+	}
+	// The choice follows its new item from then on.
+	ids = []string{"x", "a", "new", "b", "c"}
+	tt.Frame()
+	if sel != 2 || ids[sel] != "new" {
+		t.Errorf("a row added above: cursor %d", sel)
+	}
+	s.Choose(-1)
+	tt.Frame()
+	if sel != -1 {
+		t.Errorf("chose none: cursor %d", sel)
+	}
+}
+
+// A list moved to another window, as a tab torn off into its own, keeps
+// its ListState: the new window's first frame and pass number the old
+// one's last, which is no second List. Two Lists in one window still panic.
+func TestListStateMovesToAnotherWindow(t *testing.T) {
+	var s ListState
+	list := func(c *context) { coreList(c, &s, 3, func(i int) { coreText(c, "row").Height(20) }).Grow(1) }
+	inFirst := true
+	first := coreNewTester(func(c *context) {
+		if inFirst {
+			list(c)
+		}
+	}, 200, 200)
+	inFirst = false
+	first.Frame()
+	if _, ok := rowBox(coreNewTester(list, 200, 200), &s, 0); !ok {
+		t.Fatal("the moved list shows no row 0")
+	}
+
+	defer func() {
+		if r := recover(); r != "ui: a ListState shown by two Lists" {
+			t.Fatalf("two Lists in one window: got %v", r)
+		}
+	}()
+	coreNewTester(func(c *context) { list(c); list(c) }, 200, 400)
+}
+
 // Without Selected, the cursor is the list's own, which the user moves:
 // it follows its item as rows come above it, though the item is not
 // chosen, and is gone with it.

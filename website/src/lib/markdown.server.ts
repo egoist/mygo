@@ -309,13 +309,13 @@ function card(li: Element): Element | undefined {
   if (head?.type === "element" && head.tagName === "a") {
     // A page of the docs, then what it covers.
     href = head.properties.href
-    if (typeof href !== "string" || !href.startsWith("/docs")) return
-    if (rest[0]?.type !== "text" || !rest[0].value.startsWith(":")) return
+    if (typeof href !== "string" || !(href.startsWith("/docs") || href.startsWith("/zh/docs"))) return
+    if (rest[0]?.type !== "text" || !/^[:：]/.test(rest[0].value)) return
     title = head.children
     description = rest
-  } else if (head?.type === "text" && head.value.includes(": ")) {
+  } else if (head?.type === "text" && /[:：]\s/.test(head.value)) {
     // "The Go API: `go doc -all <package>`, …" links to the package on pkg.go.dev.
-    const [name = "", after = ""] = head.value.split(": ", 2)
+    const [name = "", after = ""] = head.value.split(/[:：]\s*/, 2)
     const pkg = /^go doc (?:-all )?(\S+)$/.exec(rest[0]?.type === "element" ? toString(rest[0]) : "")?.[1]
     if (!pkg) return
     href = `https://pkg.go.dev/${pkg}`
@@ -335,10 +335,10 @@ function card(li: Element): Element | undefined {
   }
 }
 
-/** Drops the ": " between a card's link and its description, and capitalizes the description. */
+/** Drops the ": " or "： " between a card's link and its description, and capitalizes the description. */
 function capitalize(nodes: ElementContent[]): ElementContent[] {
   const [first, ...rest] = nodes
   if (first?.type !== "text") return nodes
-  const value = first.value.replace(/^[\s:]+/, "")
+  const value = first.value.replace(/^[\s:：]+/, "")
   return [{ ...first, value: value.charAt(0).toUpperCase() + value.slice(1) }, ...rest]
 }

@@ -9,6 +9,10 @@ import (
 // LightTheme or DarkTheme and set it with Context.SetTheme.
 type Theme struct {
 	Dark bool
+	// DisableAutoDimming keeps disabled elements at full opacity. Applications
+	// opting in must provide their own disabled colors; input, focus and
+	// accessibility still use the element's disabled state.
+	DisableAutoDimming bool
 	// Background fills the window.
 	Background Color
 	// Surface is the face of buttons, inputs and other controls;
@@ -83,6 +87,16 @@ type Theme struct {
 	// another tip goes, as the pointer moves along a toolbar, the next one
 	// shows at once: 0.4 seconds by default.
 	TooltipDelay time.Duration
+
+	// followed is what WithPreferences changed, nil where it has not.
+	followed *followedTheme
+}
+
+// followedTheme is a theme before and after following the desktop's
+// preferences.
+type followedTheme struct {
+	_        [0]func() // used by pointer, so there is no value equality to link
+	from, to Theme
 }
 
 // Space returns n units of the theme's Spacing, to size elements of your
@@ -161,8 +175,13 @@ func (t *Theme) Rem(n float32) float32 {
 }
 
 func defaultFontSize() float32 {
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		return 13
+	case "ios":
+		return 17 // UIFont's body
+	case "android":
+		return 16 // Material's body large
 	}
 	return 14
 }

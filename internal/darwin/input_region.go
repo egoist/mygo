@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package darwin
 
@@ -55,6 +55,8 @@ var (
 // pointer's moves over a window with an input region: moves, active
 // always, in the visible rect.
 const regionTracking = 0x02 | 0x80 | 0x200
+
+func (w *window) IgnoresMouseEvents() bool { return w.ignoreMouse }
 
 func (w *window) SetIgnoreMouseEvents(v bool) {
 	w.ignoreMouse = v

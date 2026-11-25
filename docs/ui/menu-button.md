@@ -116,6 +116,22 @@ A menu the app opens takes the focus, with no item highlighted, and gives
 it back to the element that had it as it closes. A window shows one drawn
 menu at a time: another opening closes it, setting `Open` to false.
 
+`Panel` styles the menu's panel, and each submenu's, after the theme's
+look, for a menu that wears an app's own surface rather than the theme's
+`Background`, `Border` and shadow. Its background, border, radius and
+padding take the theme's place; `Shadow` adds a shadow, so `NoShadow`
+first takes off the theme's. The menu keeps its place, its gap from the
+button and its items' look:
+
+```go
+more.PopoverMenuButton(menu, ui.PopoverMenuButtonOptions{
+	Panel: func(panel ui.Element) {
+		panel.Background(app.menuColor).Border(1, app.line).Radius(12).
+			NoShadow().Shadow(0, 18, 50, 0, ui.RGBA(0, 0, 0, 0.45))
+	},
+})
+```
+
 Assistive technology sees the menu button, expanded while its menu
 shows, and the menu with its menu items, check box items and radio items,
 as it sees the system's. In a toolbar's overflow menu, choosing the button
@@ -177,8 +193,11 @@ focus, on its first item then; Up, Down, Home, End and typing the first
 letters of an item move the highlight, past items `Disabled`; Right and
 Left open and close submenus, the other way round right to left; Enter
 and Space choose, Escape closes the submenu on top, and Tab and presses
-outside close the menu, which gives the focus back to the button. Setting
-the `*bool` opens and closes it too. Assistive technology sees the menu
+outside close the menu, which gives the focus back to the button. The
+pointer highlights the item it moves onto, opening its submenu, but for
+the items it crosses heading for a submenu that shows, which stays open
+until the pointer rests on one of them for 300 ms. Setting the `*bool`
+opens and closes it too. Assistive technology sees the menu
 button, expanded while its menu shows, a menu of menu items, check box
 items and radio items, checked as `CheckItem` and `RadioItem` say, and
 each submenu named by its item. Separators and headings are elements of

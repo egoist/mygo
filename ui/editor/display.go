@@ -23,7 +23,8 @@ type block struct {
 	height float32
 	kind   blockKind
 	// For deleted lines (blockDeleted), the lines of the other text it
-	// shows; for spacers and separators, what they stand for.
+	// shows; for spacers and separators, what they stand for; for an
+	// app's (blockApp), its id and its index in view.blocks.
 	from, to int
 	// id identifies an annotation; hunk the diff hunk it belongs to.
 	id   any
@@ -41,6 +42,7 @@ const (
 	blockSeparator
 	blockAnnotation
 	blockHeader
+	blockApp
 )
 
 // lineSpan is the lines from to to, inclusive.
@@ -64,11 +66,12 @@ type heights struct {
 	wraps      wrapRows
 	wrapsSeen  uint64 // the version of wraps the spans' rows count
 	dirty      bool
-	// src is the last slice of blocks given, which the next is compared
-	// with by identity; scratch sorts them.
-	src     []block
-	srcLen  int
+	// blocks owns a value snapshot: callers may reuse their row buffer.
+	// scratch sorts changed input without reflection or new allocations.
 	scratch []block
+	// styles are the heights of the rows of styled lines, by line, where
+	// they are not lh (LineStyle).
+	styles []heightEntry
 }
 
 // wrapRows keeps how many rows beyond the first each line wraps into.
@@ -158,6 +161,27 @@ func (w *wrapRows) before(line int) int {
 	return s
 }
 
+// forget has the lines from to to, inclusive, measured again, as what
+// shows in them changed.
+func (w *wrapRows) forget(from, to int) {
+	if !w.on {
+		return
+	}
+	from, to = max(from, 0), min(to, len(w.extra)-1)
+	changed := false
+	for i := from; i <= to; i++ {
+		if w.extra[i] != wrapUnknown {
+			w.extra[i] = wrapUnknown
+			w.known--
+			changed = true
+		}
+	}
+	if changed {
+		w.stale = true
+		w.version++
+	}
+}
+
 // splice follows a change of lines: the lines from at to at+removed
 // replaced by added ones, which are not measured.
 func (w *wrapRows) splice(at, removed, added int) {
@@ -195,21 +219,30 @@ func (h *heights) setHidden(spans []lineSpan) {
 	}
 }
 
+// compareBlockPosition orders lines, then blocks above a line before
+// those below it. Blocks at the same position keep their original order.
+func compareBlockPosition(a, b block) int {
+	if a.line != b.line {
+		return a.line - b.line
+	}
+	if a.below == b.below {
+		return 0
+	}
+	if a.below {
+		return 1
+	}
+	return -1
+}
+
 func (h *heights) setBlocks(blocks []block) {
-	if len(blocks) == len(h.blocks) && (len(blocks) == 0 || &blocks[0] == &h.src[0]) && h.srcLen == len(blocks) {
+	if slices.Equal(h.blocks, blocks) {
 		return
 	}
-	h.src, h.srcLen = blocks, len(blocks)
 	sorted := append(h.scratch[:0], blocks...)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		a, b := &sorted[i], &sorted[j]
-		if a.line != b.line {
-			return a.line < b.line
-		}
-		return !a.below && b.below
-	})
+	slices.SortStableFunc(sorted, compareBlockPosition)
 	h.scratch = sorted
-	if !slices.EqualFunc(h.blocks, sorted, func(a, b block) bool { return a == b }) {
+	if !slices.Equal(h.blocks, sorted) {
+		clear(h.blocks)
 		h.blocks = append(h.blocks[:0], sorted...)
 		h.dirty = true
 	}
@@ -221,10 +254,19 @@ func (h *heights) isHidden(line int) bool {
 	return i < len(h.hidden) && h.hidden[i].from <= line
 }
 
+// hiddenSpan returns the run of hidden lines holding line, a hidden one.
+func (h *heights) hiddenSpan(line int) lineSpan {
+	i := sort.Search(len(h.hidden), func(i int) bool { return h.hidden[i].to >= line })
+	if i < len(h.hidden) && h.hidden[i].from <= line {
+		return h.hidden[i]
+	}
+	return lineSpan{line, line}
+}
+
 // update makes the entries again after the hidden lines or the blocks
 // changed, and the first time, as the zero heights has made none.
 func (h *heights) update() {
-	if h.wraps.on && len(h.hidden) > 0 && h.wrapsSeen != h.wraps.version {
+	if h.wraps.on && (len(h.hidden) > 0 || len(h.styles) > 0) && h.wrapsSeen != h.wraps.version {
 		h.dirty = true
 	}
 	if !h.dirty && h.prefix != nil {
@@ -242,6 +284,15 @@ func (h *heights) update() {
 			continue
 		}
 		h.entries = append(h.entries, heightEntry{b.line, b.height})
+	}
+	for _, s := range h.styles {
+		if s.line < h.n && !h.isHidden(s.line) {
+			h.entries = append(h.entries, heightEntry{s.line, (s.extra - h.lh) * float32(h.wraps.rows(s.line))})
+		}
+	}
+	// A styled line's rows add theirs, after the blocks of the lines.
+	if len(h.styles) > 0 {
+		slices.SortFunc(h.entries, func(a, b heightEntry) int { return a.line - b.line })
 	}
 	h.prefix = slices.Grow(h.prefix[:0], len(h.entries)+1)[:len(h.entries)+1]
 	h.prefix[0] = 0
@@ -302,6 +353,23 @@ func (h *heights) lineAt(y float64) int {
 			hi = m - 1
 		}
 	}
+	// Only an app block standing in for hidden lines maps its own
+	// interval to that line. Sticky diff blocks keep the lookup below.
+	if lo+1 < h.n && h.isHidden(lo) && h.top(lo+1) > y {
+		top := h.top(lo)
+		i := sort.Search(len(h.blocks), func(i int) bool { return h.blocks[i].line >= lo })
+		for ; i < len(h.blocks) && h.blocks[i].line == lo; i++ {
+			b := &h.blocks[i]
+			if !b.sticky {
+				continue
+			}
+			bottom := top + float64(b.height)
+			if b.kind == blockApp && y >= top && y < bottom {
+				return lo
+			}
+			top = bottom
+		}
+	}
 	// A hidden line shares its top with the lines after it, up to the
 	// next shown.
 	for lo > 0 && h.isHidden(lo) {
@@ -337,7 +405,21 @@ func (h *heights) blocksOf(line int) (above, below []block) {
 }
 
 func stickyBlocks(bs []block) []block {
-	var out []block
+	n := 0
+	for _, b := range bs {
+		if b.sticky {
+			n++
+		}
+	}
+	if n == len(bs) {
+		return bs
+	}
+	if n == 0 {
+		return nil
+	}
+	// Only mixed blocks need a filtered copy. Never compact in place:
+	// bs belongs to the height snapshot and also serves shown lines.
+	out := make([]block, 0, n)
 	for _, b := range bs {
 		if b.sticky {
 			out = append(out, b)
@@ -363,7 +445,7 @@ func (h *heights) geometry(line int) lineGeometry {
 	g.hidden = h.isHidden(line)
 	g.below = g.rows
 	if !g.hidden {
-		g.below += float64(h.lh) * float64(h.wraps.rows(line))
+		g.below += float64(h.rowHeight(line)) * float64(h.wraps.rows(line))
 	}
 	g.bottom = g.below
 	for _, b := range below {

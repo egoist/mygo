@@ -26,7 +26,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-const clipboardCustom transfer.Format = "application/vnd.mygo.clipboard-e2e"
+const (
+	clipboardCustom transfer.Format = "application/vnd.mygo.clipboard-e2e"
+	clipboardText                   = "中文 𠮷\n\n\t😀"
+	clipboardHTML                   = "<b>中文 𠮷</b><br><br>\t😀"
+)
 
 type clipboardPeerResult struct {
 	Items      int
@@ -43,7 +47,12 @@ func clipboardTestData(provider func() ([]byte, error)) transfer.Data {
 	var encoded bytes.Buffer
 	_ = png.Encode(&encoded, img)
 	return transfer.New(
-		transfer.NewItem(transfer.Bytes(transfer.Text, []byte("hello 日本語")), transfer.Bytes(transfer.HTML, []byte("<b>hello 日本語</b>")), transfer.Bytes(transfer.PNG, encoded.Bytes()), transfer.Lazy(clipboardCustom, provider)),
+		transfer.NewItem(
+			transfer.Bytes(transfer.Text, []byte(clipboardText)),
+			transfer.Bytes(transfer.HTML, []byte(clipboardHTML)),
+			transfer.Bytes(transfer.PNG, encoded.Bytes()),
+			transfer.Lazy(clipboardCustom, provider),
+		),
 		transfer.NewItem(transfer.Bytes(transfer.Text, []byte("second")), transfer.Bytes(clipboardCustom, []byte{3, 0})),
 	)
 }
@@ -57,7 +66,7 @@ func clipboardPeer(mode string) {
 	mygo.App.WhenReady(func() {
 		go func() {
 			if mode == "persist-text" {
-				mygo.Clipboard.WriteText("persisted clipboard 日本語")
+				mygo.Clipboard.WriteText(clipboardText)
 				mygo.App.Quit()
 				return
 			}
@@ -163,8 +172,7 @@ func TestUnifiedClipboardNativeRoundTrip(t *testing.T) {
 	if calls.Load() != 2 {
 		t.Fatalf("provider calls %d", calls.Load())
 	}
-	wantText := "hello 日本語\nsecond"
-	if r.Text != wantText || r.HTML != "<b>hello 日本語</b>" {
+	if r.Text != clipboardText+"\nsecond" || r.HTML != clipboardHTML {
 		t.Fatalf("native conveniences: %q, %q", r.Text, r.HTML)
 	}
 	if img, err := png.Decode(bytes.NewReader(r.Image)); err != nil || img.Bounds().Dx() != 2 {
@@ -186,7 +194,7 @@ func TestUnifiedClipboardNativeRoundTrip(t *testing.T) {
 	if releases.Load() != 1 {
 		t.Fatal("native source released twice")
 	}
-	if b, err := local.Read(transfer.Text); err != nil || string(b) != "hello 日本語\nsecond" {
+	if b, err := local.Read(transfer.Text); err != nil || string(b) != clipboardText+"\nsecond" {
 		t.Fatal("read snapshot depended on a closed window/clipboard owner")
 	}
 }
@@ -277,6 +285,12 @@ func TestUnifiedClipboardForeignOwnershipAndShutdown(t *testing.T) {
 	if err := mygo.Clipboard.Write(transfer.TextData("old"), mygo.ClipboardOptions{OnRelease: func() { releases.Add(1) }}); err != nil {
 		t.Fatal(err)
 	}
+	var foreignChanges atomic.Int32
+	t.Cleanup(mygo.Clipboard.OnChanged(func() {
+		if slices.Contains(mygo.Clipboard.Formats(), clipboardCustom) {
+			foreignChanges.Add(1)
+		}
+	}))
 	ctx, cancel := context.WithTimeout(context.Background(), wait.Guard)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^$")
@@ -305,6 +319,7 @@ func TestUnifiedClipboardForeignOwnershipAndShutdown(t *testing.T) {
 	if err != nil || ready != "ready\n" {
 		t.Fatalf("foreign owner startup %q: %v, %s", ready, err, stderr.String())
 	}
+	eventually(t, "foreign clipboard change notification", func() bool { return foreignChanges.Load() > 0 })
 	eventually(t, "foreign clipboard ownership", func() bool { return slices.Contains(mygo.Clipboard.Formats(), clipboardCustom) })
 	eventually(t, "old provider release", func() bool { return releases.Load() == 1 })
 	d, err := mygo.Clipboard.Read(clipboardCustom)
@@ -351,7 +366,7 @@ func TestUnifiedClipboardNativePersistence(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("clipboard writer shutdown: %v; %s", err, out)
 	}
-	if got := mygo.Clipboard.ReadText(); got != "persisted clipboard 日本語" {
-		t.Fatalf("text after application exit: %q", got)
+	if got := mygo.Clipboard.ReadText(); got != clipboardText {
+		t.Fatalf("text after application exit: %q, want %q", got, clipboardText)
 	}
 }

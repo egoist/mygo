@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/internal/rope"
+	"github.com/egoist/mygo/internal/text"
 )
 
 // apply makes edits to the buffer as one step of undo, and gives the
@@ -14,6 +15,13 @@ import (
 // moving offsets through the edits; nil moves them as the text around
 // them moves.
 func (ed *editor) apply(edits []Edit, kind editKind, after func(move func(int, bias) int) []sel) bool {
+	return ed.applyEnds(edits, nil, kind, after)
+}
+
+// applyEnds is apply, with ends, when not nil, giving the line ending
+// codes of the edits' breaks (as Buffer.replace takes them) from the
+// buffer's line endings, as moving lines carries theirs.
+func (ed *editor) applyEnds(edits []Edit, ends func(lineEnds) []string, kind editKind, after func(move func(int, bias) int) []sel) bool {
 	b := ed.buf()
 	if b == nil || ed.o.readOnly || len(edits) == 0 {
 		return false
@@ -32,7 +40,11 @@ func (ed *editor) apply(edits []Edit, kind editKind, after func(move func(int, b
 	if ed.snippet != nil && !ed.snippet.accepts(edits) {
 		ed.snippet = nil
 	}
-	changes := b.edit(edits, kind, ed, before)
+	var codes []string
+	if ends != nil {
+		codes = ends(b.ends)
+	}
+	changes := b.editEnds(edits, codes, kind, ed, before)
 	made, madeText := b.version, b.text
 	b.mu.Unlock()
 	if changes == nil {
@@ -106,7 +118,8 @@ func (ed *editor) replaceEach(kind editKind, selectInserted bool, fn func(i int,
 	edits := make([]Edit, len(ed.sels))
 	texts := make([]string, len(ed.sels))
 	for i, s := range ed.sels {
-		texts[i] = fn(i, s)
+		// As the buffer takes it, for the caret to go after what went in.
+		texts[i] = lf(fn(i, s))
 		edits[i] = Edit{Start: s.start(), End: s.end(), Text: texts[i]}
 	}
 	sels := slices.Clone(ed.sels)
@@ -286,13 +299,14 @@ func (ed *editor) autoPair(t string) bool {
 	// comment for quotes.
 	for _, s := range ed.sels {
 		next, _ := r.RuneAt(s.head)
-		if s.head < r.Len() && next != '\n' && !unicode.IsSpace(next) && !strings.ContainsRune(")]}>,;:", next) {
+		if s.head < r.Len() && next != '\n' && !unicode.IsSpace(next) && !strings.ContainsRune(")]}>,;:", next) && !isCJKAfterPunct(next) {
 			return false
 		}
 		if pair.Open == pair.Close {
-			// A quote after a word character starts nothing.
+			// A quote after a word character starts nothing, except after
+			// CJK characters.
 			prev, _ := r.RuneBefore(s.head)
-			if isWordRune(prev) {
+			if isWordRune(prev) && !isCJKQuoteRune(prev) {
 				return false
 			}
 		}
@@ -311,6 +325,27 @@ func (ed *editor) autoPair(t string) bool {
 	}
 	ed.afterTyping(t)
 	return true
+}
+
+// isCJKQuoteRune reports whether a word rune before a symmetric quote still
+// allows auto-pairing.
+func isCJKQuoteRune(r rune) bool {
+	return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
+}
+
+// isCJKAfterPunct reports whether r is a non-ASCII closing bracket or quote,
+// or a trailing CJK sentence/clause punctuation mark that permits auto-pairing
+// immediately before it.
+func isCJKAfterPunct(r rune) bool {
+	if r <= unicode.MaxASCII {
+		return false
+	}
+	if unicode.In(r, unicode.Pe, unicode.Pf) {
+		return true
+	}
+	return strings.ContainsRune("，。、；：？！…‥—–―·‧～〜〰．︰｡､･‼⁇⁈⁉", r) ||
+		r >= 0xfe10 && r <= 0xfe16 || r == 0xfe19 ||
+		r >= 0xfe50 && r <= 0xfe58
 }
 
 // tokenAt returns the kind of the token holding the byte before off, or
@@ -389,11 +424,18 @@ func (ed *editor) copy(cut bool) {
 			line := r.LineOf(s.head)
 			a, z := r.LineStart(line), min(r.Len(), r.LineEnd(line)+1)
 			t := r.Slice(a, z)
+			from := a
 			if !strings.HasSuffix(t, "\n") {
 				t += "\n"
+				// The last line has no newline of its own to take along, so
+				// a cut would leave an empty line (or, when it is empty,
+				// nothing at all): take the one before it instead.
+				if line > 0 {
+					from = r.LineEnd(line - 1)
+				}
 			}
 			pieces, whole = append(pieces, t), append(whole, true)
-			edits = append(edits, Edit{Start: a, End: z})
+			edits = append(edits, Edit{Start: from, End: z})
 			continue
 		}
 		pieces, whole = append(pieces, r.Slice(s.start(), s.end())), append(whole, false)
@@ -414,25 +456,32 @@ func (ed *editor) copy(cut bool) {
 }
 
 // paste inserts text at the selections: a piece each when the clipboard
-// holds what this editor copied from as many selections, and whole lines
-// above the lines of carets.
-func (ed *editor) paste(text string) {
+// holds what this editor copied from as many selections, whole lines
+// above the lines of carets, or, when splitLines is true, a line each
+// when multi-line text has as many lines as selections.
+func (ed *editor) paste(text string, splitLines bool) {
 	if ed.o.readOnly || text == "" {
 		return
 	}
+	raw := text
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	r := &ed.view.text
 	pieces := []string{text}
 	whole := []bool{false}
 	clip := lastClip
 	switch {
-	case clip.text != text:
-	case len(clip.pieces) == len(ed.sels):
+	case clip.text == text && len(clip.pieces) == len(ed.sels):
 		pieces, whole = clip.pieces, clip.lines
-	case !slices.Contains(clip.lines, false):
+	case clip.text == text && !slices.Contains(clip.lines, false):
 		// Whole lines, from one caret or several: pasted as lines above
 		// each caret's, as Zed's.
 		whole = []bool{true}
+	case splitLines && len(ed.sels) > 1:
+		if trimmed := strings.TrimSuffix(lf(raw), "\n"); strings.Count(trimmed, "\n")+1 == len(ed.sels) {
+			lines := strings.Split(trimmed, "\n")
+			ed.replaceEach(editOther, false, func(i int, _ sel) string { return lines[i] })
+			return
+		}
 	}
 	var edits []Edit
 	for i, s := range ed.sels {
@@ -462,8 +511,8 @@ func (ed *editor) deleteMove(fn func(sel) int) bool {
 	var edits []Edit
 	for _, s := range ed.sels {
 		if s.empty() {
-			to := fn(s)
-			edits = append(edits, Edit{Start: min(to, s.head), End: max(to, s.head)})
+			a, z := ed.deletion(s, fn)
+			edits = append(edits, Edit{Start: a, End: z})
 			continue
 		}
 		edits = append(edits, Edit{Start: s.start(), End: s.end()})
@@ -486,7 +535,9 @@ func mergeEdits(edits []Edit) []Edit {
 }
 
 // backspace deletes before the carets: back to the previous tab stop in
-// indentation, a pair of brackets just opened, else a character.
+// indentation, a pair of brackets just opened, else a character, all of
+// a replacement as one, from before those next to the caret that show
+// nothing within a line, as hidden marks.
 func (ed *editor) backspace() bool {
 	r := &ed.view.text
 	tab := ed.tabSize()
@@ -496,25 +547,30 @@ func (ed *editor) backspace() bool {
 			edits = append(edits, Edit{Start: s.start(), End: s.end()})
 			continue
 		}
-		line := r.LineOf(s.head)
+		head, _ := ed.view.passHidden(s.head, false)
+		line := r.LineOf(head)
 		a := r.LineStart(line)
-		before := r.Slice(a, s.head)
+		before := r.Slice(a, head)
 		// In the indentation, back to the previous tab stop.
 		if before != "" && strings.TrimLeft(before, " ") == "" && !ed.hardTabs() {
 			col := len(before)
 			to := (col - 1) / tab * tab
-			edits = append(edits, Edit{Start: a + to, End: s.head})
+			edits = append(edits, Edit{Start: ed.overReplacements(head, a+to), End: head})
 			continue
 		}
-		start := graphemeLeft(*r, s.head)
-		end := s.head
+		left := graphemeLeft(*r, head)
+		if c, size := r.RuneBefore(head); text.IsCombiningMark(c) {
+			left = head - size
+		}
+		start := ed.overReplacements(head, left)
+		end := head
 		// A pair of brackets just opened, its closer closed by the editor,
 		// goes together, as Zed's.
-		if l := ed.language(); l != nil && ed.o.autoClose {
-			prev := r.Slice(start, s.head)
+		if l := ed.language(); l != nil && ed.o.autoClose && head == s.head {
+			prev := r.Slice(start, head)
 			for _, p := range l.AutoClose {
-				if p.Open == prev && r.Slice(s.head, s.head+len(p.Close)) == p.Close && ed.autoclosedAt(s.head, p.Close) {
-					end = s.head + len(p.Close)
+				if p.Open == prev && r.Slice(head, head+len(p.Close)) == p.Close && ed.autoclosedAt(head, p.Close) {
+					end = head + len(p.Close)
 					break
 				}
 			}

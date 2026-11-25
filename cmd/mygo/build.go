@@ -20,6 +20,7 @@ type buildOptions struct {
 	skipDMG       bool
 	skipNotarize  bool
 	skipInstaller bool              // no Windows installer, nor NSIS for it
+	maxSize       int64             // the most bytes a compiled program may have (-max-size), 0 for no limit
 	pkg           string            // directory of the main package
 	work          string            // for generated files
 	overlay       map[string]string // go build -overlay entries (the frontend)
@@ -32,11 +33,12 @@ at mygo://localhost/. macOS gets a signed .app bundle and a
 "<slug>-<version>-<arch>.dmg" disk image (slug in mygo.json, by default
 the name in lower case), without the arch for darwin/universal, whose
 window invites dragging the app to Applications; other platforms get an
-executable. Linux also gets a Debian
-package, the app as <slug>-<version>-linux-<arch>.tar.gz with
-install.sh, which installs it for the user in ~/.local, where it can update
-itself, and a PKGBUILD, from which makepkg -si packages the archive for
-Arch Linux and installs it. The contents of the
+executable. Linux also gets the app as
+<slug>-<version>-linux-<arch>.tar.gz with install.sh, which installs it
+for the user in ~/.local, where it can update itself, and the packages of
+linux.formats in mygo.json, by default all of them: a Debian package, an
+RPM package and a PKGBUILD, from which makepkg -si packages the archive
+for Arch Linux and installs it. The contents of the
 resources directory and the resources listed in mygo.json are copied into
 the bundle's Contents/Resources, or next to the executable, and the programs
 among them are signed with the app. Directories of resources named after a
@@ -51,7 +53,7 @@ downloads on Windows when it is not installed; -skip-installer leaves both
 out.
 
 Set macos.signingIdentity in mygo.json (or -sign) to a Developer ID to ship
-outside the Mac App Store, and macos.notarize to notarize the disk image.
+outside the Mac App Store, and macos.notarize to notarize the app and the disk image.
 
 With updates in mygo.json and the key of mygo keygen in
 MYGO_UPDATER_PRIVATE_KEY, each platform also gets a signed update archive,
@@ -70,6 +72,8 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 	sign := flags.String("sign", "", `macOS signing identity (default: macos.signingIdentity, or "-" for ad hoc)`)
 	out := flags.String("o", "", "output directory (default: out from mygo.json or dist)")
 	upload := flags.Bool("upload", false, "upload the installers and updates to the GitHub release of this version (updates.github), as a draft, or to the bucket of updates.s3")
+	version := flags.String("version", "", "the version of the build, in place of mygo.json's, as a release's tag gives it (a leading v is dropped)")
+	maxSize := flags.Float64("max-size", 0, "fail when a compiled program is larger than this many MB, as a budget of the app's size")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -84,6 +88,14 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 	if *out != "" {
 		c.Out = *out
 	}
+	if *version != "" {
+		if err := c.setVersion(*version); err != nil {
+			return err
+		}
+	}
+	if !(*maxSize >= 0 && *maxSize <= 1<<20) {
+		return fmt.Errorf("-max-size %v is not a size in MB", *maxSize)
+	}
 	// The catalogs name the languages the packages declare.
 	if _, err := c.languages(); err != nil {
 		return err
@@ -93,7 +105,7 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 			return err
 		}
 	}
-	opts := buildOptions{debug: *debug, sign: c.MacOS.SigningIdentity, skipDMG: *skipDMG, skipNotarize: *skipNotarize, skipInstaller: *skipInstaller}
+	opts := buildOptions{debug: *debug, sign: c.MacOS.SigningIdentity, skipDMG: *skipDMG, skipNotarize: *skipNotarize, skipInstaller: *skipInstaller, maxSize: int64(*maxSize * (1 << 20))}
 	if *sign != "" {
 		opts.sign = *sign
 	}
@@ -156,6 +168,14 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 			}
 			continue
 		}
+		if mobile, ok := mobilePlatform(p); ok {
+			paths, err := mobile(c, opts)
+			built = append(built, paths...)
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		goos, goarch, _ := strings.Cut(p, "/")
 		paths, err := buildPlatform(c, goos, goarch, opts)
 		built = append(built, paths...)
@@ -190,14 +210,17 @@ func buildPlatforms(raw string) ([]string, error) {
 		if isWebPlatform(p) {
 			continue
 		}
+		if _, ok := mobilePlatform(p); ok {
+			continue
+		}
 		goos, goarch, ok := strings.Cut(p, "/")
 		if !ok || goos == "" || goarch == "" || strings.Contains(goarch, "/") {
-			return nil, fmt.Errorf("invalid platform %q, want GOOS/GOARCH or web", p)
+			return nil, fmt.Errorf("invalid platform %q, want GOOS/GOARCH, web, ios or android", p)
 		}
 		switch goos {
 		case "darwin", "linux", "windows":
 		default:
-			return nil, fmt.Errorf("unsupported build platform %q: use darwin, linux, windows or web", p)
+			return nil, fmt.Errorf("unsupported build platform %q: use darwin, linux, windows, web, ios or android", p)
 		}
 	}
 	return targets, nil
@@ -280,7 +303,10 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 			if overlay != "" {
 				flags = append(flags, "-overlay", overlay)
 			}
-			return goBuild(context.Background(), c, t, out, []string{"GOOS=" + goos, "GOARCH=" + arch}, flags...)
+			if err := goBuild(context.Background(), c, t, out, []string{"GOOS=" + goos, "GOARCH=" + arch}, flags...); err != nil {
+				return err
+			}
+			return checkSize(out, opts.maxSize)
 		}()
 		return t.end(err, "Compiled "+goos+"/"+arch)
 	}
@@ -413,28 +439,16 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 			artifacts = append(artifacts, setup)
 		}
 	}
-	if _, ok := debArch[goarch]; goos == "linux" && ok {
-		deb, err := writeDeb(c, stage, c.slug(), goarch, installed)
-		if err != nil {
-			return nil, err
-		}
-		artifacts = append(artifacts, deb)
+	var files []string
+	if goos == "linux" {
+		files, err = writeLinuxPackages(c, stage, target, goarch, installed)
+	} else {
+		files, err = writeArchive(c, stage, target, installed)
 	}
-	files, err := writeArchive(c, stage, target, installed)
 	if err != nil {
 		return nil, err
 	}
 	artifacts = append(artifacts, files...)
-	// Arch Linux packages the app from its archive, as the Debian package
-	// has it.
-	if _, ok := archArch[goarch]; goos == "linux" && ok {
-		archive := files[slices.IndexFunc(files, func(f string) bool { return strings.HasSuffix(f, ".tar.gz") })]
-		pkg, err := writePKGBUILD(c, stage, c.slug(), goarch, installed, archive)
-		if err != nil {
-			return nil, err
-		}
-		artifacts = append(artifacts, pkg...)
-	}
 	// install.sh installs on Linux, and with updates on macOS; install.ps1
 	// runs the Windows installer of the latest version, so a build without
 	// one has none.
@@ -475,6 +489,44 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		}
 	}
 	return artifacts, nil
+}
+
+// writeLinuxPackages writes the Linux app in stage, the files of installed,
+// as the packages of linux.formats for goarch and their archive with its
+// update files, which install.sh installs and updates from, and returns
+// their paths.
+func writeLinuxPackages(c *Config, stage, target, goarch string, installed []string) ([]string, error) {
+	var written []string
+	if _, ok := debArch[goarch]; ok && c.Linux.builds("deb") {
+		deb, err := writeDeb(c, stage, c.slug(), goarch, installed)
+		if err != nil {
+			return nil, err
+		}
+		written = append(written, deb)
+	}
+	if _, ok := rpmArch[goarch]; ok && c.Linux.builds("rpm") {
+		rpm, err := writeRpm(c, stage, c.slug(), goarch, installed)
+		if err != nil {
+			return nil, err
+		}
+		written = append(written, rpm)
+	}
+	files, err := writeArchive(c, stage, target, installed)
+	if err != nil {
+		return nil, err
+	}
+	written = append(written, files...)
+	// Arch Linux packages the app from its archive, as the Debian package
+	// has it.
+	if _, ok := archArch[goarch]; ok && c.Linux.builds("pkgbuild") {
+		archive := files[slices.IndexFunc(files, func(f string) bool { return strings.HasSuffix(f, ".tar.gz") })]
+		pkg, err := writePKGBUILD(c, stage, c.slug(), goarch, installed, archive)
+		if err != nil {
+			return nil, err
+		}
+		written = append(written, pkg...)
+	}
+	return written, nil
 }
 
 // inspectorTag leaves the inspector of native UI out of a build (package
@@ -598,6 +650,24 @@ func mygoSyso(name string) bool {
 	return strings.HasPrefix(name, "mygo_windows_") && strings.HasSuffix(name, ".syso")
 }
 
+// checkSize fails when the compiled program at path has more than max bytes
+// (-max-size); max 0 is no limit. It checks executables, Android's
+// libraries and the WebAssembly of browsers, not iOS's archive, which Xcode
+// links.
+func checkSize(path string, max int64) error {
+	if max <= 0 {
+		return nil
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if st.Size() > max {
+		return fmt.Errorf("%s is %s, over -max-size (%s)", filepath.Base(path), formatSize(st.Size()), formatSize(max))
+	}
+	return nil
+}
+
 func sizeOf(path string) string {
 	var total int64
 	_ = filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
@@ -659,6 +729,7 @@ func linuxDesktopEntry(c *Config, exec, icon string) string {
 	// .deb and the PKGBUILD name with its path in /opt, before the arguments
 	// of a file or URL land in Exec.
 	wmClass := filepath.Base(exec)
+	exec = desktopExec(exec)
 	categories := c.Linux.Categories
 	if len(categories) == 0 {
 		categories = []string{"Utility"}

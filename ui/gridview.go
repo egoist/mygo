@@ -139,6 +139,7 @@ func coreGridView(c *context, s *GridState, n int, minWidth, height float32, ite
 	// assistive technology about its items.
 	e.rowsOf = nil
 	e.gridFit = &gridFit{cols: cols, minW: minWidth, gap: gap}
+	e.special = true // it fits its columns as it lays out
 	e.afterInput(func() { s.keys(e, n) })
 	e.activeDescendant = cursor
 	s.reorder(e, n, gap)
@@ -278,8 +279,8 @@ func (s *GridState) cell(c *context, grid *node, i, n int, height float32, item 
 		cell.flags |= flagClickable | flagHover | flagChoosable
 		cell.afterInput(func() {
 			if cell.Clicked() {
-				s.click(grid, i, cell.ClickModifiers())
-				grid.Focus()
+				s.click(grid, i, n, cell.ClickModifiers())
+				grid.focus(false)
 			}
 			if cell.DoubleClicked() {
 				grid.st.markSubmitted()
@@ -321,13 +322,13 @@ func (s *GridState) chosen(i int) bool {
 	return s.Selected != nil && *s.Selected == i
 }
 
-// click chooses item i as a click with mods does.
-func (s *GridState) click(grid *node, i int, mods Modifiers) {
+// click chooses item i of n as a click with mods does.
+func (s *GridState) click(grid *node, i, n int, mods Modifiers) {
 	switch {
 	case s.Selection == nil:
 		s.choose(grid, i)
 	case mods&Shift != 0:
-		s.extend(grid, i)
+		s.extend(grid, i, n)
 	case mods&Cmd != 0:
 		s.Selection.set(s.key(i), !s.Selection.has(s.key(i)))
 		*s.Selected, s.pivot = i, i
@@ -353,10 +354,11 @@ func (s *GridState) choose(grid *node, i int) {
 	}
 }
 
-// extend chooses the items from the pivot to i.
-func (s *GridState) extend(grid *node, i int) {
+// extend chooses the items from the pivot to i, of n: i alone when the
+// pivot is past them, as after the app took items out.
+func (s *GridState) extend(grid *node, i, n int) {
 	p := s.pivot
-	if p < 0 || s.Selection == nil {
+	if p < 0 || p >= n || s.Selection == nil {
 		s.choose(grid, i)
 		return
 	}
@@ -411,13 +413,26 @@ func (s *GridState) keys(grid *node, n int) {
 		}
 		grid.st.markChanged()
 	}
-	if grid.Shortcut(0, KeyEnter) && in {
+	if grid.yieldingShortcut(0, KeyEnter) && in { // a button in an item clicks on it
 		grid.st.markSubmitted()
 	}
 	if st := grid.st; st.typing && st.typed != "" && s.Label != nil {
-		for k := 1; k <= n; k++ {
-			j := (max(at, 0) + k - b2i(len([]rune(st.typed)) > 1) + n) % n
-			if strings.HasPrefix(strings.ToLower(s.Label(j)), strings.ToLower(st.typed)) {
+		// From the item chosen, as a list's rows, or the first when none
+		// is: the same letter again goes on to the next item starting
+		// with it.
+		typed, from := strings.ToLower(st.typed), 0
+		if in {
+			from = at
+		}
+		if r := []rune(typed); strings.Count(typed, string(r[0])) == len(r) {
+			typed = string(r[0])
+			if in {
+				from = at + 1
+			}
+		}
+		for k := range n {
+			j := (from + k) % n
+			if strings.HasPrefix(strings.ToLower(s.Label(j)), typed) {
 				to = j
 				break
 			}
@@ -430,7 +445,7 @@ func (s *GridState) keys(grid *node, n int) {
 		if s.pivot < 0 || !in {
 			s.pivot = max(at, 0)
 		}
-		s.extend(grid, to)
+		s.extend(grid, to, n)
 	} else {
 		s.choose(grid, to)
 	}

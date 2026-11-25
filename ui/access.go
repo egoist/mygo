@@ -192,6 +192,11 @@ const (
 	// when a window has several. Screen readers list it among the
 	// window's landmarks, and jump to it.
 	RoleComplementary
+	// RoleForm is the landmark holding a form, a sign-in pane or a
+	// settings sheet, as HTML's form: a landmark with a Label, and a
+	// group without one, as ARIA's rule for a form. Screen readers list
+	// it among the window's landmarks, and jump to it.
+	RoleForm
 )
 
 // tabular reports whether elements of a role hold rows of cells: tables,
@@ -300,8 +305,8 @@ const (
 // so that the user knows to look there, AutoCompleteInline for the text
 // completed in place. It only tells it: the view shows the suggestions
 // itself, as in ComboboxBase's popup. Combobox, Autocomplete, and a
-// TokenField with suggestions, tell AutoCompleteList themselves;
-// AutoCompleteNone takes it back.
+// TokenField with suggestions or a Query, tell AutoCompleteList
+// themselves; AutoCompleteNone takes it back.
 func (e *node) AutoComplete(kind AutoComplete) *node {
 	e.autoComplete = kind
 	return e
@@ -599,6 +604,8 @@ func (e *node) accessRole() (platform.AccessRole, bool) {
 		return platform.RoleContentInfo, true
 	case RoleComplementary:
 		return platform.RoleComplementary, true
+	case RoleForm:
+		return platform.RoleForm, true
 	default:
 		return platform.AccessRole(e.role - RoleGroup), true
 	}
@@ -629,17 +636,19 @@ func cellRole(r platform.AccessRole) bool {
 
 // leafRole reports whether elements of a role take the text inside them
 // as their name, rather than showing it as elements of its own. Column
-// and row headers and headings show what is inside them too, as their
-// children are not presentational in ARIA: buttons in them, as a header's
-// sort button, can be reached.
+// and row headers, headings and links show what is inside them too, as
+// their children are not presentational in ARIA: buttons in them, as a
+// header's sort button, can be reached, and so can the heading of a card
+// that is a link.
 func leafRole(r platform.AccessRole) bool {
 	switch r {
 	case platform.RoleGroup, platform.RoleList, platform.RoleScroll, platform.RoleDialog, platform.RoleAlertDialog, platform.RolePopup, platform.RoleStatus,
 		platform.RoleTabList, platform.RoleTable, platform.RoleRow, platform.RoleCell, platform.RoleColumnHeader, platform.RoleRowHeader, platform.RoleTree,
-		platform.RoleListItem, platform.RoleToolbar, platform.RoleRadioGroup, platform.RoleMenu, platform.RoleMenuBar, platform.RoleHeading, platform.RoleNavigation,
+		platform.RoleListItem, platform.RoleToolbar, platform.RoleRadioGroup, platform.RoleMenu, platform.RoleMenuBar, platform.RoleHeading, platform.RoleLink, platform.RoleNavigation,
 		platform.RoleRegion, platform.RoleLog, platform.RoleTimer, platform.RoleAlert, platform.RoleSearch,
 		platform.RoleArticle, platform.RoleGrid, platform.RoleTreeGrid, platform.RoleDeletion, platform.RoleInsertion, platform.RoleTabPanel,
-		platform.RoleMain, platform.RoleBanner, platform.RoleContentInfo, platform.RoleComplementary:
+		platform.RoleMain, platform.RoleBanner, platform.RoleContentInfo, platform.RoleComplementary,
+		platform.RoleForm:
 		return false
 	}
 	return true
@@ -650,10 +659,13 @@ func leafRole(r platform.AccessRole) bool {
 // of its texts, as a name from content takes a descendant's aria-label on
 // the web: a row reads "Branch main (checked out)" rather than the "✓
 // main" drawn for it; one hidden from assistive technology
-// (AccessHidden) gives nothing. Assistive technology names elements by it
-// every frame, so a single text is returned as it is, without a copy.
+// (AccessHidden) gives nothing, nor does one that is inert, as a copy of
+// an element leaving with an Exit transition or a page a Router is
+// leaving, which the accessibility tree leaves out too. Assistive
+// technology names elements by it every frame, so a single text is
+// returned as it is, without a copy.
 func (e *node) innerText() string {
-	if e.flags&flagInvisible != 0 || e.hidden {
+	if e.flags&(flagInvisible|flagInert) != 0 || e.hidden {
 		return ""
 	}
 	if e.kind == kindText {
@@ -677,7 +689,7 @@ type innerTexts struct {
 }
 
 func (t *innerTexts) walk(e *node) {
-	if e.flags&flagInvisible != 0 || e.hidden || e.accessHidden {
+	if e.flags&(flagInvisible|flagInert) != 0 || e.hidden || e.accessHidden {
 		return
 	}
 	if e.label != "" {
@@ -757,7 +769,7 @@ func (rt *engine) accessTree() *platform.AccessTree {
 		// A list choosing rows with the arrows has the focus for them:
 		// assistive technology follows the row chosen, as the arrows move
 		// the choice, while it shows.
-		if f := focused.rowsOfElement(); f != nil && f.s.cursor() != nil {
+		if f := focused.rowsOfElement(); f != nil && f.s != nil && f.s.cursor() != nil {
 			for _, r := range f.rows {
 				if r.i == *f.s.cursor() {
 					focus = r.e.id
@@ -822,11 +834,22 @@ func (rt *engine) accessElement(t *platform.AccessTree, e *node, parent int, scr
 			chooseRow(t, len(t.Nodes)-1)
 		}
 		parent = len(t.Nodes) - 1
+		if e.accChildren != nil {
+			// A copy, as adding moves the nodes.
+			p := t.Nodes[parent]
+			e.accChildren(&p, func(n platform.AccessNode) {
+				n.Parent = parent
+				t.Nodes = append(t.Nodes, n)
+			})
+		}
 		if e.kind == kindText {
 			rt.accessInline(t, e, parent)
 			return
 		}
-		if leafRole(role) {
+		// A text field describing its text itself holds elements of its
+		// own over it, as a code editor's find bar and what replaces its
+		// ranges, which are not the text: they show.
+		if leafRole(role) && (role != platform.RoleTextField || e.accFill == nil) {
 			return
 		}
 	}
@@ -935,11 +958,12 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	if e.chooseMany {
 		n.States |= platform.AccessMultiselectable
 	}
-	// Rows and items of lists, column and row headers, headings and
+	// Rows and items of lists, column and row headers, headings, links and
 	// statuses are named by their content, as leaves are, but show what is
-	// inside them too, as a toast's button or a header's sort button.
+	// inside them too, as a toast's button, a header's sort button or the
+	// heading of a card that is a link.
 	if n.Label == "" && (leafRole(n.Role) || n.Role == platform.RoleListItem || n.Role == platform.RoleRow || n.Role == platform.RoleColumnHeader ||
-		n.Role == platform.RoleRowHeader || n.Role == platform.RoleHeading || n.Role == platform.RoleStatus) {
+		n.Role == platform.RoleRowHeader || n.Role == platform.RoleHeading || n.Role == platform.RoleLink || n.Role == platform.RoleStatus) {
 		n.Label = e.innerText()
 	}
 	if n.Label == "" && e.kind == kindText {
@@ -947,8 +971,8 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 		// node of its own.
 		n.Label = e.text
 	}
-	if n.Role == platform.RoleRegion && n.Label == "" {
-		n.Role = platform.RoleGroup // only a region with a name is a landmark
+	if (n.Role == platform.RoleRegion || n.Role == platform.RoleForm) && n.Label == "" {
+		n.Role = platform.RoleGroup // only a region or form with a name is a landmark
 	}
 	switch e.checked {
 	case 2:
@@ -991,11 +1015,13 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	}
 	if f := e.rowsOf; f != nil {
 		n.SetSize = f.n
-		if f.s.cursor() != nil {
-			n.States |= platform.AccessSelectable // as do its rows
-		}
-		if f.s.Selection != nil {
-			n.States |= platform.AccessMultiselectable
+		if f.s != nil {
+			if f.s.cursor() != nil {
+				n.States |= platform.AccessSelectable // as do its rows
+			}
+			if f.s.Selection != nil {
+				n.States |= platform.AccessMultiselectable
+			}
 		}
 	}
 	if e.flags&flagChoosable != 0 || e.role == RoleOption {
@@ -1003,7 +1029,7 @@ func (rt *engine) accessDetails(e *node, n *platform.AccessNode) {
 	}
 	// What a scroll container built out of view, as the rows of a list
 	// beyond its edges.
-	if st := e.st; (st.vw <= 0 || st.vh <= 0) && e.w > 0 && e.h > 0 {
+	if be := accessBoundsNode(e); (be.st.vw <= 0 || be.st.vh <= 0) && be.w > 0 && be.h > 0 {
 		n.States |= platform.AccessOffscreen
 	}
 	// An element of your own that shows a value it does not let the user
@@ -1214,7 +1240,7 @@ func (rt *engine) accessAction(ev platform.SurfaceEvent) {
 		for row := s; row != nil; row = rt.states[row.parent] {
 			if l := rt.states[row.parent]; l != nil && l.list != nil {
 				if r, ok := l.list.rows[row.id]; ok {
-					l.list.ScrollIntoView(r.row)
+					l.list.reveal(r.row)
 				}
 			}
 			if row.parent == 0 {

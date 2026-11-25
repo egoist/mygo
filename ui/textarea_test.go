@@ -135,6 +135,30 @@ func TestBufferWords(t *testing.T) {
 	}
 }
 
+// Backspace takes a combining mark alone, and an emoji sequence whole.
+func TestTextInputBackspaceMarks(t *testing.T) {
+	for _, c := range []struct{ s, want string }{
+		{"aนี้", "aนี"},
+		{"ทำ", "ท"},
+		{"é", "e"},
+		{"葛\U000E0100", ""},
+		{"❤️", ""},
+		{"👍🏽", ""},
+		{"🇹🇭", ""},
+	} {
+		v := ""
+		tt := NewTester(func(ctx *Context) {
+			TextInput(ctx, &v).AutoFocus().Label("field").Width(400)
+		}, 500, 120)
+		tt.Frame()
+		tt.Type(c.s)
+		tt.Key(0, KeyBackspace)
+		if v != c.want {
+			t.Errorf("backspace in %q leaves %q, want %q", c.s, v, c.want)
+		}
+	}
+}
+
 // TestTextInputCJKWords deletes, moves and selects by words in Chinese
 // and Japanese, which have no spaces between them: a character at a time,
 // not the whole run (#668).
@@ -279,7 +303,7 @@ func TestTextAreaLaysOutAsWholeText(t *testing.T) {
 	ed := e.st.editor
 	params := ed.area.params
 	params.Text = s
-	whole := textSystem().Layout(params)
+	whole := ed.sys.Layout(params)
 	for i := 0; i <= ed.buf.n; i++ {
 		x, y, h := ed.area.caretAt(ed, i, 0)
 		wx, wy, wh := whole.Caret(i)
@@ -413,7 +437,7 @@ func TestTextAreaSelectsAsWholeText(t *testing.T) {
 	a := ed.area
 	params := a.params
 	params.Text = s
-	whole := textSystem().Layout(params)
+	whole := ed.sys.Layout(params)
 	n := ed.buf.n
 	for from := 0; from <= n; from++ {
 		for to := from + 1; to <= n; to++ {
@@ -476,6 +500,44 @@ func TestTextAreaDragReleaseBeforeFrame(t *testing.T) {
 	tt.Frame()
 	if ed.anchor != want || ed.caret != want {
 		t.Errorf("Right after letting go before a frame: selected %d to %d, want the caret at %d", ed.anchor, ed.caret, want)
+	}
+}
+
+// TestTextAreaAppTextWhileDragging checks a drag that goes on as the app
+// replaces the text with one of fewer paragraphs, as a chat's input
+// cleared while the pointer is still down: the frame that takes the new
+// text looks for the pointer in it, before it is laid out.
+func TestTextAreaAppTextWhileDragging(t *testing.T) {
+	long := strings.Repeat("a line of the text area\n", 30)
+	s := long
+	buf := NewTextBuffer(long)
+	for name, view := range map[string]func(c *context){
+		"a string": func(c *context) { coreTextArea(c, &s).Fill() },
+		"a buffer": func(c *context) { coreTextAreaBuffer(c, buf).Fill() },
+	} {
+		s = long
+		buf.Set(long)
+		tt := coreNewTester(view, 300, 200)
+		tt.Press(100, 150) // far below the first paragraph
+		tt.Move(120, 160)
+		s = "one line"
+		buf.Set("one line")
+		tt.Move(130, 170)
+		tt.Release(130, 170)
+		ed := textAreaState(tt).editor
+		if got := ed.buf.string(); got != "one line" || ed.caret > len(got) || ed.anchor > len(got) {
+			t.Errorf("%s: the area holds %q, selected %d to %d", name, got, ed.anchor, ed.caret)
+		}
+		// A longer text again, while another drag goes on.
+		tt.Advance(time.Second)
+		tt.Press(100, 10)
+		s = long
+		buf.Set(long)
+		tt.Move(120, 150)
+		tt.Release(120, 150)
+		if got := ed.buf.string(); got != long || ed.caret == 0 {
+			t.Errorf("%s: after a longer text, the area holds %d bytes, the caret at %d", name, len(got), ed.caret)
+		}
 	}
 }
 
@@ -579,6 +641,47 @@ func TestTextAreaRevealsWrapped(t *testing.T) {
 	check("Ctrl+Home")
 	tt.Key(Ctrl, KeyEnd)
 	check("Ctrl+End")
+}
+
+// TestTextAreaLineEndsAtWrap checks that End stays on the visual line it
+// was pressed on when the paragraph wraps after it, with the caret drawn at
+// that line's end, and that Home from there goes to the same line's start.
+func TestTextAreaLineEndsAtWrap(t *testing.T) {
+	s := "the quick brown fox jumps over the lazy dog and keeps running"
+	tt := coreNewTester(func(c *context) { coreTextArea(c, &s).Size(160, 300).Label("Area") }, 200, 400)
+	tt.Click("Area")
+	ed := textAreaState(tt).editor
+	l := ed.area.paraLayout(ed, 0)
+	if len(l.Lines) < 2 {
+		t.Fatalf("the paragraph is on %d line, want it wrapped", len(l.Lines))
+	}
+	first := l.Lines[0]
+	area := at(t, tt, "Area")
+	tt.ClickAt(area.X+40, area.Y+8)
+	clicked, _ := tt.TextCaret()
+	tt.Key(0, KeyEnd)
+	end, _ := tt.TextCaret()
+	if ed.caret != first.End || end.Y != clicked.Y || end.X <= clicked.X {
+		t.Errorf("End went to %d drawn at %v, want %d at the right of the first line, clicked at %v", ed.caret, end, first.End, clicked)
+	}
+	tt.Key(0, KeyEnd)
+	if again, _ := tt.TextCaret(); ed.caret != first.End || again != end {
+		t.Errorf("End again went to %d at %v, want it to stay at %d at %v", ed.caret, again, first.End, end)
+	}
+	tt.Key(0, KeyHome)
+	if home, _ := tt.TextCaret(); ed.caret != first.Start || home.Y != clicked.Y {
+		t.Errorf("Home from the end of the first line went to %d at %v, want %d on the first line", ed.caret, home, first.Start)
+	}
+	// Clicked at the end of the first line, the caret is drawn there, and
+	// Home goes to its start.
+	tt.ClickAt(area.X+area.W-2, area.Y+8)
+	if ed.caret != first.End {
+		t.Fatalf("the click at the end of the first line put the caret at %d, want %d", ed.caret, first.End)
+	}
+	tt.Key(0, KeyHome)
+	if ed.caret != first.Start {
+		t.Errorf("Home from a click at the end of the first line went to %d, want %d", ed.caret, first.Start)
+	}
 }
 
 // TestTextAreaKeepsViewOnAppText checks that a text the app sets, as a log
@@ -830,10 +933,10 @@ func TestInputPlaceholderStaysOnItsLine(t *testing.T) {
 		lineEl = coreTextInputBase(c, &line).Width(120).Placeholder("mmmm mmmm mmmm mmmm mmmm mmmm").Label("Field")
 		areaEl = coreTextAreaBase(c, &area).Width(120).Placeholder("mmmm mmmm mmmm mmmm mmmm mmmm").Label("Area")
 	}, 300, 160)
-	if n := len(textSystem().Layout(lineEl.placeholderParams(120)).Lines); n != 1 {
+	if n := len(lineEl.c.rt.text.Layout(lineEl.placeholderParams(120)).Lines); n != 1 {
 		t.Errorf("the input's placeholder takes %d lines", n)
 	}
-	if n := len(textSystem().Layout(areaEl.placeholderParams(120)).Lines); n < 2 {
+	if n := len(areaEl.c.rt.text.Layout(areaEl.placeholderParams(120)).Lines); n < 2 {
 		t.Errorf("the text area's placeholder takes %d lines", n)
 	}
 }
@@ -1036,5 +1139,62 @@ func TestTextRangesOfParagraphs(t *testing.T) {
 	}
 	if key := ed.rangeKey(ed.buf.start(1), ed.buf.end(1)); key == "" {
 		t.Error("the second paragraph has a weight, but no key")
+	}
+}
+
+// TestTextAreaClipsToCorners: a text area's text, scrolled past its
+// rounded corners, shows only inside its border, with the corners
+// inside it rounded.
+func TestTextAreaClipsToCorners(t *testing.T) {
+	red := RGB(255, 0, 0)
+	s := strings.Repeat("overflow text ", 200)
+	var border, radius float32
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Padding(100, 20).Children(func() {
+			th := *c.Theme()
+			th.Radius = 20
+			border, radius = 1, th.Radius
+			// Padding of a DIP brings the text into the corners.
+			coreThemed(c, &th).Children(func() {
+				coreTextArea(c, &s).Padding(1).TextColor(red).Width(300).Height(120)
+			})
+		})
+	}, 400, 300)
+	tt.SetScale(2)
+	// Part of a line shows at the top and at the bottom.
+	tt.Scroll(150, 150, 0, 157)
+	tt.Frame()
+	img := tt.Image()
+	sc := img.Bounds().Dx() / 400
+	// out returns how far the point (x, y) is outside the box the text may
+	// show in, in DIPs: inside the border, with the corners inside it
+	// rounded.
+	x0, y0, x1, y1 := 20+border, 100+border, 320-border, 220-border
+	r := radius - border
+	out := func(x, y float32) float32 {
+		dx := max(x0+r-x, x-(x1-r), 0)
+		dy := max(y0+r-y, y-(y1-r), 0)
+		if dx > 0 && dy > 0 {
+			return float32(math.Hypot(float64(dx), float64(dy))) - r
+		}
+		return max(x0-x, x-x1, y0-y, y-y1)
+	}
+	inside, outside := 0, 0
+	for y := 0; y < 300*sc; y++ {
+		for x := 0; x < 400*sc; x++ {
+			if c := img.RGBAAt(x, y); c.R > 150 && c.G < 100 && c.B < 100 {
+				if out((float32(x)+0.5)/float32(sc), (float32(y)+0.5)/float32(sc)) > 0.5/float32(sc) {
+					outside++
+				} else {
+					inside++
+				}
+			}
+		}
+	}
+	if inside == 0 {
+		t.Fatal("no text shows in the text area")
+	}
+	if outside > 0 {
+		t.Fatalf("%d pixels of text outside the rounded box", outside)
 	}
 }

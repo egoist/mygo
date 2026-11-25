@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package darwin
 
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -149,6 +150,37 @@ func (shell) TrashItem(path string) error {
 	return err
 }
 
+// TrashItemResult moves the item at path to the trash and returns the
+// path where it landed inside the trash directory, so an app can put it
+// back exactly. trashItemAtURL:resultingItemURL:error: writes the URL of
+// the trashed item where the system left it; TrashItem passes nil for it
+// and the path is lost. Finder renames an item that collides with one
+// already in the trash ("foo.txt" -> "foo 2.txt"), so the returned path is
+// the only way to find the trashed item.
+func (shell) TrashItemResult(path string) (string, error) {
+	var trashPath string
+	var err error
+	withPool(func() {
+		var result id
+		var nserr id
+		fm := send(class("NSFileManager"), "defaultManager")
+		if !sendBool(fm, "trashItemAtURL:resultingItemURL:error:", uintptr(fileURL(path)), uintptr(unsafe.Pointer(&result)), uintptr(unsafe.Pointer(&nserr))) {
+			err = nsError(nserr)
+			if err == nil {
+				err = errors.New("mygo: cannot move to trash")
+			}
+			return
+		}
+		// result is set on success and nil on failure; pull its file path.
+		if result != 0 {
+			if p := send(result, "path"); p != 0 {
+				trashPath = goString(p)
+			}
+		}
+	})
+	return trashPath, err
+}
+
 // Quick Look: QLPreviewPanel is the panel Finder opens with the space bar.
 // The app does not link QuickLook, so the framework is opened on first use,
 // before its class and data source protocol can be looked up.
@@ -221,6 +253,48 @@ func (shell) PreviewItem(path string) error {
 }
 
 func (shell) Beep() { nsBeep() }
+
+// DefaultApp returns the application the system would use to open url.
+// url may be a web URL (https://example.com), a file:// URL, or any URL
+// whose scheme is registered with Launch Services. The name, bundle
+// identifier and path of the .app bundle are returned.
+func (shell) DefaultApp(url string) (platform.Application, error) {
+	var app platform.Application
+	var err error
+	withPool(func() {
+		u := nsURL(url)
+		if u == 0 {
+			err = fmt.Errorf("mygo: invalid URL %q", url)
+			return
+		}
+		// NSWorkspace -URLForApplicationToOpenURL: (10.10+) returns the
+		// .app bundle URL of the default handler.
+		appURL := send(workspace(), "URLForApplicationToOpenURL:", uintptr(u))
+		if appURL == 0 {
+			err = fmt.Errorf("mygo: no application found for %q", url)
+			return
+		}
+		// Pull the file-system path from the NSURL.
+		path := goString(send(appURL, "path"))
+		if path == "" {
+			err = fmt.Errorf("mygo: no application found for %q", url)
+			return
+		}
+		// Resolve name and bundle ID from the .app bundle.
+		bundle := send(class("NSBundle"), "bundleWithPath:", uintptr(nsString(path)))
+		fm := send(class("NSFileManager"), "defaultManager")
+		name := strings.TrimSuffix(goString(send(fm, "displayNameAtPath:", uintptr(nsString(path)))), ".app")
+		id := ""
+		if bundle != 0 {
+			id = goString(send(bundle, "bundleIdentifier"))
+		}
+		if id == "" {
+			id = path
+		}
+		app = platform.Application{Name: name, ID: id, Path: path}
+	})
+	return app, err
+}
 
 // Screen (NSScreen).
 

@@ -1,4 +1,4 @@
-//go:build linux && (amd64 || arm64)
+//go:build linux && !android && (amd64 || arm64) && !android
 
 package text
 
@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 	"unsafe"
@@ -64,6 +65,7 @@ const (
 	cairoStatusSuccess         = 0
 	fcResultMatch              = 0
 	fcMatchPattern             = 0
+	fcRGBANone                 = 5
 	fcLangEqual                = 0
 	fcSetApplication           = 1
 	gTrue, gFalse          int = 1, 0
@@ -119,9 +121,10 @@ type (
 )
 
 var pangoLib struct {
-	gObjectRef   func(obj uintptr) uintptr
-	gObjectUnref func(obj uintptr)
-	gFree        func(p uintptr)
+	gObjectRef        func(obj uintptr) uintptr
+	gObjectUnref      func(obj uintptr)
+	gObjectGetPointer func(object uintptr, name string, value *uintptr, end uintptr)
+	gFree             func(p uintptr)
 
 	fontMapListFamilies   func(fontMap uintptr, families **uintptr, n *int32)
 	fontFamilyGetName     func(family uintptr) *byte
@@ -190,6 +193,8 @@ var pangoLib struct {
 	cairoFontOptionsHintStyle func(options uintptr, style int32)
 	cairoFontOptionsSubpixel  func(options uintptr, order int32)
 	cairoScaledFontFace       func(font uintptr) uintptr
+	cairoFontFaceFromPattern  func(pattern uintptr) uintptr
+	cairoFontFaceDestroy      func(face uintptr)
 	cairoScaledFontMatrix     func(font uintptr, m *cairoMatrix)
 	cairoScaledFontOptions    func(font, options uintptr)
 	cairoScaledFontCreate     func(face uintptr, fontMatrix, ctm *cairoMatrix, options uintptr) uintptr
@@ -215,6 +220,7 @@ var pangoLib struct {
 	fcPatternCreate           func() uintptr
 	fcPatternDestroy          func(pattern uintptr)
 	fcPatternAddString        func(pattern uintptr, object, s string) int32
+	fcPatternAddInteger       func(pattern uintptr, object string, value int32) int32
 	fcPatternDuplicate        func(pattern uintptr) uintptr
 	fcPatternDel              func(pattern uintptr, object string) int32
 	fcFontSetAdd              func(set *fcFontSet, pattern uintptr) int32
@@ -268,6 +274,7 @@ func loadPango() error {
 	}
 	l := &pangoLib
 	bind(gobject, &l.gObjectRef, "g_object_ref")
+	bind(gobject, &l.gObjectGetPointer, "g_object_get")
 	bind(gobject, &l.gObjectUnref, "g_object_unref")
 	bind(glib, &l.gFree, "g_free")
 	bind(pango, &l.fontMapListFamilies, "pango_font_map_list_families")
@@ -328,6 +335,8 @@ func loadPango() error {
 	bind(cairo, &l.cairoFontOptionsHintStyle, "cairo_font_options_set_hint_style")
 	bind(cairo, &l.cairoFontOptionsSubpixel, "cairo_font_options_set_subpixel_order")
 	bind(cairo, &l.cairoScaledFontFace, "cairo_scaled_font_get_font_face")
+	bind(cairo, &l.cairoFontFaceFromPattern, "cairo_ft_font_face_create_for_pattern")
+	bind(cairo, &l.cairoFontFaceDestroy, "cairo_font_face_destroy")
 	bind(cairo, &l.cairoScaledFontMatrix, "cairo_scaled_font_get_font_matrix")
 	bind(cairo, &l.cairoScaledFontOptions, "cairo_scaled_font_get_font_options")
 	bind(cairo, &l.cairoScaledFontCreate, "cairo_scaled_font_create")
@@ -371,6 +380,7 @@ func loadPango() error {
 		bind(fc, &l.fcPatternCreate, "FcPatternCreate")
 		bind(fc, &l.fcPatternDestroy, "FcPatternDestroy")
 		bind(fc, &l.fcPatternAddString, "FcPatternAddString")
+		bind(fc, &l.fcPatternAddInteger, "FcPatternAddInteger")
 		bind(fc, &l.fcPatternDuplicate, "FcPatternDuplicate")
 		bind(fc, &l.fcPatternDel, "FcPatternDel")
 		bind(fc, &l.fcFontSetAdd, "FcFontSetAdd")
@@ -395,19 +405,11 @@ type pangoEngine struct {
 	fonts  map[uintptr]*Font
 	scaled map[scaledKey]uintptr
 
-	registered map[string]bool // files of registered fonts
 	// names are the names the app's fonts are listed under: the one the
 	// app gave, or their own; appFamily the own family of each, by
 	// lowercased name.
 	names     []string
 	appFamily map[string]string
-	// files are the own families of each file of the app's fonts; given
-	// the families the app gave each file, their own when it gave none;
-	// ownOf the own families of each face that a family the app gives
-	// other files is taken from (takeFamilies).
-	files map[string][]string
-	given map[string][]string
-	ownOf map[uintptr][]string
 	// uiFamily is the desktop's interface font, which system-ui stands for
 	// before fontconfig's default.
 	uiFamily string
@@ -473,8 +475,13 @@ type scaledKey struct {
 	subpixel bool
 }
 
+// pangoLoaded binds the functions of Pango and its libraries once, as
+// engines are made apart, on the goroutine of each, and what one bound
+// the others reuse.
+var pangoLoaded = sync.OnceValue(loadPango)
+
 func newPango() (*pangoEngine, error) {
-	if err := loadPango(); err != nil {
+	if err := pangoLoaded(); err != nil {
 		return nil, err
 	}
 	l := &pangoLib
@@ -482,11 +489,7 @@ func newPango() (*pangoEngine, error) {
 		descs:       map[Style]uintptr{},
 		fonts:       map[uintptr]*Font{},
 		scaled:      map[scaledKey]uintptr{},
-		registered:  map[string]bool{},
 		appFamily:   map[string]string{},
-		files:       map[string][]string{},
-		given:       map[string][]string{},
-		ownOf:       map[uintptr][]string{},
 		languages:   map[string]uintptr{},
 		hanFamilies: map[[2]string]string{},
 	}
@@ -1119,7 +1122,19 @@ func (e *pangoEngine) scaledFont(f *Font, scale float32, subpixel bool) uintptr 
 		// without antialiasing keep it off.
 		l.cairoFontOptionsAntialias(opts, cairoAntialiasGray)
 	}
-	sf := l.cairoScaledFontCreate(l.cairoScaledFontFace(src), &m, &identity, opts)
+	face := l.cairoScaledFontFace(src)
+	// The grayscale face has no fontconfig subpixel order.
+	if !subpixel && l.fcPatternAddInteger != nil {
+		var original uintptr
+		l.gObjectGetPointer(f.native, "pattern", &original, 0)
+		pattern := l.fcPatternDuplicate(original)
+		l.fcPatternDel(pattern, "rgba")
+		l.fcPatternAddInteger(pattern, "rgba", fcRGBANone)
+		face = l.cairoFontFaceFromPattern(pattern)
+		l.fcPatternDestroy(pattern)
+		defer l.cairoFontFaceDestroy(face)
+	}
+	sf := l.cairoScaledFontCreate(face, &m, &identity, opts)
 	l.cairoFontOptionsDestroy(opts)
 	if sf == 0 || l.cairoScaledFontStatus(sf) != cairoStatusSuccess {
 		return 0
@@ -1137,7 +1152,7 @@ func (e *pangoEngine) textParams() (scene.TextParams, bool) {
 
 // positions puts glyphs on whole pixels, as GTK does: Pango rounds their
 // positions, and labels sit on whole pixels.
-func (e *pangoEngine) positions(*Font, float32, bool) (int, bool) { return 1, false }
+func (e *pangoEngine) positions(*Font, float32, bool) (int, bool) { return 1, true }
 
 // decorate places underlines and strikethroughs as GTK draws a label's
 // (PangoRenderer): at the positions and thicknesses of the run's font,
@@ -1414,30 +1429,25 @@ func (e *pangoEngine) register(data []byte, family string) error {
 		return fmt.Errorf("mygo: cannot add font: %w", err)
 	}
 	config := l.fcConfigGetCurrent()
-	if !e.registered[path] {
-		if l.fcConfigAppFontAddFile(config, path) == 0 {
-			return errors.New("mygo: cannot add font: not a font fontconfig reads")
-		}
-		e.registered[path] = true
-	}
-	names, ok := e.files[path]
-	if !ok {
-		names = fontFamilies(config, path)
-		e.files[path] = names
+	fcAppFonts.mu.Lock()
+	defer fcAppFonts.mu.Unlock()
+	names, err := addFontFile(config, path)
+	if err != nil {
+		return err
 	}
 	if family != "" {
 		if len(names) == 0 {
 			return errors.New("mygo: cannot add font: no family name")
 		}
 		if !strings.EqualFold(names[0], family) && !addFamily(config, path, family) ||
-			!e.giveFamilies(config, path, []string{family}) {
+			!giveFamilies(config, path, []string{family}) {
 			return errors.New("mygo: cannot add font under another family name")
 		}
 		// Listed under the name the app gave it, which is the one it uses.
 		e.appFamily[strings.ToLower(family)] = names[0]
 		e.names = append(e.names, family)
 	} else {
-		if !e.giveFamilies(config, path, names) {
+		if !giveFamilies(config, path, names) {
 			return errors.New("mygo: cannot add font")
 		}
 		for _, name := range names {
@@ -1453,6 +1463,50 @@ func (e *pangoEngine) register(data []byte, family string) error {
 	clear(e.descs)
 	clear(e.hanFamilies)
 	return nil
+}
+
+// fcAppFonts is what engines share of the app's fonts in fontconfig: its
+// current configuration belongs to the process, not to an engine, so an
+// engine (as each Tester has one) finds a file another added there rather
+// than adding it again, which grew the configuration with every engine
+// (#1944). files are the own families of each file added; given the
+// families the app gave each, their own when it gave none, by any engine,
+// as the faces they are found under are the process's; ownOf the own
+// families of each face that a family the app gives other files is taken
+// from (takeFamilies). mu is held while an engine reads or edits the
+// faces of the app's fonts.
+var fcAppFonts struct {
+	mu    sync.Mutex
+	files map[fcAppFile][]string
+	given map[fcAppFile][]string
+	ownOf map[uintptr][]string
+}
+
+type fcAppFile struct {
+	config uintptr
+	path   string
+}
+
+// addFontFile adds a file of the app's fonts to a fontconfig
+// configuration, once, and returns the own families of its faces.
+// fcAppFonts.mu is held.
+func addFontFile(config uintptr, path string) ([]string, error) {
+	key := fcAppFile{config, path}
+	if names, ok := fcAppFonts.files[key]; ok {
+		return names, nil
+	}
+	if pangoLib.fcConfigAppFontAddFile(config, path) == 0 {
+		return nil, errors.New("mygo: cannot add font: not a font fontconfig reads")
+	}
+	// Read before takeFamilies edits the faces' families.
+	names := fontFamilies(config, path)
+	if fcAppFonts.files == nil {
+		fcAppFonts.files = map[fcAppFile][]string{}
+		fcAppFonts.given = map[fcAppFile][]string{}
+		fcAppFonts.ownOf = map[uintptr][]string{}
+	}
+	fcAppFonts.files[key] = names
+	return names, nil
 }
 
 // givenFamily marks the faces addFamily adds, with the family they are
@@ -1500,28 +1554,38 @@ func addFamily(config uintptr, path, family string) bool {
 
 // giveFamilies notes families the app gives a file of its fonts, and takes
 // them from the own families of the files it gave others (takeFamilies).
-func (e *pangoEngine) giveFamilies(config uintptr, path string, families []string) bool {
+// An engine registering the app's fonts after another, as each Tester's
+// does, gives none the other did not, and edits no face: were the
+// families given an engine's, it would give the faces their own families
+// back until it registered the files that take them, as another engine
+// may be matching fonts against them. fcAppFonts.mu is held.
+func giveFamilies(config uintptr, path string, families []string) bool {
+	key := fcAppFile{config, path}
 	for _, f := range families {
-		if !slices.ContainsFunc(e.given[path], func(g string) bool { return strings.EqualFold(g, f) }) {
-			e.given[path] = append(e.given[path], f)
+		if !slices.ContainsFunc(fcAppFonts.given[key], func(g string) bool { return strings.EqualFold(g, f) }) {
+			fcAppFonts.given[key] = append(fcAppFonts.given[key], f)
 		}
 	}
-	return e.takeFamilies(config)
+	return takeFamilies(config)
 }
 
 // takeFamilies leaves a family the app gives to the files it gave it: the
 // faces of other files, of their own family, are no longer found under it,
 // but under the families the app gave them, so the faces of a family
 // that declare the same weight, as Selawik's Light and Semilight, are
-// told apart whichever the app registers first (#1224).
-func (e *pangoEngine) takeFamilies(config uintptr) bool {
+// told apart whichever the app registers first (#1224). fcAppFonts.mu is
+// held.
+func takeFamilies(config uintptr) bool {
 	l := &pangoLib
 	set := l.fcConfigGetFonts(config, fcSetApplication)
 	if set == nil || set.nfont <= 0 || l.fcPatternDel == nil {
 		return false
 	}
 	taken := map[string]bool{}
-	for _, families := range e.given {
+	for file, families := range fcAppFonts.given {
+		if file.config != config {
+			continue
+		}
 		for _, f := range families {
 			taken[strings.ToLower(f)] = true
 		}
@@ -1532,19 +1596,13 @@ func (e *pangoEngine) takeFamilies(config uintptr) bool {
 			l.fcPatternGetString(p, givenFamily, 0, &given) == fcResultMatch {
 			continue
 		}
-		gave := e.given[cString(file)]
+		gave := fcAppFonts.given[fcAppFile{config, cString(file)}]
 		if len(gave) == 0 {
 			continue
 		}
-		own, edited := e.ownOf[p]
+		own, edited := fcAppFonts.ownOf[p]
 		if !edited {
-			for n := int32(0); ; n++ {
-				var family *byte
-				if l.fcPatternGetString(p, "family", n, &family) != fcResultMatch {
-					break
-				}
-				own = append(own, cString(family))
-			}
+			own = patternFamilies(p)
 		}
 		keep := slices.DeleteFunc(slices.Clone(own), func(f string) bool {
 			return taken[strings.ToLower(f)] && !slices.ContainsFunc(gave, func(g string) bool { return strings.EqualFold(g, f) })
@@ -1552,10 +1610,14 @@ func (e *pangoEngine) takeFamilies(config uintptr) bool {
 		if len(keep) == len(own) && !edited {
 			continue
 		}
-		e.ownOf[p] = own
+		fcAppFonts.ownOf[p] = own
 		if len(keep) == 0 {
 			// Found under a family the app gave it, as its faces are.
 			keep = gave[:1]
+		}
+		// Edited so before, by this engine or another.
+		if edited && slices.Equal(patternFamilies(p), keep) {
+			continue
 		}
 		l.fcPatternDel(p, "family")
 		l.fcPatternDel(p, "familylang")
@@ -1566,6 +1628,19 @@ func (e *pangoEngine) takeFamilies(config uintptr) bool {
 		}
 	}
 	return true
+}
+
+// patternFamilies returns the families a fontconfig pattern lists.
+func patternFamilies(p uintptr) []string {
+	l := &pangoLib
+	var families []string
+	for n := int32(0); ; n++ {
+		var family *byte
+		if l.fcPatternGetString(p, "family", n, &family) != fcResultMatch {
+			return families
+		}
+		families = append(families, cString(family))
+	}
 }
 
 // fontFamilies returns the own families of the app's fonts from a file.

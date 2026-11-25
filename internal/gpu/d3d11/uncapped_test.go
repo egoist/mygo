@@ -23,7 +23,13 @@ import (
 // the system shows frames torn and the swap chain is the window's; and
 // that frames following each other never wait for the display, whether
 // they present or change nothing. The default, paced, keeps the object and
-// no tearing.
+// no tearing. A frame of a new size begins a resize, whose frames present
+// paced (uncapped.go): it waits for DWM within Render, and the frame after
+// waits for nothing, unless Present, with DXGI_PRESENT_DO_NOT_WAIT, refused
+// it for a refresh, as WARP on a CI runner does in 1 run of 300 to 1 of 50
+// (DXGI_ERROR_WAS_STILL_DRAWING 2 to 13 times over 17 to 30 ms, the refresh
+// 15.6 ms): the frame then waits to present (holdFrame), and the frame
+// after waits for it.
 func TestUncappedSwapChain(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -45,8 +51,8 @@ func TestUncappedSwapChain(t *testing.T) {
 			if err != nil {
 				t.Skip("no Direct3D 11:", err)
 			}
-			var posted []func()
-			r.SetPost(func(fn func()) { posted = append(posted, fn) })
+			posted := make(chan func(), 16)
+			r.SetPost(func(fn func()) { posted <- fn })
 			bg := scene.Color{R: 24, G: 24, B: 27, A: 255}
 			if err := r.Render(&scene.Scene{Width: 200, Height: 150, Background: bg}); err != nil {
 				r.Release()
@@ -87,8 +93,10 @@ func TestUncappedSwapChain(t *testing.T) {
 					r.Release()
 					t.Fatal(err)
 				}
-				if r.pending || r.refreshing || len(posted) != 0 {
-					t.Errorf("composed %v, uncapped, frame %d: pending %v, awaiting a refresh %v, %d posted", composed, i, r.pending, r.refreshing, len(posted))
+				if held := r.refreshing && i == 2 && r.unpresented && r.refused > 0; r.pending || r.refreshing && !held || len(posted) != 0 {
+					t.Errorf("composed %v, uncapped, frame %d: pending %v, awaiting a refresh %v, %d posted (%s)", composed, i, r.pending, r.refreshing, len(posted), r.FrameInfo())
+				} else if held {
+					presentsHeld(t, r, posted)
 				}
 			}
 			if d := desc(r); d.Flags != uint32(r.swapChainFlags()) || d.BufferCount < uncappedBuffers {
@@ -99,19 +107,36 @@ func TestUncappedSwapChain(t *testing.T) {
 	}
 }
 
+// presentsHeld waits for the frame Present refused (holdFrame) to present,
+// the frame after waiting for it, and checks that it did.
+func presentsHeld(t *testing.T, r *Renderer, posted chan func()) {
+	t.Helper()
+	woke := false
+	if r.Ready(func() { woke = true }) {
+		t.Fatalf("composed %v: the frame after one waiting to present drew at once (%s)", r.composed, r.FrameInfo())
+	}
+	for !woke {
+		wait.For(t, "the composition a frame waits for", posted)()
+	}
+	if r.unpresented || r.aside != "" || r.failed != nil || !r.Ready(func() { t.Error("woken: a frame waited") }) {
+		t.Errorf("composed %v: once the frame after a held one could draw: unpresented %v, aside %q, failed %v; want presented", r.composed, r.unpresented, r.aside, r.failed)
+	}
+}
+
 // TestUncappedResizePaced checks that uncapped (MYGO_UNCAPPED), frames
 // present paced while the window changes size, as they would without it:
 // a frame of a new size without tearing, the others without tearing too,
 // each waiting for the composition that shows it, one that changed nothing
-// for the next refresh, and none taking long (uncapped.go); and that once
-// the swap chain settled, frames present uncapped again. Uncapped frames
-// flooding DWM as it resized the window had a present take 2 s on a
-// Radeon 780M; WARP, without a display, may not show that, but the frames
-// are those of a live resize, the size changing every other frame, and no
-// frame may take near as long. Real DXGI takes DXGI_PRESENT_DO_NOT_WAIT,
-// and a frame of a new size that it refused for a refresh, as WARP on a
-// busy runner may, waits to present (holdFrame) and presents before the
-// frame after draws.
+// for the next refresh, and none making a call that may wait long on the
+// main thread (uncapped.go); and that once the swap chain settled, frames
+// present uncapped again. Uncapped frames flooding DWM as it resized the
+// window had a present take 2 s on a Radeon 780M; WARP, without a display,
+// may not show that, but the frames are those of a live resize, the size
+// changing every other frame, and their calls are checked, not their time,
+// which is the runner's. Real DXGI takes DXGI_PRESENT_DO_NOT_WAIT, and a
+// frame of a new size that it refused for a refresh, as WARP on a busy
+// runner may, waits to present (holdFrame) and presents before the frame
+// after draws.
 func TestUncappedResizePaced(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -120,13 +145,21 @@ func TestUncappedResizePaced(t *testing.T) {
 	var composed atomic.Int32
 	defer func(f func(_, _ time.Duration)) { awaitRefresh = f }(awaitRefresh)
 	awaitRefresh = func(_, _ time.Duration) { composed.Add(1) }
-	// Real DXGI presents, each call's flags and result recorded.
+	// A call to DwmFlush under way from another test returns first; as
+	// awaitRefresh calls none here, any is a frame's, on the main thread.
+	if done := inFlightFlush(); done != nil {
+		wait.For(t, "the window manager", done)
+	}
+	var flushed atomic.Int32
+	defer func(f func()) { dwmFlushCall = f }(dwmFlushCall)
+	dwmFlushCall = func() { flushed.Add(1) }
+	// Real DXGI presents, each call's arguments and result recorded.
 	var calls []presentResult
 	defer func(f func(_, _, _ uintptr, _ *presentParameters) uintptr) { presentCall = f }(presentCall)
 	present := presentCall
 	presentCall = func(sc, sync, flags uintptr, params *presentParameters) uintptr {
 		hr := present(sc, sync, flags, params)
-		calls = append(calls, presentResult{flags, uint32(hr)})
+		calls = append(calls, presentResult{sync, flags, uint32(hr)})
 		return hr
 	}
 	// A frame waiting to present presents once DXGI takes it, which it
@@ -135,21 +168,20 @@ func TestUncappedResizePaced(t *testing.T) {
 	defer func(d time.Duration) { maxHeld = d }(maxHeld)
 	maxHeld = wait.Guard
 	pacing.Uncapped = true
-	// Frames come far sooner than half of it after the last change, so the
-	// swap chain settles only once the size stops changing.
-	settleDelay = time.Second
 	for _, newRenderer := range []func(uintptr) (*Renderer, error){New, NewComposed} {
 		r, err := newRenderer(hiddenWindow(t, 200, 150))
 		if err != nil {
 			t.Skip("no Direct3D 11:", err)
 		}
-		uncappedResize(t, r, &composed, &calls)
+		uncappedResize(t, r, &composed, &flushed, &calls)
 		r.Release()
 	}
 }
 
-// presentResult is a call to Present: its flags and what it returned.
+// presentResult is a call to Present: its sync interval, its flags and
+// what it returned.
 type presentResult struct {
+	sync  uintptr
 	flags uintptr
 	hr    uint32
 }
@@ -172,8 +204,10 @@ func (c presentResult) stillDrawing() bool {
 	return c.flags&presentDoNotWait != 0 && c.hr == dxgiErrorWasStillDrawing
 }
 
-func uncappedResize(t *testing.T, r *Renderer, composed *atomic.Int32, calls *[]presentResult) {
+func uncappedResize(t *testing.T, r *Renderer, composed, flushed *atomic.Int32, calls *[]presentResult) {
 	t.Helper()
+	// The swap chain settles only once the size stops changing, below.
+	settleDelay = 2 * wait.Guard
 	kind := "window"
 	if r.composed {
 		kind = "composition"
@@ -198,25 +232,32 @@ func uncappedResize(t *testing.T, r *Renderer, composed *atomic.Int32, calls *[]
 		}
 		return true
 	}
-	const tooLong = 200 * time.Millisecond
 	colors := []scene.Color{{R: 24, G: 24, B: 27, A: 255}, {R: 250, G: 250, B: 250, A: 255}}
 	n := 0
 	// frame draws and presents a frame of w×h, which changes what it starts
 	// with and the background unless same, and reports whether it waited to
 	// start: a swap chain for composition shows no background, and a frame
-	// changing it alone would present nothing.
+	// changing it alone would present nothing. The frame may make no call
+	// that waits long: none to DwmFlush, whose wait is another thread's
+	// (awaitRefresh), and none to Present that waits for a refresh, nor,
+	// while resizing, for room in the swap chain.
 	frame := func(w, h int, same bool) bool {
 		t.Helper()
 		waited := ready()
 		if !same {
 			n++
 		}
-		start := time.Now()
+		presents := len(*calls)
 		if err := r.Render(&scene.Scene{Width: w, Height: h, Clear: colors[n%2], Background: colors[n%2]}); err != nil {
 			t.Fatal(err)
 		}
-		if d := time.Since(start); d > tooLong {
-			t.Errorf("%s: a %dx%d frame took %v, resizing %v", kind, w, h, d, r.resizing)
+		for _, c := range (*calls)[presents:] {
+			if c.sync != 0 || r.resizing && c.flags&presentDoNotWait == 0 {
+				t.Errorf("%s: a %dx%d frame, resizing %v, presented with sync interval %d, flags %#x", kind, w, h, r.resizing, c.sync, c.flags)
+			}
+		}
+		if flushed.Load() != 0 {
+			t.Fatalf("%s: a %dx%d frame, resizing %v, called DwmFlush on the main thread", kind, w, h, r.resizing)
 		}
 		return waited
 	}
@@ -298,7 +339,7 @@ func uncappedResize(t *testing.T, r *Renderer, composed *atomic.Int32, calls *[]
 	}
 	// Once the size stopped changing, a frame settles the swap chain, and
 	// frames present uncapped again.
-	time.Sleep(settleDelay/2 + 10*time.Millisecond)
+	settleDelay = 0
 	frame(w, h, false)
 	if r.resizing || r.bw != w || r.bh != h {
 		t.Fatalf("%s: settled: resizing %v, buffers %dx%d; want %dx%d", kind, r.resizing, r.bw, r.bh, w, h)
@@ -389,8 +430,9 @@ func resizeWhileDWMStalls(t *testing.T, r *Renderer, shown *atomic.Int32) {
 	posted := make(chan func(), 16)
 	r.SetPost(func(f func()) { posted <- f })
 	// Two refreshes, the longest a frame waits, and time for a slow
-	// machine to draw, far below the 2 s seen.
-	tooLong := 2*r.cost.refreshPeriod() + 200*time.Millisecond
+	// machine to draw, far below the 2 s seen: WARP on a busy Windows
+	// ARM64 runner has taken 235 ms for a frame of a new size.
+	tooLong := 2*r.cost.refreshPeriod() + 500*time.Millisecond
 	colors := []scene.Color{{R: 24, G: 24, B: 27, A: 255}, {R: 250, G: 250, B: 250, A: 255}}
 	n := 0
 	// frame draws a frame of w×h, changing the background, once it can, as
@@ -514,9 +556,10 @@ func TestUncappedResizePresentRefused(t *testing.T) {
 // ResizeBuffers too (resize), as DXGI on a Radeon 780M took no frame with
 // the flag after a resize's last ones were refused, for seconds, until the
 // app made a call that waited; waitedOnMain counts the calls that waited on
-// main, the test's thread, acceptedAt is when it stopped refusing so, and
-// takenAt when it took a frame after. The calls may come from another
-// goroutine (goAside): fakeMu guards what they change.
+// main, the test's thread, and stalling those waiting now; acceptedAt is
+// when it stopped refusing so, and takenAt when it took a frame after. The
+// calls may come from another goroutine (goAside): fakeMu guards what they
+// change.
 type refusingPresent struct {
 	refuse             bool
 	stall              time.Duration
@@ -526,6 +569,7 @@ type refusingPresent struct {
 	untilWaits         int
 	main               uintptr
 	waitedOnMain       int
+	stalling           int
 	acceptedAt         time.Time
 	takenAt            time.Time
 }
@@ -594,9 +638,11 @@ func (p *refusingPresent) wait() {
 		p.waitedOnMain++
 	}
 	stall := p.stall
+	p.stalling++
 	fakeMu.Unlock()
 	time.Sleep(stall)
 	fakeMu.Lock()
+	p.stalling--
 	if p.untilWaits > 0 && p.waited >= p.untilWaits {
 		p.refuse, p.acceptedAt, p.takenAt = false, time.Now(), time.Time{}
 	}
@@ -792,7 +838,13 @@ func TestUncappedHeldFrameGivenUp(t *testing.T) {
 	defer runtime.UnlockOSThread()
 	defer func(on bool) { pacing.Uncapped = on }(pacing.Uncapped)
 	defer func(d time.Duration) { settleDelay = d }(settleDelay)
-	settleDelay = time.Second
+	// The swap chain never settles: the frames after the one presented on
+	// another goroutine present paced, while it changes size. With a
+	// second, a runner that took settleDelay/2 from the resize's last
+	// change to one of them (Windows x64) had that frame settle the swap
+	// chain, ResizeBuffers put off on another goroutine, and it presented
+	// nothing.
+	settleDelay = 2 * wait.Guard
 	defer func(d time.Duration) { maxHeld = d }(maxHeld)
 	defer func(f func(_, _ time.Duration)) { awaitRefresh = f }(awaitRefresh)
 	awaitRefresh = func(_, _ time.Duration) {}
@@ -960,9 +1012,10 @@ func heldGivenUp(t *testing.T, r *Renderer, p *refusingPresent, asked *int) {
 // the flag again and an event query said the GPU was done, never making a
 // call that waits, 4 resizes of 70 put every frame off for good, and
 // nothing presented again; this test then fails with frames put off for
-// good. No frame, nor anything the renderer posts, may take over a
-// refresh and 200 ms; once DXGI takes frames again, a frame presents
-// within that, and frames present uncapped within recoverBy.
+// good. While Present refuses, or a call waits stall, no frame, nor
+// anything the renderer posts, may take over a refresh and 200 ms; once
+// DXGI takes frames again, a frame presents within that, and frames
+// present uncapped within recoverBy.
 func TestUncappedRefusedThroughSettle(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -1015,12 +1068,19 @@ func refusedThroughSettle(t *testing.T, r *Renderer, p *refusingPresent) {
 	colors := []scene.Color{{R: 24, G: 24, B: 27, A: 255}, {R: 250, G: 250, B: 250, A: 255}}
 	n := 0
 	// timed runs what the main thread runs, a frame or what the renderer
-	// posted, and checks that it returns soon.
+	// posted, and checks that it returns soon when it began while Present
+	// refused, or a call waited stall: what a wait on DXGI on the main
+	// thread, the call itself or one waiting for it on another goroutine,
+	// would hold past tooLong. Before and after, nothing here waits stall,
+	// and a frame makes the calls an uncapped one makes, Present waiting
+	// for the GPU (uncapped.go), which WARP on a busy CI runner takes past
+	// tooLong now and then (305 ms, of a frame presenting uncapped again).
 	timed := func(what string, f func()) {
 		t.Helper()
+		s := p.state()
 		start := time.Now()
 		f()
-		if d := time.Since(start); d > tooLong {
+		if d := time.Since(start); (s.refuse || s.stalling != 0) && d > tooLong {
 			t.Errorf("%s: %s took %v (resizing %v, gave up %v, aside %q); want at most %v", kind, what, d, r.resizing, r.gaveUp, r.aside, tooLong)
 		}
 	}
@@ -1161,17 +1221,34 @@ func refusedThroughSettle(t *testing.T, r *Renderer, p *refusingPresent) {
 	// refuses, and every one after, until a call waited: the frame refused
 	// presents on another goroutine, which waits, the frames meanwhile put
 	// off, and the swap chain then settles, ResizeBuffers called on
-	// another goroutine too.
+	// another goroutine too. Every frame of the resize is of a new size, as
+	// the user drags the window's border, so that the swap chain does not
+	// settle before its last however long the runner takes between two;
+	// and Present refuses from the last on, so that it refused a frame
+	// before the swap chain settles. Refusing only from the frame after,
+	// the settle came first where the runner took settleDelay/2 from the
+	// resize's last change to that frame (Windows ARM64): with no frame
+	// refused, the swap chain settled as it does, ResizeBuffers called on
+	// the main thread, which then waited stall. The test, not the
+	// renderer, had DXGI start refusing at the settle, which nothing tells
+	// the renderer.
 	w, h := 200, 150
 	for range 6 {
 		w, h = w+23, h+11
 		frame(w, h)
+		w--
 		frame(w, h)
 	}
 	if !r.resizing || r.gaveUp {
 		t.Fatalf("%s: resizing %v, gave up %v; want resizing", kind, r.resizing, r.gaveUp)
 	}
-	recovers(w, h, refuse(1))
+	refusedAt := refuse(1)
+	w--
+	frame(w, h)
+	if !r.resizing || !r.unpresented {
+		t.Fatalf("%s: the resize's last frame, %dx%d, Present refused: resizing %v, unpresented %v; want resizing, waiting to present", kind, w, h, r.resizing, r.unpresented)
+	}
+	recovers(w, h, refusedAt)
 	if said["put off, Present"] == 0 || said["after Present"] == 0 || said["put off, ResizeBuffers"] == 0 || said["after ResizeBuffers"] == 0 {
 		t.Fatalf("%s: frames said %v; want frames put off while Present and ResizeBuffers waited on another thread, and frames after", kind, said)
 	}
@@ -1185,7 +1262,7 @@ func refusedThroughSettle(t *testing.T, r *Renderer, p *refusingPresent) {
 	w, h = w+5, h+3
 	frame(w, h)
 	waited := p.state().waited
-	refusedAt := refuse(2)
+	refusedAt = refuse(2)
 	// The window goes on changing size within the buffers, as the user
 	// drags its border, so that the swap chain does not settle.
 	for i := 0; p.state().waited == waited; i++ {

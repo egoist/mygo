@@ -157,7 +157,11 @@ func failed(hr uintptr) bool { return int32(uint32(hr)) < 0 }
 func cptr(a uintptr) unsafe.Pointer { return *(*unsafe.Pointer)(unsafe.Pointer(&a)) }
 
 // call calls method i of a COM object, returning its HRESULT, and what
-// the call left in the first floating point register on amd64.
+// the call left in the first floating point register on amd64. Pointers
+// converted to uintptr in the call stay valid until it returns
+// (go:uintptrescapes).
+//
+//go:uintptrescapes
 func call(obj uintptr, i int, args ...uintptr) uintptr {
 	r, _ := callRaw(obj, i, args...)
 	return r
@@ -334,7 +338,14 @@ func newEngine(s source) (media.Engine, error) {
 			return nil, err
 		}
 	} else {
-		url := bstr(s.url)
+		// Media Foundation reads the percent-escapes of a file: URL as
+		// bytes of the system's code page, not UTF-8, so a file whose path
+		// is not ASCII goes by its path, which SetSource takes as well.
+		src := s.url
+		if s.path != "" {
+			src = s.path
+		}
+		url := bstr(src)
 		hr := call(e.engine, engineSetSource, url)
 		procSysFreeString.Call(url)
 		if failed(hr) {

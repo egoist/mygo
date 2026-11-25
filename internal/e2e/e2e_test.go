@@ -142,6 +142,10 @@ func TestMain(m *testing.M) {
 		automationApp()
 		return
 	}
+	if os.Getenv("MYGO_E2E_PROGRAM_NAME") == "1" {
+		programName()
+		return
+	}
 	mygo.Bind(Greeter{}, probe, streams, Bench{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -162,6 +166,10 @@ func TestMain(m *testing.M) {
 		io.WriteString(w, pipPage)
 	})
 	mux.HandleFunc("/session/", sessionPage)
+	mux.HandleFunc("/cross-origin-frame", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		io.WriteString(w, crossOriginFramePage)
+	})
 	mux.HandleFunc("POST /echo", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		fmt.Fprintf(w, "echo:%s", b)
@@ -181,6 +189,16 @@ func TestMain(m *testing.M) {
 	assets.HandleFunc("POST /data", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		fmt.Fprintf(w, "posted:%s", b)
+	})
+	// An iframe's document of another host, which loads its script and
+	// fetches through the scheme (TestSchemeCrossOriginFrame).
+	assets.HandleFunc("GET /frame.html", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		io.WriteString(w, `<!doctype html><script>parent.postMessage("inline", "*")</script><script src="/frame.js" onerror="parent.postMessage('no script', '*')"></script>`)
+	})
+	assets.HandleFunc("GET /frame.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript")
+		io.WriteString(w, `fetch("/data").then(r => r.text()).then(t => parent.postMessage("script, " + t, "*"), e => parent.postMessage("fetch failed: " + e, "*"))`)
 	})
 	if err := mygo.Protocol.Handle("assets", assets); err != nil {
 		panic(err)
@@ -1021,8 +1039,10 @@ func TestVibrancyWindowControls(t *testing.T) {
 	prev := mygo.App.Menu()
 	defer mygo.App.SetMenu(prev)
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{{Label: "App", Submenu: []*mygo.MenuItem{{Label: "Item"}}}}))
+	// Transparency also selects the no-redirection path on Windows 10. Ask for
+	// the material alone so the check below tests whether backdrops are supported.
 	opts := mygo.WindowOptions{X: 40, Y: 40, Width: 360, Height: 200, TitleBarStyle: mygo.TitleBarHidden,
-		Vibrancy: mygo.VibrancyMica, Transparent: true}
+		Vibrancy: mygo.VibrancyMica}
 	a := newWindow(t, opts)
 	opts.X = 440
 	b := newWindow(t, opts)
@@ -1164,6 +1184,15 @@ func TestTrafficLightPosition(t *testing.T) {
 	w.Page().LoadHTML("<title>Traffic lights</title>", "")
 	eventually(t, "the page's title", func() bool { return w.Title() == "Traffic lights" })
 	placed("once the window takes the page's title")
+	// The title bar leaves as much room below the lights as above them, and
+	// the page hears where they end.
+	v, _ := mygo.EvalAs[[]float64](w.Page(), `(() => {
+		const s = getComputedStyle(document.documentElement);
+		return ["height", "controls-bottom"].map((k) => parseFloat(s.getPropertyValue("--mygo-titlebar-" + k)) || 0);
+	})()`)
+	if len(v) != 2 || v[1] == 0 || v[1] != v[0]-19 {
+		t.Errorf("title bar height and controls bottom %v, want the lights to end 19 above its bottom", v)
+	}
 	defer mygo.Theme.SetSource(mygo.Theme.Source())
 	if mygo.Theme.IsDark() {
 		mygo.Theme.SetSource(mygo.ThemeLight)
@@ -2355,6 +2384,34 @@ func TestSchemeCORS(t *testing.T) {
 	}
 }
 
+// crossOriginFramePage shows an iframe of the assets scheme's demo host,
+// another origin than the page's, and keeps what it posts.
+const crossOriginFramePage = `<!doctype html>
+<script>
+window.posted = [];
+addEventListener("message", e => posted.push(e.data));
+</script>
+<iframe></iframe>
+<script>
+// On Windows, WebView2 serves assets://demo/ at http://demo.assets.localhost/.
+document.querySelector("iframe").src = location.protocol === "http:" ? "http://demo.assets.localhost/frame.html" : "assets://demo/frame.html";
+</script>`
+
+// An iframe of another custom scheme's host, another origin than the
+// page's, loads its scripts and fetches through the scheme, not only its
+// document (#1912): WebView2's older filters reach only the main frame and
+// its same-origin iframes.
+func TestSchemeCrossOriginFrame(t *testing.T) {
+	w := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
+	if err := w.Page().LoadURL("app://localhost/cross-origin-frame"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, w, `window.posted && posted.length === 2`)
+	if got := mustEval(t, w, `posted.join(" | ")`); got != "inline | script, asset data" {
+		t.Errorf("the iframe posted %q, want %q", got, "inline | script, asset data")
+	}
+}
+
 func TestPermissions(t *testing.T) {
 	w := newWindow(t, mygo.WindowOptions{Title: "Permissions", Width: 300, Height: 200})
 	// A secure context: notifications are not for opaque origins.
@@ -2568,9 +2625,23 @@ func TestGlobalShortcutPortal(t *testing.T) {
 		}
 		t.Fatalf("%s was not reported", acc)
 	}
-	register("Ctrl+Shift+K")
+	// The desktop tells the keys it bound to a shortcut that asks.
+	keys := make(chan string, 8)
+	opts := mygo.GlobalShortcutOptions{Description: "Test the portal", OnKeys: func(k string) { keys <- k }}
+	if err := mygo.GlobalShortcut.RegisterWith("Ctrl+Shift+K", opts, func() { pressed <- "Ctrl+Shift+K" }); err != nil {
+		t.Fatal(err)
+	}
 	defer mygo.GlobalShortcut.UnregisterAll()
 	expect("Ctrl+Shift+K", "Control_L", "Shift_L", "k")
+	select {
+	case k := <-keys:
+		if k == "" {
+			t.Error("the desktop bound Ctrl+Shift+K and told no keys for it")
+		}
+		t.Logf("the desktop bound Ctrl+Shift+K to %q", k)
+	case <-time.After(wait.Guard):
+		t.Error("the keys the desktop bound were not told")
+	}
 	register("Alt+Shift+J")
 	expect("Alt+Shift+J", "Alt_L", "Shift_L", "j")
 	expect("Ctrl+Shift+K", "Control_L", "Shift_L", "k")
@@ -2892,6 +2963,10 @@ func TestMenuActivation(t *testing.T) {
 	if !wait.Poll(menu.ItemByID("check").IsChecked) {
 		t.Error("checkbox not toggled by activation")
 	}
+	// Command-Y is not Shift-Command-Y's (#2257).
+	if handled, ok := pressShortcut("y", false); ok && handled {
+		t.Error("the shortcut without Shift chose the item of Shift-Command-Y")
+	}
 	if handled, ok := pressShortcut("y", true); ok {
 		if !handled {
 			t.Error("key equivalent not handled by the menu")
@@ -3027,10 +3102,10 @@ func TestHiddenTitleBar(t *testing.T) {
 	})
 	w.Page().LoadHTML("<p>hidden title bar</p>", "")
 	waitFor(t, w, "document.querySelector('p')")
-	room := func(win *mygo.Window) (r [3]string) {
+	room := func(win *mygo.Window) (r [4]string) {
 		v, _ := mygo.EvalAs[[]string](win.Page(), `(() => {
 			const s = getComputedStyle(document.documentElement);
-			return ["height", "inset-left", "inset-right"].map((k) => s.getPropertyValue("--mygo-titlebar-" + k).trim());
+			return ["height", "inset-left", "inset-right", "controls-bottom"].map((k) => s.getPropertyValue("--mygo-titlebar-" + k).trim());
 		})()`)
 		copy(r[:], v)
 		return r
@@ -3038,19 +3113,27 @@ func TestHiddenTitleBar(t *testing.T) {
 	shown := room(w)
 	switch runtime.GOOS {
 	case "windows":
-		if shown != [3]string{"40px", "0px", "138px"} {
-			t.Errorf("room = %q, want the title bar's height and three buttons 46 wide at the right", shown)
+		if shown != [4]string{"40px", "0px", "138px", "40px"} {
+			t.Errorf("room = %q, want the title bar's height and three buttons 46 wide at the right, as high as it", shown)
 		}
 	case "linux":
 		if shown[0] != "40px" {
 			t.Errorf("room = %q, want the title bar's height", shown)
 		}
+		if shown[3] != "0px" && shown[3] != shown[0] {
+			t.Errorf("room = %q, want the bars as high as the title bar", shown)
+		}
 		if shown[1] == "0px" && shown[2] == "0px" {
 			t.Log("the desktop's button layout names no buttons")
 		}
 	case "darwin":
-		if shown[0] == "0px" || shown[1] == "0px" || shown[2] != "0px" {
+		if shown[0] == "0px" || shown[1] == "0px" || shown[2] != "0px" || shown[3] == "0px" {
 			t.Errorf("room = %q, want the traffic lights at the left of the title bar", shown)
+		}
+		height, _ := strconv.ParseFloat(strings.TrimSuffix(shown[0], "px"), 64)
+		bottom, _ := strconv.ParseFloat(strings.TrimSuffix(shown[3], "px"), 64)
+		if bottom > height {
+			t.Errorf("room = %q, want the traffic lights to end within the title bar", shown)
 		}
 	}
 
@@ -3058,7 +3141,7 @@ func TestHiddenTitleBar(t *testing.T) {
 	plain := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200})
 	plain.Page().LoadHTML("<p>title bar</p>", "")
 	waitFor(t, plain, "document.querySelector('p')")
-	if r := room(plain); r != ([3]string{}) {
+	if r := room(plain); r != ([4]string{}) {
 		t.Errorf("a window with its title bar: room = %q", r)
 	}
 
@@ -3093,7 +3176,7 @@ func TestHiddenTitleBar(t *testing.T) {
 		return // no window manager under Xvfb; the macOS animation is slow
 	}
 	w.SetFullScreen(true)
-	eventually(t, "no room for the controls in full screen", func() bool { return room(w) == [3]string{"0px", "0px", "0px"} })
+	eventually(t, "no room for the controls in full screen", func() bool { return room(w) == [4]string{"0px", "0px", "0px", "0px"} })
 	w.SetFullScreen(false)
 	eventually(t, "the room of the controls back", func() bool { return room(w) == shown })
 }
@@ -3978,6 +4061,57 @@ func TestContentWindowComposingReturn(t *testing.T) {
 	if _, s := state(); len(s) != 2 || s[1] != "日本가" {
 		t.Fatalf("sent %q, want [한 日本가]", s)
 	}
+}
+
+// TestContentWindowComposingBackspace presses Backspace in a text input
+// with the Korean input method on. It composes without marked text,
+// replacing the syllable before the caret, and takes a jamo back with
+// Backspace the same way: the key is the input method's, and 한 becomes
+// 하, not nothing. With no jamo to take back, the input method passes
+// Backspace on (deleteBackward:), and the input gets it, empty too, as it
+// does from the input method of the test's Mac.
+func TestContentWindowComposingBackspace(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		// Only AppKit's input methods compose over the text before the
+		// caret without marked text, which pressKeyComposingOver drives.
+		t.Skip("input method automation not available on this platform")
+	}
+	var frames atomic.Int32
+	name, backspaces := "", 0
+	view := func(c *ui.Context) {
+		frames.Add(1)
+		ui.TextInput(c, &name).AutoFocus().OnTextKey(func(k ui.TextKey) bool {
+			if k.Key == ui.KeyBackspace {
+				backspaces++
+			}
+			return false
+		})
+	}
+	state := func() (n string, b int) {
+		mygo.RunOnMain(func() { n, b = name, backspaces })
+		return
+	}
+	w := newWindow(t, mygo.WindowOptions{Title: "Composing Backspace", Width: 400, Height: 200, Content: ui.View(view)})
+	eventually(t, "a frame", func() bool { return frames.Load() > 1 })
+
+	// 한, which Backspace takes a jamo of: 하 replaces it.
+	compose(w, "한", 0, true)
+	eventually(t, "the syllable", func() bool { n, _ := state(); return n == "한" })
+	if !pressKeyComposingOver(w, 51, "\x7f", "하", "", 0, 1) {
+		t.Skip("input method automation not available on this platform")
+	}
+	eventually(t, "a jamo taken back", func() bool { n, _ := state(); return n == "하" })
+	if _, b := state(); b != 0 {
+		t.Fatalf("the input got Backspace %d times while the input method took it", b)
+	}
+
+	// Nothing to take back: the input method passes Backspace on.
+	pressKeyComposing(w, 51, "\x7f", "", "deleteBackward:")
+	eventually(t, "Backspace passed on", func() bool { n, b := state(); return n == "" && b == 1 })
+	pressKeyComposing(w, 51, "\x7f", "", "deleteBackward:")
+	eventually(t, "Backspace in the empty input", func() bool { _, b := state(); return b == 2 })
+	pressKey(w, 51, "\x7f")
+	eventually(t, "Backspace through the input method", func() bool { _, b := state(); return b == 3 })
 }
 
 // TestContentWindowTextKeys has a composer's OnTextKey take Return and

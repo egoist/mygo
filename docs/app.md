@@ -60,6 +60,7 @@ where:
 | `OnWindowAllClosed` | the last window closed, unless the app is quitting |
 | `OnBeforeQuit(func(e *mygo.QuitEvent))` | a quit started, before the windows close; `e.PreventDefault()` cancels it, unless the OS ends the session (`e.SessionEnding`) |
 | `OnWillQuit(func(e *mygo.QuitEvent))` | every window has closed and the app is about to quit; it can still be canceled, unless the OS ends the session |
+| `OnQuitCanceled` | a quit that started was canceled by a listener or a window; the app keeps running |
 | `OnQuit` | the event loop stopped, right before `Run` returns |
 
 Each returns a function that removes the listener.
@@ -87,6 +88,10 @@ mygo.App.OnActivate(func(hasVisibleWindows bool) {
   then quits; `OnBeforeQuit` and `OnWillQuit` listeners can cancel it too.
   Cmd+Q, the Quit menu item and Ctrl+C in the terminal (SIGINT and SIGTERM)
   quit the same way; a second signal exits at once.
+- When one of them cancels the quit, `OnQuitCanceled` runs: an app that set
+  its own quitting state in `OnBeforeQuit` clears it there, or it would go on
+  running with that state set. The windows a canceled `OnWillQuit` had
+  already closed stay closed.
 - When the OS ends the session (logout, restart, shutdown) on Windows and
   macOS, the quit listeners and the windows' `OnClose` run all the same,
   in that order and before `OnQuit`, but can't cancel it: the
@@ -131,6 +136,14 @@ func main() {
 	// ...
 }
 ```
+
+The lock is held until the process exits, so the work an app does after
+`Run` returns (stopping the processes it started, writing its files) never
+overlaps with a new instance. From quit on, the instance takes no more
+command lines: a launch meanwhile, such as `Relaunch`'s or an update's,
+waits for it to exit, however long that takes, and then runs. The system
+releases the lock when the process ends, also when it crashes or is killed,
+and the processes the app started don't keep it.
 
 ## Deep links
 
@@ -278,6 +291,22 @@ db := filepath.Join(dir, "notes.db")
 ```
 
 `App.SetPath` overrides a directory, for example to keep test data apart.
+
+## Crashes
+
+A panic that nothing recovers, or another fatal error, ends the app, and
+the Go runtime writes what happened, with the goroutines' stacks, to its
+standard error. A packaged app's goes nowhere: macOS gives an app opened
+from the Finder `/dev/null`, and Windows gives a GUI app none. So
+`App.Run` has the runtime write it to `crash.log` in `PathLogs` as well,
+each crash after the ones before; a log past 1 MB starts over as the app
+starts. Builds that `mygo dev`, `go run` and `go test` run show the
+standard error and write no crash log. To keep crashes elsewhere, call
+`debug.SetCrashOutput` once the app is ready (`App.WhenReady`).
+
+On phones, the console of `mygo dev` shows the crash: on iOS as Xcode
+shows it too, on Android from the system's log, where the runtime writes
+it with the tag `Go`.
 
 ## Name and version
 

@@ -84,7 +84,11 @@ type Application struct {
 	onWindowAllClosed listeners[func()]
 	onBeforeQuit      listeners[func(*QuitEvent)]
 	onWillQuit        listeners[func(*QuitEvent)]
+	onQuitCanceled    listeners[func()]
 	onQuit            listeners[func()]
+	onMemoryWarning   listeners[func()]
+	saveState         func() []byte
+	keepingState      bool
 	onActivate        listeners[func(bool)]
 	onDidBecomeActive listeners[func()]
 	onDidResignActive listeners[func()]
@@ -113,6 +117,7 @@ func (a *Application) Run() error {
 	if out := os.Getenv("MYGO_GENERATE"); out != "" {
 		return writeClient(out)
 	}
+	takeDevMarker()
 	if !isMainThread() {
 		return errors.New("mygo: App.Run must be called from the main goroutine")
 	}
@@ -123,6 +128,7 @@ func (a *Application) Run() error {
 	}
 	a.running = true
 	a.mu.Unlock()
+	logCrashes()
 	go cleanUpdateLeftovers()
 
 	b := backend()
@@ -130,6 +136,7 @@ func (a *Application) Run() error {
 		Name:             a.Name(),
 		ActivationPolicy: string(a.ActivationPolicy()),
 		DMABUFRenderer:   string(a.dmabuf),
+		Background:       devBackground,
 	}); err != nil {
 		return err
 	}
@@ -239,6 +246,7 @@ func (a *Application) Exit(code int) {
 			w.destroy()
 		}
 		saveWindowStates()
+		backendExiting()
 	})
 	os.Exit(code)
 }
@@ -252,12 +260,14 @@ func (a *Application) prepareQuit() bool {
 	before := &QuitEvent{}
 	fire1(&a.onBeforeQuit, before)
 	if before.prevented {
+		fire(&a.onQuitCanceled)
 		return false
 	}
 	a.quitting = true
 	for _, w := range Windows() {
 		if !w.close() {
 			a.quitting = false
+			fire(&a.onQuitCanceled)
 			return false
 		}
 	}
@@ -265,6 +275,7 @@ func (a *Application) prepareQuit() bool {
 	fire1(&a.onWillQuit, will)
 	if will.prevented {
 		a.quitting = false
+		fire(&a.onQuitCanceled)
 		return false
 	}
 	// Providers are application-owned, independent of the windows just
@@ -310,11 +321,24 @@ func (a *Application) finish() {
 		backend().Clipboard().Close()
 		saveWindowStates()
 		fire(&a.onQuit)
+		backendExiting()
 		if a.relaunch {
-			relaunchNow() // after OnQuit, which releases the single instance lock
+			// After OnQuit, which stops taking the command lines of later
+			// instances: the new one waits for this process to exit, which
+			// holds the single instance lock until then.
+			relaunchNow()
 		}
 		loop.shutdown()
 	})
+}
+
+// backendExiting tells the backend that the process is about to exit,
+// once the app has finished (or Exit was called): see
+// platform.ExitBackend. Main thread only.
+func backendExiting() {
+	if b, ok := backend().(platform.ExitBackend); ok {
+		b.Exiting()
+	}
 }
 
 // lastWindowClosed is called on the main thread when the last window has
@@ -569,12 +593,48 @@ func (a *Application) OnWillQuit(fn func(e *QuitEvent)) (off func()) {
 	return a.onWillQuit.add(fn, false)
 }
 
+// OnQuitCanceled is called when a quit that started was canceled: a
+// listener prevented it in OnBeforeQuit or OnWillQuit, or a window kept
+// itself open in OnClose. The windows a canceled OnWillQuit had already
+// closed stay closed. Apps that track the quit in their own state from
+// OnBeforeQuit clear it here; without this event that state would stay set
+// although the app goes on running.
+func (a *Application) OnQuitCanceled(fn func()) (off func()) {
+	return a.onQuitCanceled.add(fn, false)
+}
+
 // OnQuit is called after the event loop has stopped, and after the
 // windows' states are saved (WindowOptions.StateKey). When the OS ends
 // the session, it is called after OnBeforeQuit and OnWillQuit (see
 // OnBeforeQuit), and the process may end as soon as it returns: it is the
 // last hook, and must finish its work synchronously.
 func (a *Application) OnQuit(fn func()) (off func()) { return a.onQuit.add(fn, false) }
+
+// OnSaveState has fn give what the app needs to come back as it was, called on
+// the main thread as a phone's app goes to the background, where the system may
+// end it without a word. The next launch finds it in RestoredState. Keep it
+// small: it is written before the app may do no more. Desktops never call it,
+// but under mygo dev, which restarts the app as the code changes: it is called
+// every second there, for the app to come back as it was on every platform.
+func (a *Application) OnSaveState(fn func() []byte) {
+	a.saveState = fn
+	a.keepStateInDevelopment()
+}
+
+// RestoredState returns what OnSaveState gave as the app went to the background,
+// if the system ended it there. Android tells when the user meant to leave, which
+// gives nil. iOS doesn't say by the time the app starts: an app the user force-quit
+// from the background gets it too. An end while the app is on screen, as a crash,
+// gives nil.
+func (a *Application) RestoredState() []byte { return restoredState() }
+
+// OnMemoryWarning is called on the main thread when the system is short of
+// memory: let go of what can be made again, as caches. Phones end apps that
+// keep too much; desktops do not report it. Native UI drops its own caches
+// after these listeners ran, and the garbage collector returns what it can.
+func (a *Application) OnMemoryWarning(fn func()) (off func()) {
+	return a.onMemoryWarning.add(fn, false)
+}
 
 // OnActivate is called when the application is re-activated, for example by
 // clicking its Dock icon (macOS). Apps usually open a window when
@@ -696,7 +756,8 @@ func (d *Dock) CancelBounce(id int) {
 	onMain(func() { backend().App().CancelBounce(id) })
 }
 
-// SetIcon replaces the Dock icon with a PNG image.
+// SetIcon replaces the Dock icon with a PNG image, which it keeps while
+// the activation policy changes; nil restores the app's own icon.
 func (d *Dock) SetIcon(png []byte) error {
 	needsApp("App.Dock.SetIcon")
 	return onMainValue(func() error { return backend().App().SetDockIcon(png) })
@@ -732,7 +793,10 @@ func (appHandler) Terminating() {
 func (appHandler) Activated(visible bool) {
 	fire1(&App.onActivate, visible)
 }
-func (appHandler) DidBecomeActive() { fire(&App.onDidBecomeActive) }
+func (appHandler) DidBecomeActive() {
+	backgroundShow = false
+	fire(&App.onDidBecomeActive)
+}
 func (appHandler) DidResignActive() { fire(&App.onDidResignActive) }
 func (appHandler) OpenURLs(urls []string) {
 	for _, u := range urls {
@@ -753,10 +817,20 @@ func (appHandler) ThemeChanged() {
 	// media queries do not tell them.
 	sendPreferences()
 }
-func (appHandler) DisplaysChanged()              { Screen.changed() }
-func (appHandler) LocaleChanged()                { App.localeChangedFromSystem() }
-func (appHandler) PowerEvent(event string)       { Power.event(event) }
+func (appHandler) MemoryWarning()   { fire(&App.onMemoryWarning) }
+func (appHandler) DisplaysChanged() { Screen.changed() }
+func (appHandler) LocaleChanged()   { App.localeChangedFromSystem() }
+func (appHandler) PowerEvent(event string) {
+	switch event {
+	case "suspend":
+		App.writeState()
+	case "resume":
+		forgetKeptState()
+	}
+	Power.event(event)
+}
 func (appHandler) HotkeyPressed(id int)          { GlobalShortcut.pressed(id) }
 func (appHandler) NotificationClicked(id string) { notificationClicked(id) }
 
 func (appHandler) NetworkChanged(s platform.NetworkStatus) { Network.changed(networkStatus(s)) }
+func (appHandler) HotkeyBound(id int, keys string)         { GlobalShortcut.bound(id, keys) }
