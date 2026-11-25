@@ -227,9 +227,10 @@ type view struct {
 	kept []keptBlock
 	// blockFocus is the block whose element has the focus.
 	blockFocus *block
-	// pressBlock tells that the press comes from the element of a block,
-	// which takes no drag of the text.
-	pressBlock bool
+	// escape says that the Escape was pressed, and the editor brings the
+	// focus back from a block to the text in the frame it builds: the
+	// element that has the focus sees the key first.
+	escape bool
 	// editor is the editor's own element, to give it the focus back.
 	editor ui.Handle
 	// c is the window's context, to read the boxes of the blocks' elements.
@@ -349,14 +350,25 @@ func build(c *ui.Context, doc *Document, options []EditorOptions, styled bool) u
 	// The blocks in view are built over the text, where their paragraphs
 	// are: the layout of the paragraphs is the one of the last frame, as
 	// the frame that paints it says where they are.
-	if v.width > 0 {
-		// The paint lays the paragraphs out again, with the width of the
-		// frame, and reveals the caret in it.
-		reveal := v.reveal
-		v.layout(v.width, v.viewH)
-		v.reveal = reveal
+	if v.shown.blocks > 0 {
+		if v.width > 0 {
+			// The paint lays the paragraphs out again, with the width of the
+			// frame, and reveals the caret in it.
+			reveal := v.reveal
+			v.layout(v.width, v.viewH)
+			v.reveal = reveal
+		}
+		v.buildBlocks(c, e)
+	} else {
+		v.built = nil
 	}
-	v.buildBlocks(c, e)
+	if v.escape {
+		// The Escape was pressed: the element that has the focus saw it
+		// first, and the editor brings the focus back to the text when the
+		// card itself has it.
+		v.escape = false
+		v.escapeFromBlock()
+	}
 	e.Bind(&v.editor)
 	if focused && !v.opts.ReadOnly {
 		// The caret blinks for half a minute after the last change.
@@ -468,6 +480,16 @@ func (v *view) lockedSync() (change, bool) {
 		// The blocks to build out of view are found again: the paragraphs
 		// of the text are not the ones they were.
 		v.kept = nil
+		if b := v.blockFocus; b != nil {
+			// The block whose element has the focus is gone with its
+			// paragraph: the focus it had is stale.
+			if p, ok := v.paraOf(b.id); !ok || v.blockAt(p) == nil {
+				if v.c != nil && b.handle.FocusWithin(v.c) {
+					v.editor.Focus(v.c)
+				}
+				v.blockFocus = nil
+			}
+		}
 		n := v.shown.Len()
 		if moved {
 			// Through each change in turn, as the document moved its own

@@ -337,3 +337,363 @@ func TestBlockAccessible(t *testing.T) {
 		t.Fatalf("the field reads %+v", field)
 	}
 }
+
+// The Tab on the attachment gives the focus to the element of the card,
+// and the Return after it makes a new paragraph instead.
+func TestBlockTabAndReturnAfterTheAttachment(t *testing.T) {
+	focused := false
+	doc, _ := blockDoc(func(c *ui.Context, width float32) ui.Element {
+		e := ui.Box(c).Height(40).Focusable().Label("Card")
+		focused = e.Focused()
+		return e
+	})
+	tt := blockTester(t, doc)
+	tt.Press(20, 20)
+	tt.Release(20, 20)
+	// The caret is on the attachment: the Tab gives the card the focus.
+	doc.SetSelection(7, 7)
+	tt.Frame()
+	tt.Key(0, ui.KeyTab)
+	tt.Frame()
+	if !focused {
+		t.Fatal("the element of the card does not have the focus")
+	}
+}
+
+// The caret steps over the attachment of a card, and the Return after it
+// makes a new paragraph: the card does not take the focus.
+func TestBlockCaretStepsOverTheAttachment(t *testing.T) {
+	focused := false
+	doc, _ := blockDoc(func(c *ui.Context, width float32) ui.Element {
+		e := ui.Box(c).Height(40).Focusable().Label("Card")
+		focused = e.Focused()
+		return e
+	})
+	tt := blockTester(t, doc)
+	tt.Press(20, 20)
+	tt.Release(20, 20)
+	doc.SetSelection(6, 6)
+	tt.Frame()
+	// Right: the caret is on the attachment.
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	if _, caret := doc.Selection(); caret != 7 {
+		t.Fatalf("the caret is at %d, the attachment is at 7", caret)
+	}
+	// Right again: the caret is after it.
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	if _, caret := doc.Selection(); caret != 8 {
+		t.Fatalf("the caret is at %d, after the attachment is 8", caret)
+	}
+	// The Return there makes a new paragraph, and the card does not take
+	// the focus.
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if focused {
+		t.Fatal("the element of the card has the focus")
+	}
+	if n := doc.Text().ParagraphCount(); n != 4 {
+		t.Fatalf("the text has %d paragraphs, a new one was not made", n)
+	}
+}
+
+// The Return with a selection in the card's paragraph is the text's: it
+// takes the selection away.
+func TestBlockReturnWithASelection(t *testing.T) {
+	focused := false
+	doc, _ := blockDoc(func(c *ui.Context, width float32) ui.Element {
+		e := ui.Box(c).Height(40).Focusable().Label("Card")
+		focused = e.Focused()
+		return e
+	})
+	tt := blockTester(t, doc)
+	tt.Press(20, 20)
+	tt.Release(20, 20)
+	// The selection is in the card's paragraph, over the attachment.
+	doc.SetSelection(8, 7)
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if focused {
+		t.Fatal("the element of the card has the focus")
+	}
+	if strings.ContainsRune(doc.Text().String(), ObjectReplacement) {
+		t.Fatal("Return did not replace the selected attachment")
+	}
+}
+
+// Undoing the edit that took the card away brings it back, and the
+// element of the card is built again.
+func TestBlockUndo(t *testing.T) {
+	built := 0
+	doc, _ := blockDoc(func(c *ui.Context, width float32) ui.Element {
+		built++
+		return ui.Box(c).Height(40).Label("Card")
+	})
+	tt := blockTester(t, doc)
+	tt.Press(20, 20)
+	tt.Release(20, 20)
+	// The caret is on the attachment: the Backspace takes the paragraph
+	// break away, and the card is not a card any more.
+	doc.SetSelection(7, 7)
+	tt.Frame()
+	tt.Key(0, ui.KeyBackspace)
+	tt.Frame()
+	built = 0
+	tt.Frame()
+	if built != 0 {
+		t.Fatalf("the element of the card is built %d times, the card is gone", built)
+	}
+	// Undoing brings the card back.
+	tt.Key(ui.Cmd, ui.KeyZ)
+	tt.Frame()
+	tt.Frame()
+	if built == 0 {
+		t.Fatal("the element of the card is not built after the undo")
+	}
+	if _, ok := tt.Find("Card"); !ok {
+		t.Fatal("the card is not shown after the undo")
+	}
+}
+
+// A card that deletes its own paragraph leaves the text whole: the focus
+// it had goes back to the text, and the keys go on reaching it.
+func TestBlockDeletesItsParagraph(t *testing.T) {
+	var doc *Document
+	doc, _ = blockDoc(func(c *ui.Context, width float32) ui.Element {
+		return ui.Box(c).Height(40).Children(func() {
+			b := ui.ButtonBase(c).Fill().Label("Delete")
+			if b.Clicked() {
+				doc.Edit(func(e *Edit) { e.ReplaceString(7, 8, "", Attributes{}) })
+			}
+		})
+	})
+	tt := blockTester(t, doc)
+	// The caret is on the attachment, and the card takes the focus.
+	tt.Press(20, 20)
+	tt.Release(20, 20)
+	doc.SetSelection(7, 7)
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	// The card deletes its own paragraph.
+	if err := tt.Click("Delete"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Frame()
+	if doc.Text().ParagraphCount() != 3 {
+		t.Fatalf("the text has %d paragraphs", doc.Text().ParagraphCount())
+	}
+	// The Escape does not bring the focus back to a paragraph that is
+	// gone, and the text takes the keys again.
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	tt.Type("x")
+	tt.Frame()
+	if !strings.Contains(doc.Text().String(), "x") {
+		t.Fatalf("the text is %q", doc.Text().String())
+	}
+}
+
+// A card that is not laid out yet is as high as its attachment says.
+func TestBlockHeightFallback(t *testing.T) {
+	at := &Attachment{Name: "Card", Height: 60}
+	doc, _ := blockDocAt(at, func(c *ui.Context, width float32) ui.Element {
+		return ui.Box(c).Label("Card")
+	}, "After")
+	tt := blockTester(t, doc)
+	tt.Frame()
+	boxes := doc.VisibleParagraphs()
+	if len(boxes) != 3 {
+		t.Fatalf("the editor shows %d paragraphs", len(boxes))
+	}
+	if boxes[1].Height != 60 {
+		t.Fatalf("the block is %v high, the attachment says 60", boxes[1].Height)
+	}
+}
+
+// A card above the caret that grows while the text is scrolled keeps the
+// caret's paragraph where it is.
+func TestBlockAboveTheCaretResizing(t *testing.T) {
+	height := float32(40)
+	doc, _ := blockDocAt(&Attachment{Name: "Card", KeepBuilt: true}, func(c *ui.Context, width float32) ui.Element {
+		return ui.Box(c).Height(height).Label("Card")
+	}, strings.Repeat("more\n", 100))
+	tt := blockTester(t, doc)
+	// Put the caret in the text below the card and scroll to it.
+	doc.SetSelection(60, 60)
+	tt.Frame()
+	doc.ScrollToParagraph(10, ui.ScrollStart)
+	tt.Frame()
+	tt.Frame()
+	before := doc.VisibleParagraphs()
+	if len(before) == 0 {
+		t.Fatal("the editor shows no paragraph")
+	}
+	// The card grows: the text below it moves, and the caret's paragraph
+	// with it.
+	height = 80
+	tt.Frame()
+	tt.Frame()
+	after := doc.VisibleParagraphs()
+	if len(after) == 0 {
+		t.Fatal("the editor shows no paragraph")
+	}
+	if after[0].Top != before[0].Top {
+		t.Fatalf("the text moved from %v to %v", before[0].Top, after[0].Top)
+	}
+}
+
+// The Escape in a field of a card is the field's: the editor does not
+// take the focus back from it.
+func TestBlockEscapeInAField(t *testing.T) {
+	escaped := false
+	focused := false
+	doc, _ := blockDoc(func(c *ui.Context, width float32) ui.Element {
+		return ui.Box(c).Height(40).Children(func() {
+			e := ui.Box(c).Fill().Focusable().Label("Field").HandleInput(func(ev ui.InputEvent) bool {
+				if ev.Kind == ui.InputKeyDown && ev.Key == ui.KeyEscape {
+					escaped = true
+					return true
+				}
+				return false
+			})
+			focused = e.Focused()
+		})
+	})
+	tt := blockTester(t, doc)
+	// The field in the card has the focus.
+	r, ok := tt.Find("Field")
+	if !ok {
+		t.Fatal("the field is not shown")
+	}
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	if !focused {
+		t.Fatal("the field does not have the focus")
+	}
+	// The Escape is the field's.
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if !escaped {
+		t.Fatal("the field did not see the Escape")
+	}
+	if !focused {
+		t.Fatal("the editor took the focus back from the field")
+	}
+}
+
+// A press on a card that is partly above the view does not scroll the
+// text to the caret.
+func TestBlockPressDoesNotScroll(t *testing.T) {
+	doc, _ := blockDocOf(func(c *ui.Context, width float32) ui.Element {
+		return ui.Box(c).Height(40).Children(func() {
+			ui.ButtonBase(c).Fill().Label("Press me")
+		})
+	}, strings.Repeat("more\n", 100))
+	tt := blockTester(t, doc)
+	// The card is partly above the view.
+	doc.ScrollBy(-10000)
+	tt.Frame()
+	doc.ScrollBy(40)
+	tt.Frame()
+	tt.Frame()
+	r, ok := tt.Find("Press me")
+	if !ok {
+		t.Fatal("the button is not shown")
+	}
+	before := doc.VisibleParagraphs()
+	if len(before) == 0 {
+		t.Fatal("the editor shows no paragraph")
+	}
+	// The press on the button does not scroll the text.
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	tt.Frame()
+	after := doc.VisibleParagraphs()
+	if len(after) == 0 {
+		t.Fatal("the editor shows no paragraph")
+	}
+	if after[0].Top != before[0].Top {
+		t.Fatalf("the text moved from %v to %v", before[0].Top, after[0].Top)
+	}
+}
+
+// The cards that are kept built out of view are built in the order of the
+// text, so that Tab and the screen readers go through them as they are
+// in it.
+func TestBlockKeptInTextOrder(t *testing.T) {
+	var order []int
+	card := func(n int) Paragraph {
+		return Paragraph{Runs: []Run{{Text: string(ObjectReplacement), Attributes: Attributes{Attachment: &Attachment{
+			Name:      "Card",
+			KeepBuilt: true,
+			Element: func(c *ui.Context, width float32) ui.Element {
+				order = append(order, n)
+				return ui.Box(c).Height(40)
+			},
+		}}}}}
+	}
+	paras := []Paragraph{para("Before"), card(1)}
+	for range 50 {
+		paras = append(paras, para("more"))
+	}
+	paras = append(paras, card(2), para("After"))
+	doc := NewDocument(TextOf(paras...))
+	tt := blockTester(t, doc)
+	// The text is scrolled to the second card, and the first is out of
+	// view, but kept built.
+	doc.ScrollToParagraph(52, ui.ScrollStart)
+	tt.Frame()
+	tt.Frame()
+	order = nil
+	tt.Frame()
+	if len(order) < 2 {
+		t.Fatalf("the cards were built %v", order)
+	}
+	if order[0] != 1 || order[1] != 2 {
+		t.Fatalf("the cards were built in the order %v, the text's is 1 then 2", order)
+	}
+}
+
+// An editor as tall as its text, in a scroll container, builds the cards
+// the clip shows alone.
+func TestBlockClippedToTheClip(t *testing.T) {
+	const cards = 40
+	built := 0
+	doc := NewDocument(TextOf(cardParagraphs(cards, &built)...))
+	var scroll ui.ScrollState
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Scroll(c).Height(200).TrackScroll(&scroll).Children(func() {
+			Editor(c, doc).Height(2000)
+		})
+	}, 500, 400)
+	tt.Frame()
+	tt.Frame()
+	built = 0
+	tt.Frame()
+	if built == 0 {
+		t.Fatal("no card is built")
+	}
+	if built*2 > cards {
+		t.Fatalf("%d cards are built of %d, the clip shows a few", built, cards)
+	}
+}
+
+// cardParagraphs returns the paragraphs of the cards, and counts how many
+// of them are built.
+func cardParagraphs(n int, built *int) []Paragraph {
+	paras := make([]Paragraph, 0, n)
+	for range n {
+		paras = append(paras, Paragraph{Runs: []Run{{Text: string(ObjectReplacement), Attributes: Attributes{Attachment: &Attachment{
+			Name: "Card",
+			Element: func(c *ui.Context, width float32) ui.Element {
+				*built++
+				return ui.Box(c).Height(40)
+			},
+		}}}}})
+	}
+	return paras
+}

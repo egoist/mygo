@@ -28,6 +28,10 @@ import (
 type Text struct {
 	text  *rope.Node
 	paras *seq[richPara]
+	// blocks counts the paragraphs that are blocks: an attachment alone
+	// in a paragraph, with an element to build. An editor of a text
+	// without any pays no walk of it to find them.
+	blocks int
 }
 
 // Attributes are the attributes of a run of an Text. What
@@ -302,7 +306,7 @@ func TextOf(paragraphs ...Paragraph) Text {
 		lines = append(lines, line.String())
 		paras = append(paras, newPara(p.Style, appendRun(runs, attrRun{1, last.extending()})))
 	}
-	return Text{text: rope.Build(strings.Join(lines, "\n")), paras: seqBuild(paras)}
+	return Text{text: rope.Build(strings.Join(lines, "\n")), paras: seqBuild(paras), blocks: countBlocks(paras)}
 }
 
 // appendRuns appends the runs of s with attributes a: an object
@@ -548,7 +552,7 @@ func (t Text) Slice(start, end int) Text {
 	})
 	_, rest := rope.Split(t.text, rope.ByteOfRune(t.text, start))
 	mid, _ := rope.Split(rest, rope.ByteOfRune(rest, end-start))
-	return Text{text: mid, paras: seqBuild(paras)}
+	return Text{text: mid, paras: seqBuild(paras), blocks: countBlocks(paras)}
 }
 
 // Replace returns the text with the runes from start to end replaced by
@@ -634,8 +638,9 @@ func (t Text) Replace(start, end int, with Text) Text {
 	left, rest := rope.Split(t.text, rope.ByteOfRune(t.text, start))
 	_, right := rope.Split(rest, rope.ByteOfRune(rest, end-start))
 	return Text{
-		text:  rope.Join(rope.Join(left, with.text), right),
-		paras: seqReplace(s, pa, pz+1, out),
+		text:   rope.Join(rope.Join(left, with.text), right),
+		paras:  seqReplace(s, pa, pz+1, out),
+		blocks: t.blocks - countBlocksIn(s, pa, pz) + countBlocks(out),
 	}
 }
 
@@ -654,7 +659,7 @@ func (t Text) ReplaceString(start, end int, s string, a Attributes) Text {
 		}
 		rest = after
 	}
-	return t.Replace(start, end, Text{text: rope.Build(s), paras: seqBuild(frag)})
+	return t.Replace(start, end, Text{text: rope.Build(s), paras: seqBuild(frag), blocks: countBlocks(frag)})
 }
 
 // Insert returns the text with with inserted at rune i.
@@ -712,7 +717,7 @@ func (t Text) Format(start, end int, fn func(a *Attributes)) Text {
 	if !changed {
 		return t
 	}
-	return Text{text: t.text, paras: seqReplace(t.seq(), pa, pz+1, out)}
+	return Text{text: t.text, paras: seqReplace(t.seq(), pa, pz+1, out), blocks: t.blocks - countBlocksIn(t.seq(), pa, pz) + countBlocks(out)}
 }
 
 // FormatParagraphs returns the text with fn changing the styles of the
@@ -739,7 +744,7 @@ func (t Text) formatParas(pa, pz int, fn func(p *ParagraphStyle)) Text {
 	if !changed {
 		return t
 	}
-	return Text{text: t.text, paras: seqReplace(t.seq(), pa, pz+1, out)}
+	return Text{text: t.text, paras: seqReplace(t.seq(), pa, pz+1, out), blocks: t.blocks - countBlocksIn(t.seq(), pa, pz) + countBlocks(out)}
 }
 
 // paragraphSpan returns the paragraphs a selection from start to end

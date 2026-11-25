@@ -466,7 +466,11 @@ func (v *view) observe(ev ui.InputEvent) {
 	if ev.Kind != ui.InputKeyDown || ev.Key != ui.KeyEscape {
 		return
 	}
-	v.backToText()
+	// The key is not taken here: the element that has the focus sees it
+	// first, and a field in a card may use it to cancel what it is doing.
+	// The editor brings the focus back to the text in the frame it builds,
+	// when the card itself has the focus.
+	v.escape = true
 }
 
 // shortcut returns the command a key with mods runs: ⌘B, ⌘I, ⌘U, ⇧⌘X, ⌘E,
@@ -620,9 +624,9 @@ func (v *view) press(ev ui.InputEvent) bool {
 	if ev.Clicks == 1 && ev.Mods&ui.Shift == 0 {
 		v.pressLink = v.linkAt(x, y)
 	}
-	// A press on the element of a block takes no drag of the text: what is
-	// in the element takes the press, as a button does.
-	v.dragging = !v.pressBlock
+	// The press is the text's: it drags a selection, as it does over the
+	// text.
+	v.dragging = true
 	v.hasDesired = false
 	v.dragUnit = min(max(ev.Clicks, 1), 3)
 	switch v.dragUnit {
