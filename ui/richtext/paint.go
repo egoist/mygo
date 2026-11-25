@@ -22,6 +22,27 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		v.clipped = false
 	}
 	v.layout(w, h)
+	// Text scrolled partly out of the box is cut at its edges, not painted
+	// over what is around it or over the editor's border and corners:
+	// Element.Clip hides only what children draw, and the editor paints on
+	// itself.
+	b := v.border
+	p.Clip(ui.Rect{X: r.X + b, Y: r.Y + b, W: r.W - 2*b, H: r.H - 2*b}, max(v.radius-b, 0), func() { v.paintText(p, r, w) })
+	// The scroll bar while the pointer is over the editor or drags its
+	// thumb, as a scroll container's.
+	if !v.opts.NoScrollbar && (v.inView || v.thumb) {
+		v.barStyle = ui.ScrollbarStyle{}.Resolve(p.Theme())
+		bar := v.bar()
+		bar.Box.X, bar.Box.Y = r.X, r.Y
+		p.Scrollbar(bar, ui.ScrollbarState{Hovered: v.inView, Dragging: v.thumb})
+	}
+	v.moved()
+}
+
+// paintText paints the text of the box r, w wide inside its padding: the
+// placeholder, the paragraphs in view with their decorations, selection,
+// attachments and markers, the composition and the caret.
+func (v *view) paintText(p *ui.Painter, r ui.Rect, w float32) {
 	ox, oy := r.X+v.padX, r.Y+v.padY
 	look := &v.look
 	if v.shown.Len() == 0 && v.compose == "" && v.opts.Placeholder != "" {
@@ -84,15 +105,6 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 			p.Fill(ui.Rect{X: ox + cx, Y: oy + float32(cy-v.scroll), W: max(1/scale, 1), H: ch}, look.Caret, 0)
 		}
 	}
-	// The scroll bar while the pointer is over the editor or drags its
-	// thumb, as a scroll container's.
-	if !v.opts.NoScrollbar && (v.inView || v.thumb) {
-		v.barStyle = ui.ScrollbarStyle{}.Resolve(p.Theme())
-		bar := v.bar()
-		bar.Box.X, bar.Box.Y = r.X, r.Y
-		p.Scrollbar(bar, ui.ScrollbarState{Hovered: v.inView, Dragging: v.thumb})
-	}
-	v.moved()
 }
 
 // paintBlock paints what a paragraph of style st shows behind its text:
@@ -142,9 +154,26 @@ func (v *view) paintBlock(p *ui.Painter, i int, st ParagraphStyle, x, top, heigh
 			}
 			top, height = top+above, height-above
 		}
+		// A bar is rounded only at the ends of its quotation: where the
+		// paragraph above or below goes on at its level, the bars join
+		// square, as one.
 		w := look.QuoteBarWidth
+		var above, below int
+		if i > 0 {
+			above = v.para(i - 1).style.quoteDepth()
+		}
+		if i+1 < len(v.paras) {
+			below = v.para(i + 1).style.quoteDepth()
+		}
 		for level := range st.quoteDepth() {
-			p.Fill(ui.Rect{X: x + indent + float32(level)*look.indent*0.75, Y: top, W: w, H: height}, look.QuoteBar, w/2)
+			r := [4]float32{w / 2, w / 2, w / 2, w / 2}
+			if above > level {
+				r[0], r[1] = 0, 0
+			}
+			if below > level {
+				r[2], r[3] = 0, 0
+			}
+			p.FillRadii(ui.Rect{X: x + indent + float32(level)*look.indent*0.75, Y: top, W: w, H: height}, r, look.QuoteBar)
 		}
 	}
 }

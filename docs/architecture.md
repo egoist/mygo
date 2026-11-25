@@ -26,7 +26,9 @@ framework safely. Read it before changing anything under `internal/`.
   cross-compiled from any machine. Native APIs are called at run time through
   [purego](https://github.com/ebitengine/purego) (`dlopen` + assembly
   trampolines) on macOS and Linux and through the `syscall` package on
-  Windows, never through `import "C"`.
+  Windows, never through `import "C"`. Phones are the exception Go makes:
+  iOS and Android link with their own toolchains, with cgo (see
+  [Phones](#phones-internalmobile)).
 - **Two kinds of windows.** Web pages show in the system webview:
   WKWebView on macOS, WebKitGTK 4.1 (4.0 as a fallback) on Linux, WebView2
   on Windows (amd64 and arm64); no browser engine is bundled. Native UI is
@@ -85,6 +87,8 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── schemehost/     maps custom scheme URLs to the http://*.localhost URLs WebView2 serves them at
 │   ├── schemestream/   the bounded pipe custom scheme bodies stream to WebView2 through, and media ranges narrowed
 │   ├── web/            browsers (js/wasm): native UI on canvases, through syscall/js
+│   ├── mobile/         iOS and Android: one backend; wire/ its messages; ios/ the
+│   │                   Swift host, android/ the Kotlin host (a Gradle project)
 │   ├── unsupported/    stub for other platforms
 │   ├── fake/           in-memory backend for unit tests
 │   ├── automationcli/  mygo-automation, the command line client of plugins/automation's socket
@@ -107,7 +111,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── shaderir/       its IR; glsl/, hlsl/ and msl/ write it for the GPU renderers, interp/ runs it on the CPU
 │   ├── svg/            SVG parsing and drawing, for icons and images
 │   ├── tsgen/          TypeScript client generator
-│   ├── nativegen/      native modules: reads their Go interfaces, writes their Go, Swift, Rust and Zig
+│   ├── nativegen/      native modules: reads their Go interfaces, writes their Go, Swift, Kotlin, Rust and Zig
 │   ├── i18ngen/        checks catalogs of messages, writes their Go and TypeScript functions
 │   ├── i18nlink/       what package i18n gives MyGo's own catalog only: a catalog that links no dates
 │   ├── l10n/           MyGo's own strings: the catalog of the controls and menu roles
@@ -151,7 +155,7 @@ framework safely. Read it before changing anything under `internal/`.
 │                       mygo-plugin.json: finding, loading and binding them
 ├── transfer/           immutable data items, representations, lazy providers and drag effects
 ├── netproxy/           the proxy of the system's settings, for Go's HTTP clients
-├── native/             the runtime of native modules: Go interfaces implemented in Swift, Rust or Zig
+├── native/             the runtime of native modules: Go interfaces implemented in Swift, Kotlin, Rust or Zig
 ├── audio/              sound: players, the mixer, the output of each platform, WAV;
 │                       audio/vorbis and audio/mp3 decode Ogg Vorbis and MP3,
 │                       audio/mp4 MP4 (fragmented too) with ALAC, audio/aac
@@ -434,8 +438,8 @@ by `mygo build` with `mygo_noinspector`) leave out its downloader and
   Wayland has no positions they would shift. A window with `DisableShadow`,
   a transparent one (the decorations would outline the rectangle around a
   page that shows its own shape; GTK draws them on an app-paintable window
-  too), panels and flyouts, a hidden title bar on a compositor that
-  decorates windows itself, and every window on X11 stay undecorated
+  too), panels and flyouts, a hidden title bar on a tiling compositor
+  that decorates windows itself, and every window on X11 stay undecorated
   (`gtk_window_set_decorated`): an X11 window that decorates itself has
   its shadow inside its X window, which the frame extents that `Bounds`
   counts do not tell, and Mutter puts its own shadow around opaque
@@ -453,8 +457,9 @@ by `mygo build` with `mygo_noinspector`) leave out its downloader and
   compositor that speaks `org_kde_kwin_server_decoration` (KWin, COSMIC,
   Sway) for every window GTK does not decorate itself, one without
   decorations too, and the compositor draws its title bar on it. A
-  frameless window GTK does not decorate itself is realized before it
-  shows and announced client-side
+  frameless window GTK does not decorate itself, and one with a hidden
+  title bar outside a tiling compositor, is realized before it shows and
+  announced client-side
   instead (`gdk_wayland_window_announce_csd`, looked up at startup): GDK
   keeps that for the `GdkWindow` and requests it again whenever the window
   maps or the compositor answers with another mode, so the window gets no
@@ -471,13 +476,17 @@ by `mygo build` with `mygo_noinspector`) leave out its downloader and
   toggle maximized, close. The bars are measured before the web view
   exists, from their natural size, for the script that tells the first
   page, then from their allocations; a change of the layout setting
-  rebuilds them. A Wayland compositor that decorates windows itself
+  rebuilds them. A tiling Wayland compositor that decorates windows itself
   (`gdk_wayland_display_prefers_ssd`: the default mode of
-  `org_kde_kwin_server_decoration_manager`, server on KWin, Hyprland and
-  Sway) gets no bars: such a window keeps GTK's announcement of server-side
-  decorations, unlike a frameless one, so the compositor's title bar, or a
-  tiling compositor's lack of one, stands for the buttons, whatever the
-  layout says.
+  `org_kde_kwin_server_decoration_manager`, server on Hyprland and Sway)
+  gets no bars: such a window keeps GTK's announcement of server-side
+  decorations, unlike a frameless one, so the compositor's lack of a title
+  bar stands for the buttons, whatever the layout says. KWin's default
+  mode is server too, but it draws title bars, and KDE keeps
+  `gtk-decoration-layout` in step with KWin's buttons: on KWin, which alone
+  offers `org_kde_kwin_server_decoration_palette_manager`
+  (`gdk_wayland_display_query_registry`), the window decorates itself and has the bars, as
+  on GNOME, instead of KWin's title bar over its page.
 - The app's GTK style sheet (`Theme.SetGTKCSS`, `style.go`) is a
   `GtkCssProvider` of its own for the default screen, at
   `GTK_STYLE_PROVIDER_PRIORITY_USER`: GTK 3 looks providers up from the
@@ -629,7 +638,11 @@ features GTK 4 lacks become X11-only code beside it.
   A creation that fails is tried again, three times in all, a second
   then two apart, as Microsoft advises unless it failed with
   `ERROR_INVALID_STATE`: under load, WebView2 fails some with `ERROR_BUSY`
-  or `CO_E_SERVER_EXEC_FAILURE`. When the webview never comes, the calls
+  or `CO_E_SERVER_EXEC_FAILURE`. The web views of a window of native UI
+  share one timer, their surface's. It asks again for those whose creation
+  failed, but not for one WebView2 has not answered about yet
+  (`window.creating`), such as a web view made after the failure, which
+  would get a second controller. When the webview never comes, the calls
   that report a result (Eval, CapturePage, PrintToPDF) get the reason, as
   later ones do: the window closed, or WebView2 could not create it.
   User data lives in `%LOCALAPPDATA%\<name>\WebView2`. The direct path applies
@@ -670,6 +683,13 @@ features GTK 4 lacks become X11-only code beside it.
   with a base URL serves the document from that URL the same way.
 - **Eval** goes through the DevTools protocol (`Runtime.evaluate` with
   `awaitPromise`), which reports syntax errors and ignores the page's CSP.
+  A method that fails gives its caller the HRESULT and the protocol's
+  answer, whose message Eval's and `PrintToPDF`'s errors carry
+  (`devtoolsFailure`, which only they link: the default menus' Paste
+  calls the protocol in every app). An evaluation whose document went
+  away fails with code -32000, "Inspected target navigated or closed",
+  before the next document commits, which the backend reports as
+  `platform.ErrNavigated` (see "Eval").
   Edit roles run `document.execCommand` with a user gesture, except Paste:
   `Input.dispatchKeyEvent` carries Chromium's `paste` command on an
   `Unidentified` raw key-down, followed by key-up once it completes. The
@@ -934,7 +954,15 @@ gained one field, `SurfaceNative.Canvas`.
   texts. Glyphs blend in turn (`join` false), at quarter-pixel positions,
   as Skia draws them. Chrome picks the optical size of the system font
   inconsistently between pages and canvases, so text of native UI can be
-  wider or narrower than a page's in the same font.
+  wider or narrower than a page's in the same font. `RegisterFont` adds
+  a `FontFace` with the descriptors of what its file covers
+  (`fontface.go` reads them): the ranges of a variable font's `wght` and
+  `wdth` axes and its `ital`/`slnt` style, or a static font's OS/2 weight
+  and width classes and italic bits, so that a variable font gives every
+  weight and the files of one family are faces apart. Faces load in the
+  background: once one has, the System lets go of its fonts, glyphs and
+  layouts, measured with a fallback, and each window builds and lays out
+  a frame anew (`System.WatchFonts`).
 - **Input.** Pointer events (captured on press) are the pointer, with
   clicks counted from presses close in time and place, buttons 3 and 4
   the back and forward keys. Those of a pointer that is not the primary
@@ -984,6 +1012,202 @@ gained one field, `SurfaceNative.Canvas`.
   the router's first or after its last, as after a reload (which takes
   the number of the browser's entry for the router's), becomes the
   router's; a fragment typed in, without a state, is pushed.
+
+### Phones (`internal/mobile`)
+
+With `GOOS=ios` or `GOOS=android`, `backend_mobile.go` picks
+`internal/mobile`, one backend for both: Go and the system meet in a host
+written in the system's language, Swift with UIKit on iOS
+(`internal/mobile/ios`), Kotlin with Android's views on Android
+(`internal/mobile/android`), which owns the process's UI thread and does
+what only it does well: the views, the web view and its delegates, the
+keyboard, accessibility, the system's dialogs and Swift-only or Java-only
+APIs. Phones' build modes need cgo to link (`c-archive` linked into the
+Swift host by swiftc, `c-shared` loaded by the Kotlin one), the only cgo of
+MyGo, in `glue_ios.go` and `glue_android.go` (with `jni_android.c`); the
+rest of the backend builds anywhere, and its tests run on desktops with a
+fake host. Desktop files of `darwin` and `linux` exclude `ios` and
+`android`, which their constraints otherwise include.
+
+- **Threads.** Go runs on a thread of its own, the core's main thread:
+  the host's `mygo_start` (once the app launched) runs the app's `main`
+  there, found with `go:linkname` as the build modes compile but don't run
+  it, and `App.Run` loops over the host's events, as the browser backend
+  does. Go's calls of the host run on the UI thread (`transport`): queued,
+  then drained when the host runs `mygo_drain` (Go asks with `post`: a
+  `DispatchQueue.main` block on iOS, a pipe the main `ALooper` watches on
+  Android, so that no thread of Go's attaches to the JVM), or at once while
+  the UI thread waits for Go's answer to an event it sent: a handler of
+  `WillNavigate` may call the host. Neither side ever waits for the other
+  without serving it, and `Step` waits for events without the UI thread,
+  which goes on.
+- **Messages** (`internal/mobile/wire`) are numbered and binary, their
+  fields in the order of `gen/spec.go`, from which `go generate` writes
+  the Go side and the Swift and Kotlin ones (`Wire.swift`, `Wire.kt`): a
+  `HostCalls` protocol the hosts implement and the encoders of events. A
+  call without a reply is not waited for, so most cost Go a queue append;
+  answers that come later (a dialog's, `CallAsync`'s) are events carrying
+  the request's number.
+- **Windows** fill the screen, the one shown last in front. Their size is
+  the root view's, and the insets of what covers it (the system's bars,
+  the cutout, the keyboard) come with it (`Resized`): native UI lays out
+  inside them (`platform.InsetSurface`, `ui`'s `padInsets`), pages inside
+  the bars on Android and as WKWebView insets them on iOS.
+- **Pages.** WKWebView takes the app's schemes as `WKURLSchemeHandler`s
+  and the bridge's messages through `messageHandlers.mygo`, as on macOS.
+  Android's WebView loads no custom scheme: as WebView2, it is served the
+  app's at `https://<scheme>.localhost` (`schemehost.WebURLOf`, mapped back
+  for the core), answered from `shouldInterceptRequest` with a stream Go
+  writes. Android gives that no request's body, so a document-start script
+  (`Schemes.bodyScript`) puts the bodies of `fetch` and XHR to those hosts
+  aside through the host (`putBody`) and tags their requests with
+  `X-MyGo-Body`, which the host looks them up by; a form's post still
+  comes without one. The bridge posts through the host's JavaScript interface (`mygoAndroid`),
+  and document-start scripts come from androidx.webkit. Android starts a
+  page as it commits it (`onPageStarted`), when the core takes its URL to
+  trust it, before its scripts run.
+- **Navigation** (`navigation.go`, `platform.NavigationBackend`, which
+  only phones implement: desktops show the windows as windows). `Tabs`
+  are UIKit's `UITabBarController` and Material's
+  `BottomNavigationView`, a stack in each tab; `Window.Push` puts a window
+  on its stack, a `UINavigationController` on iOS and a page with a
+  `MaterialToolbar` on Android, and the user's back (the bar's button,
+  iOS's edge swipe, Android's back) pops it, which the host reports
+  (`Popped`) and the core takes as a close. A `ui.Router` with
+  `SystemStack` shows its history as a window's stack
+  (`platform.StackSurface`, `ui/router_stack.go`): before the frame that
+  shows a new page presents, the core sends the stack (`SetStack`, waited
+  for). iOS gives each page past the first a `RouteController`, moves
+  the window's one surface into the screen shown, leaving a snapshot of
+  the page going (`snapshotView`) in the screen it leaves, and flushes
+  the transaction before answering, as Metal's frames show without
+  waiting for UIKit's commit. A screen the user pops (`StackPopped`)
+  takes the router back; the surface hides under the snapshot until the
+  core presented the page there (`StackShown`). The router shows each
+  page at once there, the system moving the screens; on Android the
+  toolbar alone follows the stack and the router slides the pages. Each
+  screen of native UI on iOS holds an empty scroll view over the surface
+  (`ScreenController.titles`, clear, taking no touches), which UIKit takes
+  for the page's content (`setContentScrollView`): iOS 26 draws a large
+  title in it, and moves it with the page under the one a finger takes
+  back, beneath it, as for a table; without one, it shows the title at
+  once over that page. The surface's top inset is the scroll view's
+  (`adjustedContentInset`), which counts the large title. Each window's insets come
+  from where layout put it (Android: its position in the root, ignoring
+  the translation of a page sliding in), so a window under a toolbar has
+  no top inset and one above the tab bar no bottom one. iOS 26's bars
+  float over the content: a scroll container flush with the root's padded
+  bottom goes on under the bottom inset with as much more to scroll
+  (`extendUnderBottom`), so lists pass under the tab bar's glass. Android
+  colors its bars with the window's background (`SetBackground`), which
+  a `SurfaceView` can't take itself, as it would hide the frames.
+- **Native UI.** iOS draws with the Metal renderer and Core Text, through
+  purego as on macOS, on Go's thread: frames present through the command
+  buffer (no transaction to present with, which needs a run loop) and Core
+  Animation's transactions are flushed (`flushTransactions`); the renderer
+  adds its CAMetalLayer to the view's layer, sizes it each frame, and uses
+  shared storage, as iOS has no managed textures. Core Text's system font
+  takes its weight from its descriptor, as there is no NSFont, and smooths
+  nothing. Android draws with the GL renderer, OpenGL ES 3 in an EGL context
+  of its own (`gl.NewWindow`) on the surface's ANativeWindow; the host
+  waits for Go to let go of it before Android does (`SurfaceDestroyed`).
+  The context outlives the surface: as the app goes to the background and
+  the SurfaceView's surface goes, `SurfaceRenew` has the content keep its
+  renderer (`ui.renewableRenderer`), which destroys only its EGL surface
+  (`gl.Window.Detach`), keeping the context with its programs, atlases and
+  textures; the first frame on the next ANativeWindow makes an EGL surface
+  for it with the saved configuration and makes the same context current
+  (`Attach`), and draws whole, in milliseconds. Making the context and
+  compiling the shaders again took a second or more, past the second
+  Android's `SurfaceSyncGroup` waits for the window's first draw, which
+  showed black as the app came back (#2055). A renderer that cannot
+  attach is released and made anew; the one kept goes with the window
+  and with `SurfaceLowMemory`, so a backgrounded app keeps its GL objects
+  until the system is short of memory.
+  Android's text is Minikin's and Skia's, through the host's `Paint`
+  (`internal/text/paint_android.go`): an engine sharing the browsers'
+  layout of grapheme clusters (`clusters.go`), whose words the host
+  measures (`getTextRunAdvances`) and whose clusters it draws. These calls go
+  straight to the host on the caller's thread (`callHere`, which joins the
+  JVM), a screen of new text being hundreds of them. Frames come
+  at the display's refreshes (CADisplayLink, Choreographer) when asked,
+  paced (`platform.PacedSurface`): on iOS, one that comes while the Metal
+  renderer fetches a drawable draws once it has it (`FrameNow`), rather
+  than Go's main thread waiting for it, and the fingers with it. On
+  Android, a frame asked for crosses to the UI thread before Choreographer
+  asks for the next refresh: while the view animates, each frame asks for
+  the next as soon as it knows it moves (`platform.FrameAheadSurface`,
+  `engine.frameAhead`): as it starts for a fling or a glide, as the view
+  calls `Context.AnimationFrame`, once the build is done for what else it
+  started moving, and before it presents; once a frame, never once
+  presented, so a frame taking most of a refresh does not halve the rate
+  (#2131); the surface's `pending` and the host's
+  `framePending` coalesce the request the frame's end makes. The host asks
+  the display for its fastest mode (`Surface.setFrameRate`, always rather
+  than only where seamless from Android 12), tells Go the active mode's rate
+  as it changes, and has the window's first draw with a new surface wait
+  for Go's first frame on it (`surfaceRedrawNeededAsync`; Go tells it with
+  `FirstFrame`, again after each `SurfaceRenew`), as the splash does, for
+  4 seconds at most.
+- **Input.** A finger is the pointer while it touches (`SurfaceEvent.Touch`,
+  the first one; two pinch), and `ui` pans what scrolls under one that
+  moves and flings it on (`ui/touch.go`, reached only where touches come:
+  `touch_mobile.go`, or a Tester touching). A finger on what scrolls
+  presses only after `pressDelay` (Android's tap timeout, as UIKit's
+  scroll views delay their content's touches) or as it lifts sooner, so a
+  drag that starts at once presses nothing. Android's back goes first to
+  the stack in front, then to the content as Escape and `KeyBack`, which
+  `ui` reports taken when a shortcut claims it (a Router only while it
+  can go back); untaken, the app goes to the background. `ui` tells the
+  surface whether it takes back (`SetBackAvailable`), for Android's predictive
+  back, which `ui.Router` follows (`ui/touch_back.go`, with iOS's edge swipe).
+  A finger locks to an axis and a container, overscrolls and long-presses
+  (`ui/touch.go`); all of it hangs on hooks `enableTouch` sets, for desktops not
+  to link it. The hosts take the keyboard with `UITextInput` and an
+  `InputConnection`, which edit the input's `TextInputClient` by UTF-16 ranges:
+  they keep a copy of the text around the selection, and each edit's event
+  waits for the state after it (`internal/mobile/textinput.go`), as keyboards
+  read on at once; the content's own changes come with `SetTextInput`, checked
+  after each frame. Selection handles draw in `ui` (`ui/touch_text.go`), the
+  edit menu and the magnifier are the system's. VoiceOver and TalkBack ask for
+  the accessibility tree when they read the window (`AccessibilityTree`), which
+  turns on the content's (`AccessibilityOn`).
+- **Views in native UI.** A web view or a plugin's view is a window whose
+  `Parent` is the surface's, under it in the host, in a view that clips it
+  (`PlaceViews`), showing through the frames' holes (`scene.OpHole`) as on
+  desktops. iOS gives the holder a `-1` z position, under the renderer's layer;
+  Android's `SurfaceView` goes over the window (`setZOrderOnTop`, made again the
+  first time, off the call that asked: the surface going waits for Go, which
+  waits for the call). Android pauses a web view the content doesn't show
+  (`WebView.onPause`) and resumes it when it shows again: under a clip that is
+  gone its own visibility stays visible, the only one Chromium reads, so its
+  page would stay visible and go on drawing frames, on the renderer thread an
+  app's web views share. A paused page's scripts still run, with a hidden
+  page's timers, and its sound plays on. A page with `ThrottlingOff` isn't
+  paused. The hosts route fingers by the placements' boxes themselves,
+  without asking Go.
+- **The background.** `Background` is waited for: on iOS the GPU is off limits
+  once `sceneDidEnterBackground` returns, and iOS ends what uses it. `frame`
+  draws nothing in the background, and asks again on the way back.
+- **Plugins' native code.** `mygo-plugin.json`'s `mobile` names Swift and Kotlin,
+  which `cmd/mygo/mobile_plugins.go` copies into the host's sources with a
+  generated `PluginRegistry`, and which `PluginCall` and `PluginEvent` reach
+  (`Plugins.swift`, `Plugins.kt`, `native.go`), with JSON. Their frameworks,
+  Info.plist keys, permissions and Gradle dependencies join the app's.
+- **Files** are watched with inotify on Android (`internal/inotify`, as
+  on desktop Linux) and kqueue on iOS (`internal/kqueue`; see "Watching
+  files").
+- **Packaging** is the CLI's (`cmd/mygo/ios.go`, `android.go`): for iOS,
+  swiftc compiles the embedded host and links it with the Go archive,
+  actool compiles the icon, and the bundle gets the build keys App Store
+  validation checks, a privacy manifest of the APIs the binary uses and the
+  provisioning profile that fits; for Android, the embedded Gradle project
+  goes into `.mygo/android` and builds with the app's libraries, manifest,
+  icons and resources (copied out of the APK's assets on first launch, as
+  `PathResources`). `mygo dev` installs and relaunches builds with simctl
+  and adb, the environment of a launch passed as simctl's `SIMCTL_CHILD_`
+  variables or an extra of Android's intent (which Go reads again as it
+  starts, having copied the environment as its library loaded).
 
 ## IPC
 
@@ -1259,12 +1483,43 @@ never waits on the main thread, which receives the acknowledgments.
 `Page.Eval(code)` uses the webview's native async-function API
 (`callAsyncJavaScript` on macOS, `webkit_web_view_call_async_javascript_function`
 on Linux), which awaits promises and ignores the page's Content Security
-Policy. The code is first wrapped as `return JSON.stringify({ok, v: await (code)})`;
-if that fails to compile the code is not an expression, and it is run again as
-a function body. A compile error means nothing executed, so code never runs
+Policy. Android's `evaluateJavascript` takes a script, not a function: the
+body is compiled as part of that script, in an async function at its top
+level, which the CSP does not govern either (an AsyncFunction made from a
+string in the page is eval, which a CSP without `'unsafe-eval'` refuses). A
+script that does not compile answers null, the only thing taken as a compile
+error there: it reads "SyntaxError: the script does not compile", without
+V8's message or the position, which `evaluateJavascript` does not return,
+and an error the page reports itself never starts with `SyntaxError`. The
+code is first wrapped as an async arrow function returning `(code)`, whose
+result goes back as `JSON.stringify({ok, v})`; if that fails to compile the
+code is not an expression, and it is run again as the arrow's body. A
+compile error means nothing executed, so code never runs
 twice. The result travels as a JSON string and is decoded in Go. A page whose
 window closed never answers, so a window closing fails the evals waiting for
-it, and an eval with the quit under way fails at once.
+it, and an eval with the quit under way fails at once. WebKit runs the
+microtasks scripts queued once a listener of an event returns, and an eval
+that runs in a page just as a navigation away commits can leave its
+continuation, which answers, queued: the bridge listens to `pagehide`, so
+that it runs before WebKit freezes the page in its back/forward cache,
+where it would wait until Back shows the page again.
+
+A document that goes away never settles what it was waiting for, and WebKit
+answers for its promise only once the garbage collector takes it
+("Completion handler for function call is no longer reachable"), which
+never happens while the page keeps it, as the back-forward cache keeps a
+page whole. So until the code answers, the wrapper listens for the page's
+`pagehide`, which answers `{left: true}`, and Eval returns "the page
+navigated away". In the same process the old document hears `pagehide`
+before the next one commits, so its answer reaches the app before the
+commit, on the same connection. To another site WebKit swaps the web
+process, and the old one puts its page away after the new one commits;
+its answer comes later, which a core failing evals at the commit would
+drop. An eval that reaches the next document runs there, and `pushState`
+and fragments fire no `pagehide`, so only the evals of the document left
+fail. WebView2 fails such an evaluation itself before the next document
+commits, which can come before the page's answer; the backend reports
+that as `platform.ErrNavigated`, the error Eval returns either way.
 
 ### Trust
 
@@ -1287,8 +1542,8 @@ permissions (through `isTrusted`), new windows and the browser, downloads,
 and main-frame navigations the page starts to another origin than its
 committed page's (`Window.origin`). `serveScheme` puts the asking page in
 the request's context, under the keys of `CallerWindow` and `CallerPage`,
-so a scheme's handler knows which page sent a request: that's the channel
-of untrusted pages to the app.
+so a scheme's handler knows which page sent a request (`downloadScheme`
+does for a download): that's the channel of untrusted pages to the app.
 
 The message handler is reachable from every frame, while trust is decided
 by the main frame's URL, so an iframe of another origin must not be able to
@@ -1375,7 +1630,11 @@ build` like mygo-runtime and released with the same version.
 - **sqlite** runs SQLite in a native module, `internal/sqlitecore`,
   whose Zig compiles SQLite's C amalgamation, which `zig/build.zig.zon`
   pins by its hash, with SQLite's symbols hidden in the library (WebKit
-  loads the system SQLite globally on Linux). The module's `Engine` opens
+  loads the system SQLite globally on Linux). On iOS its Swift links the
+  same SQLite from a static XCFramework (`swift/build-xcframework.sh`,
+  published in the release `native-sqlitecore`), and on Android its
+  Kotlin calls it through a small JNI library that CMake builds with the
+  amalgamation (`kotlin/src/main/c`), each doing what the Zig does. The module's `Engine` opens
   a `Conn`, which runs one statement a call, prepared with the rest of the
   SQL compiled first so that extra SQL never runs, and returns its rows in
   one reply. An authorizer denies transaction control, ATTACH and VACUUM
@@ -1684,7 +1943,8 @@ Package `i18n` is a leaf (it imports golang.org/x/text/language only):
   "modern", 430 locales) comes from cldr-dates-full, cldr-numbers-full and
   cldr-localenames-full, pinned like cldr-core (`format.go` of the
   generator writes `format_tables.go`). A locale's data is a record of
-  slots (month and weekday names by context and width, day periods, eras,
+  slots (month, quarter and weekday names by context and width, day
+  periods, eras,
   date, time and date-time patterns, the availableFormats of the
   skeletons MyGo formats, time zones' GMT formats, number symbols,
   patterns and digits of the default numbering system and of latn); each
@@ -1695,7 +1955,7 @@ Package `i18n` is a leaf (it imports golang.org/x/text/language only):
   a constant of its own: the numbers with the locales and their parents
   (`fmtPackedNumbers`, 3 KB), which every app links, as MyGo's own strings
   format numbers, and the dates with the names of languages
-  (`fmtPackedDates`, 77 KB), which only apps that format dates or name
+  (`fmtPackedDates`, 84 KB), which only apps that format dates or name
   languages link. At run time `cldr.go` inflates each once and puts a
   locale's record together on its first use (an atomic pointer per
   locale), its dates on the first date it formats (`withDates`); `keyOf` caches what a tag formats with (its data locale, by
@@ -1890,7 +2150,14 @@ as in Tauri:
   the runtime's exit, and the runtime deadlocks (#1896).
 - Taskbar state on Windows (`taskbar.go`) lives on the window and is
   applied when Explorer sends `TaskbarButtonCreated` (first show, Explorer
-  restarts), so progress and a hidden button set before showing stick.
+  restarts), so progress and a hidden button set before showing stick. The
+  thumbnail toolbar (`thumbbar.go`) is applied the same way, added again
+  from the latest PNGs kept on the window: its button count and order are
+  fixed once set, and later changes update icons, tooltips and flags
+  (`ThumbBarUpdateButtons`). Like the notifications' images and the menu
+  icons, its code is linked when the app first sets one
+  (`LinkThumbBars`), since `applyTaskbar` and the window procedure run in
+  every app.
 - `WindowOptions.StateKey` (`window_state.go`) remembers a window's normal
   bounds and maximized/full screen state in `window-state.json` in
   `PathUserData`, like Tauri's window-state plugin, or in the app's
@@ -2167,7 +2434,13 @@ as in Tauri:
   popover that has shown leaves its material's backdrop behind, a
   graphics surface a little larger than the popover. One still closing,
   as Hide's animation runs, waits until it tells it closed
-  (`popoverDidClose:`, to `spareDelegate`).
+  (`popoverDidClose:`, to `spareDelegate`). The flyout's delegate is the
+  popover's, not its window's: it hears that window's occlusion from the
+  notification center while it has it (`adoptPopoverWindow`), and tells
+  the surface shown or hidden as that changes, as the popover shows
+  (`popoverDidShow:`) and as it forgets the window
+  (`tellPopoverOcclusion`), so that the frames held while it was hidden
+  draw as it shows again (#2053).
   `Flyout.Tray` anchors one to a tray icon's `Bounds` instead, without a
   parent: the panel at `NSPopUpMenuWindowLevel` or an `NSPopover` shown
   from the status item's button (macOS), a topmost unowned popup
@@ -2209,8 +2482,10 @@ as in Tauri:
   and tauri-nspanel found), never the main window, on every Space as a
   full-screen auxiliary, outside Mission Control and the window cycle, at
   the floating level (above it, input methods' candidate windows would
-  show behind the panel); `Show` and `Focus` make it key without
-  `activateIgnoringOtherApps:`, and its `cancelOperation:` does nothing
+  show behind the panel); `becomesKeyOnlyIfNeeded` is off, so `Show` and
+  `Focus` make it key without `activateIgnoringOtherApps:` even before a
+  page's field is first responder, and take key again on the next turn if
+  AppKit is still resigning active; its `cancelOperation:` does nothing
   (NSPanel's closes it past `windowShouldClose:`). The key window of a
   nonactivating panel gets the keys and the main menu its key
   equivalents, though the app is not frontmost (`NSApp.isActive` reports
@@ -2544,6 +2819,12 @@ type, before an entry is enrolled, so an ignored directory is never opened;
 the directories it ignored are kept per listed directory, so that the
 notices of a `Subtree` target about what is in them are dropped.
 
+A watch that polls (`Poll`, or `PollInterval` where `NewFileWatch`
+returns `ErrUnsupported`) is given `pollFileWatch`, which takes every target
+and says nothing, and its goroutine calls `lookAll` every `PollInterval`,
+as after an overflow: the scan finds what changed against its snapshot.
+`HintsOnly` has no snapshot, so it never polls.
+
 `HintsOnly` swaps the scan for `fileWatchHints` (`watch_hints.go`), behind
 the same `fileWatchLooker` the watch's goroutine drives: no snapshot, only
 the directories it enrolls. A notice naming an entry hints at the
@@ -2598,7 +2879,7 @@ main thread, so watches work before the app runs and don't wait on it.
   are batched. The stream starts `SinceNow`, but fseventsd can report a
   change made just before it started; the core's snapshot is taken as
   targets are enrolled, so nothing comes of it.
-- Linux: one inotify instance for the process, as fsnotify, with a watch
+- Linux and Android (`internal/inotify`): one inotify instance for the process, as fsnotify, with a watch
   per directory, which names the child that changed: watches cost watch
   descriptors, not instances, of which many systems allow 128 per user
   for all apps. A goroutine reads it through the runtime's poller and
@@ -2608,6 +2889,15 @@ main thread, so watches work before the app runs and don't wait on it.
   `IN_IGNORED` must not be taken for a new one's, so the backend keeps
   generations of targets, each its watch and ID, per descriptor; the
   last target of a descriptor removes it.
+- iOS (`internal/kqueue`), which has no FSEvents: a kqueue per watch,
+  with a descriptor for every file and directory, opened `O_EVTONLY` as
+  fsnotify's are, and a user event that wakes `Wait`. A directory's
+  `NOTE_WRITE` names no child, so its notice says only that the directory
+  changed, which the core lists again; a file's is a write. A target
+  deleted, renamed or revoked is lost, since its descriptor follows the
+  file, and the core enrolls what is at the path now. Links, pipes and
+  devices get no descriptor (opening a pipe waits for a writer): their
+  directory names what happens to them.
 - Windows: `ReadDirectoryChangesW` on overlapped handles, completing on a
   completion port per watch. Windows refuses to rename a directory while a
   handle is open on something beneath it, so a recursive watch is one
@@ -2626,7 +2916,8 @@ main thread, so watches work before the app runs and don't wait on it.
 Backends report a write (`FileWatchWrite`) only for content: FSEvents'
 `ItemModified` on a file (its `ItemCreated`, which APFS also sets on an
 `O_TRUNC` write, stays dirty and lets the core's comparison report the
-change), inotify's `IN_MODIFY` and `IN_CLOSE_WRITE`,
+change), inotify's `IN_MODIFY` and `IN_CLOSE_WRITE`, kqueue's `NOTE_WRITE` and
+`NOTE_EXTEND` on a file,
 and Windows without `FILE_NOTIFY_CHANGE_ATTRIBUTES`. Attribute changes are
 dirty, and the core compares only size and modification time, so that
 indexers and antivirus touching metadata report nothing.
@@ -2807,6 +3098,12 @@ either.
   alone, as Enter choosing a candidate: on macOS `keyDown:` sends no
   `KeyPressed` while there is marked text, as GTK's input method filters
   such keys on Linux and IMM32 makes them `VK_PROCESSKEY` on Windows.
+  Nor does it send Backspace while an input method is on: the Korean one
+  composes without marked text, replacing the syllable before the caret
+  (`insertText:replacementRange:`), and takes a jamo back with Backspace
+  the same way (한 → 하). A withheld key reaches the content when the
+  input method passes it on (`doCommandBySelector:`), as Backspace with
+  nothing to take back, in an empty input too.
   The guarantee is these filters' (in browsers, `isComposing`): a key
   that reaches the engine passed the input method, which may have left
   it with the composition still marked (IBus in sync mode gives one up
@@ -2834,13 +3131,27 @@ either.
   shows, and a drop a `FileDrop`; files the content does not take go to
   `OnFileDrop`. On Linux the area takes the touchscreen's touches
   (`GDK_TOUCH_MASK`, in its `event` signal, before GTK's `touch-event`
-  handler makes the first finger the mouse), which `touch.go` turns into
-  what the mouse and a touchpad do: a tap clicks where it landed, held
-  still half a second it right-clicks, as Windows's press and hold; a
-  finger moving past 8 DIPs scrolls (`Precise`) the content under it
-  along with it, and two fingers zoom (`PointerZoom`) between them and
-  scroll as their midpoint moves. Button and motion events from a
-  touchscreen are dropped once the area has had touches.
+  handler makes the first finger the mouse), and on Windows the surface
+  takes a finger's `WM_POINTER` messages (`GetPointerType` `PT_TOUCH`,
+  `fingerMessage` in `pointer.go`), of which `DefWindowProc` would make
+  the mouse. Both give them to `platform.TouchGesture`
+  (`internal/platform/touch.go`), which turns them into what the mouse
+  and a touchpad do: a tap clicks where it landed, held still half a
+  second it right-clicks, as Windows's press and hold; a finger moving
+  past 8 DIPs scrolls (`Precise`) the content under it along with it,
+  and two fingers zoom (`PointerZoom`) between them and scroll as their
+  midpoint moves. On Linux button and motion events from a touchscreen
+  are dropped once the area has had touches; on Windows the taken
+  messages make none. Windows leaves to `DefWindowProc` a finger landing
+  on an embedded web view, which gets the mouse it makes, and one
+  landing on a drag region of a title bar the content draws, whose press
+  moves the window (`StartDrag`), which a tap, pressing only as the
+  finger lifts, could not: the surface asks the content as the finger
+  lands (`platform.DragRegionAt`), which answers as `pointerDown` would
+  find a press there (`engine.dragRegionAt`), but no for a drag region
+  in or of a scroll container that can scroll, which the finger scrolls.
+  A Windows finger's `WM_POINTERCAPTURECHANGED` ends it as a cancel
+  does.
 - **Assistive technology.** Once it asks for a surface's content, the
   backend sends `AccessibilityOn`, and the engine describes every frame
   (`ui/access.go`) as a `platform.AccessTree`: nodes in pre-order with
@@ -2988,6 +3299,9 @@ either.
   map as WAI-ARIA's Core Accessibility API Mappings do: `RoleRegion` is
   one only with a name (a group without), `AXLandmarkRegion`, ATK's
   landmark with `xml-roles:region`, and UIA's custom LandmarkType;
+  `RoleForm` is one only with a name likewise (a group without),
+  `AXGroup` with `AXLandmarkForm`, ATK's landmark with
+  `xml-roles:form`, and UIA's Group with the form LandmarkType;
   `RoleSearch` is `AXGroup` with `AXLandmarkSearch`, ATK's landmark
   with `xml-roles:search`, and UIA's Group with the search LandmarkType;
   `RoleMain`, `RoleBanner`, `RoleContentInfo` and `RoleComplementary`
@@ -3314,11 +3628,12 @@ either.
   anything else in the window asks for each: `Painter.AnimationFrame`, a
   pose moving, the view animating. The refreshes between draw nothing
   (`paceSkips`) unless something else asked for a frame since, and the
-  surface is told of the rate (`platform.FrameRateSurface`): macOS sets
-  its display link's `preferredFrameRateRange`, which has a ProMotion
-  display refresh as often while nothing else on it asks for more. A
-  surface whose frames asked for come at once rather than at the next
-  refresh (`platform.ImmediateFrameSurface`: Windows, where presenting
+  surface is told of the rate (`platform.FrameRateSurface`): macOS and
+  iOS (`SetFrameRate` of `internal/mobile`) set their display link's
+  `preferredFrameRateRange`, which has a ProMotion display refresh as
+  often while nothing else on it asks for more; Android's Choreographer
+  ticks at the display's rate whatever it is told. A surface whose frames asked for come at once rather than at the
+  next refresh (`platform.ImmediateFrameSurface`: Windows, where presenting
   paces frames) would ask again and again until the frame is due: the
   repaint timer asks for it then instead, and the frame it brings keeps
   the pace's times, as the timer fires a little late. With the display's
@@ -3805,7 +4120,8 @@ either.
   while nothing is pressed does nothing, so a backend sends it whenever
   it loses a press, but not as a data drag of its own takes the pointer
   (OLE's loop, `gtk_drag_begin`), whose end ends the press. The Linux
-  touchscreen's `GDK_TOUCH_CANCEL` taps nothing (`touch.go`), as its
+  touchscreen's `GDK_TOUCH_CANCEL` and a Windows finger's canceled
+  `WM_POINTERUP` tap nothing (`platform.TouchGesture`), as their
   taps press only once the finger lifts. The pointer's events carry their device and
   pressure (`SurfaceEvent.Pointer` and `Pressure`), which the engine
   keeps with the buttons they leave down (`engine.pointerDevice`): a
@@ -3816,7 +4132,8 @@ either.
   (`state.pressPointer`). Fingers also come one by one, besides the
   pointer events a backend makes of them (`platform.TouchDown`,
   `TouchMove`, `TouchUp`, `TouchCancel`, by `SurfaceEvent.ID`): Windows
-  sends each finger's `WM_POINTER` messages by pointer ID, with
+  sends each finger's `WM_POINTER` messages by pointer ID, those the
+  gesture takes and those it leaves to `DefWindowProc` alike, with
   `WM_POINTERCAPTURECHANGED` canceling, Linux numbers GDK's touch
   sequences (`touchPoints` in `internal/linux/touch.go`), browsers send
   the Pointer Events of `pointerType` `touch` by `pointerId`, and macOS,
@@ -4237,6 +4554,18 @@ either.
     may count a row too few until they show. Closing CJK punctuation
     starts no row, nor opening punctuation ends one (`canBreak`). A new
     generation of the text system measures and shapes everything anew.
+    Unwrapped lines scroll sideways as far as the widest line known
+    (`lineWidths`): the widths of the widest 64 lines laid out, by line,
+    which edits move as wraps, forgetting the lines they change, as
+    other inlays, replacements and line styles forget theirs and another
+    font, tab size or theme all; a line laid out again is as wide as it
+    was until forgotten, and a long line's last piece, shaped as it
+    shows, can make it wider. So an edit lays out only the lines in
+    view, a line out of view keeps its width while it is unchanged, and
+    following an edit costs the same in a long text. Each frame lays out
+    the lines in view first and brings the offset sideways into the
+    range, which input before it takes as the last frame's at least, the
+    lines an edit changed not laid out yet.
   - *Replacements* (`replace.go`). A range shown as something else is a
     segment of a line's displayed text, as a tab or an inlay is: its Text,
     nothing, or for an element an object replacement character the text
@@ -4244,10 +4573,20 @@ either.
     so that shaping, carets, selections and wraps need no case of their
     own, lines not laid out yet counting it too. Their elements are built
     over the text at the places the lines laid out give, a frame painting
-    them elsewhere building again (`replacementsMoved`). Lines covered
+    them elsewhere building again (`elementsMoved`). Lines covered
     through their newline join the hidden spans. Replacements move as
     selections do, and a change lays out again only the lines of those
     that differ, so that an app can set them every frame.
+  - *Blocks* (`blocks.go`). An app's elements between lines are the
+    display model's blocks (`blockApp`), the rows a diff has, sticky only on
+    whole lines hidden by an empty replacement starting at a line boundary,
+    so that they stand in for those lines. Their
+    elements are built over the text, without a height: a paint reads
+    the box layout gave each (`measureBlocks`), before placing the lines
+    around it, and a block moved by that builds again. Those not built
+    keep the last height measured, or `Height`, and the scroll's anchor
+    leaves what shows in place as they turn out otherwise. A block
+    standing in for lines is one stop for carets (`standIn`).
   - *Line styles* (`line_styles.go`). A styled line is laid out by a view
     of its own style (`styledView`), one per font and line height, which
     shares the editor's text, highlighter, inlays and replacements and
@@ -4367,7 +4706,10 @@ either.
   source offsets, to copy text with block separators, Markdown, and the
   HTML of that Markdown parsed again, which `ui/richtext` pastes with its
   formatting, as it reads Markdown with the same parser
-  (`ParseMarkdown`). Links open in the system only when `ui.SafeToOpen`
+  (`ParseMarkdown`). `HTML` escapes the raw tags a browser reads to their
+  end, which is cmark-gfm's tagfilter (`ExtTagFilter`, in `GFM` and so in
+  `Default`), so that what an app copies as HTML carries no `<script>`
+  into what pastes it. Links open in the system only when `ui.SafeToOpen`
   allows them, in both. Tasks' check boxes are boxes of `RoleCheckBox`,
   read-only, or, with `Options.OnTask`, focusable and named by the plain
   text of their item's first paragraph, kept by block while its start,
@@ -4618,9 +4960,10 @@ either.
   target the paragraph's layout (`laidOutBox`), so that a popover follows
   its anchor in the frame that moves it; then it goes to the other side, or
   the other way along the target, where that leaves the window less, and
-  moves along the target into the window (`alongTarget`); one that scrolls
-  vertically is first cut to the room the window has (`roomAlong`), as a
-  select's long list of options. Popovers have no
+  moves along the target into the window (`alongTarget`); its height is
+  first cut to the room the window has (`roomAlong`), so that a select's
+  long list of options scrolls, and a panel of `SelectBase`'s or
+  `PopoverBase`'s whose scroll container shrinks fits. Popovers have no
   backdrop: the engine notes what each press went down on (`downs`, for a
   pass), and `PressedOutside` walks from the last through parents, and from
   a popover to its anchor, which keeps presses in popovers of elements
@@ -5369,7 +5712,9 @@ either.
   the other params, so a build lays it out once.
   Text elements built inside a text (`ui/inline.go`) are inline: the
   paragraph takes their text when its `Children` returns, and their
-  styles as spans over its own when it lays out. At commit, each gets the
+  styles as spans over its own when it lays out (a background, with its
+  corners and padding, as a span's `Radius`, `PaddingX`, `PaddingY` and
+  `PaddingStart`). At commit, each gets the
   boxes of its runes in the paragraph's layout (`Selection`), one hit
   each, so the pointer, the focus order, tooltips and menus work as for
   any element; they paint only their focus ring (their `Opacity`,
@@ -5460,7 +5805,8 @@ either.
   `NewOffscreen`).
 - **Canvases** (`scene.NewCanvas`, `ui.Canvas`) are images drawn from a
   scene of their own. `Canvas.Draw` paints into its scene with a painter
-  of scale 1 sharing the window's atlases, and lists it in the frame's
+  of scale 1 sharing the window's atlases, which the scene leaves for its
+  own once painted (below), and lists it in the frame's
   `Scene.Canvases`, inner canvases first as they finish. Before a frame,
   each renderer draws the canvases it lists or shows whose version its
   texture does not hold (`Scene.EachCanvas`, those a canvas shows before
@@ -5477,6 +5823,24 @@ either.
   than wait for the canvas to be collected, which the little of Go's heap
   it takes may put off for minutes while its texture takes megabytes. The CPU renderer draws
   canvases into their `Pix` (`PixVersion`).
+  A renderer draws a canvas from its scene whenever it has not its
+  texture: one made anew, as after the GPU went away or a low-memory
+  warning, Metal's after it freed its textures while the window was idle,
+  another window's, or the CPU renderer for a capture. That may be long
+  after the frame that painted the scene, when the atlases every window
+  shares hold other bitmaps where its glyphs were (`System.MakeRoom`), and
+  other masks (a mask drawn for the first time lasts for its frame
+  alone). A canvas a view draws (`Canvas.Draw`), which it may do once,
+  therefore gives its scene atlases of its own (`Scene.Own`), holding the
+  bitmaps its glyphs show and no other, and renderers draw such a scene
+  with them, in textures made for that drawing. A canvas painted again
+  keeps the atlases it has while its bitmaps fit them and take a quarter
+  of their height or more, so that one drawn every frame makes none in
+  most. The glyphs and paths left out as the canvas was painted, the
+  shared atlas having no room for them, stay left out; the paths that
+  spilled stay in their layer, which the canvas's scene shows
+  (`pathSpill.shown`). The layers of effects and of `Cache` keep the
+  window's atlases: every frame painted whole paints their scenes again.
   Near square corners, coverage is exact, the area of a pixel
   inside the box, so lines thinner than a pixel cover as much as they
   should, as text decorations need. A fill's border widths travel in its
@@ -5601,7 +5965,8 @@ either.
     tenth of the CPU's time it took drawn whole;
   - `internal/gpu/metal` with a shader in Metal Shading Language
     compiled into a Metal library ahead of time (on macOS, with
-    Xcode's `metal` tools), which
+    Xcode's `metal` tools, and for iOS's devices and simulator, which
+    `shaderlib_ios.go` tells apart by `SIMULATOR_DEVICE_NAME`), which
     spares a first launch the 100 to 150 ms Metal takes to compile the
     source until it has cached it; a library older than `shader.metal`
     falls back to that, and its test fails. It draws into a CAMetalLayer
@@ -5674,10 +6039,28 @@ either.
     (#1566). Function constant
     indices 0 through 7 belong to the renderer; effects start their own at 8.
     Two seconds after the last frame, as the
-    driver frees its own memory of frames, a timer shrinks the drawables,
-    which frees all but the one shown, until the next frame makes them
-    again, and releases GPU instance buffers, atlas/image textures and
-    backdrop textures: an idle window keeps one frame of memory. Its
+    driver frees its own memory of frames, a timer shrinks the drawables
+    to a pixel, until the next frame makes them again, and releases GPU
+    instance buffers, atlas/image textures and backdrop textures: an idle
+    window keeps one frame of memory. Core Animation may keep the
+    drawables of the old size until it hands out one of the new, so the
+    presenter's goroutine then fetches one, a pixel big, which the next
+    frame lets go of unpresented. A window nothing of which shows
+    (`SurfaceHidden`, which `windowHost` passes on to the renderer,
+    `SetOccluded`: a background tab, minimized, on another Space or
+    covered) shrinks them half a second after its last frame instead,
+    the one it drew as it went out of sight, so that windows out of sight
+    cost a frame each, not two or three (#2040); a frame waiting for its
+    drawable, or a drawable being fetched, puts it off rather than be
+    dropped or waited for. The frame shown stays, as the layer's
+    contents: the Dock shows it for a minimized window, Mission Control,
+    a Space sliding in and captures for the others, and a window showing
+    again shows it until the window server tells that it shows, rather
+    than nothing. The next frame draws whole, at the window's size.
+    Lowering `maximumDrawableCount` to two out of sight would save a
+    frame only for that half second after a frame drawn out of sight, as
+    Core Animation makes drawables as frames need them, and the third
+    keeps animations from waiting for one once the window shows. Its
     drawables are not `framebufferOnly`, as effects sample the drawable
     for their backdrops.
     A frame draws only what changed since its drawable was drawn. Core
@@ -5915,6 +6298,16 @@ either.
   node's in the order of `Role`; a role added to both needs nothing
   there, a state a field. The fake backend's surface lets the core's
   tests drive content windows through `package mygo`.
+  A Tester's window shapes and paints in a text system of its own
+  (`text.New`), so that Testers running at once, as parallel tests do,
+  neither race over nor invalidate each other's atlases. Starting one
+  (its engine, and the shaping of every text shown) costs more than the
+  first frame of a window of 250 texts otherwise does, so a Tester
+  takes one an ended Tester left (`testerTexts`, `ui/tester_text.go`):
+  one ends as `Render` returns or as it becomes unreachable
+  (`runtime.AddCleanup`). `System.Reuse` keeps its engine, fonts and
+  layouts, and starts its language and atlases anew. At most GOMAXPROCS
+  wait idle; `BenchmarkTesterFirstFrame` measures a Tester's first frame.
   `BenchmarkFrame` in `ui` measures a frame of a large window on the CPU,
   and `BenchmarkListScroll` the frames scrolling a list of a million rows;
   `BenchmarkDiff*` the frames of a window as godiff's, two lists of texts
@@ -6003,9 +6396,10 @@ them, from a new session when it goes back.
 ## Native modules (`native`, `internal/nativegen`)
 
 A native module ([the guide](native-modules.md)) is a Go package whose
-interfaces Swift, Rust or Zig implement, each in a directory named after
-the language (`swift/`, `rust/`, `zig/`), all behind one C ABI. Three parts
-make it work:
+interfaces Swift, Kotlin, Rust or Zig implement, each in a directory named
+after the language (`swift/`, `kotlin/`, `rust/`, `zig/`), all behind one
+ABI: C functions, and on Android the same calls through JNI. Three parts
+make it work, and phones a fourth:
 
 - **`internal/nativegen`** reads the package with `go/ast` alone (no type
   checking, so it is fast and needs no dependency built): the interfaces
@@ -6173,6 +6567,30 @@ make it work:
   while the hash matches, in release builds and wherever Swift is missing,
   through the cache of native libraries (`fetchNative`), unpacked with no
   path or link that leads out of its directory (`untar`).
+- **Phones** (`cmd/mygo/mobile_modules.go`) build a module from its
+  sources with the app, never from published builds: `phoneModules`
+  regenerates (debug) or checks (release) the modules of the app whose
+  language there is Swift on iOS, when `Package.swift` names iOS
+  (`SwiftPlatformsOf`), or Kotlin on Android, those a module uses first.
+  iOS builds each Swift package with `xcodebuild -scheme <Module>` for the
+  device or the simulator, the products of the modules it uses on its
+  search paths, into `<Module>.framework` in the bundle's `Frameworks`,
+  signed with the app, which `ffi` finds there and `native` loads as on
+  macOS (`lib_ffi.go`, `lib_darwin.go`); the generated Swift builds against
+  UIKit, with `NativeView`/`NativeWindow` naming the platform's types.
+  Android adds each `kotlin/` as the Gradle library `:native-<package>`
+  (`androidModules`, the property `mygoNativeModules`, which the host's
+  `settings.gradle.kts` includes and its root `build.gradle.kts`
+  configures with the host's SDK levels, NDK, ABIs and `:mygo`). There
+  `native` calls `lib_android.go`'s backend instead of purego:
+  `internal/nativehost` carries the calls to `internal/mobile`, whose JNI
+  (`jni_android.c`) calls `dev.mygo.Native` (`Native.kt`), which finds the
+  module's generated `MygoModule` by its class (`Module.Kotlin`) and
+  calls its `invoke` with the same symbols and the same encoding, from
+  any Go thread, attached to the JVM. Kotlin answers asynchronous calls,
+  streams and calls into Go through `Native.send`, the one callback, and
+  `//mygo:mainthread` calls run on the UI thread through the transport
+  (`nativehost.OnUI`), as views do.
 
 ## CLI (`cmd/mygo`)
 
@@ -6247,7 +6665,22 @@ make it work:
     the app does not come to the front as it launches
     (`AppOptions.Background`, macOS), and its windows show as
     `ShowInactive` would (`backgroundShow`) until a window takes the
-    focus or the app becomes active.
+    focus or the app becomes active. With `AppOptions.Background`,
+    `ShowInactive` orders a window in behind the active app's windows
+    while another app is active, rather than over them: `orderFront:`
+    in place of `orderFrontRegardless` on macOS, and on Windows the
+    window goes right behind another process's foreground window
+    (`behindForeground`) before and after `SW_SHOWNOACTIVATE`.
+  - *Windows' frames.* Desktop builds get `MYGO_DEV_WINDOWS`, a file in
+    `.mygo/dev` that mygo dev removes as a session starts, taken out of
+    the environment as `MYGO_DEV` (`window_state_dev.go`). The app keeps
+    in it the state of each top-level window without a `StateKey`, by
+    the order it creates them in, with the frame its options asked for,
+    captured as `StateKey`'s are and written as it changes; the next
+    build's window of the same place, whose options ask for the same
+    frame, is restored there (`restoreWindowStateFrom`). A window whose
+    options changed gets them. Child windows, panels and flyouts take
+    no part. Production builds ignore it.
     A build counts as started once its process is: one that crashes on
     start is reported as it exits.
   - *Reload.* A change (polling every 250 ms, debounced) rebuilds;
@@ -6415,7 +6848,9 @@ make it work:
   `%LOCALAPPDATA%\Programs\<name>` (`windows.installDirName` names the
   folder otherwise), where the updater can write and where the installers
   of later versions install too (`InstallDirRegKey` reads the uninstall
-  entry's `InstallLocation`), a Start menu shortcut, a desktop shortcut
+  entry's `InstallLocation`), in a folder of the app's own where the
+  folder chosen holds other files (`nsisOwnFolder`), as the uninstaller
+  removes the whole folder, a Start menu shortcut, a desktop shortcut
   that the finish page's second check box (MUI's "show readme" one)
   creates, and an uninstaller registered
   under `HKCU\…\Uninstall\<identifier>`; `/S /D=<dir>` installs
@@ -6906,8 +7341,9 @@ which npm allows only for packages that exist: the first release uses an
    need: main-thread only, synchronous, or with a callback that runs on the
    main thread exactly once.
 3. **Implement it in every backend**: `darwin`, `linux`, `windows`, `web`,
-   `fake` and `unsupported` (return `platform.ErrUnsupported` or a zero
-   value).
+   `fake` and `unsupported` (return `platform.ErrUnsupported`, or
+   `platform.Unsupported(message)` to say it in the backend's own words, or
+   a zero value).
    Create callbacks once, never per call.
 4. **Wire the core**: hop with `onMain`/`onMainValue`, or `postMain` + `await`
    + `deliver` for asynchronous native results. Start with `needsApp` when
@@ -6952,8 +7388,8 @@ which npm allows only for packages that exist: the first release uses an
 | web views' language | from the app's `AppleLanguages`, next launch | `webkit_web_context_set_preferred_languages`, live | the environment's `Language`, as it is created |
 | `Theme.SetSource` | `NSApp`'s appearance (Aqua, DarkAqua, or none) | `gtk-application-prefer-dark-theme`; light also puts a theme named for its dark variant (Yaru-dark) in place of its light one (Yaru), which GTK and WebKitGTK otherwise take for dark, and the other sources reset the theme. Without a source, or with system, the setting follows the settings portal's `color-scheme` (GNOME's and KDE's dark style, which GTK 3 does not read) from `Init` on: dark where the portal prefers dark, else the desktop's own GTK settings | the title bars, menus and native UI, and pages through the DevTools protocol's emulated `prefers-color-scheme` |
 | `Theme.SetGTKCSS` | nothing | a `GtkCssProvider` for the default screen at `GTK_STYLE_PROVIDER_PRIORITY_USER`, replaced by the next sheet that parses | nothing |
-| a press the system cancels in native UI (`InputEvent.Canceled`, `PressCanceled`) | a context menu shown while a button is down, whose loop takes the release | `GDK_GRAB_BROKEN` of the pointer, as a menu or another window takes the grab; a touch's `GDK_TOUCH_CANCEL` taps nothing | `WM_CAPTURECHANGED` (and so `WM_CANCELMODE`) while a button is down; `WM_POINTERUP` with `POINTER_MESSAGE_FLAG_CANCELED` |
-| pointer device and pressure of native UI (`InputEvent.Pointer`, `Pressure`) | a mouse event's `subtype`: a tablet's pen (`NSEventSubtypeTabletPoint`, with `pressure`, or `TabletProximity`) or a touch; `tabletPoint:` events, a pen pressing harder or softer between moves, are moves where the pointer is | the event's source device (`gdk_event_get_source_device`): a pen or eraser, or a touchscreen, its pressure axis (`gdk_event_get_axis`); the area's own touches are fingers | `WM_POINTER` messages, left to `DefWindowProc` to make mouse messages of, give the pressure (`GetPointerPenInfo`, `GetPointerTouchInfo`); the mouse messages' `GetMessageExtraInfo` (`MI_WP_SIGNATURE`) tells a pen's or a finger's |
+| a press the system cancels in native UI (`InputEvent.Canceled`, `PressCanceled`) | a context menu shown while a button is down, whose loop takes the release | `GDK_GRAB_BROKEN` of the pointer, as a menu or another window takes the grab; a touch's `GDK_TOUCH_CANCEL` taps nothing | a finger's canceled `WM_POINTERUP` or `WM_POINTERCAPTURECHANGED` taps nothing; `WM_CAPTURECHANGED` (and so `WM_CANCELMODE`) while a button is down; `WM_POINTERUP` with `POINTER_MESSAGE_FLAG_CANCELED` |
+| pointer device and pressure of native UI (`InputEvent.Pointer`, `Pressure`) | a mouse event's `subtype`: a tablet's pen (`NSEventSubtypeTabletPoint`, with `pressure`, or `TabletProximity`) or a touch; `tabletPoint:` events, a pen pressing harder or softer between moves, are moves where the pointer is | the event's source device (`gdk_event_get_source_device`): a pen or eraser, or a touchscreen, its pressure axis (`gdk_event_get_axis`); the area's own touches are fingers | a pen's `WM_POINTER` messages, left to `DefWindowProc` to make mouse messages of, give the pressure (`GetPointerPenInfo`), and the mouse messages' `GetMessageExtraInfo` (`MI_WP_SIGNATURE`) tells a pen's or a finger's; a finger's the surface takes, with its pressure (`GetPointerTouchInfo`), but for one landing on an embedded web view or a drag region, whose mouse messages tell a finger's |
 | cursors of native UI without a system cursor | `CursorWait`, `CursorHelp`, `CursorZoomIn`, `CursorZoomOut`, `CursorAllScroll` and `CursorCell` from AppKit's private class methods (`_waitCursor`, `_helpCursor`, …, looked up with `respondsToSelector:`), `CursorProgress` its `busyButClickableCursor`, else the nearest public cursor or the arrow | the CSS names from the cursor theme, then GDK's X cursors, then the nearest (`cursorFallbacks`) | `CursorZoomIn`, `CursorZoomOut` and `CursorCell` drawn (`CreateCursor`, `cursorMasks`), the others `IDC_APPSTARTING`, `IDC_WAIT`, `IDC_HELP`, `IDC_SIZEALL`, `IDC_NO` |
 | traffic lights, Dock | yes | ignored | ignored |
 | hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window, through DirectComposition over a material, light or dark per window (`SetWindowButtonsTheme`); snap layouts; a top edge that resizes |
@@ -6989,6 +7425,7 @@ which npm allows only for packages that exist: the first release uses an
 | permissions | `WKUIDelegate` media capture (camera, microphone) | `permission-request` (camera, microphone, geolocation, notifications) | `PermissionRequested` (the same four; WebView2 asks about others) |
 | user agent | `customUserAgent`; `UserAgentSuffix` is the configuration's `applicationNameForUserAgent`, which a `window.open()` window does not inherit | `WebKitSettings:user-agent`; `UserAgentSuffix` appends application details, split at the first "/" | `ICoreWebView2Settings2`'s user agent, and a suffix appended to the settings' own user agent; a runtime without `Settings2` ignores both |
 | swipes and pinches (`SwipeNavigation`, `PinchZoom`) | `allowsBackForwardNavigationGestures` and `allowsMagnification` of the `WKWebView`, both off unless asked for | `WebKitSettings:enable-back-forward-navigation-gestures`; WebKitGTK has no setting for pinches, so the web view's `GtkGestureZoom`, which it keeps in its data as `wk-view-zoom-gesture` (2.38+), is given `GTK_PHASE_NONE` unless `PinchZoom`: it then sees neither a touchpad's pinch nor a touchscreen's | `ICoreWebView2Settings6`'s `IsSwipeNavigationEnabled` and `ICoreWebView2Settings5`'s `IsPinchZoomEnabled`, both on in WebView2 and put to the options' values in `setUp`, before the first navigation |
+| the user's zoom (`ZoomControl`) | none in `WKWebView` | none in WebKitGTK | `ICoreWebView2Settings`'s `IsZoomControlEnabled` (Ctrl+wheel, and Ctrl+Plus and Ctrl+Minus with the browser's keys), on in WebView2 and put to the option's value in `setUp`; the controller's `ZoomFactorChanged` keeps `zoom` (on ARM64 the CSS zoom over the controller's, `userZoom`) and calls `WindowHandler.ZoomChanged` when it is not `SetZoom`'s |
 | the browser's keys (reload, print, find, zoom) | none | none | WebView2's (F5, Ctrl+R, Ctrl+P, Ctrl+F, Ctrl+Plus, ...) only with the inspector (`ICoreWebView2Settings3`'s `AreBrowserAcceleratorKeysEnabled`); `AcceleratorKeyPressed` still gives the menus every key |
 | file associations | `CFBundleDocumentTypes`; files arrive with `application:openURLs:` | desktop entry `MimeType` (`%U`), a shared-mime-info package in the .deb and .rpm for types the app defines (`x-`) | ProgIDs and `OpenWithProgids` written by the installer |
 | document windows | `representedURL` (proxy icon, Command-click folder menu) and `setDocumentEdited:` (the dot), then the traffic lights are laid out again | the core puts `*` before the title | the core puts `*` before the title |
@@ -7000,7 +7437,7 @@ which npm allows only for packages that exist: the first release uses an
 | power events | NSWorkspace sleep/wake, `com.apple.screenIsLocked` distributed notifications | logind `PrepareForSleep` (system bus), screen saver `ActiveChanged` (GNOME, freedesktop) | `WM_POWERBROADCAST`, `WM_WTSSESSION_CHANGE` |
 | Now Playing and media keys | `MPNowPlayingInfoCenter` (its `nowPlayingInfo` and `playbackState`; artwork as an `MPMediaItemArtwork` decoding the bytes it holds when asked) and the targets of `MPRemoteCommandCenter`'s commands, enabled as the info offers them; MediaPlayer.framework loads with the first `Set` | an MPRIS player (`org.mpris.MediaPlayer2` and `.Player` at `/org/mpris/MediaPlayer2`, exported with `g_dbus_connection_register_object`), whose bus name `org.mpris.MediaPlayer2.<app>.instance<pid>` is owned only while it shows something; `PropertiesChanged` on each change, `Seeked` when the position jumps; `xesam:artist` lists `Artists`; the artwork goes to a file in `$XDG_RUNTIME_DIR` for `mpris:artUrl`; `Raise` reaches the core as `platform.MediaRaise`, which shows and focuses the window that had the keyboard last | the `SystemMediaTransportControls` of the application window (`ISystemMediaTransportControlsInterop::GetForWindow`), with agile event handlers, a `RandomAccessStreamReference` over a memory stream for the thumbnail, and the timeline properties for position and seeking |
 | KeepAwake | `NSProcessInfo` activity (shows in `pmset -g assertions`) | XDG portal `Inhibit`, else `org.freedesktop.ScreenSaver.Inhibit` | `PowerCreateRequest` |
-| KeepRunning | `NSProcessInfo` activity `NSActivityUserInitiatedAllowingIdleSystemSleep`: no App Nap, idle sleep allowed (not in `pmset -g assertions`) | nothing: desktops don't slow apps out of sight | nothing yet (power throttling, EcoQoS, would be `SetProcessInformation`'s `ProcessPowerThrottling`) |
+| KeepRunning | `NSProcessInfo` activity `NSActivityUserInitiatedAllowingIdleSystemSleep`: no App Nap, idle sleep allowed (not in `pmset -g assertions`) | nothing: desktops don't slow apps out of sight | `SetProcessInformation`'s `ProcessPowerThrottling`: execution speed opted out until the last release, which puts back the policy read before (usually the system's to decide) |
 | IsOnBattery, IdleTime | IOKit power sources, `CGEventSourceSecondsSinceLastEventType` | `/sys/class/power_supply`; Mutter idle monitor or `GetSessionIdleTime` | `GetSystemPowerStatus`, `GetLastInputInfo` |
 | network status | `nw_path_monitor` on a queue of its own, the first `Status` waiting (up to a second) for its first path; online when the path is satisfied, metered when it is expensive or constrained | `GNetworkMonitor`, `network-available` (a default route) and `network-metered` | `GetNetworkConnectivityHint`, `NotifyNetworkConnectivityHintChange`; online from local access up (not none or hidden), metered for a fixed or variable cost, roaming, over or near the data limit |
 | window position | honored | ignored by Wayland compositors | honored |

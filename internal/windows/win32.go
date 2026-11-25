@@ -194,6 +194,7 @@ var (
 	procCreateCompatibleDC = gdi32.NewProc("CreateCompatibleDC")
 	procDeleteDC           = gdi32.NewProc("DeleteDC")
 	procCreateDIBSection   = gdi32.NewProc("CreateDIBSection")
+	procCreateDIBitmap     = gdi32.NewProc("CreateDIBitmap")
 	procSelectObject       = gdi32.NewProc("SelectObject")
 	procCreateFontW        = gdi32.NewProc("CreateFontW")
 	procGetTextFaceW       = gdi32.NewProc("GetTextFaceW")
@@ -286,6 +287,7 @@ const (
 	wmLButtonUp         = 0x0202
 	wmRButtonUp         = 0x0205
 	wmContextMenu       = 0x007B
+	wmStyleChanging     = 0x007C
 	wmHotkey            = 0x0312
 	wmDisplayChange     = 0x007E
 	wmDpiChanged        = 0x02E0
@@ -427,6 +429,7 @@ const (
 	vkPacket     = 0xE7
 
 	cfUnicodeText = 13
+	cfBitmap      = 2
 	cfDIB         = 8
 	cfDIBV5       = 17
 	gmemMoveable  = 0x0002
@@ -554,6 +557,8 @@ type windowPos struct {
 	X, Y, CX, CY      int32
 	Flags             uint32
 }
+
+type styleStruct struct{ Old, New uint32 }
 
 type ncCalcSizeParams struct {
 	Rgrc [3]rect

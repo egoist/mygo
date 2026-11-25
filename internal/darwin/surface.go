@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package darwin
 
@@ -159,21 +159,27 @@ type surface struct {
 	framePass uint64
 	cursor    platform.Cursor
 	inside    bool
+	swipe     swipeTrack
 	// secondaryClick is set while the primary button is down for a secondary
 	// click: a Control-click, or a press of the secondary button that an event
 	// tap posted again as a primary one.
 	secondaryClick bool
 
-	// input is the state of the text input with the keyboard; marked is
-	// the input method's composition and markedSel its selection in it.
+	// input is the state of the text input with the keyboard; blurred keeps
+	// the last active state while the window lost key status (for example
+	// when the macOS Character Viewer panel opens) but this view is still
+	// first responder, so NSTextInputClient queries and insertText: still
+	// reach the focused text element. marked is the input method's
+	// composition and markedSel its selection in it.
 	input     platform.TextInputState
+	blurred   platform.TextInputState
 	marked    string
 	markedSel nsRange
 	keyDown   bool // in interpretKeyEvents: text typed with the key
 	// withheld is the key keyDown: kept from the content while the input
-	// method composed, during interpretKeyEvents: doCommandBySelector:
-	// sends it if the input method ends the composition and passes the
-	// key on.
+	// method composed, or Backspace, during interpretKeyEvents:
+	// doCommandBySelector: sends it if the input method ends the
+	// composition and passes the key on.
 	withheld *platform.SurfaceEvent
 	// refused: the content left the composition set in
 	// interpretKeyEvents, given up once it returns.
@@ -190,6 +196,13 @@ type surface struct {
 	accessDead    bool
 	dataDrag      *macDataSource
 	dragOperation transfer.Operation
+	// pageDrag is the web view the drag came in over last, if any: its
+	// page takes the drag, and hears the rest of it (webViewAtDrag).
+	// pageDropped says the drop came, and the page took it: the rest of the
+	// drag (concludeDragOperation:) is the page's, but draggingExited:
+	// after it is AppKit's afterthought, not the page's.
+	pageDrag    *window
+	pageDropped bool
 	// placed are where the content shows the window's web views, under
 	// it (webview.go).
 	placed []platform.WebViewPlacement
@@ -796,6 +809,9 @@ func (s *surface) SetCursor(c platform.Cursor) {
 }
 
 func (s *surface) SetTextInput(t platform.TextInputState) {
+	if t.Active {
+		s.blurred = platform.TextInputState{}
+	}
 	if s.input.Client != t.Client && s.input.Active {
 		s.discardComposition()
 	}
@@ -822,11 +838,16 @@ func (w *window) surfaceKeyChanged(key bool) {
 	if s == nil || send(w.win, "firstResponder") != s.view {
 		return
 	}
-	kind := platform.SurfaceBlur
 	if key {
-		kind = platform.SurfaceFocus
+		s.blurred = platform.TextInputState{}
+		s.send(platform.SurfaceEvent{Kind: platform.SurfaceFocus})
+		return
 	}
-	s.send(platform.SurfaceEvent{Kind: kind})
+	prev := s.input
+	s.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
+	if prev.Active && !s.input.Active {
+		s.blurred = prev
+	}
 }
 
 func (s *surface) send(ev platform.SurfaceEvent) bool {
@@ -845,7 +866,22 @@ func scrollWheel(s *surface, ev id) {
 		// A mouse wheel scrolls by lines: 40 DIPs, as in browsers.
 		dx, dy = dx*40, dy*40
 	}
-	s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: -dx, DY: -dy, Precise: precise, Momentum: momentum, Mods: eventMods(ev)})
+	phase := 0
+	if precise && !momentum {
+		phase = sendInt(ev, "phase")
+	}
+	swipe := s.swipe.swiping(phase)
+	mods := eventMods(ev)
+	taken := s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: -dx, DY: -dy, Precise: precise, Momentum: momentum, Swipe: swipe, Mods: mods})
+	if !swipe {
+		return
+	}
+	// A two-finger swipe nothing scrolled sideways goes back or forward,
+	// as the side buttons do.
+	if back, ok := s.swipe.scroll(phase, dx, dy, taken); ok {
+		s.sideButton(platform.PointerDown, back, mods)
+		s.sideButton(platform.PointerUp, back, mods)
+	}
 }
 
 func eventMods(ev id) platform.Modifiers {
@@ -1167,11 +1203,35 @@ func registerSurfaceClass() {
 			}
 		})
 	}
-	dragged := func(self id, _ objc.SEL, info id) uint {
+	// A drag over a web view is its page's. AppKit sends a drag to the view
+	// under the pointer, which is the surface: the web views are under it
+	// (webview.go), and only its hitTest: lets the pointer through, which
+	// AppKit asks the mouse's events, not a drag's. The surface hands the
+	// drag to the web view, whose page gets the events WebKit makes of it,
+	// as in a window of its own.
+	dragged := func(self id, cmd objc.SEL, info id) uint {
 		s := b().surfaceOf(self)
 		if s == nil {
 			return 0
 		}
+		if wv := s.webViewAtDrag(info); wv != nil {
+			// The page the pointer came in over from hears that it left,
+			// as a page of a window does when the pointer goes to another.
+			s.pageDragTo(wv, info, cmd == sel("draggingEntered:"))
+			// draggingEntered: and draggingUpdated: both answer an
+			// NSDragOperation, so the selector goes on as it stands.
+			if op := uint(objc.Send[uintptr](wv.web, cmd, uintptr(info))); op != 0 {
+				return op
+			}
+			// WebKit answers none while its page takes the drag (it asks
+			// the page's handlers during the drop, not here): the surface
+			// takes the drag on the page's behalf, or AppKit would send no
+			// drop to it.
+			return uint(send(info, "draggingSourceOperationMask"))
+		}
+		// The drag is over the content: a page it left hears of that, and
+		// the content takes the drag.
+		s.pageDragTo(nil, info, false)
 		return s.nativeDataOperation(info)
 	}
 	methods := []objc.MethodDef{
@@ -1180,16 +1240,49 @@ func registerSurfaceClass() {
 		method("draggingUpdated:", dragged),
 		method("draggingExited:", func(self id, _ objc.SEL, info id) {
 			if s := b().surfaceOf(self); s != nil {
-				s.nativeDataEvent(info, platform.DataDragLeave)
+				s.dragExited(info)
 			}
 		}),
-		method("prepareForDragOperation:", func(self id, _ objc.SEL, info id) bool { return true }),
+		// The surface takes any drop itself (nativeDataEvent reads the
+		// pasteboard); a page's awaits the drop, on the web view.
+		method("prepareForDragOperation:", func(self id, _ objc.SEL, info id) bool {
+			s := b().surfaceOf(self)
+			if s == nil {
+				return true
+			}
+			if wv := s.webViewAtDrag(info); wv != nil {
+				// WebKit answers no here even where its page takes the
+				// drop, as a web view of a window answers no too: the page
+				// hears of the drag and takes the drop itself.
+				s.pageDragTo(wv, info, false)
+				objc.Send[bool](wv.web, objc.RegisterName("prepareForDragOperation:"), uintptr(info))
+				return true
+			}
+			return true
+		}),
 		method("performDragOperation:", func(self id, _ objc.SEL, info id) bool {
 			s := b().surfaceOf(self)
 			if s == nil {
 				return false
 			}
+			if wv := s.pageDrag; wv != nil {
+				// The page concludes its own drag once this returns
+				// (concludeDragOperation:), so its web view is kept until
+				// then; a drop the page refused is the surface's to forget.
+				s.pageDropped = s.pageDrop(wv, info)
+				if !s.pageDropped {
+					s.pageDrag, s.pageDropped = nil, false
+				}
+				return s.pageDropped
+			}
 			return s.nativeDataEvent(info, platform.DataDrop)
+		}),
+		method("concludeDragOperation:", func(self id, _ objc.SEL, info id) {
+			if s := b().surfaceOf(self); s != nil {
+				if wv := s.pageDragEnd(); wv != nil {
+					objc.Send[struct{}](wv.web, objc.RegisterName("concludeDragOperation:"), uintptr(info))
+				}
+			}
 		}),
 	}
 	classDef("MyGoSurfaceView", "NSView", []string{"NSTextInputClient"}, append(append(methods, accessViewMethods()...), []objc.MethodDef{
@@ -1206,7 +1299,10 @@ func registerSurfaceClass() {
 			return sendSuperPoint(self, "MyGoSurfaceView", cmd, p)
 		}),
 		method("acceptsFirstResponder", func(self id, _ objc.SEL) bool { return true }),
-		method("acceptsFirstMouse:", func(self id, _ objc.SEL, ev id) bool { return true }),
+		method("acceptsFirstMouse:", func(self id, _ objc.SEL, ev id) bool {
+			s := b().surfaceOf(self)
+			return s == nil || !s.w.opts.ConsumeActivationClick
+		}),
 		method("mouseDownCanMoveWindow", func(self id, _ objc.SEL) bool { return false }),
 		method("wantsUpdateLayer", func(self id, _ objc.SEL) bool { return true }),
 		method("updateLayer", func(self id, _ objc.SEL) {
@@ -1298,6 +1394,7 @@ func registerSurfaceClass() {
 		}),
 		method("resignFirstResponder", func(self id, _ objc.SEL) bool {
 			if s := b().surfaceOf(self); s != nil {
+				s.blurred = platform.TextInputState{}
 				s.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
 			}
 			return true
@@ -1379,9 +1476,12 @@ func registerSurfaceClass() {
 			// method's, as Enter choosing a candidate or Escape giving the
 			// composition up, as GTK's and IMM32's filtering keeps them on
 			// Linux and Windows, unless the input method passes it on
-			// (doCommandBySelector:).
+			// (doCommandBySelector:). So is Backspace while an input
+			// method is on: the Korean one composes without marked text,
+			// replacing the syllable before the caret, and takes a jamo
+			// back with Backspace the same way (한 → 하).
 			key := platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), PhysicalKey: physicalKey(ev), Code: eventKeyCode(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")}
-			withheld := ime && s.hasMarkedText()
+			withheld := ime && (s.hasMarkedText() || key.Key == platform.KeyBackspace)
 			if !withheld {
 				s.send(key)
 			}
@@ -1391,7 +1491,7 @@ func registerSurfaceClass() {
 			// for press and hold's accents to replace, as a terminal's
 			// input, which takes text itself (no Client): the accents
 			// menu, holding the repeats back, would type nothing there.
-			if ime && s.input.Client == nil && sendBool(ev, "isARepeat") && !s.hasMarkedText() {
+			if ime && s.input.Client == nil && sendBool(ev, "isARepeat") && !withheld {
 				if t := typedChars(stringOf(send(ev, "characters"))); t != "" {
 					s.insertText(t, nsRange{Location: nsNotFound})
 				}
@@ -1483,11 +1583,13 @@ func registerSurfaceClass() {
 		}),
 		method("characterIndexForPoint:", func(self id, _ objc.SEL, p NSPoint) uint {
 			s := b().surfaceOf(self)
-			if s != nil && s.input.Client != nil {
-				window := msgRectToRect(s.w.win, sel("convertRectFromScreen:"), NSRect{Origin: p})
-				local := msgConvertRectView(self, sel("convertRect:fromView:"), window, 0)
-				if index, ok := s.input.Client.IndexForPoint(local.Origin.X, local.Origin.Y); ok {
-					return uint(index)
+			if s != nil {
+				if client := s.textInput().Client; client != nil {
+					window := msgRectToRect(s.w.win, sel("convertRectFromScreen:"), NSRect{Origin: p})
+					local := msgConvertRectView(self, sel("convertRect:fromView:"), window, 0)
+					if index, ok := client.IndexForPoint(local.Origin.X, local.Origin.Y); ok {
+						return uint(index)
+					}
 				}
 			}
 			return nsNotFound
@@ -1497,8 +1599,9 @@ func registerSurfaceClass() {
 			if s == nil {
 				return cgRect{}
 			}
-			c := s.input.Caret
-			if client := s.input.Client; client != nil {
+			in := s.textInput()
+			c := in.Caret
+			if client := in.Client; client != nil {
 				rangeWanted := clientRange(r)
 				if rangeWanted == nil {
 					return cgRect{}
@@ -1518,7 +1621,8 @@ func registerSurfaceClass() {
 		}),
 		// The input method passes on the key it was given (insertNewline:
 		// for Return, moveLeft: for the left arrow…), as the Korean one
-		// does once Return or an arrow committed the syllable it composed:
+		// does once Return or an arrow committed the syllable it composed,
+		// and Backspace (deleteBackward:) once it has no jamo to take back:
 		// the content gets the key it held back, as a text view acts on
 		// the command. Input methods that keep the key, as Return choosing
 		// a candidate in Japanese or Chinese, do not ask for its command,
