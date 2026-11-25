@@ -1024,7 +1024,9 @@ what only it does well: the views, the web view and its delegates, the
 keyboard, accessibility, the system's dialogs and Swift-only or Java-only
 APIs. Phones' build modes need cgo to link (`c-archive` linked into the
 Swift host by swiftc, `c-shared` loaded by the Kotlin one), the only cgo of
-MyGo, in `glue_ios.go` and `glue_android.go` (with `jni_android.c`); the
+MyGo, in `glue_ios.go` and `glue_android.go` (with `jni_android.c`, which
+keeps the `JavaVM*` and a global reference to the application's `Context`
+that `mygo.JavaVM` and `mygo.AndroidContext` hand to apps' C); the
 rest of the backend builds anywhere, and its tests run on desktops with a
 fake host. Desktop files of `darwin` and `linux` exclude `ios` and
 `android`, which their constraints otherwise include.
@@ -3456,7 +3458,9 @@ either.
   fractional and content-sized tracks, with the items' percentages of
   their grid areas, as auto while the tracks are sized), laying out again
   only what changed since the last frame (see below); commits the boxes to the elements'
-  states with the hit list in paint order, the focus order and the labels;
+  states with the hit list in paint order, the focus order and the labels,
+  and whether their text was cut, or text inside them (`state.truncated`,
+  which `Truncated` reads as `Bounds` reads the box);
   paints a `scene.Scene`; and presents it. The pointer finds what it is
   over in the hit list, last first (`appendHitChain`, `contains`): an
   element whose visible part, clipped as commit found it (`state.vx`..),
@@ -4279,8 +4283,10 @@ either.
   on Windows, DWM's `AccentColor`, `SPI_GETCLIENTAREAANIMATION`,
   `SPI_GETHIGHCONTRAST` and Accessibility's `TextScaleFactor`, with
   `WM_SETTINGCHANGE`; on Linux, GTK's `gtk-enable-animations` and the
-  settings portal's accent, contrast and GNOME's text scaling factor
-  (`ReadAll`, `SettingChanged`). What the pointing devices can do
+  settings portal's reduced motion (or GNOME's `enable-animations`, for
+  KDE's Instant animation speed, which GTK's setting does not follow),
+  accent, contrast and GNOME's text scaling factor (`ReadAll`,
+  `SettingChanged`). What the pointing devices can do
   (`Pointer`, `AnyPointer`, `NoHover`, `NoAnyHover`, Media Queries 4's
   interaction features), whose zero is a mouse's, as macOS's always is,
   comes from the media queries in browsers; on Linux from the sources of
@@ -4465,7 +4471,18 @@ either.
   O(log n) whatever the estimate. The area scrolls as a scroll container,
   its offset the state's (`flagScrollY`, the content as high as its
   paragraphs), kept by the anchor as heights above the view are measured;
-  an edit, a move of the caret or a press reveals the caret once.
+  an edit, a move of the caret or a press reveals the caret once. With
+  `NoWrap`, which sets `flagScrollX` on an area, its paragraphs break only
+  at newlines and it scrolls sideways too, by the editor's `scrollX`, as a
+  single-line input does: the x in the layouts at the view's left, which a
+  line aligned to the right and longer than the view goes left of. Each
+  paragraph laid out keeps how far its lines reach left and right (`ext`),
+  the content as wide as the farthest, found again only when the farthest
+  shrinks (`extents`); the state's offset counts from the content's left,
+  or its right right to left, as a scroll container's, so that the wheel,
+  Shift and the wheel, the scroll bar and `ScrollState` move it. Hits,
+  painting, the input method's caret and `IndexForPoint` take `scrollX`
+  off, and a drag held past a side asks for frames, selecting on.
 - **Editing layers.** `ui/editor.go` holds the widget's editing state;
   `editor_history.go` owns delta undo, `editor_selection.go` the visual
   range set and caret affinity, `editor_navigation.go` keys and pointer
@@ -6308,6 +6325,11 @@ either.
   (`runtime.AddCleanup`). `System.Reuse` keeps its engine, fonts and
   layouts, and starts its language and atlases anew. At most GOMAXPROCS
   wait idle; `BenchmarkTesterFirstFrame` measures a Tester's first frame.
+  A system `New` made that is no longer idle nor any Tester's becomes
+  unreachable, and its engine closes (`engineCloser`, run by a cleanup),
+  releasing what it holds of the system's text stack: on Linux a Pango
+  font map and the thread fontconfig starts for it, which a test binary
+  of hundreds of Testers otherwise kept (#1902).
   `BenchmarkFrame` in `ui` measures a frame of a large window on the CPU,
   and `BenchmarkListScroll` the frames scrolling a list of a million rows;
   `BenchmarkDiff*` the frames of a window as godiff's, two lists of texts
@@ -6864,8 +6886,19 @@ make it work, and phones a fourth:
   languages (`nsisHooks`); its `customInit`, `customInstall` and
   `customUnInstall` macros, each inserted only under `!ifmacrodef`, run
   in `.onInit`, at the end of the install section and in the uninstall
-  section before `RMDir /r "$INSTDIR"`, as electron-builder's do; without
-  it the script is unchanged.
+  section before `RMDir /r "$INSTDIR"`, as electron-builder's do. The
+  uninstaller's pages must be declared before the include, which follows
+  the languages, so the script declares `UninstPage custom un.mygoPage
+  un.mygoPageLeave` and the confirm page's `MUI_PAGE_CUSTOMFUNCTION_SHOW`
+  and `_LEAVE` (`un.mygoConfirmShow`, `un.mygoConfirmLeave`) there, and
+  defines those functions after the include: they insert
+  `customUnPage`, `customUnPageLeave`, `customUnConfirmShow` and
+  `customUnConfirmLeave` under `!ifmacrodef`, and `un.mygoPage` aborts,
+  skipping its page, without `customUnPage`. Without
+  `windows.installerInclude` the script is unchanged. The uninstaller
+  also deletes the user's `App.SetOpenAtLogin` value, named by the
+  identifier, from `HKCU\…\CurrentVersion\Run` and
+  `…\Explorer\StartupApproved\Run` (`nsisLoginEntry`).
   `makensis` comes from an installation of NSIS or, on Windows, where NSIS
   is rarely installed, from the official zip of the release that
   `Release` in `internal/nsis` pins, which the CLI downloads once, checks
@@ -7381,7 +7414,7 @@ which npm allows only for packages that exist: the first release uses an
 | secrets | Security.framework generic passwords in the login keychain (`SecItem*`), service and account as keytar | libsecret's `org.freedesktop.Secret.Generic` schema (attributes `service`, `account`), loaded on first use, libsecret 0.19 or later; no libsecret, no session bus (`g_bus_get_sync`) or no Secret Service on it (`G_DBUS_ERROR_SERVICE_UNKNOWN`, `NAME_HAS_NO_OWNER`, `NO_SERVER`) is `ErrUnsupported` | Credential Manager generic credentials (`CredWriteW`), target `service/account` |
 | vibrancy | all materials, behind pages and native UI; Liquid Glass (`NSGlassEffectView`) from macOS 26, the popover and HUD materials before, with a `tintColor` and the native UI's `Glass{Native}` placed over web views; frameless windows cut to `CornerRadius`; `SetActiveAppearance` through AppKit's private `_setForceMainAppearance:` | ignored | Windows 11 22H2 Mica, Acrylic, Tabbed, behind pages and native UI, in windows created with a material, which have no menu bar; Liquid Glass as Acrylic; frameless windows given a `CornerRadius` rounded by DWM |
 | active windows | the core's state, from key windows; materials follow AppKit's (`NSVisualEffectStateFollowsWindowActiveState`), but panels', flyouts' and kept ones' (`NSVisualEffectStateActive`) | the core's state, from GDK's focus; GTK's own title bar goes `:backdrop` as a focusable flyout takes the keyboard | the core's state, from `WM_ACTIVATE`; DWM's Mica and Acrylic follow the frame, kept active while the window's focusable flyout is (`WM_NCACTIVATE`) |
-| accent color and accessibility preferences | `NSColor.controlAccentColor` (10.14+), `accessibilityDisplayShouldReduceMotion` (10.12+), `accessibilityDisplayShouldReduceTransparency` and `accessibilityDisplayShouldIncreaseContrast` (10.10+), with `NSSystemColorsDidChangeNotification` and `NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification`; no text scale | GTK's `gtk-enable-animations` and theme name, and the settings portal's accent, contrast and GNOME's `text-scaling-factor` (`ReadAll`, `SettingChanged`); no reduced transparency; the pointing devices from the default seat's, as they come and go | DWM's `AccentColor`, `SPI_GETCLIENTAREAANIMATION`, Personalize's `EnableTransparency`, `SPI_GETHIGHCONTRAST` and Accessibility's `TextScaleFactor`, with `WM_SETTINGCHANGE`; the pointing devices from `SM_MOUSEPRESENT`, `SM_DIGITIZER` and tablet mode, not followed as they are plugged in |
+| accent color and accessibility preferences | `NSColor.controlAccentColor` (10.14+), `accessibilityDisplayShouldReduceMotion` (10.12+), `accessibilityDisplayShouldReduceTransparency` and `accessibilityDisplayShouldIncreaseContrast` (10.10+), with `NSSystemColorsDidChangeNotification` and `NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification`; no text scale | GTK's `gtk-enable-animations` and theme name, and the settings portal's `reduced-motion`, accent, contrast and GNOME's `enable-animations` and `text-scaling-factor` (`ReadAll`, `SettingChanged`); no reduced transparency; the pointing devices from the default seat's, as they come and go | DWM's `AccentColor`, `SPI_GETCLIENTAREAANIMATION`, Personalize's `EnableTransparency`, `SPI_GETHIGHCONTRAST` and Accessibility's `TextScaleFactor`, with `WM_SETTINGCHANGE`; the pointing devices from `SM_MOUSEPRESENT`, `SM_DIGITIZER` and tablet mode, not followed as they are plugged in |
 | preferred languages | the global `AppleLanguages` (`CFPreferencesCopyValue`), not the app's | `LANGUAGE`, then `LC_ALL`, `LC_MESSAGES`, `LANG`; read when asked, no changes reported | `GetUserPreferredUILanguages`, `WM_SETTINGCHANGE` "intl" |
 | regional formats | `autoupdatingCurrentLocale`, its calendar's first weekday, the hour of the skeleton "j"; `NSCurrentLocaleDidChangeNotification` and System Settings' distributed notifications | glibc's `nl_langinfo_l` of `LC_TIME` (`_NL_TIME_FIRST_WEEKDAY`, `T_FMT`), else by region | `GetLocaleInfoEx` of the user's default: `LOCALE_IFIRSTDAYOFWEEK`, `LOCALE_STIMEFORMAT` |
 | the app's language kept | `AppleLanguages` of the app's defaults | the file `locale` in PathUserData | the file `locale` in PathUserData, and the process's preferred UI languages |
