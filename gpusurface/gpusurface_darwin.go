@@ -53,10 +53,9 @@ var lib struct {
 	once sync.Once
 	err  error
 
-	msgSend, poolPush, poolPop, machAbsoluteTime uintptr
-	ioWidth, ioHeight, ioFormat                  uintptr
-	ioPlaneWidth, ioPlaneHeight                  uintptr
-	numer, denom                                 uint64
+	msgSend, poolPush, poolPop  uintptr
+	ioWidth, ioHeight, ioFormat uintptr
+	ioPlaneWidth, ioPlaneHeight uintptr
 
 	// pthreadMainNP, dispatchSyncF, mainQueue (dispatch_get_main_queue())
 	// and mainCallback are onMain's.
@@ -133,18 +132,13 @@ func load() error {
 		lib.ioFormat = sym(io, "IOSurfaceGetPixelFormat")
 		lib.ioPlaneWidth = sym(io, "IOSurfaceGetWidthOfPlane")
 		lib.ioPlaneHeight = sym(io, "IOSurfaceGetHeightOfPlane")
-		lib.machAbsoluteTime = sym(system, "mach_absolute_time")
 		lib.pthreadMainNP = sym(system, "pthread_main_np")
 		lib.dispatchSyncF = sym(system, "dispatch_sync_f")
 		lib.mainQueue = sym(system, "_dispatch_main_q")
-		timebase := sym(system, "mach_timebase_info")
 		create := sym(metal, "MTLCreateSystemDefaultDevice")
 		if lib.err != nil {
 			return
 		}
-		var tb struct{ numer, denom uint32 }
-		purego.SyscallN(timebase, uintptr(unsafe.Pointer(&tb)))
-		lib.numer, lib.denom = uint64(tb.numer), uint64(tb.denom)
 		purego.RegisterFunc(&lib.createDevice, create)
 		purego.RegisterFunc(&lib.msgSetSize, lib.msgSend)
 		purego.RegisterFunc(&lib.msgRect, lib.msgSend)
@@ -163,8 +157,41 @@ func load() error {
 // Now returns the time in nanoseconds of the clock Timing uses: the host's
 // mach time, which Core Animation's presentedTime counts in seconds.
 func Now() int64 {
-	t, _, _ := syscall6(lib.machAbsoluteTime, 0, 0, 0, 0, 0, 0)
-	return int64(uint64(t) * lib.numer / lib.denom)
+	clock.once.Do(loadClock)
+	if clock.machAbsoluteTime == 0 {
+		return 0
+	}
+	t, _, _ := syscall6(clock.machAbsoluteTime, 0, 0, 0, 0, 0, 0)
+	return int64(uint64(t) * clock.numer / clock.denom)
+}
+
+// clock is Now's, loaded apart from lib so that Now works before New.
+var clock struct {
+	once             sync.Once
+	machAbsoluteTime uintptr
+	numer, denom     uint64
+}
+
+func loadClock() {
+	h, err := purego.Dlopen("/usr/lib/libSystem.B.dylib", purego.RTLD_GLOBAL|purego.RTLD_NOW)
+	if err != nil {
+		return
+	}
+	abs, err := purego.Dlsym(h, "mach_absolute_time")
+	if err != nil {
+		return
+	}
+	timebase, err := purego.Dlsym(h, "mach_timebase_info")
+	if err != nil {
+		return
+	}
+	var tb struct{ numer, denom uint32 }
+	purego.SyscallN(timebase, uintptr(unsafe.Pointer(&tb)))
+	if tb.denom == 0 {
+		return
+	}
+	clock.numer, clock.denom = uint64(tb.numer), uint64(tb.denom)
+	clock.machAbsoluteTime = abs
 }
 
 func msg(obj uintptr, sel objc.SEL) uintptr {
@@ -557,8 +584,12 @@ var errNoDrawable = errors.New("gpusurface: no drawable")
 // each frame given to PresentTagged after it: with the frame's tag, the
 // time Present was called and the time it reached the screen (0 when a
 // newer frame replaced it first), on the clock Now reads. Set it before
-// the first present.
+// the first present. A nil f stops the calls.
 func (s *Surface) OnPresented(f func(tag, submitted, presented int64)) {
+	if f == nil {
+		s.onPresented.Store(nil)
+		return
+	}
 	s.onPresented.Store(&f)
 }
 
@@ -669,7 +700,7 @@ func onPresented(_ objc.Block, d objc.ID) {
 		presented = int64(at * 1e9)
 	}
 	s.timings.resolve(int(atomic.LoadInt64(&p.index)), presented)
-	if f := s.onPresented.Load(); f != nil {
+	if f := s.onPresented.Load(); f != nil && *f != nil {
 		(*f)(atomic.LoadInt64(&p.tag), atomic.LoadInt64(&p.submitted), presented)
 	}
 }

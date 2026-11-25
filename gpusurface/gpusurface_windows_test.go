@@ -214,3 +214,28 @@ func TestOnPresented(t *testing.T) {
 		t.Fatalf("OnPresented calls %+v after PresentTagged(7) and Present at %d", calls, before)
 	}
 }
+
+// TestOnPresentedNil: OnPresented(nil) stops the calls, and presents go on.
+func TestOnPresentedNil(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	hwnd := testWindow(t, 64, 64)
+	s, err := New(Options{Window: hwnd, Composite: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	calls := 0
+	s.OnPresented(func(tag, submitted, presented int64) { calls++ })
+	frame := solid(t, s, 16, 16, 0xff0000ff)
+	if err := s.Present(frame); err != nil {
+		t.Fatal(err)
+	}
+	s.OnPresented(nil)
+	if err := s.Present(frame); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("OnPresented called %d times, want 1: only for the present before OnPresented(nil)", calls)
+	}
+}

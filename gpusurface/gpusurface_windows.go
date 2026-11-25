@@ -517,8 +517,12 @@ func (s *Surface) PresentTagged(texture uintptr, tag int64) error {
 // with the frame's tag (0 but from PresentTagged), the time Present was
 // called and 0 for the time it reached the screen, which DXGI does not
 // tell (see Timing). It is called on the presenting thread as the present
-// returns. Set it before the first present.
+// returns. Set it before the first present. A nil f stops the calls.
 func (s *Surface) OnPresented(f func(tag, submitted, presented int64)) {
+	if f == nil {
+		s.onPresented.Store(nil)
+		return
+	}
 	s.onPresented.Store(&f)
 }
 
@@ -572,7 +576,7 @@ func (s *Surface) present(texture uintptr, slice, width, height int, tag int64) 
 		s.timings.recs[i].Encoded = Now()
 		s.timings.resolve(i, 0)
 	}
-	if f := s.onPresented.Load(); f != nil {
+	if f := s.onPresented.Load(); f != nil && *f != nil {
 		(*f)(tag, submitted, 0)
 	}
 	return nil

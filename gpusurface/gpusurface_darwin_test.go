@@ -5,7 +5,9 @@ package gpusurface
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -25,6 +27,11 @@ func init() { runtime.LockOSThread() }
 var initWindow func(obj uintptr, sel objc.SEL, r cgRect, style, backing uintptr, deferred bool) uintptr
 
 func TestMain(m *testing.M) {
+	if os.Getenv(nowFirstEnv) != "" {
+		a, b := Now(), Now()
+		fmt.Println(a > 0 && b >= a)
+		os.Exit(0)
+	}
 	if err := load(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -266,5 +273,28 @@ func TestWindowedPresentKeepsAspect(t *testing.T) {
 	want, _ := fitRect(64, 36, uintptr(dw), uintptr(dh))
 	if s.Direct() || s.fit != want || s.fit[1] >= 1 {
 		t.Fatalf("windowed fit %v in %dx%d (direct %v), want %v", s.fit, dw, dh, s.Direct(), want)
+	}
+}
+
+const nowFirstEnv = "GPUSURFACE_TEST_NOW_FIRST"
+
+// TestNowBeforeNew: Now works in a process that has made no surface.
+func TestNowBeforeNew(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), nowFirstEnv+"=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "true" {
+		t.Fatalf("Now in a fresh process: %v, output %q", err, out)
+	}
+}
+
+// TestOnPresentedNil: OnPresented(nil) leaves no handler for the presented
+// callback to call.
+func TestOnPresentedNil(t *testing.T) {
+	var s Surface
+	s.OnPresented(func(tag, submitted, presented int64) {})
+	s.OnPresented(nil)
+	if s.onPresented.Load() != nil {
+		t.Fatal("OnPresented(nil) left a handler")
 	}
 }
