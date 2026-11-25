@@ -131,6 +131,11 @@ func collectionBehavior(w *mygo.Window) (behavior uint, supported bool) {
 	return behavior, true
 }
 
+func becomesKeyOnlyIfNeeded(w *mygo.Window) (only, supported bool) {
+	mygo.RunOnMain(func() { only = darwin.TestBecomesKeyOnlyIfNeeded(w.NativeHandle()) })
+	return only, true
+}
+
 func material(w *mygo.Window) (class string, style int, radius float64, active bool, supported bool) {
 	mygo.RunOnMain(func() { class, style, radius, active = darwin.TestMaterial(w.NativeHandle()) })
 	return class, style, radius, active, true
@@ -278,6 +283,15 @@ func pressKeyComposing(w *mygo.Window, code uint16, chars, commit, command strin
 	return ok
 }
 
+// pressKeyComposingOver is pressKeyComposing with commit replacing the
+// length UTF-16 units at from, unless from is negative.
+func pressKeyComposingOver(w *mygo.Window, code uint16, chars, commit, command string, from, length int) (ok bool) {
+	mygo.RunOnMain(func() {
+		ok = darwin.TestKeyComposingOver(w.NativeHandle(), code, chars, commit, command, from, length)
+	})
+	return ok
+}
+
 func compose(w *mygo.Window, text string, caret int, commit bool) (ok bool) {
 	mygo.RunOnMain(func() { ok = darwin.TestCompose(w.NativeHandle(), text, caret, commit) })
 	return ok
@@ -361,6 +375,10 @@ func rightClick(*mygo.Window, float64, float64) bool { return false }
 func popupMenus() ([][]string, bool)                 { return nil, false }
 func choosePopupItem(string) bool                    { return false }
 func popupItemEnabled(string) (bool, bool)           { return false, false }
+
+// keyboardTarget would say where keys typed now go, which only Windows'
+// tests ask the system.
+func keyboardTarget(*mygo.Window) string { return "" }
 
 // pressEscape presses Escape in the key window, as the keyboard does.
 func pressEscape(*mygo.Window) bool {
@@ -462,6 +480,18 @@ func pressLetter(w *mygo.Window, letter byte, cmd bool) (ok bool) {
 	return ok
 }
 
+// pressPageLetter presses the key of an uppercase letter in a window showing
+// a web page, sending it to the window's first responder.
+func pressPageLetter(w *mygo.Window, letter byte) (ok bool) {
+	code, known := map[byte]uint16{'J': 0x26, 'K': 0x28, 'L': 0x25}[letter]
+	if !known {
+		return false
+	}
+	chars := string(rune(letter - 'A' + 'a'))
+	mygo.RunOnMain(func() { ok = darwin.TestPageKeyShift(w.NativeHandle(), code, chars, false) })
+	return ok
+}
+
 func glassTint(w *mygo.Window) (red, green, blue, alpha float64, ok bool) {
 	mygo.RunOnMain(func() { red, green, blue, alpha = darwin.TestGlassTint(w.NativeHandle()) })
 	return red, green, blue, alpha, true
@@ -483,6 +513,22 @@ func nativeGlassTint(w *mygo.Window) (red, green, blue, alpha float64) {
 }
 
 func activateApp() { mygo.RunOnMain(darwin.TestActivate) }
+
+func checkActivationHit(t *testing.T, w *mygo.Window, kind string, enabled bool) {
+	t.Helper()
+	wantClass := "MyGoWebView"
+	if kind == "native" {
+		wantClass = "MyGoSurfaceView"
+	}
+	eventually(t, "the content placed", func() bool { return hitView(w, 100, 100) == wantClass })
+	var accepts bool
+	mygo.RunOnMain(func() { accepts = darwin.TestAcceptsFirstMouse(w.NativeHandle(), 100, 100) })
+	if accepts == enabled {
+		t.Fatalf("acceptsFirstMouse = %v, want %v", accepts, !enabled)
+	}
+}
+
+func requireForeground(_ *testing.T, w *mygo.Window) { w.Focus() }
 
 // Only X servers keep a keyboard's state for the tests after a test: see
 // left_behind_linux_test.go.

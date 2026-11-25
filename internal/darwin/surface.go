@@ -159,21 +159,27 @@ type surface struct {
 	framePass uint64
 	cursor    platform.Cursor
 	inside    bool
+	swipe     swipeTrack
 	// secondaryClick is set while the primary button is down for a secondary
 	// click: a Control-click, or a press of the secondary button that an event
 	// tap posted again as a primary one.
 	secondaryClick bool
 
-	// input is the state of the text input with the keyboard; marked is
-	// the input method's composition and markedSel its selection in it.
+	// input is the state of the text input with the keyboard; blurred keeps
+	// the last active state while the window lost key status (for example
+	// when the macOS Character Viewer panel opens) but this view is still
+	// first responder, so NSTextInputClient queries and insertText: still
+	// reach the focused text element. marked is the input method's
+	// composition and markedSel its selection in it.
 	input     platform.TextInputState
+	blurred   platform.TextInputState
 	marked    string
 	markedSel nsRange
 	keyDown   bool // in interpretKeyEvents: text typed with the key
 	// withheld is the key keyDown: kept from the content while the input
-	// method composed, during interpretKeyEvents: doCommandBySelector:
-	// sends it if the input method ends the composition and passes the
-	// key on.
+	// method composed, or Backspace, during interpretKeyEvents:
+	// doCommandBySelector: sends it if the input method ends the
+	// composition and passes the key on.
 	withheld *platform.SurfaceEvent
 	// refused: the content left the composition set in
 	// interpretKeyEvents, given up once it returns.
@@ -803,6 +809,9 @@ func (s *surface) SetCursor(c platform.Cursor) {
 }
 
 func (s *surface) SetTextInput(t platform.TextInputState) {
+	if t.Active {
+		s.blurred = platform.TextInputState{}
+	}
 	if s.input.Client != t.Client && s.input.Active {
 		s.discardComposition()
 	}
@@ -829,11 +838,16 @@ func (w *window) surfaceKeyChanged(key bool) {
 	if s == nil || send(w.win, "firstResponder") != s.view {
 		return
 	}
-	kind := platform.SurfaceBlur
 	if key {
-		kind = platform.SurfaceFocus
+		s.blurred = platform.TextInputState{}
+		s.send(platform.SurfaceEvent{Kind: platform.SurfaceFocus})
+		return
 	}
-	s.send(platform.SurfaceEvent{Kind: kind})
+	prev := s.input
+	s.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
+	if prev.Active && !s.input.Active {
+		s.blurred = prev
+	}
 }
 
 func (s *surface) send(ev platform.SurfaceEvent) bool {
@@ -852,7 +866,22 @@ func scrollWheel(s *surface, ev id) {
 		// A mouse wheel scrolls by lines: 40 DIPs, as in browsers.
 		dx, dy = dx*40, dy*40
 	}
-	s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: -dx, DY: -dy, Precise: precise, Momentum: momentum, Mods: eventMods(ev)})
+	phase := 0
+	if precise && !momentum {
+		phase = sendInt(ev, "phase")
+	}
+	swipe := s.swipe.swiping(phase)
+	mods := eventMods(ev)
+	taken := s.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: x, Y: y, DX: -dx, DY: -dy, Precise: precise, Momentum: momentum, Swipe: swipe, Mods: mods})
+	if !swipe {
+		return
+	}
+	// A two-finger swipe nothing scrolled sideways goes back or forward,
+	// as the side buttons do.
+	if back, ok := s.swipe.scroll(phase, dx, dy, taken); ok {
+		s.sideButton(platform.PointerDown, back, mods)
+		s.sideButton(platform.PointerUp, back, mods)
+	}
 }
 
 func eventMods(ev id) platform.Modifiers {
@@ -1270,7 +1299,10 @@ func registerSurfaceClass() {
 			return sendSuperPoint(self, "MyGoSurfaceView", cmd, p)
 		}),
 		method("acceptsFirstResponder", func(self id, _ objc.SEL) bool { return true }),
-		method("acceptsFirstMouse:", func(self id, _ objc.SEL, ev id) bool { return true }),
+		method("acceptsFirstMouse:", func(self id, _ objc.SEL, ev id) bool {
+			s := b().surfaceOf(self)
+			return s == nil || !s.w.opts.ConsumeActivationClick
+		}),
 		method("mouseDownCanMoveWindow", func(self id, _ objc.SEL) bool { return false }),
 		method("wantsUpdateLayer", func(self id, _ objc.SEL) bool { return true }),
 		method("updateLayer", func(self id, _ objc.SEL) {
@@ -1362,6 +1394,7 @@ func registerSurfaceClass() {
 		}),
 		method("resignFirstResponder", func(self id, _ objc.SEL) bool {
 			if s := b().surfaceOf(self); s != nil {
+				s.blurred = platform.TextInputState{}
 				s.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
 			}
 			return true
@@ -1443,9 +1476,12 @@ func registerSurfaceClass() {
 			// method's, as Enter choosing a candidate or Escape giving the
 			// composition up, as GTK's and IMM32's filtering keeps them on
 			// Linux and Windows, unless the input method passes it on
-			// (doCommandBySelector:).
+			// (doCommandBySelector:). So is Backspace while an input
+			// method is on: the Korean one composes without marked text,
+			// replacing the syllable before the caret, and takes a jamo
+			// back with Backspace the same way (한 → 하).
 			key := platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), PhysicalKey: physicalKey(ev), Code: eventKeyCode(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")}
-			withheld := ime && s.hasMarkedText()
+			withheld := ime && (s.hasMarkedText() || key.Key == platform.KeyBackspace)
 			if !withheld {
 				s.send(key)
 			}
@@ -1455,7 +1491,7 @@ func registerSurfaceClass() {
 			// for press and hold's accents to replace, as a terminal's
 			// input, which takes text itself (no Client): the accents
 			// menu, holding the repeats back, would type nothing there.
-			if ime && s.input.Client == nil && sendBool(ev, "isARepeat") && !s.hasMarkedText() {
+			if ime && s.input.Client == nil && sendBool(ev, "isARepeat") && !withheld {
 				if t := typedChars(stringOf(send(ev, "characters"))); t != "" {
 					s.insertText(t, nsRange{Location: nsNotFound})
 				}
@@ -1547,11 +1583,13 @@ func registerSurfaceClass() {
 		}),
 		method("characterIndexForPoint:", func(self id, _ objc.SEL, p NSPoint) uint {
 			s := b().surfaceOf(self)
-			if s != nil && s.input.Client != nil {
-				window := msgRectToRect(s.w.win, sel("convertRectFromScreen:"), NSRect{Origin: p})
-				local := msgConvertRectView(self, sel("convertRect:fromView:"), window, 0)
-				if index, ok := s.input.Client.IndexForPoint(local.Origin.X, local.Origin.Y); ok {
-					return uint(index)
+			if s != nil {
+				if client := s.textInput().Client; client != nil {
+					window := msgRectToRect(s.w.win, sel("convertRectFromScreen:"), NSRect{Origin: p})
+					local := msgConvertRectView(self, sel("convertRect:fromView:"), window, 0)
+					if index, ok := client.IndexForPoint(local.Origin.X, local.Origin.Y); ok {
+						return uint(index)
+					}
 				}
 			}
 			return nsNotFound
@@ -1561,8 +1599,9 @@ func registerSurfaceClass() {
 			if s == nil {
 				return cgRect{}
 			}
-			c := s.input.Caret
-			if client := s.input.Client; client != nil {
+			in := s.textInput()
+			c := in.Caret
+			if client := in.Client; client != nil {
 				rangeWanted := clientRange(r)
 				if rangeWanted == nil {
 					return cgRect{}
@@ -1582,7 +1621,8 @@ func registerSurfaceClass() {
 		}),
 		// The input method passes on the key it was given (insertNewline:
 		// for Return, moveLeft: for the left arrow…), as the Korean one
-		// does once Return or an arrow committed the syllable it composed:
+		// does once Return or an arrow committed the syllable it composed,
+		// and Backspace (deleteBackward:) once it has no jamo to take back:
 		// the content gets the key it held back, as a text view acts on
 		// the command. Input methods that keep the key, as Return choosing
 		// a candidate in Japanese or Chinese, do not ask for its command,

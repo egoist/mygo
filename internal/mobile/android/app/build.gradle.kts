@@ -1,6 +1,8 @@
 // The shell app around a MyGo app. mygo build passes the app's ID, name,
 // version, signing key, its Go library for each ABI, its manifest and its
 // resources.
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -19,6 +21,9 @@ android {
         versionName = prop("mygoVersionName") ?: "1.0"
         manifestPlaceholders["mygoAppName"] = prop("mygoAppName") ?: "MyGo"
         manifestPlaceholders["mygoIcon"] = prop("mygoIcon") ?: "@android:drawable/sym_def_app_icon"
+        // The ABIs Go was built for: a native module's prebuilt libraries
+        // of another stay out of the APK (android.abis).
+        prop("mygoAbis")?.let { ndk { abiFilters += it.split(',').filter { a -> a.isNotEmpty() } } }
     }
     signingConfigs {
         create("release") {
@@ -29,6 +34,9 @@ android {
                 keyPassword = prop("mygoKeyPassword") ?: prop("mygoKeystorePassword")
             }
         }
+        // android.v1Signing: the JAR signature too, which AGP leaves out
+        // from minSdk 24, with the release key and the debug key alike.
+        if (prop("mygoV1Signing") == "true") configureEach { enableV1Signing = true }
     }
     buildTypes {
         release {
@@ -59,7 +67,9 @@ android {
     }
 }
 
-kotlin { jvmToolchain(17) }
+// Java 17 bytecode from whichever JDK runs Gradle, 17 or later, with no
+// toolchain of its own to find or download.
+kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 
 dependencies {
     implementation(project(":mygo"))

@@ -7,6 +7,7 @@ import (
 	"image"
 	"math"
 	"os"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -95,7 +96,10 @@ func TestPerformKeyEquivalent(key string, shift bool) bool {
 	withPool(func() {
 		flags := uint(1 << 20)
 		if shift {
+			// The characters of a shifted press are shifted, as AppKit
+			// gives them.
 			flags |= 1 << 17
+			key = strings.ToUpper(key)
 		}
 		ev := msgKeyEvent(class("NSEvent"), sel("keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"),
 			10 /* NSEventTypeKeyDown */, NSPoint{}, flags, 0, 0, 0, nsString(key), nsString(key), false, 0)
@@ -199,6 +203,18 @@ func TestHitView(handle uintptr, x, y float64) (cls string) {
 		}
 	})
 	return cls
+}
+
+// TestAcceptsFirstMouse asks the hit-tested content view whether an
+// activation press reaches it, at a point in the content's top-left origin.
+func TestAcceptsFirstMouse(handle uintptr, x, y float64) (accepts bool) {
+	withPool(func() {
+		content := send(id(handle), "contentView")
+		bounds := msgRect(content, sel("bounds"))
+		hit := msgHitTest(content, sel("hitTest:"), NSPoint{X: x, Y: bounds.Size.Height - y})
+		accepts = hit != 0 && objc.Send[bool](hit, sel("acceptsFirstMouse:"), id(0))
+	})
+	return accepts
 }
 
 // TestAppPress is half of TestAppClick: the left mouse down, or the up,
@@ -841,6 +857,11 @@ func TestCollectionBehavior(handle uintptr) uint {
 	return uint(sendInt(id(handle), "collectionBehavior"))
 }
 
+// TestBecomesKeyOnlyIfNeeded reports an NSPanel's becomesKeyOnlyIfNeeded.
+func TestBecomesKeyOnlyIfNeeded(handle uintptr) bool {
+	return sendBool(id(handle), "becomesKeyOnlyIfNeeded")
+}
+
 // TestMaterial returns the class of a window's material (Vibrancy), its
 // style when glass, the corners its content view is cut to, and whether
 // the window draws as active.
@@ -1296,16 +1317,28 @@ func TestComposeOver(handle uintptr, text string, caret int, commit bool, from, 
 // Japanese one commits the candidate and asks for nothing. It reports
 // false for a window showing a web page.
 func TestKeyComposing(handle uintptr, code uint16, chars, commit, command string) bool {
+	return TestKeyComposingOver(handle, code, chars, commit, command, -1, 0)
+}
+
+// TestKeyComposingOver is TestKeyComposing with commit replacing the
+// length UTF-16 units of the input method's document at from, unless from
+// is negative, as the Korean input method takes a jamo back with
+// Backspace: it inserts 하 over the 한 before the caret.
+func TestKeyComposingOver(handle uintptr, code uint16, chars, commit, command string, from, length int) bool {
 	w := theBackend.byNSWindow[id(handle)]
 	if w == nil || w.surface == nil {
 		return false
 	}
 	loadTestInput()
+	replace := nsRange{Location: nsNotFound}
+	if from >= 0 {
+		replace = nsRange{Location: uint(from), Length: uint(length)}
+	}
 	interpret := interpretKeys
 	defer func() { interpretKeys = interpret }()
 	interpretKeys = func(view, ev id) {
 		if commit != "" {
-			msgInsertText(view, sel("insertText:replacementRange:"), nsString(commit), nsRange{Location: nsNotFound})
+			msgInsertText(view, sel("insertText:replacementRange:"), nsString(commit), replace)
 		}
 		if command != "" {
 			send(view, "doCommandBySelector:", uintptr(sel(command)))

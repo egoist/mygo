@@ -242,6 +242,27 @@ app.md.LinkIcon = func(dest string, size float32) (markdown.InlineObject, bool) 
 }
 ```
 
+`LinkColor` colors a link's text by its destination, in place of
+`Theme.Link`, when it returns true: a chat that shows its citations as
+asides in a muted color, or a docs reader that tells links leaving the
+site from its own. It colors mentions, references and code links too,
+and the link keeps its underline on hover; a link still streaming in
+keeps `Theme.Link` until its destination is whole. It is asked for each
+link shown whenever the view builds, as `Resolve` is, so it looks up
+what the app has at hand, and paragraphs follow when its answers
+change:
+
+```go
+app.md.LinkColor = func(dest string) (ui.Color, bool) {
+	return ui.Hex("#6b7280"), app.isCitation(dest)
+}
+```
+
+An icon from `LinkIcon` draws in the color its `Draw` picks, as the one
+above in `Theme.Link`: to match a link `LinkColor` colors, draw it in
+the color `LinkColor` gives the same destination. A paragraph whose
+colors change builds anew, asking for its icons again.
+
 Images show their description until `LoadImage` loads them, on a
 goroutine of their own; without it, they stay descriptions, as a view
 loads nothing from the network by itself. `FileImages(dir)` loads the
@@ -448,6 +469,14 @@ byte range in the source (`Start` and `End`) and the index after its
 children (`Next`). `Inlines` parses a block's inlines the first time it
 is asked. `New(ext)` reads other extensions than `Default`, and
 `SetStreaming` completes the end as `Stream` does.
+
+As GitHub's spec has it, `HTML` escapes the raw tags whose content a
+browser reads to their end — `title`, `textarea`, `style`, `xmp`,
+`iframe`, `noembed`, `noframes`, `script` and `plaintext` — so that a
+document copied as HTML carries its `<script>` as text into what pastes
+it. That is `ExtTagFilter`, cmark-gfm's tagfilter, which `GFM` and so
+`Default` read; `New(ext &^ parser.ExtTagFilter)` writes raw HTML as it
+is. Other raw HTML, as a tag's event handler, is still HTML.
 
 It passes all 652 examples of the CommonMark 0.31.2 spec and those of
 GitHub's extensions, takes linear time on the inputs that are slow in

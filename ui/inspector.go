@@ -270,7 +270,7 @@ func (rt *engine) inspectKey(mods Modifiers, key Key) bool {
 	if !in.enabled {
 		return false
 	}
-	mac := runtime.GOOS == "darwin"
+	mac := platform.MacKeys
 	switch {
 	case key == KeyF12 && mods == 0, key == KeyI && (mac && mods == Super|Alt || !mac && mods == Ctrl|Shift):
 		rt.toggleInspector()
@@ -679,6 +679,8 @@ func roleName(r Role) string {
 		return "ContentInfo"
 	case RoleComplementary:
 		return "Complementary"
+	case RoleForm:
+		return "Form"
 	}
 	return ""
 }
@@ -709,6 +711,8 @@ func accessibleRole(e *node) (string, bool) {
 		return "contentinfo", true
 	case RoleComplementary:
 		return "complementary", true
+	case RoleForm:
+		return "form", true
 	}
 	switch role := Role(r) + RoleGroup; role {
 	case RoleGroup:
