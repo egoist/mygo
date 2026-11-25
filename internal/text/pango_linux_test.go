@@ -1,4 +1,4 @@
-//go:build linux && (amd64 || arm64)
+//go:build linux && !android && (amd64 || arm64) && !android
 
 package text
 
@@ -10,6 +10,10 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+
+	"golang.org/x/image/font/gofont/gomedium"
+	"golang.org/x/image/font/gofont/gomediumitalic"
+	"golang.org/x/image/font/gofont/gomonobolditalic"
 )
 
 // Punctuation and full-width forms in a language that writes Han get the
@@ -180,6 +184,109 @@ func TestWriteCacheFileConcurrent(t *testing.T) {
 	}
 }
 
+// Engines share fontconfig's current configuration: a font every engine
+// registers, as each Tester's does the app's, is added to it once, not
+// once an engine, which grew it and slowed each Tester more than the one
+// before (#1944). Each engine still lays out with the font, one that has
+// laid out text before registering it too. Go Mono is monospaced, so
+// "iiiiiiii" is as wide as "mmmmmmmm" only in it.
+func TestPangoRegisterAddsFileOnce(t *testing.T) {
+	if _, err := newPango(); err != nil {
+		t.Skip(err)
+	}
+	l := &pangoLib
+	if l.fcConfigAppFontAddFile == nil || l.fcFontSetAdd == nil || l.fontMapConfigChanged == nil {
+		t.Skip("no fontconfig or PangoFT2")
+	}
+	const family = "MyGo Test Once Mono"
+	faces := func() int32 {
+		set := l.fcConfigGetFonts(l.fcConfigGetCurrent(), fcSetApplication)
+		if set == nil {
+			return 0
+		}
+		return set.nfont
+	}
+	monospaced := func(s *System) bool {
+		width := func(text string) float32 {
+			return s.Layout(Params{Text: text, Style: Style{Size: 20, Family: family}}).Lines[0].Width
+		}
+		i, m := width("iiiiiiii"), width("mmmmmmmm")
+		return i > m-0.5 && i < m+0.5
+	}
+	if err := newSystem().RegisterFont(gomonobolditalic.TTF, family); err != nil {
+		t.Fatal(err)
+	}
+	want := faces()
+	for i := range 3 {
+		s := newSystem()
+		s.Layout(Params{Text: "Hello", Style: Style{Size: 20}})
+		if err := s.RegisterFont(gomonobolditalic.TTF, family); err != nil {
+			t.Fatal(err)
+		}
+		if got := faces(); got != want {
+			t.Errorf("engine %d: %d faces of the app's fonts in fontconfig, want %d", i+2, got, want)
+		}
+		if !monospaced(s) {
+			t.Errorf("engine %d: text does not use the registered font", i+2)
+		}
+	}
+}
+
+// The faces of the app's fonts whose own family the app gives other files
+// (takeFamilies) are the process's, edited once: an engine registering the
+// same fonts after, as each Tester's does, leaves them as they are, rather
+// than edit them again while another engine may match fonts against them.
+func TestPangoRegisterLeavesEditedFacesAlone(t *testing.T) {
+	if _, err := newPango(); err != nil {
+		t.Skip(err)
+	}
+	l := &pangoLib
+	if l.fcConfigAppFontAddFile == nil || l.fcFontSetAdd == nil || l.fontMapConfigChanged == nil || l.fcPatternDel == nil {
+		t.Skip("no fontconfig or PangoFT2")
+	}
+	register := func(s *System) {
+		t.Helper()
+		// The italic face's own family, Go Medium, goes to the upright, as
+		// in TestRegisterFontUnderOwnFamily.
+		if err := s.RegisterFont(gomediumitalic.TTF, "MyGo Test Given Medium Italic"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RegisterFont(gomedium.TTF, "Go Medium"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	width := func(s *System, family string, italic bool) float32 {
+		return s.Layout(Params{Text: "The quick brown fox jumps over the lazy dog", Style: Style{Size: 40, Family: family, Weight: 500, Italic: italic}}).Width
+	}
+	first := newSystem()
+	register(first)
+	upright, italic := width(first, "Go Medium", false), width(first, "MyGo Test Given Medium Italic", true)
+	if upright == italic {
+		t.Fatalf("Go Medium's faces are alike: %v", upright)
+	}
+
+	del := l.fcPatternDel
+	t.Cleanup(func() { l.fcPatternDel = del })
+	var dels int
+	l.fcPatternDel = func(pattern uintptr, object string) int32 {
+		dels++
+		return del(pattern, object)
+	}
+	for i := range 3 {
+		s := newSystem()
+		register(s)
+		if dels != 0 {
+			t.Fatalf("engine %d edited the faces of the app's fonts again: %d deletions", i+2, dels)
+		}
+		if got := width(s, "Go Medium", true); got == italic {
+			t.Errorf("engine %d: Go Medium, italic: width %v, the face registered under another family", i+2, got)
+		}
+		if got := width(s, "MyGo Test Given Medium Italic", true); got != italic {
+			t.Errorf("engine %d: MyGo Test Given Medium Italic: width %v, want %v", i+2, got, italic)
+		}
+	}
+}
+
 // lcdFilterRule gives subpixel glyphs FreeType's LCD filter where
 // fontconfig names no filter, as cairo 1.17 and later do by default, and
 // keeps a filter fontconfig names (#1025).
@@ -238,5 +345,86 @@ func TestLCDFilterRule(t *testing.T) {
 	rule(set(`<edit name="lcdfilter" mode="assign"><const>lcddefault</const></edit>`))
 	if !bytes.Equal(draw(), unnamed) {
 		t.Error("cairo's default filter is not FreeType's")
+	}
+}
+
+// Where the desktop's settings leave antialiasing to fontconfig (no
+// XSETTINGS value) and fontconfig gives fonts subpixel antialiasing
+// (rgba), glyphs are drawn in grayscale, not in the colors of their
+// subpixels, which made them color glyphs, white whatever the text's
+// color (#1426).
+func TestGrayGlyphsWhereFontconfigAsksForSubpixels(t *testing.T) {
+	if _, err := newPango(); err != nil {
+		t.Skip(err)
+	}
+	l := &pangoLib
+	if l.fcConfigParseFromMemory == nil {
+		t.Skip("no FcConfigParseAndLoadFromMemory")
+	}
+	rgba := `<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig><match target="font">` +
+		`<edit name="rgba" mode="assign"><const>rgb</const></edit></match></fontconfig>`
+	if l.fcConfigParseFromMemory(l.fcConfigGetCurrent(), rgba, int32(gTrue)) == 0 {
+		t.Fatalf("fontconfig refused %s", rgba)
+	}
+	for _, r := range [][3]string{{"", "", ""}, {"gray", "slight", ""}, {"subpixel", "slight", "rgb"}, {"none", "full", "rgb"}} {
+		e, err := newPango()
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.setFontRendering(r[0], r[1], r[2])
+		_, subpixel := e.textParams()
+		drawn := 0
+		for _, run := range e.shape([]rune("Candle 显示右侧边栏"), Style{Family: "sans-serif", Size: 13}, nil, 0, false, false)[0].runs {
+			for _, g := range run.glyphs {
+				b := e.glyph(run.font, g.ID, 1, 0, 0, subpixel)
+				if b.pix == nil {
+					continue
+				}
+				drawn++
+				if b.color {
+					t.Errorf("settings %q: glyph %d drawn as a color glyph", r, g.ID)
+				}
+				if b.subpixel != subpixel {
+					t.Errorf("settings %q: glyph %d drawn with subpixels %v, want %v", r, g.ID, b.subpixel, subpixel)
+				}
+			}
+		}
+		if drawn == 0 {
+			t.Skip("no glyphs drawn")
+		}
+	}
+}
+
+func TestGrayscaleFontPreservesColorGlyphs(t *testing.T) {
+	e, err := newPango()
+	if err != nil {
+		t.Skip(err)
+	}
+	found := false
+	for _, f := range e.fontMapFamilies() {
+		if f.Name == "Noto Color Emoji" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Skip("needs Noto Color Emoji")
+	}
+	e.setFontRendering("gray", "slight", "rgb")
+	drawn := 0
+	for _, run := range e.shape([]rune("😀"), Style{Family: "Noto Color Emoji", Size: 20}, nil, 0, false, false)[0].runs {
+		for _, g := range run.glyphs {
+			b := e.glyph(run.font, g.ID, 1, 0, 0, false)
+			if b.pix == nil {
+				continue
+			}
+			drawn++
+			if !b.color || b.subpixel {
+				t.Errorf("emoji glyph %d: color=%v, subpixel=%v", g.ID, b.color, b.subpixel)
+			}
+		}
+	}
+	if drawn == 0 {
+		t.Fatal("no emoji glyphs drawn")
 	}
 }

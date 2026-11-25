@@ -27,6 +27,16 @@ var jsonOptions = json.JoinOptions(
 	jsontext.EscapeForJS(true),
 )
 
+// decodeOptions are jsonOptions for what pages send. A JavaScript string
+// may hold half of a surrogate pair, which text cut in the middle of an
+// emoji does, and JSON.stringify writes it as an escape that is no
+// character. It decodes as U+FFFD, as nothing else can stand for it in a
+// Go string; refusing it would leave the page's call without a reply.
+var decodeOptions = json.JoinOptions(
+	jsonOptions,
+	jsontext.AllowInvalidUTF8(true),
+)
+
 type service struct {
 	name     string
 	typ      reflect.Type
@@ -278,14 +288,14 @@ func lookupMethod(name string) *method {
 }
 
 // call calls the method for the page of w whose context is page and whose
-// token is token.
-func (m *method) call(w *Window, page context.Context, token string, args []rawValue) (result any, err error) {
-	ctx, cancel := page, context.CancelFunc(nil)
+// token is token. parent is the context for this call.
+func (m *method) call(w *Window, page, parent context.Context, token string, args []rawValue) (result any, err error) {
+	ctx, cancel := parent, context.CancelFunc(nil)
 	var chans []*channel
 	if m.streams {
 		// The page closing a channel cancels the call. The channels close
 		// when it returns, before its result is sent.
-		ctx, cancel = context.WithCancel(page)
+		ctx, cancel = context.WithCancel(parent)
 		defer func() {
 			for _, c := range chans {
 				c.close(closedByGo)
@@ -355,7 +365,7 @@ func (m *method) call(w *Window, page context.Context, token string, args []rawV
 
 func decodeArg(raw rawValue, t reflect.Type, i int) (reflect.Value, error) {
 	v := reflect.New(t)
-	if err := json.Unmarshal(raw, v.Interface(), jsonOptions); err != nil {
+	if err := json.Unmarshal(raw, v.Interface(), decodeOptions); err != nil {
 		return reflect.Value{}, fmt.Errorf("invalid argument %d: %w", i+1, err)
 	}
 	return v.Elem(), nil
@@ -386,14 +396,35 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 		ID int64      `json:"id"`
 		K  string     `json:"k"`
 		M  string     `json:"m"`
-		A  []rawValue `json:"a"` // shares raw
+		A  []rawValue `json:"a"`      // shares raw
+		C  bool       `json:"cancel"` // the page may cancel the call
 	}
-	if err := json.Unmarshal(stringBytes(raw), &m); err != nil {
+	if err := json.Unmarshal(stringBytes(raw), &m, decodeOptions); err != nil {
 		log.Printf("mygo: malformed call from window %d: %v", w.id, err)
 		return
 	}
 	var result any
 	var err error
+	page := ctx // Keep the page identity separate from the call's context.
+	if m.C {
+		// The page may cancel the call with a signal: the method gets a
+		// context of its own, which the page cancels. The call is
+		// remembered before it is made, so that it is remembered as run
+		// when it ends, unless the page goes away while it runs: a cancel
+		// that comes after the reply left for the page finds the id of a
+		// call that ran, and is dropped.
+		var cancel context.CancelFunc
+		if ctx != nil {
+			ctx, cancel = context.WithCancel(ctx)
+			w.addCancel(m.ID, m.K, cancel)
+		}
+		defer func() {
+			w.removeCancel(m.ID, m.K)
+			if cancel != nil {
+				cancel()
+			}
+		}()
+	}
 	if w.untrusted {
 		err = errors.New("this page is untrusted (PageOptions.Untrusted) and may not call Go methods")
 	} else if !trusted {
@@ -401,7 +432,7 @@ func handleCall(w *Window, ctx context.Context, raw string, trusted bool) {
 	} else if mi := lookupMethod(m.M); mi == nil {
 		err = notBound(m.M)
 	} else {
-		result, err = mi.call(w, ctx, m.K, m.A)
+		result, err = mi.call(w, page, ctx, m.K, m.A)
 	}
 	w.enqueue(encodeReply(m.ID, m.K, result, err), false)
 }

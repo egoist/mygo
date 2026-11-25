@@ -348,7 +348,7 @@ func listRowValueInput(n *node) {
 		if !f.owner.FocusWithin() {
 			// Leave the focus on a control inside a row, such as an editor
 			// a double click opened.
-			f.owner.Focus()
+			f.owner.focus(false)
 		}
 	}
 	if n.DoubleClicked() {
@@ -359,7 +359,8 @@ func listRowValueInput(n *node) {
 	}
 }
 func listInput(n *node) {
-	if n.disabled() || n.rowsOf == nil {
+	// A ListState reset since the list was built leaves it no frame.
+	if n.disabled() || n.rowsOf == nil || n.rowsOf.s == nil {
 		return
 	}
 	f := n.rowsOf

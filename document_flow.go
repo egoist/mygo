@@ -454,8 +454,32 @@ func (b *docBase) askPath(title, button, nameLabel string) (string, error) {
 	}
 	if filepath.Ext(target) == "" {
 		target += "." + ext // GTK's dialog adds none
+		// The dialog asked about the name without it.
+		if target != path {
+			if err := b.confirmReplace(target); err != nil {
+				return "", err
+			}
+		}
 	}
 	return target, nil
+}
+
+// confirmReplace asks whether to replace the file at target, if there is
+// one; it returns ErrCanceled when the user doesn't.
+func (b *docBase) confirmReplace(target string) error {
+	if _, err := os.Lstat(target); err != nil {
+		return nil
+	}
+	tx := menuMessages()
+	r, err := Dialog.Message(MessageOptions{
+		Parent: b.parent(), Type: MessageWarning, Buttons: []string{tx.ReplaceFile(), tx.Cancel()}, CancelButton: 1,
+		Message: tx.AlreadyExists(filepath.Base(target)),
+		Detail:  tx.AlreadyExistsDetail(),
+	})
+	if err != nil || r.Button != 0 {
+		return ErrCanceled
+	}
+	return nil
 }
 
 // duplicate makes an untitled copy of b, as File > Duplicate does.
@@ -513,23 +537,19 @@ func (b *docBase) moveTo(dir string) error {
 		dir = dirs[0]
 	}
 	if path == "" {
-		_, err := b.write(filepath.Join(dir, b.Name()+"."+b.kind.types[0].Extensions[0]), writeSaveAs)
+		target := filepath.Join(dir, b.Name()+"."+b.kind.types[0].Extensions[0])
+		if err := b.confirmReplace(target); err != nil {
+			return err
+		}
+		_, err := b.write(target, writeSaveAs)
 		return err
 	}
 	target := filepath.Join(dir, filepath.Base(path))
 	if target == path {
 		return nil
 	}
-	if _, err := os.Lstat(target); err == nil {
-		tx := menuMessages()
-		r, err := Dialog.Message(MessageOptions{
-			Parent: b.parent(), Type: MessageWarning, Buttons: []string{tx.ReplaceFile(), tx.Cancel()}, CancelButton: 1,
-			Message: tx.AlreadyExists(filepath.Base(target)),
-			Detail:  tx.AlreadyExistsDetail(),
-		})
-		if err != nil || r.Button != 0 {
-			return ErrCanceled
-		}
+	if err := b.confirmReplace(target); err != nil {
+		return err
 	}
 	return b.relocate(target)
 }
@@ -538,6 +558,7 @@ func (b *docBase) moveTo(dir string) error {
 func (b *docBase) relocate(target string) error {
 	b.io.Lock()
 	path := b.Path()
+	before, _, _ := statStamp(path)
 	err := os.Rename(path, target)
 	if errors.Is(err, syscall.EXDEV) {
 		err = copyFile(path, target)
@@ -551,10 +572,18 @@ func (b *docBase) relocate(target string) error {
 	}
 	stamp, _, _ := statStamp(target)
 	b.mu.Lock()
-	b.path, b.stamp = target, stamp
+	// The file moved as it was: what another app changed in it since the
+	// document read it is still not what the document knows.
+	if before.same(b.stamp) {
+		b.stamp = stamp
+	} else {
+		b.stamp.file = stamp.file
+	}
+	b.path = target
 	b.readOnly = !fileWritable(target)
 	b.mu.Unlock()
 	b.io.Unlock()
+	b.backupMoved()
 	addRecent(target)
 	b.watch()
 	b.notify()
@@ -617,10 +646,10 @@ func documentsBeforeQuit(e *QuitEvent) {
 		docQuit.resolved = false
 		return
 	}
-	if e.DefaultPrevented() {
+	if e.DefaultPrevented() && !e.SessionEnding {
 		return
 	}
-	if docQuit.running {
+	if docQuit.running && !e.SessionEnding {
 		e.PreventDefault()
 		return
 	}
@@ -631,6 +660,22 @@ func documentsBeforeQuit(e *QuitEvent) {
 		}
 	}
 	if len(edited) == 0 {
+		return
+	}
+	if e.SessionEnding {
+		// The OS ends the session: no question, and nothing to wait for.
+		// Each document is saved in place or kept, right away.
+		for _, b := range edited {
+			b.mu.Lock()
+			autosaves, path := b.autosavesLocked(), b.path
+			b.mu.Unlock()
+			if autosaves {
+				if _, err := b.write(path, writeAutosave); err == nil {
+					continue
+				}
+			}
+			b.backup()
+		}
 		return
 	}
 	e.PreventDefault()

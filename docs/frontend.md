@@ -106,6 +106,21 @@ falling back to `index.html` like the frontend. Handling the `mygo` scheme
 replaces the frontend with your handler. Pages of custom schemes are the
 app's own: they may call Go methods, see [trust](#trust).
 
+On Windows, WebView2 takes a response once its handler returned, or
+once it wrote 1 MB: the rest then streams, the handler's writes waiting
+while WebView2 is behind. WebView2 reads the responses of custom schemes
+one at a time, and seems to give the page none of a response before it
+read all of it. A handler that keeps a response open, as server-sent
+events or long polling do, reaches the page only once it returns, and
+past its first megabyte holds back the app's other responses meanwhile:
+send such updates with [events](bindings.md#events) instead. For the same
+reason a `<video>` or `<audio>` that asks for the rest of a file
+(`Range: bytes=X-`) gets at most 4 MB: its handler sees the range
+narrowed to `bytes=X-(X+4 MB-1)`, answers with that part (206), as
+`mygo.FileServer` and `http.ServeFile` do, and the element asks for what
+follows as it plays. A request's context is canceled once WebView2 lets
+go of its response, so that the handler stops writing.
+
 Audio and video are the exception: WebKitGTK's media player does not play
 from a custom scheme, so on Linux a `<video>` or `<audio>` of one fails with
 `MEDIA_ERR_SRC_NOT_SUPPORTED` (`error.code` 4), whatever the handler
@@ -135,7 +150,11 @@ On Windows, fetch a scheme at `http://<scheme>.localhost/`, where
 WebView2 serves it, and another host at `http://<host>.<scheme>.localhost/`
 (`myapp://abc/` is `http://abc.myapp.localhost/`). Such hosts are DNS
 names (letters, digits, hyphens and dots) and are reported in lower case;
-URLs with another host or a port aren't served there.
+URLs with another host or a port aren't served there. An iframe of
+another origin, such as `http://abc.myapp.localhost/` in the frontend,
+loads its scripts, styles and fetches through the scheme too, from
+WebView2 Runtime 127 on; older runtimes serve such an iframe its
+document alone.
 
 ### Trust
 
@@ -257,9 +276,10 @@ await currentWindow.toggleMaximize();
 
 | Export | What it does |
 |---|---|
-| `call(method, ...args)`, `on(event, listener)`, `once(event, listener)`, `event<T>(name)` | untyped calls and events, see [bindings](bindings.md#without-the-generated-client) |
+| `call(method, ...args)`, `callWith(method, args, options)`, `on(event, listener)`, `once(event, listener)`, `event<T>(name)` | untyped calls and events, see [bindings](bindings.md#without-the-generated-client) |
 | `Channel` | a stream of values from a Go method, see [channels](bindings.md#channels) |
 | `isCallError(err)` | whether a rejection came from a Go error |
+| `bind(method, args)` | a bound Go method, which a call may cancel, see [canceling a call](bindings.md#canceling-a-call) |
 | `isMyGo()` | whether the page runs in a MyGo window, not in a browser tab of the dev server |
 | `runtime()` | the runtime: `platform` (`"darwin"`, `"linux"` or `"win32"`), `windowId` (the Go window's `ID()`) and `version`; throws outside MyGo |
 | `currentWindow` | the page's window: `minimize`, `maximize`, `unmaximize`, `toggleMaximize`, `isMaximized`, `toggleFullScreen`, `close` and `setTitle` |
@@ -344,9 +364,10 @@ the window:
 - On Linux, GTK's own title buttons, where the desktop's button layout puts
   them, centered in `TitleBarHeight` (by default the height of the
   desktop's header bars). The layout decides which buttons show, possibly
-  none, as tiling window managers are often set up. A Wayland compositor
-  that decorates windows itself, as KWin, Hyprland and Sway do, has none:
-  its own title bar holds the buttons, and a tiling one shows none. The
+  none, as tiling window managers are often set up. A tiling Wayland
+  compositor that decorates windows itself, as Hyprland and Sway do, has
+  none, and shows none of its own. On KDE Plasma, KWin draws no title bar
+  over the page: the buttons are GTK's, where KDE's layout puts them. The
   outer pixels of the page resize the window, as a frameless one's. The
   window's menu bar hides, as with `AutoHideMenuBar`: Alt and F10 show it
   above the page while its menus are open, and its shortcuts work all
@@ -368,6 +389,7 @@ CSS variables on `:root`:
 |---|---|
 | `--mygo-titlebar-height` | the height of the title bar |
 | `--mygo-titlebar-inset-left`, `--mygo-titlebar-inset-right` | the room the controls take from the left and from the right edge |
+| `--mygo-titlebar-controls-bottom` | where the controls end, from the top edge: the bottom of the traffic lights on macOS, the title bar's height on Linux and Windows |
 
 They are `0px` in full screen, where the controls hide (on macOS they come
 back with the menu bar). The page's title bar keeps clear of the controls
@@ -379,6 +401,15 @@ and, marked with `--app-region: drag`, moves the window:
   height: var(--mygo-titlebar-height, 40px);
   padding-left: var(--mygo-titlebar-inset-left, 0px);
   padding-right: var(--mygo-titlebar-inset-right, 0px);
+}
+```
+
+A sidebar that runs to the top of the window, with the traffic lights over
+it, starts its items below them:
+
+```css
+.sidebar {
+  padding-top: calc(var(--mygo-titlebar-controls-bottom, 0px) + 8px);
 }
 ```
 
@@ -592,6 +623,8 @@ environment.
 On Windows, WebView2's own keys come with the inspector: F5 and Ctrl+R reload
 the page (a reload [`OnWillNavigate`](windows.md#pages) is not asked about),
 Ctrl+P prints, Ctrl+F finds and Ctrl+Plus zooms only where the inspector is
-on. Without it, as in production builds, a page has none of them, as on macOS
-and Linux, and only the app's menu items take these keys, such as the View
-menu's (`RoleViewMenu`).
+on, and Ctrl+Plus only in a page that lets the user zoom it
+([`ZoomControl`](windows.md#the-users-zoom)). Without the inspector, as in
+production builds, a page has none of them, as on macOS and Linux, and only
+the app's menu items take these keys, such as the View menu's
+(`RoleViewMenu`).

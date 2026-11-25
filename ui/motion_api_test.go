@@ -396,9 +396,73 @@ func TestInView(t *testing.T) {
 		t.Fatalf("at the top, the top is in view %v, the bottom %v", topIn, bottomIn)
 	}
 	tt.Scroll(50, 50, 0, 1000)
-	tt.Frame()
 	if topIn || !bottomIn {
 		t.Fatalf("at the bottom, the top is in view %v, the bottom %v", topIn, bottomIn)
+	}
+}
+
+// A scroll brings an element in view in the frame that scrolls: the view
+// reads it, and MyGo builds again, without another input.
+func TestInViewBuildsAgainAfterScroll(t *testing.T) {
+	var bottomIn, nearIn, halfIn bool
+	builds := 0
+	tt := coreNewTester(func(c *context) {
+		builds++
+		coreScroll(c).Size(100, 100).Children(func() {
+			coreBox(c).Key("top").Size(100, 60)
+			coreBox(c).Size(100, 200)
+			bottomIn = coreBox(c).Key("bottom").Size(100, 60).InView()
+			coreBox(c).Size(100, 150)
+			nearIn = coreBox(c).Key("near").Size(100, 60).InViewMargin(200)
+			halfIn = coreBox(c).Key("half").Size(100, 60).InViewAmount(0.5)
+		})
+	}, 200, 200)
+	tt.Frame()
+	if bottomIn || nearIn || halfIn {
+		t.Fatalf("at the top, in view: bottom %v, near %v, half %v", bottomIn, nearIn, halfIn)
+	}
+	before := builds
+	tt.Scroll(50, 50, 0, 200)
+	if !bottomIn || !nearIn || halfIn {
+		t.Fatalf("after one scroll, in view: bottom %v, near %v, half %v", bottomIn, nearIn, halfIn)
+	}
+	if got := builds - before; got != 2 {
+		t.Errorf("one scroll built %d times, want 2: the scroll's, and the one after", got)
+	}
+	settled := builds
+	if tt.FramePending() {
+		t.Error("a frame is still asked for once nothing moves")
+	}
+	tt.Frame()
+	tt.Frame()
+	if got := builds - settled; got != 2 {
+		t.Errorf("two frames built %d times, want 2", got)
+	}
+	if tt.FramePending() {
+		t.Error("a steady frame asked for another")
+	}
+	tt.Scroll(50, 50, 0, 1000)
+	if !halfIn {
+		t.Error("at the end, the last card is not half in view")
+	}
+}
+
+// A view that reads no InView builds as often as before.
+func TestInViewUnusedBuildsOnce(t *testing.T) {
+	builds := 0
+	tt := coreNewTester(func(c *context) {
+		builds++
+		coreScroll(c).Size(100, 100).Children(func() {
+			coreBox(c).Key("top").Size(100, 60)
+			coreBox(c).Size(100, 200)
+			coreBox(c).Key("bottom").Size(100, 60)
+		})
+	}, 200, 200)
+	tt.Frame()
+	before := builds
+	tt.Scroll(50, 50, 0, 1000)
+	if got := builds - before; got != 1 {
+		t.Errorf("one scroll built %d times, want 1", got)
 	}
 }
 
@@ -685,6 +749,43 @@ func TestScrollToGlides(t *testing.T) {
 	tt.Frame()
 	if feed.Y != y {
 		t.Errorf("stopped, it went on from %v to %v", y, feed.Y)
+	}
+}
+
+func TestScrollToGivesWayToTheApp(t *testing.T) {
+	// The app setting the offset while a ScrollTo is on its way jumps
+	// there and stops it, as setting scrollTop stops a smooth scroll.
+	var feed ScrollState
+	tt, now := clockTester(func(c *context) {
+		coreScroll(c).Size(100, 100).TrackScroll(&feed).Children(func() {
+			coreBox(c).Size(100, 1000)
+		})
+	}, 200, 200)
+	feed.ScrollTo(0, 800, Animation{Duration: 100 * time.Millisecond, Ease: Linear})
+	tt.Frame()
+	*now = now.Add(50 * time.Millisecond)
+	tt.Frame()
+	if !feed.Scrolling() || feed.Y == 0 {
+		t.Fatalf("halfway, scrolled to %v, scrolling %v", feed.Y, feed.Scrolling())
+	}
+	feed.Y = 0
+	tt.Frame()
+	if feed.Y != 0 || feed.Scrolling() {
+		t.Fatalf("set back to the top, it shows %v, scrolling %v", feed.Y, feed.Scrolling())
+	}
+	*now = now.Add(time.Second)
+	tt.Frame()
+	if feed.Y != 0 || tt.rt.animating {
+		t.Fatalf("stopped, it went on to %v", feed.Y)
+	}
+	// Set and asked to glide again in the same frame, it glides.
+	feed.Y = 100
+	feed.ScrollTo(0, 500, Animation{Duration: 100 * time.Millisecond, Ease: Linear})
+	tt.Frame()
+	*now = now.Add(50 * time.Millisecond)
+	tt.Frame()
+	if !feed.Scrolling() || feed.Y <= 100 || feed.Y >= 500 {
+		t.Fatalf("asked to glide again, it shows %v, scrolling %v", feed.Y, feed.Scrolling())
 	}
 }
 

@@ -21,6 +21,11 @@ func privateClipboardFormat(f transfer.Format) bool {
 	return f == platform.DragSessionFormat || f == "DataObject" || f == "Ole Private Data" || strings.HasPrefix(string(f), clipboardLengthPrefix)
 }
 
+// winConcealedFormat marks the clipboard's content confidential: while it is
+// on the clipboard, with any data, Windows keeps every format out of the
+// clipboard history and off the cloud clipboard.
+const winConcealedFormat = "ExcludeClipboardContentFromMonitorProcessing"
+
 var (
 	procOleSetClipboard       = ole32.NewProc("OleSetClipboard")
 	procOleFlushClipboard     = ole32.NewProc("OleFlushClipboard")
@@ -57,7 +62,7 @@ func currentWinClipboard() *winClipboardSource {
 	return s
 }
 
-func (clipboard) WriteData(data transfer.Data, released func()) error {
+func (clipboard) WriteData(data transfer.Data, concealed bool, released func()) error {
 	// One OLE initialization/vtable per process, shared with native drags.
 	dropOnce.Do(initDropTarget)
 	if len(data.Formats()) == 0 {
@@ -78,7 +83,7 @@ func (clipboard) WriteData(data transfer.Data, released func()) error {
 			return errors.New("mygo: cannot register clipboard format")
 		}
 	}
-	object := newTransferData(data, "", true)
+	object := newTransferData(data, "", true, concealed)
 	defer release(object)
 	hr := oleClipboard(func() uintptr { hr, _, _ := procOleSetClipboard.Call(object); return hr })
 	if failed(hr) {
@@ -95,10 +100,12 @@ func (clipboard) WriteData(data transfer.Data, released func()) error {
 func clipboardFormats() ([]transfer.Format, map[transfer.Format]uint16) {
 	var offered []transfer.Format
 	nativeFormats := map[transfer.Format]uint16{}
+	bitmap := clipboardBitmap()
 	add := func(id uint16) {
 		f := oleFormat(id)
 		if id == cfDIB || id == cfDIBV5 {
-			f = transfer.PNG
+			// One bitmap is read as PNG, the one ReadImage reads.
+			f, id = transfer.PNG, bitmap
 		}
 		if f == "" || privateClipboardFormat(f) || strings.ContainsAny(string(f), "\x00\r\n") {
 			return
@@ -291,7 +298,7 @@ func readClipboardRep(f transfer.Format, id uint16) ([]byte, error) {
 		}
 		switch id {
 		case cfUnicodeText:
-			b = []byte(oleText(b))
+			b = []byte(unicodeTextToLF(oleText(b)))
 		case uint16(cfHTML):
 			s := string(b)
 			start, end := htmlOffset(s, "StartFragment:"), htmlOffset(s, "EndFragment:")

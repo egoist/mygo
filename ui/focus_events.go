@@ -61,6 +61,11 @@ func (rt *engine) passFocus() {
 	if !rt.windowFocused {
 		now = 0
 	}
+	if rt.spacePressed != 0 && rt.spacePressed != now {
+		// The button Space held lost the focus: it clicks no more as
+		// Space goes up, though the focus may come back before it does.
+		rt.spacePressed = 0
+	}
 	if rt.leftRead && rt.leftSaw != now {
 		rt.focusFrom = rt.leftSaw
 		rt.consumed, rt.animating = true, true
@@ -84,8 +89,10 @@ func (rt *engine) passFocus() {
 //
 // It is false while the window does not have the keyboard, as the
 // window tells the system's input methods then.
-func (c *context) FocusTakesText() bool {
-	rt := c.rt
+func (c *context) FocusTakesText() bool { return c.rt.focusTakesText() }
+
+// focusTakesText is FocusTakesText.
+func (rt *engine) focusTakesText() bool {
 	s := rt.states[rt.focused]
 	if s == nil || !rt.windowFocus() {
 		return false

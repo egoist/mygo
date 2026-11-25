@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"debug/pe"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"go/parser"
@@ -390,7 +392,7 @@ func TestProductionTags(t *testing.T) {
 	t.Setenv("GOFLAGS", "")
 	t.Setenv("MYGO_INSPECTOR", "")
 	tags := func(debug bool) string { return strings.Join(productionTags(debug), " ") }
-	if got := tags(false); got != "-tags mygo_noinspector" {
+	if got := tags(false); got != "-tags mygo_nodownload,mygo_noinspector" {
 		t.Errorf("a production build has %q", got)
 	}
 	if got := tags(true); got != "" {
@@ -398,11 +400,11 @@ func TestProductionTags(t *testing.T) {
 	}
 	// The tags of GOFLAGS stay: -tags would override them.
 	t.Setenv("GOFLAGS", "-mod=mod -tags=sqlite,fts5")
-	if got := tags(false); got != "-tags sqlite,fts5,mygo_noinspector" {
+	if got := tags(false); got != "-tags sqlite,fts5,mygo_nodownload,mygo_noinspector" {
 		t.Errorf("with GOFLAGS' tags, a production build has %q", got)
 	}
 	t.Setenv("MYGO_INSPECTOR", "1")
-	if got := tags(false); got != "" {
+	if got := tags(false); got != "-tags sqlite,fts5,mygo_nodownload" {
 		t.Errorf("MYGO_INSPECTOR=1 leaves %q", got)
 	}
 }
@@ -739,5 +741,46 @@ func TestICNSIcon(t *testing.T) {
 	c.MacOS.Icon = ""
 	if icns, err := bundleICNS(c, nil); err != nil || !bytes.HasPrefix(icns, []byte("icns")) || string(icns) == "icns drawn per size" {
 		t.Errorf("without macos.icon, the .icns is not icon's rendering: %v", err)
+	}
+}
+
+// -version takes a release's tag in place of mygo.json's version, its v
+// dropped, and refuses what is not one.
+func TestBuildVersion(t *testing.T) {
+	c := &Config{Name: "App", Version: "0.1.0", Identifier: "com.example.app"}
+	if err := c.setVersion("v1.2.3"); err != nil || c.Version != "1.2.3" {
+		t.Fatalf("setVersion(v1.2.3): %q, %v", c.Version, err)
+	}
+	if err := c.setVersion("1.3.0-beta.1"); err != nil || c.Version != "1.3.0-beta.1" {
+		t.Fatalf("setVersion(1.3.0-beta.1): %q, %v", c.Version, err)
+	}
+	for _, bad := range []string{"", "v", "1.0 2", "1/0", "a\nb"} {
+		if err := c.setVersion(bad); err == nil {
+			t.Errorf("setVersion(%q) took it", bad)
+		}
+	}
+	if got := packageFlags(c); !strings.Contains(got, "packageVersion=1.3.0-beta.1") {
+		t.Errorf("the version is not linked in: %s", got)
+	}
+	// The tag prefix of the updates, in place of v.
+	pub, _, _ := ed25519.GenerateKey(nil)
+	c.Updates = &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), GitHub: "o/r", TagPrefix: "app-v"}
+	if err := c.setVersion("app-v2.0.0"); err != nil || c.Version != "2.0.0" {
+		t.Errorf("setVersion(app-v2.0.0) with tagPrefix app-v: %q, %v", c.Version, err)
+	}
+}
+
+// -max-size fails a compiled program over it, and none at or under it.
+func TestBuildMaxSize(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "app")
+	os.WriteFile(bin, make([]byte, 3<<20), 0o755)
+	if err := checkSize(bin, 0); err != nil {
+		t.Errorf("no limit: %v", err)
+	}
+	if err := checkSize(bin, 3<<20); err != nil {
+		t.Errorf("at the limit: %v", err)
+	}
+	if err := checkSize(bin, 2<<20); err == nil || !strings.Contains(err.Error(), "3.0 MB") || !strings.Contains(err.Error(), "2.0 MB") {
+		t.Errorf("over the limit: %v", err)
 	}
 }

@@ -79,6 +79,8 @@ func (f *FindBar) ReplaceAll() { f.ed.find.replaceAll(f.ed) }
 // Close closes the bar, and gives the keyboard back to the text.
 func (f *FindBar) Close() {
 	f.ed.find.open = false
+	// The bar is gone: no match of it is on its way into view.
+	f.ed.revealAt = -1
 	f.ed.refocus = true
 }
 
@@ -121,43 +123,92 @@ func (f *FindBar) ReplacementInput(in ui.Element) ui.Element {
 	return in
 }
 
-// DefaultFindBar builds the editor's own find bar into bar, as Zed's:
-// the query with its options, the count of matches and the buttons going
-// through them, and the replacement below it while replacing.
+const (
+	findBarReduced   = 520
+	findBarCollapsed = 360
+)
+
+// findBarSize is how much of the default find bar an editor w wide shows:
+// 2 all of it, 1 all but the count, 0 the fields, the button showing or
+// hiding the replacement and the close button.
+func findBarSize(w float32) int {
+	switch {
+	case w < findBarCollapsed:
+		return 0
+	case w < findBarReduced:
+		return 1
+	}
+	return 2
+}
+
+// DefaultFindBar builds the editor's own find bar into bar: the query
+// with its options inside its field, the count of matches and the buttons
+// going through them, and the replacement below it while replacing. In a
+// narrow editor it leaves out the count, then all but the fields, the
+// button showing or hiding the replacement and the close button.
 func DefaultFindBar(c *ui.Context, bar ui.Element, f *FindBar) {
 	t := c.Theme()
 	tx := l10n.In(c.Locale())
+	size := findBarSize(f.ed.fitWidth())
 	bar.Gap(t.Space(1)).Padding(t.Space(1.5)).Background(t.Surface).Border(1, t.Border).Radius(t.Radius).
 		Shadow(0, 2, 8, 0, ui.RGBA(0, 0, 0, 0.18))
-	field := func(value *string, placeholder string) ui.Element {
-		return ui.TextInputBase(c, value).Width(t.Space(50)).Placeholder(placeholder).Padding(t.Space(1), t.Space(2)).
-			Background(t.Background).Border(1, t.Border).Radius(t.Radius - 2).FontSize(t.FontSize - 1).Label(placeholder)
+	field := func(value *string, placeholder string, invalid bool, input func(ui.Element) ui.Element, inside func()) {
+		box := ui.Row(c).AlignItems(ui.Center).MaxWidth(t.Space(75)).
+			Padding(0, t.Space(0.5), 0, 0).Background(t.Background).Radius(t.Radius - 2)
+		var in ui.Element
+		box.Children(func() {
+			in = input(ui.TextInputBase(c, value).Grow(1).Placeholder(placeholder).Padding(t.Space(1), t.Space(2)).
+				FontSize(t.FontSize - 1).Label(placeholder).FocusRing(false).Invalid(invalid))
+			if size > 0 && inside != nil {
+				inside()
+			}
+		})
+		// The border tells an invalid query, as ui's fields do, since a
+		// narrow bar leaves out the status that says so.
+		border := t.Border
+		switch {
+		case invalid:
+			border = t.Danger
+		case in.Focused():
+			border = t.Accent
+		}
+		box.Border(1, border)
 	}
 	button := func(label, tip string) ui.Element {
 		b := ui.ButtonBase(c).Padding(t.Space(0.5), t.Space(1.5)).Radius(t.Radius - 2).Label(tip).Tooltip(tip).KeepFocus()
 		b.Children(func() { ui.Text(c, label).FontSize(t.FontSize - 1) })
 		return b
 	}
-	bar.Children(func() {
-		ui.Row(c).Gap(t.Space(1)).AlignItems(ui.Center).Children(func() {
-			f.QueryInput(field(f.Query(), tx.Find()))
-			toggle := func(on *bool, label, tip string) {
-				b := ui.ToggleBase(c, on).Padding(t.Space(0.5), t.Space(1.5)).Radius(t.Radius - 2).Label(tip).Tooltip(tip).KeepFocus()
-				if *on {
-					b.Background(t.Accent.Alpha(0.2)).TextColor(t.Accent)
-				}
-				b.Children(func() { ui.Text(c, label).FontSize(t.FontSize - 1) })
-			}
+	toggle := func(on *bool, label, tip string) {
+		b := ui.ToggleBase(c, on).Padding(t.Space(0.5), t.Space(1)).Radius(t.Radius - 2).Label(tip).Tooltip(tip).KeepFocus()
+		if *on {
+			b.Background(t.Accent.Alpha(0.2)).TextColor(t.Accent)
+		}
+		b.Children(func() { ui.Text(c, label).FontSize(t.FontSize - 2) })
+	}
+	row := func(children func()) {
+		ui.Row(c).Gap(t.Space(1)).AlignItems(ui.Center).Children(children)
+	}
+	// The fields in the first column, as wide as each other, their buttons
+	// in the second.
+	bar.Grid().ColumnTracks(ui.Fr(1), ui.FitContent()).Children(func() {
+		field(f.Query(), tx.Find(), f.Err() != nil, f.QueryInput, func() {
 			toggle(f.CaseSensitive(), "Aa", tx.MatchCase())
 			toggle(f.WholeWord(), "ab", tx.MatchWholeWord())
 			toggle(f.Regexp(), ".*", tx.UseRegularExpression())
 			toggle(f.InSelection(), "[ ]", tx.FindInSelection())
-			ui.Text(c, f.Status()).FontSize(t.FontSize - 2).TextColor(t.TextMuted).FontFeatures("tnum").MinWidth(t.Space(16)).Role(ui.RoleStatus)
-			if button("↑", tx.PreviousMatch()).Clicked() {
-				f.Previous()
+		})
+		row(func() {
+			if size > 1 {
+				ui.Text(c, f.Status()).FontSize(t.FontSize - 2).TextColor(t.TextMuted).FontFeatures("tnum").MinWidth(t.Space(16)).Role(ui.RoleStatus)
 			}
-			if button("↓", tx.NextMatch()).Clicked() {
-				f.Next()
+			if size > 0 {
+				if button("↑", tx.PreviousMatch()).Clicked() {
+					f.Previous()
+				}
+				if button("↓", tx.NextMatch()).Clicked() {
+					f.Next()
+				}
 			}
 			if f.CanReplace() && button("⇄", tx.Replace()).Clicked() {
 				f.SetReplacing(!f.Replacing())
@@ -167,32 +218,63 @@ func DefaultFindBar(c *ui.Context, bar ui.Element, f *FindBar) {
 			}
 		})
 		if f.Replacing() {
-			ui.Row(c).Gap(t.Space(1)).AlignItems(ui.Center).Children(func() {
-				f.ReplacementInput(field(f.Replacement(), tx.Replace()))
-				if ui.Button(c, tx.Replace()).Padding(t.Space(0.5), t.Space(2)).FontSize(t.FontSize - 1).Clicked() {
-					f.Replace()
-				}
-				if ui.Button(c, tx.ReplaceAll()).Padding(t.Space(0.5), t.Space(2)).FontSize(t.FontSize - 1).Clicked() {
-					f.ReplaceAll()
+			field(f.Replacement(), tx.Replace(), false, f.ReplacementInput, nil)
+			row(func() {
+				if size > 0 {
+					if ui.Button(c, tx.Replace()).Padding(t.Space(0.5), t.Space(2)).FontSize(t.FontSize - 1).Clicked() {
+						f.Replace()
+					}
+					if ui.Button(c, tx.ReplaceAll()).Padding(t.Space(0.5), t.Space(2)).FontSize(t.FontSize - 1).Clicked() {
+						f.ReplaceAll()
+					}
 				}
 			})
 		}
 	})
 }
 
+// barInRow builds the row a bar of a viewer as high as its lines sticks
+// in: over the whole of it, with the bar at the top of the part of the
+// text the containers around it show, which they take out of view
+// otherwise. justify places the bar across the viewer; newBar makes it,
+// as wide as its content, and build fills and renders it within the row,
+// as an app's render function may add elements beside the bar's own. An
+// editor that scrolls itself places its bars as it did: the find bar an
+// absolute box at its top right, Go to Line centered at its top.
+func (ed *editor) barInRow(c *ui.Context, rowKey string, justify ui.Align, newBar func() ui.Element, build func(ui.Element)) {
+	t := c.Theme()
+	row := ui.Row(c).Key(rowKey).Absolute().Top(0).Bottom(0).Left(0).Right(0).
+		Justify(justify).PassThrough()
+	row.Children(func() {
+		build(newBar().Sticky().Top(t.Space(1)).AlignSelf(ui.Start))
+	})
+}
+
 // buildFindBar places the find bar over the editor's top right corner,
-// and builds it.
+// no wider than the editor, and builds it. Its margins, unlike its insets,
+// narrow the room it fits its content in.
 func (ed *editor) buildFindBar(c *ui.Context) {
 	f := &ed.find
 	f.update(ed)
 	t := c.Theme()
-	bar := ui.Box(c).Key("code find").Absolute().Top(t.Space(1)).Right(t.Space(4)).
-		Role(ui.RoleToolbar).Label(l10n.In(c.Locale()).Find()).Cursor(ui.CursorDefault).HandleInput(shield)
+	f.builtW = ed.fitWidth()
 	render := ed.o.renderFindBar
 	if render == nil {
 		render = DefaultFindBar
 	}
-	render(c, bar, &FindBar{c: c, ed: ed})
+	newBar := func() ui.Element {
+		return ui.Box(c).Key("code find").Role(ui.RoleToolbar).Label(l10n.In(c.Locale()).Find()).
+			Cursor(ui.CursorDefault).HandleInput(shield).Margin(0, t.Space(4), 0, t.Space(1))
+	}
+	if ed.o.fitContent {
+		ed.barInRow(c, "code find row", ui.End, newBar, func(bar ui.Element) {
+			render(c, bar, &FindBar{c: c, ed: ed})
+		})
+	} else {
+		// An editor that scrolls itself places its bar as it always has:
+		// absolute, so insets an app's render function sets place it.
+		render(c, newBar().Absolute().Top(t.Space(1)).Right(0), &FindBar{c: c, ed: ed})
+	}
 	// What the bar typed or toggled shows at once.
 	f.update(ed)
 	if isMac() {
@@ -261,6 +343,9 @@ func (g *GoToLineBar) Go() {
 		off := offsetOf(ed.view.text, Pos{line, col})
 		ed.goTo.open = false
 		ed.setSels([]sel{ed.newSel(off, off)}, revealCenter)
+		// The containers around a viewer as high as its lines scroll to
+		// the line; the viewer itself has no scroll of its own.
+		ed.askRevealNow(off)
 		ed.refocus = true
 	}
 }
@@ -285,23 +370,39 @@ func DefaultGoToLine(c *ui.Context, bar ui.Element, g *GoToLineBar) {
 // buildGoToLine places the go to line bar in the middle of the editor's
 // top, builds it, and shows the line typed.
 func (ed *editor) buildGoToLine(c *ui.Context) {
-	t := c.Theme()
 	g := &ed.goTo
-	ui.Row(c).Key("code go to line").Absolute().Top(t.Space(1)).Left(0).Right(0).Justify(ui.Center).PassThrough().Children(func() {
-		bar := ui.Box(c).Role(ui.RoleDialog).Label(l10n.In(c.Locale()).GoToLine()).Cursor(ui.CursorDefault).HandleInput(shield)
-		render := ed.o.renderGoToLine
-		if render == nil {
-			render = DefaultGoToLine
-		}
-		render(c, bar, &GoToLineBar{c: c, ed: ed})
-	})
+	render := ed.o.renderGoToLine
+	if render == nil {
+		render = DefaultGoToLine
+	}
+	newBar := func() ui.Element {
+		return ui.Box(c).Role(ui.RoleDialog).Label(l10n.In(c.Locale()).GoToLine()).
+			Cursor(ui.CursorDefault).HandleInput(shield)
+	}
+	if ed.o.fitContent {
+		ed.barInRow(c, "code go to line", ui.Center, newBar, func(bar ui.Element) {
+			render(c, bar, &GoToLineBar{c: c, ed: ed})
+		})
+	} else {
+		// An editor that scrolls itself places its bar as it always has: a
+		// row at its top, the bar centered in it.
+		ui.Row(c).Key("code go to line").Absolute().Top(c.Theme().Space(1)).Left(0).Right(0).
+			Justify(ui.Center).PassThrough().Children(func() {
+			render(c, newBar(), &GoToLineBar{c: c, ed: ed})
+		})
+	}
 	if !g.open {
 		return
 	}
 	if line, col, ok := g.target(ed); ok && line != g.preview {
 		g.preview = line
-		if cr, ok := ed.caretRect(offsetOf(ed.view.text, Pos{line, col})); ok {
-			ed.setScroll(float64(cr.Y) - float64(ed.viewH-ed.view.lineHeight)/2)
+		// A viewer as high as its lines cannot scroll itself, and the
+		// containers around it are not the editor's to move while the
+		// user types: Escape, which puts back the editor's own scroll,
+		// would leave them where the preview put them. Go takes the line
+		// into view.
+		if cr, ok := ed.caretRect(offsetOf(ed.view.text, Pos{line, col})); ok && !ed.o.fitContent {
+			ed.setScroll(float64(cr.Y) - float64(ed.viewH-min(cr.H, ed.viewH))/2)
 		}
 	}
 }

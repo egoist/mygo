@@ -57,10 +57,14 @@ func (v *view) replace(start, end int, s string) {
 	if d.typing != nil {
 		attrs = *d.typing
 	}
-	v.lockedEdit(func(e *Edit) { e.ReplaceString(start, end, s, attrs) })
+	// The caret moves inside the edit, so that its step's selection after
+	// is where redo puts it.
 	caret := start + utf8.RuneCountInString(s)
+	v.lockedEdit(func(e *Edit) {
+		e.ReplaceString(start, end, s, attrs)
+		d.anchor, d.caret = caret, caret
+	})
 	v.selAnchor, v.caret = caret, caret
-	d.anchor, d.caret = caret, caret
 	if s == "" && start < end {
 		// Typing again where text was deleted gets its attributes, until
 		// the caret moves, as in NSTextView.
@@ -152,6 +156,17 @@ func (v *view) insert(s string) {
 	v.replace(a, z, s)
 }
 
+// pasteText replaces the selection with s as a step of undo of its own,
+// even one character, as NSTextView's paste.
+func (v *view) pasteText(s string) {
+	if v.opts.ReadOnly {
+		return
+	}
+	a, z := v.selection()
+	v.record(false)
+	v.replace(a, z, normalizeNewlines(s))
+}
+
 // deleteRange deletes the runes from a to z.
 func (v *view) deleteRange(a, z int, typing bool) {
 	if a == z || v.opts.ReadOnly {
@@ -174,7 +189,7 @@ func (v *view) joinStep() {
 // attributes, as part of the step its start made.
 func (v *view) commitCompose() {
 	if v.compose != "" {
-		s := v.compose
+		s := normalizeNewlines(v.compose)
 		v.compose = ""
 		v.joinStep()
 		v.replace(v.caret, v.caret, s)
@@ -201,7 +216,7 @@ func unstyle(s *ParagraphStyle) {
 	case s.Heading > 0:
 		s.Heading = 0
 	case s.Quote:
-		s.Quote = false
+		s.Quote, s.QuoteDepth = false, 0
 	case s.CodeBlock:
 		s.CodeBlock = false
 	case s.Indent > 0:
@@ -226,7 +241,7 @@ func (v *view) enter() {
 			case s.List != NoList:
 				s.List, s.Checked = NoList, false
 			case s.Quote:
-				s.Quote = false
+				s.Quote, s.QuoteDepth = false, 0
 			case s.CodeBlock && p > 0 && v.para(p-1).style.CodeBlock:
 				s.CodeBlock = false
 			default:
@@ -384,9 +399,11 @@ func (v *view) inlineShortcut(ps int, before []rune) {
 	}
 	start, end := ps+open, ps+closeAt
 	v.edit(func(e *Edit) {
+		// Formatted while the closing mark follows, so that a format that
+		// would reach the end of the text leaves what typing gets there.
+		e.Format(start+m, end, set)
 		e.ReplaceString(end, end+m, "", Attributes{})
 		e.ReplaceString(start, start+m, "", Attributes{})
-		e.Format(start, end-m, set)
 		e.Select(end-m, end-m)
 	})
 	// What is typed next is outside the format, as after a closing mark.

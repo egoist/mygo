@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/egoist/mygo/internal/platform"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -355,5 +356,240 @@ func TestFocusRevealsClientCaret(t *testing.T) {
 	tt.Frame()
 	if s.Y > 600 || s.Y+200 < 620 {
 		t.Fatalf("focusing the field scrolled to %v, which doesn't show its caret at 600", s.Y)
+	}
+}
+
+// Space types a space into an app's text field in a scroll view, and
+// Shift+Space a space too, without paging the view, as in a web page's
+// field (#1410); a key that types nothing, as PageDown, still scrolls it.
+func TestSpaceInTextClientDoesNotScroll(t *testing.T) {
+	var s ScrollState
+	c := &primitiveClient{}
+	tt := coreNewTester(func(ctx *context) {
+		coreScroll(ctx).Fill().TrackScroll(&s).Children(func() {
+			coreBox(ctx).Size(250, 40).Shrink(0).HandleTextInput(c).AutoFocus()
+			coreBox(ctx).Height(2000).Shrink(0)
+		})
+	}, 300, 200)
+	defer tt.rt.close()
+	tt.TypeKey(0, KeySpace, " ")
+	tt.Frame()
+	if c.text != " " || s.Y != 0 {
+		t.Fatalf("Space typed %q and scrolled to %v", c.text, s.Y)
+	}
+	tt.Key(0, KeyPageDown)
+	tt.Frame()
+	y := s.Y
+	if y == 0 {
+		t.Fatal("PageDown did not scroll the view around the field")
+	}
+	tt.TypeKey(Shift, KeySpace, " ")
+	tt.Frame()
+	if c.text != "  " || s.Y != y {
+		t.Fatalf("Shift+Space typed %q and scrolled from %v to %v", c.text, y, s.Y)
+	}
+}
+
+// An element taking text itself (TextCaret) whose HandleInput leaves the
+// key of Space, for the text that comes after it, doesn't page the view
+// around it either; a read-only text input, which takes no text, does.
+func TestSpaceScrollsOnlyWithoutTextFocus(t *testing.T) {
+	var s ScrollState
+	typed, readOnly, value := "", false, "fixed"
+	tt := coreNewTester(func(ctx *context) {
+		coreScroll(ctx).Fill().TrackScroll(&s).Children(func() {
+			if readOnly {
+				coreTextInput(ctx, &value).ReadOnly(true).AutoFocus().Width(250)
+			} else {
+				coreBox(ctx).Size(250, 40).Shrink(0).Focusable().AutoFocus().TextCaret(Rect{W: 1, H: 16}).HandleInput(func(ev InputEvent) bool {
+					if ev.Kind == InputText {
+						typed += ev.Text
+						return true
+					}
+					return false
+				})
+			}
+			coreBox(ctx).Height(2000).Shrink(0)
+		})
+	}, 300, 200)
+	defer tt.rt.close()
+	tt.TypeKey(0, KeySpace, " ")
+	tt.Frame()
+	if typed != " " || s.Y != 0 {
+		t.Fatalf("Space typed %q and scrolled to %v", typed, s.Y)
+	}
+	readOnly = true
+	tt.Frame()
+	tt.Frame()
+	tt.TypeKey(0, KeySpace, " ")
+	tt.Frame()
+	if value != "fixed" || s.Y == 0 {
+		t.Fatalf("Space in a read-only input made it %q and scrolled to %v", value, s.Y)
+	}
+}
+
+// TestTextInputClientEditMenu: an element of HandleTextInput has the text
+// field items in its context menu, as a text input has, and EditItems puts
+// them in a menu of its own; choosing one comes to its HandleInput as the
+// Edit menu's command does.
+func TestTextInputClientEditMenu(t *testing.T) {
+	c := &primitiveClient{text: "some text", selection: TextInputSelection{Range: TextInputRange{Start: 0, End: 4}}}
+	var commands []string
+	view := func(menu func(m *Menu)) func(ctx *context) {
+		return func(ctx *context) {
+			box := coreBox(ctx).Size(250, 80).HandleTextInput(c).HandleInput(func(ev InputEvent) bool {
+				if ev.Kind == InputCommand {
+					commands = append(commands, ev.Text)
+					return true
+				}
+				return false
+			})
+			box.ContextMenu(menu)
+		}
+	}
+	tt := coreNewTester(view(func(m *Menu) { m.EditItems() }), 300, 100)
+	defer tt.rt.close()
+	tt.RightClickAt(40, 20)
+	if got := tt.Menu(); !slices.Contains(got, "Copy") || !slices.Contains(got, "Paste") || !slices.Contains(got, "Select All") {
+		t.Fatalf("the menu: %q", got)
+	}
+	if err := tt.ChooseMenuItem("Copy"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(commands, []string{"copy"}) {
+		t.Fatalf("the commands: %q", commands)
+	}
+
+	// Without a selection, Copy is there but can't be chosen.
+	c.selection = TextInputSelection{Range: TextInputRange{Start: 4, End: 4}}
+	own := coreNewTester(view(func(m *Menu) {
+		m.Item("Mine")
+		m.EditItems()
+	}), 300, 100)
+	defer own.rt.close()
+	own.RightClickAt(40, 20)
+	if got := own.Menu(); len(got) < 2 || got[0] != "Mine" || !slices.Contains(got, "Copy") {
+		t.Fatalf("the menu of one's own: %q", got)
+	}
+	if err := own.ChooseMenuItem("Copy"); err == nil {
+		t.Fatal("chose Copy with nothing selected")
+	}
+}
+
+// TestTextInputInsertWhileWindowBlurred checks that text inserted while the
+// window is not key (as macOS's Character Viewer / Emoji & Symbols panel does
+// after windowDidResignKey:) still reaches the focused text element, while
+// losing focus to another element or disabling the element blocks it.
+func TestTextInputInsertWhileWindowBlurred(t *testing.T) {
+	c := &primitiveClient{text: "hi", selection: TextInputSelection{Range: TextInputRange{Start: 2, End: 2}}}
+	disabled := false
+	tt := coreNewTester(func(ctx *context) {
+		coreColumn(ctx).Children(func() {
+			coreBox(ctx).Size(200, 40).HandleTextInput(c).Disabled(disabled).AutoFocus()
+			coreButton(ctx, "Other")
+		})
+	}, 250, 100)
+	defer tt.rt.close()
+	client := tt.h.ime.Client
+	if client == nil {
+		t.Fatal("expected active text input client")
+	}
+
+	// Simulate windowDidResignKey: (e.g. Character Viewer opening).
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
+	if tt.h.ime.Active {
+		t.Fatal("SurfaceBlur should deactivate IME")
+	}
+
+	// Queries and direct ReplaceText on the retained adapter still work while
+	// this element remains the window's focused target.
+	if got := client.Selection().Range; got != (TextInputRange{Start: 2, End: 2}) {
+		t.Fatalf("Selection while blurred = %+v, want {2 2}", got)
+	}
+	client.ReplaceText(nil, "😀")
+	if c.text != "hi😀" {
+		t.Fatalf("ReplaceText while blurred gave %q, want %q", c.text, "hi😀")
+	}
+
+	// Fallback SurfaceEvent{Kind: TextInput} also reaches HandleTextInput.
+	tt.send(platform.SurfaceEvent{Kind: platform.TextInput, Text: "🎉"})
+	if c.text != "hi😀🎉" {
+		t.Fatalf("TextInput event while blurred gave %q, want %q", c.text, "hi😀🎉")
+	}
+
+	// Composition is not started while the window is blurred.
+	tt.send(platform.SurfaceEvent{Kind: platform.TextComposition, Text: "ni", Caret: 2})
+	if c.mark != nil {
+		t.Fatalf("TextComposition while blurred set mark %+v", c.mark)
+	}
+
+	// Disabling the element blocks further inserts while blurred.
+	disabled = true
+	tt.Frame()
+	client.ReplaceText(nil, "x")
+	tt.send(platform.SurfaceEvent{Kind: platform.TextInput, Text: "y"})
+	if c.text != "hi😀🎉" {
+		t.Fatalf("disabled element mutated while blurred: %q", c.text)
+	}
+
+	// Re-enabling and moving focus elsewhere also blocks the old adapter.
+	disabled = false
+	tt.Frame()
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceFocus})
+	tt.Click("Other")
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
+	client.ReplaceText(nil, "z")
+	if c.text != "hi😀🎉" {
+		t.Fatalf("unfocused element mutated while blurred: %q", c.text)
+	}
+
+	// HandleInput + TextCaret (e.g. terminal) also receives TextInput while blurred.
+	var got string
+	term := coreNewTester(func(ctx *context) {
+		coreBox(ctx).Size(200, 40).AutoFocus().TextCaret(Rect{X: 0, Y: 0, W: 1, H: 16}).HandleInput(func(ev InputEvent) bool {
+			if ev.Kind == InputText {
+				got += ev.Text
+				return true
+			}
+			return false
+		})
+	}, 250, 60)
+	defer term.rt.close()
+	term.send(platform.SurfaceEvent{Kind: platform.SurfaceBlur})
+	term.send(platform.SurfaceEvent{Kind: platform.TextInput, Text: "🚀"})
+	if got != "🚀" {
+		t.Fatalf("HandleInput TextCaret while blurred got %q, want %q", got, "🚀")
+	}
+}
+
+// An on-screen keyboard moves the selection that Shift and the arrows, or
+// a drag, made: typing then goes where the keyboard put the caret, not over
+// the old selection.
+func TestKeyboardMovesShiftSelection(t *testing.T) {
+	for _, area := range []bool{false, true} {
+		v := "hello world"
+		var in *node
+		tt := coreNewTester(func(c *context) {
+			if area {
+				in = coreTextAreaBase(c, &v).Width(250).AutoFocus()
+			} else {
+				in = coreTextInputBase(c, &v).Width(250).AutoFocus()
+			}
+		}, 300, 100)
+		tt.Key(0, KeyHome)
+		for range 5 {
+			tt.Key(Shift, KeyRight)
+		}
+		if got := in.st.editor.selectedText(); got != "hello" {
+			t.Fatalf("area %v: Shift and the arrows chose %q", area, got)
+		}
+		in.st.textAdapter.SetTextSelection(platform.TextRange{Start: 8, End: 8})
+		if start, end := in.TextSelection(); start != 8 || end != 8 {
+			t.Errorf("area %v: the keyboard put the caret at 8, selection %d–%d", area, start, end)
+		}
+		tt.Type("X")
+		if v != "hello woXrld" {
+			t.Errorf("area %v: typed %q", area, v)
+		}
 	}
 }

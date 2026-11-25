@@ -4,6 +4,8 @@ package mygo
 
 import "os"
 
-// replaceFile renames from over to: elsewhere than Windows, renaming
-// over a file that is open replaces it.
-func replaceFile(from, to string) error { return os.Rename(from, to) }
+// readShared reads the file at path, which others may replace meanwhile.
+func readShared(path string) ([]byte, error) { return os.ReadFile(path) }
+
+// renameOver renames from over to.
+func renameOver(from, to string) error { return os.Rename(from, to) }

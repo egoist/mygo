@@ -7,18 +7,31 @@ import (
 	"math"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/internal/wait"
+	"github.com/egoist/mygo/plugins/sqlite/internal/sqlitecore"
 )
+
+// needSQLite skips a test in -short mode, and where the plugin's native
+// module is not built: mygo native build -target host
+// ./plugins/sqlite/internal/sqlitecore builds it, with Zig.
+func needSQLite(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("requires the plugin's native module")
+	}
+	if err := Load(); err != nil && strings.Contains(err.Error(), "mygo native build") {
+		t.Skip(err)
+	}
+}
 
 func testDB(t *testing.T, path string) *DB {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("requires the plugin's native SQLite library; run go generate ./plugins/sqlite")
-	}
+	needSQLite(t)
 	db, err := Open(context.Background(), path, OpenOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -176,6 +189,64 @@ func TestCancellationAndRollback(t *testing.T) {
 	}
 }
 
+const endlessQuery = "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n) SELECT count(*) FROM n"
+
+// countedConn tells of the interruptions of a connection.
+type countedConn struct {
+	sqlitecore.Conn
+	interrupted chan struct{}
+}
+
+func (c *countedConn) Interrupt() {
+	c.Conn.Interrupt()
+	select {
+	case c.interrupted <- struct{}{}:
+	default:
+	}
+}
+
+// SQLite ignores an interruption that comes while no statement runs, as
+// between its start and the statement's: it must not be the only one.
+func TestInterruptedBeforeStatement(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		end  func(db *DB, cancel func(), closed chan<- error)
+		want error
+	}{
+		{"cancel", func(db *DB, cancel func(), closed chan<- error) { cancel(); closed <- nil }, context.Canceled},
+		{"close", func(db *DB, cancel func(), closed chan<- error) { go func() { closed <- db.Close() }() }, ErrClosed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := testDB(t, ":memory:")
+			conn := &countedConn{db.conn, make(chan struct{}, 1)}
+			db.conn = conn
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			closed, done := make(chan error, 1), make(chan error, 1)
+			go func() {
+				done <- db.operation(ctx, func(func()) error {
+					test.end(db, cancel, closed)
+					<-conn.interrupted
+					_, _, err := db.run(endlessQuery, nil, true)
+					return err
+				})
+			}()
+			select {
+			case err := <-done:
+				if !errors.Is(err, test.want) {
+					t.Fatal(err)
+				}
+			case <-time.After(wait.Guard):
+				conn.Interrupt() // the connection's Close waits for the query
+				t.Fatal("the query went on")
+			}
+			if err := <-closed; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestConcurrentOperations(t *testing.T) {
 	db := testDB(t, ":memory:")
 	execute(t, db, "CREATE TABLE counter(n)")
@@ -202,7 +273,7 @@ func TestCloseAndQueuedCancellation(t *testing.T) {
 	started := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- db.operation(context.Background(), func() error { close(started); _, _, err := db.run(longQuery, nil, true); return err })
+		done <- db.operation(context.Background(), func(func()) error { close(started); _, _, err := db.run(longQuery, nil, true); return err })
 	}()
 	<-started
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
@@ -252,7 +323,7 @@ func TestDiskReadOnlyAndBusy(t *testing.T) {
 	defer b.Close()
 	locked, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
 	go func() {
-		done <- w.operation(context.Background(), func() error {
+		done <- w.operation(context.Background(), func(func()) error {
 			if err := w.control("BEGIN IMMEDIATE"); err != nil {
 				close(locked)
 				return err

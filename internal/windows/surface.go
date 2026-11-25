@@ -140,10 +140,15 @@ type surface struct {
 	// pointerAt is where on the screen the last WM_POINTER message's
 	// pointer was, in pixels (pointerMessage).
 	pointerAt point
+	// touch follows the fingers on the surface (fingerMessage).
+	touch platform.TouchGesture
 	// canceledUp tells that the system took the press of the pen or the
 	// finger (cancelPress): the mouse button's release that follows is
 	// its, and goes nowhere.
 	canceledUp bool
+	// ateUp is the mouse button release of an activation press
+	// WM_MOUSEACTIVATE ate (MA_ACTIVATEANDEAT), which goes nowhere.
+	ateUp uint32
 
 	// keyTaken tells that the content took the key down, whose
 	// WM_SYSCHAR then opens no menu.
@@ -175,8 +180,9 @@ type surface struct {
 	// (FirstFrame), and cloaked that DWM keeps the window out of sight
 	// until a frame shows in it (cloak). hiddenFrame tells that the first
 	// frame of a window hidden, which no WM_PAINT asks for, is posted
-	// (drawHidden).
-	drawn, cloaked, hiddenFrame bool
+	// (drawHidden). revealing tells that the window, cloaked, waits for
+	// DWM to compose the first frame that showed in it (reveal).
+	drawn, cloaked, hiddenFrame, revealing bool
 
 	// bg is the content's background (SetBackground), and bgBrush a brush
 	// of it while it is opaque, which fills what the window shows beyond
@@ -274,10 +280,16 @@ func (s *surface) Size() (float64, float64, float64) {
 
 func (s *surface) RequestFrame() {
 	procInvalidateRectW.Call(s.hwnd, 0, 0)
-	if !s.drawn && !s.hiddenFrame && !s.w.IsVisible() {
+	if !s.hiddenFrame && s.unpainted() {
 		s.hiddenFrame = true
 		s.w.b.post(s.drawHidden)
 	}
+}
+
+// unpainted reports whether no WM_PAINT draws the window's next frame: a
+// window minimized gets none, nor does one hidden before its first frame.
+func (s *surface) unpainted() bool {
+	return s.Occluded() || !s.drawn && !s.w.IsVisible()
 }
 
 // The window of native UI is cloaked, which keeps it out of sight though
@@ -310,10 +322,12 @@ func (s *surface) uncloak() {
 	if !s.cloaked {
 		return
 	}
-	s.cloaked = false
-	procKillTimer.Call(s.hwnd, timerUncloak)
 	off := int32(0)
-	procDwmSetWindowAttribute.Call(s.w.hwnd, dwmwaCloak, uintptr(unsafe.Pointer(&off)), unsafe.Sizeof(off))
+	hr, _, _ := procDwmSetWindowAttribute.Call(s.w.hwnd, dwmwaCloak, uintptr(unsafe.Pointer(&off)), unsafe.Sizeof(off))
+	if !failed(hr) {
+		s.cloaked = false
+		procKillTimer.Call(s.hwnd, timerUncloak)
+	}
 }
 
 // showing tells that Windows is about to show the window: while it is
@@ -330,12 +344,69 @@ func (s *surface) showing() {
 // the window a refresh before the frame presented, it shows the window's
 // own pixels under the surface, which hold the content's background
 // (fillUnder): drawn nowhere while the window was hidden, they are drawn
-// now. It does not wait for DWM (DwmFlush), which may wait on the main
-// thread until something else on the screen changes.
+// now. A window whose frames show through DirectComposition has no such
+// pixels: there DWM would show nothing, black, for a refresh or more, as
+// the frame reaches it after the window (#1591), so it stays cloaked until
+// DWM composed what was presented (awaitComposition), waited for on
+// another goroutine, as DwmFlush may wait on the main thread until
+// something else on the screen changes.
 func (s *surface) reveal() {
-	s.fillUnder()
-	procGdiFlush.Call()
+	if !s.viaComposition() {
+		s.fillUnder()
+		procGdiFlush.Call()
+		s.uncloak()
+		return
+	}
+	if s.revealing {
+		return
+	}
+	s.revealing = true
+	b, wait := s.w.b, awaitComposition
+	go func() {
+		wait()
+		b.post(s.revealComposed)
+	}()
+}
+
+// revealComposed shows the window once DWM composed its first frame
+// (reveal), unless it closed meanwhile, or showed already (timerUncloak).
+func (s *surface) revealComposed() {
+	s.revealing = false
+	if s.w.closed || s.w.b.surfaces[s.hwnd] != s {
+		return
+	}
 	s.uncloak()
+}
+
+// revealLeast and revealMost bound awaitComposition's wait: DwmFlush may
+// return at once when DWM has nothing to compose, and wait until something
+// else on the screen changes when it composed the window's frame already.
+// Four refreshes at 60 Hz leave a first frame heavy for the GPU the time
+// to show.
+const (
+	revealLeast = time.Second / 120
+	revealMost  = 4 * time.Second / 60
+)
+
+// awaitComposition returns once DWM composed what was presented until it
+// was called (DwmFlush), within revealLeast and revealMost. It is called
+// off the main thread; tests replace it.
+var awaitComposition = func() {
+	start := time.Now()
+	done := make(chan struct{})
+	go func() {
+		procDwmFlush.Call()
+		close(done)
+	}()
+	timer := time.NewTimer(revealMost)
+	select {
+	case <-done:
+	case <-timer.C:
+	}
+	timer.Stop()
+	if d := revealLeast - time.Since(start); d > 0 {
+		time.Sleep(d)
+	}
 }
 
 // FirstFrame tells that the content's first frame reached the surface
@@ -344,12 +415,14 @@ func (s *surface) FirstFrame() { s.drawn = true }
 
 var _ platform.FirstFrameSurface = (*surface)(nil)
 
-// drawHidden draws the content's first frame in a window hidden, which no
-// WM_PAINT asks for: the window is then ready to show, and shows the frame
-// from the swap chain as it shows. A window shown since gets WM_PAINT.
+// drawHidden draws a frame no WM_PAINT asks for. The content's first frame
+// in a window hidden makes it ready to show, and shows from the swap chain
+// as the window shows. A frame in a window minimized builds the content as
+// it hides, so a view sees that it hides at once, not once it shows again.
+// A window shown or restored since gets WM_PAINT.
 func (s *surface) drawHidden() {
 	s.hiddenFrame = false
-	if s.drawn || s.w.closed || s.w.b.surfaces[s.hwnd] != s || s.w.IsVisible() {
+	if s.w.closed || s.w.b.surfaces[s.hwnd] != s || !s.unpainted() {
 		return
 	}
 	s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame})
@@ -693,7 +766,26 @@ func (s *surface) pointer(kind platform.SurfaceEventKind, lp uintptr, button int
 	s.send(platform.SurfaceEvent{Kind: kind, X: s.toDIP(int32(x)), Y: s.toDIP(int32(y)), Button: button, Clicks: clicks, Mods: mods(), Pointer: pointer, Pressure: pressure})
 }
 
+// eatActivationRelease remembers the release of an activation press
+// WM_MOUSEACTIVATE ate (MA_ACTIVATEANDEAT), so the release that follows
+// does not reach the content or an embedded web view as half a click.
+func (s *surface) eatActivationRelease(down uint16) {
+	s.ateUp = releaseMessage(down)
+}
+
 func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool) {
+	switch m {
+	case wmLButtonDown, wmLButtonDblClk, wmRButtonDown, wmRButtonDblClk, wmMButtonDown, wmMButtonDblClk, wmXButtonDown, wmXButtonDblClk, wmKillFocus:
+		s.ateUp = 0
+	case wmCaptureChanged:
+		if lp != hwnd {
+			s.ateUp = 0
+		}
+	}
+	if m != 0 && m == s.ateUp {
+		s.ateUp = 0
+		return 0, true
+	}
 	switch m {
 	case wmMouseMove, wmLButtonDown, wmLButtonDblClk, wmLButtonUp, wmRButtonDown, wmRButtonDblClk, wmRButtonUp,
 		wmMButtonDown, wmMButtonDblClk, wmMButtonUp, wmXButtonDown, wmXButtonDblClk, wmXButtonUp, wmMouseWheel, wmMouseHWheel:
@@ -702,13 +794,14 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		}
 	case wmTimer:
 		if wp == timerUncloak {
+			procKillTimer.Call(hwnd, timerUncloak)
 			s.uncloak()
 			return 0, true
 		}
 		if wp == timerWebView {
 			procKillTimer.Call(hwnd, timerWebView)
 			for _, v := range s.w.webViews {
-				if v.controller == 0 && v.webViewErr == nil {
+				if webViewBuilt && v.asksAgain() {
 					v.createWebView()
 				}
 			}
@@ -747,8 +840,13 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		s.drawNow()
 		return 0, true
 	case wmPointerDown, wmPointerUpdate, wmPointerUp:
-		// A pen or a finger, whose mouse messages DefWindowProc makes.
-		s.pointerMessage(m, wp)
+		if s.pointerMessage(m, wp) {
+			// A finger the gesture follows, of which DefWindowProc makes
+			// no mouse.
+			return 0, true
+		}
+		// A pen, or a finger the gesture leaves, whose mouse messages
+		// DefWindowProc makes.
 		if m == wmPointerUp && pointerCanceled(wp) && s.buttons != 0 {
 			// The system took the pen or the finger, as for an edge's
 			// gesture: the press ends with no release, and the button
@@ -757,6 +855,14 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 			s.cancelPress()
 			s.canceledUp = true
 			procReleaseCapture.Call()
+		}
+		return 0, false
+	case wmPointerCaptureChanged:
+		// A finger another window took: its touch ends there, and the
+		// gesture's with no tap.
+		s.send(platform.SurfaceEvent{Kind: platform.TouchCancel, ID: uint64(loword(wp))})
+		if s.touchCaptureLost(wp) {
+			return 0, true
 		}
 		return 0, false
 	case wmMouseMove:

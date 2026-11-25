@@ -31,9 +31,9 @@ type scrollGlide struct {
 // ScrollTo scrolls the container smoothly to x and y as a says, from where
 // it shows its content, as SwiftUI's scrollTo in withAnimation:
 // math.MaxFloat32 is the end. Called again on the way, it turns smoothly
-// toward the new place; the user scrolling stops it. While the desktop
-// asks for less motion, or the frame disables animations, it scrolls at
-// once.
+// toward the new place; the user scrolling, or the app setting X or Y,
+// stops it: setting them jumps there at once. While the desktop asks for
+// less motion, or the frame disables animations, it scrolls at once.
 //
 //	if ui.Button(c, "Back to top").Clicked() {
 //		app.feed.ScrollTo(0, 0, ui.Smooth)
@@ -168,7 +168,14 @@ func (e *node) adoptScroll() bool {
 	st, t := e.st, e.track
 	st.track = t
 	if t != nil && t.glide != nil {
-		e.glide(t)
+		if g := t.glide; g.placed && !g.moved && g.frame+1 >= e.c.rt.frame &&
+			(t.X != float32(st.scrollX) || t.Y != float32(st.scrollY)) {
+			// The app set the offset since the glide last moved it: it
+			// takes over, as setting scrollTop stops a smooth scroll.
+			t.glide = nil
+		} else {
+			e.glide(t)
+		}
 	}
 	if t == nil || t.X == float32(st.scrollX) && t.Y == float32(st.scrollY) {
 		return false
@@ -247,6 +254,15 @@ func (e *node) followShift() float64 {
 		return -e.st.scrollX
 	}
 	return e.st.scrollX
+}
+
+// scrollbarStyle returns how the container's scroll bars look, as the
+// last frame resolved them.
+func (s *state) scrollbarStyle() ScrollbarStyle {
+	if s.barStyle != nil {
+		return *s.barStyle
+	}
+	return ScrollbarStyle{}
 }
 
 // scrollTo moves the content of a scroll container, and the ScrollState

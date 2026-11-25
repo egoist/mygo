@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"runtime"
 	"slices"
 	"testing"
@@ -215,6 +216,16 @@ func TestRTLRangeSlider(t *testing.T) {
 	if low != 21 {
 		t.Errorf("Left on the minimum set it to %v, want 21", low)
 	}
+	// Both at 100, at the left: dragged right, the minimum moves.
+	low, high = 100, 100
+	tt.Frame()
+	tt.Press(10, 10)
+	tt.Move(50, 10)
+	tt.Move(90, 10)
+	tt.Release(90, 10)
+	if low != 60 || high != 100 {
+		t.Errorf("dragged right from where the knobs meet: %v to %v, want 60 to 100", low, high)
+	}
 }
 
 // TestRTLArrows moves along rows with the arrows the way they point: tabs,
@@ -375,7 +386,7 @@ func TestRTLPopups(t *testing.T) {
 // TestRTLScrollBars puts the vertical scroll bar on the left right to
 // left, and the horizontal thumb at the right at the start.
 func TestRTLScrollBars(t *testing.T) {
-	g := scrollBars(Rect{0, 0, 200, 100}, [4]float32{}, 400, 300, 0, 0, flagScrollX|flagScrollY, 6, true)
+	g := scrollBars(Rect{0, 0, 200, 100}, [4]float32{}, 400, 300, 0, 0, flagScrollX|flagScrollY, testScrollbarStyle(), true)
 	if g.v.X > 10 {
 		t.Errorf("right to left, the vertical thumb is at %v, want at the left", g.v.X)
 	}
@@ -385,7 +396,7 @@ func TestRTLScrollBars(t *testing.T) {
 	if g.hTrack.X < g.v.X+g.v.W {
 		t.Errorf("right to left, the horizontal track starts at %v, under the vertical bar ending at %v", g.hTrack.X, g.v.X+g.v.W)
 	}
-	ltr := scrollBars(Rect{0, 0, 200, 100}, [4]float32{}, 400, 300, 0, 0, flagScrollX|flagScrollY, 6, false)
+	ltr := scrollBars(Rect{0, 0, 200, 100}, [4]float32{}, 400, 300, 0, 0, flagScrollX|flagScrollY, testScrollbarStyle(), false)
 	if ltr.v.X < 190 || ltr.h.X > 10 {
 		t.Errorf("left to right, the thumbs are at %v and %v", ltr.v.X, ltr.h.X)
 	}
@@ -481,5 +492,23 @@ func TestRTLAccessibility(t *testing.T) {
 	tt.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: slider.ID, Action: platform.AccessIncrement})
 	if v <= 30 {
 		t.Errorf("right to left, incrementing set %v", v)
+	}
+}
+
+// TestRTLColorPicker keeps the square of a color picker left to right:
+// assistive technology's increment raises the saturation it reads out,
+// as its Right does, not the brightness of its Up.
+func TestRTLColorPicker(t *testing.T) {
+	color := hsva{200, 0.5, 0.5, 1}.color()
+	tt := rtlTester(func(c *context) { coreColorPicker(c, &color) }, 400, 500)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	sq := accessNode(t, tt.h.access, platform.RoleSlider, "Saturation and brightness")
+	was := toHSVA(color)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessAction, ID: sq.ID, Action: platform.AccessIncrement})
+	if h := toHSVA(color); h.s <= was.s || math.Abs(h.v-was.v) > 0.005 {
+		t.Errorf("right to left, incrementing set saturation %.3f and brightness %.3f, from %.3f and %.3f", h.s, h.v, was.s, was.v)
+	}
+	if now := accessNode(t, tt.h.access, platform.RoleSlider, "Saturation and brightness").Now; now != sq.Now+1 {
+		t.Errorf("right to left, incrementing read %v then %v", sq.Now, now)
 	}
 }

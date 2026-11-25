@@ -197,6 +197,30 @@ app.md.OnLink = func(url string) {
 }
 ```
 
+`AnchorBlock` finds the block an anchor names, for `Anchor` and for the
+links to `#an-anchor` the view follows itself: given the view's document
+(see [the parser](#the-parser)) and the anchor without its `#`, it
+returns the block's index, or -1 to look for the heading of that slug,
+as without it. A notes app goes to a block by its ID, as Obsidian's
+`[[note#^block-id]]` goes to the paragraph ending in `^block-id`:
+
+```go
+app.md.AnchorBlock = func(d *parser.Document, name string) int {
+	if !strings.HasPrefix(name, "^") {
+		return -1 // a heading's slug
+	}
+	for i := 1; i < d.Len(); i++ {
+		if d.Block(i).Kind == parser.Paragraph && strings.HasSuffix(strings.TrimSpace(d.Lines(i)), " "+name) {
+			return i
+		}
+	}
+	return -1
+}
+```
+
+A list's item scrolls into view as its row, and a table's row or cell as
+the table. The document is the view's: read it, never change it.
+
 `LinkIcon` puts an icon at the start of a link's text, from its
 destination and the size of the text around it: a box as `InlineMath`
 makes, which clicks as the link and stays on the line of its first
@@ -218,6 +242,27 @@ app.md.LinkIcon = func(dest string, size float32) (markdown.InlineObject, bool) 
 }
 ```
 
+`LinkColor` colors a link's text by its destination, in place of
+`Theme.Link`, when it returns true: a chat that shows its citations as
+asides in a muted color, or a docs reader that tells links leaving the
+site from its own. It colors mentions, references and code links too,
+and the link keeps its underline on hover; a link still streaming in
+keeps `Theme.Link` until its destination is whole. It is asked for each
+link shown whenever the view builds, as `Resolve` is, so it looks up
+what the app has at hand, and paragraphs follow when its answers
+change:
+
+```go
+app.md.LinkColor = func(dest string) (ui.Color, bool) {
+	return ui.Hex("#6b7280"), app.isCitation(dest)
+}
+```
+
+An icon from `LinkIcon` draws in the color its `Draw` picks, as the one
+above in `Theme.Link`: to match a link `LinkColor` colors, draw it in
+the color `LinkColor` gives the same destination. A paragraph whose
+colors change builds anew, asking for its icons again.
+
 Images show their description until `LoadImage` loads them, on a
 goroutine of their own; without it, they stay descriptions, as a view
 loads nothing from the network by itself. `FileImages(dir)` loads the
@@ -227,6 +272,35 @@ as they are, at most as wide as the view.
 ```go
 app.md.LoadImage = markdown.FileImages(filepath.Dir(app.path))
 ```
+
+## Task lists
+
+The items of task lists, `- [ ]` and `- [x]`, show check boxes, which
+only show whether their tasks are done. `OnTask` makes them controls of
+the app's, as in a notes app that ticks a task off in the note's file: a
+click on a box, or Space or Enter while it has the focus, calls it with
+the line of the task in the view's source, from 1, and the state asked
+for. The box keeps showing what the source says, so the app writes the
+change and gives the view its new text:
+
+```go
+app.md.OnTask = func(line int, checked bool) {
+	lines := strings.SplitAfter(app.note, "\n")
+	mark := "[ ]"
+	if checked {
+		mark = "[x]"
+	}
+	l := lines[line-1]
+	i := strings.Index(l, "[") // the item's check box, after its marker
+	lines[line-1] = l[:i] + mark + l[i+3:]
+	app.note = strings.Join(lines, "")
+	app.save()
+}
+```
+
+The lines are those of the Markdown the view was given: a view built in
+a block of another, as of the Markdown in a code block, adds the block's
+line to them ([`SourceLine`](#code)).
 
 ## Code
 
@@ -259,6 +333,22 @@ app.md.CodeBlock = func(c *ui.Context, b *markdown.CodeBlockView) {
 		b.Body(c)       // the highlighted, selectable code
 		b.CopyButton(c) // the copy button
 	})
+}
+```
+
+`SourceLine` is the line of the view's source a block starts on, from 1:
+its opening fence, or indented code's first line. Line k of a fenced
+block's code is line `SourceLine()+k` of the source, so a block built as
+a view of the Markdown in it gives that view's tasks to the outer view's
+`OnTask` at their lines in the source:
+
+```go
+app.md.Code = map[string]func(*ui.Context, *markdown.CodeBlockView){
+	"tasks": func(c *ui.Context, b *markdown.CodeBlockView) {
+		start := b.SourceLine()
+		app.inner.OnTask = func(line int, checked bool) { app.md.OnTask(start+line, checked) }
+		markdown.View(c, b.Code(), &app.inner)
+	},
 }
 ```
 
@@ -345,7 +435,9 @@ Headings are headings of their level, lists and their items lists and
 list items, links links, tables tables of rows, column headers and
 cells, task items check boxes, checked or not, images images named by
 their descriptions, and code blocks groups named by their language,
-with a Copy code button.
+with a Copy code button. A task's check box is read-only, or, with
+`OnTask`, named by the task's text, takes the focus, and asks for the
+other state when assistive technology presses it, as a click does.
 
 ## The parser
 
@@ -377,6 +469,14 @@ byte range in the source (`Start` and `End`) and the index after its
 children (`Next`). `Inlines` parses a block's inlines the first time it
 is asked. `New(ext)` reads other extensions than `Default`, and
 `SetStreaming` completes the end as `Stream` does.
+
+As GitHub's spec has it, `HTML` escapes the raw tags whose content a
+browser reads to their end — `title`, `textarea`, `style`, `xmp`,
+`iframe`, `noembed`, `noframes`, `script` and `plaintext` — so that a
+document copied as HTML carries its `<script>` as text into what pastes
+it. That is `ExtTagFilter`, cmark-gfm's tagfilter, which `GFM` and so
+`Default` read; `New(ext &^ parser.ExtTagFilter)` writes raw HTML as it
+is. Other raw HTML, as a tag's event handler, is still HTML.
 
 It passes all 652 examples of the CommonMark 0.31.2 spec and those of
 GitHub's extensions, takes linear time on the inputs that are slow in

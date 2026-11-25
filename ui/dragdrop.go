@@ -19,7 +19,9 @@ const dragStart = 4
 
 // valueDrag is a value being dragged: the element dragging it, the value,
 // where the pointer pressed the element, the element taking it under the
-// pointer, and the source's element in the frame, for its copy.
+// pointer, and the source's element in the frame, for its copy. ghost
+// is a copy of the source as it first showed, which follows the pointer
+// once the frame builds the source no more, as a view it was in went.
 type valueDrag struct {
 	src      uint64
 	value    any
@@ -27,6 +29,7 @@ type valueDrag struct {
 	offY     float32
 	over     uint64
 	elem     *node
+	ghost    *node
 	canceled bool
 	native   bool
 	// count is how many things the value stands for, as rows dragged
@@ -141,10 +144,13 @@ func (rt *engine) dragMove(x, y float32) {
 	if s == nil || rt.pressButton != 0 {
 		return
 	}
+	var value any
+	count, handed := 0, false
 	if !s.drags() {
-		if s = rt.handPress(x, y); s == nil {
+		if s, value, count = rt.handPress(x, y); s == nil {
 			return
 		}
+		handed = true
 	}
 	d := rt.drag
 	if d == nil {
@@ -153,12 +159,8 @@ func (rt *engine) dragMove(x, y float32) {
 		if dx*dx+dy*dy < dragStart*dragStart {
 			return
 		}
-		value, count := s.dragValue, 0
-		if s.dragFn != nil {
-			value = s.dragFn()
-		}
-		if c, ok := value.(countedDrag); ok {
-			value, count = c.value, c.n
+		if !handed {
+			value, count = s.valueToDrag()
 		}
 		if value == nil && s.dataSource == nil {
 			return
@@ -202,6 +204,19 @@ func (rt *engine) dragMove(x, y float32) {
 	rt.requestFrame()
 }
 
+// valueToDrag is the value a press on the element drags, and how many
+// things it stands for: nil for none, as for a row DragRows leaves out.
+func (s *state) valueToDrag() (any, int) {
+	value, count := s.dragValue, 0
+	if s.dragFn != nil {
+		value = s.dragFn()
+	}
+	if c, ok := value.(countedDrag); ok {
+		value, count = c.value, c.n
+	}
+	return value, count
+}
+
 // countedDrag is a value a source drags with how many things it stands
 // for, as a list's rows or a grid's items: the drag carries the value
 // alone, and shows the number.
@@ -240,22 +255,45 @@ func pressDragger(rt *engine, chain []uint64, target *state) uint64 {
 
 // handPress gives the press to the element around the one pressed that
 // drags a value, once the pointer moves as far as starts a drag: the
-// element pressed has no click then. It returns that element, or nil.
-func (rt *engine) handPress(x, y float32) *state {
+// element pressed has no click then. It returns that element with the
+// value it drags, or nil. An element with nothing to drag from there, as
+// a row DragRows leaves out, leaves the element pressed its press, and
+// its click.
+func (rt *engine) handPress(x, y float32) (*state, any, int) {
 	s, a := rt.pressed, rt.states[rt.pressDragger]
 	if a == nil || rt.drag != nil || !a.drags() {
-		return nil
+		return nil, nil, 0
 	}
 	px, py := s.world.Point(s.x+s.pressX, s.y+s.pressY)
 	if dx, dy := x-px, y-py; dx*dx+dy*dy < dragStart*dragStart {
-		return nil
+		return nil, nil, 0
+	}
+	value, count := a.valueToDrag()
+	if value == nil && a.dataSource == nil {
+		rt.pressDragger = 0
+		return nil, nil, 0
 	}
 	rt.pressed, rt.pressDragger = a, 0
 	s.pressed = false
 	a.pressed, a.pressButton, a.pressMods, a.pressPending = true, s.pressButton, s.pressMods, true
 	a.pressX, a.pressY = a.local(px, py)
 	a.drag.reset(rt.now(), px, py)
-	return a
+	return a, value, count
+}
+
+// retarget makes the element taking the value dragged under a pointer
+// that did not move, as one the frame moved there or built anew in a view
+// that just showed, the one the value is over, and builds the frame anew
+// for it to show it.
+func (rt *engine) retarget() {
+	d := rt.drag
+	if d == nil || d.native || d.canceled || !rt.pointerIn {
+		return
+	}
+	if t := rt.valueTarget(rt.pointerX, rt.pointerY, d.value); t != d.over {
+		d.over = t
+		rt.askBuild()
+	}
 }
 
 // dragEnd drops the value dragged on the element taking it under the
@@ -333,10 +371,16 @@ func (rt *engine) dragScroll() {
 // pointer, above the rest.
 func (rt *engine) paintDrag(p *Painter, w, h float32) {
 	d := rt.drag
-	if d == nil || d.canceled || d.native || d.elem == nil || d.elem.c == nil {
+	if d == nil || d.canceled || d.native {
 		return
 	}
 	e := d.elem
+	if e == nil {
+		e = d.ghost
+	}
+	if e == nil || e.c == nil {
+		return
+	}
 	px, py := e.world.Point(e.x+d.offX, e.y+d.offY)
 	dx, dy := rt.pointerX-px, rt.pointerY-py
 	affine := hasVisualTransform(e)
@@ -345,9 +389,11 @@ func (rt *engine) paintDrag(p *Painter, w, h float32) {
 	} else {
 		shift(e, dx, dy)
 	}
-	saved, savedClip, savedTheme, dimmed := p.opacity, p.clip, p.theme, e.opacitySet
-	// Painted alone, it takes the theme of the Themed around it.
-	p.opacity, p.clip, p.theme, e.opacitySet = 0.75, Rect{0, 0, w, h}, e.theme(), false
+	saved, savedClip, savedTheme, dimmed, copying := p.opacity, p.clip, p.theme, e.opacitySet, p.copying
+	// Painted alone, it takes the theme of the Themed around it. It is a
+	// copy: the page of a web view in it stays where the element is, so the
+	// hole the copy paints tells nothing of how opaque the page shows.
+	p.opacity, p.clip, p.theme, e.opacitySet, p.copying = 0.75, Rect{0, 0, w, h}, e.theme(), false, true
 	p.element(e)
 	p.opacity = 1
 	// How many go with it, as several rows dragged.
@@ -361,11 +407,40 @@ func (rt *engine) paintDrag(p *Painter, w, h float32) {
 		p.Fill(Rect{x, y, bw, th + 4}, t.Accent, (th+4)/2)
 		p.RichText(x+(bw-tw)/2, y+2, 0, label)
 	}
-	p.opacity, p.clip, p.theme, e.opacitySet = saved, savedClip, savedTheme, dimmed
+	p.opacity, p.clip, p.theme, e.opacitySet, p.copying = saved, savedClip, savedTheme, dimmed, copying
 	if affine {
 		restoreVisual(e)
 	} else {
 		shift(e, -dx, -dy)
+	}
+}
+
+// draggingFrom reports whether the element id is the source of a value
+// dragged within the window.
+func (rt *engine) draggingFrom(id uint64) bool {
+	d := rt.drag
+	return d != nil && !d.native && d.src == id
+}
+
+// dragGhost copies the element e dragging its value, with its children,
+// for its copy to follow the pointer once the frame builds e no more. The
+// copy keeps the text e laid out, as it is laid out no more.
+func dragGhost(e *node) *node {
+	g := ghostOf(e)
+	keepTextLayouts(g, e)
+	return g
+}
+
+// keepTextLayouts gives the copy g of e, and those of its children, the
+// text e and its children laid out.
+func keepTextLayouts(g, e *node) {
+	g.tl = e.tl
+	c := g.first
+	for ec := e.first; ec != nil && c != nil; ec = ec.next {
+		if ec.leaving == 0 {
+			keepTextLayouts(c, ec)
+			c = c.next
+		}
 	}
 }
 

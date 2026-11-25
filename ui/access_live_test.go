@@ -8,10 +8,10 @@ import (
 )
 
 // TestRegionSeparatorRowHeader checks the roles of landmarks, a rule and
-// a row's header: a region is one only with a name, a search landmark
-// holds its field and button, an article holds its post, named or not, a
-// rule taller than wide runs up and down, and a row header is named by
-// its content.
+// a row's header: a region or form is one only with a name, a search
+// landmark holds its field and button, an article holds its post, named
+// or not, a rule taller than wide runs up and down, and a row header is
+// named by its content.
 func TestRegionSeparatorRowHeader(t *testing.T) {
 	tt := coreNewTester(func(c *context) {
 		coreColumn(c).AlignItems(Start).Children(func() {
@@ -20,6 +20,12 @@ func TestRegionSeparatorRowHeader(t *testing.T) {
 			})
 			coreColumn(c).Role(RoleRegion).Children(func() {
 				coreText(c, "Unnamed")
+			})
+			coreColumn(c).Role(RoleForm).Label("Sign in").Children(func() {
+				coreText(c, "Password")
+			})
+			coreColumn(c).Role(RoleForm).Children(func() {
+				coreText(c, "Unnamed form")
 			})
 			coreRow(c).Role(RoleSearch).Label("Site search").Children(func() {
 				coreText(c, "Query").Role(RoleTextField)
@@ -69,6 +75,15 @@ func TestRegionSeparatorRowHeader(t *testing.T) {
 	for _, n := range tree.Nodes {
 		if n.Role == platform.RoleRegion && n.Label != "Activity" {
 			t.Errorf("a region without a name is a landmark: %+v", n)
+		}
+	}
+	form := accessNode(t, tree, platform.RoleForm, "Sign in")
+	if text := accessNode(t, tree, platform.RoleText, "Password"); text.Parent < 0 || tree.Nodes[text.Parent].ID != form.ID {
+		t.Errorf("the text is not in the form")
+	}
+	for _, n := range tree.Nodes {
+		if n.Role == platform.RoleForm && n.Label != "Sign in" {
+			t.Errorf("a form without a name is a landmark: %+v", n)
 		}
 	}
 	var rules []platform.AccessNode
@@ -158,6 +173,78 @@ func TestLiveRegions(t *testing.T) {
 	messages = append(messages, "Bye")
 	tt.Frame()
 	check("the log again", nil, nil)
+}
+
+// TestStatusLiveRegion checks that a status reads out its whole text,
+// politely, when it changes: not as assistive technology came nor as the
+// status first shows, not when unchanged or emptied, and still when
+// another element appears before it; a status inside a log or an alert
+// is read as part of it.
+func TestStatusLiveRegion(t *testing.T) {
+	var selected, banner string
+	showStatus, extra, logged := true, false, false
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).AlignItems(Start).Children(func() {
+			if extra {
+				coreText(c, "Something new")
+			}
+			if showStatus {
+				coreRow(c).Key("sel").Role(RoleStatus).Gap(4).Children(func() {
+					coreText(c, selected)
+					coreText(c, "rows selected")
+				})
+			}
+			if logged {
+				coreColumn(c).Key("log").Role(RoleLog).Label("Messages").Children(func() {
+					coreText(c, "Hi").Key(1)
+					coreText(c, selected).Role(RoleStatus).Key(2)
+				})
+			}
+			if banner != "" {
+				coreColumn(c).Role(RoleAlert).Children(func() {
+					coreText(c, banner).Role(RoleStatus)
+				})
+			}
+		})
+	}, 400, 300)
+	selected = "3"
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	tt.Frame()
+	check := func(step string, announced ...string) {
+		t.Helper()
+		tree := tt.h.access
+		if !slices.Equal(tree.Announcements, announced) {
+			t.Errorf("%s: announcements %q, want %q", step, tree.Announcements, announced)
+		}
+	}
+	check("as it came")
+	tt.Frame()
+	check("unchanged")
+	selected = "4"
+	tt.Frame()
+	check("changed", "4 rows selected")
+	tt.Frame()
+	check("unchanged again")
+	// Another element appears before the status.
+	extra = true
+	selected = "5"
+	tt.Frame()
+	check("an element before", "5 rows selected")
+	// A status in a log or an alert is not read on its own.
+	logged = true
+	banner = "Saved"
+	tt.Frame()
+	check("inside others")
+	selected = "6"
+	tt.Frame()
+	check("changed with others", "6 rows selected")
+	// A status shown anew reads nothing.
+	showStatus = false
+	tt.Frame()
+	showStatus = true
+	selected = "7"
+	tt.Frame()
+	check("shown anew")
 }
 
 // TestRowHeaderKeepsChildren checks that a row header shows what is

@@ -20,6 +20,13 @@ const (
 	// ExtAutolinks are links without angle brackets: www.example.com,
 	// https://example.com and someone@example.com.
 	ExtAutolinks
+	// ExtTagFilter is cmark-gfm's tagfilter: in HTML, the raw tags whose
+	// content a browser reads to their end are escaped instead — title,
+	// textarea, style, xmp, iframe, noembed, noframes, script and
+	// plaintext — so that a <script> written in Markdown is text where
+	// the HTML is shown or pasted, as it is on GitHub. Other raw HTML,
+	// as an event handler's attribute, is still HTML.
+	ExtTagFilter
 	// ExtFootnotes are references as [^1], defined by [^1]: lines.
 	ExtFootnotes
 	// ExtMath is TeX between $$ and $$, \[ and \], or \( and \), in blocks
@@ -30,12 +37,25 @@ const (
 	// dollar followed by a space or a digit, nor before a closing one
 	// following a space or followed by a digit. It needs ExtMath.
 	ExtDollarMath
+	// ExtAlerts are GitHub's alerts: a block quote at the top level whose
+	// first line is [!NOTE], [!TIP], [!IMPORTANT], [!WARNING] or
+	// [!CAUTION] alone, followed by its text (Block.Alert).
+	ExtAlerts
+	// ExtMentions are GitHub's mentions of people and teams, as @octocat
+	// and @github/docs, in text outside code and links (Mention).
+	ExtMentions
+	// ExtReferences are GitHub's references to issues and pull requests,
+	// as #123, GH-123 and octocat/hello#123, in text outside code and
+	// links (Reference).
+	ExtReferences
 
-	// GFM is GitHub Flavored Markdown.
-	GFM = ExtTables | ExtTaskLists | ExtStrikethrough | ExtAutolinks
+	// GFM is GitHub Flavored Markdown, as its spec has it.
+	GFM = ExtTables | ExtTaskLists | ExtStrikethrough | ExtAutolinks | ExtTagFilter
 	// Default is GitHub Flavored Markdown with footnotes and math, as
-	// language models write it.
-	Default = GFM | ExtFootnotes | ExtMath
+	// language models write it, and the alerts, mentions and references
+	// of GitHub's comments. Mentions and references are text until a
+	// view resolves them.
+	Default = GFM | ExtFootnotes | ExtMath | ExtAlerts | ExtMentions | ExtReferences
 )
 
 // Kind is what a block is.
@@ -101,6 +121,45 @@ const (
 	AlignRight
 )
 
+// Alert is the kind of a GitHub alert.
+type Alert uint8
+
+const (
+	NoAlert Alert = iota
+	AlertNote
+	AlertTip
+	AlertImportant
+	AlertWarning
+	AlertCaution
+)
+
+var alertNames = [...]string{"", "Note", "Tip", "Important", "Warning", "Caution"}
+
+// String returns the alert's title, as GitHub shows it: Note, Tip,
+// Important, Warning or Caution.
+func (a Alert) String() string {
+	if int(a) < len(alertNames) {
+		return alertNames[a]
+	}
+	return ""
+}
+
+// alertOf returns the alert a line marks, as [!NOTE], in any case and
+// with spaces or tabs around it, or NoAlert.
+func alertOf(line string) Alert {
+	line = strings.Trim(line, " \t")
+	if len(line) < 6 || line[0] != '[' || line[1] != '!' || line[len(line)-1] != ']' {
+		return NoAlert
+	}
+	name := line[2 : len(line)-1]
+	for a := AlertNote; a <= AlertCaution; a++ {
+		if strings.EqualFold(name, alertNames[a]) {
+			return a
+		}
+	}
+	return NoAlert
+}
+
 // Block is a block of a document: blocks are in document order, a block's
 // children right after it, up to its Next.
 type Block struct {
@@ -133,6 +192,11 @@ type Block struct {
 	Fenced bool
 	// Header tells a table's header row.
 	Header bool
+	// Alert is the kind of a block quote that is a GitHub alert, its
+	// [!NOTE] line not in its text (ExtAlerts): a marker alone in its
+	// paragraph leaves a paragraph without lines (LineCount 0), which
+	// shows nothing.
+	Alert Alert
 	// Align is the alignment of a table's columns.
 	Align []Align
 

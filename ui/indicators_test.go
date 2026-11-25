@@ -3,6 +3,7 @@ package ui
 import (
 	"hash/fnv"
 	"image/color"
+	"math"
 	"testing"
 	"time"
 
@@ -82,6 +83,92 @@ func TestMeter(t *testing.T) {
 		if !nearColor(got, want.color) {
 			t.Errorf("%s is %v, not %v", want.name, got, want.color)
 		}
+	}
+}
+
+// A Meter's levels fill it in colors of the app's own, those left zero in
+// the theme's, and Background colors its track.
+func TestMeterColors(t *testing.T) {
+	gray, amber, brand, track := RGB(140, 140, 140), RGB(230, 160, 20), RGB(20, 90, 200), RGB(230, 230, 236)
+	storage := &MeterLevels{Warning: 80, Critical: 95, NormalColor: gray, WarningColor: amber}
+	quota := &MeterLevels{NormalColor: brand}
+	values := []float64{50, 85, 97}
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Gap(10).Padding(10).Children(func() {
+			for i, v := range values {
+				coreMeter(c, v, 0, 100, storage).Width(100).Label([]string{"Fine", "Warning", "Critical"}[i])
+			}
+			coreMeter(c, 30, 0, 100, quota).Width(100).Background(track).Label("Quota")
+		})
+	}, 200, 200)
+	th := tt.rt.c.theme
+	for _, want := range []struct {
+		color Color
+		w     float32
+	}{{gray, 50}, {amber, 85}, {th.Danger, 97}, {brand, 30}} {
+		if f := fillsOf(tt, want.color); len(f) != 1 || abs(f[0].W-want.w) > 0.01 {
+			t.Errorf("%v fills %v, want one %v wide", want.color, f, want.w)
+		}
+	}
+	// The theme's Warning shows for none, nor does its Success.
+	if f := fillsOf(tt, th.Warning); len(f) != 0 {
+		t.Errorf("the theme's Warning fills %v", f)
+	}
+	if f := fillsOf(tt, th.Success); len(f) != 0 {
+		t.Errorf("the theme's Success fills %v", f)
+	}
+	if f := fillsOf(tt, track); len(f) != 1 || f[0].W != 100 {
+		t.Errorf("the track fills %v", f)
+	}
+	// A battery's, low values the bad ones, in the app's colors.
+	battery := &MeterLevels{Warning: 20, Critical: 10, CriticalColor: amber}
+	level := 5.0
+	tt = coreNewTester(func(c *context) {
+		coreMeter(c, level, 0, 100, battery).Width(100)
+	}, 200, 100)
+	if f := fillsOf(tt, amber); len(f) != 1 || f[0].W != 5 {
+		t.Errorf("an empty battery fills %v", f)
+	}
+	level = 60
+	tt.Frame()
+	if f := fillsOf(tt, tt.rt.c.theme.Success); len(f) != 1 || f[0].W != 60 {
+		t.Errorf("a charged battery fills %v", f)
+	}
+}
+
+// A Progress fills in the color TextColor gives it, determinate or not,
+// over the track Background gives it, from the right right to left.
+func TestProgressColor(t *testing.T) {
+	brand, track := RGB(20, 90, 200), RGB(230, 230, 236)
+	value := 0.25
+	tt := coreNewTester(func(c *context) {
+		coreProgress(c, value).Width(200).TextColor(brand).Background(track).Label("Storage")
+	}, 200, 100)
+	if f := fillsOf(tt, brand); len(f) != 1 || f[0].X != 0 || f[0].W != 50 {
+		t.Errorf("a quarter fills %v in its color", f)
+	}
+	if f := fillsOf(tt, track); len(f) != 1 || f[0].W != 200 {
+		t.Errorf("the track fills %v", f)
+	}
+	if f := fillsOf(tt, tt.rt.c.theme.Accent); len(f) != 0 {
+		t.Errorf("the accent fills %v", f)
+	}
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	if n := accessNode(t, tt.h.access, platform.RoleProgress, "Storage"); n.Now != 0.25 {
+		t.Errorf("it reads %+v", n)
+	}
+	// Its place follows the clock, 1.4 s from one end to the other: half
+	// of the way there, wherever the clock started.
+	tt.Advance(time.Duration(1400+700-tt.Now().UnixMilli()%1400) * time.Millisecond)
+	value = -1
+	tt.Frame()
+	if f := fillsOf(tt, brand); len(f) != 1 || f[0].X != 70 || f[0].W != 60 {
+		t.Errorf("of unknown length, it slides %v in its color", f)
+	}
+	value = 0.25
+	tt.SetDirection(RightToLeft)
+	if f := fillsOf(tt, brand); len(f) != 1 || f[0].X != 150 || f[0].W != 50 {
+		t.Errorf("right to left, a quarter fills %v", f)
 	}
 }
 
@@ -187,6 +274,38 @@ func TestStepSlider(t *testing.T) {
 	}
 }
 
+// A slider reaches a hi its steps add up to, though not in floating point:
+// 3 steps of 0.1 are 0.30000000000000004.
+func TestStepSliderReachesEnd(t *testing.T) {
+	for _, tc := range [][3]float64{{0, 0.3, 0.1}, {0, 0.7, 0.1}, {0, 0.6, 0.2}, {0, 1.2, 0.4}, {-0.3, 0.3, 0.1}} {
+		lo, hi, step := tc[0], tc[1], tc[2]
+		v := lo
+		tt := coreNewTester(func(c *context) { coreStepSlider(c, &v, lo, hi, step).Width(220) }, 300, 100)
+		tt.Key(0, KeyTab)
+		tt.Key(0, KeyEnd)
+		if v != hi {
+			t.Errorf("End of %v: %v", tc, v)
+		}
+		v = lo
+		for range 10 {
+			tt.Key(0, KeyRight)
+		}
+		if v != hi {
+			t.Errorf("Right in %v: %v", tc, v)
+		}
+	}
+	// A hi between steps stays out of reach, however close to the next.
+	for _, tc := range [][4]float64{{0, 0.25, 0.1, 0.2}, {0, 0.2999999, 0.1, 0.2}, {0, 10, 4, 8}} {
+		if got := snap(tc[1], tc[0], tc[1], tc[2]); got != tc[3] {
+			t.Errorf("snap to the end of %v: %v", tc, got)
+		}
+	}
+	// Nothing goes past hi.
+	if got := snap(0.29999999999999, 0, 0.29999999999999, 0.1); got > 0.29999999999999 {
+		t.Errorf("snap past hi: %v", got)
+	}
+}
+
 func TestRangeSlider(t *testing.T) {
 	low, high := 20.0, 80.0
 	tt := coreNewTester(func(c *context) {
@@ -223,6 +342,59 @@ func TestRangeSlider(t *testing.T) {
 	if high != 90 {
 		t.Errorf("let go at 90%% before a frame: %v", high)
 	}
+}
+
+// Of two knobs that meet, the way the pointer drags tells which one moves,
+// as the high one covers the low one.
+func TestRangeSliderKnobsMet(t *testing.T) {
+	for _, step := range []float64{0, 10} {
+		for _, test := range []struct{ at, to, low, high float64 }{
+			{100, 60, 60, 100},
+			{0, 40, 0, 40},
+			{50, 20, 20, 50},
+			{50, 80, 50, 80},
+		} {
+			low, high := test.at, test.at
+			tt := coreNewTester(func(c *context) {
+				coreRangeSlider(c, &low, &high, 0, 100, step).Width(220).Label("Price")
+			}, 300, 100)
+			tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+			r := accessNode(t, tt.h.access, platform.RoleGroup, "Price").Bounds
+			// 10 DIPs of padding on each side, 200 of track.
+			x := func(v float64) float32 { return float32(r.X) + 10 + 200*float32(v/100) }
+			y := float32(r.Y + 10)
+			tt.Press(x(test.at), y)
+			if low != test.at || high != test.at {
+				t.Errorf("step %v, pressed at %v: %v to %v", step, test.at, low, high)
+			}
+			tt.Move(x((test.at+test.to)/2), y)
+			tt.Move(x(test.to), y)
+			tt.Release(x(test.to), y)
+			if math.Abs(low-test.low) > 1e-3 || math.Abs(high-test.high) > 1e-3 {
+				t.Errorf("step %v, dragged from %v to %v: %v to %v, want %v to %v", step, test.at, test.to, low, high, test.low, test.high)
+			}
+		}
+	}
+	// Pressed where they meet, before the pointer moves, a knob looks held.
+	low, high := 50.0, 50.0
+	tt := coreNewTester(func(c *context) {
+		coreRangeSlider(c, &low, &high, 0, 100, 0).Width(220).Label("Price")
+	}, 300, 100)
+	tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	r := accessNode(t, tt.h.access, platform.RoleGroup, "Price").Bounds
+	tt.Advance(time.Second)
+	before := sliderFrameHash(tt)
+	tt.Press(float32(r.X)+110, float32(r.Y+10))
+	tt.Advance(time.Second)
+	if sliderFrameHash(tt) == before {
+		t.Error("pressed where the knobs meet, no knob looks held")
+	}
+}
+
+func sliderFrameHash(tt *Tester) uint64 {
+	h := fnv.New64a()
+	h.Write(tt.Image().Pix)
+	return h.Sum64()
 }
 
 // A slider let go before a frame takes the value where the pointer let

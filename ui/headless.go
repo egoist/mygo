@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/raster"
 	"github.com/egoist/mygo/internal/scene"
+	"github.com/egoist/mygo/internal/text"
 	"github.com/egoist/mygo/transfer"
 )
 
@@ -21,6 +23,9 @@ type headless struct {
 	// maxButton is where the view shows the maximize button.
 	maxButton Rect
 	img       raster.Renderer
+	// text is the window's text system, its own so that the Tester's
+	// frames shape and paint apart from the other windows' (textSystem).
+	text *text.System
 	// requested is set when the view asks for a frame, from any goroutine
 	// for invalidate.
 	requested atomic.Bool
@@ -39,7 +44,14 @@ type headless struct {
 	opened        []string
 	// escapes counts the Escapes nothing handled.
 	escapes int
-	openErr error
+	// stack is the system's stack of screens tests give the window, and
+	// touch what its touch screen's system shows.
+	stack platform.StackSurface
+	touch platform.TouchSurface
+	// titleDoubles counts the double clicks a DragWindow handle left to
+	// the window.
+	titleDoubles int
+	openErr      error
 	// clipboardErr fails the writes of text to the clipboard
 	// (FailClipboard).
 	clipboardErr error
@@ -47,10 +59,14 @@ type headless struct {
 	// posts them to the main thread.
 	later  []func()
 	bar    TitleBar
+	inset  platform.Insets
 	access *platform.AccessTree
 	// told are the announcements of the trees, and announced those the
-	// view made.
-	told, announced []string
+	// view made; alerts are what the trees told to read at once, and
+	// screenReader is set once assistive technology is on
+	// (Tester.UseScreenReader).
+	told, announced, alerts []string
+	screenReader            bool
 	// menu is the context menu shown, at menuAt, and chosen takes its
 	// choice.
 	menu   *platform.Menu
@@ -98,6 +114,16 @@ func (h *headless) refreshRate() float32              { return h.hz }
 func (h *headless) setFrameRate(fps float32)          { h.frameRate = fps }
 func (h *headless) framesAtOnce() bool                { return h.atOnce }
 func (h *headless) occluded() bool                    { return h.hidden }
+
+// textSystem returns the window's text system, making its own the first
+// time, as a Recorder's window shapes and paints apart from the others'
+// shared one (#1722); a Tester's takes one before (testerTexts).
+func (h *headless) textSystem() *text.System {
+	if h.text == nil {
+		h.text = text.New()
+	}
+	return h.text
+}
 func (h *headless) present(s *scene.Scene) {
 	h.last = s
 	h.img.Render(s)
@@ -166,7 +192,7 @@ func (h *headless) finishDataDrag(r transfer.Result) {
 		done(r)
 	}
 }
-func (h *headless) titleBarDoubleClicked()            {}
+func (h *headless) titleBarDoubleClicked()            { h.titleDoubles++ }
 func (h *headless) setMaximizeButton(r Rect)          { h.maxButton = r }
 func (h *headless) escape()                           { h.escapes++ }
 func (h *headless) isDark() bool                      { return h.dark }
@@ -175,6 +201,7 @@ func (h *headless) preferences() platform.Preferences { return h.prefs }
 func (h *headless) locale() string                    { return h.lang }
 func (h *headless) region() i18n.Region               { return h.reg }
 func (h *headless) titleBar() TitleBar                { return h.bar }
+func (h *headless) insets() platform.Insets           { return h.inset }
 func (h *headless) vibrancy() bool                    { return h.material }
 func (h *headless) active() bool                      { return !h.inactive }
 func (h *headless) invalidate() {
@@ -215,6 +242,7 @@ func (h *headless) post(func()) { h.requested.Store(true) }
 // announcements.
 func (h *headless) keepAccess(t *platform.AccessTree) {
 	h.access, h.told = t, append(h.told, t.Announcements...)
+	h.alerts = append(h.alerts, t.Alerts...)
 }
 
 func (h *headless) popupMenu(m *platform.Menu, x, y float32, chosen func(int)) {
@@ -237,7 +265,9 @@ func (h *headless) image() *image.RGBA {
 func coreRender(view func(c *context), width, height int, scale float32) *image.RGBA {
 	t := coreNewTester(view, width, height)
 	t.SetScale(scale)
-	return t.Image()
+	img := t.Image()
+	t.end()
+	return img
 }
 
 // Tester runs a view without a window, as a test drives it: it renders
@@ -260,6 +290,11 @@ type Tester struct {
 	// how hard it presses (UsePointer).
 	pointer  PointerType
 	pressure float32
+	// mods are the modifier keys held by HoldModifiers.
+	mods platform.Modifiers
+	// textLeft gives the window's text system back to the Testers after
+	// this one as it ends (keepText).
+	textLeft runtime.Cleanup
 }
 
 // NewTester starts testing view in a window of width×height DIPs. Two
@@ -287,8 +322,11 @@ type TesterOptions struct {
 //
 //	tt := ui.NewTesterWith(view, 400, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 func coreNewTesterWith(view func(c *context), width, height int, o TesterOptions) *Tester {
-	h := &headless{w: float32(width), h: float32(height), scale: 1, prefs: platformPreferences(o.Preferences), dark: o.Dark}
+	// The window's text system is one an earlier Tester left, or its own
+	// (testerTexts).
+	h := &headless{w: float32(width), h: float32(height), scale: 1, prefs: platformPreferences(o.Preferences), dark: o.Dark, text: takeTesterText()}
 	t := &Tester{rt: newRuntime(view, h), h: h, now: time.Now()}
+	t.keepText()
 	t.rt.clock = t.Now
 	h.clock = t.Now
 	t.rt.collect = true
@@ -353,7 +391,7 @@ func (t *Tester) Advance(d time.Duration) {
 		if t.asked() {
 			// Built anew after invalidate, as a window's.
 			if t.h.invalidated.Swap(false) {
-				t.rt.redraw = false
+				t.rt.buildNext()
 			}
 			t.h.requested.Store(false)
 			t.runLater()
@@ -409,13 +447,43 @@ func (t *Tester) send(ev platform.SurfaceEvent) {
 	switch ev.Kind {
 	case platform.PointerMove, platform.PointerDown, platform.PointerUp:
 		ev.Pointer, ev.Pressure = platform.PointerKind(t.pointer), float64(t.pressure)
+		if ev.Touch {
+			ev.Pointer = platform.PointerTouch // TouchDown
+		}
+		ev.Mods |= t.mods
+	case platform.PointerScroll, platform.PointerZoom, platform.PointerLeave, platform.WebViewPress:
+		ev.Mods |= t.mods
+	case platform.SurfaceBlur:
+		t.mods = 0
 	}
 	if ev.Kind == platform.PointerDown && ev.Clicks == 0 {
 		// Counted as a backend counts.
 		ev.Clicks = t.clicks.Press(ev.Button, ev.X, ev.Y, uint32(t.now.UnixMilli()), platform.DefaultDoubleClick)
 	}
+	if ev.Kind == platform.KeyPressed && t.composingKey(ev.Mods) {
+		// The input method's, as a platform's filter keeps it.
+		t.settle()
+		return
+	}
 	t.rt.event(ev)
 	t.settle()
+}
+
+// composingKey reports whether a key pressed with mods goes to the input
+// method rather than to the content, as the focused client of text input
+// composes: the Tester's stand-in for the filter of each platform's input
+// method (macOS's keyDown: withholding the key while there is marked
+// text, GTK's input method filter, IMM32's VK_PROCESSKEY, a browser's
+// isComposing), so that Compose then Key shows what users get. As on
+// macOS, chords with Ctrl or Super go to the content, and the composition
+// stays as it is.
+func (t *Tester) composingKey(mods platform.Modifiers) bool {
+	ime := t.h.ime
+	if !ime.Active || ime.NoInputMethod || ime.Client == nil || mods&(platform.ModCtrl|platform.ModSuper) != 0 {
+		return false
+	}
+	_, marked := ime.Client.MarkedRange()
+	return marked
 }
 
 // SetSize resizes the window.
@@ -442,6 +510,15 @@ func (t *Tester) SetZoom(z float32) {
 // title bar take, which Context.TitleBar returns.
 func (t *Tester) SetTitleBar(bar TitleBar) {
 	t.h.bar = bar
+	t.Frame()
+}
+
+// SetInsets sets how far in from each edge the window is covered, in DIPs,
+// as a phone's bars, cutout and keyboard cover its screen: the view lays
+// out inside them.
+func (t *Tester) SetInsets(top, right, bottom, left float32) {
+	enableTouch()
+	t.h.inset = platform.Insets{Top: float64(top), Right: float64(right), Bottom: float64(bottom), Left: float64(left)}
 	t.Frame()
 }
 
@@ -507,6 +584,7 @@ func platformPreferences(p Preferences) platform.Preferences {
 // draws text as the system does by default.
 func (t *Tester) SetLocale(tag string) {
 	t.h.lang = tag
+	t.rt.text.SetLanguage(tag)
 	t.rt.changed()
 	t.settle()
 }
@@ -573,16 +651,30 @@ func (t *Tester) HasText(s string) bool {
 // targetCenter checks the named element before sending any input. Labels
 // include clipped boxes, and a visible box may be covered by another control.
 func (t *Tester) targetCenter(s string, button int) (float32, float32, error) {
-	var n *labelNode
+	var firstErr error
 	for i := range t.rt.labels {
-		if t.rt.labels[i].text == s {
-			n = &t.rt.labels[i]
-			break
+		n := &t.rt.labels[i]
+		if n.text != s {
+			continue
+		}
+		// A rich paragraph can have the same text as its only inline link.
+		// Check each named candidate against the actual input target.
+		x, y, err := t.targetLabelCenter(n, button)
+		if err == nil {
+			return x, y, nil
+		}
+		if firstErr == nil {
+			firstErr = err
 		}
 	}
-	if n == nil {
-		return 0, 0, fmt.Errorf("ui: no element shows %q", s)
+	if firstErr != nil {
+		return 0, 0, firstErr
 	}
+	return 0, 0, fmt.Errorf("ui: no element shows %q", s)
+}
+
+func (t *Tester) targetLabelCenter(n *labelNode, button int) (float32, float32, error) {
+	s := n.text
 	r, z := n.r, t.rt.zoomFactor()
 	cx, cy := r.X+r.W/2, r.Y+r.H/2
 	x, y := cx*z, cy*z
@@ -613,13 +705,12 @@ func (t *Tester) targetCenter(s string, button int) (float32, float32, error) {
 	if button == 0 {
 		for _, id := range hit {
 			st := t.rt.states[id]
-			if st == nil || st.flags&(flagScrollX|flagScrollY) == 0 || !st.barsShown || st.hideScrollbars {
+			if st == nil || !st.barsShown || st.barFlags == 0 {
 				continue
 			}
 			lx, ly := st.local(cx, cy)
 			lx, ly = lx+st.x, ly+st.y
-			g := scrollBars(Rect{st.x, st.y, st.w, st.h}, st.barInset, float32(st.contentW), float32(st.contentH),
-				float32(st.scrollX), float32(st.scrollY), st.flags, st.barWidth, st.rtl)
+			g := st.scrollbarGeometry(st.x, st.y, st.contentW, st.contentH, st.scrollX, st.scrollY)
 			if g.vertical && g.vTrack.Contains(lx, ly) || g.horizontal && g.hTrack.Contains(lx, ly) {
 				return 0, 0, fmt.Errorf("ui: %q is covered by a scroll bar", s)
 			}
@@ -631,25 +722,39 @@ func (t *Tester) targetCenter(s string, button int) (float32, float32, error) {
 	if button == 1 {
 		flags |= flagContextMenu
 	}
-	receiver := func(chain []uint64) *state {
+	receiverOf := func(chain []uint64, f uint32) *state {
 		for _, id := range chain {
 			if st := t.rt.states[id]; st != nil &&
-				(st.flags&flags != 0 || st.input != nil || st.webView != nil) {
+				(st.flags&f != 0 || st.input != nil || st.webView != nil) {
 				return st
 			}
 		}
 		return nil
 	}
+	receiver := func(chain []uint64) *state { return receiverOf(chain, flags) }
 	want := receiver(named)
 	// A field's label can name its outer container, which delegates focus
 	// to an input nested inside. Clicking that input is the same target.
 	matches := slices.Contains(hit, n.id)
 	if want != nil {
-		matches = receiver(hit) == want && t.rt.handler(hit) == t.rt.handler(named) &&
+		got := receiver(hit)
+		matches = got == want && t.rt.handler(hit) == t.rt.handler(named) &&
 			(button != 1 || t.rt.menuTarget(hit) == t.rt.menuTarget(named))
+		// A control without a menu of its own, as a list's row, opens
+		// the menu of the content it holds (#1414): the press reaches the
+		// named control, nothing between takes a primary click or input,
+		// and the menu opened is that content's. A control over the named
+		// one is not inside it, and one inside with a menu of its own
+		// keeps it.
+		if i := slices.Index(hit, want.id); !matches && button == 1 && i > 0 &&
+			want.flags&flagContextMenu == 0 && got != nil && got != want &&
+			receiverOf(hit[:i], interactive) == nil && t.rt.menuTarget(hit) == got &&
+			t.rt.handler(hit) == t.rt.handler(named) {
+			matches = true
+		}
 		for i := range t.rt.c.used {
 			e := t.rt.nodeAt(uint32(i))
-			if e.id == want.id && e.focusTo != nil && receiver(hit) == e.focusTo.st && slices.Contains(hit, n.id) {
+			if e.id == want.id && e.focusTo != nil && got == e.focusTo.st && slices.Contains(hit, n.id) {
 				matches = true
 				break
 			}
@@ -688,8 +793,9 @@ func (t *Tester) ClickWith(mods Modifiers, s string) error {
 	return nil
 }
 
-// ClickAtWith clicks at (x, y), in DIPs, holding the modifier keys mods:
-// a web view that takes the pointer there (WebViewAt) takes the click.
+// ClickAtWith clicks at (x, y), in DIPs, holding the modifier keys mods
+// (combined with any held by HoldModifiers): a web view that takes the
+// pointer there (WebViewAt) takes the click.
 func (t *Tester) ClickAtWith(mods Modifiers, x, y float32) {
 	m := platform.Modifiers(mods)
 	if t.webViewPress(x, y, 0, m) {
@@ -701,7 +807,8 @@ func (t *Tester) ClickAtWith(mods Modifiers, x, y float32) {
 
 // RightClick clicks the center of the element showing text or labeled s
 // with the secondary button. It checks the target before sending input,
-// as Click does.
+// as Click does. On an element without a context menu of its own, as a
+// list's row, it opens the menu of the content the element holds there.
 func (t *Tester) RightClick(s string) error {
 	x, y, err := t.targetCenter(s, 1)
 	if err != nil {
@@ -856,6 +963,34 @@ func (t *Tester) webViewPress(x, y float32, button int, mods platform.Modifiers)
 	return true
 }
 
+// FingerDown puts a finger on a touch screen at (x, y); FingerMove moves it
+// and FingerUp lifts it: a press that moves pans what scrolls under it,
+// and lifted as it moves it flings it on, which advancing the clock
+// (Advance) shows.
+func (t *Tester) FingerDown(x, y float32) {
+	enableTouch()
+	t.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: float64(x), Y: float64(y), Touch: true})
+	t.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: float64(x), Y: float64(y), Clicks: 1, Touch: true})
+}
+
+// FingerMove moves the finger on the screen to (x, y).
+func (t *Tester) FingerMove(x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: float64(x), Y: float64(y), Touch: true})
+}
+
+// FingerUp lifts the finger at (x, y).
+func (t *Tester) FingerUp(x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: float64(x), Y: float64(y), Clicks: 1, Touch: true})
+	t.send(platform.SurfaceEvent{Kind: platform.PointerLeave, Touch: true})
+}
+
+// FingerCancel ends the finger as the system does when it takes it away: as a
+// system gesture starts, or a call comes.
+func (t *Tester) FingerCancel() {
+	t.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: -1e6, Y: -1e6, Touch: true, Canceled: true})
+	t.send(platform.SurfaceEvent{Kind: platform.PointerLeave, Touch: true})
+}
+
 // UsePointer has the pointer's presses and moves from now on come from
 // the device pointer pressing with pressure, from 0 to 1, as a pen's, which
 // a system tells: 0 is a mouse's, which tells none. The Tester starts with
@@ -881,10 +1016,26 @@ func (t *Tester) Scroll(x, y, dx, dy float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: float64(x), Y: float64(y), DX: float64(dx), DY: float64(dy), Precise: true})
 }
 
+// DragFiles drags files from another app over (x, y) without dropping
+// them, as from Finder, and reports whether an element there takes them:
+// the frame it draws then shows FileDragOver on that element. DragFilesOut
+// drags them out of the window again, and DropFiles drops them.
+func (t *Tester) DragFiles(x, y float32) bool {
+	taken := t.rt.event(platform.SurfaceEvent{Kind: platform.FileDragOver, X: float64(x), Y: float64(y)})
+	t.settle()
+	return taken
+}
+
+// DragFilesOut drags the files DragFiles dragged over the window out of it,
+// without dropping them, so that no element shows FileDragOver.
+func (t *Tester) DragFilesOut() {
+	t.send(platform.SurfaceEvent{Kind: platform.FileDragLeave})
+}
+
 // DropFiles drops files dragged from another app at (x, y), as from
 // Finder, and reports whether an element took them (DroppedFiles).
 func (t *Tester) DropFiles(x, y float32, paths ...string) bool {
-	t.send(platform.SurfaceEvent{Kind: platform.FileDragOver, X: float64(x), Y: float64(y)})
+	t.DragFiles(x, y)
 	taken := t.rt.event(platform.SurfaceEvent{Kind: platform.FileDrop, X: float64(x), Y: float64(y), Files: paths})
 	t.settle()
 	return taken
@@ -903,10 +1054,39 @@ func (t *Tester) Pinch(x, y, scale float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerZoom, X: float64(x), Y: float64(y), Scale: float64(scale)})
 }
 
+// TouchDown puts the finger id down at (x, y) on the touchscreen, which
+// TouchMove moves and TouchUp lifts, as a window's fingers come to the
+// views that follow them (Element.Touches). It sends only the touch: the
+// tap, scroll or pinch a backend makes of fingers comes from Press,
+// Scroll and Pinch. The window gives the finger an ID of its own
+// (Touch.ID); id may be used again once the finger lifts, as a
+// platform's are.
+func (t *Tester) TouchDown(id uint64, x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchDown, ID: id, X: float64(x), Y: float64(y)})
+}
+
+// TouchMove moves the finger id, down since TouchDown, to (x, y).
+func (t *Tester) TouchMove(id uint64, x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchMove, ID: id, X: float64(x), Y: float64(y)})
+}
+
+// TouchUp lifts the finger id at (x, y).
+func (t *Tester) TouchUp(id uint64, x, y float32) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchUp, ID: id, X: float64(x), Y: float64(y)})
+}
+
+// TouchCancel has the system take the finger id, as for a gesture of its
+// own at the screen's edge (TouchCanceled).
+func (t *Tester) TouchCancel(id uint64) {
+	t.send(platform.SurfaceEvent{Kind: platform.TouchCancel, ID: id})
+}
+
 // HoldModifiers presses or lets go of modifier keys on their own, as holding
-// Cmd does, leaving mods held.
+// Cmd does, leaving mods held across subsequent pointer, scroll and zoom
+// events until HoldModifiers(0) or losing focus.
 func (t *Tester) HoldModifiers(mods Modifiers) {
-	t.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: platform.Modifiers(mods)})
+	t.mods = platform.Modifiers(mods)
+	t.send(platform.SurfaceEvent{Kind: platform.ModifiersChanged, Mods: t.mods})
 }
 
 // Key presses a key with modifiers.
@@ -978,8 +1158,11 @@ func (t *Tester) SetFocused(focused bool) {
 
 // Compose shows text as an input method's composition, with its caret at
 // rune caret, as while typing in Chinese or Japanese; an empty text ends
-// it. Type commits the text. Nothing is composed while the focused element
-// turned input methods off (InputMethod), as on the desktop.
+// it. Type commits the text. Keys pressed meanwhile without Ctrl or Super
+// go to the input method, as each platform's filter of input methods has
+// them, and the composition stays. Nothing is
+// composed while the focused element turned input methods off
+// (InputMethod), as on the desktop.
 func (t *Tester) Compose(text string, caret int) {
 	if t.h.ime.Active && t.h.ime.NoInputMethod {
 		return
@@ -1043,12 +1226,45 @@ func (t *Tester) FailClipboard(err error) { t.h.clipboardErr = err }
 // those no app opens, or opens them again for nil.
 func (t *Tester) FailOpenURL(err error) { t.h.openErr = err }
 
+// UseScreenReader turns assistive technology on, as a screen reader
+// attaching to the window: from then on every frame's accessibility tree
+// goes to it, and live regions read out what changes after it is on, as
+// ARIA's do (a status, a log, an alert); what showed before is not read.
+// Announcements and Alerts return what it would read.
+func (t *Tester) UseScreenReader() {
+	if t.h.screenReader {
+		return
+	}
+	t.h.screenReader = true
+	// What the view announced before is read by nobody.
+	t.h.announced = nil
+	t.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
+	t.h.alerts = nil
+}
+
 // Announcements returns what the view asked screen readers to read out
 // (Context.Announce), as a Router the titles of the pages it showed, and
-// forgets it.
+// forgets it. Once UseScreenReader is on it returns what a screen reader
+// reads politely, in order: those announcements, and the text of an ARIA
+// status (RoleStatus) when it changes and of what is added to a log
+// (RoleLog), each once.
 func (t *Tester) Announcements() []string {
 	a := t.h.announced
-	t.h.announced = nil
+	if t.h.screenReader {
+		// Announce texts are in the trees' too.
+		a = t.h.told
+	}
+	t.h.announced, t.h.told = nil, nil
+	return a
+}
+
+// Alerts returns what a screen reader reads at once, interrupting, in
+// order, and forgets it: the text of an ARIA alert (RoleAlert) as it
+// appears and whenever it changes. It is empty unless UseScreenReader is
+// on.
+func (t *Tester) Alerts() []string {
+	a := t.h.alerts
+	t.h.alerts = nil
 	return a
 }
 
@@ -1072,3 +1288,7 @@ func (t *Tester) Focused(s string) bool {
 	}
 	return false
 }
+
+func (h *headless) stackSurface() platform.StackSurface { return h.stack }
+
+func (h *headless) touchSurface() platform.TouchSurface { return h.touch }

@@ -23,6 +23,9 @@ type window struct {
 	focused bool
 	closed  bool
 	full    bool
+	// embedded is of a window in the page's element #mygo, among the
+	// page's own content, rather than filling the page.
+	embedded bool
 }
 
 // css is the style sheet of windows, added to the page once.
@@ -44,12 +47,13 @@ func newWindow(b *Backend, o *platform.WindowOptions, h platform.WindowHandler) 
 		doc.Get("head").Call("appendChild", style)
 	}
 	parent := doc.Call("getElementById", "mygo")
-	if parent.IsNull() {
+	embedded := !parent.IsNull()
+	if !embedded {
 		parent = doc.Get("body")
 	} else if js.Global().Call("getComputedStyle", parent).Get("position").String() == "static" {
 		parent.Get("style").Set("position", "relative")
 	}
-	w := &window{b: b, h: h, opts: o, title: o.Title, full: o.FullScreen}
+	w := &window{b: b, h: h, opts: o, title: o.Title, full: o.FullScreen, embedded: embedded}
 	w.el = doc.Call("createElement", "div")
 	w.el.Set("className", "mygo-window")
 	w.el.Get("style").Set("display", "none")
@@ -120,6 +124,7 @@ func (w *window) Opacity() float64                           { return 1 }
 func (w *window) SetHasShadow(bool)                          {}
 func (w *window) HasShadow() bool                            { return false }
 func (w *window) SetIgnoreMouseEvents(bool)                  {}
+func (w *window) IgnoresMouseEvents() bool                   { return false }
 func (w *window) SetContentProtection(bool)                  {}
 func (w *window) SetVibrancy(string)                         {}
 func (w *window) SetVibrancyTint(*platform.Color)            {}
@@ -169,6 +174,9 @@ func (w *window) IsVisible() bool { return w.visible }
 func (w *window) Focus()          { w.s.focus() }
 func (w *window) Blur()           { w.s.input.Call("blur") }
 func (w *window) IsFocused() bool { return w.focused }
+
+// CornerRadius is 0: the window is an element of the page, square.
+func (w *window) CornerRadius() float64 { return 0 }
 
 // SetFullScreen asks the browser to show the window's element on the whole
 // screen, which it allows while the user acts.
@@ -232,6 +240,7 @@ func (w *window) OpenDevTools()                                            {}
 func (w *window) CloseDevTools()                                           {}
 func (w *window) IsDevToolsOpened() bool                                   { return false }
 func (w *window) ProcessID() int                                           { return 0 }
+func (w *window) GPUProcessID() int                                        { return 0 }
 func (w *window) IsAudible() bool                                          { return false }
 func (w *window) SetAudioMuted(bool)                                       {}
 func (w *window) IsAudioMuted() bool                                       { return false }
