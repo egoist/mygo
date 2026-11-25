@@ -56,6 +56,7 @@
   "revert": "還原",
   "keep": "保留",
   "hunkAction": "{action}變更",
+  "change": "變更",
   "line": "第 {n, number, ::group-off} 行",
   "oldLine": "舊文字第 {n, number, ::group-off} 行",
   "newText": "新文字",

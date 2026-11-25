@@ -862,6 +862,22 @@ func (msgs Messages) HunkAction(action string) string {
 	return Catalog.Format(msgs.locale, "hunkAction", map[string]any{"action": action})
 }
 
+// Change says "Change"
+// in the language the app shows.
+//
+// What assistive technology calls the check box of a diff viewer that
+// checks or unchecks all the lines of a change.
+func Change() string { return In(i18n.Locale()).Change() }
+
+// Change says "Change"
+// in the language of msgs.
+//
+// What assistive technology calls the check box of a diff viewer that
+// checks or unchecks all the lines of a change.
+func (msgs Messages) Change() string {
+	return Catalog.Format(msgs.locale, "change", nil)
+}
+
 // Line says "Line {n, number, ::group-off}"
 // in the language the app shows.
 //

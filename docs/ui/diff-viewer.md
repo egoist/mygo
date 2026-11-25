@@ -130,13 +130,40 @@ keystroke. Cmd+F8 and Shift+Cmd+F8 go to the next and previous changes
 - `LineSelection` lets the numbers of lines be clicked, and dragged or
   Shift-clicked, to select lines, which `OnLineSelection` reports and
   `SelectedLines` and `SetSelectedLines` read and set, as a link to lines
-  of a review does.
+  of a review does. A drag selects from the line pressed to the one under
+  the pointer, on the side it started on, and scrolls the view while it is
+  held above or below it. `OnLineSelection` reports each change as the
+  drag goes; `DraggingLines` reports the drag, so that an app staging the
+  lines, say, acts once it is released.
+- `LineChecks` shows a check box in the gutter of each changed line, as a
+  git client picks the lines a commit includes. `LineChecked` says whether
+  a line is checked, as the app keeps it, and `OnCheckLines` reports the
+  lines to check or uncheck. A press on a changed line's gutter checks it,
+  or unchecks it, and a drag from there sets the changed lines it goes
+  over alike, reported once it is released. A click on a change's bar, at
+  the gutter's left edge, checks all its lines, old and new, or unchecks
+  them when they all are. `NoCheckMarks` leaves the boxes out: the checked
+  lines' tinted numbers show what is checked, and are pressed alike.
 - `OnGutterButton` shows a + on the gutter of the line under the pointer,
   as to comment on it, and is called with the line when it is clicked.
 - `Annotations` leave room under lines for what `RenderAnnotation` builds
   there, as the comments of a review, each as high as it asks; the other
   side of a split view leaves the room empty, so that the lines stay
   aligned.
+
+```go
+app.diff.LineChecks = true
+app.diff.LineChecked = func(side editor.DiffSide, line int) bool {
+	return app.staged[side][line]
+}
+app.diff.OnCheckLines = func(lines []editor.DiffLineRange, checked bool) {
+	for _, r := range lines {
+		for l := r.Start; l <= r.End; l++ {
+			app.staged[r.Side][l] = checked
+		}
+	}
+}
+```
 
 ```go
 app.diff.HunkActions = true
@@ -329,7 +356,9 @@ numbers are the old text's, "Old line 12"), and an unchanged one a text,
 so that screen readers read each line as what it is. A separator is a group named by how many lines it collapses and
 described by which ("Lines 30 to 41", or the old and the new numbers
 where they differ), with buttons expanding them up, down or all; Revert
-and Keep are buttons, "Revert change" and "Keep change". These names, and
+and Keep are buttons, "Revert change" and "Keep change". With
+`LineChecks`, a change's bar is a check box named "Change", checked when
+all its lines are and mixed when some are. These names, and
 what the viewer writes ("4 unmodified lines"), are in the window's
 language ([MyGo's own strings](../i18n.md#mygos-own-strings)).
 

@@ -56,6 +56,7 @@
   "revert": "元に戻す",
   "keep": "保持",
   "hunkAction": "変更を{action}",
+  "change": "変更",
   "line": "{n, number, ::group-off} 行目",
   "oldLine": "古いテキストの {n, number, ::group-off} 行目",
   "newText": "新しいテキスト",

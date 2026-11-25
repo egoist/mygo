@@ -862,6 +862,9 @@ func (ed *editor) paintGutter(p *ui.Painter, r ui.Rect, f *frame) {
 			if style.bar.A > 0 {
 				ed.paintBar(p, ui.Rect{X: r.X, Y: y, W: 4, H: rowsH}, style)
 			}
+			if style.check != 0 {
+				ed.paintCheck(p, r.X, ny, style.check == 2)
+			}
 			// Fold markers: always on folded lines, on the others while the
 			// pointer is over the gutter.
 			if ed.o.folding && ed.o.decor == nil {
@@ -885,6 +888,32 @@ func (ed *editor) paintGutter(p *ui.Painter, r ui.Rect, f *frame) {
 			}
 		}
 	})
+}
+
+// checkRoom is the room a diff's check boxes of lines take at the left of
+// the gutter, after the change bar (DiffState.LineChecks).
+func (ed *editor) checkRoom() float32 {
+	return ed.checkSize() + 6
+}
+
+func (ed *editor) checkSize() float32 {
+	return float32(math.Round(float64(ed.view.lineHeight * 0.6)))
+}
+
+// paintCheck draws a check box of a line whose gutter is at x and whose
+// first row is at y: filled with a tick when checked, else outlined.
+func (ed *editor) paintCheck(p *ui.Painter, x, y float32, checked bool) {
+	ct := ed.theme
+	s := ed.checkSize()
+	box := ui.Rect{X: x + 6, Y: y + float32(math.Round(float64(ed.view.lineHeight-s)/2)), W: s, H: s}
+	if !checked {
+		p.Stroke(box, ct.LineNumber, 3, 1)
+		return
+	}
+	p.Fill(box, ct.Modified, 3)
+	var path ui.Path
+	path.MoveTo(box.X+s*0.24, box.Y+s*0.52).LineTo(box.X+s*0.43, box.Y+s*0.7).LineTo(box.X+s*0.77, box.Y+s*0.32)
+	p.StrokePath(&path, 1.5, ct.Background)
 }
 
 // paintBar draws a diff's change bar: solid for additions, striped for

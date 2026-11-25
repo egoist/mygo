@@ -79,9 +79,30 @@ type DiffState struct {
 	// new lines Old's, as an agent's changes are reviewed.
 	HunkActions bool
 	// LineSelection lets the numbers of lines be clicked and dragged to
-	// select lines, which OnLineSelection reports.
+	// select lines, which OnLineSelection reports. A drag selects from the
+	// line pressed to the one under the pointer, on the side it started
+	// on, and scrolls the view while it is held above or below it;
+	// DraggingLines reports it.
 	LineSelection   bool
 	OnLineSelection func(DiffLineRange)
+	// LineChecks shows a check box in the gutter of each changed line, as
+	// a git client picks the lines a commit includes; LineChecked says
+	// whether a line is checked, as the app keeps it. A press on a changed
+	// line's gutter checks it, or unchecks it, and the drag that follows
+	// sets the changed lines it goes over alike, on the side it started
+	// on and, in a unified view, the deleted lines among them, scrolling
+	// the view while it is held above or below it. The lines show set as
+	// the drag goes; OnCheckLines reports them once it is released, in
+	// the order they show, for the app to check or uncheck them. Presses
+	// on unchanged lines are LineSelection's. A click on a change's bar
+	// checks all its lines, old and new, or unchecks them when they all
+	// are; the bar is a check box, mixed while some are checked.
+	// NoCheckMarks leaves the lines' boxes out, and their room: the checked
+	// lines' tinted numbers show what is checked, and are pressed alike.
+	LineChecks   bool
+	LineChecked  func(side DiffSide, line int) bool
+	OnCheckLines func(lines []DiffLineRange, checked bool)
+	NoCheckMarks bool
 	// OnGutterButton shows a + on the gutter of the line under the
 	// pointer, as to comment on it, and is called with the line when it
 	// is clicked.
@@ -127,6 +148,12 @@ type DiffState struct {
 	expandV     int
 	selected    DiffLineRange
 	hasSel      bool
+	// selAnchor is the line of selected a drag or Shift-click extends
+	// from: the one pressed, or the end Shift-click left in place.
+	selAnchor int
+	// checking is the drag over changed lines checking them, or
+	// unchecking them (LineChecks), until it is released.
+	checking lineChecking
 	// oldActive is set while the old side of a split view has the
 	// keyboard, and stays after it goes, until the new side has it.
 	oldActive bool
@@ -322,13 +349,26 @@ func (d *DiffState) CollapseAll() {
 // there are.
 func (d *DiffState) SelectedLines() (DiffLineRange, bool) { return d.selected, d.hasSel }
 
+// DraggingLines reports whether a drag over the numbers of lines is
+// selecting them, so that an app acting on the lines selected, as a git
+// client staging them, can act once the drag is released: the frame the
+// release brings reports false.
+func (d *DiffState) DraggingLines() bool {
+	for i := range d.eds {
+		if g := &d.eds[i].gesture; g.active && g.drag != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // SetSelectedLines selects lines, as clicking their numbers does; ok
 // false clears the selection.
 func (d *DiffState) SetSelectedLines(r DiffLineRange, ok bool) {
 	if r.End < r.Start {
 		r.Start, r.End = r.End, r.Start
 	}
-	d.selected, d.hasSel = r, ok
+	d.selected, d.hasSel, d.selAnchor = r, ok, r.Start
 }
 
 // GoToHunk puts the caret of the active side (ActiveSide) at the start
@@ -587,6 +627,7 @@ func (d *DiffState) sideOptions(old bool) options {
 	if d.NoLineNumbers {
 		o.lineNumbers = LineNumbersOff
 	}
+	o.checks = d.LineChecks && !d.NoCheckMarks
 	o.diffSide = diffNewSide
 	if old {
 		o.diffSide = diffOldSide
@@ -605,6 +646,11 @@ func DiffView(c *ui.Context, d *DiffState) ui.Element {
 	d.New.watch(c.Services())
 	d.ensure()
 	d.endMark = "  " + l10n.In(c.Locale()).NoNewlineAtEnd()
+	// A drag of checks the editor dropped without its release, as it lost
+	// the keyboard, sets nothing.
+	if ck := &d.checking; ck.active && !d.eds[ck.ed].gesture.active {
+		*ck = lineChecking{}
+	}
 	// The new side's editor scrolls as it is built, as to a caret
 	// GoToHunk moved, where a split view's scrolls as it is drawn
 	// (rebuildIfMoved): either builds the view again, for what read
@@ -974,18 +1020,144 @@ func (d *DiffState) selectLine(side DiffSide, line int, extend bool) {
 	switch {
 	case extend && d.hasSel && d.selected.Side == side:
 		if line < d.selected.Start {
-			d.selected.Start = line
+			d.selected.Start, d.selAnchor = line, d.selected.End
 		} else {
-			d.selected.End = line
+			d.selected.End, d.selAnchor = line, d.selected.Start
 		}
 	case d.hasSel && d.selected.Side == side && d.selected.Start == line && d.selected.End == line:
 		d.hasSel = false
 	default:
-		d.selected, d.hasSel = DiffLineRange{Side: side, Start: line, End: line}, true
+		d.selected, d.hasSel, d.selAnchor = DiffLineRange{Side: side, Start: line, End: line}, true, line
 	}
 	if d.OnLineSelection != nil && d.hasSel {
 		d.OnLineSelection(d.selected)
 	}
+}
+
+// dragLine extends the selection from its anchor to a line of its side
+// the pointer drags over, reporting it when it changes. Lines of the
+// other side, as the added lines below deleted ones in a unified view,
+// leave it as it is.
+func (d *DiffState) dragLine(side DiffSide, line int) {
+	if !d.hasSel || side != d.selected.Side {
+		return
+	}
+	r := DiffLineRange{Side: side, Start: min(d.selAnchor, line), End: max(d.selAnchor, line)}
+	if r == d.selected {
+		return
+	}
+	d.selected = r
+	if d.OnLineSelection != nil {
+		d.OnLineSelection(r)
+	}
+}
+
+// lineChecking is a drag over changed lines that checks them, or
+// unchecks them, from the press at height from of the content of editor
+// ed, which lines are the changed lines it goes over.
+type lineChecking struct {
+	active  bool
+	ed      int
+	from    float64
+	checked bool
+	lines   []DiffLineRange
+}
+
+// lineChecked reports whether a changed line of side shows checked: as
+// the drag of checks sets it, or as the app has it.
+func (d *DiffState) lineChecked(side DiffSide, line int) bool {
+	if ck := &d.checking; ck.active {
+		for _, r := range ck.lines {
+			if r.Side == side && line >= r.Start && line <= r.End {
+				return ck.checked
+			}
+		}
+	}
+	return d.LineChecked != nil && d.LineChecked(side, line)
+}
+
+// pressCheck starts a drag of checks from the changed line of side
+// pressed at height y of the content of side i's editor: it sets the
+// lines it goes over the opposite of how the pressed line is.
+func (d *DiffState) pressCheck(i int, side DiffSide, line int, y float64) {
+	d.checking = lineChecking{active: true, ed: i, from: y, checked: !d.lineChecked(side, line)}
+	d.dragCheck(y)
+	d.eds[i].startDrag(func(_ float32, cy float64) { d.dragCheck(cy) }, d.endCheck)
+}
+
+// dragCheck sets the changed lines from the press to height y.
+func (d *DiffState) dragCheck(y float64) {
+	ck := &d.checking
+	ck.lines = d.changedLinesIn(ck.ed, min(ck.from, y), max(ck.from, y), ck.lines[:0])
+}
+
+// endCheck reports the lines the drag of checks set, once released.
+func (d *DiffState) endCheck() {
+	ck := d.checking
+	d.checking = lineChecking{}
+	if ck.active && len(ck.lines) > 0 && d.OnCheckLines != nil {
+		d.OnCheckLines(ck.lines, ck.checked)
+	}
+}
+
+// changedLinesIn appends to out the changed lines whose rows show from
+// height y0 to y1 of the content of side i's editor, in the order they
+// show, as runs of lines of a side: in a unified view, the deleted lines
+// among them too.
+func (d *DiffState) changedLinesIn(i int, y0, y1 float64, out []DiffLineRange) []DiffLineRange {
+	s, ed := &d.sides[i], &d.eds[i]
+	h := &ed.view.heights
+	if h.n == 0 {
+		return out
+	}
+	side := DiffNew
+	if s.old {
+		side = DiffOld
+	}
+	add := func(side DiffSide, line int, top, bottom float64) {
+		if bottom <= y0 && top < y0 || top > y1 {
+			return
+		}
+		if n := len(out); n > 0 && out[n-1].Side == side && out[n-1].End == line-1 {
+			out[n-1].End = line
+			return
+		}
+		out = append(out, DiffLineRange{Side: side, Start: line, End: line})
+	}
+	blocks := func(blks []block, top float64) {
+		for _, b := range blks {
+			if b.kind == blockDeleted {
+				tops := d.deletedTops[b.hunk]
+				for k := b.from; k < b.to; k++ {
+					add(DiffOld, k, top+tops[k-b.from], top+tops[k-b.from+1])
+				}
+			}
+			top += float64(b.height)
+		}
+	}
+	first, last := max(h.lineAt(y0)-1, 0), min(h.lineAt(y1)+1, h.n-1)
+	for line := first; line <= last; line++ {
+		g := h.geometry(line)
+		if g.hidden {
+			continue
+		}
+		above, below := h.blocksOf(line)
+		blocks(above, g.top)
+		if !s.empty() && s.hunkOf(line) >= 0 {
+			add(side, line, g.rows, g.below)
+		}
+		blocks(below, g.below)
+	}
+	return out
+}
+
+// deletedLineAt returns the old line of a unified view's deleted block b
+// at height y from the block's top, by the tops of its lines, the
+// annotations under a line its own.
+func (d *DiffState) deletedLineAt(b *block, y float64) int {
+	tops := d.deletedTops[b.hunk]
+	i := sort.Search(len(tops), func(i int) bool { return tops[i] > y })
+	return b.from + min(max(i-1, 0), b.to-b.from-1)
 }
 
 // activeHunk returns the hunk under the pointer on either side, or else

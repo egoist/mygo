@@ -1,12 +1,16 @@
 package editor
 
 import (
+	"fmt"
+	"image/color"
 	"math"
 	"math/rand/v2"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/internal/diff"
 	"github.com/egoist/mygo/internal/wait"
@@ -272,6 +276,177 @@ func TestDiffViewerLineSelection(t *testing.T) {
 	tt.ClickAtWith(ui.Shift, ed.gutterW-8, float32(ed.view.heights.geometry(2).rows)+lh/2)
 	if r, _ := d.SelectedLines(); r != (DiffLineRange{DiffNew, 1, 2}) {
 		t.Fatalf("extended %+v", r)
+	}
+}
+
+// Dragging over the numbers of lines selects the lines it goes over,
+// from the one pressed, back above it too, and reports each change.
+func TestDiffViewerLineSelectionDrag(t *testing.T) {
+	var got []DiffLineRange
+	d := &DiffState{Old: NewBuffer("a\nb\nc\nd\ne\n"), New: NewBuffer("a\nB\nC\nD\ne\n"), Layout: DiffSplit, ExpandUnchanged: true,
+		LineSelection: true, OnLineSelection: func(r DiffLineRange) { got = append(got, r) }}
+	// What the app sees of the drag as it builds each frame.
+	dragging := false
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill(); dragging = d.DraggingLines() }, 800, 400)
+	tt.Frame()
+	ed := &d.eds[1]
+	mid := func(line int) float32 {
+		return float32(ed.view.heights.geometry(line).rows-ed.scrollY) + ed.view.lineHeight/2
+	}
+	x := ed.r.X + ed.gutterW - 8
+	tt.Press(x, mid(2))
+	tt.Move(x, mid(4))
+	if r, ok := d.SelectedLines(); !ok || r != (DiffLineRange{DiffNew, 2, 4}) {
+		t.Fatalf("dragged down to %+v %v, want new lines 2 to 4", r, ok)
+	}
+	if !dragging {
+		t.Fatal("DraggingLines is false while the drag is held")
+	}
+	tt.Move(x, mid(0))
+	tt.Release(x, mid(0))
+	if r, _ := d.SelectedLines(); r != (DiffLineRange{DiffNew, 0, 2}) {
+		t.Fatalf("dragged back up to %+v, want new lines 0 to 2", r)
+	}
+	if dragging {
+		t.Fatal("the frame of the release still sees DraggingLines")
+	}
+	if want := []DiffLineRange{{DiffNew, 2, 2}, {DiffNew, 2, 4}, {DiffNew, 0, 2}}; !slices.Equal(got, want) {
+		t.Fatalf("reported %+v, want %+v", got, want)
+	}
+	// The pointer moving after the release selects nothing more.
+	tt.Move(x, mid(4))
+	if r, _ := d.SelectedLines(); r != (DiffLineRange{DiffNew, 0, 2}) {
+		t.Fatalf("a move after the release selected %+v", r)
+	}
+	// The old side's numbers drag the same way.
+	old := &d.eds[0]
+	tt.Press(old.r.X+old.gutterW-8, mid(1))
+	tt.Move(old.r.X+old.gutterW-8, mid(3))
+	tt.Release(old.r.X+old.gutterW-8, mid(3))
+	if r, _ := d.SelectedLines(); r != (DiffLineRange{DiffOld, 1, 3}) {
+		t.Fatalf("old side dragged to %+v, want old lines 1 to 3", r)
+	}
+}
+
+// Shift-click moves an end, and a drag from there keeps the other end.
+func TestDiffViewerLineSelectionShiftDrag(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\nc\nd\ne\nf\n"), New: NewBuffer("A\nB\nC\nD\nE\nF\n"), Layout: DiffSplit, ExpandUnchanged: true, LineSelection: true}
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+	tt.Frame()
+	ed := &d.eds[1]
+	mid := func(line int) float32 {
+		return float32(ed.view.heights.geometry(line).rows-ed.scrollY) + ed.view.lineHeight/2
+	}
+	x := ed.r.X + ed.gutterW - 8
+	tt.ClickAt(x, mid(2))
+	// The editor's own events, as the tester presses with no modifiers.
+	shiftDrag := func(from, to int) {
+		lx := ed.gutterW - 8
+		ed.input(ui.InputEvent{Kind: ui.InputPointerDown, X: lx, Y: mid(from), Mods: ui.Shift, Clicks: 1})
+		ed.input(ui.InputEvent{Kind: ui.InputPointerMove, X: lx, Y: mid(to)})
+		ed.input(ui.InputEvent{Kind: ui.InputPointerUp, X: lx, Y: mid(to)})
+	}
+	shiftDrag(4, 5)
+	if r, _ := d.SelectedLines(); r != (DiffLineRange{DiffNew, 2, 5}) {
+		t.Fatalf("selected %+v, want new lines 2 to 5", r)
+	}
+	shiftDrag(0, 3)
+	if r, _ := d.SelectedLines(); r != (DiffLineRange{DiffNew, 3, 5}) {
+		t.Fatalf("selected %+v, want new lines 3 to 5", r)
+	}
+}
+
+// A unified view's deleted lines show their selection as the lines of
+// the text do: their background and gutter tinted.
+func TestDiffViewerLineSelectionPaintsDeleted(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\nc\nd\ne\n"), New: NewBuffer("a\nX\nY\ne\n"), Layout: DiffUnified, ExpandUnchanged: true, LineSelection: true}
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 600, 400)
+	tt.Frame()
+	ed := &d.eds[1]
+	lh := ed.view.lineHeight
+	top := float32(ed.view.heights.geometry(1).top - ed.scrollY)
+	// The colors of old line i's text, past its characters, and gutter.
+	colors := func(i int) (text, gutter color.RGBA) {
+		img := tt.Image()
+		s := float32(img.Bounds().Dx()) / 600
+		y := int((top + lh*(float32(i-1)+0.5)) * s)
+		return img.RGBAAt(int(400*s), y), img.RGBAAt(int(4*s)+int(8*s), y)
+	}
+	t1, g1 := colors(1)
+	t2, g2 := colors(2)
+	if t1 != t2 || g1 != g2 {
+		t.Fatalf("unselected deleted lines differ: %v %v, %v %v", t1, g1, t2, g2)
+	}
+	tt.ClickAt(ed.gutterW-8, top+lh/2) // old line 1, "b"
+	if r, ok := d.SelectedLines(); !ok || r != (DiffLineRange{DiffOld, 1, 1}) {
+		t.Fatalf("selected %+v %v, want old line 1", r, ok)
+	}
+	s1, sg1 := colors(1)
+	if s1 == t1 || sg1 == g1 {
+		t.Fatalf("selected deleted line painted %v %v, as unselected %v %v", s1, sg1, t1, g1)
+	}
+	if c, g := colors(2); c != t2 || g != g2 {
+		t.Fatalf("the line below changed to %v %v", c, g)
+	}
+}
+
+// In a unified view a drag from a deleted line selects the deleted lines
+// it goes over, and the added lines below them leave the selection be.
+func TestDiffViewerLineSelectionDragDeleted(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\nc\nd\ne\n"), New: NewBuffer("a\nX\nY\ne\n"), Layout: DiffUnified, ExpandUnchanged: true, LineSelection: true}
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 600, 400)
+	tt.Frame()
+	ed := &d.eds[1]
+	above, _ := ed.view.heights.blocksOf(1)
+	if len(above) == 0 || above[0].kind != blockDeleted {
+		t.Fatalf("no deleted block: %+v", above)
+	}
+	lh := ed.view.lineHeight
+	top := float32(ed.view.heights.geometry(1).top - ed.scrollY)
+	x := ed.gutterW - 8
+	tt.Press(x, top+lh/2)  // old line 1, "b"
+	tt.Move(x, top+lh*2.5) // old line 3, "d"
+	if r, ok := d.SelectedLines(); !ok || r != (DiffLineRange{DiffOld, 1, 3}) {
+		t.Fatalf("dragged to %+v %v, want old lines 1 to 3", r, ok)
+	}
+	tt.Move(x, float32(ed.view.heights.geometry(2).rows-ed.scrollY)+lh/2) // new line 2, "Y"
+	tt.Release(x, float32(ed.view.heights.geometry(2).rows-ed.scrollY)+lh/2)
+	if r, _ := d.SelectedLines(); r != (DiffLineRange{DiffOld, 1, 3}) {
+		t.Fatalf("an added line changed the selection to %+v", r)
+	}
+}
+
+// A drag held below the view scrolls it and selects the lines that come
+// into view, and only up and down.
+func TestDiffViewerLineSelectionDragAutoscroll(t *testing.T) {
+	var old, nw strings.Builder
+	for i := range 200 {
+		fmt.Fprintf(&old, "line %d %s\n", i, strings.Repeat("x", 200))
+		if i == 100 {
+			fmt.Fprintf(&nw, "changed %s\n", strings.Repeat("x", 200))
+			continue
+		}
+		fmt.Fprintf(&nw, "line %d %s\n", i, strings.Repeat("x", 200))
+	}
+	d := &DiffState{Old: NewBuffer(old.String()), New: NewBuffer(nw.String()), Layout: DiffUnified, ExpandUnchanged: true, LineSelection: true}
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 600, 300)
+	tt.Frame()
+	ed := &d.eds[1]
+	ed.scrollX = 40
+	y := float32(ed.view.heights.geometry(0).rows-ed.scrollY) + ed.view.lineHeight/2
+	x := ed.gutterW - 8
+	tt.Press(x, y)
+	tt.Move(x, 340)
+	tt.Advance(time.Second)
+	tt.Release(x, 340)
+	if ed.scrollY <= 0 {
+		t.Fatal("holding the drag below the view did not scroll")
+	}
+	if ed.scrollX != 40 {
+		t.Fatalf("the drag scrolled sideways to %v", ed.scrollX)
+	}
+	if r, _ := d.SelectedLines(); r.Side != DiffNew || r.Start != 0 || r.End < 20 {
+		t.Fatalf("selected %+v, want new lines from 0 past the first view", r)
 	}
 }
 
@@ -1831,5 +2006,325 @@ func TestDiffViewDeletionAfterFinalNewline(t *testing.T) {
 	lh := d.LineTop(DiffOld, 1)
 	if lh <= 0 || d.LineTop(DiffOld, 2) != 2*lh || d.LineTop(DiffNew, 1) != 3*lh {
 		t.Fatalf("the tops of the old lines 1 and 2 and the end are %v, %v and %v", lh, d.LineTop(DiffOld, 2), d.LineTop(DiffNew, 1))
+	}
+}
+
+// lineChecks keeps the lines a diff's LineChecks checked, as an app does.
+type lineChecks struct {
+	checked map[[2]int]bool
+	reports [][]DiffLineRange
+	sets    []bool
+}
+
+func (lc *lineChecks) attach(d *DiffState) {
+	lc.checked = map[[2]int]bool{}
+	d.LineChecks = true
+	d.LineChecked = func(side DiffSide, line int) bool { return lc.checked[[2]int{int(side), line}] }
+	d.OnCheckLines = func(lines []DiffLineRange, checked bool) {
+		lc.reports = append(lc.reports, slices.Clone(lines))
+		lc.sets = append(lc.sets, checked)
+		for _, r := range lines {
+			for l := r.Start; l <= r.End; l++ {
+				lc.checked[[2]int{int(r.Side), l}] = checked
+			}
+		}
+	}
+}
+
+// A click on a changed line's gutter checks it, or unchecks it; a drag
+// sets the changed lines it goes over as the pressed one was set, shows
+// them so as it goes, and reports them once, on its release.
+func TestDiffViewerLineChecks(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\nc\nd\ne\n"), New: NewBuffer("a\nB\nC\nD\ne\n"), Layout: DiffSplit, ExpandUnchanged: true}
+	var lc lineChecks
+	lc.attach(d)
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+	tt.Frame()
+	ed := &d.eds[1]
+	mid := func(line int) float32 {
+		return float32(ed.view.heights.geometry(line).rows-ed.scrollY) + ed.view.lineHeight/2
+	}
+	look := func(line int) uint8 { return d.sides[1].lineStyle(line).check }
+	x := ed.r.X + ed.gutterW - 8
+	if look(0) != 0 || look(1) != 1 {
+		t.Fatalf("boxes of an unchanged and a changed line: %d %d, want none and unchecked", look(0), look(1))
+	}
+	tt.Press(x, mid(2))
+	tt.Move(x, mid(3))
+	if look(2) != 2 || look(3) != 2 || look(1) != 1 {
+		t.Fatalf("while held: lines 1 to 3 show %d %d %d, want 1 2 2", look(1), look(2), look(3))
+	}
+	if len(lc.reports) != 0 {
+		t.Fatalf("reported %+v before the release", lc.reports)
+	}
+	tt.Release(x, mid(3))
+	if want := [][]DiffLineRange{{{DiffNew, 2, 3}}}; !reflect.DeepEqual(lc.reports, want) || !lc.sets[0] {
+		t.Fatalf("reported %+v %v, want %+v checked", lc.reports, lc.sets, want)
+	}
+	// A click on a checked line unchecks it alone.
+	tt.ClickAt(x, mid(3))
+	if got := lc.reports[1]; !slices.Equal(got, []DiffLineRange{{DiffNew, 3, 3}}) || lc.sets[1] {
+		t.Fatalf("click reported %+v %v, want new line 3 unchecked", got, lc.sets[1])
+	}
+	// From line 2, checked, up past the unchanged line 0: the changed
+	// lines it went over, unchecked.
+	tt.Press(x, mid(2))
+	tt.Move(x, mid(0))
+	tt.Release(x, mid(0))
+	if got := lc.reports[2]; !slices.Equal(got, []DiffLineRange{{DiffNew, 1, 2}}) || lc.sets[2] {
+		t.Fatalf("drag up reported %+v %v, want new lines 1 to 2 unchecked", got, lc.sets[2])
+	}
+	// An unchanged line's gutter checks nothing.
+	tt.ClickAt(x, mid(0))
+	if len(lc.reports) != 3 {
+		t.Fatalf("an unchanged line reported %+v", lc.reports[3:])
+	}
+	// The old side checks its own lines.
+	old := &d.eds[0]
+	ox := old.r.X + old.gutterW - 8
+	tt.Press(ox, mid(1))
+	tt.Move(ox, mid(4))
+	tt.Release(ox, mid(4))
+	if got := lc.reports[3]; !slices.Equal(got, []DiffLineRange{{DiffOld, 1, 3}}) || !lc.sets[3] {
+		t.Fatalf("old side reported %+v %v, want old lines 1 to 3 checked", got, lc.sets[3])
+	}
+}
+
+// In a unified view a drag goes over the deleted lines and the added
+// lines in the order they show, and reports both.
+func TestDiffViewerLineChecksUnified(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\nc\nd\ne\n"), New: NewBuffer("a\nX\nY\ne\n"), Layout: DiffUnified, ExpandUnchanged: true}
+	var lc lineChecks
+	lc.attach(d)
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 600, 400)
+	tt.Frame()
+	ed := &d.eds[1]
+	lh := ed.view.lineHeight
+	top := float32(ed.view.heights.geometry(1).top - ed.scrollY) // old line 1, "b"
+	newMid := func(line int) float32 { return float32(ed.view.heights.geometry(line).rows-ed.scrollY) + lh/2 }
+	x := ed.gutterW - 8
+	tt.Press(x, top+lh*1.5) // old line 2, "c"
+	tt.Move(x, newMid(1))   // new line 1, "X"
+	if !d.lineChecked(DiffOld, 3) || d.lineChecked(DiffOld, 1) || !d.lineChecked(DiffNew, 1) || d.lineChecked(DiffNew, 2) {
+		t.Fatal("while held, the lines from old line 2 to new line 1 don't show checked alone")
+	}
+	tt.Release(x, newMid(1))
+	if want := []DiffLineRange{{DiffOld, 2, 3}, {DiffNew, 1, 1}}; !slices.Equal(lc.reports[0], want) || !lc.sets[0] {
+		t.Fatalf("reported %+v %v, want %+v checked", lc.reports[0], lc.sets[0], want)
+	}
+	// Up from new line 2 to old line 1, in the order they show.
+	tt.Press(x, newMid(2))
+	tt.Move(x, top+lh/2)
+	tt.Release(x, top+lh/2)
+	if want := []DiffLineRange{{DiffOld, 1, 3}, {DiffNew, 1, 2}}; !slices.Equal(lc.reports[1], want) || !lc.sets[1] {
+		t.Fatalf("reported %+v %v, want %+v checked", lc.reports[1], lc.sets[1], want)
+	}
+}
+
+// A drag of checks the editor drops without its release, as when the
+// window loses the keyboard, sets nothing.
+func TestDiffViewerLineChecksDropped(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\nc\n"), New: NewBuffer("A\nB\nC\n"), Layout: DiffSplit, ExpandUnchanged: true}
+	var lc lineChecks
+	lc.attach(d)
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+	tt.Frame()
+	ed := &d.eds[1]
+	y := float32(ed.view.heights.geometry(0).rows-ed.scrollY) + ed.view.lineHeight/2
+	tt.Press(ed.r.X+ed.gutterW-8, y)
+	if !d.lineChecked(DiffNew, 0) {
+		t.Fatal("the pressed line doesn't show checked")
+	}
+	ed.gesture.active = false
+	tt.Frame()
+	if d.lineChecked(DiffNew, 0) {
+		t.Fatal("the dropped drag still shows its line checked")
+	}
+	tt.Release(ed.r.X+ed.gutterW-8, y)
+	if len(lc.reports) != 0 {
+		t.Fatalf("the dropped drag reported %+v", lc.reports)
+	}
+}
+
+// The gutter makes room for the boxes, and a checked line's gutter and
+// box are painted unlike an unchecked one's, as a deleted line's of a
+// unified view.
+func TestDiffViewerLineChecksPaint(t *testing.T) {
+	for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
+		d := &DiffState{Old: NewBuffer("a\nb\nc\nd\n"), New: NewBuffer("a\nB\nC\nd\n"), Layout: layout, ExpandUnchanged: true}
+		tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+		tt.Frame()
+		ed := &d.eds[1]
+		plain := ed.gutterW
+		var lc lineChecks
+		lc.attach(d)
+		tt.Frame()
+		if ed.gutterW != plain+ed.checkRoom() {
+			t.Fatalf("layout %d: gutter %v with checks, want %v", layout, ed.gutterW, plain+ed.checkRoom())
+		}
+		// A point of each line's box clear of its tick, in the image: the
+		// new side's lines 1 and 2, and in a unified view the deleted
+		// lines above.
+		lh := ed.view.lineHeight
+		at := func(y float32) color.RGBA {
+			img := tt.Image()
+			s := float32(img.Bounds().Dx()) / 800
+			return img.RGBAAt(int((ed.r.X+6+ed.checkSize()*0.3)*s), int((y-ed.checkSize()*0.25)*s))
+		}
+		y1 := float32(ed.view.heights.geometry(1).rows-ed.scrollY) + lh/2
+		y2 := float32(ed.view.heights.geometry(2).rows-ed.scrollY) + lh/2
+		ys := []float32{y1, y2}
+		if layout == DiffUnified {
+			top := float32(ed.view.heights.geometry(1).top - ed.scrollY)
+			ys = []float32{top + lh/2, top + lh*1.5}
+		}
+		before := at(ys[0])
+		if c := at(ys[1]); c != before {
+			t.Fatalf("layout %d: unchecked lines' boxes differ: %v %v", layout, before, c)
+		}
+		tt.ClickAt(ed.r.X+ed.gutterW-8, ys[0])
+		tt.Frame()
+		// The box filled, in the color of its tick's, past the gutter's tint.
+		m := ed.theme.Modified
+		if c := at(ys[0]); absDiff(c.R, m.R) > 6 || absDiff(c.G, m.G) > 6 || absDiff(c.B, m.B) > 6 {
+			t.Fatalf("layout %d: the checked line's box is %v, want %v", layout, c, m)
+		}
+		if c := at(ys[1]); c != before {
+			t.Fatalf("layout %d: the line below changed to %v", layout, c)
+		}
+	}
+}
+
+func absDiff(a, b uint8) int { return max(int(a), int(b)) - min(int(a), int(b)) }
+
+// Each side's change bar is a check box of the change's lines, both
+// sides': a click checks them all, or unchecks them once they all are,
+// and assistive technology hears how many are.
+func TestDiffViewerLineChecksHunk(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\nc\nd\ne\n"), New: NewBuffer("a\nB\nC\nD\ne\n"), Layout: DiffSplit, ExpandUnchanged: true}
+	var lc lineChecks
+	lc.attach(d)
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+	tt.Frame()
+	ed := &d.eds[1]
+	box := func() ui.AccessInfo {
+		t.Helper()
+		// The new side's, after the old side's.
+		var found []ui.AccessInfo
+		for _, a := range tt.AccessAll() {
+			if a.Role == ui.RoleCheckBox && a.Name == "Change" {
+				found = append(found, a)
+			}
+		}
+		if len(found) != 2 {
+			t.Fatalf("%d check boxes of the change, want one a side", len(found))
+		}
+		return found[1]
+	}
+	b := box()
+	if b.Checked || b.Mixed {
+		t.Fatalf("an unchecked change's box: %+v", b)
+	}
+	g1, g3 := ed.view.heights.geometry(1), ed.view.heights.geometry(3)
+	if top, bottom := float64(b.Bounds.Y)+ed.scrollY, float64(b.Bounds.Y+b.Bounds.H)+ed.scrollY; top != g1.rows || bottom != g3.below {
+		t.Fatalf("the box spans %v to %v, want the change's lines, %v to %v", top, bottom, g1.rows, g3.below)
+	}
+	click := func() {
+		b := box()
+		tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+		tt.Frame()
+	}
+	all := []DiffLineRange{{DiffOld, 1, 3}, {DiffNew, 1, 3}}
+	click()
+	if !reflect.DeepEqual(lc.reports, [][]DiffLineRange{all}) || !lc.sets[0] {
+		t.Fatalf("reported %+v %v, want %+v checked", lc.reports, lc.sets, all)
+	}
+	if b := box(); !b.Checked {
+		t.Fatalf("a checked change's box: %+v", b)
+	}
+	click()
+	if !slices.Equal(lc.reports[1], all) || lc.sets[1] {
+		t.Fatalf("reported %+v %v, want %+v unchecked", lc.reports[1], lc.sets[1], all)
+	}
+	// One line checked: partly, and a click checks them all.
+	lc.checked[[2]int{int(DiffNew), 2}] = true
+	tt.Frame()
+	if b := box(); !b.Mixed {
+		t.Fatalf("a change with one line checked: %+v", b)
+	}
+	click()
+	if !slices.Equal(lc.reports[2], all) || !lc.sets[2] {
+		t.Fatalf("reported %+v %v, want %+v checked", lc.reports[2], lc.sets[2], all)
+	}
+}
+
+// In a unified view the change's box spans its deleted lines and its
+// added lines.
+func TestDiffViewerLineChecksHunkUnified(t *testing.T) {
+	d := &DiffState{Old: NewBuffer("a\nb\nc\nd\ne\n"), New: NewBuffer("a\nX\nY\ne\n"), Layout: DiffUnified, ExpandUnchanged: true}
+	var lc lineChecks
+	lc.attach(d)
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 600, 400)
+	tt.Frame()
+	ed := &d.eds[1]
+	b, ok := tt.AccessByRole(ui.RoleCheckBox, "Change")
+	if !ok {
+		t.Fatal("no check box of the change")
+	}
+	g1, g2 := ed.view.heights.geometry(1), ed.view.heights.geometry(2)
+	if top, bottom := float64(b.Bounds.Y)+ed.scrollY, float64(b.Bounds.Y+b.Bounds.H)+ed.scrollY; top != g1.top || bottom != g2.below {
+		t.Fatalf("the box spans %v to %v, want the deleted lines' top %v to the added lines' bottom %v", top, bottom, g1.top, g2.below)
+	}
+	tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+2)
+	if want := []DiffLineRange{{DiffOld, 1, 3}, {DiffNew, 1, 2}}; len(lc.reports) != 1 || !slices.Equal(lc.reports[0], want) {
+		t.Fatalf("reported %+v, want %+v", lc.reports, want)
+	}
+}
+
+// TestDiffViewerLineChecksNoMarks checks that NoCheckMarks leaves the
+// boxes and their room out, and that the numbers still check the lines
+// and show it by their tint.
+func TestDiffViewerLineChecksNoMarks(t *testing.T) {
+	for _, layout := range []DiffLayout{DiffSplit, DiffUnified} {
+		d := &DiffState{Old: NewBuffer("a\nb\nc\nd\n"), New: NewBuffer("a\nB\nC\nd\n"), Layout: layout, ExpandUnchanged: true}
+		tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+		tt.Frame()
+		ed := &d.eds[1]
+		plain := ed.gutterW
+		var lc lineChecks
+		lc.attach(d)
+		d.NoCheckMarks = true
+		tt.Frame()
+		if ed.gutterW != plain {
+			t.Fatalf("layout %d: gutter %v without marks, want %v", layout, ed.gutterW, plain)
+		}
+		lh := ed.view.lineHeight
+		y := func(line int) float32 { return float32(ed.view.heights.geometry(line).rows-ed.scrollY) + lh/2 }
+		// A point of the gutter left of the numbers, where a box would be.
+		at := func(y float32) color.RGBA {
+			img := tt.Image()
+			s := float32(img.Bounds().Dx()) / 800
+			return img.RGBAAt(int((ed.r.X+8)*s), int(y*s))
+		}
+		before := at(y(2))
+		tt.ClickAt(ed.r.X+ed.gutterW-8, y(2))
+		tt.Frame()
+		if want := []DiffLineRange{{DiffNew, 2, 2}}; len(lc.reports) != 1 || !slices.Equal(lc.reports[0], want) || !lc.sets[0] {
+			t.Fatalf("layout %d: reported %+v %v, want %+v checked", layout, lc.reports, lc.sets, want)
+		}
+		if c := at(y(2)); c == before {
+			t.Fatalf("layout %d: the checked line's gutter stayed %v", layout, c)
+		}
+		if c := at(y(1)); c != before {
+			t.Fatalf("layout %d: the unchecked line's gutter is %v, want %v", layout, c, before)
+		}
+		// No box's outline: the gutter is alike at a box's top edge and in
+		// its middle.
+		img := tt.Image()
+		s := float32(img.Bounds().Dx()) / 800
+		bx, half := ed.r.X+6+ed.checkSize()/2, ed.checkSize()/2
+		if e, m := img.RGBAAt(int(bx*s), int((y(1)-half+0.5)*s)), img.RGBAAt(int(bx*s), int(y(1)*s)); e != m {
+			t.Fatalf("layout %d: a box's outline %v over the gutter %v", layout, e, m)
+		}
 	}
 }

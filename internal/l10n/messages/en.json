@@ -55,6 +55,7 @@
   "revert": "Revert",
   "keep": "Keep",
   "hunkAction": "{action} change",
+  "change": "Change",
   "line": "Line {n, number, ::group-off}",
   "oldLine": "Old line {n, number, ::group-off}",
   "newText": "New text",
