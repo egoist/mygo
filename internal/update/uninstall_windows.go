@@ -15,8 +15,6 @@ import (
 
 const uninstallKeys = `Software\Microsoft\Windows\CurrentVersion\Uninstall\`
 
-var procRegSetValueExW = syscall.NewLazyDLL("advapi32.dll").NewProc("RegSetValueExW") // a KnownDLL
-
 // RefreshUninstallEntry sets the version of the entry of the app whose
 // identifier is identifier in Settings > Apps to version, when the
 // installer registered it: when the user's entry has the app installed in
@@ -89,7 +87,10 @@ func regSetString(key syscall.Handle, name, value string) error {
 	if err != nil {
 		return err
 	}
-	if r, _, _ := procRegSetValueExW.Call(uintptr(key), uintptr(unsafe.Pointer(n)), 0, syscall.REG_SZ, uintptr(unsafe.Pointer(&v[0])), uintptr(len(v)*2)); r != 0 {
+	// Looked up here, not in a package variable: an app that never updates
+	// has no init for it.
+	set := syscall.NewLazyDLL("advapi32.dll").NewProc("RegSetValueExW") // a KnownDLL
+	if r, _, _ := set.Call(uintptr(key), uintptr(unsafe.Pointer(n)), 0, syscall.REG_SZ, uintptr(unsafe.Pointer(&v[0])), uintptr(len(v)*2)); r != 0 {
 		return syscall.Errno(r)
 	}
 	return nil
