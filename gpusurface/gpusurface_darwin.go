@@ -58,6 +58,10 @@ var lib struct {
 	ioPlaneWidth, ioPlaneHeight                  uintptr
 	numer, denom                                 uint64
 
+	// pthreadMainNP, dispatchSyncF, mainQueue (dispatch_get_main_queue())
+	// and mainCallback are onMain's.
+	pthreadMainNP, dispatchSyncF, mainQueue, mainCallback uintptr
+
 	createDevice func() uintptr
 	msgSetSize   func(obj uintptr, sel objc.SEL, s cgSize)
 	msgRect      func(obj uintptr, sel objc.SEL) cgRect
@@ -130,6 +134,9 @@ func load() error {
 		lib.ioPlaneWidth = sym(io, "IOSurfaceGetWidthOfPlane")
 		lib.ioPlaneHeight = sym(io, "IOSurfaceGetHeightOfPlane")
 		lib.machAbsoluteTime = sym(system, "mach_absolute_time")
+		lib.pthreadMainNP = sym(system, "pthread_main_np")
+		lib.dispatchSyncF = sym(system, "dispatch_sync_f")
+		lib.mainQueue = sym(system, "_dispatch_main_q")
 		timebase := sym(system, "mach_timebase_info")
 		create := sym(metal, "MTLCreateSystemDefaultDevice")
 		if lib.err != nil {
@@ -148,6 +155,7 @@ func load() error {
 		// One block for every drawable of every surface: purego callbacks
 		// are never freed.
 		lib.presented = objc.NewBlock(onPresented)
+		lib.mainCallback = purego.NewCallback(runMainCall)
 	})
 	return lib.err
 }
@@ -309,8 +317,10 @@ fragment float4 fs_yuv2020(VOut in [[stage_in]], texture2d<float> y [[texture(0)
 }
 ` + overlayShaderSource
 
-// New makes a surface filling opts.Window, an NSWindow*, on the main
-// thread. Present may then be called from one other thread.
+// New makes a surface filling opts.Window, an NSWindow*. It may be called
+// from any goroutine: its AppKit work runs on the main thread, which must
+// be running its run loop then unless New is called on it. Present may
+// then be called from one other thread.
 func New(opts Options) (s *Surface, err error) {
 	if err := load(); err != nil {
 		return nil, err
@@ -318,6 +328,11 @@ func New(opts Options) (s *Surface, err error) {
 	if opts.Window == 0 {
 		return nil, errors.New("gpusurface: no window")
 	}
+	onMain(func() { s, err = newOnMain(opts) })
+	return s, err
+}
+
+func newOnMain(opts Options) (s *Surface, err error) {
 	s = &Surface{window: opts.Window, pixelFormat: pixelFormatBGRA8Unorm, fit: [4]float32{1, 1, 0, 0}}
 	if opts.Drawable10Bit || opts.HDR10 {
 		s.pixelFormat = pixelFormatBGR10A2Unorm
@@ -732,14 +747,36 @@ func (s *Surface) planeTexture(surface uintptr, plane int, format uintptr) uintp
 func (t *timings) done() bool { return t.resolved.Load() >= t.next.Load() }
 
 // Close waits for the frames presented to reach the screen, a second at
-// most, and frees the surface.
+// most, and frees the surface, once no other call on it is under way. It
+// may be called from any goroutine: it takes the surface's view and layer
+// out of the window on the main thread (see New), and frees the rest on
+// the caller's.
 func (s *Surface) Close() {
 	deadline := time.Now().Add(time.Second)
 	for !s.timings.done() && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
+	onMain(s.detach)
+	for i := range s.cache {
+		release(&s.cache[i].tex[0])
+		release(&s.cache[i].tex[1])
+	}
+	s.closeOverlay()
+	for _, p := range []*uintptr{&s.pass, &s.rgbPipeline, &s.yuvPipe, &s.overlayPipe, &s.yuv2020Pipe, &s.overlayPQPipe, &s.queue, &s.device} {
+		release(p)
+	}
+	releaseSpace(&s.sdrSpace)
+}
+
+// detach ends direct mode and takes the surface's layer and view out of
+// the window, on the main thread.
+func (s *Surface) detach() {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	pool, _, _ := purego.SyscallN(lib.poolPush)
+	defer purego.SyscallN(lib.poolPop, pool)
 	if s.direct.Load() {
-		s.SetDirect(false)
+		s.setDirect(false)
 	}
 	if s.layer != 0 {
 		surfaces.Delete(s.layer)
@@ -748,13 +785,6 @@ func (s *Surface) Close() {
 	if s.host != 0 {
 		send(s.host, "removeFromSuperview")
 	}
-	for i := range s.cache {
-		release(&s.cache[i].tex[0])
-		release(&s.cache[i].tex[1])
-	}
-	s.closeOverlay()
-	for _, p := range []*uintptr{&s.host, &s.layer, &s.pass, &s.rgbPipeline, &s.yuvPipe, &s.overlayPipe, &s.yuv2020Pipe, &s.overlayPQPipe, &s.queue, &s.device} {
-		release(p)
-	}
-	releaseSpace(&s.sdrSpace)
+	release(&s.host)
+	release(&s.layer)
 }

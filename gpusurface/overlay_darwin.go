@@ -115,7 +115,8 @@ func (s *Surface) SetOverlay(rects []OverlayRect) { s.overlay.set(rects) }
 
 // SetOverlayAtlas sets the coverage the overlay's glyph rects read: w x h
 // bytes, a row after another, 255 covered. Call it from any goroutine,
-// seldom: on a change of scale.
+// seldom: on a change of scale. It makes Metal objects only, which take
+// any thread, and swaps them in under a lock the present takes too.
 func (s *Surface) SetOverlayAtlas(pix []byte, w, h int) error {
 	if w <= 0 || h <= 0 || w > 16384 || h > 16384 || len(pix) < w*h {
 		return fmt.Errorf("gpusurface: overlay atlas %dx%d from %d bytes", w, h, len(pix))

@@ -33,8 +33,14 @@ var (
 func (s *Surface) Direct() bool { return s.direct.Load() }
 
 // ScreenSize is the native size in pixels of the screen the window is on,
-// or 0, 0 when it is on none. Call it on the main thread.
+// or 0, 0 when it is on none. It may be called from any goroutine: it asks
+// AppKit on the main thread (see New).
 func (s *Surface) ScreenSize() (w, h int) {
+	onMain(func() { w, h = s.screenSize() })
+	return w, h
+}
+
+func (s *Surface) screenSize() (w, h int) {
 	screen := send(s.window, "screen")
 	if screen == 0 {
 		return 0, 0
@@ -48,12 +54,18 @@ func (s *Surface) ScreenSize() (w, h int) {
 // screen's size and the layers of the content view's other subviews are hidden; off
 // shows them as they were and gives the drawables the size Resize last
 // set. The window should be full screen with nothing to show over the
-// frames while it is on. Call it on the main thread. It needs
+// frames while it is on. It may be called from any goroutine: it hides
+// and shows the views' layers on the main thread (see New). It needs
 // Options.Composite.
-func (s *Surface) SetDirect(on bool) error {
+func (s *Surface) SetDirect(on bool) (err error) {
 	if s.host == 0 {
 		return errors.New("gpusurface: direct mode needs Options.Composite")
 	}
+	onMain(func() { err = s.setDirect(on) })
+	return err
+}
+
+func (s *Surface) setDirect(on bool) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	pool, _, _ := purego.SyscallN(lib.poolPush)
@@ -64,7 +76,7 @@ func (s *Surface) SetDirect(on bool) error {
 		return nil
 	}
 	if on {
-		w, h := s.ScreenSize()
+		w, h := s.screenSize()
 		if w <= 0 || h <= 0 {
 			return errors.New("gpusurface: the window is on no screen")
 		}

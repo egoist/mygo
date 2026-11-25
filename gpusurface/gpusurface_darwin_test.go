@@ -3,6 +3,7 @@
 package gpusurface
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"sync"
@@ -15,31 +16,24 @@ import (
 )
 
 // AppKit takes windows and views on the main thread only: the tests run
-// on another goroutine and hand their AppKit calls to onMain.
+// on another goroutine and hand their AppKit calls to onMain, while the
+// main thread runs its run loop, as an app's does. A function given to
+// onMain reports failures with t.Error, not t.Fatal, which would end the
+// main thread's loop.
 func init() { runtime.LockOSThread() }
-
-var mainCalls = make(chan func())
-
-// onMain runs fn on the main thread. fn reports failures with t.Error,
-// not t.Fatal, which would end the main thread's loop.
-func onMain(fn func()) {
-	done := make(chan struct{})
-	mainCalls <- func() { fn(); close(done) }
-	<-done
-}
 
 var initWindow func(obj uintptr, sel objc.SEL, r cgRect, style, backing uintptr, deferred bool) uintptr
 
 func TestMain(m *testing.M) {
-	code := make(chan int, 1)
-	go func() { code <- m.Run() }()
+	if err := load(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	var runLoop func()
+	purego.RegisterLibFunc(&runLoop, purego.RTLD_DEFAULT, "CFRunLoopRun")
+	go func() { os.Exit(m.Run()) }()
 	for {
-		select {
-		case fn := <-mainCalls:
-			fn()
-		case c := <-code:
-			os.Exit(c)
-		}
+		runLoop()
 	}
 }
 

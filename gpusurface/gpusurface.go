@@ -14,6 +14,15 @@
 // frame of the pool was seen. Timings, when asked for, record each frame's
 // way from Present to the screen.
 //
+// One thread presents: Present, PresentTagged, PresentSlice, Resize and
+// SetHDR10 are called from it, one at a time. SetOverlay and
+// SetOverlayAtlas may be called from any goroutine. On macOS New, Close,
+// SetDirect and ScreenSize may be called from any goroutine too: they do
+// their AppKit work on the main thread, at once when called there and
+// otherwise through the main dispatch queue, which the main thread's run
+// loop must then be draining, as it does while a MyGo app runs. Close
+// comes last, once no other call on the surface is under way.
+//
 // Every platform has the whole API, with the same signatures: where a
 // feature is missing, its methods return ErrUnsupported or do nothing,
 // and New returns ErrUnsupported on platforms other than macOS and
