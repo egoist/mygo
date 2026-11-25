@@ -187,7 +187,7 @@ files that did not change are copied from the installed app, changed ones
 are patched ([bsdiff](https://www.daemonology.net/bsdiff/)), and the rest
 are included. The notarization ticket stapled to a macOS app
 (`Contents/CodeResources`) is always included whole: the archives' apps
-have one, but the app copied from the disk image does not. The manifest
+have one, but an app copied from a disk image of an older mygo does not. The manifest
 lists the deltas, and the archives of the versions before for the next
 build. A delta that is not smaller than the
 archive is left out. Builds need to download the published updates then;
@@ -279,6 +279,10 @@ func checkForUpdates(ctx context.Context) {
   cannot, and `Check` returns `mygo.ErrUpdatesDisabled` in them.
 - `Check` and `Install` go through the proxy of the system's settings,
   or of `HTTPS_PROXY` when it is set (see [proxies](native.md#proxies)).
+  They follow a redirect only to HTTPS, and not past ten.
+- An archive unpacks inside the app's folder alone, through links of its
+  own too, and to at most 8 GB; anything else stops the update and the
+  app stays as it is.
 
 ## Your own update service
 

@@ -1,4 +1,4 @@
-//go:build linux && (amd64 || arm64)
+//go:build linux && !android && (amd64 || arm64)
 
 package linux
 
@@ -54,7 +54,10 @@ type Backend struct {
 	nextTray     int
 	grabs        map[int]grab    // global shortcuts on X11
 	portal       portalShortcuts // global shortcuts elsewhere
-	themeHooks   bool
+	// Whether global shortcuts go through the portal under XWayland, once
+	// asked (shortcutsThroughPortal).
+	portalAsked, portalOnX11 bool
+	themeHooks               bool
 
 	// signalable is set once Init has bound GLib and made the callbacks.
 	// A Signal before then, from a goroutine posting while the app starts,
@@ -64,8 +67,10 @@ type Backend struct {
 	// wmName names its window manager.
 	onX11  bool
 	wmName func(screen ptr) ptr
-	// compositorDecorates reports a Wayland compositor that decorates
-	// windows itself, whose title bar shows no buttons of GTK's (titlebar.go).
+	// x11ID returns a GdkWindow's X11 window (gdk_x11_window_get_xid).
+	x11ID func(window ptr) ptr
+	// compositorDecorates reports a tiling Wayland compositor that
+	// decorates windows itself, and wants no buttons of GTK's (titlebar.go).
 	compositorDecorates bool
 	// announceCSD tells a Wayland compositor that a window decorates
 	// itself, so that it draws no title bar (gdk_wayland_window_announce_csd).
@@ -141,14 +146,22 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	var x11Type func() uintptr
 	b.onX11 = bind(libGDK, &x11Type, "gdk_x11_display_get_type") && gTypeCheckInstanceIsA(gdkDisplayGetDefault(), x11Type()) &&
 		bind(libGDK, &b.wmName, "gdk_x11_screen_get_window_manager_name")
+	if b.onX11 {
+		bind(libGDK, &b.x11ID, "gdk_x11_window_get_xid")
+	}
 	// GTK has the compositor's default decoration mode once the display is
 	// open, and decides with it which windows it decorates.
 	var waylandType func() uintptr
 	var prefersSSD func(display ptr) bool
+	var offers func(display ptr, global *byte) bool
 	onWayland := bind(libGDK, &waylandType, "gdk_wayland_display_get_type") &&
 		gTypeCheckInstanceIsA(gdkDisplayGetDefault(), waylandType())
+	// KWin prefers them too, but it draws title bars, with buttons where
+	// KDE's layout puts GTK's. It alone offers its title bars' palette.
 	b.compositorDecorates = onWayland &&
-		bind(libGDK, &prefersSSD, "gdk_wayland_display_prefers_ssd") && prefersSSD(gdkDisplayGetDefault())
+		bind(libGDK, &prefersSSD, "gdk_wayland_display_prefers_ssd") && prefersSSD(gdkDisplayGetDefault()) &&
+		!(bind(libGDK, &offers, "gdk_wayland_display_query_registry") &&
+			offers(gdkDisplayGetDefault(), cs("org_kde_kwin_server_decoration_palette_manager")))
 	if onWayland {
 		bind(libGDK, &b.announceCSD, "gdk_wayland_window_announce_csd")
 		bind(libGDK, &b.waylandSurface, "gdk_wayland_window_get_wl_surface")

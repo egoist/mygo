@@ -37,7 +37,7 @@ if res.Button == 1 { /* Delete */ }
 mygo.Dialog.Error("Import failed", err.Error())
 ```
 
-`OpenDialogOptions` 还可以选择目录（`Directory`）、显示隐藏文件，以及在 macOS 上显示消息和“新建文件夹”按钮。
+`OpenDialogOptions` 还可以选择目录（`Directory`）、显示隐藏文件，以及在 macOS 上显示消息和“新建文件夹”按钮。在 Windows 上，在选择目录的对话框中选择库（例如“文档”）时，选中的是该库保存到的文件夹。
 
 过滤器也可以按类型选取文件，类似 HTML 的 `accept`：可以用 `MIMETypes` 指定 `"application/pdf"` 这样的类型，也可以用 `"image/*"` 指定一整类；系统选择器会按自己认识的类型来匹配，而不需要逐一列出所有扩展名：
 
@@ -277,7 +277,7 @@ idle := mygo.Power.IdleTime() // since the last keyboard or mouse input
 
 传给 `KeepAwake` 的原因会显示在系统列出保持唤醒项的地方。
 
-macOS 会在一分钟内把没有任何窗口显示的应用——窗口被隐藏、最小化、被遮挡，或位于锁屏之后——置于 App Nap：它降低应用的优先级，合并计时器并限制 I/O，这会拖慢在后台提供网络服务、串流或同步的应用。托盘图标只要还显示在菜单栏上，就算作一个正在显示的窗口。`KeepRunning` 会在释放之前一直阻止 App Nap，并让计算机在空闲时仍能休眠，正如整天待在菜单栏里的应用所希望的那样；`KeepAwake` 也会阻止 App Nap，但同时让计算机保持唤醒。其他系统上 `KeepRunning` 不做任何事。
+macOS 会在一分钟内把没有任何窗口显示的应用——窗口被隐藏、最小化、被遮挡，或位于锁屏之后——置于 App Nap：它降低应用的优先级，合并计时器并限制 I/O，这会拖慢在后台提供网络服务、串流或同步的应用。托盘图标只要还显示在菜单栏上，就算作一个正在显示的窗口。`KeepRunning` 会在释放之前一直阻止 App Nap，并让计算机在空闲时仍能休眠，正如整天待在菜单栏里的应用所希望的那样；`KeepAwake` 也会阻止 App Nap，但同时让计算机保持唤醒。Windows 对看不见的进程也做类似的节流：EcoQoS 会放慢它的线程，在混合架构处理器上还会把它们移到能效核心上。`KeepRunning` 会在释放之前关掉这种节流，释放后再把节流交还给 Windows，于是重新显示窗口的应用会和其他应用一样由 Windows 决定。Linux 桌面不会放慢看不见的应用，对 `KeepRunning` 不做任何事。
 
 在 Linux 上，`OnLockScreen` 会在屏幕保护程序启动时被调用（它通常会锁定屏幕）；在不上报空闲时间的桌面上，`IdleTime` 为 0。
 
@@ -470,4 +470,4 @@ err := mygo.GlobalShortcut.Register("CmdOrCtrl+Shift+Space", func() {
 
 函数在主线程上运行。快捷键使用[加速键](menus.md#快捷键)的语法；`Unregister`、`UnregisterAll` 和 `IsRegistered` 管理它们。快捷键已被占用时 `Register` 会失败：占用者可能是应用自己，也可能是另一个应用（如果系统会告知的话）。
 
-在 X11 下的 Linux 上，应用自己抓取按键。在 Wayland 下应用无法这样做，桌面会通过 XDG 桌面门户为应用绑定快捷键，KDE Plasma 6 和 GNOME 48 及更高版本提供该门户：桌面可能要求用户确认新快捷键，并允许他们改选其他按键；它需要应用已安装，因为它按桌面条目识别应用。快捷键在 `Register` 返回后不久生效。函数显示或聚焦的窗口，在桌面提供激活令牌时（GNOME 就是如此）会借助按键的激活令牌获得焦点。
+在 X11 下的 Linux 上，应用自己抓取按键。在 Wayland 下应用无法这样做，桌面会通过 XDG 桌面门户为应用绑定快捷键，KDE Plasma 6 和 GNOME 48 及更高版本提供该门户；在 Wayland 会话中通过 XWayland 运行的应用（`GDK_BACKEND=x11`）也是如此，因为它自己抓取的按键只有在它拥有焦点时才能收到：桌面可能要求用户确认新快捷键，并允许他们改选其他按键；它需要应用已安装，因为它按桌面条目识别应用。快捷键在 `Register` 返回后不久生效。函数显示或聚焦的窗口，在桌面提供激活令牌时（GNOME 就是如此）会借助按键的激活令牌获得焦点；在 XWayland 下，GNOME 会显示这些窗口但不给它们焦点，焦点留在用户正在使用的窗口上。

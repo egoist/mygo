@@ -2,6 +2,7 @@ package tsgen
 
 import (
 	"context"
+	"encoding/json/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,7 +63,7 @@ func generate(t *testing.T) string {
 func TestGenerate(t *testing.T) {
 	src := generate(t)
 	for _, want := range []string{
-		`import { call, event, type Channel } from "mygo-runtime";`,
+		`import { bind, event, type Channel } from "mygo-runtime";`,
 		`export type Status = "todo" | "done";`,
 		`export type Priority = 0 | 1 | 2;`,
 		"export interface FixtureChannel {\n  name: string;\n}",
@@ -92,14 +93,14 @@ func TestGenerate(t *testing.T) {
 		"  createdAt: string;\n",
 		"export interface PageTask {\n  items: Task[];\n  next?: string;\n}",
 		"/** Tasks manages tasks. */\nexport const Tasks = {",
-		"  /** List returns tasks with the given status. */\n  list(status: Status, limit: number): Promise<PageTask> {\n    return call(\"Tasks.List\", status, limit);\n  },",
+		"  /** List returns tasks with the given status. */\n  list: bind<[Status, number], PageTask>(\"Tasks.List\", (status: Status, limit: number) => [status, limit]),",
 		"   * It fails when a task has no title.\n",
-		"  add(...tasks: Task[]): Promise<void> {\n    return call(\"Tasks.Add\", ...tasks);\n  },",
-		"  count(): Promise<number> {",
-		"  delete(arg0: number): Promise<void> {",
-		"  dispatch(call_: string, call__: string): Promise<void> {\n    return call(\"Tasks.Dispatch\", call_, call__);\n  },",
-		"  dispatchMany(...call_: string[]): Promise<void> {\n    return call(\"Tasks.DispatchMany\", ...call_);\n  },",
-		"  watch(status: Status, updates: Channel<Task>): Promise<void> {\n    return call(\"Tasks.Watch\", status, updates);\n  },",
+		"  add: bind<[...Task[]], void>(\"Tasks.Add\", (...tasks: Task[]) => [...tasks]),",
+		"  count: bind<[], number>(\"Tasks.Count\", () => []),",
+		"  delete: bind<[number], void>(\"Tasks.Delete\", (arg0: number) => [arg0]),",
+		"  dispatch: bind<[string, string], void>(\"Tasks.Dispatch\", (call_: string, call__: string) => [call_, call__]),",
+		"  dispatchMany: bind<[...string[]], void>(\"Tasks.DispatchMany\", (...call_: string[]) => [...call_]),",
+		"  watch: bind<[Status, Channel<Task>], void>(\"Tasks.Watch\", (status: Status, updates: Channel<Task>) => [status, updates]),",
 		`  taskAdded: event<Task>("task-added"),`,
 	} {
 		if !strings.Contains(src, want) {
@@ -145,9 +146,12 @@ func TestGeneratedCodeTypeChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	usage := `import { Channel, runtime } from "mygo-runtime";
-import { Tasks, events, type Task, type Status, type FixtureChannel } from "./client";
+import { Tasks, events, type Task, type Status, type FixtureChannel, type PageTask } from "./client";
 const s: Status = "todo";
 const page = await Tasks.list(s, 10);
+const ac = new AbortController();
+const canceled: Promise<PageTask> = Tasks.list.with({ signal: ac.signal })(s, 10);
+void canceled;
 const first: Task | undefined = page.items[0];
 const channel: FixtureChannel | undefined = first?.channel;
 channel?.name.toUpperCase();
@@ -247,7 +251,7 @@ func TestMethodNamesAreScopedToServices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`call("First.URL")`, `call("Second.Url")`} {
+	for _, want := range []string{`bind<[], void>("First.URL", () => [])`, `bind<[], void>("Second.Url", () => [])`} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("client lacks %s", want)
 		}
@@ -291,5 +295,35 @@ func TestStructFieldConflicts(t *testing.T) {
 	// Name is ambiguous at the same depth and dropped, like encoding/json.
 	if got := strings.Join(names, ","); got != "OnlyA,Name2,own" {
 		t.Errorf("fields = %s", got)
+	}
+}
+
+type level uint8
+
+type levels struct {
+	Bytes []byte   `json:"bytes"`
+	Four  [4]byte  `json:"four"`
+	Slice []level  `json:"slice"`
+	Array [2]level `json:"array"`
+}
+
+// Bytes are base64, as encoding/json/v2 writes them, and those of a named type
+// of them arrays.
+func TestNamedBytes(t *testing.T) {
+	data, err := json.Marshal(levels{Slice: []level{1, 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), `{"bytes":"","four":"AAAAAA==","slice":[1,2],"array":[0,0]}`; got != want {
+		t.Fatalf("JSON %s, want %s", got, want)
+	}
+	out, err := Generate(Model{Events: []Event{{Name: "e", Type: reflect.TypeFor[levels]()}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"bytes: string;", "four: string;", "slice: Level[];", "array: Level[];"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("no %q in\n%s", want, out)
+		}
 	}
 }
