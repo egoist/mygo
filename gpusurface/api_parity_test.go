@@ -195,6 +195,11 @@ func exportedDecls(decl ast.Decl) []string {
 				}
 				out = append(out, "type "+s.Name.Name+" struct")
 				for _, f := range st.Fields.List {
+					// An embedded field, exported or not, can promote
+					// exported methods and fields.
+					if len(f.Names) == 0 {
+						out = append(out, "embed "+s.Name.Name+" "+types.ExprString(f.Type))
+					}
 					for _, n := range f.Names {
 						if n.IsExported() {
 							out = append(out, "field "+s.Name.Name+"."+n.Name+" "+types.ExprString(f.Type))
