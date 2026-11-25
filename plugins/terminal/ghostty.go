@@ -20,8 +20,9 @@ import (
 // theme option takes it ("Catppuccin Mocha", "Dracula", "Rose Pine
 // Dawn"…): a theme file of the user's in Ghostty's themes directory
 // ($XDG_CONFIG_HOME/ghostty/themes, ~/.config/ghostty/themes by
-// default, and %LOCALAPPDATA%\ghostty\themes before it on Windows), else one of the themes Ghostty ships, which the plugin
-// carries, of any case; or the theme file a path names. Each call returns
+// default, and %LOCALAPPDATA%\ghostty\themes before it on Windows),
+// else one of the themes Ghostty ships, which the plugin carries, of any
+// case; or the theme file a path names. Each call returns
 // a new Theme.
 func GhosttyTheme(name string) (*Theme, error) {
 	if filepath.IsAbs(name) {
