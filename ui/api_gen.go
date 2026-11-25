@@ -8839,6 +8839,7 @@ func (_handle Element) Truncated() bool {
 	}
 	_ctx := _node.c
 	_ = _ctx
+	_node.markStateRead()
 	return _node.Truncated()
 }
 
