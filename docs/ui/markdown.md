@@ -147,7 +147,8 @@ the view, as one across a chat's messages.
 
 ## Finding
 
-Cmd+F, while the view has the focus, opens a find bar over its top
+Cmd+F (Ctrl+F on Windows and Linux), while the view has the focus,
+opens a find bar over its top
 right: the [code editor's](code-editor.md#bars-and-popups) own, with its
 options and its keys, which finds in the text as it reads — the source's
 syntax is not the text: a `**bold**` word matches as "bold", not as
