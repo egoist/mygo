@@ -362,6 +362,10 @@ export function createRuntime(
   };
 
   const win = (op: string) => () => call<any>(`mygo:window.${op}`);
+  const winWith =
+    (op: string) =>
+    (...args: unknown[]) =>
+      call<any>(`mygo:window.${op}`, ...args);
   const runtime: Runtime = Object.freeze({
     call,
     callWith,
@@ -389,9 +393,25 @@ export function createRuntime(
       unmaximize: win("Unmaximize"),
       toggleMaximize: win("ToggleMaximize"),
       isMaximized: win("IsMaximized"),
+      isMinimized: win("IsMinimized"),
       toggleFullScreen: win("ToggleFullScreen"),
+      setFullScreen: winWith("SetFullScreen"),
+      isFullScreen: win("IsFullScreen"),
       close: win("Close"),
       setTitle: (title: string) => call<void>("mygo:window.SetTitle", title),
+      focus: win("Focus"),
+      isFocused: win("IsFocused"),
+      // A window's lengths are whole DIPs in Go, and a page that measures
+      // its own title bar divides numbers: the window takes the nearest it
+      // can, as a compositor would.
+      setSize: (width: number, height: number) =>
+        call<void>("mygo:window.SetSize", Math.round(width), Math.round(height)),
+      setPosition: (x: number, y: number) =>
+        call<void>("mygo:window.SetPosition", Math.round(x), Math.round(y)),
+      center: win("Center"),
+      setAlwaysOnTop: winWith("SetAlwaysOnTop"),
+      isAlwaysOnTop: win("IsAlwaysOnTop"),
+      getBounds: win("GetBounds"),
     }),
   });
 
