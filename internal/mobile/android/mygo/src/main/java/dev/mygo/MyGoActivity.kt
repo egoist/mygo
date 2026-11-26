@@ -126,16 +126,19 @@ class MyGoActivity : ComponentActivity() {
 
     override fun onLowMemory() {
         super.onLowMemory()
+        Text.trim()
         Go.send(Event.memoryWarning())
     }
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        // Running low, or next to be ended in the background.
+        // Running low (Android 13 and earlier), or in the background LRU list
+        // (Android 14+ stopped delivering TRIM_MEMORY_MODERATE and above,
+        // leaving TRIM_MEMORY_BACKGROUND as the background trim signal).
         @Suppress("DEPRECATION")
-        if (level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL || level >= TRIM_MEMORY_MODERATE) {
-            Go.send(Event.memoryWarning())
-        }
+        val low = level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL || level >= TRIM_MEMORY_BACKGROUND
+        if (low || level >= TRIM_MEMORY_UI_HIDDEN) Text.trim()
+        if (low) Go.send(Event.memoryWarning())
     }
 
     override fun onDestroy() {

@@ -444,3 +444,41 @@ func TestResizeRenewsSurface(t *testing.T) {
 		renewsOnResize = was
 	}
 }
+
+// Frame requests made in the background, such as after a memory warning, do
+// not wake the host's display loop until the app returns to the foreground.
+func TestRequestFrameDeferredInBackground(t *testing.T) {
+	b, h := startBackend(t)
+	w, wh := surfaceWindow(t, b, h)
+	bg := func(on bool) {
+		h.onUI(func() {
+			deliver(encodeEvent(func(wr *wire.Writer) {
+				wr.Uvarint(wire.EventBackground)
+				wr.Bool(on)
+			}), true)
+		})
+	}
+	bg(true)
+	h.mu.Lock()
+	h.calls = nil
+	h.mu.Unlock()
+	onMain(b, func() { w.s.RequestFrame() })
+	onMain(b, func() {})
+	if h.called(wire.CallRequestFrame) {
+		t.Fatal("requested a frame from the host while in the background")
+	}
+	h.onUI(func() {
+		deliver(encodeEvent(func(wr *wire.Writer) {
+			wr.Uvarint(wire.EventMemoryWarning)
+		}), true)
+	})
+	onMain(b, func() {})
+	if wh.kinds(platform.SurfaceLowMemory) != 1 {
+		t.Fatalf("low memory events = %d, want 1", wh.kinds(platform.SurfaceLowMemory))
+	}
+	if h.called(wire.CallRequestFrame) {
+		t.Fatal("memory warning requested a frame from the host while in the background")
+	}
+	bg(false)
+	wait.Until(t, "the deferred frame to be asked for", func() bool { return h.called(wire.CallRequestFrame) })
+}

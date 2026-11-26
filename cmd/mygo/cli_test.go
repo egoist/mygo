@@ -346,6 +346,62 @@ func TestExtraLDFlags(t *testing.T) {
 	}
 }
 
+func TestAndroidGodebugDefault(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                         "madvdontneed=1",
+		" \n":                      "madvdontneed=1",
+		"panicnil=1\n":             "panicnil=1,madvdontneed=1",
+		"madvdontneed=0":           "madvdontneed=0",
+		"a=1,madvdontneed=0,b=2\n": "a=1,madvdontneed=0,b=2",
+	} {
+		if got := mergeGodebugDefault(in); got != want {
+			t.Errorf("mergeGodebugDefault(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	dir := t.TempDir()
+	gomod := "module example.com/godebugtest\n\ngo 1.24\n\ngodebug panicnil=1\n"
+	mainGo := `package main
+import "fmt"
+func main() {
+	defer func() { fmt.Print(recover() == nil) }()
+	panic(nil)
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(mainGo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"GOWORK=off", "GOPROXY=off"}
+	got := androidGodebugDefault(t.Context(), &Config{root: dir, Main: "."}, env, nil)
+	if !strings.Contains(got, "panicnil=1") || !strings.HasSuffix(got, ",madvdontneed=1") {
+		t.Fatalf("androidGodebugDefault = %q, want panicnil=1 merged with madvdontneed=1", got)
+	}
+
+	// Verify the merged -X runtime.godebugDefault links cleanly and preserves
+	// the go.mod godebug setting at runtime (panicnil=1 makes recover() == nil).
+	bin := filepath.Join(dir, "probe")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	ldflags := "-X " + ldflagsQuote("runtime.godebugDefault="+got)
+	cmd := goCommand(dir, env, "build", "-ldflags", ldflags, "-o", bin, ".")
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("go build with merged runtime.godebugDefault failed: %v\n%s", err, out.String())
+	}
+	runOut, err := exec.Command(bin).CombinedOutput()
+	if err != nil {
+		t.Fatalf("probe failed: %v\n%s", err, runOut)
+	}
+	if string(runOut) != "true" {
+		t.Fatalf("recover() == nil printed %q, want \"true\" (go.mod godebug panicnil=1 lost)", runOut)
+	}
+}
+
 func TestPackageFlags(t *testing.T) {
 	c := &Config{Name: "Bob's App", Version: "1.0.0", Identifier: "com.example.bob", URLSchemes: []string{"bob", "bob-dev"}}
 	got := packageFlags(c)

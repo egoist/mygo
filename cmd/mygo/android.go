@@ -191,20 +191,21 @@ func (t *androidToolchain) buildGo(ctx context.Context, c, dc *Config, tk *task,
 	if a.goarch == "arm" {
 		env = append(env, "GOARM=7")
 	}
-	ldflags := "-s -w" + packageFlags(dc)
-	if !opts.debug {
-		ldflags += " -X github.com/egoist/mygo.production=1"
-	}
-	ldflags += extraLDFlags()
-	flags := []string{"-trimpath", "-buildmode=c-shared", "-ldflags", ldflags}
-	flags = append(flags, productionTags(opts.debug)...)
 	overlay, err := writeOverlay(filepath.Join(opts.work, "overlay-android.json"), opts.overlay)
 	if err != nil {
 		return err
 	}
+	buildFlags := productionTags(opts.debug)
 	if overlay != "" {
-		flags = append(flags, "-overlay", overlay)
+		buildFlags = append(buildFlags, "-overlay", overlay)
 	}
+	ldflags := "-s -w" + packageFlags(dc)
+	if !opts.debug {
+		ldflags += " -X github.com/egoist/mygo.production=1"
+	}
+	ldflags += " -X " + ldflagsQuote("runtime.godebugDefault="+androidGodebugDefault(ctx, c, env, buildFlags))
+	ldflags += extraLDFlags()
+	flags := append([]string{"-trimpath", "-buildmode=c-shared", "-ldflags", ldflags}, buildFlags...)
 	out := filepath.Join(jniLibs, abi, "libmygoapp.so")
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return err
@@ -215,6 +216,39 @@ func (t *androidToolchain) buildGo(ctx context.Context, c, dc *Config, tk *task,
 	}
 	os.Remove(strings.TrimSuffix(out, ".so") + ".h")
 	return checkSize(out, opts.maxSize)
+}
+
+// androidGodebugDefault returns runtime.godebugDefault for an Android c-shared
+// build: the main package's DefaultGODEBUG (from go.mod and //go:debug) merged
+// with madvdontneed=1. Go defaults madvdontneed to 1 on GOOS=linux but leaves
+// GOOS=android on MADV_FREE, and an Android c-shared library starts with an
+// empty environment so GODEBUG in the host process is never read at startup.
+func androidGodebugDefault(ctx context.Context, c *Config, env, buildFlags []string) string {
+	var out bytes.Buffer
+	args := append([]string{"list", "-f", "{{.DefaultGODEBUG}}"}, buildFlags...)
+	args = append(args, c.Main)
+	cmd := goCommandContext(ctx, c.root, env, args...)
+	cmd.Stdout = &out
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil {
+		return "madvdontneed=1"
+	}
+	return mergeGodebugDefault(out.String())
+}
+
+// mergeGodebugDefault appends madvdontneed=1 to base unless base already sets
+// madvdontneed, preserving existing settings from go.mod or //go:debug.
+func mergeGodebugDefault(base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return "madvdontneed=1"
+	}
+	for item := range strings.SplitSeq(base, ",") {
+		if strings.HasPrefix(item, "madvdontneed=") {
+			return base
+		}
+	}
+	return base + ",madvdontneed=1"
 }
 
 // clang is the NDK's compiler for abi.
