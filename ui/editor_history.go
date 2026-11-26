@@ -41,6 +41,18 @@ func (s *undoStep) before(text string) string {
 	return text
 }
 
+// unchanged reports whether the step neither removed nor inserted text.
+// One that typed over a selection what it held is kept: undoing it
+// selects that again.
+func (s *undoStep) unchanged() bool {
+	for _, c := range s.changes {
+		if c.removed != "" || c.inserted != "" {
+			return false
+		}
+	}
+	return true
+}
+
 // setText gives the editor a text the app set. Undoing the last step takes
 // it back with the step, as when the app reformats what the user typed:
 // the step becomes one change, from the text before it, so that it keeps
@@ -167,6 +179,12 @@ func (ed *editor) takeBack(redo bool) {
 	from, to := &ed.undo, &ed.redo
 	if redo {
 		from, to = to, from
+	}
+	// A step that changes nothing, as a cancelled composition leaves, is
+	// dropped: undo goes on to the edit before it.
+	for n := len(*from); n > 0 && (*from)[n-1].unchanged(); n-- {
+		(*from)[n-1] = undoStep{}
+		*from = (*from)[:n-1]
 	}
 	n := len(*from)
 	if n == 0 {
