@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"testing"
 
@@ -181,5 +182,40 @@ func TestJumpListSetTasks(t *testing.T) {
 	}
 	if got, n := list(); len(got.Tasks) != 0 || n != commits+2 {
 		t.Errorf("JumpList after an untitled task = %+v, %d commits", got, n-commits)
+	}
+}
+
+// A recent-documents.json that is there and cannot be read is not one that
+// holds nothing: an add or a clear refused to write over it, and the list
+// it held stays.
+func TestRecentDocumentsFileThatCannotBeReadIsNotReplaced(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("a mode is no bar on Windows, and root reads every file")
+	}
+	testRecent(t)
+	dir, err := App.Path(PathUserData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(dir, "recent-documents.json")
+	if err := os.WriteFile(f, []byte(`["/a","/b"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(f, 0o600) })
+
+	if err := App.AddRecentDocument("/c"); err == nil {
+		t.Fatal("an add over a list that could not be read said nothing")
+	}
+	if err := App.ClearRecentDocuments(); err == nil {
+		t.Fatal("a clear over a list that could not be read said nothing")
+	}
+	if err := os.Chmod(f, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := readString(t, f); got != `["/a","/b"]` {
+		t.Errorf("the file was replaced: %q", got)
 	}
 }

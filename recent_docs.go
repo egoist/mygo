@@ -3,7 +3,9 @@ package mygo
 import (
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -34,17 +36,29 @@ func recentFile() (string, error) {
 	return filepath.Join(dir, "recent-documents.json"), nil
 }
 
-// loadRecentLocked reads the list once. recentDocs is locked.
-func loadRecentLocked() {
+// loadRecentLocked reads the list once: one that cannot be read is not
+// written over, and the next call tries it again. recentDocs is locked.
+func loadRecentLocked() error {
 	if recentDocs.loaded {
-		return
+		return nil
+	}
+	f, err := recentFile()
+	if err != nil {
+		return err
+	}
+	data, err := readAppFile(f)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		// The file is there and cannot be read: what it holds is unknown,
+		// not empty, and a save that replaced it would drop the list it
+		// held.
+		return fmt.Errorf("mygo: documents: cannot read %s: %w", f, err)
 	}
 	recentDocs.loaded = true
-	if f, err := recentFile(); err == nil {
-		if data, err := readAppFile(f); err == nil {
-			_ = json.Unmarshal(data, &recentDocs.paths)
-		}
+	if err == nil {
+		// A damaged list starts over: what it held was recent documents.
+		_ = json.Unmarshal(data, &recentDocs.paths)
 	}
+	return nil
 }
 
 // AddRecentDocument records path as a document the user opened: it goes
@@ -78,7 +92,10 @@ func (a *Application) AddRecentDocument(path string) error {
 // and records it with the system.
 func addRecentDocument(path string) error {
 	recentDocs.Lock()
-	loadRecentLocked()
+	if err := loadRecentLocked(); err != nil {
+		recentDocs.Unlock()
+		return err
+	}
 	paths := slices.DeleteFunc(slices.Clone(recentDocs.paths), func(p string) bool { return p == path })
 	paths = slices.Insert(paths, 0, path)
 	if len(paths) > maxRecentDocuments {
@@ -98,7 +115,10 @@ func addRecentDocument(path string) error {
 func (a *Application) ClearRecentDocuments() error {
 	needsApp("App.ClearRecentDocuments")
 	recentDocs.Lock()
-	recentDocs.loaded = true
+	if err := loadRecentLocked(); err != nil {
+		recentDocs.Unlock()
+		return err
+	}
 	recentDocs.paths = nil
 	err := saveRecentLocked()
 	recentDocs.Unlock()
@@ -111,7 +131,7 @@ func (a *Application) ClearRecentDocuments() error {
 // that no longer exist are left out, and come back if they do again.
 func (a *Application) RecentDocuments() []string {
 	recentDocs.Lock()
-	loadRecentLocked()
+	_ = loadRecentLocked()
 	paths := slices.Clone(recentDocs.paths)
 	recentDocs.Unlock()
 	return slices.DeleteFunc(paths, func(p string) bool {
