@@ -125,6 +125,20 @@ func TestWidgetCompositionCancelLeavesNoUndoStep(t *testing.T) {
 			t.Fatalf("multiline %v: redo: %q", multiline, s)
 		}
 		tt.rt.close()
+
+		// With nothing before it, Undo has nothing to take back.
+		s = "さくら"
+		tt = inputTester(&s, multiline)
+		c = tt.h.ime.Client
+		c.SetMarkedText(nil, "にほｎ", TextInputRange{Start: 3, End: 3})
+		tt.Frame()
+		order.Cancel(c)
+		order.End(c)
+		tt.Frame()
+		if tt.rt.event(platform.SurfaceEvent{Kind: platform.SurfaceCommandEnabled, Text: "undo"}) {
+			t.Errorf("multiline %v: Undo is enabled after a cancelled composition alone", multiline)
+		}
+		tt.rt.close()
 	}
 }
 

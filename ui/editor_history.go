@@ -173,6 +173,21 @@ func (ed *editor) fit(start, end int, s string) string {
 	return s[:UTF16ByteOffset(s, room)]
 }
 
+// canTakeBack reports whether undo, or redo with redo, has a step that
+// changes the text, as takeBack takes back.
+func (ed *editor) canTakeBack(redo bool) bool {
+	steps := ed.undo
+	if redo {
+		steps = ed.redo
+	}
+	for i := len(steps) - 1; i >= 0; i-- {
+		if !steps[i].unchanged() {
+			return true
+		}
+	}
+	return false
+}
+
 // takeBack undoes the last step of undo, or redoes the last undone with
 // redo.
 func (ed *editor) takeBack(redo bool) {
