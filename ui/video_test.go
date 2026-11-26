@@ -398,6 +398,54 @@ func TestVideoStopsWhileHidden(t *testing.T) {
 	}
 }
 
+// TestVideoDropsSuspendedTime checks that a video whose window built no
+// frame for well past the one it asked for, as when the process stops
+// with the window showing (App Nap, the machine asleep), goes on from the
+// frame it showed at its own pace, rather than racing through frames to
+// where the clock puts it, while a frame built a little late still counts
+// its time.
+func TestVideoDropsSuspendedTime(t *testing.T) {
+	p := newVideo(t, videoRed, videoGreen, videoBlue).SetLoop(true)
+	tt, shows := videoTester(p, nil)
+	decodedAhead(t, p, 2)
+	tt.Advance(150 * time.Millisecond)
+	if got := shows(); got != videoGreen {
+		t.Fatalf("playing: %v", got)
+	}
+	// The frame asked for at 200 ms comes a minute late, with no
+	// SurfaceHidden or SurfaceShown between.
+	suspend := func(d time.Duration) {
+		tt.now = tt.now.Add(d)
+		tt.h.afterAt = time.Time{}
+		tt.Frame()
+	}
+	decodedAhead(t, p, 2)
+	suspend(time.Minute)
+	resumed := tt.Now()
+	if got := shows(); got != videoGreen || tt.FramePending() || !tt.h.afterAt.Equal(resumed.Add(100*time.Millisecond)) {
+		t.Fatalf("after the suspension: %v, asked for a frame %v, After due %v after it: want green, only After, 100ms",
+			got, tt.FramePending(), tt.h.afterAt.Sub(resumed))
+	}
+	tt.Advance(99 * time.Millisecond)
+	if got := shows(); got != videoGreen {
+		t.Fatalf("after the suspension, before the next frame is due: %v", got)
+	}
+	tt.Advance(time.Millisecond)
+	if got := shows(); got != videoBlue {
+		t.Fatalf("after the suspension, the next frame: %v", got)
+	}
+
+	// A frame 30 ms late, as one waiting for the display, counts the 30
+	// ms: the next is due 70 ms after it.
+	decodedAhead(t, p, 2)
+	tt.Advance(99 * time.Millisecond)
+	suspend(31 * time.Millisecond)
+	late := tt.Now()
+	if got := shows(); got != videoRed || !tt.h.afterAt.Equal(late.Add(70*time.Millisecond)) {
+		t.Fatalf("a frame 30ms late: %v, After due %v after it: want red, 70ms", got, tt.h.afterAt.Sub(late))
+	}
+}
+
 // TestNewVideoPlayerErrors checks that a video of no frames, or whose
 // first frame does not decode, makes no player.
 func TestNewVideoPlayerErrors(t *testing.T) {
