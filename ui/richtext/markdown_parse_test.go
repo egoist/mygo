@@ -421,3 +421,32 @@ func TestMarkdownHeadingOfHashes(t *testing.T) {
 		}
 	}
 }
+
+// TestMarkdownHeadingInItem reads a heading that starts a list item as a
+// heading, as SetHeading and ParseHTML make one, not as a paragraph both
+// heading and item, which Markdown wrote as a heading and HTML as an item.
+func TestMarkdownHeadingInItem(t *testing.T) {
+	para := func(st ParagraphStyle, s string) Paragraph {
+		return Paragraph{Style: st, Runs: []Run{{Text: s}}}
+	}
+	for _, c := range []struct {
+		md   string
+		want Text
+	}{
+		{"- # a", TextOf(para(ParagraphStyle{Heading: 1}, "a"))},
+		{"1. ## a\n2. b", TextOf(para(ParagraphStyle{Heading: 2}, "a"), para(ParagraphStyle{List: Numbers}, "b"))},
+		{"- [ ] # a", TextOf(para(ParagraphStyle{Heading: 1}, "a"))},
+		{"> - # a", TextOf(para(ParagraphStyle{Heading: 1, Quote: true}, "a"))},
+	} {
+		got := ParseMarkdown(c.md)
+		if dump(got) != dump(c.want) {
+			t.Errorf("%q reads\n%s want\n%s", c.md, dump(got), dump(c.want))
+		}
+		if html := ParseHTML(got.HTML()); dump(html) != dump(got) {
+			t.Errorf("%q through HTML reads\n%s want\n%s", c.md, dump(html), dump(got))
+		}
+		if md := got.Markdown(); dump(ParseMarkdown(md)) != dump(got) {
+			t.Errorf("%q written as %q reads\n%s want\n%s", c.md, md, dump(ParseMarkdown(md)), dump(got))
+		}
+	}
+}
