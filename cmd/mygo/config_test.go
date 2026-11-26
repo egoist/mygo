@@ -291,7 +291,7 @@ func TestWindowsInstallDirName(t *testing.T) {
 // about it.
 func TestReadConfigSaysWhenItCannotLook(t *testing.T) {
 	root := t.TempDir()
-	loop := filepath.Join(root, jsonConfig)
+	loop := filepath.Join(root, tsConfig)
 	if err := os.Symlink(loop, loop); err != nil {
 		t.Skipf("a self symlink cannot be made here: %v", err)
 	}
@@ -301,6 +301,10 @@ func TestReadConfigSaysWhenItCannotLook(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "configuration") {
 		t.Errorf("the error is %v, want the looking named", err)
+	}
+	// loadConfig's error names the file it could not look at.
+	if _, err := loadConfig(root); err == nil || !strings.HasPrefix(err.Error(), tsConfig+":") {
+		t.Errorf("loadConfig = %v, want it to name %s", err, tsConfig)
 	}
 
 	// Without either file it is still nothing, and no error.

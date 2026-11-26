@@ -439,11 +439,11 @@ func readConfig(root string) (data []byte, file string, err error) {
 	jsonFile, tsFile := filepath.Join(root, jsonConfig), filepath.Join(root, tsConfig)
 	_, jsonErr := os.Stat(jsonFile)
 	if jsonErr != nil && !os.IsNotExist(jsonErr) {
-		return nil, "", fmt.Errorf("looking for a configuration: %w", jsonErr)
+		return nil, jsonFile, fmt.Errorf("looking for a configuration: %w", jsonErr)
 	}
 	_, tsErr := os.Stat(tsFile)
 	if tsErr != nil && !os.IsNotExist(tsErr) {
-		return nil, "", fmt.Errorf("looking for a configuration: %w", tsErr)
+		return nil, tsFile, fmt.Errorf("looking for a configuration: %w", tsErr)
 	}
 	switch hasJSON, hasTS := jsonErr == nil, tsErr == nil; {
 	case hasJSON && hasTS:
