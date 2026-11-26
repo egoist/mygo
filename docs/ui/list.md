@@ -364,12 +364,12 @@ Return nil for rows that do not drag. A list cannot both `Reorder` and
 A copy of the row follows the pointer, and covers the row it is over. With
 `DragLabel`, a label naming what is dragged follows below and to the right
 of the pointer instead, leaving the row it would drop on readable, as in a
-tree of folders. Several rows dragged show their number beside it, as they
-do with the copy. Return "" for rows that keep the copy:
+tree of folders. Several rows dragged show their number on its corner.
+Return "" for rows that keep the copy:
 
 ```go
 app.files.DragLabel = func(rows []int) string {
-	return app.names[rows[0]] // the first of them, with the number beside it
+	return app.names[rows[0]] // the first of them, with the number on its corner
 }
 ```
 
