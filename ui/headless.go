@@ -315,6 +315,11 @@ type TesterOptions struct {
 	Preferences Preferences
 	// Dark starts in the dark appearance (SetDark).
 	Dark bool
+	// Now is the time the Tester's clock starts at, which only Advance
+	// moves (Tester.Now): the same in every run, so that a drawing that
+	// reads the time (Painter.Now, Context.Now) draws the same pixels.
+	// The zero time starts it at the system's time, as NewTester does.
+	Now time.Time
 }
 
 // NewTesterWith starts testing view in a window of width×height DIPs, as
@@ -325,7 +330,11 @@ func coreNewTesterWith(view func(c *context), width, height int, o TesterOptions
 	// The window's text system is one an earlier Tester left, or its own
 	// (testerTexts).
 	h := &headless{w: float32(width), h: float32(height), scale: 1, prefs: platformPreferences(o.Preferences), dark: o.Dark, text: takeTesterText()}
-	t := &Tester{rt: newRuntime(view, h), h: h, now: time.Now()}
+	now := o.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	t := &Tester{rt: newRuntime(view, h), h: h, now: now}
 	t.keepText()
 	t.rt.clock = t.Now
 	h.clock = t.Now
@@ -1016,10 +1025,26 @@ func (t *Tester) Scroll(x, y, dx, dy float32) {
 	t.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: float64(x), Y: float64(y), DX: float64(dx), DY: float64(dy), Precise: true})
 }
 
+// DragFiles drags files from another app over (x, y) without dropping
+// them, as from Finder, and reports whether an element there takes them:
+// the frame it draws then shows FileDragOver on that element. DragFilesOut
+// drags them out of the window again, and DropFiles drops them.
+func (t *Tester) DragFiles(x, y float32) bool {
+	taken := t.rt.event(platform.SurfaceEvent{Kind: platform.FileDragOver, X: float64(x), Y: float64(y)})
+	t.settle()
+	return taken
+}
+
+// DragFilesOut drags the files DragFiles dragged over the window out of it,
+// without dropping them, so that no element shows FileDragOver.
+func (t *Tester) DragFilesOut() {
+	t.send(platform.SurfaceEvent{Kind: platform.FileDragLeave})
+}
+
 // DropFiles drops files dragged from another app at (x, y), as from
 // Finder, and reports whether an element took them (DroppedFiles).
 func (t *Tester) DropFiles(x, y float32, paths ...string) bool {
-	t.send(platform.SurfaceEvent{Kind: platform.FileDragOver, X: float64(x), Y: float64(y)})
+	t.DragFiles(x, y)
 	taken := t.rt.event(platform.SurfaceEvent{Kind: platform.FileDrop, X: float64(x), Y: float64(y), Files: paths})
 	t.settle()
 	return taken

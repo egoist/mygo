@@ -370,7 +370,8 @@ The accent is 8-bit sRGB with straight alpha; `ui.RGB(p.Accent.R, p.Accent.G, p.
 makes it a `ui.Color` for drawing of your own.
 
 `ReduceMotion` is macOS's Reduce Motion, Windows's animation effects and
-GNOME's animations turned off; `ReduceTransparency` macOS's Reduce
+GNOME's animations turned off, and KDE's Instant animation speed (the
+settings portal's reduced motion); `ReduceTransparency` macOS's Reduce
 Transparency and Windows's transparency effects turned off, which Linux
 desktops do not have, so it is false there; `HighContrast` macOS's
 Increase Contrast, Windows's contrast themes and the higher contrast of
@@ -756,6 +757,23 @@ which the system watches whole; on Linux it enrolls every directory,
 reading their entries' types without stat'ing them. Symlinks are still not
 followed, nothing outside the directory is watched, and the watched
 directory going away still ends the watch with a `FileRemove` of `.`.
+
+Where the system cannot tell a watch what changes, it can look itself.
+`PollInterval` has a watch poll where the system has no file watching
+(browsers, Linux on another architecture) instead of failing with
+`errors.ErrUnsupported`; `Poll` makes it poll in any case, for a
+directory on a network share, whose changes made by other machines the
+system does not report. Polling lists and stats what the watch covers
+every `PollInterval` (a second by default with `Poll`), and reports the
+same events as a watch the system tells. A `HintsOnly` watch doesn't
+poll: with nothing to compare with, it could only hint at everything.
+
+```go
+w, err := mygo.WatchFiles(ctx, dir, mygo.FileWatchOptions{
+	Recursive:    true,
+	PollInterval: 2 * time.Second, // where the system cannot watch
+})
+```
 
 ## Global shortcuts
 

@@ -303,12 +303,36 @@ jobs:
       # Zig 0.16's aarch64 Windows build crashes running zig build (the
       # build runner segfaults at once), so this job uses its x86_64
       # build, which Windows runs emulated and which cross-compiles the
-      # arm64 library just the same.
-      - name: Install Zig (x86_64)
+      # arm64 library just the same. Installing it with Invoke-WebRequest
+      # and Expand-Archive took 9 to 17 of the job's 30 minutes, so it is
+      # cached, and a miss downloads it with curl and unpacks it with
+      # Windows' tar (libarchive's, which reads zips), minutes faster.
+      - name: Restore Zig (x86_64)
+        id: zig
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}\zig-x86_64-windows-${{ env.ZIG_VERSION }}
+          key: zig-x86_64-windows-${{ env.ZIG_VERSION }}
+      - name: Download Zig (x86_64)
+        if: steps.zig.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          Invoke-WebRequest "https://ziglang.org/download/$env:ZIG_VERSION/zig-x86_64-windows-$env:ZIG_VERSION.zip" -OutFile "$env:RUNNER_TEMP\zig.zip"
-          Expand-Archive "$env:RUNNER_TEMP\zig.zip" -DestinationPath "$env:RUNNER_TEMP"
+          curl.exe -fsSL --retry 3 -o "$env:RUNNER_TEMP\zig.zip" "https://ziglang.org/download/$env:ZIG_VERSION/zig-x86_64-windows-$env:ZIG_VERSION.zip"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & "$env:SystemRoot\System32\tar.exe" -xf "$env:RUNNER_TEMP\zig.zip" -C "$env:RUNNER_TEMP"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Remove-Item "$env:RUNNER_TEMP\zig.zip"
+      - name: Save Zig (x86_64)
+        if: steps.zig.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}\zig-x86_64-windows-${{ env.ZIG_VERSION }}
+          key: ${{ steps.zig.outputs.cache-primary-key }}
+      - name: Put Zig on the PATH
+        shell: pwsh
+        run: |
+          & "$env:RUNNER_TEMP\zig-x86_64-windows-$env:ZIG_VERSION\zig.exe" version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "$env:RUNNER_TEMP\zig-x86_64-windows-$env:ZIG_VERSION" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
       # As in the job above. The emulated build takes five or six minutes,
       # and twice it ran past 25, until the job's limit canceled it: one
@@ -387,6 +411,22 @@ jobs:
           packages: platform-tools platforms;android-36 ndk;27.1.12297006 cmake;3.22.1
       - name: Build the app
         run: go run ./cmd/mygo build -platform ${{ matrix.platform }} examples/counter-native
+      # What Android added after the host's minSdk, called with no check of
+      # the version, throws NoSuchMethodError on older phones (#2336): lint's
+      # NewApi check, over a copy of the host with every plugin's Kotlin in
+      # it, as mygo build puts them there.
+      - name: Lint the host and the plugins for newer Android APIs
+        if: matrix.platform == 'android/arm64' && runner.os == 'Linux'
+        run: |
+          dir="$RUNNER_TEMP/android-lint"
+          cp -R internal/mobile/android "$dir"
+          for j in plugins/*/mygo-plugin.json; do
+            for s in $(jq -r '.mobile.android.sources[]? // empty' "$j"); do
+              cp "$(dirname "$j")"/$s "$dir/mygo/src/main/java/dev/mygo/"
+            done
+          done
+          deps=$(jq -r '.mobile.android.dependencies[]? // empty' plugins/*/mygo-plugin.json | sort -u | paste -sd, -)
+          cd "$dir" && ./gradlew --no-daemon :mygo:lintDebug -PmygoPluginDependencies="$deps"
 
   # Native modules on phones, which go test does not reach: the round trip
   # of every kind of value through a module's Swift on the iOS simulator

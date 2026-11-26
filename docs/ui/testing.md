@@ -44,7 +44,10 @@ panics where the second key was given, as apps only log it.
   a right-button drag, `tt.CancelPress`, which ends the press as the
   system cancels one, with no click, `tt.Scroll`, which scrolls at
   once as a touchpad does, and `tt.Wheel`, a notch of a mouse wheel, which
-  glides there as the clock advances (`tt.Advance`).
+  glides there as the clock advances (`tt.Advance`). `tt.DropFiles`
+  drops files from another app, and `tt.DragFiles` holds them over a
+  point without dropping, to check a drop zone's `FileDragOver`, until
+  `tt.DragFilesOut` drags them out of the window.
   `tt.UsePointer(ui.PointerPen, 0.6)` has the presses and moves after it
   come from a pen pressing that hard, or a finger (`ui.PointerTouch`).
 - **Keyboard.** `tt.Key(ui.Cmd, ui.KeyS)` presses a key, `tt.KeyRepeat` presses
@@ -102,7 +105,10 @@ panics where the second key was given, as apps only log it.
   advance the clock. `Advance` runs only the frames the view asks for:
   after changing what the view shows from outside it, call `tt.Frame`
   first. The undo steps of an `editor.Buffer` and a `richtext.Document`
-  use the system's clock.
+  use the system's clock. The clock starts at the system's time, or at
+  `ui.TesterOptions{Now: t}` given to `NewTesterWith`, the same in every
+  run, so that a drawing that reads the time (`Painter.Now`) draws the
+  same pixels each time.
 
   ```go
   tt := ui.NewTester(app.view, 320, 240)

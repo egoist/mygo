@@ -79,6 +79,7 @@ object Navigation {
             for ((k, s) in stacks.withIndex()) s.visibility = if (k == i) View.VISIBLE else View.GONE
             if (bar.selectedItemId != i) bar.selectedItemId = i
             for (p in stacks[i].pages) p.window.reportSize()
+            HostImpl.updateBack() // the stack in front changed
         }
     }
 
@@ -400,6 +401,35 @@ object Navigation {
         }
         val b = t.bar.getOrCreateBadge(i)
         badge.toIntOrNull()?.let { b.number = it } ?: run { b.text = badge }
+    }
+
+    /**
+     * setTabTitle changes what tab i's item reads, and the toolbar the tab's
+     * stack shows while its window is at the root.
+     */
+    fun setTabTitle(id: Long, i: Int, title: String) {
+        val t = tabs[id] ?: return
+        t.bar.menu.findItem(i)?.title = title
+        val s = t.stacks.getOrNull(i) ?: return
+        val p = s.pages.firstOrNull() ?: return
+        if (p.window.id in routed) return // the router's page has the toolbar's title
+        val tb = p.toolbar
+        if (title.isEmpty()) {
+            if (tb != null) {
+                p.view.removeView(tb)
+                p.toolbar = null
+                insetsChanged()
+            }
+            return
+        }
+        if (tb != null) {
+            tb.title = title
+            return
+        }
+        val nt = toolbar(p.window, title)
+        p.view.addView(nt, 0, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        p.toolbar = nt
+        insetsChanged()
     }
 
     fun closeTabs(id: Long) {
