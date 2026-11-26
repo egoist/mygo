@@ -189,7 +189,9 @@ GStreamer and its base plugins or a Windows Server without its Media
 Foundation feature, for the app to show a GIF instead. What formats play
 is the system's: H.264 and AAC in MP4 play on all of them. Linux needs
 `gstreamer1.0-plugins-base`, and `gstreamer1.0-libav` (or another H.264
-decoder) for H.264; a missing decoder shows as `Err`.
+decoder) for H.264; a missing decoder shows as `Err`. So does a video
+whose picture the system cannot decode or read, as VP9, or HEVC in
+MPEG-TS, on macOS, rather than play its sound alone.
 
 Windows on Arm's MPEG-4 reader ignores a track's edit list. An H.264
 video with B-frames (x264's default) has one that takes back its
@@ -197,6 +199,14 @@ reordering delay, so there each picture shows that much late, up to a few
 frames behind its sound. Encode a clip without B-frames
 (`-x264-params bframes=0`) where that matters, as the example's trailer
 is.
+
+On macOS, an AV1 video in MP4 whose `sdtp` box marks frames as ones no
+other frame refers to, as ffmpeg marks SVT-AV1's, shows no picture after
+a `Seek` until its next keyframe: AVFoundation, which can pass over such
+frames as it decodes up to the time sought, gives none until then. Where
+seeking matters, make such a file fragmented MP4
+(`-movflags +frag_keyframe+empty_moov+default_base_moof`), which has no
+`sdtp` box.
 
 In browsers a video with sound may not play before the user interacted
 with the page: it then plays muted, as the browser allows.

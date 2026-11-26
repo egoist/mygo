@@ -189,7 +189,7 @@ func installerScript(c *Config, out, exe, files, icon, signing string) (string, 
 	if err != nil {
 		return "", err
 	}
-	include, install, uninstall, err := nsisHooks(c)
+	pages, include, install, uninstall, err := nsisHooks(c)
 	if err != nil {
 		return "", err
 	}
@@ -210,14 +210,16 @@ BrandingText " "
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "$(MYGO_DESKTOP_SHORTCUT)"
 !define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateDesktopShortcut
 !include "MUI2.nsh"
+!include "FileFunc.nsh"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
-!insertmacro MUI_UNPAGE_CONFIRM
+` + pages + `!insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 ` + languages + include + `
-` + nsisCloseApp(c) + `
+` + nsisOwnFolder(c, uninstallKey) + nsisCloseApp(c) + `
 Section
+  Call OwnFolder
   Push "$INSTDIR"
   Call CloseApp
   SetOutPath "$INSTDIR"
@@ -260,7 +262,7 @@ Section "Uninstall"
   Push "$DESKTOP\` + shortcut + `"
   Call un.DeleteShortcut
   DeleteRegKey HKCU ` + nsisString(uninstallKey) + `
-` + unregister + uninstall + `  ; Last, so that the app's folder is gone once the uninstall is done:
+` + nsisLoginEntry(c) + unregister + uninstall + `  ; Last, so that the app's folder is gone once the uninstall is done:
   ; the uninstaller runs from a copy of itself that nothing waits for.
   RMDir /r "$INSTDIR"
 SectionEnd
@@ -273,24 +275,50 @@ SectionEnd
 // that its macros can use them, and runs its customInit macro in
 // .onInit; install runs its customInstall macro at the end of the install,
 // once the files are in $INSTDIR, and uninstall its customUnInstall macro
-// before the uninstaller removes $INSTDIR. Each macro runs only when the
-// script defines it, and silent installs (/S) run them too. They are all
-// "" without windows.installerInclude, which leaves the script as it was.
-func nsisHooks(c *Config) (include, install, uninstall string, err error) {
+// before the uninstaller removes $INSTDIR. pages, before the uninstaller's
+// confirm page, adds an uninstaller page that the customUnPage macro
+// creates and customUnPageLeave leaves, and has the confirm page call
+// customUnConfirmShow and customUnConfirmLeave: the page commands must
+// come before the include, which follows the languages that follow the
+// pages, so they name functions that include defines after it. Each macro
+// runs only when the script defines it, and the page is skipped without
+// customUnPage. Silent installs and uninstalls (/S) show no pages, and run
+// the other macros too. They are all "" without windows.installerInclude,
+// which leaves the script as it was.
+func nsisHooks(c *Config) (pages, include, install, uninstall string, err error) {
 	if c.Windows.InstallerInclude == "" {
-		return "", "", "", nil
+		return "", "", "", "", nil
 	}
 	path := c.path(c.Windows.InstallerInclude)
 	if info, err := os.Stat(path); err != nil || info.IsDir() {
-		return "", "", "", fmt.Errorf("windows.installerInclude: %s is not a file (the path is relative to the project's directory)", path)
+		return "", "", "", "", fmt.Errorf("windows.installerInclude: %s is not a file (the path is relative to the project's directory)", path)
 	}
+	pages = `UninstPage custom un.mygoPage un.mygoPageLeave
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.mygoConfirmShow
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.mygoConfirmLeave
+`
 	include = `!include ` + nsisString(path) + `
 !ifmacrodef customInit
 Function .onInit
   !insertmacro customInit
 FunctionEnd
 !endif
+Function un.mygoPage
+  !ifmacrodef customUnPage
+    !insertmacro customUnPage
+  !else
+    Abort
+  !endif
+FunctionEnd
 `
+	for _, f := range [][2]string{{"un.mygoPageLeave", "customUnPageLeave"}, {"un.mygoConfirmShow", "customUnConfirmShow"}, {"un.mygoConfirmLeave", "customUnConfirmLeave"}} {
+		include += `Function ` + f[0] + `
+  !ifmacrodef ` + f[1] + `
+    !insertmacro ` + f[1] + `
+  !endif
+FunctionEnd
+`
+	}
 	install = `  !ifmacrodef customInstall
     !insertmacro customInstall
   !endif
@@ -299,7 +327,21 @@ FunctionEnd
     !insertmacro customUnInstall
   !endif
 `
-	return include, install, uninstall, nil
+	return pages, include, install, uninstall, nil
+}
+
+// nsisLoginEntry returns the uninstaller commands that delete the Run
+// entry with which App.SetOpenAtLogin starts the app at login, named by the
+// identifier (appID, internal/windows/login.go), and Task Manager's state
+// of it in StartupApproved, lest Windows list a startup app that is gone.
+// They are the uninstalling user's: the installer installs for one user,
+// and the Run entry is in HKCU.
+func nsisLoginEntry(c *Config) string {
+	var b strings.Builder
+	for _, key := range []string{`Software\Microsoft\Windows\CurrentVersion\Run`, `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`} {
+		fmt.Fprintf(&b, "  DeleteRegValue HKCU %s %s\n", nsisString(key), nsisString(c.Identifier))
+	}
+	return b.String()
 }
 
 // nsisName returns the Name command of the installer, which titles its
@@ -310,6 +352,29 @@ func nsisName(name string) string {
 		return "Name " + nsisString(name)
 	}
 	return "Name " + nsisString(name) + " " + nsisString(strings.ReplaceAll(name, "&", "&&"))
+}
+
+// nsisOwnFolder returns the installer function OwnFolder, which moves the
+// install into a folder of the app's own, named as the default one, inside
+// a folder that holds other files, as one the user typed: the uninstaller
+// removes the install folder with all that is in it. The folder the app is
+// installed in, and one named as the app's, stay.
+func nsisOwnFolder(c *Config, uninstallKey string) string {
+	name := nsisEscape(c.installDirName())
+	return `Function OwnFolder
+  Push $0
+  ReadRegStr $0 HKCU ` + nsisString(uninstallKey) + ` "InstallLocation"
+  StrCmp $0 $INSTDIR done
+  ${GetFileName} $INSTDIR $0
+  StrCmp $0 "` + name + `" done
+  ${DirState} $INSTDIR $0
+  StrCmp $0 1 0 done
+  StrCpy $INSTDIR "$INSTDIR\` + name + `"
+  done:
+  Pop $0
+FunctionEnd
+
+`
 }
 
 // nsisRenamedShortcuts returns the installer commands that remove the

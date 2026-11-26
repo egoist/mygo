@@ -246,14 +246,14 @@ func coreCheckboxState(c *context, state *CheckState, label string) *node {
 }
 
 // checkboxFace builds the box of check box row, off (1), on (2) or mixed
-// (3), and its label.
+// (3), and its label, whose baseline the row lines up by.
 func checkboxFace(c *context, row *node, state int8, label string) {
 	t := c.theme
 	row.Children(func() {
 		box := coreBox(c).Size(t.Space(4), t.Space(4)).Radius(t.Space(1)).Shrink(0)
 		paintCheckbox(c, row, box, state)
 		if label != "" {
-			coreText(c, label)
+			coreText(c, label).baseline = true
 		}
 	})
 }
@@ -286,7 +286,7 @@ func coreRadio[T comparable](c *context, selected *T, value T, label string) *no
 			}
 		}
 		if label != "" {
-			coreText(c, label)
+			coreText(c, label).baseline = true
 		}
 	})
 	return row
@@ -391,7 +391,7 @@ func snap(v, lo, hi, step float64) float64 {
 		return v
 	}
 	v = lo + math.Round((v-lo)/step)*step
-	if v > hi {
+	if v > hi+step*1e-9 { // as tickCount, for steps that add up past hi
 		v -= step
 	}
 	// Away from the rounding of floating point, as 0.1 steps add up: to
@@ -399,13 +399,13 @@ func snap(v, lo, hi, step float64) float64 {
 	// their number inputs.
 	d := max(decimals(step), decimals(lo))
 	if d >= 15 {
-		return v
+		return min(v, hi)
 	}
 	r, err := strconv.ParseFloat(strconv.FormatFloat(v, 'f', d, 64), 64)
 	if err != nil {
-		return v
+		return min(v, hi)
 	}
-	return r
+	return min(r, hi)
 }
 
 // decimals returns how many digits a number has after the decimal point,

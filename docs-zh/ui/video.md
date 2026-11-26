@@ -114,9 +114,11 @@ func (f *frames) Rewind() error { f.next = 0; return nil }
 | Linux    | GStreamer 1.x（`playbin`），在安装了 VA-API 的地方用它解码 | NV12 平面，每像素 1.5 字节，OpenGL 按原样上传，由着色器转换                               |
 | 浏览器 | video 元素                                             | 该元素，由 WebGL 在 GPU 之间上传                                                                            |
 
-`video.Open` 打开文件，`video.OpenURL` 打开 `file:`、`http:` 或 `https:` URL 或 HLS 播放列表，`video.OpenData` 打开内存中的字节，例如嵌入的文件，而无需写入文件。`video.ErrUnsupported` 报告系统没有可播放视频的框架，例如没有 GStreamer 及其基础插件的 Linux，或没有 Media Foundation 功能的 Windows Server，以便应用改为显示 GIF。能播放哪些格式取决于系统：MP4 中的 H.264 和 AAC 在所有这些系统上都能播放。Linux 需要 `gstreamer1.0-plugins-base`，H.264 还需要 `gstreamer1.0-libav`（或其他 H.264 解码器）；缺少解码器时会出现 `Err`。
+`video.Open` 打开文件，`video.OpenURL` 打开 `file:`、`http:` 或 `https:` URL 或 HLS 播放列表，`video.OpenData` 打开内存中的字节，例如嵌入的文件，而无需写入文件。`video.ErrUnsupported` 报告系统没有可播放视频的框架，例如没有 GStreamer 及其基础插件的 Linux，或没有 Media Foundation 功能的 Windows Server，以便应用改为显示 GIF。能播放哪些格式取决于系统：MP4 中的 H.264 和 AAC 在所有这些系统上都能播放。Linux 需要 `gstreamer1.0-plugins-base`，H.264 还需要 `gstreamer1.0-libav`（或其他 H.264 解码器）；缺少解码器时会出现 `Err`。系统无法解码或读取画面的视频（例如 macOS 上的 VP9，或 MPEG-TS 中的 HEVC）同样会出现 `Err`，而不是只播放声音。
 
 Windows on Arm 的 MPEG-4 读取器会忽略轨道的编辑列表。带 B 帧的 H.264 视频（x264 的默认设置）通过编辑列表补偿帧重排延迟；该列表被忽略后，画面会相应延后，最多比声音落后几帧。如果需要避免这一问题，可编码为不带 B 帧的视频（`-x264-params bframes=0`），示例中的预告片就是如此。
+
+在 macOS 上，如果 MP4 中的 AV1 视频带有 `sdtp` 盒子，并把一些帧标为不被其他帧引用（ffmpeg 对 SVT-AV1 编码的帧就是这样标注的），那么调用 `Seek` 后，直到下一个关键帧之前都不会显示画面：AVFoundation 在解码到目标时间的过程中可能跳过这类帧，在此之前不再给出画面。如果需要 seek，可将这类文件封装为分片 MP4（`-movflags +frag_keyframe+empty_moov+default_base_moof`），它不含 `sdtp` 盒子。
 
 在浏览器中，有声音的视频可能无法在用户与页面交互之前播放：此时它会静音播放，如浏览器所允许。
 

@@ -281,12 +281,17 @@ func checkForUpdates(ctx context.Context) {
   that no version installed stay, such as the data a portable copy keeps
   next to it, and so does the executable the app runs from. An app built
   before MyGo wrote the list has none, so its first update removes
-  nothing.
+  nothing. On Windows, when the installer's entry in Settings > Apps is
+  the app's folder, it shows the new version.
 - `Enabled` reports whether the app can update itself: it was built with
   updates, and it can write where it is installed. Development builds
   cannot, and `Check` returns `mygo.ErrUpdatesDisabled` in them.
 - `Check` and `Install` go through the proxy of the system's settings,
   or of `HTTPS_PROXY` when it is set (see [proxies](native.md#proxies)).
+  They follow a redirect only to HTTPS, and not past ten.
+- An archive unpacks inside the app's folder alone, through links of its
+  own too, and to at most 8 GB; anything else stops the update and the
+  app stays as it is.
 
 ## Your own update service
 

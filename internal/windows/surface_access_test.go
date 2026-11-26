@@ -121,14 +121,15 @@ func TestUIATreeAnnouncer(t *testing.T) {
 }
 
 // Landmarks are groups whose LandmarkType says which, and whose AriaRole
-// names them: the navigation and search landmarks have types of their
-// own, a region the custom one.
+// names them: the navigation, search and form landmarks have types of
+// their own, a region the custom one.
 func TestUIALandmarks(t *testing.T) {
 	for role, want := range map[platform.AccessRole]uint64{
 		platform.RoleNavigation:    80003, // UIA_NavigationLandmarkTypeId
 		platform.RoleSearch:        80004, // UIA_SearchLandmarkTypeId
 		platform.RoleRegion:        80000, // UIA_CustomLandmarkTypeId
 		platform.RoleMain:          80002, // UIA_MainLandmarkTypeId
+		platform.RoleForm:          80001, // UIA_FormLandmarkTypeId
 		platform.RoleBanner:        80000,
 		platform.RoleContentInfo:   80000,
 		platform.RoleComplementary: 80000,
@@ -323,9 +324,12 @@ func TestUIAGrid(t *testing.T) {
 	if v.Val != 50028 {
 		t.Errorf("the grid's control type %d", v.Val)
 	}
-	get := func(e *uiaElement, iface, method int, args ...uintptr) int32 {
+	// The pointer is converted in the call itself, so go:uintptrescapes
+	// puts n on the heap: on the stack, a callback that grows it would
+	// write where n was before the stack moved.
+	get := func(e *uiaElement, iface, method int) int32 {
 		var n int32
-		if hr := comCall(e.ptr(iface), method, append(args, uintptr(unsafe.Pointer(&n)))...); hr != sOK {
+		if hr := comCall(e.ptr(iface), method, uintptr(unsafe.Pointer(&n))); hr != sOK {
 			t.Errorf("method %d of interface %d: %#x", method, iface, hr)
 		}
 		return n

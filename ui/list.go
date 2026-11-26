@@ -995,8 +995,7 @@ func (f *listFrame) reorder() {
 	if s.Reorder == nil {
 		return
 	}
-	e.flags |= flagValueDrop
-	e.st.accepts = func(v any) bool { d, ok := v.(*rowDrag); return ok && d.s == s }
+	e.takes(func(v any) bool { d, ok := v.(*rowDrag); return ok && d.s == s })
 	rt := f.c.rt
 	var d *rowDrag
 	dropped, y := false, rt.pointerY
@@ -1005,7 +1004,7 @@ func (f *listFrame) reorder() {
 		// Where the rows dropped, which the pointer may have left since,
 		// as when Windows moves it back to the mouse after a test's drag.
 		d, _ = e.st.droppedValue.(*rowDrag)
-		e.st.hasDropped, dropped, y = false, true, e.st.dropY
+		dropped, y = true, e.st.dropY
 	case rt.drag != nil && !rt.drag.canceled && rt.drag.over == e.id:
 		d, _ = rt.drag.value.(*rowDrag)
 	}
@@ -1014,7 +1013,8 @@ func (f *listFrame) reorder() {
 	}
 	x := rt.pointerX
 	if dropped {
-		x = e.st.dropX
+		// Only the list's own rows: other values are the app's Drop's.
+		e.st.hasDropped, x = false, e.st.dropX
 	}
 	_, y = e.st.local(x, y)
 	y += e.st.y
@@ -1430,7 +1430,9 @@ func (f *listFrame) navigate() {
 	to := -1
 	switch key {
 	case KeyDown:
-		to = f.step(max(*sel, -1), 1)
+		if to = f.step(*sel, 1); !in {
+			to = f.step(-1, 1)
+		}
 	case KeyUp:
 		if to = f.step(*sel, -1); !in {
 			to = f.step(-1, 1)
@@ -1481,10 +1483,15 @@ func (f *listFrame) typed(text string) int {
 	if text == "" {
 		return -1
 	}
-	from := max(cur, 0)
+	// From the first row when the one chosen is gone, as the app took
+	// rows out from under it.
+	in, from := cur >= 0 && cur < n, 0
+	if in {
+		from = cur
+	}
 	if strings.Count(text, text[:1]) == len(text) {
 		text = text[:1]
-		if cur >= 0 {
+		if in {
 			from = cur + 1
 		}
 	}

@@ -20,6 +20,7 @@ import android.view.View
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityNodeProvider
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -37,8 +38,33 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
     private val wid: Long = id
     private val surface = Surface(context)
     /** The surface, and under it the views it holds. */
-    private val box = android.widget.FrameLayout(context).apply {
+    private val box: android.widget.FrameLayout = object : android.widget.FrameLayout(context) {
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            // Before the surface's own, which places it.
+            if (android.os.Build.VERSION.SDK_INT < 31) viewTreeObserver.addOnPreDrawListener(away)
+        }
+
+        override fun onDetachedFromWindow() {
+            viewTreeObserver.removeOnPreDrawListener(away)
+            super.onDetachedFromWindow()
+        }
+    }.apply {
         addView(surface, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
+    }
+
+    /**
+     * Android 10 (and at times 11) shows a surface again as the app comes
+     * back to the front, whatever the views around it, so a window a view
+     * hides (its tab is not the one selected, a page was pushed over it,
+     * another stack is in front) would show over the one that is: while
+     * hidden, the surface stands far off the screen, where it goes then.
+     * Its frames stay, ready for when it shows.
+     */
+    private val away: android.view.ViewTreeObserver.OnPreDrawListener = android.view.ViewTreeObserver.OnPreDrawListener {
+        val x = if (box.isShown) 0f else 100_000f
+        if (surface.translationX != x) surface.translationX = x
+        true
     }
     override val view: View get() = box
     private var native = 0L
@@ -395,9 +421,15 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
     /** The system's magnifier of what is at a point. */
     fun showMagnifier(c: ShowMagnifierCall) {
         if (android.os.Build.VERSION.SDK_INT < 28) return
-        val m = magnifier ?: Magnifier.Builder(surface).build().also { magnifier = it }
+        val m = magnifier ?: newMagnifier().also { magnifier = it }
         m.show((c.x * density).toFloat(), (c.y * density).toFloat())
     }
+
+    /** A magnifier of the surface: its builder is API 29, Android 9 has the constructor. */
+    @androidx.annotation.RequiresApi(28)
+    @Suppress("DEPRECATION")
+    private fun newMagnifier(): Magnifier =
+        if (android.os.Build.VERSION.SDK_INT >= 29) Magnifier.Builder(surface).build() else Magnifier(surface)
 
     fun hideMagnifier() {
         if (android.os.Build.VERSION.SDK_INT >= 28) magnifier?.dismiss()
@@ -539,14 +571,21 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
             if (e.isAltPressed) mods = mods or 4
             if (e.isMetaPressed) mods = mods or 8
             val text = if (e.unicodeChar > 0) String(Character.toChars(e.unicodeChar)) else ""
-            val r = Go.ask(Event.key(wid, down, name, text, mods, e.repeatCount > 0)) ?: return false
-            val handled = KeyReply(r).handled
             // Keys typing text type it, which the content takes as text,
             // whatever Go answered: its text inputs take a printable key
             // as handled, as the text comes after it, as on macOS. Space
             // types too; keys with Control or Meta are shortcuts.
-            if (down && editing && text.isNotEmpty() && (keyNames[code] == null || code == KeyEvent.KEYCODE_SPACE) &&
-                !e.isCtrlPressed && !e.isMetaPressed) {
+            val types = down && editing && text.isNotEmpty() && (keyNames[code] == null || code == KeyEvent.KEYCODE_SPACE) &&
+                !e.isCtrlPressed && !e.isMetaPressed
+            // The word an input method marks around the cursor, as LatinIME
+            // does once the cursor moved, stays where it is, and so does the
+            // cursor, as in TextView: the content commits its marked text
+            // at a key with the cursor after it, so the key, typed in the
+            // middle of the word, came at its end.
+            if (types && input.markStart >= 0) edit(Event.textSelect(wid, input.selStart, input.selEnd))
+            val r = Go.ask(Event.key(wid, down, name, text, mods, e.repeatCount > 0)) ?: return false
+            val handled = KeyReply(r).handled
+            if (types) {
                 edit(Event.textReplace(wid, false, 0, 0, text))
                 return true
             }
@@ -717,9 +756,22 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
         override fun setComposingRegion(start: Int, end: Int): Boolean {
             val a = minOf(start, end).coerceAtLeast(0)
             val b = maxOf(start, end).coerceAtMost(input.length.toInt())
+            // No region is no composing text, as in BaseInputConnection.
+            if (a >= b) return finishComposingText()
+            // Marking text leaves the selection where it is, as TextView
+            // does. The content's marked text holds the selection, though,
+            // and an input method may name a region the selection has left:
+            // LatinIME marks the word before the cursor some time after it
+            // hears of it, and keys of a hardware keyboard typed meanwhile
+            // went past it. Marked, the cursor went back into the word and
+            // the keys after came before the ones typed since. That region
+            // stays unmarked: the input method heard where the cursor went,
+            // and marks the word again from there.
+            val lo = minOf(input.selStart, input.selEnd).toInt()
+            val hi = maxOf(input.selStart, input.selEnd).toInt()
+            if (lo < a || hi > b) return true
             val text = document(a, b).toString()
-            val n = text.length.toLong()
-            edit(Event.textMark(wid, true, a.toLong(), b.toLong(), text, n, n))
+            edit(Event.textMark(wid, true, a.toLong(), b.toLong(), text, (lo - a).toLong(), (hi - a).toLong()))
             return true
         }
 
@@ -827,7 +879,9 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
     private var accessFocus = View.NO_ID
 
     private fun sendVirtual(id: Int, type: Int) {
-        val e = AccessibilityEvent(type)
+        // The constructor with a type is API 30, obtain what came before.
+        @Suppress("DEPRECATION")
+        val e = if (android.os.Build.VERSION.SDK_INT >= 30) AccessibilityEvent(type) else AccessibilityEvent.obtain(type)
         e.packageName = context.packageName
         e.setSource(surface, id)
         (surface.parent as? android.view.ViewGroup)?.requestSendAccessibilityEvent(surface, e)
@@ -845,6 +899,11 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
             }
             val n = nodes.firstOrNull { it.id.toInt() == virtualId } ?: return null
             val info = AccessibilityNodeInfo.obtain(surface, virtualId)
+            // What Android added after the minimum SDK (state descriptions
+            // in 30, tooltips and headings in 28) goes through androidx,
+            // which keeps it in the node's extras before, where TalkBack
+            // reads it: the setters themselves would throw NoSuchMethodError.
+            val compat = AccessibilityNodeInfoCompat.wrap(info)
             info.setParent(surface)
             info.packageName = context.packageName
             info.className = n.className
@@ -857,9 +916,9 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
                 info.isPassword = n.states and 128 != 0L
             } else {
                 info.text = n.label.ifEmpty { null }
-                if (n.value.isNotEmpty()) info.stateDescription = n.value
+                if (n.value.isNotEmpty()) compat.stateDescription = n.value
             }
-            if (n.hint.isNotEmpty()) info.tooltipText = n.hint
+            if (n.hint.isNotEmpty()) compat.tooltipText = n.hint
             val d = density
             val box = Rect((n.x * d).toInt(), (n.y * d).toInt(), ((n.x + n.w) * d).toInt(), ((n.y + n.h) * d).toInt())
             val loc = IntArray(2)
@@ -870,7 +929,7 @@ class SurfaceWindow(context: Context, id: Long) : HostWindow(context, id) {
             info.isChecked = n.states and 4 != 0L
             info.isCheckable = n.role in longArrayOf(4, 5, 6, 31)
             info.isSelected = n.states and 16 != 0L
-            info.isHeading = n.role == 43L
+            compat.isHeading = n.role == 43L
             info.isVisibleToUser = true
             info.isFocusable = true
             info.isAccessibilityFocused = accessFocus == virtualId

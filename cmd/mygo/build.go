@@ -20,6 +20,7 @@ type buildOptions struct {
 	skipDMG       bool
 	skipNotarize  bool
 	skipInstaller bool              // no Windows installer, nor NSIS for it
+	maxSize       int64             // the most bytes a compiled program may have (-max-size), 0 for no limit
 	pkg           string            // directory of the main package
 	work          string            // for generated files
 	overlay       map[string]string // go build -overlay entries (the frontend)
@@ -53,6 +54,8 @@ out.
 
 Set macos.signingIdentity in mygo.json (or -sign) to a Developer ID to ship
 outside the Mac App Store, and macos.notarize to notarize the app and the disk image.
+Off a Mac, macos.signCommand signs the app instead, e.g. with rcodesign,
+before the update files take it.
 
 With updates in mygo.json and the key of mygo keygen in
 MYGO_UPDATER_PRIVATE_KEY, each platform also gets a signed update archive,
@@ -71,6 +74,8 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 	sign := flags.String("sign", "", `macOS signing identity (default: macos.signingIdentity, or "-" for ad hoc)`)
 	out := flags.String("o", "", "output directory (default: out from mygo.json or dist)")
 	upload := flags.Bool("upload", false, "upload the installers and updates to the GitHub release of this version (updates.github), as a draft, or to the bucket of updates.s3")
+	version := flags.String("version", "", "the version of the build, in place of mygo.json's, as a release's tag gives it (a leading v is dropped)")
+	maxSize := flags.Float64("max-size", 0, "fail when a compiled program is larger than this many MB, as a budget of the app's size")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -85,6 +90,14 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 	if *out != "" {
 		c.Out = *out
 	}
+	if *version != "" {
+		if err := c.setVersion(*version); err != nil {
+			return err
+		}
+	}
+	if !(*maxSize >= 0 && *maxSize <= 1<<20) {
+		return fmt.Errorf("-max-size %v is not a size in MB", *maxSize)
+	}
 	// The catalogs name the languages the packages declare.
 	if _, err := c.languages(); err != nil {
 		return err
@@ -94,14 +107,14 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 			return err
 		}
 	}
-	opts := buildOptions{debug: *debug, sign: c.MacOS.SigningIdentity, skipDMG: *skipDMG, skipNotarize: *skipNotarize, skipInstaller: *skipInstaller}
+	opts := buildOptions{debug: *debug, sign: c.MacOS.SigningIdentity, skipDMG: *skipDMG, skipNotarize: *skipNotarize, skipInstaller: *skipInstaller, maxSize: int64(*maxSize * (1 << 20))}
 	if *sign != "" {
 		opts.sign = *sign
 	}
 	if c.MacOS.Notarize != nil && !opts.skipNotarize && opts.sign == "-" {
 		return fmt.Errorf("notarization needs a Developer ID signing identity: set macos.signingIdentity or pass -sign")
 	}
-	if c.MacOS.ProvisioningProfile != "" && opts.sign == "-" && slices.ContainsFunc(targets, func(p string) bool { return strings.HasPrefix(p, "darwin/") }) {
+	if c.MacOS.ProvisioningProfile != "" && c.MacOS.SignCommand == "" && opts.sign == "-" && slices.ContainsFunc(targets, func(p string) bool { return strings.HasPrefix(p, "darwin/") }) {
 		// Before building anything, as codesign would.
 		return errProfileAdHoc
 	}
@@ -292,7 +305,10 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 			if overlay != "" {
 				flags = append(flags, "-overlay", overlay)
 			}
-			return goBuild(context.Background(), c, t, out, []string{"GOOS=" + goos, "GOARCH=" + arch}, flags...)
+			if err := goBuild(context.Background(), c, t, out, []string{"GOOS=" + goos, "GOARCH=" + arch}, flags...); err != nil {
+				return err
+			}
+			return checkSize(out, opts.maxSize)
 		}()
 		return t.end(err, "Compiled "+goos+"/"+arch)
 	}
@@ -340,11 +356,9 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		if slices.ContainsFunc(res, inProject) {
 			logf("Made universal binaries of the code in %s and %s", filepath.Join(resourcesDir, "darwin-arm64"), filepath.Join(resourcesDir, "darwin-amd64"))
 		}
-		var t *task
-		if runtime.GOOS == "darwin" {
-			t = con.start("Signing " + filepath.Base(app))
-		}
-		if err := t.end(codesign(c, app, opts.sign, true), "Signed "+filepath.Base(app)); err != nil {
+		// Before the disk image and the update files, which take the
+		// bundle as signed.
+		if err := signApp(c, app, opts.sign); err != nil {
 			return nil, err
 		}
 		artifacts = append(artifacts, app)
@@ -634,6 +648,24 @@ func sysoFiles(pkg string) []string {
 // writes.
 func mygoSyso(name string) bool {
 	return strings.HasPrefix(name, "mygo_windows_") && strings.HasSuffix(name, ".syso")
+}
+
+// checkSize fails when the compiled program at path has more than max bytes
+// (-max-size); max 0 is no limit. It checks executables, Android's
+// libraries and the WebAssembly of browsers, not iOS's archive, which Xcode
+// links.
+func checkSize(path string, max int64) error {
+	if max <= 0 {
+		return nil
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if st.Size() > max {
+		return fmt.Errorf("%s is %s, over -max-size (%s)", filepath.Base(path), formatSize(st.Size()), formatSize(max))
+	}
+	return nil
 }
 
 func sizeOf(path string) string {

@@ -176,8 +176,7 @@ func (s *GridState) reorder(e *node, n int, gap float32) {
 	if s.Reorder == nil {
 		return
 	}
-	e.flags |= flagValueDrop
-	e.st.accepts = func(v any) bool { d, ok := v.(*itemDrag); return ok && d.s == s }
+	e.takes(func(v any) bool { d, ok := v.(*itemDrag); return ok && d.s == s })
 	rt := e.c.rt
 	var d *itemDrag
 	dropped, x, y := false, rt.pointerX, rt.pointerY
@@ -185,12 +184,16 @@ func (s *GridState) reorder(e *node, n int, gap float32) {
 	case e.st.hasDropped:
 		// Where the items dropped, which the pointer may have left since.
 		d, _ = e.st.droppedValue.(*itemDrag)
-		e.st.hasDropped, dropped, x, y = false, true, e.st.dropX, e.st.dropY
+		dropped, x, y = true, e.st.dropX, e.st.dropY
 	case rt.drag != nil && !rt.drag.canceled && rt.drag.over == e.id:
 		d, _ = rt.drag.value.(*itemDrag)
 	}
 	if d == nil || d.s != s {
+		// Another value, for the app's Drop after the grid builds.
 		return
+	}
+	if dropped {
+		e.st.hasDropped = false
 	}
 	x, y = e.st.local(x, y)
 	x += e.st.x
@@ -417,9 +420,22 @@ func (s *GridState) keys(grid *node, n int) {
 		grid.st.markSubmitted()
 	}
 	if st := grid.st; st.typing && st.typed != "" && s.Label != nil {
-		for k := 1; k <= n; k++ {
-			j := (max(at, 0) + k - b2i(len([]rune(st.typed)) > 1) + n) % n
-			if strings.HasPrefix(strings.ToLower(s.Label(j)), strings.ToLower(st.typed)) {
+		// From the item chosen, as a list's rows, or the first when none
+		// is: the same letter again goes on to the next item starting
+		// with it.
+		typed, from := strings.ToLower(st.typed), 0
+		if in {
+			from = at
+		}
+		if r := []rune(typed); strings.Count(typed, string(r[0])) == len(r) {
+			typed = string(r[0])
+			if in {
+				from = at + 1
+			}
+		}
+		for k := range n {
+			j := (from + k) % n
+			if strings.HasPrefix(strings.ToLower(s.Label(j)), typed) {
 				to = j
 				break
 			}
