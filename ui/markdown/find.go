@@ -358,14 +358,9 @@ func (b *findBar) WholeWord() *bool     { return &b.st.find.wholeWord }
 func (b *findBar) Regexp() *bool        { return &b.st.find.regex }
 func (b *findBar) InSelection() *bool   { return &b.st.find.inSelection }
 
-// Width is the width the view was laid out at, as the bar fits its content
-// in it.
-func (b *findBar) Width() float32 {
-	if w := b.st.root.Bounds().W; w > 0 {
-		return w
-	}
-	return 600
-}
+// Width is the width the view was laid out at, 0 until it is: the bar
+// shows all of itself until then.
+func (b *findBar) Width() float32 { return b.st.root.Bounds().W }
 
 // Status says what was found, as the editor's bar does: "3 of 12", "No
 // results" or "Invalid" for a regular expression that is not one, and

@@ -29,7 +29,9 @@ type FindBarSource interface {
 	WholeWord() *bool
 	Regexp() *bool
 	InSelection() *bool
-	// Width is the width the bar fits its content in.
+	// Width is the width the bar fits its content in, 0 until it is known:
+	// the bar then shows all of itself, as a view that has not been laid
+	// out yet.
 	Width() float32
 	// Status says what was found; nothing without a query.
 	Status() string
@@ -232,7 +234,12 @@ func DefaultFindBar(c *ui.Context, bar ui.Element, f *FindBar) {
 func defaultFindBar(c *ui.Context, bar ui.Element, f FindBarSource) {
 	t := c.Theme()
 	tx := l10n.In(c.Locale())
-	size := findBarSize(f.Width())
+	// A width not known yet shows all of the bar: the view fits it once it
+	// is laid out.
+	size := 2
+	if w := f.Width(); w > 0 {
+		size = findBarSize(w)
+	}
 	// What the bar replaces: where f does, and can.
 	var rep findBarReplacing
 	if r, ok := f.(findBarReplacing); ok && r.CanReplace() {
