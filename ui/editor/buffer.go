@@ -116,6 +116,10 @@ type transaction struct {
 	selBefore any
 	selAfter  any
 	kind      editKind
+	// before and beforeEnds are the text and line ending codes a
+	// composition's step found, which a cancelled one leaves as it
+	// found them (dropCompose).
+	before, beforeEnds rope.Text
 }
 
 // editKind groups edits into undo steps: typing in a row is one step,
@@ -523,7 +527,11 @@ func (b *Buffer) editEnds(edits []Edit, codes []string, kind editKind, owner, se
 		tx.edits = append(tx.edits, back)
 		tx.ends = append(tx.ends, backEnds)
 	default:
-		b.undo = append(b.undo, transaction{edits: [][]Edit{back}, ends: [][]string{backEnds}, owner: owner, selBefore: selBefore, kind: kind})
+		tx := transaction{edits: [][]Edit{back}, ends: [][]string{backEnds}, owner: owner, selBefore: selBefore, kind: kind}
+		if kind == editCompose {
+			tx.before, tx.beforeEnds = before, beforeEnds.codes
+		}
+		b.undo = append(b.undo, tx)
 		if len(b.undo) > undoMax {
 			b.undo = slices.Delete(b.undo, 0, len(b.undo)-undoMax)
 		}
@@ -651,6 +659,24 @@ func (b *Buffer) replace(edits []Edit, codes []string) (_ rope.Text, _ lineEnds,
 func (b *Buffer) endGroup() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.lastEdit = time.Time{}
+}
+
+// dropCompose drops the last step when it is owner's composition and
+// the text is as the step found it, as an input method's composition
+// cancelled leaves it: Undo has nothing of it to take back.
+func (b *Buffer) dropCompose(owner any) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := len(b.undo)
+	if n == 0 || b.open > 0 {
+		return
+	}
+	if tx := b.undo[n-1]; tx.owner != owner || tx.kind != editCompose ||
+		!sameText(b.text, tx.before) || !sameText(b.ends.codes, tx.beforeEnds) {
+		return
+	}
+	b.undo = b.undo[:n-1]
 	b.lastEdit = time.Time{}
 }
 
