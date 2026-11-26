@@ -402,26 +402,6 @@ func TestMarkdownBlankCodeSpan(t *testing.T) {
 	}
 }
 
-// A heading of #s alone keeps them all: the first one, escaped so that it
-// does not open a heading, is not escaped again as a closing #.
-func TestMarkdownHeadingOfHashes(t *testing.T) {
-	for _, c := range []struct{ text, md string }{
-		{"#", `## \#`},
-		{"##", `## \##`},
-		{"C#", `## C\#`},
-		{`a \#`, `## a \\\#`},
-	} {
-		want := TextOf(Paragraph{Style: ParagraphStyle{Heading: 2}, Runs: []Run{{Text: c.text}}})
-		md := want.Markdown()
-		if md != c.md {
-			t.Errorf("heading %q as Markdown is %q, want %q", c.text, md, c.md)
-		}
-		if got := ParseMarkdown(md); dump(got) != dump(want) {
-			t.Errorf("%q reads\n%s want\n%s", md, dump(got), dump(want))
-		}
-	}
-}
-
 // TestMarkdownHeadingInItem reads a heading that starts a list item as a
 // heading, as SetHeading and ParseHTML make one, not as a paragraph both
 // heading and item, which Markdown wrote as a heading and HTML as an item.
@@ -447,6 +427,26 @@ func TestMarkdownHeadingInItem(t *testing.T) {
 		}
 		if md := got.Markdown(); dump(ParseMarkdown(md)) != dump(got) {
 			t.Errorf("%q written as %q reads\n%s want\n%s", c.md, md, dump(ParseMarkdown(md)), dump(got))
+		}
+	}
+}
+
+// A heading of #s alone keeps them all: the first one, escaped so that it
+// does not open a heading, is not escaped again as a closing #.
+func TestMarkdownHeadingOfHashes(t *testing.T) {
+	for _, c := range []struct{ text, md string }{
+		{"#", `## \#`},
+		{"##", `## \##`},
+		{"C#", `## C\#`},
+		{`a \#`, `## a \\\#`},
+	} {
+		want := TextOf(Paragraph{Style: ParagraphStyle{Heading: 2}, Runs: []Run{{Text: c.text}}})
+		md := want.Markdown()
+		if md != c.md {
+			t.Errorf("heading %q as Markdown is %q, want %q", c.text, md, c.md)
+		}
+		if got := ParseMarkdown(md); dump(got) != dump(want) {
+			t.Errorf("%q reads\n%s want\n%s", md, dump(got), dump(want))
 		}
 	}
 }
