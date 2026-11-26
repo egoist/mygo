@@ -56,7 +56,7 @@ const videoAhead = 2
 // videoStalled is how late past the frame a player asked for the window
 // may build it, as one waiting for the display, before the player takes
 // the window for stopped meanwhile (App Nap, the machine asleep) and
-// counts none of that time.
+// counts the time only up to that frame.
 const videoStalled = 100 * time.Millisecond
 
 // A VideoPlayer plays a video, for Video to show. NewVideoPlayer makes one
@@ -288,10 +288,7 @@ func (p *VideoPlayer) Position() time.Duration {
 	// as it plays on, though no frame of the window built it since.
 	pos := p.pos
 	if p.moved && p.rt != nil && !p.rt.closed {
-		now := p.rt.now()
-		if from := p.from(p.rt, now); now.After(from) {
-			pos += time.Duration(float64(now.Sub(from)) * p.rate)
-		}
+		pos += time.Duration(float64(p.played(p.rt, p.rt.now())) * p.rate)
 	}
 	return p.curAt + min(max(pos-(p.end-p.curDur), 0), p.curDur)
 }
@@ -429,9 +426,9 @@ func (p *VideoPlayer) advance(c *context) {
 		return // another pass of the frame, which moved it already
 	}
 	// Only time the video showed moves it: since the frame before, which
-	// built it playing too (from).
-	if from := p.from(rt, now); p.moved && p.rt == rt && p.frame+1 == rt.frame && now.After(from) {
-		p.pos += time.Duration(float64(now.Sub(from)) * p.rate)
+	// built it playing too (played).
+	if p.moved && p.rt == rt && p.frame+1 == rt.frame {
+		p.pos += time.Duration(float64(p.played(rt, now)) * p.rate)
 	}
 	p.rt, p.frame, p.at, p.due = rt, rt.frame, now, time.Time{}
 	if rt.preferences().ReduceMotion {
@@ -478,21 +475,32 @@ func (p *VideoPlayer) advance(c *context) {
 	}
 }
 
-// from is when the time the video showed till now began: when the frame
-// that last built it did, or when some of the window showed again
-// (SurfaceShown), as no frame builds while none of it shows. What it
-// showed after its last frame before the window went out of sight, less
-// than a frame of the video, does not count. Nor does any of it when the
-// window built no frame for well past the one the video asked for, the
-// window showing all along but the process stopped (videoStalled).
-func (p *VideoPlayer) from(rt *engine, now time.Time) time.Time {
-	if !p.due.IsZero() && now.Sub(p.due) > videoStalled {
-		return now
+// played is the time of the window the video showed since the frame that
+// last built it, till now: since that frame, or since some of the window
+// showed again (SurfaceShown), as no frame builds while none of it shows.
+// What it showed after its last frame before the window went out of
+// sight, less than a frame of the video, does not count. Nor does the time
+// past the frame the video asked for, or past the window showing again,
+// when the window built none till well after (videoStalled): the window
+// showed all along, but the process stopped (App Nap, the machine
+// asleep). The frame that came due then shows, and the video goes on at
+// its pace from there; a window slower than that still moves it a frame
+// each time it builds one.
+func (p *VideoPlayer) played(rt *engine, now time.Time) time.Duration {
+	from, to := p.at, now
+	if rt.shown.After(from) {
+		from = rt.shown
 	}
-	if rt.shown.After(p.at) {
-		return rt.shown
+	if !p.due.IsZero() {
+		limit := p.due
+		if from.After(limit) {
+			limit = from
+		}
+		if now.Sub(limit) > videoStalled {
+			to = limit
+		}
 	}
-	return p.at
+	return max(to.Sub(from), 0)
 }
 
 // untilNext is the time of the window until the next frame is due.
