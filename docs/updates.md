@@ -349,9 +349,9 @@ manifest's, so a service that writes its own manifests from those of
 and signatures stay: `signature2` too, of the archive and of each delta.
 An app refuses a manifest without it, so a service that copies the
 fields it knows, and not that one, stops its apps' updates. The
-statement `signature2` signs holds the version and the target, not the
-URL, so the version and the target must stay as `mygo build` wrote them,
-and the files may be renamed. `SetSource(nil)` goes back to the feed.
+statement `signature2` signs holds the version and the target, and for a
+delta the version it updates, not the URL, so those must stay as `mygo
+build` wrote them, and the files may be renamed. `SetSource(nil)` goes back to the feed.
 
 ## Where apps can update
 
