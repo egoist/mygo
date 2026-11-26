@@ -378,6 +378,7 @@ var elementChains = map[string]bool{
 	"SnapAlignY":              true,
 	"Sort":                    true,
 	"SplitGap":                true,
+	"SplitLimits":             true,
 	"SplitReset":              true,
 	"SplitSecond":             true,
 	"Start":                   true,
