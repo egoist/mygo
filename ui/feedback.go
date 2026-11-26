@@ -165,17 +165,59 @@ const AlertDismissed = -2
 // the frame Escape closes it, and -1 otherwise. An alert that must be
 // answered stays open by setting *open back to true on AlertDismissed.
 // Assistive technology sees an alert named by title and described by
-// message.
+// message. AlertDialogButtons marks an action that deletes data as
+// destructive.
 //
-//	switch ui.AlertDialog(c, &app.asking, "Delete “Notes”?", "You can't undo this.", "Cancel", "Delete") {
+//	switch ui.AlertDialog(c, &app.asking, "Save changes?", "Your changes are lost if you don't save them.", "Don't Save", "Save") {
 //	case 1:
-//		app.delete()
+//		app.save()
 //	}
 func coreAlertDialog(c *context, open *bool, title, message string, buttons ...string) int {
 	if !*open {
 		return -1
 	}
+	bs := make([]AlertButton, len(buttons))
+	for i, label := range buttons {
+		bs[i].Label = label
+	}
+	return coreAlertDialogButtons(c, open, title, message, bs...)
+}
+
+// AlertButton is a button of AlertDialogButtons.
+type AlertButton struct {
+	Label string
+	// Destructive shows the button's label in the theme's Danger color,
+	// for an action that deletes data or can't be undone, as AppKit's
+	// alerts with hasDestructiveAction, and keeps it from being the
+	// default: it never has the focus as the alert opens, so Enter clicks
+	// it only once the user moves the focus to it. The color alone tells
+	// no one using assistive technology: let the label say what the
+	// button does, as "Delete" rather than "OK".
+	Destructive bool
+}
+
+// AlertDialogButtons shows an alert as AlertDialog does, with buttons
+// that may be destructive: the default, in the accent color, with the
+// focus, which Enter clicks, is the last button that is not, as Cancel
+// beside Delete, and an alert with only destructive buttons has none, the
+// alert holding the focus.
+//
+//	switch ui.AlertDialogButtons(c, &app.asking, "Delete “Notes”?", "You can't undo this.",
+//		ui.AlertButton{Label: "Cancel"}, ui.AlertButton{Label: "Delete", Destructive: true}) {
+//	case 1:
+//		app.delete()
+//	}
+func coreAlertDialogButtons(c *context, open *bool, title, message string, buttons ...AlertButton) int {
+	if !*open {
+		return -1
+	}
 	t := c.theme
+	def := -1
+	for i, b := range buttons {
+		if !b.Destructive {
+			def = i
+		}
+	}
 	chosen, dismissed := -1, false
 	coreOverlay(c, func() {
 		back := coreBox(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(RGBA(0, 0, 0, 0.4)).Modal()
@@ -190,18 +232,27 @@ func coreAlertDialog(c *context, open *bool, title, message string, buttons ...s
 			panel.Label(title)
 			panel.description = message
 			panel.Shadow(0, 10, 30, 0, RGBA(0, 0, 0, 0.3))
+			if def < 0 && len(buttons) > 0 {
+				// No default: the alert holds the focus, which would go
+				// to its first button, so that Enter clicks none; as a
+				// page holds it, without a ring and out of Tab's way.
+				panel.Focusable().TabStop(false).FocusRing(false).AutoFocus()
+			}
 			panel.Children(func() {
 				coreText(c, title).Bold().FontSize(t.FontSize + 1).Width(0).MinWidthPercent(100)
 				if message != "" {
 					coreText(c, message).TextColor(t.TextMuted).Width(0).MinWidthPercent(100)
 				}
 				coreRow(c).Wrap().Gap(t.Space(2)).Justify(End).Margin(t.Space(2), 0, 0, 0).Children(func() {
-					for i, label := range buttons {
+					for i, button := range buttons {
 						var b *node
-						if i == len(buttons)-1 {
-							b = corePrimaryButton(c, label).AutoFocus()
-						} else {
-							b = coreButton(c, label)
+						switch {
+						case i == def:
+							b = corePrimaryButton(c, button.Label).AutoFocus()
+						case button.Destructive:
+							b = coreButton(c, button.Label).TextColor(t.Danger)
+						default:
+							b = coreButton(c, button.Label)
 						}
 						b.MaxWidthPercent(100)
 						if b.Clicked() {

@@ -2040,7 +2040,8 @@ func (g *gallery) overlays(c *ui.Context) {
 		})
 	})
 	ui.Textf(c, "%d notes. Undo in the toast brings a deleted one back.", g.notes).FontSize(12).TextColor(t.TextMuted)
-	if ui.AlertDialog(c, &g.alert, "Delete “Notes”?", "This deletes the note on all your devices. You can't undo this.", "Cancel", "Delete") == 1 {
+	if ui.AlertDialogButtons(c, &g.alert, "Delete “Notes”?", "This deletes the note on all your devices. You can't undo this.",
+		ui.AlertButton{Label: "Cancel"}, ui.AlertButton{Label: "Delete", Destructive: true}) == 1 {
 		g.notes--
 		c.Toast("Note deleted")
 	}

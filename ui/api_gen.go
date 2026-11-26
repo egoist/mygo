@@ -932,11 +932,12 @@ func AccordionItem(c *Context, title string, open *bool, fn func()) Element {
 // the frame Escape closes it, and -1 otherwise. An alert that must be
 // answered stays open by setting *open back to true on AlertDismissed.
 // Assistive technology sees an alert named by title and described by
-// message.
+// message. AlertDialogButtons marks an action that deletes data as
+// destructive.
 //
-//	switch ui.AlertDialog(c, &app.asking, "Delete “Notes”?", "You can't undo this.", "Cancel", "Delete") {
+//	switch ui.AlertDialog(c, &app.asking, "Save changes?", "Your changes are lost if you don't save them.", "Don't Save", "Save") {
 //	case 1:
-//		app.delete()
+//		app.save()
 //	}
 func AlertDialog(c *Context, open *bool, title string, message string, buttons ...string) int {
 	_ctx := c.build()
@@ -944,6 +945,25 @@ func AlertDialog(c *Context, open *bool, title string, message string, buttons .
 		return 0
 	}
 	return coreAlertDialog(_ctx, open, title, message, buttons...)
+}
+
+// AlertDialogButtons shows an alert as AlertDialog does, with buttons
+// that may be destructive: the default, in the accent color, with the
+// focus, which Enter clicks, is the last button that is not, as Cancel
+// beside Delete, and an alert with only destructive buttons has none, the
+// alert holding the focus.
+//
+//	switch ui.AlertDialogButtons(c, &app.asking, "Delete “Notes”?", "You can't undo this.",
+//		ui.AlertButton{Label: "Cancel"}, ui.AlertButton{Label: "Delete", Destructive: true}) {
+//	case 1:
+//		app.delete()
+//	}
+func AlertDialogButtons(c *Context, open *bool, title string, message string, buttons ...AlertButton) int {
+	_ctx := c.build()
+	if _ctx == nil {
+		return 0
+	}
+	return coreAlertDialogButtons(_ctx, open, title, message, buttons...)
 }
 
 // Autocomplete creates a text input editing *value, which suggests below

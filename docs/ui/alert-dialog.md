@@ -12,12 +12,12 @@ which closes the alert, `ui.AlertDismissed` in the frame Escape closes it,
 and -1 otherwise.
 
 ```go
-if ui.Button(c, "Delete").Clicked() {
+if ui.Button(c, "Move to Trash").Clicked() {
 	app.asking = true
 }
-switch ui.AlertDialog(c, &app.asking, "Delete “Notes”?", "You can't undo this.", "Cancel", "Delete") {
+switch ui.AlertDialog(c, &app.asking, "Move “Notes” to the Trash?", "You can put it back from the Trash.", "Cancel", "Move to Trash") {
 case 1:
-	app.delete()
+	app.trash()
 }
 ```
 
@@ -38,7 +38,29 @@ long for the alert ends in an ellipsis.
 For a dialog of your own content, use a [dialog](dialog.md); for a choice
 the user can undo, act at once and offer it in a [toast](toast.md).
 
+## Destructive actions
+
+`ui.AlertDialogButtons` takes `ui.AlertButton`s, of which those that are
+`Destructive`, for an action that deletes data or can't be undone, show
+their label in the theme's `Danger` color and are never the default, as
+AppKit's alerts with `hasDestructiveAction`: the default is the last button
+that is not destructive, as Cancel, so that Enter keeps the data. An alert
+whose buttons are all destructive has no default: it holds the focus
+itself, and Enter clicks none. A destructive button takes Enter, as any
+button does, only once the user moves the focus to it with Tab. The color
+alone tells no one using assistive technology: let the label say what the
+button does, as "Delete" rather than "OK".
+
+```go
+switch ui.AlertDialogButtons(c, &app.asking, "Delete “Notes”?", "You can't undo this.",
+	ui.AlertButton{Label: "Cancel"}, ui.AlertButton{Label: "Delete", Destructive: true}) {
+case 1:
+	app.delete()
+}
+```
+
 ## Accessibility
 
 Assistive technology sees an alert dialog named by its title and described
-by its message, with the focus on its default button.
+by its message, with the focus on its default button, or on the alert when
+it has none.

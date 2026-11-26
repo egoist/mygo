@@ -35,21 +35,22 @@ func init() {
 		status(c, "The folder is “"+name+"”")
 	})
 
-	asking, deleted, canceled := false, false, false
+	// The page's first example; the gallery shows a destructive one.
+	asking, trashed, canceled := false, false, false
 	demo("alert-dialog", func(c *ui.Context) {
-		if deleted {
-			if ui.Button(c, "Restore “Notes”").Clicked() {
-				deleted = false
+		if trashed {
+			if ui.Button(c, "Put Back").Clicked() {
+				trashed = false
 			}
-			status(c, "Deleted “Notes”")
+			status(c, "Moved “Notes” to the Trash")
 			return
 		}
-		if ui.Button(c, "Delete").Clicked() {
+		if ui.Button(c, "Move to Trash").Clicked() {
 			asking, canceled = true, false
 		}
-		switch ui.AlertDialog(c, &asking, "Delete “Notes”?", "You can't undo this.", "Cancel", "Delete") {
+		switch ui.AlertDialog(c, &asking, "Move “Notes” to the Trash?", "You can put it back from the Trash.", "Cancel", "Move to Trash") {
 		case 1:
-			deleted = true
+			trashed = true
 		case 0, ui.AlertDismissed:
 			canceled = true
 		}
