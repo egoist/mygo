@@ -15,9 +15,25 @@ import (
 type sys struct {
 	master *os.File
 	cmd    *exec.Cmd
+	// wakeR and wakeW are a pipe that Close closes the write end of, to
+	// end a read's wait for output (waitReadable).
+	wakeR, wakeW *os.File
 }
 
-func (p *PTY) start(o Options) error {
+// errClosed is what waitReadable returns once Close was called.
+var errClosed = errors.New("pty: closed while waiting")
+
+func (p *PTY) start(o Options) (err error) {
+	wakeR, wakeW, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("pty: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			wakeR.Close()
+			wakeW.Close()
+		}
+	}()
 	master, slaveName, err := openMaster()
 	if err != nil {
 		return err
@@ -42,6 +58,7 @@ func (p *PTY) start(o Options) error {
 		return err
 	}
 	p.master, p.cmd = master, cmd
+	p.wakeR, p.wakeW = wakeR, wakeW
 	return nil
 }
 
@@ -73,7 +90,9 @@ func (p *PTY) Read(b []byte) (int, error) {
 		// and the kernel then hangs the program up with SIGHUP, before it
 		// runs a single command.
 		if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EINTR) {
-			if werr := p.waitReadable(); werr != nil {
+			if werr := p.waitReadable(); werr == errClosed {
+				return 0, io.EOF
+			} else if werr != nil {
 				return 0, werr
 			}
 			continue
@@ -120,7 +139,37 @@ func (p *PTY) Foreground() int {
 
 // Close closes the terminal, which hangs up the processes that have it:
 // they get SIGHUP. It does not wait for them to exit.
-func (p *PTY) Close() error { return p.master.Close() }
+func (p *PTY) Close() error {
+	// First end a wait for output, which keeps the master open meanwhile.
+	p.wakeW.Close()
+	err := p.master.Close()
+	p.wakeR.Close()
+	return err
+}
+
+// await runs wait with the descriptors of the master and of the wake pipe's
+// read end, which stay open meanwhile: Close cannot free their numbers for
+// another file to take while wait watches them. wait reports whether the
+// wake pipe ended it, which means Close was called.
+func (p *PTY) await(wait func(master, wake int) (woken bool, err error)) error {
+	mc, err := p.master.SyscallConn()
+	if err != nil {
+		return errClosed
+	}
+	wc, err := p.wakeR.SyscallConn()
+	if err != nil {
+		return errClosed
+	}
+	woken := true
+	var werr error
+	if err := mc.Read(func(m uintptr) bool {
+		wc.Control(func(w uintptr) { woken, werr = wait(int(m), int(w)) })
+		return true
+	}); err != nil || woken {
+		return errClosed
+	}
+	return werr
+}
 
 // Kill kills the process and those of its process group, which it leads.
 func (p *PTY) Kill() error {
