@@ -89,7 +89,9 @@ var matrixRows = []matrixRow{
 	// AVFoundation's MPEG-TS demuxer leaves out HEVC (#2377).
 	{file: "ts_hevc_aac.ts", darwin: fails, ios: fails, windows: varies | noSeek, linux: plays | noSeek, gst: []string{"tsdemux", "h265parse", "avdec_h265"}},
 	{file: "mp4_vp9_opus.mp4", darwin: fails, ios: fails, windows: varies | noSeek, linux: plays, gst: []string{"qtdemux", "vp9dec"}},
-	{file: "fmp4_av1_aac.mp4", darwin: varies, ios: varies, windows: varies, linux: plays, by: map[string]matrixWant{"linux/OpenURL": plays | noSeek}, gst: []string{"qtdemux", "av1dec"}},
+	// The iOS simulator decodes no AV1, on a Mac whose chip does (M4, iOS
+	// 18.6 and 27).
+	{file: "fmp4_av1_aac.mp4", darwin: varies, ios: fails, windows: varies, linux: plays, by: map[string]matrixWant{"linux/OpenURL": plays | noSeek}, gst: []string{"qtdemux", "av1dec"}},
 	{file: "hls_fmp4/index.m3u8", darwin: plays, ios: plays, windows: plays, linux: plays, gst: []string{"hlsdemux", "qtdemux", "avdec_h264"}},
 	{file: "hls_ts/index.m3u8", darwin: plays, ios: plays, windows: plays, linux: plays, gst: []string{"hlsdemux", "tsdemux", "h264parse", "avdec_h264"}},
 }
