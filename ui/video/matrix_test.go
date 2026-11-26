@@ -2,6 +2,7 @@ package video
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"image/color"
 	"io/fs"
@@ -202,6 +203,9 @@ func TestFormatMatrix(t *testing.T) {
 func matrixPlay(t *testing.T, open func() (*ui.VideoPlayer, error), want matrixWant) error {
 	t.Helper()
 	p, err := open()
+	if errors.Is(err, ErrUnsupported) {
+		t.Skip(err)
+	}
 	if err != nil {
 		return err
 	}
