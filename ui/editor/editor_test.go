@@ -747,6 +747,17 @@ func TestCodeEditorCompositionCancelLeavesNoUndoStep(t *testing.T) {
 	ct.want("a|\nd|")
 	ct.key(ui.Cmd, ui.KeyZ)
 	ct.want("a[bc]\nd|")
+
+	// A committed composition's step lets go of the text it found.
+	ct = newEditorTest(t, "", "a|")
+	ct.tt.Compose("に", 1)
+	ct.tt.Type("日")
+	ct.want("a日|")
+	if u := ct.st.Buffer.undo; len(u) != 1 || !u[0].before.Same(rope.Text{}) || !u[0].beforeEnds.Same(rope.Text{}) {
+		t.Fatalf("a committed composition keeps the text it found: %d steps", len(u))
+	}
+	ct.key(ui.Cmd, ui.KeyZ)
+	ct.want("a|")
 }
 
 // Enter while an input method composes is its own, as choosing a
