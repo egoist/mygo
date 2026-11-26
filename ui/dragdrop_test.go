@@ -365,6 +365,57 @@ func TestListDragLabel(t *testing.T) {
 	}
 }
 
+// A label in a right to left script draws within its box, which is as
+// wide as the text, not at the right of the width it wraps at.
+func TestListDragLabelRTL(t *testing.T) {
+	items := []string{"a", "b", "c", "d"}
+	s := ListState{
+		DragRows:  func(rows []int) any { return items[rows[0]] },
+		DragLabel: func([]int) string { return "قاعدة البيانات" },
+	}
+	var surface Color
+	tt := coreNewTester(func(c *context) {
+		surface = c.theme.Surface
+		coreList(c, &s, len(items), func(i int) {
+			coreRow(c).Height(40).Children(func() { coreText(c, items[i]) })
+		}).Height(300)
+	}, 500, 400)
+	from, _ := tt.Find("a")
+	to, _ := tt.Find("d")
+	x, y0, y := float32(40), from.Y+from.H/2, to.Y+to.H/2
+	tt.Press(x, y0)
+	for k := 1; k <= 4; k++ {
+		tt.Move(x, y0+(y-y0)*float32(k)/4)
+	}
+	defer tt.Release(x, y)
+	img := tt.Image()
+	isSurface := func(px int) bool {
+		c := img.RGBAAt(px, int(y)+16)
+		near := func(a, b uint8) bool { return a+6 >= b && b+6 >= a }
+		return near(c.R, surface.R) && near(c.G, surface.G) && near(c.B, surface.B)
+	}
+	right := int(x) + 20
+	for right < 500 && isSurface(right+1) {
+		right++
+	}
+	inked := func(from, to int) bool {
+		for px := from; px < to; px++ {
+			for py := int(y) + 10; py < int(y)+40; py++ {
+				if c := img.RGBAAt(px, py); c.R < 100 && c.G < 100 && c.B < 100 {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if !inked(int(x)+14, right) {
+		t.Error("no text in the label")
+	}
+	if inked(right+4, 500) {
+		t.Errorf("text right of the label, which ends at %d", right)
+	}
+}
+
 func TestListDragRowsAndReorder(t *testing.T) {
 	s := ListState{Reorder: func([]int, int) {}, DragRows: func([]int) any { return nil }}
 	defer func() {

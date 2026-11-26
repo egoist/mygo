@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/egoist/mygo/internal/scene"
+	"github.com/egoist/mygo/internal/text"
 	"github.com/egoist/mygo/transfer"
 )
 
@@ -417,7 +418,7 @@ func (rt *engine) paintDrag(p *Painter, w, h float32) {
 	p.opacity, p.clip, p.theme, e.opacitySet, p.copying = 0.75, Rect{0, 0, w, h}, e.theme(), false, true
 	p.element(e)
 	p.opacity = 1
-	rt.paintDragCount(p, d)
+	rt.paintDragCount(p, d, nil)
 	p.opacity, p.clip, p.theme, e.opacitySet, p.copying = saved, savedClip, savedTheme, dimmed, copying
 	if affine {
 		restoreVisual(e)
@@ -501,8 +502,9 @@ func shift(e *node, dx, dy float32) {
 }
 
 // paintDragCount paints how many go with what is dragged, as several
-// rows, beside the pointer, as the copy may be wider than the window.
-func (rt *engine) paintDragCount(p *Painter, d *valueDrag) {
+// rows: beside the pointer, as the copy may be wider than the window, or
+// with a label (ListState.DragLabel) on its corner, at.
+func (rt *engine) paintDragCount(p *Painter, d *valueDrag, at *Rect) {
 	n := d.count
 	if n <= 1 {
 		return
@@ -510,9 +512,12 @@ func (rt *engine) paintDragCount(p *Painter, d *valueDrag) {
 	t := p.Theme()
 	label := Span{Text: itoa(n), Size: t.FontSize - 2, Weight: 600, Color: t.AccentText}
 	tw, th := p.MeasureText(0, label)
-	bw := max(tw+10, th+4)
+	bw, bh := max(tw+10, th+4), th+4
 	x, y := rt.pointerX+10, rt.pointerY-th-14
-	p.Fill(Rect{x, y, bw, th + 4}, t.Accent, (th+4)/2)
+	if at != nil {
+		x, y = max(at.X+at.W-bw/2-2, 0), max(at.Y-bh/2, 0)
+	}
+	p.Fill(Rect{x, y, bw, bh}, t.Accent, bh/2)
 	p.RichText(x+(bw-tw)/2, y+2, 0, label)
 }
 
@@ -521,16 +526,20 @@ func (rt *engine) paintDragCount(p *Painter, d *valueDrag) {
 // its arrow, so that it hides neither the row under the pointer nor its
 // name: on one line, as wide as a tooltip at most. Near the window's
 // right or bottom edge, w by h, it goes to the other side of the pointer,
-// as a tooltip does, rather than over it.
+// as a tooltip does, rather than over it. Several rows show their number
+// on its corner.
 func (rt *engine) paintDragLabel(p *Painter, e *node, d *valueDrag, w, h float32) {
 	saved := p.theme
 	p.theme = e.theme()
 	t := p.Theme()
-	m := rt.richSpans(t, t.Space(80), []Span{{Text: d.label, Size: t.FontSize - 1}})
-	params := m.p
-	params.MaxLines = 1
-	l := rt.text.Layout(params)
 	padX, padY, radius := t.Space(2), t.Space(1.25), t.Space(1.25)
+	// No wider than the window either, and aligned to the left of its
+	// box, which is as wide as the text: right to left text would align
+	// to the right of the width it wraps at, outside the box.
+	m := rt.richSpans(t, max(min(t.Space(80), w-2*padX), t.Space(10)), []Span{{Text: d.label, Size: t.FontSize - 1}})
+	params := m.p
+	params.MaxLines, params.Align = 1, text.Left
+	l := rt.text.Layout(params)
 	r := Rect{rt.pointerX + 14, rt.pointerY + 10, l.Width + 2*padX, l.Height + 2*padY}
 	if r.X+r.W > w {
 		r.X = rt.pointerX - 14 - r.W
@@ -543,6 +552,6 @@ func (rt *engine) paintDragLabel(p *Painter, e *node, d *valueDrag, w, h float32
 	p.Fill(r, t.Surface, radius)
 	p.Stroke(r, t.Border, radius, 1)
 	p.textLayout(l, r.X+padX, r.Y+padY, t.Text, textStyle{size: t.FontSize}, m.paint)
-	rt.paintDragCount(p, d)
+	rt.paintDragCount(p, d, &r)
 	p.theme = saved
 }
