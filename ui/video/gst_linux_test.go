@@ -1,3 +1,5 @@
+//go:build linux && !android && (amd64 || arm64)
+
 package video
 
 import (
