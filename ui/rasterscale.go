@@ -180,6 +180,9 @@ type glyphSpace struct {
 // in the painter's pixels, at its scale, as they always did.
 func (p *Painter) glyphSpace(l *text.Layout, x, y float32, moves bool) glyphSpace {
 	if !p.transform.Set || l == nil {
+		if l != nil && p.owner != nil && p.owner.scales != nil && p.owner.scales.text.frame != 0 {
+			p.owner.scales.text.note(p.rt.paintFrames, 1, [2]float32{})
+		}
 		return glyphSpace{scale: p.scale, q: 1}
 	}
 	return p.glyphSpaceAt(x+l.Width/2, y+l.Height/2, l.Params.Style.FontSize(), moves)
@@ -193,7 +196,7 @@ func (p *Painter) glyphSpaceAt(x, y, size float32, moves bool) glyphSpace {
 		return gs
 	}
 	k := transformScale(m, x, y)
-	if unscaled(k) && (p.owner == nil || p.owner.scales == nil) {
+	if unscaled(k) && (p.owner == nil || p.owner.scales == nil || p.owner.scales.text.frame == 0) {
 		return gs // turned or moved, as ever: nothing to watch
 	}
 	var w *scaleWatch
@@ -258,10 +261,13 @@ const maxLayerScaled = 4096
 func (p *Painter) layerScale(e *node, from Rect) (q float32, still bool) {
 	m := e.world
 	if !m.Set || e.effect != nil || e.blur > 0 {
+		if !m.Set && e.st.scales != nil && e.st.scales.layer.frame != 0 {
+			e.st.scales.layer.note(p.rt.paintFrames, 1, [2]float32{})
+		}
 		return 1, false
 	}
 	k := transformScale(m, e.x+e.w/2, e.y+e.h/2)
-	if unscaled(k) && e.st.scales == nil {
+	if unscaled(k) && (e.st.scales == nil || e.st.scales.layer.frame == 0) {
 		return 1, false
 	}
 	if e.st.scales == nil {
