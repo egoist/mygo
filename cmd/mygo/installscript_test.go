@@ -541,11 +541,18 @@ func TestInstallScriptMacOS(t *testing.T) {
 	settings := filepath.Join(home, "Library", "Application Support", c.Identifier, "settings.json")
 	os.MkdirAll(filepath.Dir(settings), 0o755)
 	os.WriteFile(settings, []byte("{}"), 0o644)
+	// as an update left it before its first start, and one moved aside
+	previous := filepath.Join(filepath.Dir(app), "."+filepath.Base(app)+".previous")
+	os.MkdirAll(filepath.Join(previous, filepath.Base(app), "Contents"), 0o755)
+	os.MkdirAll(previous+".old-1", 0o755)
 	if out, err := run("--uninstall"); err != nil || !strings.Contains(out, "Uninstalled My App. Its settings and data are still in place.") {
 		t.Errorf("install.sh --uninstall: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(app); err == nil {
 		t.Error("the app is still there")
+	}
+	if left, _ := filepath.Glob(previous + "*"); len(left) > 0 {
+		t.Errorf("the previous version is still there: %q", left)
 	}
 	if _, err := os.Stat(settings); err != nil {
 		t.Error(err)

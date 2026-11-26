@@ -495,6 +495,9 @@ macos_uninstall() {
 	fi
 	quit_app
 	rm -rf "$app" || fail "could not remove $app"
+	# The version an update replaced waits beside the bundle until the new
+	# one has started well.
+	rm -rf "$dir/.$bundle.previous" "$dir/.$bundle.previous".* 2>/dev/null || true
 	echo "Uninstalled $app_name. Its settings and data are still in place."
 }
 

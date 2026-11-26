@@ -312,7 +312,7 @@ func installUpdate(ctx context.Context, get update.Getter, m update.Manifest, ke
 		if err := swapFiles(dir, target, prev); err != nil {
 			return err
 		}
-		markPrevious(prev, m.Version)
+		markPrevious(prev, m.Version, current)
 		return nil
 	}
 	if runtime.GOOS == "darwin" {

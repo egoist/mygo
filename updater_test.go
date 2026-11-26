@@ -316,8 +316,8 @@ func TestUpdaterRollback(t *testing.T) {
 	// A first start that dies: the next start puts 1.1.9 back.
 	target, main := install()
 	prev := previousDir(target)
-	if v, started, err := readPreviousMark(prev); v != "1.2.0" || started || err != nil {
-		t.Fatalf("the mark is %q, %v, %v", v, started, err)
+	if v, from, started, err := readPreviousMark(prev); v != "1.2.0" || started || err != nil || runtime.GOOS != "darwin" && from != "1.1.9" {
+		t.Fatalf("the mark is %q from %q, %v, %v", v, from, started, err)
 	}
 	if checkUpdatedStart(target, "1.1.9") {
 		t.Error("another version judged the update")
@@ -325,8 +325,8 @@ func TestUpdaterRollback(t *testing.T) {
 	if checkUpdatedStart(target, "1.2.0") {
 		t.Fatal("the first start was rolled back")
 	}
-	if _, started, _ := readPreviousMark(prev); !started {
-		t.Error("the first start is not marked")
+	if v, from, started, _ := readPreviousMark(prev); !started || v != "1.2.0" || runtime.GOOS != "darwin" && from != "1.1.9" {
+		t.Errorf("the mark of the first start is %q from %q, started %v", v, from, started)
 	}
 	// While the first start runs, another start goes on.
 	if checkUpdatedStart(target, "1.2.0") || len(started) != 0 {
@@ -386,11 +386,63 @@ func TestUpdaterRollback(t *testing.T) {
 	if _, err := os.Stat(prev); err == nil {
 		t.Error("the previous version is kept after the update proved itself")
 	}
+	deletingPrevious.Wait()
+	if aside, _ := filepath.Glob(prev + ".old-*"); len(aside) > 0 {
+		t.Errorf("the previous version moved aside stayed: %q", aside)
+	}
+	// What an app that quit before it finished deleting left goes at the
+	// next start.
+	aside := prev + ".old-1"
+	if err := os.MkdirAll(filepath.Join(aside, "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	removeConfirmedLeftovers(target)
+	if _, err := os.Stat(aside); err == nil {
+		t.Error("removeConfirmedLeftovers left a previous version moved aside")
+	}
 	if checkUpdatedStart(target, "1.2.0") || len(started) != 1 {
 		t.Error("a start after one that proved itself was rolled back")
 	}
 	if b, _ := os.ReadFile(main); string(b) != "v2" {
 		t.Errorf("main = %q", b)
+	}
+}
+
+// The first start of an update proves itself when a window of the app
+// shows: not as it is made hidden.
+func TestUpdaterProvesOnShow(t *testing.T) {
+	ctx := context.Background()
+	srv, key, _, _ := updateServer(t, "1.2.0", "v2", "")
+	up, err := checkUpdate(ctx, feedSource(srv.URL+"/update.json"), key, "1.1.9", false)
+	if err != nil || up == nil {
+		t.Fatalf("checkUpdate = %+v, %v", up, err)
+	}
+	target, _ := installedApp(t)
+	quit := runningApp(t)
+	if err := installUpdate(ctx, httpGet, up.manifest, key, up.current, target, nil); err != nil {
+		t.Fatal(err)
+	}
+	quit()
+	prev := previousDir(target)
+	if checkUpdatedStart(target, "1.2.0") {
+		t.Fatal("the first start was rolled back")
+	}
+	t.Cleanup(func() { confirmUpdate(target, "1.2.0"); deletingPrevious.Wait() })
+	t.Cleanup(watchFirstStart())
+
+	w, _ := testWindow(t, WindowOptions{Hidden: true})
+	onMain(func() {})
+	if _, err := os.Stat(prev); err != nil {
+		t.Fatalf("a hidden window proved the start: %v", err)
+	}
+	w.Show()
+	onMain(func() {})
+	deletingPrevious.Wait()
+	if _, err := os.Stat(prev); err == nil {
+		t.Error("the previous version is kept after the first window showed")
+	}
+	if aside, _ := filepath.Glob(prev + ".old-*"); len(aside) > 0 {
+		t.Errorf("the previous version moved aside stayed: %q", aside)
 	}
 }
 

@@ -22,15 +22,17 @@ import (
 // well (keepPrevious): a new version that dies before it does, as one that
 // crashes at start, is put back by the previous one at its next start
 // (checkUpdatedStart). The previous version waits in previousDir with the
-// file update, which names the new version, and once the new version has
-// started, the word started; that start holds the lock of the file
+// file update, which names the new version and the one it replaced, and
+// once the new version has started, the word started; that start holds the
+// lock of the file
 // started.lock while it runs. A start of that version that finds the word
 // and can take the lock follows one that ended without proving itself, and
 // restores the previous version; while the first start runs, as when the
 // app is opened twice, the lock is held and the start goes on.
 // A start proves itself once it shows its first window, quits normally
 // before, or calls Updater.ConfirmStart, as an app without windows does
-// (confirmUpdate); the previous version is deleted then. Only the new
+// (confirmUpdate); the previous version is moved aside then, and deleted
+// in the background. Only the new
 // version judges: a mark of another version is left alone. A version put
 // back so is remembered (rememberRolledBack): Check offers it no more, only
 // a newer one, and Updater.RolledBack tells the app once.
@@ -49,27 +51,50 @@ func previousDir(target string) string {
 	return filepath.Join(target, ".mygo-previous")
 }
 
-// markPrevious marks the version kept in prev as the one that version
-// replaced.
-func markPrevious(prev, version string) {
-	if err := os.WriteFile(filepath.Join(prev, "update"), []byte(version+"\n"), 0o644); err != nil {
+// markPrevious marks the version kept in prev, from, as the one that
+// version replaced.
+func markPrevious(prev, version, from string) {
+	if err := writePreviousMark(prev, version, from, false); err != nil {
 		log.Printf("mygo: not keeping the previous version: %v", err)
 		_ = os.RemoveAll(prev)
 	}
 }
 
+// writePreviousMark writes the mark of prev: the version that replaced the
+// one kept there, that one, and whether the new version has started.
+func writePreviousMark(prev, version, from string, started bool) error {
+	mark := version + "\n"
+	if from != "" {
+		mark += "from " + from + "\n"
+	}
+	if started {
+		mark += "started\n"
+	}
+	return os.WriteFile(filepath.Join(prev, "update"), []byte(mark), 0o644)
+}
+
 // readPreviousMark reads the mark of prev: the version that replaced the
-// one kept there, and whether it has started.
-func readPreviousMark(prev string) (version string, started bool, err error) {
+// one kept there, that one when the mark names it, and whether the new
+// version has started.
+func readPreviousMark(prev string) (version, from string, started bool, err error) {
 	b, err := os.ReadFile(filepath.Join(prev, "update"))
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
-	lines := strings.Fields(string(b))
-	if len(lines) == 0 {
-		return "", false, errors.New("an empty mark")
+	f := strings.Fields(string(b))
+	if len(f) == 0 {
+		return "", "", false, errors.New("an empty mark")
 	}
-	return lines[0], len(lines) > 1 && lines[1] == "started", nil
+	for i := 1; i < len(f); i++ {
+		switch {
+		case f[i] == "started":
+			started = true
+		case f[i] == "from" && i+1 < len(f):
+			i++
+			from = f[i]
+		}
+	}
+	return f[0], from, started, nil
 }
 
 // checkUpdatedStart judges the start of the app of version at target after
@@ -78,7 +103,7 @@ func readPreviousMark(prev string) (version string, started bool, err error) {
 // the previous version and reports true, having started it.
 func checkUpdatedStart(target, version string) bool {
 	prev := previousDir(target)
-	v, started, err := readPreviousMark(prev)
+	v, from, started, err := readPreviousMark(prev)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			log.Printf("mygo: forgetting the previous version: %v", err)
@@ -98,7 +123,7 @@ func checkUpdatedStart(target, version string) bool {
 		return false // its first start still runs
 	}
 	if !started {
-		if err := os.WriteFile(filepath.Join(prev, "update"), []byte(version+"\nstarted\n"), 0o644); err != nil {
+		if err := writePreviousMark(prev, version, from, true); err != nil {
 			lock.Close()
 			log.Printf("mygo: cannot mark the first start of the update: %v", err)
 			return false
@@ -116,6 +141,14 @@ func checkUpdatedStart(target, version string) bool {
 		return false
 	}
 	rememberRolledBack(version)
+	if from != "" {
+		// The installer registered the version it installed in Settings >
+		// Apps, which the update set to its own (Install).
+		info, _ := packageInfo()
+		if err := update.RefreshUninstallEntry(target, info.Identifier, from); err != nil {
+			log.Printf("mygo: registering the version put back in Settings > Apps: %v", err)
+		}
+	}
 	return startRestored(target)
 }
 
@@ -140,21 +173,48 @@ func proveStart() {
 }
 
 // confirmUpdate deletes the version that the update of version replaced at
-// target: version has proved itself.
+// target: version has proved itself. A whole copy of the app takes a while
+// to delete, and this runs on the main thread when the first window shows,
+// so it is moved aside at once and deleted in the background; what an app
+// that quits sooner leaves is deleted at its next start
+// (removeConfirmedLeftovers).
 func confirmUpdate(target, version string) {
 	prev := previousDir(target)
 	firstStart.Lock()
 	defer firstStart.Unlock()
-	if v, _, err := readPreviousMark(prev); err == nil && v == version {
+	if v, _, _, err := readPreviousMark(prev); err == nil && v == version {
 		if firstStart.lock != nil {
 			// Windows deletes no file that is open.
 			firstStart.lock.Close()
 			firstStart.lock = nil
 		}
-		_ = os.RemoveAll(prev)
+		aside := prev + ".old-" + strconv.Itoa(os.Getpid())
+		if err := os.Rename(prev, aside); err != nil {
+			_ = os.RemoveAll(prev)
+		} else {
+			deletingPrevious.Add(1)
+			go func() {
+				defer deletingPrevious.Done()
+				_ = os.RemoveAll(aside)
+			}()
+		}
 	}
 	if firstStart.target == target {
 		firstStart.target, firstStart.version = "", ""
+	}
+}
+
+// deletingPrevious counts the deletions in the background of previous
+// versions that confirmUpdate moved aside.
+var deletingPrevious sync.WaitGroup
+
+// removeConfirmedLeftovers deletes the previous versions of the app at
+// target that confirmUpdate moved aside and an app that quit did not finish
+// deleting.
+func removeConfirmedLeftovers(target string) {
+	olds, _ := filepath.Glob(previousDir(target) + ".old-*")
+	for _, p := range olds {
+		_ = os.RemoveAll(p)
 	}
 }
 
@@ -331,7 +391,16 @@ func judgeUpdatedStart() {
 	first := firstStart.target != ""
 	firstStart.Unlock()
 	if first {
-		App.OnWindowCreated(func(w *Window) { w.OnShow(proveStart) })
-		App.OnQuit(proveStart)
+		watchFirstStart()
+	} else {
+		go removeConfirmedLeftovers(target)
 	}
+}
+
+// watchFirstStart has the first start of an update prove itself when a
+// window of the app shows, or the app quits normally; off undoes it.
+func watchFirstStart() (off func()) {
+	offShow := App.OnWindowCreated(func(w *Window) { w.OnShow(proveStart) })
+	offQuit := App.OnQuit(proveStart)
+	return func() { offShow(); offQuit() }
 }
