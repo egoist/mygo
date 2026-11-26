@@ -2728,7 +2728,7 @@ stop drops them, so the position is the target at once and stands there
 until the output plays what it mixed since.
 
 The output (`audio/output.go`) is a goroutine that
-opens the device when a voice starts, mixes 10 to 21 ms at a time and
+opens the device when a voice or an `Output` starts, mixes 10 to 21 ms at a time and
 writes it with a call that blocks while the device holds enough, and
 closes the device after five idle seconds. `audio.SetLatency` chooses how
 much the device holds ahead, 40 ms or 250 ms; the output opens it again
@@ -2756,6 +2756,28 @@ Windows. Each platform gives one `openDevice`, which takes it:
   answers fewer when the latency changes. One AudioContext serves the
   page, with the `latencyHint` it began with; closing suspends it, and the
   first pointer or key input resumes it.
+
+An `Output` (`audio/pcm.go`) is an app's own engine pulled from: after the
+voices are mixed, the output goroutine copies the Outputs running into a
+slice it reuses, and calls each one's `fill` outside the mutex, so that
+`fill` may call the package, into a buffer of the Output's, sized once as
+the device opens; it adds what `fill` gave, NaNs left out, and clips.
+`Stop` takes an Output out of the list without waiting for a `fill` under
+way, so `fill` may call it; each is checked under the mutex just before
+its call, so none starts after `Stop` returns. While Outputs run the device
+holds the least of their latencies (20 ms to 1 s), rather than
+`SetLatency`'s, and opens again as that changes. `Output.Delay` is what a
+device that knows how long a frame written waits (`delayer`) said after
+its latest write, else the latency it was asked for: the Audio Queue's
+buffers and the default device's latency, safety offset and I/O buffer
+(Core Audio's `AudioObjectGetPropertyData`) on macOS;
+`pa_simple_get_latency`, or ALSA's `snd_pcm_delay`, after every write on
+Linux; WASAPI's buffer and `GetStreamLatency` on Windows; the hosts'
+`AudioOpen` reply on phones (the writes held, the I/O buffer and the
+route's `outputLatency` on iOS, AudioTrack's buffer on Android); the
+worklet's queue and the context's `baseLatency` and `outputLatency` in
+browsers. Players' `Position` still counts what the device was asked to
+hold.
 
 Where `openDevice` fails, a null device takes the frames on the wall
 clock and fails after two seconds, so the output tries the device again;

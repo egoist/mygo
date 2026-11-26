@@ -26,6 +26,9 @@ object Sound {
                 .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY).build()
             t.play()
             track = t
+            // What a sample written waits: the track's buffer. The device's
+            // own latency after it, as Bluetooth's, is not known.
+            r.delay = t.bufferSizeInFrames.toDouble() / c.rate.toDouble()
         } catch (e: Exception) {
             r.error = "audio: $e"
         }

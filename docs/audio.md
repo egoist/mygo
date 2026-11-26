@@ -193,10 +193,61 @@ HE-AAC (AAC+, with SBR) does not decode: its files fail to open, and
 an app that imports `audio/aac` links it, and takes on the LGPL's terms
 for it; apps that don't, don't.
 
+## An engine of your own
+
+A music app with an engine of its own mixes, sets volumes, equalizes and
+crossfades, and keeps the playback position itself. Played through a
+`Player`, it would be decoded about a second ahead, and every change would
+be heard that much later. An `Output` asks the app for each period's
+samples just before the device takes them instead, a known delay ahead of
+the speakers:
+
+```go
+out := audio.NewOutput(func(dst []float32) {
+	engine.Render(dst) // interleaved stereo at 48 kHz: left, right, left, right…
+}).SetLatency(20 * time.Millisecond)
+out.Start()
+defer out.Close()
+
+// What is heard now, for the line of lyrics and the progress bar.
+heard := engine.Rendered() - out.Delay()
+```
+
+`fill` runs on the output's goroutine, once a period: 10 ms on most
+platforms, 512 frames on macOS and 1024 in browsers, with `len(dst)` the
+same from call to call while the device stays open. `dst` starts as
+silence. `fill` has to return in time, so it doesn't block, wait on a lock
+held for long, or allocate much; the package allocates nothing for a call.
+NaNs play as silence, and a panic in `fill` ends the program, as a
+`Decoder`'s does. `Stop` stops calling it (a call under way finishes),
+`Start` goes on again, and `Close` stops it for good; all three may be
+called from `fill`.
+
+`SetLatency` sets how much the device holds ahead of what is heard, from
+20 ms to 1 s, 40 ms by default. `Delay` is how long a frame `fill` gave
+waits, from `fill`'s return until it is heard: what the device holds, and
+the system's latency after it where the system says:
+
+| platform | `Delay` |
+|---|---|
+| macOS | the Audio Queue's buffers, and the default output's latency, safety offset and I/O buffer, as Core Audio reports them as it opens |
+| Linux | PulseAudio's latency of the stream, measured after every write, else ALSA's `snd_pcm_delay` |
+| Windows | WASAPI's buffer, and its stream latency |
+| iOS | the writes AVAudioEngine holds, its I/O buffer, and the route's `outputLatency`, Bluetooth's included, as it opens |
+| Android | AudioTrack's buffer; the device's latency after it, as Bluetooth's, is not counted |
+| browsers | the AudioWorklet's queue, and the AudioContext's `baseLatency` and `outputLatency` |
+
+Outputs play through the same output as players, added to them: an app can
+play effects with a `Sound` over its engine's music. While Outputs run, the
+device holds the least of their latencies rather than `audio.SetLatency`'s,
+and opens again when that changes, which drops what it held.
+`audio.SetVolume` doesn't apply to them. Where no output opens, `fill` is
+still called on time, unheard, and `Delay` is 0.
+
 ## The output
 
-The output opens when something first plays and closes five seconds after
-everything stopped, so an app that plays nothing keeps no audio device
+The output opens when something first plays, a player or an `Output`, and
+closes five seconds after everything stopped, so an app that plays nothing keeps no audio device
 busy. It plays at 48 kHz in stereo, about 40 ms ahead; players of other
 rates are resampled as they play. Those that play faster than 48 kHz, a
 sound of 88.2, 96 or 192 kHz or one sped up, go through a low-pass first,
@@ -221,6 +272,8 @@ again, which drops what it held.
 | macOS | an Audio Queue on the default output, which follows it |
 | Linux | PulseAudio's simple API (which PipeWire serves as well), else ALSA's default device |
 | Windows | WASAPI in shared mode, opened again when the default output changes |
+| iOS | AVAudioEngine |
+| Android | AudioTrack, in its low-latency mode |
 | browsers | an AudioWorklet; a page may start audio only after the user interacted with it, so it starts on the first click or key |
 
 Where no output opens, as on a machine with no audio device, players still

@@ -23,6 +23,10 @@ func setup(t *testing.T) {
 		v.active = false
 	}
 	voices = nil
+	for _, o := range outputs {
+		o.running = false
+	}
+	outputs = nil
 	volume = 1
 	held, unheard = 0, 0
 	mu.Unlock()

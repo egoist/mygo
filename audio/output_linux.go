@@ -25,10 +25,11 @@ var (
 	pulseLoad sync.Once
 	pulseErr  error
 
-	paSimpleNew   func(server, name *byte, dir int32, dev, stream *byte, spec *paSampleSpec, chmap, attr unsafe.Pointer, err *int32) uintptr
-	paSimpleWrite uintptr // through a cCaller, on every write
-	paSimpleFree  func(s uintptr)
-	paStrerror    func(err int32) string
+	paSimpleNew        func(server, name *byte, dir int32, dev, stream *byte, spec *paSampleSpec, chmap, attr unsafe.Pointer, err *int32) uintptr
+	paSimpleWrite      uintptr // through a cCaller, on every write
+	paSimpleGetLatency uintptr // through a cCaller, after every write
+	paSimpleFree       func(s uintptr)
+	paStrerror         func(err int32) string
 
 	alsaLoad sync.Once
 	alsaErr  error
@@ -36,6 +37,7 @@ var (
 	sndPcmOpen      func(pcm *uintptr, name *byte, stream int32, mode int32) int32
 	sndPcmSetParams func(pcm uintptr, format, access int32, channels, rate uint32, softResample int32, latency uint32) int32
 	sndPcmWritei    uintptr // through a cCaller, on every write
+	sndPcmDelay     uintptr // through a cCaller, after every write
 	sndPcmRecover   func(pcm uintptr, err int32, silent int32) int32
 	sndPcmClose     func(pcm uintptr) int32
 	sndStrerror     func(err int32) string
@@ -88,6 +90,7 @@ type pulseDevice struct {
 	s    uintptr
 	code int32 // pa_simple_write's error
 	c    cCaller
+	lag  time.Duration
 }
 
 func openPulse(ahead time.Duration) (device, error) {
@@ -99,6 +102,7 @@ func openPulse(ahead time.Duration) (device, error) {
 		}
 		purego.RegisterLibFunc(&paSimpleNew, lib, "pa_simple_new")
 		paSimpleWrite = cFunc(lib, "pa_simple_write")
+		paSimpleGetLatency = cFunc(lib, "pa_simple_get_latency")
 		purego.RegisterLibFunc(&paSimpleFree, lib, "pa_simple_free")
 		purego.RegisterLibFunc(&paStrerror, lib, "pa_strerror")
 	})
@@ -134,11 +138,33 @@ func (d *pulseDevice) write(samples []float32) error {
 	return nil
 }
 
+// delay returns how long a frame written now waits before it is heard,
+// as PulseAudio measures it: what the stream holds, and the sink's latency.
+func (d *pulseDevice) delay() time.Duration {
+	// d.code is on the heap, as a cCaller needs.
+	if us := d.c.call(paSimpleGetLatency, d.s, uintptr(unsafe.Pointer(&d.code))); us != ^uintptr(0) {
+		d.lag = time.Duration(us) * time.Microsecond
+	}
+	return d.lag
+}
+
 func (d *pulseDevice) close() { paSimpleFree(d.s) }
 
 type alsaDevice struct {
-	pcm uintptr
-	c   cCaller
+	pcm    uintptr
+	c      cCaller
+	frames int64 // snd_pcm_delay's
+	lag    time.Duration
+}
+
+// delay returns how long a frame written now waits before it is heard,
+// as ALSA measures it, the hardware's latency included.
+func (d *alsaDevice) delay() time.Duration {
+	// d.frames is on the heap, as a cCaller needs.
+	if int32(d.c.call(sndPcmDelay, d.pcm, uintptr(unsafe.Pointer(&d.frames)))) == 0 && d.frames >= 0 {
+		d.lag = frames(d.frames, sampleRate)
+	}
+	return d.lag
 }
 
 func openALSA(ahead time.Duration) (device, error) {
@@ -151,6 +177,7 @@ func openALSA(ahead time.Duration) (device, error) {
 		purego.RegisterLibFunc(&sndPcmOpen, lib, "snd_pcm_open")
 		purego.RegisterLibFunc(&sndPcmSetParams, lib, "snd_pcm_set_params")
 		sndPcmWritei = cFunc(lib, "snd_pcm_writei")
+		sndPcmDelay = cFunc(lib, "snd_pcm_delay")
 		purego.RegisterLibFunc(&sndPcmRecover, lib, "snd_pcm_recover")
 		purego.RegisterLibFunc(&sndPcmClose, lib, "snd_pcm_close")
 		purego.RegisterLibFunc(&sndStrerror, lib, "snd_strerror")

@@ -31,9 +31,13 @@ final class Sound {
                 attached = true
             }
             // Writes of 10 ms: as many as hold what was asked for.
-            room = DispatchSemaphore(value: max(2, c.ahead / 10))
+            let held = max(2, c.ahead / 10)
+            room = DispatchSemaphore(value: held)
             try engine.start()
             player.play()
+            // What a sample written waits: the writes held, the engine's
+            // I/O buffer, and the route's latency (more over Bluetooth).
+            r.delay = Double(held) * 0.01 + s.ioBufferDuration + s.outputLatency
         } catch {
             r.error = "audio: \(error.localizedDescription)"
         }

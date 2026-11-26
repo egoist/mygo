@@ -141,7 +141,19 @@ func jsSetup(ahead time.Duration) error {
 // jsOpen is whether the output is open, which keeps the context running.
 var jsOpen bool
 
-type jsDevice struct{}
+// A jsDevice's lag is what the worklet queues, and the context's latency
+// after it, as the browser reports it.
+type jsDevice struct{ lag time.Duration }
+
+func (d jsDevice) delay() time.Duration { return d.lag }
+
+// seconds returns v's number of seconds, 0 where it is none.
+func seconds(v js.Value) time.Duration {
+	if v.Type() != js.TypeNumber {
+		return 0
+	}
+	return time.Duration(v.Float() * float64(time.Second))
+}
 
 func openDevice(ahead time.Duration) (device, int, error) {
 	if err := jsSetup(ahead); err != nil {
@@ -161,7 +173,8 @@ func openDevice(ahead time.Duration) (device, int, error) {
 	jsAhead = want
 	jsOpen = true
 	jsContext.Call("resume")
-	return jsDevice{}, jsFrames, nil
+	lag := frames(int64(jsAhead*jsFrames), sampleRate) + seconds(jsContext.Get("baseLatency")) + seconds(jsContext.Get("outputLatency"))
+	return jsDevice{lag}, jsFrames, nil
 }
 
 func (jsDevice) write(samples []float32) error {

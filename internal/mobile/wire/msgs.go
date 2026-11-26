@@ -1330,7 +1330,7 @@ func (m *PluginCall) Encode(w *Writer) {
 // Wait reports whether the caller waits for the host to run it.
 func (*PluginCall) Wait() bool { return false }
 
-// AudioOpen is opens the sound's output: stereo at Rate frames a second, holding about Ahead milliseconds; on the caller's thread.
+// AudioOpen is opens the sound's output: stereo at Rate frames a second, holding about Ahead milliseconds; on the caller's thread. Delay is the seconds a sample written waits before it is heard: what the output holds, and the system's latency after it.
 type AudioOpen struct {
 	Rate  int
 	Ahead int
@@ -1347,10 +1347,12 @@ func (*AudioOpen) Wait() bool { return true }
 
 type AudioOpenReply struct {
 	Error string
+	Delay float64
 }
 
 func (m *AudioOpenReply) Decode(r *Reader) {
 	m.Error = r.String()
+	m.Delay = r.Float()
 }
 
 // AudioWrite is plays interleaved stereo float32 samples after those written, waiting while the output holds enough; on the caller's thread.

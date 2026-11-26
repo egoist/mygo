@@ -114,7 +114,10 @@ type wasapiDevice struct {
 	frames                     uint32 // the client's buffer
 	id                         string // the device's endpoint ID
 	checked                    time.Time
+	lag                        time.Duration // from a write to the speakers
 }
+
+func (d *wasapiDevice) delay() time.Duration { return d.lag }
 
 // defaultID returns the endpoint ID of the default output.
 func defaultID(enumerator uintptr) (string, error) {
@@ -198,6 +201,13 @@ func (d *wasapiDevice) open(ahead time.Duration) error {
 	}
 	if hr := comCall(d.client, 4, uintptr(unsafe.Pointer(&d.frames))); failed(hr) {
 		return hresult("IAudioClient.GetBufferSize", hr)
+	}
+	// A write waits for room, so a frame written waits about the buffer,
+	// and the stream's latency after it.
+	d.lag = frames(int64(d.frames), sampleRate)
+	var latency int64 // in 100 ns
+	if hr := comCall(d.client, 5, uintptr(unsafe.Pointer(&latency))); !failed(hr) && latency > 0 {
+		d.lag += time.Duration(latency) * 100
 	}
 	if hr := comCall(d.client, 14, uintptr(unsafe.Pointer(&iidIAudioRenderClient)), uintptr(unsafe.Pointer(&d.render))); failed(hr) {
 		return hresult("IAudioClient.GetService", hr)
