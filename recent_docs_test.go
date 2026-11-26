@@ -186,8 +186,9 @@ func TestJumpListSetTasks(t *testing.T) {
 }
 
 // A recent-documents.json that is there and cannot be read is not one that
-// holds nothing: an add or a clear refused to write over it, and the list
-// it held stays.
+// holds nothing: an add says so and leaves the list it held, though the
+// system still records the document. A clear, which drops the list
+// anyway, writes over it.
 func TestRecentDocumentsFileThatCannotBeReadIsNotReplaced(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("a mode is no bar on Windows, and root reads every file")
@@ -209,13 +210,39 @@ func TestRecentDocumentsFileThatCannotBeReadIsNotReplaced(t *testing.T) {
 	if err := App.AddRecentDocument("/c"); err == nil {
 		t.Fatal("an add over a list that could not be read said nothing")
 	}
-	if err := App.ClearRecentDocuments(); err == nil {
-		t.Fatal("a clear over a list that could not be read said nothing")
+	if got := onMainValue(func() []string { return slices.Clone(fb.RecentDocuments) }); !slices.Equal(got, []string{"/c"}) {
+		t.Errorf("the system's recent documents = %q, want [/c]", got)
 	}
 	if err := os.Chmod(f, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := readString(t, f); got != `["/a","/b"]` {
 		t.Errorf("the file was replaced: %q", got)
+	}
+	// Readable again, the list is back.
+	if err := App.AddRecentDocument("/c"); err != nil {
+		t.Fatal(err)
+	}
+	recentDocs.Lock()
+	got := slices.Clone(recentDocs.paths)
+	recentDocs.Unlock()
+	if !slices.Equal(got, []string{"/c", "/a", "/b"}) {
+		t.Errorf("the list once readable = %q, want [/c /a /b]", got)
+	}
+
+	if err := os.Chmod(f, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	recentDocs.Lock()
+	recentDocs.loaded, recentDocs.paths = false, nil
+	recentDocs.Unlock()
+	if err := App.ClearRecentDocuments(); err != nil {
+		t.Fatal(err)
+	}
+	if n := onMainValue(func() int { return fb.RecentCleared }); n != 1 {
+		t.Errorf("the system's list was cleared %d times, want once", n)
+	}
+	if got := readString(t, f); got != "[]" && got != "null" {
+		t.Errorf("the file after a clear = %q, want an empty list", got)
 	}
 }

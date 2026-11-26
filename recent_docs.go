@@ -92,17 +92,18 @@ func (a *Application) AddRecentDocument(path string) error {
 // and records it with the system.
 func addRecentDocument(path string) error {
 	recentDocs.Lock()
-	if err := loadRecentLocked(); err != nil {
-		recentDocs.Unlock()
-		return err
+	// A list that cannot be read is left as it is; the system still
+	// records the document.
+	err := loadRecentLocked()
+	if err == nil {
+		paths := slices.DeleteFunc(slices.Clone(recentDocs.paths), func(p string) bool { return p == path })
+		paths = slices.Insert(paths, 0, path)
+		if len(paths) > maxRecentDocuments {
+			paths = paths[:maxRecentDocuments]
+		}
+		recentDocs.paths = paths
+		err = saveRecentLocked()
 	}
-	paths := slices.DeleteFunc(slices.Clone(recentDocs.paths), func(p string) bool { return p == path })
-	paths = slices.Insert(paths, 0, path)
-	if len(paths) > maxRecentDocuments {
-		paths = paths[:maxRecentDocuments]
-	}
-	recentDocs.paths = paths
-	err := saveRecentLocked()
 	recentDocs.Unlock()
 	return errors.Join(err, onMainValue(func() error { return backend().App().AddRecentDocument(path) }))
 }
@@ -115,10 +116,9 @@ func addRecentDocument(path string) error {
 func (a *Application) ClearRecentDocuments() error {
 	needsApp("App.ClearRecentDocuments")
 	recentDocs.Lock()
-	if err := loadRecentLocked(); err != nil {
-		recentDocs.Unlock()
-		return err
-	}
+	// Clearing drops what the list held, so one that cannot be read is
+	// written over too.
+	recentDocs.loaded = true
 	recentDocs.paths = nil
 	err := saveRecentLocked()
 	recentDocs.Unlock()
