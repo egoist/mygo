@@ -426,7 +426,11 @@ func (v *view) focusBlock() bool {
 }
 
 // backToText brings the focus back from a block to the text, with the
-// caret on the attachment, as the Escape pressed in it does.
+// caret on the attachment, as the Escape pressed in it does. The focus goes
+// back wherever in the card it was: an element of the card sees the key as
+// it comes, so one that uses the Escape does what it does with it, and the
+// text has the keys again, as a card that holds a button, which the keys do
+// nothing in, asked for.
 func (v *view) backToText() bool {
 	b := v.blockFocus
 	if b == nil || v.c == nil || !b.handle.FocusWithin(v.c) {
@@ -439,22 +443,4 @@ func (v *view) backToText() bool {
 	}
 	v.editor.Focus(v.c)
 	return true
-}
-
-// escapeFromBlock brings the focus back from a block to the text, when the
-// Escape was pressed in it. The element that has the focus saw the key
-// before the editor takes it, so an element in the card that uses the
-// Escape keeps the focus, and the editor brings the text back only when
-// the card itself has it.
-func (v *view) escapeFromBlock() {
-	b := v.blockFocus
-	if b == nil || v.c == nil || !b.handle.FocusWithin(v.c) {
-		return
-	}
-	if !b.handle.Focused(v.c) {
-		// The focus is in what the card holds, not in the card itself: the
-		// key was that element's, and it may have used it.
-		return
-	}
-	v.backToText()
 }

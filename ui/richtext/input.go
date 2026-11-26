@@ -467,9 +467,9 @@ func (v *view) observe(ev ui.InputEvent) {
 		return
 	}
 	// The key is not taken here: the element that has the focus sees it
-	// first, and a field in a card may use it to cancel what it is doing.
-	// The editor brings the focus back to the text in the frame it builds,
-	// when the card itself has the focus.
+	// first, and a control in a card may use it for what it is doing. The
+	// editor brings the focus back to the text in the frame it builds,
+	// wherever in the card the focus was.
 	v.escape = true
 }
 

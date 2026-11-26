@@ -548,7 +548,10 @@ func TestBlockAboveTheCaretResizing(t *testing.T) {
 
 // The Escape in a field of a card is the field's: the editor does not
 // take the focus back from it.
-func TestBlockEscapeInAField(t *testing.T) {
+// A control in a card sees the Escape it pressed, and the text has the
+// keys again after it: a card that holds a button, which the keys do
+// nothing in, gives them back rather than keeping them.
+func TestBlockEscapeInAControl(t *testing.T) {
 	escaped := false
 	focused := false
 	doc, _ := blockDoc(func(c *ui.Context, width float32) ui.Element {
@@ -564,24 +567,66 @@ func TestBlockEscapeInAField(t *testing.T) {
 		})
 	})
 	tt := blockTester(t, doc)
-	// The field in the card has the focus.
+	// The control in the card has the focus.
 	r, ok := tt.Find("Field")
 	if !ok {
-		t.Fatal("the field is not shown")
+		t.Fatal("the control is not shown")
 	}
 	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
 	tt.Frame()
 	if !focused {
-		t.Fatal("the field does not have the focus")
+		t.Fatal("the control does not have the focus")
 	}
-	// The Escape is the field's.
+	// The Escape is the control's to use, and the text has the keys after
+	// it.
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 	if !escaped {
-		t.Fatal("the field did not see the Escape")
+		t.Fatal("the control did not see the Escape")
 	}
+	if focused {
+		t.Fatal("the editor did not take the focus back from the control")
+	}
+	tt.Type("x")
+	tt.Frame()
+	if got, want := doc.Text().String(), "Before\nx\ufffc\nAfter"; got != want {
+		t.Fatalf("the keys went nowhere after the Escape: %q", got)
+	}
+}
+
+// The Escape pressed on a button in a card gives the keys back to the
+// text: a button does nothing with them, and the text has them again.
+func TestBlockEscapeOnAButton(t *testing.T) {
+	focused := false
+	doc, _ := blockDoc(func(c *ui.Context, width float32) ui.Element {
+		return ui.Box(c).Height(40).Children(func() {
+			b := ui.ButtonBase(c).Fill().Label("Press me")
+			focused = b.Focused()
+		})
+	})
+	tt := blockTester(t, doc)
+	r, ok := tt.Find("Press me")
+	if !ok {
+		t.Fatal("the button is not shown")
+	}
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
 	if !focused {
-		t.Fatal("the editor took the focus back from the field")
+		t.Fatal("the button does not have the focus")
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if focused {
+		t.Fatal("the button still has the focus")
+	}
+	_, caret := doc.Selection()
+	if caret != 7 {
+		t.Fatalf("the caret is at %d, the attachment is at 7", caret)
+	}
+	tt.Type("x")
+	tt.Frame()
+	if got, want := doc.Text().String(), "Before\nx\ufffc\nAfter"; got != want {
+		t.Fatalf("the keys went nowhere after the Escape: %q", got)
 	}
 }
 

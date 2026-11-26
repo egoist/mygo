@@ -364,10 +364,10 @@ func build(c *ui.Context, doc *Document, options []EditorOptions, styled bool) u
 	}
 	if v.escape {
 		// The Escape was pressed: the element that has the focus saw it
-		// first, and the editor brings the focus back to the text when the
-		// card itself has it.
+		// first, and the editor brings the focus back to the text
+		// wherever in the card it was.
 		v.escape = false
-		v.escapeFromBlock()
+		v.backToText()
 	}
 	e.Bind(&v.editor)
 	if focused && !v.opts.ReadOnly {

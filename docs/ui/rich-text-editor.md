@@ -483,8 +483,9 @@ app.doc.InsertAttachment(card)
 
 The editor builds the element in the frames its paragraph is in view, and
 the element takes the focus when the caret is on the attachment and Return
-or Tab is pressed; Escape on the card itself brings the text back, with the
-caret on the attachment. A control inside the card can handle Escape itself.
+or Tab is pressed; Escape brings the text back, with the caret on the
+attachment, wherever in the card the focus was: a control in the card sees
+the key as it comes and may use it, and the text has the keys after it.
 The presses on the element go to what is in it, as they go to
 a button, and the wheel over it scrolls the text, and goes on to the
 containers around the editor where the text does not scroll.
