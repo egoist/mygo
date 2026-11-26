@@ -18,6 +18,7 @@ var (
 // border in yellow and margins in orange, with a tooltip telling what it
 // is.
 func (in *inspector) paintHighlight(rt *engine, p *Painter, h float32) {
+	in.noteRepaints(rt, p)
 	e := in.hoverElem
 	if e == nil && in.listID != 0 && rt.focused == in.listID {
 		e = in.selElem
@@ -25,7 +26,7 @@ func (in *inspector) paintHighlight(rt *engine, p *Painter, h float32) {
 	if e != nil && e.leaving != 0 {
 		e = nil
 	}
-	if e == nil && len(in.overlays) == 0 {
+	if e == nil && len(in.overlays) == 0 && len(in.flashes) == 0 {
 		return
 	}
 	savedClip, savedOpacity := p.clip, p.opacity
@@ -36,6 +37,7 @@ func (in *inspector) paintHighlight(rt *engine, p *Painter, h float32) {
 		p.clip, p.opacity = savedClip, savedOpacity
 	}()
 	in.paintLayouts(p)
+	in.paintFlashes(rt, p)
 	if e == nil {
 		return
 	}
@@ -71,6 +73,8 @@ type tipRow struct {
 	label, value string
 	color        Color
 	swatch       bool
+	// tone colors the value, unless it is transparent.
+	tone Color
 }
 
 // paintTooltip paints the tooltip of e, whose margin box is box, above
@@ -109,8 +113,14 @@ func (in *inspector) paintTooltip(rt *engine, p *Painter, e *node, box Rect, h f
 	}
 	focusable := e.flags&flagFocusable != 0 && !e.IsDisabled()
 	acc := []tipRow{{label: "Name", value: name}, {label: "Role", value: role}, {label: "Keyboard-focusable", value: "✓"}}
+	acc[2].tone = Hex("#188038")
 	if !focusable {
-		acc[2].value = "⊘"
+		acc[2].value, acc[2].tone = "⊘", muted
+	}
+	if e.kind == kindText || e.kind == kindIcon {
+		if r, ok := contrastRow(rt, e); ok {
+			acc = append(acc, r)
+		}
 	}
 
 	// Measure, then paint: the header, the rows, a line, the accessibility.
@@ -196,13 +206,10 @@ func (in *inspector) paintTooltip(rt *engine, p *Painter, e *node, box Rect, h f
 	cy += 9
 	p.RichText(cx, cy, 0, span("ACCESSIBILITY", muted, 600))
 	cy += th + gap
-	for i, t := range acc {
+	for _, t := range acc {
 		c := ink
-		if i == 2 {
-			c = Hex("#188038")
-			if !focusable {
-				c = muted
-			}
+		if t.tone.A > 0 {
+			c = t.tone
 		}
 		row(t, c)
 	}
