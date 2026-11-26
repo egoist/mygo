@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -371,6 +373,11 @@ func TestOpenDataContainers(t *testing.T) {
 			if err := os.WriteFile(path, data, 0o644); err != nil {
 				t.Fatal(err)
 			}
+			if name == "rgb.avi" && macOSBefore(27) {
+				// It loads, its MJPEG track decodable, and plays to its end
+				// without a picture, from a file too: no error to wait for.
+				t.Skip("AVFoundation before macOS 27 shows no picture of rgb.avi")
+			}
 			if err := opens(t, path); err != nil {
 				t.Skip("the system does not play the file:", err)
 			}
@@ -401,4 +408,19 @@ func opens(t *testing.T, path string) error {
 		return p.Ready() || p.Err() != nil
 	})
 	return p.Err()
+}
+
+// macOSBefore is whether the system is macOS older than the major
+// version.
+func macOSBefore(major int) bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	out, err := exec.Command("sw_vers", "-productVersion").Output()
+	if err != nil {
+		return false
+	}
+	v, _, _ := strings.Cut(strings.TrimSpace(string(out)), ".")
+	n, err := strconv.Atoi(v)
+	return err == nil && n < major
 }
