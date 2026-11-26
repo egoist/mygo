@@ -64,19 +64,14 @@ var matrixRows = []matrixRow{
 	{file: "mp4_h264_aac.mp4", darwin: plays, ios: plays, windows: plays, linux: plays, gst: []string{"qtdemux", "avdec_h264"}},
 	{file: "m4v_h264_aac.m4v", darwin: plays, ios: plays, windows: plays, linux: plays, gst: []string{"qtdemux", "avdec_h264"}},
 	{file: "3gp_h264_aac.3gp", darwin: plays, ios: plays, windows: plays, linux: plays, gst: []string{"qtdemux", "avdec_h264"}},
-	// GStreamer's MP4 demuxer reading a stream (HTTP) does not seek in a
-	// fragmented MP4, which has no index of its fragments.
-	{file: "fmp4_h264_aac.mp4", darwin: plays, ios: plays, windows: plays, linux: plays, by: map[string]matrixWant{"linux/OpenURL": plays | noSeek}, gst: []string{"qtdemux", "avdec_h264"}},
+	{file: "fmp4_h264_aac.mp4", darwin: plays, ios: plays, windows: plays, linux: plays, gst: []string{"qtdemux", "avdec_h264"}},
 	{file: "mov_h264_aac.mov", darwin: plays, ios: plays, windows: plays, linux: plays, gst: []string{"qtdemux", "avdec_h264"}},
 	{file: "mkv_h264_aac.mkv", darwin: fails, ios: fails, windows: plays, linux: plays, gst: []string{"matroskademux", "avdec_h264"}},
-	// GStreamer's Matroska demuxer reading a stream (HTTP) fails a seek in
-	// these WebM files now and then, "Could not demultiplex stream" (11
-	// of 60 times), not in the Matroska ones, nor without the Opus sound.
 	// Windows's VP9 decoder, where the Store's VP9 extension is installed
 	// (Windows 11 on Arm), shows another picture after a seek, in WebM and
 	// MP4 alike.
-	{file: "webm_vp9_opus.webm", darwin: fails, ios: fails, windows: varies | noSeek, linux: plays, by: map[string]matrixWant{"linux/OpenURL": plays | noSeek}, gst: []string{"matroskademux", "vp9dec"}},
-	{file: "webm_av1_opus.webm", darwin: fails, ios: fails, windows: varies, linux: plays, by: map[string]matrixWant{"linux/OpenURL": plays | noSeek}, gst: []string{"matroskademux", "av1dec"}},
+	{file: "webm_vp9_opus.webm", darwin: fails, ios: fails, windows: varies | noSeek, linux: plays, gst: []string{"matroskademux", "vp9dec"}},
+	{file: "webm_av1_opus.webm", darwin: fails, ios: fails, windows: varies, linux: plays, gst: []string{"matroskademux", "av1dec"}},
 	// Media Foundation's MPEG-TS source, and GStreamer's MPEG-TS and
 	// MPEG-PS demuxers, land a seek elsewhere than asked, from a file too
 	// (#2371).
@@ -92,7 +87,7 @@ var matrixRows = []matrixRow{
 	{file: "mp4_vp9_opus.mp4", darwin: fails, ios: fails, windows: varies | noSeek, linux: plays, gst: []string{"qtdemux", "vp9dec"}},
 	// The iOS simulator decodes no AV1, on a Mac whose chip does (M4, iOS
 	// 18.6 and 27).
-	{file: "fmp4_av1_aac.mp4", darwin: varies, ios: fails, windows: varies, linux: plays, by: map[string]matrixWant{"linux/OpenURL": plays | noSeek}, gst: []string{"qtdemux", "av1dec"}},
+	{file: "fmp4_av1_aac.mp4", darwin: varies, ios: fails, windows: varies, linux: plays, gst: []string{"qtdemux", "av1dec"}},
 	{file: "hls_fmp4/index.m3u8", darwin: plays, ios: plays, windows: plays, linux: plays, gst: []string{"hlsdemux", "qtdemux", "avdec_h264"}},
 	{file: "hls_ts/index.m3u8", darwin: plays, ios: plays, windows: plays, linux: plays, gst: []string{"hlsdemux", "tsdemux", "h264parse", "avdec_h264"}},
 }

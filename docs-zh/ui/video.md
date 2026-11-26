@@ -121,14 +121,14 @@ func (f *frames) Rewind() error { f.next = 0; return nil }
 | 容器：视频编码 | macOS | iOS（模拟器） | Windows | Linux |
 | --- | --- | --- | --- | --- |
 | MP4、M4V、3GP、MOV：H.264 | 能播放 | 能播放 | 能播放 | 能播放 |
-| 分片 MP4：H.264 | 能播放 | 能播放 | 能播放 | 能播放；通过 HTTP 时 seek 不准 |
+| 分片 MP4：H.264 | 能播放 | 能播放 | 能播放 | 能播放 |
 | MP4：HEVC | 能播放 | 能播放 | 需要相应扩展 | 能播放 |
 | MP4：VP9 | 不能 | 不能 | 需要相应扩展；seek 不准 | 能播放 |
-| 分片 MP4：AV1 | Apple M3 及更新的芯片 | 不能 | 需要相应扩展 | 能播放；通过 HTTP 时 seek 不准 |
+| 分片 MP4：AV1 | Apple M3 及更新的芯片 | 不能 | 需要相应扩展 | 能播放 |
 | Matroska：H.264 | 不能 | 不能 | 能播放 | 能播放 |
 | Matroska：HEVC | 不能 | 不能 | 需要相应扩展 | 能播放 |
-| WebM：VP9，含 Opus | 不能 | 不能 | 需要相应扩展；VP9 的 seek 不准 | 能播放；通过 HTTP 时 seek 偶尔失败 |
-| WebM：AV1，含 Opus | 不能 | 不能 | 需要相应扩展 | 能播放；通过 HTTP 时 seek 偶尔失败 |
+| WebM：VP9，含 Opus | 不能 | 不能 | 需要相应扩展；VP9 的 seek 不准 | 能播放 |
+| WebM：AV1，含 Opus | 不能 | 不能 | 需要相应扩展 | 能播放 |
 | MPEG-TS、M2TS：H.264 | 能播放 | 不能 | 能播放；seek 不准 | 能播放；seek 不准 |
 | MPEG-TS：HEVC | 不能 | 不能 | 需要相应扩展；seek 不准 | 能播放；seek 不准 |
 | MPEG-PS：MPEG-2 | 能播放 | 不能 | Windows 11；seek 不准 | 能播放；seek 不准 |

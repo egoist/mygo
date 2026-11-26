@@ -210,14 +210,14 @@ plays them with the Store's video extensions installed. Linux needs
 | Container: video                    | macOS                    | iOS (simulator) | Windows                                 | Linux                                      |
 | ----------------------------------- | ------------------------ | --------------- | --------------------------------------- | ------------------------------------------ |
 | MP4, M4V, 3GP, MOV: H.264           | plays                    | plays           | plays                                   | plays                                      |
-| Fragmented MP4: H.264               | plays                    | plays           | plays                                   | plays; over HTTP, seeks miss               |
+| Fragmented MP4: H.264               | plays                    | plays           | plays                                   | plays                                      |
 | MP4: HEVC                           | plays                    | plays           | with its extension                      | plays                                      |
 | MP4: VP9                            | no                       | no              | with its extension; seeks miss          | plays                                      |
-| Fragmented MP4: AV1                 | Apple M3 and later       | no              | with its extension                      | plays; over HTTP, seeks miss               |
+| Fragmented MP4: AV1                 | Apple M3 and later       | no              | with its extension                      | plays                                      |
 | Matroska: H.264                     | no                       | no              | plays                                   | plays                                      |
 | Matroska: HEVC                      | no                       | no              | with its extension                      | plays                                      |
-| WebM: VP9, with Opus                | no                       | no              | with its extension; VP9's seeks miss    | plays; over HTTP, seeks fail now and then  |
-| WebM: AV1, with Opus                | no                       | no              | with its extension                      | plays; over HTTP, seeks fail now and then  |
+| WebM: VP9, with Opus                | no                       | no              | with its extension; VP9's seeks miss    | plays                                      |
+| WebM: AV1, with Opus                | no                       | no              | with its extension                      | plays                                      |
 | MPEG-TS, M2TS: H.264                | plays                    | no              | plays; seeks miss                       | plays; seeks miss                          |
 | MPEG-TS: HEVC                       | no                       | no              | with its extension; seeks miss          | plays; seeks miss                          |
 | MPEG-PS: MPEG-2                     | plays                    | no              | Windows 11; seeks miss                  | plays; seeks miss                          |
