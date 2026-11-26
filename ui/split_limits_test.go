@@ -464,3 +464,35 @@ func TestSplitLimitsSecond(t *testing.T) {
 		}
 	}
 }
+
+// TestSplitLimitsSecondPastMaximums tells assistive technology where the
+// divider shows with SplitSecond when the room is larger than both
+// maximums: the first pane stops at its own and the second follows it,
+// so the divider stays at the first's maximum, not where the second would
+// end at the split's end.
+func TestSplitLimitsSecondPastMaximums(t *testing.T) {
+	for _, percent := range []bool{false, true} {
+		size := float32(200)
+		if percent {
+			size = 20
+		}
+		var div *node
+		tt := coreNewTester(func(c *context) {
+			first, second := limitsPanes(c)
+			split := coreSplit
+			if percent {
+				split = coreSplitPercent
+			}
+			e := split(c, &size, first, second)
+			e.SplitSecond().SplitLimits(SplitLimits{FirstMax: 350, SecondMax: 250}).Fill()
+			div = c.splitBuilt(e).div
+		}, 811, 200)
+		tt.Frame()
+		if a, b := laidPanes(tt); a.W != 350 || b.X != 351 || b.W != 250 {
+			t.Fatalf("percent %v: panes %v and %v, want 350 wide and the second at 351, 250 wide", percent, a, b)
+		}
+		if div.accRange != [3]float64{350, 350, 350} {
+			t.Errorf("percent %v: the divider reads %v, want 350 in 350..350", percent, div.accRange)
+		}
+	}
+}
