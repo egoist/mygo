@@ -62,7 +62,8 @@ type Statement struct {
 
 // DB is a connection to the plugin's SQLite library. It is safe from any
 // goroutine; operations serialize on the connection and may be canceled
-// while waiting for it. Use Transaction for atomic groups of statements.
+// while waiting for it. Use Transaction for atomic groups of statements,
+// and TransactionFunc for writes that depend on reads.
 type DB struct {
 	gate   chan struct{}
 	life   context.Context
@@ -175,13 +176,8 @@ func (d *DB) Transaction(ctx context.Context, statements []Statement) (results [
 		committed := false
 		defer func() {
 			if !committed {
-				// Cleanup must run even when the operation is canceled.
-				detach()
-				if rollback := d.control("ROLLBACK"); rollback != nil {
-					// SQLITE_INTERRUPT may already have rolled the transaction back.
-					if !d.conn.Autocommit() {
-						err = errors.Join(err, rollback)
-					}
+				if rollback := d.rollback(detach); rollback != nil {
+					err = errors.Join(err, rollback)
 				}
 			}
 		}()
@@ -213,6 +209,130 @@ func (d *DB) Transaction(ctx context.Context, statements []Statement) (results [
 		results = nil
 	}
 	return
+}
+
+// ErrTxDone is returned by a Tx's methods once its transaction has
+// ended: after TransactionFunc's function returns, or after SQLite rolled
+// the transaction back on an error the function went on from.
+var ErrTxDone = errors.New("sqlite: transaction has already been committed or rolled back")
+
+// Tx is a transaction that TransactionFunc runs. Its statements run on
+// the transaction's connection, see its own writes, and are canceled with
+// TransactionFunc's context. It is valid only until the function returns.
+type Tx struct {
+	db   *DB
+	ctx  context.Context
+	mu   sync.Mutex // serializes statements, and their end
+	done bool
+}
+
+// TransactionFunc runs fn in a transaction under BEGIN IMMEDIATE, without
+// interleaving other operations on this connection, so that a write can
+// depend on what fn reads first: no other connection writes in between.
+// It commits when fn returns nil. When fn returns an error, including a
+// statement's that it passes on, everything rolls back and
+// TransactionFunc returns fn's error as it was. Canceling ctx interrupts
+// the statement running, rolls back and returns ctx's error, and closing
+// the connection returns ErrClosed. A panic in fn rolls back and goes on
+// panicking. Use tx for statements inside fn: the DB's own methods wait
+// for the transaction to end.
+func (d *DB) TransactionFunc(ctx context.Context, fn func(tx *Tx) error) error {
+	return d.operation(ctx, func(detach func()) (err error) {
+		if err = d.control("BEGIN IMMEDIATE"); err != nil {
+			return err
+		}
+		tx := &Tx{db: d, ctx: ctx}
+		committed := false
+		// Deferred, so that a panic in fn rolls back too.
+		defer func() {
+			tx.end()
+			if !committed {
+				if rollback := d.rollback(detach); rollback != nil {
+					err = errors.Join(err, rollback)
+				}
+			}
+		}()
+		if err = fn(tx); err != nil {
+			return err
+		}
+		tx.end()
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+		if d.life.Err() != nil {
+			return ErrClosed
+		}
+		if d.conn.Autocommit() {
+			// SQLite rolled back on an error that fn went on from.
+			return ErrTxDone
+		}
+		if err = d.control("COMMIT"); err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	})
+}
+
+// Execute runs exactly one statement in the transaction, as DB.Execute.
+// Transaction control is rejected.
+func (t *Tx) Execute(sql string, args ...any) (Result, error) {
+	result, _, err := t.run(sql, args, false)
+	return result, err
+}
+
+// Query runs exactly one statement in the transaction and copies its
+// rows, as DB.Query, reading the transaction's own writes.
+func (t *Tx) Query(sql string, args ...any) (Rows, error) {
+	_, rows, err := t.run(sql, args, true)
+	return rows, err
+}
+
+func (t *Tx) run(sql string, args []any, query bool) (Result, Rows, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.done {
+		return Result{}, Rows{}, ErrTxDone
+	}
+	if err := t.ctx.Err(); err != nil {
+		return Result{}, Rows{}, err
+	}
+	if t.db.life.Err() != nil {
+		return Result{}, Rows{}, ErrClosed
+	}
+	result, rows, err := t.db.run(sql, args, query)
+	if err != nil {
+		if e := t.ctx.Err(); e != nil {
+			return Result{}, Rows{}, e
+		}
+		if t.db.life.Err() != nil {
+			return Result{}, Rows{}, ErrClosed
+		}
+		// Some errors, such as SQLITE_FULL, roll the transaction back.
+		if t.db.conn.Autocommit() {
+			t.done = true
+		}
+	}
+	return result, rows, err
+}
+
+// end ends t's statements, waiting for one running on another goroutine.
+func (t *Tx) end() {
+	t.mu.Lock()
+	t.done = true
+	t.mu.Unlock()
+}
+
+// rollback rolls back the transaction running, after detach stops
+// cancellation from interrupting it: cleanup must run even when the
+// operation is canceled.
+func (d *DB) rollback(detach func()) error {
+	detach()
+	if err := d.control("ROLLBACK"); err != nil && !d.conn.Autocommit() {
+		// SQLITE_INTERRUPT may already have rolled the transaction back.
+		return err
+	}
+	return nil
 }
 
 // operation runs fn alone on the connection. Canceling ctx, or closing

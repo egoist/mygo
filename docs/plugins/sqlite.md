@@ -145,6 +145,34 @@ caller, who must call `Close`. `sqlite.Error` exposes the primary and
 extended SQLite error codes; closed connections return `sqlite.ErrClosed`,
 and canceled operations return their context error.
 
+When a write depends on what a transaction reads first, `TransactionFunc`
+runs a Go function in one transaction:
+
+```go
+err = db.TransactionFunc(ctx, func(tx *sqlite.Tx) error {
+    rows, err := tx.Query("SELECT count(*) FROM notes")
+    if err != nil { return err }
+    if rows.Values[0][0].(int64) >= 100 {
+        return errTooManyNotes // rolls back, and TransactionFunc returns it
+    }
+    _, err = tx.Execute("INSERT INTO notes VALUES (?)", "third")
+    return err
+})
+```
+
+Like `Transaction`, it uses `BEGIN IMMEDIATE` and holds the connection
+while the function runs, so no other connection writes between its reads
+and its writes. It commits when the function returns nil. When the
+function returns an error, including a statement's that it passes on, it
+rolls back and returns that error as it was; canceling the context rolls
+back and returns the context's error, and a panic in the function rolls
+back and goes on. `tx.Execute` and `tx.Query` work like the connection's,
+read the transaction's own writes and reject transaction control; once the
+function returns, they return `sqlite.ErrTxDone`. Use `tx` inside the
+function, as the connection's own methods wait for the transaction to end,
+and keep the function short: other connections' writes wait for it. The
+page client has the batch `transaction` only.
+
 <!-- repository-only:start -->
 
 ## Building and shipping
