@@ -1090,6 +1090,12 @@ type NotificationOptions struct {
 	Body     string
 	// Silent suppresses the notification sound.
 	Silent bool
+	// Level is how much the notification interrupts the user: the default,
+	// NotificationActive, shows a banner and plays the sound;
+	// NotificationPassive puts it straight into the system's notification
+	// history, with no banner and no sound, where the platform has such a
+	// mode. See NotificationLevel for what each platform does.
+	Level NotificationLevel
 	// Group gathers the notifications that share it in one stack of
 	// Notification Center (macOS), such as the messages of a conversation.
 	// Empty leaves them in the app's.
@@ -1109,6 +1115,43 @@ type NotificationOptions struct {
 	// Other platforms ignore Sender. NewNotification copies it and Avatar.
 	Sender *NotificationSender
 }
+
+// NotificationLevel is how much a notification interrupts the user, as
+// macOS's interruption levels.
+//
+// macOS 12+ and iOS 15+ give it to the notification as its
+// interruptionLevel, and older versions ignore it. Android posts a passive
+// notification to a channel of minimum importance, in the notification
+// shade only, with no icon in the status bar, no sound and no pop-up, and
+// a time-sensitive one as an active one. Windows has no history-only mode
+// for its notification-area balloons, which it shows as toasts: a passive
+// notification is shown as an ordinary one without sound (as Silent), its
+// toast still pops up, and a time-sensitive one is shown as an active one.
+// Linux ignores the level.
+type NotificationLevel int
+
+const (
+	// NotificationActive is the default: the notification shows a banner
+	// and plays its sound (unless Silent), and waits in the system's
+	// notification history.
+	NotificationActive NotificationLevel = iota
+	// NotificationPassive puts the notification straight into the
+	// notification history, with no banner and no sound, also while the
+	// app is in the foreground: Notification Center on macOS and iOS, the
+	// notification shade on Android. It suits an app that already alerted
+	// the user in its own window, as a tray app's panel, and keeps the
+	// event for a user who was away. Windows still shows it, silent (see
+	// NotificationLevel).
+	NotificationPassive
+	// NotificationTimeSensitive asks macOS and iOS to show the
+	// notification at once, through a Focus that allows time-sensitive
+	// notifications, and keep it on screen longer. The app needs the
+	// com.apple.developer.usernotifications.time-sensitive entitlement
+	// (Time Sensitive Notifications in Xcode's capabilities); without it
+	// the system does not treat the notification as time-sensitive. Other
+	// platforms show it as an active one.
+	NotificationTimeSensitive
+)
 
 // NotificationSender is the sender of an incoming direct message.
 type NotificationSender struct {
@@ -1243,6 +1286,7 @@ func (n *Notification) ShowContext(ctx context.Context) error {
 			Subtitle: n.opts.Subtitle,
 			Body:     n.opts.Body,
 			Silent:   n.opts.Silent,
+			Level:    platform.NotificationLevel(n.opts.Level),
 			Group:    n.opts.Group,
 			Image:    n.opts.Image,
 		}

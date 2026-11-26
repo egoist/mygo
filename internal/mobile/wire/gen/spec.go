@@ -110,7 +110,7 @@ var calls = []msg{
 
 	{name: "Notify", doc: "a local notification; NotifyDone answers once the system has it",
 		args: []field{f("Req", "int"), f("NotificationID", "string"), f("Title", "string"), f("Subtitle", "string"),
-			f("Body", "string"), f("Group", "string"), f("Silent", "bool")}},
+			f("Body", "string"), f("Group", "string"), f("Silent", "bool"), f("Level", "int")}},
 	{name: "RemoveNotification", args: []field{f("NotificationID", "string")}},
 	{name: "RemoveAllNotifications"},
 	{name: "KeepAwake", doc: "keeps the screen on while the app shows", args: []field{f("On", "bool")}},

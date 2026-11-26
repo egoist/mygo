@@ -172,6 +172,31 @@ func TestNotificationOptionsReachTheBackend(t *testing.T) {
 	if got.Group != "chat:ada" {
 		t.Errorf("Group = %q, want chat:ada", got.Group)
 	}
+	if got.Level != platform.NotificationActive {
+		t.Errorf("Level = %v, want the default, active", got.Level)
+	}
+}
+
+// TestNotificationLevelReachesTheBackend checks that each level reaches
+// the backend as the platform's level of the same name.
+func TestNotificationLevelReachesTheBackend(t *testing.T) {
+	for _, tc := range []struct {
+		level NotificationLevel
+		want  platform.NotificationLevel
+	}{
+		{NotificationActive, platform.NotificationActive},
+		{NotificationPassive, platform.NotificationPassive},
+		{NotificationTimeSensitive, platform.NotificationTimeSensitive},
+	} {
+		n := showNotification(t, NotificationOptions{Title: "level", Level: tc.level})
+		got := fb.Notification(n.id)
+		if got == nil {
+			t.Fatalf("level %v: the notification did not reach the backend", tc.level)
+		}
+		if got.Level != tc.want {
+			t.Errorf("level %v reached the backend as %v, want %v", tc.level, got.Level, tc.want)
+		}
+	}
 }
 
 func TestNotificationSenderSnapshot(t *testing.T) {

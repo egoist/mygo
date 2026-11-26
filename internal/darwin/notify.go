@@ -67,7 +67,13 @@ func registerNotificationDelegate() {
 	}
 	classDef("MyGoNotificationDelegate", "NSObject", []string{"UNUserNotificationCenterDelegate"}, []objc.MethodDef{
 		method("userNotificationCenter:willPresentNotification:withCompletionHandler:", func(self id, _ objc.SEL, center, n id, handler uintptr) {
-			// Show banners even while the app is in the foreground.
+			// Show banners even while the app is in the foreground, but for
+			// a passive notification, which goes to the list alone.
+			content := send(send(n, "request"), "content")
+			if respondsTo(content, "interruptionLevel") && sendInt(content, "interruptionLevel") == unInterruptionLevelPassive {
+				callBlock(handler, 1<<3) // list
+				return
+			}
 			callBlock(handler, 1<<1|1<<3|1<<4) // sound | list | banner
 		}),
 		method("userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:", func(self id, _ objc.SEL, center, resp id, handler uintptr) {
@@ -166,6 +172,9 @@ func (b *Backend) addNotification(n *platform.Notification, done func(error)) {
 		if n.Group != "" {
 			send(content, "setThreadIdentifier:", uintptr(nsString(n.Group)))
 		}
+		if n.Level != platform.NotificationActive && respondsTo(content, "setInterruptionLevel:") { // macOS 12+
+			send(content, "setInterruptionLevel:", interruptionLevel(n.Level))
+		}
 		if len(n.Image) > 0 && attachNotificationImage != nil {
 			done = attachNotificationImage(content, n.Image, done)
 		}
@@ -174,6 +183,24 @@ func (b *Backend) addNotification(n *platform.Notification, done func(error)) {
 		}
 		b.submitNotification(n, content, done)
 	})
+}
+
+// UNNotificationInterruptionLevel's values (macOS 12+).
+const (
+	unInterruptionLevelPassive       = 0
+	unInterruptionLevelActive        = 1
+	unInterruptionLevelTimeSensitive = 2
+)
+
+// interruptionLevel is the UNNotificationInterruptionLevel of a level.
+func interruptionLevel(l platform.NotificationLevel) uintptr {
+	switch l {
+	case platform.NotificationPassive:
+		return unInterruptionLevelPassive
+	case platform.NotificationTimeSensitive:
+		return unInterruptionLevelTimeSensitive
+	}
+	return unInterruptionLevelActive
 }
 
 func (b *Backend) submitNotification(n *platform.Notification, content id, done func(error)) {

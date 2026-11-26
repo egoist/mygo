@@ -108,6 +108,26 @@ mygo.NewNotification(mygo.NotificationOptions{
 }).Show()
 ```
 
+`Level` 设定通知打扰用户的程度。默认的 `mygo.NotificationActive` 会显示横幅并播放声音。`mygo.NotificationPassive` 把通知直接放进系统的通知历史，不显示横幅，也不播放声音，应用在前台时也是如此：适合已经在自己的窗口里提醒过用户的应用，例如托盘应用的面板（专注模式不会把它挡住），同时仍为离开过的用户留下每个事件。不这样做的话，用户会看到两次提醒：
+
+```go
+showAlertPanel(event) // the app's own alert
+mygo.NewNotification(mygo.NotificationOptions{
+	ID:    "event:" + event.ID,
+	Title: "Blocked",
+	Body:  event.Summary,
+	Level: mygo.NotificationPassive, // to Notification Center only
+}).Show()
+```
+
+| 级别 | macOS 12+、iOS 15+ | Android | Windows | Linux |
+| --- | --- | --- | --- | --- |
+| `NotificationActive` | `interruptionLevel` 为 active：横幅和声音 | 默认渠道 | 气泡，显示为 toast | 通知 |
+| `NotificationPassive` | `interruptionLevel` 为 passive：只进通知中心 | 最低重要性的渠道：只在通知栏里，没有状态栏图标、声音或弹出 | 没有声音的气泡：它的 toast 仍会弹出，因为气泡没有只进历史的模式 | 忽略：通知 |
+| `NotificationTimeSensitive` | `interruptionLevel` 为 time-sensitive：穿过允许它的专注模式，需要 `com.apple.developer.usernotifications.time-sensitive` 权限 | 同 active | 同 active | 忽略：通知 |
+
+更早的 macOS 和 iOS 版本忽略该级别。
+
 ### macOS 上的发送者头像
 
 在 macOS 12 及更高版本上，收到的私信可以提供发送者，从而显示一个醒目的头像，并附上应用的小图标：

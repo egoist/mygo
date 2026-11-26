@@ -499,7 +499,9 @@ func (b *Backend) showNotification(n *platform.Notification) error {
 	copyUTF16(d.InfoTitle[:], title)
 	copyUTF16(d.Info[:], body)
 	d.InfoFlags = niifUser
-	if n.Silent {
+	// Balloons have no history-only mode: a passive notification's toast
+	// still pops up, only without its sound.
+	if n.Silent || n.Level == platform.NotificationPassive {
 		d.InfoFlags |= niifNoSound
 	}
 	if len(n.Image) > 0 && notificationIcon != nil {

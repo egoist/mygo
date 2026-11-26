@@ -156,6 +156,33 @@ mygo.NewNotification(mygo.NotificationOptions{
 }).Show()
 ```
 
+`Level` sets how much a notification interrupts. The default,
+`mygo.NotificationActive`, shows a banner and plays the sound.
+`mygo.NotificationPassive` puts the notification straight into the
+system's notification history, with no banner and no sound, also while the
+app is in the foreground: for an app that already alerted the user in its
+own window, as a tray app's panel that a Focus does not hide, and still
+keeps each event for a user who was away. Without it, the user would see
+two alerts:
+
+```go
+showAlertPanel(event) // the app's own alert
+mygo.NewNotification(mygo.NotificationOptions{
+	ID:    "event:" + event.ID,
+	Title: "Blocked",
+	Body:  event.Summary,
+	Level: mygo.NotificationPassive, // to Notification Center only
+}).Show()
+```
+
+| Level | macOS 12+, iOS 15+ | Android | Windows | Linux |
+| --- | --- | --- | --- | --- |
+| `NotificationActive` | `interruptionLevel` active: a banner and the sound | the default channel | a balloon, shown as a toast | the notification |
+| `NotificationPassive` | `interruptionLevel` passive: Notification Center only | a channel of minimum importance: the shade only, no status bar icon, sound or pop-up | a balloon without sound: its toast still pops up, as balloons have no history-only mode | ignored: the notification |
+| `NotificationTimeSensitive` | `interruptionLevel` time-sensitive: through a Focus that allows it, with the `com.apple.developer.usernotifications.time-sensitive` entitlement | as active | as active | ignored: the notification |
+
+Older macOS and iOS versions ignore the level.
+
 ### Sender avatars on macOS
 
 An incoming direct message can supply a sender to display a prominent

@@ -627,10 +627,21 @@ object HostImpl : HostCalls {
 
     private fun post(c: NotifyCall) {
         val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = if (c.silent) "mygo.silent" else "mygo"
+        // A passive notification (mygo.NotificationPassive, level 1) waits in the
+        // shade alone: minimum importance has no status bar icon, sound or pop-up.
+        val passive = c.level == 1L
+        val channel = when {
+            passive -> "mygo.passive"
+            c.silent -> "mygo.silent"
+            else -> "mygo"
+        }
         if (nm.getNotificationChannel(channel) == null) {
-            val ch = NotificationChannel(channel, appInfo().name, if (c.silent) NotificationManager.IMPORTANCE_LOW else NotificationManager.IMPORTANCE_DEFAULT)
-            nm.createNotificationChannel(ch)
+            val importance = when {
+                passive -> NotificationManager.IMPORTANCE_MIN
+                c.silent -> NotificationManager.IMPORTANCE_LOW
+                else -> NotificationManager.IMPORTANCE_DEFAULT
+            }
+            nm.createNotificationChannel(NotificationChannel(channel, appInfo().name, importance))
         }
         val id = c.notificationID.ifEmpty { System.nanoTime().toString() }
         val open = Intent(app, MyGoActivity::class.java).putExtra("mygo.notification", id).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
