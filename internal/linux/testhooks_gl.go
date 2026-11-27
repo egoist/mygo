@@ -131,3 +131,17 @@ func TestFrameClockInterval(handle uintptr) (interval int64, mhz int32) {
 	}
 	return interval, s.refreshMilliHz()
 }
+
+// TestAllocateAndPaint has GTK allocate the GtkGLArea of a window again,
+// at the same size, and repaint r of it, in device pixels, as when a
+// widget beside it changes and something under it paints, without the
+// content asking for a frame.
+func TestAllocateAndPaint(handle uintptr, r image.Rectangle) {
+	s := surfaceByHandle(handle)
+	var queueResize func(w ptr)
+	if s == nil || !bind(libGTK, &queueResize, "gtk_widget_queue_resize_no_redraw") {
+		return
+	}
+	queueResize(s.area)
+	s.queueDamage(r)
+}

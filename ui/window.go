@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"image"
 	"log"
 	"os"
 	"slices"
@@ -441,6 +442,12 @@ type gpuRenderer interface {
 	Release()
 }
 
+// redrawer is a GPU renderer that tells what its last frame redrew, for a
+// surface that repaints only that (platform.GPUDamageSurface).
+type redrawer interface {
+	Redrawn() (rects []image.Rectangle, whole bool)
+}
+
 // invalidator is a GPU renderer drawing only what changed into a target
 // that keeps what was drawn but as the surface resizes, even to the same
 // size, as a GtkGLArea makes its buffers anew as GTK allocates it:
@@ -558,6 +565,13 @@ func (h *windowHost) present(s *scene.Scene) {
 		h.path = "drawn on the GPU"
 		if h.degraded {
 			h.path = "drawn by the GPU renderer in software"
+		}
+		if d, ok := h.conn.Surface.(platform.GPUDamageSurface); ok {
+			if r, ok := h.gpu.(redrawer); ok {
+				d.GPUDamage(r.Redrawn())
+			} else {
+				d.GPUDamage(nil, true)
+			}
 		}
 		return
 	}

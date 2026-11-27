@@ -168,6 +168,10 @@ func (p *Part) Bounds() Scissor {
 	return Scissor{int32(u.Min.X), int32(u.Min.Y), int32(u.Max.X), int32(u.Max.Y)}
 }
 
+// Rectangles returns the part's rectangles, Rects as image.Rectangle,
+// valid until the next Set.
+func (p *Part) Rectangles() []image.Rectangle { return p.rects }
+
 // String describes the part, for FrameInfo.
 func (p *Part) String() string {
 	b := p.Bounds()
