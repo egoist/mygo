@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -65,6 +66,23 @@ func TestTextFieldsLeaveModifiedPageKeysToShortcuts(t *testing.T) {
 			if got := ran[m] == 0; got != field {
 				t.Errorf("multiline %v: the field took %v+PageDown: %v, want %v", multiline, m, got, field)
 			}
+		}
+		tt.rt.close()
+	}
+	// With no shortcut of the key, a text area still pages its text.
+	for _, m := range all {
+		value := strings.Repeat("line\n", 40)
+		var area *node
+		tt := coreNewTester(func(c *context) {
+			area = coreTextArea(c, &value).AutoFocus().Size(250, 100)
+		}, 300, 200)
+		tt.Frame()
+		area.SetTextSelection(0, 0)
+		tt.Frame()
+		tt.Key(m, KeyPageDown)
+		tt.Frame()
+		if _, caret := area.TextSelection(); caret == 0 || caret == len([]rune(value)) {
+			t.Errorf("%v+PageDown with no shortcut of it: the caret at %d, want a page down", m, caret)
 		}
 		tt.rt.close()
 	}

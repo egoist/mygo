@@ -1211,7 +1211,8 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCod
 	if (key == KeyContextMenu && mods == 0 || key == KeyF10 && mods == Shift) && !rt.claimed(k) && rt.menuKey() {
 		return false
 	}
-	if s := rt.states[rt.focused]; s != nil && s.editor != nil && s.flags&(flagEditable|flagSelectable) != 0 && s.editor.wants(k) &&
+	if s := rt.states[rt.focused]; s != nil && s.editor != nil && s.flags&(flagEditable|flagSelectable) != 0 &&
+		(s.editor.wants(k) || s.editor.takesUnclaimed(k) && !rt.claimed(k)) &&
 		!(k.mods == Cmd && k.key == KeyC && rt.copiesNothing(s)) {
 		if rt.textSelectionKey(s, k) {
 			rt.requestFrame()

@@ -22,6 +22,13 @@ func (ed *editor) selection() (int, int) {
 
 func (ed *editor) selectAll() { ed.editorSelection = editorSelection{caret: ed.buf.n} }
 
+// takesUnclaimed reports whether the editor handles a key it leaves to
+// shortcuts (wants) when no shortcut takes it: PageUp and PageDown with a
+// modifier page its text then, as they did before shortcuts came first.
+func (ed *editor) takesUnclaimed(k keyEvent) bool {
+	return !ed.readOnly && (k.key == KeyPageUp || k.key == KeyPageDown) && k.mods&^Shift != 0
+}
+
 // wants reports whether the editor handles a key, rather than letting it
 // reach shortcuts.
 func (ed *editor) wants(k keyEvent) bool {
