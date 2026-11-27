@@ -604,7 +604,7 @@ func TestWriteDeltas(t *testing.T) {
 		mu.Lock()
 		requests = nil
 		mu.Unlock()
-		written, err := writeArchive(c, stage, "linux-amd64", entries)
+		written, err := writeArchive(c, stage, "linux-amd64", entries, "")
 		if err != nil {
 			t.Fatal(err)
 		}

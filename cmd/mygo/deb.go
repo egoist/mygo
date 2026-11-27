@@ -46,20 +46,25 @@ type Linux struct {
 	// by the first it links. Empty means none, and the app opens from the
 	// applications menu.
 	Command commandNames `json:"command"`
-	// Formats lists the packages mygo build writes: "deb", "rpm" and
-	// "pkgbuild" (default all three). The archive with install.sh is
+	// Formats lists the packages mygo build writes: "deb", "rpm",
+	// "pkgbuild" and "appimage" (default all but the AppImage, whose
+	// runtime mygo build downloads). The archive with install.sh is
 	// always written, as install.sh updates the app from it and the
 	// PKGBUILD packages it; an empty list writes it alone.
 	Formats []string `json:"formats"`
 }
 
 // linuxFormats are the packages linux.formats chooses from.
-var linuxFormats = []string{"deb", "rpm", "pkgbuild"}
+var linuxFormats = []string{"deb", "rpm", "pkgbuild", "appimage"}
 
 // builds reports whether mygo build writes the package of format, which
-// linux.formats lists, or every one when it is left out.
+// linux.formats lists, or, when it is left out, every one but the
+// AppImage.
 func (l *Linux) builds(format string) bool {
-	return l.Formats == nil || slices.Contains(l.Formats, format)
+	if l.Formats == nil {
+		return format != "appimage"
+	}
+	return slices.Contains(l.Formats, format)
 }
 
 // commandNames are the names of linux.command, which takes one name, as

@@ -295,7 +295,8 @@ func TestLinuxFormatsName(t *testing.T) {
 		{[]string{}, true},
 		{[]string{"deb"}, true},
 		{[]string{"deb", "rpm", "pkgbuild"}, true},
-		{[]string{"appimage"}, false},
+		{[]string{"appimage"}, true},
+		{[]string{"flatpak"}, false},
 		{[]string{"deb", "Deb"}, false},
 		{[]string{"arch"}, false},
 	} {
@@ -305,7 +306,7 @@ func TestLinuxFormatsName(t *testing.T) {
 		if (err == nil) != tc.ok {
 			t.Errorf("linux.formats %q: %v", tc.formats, err)
 		}
-		if err != nil && !strings.Contains(err.Error(), "deb, rpm, pkgbuild") {
+		if err != nil && !strings.Contains(err.Error(), "deb, rpm, pkgbuild, appimage") {
 			t.Errorf("linux.formats %q: the error does not name the formats: %v", tc.formats, err)
 		}
 	}

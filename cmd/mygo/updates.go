@@ -133,13 +133,18 @@ func (c *Config) updateFile(name string, latest bool) string {
 }
 
 // updateFlags are the -ldflags that point the build for target at its
-// manifest.
+// manifest, and tell a Linux build that its releases have an AppImage, which
+// it updates itself from when it runs as one.
 func updateFlags(c *Config, target string) string {
 	if c.Updates == nil {
 		return ""
 	}
-	return " -X " + ldflagsQuote("github.com/egoist/mygo.packageUpdateFeed="+c.updateFeed(target)) +
+	flags := " -X " + ldflagsQuote("github.com/egoist/mygo.packageUpdateFeed="+c.updateFeed(target)) +
 		" -X github.com/egoist/mygo.packageUpdateKey=" + c.Updates.PublicKey
+	if goarch, ok := strings.CutPrefix(target, "linux-"); ok && appImageArch[goarch] != "" && c.Linux.builds("appimage") {
+		flags += " -X github.com/egoist/mygo.packageAppImage=1"
+	}
+	return flags
 }
 
 // signingKey returns the private key that signs updates, or nil when none
@@ -194,9 +199,10 @@ func (c *Config) releaseNotes() (string, error) {
 // writeArchive archives the entries of stage, the app of target: updates
 // install the archive, and Linux users extract it (install.sh). With
 // updates and their signing key, it signs the archive, makes delta updates
-// from earlier versions and writes the manifest. It returns the files
-// written, none but on Linux without the key.
-func writeArchive(c *Config, stage, target string, entries []string) ([]string, error) {
+// from earlier versions and writes the manifest, which names appImage too,
+// the app as an AppImage, when it is not "". It returns the files written,
+// none but on Linux without the key.
+func writeArchive(c *Config, stage, target string, entries []string, appImage string) ([]string, error) {
 	var key ed25519.PrivateKey
 	if c.Updates != nil {
 		var err error
@@ -238,6 +244,13 @@ func writeArchive(c *Config, stage, target string, entries []string) ([]string, 
 		URL:       c.updateFile(name, false),
 		Size:      size,
 		Signature: sig,
+	}
+	if appImage != "" {
+		size, sig, err := signFile(appImage, key)
+		if err != nil {
+			return nil, err
+		}
+		m.AppImage = &update.Image{URL: c.updateFile(filepath.Base(appImage), false), Size: size, Signature: sig}
 	}
 	files := []string{archive}
 	if n := c.Updates.deltas(); n > 0 {
@@ -292,6 +305,21 @@ func writeSigned(path string, key ed25519.PrivateKey, write func(io.Writer) erro
 		return info.Size(), "", nil
 	}
 	return info.Size(), update.Sign(key, sum.Sum(nil)), nil
+}
+
+// signFile returns the size and signature of the file at path.
+func signFile(path string, key ed25519.PrivateKey) (int64, string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, "", err
+	}
+	defer f.Close()
+	sum := sha256.New()
+	n, err := io.Copy(sum, f)
+	if err != nil {
+		return 0, "", err
+	}
+	return n, update.Sign(key, sum.Sum(nil)), nil
 }
 
 // writeDeltas makes delta updates to the app of target in stage from the

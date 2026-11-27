@@ -444,11 +444,12 @@ export interface LinuxConfig {
    */
   command?: string | string[];
   /**
-   * The packages `mygo build` writes (default: all three). The archive with
+   * The packages `mygo build` writes (default: all but `appimage`, whose
+   * runtime `mygo build` downloads). The archive with
    * install.sh is always written, as install.sh updates the app from it and
    * the PKGBUILD packages it; `[]` writes it alone.
    */
-  formats?: ("deb" | "rpm" | "pkgbuild")[];
+  formats?: ("deb" | "rpm" | "pkgbuild" | "appimage")[];
 }
 
 /**

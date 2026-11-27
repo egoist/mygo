@@ -36,9 +36,10 @@ window invites dragging the app to Applications; other platforms get an
 executable. Linux also gets the app as
 <slug>-<version>-linux-<arch>.tar.gz with install.sh, which installs it
 for the user in ~/.local, where it can update itself, and the packages of
-linux.formats in mygo.json, by default all of them: a Debian package, an
-RPM package and a PKGBUILD, from which makepkg -si packages the archive
-for Arch Linux and installs it. The contents of the
+linux.formats in mygo.json, by default all but the AppImage: a Debian
+package, an RPM package and a PKGBUILD, from which makepkg -si packages
+the archive for Arch Linux and installs it; "appimage" adds an AppImage
+of amd64 and arm64 builds, which updates itself. The contents of the
 resources directory and the resources listed in mygo.json are copied into
 the bundle's Contents/Resources, or next to the executable, and the programs
 among them are signed with the app. Directories of resources named after a
@@ -443,7 +444,7 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 	if goos == "linux" {
 		files, err = writeLinuxPackages(c, stage, target, goarch, installed)
 	} else {
-		files, err = writeArchive(c, stage, target, installed)
+		files, err = writeArchive(c, stage, target, installed, "")
 	}
 	if err != nil {
 		return nil, err
@@ -511,7 +512,16 @@ func writeLinuxPackages(c *Config, stage, target, goarch string, installed []str
 		}
 		written = append(written, rpm)
 	}
-	files, err := writeArchive(c, stage, target, installed)
+	// Before the archive, whose manifest names it.
+	var appImage string
+	if _, ok := appImageArch[goarch]; ok && c.Linux.builds("appimage") {
+		var err error
+		if appImage, err = writeAppImage(c, stage, c.slug(), goarch, installed); err != nil {
+			return nil, err
+		}
+		written = append(written, appImage)
+	}
+	files, err := writeArchive(c, stage, target, installed, appImage)
 	if err != nil {
 		return nil, err
 	}

@@ -210,7 +210,7 @@ func TestWriteDeltasGitHub(t *testing.T) {
 				c.Updates.GitHub, c.Updates.URL = "", "https://downloads.example.com/app"
 			}
 			stage := t.TempDir()
-			if _, err := writeArchive(c, stage, target, app(stage, c.Version)); err != nil {
+			if _, err := writeArchive(c, stage, target, app(stage, c.Version), ""); err != nil {
 				t.Fatal(err)
 			}
 			data, err := os.ReadFile(filepath.Join(stage, name))
