@@ -35,6 +35,15 @@ type matcher interface {
 	// scale shows e, as laid out, in a box w×h where it is, scaled
 	// (ScaleContent).
 	scale(e *node, w, h float32)
+	// holds reports whether the matcher keeps the node n, as the element
+	// it noted showed.
+	holds(n *node) bool
+	// keeps reports whether the matcher keeps the node n, as the element
+	// it noted showed: the state that held it gives it up, and the
+	// matcher frees it when it forgets the element.
+	keeps(n *node) bool
+	// drop lets go of every node the matcher keeps, as its window closes.
+	drop()
 }
 
 // matches is the engine's matcher: where each Match showed last, and the
@@ -108,8 +117,8 @@ type flight struct {
 }
 
 // matchRec is where the element of the Match key showed in a frame, in
-// the window: node, in the frame's arena, which the next frame keeps when
-// kept (engine.exitsBuilt), for its look and the transform of the
+// the window: node, which the next frame keeps when kept
+// (engine.exitsBuilt), for its look and the transform of the
 // elements around it, unless it flew (lookSet), showing look under world.
 // gone is a copy of it once it went, which the element flying in its place
 // takes (claim), and goneColors the colors it showed.
@@ -118,6 +127,7 @@ type matchRec struct {
 	frame, id  uint64
 	box        Rect
 	node       *node
+	owned      bool
 	kept       bool
 	lookSet    bool
 	look       matchLook
@@ -128,6 +138,46 @@ type matchRec struct {
 	// taker is the element of the Match on its way in frame takenAt.
 	taker   *node
 	takenAt uint64
+}
+
+// holds reports whether the matcher keeps the node n, as the element it
+// noted showed.
+func (m *matches) holds(n *node) bool {
+	for _, rec := range m.matched {
+		if rec.node == n {
+			return true
+		}
+	}
+	return false
+}
+
+// keeps reports whether the matcher keeps the node n, as the element it
+// noted showed: the state that held it gives it up, and the matcher frees
+// it when it forgets the element.
+func (m *matches) keeps(n *node) bool {
+	for _, rec := range m.matched {
+		if rec.node == n {
+			rec.owned = true
+			return true
+		}
+	}
+	return false
+}
+
+// forget lets go of the node a record keeps, if the matcher owns it.
+func (m *matches) forget(rec *matchRec) {
+	if rec.owned && rec.node != nil {
+		m.rt.c.freeNode(rec.node)
+	}
+	rec.node, rec.owned = nil, false
+}
+
+// drop lets go of every node the matcher keeps, as its window closes: the
+// pool goes with them, so they need no freeing, only forgetting.
+func (m *matches) drop() {
+	for _, rec := range m.matched {
+		rec.node, rec.owned = nil, false
+	}
 }
 
 // matchLook is how an element of a Match looks besides its box and its
@@ -597,8 +647,7 @@ func (m *matches) claim() {
 			continue // it goes as its Exit says, or, still built, flies itself
 		}
 		// Rather than go as its Exit says, it flies with the element,
-		// copied from the frame before, whose arena the engine kept, as for
-		// an Exit.
+		// copied from the frame before, as for an Exit.
 		delete(rt.trans, rec.id)
 		e := from.elem
 		if morphs(u.e, e) {
@@ -628,6 +677,7 @@ func (m *matches) move() {
 		for k, rec := range m.matched {
 			if rec.frame+1 < rt.frame {
 				delete(m.matched, k)
+				m.forget(rec)
 				*rec = matchRec{}
 				m.spare = append(m.spare, rec)
 			}
@@ -751,6 +801,12 @@ func (m *matches) note(rec *matchRec, e *node, box Rect) {
 	rt := m.rt
 	if rec.frame != rt.frame {
 		m.noted++
+	}
+	if rec.node != nil && rec.node != e && rec.owned {
+		// The node of the element that showed before, which the matcher
+		// kept, goes back to the pool.
+		rt.c.freeNode(rec.node)
+		rec.owned = false
 	}
 	rec.frame, rec.id, rec.box, rec.node, rec.kept, rec.lookSet = rt.frame, e.id, box, e, rt.exitsBuilt, false
 }

@@ -141,7 +141,7 @@ func coreGridView(c *context, s *GridState, n int, minWidth, height float32, ite
 	e.gridFit = &gridFit{cols: cols, minW: minWidth, gap: gap}
 	e.special = true // it fits its columns as it lays out
 	e.afterInput(func() { s.keys(e, n) })
-	e.activeDescendant = cursor
+	e.activeDescendant = refTo(cursor)
 	s.reorder(e, n, gap)
 	s.cells, s.built = s.built, s.cells
 	clear(s.built)

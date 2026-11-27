@@ -513,8 +513,8 @@ func (s *ListState) coreShortcut(c *context, mods Modifiers, key Key) bool {
 	return s.current(c).Shortcut(mods, key)
 }
 
-// current resolves the focus owner of this pass before reading an arena
-// pointer: an absent list's old slot may now hold an unrelated element.
+// current resolves the focus owner of this pass before reading the node
+// it kept: an absent list's old node may now hold an unrelated element.
 func (s *ListState) current(c *context) *node {
 	if s == nil || c == nil || c.rt == nil || c.rt.closed || !c.rt.inFrame {
 		return nil

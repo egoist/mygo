@@ -501,7 +501,7 @@ func roundedContains(r Rect, radii [4]float32, x, y float32) bool {
 func accessBoundsNode(e *node) *node {
 	if e.widget == "Divider" && e.parent != nil {
 		for ch := e.parent.first; ch != nil; ch = ch.next {
-			if ch.placeOn == e {
+			if ch.resolve(ch.placeOn) == e {
 				return ch
 			}
 		}

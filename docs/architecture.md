@@ -2999,9 +2999,10 @@ Recent (about 290 KB).
 
 The public API keeps one stable `*Context` per window. Child builders share
 it and temporarily change its parent. `Element` is a 16-byte checked value:
-a direct owner record, arena slot and 32-bit generation. The owner detaches
-from the engine on close and retires before generation wrap. Old elements
-cannot alias recycled nodes. A closed window keeps nothing of what it
+a direct owner record, the pool's place of the node and the frame's
+generation. The owner detaches from the engine on close and retires
+before generation wrap. Old elements cannot alias recycled nodes.
+A closed window keeps nothing of what it
 showed (#1281): `mygo.Window` keeps only that it shows Content, handing the
 Content to its surface as it attaches, and the closed engine drops its view,
 the last frame's elements, states and scene, and the host its last scene,
@@ -3702,16 +3703,21 @@ either.
   buffer encoding anything after a pause, and gives them back a second or
   two after the last, as a bare Metal app does.
   A frame allocates next to nothing once the view builds what it built
-  before: elements come from the context's arena, the default theme is
+  before: elements come from the context's pool, which keeps a node per
+  identity: an element takes the node its state kept, or a free one, so
+  that the frames build into the same nodes. The default theme is
   copied for each pass, the states that pruning frees go to new elements
   (as rows coming into a list's view take those of rows that went out of
   it), without keeping their local resources, editors or callbacks.
-  The arena uses chunks of 32 elements, releases unused chunks after a
-  smaller frame, and keeps one empty chunk for growth; unused elements
-  and the spare arena of exit transitions give up their references after
-  the frame copied what it needs. A text keeps in its state what it made
-  of its spans
-  (`spanCache`: their text, the styles of their layout, encoded, and where
+  The pool uses chunks of 32 nodes and takes the lowest free place, so
+  that the nodes in use stay at its front; the chunks at the end whose
+  places are all free go when the view needs much less of the pool, so
+  that a view which shrank does not keep the room of the large one, and
+  one spare chunk stays for growth. The copies going with an `Exit` give
+  up their references after the frame copied what it needs. A text keeps
+  in its state what it made of its spans
+  (`spanCache`: their text, the styles of their layout, encoded, and
+  where
   each ends), which a frame compares rather than makes again. With
   `MYGO_FRAME_STATS` set, frames slower than its threshold log how long
   each part took, which path drew them, what the process allocated and
@@ -3958,10 +3964,9 @@ either.
   with a transform of its own, `under`). The element it came from goes
   with it if it flies too, fading out as it fades in (Motion's crossfade
   curves): itself while still built, as in a page going away, else a copy
-  that `matches.claim` takes, in place of its `Exit`, from the arena of
-  the frame before, which frames with an element flying keep as those
-  with an `Exit` do, with the text style and the theme of the elements
-  around it; copies of its ancestors going away hide theirs. Both are
+  that `matches.claim` takes, in place of its `Exit`, of the node as it
+  showed, with the text style and the theme of the elements around it;
+  copies of its ancestors going away hide theirs. Both are
   `lift`ed, over the rest of their layer: the window's content, which the
   root paints them over before the overlays, or the overlay they are in,
   which its layer paints them over (`matches.paint`), out of their
@@ -4000,20 +4005,20 @@ either.
   element on its way notes only where each `Match` showed and the element
   that showed it (`matchRec.node`), whose look and the transform of the
   elements around it an element flying from it reads in the next frame,
-  from the arena kept, rather than each frame noting them. The engine has
-  its `matcher` only once a `Transition` has a `Match` or `ScaleContent`,
-  so that apps without them link none of it. An element appears with
+  from the node the matcher keeps, rather than each frame noting them.
+  The engine has its `matcher` only once a `Transition` has a `Match` or
+  `ScaleContent`, so that apps without them link none of it. An element appears with
   its `Enter` only in a parent the frame before had; the overlay layer,
   built only while it holds something, counts as the root there. One no longer built,
   whose parent still is, goes with its `Exit` as an inert copy, laid out
   and painted under its siblings of its z-index without taking room; the frames after
   one in the overlay layer, or its copy, build the layer, empty but for
   the copies, which lets the pointer and the focus through
-  (`engine.overlayExits`). Frames that built
-  elements with an `Exit` leave their arena to the next frame, which
-  builds in the other (`Context.spare`), so that the next one copies those
-  gone (`ghostOf`), with states of their own and nothing referring to the
-  app's state. The parent's `ChildExit` in the frame it goes
+  (`engine.overlayExits`). An element that goes with its `Exit` leaves a
+  copy of the node it showed (`ghostOf`), with states of their own and
+  nothing referring to the app's state; the node itself goes back to the
+  pool, and the identity takes a node of its own when the element comes
+  back. The parent's `ChildExit` in the frame it goes
   (`context.childExits`) takes the place of its `Exit`. An element
   appearing with `AfterExits` waits unseen (`transition.held`,
   `flagInvisible`) while copies leave under its parent (`ghosts`, which

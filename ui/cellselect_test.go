@@ -629,6 +629,9 @@ func TestCellsStyleCursorBorder(t *testing.T) {
 			bg, text := or(theme.Accent, tc.style.Cell), or(theme.AccentText, tc.style.CellText)
 			tt.Click("r1c2")
 			tt.Key(Shift, KeyLeft)
+			// A cell is keyed late, by its column, so it is built in a
+			// node of its own each frame: the cell is taken again as the
+			// frame builds it, and not kept from the frame before.
 			n := cells[[2]int{1, 1}]
 			if n.bg != bg || n.ts.color != text {
 				t.Fatalf("the cursor's cell in the block: bg %v text %v; want %v, %v", n.bg, n.ts.color, bg, text)
@@ -637,7 +640,7 @@ func TestCellsStyleCursorBorder(t *testing.T) {
 				t.Errorf("the cursor's border in the block is not the text color %v", text)
 			}
 			tt.ClickWith(Cmd, "r1c1")
-			if !borderIs(tt, n, or(theme.Accent, tc.style.Cell)) {
+			if !borderIs(tt, cells[[2]int{1, 1}], or(theme.Accent, tc.style.Cell)) {
 				t.Errorf("the cursor's border out of the block is not %v", or(theme.Accent, tc.style.Cell))
 			}
 		})

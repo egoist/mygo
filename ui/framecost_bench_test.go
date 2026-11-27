@@ -16,9 +16,19 @@ type liveRows struct {
 	query  string
 	list   bool
 	builds int
+	// keyed is how the rows are keyed: none, late (with a Key after they
+	// are built) or early (with a Key before they are built).
+	keyed int
 	// at is where a step points, found as it first does.
 	at Rect
 }
+
+// How the rows of the fixture are keyed.
+const (
+	rowsNotKeyed = iota
+	rowsKeyedLate
+	rowsKeyedEarly
+)
 
 func newLiveRows(n int) *liveRows {
 	v := &liveRows{}
@@ -29,7 +39,16 @@ func newLiveRows(n int) *liveRows {
 }
 
 func (v *liveRows) row(c *context, i int) {
-	coreRow(c).Gap(8).Padding(4, 8).Children(func() {
+	if v.keyed == rowsKeyedEarly {
+		c.nextKey, c.keySet = i, true
+	}
+	r := coreRow(c).Gap(8).Padding(4, 8)
+	if v.keyed == rowsKeyedLate {
+		// The key of a row that is already built: the identity takes the
+		// node the row was built in.
+		r.Key(i)
+	}
+	r.Children(func() {
 		coreText(c, v.labels[i]).Grow(1)
 		coreButton(c, "Open")
 	})
@@ -65,8 +84,15 @@ func (t *Tester) hostEvent(ev platform.SurfaceEvent) {
 }
 
 func benchLiveRows(b *testing.B, n int, list bool, step func(tt *Tester, v *liveRows, i int)) {
+	benchRows(b, n, list, rowsNotKeyed, step)
+}
+
+// benchRows is the fixture of the frame-cost benchmarks: n rows built
+// whole, keyed as keyed says.
+func benchRows(b *testing.B, n int, list bool, keyed int, step func(tt *Tester, v *liveRows, i int)) {
 	v := newLiveRows(n)
 	v.list = list
+	v.keyed = keyed
 	tt := coreNewTester(v.view, 980, 720)
 	for range 3 {
 		tt.Frame()
@@ -162,3 +188,16 @@ func BenchmarkLiveRows3000Type(b *testing.B) { benchLiveRows(b, 3000, false, typ
 // BenchmarkListRows3000Change changes one label of 3,000 rows of a List,
 // which builds those in view.
 func BenchmarkListRows3000Change(b *testing.B) { benchLiveRows(b, 3000, true, changeLabel) }
+
+// BenchmarkLiveRows3000KeyedLateChange changes one label of 3,000 rows
+// built whole, each keyed late, with a Key after the row is built: the
+// identity of a row takes the node the row was built in.
+func BenchmarkLiveRows3000KeyedLateChange(b *testing.B) {
+	benchRows(b, 3000, false, rowsKeyedLate, changeLabel)
+}
+
+// BenchmarkLiveRows3000KeyedEarlyChange changes one label of 3,000 rows
+// built whole, each keyed before it is built, with a Context.Key.
+func BenchmarkLiveRows3000KeyedEarlyChange(b *testing.B) {
+	benchRows(b, 3000, false, rowsKeyedEarly, changeLabel)
+}

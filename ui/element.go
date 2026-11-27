@@ -302,7 +302,14 @@ type layoutStyle struct {
 	justify, align Align
 	alignContent   Align
 	grid           bool
-	gapX, gapY     float32
+	// baseline marks the child whose baseline its row takes as its own
+	// (boxBaseline), as the label of a check box or a radio button rather
+	// than the bottom of the box before it. It fills the padding after
+	// grid, in the line the walk of a container's children reads the
+	// style of a child in, and it is compared with the rest of the style,
+	// as it lays the row out.
+	baseline   bool
+	gapX, gapY float32
 
 	// What the layout reads of every child a container walks, in the lines it
 	// reads them in: a container of a hundred thousand children reads all of
@@ -415,11 +422,10 @@ type node struct {
 	// what a measuring pass resolved for its in-flow children, which a
 	// commit pass at the same size uses instead of building them again.
 	hold int32
-	// baseline marks the child whose baseline its row takes as its own
-	// (boxBaseline), as the label of a check box or a radio button rather
-	// than the bottom of the box before it. It fills the padding after
-	// hold, before layoutStyle.
-	baseline bool
+	// zIndex orders the element's painting and its hits among its
+	// siblings (ZIndex). It fills the padding after hold, before
+	// layoutStyle.
+	zIndex int32
 
 	// layoutStyle holds what lays the element out. What the layout reads of
 	// every child a container walks comes first in it — the text, the kind
@@ -654,14 +660,14 @@ type node struct {
 	// technology, and takes the keys for: the list, or its Table.
 	// popover is the anchor of the panel of a popover. barsFrom supplies
 	// the scroll bar settings, as a table does for the list of its rows.
-	popover        *node
+	popover        elementRef
 	list           *listFrame
 	listRow        bool
 	keepScrollbars bool
 	// hiddenScrollbars holds the axes hidden by ScrollbarAxes and the
 	// independent Scrollbars(false) override.
 	hiddenScrollbars uint32
-	barsFrom         *node
+	barsFrom         elementRef
 	rowIndex         int
 	rowsOf           *listFrame
 	// snap is how the element, a scroll container, snaps (ScrollSnap), and
@@ -677,7 +683,7 @@ type node struct {
 	// placeOn is a sibling, laid out in the parent's flow, whose box an
 	// absolute element's insets are measured from instead of the parent's.
 	// A split uses it to keep its handle on the divider.
-	placeOn *node
+	placeOn elementRef
 	// overflow is set on a toolbar, whose layout notes there the controls
 	// it had no room for, and takes them out of the flow, collapsed.
 	overflow  *[]toolbarItem
@@ -691,8 +697,8 @@ type node struct {
 	// field around an input; setPos and setSize say which option of how
 	// many it is; choosesItems marks a popup whose options are chosen, and
 	// search a search field.
-	activeDescendant *node
-	nameFrom         *node
+	activeDescendant elementRef
+	nameFrom         elementRef
 	// nameJoin makes the element's name nameFrom's followed by its Label,
 	// as a range slider's knobs; labelledBy makes it nameFrom's in place
 	// of its Label (LabelledBy).
@@ -700,7 +706,7 @@ type node struct {
 	// focusTo is the element taking the focus that Focus and AutoFocus
 	// give this one, and whose focus Focused reports: the input of the box
 	// around it (field).
-	focusTo         *node
+	focusTo         elementRef
 	setPos, setSize int
 	choosesItems    bool
 	search          bool
@@ -714,8 +720,8 @@ type node struct {
 	// readOnly and multiline are what a text box with no editor of
 	// MyGo's reports (ReadOnly, Multiline).
 	readOnly, multiline bool
-	describedBy         []*node
-	errorMessage        []*node
+	describedBy         []elementRef
+	errorMessage        []elementRef
 	// field is set on a Field, form on a Form, whose layout makes its
 	// labels as wide as the widest.
 	field *fieldParts
@@ -726,7 +732,7 @@ type node struct {
 	// its rows; sort is the order a table's column header shows: 1
 	// ascending, 2 descending, 3 another (SortDirection).
 	rowMinW float32
-	followX *node
+	followX elementRef
 	sort    int8
 	// colFit fits a column of a table to its cells as it lays out.
 	colFit *tableFit
@@ -745,7 +751,7 @@ type node struct {
 	// which popupSet marks the app as having said, over a menu button's
 	// PopupMenu.
 	roleDescription string
-	controls        []*node
+	controls        []elementRef
 	hasPopup        Popup
 	popupSet        bool
 	tl              *text.Layout
@@ -767,11 +773,11 @@ type node struct {
 	// element from the window's edges (AttachEdgeMargin), in place of
 	// windowMargin.
 	edgeMargin float32
-	// zIndex orders the element's painting and its hits among its
-	// siblings (ZIndex); zOrder is set on an element with a child having
-	// one, which paints and commits its children in that order alone
-	// (zindex.go).
-	zIndex int32
+	// zOrder tells that a child of the element has a zIndex, which paints
+	// and commits its children in that order alone (zindex.go). It stays
+	// here, at the end, where it was: the padding after hidden went to
+	// insetSet, which the layout reads of every child it places, and a
+	// second byte there moves laid and the box into the line after.
 	zOrder bool
 	// pinned tells that the element's own transform is only the remainder
 	// a transition moving it carries to its resting pixels (snapTo), and
@@ -782,13 +788,17 @@ type node struct {
 	// serial is the order the pass made the element in: of overlays, the
 	// one made last shows on top.
 	serial int32
+	// slot is the node's place in the pool the window keeps, which frees
+	// it by.
+	slot int32
 	// The engine allocates elements from chunks of 32 (context.go), strided
 	// by the element's size, so that size is a whole number of cache lines:
 	// each element of a chunk then begins on one, and a walk of a
 	// container's children reads a child's box and style in the same lines
 	// whichever child it is on, rather than in one more line of most of
-	// them.
-	_ [2]uint32
+	// them. A reference is sixteen bytes where a pointer was, so what grew
+	// here is padded out to the next line.
+	_ [4]uint32
 }
 
 // measure is the height of an element at a width (naturalHeight).
@@ -1004,8 +1014,7 @@ func (e *node) Key(k any) *node {
 	if e.widget != "" {
 		panic("ui: Key on a " + e.widget + ", whose state was initialized: use Context.Key before construction")
 	}
-	e.c.rekey(e, k)
-	return e
+	return e.c.rekey(e, k)
 }
 
 // Row lays the children out from left to right.
@@ -1421,7 +1430,7 @@ func (e *node) AttachTo(target *node, at, self Anchor) *node {
 	}
 	e.markAbsolute()
 	e.attach = attachment(1 + min(at, AnchorBottomEnd)*15 + min(self, AnchorBottomEnd))
-	e.popover = target
+	e.popover = refTo(target)
 	if e.dir&dirSet == 0 {
 		// Built in an Overlay, it reads as what it is attached to.
 		e.setDir(target.rtl(), false)
@@ -2173,7 +2182,7 @@ func (e *node) disabled() bool {
 }
 
 // hasState lets input queries treat nil and cleared elements as absent.
-// It cannot recognize an old pointer whose arena slot has been reused.
+// It cannot recognize an old pointer whose place in the pool has been reused.
 func (e *node) hasState() bool {
 	return e != nil && e.c != nil && e.c.rt != nil && e.st != nil && !e.c.rt.closed
 }

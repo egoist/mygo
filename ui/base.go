@@ -568,7 +568,7 @@ func (s *selectParts[T]) Popup(fn func(panel *node)) *node {
 			it.setPos, it.setSize = i+1, len(s.items)
 		}
 		if h >= 0 && h < len(s.items) {
-			b.activeDescendant = s.items[h]
+			b.activeDescendant = refTo(s.items[h])
 		}
 	})
 }
@@ -661,16 +661,19 @@ func popover(c *context, anchor *node, open *bool, modal bool, fn func(panel *no
 	var panel *node
 	dismissed := false
 	coreOverlay(c, func() {
+		// What the anchor opens is keyed under it, as a menu's panels: the
+		// backdrop taking the presses outside it and the panel take no
+		// other opener's identity (toast.go).
 		if modal {
-			back := coreBox(c).Absolute().Left(0).Top(0).Right(0).Bottom(0)
+			back := coreBox(c).Key(mix(anchor.id, popoverBackdropKey)).Absolute().Left(0).Top(0).Right(0).Bottom(0)
 			back.flags |= flagClickable
-			back.popover = anchor
+			back.popover = refTo(anchor)
 			if back.Clicked() {
 				*open = false
 				dismissed = true
 			}
 		}
-		panel = coreBox(c).Role(RolePopup).AttachTo(anchor, AnchorBottomStart, AnchorTopStart)
+		panel = coreBox(c).Key(mix(anchor.id, popoverPanelKey)).Role(RolePopup).AttachTo(anchor, AnchorBottomStart, AnchorTopStart)
 		// Presses on it stay in it.
 		panel.flags |= flagClickable
 		panel.Children(func() { fn(panel) })
