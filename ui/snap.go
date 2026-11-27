@@ -3,6 +3,8 @@ package ui
 import (
 	"math"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,10 +36,15 @@ const snapSettle = 150 * time.Millisecond
 // place.
 var snapAnimation = Animation{Spring: SpringOptions{Duration: 400 * time.Millisecond}}
 
-// placeSnapper finds the places a container that snaps rests at, as it is
+// snapPlacer finds the places a container that snaps rests at, as it is
 // placed (placeSnaps). ScrollSnap sets it, so that apps that do not snap
 // leave out what snapping takes.
-var placeSnapper func(e *node)
+type snapPlacer func(e *node)
+
+var (
+	placeSnapper atomic.Pointer[snapPlacer]
+	linkSnapOnce sync.Once
+)
 
 // ScrollSnap makes the scroll container (Scroll, ScrollHorizontal,
 // ScrollBoth, List) come to rest at the places the elements in it mark
@@ -69,8 +76,11 @@ func (e *node) ScrollSnap(s Snap) *node {
 		panic("ui: ScrollSnap takes SnapNone, SnapMandatory or SnapProximity")
 	}
 	e.snap = s
-	if s != SnapNone && placeSnapper == nil {
-		placeSnapper = placeSnaps
+	if s != SnapNone {
+		linkSnapOnce.Do(func() {
+			place := snapPlacer(placeSnaps)
+			placeSnapper.Store(&place)
+		})
 	}
 	return e
 }

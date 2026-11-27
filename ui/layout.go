@@ -152,7 +152,9 @@ func place(e *node, x, y float32) {
 		}
 		if e.snap != SnapNone || s.snap != nil {
 			// Where it rests, if it snaps (ScrollSnap).
-			placeSnapper(e)
+			if place := placeSnapper.Load(); place != nil {
+				(*place)(e)
+			}
 		}
 		if t := e.track; t != nil {
 			t.MaxX, t.MaxY = float32(mx), float32(my)
