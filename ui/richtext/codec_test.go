@@ -370,3 +370,50 @@ func TestHTMLBlankParagraphs(t *testing.T) {
 		}
 	}
 }
+
+// What is under a list item, a paragraph after its first, a block of code
+// or a heading, stays in the item through HTML, both ways: a browser's or
+// GitHub's item of several paragraphs pastes as one item, not one each.
+func TestHTMLUnderItem(t *testing.T) {
+	p := func(st ParagraphStyle, s string) Paragraph {
+		para := Paragraph{Style: st}
+		if s != "" {
+			para.Runs = []Run{{Text: s}}
+		}
+		return para
+	}
+	item := ParagraphStyle{List: Bullets}
+	num := ParagraphStyle{List: Numbers}
+	under := ParagraphStyle{Indent: 1}
+	for _, in := range []Text{
+		TextOf(p(item, "a"), p(under, "b"), p(item, "c")),
+		TextOf(p(num, "a"), p(under, "b"), p(num, "c")),
+		TextOf(p(ParagraphStyle{List: Tasks}, "a"), p(under, "b")),
+		TextOf(p(item, "a"), p(ParagraphStyle{List: Numbers, Indent: 1}, "x"), p(ParagraphStyle{Indent: 2}, "y"), p(under, "b")),
+		TextOf(p(item, "a"), p(ParagraphStyle{Indent: 1, CodeBlock: true}, "x := 1"), p(ParagraphStyle{Indent: 1, CodeBlock: true}, "y")),
+		TextOf(p(item, "a"), p(ParagraphStyle{Indent: 1, Heading: 2}, "h")),
+		TextOf(p(ParagraphStyle{List: Bullets, Quote: true}, "a"), p(ParagraphStyle{Indent: 1, Quote: true}, "b")),
+		TextOf(p(num, "a"), p(ParagraphStyle{Indent: 1, Quote: true}, "q"), p(ParagraphStyle{Quote: true}, "r")),
+		TextOf(p(item, "a"), p(ParagraphStyle{List: Bullets, Indent: 1, Quote: true}, "b")),
+		TextOf(p(item, ""), p(ParagraphStyle{Indent: 1, CodeBlock: true}, "x")),
+		TextOf(p(item, ""), p(ParagraphStyle{List: Bullets, Indent: 1}, "x"), p(under, "b")),
+		TextOf(p(ParagraphStyle{List: Bullets, Indent: 1}, "x"), p(under, "b")),
+	} {
+		html := in.HTML()
+		if got := ParseHTML(html); dump(got) != dump(in) {
+			t.Errorf("%s reads\n%s want\n%s", html, dump(got), dump(in))
+		}
+	}
+	for html, want := range map[string]Text{
+		"<ol><li><p>a</p><p>b</p></li><li><p>c</p></li></ol>": TextOf(p(num, "a"), p(under, "b"), p(num, "c")),
+		"<ul><li>a<p>b</p></li><li>c</li></ul>":               TextOf(p(item, "a"), p(under, "b"), p(item, "c")),
+		"<ul><li><p>a</p><pre><code>x</code></pre></li></ul>": TextOf(p(item, "a"), p(ParagraphStyle{Indent: 1, CodeBlock: true}, "x")),
+		"<ul><li>a<ul><li>x</li></ul>tail</li></ul>":          TextOf(p(item, "a"), p(ParagraphStyle{List: Bullets, Indent: 1}, "x"), p(under, "tail")),
+		"<ul><li><ul><li>x</li></ul><p>tail</p></li></ul>":    TextOf(p(ParagraphStyle{List: Bullets, Indent: 1}, "x"), p(under, "tail")),
+		"<ul><li><p>a</p></li></ul><p>out</p>":                TextOf(p(item, "a"), p(ParagraphStyle{}, "out")),
+	} {
+		if got := ParseHTML(html); dump(got) != dump(want) {
+			t.Errorf("%s reads\n%s want\n%s", html, dump(got), dump(want))
+		}
+	}
+}
