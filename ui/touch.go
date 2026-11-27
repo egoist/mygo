@@ -25,18 +25,26 @@ import (
 // platform has touch screens (touch_mobile.go), or a Tester touches, for
 // apps of desktops not to link it.
 type touchFunctions struct {
-	input          func(rt *engine, ev platform.SurfaceEvent, x, y float32) bool
-	frame          func(rt *engine, now time.Time)
-	paint          func(rt *engine, p *Painter)
-	system         func(rt *engine, ev platform.SurfaceEvent)
-	bars           func(s *state, rt *engine) float32
+	input func(rt *engine, ev platform.SurfaceEvent, x, y float32) bool
+	frame func(rt *engine, now time.Time)
+	paint func(rt *engine, p *Painter)
+	// system hears what phones' systems tell, and bars how much a scroll
+	// indicator shows.
+	system func(rt *engine, ev platform.SurfaceEvent)
+	bars   func(s *state, rt *engine) float32
+	// contentStretch transforms what a scroll container holds, on Android.
 	contentStretch func(world scene.Affine, e *node) scene.Affine
-	insetRoot      func(rt *engine, root *node)
-	extendScrolls  func(rt *engine, root *node, h float32)
+	// insetRoot keeps the content out from under what covers the
+	// window's edges, which only phones' do.
+	insetRoot     func(rt *engine, root *node)
+	extendScrolls func(rt *engine, root *node, h float32)
 }
 
 var (
-	touchOnce sync.Once
+	// touchFuncs is set once, by enableTouch, and read by every frame: it
+	// is atomic since Testers on other goroutines link it and run frames
+	// at once.
+	touchOnce  sync.Once
 	touchFuncs atomic.Pointer[touchFunctions]
 	// refreshPainter draws a pull to refresh, which PullToRefresh sets.
 	refreshPainter func(p *Painter, e *node)
