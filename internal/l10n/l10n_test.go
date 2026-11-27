@@ -30,7 +30,7 @@ func TestCatalogs(t *testing.T) {
 	for _, d := range diags {
 		t.Error(d)
 	}
-	src, err := i18ngen.Go(c, "l10n")
+	src, err := i18ngen.Go(c, "l10n", i18ngen.GoOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

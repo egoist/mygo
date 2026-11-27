@@ -194,6 +194,11 @@ type I18n struct {
 	// Source is the language the app is written in, whose catalog has
 	// every message, and which the others fall back to (default "en").
 	Source string `json:"source"`
+	// Accessors says which Go functions mygo writes: "full" (default) has
+	// one per message and In, whose methods say it in another language;
+	// "compact" has only the functions, for apps that never choose the
+	// language themselves.
+	Accessors string `json:"accessors"`
 }
 
 // MacOS configures macOS packaging.
@@ -572,6 +577,11 @@ func (c *Config) validate() error {
 		if filepath.IsAbs(c.I18n.Dir) || filepath.Clean(c.I18n.Dir) == "." || strings.HasPrefix(filepath.Clean(c.I18n.Dir), "..") {
 			return fmt.Errorf("i18n.dir %q is not a directory of the project: the catalogs are a Go package of their own, as locales", c.I18n.Dir)
 		}
+		switch c.I18n.Accessors {
+		case "full", "compact":
+		default:
+			return fmt.Errorf("i18n.accessors %q is not full or compact", c.I18n.Accessors)
+		}
 	}
 	if err := c.validateMobile(); err != nil {
 		return err
@@ -747,6 +757,9 @@ func (c *Config) applyDefaults() {
 		}
 		if c.I18n.Source == "" {
 			c.I18n.Source = "en"
+		}
+		if c.I18n.Accessors == "" {
+			c.I18n.Accessors = "full"
 		}
 	}
 	frontendOptions := c.DevURL != "" || c.DevCommand != "" || c.BuildCommand != "" || c.FrontendDist != ""

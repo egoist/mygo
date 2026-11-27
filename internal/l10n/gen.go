@@ -29,7 +29,7 @@ func main() {
 		log.Fatal(err)
 	}
 	check(diags)
-	src, err := i18ngen.Go(c, "l10n")
+	src, err := i18ngen.Go(c, "l10n", i18ngen.GoOptions{})
 	if err != nil {
 		log.Fatal(err)
 	}

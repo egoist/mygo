@@ -3,6 +3,7 @@ package i18ngen
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -125,7 +126,7 @@ func TestApp(t *testing.T) {
 		t.Errorf("Fallbacks(en-GB) = %v", got)
 	}
 
-	src, err := Go(c, "locales")
+	src, err := Go(c, "locales", GoOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +212,7 @@ func TestLibraryKeys(t *testing.T) {
 	if len(diags) != 1 || !strings.Contains(diags[0].Msg, `"other.b" is not a key`) {
 		t.Errorf("diagnostics: %v", diags)
 	}
-	src, err := Go(library(t), "l10n")
+	src, err := Go(library(t), "l10n", GoOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,6 +224,68 @@ func TestLibraryKeys(t *testing.T) {
 	if bytes.Contains(src, []byte("Register")) {
 		t.Error("a library's catalog is registered")
 	}
+}
+
+func TestGoCompact(t *testing.T) {
+	const catalog = `{"hello": "Hello, {name}!", "filesSelected": "{count, plural, =0 {No files selected} one {# file selected} other {# files selected}}", "updated": "Updated {at, date, short}"}`
+	c, diags, err := Load(fstest.MapFS{
+		"en.json": {Data: []byte(catalog)},
+	}, Options{Dir: "locales", Source: "en"})
+	if err != nil || len(diags) > 0 {
+		t.Fatalf("load: %v %v", err, diags)
+	}
+	src, err := Go(c, "locales", GoOptions{Compact: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, not := range []string{"type Messages", "func In(", "(msgs Messages)"} {
+		if bytes.Contains(src, []byte(not)) {
+			t.Errorf("compact accessors keep %q:\n%s", not, src)
+		}
+	}
+	for _, want := range []string{
+		"func Hello(name string) string",
+		`Catalog.Format(i18n.Locale(), "hello"`,
+		"func FilesSelected(count int) string",
+		"func Updated(at time.Time) string",
+	} {
+		if !bytes.Contains(src, []byte(want)) {
+			t.Errorf("compact accessors lack %q:\n%s", want, src)
+		}
+	}
+	golden(t, "testdata/compact/"+GoFile, src)
+	t.Run("compiles", func(t *testing.T) {
+		dir := t.TempDir()
+		root, err := filepath.Abs("../..")
+		if err != nil {
+			t.Fatal(err)
+		}
+		write := func(name string, data []byte) {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write("catalog_gen.go", src)
+		write("en.json", []byte(catalog))
+		write("go.mod", []byte(fmt.Sprintf("module locales\n\ngo 1.27\nrequire github.com/egoist/mygo v0.0.0\nreplace github.com/egoist/mygo => %q\n", filepath.ToSlash(root))))
+		write("catalog_test.go", []byte(`package locales
+import (
+	"testing"
+	"time"
+)
+func TestCompact(t *testing.T) {
+	if got := Hello("Ada"); got != "Hello, Ada!" { t.Fatal(got) }
+	if got := FilesSelected(2); got == "" { t.Fatal("FilesSelected(2) is empty") }
+	if got := Updated(time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)); got == "" { t.Fatal("Updated is empty") }
+}`))
+		cmd := exec.Command("go", "test", "-mod=mod", ".")
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GOWORK=off")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("generated Go: %v\n%s", err, out)
+		}
+	})
 }
 
 func TestPackageName(t *testing.T) {

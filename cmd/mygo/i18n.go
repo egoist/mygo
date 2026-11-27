@@ -131,7 +131,7 @@ func writeI18n(c *Config) (*i18nOutput, error) {
 	if err != nil {
 		return nil, err
 	}
-	src, err := i18ngen.Go(cat, pkg)
+	src, err := i18ngen.Go(cat, pkg, i18ngen.GoOptions{Compact: c.I18n.Accessors == "compact"})
 	if err != nil {
 		return nil, err
 	}

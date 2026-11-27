@@ -18,15 +18,16 @@ func TestI18nConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.I18n.Dir != "locales" || c.I18n.Source != "en" {
+	if c.I18n.Dir != "locales" || c.I18n.Source != "en" || c.I18n.Accessors != "full" {
 		t.Errorf("defaults: %+v", c.I18n)
 	}
 	for config, want := range map[string]string{
-		`{"i18n": {"source": "EN"}}`:    `i18n.source "EN" is not a BCP 47 tag`,
-		`{"i18n": {"source": "en-XA"}}`: `i18n.source "en-XA" is not a BCP 47 tag`,
-		`{"i18n": {"source": "zh_CN"}}`: `i18n.source "zh_CN" is not a BCP 47 tag`,
-		`{"i18n": {"dir": "."}}`:        `i18n.dir "." is not a directory of the project`,
-		`{"i18n": {"dir": "../x"}}`:     `i18n.dir "../x" is not a directory of the project`,
+		`{"i18n": {"source": "EN"}}`:      `i18n.source "EN" is not a BCP 47 tag`,
+		`{"i18n": {"source": "en-XA"}}`:   `i18n.source "en-XA" is not a BCP 47 tag`,
+		`{"i18n": {"source": "zh_CN"}}`:   `i18n.source "zh_CN" is not a BCP 47 tag`,
+		`{"i18n": {"dir": "."}}`:          `i18n.dir "." is not a directory of the project`,
+		`{"i18n": {"dir": "../x"}}`:       `i18n.dir "../x" is not a directory of the project`,
+		`{"i18n": {"accessors": "some"}}`: `i18n.accessors "some" is not full or compact`,
 	} {
 		writeFiles(t, dir, map[string]string{jsonConfig: config})
 		if _, err := loadConfig(dir); err == nil || !strings.Contains(err.Error(), want) {
@@ -140,6 +141,37 @@ func TestWriteI18n(t *testing.T) {
 	c, _ = loadConfig(dir)
 	if _, err := writeI18n(c); err == nil || !strings.Contains(err.Error(), "i18n.dir nowhere is not a directory") {
 		t.Errorf("a missing directory: %v", err)
+	}
+}
+
+// Compact accessors reach the generator: the file keeps the functions,
+// registers the catalog, and leaves In and Messages out.
+func TestWriteI18nCompact(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		jsonConfig:        `{"i18n": {"accessors": "compact"}}`,
+		"locales/en.json": `{"hello": "Hello, {name}!"}`,
+	})
+	c, err := loadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeI18n(c); err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "locales", i18ngen.GoFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"func Hello(name string) string", "i18n.Register(Catalog)"} {
+		if !bytes.Contains(src, []byte(want)) {
+			t.Errorf("compact accessors lack %q:\n%s", want, src)
+		}
+	}
+	for _, not := range []string{"type Messages", "func In("} {
+		if bytes.Contains(src, []byte(not)) {
+			t.Errorf("compact accessors keep %q:\n%s", not, src)
+		}
 	}
 }
 

@@ -94,6 +94,7 @@ The catalogs of the app's messages, a JSON file per language; see
 |---|---|---|
 | `dir` | `locales` | the directory of the catalogs, `<tag>.json` for each language the app ships (`de.json`, `zh-Hant.json`); a Go package of its own, where `mygo generate` writes the Go functions of the messages |
 | `source` | `en` | the language the app is written in, whose catalog has every message and which the others fall back to |
+| `accessors` | `full` | `full` writes a function per message and `In`, whose methods say it in another language; `compact` writes only the functions |
 
 ## updates
 

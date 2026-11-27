@@ -28,7 +28,7 @@ func TestParameterNamesCompile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	src, err := Go(c, "example")
+	src, err := Go(c, "example", GoOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

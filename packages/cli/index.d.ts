@@ -156,6 +156,8 @@ export interface I18nConfig {
   dir?: string;
   /** The language the app is written in, which the others fall back to (default `en`). */
   source?: string;
+  /** `full` writes a function per message and `In`, whose methods say it in another language; `compact` writes only the functions (default `full`). */
+  accessors?: "full" | "compact";
 }
 
 /** A type of file the app opens. */

@@ -350,6 +350,8 @@ func (l *loader) readFile(name, tag string, data []byte) *File {
 // sourceKeys reads the keys of the source language and their parameters.
 func (l *loader) sourceKeys(f *File) {
 	taken := map[string]string{} // Go names
+	// In and Messages stay reserved with compact accessors, which do not
+	// write them: a catalog stays valid whichever the app asks for.
 	for _, name := range []string{"In", "Messages", "Catalog"} {
 		taken[name] = ""
 	}
