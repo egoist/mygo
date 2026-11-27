@@ -115,3 +115,28 @@ func TestTouchGesture(t *testing.T) {
 		}
 	}
 }
+
+// TestTouchHolds checks which fingers a gesture holds: those down, until
+// they lift or the gesture forgets them.
+func TestTouchHolds(t *testing.T) {
+	var g TouchGesture
+	if g.Holds(1) {
+		t.Error("a fresh gesture holds a finger")
+	}
+	g.Begin(1, 0, 0, 0)
+	if !g.Holds(1) || g.Holds(2) {
+		t.Error("the gesture holds the wrong fingers")
+	}
+	g.Begin(2, 5, 5, 10)
+	if !g.Holds(2) {
+		t.Error("the second finger is not held")
+	}
+	g.End(1, 0, 0, 20, false)
+	if g.Holds(1) || !g.Holds(2) {
+		t.Error("the lifted finger is still held")
+	}
+	g.Reset()
+	if g.Holds(2) {
+		t.Error("the reset gesture holds a finger")
+	}
+}
