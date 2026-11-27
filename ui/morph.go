@@ -373,6 +373,14 @@ func (p *Painter) morph(e *node, r *contentRec, x, y float32, ts textStyle, span
 	defer decor(func(l *text.Layout, x, y float32, color Color, sp *spanPaint) { p.textLines(l, x, y, color, ts, sp) })
 	sys := p.rt.text
 	s := p.scale
+	var shadowGlyph func(s *text.System, f *text.Font, id uint32, scale, x float32, shade text.Shade, opaque bool, sigma float32) text.GlyphImage
+	if links := textShadowFuncs.Load(); links != nil {
+		shadowGlyph = links.glyph
+	}
+	var strokeGlyph func(s *text.System, f *text.Font, id uint32, scale, x float32, shade text.Shade, opaque bool, width float32) text.GlyphImage
+	if links := textStrokeFuncs.Load(); links != nil {
+		strokeGlyph = links.glyph
+	}
 	var tx, ty float32
 	if pr.toFrame == p.rt.frame {
 		tx, ty = pr.toX, pr.toY

@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 	"weak"
 
@@ -1085,21 +1086,21 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 	// Inline transforms do not change while the text paints; look for them once.
 	moves := p.inlineTransforms()
 	clips := !p.transform.Set && !moves
-	if paintShadows != nil && (ts.shadow.color.A > 0 || sp != nil && sp.shadows()) {
+	if shadow := textShadowFuncs.Load(); shadow != nil && (ts.shadow.color.A > 0 || sp != nil && sp.shadows()) {
 		var spans spanPaint
 		if sp != nil {
 			spans = *sp
 		}
-		paintShadows(p, l, x, y, color, ts, spans, moves, clips)
+		shadow.paint(p, l, x, y, color, ts, spans, moves, clips)
 	}
-	if paintStrokes != nil && (ts.strokeWidth > 0 && ts.strokeColor.A > 0 || sp != nil && sp.strokes()) {
+	if stroke := textStrokeFuncs.Load(); stroke != nil && (ts.strokeWidth > 0 && ts.strokeColor.A > 0 || sp != nil && sp.strokes()) {
 		// The spans by value, as a call through a variable would move a
 		// pointer to the caller's to the heap.
 		var spans spanPaint
 		if sp != nil {
 			spans = *sp
 		}
-		paintStrokes(p, l, x, y, color, ts, spans, moves, clips)
+		stroke.paint(p, l, x, y, color, ts, spans, moves, clips)
 	}
 	// Rasterized at the size the transform shows them at, if it scales
 	// them; else at the painter's scale, clips then applying to pen.
@@ -1167,18 +1168,25 @@ func (p *Painter) textForeground(l *text.Layout, x, y float32, color Color, ts t
 	}
 }
 
-// paintStrokes is textStrokes, and strokeGlyph the text system's
-// StrokeGlyph, once TextStroke is called, so that apps that never stroke
-// text do not link them.
+// textStrokeLinks publishes the paint and glyph lookup used for strokes.
+type textStrokeLinks struct {
+	paint func(p *Painter, l *text.Layout, x, y float32, color Color, ts textStyle, sp spanPaint, moves, clips bool)
+	glyph func(s *text.System, f *text.Font, id uint32, scale, x float32, shade text.Shade, opaque bool, width float32) text.GlyphImage
+}
+
 var (
-	paintStrokes func(p *Painter, l *text.Layout, x, y float32, color Color, ts textStyle, sp spanPaint, moves, clips bool)
-	strokeGlyph  func(s *text.System, f *text.Font, id uint32, scale, x float32, shade text.Shade, opaque bool, width float32) text.GlyphImage
+	textStrokeOnce  sync.Once
+	textStrokeFuncs atomic.Pointer[textStrokeLinks]
 )
 
+// linkStrokes publishes the text stroke functions once. TextStroke calls it,
+// so apps that never stroke text do not link the painter or glyph function.
 func linkStrokes() {
-	if paintStrokes == nil {
-		paintStrokes, strokeGlyph = (*Painter).textStrokes, (*text.System).StrokeGlyph
-	}
+	textStrokeOnce.Do(func() {
+		textStrokeFuncs.Store(&textStrokeLinks{
+			paint: (*Painter).textStrokes, glyph: (*text.System).StrokeGlyph,
+		})
+	})
 }
 
 // textStrokes paints the strokes of the glyphs of l, laid out from (x, y),
@@ -1192,6 +1200,7 @@ func (p *Painter) textStrokes(l *text.Layout, x, y float32, color Color, ts text
 		sp = &spans
 	}
 	sys := p.rt.text
+	strokeGlyph := textStrokeFuncs.Load().glyph
 	gs := p.glyphSpace(l, x, y, moves)
 	s := gs.scale
 	shade := text.ShadeOf(color.R, color.G, color.B)
@@ -1237,18 +1246,26 @@ func (p *Painter) textStrokes(l *text.Layout, x, y float32, color Color, ts text
 	}
 }
 
-// paintShadows is textShadows, and shadowGlyph the text system's
-// ShadowGlyph, once a TextShadow is made (NewTextShadow), so that apps
-// whose text casts none do not link them.
+// textShadowLinks publishes the paint and glyph lookup used for shadows.
+type textShadowLinks struct {
+	paint func(p *Painter, l *text.Layout, x, y float32, color Color, ts textStyle, sp spanPaint, moves, clips bool)
+	glyph func(s *text.System, f *text.Font, id uint32, scale, x float32, shade text.Shade, opaque bool, sigma float32) text.GlyphImage
+}
+
 var (
-	paintShadows func(p *Painter, l *text.Layout, x, y float32, color Color, ts textStyle, sp spanPaint, moves, clips bool)
-	shadowGlyph  func(s *text.System, f *text.Font, id uint32, scale, x float32, shade text.Shade, opaque bool, sigma float32) text.GlyphImage
+	textShadowOnce  sync.Once
+	textShadowFuncs atomic.Pointer[textShadowLinks]
 )
 
+// linkTextShadows publishes the text shadow functions once. NewTextShadow
+// calls it, so apps whose text casts no shadow do not link the painter or
+// glyph function.
 func linkTextShadows() {
-	if paintShadows == nil {
-		paintShadows, shadowGlyph = (*Painter).textShadows, (*text.System).ShadowGlyph
-	}
+	textShadowOnce.Do(func() {
+		textShadowFuncs.Store(&textShadowLinks{
+			paint: (*Painter).textShadows, glyph: (*text.System).ShadowGlyph,
+		})
+	})
 }
 
 // textShadows paints the shadows the glyphs of l, laid out from (x, y),
@@ -1262,6 +1279,7 @@ func (p *Painter) textShadows(l *text.Layout, x, y float32, color Color, ts text
 		sp = &spans
 	}
 	sys := p.rt.text
+	shadowGlyph := textShadowFuncs.Load().glyph
 	gs := p.glyphSpace(l, x, y, moves)
 	s := gs.scale
 	shade := text.ShadeOf(color.R, color.G, color.B)

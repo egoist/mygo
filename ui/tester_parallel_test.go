@@ -208,3 +208,31 @@ func TestEnableTouchAcrossTesters(t *testing.T) {
 	close(start)
 	wg.Wait()
 }
+
+// TestTextDecorationLinksAcrossTesters runs text painting while another
+// Tester first links text strokes and shadows, the links shared by every
+// Painter and read on every text draw.
+func TestTextDecorationLinksAcrossTesters(t *testing.T) {
+	reader := NewTester(func(c *Context) { Text(c, "concurrent paint") }, 120, 80)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		for range 1000 {
+			reader.Frame()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		for range 8 {
+			NewTester(func(c *Context) {
+				Text(c, "stroke and shadow").TextStroke(1, Color{A: 255}).TextShadow(0, 1, 1, Color{A: 255})
+			}, 120, 80)
+		}
+	}()
+	close(start)
+	wg.Wait()
+}
