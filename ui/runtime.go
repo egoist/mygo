@@ -1324,7 +1324,7 @@ func (rt *engine) endPass() {
 	rt.passFocus()
 	// The next pass may not ask again, as when the view cleared what asked.
 	for _, r := range rt.c.reveal {
-		rt.askReveal(r.e.id, r.o)
+		rt.askReveal(r.e.id, r.o, r.text)
 	}
 }
 

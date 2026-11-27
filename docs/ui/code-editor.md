@@ -721,6 +721,16 @@ app.code.RenderHover = func(c *ui.Context, panel ui.Element, h *editor.HoverCard
   matches, and `Next`, `Previous`, `SelectAll`, `Replace`, `ReplaceAll`
   and `Close` act; `Replacing` says whether the bar replaces too, as
   Cmd+Alt+F opens it.
+- Another view that finds in text it doesn't edit can have the same
+  bar: what its find shows and does implements `FindBarSource`
+  (`Query`, the four options, `Width`, `Status`, `Err`, `Next`,
+  `Previous`, `Close` and `FocusQuery`), and `FindBarInRow` builds the
+  bar with the editor's own look where a view as high as its content
+  places it, taking the keys that go through the matches, as the
+  [Markdown view's](markdown.md#finding) does. Its matches are a
+  `FindQuery`'s: `NewFindQuery` makes one of a query and `FindOptions`,
+  matching as the editor's find does (the error is of a regular
+  expression that is not one), and `Matches` finds it in a text.
 - `GoToLineBar` has `Text` for its field, which `Input` gives the bar's
   keys, `Cursor`, `LineCount` and `Target` to tell where it goes, and
   `Go` and `Close`.

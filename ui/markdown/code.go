@@ -55,6 +55,11 @@ type codeChunk struct {
 	spans []ui.Span
 	n     int // lines
 	ok    bool
+	// findSpans are the spans cut at the find bar's matches, cut again as
+	// findRev changes, findRanges their ranges in the chunk's text.
+	findSpans  []ui.Span
+	findRanges [][2]int
+	findRev    uint32
 }
 
 const chunkLines = 32
@@ -175,10 +180,13 @@ func (b *CodeBlockView) Body(c *ui.Context) ui.Element {
 		col.Children(func() {
 			for k := range cs.chunks {
 				ch := &cs.chunks[k]
-				el := ui.RichText(c, ch.spans...)
+				el := ui.RichText(c, st.findChunk(ch, b.Index, k*chunkLines)...)
 				if !st.o.WrapCode {
 					el.NoWrap()
 				}
+				// The match of the find bar the chunk holds, once it is
+				// built.
+				st.findReveal(el)
 				st.note(el.ID(), b.Index, k*chunkLines)
 			}
 		})
@@ -235,6 +243,7 @@ func (st *viewState) highlight(cs *codeState, i int) {
 			continue
 		}
 		ch.spans = ch.spans[:0]
+		ch.findRev = 0 // the find bar cuts these spans again
 		first := k * chunkLines
 		last := min(first+chunkLines, n)
 		for l := first; l < last; l++ {

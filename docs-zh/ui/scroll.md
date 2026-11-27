@@ -90,6 +90,12 @@ if app.matchMoved {
 
 零值选项与不带选项的 `ScrollIntoView()` 相同。
 
+比周围容器更高的文本可以只显示其中一段：`ScrollTextRangeIntoView` 对齐文本元素中从 `start` 到 `end` 的 rune，而不是整个盒子，例如长段落或代码块中查找的匹配项。
+
+```go
+hit.ScrollTextRangeIntoView(start, end, ui.ScrollIntoViewOptions{Block: ui.ScrollCenter})
+```
+
 键盘焦点移动时会滚动到视图内。带有应用自己的 `TextInputClient` 的元素（[文本输入客户端](text-input-client.md)）会把插入符（位置由 `BoundsForRange` 给出）滚动到视图内，而不是滚动整个盒子：和行数一样高的代码编辑器在获得焦点时会显示正在编辑的那一行，而不是第一行。
 
 ## 吸附

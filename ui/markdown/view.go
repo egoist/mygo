@@ -13,7 +13,8 @@ import (
 // Options are how views show Markdown: their theme, what links and images
 // do, how blocks render, and how text being written comes in. Keep one in
 // the app's state and give it to every view of a kind, as the messages of
-// a chat.
+// a chat: Find alone opens a bar in every view that shares it, so the view
+// to find in has Options of its own (see Find).
 type Options struct {
 	// Theme is the look: DefaultTheme of the window's theme when nil,
 	// whose values those the theme leaves zero take.
@@ -67,6 +68,16 @@ type Options struct {
 	// a cell of a table scrolls the table into view. The document is the
 	// view's: read it, never change it.
 	AnchorBlock func(d *parser.Document, name string) int
+	// Find opens the view's find bar, the code editor's own, as Cmd+F
+	// does while the view has the focus, as a Find menu item does: it
+	// finds in the view's text as it reads, highlighting every match and
+	// going through them (see Finding in the docs). FindVersion opens or
+	// closes it again when it changes, for the same state asked for twice.
+	// Each view has a bar of its own: a chat whose messages share one
+	// Options opens one in every message at once, so give the view the bar
+	// finds in an Options of its own.
+	Find        bool
+	FindVersion uint64
 	// OnTask, when set, makes the check boxes of task list items controls
 	// of the app's: a click on one, or Space or Enter while it has the
 	// focus, calls it with the item's line in the view's source, from 1,
@@ -135,7 +146,10 @@ type Options struct {
 	// the view, as one across a chat's messages, rather than giving the
 	// view one of its own. Within another view, as a block Block builds,
 	// it shares that view's, whose Copy as Markdown copies its text as
-	// the Markdown of its own source.
+	// the Markdown of its own source. The view's find bar, finding in the
+	// selection, sees that view's selection, and not an app's own
+	// container's: there it finds in all of the text (see Finding in the
+	// docs).
 	ShareSelection bool
 
 	images sync.Map // url → *imageEntry
@@ -218,6 +232,7 @@ type stateKey struct{}
 // viewState is what a view keeps from frame to frame.
 type viewState struct {
 	o     *Options
+	root  ui.Element
 	doc   *parser.Document
 	ext   parser.Extensions
 	uiTh  ui.Theme
@@ -240,6 +255,7 @@ type viewState struct {
 	notes         map[string]int
 	sb            spanBuilder
 	fade          func(src int) float32
+	find          findState
 	// nested are the views with ShareSelection built within this one's
 	// blocks, whose text this one's selection holds, for copying it as
 	// Markdown; cur is the block being built, which a nested view is
@@ -294,6 +310,11 @@ type paraCache struct {
 	base       spanStyle
 	ok         bool
 	p          para
+	// findPieces are p's pieces cut at the find bar's matches, cut again
+	// as findRev changes, findRanges their ranges in their text joined.
+	findPieces []piece
+	findRanges [][2]int
+	findRev    uint32
 }
 
 type elemInfo struct {
@@ -302,7 +323,11 @@ type elemInfo struct {
 	line  int
 }
 
-func newState() *viewState { return &viewState{scrollTo: -1} }
+func newState() *viewState {
+	// find.rev starts past a paraCache's zero findRev, which a paragraph
+	// built anew cuts for.
+	return &viewState{scrollTo: -1, find: findState{rev: 1}}
+}
 
 func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 	if o == nil {
@@ -310,7 +335,7 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 	}
 	root := ui.Column(c)
 	st := *ui.Local(root, stateKey{}, newState)
-	st.o = o
+	st.o, st.root = o, root
 	ext := o.Extensions
 	if ext == 0 {
 		ext = parser.Default
@@ -337,6 +362,19 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 	}
 	st.anchor, st.anchorVersion = o.Anchor, o.AnchorVersion
 	st.fade = st.reveal.fader(c, o.Reveal)
+	// The bar closed: the view takes the focus back, where it is, as an
+	// editor's does, so that Cmd+F opens it again. Cmd+F opens the find
+	// bar while the view has the focus, as clicking its text gives it, and
+	// asks its field for the focus again where the bar is open. The bar,
+	// or what was asked of it, cuts the content below (findBegin).
+	if st.find.refocus {
+		st.find.refocus = false
+		root.Focus(ui.FocusOptions{PreventScroll: true})
+	}
+	if root.FocusWithin() && root.Shortcut(ui.Cmd, ui.KeyF) {
+		st.find.open, st.find.focusQuery = true, true
+	}
+	st.findBegin(c, root, o)
 
 	root.FontSize(th.FontSize).LineHeight(th.LineHeight).TextColor(th.Text)
 	if th.Font != "" {
@@ -369,6 +407,9 @@ func build(c *ui.Context, src string, o *Options, streaming bool) ui.Element {
 		defer setBuilding(c, prev)
 		st.blocks(c, 0, false, spanStyle{})
 		st.footnotes(c)
+		// Over the top, after the content, which the bar counts the
+		// matches of.
+		st.buildFindBar(c)
 	})
 	if revealing || st.reveal.fading() {
 		c.AnimationFrame()
@@ -581,6 +622,7 @@ func (st *viewState) para(i int, base spanStyle) *para {
 		return &pc.p
 	}
 	pc.start, pc.end, pc.kind, pc.rev, pc.base, pc.ok = b.Start, b.End, b.Kind, b.Revision(), base, true
+	pc.findRev = 0 // the find bar cuts its pieces of these spans again
 	sb := &st.sb
 	sb.block = i
 	sb.fade = st.fade
@@ -673,7 +715,7 @@ func (st *viewState) sameResolved(i int, p *para) bool {
 // paragraph builds the text of block i: a paragraph, a heading or a cell.
 func (st *viewState) paragraph(c *ui.Context, i int, base spanStyle) ui.Element {
 	p := st.para(i, base)
-	ps := p.pieces
+	ps := st.findPara(i, p)
 	var el ui.Element
 	switch {
 	case len(ps) == 0:
@@ -691,6 +733,8 @@ func (st *viewState) paragraph(c *ui.Context, i int, base spanStyle) ui.Element 
 			}
 		})
 	}
+	// The match of the find bar the paragraph holds, once it is built.
+	st.findReveal(el)
 	if objects := p.objects; len(objects) > 0 {
 		el.DrawObjects(func(pa *ui.Painter, at int, r ui.Rect) {
 			if k, ok := slices.BinarySearchFunc(objects, at, func(o mathObject, at int) int { return o.rune - at }); ok && objects[k].draw != nil {

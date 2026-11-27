@@ -74,7 +74,7 @@ func layoutTree(root *node, w, h float32) {
 	layoutBox(root, w, h)
 	// Lists build rows as they lay out, which may ask to come into view.
 	for _, r := range root.c.reveal {
-		rt.askReveal(r.e.id, r.o)
+		rt.askReveal(r.e.id, r.o, r.text)
 	}
 	if len(rt.revealIDs) > 0 {
 		revealAll(root, rt.revealIDs)
