@@ -1396,9 +1396,20 @@ func (n network) Watch() {
 // it may have changed.
 func (b *Backend) EmitNetwork(status platform.NetworkStatus) { b.h.NetworkChanged(status) }
 
+// Displays are the displays Screen lists, which tests set; without them
+// it is the one fake display below.
+var Displays []platform.Display
+
+// DisplaysChanged reports displays as added, removed or changed, as a
+// backend does.
+func (b *Backend) DisplaysChanged() { b.h.DisplaysChanged() }
+
 type screen struct{}
 
 func (screen) Displays() []platform.Display {
+	if len(Displays) > 0 {
+		return append([]platform.Display(nil), Displays...)
+	}
 	return []platform.Display{{
 		ID: 1, Label: "Fake", Primary: true, ScaleFactor: 2,
 		Bounds:   platform.Rect{Width: 1440, Height: 900},
