@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"math"
 	"slices"
+	"sync/atomic"
 )
 
 // ZIndex orders the element's painting among its siblings, as CSS's
@@ -49,7 +50,9 @@ import (
 func (e *node) ZIndex(z int) *node {
 	e.zIndex = int32(max(math.MinInt32, min(z, math.MaxInt32)))
 	if z != 0 {
-		zPaint, zCommit = (*Painter).paintByZ, (*engine).commitByZ
+		if zByZ.Load() == nil {
+			zByZ.Store(&zOrdering{(*Painter).paintByZ, (*engine).commitByZ})
+		}
 		if e.parent != nil {
 			e.parent.zOrder = true
 		}
@@ -57,13 +60,16 @@ func (e *node) ZIndex(z int) *node {
 	return e
 }
 
-// zPaint and zCommit paint and commit the children of an element with
-// zOrder: ZIndex sets them, so that apps that never call it do not link
-// what orders children (paintByZ, commitByZ).
-var (
-	zPaint  func(p *Painter, e *node)
-	zCommit func(rt *engine, e *node, clip Rect, invisible bool)
-)
+// zByZ paints and commits the children of an element with zOrder: ZIndex
+// sets it, so that apps that never call it do not link what orders
+// children (paintByZ, commitByZ). It is atomic since Testers on other
+// goroutines set it and read it at once (issue #2432).
+var zByZ atomic.Pointer[zOrdering]
+
+type zOrdering struct {
+	paint  func(p *Painter, e *node)
+	commit func(rt *engine, e *node, clip Rect, invisible bool)
+}
 
 // zScratch holds what ordering children by their z-index works in, kept
 // by the engine so that it allocates once: the children of the elements

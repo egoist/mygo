@@ -499,7 +499,11 @@ func (p *Painter) element(e *node) {
 		p.pushClip(inner, rad)
 	}
 	if !clips || p.clip.W > 0 && p.clip.H > 0 {
-		zOrder := e.zOrder && e != e.c.overlay && zPaint != nil
+		var zo *zOrdering
+		if e.zOrder && e != e.c.overlay {
+			zo = zByZ.Load()
+		}
+		zOrder := zo != nil
 		if e.ghosts && !zOrder {
 			// Elements leaving go under their siblings; by z-index, under
 			// those of the same one (paintByZ).
@@ -510,7 +514,7 @@ func (p *Painter) element(e *node) {
 			}
 		}
 		if zOrder {
-			zPaint(p, e)
+			zo.paint(p, e)
 		} else {
 			// Elements flying go over their layer: the window's content, under
 			// its overlays, or their overlay, under those after it.

@@ -144,3 +144,34 @@ func TestTesterTextSystemUnreachable(t *testing.T) {
 	})
 	runtime.KeepAlive(next)
 }
+
+// TestParallelTestersZIndex runs Testers raising elements with ZIndex on
+// different goroutines, and fails under go test -race while ZIndex writes
+// the package's functions that order children by z-index each time it is
+// called (issue #2432).
+func TestParallelTestersZIndex(t *testing.T) {
+	for i := range 4 {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			t.Parallel()
+			var hits []int
+			tt := NewTester(func(c *Context) {
+				Box(c).Size(60, 60).Children(func() {
+					for k := range 2 {
+						// The first is raised above the second, built after it.
+						e := ButtonBase(c).Size(40, 40).Absolute().Top(0).Left(0).ZIndex((1 - k) * (i + 1))
+						if e.Clicked() {
+							hits = append(hits, k)
+						}
+					}
+				})
+			}, 60, 60)
+			for range 10 {
+				tt.Frame()
+			}
+			tt.ClickAt(20, 20)
+			if !slices.Equal(hits, []int{0}) {
+				t.Errorf("the click goes to %v, want the raised button 0", hits)
+			}
+		})
+	}
+}

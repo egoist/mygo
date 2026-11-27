@@ -1923,8 +1923,12 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	// Sticky ones are in the flow for the focus, and paint among the
 	// absolute ones, where their hits go.
 	// A child with a z-index moves its hits to where it paints.
-	if e.zOrder && e != e.c.overlay && zCommit != nil {
-		zCommit(rt, e, clip, invisible)
+	var zo *zOrdering
+	if e.zOrder && e != e.c.overlay {
+		zo = zByZ.Load()
+	}
+	if zo != nil {
+		zo.commit(rt, e, clip, invisible)
 	} else {
 		var stuckBuf [4][2]int
 		stuck := stuckBuf[:0]
