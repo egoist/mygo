@@ -782,20 +782,63 @@ func TestCleanUpdateLeftoversKeepsLookAlikesOfABuildWithoutUpdates(t *testing.T)
 	}
 }
 
-func TestCleanUpdateLeftoversRemovesTheLeftoverOfABuildWithUpdates(t *testing.T) {
+func TestCleanUpdateLeftoversRemovesTheLeftoversOfABuildWithUpdates(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		t.Skip("darwin's updater leaves no entries of this shape to clean")
 	}
 	dir := t.TempDir()
-	leftover := filepath.Join(dir, ".notes.old-1234")
-	if err := os.WriteFile(leftover, []byte("gone"), 0o600); err != nil {
-		t.Fatal(err)
+	write := func(name string) string {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	gone := []string{
+		write(".notes.old-1234"),
+		filepath.Dir(write(filepath.Join(".lib.old-99", "nested", "sentinel.txt"))),
+	}
+	kept := []string{
+		write(".notes.old-backup"),
+		write(".notes.old-" + strconv.Itoa(os.Getpid())), // this process's own, mid-update
+		write("notes.old-1234"),
+		write(".notes.old-"),
 	}
 	feed, key, exe := saveUpdateBuild()
 	defer restoreUpdateBuild(feed, key, exe)
 	packageUpdateFeed, packageUpdateKey, startExe = "https://updates.example/feed", "key", filepath.Join(dir, "app")
 	cleanUpdateLeftovers()
-	if _, err := os.Stat(leftover); !os.IsNotExist(err) {
-		t.Fatalf("the update leftover stayed: %v", err)
+	for _, p := range gone {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("the update leftover %s stayed: %v", filepath.Base(p), err)
+		}
+	}
+	for _, p := range kept {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s was removed: %v", filepath.Base(p), err)
+		}
+	}
+}
+
+func TestIsUpdateLeftover(t *testing.T) {
+	for name, want := range map[string]bool{
+		".app.exe.old-1234":  true,
+		".lib.so.old-7":      true,
+		".app.exe.old-42":    false, // the running process's
+		".notes.old-backup":  false,
+		".notes.old-12a":     false,
+		".notes.old-":        false,
+		".notes.old":         false,
+		"notes.old-1234":     false,
+		"..old-1234":         false,
+		".old-1234":          false,
+		".x.old-12345678901": false,
+	} {
+		if got := isUpdateLeftover(name, 42); got != want {
+			t.Errorf("isUpdateLeftover(%q) = %v, want %v", name, got, want)
+		}
 	}
 }
