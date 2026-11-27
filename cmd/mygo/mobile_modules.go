@@ -141,7 +141,7 @@ func (t *iosToolchain) iosModules(ctx context.Context, c *Config, tk *task, work
 		out := filepath.Join(derived, "Build", "Products", config+"-"+t.sdkName)
 		os.RemoveAll(out)
 		args := []string{"-scheme", name, "-destination", dest, "-derivedDataPath", derived, "-configuration", config,
-			"ARCHS=arm64", "ONLY_ACTIVE_ARCH=NO", "IPHONEOS_DEPLOYMENT_TARGET=" + t.minimumVersion,
+			"ARCHS=" + t.arch(), "ONLY_ACTIVE_ARCH=NO", "IPHONEOS_DEPLOYMENT_TARGET=" + t.minimumVersion,
 			"-skipPackagePluginValidation", "-skipMacroValidation", "-quiet"}
 		// The modules it uses, built before it: their Swift modules and
 		// frameworks.

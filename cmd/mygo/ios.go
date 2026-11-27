@@ -36,6 +36,7 @@ import (
 // iosToolchain is Xcode's SDK of devices (iphoneos) or of the simulator.
 type iosToolchain struct {
 	simulator      bool
+	goarch         string // arm64, or amd64 for the simulator of an Intel Mac
 	sdkName, sdk   string
 	clang, target  string
 	minimumVersion string
@@ -45,9 +46,10 @@ func newIOSToolchain(c *Config, simulator bool) (*iosToolchain, error) {
 	if runtime.GOOS != "darwin" {
 		return nil, errors.New("iOS apps build on a Mac with Xcode")
 	}
-	t := &iosToolchain{simulator: simulator, sdkName: "iphoneos", minimumVersion: c.IOS.MinimumSystemVersion}
+	t := &iosToolchain{simulator: simulator, goarch: "arm64", sdkName: "iphoneos", minimumVersion: c.IOS.MinimumSystemVersion}
 	if simulator {
-		t.sdkName = "iphonesimulator"
+		// The simulator runs apps of the Mac's architecture.
+		t.sdkName, t.goarch = "iphonesimulator", runtime.GOARCH
 	}
 	var err error
 	if t.sdk, err = xcrun("--sdk", t.sdkName, "--show-sdk-path"); err != nil {
@@ -56,11 +58,19 @@ func newIOSToolchain(c *Config, simulator bool) (*iosToolchain, error) {
 	if t.clang, err = xcrun("--sdk", t.sdkName, "--find", "clang"); err != nil {
 		return nil, err
 	}
-	t.target = "arm64-apple-ios" + t.minimumVersion
+	t.target = t.arch() + "-apple-ios" + t.minimumVersion
 	if simulator {
 		t.target += "-simulator"
 	}
 	return t, nil
+}
+
+// arch is t's architecture, as Xcode names it.
+func (t *iosToolchain) arch() string {
+	if t.goarch == "amd64" {
+		return "x86_64"
+	}
+	return t.goarch
 }
 
 func xcrun(args ...string) (string, error) {
@@ -96,7 +106,7 @@ func (t *iosToolchain) buildApp(ctx context.Context, c, dc *Config, tk *task, op
 	if overlay != "" {
 		flags = append(flags, "-overlay", overlay)
 	}
-	env := []string{"GOOS=ios", "GOARCH=arm64", "CGO_ENABLED=1", "CC=" + t.clang + " -target " + t.target + " -isysroot " + t.sdk}
+	env := []string{"GOOS=ios", "GOARCH=" + t.goarch, "CGO_ENABLED=1", "CC=" + t.clang + " -target " + t.target + " -isysroot " + t.sdk}
 	tk.set("compiling Go")
 	if err := goBuild(ctx, c, tk, lib, env, flags...); err != nil {
 		return "", err
@@ -165,7 +175,7 @@ func (t *iosToolchain) buildApp(ctx context.Context, c, dc *Config, tk *task, op
 	}
 
 	tk.set("bundling")
-	res, err := dc.appResources("ios", "arm64")
+	res, err := dc.appResources("ios", t.goarch)
 	if err != nil {
 		return "", err
 	}
@@ -255,7 +265,6 @@ func (t *iosToolchain) infoPlist(c *Config, exe string) (map[string]any, error) 
 		"MinimumOSVersion":                         t.minimumVersion,
 		"LSRequiresIPhoneOS":                       true,
 		"UIDeviceFamily":                           []any{1.0, 2.0},
-		"UIRequiredDeviceCapabilities":             []any{"arm64"},
 		"UILaunchScreen":                           map[string]any{},
 		"CADisableMinimumFrameDurationOnPhone":     true, // 120 Hz on ProMotion iPhones
 		"UIApplicationSupportsIndirectInputEvents": true,
@@ -272,6 +281,9 @@ func (t *iosToolchain) infoPlist(c *Config, exe string) (map[string]any, error) 
 		"DTXcode":                       xcode,
 		"DTXcodeBuild":                  xcodeBuild,
 		"DTCompiler":                    "com.apple.compilers.llvm.clang.1_0",
+	}
+	if t.goarch == "arm64" {
+		m["UIRequiredDeviceCapabilities"] = []any{"arm64"}
 	}
 	if len(c.URLSchemes) > 0 {
 		var schemes []any
