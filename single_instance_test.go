@@ -4,7 +4,6 @@ package mygo
 
 import (
 	"bufio"
-	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net"
@@ -257,14 +256,10 @@ func TestSingleInstanceWaitsForListener(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := io.ReadAll(conn)
+	msg, err := readSecondInstance(conn)
 	conn.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var msg secondInstanceMessage
-	if err := json.Unmarshal(data, &msg); err != nil || msg.WorkingDir == "" {
-		t.Fatalf("handed over %q: %v", data, err)
+	if err != nil || msg.WorkingDir == "" {
+		t.Fatalf("handed over %+v: %v", msg, err)
 	}
 	next.expect(t, "forwarded")
 	next.exit(t)
@@ -295,4 +290,33 @@ func TestSingleInstanceReleasedOnExit(t *testing.T) {
 	// Windows releases the locks of a process that ended soon after.
 	wait.Until(t, "the lock to be released", func() bool { return !lockHeld(t, lock) })
 	first.in.Close()
+}
+
+// TestReadSecondInstanceWithoutEOF checks that the first instance takes a
+// later one's message, and answers it, without waiting for the end of the
+// connection, which Windows sometimes never reports.
+func TestReadSecondInstanceWithoutEOF(t *testing.T) {
+	first, next := net.Pipe()
+	defer first.Close()
+	defer next.Close()
+	read := make(chan secondInstanceMessage, 1)
+	go func() {
+		msg, err := readSecondInstance(first)
+		if err != nil {
+			t.Error(err)
+		}
+		read <- msg
+	}()
+	// The connection stays open, as when its end is never reported.
+	if _, err := next.Write([]byte(`{"args":["--open","a.txt"],"workingDir":"/work"}`)); err != nil {
+		t.Fatal(err)
+	}
+	var ack [1]byte
+	if _, err := next.Read(ack[:]); err != nil {
+		t.Fatalf("no answer: %v", err)
+	}
+	msg := wait.For(t, "the message to be read", read)
+	if !slices.Equal(msg.Args, []string{"--open", "a.txt"}) || msg.WorkingDir != "/work" {
+		t.Errorf("read %+v", msg)
+	}
 }
