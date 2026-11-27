@@ -108,6 +108,7 @@ const (
 	enginePause               = 33
 	engineSetMuted            = 35
 	engineSetVolume           = 37
+	engineHasVideo            = 38
 	engineGetNativeVideoSize  = 40
 	engineShutdown            = 42
 	engineTransferVideoFrame  = 43
@@ -269,7 +270,11 @@ type mfEngine struct {
 	landed bool
 	// stepped tells a frame step completed since Frame took one.
 	stepped bool
-	closed  bool
+	// loaded tells the engine has the data of the first picture
+	// (eventLoadedData), and polling that a wake for the window to look
+	// for it again is due (pollFirst).
+	loaded, polling bool
+	closed          bool
 }
 
 // sharedFrame is a texture of the ring, and its surface.
@@ -424,7 +429,9 @@ func (e *mfEngine) event(event uint32, param1 uintptr, param2 uint32) {
 		e.landed = true
 	case eventFrameStepCompleted:
 		e.stepped = true
-	case eventLoadedMetadata, eventLoadedData, eventDurationChange:
+	case eventLoadedData:
+		e.loaded = true
+	case eventLoadedMetadata, eventDurationChange:
 	default:
 		e.mu.Unlock()
 		return
@@ -495,11 +502,46 @@ func (e *mfEngine) Frame(time.Time) (media.Picture, bool, bool) {
 		}
 	}
 	if e.shown < 0 {
+		e.pollFirst()
 		return media.Picture{}, false, false
 	}
 	f := &e.ring[e.shown]
 	i := e.shown
 	return media.Picture{Surface: f.surface, W: f.w, H: f.h, RGBA: func(dst []byte) []byte { return e.readBack(i, dst) }}, changed, true
+}
+
+// pollFirst wakes the window again soon while the first picture is
+// loaded but not there yet. No event tells a picture came, and the last
+// one may come before it does: where decoding is slow (Windows 11 on Arm
+// in a VM without a GPU, even for H.264), Playing comes, the frame it
+// wakes for finds no picture (OnVideoStreamTick is S_FALSE), and no
+// event that wakes comes again until the end, so a window that builds
+// frames only when woken shows nothing (#1830). Until the first picture,
+// Frame asks for another look at the engine's interval, as Media
+// Foundation's samples look at every vsync.
+func (e *mfEngine) pollFirst() {
+	e.mu.Lock()
+	due := !e.polling && e.loaded && e.state == media.Loading && e.wake != nil
+	e.mu.Unlock()
+	// A video of sound alone has no picture to wait for.
+	if !due || call(e.engine, engineHasVideo) == 0 {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.polling {
+		return
+	}
+	e.polling = true
+	time.AfterFunc(e.Interval(), func() {
+		e.mu.Lock()
+		e.polling = false
+		wake := e.wake
+		e.mu.Unlock()
+		if wake != nil {
+			wake()
+		}
+	})
 }
 
 // transfer converts the picture due into texture i of the ring, which it
