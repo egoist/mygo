@@ -124,6 +124,11 @@ type ScrollIntoViewOptions struct {
 	// the container's, inside its border. Right to left, the inline start
 	// is at the right.
 	Block, Inline ScrollAlign
+	// NearestContainer limits the request to the innermost scroll
+	// container, even when it has no overflow or already shows the
+	// element. An outer container may still clip the element. By default,
+	// all scroll containers around the element are considered.
+	NearestContainer bool
 	// Animation, when set, glides the containers there as it says (Smooth,
 	// a spring, or a curve), as the web's behavior: "smooth" does, rather
 	// than at once. The user scrolling, or the app, stops it. While the
@@ -392,12 +397,8 @@ func reveal(e *node, o ScrollIntoViewOptions) {
 			}
 			sy := max(0, min(o.Block.offset(st.scrollY, cy, h, p.border[0], p.h-p.border[2]), my))
 			if smooth {
-				// The containers around go to where it will be.
 				rt.glideScroll(st, sx, sy, *o.Animation, e.c.now)
-				x, y = float32(cx-lx)+p.x, float32(cy-sy)+p.y
-				continue
-			}
-			if sx != st.scrollX || sy != st.scrollY {
+			} else if sx != st.scrollX || sy != st.scrollY {
 				st.beginMove(frame)
 				st.wheel = nil // what comes into view takes over from the wheel
 				if st.snap != nil {
@@ -414,8 +415,15 @@ func reveal(e *node, o ScrollIntoViewOptions) {
 					st.scrollTo(sx, sy)
 				}
 			}
-			x = float32(cx - p.scrollLeft())
-			y = float32(cy - st.scrollY)
+			if o.NearestContainer {
+				return
+			}
+			// Outer containers line up with where the box will be after
+			// a glide, or where the layout just placed it.
+			if !smooth {
+				lx, sy = p.scrollLeft(), st.scrollY
+			}
+			x, y = float32(cx-lx), float32(cy-sy)
 		}
 		x += p.x
 		y += p.y

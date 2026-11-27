@@ -137,7 +137,7 @@ containers and `Inline` across them: `ui.ScrollNearest`, the default,
 scrolls as little as shows it, and `ui.ScrollStart`, `ui.ScrollCenter` and
 `ui.ScrollEnd` line its start, center or end up with each container's,
 inside its border; [right to left](right-to-left.md), the inline start is
-at the right. `Animation`, when set, glides every container around it
+at the right. `Animation`, when set, glides each container being scrolled
 there as the animation says, as the web's `behavior: "smooth"`, rather
 than at once: the user scrolling, or the app, stops it, and where the
 desktop asks for less motion it scrolls at once. The current match of a
@@ -149,7 +149,20 @@ if app.matchMoved {
 }
 ```
 
-The zero options are those of `ScrollIntoView()` without them.
+Set `NearestContainer: true` to scroll only the innermost container, as
+the web's `container: "nearest"` does. A search panel can reveal a match
+without moving the page around it:
+
+```go
+hit.ScrollIntoView(ui.ScrollIntoViewOptions{
+	Block: ui.ScrollCenter, NearestContainer: true,
+})
+```
+
+The scope stays at the innermost container even when its content fits
+or the match already shows inside it. An outer container can still clip
+the match. The zero options consider all enclosing scroll containers,
+as `ScrollIntoView()` does.
 
 The keyboard focus scrolls into view as it moves. An element with a
 `TextInputClient` of the app's ([text input clients](text-input-client.md))

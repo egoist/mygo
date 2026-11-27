@@ -443,6 +443,94 @@ func TestScrollIntoViewSmoothNested(t *testing.T) {
 	}
 }
 
+func TestScrollIntoViewNearestContainer(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		contentH     float32
+		smooth       bool
+		reduceMotion bool
+		wantY        float32
+	}{
+		{name: "instant", contentH: 400, wantY: 150},
+		{name: "smooth", contentH: 400, smooth: true, wantY: 150},
+		{name: "reduced motion", contentH: 400, smooth: true, reduceMotion: true, wantY: 150},
+		{name: "no overflow", contentH: 80},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var outer, inner ScrollState
+			ask := false
+			outer.Y = 40
+			options := ScrollIntoViewOptions{Block: ScrollCenter, NearestContainer: true}
+			if tc.smooth {
+				options.Animation = &Animation{Duration: 200 * time.Millisecond, Ease: Linear}
+			}
+			tt := NewTester(func(c *Context) {
+				Scroll(c).Fill().TrackScroll(&outer).Children(func() {
+					Box(c).Height(300).Shrink(0)
+					Scroll(c).Height(100).Shrink(0).TrackScroll(&inner).Children(func() {
+						Box(c).Height(tc.contentH/2 - 5).Shrink(0)
+						hit := Box(c).Height(10).Shrink(0)
+						if ask {
+							hit.ScrollIntoView(options)
+						}
+						Box(c).Height(tc.contentH/2 - 5).Shrink(0)
+					})
+					Box(c).Height(300).Shrink(0)
+				})
+			}, 200, 200)
+			if tc.reduceMotion {
+				tt.SetPreferences(Preferences{ReduceMotion: true, TextScale: 1})
+			}
+			ask = true
+			tt.Frame()
+			ask = false
+			if tc.smooth && !tc.reduceMotion {
+				if outer.Y != 40 || inner.Y != 0 {
+					t.Fatalf("at the start: outer %v, inner %v; want 40, 0", outer.Y, inner.Y)
+				}
+				tt.Advance(100 * time.Millisecond)
+				if outer.Y != 40 || inner.Y <= 0 || inner.Y >= tc.wantY {
+					t.Fatalf("on the way: outer %v, inner %v; want 40 and an intermediate offset", outer.Y, inner.Y)
+				}
+				tt.Advance(200 * time.Millisecond)
+			}
+			if outer.Y != 40 || inner.Y != tc.wantY {
+				t.Errorf("outer %v, inner %v; want 40, %v", outer.Y, inner.Y, tc.wantY)
+			}
+			tt.Frame()
+			if outer.Y != 40 || inner.Y != tc.wantY || tt.FramePending() {
+				t.Errorf("after settling: outer %v, inner %v, pending frame %v", outer.Y, inner.Y, tt.FramePending())
+			}
+		})
+	}
+}
+
+func TestScrollIntoViewNearestVirtualList(t *testing.T) {
+	var outer ScrollState
+	var list ListState
+	ask := false
+	tt := NewTester(func(c *Context) {
+		Scroll(c).Fill().TrackScroll(&outer).Children(func() {
+			Box(c).Height(300).Shrink(0)
+			List(c, &list, 100, func(i int) {
+				row := Box(c).Height(20)
+				if ask && i == 9 {
+					ask = false
+					row.ScrollIntoView(ScrollIntoViewOptions{Block: ScrollCenter, NearestContainer: true})
+				}
+			}).Height(200).Shrink(0)
+		})
+	}, 200, 200)
+	ask = true
+	tt.Frame()
+	if ask {
+		t.Fatal("row 9 was not built")
+	}
+	if first, last := list.Visible(); first != 4 || last != 14 || outer.Y != 0 {
+		t.Errorf("visible rows %v to %v, outer %v; want 4 to 14, 0", first, last, outer.Y)
+	}
+}
+
 // TestScrollIntoViewSmoothList glides a List to a row it built.
 func TestScrollIntoViewSmoothList(t *testing.T) {
 	var s ListState
