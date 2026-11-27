@@ -1241,19 +1241,22 @@ func TestHiddenTitleBar(t *testing.T) {
 func TestEval(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{})
 	var bodies []string
+	// The page compiles the code and runs the form that compiles.
 	fw.AsyncFunction = func(body string) (string, error) {
 		bodies = append(bodies, body)
 		switch {
-		case strings.Contains(body, "(async()=>(\ndocument.title\n))()"):
-			return `{"ok":true,"v":"Title"}`, nil
-		case strings.Contains(body, "(async()=>(\nlet x = 1; return x\n))()"):
-			return "", errors.New("SyntaxError: Unexpected token")
-		case strings.Contains(body, "(async()=>{\nlet x = 1; return x\n})()"):
-			return `{"ok":true,"v":1}`, nil
+		case strings.Contains(body, "document.title"):
+			return `R{"ok":true,"v":"Title"}`, nil
+		case strings.Contains(body, "let x = 1; return x"):
+			return `R{"ok":true,"v":1}`, nil
+		case strings.Contains(body, "let = = x"):
+			return "SUnexpected token ';'", nil
+		case strings.Contains(body, "tooDeep"):
+			return "ERangeError: Maximum call stack size exceeded.", nil
 		case strings.Contains(body, "boom"):
-			return `{"ok":false,"e":"boom"}`, nil
+			return `R{"ok":false,"e":"boom"}`, nil
 		}
-		return `{"ok":true}`, nil
+		return `R{"ok":true}`, nil
 	}
 	v, err := w.Page().Eval("document.title;")
 	if err != nil || v != "Title" {
@@ -1263,9 +1266,30 @@ func TestEval(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Errorf("Eval statements = %v, %v (bodies %q)", n, err, bodies)
 	}
+	if len(bodies) != 2 || !strings.HasPrefix(bodies[1], evalCompiledStart) {
+		t.Errorf("an expression and statements took %d calls, want one each: %q", len(bodies), bodies)
+	}
+	if strings.Count(bodies[0], "document.title") != 1 || strings.Count(bodies[1], "let x = 1; return x") != 1 {
+		t.Errorf("the code is not sent once: %q", bodies)
+	}
 	var evalErr *EvalError
 	if _, err := w.Page().Eval("boom()"); !errors.As(err, &evalErr) || evalErr.Message != "boom" {
 		t.Errorf("Eval error = %v", err)
+	}
+	// Code that compiles in neither form fails with its SyntaxError, as
+	// the page's, not as an error the code threw.
+	bodies = nil
+	if _, err := w.Page().Eval("let = = x"); err == nil || errors.As(err, &evalErr) || err.Error() != "SyntaxError: Unexpected token ';'" || len(bodies) != 1 {
+		t.Errorf("Eval of code that does not compile = %v, in %d calls; want its SyntaxError, in one", err, len(bodies))
+	}
+	// Another error compiling it is the Eval's, and the next Eval compiles
+	// again.
+	bodies = nil
+	if _, err := w.Page().Eval("tooDeep"); err == nil || err.Error() != "RangeError: Maximum call stack size exceeded." {
+		t.Errorf("Eval of code too deep to compile = %v, want its RangeError", err)
+	}
+	if v, err := w.Page().Eval("void 0"); v != nil || err != nil || len(bodies) != 2 || !strings.HasPrefix(bodies[1], evalCompiledStart) {
+		t.Errorf("Eval after one too deep = %v, %v in %q, want it compiled", v, err, bodies)
 	}
 	if v, err := w.Page().Eval("void 0"); v != nil || err != nil {
 		t.Errorf("Eval undefined = %v, %v", v, err)
@@ -1279,7 +1303,7 @@ func TestEval(t *testing.T) {
 
 	// The page left before the code answered says so, rather than as the
 	// code's own error, whether its pagehide or the backend tells it.
-	fw.AsyncFunction = func(string) (string, error) { return `{"left":true}`, nil }
+	fw.AsyncFunction = func(string) (string, error) { return `R{"left":true}`, nil }
 	if _, err := w.Page().Eval("pending"); !errors.Is(err, platform.ErrNavigated) {
 		t.Errorf("Eval in a page left = %v, want %v", err, platform.ErrNavigated)
 	}
@@ -1301,6 +1325,117 @@ func TestEval(t *testing.T) {
 	}
 	if _, err := w.Page().Eval("sideEffect()"); err == nil || len(bodies) != 1 {
 		t.Errorf("Eval after a failure = %v, ran %d times", err, len(bodies))
+	}
+	// Nor is an answer without a tag, which the code may have made: a page
+	// that replaced JSON.stringify, or a result WKWebView cannot pass.
+	bodies = nil
+	fw.AsyncFunction = func(body string) (string, error) {
+		bodies = append(bodies, body)
+		return "", nil
+	}
+	if _, err := w.Page().Eval("sideEffect()"); err == nil || len(bodies) != 1 {
+		t.Errorf("Eval answered without a tag = %v, ran %d times", err, len(bodies))
+	}
+}
+
+// evalCompiledStart is how the script that compiles the code before
+// running it starts.
+var evalCompiledStart, _, _ = strings.Cut(evalCompiled, "%")
+
+// TestEvalScripts: evalCompiled has evalStart and evalEnd in double-quoted
+// strings, and formats itself.
+func TestEvalScripts(t *testing.T) {
+	if strings.ContainsAny(evalStart+evalEnd, "\"\\%\n\r\u2028\u2029") {
+		t.Error("evalStart or evalEnd has a character a string in evalCompiled cannot have")
+	}
+}
+
+// TestEvalCompileRefused: in a page whose bridge cannot compile strings,
+// as its CSP forbids it, Eval tries the expression form, then the
+// statement form, and skips the compiling for the rest of the page.
+func TestEvalCompileRefused(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{})
+	var calls []string
+	fw.AsyncFunction = func(body string) (string, error) {
+		switch {
+		case strings.HasPrefix(body, evalCompiledStart):
+			calls = append(calls, "compile")
+			return "C", nil
+		case strings.Contains(body, "(async()=>(\nlet x = 1; return x\n))()"):
+			calls = append(calls, "expression")
+			return "", errors.New("SyntaxError: Unexpected token")
+		case strings.Contains(body, "(async()=>{\nlet x = 1; return x\n})()"):
+			calls = append(calls, "statements")
+			return `{"ok":true,"v":1}`, nil
+		case strings.Contains(body, "(async()=>(\ndocument.title\n))()"):
+			calls = append(calls, "expression")
+			return `{"ok":true,"v":"Title"}`, nil
+		case strings.Contains(body, "(async()=>(\nsideEffect()\n))()"):
+			calls = append(calls, "expression")
+			return "", errors.New("the page navigated")
+		}
+		calls = append(calls, "other")
+		return "", errors.New("unexpected script")
+	}
+	eval := func(code string, want any, wantCalls ...string) {
+		t.Helper()
+		calls = nil
+		v, err := w.Page().Eval(code)
+		if want != nil && (err != nil || v != want) {
+			t.Errorf("Eval(%q) = %v, %v; want %v", code, v, err, want)
+		}
+		if want == nil && err == nil {
+			t.Errorf("Eval(%q) = %v, want an error", code, v)
+		}
+		if !slices.Equal(calls, wantCalls) {
+			t.Errorf("Eval(%q) called %q, want %q", code, calls, wantCalls)
+		}
+	}
+	eval("let x = 1; return x", float64(1), "compile", "expression", "statements")
+	eval("document.title;", "Title", "expression")
+	// Only a syntax error means the code did not run: other failures are
+	// not retried, which could run the code twice.
+	eval("sideEffect()", nil, "expression")
+	onMain(func() { fw.H.NavigationCommitted("app://localhost/") })
+	eval("document.title;", "Title", "compile", "expression")
+}
+
+// TestEvalCompileRefusedByPageLeft: a refusal that comes once the next
+// page committed is the previous page's, and the next page still
+// compiles.
+func TestEvalCompileRefusedByPageLeft(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{})
+	var calls []string
+	replies := make(chan func(string, error), 1)
+	fw.AsyncCallback = func(body string, reply func(string, error)) {
+		switch {
+		case strings.HasPrefix(body, evalCompiledStart) && len(calls) == 0:
+			calls = append(calls, "compile")
+			replies <- reply
+		case strings.HasPrefix(body, evalCompiledStart):
+			calls = append(calls, "compile")
+			reply(`R{"ok":true,"v":2}`, nil)
+		default:
+			calls = append(calls, "expression")
+			reply(`{"ok":true,"v":1}`, nil)
+		}
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := w.Page().Eval("1")
+		done <- err
+	}()
+	reply := <-replies
+	onMain(func() { fw.H.NavigationCommitted("app://localhost/") })
+	onMain(func() { reply("C", nil) })
+	if err := <-done; err != nil {
+		t.Fatalf("Eval refused by the page left = %v", err)
+	}
+	if v, err := w.Page().Eval("2"); err != nil || v != float64(2) {
+		t.Errorf("Eval in the next page = %v, %v", v, err)
+	}
+	if want := []string{"compile", "expression", "compile"}; !slices.Equal(calls, want) {
+		t.Errorf("calls = %q, want %q", calls, want)
 	}
 }
 
@@ -1388,7 +1523,7 @@ func TestEvalAnsweredByNextPage(t *testing.T) {
 	}()
 	reply := <-replies
 	onMain(func() { fw.H.NavigationCommitted("app://localhost/") })
-	onMain(func() { reply(`{"ok":true,"v":"Agent"}`, nil) })
+	onMain(func() { reply(`R{"ok":true,"v":"Agent"}`, nil) })
 	select {
 	case r := <-done:
 		if r.v != "Agent" || r.err != nil {

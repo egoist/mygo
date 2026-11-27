@@ -7,6 +7,7 @@ import (
 	jsonv1 "encoding/json"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -169,6 +170,16 @@ const (
 	evalExpr = evalStart + "(\n%s\n)" + evalEnd
 	// The statement form runs code as a function body.
 	evalBody = evalStart + "{\n%s\n}" + evalEnd
+	// evalCompiled has the bridge compile the expression form, then the
+	// statement form, and runs the first that compiles, since a script that
+	// fails to compile reaches the page's error handlers. Its arguments are
+	// expr and what TrimRight cut from code, as JSON strings, so the code is
+	// sent once; evalStart and evalEnd are in it as strings (TestEvalScripts).
+	// Answers are tagged: "R" and the code's answer; before anything ran,
+	// "S" and the statement form's SyntaxError, "E" and another error
+	// compiling a form, or "C" where the page would see the code, which its
+	// window remembers (Window.compileRefused). docs/architecture.md has why.
+	evalCompiled = "const c=window.__mygo?.compile;if(typeof c!=='function')return'C';const s=\"" + evalStart + "\",e=\"" + evalEnd + "\",x=%[1]s;let f=c(s+'(\\n'+x+'\\n)'+e);if(typeof f==='string'){if(f[0]!=='S')return f;f=c(s+'{\\n'+x+%[2]s+'\\n}'+e)}return typeof f==='string'?f:'R'+await f()"
 )
 
 // evalCanceled, a hook of tests, runs after eval delivered the
@@ -209,28 +220,64 @@ func (w *Window) eval(ctx context.Context, code string) (jsontext.Value, error) 
 		// The page of a closed window never answers.
 		off = w.onClosed.add(func() { deliver(ch, result{err: errDestroyed}) }, false)
 		expr := strings.TrimRight(code, " \t\r\n;")
-		n.CallAsyncFunction(fmt.Sprintf(evalExpr, expr), func(res string, err error) {
-			if err == nil {
-				deliver(ch, result{raw: res})
-				return
-			}
-			if !strings.HasPrefix(err.Error(), "SyntaxError") {
-				// It may have run (and then the page navigated or
-				// crashed): running it again could run it twice.
-				deliver(ch, result{err: err})
-				return
-			}
-			// Not an expression: run it as a function body instead. The
-			// first attempt failed to compile, so nothing ran twice.
+		onNative := func(f func(platform.Window)) {
 			onMain(func() {
 				if w.native == nil {
 					deliver(ch, result{err: errDestroyed})
 					return
 				}
-				w.native.CallAsyncFunction(fmt.Sprintf(evalBody, code), func(res string, err error) {
-					deliver(ch, result{raw: res, err: err})
+				f(w.native)
+			})
+		}
+		// Where the page forbids compiling strings, the forms are tried in
+		// turn, and a statement reaches the page's error handlers.
+		tryForms := func(n platform.Window) {
+			n.CallAsyncFunction(fmt.Sprintf(evalExpr, expr), func(res string, err error) {
+				if err == nil {
+					deliver(ch, result{raw: res})
+					return
+				}
+				if !strings.HasPrefix(err.Error(), "SyntaxError") {
+					// It may have run (and then the page navigated or
+					// crashed): running it again could run it twice.
+					deliver(ch, result{err: err})
+					return
+				}
+				// Not an expression: run it as a function body instead. The
+				// first attempt failed to compile, so nothing ran twice.
+				onNative(func(n platform.Window) {
+					n.CallAsyncFunction(fmt.Sprintf(evalBody, code), func(res string, err error) {
+						deliver(ch, result{raw: res, err: err})
+					})
 				})
 			})
+		}
+		page := w.pageContext()
+		if w.compileRefused == page {
+			tryForms(n)
+			return
+		}
+		x, _ := jsonv1.Marshal(expr)
+		end, _ := jsonv1.Marshal(code[len(expr):])
+		n.CallAsyncFunction(fmt.Sprintf(evalCompiled, x, end), func(res string, err error) {
+			switch {
+			case err != nil:
+				deliver(ch, result{err: err})
+			case strings.HasPrefix(res, "R"):
+				deliver(ch, result{raw: res[1:]})
+			case strings.HasPrefix(res, "S"):
+				deliver(ch, result{err: errors.New("SyntaxError: " + res[1:])})
+			case strings.HasPrefix(res, "E"):
+				deliver(ch, result{err: errors.New(res[1:])})
+			case res == "C":
+				onNative(func(n platform.Window) {
+					w.compileRefused = page
+					tryForms(n)
+				})
+			default:
+				// Never run again: the code may have run.
+				deliver(ch, result{err: fmt.Errorf("mygo: unexpected eval result %q", res)})
+			}
 		})
 	})
 	if !ran {

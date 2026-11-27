@@ -1,5 +1,6 @@
 // Entry point of the script MyGo injects at document start into every page.
 // The Go side wraps the bundle in a function that defines __MYGO_CONFIG__.
+import { compile } from "./compile";
 import { contextTarget } from "./context-menu";
 import { find, stopFind } from "./find";
 import { type FitLimits, fitContent } from "./fit-content";
@@ -34,7 +35,7 @@ let rootStyle: HTMLStyleElement | null = null;
 
   const { runtime, internal, restored } = createRuntime(__MYGO_CONFIG__, post);
   Object.defineProperty(w, "mygo", { value: runtime, enumerable: true });
-  Object.defineProperty(w, "__mygo", { value: Object.freeze({ ...internal, find, stopFind }) });
+  Object.defineProperty(w, "__mygo", { value: Object.freeze({ ...internal, find, stopFind, compile }) });
 
   // A window with a hidden title bar tells its pages the room its window
   // controls take, from document start on: CSS variables on :root.

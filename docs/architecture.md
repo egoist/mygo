@@ -1484,20 +1484,50 @@ never waits on the main thread, which receives the acknowledgments.
 
 `Page.Eval(code)` uses the webview's native async-function API
 (`callAsyncJavaScript` on macOS, `webkit_web_view_call_async_javascript_function`
-on Linux), which awaits promises and ignores the page's Content Security
-Policy. Android's `evaluateJavascript` takes a script, not a function: the
-body is compiled as part of that script, in an async function at its top
-level, which the CSP does not govern either (an AsyncFunction made from a
-string in the page is eval, which a CSP without `'unsafe-eval'` refuses). A
-script that does not compile answers null, the only thing taken as a compile
-error there: it reads "SyntaxError: the script does not compile", without
-V8's message or the position, which `evaluateJavascript` does not return,
-and an error the page reports itself never starts with `SyntaxError`. The
-code is first wrapped as an async arrow function returning `(code)`, whose
-result goes back as `JSON.stringify({ok, v})`; if that fails to compile the
-code is not an expression, and it is run again as the arrow's body. A
-compile error means nothing executed, so code never runs
-twice. The result travels as a JSON string and is decoded in Go. A page whose
+on Linux, DevTools' `Runtime.evaluate` on Windows), which awaits promises
+and ignores the page's Content Security Policy. Android's
+`evaluateJavascript` takes a script, not a function: the body is compiled
+as part of that script, in an async function at its top level, which the
+CSP does not govern either. A script that does not compile answers null,
+the only thing taken as a compile error there: it reads "SyntaxError: the
+script does not compile", without V8's message or the position, which
+`evaluateJavascript` does not return, and an error the page reports itself
+never starts with `SyntaxError`.
+
+The code is wrapped as an async arrow function returning `(code)`, whose
+result goes back as `JSON.stringify({ok, v})`, or as the arrow's body when
+that does not compile. The page tells which, in the same call: the
+bridge's `compile` (`packages/bridge/src/compile.ts`) compiles the
+expression form, then the body form, and the first that compiles runs,
+since a script that fails to compile reaches the page's error handlers
+(WebKit reports it as "Script error."). `compile` takes the AsyncFunction
+constructor, the errors' prototypes and Trusted Types' `defaultPolicy`
+getter at document start, before the page's scripts run, so a page that
+replaces them neither reads the code nor makes one answer look like
+another. The code is sent once, with the wrapper; the answer is tagged
+(`R` and the code's answer; before anything ran, `S` and the SyntaxError
+of code that compiles in neither form, `E` and another error compiling
+it, as code nested too deep, `C` where the page would see the code), so
+that what the code makes of its own answer (a page that replaced
+`JSON.stringify`, a result WKWebView cannot pass) is an error, never a
+reason to run it again.
+
+`C` answers a page with a Trusted Types default policy, whose
+`createScript` would be given the code, one without the bridge, and one
+whose CSP forbids eval (an AsyncFunction made from a string is eval, which
+a CSP without `'unsafe-eval'` and Trusted Types refuse with an EvalError,
+in WebKit and Android's WebView; WebView2's `Runtime.evaluate` allows it).
+Such a page hears of a violation, so its window remembers the `C` for the
+page (`compileRefused`, the page's context; Evals that start before the
+first answer each ask). There Eval tries the forms in turn, as before the
+bridge compiled them: the expression form runs by itself, and if it fails
+with a SyntaxError the code is not an expression and runs again as the
+body. That is the one way code runs twice: a SyntaxError the code's answer
+throws once it ran (a page whose `JSON.stringify` throws one) passes for a
+compile error. Android's bridge needs document-start scripts
+(`WebViewFeature.DOCUMENT_START_SCRIPT`); without them a page has no
+bridge, and `window.__mygo` is whatever the page made it, which Eval
+then gives the code. The result travels as a JSON string and is decoded in Go. A page whose
 window closed never answers, so a window closing fails the evals waiting for
 it, and an eval with the quit under way fails at once. WebKit runs the
 microtasks scripts queued once a listener of an event returns, and an eval
