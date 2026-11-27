@@ -2230,7 +2230,14 @@ as in Tauri:
   logs why. The holder takes command lines only from processes of its
   user (`SO_PEERCRED` on Linux, `getpeereid` on macOS, `LOCAL_PEERCRED`
   on FreeBSD; elsewhere the folder alone keeps others out). On Windows
-  both are in the user's temporary folder, as before. The holder
+  both are in the user's temporary folder, as before. An older MyGo kept
+  both files (`mygo-<uid>-<hash>`) in `XDG_RUNTIME_DIR` itself, else in
+  the temporary folder. Where that folder is private too, as
+  `XDG_RUNTIME_DIR` and macOS's `$TMPDIR` are (not `/tmp`), a launch
+  also hands its command line to that socket and holds that lock, so a
+  new version waits for an old one, as after an update; and the holder
+  listens on that socket too, so an old version's launch hands its
+  command line over instead of waiting. The holder
   removes a stale socket and listens; the socket only carries the
   command lines of later instances (JSON), and closes on `OnQuit`. A
   launch first hands its command line to whoever answers the socket (the

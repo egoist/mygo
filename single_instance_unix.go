@@ -20,10 +20,23 @@ import (
 // folder such as /tmp itself another user could listen on the socket
 // first and take the app's command lines, or hold its lock. Unix socket
 // paths are limited to about 100 bytes.
-func singleInstanceSocket(name string) (string, error) {
-	file := singleInstanceHash(name) + ".sock"
+//
+// old is the path at which an older MyGo listened, or "" where that is in
+// a folder others can reach, as /tmp: a new version and an old one find
+// each other there.
+func singleInstanceSocket(name string) (path, old string, err error) {
+	hash := singleInstanceHash(name)
+	file := hash + ".sock"
 	uid := os.Getuid()
 	own := "mygo-" + strconv.Itoa(uid)
+	for _, dir := range []string{os.Getenv("XDG_RUNTIME_DIR"), os.TempDir(), "/tmp"} {
+		if p := filepath.Join(dir, own+"-"+hash+".sock"); dir != "" && len(p) < 100 {
+			if info, err := os.Stat(dir); err == nil && checkPrivate(dir, info, uid) == nil {
+				old = p
+			}
+			break
+		}
+	}
 	var dirs []string
 	if runtime := privateRuntimeDir(uid); runtime != "" {
 		if d := filepath.Join(runtime, "mygo"); len(filepath.Join(d, file)) < 100 {
@@ -41,11 +54,11 @@ func singleInstanceSocket(name string) (string, error) {
 	for _, dir := range dirs {
 		err := privateFolder(dir, uid)
 		if err == nil {
-			return filepath.Join(dir, file), nil
+			return filepath.Join(dir, file), old, nil
 		}
 		errs = append(errs, err)
 	}
-	return "", errors.Join(errs...)
+	return "", "", errors.Join(errs...)
 }
 
 // privateRuntimeDir returns XDG_RUNTIME_DIR if the user uid owns it and no

@@ -22,11 +22,23 @@ var singleInstance struct {
 	sync.Mutex
 	// lock is the open lock file, whose lock the system keeps until the
 	// process exits, also when it crashes or is killed.
-	lock     *os.File
+	lock *os.File
+	// oldLock is that of an older MyGo (singleInstanceSocket), or nil,
+	// kept open so that it lasts until the process exits too.
+	oldLock *os.File
+	// paths are the sockets of later instances: ours, and an older
+	// MyGo's while oldLock is held.
+	paths     []string
+	listening []secondInstanceSocket
+	handlers  listeners[func([]string, string)]
+}
+
+// secondInstanceSocket is a socket that takes the command lines of later
+// instances.
+type secondInstanceSocket struct {
 	listener net.Listener
 	path     string
-	socket   os.FileInfo // identifies our socket file at path
-	handlers listeners[func([]string, string)]
+	file     os.FileInfo // identifies our socket file at path
 }
 
 // singleInstanceWait is how long a launch waits for an instance that holds
@@ -72,12 +84,12 @@ func (a *Application) RequestSingleInstanceLock() bool {
 	singleInstance.Lock()
 	defer singleInstance.Unlock()
 	if singleInstance.lock != nil {
-		if singleInstance.listener == nil {
+		if len(singleInstance.listening) == 0 {
 			listenSecondInstances() // asked again after a quit
 		}
 		return true
 	}
-	path, err := singleInstanceSocket(singleInstanceKey(a.Name()))
+	path, old, err := singleInstanceSocket(singleInstanceKey(a.Name()))
 	if err != nil {
 		log.Printf("mygo: %s runs without the single instance lock: %v (RequestSingleInstanceLock)", a.Name(), err)
 		return true
@@ -93,8 +105,8 @@ func (a *Application) RequestSingleInstanceLock() bool {
 	start, said := time.Now(), false
 	for delay := 5 * time.Millisecond; ; delay = min(2*delay, 100*time.Millisecond) {
 		// An instance that answers takes the command line: one holding
-		// the lock, or one of an older MyGo, which takes none.
-		if forwardToFirstInstance(path, msg) {
+		// the lock, or one of an older MyGo, which may take none.
+		if forwardToFirstInstance(path, msg) || old != "" && forwardToFirstInstance(old, msg) {
 			if launchedByDev() {
 				// mygo dev would only see the app exit.
 				log.Printf("mygo: %s is already running: handed the command line over to it (RequestSingleInstanceLock)", a.Name())
@@ -109,8 +121,27 @@ func (a *Application) RequestSingleInstanceLock() bool {
 			// behave as if this were the only instance.
 			return true
 		}
+		if lock != nil && old != "" {
+			// An older MyGo locked the file next to its socket: hold it
+			// too, so that the new version an update's Relaunch starts
+			// waits for the old one to exit.
+			oldLock, err := openSingleInstanceLock(singleInstanceLockPath(old))
+			switch {
+			case err != nil:
+				log.Printf("mygo: an older version of %s could run beside this one: %v (RequestSingleInstanceLock)", a.Name(), err)
+			case oldLock == nil:
+				lock.Close()
+				lock = nil
+			}
+			singleInstance.oldLock = oldLock
+		}
 		if lock != nil {
-			singleInstance.lock, singleInstance.path = lock, path
+			singleInstance.lock, singleInstance.paths = lock, []string{path}
+			if singleInstance.oldLock != nil {
+				// An older MyGo's launch, as after a downgrade, hands
+				// its command line over there.
+				singleInstance.paths = append(singleInstance.paths, old)
+			}
 			listenSecondInstances()
 			a.OnQuit(stopSecondInstances)
 			return true
@@ -195,24 +226,25 @@ func readSecondInstance(conn net.Conn) (secondInstanceMessage, error) {
 }
 
 // listenSecondInstances takes the command lines of later instances on the
-// socket. The lock is held, so a socket file there is a stale one, left
+// sockets. The locks are held, so a socket file there is a stale one, left
 // by an instance that crashed. singleInstance is locked.
 func listenSecondInstances() {
-	path := singleInstance.path
-	_ = os.Remove(path)
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		// Later instances wait for this one to exit.
-		log.Printf("mygo: later instances cannot hand their command line over: %v (RequestSingleInstanceLock)", err)
-		return
+	for _, path := range singleInstance.paths {
+		_ = os.Remove(path)
+		ln, err := net.Listen("unix", path)
+		if err != nil {
+			// Later instances wait for this one to exit.
+			log.Printf("mygo: later instances cannot hand their command line over: %v (RequestSingleInstanceLock)", err)
+			continue
+		}
+		// The socket file is removed on quit, and only if it is still
+		// ours: an instance of an older MyGo, which takes no lock, may
+		// have replaced it.
+		ln.(*net.UnixListener).SetUnlinkOnClose(false)
+		file, _ := os.Stat(path)
+		singleInstance.listening = append(singleInstance.listening, secondInstanceSocket{ln, path, file})
+		go acceptSecondInstances(ln)
 	}
-	// The socket file is removed on quit, and only if it is still ours:
-	// an instance of an older MyGo, which takes no lock, may have
-	// replaced it.
-	ln.(*net.UnixListener).SetUnlinkOnClose(false)
-	singleInstance.socket, _ = os.Stat(path)
-	singleInstance.listener = ln
-	go acceptSecondInstances(ln)
 }
 
 // OnSecondInstance is called in the first instance when another instance
@@ -275,13 +307,13 @@ func peerRefused(conn net.Conn, uid int) error {
 func stopSecondInstances() {
 	singleInstance.Lock()
 	defer singleInstance.Unlock()
-	if singleInstance.listener != nil {
-		singleInstance.listener.Close()
-		if fi, err := os.Stat(singleInstance.path); err == nil && singleInstance.socket != nil && os.SameFile(fi, singleInstance.socket) {
-			_ = os.Remove(singleInstance.path)
+	for _, s := range singleInstance.listening {
+		s.listener.Close()
+		if fi, err := os.Stat(s.path); err == nil && s.file != nil && os.SameFile(fi, s.file) {
+			_ = os.Remove(s.path)
 		}
-		singleInstance.listener, singleInstance.socket = nil, nil
 	}
+	singleInstance.listening = nil
 }
 
 // singleInstanceKey identifies the lock of the app named name. The

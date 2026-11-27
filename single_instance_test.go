@@ -131,7 +131,7 @@ func (p *testInstance) exit(t *testing.T) {
 // named name, which the test removes when it ends.
 func testInstancePaths(t *testing.T, name string) (socket, lock string) {
 	t.Helper()
-	socket, err := singleInstanceSocket(singleInstanceKey(name))
+	socket, _, err := singleInstanceSocket(singleInstanceKey(name))
 	if err != nil {
 		t.Fatal(err)
 	}

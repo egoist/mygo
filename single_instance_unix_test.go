@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"syscall"
 	"testing"
+
+	"github.com/egoist/mygo/internal/wait"
 )
 
 // ownFolder is the name of the user's folder of sockets and locks in the
@@ -103,6 +105,11 @@ func TestSingleInstanceSkipsSharedFolder(t *testing.T) {
 			if found, _ := filepath.Glob(filepath.Join(runtime, "*", "*.sock")); len(found) != 0 {
 				t.Errorf("sockets in the refused folder: %q", found)
 			}
+			// Only a shared XDG_RUNTIME_DIR is refused for the older
+			// MyGo's files too.
+			if found, _ := filepath.Glob(filepath.Join(runtime, ownFolder+"-*")); tc.name == "shared runtime folder" && len(found) != 0 {
+				t.Errorf("an older MyGo's files in the refused folder: %q", found)
+			}
 			first.exit(t)
 		})
 	}
@@ -183,6 +190,98 @@ func TestSingleInstanceFolderOfAnotherUser(t *testing.T) {
 	}
 }
 
+// olderSocket returns the socket path at which an older MyGo listened for
+// the app named name, in folder: XDG_RUNTIME_DIR, else the temporary
+// folder.
+func olderSocket(folder, name string) string {
+	return filepath.Join(folder, ownFolder+"-"+singleInstanceHash(singleInstanceKey(name))+".sock")
+}
+
+// TestSingleInstanceWaitsForOlderVersion checks that a launch of a new
+// version, as an update's Relaunch, waits for an instance of an older
+// MyGo that holds the lock where it kept it, in XDG_RUNTIME_DIR or else
+// in the temporary folder, as on macOS, and runs once it exits.
+func TestSingleInstanceWaitsForOlderVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  func(dir string) []string
+	}{
+		{"runtime", func(dir string) []string { return []string{"XDG_RUNTIME_DIR=" + dir} }},
+		{"temp", func(dir string) []string { return []string{"XDG_RUNTIME_DIR=", "TMPDIR=" + dir} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := shortTempDir(t)
+			name := "MyGoTest-" + t.Name()
+			old, err := openSingleInstanceLock(singleInstanceLockPath(olderSocket(dir, name)))
+			if err != nil || old == nil {
+				t.Fatalf("lock: %v, %v", old, err)
+			}
+			next := startInstance(t, name, "hold", append(tc.env(dir), "MYGO_TEST_INSTANCE_WAIT=1")...)
+			next.expect(t, "waiting")
+			old.Close()
+			next.expect(t, "locked")
+			if !lockHeld(t, singleInstanceLockPath(olderSocket(dir, name))) {
+				t.Error("the new version does not hold the older lock: an older version would run beside it")
+			}
+			next.exit(t)
+		})
+	}
+}
+
+// TestSingleInstanceTakesOlderVersionLaunch checks that a launch of an
+// older MyGo, as after a downgrade, hands its command line to a running
+// instance of a new version, as an older MyGo sends it, instead of
+// waiting for the new one to exit.
+func TestSingleInstanceTakesOlderVersionLaunch(t *testing.T) {
+	runtime := shortTempDir(t)
+	name := "MyGoTest-" + t.Name()
+	first := startInstance(t, name, "hold", "XDG_RUNTIME_DIR="+runtime)
+	first.expect(t, "locked")
+	conn, err := net.Dial("unix", olderSocket(runtime, name))
+	if err != nil {
+		t.Fatalf("an older MyGo's launch finds no instance: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte(`{"args":["--old"],"workingDir":"/work"}`)); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.(*net.UnixConn).CloseWrite()
+	var ack [1]byte
+	if _, err := conn.Read(ack[:]); err != nil {
+		t.Fatalf("the command line was not taken: %v", err)
+	}
+	first.exit(t)
+}
+
+// TestSingleInstanceForwardsToOlderVersion checks that a launch of a new
+// version hands its command line to a running instance of an older MyGo.
+func TestSingleInstanceForwardsToOlderVersion(t *testing.T) {
+	runtime := shortTempDir(t)
+	name := "MyGoTest-" + t.Name()
+	ln, err := net.Listen("unix", olderSocket(runtime, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	read := make(chan secondInstanceMessage, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if msg, err := readSecondInstance(conn); err == nil {
+			read <- msg
+		}
+	}()
+	next := startInstance(t, name, "", "XDG_RUNTIME_DIR="+runtime)
+	next.expect(t, "forwarded")
+	next.exit(t)
+	if msg := wait.For(t, "the message to be read", read); msg.WorkingDir == "" {
+		t.Errorf("handed over %+v", msg)
+	}
+}
+
 // TestSingleInstancePeerOfAnotherUser checks that the first instance
 // takes command lines only from processes of its own user. The test
 // cannot connect as another user: it asks for the user after its own.
@@ -220,5 +319,53 @@ func TestSingleInstancePeerOfAnotherUser(t *testing.T) {
 	conn.Close()
 	if err := peerRefused(conn, os.Getuid()); err == nil {
 		t.Fatal("a process whose user is unknown was taken")
+	}
+}
+
+// TestSingleInstanceSockets checks that the instance listens on each of
+// its sockets, though one fails, and that its quit removes the socket
+// files that are still its own, not one another process put in place of
+// one.
+func TestSingleInstanceSockets(t *testing.T) {
+	dir := shortTempDir(t)
+	own, replaced := filepath.Join(dir, "own.sock"), filepath.Join(dir, "replaced.sock")
+	failing := filepath.Join(dir, "missing", "failing.sock")
+	singleInstance.Lock()
+	paths, listening := singleInstance.paths, singleInstance.listening
+	singleInstance.paths, singleInstance.listening = []string{failing, own, replaced}, nil
+	listenSecondInstances()
+	got := len(singleInstance.listening)
+	singleInstance.Unlock()
+	defer func() {
+		singleInstance.Lock()
+		singleInstance.paths, singleInstance.listening = paths, listening
+		singleInstance.Unlock()
+	}()
+	if got != 2 {
+		t.Fatalf("listening on %d sockets, want 2", got)
+	}
+	for _, path := range []string{own, replaced} {
+		conn, err := net.Dial("unix", path)
+		if err != nil {
+			t.Fatalf("%s takes no command lines: %v", path, err)
+		}
+		conn.Close()
+	}
+	// Another process, an older MyGo that takes no lock, replaces one.
+	if err := os.Remove(replaced); err != nil {
+		t.Fatal(err)
+	}
+	other, err := net.Listen("unix", replaced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.(*net.UnixListener).SetUnlinkOnClose(false)
+	defer other.Close()
+	stopSecondInstances()
+	if _, err := os.Lstat(own); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the instance's own socket was left: %v", err)
+	}
+	if _, err := os.Lstat(replaced); err != nil {
+		t.Errorf("the socket of another process was removed: %v", err)
 	}
 }
