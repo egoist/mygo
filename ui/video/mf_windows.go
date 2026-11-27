@@ -57,7 +57,6 @@ var (
 	notifyVtbl [4]uintptr
 	engines    sync.Map // uint64 → *mfEngine
 	lastEngine atomic.Uint64
-	lastShared atomic.Uint64
 )
 
 type guid struct {
@@ -597,7 +596,7 @@ func (e *mfEngine) newShared(f *sharedFrame, w, h int) bool {
 		return false
 	}
 	f.w, f.h = w, h
-	f.surface = &scene.Surface{Format: scene.SurfaceBGRA, Native: handle, NativeID: lastShared.Add(1)}
+	f.surface = &scene.Surface{Format: scene.SurfaceBGRA, Native: handle, NativeID: scene.NextNativeID()}
 	// The handle stays open while anything shows the surface: a renderer
 	// opens it as it first draws it.
 	runtime.AddCleanup(f.surface, func(h uintptr) { syscall.CloseHandle(syscall.Handle(h)) }, handle)

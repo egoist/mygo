@@ -26,14 +26,11 @@ type Texture struct {
 // state is what a texture's cleanup releases: the surfaces it holds.
 type state struct {
 	mu sync.Mutex
-	// dxgi is true when frames are presented via PresentDXGI (Windows NT shared handle).
-	dxgi bool
 	// pending is the surface presented last, retained, which the next
 	// frame shows; seq counts presents.
-	pending   uintptr
-	pendingID uint64
-	seq       uint64
-	w, h      int
+	pending uintptr
+	seq     uint64
+	w, h    int
 	// watch asks the windows that show the texture for a frame, by their
 	// key.
 	watch map[any]*watcher
@@ -42,11 +39,12 @@ type state struct {
 	// retained.
 	img      *scene.Image
 	shown    uintptr
-	shownID  uint64
 	shownSeq uint64
 	// past are the surfaces frames showed before, held, in use, while
 	// frames in flight on the GPU may still read them.
 	past [inFlight]uintptr
+
+	dxgiState
 }
 
 // inFlight bounds the frames a renderer has in flight that may still read
@@ -90,6 +88,27 @@ func Lookup(id uint64) *Texture {
 // ID identifies the texture for the platform.
 func (t *Texture) ID() uint64 { return t.id }
 
+func (s *state) collectWatchersLocked() []func() {
+	watch := make([]func(), 0, len(s.watch))
+	for key, w := range s.watch {
+		if s.seq-w.seen > staleAfter {
+			// Its window stopped drawing it, or is gone.
+			delete(s.watch, key)
+			continue
+		}
+		watch = append(watch, w.invalidate)
+	}
+	return watch
+}
+
+func (s *state) recordWatcherLocked(key any, invalidate func()) {
+	if w := s.watch[key]; w != nil {
+		w.invalidate, w.seen = invalidate, s.seq
+	} else {
+		s.watch[key] = &watcher{invalidate: invalidate, seen: s.seq}
+	}
+}
+
 // Present shows surface, an IOSurfaceRef whose reference it takes, in the
 // next frame of the windows showing the texture, from any thread.
 func (t *Texture) Present(surface uintptr) {
@@ -105,15 +124,7 @@ func (t *Texture) Present(surface uintptr) {
 	old := s.pending
 	s.pending, s.w, s.h = surface, w, h
 	s.seq++
-	watch := make([]func(), 0, len(s.watch))
-	for key, w := range s.watch {
-		if s.seq-w.seen > staleAfter {
-			// Its window stopped drawing it, or is gone.
-			delete(s.watch, key)
-			continue
-		}
-		watch = append(watch, w.invalidate)
-	}
+	watch := s.collectWatchersLocked()
 	s.mu.Unlock()
 	releaseSurface(old)
 	for _, f := range watch {
@@ -121,45 +132,17 @@ func (t *Texture) Present(surface uintptr) {
 	}
 }
 
-// PresentDXGI shows a Windows DXGI shared BGRA texture (NT handle with
-// IDXGIKeyedMutex key 0) in the next frame of the windows showing the texture,
-// with zero CPU copy. nativeID must uniquely identify the underlying shared
-// texture handle for the D3D11 renderer's handle cache. Safe from any goroutine.
-func (t *Texture) PresentDXGI(handle uintptr, nativeID uint64, w, h int) {
-	if handle == 0 || nativeID == 0 || w <= 0 || h <= 0 {
-		return
-	}
-	s := t.s
-	s.mu.Lock()
-	s.dxgi = true
-	s.pending = handle
-	s.pendingID = nativeID
-	s.w, s.h = w, h
-	s.seq++
-	watch := make([]func(), 0, len(s.watch))
-	for key, w := range s.watch {
-		if s.seq-w.seen > staleAfter {
-			delete(s.watch, key)
-			continue
-		}
-		watch = append(watch, w.invalidate)
-	}
-	s.mu.Unlock()
-	for _, f := range watch {
-		f()
-	}
-}
-
 // Clear resets the texture to empty so windows stop drawing the previous frame.
+// Safe from any goroutine.
 func (t *Texture) Clear() {
 	s := t.s
 	s.mu.Lock()
 	var old uintptr
-	if !s.dxgi {
+	if !s.isDXGILocked() {
 		old = s.pending
 	}
 	s.pending = 0
-	s.pendingID = 0
+	s.clearDXGILocked()
 	s.w, s.h = 0, 0
 	s.seq++
 	watch := make([]func(), 0, len(s.watch))
@@ -188,43 +171,18 @@ func (t *Texture) Size() (w, h float32) {
 // which the next present calls. Main thread only.
 func (t *Texture) Frame(key any, invalidate func()) *scene.Image {
 	s := t.s
-	s.mu.Lock()
-	if w := s.watch[key]; w != nil {
-		w.invalidate, w.seen = invalidate, s.seq
-	} else {
-		s.watch[key] = &watcher{invalidate: invalidate, seen: s.seq}
+	if img, ok := s.dxgiFrame(key, invalidate); ok {
+		return img
 	}
-	dxgi := s.dxgi
-	surface, nativeID, seq, w, h := s.pending, s.pendingID, s.seq, s.w, s.h
-	if !dxgi && surface != 0 && seq != s.shownSeq {
+	s.mu.Lock()
+	s.recordWatcherLocked(key, invalidate)
+	surface, seq, w, h := s.pending, s.seq, s.w, s.h
+	if surface != 0 && seq != s.shownSeq {
 		retainSurface(surface)
 	}
 	s.mu.Unlock()
 	if surface == 0 {
-		if dxgi {
-			s.img = nil
-			s.shown = 0
-			s.shownID = 0
-			s.shownSeq = seq
-		}
 		return nil
-	}
-	if dxgi {
-		if s.img == nil {
-			s.img = scene.NewImageRGBA(w, h, nil)
-		}
-		if seq != s.shownSeq {
-			s.shown, s.shownID, s.shownSeq = surface, nativeID, seq
-			s.img.W, s.img.H = w, h
-			s.img.Pix = nil
-			s.img.Surface = &scene.Surface{
-				Format:   scene.SurfaceBGRA,
-				Native:   surface,
-				NativeID: nativeID,
-			}
-			s.img.Changed()
-		}
-		return s.img
 	}
 	if s.img == nil {
 		s.img = scene.NewImageRGBA(w, h, nil)
@@ -256,7 +214,7 @@ func (s *state) GPUTexture(api scene.GPUAPI, device uintptr) uintptr {
 }
 
 func (s *state) release() {
-	if s.dxgi {
+	if s.isDXGILocked() {
 		return
 	}
 	releaseSurface(s.pending)

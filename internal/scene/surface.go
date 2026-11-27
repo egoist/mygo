@@ -1,5 +1,14 @@
 package scene
 
+import "sync/atomic"
+
+var lastNativeID atomic.Uint64
+
+// NextNativeID returns a process-wide unique identifier for a Surface.Native
+// shared texture, so all producers in an app (ui.Video engines, native.Texture,
+// custom decoders) share one namespace in renderer caches.
+func NextNativeID() uint64 { return lastNativeID.Add(1) }
+
 // A Surface is a picture that a system decoder left where it decoded it,
 // a frame of video, which renderers sample where it is rather than upload
 // as RGBA (Image.Surface). The image showing it keeps W and H, and its
