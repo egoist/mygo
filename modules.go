@@ -938,6 +938,9 @@ func NewTray(opts TrayOptions) (*Tray, error) {
 		}
 		if len(opts.Icon) > 0 {
 			if err = t.native.SetImage(opts.Icon, opts.IconIsTemplate); err != nil {
+				// The icon is not returned, so nothing could remove it.
+				t.native.Destroy()
+				t.native = nil
 				return
 			}
 		}

@@ -40,15 +40,15 @@ func TestTrayOptions(t *testing.T) {
 		t.Fatalf("an icon of no options was told %+v", got)
 	}
 
-	// An image the system refuses fails the icon, and nothing is told of
-	// after it.
+	// An image the system refuses fails the icon, which is removed, and
+	// nothing is told of after it.
 	fb.TrayImageError = errors.New("no room")
 	t.Cleanup(func() { fb.TrayImageError = nil })
 	refused, err := NewTray(TrayOptions{Icon: []byte("png"), Title: "60K"})
 	if err == nil || refused != nil {
 		t.Fatalf("an icon the system refused: %v, %v", refused, err)
 	}
-	if got := fb.TrayStates()[before+2]; got.Title != "" || string(got.Image) != "" {
+	if got := fb.TrayStates()[before+2]; got.Title != "" || string(got.Image) != "" || !got.Destroyed {
 		t.Fatalf("after the refused image the icon was told %+v", got)
 	}
 }
