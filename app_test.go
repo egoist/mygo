@@ -139,3 +139,17 @@ func TestAppLifecycleEvents(t *testing.T) {
 		t.Errorf("the turned off listener was told of the app becoming active again: %d times", became)
 	}
 }
+
+// TestDockHideShow checks that hiding and showing the Dock icon are the
+// app's activation policy changes they say they are.
+func TestDockHideShow(t *testing.T) {
+	defer func(p ActivationPolicy) { App.SetActivationPolicy(p) }(App.ActivationPolicy())
+	App.Dock.Hide()
+	if got := App.ActivationPolicy(); got != ActivationPolicyAccessory {
+		t.Errorf("hiding the Dock icon left the policy %q", got)
+	}
+	App.Dock.Show()
+	if got := App.ActivationPolicy(); got != ActivationPolicyRegular {
+		t.Errorf("showing the Dock icon left the policy %q", got)
+	}
+}

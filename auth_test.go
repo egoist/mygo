@@ -143,3 +143,24 @@ func TestWebViewAuthHandlers(t *testing.T) {
 		t.Error("the web view's certificate error handler was not asked")
 	}
 }
+
+// TestHandlesClientCertificates checks that the window says it answers
+// client certificate challenges only while a handler is set, until the
+// default is restored.
+func TestHandlesClientCertificates(t *testing.T) {
+	w, _ := testWindow(t, WindowOptions{Hidden: true})
+	h := &windowHandler{w}
+	if h.HandlesClientCertificates() {
+		t.Error("a window with no handler answers client certificates")
+	}
+	w.Page().SetClientCertificateHandler(func(ClientCertificateRequest) ClientCertificateResponse {
+		return ClientCertificateResponse{}
+	})
+	if !h.HandlesClientCertificates() {
+		t.Error("a window with a handler does not answer client certificates")
+	}
+	w.Page().SetClientCertificateHandler(nil)
+	if h.HandlesClientCertificates() {
+		t.Error("a window whose handler went away still answers client certificates")
+	}
+}
