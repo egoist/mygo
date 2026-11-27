@@ -60,6 +60,43 @@ both from 0: `Pos` and `Offset` convert between them, and `Line`, `Slice`
 and `String` read the text. `Set` replaces the text as an edit, which undo
 takes back, and `Reset` as a new document, without history.
 
+Typing in a row is one step of undo, until the caret moves or a pause of
+300 ms; `EndGroup` ends the step where the app ends a burst of typing
+itself, as when it saves. `EditJoined` makes edits part of the step the
+last edit went into, which undo takes back with it, as a closing tag
+renamed with the opening one typed in; once undo, redo, `EndGroup`,
+`Reset` or a caret moved by the user has closed that step, they make one
+of their own. A save that writes a `Snapshot` while typing goes on passes
+it to `MarkSavedAt`, so that the text typed since leaves the buffer
+modified:
+
+```go
+s := buf.Snapshot()
+go func() {
+	if err := save(s); err == nil {
+		app.win.Update(func() { buf.MarkSavedAt(s) })
+	}
+}()
+```
+
+`OnEdit` tells a function of each version of the text, in order, as a
+language server kept in step needs: the text before and after it, and the
+ranges it replaced, whatever made it (an editor, undo, `Reset` or
+`EditRemote`). It is told after the edit, one call at a time, by the
+goroutine that made it, an editor's once the command or the typing that
+made it is done, before the edit's method returns. When another goroutine
+is telling the buffer's functions already, that one tells it as soon as
+it is made: before or after the edit's method returns, and between two
+edits of an editor's command. It may edit the buffer, which it hears of
+once it returns:
+
+```go
+off := buf.OnEdit(func(old, new editor.Snapshot, changes []editor.Change) {
+	server.DidChange(new.Version(), changes, new)
+})
+defer off()
+```
+
 `EditRemote` applies edits made elsewhere, as another device's or the
 result of a merge, outside the history. Undo and redo go on taking back and
 making again the buffer's own steps, on the text with those edits:

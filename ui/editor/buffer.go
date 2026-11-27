@@ -63,6 +63,10 @@ type Buffer struct {
 	// wake are the windows showing the buffer, which a highlighter
 	// working in the background has draw again.
 	wake []ui.Services
+	// listeners are the functions OnEdit tells of edits; telling is set
+	// while tell tells them.
+	listeners []*editListener
+	telling   bool
 }
 
 // Edit replaces the bytes Start to End of a Buffer's text with Text.
@@ -279,8 +283,8 @@ func (b *Buffer) SetLanguage(l *Language) {
 
 // Modified reports whether the text, or its line endings, differ from
 // the saved one: the text the buffer was made or Reset with, or had when
-// MarkSaved was called. Undoing back to it makes the buffer unmodified
-// again.
+// MarkSaved was called, or the one MarkSavedAt was given. Undoing back to
+// it makes the buffer unmodified again.
 func (b *Buffer) Modified() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -317,30 +321,45 @@ func (b *Buffer) MarkSaved() {
 	b.saved, b.savedEnds = b.text, b.ends
 }
 
+// MarkSavedAt makes the text of s, a Snapshot of the buffer, the saved
+// one, line endings and all: what a save that wrote s calls when it
+// finishes, as edits made while it wrote leave the buffer modified, and
+// undoing them makes it unmodified again.
+func (b *Buffer) MarkSavedAt(s Snapshot) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.saved, b.savedEnds = s.t, s.ends
+}
+
 // Reset replaces the text and forgets the undo history, as for a file
 // loaded anew, and makes it the saved text. Its change is the lines
 // between those the texts start and end with alike, as VS Code reloads
 // a file: the editors showing it keep their selections, scroll, folds
 // and diagnostics with the text before and after those lines, and in an
-// empty buffer at the start.
+// empty buffer at the start. The same text, whatever its line endings,
+// makes no version, as an Edit changing nothing.
 func (b *Buffer) Reset(text string) {
+	defer b.tell()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	old := b.text
 	t, ends := newLineEnds(text)
-	b.text, b.ends = rope.New(t), ends
+	c, changed := reloadChange(old, t)
+	if changed {
+		b.text = rope.New(t)
+	}
+	b.ends = ends
 	b.saved, b.savedEnds = b.text, b.ends
 	b.undo, b.redo, b.openTx = nil, nil, nil
-	var cs []change
-	if c, ok := reloadChange(old, t); ok {
+	if changed {
 		c.loaded = old.Len() == 0
-		cs = append(cs, c)
+		b.record([]change{c})
 	}
-	b.record(cs)
 }
 
 // Set replaces the whole text as one edit, which Undo takes back.
 func (b *Buffer) Set(text string) {
+	defer b.tell()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.edit([]Edit{{Start: 0, End: b.text.Len(), Text: text}}, editOther, nil, nil)
@@ -350,9 +369,40 @@ func (b *Buffer) Set(text string) {
 // in the text before any of them; overlapping edits are cut to follow
 // the one before.
 func (b *Buffer) Edit(edits ...Edit) {
+	defer b.tell()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.edit(edits, editOther, nil, nil)
+}
+
+// EditJoined applies edits as Edit does, but into the step of undo the
+// last edit went into, which takes them back and makes them again with
+// the rest of it: edits that follow from the one before, as what was
+// typed in one place copied into another. Typing after them still joins
+// the step as it would have without them. The step must still be open:
+// Undo, Redo, EndGroup and Reset close it, as do an editor's caret moved
+// by keys or the pointer, an input method's commit, and an EditRemote
+// that takes it out of the history, but not a pause or SetSelections.
+// The edits then make a step of their own; inside Transact they go into
+// the transaction's step.
+func (b *Buffer) EditJoined(edits ...Edit) {
+	defer b.tell()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := len(b.undo)
+	if b.open > 0 || n == 0 || b.lastEdit.IsZero() {
+		b.edit(edits, editOther, nil, nil)
+		return
+	}
+	changes, back, backEnds := b.applyLocal(edits, nil)
+	if changes == nil {
+		return
+	}
+	tx := &b.undo[n-1]
+	tx.edits = append(tx.edits, back)
+	tx.ends = append(tx.ends, backEnds)
+	// Redo puts the selections after the step in the text the edits make.
+	tx.selAfter = moveSaved(tx.selAfter, spans(changes))
 }
 
 // Transact groups the edits fn makes, through Edit and the editors
@@ -388,6 +438,7 @@ func (b *Buffer) CanRedo() bool {
 // Undo takes back the last step of edits, and reports whether there was
 // one.
 func (b *Buffer) Undo() bool {
+	defer b.tell()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	_, ok := b.undoStep()
@@ -397,6 +448,7 @@ func (b *Buffer) Undo() bool {
 // Redo makes the step Undo took back again, and reports whether there
 // was one.
 func (b *Buffer) Redo() bool {
+	defer b.tell()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	_, ok := b.redoStep()
@@ -495,6 +547,7 @@ func inverse(before rope.Text, ends lineEnds, changes []change, kept []byte) ([]
 // text: call MarkSaved when the text is what was saved, as edits read
 // from the file on disk.
 func (b *Buffer) EditRemote(edits ...Edit) {
+	defer b.tell()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	text, ends, changes, _ := b.replace(edits, nil)
@@ -503,10 +556,7 @@ func (b *Buffer) EditRemote(edits ...Edit) {
 	}
 	b.text, b.ends = text, ends
 	b.record(changes)
-	c := make([]span, len(changes))
-	for i, ch := range changes {
-		c[i] = span{ch.oldStart, ch.oldEnd, ch.newEnd - ch.newStart}
-	}
+	c := spans(changes)
 	var top bool
 	b.undo, top = rebase(b.undo, c, false)
 	b.redo, _ = rebase(b.redo, c, true)
@@ -530,14 +580,10 @@ func (b *Buffer) edit(edits []Edit, kind editKind, owner, selBefore any) []chang
 // replace takes them, nil for those lineEnds.made gives.
 func (b *Buffer) editEnds(edits []Edit, codes []string, kind editKind, owner, selBefore any) []change {
 	before, beforeEnds := b.text, b.ends
-	text, ends, changes, kept := b.replace(edits, codes)
+	changes, back, backEnds := b.applyLocal(edits, codes)
 	if changes == nil {
 		return nil
 	}
-	b.text, b.ends = text, ends
-	b.record(changes)
-	b.redo = nil
-	back, backEnds := inverse(before, beforeEnds, changes, kept)
 	now := time.Now()
 	switch tx := b.openTx; {
 	case tx != nil:
@@ -566,6 +612,23 @@ func (b *Buffer) editEnds(edits []Edit, codes []string, kind editKind, owner, se
 	}
 	b.lastEdit = now
 	return changes
+}
+
+// applyLocal applies edits, with codes as replace takes them, as an edit
+// of the history, which drops the redo steps, and returns their changes,
+// nil when nothing changed, and the edits taking them back with their
+// line ending codes; b.mu is held.
+func (b *Buffer) applyLocal(edits []Edit, codes []string) (_ []change, back []Edit, backEnds []string) {
+	before, beforeEnds := b.text, b.ends
+	text, ends, changes, kept := b.replace(edits, codes)
+	if changes == nil {
+		return nil, nil, nil
+	}
+	b.text, b.ends = text, ends
+	b.record(changes)
+	b.redo = nil
+	back, backEnds = inverse(before, beforeEnds, changes, kept)
+	return changes, back, backEnds
 }
 
 // replace returns the text edits make of the buffer's, its line endings
@@ -679,9 +742,12 @@ func (b *Buffer) replace(edits []Edit, codes []string) (_ rope.Text, _ lineEnds,
 	return text, ends, changes, kept
 }
 
-// endGroup ends the group of typing, so that the next edit makes a step
-// of undo of its own, as moving the caret does.
-func (b *Buffer) endGroup() {
+// EndGroup ends the step of undo the last edit went into, so that the
+// next edit, typed or joined (EditJoined), makes a step of its own.
+// Typing in a row joins one step until the caret moves or a pause of
+// 300 ms, as in Zed; call EndGroup where the app ends a burst of typing
+// itself, as when it saves, or when a modal editor leaves insert mode.
+func (b *Buffer) EndGroup() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.lastEdit = time.Time{}
@@ -912,6 +978,15 @@ func (b *Buffer) invalidate() {
 // start to end, and the length of what replaced it: all moving the
 // history past it needs. A text's spans are in order and do not overlap.
 type span struct{ start, end, n int }
+
+// spans returns the spans of changes.
+func spans(changes []change) []span {
+	out := make([]span, len(changes))
+	for i, c := range changes {
+		out[i] = span{c.oldStart, c.oldEnd, c.newEnd - c.newStart}
+	}
+	return out
+}
 
 // rebase moves the steps of a stack, from the last, past spans of the
 // text the last applies to, and returns the steps left and whether the

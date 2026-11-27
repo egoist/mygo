@@ -73,8 +73,8 @@ func (f *FindBar) SelectAll() { f.ed.find.selectAll(f.ed) }
 // Replace replaces the match selected and selects the next; ReplaceAll
 // replaces every match, as one step of undo. A regular expression's
 // replacement expands $1 and ${name}.
-func (f *FindBar) Replace()    { f.ed.find.replaceOne(f.ed) }
-func (f *FindBar) ReplaceAll() { f.ed.find.replaceAll(f.ed) }
+func (f *FindBar) Replace()    { f.ed.find.replaceOne(f.ed); f.ed.tell() }
+func (f *FindBar) ReplaceAll() { f.ed.find.replaceAll(f.ed); f.ed.tell() }
 
 // Close closes the bar, and gives the keyboard back to the text.
 func (f *FindBar) Close() {
@@ -566,6 +566,7 @@ func (ed *editor) buildCompletions(c *ui.Context, anchor ui.Element) {
 		case m.chosen >= 0:
 			cc.selected = m.chosen
 			ed.acceptCompletion()
+			ed.tell()
 			c.Invalidate()
 		case m.closing:
 			cc.close()

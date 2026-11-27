@@ -40,6 +40,26 @@ if buf.Modified() {
 
 偏移量按 UTF-8 字节计数，`Pos` 是行号和行内字节数，两者都从 0 开始：`Pos` 和 `Offset` 在两者之间转换，`Line`、`Slice` 和 `String` 读取文本。`Set` 以一次编辑替换文本，可以撤销；`Reset` 则作为新文稿替换，不保留历史。
 
+连续输入算作一步撤销，直到插入符移动或停顿 300 毫秒；应用自己结束一段输入时（例如保存时），用 `EndGroup` 结束这一步。`EditJoined` 把编辑并入上一次编辑所在的那一步，撤销时随它一起撤回，例如在开始标签中输入时同步重命名结束标签；若撤销、重做、`EndGroup`、`Reset` 或用户移动插入符已结束那一步，这些编辑自成一步。保存一个 `Snapshot` 时若输入仍在继续，保存完成后把它传给 `MarkSavedAt`，此后输入的文本会让缓冲区保持已修改：
+
+```go
+s := buf.Snapshot()
+go func() {
+	if err := save(s); err == nil {
+		app.win.Update(func() { buf.MarkSavedAt(s) })
+	}
+}()
+```
+
+`OnEdit` 按顺序把文本的每个版本告诉一个函数，正如与语言服务器保持同步所需：编辑前后的文本，以及被替换的范围，无论编辑来自何处（编辑器、撤销、`Reset` 或 `EditRemote`）。函数在编辑之后得到通知，每次只有一个调用：由做出编辑的 goroutine 在编辑方法返回前通知，编辑器的编辑则在做出它的命令或输入完成后通知。若另一个 goroutine 已在通知缓冲区的函数，则由那个 goroutine 在编辑做出后立即通知：可能在编辑方法返回之前或之后，也可能在编辑器同一命令的两次编辑之间。函数可以编辑缓冲区，并在返回后得知自己的编辑：
+
+```go
+off := buf.OnEdit(func(old, new editor.Snapshot, changes []editor.Change) {
+	server.DidChange(new.Version(), changes, new)
+})
+defer off()
+```
+
 `EditRemote` 应用别处做出的编辑，例如另一台设备的编辑或合并的结果，这些编辑不进历史。撤销和重做仍然只撤回、重做缓冲区自己的步骤，作用在含有这些远程编辑的文本上：
 
 ```go

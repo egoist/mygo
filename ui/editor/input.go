@@ -41,8 +41,10 @@ func (ed *editor) offer(ev ui.InputEvent) bool {
 // the text as it is when another goroutine edited the buffer meanwhile,
 // rather than leaving the edit out (apply), as many times as it takes:
 // each run that comes too late found another goroutine's edit in, so the
-// buffer moves on, and a letter typed is never lost.
+// buffer moves on, and a letter typed is never lost. The buffer's OnEdit
+// functions hear of fn's edits once it is done.
 func (ed *editor) retry(fn func() bool) bool {
+	defer ed.tell()
 	for {
 		ed.sync()
 		ed.stale = false
@@ -50,6 +52,15 @@ func (ed *editor) retry(fn func() bool) bool {
 		if !ed.stale {
 			return ok
 		}
+	}
+}
+
+// tell tells the buffer's OnEdit functions of the edits of a command once
+// it is done: told in the middle of one, an edit of theirs would make the
+// rest of the command stale and run it again from the start (retry).
+func (ed *editor) tell() {
+	if b := ed.buf(); b != nil {
+		b.tell()
 	}
 }
 
@@ -743,7 +754,7 @@ func (ed *editor) replaceText(r *ui.TextInputRange, s string) {
 	s = lf(s)
 	ed.replaceRanges(ts, s, editCompose, -1, -1)
 	if b := ed.buf(); b != nil {
-		b.endGroup()
+		b.EndGroup()
 	}
 	ed.complete.close()
 	ed.afterTyping(s)
@@ -837,7 +848,7 @@ func (ed *editor) replaceRanges(ts []ui.TextInputRange, s string, kind editKind,
 func (ed *editor) UnmarkText() {
 	ed.markedActive, ed.marked = false, nil
 	if b := ed.buf(); b != nil {
-		b.endGroup()
+		b.EndGroup()
 	}
 }
 

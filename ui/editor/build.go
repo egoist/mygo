@@ -276,40 +276,40 @@ func (ed *editor) menu(m *ui.Menu) {
 	ro := ed.o.readOnly
 	if ed.o.onDefinition != nil {
 		if m.Item(tx.GoToDefinition()).Shortcut(0, ui.KeyF12).Chosen() {
-			ed.run(GoToDefinition)
+			ed.runRetried(GoToDefinition)
 		}
 		m.Separator()
 	}
 	if m.Item(tx.Cut()).Shortcut(ui.Cmd, ui.KeyX).Disabled(ro).Chosen() {
-		ed.run(Cut)
+		ed.runRetried(Cut)
 	}
 	if m.Item(tx.Copy()).Shortcut(ui.Cmd, ui.KeyC).Chosen() {
-		ed.run(Copy)
+		ed.runRetried(Copy)
 	}
 	if m.Item(tx.Paste()).Shortcut(ui.Cmd, ui.KeyV).Disabled(ro).Chosen() {
-		ed.run(Paste)
+		ed.runRetried(Paste)
 	}
 	m.Separator()
 	if m.Item(tx.SelectAll()).Shortcut(ui.Cmd, ui.KeyA).Chosen() {
-		ed.run(SelectAll)
+		ed.runRetried(SelectAll)
 	}
 	if !ro {
 		if m.Item(tx.ToggleComment()).Shortcut(ui.Cmd, ui.KeySlash).Chosen() {
-			ed.run(ToggleComment)
+			ed.runRetried(ToggleComment)
 		}
 	}
 	m.Submenu(tx.Selection(), func(m *ui.Menu) {
 		if m.Item(tx.SelectNextOccurrence()).Shortcut(ui.Cmd, ui.KeyD).Chosen() {
-			ed.run(SelectNext)
+			ed.runRetried(SelectNext)
 		}
 		if m.Item(tx.SelectAllOccurrences()).Shortcut(ui.Cmd|ui.Shift, ui.KeyL).Chosen() {
-			ed.run(SelectAllMatches)
+			ed.runRetried(SelectAllMatches)
 		}
 		if m.Item(tx.ExpandSelection()).Chosen() {
-			ed.run(SelectLarger)
+			ed.runRetried(SelectLarger)
 		}
 		if m.Item(tx.SplitIntoLines()).Disabled(!has).Chosen() {
-			ed.run(SplitSelectionIntoLines)
+			ed.runRetried(SplitSelectionIntoLines)
 		}
 	})
 	if !ro {
@@ -326,7 +326,7 @@ func (ed *editor) menu(m *ui.Menu) {
 					continue
 				}
 				if m.Item(it.label).Chosen() {
-					ed.run(it.cmd)
+					ed.runRetried(it.cmd)
 				}
 			}
 		})
@@ -334,16 +334,16 @@ func (ed *editor) menu(m *ui.Menu) {
 	if ed.o.folding {
 		m.Submenu(tx.Folding(), func(m *ui.Menu) {
 			if m.Item(tx.Fold()).Chosen() {
-				ed.run(Fold)
+				ed.runRetried(Fold)
 			}
 			if m.Item(tx.Unfold()).Chosen() {
-				ed.run(Unfold)
+				ed.runRetried(Unfold)
 			}
 			if m.Item(tx.FoldAll()).Chosen() {
-				ed.run(FoldAll)
+				ed.runRetried(FoldAll)
 			}
 			if m.Item(tx.UnfoldAll()).Chosen() {
-				ed.run(UnfoldAll)
+				ed.runRetried(UnfoldAll)
 			}
 		})
 	}

@@ -516,7 +516,7 @@ func (d *DiffState) deletedTop(line int) float64 {
 // find bar, as an app's menu item does.
 func (d *DiffState) Run(cmd Command) bool {
 	ed := d.editorOf(d.ActiveSide())
-	return ed.retry(func() bool { return ed.run(cmd) })
+	return ed.runRetried(cmd)
 }
 
 // Find opens the find bar of the active side's editor (ActiveSide) with

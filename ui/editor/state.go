@@ -335,7 +335,7 @@ func (st *State) Insert(text string) {
 // something.
 func (st *State) Run(cmd Command) bool {
 	st.ensure()
-	return st.ed.retry(func() bool { return st.ed.run(cmd) })
+	return st.ed.runRetried(cmd)
 }
 
 // GoTo puts the caret at a line and column, from 0, and scrolls it to
