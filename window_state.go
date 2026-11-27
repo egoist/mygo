@@ -126,8 +126,9 @@ func (f stateFile) SaveWindowStates(states map[string]WindowState) error {
 }
 
 // restoreWindowState applies the state saved under key to p, if the
-// window would show on a connected display. Otherwise the window keeps
-// its saved size, as far as the display allows, and is centered.
+// window would show on a connected display, fitted to that display's
+// work area. Otherwise the window keeps its saved size, as far as the
+// display allows, and is centered.
 func restoreWindowState(key string, p *platform.WindowOptions) {
 	loadWindowStates()
 	st, ok := windowStates.byKey[key]
@@ -153,8 +154,12 @@ func restoreWindowStateFrom(st WindowState, p *platform.WindowOptions, b platfor
 		return
 	}
 	displays := b.Screen().Displays()
-	if onDisplay(r, displays) && (!inPixels || (pixels.Width <= 0 && sameScale(displays))) {
-		p.X, p.Y = r.X, r.Y
+	if work, ok := displayOf(r, displays); ok && (!inPixels || (pixels.Width <= 0 && sameScale(displays))) {
+		// The display may not be the one the state was saved on, or be
+		// smaller now: a window taller than it would have its title bar
+		// under the menu bar, out of reach.
+		f := platform.FitWindow(platform.Rect(r), work, 100, 50)
+		p.X, p.Y, p.Width, p.Height = f.X, f.Y, f.Width, f.Height
 		p.Center = false
 		return
 	}
@@ -176,17 +181,21 @@ func sameScale(displays []platform.Display) bool {
 	return true
 }
 
-// onDisplay reports whether enough of r shows on a display to reach it.
-func onDisplay(r Rectangle, displays []platform.Display) bool {
+// displayOf returns the work area of the display with the most of r,
+// among those where enough of r shows to reach it, and whether there is
+// one.
+func displayOf(r Rectangle, displays []platform.Display) (platform.Rect, bool) {
+	var work platform.Rect
+	largest := -1
 	for _, d := range displays {
 		a := d.WorkArea
 		w := min(a.X+a.Width, r.X+r.Width) - max(a.X, r.X)
 		h := min(a.Y+a.Height, r.Y+r.Height) - max(a.Y, r.Y)
-		if w >= min(100, r.Width) && h >= min(50, r.Height) {
-			return true
+		if w >= min(100, r.Width) && h >= min(50, r.Height) && w*h > largest {
+			work, largest = a, w*h
 		}
 	}
-	return false
+	return work, largest >= 0
 }
 
 // initState records the state of a window just created with the options

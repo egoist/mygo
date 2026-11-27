@@ -2173,7 +2173,11 @@ as in Tauri:
   `windowStates.cleared`, after which windows capture nothing for the rest
   of the run, so the quit's saves (as windows close, and in `finish`
   before `OnQuit`) cannot bring the states back. A saved window that would not show on any
-  display keeps its size and is centered. On Windows, where a window's
+  display keeps its size and is centered; one that would is fitted to the
+  work area of the display with the most of it (`platform.FitWindow`, as
+  AppKit constrains frames): no larger, its top edge inside, so that the
+  title bar is not under the menu bar when that display is smaller than
+  the one it was saved on. On Windows, where a window's
   position in DIPs changes with the displays' scales (`dipSpace`), and
   earlier versions' could not tell displays of different scales apart,
   the state also keeps the window's

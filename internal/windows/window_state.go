@@ -33,7 +33,7 @@ func pixelRect(r rect) platform.Rect {
 }
 
 // restoreStateBounds places a window of size, in DIPs, at saved, in
-// pixels, if enough of it shows on a display to reach it, as onDisplay
+// pixels, if enough of it shows on a display to reach it, as displayOf
 // decides in the core. Its size is in the scale of the display with the
 // most of saved, whose scale Windows gives a window across displays.
 func restoreStateBounds(saved platform.Rect, size platform.Size, displays []screenDisplay) (platform.Rect, bool) {

@@ -429,6 +429,77 @@ func TestWindowStateWithoutPixels(t *testing.T) {
 	}
 }
 
+// dipBackend places windows in DIPs, as macOS and Linux do.
+type dipBackend struct {
+	platform.Backend
+	displays []platform.Display
+}
+
+func (b *dipBackend) Screen() platform.Screen { return pixelScreen{displays: b.displays} }
+
+// TestWindowStateFitsDisplay fits a restored window to the work area of
+// the display with the most of it (#2439): saved on a display that is no
+// longer there, part of it on the built-in one, it would be taller than
+// that one, with its title bar under the menu bar.
+func TestWindowStateFitsDisplay(t *testing.T) {
+	// A 1800 × 1125 built-in display with a notch, its menu bar 38 tall.
+	builtIn := platform.Display{Primary: true, Bounds: platform.Rect{Width: 1800, Height: 1125}, WorkArea: platform.Rect{Y: 38, Width: 1800, Height: 1087}, ScaleFactor: 2}
+	right := platform.Display{Bounds: platform.Rect{X: 1800, Width: 2560, Height: 1440}, WorkArea: platform.Rect{X: 1800, Y: 25, Width: 2560, Height: 1415}, ScaleFactor: 2}
+	tests := []struct {
+		name     string
+		saved    Rectangle
+		displays []platform.Display
+		want     platform.Rect
+	}{
+		{
+			name:  "external display gone",
+			saved: Rectangle{-790, 266, 1296, 1410}, displays: []platform.Display{builtIn},
+			want: platform.Rect{X: -790, Y: 38, Width: 1296, Height: 1087},
+		},
+		{
+			name:  "title bar under the menu bar",
+			saved: Rectangle{108, 30, 1543, 1095}, displays: []platform.Display{builtIn},
+			want: platform.Rect{X: 108, Y: 38, Width: 1543, Height: 1087},
+		},
+		{
+			name:  "wider and taller than the display",
+			saved: Rectangle{-300, 0, 2400, 1300}, displays: []platform.Display{builtIn},
+			want: platform.Rect{X: 0, Y: 38, Width: 1800, Height: 1087},
+		},
+		{
+			name:  "fits: stays where it was",
+			saved: Rectangle{200, 150, 800, 600}, displays: []platform.Display{builtIn, right},
+			want: platform.Rect{X: 200, Y: 150, Width: 800, Height: 600},
+		},
+		{
+			name:  "left partly off a side",
+			saved: Rectangle{1500, 900, 800, 600}, displays: []platform.Display{builtIn},
+			want: platform.Rect{X: 1500, Y: 900, Width: 800, Height: 600},
+		},
+		{
+			name:  "on the larger display",
+			saved: Rectangle{1900, 100, 2000, 1300}, displays: []platform.Display{builtIn, right},
+			want: platform.Rect{X: 1900, Y: 100, Width: 2000, Height: 1300},
+		},
+		{
+			name:  "fitted to the display with the most of it",
+			saved: Rectangle{1700, 10, 2000, 1500}, displays: []platform.Display{builtIn, right},
+			want: platform.Rect{X: 1700, Y: 25, Width: 2000, Height: 1415},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := tt.saved
+			p := &platform.WindowOptions{Center: true}
+			restoreWindowStateFrom(WindowState{X: r.X, Y: r.Y, Width: r.Width, Height: r.Height, FullScreen: true}, p, &dipBackend{displays: tt.displays})
+			want := platform.WindowOptions{X: tt.want.X, Y: tt.want.Y, Width: tt.want.Width, Height: tt.want.Height, FullScreen: true}
+			if !reflect.DeepEqual(*p, want) {
+				t.Errorf("restored options = %+v, want %+v", *p, want)
+			}
+		})
+	}
+}
+
 // TestWindowStatePixelCapture captures a window's DIPs and pixels
 // together, and keeps both while the window is maximized, full screen or
 // minimized, or the system gives no pixels.
