@@ -234,6 +234,10 @@ type editor struct {
 	pointer      ui.Point
 	pointerIn    bool
 	hoverLine    int
+	// blinkAgain starts the caret's blink at the next frame, shown first,
+	// after the carets moved: the app may move them between frames, long
+	// after the last frame's time.
+	blinkAgain bool
 	// region is the part of the editor under the pointer, which its
 	// cursor and the scroll bars' highlight show.
 	region region
@@ -515,7 +519,7 @@ func (ed *editor) setSels(sels []sel, reveal reveal) {
 	if reveal != revealNone {
 		ed.reveal = max(ed.reveal, reveal)
 	}
-	ed.blinkStart = ed.frameNow
+	ed.blinkAgain = true
 	ed.autoclosed = ed.autoclosed[:0]
 	// What select next, add cursor and select larger go on from.
 	ed.wholeWord = false

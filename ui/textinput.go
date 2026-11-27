@@ -318,6 +318,9 @@ func (e *node) SetTextSelection(start, end int) *node {
 	}
 	n := ed.buf.n
 	start, end = min(max(start, 0), n), min(max(end, 0), n)
+	if ed.anchor != start || ed.caret != end {
+		e.restartBlink()
+	}
 	ed.editorSelection = editorSelection{anchor: start, caret: end}
 	ed.hasDesired = false
 	if ed.area != nil {
@@ -325,6 +328,14 @@ func (e *node) SetTextSelection(start, end int) *node {
 	}
 	e.c.rt.requestFrame()
 	return e
+}
+
+// restartBlink shows the caret of a text input with the keyboard for a
+// whole blink, as a move by the keys does.
+func (e *node) restartBlink() {
+	if e.c.rt.focused == e.id {
+		e.c.rt.blinkStart = e.c.rt.now()
+	}
 }
 
 // ReplaceText replaces the runes of a text input from start to end with s,
@@ -376,6 +387,7 @@ func (e *node) ReplaceText(start, end int, s string) *node {
 	if ed.area != nil {
 		ed.area.reveal = true
 	}
+	e.restartBlink()
 	e.st.markChanged()
 	e.c.rt.requestFrame()
 	return e

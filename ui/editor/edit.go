@@ -59,7 +59,6 @@ func (ed *editor) applyEnds(edits []Edit, ends func(lineEnds) []string, kind edi
 			return false
 		}
 		ed.setSels(mergeSels(sels), revealFit)
-		ed.blinkStart = ed.frameNow
 		return true
 	}
 	if ed.snippet != nil {
@@ -79,7 +78,7 @@ func (ed *editor) applyEnds(edits []Edit, ends func(lineEnds) []string, kind edi
 	}
 	b.setSelectionsAfter(ed, slices.Clone(ed.sels))
 	ed.reveal = max(ed.reveal, revealFit)
-	ed.blinkStart = ed.frameNow
+	ed.blinkAgain = true
 	ed.needsBuild = true
 	return true
 }

@@ -94,6 +94,9 @@ func mergeSpans(spans []lineSpan) []lineSpan {
 func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 	v := &ed.view
 	ed.frameNow = p.Now()
+	if ed.blinkAgain {
+		ed.blinkStart, ed.blinkAgain = ed.frameNow, false
+	}
 	ed.r = r
 	ed.measureBlocks()
 	ed.layout(r.W, r.H, p.Scale())
