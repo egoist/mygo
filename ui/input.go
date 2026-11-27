@@ -1213,8 +1213,10 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCod
 		rt.blinkStart = rt.now()
 		rt.requestFrame()
 		// Taken: the menu item of the key, as Edit › Paste's Ctrl+V on
-		// Windows, leaves it rather than pasting a second time.
-		return true
+		// Windows, leaves it rather than pasting a second time. A key
+		// that types text is kept from the shortcuts but left: its text
+		// comes from the input method, which skips a key taken (macOS).
+		return !typesText(k)
 	}
 	if s := rt.states[rt.focused]; s != nil && s.flags&flagTypeSelect != 0 && !rt.claimed(k) {
 		// The first letters of a row of a list: they add up while typed
