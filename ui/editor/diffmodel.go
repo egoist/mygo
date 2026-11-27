@@ -227,7 +227,7 @@ var startDiff = func(job func()) { go job() }
 // compare returns the hunks between the whole texts, from any goroutine:
 // it reads only eol of d.
 func (d *diffModel) compare(oldText, newText rope.Text) []diff.Hunk {
-	return diff.Lines(d.lines(oldText, 0, oldText.LineCount()), d.lines(newText, 0, newText.LineCount()))
+	return pairLastLines(oldText, newText, diff.Lines(d.lines(oldText, 0, oldText.LineCount()), d.lines(newText, 0, newText.LineCount())))
 }
 
 // ropeLines returns lines from to to of r: none of an empty text, which
@@ -370,9 +370,36 @@ func (d *diffModel) redo(from, to int, touched []bool) {
 		h.A0, h.A1, h.B0, h.B1 = h.A0+shift, h.A1+shift, h.B0+shift, h.B1+shift
 	}
 	hunks := append(append(append([]diff.Hunk{}, before...), mid...), after...)
-	d.hunks = mergeHunks(hunks)
+	d.hunks = pairLastLines(d.oldText, d.newText, mergeHunks(hunks))
 	d.version++
 	d.words = nil
+}
+
+// pairLastLines pairs the empty line after the new text's final newline
+// with the old text's empty last line, as git counts no line after a
+// final newline. Compared without line feeds, that line may pair with an
+// earlier empty line, marking lines added at the end one line low, or
+// with none when the old text is empty, marking it added.
+func pairLastLines(oldText, newText rope.Text, hunks []diff.Hunk) []diff.Hunk {
+	k, n, m := len(hunks)-1, newText.LineCount(), oldText.LineCount()
+	if k < 0 || n < 2 || newText.Line(n-1) != "" || oldText.Line(m-1) != "" {
+		return hunks
+	}
+	h := &hunks[k]
+	if h.A0 != h.A1 || h.B1 != n {
+		return hunks
+	}
+	h.B1--
+	if oldText.Len() > 0 {
+		// The old text's empty line paired with the new line before the
+		// lines added, which is empty too.
+		h.A0, h.A1, h.B0 = h.A0-1, h.A1-1, h.B0-1
+		if k > 0 && hunks[k-1].A1 == h.A0 && hunks[k-1].B1 == h.B0 {
+			hunks[k-1].A1, hunks[k-1].B1 = h.A1, h.B1
+			return hunks[:k]
+		}
+	}
+	return hunks
 }
 
 func overlap(a0, a1, b0, b1 int) int { return max(0, min(a1, b1)-max(a0, b0)) }

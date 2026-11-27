@@ -238,6 +238,68 @@ func TestReviewDiffDeletionAtEnd(t *testing.T) {
 	}
 }
 
+// Lines added after a text's final newline are marked where git marks
+// them, not one line low, and the empty line after the last newline,
+// which git counts as no line, is never marked: compared at once, after
+// typing, against an empty base, and in an editable diff.
+func TestReviewDiffLinesAddedAfterFinalNewline(t *testing.T) {
+	marks := func(st *State) []int {
+		var out []int
+		for line := range st.Buffer.LineCount() {
+			out = append(out, st.ed.gitDiff.status(line))
+		}
+		return out
+	}
+	for _, c := range []struct {
+		base, text string
+		marks      []int
+		hunks      []DiffHunk
+	}{
+		{"a\n}\n", "a\n}\n\n// changed\n", []int{0, 0, 1, 1, 0}, []DiffHunk{{2, 2, 2, 4}}},
+		{"a\n", "a\n\n", []int{0, 1, 0}, []DiffHunk{{1, 1, 1, 2}}},
+		{"", "a\nb\n", []int{1, 1, 0}, []DiffHunk{{0, 0, 0, 2}}},
+	} {
+		st := &State{Buffer: NewBuffer(c.text), DiffBase: NewBuffer(c.base)}
+		tt := ui.NewTester(func(cx *ui.Context) { View(cx, st).Fill().AutoFocus() }, 400, 200)
+		tt.Frame()
+		if got := marks(st); !slices.Equal(got, c.marks) {
+			t.Errorf("%q to %q: marks %v, want %v", c.base, c.text, got, c.marks)
+		}
+		last := strings.LastIndex(c.text[:len(c.text)-1], "\n") + 1
+		st.Select(last, last)
+		st.Run(RevertHunk)
+		if got := st.Buffer.String(); got != c.base {
+			t.Errorf("%q to %q: reverted into %q", c.base, c.text, got)
+		}
+
+		typed := &State{Buffer: NewBuffer(c.base), DiffBase: NewBuffer(c.base)}
+		tt = ui.NewTester(func(cx *ui.Context) { View(cx, typed).Fill().AutoFocus() }, 400, 200)
+		tt.Frame()
+		typed.Buffer.Edit(Edit{Start: len(c.base), End: len(c.base), Text: c.text[len(c.base):]})
+		tt.Frame()
+		if got := marks(typed); !slices.Equal(got, c.marks) {
+			t.Errorf("%q typed to %q: marks %v, want %v", c.base, c.text, got, c.marks)
+		}
+
+		d := &DiffState{Old: NewBuffer(c.base), New: NewBuffer(c.text), Editable: true}
+		if got := d.Hunks(); !slices.Equal(got, c.hunks) {
+			t.Errorf("%q to %q: editable diff's hunks %v, want %v", c.base, c.text, got, c.hunks)
+		}
+	}
+
+	// Lines added that then touch a change before them are one change.
+	st := &State{Buffer: NewBuffer("y\n"), DiffBase: NewBuffer("y\n")}
+	tt := ui.NewTester(func(cx *ui.Context) { View(cx, st).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	for _, e := range []Edit{{Start: 2, End: 2, Text: "y"}, {Start: 0, End: 2, Text: "\n"}, {Start: 1, End: 2}} {
+		st.Buffer.Edit(e)
+		tt.Frame()
+	}
+	if got, want := marks(st), []int{2, 0}; !slices.Equal(got, want) {
+		t.Errorf("%q against \"y\\n\": marks %v, want %v", st.Buffer.String(), got, want)
+	}
+}
+
 // Annotations on one line go one after the other, with keys or without.
 func TestReviewDiffAnnotationsStack(t *testing.T) {
 	d := &DiffState{Old: NewBuffer("a\nb\n"), New: NewBuffer("a\nB\n"), Annotations: []DiffAnnotation{
