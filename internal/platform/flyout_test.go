@@ -62,3 +62,39 @@ func TestWorkAreaFor(t *testing.T) {
 		}
 	}
 }
+
+// TestFlyoutCentered checks where a flyout goes without an anchor: in the
+// middle of the work area, as large as it fits.
+func TestFlyoutCentered(t *testing.T) {
+	work := Rect{X: 0, Y: 0, Width: 200, Height: 100}
+	if r := Centered(Size{Width: 100, Height: 50}, work); r != (Rect{X: 50, Y: 25, Width: 100, Height: 50}) {
+		t.Errorf("Centered = %v, want the middle", r)
+	}
+	// One too big for the work area is the work area.
+	work = Rect{X: 10, Y: 20, Width: 200, Height: 100}
+	if r := Centered(Size{Width: 500, Height: 500}, work); r != work {
+		t.Errorf("Centered of a flyout too big = %v, want the work area", r)
+	}
+	// A work area away from the origin centers in it, not on the screen.
+	work = Rect{X: 1000, Y: 500, Width: 200, Height: 100}
+	if r := Centered(Size{Width: 100, Height: 50}, work); r != (Rect{X: 1050, Y: 525, Width: 100, Height: 50}) {
+		t.Errorf("Centered in a far work area = %v", r)
+	}
+}
+
+// TestPrimaryWorkArea checks whose work area a flyout without an anchor
+// goes to: the primary display's, or the first one's when none is.
+func TestPrimaryWorkArea(t *testing.T) {
+	a := Rect{X: 0, Y: 0, Width: 100, Height: 100}
+	b := Rect{X: 200, Y: 0, Width: 100, Height: 100}
+	displays := []Display{{WorkArea: a}, {Primary: true, WorkArea: b}}
+	if w := PrimaryWorkArea(displays); w != b {
+		t.Errorf("PrimaryWorkArea = %v, want the primary's", w)
+	}
+	if w := PrimaryWorkArea([]Display{{WorkArea: a}, {WorkArea: b}}); w != a {
+		t.Errorf("PrimaryWorkArea without a primary = %v, want the first's", w)
+	}
+	if w := PrimaryWorkArea(nil); w != (Rect{}) {
+		t.Errorf("PrimaryWorkArea of no displays = %v", w)
+	}
+}
