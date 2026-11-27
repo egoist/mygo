@@ -183,3 +183,107 @@ func TestReshaped(t *testing.T) {
 		}
 	}
 }
+
+// TestAffineVectorAt checks how far a map moves a vector: as the linear
+// part of an affine map, and as the difference of two points of a
+// projective one.
+func TestAffineVectorAt(t *testing.T) {
+	if x, y := (Affine{}).VectorAt(0, 0, 3, 4); x != 3 || y != 4 {
+		t.Errorf("VectorAt of nothing = (%v, %v)", x, y)
+	}
+	// An affine map's vector ignores its translation.
+	if x, y := Translation(10, 20).Mul(Scaling(2, 3)).VectorAt(5, 5, 3, 4); x != 6 || y != 12 {
+		t.Errorf("VectorAt of an affine map = (%v, %v), want (6, 12)", x, y)
+	}
+	// A projective one moves each vector by where it lands.
+	m := Projective(1, 0, 0, 1, 0, 0, 0.5, 0)
+	x, y := m.VectorAt(0, 0, 1, 0)
+	if math.Abs(float64(x-2.0/3)) > 1e-4 || y != 0 {
+		t.Errorf("VectorAt of a projective map = (%v, %v), want (0.667, 0)", x, y)
+	}
+}
+
+// TestClipShapeOf checks what a clip op becomes: its rectangle as MovedClip
+// moves it, its gradient and stops, and its image mask.
+func TestClipShapeOf(t *testing.T) {
+	stops := []Stop{{Color{10, 0, 0, 255}, 0.1}, {Color{20, 0, 0, 255}, 0.5}, {Color{30, 0, 0, 255}, 0.9}}
+
+	// A plain clip.
+	op := &Op{Kind: OpPushClip, Rect: Rect{X: 1, Y: 2, W: 10, H: 10}}
+	if c := ClipShapeOf(op, stops); c.Rect != op.Rect || c.Paint != PaintSolid || c.Masks() || len(c.Stops) != 0 {
+		t.Errorf("ClipShapeOf of a plain clip = %+v", c)
+	}
+
+	// A transform that only moves the clip moves its rectangle.
+	op = &Op{Kind: OpPushClip, Rect: Rect{X: 0, Y: 0, W: 10, H: 10}, Transform: Translation(5, 7)}
+	if c := ClipShapeOf(op, stops); c.Rect != (Rect{X: 5, Y: 7, W: 10, H: 10}) || c.Transform.Set {
+		t.Errorf("ClipShapeOf of a moved clip = %+v", c)
+	}
+	// One that scales it stays with the clip.
+	op = &Op{Kind: OpPushClip, Rect: Rect{X: 0, Y: 0, W: 10, H: 10}, Transform: Scaling(2, 2)}
+	if c := ClipShapeOf(op, stops); c.Rect != op.Rect || !c.Transform.Set {
+		t.Errorf("ClipShapeOf of a scaled clip = %+v", c)
+	}
+
+	// A gradient of stops takes its part of the scene's stops.
+	op = &Op{Kind: OpPushClip, Rect: Rect{X: 0, Y: 0, W: 10, H: 10},
+		Paint: PaintLinearStops, Color: Color{1, 2, 3, 255}, Color2: Color{4, 5, 6, 255}, Stops: [2]int32{1, 3}}
+	c := ClipShapeOf(op, stops)
+	if c.Paint != PaintLinearStops || c.Color != op.Color || c.Color2 != op.Color2 || len(c.Stops) != 2 ||
+		c.Stops[0].At != 0.5 || c.Stops[1].At != 0.9 {
+		t.Errorf("ClipShapeOf of a gradient = %+v", c)
+	}
+	// A range past the stops, or backwards, masks nothing.
+	op.Stops = [2]int32{1, 100}
+	if c := ClipShapeOf(op, stops); len(c.Stops) != 0 {
+		t.Errorf("ClipShapeOf of stops past the end = %+v", c)
+	}
+	op.Stops = [2]int32{2, 1}
+	if c := ClipShapeOf(op, stops); len(c.Stops) != 0 {
+		t.Errorf("ClipShapeOf of backwards stops = %+v", c)
+	}
+
+	// An image masks the clip as it was.
+	img := &Image{}
+	op = &Op{Kind: OpPushClip, Rect: Rect{X: 0, Y: 0, W: 10, H: 10}, Image: img, Src: Rect{X: 1, Y: 2, W: 3, H: 4}}
+	if c := ClipShapeOf(op, nil); c.Mask != img || c.MaskSrc != op.Src || !c.Masks() {
+		t.Errorf("ClipShapeOf of a masked clip = %+v", c)
+	}
+}
+
+// TestClipShapeSame checks what makes two clips the same: every field,
+// the stops by what they hold.
+func TestClipShapeSame(t *testing.T) {
+	base := ClipShape{
+		Rect: Rect{X: 1, Y: 2, W: 3, H: 4}, Radii: [4]float32{1, 2, 3, 4},
+		Transform: Translation(5, 6), Continuous: true,
+		Paint: PaintLinearStops, Gradient: [4]float32{1, 2, 3, 4},
+		Color: Color{1, 2, 3, 255}, Color2: Color{4, 5, 6, 255},
+		Stops: []Stop{{Color{7, 8, 9, 255}, 0.5}},
+	}
+	same := base
+	same.Stops = append([]Stop(nil), base.Stops...)
+	if !base.Same(&same) {
+		t.Error("the same clip is not the same")
+	}
+	// Each field apart makes it another.
+	for name, mutate := range map[string]func(*ClipShape){
+		"rect":       func(c *ClipShape) { c.Rect.X++ },
+		"radii":      func(c *ClipShape) { c.Radii[0]++ },
+		"transform":  func(c *ClipShape) { c.Transform = Scaling(2, 2) },
+		"continuous": func(c *ClipShape) { c.Continuous = false },
+		"paint":      func(c *ClipShape) { c.Paint = PaintSolid },
+		"gradient":   func(c *ClipShape) { c.Gradient[0]++ },
+		"color":      func(c *ClipShape) { c.Color.R++ },
+		"color2":     func(c *ClipShape) { c.Color2.R++ },
+		"stops":      func(c *ClipShape) { c.Stops[0].At = 0.6 },
+		"mask":       func(c *ClipShape) { c.Mask = &Image{} },
+	} {
+		c := base
+		c.Stops = append([]Stop(nil), base.Stops...)
+		mutate(&c)
+		if base.Same(&c) {
+			t.Errorf("a clip with another %s is the same", name)
+		}
+	}
+}
