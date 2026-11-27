@@ -124,6 +124,11 @@ func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	b.name = opts.Name
 	b.sandbox = opts.Sandbox
 	theBackend = b
+	if opts.Sandbox && sandboxCheck != nil {
+		if err := sandboxCheck(os.Getenv, "/"); err != nil {
+			return err
+		}
+	}
 	if err := load(); err != nil {
 		return err
 	}

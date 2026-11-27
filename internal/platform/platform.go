@@ -234,8 +234,9 @@ type AppOptions struct {
 	// may draw with its DMA-BUF renderer. Only meaningful on Linux.
 	DMABUFRenderer string
 	// Sandbox starts the web processes of every web context in WebKitGTK's
-	// sandbox (bubblewrap). Only meaningful on Linux: the other webviews
-	// always sandbox theirs.
+	// sandbox (bubblewrap); Init fails where bubblewrap cannot make its
+	// namespaces. Only meaningful on Linux: the other webviews always
+	// sandbox theirs.
 	Sandbox bool
 	// Background starts the app without bringing it to the front, as
 	// `mygo dev -background` asks: on macOS, where an executable that is

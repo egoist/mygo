@@ -20,3 +20,5 @@ func linkMenuIcons() { linux.LinkMenuIcons() }
 func linkContextMenus() { linux.LinkContextMenus() }
 
 func linkDMABUFProbe() { linux.LinkDMABUFProbe() }
+
+func linkSandboxCheck() { linux.LinkSandboxCheck() }

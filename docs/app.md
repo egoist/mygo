@@ -458,16 +458,40 @@ The Web Inspector's pages run in a process pool of their own, which is not
 sandboxed.
 
 bubblewrap must be able to make user namespaces. Distributions' WebKitGTK
-packages depend on it, but where the kernel or a security policy forbids
-the namespaces (Ubuntu 24.04's AppArmor rules, without a profile that
-allows them, or a Docker container with WebKitGTK 2.40.2 or newer),
-WebKitGTK aborts the app when it starts the first page, with
-`Failed to fully launch dbus-proxy` in its output. Older versions start
-pages unsandboxed in Docker. Inside Flatpak it sandboxes pages with
-Flatpak's own sandbox, and in Snap, or a Podman container where
-bubblewrap cannot run, it starts them unsandboxed.
-`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`, set by the user, turns the
-sandbox off whatever the app chose. MyGo says in the log when the app
+packages depend on it, but the kernel or a security policy can forbid the
+namespaces: Ubuntu 23.10 and newer do for apps without an AppArmor profile
+that allows them (`kernel.apparmor_restrict_unprivileged_userns=1`), and
+so do containers not given the rights. WebKitGTK would then abort the app
+at its first page, with `Failed to fully launch dbus-proxy` in its output,
+or, in some containers, start pages unsandboxed. So `App.Run` first runs
+bubblewrap once, as WebKitGTK does in containers, and where it cannot make
+its namespaces, returns an error that names the cause instead of starting
+the app: pages never run outside the sandbox the app asked for, as
+Electron's sandbox refuses to start without user namespaces.
+
+On Ubuntu, the fix is an AppArmor profile that lets the app make user
+namespaces, as Ubuntu ships for Epiphany. Install it as
+`/etc/apparmor.d/example-app`, with the path of the app's executable, and
+load it with `sudo apparmor_parser -r /etc/apparmor.d/example-app`:
+
+```
+abi <abi/4.0>,
+include <tunables/global>
+
+profile example-app /opt/example-app/example-app flags=(unconfined) {
+  userns,
+
+  include if exists <local/example-app>
+}
+```
+
+The check runs `/usr/bin/bwrap`, the one distributions' WebKitGTK runs, or
+else the first `bwrap` on `PATH` (as on NixOS); without either, it leaves
+the sandbox to WebKitGTK. It is skipped where WebKitGTK does not run
+bubblewrap: inside Flatpak, where it sandboxes pages with Flatpak's own
+sandbox, in Snap, where it starts them unsandboxed, and with
+`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`, which the user sets to turn
+the sandbox off whatever the app chose. MyGo says in the log when the app
 asked for the sandbox and does not have it: after `App.Run`, with a
 WebKitGTK older than 2.26, or with that variable set.
 

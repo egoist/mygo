@@ -512,9 +512,10 @@ func (a *Application) SetDMABUFRenderer(r DMABUFRenderer) {
 // app.enableSandbox does: on Linux, WebKitGTK then starts them in
 // bubblewrap. Other systems always sandbox pages and ignore it. Call it
 // before Run; called after, it is ignored and says so in the log.
-// bubblewrap must be able to make user namespaces, or WebKitGTK aborts
-// the app when it starts the first page. See "Sandboxing web pages on
-// Linux" in docs/app.md.
+// bubblewrap must be able to make user namespaces, which Ubuntu's AppArmor
+// forbids apps without a profile that allows them: Run then returns an
+// error that says so, rather than start pages unsandboxed. See
+// "Sandboxing web pages on Linux" in docs/app.md.
 func (a *Application) EnableSandbox() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -522,6 +523,7 @@ func (a *Application) EnableSandbox() {
 		log.Print("mygo: App.EnableSandbox called after Run: ignored, pages are not sandboxed")
 		return
 	}
+	linkSandboxCheck()
 	a.sandbox = true
 }
 

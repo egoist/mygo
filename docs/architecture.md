@@ -509,7 +509,11 @@ by `mygo build` with `mygo_noinspector`) leave out its downloader and
   for every web context before it has a web process, which WebKit aborts
   for otherwise: the default context's the first time the main thread
   calls `webKit`, a session's as `NewDataStore` makes it (`applySandbox`
-  in `session.go`, which logs a sandbox asked for and not had).
+  in `session.go`, which logs a sandbox asked for and not had). Before
+  that, Init runs bwrap once where WebKit would, and fails where it
+  cannot make its namespaces, which WebKit aborts for at the first page
+  (`checkSandbox` in `sandbox.go`, which the call links in with
+  `LinkSandboxCheck`).
 - XDG desktop portal calls go through `portalCall` (`portal.go`), which
   first registers the app's ID, the name of its desktop entry, with
   `org.freedesktop.host.portal.Registry`: the portal only accepts that
