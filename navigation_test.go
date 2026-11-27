@@ -63,6 +63,28 @@ func TestNewTabs(t *testing.T) {
 	}
 }
 
+// A tab's title is set, and an index that is not a tab is left alone.
+func TestTabsSetTitle(t *testing.T) {
+	home, _ := testWindow(t, WindowOptions{Title: "Home", Hidden: true})
+	web, _ := testWindow(t, WindowOptions{Title: "Web", Hidden: true})
+	tabs, err := NewTabs(
+		TabItem{Title: "Home", Window: home},
+		TabItem{Title: "Web", Window: web},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabs.SetTitle(1, "Search")
+	if got := onMainValue(func() string { return tabs.items[1].Title }); got != "Search" {
+		t.Errorf("the second tab's title is %q, want %q", got, "Search")
+	}
+	tabs.SetTitle(-1, "Nothing")
+	tabs.SetTitle(5, "Nothing")
+	if got := onMainValue(func() string { return tabs.items[1].Title }); got != "Search" {
+		t.Errorf("a title for an index that is not a tab changed the second tab's title to %q", got)
+	}
+}
+
 // On a desktop, which has no stack of screens, Push shows the child and
 // Pop closes it.
 func TestWindowPushPop(t *testing.T) {
