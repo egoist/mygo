@@ -3,6 +3,7 @@ package ui
 import (
 	"image"
 	"sync"
+	"sync/atomic"
 
 	"github.com/egoist/mygo/internal/scene"
 )
@@ -18,18 +19,27 @@ import (
 // overlaps, as from then on while it does, so that the frames before
 // change what it costs, never what shows.
 
-// paintGroup and checkFlat are Painter's once a view fades an element
-// (Opacity, Transition, AnimatePose: linkGroups), so that apps that fade
-// none do not link them.
+// groupFunctions are the Painter's group functions, once a view fades an
+// element (Opacity, Transition, AnimatePose: linkGroups), so that apps
+// that fade none do not link them.
+type groupFunctions struct {
+	paint func(p *Painter, e *node) (groupMark, bool)
+	flat  func(p *Painter, e *node, m groupMark)
+}
+
 var (
-	paintGroup     func(p *Painter, e *node) (groupMark, bool)
-	checkFlat      func(p *Painter, e *node, m groupMark)
+	groupFuncs     atomic.Pointer[groupFunctions]
 	linkGroupsOnce sync.Once
 )
 
 // linkGroups has elements faded below full opacity paint as groups.
 func linkGroups() {
-	linkGroupsOnce.Do(func() { paintGroup, checkFlat = (*Painter).paintGroup, (*Painter).checkFlat })
+	linkGroupsOnce.Do(func() {
+		groupFuncs.Store(&groupFunctions{
+			paint: (*Painter).paintGroup,
+			flat:  (*Painter).checkFlat,
+		})
+	})
 }
 
 // fade returns how opaque the element is, with what is inside it: its

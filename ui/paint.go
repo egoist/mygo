@@ -370,14 +370,15 @@ func (p *Painter) element(e *node) {
 	// flat when that shows the same, which painting tells (checkFlat).
 	var flat groupMark
 	grouped := false
-	if paintGroup != nil && e.first != nil && !e.effecting && e.fade() < 1 {
+	groups := groupFuncs.Load()
+	if groups != nil && e.first != nil && !e.effecting && e.fade() < 1 {
 		if p.opacity*e.fade() <= 0.001 {
 			// Faded out, as an Exit or a pose's Fade ends: nothing shows,
 			// and its layer drawn at an opacity of 0 would show whole, as
 			// an op's 0 means 1.
 			return
 		}
-		if flat, grouped = paintGroup(p, e); !grouped {
+		if flat, grouped = groups.paint(p, e); !grouped {
 			return
 		}
 	} else if e.st.effectLayer != nil && !e.effecting {
@@ -575,7 +576,7 @@ func (p *Painter) element(e *node) {
 	}
 	p.opacity = saved
 	if grouped {
-		checkFlat(p, e, flat)
+		groups.flat(p, e, flat)
 	}
 	p.opaque, p.under = savedOpaque, p.under[:under]
 }
