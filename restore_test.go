@@ -88,32 +88,39 @@ func TestKeepState(t *testing.T) {
 		}
 	})
 	path := filepath.Join(dir, "restoration.state")
-	onMain(func() { devLaunched = true })
-	t.Cleanup(func() { onMain(func() { devLaunched = false }) })
-	t.Cleanup(func() { App.saveState = nil })
+	t.Cleanup(func() { onMain(func() { App.saveState, devLaunched = nil, false }) })
 
 	type kept struct {
 		Tab   int
 		Title string
 	}
+	// Off mygo dev, KeepState starts no keeping every second, which would
+	// outlive the test: the flag of it is set only as the state is read back.
 	v := &kept{Tab: 3, Title: "Docs"}
 	KeepState(v)
 
 	// The value is written down as it is when it is asked for, not as it
-	// was when KeepState was called.
-	v.Tab = 5
-	data := App.saveState()
+	// was when KeepState was called. KeepState reads it on the main thread.
+	onMain(func() { v.Tab = 5 })
+	data := onMainValue(func() []byte { return App.saveState() })
 	if data == nil {
 		t.Fatal("KeepState gave nothing to keep")
 	}
 
-	// The next launch reads it back whole.
+	// The next launch, under mygo dev, reads it back whole as the app is
+	// ready, which runs after this call on the main thread.
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	back := &kept{}
-	KeepState(back)
-	waitFor(t, "the kept state to come back", func() bool {
-		return onMainValue(func() bool { return back.Tab == 5 && back.Title == "Docs" })
+	onMain(func() {
+		KeepState(back)
+		devLaunched = true
 	})
+	waitFor(t, "the kept state to come back", func() bool {
+		return onMainValue(func() bool { return *back == kept{Tab: 5, Title: "Docs"} })
+	})
+	if onMainValue(func() bool { return App.keepingState }) {
+		t.Error("the test started keeping the state every second")
+	}
 }
