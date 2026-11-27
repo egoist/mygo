@@ -568,7 +568,7 @@ func (m *matches) starts(r *transition, e *node, rec *matchRec) bool {
 // morphs reports whether e moves the characters of its text from those
 // of the element of its Match, from (ContentTransition's Morph).
 func morphs(e, from *node) bool {
-	return e.kind == kindText && e.first == nil && e.contentSet && e.content.Morph && morphText != nil &&
+	return e.kind == kindText && e.first == nil && e.contentSet && e.content.Morph && morphFuncs.Load() != nil &&
 		from.kind == kindText && from.first == nil && from.tl != nil
 }
 
@@ -831,7 +831,9 @@ func (m *matches) morphFrom(r *transition, e *node, rec *matchRec, color Color, 
 			cr.k.value, cr.oldColor = 1-was.k.value, color
 		} else {
 			// From its characters as they showed, morphing.
-			snapMorph(was, rec.box.X, rec.box.Y, rec.box.X+tx, rec.box.Y+ty, color, cr)
+			if morph := morphFuncs.Load(); morph != nil {
+				morph.snap(was, rec.box.X, rec.box.Y, rec.box.X+tx, rec.box.Y+ty, color, cr)
+			}
 		}
 	}
 	headFor(&cr.k, 1, r.animation(), now)

@@ -123,7 +123,8 @@ func (p *Painter) contentStep(e *node, x, y float32, color Color) (*contentRec, 
 // contentText paints the text of e changing, from (ox, oy), and reports
 // whether it does: no transition otherwise.
 func (p *Painter) contentText(e *node, ox, oy float32, ts textStyle, sp *spanPaint) bool {
-	morphs := e.content.Morph && morphText != nil && e.first == nil
+	morph := morphFuncs.Load()
+	morphs := e.content.Morph && morph != nil && e.first == nil
 	if !morphs && (e.first != nil || sp != nil) {
 		return false // rich text: its spans are its own
 	}
@@ -135,7 +136,7 @@ func (p *Painter) contentText(e *node, ox, oy float32, ts textStyle, sp *spanPai
 		if sp != nil {
 			spans = *sp
 		}
-		return morphText(p, e, r, ox, oy, ts, spans, k, changing)
+		return morph.paint(p, e, r, ox, oy, ts, spans, k, changing)
 	}
 	if !changing || r.oldTL == nil || e.tl == nil || sp != nil {
 		return false
