@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"testing"
@@ -129,13 +130,38 @@ func (p *testInstance) exit(t *testing.T) {
 // testInstancePaths returns the socket and the lock file of the app
 // named name, which the test removes when it ends.
 func testInstancePaths(t *testing.T, name string) (socket, lock string) {
-	socket = singleInstanceSocket(singleInstanceKey(name))
+	t.Helper()
+	socket, err := singleInstanceSocket(singleInstanceKey(name))
+	if err != nil {
+		t.Fatal(err)
+	}
 	lock = singleInstanceLockPath(socket)
 	t.Cleanup(func() {
 		_ = os.Remove(socket)
 		_ = os.Remove(lock)
 	})
 	return socket, lock
+}
+
+// shortTempDir returns a folder the test removes when it ends, short
+// enough for a socket path in it, which t.TempDir may not be.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp(shortTempParent(), "mygo-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
+// shortTempParent is where shortTempDir makes its folders: /tmp on Unix,
+// whose temporary folder can be long, as macOS's is.
+func shortTempParent() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	return "/tmp"
 }
 
 // lockHeld reports whether another holds the lock file at path.

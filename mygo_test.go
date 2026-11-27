@@ -39,6 +39,19 @@ var fb *fake.Backend
 // TestMain runs the application on the main goroutine with the fake
 // backend, like a real program, and the tests on another goroutine.
 func TestMain(m *testing.M) {
+	// The single instance tests keep their sockets and locks out of the
+	// user's runtime folder, in one that helper processes inherit.
+	var runtimeDir string
+	if os.Getenv("MYGO_TEST_RUNTIME_DIR") == "" {
+		dir, err := os.MkdirTemp(shortTempParent(), "mygo-test-")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		runtimeDir = dir
+		os.Setenv("MYGO_TEST_RUNTIME_DIR", dir)
+		os.Setenv("XDG_RUNTIME_DIR", dir)
+	}
 	if os.Getenv("MYGO_TEST_SECOND_INSTANCE") == "1" {
 		// Helper process for TestSingleInstance. Only an instance that
 		// hands over passes the foreground on (Windows).
@@ -84,7 +97,13 @@ func TestMain(m *testing.M) {
 	// Keep running when tests close their windows.
 	App.OnWindowAllClosed(func() {})
 	App.WhenReady(func() {
-		go func() { os.Exit(m.Run()) }()
+		go func() {
+			code := m.Run()
+			if runtimeDir != "" {
+				os.RemoveAll(runtimeDir)
+			}
+			os.Exit(code)
+		}()
 	})
 	if err := App.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

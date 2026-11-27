@@ -2219,7 +2219,18 @@ as in Tauri:
   The lock is held until the process exits and released by the system
   then, also on a crash or a kill; the file is never removed, and its
   handle is not inherited (`O_CLOEXEC`, a handle Windows does not
-  inherit), so a process the app started cannot keep it. The holder
+  inherit), so a process the app started cannot keep it. On Unix both
+  files are in a folder only the user can reach, made with mode 0700:
+  `mygo` in `XDG_RUNTIME_DIR` when that is the user's own and closed to
+  others (it is not, say, under `sudo -E`), else `mygo-<uid>` in the
+  temporary folder, then in `/tmp`. A folder that is a link, another
+  user's or open to others, or in a parent others can rename it in (one
+  neither sticky nor closed to them), is refused for the next one; with
+  none left the app runs without the lock rather than trust one, and
+  logs why. The holder takes command lines only from processes of its
+  user (`SO_PEERCRED` on Linux, `getpeereid` on macOS, `LOCAL_PEERCRED`
+  on FreeBSD; elsewhere the folder alone keeps others out). On Windows
+  both are in the user's temporary folder, as before. The holder
   removes a stale socket and listens; the socket only carries the
   command lines of later instances (JSON), and closes on `OnQuit`. A
   launch first hands its command line to whoever answers the socket (the

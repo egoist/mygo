@@ -7,12 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -62,7 +62,9 @@ type secondInstanceMessage struct {
 // app does after Run returns never overlaps with a new instance: from quit
 // on, the instance takes no more command lines, and a launch meanwhile
 // (Relaunch's, an update's, or the user's) waits for it to exit and runs
-// then.
+// then. If no folder that only the user can reach is found for the lock
+// and its socket (another user made it first, say), it logs why and
+// returns true: the app runs without the lock.
 func (a *Application) RequestSingleInstanceLock() bool {
 	if os.Getenv("MYGO_GENERATE") != "" {
 		return true // Run will only write the TypeScript client.
@@ -75,7 +77,11 @@ func (a *Application) RequestSingleInstanceLock() bool {
 		}
 		return true
 	}
-	path := singleInstanceSocket(singleInstanceKey(a.Name()))
+	path, err := singleInstanceSocket(singleInstanceKey(a.Name()))
+	if err != nil {
+		log.Printf("mygo: %s runs without the single instance lock: %v (RequestSingleInstanceLock)", a.Name(), err)
+		return true
+	}
 	wd, _ := os.Getwd()
 	// Read before GTK starts in this process: it takes the token from the
 	// environment.
@@ -222,6 +228,11 @@ func acceptSecondInstances(ln net.Listener) {
 		if err != nil {
 			return
 		}
+		if err := peerRefused(conn, os.Getuid()); err != nil {
+			log.Printf("mygo: refused a command line: %v (RequestSingleInstanceLock)", err)
+			conn.Close()
+			continue
+		}
 		go func() {
 			defer conn.Close()
 			_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
@@ -239,6 +250,23 @@ func acceptSecondInstances(ln net.Listener) {
 			})
 		}()
 	}
+}
+
+// peerRefused returns why the process at the other end of conn may not
+// hand its command line to an instance of the user uid, or nil. Where the
+// system does not tell the user of that process, only the folder of the
+// socket keeps other users out.
+func peerRefused(conn net.Conn, uid int) error {
+	peer, err := peerUser(conn)
+	switch {
+	case errors.Is(err, errors.ErrUnsupported):
+		return nil
+	case err != nil:
+		return fmt.Errorf("the user of its process is unknown: %w", err)
+	case peer != uid:
+		return fmt.Errorf("its process runs as user %d", peer)
+	}
+	return nil
 }
 
 // stopSecondInstances stops taking the command lines of later instances,
@@ -266,17 +294,11 @@ func singleInstanceKey(name string) string {
 	return name
 }
 
-// singleInstanceSocket returns a short per-user socket path; Unix socket
-// paths are limited to about 100 bytes.
-func singleInstanceSocket(name string) string {
+// singleInstanceHash returns the short hash of name that socket file
+// names carry.
+func singleInstanceHash(name string) string {
 	sum := sha256.Sum256([]byte(name))
-	file := "mygo-" + strconv.Itoa(os.Getuid()) + "-" + hex.EncodeToString(sum[:6]) + ".sock"
-	for _, dir := range []string{os.Getenv("XDG_RUNTIME_DIR"), os.TempDir(), "/tmp"} {
-		if dir != "" && len(filepath.Join(dir, file)) < 100 {
-			return filepath.Join(dir, file)
-		}
-	}
-	return filepath.Join("/tmp", file)
+	return hex.EncodeToString(sum[:6])
 }
 
 // singleInstanceLockPath returns the path of the lock file next to the
