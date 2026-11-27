@@ -23,6 +23,22 @@ menu a menu button opens. Over elements inside one another, the innermost
 one's tip shows, and one tip shows at a time. Give one to buttons showing
 only an icon, and to what a label alone does not explain.
 
+A disabled element shows its tip under the pointer too, as AppKit's and
+GTK's do, so that its tip can say why it is disabled. Give that reason to
+the disabled element itself: over elements inside one another, the
+innermost one's tip shows, so a tip on an element around it does not show
+over its own. The disabled element still takes no click and no focus, so
+the keyboard never brings its tip, though assistive technology reads the tip as its
+description all the same. For what keyboard users must reach while it is
+unavailable, use
+[`AccessDisabled`](accessibility.md#unavailable-still-reachable) instead:
+it keeps the element in the Tab order, and its tip shows as the focus
+comes to it:
+
+```go
+ui.Button(c, "Commit").Disabled(len(app.staged) == 0).Tooltip("Stage changes to commit them")
+```
+
 The focus counts for the element an element gives it to, its
 `ActiveDescendant`, as a menu drawn in the window gives it to the item the
 keys highlight: that one's tip shows. A `Disabled` element shows none, as

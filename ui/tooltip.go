@@ -54,7 +54,9 @@ type pendingTip struct {
 // or presses it, as a menu or popover of anchor opens, and with Escape,
 // until the pointer comes back or the focus does; it does not show while
 // that menu or popover shows. Over elements inside one another, the
-// innermost one's tip shows; one shows at a time.
+// innermost one's tip shows; one shows at a time. A disabled anchor shows
+// its tip under the pointer too, to tell why it is disabled, as AppKit's
+// and GTK's do, while it takes no click and no focus.
 //
 // The tip goes above anchor, centered, or below it where there is no room
 // above; fn may place it elsewhere with AttachTo, as after it:
@@ -206,7 +208,10 @@ func (rt *engine) showTooltip(c *context) uint64 {
 	}
 	var hover uint64
 	for _, id := range rt.hover {
-		if tipped(id) {
+		// A disabled element shows its tip under the pointer too, as
+		// AppKit's and GTK's do, to tell why it is disabled; it takes
+		// no click and no focus all the same.
+		if s := rt.states[id]; s != nil && s.tip {
 			hover = id
 			break
 		}
