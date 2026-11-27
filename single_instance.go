@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,11 @@ type secondInstanceSocket struct {
 	path     string
 	file     os.FileInfo // identifies our socket file at path
 }
+
+// singleInstanceBySystem is set where the system starts an app once and
+// hands it later launches itself (Android's singleTask activity, iOS):
+// there is no second instance to hand a command line over.
+var singleInstanceBySystem = runtime.GOOS == "android" || runtime.GOOS == "ios"
 
 // singleInstanceWait is how long a launch waits for an instance that holds
 // the lock but does not answer (one that is starting and not listening
@@ -76,8 +82,13 @@ type secondInstanceMessage struct {
 // (Relaunch's, an update's, or the user's) waits for it to exit and runs
 // then. If no folder that only the user can reach is found for the lock
 // and its socket (another user made it first, say), it logs why and
-// returns true: the app runs without the lock.
+// returns true: the app runs without the lock. On Android and iOS, which
+// run one instance of an app and pass it later launches' URLs (see
+// OnOpenURL), it returns true and takes no lock.
 func (a *Application) RequestSingleInstanceLock() bool {
+	if singleInstanceBySystem {
+		return true
+	}
 	if os.Getenv("MYGO_GENERATE") != "" {
 		return true // Run will only write the TypeScript client.
 	}

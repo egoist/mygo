@@ -24,9 +24,13 @@ import (
 // RequestSingleInstanceLock did; MYGO_TEST_INSTANCE_MODE keeps it running
 // until its standard input ends: "hold" as it is, "quit" after its quit
 // (OnQuit), "child" with a process it started (MYGO_TEST_INSTANCE_CHILD),
-// which reads the same input.
+// which reads the same input. MYGO_TEST_INSTANCE_PHONE=1 makes it an
+// instance on a system that runs one instance of an app itself.
 func singleInstanceTestHelper(helper *fake.Backend) {
 	mode := os.Getenv("MYGO_TEST_INSTANCE_MODE")
+	if os.Getenv("MYGO_TEST_INSTANCE_PHONE") == "1" {
+		singleInstanceBySystem = true
+	}
 	if os.Getenv("MYGO_TEST_INSTANCE_WAIT") == "1" {
 		singleInstanceWait = wait.Guard
 		singleInstanceWaiting = func() { fmt.Println("waiting") }
@@ -345,4 +349,22 @@ func TestReadSecondInstanceWithoutEOF(t *testing.T) {
 	if !slices.Equal(msg.Args, []string{"--open", "a.txt"}) || msg.WorkingDir != "/work" {
 		t.Errorf("read %+v", msg)
 	}
+}
+
+// TestSingleInstanceOnPhone checks that where the system runs one
+// instance of an app (Android, iOS), every instance runs as the first and
+// takes no lock and no socket, although a private folder is at hand.
+func TestSingleInstanceOnPhone(t *testing.T) {
+	runtimeDir := shortTempDir(t)
+	name := "MyGoTest-" + t.Name()
+	env := []string{"XDG_RUNTIME_DIR=" + runtimeDir, "MYGO_TEST_INSTANCE_PHONE=1"}
+	first := startInstance(t, name, "hold", env...)
+	first.expect(t, "locked")
+	second := startInstance(t, name, "hold", env...)
+	second.expect(t, "locked")
+	if entries, err := os.ReadDir(runtimeDir); err != nil || len(entries) != 0 {
+		t.Errorf("XDG_RUNTIME_DIR holds %v: %v", entries, err)
+	}
+	second.exit(t)
+	first.exit(t)
 }

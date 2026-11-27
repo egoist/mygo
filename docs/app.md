@@ -152,6 +152,10 @@ the lock. That is also the case in a sandbox of its own user namespace
 without `XDG_RUNTIME_DIR`, where the temporary folder's owner, root, shows
 as `nobody`: nothing tells that another user cannot rename what is in it.
 
+Android and iOS run one instance of an app themselves and hand it later
+launches, whose URLs reach [`OnOpenURL`](#deep-links): there
+`RequestSingleInstanceLock` returns true and takes no lock.
+
 ## Deep links
 
 Apps open URLs of their own schemes, such as `myapp://open?note=42`. List

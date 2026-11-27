@@ -2246,7 +2246,10 @@ as in Tauri:
   is starting, or quit and is ending, as for `Relaunch` and updates) it
   tries both again until the lock is free, logging after
   `singleInstanceWait` (10 s): a relaunch must land however long the
-  shutdown takes.
+  shutdown takes. On Android and iOS (`singleInstanceBySystem`), which
+  start an app once and pass it later launches (Android's `singleTask`
+  activity), it returns true at once: no lock, no socket, and no log
+  where no folder would be private (Android's cache is mode 02771).
 - `Relaunch` runs the quit sequence, then (after `OnQuit`, which closes
   the single instance socket; the new instance waits for the lock, which
   this one holds until it exits) starts the executable again with the same
