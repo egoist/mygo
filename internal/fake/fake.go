@@ -291,7 +291,7 @@ func (b *Backend) Windows() []*Window {
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
-	w := &Window{b: b, H: h, Opts: o, title: o.Title, zoom: o.Zoom, bounds: platform.Rect{X: o.X, Y: o.Y, Width: o.Width, Height: o.Height}, maximized: o.Maximized, full: o.FullScreen}
+	w := &Window{b: b, H: h, Opts: o, title: o.Title, zoom: o.Zoom, bounds: platform.Rect{X: o.X, Y: o.Y, Width: o.Width, Height: o.Height}, maximized: o.Maximized, full: o.FullScreen, opacity: o.Opacity}
 	if o.Surface {
 		w.surface = &Surface{w: w, Scale: 1}
 	}
@@ -585,6 +585,7 @@ type Window struct {
 	visible   bool
 	focused   bool
 	radius    float64 // SetCornerRadius
+	opacity   float64 // WindowOptions.Opacity, then SetOpacity
 	minimized bool
 	maximized bool
 	full      bool
@@ -820,8 +821,8 @@ func (w *Window) Restore()                        { w.mu.Lock(); w.minimized = f
 func (w *Window) SetFullScreen(v bool)            { w.mu.Lock(); w.full = v; w.mu.Unlock() }
 func (w *Window) IsFullScreen() bool              { w.mu.Lock(); defer w.mu.Unlock(); return w.full }
 func (w *Window) Center()                         {}
-func (w *Window) SetOpacity(float64)              {}
-func (w *Window) Opacity() float64                { return 1 }
+func (w *Window) SetOpacity(v float64)            { w.mu.Lock(); w.opacity = v; w.mu.Unlock() }
+func (w *Window) Opacity() float64                { w.mu.Lock(); defer w.mu.Unlock(); return w.opacity }
 func (w *Window) SetHasShadow(bool)               {}
 func (w *Window) HasShadow() bool                 { return true }
 func (w *Window) SetIgnoreMouseEvents(v bool)     { w.mu.Lock(); w.ignoreMouse = v; w.mu.Unlock() }

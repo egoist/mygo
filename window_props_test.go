@@ -54,7 +54,8 @@ func TestWindowBooleans(t *testing.T) {
 		t.Error("a window left alone is always on top")
 	}
 
-	// Setting reaches the backend; what it keeps is its own.
+	// The setters reach the backend without trouble; what a window then
+	// reports is the system's, which the fake does not model.
 	on.SetResizable(false)
 	on.SetMovable(false)
 	on.SetMinimizable(false)
@@ -101,7 +102,7 @@ func TestWindowBounds(t *testing.T) {
 }
 
 // TestWindowLook checks what the window says of how it looks: the handle
-// it was given, its opacity, and the material, the tint and the window
+// it was given, its opacity kept between 0 and 1, and the material, the tint and the window
 // buttons it was set, whose colors are checked as colors are.
 func TestWindowLook(t *testing.T) {
 	w, _ := testWindow(t, WindowOptions{})
@@ -109,11 +110,14 @@ func TestWindowLook(t *testing.T) {
 		t.Error("a live window has no handle")
 	}
 
-	w.SetOpacity(0.5)
-	w.SetOpacity(2)
-	w.SetOpacity(-1)
-	if got := w.Opacity(); got < 0 || got > 1 {
-		t.Errorf("Opacity = %v, want one between 0 and 1", got)
+	if got := w.Opacity(); got != 1 {
+		t.Errorf("a window made without an opacity has %v, want 1", got)
+	}
+	for _, c := range []struct{ set, want float64 }{{0.5, 0.5}, {2, 1}, {-1, 0}} {
+		w.SetOpacity(c.set)
+		if got := w.Opacity(); got != c.want {
+			t.Errorf("after SetOpacity(%v), Opacity = %v, want %v", c.set, got, c.want)
+		}
 	}
 
 	w.SetVibrancy(VibrancyNone)
