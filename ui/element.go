@@ -2237,7 +2237,7 @@ func (e *node) WindowDoubleClicked() bool {
 // counts; elsewhere it does nothing.
 func (e *node) MaximizeButton() *node {
 	e.maximizeButton = true
-	placeMaximizeButton = sendMaximizeButton
+	linkMaximizeButton()
 	return e
 }
 

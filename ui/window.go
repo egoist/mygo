@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/i18n"
@@ -1028,15 +1030,28 @@ func (h *windowHost) titleBarDoubleClicked() {
 }
 
 func (h *windowHost) setMaximizeButton(r Rect) {
-	if placeMaximizeButton != nil {
-		placeMaximizeButton(h, r)
+	if place := placeMaximizeButton.Load(); place != nil {
+		(*place)(h, r)
 	}
 }
 
-// placeMaximizeButton is sendMaximizeButton once a view marked a maximize
-// button (MaximizeButton): apps that mark none don't link the backends'
-// side of it.
-var placeMaximizeButton func(h *windowHost, r Rect)
+// maximizeButtonPlacer is sendMaximizeButton once a view marked a
+// maximize button (MaximizeButton): apps that mark none don't link the
+// backends' side of it.
+type maximizeButtonPlacer func(h *windowHost, r Rect)
+
+var (
+	placeMaximizeButton atomic.Pointer[maximizeButtonPlacer]
+	linkMaximizeOnce    sync.Once
+)
+
+// linkMaximizeButton links the backends' side of the maximize button.
+func linkMaximizeButton() {
+	linkMaximizeOnce.Do(func() {
+		place := maximizeButtonPlacer(sendMaximizeButton)
+		placeMaximizeButton.Store(&place)
+	})
+}
 
 func sendMaximizeButton(h *windowHost, r Rect) {
 	if s, ok := h.conn.Surface.(platform.MaximizeButtonSurface); ok {
