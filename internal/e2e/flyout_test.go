@@ -81,6 +81,29 @@ func TestFlyout(t *testing.T) {
 	eventually(t, "the flyout closed with its parent", fl.IsDestroyed)
 }
 
+// TestNativeFlyoutClickKeepsKeyboard clicks the native UI of a flyout
+// that is not focusable: the click reaches its content, and the keyboard
+// stays in the parent (#2462).
+func TestNativeFlyoutClickKeepsKeyboard(t *testing.T) {
+	parent := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200, Content: ui.View(func(c *ui.Context) {})})
+	var clicks atomic.Int32
+	fl := mygo.NewFlyout(mygo.FlyoutOptions{Parent: parent, Anchor: mygo.Rectangle{X: 10, Y: 10}, Width: 200, Height: 120, Content: ui.View(func(c *ui.Context) {
+		if ui.Box(c).Fill().Background(ui.RGB(255, 204, 0)).Clicked() {
+			clicks.Add(1)
+		}
+	})})
+	defer fl.Destroy()
+	parent.Focus()
+	eventually(t, "the parent focused", parent.IsFocused)
+	if !click(fl, 50, 50) {
+		t.Skip("click automation not available")
+	}
+	eventually(t, "the click in the flyout", func() bool { return clicks.Load() == 1 })
+	if fl.IsFocused() || !parent.IsFocused() {
+		t.Errorf("after a click in the flyout: flyout focused %v, parent focused %v", fl.IsFocused(), parent.IsFocused())
+	}
+}
+
 // eventuallyAt waits for a flyout to be at the bounds want returns.
 func eventuallyAt(t *testing.T, what string, fl *mygo.Window, want func() mygo.Rectangle) {
 	t.Helper()
