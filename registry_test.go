@@ -55,3 +55,10 @@ func unbind(name string) {
 		}
 	}
 }
+
+// TestEventName checks that an event says the name it was declared with.
+func TestEventName(t *testing.T) {
+	if ev := newEventForTest[string](t, "probe-name"); ev.Name() != "probe-name" {
+		t.Errorf("Name = %q, want %q", ev.Name(), "probe-name")
+	}
+}
