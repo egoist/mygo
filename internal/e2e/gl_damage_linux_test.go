@@ -101,7 +101,11 @@ func TestGLRepaintsWhatChanged(t *testing.T) {
 }
 
 func glRepaintsWhatChanged(t *testing.T, frameless bool) {
-	var frames atomic.Int32
+	// changes counts the changes of lit, made on the main thread, and built
+	// the changes the last frame built saw: GTK has the window build frames
+	// by itself, as it allocates the area, which can come before a change
+	// Update posts.
+	var changes, built atomic.Int32
 	// lit[i] lights boxes[i]: the first changes in frames the window asks
 	// for, the second as GTK allocates the area.
 	var lit [2]atomic.Bool
@@ -114,7 +118,7 @@ func glRepaintsWhatChanged(t *testing.T, frameless bool) {
 		return gray
 	}
 	view := func(c *ui.Context) {
-		frames.Add(1)
+		built.Store(changes.Load())
 		ui.Box(c).Fill().Background(white).Draw(func(pt *ui.Painter, r ui.Rect) {
 			for i, b := range boxes {
 				pt.Fill(ui.Rect{X: r.X + b.X, Y: r.Y + b.Y, W: b.W, H: b.H}, colorOf(i), 0)
@@ -137,13 +141,13 @@ func glRepaintsWhatChanged(t *testing.T, frameless bool) {
 	seen = seen && scale >= 2
 	// What GPU damage grows by, rounded out to whole DIPs.
 	near := rect(boxes[0]).Add(area).Inset(-8)
-	// painted waits for a frame after before, and on Wayland for a paint
-	// over all of box i, and returns the paints over it.
-	painted := func(before int32, i int) []image.Rectangle {
+	// painted waits for a frame built with change n, and on Wayland for a
+	// paint over all of box i, and returns the paints over it.
+	painted := func(n int32, i int) []image.Rectangle {
 		boxAt := rect(boxes[i]).Add(area)
 		var over []image.Rectangle
 		eventually(t, "the box's frame painted", func() bool {
-			if frames.Load() == before {
+			if built.Load() < n {
 				return false
 			}
 			if !seen {
@@ -164,9 +168,12 @@ func glRepaintsWhatChanged(t *testing.T, frameless bool) {
 	// the window's first paints, whole, and GTK's own of its title bar, the
 	// box's shrink to the box within a few frames.
 	for i := 0; ; i++ {
-		before := frames.Load()
-		w.Update(func() { lit[0].Store(!lit[0].Load()) })
-		over := painted(before, 0)
+		n := changes.Load() + 1
+		w.Update(func() {
+			lit[0].Store(!lit[0].Load())
+			changes.Store(n)
+		})
+		over := painted(n, 0)
 		if !seen {
 			break
 		}
@@ -180,14 +187,15 @@ func glRepaintsWhatChanged(t *testing.T, frameless bool) {
 	// bottom right corner of the area after allocating it: the paint is of
 	// all of it, not only of the corner and of what the paints before
 	// changed (buffer age), around the first box.
-	before := frames.Load()
+	n := changes.Load() + 1
 	s := max(scale, 1)
 	corner := image.Rect(596*s, 396*s, 600*s, 400*s)
 	mygo.RunOnMain(func() {
 		lit[1].Store(true)
+		changes.Store(n)
 		linux.TestAllocateAndPaint(w.NativeHandle(), corner)
 	})
-	painted(before, 1)
+	painted(n, 1)
 	// The framebuffer holds what a frame drawn whole would: white but for
 	// the boxes.
 	eventually(t, "the frame drawn whole in the area's framebuffer", func() bool {
