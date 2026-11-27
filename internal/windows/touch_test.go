@@ -165,7 +165,7 @@ func TestFingerMessages(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := &touchHandler{drag: platform.RectF{W: 400, H: 40}}
-			s := &surface{w: &window{h: h}}
+			s := &surface{w: &window{h: h, opts: &platform.WindowOptions{}}}
 			for i, mm := range c.msgs {
 				wp := uintptr(mm.flags)<<16 | uintptr(mm.id)
 				var took bool

@@ -81,6 +81,43 @@ func TestFlyout(t *testing.T) {
 	eventually(t, "the flyout closed with its parent", fl.IsDestroyed)
 }
 
+// TestNativeFlyoutClickKeepsKeyboard clicks the native UI of a flyout
+// that is not focusable, once it is drawn and in place: the click reaches its
+// content, and the keyboard stays in the parent (#2462).
+func TestNativeFlyoutClickKeepsKeyboard(t *testing.T) {
+	var parentClicks, clicks, frames atomic.Int32
+	parent := newWindow(t, mygo.WindowOptions{Width: 300, Height: 200, Content: ui.View(func(c *ui.Context) {
+		if ui.Box(c).Fill().Clicked() {
+			parentClicks.Add(1)
+		}
+	})})
+	parent.Focus()
+	eventually(t, "the parent focused", parent.IsFocused)
+	anchor := mygo.Rectangle{X: 10, Y: 10, Width: 20, Height: 20}
+	fl := mygo.NewFlyout(mygo.FlyoutOptions{Parent: parent, Anchor: anchor, Width: 200, Height: 120, Content: ui.View(func(c *ui.Context) {
+		if ui.Box(c).Fill().Background(ui.RGB(255, 204, 0)).Clicked() {
+			clicks.Add(1)
+		}
+		frames.Add(1)
+	})})
+	defer fl.Destroy()
+	eventually(t, "a frame of the flyout", func() bool { return frames.Load() > 0 })
+	eventuallyAt(t, "the flyout below its anchor", fl, func() mygo.Rectangle {
+		c := parent.ContentBounds()
+		return mygo.Rectangle{X: c.X + anchor.X, Y: c.Y + anchor.Y + anchor.Height, Width: 200, Height: 120}
+	})
+	if !click(fl, 50, 50) {
+		t.Skip("click automation not available")
+	}
+	eventually(t, "the click in the flyout", func() bool { return clicks.Load() == 1 })
+	if n := parentClicks.Load(); n != 0 {
+		t.Errorf("the click in the flyout reached the parent too (%d)", n)
+	}
+	if fl.IsFocused() || !parent.IsFocused() {
+		t.Errorf("after a click in the flyout: flyout focused %v, parent focused %v", fl.IsFocused(), parent.IsFocused())
+	}
+}
+
 // eventuallyAt waits for a flyout to be at the bounds want returns.
 func eventuallyAt(t *testing.T, what string, fl *mygo.Window, want func() mygo.Rectangle) {
 	t.Helper()

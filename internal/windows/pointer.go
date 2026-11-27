@@ -244,7 +244,7 @@ func (s *surface) sendTouch(evs []platform.SurfaceEvent, pressure float64, t uin
 		ev.Mods = mods()
 		ev.Pointer, ev.Pressure = platform.PointerTouch, pressure
 		if ev.Kind == platform.PointerDown {
-			procSetFocus.Call(s.hwnd)
+			s.takeKeyboard()
 			// The count is in the window's pixels, as the mouse's.
 			scale := float64(s.dpi()) / 96
 			ms, _, _ := procGetDoubleClickTime.Call()

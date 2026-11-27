@@ -766,6 +766,17 @@ func (s *surface) pointer(kind platform.SurfaceEventKind, lp uintptr, button int
 	s.send(platform.SurfaceEvent{Kind: kind, X: s.toDIP(int32(x)), Y: s.toDIP(int32(y)), Button: button, Clicks: clicks, Mods: mods(), Pointer: pointer, Pressure: pressure})
 }
 
+// takeKeyboard gives the surface the keyboard as a press lands on it,
+// unless it shows a flyout that is not focusable: SetFocus would
+// activate the flyout, WS_EX_NOACTIVATE or not, and take the keyboard
+// from the parent, which keeps it while such a flyout shows (#2462).
+func (s *surface) takeKeyboard() {
+	if f := s.w.opts.Flyout; f != nil && !f.Focusable {
+		return
+	}
+	procSetFocus.Call(s.hwnd)
+}
+
 // eatActivationRelease remembers the release of an activation press
 // WM_MOUSEACTIVATE ate (MA_ACTIVATEANDEAT), so the release that follows
 // does not reach the content or an embedded web view as half a click.
@@ -892,7 +903,7 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		case wmMButtonDown, wmMButtonDblClk:
 			button = 2
 		}
-		procSetFocus.Call(hwnd)
+		s.takeKeyboard()
 		if s.buttons == 0 {
 			procSetCapture.Call(hwnd)
 		}
