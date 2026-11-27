@@ -1,0 +1,11 @@
+<view type="counter">
+<column fill center gap="16">
+	<text font-size="56" bold>{n}</text>
+	<row gap="8">
+		<button label="Decrement" width="44" on-clicked="Decrement">−</button>
+		<button disabled={n == 0} on-clicked="Reset">Reset</button>
+		<primary-button label="Increment" width="44" on-clicked="Increment">+</primary-button>
+	</row>
+	<text font-size="12" text-color={c.Theme().TextMuted}>↑ and ↓ count too</text>
+</column>
+</view>

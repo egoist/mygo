@@ -21,6 +21,7 @@ import (
 	"github.com/egoist/mygo/internal/i18ngen"
 	"github.com/egoist/mygo/internal/nativegen"
 	"github.com/egoist/mygo/internal/nativelib"
+	"github.com/egoist/mygo/internal/viewgen"
 )
 
 // buildInputs is what building the app reads, which is what mygo dev
@@ -211,6 +212,10 @@ func snapshot(in *buildInputs) map[string]string {
 		if slices.Contains(in.generated, path) {
 			return
 		}
+		// What the build generates from the .view files it watches.
+		if strings.HasSuffix(path, "_view.go") && viewgen.Owned(path) {
+			return
+		}
 		s[path] = fmt.Sprintf("%v %d %d", info.Mode(), info.Size(), info.ModTime().UnixNano())
 	}
 	list := func(dir string, keep func(name string) bool) {
@@ -226,7 +231,13 @@ func snapshot(in *buildInputs) map[string]string {
 	}
 	for _, dir := range in.sourceDirs {
 		list(dir, func(name string) bool {
-			return !strings.HasSuffix(name, "_test.go") && (strings.HasSuffix(name, ".go") || strings.HasSuffix(name, ".s"))
+			switch {
+			case strings.HasSuffix(name, "_test.go"):
+				return false
+			case strings.HasSuffix(name, ".go"), strings.HasSuffix(name, ".s"), strings.HasSuffix(name, ".view"):
+				return true
+			}
+			return false
 		})
 	}
 	for _, dir := range in.fileDirs {
