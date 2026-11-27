@@ -22,6 +22,9 @@ type Backend struct {
 	h       platform.AppHandler
 	name    string
 	running bool
+	// sandbox is AppOptions.Sandbox: web contexts start their web
+	// processes in WebKit's sandbox (applySandbox in session.go).
+	sandbox bool
 
 	windows map[int]*window
 	// flyouts are the flyouts that show on Wayland, in the order they
@@ -119,6 +122,7 @@ func (b *Backend) IsMainThread() bool {
 func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	b.h = h
 	b.name = opts.Name
+	b.sandbox = opts.Sandbox
 	theBackend = b
 	if err := load(); err != nil {
 		return err

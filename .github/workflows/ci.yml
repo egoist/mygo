@@ -254,6 +254,14 @@ jobs:
         env:
           MYGO_E2E: 1
         run: go test ./internal/e2e
+      # Ubuntu's AppArmor keeps bubblewrap from making user namespaces,
+      # which WebKitGTK's sandbox needs: TestSandbox would skip.
+      - name: Let bubblewrap make user namespaces
+        if: runner.os == 'Linux'
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - name: GUI tests
         if: runner.os == 'Linux'
         env:

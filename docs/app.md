@@ -434,6 +434,46 @@ machines, as in a kiosk.
 the app chose: `0` turns the renderer on, `1` off. Other systems ignore the
 setting.
 
+## Sandboxing web pages on Linux
+
+WebKitGTK 4.1 runs pages in web processes that can reach what the user
+can, unless the app asks for its sandbox. An app that shows pages it does
+not trust turns it on before `App.Run`, as Electron's `app.enableSandbox`
+does:
+
+```go
+mygo.App.EnableSandbox()
+```
+
+WebKitGTK then starts the web processes of every session in
+[bubblewrap](https://github.com/containers/bubblewrap)
+(`webkit_web_context_set_sandbox_enabled`). A page that takes over its web
+process can then open only the system's libraries, fonts and settings,
+read-only, the display, the sound server and a filtered D-Bus, not the
+user's files. This limits what the process reaches directly; it does not
+keep files from pages. WebKit's network process is never sandboxed, and it
+still loads the `file://` URLs a page asks for. The app's custom schemes
+are served by the app, outside the sandbox too, so pages load as before.
+The Web Inspector's pages run in a process pool of their own, which is not
+sandboxed.
+
+bubblewrap must be able to make user namespaces. Distributions' WebKitGTK
+packages depend on it, but where the kernel or a security policy forbids
+the namespaces (Ubuntu 24.04's AppArmor rules, without a profile that
+allows them, or a Docker container with WebKitGTK 2.40.2 or newer),
+WebKitGTK aborts the app when it starts the first page, with
+`Failed to fully launch dbus-proxy` in its output. Older versions start
+pages unsandboxed in Docker. Inside Flatpak it sandboxes pages with
+Flatpak's own sandbox, and in Snap, or a Podman container where
+bubblewrap cannot run, it starts them unsandboxed.
+`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`, set by the user, turns the
+sandbox off whatever the app chose. MyGo says in the log when the app
+asked for the sandbox and does not have it: after `App.Run`, with a
+WebKitGTK older than 2.26, or with that variable set.
+
+macOS (WKWebView), Windows (WebView2), phones and browsers always run pages
+in their own sandbox, and ignore the call.
+
 ## Browsing data
 
 `App.ClearBrowsingData()` deletes what the app's pages stored: cookies,

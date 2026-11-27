@@ -262,6 +262,20 @@ mygo.App.SetDMABUFRenderer(mygo.DMABUFRendererAuto)
 
 用户设置的 `WEBKIT_DISABLE_DMABUF_RENDERER` 总是优先，无论应用选择了什么：`0` 开启渲染器，`1` 关闭。其他系统忽略该设置。
 
+## 在 Linux 上沙箱化网页
+
+除非应用请求沙箱，WebKitGTK 4.1 运行页面的 Web 进程能访问用户能访问的一切。显示不受信任页面的应用可以在 `App.Run` 之前开启它，如同 Electron 的 `app.enableSandbox`：
+
+```go
+mygo.App.EnableSandbox()
+```
+
+WebKitGTK 随后在 [bubblewrap](https://github.com/containers/bubblewrap) 中启动每个会话的 Web 进程（`webkit_web_context_set_sandbox_enabled`）。接管了自身 Web 进程的页面只能只读地打开系统的库、字体和设置，以及显示、声音服务器和经过过滤的 D-Bus，打不开用户的文件。这限制了该进程能直接访问的内容，但并不能让文件远离页面：WebKit 的网络进程从不加沙箱，仍会加载页面请求的 `file://` URL。应用的自定义协议由应用在沙箱之外提供，所以页面照常加载。Web 检查器的页面运行在它自己的进程池中，不加沙箱。
+
+bubblewrap 必须能创建用户命名空间。各发行版的 WebKitGTK 软件包依赖它，但在内核或安全策略禁止这些命名空间的地方（Ubuntu 24.04 的 AppArmor 规则且没有允许它们的配置文件，或使用 WebKitGTK 2.40.2 及更新版本的 Docker 容器），WebKitGTK 会在启动第一个页面时中止应用，输出中有 `Failed to fully launch dbus-proxy`。更早的版本在 Docker 中不加沙箱地启动页面。在 Flatpak 中，它用 Flatpak 自己的沙箱运行页面；在 Snap 或 bubblewrap 无法运行的 Podman 容器中，它不加沙箱地启动页面。用户设置的 `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` 会关闭沙箱，无论应用选择了什么。应用请求了沙箱却没有得到时，MyGo 会在日志中说明：在 `App.Run` 之后调用、WebKitGTK 早于 2.26，或设置了该变量。
+
+macOS（WKWebView）、Windows（WebView2）、手机和浏览器总是在自己的沙箱中运行页面，并忽略该调用。
+
 ## 浏览数据
 
 `App.ClearBrowsingData()` 删除应用页面存储的内容：Cookie、本地和会话存储、IndexedDB、Service Worker 和缓存，例如用户退出登录时。打开的页面会把内存中的内容保留到重新加载。它清除默认会话；`Session.ClearData` 清除另一个会话，或只清除某些类型的数据。

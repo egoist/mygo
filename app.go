@@ -2,6 +2,7 @@ package mygo
 
 import (
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -53,6 +54,7 @@ type Application struct {
 	version   string
 	policy    ActivationPolicy
 	dmabuf    DMABUFRenderer
+	sandbox   bool
 	running   bool
 	ready     bool
 	readyCh   chan struct{}
@@ -127,6 +129,9 @@ func (a *Application) Run() error {
 		return errors.New("mygo: App.Run called twice")
 	}
 	a.running = true
+	// Settings that only Init takes, read where EnableSandbox and
+	// SetDMABUFRenderer write them.
+	dmabuf, sandbox := a.dmabuf, a.sandbox
 	a.mu.Unlock()
 	logCrashes()
 	go cleanUpdateLeftovers()
@@ -135,7 +140,8 @@ func (a *Application) Run() error {
 	if err := b.Init(appHandler{}, platform.AppOptions{
 		Name:             a.Name(),
 		ActivationPolicy: string(a.ActivationPolicy()),
-		DMABUFRenderer:   string(a.dmabuf),
+		DMABUFRenderer:   string(dmabuf),
+		Sandbox:          sandbox,
 		Background:       devBackground,
 	}); err != nil {
 		return err
@@ -499,6 +505,24 @@ func (a *Application) SetDMABUFRenderer(r DMABUFRenderer) {
 	a.mu.Lock()
 	a.dmabuf = r
 	a.mu.Unlock()
+}
+
+// EnableSandbox runs the web processes of every page in the webview's
+// sandbox where the system leaves that to the app, as Electron's
+// app.enableSandbox does: on Linux, WebKitGTK then starts them in
+// bubblewrap. Other systems always sandbox pages and ignore it. Call it
+// before Run; called after, it is ignored and says so in the log.
+// bubblewrap must be able to make user namespaces, or WebKitGTK aborts
+// the app when it starts the first page. See "Sandboxing web pages on
+// Linux" in docs/app.md.
+func (a *Application) EnableSandbox() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.running {
+		log.Print("mygo: App.EnableSandbox called after Run: ignored, pages are not sandboxed")
+		return
+	}
+	a.sandbox = true
 }
 
 // Focus brings the application to the foreground.

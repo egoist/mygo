@@ -505,6 +505,11 @@ by `mygo build` with `mygo_noinspector`) leave out its downloader and
   `dmabufSafe` (`dmabuf.go`) finds Wayland and a GPU of Mesa's outside
   containers and virtual machines (`auto`, whose call links that probe in
   with `LinkDMABUFProbe`).
+- `App.EnableSandbox` (`AppOptions.Sandbox`) turns WebKit's sandbox on
+  for every web context before it has a web process, which WebKit aborts
+  for otherwise: the default context's the first time the main thread
+  calls `webKit`, a session's as `NewDataStore` makes it (`applySandbox`
+  in `session.go`, which logs a sandbox asked for and not had).
 - XDG desktop portal calls go through `portalCall` (`portal.go`), which
   first registers the app's ID, the name of its desktop entry, with
   `org.freedesktop.host.portal.Registry`: the portal only accepts that
