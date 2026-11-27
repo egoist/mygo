@@ -73,3 +73,47 @@ func TestRestoredState(t *testing.T) {
 		t.Fatalf("a desktop restored %q", got)
 	}
 }
+
+// KeepState writes the value down as it goes, and the next launch comes
+// back with it.
+func TestKeepState(t *testing.T) {
+	old, had := App.paths[PathUserData]
+	dir := t.TempDir()
+	App.SetPath(PathUserData, dir)
+	t.Cleanup(func() {
+		if had {
+			App.SetPath(PathUserData, old)
+		} else {
+			delete(App.paths, PathUserData)
+		}
+	})
+	path := filepath.Join(dir, "restoration.state")
+	onMain(func() { devLaunched = true })
+	t.Cleanup(func() { onMain(func() { devLaunched = false }) })
+	t.Cleanup(func() { App.saveState = nil })
+
+	type kept struct {
+		Tab   int
+		Title string
+	}
+	v := &kept{Tab: 3, Title: "Docs"}
+	KeepState(v)
+
+	// The value is written down as it is when it is asked for, not as it
+	// was when KeepState was called.
+	v.Tab = 5
+	data := App.saveState()
+	if data == nil {
+		t.Fatal("KeepState gave nothing to keep")
+	}
+
+	// The next launch reads it back whole.
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	back := &kept{}
+	KeepState(back)
+	waitFor(t, "the kept state to come back", func() bool {
+		return onMainValue(func() bool { return back.Tab == 5 && back.Title == "Docs" })
+	})
+}
