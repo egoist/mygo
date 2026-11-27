@@ -348,9 +348,12 @@ func (st *State) GoTo(p Pos) {
 	st.ed.askRevealNow(off)
 }
 
-// ScrollTo scrolls a line to the top of the editor.
+// ScrollTo scrolls a line to the top of the editor. The position asked
+// for stands, as SetScrollY's does, though the editor is there already:
+// it drops a pending reveal of the selections.
 func (st *State) ScrollTo(line int) {
 	st.ensure()
+	st.ed.reveal = revealNone
 	st.ed.setScroll(st.ed.view.heights.top(line))
 }
 
@@ -361,6 +364,7 @@ func (st *State) ScrollY() float64 { return st.ed.scrollY }
 
 func (st *State) SetScrollY(y float64) {
 	st.ensure()
+	st.ed.reveal = revealNone
 	st.ed.setScroll(y)
 }
 

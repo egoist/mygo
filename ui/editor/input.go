@@ -542,7 +542,7 @@ func (ed *editor) dragScrollbar(ev ui.InputEvent) {
 // among editors.
 func (ed *editor) setScrollShared(y float64) {
 	if s := ed.o.sharedScroll; s != nil {
-		s.set(y)
+		s.scroll(y)
 		return
 	}
 	ed.setScroll(y)

@@ -110,6 +110,19 @@ func (s *sharedScroll) set(y float64) {
 	}
 }
 
+// scroll scrolls to y as the user asks, dropping every side's pending
+// reveal when it moves, as setScroll does. The frame calls set alone,
+// between the reveals it does.
+func (s *sharedScroll) scroll(y float64) {
+	before := s.y
+	s.set(y)
+	if s.y != before {
+		for _, side := range s.eds {
+			side.reveal = revealNone
+		}
+	}
+}
+
 // decor shows a diff in an editor: the colors of lines and their
 // gutters, the words changed, the numbers of lines, and blocks.
 type decor interface {
@@ -735,9 +748,14 @@ func (ed *editor) scrollMax() float64 {
 	return max(0, total-float64(ed.viewH))
 }
 
-// setScroll scrolls to y, keeping the place by its line.
+// setScroll scrolls to y, keeping the place by its line. A scroll that
+// moves drops a pending reveal: the newer scroll stands. One that does
+// not, as the wheel's at either end, leaves it.
 func (ed *editor) setScroll(y float64) {
 	y = max(0, min(y, ed.scrollMax()))
+	if y != ed.scrollY {
+		ed.reveal = revealNone
+	}
 	ed.scrollY = y
 	h := &ed.view.heights
 	ed.anchorLine, ed.anchorRows = h.lineAt(y), false

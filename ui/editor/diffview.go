@@ -386,6 +386,9 @@ func (d *DiffState) ScrollY() float64 { return d.eds[1].scrollY }
 
 func (d *DiffState) SetScrollY(y float64) {
 	ed := d.editorOf(DiffNew)
+	// The position asked for stands, as State.SetScrollY's does, though
+	// the sides are there already or not laid out yet.
+	d.eds[0].reveal, d.eds[1].reveal = revealNone, revealNone
 	if d.Layout == DiffSplit && !d.FitContent {
 		// Both sides, which the frame keeps together (sharedScroll).
 		d.scroll.set(y)

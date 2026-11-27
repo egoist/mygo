@@ -2,6 +2,7 @@ package editor
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -118,5 +119,127 @@ func TestDiffScrollMarginDefault(t *testing.T) {
 				t.Fatalf("layout %v, side %v: caret line ends %.1fpx above the viewport bottom, want %.1f", layout, side, gap, want)
 			}
 		}
+	}
+}
+
+// A scroll after the selections move, before the next frame, stands: the
+// selections' reveal, asked for before it, no longer scrolls back to the
+// caret. Selections set alone are still revealed.
+func TestScrollAfterSelectingStands(t *testing.T) {
+	ct := newEditorTest(t, "", strings.Repeat("line\n", 100))
+	st, tt := ct.st, ct.tt
+	at := func(line int) int { return st.Buffer.Offset(Pos{Line: line}) }
+
+	st.Select(at(40), at(40))
+	st.ScrollTo(40)
+	tt.Frame()
+	if got, want := st.ScrollY(), st.LineTop(40); got != want {
+		t.Errorf("ScrollTo(40): scrollY %.1f, want %.1f", got, want)
+	}
+	// There already, as a Vim's zt on the line at the top.
+	st.Select(at(40), at(40))
+	st.ScrollTo(40)
+	tt.Frame()
+	if got, want := st.ScrollY(), st.LineTop(40); got != want {
+		t.Errorf("ScrollTo(40) there already: scrollY %.1f, want %.1f", got, want)
+	}
+
+	st.Select(at(70), at(70))
+	want := st.LineTop(71) - st.ViewportHeight()
+	st.SetScrollY(want)
+	tt.Frame()
+	if got := st.ScrollY(); got != want {
+		t.Errorf("SetScrollY: scrollY %.1f, want %.1f", got, want)
+	}
+	st.Select(at(10), at(10))
+	st.SetScrollY(want)
+	tt.Frame()
+	if got := st.ScrollY(); got != want {
+		t.Errorf("SetScrollY there already: scrollY %.1f, want %.1f", got, want)
+	}
+
+	st.SetScrollY(0)
+	tt.Frame()
+	st.Select(at(90), at(90))
+	tt.Scroll(300, 200, 0, 100)
+	tt.Frame()
+	if got := st.ScrollY(); got != 100 {
+		t.Errorf("scrolled 100 down from the top: scrollY %.1f", got)
+	}
+
+	// The wheel at the top does not move: the caret below is revealed.
+	st.SetScrollY(0)
+	tt.Frame()
+	st.Select(at(90), at(90))
+	tt.Scroll(300, 200, 0, -50)
+	tt.Frame()
+	if top := st.LineTop(90); top < st.ScrollY() || top >= st.ScrollY()+st.ViewportHeight() {
+		t.Errorf("wheel up at the top: line 90 at %.1f not revealed, scrollY %.1f", top, st.ScrollY())
+	}
+
+	st.Select(at(5), at(5))
+	tt.Frame()
+	if top := st.LineTop(5); top < st.ScrollY() || top >= st.ScrollY()+st.ViewportHeight() {
+		t.Errorf("line 5 at %.1f not revealed: scrollY %.1f", top, st.ScrollY())
+	}
+}
+
+// So does a scroll of a split diff, whose sides scroll together, after
+// GoToHunk.
+func TestSplitDiffScrollAfterGoToHunkStands(t *testing.T) {
+	old := longLines(200)
+	nw := slices.Clone(old)
+	nw[150] = "changed"
+	d := &DiffState{Old: NewBuffer(strings.Join(old, "\n")), New: NewBuffer(strings.Join(nw, "\n")),
+		Layout: DiffSplit, ExpandUnchanged: true}
+	tt := ui.NewTester(func(c *ui.Context) { DiffView(c, d).Fill() }, 800, 400)
+	d.GoToHunk(0)
+	d.SetScrollY(0)
+	tt.Frame()
+	if got := d.ScrollY(); got != 0 {
+		t.Errorf("SetScrollY(0) after GoToHunk, before the first frame: scrollY %.1f", got)
+	}
+
+	d.GoToHunk(0)
+	d.SetScrollY(0)
+	tt.Frame()
+	if got := d.ScrollY(); got != 0 {
+		t.Errorf("SetScrollY(0) after GoToHunk: scrollY %.1f", got)
+	}
+
+	d.GoToHunk(0)
+	tt.Scroll(600, 200, 0, 100)
+	tt.Frame()
+	if got := d.ScrollY(); got != 100 {
+		t.Errorf("scrolled 100 down from the top after GoToHunk: scrollY %.1f", got)
+	}
+
+	shows := func(line int) bool {
+		top := d.LineTop(DiffNew, line)
+		return top >= d.ScrollY() && top < d.ScrollY()+d.ViewportHeight()
+	}
+	d.GoToHunk(0)
+	tt.Frame()
+	if !shows(150) {
+		t.Errorf("hunk not revealed: scrollY %.1f", d.ScrollY())
+	}
+
+	// The wheel at the top does not move: the hunk is revealed.
+	d.SetScrollY(0)
+	tt.Frame()
+	d.GoToHunk(0)
+	tt.Scroll(600, 200, 0, -50)
+	tt.Frame()
+	if !shows(150) {
+		t.Errorf("wheel up at the top: hunk not revealed, scrollY %.1f", d.ScrollY())
+	}
+
+	// Page Down from the top still reveals the caret it moves.
+	d.SetScrollY(0)
+	tt.Frame()
+	d.Run(MovePageDown)
+	tt.Frame()
+	if line := d.CursorPos().Line; d.ScrollY() == 0 || !shows(line) {
+		t.Errorf("Page Down: caret line %d not revealed, scrollY %.1f", line, d.ScrollY())
 	}
 }
