@@ -150,3 +150,150 @@ func TestDamageOfInstances(t *testing.T) {
 		t.Errorf("other data: damage %v, %v", damage, ok)
 	}
 }
+
+// Invalidating the differ, or releasing it, makes the next Diff find that
+// everything changed.
+func TestDifferInvalidateRelease(t *testing.T) {
+	build := func() *Scene {
+		return &Scene{Width: 100, Height: 100, Ops: []Op{
+			{Kind: OpFill, Rect: Rect{X: 10, Y: 10, W: 20, H: 20}, Color: Color{R: 255, A: 255}},
+		}}
+	}
+	d := Differ{Reach: 1}
+	d.Diff(build())
+	d.Remember(build())
+	if damage, ok := d.Diff(build()); !ok || len(damage) != 0 {
+		t.Fatalf("the same scene twice: damage %v, %v", damage, ok)
+	}
+	d.Invalidate()
+	if _, ok := d.Diff(build()); ok {
+		t.Error("Invalidate left the last scene good")
+	}
+	d.Diff(build())
+	d.Remember(build())
+	d.Release()
+	if _, ok := d.Diff(build()); ok {
+		t.Error("Release left the last scene good")
+	}
+}
+
+// Match says which of the last scene's ops the scene's ops stand for:
+// those the scenes share, and none for what one has alone.
+func TestDifferMatch(t *testing.T) {
+	op := func(c uint8) Op {
+		return Op{Kind: OpFill, Rect: Rect{X: 10, Y: 10, W: 20, H: 20}, Color: Color{R: c, A: 255}}
+	}
+	last := &Scene{Width: 100, Height: 100, Ops: []Op{op(1), op(2), op(3), op(4), op(5)}}
+	next := &Scene{Width: 100, Height: 100, Ops: []Op{op(1), op(2), op(9), op(4), op(5)}}
+	d := Differ{Reach: 1}
+	d.Diff(last)
+	d.Remember(last)
+	if _, ok := d.Diff(next); !ok {
+		t.Fatal("no damage found")
+	}
+	// Scenes of as many ops: each op stands for the one in its place.
+	for j := range 5 {
+		if i, ok := d.Match(j); !ok || i != j {
+			t.Errorf("Match(%d) = (%d, %v)", j, i, ok)
+		}
+	}
+	if i, ok := d.Match(5); ok || i != 0 {
+		t.Errorf("Match past the end = (%d, %v)", i, ok)
+	}
+
+	// An op prepended: the shared tail stands for the same ops, the new
+	// one for none.
+	prepended := &Scene{Width: 100, Height: 100, Ops: []Op{op(9), op(1), op(2), op(3), op(4), op(5)}}
+	d.Remember(last)
+	if _, ok := d.Diff(prepended); !ok {
+		t.Fatal("no damage found")
+	}
+	if _, ok := d.Match(0); ok {
+		t.Error("the new op stands for one of the last scene's")
+	}
+	for j := 1; j < 6; j++ {
+		if i, ok := d.Match(j); !ok || i != j-1 {
+			t.Errorf("Match(%d) = (%d, %v), want (%d, true)", j, i, ok, j-1)
+		}
+	}
+}
+
+// Bounds says where each operation of the scene draws, within the clips
+// around it, out to the renderer's reach.
+func TestDifferBounds(t *testing.T) {
+	s := &Scene{Width: 100, Height: 100, Ops: []Op{
+		{Kind: OpFill, Rect: Rect{X: 10, Y: 10, W: 20, H: 20}, Color: Color{R: 255, A: 255}},
+		{Kind: OpPushClip, Rect: Rect{X: 10, Y: 10, W: 40, H: 40}},
+		{Kind: OpFill, Rect: Rect{X: 0, Y: 0, W: 100, H: 100}, Color: Color{G: 255, A: 255}},
+		{Kind: OpPopClip},
+	}}
+	d := Differ{Reach: 2}
+	d.Diff(s)
+	bounds := d.Bounds()
+	if len(bounds) != 4 {
+		t.Fatalf("Bounds = %d rectangles", len(bounds))
+	}
+	if bounds[0] != image.Rect(8, 8, 32, 32) {
+		t.Errorf("the fill's bounds = %v, want (8, 8, 32, 32)", bounds[0])
+	}
+	if bounds[1] != image.Rect(8, 8, 52, 52) {
+		t.Errorf("the clip's bounds = %v, want (8, 8, 52, 52)", bounds[1])
+	}
+	if bounds[2] != image.Rect(8, 8, 52, 52) {
+		t.Errorf("the clipped fill's bounds = %v, want (8, 8, 52, 52)", bounds[2])
+	}
+	if !bounds[3].Empty() {
+		t.Errorf("the pop's bounds = %v, want none", bounds[3])
+	}
+}
+
+// AddBackdrops grows damage to hold the backdrops of the effects it meets:
+// an effect reads its backdrop whole, so what is redrawn around it must
+// hold all of it.
+func TestDifferAddBackdrops(t *testing.T) {
+	fx := &Effect{Name: "glass", Backdrop: true}
+	plain := &Effect{Name: "plain"}
+	build := func(effects []EffectOp) *Scene {
+		return &Scene{Width: 100, Height: 100, Ops: []Op{
+			{Kind: OpFill, Rect: Rect{X: 0, Y: 0, W: 100, H: 100}, Color: Color{R: 255, A: 255}},
+			{Kind: OpEffect, Rect: Rect{X: 40, Y: 40, W: 20, H: 20}, Start: 0, End: 1},
+		}, Effects: effects}
+	}
+	s := build([]EffectOp{{Effect: fx, Blur: 1}})
+	d := Differ{Reach: 1}
+	d.Diff(s)
+
+	// Damage overlapping the backdrop grows to hold it, at a blur of 1
+	// four pixels around the effect.
+	got := d.AddBackdrops(s, []image.Rectangle{image.Rect(48, 48, 52, 52)})
+	if len(got) != 1 || !image.Rect(36, 36, 64, 64).In(got[0]) {
+		t.Errorf("AddBackdrops = %v, want the backdrop's area", got)
+	}
+	// Damage apart from it stays as it is.
+	if got := d.AddBackdrops(s, []image.Rectangle{image.Rect(0, 0, 10, 10)}); len(got) != 1 || got[0] != (image.Rect(0, 0, 10, 10)) {
+		t.Errorf("AddBackdrops apart from the backdrop = %v", got)
+	}
+	// An effect that reads no backdrop adds nothing.
+	s = build([]EffectOp{{Effect: plain}})
+	d.Diff(s)
+	if got := d.AddBackdrops(s, []image.Rectangle{image.Rect(48, 48, 52, 52)}); len(got) != 1 || got[0] != (image.Rect(48, 48, 52, 52)) {
+		t.Errorf("AddBackdrops of a plain effect = %v", got)
+	}
+	// No effects, or no damage: nothing to add.
+	if got := d.AddBackdrops(build(nil), []image.Rectangle{image.Rect(48, 48, 52, 52)}); len(got) != 1 {
+		t.Errorf("AddBackdrops without effects = %v", got)
+	}
+	if got := d.AddBackdrops(s, nil); len(got) != 0 {
+		t.Errorf("AddBackdrops without damage = %v", got)
+	}
+}
+
+// TestOutsetEdges checks the box of pixels an op's edge reaches over.
+func TestOutsetEdges(t *testing.T) {
+	if r := outsetEdges(10.2, 10.2, 20.7, 20.7, 2); r != (image.Rect(8, 8, 23, 23)) {
+		t.Errorf("outsetEdges = %v, want (8, 8, 23, 23)", r)
+	}
+	if r := outsetEdges(10.5, 10.5, 10.5, 10.5, 0); r != (image.Rect(10, 10, 11, 11)) {
+		t.Errorf("outsetEdges of a point = %v, want (10, 10, 11, 11)", r)
+	}
+}
