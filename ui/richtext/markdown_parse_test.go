@@ -478,3 +478,49 @@ func TestMarkdownEmptyTask(t *testing.T) {
 		}
 	}
 }
+
+// What is indented under a list item, a paragraph after its first or a
+// block of code, is written indented under it, and stays in the item and
+// the list.
+func TestMarkdownUnderItem(t *testing.T) {
+	p := func(st ParagraphStyle, s string) Paragraph {
+		para := Paragraph{Style: st}
+		if s != "" {
+			para.Runs = []Run{{Text: s}}
+		}
+		return para
+	}
+	item := ParagraphStyle{List: Bullets}
+	num := ParagraphStyle{List: Numbers}
+	under := ParagraphStyle{Indent: 1}
+	for _, c := range []struct {
+		in   Text
+		want string
+		kept bool // reads back as it was
+	}{
+		{TextOf(p(item, "a"), p(under, "b"), p(item, "c")), "- a\n\n  b\n\n- c", true},
+		{TextOf(p(num, "a"), p(under, "b"), p(num, "c")), "1. a\n\n   b\n\n2. c", true},
+		{TextOf(p(ParagraphStyle{List: Tasks}, "a"), p(under, "b")), "- [ ] a\n\n  b", true},
+		{TextOf(p(item, "a"), p(ParagraphStyle{List: Numbers, Indent: 1}, "x"), p(ParagraphStyle{Indent: 2}, "y"), p(under, "b")),
+			"- a\n    1. x\n\n       y\n\n  b", true},
+		{TextOf(p(item, "a"), p(ParagraphStyle{Indent: 1, CodeBlock: true}, "x := 1"), p(ParagraphStyle{Indent: 1, CodeBlock: true}, "y")),
+			"- a\n\n  ```\n  x := 1\n  y\n  ```", true},
+		{TextOf(p(item, "a"), p(ParagraphStyle{Indent: 1, Heading: 2}, "h")), "- a\n\n  ## h", true},
+		{TextOf(p(num, ""), p(ParagraphStyle{Indent: 1, CodeBlock: true}, "x")), "1. \n   ```\n   x\n   ```", true},
+		{TextOf(p(item, ""), p(ParagraphStyle{Indent: 1, Quote: true}, "q")), "- \n  > q", true},
+		{TextOf(p(ParagraphStyle{List: Bullets, Quote: true}, "a"), p(ParagraphStyle{Indent: 1, Quote: true}, "b")), "> - a\n>\n>   b", true},
+		{TextOf(p(num, "a"), p(ParagraphStyle{Indent: 1, Quote: true}, "q")), "1. a\n\n   > q", true},
+		// Not under an item: indented no further, which would be code.
+		{TextOf(p(under, "a")), "a", false},
+		{TextOf(p(item, "a"), p(ParagraphStyle{}, "x"), p(under, "b")), "- a\n\nx\n\nb", false},
+		{TextOf(p(item, "a"), p(ParagraphStyle{Indent: 3}, "b")), "- a\n\n  b", false},
+	} {
+		md := c.in.Markdown()
+		if md != c.want {
+			t.Errorf("%s written as %q, want %q", dump(c.in), md, c.want)
+		}
+		if got := ParseMarkdown(md); c.kept && dump(got) != dump(c.in) {
+			t.Errorf("%q reads\n%s want\n%s", md, dump(got), dump(c.in))
+		}
+	}
+}

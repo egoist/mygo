@@ -19,24 +19,50 @@ func (t Text) Markdown() string {
 	for _, p := range t.Paragraphs() {
 		paras = append(paras, p)
 	}
-	// numbers counts the items of the numbered lists open, by level.
-	var numbers []int
-	prevList := false
+	// numbers counts the items of the numbered lists open, by level, and
+	// cols has the columns where the text of their latest items starts,
+	// in the quotation listQuote.
+	var numbers, cols []int
+	listQuote := ""
+	prevList, prevEmpty := false, false
 	for i := 0; i < len(paras); i++ {
 		p := paras[i]
 		st := p.Style
-		if i > 0 && !(st.List != NoList && prevList) {
-			b.WriteString("\n\n")
-		} else if i > 0 {
-			b.WriteByte('\n')
-		}
-		prevList = st.List != NoList
-		if st.List == NoList {
-			numbers = numbers[:0]
-		}
 		quote := ""
 		if st.Quote {
 			quote = strings.Repeat("> ", st.quoteDepth())
+		}
+		under := ""
+		if st.List == NoList {
+			// Indented under an item, at the column of its text, which
+			// keeps it in the item, a quotation in it too; not under one,
+			// not at all: four spaces would make it code.
+			k := 0
+			if strings.HasPrefix(quote, listQuote) {
+				k = min(st.Indent, len(cols))
+			}
+			numbers, cols = numbers[:min(k, len(numbers))], cols[:k]
+			if k > 0 {
+				under = strings.Repeat(" ", cols[k-1])
+			}
+		}
+		switch {
+		case i > 0 && under != "" && (st.CodeBlock || len(quote) > len(listQuote)) && prevList && prevEmpty:
+			// An item that starts with code or a quotation: a blank line
+			// would end the empty item before it.
+			b.WriteByte('\n')
+		case i > 0 && under != "" && listQuote != "":
+			// The line between goes on with the item's quotation, which a
+			// blank line would end, and the item with it.
+			b.WriteString("\n" + strings.TrimRight(listQuote, " ") + "\n")
+		case i > 0 && !(st.List != NoList && prevList):
+			b.WriteString("\n\n")
+		case i > 0:
+			b.WriteByte('\n')
+		}
+		prevList, prevEmpty = st.List != NoList, len(p.Runs) == 0
+		if under != "" {
+			quote = listQuote + under + quote[len(listQuote):]
 		}
 		switch {
 		case st.CodeBlock:
@@ -60,12 +86,21 @@ func (t Text) Markdown() string {
 			for len(numbers) <= level {
 				numbers = append(numbers, 0)
 			}
+			if quote != listQuote {
+				cols, listQuote = cols[:0], quote
+			}
+			for cols = cols[:min(level, len(cols))]; len(cols) < level; {
+				cols = append(cols, 4*(len(cols)+1))
+			}
+			cols = append(cols, 4*level+2) // "- ", whose [ ] of a task is text
 			numbers = numbers[:level+1]
 			b.WriteString(quote + strings.Repeat("    ", level))
 			switch st.List {
 			case Numbers:
 				numbers[level]++
-				b.WriteString(strconv.Itoa(numbers[level]) + ". ")
+				n := strconv.Itoa(numbers[level])
+				b.WriteString(n + ". ")
+				cols[level] += len(n)
 			case Tasks:
 				if st.Checked {
 					b.WriteString("- [x] ")
