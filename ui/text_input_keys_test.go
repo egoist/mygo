@@ -35,3 +35,37 @@ func TestKeyHandled(t *testing.T) {
 		}
 	}
 }
+
+// PageUp and PageDown with Control, Command or the Windows key go to
+// shortcuts from a text field, as switching tabs with Ctrl+PageDown does;
+// Alt with them does too but on macOS, where it pages the text, as
+// NSTextView's pageDown:. Alone or with Shift, a text area pages its text.
+func TestTextFieldsLeaveModifiedPageKeysToShortcuts(t *testing.T) {
+	all := []Modifiers{0, Shift, Ctrl, Ctrl | Shift, Alt, Super}
+	for _, multiline := range []bool{false, true} {
+		value := "one\ntwo\nthree"
+		ran := map[Modifiers]int{}
+		tt := coreNewTester(func(c *context) {
+			if multiline {
+				coreTextArea(c, &value).AutoFocus().Size(250, 100)
+			} else {
+				coreTextInput(c, &value).AutoFocus().Width(250)
+			}
+			for _, m := range all {
+				if c.Shortcut(m, KeyPageDown) {
+					ran[m]++
+				}
+			}
+		}, 300, 200)
+		tt.Frame()
+		for _, m := range all {
+			tt.Key(m, KeyPageDown)
+			tt.Frame()
+			field := m&^Shift == 0 && multiline || m == Alt && platform.MacKeys
+			if got := ran[m] == 0; got != field {
+				t.Errorf("multiline %v: the field took %v+PageDown: %v, want %v", multiline, m, got, field)
+			}
+		}
+		tt.rt.close()
+	}
+}

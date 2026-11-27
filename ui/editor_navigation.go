@@ -46,8 +46,15 @@ func (ed *editor) wants(k keyEvent) bool {
 		return m != Alt || platform.MacKeys
 	case KeyHome, KeyEnd, KeyDelete:
 		return true
-	case KeyUp, KeyDown, KeyPageUp, KeyPageDown:
+	case KeyUp, KeyDown:
 		return ed.multiline || m != 0
+	case KeyPageUp, KeyPageDown:
+		// With a modifier they go to shortcuts, as Ctrl+PageDown switching
+		// tabs, but Alt on macOS, where it pages the text as in NSTextView.
+		if m == 0 {
+			return ed.multiline
+		}
+		return m == Alt && platform.MacKeys
 	case KeyEnter:
 		return m == 0
 	case KeyTab, KeyEscape:
