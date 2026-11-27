@@ -587,7 +587,7 @@ func (r *Router) coreView(c *context, fn func(r *Route)) *node {
 	}
 	r.keys(c, box)
 	r.noteStack(c)
-	if touchFrame != nil && c.routers == 1 {
+	if touchFuncs.Load() != nil && c.routers == 1 {
 		r.noteBack(c)
 	}
 	r.build(c, box, &r.view, nil, fn)

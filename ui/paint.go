@@ -120,8 +120,8 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	p.cull = !rt.inkStale && !rt.noCull
 	p.element(root)
 	p.cull = false
-	if touchPaint != nil {
-		touchPaint(rt, p)
+	if touch := touchFuncs.Load(); touch != nil {
+		touch.paint(rt, p)
 	}
 	if rt.insp.open {
 		rt.insp.paintHighlight(rt, p, h)
@@ -1596,10 +1596,11 @@ func (p *Painter) scrollbars(e *node) {
 	if !st.barsShown {
 		// A finger shows a thin thumb on no track for a moment as it moves
 		// the content, and it fades: no press takes it.
-		if touchBars == nil {
+		touch := touchFuncs.Load()
+		if touch == nil {
 			return
 		}
-		fade = touchBars(st, rt)
+		fade = touch.bars(st, rt)
 		if hide || fade <= 0 {
 			return
 		}

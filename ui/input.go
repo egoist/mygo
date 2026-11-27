@@ -77,9 +77,9 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	if rt.insp.pointer(rt, ev, x, y) {
 		return true
 	}
-	if ev.Touch && touchInput != nil {
+	if touch := touchFuncs.Load(); ev.Touch && touch != nil {
 		x, y = rt.aimTouch(ev.Kind, x, y)
-		if touchInput(rt, ev, x, y) {
+		if touch.input(rt, ev, x, y) {
 			return false
 		}
 	}

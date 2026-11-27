@@ -363,8 +363,8 @@ func (h *windowHost) event(ev platform.SurfaceEvent) bool {
 			h.releaseParked()
 			h.requestFrame()
 		}
-		if touchSystem != nil {
-			touchSystem(h.rt, ev)
+		if touch := touchFuncs.Load(); touch != nil {
+			touch.system(h.rt, ev)
 		}
 		return false
 	}

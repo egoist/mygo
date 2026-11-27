@@ -801,8 +801,8 @@ func (rt *engine) runFrame() {
 	rt.repaintRate, rt.repaintFull, rt.untracked = 0, false, false
 	rt.routeKeys()
 	rt.glideWheels(now)
-	if touchFrame != nil {
-		touchFrame(rt, now)
+	if touch := touchFuncs.Load(); touch != nil {
+		touch.frame(rt, now)
 	}
 	rt.glideSnaps(now)
 	if d := rt.drag; d != nil {
@@ -932,13 +932,13 @@ func (rt *engine) runFrame() {
 	}
 	rt.stats.lap(phaseBuild)
 	rt.insp.lap(0)
-	if insetRoot != nil {
-		insetRoot(rt, root)
+	if touch := touchFuncs.Load(); touch != nil {
+		touch.insetRoot(rt, root)
 	}
 	layoutTree(root, appW, rt.insp.contentHeight(w, h))
 	rt.measureFit(root)
-	if extendScrolls != nil {
-		extendScrolls(rt, root, h)
+	if touch := touchFuncs.Load(); touch != nil {
+		touch.extendScrolls(rt, root, h)
 	}
 	if checkBuilt != nil {
 		checkBuilt(rt, builtLaidOut)
@@ -1722,8 +1722,8 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	var base scene.Affine
 	if e.parent != nil && e != e.c.overlay {
 		base = e.parent.world
-		if contentStretch != nil && e.parent.scrolls() {
-			base = contentStretch(base, e.parent)
+		if touch := touchFuncs.Load(); touch != nil && e.parent.scrolls() {
+			base = touch.contentStretch(base, e.parent)
 		}
 		e.world = base.Mul(e.world)
 	}

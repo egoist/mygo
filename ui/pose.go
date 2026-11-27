@@ -200,8 +200,8 @@ func (e *node) updateWorld() {
 	var base scene.Affine
 	if e.parent != nil && e != e.c.overlay {
 		base = e.parent.world
-		if contentStretch != nil && e.parent.scrolls() {
-			base = contentStretch(base, e.parent)
+		if touch := touchFuncs.Load(); touch != nil && e.parent.scrolls() {
+			base = touch.contentStretch(base, e.parent)
 		}
 		w = base.Mul(w)
 	}

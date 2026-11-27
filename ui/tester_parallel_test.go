@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 	"slices"
+	"sync"
 	"testing"
 	"weak"
 
@@ -174,4 +175,36 @@ func TestParallelTestersZIndex(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEnableTouchAcrossTesters runs touch linking and frame reads on
+// different goroutines, and fails under go test -race while enableTouch
+// wrote the package's touch functions on every SetInsets and FingerDown
+// call, which every Tester's frames read at once.
+func TestEnableTouchAcrossTesters(t *testing.T) {
+	writer := NewTester(func(c *Context) {
+		Column(c).Children(func() { Text(c, "touch writer") })
+	}, 100, 100)
+	reader := NewTester(func(c *Context) {
+		Column(c).Children(func() { Text(c, "frame reader") })
+	}, 100, 100)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		for range 500 {
+			writer.SetInsets(1, 1, 1, 1)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		for range 500 {
+			reader.Frame()
+		}
+	}()
+	close(start)
+	wg.Wait()
 }

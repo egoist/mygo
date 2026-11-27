@@ -1,12 +1,14 @@
 package ui
 
 import (
-	"github.com/egoist/mygo/internal/scene"
 	"math"
 	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/scene"
 )
 
 // A finger on a touch screen presses what it touches, as a mouse does,
@@ -22,14 +24,20 @@ import (
 // Desktops send no touches: what handles them is reached only where the
 // platform has touch screens (touch_mobile.go), or a Tester touches, for
 // apps of desktops not to link it.
+type touchFunctions struct {
+	input          func(rt *engine, ev platform.SurfaceEvent, x, y float32) bool
+	frame          func(rt *engine, now time.Time)
+	paint          func(rt *engine, p *Painter)
+	system         func(rt *engine, ev platform.SurfaceEvent)
+	bars           func(s *state, rt *engine) float32
+	contentStretch func(world scene.Affine, e *node) scene.Affine
+	insetRoot      func(rt *engine, root *node)
+	extendScrolls  func(rt *engine, root *node, h float32)
+}
+
 var (
-	touchInput func(rt *engine, ev platform.SurfaceEvent, x, y float32) bool
-	touchFrame func(rt *engine, now time.Time)
-	touchPaint func(rt *engine, p *Painter)
-	// touchSystem hears what phones' systems tell, and touchBars how much
-	// a scroll indicator shows.
-	touchSystem func(rt *engine, ev platform.SurfaceEvent)
-	touchBars   func(s *state, rt *engine) float32
+	touchOnce sync.Once
+	touchFuncs atomic.Pointer[touchFunctions]
 	// refreshPainter draws a pull to refresh, which PullToRefresh sets.
 	refreshPainter func(p *Painter, e *node)
 	// devAttach starts keeping a window's state under mygo dev (devstate.go),
@@ -39,24 +47,19 @@ var (
 	restoreLocal   func(s *state, key, v any)
 	noteRouter     func(r *Router, e *node)
 	routerBuilt    func(r *Router, e *node)
-	// contentStretch transforms what a scroll container holds, on Android.
-	contentStretch func(world scene.Affine, e *node) scene.Affine
-	// insetRoot keeps the content out from under what covers the
-	// window's edges, which only phones' do.
-	insetRoot     func(rt *engine, root *node)
-	extendScrolls func(rt *engine, root *node, h float32)
 )
 
-// enableTouch has the engines handle touches.
+// enableTouch links the engines' touch handling once. The atomic pointer
+// publishes the complete set of links to frames on other Tester goroutines.
 func enableTouch() {
-	touchInput = (*engine).touchEvent
-	touchFrame = (*engine).touchStep
-	touchPaint = (*engine).touchOver
-	touchSystem = (*engine).systemEvent
-	touchBars = (*state).touchIndicator
-	contentStretch = stretchPainter
-	insetRoot = (*engine).padInsets
-	extendScrolls = (*engine).extendUnderBottom
+	touchOnce.Do(func() {
+		touchFuncs.Store(&touchFunctions{
+			input: (*engine).touchEvent, frame: (*engine).touchStep,
+			paint: (*engine).touchOver, system: (*engine).systemEvent,
+			bars: (*state).touchIndicator, contentStretch: stretchPainter,
+			insetRoot: (*engine).padInsets, extendScrolls: (*engine).extendUnderBottom,
+		})
+	})
 }
 
 // overscroll is how content goes past its ends under a finger.
