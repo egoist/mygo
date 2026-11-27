@@ -461,6 +461,9 @@ type engine struct {
 	toastPass    int
 	// mods are the modifiers of the last pointer event.
 	mods Modifiers
+	// keyHandled tells that the last key down went to a handler, which
+	// acted on it, rather than to the text input keeping it to type.
+	keyHandled bool
 
 	consumed bool
 	// animating is set as a frame builds when something moves, for another

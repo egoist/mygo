@@ -12,6 +12,38 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 )
 
+// A text input types the keys it keeps through the real keyDown: path,
+// while one its HandleInput takes, Option+Shift+F, types nothing.
+func TestContentWindowTextInputKeys(t *testing.T) {
+	var frames, taken atomic.Int32
+	var value string
+	w := newWindow(t, mygo.WindowOptions{Title: "Text input", Width: 400, Height: 120, Content: ui.View(func(c *ui.Context) {
+		ui.TextInput(c, &value).AutoFocus().Width(300).HandleInput(func(ev ui.InputEvent) bool {
+			if ev.Kind == ui.InputKeyDown && ev.Mods == ui.Alt|ui.Shift && ev.PhysicalKey == ui.KeyF {
+				taken.Add(1)
+				return true
+			}
+			return false
+		})
+		frames.Add(1)
+	})})
+	eventually(t, "a frame", func() bool { return frames.Load() > 0 })
+	const option, shift = 1 << 19, 1 << 17
+	if !pressKey(w, 38, "j") { // kVK_ANSI_J
+		t.Skip("key automation unavailable")
+	}
+	pressKeyFlags(w, 3, "Ï", option|shift) // kVK_ANSI_F
+	pressKey(w, 40, "k")                   // kVK_ANSI_K
+	var text string
+	eventually(t, "the keys typed", func() bool {
+		mygo.RunOnMain(func() { text = value })
+		return strings.HasSuffix(text, "k")
+	})
+	if text != "jk" || taken.Load() != 1 {
+		t.Fatalf("the text is %q and HandleInput took %d keys, want %q and 1", text, taken.Load(), "jk")
+	}
+}
+
 // A key OnInput takes is not the input method's too: Option+Shift+F taken
 // as a shortcut types no Ï after it, and the keys after it still type.
 func TestContentWindowCodeEditorKeyTaken(t *testing.T) {

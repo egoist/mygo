@@ -646,8 +646,13 @@ type SurfaceEvent struct {
 	Code   KeyCode
 	Mods   Modifiers
 	Repeat bool
-	Text   string
-	Caret  int
+	// Handled, where a backend sets it on KeyPressed, is set to whether
+	// a handler of the content acted on the key (HandleInput, OnTextKey),
+	// rather than a text input keeping it to type, whose text the input
+	// method brings after it. A key taken either way reports true.
+	Handled *bool
+	Text    string
+	Caret   int
 	// Replace makes TextInput replace, and TextComposition compose over,
 	// the runes From to To of the last TextInputState.Text, instead of the
 	// selection.

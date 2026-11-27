@@ -1480,13 +1480,18 @@ func registerSurfaceClass() {
 			// method is on: the Korean one composes without marked text,
 			// replacing the syllable before the caret, and takes a jamo
 			// back with Backspace the same way (한 → 하).
-			key := platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), PhysicalKey: physicalKey(ev), Code: eventKeyCode(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")}
+			handled := false
+			key := platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), PhysicalKey: physicalKey(ev), Code: eventKeyCode(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat"), Handled: &handled}
 			withheld := ime && (s.hasMarkedText() || key.Key == platform.KeyBackspace)
-			// A key the content took, as an editor's shortcut, types
+			if !withheld {
+				s.send(key)
+			}
+			// A key a handler acted on, as an editor's shortcut, types
 			// nothing as well, as AppKit's views leave interpretKeyEvents:
 			// the keys they handle: else Option+Shift+F both runs its
-			// shortcut and types Ï.
-			if !withheld && s.send(key) {
+			// shortcut and types Ï. A text input keeping a key to type it
+			// takes it too, but its text comes from the input method.
+			if handled {
 				return
 			}
 			// Input methods see the key while a text input has the focus;

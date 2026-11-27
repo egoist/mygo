@@ -147,6 +147,9 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.modsChanged(Modifiers(ev.Mods))
 		rt.holdKey(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey))
 		taken = rt.keyDownPhysical(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey), KeyCode(ev.Code), ev.Repeat)
+		if ev.Handled != nil {
+			*ev.Handled = rt.keyHandled
+		}
 	case platform.ModifiersChanged:
 		rt.modsChanged(Modifiers(ev.Mods))
 	case platform.RawKeyPressed, platform.RawKeyReleased:
@@ -1180,16 +1183,20 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCod
 	} else if !repeat {
 		delete(rt.byPosition, physical)
 	}
+	rt.keyHandled = false
 	if rt.inspectKey(mods, key) {
+		rt.keyHandled = true
 		return true
 	}
 	rt.observeFocus(InputEvent{Kind: InputKeyDown, Key: key, PhysicalKey: physical, Code: code, Mods: mods, Repeat: repeat})
 	k := keyEvent{mods, key, repeat}
 	if key == KeyEscape && mods == 0 && rt.dragCancel() {
+		rt.keyHandled = true
 		return true
 	}
 	if h := rt.focusHandler(); h != nil && !rt.claimed(k) && rt.deliver(h, InputEvent{Kind: InputKeyDown, Key: key, PhysicalKey: physical, Code: code, Mods: mods, Repeat: repeat}) {
 		rt.blinkStart = rt.now()
+		rt.keyHandled = true
 		return true
 	}
 	if s := rt.states[rt.focused]; s != nil && s.editor != nil && s.editor.onTextKey != nil && s.flags&flagEditable != 0 &&
@@ -1198,6 +1205,7 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCod
 		// keys and text before it, which it reads.
 		rt.blinkStart = rt.now()
 		rt.requestFrame()
+		rt.keyHandled = true
 		return true
 	}
 	if (key == KeyContextMenu && mods == 0 || key == KeyF10 && mods == Shift) && !rt.claimed(k) && rt.menuKey() {
@@ -1213,10 +1221,8 @@ func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCod
 		rt.blinkStart = rt.now()
 		rt.requestFrame()
 		// Taken: the menu item of the key, as Edit › Paste's Ctrl+V on
-		// Windows, leaves it rather than pasting a second time. A key
-		// that types text is kept from the shortcuts but left: its text
-		// comes from the input method, which skips a key taken (macOS).
-		return !typesText(k)
+		// Windows, leaves it rather than pasting a second time.
+		return true
 	}
 	if s := rt.states[rt.focused]; s != nil && s.flags&flagTypeSelect != 0 && !rt.claimed(k) {
 		// The first letters of a row of a list: they add up while typed
