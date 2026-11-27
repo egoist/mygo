@@ -570,6 +570,22 @@ func TestCodeEditorHoverDelay(t *testing.T) {
 	}
 }
 
+// The pointer's first rest asks for a hover at the text's very start too.
+func TestCodeEditorHoverAtStart(t *testing.T) {
+	st := &State{Buffer: NewBuffer("SELECT 1\n")}
+	var asked []int
+	st.OnHover = func(r HoverRequest) { asked = append(asked, r.Offset) }
+	tt := ui.NewTester(func(c *ui.Context) { View(c, st).Fill() }, 600, 300)
+	tt.Frame()
+	ed := &st.ed
+	tt.Move(ed.textX+ed.view.charWidth/4, float32(-ed.scrollY)+ed.view.lineHeight/2)
+	tt.Advance(time.Hour)
+	tt.Frame()
+	if len(asked) != 1 || asked[0] != 0 {
+		t.Fatalf("resting on the first character asked for %v", asked)
+	}
+}
+
 // With NoPointerHover the resting pointer asks for no hover, nor shows a
 // diagnostic's; ShowHover, from the keys, still asks.
 func TestCodeEditorNoPointerHover(t *testing.T) {

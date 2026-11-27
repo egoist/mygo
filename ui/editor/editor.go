@@ -340,7 +340,7 @@ func (ed *editor) init(buf *Buffer, o options, t *ui.Theme) {
 		ed.sels = []sel{{goal: -1, id: 0}}
 		ed.nextID = 1
 		ed.blinkStart = ed.frameNow
-		ed.hover.asked = -1
+		ed.hover.asked, ed.hover.restOff = -1, -1
 		ed.hoverLine = -1
 		// No text has come into view yet: -1, not the text's start.
 		ed.revealAt, ed.revealed = -1, -1
