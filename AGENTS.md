@@ -92,6 +92,8 @@ go run ./examples/permissionflow           # the system's permissions, asked for
 go run ./examples/render                   # a video of native UI, drawn on the GPU (plugins/render); -preview plays it in a window
 go run ./plugins/automation/cmd/mygo-automation skills   # the automation CLI's guide, for agents driving an app
 go run ./examples/sf-symbols               # the system's SF Symbols on macOS (plugins/sfsymbols)
+go run ./examples/screencapture            # a display or a window, taken and shown (plugins/screencapture)
+MYGO_SCREENCAPTURE=1 go test -run TestDevice ./plugins/screencapture   # real captures: asks for Screen Recording on macOS, through the portals on Linux
 go run ./cmd/mygo native build -target host examples/rust-native  # build a package's Rust/Zig library for go run and go test (cargo)
 go run ./cmd/mygo native build ./pkg       # its libraries for every platform, into mygo-plugin.json, ready to publish
 go generate ./plugins/terminal             # build libghostty-vt for every platform (with Zig), write Ghostty's themes
@@ -188,6 +190,11 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   when asked. Its tests check frames against the CPU renderer's and the
   files' tracks; Media Foundation and GStreamer run on temp-runner and in
   Docker.
+  The screencapture plugin is Go only too: ScreenCaptureKit through
+  purego on macOS, Windows.Graphics.Capture through COM on Windows, and
+  xdg-desktop-portal with PipeWire, loaded through purego, on Linux;
+  errors.ErrUnsupported elsewhere. Its unit tests never reach the screen;
+  `TestDevice` (`MYGO_SCREENCAPTURE=1`) does, and the system asks first.
 - The `dist/` of npm packages is not committed: run `bun run build` after
   `bun install` (CI and releases do). Commit `internal/bridge/bridge.js`
   whenever its sources change, and keep the generated clients of examples
