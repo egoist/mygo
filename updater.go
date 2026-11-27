@@ -672,8 +672,14 @@ func openBundle(args []string) bool {
 }
 
 // cleanUpdateLeftovers removes what an update could not remove while the
-// previous version ran (Windows keeps running executables).
+// previous version ran (Windows keeps running executables). Only a build
+// with updates can own such entries — they are made by swapFiles during an
+// update — so a build without updates touches nothing: matching names
+// beside its executable belong to whoever made them.
 func cleanUpdateLeftovers() {
+	if packageUpdateFeed == "" || packageUpdateKey == "" {
+		return
+	}
 	if runtime.GOOS == "darwin" || startExe == "" {
 		return
 	}

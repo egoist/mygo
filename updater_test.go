@@ -745,3 +745,57 @@ func TestUpdateCheckRedirect(t *testing.T) {
 		t.Errorf("asked %d times", n)
 	}
 }
+
+func saveUpdateBuild() (feed, key, exe string) {
+	return packageUpdateFeed, packageUpdateKey, startExe
+}
+
+func restoreUpdateBuild(feed, key, exe string) {
+	packageUpdateFeed, packageUpdateKey, startExe = feed, key, exe
+}
+
+func TestCleanUpdateLeftoversKeepsLookAlikesOfABuildWithoutUpdates(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("darwin's updater leaves no entries of this shape to clean")
+	}
+	dir := t.TempDir()
+	foreign := filepath.Join(dir, ".notes.old-backup")
+	if err := os.WriteFile(foreign, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(dir, ".folder.old-1234", "nested")
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "sentinel.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	feed, key, exe := saveUpdateBuild()
+	defer restoreUpdateBuild(feed, key, exe)
+	packageUpdateFeed, packageUpdateKey, startExe = "", "", filepath.Join(dir, "app")
+	cleanUpdateLeftovers()
+	if _, err := os.Stat(foreign); err != nil {
+		t.Fatalf("the unrelated file beside the executable was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".folder.old-1234", "nested", "sentinel.txt")); err != nil {
+		t.Fatalf("the unrelated folder beside the executable was removed: %v", err)
+	}
+}
+
+func TestCleanUpdateLeftoversRemovesTheLeftoverOfABuildWithUpdates(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("darwin's updater leaves no entries of this shape to clean")
+	}
+	dir := t.TempDir()
+	leftover := filepath.Join(dir, ".notes.old-1234")
+	if err := os.WriteFile(leftover, []byte("gone"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	feed, key, exe := saveUpdateBuild()
+	defer restoreUpdateBuild(feed, key, exe)
+	packageUpdateFeed, packageUpdateKey, startExe = "https://updates.example/feed", "key", filepath.Join(dir, "app")
+	cleanUpdateLeftovers()
+	if _, err := os.Stat(leftover); !os.IsNotExist(err) {
+		t.Fatalf("the update leftover stayed: %v", err)
+	}
+}
