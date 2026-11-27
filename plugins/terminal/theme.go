@@ -10,8 +10,9 @@ import (
 // themes.
 type Theme struct {
 	Foreground, Background ui.Color
-	// Cursor colors the cursor: the foreground when zero. CursorText
-	// colors the text under a block cursor: the background when zero.
+	// Cursor colors the cursor, its alpha too: the foreground when zero.
+	// CursorText colors the text under a block cursor: the background
+	// when zero.
 	Cursor, CursorText ui.Color
 	// Selection highlights the selected text: the foreground, a third
 	// opaque, when zero. SelectionText colors the selected text: its own

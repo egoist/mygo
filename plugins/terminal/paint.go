@@ -912,8 +912,11 @@ func (v *view) cursorRect(ox, oy, cw, ch float32) (r ui.Rect, c, text ui.Color, 
 	c = color(v.colors.Foreground)
 	if v.colors.HasCursor {
 		c = color(v.colors.Cursor)
-	} else if v.theme.Cursor.A > 0 {
-		c = v.theme.Cursor
+	}
+	// The terminal's colors are opaque: the theme's cursor keeps its alpha
+	// unless a program set another (OSC 12).
+	if th := v.theme.Cursor; th.A > 0 && (!v.colors.HasCursor || v.colors.Cursor == rgb(th)) {
+		c = th
 	}
 	text = color(v.colors.Background)
 	if v.theme.CursorText.A > 0 {
