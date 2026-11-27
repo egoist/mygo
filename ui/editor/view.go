@@ -260,6 +260,20 @@ func orShared(sys *text.System) *text.System {
 	return sys
 }
 
+// keep holds l, a layout the cache gave, as if this frame had asked for
+// it: a piece of a line laid out in an earlier frame does not ask for its
+// shape as it shows, which would leave the cache and be shaped again when
+// an edit lays the lines out anew.
+func (c *shapeCache) keep(l *text.Layout) {
+	if l.Params.Style != c.style {
+		return
+	}
+	if c.cur == nil {
+		c.cur = map[shapeKey]*text.Layout{}
+	}
+	c.cur[shapeKey{l.Params.Text, l.Params.Spans}] = l
+}
+
 func (c *shapeCache) endFrame() {
 	c.prev, c.cur = c.cur, c.prev
 	if c.cur != nil {
@@ -1217,7 +1231,9 @@ func (v *view) piece(l *lineLayout, p *rowPiece) *text.Layout {
 	if l.owner != nil && l.owner != v {
 		return l.owner.piece(l, p)
 	}
-	if p.l == nil {
+	if p.l != nil {
+		v.shaped.keep(p.l)
+	} else {
 		p.l = v.shaped.getSpans(l.disp[p.from:p.to], v.spansOf(l, p.from, p.to), v.style)
 		// The text engine may set a piece's characters farther apart than
 		// their advances, which placed the pieces, add up to, as Core Text
