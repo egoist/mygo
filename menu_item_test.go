@@ -40,13 +40,13 @@ func TestMenuInsert(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{})
 	w.SetMenu(m)
 	m.Insert(0, &MenuItem{ID: "top", Label: "Top"})
-	onMain(func() {}) // the menu is installed again on the main thread
-	onMain(func() {
-		menu := fw.Menu()
-		if menu == nil || len(menu.Items) != 6 || menu.Items[0].Label != "Top" {
-			t.Fatalf("the window's menu was not shown again: %+v", menu)
-		}
-	})
+	// The menu is installed again on the main thread, before this runs.
+	// Read it there but check it here: t.Fatal on the main thread would end
+	// the event loop's goroutine and hang the tests after this one.
+	menu := onMainValue(fw.Menu)
+	if menu == nil || len(menu.Items) != 6 || menu.Items[0].Label != "Top" {
+		t.Fatalf("the window's menu was not shown again: %+v", menu)
+	}
 }
 
 // The setters change what the item is and what the backend is told: a
