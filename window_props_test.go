@@ -2,7 +2,10 @@
 
 package mygo
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // TestWindowBooleans checks what a window says of the switches it was
 // made with: what was switched off reads back off, what was left alone
@@ -135,9 +138,12 @@ func TestWindowLook(t *testing.T) {
 	w.SetWindowButtonsTheme("")
 	w.SetContentProtection(true)
 
-	w.SetRepresentedFile("/tmp/report.md")
-	if got := w.RepresentedFile(); got != "/tmp/report.md" {
-		t.Errorf("RepresentedFile = %q, want the one SetRepresentedFile set", got)
+	// An absolute path on every platform: SetRepresentedFile makes
+	// paths absolute, and "/tmp/report.md" is not on Windows.
+	report := filepath.Join(t.TempDir(), "report.md")
+	w.SetRepresentedFile(report)
+	if got := w.RepresentedFile(); got != report {
+		t.Errorf("RepresentedFile = %q, want %q, the one SetRepresentedFile set", got, report)
 	}
 	if !w.HasShadow() {
 		t.Error("a window that was not asked to go without has no shadow")
