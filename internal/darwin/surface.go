@@ -1482,8 +1482,12 @@ func registerSurfaceClass() {
 			// back with Backspace the same way (한 → 하).
 			key := platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), PhysicalKey: physicalKey(ev), Code: eventKeyCode(ev), Mods: mods, Repeat: sendBool(ev, "isARepeat")}
 			withheld := ime && (s.hasMarkedText() || key.Key == platform.KeyBackspace)
-			if !withheld {
-				s.send(key)
+			// A key the content took, as an editor's shortcut, types
+			// nothing as well, as AppKit's views leave interpretKeyEvents:
+			// the keys they handle: else Option+Shift+F both runs its
+			// shortcut and types Ï.
+			if !withheld && s.send(key) {
+				return
 			}
 			// Input methods see the key while a text input has the focus;
 			// they answer with insertText: or setMarkedText:.

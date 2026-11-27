@@ -1254,6 +1254,17 @@ func TestKeyCmd(handle uintptr, code uint16, chars string) bool {
 	return true
 }
 
+// TestKeyFlags presses a key with the modifier flags held (NSEventModifierFlags)
+// in a window showing native UI, through its input method, as TestKey does.
+func TestKeyFlags(handle uintptr, code uint16, chars string, flags uint) bool {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	sendKeyFlags(w, code, chars, flags)
+	return true
+}
+
 // sendKeyToWindow sends a key down and up to a window, as the keyboard does.
 func sendKeyToWindow(w *window, code uint16, chars string, shift bool) {
 	var flags uint

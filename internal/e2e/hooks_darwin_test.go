@@ -253,6 +253,12 @@ func pressKey(w *mygo.Window, code uint16, chars string) (ok bool) {
 	return ok
 }
 
+// pressKeyFlags is pressKey with the modifier flags (NSEventModifierFlags) held.
+func pressKeyFlags(w *mygo.Window, code uint16, chars string, flags uint) (ok bool) {
+	mygo.RunOnMain(func() { ok = darwin.TestKeyFlags(w.NativeHandle(), code, chars, flags) })
+	return ok
+}
+
 // dragFiles drags files from another application to (x, y) and drops them
 // there, as AppKit does: the surface is the view under the pointer, in the
 // content or over a page, whose drag it hands to the page's web view.
