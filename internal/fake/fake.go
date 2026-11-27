@@ -37,12 +37,19 @@ type Backend struct {
 	IgnoresQuit bool
 	Quits       int
 
-	mu               sync.Mutex
-	noSession        bool // SetNoSessionState
-	windows          []*Window
-	trayIDs          []string
-	trayMonospaced   int
-	trays            []*tray
+	mu             sync.Mutex
+	noSession      bool // SetNoSessionState
+	windows        []*Window
+	trayIDs        []string
+	trayMonospaced int
+	trays          []*tray
+	// trayOrder is every icon ever made, in order, which TrayStates,
+	// ClickTray and RightClickTray count in: Destroy takes an icon out of
+	// trays, not out of here.
+	trayOrder []*tray
+	// TrayImageError injects a failure to give an icon its image, as a
+	// system out of room for it.
+	TrayImageError   error
 	trayDark         bool
 	appMenu          *platform.Menu
 	popups           []Popup
@@ -403,6 +410,7 @@ func (b *Backend) NewTray(_ string, h platform.TrayHandler) (platform.Tray, erro
 	t := &tray{b: b, h: h}
 	b.mu.Lock()
 	b.trays = append(b.trays, t)
+	b.trayOrder = append(b.trayOrder, t)
 	b.mu.Unlock()
 	return t, nil
 }
@@ -1507,9 +1515,21 @@ func (b *Backend) PreferenceReads() int {
 	return b.prefsReads
 }
 
+// tray is a fake tray icon: it records what it was told, which tests
+// read through TrayStates. Only the main thread tells it anything.
 type tray struct {
 	b *Backend
 	h platform.TrayHandler
+	// What the icon was told, in the order of the calls.
+	id              string
+	image           []byte
+	imageIsTemplate bool
+	title           string
+	toolTip         string
+	menu            *platform.Menu
+	activatable     bool
+	popUps          int
+	destroyed       bool
 }
 
 func (t *tray) Dark() bool {
@@ -1520,8 +1540,9 @@ func (t *tray) Dark() bool {
 
 func (t *tray) SetID(id string) {
 	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	t.id = id
 	t.b.trayIDs = append(t.b.trayIDs, id)
-	t.b.mu.Unlock()
 }
 func (t *tray) SetTitleMonospaced(on bool) {
 	if on {
@@ -1531,19 +1552,103 @@ func (t *tray) SetTitleMonospaced(on bool) {
 	}
 }
 
-func (*tray) SetImage([]byte, bool) error { return nil }
-func (*tray) SetTitle(string)             {}
-func (*tray) SetToolTip(string)           {}
-func (*tray) SetMenu(*platform.Menu)      {}
-func (*tray) PopUpMenu(*platform.Menu)    {}
-func (*tray) SetActivatable(bool)         {}
+func (t *tray) SetImage(png []byte, template bool) error {
+	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	if t.b.TrayImageError != nil {
+		return t.b.TrayImageError
+	}
+	t.image, t.imageIsTemplate = png, template
+	return nil
+}
+func (t *tray) SetTitle(title string) {
+	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	t.title = title
+}
+func (t *tray) SetToolTip(tip string) {
+	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	t.toolTip = tip
+}
+func (t *tray) SetMenu(m *platform.Menu) {
+	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	t.menu = m
+}
+func (t *tray) PopUpMenu(*platform.Menu) {
+	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	t.popUps++
+}
+func (t *tray) SetActivatable(on bool) {
+	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	t.activatable = on
+}
 
 // Bounds puts the icon in the menu bar above the fake display's work area.
 func (*tray) Bounds() platform.Rect { return platform.Rect{X: 1300, Width: 30, Height: 25} }
 func (t *tray) Destroy() {
 	t.b.mu.Lock()
+	defer t.b.mu.Unlock()
+	t.destroyed = true
 	t.b.trays = slices.DeleteFunc(t.b.trays, func(x *tray) bool { return x == t })
-	t.b.mu.Unlock()
+}
+
+// TrayState is what a fake tray icon was told.
+type TrayState struct {
+	ID              string
+	Image           []byte
+	ImageIsTemplate bool
+	Title           string
+	ToolTip         string
+	Menu            *platform.Menu
+	Activatable     bool
+	PopUps          int
+	Destroyed       bool
+}
+
+// TrayStates returns what each tray icon was told, in the order they
+// were made, whether they were destroyed since or not.
+func (b *Backend) TrayStates() []TrayState {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	states := make([]TrayState, len(b.trayOrder))
+	for i, t := range b.trayOrder {
+		states[i] = TrayState{
+			ID: t.id, Image: t.image, ImageIsTemplate: t.imageIsTemplate,
+			Title: t.title, ToolTip: t.toolTip, Menu: t.menu,
+			Activatable: t.activatable, PopUps: t.popUps, Destroyed: t.destroyed,
+		}
+	}
+	return states
+}
+
+// ClickTray simulates the user clicking the i-th tray icon made, and
+// RightClickTray a right click of it, which reach the Tray's listeners.
+func (b *Backend) ClickTray(i int) {
+	b.mu.Lock()
+	var h platform.TrayHandler
+	if i >= 0 && i < len(b.trayOrder) {
+		h = b.trayOrder[i].h
+	}
+	b.mu.Unlock()
+	if h != nil {
+		h.Clicked()
+	}
+}
+
+func (b *Backend) RightClickTray(i int) {
+	b.mu.Lock()
+	var h platform.TrayHandler
+	if i >= 0 && i < len(b.trayOrder) {
+		h = b.trayOrder[i].h
+	}
+	b.mu.Unlock()
+	if h != nil {
+		h.RightClicked()
+	}
 }
 
 // Surface is a fake window surface: it records what the content asks of
