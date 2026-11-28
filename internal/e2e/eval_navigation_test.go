@@ -16,6 +16,7 @@ import (
 // collector takes it ("Completion handler for function call is no longer
 // reachable"), and a page left for the back-forward cache is kept whole.
 const pending = "window.started = true; await (window.pending = new Promise(() => {}))"
+const pendingExpr = "(window.startedExpr = true, window.pendingExpr = new Promise(() => {}))"
 
 // TestEvalAcrossNavigation checks that an Eval pending in a page the
 // window leaves returns an error rather than waiting for the window to
@@ -46,18 +47,30 @@ func TestEvalAcrossNavigation(t *testing.T) {
 			}
 			waitFor(t, w, "document.title === 'one'")
 			pid := w.Page().ProcessID()
-			done := make(chan error, 1)
+			bodyDone, exprDone := make(chan error, 1), make(chan error, 1)
 			go func() {
 				_, err := w.Page().Eval(pending)
-				done <- err
+				bodyDone <- err
 			}()
-			waitFor(t, w, "window.started")
+			go func() {
+				_, err := w.Page().Eval(pendingExpr)
+				exprDone <- err
+			}()
+			waitFor(t, w, "window.started && window.startedExpr")
 			c.leave(t, w)
 			waitFor(t, w, "document.title === 'two'")
 			t.Logf("web process %d, then %d", pid, w.Page().ProcessID())
-			err := wait.For(t, "the answer of the Eval in the page left", done)
-			if err == nil || err.Error() != "mygo: the page navigated away before it answered" {
-				t.Errorf("Eval in the page left = %v, want the page navigated away", err)
+			for _, c := range []struct {
+				form string
+				done <-chan error
+			}{
+				{"statement", bodyDone},
+				{"expression", exprDone},
+			} {
+				err := wait.For(t, "the answer of the "+c.form+" Eval in the page left", c.done)
+				if err == nil || err.Error() != "mygo: the page navigated away before it answered" {
+					t.Errorf("Eval %s in the page left = %v, want the page navigated away", c.form, err)
+				}
 			}
 			// The page shown answers, promises too.
 			v, err := w.Page().Eval("new Promise(r => setTimeout(() => r(document.title + !window.started)))")
