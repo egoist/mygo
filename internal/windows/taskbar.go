@@ -241,8 +241,11 @@ func badgeIcon(text string, size int) uintptr {
 	}
 	defer bmp.free()
 	drawBadge(bmp, text, s)
-	// The color bitmap's alpha draws the icon; the mask is unused.
-	mask, _, _ := procCreateBitmap.Call(uintptr(size), uintptr(size), 1, 1, 0)
+	// The color bitmap's alpha draws the icon. The mask is all zeros, as
+	// CreateBitmap leaves a bitmap without bits undefined: rows of 1 bit a
+	// pixel, word aligned.
+	bits := make([]byte, (size+15)/16*2*size)
+	mask, _, _ := procCreateBitmap.Call(uintptr(size), uintptr(size), 1, 1, uintptr(unsafe.Pointer(&bits[0])))
 	defer procDeleteObject.Call(mask)
 	ii := iconInfo{Icon: 1, Mask: mask, Color: bmp.bmp}
 	icon, _, _ := procCreateIconIndirect.Call(uintptr(unsafe.Pointer(&ii)))
