@@ -2219,7 +2219,25 @@ as in Tauri:
   The lock is held until the process exits and released by the system
   then, also on a crash or a kill; the file is never removed, and its
   handle is not inherited (`O_CLOEXEC`, a handle Windows does not
-  inherit), so a process the app started cannot keep it. The holder
+  inherit), so a process the app started cannot keep it. On Unix both
+  files are in a folder only the user can reach, made with mode 0700:
+  `mygo` in `XDG_RUNTIME_DIR` when that is the user's own and closed to
+  others (it is not, say, under `sudo -E`), else `mygo-<uid>` in the
+  temporary folder, then in `/tmp`. A folder that is a link, another
+  user's or open to others, or in a parent others can rename it in (one
+  neither sticky nor closed to them), is refused for the next one; with
+  none left the app runs without the lock rather than trust one, and
+  logs why. The holder takes command lines only from processes of its
+  user (`SO_PEERCRED` on Linux, `getpeereid` on macOS, `LOCAL_PEERCRED`
+  on FreeBSD; elsewhere the folder alone keeps others out). On Windows
+  both are in the user's temporary folder, as before. An older MyGo kept
+  both files (`mygo-<uid>-<hash>`) in `XDG_RUNTIME_DIR` itself, else in
+  the temporary folder. Where that folder is private too, as
+  `XDG_RUNTIME_DIR` and macOS's `$TMPDIR` are (not `/tmp`), a launch
+  also hands its command line to that socket and holds that lock, so a
+  new version waits for an old one, as after an update; and the holder
+  listens on that socket too, so an old version's launch hands its
+  command line over instead of waiting. The holder
   removes a stale socket and listens; the socket only carries the
   command lines of later instances (JSON), and closes on `OnQuit`. A
   launch first hands its command line to whoever answers the socket (the
@@ -2228,7 +2246,10 @@ as in Tauri:
   is starting, or quit and is ending, as for `Relaunch` and updates) it
   tries both again until the lock is free, logging after
   `singleInstanceWait` (10 s): a relaunch must land however long the
-  shutdown takes.
+  shutdown takes. On Android and iOS (`singleInstanceBySystem`), which
+  start an app once and pass it later launches (Android's `singleTask`
+  activity), it returns true at once: no lock, no socket, and no log
+  where no folder would be private (Android's cache is mode 02771).
 - `Relaunch` runs the quit sequence, then (after `OnQuit`, which closes
   the single instance socket; the new instance waits for the lock, which
   this one holds until it exits) starts the executable again with the same

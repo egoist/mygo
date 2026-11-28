@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"testing"
@@ -23,9 +24,13 @@ import (
 // RequestSingleInstanceLock did; MYGO_TEST_INSTANCE_MODE keeps it running
 // until its standard input ends: "hold" as it is, "quit" after its quit
 // (OnQuit), "child" with a process it started (MYGO_TEST_INSTANCE_CHILD),
-// which reads the same input.
+// which reads the same input. MYGO_TEST_INSTANCE_PHONE=1 makes it an
+// instance on a system that runs one instance of an app itself.
 func singleInstanceTestHelper(helper *fake.Backend) {
 	mode := os.Getenv("MYGO_TEST_INSTANCE_MODE")
+	if os.Getenv("MYGO_TEST_INSTANCE_PHONE") == "1" {
+		singleInstanceBySystem = true
+	}
 	if os.Getenv("MYGO_TEST_INSTANCE_WAIT") == "1" {
 		singleInstanceWait = wait.Guard
 		singleInstanceWaiting = func() { fmt.Println("waiting") }
@@ -129,13 +134,38 @@ func (p *testInstance) exit(t *testing.T) {
 // testInstancePaths returns the socket and the lock file of the app
 // named name, which the test removes when it ends.
 func testInstancePaths(t *testing.T, name string) (socket, lock string) {
-	socket = singleInstanceSocket(singleInstanceKey(name))
+	t.Helper()
+	socket, _, err := singleInstanceSocket(singleInstanceKey(name))
+	if err != nil {
+		t.Fatal(err)
+	}
 	lock = singleInstanceLockPath(socket)
 	t.Cleanup(func() {
 		_ = os.Remove(socket)
 		_ = os.Remove(lock)
 	})
 	return socket, lock
+}
+
+// shortTempDir returns a folder the test removes when it ends, short
+// enough for a socket path in it, which t.TempDir may not be.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp(shortTempParent(), "mygo-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
+// shortTempParent is where shortTempDir makes its folders: /tmp on Unix,
+// whose temporary folder can be long, as macOS's is.
+func shortTempParent() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	return "/tmp"
 }
 
 // lockHeld reports whether another holds the lock file at path.
@@ -319,4 +349,22 @@ func TestReadSecondInstanceWithoutEOF(t *testing.T) {
 	if !slices.Equal(msg.Args, []string{"--open", "a.txt"}) || msg.WorkingDir != "/work" {
 		t.Errorf("read %+v", msg)
 	}
+}
+
+// TestSingleInstanceOnPhone checks that where the system runs one
+// instance of an app (Android, iOS), every instance runs as the first and
+// takes no lock and no socket, although a private folder is at hand.
+func TestSingleInstanceOnPhone(t *testing.T) {
+	runtimeDir := shortTempDir(t)
+	name := "MyGoTest-" + t.Name()
+	env := []string{"XDG_RUNTIME_DIR=" + runtimeDir, "MYGO_TEST_INSTANCE_PHONE=1"}
+	first := startInstance(t, name, "hold", env...)
+	first.expect(t, "locked")
+	second := startInstance(t, name, "hold", env...)
+	second.expect(t, "locked")
+	if entries, err := os.ReadDir(runtimeDir); err != nil || len(entries) != 0 {
+		t.Errorf("XDG_RUNTIME_DIR holds %v: %v", entries, err)
+	}
+	second.exit(t)
+	first.exit(t)
 }
