@@ -4,6 +4,7 @@ package d3d11
 
 import (
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"unsafe"
@@ -11,6 +12,7 @@ import (
 	"github.com/egoist/mygo/internal/gpu/d3d11/device"
 	"github.com/egoist/mygo/internal/gpu/gputest"
 	"github.com/egoist/mygo/internal/scene"
+	nativetex "github.com/egoist/mygo/internal/texture"
 )
 
 // TestDrawsVideoAsTheCPURenderer draws frames of video in NV12 from their
@@ -87,6 +89,144 @@ func TestDrawsVideoAsTheCPURenderer(t *testing.T) {
 	if len(r.video.acquired) != 0 {
 		t.Fatal("the frame kept the keyed mutexes of the textures it read")
 	}
+}
+
+// TestDrawsNativeTextureDXGI verifies that native.Texture (internal/texture)
+// can present a D3D11 shared BGRA texture from a non-UI goroutine, wake its
+// watchers, draw through the D3D11 renderer with zero CPU copy alongside a
+// ui.Video-style shared texture without NativeID collision, expose an optional
+// CPU readback via Restore, and clear back to empty.
+func TestDrawsNativeTextureDXGI(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	const halfW, w, h = 64, 128, 64
+	r, err := New(hiddenWindow(t, w, h))
+	if err != nil {
+		t.Skip("no Direct3D 11:", err)
+	}
+	defer r.Release()
+
+	dev, ctx, _, err := device.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer free(&dev)
+	defer free(&ctx)
+
+	// Left half: ui.Video-style shared texture in solid red (BGRA: 0x10, 0x20, 0xe0, 0xff).
+	redBGRA := make([]byte, halfW*h*4)
+	for i := 0; i < len(redBGRA); i += 4 {
+		redBGRA[i], redBGRA[i+1], redBGRA[i+2], redBGRA[i+3] = 0x10, 0x20, 0xe0, 0xff
+	}
+	redHandle := newSharedTexture(t, dev, ctx, halfW, h, redBGRA)
+	defer syscall.CloseHandle(syscall.Handle(redHandle))
+	videoImg := scene.NewImageRGBA(halfW, h, nil)
+	videoImg.Surface = &scene.Surface{Format: scene.SurfaceBGRA, Native: redHandle, NativeID: scene.NextNativeID()}
+	videoImg.Changed()
+
+	// Right half: native.Texture in solid green (BGRA: 0x20, 0xe0, 0x10, 0xff).
+	greenBGRA := make([]byte, halfW*h*4)
+	greenRGBA := make([]byte, halfW*h*4)
+	for i := 0; i < len(greenBGRA); i += 4 {
+		greenBGRA[i], greenBGRA[i+1], greenBGRA[i+2], greenBGRA[i+3] = 0x20, 0xe0, 0x10, 0xff
+		greenRGBA[i], greenRGBA[i+1], greenRGBA[i+2], greenRGBA[i+3] = 0x10, 0xe0, 0x20, 0xff
+	}
+	greenHandle := newSharedTexture(t, dev, ctx, halfW, h, greenBGRA)
+	defer syscall.CloseHandle(syscall.Handle(greenHandle))
+	shared := nativetex.Share(greenHandle)
+
+	tex := nativetex.New()
+	key := new(int)
+	var woke atomic.Int32
+	if img := tex.Frame(key, func() { woke.Add(1) }); img != nil {
+		t.Fatal("expected nil frame before PresentDXGI")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		tex.PresentDXGI(shared, halfW, h, func(dst []byte) []byte { return append(dst[:0], greenRGBA...) })
+		close(done)
+	}()
+	<-done
+
+	if got := woke.Load(); got != 1 {
+		t.Fatalf("PresentDXGI woke watcher %d times, want 1", got)
+	}
+	if sw, sh := tex.Size(); sw != halfW || sh != h {
+		t.Fatalf("Size = %vx%v, want %dx%d", sw, sh, halfW, h)
+	}
+
+	img := tex.Frame(key, func() { woke.Add(1) })
+	if img == nil {
+		t.Fatal("expected non-nil frame after PresentDXGI")
+	}
+	if img.Restore == nil || len(img.Restore()) != len(greenRGBA) {
+		t.Fatal("expected Restore to return RGBA fallback pixels")
+	}
+
+	s := &scene.Scene{
+		Width:  w,
+		Height: h,
+		Clear:  scene.Color{R: 0, G: 0, B: 0, A: 255},
+		Ops: []scene.Op{
+			{
+				Kind:  scene.OpImage,
+				Rect:  scene.Rect{X: 0, Y: 0, W: halfW, H: h},
+				Image: videoImg,
+				Src:   scene.Rect{W: halfW, H: h},
+			},
+			{
+				Kind:  scene.OpImage,
+				Rect:  scene.Rect{X: halfW, Y: 0, W: halfW, H: h},
+				Image: img,
+				Src:   scene.Rect{W: halfW, H: h},
+			},
+		},
+	}
+	if err := r.draw(s); err != nil {
+		t.Fatal(err)
+	}
+	// readBack returns BGRA rows (see d3d11_test.go).
+	pix, stride := r.readBack(t)
+	leftOff := (h/2)*stride + (halfW/2)*4
+	if b, g, rv, a := pix[leftOff], pix[leftOff+1], pix[leftOff+2], pix[leftOff+3]; absDiff(rv, 0xe0) > 2 || absDiff(g, 0x20) > 2 || absDiff(b, 0x10) > 2 || a != 0xff {
+		t.Fatalf("left pixel (video) = RGBA(%#x,%#x,%#x,%#x), want RGBA(0xe0,0x20,0x10,0xff)", rv, g, b, a)
+	}
+	rightOff := (h/2)*stride + (halfW+halfW/2)*4
+	if b, g, rv, a := pix[rightOff], pix[rightOff+1], pix[rightOff+2], pix[rightOff+3]; absDiff(rv, 0x10) > 2 || absDiff(g, 0xe0) > 2 || absDiff(b, 0x20) > 2 || a != 0xff {
+		t.Fatalf("right pixel (native.Texture) = RGBA(%#x,%#x,%#x,%#x), want RGBA(0x10,0xe0,0x20,0xff)", rv, g, b, a)
+	}
+	if len(r.video.shared) != 2 {
+		t.Fatalf("renderer opened %d shared textures, want 2", len(r.video.shared))
+	}
+	if len(r.video.acquired) != 0 {
+		t.Fatal("renderer kept keyed mutex acquired after draw")
+	}
+
+	cleared := make(chan struct{})
+	go func() {
+		tex.Clear()
+		close(cleared)
+	}()
+	<-cleared
+
+	if got := woke.Load(); got != 2 {
+		t.Fatalf("Clear woke watcher %d times total, want 2", got)
+	}
+	if sw, sh := tex.Size(); sw != 0 || sh != 0 {
+		t.Fatalf("Size after Clear = %vx%v, want 0x0", sw, sh)
+	}
+	if img := tex.Frame(key, func() { woke.Add(1) }); img != nil {
+		t.Fatalf("expected nil frame after Clear, got %+v", img)
+	}
+}
+
+func absDiff(a, b byte) byte {
+	if a > b {
+		return a - b
+	}
+	return b - a
 }
 
 // newSharedTexture returns the NT handle of a w×h texture in BGRA of dev with

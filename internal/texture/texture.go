@@ -43,6 +43,8 @@ type state struct {
 	// past are the surfaces frames showed before, held, in use, while
 	// frames in flight on the GPU may still read them.
 	past [inFlight]uintptr
+
+	dxgiState
 }
 
 // inFlight bounds the frames a renderer has in flight that may still read
@@ -86,6 +88,27 @@ func Lookup(id uint64) *Texture {
 // ID identifies the texture for the platform.
 func (t *Texture) ID() uint64 { return t.id }
 
+func (s *state) collectWatchersLocked() []func() {
+	watch := make([]func(), 0, len(s.watch))
+	for key, w := range s.watch {
+		if s.seq-w.seen > staleAfter {
+			// Its window stopped drawing it, or is gone.
+			delete(s.watch, key)
+			continue
+		}
+		watch = append(watch, w.invalidate)
+	}
+	return watch
+}
+
+func (s *state) recordWatcherLocked(key any, invalidate func()) {
+	if w := s.watch[key]; w != nil {
+		w.invalidate, w.seen = invalidate, s.seq
+	} else {
+		s.watch[key] = &watcher{invalidate: invalidate, seen: s.seq}
+	}
+}
+
 // Present shows surface, an IOSurfaceRef whose reference it takes, in the
 // next frame of the windows showing the texture, from any thread.
 func (t *Texture) Present(surface uintptr) {
@@ -101,17 +124,35 @@ func (t *Texture) Present(surface uintptr) {
 	old := s.pending
 	s.pending, s.w, s.h = surface, w, h
 	s.seq++
+	watch := s.collectWatchersLocked()
+	s.mu.Unlock()
+	releaseSurface(old)
+	for _, f := range watch {
+		f()
+	}
+}
+
+// Clear resets the texture to empty so windows stop drawing the previous frame.
+// Safe from any goroutine.
+func (t *Texture) Clear() {
+	s := t.s
+	s.mu.Lock()
+	var old uintptr
+	if !s.isDXGILocked() {
+		old = s.pending
+	}
+	s.pending = 0
+	s.clearDXGILocked()
+	s.w, s.h = 0, 0
+	s.seq++
 	watch := make([]func(), 0, len(s.watch))
-	for key, w := range s.watch {
-		if s.seq-w.seen > staleAfter {
-			// Its window stopped drawing it, or is gone.
-			delete(s.watch, key)
-			continue
-		}
+	for _, w := range s.watch {
 		watch = append(watch, w.invalidate)
 	}
 	s.mu.Unlock()
-	releaseSurface(old)
+	if old != 0 {
+		releaseSurface(old)
+	}
 	for _, f := range watch {
 		f()
 	}
@@ -130,12 +171,11 @@ func (t *Texture) Size() (w, h float32) {
 // which the next present calls. Main thread only.
 func (t *Texture) Frame(key any, invalidate func()) *scene.Image {
 	s := t.s
-	s.mu.Lock()
-	if w := s.watch[key]; w != nil {
-		w.invalidate, w.seen = invalidate, s.seq
-	} else {
-		s.watch[key] = &watcher{invalidate: invalidate, seen: s.seq}
+	if img, ok := s.dxgiFrame(key, invalidate); ok {
+		return img
 	}
+	s.mu.Lock()
+	s.recordWatcherLocked(key, invalidate)
 	surface, seq, w, h := s.pending, s.seq, s.w, s.h
 	if surface != 0 && seq != s.shownSeq {
 		retainSurface(surface)
@@ -174,6 +214,9 @@ func (s *state) GPUTexture(api scene.GPUAPI, device uintptr) uintptr {
 }
 
 func (s *state) release() {
+	if s.isDXGILocked() {
+		return
+	}
 	releaseSurface(s.pending)
 	releaseSurface(s.shown)
 	for _, p := range s.past {
