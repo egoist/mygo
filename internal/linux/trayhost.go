@@ -98,6 +98,7 @@ func (t *tray) resume() {
 	}
 	t.SetTitle(t.title)
 	t.SetToolTip(t.tip)
+	t.resetMenu()
 	t.SetMenu(t.spec)
 }
 

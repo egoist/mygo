@@ -37,6 +37,7 @@ type nativeItem struct {
 	icon         *platform.MenuIcon
 	image, label ptr
 	bar          bool // an item of a menu bar, which shows no icon
+	node         *trayNode
 }
 
 var (
@@ -76,51 +77,7 @@ func initMenuCallbacks() {
 		if settingState {
 			return
 		}
-		b := theBackend
-		id := int(data)
-		// A submenu may have focus. Resolve this native item's window, as
-		// the same Go item may appear in several windows' menu bars.
-		var w *window
-		for _, n := range itemsByID[id] {
-			if n.item == item && n.windowID != 0 {
-				w = b.window(ptr(n.windowID))
-				if w == nil {
-					return
-				}
-				break
-			}
-		}
-		if cmd, ok := editCommands[itemRoles[id]]; ok {
-			if w == nil {
-				for _, x := range b.windows {
-					if !x.closed && gtkWindowIsActive(x.win) {
-						w = x
-						break
-					}
-				}
-			}
-			var v *window
-			if w != nil {
-				v = w.focusedWebView()
-			}
-			if v != nil {
-				// The page of a web view in the content has the keyboard.
-				webkitWebViewExecuteEditingCommand(v.web, cs(cmd))
-			} else if w != nil {
-				if w.surface != nil {
-					role := itemRoles[id]
-					w.h.SurfaceEvent(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: role})
-				} else {
-					webkitWebViewExecuteEditingCommand(w.web, cs(cmd))
-				}
-			}
-			return
-		}
-		if w != nil {
-			w.h.MenuItemClicked(id)
-		} else {
-			b.h.MenuItemClicked(id)
-		}
+		activateMenuItem(item, int(data))
 	})
 	cbMenuDeactivate = purego.NewCallback(func(menu, loop ptr) {
 		gMainLoopQuit(loop)
@@ -468,6 +425,57 @@ func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 		}
 		applyState(n.item, it, n.check)
 		n.disabled = !it.Enabled
+		if n.node != nil {
+			n.node.spec = it
+			n.node.dirtyCheck = false
+		}
+	}
+}
+
+func activateMenuItem(item ptr, id int) {
+	b := theBackend
+	// A submenu may have focus. Resolve this native item's window, as
+	// the same Go item may appear in several windows' menu bars.
+	var w *window
+	for _, n := range itemsByID[id] {
+		if n.item == item && n.windowID != 0 {
+			w = b.window(ptr(n.windowID))
+			if w == nil {
+				return
+			}
+			break
+		}
+	}
+	if cmd, ok := editCommands[itemRoles[id]]; ok {
+		if w == nil {
+			for _, x := range b.windows {
+				if !x.closed && gtkWindowIsActive(x.win) {
+					w = x
+					break
+				}
+			}
+		}
+		var v *window
+		if w != nil {
+			v = w.focusedWebView()
+		}
+		if v != nil {
+			// The page of a web view in the content has the keyboard.
+			webkitWebViewExecuteEditingCommand(v.web, cs(cmd))
+		} else if w != nil {
+			if w.surface != nil {
+				role := itemRoles[id]
+				w.h.SurfaceEvent(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: role})
+			} else {
+				webkitWebViewExecuteEditingCommand(w.web, cs(cmd))
+			}
+		}
+		return
+	}
+	if w != nil {
+		w.h.MenuItemClicked(id)
+	} else {
+		b.h.MenuItemClicked(id)
 	}
 }
 
@@ -600,9 +608,12 @@ type tray struct {
 	// title, tip and spec are the title, tooltip and menu the app set
 	// last, and pending tells that some waited for the watcher
 	// (trayhost.go).
-	title, tip string
-	spec       *platform.Menu
-	pending    bool
+	title, tip    string
+	spec          *platform.Menu
+	pending       bool
+	nodes         []*trayNode
+	rootMI        ptr
+	aboutToShowID uint64
 }
 
 func (b *Backend) NewTray(id string, h platform.TrayHandler) (platform.Tray, error) {
@@ -785,26 +796,7 @@ func (t *tray) SetToolTip(tip string) {
 }
 
 func (t *tray) SetMenu(m *platform.Menu) {
-	if t.spec = m; t.held() {
-		return
-	}
-	dropOwner(t.owner)
-	t.owner = newOwner()
-	menu := gtkMenuNew()
-	if m != nil {
-		buildMenu(menu, m, 0, t.owner, 0, false)
-	}
-	gtkWidgetShowAll(menu)
-	appIndicatorSetMenu(t.ind, menu)
-	t.menu = menu
-	// The items are exported now: give them their icons.
-	for _, list := range itemsByID {
-		for _, n := range list {
-			if n.owner == t.owner && n.icon != nil {
-				setMenuItemIcon(&n, n.icon)
-			}
-		}
-	}
+	t.setMenu(m)
 }
 
 func (t *tray) PopUpMenu(*platform.Menu) {}
@@ -841,10 +833,10 @@ func (t *tray) Destroy() {
 		return
 	}
 	t.SetActivatable(false)
+	t.resetMenu()
 	appIndicatorSetStatus(t.ind, 0) // PASSIVE
 	gObjectUnref(t.ind)
 	t.ind, t.pending = 0, false
-	dropOwner(t.owner)
 	delete(t.b.trays, t.id)
 	if t.iconDir != "" {
 		_ = os.RemoveAll(t.iconDir)
