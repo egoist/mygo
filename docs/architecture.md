@@ -2134,7 +2134,8 @@ as in Tauri:
   every window (any `OnClose` can cancel) → `OnWillQuit` → stop the loop →
   `App.Run` returns → `OnQuit`. It is used for `App.Quit`, Cmd+Q, quit
   Apple Events, and SIGINT/SIGTERM alike (`signal_unix.go`; a second signal
-  exits immediately).
+  exits immediately, from `quitOnSignals`, once the process that installs
+  a staged update has started: see Updates below).
   When the OS ends the session instead (`AppHandler.Terminating`:
   `WM_ENDSESSION` on Windows, `applicationWillTerminate:` on macOS), the
   loop does not stop first: `Application.endSession` calls the same
@@ -2235,11 +2236,10 @@ as in Tauri:
   arguments, or those passed to `Relaunch` in their place
   (`relaunchArguments`), and the working directory it started in: on macOS
   through `open -n <bundle> --args …`, or, with an update staged, through
-  the update's helper, which reads `open`'s arguments from the
-  `relaunch` file of its work directory (a `set --` line of the shell,
-  quoted), written only then. A development build exits with code 75
-  instead, after writing `Relaunch`'s arguments, each ended with a NUL
-  byte, in the file that `MYGO_DEV_RELAUNCH` names
+  the process that installs it (below), which `finish` starts before
+  `OnQuit` and which gets `open`'s arguments as its own. A development
+  build exits with code 75 instead, after writing `Relaunch`'s arguments,
+  each ended with a NUL byte, in the file that `MYGO_DEV_RELAUNCH` names
   (`.mygo/dev/relaunch-args`), and `mygo dev` starts the same build again
   with them, also when that happens before it was ready.
 - Updates (`updater.go`, `internal/update`, `cmd/mygo/updates.go`), in pure
@@ -2258,17 +2258,103 @@ as in Tauri:
   directories and relative links only) and swaps it in: the bundle is
   renamed on macOS, the entries of the app directory on Linux and Windows,
   where the running executable is renamed away and removed at the next
-  launch. There the app directory holds `update.FileList` (`.mygo-files`),
-  its top-level entries as installed, one per line: `mygo build` writes it
-  into the app (so the archive, installer and packages have it), and
-  `swapFiles` rewrites it in the update with the update's entries before
-  swapping it in with them. The entries that the installed list names and
-  the update lacks are renamed aside first, as replaced ones are, and
-  deleted once the swap succeeds, so a failed swap puts them back; entries
-  that no list names (the user's, the uninstaller) and all of an app
-  without a list stay, and so does the running executable. Deltas never
-  make the list from the installed one, which the updater rewrote.
-  `App.Relaunch` then starts the new version from the path the app
+  launch. On macOS `Install` only stages the bundle (`stageBundle`,
+  `pendingUpdate`, replacing an update staged before), and nothing runs
+  until the app quits. `stageBundle` sets `stagedInstaller`, the hook
+  through which the app reaches `installStagedUpdate`, so that apps that
+  never install an update link none of it. However the app quits
+  (`Relaunch`, `Quit`, SIGINT or SIGTERM, `forceStop`, the session
+  ending), `finish` first, before the `OnQuit` listeners, any of which may
+  panic or exit, starts one process of `/bin/sh` (the script
+  `installAfterExit`) in a session of its own (`Setsid`), which ignores
+  SIGHUP, SIGTERM and SIGINT, runs with the system's `PATH`, and inherits
+  no file of the app but its log (`inheritNoFiles` marks the others
+  close-on-exec). A second SIGINT or SIGTERM, which exits at once, starts
+  it from `quitOnSignals` if `finish` has not. Only the first call takes
+  the update (`takeStagedUpdate`); a later one waits for that one to have
+  started the process (`swapStarted`) and reports whether it did, or, past
+  2 s (`swapStartWait`), takes it as started and reports true, so that the
+  second signal does not exit before (unless the start takes longer), and
+  `relaunchNow` does not open the old version while the process may move it
+  away; only if the process could not start does `Relaunch` open the old
+  version (`openBundle`). Given the app's pid, the bundles, the work
+  directory and `open`'s arguments as arguments, never in the script, the
+  process waits for the app to exit (every 0.1 s, giving up after five
+  minutes; a zombie has exited), then swaps the bundles at once, so that the
+  end of the session, whose SIGKILL nothing ignores, has little time to find
+  it between the two `mv`s. It leaves the update if an instance of the app
+  runs from the target (`lsappinfo find bundlepath=`, but for the entry of
+  the app that exited, `lsappinfo find pid=`), one opened as the app quit,
+  which `RequestSingleInstanceLock` made wait for it to exit, and whose
+  bundle the swap would remove; if the target is gone, or is there again
+  once moved aside, as the new bundle would move into it (checked again
+  after the move, which takes the bundle back out of a directory created in
+  between); and if the new bundle cannot move in, after putting the old one
+  back. Otherwise it removes the work directory. When the app relaunches, it
+  then waits for Launch Services to forget the app that exited (at most
+  10 s), and opens the app without `-n` (the app has exited, and the Dock
+  gives the new version its tile), then with `-n` if that fails (not when
+  the app is only slow to start, which would start two); only with `-n` if
+  Launch Services still lists the app that exited, as `open` would only
+  bring it forward. Its output, each step with the time, goes to
+  `update.log` in `PathLogs` (which `SetPath` changes), emptied past 256 KB.
+  Before `Run` started (`App.running`), nothing would start the process:
+  `stageBundle` swaps at once instead (`swapNow`), under the running
+  program, which should then quit or relaunch rather than go on into
+  `Run`. It runs the same script in its `now` mode, which waits for
+  nothing and opens nothing, and returns once the script exits, failing
+  with the log's path when it left the update (or saying that the log
+  could not be opened); Install then removes the work, unless the old
+  version is in it, and the script's log says which. The script exits
+  before `Install` returns, so nothing is marked close-on-exec then;
+  `swapNowMu` keeps those swaps one at a time. An `Install` racing with
+  `Run` starting is not supported: it may swap under the app as it
+  starts.
+  `stageBundle` sets the hook before it reads `stagingClosed` under
+  `stageMu`, and the app sets that before it reads the hook, so either
+  `stageBundle` sees the app quit or the app sees the update. Once the app
+  looked for the staged update as it quits (`stagingClosed`, also when
+  the backend cannot start), and once a process took the staged update
+  (`updateQuitting`), an `Install` that completes is discarded rather than
+  staged, also after `Run` returned: `finish` may be about to take the
+  update staged before, to open it after `Relaunch`, or have taken none
+  and open the old version. Each `Install` first removes the work
+  directories next to the app that are neither the staged update's nor
+  one under way, and that nothing changed for ten minutes
+  (`removeStaleWork`, `staleWorkAge`): a crash, `App.Exit`, another
+  signal, or a swap that left the update or gave up, leaves them, with a
+  hidden copy of the new version next to the app until then. The age
+  keeps the work of another instance of the app, which this process does
+  not know of: a download writes into it, and `startSwap` touches it, so
+  the five minutes a swap waits for its app stay within it; a staged
+  update whose instance runs on for longer may still go, and its swap
+  then logs that it cannot move the bundle aside and leaves the app as
+  it was. Checking the age and then removing would remove what another
+  instance's swap moved in between, as the app moved into `old`:
+  `removeWork` first claims the work, renaming it to
+  `<work>.removing-<pid>`, out of reach of the names its owners use,
+  then checks it again, and renames it back if it changed meanwhile, or
+  if it holds `old` while the app's bundle is gone (a swap that could not
+  put the old version back leaves the only copy there). Claimed
+  directories that an Install did not finish removing go through the
+  same steps. Known limits: a second SIGINT or
+  SIGTERM during the quit installs the update but opens nothing, even after
+  `Relaunch` (its process gets the mode `quit`, not `relaunch`, and `relaunchNow` then
+  opens nothing either); the paths that leave the update (gave up, target
+  gone or there again, another instance) log and exit without opening
+  anything; and an instance started by running `Contents/MacOS/<exe>`
+  directly counts as another instance only once it registers with Launch
+  Services, as its app starts. On Linux and Windows the app directory holds
+  `update.FileList` (`.mygo-files`), its top-level entries as installed, one
+  per line: `mygo build` writes it into the app (so the archive, installer
+  and packages have it), and `swapFiles` rewrites it in the update with the
+  update's entries before swapping it in with them. The entries that the
+  installed list names and the update lacks are renamed aside first, as
+  replaced ones are, and deleted once the swap succeeds, so a failed swap
+  puts them back; entries that no list names (the user's, the uninstaller)
+  and all of an app without a list stay, and so does the running executable.
+  Deltas never make the list from the installed one, which the updater
+  rewrote. `App.Relaunch` then starts the new version from the path the app
   started from. Development builds are never updated. Delta updates work
   as Sparkle's (`internal/update/delta.go`): `mygo build` fetches the
   published manifest of the target, downloads the archives of up to

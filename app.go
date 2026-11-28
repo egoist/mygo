@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -138,6 +139,9 @@ func (a *Application) Run() error {
 		DMABUFRenderer:   string(a.dmabuf),
 		Background:       devBackground,
 	}); err != nil {
+		// No event loop: the app quits, and installs an update that
+		// Install staged meanwhile once the process exits.
+		installStaged(false, nil)
 		return err
 	}
 	a.initialized = true
@@ -315,6 +319,15 @@ func (a *Application) endSession() {
 func (a *Application) finish() {
 	a.finished.Do(func() {
 		a.ended = true
+		// First, before OnQuit's listeners, any of which may panic or
+		// exit: the process that installs an update that Install staged
+		// on macOS, which waits for this process to exit, and opens the
+		// new version when the app relaunches.
+		var args []string
+		if a.relaunch {
+			args = relaunchArguments()
+		}
+		installStaged(a.relaunch, args)
 		stopNativeCalls()
 		stopFileWatches()
 		clipboardStopped = true
@@ -322,14 +335,40 @@ func (a *Application) finish() {
 		saveWindowStates()
 		fire(&a.onQuit)
 		backendExiting()
+		// After OnQuit, which stops taking the command lines of later
+		// instances: the new one waits for this process to exit, which
+		// holds the single instance lock until then. With an update
+		// staged, the process started above opens it instead.
 		if a.relaunch {
-			// After OnQuit, which stops taking the command lines of later
-			// instances: the new one waits for this process to exit, which
-			// holds the single instance lock until then.
 			relaunchNow()
 		}
 		loop.shutdown()
 	})
+}
+
+// stagedInstaller starts the process that installs the update that
+// Install staged on macOS once the app has exited, and that then opens
+// the new version when relaunch is set, with the arguments args; it
+// reports whether a process installs the update, started by this call or
+// an earlier one, which counts as started once a later call waited 2 s for
+// it (installStagedUpdate). stageBundle sets it, so that only apps that install
+// updates link that process and its script.
+var stagedInstaller atomic.Pointer[func(relaunch bool, args []string) bool]
+
+// stagingClosed is set once the app looked for a staged update as it
+// quits: stageBundle, which sets stagedInstaller first, then refuses to
+// stage one, which nothing would install.
+var stagingClosed atomic.Bool
+
+// installStaged calls stagedInstaller, if set. The app calls it as it
+// finishes, however it quits, and on a second signal, which exits at
+// once.
+func installStaged(relaunch bool, args []string) bool {
+	stagingClosed.Store(true)
+	if install := stagedInstaller.Load(); install != nil {
+		return (*install)(relaunch, args)
+	}
+	return false
 }
 
 // backendExiting tells the backend that the process is about to exit,

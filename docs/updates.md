@@ -264,13 +264,25 @@ func checkForUpdates(ctx context.Context) {
 - `Install` downloads the archive, or the delta of the running version,
   checks its signature, and replaces the app. The progress callback gets
   the bytes of the delta, and when the delta fails, starts over with those
-  of the archive. The running app is not affected: the new version runs
-  after `App.Relaunch`, or at the next launch. On macOS the new bundle
+  of the archive. The running app is not affected (on macOS, once
+  `App.Run` started: see below): the new version runs after
+  `App.Relaunch`, or at the next launch. On macOS the new bundle
   replaces the app's once the app has exited, so that the Dock keeps the
-  app's tile. On Linux and Windows it replaces the files of the app's
-  folder, and removes those that the running version installed and the
-  new one no longer has, which `.mygo-files` in the folder lists. Files
-  that no version installed stay, such as the data a portable copy keeps
+  app's tile: it is installed as the app quits through `App.Quit`,
+  `App.Relaunch`, SIGINT or SIGTERM, and each step is logged to
+  `update.log` in the app's logs directory (`~/Library/Logs/<Name>`, or
+  the one that `App.SetPath(mygo.PathLogs, …)` sets). A crash or
+  `App.Exit` leaves the update next to the app, for the next `Install`
+  to remove once it is over 10 minutes old. A program that calls
+  `Install` before `App.Run`, or never calls it, gets its bundle replaced
+  before `Install` returns, under the running program: it should then
+  quit, or relaunch, rather than go on into `Run`. Calling `Install`
+  while `Run` starts is not supported, and `Install` after `Run` returned
+  fails with "the app is quitting".
+  On Linux and Windows it replaces the files of the app's folder, and
+  removes those that the running version installed and the new one no
+  longer has, which `.mygo-files` in the folder lists. Files that no
+  version installed stay, such as the data a portable copy keeps
   next to it, and so does the executable the app runs from. An app built
   before MyGo wrote the list has none, so its first update removes
   nothing. On Windows, when the installer's entry in Settings > Apps is
