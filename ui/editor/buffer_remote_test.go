@@ -715,7 +715,7 @@ func TestBufferEditRemoteEndsGroup(t *testing.T) {
 	}
 	b := NewBuffer("abc")
 	compose(b, Edit{Start: 0, End: 0, Text: "1"}) // 1abc
-	b.endGroup()
+	b.EndGroup()
 	compose(b, Edit{Start: 4, End: 4, Text: "xy"}) // 1abcxy
 	b.EditRemote(Edit{Start: 5, End: 5, Text: "_"})
 	compose(b, Edit{Start: 7, End: 7, Text: "z"})

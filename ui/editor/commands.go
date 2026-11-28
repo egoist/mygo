@@ -5,6 +5,12 @@ import (
 	"strings"
 )
 
+// runRetried runs a command from outside the editor's input, as a menu
+// item or the app does, as retry runs the input's.
+func (ed *editor) runRetried(cmd Command) bool {
+	return ed.retry(func() bool { return ed.run(cmd) })
+}
+
 // run runs a command, and reports whether it did something.
 func (ed *editor) run(cmd Command) bool {
 	r := &ed.view.text
@@ -414,7 +420,7 @@ func (ed *editor) move(extend bool, fn func(sel) int) bool {
 // as moving the carets does, and closes the completions.
 func (ed *editor) endGroup() {
 	if b := ed.buf(); b != nil {
-		b.endGroup()
+		b.EndGroup()
 	}
 	ed.complete.close()
 }
