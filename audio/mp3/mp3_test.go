@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,5 +56,14 @@ func TestDecode(t *testing.T) {
 	}
 	if f := float64(zc) / 2 / (float64(n/2) / 44100); math.Abs(f-440) > 5 {
 		t.Errorf("decoded %v Hz from frame 10000", f)
+	}
+}
+
+// A damaged frame, on which go-mp3 indexes out of range, is an error, not
+// a panic of the app.
+func TestDamaged(t *testing.T) {
+	data := []byte("\xff\xf30000000000000001\xa0" + strings.Repeat("0", 115))
+	if _, err := audio.DecodeSound(data); err == nil {
+		t.Fatal("decoded a damaged file")
 	}
 }
