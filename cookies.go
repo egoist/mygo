@@ -105,7 +105,9 @@ var errNoSession = errors.New("mygo: cookies: a CookiesModule of no session; use
 // The methods are safe from any goroutine once the app is running; on the
 // main thread the app keeps handling events while they wait. Cookies may
 // carry the user's credentials: bind a backend method that does what the
-// page needs rather than giving the page the cookies.
+// page needs rather than giving the page the cookies. On Android, List
+// needs a CookieFilter.URL: its web view lists only the cookies a request
+// sends.
 var Cookies = CookiesModule{calls: &sessionCalls}
 
 // List returns the cookies f chooses, sorted by domain, path and name:

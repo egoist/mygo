@@ -246,7 +246,7 @@ func (b *Backend) handle(msg []byte) []byte {
 		e.Decode(&r)
 		b.h.NetworkChanged(platform.NetworkStatus{Online: e.Online, Metered: e.Metered})
 	case wire.EventAsyncResult, wire.EventCaptured, wire.EventMessageBoxResult, wire.EventFilesResult, wire.EventNotifyDone,
-		wire.EventShareResult, wire.EventMenuPicked, wire.EventPluginResult:
+		wire.EventShareResult, wire.EventMenuPicked, wire.EventPluginResult, wire.EventSiteDataDone:
 		// Answers to a request: its number first, then the rest.
 		rest := r
 		req := r.Int()

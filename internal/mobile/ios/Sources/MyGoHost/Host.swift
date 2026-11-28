@@ -116,6 +116,9 @@ final class Host: NSObject, HostCalls, UNUserNotificationCenterDelegate, UIDocum
                 return r
             }
             w = PluginViewWindow(id: c.id, view: v)
+        } else if DataStores.store(c.store) == nil {
+            r.error = "mygo: cannot create window: its session's store is closed"
+            return r
         } else {
             w = WebWindow(id: c.id, c)
         }

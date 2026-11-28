@@ -599,6 +599,13 @@ object HostImpl : HostCalls {
     override fun secretSet(c: SecretSetCall): SecretSetReply = Secrets.set(app, c)
     override fun secretDelete(c: SecretDeleteCall): SecretDeleteReply = Secrets.delete(app, c)
 
+    override fun newDataStore(c: NewDataStoreCall): NewDataStoreReply = SiteData.newDataStore(c)
+    override fun closeDataStore(c: CloseDataStoreCall) {}
+    override fun listCookies(c: ListCookiesCall) = SiteData.list(c)
+    override fun setCookie(c: SetCookieCall) = SiteData.set(c)
+    override fun deleteCookie(c: DeleteCookieCall) = SiteData.delete(c)
+    override fun clearSiteData(c: ClearSiteDataCall) = SiteData.clear(c)
+
     override fun notify(c: NotifyCall) {
         val a = activity
         if (Build.VERSION.SDK_INT >= 33 && app.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {

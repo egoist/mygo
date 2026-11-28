@@ -110,6 +110,13 @@ func (b *Backend) makeWindow(opts *platform.WindowOptions, h platform.WindowHand
 		Autoplay: opts.Autoplay, SwipeNavigation: opts.SwipeNavigation, PinchZoom: opts.PinchZoom,
 		NoBackgroundThrottling: opts.NoBackgroundThrottling, ViewType: viewType, ViewArgs: viewArgs,
 	}
+	if !opts.Surface && viewType == "" {
+		store, err := storeOf(opts.DataStore)
+		if err != nil {
+			return nil, err
+		}
+		c.Store = store
+	}
 	if parent != nil {
 		c.Parent = parent.id
 		parent.children = append(parent.children, w)

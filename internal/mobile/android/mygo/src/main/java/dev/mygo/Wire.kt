@@ -201,6 +201,7 @@ class CreateWindowCall(
     @JvmField var parent: Long = 0L,
     @JvmField var viewType: String = "",
     @JvmField var viewArgs: String = "",
+    @JvmField var store: Long = 0L,
 ) {
     constructor(r: WireReader) : this() {
         id = r.int()
@@ -221,6 +222,7 @@ class CreateWindowCall(
         parent = r.int()
         viewType = r.string()
         viewArgs = r.string()
+        store = r.int()
     }
 }
 
@@ -1286,6 +1288,106 @@ class SetTabTitleCall(
     }
 }
 
+class NewDataStoreCall(
+    @JvmField var id: String = "",
+    @JvmField var ephemeral: Boolean = false,
+) {
+    constructor(r: WireReader) : this() {
+        id = r.string()
+        ephemeral = r.bool()
+    }
+}
+
+class NewDataStoreReply(
+    @JvmField var store: Long = 0L,
+    @JvmField var error: String = "",
+) {
+    fun encode(w: WireWriter) {
+        w.int(store)
+        w.string(error)
+    }
+}
+
+class CloseDataStoreCall(
+    @JvmField var store: Long = 0L,
+) {
+    constructor(r: WireReader) : this() {
+        store = r.int()
+    }
+}
+
+class ListCookiesCall(
+    @JvmField var req: Long = 0L,
+    @JvmField var store: Long = 0L,
+    @JvmField var url: String = "",
+) {
+    constructor(r: WireReader) : this() {
+        req = r.int()
+        store = r.int()
+        url = r.string()
+    }
+}
+
+class SetCookieCall(
+    @JvmField var req: Long = 0L,
+    @JvmField var store: Long = 0L,
+    @JvmField var url: String = "",
+    @JvmField var name: String = "",
+    @JvmField var value: String = "",
+    @JvmField var attributes: String = "",
+    @JvmField var domain: String = "",
+    @JvmField var path: String = "",
+    @JvmField var secure: Boolean = false,
+    @JvmField var httpOnly: Boolean = false,
+    @JvmField var sameSite: String = "",
+) {
+    constructor(r: WireReader) : this() {
+        req = r.int()
+        store = r.int()
+        url = r.string()
+        name = r.string()
+        value = r.string()
+        attributes = r.string()
+        domain = r.string()
+        path = r.string()
+        secure = r.bool()
+        httpOnly = r.bool()
+        sameSite = r.string()
+    }
+}
+
+class DeleteCookieCall(
+    @JvmField var req: Long = 0L,
+    @JvmField var store: Long = 0L,
+    @JvmField var url: String = "",
+    @JvmField var name: String = "",
+    @JvmField var domain: String = "",
+    @JvmField var path: String = "",
+    @JvmField var attributes: String = "",
+) {
+    constructor(r: WireReader) : this() {
+        req = r.int()
+        store = r.int()
+        url = r.string()
+        name = r.string()
+        domain = r.string()
+        path = r.string()
+        attributes = r.string()
+    }
+}
+
+class ClearSiteDataCall(
+    @JvmField var req: Long = 0L,
+    @JvmField var store: Long = 0L,
+    @JvmField var types: Long = 0L,
+) {
+    constructor(r: WireReader) : this() {
+        req = r.int()
+        store = r.int()
+        types = r.int()
+    }
+}
+
 /** The calls Go makes of the host, on the UI thread. */
 interface HostCalls {
     /** the app's bundle and the system's settings, asked once at start */
@@ -1300,7 +1402,7 @@ interface HostCalls {
     fun screen(): ScreenReply
     /** a line the app wrote to its standard output or error */
     fun log(c: LogCall)
-    /** the screen's content: a web view, or a surface for native UI */
+    /** the screen's content: a web view, in the data store Store (NewDataStore; 0 for the default one), or a surface for native UI */
     fun createWindow(c: CreateWindowCall): CreateWindowReply
     /** the window's content presented its first frame */
     fun firstFrame(c: FirstFrameCall)
@@ -1427,6 +1529,18 @@ interface HostCalls {
     fun setFrameRate(c: SetFrameRateCall)
     /** a tab's title, which the bar shows */
     fun setTabTitle(c: SetTabTitleCall)
+    /** a website data store of a session: kept on disk under ID, a UUID, unless Ephemeral; Store numbers it, Error says why there is none */
+    fun newDataStore(c: NewDataStoreCall): NewDataStoreReply
+    /** the end of the app's use of a store, which goes once no web view uses it */
+    fun closeDataStore(c: CloseDataStoreCall)
+    /** the store's cookies as lines of a Set-Cookie header's form (name=value; domain=…; path=…; expires=…; secure; httponly; samesite=…): every cookie, or with URL those a request to it sends */
+    fun listCookies(c: ListCookiesCall)
+    /** a cookie to set, Name=Value with the Attributes of a Set-Cookie header (Path, SameSite, and Domain, Expires, Secure and HttpOnly when set) as a response from URL would; the other fields are what the cookie must be, which a store checks where it parses the attributes itself */
+    fun setCookie(c: SetCookieCall)
+    /** the cookie of Name, Domain and Path to delete, if any; a store that can only set cookies sets Name= with the Attributes, which expire it, as a response from URL */
+    fun deleteCookie(c: DeleteCookieCall)
+    /** the data of Types (platform.SiteData) to delete from the store, whatever its age */
+    fun clearSiteData(c: ClearSiteDataCall)
 }
 
 /** Runs a call on h and encodes its reply, null for a call not waited for. */
@@ -1523,6 +1637,12 @@ fun dispatchCall(h: HostCalls, buf: ByteArray): ByteArray? {
         87 -> { h.registerFont(RegisterFontCall(r)).encode(w); return w.toByteArray() }
         88 -> h.setFrameRate(SetFrameRateCall(r))
         89 -> h.setTabTitle(SetTabTitleCall(r))
+        90 -> { h.newDataStore(NewDataStoreCall(r)).encode(w); return w.toByteArray() }
+        91 -> h.closeDataStore(CloseDataStoreCall(r))
+        92 -> h.listCookies(ListCookiesCall(r))
+        93 -> h.setCookie(SetCookieCall(r))
+        94 -> h.deleteCookie(DeleteCookieCall(r))
+        95 -> h.clearSiteData(ClearSiteDataCall(r))
     }
     return null
 }
@@ -2035,6 +2155,16 @@ object Event {
         w.int(id)
         w.int(node)
         w.string(action)
+        return w.toByteArray()
+    }
+    /** the answer to a call of a website data store: Cookies are ListCookies' lines; Unsupported tells the store cannot do what was asked */
+    @JvmStatic fun siteDataDone(req: Long, cookies: List<String>, error: String, unsupported: Boolean): ByteArray {
+        val w = WireWriter()
+        w.uvarint(63)
+        w.int(req)
+        w.strings(cookies)
+        w.string(error)
+        w.bool(unsupported)
         return w.toByteArray()
     }
 }

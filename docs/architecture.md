@@ -1199,6 +1199,21 @@ fake host. Desktop files of `darwin` and `linux` exclude `ios` and
 - **Files** are watched with inotify on Android (`internal/inotify`, as
   on desktop Linux) and kqueue on iOS (`internal/kqueue`; see "Watching
   files").
+- **Website data** (`sitedata.go`, the host's `WebsiteData.swift` and
+  `SiteData.kt`): the calls carry a store's number, 0 for the default one,
+  and `SiteDataDone` answers them. iOS keeps a `WKWebsiteDataStore` per
+  session (`dataStoreForIdentifier:`, `nonPersistent()`), set on its web
+  views' configuration, and does as macOS: every cookie of the
+  `WKHTTPCookieStore`, matched with the URL in Go, `Set` through
+  Foundation's parser of a Set-Cookie header, `Clear` and
+  `ClearBrowsingData` with `removeData(ofTypes:)`. Android's
+  `CookieManager` is the process's one store, so `NewDataStore` is
+  unsupported there; it lists the cookies of a URL alone, with their
+  attributes (`CookieManagerCompat.getCookieInfo`), `Set` and `Delete`
+  (an expired cookie of the same key) go through `setCookie` of a
+  Set-Cookie line Go writes, and `Clear` is `removeAllCookies`. Go reads
+  every listing as Set-Cookie lines (`parseCookieLine`), which the iOS
+  host writes as Chromium's are.
 - **Packaging** is the CLI's (`cmd/mygo/ios.go`, `android.go`): for iOS,
   swiftc compiles the embedded host and links it with the Go archive,
   actool compiles the icon, and the bundle gets the build keys App Store

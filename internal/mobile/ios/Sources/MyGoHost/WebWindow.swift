@@ -16,6 +16,7 @@ final class WebWindow: HostWindow, WKNavigationDelegate, WKUIDelegate {
     init(id: Int, _ c: CreateWindowCall) {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
+        config.websiteDataStore = DataStores.store(c.store) ?? .default() // Host.createWindow checked it
         if c.autoplay { config.mediaTypesRequiringUserActionForPlayback = [] }
         if !c.userAgentSuffix.isEmpty { config.applicationNameForUserAgent = c.userAgentSuffix }
         for s in Set(c.schemes) where !WKWebView.handlesURLScheme(s) {

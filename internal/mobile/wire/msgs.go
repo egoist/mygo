@@ -93,6 +93,12 @@ const (
 	CallRegisterFont           = 87
 	CallSetFrameRate           = 88
 	CallSetTabTitle            = 89
+	CallNewDataStore           = 90
+	CallCloseDataStore         = 91
+	CallListCookies            = 92
+	CallSetCookie              = 93
+	CallDeleteCookie           = 94
+	CallClearSiteData          = 95
 )
 
 // Numbers of events.
@@ -159,6 +165,7 @@ const (
 	EventTextInputEnded      = 60
 	EventAccessibilityTree   = 61
 	EventAccessibilityAction = 62
+	EventSiteDataDone        = 63
 )
 
 // AppInfo is the app's bundle and the system's settings, asked once at start.
@@ -311,7 +318,7 @@ func (m *Log) Encode(w *Writer) {
 // Wait reports whether the caller waits for the host to run it.
 func (*Log) Wait() bool { return false }
 
-// CreateWindow is the screen's content: a web view, or a surface for native UI.
+// CreateWindow is the screen's content: a web view, in the data store Store (NewDataStore; 0 for the default one), or a surface for native UI.
 type CreateWindow struct {
 	ID                     int
 	Surface                bool
@@ -331,6 +338,7 @@ type CreateWindow struct {
 	Parent                 int
 	ViewType               string
 	ViewArgs               string
+	Store                  int
 }
 
 func (m *CreateWindow) Encode(w *Writer) {
@@ -353,6 +361,7 @@ func (m *CreateWindow) Encode(w *Writer) {
 	w.Int(m.Parent)
 	w.String(m.ViewType)
 	w.String(m.ViewArgs)
+	w.Int(m.Store)
 }
 
 // Wait reports whether the caller waits for the host to run it.
@@ -1835,6 +1844,136 @@ func (m *SetTabTitle) Encode(w *Writer) {
 // Wait reports whether the caller waits for the host to run it.
 func (*SetTabTitle) Wait() bool { return false }
 
+// NewDataStore is a website data store of a session: kept on disk under ID, a UUID, unless Ephemeral; Store numbers it, Error says why there is none.
+type NewDataStore struct {
+	ID        string
+	Ephemeral bool
+}
+
+func (m *NewDataStore) Encode(w *Writer) {
+	w.Uvarint(CallNewDataStore)
+	w.String(m.ID)
+	w.Bool(m.Ephemeral)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*NewDataStore) Wait() bool { return true }
+
+type NewDataStoreReply struct {
+	Store int
+	Error string
+}
+
+func (m *NewDataStoreReply) Decode(r *Reader) {
+	m.Store = r.Int()
+	m.Error = r.String()
+}
+
+// CloseDataStore is the end of the app's use of a store, which goes once no web view uses it.
+type CloseDataStore struct {
+	Store int
+}
+
+func (m *CloseDataStore) Encode(w *Writer) {
+	w.Uvarint(CallCloseDataStore)
+	w.Int(m.Store)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*CloseDataStore) Wait() bool { return false }
+
+// ListCookies is the store's cookies as lines of a Set-Cookie header's form (name=value; domain=…; path=…; expires=…; secure; httponly; samesite=…): every cookie, or with URL those a request to it sends.
+type ListCookies struct {
+	Req   int
+	Store int
+	URL   string
+}
+
+func (m *ListCookies) Encode(w *Writer) {
+	w.Uvarint(CallListCookies)
+	w.Int(m.Req)
+	w.Int(m.Store)
+	w.String(m.URL)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*ListCookies) Wait() bool { return false }
+
+// SetCookie is a cookie to set, Name=Value with the Attributes of a Set-Cookie header (Path, SameSite, and Domain, Expires, Secure and HttpOnly when set) as a response from URL would; the other fields are what the cookie must be, which a store checks where it parses the attributes itself.
+type SetCookie struct {
+	Req        int
+	Store      int
+	URL        string
+	Name       string
+	Value      string
+	Attributes string
+	Domain     string
+	Path       string
+	Secure     bool
+	HTTPOnly   bool
+	SameSite   string
+}
+
+func (m *SetCookie) Encode(w *Writer) {
+	w.Uvarint(CallSetCookie)
+	w.Int(m.Req)
+	w.Int(m.Store)
+	w.String(m.URL)
+	w.String(m.Name)
+	w.String(m.Value)
+	w.String(m.Attributes)
+	w.String(m.Domain)
+	w.String(m.Path)
+	w.Bool(m.Secure)
+	w.Bool(m.HTTPOnly)
+	w.String(m.SameSite)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*SetCookie) Wait() bool { return false }
+
+// DeleteCookie is the cookie of Name, Domain and Path to delete, if any; a store that can only set cookies sets Name= with the Attributes, which expire it, as a response from URL.
+type DeleteCookie struct {
+	Req        int
+	Store      int
+	URL        string
+	Name       string
+	Domain     string
+	Path       string
+	Attributes string
+}
+
+func (m *DeleteCookie) Encode(w *Writer) {
+	w.Uvarint(CallDeleteCookie)
+	w.Int(m.Req)
+	w.Int(m.Store)
+	w.String(m.URL)
+	w.String(m.Name)
+	w.String(m.Domain)
+	w.String(m.Path)
+	w.String(m.Attributes)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*DeleteCookie) Wait() bool { return false }
+
+// ClearSiteData is the data of Types (platform.SiteData) to delete from the store, whatever its age.
+type ClearSiteData struct {
+	Req   int
+	Store int
+	Types int
+}
+
+func (m *ClearSiteData) Encode(w *Writer) {
+	w.Uvarint(CallClearSiteData)
+	w.Int(m.Req)
+	w.Int(m.Store)
+	w.Int(m.Types)
+}
+
+// Wait reports whether the caller waits for the host to run it.
+func (*ClearSiteData) Wait() bool { return false }
+
 // ReadyEvent is the app finished launching.
 type ReadyEvent struct {
 }
@@ -2742,6 +2881,21 @@ type AccessibilityActionReply struct {
 
 func (m *AccessibilityActionReply) Encode(w *Writer) {
 	w.Bool(m.Handled)
+}
+
+// SiteDataDoneEvent is the answer to a call of a website data store: Cookies are ListCookies' lines; Unsupported tells the store cannot do what was asked.
+type SiteDataDoneEvent struct {
+	Req         int
+	Cookies     []string
+	Error       string
+	Unsupported bool
+}
+
+func (m *SiteDataDoneEvent) Decode(r *Reader) {
+	m.Req = r.Int()
+	m.Cookies = r.Strings()
+	m.Error = r.String()
+	m.Unsupported = r.Bool()
 }
 
 // EventWaits reports whether the host waits for the reply of event op.
