@@ -1478,7 +1478,7 @@ func (e *uiaElement) pageCall(method int, args ...uintptr) (uintptr, bool) {
 // pageOfWindow returns the node of the page that WebView2 shows with the
 // window hwnd, a child of the surface's, if one does.
 func (t *uiaTree) pageOfWindow(hwnd uintptr) *uiaElement {
-	env4 := queryInterface(t.s.w.b.env, &iidICoreWebView2Environment4)
+	env4 := queryInterface(t.s.w.environment(), &iidICoreWebView2Environment4)
 	if env4 == 0 {
 		return nil
 	}

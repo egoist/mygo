@@ -158,6 +158,13 @@ func (w *window) createWebView() {
 			}
 			return
 		}
+		if storeOf(w.opts.DataStore).closedProxy() {
+			if controller != 0 {
+				closeController()
+			}
+			w.webViewFailed(errSessionClosed)
+			return
+		}
 		if failed(hr) || controller == 0 {
 			w.creationFailed(hr)
 			return
@@ -357,6 +364,14 @@ func (w *window) setUp(controller uintptr) {
 		w.focusWebView()
 	}
 
+	if s := storeOf(w.opts.DataStore); s != nil && s.proxied && proxySetupAuthHook != nil {
+		proxySetupAuthHook(s, w, func() {
+			if !w.closed && !w.b.holdForCookies(w) {
+				w.becomeReady()
+			}
+		})
+		return
+	}
 	if !w.b.holdForCookies(w) {
 		w.becomeReady()
 	}
@@ -1093,7 +1108,7 @@ func (w *window) GPUProcessID() int {
 	if w.webview == 0 {
 		return 0
 	}
-	env8 := queryInterface(w.b.env, &iidICoreWebView2Environment8)
+	env8 := queryInterface(w.environment(), &iidICoreWebView2Environment8)
 	if env8 == 0 {
 		return 0
 	}
@@ -1447,7 +1462,7 @@ func (w *window) respondStream(args, deferral uintptr, status int, header http.H
 		}
 	}
 	var resp uintptr
-	hr := comCall(w.b.env, envCreateWebResourceResponse, stream, uintptr(status),
+	hr := comCall(w.environment(), envCreateWebResourceResponse, stream, uintptr(status),
 		uintptr(unsafe.Pointer(u16(http.StatusText(status)))), uintptr(unsafe.Pointer(u16(raw.String()))), uintptr(unsafe.Pointer(&resp)))
 	release(stream)
 	if !failed(hr) && resp != 0 {

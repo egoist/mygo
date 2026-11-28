@@ -20,3 +20,7 @@ func linkMenuIcons() { win.LinkMenuIcons() }
 func linkContextMenus() { win.LinkContextMenus() }
 
 func linkThumbBars() { win.LinkThumbBars() }
+
+var openProxyStore = win.NewProxyDataStore
+
+func supportsSessionProxy() bool { return win.SessionProxySupported() }

@@ -34,6 +34,18 @@ var iidICoreWebView2Environment10 = guid("ee0eb9df-6f12-46ce-b53f-3f47b9c928e0")
 // errNoProfiles is why a web view of a session cannot be made.
 var errNoProfiles = errors.New("mygo: sessions need a newer WebView2 Runtime (profiles, 1.0.1185 or newer)")
 
+var (
+	errSessionClosed    = errors.New("mygo: session closed")
+	proxyEnvHook        func(*dataStore) uintptr
+	proxyCloseHook      func(*dataStore)
+	proxyControllerHook func(*dataStore, uintptr, bool, uintptr) uintptr
+	proxySetupAuthHook  func(*dataStore, *window, func())
+)
+
+func (s *dataStore) closedProxy() bool {
+	return s != nil && s.proxied && s.closed
+}
+
 // dataStore is the WebView2 profile of a session, and the state of the
 // cookie calls of its web views.
 type dataStore struct {
@@ -41,8 +53,12 @@ type dataStore struct {
 	profile string
 	private bool
 	closed  bool
+	proxied bool
 	cookies cookieStore
 }
+
+// SessionProxySupported reports whether this build includes WebView2.
+func SessionProxySupported() bool { return webViewBuilt }
 
 // NewDataStore names the profile of a session: "mygo-" and the session's
 // UUID, or for an ephemeral session an InPrivate profile no other store
@@ -69,6 +85,9 @@ func (s *dataStore) Close() {
 	s.closed = true
 	s.b.closeCookieView(&s.cookies)
 	s.b.dropStores()
+	if s.proxied && proxyCloseHook != nil {
+		proxyCloseHook(s)
+	}
 }
 
 // dropStores forgets the closed stores no cookie call or hidden web view
@@ -102,6 +121,9 @@ func storeOf(store platform.DataStore) *dataStore {
 // s is a *dataStore, not a platform.DataStore, which a nil *dataStore
 // would make a non-nil interface of.
 func (b *Backend) createController(s *dataStore, hwnd uintptr, composition bool, handler uintptr) uintptr {
+	if s != nil && s.proxied && proxyControllerHook != nil {
+		return proxyControllerHook(s, hwnd, composition, handler)
+	}
 	if s == nil {
 		if composition {
 			env3 := queryInterface(b.env, &iidICoreWebView2Environment3)
@@ -135,6 +157,13 @@ func (b *Backend) createController(s *dataStore, hwnd uintptr, composition bool,
 		return comCall(env10, env10CreateCompositionControllerWithOptions, hwnd, options, handler)
 	}
 	return comCall(env10, env10CreateControllerWithOptions, hwnd, options, handler)
+}
+
+func (w *window) environment() uintptr {
+	if s := storeOf(w.opts.DataStore); s != nil && s.proxied && proxyEnvHook != nil {
+		return proxyEnvHook(s)
+	}
+	return w.b.env
 }
 
 // browsingDataKinds returns the COREWEBVIEW2_BROWSING_DATA_KINDS of

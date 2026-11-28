@@ -3,8 +3,11 @@ package mygo
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -41,8 +44,10 @@ type Session struct {
 	// store is the backend's data store, made when a page of the session
 	// or a call first needs it; pages counts the pages using it. Main
 	// thread only.
-	store platform.DataStore
-	pages int
+	store       platform.DataStore
+	pages       int
+	proxy       *platform.SessionProxyConfig
+	createStore func(platform.AppController, platform.DataStoreOptions) (platform.DataStore, error)
 }
 
 var (
@@ -78,11 +83,106 @@ func NewSession(name string) *Session {
 	if s := sessions.named[name]; s != nil {
 		return s
 	}
-	s := &Session{name: name}
+	return makeSession(name, nil)
+}
+
+// makeSession runs with sessions locked.
+func makeSession(name string, proxy *platform.SessionProxyConfig) *Session {
+	s := &Session{name: name, ephemeral: name == "", proxy: proxy}
 	s.Cookies = CookiesModule{s, &sessionCalls}
-	sessions.named[name] = s
+	if name != "" {
+		sessions.named[name] = s
+	}
 	openStore = openSessionStore
 	return s
+}
+
+// SessionProxyConfig configures an HTTP proxy for a desktop session.
+// macOS configures a Network.framework HTTP CONNECT proxy (used for both HTTP
+// and HTTPS) with direct failover disabled; Network.framework still bypasses
+// loopback destinations (127.0.0.1/::1). Linux and Windows use HTTP CONNECT
+// for HTTPS, standard HTTP proxy forwarding (absolute-URI requests) for plain
+// HTTP, and route loopback destinations (127.0.0.1) through the proxy.
+// Authenticated Linux proxies require WebKitGTK 4.1 with libsoup 3. Windows
+// also disables QUIC and non-proxied WebRTC UDP; macOS and Linux do not
+// disable WebRTC UDP via SessionProxyConfig.
+type SessionProxyConfig struct {
+	// HTTPProxy is the proxy endpoint as an http URL with a numeric IP address
+	// and explicit port (for example "http://127.0.0.1:8080" or "http://[::1]:8080").
+	// Hostnames are rejected so the proxy destination cannot be redirected by
+	// DNS resolution or rebinding and so proxy auth challenges match unambiguously.
+	HTTPProxy string
+	// Username is the optional HTTP Basic proxy username.
+	Username string
+	// Password is the optional HTTP Basic proxy password.
+	Password string
+}
+
+// SessionOptions selects the storage and network settings for a session.
+// On Windows a proxied session uses a separate WebView2 environment and
+// browser process, increasing memory usage. Its WebView2Proxy data directory
+// is isolated from an unproxied session with the same name, and quitting the
+// app while an ephemeral proxied session exits may wait up to 1.5 seconds so
+// WebView2 can release its temporary directory for removal.
+type SessionOptions struct {
+	// Name identifies a persistent session kept on disk across runs.
+	Name string
+	// Ephemeral creates a new private session. Name must be empty.
+	Ephemeral bool
+	// Proxy routes web traffic through an HTTP proxy. Nil uses system settings.
+	// On Windows each proxied session needs a separate browser process and
+	// WebView2Proxy/<profile> data directory, isolated from its unproxied namesake.
+	Proxy *SessionProxyConfig
+}
+
+// NewSessionWithOptions returns a fresh ephemeral session or the named session
+// with matching options. NewSession(name) and NewEphemeralSession() are
+// convenience entry points for unproxied sessions; NewSession(name) also
+// retrieves an existing named session regardless of its options.
+// Proxies require macOS 14+, Windows or Linux. Unsupported platforms return
+// an error matching errors.ErrUnsupported. On Windows see SessionOptions for
+// the storage isolation, browser-process memory cost and ephemeral quit wait.
+func NewSessionWithOptions(opts SessionOptions) (*Session, error) {
+	if opts.Name == "" && !opts.Ephemeral {
+		return nil, fmt.Errorf("mygo: SessionOptions needs Name or Ephemeral; DefaultSession returns the default session")
+	}
+	if opts.Name != "" && opts.Ephemeral {
+		return nil, fmt.Errorf("mygo: an ephemeral session cannot have a name")
+	}
+	var proxy *platform.SessionProxyConfig
+	if opts.Proxy != nil {
+		config := platform.SessionProxyConfig{
+			HTTPProxy: opts.Proxy.HTTPProxy,
+			Username:  opts.Proxy.Username,
+			Password:  opts.Proxy.Password,
+		}
+		u, err := url.Parse(config.HTTPProxy)
+		if err != nil || u.Scheme != "http" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || strings.Contains(config.HTTPProxy, "#") {
+			return nil, fmt.Errorf("mygo: invalid HTTP proxy endpoint")
+		}
+		target, err := netip.ParseAddrPort(u.Host)
+		if err != nil || target.Port() == 0 || target.Addr().Zone() != "" || strings.ContainsRune(config.Username, 0) || strings.ContainsRune(config.Password, 0) {
+			return nil, fmt.Errorf("mygo: invalid proxy endpoint or credentials")
+		}
+		if !supportsSessionProxy() {
+			return nil, platform.ErrUnsupported
+		}
+		config.HTTPProxy = "http://" + target.String()
+		proxy = &config
+	}
+	sessions.Lock()
+	defer sessions.Unlock()
+	if s := sessions.named[opts.Name]; s != nil {
+		if s.proxy == proxy || (s.proxy != nil && proxy != nil && *s.proxy == *proxy) {
+			return s, nil
+		}
+		return nil, fmt.Errorf("mygo: session already exists with different options")
+	}
+	s := makeSession(opts.Name, proxy)
+	if proxy != nil {
+		s.createStore = openProxyStore
+	}
+	return s, nil
 }
 
 // NewEphemeralSession returns a new session that keeps its data in
@@ -91,12 +191,9 @@ func NewSession(name string) *Session {
 // uses the session starts with none. Cookies set before its first page
 // opens go to that page. NewEphemeralSession may be called before App.Run.
 func NewEphemeralSession() *Session {
-	s := &Session{ephemeral: true}
-	s.Cookies = CookiesModule{s, &sessionCalls}
 	sessions.Lock()
-	openStore = openSessionStore
-	sessions.Unlock()
-	return s
+	defer sessions.Unlock()
+	return makeSession("", nil)
 }
 
 // Name returns the name of a session NewSession made, "" for the default
@@ -156,7 +253,7 @@ func (s *Session) detach() {
 // one: a persistent session's is identified by a UUID made of its name,
 // and kept in directories of its own on Linux.
 func openSessionStore(s *Session) (platform.DataStore, error) {
-	opts := platform.DataStoreOptions{Ephemeral: s.ephemeral}
+	opts := platform.DataStoreOptions{Ephemeral: s.ephemeral, Proxy: s.proxy}
 	if !s.ephemeral {
 		opts.ID = sessionID(s.name)
 		if runtime.GOOS == "linux" {
@@ -172,7 +269,11 @@ func openSessionStore(s *Session) (platform.DataStore, error) {
 			opts.CacheDir = filepath.Join(cache, "Sessions", opts.ID)
 		}
 	}
-	store, err := backend().App().NewDataStore(opts)
+	create := s.createStore
+	if create == nil {
+		create = platform.AppController.NewDataStore
+	}
+	store, err := create(backend().App(), opts)
 	if err != nil {
 		return nil, fmt.Errorf("mygo: session %q: %w", s.name, err)
 	}

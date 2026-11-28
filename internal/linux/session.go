@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/egoist/mygo/internal/platform"
+	"github.com/egoist/mygo/internal/sessionproxy"
 )
 
 // Sessions (mygo.Session): a store is a WebKitWebContext of its own, with
@@ -20,6 +21,9 @@ import (
 
 var (
 	sessionsOnce                              sync.Once
+	proxySettingsNew                          func(*byte, ptr) ptr
+	proxySettingsFree                         func(ptr)
+	setProxySettings                          func(ptr, int32, ptr)
 	webkitWebsiteDataManagerNew               func(k1, v1, k2, v2 *byte, end ptr) ptr
 	webkitWebsiteDataManagerNewEphemeral      func() ptr
 	webkitWebContextNewWithWebsiteDataManager func(manager ptr) ptr
@@ -38,15 +42,57 @@ func bindSessions() {
 // dataStore is a store of the pages of a session: a web context, and the
 // custom schemes registered on it.
 type dataStore struct {
-	b       *Backend
-	ctx     ptr
-	schemes map[string]bool
-	closed  bool
+	b          *Backend
+	ctx        ptr
+	schemes    map[string]bool
+	closed     bool
+	proxy      *platform.SessionProxyConfig
+	matchProxy func(string, string, int, bool) bool
 }
 
 // NewDataStore makes a web context with a website data manager of its
 // own: WebKitGTK 2.16 or newer.
 func (a appController) NewDataStore(opts platform.DataStoreOptions) (platform.DataStore, error) {
+	return a.newDataStore(opts, nil)
+}
+
+// NewProxyDataStore opens a session with explicit proxy settings.
+func NewProxyDataStore(app platform.AppController, opts platform.DataStoreOptions) (platform.DataStore, error) {
+	a, ok := app.(appController)
+	if !ok {
+		return nil, platform.ErrUnsupported
+	}
+	store, err := a.newDataStore(opts, configureProxy)
+	if err == nil {
+		store.(*dataStore).matchProxy = sessionproxy.Matches
+	}
+	return store, err
+}
+
+var proxyOnce sync.Once
+
+func configureProxy(manager ptr, opts platform.DataStoreOptions) error {
+	if !soup3 && (opts.Proxy.Username != "" || opts.Proxy.Password != "") {
+		return fmt.Errorf("authenticated proxies require WebKitGTK 4.1 (libsoup 3): %w", platform.ErrUnsupported)
+	}
+	proxyOnce.Do(func() {
+		bind(libWebKit, &proxySettingsNew, "webkit_network_proxy_settings_new")
+		bind(libWebKit, &proxySettingsFree, "webkit_network_proxy_settings_free")
+		bind(libWebKit, &setProxySettings, "webkit_website_data_manager_set_network_proxy_settings")
+	})
+	if proxySettingsNew == nil || proxySettingsFree == nil || setProxySettings == nil {
+		return platform.ErrUnsupported
+	}
+	settings := proxySettingsNew(cs(opts.Proxy.HTTPProxy), 0)
+	if settings == 0 {
+		return fmt.Errorf("cannot create network proxy settings")
+	}
+	setProxySettings(manager, 2, settings)
+	proxySettingsFree(settings)
+	return nil
+}
+
+func (a appController) newDataStore(opts platform.DataStoreOptions, configure func(ptr, platform.DataStoreOptions) error) (platform.DataStore, error) {
 	if err := webKit(); err != nil {
 		return nil, err
 	}
@@ -69,9 +115,15 @@ func (a appController) NewDataStore(opts platform.DataStoreOptions) (platform.Da
 	if manager == 0 {
 		return nil, fmt.Errorf("WebKitGTK made no website data manager")
 	}
+	if configure != nil {
+		if err := configure(manager, opts); err != nil {
+			gObjectUnref(manager)
+			return nil, err
+		}
+	}
 	ctx := webkitWebContextNewWithWebsiteDataManager(manager)
 	gObjectUnref(manager) // the context holds it
-	s := &dataStore{b: a.b, ctx: ctx, schemes: map[string]bool{}}
+	s := &dataStore{proxy: opts.Proxy, b: a.b, ctx: ctx, schemes: map[string]bool{}}
 	a.b.stores = append(a.b.stores, s)
 	a.b.applyWebLanguages()
 	connect(ctx, "download-started", cbDownloadStarted, 0)

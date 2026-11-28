@@ -195,6 +195,10 @@ func cookieManagerOf(webview uintptr) (uintptr, error) {
 func (a appController) withCookieManager(store platform.DataStore, done func([]platform.Cookie, error), start func(*cookieRequest)) {
 	b := a.b
 	s := b.cookiesOf(store)
+	if s.data.closedProxy() {
+		done(nil, errSessionClosed)
+		return
+	}
 	if s.requests == nil {
 		s.requests = map[*cookieRequest]struct{}{}
 	}
@@ -249,6 +253,9 @@ func (b *Backend) cookieView(s *cookieStore, done func(error)) {
 		for _, fn := range waiting {
 			fn(err)
 		}
+		if s.data.closedProxy() {
+			b.dropStores()
+		}
 	}
 	if err := b.startEnvironment(nil); !webViewBuilt || err != nil {
 		finish(err)
@@ -264,6 +271,15 @@ func (b *Backend) cookieView(s *cookieStore, done func(error)) {
 			return
 		}
 		hr := withHandler(func(hr, controller uintptr) {
+			if s.data.closedProxy() {
+				if controller != 0 {
+					addRef(controller)
+					comCall(controller, ctlClose)
+					release(controller)
+				}
+				finish(errSessionClosed)
+				return
+			}
 			if failed(hr) || controller == 0 {
 				finish(hresultError("cookies: creating a WebView2 controller", hr))
 				return

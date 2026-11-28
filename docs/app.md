@@ -545,6 +545,49 @@ protocols (`mygo.Protocol`) serve the pages of every session, and a web
 view in [native UI](ui/web-view.md) takes a session in its `PageOptions`
 too.
 
+Use `NewSessionWithOptions(SessionOptions{Name: "work", Proxy: proxy})` for a
+persistent proxied session, or set `Ephemeral: true` and omit the name for a
+fresh private session. A nil proxy uses system settings. Supply a
+`SessionProxyConfig` with an HTTP URL containing a numeric IP and explicit
+port, and optional Basic credentials; hostnames are rejected so the proxy
+endpoint cannot be redirected by DNS resolution or rebinding and so proxy auth
+challenges match unambiguously across platforms. Reopening a name with different
+options returns an error. `NewSession(name)` retrieves the existing session with
+its original settings.
+
+- macOS 14 and later configure a Network.framework HTTP CONNECT proxy on the
+  `WKWebsiteDataStore` with direct failover disabled (used for both `http://`
+  and `https://`). Network.framework still bypasses loopback destinations
+  (`127.0.0.1`, `::1`), and `SessionProxyConfig` does not disable WebRTC UDP on
+  macOS; apps enforcing SSRF boundaries must block loopback/WebRTC separately.
+  Older macOS versions and non-desktop platforms return an error matching
+  `errors.ErrUnsupported`.
+- Linux applies WebKitGTK's `WebKitNetworkProxySettings` with an empty ignore
+  list to the session (using `CONNECT` for `https://` and standard absolute-URI
+  HTTP proxy forwarding for `http://`, including loopback `127.0.0.1`) and
+  answers Basic proxy challenges through the web view's `authenticate` signal.
+  `SessionProxyConfig` does not disable WebRTC UDP on Linux. Authenticated
+  proxies require WebKitGTK 4.1 (libsoup 3); libsoup 2 returns
+  `errors.ErrUnsupported`.
+- On Windows, each proxied session gets its own WebView2 environment and browser
+  process, which costs extra memory. It uses `CONNECT` for `https://` and
+  standard HTTP proxy forwarding for `http://`, routes loopback through the
+  proxy (`<-loopback>`), and disables QUIC and non-proxied WebRTC UDP. Its data
+  directory (`WebView2Proxy/<profile>`) is separate from the same name's
+  unproxied storage across app runs. Ephemeral proxied sessions use a disposable
+  directory under `WebView2Proxy` that is removed once WebView2 exits; quitting
+  the app while an ephemeral proxied session is still closing may wait up to
+  1.5 seconds for that cleanup. WebView2 supplies session credentials via CDP
+  `Fetch` for matching HTTP/HTTPS Basic proxy challenges on the page and its
+  auto-attached child targets, once per exchange (WebSocket handshakes reuse
+  cached HTTP/HTTPS credentials, uncached WebSocket-only proxy auth is not
+  intercepted by CDP `Fetch`, and Service Worker `407` challenges fall back to
+  `BasicAuthenticationRequested`). Any data-folder or browser-argument override
+  from environment, process switches, or WebView2 registry policy (including
+  wildcard `*` `AdditionalBrowserArguments` on enterprise-managed machines)
+  prevents proxied environment creation so the proxy cannot be silently
+  bypassed.
+
 `ClearData` takes `SiteDataCookies`, `SiteDataLocalStorage` (with session
 storage), `SiteDataIndexedDB` (with WebSQL), `SiteDataCaches` (the HTTP
 cache and Cache Storage), `SiteDataServiceWorkers`, or `SiteDataAll`: all

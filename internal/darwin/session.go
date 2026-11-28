@@ -3,9 +3,12 @@
 package darwin
 
 import (
+	"fmt"
 	"log"
+	"net/url"
 	"sync"
 
+	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
 	"github.com/egoist/mygo/internal/platform"
 )
@@ -16,8 +19,9 @@ import (
 
 // dataStore holds a WKWebsiteDataStore, retained until Close.
 type dataStore struct {
-	store  id
-	closed bool
+	store   id
+	proxied bool
+	closed  bool
 }
 
 var inMemoryOnce sync.Once
@@ -44,6 +48,66 @@ func (a appController) NewDataStore(opts platform.DataStoreOptions) (platform.Da
 		s.store = retain(send(cls, "nonPersistentDataStore"))
 	})
 	return s, nil
+}
+
+// NewProxyDataStore opens a session with explicit proxy settings.
+func NewProxyDataStore(app platform.AppController, opts platform.DataStoreOptions) (platform.DataStore, error) {
+	a, ok := app.(appController)
+	if !ok {
+		return nil, platform.ErrUnsupported
+	}
+	store, err := a.NewDataStore(opts)
+	if err != nil {
+		return nil, err
+	}
+	withPool(func() { err = configureProxy(store.(*dataStore).store, *opts.Proxy) })
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
+	store.(*dataStore).proxied = true
+	return store, nil
+}
+
+func configureProxy(store id, c platform.SessionProxyConfig) error {
+	if !sendBool(store, "respondsToSelector:", uintptr(sel("setProxyConfigurations:"))) {
+		return fmt.Errorf("proxy configurations require macOS 14: %w", platform.ErrUnsupported)
+	}
+	lib, err := purego.Dlopen("/System/Library/Frameworks/Network.framework/Network", purego.RTLD_NOW)
+	if err != nil {
+		return err
+	}
+	defer purego.Dlclose(lib)
+	var endpoint func(string, string) id
+	var connect func(id, uintptr) id
+	var credentials func(id, string, string)
+	var clearExcluded func(id)
+	var failover func(id, bool)
+	for symbol, fn := range map[string]any{"nw_endpoint_create_host": &endpoint, "nw_proxy_config_create_http_connect": &connect, "nw_proxy_config_set_username_and_password": &credentials, "nw_proxy_config_clear_excluded_domains": &clearExcluded, "nw_proxy_config_set_failover_allowed": &failover} {
+		addr, e := purego.Dlsym(lib, symbol)
+		if e != nil {
+			return fmt.Errorf("%s: %w", symbol, platform.ErrUnsupported)
+		}
+		purego.RegisterFunc(fn, addr)
+	}
+	u, _ := url.Parse(c.HTTPProxy)
+	ep := endpoint(u.Hostname(), u.Port())
+	if ep == 0 {
+		return fmt.Errorf("invalid proxy endpoint")
+	}
+	defer release(ep)
+	proxy := connect(ep, 0)
+	if proxy == 0 {
+		return fmt.Errorf("cannot create CONNECT proxy")
+	}
+	defer release(proxy)
+	if c.Username != "" || c.Password != "" {
+		credentials(proxy, c.Username, c.Password)
+	}
+	clearExcluded(proxy)
+	failover(proxy, false)
+	send(store, "setProxyConfigurations:", uintptr(send(class("NSArray"), "arrayWithObject:", uintptr(proxy))))
+	return nil
 }
 
 // Close releases the store, which its web views keep while they live.

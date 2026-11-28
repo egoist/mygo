@@ -106,12 +106,20 @@ func (w *window) authChallenge(challenge id, handler uintptr) {
 		callBlock(handler, authDefault, 0)
 		return
 	}
+	isProxy := sendBool(space, "isProxy")
+	if store, ok := w.opts.DataStore.(*dataStore); ok && store.proxied && isProxy {
+		// Network.framework already had the session's credentials.
+		// Cancel the outstanding challenge instead of opening a sign-in dialog.
+		const cancelAuthenticationChallenge = 2
+		callBlock(handler, cancelAuthenticationChallenge, 0)
+		return
+	}
 	resp := w.h.AuthRequested(platform.AuthRequest{
 		Host:    goString(send(space, "host")),
 		Port:    sendInt(space, "port"),
 		Realm:   goString(send(space, "realm")),
 		Scheme:  scheme,
-		IsProxy: sendBool(space, "isProxy"),
+		IsProxy: isProxy,
 	})
 	switch {
 	case resp.Default:

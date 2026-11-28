@@ -20,3 +20,7 @@ func linkMenuIcons() { linux.LinkMenuIcons() }
 func linkContextMenus() { linux.LinkContextMenus() }
 
 func linkDMABUFProbe() { linux.LinkDMABUFProbe() }
+
+var openProxyStore = linux.NewProxyDataStore
+
+func supportsSessionProxy() bool { return true }

@@ -150,7 +150,7 @@ func TestClientCertificateHandler(t *testing.T) {
 }
 
 // selfSigned returns a certificate for 127.0.0.1 that no one issued.
-func selfSigned(t *testing.T) tls.Certificate {
+func selfSigned(t *testing.T, hosts ...string) tls.Certificate {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -160,6 +160,7 @@ func selfSigned(t *testing.T) tls.Certificate {
 		SerialNumber: big.NewInt(time.Now().UnixNano()),
 		Subject:      pkix.Name{CommonName: "mygo e2e"},
 		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
+		DNSNames:     hosts,
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,

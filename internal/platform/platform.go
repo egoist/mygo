@@ -562,8 +562,22 @@ type WindowOptions struct {
 	OwnScene bool
 }
 
+// SessionProxyConfig describes an HTTP CONNECT proxy for one desktop website data store.
+type SessionProxyConfig struct {
+	// HTTPProxy is the proxy endpoint as an http URL with a numeric IP address
+	// and explicit port (for example "http://127.0.0.1:8080" or "http://[::1]:8080").
+	// Hostnames are rejected so the proxy destination cannot be redirected by
+	// DNS resolution or rebinding and so proxy auth challenges match unambiguously.
+	HTTPProxy string
+	// Username is the optional HTTP Basic proxy username.
+	Username string
+	// Password is the optional HTTP Basic proxy password.
+	Password string
+}
+
 // DataStoreOptions describe a website data store (AppController.NewDataStore).
 type DataStoreOptions struct {
+	Proxy *SessionProxyConfig
 	// ID identifies a persistent store from one run to the next: a UUID
 	// in lowercase hex with dashes, which the core derives from the
 	// session's name. It is empty for an ephemeral store.

@@ -209,7 +209,16 @@ func (b *Backend) Run() error {
 
 // Quit ends the event loop. Modal loops (dialogs, menus) end too: they
 // forward WM_QUIT to the loop they run in.
-func (b *Backend) Quit() { procPostQuitMessage.Call(0) }
+func (b *Backend) Quit() {
+	if proxyQuitHook != nil && proxyQuitHook(b, false) {
+		return
+	}
+	procPostQuitMessage.Call(0)
+}
+
+var proxyQuitHook func(*Backend, bool) bool
+
+const timerProxyQuit = 0x5058
 
 func (b *Backend) Signal() {
 	if b.appHwnd == 0 || !b.signaled.CompareAndSwap(false, true) {
@@ -451,6 +460,10 @@ func (b *Backend) appMessage(m uint32, wp, lp uintptr) (uintptr, bool) {
 		b.h.DisplaysChanged()
 		return 0, false
 	case wmTimer:
+		if wp == timerProxyQuit && proxyQuitHook != nil {
+			proxyQuitHook(b, true)
+			return 0, true
+		}
 		if wp == timerCompose {
 			b.recompose()
 			return 0, true

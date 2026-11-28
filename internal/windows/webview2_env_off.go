@@ -28,3 +28,7 @@ func (b *Backend) startEnvironment(*platform.WindowOptions) error {
 
 // WebViewAvailable reports false: the app was built without WebView2.
 func (b *Backend) WebViewAvailable() bool { return false }
+
+func NewProxyDataStore(platform.AppController, platform.DataStoreOptions) (platform.DataStore, error) {
+	return nil, platform.ErrUnsupported
+}

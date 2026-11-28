@@ -19,6 +19,7 @@ var (
 	webkitAuthenticationRequestGetPort      func(req ptr) uint32
 	webkitAuthenticationRequestGetRealm     func(req ptr) ptr
 	webkitAuthenticationRequestGetScheme    func(req ptr) int32
+	webkitAuthenticationRequestIsRetry      func(req ptr) bool
 	webkitAuthenticationRequestIsForProxy   func(req ptr) bool
 	webkitAuthenticationRequestAuthenticate func(req, credential ptr)
 	webkitAuthenticationRequestCancel       func(req ptr)
@@ -37,6 +38,7 @@ func bindAuth() {
 	mustBind(w, &webkitAuthenticationRequestGetPort, "webkit_authentication_request_get_port")
 	mustBind(w, &webkitAuthenticationRequestGetRealm, "webkit_authentication_request_get_realm")
 	mustBind(w, &webkitAuthenticationRequestGetScheme, "webkit_authentication_request_get_scheme")
+	mustBind(w, &webkitAuthenticationRequestIsRetry, "webkit_authentication_request_is_retry")
 	mustBind(w, &webkitAuthenticationRequestIsForProxy, "webkit_authentication_request_is_for_proxy")
 	mustBind(w, &webkitAuthenticationRequestAuthenticate, "webkit_authentication_request_authenticate")
 	mustBind(w, &webkitAuthenticationRequestCancel, "webkit_authentication_request_cancel")
@@ -90,19 +92,34 @@ func initAuthCallbacks() {
 		if scheme == "" {
 			return false
 		}
-		resp := w.h.AuthRequested(platform.AuthRequest{
+		request := platform.AuthRequest{
 			Host:    goStr(webkitAuthenticationRequestGetHost(req)),
 			Port:    int(webkitAuthenticationRequestGetPort(req)),
 			Realm:   goStr(webkitAuthenticationRequestGetRealm(req)),
 			Scheme:  scheme,
 			IsProxy: webkitAuthenticationRequestIsForProxy(req),
-		})
+		}
+		var resp platform.AuthResponse
+		proxyChallenge := false
+		if s, ok := w.opts.DataStore.(*dataStore); ok && s.matchProxy != nil && request.Scheme == "basic" && s.matchProxy(s.proxy.HTTPProxy, request.Host, request.Port, request.IsProxy) {
+			proxyChallenge = true
+			if !webkitAuthenticationRequestIsRetry(req) {
+				resp.Username = s.proxy.Username
+				resp.Password = s.proxy.Password
+			}
+		} else {
+			resp = w.h.AuthRequested(request)
+		}
 		switch {
 		case resp.Default:
 			return false
 		case resp.Username == "" && resp.Password == "":
-			// Without credentials: the server's refusal.
-			webkitAuthenticationRequestAuthenticate(req, 0)
+			if proxyChallenge {
+				webkitAuthenticationRequestCancel(req)
+			} else {
+				// Without credentials: the server's refusal.
+				webkitAuthenticationRequestAuthenticate(req, 0)
+			}
 		default:
 			const forSession = 1 // WEBKIT_CREDENTIAL_PERSISTENCE_FOR_SESSION
 			c := webkitCredentialNew(cs(resp.Username), cs(resp.Password), forSession)
