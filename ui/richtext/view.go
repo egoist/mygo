@@ -85,13 +85,13 @@ type EditorOptions struct {
 	// short of its text and it scrolls a little itself. The editor still
 	// scrolls to keep the caret in view, and with the wheel.
 	NoScrollbar bool
-	// NoMarker is given paragraph p (from 0) of style and reports whether
-	// the editor leaves its marker, a list's bullet or number or a task's
-	// box, unpainted, as an app draws the markers of some lists itself.
-	// The marker's room is kept, and a click on a task's box still checks
-	// it. An app that painted over the editor's marker instead covered it
-	// with a color of its own, which shows on a background that is not
-	// one color, as a window's translucent one.
+	// NoMarker is given paragraph p (from 0) of a list, and its style, and
+	// reports whether the editor leaves its marker, a bullet, a number or
+	// a task's box, unpainted, as an app draws the markers of some lists
+	// itself. The marker's room is kept, and a click on a task's box still
+	// checks it. An app that painted over the editor's marker instead
+	// covered it with a color of its own, which shows on a background that
+	// is not one color, as a window's translucent one.
 	NoMarker func(p int, style ParagraphStyle) bool
 }
 

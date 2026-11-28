@@ -1719,11 +1719,12 @@ func TestRichTextPasteForgetsColumn(t *testing.T) {
 }
 
 // NoMarker leaves the markers it names unpainted, the task's box here,
-// and paints the others: the bullet's.
+// and paints the others: the bullet's. It is asked about lists alone.
 func TestNoMarker(t *testing.T) {
 	doc := NewDocument(TextOf(
 		Paragraph{Style: ParagraphStyle{List: Tasks}, Runs: []Run{{Text: "a"}}},
 		Paragraph{Style: ParagraphStyle{List: Bullets}, Runs: []Run{{Text: "b"}}},
+		Paragraph{Runs: []Run{{Text: "c"}}},
 	))
 	var asked []int
 	noBox := false
@@ -1765,7 +1766,7 @@ func TestNoMarker(t *testing.T) {
 	if !bytes.Equal(marks(boxes[1]), bullet) {
 		t.Fatal("the bullet is not painted as it was")
 	}
-	if !slices.Contains(asked, 0) || !slices.Contains(asked, 1) {
+	if !slices.Contains(asked, 0) || !slices.Contains(asked, 1) || slices.Contains(asked, 2) {
 		t.Fatalf("NoMarker asked about %v", asked)
 	}
 }

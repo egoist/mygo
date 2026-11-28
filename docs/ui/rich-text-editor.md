@@ -209,10 +209,10 @@ made through the document. `EditorOptions` set:
   above it, more than the theme's, as a list opens a place where an item
   dragged would go; less than zero takes room away from the theme's, down
   to none, as a rule's paragraph sits closer to the text around it;
-- `NoMarker`, given a paragraph and its style and reporting whether the
-  editor leaves its marker (a bullet, a number, a task's box) unpainted, as
-  an app draws the markers of some lists itself; the room stays, and a
-  click on a task's box still checks it;
+- `NoMarker`, given a paragraph of a list and its style and reporting
+  whether the editor leaves its marker (a bullet, a number, a task's box)
+  unpainted, as an app draws the markers of some lists itself; the room
+  stays, and a click on a task's box still checks it;
 - `Theme`, how the text looks (see [Theme](#theme)).
 
 The keys are those of word processors, with Control in place of Command off

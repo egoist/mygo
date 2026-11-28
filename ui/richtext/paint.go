@@ -88,9 +88,7 @@ func (v *view) paintText(p *ui.Painter, r ui.Rect, w float32) {
 		}
 		p.TextLayout(pv.layout, x, y, look.Text)
 		v.paintAttachments(p, i, pv, x, y)
-		if v.opts.NoMarker == nil || !v.opts.NoMarker(i, st) {
-			v.paintMarker(p, i, st, pv, x, y)
-		}
+		v.paintMarker(p, i, st, pv, x, y)
 		if compose == i {
 			c := v.local(i, v.caret)
 			n := len([]rune(v.compose))
@@ -183,7 +181,7 @@ func (v *view) paintBlock(p *ui.Painter, i int, st ParagraphStyle, x, top, heigh
 // paintMarker paints the marker of an item of a list: its bullet, its
 // number, or its check box.
 func (v *view) paintMarker(p *ui.Painter, i int, st ParagraphStyle, pv *paraView, x, y float32) {
-	if st.List == NoList {
+	if st.List == NoList || v.opts.NoMarker != nil && v.opts.NoMarker(i, st) {
 		return
 	}
 	look := &v.look
