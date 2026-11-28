@@ -523,7 +523,7 @@ func TestCoreTextWrapFuzz(t *testing.T) {
 			}
 			wrapped++
 			e.u16, e.index = appendUTF16(e.u16[:0], e.index[:0], text)
-			want := e.typesetLines(typesetter, len(e.u16), width, nil, false, false, e.index, style.Italic)
+			want := e.typesetLines(typesetter, 0, len(e.u16), width, nil, false, false, e.index, style.Italic)
 			if !sameLines(got, want) {
 				report(t, text, style, width, got, want)
 				return
@@ -555,4 +555,202 @@ func report(t *testing.T, text []rune, style Style, width float32, got, want []s
 		}
 	}
 	t.Fatalf("in %+v at %v, %d lines, Core Text's %d", style, width, len(got), len(want))
+}
+
+// TestCoreTextWindowedTypeset holds lines broken over bounded
+// typesetters to those of one typesetter over the whole paragraph, which
+// past typesetterLimit allows unbounded layout and lays a long text out as
+// a short one: Core Text's default lays it out otherwise. A span changing
+// nothing (plain) takes a text off the kept typesetter onto windows, and
+// with keptLimit at 0 every text but plain Latin is.
+func TestCoreTextWindowedTypeset(t *testing.T) {
+	oldThreshold, oldKept := windowThreshold, keptLimit
+	defer func() { windowThreshold, keptLimit = oldThreshold, oldKept }()
+	repeat := func(s string, n int) []rune {
+		r := []rune(s)
+		return []rune(strings.Repeat(s, (n+len(r)-1)/len(r)))[:n]
+	}
+	english := "The quick brown fox jumps over the lazy dog, while 42 typists in 1987 wrote flowing prose about kerning, ligatures (fi, fl, ffi) and office affairs. "
+	chinese := "长途综合对比卡片需要在一个超长段落里排版，中文没有空格，标点“如此”，数字123和English混排。"
+	mixed := english + chinese + "emoji 😀👍🏽 e\u0301 — “quotes” 1,234.56 "
+	plain := []Span{{End: 1 << 30}}
+	// rich styles runs of the text in turn bold, italic, monospaced and
+	// plain, as a Markdown paragraph's.
+	rich := func(n int) []Span {
+		looks := []Span{{Weight: 700}, {Italic: true}, {Family: "Menlo"}, {}}
+		var spans []Span
+		for end, i := 23, 0; end < n+23; end, i = end+23, i+1 {
+			sp := looks[i%len(looks)]
+			sp.End = min(end, n)
+			spans = append(spans, sp)
+		}
+		return spans
+	}
+	cases := []struct {
+		name       string
+		text       []rune
+		style      Style
+		spans      []Span
+		window     int
+		width      float32
+		windowed   bool
+		wholeWords bool
+	}{
+		{"english", repeat(english, 14000), Style{Size: 14}, plain, 4096, 400, true, false},
+		{"english_small_window", repeat(english, 14000), Style{Size: 14}, plain, 128, 250, true, false},
+		{"english_kept", repeat(english, 14000), Style{Size: 14}, nil, 4096, 400, false, false},
+		{"chinese", repeat(chinese, 14000), Style{Size: 14}, nil, 4096, 400, true, false},
+		{"chinese_small_window", repeat(chinese, 14000), Style{Size: 14}, nil, 128, 300, true, false},
+		{"narrow", repeat(mixed, 14000), Style{Size: 14}, nil, 4096, 120, true, false},
+		{"bold", repeat(mixed, 14000), Style{Size: 14, Weight: 700}, nil, 4096, 400, true, false},
+		{"italic", repeat(mixed, 14000), Style{Size: 14, Italic: true}, nil, 4096, 400, true, false},
+		{"family", repeat(mixed, 14000), Style{Size: 15, Family: "Georgia"}, nil, 4096, 400, true, false},
+		{"lang", repeat(mixed, 14000), Style{Size: 13, Lang: "zh-Hans"}, nil, 4096, 400, true, false},
+		{"spacing", repeat(mixed, 14000), Style{Size: 14, LetterSpacing: 0.5}, nil, 4096, 400, true, false},
+		{"rich", repeat(mixed, 14000), Style{Size: 14}, rich(14000), 4096, 400, true, false},
+		{"rich_small_window", repeat(mixed, 14000), Style{Size: 14}, rich(14000), 128, 300, true, false},
+		{"long_token", append([]rune(strings.Repeat("x", 5000)), repeat(english, 9000)...), Style{Size: 14}, plain, 128, 250, true, false},
+		{"attachments", repeat("a\ufffc b ", 12000), Style{Size: 14}, []Span{{End: 1 << 30, ObjectWidth: 28, ObjectHeight: 20}}, 128, 350, true, false},
+		{"tabs", repeat("a\tb c ", 12000), Style{Size: 14, TabSize: 8, tabStop: 30}, nil, 128, 350, true, false},
+		{"emoji", repeat("a😀e\u0301 b ", 12000), Style{Size: 14}, nil, 128, 350, true, false},
+		{"whole_words", repeat("verylongwordthatwillnotfitanywhere and words ", 12000), Style{Size: 14}, nil, 128, 250, true, true},
+		{"keep_words", repeat("한국어 단어가 줄을 넘지 않도록 ", 12000), Style{Size: 14, Lang: "ko"}, nil, 128, 250, true, false},
+		{"breaks", repeat("hy\u00adphenated words and lines ", 12000), Style{Size: 14}, plain, 128, 250, true, false},
+		{"rtl", append(repeat("plain prefix ", 1000), repeat("مرحبا بالعالم ", 4000)...), Style{Size: 14}, plain, 128, 300, false, false},
+		{"bidi_control", append(repeat(english, 6000), []rune("\u202E")...), Style{Size: 14}, plain, 128, 300, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			windowThreshold, keptLimit = 1<<30, 1<<30
+			want := shapedWithWindows(t, c.text, c.style, c.spans, c.width, c.wholeWords)
+			windowThreshold, keptLimit = c.window, 0
+			got := shapedWithWindows(t, c.text, c.style, c.spans, c.width, c.wholeWords)
+			if !sameShape(want, got) {
+				t.Fatalf("%d lines shaped over windows differ from %d lines shaped whole", len(got), len(want))
+			}
+			u16, _ := appendUTF16(nil, nil, c.text)
+			windowed := !keeps(c.text, len(u16), c.style, c.spans, c.width, false, c.wholeWords, c.style.Lang) && windowEligible(c.text, false)
+			if windowed != c.windowed {
+				t.Fatalf("windowed %v, want %v", windowed, c.windowed)
+			}
+		})
+	}
+}
+
+// TestCoreTextKeptRewrap wraps a long text kept across widths, as a window
+// being resized does, and holds each width's lines to those over windows,
+// which a span changing nothing takes the text to: the kept typesetter
+// past typesetterLimit lays the text out as short ones do.
+func TestCoreTextKeptRewrap(t *testing.T) {
+	english := "The quick brown fox jumps over the lazy dog, while 42 typists in 1987 wrote flowing prose about kerning and type. "
+	chinese := "长途综合对比卡片需要在一个超长段落里排版，中文没有空格，标点“如此”，数字123和English混排。"
+	for _, c := range []struct {
+		name string
+		text string
+		n    int
+	}{{"english", english, 14000}, {"english_long", english, 40000}, {"chinese", chinese, 14000}, {"mixed", english + chinese, 14000}} {
+		t.Run(c.name, func(t *testing.T) {
+			r := []rune(strings.Repeat(c.text, c.n/len([]rune(c.text))+1))[:c.n]
+			s := newSystem()
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			e := s.engine().(*coreText)
+			for _, width := range []float32{400, 300, 517, 400} {
+				e.resetScratch()
+				got := cloneLines(e.shape(r, Style{Size: 14}, nil, width, false, false))
+				if len(e.typesetters) != 1 {
+					t.Fatalf("%d typesetters kept, want 1", len(e.typesetters))
+				}
+				want := shapedWithWindows(t, r, Style{Size: 14}, []Span{{End: 1 << 30}}, width, false)
+				if len(got) != len(want) {
+					t.Fatalf("at %v, %d lines kept, %d over windows", width, len(got), len(want))
+				}
+				for i := range got {
+					if !sameLine(got[i], want[i]) {
+						t.Fatalf("at %v, line %d [%d,%d) kept differs from [%d,%d) over windows", width, i, got[i].start, got[i].end, want[i].start, want[i].end)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestCoreTextKeptRTL checks that a right-to-left text past keptLimit,
+// which windows do not take, keeps its typesetter across widths, and that
+// each width lays it out as a typesetter made for it alone.
+func TestCoreTextKeptRTL(t *testing.T) {
+	old := keptLimit
+	keptLimit = 4096
+	defer func() { keptLimit = old }()
+	arabic := "النص العربي الطويل يكتب من اليمين إلى اليسار، ويحتوي على أرقام 123 وكلمات English أحيانا. "
+	r := []rune(strings.Repeat(arabic, 14000/len([]rune(arabic))+1))[:14000]
+	s := newSystem()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e := s.engine().(*coreText)
+	for _, width := range []float32{400, 300, 517, 400} {
+		e.resetScratch()
+		got := cloneLines(e.shape(r, Style{Size: 14}, nil, width, true, false))
+		if len(e.typesetters) != 1 {
+			t.Fatalf("%d typesetters kept, want 1", len(e.typesetters))
+		}
+		fresh := newSystem()
+		fresh.mu.Lock()
+		want := cloneLines(fresh.engine().(*coreText).shape(r, Style{Size: 14}, nil, width, true, false))
+		fresh.mu.Unlock()
+		if len(got) != len(want) {
+			t.Fatalf("at %v, %d lines kept, %d fresh", width, len(got), len(want))
+		}
+		for i := range got {
+			if !sameLine(got[i], want[i]) {
+				t.Fatalf("at %v, line %d [%d,%d) kept differs from [%d,%d) fresh", width, i, got[i].start, got[i].end, want[i].start, want[i].end)
+			}
+		}
+	}
+}
+
+// sameLine reports whether two lines, of engines of their own, have the
+// same runes and glyphs, placed within wrapTolerance as wrapKept places
+// them.
+func sameLine(a, b shapedLine) bool {
+	if a.start != b.start || a.end != b.end {
+		return false
+	}
+	var x, y []Glyph
+	for _, r := range a.runs {
+		x = append(x, r.glyphs...)
+	}
+	for _, r := range b.runs {
+		y = append(y, r.glyphs...)
+	}
+	if len(x) != len(y) {
+		return false
+	}
+	for k := range x {
+		if x[k].ID != y[k].ID || x[k].Cluster != y[k].Cluster || math.Abs(float64(x[k].X-y[k].X)) > wrapTolerance ||
+			k < len(x)-1 && math.Abs(float64(x[k].Advance-y[k].Advance)) > wrapTolerance {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneLines(lines []shapedLine) []shapedLine {
+	out := make([]shapedLine, len(lines))
+	for i := range lines {
+		out[i] = cloneLine(lines[i])
+	}
+	return out
+}
+
+// shapedWithWindows shapes text with a fresh engine, whose window
+// threshold the test sets, and copies its lines out of its scratch.
+func shapedWithWindows(t *testing.T, text []rune, style Style, spans []Span, width float32, wholeWords bool) []shapedLine {
+	t.Helper()
+	s := newSystem()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e := s.engine().(*coreText)
+	e.resetScratch()
+	return cloneLines(e.shape(text, style, spans, width, false, wholeWords))
 }
