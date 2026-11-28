@@ -4632,17 +4632,25 @@ either.
     Brackets are matched by scanning lines a batch at a time
     (`rope.Text.EachLine`), skipping strings and comments by their tokens,
     and only lines holding brackets are tokenized for it.
-  - *Snippets* (`snippet.go`). `ParseSnippet` reads the flat tab-stop and
-    placeholder subset of TextMate/LSP into an immutable template;
-    unsupported constructs return errors. Inserting a template, directly
-    or as a `Completion.Snippet`, makes each occurrence of the active
-    stop an ordinary selection. Existing typing, input methods and undo
-    handle them together. A session follows only its next local buffer
-    change, through `apply`/`sync`; external edits end it. Fields move in
-    template order, preserving ownership at adjacent boundaries, and
-    linked deletions stay separate before the editor merges overlapping
-    deletions. Tab ends the typing group and selects the next numbered
-    stop, 0 last; undo, Escape or leaving the fields ends the session.
+  - *Snippets* (`snippet.go`, `snippet_session.go`). `ParseSnippet`
+    reads TextMate/LSP syntax, but transformations, into an immutable
+    tree of text, fields and variables, with each number's first
+    default for its mirrors, and lays it out once with the variables
+    unset, within bounds on its size, fields and nesting that keep a
+    server's template from exhausting memory or the stack. Inserting a
+    template, directly or as a `Completion.Snippet`, lays it out again,
+    within the same bounds, at each site whose variables have values, its
+    fields in template order, each before those it encloses, with its
+    depth. Each occurrence of the active stop becomes an ordinary
+    selection. Existing typing, input methods and undo handle them
+    together. A session follows only its next local buffer change,
+    through `apply`/`sync`; external edits end it. Fields move in
+    template order, preserving ownership at adjacent boundaries: those
+    enclosing an active field grow with it, and those nested in it that
+    its edit replaces or cuts into are removed. Linked deletions stay
+    separate before the editor merges overlapping deletions. Tab ends the
+    typing group and selects the next numbered stop with fields left, 0
+    last; undo, Escape or leaving the fields ends the session.
   - *Diffs* (`internal/diff`, `diffmodel.go`). Lines are interned and
     compared with git's histogram algorithm, falling back to Myers' with
     xdiff's cost limit, then slid by git's indent heuristic; changed

@@ -1,7 +1,10 @@
 package editor
 
 import (
+	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -87,12 +90,23 @@ func TestSnippetParsing(t *testing.T) {
 		{`\$x \\ ${1:a\}b} $1`, `$x \ a}b a}b`},
 		{"${1:你好}\r\n$0", "你好\n"},
 		{"plain text", "plain text"},
+		{"a $ b $", "a $ b $"},
+		{"${1:a ${2:b}} $1", "a b a b"},
+		{"${1:a} ${1:b} $1", "a a a"},
+		{`${1|one,two|} ${2|a\,b,c\|d|} $1`, "one a,b one"},
+		{`${1|$x},y|}`, "$x}"},
+		{"${TM_FILENAME:untitled} $TM_SELECTED_TEXT.", "untitled ."},
+		{"$HOME ${FOO} ${BAR:bar} $HOME", "HOME FOO bar HOME"},
 	} {
 		if got := snippetFor(t, tc.source).Text(); got != tc.text {
 			t.Errorf("%q: got %q, want %q", tc.source, got, tc.text)
 		}
 	}
-	for _, source := range []string{"${", "${1", "${1:x", "$HOME", "${HOME}", "${1|a,b|}", "${1/x/y/}", "${1:${2:x}}", "${1:a} ${1:b}", "$99999999999999999999999999999999", "$2147483648", "\xff"} {
+	// Unknown variables become placeholders numbered after the others.
+	if s := snippetFor(t, "$FOO ${2:x} $BAR $FOO"); !slices.Equal(s.stops, []int{2, 3, 4, 0}) {
+		t.Errorf("stops %v", s.stops)
+	}
+	for _, source := range []string{"${", "${1", "${1:x", "${}", "${-1}", "${1/x/y/}", "${TM_FILENAME/x/y/}", "${1|a,b}", "${1|a,b|", "${1||}", "${1|a,,b|}", "${0|a|}", "${1:x${1:y}}", "${1:${2:0$1}}$2", "${1:$2} ${2:$3} ${3:a$1}", "${1:${2:x}", "$99999999999999999999999999999999", "$2147483648", "${2147483647} $FOO", "\xff"} {
 		if _, err := ParseSnippet(source); err == nil {
 			t.Errorf("accepted unsupported or invalid snippet %q", source)
 		}
@@ -227,7 +241,7 @@ func TestSnippetArrowsAndBufferSwap(t *testing.T) {
 }
 
 func FuzzParseSnippet(f *testing.F) {
-	for _, source := range []string{"", "${1:你好} $1 $2$0", `\$ ${1:a\}b}`, "$1$2$1", "${1:${2:nested}}", "${HOME}", "\xff"} {
+	for _, source := range []string{"", "${1:你好} $1 $2$0", `\$ ${1:a\}b}`, "$1$2$1", "${1:${2:nested}}", "${HOME}", "\xff", "${1|a,b|}", "${1:${2:$1}} $2", "${TM_SELECTED_TEXT:${1:x}}", "${1:${2:0$1}}$2"} {
 		f.Add(source)
 	}
 	f.Fuzz(func(t *testing.T, source string) {
@@ -253,9 +267,12 @@ func FuzzParseSnippet(f *testing.F) {
 }
 
 func FuzzSnippetEdits(f *testing.F) {
-	for _, source := range []string{"${1:a}$2$1$0", "a${1:你好}-$1-$2$0", "$1$2$1", "${2:b}$0${1:x}"} {
+	for _, source := range []string{"${1:a}$2$1$0", "a${1:你好}-$1-$2$0", "$1$2$1", "${2:b}$0${1:x}", "${1:a${2:b}c}-$1-$2$0", "${2:x${1:y${3:z}}}$0"} {
 		f.Add(source, []byte{0, 1, 2, 3, 0, 4, 0})
 	}
+	// Deleting a mirror of 2 nested in 1 next to another not in it.
+	f.Add("${A}${1:$A }$1", []byte{1, 3, 0})
+	f.Add("${1:${2:$1}0}$2", []byte{2})
 	f.Fuzz(func(t *testing.T, source string, actions []byte) {
 		if len(source) > 1024 || len(actions) > 64 {
 			return
@@ -320,4 +337,160 @@ func TestSnippetPreservesPrimarySite(t *testing.T) {
 	if got := ct.st.Cursor(); got != 5 {
 		t.Fatalf("next field scrolled to another site: %d", got)
 	}
+}
+
+// A language server's completion with the fuller syntax: a placeholder
+// nested in another, a choice and a variable.
+func TestSnippetCompletionWithNestedChoiceAndVariable(t *testing.T) {
+	ct := newEditorTest(t, "go", "lo|")
+	snippet, err := ParseSnippet("log(${1:${2:msg}, ${3|info,warn|}}) // $TM_LINE_NUMBER$0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct.st.ShowCompletions(0, []Completion{{Label: "log", Kind: CompletionSnippet, Snippet: snippet}})
+	ct.tt.Frame()
+	ct.key(0, ui.KeyTab)
+	ct.want("log([msg, info]) // 1")
+	ct.key(0, ui.KeyTab)
+	ct.want("log([msg], info) // 1")
+	ct.typ("text")
+	ct.key(0, ui.KeyTab)
+	ct.want("log(text, [info]) // 1")
+	ct.key(ui.Shift, ui.KeyTab)
+	ct.key(ui.Shift, ui.KeyTab)
+	ct.want("log([text, info]) // 1")
+}
+
+func TestSnippetNestedPlaceholders(t *testing.T) {
+	// Typing over a placeholder removes those nested in it.
+	ct := newEditorTest(t, "", "|")
+	ct.st.InsertSnippet(snippetFor(t, "f(${1:a, ${2:b}}, $3)$0"))
+	ct.tt.Frame()
+	ct.want("f([a, b], )")
+	ct.typ("x")
+	ct.key(0, ui.KeyTab)
+	ct.want("f(x, |)")
+	ct.key(ui.Shift, ui.KeyTab)
+	ct.want("f([x], )")
+
+	// A mirror repeats the placeholders nested in its default.
+	ct = newEditorTest(t, "", "|")
+	ct.st.InsertSnippet(snippetFor(t, "${1:a${2:b}}-$1$0"))
+	ct.tt.Frame()
+	ct.want("[ab]-[ab]")
+	ct.key(0, ui.KeyTab)
+	ct.want("a[b]-a[b]")
+	ct.typ("xy")
+	ct.key(0, ui.KeyBackspace)
+	ct.key(ui.Shift, ui.KeyTab)
+	ct.want("[ax]-[ax]")
+	ct.key(0, ui.KeyTab)
+	ct.key(0, ui.KeyTab)
+	ct.want("ax-ax|")
+
+	// The final stop can go with the placeholder holding it: Tab then
+	// ends the session where it is.
+	ct = newEditorTest(t, "", "|")
+	ct.st.InsertSnippet(snippetFor(t, "${1:a$0}b"))
+	ct.tt.Frame()
+	ct.typ("x")
+	ct.key(0, ui.KeyTab)
+	ct.want("x|b")
+	if ct.st.ed.snippet != nil {
+		t.Fatal("session outlived its last stop")
+	}
+}
+
+func TestSnippetVariables(t *testing.T) {
+	ct := newEditorTest(t, "go", "[one] and [two]")
+	var asked []string
+	ct.st.SnippetVariable = func(name string) string {
+		asked = append(asked, name)
+		if name == "TM_FILENAME" {
+			return "main.go"
+		}
+		return ""
+	}
+	ct.tt.Frame()
+	ct.st.InsertSnippet(snippetFor(t, "${1:f}($TM_SELECTED_TEXT, $CURSOR_NUMBER) $LINE_COMMENT $TM_FILENAME ${UUID:none}${FOO:foo}$0"))
+	ct.tt.Frame()
+	ct.want("[f](one, 1) // main.go nonefoo and [f](two, 2) // main.go nonefoo")
+	if !slices.Equal(asked, []string{"TM_FILENAME", "UUID", "TM_FILENAME", "UUID"}) {
+		t.Errorf("asked the app for %q", asked)
+	}
+	ct.typ("g")
+	ct.want("g|(one, 1) // main.go nonefoo and g|(two, 2) // main.go nonefoo")
+
+	// A variable's value replaces its default and the stops in it, at
+	// the sites where it has one; the line and word are each caret's.
+	ct = newEditorTest(t, "", "say [hi]\nsome|thing")
+	ct.st.InsertSnippet(snippetFor(t, "<${TM_SELECTED_TEXT:${1:empty}}> ${TM_LINE_NUMBER}:${TM_CURRENT_WORD} ${2:end}"))
+	ct.tt.Frame()
+	ct.want("say <hi> 1:hi end\nsome<[empty]> 2:something endthing")
+	ct.key(0, ui.KeyTab)
+	ct.want("say <hi> 1:hi [end]\nsome<empty> 2:something [end]thing")
+}
+
+// An unknown variable is a placeholder of its name, numbered after the
+// others, as the LSP specification says.
+func TestSnippetUnknownVariable(t *testing.T) {
+	ct := newEditorTest(t, "", "|")
+	ct.st.InsertSnippet(snippetFor(t, "$NAME = ${1:value}; $NAME$0"))
+	ct.tt.Frame()
+	ct.want("NAME = [value]; NAME")
+	ct.key(0, ui.KeyTab)
+	ct.want("[NAME] = value; [NAME]")
+	ct.typ("x")
+	ct.want("x| = value; x|")
+}
+
+// A server's template cannot exhaust the stack or memory, at parse or
+// insertion.
+func TestSnippetBounds(t *testing.T) {
+	nested := func(n int) string {
+		var b strings.Builder
+		for i := range n {
+			fmt.Fprintf(&b, "${%d:", i+1)
+		}
+		return b.String() + "x$TM_CURRENT_LINE" + strings.Repeat("}", n)
+	}
+	repeated := func(n int) string { return strings.Repeat("${1:", n) + "x" + strings.Repeat("}", n) }
+	for _, tc := range []struct {
+		source, err string
+	}{
+		{nested(maxSnippetDepth), ""},
+		{nested(maxSnippetDepth + 1), "nests more than"},
+		{repeated(1_000_000), "longer than"},
+		{repeated(150_000), "nests more than"},
+		{strings.Repeat("$1 ", maxSnippetFields), ""},
+		{strings.Repeat("$1 ", maxSnippetFields+1), "more than 16384 fields"},
+		{strings.Repeat("a", maxSnippetText+1), "longer than"},
+	} {
+		_, err := ParseSnippet(tc.source)
+		if tc.err == "" && err != nil || tc.err != "" && (err == nil || !strings.Contains(err.Error(), tc.err)) {
+			t.Errorf("%d bytes: error %v, want %q", len(tc.source), err, tc.err)
+		}
+	}
+	// Each level's default holds the mirror of the one below twice: 2^12
+	// copies of a line 4,000 times, laid out only where it is known.
+	source := "${1:" + strings.Repeat("$TM_CURRENT_LINE", 4000) + "}"
+	for k := 2; k <= 13; k++ {
+		source = "${" + strconv.Itoa(k) + ":" + source + "$" + strconv.Itoa(k-1) + "}"
+	}
+	line := strings.Repeat("y", 100)
+	ct := newEditorTest(t, "", line+"|")
+	if ct.st.InsertSnippet(snippetFor(t, source)) || ct.st.Buffer.String() != line {
+		t.Fatal("inserted a template laid out past its bounds")
+	}
+}
+
+// Typing over a placeholder removes those nested in it at any depth,
+// so Tab goes on to a stop that is left.
+func TestSnippetRemovesDeeplyNestedFields(t *testing.T) {
+	ct := newEditorTest(t, "", "|")
+	ct.st.InsertSnippet(snippetFor(t, "<${1:a${2:b$3}}>${4:d}$0"))
+	ct.tt.Frame()
+	ct.key(0, ui.KeyBackspace)
+	ct.key(0, ui.KeyTab)
+	ct.want("<>[d]")
 }

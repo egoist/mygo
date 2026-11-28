@@ -51,6 +51,7 @@ type options struct {
 	textBgs       []TextBackground
 	diffBase      *Buffer
 	onCompletion  func(CompletionRequest)
+	snippetVars   func(string) string
 	onHover       func(HoverRequest)
 	onDefinition  func(int)
 	onGutterClick func(int)

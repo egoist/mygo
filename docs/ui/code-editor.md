@@ -626,15 +626,53 @@ code.InsertSnippet(snippet)
 ```
 
 Parse templates once; a `Snippet` is immutable and can be shared by
-editors. `Text()` returns its initial text. The parser supports `$1`,
-`${1}`, `${1:default}`, escaped dollars, braces and backslashes, and `$0`
-as the final stop (the end when omitted). Tab visits positive numbers in
+editors. `Text()` returns its initial text. The parser reads the
+TextMate/LSP syntax: `$1`, `${1}`, `${1:default}`, placeholders nested
+in defaults, as `${1:a, ${2:b}}`, choices, as `${1|one,two|}`, variables,
+as `$TM_SELECTED_TEXT` and `${TM_FILENAME:default}`, escaped dollars,
+braces and backslashes (and commas and pipes in choices), and `$0` as the
+final stop (the end when omitted). Tab visits positive numbers in
 numeric order, with 0 last; Shift+Tab goes back, stopping at the first
-field. Repeated numbers share their default, including forward references,
-and edit together through the editor's normal multiple selections.
-Coincident empty stops of the same number coalesce as carets do.
-Scrolling and input methods follow the first occurrence at the original
-primary insertion site.
+field. Repeated numbers share the first default given for one, including
+forward references and the placeholders nested in it, and edit together
+through the editor's normal multiple selections. Coincident empty stops
+of the same number coalesce as carets do. Scrolling and input methods
+follow the first occurrence at the original primary insertion site.
+
+Typing in a nested placeholder grows those around it; typing over a
+placeholder removes the ones nested in it, and Tab skips their stops, as
+VS Code does. A choice inserts its first option, which the field's
+typing replaces: the editor shows no list of the others yet.
+
+Variables take their values as the snippet is inserted, at each
+insertion site. The editor gives those of its text: `TM_SELECTED_TEXT`
+(and `SELECTION`), `TM_CURRENT_LINE`, `TM_CURRENT_WORD`, `TM_LINE_INDEX`,
+`TM_LINE_NUMBER`, `CURSOR_INDEX` and `CURSOR_NUMBER` (the site's, in
+document order), and the buffer's language's `LINE_COMMENT`,
+`BLOCK_COMMENT_START` and `BLOCK_COMMENT_END` (not those of a language
+embedded at the caret). The app gives the other variables VS Code
+defines, as the file's or the clock's; as in VS Code, it cannot add
+names of its own:
+
+```go
+code.SnippetVariable = func(name string) string {
+    switch name {
+    case "TM_FILENAME":
+        return filepath.Base(path)
+    case "CURRENT_YEAR":
+        return strconv.Itoa(time.Now().Year())
+    }
+    return ""
+}
+```
+
+An empty value inserts the variable's default, or nothing, with the
+stops in that default. `SnippetVariable` must not edit the buffer: an
+edit meanwhile starts the insertion over, asking again. A variable VS
+Code does not define, as `$FOO`, is a placeholder of its name when it
+has no default, numbered after the other stops, as the LSP
+specification says; with a default, as `${FOO:bar}`, it inserts the
+default.
 
 A completion list takes Tab before the snippet's navigation, so a field
 can itself be completed. Escape ends the session after closing any open
@@ -646,15 +684,19 @@ the text and selections without restarting snippet navigation. Input
 methods compose and commit at mirrored fields as at ordinary carets.
 A new snippet replaces the previous session.
 
-This is the tab-stop subset of TextMate/LSP syntax: nested placeholders,
-variables, choices, transformations, conflicting defaults for one number,
-and invalid UTF-8 return errors. Text keeps the template's indentation;
-CRLF is normalized to LF. `InsertSnippet` leaves a read-only editor
+Transformations, as `${1/(.*)/${1:/upcase}/}`, malformed syntax,
+invalid UTF-8 and a placeholder whose default holds itself, as
+`${1:a${2:$1}}`, return errors, as do templates past the bounds that keep a
+server's snippet from taking the app's memory or stack: 1 MiB, written
+or laid out, 16,384 fields, or 100 levels of nesting, mirrors' defaults
+included. Where variables' values lay a template out past them,
+`InsertSnippet` inserts nothing and returns false. Text keeps the
+template's indentation; CRLF is normalized to LF. `InsertSnippet` leaves a read-only editor
 unchanged. State methods, including snippet insertion, run on the UI
 thread as the rest of editor interaction does.
 
-Run `go run ./examples/code-editor`, type `funcdef` or `forrange` in a Go
-file, then press Tab to try it.
+Run `go run ./examples/code-editor`, type `funcdef`, `forrange` or
+`errorf` in a Go file, then press Tab to try it.
 
 ## Styling
 

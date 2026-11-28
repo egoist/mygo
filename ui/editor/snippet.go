@@ -12,355 +12,462 @@ import (
 // by ParseSnippet. It can be shared by completions and editor states.
 // Its zero value is an empty template.
 type Snippet struct {
-	text   string
-	fields []snippetField
-	stops  []int
+	nodes    []snippetNode
+	defaults map[int][]snippetNode // each number's text, the first given
+	// The template with its variables unset, as Text returns it.
+	text      string
+	fields    []snippetField
+	stops     []int
+	variables bool // the text depends on variables
+}
+
+// snippetNode is literal text (id < 0) and its children (the default of
+// an unknown variable), a variable (its name in text, its default in
+// children) or a field (its number in id).
+type snippetNode struct {
+	text     string
+	id       int
+	variable bool
+	children []snippetNode
 }
 
 type snippetField struct {
 	id, start, end int
+	depth          int // how many fields of its site enclose it
 	site           int // insertion site, of a live session
 }
 
-// Text returns the text inserted before the placeholders are edited.
+// A template's bounds, as written and as laid out at each insertion
+// site, where mirrors of nested placeholders and the values of variables
+// in them can make it grow exponentially with its length.
+const (
+	maxSnippetText   = 1 << 20 // bytes
+	maxSnippetFields = 1 << 14
+	maxSnippetDepth  = 100 // fields and variables nested in one another
+)
+
+// Text returns the text inserted before the placeholders are edited,
+// with the variables at their defaults.
 func (s *Snippet) Text() string { return s.text }
 
-// ParseSnippet parses the tab-stop subset of TextMate/LSP snippets:
-// $1 and ${1}, placeholders such as ${1:name}, and $0 for the final stop.
-// Numbers are non-negative 32-bit integers. Stops are visited in numeric
-// order, with 0 last (the end when omitted).
-// References to the same number share its default and are edited together;
-// empty stops at the same byte coalesce as ordinary carets do.
+// ParseSnippet parses TextMate/LSP snippets: $1 and ${1}, placeholders
+// such as ${1:name}, nested ones such as ${1:a, ${2:b}}, choices such as
+// ${1|one,two|}, $0 for the final stop, and variables such as
+// $TM_SELECTED_TEXT and ${TM_FILENAME:default}. Numbers are non-negative
+// 32-bit integers. Stops are visited in numeric order, with 0 last (the
+// end when omitted).
+// References to the same number share the first default given for it,
+// nested placeholders included, and are edited together; empty stops at
+// the same byte coalesce as ordinary carets do. A choice inserts its first
+// option.
 //
-// Escape $, } and backslash with a backslash. Defaults are plain text:
-// nested placeholders, variables, choices and transformations return an
-// error, as do conflicting defaults for the same number and invalid UTF-8.
-// Text is inserted literally, with CRLF normalized to LF, without adjusting
-// indentation. Parsing an unsupported server snippet lets the app offer a
-// plain-text completion instead.
+// Variables take their values when the snippet is inserted
+// (State.SnippetVariable); an unset one inserts its default, or nothing.
+// A variable VS Code does not define, written without a default,
+// becomes a placeholder of its name, numbered after the others, as the
+// LSP specification says.
+//
+// Escape $, } and backslash with a backslash, and also comma and pipe in
+// choices. Transformations, malformed syntax, invalid UTF-8 and a
+// placeholder whose default holds itself, directly or through other
+// numbers, return an error. So does a template longer than 1 MiB,
+// written or laid out, with more than 16,384 fields, or nesting more
+// than 100 deep, mirrors' defaults included. Text is inserted literally,
+// with CRLF normalized to LF, without adjusting indentation. Parsing an
+// unsupported server snippet lets the app offer a plain-text completion
+// instead.
 func ParseSnippet(source string) (*Snippet, error) {
 	if !utf8.ValidString(source) {
 		return nil, fmt.Errorf("editor: snippet is not UTF-8")
 	}
-	source = lf(source)
-	type part struct {
-		text  string
-		id    int
-		field bool
+	if len(source) > maxSnippetText {
+		return nil, fmt.Errorf("editor: snippet is longer than %d bytes", maxSnippetText)
 	}
-	var parts []part
-	defaults := map[int]string{}
-	var literal strings.Builder
-	flush := func() {
-		if literal.Len() > 0 {
-			parts = append(parts, part{text: literal.String()})
-			literal.Reset()
-		}
+	p := &snippetParser{src: lf(source)}
+	nodes, err := p.sequence(false)
+	if err != nil {
+		return nil, err
 	}
-	bad := func(at int) (*Snippet, error) {
-		return nil, fmt.Errorf("editor: unsupported or invalid snippet at byte %d", at)
-	}
-	for i := 0; i < len(source); {
-		if source[i] == '\\' && i+1 < len(source) && strings.ContainsRune("$}\\", rune(source[i+1])) {
-			literal.WriteByte(source[i+1])
-			i += 2
-			continue
+	s := &Snippet{nodes: nodes, defaults: map[int][]snippetNode{}}
+	last := 0
+	walkSnippet(nodes, func(n *snippetNode) {
+		if !n.variable && n.id > last {
+			last = n.id
 		}
-		if source[i] != '$' {
-			literal.WriteByte(source[i])
-			i++
-			continue
+	})
+	unknown := map[string]int{}
+	walkSnippet(nodes, func(n *snippetNode) {
+		if !n.variable {
+			return
 		}
-		at := i
-		i++
-		braced := i < len(source) && source[i] == '{'
-		if braced {
-			i++
+		if knownSnippetVariable(n.text) {
+			s.variables = true
+			return
 		}
-		start := i
-		for i < len(source) && source[i] >= '0' && source[i] <= '9' {
-			i++
+		if len(n.children) > 0 {
+			*n = snippetNode{id: -1, children: n.children}
+			return
 		}
-		if start == i {
-			if braced || i < len(source) && (source[i] == '_' || source[i] >= 'a' && source[i] <= 'z' || source[i] >= 'A' && source[i] <= 'Z') {
-				return bad(at)
+		id, ok := unknown[n.text]
+		if !ok {
+			if last == 1<<31-1 {
+				err = fmt.Errorf("editor: snippet has no number left for variable %s", n.text)
 			}
-			literal.WriteByte('$')
-			continue
+			last++
+			id, unknown[n.text] = last, last
 		}
-		id, err := strconv.Atoi(source[start:i])
-		if err != nil || id > 1<<31-1 {
-			return bad(at)
-		}
-		if braced {
-			if i < len(source) && source[i] == ':' {
-				i++
-				var value strings.Builder
-				for i < len(source) && source[i] != '}' {
-					if source[i] == '\\' && i+1 < len(source) && strings.ContainsRune("$}\\", rune(source[i+1])) {
-						value.WriteByte(source[i+1])
-						i += 2
-						continue
-					}
-					if source[i] == '$' {
-						return bad(i)
-					}
-					value.WriteByte(source[i])
-					i++
-				}
-				if old, ok := defaults[id]; ok && old != value.String() {
-					return bad(at)
-				}
-				defaults[id] = value.String()
-			}
-			if i >= len(source) || source[i] != '}' {
-				return bad(at)
-			}
-			i++
-		}
-		flush()
-		parts = append(parts, part{id: id, field: true})
+		*n = snippetNode{id: id, children: []snippetNode{{id: -1, text: n.text}}}
+	})
+	if err != nil {
+		return nil, err
 	}
-	flush()
-	s := &Snippet{}
-	var text strings.Builder
-	seen := map[snippetField]bool{}
-	ids := map[int]bool{}
-	for _, p := range parts {
-		if !p.field {
-			text.WriteString(p.text)
-			continue
+	walkSnippet(nodes, func(n *snippetNode) {
+		if _, ok := s.defaults[n.id]; !ok && !n.variable && n.id >= 0 && len(n.children) > 0 {
+			s.defaults[n.id] = n.children
 		}
-		start := text.Len()
-		text.WriteString(defaults[p.id])
-		f := snippetField{id: p.id, start: start, end: text.Len()}
-		if !seen[f] {
-			s.fields = append(s.fields, f)
-			seen[f] = true
-		}
-		ids[p.id] = true
+	})
+	if id, ok := s.cycle(); ok {
+		return nil, fmt.Errorf("editor: snippet's placeholder %d holds itself", id)
 	}
-	s.text = text.String()
-	if !ids[0] {
-		s.fields = append(s.fields, snippetField{id: 0, start: len(s.text), end: len(s.text)})
+	text, fields, err := s.render(nil)
+	if err != nil {
+		return nil, err
 	}
-	for id := range ids {
-		if id != 0 {
-			s.stops = append(s.stops, id)
+	s.text, s.fields = text, fields
+	for _, f := range fields {
+		if f.id != 0 {
+			s.stops = append(s.stops, f.id)
 		}
 	}
 	slices.Sort(s.stops)
-	s.stops = append(s.stops, 0)
+	s.stops = append(slices.Compact(s.stops), 0)
 	return s, nil
 }
 
-// InsertSnippet replaces each selection with s and selects its first
-// numbered placeholders. Tab and Shift+Tab visit stops; Escape, undo,
-// an external buffer edit or moving outside the active fields ends the
-// session. A new snippet replaces the session, rather than nesting it.
-// Redo restores the insertion and its selections, without restarting a
-// snippet session. It reports whether it inserted, and leaves a read-only
-// editor unchanged. Call it on the UI thread, as other State methods.
-func (st *State) InsertSnippet(s *Snippet) bool {
-	if s == nil {
-		return false
-	}
-	st.ensure()
-	return st.ed.retry(func() bool {
-		edits := make([]Edit, len(st.ed.sels))
-		for i, sel := range st.ed.sels {
-			edits[i] = Edit{Start: sel.start(), End: sel.end(), Text: s.text}
-		}
-		return st.ed.insertSnippet(s, edits)
-	})
+type snippetParser struct {
+	src   string
+	i     int
+	depth int // of the defaults being read
 }
 
-type snippetSession struct {
-	fields      []snippetField // in document order, including each insertion site
-	stops       []int
-	at          int
-	primarySite int
-	local       bool // the next buffer change was made through this editor's apply
+func (p *snippetParser) bad(at int) error {
+	return fmt.Errorf("editor: unsupported or invalid snippet at byte %d", at)
 }
 
-func (ed *editor) insertSnippet(s *Snippet, edits []Edit) bool {
-	if ed.o.readOnly {
-		return false
-	}
-	if len(s.stops) == 0 {
-		s = &Snippet{stops: []int{0}, fields: []snippetField{{}}}
-	}
-	// Completion prefixes can overlap when two carets are in one word.
-	// Merge those targets before computing each inserted template's fields.
-	targets := make([]sel, len(edits))
-	for i, e := range edits {
-		targets[i] = sel{anchor: e.Start, head: e.End, id: ed.sels[i].id}
-	}
-	targets = mergeSels(targets)
-	edits = make([]Edit, len(targets))
-	for i, target := range targets {
-		edits[i] = Edit{Start: target.start(), End: target.end(), Text: s.text}
-	}
-	ed.snippet = nil
-	ed.endGroup()
-	version := ed.view.version
-	session := &snippetSession{stops: s.stops}
-	for i, target := range targets {
-		if target.id == ed.primary().id {
-			session.primarySite = i
+// sequence reads text, fields and variables up to the end, or in a
+// default (nested) up to its unescaped closing brace, which it leaves.
+func (p *snippetParser) sequence(nested bool) ([]snippetNode, error) {
+	var nodes []snippetNode
+	var text strings.Builder
+	flush := func() {
+		if text.Len() > 0 {
+			nodes = append(nodes, snippetNode{id: -1, text: text.String()})
+			text.Reset()
 		}
 	}
-	ok := ed.apply(edits, editOther, func(func(int, bias) int) []sel {
-		session.fields = nil
-		delta := 0
-		for site, e := range edits {
-			for _, f := range s.fields {
-				session.fields = append(session.fields, snippetField{id: f.id, start: e.Start + delta + f.start, end: e.Start + delta + f.end, site: site})
+	for p.i < len(p.src) {
+		c := p.src[p.i]
+		switch {
+		case c == '}' && nested:
+			flush()
+			return nodes, nil
+		case c == '\\' && p.i+1 < len(p.src) && strings.IndexByte(`$}\`, p.src[p.i+1]) >= 0:
+			text.WriteByte(p.src[p.i+1])
+			p.i += 2
+		case c == '$':
+			n, ok, err := p.dollar()
+			if err != nil {
+				return nil, err
 			}
-			delta += len(s.text) - (e.End - e.Start)
-		}
-		return session.selections(ed)
-	})
-	if ok && len(s.stops) > 1 && ed.view.version <= version+1 {
-		ed.snippet = session
-	}
-	return ok
-}
-
-func (s *snippetSession) selections(ed *editor) []sel {
-	var sels []sel
-	primary := -1
-	for _, f := range s.fields {
-		if f.id == s.stops[s.at] {
-			if f.site == s.primarySite && primary < 0 {
-				primary = len(sels)
+			if !ok {
+				text.WriteByte('$')
+				continue
 			}
-			sels = append(sels, ed.newSel(f.start, f.end))
+			flush()
+			nodes = append(nodes, n)
+		default:
+			text.WriteByte(c)
+			p.i++
 		}
 	}
-	// Input methods and scrolling follow the first occurrence in the
-	// insertion site that held the primary caret, not its last mirror.
-	if primary >= 0 {
-		ed.nextID++
-		sels[primary].id = ed.nextID
-	}
-	return sels
+	flush()
+	return nodes, nil
 }
 
-func (ed *editor) stepSnippet(back bool) bool {
-	s := ed.snippet
-	if s == nil {
-		return false
+// dollar reads the field or variable at a $, or reports a literal $
+// (ok false) before text that starts neither.
+func (p *snippetParser) dollar() (snippetNode, bool, error) {
+	at := p.i
+	p.i++
+	if id, ok, err := p.number(at); ok || err != nil {
+		return snippetNode{id: id}, ok, err
 	}
-	if ed.o.readOnly || !s.contains(ed.sels) {
-		ed.snippet = nil
-		return false
+	if name := p.name(); name != "" {
+		return snippetNode{id: -1, variable: true, text: name}, true, nil
 	}
-	if back {
-		s.at = max(0, s.at-1)
-	} else {
-		s.at++
+	if !p.next('{') {
+		return snippetNode{}, false, nil
 	}
-	ed.snippet = nil // setSels is an explicit selection change, except here
-	ed.setSels(s.selections(ed), revealFit)
-	ed.endGroup()
-	if s.at < len(s.stops)-1 {
-		ed.snippet = s
+	id, number, err := p.number(at)
+	if err != nil {
+		return snippetNode{}, false, err
 	}
-	return true
+	n := snippetNode{id: id}
+	if !number {
+		name := p.name()
+		if name == "" {
+			return snippetNode{}, false, p.bad(at)
+		}
+		n = snippetNode{id: -1, variable: true, text: name}
+	}
+	switch {
+	case p.next(':'):
+		if p.depth++; p.depth > maxSnippetDepth {
+			return snippetNode{}, false, fmt.Errorf("editor: snippet nests more than %d deep at byte %d", maxSnippetDepth, at)
+		}
+		if n.children, err = p.sequence(true); err != nil {
+			return snippetNode{}, false, err
+		}
+		p.depth--
+	case number && id > 0 && p.next('|'):
+		first, ok := p.choice()
+		if !ok {
+			return snippetNode{}, false, p.bad(at)
+		}
+		n.children = []snippetNode{{id: -1, text: first}}
+	}
+	// Transformations, as ${1/(.*)/$1/}, are not supported.
+	if !p.next('}') {
+		return snippetNode{}, false, p.bad(at)
+	}
+	return n, true, nil
 }
 
-// contains requires the same relative selection in every active field,
-// so moving one caret alone does not leave a partially linked session.
-func (s *snippetSession) contains(sels []sel) bool {
-	i, anchor, head := 0, 0, 0
-	for _, f := range s.fields {
-		if f.id != s.stops[s.at] {
-			continue
-		}
-		if i >= len(sels) || sels[i].start() < f.start || sels[i].end() > f.end {
-			return false
-		}
-		a, h := sels[i].anchor-f.start, sels[i].head-f.start
-		if i == 0 {
-			anchor, head = a, h
-		} else if a != anchor || h != head {
-			return false
-		}
-		i++
-	}
-	return i == len(sels)
-}
-
-func (s *snippetSession) accepts(edits []Edit) bool {
-	i := 0
-	var first Edit
-	for _, f := range s.fields {
-		if f.id != s.stops[s.at] {
-			continue
-		}
-		if i >= len(edits) || edits[i].Start < f.start || edits[i].End > f.end {
-			return false
-		}
-		e := edits[i]
-		e.Start -= f.start
-		e.End -= f.start
-		if i == 0 {
-			first = e
-		} else if e != first {
-			return false
-		}
-		i++
-	}
-	return i == len(edits)
-}
-
-// moved follows only the one pending local change. Whole fields move in
-// template order, so an edit at a shared boundary belongs to its field,
-// rather than both of two adjacent fields.
-func (s *snippetSession) moved(cs []change) bool {
-	if !s.local {
-		return false
-	}
-	s.local = false
-	i, delta := 0, 0
-	for n := range s.fields {
-		f := &s.fields[n]
-		start, end := f.start, f.end
-		f.start += delta
-		f.end += delta
-		if f.id == s.stops[s.at] {
-			if i >= len(cs) || cs[i].oldStart < start || cs[i].oldEnd > end {
-				return false
+// choice reads a choice's options through its closing pipe, and
+// returns the first.
+func (p *snippetParser) choice() (string, bool) {
+	var first string
+	for option := 0; ; option++ {
+		var b strings.Builder
+		for p.i < len(p.src) && p.src[p.i] != ',' && p.src[p.i] != '|' {
+			if p.src[p.i] == '\\' && p.i+1 < len(p.src) && strings.IndexByte(`,|\`, p.src[p.i+1]) >= 0 {
+				p.i++
 			}
-			c := cs[i]
-			d := (c.newEnd - c.newStart) - (c.oldEnd - c.oldStart)
-			f.end += d
-			delta += d
-			i++
+			b.WriteByte(p.src[p.i])
+			p.i++
+		}
+		if b.Len() == 0 || p.i >= len(p.src) {
+			return "", false
+		}
+		if option == 0 {
+			first = b.String()
+		}
+		p.i++
+		if p.src[p.i-1] == '|' {
+			return first, true
 		}
 	}
-	if i != len(cs) {
-		return false
-	}
-	// Deleting adjacent mirrors can leave coincident empty fields,
-	// which coalesce just as their carets do.
-	seen := make(map[[3]int]bool, len(s.fields))
-	s.fields = slices.DeleteFunc(s.fields, func(f snippetField) bool {
-		key := [3]int{f.id, f.start, f.end}
-		duplicate := seen[key]
-		seen[key] = true
-		return duplicate
-	})
-	return true
 }
 
-// Keep adjacent linked fields separate: merging their deletions would
-// discard which portion belonged to each placeholder. Other deletions
-// retain the editor's usual overlap handling.
-func (ed *editor) mergeDeletes(edits []Edit) []Edit {
-	if ed.snippet != nil && ed.snippet.accepts(edits) {
-		return edits
+func (p *snippetParser) number(at int) (int, bool, error) {
+	start := p.i
+	for p.i < len(p.src) && p.src[p.i] >= '0' && p.src[p.i] <= '9' {
+		p.i++
 	}
-	return mergeEdits(edits)
+	if start == p.i {
+		return 0, false, nil
+	}
+	id, err := strconv.Atoi(p.src[start:p.i])
+	if err != nil || id > 1<<31-1 {
+		return 0, false, p.bad(at)
+	}
+	return id, true, nil
+}
+
+func (p *snippetParser) name() string {
+	start := p.i
+	for p.i < len(p.src) {
+		c := p.src[p.i]
+		if c != '_' && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (p.i == start || c < '0' || c > '9') {
+			break
+		}
+		p.i++
+	}
+	return p.src[start:p.i]
+}
+
+func (p *snippetParser) next(c byte) bool {
+	if p.i < len(p.src) && p.src[p.i] == c {
+		p.i++
+		return true
+	}
+	return false
+}
+
+// walkSnippet calls visit on each node, before its children.
+func walkSnippet(nodes []snippetNode, visit func(*snippetNode)) {
+	for i := range nodes {
+		visit(&nodes[i])
+		walkSnippet(nodes[i].children, visit)
+	}
+}
+
+// cycle finds a number whose default holds a field of its own number,
+// directly or through the defaults of others, which its mirrors could not
+// lay out alike.
+func (s *Snippet) cycle() (int, bool) {
+	const visiting, done = 1, 2
+	state := map[int]int{}
+	var visit func(id int) bool
+	visit = func(id int) bool {
+		switch state[id] {
+		case visiting:
+			return true
+		case done:
+			return false
+		}
+		state[id] = visiting
+		var held func(nodes []snippetNode) bool
+		held = func(nodes []snippetNode) bool {
+			for _, n := range nodes {
+				if !n.variable && n.id >= 0 && visit(n.id) || (n.variable || n.id < 0) && held(n.children) {
+					return true
+				}
+			}
+			return false
+		}
+		if held(s.defaults[id]) {
+			return true
+		}
+		state[id] = done
+		return false
+	}
+	for id := range s.defaults {
+		if visit(id) {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
+// knownSnippetVariable reports whether VS Code defines a variable, the
+// only ones the editor and State.SnippetVariable give values, as VS
+// Code's own resolvers do.
+func knownSnippetVariable(name string) bool {
+	switch name {
+	case "TM_SELECTED_TEXT", "TM_CURRENT_LINE", "TM_CURRENT_WORD", "TM_LINE_INDEX", "TM_LINE_NUMBER",
+		"TM_FILENAME", "TM_FILENAME_BASE", "TM_DIRECTORY", "TM_DIRECTORY_BASE", "TM_FILEPATH",
+		"RELATIVE_FILEPATH", "CLIPBOARD", "SELECTION", "CURSOR_INDEX", "CURSOR_NUMBER",
+		"WORKSPACE_NAME", "WORKSPACE_FOLDER", "LINE_COMMENT", "BLOCK_COMMENT_START", "BLOCK_COMMENT_END",
+		"CURRENT_YEAR", "CURRENT_YEAR_SHORT", "CURRENT_MONTH", "CURRENT_MONTH_NAME", "CURRENT_MONTH_NAME_SHORT",
+		"CURRENT_DATE", "CURRENT_DAY_NAME", "CURRENT_DAY_NAME_SHORT", "CURRENT_HOUR", "CURRENT_MINUTE",
+		"CURRENT_SECOND", "CURRENT_MILLISECOND", "CURRENT_SECONDS_UNIX", "CURRENT_MILLISECONDS_UNIX",
+		"CURRENT_TIMEZONE_OFFSET", "CURRENT_TIMEZONE_NAME", "RANDOM", "RANDOM_HEX", "UUID":
+		return true
+	}
+	return false
+}
+
+// render lays out the template with the values variable gives (none
+// when nil), its fields in template order, each before those it
+// encloses, within the template's bounds.
+func (s *Snippet) render(variable func(name string) string) (string, []snippetField, error) {
+	r := snippetRender{s: s, variable: variable}
+	r.nodes(s.nodes)
+	if r.err != nil {
+		return "", nil, r.err
+	}
+	text := r.text.String()
+	if !slices.ContainsFunc(r.fields, func(f snippetField) bool { return f.id == 0 }) {
+		r.fields = append(r.fields, snippetField{id: 0, start: len(text), end: len(text)})
+	}
+	return text, coalesceFields(r.fields), nil
+}
+
+type snippetRender struct {
+	s        *Snippet
+	variable func(string) string
+	depth    int // of the nodes being laid out
+	// How many fields enclose the next one.
+	fieldDepth int
+	text       strings.Builder
+	fields     []snippetField
+	err        error
+}
+
+func (r *snippetRender) nodes(nodes []snippetNode) {
+	if len(nodes) == 0 {
+		return
+	}
+	// The template's own nodes are the first level, outside any default.
+	if r.depth++; r.depth > maxSnippetDepth+1 {
+		r.err = fmt.Errorf("editor: snippet nests more than %d deep", maxSnippetDepth)
+	}
+	for _, n := range nodes {
+		switch {
+		case r.err != nil:
+		case n.variable:
+			value := ""
+			if r.variable != nil {
+				value = r.variable(n.text)
+			}
+			if value == "" {
+				r.nodes(n.children)
+			} else {
+				r.write(value)
+			}
+		case n.id < 0:
+			r.write(n.text)
+			r.nodes(n.children)
+		default:
+			if len(r.fields) == maxSnippetFields {
+				r.err = fmt.Errorf("editor: snippet has more than %d fields", maxSnippetFields)
+				break
+			}
+			at := len(r.fields)
+			r.fields = append(r.fields, snippetField{id: n.id, start: r.text.Len(), depth: r.fieldDepth})
+			r.fieldDepth++
+			r.nodes(r.s.defaults[n.id])
+			r.fieldDepth--
+			r.fields[at].end = r.text.Len()
+		}
+	}
+	r.depth--
+}
+
+func (r *snippetRender) write(s string) {
+	if r.text.Len()+len(s) > maxSnippetText {
+		r.err = fmt.Errorf("editor: snippet expands past %d bytes", maxSnippetText)
+		return
+	}
+	r.text.WriteString(s)
+}
+
+// coalesceFields drops a field at the same place as one of its number
+// before it, in the same field, as empty mirrors next to each other.
+// Coincident ones in different fields stay: their carets merge, so the
+// session ends rather than growing one enclosing field and not another.
+func coalesceFields(fields []snippetField) []snippetField {
+	type place struct{ id, start, end, parent int }
+	kept := make(map[place]int, len(fields))
+	as := make([]int, len(fields)) // the field each one coalesced into
+	var open []int                 // the fields enclosing this one
+	out := make([]snippetField, 0, len(fields))
+	for n, f := range fields {
+		for len(open) > 0 && fields[open[len(open)-1]].depth >= f.depth {
+			open = open[:len(open)-1]
+		}
+		key := place{f.id, f.start, f.end, -1}
+		if len(open) > 0 {
+			key.parent = as[open[len(open)-1]]
+		}
+		if m, ok := kept[key]; ok {
+			as[n] = m
+		} else {
+			kept[key], as[n] = n, n
+			out = append(out, f)
+		}
+		open = append(open, n)
+	}
+	return out
 }

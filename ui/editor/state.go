@@ -107,6 +107,17 @@ type State struct {
 	// a word is typed or Ctrl+Space pressed: answer with ShowCompletions,
 	// at once or later.
 	OnCompletion func(CompletionRequest)
+	// SnippetVariable gives the values of the snippet variables VS Code
+	// defines that the editor does not, as TM_FILENAME, CLIPBOARD or
+	// CURRENT_YEAR, as a snippet is inserted: "" inserts the variable's
+	// default. Other names are placeholders (ParseSnippet), as in VS
+	// Code. The editor gives TM_SELECTED_TEXT and SELECTION,
+	// TM_CURRENT_LINE, TM_CURRENT_WORD, TM_LINE_INDEX, TM_LINE_NUMBER,
+	// CURSOR_INDEX, CURSOR_NUMBER, and LINE_COMMENT, BLOCK_COMMENT_START
+	// and BLOCK_COMMENT_END of the buffer's language (not that of an
+	// embedded one at the caret). It must not edit the buffer: an edit
+	// meanwhile starts the insertion over, asking again.
+	SnippetVariable func(name string) string
 	// OnHover asks the app what to show for the text under the pointer
 	// once it rests there: answer with ShowHover.
 	OnHover func(HoverRequest)
@@ -264,7 +275,7 @@ func (st *State) options() options {
 		keepScrollbars: st.KeepScrollbars, hideScrollbars: st.NoScrollbars, scrollbar: st.Scrollbar,
 		autoClose: !st.NoAutoClose, folding: !st.NoFolding, activeLine: !st.NoActiveLine, cursorShape: st.CursorShape, fitContent: st.FitContent,
 		placeholder: st.Placeholder, label: st.Label, theme: st.Theme, bindings: st.Bindings, gutterMarks: st.GutterMarks,
-		backgrounds: st.LineBackgrounds, textBgs: st.TextBackgrounds, diffBase: st.DiffBase, onCompletion: st.OnCompletion, onHover: st.OnHover, onDefinition: st.OnDefinition,
+		backgrounds: st.LineBackgrounds, textBgs: st.TextBackgrounds, diffBase: st.DiffBase, onCompletion: st.OnCompletion, snippetVars: st.SnippetVariable, onHover: st.OnHover, onDefinition: st.OnDefinition,
 		hoverDelay: st.HoverDelay, noPointerHover: st.NoPointerHover,
 		noDefinitionClick: st.NoDefinitionClick, noDefinitionLink: st.NoDefinitionLink,
 		onGutterClick: st.OnGutterClick, contextMenu: st.ContextMenu, onInput: st.OnInput, noInputMethod: st.NoInputMethod, minDigits: 3,

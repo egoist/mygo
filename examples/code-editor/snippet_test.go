@@ -35,3 +35,25 @@ func TestGoSnippetCompletion(t *testing.T) {
 		t.Fatal("final stop is not in the loop body")
 	}
 }
+
+func TestGoErrorfSnippet(t *testing.T) {
+	f := newFile("main.go", "errorf")
+	st := f.editor
+	tt := ui.NewTester(func(c *ui.Context) { editor.View(c, st).Fill().AutoFocus() }, 640, 400)
+	st.Select(6, 6)
+	st.ShowCompletions(0, wordsOf(st.Buffer, "errorf"))
+	tt.Frame()
+	tt.Key(0, ui.KeyTab)
+	tt.Type("open")
+	for _, want := range []string{"w", ", err", "err"} {
+		tt.Key(0, ui.KeyTab)
+		if got := st.SelectedText(); got != want {
+			t.Fatalf("field = %q, want %q", got, want)
+		}
+	}
+	tt.Type("e")
+	tt.Key(0, ui.KeyTab)
+	if got := st.Buffer.String(); got != `fmt.Errorf("open: %w", e)` {
+		t.Fatalf("snippet result: %q", got)
+	}
+}

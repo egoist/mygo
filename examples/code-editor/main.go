@@ -207,6 +207,7 @@ func wordsOf(b *editor.Buffer, prefix string) []editor.Completion {
 var goSnippets = []editor.Completion{
 	exampleSnippet("funcdef", "func ${1:name}(${2:args}) ${3:error} {\n\t$0\n}"),
 	exampleSnippet("forrange", "for ${1:index}, ${2:value} := range ${3:items} {\n\t$0\n}"),
+	exampleSnippet("errorf", "fmt.Errorf(\"${1:doing something}: %${2|w,v|}\"${3:, ${4:err}})$0"),
 }
 
 func exampleSnippet(label, source string) editor.Completion {
