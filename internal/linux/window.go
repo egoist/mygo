@@ -35,10 +35,11 @@ const (
 )
 
 type window struct {
-	b    *Backend
-	id   int
-	h    platform.WindowHandler
-	opts *platform.WindowOptions
+	schemeRequests schemeRequests
+	b              *Backend
+	id             int
+	h              platform.WindowHandler
+	opts           *platform.WindowOptions
 
 	win     ptr // GtkWindow
 	box     ptr // GtkBox holding the menu bar and the webview
@@ -435,6 +436,7 @@ func (w *window) cleanup() {
 	}
 	w.closeWebViews()
 	w.closed = true
+	w.schemeRequests.close()
 	delete(w.b.windows, w.id)
 	w.leaveFlyout()
 	w.b.flyouts = slices.DeleteFunc(w.b.flyouts, func(x *window) bool { return x == w })

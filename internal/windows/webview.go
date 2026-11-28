@@ -1375,8 +1375,13 @@ func (w *window) resourceRequested(_, args uintptr) {
 	sreq := &platform.SchemeRequest{Method: takeWstr(p), URL: target, Header: requestHeaders(req)}
 	var content uintptr
 	if comCall(req, reqGetContent, uintptr(unsafe.Pointer(&content))) == sOK && content != 0 {
-		sreq.Body = platform.BytesBody(readStream(content))
+		var status int
+		sreq.Body, status = readStream(content, &sreq.BodyReservation)
 		release(content)
+		if status != 0 {
+			sreq.BodyReservation.Release()
+			sreq.RejectStatus = status
+		}
 	}
 	if resource == media {
 		// Media elements ask for the rest of the file from a byte on
@@ -1389,6 +1394,7 @@ func (w *window) resourceRequested(_, args uintptr) {
 	}
 	var deferral uintptr
 	if comCall(args, resReqGetDeferral, uintptr(unsafe.Pointer(&deferral))) != sOK {
+		sreq.BodyReservation.Release()
 		return
 	}
 	addRef(args)

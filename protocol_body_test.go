@@ -80,3 +80,44 @@ func TestProtocolContentLength(t *testing.T) {
 		t.Errorf("unknown length: ContentLength %d", length)
 	}
 }
+
+func TestProtocolReservationRelease(t *testing.T) {
+	if err := Protocol.SetBodyLimits(SchemeBodyLimits{MaxInFlightRequestBodyBytes: 1}); err != nil {
+		t.Fatal(err)
+	}
+	defer Protocol.SetBodyLimits(SchemeBodyLimits{})
+	_, fw := testWindow(t, WindowOptions{})
+	for _, mode := range []string{"finish", "panic", "cancel"} {
+		t.Run(mode, func(t *testing.T) {
+			started := make(chan struct{})
+			if err := Protocol.HandleFunc("reserved", func(w http.ResponseWriter, r *http.Request) {
+				close(started)
+				switch mode {
+				case "panic":
+					panic("handler failed")
+				case "cancel":
+					<-r.Context().Done()
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			defer Protocol.Unhandle("reserved")
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			rec := &recorder{finished: make(chan struct{})}
+			req := &platform.SchemeRequest{Context: ctx, Method: "POST", URL: "reserved://localhost/", Body: platform.BytesBody([]byte("x")), Responder: rec}
+			if status := req.BodyReservation.Reserve(1); status != 0 {
+				t.Fatal(status)
+			}
+			onMain(func() { fw.H.SchemeRequest(req) })
+			wait.For(t, "handler entry", started)
+			cancel()
+			wait.For(t, "response completion", rec.finished)
+			var next platform.SchemeBodyReservation
+			defer next.Release()
+			if status := next.Reserve(1); status != 0 {
+				t.Fatalf("after %s: status %d", mode, status)
+			}
+		})
+	}
+}

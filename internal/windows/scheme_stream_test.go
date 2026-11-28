@@ -5,12 +5,14 @@ package windows
 import (
 	"bytes"
 	"errors"
+	"io"
 	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
 
+	"github.com/egoist/mygo/internal/platform"
 	"github.com/egoist/mygo/internal/schemestream"
 )
 
@@ -58,7 +60,16 @@ func TestBodyStreamRead(t *testing.T) {
 	go func() { wrote <- writeChunks(pipe, want) }()
 	<-full // WebView2 gets the stream once the handler filled the pipe
 	s := newBodyStream(pipe, int64(len(want)), func() { canceled.Store(true) })
-	got := readStream(s) // reads until S_FALSE
+	var budget platform.SchemeBodyReservation
+	defer budget.Release()
+	body, status := readStream(s, &budget)
+	if status != 0 {
+		t.Fatal(status)
+	}
+	got, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := <-wrote; err != nil {
 		t.Fatalf("the handler's writes: %v", err)
 	}

@@ -105,6 +105,8 @@ window.run = async () => {
 };
 </script></body></html>`
 
+var appRoutes = http.NewServeMux()
+
 func TestMain(m *testing.M) {
 	if os.Getenv("MYGO_E2E") == "" {
 		fmt.Println("skipping e2e tests; set MYGO_E2E=1 to run them in a desktop session")
@@ -147,7 +149,7 @@ func TestMain(m *testing.M) {
 		return
 	}
 	mygo.Bind(Greeter{}, probe, streams, Bench{})
-	mux := http.NewServeMux()
+	mux := appRoutes
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		io.WriteString(w, page)

@@ -517,6 +517,7 @@ func (w *window) closeWebView() {
 		return
 	}
 	w.closed = true
+	w.schemeRequests.close()
 	b := w.b
 	delete(b.webViews, w.id)
 	delete(b.byWebView, w.web)

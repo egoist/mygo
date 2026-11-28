@@ -36,6 +36,43 @@ var reservedSchemes = map[string]bool{
 	"javascript": true, "ws": true, "wss": true, "ftp": true, "mailto": true, "webkit": true,
 }
 
+// SchemeBodyLimits caps buffered desktop custom-scheme request payload bytes.
+// Limits apply process-wide across every Protocol.Handle scheme and mygo://.
+// Zero disables the corresponding limit.
+type SchemeBodyLimits struct {
+	// MaxRequestBodyBytes is the maximum payload size in bytes for a single
+	// custom-scheme request. Exceeding it returns HTTP 413 without invoking
+	// the handler. Zero disables the per-request cap.
+	MaxRequestBodyBytes int64
+	// MaxInFlightRequestBodyBytes is the maximum combined payload size in
+	// bytes across all active custom-scheme requests in the process.
+	// Exceeding it returns HTTP 503 without invoking the handler. Zero
+	// disables the aggregate cap.
+	MaxInFlightRequestBodyBytes int64
+}
+
+// SetBodyLimits sets process-wide upload limits shared by every Protocol.Handle
+// scheme and mygo://. Zero disables the corresponding limit. Negative values
+// return an error and leave the configuration unchanged. Configure limits before
+// accepting uploads to include every in-flight request in the budget.
+// Desktop backends check known-size bodies in full before copying. Streams reserve
+// each chunk as it arrives and stop at the first limit exceeded: 413 for the
+// per-request limit or 503 for the aggregate limit. If a single reservation
+// exceeds both limits, 413 takes precedence. Neither response invokes the
+// handler. Reservations end when the handler returns, including after a panic
+// or a return following cancellation, so a handler that reads an upload and
+// then streams a large or long-lived response continues counting those upload
+// bytes against MaxInFlightRequestBodyBytes until it returns. WebKitGTK
+// versions without the native request-body API expose no bytes to limit. Phones
+// receive host-framed uploads and do not enforce these limits. Browser
+// (GOOS=js) builds omit this API.
+func (p *ProtocolModule) SetBodyLimits(l SchemeBodyLimits) error {
+	return platform.SetSchemeBodyLimits(platform.SchemeBodyLimits{
+		MaxRequestBodyBytes:         l.MaxRequestBodyBytes,
+		MaxInFlightRequestBodyBytes: l.MaxInFlightRequestBodyBytes,
+	})
+}
+
 // Handle serves requests for scheme with an http.Handler, for example
 // files generated at run time:
 //
@@ -117,6 +154,13 @@ func (h *windowHandler) SchemeRequest(req *platform.SchemeRequest) {
 
 // serve runs on the main thread when the webview requests a custom scheme.
 func (p *ProtocolModule) serve(w *Window, req *platform.SchemeRequest) {
+	if req.RejectStatus != 0 {
+		header := http.Header{}
+		allowCORS(w, header, &http.Request{Method: req.Method, Header: req.Header})
+		req.Responder.Respond(req.RejectStatus, header)
+		req.Responder.Finish()
+		return
+	}
 	scheme, _, _ := strings.Cut(req.URL, ":")
 	scheme = strings.ToLower(scheme)
 	p.mu.RLock()
@@ -140,6 +184,7 @@ func serveScheme(win *Window, h http.Handler, req *platform.SchemeRequest) {
 		}
 		rw.finish()
 	}()
+	defer req.BodyReservation.Release()
 	if h == nil {
 		rw.WriteHeader(http.StatusNotFound)
 		return

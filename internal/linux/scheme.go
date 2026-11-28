@@ -5,6 +5,7 @@ package linux
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"syscall"
@@ -45,13 +46,14 @@ func (b *Backend) registerScheme(ctx ptr, registered map[string]bool, scheme str
 
 func (b *Backend) serveScheme(req ptr) {
 	gObjectRef(req)
-	ctx, cancel := context.WithCancel(context.Background())
-	t := &schemeTask{req: req, cancel: cancel, fd: -1}
+	t := &schemeTask{req: req, fd: -1}
 	w := b.byWebView[webkitURISchemeRequestGetWebView(req)]
 	if w == nil || w.closed {
 		t.Fail(context.Canceled)
 		return
 	}
+	ctx, cancel := w.schemeRequests.start()
+	t.cancel = cancel
 	r := &platform.SchemeRequest{
 		Context:   ctx,
 		Method:    http.MethodGet,
@@ -74,28 +76,31 @@ func (b *Backend) serveScheme(req ptr) {
 	}
 	if webkitURISchemeRequestGetHTTPBody != nil {
 		if stream := webkitURISchemeRequestGetHTTPBody(req); stream != 0 {
-			r.Body = platform.BytesBody(readStream(stream))
+			var status int
+			r.Body, status = readStream(stream, &r.BodyReservation)
 			gObjectUnref(stream)
+			if status != 0 {
+				r.BodyReservation.Release()
+				r.RejectStatus = status
+			}
 		}
 	}
 	w.h.SchemeRequest(r)
 }
 
-func readStream(stream ptr) []byte {
-	var out []byte
-	buf := make([]byte, 64<<10)
-	for {
+func readStream(stream ptr, budget *platform.SchemeBodyReservation) (io.ReadCloser, int) {
+	return budget.Read(func(buf []byte) (int, bool, error) {
 		var n uintptr
 		var gerr ptr
 		ok := gInputStreamReadAll(stream, unsafe.Pointer(&buf[0]), uintptr(len(buf)), &n, 0, &gerr)
-		out = append(out, buf[:n]...)
 		if gerr != 0 {
 			gErrorFree(gerr)
 		}
-		if !ok || n < uintptr(len(buf)) {
-			return out
+		if !ok {
+			return 0, false, io.ErrUnexpectedEOF
 		}
-	}
+		return int(n), n < uintptr(len(buf)), nil
+	})
 }
 
 // schemeTask streams a response to WebKit through a pipe, which WebKit
@@ -185,6 +190,9 @@ func (t *schemeTask) Finish() {
 		t.Respond(http.StatusOK, http.Header{})
 	}
 	t.done = true
+	if t.cancel != nil {
+		t.cancel()
+	}
 	if t.fd >= 0 {
 		syscall.Close(t.fd) // the end of the body
 		t.fd = -1

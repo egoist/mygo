@@ -106,6 +106,30 @@ falling back to `index.html` like the frontend. Handling the `mygo` scheme
 replaces the frontend with your handler. Pages of custom schemes are the
 app's own: they may call Go methods, see [trust](#trust).
 
+### Request body limits
+
+Desktop apps can call `mygo.Protocol.SetBodyLimits(mygo.SchemeBodyLimits{...})`
+before accepting uploads. The limits apply process-wide across all schemes
+registered with `Protocol.Handle` and the built-in `mygo://` frontend.
+Known-size bodies are checked in full up front. Streamed bodies reserve each
+chunk as it arrives and stop at the first limit exceeded: HTTP 413 for
+`MaxRequestBodyBytes` or HTTP 503 for `MaxInFlightRequestBodyBytes` across
+active uploads. If one reservation exceeds both limits, HTTP 413 takes
+precedence. Both responses bypass the handler. Zero disables the corresponding
+limit (the default). Negative values return an error and preserve the previous
+limits.
+
+Desktop backends reserve payload bytes before copying a native body into Go
+memory, or before retaining each chunk read into a scratch buffer. Reservations
+are released when the handler returns, including when it panics or returns
+after cancellation. Because the reservation lasts until return, a handler that
+finishes reading an upload and then streams a large or long-lived response
+keeps counting those upload bytes against `MaxInFlightRequestBodyBytes` until
+the response finishes. On older WebKitGTK versions that do not expose request
+bodies, Go receives no upload bytes to limit. Phone hosts frame the complete
+upload before Go receives it, and these limits have no effect there. Browser
+builds (`GOOS=js`) have no custom schemes and omit `SetBodyLimits`.
+
 On Windows, WebView2 takes a response once its handler returned, or
 once it wrote 1 MB: the rest then streams, the handler's writes waiting
 while WebView2 is behind. WebView2 reads the responses of custom schemes

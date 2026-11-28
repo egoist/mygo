@@ -4,11 +4,13 @@ package windows
 
 import (
 	"fmt"
+	"io"
 	"sync"
 	"syscall"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
+	"github.com/egoist/mygo/internal/platform"
 )
 
 // comCall calls method i of the COM interface obj. Pointers converted to
@@ -174,17 +176,15 @@ func withHandler(fn func(a, b uintptr), call func(h uintptr) uintptr) uintptr {
 // IStream helpers.
 
 // readStream reads an IStream to its end.
-func readStream(stream uintptr) []byte {
-	var out []byte
-	buf := make([]byte, 64<<10)
-	for {
+func readStream(stream uintptr, budget *platform.SchemeBodyReservation) (io.ReadCloser, int) {
+	return budget.Read(func(buf []byte) (int, bool, error) {
 		var n uint32
-		hr := comCall(stream, 3, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(unsafe.Pointer(&n))) // ISequentialStream::Read
-		out = append(out, buf[:n]...)
-		if failed(hr) || n == 0 || hr == 1 { // S_FALSE: end of stream
-			return out
+		hr := comCall(stream, 3, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(unsafe.Pointer(&n)))
+		if failed(hr) {
+			return 0, false, hresultError("reading request body", hr)
 		}
-	}
+		return int(n), n == 0 || hr == 1, nil
+	})
 }
 
 // memStream returns a new IStream holding a copy of data.

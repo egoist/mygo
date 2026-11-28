@@ -4,6 +4,7 @@ package darwin
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"strings"
 	"unsafe"
@@ -47,7 +48,11 @@ func registerSchemeHandler() {
 				st.Finish()
 				return
 			}
-			req := readRequest(task)
+			req, status := readRequest(task)
+			if status != 0 {
+				req.BodyReservation.Release()
+				req.RejectStatus = status
+			}
 			req.Context = ctx
 			req.Responder = st
 			w.h.SchemeRequest(req)
@@ -62,7 +67,8 @@ func registerSchemeHandler() {
 	})
 }
 
-func readRequest(task id) *platform.SchemeRequest {
+func readRequest(task id) (*platform.SchemeRequest, int) {
+	var status int
 	header := http.Header{}
 	req := &platform.SchemeRequest{Header: header}
 	withPool(func() {
@@ -77,27 +83,25 @@ func readRequest(task id) *platform.SchemeRequest {
 			header.Add(goString(k), goString(send(fields, "objectForKey:", uintptr(k))))
 		}
 		if data := send(r, "HTTPBody"); data != 0 {
-			req.Body = platform.BytesBody(goBytes(data))
+			status = req.BodyReservation.Reserve(int64(sendInt(data, "length")))
+			if status == 0 {
+				req.Body = platform.BytesBody(goBytes(data))
+			}
 		} else if stream := send(r, "HTTPBodyStream"); stream != 0 {
-			req.Body = platform.BytesBody(readStream(stream))
+			req.Body, status = readStream(stream, &req.BodyReservation)
 		}
 	})
-	return req
+	return req, status
 }
 
 // readStream drains an NSInputStream.
-func readStream(stream id) []byte {
+func readStream(stream id, budget *platform.SchemeBodyReservation) (io.ReadCloser, int) {
 	send(stream, "open")
 	defer send(stream, "close")
-	var out []byte
-	buf := make([]byte, 64<<10)
-	for {
+	return budget.Read(func(buf []byte) (int, bool, error) {
 		n := sendInt(stream, "read:maxLength:", uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-		if n <= 0 {
-			return out
-		}
-		out = append(out, buf[:n]...)
-	}
+		return n, n == 0, nil
+	})
 }
 
 func (st *schemeTask) release() {

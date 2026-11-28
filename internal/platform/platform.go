@@ -1099,6 +1099,8 @@ type NewWindowRequest struct {
 
 // SchemeRequest is a request for a custom protocol.
 type SchemeRequest struct {
+	BodyReservation SchemeBodyReservation
+	RejectStatus    int // Nonzero when the native request body could not be accepted.
 	// Context is cancelled when the webview no longer needs the response.
 	Context context.Context
 	Method  string
