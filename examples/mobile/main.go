@@ -428,7 +428,10 @@ func (a *app) system(c *ui.Context) {
 				}
 				if a.camOn {
 					if a.cam == nil {
-						cam, err := camera.New(a.win, camera.Options{})
+						cam, err := camera.New(a.win, camera.Options{OnCode: func(code camera.Code) {
+							a.results["camera"] = "QR code: " + code.Text
+							a.win.Update(func() {})
+						}})
 						if err != nil {
 							a.results["camera"] = err.Error()
 							a.camOn = false

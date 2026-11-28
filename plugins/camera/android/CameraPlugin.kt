@@ -2,22 +2,36 @@ package dev.mygo
 
 import android.Manifest
 import android.content.Context
+import android.os.SystemClock
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCase
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.PlanarYUVLuminanceSource
+import com.google.zxing.ReaderException
+import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.qrcode.QRCodeReader
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class CameraPlugin : MyGoPlugin {
-    private class Cam(val view: PreviewView) {
+    private class Cam(val id: Long, val view: PreviewView) {
         val capture = ImageCapture.Builder().build()
         var bound = false
         var error = "the camera is not running"
+        // The thread reading QR codes, while the app asks for them.
+        var codes: ExecutorService? = null
+        // When each code in view was last read: one is told as it comes into view.
+        val seen = HashMap<String, Long>()
     }
 
     private val cams = HashMap<Long, Cam>()
@@ -27,14 +41,14 @@ class CameraPlugin : MyGoPlugin {
             val v = PreviewView(context)
             // A texture, for it to show under the surface that draws over it.
             v.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-            val c = Cam(v)
+            val c = Cam(id, v)
             cams[id] = c
-            start(c, args.optBoolean("front"))
+            start(c, args.optBoolean("front"), args.optBoolean("codes"))
             v
         }
     }
 
-    private fun start(c: Cam, front: Boolean) {
+    private fun start(c: Cam, front: Boolean, codes: Boolean) {
         PluginHost.requestPermissions(arrayOf(Manifest.permission.CAMERA)) { granted ->
             if (!granted) {
                 c.error = "the app may not use the camera"
@@ -50,8 +64,10 @@ class CameraPlugin : MyGoPlugin {
                 }
                 val preview = Preview.Builder().build().also { it.surfaceProvider = c.view.surfaceProvider }
                 val which = if (front) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+                val cases = mutableListOf<UseCase>(preview, c.capture)
+                if (codes) cases += codeReader(c)
                 runCatching {
-                    future.get().bindToLifecycle(owner, which, preview, c.capture)
+                    future.get().bindToLifecycle(owner, which, *cases.toTypedArray())
                     c.bound = true
                 }.onFailure {
                     c.error = it.toString()
@@ -59,6 +75,37 @@ class CameraPlugin : MyGoPlugin {
                 }
             }, ContextCompat.getMainExecutor(ctx))
         }
+    }
+
+    /** Reads the QR codes in the camera's frames, from their luminance, as they come. */
+    private fun codeReader(c: Cam): ImageAnalysis {
+        val analysis = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
+        val reader = QRCodeReader()
+        val thread = Executors.newSingleThreadExecutor()
+        c.codes = thread
+        analysis.setAnalyzer(thread) { image ->
+            image.use {
+                // The first plane of YUV_420_888 is the luminance, rowStride bytes a row.
+                val y = it.planes[0]
+                val bytes = ByteArray(y.buffer.remaining()).also { b -> y.buffer.get(b) }
+                val rows = (bytes.size + y.rowStride - 1) / y.rowStride
+                val source = PlanarYUVLuminanceSource(bytes, y.rowStride, rows, 0, 0, it.width, it.height, false)
+                val now = SystemClock.elapsedRealtime()
+                // A code unread for a second has left the view.
+                c.seen.values.removeAll { now - it > 1000 }
+                val text = try {
+                    reader.decode(BinaryBitmap(HybridBinarizer(source))).text
+                } catch (e: ReaderException) {
+                    null
+                } finally {
+                    reader.reset()
+                }
+                if (text != null && c.seen.put(text, now) == null) {
+                    PluginHost.emit("camera", "code", JSONObject().put("id", c.id).put("text", text))
+                }
+            }
+        }
+        return analysis
     }
 
     override fun call(method: String, args: JSONObject, reply: PluginReply) {
@@ -85,6 +132,7 @@ class CameraPlugin : MyGoPlugin {
             "dispose" -> {
                 cams.remove(id)
                 runCatching { ProcessCameraProvider.getInstance(PluginHost.context).get().unbindAll() }
+                c.codes?.shutdown()
                 reply.success(null)
             }
             else -> reply.failure(PluginFailure("NoMethod", method))

@@ -24,7 +24,7 @@
 | `maps` | 原生 UI 中带标注的地图：MapKit，以及使用 OpenStreetMap 瓦片的 osmdroid，不需要密钥 |
 | `location` | 设备所在的位置，以及持续跟踪位置，通过 Core Location 和 LocationManager |
 | `imagepicker` | 系统的照片和视频选择器，不需要权限，以及它的拍照界面 |
-| `camera` | 原生 UI 中的实时预览，以及拍照：AVCaptureSession 和 CameraX |
+| `camera` | 原生 UI 中的实时预览、拍照，以及识别看到的二维码：AVCaptureSession 和 CameraX，Android 上用 ZXing |
 | `videoplayer` | 原生 UI 中的视频：AVPlayer 和 MediaPlayer |
 | `biometrics` | 面容 ID、触控 ID、指纹、设备密码 |
 | `sensors` | 加速度计、陀螺仪和磁力计 |

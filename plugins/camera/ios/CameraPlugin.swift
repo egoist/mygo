@@ -1,13 +1,16 @@
 import AVFoundation
 import UIKit
 
-private final class PreviewView: UIView, AVCapturePhotoCaptureDelegate {
+private final class PreviewView: UIView, AVCapturePhotoCaptureDelegate, AVCaptureMetadataOutputObjectsDelegate {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
     let session = AVCaptureSession()
     let output = AVCapturePhotoOutput()
     var waiting: PluginReply?
+    var id = 0
+    // seen is when each code in view was last read: one is told as it comes into view.
+    var seen: [String: CFTimeInterval] = [:]
 
-    func start(front: Bool) {
+    func start(front: Bool, codes: Bool) {
         (layer as! AVCaptureVideoPreviewLayer).session = session
         (layer as! AVCaptureVideoPreviewLayer).videoGravity = .resizeAspectFill
         AVCaptureDevice.requestAccess(for: .video) { granted in
@@ -18,6 +21,15 @@ private final class PreviewView: UIView, AVCapturePhotoCaptureDelegate {
             self.session.beginConfiguration()
             if self.session.canAddInput(input) { self.session.addInput(input) }
             if self.session.canAddOutput(self.output) { self.session.addOutput(self.output) }
+            if codes {
+                let m = AVCaptureMetadataOutput()
+                if self.session.canAddOutput(m) {
+                    self.session.addOutput(m)
+                    // The types it reads can be set once it is in the session.
+                    if m.availableMetadataObjectTypes.contains(.qr) { m.metadataObjectTypes = [.qr] }
+                    m.setMetadataObjectsDelegate(self, queue: .main)
+                }
+            }
             self.session.commitConfiguration()
             DispatchQueue.global(qos: .userInitiated).async { self.session.startRunning() }
         }
@@ -25,6 +37,16 @@ private final class PreviewView: UIView, AVCapturePhotoCaptureDelegate {
 
     func stop() {
         DispatchQueue.global(qos: .userInitiated).async { self.session.stopRunning() }
+    }
+
+    func metadataOutput(_ o: AVCaptureMetadataOutput, didOutput objects: [AVMetadataObject], from c: AVCaptureConnection) {
+        let now = CACurrentMediaTime()
+        // A code unread for a second has left the view.
+        seen = seen.filter { now - $0.value <= 1 }
+        for case let code as AVMetadataMachineReadableCodeObject in objects {
+            guard let text = code.stringValue, seen.updateValue(now, forKey: text) == nil else { continue }
+            PluginHost.emit("camera", "code", ["id": id, "text": text])
+        }
     }
 
     func photoOutput(_ o: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
@@ -50,8 +72,9 @@ final class CameraPlugin: MyGoPlugin {
     init() {
         PluginHost.registerView("camera") { [weak self] id, args in
             let v = PreviewView()
+            v.id = id
             self?.views[id] = v
-            v.start(front: args["front"] as? Bool ?? false)
+            v.start(front: args["front"] as? Bool ?? false, codes: args["codes"] as? Bool ?? false)
             return v
         }
     }

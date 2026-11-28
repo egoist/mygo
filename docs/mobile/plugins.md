@@ -25,7 +25,7 @@ if it imports it, with its usage descriptions and permissions added to the app:
 | `maps` | A map in native UI, with pins: MapKit, and osmdroid with OpenStreetMap's tiles, which needs no key |
 | `location` | Where the device is, and following it, through Core Location and LocationManager |
 | `imagepicker` | The system's picker of photos and videos, which needs no permission, and its camera screen |
-| `camera` | A live preview in native UI, and photos: AVCaptureSession and CameraX |
+| `camera` | A live preview in native UI, photos, and the QR codes it sees: AVCaptureSession and CameraX, with ZXing on Android |
 | `videoplayer` | Video in native UI: AVPlayer and MediaPlayer |
 | `biometrics` | Face ID, Touch ID, fingerprints, the passcode |
 | `sensors` | The accelerometer, the gyroscope and the magnetometer |
