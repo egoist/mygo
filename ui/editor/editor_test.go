@@ -1030,6 +1030,34 @@ func TestCodeEditorSharedBuffer(t *testing.T) {
 	}
 }
 
+func TestCodeEditorGutterDigits(t *testing.T) {
+	st := &State{Buffer: NewBuffer("")}
+	tt := ui.NewTester(func(c *ui.Context) {
+		View(c, st).Fill()
+	}, 600, 400)
+	textOrigin := func(lines int) float32 {
+		st.Buffer.Set(strings.Repeat("x\n", lines-1) + "x")
+		tt.Frame()
+		return st.ed.textX
+	}
+
+	before := textOrigin(999)
+	if after := textOrigin(1_000); after <= before {
+		t.Errorf("with the default gutter, text origin at 1,000 lines = %v, want greater than %v", after, before)
+	}
+
+	st.GutterDigits = 5
+	before = textOrigin(999)
+	for _, lines := range []int{1_000, 99_999} {
+		if after := textOrigin(lines); after != before {
+			t.Errorf("with five gutter digits, text origin at %d lines = %v, want %v", lines, after, before)
+		}
+	}
+	if after := textOrigin(100_000); after <= before {
+		t.Errorf("with five gutter digits, text origin at 100,000 lines = %v, want greater than %v", after, before)
+	}
+}
+
 // A double click selects the word under it and a triple click its line,
 // on a backend that does not count clicks.
 func TestCodeEditorMultiClick(t *testing.T) {
