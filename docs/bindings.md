@@ -426,6 +426,42 @@ window does.
 What else a trusted page may do, and how to show content that is not the
 app's: see [trust](frontend.md#trust).
 
+## Middleware
+
+`mygo.Intercept` registers middleware around every call to a bound method,
+as `net/http`'s middleware wraps requests: authentication, logging, rate
+limiting, metrics, in one place instead of in every method.
+
+```go
+mygo.Intercept(func(ctx context.Context, call mygo.Call, next func(context.Context) (any, error)) (any, error) {
+	if !signedIn(mygo.CallerWindow(ctx)) {
+		return nil, errors.New("sign in first")
+	}
+	start := time.Now()
+	v, err := next(ctx)
+	log.Printf("%s took %s (%v)", call.Method, time.Since(start), err)
+	return v, err
+})
+```
+
+A middleware runs on the call's own goroutine, after the page passed the
+trust checks above and the arguments decoded, and before the method runs.
+`call.Method` is `"Service.Method"` and `call.Args` the decoded arguments,
+without the method's leading `context.Context`; read them, do not modify
+them. `next` runs the method, or the rest of the chain, with the context it
+is given, so a middleware may derive one with a deadline or a value; a nil
+context runs it with the call's own. A step's `next` runs at most once: a
+second call returns an error and runs no method again.
+Returning without calling `next` short-circuits the call: the method never
+runs, and the error rejects the page's promise. The result may be wrapped
+or replaced, but must still encode as the method's result type. A panic in
+a middleware becomes the call's error, as one in the method does.
+
+`Intercept(a, b)` runs `a` around `b` around the method; later calls append
+to the chain. Register before `App.Run` to wrap every call. Plugins' calls
+go through the chain too, named `plugin:<name>.<Method>`; filter on
+`call.Method` to leave them alone.
+
 ## From Go to the page
 
 Events are the way to tell pages about changes. To run code in a page,

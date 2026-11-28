@@ -290,6 +290,15 @@ func lookupMethod(name string) *method {
 // call calls the method for the page of w whose context is page and whose
 // token is token. parent is the context for this call.
 func (m *method) call(w *Window, page, parent context.Context, token string, args []rawValue) (result any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v", r)
+			log.Printf("mygo: panic in %s.%s: %v\n%s", m.service, m.name, r, debug.Stack())
+		}
+	}()
+	if ic := runners.Load(); ic != nil {
+		return ic.run(w, m, page, parent, token, args)
+	}
 	ctx, cancel := parent, context.CancelFunc(nil)
 	var chans []*channel
 	if m.streams {
@@ -303,12 +312,6 @@ func (m *method) call(w *Window, page, parent context.Context, token string, arg
 			cancel()
 		}()
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic: %v", r)
-			log.Printf("mygo: panic in %s.%s: %v\n%s", m.service, m.name, r, debug.Stack())
-		}
-	}()
 	in := make([]reflect.Value, 0, len(m.params)+1)
 	if m.ctx {
 		in = append(in, reflect.ValueOf(ctx))
