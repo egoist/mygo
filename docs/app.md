@@ -434,6 +434,70 @@ machines, as in a kiosk.
 the app chose: `0` turns the renderer on, `1` off. Other systems ignore the
 setting.
 
+## Sandboxing web pages on Linux
+
+WebKitGTK 4.1 runs pages in web processes that can reach what the user
+can, unless the app asks for its sandbox. An app that shows pages it does
+not trust turns it on before `App.Run`, as Electron's `app.enableSandbox`
+does:
+
+```go
+mygo.App.EnableSandbox()
+```
+
+WebKitGTK then starts the web processes of every session in
+[bubblewrap](https://github.com/containers/bubblewrap)
+(`webkit_web_context_set_sandbox_enabled`). A page that takes over its web
+process can then open only the system's libraries, fonts and settings,
+read-only, the display, the sound server and a filtered D-Bus, not the
+user's files. This limits what the process reaches directly; it does not
+keep files from pages. WebKit's network process is never sandboxed, and it
+still loads the `file://` URLs a page asks for. The app's custom schemes
+are served by the app, outside the sandbox too, so pages load as before.
+The Web Inspector's pages run in a process pool of their own, which is not
+sandboxed.
+
+bubblewrap must be able to make user namespaces. Distributions' WebKitGTK
+packages depend on it, but the kernel or a security policy can forbid the
+namespaces: Ubuntu 23.10 and newer do for apps without an AppArmor profile
+that allows them (`kernel.apparmor_restrict_unprivileged_userns=1`), and
+so do containers not given the rights. WebKitGTK would then abort the app
+at its first page, with `Failed to fully launch dbus-proxy` in its output,
+or, in some containers, start pages unsandboxed. So `App.Run` first runs
+bubblewrap once, as WebKitGTK does in containers, and where it cannot make
+its namespaces, returns an error that names the cause instead of starting
+the app: pages never run outside the sandbox the app asked for, as
+Electron's sandbox refuses to start without user namespaces.
+
+On Ubuntu, the fix is an AppArmor profile that lets the app make user
+namespaces, as Ubuntu ships for Epiphany. Install it as
+`/etc/apparmor.d/example-app`, with the path of the app's executable, and
+load it with `sudo apparmor_parser -r /etc/apparmor.d/example-app`:
+
+```
+abi <abi/4.0>,
+include <tunables/global>
+
+profile example-app /opt/example-app/example-app flags=(unconfined) {
+  userns,
+
+  include if exists <local/example-app>
+}
+```
+
+The check runs `/usr/bin/bwrap`, the one distributions' WebKitGTK runs, or
+else the first `bwrap` on `PATH` (as on NixOS); without either, it leaves
+the sandbox to WebKitGTK. It is skipped where WebKitGTK does not run
+bubblewrap: inside Flatpak, where it sandboxes pages with Flatpak's own
+sandbox, in Snap, where it starts them unsandboxed, and with
+`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`, which the user sets to turn
+the sandbox off whatever the app chose. MyGo says in the log when the app
+asked for the sandbox and does not have it: after `App.Run`, with a
+WebKitGTK older than 2.26, or with that variable set.
+
+macOS (WKWebView), Windows (WebView2), phones and browsers always run pages
+in their own sandbox, and ignore the call.
+
 ## Browsing data
 
 `App.ClearBrowsingData()` deletes what the app's pages stored: cookies,

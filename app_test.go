@@ -3,6 +3,10 @@
 package mygo
 
 import (
+	"bytes"
+	"log"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -151,5 +155,23 @@ func TestDockHideShow(t *testing.T) {
 	App.Dock.Show()
 	if got := App.ActivationPolicy(); got != ActivationPolicyRegular {
 		t.Errorf("showing the Dock icon left the policy %q", got)
+	}
+}
+
+// TestEnableSandboxAfterRun: the backend took its options in Run, so a
+// later call cannot sandbox pages, and says so rather than seem to.
+func TestEnableSandboxAfterRun(t *testing.T) {
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	defer log.SetOutput(os.Stderr)
+	App.EnableSandbox()
+	if s := out.String(); !strings.Contains(s, "App.EnableSandbox called after Run") {
+		t.Errorf("EnableSandbox after Run logs %q", s)
+	}
+	App.mu.Lock()
+	on := App.sandbox
+	App.mu.Unlock()
+	if on {
+		t.Error("EnableSandbox after Run turned the setting on")
 	}
 }

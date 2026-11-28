@@ -2616,6 +2616,7 @@ func beforeRun() {
 	Theme.SetSource(ThemeDark)
 	_ = Theme.SetGTKCSS("headerbar {}")
 	App.Dock.SetMenu(NewMenu([]*MenuItem{{Label: "New Window"}}))
+	App.EnableSandbox()
 	// Calls that work without the running app.
 	App.Locale()
 	Power.IsOnBattery()
@@ -2634,6 +2635,7 @@ func beforeRun() {
 		fmt.Println("dark:", Theme.IsDark())
 		fmt.Println("gtk css:", fb.StyleSheet == "headerbar {}")
 		fmt.Println("dock menu:", fb.DockMenu != nil && fb.DockMenu.Items[0].Label == "New Window")
+		fmt.Println("sandbox:", fb.Options.Sandbox)
 		App.Quit()
 	})
 	if err := App.Run(); err != nil {
@@ -2662,7 +2664,7 @@ func TestBeforeRun(t *testing.T) {
 		return string(out)
 	}
 	out := run()
-	wants := []string{"dark: true\n", "gtk css: true\n", "dock menu: true\n"}
+	wants := []string{"dark: true\n", "gtk css: true\n", "dock menu: true\n", "sandbox: true\n"}
 	for _, c := range needsAppCalls {
 		wants = append(wants, c.name+": mygo: "+c.name+" called before ")
 	}

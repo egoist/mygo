@@ -401,6 +401,8 @@ var (
 	webkitWebContextGetSecurityManager                func(ctx ptr) ptr
 	webkitWebContextGetWebsiteDataManager             func(ctx ptr) ptr
 	webkitWebContextSetPreferredLanguages             func(ctx ptr, languages **byte)
+	webkitWebContextSetSandboxEnabled                 func(ctx ptr, enabled bool)
+	webkitWebContextGetSandboxEnabled                 func(ctx ptr) bool
 	webkitWebsiteDataManagerClear                     func(m ptr, types uint32, timespan int64, cancellable ptr, cb ptr, data ptr)
 	webkitWebsiteDataManagerClearFinish               func(m, res ptr, err *ptr) bool
 	webkitDownloadGetWebView                          func(d ptr) ptr
@@ -890,9 +892,11 @@ var (
 // Loading only opens the libraries and binds functions, which any thread
 // may do (WebViewAvailable). WebKitGTK takes the first thread that calls
 // into it for its UI thread, and aborts when another calls later: the
-// first call, persistCookies, waits for the main thread, whose users of
-// WebKit all call webKit first. fixScreenResolution comes before it, so
-// that the first web context reads a sane resolution.
+// first calls, applySandbox's (when the app asked for the sandbox) and
+// persistCookies's, wait for the main thread, whose users of WebKit all
+// call webKit first. fixScreenResolution comes before them, so that the
+// first web context reads a sane resolution. applySandbox comes before
+// anything can start a web process, which WebKit requires.
 func webKit() error {
 	webKitOnce.Do(func() {
 		errWebKit = loadWebKit()
@@ -900,6 +904,11 @@ func webKit() error {
 	})
 	if errWebKit == nil && theBackend != nil && theBackend.IsMainThread() {
 		resolutionOnce.Do(fixScreenResolution)
+		sandboxOnce.Do(func() {
+			if theBackend.sandbox {
+				applySandbox(webkitWebContextGetDefault())
+			}
+		})
 		cookiesOnce.Do(persistCookies)
 	}
 	return errWebKit
@@ -934,6 +943,8 @@ func loadWebKit() error {
 	mustBind(w, &webkitWebContextGetSecurityManager, "webkit_web_context_get_security_manager")
 	mustBind(w, &webkitWebContextGetWebsiteDataManager, "webkit_web_context_get_website_data_manager")
 	bind(w, &webkitWebContextSetPreferredLanguages, "webkit_web_context_set_preferred_languages")
+	bind(w, &webkitWebContextSetSandboxEnabled, "webkit_web_context_set_sandbox_enabled") // 2.26
+	bind(w, &webkitWebContextGetSandboxEnabled, "webkit_web_context_get_sandbox_enabled")
 	mustBind(w, &webkitWebsiteDataManagerClear, "webkit_website_data_manager_clear")
 	mustBind(w, &webkitWebsiteDataManagerClearFinish, "webkit_website_data_manager_clear_finish")
 	mustBind(w, &webkitDownloadGetWebView, "webkit_download_get_web_view")

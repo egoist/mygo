@@ -262,6 +262,35 @@ mygo.App.SetDMABUFRenderer(mygo.DMABUFRendererAuto)
 
 用户设置的 `WEBKIT_DISABLE_DMABUF_RENDERER` 总是优先，无论应用选择了什么：`0` 开启渲染器，`1` 关闭。其他系统忽略该设置。
 
+## 在 Linux 上沙箱化网页
+
+除非应用请求沙箱，WebKitGTK 4.1 运行页面的 Web 进程能访问用户能访问的一切。显示不受信任页面的应用可以在 `App.Run` 之前开启它，如同 Electron 的 `app.enableSandbox`：
+
+```go
+mygo.App.EnableSandbox()
+```
+
+WebKitGTK 随后在 [bubblewrap](https://github.com/containers/bubblewrap) 中启动每个会话的 Web 进程（`webkit_web_context_set_sandbox_enabled`）。接管了自身 Web 进程的页面只能只读地打开系统的库、字体和设置，以及显示、声音服务器和经过过滤的 D-Bus，打不开用户的文件。这限制了该进程能直接访问的内容，但并不能让文件远离页面：WebKit 的网络进程从不加沙箱，仍会加载页面请求的 `file://` URL。应用的自定义协议由应用在沙箱之外提供，所以页面照常加载。Web 检查器的页面运行在它自己的进程池中，不加沙箱。
+
+bubblewrap 必须能创建用户命名空间。各发行版的 WebKitGTK 软件包依赖它，但内核或安全策略可能禁止这些命名空间：Ubuntu 23.10 及更新版本对没有允许它们的 AppArmor 配置文件的应用禁止（`kernel.apparmor_restrict_unprivileged_userns=1`），没有获得相应权限的容器也是如此。这时 WebKitGTK 会在启动第一个页面时中止应用，输出中有 `Failed to fully launch dbus-proxy`，或在某些容器中不加沙箱地启动页面。因此 `App.Run` 会先像 WebKitGTK 在容器中那样运行一次 bubblewrap；它无法创建命名空间时，`App.Run` 返回一个说明原因的错误，而不启动应用：页面从不在应用请求的沙箱之外运行，如同 Electron 的沙箱在没有用户命名空间时拒绝启动。
+
+在 Ubuntu 上，解决办法是一个允许应用创建用户命名空间的 AppArmor 配置文件，如同 Ubuntu 为 Epiphany 提供的那样。把它安装为 `/etc/apparmor.d/example-app`，写上应用可执行文件的路径，再用 `sudo apparmor_parser -r /etc/apparmor.d/example-app` 加载：
+
+```
+abi <abi/4.0>,
+include <tunables/global>
+
+profile example-app /opt/example-app/example-app flags=(unconfined) {
+  userns,
+
+  include if exists <local/example-app>
+}
+```
+
+该检查运行 `/usr/bin/bwrap`（各发行版的 WebKitGTK 运行的那个），否则运行 `PATH` 上的第一个 `bwrap`（如 NixOS）；两者都没有时，沙箱交给 WebKitGTK 处理。在 WebKitGTK 不运行 bubblewrap 的地方会跳过检查：在 Flatpak 中，它用 Flatpak 自己的沙箱运行页面；在 Snap 中，它不加沙箱地启动页面；以及设置了 `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` 时，用户以此关闭沙箱，无论应用选择了什么。应用请求了沙箱却没有得到时，MyGo 会在日志中说明：在 `App.Run` 之后调用、WebKitGTK 早于 2.26，或设置了该变量。
+
+macOS（WKWebView）、Windows（WebView2）、手机和浏览器总是在自己的沙箱中运行页面，并忽略该调用。
+
 ## 浏览数据
 
 `App.ClearBrowsingData()` 删除应用页面存储的内容：Cookie、本地和会话存储、IndexedDB、Service Worker 和缓存，例如用户退出登录时。打开的页面会把内存中的内容保留到重新加载。它清除默认会话；`Session.ClearData` 清除另一个会话，或只清除某些类型的数据。

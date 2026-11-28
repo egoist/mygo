@@ -146,6 +146,10 @@ func TestMain(m *testing.M) {
 		programName()
 		return
 	}
+	if os.Getenv("MYGO_E2E_SANDBOX") == "1" {
+		// TestSandbox's app: the page tests it runs again, sandboxed.
+		mygo.App.EnableSandbox()
+	}
 	mygo.Bind(Greeter{}, probe, streams, Bench{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

@@ -4,6 +4,7 @@ package linux
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -71,6 +72,9 @@ func (a appController) NewDataStore(opts platform.DataStoreOptions) (platform.Da
 	}
 	ctx := webkitWebContextNewWithWebsiteDataManager(manager)
 	gObjectUnref(manager) // the context holds it
+	if a.b.sandbox {
+		applySandbox(ctx)
+	}
 	s := &dataStore{b: a.b, ctx: ctx, schemes: map[string]bool{}}
 	a.b.stores = append(a.b.stores, s)
 	a.b.applyWebLanguages()
@@ -101,6 +105,35 @@ func webContext(store platform.DataStore) ptr {
 		return s.ctx
 	}
 	return webkitWebContextGetDefault()
+}
+
+var (
+	sandboxOnce sync.Once
+	// sandboxLogged is whether applySandbox said in the log that the
+	// sandbox is off (main thread).
+	sandboxLogged bool
+)
+
+// applySandbox starts the web processes of ctx in WebKit's sandbox, for
+// App.EnableSandbox. ctx must have none yet, which WebKit aborts for. Only
+// the web processes are sandboxed: the network process, which reads
+// file:// pages, and the custom schemes' handlers, in this process, are
+// not, so they need no paths in the sandbox. A sandbox the app asked for
+// and did not get is said once in the log.
+func applySandbox(ctx ptr) {
+	why := ""
+	if webkitWebContextSetSandboxEnabled == nil {
+		why = "this WebKitGTK has no sandbox (2.26 or newer has)"
+	} else {
+		webkitWebContextSetSandboxEnabled(ctx, true)
+		if webkitWebContextGetSandboxEnabled != nil && !webkitWebContextGetSandboxEnabled(ctx) {
+			why = "WebKitGTK left it off (WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS is set)"
+		}
+	}
+	if why != "" && !sandboxLogged {
+		sandboxLogged = true
+		log.Printf("mygo: App.EnableSandbox: pages are not sandboxed: %s", why)
+	}
 }
 
 // newWebView makes the web view of w, with the web context of its store.

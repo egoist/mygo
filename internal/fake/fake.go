@@ -36,6 +36,8 @@ type Backend struct {
 	// has been seen to; Quits counts the calls.
 	IgnoresQuit bool
 	Quits       int
+	// Options are the options Init was given.
+	Options platform.AppOptions
 
 	mu             sync.Mutex
 	noSession      bool // SetNoSessionState
@@ -207,8 +209,9 @@ func goroutineID() uint64 {
 
 func (b *Backend) Name() string { return "fake" }
 
-func (b *Backend) Init(h platform.AppHandler, _ platform.AppOptions) error {
+func (b *Backend) Init(h platform.AppHandler, opts platform.AppOptions) error {
 	b.h = h
+	b.Options = opts
 	b.mainID = goroutineID()
 	return nil
 }
