@@ -66,6 +66,22 @@ func (st *viewState) image(c *ui.Context, url string) ui.ImageSource {
 	return e.src
 }
 
+// imageLoaded reports whether the image at url has loaded, without
+// starting to load it.
+func (st *viewState) imageLoaded(url string) bool {
+	if st.o.LoadImage == nil || url == "" {
+		return false
+	}
+	v, ok := st.o.images.Load(url)
+	if !ok {
+		return false
+	}
+	e := v.(*imageEntry)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.src != nil
+}
+
 // images builds a paragraph of images alone: each as large as it is, at
 // most as wide as the view, its description showing until it loads.
 func (st *viewState) images(c *ui.Context, i int) ui.Element {

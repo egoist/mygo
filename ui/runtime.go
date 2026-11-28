@@ -414,6 +414,12 @@ type engine struct {
 	// out, through reachListEnds, set as the first is queued.
 	listEnds      []*ListState
 	reachListEnds func(rt *engine)
+	// listTexts collects the selectable paragraphs of a list's rows in
+	// their order, and rowsBetween adds the text of rows lists did not
+	// build between two of them to a selection's parts: the parts of
+	// lists a selection of text reaches, set as the first list builds too.
+	listTexts   func(rt *engine, e *node, hidden bool)
+	rowsBetween func(rt *engine, i, j int, parts []SelectedText) []SelectedText
 	// pressDragger is the element around the one pressed that drags a
 	// value, which takes the press as it moves (dragMove), or 0.
 	pressDragger uint64
@@ -421,9 +427,13 @@ type engine struct {
 	// spacePressed is the focused button that Space holds down, which
 	// it clicks as it goes up (keySpacePress), or 0.
 	spacePressed uint64
-	// texts are selectable paragraphs in build order; selection spans those
-	// of one Selectable container (textselection.go).
+	// texts are selectable paragraphs in build order, the rows of lists in
+	// their order; selection spans those of one Selectable container
+	// (textselection.go). textRows tells which of them are in the rows of
+	// lists, and textLists which lists are in Selectable containers.
 	texts        []*state
+	textRows     []textRow
+	textLists    []textList
 	selection    textSelection
 	focusVisible bool
 	// keys are the keys pressed since the last frame, for its shortcuts;
@@ -965,6 +975,10 @@ func (rt *engine) runFrame() {
 	rt.commitFocusBindings()
 	clear(rt.texts)
 	rt.texts = rt.texts[:0]
+	clear(rt.textRows)
+	rt.textRows = rt.textRows[:0]
+	clear(rt.textLists)
+	rt.textLists = rt.textLists[:0]
 	rt.collectSelectable(root, false)
 	rt.syncTextSelection()
 	rt.stats.lap(phaseLayout)
@@ -1647,6 +1661,7 @@ func (rt *engine) dropFrame() {
 	if checkBuilt != nil {
 		checkBuilt(rt, builtDropped)
 	}
+	rt.textRows, rt.textLists = nil, nil
 }
 
 // endFrame ends a frame, and closes the engine when its window closed
