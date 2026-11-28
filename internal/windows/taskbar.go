@@ -2,7 +2,11 @@
 
 package windows
 
-import "unsafe"
+import (
+	"math"
+	"strings"
+	"unsafe"
+)
 
 // A window's taskbar button: progress, hiding it, flashing it, its icon.
 // Explorer creates the button when the window is first shown (and again
@@ -21,6 +25,7 @@ const (
 	tbDeleteTab        = 5
 	tbSetProgressValue = 9
 	tbSetProgressState = 10
+	tbSetOverlayIcon   = 18
 
 	// smCxIcon and smCxSmIcon name the system's big and small icon sizes.
 	smCxIcon, smCxSmIcon = 11, 49
@@ -71,6 +76,9 @@ func (w *window) applyTaskbar() {
 	w.applyProgress(tl)
 	if thumbApply != nil {
 		thumbApply(w)
+	}
+	if badgeApply != nil && w.b.badge != "" {
+		badgeApply(w)
 	}
 }
 
@@ -161,4 +169,134 @@ func (w *window) freeIcons() {
 		}
 	}
 	w.icons = [2]uintptr{}
+}
+
+// The app's badge (Dock.SetBadge, App.SetBadgeCount) shows on its windows'
+// taskbar buttons as their overlay icon: its text in white on a red disc,
+// a small icon at the window's DPI, as the overlays of Teams and
+// Chromium's web apps are. A count past 99 shows as 99+, which still
+// reads in 16 pixels; screen readers read the whole text.
+
+// badgeApply is applyBadge, linked when the app first sets a badge
+// (LinkBadges): SetBadge, applyTaskbar and the window proc run in every
+// app, and only call it.
+var badgeApply func(*window)
+
+// LinkBadges links the code of badges, when the app first sets one.
+func LinkBadges() { badgeApply = (*window).applyBadge }
+
+// badgeRed is the disc's color, a DIB pixel: Windows 11's critical fill
+// (SystemFillColorCritical).
+const badgeRed = 0xC42B1C
+
+// applyBadge puts the app's badge on the window's taskbar button, or takes
+// it off when there is none.
+func (w *window) applyBadge() {
+	tl := w.b.taskbar()
+	if tl == 0 || w.skipTaskbar {
+		return
+	}
+	var icon uintptr
+	var desc *uint16
+	if w.b.badge != "" {
+		icon = badgeIcon(badgeText(w.b.badge), iconSize(smCxSmIcon, 16, dpiOf(w.hwnd)))
+		desc = u16(w.b.badge)
+	}
+	hr := comCall(tl, tbSetOverlayIcon, w.hwnd, icon, uintptr(unsafe.Pointer(desc)))
+	if !failed(hr) {
+		w.badgeShown = icon != 0
+	}
+	if icon != 0 {
+		procDestroyIcon.Call(icon) // the taskbar keeps a copy
+	}
+}
+
+// badgeText returns what a badge shows of its label: a count past 99 as
+// 99+.
+func badgeText(label string) string {
+	if len(label) > 2 && strings.Trim(label, "0123456789") == "" {
+		return "99+"
+	}
+	return label
+}
+
+var (
+	procCreateIconIndirect = user32.NewProc("CreateIconIndirect")
+	procCreateBitmap       = gdi32.NewProc("CreateBitmap")
+)
+
+// iconInfo is ICONINFO.
+type iconInfo struct {
+	Icon        int32
+	X, Y        uint32
+	Mask, Color uintptr
+}
+
+// badgeIcon returns an icon of the badge's text, size pixels square, or 0.
+func badgeIcon(text string, size int) uintptr {
+	s := int32(size)
+	bmp := newBitmap(0, s, s)
+	if bmp == nil {
+		return 0
+	}
+	defer bmp.free()
+	drawBadge(bmp, text, s)
+	// The color bitmap's alpha draws the icon; the mask is unused.
+	mask, _, _ := procCreateBitmap.Call(uintptr(size), uintptr(size), 1, 1, 0)
+	defer procDeleteObject.Call(mask)
+	ii := iconInfo{Icon: 1, Mask: mask, Color: bmp.bmp}
+	icon, _, _ := procCreateIconIndirect.Call(uintptr(unsafe.Pointer(&ii)))
+	return icon
+}
+
+// drawBadge draws the badge's text in bmp, size pixels square, with
+// straight alpha, as icons have it: semibold Segoe UI, centered on the
+// disc by its digits' height, at the largest size up to three quarters of
+// the disc that fits across it.
+func drawBadge(bmp *bitmap, text string, s int32) {
+	for i := range bmp.px {
+		bmp.px[i] = badgeRed
+	}
+	const semibold, antialiased = 600, 4
+	lf := logFont{Weight: semibold, Quality: antialiased}
+	copy(lf.FaceName[:], utf16z("Segoe UI"))
+	room := int32(math.Round(float64(s) * 0.84))
+	str := u16(text)
+	var font, old uintptr
+	var r rect
+	for em := s * 3 / 4; ; em-- {
+		lf.Height = -em
+		font, _, _ = procCreateFontIndirectW.Call(uintptr(unsafe.Pointer(&lf)))
+		old, _, _ = procSelectObject.Call(bmp.dc, font)
+		r = rect{}
+		procDrawTextW.Call(bmp.dc, uintptr(unsafe.Pointer(str)), ^uintptr(0), uintptr(unsafe.Pointer(&r)), dtCalcRect|dtSingleLine|dtNoPrefix)
+		if r.Right-r.Left <= room || em <= s/3 {
+			break
+		}
+		procSelectObject.Call(bmp.dc, old)
+		procDeleteObject.Call(font)
+	}
+	tm := textMetricsOf(bmp.dc)
+	// Digits stand on the baseline as tall as capitals, about 0.7 of the
+	// em: centering that, rather than the line with its descent, centers
+	// them.
+	digits := 0.7 * float64(tm.Height-tm.InternalLeading)
+	w := r.Right - r.Left
+	x := (s - w) / 2
+	y := int32(math.Round((float64(s)+digits)/2)) - tm.Ascent
+	r = rect{x, y, x + w, y + tm.Height}
+	procSetBkMode.Call(bmp.dc, 1) // TRANSPARENT
+	procSetTextColor.Call(bmp.dc, 0xFFFFFF)
+	procDrawTextW.Call(bmp.dc, uintptr(unsafe.Pointer(str)), ^uintptr(0), uintptr(unsafe.Pointer(&r)), dtSingleLine|dtNoPrefix|dtNoClip)
+	procSelectObject.Call(bmp.dc, old)
+	procDeleteObject.Call(font)
+	procGdiFlush.Call()
+	disc := rect{0, 0, s, s}
+	for y := range s {
+		for x := range s {
+			a := roundedCoverage(float64(x)+0.5, float64(y)+0.5, &disc, float64(s)/2)
+			i := y*s + x
+			bmp.px[i] = uint32(math.Round(a*255))<<24 | bmp.px[i]&0xFFFFFF
+		}
+	}
 }

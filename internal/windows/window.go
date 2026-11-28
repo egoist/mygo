@@ -92,6 +92,9 @@ type window struct {
 	// taskbarButton is whether Explorer has sent TaskbarButtonCreated for
 	// the window's current taskbar button.
 	taskbarButton bool
+	// badgeShown is whether the shell took the app's badge as the overlay
+	// of the window's taskbar button.
+	badgeShown bool
 	// placing is the rectangle, in pixels, that place is moving the window
 	// to, already in the DPI of its display: WM_DPICHANGED keeps it.
 	placing *rect
@@ -720,6 +723,9 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			r = w.placing
 		}
 		procSetWindowPos.Call(w.hwnd, 0, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right-r.Left), uintptr(r.Bottom-r.Top), swpNoZOrder|swpNoActivate)
+		if badgeApply != nil && w.b.badge != "" {
+			badgeApply(w) // drawn at the new DPI
+		}
 		return 0, true
 	case wmNCCalcSize:
 		if w.captionless() && wp != 0 && !w.fullScreen {

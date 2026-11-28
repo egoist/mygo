@@ -214,7 +214,7 @@ db := filepath.Join(dir, "notes.db")
 
 ## Dock 与任务栏
 
-- `App.SetBadgeCount(n)` 在应用图标上显示计数：Dock（macOS）或启动器条目（支持它的 Linux Dock）；零会清除它。
+- `App.SetBadgeCount(n)` 在应用图标上显示计数：Dock（macOS）、应用窗口的任务栏按钮（Windows，超过 99 显示为 99+），或启动器条目（支持它的 Linux Dock）；零会清除它。
 - `App.Dock` 控制 macOS 上的 Dock 图标：`SetBadge` 显示任意文本，`Bounce` 请求注意，`SetIcon` 替换图标，`SetMenu` 向它的菜单添加项（见 [Dock 菜单](menus.md#dock-菜单)），`Hide` 和 `Show` 移除并恢复它。
 - `App.SetActivationPolicy(mygo.ActivationPolicyAccessory)` 移除驻留菜单栏的应用的 Dock 图标，见[托盘图标](menus.md#托盘图标)；它的窗口仍可显示。`App.ActivationPolicy` 返回该策略。
 - `App.Focus` 把应用带到前面，`App.IsActive` 报告它是否在前面：活动应用，或在 Windows 和 Linux 上拥有焦点窗口的应用。在 macOS 上，`App.Hide` 和 `App.Show` 隐藏并显示它的所有窗口，`App.ShowAboutPanel` 显示标准的关于面板。

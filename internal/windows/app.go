@@ -585,9 +585,18 @@ func (a appController) Unhide() {
 	a.b.hidden = nil
 }
 
-func (a appController) IsHidden() bool        { return len(a.b.hidden) > 0 }
-func (a appController) SetBadge(label string) { a.b.badge = label }
-func (a appController) Badge() string         { return a.b.badge }
+func (a appController) IsHidden() bool { return len(a.b.hidden) > 0 }
+func (a appController) SetBadge(label string) {
+	a.b.badge = label
+	if badgeApply == nil {
+		return
+	}
+	for _, w := range a.b.windows {
+		badgeApply(w)
+	}
+}
+
+func (a appController) Badge() string { return a.b.badge }
 
 // IsActive reports whether the window in front is one of the app's.
 func (a appController) IsActive() bool {
