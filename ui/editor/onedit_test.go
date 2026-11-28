@@ -315,24 +315,37 @@ func TestOnEditOffFromAnother(t *testing.T) {
 	}
 }
 
-// Reset with the text the buffer has, whatever its line endings, makes no
-// version and tells nothing, as an Edit changing nothing; it still takes
-// the endings, saved.
+// Reset with the text and line endings the buffer has makes no version
+// and tells nothing, as an Edit changing nothing. Other endings alone make
+// a version with no changes, saved, so that a version always writes the
+// same bytes.
 func TestResetSameTextTellsNothing(t *testing.T) {
 	b := NewBuffer("a\nb")
 	v := b.Version()
+	before := b.Snapshot()
 	told, _ := onEditTexts(t, b)
-	b.Reset("a\r\nb")
+	b.Reset("a\nb")
 	if b.Version() != v || len(*told) != 0 {
-		t.Fatalf("version %d, was %d; told %q", b.Version(), v, *told)
+		t.Fatalf("same text: version %d, was %d; told %q", b.Version(), v, *told)
 	}
-	var w strings.Builder
-	b.WriteTo(&w)
-	if w.String() != "a\r\nb" || b.Modified() {
-		t.Fatalf("writes %q, modified %v", w.String(), b.Modified())
+	var changes []Change
+	b.OnEdit(func(_, _ Snapshot, cs []Change) { changes = cs })
+	b.Reset("a\r\nb")
+	if b.Version() != v+1 || strings.Join(*told, ",") != "a\nb" || len(changes) != 0 {
+		t.Fatalf("other endings: version %d, was %d; told %q with %v", b.Version(), v, *told, changes)
+	}
+	var was, now strings.Builder
+	before.WriteTo(&was)
+	b.Snapshot().WriteTo(&now)
+	if was.String() != "a\nb" || now.String() != "a\r\nb" || b.Modified() {
+		t.Fatalf("writes %q then %q, modified %v", was.String(), now.String(), b.Modified())
+	}
+	b.Reset("a\r\nb")
+	if b.Version() != v+1 {
+		t.Fatalf("the same endings again: version %d, want %d", b.Version(), v+1)
 	}
 	b.Reset("a\nbc")
-	if b.Version() != v+1 || strings.Join(*told, ",") != "a\nbc" {
+	if b.Version() != v+2 || strings.Join(*told, ",") != "a\nb,a\nbc" {
 		t.Fatalf("a new text: version %d, told %q", b.Version(), *told)
 	}
 }

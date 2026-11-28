@@ -336,13 +336,14 @@ func (b *Buffer) MarkSavedAt(s Snapshot) {
 // between those the texts start and end with alike, as VS Code reloads
 // a file: the editors showing it keep their selections, scroll, folds
 // and diagnostics with the text before and after those lines, and in an
-// empty buffer at the start. The same text, whatever its line endings,
-// makes no version, as an Edit changing nothing.
+// empty buffer at the start. The same text with the same line endings
+// makes no version, as an Edit changing nothing; other endings alone make
+// one with no changes, so that a version always writes the same bytes.
 func (b *Buffer) Reset(text string) {
 	defer b.tell()
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	old := b.text
+	old, oldEnds := b.text, b.ends
 	t, ends := newLineEnds(text)
 	c, changed := reloadChange(old, t)
 	if changed {
@@ -351,9 +352,12 @@ func (b *Buffer) Reset(text string) {
 	b.ends = ends
 	b.saved, b.savedEnds = b.text, b.ends
 	b.undo, b.redo, b.openTx = nil, nil, nil
-	if changed {
+	switch {
+	case changed:
 		c.loaded = old.Len() == 0
 		b.record([]change{c})
+	case ends.codes.String() != oldEnds.codes.String():
+		b.record(nil)
 	}
 }
 
