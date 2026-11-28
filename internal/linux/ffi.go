@@ -325,6 +325,7 @@ var (
 	gtkCheckMenuItemSetDrawAsRadio      func(item ptr, v bool)
 	gtkSeparatorMenuItemNew             func() ptr
 	gtkMenuShellAppend                  func(shell, child ptr)
+	gtkMenuShellInsert                  func(shell, child ptr, pos int32)
 	gtkMenuPopupAtPointer               func(menu ptr, event ptr)
 	gtkMenuPopupAtRect                  func(menu, window ptr, rect *gdkRectangle, rectAnchor, menuAnchor int32, event ptr)
 	gtkMenuShellDeactivate              func(menu ptr)
@@ -622,6 +623,7 @@ func load() error {
 	mustBind(o, &gObjectSetBool, "g_object_set")
 	mustBind(o, &gObjectSetStr, "g_object_set")
 	mustBind(o, &gObjectGetPtr, "g_object_get")
+	mustBind(o, &gObjectGetData, "g_object_get_data")
 
 	i := libGIO
 	mustBind(i, &gUnixInputStreamNew, "g_unix_input_stream_new")
@@ -771,6 +773,7 @@ func load() error {
 	mustBind(t, &gtkCheckMenuItemSetDrawAsRadio, "gtk_check_menu_item_set_draw_as_radio")
 	mustBind(t, &gtkSeparatorMenuItemNew, "gtk_separator_menu_item_new")
 	mustBind(t, &gtkMenuShellAppend, "gtk_menu_shell_append")
+	mustBind(t, &gtkMenuShellInsert, "gtk_menu_shell_insert")
 	mustBind(t, &gtkMenuPopupAtPointer, "gtk_menu_popup_at_pointer")
 	mustBind(t, &gtkMenuPopupAtRect, "gtk_menu_popup_at_rect")
 	mustBind(t, &gtkMenuShellDeactivate, "gtk_menu_shell_deactivate")
@@ -979,7 +982,6 @@ func loadWebKit() error {
 	mustBind(w, &webkitWebViewSetBackgroundColor, "webkit_web_view_set_background_color")
 	bind(w, &webkitWebViewIsPlayingAudio, "webkit_web_view_is_playing_audio")
 	// To turn WebKit's zoom gesture off (stopPinchZoom).
-	bind(libGObject, &gObjectGetData, "g_object_get_data")
 	bind(libGTK, &gtkEventControllerSetPropagationPhase, "gtk_event_controller_set_propagation_phase")
 	if bind(w, &webkitWebViewSetIsMuted, "webkit_web_view_set_is_muted") {
 		mustBind(w, &webkitWebViewGetIsMuted, "webkit_web_view_get_is_muted")

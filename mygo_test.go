@@ -2045,6 +2045,53 @@ func TestNextZoom(t *testing.T) {
 	}
 }
 
+func TestTrayOnMenuWillOpen(t *testing.T) {
+	tray, err := NewTray(TrayOptions{
+		Menu: NewMenu([]*MenuItem{{ID: "before", Label: "Before"}}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tray.Destroy()
+
+	opens := 0
+	clicked := false
+	var target *MenuItem
+	off := tray.OnMenuWillOpen(func() {
+		opens++
+		target = &MenuItem{
+			ID:    "dynamic",
+			Label: "Dynamic",
+			Click: func(*MenuItem, *Window) { clicked = true },
+		}
+		tray.SetMenu(NewMenu([]*MenuItem{target}))
+	})
+
+	onMain(fb.SimulateTrayMenuWillOpen)
+	if opens != 1 {
+		t.Fatalf("opens=%d, want 1", opens)
+	}
+	if target == nil {
+		t.Fatal("OnMenuWillOpen did not build new menu")
+	}
+	menus := fb.TrayMenus()
+	got := menus[len(menus)-1]
+	if got == nil || len(got.Items) != 1 || got.Items[0].Label != "Dynamic" || got.Items[0].Key != "dynamic" {
+		t.Fatalf("unexpected tray menu after OnMenuWillOpen: %+v", got)
+	}
+
+	onMain(func() { fb.ClickMenuItem(target.uid) })
+	if !clicked {
+		t.Fatal("clicking item replaced inside OnMenuWillOpen did not fire Click")
+	}
+
+	off()
+	onMain(fb.SimulateTrayMenuWillOpen)
+	if opens != 1 {
+		t.Fatalf("after off(), opens=%d, want 1", opens)
+	}
+}
+
 // Application.
 
 func TestQuitCanBeCanceled(t *testing.T) {

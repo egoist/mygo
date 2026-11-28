@@ -37,6 +37,7 @@ type nativeItem struct {
 	icon         *platform.MenuIcon
 	image, label ptr
 	bar          bool // an item of a menu bar, which shows no icon
+	node         *trayNode
 }
 
 var (
@@ -76,51 +77,7 @@ func initMenuCallbacks() {
 		if settingState {
 			return
 		}
-		b := theBackend
-		id := int(data)
-		// A submenu may have focus. Resolve this native item's window, as
-		// the same Go item may appear in several windows' menu bars.
-		var w *window
-		for _, n := range itemsByID[id] {
-			if n.item == item && n.windowID != 0 {
-				w = b.window(ptr(n.windowID))
-				if w == nil {
-					return
-				}
-				break
-			}
-		}
-		if cmd, ok := editCommands[itemRoles[id]]; ok {
-			if w == nil {
-				for _, x := range b.windows {
-					if !x.closed && gtkWindowIsActive(x.win) {
-						w = x
-						break
-					}
-				}
-			}
-			var v *window
-			if w != nil {
-				v = w.focusedWebView()
-			}
-			if v != nil {
-				// The page of a web view in the content has the keyboard.
-				webkitWebViewExecuteEditingCommand(v.web, cs(cmd))
-			} else if w != nil {
-				if w.surface != nil {
-					role := itemRoles[id]
-					w.h.SurfaceEvent(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: role})
-				} else {
-					webkitWebViewExecuteEditingCommand(w.web, cs(cmd))
-				}
-			}
-			return
-		}
-		if w != nil {
-			w.h.MenuItemClicked(id)
-		} else {
-			b.h.MenuItemClicked(id)
-		}
+		activateMenuItem(item, int(data))
 	})
 	cbMenuDeactivate = purego.NewCallback(func(menu, loop ptr) {
 		gMainLoopQuit(loop)
@@ -243,6 +200,15 @@ func buildMenu(shell ptr, m *platform.Menu, accel ptr, owner, windowID int, bar 
 }
 
 func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int, bar bool) ptr {
+	item, _ := buildMenuItem(it, accel, owner, windowID, bar, nil)
+	return item
+}
+
+// buildMenuItem constructs one GTK menu item (and recursively its submenu),
+// applies its initial state, and tracks it in itemsByID. When wireActivate is
+// non-nil (tray menus), it handles activation wiring and receives the mirroring
+// *trayNode carrying the submenu shell and children.
+func buildMenuItem(it *platform.MenuItem, accel ptr, owner, windowID int, bar bool, wireActivate func(item ptr, node *trayNode)) (ptr, *trayNode) {
 	var item ptr
 	check := false
 	switch it.Type {
@@ -255,30 +221,50 @@ func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int, bar bool) 
 	default:
 		item = gtkMenuItemNewWithLabel(cs(it.LabelWithSubtitleAndBadge()))
 	}
+	var node *trayNode
+	if wireActivate != nil {
+		node = &trayNode{
+			spec:  it,
+			item:  item,
+			uid:   it.ID,
+			check: check,
+			icon:  it.Icon,
+		}
+	}
 	if it.Submenu != nil {
 		sub := gtkMenuNew()
 		if windowID != 0 {
 			connect(sub, "map", cbMenuMap, ptr(windowID))
 		}
-		buildMenu(sub, it.Submenu, accel, owner, windowID, false)
+		if node != nil {
+			node.subShell = sub
+			node.children = buildTrayNodes(sub, it.Submenu.Items, owner)
+			gtkWidgetShowAll(sub)
+		} else {
+			buildMenu(sub, it.Submenu, accel, owner, windowID, false)
+		}
 		gtkMenuItemSetSubmenu(item, sub)
 	} else if it.Type != platform.MenuItemSeparator {
-		connect(item, "activate", cbMenuActivate, ptr(it.ID))
-		itemRoles[it.ID] = it.Role
-		if accel != 0 && it.Accelerator != "" {
-			if key, mods, ok := gtkAccelerator(it.Accelerator); ok {
-				gtkWidgetAddAccelerator(item, cs("activate"), accel, key, mods, 1) // GTK_ACCEL_VISIBLE
-				if it.Role != "" {
-					if roleKeys[accel] == nil {
-						roleKeys[accel] = map[[2]uint32]bool{}
+		if wireActivate != nil {
+			wireActivate(item, node)
+		} else {
+			connect(item, "activate", cbMenuActivate, ptr(it.ID))
+			if accel != 0 && it.Accelerator != "" {
+				if key, mods, ok := gtkAccelerator(it.Accelerator); ok {
+					gtkWidgetAddAccelerator(item, cs("activate"), accel, key, mods, 1) // GTK_ACCEL_VISIBLE
+					if it.Role != "" {
+						if roleKeys[accel] == nil {
+							roleKeys[accel] = map[[2]uint32]bool{}
+						}
+						roleKeys[accel][[2]uint32{gdkKeyvalToLower(key), mods}] = true
 					}
-					roleKeys[accel][[2]uint32{gdkKeyvalToLower(key), mods}] = true
 				}
 			}
 		}
+		itemRoles[it.ID] = it.Role
 	}
 	applyState(item, it, check)
-	n := nativeItem{owner: owner, item: item, check: check, windowID: windowID, disabled: !it.Enabled, bar: bar}
+	n := nativeItem{owner: owner, item: item, check: check, windowID: windowID, disabled: !it.Enabled, bar: bar, node: node}
 	if it.Icon != nil && it.Type != platform.MenuItemSeparator && !bar && setMenuItemIcon != nil {
 		n.icon = it.Icon
 		if windowID != 0 {
@@ -286,7 +272,7 @@ func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int, bar bool) 
 		}
 	}
 	itemsByID[it.ID] = append(itemsByID[it.ID], n)
-	return item
+	return item, node
 }
 
 // settingState is true while a check item is changed programmatically:
@@ -468,6 +454,57 @@ func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
 		}
 		applyState(n.item, it, n.check)
 		n.disabled = !it.Enabled
+		if n.node != nil {
+			n.node.spec = it
+			n.node.dirtyCheck = false
+		}
+	}
+}
+
+func activateMenuItem(item ptr, id int) {
+	b := theBackend
+	// A submenu may have focus. Resolve this native item's window, as
+	// the same Go item may appear in several windows' menu bars.
+	var w *window
+	for _, n := range itemsByID[id] {
+		if n.item == item && n.windowID != 0 {
+			w = b.window(ptr(n.windowID))
+			if w == nil {
+				return
+			}
+			break
+		}
+	}
+	if cmd, ok := editCommands[itemRoles[id]]; ok {
+		if w == nil {
+			for _, x := range b.windows {
+				if !x.closed && gtkWindowIsActive(x.win) {
+					w = x
+					break
+				}
+			}
+		}
+		var v *window
+		if w != nil {
+			v = w.focusedWebView()
+		}
+		if v != nil {
+			// The page of a web view in the content has the keyboard.
+			webkitWebViewExecuteEditingCommand(v.web, cs(cmd))
+		} else if w != nil {
+			if w.surface != nil {
+				role := itemRoles[id]
+				w.h.SurfaceEvent(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: role})
+			} else {
+				webkitWebViewExecuteEditingCommand(w.web, cs(cmd))
+			}
+		}
+		return
+	}
+	if w != nil {
+		w.h.MenuItemClicked(id)
+	} else {
+		b.h.MenuItemClicked(id)
 	}
 }
 
@@ -600,9 +637,12 @@ type tray struct {
 	// title, tip and spec are the title, tooltip and menu the app set
 	// last, and pending tells that some waited for the watcher
 	// (trayhost.go).
-	title, tip string
-	spec       *platform.Menu
-	pending    bool
+	title, tip    string
+	spec          *platform.Menu
+	pending       bool
+	nodes         []*trayNode
+	rootMI        ptr
+	aboutToShowID uint64
 }
 
 func (b *Backend) NewTray(id string, h platform.TrayHandler) (platform.Tray, error) {
@@ -785,26 +825,7 @@ func (t *tray) SetToolTip(tip string) {
 }
 
 func (t *tray) SetMenu(m *platform.Menu) {
-	if t.spec = m; t.held() {
-		return
-	}
-	dropOwner(t.owner)
-	t.owner = newOwner()
-	menu := gtkMenuNew()
-	if m != nil {
-		buildMenu(menu, m, 0, t.owner, 0, false)
-	}
-	gtkWidgetShowAll(menu)
-	appIndicatorSetMenu(t.ind, menu)
-	t.menu = menu
-	// The items are exported now: give them their icons.
-	for _, list := range itemsByID {
-		for _, n := range list {
-			if n.owner == t.owner && n.icon != nil {
-				setMenuItemIcon(&n, n.icon)
-			}
-		}
-	}
+	t.setMenu(m)
 }
 
 func (t *tray) PopUpMenu(*platform.Menu) {}
@@ -841,10 +862,10 @@ func (t *tray) Destroy() {
 		return
 	}
 	t.SetActivatable(false)
+	t.resetMenu()
 	appIndicatorSetStatus(t.ind, 0) // PASSIVE
 	gObjectUnref(t.ind)
 	t.ind, t.pending = 0, false
-	dropOwner(t.owner)
 	delete(t.b.trays, t.id)
 	if t.iconDir != "" {
 		_ = os.RemoveAll(t.iconDir)

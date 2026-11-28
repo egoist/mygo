@@ -425,7 +425,12 @@ func (b *Backend) trayMessage(id uint32, event uint32) {
 			t.h.RightClicked()
 		}
 		if t.menu != nil {
-			t.PopUpMenu(t.menu)
+			if t.h != nil {
+				t.h.MenuWillOpen()
+			}
+			if t.menu != nil {
+				t.PopUpMenu(t.menu)
+			}
 		}
 	case ninBalloonUserClick:
 		if n := t.notification; n != "" {

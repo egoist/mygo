@@ -1200,6 +1200,9 @@ const (
 // native item was built from.
 type MenuItem struct {
 	ID             int
+	// Key is the application's MenuItem.ID when set, used to match items
+	// across menu updates without replacing the native items.
+	Key            string
 	Type           MenuItemType
 	Label          string
 	Subtitle       string
@@ -1568,6 +1571,8 @@ type Secrets interface {
 type TrayHandler interface {
 	Clicked()
 	RightClicked()
+	// MenuWillOpen is called just before the tray's menu is shown.
+	MenuWillOpen()
 	// AppearanceChanged tells that the bar the icon shows on turned dark
 	// or light.
 	AppearanceChanged()

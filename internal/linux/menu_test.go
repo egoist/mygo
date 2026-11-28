@@ -96,6 +96,7 @@ type trayAppearanceHandler struct{ changed func() }
 
 func (*trayAppearanceHandler) Clicked()             {}
 func (*trayAppearanceHandler) RightClicked()        {}
+func (*trayAppearanceHandler) MenuWillOpen()        {}
 func (h *trayAppearanceHandler) AppearanceChanged() { h.changed() }
 
 // TestMenuHides checks that a window with a hidden title bar keeps its menu
