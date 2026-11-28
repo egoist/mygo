@@ -434,12 +434,18 @@ func (v *view) key(key ui.Key, mods ui.Modifiers) bool {
 		if m != 0 {
 			return false
 		}
+		if v.focusBlock() {
+			// The element of the block takes the focus, as a card's does.
+			return true
+		}
 		v.enter()
 		return true
 	case ui.KeyTab:
 		switch {
 		case m != 0:
 			return false
+		case v.focusBlock():
+			return true
 		case st.List != NoList:
 			if shift {
 				return v.run("outdent")
@@ -452,6 +458,21 @@ func (v *view) key(key ui.Key, mods ui.Modifiers) bool {
 		return false
 	}
 	return false
+}
+
+// observe watches the input of the editor and of what is in it: the
+// Escape that brings the focus back from a block to the text. The key
+// reaches the element that has the focus alone, so the editor watches it
+// as it watches the focus.
+func (v *view) observe(ev ui.InputEvent) {
+	if ev.Kind != ui.InputKeyDown || ev.Key != ui.KeyEscape {
+		return
+	}
+	// The key is not taken here: the element that has the focus sees it
+	// first, and a control in a card may use it for what it is doing. The
+	// editor brings the focus back to the text in the frame it builds,
+	// wherever in the card the focus was.
+	v.escape = true
 }
 
 // shortcut returns the command a key with mods runs: ⌘B, ⌘I, ⌘U, ⇧⌘X, ⌘E,
@@ -605,6 +626,8 @@ func (v *view) press(ev ui.InputEvent) bool {
 	if ev.Clicks == 1 && ev.Mods&ui.Shift == 0 {
 		v.pressLink = v.linkAt(x, y)
 	}
+	// The press is the text's: it drags a selection, as it does over the
+	// text.
 	v.dragging = true
 	v.hasDesired = false
 	v.dragUnit = min(max(ev.Clicks, 1), 3)

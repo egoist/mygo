@@ -301,6 +301,26 @@ app.doc.InsertAttachment(&richtext.Attachment{Image: photo, Name: "Beach", Width
 
 没有图像或 `Draw` 函数时，附件会在盒子里显示 `Name`，就像尚未加载的图像。HTML 和 Markdown 会写出附件的 `URL`。
 
+## 块级附件
+
+带有 `Element` 的附件可以显示应用的元素，例如卡片或图表。当附件独占一个段落时，元素会占据文本的宽度，段落高度随元素变化，后续文本也随之移动。
+
+```go
+card := &richtext.Attachment{
+    Name: "Poll",
+    Element: func(c *ui.Context, width float32) ui.Element {
+        return ui.Box(c).Fill().Children(func() {
+            ui.ButtonBase(c).Label("Vote")
+        })
+    },
+}
+app.doc.InsertAttachment(card)
+```
+
+编辑器在段落可见时构建元素。插入符位于附件上且没有选区时，按 Return 或 Tab 会将焦点交给元素；按 Escape 可将焦点交回文本，不论焦点在卡片内何处——卡片内的控件会先收到该键，可自行使用，之后按键重新回到文本。点击会交给卡片内的控件；滚轮在编辑器可以滚动时滚动文本，否则继续传给外层容器。应用可以先通过按键回调处理 Return。
+
+段落使用元素上一次布局后的高度；首次布局前使用附件的 `Height`。附件没有独占段落时，按图像或绘图显示，不构建元素。设置 `KeepBuilt` 后，即使段落滚出视野，元素也会继续构建，保留其状态和高度。
+
 ## 复制与粘贴
 
 复制把选区以三种格式放入剪贴板：
