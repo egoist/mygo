@@ -2746,7 +2746,8 @@ func Tabs(c *Context, selected *int, labels ...string) Element {
 //		}
 //	})
 //
-// Tabs is TabsBase with the theme's look.
+// Reorder lets the user drag the tabs to other places, and OnClose close
+// them. Tabs is TabsBase with the theme's look.
 func TabsBase(c *Context, selected *int, n int) TabsParts {
 	_ctx := c.build()
 	if _ctx == nil {
@@ -9226,10 +9227,80 @@ func (_handle SelectParts[T]) SetOpen(o bool) {
 	_parts.SetOpen(o)
 }
 
+// CloseButton creates a button without a look that closes tab i, as
+// OnClose says: build it in the tab's children, and give it children, as
+// an ×. A click on it neither chooses the tab nor takes the focus, which
+// goes to the tab chosen next when the one closed had it. It is no stop
+// of Tab, and assistive technology does not see it, as it would read it
+// in the tab's name: Delete on the tab closes it.
+func (_handle TabsParts) CloseButton(i int) Element {
+	_parts := _handle.resolve()
+	if _parts == nil {
+		return Element{}
+	}
+	_ctx := _parts.c
+	_ = _ctx
+	_ctx.rt.beginBuild()
+	_e := _parts.CloseButton(i)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
+}
+
+// OnClose makes the tabs closable, with fn removing tab i: Delete, or
+// Backspace, on the tab with the focus closes it, as WAI-ARIA's tabs do,
+// and so does a click on its CloseButton. *selected follows the tab
+// chosen; when it is the one closed, the tab after it is chosen, or the
+// one before it for the last, as the systems' tab bars do, and takes the
+// focus the closed one had. Call it before building the tabs, which fn
+// removes one of before they build:
+//
+//	tabs.OnClose(func(i int) { app.files = slices.Delete(app.files, i, i+1) })
+func (_handle TabsParts) OnClose(fn func(i int)) {
+	_parts := _handle.resolve()
+	if _parts == nil {
+		return
+	}
+	_ctx := _parts.c
+	_ = _ctx
+	_parts.OnClose(fn)
+}
+
+// Reorder lets the user drag the tabs to other places in the list: fn
+// gets the tab dragged and the tab it goes before, n for the end. Move it
+// there: the list shows where it would go as it is dragged. The tab
+// dragged is chosen as it drops, as the systems' tab bars choose a tab as
+// it is pressed, and *selected follows it. Call it before building the
+// tabs, which fn moves before they build:
+//
+//	tabs := ui.TabsBase(c, &app.tab, len(app.files))
+//	tabs.Reorder(func(from, to int) {
+//		f := app.files[from]
+//		app.files = slices.Delete(app.files, from, from+1)
+//		if to > from {
+//			to--
+//		}
+//		app.files = slices.Insert(app.files, to, f)
+//	})
+//
+// Only the list's own tabs drop on it: a value of the app's dropped on
+// List is the app's Drop's, and a tab let go elsewhere, as past the
+// window's edge to tear it out into a window of its own, reports it with
+// DragMissed on its Tab.
+func (_handle TabsParts) Reorder(fn func(from int, to int)) {
+	_parts := _handle.resolve()
+	if _parts == nil {
+		return
+	}
+	_ctx := _parts.c
+	_ = _ctx
+	_parts.Reorder(fn)
+}
+
 // Tab creates tab i of the list: a row that takes the focus and chooses
 // i when clicked. Style it from whether i is the one chosen. Disabled
 // leaves it out of the keys' way and of the pointer's, and assistive
-// technology sees it disabled.
+// technology sees it disabled. Tabs that move, with Reorder or OnClose,
+// want keys (Context.Key) for what each keeps to move with it.
 func (_handle TabsParts) Tab(i int) Element {
 	_parts := _handle.resolve()
 	if _parts == nil {
