@@ -33,6 +33,7 @@ type options struct {
 	wrapColumn    int
 	lineNumbers   LineNumbers
 	whitespace    Whitespace
+	noInvisibles  bool
 	wrapGuides    []int
 	indentGuides  bool
 	scrollPastEnd bool
@@ -336,6 +337,7 @@ func (ed *editor) init(buf *Buffer, o options, t *ui.Theme) {
 	ed.theme = o.theme.resolve(t)
 	ed.view.setTheme(ed.theme)
 	ed.view.readOnly = o.readOnly
+	ed.view.setInvisibles(!o.noInvisibles)
 	if ed.view.buf != nil && ed.view.buf != buf {
 		ed.resetForBuffer()
 	}

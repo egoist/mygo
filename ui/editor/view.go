@@ -26,6 +26,11 @@ type view struct {
 	hl       Highlighter // the buffer's, as of the last frame
 	hlGen    int         // counts the highlighters the view had
 	readOnly bool
+	// invisibles boxes invisible characters (setInvisibles), and
+	// markSteps counts the segments and spaces paintInvisibles went
+	// through, for tests.
+	invisibles bool
+	markSteps  int
 
 	font       ui.Font
 	style      text.Style
@@ -148,12 +153,15 @@ type lineLayout struct {
 	// line its style's (styledView), whose metrics its rows have.
 	owner                      *view
 	rowHeight, ascent, descent float32
+	// spaces are the bytes of the line where spaces other than U+0020
+	// start, in order, which are outlined with the view's invisibles.
+	spaces []int
 }
 
 // dispSeg maps a run of the displayed text to the line's: text, a tab
-// expanded to spaces, an inlay, or what a replacement shows in place of
+// expanded to spaces, an inlay, what a replacement shows in place of
 // bytes of the line, nothing for those of a replacement after the line
-// it starts on.
+// it starts on, or the space an invisible character shows as.
 type dispSeg struct {
 	disp     int // the displayed byte it starts at
 	from, to int // the bytes of the line it shows
@@ -168,6 +176,7 @@ const (
 	segTab
 	segInlay
 	segReplace
+	segInvisible
 )
 
 // rowLayout is a row of a line: a run of its displayed text, from its
@@ -906,14 +915,20 @@ func (v *view) spansIn(s string, faces []faceRun, a, b int) string {
 }
 
 // display makes the displayed text of l: tabs expanded to the next tab
-// stop, by columns counted in characters, inlays inserted, and the
-// ranges of replacements showing what they show in their place.
+// stop, by columns counted in characters, inlays inserted, the ranges of
+// replacements showing what they show in their place, and invisible
+// characters a space.
 func (v *view) display(l *lineLayout) {
 	s := l.text
 	inl := v.inlaysIn(l.start, l.start+len(s))
 	l.reps = v.replsIn(l.start, l.start+len(s))
 	l.segs = l.segs[:0]
-	if strings.IndexByte(s, '\t') < 0 && len(inl) == 0 && len(l.reps) == 0 {
+	l.spaces = l.spaces[:0]
+	if v.invisibles {
+		l.spaces = oddSpacesIn(s, l.spaces)
+	}
+	first := l.start == 0
+	if v.showsAsIs(s, first) && len(inl) == 0 && len(l.reps) == 0 {
 		l.disp, l.segs = s, nil
 		return
 	}
@@ -939,13 +954,16 @@ func (v *view) display(l *lineLayout) {
 			}
 			flush(at)
 			l.segs = append(l.segs, dispSeg{disp: b.Len(), from: at, to: at, kind: segInlay, inlay: ii, ghost: in.kind == 1 || in.kind == inlayTrailing})
-			b.WriteString(in.text)
-			col += utf8.RuneCountInString(in.text)
+			shown := v.shownApart(in.text)
+			b.WriteString(shown)
+			col += utf8.RuneCountInString(shown)
 			ii++
 		}
 	}
 	for i := 0; ; {
-		emitInlays(i)
+		if ii < len(inl) {
+			emitInlays(i)
+		}
 		// The replacements from here: what one shows, at its start, and
 		// nothing for the rest of one from a line before.
 		for ri < len(l.reps) && max(l.reps[ri].Start-l.start, 0) == i {
@@ -954,7 +972,7 @@ func (v *view) display(l *lineLayout) {
 			flush(i)
 			shown := ""
 			if rp.Start >= l.start {
-				shown = rp.shown()
+				shown = v.shownApart(rp.shown())
 			}
 			l.segs = append(l.segs, dispSeg{disp: b.Len(), from: i, to: to, kind: segReplace, rep: ri})
 			b.WriteString(shown)
@@ -980,6 +998,12 @@ func (v *view) display(l *lineLayout) {
 			b.WriteString(spaces(w))
 			col += w
 			textFrom = i + 1
+		} else if (r < 0x20 || r >= 0x7f) && v.invisibles && invisible(r) && invisibleAt(s, i, first) > 0 {
+			flush(i)
+			l.segs = append(l.segs, dispSeg{disp: b.Len(), from: i, to: i + size, kind: segInvisible})
+			b.WriteByte(' ')
+			col++
+			textFrom = i + size
 		} else {
 			col++
 		}
@@ -1025,8 +1049,8 @@ func (l *lineLayout) toDisp(col int, after bool) int {
 			if col >= s.from && col <= s.to {
 				return s.disp + col - s.from
 			}
-		case segTab:
-			if col == s.from {
+		case segTab, segInvisible:
+			if col >= s.from && col < s.to {
 				return s.disp
 			}
 			if col == s.to {
@@ -1478,7 +1502,7 @@ func (v *view) measureWraps(near int, budget time.Duration) bool {
 		}
 		disp := s
 		var faces []faceRun
-		if strings.IndexByte(s, '\t') >= 0 || len(v.inlaysIn(at, at+len(s))) > 0 || len(v.replsIn(at, at+len(s))) > 0 {
+		if !v.showsAsIs(s, at == 0) || len(v.inlaysIn(at, at+len(s))) > 0 || len(v.replsIn(at, at+len(s))) > 0 {
 			l := &lineLayout{n: i, start: at, text: s}
 			v.display(l)
 			disp = l.disp

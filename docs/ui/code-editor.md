@@ -249,6 +249,42 @@ app.code.OnInput = func(ev ui.InputEvent) bool {
   language's files usually have them when zero (Go's tabs).
 - `Whitespace` shows spaces and tabs as dots and arrows: within selections
   by default, everywhere, at the ends of lines, or nowhere.
+- Invisible characters show as a space in a box of the theme's `Warning`
+  color, as VS Code's `editor.unicodeHighlight.invisibleCharacters` does:
+  control characters but tab, format characters such as zero-width spaces
+  and the controls of bidirectional text, line and paragraph separators,
+  and the blank characters VS Code lists, as Hangul fillers and variation
+  selectors. A right-to-left override then reorders nothing, and code
+  reads in the order a compiler reads it, which Trojan Source
+  (CVE-2021-42574) hides code from reviewers with. Spaces other than
+  U+0020, as the no-break space U+00A0 and the typographic spaces U+2000
+  to U+200A, U+202F and U+205F, are outlined where they are; the
+  ideographic space U+3000 of CJK text is not, as in Zed. What shapes or
+  varies the text around it shows as it is, by the standards that allow
+  it:
+  - a joiner or a non-joiner after a virama, as in Devanagari's
+    conjuncts, and a non-joiner between letters that join, as in
+    Persian (RFC 5892's CONTEXTJ rules, with the joining scripts' letters
+    standing for its joining types), and a joiner between a letter and a
+    virama of the same block, as in Bengali's ya-phala;
+  - a joiner between two emoji (UTS #51's emoji ZWJ sequences);
+  - U+FE0E or U+FE0F after a symbol or punctuation past ASCII, as an
+    emoji (emoji-variation-sequences.txt), or after a keycap's digit, `#`
+    or `*` before U+20E3;
+  - U+FE00 to U+FE0D after a Han ideograph or a symbol past ASCII
+    (StandardizedVariants.txt), U+E0100 to U+E01EF after a Han ideograph
+    (the Ideographic Variation Database), and Mongolian's selectors after
+    its letters;
+  - the tags of a flag's well-formed sequence, and a byte order mark
+    opening the text.
+
+  So a joiner after a Latin, Greek or Cyrillic letter, as in `café` with
+  one, is boxed. The controls of bidirectional text are left out of
+  inlays and replacements, which reorder nothing of the line around them.
+  Diffs show the boxes on both sides, and unified diffs in deleted lines
+  too. Hovers, completions, signature help and other popups show text
+  apart from the lines and box nothing. `NoInvisibleCharacters` (of
+  `State` and of `DiffState`) leaves them all to the font.
 - `WrapGuides` draws guides at columns, as 80 and 100; `NoIndentGuides`
   hides those of indentation.
 - `ReadOnly` lets the text be selected and copied, not edited.
