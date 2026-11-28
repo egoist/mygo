@@ -280,7 +280,7 @@ func calendarGrid(c *context, grid *node, date, cursor *time.Time, moveChooses b
 					cell.checked = 1 + int8(b2f(chosen))
 					if atCursor {
 						// Assistive technology reads the day the keys are on.
-						grid.activeDescendant = cell
+						grid.activeDescendant = refTo(cell)
 					}
 					cell.Children(func() {
 						coreText(c, c.formatNumber(locale, day.Day(), 1)).TextColor(fg).FontFeatures("tnum")

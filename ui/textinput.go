@@ -70,8 +70,10 @@ func textInputBase(c *context, value *string, multiline bool) *node {
 // in place of the field's own: SearchField shows Search without one.
 func (e *node) Placeholder(s string) *node {
 	in := e
-	if in.st.editor == nil && in.focusTo != nil {
-		in = in.focusTo
+	if in.st.editor == nil {
+		if f := e.resolve(e.focusTo); f != nil {
+			in = f
+		}
 	}
 	if in.st.editor != nil {
 		in.st.editor.placeholder = s
@@ -531,8 +533,10 @@ func (e *node) Autofill(k AutofillKind) *node {
 //	ui.TextInput(c, &app.query).Placeholder("Search").Label("Search mail").Search()
 func (e *node) Search() *node {
 	in := e
-	if in.flags&flagEditable == 0 && in.focusTo != nil {
-		in = in.focusTo // the input of the field around it
+	if in.flags&flagEditable == 0 {
+		if f := e.resolve(e.focusTo); f != nil {
+			in = f // the input of the field around it
+		}
 	}
 	if in.flags&flagEditable != 0 {
 		in.search = true
