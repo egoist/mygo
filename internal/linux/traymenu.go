@@ -83,7 +83,8 @@ func lookupTrayDbusmenuItem(widget ptr) ptr {
 	}
 	// dbusmenu_gtk_parse_get_cached_item checks GTK_IS_MENU_ITEM and returns NULL
 	// for the root GtkMenu, and menuicon's lazy binding is unloaded when items
-	// have no icons; read libdbusmenu-gtk3's CACHED_MENUITEM data key directly.
+	// have no icons; read libdbusmenu-gtk3's long-stable CACHED_MENUITEM key
+	// directly and fall back cleanly to no hook if missing (0).
 	return gObjectGetData(widget, cs("dbusmenu-gtk-parser-cached-item"))
 }
 
@@ -144,43 +145,16 @@ func buildTrayNodes(shell ptr, items []*platform.MenuItem, owner int) []*trayNod
 	return nodes
 }
 
+func wireTrayActivate(item ptr, node *trayNode) {
+	ensureTrayMenuCallbacks()
+	traySlotNext++
+	node.slot = traySlotNext
+	traySlotUID[node.slot] = node.uid
+	trayConnect(item, "activate", cbTrayMenuActivate, ptr(node.slot))
+}
+
 func newTrayNode(it *platform.MenuItem, owner int) *trayNode {
-	var item ptr
-	check := false
-	switch it.Type {
-	case platform.MenuItemSeparator:
-		item = gtkSeparatorMenuItemNew()
-	case platform.MenuItemCheckbox, platform.MenuItemRadio:
-		item = gtkCheckMenuItemNewWithLabel(cs(it.LabelWithSubtitleAndBadge()))
-		gtkCheckMenuItemSetDrawAsRadio(item, it.Type == platform.MenuItemRadio)
-		check = true
-	default:
-		item = gtkMenuItemNewWithLabel(cs(it.LabelWithSubtitleAndBadge()))
-	}
-	node := &trayNode{
-		spec:  it,
-		item:  item,
-		uid:   it.ID,
-		check: check,
-		icon:  it.Icon,
-	}
-	if it.Submenu != nil {
-		sub := gtkMenuNew()
-		node.subShell = sub
-		node.children = buildTrayNodes(sub, it.Submenu.Items, owner)
-		gtkWidgetShowAll(sub)
-		gtkMenuItemSetSubmenu(item, sub)
-	} else if it.Type != platform.MenuItemSeparator {
-		ensureTrayMenuCallbacks()
-		traySlotNext++
-		node.slot = traySlotNext
-		traySlotUID[node.slot] = it.ID
-		trayConnect(item, "activate", cbTrayMenuActivate, ptr(node.slot))
-		itemRoles[it.ID] = it.Role
-	}
-	applyState(item, it, check)
-	n := nativeItem{owner: owner, item: item, check: check, disabled: !it.Enabled, icon: it.Icon, node: node}
-	itemsByID[it.ID] = append(itemsByID[it.ID], n)
+	_, node := buildMenuItem(it, 0, owner, 0, false, wireTrayActivate)
 	return node
 }
 

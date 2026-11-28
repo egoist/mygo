@@ -200,6 +200,15 @@ func buildMenu(shell ptr, m *platform.Menu, accel ptr, owner, windowID int, bar 
 }
 
 func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int, bar bool) ptr {
+	item, _ := buildMenuItem(it, accel, owner, windowID, bar, nil)
+	return item
+}
+
+// buildMenuItem constructs one GTK menu item (and recursively its submenu),
+// applies its initial state, and tracks it in itemsByID. When wireActivate is
+// non-nil (tray menus), it handles activation wiring and receives the mirroring
+// *trayNode carrying the submenu shell and children.
+func buildMenuItem(it *platform.MenuItem, accel ptr, owner, windowID int, bar bool, wireActivate func(item ptr, node *trayNode)) (ptr, *trayNode) {
 	var item ptr
 	check := false
 	switch it.Type {
@@ -212,30 +221,50 @@ func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int, bar bool) 
 	default:
 		item = gtkMenuItemNewWithLabel(cs(it.LabelWithSubtitleAndBadge()))
 	}
+	var node *trayNode
+	if wireActivate != nil {
+		node = &trayNode{
+			spec:  it,
+			item:  item,
+			uid:   it.ID,
+			check: check,
+			icon:  it.Icon,
+		}
+	}
 	if it.Submenu != nil {
 		sub := gtkMenuNew()
 		if windowID != 0 {
 			connect(sub, "map", cbMenuMap, ptr(windowID))
 		}
-		buildMenu(sub, it.Submenu, accel, owner, windowID, false)
+		if node != nil {
+			node.subShell = sub
+			node.children = buildTrayNodes(sub, it.Submenu.Items, owner)
+			gtkWidgetShowAll(sub)
+		} else {
+			buildMenu(sub, it.Submenu, accel, owner, windowID, false)
+		}
 		gtkMenuItemSetSubmenu(item, sub)
 	} else if it.Type != platform.MenuItemSeparator {
-		connect(item, "activate", cbMenuActivate, ptr(it.ID))
-		itemRoles[it.ID] = it.Role
-		if accel != 0 && it.Accelerator != "" {
-			if key, mods, ok := gtkAccelerator(it.Accelerator); ok {
-				gtkWidgetAddAccelerator(item, cs("activate"), accel, key, mods, 1) // GTK_ACCEL_VISIBLE
-				if it.Role != "" {
-					if roleKeys[accel] == nil {
-						roleKeys[accel] = map[[2]uint32]bool{}
+		if wireActivate != nil {
+			wireActivate(item, node)
+		} else {
+			connect(item, "activate", cbMenuActivate, ptr(it.ID))
+			if accel != 0 && it.Accelerator != "" {
+				if key, mods, ok := gtkAccelerator(it.Accelerator); ok {
+					gtkWidgetAddAccelerator(item, cs("activate"), accel, key, mods, 1) // GTK_ACCEL_VISIBLE
+					if it.Role != "" {
+						if roleKeys[accel] == nil {
+							roleKeys[accel] = map[[2]uint32]bool{}
+						}
+						roleKeys[accel][[2]uint32{gdkKeyvalToLower(key), mods}] = true
 					}
-					roleKeys[accel][[2]uint32{gdkKeyvalToLower(key), mods}] = true
 				}
 			}
 		}
+		itemRoles[it.ID] = it.Role
 	}
 	applyState(item, it, check)
-	n := nativeItem{owner: owner, item: item, check: check, windowID: windowID, disabled: !it.Enabled, bar: bar}
+	n := nativeItem{owner: owner, item: item, check: check, windowID: windowID, disabled: !it.Enabled, bar: bar, node: node}
 	if it.Icon != nil && it.Type != platform.MenuItemSeparator && !bar && setMenuItemIcon != nil {
 		n.icon = it.Icon
 		if windowID != 0 {
@@ -243,7 +272,7 @@ func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int, bar bool) 
 		}
 	}
 	itemsByID[it.ID] = append(itemsByID[it.ID], n)
-	return item
+	return item, node
 }
 
 // settingState is true while a check item is changed programmatically:
