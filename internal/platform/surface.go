@@ -64,6 +64,16 @@ type DamageSurface interface {
 	PresentDamage(pix []byte, stride, width, height int, damage []image.Rectangle)
 }
 
+// GPUDamageSurface is a Surface told what each frame its GPU renderer drew
+// changed: Linux's, whose toolkit then repaints, and the compositor takes,
+// only that of a frame drawn before the toolkit paints.
+type GPUDamageSurface interface {
+	// GPUDamage tells what the frame the GPU renderer just drew redrew, in
+	// device pixels from the top left: all of it when whole, else damage,
+	// none when the frame was the same as the last one.
+	GPUDamage(damage []image.Rectangle, whole bool)
+}
+
 // OccludableSurface is a Surface that tells when nothing of it shows, as
 // when other windows cover its window, while the system may still give it
 // frames: the content then draws nothing that moves until it shows again.
@@ -417,8 +427,8 @@ type SurfaceNative struct {
 	// View is the surface's NSView and Layer its layer (macOS).
 	View, Layer uintptr
 	// Widget is the surface's GtkGLArea or GtkDrawingArea, and GLArea the
-	// GtkGLArea while its render signal draws a frame with OpenGL, in the
-	// context it made current (Linux).
+	// GtkGLArea while its render signal or tick callback draws a frame
+	// with OpenGL, in the context it made current (Linux).
 	Widget, GLArea uintptr
 	// Canvas is the number of the canvas's WebGL 2 context (package gl's
 	// Context.ID), current while SurfaceFrame events are handled

@@ -3058,8 +3058,8 @@ either.
   macOS, a GtkGLArea on Linux (a GtkDrawingArea where OpenGL would not
   run on a GPU), a child window of class `MyGoSurface` on Windows.
   `platform.Surface` gives its native handles (for a swap chain, a layer,
-  or the GtkGLArea while its `render` signal draws a frame, with its
-  context current), size and scale, and the refresh rate of the display
+  or the GtkGLArea while its `render` signal or tick callback draws a
+  frame, with its context current), size and scale, and the refresh rate of the display
   showing it (`RefreshRate`: the screen's `maximumFramesPerSecond`, GDK's
   `gdk_monitor_get_refresh_rate`, the display mode's frequency from
   `EnumDisplaySettingsW`); asks for a frame (`RequestFrame`: a
@@ -6162,7 +6162,19 @@ either.
     draws the batches scissored to each. GTK keeps the GtkGLArea's framebuffer from render to
     render, but makes its buffers anew, holding nothing defined, whenever
     it allocates the area, at the same size too: a `SurfaceResize` has the
-    next frame draw whole (`Invalidate`). Once the area has a context, GTK
+    next frame draw whole (`Invalidate`). Asking the area to render
+    (`gtk_gl_area_queue_render`) repaints all of it, and GTK 3 clears a
+    CPU surface as large as what it repaints for each paint of a window
+    it composites with OpenGL (`gdk/gdkwindow.c`), milliseconds a frame
+    for a large window: the render signal draws only the area's first
+    frame and those after GTK made its buffers anew, and the others are
+    drawn in the frame clock's tick callback, before GTK paints, into the
+    buffers `gtk_gl_area_attach_buffers` binds; the surface then has GTK
+    repaint what the frame redrew (`Renderer.Redrawn`,
+    `platform.GPUDamageSurface`, `gtk_widget_queue_draw_area`). Auto
+    render stays off, so that those paints render nothing. GTK renders
+    after making the buffers anew within whatever its next paint repaints,
+    so each allocation of the area asks for a paint of all of it. Once the area has a context, GTK
     composites the whole window with OpenGL and tells EGL what each paint
     changed (`eglSwapBuffersWithDamageEXT`) in the window's coordinates
     unscaled, where EGL takes the buffer's pixels from the bottom left: at
@@ -7502,7 +7514,7 @@ which npm allows only for packages that exist: the first release uses an
 | native UI data drags | NSDraggingSession, NSPasteboardItemDataProvider, NSDraggingDestination | GTK drag contexts, MIME selections, text/uri-list | OLE IDataObject, IDropSource, IDropTarget, Shell drag images |
 | concealed clipboard writes (`ClipboardOptions.Concealed`) | `org.nspasteboard.ConcealedType` on every item, `prepareForNewContentsWithOptions:` with `NSPasteboardContentsCurrentHostOnly` | the `x-kde-passwordManagerHint` target, `secret` | the `ExcludeClipboardContentFromMonitorProcessing` format |
 | native UI accessibility | `NSAccessibilityElement` subclasses | ATK objects (GObject types registered through purego), bridged to AT-SPI by GTK | UI Automation fragments (COM objects; assembly thunks for the methods taking doubles) |
-| native UI rendering | Metal, into a CAMetalLayer presenting as soon as drawn, or with the Core Animation transaction for frames that resize it or show web views | OpenGL 3.3 or ES 3.0 in the GtkGLArea's render signal; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain presenting dirty rectangles |
+| native UI rendering | Metal, into a CAMetalLayer presenting as soon as drawn, or with the Core Animation transaction for frames that resize it or show web views | OpenGL 3.3 or ES 3.0 into the GtkGLArea's framebuffer, in its frame clock's tick, repainting what changed; on the CPU, painted with cairo, where OpenGL runs on the CPU | Direct3D 11 (WARP without a GPU), flip-model swap chain presenting dirty rectangles |
 | web views in native UI | WKWebView in a clip view under the surface; `hitTest:` lets the pointer through | WebKitWebView in a `GtkLayout` under the area in a `GtkOverlay`; an input shape lets the pointer through | WebView2 composition controller in a DirectComposition target under the frames'; the surface sends it the mouse |
 | audio output | Audio Queue on the default output | PulseAudio simple API (PipeWire too), else ALSA `default` | WASAPI shared mode, reopened when the default output changes |
 | gamepads | GameController.framework, extended gamepad profile | evdev, the kernel's gamepad layout, Xbox's X and Y swapped back | XInput, four slots, Guide by `XInputGetStateEx` |

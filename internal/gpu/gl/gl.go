@@ -1,8 +1,9 @@
 //go:build (linux && !android && (amd64 || arm64)) || js || android
 
 // Package gl draws scenes with OpenGL 3.3, OpenGL ES 3.0 or WebGL 2 into
-// the framebuffer bound when Render is called: the one GTK's GtkGLArea
-// binds while it emits its render signal, or a canvas's (package web). Every op of a scene is an instanced
+// the framebuffer bound when Render is called: a GtkGLArea's, which GTK
+// binds while it emits its render signal and gtk_gl_area_attach_buffers
+// in the frame clock's tick, or a canvas's (package web). Every op of a scene is an instanced
 // quad drawn by one shader (shader.glsl, compiled when the renderer
 // starts), from the instances package gpu builds; clips are scissor
 // rectangles, with the innermost rounded clip computed in the shader, as
@@ -178,7 +179,7 @@ type Renderer struct {
 	// reallocations, which Invalidate tells): diff finds what changed, and
 	// pipelines what the ops draw with; held tells that the framebuffer
 	// holds the last frame drawn. redrew is how much of it was drawn, for
-	// FrameInfo.
+	// FrameInfo and Redrawn.
 	Partial bool
 	// Unchanged has a frame the same as the last one drawn draw nothing,
 	// where frames otherwise draw whole: the framebuffer, an EGL window
@@ -772,6 +773,20 @@ func (r *Renderer) drawChanged(s *scene.Scene) error {
 // Drew reports whether the last Render drew into the framebuffer, which
 // it leaves as it was for a frame the same as the last one (Unchanged).
 func (r *Renderer) Drew() bool { return r.redrew != redrewNothing }
+
+// Redrawn returns what the last Render drew into the framebuffer, in
+// device pixels from the top left: all of it when whole, else the
+// rectangles it redrew (Partial), none when the framebuffer held the frame
+// already. The rectangles are valid until the next Render.
+func (r *Renderer) Redrawn() (rects []image.Rectangle, whole bool) {
+	switch r.redrew {
+	case redrewWhole:
+		return nil, true
+	case redrewNothing:
+		return nil, false
+	}
+	return r.part.Rectangles(), false
+}
 
 // batchKey returns what batch i of the frame built draws with: its
 // program and blending (gpu.Pipelines).
