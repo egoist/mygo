@@ -5,6 +5,7 @@ package windows
 import (
 	"errors"
 	"log"
+	"math"
 	"time"
 	"unsafe"
 
@@ -269,6 +270,12 @@ type compositor struct {
 	target, visual, surface uintptr
 	w, h                    int32
 	px                      []uint32 // the pixels to show, kept from one paint to the next
+	// radius rounds the window's corners, in its pixels, 0 while it is
+	// square. The corners are taken off the pixels themselves (roundPixels):
+	// a clip of the visual's geometry edges the arc at the pixel grid, and
+	// Windows 10's DWM gives a window square corners whatever
+	// WindowOptions.CornerRadius says.
+	radius int32
 	// retry is when to draw again after drawing failed fails times in a
 	// row, with a device that stayed valid.
 	retry time.Time
@@ -276,7 +283,11 @@ type compositor struct {
 }
 
 func newCompositor(b *Backend, hwnd uintptr) *compositor {
-	return &compositor{b: b, hwnd: hwnd}
+	c := &compositor{b: b, hwnd: hwnd}
+	if w := b.windows[hwnd]; w != nil {
+		c.radius = w.cornerRadius
+	}
+	return c
 }
 
 // pixels returns room for n pixels.
@@ -343,6 +354,7 @@ func (c *compositor) draw(dev *composition, px []uint32, w, h int32) error {
 			return hresultError("IDCompositionVisual::SetContent", hr)
 		}
 	}
+	c.roundPixels(px, w, h)
 	var tex uintptr
 	var offset point
 	if hr := comCall(c.surface, dcompSurfaceBeginDraw, 0, uintptr(unsafe.Pointer(&iidID3D11Texture2D)),
@@ -360,6 +372,51 @@ func (c *compositor) draw(dev *composition, px []uint32, w, h int32) error {
 		return hresultError("IDCompositionDevice::Commit", hr)
 	}
 	return nil
+}
+
+// roundPixels takes the corners off px, top-down rows of premultiplied BGRA
+// w wide and h high, at the window's radius: every pixel of the four corners
+// keeps the part of its alpha that the rounded rectangle covers, and with
+// premultiplied alpha the colour goes with it. That leaves the arc smooth —
+// a pixel at the edge is partly the window and partly the desktop behind it,
+// which the window shows through — and no pixel outside the arc at all.
+//
+// The arc is drawn here rather than clipped by the visual's geometry because
+// DirectComposition's clips are hard-edged: an IDCompositionRectangleClip
+// takes the corners of the visual but leaves the arc a stair of whole pixels,
+// which is the same jagged edge a window region gives.
+func (c *compositor) roundPixels(px []uint32, w, h int32) {
+	r := c.radius
+	if r <= 0 || w < 2*r || h < 2*r {
+		return
+	}
+	rf := float64(r)
+	for _, corner := range [4][2]int32{
+		{0, 0}, {w - r, 0}, {0, h - r}, {w - r, h - r},
+	} {
+		x0, y0 := corner[0], corner[1]
+		for y := int32(0); y < r; y++ {
+			for x := int32(0); x < r; x++ {
+				// How much of this pixel the quarter disc of radius r, its
+				// centre at (r, r) of this corner, covers: the distance from
+				// that centre, offset by half a pixel for the pixel's middle.
+				dx, dy := rf-float64(x)-0.5, rf-float64(y)-0.5
+				cover := rf - math.Sqrt(dx*dx+dy*dy)
+				if cover <= 0 {
+					px[(y0+y)*w+x0+x] = 0
+					continue
+				}
+				if cover >= 1 {
+					continue
+				}
+				p := px[(y0+y)*w+x0+x]
+				px[(y0+y)*w+x0+x] = uint32(float64(p>>24)*cover)<<24 |
+					uint32(float64((p>>16)&0xFF)*cover)<<16 |
+					uint32(float64((p>>8)&0xFF)*cover)<<8 |
+					uint32(float64(p&0xFF)*cover)
+			}
+		}
+	}
 }
 
 func (c *compositor) free() {

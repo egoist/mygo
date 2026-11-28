@@ -157,6 +157,61 @@ func TestMouseActivate(hwnd uintptr, x, y float64) (res uintptr, class string) {
 	return res, syscall.UTF16ToString(buf[:n])
 }
 
+// TestWindowsBuild returns the build number of Windows MyGo runs on, for
+// tests that cover what only Windows 10 or Windows 11 does.
+func TestWindowsBuild() uint32 { return windowsBuild() }
+
+// TestHitAt sends WM_NCHITTEST to the window at (x, y) DIPs in hwnd's client
+// area, as the pointer would, and returns its hit-test code by name and its
+// window class. It tells where a press at that point goes: the content, or
+// one of the resize edges over it.
+func TestHitAt(hwnd uintptr, x, y float64) (hit, class string) {
+	w := theBackend.windows[hwnd]
+	if w == nil {
+		return "none", ""
+	}
+	scale := float64(dpiOf(w.hwnd)) / 96
+	pt := point{int32(x * scale), int32(y * scale)}
+	const cwpSkipInvisible = 1
+	child, _, _ := user32.NewProc("ChildWindowFromPointEx").Call(hwnd, uintptr(uint32(pt.X))|uintptr(uint32(pt.Y))<<32, cwpSkipInvisible)
+	if child == 0 {
+		child = hwnd
+	}
+	var buf [64]uint16
+	n, _, _ := procGetClassNameW.Call(child, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	class = syscall.UTF16ToString(buf[:n])
+	procClientToScreen.Call(hwnd, uintptr(unsafe.Pointer(&pt)))
+	lp := uintptr(uint16(int16(pt.X))) | uintptr(uint16(int16(pt.Y)))<<16
+	res, _, _ := procSendMessageW.Call(child, wmNCHitTest, 0, lp)
+	return testHitName(res), class
+}
+
+// testHitName names the hit-test codes a test reads, so a failure says which
+// part of the frame the pointer reached.
+func testHitName(hit uintptr) string {
+	switch hit {
+	case htClient:
+		return "client"
+	case htLeft:
+		return "left"
+	case htRight:
+		return "right"
+	case htTop:
+		return "top"
+	case htTopLeft:
+		return "top-left"
+	case htTopRight:
+		return "top-right"
+	case htBottom:
+		return "bottom"
+	case htBottomLeft:
+		return "bottom-left"
+	case htBottomRight:
+		return "bottom-right"
+	}
+	return fmt.Sprintf("hit %d", hit)
+}
+
 // TestEndMenu leaves the menus, as Escape does.
 func TestEndMenu() { procEndMenu.Call() }
 
