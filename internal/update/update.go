@@ -28,10 +28,12 @@ type Manifest struct {
 	// Date is when the version was built, in RFC 3339 format.
 	Date string `json:"date,omitempty"`
 	// URL of the archive, its size in bytes and the Ed25519 signature of
-	// its SHA-256 digest, in base64.
-	URL       string `json:"url"`
-	Size      int64  `json:"size"`
-	Signature string `json:"signature"`
+	// its SHA-256 digest, in base64, which apps built before Signature2
+	// check; Signature2 signs the archive's Statement, which apps check now.
+	URL        string `json:"url"`
+	Size       int64  `json:"size"`
+	Signature  string `json:"signature"`
+	Signature2 string `json:"signature2,omitempty"`
 	// Deltas update earlier versions with smaller downloads (delta.go).
 	Deltas []Delta `json:"deltas,omitempty"`
 	// Previous are the archives of the versions before, newest first,
@@ -42,18 +44,20 @@ type Manifest struct {
 // Delta is a delta update of the app of version From, signed like the
 // archive.
 type Delta struct {
-	From      string `json:"from"`
-	URL       string `json:"url"`
-	Size      int64  `json:"size"`
-	Signature string `json:"signature"`
+	From       string `json:"from"`
+	URL        string `json:"url"`
+	Size       int64  `json:"size"`
+	Signature  string `json:"signature"`
+	Signature2 string `json:"signature2,omitempty"`
 }
 
 // Archive is the archive of an earlier version.
 type Archive struct {
-	Version   string `json:"version"`
-	URL       string `json:"url"`
-	Size      int64  `json:"size"`
-	Signature string `json:"signature"`
+	Version    string `json:"version"`
+	URL        string `json:"url"`
+	Size       int64  `json:"size"`
+	Signature  string `json:"signature"`
+	Signature2 string `json:"signature2,omitempty"`
 }
 
 // Delta returns the delta update of version from, or nil.
@@ -106,6 +110,41 @@ func Verify(key ed25519.PublicKey, digest []byte, signature string) error {
 	sig, err := base64.StdEncoding.DecodeString(signature)
 	if err != nil || !ed25519.Verify(key, digest, sig) {
 		return errors.New("the update is not signed with the app's key")
+	}
+	return nil
+}
+
+// File is what a file of an update is, which Signature2 signs with its
+// digest: the bare digest Signature signs says nothing of it, so a feed
+// could serve, signed with the app's key, the archive of an older version,
+// of another platform, or a delta as an archive.
+type File struct {
+	// Kind is "archive" or "delta".
+	Kind string
+	// Target is the platform of the app, as darwin-arm64 or
+	// darwin-universal, the name of its manifest has.
+	Target string
+	// Version is the version the file installs; From, a delta's, the
+	// version it updates.
+	Version, From string
+}
+
+// Statement is the message that signs the file f of SHA-256 digest digest:
+// a line of the format, then one of each of f's fields and of the digest.
+func (f File) Statement(digest []byte) []byte {
+	return fmt.Appendf(nil, "mygo-update-file-1\nkind %s\ntarget %s\nversion %s\nfrom %s\nsha256 %x\n", f.Kind, f.Target, f.Version, f.From, digest)
+}
+
+// SignFile signs the statement of the file f of SHA-256 digest digest.
+func SignFile(key ed25519.PrivateKey, f File, digest []byte) string {
+	return Sign(key, f.Statement(digest))
+}
+
+// VerifyFile checks the signature of the statement of the file f of
+// SHA-256 digest digest.
+func VerifyFile(key ed25519.PublicKey, f File, digest []byte, signature string) error {
+	if Verify(key, f.Statement(digest), signature) != nil {
+		return fmt.Errorf("the update is not signed with the app's key as the %s of %s for %s", f.Kind, f.Version, f.Target)
 	}
 	return nil
 }

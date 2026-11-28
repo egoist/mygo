@@ -31,12 +31,23 @@ import (
 
 // Set by `mygo build` with -ldflags -X when mygo.config.ts configures updates:
 // the manifest of this build's target, or with a tag prefix on GitHub its
-// feed in the newest tagged release (update.TaggedFeed), and the public key
-// updates must be signed with.
+// feed in the newest tagged release (update.TaggedFeed), the public key
+// updates must be signed with, and the target the build is of, as
+// darwin-universal, which its updates are signed for.
 var (
-	packageUpdateFeed string
-	packageUpdateKey  string
+	packageUpdateFeed   string
+	packageUpdateKey    string
+	packageUpdateTarget string
 )
+
+// updateTarget is the target the app's updates are signed for: the one of
+// its build, or the platform it runs on.
+func updateTarget() string {
+	if packageUpdateTarget != "" {
+		return packageUpdateTarget
+	}
+	return runtime.GOOS + "-" + runtime.GOARCH
+}
 
 // startExe is the executable the app started from. On Linux, os.Executable
 // reports the old file once an update replaced it.
@@ -196,7 +207,7 @@ func checkUpdate(ctx context.Context, src UpdateSource, key, current string, pre
 	if err := json.UnmarshalRead(io.LimitReader(body, update.MaxManifestSize), &m); err != nil {
 		return nil, fmt.Errorf("mygo: checking for updates: %w", err)
 	}
-	if m.Version == "" || m.URL == "" || m.Signature == "" {
+	if m.Version == "" || m.URL == "" || m.Signature2 == "" {
 		return nil, errors.New("mygo: checking for updates: incomplete manifest")
 	}
 	if update.Compare(m.Version, current) <= 0 {
@@ -313,7 +324,8 @@ func installUpdate(ctx context.Context, get update.Getter, m update.Manifest, ke
 		return fmt.Errorf("invalid size %d", m.Size)
 	}
 	archive := filepath.Join(work, "update.tar.gz")
-	if err := download(ctx, get, m.URL, m.Size, m.Signature, pub, archive, progress); err != nil {
+	file := update.File{Kind: "archive", Target: updateTarget(), Version: m.Version}
+	if err := download(ctx, get, m.URL, m.Size, file, m.Signature2, pub, archive, progress); err != nil {
 		return err
 	}
 	f, err := os.Open(archive)
@@ -348,7 +360,8 @@ func applyDelta(ctx context.Context, get update.Getter, d update.Delta, pub ed25
 		return fmt.Errorf("invalid size %d", d.Size)
 	}
 	path := filepath.Join(work, "update.delta")
-	if err := download(ctx, get, d.URL, d.Size, d.Signature, pub, path, progress); err != nil {
+	file := update.File{Kind: "delta", Target: updateTarget(), Version: version, From: d.From}
+	if err := download(ctx, get, d.URL, d.Size, file, d.Signature2, pub, path, progress); err != nil {
 		return err
 	}
 	f, err := os.Open(path)
@@ -365,9 +378,9 @@ func applyDelta(ctx context.Context, get update.Getter, d update.Delta, pub ed25
 	return update.ApplyDelta(f, d.Size, d.From, version, target, dir)
 }
 
-// download fetches url with get into the file path and checks its size and
-// signature.
-func download(ctx context.Context, get update.Getter, url string, size int64, signature string, pub ed25519.PublicKey, path string, progress func(downloaded, total int64)) error {
+// download fetches url, the update file file, with get into the file path
+// and checks its size and the signature of its statement.
+func download(ctx context.Context, get update.Getter, url string, size int64, file update.File, signature string, pub ed25519.PublicKey, path string, progress func(downloaded, total int64)) error {
 	body, err := get(ctx, url)
 	if err != nil {
 		return err
@@ -388,7 +401,7 @@ func download(ctx context.Context, get update.Getter, url string, size int64, si
 	if n != size {
 		return fmt.Errorf("downloaded %d bytes, want %d", n, size)
 	}
-	return update.Verify(pub, sum.Sum(nil), signature)
+	return update.VerifyFile(pub, file, sum.Sum(nil), signature)
 }
 
 // stagedUpdate is a new version of the app bundle target, at bundle in
