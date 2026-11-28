@@ -30,7 +30,7 @@ func TestPageLoadError(t *testing.T) {
 // message the page gave, as its own error.
 func TestPageEvalError(t *testing.T) {
 	w, fw := testWindow(t, WindowOptions{})
-	fw.AsyncFunction = func(string) (string, error) { return `{"ok":false,"e":"boom"}`, nil }
+	fw.AsyncFunction = func(string) (string, error) { return `R{"ok":false,"e":"boom"}`, nil }
 	t.Cleanup(func() { fw.AsyncFunction = nil })
 	_, err := w.Page().Eval("boom()")
 	var evalErr *EvalError
