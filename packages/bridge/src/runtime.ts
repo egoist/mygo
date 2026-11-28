@@ -7,6 +7,7 @@ import type {
   LocaleChange,
   Outgoing,
   Runtime,
+  Source,
   ThemePreferences,
 } from "./types";
 
@@ -15,6 +16,7 @@ type Pending = {
   resolve: (v: any) => void;
   reject: (e: unknown) => void;
   channels?: ChannelState[];
+  sources?: SourceState[];
   /** Told when the call is over, to let go of what it holds. */
   done?: () => void;
 };
@@ -29,6 +31,17 @@ interface ChannelState {
   push(value: unknown, ask: boolean): void;
   /** Go closed the channel. */
   end(): void;
+}
+
+/** The side of a source that Go messages reach. */
+interface SourceState {
+  /** Set when the source is passed to a call. */
+  id: number;
+  readonly closed: boolean;
+  /** The method took the values up to the n-th. */
+  ack(n: number): void;
+  /** The method closed the source. */
+  close(): void;
 }
 
 /** Reports an error thrown by page code without stopping the runtime. */
@@ -83,9 +96,12 @@ export function createRuntime(
     textScale: 1,
   };
   let seq = 0;
-  // Channels passed to calls, by id, and the state of every channel.
+  // Channels passed to calls, by id, and the state of every channel;
+  // sources likewise, which the page fills instead.
   const channels = new Map<number, ChannelState>();
   const states = new WeakMap<object, ChannelState>();
+  const sources = new Map<number, SourceState>();
+  const sourceStates = new WeakMap<object, SourceState>();
   let channelSeq = 0;
   // The language the app shows: the configuration tells it at document
   // start, and the mygo:locale event when it changes.
@@ -112,22 +128,45 @@ export function createRuntime(
   const sendCall = <T>(method: string, args: unknown[], signal?: AbortSignal): Promise<T> => {
     const id = ++seq;
     return new Promise<T>((resolve, reject) => {
-      // Channels among the arguments stream values back.
+      // Channels among the arguments stream values back; sources stream
+      // values to the method.
       let chans: ChannelState[] | undefined;
+      let srcs: SourceState[] | undefined;
+      const drop = () => {
+        chans?.forEach((c) => {
+          channels.delete(c.id);
+          c.id = 0;
+        });
+        srcs?.forEach((s) => {
+          s.close(); // rejects sends waiting for room
+          s.id = 0;
+        });
+      };
       for (const arg of args) {
-        const ch = typeof arg === "object" && arg !== null ? states.get(arg) : undefined;
-        if (!ch) continue;
-        if (ch.id || ch.closed) {
-          chans?.forEach((c) => {
-            channels.delete(c.id);
-            c.id = 0;
-          });
-          reject(new Error("mygo: a channel can be passed to one call, before it is closed"));
-          return;
+        const obj = typeof arg === "object" && arg !== null ? arg : undefined;
+        const ch = obj ? states.get(obj) : undefined;
+        if (ch) {
+          if (ch.id || ch.closed) {
+            drop();
+            reject(new Error("mygo: a channel can be passed to one call, before it is closed"));
+            return;
+          }
+          ch.id = ++channelSeq;
+          channels.set(ch.id, ch);
+          (chans ??= []).push(ch);
+          continue;
         }
-        ch.id = ++channelSeq;
-        channels.set(ch.id, ch);
-        (chans ??= []).push(ch);
+        const src = obj ? sourceStates.get(obj) : undefined;
+        if (src) {
+          if (src.id || src.closed) {
+            drop();
+            reject(new Error("mygo: a source can be passed to one call, before it is closed"));
+            return;
+          }
+          src.id = ++channelSeq;
+          sources.set(src.id, src);
+          (srcs ??= []).push(src);
+        }
       }
       // A signal that aborts tells Go to cancel the call, and rejects the
       // promise here: the reply of a canceled call is of no use.
@@ -136,6 +175,7 @@ export function createRuntime(
       if (signal) {
         onAbort = () => {
           pending.delete(id);
+          drop();
           try {
             send({ t: "cancel", id, k: token });
           } catch {
@@ -147,16 +187,13 @@ export function createRuntime(
         signal.addEventListener("abort", onAbort, { once: true });
         done = () => signal.removeEventListener("abort", onAbort!);
       }
-      pending.set(id, { method, resolve, reject, channels: chans, done });
+      pending.set(id, { method, resolve, reject, channels: chans, sources: srcs, done });
       try {
         send({ t: "call", id, k: token, m: method, a: args, cancel: signal ? true : undefined });
       } catch (err) {
         pending.delete(id);
         if (onAbort) signal?.removeEventListener("abort", onAbort);
-        chans?.forEach((c) => {
-          channels.delete(c.id);
-          c.id = 0;
-        });
+        drop();
         reject(err);
       }
     });
@@ -273,6 +310,114 @@ export function createRuntime(
     return ch;
   };
 
+  // How many bytes of values may wait for the method to take them, as
+  // Go's sourceWindow. A value counts as its own text, in the UTF-16 units
+  // this counts, which is what Go counts in its bytes: a message's envelope
+  // is the page's business, and a page sending short values has many of
+  // them, so counting it would fill the window before Go had taken a
+  // quarter and no acknowledgment would come.
+  const sourceWindow = 1 << 20;
+
+  const source = <T>(): Source<T> => {
+    let closed = false;
+    // Bytes sent and taken by the method, and the cumulative sent bytes
+    // of each value, by its sequence number, to read acknowledgments by.
+    let sent = 0;
+    let taken = 0;
+    let seq = 0;
+    const asks: { seq: number; sent: number }[] = [];
+    // Values waiting for room, in send order.
+    const waiters: { n: number; size: number; body: string; resolve: () => void; reject: (e: unknown) => void }[] = [];
+
+    const closedError = () => new Error("mygo: the source is closed");
+    // The token as the messages carry it, quoted once.
+    const quotedToken = JSON.stringify(token);
+    const flush = () => {
+      while (waiters.length > 0 && sent - taken < sourceWindow) {
+        const w = waiters.shift()!;
+        try {
+          post(w.body);
+          sent += w.size;
+          asks.push({ seq: w.n, sent });
+          w.resolve();
+        } catch (err) {
+          w.reject(err);
+        }
+      }
+    };
+
+    const state: SourceState = {
+      id: 0,
+      get closed() {
+        return closed;
+      },
+      ack(n) {
+        while (asks.length > 0 && asks[0]!.seq <= n) {
+          taken = asks[0]!.sent;
+          asks.shift();
+        }
+        flush();
+      },
+      close() {
+        if (closed) return;
+        closed = true;
+        sources.delete(state.id);
+        waiters.splice(0).forEach((w) => w.reject(closedError()));
+      },
+    };
+
+    const src = {
+      send(value: T): Promise<void> {
+        if (closed) return Promise.reject(closedError());
+        if (!state.id) {
+          return Promise.reject(new Error("mygo: pass the source to a call before sending"));
+        }
+        const n = ++seq;
+        // The value's own text, which is what Go counts when the method
+        // takes it: what the page sends around it is not a value.
+        const text = JSON.stringify(value);
+        const size = text === undefined ? 0 : text.length;
+        const body =
+          text === undefined
+            ? `{"t":"src-push","c":${state.id},"k":${quotedToken}}`
+            : `{"t":"src-push","c":${state.id},"k":${quotedToken},"p":${text}}`;
+        if (waiters.length === 0 && sent - taken < sourceWindow) {
+          try {
+            post(body);
+            sent += size;
+            asks.push({ seq: n, sent });
+            return Promise.resolve();
+          } catch (err) {
+            return Promise.reject(err);
+          }
+        }
+        return new Promise<void>((resolve, reject) => {
+          waiters.push({ n, size, body, resolve, reject });
+        });
+      },
+      close() {
+        if (closed) return;
+        closed = true;
+        if (state.id) {
+          try {
+            send({ t: "src-end", c: state.id, k: token });
+          } catch {
+            // The page is being torn down.
+          }
+        }
+        sources.delete(state.id);
+        waiters.splice(0).forEach((w) => w.reject(closedError()));
+      },
+      get closed() {
+        return closed;
+      },
+      // Goes to Go as its id.
+      toJSON: () => state.id,
+    };
+    sourceStates.set(src, state);
+    return src;
+  };
+
   const on = (event: string, listener: Listener) => {
     if (typeof listener !== "function") throw new TypeError("listener must be a function");
     let set = listeners.get(event);
@@ -332,6 +477,12 @@ export function createRuntime(
           if (!ch) continue;
           if (msg.end) ch.end();
           else ch.push(msg.p, msg.a === 1);
+        } else if (msg.t === "src-ack") {
+          if (msg.k !== token) continue;
+          sources.get(msg.c)?.ack(msg.n);
+        } else if (msg.t === "src-close") {
+          if (msg.k !== token) continue;
+          sources.get(msg.c)?.close();
         } else if (msg.t === "reply") {
           if (msg.k !== token) continue;
           const p = pending.get(msg.id);
@@ -339,8 +490,9 @@ export function createRuntime(
           pending.delete(msg.id);
           p.done?.();
           // Go closed the call's channels before replying, unless the call
-          // failed before they were made.
+          // failed before they were made; its sources too.
           p.channels?.forEach((c) => c.end());
+          p.sources?.forEach((s) => s.close());
           if (msg.ok) p.resolve(msg.v);
           else p.reject(new CallError(p.method, msg.e ?? "unknown error"));
         }
@@ -357,6 +509,7 @@ export function createRuntime(
     for (const p of left) {
       p.done?.();
       p.channels?.forEach((c) => c.end());
+      p.sources?.forEach((s) => s.close());
       p.reject(new CallError(p.method, "the page was left before the call returned"));
     }
   };
@@ -366,6 +519,7 @@ export function createRuntime(
     call,
     callWith,
     channel,
+    source,
     on,
     once,
     platform: config.platform,

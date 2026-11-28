@@ -343,6 +343,117 @@ test("preferences are the latest Go told, before listeners hear them", () => {
   expect(seen).toEqual(p);
 });
 
+describe("sources", () => {
+  type PushMsg = Extract<Outgoing, { t: "src-push" }>;
+  type EndMsg = Extract<Outgoing, { t: "src-end" }>;
+
+  test("send values in order, close ends the sending, the reply closes the source", async () => {
+    const { sent, runtime, internal } = setup();
+    const src = runtime.source<number>();
+    const p = runtime.call("Svc.Upload", "x", src);
+    const { id, k, a } = sent[0] as CallMsg;
+    expect(a).toEqual(["x", 1]); // the source goes as its id
+
+    await src.send(1);
+    await src.send(2);
+    expect(sent[1]).toEqual({ t: "src-push", c: 1, k, p: 1 } satisfies PushMsg);
+    expect(sent[2]).toEqual({ t: "src-push", c: 1, k, p: 2 } satisfies PushMsg);
+    src.close();
+    expect(sent[3]).toEqual({ t: "src-end", c: 1, k } satisfies EndMsg);
+    expect(src.closed).toBe(true);
+    await expect(src.send(3)).rejects.toThrow("closed");
+
+    internal.receive({ t: "reply", id, k, ok: true, v: "saved" });
+    expect(await p).toBe("saved");
+    // A closed source can not be passed again.
+    await expect(runtime.call("Svc.Upload", src)).rejects.toThrow("one call");
+  });
+
+  test("send before the call rejects", async () => {
+    const { runtime } = setup();
+    const src = runtime.source<number>();
+    await expect(src.send(1)).rejects.toThrow("pass the source to a call");
+  });
+
+  test("a source serves one call", async () => {
+    const { runtime } = setup();
+    const src = runtime.source<number>();
+    runtime.call("Svc.Upload", src);
+    await expect(runtime.call("Svc.Upload", src)).rejects.toThrow("one call");
+  });
+
+  test("send waits while the method is behind, acknowledgments give room", async () => {
+    const { sent, runtime, internal } = setup();
+    const src = runtime.source<string>();
+    const p = runtime.call("Svc.Upload", src);
+    const { id, k } = sent[0] as CallMsg;
+    const big = "x".repeat(700 << 10);
+    await src.send(big);
+    await src.send(big);
+    let third = false;
+    const t = src.send(big).then(() => {
+      third = true;
+    });
+    await Promise.resolve();
+    expect(third).toBe(false); // over a MiB unacknowledged
+    expect(sent.filter((m) => m.t === "src-push").length).toBe(2);
+    internal.receive({ t: "src-ack", c: 1, k: "stale", n: 2 });
+    await Promise.resolve();
+    expect(third).toBe(false);
+    internal.receive({ t: "src-ack", c: 1, k, n: 2 });
+    await t;
+    expect(third).toBe(true);
+    expect(sent.filter((m) => m.t === "src-push").length).toBe(3);
+    src.close();
+    internal.receive({ t: "reply", id, k, ok: true });
+    await p;
+  });
+
+  test("short values fill no window with the messages around them", async () => {
+    // Go counts the values it takes and acknowledges them; a page that
+    // counted its messages would fill the window at 20,000 of one
+    // character, before Go had taken a quarter of it, and wait forever.
+    const { sent, runtime } = setup();
+    const src = runtime.source<string>();
+    runtime.call("Svc.Upload", src);
+    const sends: Promise<void>[] = [];
+    for (let i = 0; i < 30_000; i++) sends.push(src.send("x"));
+    expect(sent.filter((m) => m.t === "src-push").length).toBe(30_000);
+    for (const s of sends) await s;
+  });
+
+  test("Go closing the source rejects waiting sends", async () => {
+    const { sent, runtime, internal } = setup();
+    const src = runtime.source<string>();
+    const p = runtime.call("Svc.Upload", src);
+    const { id, k } = sent[0] as CallMsg;
+    const big = "x".repeat(700 << 10);
+    await src.send(big);
+    await src.send(big);
+    const t = src.send(big);
+    internal.receive({ t: "src-close", c: 1, k });
+    await expect(t).rejects.toThrow("closed");
+    expect(src.closed).toBe(true);
+    internal.receive({ t: "reply", id, k, ok: true });
+    await p;
+  });
+
+  test("aborting the call rejects sends waiting for room", async () => {
+    const { runtime } = setup();
+    const src = runtime.source<string>();
+    const controller = new AbortController();
+    const p = runtime.callWith("Svc.Upload", [src], { signal: controller.signal });
+    const big = "x".repeat(700 << 10);
+    await src.send(big);
+    await src.send(big);
+    const t = src.send(big);
+    controller.abort();
+    await expect(t).rejects.toThrow("closed");
+    await expect(p).rejects.toThrow();
+    expect(src.closed).toBe(true);
+  });
+});
+
 describe("locale", () => {
   test("comes from the configuration, then from the event", () => {
     const { runtime, internal } = setup();
