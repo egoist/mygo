@@ -1721,6 +1721,39 @@ func Local[T any](e Element, key any, init func() T) *T {
 	return coreLocal[T](e.nodeFor(_ctx.rt), key, init)
 }
 
+// MasonryView creates a scroll container of n items in columns, as a wall
+// of stickers or of photos of any shape, built with item(i): as many
+// columns as fit items at least minWidth wide, which share the width left,
+// each item at the top of the column whose items end highest, as high as
+// height(i, width) says for the columns' width, as a picture's aspect
+// ratio does. Only the items in view are built, so walls of thousands are
+// as fast as small ones, and an item's place, which follows from the
+// heights of those before it, stays as the view scrolls. Gap spaces the
+// items in a column further.
+//
+// s keeps the place and says how items are chosen, as for a GridView, or
+// nil: Up and Down move the choice within a column, and Left and Right to
+// the nearest item in the next column. Heights are asked again of the
+// items in view as they show: one changed places it and those after it
+// anew.
+//
+//	app.stickers.Selected = &app.sticker
+//	ui.MasonryView(c, &app.stickers, len(stickers), 140, func(i int, width float32) float32 {
+//		return width / stickers[i].Aspect
+//	}, func(i int) {
+//		ui.Image(c, thumbs[i]).Fit(ui.Cover).Grow(1)
+//	}).Grow(1)
+func MasonryView(c *Context, s *GridState, n int, minWidth float32, height func(i int, width float32) float32, item func(i int)) Element {
+	_ctx := c.build()
+	if _ctx == nil {
+		return Element{}
+	}
+	_ctx.rt.beginBuild()
+	_e := coreMasonryView(_ctx, s, n, minWidth, height, item)
+	_ctx.rt.endBuild()
+	return wrapElement(_e)
+}
+
 // MenuBase creates a menu button without a look, whose menu shows while
 // *open is true: a button that takes the focus and opens the menu as the
 // pointer goes down on it, or for Enter, Space, Up or Down while it has the

@@ -46,6 +46,7 @@ var uiResults = map[string]string{
 	"Image":                "Element",
 	"Link":                 "Element",
 	"List":                 "Element",
+	"MasonryView":          "Element",
 	"MenuBase":             "MenuParts",
 	"MenuButton":           "Element",
 	"Meter":                "Element",

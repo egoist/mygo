@@ -201,7 +201,8 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
   belong to.
 - [Outline](outline.md): a tree of any size, as a list or a table.
 - [Grid view](grid-view.md): items in a grid of any size, as a photo
-  library.
+  library, or in columns of items of their own heights, as a wall of
+  stickers (masonry).
 
 ## Containers
 
