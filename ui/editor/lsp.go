@@ -6,10 +6,9 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/fuzzy"
 )
 
 // What a language server gives an editor, as Zed shows it: completions,
@@ -214,19 +213,18 @@ func (ed *editor) showCompletions(at int, items []Completion) {
 	ed.needsBuild = true
 }
 
-// filter keeps the items matching prefix, best first, as Zed's fuzzy
-// matching: the prefix's characters in order, each match worth more at
-// the start of the label, of a word in it or right after the one
-// before, and less the later it comes.
+// filter keeps the items matching prefix, best first, as package fuzzy
+// scores them.
 func (cc *completions) filter(prefix string) {
 	cc.prefix = prefix
 	cc.filtered, cc.scores = cc.filtered[:0], cc.scores[:0]
+	p := fuzzy.NewPattern(prefix)
 	for i, it := range cc.items {
 		text := it.FilterText
 		if text == "" {
 			text = it.Label
 		}
-		if s, ok := fuzzyScore(text, prefix); ok {
+		if s, ok := p.Score(text); ok {
 			cc.filtered = append(cc.filtered, i)
 			cc.scores = append(cc.scores, s)
 		}
@@ -244,50 +242,6 @@ func (cc *completions) filter(prefix string) {
 	cc.filtered, cc.scores = filtered, scores
 	cc.selected = 0
 	cc.scrollTo = true
-}
-
-// fuzzyScore scores how well query matches text, by subsequence.
-func fuzzyScore(text, query string) (int, bool) {
-	if query == "" {
-		return 0, true
-	}
-	score := 0
-	ti := 0
-	prevMatch := -2
-	tr := []rune(text)
-	for _, q := range query {
-		ql := unicode.ToLower(q)
-		found := false
-		for ti < len(tr) {
-			c := tr[ti]
-			if unicode.ToLower(c) == ql {
-				pts := 1
-				switch {
-				case ti == 0:
-					pts += 8
-				case ti == prevMatch+1:
-					pts += 5
-				case !isWordRune(tr[ti-1]) || unicode.IsUpper(c) && unicode.IsLower(tr[ti-1]):
-					pts += 4
-				}
-				if c == q {
-					pts++
-				}
-				score += pts*16 - ti
-				prevMatch = ti
-				ti++
-				found = true
-				break
-			}
-			ti++
-		}
-		if !found {
-			return 0, false
-		}
-	}
-	// Shorter labels win ties.
-	score -= len(tr) - utf8.RuneCountInString(query)
-	return score, true
 }
 
 // acceptCompletion inserts the completion chosen in place of the word

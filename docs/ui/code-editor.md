@@ -415,8 +415,9 @@ app.code.SetDiagnostics(buf.Version(), app.lsp.Diagnostics())
 
 - `OnCompletion` asks for completions as a word is typed, or Ctrl+Space
   pressed. `ShowCompletions` lists them below the caret, filtered and
-  ranked as typing goes on by the word typed, with their kinds, details
-  and documentation; Enter or Tab inserts the one chosen.
+  ranked as typing goes on by the word typed, as
+  [fuzzy matching](fuzzy-matching.md) ranks them, with their kinds,
+  details and documentation; Enter or Tab inserts the one chosen.
 - `OnHover` asks what to show as the pointer rests on the text
   (`HoverDelay`, 600 ms by default), or for Cmd+K Cmd+I at the caret.
   `NoPointerHover` turns hovers from the resting pointer off, diagnostics'
@@ -724,8 +725,10 @@ app.code.RenderHover = func(c *ui.Context, panel ui.Element, h *editor.HoverCard
 - `GoToLineBar` has `Text` for its field, which `Input` gives the bar's
   keys, `Cursor`, `LineCount` and `Target` to tell where it goes, and
   `Go` and `Close`.
-- `CompletionMenu` has the `Items` shown, best first, and the one
-  `Selected`. `Item(i)` makes the row of an item, selected as the arrows
+- `CompletionMenu` has the `Items` shown, best first, the one
+  `Selected`, and the `Prefix` they match, whose letters in a `Label`
+  (or the `FilterText` matched instead) `fuzzy.NewPattern(m.Prefix()).Positions`
+  finds, to bold. `Item(i)` makes the row of an item, selected as the arrows
   move, scrolled into view and inserting the item when clicked; style it
   and give it content. `Font`, `LineHeight` and `Theme` show code as the
   editor does, and a `CompletionKind` has an `Icon` and the `Token` whose

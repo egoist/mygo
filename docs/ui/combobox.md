@@ -26,6 +26,7 @@ For a text that may be anything, with suggestions, use
 `ui.ComboboxBase` is a combobox without a look: an `Input` whose text
 filters the `Item`s of a `Popup` below it, which the arrows highlight and
 Enter or a click chooses (`Chosen`): see [custom widgets](custom-widgets.md).
+[Fuzzy matching](fuzzy-matching.md) ranks them as a command palette does.
 When the options are those matching what was typed, as here, tell
 assistive technology with
 [`cb.Input.AutoComplete(ui.AutoCompleteList)`](accessibility.md#suggestions).

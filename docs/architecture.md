@@ -146,6 +146,7 @@ framework safely. Read it before changing anything under `internal/`.
 ├── ui/                 native UI: views, layout, widgets, text editing, Tester;
 │                       ui/chart: charts without a look, on ui's public API;
 │                       ui/editor: the code editor and the diff viewer;
+│                       ui/fuzzy: lists ranked by what is typed;
 │                       ui/shader: shaders in Go's syntax, on every renderer;
 │                       ui/video: video with the system's media framework
 ├── i18n/               languages: matching, CLDR plural rules and parent locales,

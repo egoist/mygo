@@ -162,6 +162,8 @@ UI as they read other apps (see [Accessibility](accessibility.md)).
 - [Autocomplete](autocomplete.md): a text input suggesting what was typed.
 - [Token field](token-field.md): a list of strings as chips, as tags or
   recipients.
+- [Fuzzy matching](fuzzy-matching.md): a list ranked by what is typed, as
+  a command palette or a file finder, with the letters matched to bold.
 - [Editable text](editable-text.md): a text renamed in place, as a file's
   name in Finder.
 - [Find bar](find-bar.md): a bar for finding text, with the count of

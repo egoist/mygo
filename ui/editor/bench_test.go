@@ -402,3 +402,20 @@ func BenchmarkCodeEditorTypeReplacements(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkCompletionFilter filters 5,000 completions by the word typed,
+// as each key typed while they show does, a letter more each time.
+func BenchmarkCompletionFilter(b *testing.B) {
+	words := []string{"get", "set", "new", "read", "write", "file", "name", "path", "value", "index",
+		"buffer", "request", "handler", "context", "error", "string", "list", "item", "node", "line"}
+	var cc completions
+	for i := 0; len(cc.items) < 5_000; i++ {
+		a, c, d := words[i%len(words)], words[i/len(words)%len(words)], words[i/400%len(words)]
+		cc.items = append(cc.items, Completion{Label: a + strings.ToUpper(c[:1]) + c[1:] + strings.ToUpper(d[:1]) + d[1:]})
+	}
+	typed := []string{"r", "re", "req", "reqh", "reqha", "gfn", "setv"}
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		cc.filter(typed[i%len(typed)])
+	}
+}
