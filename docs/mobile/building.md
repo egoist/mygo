@@ -135,6 +135,12 @@ Associated Domains, and the host an `apple-app-site-association` file.
 takes its subdomains), and each host serves
 `/.well-known/assetlinks.json` naming the app and its signing key.
 
+**Plain http**: Android refuses http in web views and requests, as iOS does
+without an exception in `infoPlist`. `android.cleartextHosts` allows it for
+the hosts named (`*.example.com` takes its subdomains), as `localhost` for a
+dev server the emulator reaches through `adb reverse`; every other host stays
+https only.
+
 **Android's icon**: `android.adaptiveIcon` is the launcher icon of Android 8.0
 and later, a PNG of 432×432 or more over a color. Launchers crop to the middle
 72/108 of it and may move it, so keep what matters there. `icon` stays what
