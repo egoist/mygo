@@ -279,6 +279,16 @@ app.code.OnInput = func(ev ui.InputEvent) bool {
   13 DIPs, 1.5 times as high, by default.
 - `NoAutoClose`, `NoFolding`, `NoActiveLine` and `NoScrollPastEnd` turn
   those behaviors off. `Placeholder` shows while the buffer is empty.
+- `IndentOnPaste` re-indents several lines pasted at one caret or
+  selection. On a line blank before the caret, the first line takes the
+  indentation Return would give there (a level more below a line that
+  opens a block), and the rest keep theirs relative to it. After text on
+  the line, the first line follows that text, so it was likely copied from
+  mid-line without its indentation: the least indented of the other lines
+  takes the line's indentation instead. Indentation is rebuilt with the
+  editor's tabs or spaces, and blank lines are left empty. It is off by
+  default; pastes at several carets and whole lines copied with no
+  selection, pasted above the caret's line, are never re-indented.
 - `ScrollMargin` sets how many lines to keep above and below the
   caret when scrolling it into view. Zero uses three lines, a positive
   value sets that many lines, and a negative value removes the margin.

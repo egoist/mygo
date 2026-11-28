@@ -38,6 +38,7 @@ type options struct {
 	scrollPastEnd bool
 	scrollMargin  int
 	autoClose     bool
+	indentOnPaste bool
 	folding       bool
 	activeLine    bool
 	cursorShape   CursorShape

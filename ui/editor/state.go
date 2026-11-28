@@ -57,6 +57,11 @@ type State struct {
 	ScrollMargin int
 	// NoAutoClose stops closing brackets and quotes as they are typed.
 	NoAutoClose bool
+	// IndentOnPaste re-indents several lines pasted at a single caret or
+	// selection, as Return would indent them: one level more below a line
+	// that opens a block. The lines keep their indentation relative to
+	// each other. It is off by default.
+	IndentOnPaste bool
 	// NoFolding hides the fold markers of the gutter and turns folding
 	// off.
 	NoFolding bool
@@ -262,7 +267,7 @@ func (st *State) options() options {
 		wrapGuides: st.WrapGuides, indentGuides: !st.NoIndentGuides,
 		scrollPastEnd: !st.NoScrollPastEnd && !st.FitContent, scrollMargin: scrollMargin,
 		keepScrollbars: st.KeepScrollbars, hideScrollbars: st.NoScrollbars, scrollbar: st.Scrollbar,
-		autoClose: !st.NoAutoClose, folding: !st.NoFolding, activeLine: !st.NoActiveLine, cursorShape: st.CursorShape, fitContent: st.FitContent,
+		autoClose: !st.NoAutoClose, indentOnPaste: st.IndentOnPaste, folding: !st.NoFolding, activeLine: !st.NoActiveLine, cursorShape: st.CursorShape, fitContent: st.FitContent,
 		placeholder: st.Placeholder, label: st.Label, theme: st.Theme, bindings: st.Bindings, gutterMarks: st.GutterMarks,
 		backgrounds: st.LineBackgrounds, textBgs: st.TextBackgrounds, diffBase: st.DiffBase, onCompletion: st.OnCompletion, onHover: st.OnHover, onDefinition: st.OnDefinition,
 		hoverDelay: st.HoverDelay, noPointerHover: st.NoPointerHover,

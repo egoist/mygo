@@ -457,7 +457,9 @@ func (ed *editor) copy(cut bool) {
 // paste inserts text at the selections: a piece each when the clipboard
 // holds what this editor copied from as many selections, whole lines
 // above the lines of carets, or, when splitLines is true, a line each
-// when multi-line text has as many lines as selections.
+// when multi-line text has as many lines as selections. With
+// IndentOnPaste, text pasted at one selection, but for whole lines above
+// a caret's, is re-indented (indentPasted).
 func (ed *editor) paste(text string, splitLines bool) {
 	if ed.o.readOnly || text == "" {
 		return
@@ -482,6 +484,12 @@ func (ed *editor) paste(text string, splitLines bool) {
 			return
 		}
 	}
+	from := -1 // where the one edit starts, re-indented
+	if s := ed.sels[0]; ed.o.indentOnPaste && len(ed.sels) == 1 && len(pieces) == 1 && !(whole[0] && s.empty()) {
+		var p string
+		from, p = ed.indentPasted(s.start(), pieces[0])
+		pieces, whole = []string{p}, []bool{false}
+	}
 	var edits []Edit
 	for i, s := range ed.sels {
 		p, w := pieces[0], whole[0]
@@ -493,7 +501,11 @@ func (ed *editor) paste(text string, splitLines bool) {
 			edits = append(edits, Edit{Start: a, End: a, Text: p})
 			continue
 		}
-		edits = append(edits, Edit{Start: s.start(), End: s.end(), Text: p})
+		a := s.start()
+		if from >= 0 {
+			a = from
+		}
+		edits = append(edits, Edit{Start: a, End: s.end(), Text: p})
 	}
 	sels := slices.Clone(ed.sels)
 	ed.apply(edits, editOther, func(move func(int, bias) int) []sel {
