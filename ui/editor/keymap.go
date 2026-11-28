@@ -83,6 +83,7 @@ const (
 	DuplicateLinesDown
 	DuplicateSelection
 	JoinLines
+	Rewrap
 	Transpose
 	Indent
 	Outdent
@@ -154,7 +155,7 @@ var commandNames = [...]string{
 	"undoSelection", "redoSelection", "splitSelectionIntoLines", "cancel",
 	"undo", "redo", "cut", "copy", "paste", "backspace", "delete", "deleteWordLeft", "deleteWordRight", "deleteSubwordLeft", "deleteSubwordRight",
 	"deleteToLineStart", "deleteToLineEnd", "cutToLineEnd", "deleteLine", "newline", "newlineAbove", "newlineBelow", "moveLinesUp", "moveLinesDown",
-	"duplicateLinesUp", "duplicateLinesDown", "duplicateSelection", "joinLines", "transpose", "indent", "outdent", "tab", "backtab",
+	"duplicateLinesUp", "duplicateLinesDown", "duplicateSelection", "joinLines", "rewrap", "transpose", "indent", "outdent", "tab", "backtab",
 	"toggleComment", "toggleBlockComment", "sortLines", "sortLinesCaseInsensitive", "reverseLines", "uniqueLines",
 	"uppercase", "lowercase", "titleCase", "snakeCase", "kebabCase", "camelCase", "pascalCase", "trimTrailingWhitespace",
 	"fold", "unfold", "toggleFold", "foldAll", "unfoldAll", "foldRecursive", "unfoldRecursive", "foldSelection",
@@ -325,7 +326,7 @@ func pcCodeBindings() []Binding {
 		{0, ui.KeyF12, 0, 0, GoToDefinition}, {ctrl, ui.KeySpace, 0, 0, ShowCompletions},
 		{ctrl, ui.KeyK, ctrl, ui.KeyI, ShowHover},
 		{alt, ui.KeyF5, 0, 0, NextHunk}, {alt | sh, ui.KeyF5, 0, 0, PreviousHunk}, {ctrl | alt, ui.KeyZ, 0, 0, RevertHunk},
-		{alt, ui.KeyZ, 0, 0, ToggleSoftWrap},
+		{alt, ui.KeyZ, 0, 0, ToggleSoftWrap}, {alt, ui.KeyQ, 0, 0, Rewrap},
 	}
 	for i, k := range []ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5, ui.Key6, ui.Key7, ui.Key8, ui.Key9} {
 		b = append(b, Binding{ctrl, ui.KeyK, ctrl, k, FoldLevel1 + Command(i)})

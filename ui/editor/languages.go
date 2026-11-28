@@ -542,6 +542,14 @@ func makeLanguages() {
 		Name: "Markdown", Extensions: []string{".md", ".markdown", ".mdx", ".mkd"}, Filenames: []string{"README", "CHANGELOG"},
 		BlockComment: [2]string{"<!--", "-->"}, Brackets: cBrackets,
 		AutoClose: []BracketPair{{Open: "(", Close: ")"}, {Open: "[", Close: "]"}, {Open: "{", Close: "}"}, {Open: "`", Close: "`", NotIn: notInText}},
+		Rewrap: RewrapRules{
+			Quote:    regexp.MustCompile(`^>`),
+			ListItem: regexp.MustCompile(`^(?:[-*+]|\d{1,9}[.)])[ \t]+`),
+			// Headings, table rows, HTML, thematic breaks and setext
+			// underlines.
+			Keep:  regexp.MustCompile(`^(?:#{1,6}(?:[ \t]|$)|\||<|(?:[-*_][ \t]*){3,}$|=+[ \t]*$)`),
+			Fence: regexp.MustCompile("^(?:```|~~~)"),
+		},
 		TabSize:   2,
 		Tokenizer: &markdownLexer{},
 	}

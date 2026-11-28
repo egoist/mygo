@@ -265,6 +265,8 @@ func (ed *editor) run(cmd Command) bool {
 		})
 	case JoinLines:
 		return ed.joinLines()
+	case Rewrap:
+		return ed.rewrap()
 	case Transpose:
 		return ed.transpose()
 	case Indent:

@@ -129,6 +129,15 @@ The editor edits as Zed does, with the commands bound to the same keys
 - **Lines.** Alt+Up and Down move lines, Alt+Shift+Up and Down duplicate
   them, Cmd+Shift+K deletes them, Ctrl+J joins them, Cmd+/ comments them
   out, Cmd+] and Cmd+[ indent them; Cmd+Enter opens a line below.
+- **Rewrapping.** `Rewrap` (Alt+Q on Linux and Windows, as in Zed; no
+  key on macOS, where Option+Q types a character) refills the caret's
+  paragraph, or the selected lines alone, to the first of `WrapGuides`,
+  else `WrapColumn`, else 80 columns. Every line keeps the paragraph's
+  indentation, line comment and quote markers; a list item's later lines
+  hang under its text. A blank line, a change of prefix or a new item
+  ends a paragraph. Block comments, line-comment banners such as `////`,
+  and the lines the language's `Rewrap` rules keep are left as they are
+  and join no other. Undo takes it back in one step.
 - **Typing.** Brackets and quotes close as they are typed, and wrap the
   selection; Enter keeps the indentation, indents after an opening bracket
   and between a pair, and continues line comments; a closing bracket, or
@@ -339,6 +348,14 @@ lang := &editor.Language{
 	}),
 }
 ```
+
+`Rewrap` holds the `RewrapRules` of the language's structure, regular
+expressions matched at the start of a line's text, after its indentation,
+line comment and quote markers: `Quote` markers repeat on every line,
+`ListItem` markers hang the item's later lines, `Keep` lines are left as
+they are, and a `Fence` line leaves everything up to the next one as it
+is. Markdown's keep headings, table rows, HTML lines, thematic breaks and
+fenced code.
 
 A token is a run of a line of one `TokenKind`, which the theme colors:
 keywords, types, functions, strings, comments and the others.

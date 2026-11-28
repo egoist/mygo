@@ -91,6 +91,9 @@ type Language struct {
 	// the first, else the second.
 	LineComment  string
 	BlockComment [2]string
+	// Rewrap is what the Rewrap command keeps of the text's structure
+	// beyond its line comments, as Markdown's quotes, lists and headings.
+	Rewrap RewrapRules
 	// Brackets are matched, highlighted at the caret, and indent the
 	// lines between them; AutoClose are closed as they are typed, and
 	// wrap the selection.
@@ -129,6 +132,23 @@ type Language struct {
 	// the start of a text, and a Highlighter finds the lines where they
 	// start in its snapshots' Restarts.
 	Highlighter func(text Snapshot, invalidate func()) Highlighter
+}
+
+// RewrapRules are regular expressions the Rewrap command matches at the
+// start of a line's text, after its indentation, line comment and quote
+// markers. Each may be nil.
+type RewrapRules struct {
+	// Quote is a marker kept on every line of a paragraph, as "> ".
+	Quote *regexp.Regexp
+	// ListItem starts an item, whose lines after its first are indented
+	// by its marker's width, as "- " or "1. ".
+	ListItem *regexp.Regexp
+	// Keep matches a line left as it is, which joins no other, as a
+	// heading or a table row.
+	Keep *regexp.Regexp
+	// Fence matches a line that opens a block left as it is, up to and
+	// including the next line it matches, as a code fence.
+	Fence *regexp.Regexp
 }
 
 // Highlighter highlights a buffer's text and follows its edits, as Zed's

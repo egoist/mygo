@@ -128,7 +128,7 @@ func commandEdits(c Command) bool {
 	case Undo, Redo, Cut, Paste, Backspace, Delete, DeleteWordLeft, DeleteWordRight,
 		DeleteSubwordLeft, DeleteSubwordRight, DeleteToLineStart, DeleteToLineEnd, CutToLineEnd, DeleteLine,
 		Newline, NewlineAbove, NewlineBelow, MoveLinesUp, MoveLinesDown, DuplicateLinesUp,
-		DuplicateLinesDown, DuplicateSelection, JoinLines, Transpose, Indent, Outdent, Tab,
+		DuplicateLinesDown, DuplicateSelection, JoinLines, Rewrap, Transpose, Indent, Outdent, Tab,
 		Backtab, ToggleComment, ToggleBlockComment, SortLines, SortLinesCaseInsensitive, ReverseLines,
 		UniqueLines, Uppercase, Lowercase, TitleCase, SnakeCase, KebabCase, CamelCase,
 		PascalCase, TrimTrailingWhitespace, RevertHunk:
