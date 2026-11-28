@@ -233,6 +233,26 @@ type tabsParts struct {
 	// focus. ids are the tabs' elements, by index, as last built.
 	follow *bool
 	ids    *[]uint64
+	// reorder and close are the app's, set with Reorder and OnClose;
+	// closing is the tab asked to close, which the next build pass closes
+	// before the tabs build, as OnClose is called.
+	reorder func(from, to int)
+	close   func(i int)
+	closing *tabClose
+}
+
+// tabDrag is a tab of a tab list being dragged to another place in it
+// (Reorder): the list is told by its choice, the app's.
+type tabDrag struct {
+	selected *int
+	from     int
+}
+
+// tabClose is a tab asked to close (OnClose), which had the focus when
+// focus is set; at is -1 for none.
+type tabClose struct {
+	at    int
+	focus bool
 }
 
 // TabsBase creates a list of n tabs without a look, of which *selected is
@@ -252,7 +272,8 @@ type tabsParts struct {
 //		}
 //	})
 //
-// Tabs is TabsBase with the theme's look.
+// Reorder lets the user drag the tabs to other places, and OnClose close
+// them. Tabs is TabsBase with the theme's look.
 func coreTabsBase(c *context, selected *int, n int) tabsParts {
 	list := coreRow(c).Shrink(0).Role(RoleTabList).FocusGroup(Horizontal)
 	list.widget = "Tabs"
@@ -269,7 +290,8 @@ func coreTabsBase(c *context, selected *int, n int) tabsParts {
 // Tab creates tab i of the list: a row that takes the focus and chooses
 // i when clicked. Style it from whether i is the one chosen. Disabled
 // leaves it out of the keys' way and of the pointer's, and assistive
-// technology sees it disabled.
+// technology sees it disabled. Tabs that move, with Reorder or OnClose,
+// want keys (Context.Key) for what each keeps to move with it.
 func (p tabsParts) Tab(i int) *node {
 	c := p.c
 	tab := coreRow(c).Focusable().Shrink(0).Role(RoleTab)
@@ -303,6 +325,10 @@ func (p tabsParts) Tab(i int) *node {
 		if tab.Clicked() {
 			choose(i, 1, false)
 		}
+		if p.closing != nil && (tab.Shortcut(0, KeyDelete) || tab.Shortcut(0, KeyBackspace)) {
+			p.askClose(i)
+			return
+		}
 		back, forth := tab.arrows()
 		switch {
 		case tab.Shortcut(0, forth), tab.Shortcut(0, KeyDown):
@@ -315,6 +341,14 @@ func (p tabsParts) Tab(i int) *node {
 			choose(p.n-1, -1, true)
 		}
 	})
+	if p.reorder != nil {
+		sel := p.selected
+		tab.dragFrom(func() any { return &tabDrag{selected: sel, from: i} })
+		if tab.Dragging() {
+			// Where the tab was, as it moves with the pointer.
+			tab.Opacity(0.4)
+		}
+	}
 	on := i == *p.selected
 	if on && *p.follow {
 		tab.Focus()
@@ -323,6 +357,234 @@ func (p tabsParts) Tab(i int) *node {
 	}
 	tab.checked = 1 + int8(b2f(on))
 	return tab
+}
+
+// Reorder lets the user drag the tabs to other places in the list: fn
+// gets the tab dragged and the tab it goes before, n for the end. Move it
+// there: the list shows where it would go as it is dragged. The tab
+// dragged is chosen as it drops, as the systems' tab bars choose a tab as
+// it is pressed, and *selected follows it. Call it before building the
+// tabs, which fn moves before they build:
+//
+//	tabs := ui.TabsBase(c, &app.tab, len(app.files))
+//	tabs.Reorder(func(from, to int) {
+//		f := app.files[from]
+//		app.files = slices.Delete(app.files, from, from+1)
+//		if to > from {
+//			to--
+//		}
+//		app.files = slices.Insert(app.files, to, f)
+//	})
+//
+// Only the list's own tabs drop on it: a value of the app's dropped on
+// List is the app's Drop's, and a tab let go elsewhere, as past the
+// window's edge to tear it out into a window of its own, reports it with
+// DragMissed on its Tab.
+func (p *tabsParts) Reorder(fn func(from, to int)) {
+	p.reorder = fn
+	if fn == nil {
+		return
+	}
+	list, rt := p.List, p.c.rt
+	sel := p.selected
+	list.takes(func(v any) bool { d, ok := v.(*tabDrag); return ok && d.selected == sel })
+	var d *tabDrag
+	dropped, x, y := false, rt.pointerX, rt.pointerY
+	switch {
+	case list.st.hasDropped:
+		// Where the tab dropped, which the pointer may have left since.
+		d, _ = list.st.droppedValue.(*tabDrag)
+		dropped, x, y = true, list.st.dropX, list.st.dropY
+	case rt.drag != nil && !rt.drag.canceled && rt.drag.over == list.id:
+		d, _ = rt.drag.value.(*tabDrag)
+	}
+	if d == nil || d.selected != sel || d.from >= p.n {
+		// Another value, for the app's Drop.
+		return
+	}
+	if dropped {
+		list.st.hasDropped = false
+	}
+	x, y = list.st.local(x, y)
+	x, y = x+list.st.x, y+list.st.y
+	row, back := p.axis()
+	to, at, after := p.dropAt(x, y, row, back)
+	if dropped {
+		p.move(d.from, to)
+		return
+	}
+	if at == nil {
+		return
+	}
+	// The line beside the tab, past half the gap, drawn over what the app
+	// draws on the list, once it is built.
+	far, accent := after != back, p.c.theme.Accent
+	p.c.onBuilt(func() {
+		prev, gap := list.paintAfterFn, list.gapY
+		if row {
+			gap = list.gapX
+		}
+		list.DrawOver(func(pt *Painter, r Rect) {
+			if prev != nil {
+				prev(pt, r)
+			}
+			if row {
+				x := at.x - gap/2
+				if far {
+					x = at.x + at.w + gap/2
+				}
+				pt.Fill(Rect{x - 1, at.y + 4, 2, at.h - 8}, accent, 1)
+				return
+			}
+			y := at.y - gap/2
+			if far {
+				y = at.y + at.h + gap/2
+			}
+			pt.Fill(Rect{at.x + 4, y - 1, at.w - 8, 2}, accent, 1)
+		})
+	})
+}
+
+// shownTabs calls fn with the tabs the last frame laid out, by index.
+func (p *tabsParts) shownTabs(fn func(i int, st *state) bool) {
+	for i, id := range *p.ids {
+		if st := p.c.rt.states[id]; st != nil && (st.w > 0 || st.h > 0) && !fn(i, st) {
+			return
+		}
+	}
+}
+
+// axis tells whether the tabs go across, as the last frame showed them,
+// rather than down, and whether backwards, as right to left: from their
+// first two, or for one from the list's direction.
+func (p *tabsParts) axis() (row, back bool) {
+	var a *state
+	found := false
+	p.shownTabs(func(_ int, st *state) bool {
+		if a == nil {
+			a = st
+			return true
+		}
+		dx := st.x + st.w/2 - (a.x + a.w/2)
+		dy := st.y + st.h/2 - (a.y + a.h/2)
+		if abs32(dx) >= abs32(dy) {
+			row, back = true, dx < 0
+		} else {
+			row, back = false, dy < 0
+		}
+		found = true
+		return false
+	})
+	if !found {
+		row, back = p.List.row, p.List.reverse
+		if row && a != nil && a.rtl {
+			back = !back
+		}
+	}
+	return row, back
+}
+
+// dropAt returns the tab before which a tab dropped at (x, y) goes, n for
+// the end: the first whose middle is past the pointer, along the list,
+// which is at, or the last for the end, which the line showing it goes
+// after.
+func (p *tabsParts) dropAt(x, y float32, row, back bool) (to int, at *state, after bool) {
+	to, after = p.n, true
+	p.shownTabs(func(i int, st *state) bool {
+		pos, mid := y, st.y+st.h/2
+		if row {
+			pos, mid = x, st.x+st.w/2
+		}
+		at = st
+		if (pos < mid) != back {
+			to, after = i, false
+			return false
+		}
+		return true
+	})
+	return to, at, after
+}
+
+// move moves tab from before tab to, as Reorder's fn does, and chooses it.
+func (p *tabsParts) move(from, to int) {
+	chosen, at := *p.selected, from
+	if to != from && to != from+1 {
+		p.reorder(from, to)
+		at = to
+		if to > from {
+			at--
+		}
+		p.c.rt.consumed = true
+	}
+	*p.selected = at
+	if chosen != from {
+		// Another tab is chosen: the one dragged.
+		p.List.st.markChanged()
+	}
+}
+
+// OnClose makes the tabs closable, with fn removing tab i: Delete, or
+// Backspace, on the tab with the focus closes it, as WAI-ARIA's tabs do,
+// and so does a click on its CloseButton. *selected follows the tab
+// chosen; when it is the one closed, the tab after it is chosen, or the
+// one before it for the last, as the systems' tab bars do, and takes the
+// focus the closed one had. Call it before building the tabs, which fn
+// removes one of before they build:
+//
+//	tabs.OnClose(func(i int) { app.files = slices.Delete(app.files, i, i+1) })
+func (p *tabsParts) OnClose(fn func(i int)) {
+	p.close = fn
+	if fn == nil {
+		p.closing = nil
+		return
+	}
+	p.closing = coreLocal(p.List, "closing", func() tabClose { return tabClose{at: -1} })
+	r := *p.closing
+	*p.closing = tabClose{at: -1}
+	if r.at < 0 || r.at >= p.n {
+		return
+	}
+	i := r.at
+	switch s := *p.selected; {
+	case i < s:
+		*p.selected = s - 1
+	case i == s:
+		if i == p.n-1 {
+			*p.selected = max(i-1, 0)
+		}
+		p.List.st.markChanged()
+	}
+	// The tab chosen takes the focus the closed one had.
+	*p.follow = r.focus
+	fn(i)
+	p.n--
+}
+
+// askClose asks for tab i to close in the next build pass, before the
+// tabs build (OnClose): not while the app builds them from what fn
+// changes.
+func (p tabsParts) askClose(i int) {
+	if i >= 0 && i < p.n {
+		focus := i < len(*p.ids) && p.c.rt.focused == (*p.ids)[i]
+		*p.closing = tabClose{at: i, focus: focus}
+		p.c.rt.consumed = true
+	}
+}
+
+// CloseButton creates a button without a look that closes tab i, as
+// OnClose says: build it in the tab's children, and give it children, as
+// an ×. A click on it neither chooses the tab nor takes the focus, which
+// goes to the tab chosen next when the one closed had it. It is no stop
+// of Tab, and assistive technology does not see it, as it would read it
+// in the tab's name: Delete on the tab closes it.
+func (p tabsParts) CloseButton(i int) *node {
+	b := coreButtonBase(p.c).AccessHidden(true)
+	b.flags &^= flagFocusable
+	b.flags |= flagKeepFocus
+	if b.Clicked() && p.closing != nil {
+		p.askClose(i)
+	}
+	return b
 }
 
 // SelectParts are the parts of a select without a look: SelectBase makes
